@@ -2599,6 +2599,9 @@ body.filter-noproj #orgview .onode:not([data-noproj]) { opacity: .26; }
      (#askcard, between the header and the panel) keeps a gap below it instead of being covered. */
   body:has(> #panel-detail:not([hidden]) #d-sec-talk:not([hidden])) > .apphead { margin-bottom: 0; }
   body:has(> #panel-detail:not([hidden]) #d-sec-talk:not([hidden])) > #askcard:not([hidden]) { margin-bottom: var(--space-6); }
+  /* #3708: the Claude-unreachable line (#conn) sits here too now, above every panel. It takes back the
+     header's own gap (--space-6, the one removed just above) so it reads the same as on every other view. */
+  body:has(> #panel-detail:not([hidden]) #d-sec-talk:not([hidden])) > #conn:not([hidden]) { margin-top: var(--space-6); }
   #panel-detail:has(#d-sec-talk:not([hidden])) {
     position: relative; flex: 1 1 auto; min-height: 0; height: auto;
     margin-right: calc(-1 * var(--space-8)); }
@@ -3114,6 +3117,120 @@ button.boardname[aria-expanded="true"] { opacity: 1; color: var(--k-ink); border
    📌 These are containers: the measure belongs to the prose inside them, not to
    the panel, which also holds the collections. */
 #panel-settings, #panel-projects { max-width: none; background: none; border: 0; box-shadow: none; padding: 0; }
+/* #3559: the Tasks page on the same paper ground, for the same reason (its cards are the surfaces). */
+#panel-tasks { max-width: none; background: none; border: 0; box-shadow: none; padding: 0; }
+/* ---- #3559: the Tasks view (Mona's mock, tasks-view-3559 248c953) -----------------------
+   Built only on the app's own tokens, so light, dark and high contrast follow with no block of
+   their own. 🛑 NO COLOURED BAR DOWN A LEFT EDGE, ANYWHERE (Josh, 2026-09-24 12:52: "the em-dash
+   version of, this was made with Ai"): a status is a round DOT beside its label, and the
+   browser check asserts no element here carries a coloured left border.
+   The status colours: grey for nobody on it, gold for assigned, the working green for in
+   progress, a quiet grey for closed -- the app's existing meanings, no new palette. */
+#panel-tasks { --tsk-c: var(--k-ink-2); --tsk-nobody: var(--k-ink-2); --tsk-assigned: var(--gold-deep); --tsk-working: var(--ok);
+  --tsk-closed: color-mix(in srgb, var(--k-ink-2) 55%, var(--k-rule));
+  --tsk-wash: color-mix(in srgb, var(--gold) 14%, var(--k-surface)); color: var(--k-ink); }
+.tsk-view { display: grid; grid-template-columns: 232px minmax(0, 1fr); min-height: 70vh;
+  background: var(--k-bg); border: 1px solid var(--k-rule); border-radius: 14px; overflow: hidden; }
+.tsk-rail { background: var(--k-side); border-right: 1px solid var(--k-rule); padding: 18px 12px 24px; }
+.tsk-rcap { font: 650 .6875rem var(--font-ui); letter-spacing: .12em; text-transform: uppercase; color: var(--k-ink-2); margin: 4px 8px 6px; }
+.tsk-ritem { display: flex; align-items: center; gap: 8px; width: 100%; border: 1px solid transparent; background: none;
+  font: 500 .875rem var(--font-ui); color: var(--k-ink); padding: 6px 8px; border-radius: 8px; cursor: pointer; text-align: left; }
+.tsk-ritem:hover:not(.on) { background: var(--tsk-wash); }
+.tsk-ritem.on { background: var(--k-surface); border-color: var(--gold-edge); font-weight: 650; }
+.tsk-ritem .nm { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.tsk-ritem .ct { font: 500 .75rem var(--font-mono); color: var(--k-ink-2); font-variant-numeric: tabular-nums; }
+.tsk-main { padding: 22px 26px 110px; min-width: 0; position: relative; }
+.tsk-crumb { font-size: .8125rem; color: var(--k-ink-2); margin: 0 0 2px; min-height: 1.3em; }
+.tsk-crumb button { border: 0; background: none; padding: 0; font: inherit; font-weight: 600; color: var(--k-ink); cursor: pointer;
+  text-decoration: underline; text-decoration-color: var(--gold); text-underline-offset: 3px; }
+#panel-tasks .tsk-head h2 { font-size: 1.5rem; letter-spacing: -.015em; margin: 0; font-weight: 700; }
+/* #3703: the head carries "+ New task" beside the title, as Mona's mock draws it (.mh / .newbtn). */
+#panel-tasks .tsk-head { display: flex; align-items: baseline; justify-content: space-between; gap: 16px; flex-wrap: wrap; }
+.tsk-sub { color: var(--k-ink-2); font-size: .9375rem; margin: 2px 0 0; }
+.tsk-ctrls { display: flex; flex-wrap: wrap; gap: 10px 22px; align-items: center; margin: 18px 0 4px; }
+.tsk-ctl { display: flex; align-items: center; }
+.tsk-cl { font: 650 .6875rem var(--font-ui); letter-spacing: .1em; text-transform: uppercase; color: var(--k-ink-2); margin-right: 6px; white-space: nowrap; }
+.tsk-search { position: relative; margin: 16px 0 0; max-width: 520px; }
+.tsk-search svg { position: absolute; left: 11px; top: 50%; width: 16px; height: 16px; margin-top: -8px; color: var(--k-ink-2); pointer-events: none; }
+.tsk-search input { width: 100%; box-sizing: border-box; font: .9375rem var(--font-ui); height: 38px; padding: 0 34px 0 36px; border-radius: 10px;
+  border: 1px solid var(--k-rule); background: var(--k-surface); color: var(--k-ink); }
+.tsk-search input::-webkit-search-cancel-button { -webkit-appearance: none; appearance: none; }
+.tsk-search button { position: absolute; right: 6px; top: 50%; transform: translateY(-50%); border: 0; background: none; cursor: pointer;
+  color: var(--k-ink-2); font: 600 1rem var(--font-ui); width: 26px; height: 26px; border-radius: 7px; }
+.tsk-search button:hover { background: var(--k-rule); }
+.tsk-seg { display: inline-flex; border: 1px solid var(--k-rule); border-radius: 9px; overflow: hidden; background: var(--k-surface); }
+.tsk-seg button { border: 0; background: none; cursor: pointer; padding: 0 11px; height: 30px; color: var(--k-ink-2); font: 600 .8125rem var(--font-ui); white-space: nowrap; }
+.tsk-seg button + button { border-left: 1px solid var(--k-rule); }
+.tsk-seg button[aria-pressed="true"] { color: #231b06; background: linear-gradient(150deg, var(--gold-bright), var(--gold-deep)); }
+select.tsk-sel { font: 600 .8125rem var(--font-ui); height: 32px; padding: 0 8px; border-radius: 9px; border: 1px solid var(--k-rule);
+  background: var(--k-surface); color: var(--k-ink); }
+.tsk-mobsel { display: none; }
+.tsk-tiles { display: grid; grid-template-columns: repeat(auto-fit, minmax(138px, 1fr)); gap: 10px; margin: 16px 0 4px; }
+.tsk-tile { background: var(--k-surface); border: 1px solid var(--k-rule); border-radius: 12px; padding: 11px 13px 10px; cursor: pointer;
+  text-align: left; font: inherit; color: inherit; display: flex; flex-direction: column; gap: 1px; }
+.tsk-tile:hover { background: var(--agent-msg); }
+.tsk-tile[aria-pressed="true"] { background: var(--agent-msg); border-color: var(--gold-edge); }
+.tsk-tile .num { font: 650 1.5rem var(--font-ui); font-variant-numeric: tabular-nums; letter-spacing: -.01em; }
+.tsk-tile .lab { font-size: .8125rem; font-weight: 650; }
+.tsk-tile .ts { font-size: .75rem; color: var(--k-ink-2); }
+.tsk-dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; background: var(--tsk-c); margin-right: 6px; vertical-align: 1px; flex: none; }
+.tsk-hint { font-size: .8125rem; color: var(--k-ink-2); margin: 6px 0 4px; max-width: 80ch; }
+.tsk-grp { margin-top: 24px; }
+.tsk-grp h3 { font-size: 1.0625rem; margin: 0; display: flex; align-items: center; gap: 3px; }
+.tsk-grp h3 .count { font: 500 .8125rem var(--font-mono); color: var(--k-ink-2); margin-left: 6px; }
+.tsk-grp .why { margin: 1px 0 9px; color: var(--k-ink-2); font-size: .875rem; max-width: 76ch; }
+.tsk-list { background: var(--k-surface); border: 1px solid var(--k-rule); border-radius: 12px; overflow: hidden; }
+.tsk-row { display: grid; grid-template-columns: 22px minmax(0, 1fr) auto; gap: 12px; padding: 11px 14px; border-top: 1px solid var(--k-rule); align-items: start; }
+.tsk-row:first-child { border-top: 0; }
+.tsk-row.sel { background: var(--tsk-wash); }
+.tsk-row input { margin: 3px 0 0; width: 16px; height: 16px; accent-color: var(--gold-deep); }
+.tsk-row .t { min-width: 0; }
+.tsk-row .tl { border: 0; background: none; padding: 0; font: 600 .9375rem var(--font-ui); color: var(--k-ink); cursor: pointer; text-align: left; }
+.tsk-row .tl:hover { text-decoration: underline; text-decoration-color: var(--gold); }
+.tsk-row .n { font: 500 .8125rem var(--font-mono); color: var(--k-ink-2); margin-right: 6px; }
+.tsk-row .meta { font-size: .8125rem; color: var(--k-ink-2); margin-top: 2px; display: flex; flex-wrap: wrap; gap: 4px 10px; align-items: center; }
+.tsk-row .meta button { border: 0; background: none; padding: 0; font: inherit; font-weight: 600; color: var(--k-ink); cursor: pointer; }
+.tsk-row .meta button:hover { text-decoration: underline; text-decoration-color: var(--gold); }
+.tsk-row .why { font-size: .8125rem; color: var(--k-ink-2); margin-top: 4px; }
+.tsk-side { display: flex; flex-direction: column; align-items: flex-end; gap: 6px; min-width: 120px; }
+.tsk-who { display: inline-flex; align-items: center; gap: 6px; font: 600 .8125rem var(--font-ui); color: var(--k-ink); padding: 2px 9px;
+  border-radius: 999px; border: 1px solid var(--k-rule); background: var(--k-surface); cursor: pointer; }
+.tsk-who:hover { border-color: var(--gold-edge); }
+.tsk-who.nobody { color: var(--k-ink-2); font-weight: 500; border-style: dashed; cursor: default; }
+.tsk-state { font-size: .75rem; color: var(--k-ink-2); display: flex; align-items: center; }
+details.tsk-fold summary { cursor: pointer; color: var(--k-ink-2); font-size: .875rem; padding: 4px 0; }
+.tsk-empty { padding: 14px; color: var(--k-ink-2); font-size: .875rem; }
+.tsk-bulk { position: sticky; bottom: 14px; margin-top: 18px; display: flex; gap: 10px; align-items: center; flex-wrap: wrap; padding: 10px 14px;
+  border-radius: 12px; background: var(--k-surface); border: 1px solid var(--gold-edge); box-shadow: 0 6px 24px rgba(20, 22, 26, .14); }
+.tsk-bulk[hidden] { display: none; }
+.tsk-bc { font-weight: 650; font-size: .875rem; }
+.tsk-bulk input { flex: 1; min-width: 180px; font: .875rem var(--font-ui); padding: 7px 10px; border-radius: 8px; border: 1px solid var(--k-rule);
+  background: var(--k-bg); color: var(--k-ink); }
+.tsk-bulk button { font: 600 .875rem var(--font-ui); padding: 7px 13px; border-radius: 9px; border: 1px solid var(--k-rule);
+  background: var(--k-surface); color: var(--k-ink); cursor: pointer; }
+.tsk-bulk button.tsk-pri { background: var(--gold-bright); border-color: var(--gold-bright); color: #14161a; }
+#panel-tasks :is(button, select, input):focus-visible { outline: 2px solid var(--k-ink); outline-offset: 2px; }
+/* #3559: relocated into the consolidated display column: its own rail folds to the dropdown. */
+html[data-layout="consolidated"] body.consolidated #panel-projects > #panel-tasks { grid-column: 2; grid-row: 1; margin: 0; width: 100%;
+  padding: var(--space-8) var(--space-8) 0 var(--space-8); min-height: 0; overflow-y: auto; }
+html[data-layout="consolidated"] body.consolidated #panel-projects > #panel-tasks .tsk-view { grid-template-columns: 1fr; }
+html[data-layout="consolidated"] body.consolidated #panel-projects > #panel-tasks .tsk-rail { display: none; }
+html[data-layout="consolidated"] body.consolidated #panel-projects > #panel-tasks .tsk-mobsel { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 12px; }
+/* The consolidated projects rail's way into Tasks (the tab bar is hidden there). */
+.rail-tasks { border: 1px solid var(--k-rule); background: var(--k-surface); color: var(--k-ink-2); font: 600 .75rem var(--font-ui);
+  padding: 2px 8px; border-radius: 999px; cursor: pointer; margin-left: 8px; }
+.rail-tasks:hover { color: var(--k-ink); border-color: var(--gold-edge); }
+@media (max-width: 760px) {
+  .tsk-view { grid-template-columns: 1fr; }
+  .tsk-rail { display: none; }
+  .tsk-mobsel { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 12px; }
+  .tsk-search { max-width: none; }
+  .tsk-ctl { flex-wrap: wrap; row-gap: 4px; }
+  .tsk-seg button { padding: 0 8px; }
+  .tsk-main { padding: 16px 14px 120px; }
+  .tsk-row { grid-template-columns: 22px minmax(0, 1fr); }
+  .tsk-side { grid-column: 2; flex-direction: row; align-items: center; justify-content: flex-start; min-width: 0; flex-wrap: wrap; }
+}
 /* ⚠️ AND CREATE, for the same reason one line up, which is why this is the
    existing exemption rather than a new idea: the create steps are form fields,
    and the pack puts a form on the paper ground. Wrapping them in the panel
@@ -4155,7 +4272,7 @@ body:not(.consolidated).pj-roadmap .pj-rm-strip {
      buttons). If that cost ever outweighs the tidiness, it is his call to
      reverse, not a defect to fix quietly. */
   html[data-layout="consolidated"] body.consolidated #pj-settings-view, html[data-layout="consolidated"] body.consolidated #pj-task-view,
-  html[data-layout="consolidated"] body.consolidated #pj-docs-view, html[data-layout="consolidated"] body.consolidated #pj-alltasks-view, html[data-layout="consolidated"] body.consolidated #pj-add-view { min-height: 0; overflow-y: auto; }
+  html[data-layout="consolidated"] body.consolidated #pj-docs-view, html[data-layout="consolidated"] body.consolidated #pj-add-view { min-height: 0; overflow-y: auto; }
   /* #2850 item 1 (Josh, 0.6.57): adding a project FROM the consolidated view,
      the "back / All projects" control is redundant -- you are already right
      here. Hide it, but keep the New project line exactly where it sits: he
@@ -4240,32 +4357,23 @@ body:not(.consolidated).pj-roadmap .pj-rm-strip {
      Measured at a 1600 window before this: the view ran left 489 to right 1600
      and the Finder button's right edge was at 1600 exactly, 0px of margin. A
      control flush against the window edge reads as clipped rather than placed. */
-  html[data-layout="consolidated"] body.consolidated #pj-docs-view,
-  html[data-layout="consolidated"] body.consolidated #pj-alltasks-view { padding-right: var(--space-8); }
-  /* #3133 (Josh, 6.68): "add more TOP margin - the project name is too close to the
-     top" in the consolidated View-all-tasks. Scoped to the alltasks view (not the
-     shared docs-view rule above, which Josh did not flag), and matching the
-     --space-8 right inset already applied so the view reads evenly boxed. */
-  html[data-layout="consolidated"] body.consolidated #pj-alltasks-view { padding-top: var(--space-8); }
+  html[data-layout="consolidated"] body.consolidated #pj-docs-view { padding-right: var(--space-8); }
   /* #3502 (Josh, 2026-09-23, consolidated project sub-views): the "Back to <project>"
      controls are redundant in the consolidated view -- the project is already open and
      its name is one click away, so remove them from Documents, Tasks and Project Settings.
      Kept in the tab view (body:not(.consolidated)), where the back control is the way out. */
   html[data-layout="consolidated"] body.consolidated #docs-back,
-  html[data-layout="consolidated"] body.consolidated #alltasks-back,
   html[data-layout="consolidated"] body.consolidated #pj-settings-back { display: none; }
   /* #3502: with the back button gone the heading must not jump against the top rule.
-     alltasks already carries the --space-8 top inset above; give docs and settings the
-     same so "Documents" and "Project settings" keep normal space above them (Josh flagged
+     Give docs and settings a --space-8 top inset so "Documents" and "Project settings" keep normal space above them (Josh flagged
      Settings by name; docs shares the same removed-back top gap). */
   html[data-layout="consolidated"] body.consolidated #pj-docs-view,
   html[data-layout="consolidated"] body.consolidated #pj-settings-view { padding-top: var(--space-8); }
   /* #3503 (Josh, 2026-09-23): the sub-view content was flush against the left rule while
      the right already carried the --space-8 inset above. Match it on the left so Documents
-     and Tasks (the "All Tasks" headline, the project name, the count) read evenly boxed.
+     reads evenly boxed (the old All Tasks screen shared this; #3703 retired it for the Tasks view).
      Settings is centered (max-width + margin auto), so it is not included here. */
-  html[data-layout="consolidated"] body.consolidated #pj-docs-view,
-  html[data-layout="consolidated"] body.consolidated #pj-alltasks-view { padding-left: var(--space-8); }
+  html[data-layout="consolidated"] body.consolidated #pj-docs-view { padding-left: var(--space-8); }
   /* #3477 (Josh, 2026-09-23, screenshot 7.53.43 AM, Kosmos+ in the consolidated view):
      "the formatting on this Kosmos Plus in the consolidated view looks terrible. Content
      is pushed way down the page ... let's just move the Kosmos+ content up ... Also let's
@@ -4296,12 +4404,10 @@ body:not(.consolidated).pj-roadmap .pj-rm-strip {
      drops the grow so the size follows the name instead of the row. */
   html[data-layout="consolidated"] body.consolidated #pj-docs-view .pj-doc-n { flex: 0 1 auto; }
   html[data-layout="consolidated"] body.consolidated #pj-docs-view,
-  html[data-layout="consolidated"] body.consolidated #pj-alltasks-view,
   html[data-layout="consolidated"] body.consolidated #pj-add-view { scrollbar-width: none; -ms-overflow-style: none; }
   html[data-layout="consolidated"] body.consolidated #pj-settings-view::-webkit-scrollbar,
   html[data-layout="consolidated"] body.consolidated #pj-task-view::-webkit-scrollbar,
   html[data-layout="consolidated"] body.consolidated #pj-docs-view::-webkit-scrollbar,
-  html[data-layout="consolidated"] body.consolidated #pj-alltasks-view::-webkit-scrollbar,
   html[data-layout="consolidated"] body.consolidated #pj-add-view::-webkit-scrollbar { display: none; }
   /* #980 (iteration 2): the projects rail header pins at the top of its
      scroller, so a long project list scrolls UNDER it -- the same gesture
@@ -7314,7 +7420,7 @@ code.t { font: 13px var(--k-mono); border-radius: 4px; padding: .12em .4em;
    works in both the tab min-height:14rem box and the consolidated flex-filled box.
    Scoped to the class, not one id, on purpose: BOTH `.tkcards` empty-state consumers
    carried the same bug -- the per-project column (#pj-tasklist) and the all-tasks
-   screen (#alltasks-list, "No tasks on this project yet"). One rule fixes both; both
+   screen (since retired, #3703). One rule fixes both; both
    measured centred via pw-runtime (61/61 and 82/82). A populated list has no `.tk-empty`
    child, so it keeps justify-content:normal and its cards stay top-aligned.
    `safe center`, not plain `center`: in the consolidated layout .tkcards is overflow-y:auto
@@ -7333,8 +7439,8 @@ code.t { font: 13px var(--k-mono); border-radius: 4px; padding: .12em .4em;
 /* #3131 (Josh 6.68, consolidated view): drop the stroke around task cards while the
    consolidated layout is active. The background + padding still read the card as a
    block. Scoped on body.consolidated, so this covers every .tkcard rendered in that
-   layout -- the per-project task list AND the View-all-tasks screen when it is opened
-   from consolidated. The base .tkcard border keeps its stroke in the tab/grid layout
+   layout (the per-project task list; the old View-all-tasks screen was retired in #3703).
+   The base .tkcard border keeps its stroke in the tab/grid layout
    (body:not(.consolidated)). Same TECHNIQUE the container cards use for their
    layout-specific border (gating a border property via a body-class selector), though
    the opposite direction: .pjcard drops its border in the tab layout, this drops the
@@ -7370,21 +7476,6 @@ body.consolidated .tkcard:hover { border-color: transparent; }
    "Not started"/"Waiting on you": no field on the wire says either yet. */
 .tkcard-status { display: block; margin-top: 4px; font-size: .75rem; color: var(--label-2); }
 .tkcard.closed .tkcard-t { text-decoration: line-through; color: var(--label-2); }
-/* #3171: open vs closed at a glance on the all-tasks index. A far-right pill per
-   card, a labelled divider between the open and closed groups, and the closed
-   titles struck the way the project column already draws them. Scoped to
-   #alltasks-list so the shared .tkcard elsewhere keeps its layout. Pills reuse
-   the existing semantic tokens (as .pcombo-soon / .tkcard-n do), so they follow
-   light and dark by construction rather than hardcoding a colour. */
-#alltasks-list .tkcard { position: relative; padding-right: 5.25rem; }
-#alltasks-list .tkcard.closed b { text-decoration: line-through; color: var(--label-2); }
-#alltasks-list .tkcard-badge { position: absolute; top: 50%; right: var(--space-5); transform: translateY(-50%);
-  font: var(--text-caption) var(--font-ui); border: 1px solid var(--label-2); border-radius: 999px;
-  padding: 1px 9px; color: var(--k-ink); background: var(--k-sunk); }
-#alltasks-list .tkcard-badge.closed { color: var(--k-ink-2); border-color: var(--k-rule); }
-#alltasks-list .tk-divider { display: flex; align-items: center; gap: var(--space-4);
-  color: var(--label-2); font: var(--text-caption) var(--font-ui); }
-#alltasks-list .tk-divider::before, #alltasks-list .tk-divider::after { content: ""; flex: 1 1 auto; height: 1px; background: var(--k-rule); }
 .tksay { font-style: normal; color: var(--label-2); margin-left: 4px; }
 /* ⚠️ A DIFFERENT APPEARANCE, not just different words. `.tksay` carries what
    the AGENT said; this carries what WE could not establish, which is a
@@ -8309,13 +8400,6 @@ html:not([data-fed-ui="show"]) #pj-add-ext-person,html:not([data-fed-ui="show"])
    in this rule. His ask was 50% larger specifically, not "match exactly", so
    a plain scale rather than re-deriving a crop. */
 #firstrun .llm-m[data-pmark="openai"] svg { transform: scale(1.5); }
-/* #3386: Grok's first-run mark. xAI has no vendor SVG in this file (PROVIDER_MARK_KEY
-   maps xai -> null), and the app's rule is an initial-letter chip over a wrong-brand
-   lookalike, so Grok shows the same "X" letter chip the provider combobox falls back to
-   (providerMarkNode). Styled like .pcombo-chip but sized to the 34px first-run slot, and
-   dimmed the same way the coming-soon SVG marks are (.pmark.dim), without carrying the
-   `pmark` class (which the mark-theme + firstrun-model tests count on). */
-#firstrun .llm-m.llm-chip { display: grid; place-items: center; font: 700 1.05rem/1 var(--font-ui); color: var(--k-ink-2); background: var(--k-rule); border-radius: 8px; }
 #firstrun .fieldlab { display: block; font-size: .75rem; letter-spacing: .1em; text-transform: uppercase;
                       font-weight: 600; color: var(--k-ink-2); margin-bottom: 6px; }
 /* ⚠️ THIS IS THE RULE THAT ACTUALLY DRESSES THE WIZARD'S FIELDS, and it beats
@@ -8873,6 +8957,9 @@ window.kosmosMeasureScrollbarWidth();
   <nav class="tabs closed" id="tabs" role="tablist">
     <button class="tab on"  data-tab="agents"   role="tab" aria-selected="true">Agents<span class="navbadge" id="nav-badge-agents" aria-hidden="true" hidden></span></button>
     <button class="tab"     data-tab="projects" role="tab" aria-selected="false">Projects<span class="navbadge" id="nav-badge-projects" aria-hidden="true" hidden></span></button>
+    <!-- #3559: Tasks, the third top-level view (Josh, 2026-09-24 06:42). No badge yet: the
+         mock's badge counts tasks waiting on you, which no task can prove today. -->
+    <button class="tab"     data-tab="tasks"    role="tab" aria-selected="false">Tasks</button>
     <!-- #3051 (Josh, 6.63 for 6.65): Settings left the top nav; it is reached from
          the user menu (avatar + name) in the upper-right .headright below. The
          #panel-settings panel and every showTab('settings') caller are unchanged;
@@ -9031,6 +9118,16 @@ window.kosmosMeasureScrollbarWidth();
   <p id="ask-lead" hidden></p>
   <div id="ask-rows"></div>
 </div>
+<!-- ⚠️ ONE FACT ABOUT THE MACHINE, ABOVE THE FLEET, not a badge on thirteen
+     cards. Whether this computer can reach a Claude subscription is a single
+     thing, and repeating it per agent would bury the sentence that explains why
+     the whole board looks asleep.
+     `role="status"` and not `alert`: it is a condition, announced when it
+     appears, not an interruption.
+     #3708: it sits here, above every panel, so it is at the top of every view. It
+     used to sit after the panels, just above the Agents board, which put it at the
+     top of Agents but below the content of Settings, Projects and an agent's page. -->
+<div class="conn" id="conn" role="status" aria-live="polite" hidden></div>
 <section class="detail" id="panel-detail" hidden>
   <button class="back" id="detail-back">&#8592; All agents</button>
   <!-- ⚠️ THE PACK'S AGENT PAGE (view B, pack-pass, scrappy): dhead carries
@@ -10209,6 +10306,13 @@ window.kosmosMeasureScrollbarWidth();
   <div class="rm-box rm-box-form" role="dialog" aria-modal="true" aria-labelledby="nt-t" aria-describedby="nt-in">
     <h2 class="rm-title" id="nt-t">New task</h2>
     <p class="rm-small" id="nt-in">In <b id="nt-project"></b>.</p>
+    <p class="rm-small" id="nt-in-pick" hidden>Pick the project it belongs to.</p>
+    <!-- #3703: from the Tasks view with no project picked, the dialog asks which project. The task
+         belongs to a project, so this is the same question the project page answers by being one. -->
+    <div class="field" id="nt-projrow" hidden>
+      <label class="flabel tk-lab" for="nt-proj">Which project</label>
+      <select class="tk-inp" id="nt-proj"></select>
+    </div>
     <div class="field">
       <label class="flabel tk-lab" for="nt-what">What needs doing?</label>
       <input class="tk-inp" id="nt-what" type="text" maxlength="200" placeholder="Rewrite the handoff checklist">
@@ -10387,7 +10491,7 @@ window.kosmosMeasureScrollbarWidth();
         <option value="claude">Anthropic Claude</option>
         <option value="openai">OpenAI</option>
         <!-- #1040 2b: values match #d-provider so the logo combobox renders each provider's
-             mark (and Grok's initial-letter chip). #3566: google and xai are LIVE here (an
+             mark (Grok's real mark since #3708). #3566: google and xai are LIVE here (an
              API key, #acct-apikey-flow); the rest stay `disabled` (coming soon), so their
              values are never selected or read by the change handler. -->
         <option value="google">Google Gemini</option>
@@ -11482,11 +11586,13 @@ window.kosmosMeasureScrollbarWidth();
                      GPT, appeared inside the API-key form, then vanished again when the
                      form hid itself on success. The order test still passed, because it
                      read source order and not whether a hidden container opened in between. -->
-                <!-- #3422 (Josh's asset, 2026-09-22): the Gemini spark as a single currentColor path, NOT a fixed-id radialGradient. providerMarkNode CLONES the span below into the enhanceProviderSelect combobox; a cloned fill="url(#pmark-gemini-g)" depended on the gradient def living in the (hidden) #firstrun and collided on a duplicated id, so the cloned mark rendered blank in the settings/create picker while the monochrome currentColor marks cloned fine. currentColor also lets it dim/live with .pmark like every other provider mark. This comment is OUTSIDE the .llm row (before the div) so it is neither cloned into every combobox mark nor between the div and span, which web.connect-confirm's row regex requires to be adjacent. --><div class="llm on"><span class="llm-m pmark live" data-pmark="gemini" role="img" aria-label="Gemini"><svg viewBox="0 0 300 300" fill="currentColor" xmlns="http://www.w3.org/2000/svg"><path d="M265.9,134.3c-22.8-9.8-42.7-23.3-59.8-40.4-17.1-17.1-30.6-37-40.4-59.8-3.8-8.7-6.8-17.7-9.1-26.9-.8-3-3.5-5.1-6.6-5.1s-5.8,2.1-6.6,5.1c-2.3,9.2-5.3,18.2-9.1,26.9-9.8,22.8-23.3,42.7-40.4,59.8-17.1,17.1-37,30.6-59.8,40.4-8.7,3.8-17.7,6.8-26.9,9.1-3,.8-5.1,3.5-5.1,6.6s2.1,5.8,5.1,6.6c9.2,2.3,18.2,5.3,26.9,9.1,22.8,9.8,42.7,23.3,59.8,40.4,17.1,17.1,30.6,37,40.4,59.8,3.8,8.7,6.8,17.7,9.1,26.9.8,3,3.5,5.1,6.6,5.1s5.8-2.1,6.6-5.1c2.3-9.2,5.3-18.2,9.1-26.9,9.8-22.8,23.3-42.7,40.4-59.8,17.1-17.1,37-30.6,59.8-40.4,8.7-3.8,17.7-6.8,26.9-9.1,3-.8,5.1-3.5,5.1-6.6s-2.1-5.8-5.1-6.6c-9.2-2.3-18.2-5.3-26.9-9.1Z"/></svg></span><div class="llm-w"><b>Gemini</b><small>Google</small></div><button class="connect-b" type="button" id="fr-gemini-connect" data-keyed="google" aria-expanded="false" aria-controls="fr-apikey-flow" aria-label="Connect Gemini">Connect</button></div>
-                <!-- #3386 (Josh, 2026-09-21): Grok shown up front, right under Gemini; since #3658
-                     both connect here by API key. xAI has no vendor SVG here, so it uses the same
-                     "X" initial-letter chip the provider combobox falls back to, not a new asset. -->
-                <div class="llm on"><span class="llm-m llm-chip" data-pmark="xai" role="img" aria-label="Grok">X</span><div class="llm-w"><b>Grok</b><small>xAI</small></div><button class="connect-b" type="button" id="fr-grok-connect" data-keyed="xai" aria-expanded="false" aria-controls="fr-apikey-flow" aria-label="Connect Grok">Connect</button></div>
+                <!-- #3422 (Josh's asset, 2026-09-22): the Gemini spark as a single currentColor path, NOT a fixed-id radialGradient. providerMarkNode CLONES the span below into the enhanceProviderSelect combobox; a cloned fill="url(#pmark-gemini-g)" depended on the gradient def living in the (hidden) #firstrun and collided on a duplicated id, so the cloned mark rendered blank in the settings/create picker while the monochrome currentColor marks cloned fine. currentColor also lets it dim/live with .pmark like every other provider mark. This comment is OUTSIDE the .llm row (before the div) so it is neither cloned into every combobox mark nor between the div and span, which web.connect-confirm's row regex requires to be adjacent. --><div class="llm on"><span class="llm-m pmark live" data-pmark="gemini" role="img" aria-label="Gemini"><svg viewBox="0 0 300 300" fill="currentColor" xmlns="http://www.w3.org/2000/svg"><path d="M265.9,134.3c-22.8-9.8-42.7-23.3-59.8-40.4-17.1-17.1-30.6-37-40.4-59.8-3.8-8.7-6.8-17.7-9.1-26.9-.8-3-3.5-5.1-6.6-5.1s-5.8,2.1-6.6,5.1c-2.3,9.2-5.3,18.2-9.1,26.9-9.8,22.8-23.3,42.7-40.4,59.8-17.1,17.1-37,30.6-59.8,40.4-8.7,3.8-17.7,6.8-26.9,9.1-3,.8-5.1,3.5-5.1,6.6s2.1,5.8,5.1,6.6c9.2,2.3,18.2,5.3,26.9,9.1,22.8,9.8,42.7,23.3,59.8,40.4,17.1,17.1,30.6,37,40.4,59.8,3.8,8.7,6.8,17.7,9.1,26.9.8,3,3.5,5.1,6.6,5.1s5.8-2.1,6.6-5.1c2.3-9.2,5.3-18.2,9.1-26.9,9.8-22.8,23.3-42.7,40.4-59.8,17.1-17.1,37-30.6,59.8-40.4,8.7-3.8,17.7-6.8,26.9-9.1,3-.8,5.1-3.5,5.1-6.6s-2.1-5.8-5.1-6.6c-9.2-2.3-18.2-5.3-26.9-9.1Z"/></svg></span><div class="llm-w"><b>Gemini</b><small>Google &middot; API key today</small></div><button class="connect-b" type="button" id="fr-gemini-connect" data-keyed="google" aria-expanded="false" aria-controls="fr-apikey-flow" aria-label="Connect Gemini">Connect</button></div>
+                <!-- #3386 (Josh, 2026-09-21): Grok shown up front, right under Gemini. #3708: the
+                     real Grok mark (from grok.com's own header logo, recorded in
+                     docs/provider-marks/manifest.md), and each subtitle says what works today:
+                     each names how it connects: Grok by subscription (#3391) or key, Gemini by key only
+                     (its subscription path, #3568, is not live). -->
+                <div class="llm on"><span class="llm-m pmark live" data-pmark="xai" role="img" aria-label="Grok"><svg viewBox="0 0 34 33" fill="currentColor" xmlns="http://www.w3.org/2000/svg"><path d="M13.2371 21.0407L24.3186 12.8506C24.8619 12.4491 25.6384 12.6057 25.8973 13.2294C27.2597 16.5185 26.651 20.4712 23.9403 23.1851C21.2297 25.8989 17.4581 26.4941 14.0108 25.1386L10.2449 26.8843C15.6463 30.5806 22.2053 29.6665 26.304 25.5601C29.5551 22.3051 30.562 17.8683 29.6205 13.8673L29.629 13.8758C28.2637 7.99809 29.9647 5.64871 33.449 0.844576C33.5314 0.730667 33.6139 0.616757 33.6964 0.5L29.1113 5.09055V5.07631L13.2343 21.0436" fill="currentColor"/><path d="M10.9503 23.0313C7.07343 19.3235 7.74185 13.5853 11.0498 10.2763C13.4959 7.82722 17.5036 6.82767 21.0021 8.2971L24.7595 6.55998C24.0826 6.07017 23.215 5.54334 22.2195 5.17313C17.7198 3.31926 12.3326 4.24192 8.67479 7.90126C5.15635 11.4239 4.0499 16.8403 5.94992 21.4622C7.36924 24.9165 5.04257 27.3598 2.69884 29.826C1.86829 30.7002 1.0349 31.5745 0.36364 32.5L10.9474 23.0341" fill="currentColor"/></svg></span><div class="llm-w"><b>Grok</b><small>xAI &middot; subscription or API key today</small></div><button class="connect-b" type="button" id="fr-grok-connect" data-keyed="xai" aria-expanded="false" aria-controls="fr-apikey-flow" aria-label="Connect Grok">Connect</button></div>
                 <!-- #3658 (Josh, 2026-09-24 17:46): Gemini and Grok connect HERE, with the same gold
                      Connect as Claude and GPT, instead of the old later-in-Settings pill and pointer.
                      One box shared by both, a first-run mirror of Settings' #acct-apikey-flow
@@ -12368,7 +12474,11 @@ window.kosmosMeasureScrollbarWidth();
          title aligned with the agents head, where a 22px fold button + 7px gap
          still inset the name. -->
     <div class="railhead" id="rail-projects" hidden>
-      <span class="lead"><span class="railname">Projects</span></span>
+      <!-- #3559: the consolidated view hides the tab bar (it is one screen), so its way into
+           Tasks lives here, beside the "Projects" name it lists tasks from (the + stays alone at
+           the far right). It opens Tasks INSIDE the display column (openConsolidatedTasks), the
+           way the user menu opens Settings there (#2842), never out to the tab view. -->
+      <span class="lead"><span class="railname">Projects</span><button class="rail-tasks" type="button" id="rail-projects-tasks" title="Every task across your projects">Tasks</button></span>
       <span class="railacts">
         <button class="fold plus" type="button" id="rail-projects-new" aria-label="Add Project" title="Add Project">+</button>
       </span>
@@ -12920,12 +13030,10 @@ window.kosmosMeasureScrollbarWidth();
            independent header actions (add vs open-all) whose order is meaning-independent, so this
            does not fail WCAG 2.4.3 (which targets order that changes meaning). In the tab view View
            All still shows just under the header. -->
-      <!-- The door, pack rule: the column is a task with somebody on it that
-           is not finished; finished and unpicked are both real and both
-           behind this. v1's door reveals them in place (there is no
-           all-tasks screen yet); the reveal survives repaints and
-           same-project Back-and-return (the page's round-31 rule) and
-           resets on a project SWITCH. -->
+      <!-- The door: everything the five-cap column does not show (capped-off and
+           finished tasks) is behind it. It opens the Tasks view scoped to this
+           project (#3703; it opened its own all-tasks screen from #1382 until
+           then, and revealed in place before that). -->
       <button class="linkish pj-viewall" id="pj-alltasks" type="button" hidden></button>
       <div class="tkcards" id="pj-tasklist"></div>
     </div>
@@ -13090,37 +13198,12 @@ window.kosmosMeasureScrollbarWidth();
     </div>
     <p class="fmsg" id="docs-msg" aria-live="polite"></p>
   </div>
-    <!-- The ALL TASKS screen (#1382). Josh: "for tasks, i want to see a view
-         of them in a list form basically", answering his earlier "where I can
-         see ALL of the tasks". Same bones as the Documents screen he named as
-         the model: Back is the leave, and there is no backdrop, focus trap or
-         Escape, because a page is not an overlay.
-         🛑 CLOSED TASKS ARE ON THIS SCREEN, and that is not a preference. It is
-         reached from `#pj-alltasks`, the per-project door, and #1009 already
-         put every OPEN task in the column, so what that door still reveals is
-         FINISHED work. Taking the door without taking its contents would leave
-         this project's finished work unreachable. (#2498 scoped the screen to
-         the door's own project; finished work stays reachable PER project,
-         each through its own door.)
-         ⚠️ NO COUNT IN THE DOOR'S LABEL. The door and the screen now sit on the
-         SAME one project (#2498), so a per-project number COULD agree with its
-         destination - it is still not added, as scope discipline rather than a
-         new feature, so there is no second number to disagree with the screen's
-         own count (the #1346 defect the card asked us to avoid). -->
-    <div id="pj-alltasks-view" hidden>
-      <button class="back" id="alltasks-back" type="button"></button>
-      <div class="pjhead">
-        <div class="pjtitle">
-          <h2 class="dname">All tasks</h2>
-          <!-- #2498: set per open to the project this door was opened from; the
-               door is per-project and its list is now scoped to that project. -->
-          <p class="pj-desc" id="alltasks-desc">In this project.</p>
-        </div>
-      </div>
-      <p class="dhint" id="alltasks-count" style="margin:0 0 8px;" hidden></p>
-      <div id="alltasks-list" class="tkcards"></div>
-      <p class="fmsg" id="alltasks-msg" aria-live="polite"></p>
-    </div>
+    <!-- #3703: the ALL TASKS screen (#1382) is retired. The project's View-all door (`#pj-alltasks`)
+         opens the Tasks view (#panel-tasks) scoped to the project: one list screen (Mona's #3559
+         mock). What this screen guaranteed moved with it: closed tasks stay reachable per project
+         (the door opens with window All, Closed is a fold), one array feeds the count and the rows,
+         an unreadable read is said rather than shown empty, and a row opens its task on its own
+         project. -->
   <!-- #766 (Josh, 2026-08-24 22:09): New task is a dialog over the project
        page again ("the problem that I have with the new task page right now
        is that it's got so much empty space... go back and implement the
@@ -13538,6 +13621,57 @@ window.kosmosMeasureScrollbarWidth();
           <button class="btn uprime big" id="pj-join-submit" type="button">Join Project</button>
         </div>
         <p class="fmsg" id="pj-join-msg" aria-live="polite"></p>
+      </div>
+    </div>
+  </div>
+</section>
+<!-- #3559 (Josh, 2026-09-24): Tasks is a top-level view beside Agents and Projects, every
+     task across every project. Mona's mock (chaoskosmos-site tasks-view-3559 248c953, the dot
+     revision) plus Josh's search box. Groups are WHERE THE WORK IS, derived by the engine
+     (tasks.taskState) and only those it can prove today: Nobody on it, Assigned not started, In
+     progress, Closed. Waiting on you, Done-check-it and categories need evidence no task stores
+     yet, so they are not drawn at all rather than guessed. No coloured left bars anywhere (Josh,
+     12:52): the status mark is a round dot beside the label. -->
+<section class="panel panel-wide" id="panel-tasks" hidden>
+  <div class="tsk-view">
+    <aside class="tsk-rail" aria-label="Filter tasks by project">
+      <div class="tsk-rcap">Projects</div>
+      <div id="tsk-projects"></div>
+    </aside>
+    <div class="tsk-main">
+      <p class="tsk-crumb" id="tsk-crumb"></p>
+      <div class="tsk-head"><h2 id="tsk-title">All tasks</h2><button class="btn uprime" id="tsk-new" type="button"><span aria-hidden="true">+</span> New task</button></div>
+      <p class="tsk-sub" id="tsk-sub"></p>
+      <!-- Mona's a40bbe1: on a narrow window (and in the consolidated column) the rail becomes this
+           dropdown, and the search sits below it, full width. -->
+      <div class="tsk-mobsel"><select class="tsk-sel" id="tsk-projsel" aria-label="Project"></select></div>
+      <!-- #3559 (Josh, 14:39): search, on its own line above the controls (Mona's a40bbe1). Its own
+           clear button; the browser's native one is hidden. -->
+      <div class="tsk-search" role="search">
+        <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true"><circle cx="7" cy="7" r="5"/><path d="M11 11l3.5 3.5" stroke-linecap="round"/></svg>
+        <input id="tsk-search" type="search" autocomplete="off" spellcheck="false"
+               placeholder="Search tasks" aria-label="Search tasks by what they say, number, project or agent">
+        <button type="button" id="tsk-qclear" aria-label="Clear search" hidden>&times;</button>
+      </div>
+      <div class="tsk-ctrls">
+        <div class="tsk-ctl"><span class="tsk-cl" id="tsk-win-l">Added in</span><span class="tsk-seg" id="tsk-win" role="group" aria-labelledby="tsk-win-l"></span></div>
+        <div class="tsk-ctl"><span class="tsk-cl" id="tsk-by-l">Group by</span><span class="tsk-seg" id="tsk-by" role="group" aria-labelledby="tsk-by-l"></span></div>
+        <div class="tsk-ctl"><label class="tsk-cl" for="tsk-sort">Sort</label><select class="tsk-sel" id="tsk-sort">
+          <option value="new">Newest first</option><option value="stale">Quietest first</option><option value="old">Oldest first</option>
+        </select></div>
+      </div>
+      <div class="tsk-tiles" id="tsk-tiles"></div>
+      <p class="tsk-hint" id="tsk-hint">Tap a tile to see only that group, tap it again to see everything.</p>
+      <p class="fmsg" id="tsk-msg" role="status" aria-live="polite"></p>
+      <!-- What a search found, said to a screen reader while focus stays in the search box (the
+           rows themselves change silently). Visually hidden: the page already shows it. -->
+      <p class="vh" id="tsk-found" role="status" aria-live="polite"></p>
+      <div id="tsk-groups"></div>
+      <div class="tsk-bulk" id="tsk-bulk" hidden>
+        <span class="tsk-bc" id="tsk-bc"></span>
+        <input id="tsk-bnote" type="text" maxlength="2000" placeholder="Why these are closing (optional)" aria-label="Closing note">
+        <button type="button" class="tsk-pri" id="tsk-bclose">Close them</button>
+        <button type="button" id="tsk-bclear">Clear</button>
       </div>
     </div>
   </div>
@@ -14890,17 +15024,10 @@ window.kosmosMeasureScrollbarWidth();
   </div>
   </div>
 </section>
-<!-- ⚠️ ONE FACT ABOUT THE MACHINE, ABOVE THE FLEET, not a badge on thirteen
-     cards. Whether this computer can reach a Claude subscription is a single
-     thing, and repeating it per agent would bury the sentence that explains why
-     the whole board looks asleep.
-     `role="status"` and not `alert`: it is a condition, announced when it
-     appears, not an interruption. -->
 <!-- #541: ship-day made visible. One quiet line after an update installs
      under a running board; dismiss records the seen version server-side so
      it survives restarts and never returns for a seen version. First sight
      of a machine records silently: the line only ever describes a CHANGE. -->
-<div class="conn" id="conn" role="status" aria-live="polite" hidden></div>
 <!-- The pack's stats row: the New agent action as a dashed tile locked
      left, the counts on the true centre, the view toggle pinned right.
      The alert tile hides at zero (the pack draws only the nonzero case;
@@ -18209,6 +18336,10 @@ async function tick() {
 
     const lim = new URLSearchParams(location.search).get('limit');
     LAST = data.agents;
+    /* #3559: the Tasks view prints agents by the board's names; repaint it once when the roster
+       brings a name it did not have (never on an unchanged poll, so the list does not churn). */
+    /* Isolated: a Tasks repaint failing must never read as the board's own read failing. */
+    try { tskRosterChanged(); } catch (err) { console.error('[tasks view] repaint after a roster change failed', err); }
     LAST_AT = Date.now();  // #1150: the moment this sample reached the page
     // #3574: whether this is someone new is decided by the board's FIRST answer, whatever the
     // tips are doing then (off, a dialog, first run); see tipAutoOk.
@@ -18898,7 +19029,7 @@ async function tick() {
 
 // A tab that does nothing reads as broken rather than as forthcoming, so each
 // unbuilt one says what it will be and why it isn't here yet.
-const PANELS = ['projects', 'settings', 'detail', 'create'];
+const PANELS = ['projects', 'tasks', 'settings', 'detail', 'create'];
 // Panels with no tab button of their own: reached by clicking an agent, or the
 // New agent button. Bailing when no button exists would silently do nothing,
 // which is how the detail page failed to open at all — so the exception is a
@@ -19036,6 +19167,8 @@ function showTab(tab) {
   // #3053: same relocation for the New Agent create panel, so it opens in the consolidated
   // display column and is restored to the top level in the tab view. Same chokepoint + `cons`.
   placeCreatePanel(cons);
+  // #3559: the Tasks view's consolidated home, same chokepoint and flag.
+  placeTasksPanel(cons);
   // #3052: the consolidated projects panel has its own view (the list), independent of the
   // Projects tab's saved grid/list/map choice. Force the list for display in the consolidated
   // view and restore the saved layout on the way out. Same chokepoint + `cons`/`wasCons` flags,
@@ -19087,6 +19220,8 @@ function showTab(tab) {
   // below: a machine report painted once would go on asserting a world
   // that stopped being true (the app can be moved, sleep settings change).
   if (tab === 'settings') paintSettings();
+  // #3559: the Tasks view re-reads on every arrival, same rule as Settings and Projects.
+  if (tab === 'tasks') tskLoad(true);
   if (tab !== 'projects') {
     pjCloseConfirm();
     // A note about what a removal could not reach describes a moment, not a
@@ -33884,7 +34019,7 @@ function placeAppSettings(consolidated) {
     if (panel.parentElement !== projects) {
       // Restore anchor: the original parent + next sibling, captured once. This caches a
       // sibling REFERENCE (rather than a fixed structural node) -- safe because
-      // #panel-settings's next sibling is #conn, a persistent top-level node that is never
+      // #panel-settings's next sibling is #boardbar (#conn moved above the panels in #3708), a persistent top-level node that is never
       // reparented, so insertBefore(panel, next) puts it back in the same slot. insertBefore
       // also tolerates `next` being null (appends).
       if (!APP_SETTINGS_HOME) APP_SETTINGS_HOME = { parent: panel.parentElement, next: panel.nextElementSibling };
@@ -33907,13 +34042,13 @@ function takeOverDisplayColumn() {
   const projects = document.getElementById('panel-projects');
   if (!projects) return;
   projects.hidden = false;
-  for (const v of ['one', 'add', 'settings', 'task', 'docs', 'alltasks']) {
+  for (const v of ['one', 'add', 'settings', 'task', 'docs']) {
     const el = document.getElementById('pj-' + v + '-view');
     if (el) el.hidden = true;
   }
   document.getElementById('pj-list-view').hidden = false;   // keep the projects column beside it
   // Hide the other relocated takeover overlays so the column holds one at a time.
-  for (const id of ['panel-settings', 'panel-create']) {
+  for (const id of ['panel-settings', 'panel-create', 'panel-tasks']) {
     const p = document.getElementById(id);
     if (p && p.parentElement === projects) p.hidden = true;
   }
@@ -33948,6 +34083,36 @@ function openConsolidatedSettings() {
   // 'appsettings' value that syncUrl and every PJ_VIEW reader would then have to learn.
   settingsOpen(SETTINGS_SEC);
   syncPlusChrome();
+}
+/* #3559: the Tasks view in the consolidated display column, the same relocation as app settings
+   (#2842) and create (#3053): the consolidated view is one screen, so its Tasks button must not
+   kick the person out to the tab view. In the column the view's own project rail folds to its
+   dropdown (the consolidated projects rail is right beside it). The tab view shows Tasks as its
+   own page. Transient like consolidated settings: a reload restores the project view. */
+let TASKS_PANEL_HOME = null;
+function placeTasksPanel(consolidated) {
+  const panel = document.getElementById('panel-tasks');
+  const projects = document.getElementById('panel-projects');
+  if (!panel || !projects) return;
+  if (consolidated) {
+    if (panel.parentElement !== projects) {
+      if (!TASKS_PANEL_HOME) TASKS_PANEL_HOME = { parent: panel.parentElement, next: panel.nextElementSibling };
+      panel.hidden = true;   // relocated but not shown until openConsolidatedTasks()
+      projects.appendChild(panel);
+    }
+  } else if (TASKS_PANEL_HOME && panel.parentElement === projects) {
+    TASKS_PANEL_HOME.parent.insertBefore(panel, TASKS_PANEL_HOME.next);
+  }
+}
+function openConsolidatedTasks() {
+  // Same guard as openConsolidatedSettings: only correct while the consolidated class is on.
+  if (!document.body.classList.contains('consolidated')) { showTab('tasks'); return; }
+  const already = !document.getElementById('panel-tasks').hidden && document.getElementById('panel-tasks').parentElement === document.getElementById('panel-projects');
+  placeTasksPanel(true);
+  takeOverDisplayColumn();
+  document.getElementById('panel-tasks').hidden = false;
+  syncPlusChrome();   // #3599's rule: leaving consolidated Kosmos+ settings takes the blue down
+  tskLoad(!already);   // pressed again while open: a refresh, not an arrival (ticks stay)
 }
 /* #3053: the New Agent create panel gets the SAME consolidated-display treatment #2842 gave
    settings, so clicking New Agent in the consolidated view opens the form in the display column
@@ -34087,7 +34252,13 @@ function paintPjNone(which) {
     const pp = document.getElementById('panel-projects');
     return !!(pc && pp && pc.parentElement === pp && !pc.hidden);
   })();
-  const show = document.body.classList.contains('consolidated') && view === 'list' && !appSettingsOpen && !appCreateOpen;
+  /* #3559: the relocated Tasks view takes over the column the same way. */
+  const appTasksOpen = (() => {
+    const pt = document.getElementById('panel-tasks');
+    const pp = document.getElementById('panel-projects');
+    return !!(pt && pp && pt.parentElement === pp && !pt.hidden);
+  })();
+  const show = document.body.classList.contains('consolidated') && view === 'list' && !appSettingsOpen && !appCreateOpen && !appTasksOpen;
   el.hidden = !show;
   if (!show) return;
   /* A failed read leaves the rail saying it cannot look, and this sentence
@@ -36355,12 +36526,12 @@ function fillSwitchAccounts() {
    select.value and dispatches `change`. Marks are CLONED from the firstrun
    [data-pmark] spans (one set of SVGs), keyed by a select-value -> mark-key map
    because the option values ("anthropic","google","alibaba","moonshot") are not the
-   firstrun mark keys ("claude","gemini","qwen","kimi"). xai/Grok has no official mark
-   -> an initial-letter chip. APG combobox+listbox: keyboard open/nav/select/close,
+   firstrun mark keys ("claude","gemini","qwen","kimi"). xai/Grok maps to its real mark
+   since #3708; any unmapped value gets an initial-letter chip. APG combobox+listbox: keyboard open/nav/select/close,
    focus management, aria-expanded/selected/activedescendant/disabled. */
 const PROVIDER_MARK_KEY = {
   anthropic: 'claude', openai: 'openai', google: 'gemini', meta: 'meta',
-  xai: null, alibaba: 'qwen', moonshot: 'kimi', mistral: 'mistral',
+  xai: 'xai', alibaba: 'qwen', moonshot: 'kimi', mistral: 'mistral',
   /* #1040 2b: #acct-provider-pick (the Add-a-provider screen) uses the value 'claude'
      where #d-provider uses 'anthropic'; both name the same provider and get the same
      'claude' mark. Additive: #d-provider never looks up 'claude', so this does not touch it. */
@@ -36385,7 +36556,7 @@ function providerMarkNode(value, label) {
       return n;
     }
   }
-  /* Fallback (Grok, or any unmapped value): an initial-letter chip, never a wrong-brand
+  /* Fallback (any unmapped value; Grok has its real mark since #3708): an initial-letter chip, never a wrong-brand
      lookalike. Decorative (aria-hidden), because the adjacent .pcombo-name names the provider. */
   const chip = document.createElement('span');
   chip.className = 'pmark pcombo-chip';
@@ -40374,7 +40545,7 @@ let PJ_THREAD_GEN = 0;
 let PJ_NAV_GEN = 0;
 
 function pjView(which) {
-  for (const v of ['list', 'one', 'add', 'settings', 'task', 'docs', 'alltasks']) {
+  for (const v of ['list', 'one', 'add', 'settings', 'task', 'docs']) {
     document.getElementById('pj-' + v + '-view').hidden = (v !== which);
   }
   /* #2842: pjView is project navigation, so it always leaves the consolidated
@@ -40388,8 +40559,7 @@ function pjView(which) {
     /* #3053: same for the relocated New Agent create panel -- pjView is project navigation, so it
        always leaves the consolidated create view too (this is how create-back / done return to the
        projects display without dropping the consolidated layout). */
-    const appC = document.getElementById('panel-create');
-    if (appC && proj && appC.parentElement === proj) appC.hidden = true;
+    for (const id of ['panel-create', 'panel-tasks']) { const el = document.getElementById(id); if (el && proj && el.parentElement === proj) el.hidden = true; }   // #3559: Tasks too
   }
   syncPlusChrome();   // #3599: leaving consolidated settings on Kosmos+ takes the blue down
   paintPjNone(which);
@@ -42014,133 +42184,439 @@ function paintProjectTasks(p) {
   door.textContent = 'View All';
 }
 
-/**
- * The door now LEAVES THE PAGE (#1382). Josh: "for tasks, i want to see a view
- * of them in a list form basically", answering his earlier "where I can see
- * ALL of the tasks".
- *
- * 🔑 THE BEHAVIOUR IT REPLACES IS NOT LOST, IT MOVED. Revealing in place showed
- * this project's tasks past the five-cap and its finished ones. This screen
- * shows all of THIS project's tasks (#2498 scoped it to the project the door
- * was opened from), capped-off and finished included - a superset of the
- * project's column, not of every project.
- */
-document.getElementById('pj-alltasks').addEventListener('click', openAllTasksView);
+/* The door LEAVES THE PAGE (#1382), and since #3703 it opens the Tasks view scoped to this project
+   (openProjectTasks): every task of THIS project, capped-off and finished included, a superset of
+   the project's column. The old all-tasks screen it used to open is retired: one list screen. */
+document.getElementById('pj-alltasks').addEventListener('click', () => openProjectTasks(PJ_CURRENT));
 
-document.getElementById('alltasks-back').addEventListener('click', () => {
-  pjView(PJ_CURRENT ? 'one' : 'list');
-});
-
-/**
- * Every task on the current project, open and finished (#2498 scoped it from
- * the old every-project set to the project this door was opened from).
- *
- * 🛑 AN UNREADABLE ANSWER IS SAID OUT LOUD, NEVER SHOWN AS AN EMPTY LIST. "No
- * tasks yet" is a claim about somebody's own work; the route refuses to serve
- * it when it could not read, and this screen must not invent it either.
- *
- * 🔑 ONE ARRAY. The heading's count and the rows below it are the same `rows`,
- * so they cannot disagree. #1346 as a construction rather than a rule to
- * remember: that screen said "3 agents" over three rows and "6" underneath,
- * because one number came from the data and the other from a document-wide DOM
- * query.
- */
-async function openAllTasksView() {
-  const list = document.getElementById('alltasks-list');
-  const count = document.getElementById('alltasks-count');
-  const msg = document.getElementById('alltasks-msg');
-  const back = document.getElementById('alltasks-back');
-  const here = pjById(PJ_CURRENT);
-  back.textContent = '\u2190 ' + (here ? here.name : 'Projects');
-  /* #2498: this door is per-project and its list is scoped to the project it
-     was opened from, so the description names that project rather than the old
-     "Across every project." (which was true only while the screen was global). */
-  const desc = document.getElementById('alltasks-desc');
-  if (desc) desc.textContent = here ? ('In ' + here.name + '.') : 'In this project.';
-  list.textContent = ''; count.hidden = true; msg.textContent = 'Looking\u2026';
-  pjView('alltasks');
-  let body = null;
-  try {
-    /* #2498: carry the current project and let the route filter, rather than
-       fetching every project's tasks. PJ_CURRENT is always set when this door
-       is reachable; the empty fallback keeps a global read if it ever is not. */
-    const scope = PJ_CURRENT ? ('?project=' + encodeURIComponent(PJ_CURRENT)) : '';
-    const r = await fetch('/api/tasks' + scope, { cache: 'no-store' });
-    body = await r.json();
-    if (!r.ok) throw new Error((body && body.error) || 'we could not read your tasks');
-  } catch (err) {
-    msg.textContent = String((err && err.message) || 'we could not read your tasks right now');
-    return;
-  }
-  if (PJ_VIEW !== 'alltasks') return;   // they left while we were reading
-  const rows = (body && body.tasks) || [];
-  if (!rows.length) {
-    msg.textContent = '';
-    list.innerHTML = '<p class="tk-empty">No tasks on this project yet. Add one to start tracking progress.</p>';
-    return;
-  }
-  msg.textContent = '';
-  const live = rows.filter((t) => !t.isClosed).length;
-  /* The second clause appears ONLY when it says something, which is the
-     Documents screen's own convention one screen over ("N files", plus a page
-     count only when there is more than one page). "5 tasks, 5 still open" spends
-     four words repeating the first two. */
-  count.textContent = rows.length + (rows.length === 1 ? ' task' : ' tasks')
-    + (live < rows.length ? ' \u00b7 ' + live + ' still open' : '');
-  count.hidden = false;
-  /* 🛑 `closed`, NOT a class of this screen's own. The project column has marked
-     a finished card `tkcard closed` since #206, and `.tkcard.closed .tkcard-t`
-     is what strikes the title through and dims it. This screen shipped with
-     `tkdone`, which NOTHING styles and NOTHING reads, so a finished task here
-     looked exactly like an open one while looking correct everywhere else.
-     Caught by render-tasks, which clicks the door and asks for `.tkcard.closed`:
-     the check was right and this screen was wrong. Measured before renaming --
-     `tkdone` appeared exactly once in the whole tree, here, so nothing consumed
-     it, against a control of four live references to the `closed` form. */
-  /* #3171 (Josh, 2026-09-16): open vs closed at a glance. Group the open tasks
-     above the closed ones with a labelled divider between them, give every row a
-     far-right Open/Closed pill, and show the task number the way the project
-     column already does (`Task N`). The pill carries the closed state, so the
-     old ' \u00b7 finished' meta text is retired to avoid saying it twice.
-     \ud83d\udd11 ONE SORT, THE SERVER'S. allTasks() (engine/tasks.js) already returns
-     open-before-closed, pinned by engine/tasks.all-1382.test.js ("open work sorts
-     above finished work"), so this render TRUSTS that grouping rather than
-     re-deriving it (repo convention: no two derivations of one fact). The divider
-     therefore expects a single open->closed boundary, and render-alltasks asserts
-     exactly one divider, so a change to the server order is caught here.
-     \ud83d\udd11 THE #1346 GUARANTEE IS KEPT: `rows` is the one array the heading counted,
-     and the divider is a non-`.tkcard` element, so the rendered-row count
-     render-alltasks pins against the heading is unchanged.
-     The badge is the LAST child so the button's reading order (number, title,
-     who, then status) matches the visual order; `position: absolute` keeps it at
-     the far right regardless of DOM position. */
-  const anyOpen = rows.some((t) => !t.isClosed);
-  list.innerHTML = rows.map((t, i) => {
-    const opensClosedGroup = t.isClosed && anyOpen && (i === 0 || !rows[i - 1].isClosed);
-    return (opensClosedGroup ? '<div class="tk-divider" role="separator"><span>Closed</span></div>' : '')
-      + '<button class="tkcard' + (t.isClosed ? ' closed' : '')
-      + '" type="button" data-project="' + esc(t.projectId) + '" data-task="' + Number(t.number) + '">'
-      + '<span class="tkcard-n">Task ' + Number(t.number) + '</span>'
-      + '<b>' + esc(t.sentence || '') + '</b>'
-      + '<small>' + esc(t.projectName || '')
-      + (t.whoNames && t.whoNames.length ? ' \u00b7 ' + esc(t.whoNames.join(', ')) : '')
-      + '</small>'
-      + '<span class="tkcard-badge' + (t.isClosed ? ' closed' : '') + '">' + (t.isClosed ? 'Closed' : 'Open') + '</span>'
-      + '</button>';
-  }).join('');
+/* ---- #3559: the Tasks view ------------------------------------------------------------
+   Every task on every project, grouped by WHERE THE WORK IS. The engine derives each task's
+   `state` (tasks.taskState, from the same claim the project card shows); this code renders it
+   and never computes it. Only the groups the engine can prove exist here; waiting-on-you,
+   done-check-it and categories wait for evidence no task stores yet (Mona's weakest-premise
+   note on #3559), so they are not drawn at all rather than guessed. */
+const TSK_GROUPS = [
+  { k: 'nobody', l: 'Nobody on it', s: 'no agent assigned', c: 'var(--tsk-nobody)',
+    why: 'Open and unassigned. Give these to an agent, or close the ones that no longer matter.' },
+  { k: 'assigned', l: 'Assigned, not started', s: 'agent named, has not said it started', c: 'var(--tsk-assigned)',
+    why: 'An agent has these, and what it reports does not name them yet. Old ones here are worth a nudge.' },
+  { k: 'working', l: 'In progress', s: 'the agent says it is on it', c: 'var(--tsk-working)',
+    why: 'The agent’s own report names these as what it is working on.' },
+  { k: 'closed', l: 'Closed', s: 'finished and closed', c: 'var(--tsk-closed)', why: 'Closed tasks.' },
+];
+const TSK_WINDOWS = [['24h', 1], ['48h', 2], ['1 week', 7], ['1 month', 30], ['All', 0]];
+const TSK_BYS = [['status', 'Status'], ['project', 'Project']];
+const TSK = { data: null, error: null, proj: null, projHint: null, q: '', win: 0, by: 'status', sort: 'new', tile: null, sel: new Set(), gen: 0, busy: false, names: '', closedOpen: false };
+TSK_READY = true;
+const tskKey = (t) => String(t.projectId) + '#' + Number(t.number);
+/* The name the board prints for an agent (its roster card's `name`; a card has no `displayName`
+   field -- test-support/fleet refuses the read), falling back to the
+   session name while the roster has not arrived; TSK.names remembers what was painted so the
+   first roster that changes a name repaints once (see the LAST assignment). */
+function tskAgentName(sessionName) {
+  const a = Array.isArray(LAST) ? LAST.find((x) => x && x.sessionName === sessionName) : null;
+  return String((a && a.name) || sessionName || '');
 }
-
-/* A row opens its task on the project it belongs to. #2498 scoped this door to
-   the project it was opened from, so every row is that same project and the
-   switch is a safe no-op today; it is kept (each row still carries its project)
-   so the handler stays correct if the list is ever un-scoped again. */
-document.getElementById('alltasks-list').addEventListener('click', (e) => {
-  const card = e.target.closest('.tkcard');
-  if (!card) return;
-  const pid = card.dataset.project;
-  if (pid && pid !== PJ_CURRENT) { PJ_CURRENT = pid; }
-  openTaskPage(Number(card.dataset.task));
+/* Called from the board poll's LAST assignment, which sits far ABOVE `const TSK` in this script:
+   a function declaration is hoisted, and TSK_READY (a hoisted var) covers the one ordering (a poll
+   landing before the script finished) in which TSK would still be uninitialised. */
+var TSK_READY;   // hoisted (undefined) until `const TSK` below has run
+function tskRosterChanged() {
+  if (!TSK_READY) return;   // the Tasks view is not set up yet; its own load paints with the roster it finds
+  if (TSK.data && !document.getElementById('panel-tasks').hidden && tskNamesSig() !== TSK.names) tskPaintKeepingCurrentFocus();
+}
+function tskNamesSig() {
+  return (Array.isArray(LAST) ? LAST : []).map((a) => a && (a.sessionName + '=' + (a.name || ''))).sort().join('|');
+}
+/* Pure (the tests lift these): does a task fall in the Added-in window, match the search, and in
+   what order. `now` is passed in so a test pins it. */
+function tskInWindow(t, days, now) {
+  if (!days) return true;
+  const c = Date.parse(t && t.createdAt);
+  return Number.isFinite(c) && (now - c) <= days * 86400000;
+}
+function tskMatches(t, q) {
+  const needle = String(q || '').trim().toLowerCase();
+  if (!needle) return true;
+  const hay = [t.sentence, '#' + t.number, String(t.number), t.projectName]
+    .concat((t.whoNames || []).map((w) => w + ' ' + tskAgentName(w)))
+    .join(' \u0001 ').toLowerCase();
+  /* Every word must appear somewhere, so "logo april" finds April's logo task. A "#N" word
+     names one task, so it matches that number exactly: "#1" is not #12 or #100. */
+  return needle.split(/\s+/).every((w) => (/^#\d+$/.test(w) ? w === '#' + t.number : hay.includes(w)));
+}
+function tskSort(list, mode) {
+  const at = (iso) => { const v = Date.parse(iso); return Number.isFinite(v) ? v : null; };
+  const out = list.slice();
+  if (mode === 'stale') {
+    /* Quietest first: least recent activity at the top; a task with no known activity sorts
+       LAST (unknown is not "quiet", and floating it up would be a claim nobody computed). */
+    out.sort((a, b) => {
+      const x = at(a.lastActivityAt); const y = at(b.lastActivityAt);
+      if (x === null && y === null) return 0;
+      if (x === null) return 1;
+      if (y === null) return -1;
+      return x - y;
+    });
+  } else {
+    const dir = mode === 'old' ? 1 : -1;
+    out.sort((a, b) => ((at(a.createdAt) || 0) - (at(b.createdAt) || 0)) * dir);
+  }
+  return out;
+}
+/* The rows the view shows: project, window and search (not the tile, which only narrows the
+   groups drawn; the tiles' own counts are taken before it). */
+function tskScoped(all, st, now) {
+  return (all || []).filter((t) => (!st.proj || t.projectId === st.proj)
+    && tskInWindow(t, st.win, now) && tskMatches(t, st.q));
+}
+/* `arrival`: the person just came to the view (a tab or the consolidated button), so ticks from an
+   earlier visit are dropped, and a first visit says it is reading rather than showing zeros. */
+async function tskLoad(arrival) {
+  const mine = ++TSK.gen;
+  const msg = document.getElementById('tsk-msg');
+  if (arrival) {
+    TSK.sel.clear();
+    /* A line from an earlier visit ("Closed 3 tasks.") would read as news; an arrival starts clean. */
+    if (msg) msg.textContent = '';
+    tskPaint();   // the cleared ticks leave the screen too, not just the model
+  }
+  try {
+    /* #3703: an archived project's own door still shows its tasks (the server keeps only the one
+       named here); without a scope the read leaves every archived project out. */
+    const door = TSK.proj && TSK.projHint && TSK.projHint.id === TSK.proj ? TSK.proj : null;   // a door scope, not a rail pick
+    const r = await fetch('/api/tasks?view=tasks' + (door ? '&withArchived=' + encodeURIComponent(door) : ''), { cache: 'no-store' });
+    const body = await r.json().catch(() => ({}));
+    if (mine !== TSK.gen) return;
+    if (!r.ok || !Array.isArray(body.tasks)) {
+      /* An unreadable store is an error, never an empty list (the route says so): "No tasks"
+         would be a claim about somebody's work that we did not make. */
+      TSK.error = String(body.error || 'we could not read your tasks just now');
+    } else {
+      /* A good read clears the error a failed one left, and only that (a "Closed N" line stays). */
+      if (TSK.error && msg && msg.textContent === asSentence(TSK.error)) msg.textContent = '';
+      TSK.error = null;
+      /* Archived projects are set aside: their tasks are not in this view (the rails tuck archived
+         projects away too), except the one a project door scoped us to (#3703; tskVisible). */
+      TSK.data = body.tasks;
+      /* A ticked task that has since closed or gone cannot stay ticked. */
+      const open = new Set(TSK.data.filter((t) => t.state !== 'closed').map(tskKey));
+      TSK.sel.forEach((k) => { if (!open.has(k)) TSK.sel.delete(k); });
+    }
+  } catch {
+    if (mine !== TSK.gen) return;
+    TSK.error = 'we could not reach Kosmos to read your tasks';
+  }
+  if (msg && TSK.error) msg.textContent = asSentence(TSK.error);
+  tskPaintKeepingCurrentFocus();
+}
+function tskRow(t) {
+  const on = TSK.sel.has(tskKey(t));
+  /* A state this view does not know gets no label at all, never a group the engine did not name. */
+  const g = TSK_GROUPS.find((x) => x.k === t.state) || null;
+  const now = Date.now();
+  const added = agoWords(now - Date.parse(t.createdAt));
+  const moved = t.lastActivityAt ? agoWords(now - Date.parse(t.lastActivityAt)) : '';
+  const who = (t.whoNames || []);
+  const whoHtml = who.length
+    ? who.map((w) => '<button type="button" class="tsk-who" data-agent="' + esc(w) + '">' + esc(tskAgentName(w)) + '</button>').join('')
+    : '<span class="tsk-who nobody">Nobody yet</span>';
+  /* The claim could not be read: say WHY on the row, so "Assigned, not started" is never read
+     as a fact about a task we simply could not check. */
+  const cannot = t.state === 'assigned' && t.claim && t.claim.claimed === null && t.claim.because
+    ? '<div class="why">We cannot tell whether it has started: ' + esc(t.claim.because) + '.</div>' : '';
+  return '<div class="tsk-row' + (on ? ' sel' : '') + '" data-key="' + esc(tskKey(t)) + '">'
+    + '<input type="checkbox" data-key="' + esc(tskKey(t)) + '"' + (on ? ' checked' : '')
+    + (t.state === 'closed' ? ' disabled' : '') + ' aria-label="Select task ' + Number(t.number) + ' of ' + esc(t.projectName) + '">'
+    + '<div class="t"><span class="n">#' + Number(t.number) + '</span>'
+    + '<button type="button" class="tl" data-open-task="' + esc(tskKey(t)) + '">' + esc(t.sentence) + '</button>'
+    + '<div class="meta"><button type="button" data-open-project="' + esc(t.projectId) + '">' + esc(t.projectName) + '</button>'
+    + (added ? '<span>added ' + esc(added) + '</span>' : '')
+    + (moved && moved !== added ? '<span>last activity ' + esc(moved) + '</span>' : '')
+    + (t.dueDate ? '<span>due ' + esc(t.dueDate) + '</span>' : '')
+    + '</div>' + cannot + '</div>'
+    + '<div class="tsk-side">' + whoHtml
+    + (g ? '<span class="tsk-state" style="--tsk-c:' + g.c + '"><span class="tsk-dot"></span>' + esc(g.l) + '</span>' : '') + '</div>'
+    + '</div>';
+}
+function tskList(rows) {
+  return rows.length ? '<div class="tsk-list">' + rows.map(tskRow).join('') + '</div>'
+    : '<div class="tsk-list"><p class="tsk-empty">Nothing here.</p></div>';
+}
+/* What the view lists: every task except an archived project's, unless that project is the one
+   in scope (its own View-all door, #3703). Unarchiving brings them back on the next read. */
+function tskVisible(all, proj) {
+  return (all || []).filter((t) => !t.projectArchived || t.projectId === proj);
+}
+function tskPaint() {
+  const now = Date.now();
+  TSK.names = tskNamesSig();
+  const all = tskVisible(TSK.data, TSK.proj);
+  const projMap = new Map();
+  for (const t of all) {
+    if (!projMap.has(t.projectId)) projMap.set(t.projectId, { id: t.projectId, name: t.projectName, open: 0 });
+    if (t.state !== 'closed') projMap.get(t.projectId).open += 1;
+  }
+  /* A project door can scope us to a project with no tasks yet: it is still the project, with 0. */
+  if (TSK.proj && !projMap.has(TSK.proj) && TSK.projHint && TSK.projHint.id === TSK.proj
+      && PROJECTS.some((x) => x && x.id === TSK.proj)) {   // only while the project still exists
+    projMap.set(TSK.proj, { id: TSK.proj, name: TSK.projHint.name, open: 0 });
+  }
+  /* A scope to a project that is gone falls back to All tasks, but only once the tasks are read:
+     before the first read there is no data to judge by, and dropping it then would lose the
+     project a door just asked for (#3703). */
+  if (TSK.data && TSK.proj && !projMap.has(TSK.proj)) TSK.proj = null;
+  const projectsList = [...projMap.values()].sort((a, b) => String(a.name).localeCompare(String(b.name)));
+  /* "All tasks" counts what clicking it shows: every task but an archived project's, even while a
+     door has us scoped to that archived project (#1346: a count agrees with its destination). */
+  const openAll = tskVisible(TSK.data, null).filter((t) => t.state !== 'closed').length;
+  /* The rail, and its narrow-window twin. */
+  const rail = document.getElementById('tsk-projects');
+  if (rail) {
+    rail.innerHTML = '<button type="button" class="tsk-ritem' + (TSK.proj ? '' : ' on') + '" aria-pressed="' + !TSK.proj + '" data-proj=""><span class="nm">All tasks</span><span class="ct">' + openAll + '</span></button>'
+      + projectsList.map((p) => '<button type="button" class="tsk-ritem' + (TSK.proj === p.id ? ' on' : '') + '" aria-pressed="' + (TSK.proj === p.id) + '" data-proj="' + esc(p.id) + '"><span class="nm">' + esc(p.name) + '</span><span class="ct">' + p.open + '</span></button>').join('');
+  }
+  const sel = document.getElementById('tsk-projsel');
+  if (sel) {
+    sel.innerHTML = '<option value="">All projects</option>' + projectsList.map((p) => '<option value="' + esc(p.id) + '"' + (TSK.proj === p.id ? ' selected' : '') + '>' + esc(p.name) + '</option>').join('');
+  }
+  const picked = TSK.proj ? projMap.get(TSK.proj) : null;
+  document.getElementById('tsk-title').textContent = picked ? picked.name : 'All tasks';
+  document.getElementById('tsk-crumb').innerHTML = picked
+    ? '<button type="button" data-proj="">All tasks</button> › ' + esc(picked.name) + ' · <button type="button" data-open-project="' + esc(picked.id) + '">Open project</button>'
+    : '';
+  const scoped = tskScoped(all, TSK, now);
+  const open = scoped.filter((t) => t.state !== 'closed');
+  document.getElementById('tsk-sub').textContent = TSK.error && !TSK.data ? ''
+    : open.length + (open.length === 1 ? ' open task' : ' open tasks')
+      + (picked ? '' : ' across ' + projectsList.length + (projectsList.length === 1 ? ' project' : ' projects'));
+  document.getElementById('tsk-win').innerHTML = TSK_WINDOWS.map(([l, d]) => '<button type="button" data-win="' + d + '" aria-pressed="' + (TSK.win === d) + '">' + esc(l) + '</button>').join('');
+  document.getElementById('tsk-by').innerHTML = TSK_BYS.map(([k, l]) => '<button type="button" data-by="' + k + '" aria-pressed="' + (TSK.by === k) + '">' + esc(l) + '</button>').join('');
+  document.getElementById('tsk-sort').value = TSK.sort;
+  /* Tiles: the proven groups only, counted before the tile filter so every tile keeps its number. */
+  document.getElementById('tsk-tiles').innerHTML = !TSK.data ? '' : TSK_GROUPS.map((g) => {
+    const n = scoped.filter((t) => t.state === g.k).length;
+    return '<button type="button" class="tsk-tile" data-tile="' + g.k + '" aria-pressed="' + (TSK.tile === g.k) + '" style="--tsk-c:' + g.c + '">'
+      + '<span class="num">' + n + '</span><span class="lab"><span class="tsk-dot"></span>' + esc(g.l) + '</span><span class="ts">' + esc(g.s) + '</span></button>';
+  }).join('');
+  const groups = document.getElementById('tsk-groups');
+  if (!TSK.data) { groups.innerHTML = TSK.error ? '' : '<p class="tsk-empty">Reading your tasks…</p>'; tskPaintBulk(); return; }
+  const shown = TSK.tile ? scoped.filter((t) => t.state === TSK.tile) : scoped;
+  const sorted = tskSort(shown, TSK.sort);
+  /* A tick only ever covers a row on screen: a filter that hides a ticked row drops the tick, so
+     "N selected" and Close them can never reach tasks the person cannot see. BEFORE any early
+     return below (a search that matches nothing hides every row). */
+  const onScreen = new Set(shown.filter((t) => t.state !== 'closed').map(tskKey));
+  TSK.sel.forEach((k) => { if (!onScreen.has(k)) TSK.sel.delete(k); });
+  /* The search's result, announced (only while a search is active, and only when it changes). */
+  {
+    const live = document.getElementById('tsk-found');
+    const q = String(TSK.q).trim();
+    const said = !q ? '' : (shown.length
+      ? shown.length + (shown.length === 1 ? ' task matches.' : ' tasks match.')
+      : 'No tasks match \u201c' + q + '\u201d. Try fewer words, or clear the search.');
+    if (live && live.textContent !== said) live.textContent = said;
+  }
+  /* Mona's a40bbe1: a search that finds nothing says so, and what to do. */
+  if (!shown.length && String(TSK.q).trim()) {
+    groups.innerHTML = '<p class="tsk-empty">No tasks match \u201c' + esc(String(TSK.q).trim()) + '\u201d. Try fewer words, or clear the search.</p>';
+    tskPaintBulk();
+    return;
+  }
+  if (TSK.by === 'project') {
+    const byP = new Map();
+    for (const t of sorted) { if (!byP.has(t.projectId)) byP.set(t.projectId, []); byP.get(t.projectId).push(t); }
+    groups.innerHTML = [...byP.entries()].sort((a, b) => String(a[1][0].projectName).localeCompare(String(b[1][0].projectName)))
+      .map(([, ts]) => {
+        const n = ts.filter((t) => t.state !== 'closed').length;
+        return '<section class="tsk-grp"><h3>' + esc(ts[0].projectName) + '<span class="count">' + n + ' open</span></h3>' + tskList(ts) + '</section>';
+      }).join('') || '<p class="tsk-empty">No tasks match.</p>';
+  } else {
+    groups.innerHTML = TSK_GROUPS.filter((g) => !TSK.tile || TSK.tile === g.k).map((g) => {
+      const ts = sorted.filter((t) => t.state === g.k);
+      const head = '<h3><span class="tsk-dot" style="--tsk-c:' + g.c + '"></span>' + esc(g.l) + '<span class="count">' + ts.length + '</span></h3><p class="why">' + esc(g.why) + '</p>';
+      /* Closed is folded unless its tile was picked: finished work is reachable, not in the way. */
+      if (g.k === 'closed' && TSK.tile !== 'closed') {
+        return '<section class="tsk-grp" style="--tsk-c:' + g.c + '"><details class="tsk-fold"' + (TSK.closedOpen ? ' open' : '') + '><summary>' + esc(g.l) + ' (' + ts.length + ')</summary>' + tskList(ts) + '</details></section>';
+      }
+      return '<section class="tsk-grp">' + head + tskList(ts) + '</section>';
+    }).join('');
+  }
+  tskPaintBulk();
+}
+function tskPaintBulk() {
+  const bar = document.getElementById('tsk-bulk');
+  if (!bar) return;
+  const n = TSK.sel.size;
+  bar.hidden = n === 0;
+  document.getElementById('tsk-bc').textContent = n + (n === 1 ? ' task selected' : ' tasks selected');
+}
+/* Into a project (and a task in it) from the Tasks view. The project list may not have been read
+   yet this visit, so it is read first; a project that is gone gets this view's own sentence rather
+   than openProject's "was created, but we could not read it back". */
+async function tskGoToProject(id) {
+  await loadProjects();
+  if (!pjById(id)) {
+    document.getElementById('tsk-msg').textContent = 'We could not open that project just now.';
+    return false;
+  }
+  if (URL_TAB !== 'projects') showTab('projects');
+  openProject(id);
+  return true;
+}
+async function tskOpenTask(key) {
+  const t = (TSK.data || []).find((x) => tskKey(x) === key);
+  if (!t) return;
+  if (await tskGoToProject(t.projectId)) openTaskPage(Number(t.number));
+}
+async function tskOpenProject(id) {
+  await tskGoToProject(id);
+}
+/* #3703: the project page's View-all door. ONE list screen: it opens this view scoped to the project
+   rather than a second list of its own. A door is a fresh look at that project, so the window goes
+   back to All (the door has always meant every task, closed included), and the search and tile go;
+   Group by and Sort are the person's own and stay. The way back is the crumb's "Open project". */
+function openProjectTasks(id) {
+  const p = id ? pjById(id) : null;
+  TSK.proj = id || null;
+  TSK.projHint = p ? { id: p.id, name: p.name } : null;
+  TSK.win = 0; TSK.tile = null; TSK.q = '';
+  const q = document.getElementById('tsk-search');
+  if (q) q.value = '';
+  document.getElementById('tsk-qclear').hidden = true;
+  if (document.body.classList.contains('consolidated')) openConsolidatedTasks();
+  else showTab('tasks');
+}
+async function tskBulkClose() {
+  if (TSK.busy || !TSK.sel.size) return;
+  const msg = document.getElementById('tsk-msg');
+  const note = document.getElementById('tsk-bnote').value.trim();
+  const picks = [...TSK.sel].map((k) => { const i = k.lastIndexOf('#'); return { projectId: k.slice(0, i), number: Number(k.slice(i + 1)) }; });
+  TSK.busy = true;
+  document.getElementById('tsk-bclose').disabled = true;
+  try {
+    const r = await fetch('/api/tasks/close', {
+      method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ tasks: picks, note }),
+    });
+    const body = await r.json().catch(() => ({}));
+    const results = Array.isArray(body.results) ? body.results : [];
+    const failed = results.filter((x) => !x.ok);
+    const done = results.filter((x) => x.ok && !x.already).length;
+    const was = results.filter((x) => x.ok && x.already).length;
+    const noteLost = results.filter((x) => x.ok && x.noteRecorded === false).length;
+    const tail = (was ? ' ' + was + (was === 1 ? ' was' : ' were') + ' already closed.' : '')
+      + (noteLost ? ' The note could not be saved on ' + noteLost + ' of them.' : '');
+    results.filter((x) => x.ok).forEach((x) => TSK.sel.delete(String(x.projectId) + '#' + Number(x.number)));
+    if (!results.length) {
+      msg.textContent = asSentence(body.error || 'those tasks were not closed');
+    } else if (failed.length) {
+      msg.textContent = 'Closed ' + done + ' of ' + results.length + '.' + tail + ' '
+        + failed.map((x) => { const t = (TSK.data || []).find((y) => y.projectId === x.projectId && y.number === x.number); return (t ? t.projectName + ' ' : '') + '#' + x.number + ': ' + x.error; }).join('; ') + '.';
+    } else {
+      msg.textContent = 'Closed ' + done + (done === 1 ? ' task.' : ' tasks.') + tail
+        + ' Closing a task does not stop an agent that is working on it.';
+      document.getElementById('tsk-bnote').value = '';
+    }
+  } catch {
+    msg.textContent = 'We could not reach Kosmos, so nothing was closed.';
+  } finally {
+    TSK.busy = false;
+    document.getElementById('tsk-bclose').disabled = false;
+  }
+  /* The bar hides once its rows are gone, taking the focused button with it: move focus to the
+     status line, so a keyboard or screen-reader user lands on what happened. */
+  msg.tabIndex = -1;
+  msg.focus();
+  tskLoad();
+}
+/* A repaint replaces the control that had focus, so focus goes to its REPLACEMENT: the same kind
+   of control (tag + data attribute + value) inside the same container (its row by task key, the
+   crumb, the rail, the tiles, a segmented control), and only one that is on screen. Scoping to the
+   container is what makes it the same control: an agent's button repeats on every row it holds,
+   a row and its checkbox share a key, and the crumb's "All tasks" shares data-proj="" with a rail
+   item that is hidden in the consolidated view. */
+const TSK_FOCUS_KEYS = ['data-open-task', 'data-open-project', 'data-agent', 'data-tile', 'data-proj', 'data-win', 'data-by', 'data-key'];
+function tskFocusMark(el) {
+  const panel = document.getElementById('panel-tasks');
+  if (!el || !panel || !panel.contains(el)) return null;
+  const attr = TSK_FOCUS_KEYS.find((k) => el.hasAttribute(k));
+  if (!attr) return null;
+  const row = el.closest('.tsk-row');
+  const box = row ? null : el.closest('#tsk-crumb, #tsk-projects, #tsk-tiles, #tsk-win, #tsk-by');
+  return { tag: el.tagName.toLowerCase(), attr, value: el.getAttribute(attr), row: row ? row.dataset.key : null, box: box ? box.id : null };
+}
+function tskFocusRestore(mark) {
+  if (!mark) return;
+  const scope = mark.row !== null
+    ? document.querySelector('#tsk-groups .tsk-row[data-key="' + CSS.escape(mark.row) + '"]')
+    : (mark.box ? document.getElementById(mark.box) : document.getElementById('panel-tasks'));
+  const shown = (x) => x && x.getClientRects().length > 0;
+  const again = scope ? [...scope.querySelectorAll(mark.tag + '[' + mark.attr + '="' + CSS.escape(String(mark.value)) + '"]')].find(shown) : null;
+  if (again) { again.focus(); return; }
+  /* The control is gone with its container (the crumb's "All tasks" empties the crumb): land on
+     what now stands for it, the rail's item for that project, else the dropdown, else the search,
+     never the page body. */
+  const fallback = [...document.querySelectorAll('#tsk-projects [data-proj="' + CSS.escape(String(mark.attr === 'data-proj' ? mark.value : '')) + '"]')].find(shown)
+    || [document.getElementById('tsk-projsel'), document.getElementById('tsk-search')].find(shown);
+  if (fallback) fallback.focus();
+}
+function tskPaintKeepingFocus(el) {
+  const mark = tskFocusMark(el);
+  tskPaint();
+  tskFocusRestore(mark);
+}
+/* The same for a repaint nobody pressed for (a load finishing, the roster renaming an agent). */
+function tskPaintKeepingCurrentFocus() {
+  tskPaintKeepingFocus(document.activeElement);
+}
+document.getElementById('panel-tasks').addEventListener('click', (e) => {
+  const el = (sel) => e.target.closest(sel);
+  let b;
+  if ((b = el('[data-proj]'))) { TSK.proj = b.dataset.proj || null; TSK.tile = null; tskPaintKeepingFocus(b); return; }
+  if ((b = el('[data-win]'))) { TSK.win = Number(b.dataset.win) || 0; tskPaintKeepingFocus(b); return; }
+  if ((b = el('[data-by]'))) { TSK.by = b.dataset.by; tskPaintKeepingFocus(b); return; }
+  if ((b = el('[data-tile]'))) { TSK.tile = TSK.tile === b.dataset.tile ? null : b.dataset.tile; tskPaintKeepingFocus(b); return; }
+  if ((b = el('[data-open-task]'))) { tskOpenTask(b.dataset.openTask); return; }
+  if ((b = el('[data-open-project]'))) { tskOpenProject(b.dataset.openProject); return; }
+  if ((b = el('[data-agent]'))) { openDetail(b.dataset.agent); return; }
 });
+document.getElementById('panel-tasks').addEventListener('change', (e) => {
+  const box = e.target.closest('input[type="checkbox"][data-key]');
+  if (box) {
+    if (box.checked) TSK.sel.add(box.dataset.key); else TSK.sel.delete(box.dataset.key);
+    const row = box.closest('.tsk-row');
+    if (row) row.classList.toggle('sel', box.checked);
+    tskPaintBulk();
+    return;
+  }
+  if (e.target.id === 'tsk-sort') { TSK.sort = e.target.value; tskPaint(); return; }
+  if (e.target.id === 'tsk-projsel') { TSK.proj = e.target.value || null; TSK.tile = null; tskPaint(); }
+});
+/* `toggle` does not bubble, so the Closed fold's open state is caught in the capture phase and
+   kept across repaints. */
+document.getElementById('panel-tasks').addEventListener('toggle', (e) => {
+  if (e.target && e.target.classList && e.target.classList.contains('tsk-fold')) TSK.closedOpen = e.target.open;
+}, true);
+document.getElementById('tsk-search').addEventListener('input', (e) => {
+  TSK.q = e.target.value;
+  document.getElementById('tsk-qclear').hidden = !TSK.q;
+  tskPaint();
+});
+document.getElementById('tsk-qclear').addEventListener('click', () => {
+  const q = document.getElementById('tsk-search');
+  q.value = ''; TSK.q = '';
+  document.getElementById('tsk-qclear').hidden = true;
+  q.focus();
+  tskPaint();
+});
+document.getElementById('tsk-bclose').addEventListener('click', tskBulkClose);
+document.getElementById('tsk-bclear').addEventListener('click', () => {
+  TSK.sel.clear();
+  tskPaint();
+  // The bar hides with the ticks, taking this button with it: land on the search, not the body.
+  document.getElementById('tsk-search').focus();
+});
+document.getElementById('rail-projects-tasks').addEventListener('click', openConsolidatedTasks);
 
 document.getElementById('pj-tasklist').addEventListener('click', (e) => {
   const card = e.target.closest('.tkcard');
@@ -42654,9 +43130,90 @@ document.getElementById('tk-say').addEventListener('keydown', (e) => {
    a DIFFERENT project starts clean, so one project's half-written task can
    never be filed under another. */
 let NT_FOR = null;
-function openNewTask() {
-  const p = pjById(PJ_CURRENT);
+/* #3703: the dialog opens from the project page (its project) or from the Tasks view
+   ("+ New task"): that view's picked project, or, on All tasks, a project the person picks in the
+   dialog. NT_PROJECT is the project it files to; NT_ORIGIN is where focus and the answer go back. */
+let NT_ORIGIN = 'project';
+let NT_PROJECT = null;
+/* The projects the All-tasks picker offers: every project that is not archived, by name. The
+   rails set archived projects aside, and so does this list. A view SCOPED to an archived project
+   (its own View-all door) files there without the picker, exactly as that project's own page
+   does: the person is standing in that project on purpose. */
+function ntChoices() {
+  return PROJECTS.filter((p) => p && p.archived !== true)
+    .slice().sort((a, b) => String(a.name).localeCompare(String(b.name)));
+}
+async function openNewTaskFromTasks() {
+  await loadProjects();
+  const picked = TSK.proj ? pjById(TSK.proj) : null;
+  openNewTask(picked ? picked.id : null, 'tasks');
+}
+function openNewTask(projectId, origin) {
+  NT_ORIGIN = origin === 'tasks' ? 'tasks' : 'project';
+  const row = document.getElementById('nt-projrow');
+  const said = document.getElementById('nt-in');
+  const pick = document.getElementById('nt-in-pick');
+  const box = document.querySelector('#nt-modal [role="dialog"]');
+  /* The dialog's description is whichever line is showing: a hidden element named by
+     aria-describedby is still read, so it must follow the mode rather than stay on #nt-in. */
+  const describe = (id) => { if (box) box.setAttribute('aria-describedby', id); };
+  let p = pjById(projectId === undefined ? PJ_CURRENT : projectId);
+  if (NT_ORIGIN === 'tasks' && !p) {
+    /* All tasks: ask which project, in the dialog. A kept draft's project (one with anything in
+       it) is offered first, since the person was aiming it there; else the first by name. Either
+       way the draft is never wiped here: the person has not chosen anything yet, so the words
+       follow the pick (below) exactly as they do when the person changes it. */
+    const choices = ntChoices();
+    const sel = document.getElementById('nt-proj');
+    sel.innerHTML = choices.map((c) => '<option value="' + esc(c.id) + '">' + esc(c.name) + '</option>').join('');
+    row.hidden = false;
+    said.hidden = true;
+    pick.hidden = false;
+    describe('nt-in-pick');
+    if (!choices.length) {
+      /* Nothing to file it to: say which of three things is true, rather than an empty picker and
+         a Create that cannot work. An unreadable list is said as unreadable, never as "none" (the
+         loadProjects rule), and projects that are all archived are not "no projects". */
+      NT_PROJECT = null;
+      row.hidden = true; pick.hidden = true;   // an empty picker offers nothing
+      describe('nt-msg');
+      document.getElementById('nt-project').textContent = '';   // no stale name left behind
+      document.getElementById('nt-who').innerHTML = '<option value="">Nobody yet</option>';
+      document.getElementById('nt-msg').textContent = PJ_READ_FAILED
+        ? 'We could not read your projects just now, so there is nothing to file this to yet. Try again in a moment.'
+        : PROJECTS.length
+          ? 'Every project is archived. Unarchive one, or make a new one, to add a task.'
+          : 'Make a project first. A task belongs to a project.';
+      document.getElementById('nt-go').disabled = true;
+      document.getElementById('nt-modal').hidden = false;
+      document.getElementById('nt-back').focus();
+      return;
+    }
+    const drafted = NT_FOR && ['nt-what', 'nt-detail'].some((id) => document.getElementById(id).value.trim());
+    sel.value = drafted && choices.some((c) => c.id === NT_FOR) ? NT_FOR : choices[0].id;
+    p = pjById(sel.value);
+    if (p && p.id !== NT_FOR) {
+      NT_FOR = p.id;   // the draft follows the pick, so ntAimAt keeps the words instead of clearing them
+      document.getElementById('nt-who').value = '';   // who was picked for another project is not carried
+    }
+  } else {
+    row.hidden = true;
+    said.hidden = false;
+    pick.hidden = true;
+    describe('nt-in');
+  }
   if (!p) return;
+  ntAimAt(p);
+  document.getElementById('nt-msg').textContent = '';
+  document.getElementById('nt-go').disabled = !document.getElementById('nt-what').value.trim();
+  document.getElementById('nt-modal').hidden = false;
+  /* With the picker showing, focus starts on it: its chosen project is heard first, before any
+     words are typed for it. */
+  document.getElementById(row.hidden ? 'nt-what' : 'nt-proj').focus();
+}
+/* Point the dialog at one project: its name, the draft kept for it, and its members as the choices. */
+function ntAimAt(p) {
+  NT_PROJECT = p.id;
   document.getElementById('nt-project').textContent = p.name;
   /* The dialog's Cancel keeps its word; the page's Back used to carry the project's name here. */
   /* Decided BEFORE the key moves: keepWho below must answer "was there a
@@ -42692,23 +43249,32 @@ function openNewTask() {
        Nobody, which is what an unselected select would submit anyway. */
     if (sel.selectedIndex === -1) sel.selectedIndex = 0;
   }
-  document.getElementById('nt-msg').textContent = '';
-  document.getElementById('nt-go').disabled = !document.getElementById('nt-what').value.trim();
-  document.getElementById('nt-modal').hidden = false;
-  document.getElementById('nt-what').focus();
 }
 function leaveNewTask() {
   document.getElementById('nt-modal').hidden = true;
-  document.getElementById('pj-newtask').focus();
+  document.getElementById(NT_ORIGIN === 'tasks' ? 'tsk-new' : 'pj-newtask').focus();
 }
-document.getElementById('pj-newtask').addEventListener('click', openNewTask);
+/* Wrapped: a bare listener would hand the click Event to openNewTask as its project id. */
+document.getElementById('pj-newtask').addEventListener('click', () => openNewTask());
+document.getElementById('tsk-new').addEventListener('click', openNewTaskFromTasks);
+/* A different project picked in the dialog: the same draft, aimed at it. The words stay; who is
+   on it does not, because an agent picked for one project was not picked for another (a member
+   of both would otherwise be carried across without anyone choosing them there). */
+document.getElementById('nt-proj').addEventListener('change', (e) => {
+  const p = pjById(e.target.value);
+  if (!p) return;
+  NT_FOR = p.id;   // the draft follows the pick, so ntAimAt keeps the words instead of clearing them
+  document.getElementById('nt-who').value = '';
+  ntAimAt(p);
+});
 document.getElementById('nt-back').addEventListener('click', leaveNewTask);
 // Create is held down until the one required thing exists (pack: disabled).
 document.getElementById('nt-what').addEventListener('input', () => {
-  document.getElementById('nt-go').disabled = !document.getElementById('nt-what').value.trim();
+  // No project to file it to (the Tasks view with none made yet): Create stays down whatever is typed.
+  document.getElementById('nt-go').disabled = !document.getElementById('nt-what').value.trim() || !NT_PROJECT;
 });
 document.getElementById('nt-go').addEventListener('click', async () => {
-  const p = pjById(PJ_CURRENT);
+  const p = pjById(NT_PROJECT);
   if (!p) return;
   const go = document.getElementById('nt-go');
   go.disabled = true;
@@ -42732,6 +43298,17 @@ document.getElementById('nt-go').addEventListener('click', async () => {
     document.getElementById('nt-what').value = '';
     document.getElementById('nt-detail').value = '';
     leaveNewTask();
+    if (NT_ORIGIN === 'tasks') {
+      /* From the Tasks view: stay there. The view re-reads (a refresh, so ticks stay), and its
+         status line says where the task went, plus who was told when an agent was. */
+      await loadProjects();
+      const made = body && body.task;
+      const heardT = heardSentence(spokenHeard(pjById(p.id), body && body.heard));
+      const m = document.getElementById('tsk-msg');
+      if (m) m.textContent = 'Added task ' + (made && made.number ? made.number + ' ' : '') + 'to ' + p.name + '.' + (heardT ? ' ' + heardT : '');
+      await tskLoad(false);
+      return;
+    }
     await pjReload();
     // Set AFTER the reload and the dialog's own close, which both land on
     // the project page too: an earlier write here would be gone before
@@ -43950,7 +44527,7 @@ function pjTableHtml(headerLine, aligns, bodyLines, names, agentNames) {
   }
   return h + '</tbody></table></span>';
 }
-function pjProse(text, names, agentNames) {
+function pjProse(text, names, agentNames, sharedStack) {
   const src = String(text == null ? '' : text).split(/\r?\n/);   // #3679: a CRLF line still matches the `$`-anchored line rules below
   /* Drop empty lines at the two ENDS only (never interior blank lines, which
      are the paragraph breaks this renderer exists to show). This absorbs the
@@ -43960,7 +44537,9 @@ function pjProse(text, names, agentNames) {
   while (src.length && src[0] === '') src.shift();
   while (src.length && src[src.length - 1] === '') src.pop();
   const out = [];
-  const listStack = [];   // #3679: pjListDepth's open levels for the current list
+  // #3679: pjListDepth's open levels for the current list. #3685: pjBody passes one stack to every
+  // prose segment, so a list stays open across a fence nested in one of its items.
+  const listStack = sharedStack || [];
   for (let i = 0; i < src.length; i += 1) {
     const line = src[i];
     // A non-list line ends the list only when it is not indented under it (a table or heading
@@ -44003,17 +44582,74 @@ function pjProse(text, names, agentNames) {
 }
 function pjBody(text, names, agentNames) {
   const raw = String(text == null ? '' : text);
-  /* The capture keeps each fence line's infostring; the old pattern ate it.
-     With the capture, k closed blocks yield 4k+1 segments:
-     [prose, openInfo, code, closeInfo, prose, ...]. Any other count means an
-     unclosed fence, and an uncertain reading stays the flat paragraph. */
-  const parts = raw.split(/^```([^\n]*)$/m);
-  if (parts.length < 5 || (parts.length - 1) % 4 !== 0) return pjProse(raw, names, agentNames);
+  /* #3685: fences are read the way the store (engine/chat.js storeText) and pjRich read
+     them: leading spaces or tabs allowed, three or more backticks, no backtick after them,
+     and closed only by a bare run at least as long as the opener. So an indented fence
+     (under a list item), a four-backtick fence holding a ``` example, and an inline
+     ```span``` line open and close the same way here as there. (Unlike pjRich, an
+     unclosed fence still leaves the message as prose; see below.) The segments are cut at the same
+     offsets the old split used, [prose, openInfo, code, closeInfo, prose, ...], so a
+     column-0 three-backtick fence renders exactly as before. An unclosed fence is still an
+     uncertain reading, and the whole message stays the flat paragraph. */
+  const parts = [];
+  let proseFrom = 0;
+  let open = null;   // { lead, len, codeFrom } while inside a fence
+  const openWidths = [];   // each fence opener's indent width, in order
+  const listStack = [];   // shared by every prose segment below (pjProse), see the loop
+  let at = 0;
+  let closedAny = false;
+  while (at <= raw.length) {
+    const nl = raw.indexOf('\n', at);
+    const end = nl === -1 ? raw.length : nl;
+    const line = raw.slice(at, end);
+    if (!open) {
+      const fo = /^([ \t]*)(`{3,})([^`]*)$/.exec(line);
+      if (fo) {
+        parts.push(raw.slice(proseFrom, at), fo[3]);
+        openWidths.push(fo[1].replace(/\t/g, '    ').length);
+        open = { lead: openWidths[openWidths.length - 1], len: fo[2].length, codeFrom: end };
+      }
+    } else {
+      const fc = /^[ \t]*(`{3,})([ \t]*)\r?$/.exec(line);
+      if (fc && fc[1].length >= open.len) {
+        let code = raw.slice(open.codeFrom, at);
+        // The opener's indentation comes off each code line, up to that much, measured in
+        // columns with a tab as 4 (the store's STORE_TAB and openWidths above). A tab that
+        // would cut past the opener's width leaves its remainder as spaces.
+        if (open.lead) {
+          const cut = open.lead;
+          code = code.split('\n').map((l) => {
+            let col = 0;
+            let i = 0;
+            while (i < l.length && col < cut && (l[i] === ' ' || l[i] === '\t')) {
+              const w = l[i] === '\t' ? 4 : 1;
+              if (col + w > cut) return ' '.repeat(col + w - cut) + l.slice(i + 1);
+              col += w;
+              i += 1;
+            }
+            return l.slice(i);
+          }).join('\n');
+        }
+        parts.push(code, fc[2]);
+        proseFrom = end;
+        open = null;
+        closedAny = true;
+      }
+    }
+    if (nl === -1) break;
+    at = nl + 1;
+  }
+  if (open || !closedAny) return pjProse(raw, names, agentNames);
+  parts.push(raw.slice(proseFrom));
   let out = '';
   for (let i = 0; i < parts.length; i += 1) {
     const at = i % 4;
-    if (at === 0) { out += pjProse(parts[i], names, agentNames); continue; }
+    if (at === 0) { out += pjProse(parts[i], names, agentNames, listStack); continue; }
     if (at === 1) {
+      // A fence that is not indented under the open list ends it, as any such line does in
+      // pjProse; one nested in an item keeps it open for the items after the fence.
+      const w = openWidths[(i - 1) / 4];
+      if (listStack.length && w <= listStack[0]) listStack.length = 0;
       const label = String(parts[i] || '').trim();
       /* Path-shaped: no whitespace (a save-as attribute is not an origin),
          no `..` (walking up is not a file of this project), and a dot or a
@@ -54240,7 +54876,9 @@ function asbScreen() {
   if (fr && !fr.hidden) return { screen: 'firstrun' };
   if (URL_TAB === 'detail' && CURRENT) return { screen: 'agent', agent: CURRENT.name || CURRENT.sessionName };
   if (URL_TAB === 'create') return { screen: 'create' };
-  if (URL_TAB === 'projects' && PJ_VIEW === 'alltasks') return { screen: 'tasks' };
+  /* #3559: the Tasks view, as its own tab or opened inside the consolidated display column. */
+  if (URL_TAB === 'tasks') return { screen: 'tasks' };
+  { const pt = document.getElementById('panel-tasks'); if (pt && !pt.hidden && pt.getClientRects().length) return { screen: 'tasks' }; }
   if (URL_TAB === 'projects' && PJ_CURRENT && PJ_VIEW !== 'list') {
     const pj = Array.isArray(PROJECTS) ? PROJECTS.find((x) => x && x.id === PJ_CURRENT) : null;
     return { screen: 'project', project: (pj && pj.name) || String(PJ_CURRENT) };
@@ -54855,7 +55493,7 @@ let WANT_PROJECT_DONE = false;
    with the three-tab ruling and everything that lived behind it is in
    Projects, so a bookmark of the old tab lands where its content went. */
 const RAW_TAB = PARAMS.get('tab') || 'agents';
-const KNOWN_TABS = ['agents', 'projects', 'settings', 'detail', 'create'];
+const KNOWN_TABS = ['agents', 'projects', 'tasks', 'settings', 'detail', 'create'];
 const BOOT_TAB = RAW_TAB === 'joint' ? 'projects'
   : (KNOWN_TABS.includes(RAW_TAB) ? RAW_TAB : 'agents');
 showTab(BOOT_TAB);

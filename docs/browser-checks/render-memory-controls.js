@@ -5,6 +5,7 @@
  * then carrying the verdict. Not part of `npm test`; needs playwright on
  * NODE_PATH (this machine: ~/work/pw-runtime/node_modules).
  */
+require('./lib-sandbox-home.js'); // #3675: never read the host Mac's real accounts
 const fs = require('node:fs'); const os = require('node:os'); const path = require('node:path');
 const SANDBOX = fs.mkdtempSync(path.join(os.tmpdir(), 'aw-mem-'));
 process.env.AGENT_WORKFORCE_DATA = SANDBOX;

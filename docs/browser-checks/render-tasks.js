@@ -12,6 +12,7 @@
  * in this check can reach a live pane. It once could: a real session was
  * named as the member and every run typed the membership tell into that
  * agent, because sandboxing the store is not sandboxing delivery. */
+require('./lib-sandbox-home.js'); // #3675: never read the host Mac's real accounts
 const { spawn } = require('node:child_process');
 const fs = require('node:fs');
 const os = require('node:os');
@@ -207,7 +208,7 @@ const MEMBER = 'taskmate';
     }
     const doorText = (await shown(p.locator('#pj-alltasks'))).trim();
     if (/\d/.test(doorText)) {
-      die('the door carries a number again ("' + doorText + '"), which can disagree with the column above it and with the all-projects screen it opens');
+      die('the door carries a number again ("' + doorText + '"), which can disagree with the column above it and with the Tasks view it opens');
     }
     /* #3172 (Josh, 2026-09-16): the column sorts NEWEST task on top. "Check it
        against the live flow" (task 2, unassigned) was created AFTER "Rewrite the
@@ -356,7 +357,7 @@ const MEMBER = 'taskmate';
        mute, which the old form could not have caught either way. */
     const doorDone = (await shown(p.locator('#pj-alltasks'))).trim();
     if (!doorDone) die('the door is gone after finishing a task, so the done task is unreachable from this screen');
-    if (/\d/.test(doorDone)) die('the door carries a number again ("' + doorDone + '"), which can disagree with the column and with the all-projects screen it opens');
+    if (/\d/.test(doorDone)) die('the door carries a number again ("' + doorDone + '"), which can disagree with the column and with the Tasks view it opens');
     // And with the reveal OFF, the done card is behind the door. The reveal
     // survives same-project Back-and-return by design, so the reset needs a
     // real project SWITCH: bounce through Elsewhere and come back.
@@ -379,17 +380,22 @@ const MEMBER = 'taskmate';
        real claim is left where it already was. */
     const doorAfter = (await shown(p.locator('#pj-alltasks'))).trim();
     if (!doorAfter) die('the door is gone after switching back, so the done task cannot be reached from this project');
-    if (/\d/.test(doorAfter)) die('the door carries a number again ("' + doorAfter + '"), which can disagree with the column and with the all-projects screen it opens');
+    if (/\d/.test(doorAfter)) die('the door carries a number again ("' + doorAfter + '"), which can disagree with the column and with the Tasks view it opens');
     /* WAIT FOR THE DESTINATION. Until #1382 this door was a reveal IN PLACE, so
        the rows it exposed were already in the DOM and an immediate query was
-       correct. It now NAVIGATES to a screen that fetches its own rows, so the
+       correct. It now NAVIGATES to a view that fetches its own rows, so the
        same immediate query races the load and reports the done task missing
        when it is merely not there yet. The behaviour changed underneath a check
        that was right about the old one. */
+    /* #3703: the door opens the Tasks view scoped to this project (one list screen); finished
+       work is in its Closed fold, folded by default, so open the fold to reach it. */
     await p.click('#pj-alltasks');
-    await p.waitForSelector('#pj-alltasks-view', { state: 'visible', timeout: 10000 });
-    await p.waitForSelector('#pj-alltasks-view .tkcard', { timeout: 10000 });
-    const doneCard = p.locator('#pj-alltasks-view .tkcard.closed').first();
+    await p.waitForFunction(() => !document.getElementById('panel-tasks').hidden
+      && document.querySelectorAll('#tsk-groups .tsk-row').length > 0, null, { timeout: 10000 });
+    const fold = p.locator('#tsk-groups .tsk-fold');
+    if (!(await fold.count())) die('the done task is not behind the door (the Tasks view has no Closed fold)');
+    if (!(await fold.evaluate((d) => d.open))) await p.click('#tsk-groups .tsk-fold summary');
+    const doneCard = p.locator('#tsk-groups .tsk-fold .tsk-row .tl').first();
     if (!(await doneCard.count())) die('the done task is not behind the door');
     await doneCard.click();
     await p.waitForSelector('#pj-task-view', { state: 'visible' });

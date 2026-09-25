@@ -23,13 +23,13 @@ printf '%s\n' 'diff --git a/web/index.html b/web/index.html' '@@ -5,1 +5,1 @@' \
 # An unmapped token -> nothing covered.
 printf '%s\n' 'diff --git a/web/index.html b/web/index.html' '@@ -1,1 +1,1 @@' \
   '-  <div class="zzz-unmapped">a</div>' '+  <div class="zzz-unmapped">b</div>' > "$TMP/wd-unmapped"
-# A plain changed-id list (not a diff) touching alltasks-count (render-alltasks's token).
-printf '%s\n' 'alltasks-count' 'some-other-id' > "$TMP/idlist"
+# A plain changed-id list (not a diff) touching tsk-crumb (render-alltasks's token).
+printf '%s\n' 'tsk-crumb' 'some-other-id' > "$TMP/idlist"
 
 # 1. map: the seeded checks appear with their declared tokens.
 mapout="$(bash "$BCM" map)"
 if printf '%s\n' "$mapout" | grep -qE "^render-subprojects-1994\.js	.*pj-parent" \
-   && printf '%s\n' "$mapout" | grep -qE "^render-alltasks\.js	.*alltasks-count"; then
+   && printf '%s\n' "$mapout" | grep -qE "^render-alltasks\.js	.*tsk-crumb"; then
   pass "map emits the seeded checks with their tokens"
 else
   fail "map did not emit the seeded check->token lines"
@@ -45,10 +45,10 @@ fi
 
 # 2b. WEB-SCOPING (WARNING #1 lock, red-capable): a full multi-file diff whose NON-web file carries a
 #     mapped token must NOT be reported -- the gate diffs ONLY web/index.html. Without the web-section
-#     scoping in _bcm_covering, the engine/foo.js `-const x = "alltasks-count";` line would match and
+#     scoping in _bcm_covering, the engine/foo.js `-const x = "tsk-crumb";` line would match and
 #     covering would name render-alltasks.js. The web section here changes only benign markup.
 printf '%s\n' 'diff --git a/engine/foo.js b/engine/foo.js' '--- a/engine/foo.js' '+++ b/engine/foo.js' \
-  '@@ -1 +1 @@' '-const x = "alltasks-count";' '+const x = "alltasks-count2";' \
+  '@@ -1 +1 @@' '-const x = "tsk-crumb";' '+const x = "tsk-crumb2";' \
   'diff --git a/web/index.html b/web/index.html' '--- a/web/index.html' '+++ b/web/index.html' \
   '@@ -1 +1 @@' '-  <div>hello</div>' '+  <div>hi</div>' > "$TMP/wd-multi"
 if [ -z "$(bash "$BCM" covering < "$TMP/wd-multi")" ]; then
@@ -91,17 +91,17 @@ else
 fi
 
 # 3c. DRIFT-DETECTOR on a SECOND check + token: a diff touching render-alltasks's token
-#     alltasks-count -> covering names render-alltasks.js AND the gate (no update) refuses it. If the
+#     tsk-crumb -> covering names render-alltasks.js AND the gate (no update) refuses it. If the
 #     parse/match ever drift between the helper and the gate, this behavioural agreement breaks.
 printf '%s\n' 'diff --git a/web/index.html b/web/index.html' '@@ -1 +1 @@' \
-  '-  <b id="alltasks-count">3</b>' '+  <b id="alltasks-count">4 tasks</b>' > "$TMP/wd-alltasks"
+  '-  <p id="tsk-crumb">3</p>' '+  <p id="tsk-crumb">4 tasks</p>' > "$TMP/wd-alltasks"
 cov_at="$(bash "$BCM" covering < "$TMP/wd-alltasks")"
 gate_rc3=0
 ( . "$HERE/lib/browser-check-surface-gate.sh" \
     && KOSMOS_BCSG_WEBDIFF="$TMP/wd-alltasks" KOSMOS_BCG_FILES="/dev/null" KOSMOS_BCG_MSGS="/dev/null" \
        kosmos_browser_check_surface_gate ) >/dev/null 2>&1 || gate_rc3=$?
 if printf '%s\n' "$cov_at" | grep -qx "render-alltasks.js" && [ "$gate_rc3" -eq 1 ]; then
-  pass "drift-detector: helper covering + gate agree on a 2nd check/token (render-alltasks / alltasks-count)"
+  pass "drift-detector: helper covering + gate agree on a 2nd check/token (render-alltasks / tsk-crumb)"
 else
   fail "helper/gate drift on render-alltasks (cov='$cov_at', gate rc=$gate_rc3)"
 fi
@@ -163,7 +163,7 @@ else
   fail "covering named a check for an unmapped token"
 fi
 
-# 6. plain id-list input (not a diff): alltasks-count -> render-alltasks.js.
+# 6. plain id-list input (not a diff): tsk-crumb -> render-alltasks.js.
 if bash "$BCM" covering < "$TMP/idlist" | grep -qx "render-alltasks.js"; then
   pass "covering accepts a plain changed-id list, not only a diff"
 else
@@ -173,8 +173,8 @@ fi
 # 6b. ID-LIST ROBUSTNESS (WARNING #1 lock, red-capable): a plain id-list whose FIRST line happens to
 #     start with a diff-marker prefix (`--- `) must STILL resolve its real ids -- it is NOT a diff.
 #     With the old `^(@@ |+++ |--- )` shape detector this whole list was misread as a headerless hunk
-#     and every id silently dropped. alltasks-count is render-alltasks's token.
-printf '%s\n' '--- some-banner-line' 'alltasks-count' > "$TMP/idlist-marker"
+#     and every id silently dropped. tsk-crumb is render-alltasks's token.
+printf '%s\n' '--- some-banner-line' 'tsk-crumb' > "$TMP/idlist-marker"
 if bash "$BCM" covering < "$TMP/idlist-marker" | grep -qx "render-alltasks.js"; then
   pass "id-list: a list with a leading '--- ' line still resolves its ids (not misread as a diff)"
 else

@@ -21,6 +21,7 @@
  *
  * ⚠️ HEADED by default. `HEADED=0` on a machine with no console session.
  */
+require('./lib-sandbox-home.js'); // #3675: never read the host Mac's real accounts
 const fs = require('fs');
 const os = require('os');
 const path = require('path');
