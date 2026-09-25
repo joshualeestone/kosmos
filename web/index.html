@@ -1407,6 +1407,57 @@ button.uprime:hover, .btn.uprime:hover, .utoast .uacts button.uprime:hover,
    primary colour), so the promo stands out without a heavy background. */
 .userpop-ico { flex: none; color: var(--k-ink-2); }
 .userpop-sep { height: 0; margin: 4px 6px; border: 0; border-top: 0.5px solid var(--separator); }
+/* #3574 (Josh, 2026-09-24, for 0.6.93): first-run help. ONE card is the welcome tour and every
+   first-visit tip: a small gold label, a title, a few short sentences, one button. The ? beside the
+   user's name brings any of it back. Only the tour dims the screen; a screen tip floats beside the
+   thing and the page stays usable. No solid left bars (Josh, the same day). Layered above the sticky
+   header (its own stacking layer, z 20, so the tour can ring a place in it) and below every dialog
+   backdrop (.rm-back 50, .fr-back and .upd-back 60), so a dialog covers a tip the moment it opens (T13).
+   A header menu opened over a tip makes the tip step aside at once (T21). */
+.helpq { position: relative; display: inline-flex; }
+.helpq-btn { width: 28px; height: 28px; border-radius: 50%; border: 1px solid var(--k-rule); background: var(--k-surface);
+  display: inline-grid; place-items: center; cursor: pointer; font: 700 var(--text-callout) var(--font-ui); color: var(--k-ink-2); padding: 0; }
+.helpq-btn:hover { color: var(--k-ink); border-color: var(--gold-edge); }
+.helpq-btn:focus-visible { outline: 2px solid var(--k-ink); outline-offset: 2px; }
+.helpq .userpop-menu { min-width: 236px; }
+.tipcard { position: fixed; z-index: 46; width: 300px; max-width: calc(100vw - 24px); background: var(--bg-elevated); color: var(--k-ink);
+  border: 1px solid var(--gold-edge); border-radius: 14px; padding: 14px 16px 12px; box-shadow: 0 12px 32px rgba(20,22,26,.22); }
+.tipcard[hidden] { display: none; }
+.tipcard .tip-arrow { position: absolute; width: 14px; height: 14px; background: var(--bg-elevated);
+  border-left: 1px solid var(--gold-edge); border-top: 1px solid var(--gold-edge); }
+.tipcard.up .tip-arrow { top: -8px; left: var(--ax, 28px); transform: rotate(45deg); }
+.tipcard.down .tip-arrow { bottom: -8px; left: var(--ax, 28px); transform: rotate(225deg); }
+.tipcard.left .tip-arrow { left: -8px; top: var(--ay, 22px); transform: rotate(-45deg); }
+.tipcard.flat .tip-arrow { display: none; }
+.tipcard .tip-x { position: absolute; top: 8px; right: 8px; width: 26px; height: 26px; border: 0; background: none; border-radius: 7px;
+  color: var(--k-ink-2); cursor: pointer; font-size: 16px; line-height: 1; }
+.tipcard .tip-x:hover { background: var(--k-sunk); color: var(--k-ink); }
+.tipcard .tip-eb { font: 700 .625rem var(--font-ui); letter-spacing: .12em; text-transform: uppercase; color: var(--gold-edge); }
+.tipcard h2 { margin: 2px 26px 4px 0; font-size: 1rem; letter-spacing: -.005em; }
+.tipcard p { margin: 0 0 6px; font-size: .875rem; color: var(--k-ink-2); line-height: 1.5; }
+.tipcard ol { margin: 4px 0 8px; padding: 0; list-style: none; font-size: .875rem; color: var(--k-ink-2); }
+.tipcard ol li { display: flex; gap: 9px; align-items: flex-start; margin: 6px 0; line-height: 1.45; }
+.tipcard ol li i { flex: none; width: 20px; height: 20px; border-radius: 50%; background: var(--gold-bright); color: #14161a;
+  font: 800 .6875rem/20px var(--font-ui); text-align: center; font-style: normal; margin-top: 1px; }
+.tipcard ol li b { color: var(--k-ink); }
+.tipcard .tip-bands { display: flex; flex-direction: column; gap: 4px; margin: 6px 0 8px; font-size: .8125rem; color: var(--k-ink-2); }
+.tipcard .tip-bands span { display: flex; align-items: center; gap: 8px; }
+.tipcard .tip-bands svg { flex: none; display: block; }
+.tipcard .tip-acts { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-top: 8px; }
+.tipcard .tip-off, .tipcard .tip-skip { border: 0; background: none; padding: 0; cursor: pointer; font: .75rem var(--font-ui);
+  color: var(--k-ink-2); text-decoration: underline; text-underline-offset: 2px; }
+.tipcard .tip-go { font: 650 .8125rem var(--font-ui); padding: 6px 14px; border-radius: 9px; background: var(--gold-bright); color: #14161a; border: 0; cursor: pointer; }
+.tipcard .tip-go:focus-visible, .tipcard .tip-off:focus-visible, .tipcard .tip-skip:focus-visible, .tipcard .tip-x:focus-visible { outline: 2px solid var(--k-ink); outline-offset: 2px; }
+.tiphalo { position: fixed; z-index: 45; border-radius: 12px; pointer-events: none;
+  box-shadow: 0 0 0 3px var(--gold-bright), 0 0 0 7px color-mix(in srgb, var(--gold) 35%, transparent), 0 0 0 100vmax rgba(20,22,26,.28); }
+.tipcard .tip-dots { display: flex; gap: 5px; }
+.tipcard .tip-dots i { width: 6px; height: 6px; border-radius: 50%; background: color-mix(in srgb, var(--k-ink-2) 35%, transparent); }
+.tipcard .tip-dots i.on { background: var(--gold-deep); }
+.tipcard .tip-btns { display: flex; align-items: center; gap: 12px; }
+@media (max-width: 40rem) {
+  .tipcard { left: 12px !important; right: 12px; width: auto; }
+  .tipcard .tip-arrow { display: none; }
+}
 .userpop-plus { font-weight: 600; }
 /* --gold-deep, not --gold: --gold (#d6a62e) is only 2.25:1 on the light menu bg (#ffffff),
    under the 3:1 non-text-contrast floor (WCAG SC 1.4.11) this file measures every accent
@@ -8747,6 +8798,16 @@ window.kosmosMeasureScrollbarWidth();
          (<960px) visibility media gates are class-based, so they travel with the markup.
          The avatar+name is painted by paintRailMe (single-source with the consolidated
          #rail-me), reusing youFaceHtml(). Popover mechanics reuse the world-switcher pattern. -->
+    <!-- #3574: the way back to every tip. Beside the name rather than inside its menu, because a
+         tip you cannot find again did not happen. -->
+    <div class="helpq" id="helpq">
+      <button class="helpq-btn" id="helpq-btn" type="button" aria-label="Help" aria-expanded="false" aria-controls="helpq-menu" aria-haspopup="true">?</button>
+      <div class="userpop-menu" id="helpq-menu" hidden>
+        <button class="userpop-item" type="button" data-help="screen">Show tips for this screen</button>
+        <button class="userpop-item" type="button" data-help="tour">Take the welcome tour again</button>
+        <button class="userpop-item" type="button" data-help="ring">What does the ring mean?</button>
+      </div>
+    </div>
     <div class="userpop" id="userpop">
       <!-- #3051: NO aria-label. The accessible name derives from the visible name
            (#userpop-name; the avatar and chevron are aria-hidden), so it satisfies
@@ -11284,19 +11345,30 @@ window.kosmosMeasureScrollbarWidth();
                      GPT, appeared inside the API-key form, then vanished again when the
                      form hid itself on success. The order test still passed, because it
                      read source order and not whether a hidden container opened in between. -->
-                <!-- #3422 (Josh's asset, 2026-09-22): the Gemini spark as a single currentColor path, NOT a fixed-id radialGradient. providerMarkNode CLONES the span below into the enhanceProviderSelect combobox; a cloned fill="url(#pmark-gemini-g)" depended on the gradient def living in the (hidden) #firstrun and collided on a duplicated id, so the cloned mark rendered blank in the settings/create picker while the monochrome currentColor marks cloned fine. currentColor also lets it dim/live with .pmark like every other provider mark. This comment is OUTSIDE the .llm row (before the div) so it is neither cloned into every combobox mark nor between the div and span, which web.connect-confirm's row regex requires to be adjacent. --><div class="llm off"><span class="llm-m pmark dim" data-pmark="gemini" role="img" aria-label="Gemini"><svg viewBox="0 0 300 300" fill="currentColor" xmlns="http://www.w3.org/2000/svg"><path d="M265.9,134.3c-22.8-9.8-42.7-23.3-59.8-40.4-17.1-17.1-30.6-37-40.4-59.8-3.8-8.7-6.8-17.7-9.1-26.9-.8-3-3.5-5.1-6.6-5.1s-5.8,2.1-6.6,5.1c-2.3,9.2-5.3,18.2-9.1,26.9-9.8,22.8-23.3,42.7-40.4,59.8-17.1,17.1-37,30.6-59.8,40.4-8.7,3.8-17.7,6.8-26.9,9.1-3,.8-5.1,3.5-5.1,6.6s2.1,5.8,5.1,6.6c9.2,2.3,18.2,5.3,26.9,9.1,22.8,9.8,42.7,23.3,59.8,40.4,17.1,17.1,30.6,37,40.4,59.8,3.8,8.7,6.8,17.7,9.1,26.9.8,3,3.5,5.1,6.6,5.1s5.8-2.1,6.6-5.1c2.3-9.2,5.3-18.2,9.1-26.9,9.8-22.8,23.3-42.7,40.4-59.8,17.1-17.1,37-30.6,59.8-40.4,8.7-3.8,17.7-6.8,26.9-9.1,3-.8,5.1-3.5,5.1-6.6s-2.1-5.8-5.1-6.6c-9.2-2.3-18.2-5.3-26.9-9.1Z"/></svg></span><div class="llm-w"><b>Gemini</b><small>Google</small></div><span class="soon" title="Gemini connects with an API key in Settings, AI Models, once setup is done.">After setup</span></div>
-                <!-- #3386 (Josh, 2026-09-21): Grok shown up front, grouped with
-                     Gemini (the other cloud provider, connected in Settings, AI Models) before the on-your-
-                     computer tier. xAI has no vendor SVG here, so it uses the same "X" initial-letter
-                     chip the provider combobox falls back to, not a new asset. -->
-                <div class="llm off"><span class="llm-m llm-chip" data-pmark="xai" role="img" aria-label="Grok">X</span><div class="llm-w"><b>Grok</b><small>xAI</small></div><span class="soon" title="Grok connects with an API key in Settings, AI Models, once setup is done.">After setup</span></div>
-                <!-- #3566 (Splinter's scope call, 2026-09-24): Gemini and Grok are connectable now, but
-                     in Settings, AI Models, not in this wizard: the wizard's Continue and first-agent
-                     steps are built for Claude and OpenAI. So their pill says "After setup" rather than
-                     "Coming soon", and this line says where. Same .llm off weight as the roster below,
-                     because they cannot be connected FROM here. -->
-                <p class="dhint" id="fr-later-models" style="margin:4px 0 10px;">Gemini and Grok connect with an API key in Settings, AI Models, once setup is done.</p>
-                <p class="smore-t">Runs on this computer</p>
+                <!-- #3422 (Josh's asset, 2026-09-22): the Gemini spark as a single currentColor path, NOT a fixed-id radialGradient. providerMarkNode CLONES the span below into the enhanceProviderSelect combobox; a cloned fill="url(#pmark-gemini-g)" depended on the gradient def living in the (hidden) #firstrun and collided on a duplicated id, so the cloned mark rendered blank in the settings/create picker while the monochrome currentColor marks cloned fine. currentColor also lets it dim/live with .pmark like every other provider mark. This comment is OUTSIDE the .llm row (before the div) so it is neither cloned into every combobox mark nor between the div and span, which web.connect-confirm's row regex requires to be adjacent. --><div class="llm on"><span class="llm-m pmark live" data-pmark="gemini" role="img" aria-label="Gemini"><svg viewBox="0 0 300 300" fill="currentColor" xmlns="http://www.w3.org/2000/svg"><path d="M265.9,134.3c-22.8-9.8-42.7-23.3-59.8-40.4-17.1-17.1-30.6-37-40.4-59.8-3.8-8.7-6.8-17.7-9.1-26.9-.8-3-3.5-5.1-6.6-5.1s-5.8,2.1-6.6,5.1c-2.3,9.2-5.3,18.2-9.1,26.9-9.8,22.8-23.3,42.7-40.4,59.8-17.1,17.1-37,30.6-59.8,40.4-8.7,3.8-17.7,6.8-26.9,9.1-3,.8-5.1,3.5-5.1,6.6s2.1,5.8,5.1,6.6c9.2,2.3,18.2,5.3,26.9,9.1,22.8,9.8,42.7,23.3,59.8,40.4,17.1,17.1,30.6,37,40.4,59.8,3.8,8.7,6.8,17.7,9.1,26.9.8,3,3.5,5.1,6.6,5.1s5.8-2.1,6.6-5.1c2.3-9.2,5.3-18.2,9.1-26.9,9.8-22.8,23.3-42.7,40.4-59.8,17.1-17.1,37-30.6,59.8-40.4,8.7-3.8,17.7-6.8,26.9-9.1,3-.8,5.1-3.5,5.1-6.6s-2.1-5.8-5.1-6.6c-9.2-2.3-18.2-5.3-26.9-9.1Z"/></svg></span><div class="llm-w"><b>Gemini</b><small>Google</small></div><button class="connect-b" type="button" id="fr-gemini-connect" data-keyed="google" aria-expanded="false" aria-controls="fr-apikey-flow" aria-label="Connect Gemini">Connect</button></div>
+                <!-- #3386 (Josh, 2026-09-21): Grok shown up front, right under Gemini; since #3658
+                     both connect here by API key. xAI has no vendor SVG here, so it uses the same
+                     "X" initial-letter chip the provider combobox falls back to, not a new asset. -->
+                <div class="llm on"><span class="llm-m llm-chip" data-pmark="xai" role="img" aria-label="Grok">X</span><div class="llm-w"><b>Grok</b><small>xAI</small></div><button class="connect-b" type="button" id="fr-grok-connect" data-keyed="xai" aria-expanded="false" aria-controls="fr-apikey-flow" aria-label="Connect Grok">Connect</button></div>
+                <!-- #3658 (Josh, 2026-09-24 17:46): Gemini and Grok connect HERE, with the same gold
+                     Connect as Claude and GPT, instead of the old later-in-Settings pill and pointer.
+                     One box shared by both, a first-run mirror of Settings' #acct-apikey-flow
+                     (same POST /api/accounts/{gemini|grok}/apikey, same ACCT_APIKEY_PROVIDERS), the
+                     way #fr-openai-flow mirrors #acct-openai-flow. API KEY ONLY for now: the
+                     subscription sign-in works for neither yet (open cards: #3391 Grok, #3568 Gemini), and a
+                     subscription button that dead-ends is worse than none. There is no managed
+                     installer for either runner yet (engine/runners.js), so a missing runner is
+                     said plainly from the route's own needsRunner answer. The "Runs on this
+                     computer" subheading is gone too: one uninterrupted list, in PROVIDER_ORDER. -->
+                <div id="fr-apikey-flow" hidden class="fr-confirm" role="group" aria-labelledby="fr-apikey-t">
+                  <p class="fr-confirm-t" id="fr-apikey-t">Paste an API key.</p>
+                  <div class="frow"><a class="btn" id="fr-apikey-getkey" href="#" target="_blank" rel="noopener">Get a key</a></div>
+                  <div class="frow" style="margin-top:8px;">
+                    <input type="password" id="fr-apikey-key" autocomplete="new-password" spellcheck="false" aria-label="API key" placeholder="API key">
+                    <button class="btn uprime" id="fr-apikey-go" type="button">Add</button>
+                  </div>
+                </div>
+                <div class="dhint" id="fr-apikey-msg" role="status" aria-live="polite"></div>
                 <div class="llm off"><span class="llm-m pmark dim" data-pmark="meta" role="img" aria-label="Meta"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 25.6 17" fill="currentColor" aria-label="Meta"><path d="M18.4 0c-2.1 0-3.8 1.6-5.3 3.6v-.1l-.1-.1-.1-.2h-.1l-.1-.2-.1-.1-.1-.1-.1-.1-.1-.1a6.4 6.4 0 0 0-.1-.1v-.1H12l-.2-.2-.1-.2h-.1l-.1-.1-.1-.1-.1-.1-.1-.1-.2-.1v-.1H11v-.1l-.2-.1h-.1l-.1-.1V1h-.2V.8h-.2V.7H10L10 .6h-.1V.5h-.1L9.6.5h-.1L9.3.3h-.2L9 .2H9L8.7.1H8.4L8.4 0h-.8V0h-.2C3.2 0 0 5.4 0 11.1 0 14.7 1.7 17 4.6 17c2.1 0 3.6-1 6.3-5.7L12.8 8l.1.2v.1h.1l.1.2.1.2.1.2.1.1.1.2.1.2.2.3 1.1 1.8c2.4 4.1 3.8 5.5 6.3 5.5 2.8 0 4.4-2.3 4.4-6 0-6-3.3-11-7.2-11ZM8.9 10c-2.2 3.5-3 4.2-4.2 4.2-1.2 0-2-1-2-3 0-4.2 2.1-8.4 4.6-8.4H8.2V3H8.5V3h.2l.1.1h.1v.1H9l.2.1v.1h.1l.1.1.1.1h.1v.1h.1l.1.1V4h.1a5.6 5.6 0 0 1 .2.3h.1v.1h.1l.1.2.1.1.1.1v.1h.1l.1.2h.1l.1.3.2.2.1.2h.1l.1.2V6L9 10Zm12.3 4.2c-1.2 0-1.8-.8-4.1-4.6l-1.5-2.5-1.2-1.8c1.3-2 2.5-3.1 3.8-3.1 2.7 0 5 4 5 9 0 2-.7 3-2 3Z"/></svg></span><div class="llm-w"><b>Llama</b><small>Meta</small></div><span class="soon">Coming soon</span></div>
                 <div class="llm off"><span class="llm-m pmark dim" data-pmark="qwen" role="img" aria-label="Qwen"><svg xmlns="http://www.w3.org/2000/svg" viewBox="218.8 129.4 354.4 354.4"><path fill="#0a2cff" d="M354.3,263.9h140.6c18,0,32.8-14.8,32.8-32.8v-10.2c0-18-14.8-32.8-32.8-32.8h-73c2.3-12.7-3.1-26.2-14.7-33.5l-8.6-5.5c-15.2-9.7-35.6-5.1-45.3,10.1l-26.2,41.2c-2.6,4.1-4.2,8.6-4.8,13.2-.5,2.4-.8,4.8-.8,7.3v10.2c0,18,14.8,32.8,32.8,32.8Z"/><path fill="#0a2cff" d="M308.6,247.6c-8.6-15.8-28.7-21.7-44.5-13.1l-9,4.9c-15.8,8.6-21.7,28.7-13.1,44.5l35,64.1c-12.2,4.1-21.5,15.3-22.4,28.9l-.7,10.2c-1.2,18,12.6,33.7,30.6,34.9l48.7,3.2c4.9.3,9.6-.5,13.9-2.1,2.3-.7,4.6-1.6,6.9-2.8l9-4.9c15.8-8.6,21.7-28.7,13.1-44.5l-67.4-123.4Z"/><path fill="#0a2cff" d="M550.8,348.4l-21.2-43.9c-2.1-4.4-5.1-8.1-8.7-11-1.7-1.7-3.7-3.3-5.8-4.6l-8.7-5.4c-15.3-9.5-35.7-4.7-45.2,10.6l-74.1,119.5c-9.5,15.3-4.7,35.7,10.6,45.2l8.7,5.4c15.3,9.5,35.7,4.7,45.2-10.6l38.5-62.1c9.6,8.6,23.9,11.1,36.2,5.2l9.2-4.5c16.2-7.8,23.1-27.5,15.3-43.8Z"/></svg></span><div class="llm-w"><b>Qwen</b><small>Alibaba</small></div><span class="soon">Coming soon</span></div>
                 <div class="llm off"><span class="llm-m pmark dim" data-pmark="mistral" role="img" aria-label="Mistral"><svg viewBox="0 0 21 15" fill="none" xmlns="http://www.w3.org/2000/svg"> <path d="M6 0H3V3H6V0Z" fill="#FFAF01"/> <path d="M6 9H3V12H6V9Z" fill="#E61300"/> <path d="M9 12H0V15H9V12Z" fill="#C4001D"/> <path d="M9 3H3V6H9V3Z" fill="#FF8204"/> <path d="M12 9H9V12H12V9Z" fill="#E61300"/> <path d="M18 6H3V9H18V6Z" fill="#FA500F"/> <path d="M18 3H12V6H18V3Z" fill="#FF8204"/> <path d="M18 0H15V3H18V0Z" fill="#FFAF01"/> <path d="M18 9H15V12H18V9Z" fill="#E61300"/> <path d="M21 12H12V15H21V12Z" fill="#C4001D"/> </svg></span><div class="llm-w"><b>Mistral</b><small>Open weights</small></div><span class="soon">Coming soon</span></div>
@@ -11439,7 +11511,7 @@ window.kosmosMeasureScrollbarWidth();
                 <div class="fr-msg" id="fr-you-msg" role="status" aria-live="polite"></div>
       </div>
 
-      <!-- S9 Your agents (reuse old fr-pane-7 #fr-fleet fork). Mona S9a head + #fr-found-agents; fork picks found(S9a) vs create(S9b). -->
+      <!-- S9 the ending, eyebrow SETUP COMPLETE since #3659 (reuse old fr-pane-7 #fr-fleet box). Setup always lands on this one screen (#2497/#3575); the found/scan painters are kept but not reached. -->
       <div class="fr-pane" id="fr-pane-9" hidden>
         <!-- ============================================================
              SCREEN 9A - YOUR AGENTS (found)   (new screen; shown ONLY if agents were found)
@@ -11468,15 +11540,15 @@ window.kosmosMeasureScrollbarWidth();
         .s9-row[data-added] .s9-added{display:inline-flex;align-items:center}
         </style>
 
-        <p class="fc-eyebrow">Your agents</p>
+        <p class="fc-eyebrow" id="fr-fleet-eyebrow">Setup complete</p>
         <!-- install-flow-9screen: this <h2> is DRIVEN by the fork painters
              (frPaintFleet / frPaintFound / frPaintScan) via `#fr-pane-9 h2`. The
-             text below is only the pre-JS default. #2497: first run now ALWAYS
-             lands on the no-agent create screen, so the default matches that
-             outcome to avoid a flash of the wrong heading before JS runs. The
+             text below is only the pre-JS default. #2497/#3575: first run ALWAYS
+             lands on the one ending screen, so the default is its headline
+             (frPaintFleet sets the same text) to avoid a flash of a wrong one. The
              kept-but-bypassed engine can still rewrite it to "We found N agents
              on this computer" / "You already have N agents here." elsewhere. -->
-        <h2 id="fr-fleet-title">Create your first agent.</h2>
+        <h2 id="fr-fleet-title">You’re ready to start using Kosmos.</h2>
         <!-- install-flow-9screen: the found/create/adopt fork renders into
              #fr-fleet below (the existing, tested add/undo/adopt flow, which
              already implements S9a's intent: "We found N agents..." + a per-row
@@ -13759,6 +13831,16 @@ window.kosmosMeasureScrollbarWidth();
       </div>
     </section>
 
+    <section class="dbox" id="tips-box" hidden>
+      <!-- #3574: "Stop showing tips" on any tip turns them all off; this is the way back on. -->
+      <h3 class="dlab">Tips</h3>
+      <div class="setrow" id="tips-row">
+        <div><b>Show tips</b>
+          <p class="dhint" style="margin:2px 0 0;">A short note the first time you open each screen. The ? beside your name brings any of them back.</p></div>
+        <button class="toggle" id="tips-toggle" role="switch" aria-label="Show tips the first time you open each screen"><i></i></button>
+      </div>
+    </section>
+
     <section class="dbox">
       <h3 class="dlab">Keeping agents running</h3>
       <div id="set-machine"><p class="dhint">Checking this computer…</p></div>
@@ -15261,9 +15343,9 @@ const STATE_COPY = {
   auth_failed:  { label: "Sign-in isn't working", attn: true  },
   /* #3410: a TRANSIENT network error (DNS/network blip) took the agent's
      connection to the API, distinct from auth_failed (the account is fine).
-     An attention state, but a RECOVERABLE one: it is the kind of thing a restart
-     fixes once connectivity returns (the #3410 self-heal that will auto-restart
-     it is a follow-on PR, not built here -- this PR surfaces the state). Named its
+     An attention state, but a RECOVERABLE one: it is the kind of thing a retry
+     fixes once connectivity returns (the #3410 self-heal, engine/connlost-heal.js,
+     types a retry nudge into the agent when the network is back). Named its
      own label rather than folded into "Can't tell": the whole point of #3410 is to
      replace that opaque UNKNOWN with a state that says what happened. */
   connection_lost: { label: 'Connection lost', attn: true },
@@ -15322,8 +15404,8 @@ const CARD_ST = {
   /* #3410: wears the same quiet "paused" pack shape as auth_failed -- work is
      stopped by something the agent cannot get past on its own, but the process
      is still up (pres: 'on'), it just cannot reach the API. It is not alarmed
-     red because it is recoverable (a restart on connectivity return will heal it;
-     that self-heal is a #3410 follow-on PR, not built here); a louder treatment,
+     red because it is recoverable (the #3410 self-heal, engine/connlost-heal.js,
+     nudges it to retry when the network is back); a louder treatment,
      if wanted, is a design call for whoever owns the pack, not decided here. */
   connection_lost: { st: 'paused', pres: 'on' },
   /* blocked wears paused's quieter shape: waiting is waiting, and red stays
@@ -17970,6 +18052,9 @@ async function tick() {
     const lim = new URLSearchParams(location.search).get('limit');
     LAST = data.agents;
     LAST_AT = Date.now();  // #1150: the moment this sample reached the page
+    // #3574: whether this is someone new is decided by the board's FIRST answer, whatever the
+    // tips are doing then (off, a dialog, first run); see tipAutoOk.
+    if (TIP_NEW_BOARD === null && Array.isArray(data.agents)) TIP_NEW_BOARD = data.agents.length === 0;
     /**
      * 🛑 THE ROOM'S WORKING LINE PAINTS HERE, ON THE CLOCK ITS DATA ARRIVES ON.
      *
@@ -22966,6 +23051,167 @@ document.getElementById('acct-apikey-go').addEventListener('click', async () => 
     if (ACCT_APIKEY_GEN === mine) go.disabled = false;
   }
 });
+/* #3658: Gemini and Grok connect from first run's model step, by API key (the only path
+   that works today for both). The box is shared; FR_APIKEY_WHICH is the provider it is
+   open for ('google' | 'xai'), read from ACCT_APIKEY_PROVIDERS so the route, vendor and
+   key hint are Settings' own. FR_APIKEY_GEN drops an answer that returns after the box was
+   switched or closed, the same guard Settings uses. */
+const FR_APIKEY_GETKEY = { google: 'https://aistudio.google.com/app/apikey', xai: 'https://console.x.ai/' };
+let FR_APIKEY_WHICH = null;
+let FR_APIKEY_GEN = 0;
+/* The command-line tool each keyed provider runs on. There is no managed installer for
+   either yet (engine/runners.js), so when it is missing the screen names it. */
+const FR_APIKEY_TOOL = { google: 'gemini', xai: 'grok' };
+function frApikeyExpanded(which) {
+  for (const id of ['fr-gemini-connect', 'fr-grok-connect']) {
+    const b = document.getElementById(id);
+    if (b) b.setAttribute('aria-expanded', String(!!which && b.dataset.keyed === which));
+  }
+}
+/* PROBE BEFORE THE BOX (review pass 1): the key route checks for the runner BEFORE it
+   reads the key, so a POST with no key answers needsRunner when the runner is missing,
+   and otherwise refuses the empty key without storing anything. Asking first means a
+   person is never sent off to make a key for a runner this computer does not have. */
+async function frApikeyOpen(which) {
+  FR_APIKEY_GEN += 1;
+  const mine = FR_APIKEY_GEN;
+  const flow = document.getElementById('fr-apikey-flow');
+  const msg = document.getElementById('fr-apikey-msg');
+  const p = which ? ACCT_APIKEY_PROVIDERS[which] : null;
+  const same = FR_APIKEY_WHICH === which && !flow.hidden;
+  document.getElementById('fr-apikey-go').disabled = false;   // an Add left pending by a switch must not stay dead
+  if (!p || same) { flow.hidden = true; FR_APIKEY_WHICH = null; frApikeyExpanded(null); msg.textContent = ''; return; }   // a second press closes it
+  flow.hidden = true;
+  frApikeyExpanded(null);
+  msg.textContent = 'Checking ' + p.name + ' on this computer…';
+  let missing = false;
+  try {
+    const res = await fetch('/api/accounts/' + p.route + '/apikey', {
+      method: 'POST', headers: { 'content-type': 'application/json' }, body: '{}',
+    });
+    const out = await res.json().catch(() => null);
+    missing = !!(out && out.needsRunner);
+  } catch { /* could not ask: open the box and let Add say what is wrong */ }
+  if (mine !== FR_APIKEY_GEN) return;
+  if (missing) {
+    FR_APIKEY_WHICH = null;
+    msg.textContent = p.name + ' runs on its own command-line tool, "' + FR_APIKEY_TOOL[which]
+      + '", and it is not installed on this computer yet. Kosmos cannot install it for you yet; once it is installed, press Connect again.';
+    return;
+  }
+  msg.textContent = '';
+  frApikeyExpanded(which);
+  if (FR_APIKEY_WHICH !== which) {
+    const k = document.getElementById('fr-apikey-key'); k.value = '';
+    document.getElementById('fr-apikey-msg').textContent = '';
+  }
+  FR_APIKEY_WHICH = which;
+  const article = /^(x|[aeiou])/i.test(p.vendor) ? 'an ' : 'a ';   // "an xAI key"
+  document.getElementById('fr-apikey-t').textContent = 'Paste ' + article + p.vendor + ' API key for ' + p.name + '. A key is a bit like a password that ' + p.vendor + ' issues for this computer.';
+  document.getElementById('fr-apikey-getkey').href = FR_APIKEY_GETKEY[which] || '#';
+  const key = document.getElementById('fr-apikey-key');
+  key.setAttribute('aria-label', p.name + ' API key');
+  key.placeholder = p.hint;
+  flow.hidden = false;
+  key.focus();
+}
+/* Paint one keyed row's Connect as Connected (green check, disabled) or Connect, from a
+   known answer or from /api/accounts, the way frPaintOpenai does for GPT. A read that
+   fails or cannot tell leaves the row as it was. */
+async function frPaintKeyed(known) {
+  /* A read can take seconds (live checks), so an older one landing after a newer paint
+     must not win: same token as frPaintOpenai. */
+  frPaintKeyed.seq = (frPaintKeyed.seq || 0) + 1;
+  const seq = frPaintKeyed.seq;
+  let list = known;
+  if (!list) {
+    try {
+      const res = await fetch('/api/accounts', { cache: 'no-store' });
+      if (!res.ok) return;
+      list = ((await res.json()) || {}).accounts || [];
+    } catch { return; }
+    if (seq !== frPaintKeyed.seq) return;
+  }
+  for (const [id, provider] of [['fr-gemini-connect', 'google'], ['fr-grok-connect', 'xai']]) {
+    const b = document.getElementById(id);
+    if (!b) continue;
+    const mine = list.filter((x) => acctProvider(x) === provider);
+    const connected = mine.some((x) => x.connection && x.connection.state === 'connected');
+    /* A key saved but not yet confirmed (the provider did not answer) is not "Connected",
+       and must not offer Connect again either: a second paste would make a second account. */
+    const saved = !connected && mine.some((x) => x.connection && x.connection.state === 'unknown');
+    const name = provider === 'google' ? 'Gemini' : 'Grok';
+    b.innerHTML = connected ? '<span aria-hidden="true">✓</span> Connected' : saved ? 'Key saved' : 'Connect';
+    b.disabled = connected || saved;
+    b.classList.toggle('is-connected', connected);
+    b.setAttribute('aria-disabled', String(connected || saved));
+    b.setAttribute('aria-label', connected ? name + ' is connected' : saved ? name + ' key saved' : 'Connect ' + name);
+  }
+}
+for (const id of ['fr-gemini-connect', 'fr-grok-connect']) {
+  const b = document.getElementById(id);
+  if (b) b.addEventListener('click', () => frApikeyOpen(b.dataset.keyed));
+}
+/* Enter adds the key, like GPT's key field, and stops there: the step's own Enter-to-
+   continue must not carry the person past a key they have not added. */
+document.getElementById('fr-apikey-key').addEventListener('keydown', (e) => {
+  if (e.key !== 'Enter') return;
+  e.preventDefault();
+  e.stopPropagation();
+  document.getElementById('fr-apikey-go').click();
+});
+document.getElementById('fr-apikey-go').addEventListener('click', async () => {
+  const which = FR_APIKEY_WHICH;
+  const p = which ? ACCT_APIKEY_PROVIDERS[which] : null;
+  const keyField = document.getElementById('fr-apikey-key');
+  const go = document.getElementById('fr-apikey-go');
+  const msg = document.getElementById('fr-apikey-msg');
+  if (!p) return;
+  const key = keyField.value.trim();
+  if (!key) { msg.textContent = 'Paste the key first.'; keyField.focus(); return; }
+  const mine = FR_APIKEY_GEN;
+  go.disabled = true;
+  msg.textContent = 'Checking the key with ' + p.vendor + '…';
+  try {
+    const res = await fetch('/api/accounts/' + p.route + '/apikey', {
+      method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ key }),
+    });
+    const out = await res.json().catch(() => null);
+    if (mine !== FR_APIKEY_GEN) {
+      if (!res.ok) return;
+      /* A key that landed after the person moved on still shows as Connected. If they
+         have since reopened the box for the SAME provider, close it: a second Add there
+         would make a second account for a provider that is already connected. */
+      if (FR_APIKEY_WHICH === which) {
+        document.getElementById('fr-apikey-flow').hidden = true;
+        FR_APIKEY_WHICH = null;
+        frApikeyExpanded(null);
+      }
+      if (FR_APIKEY_WHICH === null) msg.textContent = p.name + ' is connected.';   // never leave "Checking..." behind
+      frPaintKeyed();
+      return;
+    }
+    if (!res.ok) {
+      if (out && out.needsRunner) throw new Error(p.name + ' runs on its own command-line tool, "' + FR_APIKEY_TOOL[which] + '", and it is not installed on this computer yet.');
+      throw new Error((out && (out.error || out.because)) || 'We could not add that key.');
+    }
+    keyField.value = '';
+    document.getElementById('fr-apikey-flow').hidden = true;
+    FR_APIKEY_WHICH = null;
+    frApikeyExpanded(null);
+    msg.setAttribute('tabindex', '-1');
+    msg.focus();   // the box that held focus is hidden now; the result is where it lands
+    const unknown = !!(out && out.account && out.account.connection && out.account.connection.state === 'unknown');
+    msg.textContent = unknown
+      ? 'The ' + p.name + ' key is saved. ' + p.vendor + ' did not answer just now, so it will be checked again when an agent uses it.'
+      : p.name + ' is connected.';
+    await frPaintKeyed();
+  } catch (err) {
+    if (mine === FR_APIKEY_GEN) msg.textContent = String((err && err.message) || 'We could not add that key.');
+  } finally {
+    if (mine === FR_APIKEY_GEN) go.disabled = false;
+  }
+});
 document.getElementById('acct-openai-pick-sub').addEventListener('click', () => acctOpenaiChoose('sub'));
 document.getElementById('acct-openai-pick-key').addEventListener('click', () => acctOpenaiChoose('key'));
 /* #2433: the Claude picker's two choices. */
@@ -25138,8 +25384,8 @@ let START_FLIGHT = null;
    that it exists (#3410), deliberately does NOT fall under this gate: it ships
    pres:'on' because the Claude PROCESS is still up (it just cannot reach the
    API), and pres:'off' is reserved for 'stopped' (it gates plannedModelName).
-   Recovery for connection_lost is the #3410 self-heal (auto-restart on
-   connectivity return, a follow-on PR), not this Start button; a manual
+   Recovery for connection_lost is the #3410 self-heal (engine/connlost-heal.js
+   nudges the agent to retry on connectivity return), not this Start button; a manual
    "Reconnect" affordance, if ever wanted, would need its own gate rather than
    pres:'off'. */
 function refreshStartAffordance(a) {
@@ -25667,6 +25913,8 @@ function setThread(el, html, key) {
   }
   const rewrote = el.__lastThread !== html;
   if (rewrote) {
+    /* #3650: the write replaces the smiley a DM-opened reaction picker is anchored to. */
+    if (el.id === 'd-dmthread') rxnCloseDmPicker();
     el.__lastThread = html;
     el.innerHTML = html;
   }
@@ -25924,12 +26172,18 @@ function dmRow(m, name) {
     const av = (card && card.hasAvatar)
       ? '<div class="msg-av" aria-hidden="true"><img src="/api/agent/' + encodeURIComponent(m.from) + '/avatar?v=' + pjAvatarVer(m.from) + '" alt=""></div>'
       : '<div class="msg-av" aria-hidden="true" style="background:' + discTint(m.from) + ';color:' + discInk(m.from) + '">' + esc(initials(m.from)) + '</div>';
+    /* #3650: the person can react to the agent's message, as in a project room: the
+       room's own pills + hover quick bar (rxnsInner), keyed by the message's `at`
+       (a DM row has no id; the react route finds the message by it). `typeof`-guarded
+       because the lifted dmRow tests run without the room's reaction helpers. */
+    const rxns = (m.at && typeof rxnsInner === 'function')
+      ? '<div class="rxns" data-at="' + esc(String(m.at)) + '">' + rxnsInner(m.reactions) + '</div>' : '';
     return '<div class="msg" data-mid="' + midOf(m) + '">' + av
       + '<div class="msg-b"><div class="msg-bd">'
       + '<b class="msg-nm">' + esc(dmWho(m.from, name)) + '</b>'
       + pjRich(pjWords(m)) + pjPreviewCard(m.preview) + pjAttachmentCards(m)
       + (whenStr ? '<span class="msg-t">' + whenStr + '</span>' : '')
-      + '</div></div></div>';
+      + '</div>' + rxns + '</div></div>';
   }
   const v = pjVerdict(m, name);
   /* ⚠️ WHAT WAS TYPED, when it is not what the bubble shows. A numbered answer
@@ -26109,7 +26363,8 @@ function paintTalkThread(body, name) {
     const tailRow = rows.length ? rows[rows.length - 1] : null;
     const threadKey = (filtering ? TALK_QUERY : '') + '\u0000' + rows.length
       + '\u0000' + (tailRow ? String(tailRow.id || tailRow.at || '') : '');
-    setThread(thread, rows.map((m) => dmRow(m, name)).join('') + (filtering ? '' : dmOwesLine(body.owes, rows)), threadKey);
+    const dmHtml = rows.map((m) => dmRow(m, name)).join('') + (filtering ? '' : dmOwesLine(body.owes, rows));
+    setThread(thread, dmHtml, threadKey);
   }
 }
 async function paintTalk(sessionName, agentName) {
@@ -43726,7 +43981,22 @@ function rxnPickerEl() {
      longer resets an inline picker, so the close is explicit). */
   el.addEventListener('click', async (e) => {
     const b = e.target.closest ? e.target.closest('.rxn-pick') : null;
-    if (!b || !PJ_CURRENT) return;
+    if (!b) return;
+    /* #3650: the picker is shared with the Direct Message thread. `data-at` (set when it
+       was opened from a DM row) routes the pick to the DM route; `data-post` to the room. */
+    const dmAt = el.getAttribute('data-at');
+    if (dmAt !== null) {
+      let box = null;
+      document.querySelectorAll('#d-dmthread .rxns').forEach((r) => {
+        if (r.getAttribute('data-at') === dmAt) box = r;
+      });
+      // Only into a DM that is still on screen: a picker left open across a view switch
+      // must not react in a thread the person is no longer looking at.
+      if (box && CURRENT && box.offsetParent !== null) await dmRxnToggle(CURRENT.sessionName, box, b.getAttribute('data-emoji'));
+      rxnCloseAllPickers();
+      return;
+    }
+    if (!PJ_CURRENT) return;
     const postId = el.getAttribute('data-post');
     let box = null;
     document.querySelectorAll('#pj-room .rxns').forEach((r) => {
@@ -43799,6 +44069,44 @@ document.getElementById('pj-room').addEventListener('click', async (e) => {
   await rxnToggle(PJ_CURRENT, box, btn.getAttribute('data-emoji'));
 });
 
+/* #3650: reactions in a Direct Message. The same pills, quick bar and shared picker as
+   the room, on the agent's messages in #d-dmthread; the toggle goes to the DM react route
+   (the message named by its `at`) and repaints that one row from the fresh list. A failed
+   toggle leaves the row; the next thread poll reconciles. */
+async function dmRxnToggle(forAgent, box, emoji) {
+  const at = box && box.getAttribute('data-at');
+  if (!emoji || !at || !forAgent) return;
+  try {
+    const res = await fetch('/api/agent/' + encodeURIComponent(forAgent) + '/thread/react',
+      { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ at, emoji }) });
+    if (!CURRENT || CURRENT.sessionName !== forAgent || !res.ok) return;
+    const body = await res.json();
+    repaintReactions(box, Array.isArray(body.reactions) ? body.reactions : []);
+  } catch { /* a failed toggle leaves the row; the next poll reconciles */ }
+}
+document.getElementById('d-dmthread').addEventListener('click', async (e) => {
+  const box = e.target && e.target.closest ? e.target.closest('.rxns') : null;
+  if (!box || !CURRENT) return;
+  const more = e.target.closest('.rxn-more');
+  if (more) {
+    const picker = rxnPickerEl();
+    const at = box.getAttribute('data-at');
+    const openForThis = !picker.hidden && picker.getAttribute('data-at') === at;
+    rxnCloseAllPickers();
+    if (!openForThis) {
+      rxnPickerBuild();
+      picker.setAttribute('data-at', at);
+      picker.hidden = false;
+      rxnPositionPicker(picker, more);
+      more.setAttribute('aria-expanded', 'true');
+    }
+    return;
+  }
+  const btn = e.target.closest('.rxn, .rxn-pick');
+  if (!btn) return;
+  await dmRxnToggle(CURRENT.sessionName, box, btn.getAttribute('data-emoji'));
+});
+
 /* #3134-followup (Josh 6.72): clicking an agent's NAME or AVATAR in a room bubble opens
    that agent directly, the same openDetail path the members list uses (#2574), passing
    PJ_CURRENT so detail-back returns to this project. Delegated on the thread (every poll
@@ -43816,11 +44124,17 @@ document.getElementById('pj-room').addEventListener('click', (e) => {
 /* #2806/#2834: close the shared reaction picker and reset every opener's aria-expanded.
    Used to keep at most one open, and by the dismiss paths below (outside click / Escape
    / outside scroll), mirroring the composer emoji panel's behaviour. */
+function rxnCloseDmPicker() {
+  const picker = document.getElementById('rxn-picker');
+  if (picker && !picker.hidden && picker.getAttribute('data-at') !== null) rxnCloseAllPickers();
+}
 function rxnCloseAllPickers() {
   const picker = document.getElementById('rxn-picker');
-  if (picker) { picker.hidden = true; picker.removeAttribute('data-post'); }
-  const room = document.getElementById('pj-room');
-  if (room) room.querySelectorAll('.rxn-more[aria-expanded="true"]').forEach((b) => b.setAttribute('aria-expanded', 'false'));
+  if (picker) { picker.hidden = true; picker.removeAttribute('data-post'); picker.removeAttribute('data-at'); }
+  for (const id of ['pj-room', 'd-dmthread']) {   // #3650: the DM thread opens it too
+    const host = document.getElementById(id);
+    if (host) host.querySelectorAll('.rxn-more[aria-expanded="true"]').forEach((b) => b.setAttribute('aria-expanded', 'false'));
+  }
 }
 /* #2806: place the FIXED reaction picker as a popover anchored to the smiley button.
    Below it when there is room, flipped above when the viewport bottom is close, and
@@ -48830,6 +49144,7 @@ function frGo(step) {
     // running server-side is repainted by frConnResume once its answer arrives.
     frPaintSubscription();
     frPaintOpenai();
+    frPaintKeyed();   // #3658: Gemini and Grok rows show Connected when an account already is
     frConnResume();
   } else if (step === 6) {
     // S6 Self improving: one consent switch (the daily feedback report). #11
@@ -48845,7 +49160,7 @@ function frGo(step) {
     // S8 About you: sets its own gated Next and advances to step 9.
     frPaintYou();
   } else {
-    // S9 Your agents: the found/create fork (frPaintFleet), ending in frFinish.
+    // S9 the ending (SETUP COMPLETE since #3659): frPaintFleet, ending in frFinish.
     frPaintFleet();
   }
 
@@ -50734,9 +51049,9 @@ function frEnterSubmit(e) {
     if (tag === 'TEXTAREA' || tag === 'BUTTON' || tag === 'A' || tag === 'SELECT') return;
     if (t.isContentEditable) return;
     // 🛑 A SEARCH FIELD IS A TYPE-AND-FILTER FIELD, NOT A FILL-AND-CONTINUE ONE.
-    // The "Your agents" ending (#fr-fleet) shows Continue enabled AND carries a
-    // live search box (#fr-foundsearch, type=search) whose only handler is an
-    // `input` filter -- so Enter there has no field action and would bubble here
+    // The found-agents screen (frPaintFound; kept, but not reached during setup since #2497)
+    // shows Continue enabled AND carries a live search box (#fr-foundsearch, type=search)
+    // whose only handler is an `input` filter -- so Enter there has no field action and would bubble here
     // and fire frFinish, ejecting the person mid-adoption. Before #2186 Enter in
     // that box did nothing; keep it that way. A blanket INPUT carve-out is wrong
     // (About-you's text inputs DO want Enter=Continue), so this is scoped to search.
@@ -52010,21 +52325,15 @@ function frPaintFleet() {
   /* #3575 (Josh, 2026-09-24 07:51): KEEP the "Giddy Up" button ("several people ... laughed and
      thought that was cute and fun"), but the page must be about starting to use Kosmos, not about
      creating a first agent, and Giddy Up lands on the Agents dashboard instead of Create Agent.
-     Copy is April's draft per his "come up with a message"; he swaps it if he wants. "Let's get
-     started." stays as the body's first line: it was Josh's own phrase for this screen. */
+     The eyebrow and body are Josh's #3659 copy (below). */
   title.textContent = 'You\u2019re ready to start using Kosmos.';
-  // #2497 follow-on (Mona Lisa, spec on the card): everyone now lands here, including a user who
-  // already runs agents in Claude Code or Codex that onboarding deliberately no longer scoops up.
-  // One quiet POINTER (not a scan: it lists nothing, finds nothing) tells that user Kosmos is
-  // choosing not to import them and where manual Import lives, so "where are my agents?" does not
-  // reappear one screen later. #3575: Import is now reached from the dashboard, not the next
-  // screen. The pointer names "New agent" (#new-agent in the boardbar, #rail-agents-new in the
-  // consolidated rail), which shows on an empty AND a populated board; the empty state's "Create
-  // your first agent" button does not exist on an adopt machine's populated board.
-  box.innerHTML = '<p>Let\u2019s get started. Giddy Up takes you to your Agents dashboard, '
-    + 'home base for everything you do in Kosmos.</p>'
-    + '<p class="dhint" style="margin:6px 0 0;">Already have agents in Claude Code or Codex on this computer? '
-    + 'On the dashboard, choose New agent, then pick the Import option.</p>';
+  /* #3659 (Josh, 2026-09-24 17:49, verbatim): eyebrow SETUP COMPLETE, the headline above
+     unchanged, and ONE body line replacing both earlier paragraphs (it names import, so the #2497
+     pointer paragraph is retired by his copy). */
+  const eyebrow = document.getElementById('fr-fleet-eyebrow');
+  if (eyebrow) eyebrow.textContent = 'Setup complete';
+  box.innerHTML = '<p>Head to your dashboard to create or import agents, set up your projects, '
+    + 'and start building your next big idea.</p>';
   frActions({ label: 'Giddy Up', go: () => frFinish(() => showTab('agents')) });
   return;
 
@@ -52757,6 +53066,496 @@ function revealBoot() {
   if (c) c.hidden = true;
 }
 
+/* ---- #3574 (Josh, 2026-09-24, for 0.6.93): first-run help and first-visit tips ----
+   One card does the welcome tour and every screen's first-visit tip. The board remembers what was
+   closed (/api/tips), so a tip shows once per person on this computer. A tip whose screen is not
+   showing never paints; one tip at a time; the tour first. */
+/* The gauge's own classes colour the dots (light and dark); one inline width keeps the three the same size. */
+const TIP_BAND = (cls, label) => '<span><svg width="10" height="10" viewBox="0 0 10 10" aria-hidden="true"><circle cx="5" cy="5" r="2.25" fill="none" style="stroke-width:4.5" class="gf' + (cls ? ' ' + cls : '') + '"/></svg>' + label + '</span>';
+const TIPS = [
+  /* Josh, 2026-09-24 15:51: the step-through tour (the mock's B), one place at a time. Each step
+     names its tab-layout target first and its consolidated-layout one second; a step whose place is
+     not on screen is left out, and the count says how many there are. */
+  { id: 'tour', tour: true,
+    /* On the board: its stats bar in the tab layout, its rail in the consolidated one (which hides
+       the bar at wide widths). */
+    /* Not over Settings, the create form or an agent's page. (The consolidated layout keeps a project
+       view beside its rails on the board itself, so an open project does not rule the board out.) */
+    show: () => (tipVisible('#boardbar') || tipVisible('#rail-agents')) && !tipVisible('#panel-detail')
+      && !tipVisible('#panel-settings') && !tipVisible('#panel-create'),
+    steps: [
+      { at: ['#new-agent', '#rail-agents-new'], title: 'Make your first agent',
+        body: 'Start here. You give it a name, a picture and a job, and it gets to work.' },
+      { at: ['#tabs [data-tab="agents"]', '#rail-agents .railname'], title: 'Your agents',
+        body: 'Agents shows everyone working for you. Click any agent to talk to it.' },
+      { at: ['#tabs [data-tab="projects"]', '#rail-projects .railname', '#rail-projects'], title: 'Your projects',
+        body: 'Projects is where agents work together on something.' },
+      { at: ['#userpop-btn'], title: 'Your settings',
+        body: 'Settings live under your name, top right. Tips come back from the ? beside it.' },
+    ] },
+  { id: 'newagent', title: 'Make an agent', show: () => tipVisible('#panel-create'), at: '#panel-create h2', side: true,
+    body: '<p>Give it a name and a picture so you can tell it apart, then tell it what the job is in plain words. You can change all of it later.</p>' },
+  { id: 'ring', title: 'The ring is your agent\'s memory', /* Only a card that draws the gauge: a filled band (.gf) or the unknown-memory dashed ring (.gu).
+       An off or needs-trust card has a face and no ring. */
+    show: () => tipVisibleAny('#grid .agauge .gf, #grid .agauge .gu, #alist .lring'), at: '#grid .agauge:has(.gf), #grid .agauge:has(.gu), #alist .lring',
+    body: '<p>It fills up as you work together. The fuller it gets, the more your agent has to hold in mind at once.</p>'
+      + '<div class="tip-bands">' + TIP_BAND('', 'Plenty of room') + TIP_BAND('warn', 'Getting full') + TIP_BAND('high', 'Nearly full') + '</div>'
+      + '<p>When it is nearly full, a Fresh start on the agent\'s page clears its memory. Its files and instructions stay.</p>' },
+  { id: 'agents', title: 'See your agents your way', show: () => tipVisible('#boardbar') && !!document.querySelector('#grid [data-agent]'),
+    at: '.viewtoggle[data-scope="agents"]',
+    body: '<p>Cards, a list, or an org chart that shows who reports to whom. Click any agent to talk to it.</p>' },
+  { id: 'projects', title: 'A project is shared work', show: () => tipVisible('#panel-projects') && !tipVisible('#panel-projects .pj3'),
+    at: '#pj-new, #rail-projects-new',
+    body: '<p>Put a few agents on one project and they work on it together, in one conversation, with one set of files. Show projects as cards or as a roadmap.</p>' },
+  /* Tab layout only: the consolidated project view moves members into the Agents list and member
+     changes into project Settings, so these four lines would describe a page that is not there. */
+  { id: 'project', title: 'Everything about this project, in one place',
+    show: () => tipVisible('#panel-projects .pj3') && !document.body.classList.contains('consolidated'), at: '#pj-add-member',
+    body: '<ol><li><i>1</i><span><b>Members</b> are the agents on it. Add more any time.</span></li>'
+      + '<li><i>2</i><span><b>Conversation</b> is where you talk to all of them at once.</span></li>'
+      + '<li><i>3</i><span><b>Files</b> collects everything they make.</span></li>'
+      + '<li><i>4</i><span><b>Tasks</b> is the to-do list, and who is on each one.</span></li></ol>' },
+  { id: 'agentpage', title: 'Your agent\'s page', show: () => tipVisible('#panel-detail #d-sec-talk'), at: '#panel-detail .snav',
+    body: '<p>Talk to your agent here. Messages go straight to it. Profile, Instructions, AI Settings and Advanced are in the boxes on the left, and Instructions is where you change what it does.</p>' },
+  { id: 'settings', title: 'Settings for this computer', show: () => tipVisible('#panel-settings'), at: '#panel-settings .dsec:not([hidden]) .dlab',
+    body: '<p>Your AI accounts, how Kosmos looks, and tips: turn them back on under This computer.</p>' },
+];
+let TIPS_STATE = null;          // { ok, seen, off } from the board; null until read
+let TIP_OPEN = null;            // the tip on screen, or null
+let TIP_RETURN = null;          // focus to restore on close
+let TIPS_TIMER = null;
+let TIPS_STARTED = false;
+/* How often the tips look at the screen: under the second or so it takes to read one, and a few
+   querySelector calls each time. */
+const TIPS_CHECK_MS = 1200;
+let TIP_PLACES = [];            // the tour's steps whose place is on screen
+let TIP_STEP = 0;               // the tour step showing
+let TIP_AUTO = false;           // the open tip showed by itself (not from the ?)
+/* var, not let: the status handler (tick, far above) writes this, and a let would only be safe for as
+   long as nothing calls tick before this line runs. var has no dead zone. */
+var TIP_NEW_BOARD = null;       // latched at the board's first answer this session: had no agents
+let TIP_TOUR_SAVED = false;     // the board has said 'tour' is in its seen list
+let TIP_TOUR_NEXT_TRY = 0;      // when recording the met tour may be tried (again)
+let TIP_TOUR_RETRY_MS = 5000;   // doubles on each failed try, to a minute
+let TIPS_LOAD_NEXT = 0;         // a failed tips read is tried again from here
+let TIPS_LOAD_RETRY_MS = 5000;  // doubles on each failed read, to a minute
+let TIPS_LOADING = false;
+
+/* The app's dialogs are .rm-back / .fr-back overlays, shown and hidden with [hidden], and the update
+   takeover (.upd-back) is added while it is up. */
+/* An open header menu: the ? and the user menu (aria-haspopup), the burger and the Kosmos switcher.
+   The header is its own stacking layer, so a tip would draw over a menu the person just opened. */
+function tipMenuOpen() {
+  return !!document.querySelector('[aria-haspopup][aria-expanded="true"], #burger[aria-expanded="true"], #worldsw-btn[aria-expanded="true"]');
+}
+
+function tipModalOpen() {
+  return !!document.querySelector('.rm-back:not([hidden]), .fr-back:not([hidden]), .upd-back, dialog[open]');
+}
+
+function tipVisibleAny(sel) {
+  return [...document.querySelectorAll(sel)].some((el) => { const r = el.getBoundingClientRect(); return r.width > 0 && r.height > 0 && !el.closest('[hidden]'); });
+}
+
+function tipVisible(sel) {
+  const el = document.querySelector(sel);
+  if (!el) return false;
+  const r = el.getBoundingClientRect();
+  return r.width > 0 && r.height > 0 && !el.closest('[hidden]');
+}
+
+async function tipsLoad() {
+  try {
+    const r = await (await fetch('/api/tips', { cache: 'no-store', signal: AbortSignal.timeout(10000) })).json();
+    /* Merged with anything saved while this read was out (a tip opened from the ? and closed, or "Stop
+       showing tips"), so a slow answer cannot drop a newer close or turn tips back on. */
+    const had = TIPS_STATE && TIPS_STATE.ok ? TIPS_STATE : null;
+    if (r && r.ok === true && Array.isArray(r.seen)) {
+      TIPS_STATE = { ok: true, seen: [...new Set([...(had ? had.seen : []), ...r.seen])], off: had ? had.off : r.off === true };
+      if (r.seen.includes('tour')) TIP_TOUR_SAVED = true;
+    } else if (!had) TIPS_STATE = { ok: false, seen: [], off: true };   // a save that answered meanwhile is newer: keep it
+  } catch { if (!(TIPS_STATE && TIPS_STATE.ok)) TIPS_STATE = { ok: false, seen: [], off: true }; }
+}
+
+async function tipsSave(patch) {
+  try {
+    /* A time limit, so a save that never answers counts as failed and the met-tour retry runs. */
+    const res = await fetch('/api/tips', { method: 'PUT', headers: { 'content-type': 'application/json' }, body: JSON.stringify(patch), signal: AbortSignal.timeout(10000) });
+    const r = await res.json();
+    if (res.ok && r && r.ok) {
+      if (Array.isArray(r.seen) && r.seen.includes('tour')) TIP_TOUR_SAVED = true;
+      const local = TIPS_STATE && TIPS_STATE.ok ? TIPS_STATE.seen : [];
+      /* off comes from the answer only when this save set it: an answer to a seen-only save that lands
+         after "Stop showing tips" was clicked must not turn tips back on here. */
+      /* The local off is kept only when it was READ: after a failed read it is a stand-in (off: true),
+         and this answer is the first real one, so it wins. */
+      const off = patch.off !== undefined ? r.off === true : (TIPS_STATE && TIPS_STATE.ok ? TIPS_STATE.off : r.off === true);
+      const wasOk = !!(TIPS_STATE && TIPS_STATE.ok);
+      TIPS_STATE = { ok: true, seen: [...new Set([...local, ...r.seen])], off };
+      if (!wasOk) paintTipsToggle();   // the Settings box was hidden while the tips could not be read
+      return true;
+    }
+  } catch { /* the tip still closes; it may show once more next time */ }
+  return false;
+}
+
+/* The card, the tour's dim and pins, and the live region, built once into one container at the end of
+   <body>. Built here rather than written into the markup because the consolidated layout makes <body> a
+   grid with a fixed count of pre-rail rows (web.consolidated-980): the container is a zero-height
+   item there and everything in it is position:fixed or visually hidden, so it shows nothing in that
+   grid and adds no static child to that count. */
+function tipLayerEnsure() {
+  if (document.getElementById('tiplayer')) return;
+  const layer = document.createElement('div');
+  layer.id = 'tiplayer';
+  layer.innerHTML = '<div id="tippins"></div>'
+    /* No aria-modal: a role="dialog" is non-modal by default, which this card is, and the modal
+       sweep (web.modal-way-out-1316) counts anything carrying aria-modal as a modal. */
+    + '<div class="tipcard" id="tipcard" role="dialog" aria-labelledby="tipcard-title" hidden></div>'
+    + '<span class="vh" id="tip-live" aria-live="polite"></span>';
+  document.body.appendChild(layer);
+}
+
+/* Periodic, not hooked into every navigation path: a tip reads the screen, so a new route
+   to a screen needs no wiring to get its tip. Cheap: a few querySelector calls a second. */
+function tipsStart() {
+  tipLayerEnsure();
+  if (TIPS_STARTED) return;
+  TIPS_STARTED = true;
+  tipsLoad().then(() => {
+    if (!TIPS_STATE.ok) TIPS_LOAD_NEXT = Date.now() + TIPS_LOAD_RETRY_MS;   // the first retry waits too
+    paintTipsToggle(); tipsCheck(); TIPS_TIMER = setInterval(tipsCheck, TIPS_CHECK_MS);
+  });
+}
+
+function tipsCheck() {
+  /* A failed read shows no tips (it cannot tell what was seen), but it is tried again, less often each
+     time: for someone new, one bad read at startup would otherwise cost them every tip this session. */
+  if (TIPS_STATE && !TIPS_STATE.ok && !TIPS_LOADING && Date.now() >= TIPS_LOAD_NEXT) {
+    TIPS_LOADING = true;
+    tipsLoad().then(() => {
+      TIPS_LOADING = false;
+      if (TIPS_STATE.ok) { paintTipsToggle(); return; }
+      TIPS_LOAD_NEXT = Date.now() + TIPS_LOAD_RETRY_MS;
+      TIPS_LOAD_RETRY_MS = Math.min(TIPS_LOAD_RETRY_MS * 2, 60000);
+    });
+  }
+  /* A new board (no agents at its first answer) that now has an agent: the tour's job is done
+     whether or not it was ever shown, so it counts as seen and the screen tips can follow. This is
+     what carries someone new through: a tour that went with its screen (keyboard, Back, a link:
+     unrecorded, below), a save that failed, and someone who went to the create form before the
+     tour's first tick (the tour never shows over it). Above the open-tip return so a failed save is retried
+     while a screen tip is up; never while the tour itself is on screen. */
+  if (TIP_NEW_BOARD === true && !TIP_TOUR_SAVED && TIPS_STATE && TIPS_STATE.ok && !(TIP_OPEN && TIP_OPEN.tour) && Array.isArray(LAST) && LAST.length > 0 && Date.now() >= TIP_TOUR_NEXT_TRY) {
+    /* Keyed on what the board has confirmed, not on the local list: a close that recorded the tour
+       locally but whose save failed is caught here too. Counted locally at once so the screen tips can
+       follow; a failed save is tried again, less often each time. */
+    TIP_TOUR_NEXT_TRY = Infinity;
+    if (!TIPS_STATE.seen.includes('tour')) TIPS_STATE = { ...TIPS_STATE, seen: [...TIPS_STATE.seen, 'tour'] };
+    tipsSave({ seen: ['tour'] }).then(() => {
+      if (TIP_TOUR_SAVED) return;
+      TIP_TOUR_NEXT_TRY = Date.now() + TIP_TOUR_RETRY_MS;
+      TIP_TOUR_RETRY_MS = Math.min(TIP_TOUR_RETRY_MS * 2, 60000);
+    });
+  }
+  /* A dialog opened while a tip is up: the tip steps aside until the dialog closes. */
+  if (TIP_OPEN) {
+    /* A tip that showed by itself goes when its screen goes (unrecorded, so it shows when the person
+       comes back); otherwise it steps aside for a dialog and follows its target. */
+    if (TIP_AUTO && !TIP_OPEN.show()) { tipClose({ record: false }); return; }
+    tipSuspend(tipModalOpen() || tipMenuOpen());
+    tipRelayout();
+    return;
+  }
+  if (!TIPS_STATE || !TIPS_STATE.ok || TIPS_STATE.off) return;
+  const fr = document.getElementById('firstrun');
+  if (fr && !fr.hidden) return;
+  if (tipModalOpen()) return;
+  const next = TIPS.find((t) => !TIPS_STATE.seen.includes(t.id) && tipAutoOk(t) && t.show());
+  if (next) tipShow(next, { auto: true });
+}
+
+/* Tips show by themselves only for someone new. The tour waits for the board's first answer and
+   then shows only when there are no agents: its first step is "Make your first agent", and a board
+   that already has agents (an upgrade) was set up by someone who knows their way round. Screen tips
+   follow the tour, so they never start on their own on such a board. The ? offers all of it anyway. */
+function tipAutoOk(t) {
+  if (t.tour) {
+    /* Latched by the status handler at the board's first answer: a board that had agents then and
+       has since removed its last one is not someone new, and the tour would be the wrong help. */
+    return TIP_NEW_BOARD === true && Array.isArray(LAST) && LAST.length === 0;
+  }
+  /* On a new board the create form's own tip does not wait for the tour: someone new who clicks New
+     agent before the tour's first tick is on a screen the tour never shows over, and it is exactly
+     where they need help. (First run's endings all land on the board since #3575.) */
+  if (t.id === 'newagent' && TIP_NEW_BOARD === true) return true;
+  return TIPS_STATE.seen.includes('tour');
+}
+
+function tipShow(t, { auto = false, returnTo = null } = {}) {
+  tipLayerEnsure();
+  tipClose({ record: false });
+  const card = document.getElementById('tipcard');
+  if (!card) return;
+  TIP_OPEN = t;
+  TIP_AUTO = auto;
+  TIP_RETURN = auto ? null : (returnTo || document.activeElement);
+  if (t.tour) {
+    /* The tour dims the page and ends on a click outside, so it takes focus even when it opened by
+       itself, and hands it back when it ends. */
+    if (auto) TIP_RETURN = document.activeElement !== document.body ? document.activeElement : null;
+    TIP_PLACES = t.steps.map((st) => ({ ...st, sel: st.at.find((sel) => tipVisible(sel)) })).filter((st) => st.sel);
+    /* Asked for from the ? on a screen that shows none of the four places: walk them anyway, centred
+       and unringed, rather than a menu item that does nothing. */
+    if (!TIP_PLACES.length) TIP_PLACES = t.steps.map((st) => ({ ...st, sel: null }));
+    TIP_STEP = 0;
+    tipTourRender(card, auto);
+    return;
+  }
+  card.innerHTML = '<span class="tip-arrow" aria-hidden="true"></span>'
+    + '<button class="tip-x" type="button" aria-label="Close">&times;</button>'
+    + '<div class="tip-eb">' + esc(t.eb || 'Tip') + '</div>'
+    + '<h2 id="tipcard-title">' + esc(t.title) + '</h2>' + t.body
+    + '<div class="tip-acts">'
+    + '<button class="tip-off" type="button">Stop showing tips</button>'
+    + '<button class="tip-go" type="button">Got it</button></div>';
+  card.hidden = false;
+  card.querySelector('.tip-go').addEventListener('click', () => tipClose({ record: true }));
+  card.querySelector('.tip-x').addEventListener('click', () => tipClose({ record: true }));
+  card.querySelector('.tip-off').addEventListener('click', () => {
+    if (TIPS_STATE && TIPS_STATE.ok) TIPS_STATE.off = true;   // before the save, so no tip slips in while it is in flight
+    tipClose({ record: true, also: { off: true } }).then((saved) => {
+      /* A save that did not land is put back, so the switch and the next tips say what the board has. */
+      if (saved === false && TIPS_STATE && TIPS_STATE.ok) TIPS_STATE.off = false;
+      paintTipsToggle();
+    });
+  });
+  tipAnnounce(card);
+  tipLayout(t, card);
+  if (!auto) card.querySelector('.tip-go').focus();
+}
+
+function tipAnnounce(card) {
+  const live = document.getElementById('tip-live');
+  if (live) { live.textContent = ''; live.textContent = 'Tip: ' + card.querySelector('h2').textContent; }
+}
+
+/* One step of the tour: "N of M", the step's words, progress dots, Skip and Next (Got it on the last).
+   Skip, the x, Escape and a click outside all end it, and ending it any way counts as seen. */
+function tipTourRender(card, auto) {
+  const st = TIP_PLACES[TIP_STEP];
+  const n = TIP_PLACES.length;
+  const last = TIP_STEP === n - 1;
+  card.innerHTML = '<span class="tip-arrow" aria-hidden="true"></span>'
+    + '<button class="tip-x" type="button" aria-label="Close the tour">&times;</button>'
+    + '<div class="tip-eb">' + (TIP_STEP + 1) + ' of ' + n + '</div>'
+    + '<h2 id="tipcard-title">' + esc(st.title) + '</h2><p>' + esc(st.body) + '</p>'
+    + '<div class="tip-acts"><span class="tip-dots" aria-hidden="true">'
+    + TIP_PLACES.map((_, i) => '<i' + (i === TIP_STEP ? ' class="on"' : '') + '></i>').join('') + '</span>'
+    + '<span class="tip-btns">' + (last ? '' : '<button class="tip-skip" type="button">Skip</button>')
+    + '<button class="tip-go" type="button">' + (last ? 'Got it' : 'Next') + '</button></span></div>';
+  card.hidden = false;
+  card.querySelector('.tip-x').addEventListener('click', () => tipClose({ record: true }));
+  const skip = card.querySelector('.tip-skip');
+  if (skip) skip.addEventListener('click', () => tipClose({ record: true }));
+  card.querySelector('.tip-go').addEventListener('click', () => {
+    if (last) { tipClose({ record: true }); return; }
+    TIP_STEP += 1;
+    tipTourRender(card, false);
+  });
+  tipAnnounce(card);
+  tipLayout(TIP_OPEN, card);
+  /* It takes focus, unless it opened by itself while the person is typing somewhere. */
+  const ae = document.activeElement;
+  const busy = auto && !!ae && ae !== document.body && ae.matches('input, textarea, select, [contenteditable=""], [contenteditable="true"]');
+  if (!busy) card.querySelector('.tip-go').focus();
+}
+
+
+function tipSuspend(on) {
+  const card = document.getElementById('tipcard');
+  if (!card || !TIP_OPEN || card.dataset.suspended === String(on)) return;
+  card.dataset.suspended = String(on);
+  card.hidden = on;
+  document.getElementById('tippins').hidden = on;
+  if (!on) tipLayout(TIP_OPEN, card);
+}
+
+/* Position only; the card's content and focus are left alone, so a resize or scroll does not rebuild it. */
+function tipLayout(t, card) {
+  if (t.tour) {
+    /* The step's place stays bright inside a gold ring and the rest of the page dims: one fixed ring
+       whose outer shadow is the dim, so nothing in the app has to be lifted above it. */
+    const st = TIP_PLACES[TIP_STEP];
+    const halo = document.getElementById('tippins');
+    const el = st && st.sel ? document.querySelector(st.sel) : null;
+    halo.innerHTML = '';
+    if (el && tipVisible(st.sel)) {
+      const r = el.getBoundingClientRect();
+      const ring = document.createElement('span');
+      ring.className = 'tiphalo';
+      ring.setAttribute('aria-hidden', 'true');
+      ring.style.left = Math.round(r.left - 4) + 'px';
+      ring.style.top = Math.round(r.top - 4) + 'px';
+      ring.style.width = Math.round(r.width + 8) + 'px';
+      ring.style.height = Math.round(r.height + 8) + 'px';
+      halo.appendChild(ring);
+    }
+    tipPlace(card, st && st.sel);
+  } else {
+    tipPlace(card, t.at, t.side);
+  }
+}
+
+/* Beside the thing, never over it: below when there is room, above otherwise, clamped to the
+   window; the arrow points at the target's centre. No target on screen: centred, no arrow. */
+function tipPlace(card, sel, side = false) {
+  /* The first match that is on screen: a selector list names the tab layout's target and the
+     consolidated layout's, and only one of them is showing. */
+  let el = null;
+  try {
+    el = sel ? [...document.querySelectorAll(sel)].find((x) => { const r = x.getBoundingClientRect(); return r.width > 0 && r.height > 0 && !x.closest('[hidden]'); }) || null : null;
+  } catch { el = null; }   // :has() in an older webview
+  const w = card.offsetWidth, h = card.offsetHeight, pad = 12;
+  const pageW = document.documentElement.getBoundingClientRect().width;
+  if (!el || !el.getBoundingClientRect().width) {
+    card.className = 'tipcard flat';
+    card.style.left = Math.round((pageW - w) / 2) + 'px';
+    card.style.top = Math.round(Math.max(80, (window.innerHeight - h) / 2)) + 'px';
+    return;
+  }
+  const r = el.getBoundingClientRect();
+  /* Beside the target when asked and there is room (a form field: the card stays off the fields
+     below it); the page's own width, not innerWidth, which includes a scrollbar gutter. */
+  if (side && r.right + 14 + w <= pageW - pad) {
+    const top = Math.min(Math.max(pad, r.top - 10), window.innerHeight - h - pad);
+    card.className = 'tipcard left';
+    card.style.left = Math.round(r.right + 14) + 'px';
+    card.style.top = Math.round(top) + 'px';
+    card.style.setProperty('--ay', Math.round(Math.min(Math.max(12, r.top + r.height / 2 - top - 7), h - 26)) + 'px');
+    return;
+  }
+  const below = r.bottom + 12 + h <= window.innerHeight - pad;
+  const left = Math.min(Math.max(pad, r.left + r.width / 2 - 28), pageW - w - pad);
+  card.className = 'tipcard ' + (below ? 'up' : 'down');
+  card.style.left = Math.round(left) + 'px';
+  card.style.top = Math.round(below ? r.bottom + 12 : Math.max(pad, r.top - 12 - h)) + 'px';
+  card.style.setProperty('--ax', Math.round(Math.min(Math.max(14, r.left + r.width / 2 - left - 7), w - 28)) + 'px');
+}
+
+function tipClose({ record, also = null }) {
+  const t = TIP_OPEN;
+  const card = document.getElementById('tipcard');
+  const hadFocus = !!card && card.contains(document.activeElement);   // read before the card empties
+  if (card) { card.hidden = true; card.innerHTML = ''; }
+  const pins = document.getElementById('tippins');
+  if (pins) { pins.innerHTML = ''; pins.hidden = false; }
+  TIP_OPEN = null;
+  const ret = TIP_RETURN;
+  TIP_RETURN = null;
+  if (card) delete card.dataset.suspended;
+  if (ret && ret.focus && ret.isConnected) ret.focus();
+  else if (hadFocus) document.getElementById('helpq-btn')?.focus();
+  if (t && record) {
+    if (TIPS_STATE && !TIPS_STATE.seen.includes(t.id)) TIPS_STATE.seen.push(t.id);
+    /* One write for "closed" and "turn tips off", so two responses cannot race each other. */
+    return tipsSave({ seen: [t.id], ...(also || {}) });
+  }
+  return Promise.resolve();
+}
+
+/* Escape closes any tip; a click outside closes the tour (a screen tip stays while you work).
+   Closing either way counts as seen. */
+/* Capture phase, so this reads the page before an app dialog's own Escape hides it: one Escape
+   closes the dialog, not the tip hiding behind it. */
+document.addEventListener('keydown', (e) => {
+  if (e.key !== 'Escape' || e.isComposing || e.keyCode === 229 || !TIP_OPEN || tipModalOpen()) return;
+  /* An open menu takes the Escape: the ? and the user menu (aria-haspopup), the narrow-width burger
+     and the Kosmos switcher (aria-expanded without aria-haspopup). */
+  if (tipMenuOpen()) return;
+  /* A screen tip leaves an Escape meant for something else alone: typing in a field, an open menu,
+     or an open picker (the reaction picker and the project emoji panel close on any Escape). */
+  const ae = document.activeElement;
+  const inField = !!ae && !ae.closest('#tipcard') && ae.matches('input, textarea, select, [contenteditable=""], [contenteditable="true"]');
+  const inMenu = !!ae && !!ae.closest('[role="menu"], .userpop-menu:not([hidden])');
+  const pickerOpen = !!document.querySelector('#rxn-picker:not([hidden]), #pj-emoji:not([hidden])');
+  if (!TIP_OPEN.tour && (inField || inMenu || pickerOpen)) return;
+  e.preventDefault();
+  tipClose({ record: true });
+}, true);
+document.addEventListener('pointerdown', (e) => {
+  if (!TIP_OPEN || !TIP_OPEN.tour) return;
+  /* A click meant for a dialog that opened over the tour is not a click outside the tour. */
+  if (tipModalOpen() || document.getElementById('tipcard')?.hidden) return;
+  if (e.target.closest('#tipcard') || e.target.closest('#helpq')) return;
+  tipClose({ record: true });
+}, true);
+let TIP_RELAYOUT = false;
+const tipRelayout = () => {
+  if (!TIP_OPEN || TIP_RELAYOUT) return;
+  TIP_RELAYOUT = true;
+  requestAnimationFrame(() => { TIP_RELAYOUT = false; const c = document.getElementById('tipcard'); if (TIP_OPEN && c && !c.hidden) tipLayout(TIP_OPEN, c); });
+};
+/* After a click has opened or closed a menu, look again at once rather than on the next tick. Capture
+   phase, because the user menu's button stops its click; the timeout runs after the menu has toggled. */
+document.addEventListener('click', () => { if (TIP_OPEN) setTimeout(() => tipSuspend(tipModalOpen() || tipMenuOpen()), 0); }, true);
+window.addEventListener('resize', tipRelayout);
+document.addEventListener('scroll', tipRelayout, { capture: true, passive: true });
+
+/* The ? menu: this screen's tip, the tour, the ring explainer. Reopening never needs the tip to be
+   unseen, and works with tips turned off. */
+function wireHelpq() {
+  const btn = document.getElementById('helpq-btn');
+  const menu = document.getElementById('helpq-menu');
+  if (!btn || !menu) return;
+  const closeHelpMenu = () => { menu.hidden = true; btn.setAttribute('aria-expanded', 'false'); };
+  /* The ?'s click is left to bubble, so every other popover's outside-click closes it as usual.
+     The user menu stops its own click, so the ? listens for that one in the capture phase. */
+  document.getElementById('userpop-btn')?.addEventListener('click', () => closeHelpMenu(), true);
+  btn.addEventListener('click', () => {
+    const open = menu.hidden;
+    menu.hidden = !open;
+    btn.setAttribute('aria-expanded', String(open));
+    if (open) menu.querySelector('.userpop-item')?.focus();
+  });
+  menu.addEventListener('click', (e) => {
+    const b = e.target.closest('[data-help]');
+    if (!b) return;
+    closeHelpMenu();
+    const want = b.dataset.help;
+    /* Choosing something else from the ? while the tour is up is closing the tour: it counts as seen. */
+    if (TIP_OPEN && TIP_OPEN.tour && want !== 'tour') tipClose({ record: true });
+    let t = null;
+    /* This screen's own tip: the ring has its own item, and its rail rings show on every
+       consolidated screen, so it is not a screen's answer. */
+    if (want === 'screen') t = TIPS.find((x) => !x.tour && x.id !== 'ring' && x.show()) || TIPS.find((x) => x.tour);
+    else t = TIPS.find((x) => x.id === want);
+    if (t) tipShow(t, { returnTo: btn });
+  });
+  document.addEventListener('click', (e) => { if (!menu.hidden && !e.target.closest('#helpq')) closeHelpMenu(); });
+  /* Escape closes the menu wherever focus is inside the ? (the button after a mouse click, or an item). */
+  document.getElementById('helpq').addEventListener('keydown', (e) => {
+    if (e.key === 'Escape' && !menu.hidden) { e.stopPropagation(); closeHelpMenu(); btn.focus(); }
+  });
+}
+wireHelpq();
+/* The Settings switch paints from the board's answer and writes the off flag. Hidden when the board
+   could not say, so it never shows a state it did not read. */
+function paintTipsToggle() {
+  const box = document.getElementById('tips-box');
+  if (!box) return;
+  box.hidden = !(TIPS_STATE && TIPS_STATE.ok);
+  if (!box.hidden) paintSwitch('tips-toggle', !TIPS_STATE.off);
+}
+document.getElementById('tips-toggle')?.addEventListener('click', async (e) => {
+  const sw = e.currentTarget;
+  if (!TIPS_STATE || !TIPS_STATE.ok || sw.disabled) return;
+  sw.disabled = true;   // one save at a time, so two quick clicks are a toggle and back, not the same write twice
+  try { await tipsSave({ off: !TIPS_STATE.off }); } finally { sw.disabled = false; }
+  if (TIPS_STATE.off && TIP_OPEN && TIP_AUTO) tipClose({ record: false });   // off means the one on screen goes too
+  paintTipsToggle();
+});
+
 /* #12 (0.6.39): the platform-aware first-run copy (kosmos#2086: frIsMac,
    frFindAppHint, frApplyPlatformCopy) was removed. It existed only to rewrite
    the Success screen's #fr-return-keep line on non-macOS and to word the
@@ -52792,6 +53591,7 @@ async function firstRunBoot(force, step) {
        hand-off is cover -> opaque overlay, never a flash of the board. On the
        done/error paths the cover comes down onto the board, which is correct. */
     revealBoot();
+    tipsStart();   // #3574: the tips read the screen, so they wait out first run by themselves
   }
 }
 
@@ -52849,7 +53649,7 @@ fetch('/api/roles').then((r) => (r.ok ? r.json() : null)).then((j) => {
    ready), so a hung check must reveal the board rather than blank the app. This
    is the concern the comment above records, now that the board starts hidden.
    Idempotent with firstRunBoot's finally: whichever fires first wins. */
-setTimeout(revealBoot, 3000);
+setTimeout(() => { revealBoot(); tipsStart(); }, 3000);
 firstRunBoot(PARAMS.get('first-run') === '1', Number(PARAMS.get('fr-step')) || 1);
 
 /* #3641 (Josh, 2026-09-24): the corner version marker was removed; the version lives in

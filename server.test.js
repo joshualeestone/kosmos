@@ -5722,7 +5722,7 @@ test('#2497: the fleet screen lands on Giddy Up on every path, including a broke
   // tester: a dev's tmux Claude Code sessions filled first run with garbage agents). Real agents come in
   // later via the manual Import Agent (#1652) on the Create Agent screen.
   assert.match(adopt.els['fr-fleet-title'].textContent, /ready to start using Kosmos/i);
-  assert.match(adopt.els['fr-fleet'].innerHTML, /Let’s get started/i);
+  assert.match(adopt.els['fr-fleet'].innerHTML, /create or import agents, set up your projects/i);
   assert.ok(!/already have|nothing to import|fr-name/.test(adopt.els['fr-fleet'].innerHTML),
     'onboarding still counts or offers the fleet on the adopt path');
 
@@ -5826,7 +5826,7 @@ test('#2497: the fleet screen lands on Giddy Up on every path, including a broke
 test('#2497: the fleet step makes no machine-state promise (now the unconditional Giddy Up screen)', () => {
   /**
    * ⚠️ #2497 STRENGTHENS this test's concern by construction: the fleet step (frPaintFleet) now
-   * ALWAYS renders the no-agent "Create your first agent." / Giddy Up screen, whatever the machine
+   * ALWAYS renders the one Giddy Up ending (#3659: SETUP COMPLETE, "You're ready to start using Kosmos."), whatever the machine
    * state, so it can never repeat a check-screen finding NOR promise a working agent. Each case
    * below anchors on that positive render (so the absence assertions are NOT vacuous -- they only
    * pass because the Giddy Up screen genuinely rendered and carries no machine copy), then keeps
@@ -10394,7 +10394,7 @@ test('#2497: first run lands on Giddy Up regardless of what is on the disk (no a
    * "look on the disk before saying anybody has nothing" behavior FOR ONBOARDING. That behavior
    * surfaced found agents on the first-run screen; on a developer's box (many tmux Claude Code
    * sessions) it filled the board with garbage throwaway agents. Josh ruled that first run always
-   * lands on the no-agent "Create your first agent." / Giddy Up screen, even when agents ARE found,
+   * lands on the one Giddy Up ending (SETUP COMPLETE since #3659), even when agents ARE found,
    * and that the manual Import Agent (#1652) on the Create Agent screen is the way to pull real
    * ones in later. So none of the disk states (not-looked / found-some / found-none / could-not-
    * look) changes what the first-run screen shows now: it is always the create / Giddy Up screen.
@@ -10419,7 +10419,7 @@ test('#2497: first run lands on Giddy Up regardless of what is on the disk (no a
   });
   assert.match(found.els['fr-fleet-title'].textContent, /ready to start using Kosmos/i,
     'first run surfaced found agents instead of the create / Giddy Up screen');
-  assert.match(found.els['fr-fleet'].innerHTML, /Let’s get started/i);
+  assert.match(found.els['fr-fleet'].innerHTML, /create or import agents, set up your projects/i);
   assert.doesNotMatch(found.els['fr-fleet'].innerHTML, /found an agent|not in Kosmos yet|<input/i,
     'first run still renders a found-agents list; #2497 removed auto-import from onboarding');
 
@@ -10434,8 +10434,8 @@ test('#2497: first run lands on Giddy Up regardless of what is on the disk (no a
      found nothing is not the same as a search that could not run. It is still
      real. His point is that neither belongs on the screen that asks somebody to
      make their first agent, because both are the product talking about itself. */
-  assert.match(empty.els['fr-fleet'].innerHTML, /Let\u2019s get started/i,
-    'the generic opening line is gone from the create-first-agent step');
+  assert.match(empty.els['fr-fleet'].innerHTML, /create or import agents, set up your projects/i,
+    'the create-first-agent step does not carry Josh\'s #3659 body line');
   assert.doesNotMatch(empty.els['fr-fleet'].innerHTML, /everything is connected|everything is in place/i,
     'the screen claims everything is connected, which it cannot know on the skipped-check or failed-search paths');
   assert.doesNotMatch(empty.els['fr-fleet'].innerHTML, /could not look|did not find any agents/i,
@@ -10458,7 +10458,7 @@ test('#2497: first run lands on Giddy Up regardless of what is on the disk (no a
     'a failed search is claiming a result');
   assert.doesNotMatch(blind.els['fr-fleet'].innerHTML, /could not look/i,
     'the failed-search confession is back on the create-first-agent step');
-  assert.match(blind.els['fr-fleet'].innerHTML, /Let\u2019s get started/i,
+  assert.match(blind.els['fr-fleet'].innerHTML, /create or import agents, set up your projects/i,
     'the neutral line is missing on the could-not-look path');
   assert.match(blind.els['fr-fleet-title'].textContent, /ready to start using Kosmos/i,
     'the way forward is gone on a failed search');
@@ -11112,6 +11112,31 @@ test('the layout setting (#520): tabs by default, round-trips, and refuses anyth
   assert.equal(JSON.parse((await req('/api/style')).body).layout, 'consolidated', 'a refused value moved the setting');
   const back = await req('/api/style', { method: 'PUT', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ layout: 'tabs' }) });
   assert.equal(JSON.parse(back.body).layout, 'tabs');
+});
+
+test('the tips route (#3574): nothing seen on a fresh board, seen only grows, refusals in words, an unreadable store is an honest 200', async () => {
+  const tipsStore = require('./engine/tips');
+  const put = (body) => req('/api/tips', { method: 'PUT', headers: { 'content-type': 'application/json' }, body: typeof body === 'string' ? body : JSON.stringify(body) });
+  try { require('node:fs').rmSync(tipsStore.FILE(), { force: true }); } catch { /* not there */ }
+  const fresh = JSON.parse((await req('/api/tips')).body);
+  assert.deepEqual([fresh.ok, fresh.seen, fresh.off], [true, [], false]);
+  const one = await put({ seen: ['tour'] });
+  assert.equal(one.status, 200, one.body);
+  assert.deepEqual(JSON.parse(one.body).seen, ['tour']);
+  assert.deepEqual(JSON.parse((await req('/api/tips')).body).seen, ['tour'], 'a closed tip did not survive a re-read');
+  for (const bad of [['tour'], { seen: 'tour' }, { seen: ['nope'] }, { off: 'yes' }]) {
+    const r = await put(bad);
+    assert.equal(r.status, 400, JSON.stringify(bad) + ' was accepted');
+    assert.ok(JSON.parse(r.body).error, 'a refusal came back with no words');
+  }
+  assert.equal((await put('{ not json')).status, 400);
+  assert.deepEqual(JSON.parse((await req('/api/tips')).body).seen, ['tour'], 'a refused request moved the store');
+  require('node:fs').writeFileSync(tipsStore.FILE(), '{ not json');
+  const broken = await req('/api/tips');
+  assert.equal(broken.status, 200, 'an unreadable store is an answer, not a server error');
+  assert.equal(JSON.parse(broken.body).ok, false);
+  assert.equal((await put({ seen: ['ring'] })).status, 400, 'a write over an unreadable store would forget what was seen');
+  require('node:fs').rmSync(tipsStore.FILE(), { force: true });
 });
 
 test('the Plus switch round-trips and the off state comes back honest', async () => {
@@ -14603,5 +14628,129 @@ test('#2811: a LIVE pane marker beats the record on the board row, so a mid-swit
   } finally {
     if (board) board.restore();
     try { fsX.unlinkSync(create.plistPath(name)); } catch { /* may not exist */ }
+  }
+});
+
+test('#3650: a pane that merely borrows the name cannot react in the real agent\'s DM', async () => {
+  const chatEngine = require('./engine/chat');
+  const status = require('./engine/status');
+  const AT = '2026-09-24T21:10:00.000Z';
+  chatEngine.appendMessage(chatEngine.DIRECT, 'rxborrow', { text: 'private', from: 'rxborrow', at: AT });
+  const react = () => req('/api/agent/rxborrow/thread/react', {
+    method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ at: AT, emoji: '👍' }),
+  });
+  status.setPaneSource(() => fleet.line({ session: 'rxborrow', title: 'stranger' }));
+  status.setPaneCapture(() => 'Worked for 1m\n> \n');
+  try {
+    const board = JSON.parse((await req('/api/status')).body);
+    const card = (board.agents || []).find((a) => a.sessionName === 'rxborrow');
+    assert.ok(card && card.isNamedOurs === false, 'the fixture is not exercising the untied case');
+    const res = await react();
+    assert.equal(res.status, 404, res.body);
+    assert.equal(JSON.parse(res.body).because, 'borrowed');
+    assert.deepEqual(chatEngine.dmReactions(chatEngine.readThread(chatEngine.DIRECT, 'rxborrow').messages[0]), []);
+  } finally {
+    status.setPaneSource(null);
+    status.setPaneCapture(null);
+  }
+  // CONTROL: the tied agent under the same name reacts, so the 404 above is the gate.
+  const tied = fleet.install([fleet.agent('rxborrow', { state: 'idle' })]);
+  try {
+    const ok = await react();
+    assert.equal(ok.status, 200, 'CONTROL: the tied agent could not react, so the refusal proves nothing: ' + ok.body);
+  } finally {
+    tied.restore();
+    chatEngine.resetForTests();
+  }
+});
+
+/**
+ * #3650: the person reacts to an agent's message in a Direct Message. The react route
+ * toggles it on the message, the thread read carries the pills, and the person's NEXT
+ * message tells the agent once, as a `[kosmos]` note typed after their words.
+ */
+test('#3650: a DM reaction is stored, shown, and told to the agent once with the next message', async () => {
+  const chatEngine = require('./engine/chat');
+  const board = fleet.install([fleet.agent('lena', { state: 'idle', displayName: 'Lena' })]);
+  const AT = '2026-09-24T21:00:00.000Z';
+  try {
+    chatEngine.appendMessage(chatEngine.DIRECT, 'lena', { text: 'Done with the login fix', from: 'lena', at: AT });
+    const react = (body) => req('/api/agent/lena/thread/react', {
+      method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body),
+    });
+
+    const on = await react({ at: AT, emoji: '👍' });
+    assert.equal(on.status, 200, on.body);
+    assert.deepEqual(JSON.parse(on.body).reactions, [{ emoji: '👍', count: 1, who: ['you'], mine: true }]);
+    const missing = await react({ at: '2026-01-01T00:00:00.000Z', emoji: '👍' });
+    assert.equal(missing.status, 400, 'a reaction to no message must be refused');
+    const junk = await react({ at: AT, emoji: 'ok' });
+    assert.equal(junk.status, 400, 'a non-emoji must be refused');
+
+    const read = JSON.parse((await req('/api/agent/lena/thread')).body);
+    const row = (read.messages || []).find((m) => m.at === AT);
+    assert.ok(row, 'the reacted message is not in the thread');
+    assert.deepEqual(row.reactions, [{ emoji: '👍', count: 1, who: ['you'], mine: true }]);
+
+    const say = (text, extra) => req('/api/agent/lena/thread', {
+      method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ text, ...(extra || {}) }),
+    });
+    /* A send that never reaches the pane (dry run, the default here) must leave the
+       reaction untold, so it rides the next message instead. */
+    const failed = await say('are you there?');
+    assert.ok([200, 202].includes(failed.status), failed.body);
+    assert.notEqual(chatEngine.dmReactionNote('lena'), '', 'an undelivered note was marked told');
+
+    const sends = [];
+    chatEngine.setRunner((args) => {
+      sends.push(args);
+      if (args[0] === 'display-message') return { ran: true, spawnFailed: false, status: 0, out: '2.1.212\t\t0\n', err: '' };
+      return { ran: true, spawnFailed: false, status: 0, out: '', err: '' };
+    });
+    chatEngine.setDryRun(false);
+
+    /* A bare digit (what a numbered menu takes) must not carry the note, and it must
+       still be pending afterwards. The agent is idle, so the route drops `chose` and this
+       exercises the DIGIT guard; the `chose` guard is dmNoteMayRide's engine test. The
+       digit must actually be typed, or "the note did not ride it" proves nothing. */
+    const answered = await say('1', { chose: 'Yes, go ahead' });
+    assert.ok([200, 202].includes(answered.status), answered.body);
+    assert.match(pastedChunks(sends).join(''), /(^|\D)1\s*$/, 'the digit was not what was typed last, so this arm tests nothing');
+    assert.equal(pastedChunks(sends).join('').includes('[kosmos] reactions'), false, 'the note rode a bare digit');
+    assert.notEqual(chatEngine.dmReactionNote('lena'), '', 'a bare digit marked the note told');
+    sends.length = 0;
+
+    const first = await say('thanks');
+    assert.ok([200, 202].includes(first.status), first.body);
+    const typed1 = pastedChunks(sends).join('');
+    assert.ok(typed1.includes('thanks [kosmos] reactions from the person you have not been told about yet: 👍 on your message "Done with the login fix"'),
+      'the note did not ride the message: ' + typed1);
+    const told = chatEngine.readThread(chatEngine.DIRECT, 'lena').messages.find((m) => m.at === AT);
+    assert.deepEqual(told.reactionsTold, ['👍'], 'CONTROL: the engine did not record it as told');
+    const served = JSON.parse((await req('/api/agent/lena/thread')).body).messages.find((m) => m.at === AT);
+    assert.equal(served.reactionsTold, undefined, 'the engine\'s bookkeeping was sent to the page');
+
+    sends.length = 0;
+    const second = await say('one more thing');
+    assert.ok([200, 202].includes(second.status), second.body);
+    const typed2 = pastedChunks(sends).join('');
+    assert.ok(typed2.includes('one more thing'), 'the second message was not typed: ' + typed2);
+    assert.equal(typed2.includes('[kosmos] reactions'), false, 'a reaction was told twice: ' + typed2);
+
+    /* An UNCONFIRMED send (here: Enter could not be pressed) may have lost the note, which
+       rides the tail, so the reaction stays pending rather than being marked told. */
+    await react({ at: AT, emoji: '🎉' });
+    chatEngine.setRunner((args) => {
+      if (args[0] === 'display-message') return { ran: true, spawnFailed: false, status: 0, out: '2.1.212\t\t0\n', err: '' };
+      if (args[0] === 'send-keys' && args.includes('Enter')) return { ran: true, spawnFailed: false, status: 1, out: '', err: 'no pane' };
+      return { ran: true, spawnFailed: false, status: 0, out: '', err: '' };
+    });
+    const lost = await say('did you see that?');
+    const lostState = JSON.parse(lost.body).delivery && JSON.parse(lost.body).delivery.state;
+    assert.equal(lostState, chatEngine.DELIVERY.UNCONFIRMED, 'CONTROL: the send was not unconfirmed, so this arm tests nothing: ' + lost.body);
+    assert.ok(chatEngine.dmReactionNote('lena').includes('🎉'), 'an unconfirmed send marked the reaction told');
+  } finally {
+    chatEngine.resetForTests();
+    board.restore();
   }
 });

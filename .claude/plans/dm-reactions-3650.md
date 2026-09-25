@@ -1,0 +1,113 @@
+# Reactions in a Direct Message (kosmos#3650)
+
+Josh, 2026-09-24 12:27, #admin: reactions "in both their conversations and projects".
+#3570 (PR #3580) covered project rooms only; a DM had no reactions at all.
+
+## Measured first
+- Room reactions are `kind:'reaction'` events in the append-only message log, toggled
+  by messages.react() and replayed by reactionsFor().
+- A DM is a different store: one JSON thread per agent (chats/direct..<agent>.json),
+  rewritten whole under its lock (engine/chat.js). A DM message has no id; the page
+  keys rows by `at` (midOf). An agent never reads its DM back: messages are pasted
+  into its pane, and there is no `kosmos` verb that prints the thread.
+- The DM view had no picker. Its rows already use the room's `.msg` bubble, so the
+  room's reaction CSS (`.rxns`, `.msg:hover .rxn-quick`) applies unchanged.
+
+## Calls
+- STORE: on the message. `reactions` = the emojis the person has on it now;
+  `reactionsTold` = the ones the agent has been told. appendLocked carries old rows
+  over whole, so both survive later appends. A stray non-array / non-emoji value is
+  skipped, never treated as damage.
+- KEY: the message's `at`, and only the AGENT's messages. Two agent rows sharing one
+  `at` are refused rather than guessed.
+- DELIVERY: not a push. A reaction is feedback, so it must not wake the agent into a
+  turn. It rides the person's NEXT message as one `[kosmos]` note after their words
+  (the deliver() trailer), naming the emoji and the start of the message. Marked told
+  only when that message PLACED (review pass 8: an unconfirmed send may have lost the tail, which is where the note rides); anything else keeps it
+  pending. A reaction taken back before then is never told. Same as the room, where a
+  reaction is seen on the agent's next read.
+- UI: the room's own pieces. dmRow draws the room's `.rxns` row (rxnsInner) under each
+  agent bubble, keyed by `data-at`. A delegated handler on #d-dmthread toggles through
+  the new route and repaints the row. The SHARED picker learns a second target:
+  opened from a DM row it carries `data-at` (and no `data-post`) and routes the pick
+  to the DM route. rxnCloseAllPickers resets openers in both threads.
+- DOCTRINE: a new section, `### When someone reacts in a direct conversation`,
+  DOCTRINE_VERSION 14 (new heading so `missingFrom` re-offers it to existing agents).
+  The note itself also says "it needs no reply", for agents that have not refreshed.
+- MAC AND WINDOWS: all of this is server.js + engine + web, which both boards run.
+
+- LIMITS (review pass 1): no note on a numbered menu answer, checked on `chose` AND on
+  a bare-digit text (`chose` is dropped when no menu shows, and a digit is what a menu
+  takes), so a note can never spill into the next prompt. At most 20 reactions per
+  message. The note names at most the five newest messages and counts the rest. The
+  quoted start is cut by code point so an emoji is never split. The page closes a
+  DM-opened picker before a repaint that rewrites the thread (as the room does), and a
+  pick lands only in a DM that is still on screen.
+
+## Rejected
+- Pushing each reaction to the pane as it happens: wakes the agent for feedback that
+  needs no reply, and contradicts the doctrine it is meant to follow.
+- Storing DM reactions as events in the message log: a second store for one fact,
+  and the DM thread is the record the page already reads.
+- Agents reacting back in a DM: there is no verb for it and the card did not need it;
+  the doctrine says so plainly.
+
+## Weakest premise
+A reaction the person makes and never follows with a message is never told. That is
+the deliberate cost of not waking the agent. What would change it: Josh wanting a
+reaction alone to reach the agent, which would need a quiet channel that does not
+start a turn.
+
+## Verification
+- engine/chat.dm-reactions-3650.test.js (incl. the cap, the bounded note and the code-point cut): toggle, only agent rows, ambiguity
+  refused, survives appends, told once then silent, taken-back never told, one-line
+  note with quoting, stray values skipped. Perturbations: accepting any row, and a
+  no-op told-marker, each red their arm.
+- server.test.js #3650: the route, pills on the GET, an undelivered send leaving the
+  note pending, no note on a menu answer, the note typed after the person's words,
+  and not typed again. Perturbations: no note, told-marking regardless of delivery,
+  no told-marking, and no digit guard each red it.
+- docs/browser-checks/render-dm-reactions-3650.js: rows on agent messages only,
+  a pressed pill, quick-bar POST + repaint, shared picker routed to the DM route and
+  closed, a quiet poll leaving a DM-opened picker open and a rewriting poll closing it.
+  Perturbations: picker DM branch off, and no DM row, each red; after the rebase, the
+  picker close removed from setThread reds the rewrite arm, and a close on every
+  setThread reds the quiet arm. The room's render-reactions-2255, render-agentdm-3414
+  (40/40 on the rebased branch) and render-talk still pass.
+- The picker close lives in setThread's own rewrite decision (review pass 3), so the DM
+  thread has one "did it change" and every arm that rewrites it (notes included)
+  closes a DM-opened picker.
+- engine/defaults.test.js: fingerprint 14 pinned.
+
+## Review pass 4 (after the rebase)
+- The react route now has the DM thread's own `nameRefusal` gate (a pane that merely
+  borrows the name gets 404 `borrowed`), with a server test and a tied-agent control;
+  removing the gate reds it.
+- Told-marking records exactly what the note NAMED (`dmReactionNews` returns `named`),
+  not whatever is on the message when the mark runs. It is safe today because
+  `deliver` is synchronous, but that was an unstated premise. A reaction taken back
+  before the mark drops out, so putting it back is told again. Engine tests for the
+  mid-send case and the take-back case; the old "told = now" reds the first.
+- The note's quoted start also strips C1 controls and bidi overrides.
+- The note says "reactions ... you have not been told about yet", which is its real window.
+- The thread GET no longer sends `reactionsTold` to the page.
+- The server test's menu arm is named for what it exercises (the digit guard, since an
+  idle agent's route drops `chose`) and no longer accepts a 409 that types nothing.
+- Not done: the hover quick bar can clip on the very first agent message at the top of
+  the DM scroll box. Rooms share that layout, and it is a nit, not a defect in this card.
+
+## Review passes 5 and 6
+- The name-refusal 404 body is one helper (`nameRefusalBody`) shared by the thread GET
+  and the react route.
+- Main moved again (#3574); merged it in rather than rebasing. Browser-check counts
+  re-measured on the merged tree: still 133 and 94.
+- The pane-safety strip covered only the quoted start; the emoji itself could carry a
+  bidi override (the shared `normalizeReactionEmoji` accepts any non-ASCII string).
+  The DM react route now refuses such an emoji, and `dmReactions` skips one already in
+  the file (review pass 7), so the pills, the note and the told-marker read one list and
+  nothing is marked told that the note did not name. Both are engine-tested and each reds under its perturbation. The
+  room's shared normaliser is unchanged: the room never types reactions into a pane.
+- Messages only counted in the note ("reactions on N earlier messages") are recorded as
+  told too. That is deliberate: the agent was told they exist and that they need no reply.
+- Deferred: the feature commit's subject predates the `<branch> -- ` form. Kosmos
+  squash-merges, so the PR title is the commit that lands on main, and it follows the form.

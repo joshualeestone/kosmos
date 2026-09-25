@@ -89,7 +89,7 @@ const FOUND = {
   // 1. First run lands on the Giddy Up screen, even with adoptable folders discovered.
   check('first run shows the Giddy Up heading (not an adopt prompt)',
     /ready to start using Kosmos/i.test(view.title), JSON.stringify(view.title));
-  check('the Giddy Up copy is present', /let’s get started/i.test(view.box), view.box.slice(0, 120));
+  check('the Giddy Up copy is present', /create or import agents/i.test(view.box), view.box.slice(0, 120));
 
   // 2. The adopt prompt and any found/scan rows are suppressed.
   check('no adopt prompt renders ("Is this one of your agents?")', !view.adoptPrompt, `adopth=${view.adoptPrompt}`);
