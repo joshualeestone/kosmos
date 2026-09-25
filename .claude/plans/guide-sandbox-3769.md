@@ -70,6 +70,16 @@ then close two gaps before 0.6.95. This branch is those gaps.
 - Both are now permanent tests (every offset, five separators; a cost bound with a control).
 - Left as a NIT: a split with three or more blank lines, or with a list dash after the break.
 
+## Review round 4 (sonnet)
+- No BLOCKER or SHOULD-FIX. The 8-character index cannot miss a held form (every form is 12 or more);
+  shapeHint covers the opening of every entry in PATTERNS (traced by hand); both normalisedCopy regexes are
+  linear.
+- NITs, folded into the accepted note above: a numbered-list marker after a break ("\n1. ") breaks the
+  join like a list dash does; shapeHint also fires on ordinary words such as "risk-free", which costs one
+  bounded scan and never changes the text.
+- (That reviewer wrote to this plan file despite a read-only brief; the edit was discarded, this file is
+  the committed version plus this note.)
+
 ## Weakest premises
 - The sandbox is measured on this Mac with this Claude Code version; a version that changes its sandbox
   settings would silently stop enforcing. The unit test pins the settings written, not the enforcement.
