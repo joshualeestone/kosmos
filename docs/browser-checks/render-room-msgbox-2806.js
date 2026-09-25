@@ -43,20 +43,25 @@
  *   NODE_PATH="$HOME/work/pw-runtime/node_modules" node docs/browser-checks/render-room-msgbox-2806.js
  *
  * HEADED by default (like its siblings). HEADED=0 on a machine with no console.
- * ENGINE=webkit runs every arm in Playwright's WebKit build (not Safari); Chromium otherwise.
+ * ENGINES=chromium,webkit runs every arm in each (WebKit is Playwright's build, not Safari), the
+ * same switch as render-dm-phone-718. Chromium alone by default, which is what the gate runs.
  */
 const path = require('node:path');
 const playwright = require('playwright');
-/* ENGINE=webkit runs every arm in Playwright's WebKit build (an engine approximation of iOS
-   Safari, not Safari). Chromium by default, which is what tools/browser-checks.sh runs. */
-const ENGINE = process.env.ENGINE === 'webkit' ? 'webkit' : 'chromium';
+/* ENGINES=chromium,webkit (the render-dm-phone-718 switch). An unknown name is refused rather
+   than quietly running Chromium alone. */
+const ENGINES = (process.env.ENGINES || 'chromium').split(',').map((e) => e.trim()).filter(Boolean);
+const BAD_ENGINES = ENGINES.filter((e) => e !== 'chromium' && e !== 'webkit');
+if (BAD_ENGINES.length || !ENGINES.length) { console.error('ENGINES must be chromium and/or webkit, got: ' + (process.env.ENGINES || '')); process.exit(2); }
+let ENGINE = ENGINES[0];
 
 const PAGE = 'file://' + path.join(path.resolve(__dirname, '..', '..'), 'web', 'index.html');
 
 const fail = [];
 const chk = (ok, label, extra) => {
-  console.log((ok ? 'PASS  ' : 'FAIL  ') + label + (extra ? '  ' + extra : ''));
-  if (!ok) fail.push(label);
+  const named = (ENGINES.length > 1 ? '[' + ENGINE + '] ' : '') + label;
+  console.log((ok ? 'PASS  ' : 'FAIL  ') + named + (extra ? '  ' + extra : ''));
+  if (!ok) fail.push(named);
 };
 
 /* rgb/rgba string -> [r,g,b,a]. "transparent" and rgba(...,0) both give a=0. */
@@ -83,6 +88,8 @@ function blueLead(rgb) { return rgb[2] - Math.max(rgb[0], rgb[1]); }
 const now = () => new Date().toISOString();
 
 (async () => {
+  for (const engineName of ENGINES) {
+  ENGINE = engineName;
   const browser = await playwright[ENGINE].launch(ENGINE === 'chromium'
     ? { headless: process.env.HEADED === '0', ignoreDefaultArgs: ['--hide-scrollbars'] }
     : { headless: process.env.HEADED === '0' });
@@ -776,17 +783,19 @@ const now = () => new Date().toISOString();
       chk(!settingsIn.error && settingsIn.inside && settingsIn.fields >= 3 && settingsIn.at16.length === 0 && settingsIn.tkInp !== null && settingsIn.tkInp < 16,
         `[touch, one-screen layout] Settings moved inside the projects panel keeps its own field sizes`, JSON.stringify(settingsIn));
       // And at 16px nothing in those dialogs runs off the side at 375: each dialog shown, its
-      // fields and its own box must fit the screen, and the page must not scroll sideways.
+      // card (.rm-box) and every field and button in it inside the screen.
       const dlgFit = await phonePage.evaluate(() => ['nt-modal', 'am-modal'].map((id) => {
         const m = document.getElementById(id); if (!m) return { id, error: 'missing' };
         const was = m.hidden; m.hidden = false; m.removeAttribute('inert');
         const over = [...m.querySelectorAll('input, select, textarea, button')].filter((el) => el.getBoundingClientRect().width > 0)
           .filter((el) => { const r = el.getBoundingClientRect(); return r.left < -0.5 || r.right > innerWidth + 0.5; }).map((el) => el.id || el.className);
-        const shown = [...m.querySelectorAll('input, select, textarea')].filter((el) => el.getBoundingClientRect().width > 0).length;
-        const res = { id, fields: shown, over, pageScrolls: document.documentElement.scrollWidth > innerWidth + 1 };   // rendered fields only, or a dialog that failed to show would pass
+        const shown = [...m.querySelectorAll('input, select, textarea')].filter((el) => el.getBoundingClientRect().width > 0).length;   // rendered fields only
+        const card = m.querySelector('.rm-box'); const cardRect = card ? card.getBoundingClientRect() : null;
+        const cardFits = !!(cardRect && cardRect.width > 0 && cardRect.left >= -0.5 && cardRect.right <= innerWidth + 0.5);
+        const res = { id, fields: shown, over, cardFits, card: cardRect ? [Math.round(cardRect.left), Math.round(cardRect.right)] : null };
         m.hidden = was; return res;
       }));
-      chk(dlgFit.every((d) => !d.error && d.fields >= 1 && d.over.length === 0 && !d.pageScrolls), `[phone/touch] at 16px the Tasks and add-member dialogs fit a 375 screen`, JSON.stringify(dlgFit));
+      chk(dlgFit.every((d) => !d.error && d.fields >= 1 && d.over.length === 0 && d.cardFits), `[phone/touch] at 16px the Tasks and add-member dialogs fit a 375 screen`, JSON.stringify(dlgFit));
       // 24 fields measured; the floor catches a sweep that stopped finding them.
       chk(!fonts.error && fonts.hoverNone && fonts.count >= 20 && fonts.small.length === 0, `[phone/touch] every field on the project page is at least 16px (no iOS zoom)`, JSON.stringify(fonts));
       // The first-visit project tip (#3574) must land ON SCREEN on a phone: its old anchor, Add
@@ -870,6 +879,10 @@ const now = () => new Date().toISOString();
         const p = { agents: [{ sessionName: 'april', name: 'April' }] };
         const long = 'this is a deliberately long message so the bubble fills the whole available width on a phone and would reach the far edge if it were not capped short of the opposite avatar column.';
         const room = document.getElementById('pj-room');
+        // LIFTED to body: the geometry arms below measure the room on its own. pjRxnVisibleBand still
+        // reads the page's real sticky header (.apphead), which the lifted room is drawn over, so
+        // those placement arms are right for a partly different reason; the IN-PLACE arm above is
+        // the one that measures the room in its real column.
         document.body.appendChild(room);
         // Real taps: the first-run overlay (not part of the room) would intercept them.
         const fr = document.getElementById('firstrun'); if (fr) fr.remove();
@@ -961,10 +974,11 @@ const now = () => new Date().toISOString();
       chk(!linkClose.error && linkClose.ok && afterLink.shown === 0, `[phone/touch] a tap on a link in another row closes an open bar`, JSON.stringify(Object.assign({}, linkClose, afterLink)));
       // Reopen it, so the arms below start from an open bar as before.
       await firstBody.scrollIntoViewIfNeeded(); await firstBody.tap(); await phonePage.waitForTimeout(300);
+      const reopened = await bar();   // precondition: the bar IS open before the tap that must close it
       await firstBody.tap();
       await phonePage.waitForTimeout(300);
       const t2 = await bar();
-      chk(t2.shown === 0 && t2.op === '0', `[phone/touch] a second tap closes it`, JSON.stringify(t2));
+      chk(reopened.shown === 1 && t2.shown === 0 && t2.op === '0', `[phone/touch] a second tap closes it`, JSON.stringify({ reopened: reopened.shown, after: t2 }));
       // A repaint (new post, re-worded time) rewrites the rows: an open bar comes back on its post.
       await firstBody.tap();
       await phonePage.waitForTimeout(300);
@@ -1056,10 +1070,14 @@ const now = () => new Date().toISOString();
       });
       chk(!clear.error && clear.clear, `[phone/touch] the open bar does not cover its own short bubble`, JSON.stringify(clear));
       const hitsAbove = await phonePage.evaluate(() => {
-        const q = document.querySelector('#pj-room .msg.rxn-show .rxn-quick'); if (!q) return { error: 'no open bar' };
-        return [...q.querySelectorAll('button')].map((b) => { const r = b.getBoundingClientRect(); const top = document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2); return top === b || b.contains(top); });
+        const row = document.querySelector('#pj-room .msg.rxn-show'); const quickBar = row && row.querySelector('.rxn-quick'); if (!quickBar) return { error: 'no open bar' };
+        // Precondition: the bar really lies over the message before it, or "on top" proves nothing.
+        const previous = row.previousElementSibling; const barRect = quickBar.getBoundingClientRect();
+        const overlapsPrevious = !!(previous && (() => { const p = previous.getBoundingClientRect(); return barRect.top < p.bottom && barRect.bottom > p.top; })());
+        const hits = [...quickBar.querySelectorAll('button')].map((b) => { const r = b.getBoundingClientRect(); const top = document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2); return top === b || b.contains(top); });
+        return { overlapsPrevious, hits };
       });
-      chk(Array.isArray(hitsAbove) && hitsAbove.length === 4 && hitsAbove.every(Boolean), `[phone/touch] a bar above its post is on top of the message before it`, JSON.stringify(hitsAbove));
+      chk(!hitsAbove.error && hitsAbove.overlapsPrevious && hitsAbove.hits.length === 4 && hitsAbove.hits.every(Boolean), `[phone/touch] a bar above its post is on top of the message before it`, JSON.stringify(hitsAbove));
       await own.tap();
       await phonePage.waitForTimeout(300);
       const again = await phonePage.evaluate(() => ({ shown: document.querySelectorAll('#pj-room .msg.rxn-show').length, reacts: window.__reacts }));
@@ -1124,6 +1142,39 @@ const now = () => new Date().toISOString();
     } finally {
       await phonePage.close();
     }
+    // DARK, phone, touch: the open bar has its own ground against the dark thread (black), so its
+    // emoji read over the message it covers, and it still takes its taps.
+    const darkPage = await browser.newPage({ viewport: { width: 375, height: 800 }, colorScheme: 'dark', hasTouch: true, isMobile: true });
+    try {
+      await darkPage.addInitScript(() => {
+        window.setInterval = () => 0;
+        window.fetch = async () => new Response('{}', { status: 200, headers: { 'content-type': 'application/json' } });
+      });
+      await darkPage.goto(PAGE);
+      await darkPage.evaluate((ts) => {
+        const room = document.getElementById('pj-room'); document.body.appendChild(room);
+        const fr = document.getElementById('firstrun'); if (fr) fr.remove();
+        document.querySelectorAll('[inert]').forEach((el) => el.removeAttribute('inert'));
+        room.style.cssText = 'position:absolute;left:0;top:200px;width:297px;z-index:50;'; room.hidden = false;
+        const people = { agents: [{ sessionName: 'april', name: 'April' }] };
+        room.innerHTML = pjRoomRow({ from: 'april', at: ts, text: 'An earlier message, a line or two long so the bar above the next one lies over it.', id: 'd1' }, people)
+          + pjRoomRow({ from: 'april', at: ts, text: 'ok', id: 'd2' }, people);
+      }, now());
+      await darkPage.locator('#pj-room .msg .msg-bd p').last().tap();
+      await darkPage.waitForTimeout(300);
+      const dark = await darkPage.evaluate(() => {
+        const rgba = (c) => { const m = c.match(/rgba?\(([^)]+)\)/); return m ? m[1].split(',').map((x) => parseFloat(x)) : [0, 0, 0, 0]; };
+        const quickBar = document.querySelector('#pj-room .msg.rxn-show .rxn-quick'); const room = document.getElementById('pj-room');
+        if (!quickBar) return { error: 'no open bar' };
+        const barBg = rgba(getComputedStyle(quickBar).backgroundColor); const threadBg = getComputedStyle(room).backgroundColor;
+        const hits = [...quickBar.querySelectorAll('button')].map((b) => { const r = b.getBoundingClientRect(); const t = document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2); return t === b || b.contains(t); });
+        return { dark: matchMedia('(prefers-color-scheme: dark)').matches, barBg: getComputedStyle(quickBar).backgroundColor, threadBg, opaque: (barBg[3] === undefined ? 1 : barBg[3]) > 0.9, differs: getComputedStyle(quickBar).backgroundColor !== threadBg, border: getComputedStyle(quickBar).borderTopWidth, hits };
+      });
+      chk(!dark.error && dark.dark && dark.opaque && dark.differs && parseFloat(dark.border) >= 1 && dark.hits.length === 4 && dark.hits.every(Boolean),
+        `[dark/phone/touch] the open bar has its own ground and edge on the dark thread and takes its taps`, JSON.stringify(dark));
+    } finally {
+      await darkPage.close();
+    }
     // DESKTOP, a mouse (hover available), 1280 wide: the touch-only 16px rule must change nothing.
     // #nt-modal and #am-modal also open from outside the project page, so this is where a leak
     // would show. The same sweep as the phone arm; every field keeps its desktop size, and the
@@ -1144,7 +1195,7 @@ const now = () => new Date().toISOString();
           named: { 'nt-what': px('nt-what'), 'nt-who': px('nt-who'), 'pj-one-add': px('pj-one-add'), 'tk-due': px('tk-due'), 'pj-name': px('pj-name') } };
       });
       const named = Object.values(desk.named || {});
-      chk(desk.roots === 8 && desk.hoverNone === false && desk.count >= 6 && desk.at16.length === 0 && named.length === 5 && named.every((v) => v !== null && v < 16),
+      chk(desk.roots === 8 && desk.hoverNone === false && desk.count >= 20 && desk.at16.length === 0 && named.length === 5 && named.every((v) => v === 13),
         `[desktop/mouse] the touch-only 16px rule changes no field's size with a mouse`, JSON.stringify(desk));
     } finally {
       await deskPage.close();
@@ -1162,9 +1213,11 @@ const now = () => new Date().toISOString();
         room.style.cssText = 'position:absolute;left:0;top:0;width:297px;max-height:none;z-index:50;'; room.hidden = false;
         room.innerHTML = pjRoomRow({ from: 'april', at: ts, text: 'hello there', id: 'h1' }, { agents: [{ sessionName: 'april', name: 'April' }] });
       }, now());
+      // Precondition: the click really reaches the row (a click that landed elsewhere would also toggle nothing).
+      await hoverPage.evaluate(() => { window.__rowClicks = 0; document.querySelector('#pj-room .msg').addEventListener('click', () => { window.__rowClicks += 1; }); });
       await hoverPage.locator('#pj-room .msg .msg-bd p').first().click();
-      const hv = await hoverPage.evaluate(() => ({ hoverNone: matchMedia('(hover: none)').matches, shown: document.querySelectorAll('#pj-room .msg.rxn-show').length }));
-      chk(!hv.hoverNone && hv.shown === 0, `[hover] with a mouse a click toggles nothing (hover reveals the bar there)`, JSON.stringify(hv));
+      const hv = await hoverPage.evaluate(() => ({ hoverNone: matchMedia('(hover: none)').matches, rowClicks: window.__rowClicks, shown: document.querySelectorAll('#pj-room .msg.rxn-show').length }));
+      chk(!hv.hoverNone && hv.rowClicks === 1 && hv.shown === 0, `[hover] with a mouse a click toggles nothing (hover reveals the bar there)`, JSON.stringify(hv));
     } finally {
       await hoverPage.close();
     }
@@ -1220,6 +1273,7 @@ const now = () => new Date().toISOString();
     }
   } finally {
     await browser.close();
+  }
   }
   if (fail.length) { console.log('\n' + fail.length + ' FAILED'); process.exit(1); }
   console.log('\nall passed');

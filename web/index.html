@@ -2049,10 +2049,12 @@ body.filter-noproj #orgview .onode:not([data-noproj]) { opacity: .26; }
    (Raiden's harness, .panel 330 > 327). Now Add Project takes its narrowest width (two lines on
    every phone; on main it did only on an SE) and the sort and toggle may wrap, so nothing leaves
    the row, nothing overlaps and the sort's label is never cut. Below 375 (a 320 phone or a
-   folded one) the sort at its full width can still overflow; outside the four target sizes. 30rem is the room's phone width (PJ_PHONE_MQ); pinned equal by
+   folded one) the sort at its full width can still overflow; outside the four target sizes.
+   30rem is the room's phone width (PJ_PHONE_MQ); pinned equal by
    web.room-phone-718.test.js, so "a phone" means one thing across the project pages. */
 @media (max-width: 30rem) {
-  #pj-list-view .statsrow { grid-template-columns: min-content minmax(0, 1fr); }   /* Add Project at its narrowest on every phone (two lines) */
+  /* Add Project at its narrowest on every phone (two lines). */
+  #pj-list-view .statsrow { grid-template-columns: min-content minmax(0, 1fr); }
   /* The sort and the view toggle may wrap: at 16px (touch) the sort's whole label and the toggle
      at its full width do not both fit beside Add Project on an iPhone SE, so the toggle drops to
      a second line rather than the label being cut, the toggle squeezed, or the sort drawn over
@@ -5859,8 +5861,8 @@ body:not(.consolidated) .pjmidhead:has(.pjhead) .tsearch:focus-within { flex-bas
      lifted above its neighbours (they are z auto), and only to 1: the sticky room composer is
      z 2, and the open row must stay under it (pinned by web.room-phone-718.test.js). */
   #pj-room .msg.rxn-show .msg-b { z-index: 1; }
-  /* Outside its bubble it lies over another message: its own ground, so the emoji read. */
   #pj-room .msg.rxn-still .rxn-quick { transition: none; }
+  /* Outside its bubble it lies over another message: its own ground, so the emoji read. */
   #pj-room .msg.rxn-show .rxn-quick, #pj-room .rxn-quick:focus-within { background: var(--k-surface); border: 1px solid var(--k-rule);
     border-radius: 100px; padding: 2px 4px; box-shadow: 0 2px 8px rgba(0,0,0,.12); }
   #pj-room .msg:not(.you) .rxn-quick { right: auto; left: 0; }
@@ -7730,8 +7732,8 @@ body.consolidated .tkcard:hover { border-color: transparent; }
    composer's @mention mirror must match the composer and is set beside the room's touch rules.
    The phone check sweeps the same places. */
 @media (hover: none) {
-  :is(#pj-list-view, #pj-one-view, #pj-task-view, #pj-docs-view, #pj-settings-view, #pj-add-view) :is(input, select, textarea),
-  #nt-modal :is(input, select, textarea), #am-modal :is(input, select, textarea) { font-size: 16px; }
+  :is(#pj-list-view, #pj-one-view, #pj-task-view, #pj-docs-view, #pj-settings-view, #pj-add-view) :is(input:not([type=checkbox]):not([type=radio]), select, textarea),
+  #nt-modal :is(input:not([type=checkbox]):not([type=radio]), select, textarea), #am-modal :is(input:not([type=checkbox]):not([type=radio]), select, textarea) { font-size: 16px; }   /* text fields only: iOS does not zoom a checkbox or a radio */
 }
 .rm-back { position: fixed; inset: 0; background: rgba(17, 20, 24, 0.72);
            display: flex; align-items: center; justify-content: center;
@@ -46532,8 +46534,8 @@ document.getElementById('pj-room').addEventListener('click', (e) => {
   if (e.target.closest('.rxn-pick, .rxn')) { pjRxnClose(); return; }   // any reaction taken closes it
   if (e.target.closest('a, button, .rxns, [data-open-agent]')) {
     // Left to its own handler, but one bar at a time: a tap on another row's link closes an open bar.
-    const at = e.target.closest('.msg');
-    room.querySelectorAll('.msg.rxn-show').forEach((m) => { if (m !== at) pjRxnResetRow(m); });
+    const tappedRow = e.target.closest('.msg');
+    room.querySelectorAll('.msg.rxn-show').forEach((openRow) => { if (openRow !== tappedRow) pjRxnResetRow(openRow); });
     if (!room.querySelector('.msg.rxn-show')) pjRxnClose();   // the one close path (state, pin, focus)
     return;
   }
@@ -46558,8 +46560,8 @@ function pjRxnClose() {
   if (room) room.querySelectorAll('.msg.rxn-show, .msg.rxn-below').forEach(pjRxnResetRow);
   if (room) room.querySelectorAll('.rxn-quick[style]').forEach((q) => q.removeAttribute('style'));
   // A tapped button keeps focus on Android, and .rxn-quick:focus-within would keep the bar up.
-  const a = document.activeElement;
-  if (a && a.closest && a.closest('#pj-room .rxn-quick') && a.blur) a.blur();
+  const focusedElement = document.activeElement;
+  if (focusedElement && focusedElement.closest && focusedElement.closest('#pj-room .rxn-quick') && focusedElement.blur) focusedElement.blur();
 }
 /* A repaint of the room (a new post, a timestamp re-worded) rewrites its rows and would drop an
    open bar between the tap that opened it and the tap on an emoji: put it back on the same post. */
@@ -46578,7 +46580,7 @@ if (window.MutationObserver) {
 }
 /* A PINNED bar (position fixed) does not follow the thread when anything scrolls, the same as
    the fixed emoji picker (#2834 below): any scroll or resize closes it. */
-function pjRxnPinned() { return !!document.querySelector('#pj-room .rxn-quick[style*="fixed"]'); }
+function pjRxnPinned() { return RXN_PINNED; }   // one record of "pinned": the flag pjRxnPlace sets
 document.addEventListener('scroll', (event) => {
   if (!RXN_SHOW_POST) return;   // nothing open: every scroll in the app costs nothing here
   // Scrolling the full emoji picker's own list is not the thread moving (#2834's same guard).

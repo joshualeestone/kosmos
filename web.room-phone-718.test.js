@@ -110,7 +110,7 @@ test('the projects row fits an iPhone SE: Add Project at its narrowest, the sort
   assert.match(phone, /#pj-list-view \.sortctl \{ flex: 0 0 auto; \}/, 'the sort never shrinks below its label');
   assert.match(phone, /#pj-list-view \.viewctl > \.viewtoggle \{ flex: 0 0 auto; \}/, 'nor the toggle below its buttons');
   const mq = html.match(/const PJ_PHONE_MQ = '\(max-width: ([\d.]+rem)\)';/)[1];
-  const rowBlock = html.match(/@media \(max-width: ([\d.]+rem)\) \{\n  #pj-list-view \.statsrow/);
+  const rowBlock = html.match(/@media \(max-width: ([\d.]+rem)\) \{\n(?:  \/\*[^\n]*\*\/\n)?  #pj-list-view \.statsrow/);
   assert.ok(rowBlock, 'the projects-row block moved; re-anchor');
   assert.equal(rowBlock[1], mq);
 });
@@ -130,9 +130,10 @@ test('every field on the project page and its Tasks and members dialogs is 16px 
   // The behaviour is swept in the browser (render-room-msgbox-2806, phone arm); this pins that
   // the rule stays inside the touch query, so a mouse layout is unchanged.
   const t = blocks('hover: none');
-  const rule = /:is\(#pj-list-view, #pj-one-view, #pj-task-view, #pj-docs-view, #pj-settings-view, #pj-add-view\) :is\(input, select, textarea\),\n  #nt-modal :is\(input, select, textarea\), #am-modal :is\(input, select, textarea\) \{ font-size: 16px; \}/;
+  const field = 'input:not\\(\\[type=checkbox\\]\\):not\\(\\[type=radio\\]\\), select, textarea';
+  const rule = new RegExp(':is\\(#pj-list-view, #pj-one-view, #pj-task-view, #pj-docs-view, #pj-settings-view, #pj-add-view\\) :is\\(' + field + '\\),\\n  #nt-modal :is\\(' + field + '\\), #am-modal :is\\(' + field + '\\) \\{ font-size: 16px; \\}');
   assert.match(t, rule, 'the project page\'s own views (not all of #panel-projects: the one-screen layout puts Settings and Tasks inside it)');
-  assert.doesNotMatch(outsideMedia('hover: none'), /#pj-add-view\) :is\(input, select, textarea\)/, 'never outside the touch query');
+  assert.doesNotMatch(outsideMedia('hover: none'), /#pj-add-view\) :is\(input:not/, 'never outside the touch query');
   // One rule, scoped: no unscoped class that reaches other screens (Settings uses .tk-inp).
   assert.doesNotMatch(t, /(^|[\s,])\.tk-inp\s*[,{]/m, '.tk-inp is not raised app-wide');
 });
