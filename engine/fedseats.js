@@ -90,11 +90,17 @@ function onEvent(projectId, line) {
       if (!s.inbound.noted) { s.inbound.noted = true; say(projectId, 'The external project sent more messages than Kosmos keeps in a minute; some were not kept.'); }
       return;
     }
-    deps.recordExternal(projectId, {
-      from: clean(ev.data.from, 80) || 'someone outside',
-      fromKind: ev.data.kind === 'agent' ? 'agent' : 'person',
-      text: ev.data.text,
-    });
+    // Runs inside the child's stdout 'data' handler, where a throw (a full disk)
+    // has nothing above it to catch it and would take the board down.
+    try {
+      deps.recordExternal(projectId, {
+        from: clean(ev.data.from, 80) || 'someone outside',
+        fromKind: ev.data.kind === 'agent' ? 'agent' : 'person',
+        text: ev.data.text,
+      });
+    } catch {
+      say(projectId, 'A message from the external project could not be saved on this computer.');
+    }
   }
 }
 
@@ -116,8 +122,8 @@ function setStatus(projectId, status) {
    already refused for good: the coordinator can still list an edge as active
    while refusing its ticket (the owner's own account lapsed), and without the
    skip the owner's seat would spawn, be refused, and spawn again every minute. */
-async function ownerEdge(link, refused) {
-  const r = await deps.macRequest('POST', MAC_EDGES, {});
+async function ownerEdge(link, refused, edges) {
+  const r = await (edges ? edges() : deps.macRequest('POST', MAC_EDGES, {}));
   if (!r.ok || !r.data || !Array.isArray(r.data.as_owner)) return null;
   const edge = r.data.as_owner.find((e) => e && e.project_ref === link.ref && e.status === 'active'
     && !(refused && refused.has(e.id)));
@@ -135,6 +141,8 @@ function spawnFor(projectId, edge) {
   // A write racing the child's death surfaces as an async EPIPE on stdin; with no
   // listener it would crash the board.
   if (child.stdin && typeof child.stdin.on === 'function') child.stdin.on('error', () => {});
+  // The same for a stream error on stdout: unlistened, it would crash the board.
+  if (child.stdout && typeof child.stdout.on === 'function') child.stdout.on('error', () => {});
   s.edge = edge;
   setStatus(projectId, 'connecting');
   let buf = '';
@@ -181,7 +189,7 @@ function safeLink(projectId) {
 /** Make sure a linked project has a live seat. Safe to call repeatedly and
     concurrently: `starting` is set before the edge lookup's await, so two
     overlapping calls cannot both spawn a seat. */
-async function ensure(projectId) {
+async function ensure(projectId, edges) {
   if (!deps) return null;
   const link = federation.linkFor(projectId);
   if (!link) return null;
@@ -196,7 +204,7 @@ async function ensure(projectId) {
   if (s.child || s.starting || s.timer || s.stopped || s.status === 'ended') return s.status;
   s.starting = true;
   try {
-    const edge = link.role === 'member' ? link.edge_id : await ownerEdge(link, s.refused);
+    const edge = link.role === 'member' ? link.edge_id : await ownerEdge(link, s.refused, edges);
     if (!edge) { setStatus(projectId, 'waiting'); return 'waiting'; }
     if (s.stopped || s.child) return s.status;
     spawnFor(projectId, edge);
@@ -220,8 +228,12 @@ async function ensureAll() {
   if (!deps) return;
   let links;
   try { links = federation.readLinks(); } catch { return; }
+  // One edges request per pass, shared by every owner project: the number of
+  // linked projects must not set how often this Mac calls Kosmos+.
+  let pending = null;
+  const edges = () => pending || (pending = deps.macRequest('POST', MAC_EDGES, {}));
   for (const id of Object.keys(links)) {
-    try { await ensure(id); } catch { /* one project's seat never blocks another's */ }
+    try { await ensure(id, edges); } catch { /* one project's seat never blocks another's */ }
   }
 }
 

@@ -243,3 +243,36 @@ test('while an owner waits for someone to join, a post says exactly that', async
   assert.strictEqual(fedseats.post('proj-wait', { from: 'Josh', kind: 'person', text: 'anyone?' }), false);
   assert.match(h.notes[0].text, /nobody outside has joined/);
 });
+
+test('an inbound message that cannot be saved is said in the room and does not throw', async () => {
+  federation.recordLink('proj-disk', { role: 'member', edge_id: 'edge-disk' });
+  const h = harness();
+  fedseats.configure({
+    spawnSeat: (edge) => { const c = fakeChild(); c.edge = edge; h.spawned.push(c); return c; },
+    macRequest: async () => ({ ok: false }),
+    recordExternal: () => { throw new Error('ENOSPC: no space left on device'); },
+    onStatus: () => {},
+    enrolled: () => true,
+    projectExists: () => true,
+    note: (projectId, text) => h.notes.push({ projectId, text }),
+  });
+  await fedseats.ensure('proj-disk');
+  assert.doesNotThrow(() => fedseats.onEvent('proj-disk', JSON.stringify({ event: 'message', data: { from: 'Ada', text: 'hi' } })));
+  assert.ok(h.notes.some((n) => n.projectId === 'proj-disk' && /could not be saved/.test(n.text)), JSON.stringify(h.notes));
+});
+
+test('a stream error on the seat\'s output does not take the board down', async () => {
+  federation.recordLink('proj-oerr', { role: 'member', edge_id: 'edge-oerr' });
+  const h = harness();
+  await fedseats.ensure('proj-oerr');
+  // An 'error' with no listener throws out of emit.
+  assert.doesNotThrow(() => h.spawned[0].stdout.emit('error', new Error('EIO')));
+});
+
+test('one check asks Kosmos+ for edges once, however many owner projects are linked', async () => {
+  for (const id of ['proj-o1', 'proj-o2', 'proj-o3']) federation.recordLink(id, { role: 'owner', ref: 'ref-' + id });
+  const h = harness({ edges: [] });
+  await fedseats.ensureAll();
+  assert.strictEqual(h.asked, 1, 'asked ' + h.asked + ' times');
+  assert.strictEqual(fedseats.statusOf('proj-o3'), 'waiting');
+});

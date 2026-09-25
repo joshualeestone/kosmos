@@ -69,6 +69,10 @@ board yet carried messages between a federated project's room and its seat.
 - engine/fedseats.test.js (15), engine/messages.external-3311.test.js (5),
   server.fedmsg-3311.test.js (6), server.federation-3311.test.js (8),
   engine/federation.test.js (10): 44 pass.
+- Review round 4 controls: putting back `from = delivery.from` reds the unlisted-agent
+  test (the session name went out); rethrowing from the recordExternal catch reds the
+  cannot-be-saved test; no stdout error listener reds the stream-error test; an edges
+  request per project reds the asked-once test (3 asks, not 1).
 - Review round 3 controls: removing the display-name lookup, the create
   rollback, the refused-edge memory, the byte budget, or the waiting note each
   reds its own test by name.
@@ -84,6 +88,14 @@ board yet carried messages between a federated project's room and its seat.
   test; removing the operator-post forward reds the forwarding test on the
   missing output (after the `federated` fix; before it the post never landed,
   which the strict test exposed).
+
+## Decided in round 4
+- `federation_ref` stays accepted from a process caller. What that allowed was
+  unbounded coordinator polling (one edges request per linked project per minute);
+  a check now makes one edges request however many projects are linked, so that is
+  closed. A second local project carrying a real ref only puts this same account's
+  own Mac in its own room twice. It grants nothing across accounts, because the room
+  ticket is still minted per edge by the coordinator.
 
 ## Not yet
 - The live two-Mac proof. (The browser check exists: render-fed-external-3311.)

@@ -141,6 +141,27 @@ test('an agent speaks to the other side under the name its project shows', async
   }
 });
 
+test('an agent the project does not show goes out as "an agent", never under its session name', async () => {
+  const board = fleet.install([fleet.agent('ghostfed', { state: 'idle', displayName: 'Ghost Writer' })]);
+  try {
+    const p3 = projects.create({ name: 'Unlisted Club' }).id;
+    // Not added to the project: the lookup finds nobody.
+    federation.recordLink(p3, { role: 'member', edge_id: 'edge-unlisted', project_name: 'Unlisted Club' });
+    await fedseats.ensure(p3);
+    const seat = children[children.length - 1];
+    assert.equal(seat.edge, 'edge-unlisted', 'fixture: the new project has its own seat');
+    seat.stdout.write(JSON.stringify({ event: 'connected', room: 'r3', expires_at: 9 }) + '\n');
+    await new Promise((r) => setImmediate(r));
+    federateOut(p3, { id: 'p-9', from: 'ghostfed', text: 'who am I' }, false);
+    const out = JSON.parse(seat.written.join('').trim());
+    assert.notEqual(out.from, 'ghostfed', 'the session name must never leave this Mac');
+    assert.equal(out.from, 'an agent');
+    assert.equal(out.kind, 'agent');
+  } finally {
+    board.restore();
+  }
+});
+
 test('a post with no words sends nothing and says attachments stay here', async () => {
   const before = children[0].written.length;
   federateOut(pid, { id: 'p-2', from: 'you', text: '' }, true);

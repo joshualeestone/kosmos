@@ -15399,13 +15399,13 @@ function federateOut(projectId, delivery, operator) {
     messages.roomNote(projectId, 'That post stayed on this computer: attachments are not sent to the external project, only words.');
     return;
   }
-  let from = delivery.from;
+  let from = 'an agent';
   if (!operator) {
     try {
       const p = projects.get(projectId, safeRoster());
       const m = p && (p.agents || []).find((a) => a && a.sessionName === delivery.from);
       if (m && m.name) from = m.name;
-    } catch { /* the session name is the fallback */ }
+    } catch { /* keeps 'an agent': the session name is internal and never leaves */ }
   }
   if (operator) {
     // you.read() answers { state, you: { name, ... } }; the name is one level in.
