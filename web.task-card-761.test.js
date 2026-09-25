@@ -76,7 +76,7 @@ function runPaintProjectTasks(project, showAll) {
   const doc = stubDoc();
   const src = [
     'let TK_SHOW_ALL = ' + (showAll ? 'true' : 'false') + ';',
-    fnSource('tkFace'), fnSource('claimNotReported'), fnSource('taskClaimHtml'), fnSource('tkMemberName'),
+    fnSource('tkFace'), fnSource('tkSayPart'), fnSource('claimNotReported'), fnSource('taskClaimHtml'), fnSource('tkMemberName'),
     'let TK_LIST_HTML = null;',
     fnSource('paintProjectTasks'),
   ].join('\n');
@@ -154,6 +154,21 @@ test('an agent holding two parts gets its claim line once on the card, not once 
   const doc = runPaintProjectTasks({ ...PROJECT, tasks: [t] });
   const text = doc.els['pj-tasklist'].innerHTML.replace(/<[^>]*>/g, ' ');
   assert.equal((text.match(/has not reported what it is working on yet/g) || []).length, 1, 'the card says it once per part');
+});
+
+test('the card puts the claim beside the agent\'s OPEN part, never a part it has finished', () => {
+  const t = {
+    number: 4, sentence: 'Done then not', closedAt: null,
+    parts: [{ id: 1, who: 'april', sentence: 'finished half', closedAt: '2026-09-24T00:00:00Z' }, { id: 2, who: 'april', sentence: 'open half', closedAt: null }],
+    progress: { done: 1, total: 2, closed: false, assigned: 2 },
+    claim: { claimed: null, neverReported: true, because: 'this agent has never reported what it is holding' },
+  };
+  const doc = runPaintProjectTasks({ ...PROJECT, tasks: [t] });
+  // One chunk per part span (not the tkcard-parts container around them).
+  const partsHtml = doc.els['pj-tasklist'].innerHTML.split(/<span class="tkcard-part(?: none)?">/).slice(1);
+  assert.equal(partsHtml.length, 2, 'the card did not draw both parts (control)');
+  assert.doesNotMatch(partsHtml[0], /has not reported/, 'the note sits beside the finished part');
+  assert.match(partsHtml[1], /has not reported what it is working on yet/, 'the open part lost the note');
 });
 
 test('multiple assignees, as the pack drew: one face+name row per part, including an unassigned one, and an honest N of M count', () => {
