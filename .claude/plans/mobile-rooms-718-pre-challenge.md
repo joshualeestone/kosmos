@@ -2,21 +2,21 @@
 pre_challenge: true
 method: challenge-loop
 branch: mobile-rooms-718
-diff_hash: 5ade5ab0a7abbe99710cff3b25559fe3be5b6e2fd8c0c2510dcc771d8c5b377a
-validation: passed (full kosmos sequence on 8e5ba875, clean tree, NO exclude, on main containing #3797: 9537 tests, 9385 pass, 0 fail; helper recorded PASSED hash=5ade5ab0a7ab. Earlier runs on this branch had 0 failures but were recorded failed only because main's win32 test leaked four files into the tree during the run (#3795); a worktree-only exclude was used as a stopgap for one run and removed once #3797 merged; this record does not depend on it)
+diff_hash: 1d7997f78c2f995615dca2c516d0decdaab5bb8e37e64e774ad4b30bf3f1310a
+validation: passed (full kosmos sequence on 3bac242e, clean tree, NO exclude, on main 0d39e3d0 containing #3797: 9551 tests, 9399 pass, 0 fail; helper recorded PASSED hash=1d7997f78c2f, run behind the fleet heavy-run gate with a watchdog. Earlier runs on this branch recorded failed only for the #3795 leak; a worktree-only exclude used once as a stopgap was removed when #3797 merged; this record does not depend on it)
 subdir_audit: passed
-timestamp: 2026-09-25T19:50:59Z
-iterations: 38
-converged: true
+timestamp: 2026-09-25T20:47:34Z
+iterations: 39
+converged: false
 ---
 
 ## [CHALLENGE-LOOP] Summary
 
 **Iterations:** 38 blind reviews. Rounds 1 to 19 alternated opus and sonnet (each round's model is in its plan heading). From round 20 sonnet was unavailable (weekly usage limit), so rounds 20 to 34, 36 and 38 ran on opus, and rounds 35 and 37 on fable, so the convergence is witnessed by more than one model.
-**Converged:** Yes, at iteration 38 (NITs only, no BLOCKER, WARNING or CONVENTION) on 8e5ba875's code. Liu Kang ruled (m773) that from round 34 each round fixes only its own findings and that round 38 is the last before the PR opens regardless; the loop converged inside that limit.
-**Itemised below:** rounds 27 to 38. Rounds 1 to 26 are recorded in the plan (`.claude/plans/mobile-rooms-718-20260924T2230.md`) as prose per round with the fix and, for each new arm, its control; rounds 1 to 6 are prose without severity tags, and their counts by severity are not reconstructed here.
-**Totals, rounds 27 to 38 (counted from the list below):** 1 BLOCKER, 28 WARNINGs, 6 CONVENTIONs; NITs listed per round.
-**Fixed:** all BLOCKER, WARNING and CONVENTION findings except the deferrals below | **Deferred:** listed | **Asked (awaiting user):** 0
+**Converged:** No: stopped by ruling after iteration 39. The loop converged at iteration 38 (NITs only) on 8e5ba875. Main then moved (#3755 made the project tip four steps, conflicting with this branch's tip anchor), the conflict was resolved to main's side, and iteration 39 reviewed the resolved code (3bac242e). It found 1 CONVENTION and 6 NITs, no BLOCKER or WARNING. Liu Kang ruled (m845): "If round 39 is not clean, open the PR with its findings listed, per the earlier rule; no further rounds." So they are listed below, unfixed, for him to decide.
+**Itemised below:** rounds 27 to 39. Rounds 1 to 26 are recorded in the plan (`.claude/plans/mobile-rooms-718-20260924T2230.md`) as prose per round with the fix and, for each new arm, its control; rounds 1 to 6 are prose without severity tags, and their counts by severity are not reconstructed here.
+**Totals, rounds 27 to 39 (counted from the list below):** 1 BLOCKER, 28 WARNINGs, 7 CONVENTIONs (1 open, from round 39); NITs listed per round.
+**Fixed:** all BLOCKER, WARNING and CONVENTION findings except round 39's CONVENTION (open, by ruling) and the deferrals below | **Deferred:** listed | **Asked (awaiting user):** 0
 
 ### Per-Iteration Breakdown
 
@@ -79,7 +79,25 @@ converged: true
 - [NIT] source pins tied to formatting --> DEFERRED (duplicate of 34; fail closed)
 - [NIT] the check does not assert how many arms ran --> DEFERRED (PR body; every arm reports a precondition failure as a failing chk)
 
-### Measured after the last rebase (onto #3690, 8e5ba875)
+#### After convergence: rebase onto #3755 (stepped tips) and #3800
+- This branch's project-tip anchor conflicted with #3755's four-step tip; resolved to main's side (an interdiff of the patch before and after shows the anchor as the only difference). The tip arm now walks the real steps at 375 and 800 (every step pointing, on screen, its area on screen; both engines). An arm whose post could not scroll off on the new base was fixed (twelve posts, postGone precondition).
+
+#### Iteration 39 (fable) : the final round by ruling (m845); findings OPEN, not fixed
+- [CONVENTION] web/index.html:5881,5884 : the 36px thumb target is a raw literal in two touch rules; name it (e.g. --room-tap) as the phone block names its sizes --> OPEN
+- [NIT] web/index.html:46619 : RXN_REPLACE_QUEUED is a let while the comment gives var for RXN state (no live defect) --> OPEN
+- [NIT] web/index.html:46598 : pjRxnResetRow does not strip rxn-still (cleared by the double rAF anyway) --> OPEN
+- [NIT] web/index.html:46641 : a keyboard-opened bar is placed once, not re-placed on scroll --> OPEN (PR body)
+- [NIT] web/index.html:5868,5874 : raw rgba shadow and tap flash (no tokens exist) --> OPEN (duplicate of a recorded decision)
+- [NIT] web.room-phone-718.test.js:151 : the soundness test's failure message if main rewraps its one-line block --> OPEN
+- [NIT] docs/browser-checks/render-room-msgbox-2806.js : pageScrolls and offenders repeat a filter --> OPEN (duplicate of 35)
+
+### Measured on the final code (3bac242e, main at 0d39e3d0)
+- render-room-msgbox-2806: 356/356 in Chromium and WebKit (Playwright WebKit, not Safari)
+- web.room-phone-718.test.js: 11/11 (the old tip-anchor pin removed with the anchor)
+- the nine surface-gated checks: all pass
+- full validation: PASSED (above)
+
+### (superseded) Measured after the earlier rebase (onto #3690, 8e5ba875)
 - render-room-msgbox-2806: 356/356 in Chromium and WebKit (Playwright WebKit, not Safari)
 - web.room-phone-718.test.js: 12/12
 - the nine surface-gated checks: all pass
