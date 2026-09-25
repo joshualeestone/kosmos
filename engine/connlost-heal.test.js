@@ -234,3 +234,11 @@ test('reconnectPhase: waiting before any retry, retried under the cap, gave_up a
   // Corrupt history counts as used up, the same way planHeal treats it.
   assert.equal(heal.reconnectPhase({ evidence: 'x', sweeps: 3, nudges: 'bad' }, true).phase, 'gave_up');
 });
+
+test('healEnabled: the one rule the sweep and the route share (live execution AND no operator brake)', () => {
+  const heal = require('./connlost-heal');
+  assert.equal(heal.healEnabled(true, {}), true);
+  assert.equal(heal.healEnabled(false, {}), false);
+  assert.equal(heal.healEnabled(true, { AGENT_WORKFORCE_CONNLOST_HEAL_OFF: '1' }), false);
+  assert.equal(heal.healEnabled(undefined, {}), false);
+});

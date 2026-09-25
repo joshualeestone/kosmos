@@ -43,7 +43,7 @@ function chk(ok, label, extra) {
 
 const PHASES = [
   { key: 'none', reconnect: null, label: 'Connection lost', says: /lost its internet connection/, not: /Kosmos (will retry|has asked)/ },
-  { key: 'waiting', reconnect: { phase: 'waiting', tries: 0 }, label: 'Reconnecting…', says: /Kosmos will retry once it is back/ },
+  { key: 'waiting', reconnect: { phase: 'waiting', tries: 0 }, label: 'Reconnecting…', says: /Kosmos will retry it automatically/ },
   { key: 'retried', reconnect: { phase: 'retried', tries: 1 }, label: 'Reconnecting…', says: /Kosmos has asked it to try again/ },
   { key: 'gave_up', reconnect: { phase: 'gave_up', tries: 3 }, label: 'Connection lost', says: /Kosmos tried to reconnect it several times and has stopped\. If the internet is working, restart the agent\. It will start fresh\./ },
 ];

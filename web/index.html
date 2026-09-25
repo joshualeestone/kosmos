@@ -15964,7 +15964,7 @@ function stateReason(a, opts) {
     const lost = a.stateConfidence === 'scraped'
       ? 'Looks like it lost its internet connection'
       : 'It lost its internet connection';
-    if (ph === 'waiting') return lost + '. Kosmos will retry once it is back.';
+    if (ph === 'waiting') return lost + '. Kosmos will retry it automatically.';
     /* "Has asked": an attempt was made, not that it landed (the sweep counts every attempt). */
     if (ph === 'retried') return lost + '. Kosmos has asked it to try again.';
     return lost;

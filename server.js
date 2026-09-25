@@ -717,7 +717,7 @@ const liveExecution = require('./engine/live-execution'); // #2808 class-1 (c): 
 const CONNLOST_BOOK = new Map();
 /* Whether the self-heal sweep actually runs, so the page never promises a retry nobody will send. */
 function connlostHealEnabled() {
-  return liveExecution.liveExecutionAllowed() && process.env.AGENT_WORKFORCE_CONNLOST_HEAL_OFF !== '1';
+  return connlostHeal.healEnabled(liveExecution.liveExecutionAllowed(), process.env); // the sweep's own rule
 }
 const heartbeatSetting = require('./engine/heartbeat-setting');
 const recommenderSetting = require('./engine/recommender-setting'); // #2619

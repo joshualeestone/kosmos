@@ -151,14 +151,20 @@ function probeApi({ host = 'api.anthropic.com', port = 443, timeoutMs = 3000 } =
    execution is allowed and the brake is off, a tick never overlaps a slow previous one, and an
    unreadable roster skips the tick. deps = { allowed, env, roster, probe, deliver, DELIVERY, log,
    book, now }. Returns a function; each call returns the in-flight promise or null. */
+/* #3410: THE one "does the self-heal run" rule, read by the sweep (makeTick) and by the board's
+   /api/status (so the page never promises a retry the sweep will not send). Two copies of this
+   drifted is the class Convention #5 names; both callers read this one. */
+function healEnabled(allowed, env) {
+  return allowed === true && (env || process.env).AGENT_WORKFORCE_CONNLOST_HEAL_OFF !== '1';
+}
+
 function makeTick(deps) {
   let busy = false;
   return function tick() {
     try { return tickBody(); } catch { return null; } // best-effort, like the class-1 sweep
   };
   function tickBody() {
-    if (!deps.allowed()) return null;                                       // inert under test / before opt-in
-    if ((deps.env || process.env).AGENT_WORKFORCE_CONNLOST_HEAL_OFF === '1') return null; // operator brake
+    if (!healEnabled(deps.allowed() === true, deps.env)) return null;       // inert under test / before opt-in, or the operator brake
     if (busy) return null;                                                  // a slow probe must not overlap
     let roster;
     try { roster = deps.roster(); } catch { return null; }
@@ -192,4 +198,4 @@ function reconnectPhase(entry, enabled) {
   return tries > 0 ? { phase: 'retried', tries } : { phase: 'waiting', tries: 0 };
 }
 
-module.exports = { planHeal, observe, sweepOnce, makeTick, probeApi, reconnectPhase, MIN_SWEEPS, MAX_NUDGES, WINDOW_MS, RECOVERED_MS, NUDGE_TEXT };
+module.exports = { planHeal, observe, sweepOnce, makeTick, probeApi, reconnectPhase, healEnabled, MIN_SWEEPS, MAX_NUDGES, WINDOW_MS, RECOVERED_MS, NUDGE_TEXT };

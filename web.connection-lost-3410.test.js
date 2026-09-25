@@ -139,7 +139,7 @@ for (const which of ['card', 'lrow']) {
 
 test('card: the sentence says what Kosmos is doing, and promises nothing when it is not retrying', () => {
   const says = (extra) => api.card(connLostAgent(extra));
-  assert.match(says({ reconnect: { phase: 'waiting', tries: 0 } }), /Kosmos will retry once it is back/);
+  assert.match(says({ reconnect: { phase: 'waiting', tries: 0 } }), /Kosmos will retry it automatically/);
   assert.match(says({ reconnect: { phase: 'retried', tries: 2 } }), /Kosmos has asked it to try again/);
   const gaveUp = says({ reconnect: { phase: 'gave_up', tries: 3 } });
   assert.match(gaveUp, /Kosmos tried to reconnect it several times and has stopped/);
