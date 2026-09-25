@@ -2,18 +2,18 @@
 pre_challenge: true
 method: challenge-loop
 branch: store-indent-3679
-diff_hash: a154f247164010c96166dd218174134dc41a24a0a225fe16cad7f00850281354
+diff_hash: 845ab77742c9cb632914a4c1db63c355842f1a24c80e5e279708794f564c10fb
 validation: passed
 subdir_audit: passed
-timestamp: 2026-09-25T06:32:53Z
-iterations: 19
+timestamp: 2026-09-25T07:00:19Z
+iterations: 20
 converged: true
 ---
 
 ## [CHALLENGE-LOOP] Summary
 
-**Iterations:** 19 blind reviewer passes (the 6.0 initial-validation failure is folded into iteration 1, since it ran alongside the first pass)
-**Converged:** Yes (iteration 19: nits only)
+**Iterations:** 20 blind reviewer passes (the 6.0 initial-validation failure is folded into iteration 1, since it ran alongside the first pass)
+**Converged:** Yes (iteration 19: nits only; re-confirmed at iteration 20 on the tree merged with main)
 **Total findings:** 3 BLOCKERs, 29 WARNINGs, 3 CONVENTIONs, 1 synthetic BLOCKER, plus NITs
 **Fixed:** most; **Deferred:** 5 with reasons; **Asked:** 0
 
@@ -118,7 +118,16 @@ Full per-pass detail, including every deferral's reasoning, is in `.claude/plans
 #### Iteration 19 (opus)
 **Self-generated:** 0
 **New findings:** 0 BLOCKERs, 0 WARNINGs, 0 CONVENTIONs, 3 NITs
-**Converged.** 6j skipped on a clean validation entry for this exact hash (9119 tests, 0 failing).
+Converged on the pre-merge tree (9119 tests, 0 failing).
+
+#### Iteration 20 (sonnet), after merging origin/main
+CI's surface gate flagged render-dm-phone-718.js, a check new on main that asserts `msg-b`, which
+this branch's nested-list CSS touches. Merged origin/main in (f7e0a500), ran that check on the
+branch (88/88), and recorded a per-check trailer in an empty commit (e8fa8b6f). The merge moved the
+diff's context lines, so the hash changed and this run re-reviewed the merged tree.
+**Self-generated:** 0
+**New findings:** 0 BLOCKERs, 0 WARNINGs, 0 CONVENTIONs, 2 NITs
+**Converged.** 6j skipped on a clean validation entry for this exact hash (9126 tests, 0 failing).
 
 ### Deferred
 - pjBody's own fence rule: filed as #3685.
