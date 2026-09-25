@@ -13265,8 +13265,9 @@ const server = http.createServer((req, res) => {
       let claim = claims.get(t.projectId + '\u0000' + t.number) || null;
       /* The same rule as the join: a claim is about the agent still holding open work (claimWho),
          and carries it as `about`; nobody holding open work, no claim. */
-      if (!claim && unreadable.has(t.projectId) && tasks.claimWho(t)) {
-        claim = { claimed: null, because: 'we could not read what its agent reports', about: tasks.claimWho(t), neverReported: false };
+      const about = !claim && unreadable.has(t.projectId) ? tasks.claimWho(t) : null;
+      if (about) {
+        claim = { claimed: null, because: 'we could not read what its agent reports', about, neverReported: false };
       }
       return Object.assign({}, t, {
         claim,

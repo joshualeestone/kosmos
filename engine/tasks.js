@@ -567,6 +567,7 @@ function claimWho(task) {
   const p = partsOf(task).find((x) => x && x.who && !x.closedAt);
   return p ? p.who : null;
 }
+
 /** Whoever is on this task at all, for the join and the card's face. */
 function whoOf(task) {
   const named = partsOf(task).map((x) => x.who).filter(Boolean);
