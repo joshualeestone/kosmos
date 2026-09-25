@@ -1490,7 +1490,11 @@ cmd_post() {
       if [ "$from_stdin" = 1 ]; then
         _keep_piped
       else
-        say "Your message was not sent, so here it is to keep and re-post when the room is ready:"
+        # #3224: a which-room hold is a question, not a closed room, so say "send again".
+        case "$body" in
+          *'"code":"which_room"'*) say "Your message was not sent, so here it is to send again:" ;;
+          *) say "Your message was not sent, so here it is to keep and re-post when the room is ready:" ;;
+        esac
         printf '%s\n' "$text"
       fi
       exit 1

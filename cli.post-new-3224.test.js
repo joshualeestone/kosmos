@@ -91,5 +91,6 @@ test('#3224: a held post (which_room) prints the whole question with both comman
     const said = out.stdout + out.stderr;
     assert.ok(said.includes('Not posted: ' + because + '.'), 'the whole question must reach the agent, both commands intact: ' + said);
     assert.match(said, /meant for beta/, 'the text is handed back so it is not lost');
+    assert.match(said, /here it is to send again/, 'a which-room hold says send again, not wait for the room');
   });
 });

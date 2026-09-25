@@ -148,3 +148,12 @@ test('a genuinely UNREADABLE record yields null, not 0 (so the digest omits the 
     'an unreadable record must return null, not a false 0');
   try { fs.rmSync(messages.LOG, { force: true, recursive: true }); } catch { /* cleanup */ }
 });
+
+test('#3224: a post sent with --new (newPost:true) is deliberate, not a suspected misroute', () => {
+  seed([ ask('q1', 'projB', 'mara', 0), { ...post('p1', 'projA', 'mara', 60000), newPost: true } ]);
+  assert.equal(messages.suspectedMisrouteCount(WIN_LO, WIN_HI), 0);
+  // CONTROL: the same post without the mark counts.
+  seed([ ask('q1', 'projB', 'mara', 0), post('p1', 'projA', 'mara', 60000) ]);
+  assert.equal(messages.suspectedMisrouteCount(WIN_LO, WIN_HI), 1);
+});
+

@@ -2535,7 +2535,7 @@ function keepAgentReply(who, text, at) {
  * order the route has always answered in), or null for the pane path. Returns the
  * delivery verdict.
  */
-function sendRoomPostAsAgent({ fromPane, sender, project, text, replyExpected, inReplyTo, askWhichRoom }, roster) {
+function sendRoomPostAsAgent({ fromPane, sender, project, text, replyExpected, inReplyTo, askWhichRoom, newPost }, roster) {
   let found = null;
   try { found = projects.get(String(project == null ? '' : project).trim(), roster); } catch { found = null; }
   if (!found) return { state: 'could_not', because: 'there is no project by that name, so there is no room to post into' };
@@ -2598,6 +2598,11 @@ function sendRoomPostAsAgent({ fromPane, sender, project, text, replyExpected, i
     projectNameOf: (id) => {
       try { const p = projects.get(id, roster); return p ? p.name : null; } catch { return null; }
     },
+    // Members of the room a question came from, or null when it is gone.
+    membersOf: (id) => {
+      try { const p = projects.get(id, roster); return p ? (p.agents || []).map((a) => a.sessionName) : null; } catch { return null; }
+    },
+    newPost: newPost === true,
   }, roster, members);
 }
 
@@ -2676,6 +2681,8 @@ function drainOutboxNow(pass) {
         // #3224: the kept body carries in_reply_to too, so a replayed answer binds to
         // the same room a live one would (and the mismatch guard applies identically).
         inReplyTo: entry.body.in_reply_to,
+        // #3224: a kept --new post is recorded as one (the drain never asks which room).
+        newPost: entry.body.new_post === true,
       }, now));
     },
     onExpired: (entry, because) => {
@@ -11923,6 +11930,7 @@ const server = http.createServer((req, res) => {
           replyExpected: body.reply_expected,
           inReplyTo: body.in_reply_to,   // #3224: bind an answer to the room the message came from
           askWhichRoom: body.new_post !== true,   // #3224: ask which room a non-reply meant, unless --new
+          newPost: body.new_post === true,        // #3224: recorded on the row (acknowledges; not a suspected misroute)
         }, roster);
         /* #2623: the phone seam (engine/notify.js) was deleted. A post that
            reached the room is delivered on the board as before; it no longer

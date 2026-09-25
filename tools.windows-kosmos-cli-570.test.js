@@ -216,6 +216,10 @@ test('#3224: post --new sends new_post:true (not held to ask which room); withou
   assert.equal(both.calls[0].body.reply_expected, false);
   const mid = await run(['post', 'proj-1', 'this is --new stuff'], ok);
   assert.equal(Object.prototype.hasOwnProperty.call(mid.calls[0].body, 'new_post'), false, 'a non-leading --new is message text');
+  const held = await run(['post', 'proj-1', 'meant for beta'], () => ({ body: { delivery: { state: 'could_not', code: 'which_room', because: 'you have an unanswered question from the person in Beta (m45)' } } }));
+  assert.equal(held.code, 1);
+  assert.match(held.err + held.out, /here it is to send again/, 'a which-room hold hands the text back (parity with install/kosmos)');
+  assert.match(held.err + held.out, /meant for beta/);
 });
 
 test('#2909: post --stdin sends the piped text verbatim (backticks, $, newlines), either flag order; refusals send nothing', async () => {

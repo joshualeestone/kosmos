@@ -1056,7 +1056,7 @@ function _roomMembers(members) {
   return { members: members.filter((m) => !gone.has(clean(m))), ok: true };
 }
 
-function sendPost({ fromPane, sender: resolvedSender, project, projectName, text, operator, attachment, attachments, trailer, replyExpected, askWhichRoom, projectNameOf }, roster, members) {
+function sendPost({ fromPane, sender: resolvedSender, project, projectName, text, operator, attachment, attachments, trailer, replyExpected, askWhichRoom, projectNameOf, membersOf, newPost }, roster, members) {
   const at = new Date().toISOString();
   /* The OPERATOR path: no pane to derive (the post comes off the room's
      composer through the server, which is the operator's own surface),
@@ -1157,31 +1157,6 @@ function sendPost({ fromPane, sender: resolvedSender, project, projectName, text
   if (operator !== true && !members.includes(from)) {
     return refuse('you are not on that project, so this room is not yours to post into');
   }
-  /* #3224, the proactive half: the caller (live /api/post, never the outbox drain,
-     whose author is not there to answer) asks for this on a post that is not a reply.
-     If the agent owes the person an answer in another room, ask which room it meant
-     rather than post. NOT through refuse(): that logs a refused row the room shows,
-     and this is a question to the agent, not a refusal of the room. No double quotes
-     or backticks in the sentence: the bash CLI reads `because` with a sed that stops
-     at the first quote. */
-  if (askWhichRoom === true && operator !== true) {
-    const owed = owedElsewhere(from, projectId, Date.parse(at));
-    if (owed) {
-      const safe = (v) => (v && /^[A-Za-z0-9._ -]+$/.test(v) && !v.includes(']') ? v : null);
-      let otherName = null;
-      try { otherName = safe(typeof projectNameOf === 'function' ? projectNameOf(owed.project) : null); } catch { otherName = null; }
-      const other = otherName || owed.project;
-      return {
-        state: chat.DELIVERY.COULD_NOT,
-        code: 'which_room',
-        because: 'you have an unanswered question from the person in ' + other + ' (' + owed.id + '), and this post is for '
-          + shownProject + '. If it answers that question, post it there: kosmos post --in-reply-to ' + owed.id + ' '
-          + owed.project + ' <your text>. If it is a new post for ' + shownProject + ', send it again with --new: kosmos post --new '
-          + projectId + ' <your text>',
-        id: null, at, outcomes: null,
-      };
-    }
-  }
   const recipients = operator === true ? members.slice() : members.filter((m) => m !== from);
   /**
    * 🛑 AN AGENT ALONE ON A PROJECT IS NOT POSTING TO AN EMPTY ROOM, and this
@@ -1226,6 +1201,45 @@ function sendPost({ fromPane, sender: resolvedSender, project, projectName, text
   }
   const markerBad = markerProblem(text);
   if (markerBad) return refuse(markerBad);
+
+  /* #3224, the proactive half: the caller (live /api/post, never the outbox drain,
+     whose author is not there to answer) asks for this on a post that is not a reply.
+     If the agent owes the person an answer in another room, ask which room it meant
+     rather than post. After the text checks, so a post that would be refused anyway
+     gets that refusal first; before the room valve, so a misroute never meets the
+     wrong room's loop guard. NOT through refuse(): that logs a refused row the room shows,
+     and this is a question to the agent, not a refusal of the room. No double quotes
+     or backticks in the sentence: the bash CLI reads `because` with a sed that stops
+     at the first quote. */
+  if (askWhichRoom === true && operator !== true) {
+    /* The rooms the agent can still post in: a question from a room it was removed
+       from, or one that is gone, must not send it to a command that is refused. */
+    const canPostIn = (pid) => {
+      if (typeof membersOf !== 'function') return true;
+      const m = membersOf(pid);
+      if (!Array.isArray(m)) return false;
+      const r = _roomMembers(m);
+      return r.ok === true && r.members.includes(from);
+    };
+    const owed = owedElsewhere(from, projectId, Date.parse(at), { canPostIn });
+    if (owed) {
+      /* Counted, never named: no agent, project or post id in the log line. */
+      console.error('#3224: held a room post to ask which room it meant');
+      const safe = (v) => (v && /^[A-Za-z0-9._ -]+$/.test(v) && !v.includes(']') ? v : null);
+      let otherName = null;
+      try { otherName = safe(typeof projectNameOf === 'function' ? projectNameOf(owed.project) : null); } catch { otherName = null; }
+      const other = otherName || owed.project;
+      return {
+        state: chat.DELIVERY.COULD_NOT,
+        code: 'which_room',
+        because: 'you have an unanswered question from the person in ' + other + ' (' + owed.id + '), and this post is for '
+          + shownProject + '. If it answers that question, post it there: kosmos post --in-reply-to ' + owed.id + ' '
+          + owed.project + ' <your text>. If it is a new post for ' + shownProject + ', send it again with --new: kosmos post --new '
+          + projectId + ' <your text>',
+        id: null, at, outcomes: null,
+      };
+    }
+  }
 
   const rec = record();
   const log = rec.rows;
@@ -1529,6 +1543,10 @@ function sendPost({ fromPane, sender: resolvedSender, project, projectName, text
        "this was an acknowledgement, no reply was requested". Omitted for the default/true case so
        an ordinary post's record is byte-unchanged (a strict boolean === false, never a truthy). */
     ...(replyExpected === false ? { replyExpected: false } : {}),
+    /* #3224: a post sent with --new is the agent's own answer to "which room": it
+       acknowledges the questions it owed elsewhere at that moment (owedElsewhere stops
+       asking about them) and it is not a suspected misroute in the daily count. */
+    ...(newPost === true && operator !== true ? { newPost: true } : {}),
     ...(attachment && typeof attachment === 'object' && typeof attachment.id === 'string' ? { attachment } : {}),
     ...(Array.isArray(attachments) && attachments.length ? { attachments } : {}) });
   /* The aggregate state is a SUMMARY, not the receipt: the receipt
@@ -1953,6 +1971,8 @@ function suspectedMisrouteCount(sinceMs, untilMs) {
   let count = 0;
   for (const p of rows) {
     if (!p || p.kind !== 'post' || p.operator === true) continue;   // W's own room post
+    // #3224: a post sent with --new is the agent's own answer to "which room" -- deliberate, not suspected.
+    if (p.newPost === true) continue;
     const who = p.from;
     const target = p.project;
     const postAt = Date.parse(p.at);
@@ -2129,15 +2149,20 @@ let WHICH_ROOM_WINDOW_MS = 60 * 60 * 1000;
 function setWhichRoomWindowForTests(ms) {
   WHICH_ROOM_WINDOW_MS = Number.isFinite(ms) ? ms : 60 * 60 * 1000;
 }
-function owedElsewhere(agent, targetProject, now) {
+function owedElsewhere(agent, targetProject, now, opts) {
   const who = String(agent == null ? '' : agent);
   const target = String(targetProject == null ? '' : targetProject);
   if (!who || !target) return null;
   const at = Number.isFinite(now) ? now : Date.now();
+  const canPostIn = opts && typeof opts.canPostIn === 'function' ? opts.canPostIn : () => true;
   const rec = record();
   if (!rec || rec.ok !== true || !Array.isArray(rec.rows)) return null;
+  /* The id and project go into a sentence the bash CLI reads with a sed that stops at a
+     quote, and into a command the agent reruns: only the plain id shapes qualify. */
+  const plain = (v) => typeof v === 'string' && /^[A-Za-z0-9._-]+$/.test(v);
   const asks = [];
   const lastPostIn = new Map();   // project -> latest room post time by this agent
+  let lastNewAt = -Infinity;      // the agent's latest --new post: it answered "which room" then
   for (const m of rec.rows) {
     if (!m || m.kind !== 'post' || !m.project) continue;
     const t = Date.parse(m.at);
@@ -2148,18 +2173,28 @@ function owedElsewhere(agent, targetProject, now) {
       if (!oc || oc === chat.DELIVERY.COULD_NOT) continue;
       const age = at - t;
       if (age < 0 || age > WHICH_ROOM_WINDOW_MS) continue;
-      asks.push({ id: m.id, project: m.project, t });
+      if (!plain(String(m.id == null ? '' : m.id)) || !plain(m.project)) continue;
+      asks.push({ id: String(m.id), project: m.project, t });
     } else if (m.from === who) {
       /* operator !== true, as in `unanswered`: an agent named "you" must not find
          operator posts standing in as its own answers. */
       if (!(lastPostIn.get(m.project) >= t)) lastPostIn.set(m.project, t);
+      if (m.newPost === true && t > lastNewAt) lastNewAt = t;
     }
   }
-  /* >= as in `unanswered`: an answer in the same millisecond as the ask clears it. */
-  const owed = asks.filter((a) => !(lastPostIn.get(a.project) >= a.t));
-  if (!owed.length || owed.some((a) => a.project === target)) return null;
-  const latest = owed.reduce((x, y) => (y.t >= x.t ? y : x));
-  return latest.id ? { id: String(latest.id), project: latest.project } : null;
+  /* >= as in `unanswered`: an answer in the same millisecond as the ask clears it. An
+     ask at or before the agent's latest --new post was already put to it once. */
+  const owed = asks.filter((a) => !(lastPostIn.get(a.project) >= a.t) && a.t > lastNewAt);
+  const elsewhere = owed.filter((a) => a.project !== target && (() => {
+    try { return canPostIn(a.project) === true; } catch { return false; }
+  })());
+  if (!elsewhere.length) return null;
+  const latest = elsewhere.reduce((x, y) => (y.t >= x.t ? y : x));
+  /* Owing the target room too makes a post there ordinary, but only when that question
+     is at least as recent as the newest one elsewhere: a question ignored in A fifty
+     minutes ago does not excuse answering B's question of two minutes ago into A. */
+  if (owed.some((a) => a.project === target && a.t >= latest.t)) return null;
+  return { id: latest.id, project: latest.project };
 }
 
 /* #3224: the project a POST belongs to, by its id, or null if no such post is in

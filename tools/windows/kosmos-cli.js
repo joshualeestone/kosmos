@@ -411,6 +411,9 @@ async function verbPost(ctx, args) {
   if (d.state === 'placed') { ctx.out('Posted to ' + project + '. Everyone on it has it waiting.'); return 0; }
   if (d.state === 'unconfirmed') return maybe(ctx.err, 'Posted, but not everyone is confirmed' + (d.because ? ': ' + clause(d.because) : '') + '. Do not re-post; the room screen shows who got it.');
   ctx.err('Not posted: ' + (clause(d.because) || 'we could not tell why') + '.');
+  /* #3224: a which-room hold always asks for a rerun, so hand the text back as install/kosmos
+     does (a piped message goes to its private file instead). */
+  if (d.code === 'which_room' && !fromStdin) { ctx.err('Your message was not sent, so here it is to send again:'); ctx.err(text); }
   keepPiped();
   return 1;
 }

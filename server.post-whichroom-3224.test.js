@@ -121,12 +121,45 @@ test('#3224 THE HOLD: a non-reply post to A while dana owes the person in B is h
   assert.equal(refusedRows.length, 0, 'the hold is a question to the agent, not a refusal logged in the room');
 });
 
-test('#3224 --new: new_post:true posts to A as before, even while B is owed', async () => {
+test('#3224 --new: new_post:true posts to A as before, is recorded on the row, and the NEXT post to A is not held again', async () => {
   const a = room('Alpha new 3224');
   const b = room('Beta new 3224');
   operatorAsk(b.id);
+  const held = await post({ project: a.id, text: 'first', from_pane: '' }, H());
+  assert.equal(held.json.delivery.code, 'which_room', 'CONTROL: without --new the post is held');
   const r = await post({ project: a.id, text: 'genuinely new for alpha', from_pane: '', new_post: true }, H());
   assert.ok(reached(r.json.delivery), 'new_post:true must place: ' + (r.json.delivery.because || ''));
+  const row = messagesEngine.readLog().find((m) => m && m.kind === 'post' && m.text === 'genuinely new for alpha');
+  assert.equal(row && row.newPost, true, 'the --new post is marked on its row');
+  const next = await post({ project: a.id, text: 'the next alpha post', from_pane: '' }, H());
+  assert.ok(reached(next.json.delivery), 'the question was put once; the next post must not be held for it again: ' + (next.json.delivery.because || ''));
+});
+
+test('#3224 removed from B, or B deleted: its question no longer holds a post to A', async () => {
+  const a = room('Alpha gone 3224');
+  const b = room('Beta gone 3224');
+  operatorAsk(b.id);
+  const held = await post({ project: a.id, text: 'while still in beta', from_pane: '' }, H());
+  assert.equal(held.json.delivery.code, 'which_room', 'CONTROL: while dana is on Beta the post is held');
+  projects.removeAgent(b.id, 'dana');
+  const r1 = await post({ project: a.id, text: 'after leaving beta', from_pane: '' }, H());
+  assert.ok(reached(r1.json.delivery), 'a room dana cannot post in must not be offered as the answer: ' + (r1.json.delivery.because || ''));
+  const c = room('Gamma gone 3224');
+  operatorAsk(c.id);
+  const held2 = await post({ project: a.id, text: 'while gamma exists', from_pane: '' }, H());
+  assert.equal(held2.json.delivery.code, 'which_room', 'CONTROL: while Gamma exists the post is held');
+  projects.remove(c.id);
+  const r2 = await post({ project: a.id, text: 'after gamma is gone', from_pane: '' }, H());
+  assert.ok(reached(r2.json.delivery), 'a deleted room must not be offered as the answer: ' + (r2.json.delivery.because || ''));
+});
+
+test('#3224 a post that would be refused anyway gets that refusal, not the which-room question', async () => {
+  const a = room('Alpha bad 3224');
+  const b = room('Beta bad 3224');
+  operatorAsk(b.id);
+  const r = await post({ project: a.id, text: 'x'.repeat(200000), from_pane: '' }, H());
+  assert.equal(r.json.delivery.state, 'could_not');
+  assert.notEqual(r.json.delivery.code, 'which_room', 'the real refusal must come first: ' + r.json.delivery.because);
 });
 
 test('#3224 answering it: a reply into B with in_reply_to the question places (and clears the debt)', async () => {
@@ -145,13 +178,19 @@ test('#3224 a reply (in_reply_to set) is never asked which room, even while anot
   const seed = await post({ project: a.id, text: 'seed in alpha', from_pane: '' }, H());
   assert.ok(reached(seed.json.delivery));
   operatorAsk(b.id);
+  const ctl = await post({ project: a.id, text: 'CONTROL, no citation', from_pane: '' }, H());
+  assert.equal(ctl.json.delivery.code, 'which_room', 'CONTROL: the same post without in_reply_to is held');
   const r = await post({ project: a.id, text: 'answering the alpha seed', from_pane: '', in_reply_to: seed.json.delivery.id }, H());
   assert.ok(reached(r.json.delivery), 'a bound reply is already checked by #3567 and must not also be held: ' + (r.json.delivery.because || ''));
 });
 
 test('#3224 posting into the room the question is in is not held', async () => {
+  const a = room('Alpha same 3224');
   const b = room('Beta same 3224');
   operatorAsk(b.id);
+  // CONTROL first (a post into Beta answers the question): the same setup posting to Alpha is held.
+  const ctl = await post({ project: a.id, text: 'CONTROL into alpha', from_pane: '' }, H());
+  assert.equal(ctl.json.delivery.code, 'which_room', 'CONTROL: the same setup posting to Alpha is held');
   const r = await post({ project: b.id, text: 'into beta, no citation', from_pane: '' }, H());
   assert.ok(reached(r.json.delivery), r.json.delivery.because || '');
 });
@@ -162,6 +201,9 @@ test('#3224 an old question (over an hour) does not hold a post', async () => {
   operatorAsk(b.id, 61);
   const r = await post({ project: a.id, text: 'alpha, the beta ask is stale', from_pane: '' }, H());
   assert.ok(reached(r.json.delivery), r.json.delivery.because || '');
+  operatorAsk(b.id, 59);
+  const ctl = await post({ project: a.id, text: 'CONTROL, a 59-minute ask', from_pane: '' }, H());
+  assert.equal(ctl.json.delivery.code, 'which_room', 'CONTROL: an ask just inside the hour holds');
 });
 
 test('#3224 TYPE-CHECK: a non-boolean new_post is a 400 before any side-effect', async () => {

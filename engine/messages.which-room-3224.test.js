@@ -81,10 +81,16 @@ test('posting to the room the question is in asks nothing', () => {
   assert.equal(messages.owedElsewhere('mara', 'projB', NOW), null);
 });
 
-test('owing BOTH rooms: posting to either is ordinary, nothing asked', () => {
+test('owing BOTH rooms: posting where the NEWER question is asks nothing; posting where the older one is asks about the newer', () => {
   seed([ask('q1', 'projB', 'mara', 5), ask('q2', 'projA', 'mara', 3)]);
-  assert.equal(messages.owedElsewhere('mara', 'projA', NOW), null);
-  assert.equal(messages.owedElsewhere('mara', 'projB', NOW), null);
+  assert.equal(messages.owedElsewhere('mara', 'projA', NOW), null, 'A holds the newer question, so a post to A is ordinary');
+  assert.deepEqual(messages.owedElsewhere('mara', 'projB', NOW), { id: 'q2', project: 'projA' },
+    'B\'s own question is older than A\'s, so a post to B may be the answer to A');
+});
+
+test('an old ignored question in A does not excuse answering B\'s newer question into A', () => {
+  seed([ask('q1', 'projA', 'mara', 50), ask('q2', 'projB', 'mara', 2)]);
+  assert.deepEqual(messages.owedElsewhere('mara', 'projA', NOW), { id: 'q2', project: 'projB' });
 });
 
 test('the window: a question older than an hour does not hold a post (and one just inside does)', () => {
@@ -127,3 +133,42 @@ test('an unreadable record asks nothing (post as before), it does not throw', ()
   assert.equal(messages.owedElsewhere('mara', 'projA', NOW), null);
   fs.rmSync(messages.LOG, { force: true, recursive: true });
 });
+
+function newPost(id, project, who, minsAgo) {
+  return { ...post(id, project, who, minsAgo), newPost: true };
+}
+
+test('--new answers "which room" once: questions owed at that moment are not asked about again', () => {
+  seed([ask('q1', 'projB', 'mara', 10), newPost('n1', 'projA', 'mara', 5)]);
+  assert.equal(messages.owedElsewhere('mara', 'projA', NOW), null, 'the second post after --new must not be held for the same question');
+  // CONTROL: the same post WITHOUT the --new mark leaves the question owed.
+  seed([ask('q1', 'projB', 'mara', 10), post('p1', 'projA', 'mara', 5)]);
+  assert.deepEqual(messages.owedElsewhere('mara', 'projA', NOW), { id: 'q1', project: 'projB' });
+});
+
+test('a question that arrives AFTER a --new post is asked about', () => {
+  seed([newPost('n1', 'projA', 'mara', 10), ask('q2', 'projB', 'mara', 5)]);
+  assert.deepEqual(messages.owedElsewhere('mara', 'projA', NOW), { id: 'q2', project: 'projB' });
+});
+
+test('a question from a room the agent cannot post in (removed, or the room is gone) is skipped', () => {
+  seed([ask('q1', 'projB', 'mara', 5)]);
+  assert.equal(messages.owedElsewhere('mara', 'projA', NOW, { canPostIn: (p) => p !== 'projB' }), null);
+  assert.equal(messages.owedElsewhere('mara', 'projA', NOW, { canPostIn: () => { throw new Error('boom'); } }), null,
+    'a predicate that throws counts as cannot-post, never as a hold into an unknown room');
+  // CONTROL: the same record with the room postable holds.
+  assert.deepEqual(messages.owedElsewhere('mara', 'projA', NOW, { canPostIn: () => true }), { id: 'q1', project: 'projB' });
+});
+
+test('a skipped room falls back to the next owed room', () => {
+  seed([ask('q1', 'projC', 'mara', 20), ask('q2', 'projB', 'mara', 5)]);
+  assert.deepEqual(messages.owedElsewhere('mara', 'projA', NOW, { canPostIn: (p) => p !== 'projB' }), { id: 'q1', project: 'projC' });
+});
+
+test('a question with no id, or an id or project that is not a plain id shape, is skipped (and falls back)', () => {
+  const noId = ask('x', 'projB', 'mara', 2); delete noId.id;
+  const quoted = ask('q"2', 'projB', 'mara', 3);
+  seed([ask('q1', 'projC', 'mara', 20), noId, quoted]);
+  assert.deepEqual(messages.owedElsewhere('mara', 'projA', NOW), { id: 'q1', project: 'projC' });
+});
+
