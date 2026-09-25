@@ -121,9 +121,13 @@ function chk(ok, label, extra) {
     {
       chk(tasks.tasksEverCreated(projects.readAll()) < tasks.TASKS_TAB_MIN, '[gate] the fixture has fewer than 25 tasks, so the hidden arm below can mean something');
       const page = await browser.newPage({ viewport: { width: 1400, height: 900 } });
+      // A real status tick must land before "hidden" means anything: the markup starts hidden.
+      const ticked = page.waitForResponse((r) => r.url().endsWith('/api/status') && r.ok(), { timeout: 10000 });
       await page.goto(URL, { waitUntil: 'networkidle' });
       await clearFirstRun(page);
-      await page.waitForTimeout(2500);   // at least one status tick has landed (the tab's only source)
+      const tick = await ticked.then((r) => r.json()).catch(() => null);
+      chk(!!tick && tick.tasksTab === false, '[gate] a status tick landed and says tasksTab is false', JSON.stringify(tick && tick.tasksTab));
+      await page.waitForTimeout(300);
       const before = await page.evaluate(() => ({
         tab: document.querySelector('#tabs .tab[data-tab="tasks"]').getClientRects().length > 0,
         rail: document.getElementById('rail-projects-tasks').hidden === false,
