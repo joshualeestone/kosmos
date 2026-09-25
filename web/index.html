@@ -37900,10 +37900,18 @@ function enhanceProviderSelect(selectId) {
         if (e.key && e.key.length === 1 && !e.metaKey && !e.ctrlKey && !e.altKey) typeAhead(e.key);
     }
   });
+  /* The choice is made on CLICK, not mousedown. Committing on mousedown hid the list while the
+     button was still down, so the mouseup landed on whatever was under the pointer, and the
+     browser sent the click to the element that holds both. For an option drawn past the bottom
+     of the Add-a-provider dialog (Gemini, Grok, OpenAI) that was the dialog's backdrop, whose
+     click handler closes it: the dialog opened onto the choice for a frame and was gone
+     (0.6.95, Settings > AI Models). mousedown still keeps focus on the trigger. */
   list.addEventListener('mousedown', (e) => {
+    if (e.target.closest('.pcombo-opt')) e.preventDefault(); // keep focus on the trigger
+  });
+  list.addEventListener('click', (e) => {
     const li = e.target.closest('.pcombo-opt');
     if (!li) return;
-    e.preventDefault(); // keep focus on the trigger
     commit(Number(li.dataset.index));
   });
   document.addEventListener('mousedown', (e) => {
