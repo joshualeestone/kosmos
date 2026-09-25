@@ -71,11 +71,10 @@ test('#1382: an UNASSIGNED task is included, which is what makes this not the co
 /**
  * 🔑 CLOSED TASKS ARE IN, AND THIS IS THE TEST THAT SAYS WHY.
  *
- * The screen is reached from `#pj-alltasks`, the per-project door that today
- * reveals hidden tasks in place. #1009 already put every OPEN task in the
- * column, so what that door reveals now is FINISHED WORK. Repurposing it
- * without carrying closed tasks across would leave finished work unreachable
- * anywhere in the product.
+ * The list is reached from `#pj-alltasks`, the per-project door (since #3703 it
+ * opens the Tasks view scoped to its project). #1009 already put every OPEN task
+ * in the column, so what that door is for is FINISHED WORK. Leaving closed tasks
+ * out would leave finished work unreachable anywhere in the product.
  */
 test('#1382: a CLOSED task is INCLUDED and says so, because this screen inherits its only door', () => {
   const p = projects.create({ name: 'Mixed' });

@@ -29,10 +29,12 @@ function world(projects, { current = null, readFailed = false } = {}) {
   const els = {};
   const el = (id) => (els[id] = els[id] || { id, hidden: false, value: '', textContent: '', innerHTML: '', disabled: false, selectedIndex: 0, focused: 0, focus() { this.focused += 1; focusLog.push(id); } });
   const focusLog = [];
-  for (const id of ['nt-projrow', 'nt-proj', 'nt-in', 'nt-project', 'nt-what', 'nt-detail', 'nt-who', 'nt-msg', 'nt-go', 'nt-modal', 'nt-back', 'tsk-new', 'pj-newtask']) el(id);
+  for (const id of ['nt-projrow', 'nt-proj', 'nt-in', 'nt-in-pick', 'nt-project', 'nt-what', 'nt-detail', 'nt-who', 'nt-msg', 'nt-go', 'nt-modal', 'nt-back', 'tsk-new', 'pj-newtask']) el(id);
   els['nt-projrow'].hidden = true;
   els['nt-modal'].hidden = true;
-  const document = { getElementById: (id) => els[id] || null };
+  const box = { attrs: { 'aria-describedby': 'nt-in' }, setAttribute(k, v) { this.attrs[k] = v; } };
+  els.box = box;
+  const document = { getElementById: (id) => els[id] || null, querySelector: (q) => (q === '#nt-modal [role="dialog"]' ? box : null) };
   const esc = (s) => String(s);
   const api = new Function('document', 'PROJECTS', 'PJ_CURRENT', 'PJ_READ_FAILED', 'esc',
     'let NT_FOR = null; let NT_ORIGIN = "project"; let NT_PROJECT = null;\n' + FNS
@@ -118,6 +120,30 @@ test('changing the project in the dialog keeps the words and resets who is on it
   assert.ok(at > -1, 'the picker handler moved; update this test');
   assert.match(fn, /NT_FOR = p\.id;[\s\S]*getElementById\('nt-who'\)\.value = '';[\s\S]*ntAimAt\(p\);/,
     'an agent picked for one project is carried to another, or the words are cleared');
+});
+
+test('the dialog is described by whichever line is showing, in each mode', () => {
+  const w = world(P);
+  w.api.openNewTask(null, 'tasks');
+  assert.equal(w.els.box.attrs['aria-describedby'], 'nt-in-pick');
+  assert.equal(w.els['nt-in-pick'].hidden, false);
+  w.api.openNewTask('a', 'tasks');
+  assert.equal(w.els.box.attrs['aria-describedby'], 'nt-in', 'a picked project is described by the hidden picker line');
+  assert.equal(w.els['nt-in-pick'].hidden, true);
+  const none = world([]);
+  none.api.openNewTask(null, 'tasks');
+  assert.equal(none.els.box.attrs['aria-describedby'], 'nt-msg');
+  assert.equal(none.els['nt-projrow'].hidden, true, 'an empty picker is left on screen');
+  // The markup still names #nt-in by default, so the project page reads as before.
+  assert.match(PAGE, /role="dialog" aria-modal="true" aria-labelledby="nt-t" aria-describedby="nt-in"/);
+});
+
+test('a view scoped to an archived project files there, as that project\'s own page does (decision)', () => {
+  const w = world(P);
+  w.api.openNewTask('z', 'tasks');
+  assert.equal(w.api.NT_PROJECT, 'z');
+  assert.equal(w.els['nt-projrow'].hidden, true);
+  assert.equal(w.els['nt-project'].textContent, 'Old stuff');
 });
 
 test('from the project page nothing changes: its own project, no picker, focus back to its button', () => {

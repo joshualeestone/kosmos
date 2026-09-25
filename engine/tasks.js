@@ -607,19 +607,19 @@ function columnTasks(p) {
    before agents are taught it; teaching it is a wording change (#763's
    rule: Splinter, then Josh) and is not in this file. */
 /**
- * Every open task on every project, for the all-tasks screen (#1382).
+ * Every task on every project, for the Tasks view (#3559) and `kosmos tasks`. It was
+ * written for the all-tasks screen (#1382), which #3703 retired for the Tasks view.
  *
  * Josh: a list of "all tasks across all projects", reachable the way the
  * documents list is.
  *
  * 🔑 CLOSED TASKS ARE IN, AND THE REASON IS A REMOVAL RATHER THAN A
- * PREFERENCE. This screen is reached from `#pj-alltasks`, the per-project
- * door, which today reveals hidden tasks IN PLACE. #1009 already put every
- * OPEN task in the column, assigned or not, so what that door reveals now is
- * the remainder: FINISHED WORK.
- * ⇒ Repurposing the door to open this screen is a removal plus an addition,
- * and if the screen excluded closed tasks the removal would leave finished
- * work unreachable anywhere in Kosmos.
+ * PREFERENCE. The project page's `#pj-alltasks` door leads here (since #3703,
+ * to the Tasks view scoped to that project). #1009 already put every OPEN task
+ * in the column, assigned or not, so what that door is for is the remainder:
+ * FINISHED WORK.
+ * ⇒ If this list excluded closed tasks, finished work would be unreachable
+ * anywhere in Kosmos.
  *
  * ⚠️ THE COST, STATED RATHER THAN HIDDEN: closed tasks grow without bound, so
  * this list does too. There is no pager, deliberately, while the realistic

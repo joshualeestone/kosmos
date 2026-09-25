@@ -10300,6 +10300,7 @@ window.kosmosMeasureScrollbarWidth();
   <div class="rm-box rm-box-form" role="dialog" aria-modal="true" aria-labelledby="nt-t" aria-describedby="nt-in">
     <h2 class="rm-title" id="nt-t">New task</h2>
     <p class="rm-small" id="nt-in">In <b id="nt-project"></b>.</p>
+    <p class="rm-small" id="nt-in-pick" hidden>Pick the project it belongs to.</p>
     <!-- #3703: from the Tasks view with no project picked, the dialog asks which project. The task
          belongs to a project, so this is the same question the project page answers by being one. -->
     <div class="field" id="nt-projrow" hidden>
@@ -43129,8 +43130,10 @@ let NT_FOR = null;
    dialog. NT_PROJECT is the project it files to; NT_ORIGIN is where focus and the answer go back. */
 let NT_ORIGIN = 'project';
 let NT_PROJECT = null;
-/* The projects a task can be filed to from the Tasks view: every project that is not archived,
-   by name. The rails set archived projects aside, and so does this. */
+/* The projects the All-tasks picker offers: every project that is not archived, by name. The
+   rails set archived projects aside, and so does this list. A view SCOPED to an archived project
+   (its own View-all door) files there without the picker, exactly as that project's own page
+   does: the person is standing in that project on purpose. */
 function ntChoices() {
   return PROJECTS.filter((p) => p && p.archived !== true)
     .slice().sort((a, b) => String(a.name).localeCompare(String(b.name)));
@@ -43144,6 +43147,11 @@ function openNewTask(projectId, origin) {
   NT_ORIGIN = origin === 'tasks' ? 'tasks' : 'project';
   const row = document.getElementById('nt-projrow');
   const said = document.getElementById('nt-in');
+  const pick = document.getElementById('nt-in-pick');
+  const box = document.querySelector('#nt-modal [role="dialog"]');
+  /* The dialog's description is whichever line is showing: a hidden element named by
+     aria-describedby is still read, so it must follow the mode rather than stay on #nt-in. */
+  const describe = (id) => { if (box) box.setAttribute('aria-describedby', id); };
   let p = pjById(projectId === undefined ? PJ_CURRENT : projectId);
   if (NT_ORIGIN === 'tasks' && !p) {
     /* All tasks: ask which project, in the dialog. A kept draft's project (one with words in it)
@@ -43153,12 +43161,16 @@ function openNewTask(projectId, origin) {
     sel.innerHTML = choices.map((c) => '<option value="' + esc(c.id) + '">' + esc(c.name) + '</option>').join('');
     row.hidden = false;
     said.hidden = true;
+    pick.hidden = false;
+    describe('nt-in-pick');
     if (!choices.length) {
       /* Nothing to file it to: say which of three things is true, rather than an empty picker and
          a Create that cannot work. An unreadable list is said as unreadable, never as "none" (the
          loadProjects rule), and projects that are all archived are not "no projects". */
       NT_PROJECT = null;
-      document.getElementById('nt-project').textContent = '';   // no stale name for the describedby line
+      row.hidden = true; pick.hidden = true;   // an empty picker offers nothing
+      describe('nt-msg');
+      document.getElementById('nt-project').textContent = '';   // no stale name left behind
       document.getElementById('nt-who').innerHTML = '<option value="">Nobody yet</option>';
       document.getElementById('nt-msg').textContent = PJ_READ_FAILED
         ? 'We could not read your projects just now, so there is nothing to file this to yet. Try again in a moment.'
@@ -43176,6 +43188,8 @@ function openNewTask(projectId, origin) {
   } else {
     row.hidden = true;
     said.hidden = false;
+    pick.hidden = true;
+    describe('nt-in');
   }
   if (!p) return;
   ntAimAt(p);
