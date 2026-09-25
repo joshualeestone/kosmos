@@ -97,6 +97,17 @@ gates. `publish-r2.ps1` produces the same files with the same gates, directly in
    pwsh tools\windows\publish-r2.ps1 -Promote -ApprovedVersion <v> -ApprovedSha <sha> -ApprovalRef <Slack ts or permalink>
    ```
 
+## Records and guarantees
+
+- **Josh's go is logged on the PC that promotes**, in `%USERPROFILE%\.claude\logs\win-promote-approvals.log`
+  (or `KOSMOS_WIN_PROMOTE_LOG`), in the same line format `promote-channel.sh` writes on the Mac.
+  A Windows promote from the PC is therefore NOT in the Mac's log. The durable record of the go
+  is his message itself, which the log line names by `approval_ref`.
+- **R2 enforces the two conditional writes this script relies on** (measured 2026-09-25 against
+  the real bucket): a create with `If-None-Match: *` over an existing key, and a copy with a
+  stale `x-amz-copy-source-if-match`, both fail with PreconditionFailed and change nothing.
+  `-DryRun` does not issue them.
+
 ## The pointer shape
 
 Both pointers have exactly this shape, the one `tools/lib/write-latest-win-pointer.js` writes:

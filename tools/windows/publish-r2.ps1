@@ -385,8 +385,15 @@ Say "verification record: $verdict"
 # Josh's go is logged BEFORE any write; a go that is not logged is not given.
 Write-ApprovalLine "$(Stamp) family=win path=promote-r2 version=$ApprovedVersion sha256=$ApprovedSha approval_ref=$ApprovalRef record_sha256=$recordSha approval=given record=$recordPath"
 
+# The staging pointer must not have moved while the checks ran (promote-channel.sh's snapshot
+# rule): Josh's go and the record cover the build it named at the start.
+$again = Get-Object 'latest-win-staging.json'
+if (-not $again -or (Sha256-Bytes $again.Bytes) -cne (Sha256-Bytes $staging.Bytes)) { Refuse "latest-win-staging.json changed while the promote was checking it. Nothing was written; start the promote again." }
+
 # The alias (a copy pinned to the exact object checked above) and its sidecar, both read back from
 # the bucket BEFORE prod's pointer moves; then latest-win.json LAST, the staging bytes verbatim.
+# From the first prod-facing write on, a failure says what may already have changed.
+if (-not $DryRun) { $script:AfterNote = " (prod-facing writes had begun: the alias, its sidecar or latest-win.json may already have changed. Re-run the same -Promote command to finish; it re-checks everything first.)" }
 Copy-Object $Versioned $Alias $staged.ETag
 $aliasSide = New-SidecarBytes $ApprovedSha $Alias
 Put-Object "$Alias.sha256" $aliasSide $null (Sha256-Bytes $aliasSide) 'text/plain; charset=utf-8'
@@ -394,9 +401,9 @@ if (-not $DryRun) {
   [void](Assert-Object $Alias $ApprovedSha)
   [void](Assert-Object "$Alias.sha256" (Sha256-Bytes $aliasSide))
 }
-$script:AfterNote = " (latest-win.json WAS written: prod points at $ApprovedVersion. Re-run the same -Promote command to finish the checks.)"
 Put-Object 'latest-win.json' $staging.Bytes $null (Sha256-Bytes $staging.Bytes) 'application/json'
-if ($DryRun) { $script:AfterNote = ''; Say "DRY RUN complete: nothing was written."; exit 0 }
+if ($DryRun) { Say "DRY RUN complete: nothing was written."; exit 0 }
+$script:AfterNote = " (latest-win.json was written: prod points at $ApprovedVersion. Re-run the same -Promote command to finish the checks.)"
 Assert-Served $Alias $ApprovedSha
 Assert-Served "$Alias.sha256" (Sha256-Bytes $aliasSide)
 Assert-Served 'latest-win.json' (Sha256-Bytes $staging.Bytes)
