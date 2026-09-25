@@ -61,6 +61,7 @@
 --------------------------------------------------------------------------- */
 :root {
   --tip-dim: rgba(20,22,26,.28);   /* #3737: the tour's dim, one value for the layer and the gutter */
+  --unread-edge: #f5e4bc;   /* #3743: the unread agent message's edge (Josh's pick, 09:14/09:15); dark and navy below */
   /* #3132 (Josh, 6.68): the consolidated link size, defined once so the archived
      toggle (#pj-arch-toggle) and the Files/Tasks "View All" doors (.pj-viewall)
      are guaranteed equal by construction in the consolidated view (#3756 also
@@ -328,6 +329,7 @@
        darker-than-black panel is not a thing anybody can see. */
     --k-sunk:    rgba(245,245,244,.06);
     --agent-msg: #252529;  /* #3340 (Josh 6.83): night-mode agent bubble, a cooler dark gray (was #221f1a warm cream). #2947 history: the dark-mode cream, a touch above the surface. */
+    --unread-edge: rgba(227,179,65,.5);   /* #3743: the unread edge on the dark bubble, the gold at half strength */
     /* #2660: 15% in dark, up from 10% light, so the wash stays legible. */
     --usermsg-tint: #1b1f65; /* #3340 (Josh 6.83): night-mode user bubble, a deeper indigo (was #141c2f). #2660 history: 15% in dark, up from 10% light, so the wash stays legible. */
     /* #980: the consolidated side tones' dark twins, the mock's line 25. */
@@ -1519,6 +1521,10 @@ html.tip-dimming:not([data-layout="consolidated"]) > body { min-height: 100vh; }
 .asp-m { max-width: 88%; padding: 8px 11px; border-radius: 12px; line-height: 1.45; white-space: pre-wrap; overflow-wrap: anywhere; }
 /* #3738 (Josh 08:51): the same bubbles as a Direct Message, from the same tokens: the person's own blue, the agent's cream. */
 .asp-m.him { background: var(--agent-msg); border-top-left-radius: 4px; }
+/* #3743: the guide's unread replies carry the same fading gold edge as a DM's (Josh: "the setup assistant" too). */
+.asp-m.him { transition: box-shadow 1.2s ease; }
+.asp-m.him[data-unread] { box-shadow: inset 0 0 0 1px var(--unread-edge); transition: none; }
+@media (prefers-reduced-motion: reduce) { .asp-m.him { transition: none; } }
 .asp-m.you { align-self: flex-end; background: var(--usermsg-tint); border-top-right-radius: 4px; }
 .asp-note { padding: 0 12px 6px; font-size: .75rem; color: var(--k-ink-2); }
 .asp-msg { padding: 0 12px 6px; font-size: .75rem; color: var(--k-ink-2); }
@@ -5576,6 +5582,12 @@ body:not(.consolidated) .pjmidhead:has(.pjhead) .tsearch:focus-within { flex-bas
    .msg-bd -- composites on top of the cream instead of being cleared by a
    shorthand. */
 .msg:not(.you) .msg-bd { background-color: var(--agent-msg); }
+/* #3743 (Josh 2026-09-25 09:15): "the stroke would be cool for an unread message and then as you read it it fades
+   away". An agent message not yet read carries a thin gold edge; once it has been on screen a moment, the edge fades.
+   An inset shadow, so the bubble keeps its size and the edge follows its rounded corners. */
+.msg:not(.you) .msg-bd { transition: box-shadow 1.2s ease; }
+.msg:not(.you) .msg-bd[data-unread] { box-shadow: inset 0 0 0 1px var(--unread-edge); transition: none; }
+@media (prefers-reduced-motion: reduce) { .msg:not(.you) .msg-bd { transition: none; } }
 /* #3134-followup (Josh 6.72) -> #3267: the bubble TAIL is a clean iMessage-style Option A
    WING at the bottom corner, pointing toward the avatar -- bottom-LEFT on an agent bubble,
    bottom-RIGHT on the person's.
@@ -8669,6 +8681,7 @@ html:not([data-fed-ui="show"]) #pj-add-ext-person,html:not([data-fed-ui="show"])
        darker-than-black panel is not a thing anybody can see. */
     --k-sunk:    rgba(245,245,244,.06);
     --agent-msg: #252529;  /* #3340 (Josh 6.83): night-mode agent bubble, a cooler dark gray (was #221f1a warm cream). #2947 history: the dark-mode cream, a touch above the surface. */
+    --unread-edge: rgba(227,179,65,.5);   /* #3743: the unread edge on the dark bubble, the gold at half strength */
     /* #2660: 15% in dark, up from 10% light, so the wash stays legible. */
     --usermsg-tint: #1b1f65; /* #3340 (Josh 6.83): night-mode user bubble, a deeper indigo (was #141c2f). #2660 history: 15% in dark, up from 10% light, so the wash stays legible. */
     /* #980: the consolidated side tones' dark twins, the mock's line 25. */
@@ -8851,6 +8864,7 @@ body.plus-active {
   --k-rule: #22345a; --k-track: rgba(120,150,200,.24); --k-knob: #cdd8ef;
   --k-sunk: rgba(120,150,200,.08); --k-side: #0b1428; --k-side-2: #0a1120;
   --agent-msg: #1b2a4b;  /* #3267: was var(--k-sunk) = rgba(120,150,200,.08), TRANSLUCENT. The Option A wing (::before, background-color:inherit) OVERLAPS the bubble box, and a translucent fill double-composites in the overlap into the #3130 dark triangle -- the same defect this change fixed for --usermsg-tint. Made SOLID here too: .08 of rgb(120,150,200) pre-composited over navy --k-bg #132140 (mirrors --usermsg-tint navy). #2947 history: navy keeps its bluish inset, cream is out of scope for this world. */
+  --unread-edge: rgba(227,179,65,.5);   /* #3743: the unread edge on the navy bubble */
   --usermsg-tint: #1a2d58; /* #3267: solid navy (pre-composited from rgba .15 over --k-bg #132140); was #2660 15% */
   --k-optline: #5f7099;
   /* --label/--bg system */
@@ -27115,6 +27129,97 @@ function restoreThreadAnchor(el, a) {
   }
   return false;
 }
+/* #3743 (Josh 2026-09-25 09:15): an unread agent message carries a gold edge that fades once it has been read.
+   "Unread" is the app's own count (a DM's dmUnread, a project's unread) read as the thread opens, plus any agent
+   message that lands while it is open. "Read" is on screen, half of it at least, for a moment while this window is
+   in front. Per thread: `known` is every agent message this page has shown there, `fresh` those still unread,
+   `backlog` the count the thread opened with, taken from the newest. The rows are marked after they are painted, by
+   their data-mid, so no renderer changes and a repaint puts the edge back until it has been read. */
+const UNREAD_EDGE = new Map();
+const UNREAD_EDGE_DWELL = 1200;
+let UNREAD_IO = null;
+const UNREAD_WATCHED = new Set();
+function unreadEdgeBacklog(key, n) {
+  const st = UNREAD_EDGE.get(key) || { known: null, fresh: new Set(), read: new Set(), backlog: 0 };
+  st.backlog = Math.max(st.backlog, Number(n) || 0);
+  UNREAD_EDGE.set(key, st);
+}
+/* `row` picks the agent's rows and `bd` their bubble inside; the setup assistant's chat draws each row as its own
+   bubble, so it passes bd: null and the row is edged. */
+/* Named messages known to be new (the setup assistant's replies that came while it was folded), for the next look. */
+function unreadEdgeFresh(key, ids) {
+  const st = UNREAD_EDGE.get(key) || { known: null, fresh: new Set(), read: new Set(), backlog: 0 };
+  for (const id of ids) if (!st.read.has(id)) st.fresh.add(id);
+  UNREAD_EDGE.set(key, st);
+}
+function unreadEdgeApply(root, key, { row = '.msg:not(.you)[data-mid]', bd: bdSel = '.msg-bd' } = {}) {
+  if (!root) return;
+  const bubbleOf = (r) => (bdSel ? r.querySelector(bdSel) : r);
+  /* Rows with a bubble only: a bodyless post has nothing to edge, and would sit unread forever. */
+  const rows = [...root.querySelectorAll(row)].filter((r) => r.dataset.mid && bubbleOf(r) && (bdSel || r.textContent.trim()));
+  const ids = rows.map((r) => r.dataset.mid);
+  const st = UNREAD_EDGE.get(key) || { known: null, fresh: new Set(), read: new Set(), backlog: 0 };
+  UNREAD_EDGE.set(key, st);
+  if (!st.known) st.known = new Set(ids);   // the first look: what is here is history, bar the backlog
+  else for (const id of ids) if (!st.known.has(id)) { st.known.add(id); if (!st.read.has(id)) st.fresh.add(id); }
+  /* A count read before its /seen landed can name messages this page has already watched being read: those stay read. */
+  if (st.backlog > 0) { for (const id of ids.slice(-st.backlog)) if (!st.read.has(id)) st.fresh.add(id); st.backlog = 0; }
+  /* Bounded by what is on screen: a message that has left the thread cannot come back as new (threads only grow at the
+     end), so the sets keep only the rows painted now and do not grow for the life of the page. */
+  const here = new Set(ids);
+  st.known = here;
+  for (const set of [st.fresh, st.read]) for (const id of set) if (!here.has(id)) set.delete(id);
+  /* A bubble a repaint replaced is let go, so the observer holds only what is on the page. */
+  for (const el of UNREAD_WATCHED) if (!el.isConnected) { if (UNREAD_IO) UNREAD_IO.unobserve(el); UNREAD_WATCHED.delete(el); }
+  for (const r of rows) {
+    const bd = bubbleOf(r);
+    if (!bd || !st.fresh.has(r.dataset.mid) || bd.hasAttribute('data-unread')) continue;
+    bd.setAttribute('data-unread', '');
+    bd.__unread = { st, id: r.dataset.mid };
+    unreadEdgeWatch(bd);
+  }
+}
+function unreadEdgeWatch(bd) {
+  if (typeof IntersectionObserver !== 'function') { bd.__inView = true; unreadEdgeTry(bd); return; }
+  /* Half of it on screen, or 120px of it: a message taller than twice the window is read a screenful at a time. */
+  if (!UNREAD_IO) UNREAD_IO = new IntersectionObserver((es) => {
+    for (const e of es) { e.target.__near = e.isIntersecting; e.target.__inView = e.isIntersecting && (e.intersectionRatio >= 0.5 || e.intersectionRect.height >= 120); unreadEdgeTry(e.target); }
+  }, { threshold: [0, 0.05, 0.1, 0.2, 0.3, 0.4, 0.5, 1] });
+  UNREAD_IO.observe(bd);
+  UNREAD_WATCHED.add(bd);
+}
+/* The 1.2s is continuous: leaving view or the window, even briefly, starts it again. */
+function unreadEdgeStop(bd) { if (bd.__unreadTimer) { clearTimeout(bd.__unreadTimer); bd.__unreadTimer = null; } }
+function unreadEdgeTry(bd) {
+  if (!bd.__inView || document.visibilityState !== 'visible' || !document.hasFocus()) { unreadEdgeStop(bd); return; }
+  if (bd.__unreadTimer || !bd.isConnected || !bd.hasAttribute('data-unread')) return;
+  bd.__unreadTimer = setTimeout(() => {
+    bd.__unreadTimer = null;
+    if (!bd.isConnected || !bd.__inView || document.visibilityState !== 'visible' || !document.hasFocus()) return;
+    if (bd.__unread) { bd.__unread.st.fresh.delete(bd.__unread.id); bd.__unread.st.read.add(bd.__unread.id); }
+    bd.removeAttribute('data-unread');   // the transition fades the edge
+    if (UNREAD_IO) UNREAD_IO.unobserve(bd);
+    UNREAD_WATCHED.delete(bd);
+  }, UNREAD_EDGE_DWELL);
+}
+/* Leaving the window stops every clock; coming back starts it afresh on what is in view. A message far taller than the
+   thread crosses no ratio threshold as it is read down, so a scroll measures the ones on screen but not yet counted. */
+const unreadEdgeRecheck = () => document.querySelectorAll('.msg-bd[data-unread], .asp-m[data-unread]').forEach(unreadEdgeTry);
+window.addEventListener('focus', unreadEdgeRecheck);
+window.addEventListener('blur', () => document.querySelectorAll('.msg-bd[data-unread], .asp-m[data-unread]').forEach(unreadEdgeStop));
+document.addEventListener('visibilitychange', unreadEdgeRecheck);
+document.addEventListener('scroll', (ev) => {
+  /* Clipped by what scrolled (a thread scrolls inside its own box, not the page) as well as by the window. */
+  const box = ev.target instanceof Element ? ev.target.getBoundingClientRect() : null;
+  const top = Math.max(0, box ? box.top : 0), bottom = Math.min(innerHeight, box ? box.bottom : innerHeight);
+  for (const bd of UNREAD_WATCHED) {
+    if (!bd.__near || !bd.isConnected || (ev.target instanceof Element && !ev.target.contains(bd))) continue;
+    const r = bd.getBoundingClientRect();
+    const seen = Math.min(r.bottom, bottom) - Math.max(r.top, top);
+    bd.__inView = seen > 0 && (seen >= 120 || seen >= r.height / 2);   // the observer's own rule, measured
+    unreadEdgeTry(bd);
+  }
+}, { capture: true, passive: true });
 function setThread(el, html, key) {
   /* ⚠️ THE AGENT THREAD GETS THIS TOO, and not for symmetry: `#d-say` sits
      under it in the same column, and a thread that never resizes today is one
@@ -27626,6 +27731,7 @@ function paintTalkThread(body, name) {
       + '\u0000' + (tailRow ? String(tailRow.id || tailRow.at || '') : '');
     const dmHtml = rows.map((m) => dmRow(m, name)).join('') + (filtering ? '' : dmOwesLine(body.owes, rows));
     setThread(thread, dmHtml, threadKey);
+    if (!filtering && CURRENT && CURRENT.sessionName) unreadEdgeApply(thread, 'dm:' + CURRENT.sessionName);   // #3743
   }
 }
 async function paintTalk(sessionName, agentName) {
@@ -27645,6 +27751,7 @@ async function paintTalk(sessionName, agentName) {
      follow. A 404/borrowed-name agent never reaches here (its rec has no unread). */
   const dmRec = Array.isArray(LAST) ? LAST.find((x) => x && x.sessionName === sessionName) : null;
   if (dmRec && dmRec.dmUnread > 0) {
+    unreadEdgeBacklog('dm:' + sessionName, dmRec.dmUnread);   // #3743: these arrive with the edge
     dmRec.dmUnread = 0;
     fetch('/api/agent/' + encodeURIComponent(sessionName) + '/seen', { method: 'POST' })
       .then((r) => r.text())
@@ -47150,7 +47257,8 @@ function pjRoomRow(m, p) {
   const nameEl = (!isOp && name) ? '<b class="msg-nm" data-open-agent="' + esc(m.from) + '">' + esc(name) + '</b>' : '';
   const timeEl = whenStr ? '<span class="msg-t">' + whenStr + '</span>' : '';
   const hasBubble = bd;
-  return '<div class="msg' + (isOp ? ' you' : '') + '">' + av
+  /* #3743: data-mid, as a DM row has, so an unread post can be found after the paint and given its edge. */
+  return '<div class="msg' + (isOp ? ' you' : '') + '" data-mid="' + esc(String(m.id || m.at || '')) + '">' + av
     + '<div class="msg-b">'
     + (hasBubble ? '<div class="msg-bd">' + nameEl + bd + timeEl + '</div>' : '')
     + pjReactions(m) + '</div></div>';
@@ -47208,7 +47316,7 @@ function pjUnansweredLine(m, p, silent) {
 function pjMarkSeen(id) {
   if (!id) return;
   const p = pjById(id);
-  if (p && p.unread) { p.unread = 0; try { paintProjects(); } catch { /* the poll repaints */ } }
+  if (p && p.unread) { unreadEdgeBacklog('pj:' + id, p.unread); p.unread = 0; try { paintProjects(); } catch { /* the poll repaints */ } }   // #3743: the backlog arrives with the edge
   /* The body is read and dropped (#39's rule, the whats-new fetch has the
      same line): a Response nobody consumes stays "in flight" to Chromium
      until garbage collection, and networkidle never comes. Ice Cream Kitty
@@ -47508,6 +47616,9 @@ function paintRoom(body) {
     box.__lastRoomQuery = PJ_ROOM_QUERY;
     paintThreadInto(box, html, rows !== '', queryChanged, filtering);
   }
+  /* #3743: after the paint, and on every poll; not on a read that did not answer (ok false, no rows), which would
+     make the room's whole history look new on the next one. */
+  if (!filtering && body.ok !== false) unreadEdgeApply(box, 'pj:' + PJ_CURRENT);
 }
 /* The search input repaints from the cached body (loadRoom keeps it on
    the box) so typing filters instantly between polls; the query resets
@@ -56200,7 +56311,7 @@ const ASB_FOLDED_POLL_MS = 60000;  // the thread, while folded, only to light th
 const ASB_FIND_FIRST_MS = 5000;    // looking for the guide again: 5s, doubling to a minute, until one is named
 const ASB_FIND_MAX_MS = 60000;
 let ASB = { started: false, guide: null, setting: null, open: false, asking: false, nudgeGone: false,
-  wroteOnce: false, heard: null, fallback: null, lastPoll: 0, screenKey: '', sending: false, dot: false,
+  wroteOnce: false, heard: null, fallback: null, replyIds: null, lastPoll: 0, screenKey: '', sending: false, dot: false,
   nextFind: 0, findEvery: ASB_FIND_FIRST_MS, finding: false, shown: '', readOnce: false,
   nextSetting: 0, settingEvery: ASB_FIND_FIRST_MS, settingReading: false,
   /* #3660: no guide yet, but the board can ask Kosmos's own model (GET /api/setup-guide says hosted). The
@@ -56518,6 +56629,16 @@ async function asbReadThread() {
     return body && Array.isArray(body.messages) ? { rows: body.messages, session: row.sessionName } : null;
   } catch { return null; }
 }
+/* #3743: the guide's replies the edge can mark (an id to find the row by, and words), as a set of ids. `open`: those not
+   seen before are marked new for the edge, and the set moves on; folded, only the first read is recorded (the baseline). */
+function asbNoteReplies(session, speech, open) {
+  const ids = new Set(speech.filter((m) => m.from === session && (m.id || m.at) && String(m.text || '').trim()).map((m) => String(m.id || m.at)));
+  if (ASB.replyIds === null) { ASB.replyIds = ids; return; }
+  if (!open) return;
+  const fresh = [...ids].filter((id) => !ASB.replyIds.has(id));
+  if (fresh.length) unreadEdgeFresh('asb:' + session, fresh);
+  ASB.replyIds = ids;
+}
 function asbSpeech(rows) { return rows.filter((m) => m && !(m.kind && ROOM_NOT_SPEECH.has(m.kind))); }
 
 async function asbPoll(force) {
@@ -56558,9 +56679,12 @@ async function asbPoll(force) {
       document.getElementById('asp-live').textContent = last ? String(last.text || '') : '';
     }
     ASB.dotTimed = false;   // consumed, or outlived (a count that fell): either way the next open reply is timed afresh
+    /* #3743: replies that came while it was folded arrive with the edge. By id, not by count: the ids it had when it
+       was last open (or at the first read) are history, and any other is new. */
+    asbNoteReplies(t.session, speech, true);
     ASB.heard = heard; ASB.dot = false; asbPaintThread(speech, t.session);
   }
-  else if (ASB.heard === null) ASB.heard = heard;
+  else if (ASB.heard === null) { ASB.heard = heard; asbNoteReplies(t.session, speech, false); }
   else if (heard > ASB.heard && !ASB.dot) { ASB.dot = true; ASB.dotTimed = true; ASB.heardAt = Date.now(); }   // timed once, when the dot lights
   asbPaint();
 }
@@ -56583,10 +56707,14 @@ function asbPaintThread(rows, session) {
   for (const m of rows) {
     const d = document.createElement('div');
     d.className = 'asp-m ' + (m.from === session ? 'him' : 'you');
+    if (m.id || m.at) d.dataset.mid = String(m.id || m.at);   // #3743: the guide's replies, by the same id a DM uses
     d.textContent = String(m.text || '');
     th.appendChild(d);
   }
   if (atEnd || ASB.sending) th.scrollTop = th.scrollHeight;
+  /* #3743: the guide's unread replies get the edge. Not the hosted assistant's: its words live only in this page and
+     are read as they are typed back. */
+  if (session !== 'hosted') unreadEdgeApply(th, 'asb:' + session, { row: '.asp-m.him[data-mid]', bd: null });
 }
 
 function asbOpen() {
@@ -56872,7 +57000,7 @@ async function asbFind() {
   asbAsideDone(); ASB.asideShowing = false; ASB.dot = false;   // a hosted refusal waiting to be read belongs to the hosted assistant, not the guide
   { const th = document.getElementById('asp-th'); if (th) th.replaceChildren(); }   // the hosted conversation is not the guide's
   /* A guide now exists: the bubble talks to it. The hosted conversation stays behind; it was another assistant. */
-  if (ASB.hosted) { ASB.hosted = false; ASB.heard = null; ASB.heardAt = 0; ASB.dotTimed = false; ASB.wasWorking = false; ASB.saidSignIn = ''; ASB.shown = ''; ASB.readOnce = false; ASB.lastPoll = 0; ASB.remaining = null; }
+  if (ASB.hosted) { ASB.hosted = false; ASB.heard = null; ASB.replyIds = null; ASB.heardAt = 0; ASB.dotTimed = false; ASB.wasWorking = false; ASB.saidSignIn = ''; ASB.shown = ''; ASB.readOnce = false; ASB.lastPoll = 0; ASB.remaining = null; }
   ASB.finding = false;
   asbLayerEnsure();
   await asbReadSetting();
@@ -56903,7 +57031,8 @@ function asbForgetGuide() {
   const standIn = asbIsHostedAfterForget();
   const hadFocus = !standIn && !!document.activeElement && !!document.activeElement.closest('#asblayer');
   const keepOpen = standIn && ASB.open;
-  ASB.guide = null; ASB.fallback = null; ASB.open = keepOpen; ASB.asking = false; ASB.heard = null; ASB.heardAt = 0; ASB.wasWorking = false; ASB.saidSignIn = ''; ASB.dotTimed = false; ASB.shown = ''; ASB.dot = false;
+  for (const k of [...UNREAD_EDGE.keys()]) if (k.startsWith('asb:')) UNREAD_EDGE.delete(k);   // #3743: a new guide under the same name starts from its own history
+  ASB.guide = null; ASB.fallback = null; ASB.replyIds = null; ASB.open = keepOpen; ASB.asking = false; ASB.heard = null; ASB.heardAt = 0; ASB.wasWorking = false; ASB.saidSignIn = ''; ASB.dotTimed = false; ASB.shown = ''; ASB.dot = false;
   ASB.wroteOnce = false; ASB.readOnce = false; ASB.lastPoll = 0; ASB.nudgeGone = false; ASB.asideShowing = false; asbAsideDone();
   const pm = document.getElementById('asp-msg'); if (pm) pm.textContent = '';   // nothing stale when it comes back
   if (keepOpen) { const th = document.getElementById('asp-th'); if (th) th.replaceChildren(); }   // the guide's thread is not the hosted one's
