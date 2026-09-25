@@ -2,10 +2,10 @@
 pre_challenge: true
 method: challenge-loop
 branch: swarm-ui-3564
-diff_hash: c8e18e0d851c524d7848c5dfdf396aa1628f73f16ae928888742da14584da167
+diff_hash: baac798d7e56ae21f24a72780ef038e3c27b45f70e900de22b7a3898d3396b9a
 validation: passed
 subdir_audit: passed
-timestamp: 2026-09-25T18:33:32Z
+timestamp: 2026-09-25T19:08:07Z
 iterations: 8
 converged: true
 ---
@@ -83,6 +83,10 @@ closing iteration 6's engine WARNING; a plain offline agent carries swarm: null,
 a.swarm to be truthy, so null is not a swarm. Conflicts resolved: the runner list (render-swarm-ui-3564 inside it,
 before `; do`) and the status handler (main's guide-aware TIP_NEW_BOARD kept, the swarm lines after it).
 
+CI's browser-checks then caught named-controls: with the engine on, the create form's Agent / Swarm radios had no name
+the check can read (they are labelled by a wrapping label, which its resolver does not follow). Fixed: each carries
+aria-label (Agent, Swarm); named-controls passes through the runner.
+
 ## Validation (this session)
-6j on HEAD 3a15302e2: full suite clean (hash c8e18e0d851c), subdir audit clean. render-swarm-ui-3564: 60 pass, 0 fail.
+6j on the final HEAD: full suite clean (hash baac798d7e56), subdir audit clean. render-swarm-ui-3564: 60 pass, 0 fail.
 
