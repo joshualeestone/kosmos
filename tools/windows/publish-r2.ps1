@@ -86,6 +86,7 @@ $Invariant = [Globalization.CultureInfo]::InvariantCulture
 $script:AfterNote = ''
 function Say([string] $m) { [Console]::Out.WriteLine("publish-r2: $m") }
 # Anything unexpected still ends in the same clear shape, with the partial-state note.
+$script:LockHead = ''
 $script:LockEtag = ''   # set while this run holds publish.lock (see Lock-Publish; non-empty only
                         # after that function is defined, so an early refusal never calls it)
 trap { [Console]::Error.WriteLine("publish-r2: UNEXPECTED - $($_.Exception.Message)$script:AfterNote"); if ($script:LockEtag) { Unlock-Publish }; exit 1 }
@@ -300,6 +301,7 @@ $script:LastPut = $null   # set by Put-Object; initialised for StrictMode (a dry
 function Put-Object([string] $Name, [byte[]] $Body, [string] $File, [string] $Sha, [string] $Type, [hashtable] $Extra = @{}) {
   $key = "$KeyPrefix$Name"
   if ($DryRun) { Say "DRY RUN: would PUT $key ($Type, sha256 $Sha)"; return }
+  Touch-Lock
   $r = Invoke-R2 -Method PUT -Key $key -Body $Body -BodyFile $File -PayloadSha $Sha -ContentType $Type -Extra $Extra
   if ($r.Status -ne 200) { Refuse "PUT $key answered $($r.Status): $($r.Body)" }
   Say "wrote $key"
@@ -308,6 +310,7 @@ function Put-Object([string] $Name, [byte[]] $Body, [string] $File, [string] $Sh
 function Copy-Object([string] $FromName, [string] $ToName, [string] $IfMatch) {
   $from = "$KeyPrefix$FromName"; $to = "$KeyPrefix$ToName"
   if ($DryRun) { Say "DRY RUN: would COPY $from -> $to (server side, only if it is still $IfMatch)"; return }
+  Touch-Lock
   # REPLACE, so the alias gets its own no-cache header rather than the immutable zip's metadata.
   # (Content-Type rides on the request content, which .NET keeps apart from the signed headers.)
   $r = Invoke-R2 -Method PUT -Key $to -ContentType 'application/zip' -Extra @{ 'x-amz-copy-source' = "/$Bucket/$from"; 'x-amz-copy-source-if-match' = $IfMatch; 'x-amz-metadata-directive' = 'REPLACE'; 'cache-control' = 'no-cache' }
@@ -340,15 +343,23 @@ function Lock-Publish([string] $Mode) {
     if ($old.Status -eq 200) {
       # Only a lock older than any live run can be (every request times out at 30 minutes):
       # a younger one may belong to a run that is still working.
+      # Age from the last HEARTBEAT (touched=, refreshed before every write), not the start: a
+      # slow run can be alive long after it started (iteration 22).
       $age = $null
-      if ($old.Body -cmatch 'started=(\S+)') { try { $age = ([DateTime]::UtcNow - [DateTime]::Parse($Matches[1], $Invariant, [Globalization.DateTimeStyles]::AdjustToUniversal)).TotalMinutes } catch { $age = $null } }
-      if ($null -eq $age -or $age -lt 35) { Refuse "-BreakLock: $key ($($old.Body.Trim())) is $(if ($null -eq $age) { 'of unknown age' } else { '{0:N0} minutes old' -f $age }); a run started less than 35 minutes ago may still be working. Wait, or remove it by hand only if you know that run is dead. Nothing was written." }
+      if ($old.Body -cmatch 'touched=(\S+)' -or $old.Body -cmatch 'started=(\S+)') { try { $age = ([DateTime]::UtcNow - [DateTime]::Parse($Matches[1], $Invariant, [Globalization.DateTimeStyles]::AdjustToUniversal)).TotalMinutes } catch { $age = $null } }
+      if ($null -eq $age) { Refuse "-BreakLock: $key ($($old.Body.Trim())) carries no readable time, so its age cannot be told; remove it by hand only if you know no run is active. Nothing was written." }
+      if ($age -lt 35) { Refuse "-BreakLock: $key ($($old.Body.Trim())) was last touched $('{0:N0}' -f $age) minutes ago; a run touched less than 35 minutes ago may still be working. Wait, or remove it by hand only if you know that run is dead. Nothing was written." }
+      # Delete only the lock just read (R2 ignores If-Match on DELETE): a second -BreakLock may
+      # have replaced it with its own live lock in the meantime (iteration 22).
+      $again = Invoke-R2 -Soft -Method HEAD -Key $key
+      if ($again.Status -ne 200 -or $again.ETag -cne $old.ETag) { Refuse "-BreakLock: $key changed while it was being broken (another run took it). Nothing was written." }
       Say "breaking the lock ($('{0:N0}' -f $age) minutes old): $($old.Body.Trim())"
       $d = Invoke-R2 -Soft -Method DELETE -Key $key
       if ($d.Status -ne 200 -and $d.Status -ne 204) { Refuse "-BreakLock could not remove $key ($($d.Status)). Nothing was written." }
     }
   }
-  $body = $Utf8.GetBytes("run=$([Guid]::NewGuid().ToString('N')) mode=$Mode started=$(Stamp) host=$([Environment]::MachineName)`n")
+  $script:LockHead = "run=$([Guid]::NewGuid().ToString('N')) mode=$Mode started=$(Stamp) host=$([Environment]::MachineName)"
+  $body = $Utf8.GetBytes("$($script:LockHead) touched=$(Stamp)`n")
   $r = Invoke-R2 -Method PUT -Key $key -Body $body -PayloadSha (Sha256-Bytes $body) -ContentType 'text/plain; charset=utf-8' -Extra @{ 'if-none-match' = '*'; 'cache-control' = 'no-cache' }
   if ($r.Status -eq 412) {
     $held = Invoke-R2 -Soft -Method GET -Key $key
@@ -357,6 +368,18 @@ function Lock-Publish([string] $Mode) {
   }
   if ($r.Status -ne 200 -or -not $r.ETag) { Refuse "could not take $key ($($r.Status)). Nothing was written." }
   $script:LockEtag = $r.ETag
+}
+# The heartbeat and ownership check before every write: rewrite this run's lock, pinned to its
+# own ETag, with a fresh touched= time. A 412 means the lock is no longer this run's (it was
+# broken), so this run stops before writing anything more.
+function Touch-Lock {
+  if (-not $script:LockEtag) { return }
+  $key = "${KeyPrefix}publish.lock"
+  $body = $Utf8.GetBytes("$($script:LockHead) touched=$(Stamp)`n")
+  $r = Invoke-R2 -Soft -Method PUT -Key $key -Body $body -PayloadSha (Sha256-Bytes $body) -ContentType 'text/plain; charset=utf-8' -Extra @{ 'if-match' = $script:LockEtag; 'cache-control' = 'no-cache' }
+  if ($r.Status -eq 200 -and $r.ETag) { $script:LockEtag = $r.ETag; return }
+  $script:LockEtag = ''   # not ours any more: never delete it on the way out
+  Refuse "this run's $key was taken from it ($($r.Status)): another run broke the lock, so this one stops before writing more."
 }
 function Unlock-Publish {
   if (-not $script:LockEtag) { return }
@@ -367,7 +390,9 @@ function Unlock-Publish {
   if ($h.Status -eq 200 -and $h.ETag -ceq $etag) {
     $d = Invoke-R2 -Soft -Method DELETE -Key $key
     if ($d.Status -ne 200 -and $d.Status -ne 204) { [Console]::Error.WriteLine("publish-r2: WARNING could not remove $key ($($d.Status)); the next run will be refused until it is removed (-BreakLock after 35 minutes).") }
-  } elseif ($h.Status -ne 200 -and $h.Status -ne 404) {
+  } elseif ($h.Status -eq 404 -or $h.Status -eq 200) {
+    [Console]::Error.WriteLine("publish-r2: WARNING $key was $(if ($h.Status -eq 404) { 'gone' } else { 'someone else''s' }) when this run finished: its lock was broken while it ran, so another run may have written at the same time. Check the bucket.")
+  } else {
     [Console]::Error.WriteLine("publish-r2: WARNING could not check $key before removing it ($($h.Status)); if it is still there, the next run will be refused until it is removed (-BreakLock after 35 minutes).")
   }
 }
@@ -769,6 +794,7 @@ if ($DryRun) { Put-Object 'latest-win.json' $staging.Bytes $null (Sha256-Bytes $
 # Pinned to the pointer read at the start (or its absence): a pointer someone else wrote during
 # this promote is never overwritten, and the alias writes are undone instead.
 $pointerPin = if ($prodBefore) { @{ 'cache-control' = 'no-cache'; 'if-match' = $prodBefore.ETag } } else { @{ 'cache-control' = 'no-cache'; 'if-none-match' = '*' } }
+Touch-Lock
 $pointerPut = Invoke-R2 -Method PUT -Key "${KeyPrefix}latest-win.json" -Body $staging.Bytes -PayloadSha (Sha256-Bytes $staging.Bytes) -ContentType 'application/json' -Extra $pointerPin
 # A 412 means someone else's release is live now: rebuilding the alias from the pointer read at
 # the start would make it disagree with that live pointer, so the alias and sidecar are left and

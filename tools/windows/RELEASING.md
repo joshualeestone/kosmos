@@ -100,11 +100,14 @@ gates. `publish-r2.ps1` produces the same files with the same gates, directly in
 ## Records and guarantees
 
 - **One run at a time.** Every stage, replace and promote takes `publish.lock` in the bucket
-  (a create with `If-None-Match: *`) before it reads anything it decides on, and removes it on
-  every exit, refused or not. A second run meanwhile refuses with the lock's contents (which
-  run, which mode, when, which PC). If a run died and left its lock, and no other run is
-  active, re-run with `-BreakLock`: it says whose lock it removed, then proceeds. The script
-  still detects and undoes a concurrent write, as a second line behind the lock.
+  (a create with `If-None-Match: *`) before it reads anything it decides on, refreshes it
+  before every write (a `touched=` time, pinned to its own copy: if the lock is no longer its
+  own, it stops), and removes it when it finishes or refuses. A run killed outright (Ctrl+C,
+  closing the window) leaves its lock. A second run meanwhile refuses with the lock's contents
+  (which run, which mode, when, which PC). `-BreakLock` removes a lock last touched more than
+  35 minutes ago (every request times out at 30), saying whose it was and how old; it refuses
+  a younger one. Remove a lock by hand only when you know no run is active. The script still
+  detects and undoes a concurrent write, as a second line behind the lock.
 
 - **Josh's go is logged on the PC that promotes**, in `%USERPROFILE%\.claude\logs\win-promote-approvals.log`
   (or `KOSMOS_WIN_PROMOTE_LOG`), in `promote-channel.sh`'s line format with `path=promote-r2`

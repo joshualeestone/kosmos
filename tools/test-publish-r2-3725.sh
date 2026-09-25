@@ -457,6 +457,21 @@ cp "$TMP/old.lock" "$FAKE/publish.lock"
 fake -Zip "$TMP/lk2.zip" -BreakLock; rc=$?
 if [ "$rc" -eq 0 ] && grep -qE "breaking the lock \([0-9,]+ minutes old\): run=other" "$TMP/out" && [ ! -e "$FAKE/publish.lock" ]; then pass "-BreakLock removes an OLD lock, says whose and how old, and proceeds"
 else fail "-BreakLock: rc=$rc lock=$([ -e "$FAKE/publish.lock" ] && echo LEFT || echo gone) $(tail -1 "$TMP/out")"; fi
+# A lock swapped for ANOTHER run's while this run works (broken under it): before its next write
+# the heartbeat finds it is not this run's and stops; on the way out it never deletes the other
+# run's lock, and says the guarantee was broken.
+printf 'run=thief mode=stage started=2026-09-25T20:00:00Z host=PC2\n' > "$TMP/thief.lock"
+mkzip "$TMP/lk3.zip" 9.9.11 LK3
+KOSMOS_PUBLISH_R2_FAKE_AFTER="PUT kosmos-9.9.11-win-x64.zip|publish.lock|$TMP/thief.lock" fake -Zip "$TMP/lk3.zip"; rc=$?
+if [ "$rc" -eq 1 ] && grep -qF "was taken from it" "$TMP/out" && cmp -s "$FAKE/publish.lock" "$TMP/thief.lock" && ! grep -q '^PUT latest-win-staging\.json' "$FAKE/.calls"; then pass "a lock broken mid-run stops the run before its next write, and the other run's lock is kept"
+else fail "heartbeat: rc=$rc lock=$(cmp -s "$FAKE/publish.lock" "$TMP/thief.lock" && echo theirs || echo CHANGED) $(tail -1 "$TMP/out")"; fi
+rm -f "$FAKE/publish.lock"
+# ...and swapped AFTER the last write: the run finishes, keeps the other lock, and warns.
+mkzip "$TMP/lk4.zip" 9.9.12 LK4
+KOSMOS_PUBLISH_R2_FAKE_AFTER="PUT latest-win-staging.json|publish.lock|$TMP/thief.lock" fake -Zip "$TMP/lk4.zip"; rc=$?
+if [ "$rc" -eq 0 ] && cmp -s "$FAKE/publish.lock" "$TMP/thief.lock" && grep -qF "was someone else's when this run finished" "$TMP/out"; then pass "a run whose lock was taken after its last write keeps the other lock and warns"
+else fail "late swap: rc=$rc lock=$(cmp -s "$FAKE/publish.lock" "$TMP/thief.lock" && echo theirs || echo CHANGED) $(tail -2 "$TMP/out" | tr '\n' ' ')"; fi
+rm -f "$FAKE/publish.lock"
 # A refusal after the lock is taken still removes it.
 : > "$FAKE/.calls"; KOSMOS_PUBLISH_R2_FAKE_GET_STATUS=latest-win.json:403 fake -Zip "$TMP/lk.zip"; rc=$?
 if [ "$rc" -eq 1 ] && [ ! -e "$FAKE/publish.lock" ] && grep -q '^DELETE publish\.lock' "$FAKE/.calls"; then pass "a refusal after taking publish.lock removes it"
