@@ -304,6 +304,23 @@ eval "$(secrets-map.sh env kosmos-android-upload-signing)"
   and (optionally) `KOSMOS_UPLOAD_KEY_ALIAS` exist. None are set. Setting them is a repo-admin
   call for Josh.
 
+**No purchase inside the Android app** (kosmos #718, Liu Kang's decision of 2026-09-25, matching
+iOS; Josh can overrule it). Inside the app the sign-in page shows no checkout, price or billing
+portal; an unpaid account is told only "This account does not include Kosmos+ yet." It is the
+switch `CAN_BUY_HERE` in kosmos-relay `coordinator/src/signin.html` (kosmos-relay #121, merged as
+`3558f2e4`).
+- **Before the first upload to any Play track, and again before the production release in
+  Step 10: a person reads the current Google Play Payments policy and its exceptions** [Josh],
+  against what the app does as described above. This doc deliberately states none of the policy's
+  details: they change, they differ by country, and a summary written here would go stale unnoticed.
+- **Not live yet:** it takes the next coordinator deploy [Josh, a production change], like the
+  assetlinks route above.
+- **Undo (turning it off):** make `CAN_BUY_HERE` true again in `coordinator/src/signin.html` (or
+  revert kosmos-relay #121) and deploy the coordinator [Josh, a production change]. Once an Android
+  build is on any Play track, turning it off puts checkout back inside a Play-distributed app.
+- **Phone checks:** listed in kosmos-relay's plan `.claude/plans/android-no-purchase-718.md`; the
+  full tester script is card kosmos #3699, to be corrected against a real phone.
+
 **Upload:** to Play's Internal testing track [Josh, or whoever he gives Console access].
 
 **Check:**
