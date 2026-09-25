@@ -25,9 +25,21 @@ const os = require('node:os');
 const MAX_BODY = 64 * 1024;
 const SLUG_RE = /^[a-z0-9][a-z0-9-]{0,63}$/;
 
+/* 🛑 #3801: a fixture board must never read or WRITE the host's real global
+   skills. This folder is the one every agent on the machine loads, and remove()
+   deletes from it recursively, so a check that clicked Remove on a fixture board
+   would delete a real skill. Same guard, and same direction, as status.js's
+   config roots: a process whose data dir is in temp but whose home is the real
+   one has declared itself a fixture, and gets a folder that does not exist (no
+   skills) instead of the real one. Production data lives in Application Support,
+   so this cannot fire for somebody running Kosmos. Required lazily: status.js
+   pulls in half the engine. */
 function globalDir() {
-  return process.env.AGENT_WORKFORCE_SKILLS_DIR
-    || path.join(os.homedir(), '.claude', 'skills');
+  if (process.env.AGENT_WORKFORCE_SKILLS_DIR) return process.env.AGENT_WORKFORCE_SKILLS_DIR;
+  if (require('./status').sandboxIsInconsistent()) {
+    return path.join(process.env.AGENT_WORKFORCE_DATA, 'no-skills-sandbox');
+  }
+  return path.join(os.homedir(), '.claude', 'skills');
 }
 
 function agentDir(workerDir) {

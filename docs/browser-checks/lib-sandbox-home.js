@@ -41,6 +41,13 @@ if (!cur || path.resolve(cur) === path.resolve(os.homedir())) process.env.AGENT_
    runner that home is shared by every check, and trust.js writes onboarding keys into this
    file, so a shared one would carry one check's writes into the next. */
 if (!process.env.AGENT_WORKFORCE_CLAUDE_CONFIG) process.env.AGENT_WORKFORCE_CLAUDE_CONFIG = path.join(freshHome(), '.claude.json');
+/* #3801: the global skills folder is read from AGENT_WORKFORCE_SKILLS_DIR || the REAL
+   ~/.claude/skills (os.homedir(), not the home above), and the board can add to it and
+   delete from it. Measured on Mortals: a fixture listed 73 real skills in Settings. A
+   fresh, empty folder of its own unless the caller named one other than the real one. */
+const realSkills = path.join(os.homedir(), '.claude', 'skills');
+const skills = process.env.AGENT_WORKFORCE_SKILLS_DIR;
+if (!skills || path.resolve(skills) === path.resolve(realSkills)) process.env.AGENT_WORKFORCE_SKILLS_DIR = freshHome();
 /* Sealed by REMOVAL, not by naming a sandbox: setting AGENT_WORKFORCE_CODEX_HOME puts the
    board into the #1488 "operator named a codex home" mode (other OpenAI rows unofferable),
    which is not the ordinary product. Removed, the OpenAI default falls through to
