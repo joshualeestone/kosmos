@@ -5786,6 +5786,36 @@ body:not(.consolidated) .pjmidhead:has(.pjhead) .tsearch:focus-within { flex-bas
               border: 1px solid var(--k-rule); border-radius: 10px; background: var(--k-surface);
               box-shadow: 0 8px 24px rgba(20,22,26,.16); }
 .rxn-picker[hidden] { display: none; }
+/* #718 mobile (Josh, 2026-09-24: "make sure the designs fit well on mobile"): the PROJECT
+   ROOM on a phone (375 to 430 wide). Scoped to the room (#pj-room, the room column) so the
+   Direct Message thread, which shares .msg, is untouched. Measured at 375 before this: the
+   page, column and thread paddings plus a 34px avatar, a 14px gap and the matching far
+   gutter left a 167px bubble, so a long post read as a column of two or three words.
+   - The conversation comes FIRST on the project page: Members and Files follow it.
+   - Leaner padding, a 28px avatar and an 8px gap. The far gutter still mirrors the
+     avatar column exactly (#3361: a bubble never grows into the opposite avatar column),
+     now 28px + 8px. Bubble at 375: 227px (measured, Chromium and WebKit).
+   - Reaction pills are thumb height; the add-reaction bar is reachable by touch (below).
+   - The placeholder stays on one line instead of spilling a clipped second line. */
+@media (max-width: 30rem) {
+  .pj3 > .pjmid { order: -1; }
+  .pjcol.pjmid { padding: 12px 8px 8px; }
+  #pj-room.thread { padding: 12px 6px; gap: 12px; }
+  #pj-room .msg { gap: 8px; }
+  #pj-room .msg-av { width: 28px; height: 28px; flex-basis: 28px; font-size: .8125rem; }
+  #pj-room .msg:not(.you) .msg-b { margin-right: calc(28px + 8px); }
+  #pj-room .msg.you .msg-b { margin-left: calc(28px + 8px); }
+  #pj-room .rxn { min-height: 32px; padding: 2px 10px; }
+  #pj-post::placeholder { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+}
+/* #718 mobile: a touchscreen has no hover, so the add-reaction bar (.rxn-quick, shown on
+   .msg:hover) was unreachable on a phone. A tap on a message shows its bar (the room's
+   click handler sets .rxn-show on that one row), at thumb size. */
+@media (hover: none) {
+  #pj-room .msg.rxn-show .rxn-quick { opacity: 1; pointer-events: auto; }
+  #pj-room .rxn-quick { gap: 4px; top: -18px; }
+  #pj-room .rxn-pick, #pj-room .rxn-more { min-width: 36px; min-height: 36px; }
+}
 .rxn-pick { border: 0; background: transparent; cursor: pointer; font-size: 1.15rem; line-height: 1;
             padding: 3px 5px; border-radius: 7px; }
 .rxn-pick:hover { background: rgba(20,22,26,.08); }
@@ -46327,6 +46357,17 @@ document.getElementById('d-dmthread').addEventListener('click', async (e) => {
 document.getElementById('pj-room').addEventListener('click', (e) => {
   const t = e.target && e.target.closest ? e.target.closest('[data-open-agent]') : null;
   if (t && t.dataset.openAgent) openDetail(t.dataset.openAgent, undefined, PJ_CURRENT);
+});
+/* #718 mobile: on a touchscreen, a tap on a message shows its add-reaction bar (hover
+   does it on a computer). One row at a time; a tap on a link, a button or the reaction
+   row itself is left to its own handler. */
+document.getElementById('pj-room').addEventListener('click', (e) => {
+  if (!(window.matchMedia && window.matchMedia('(hover: none)').matches)) return;
+  if (!e.target || !e.target.closest || e.target.closest('a, button, .rxns, [data-open-agent]')) return;
+  const row = e.target.closest('.msg');
+  const room = document.getElementById('pj-room');
+  room.querySelectorAll('.msg.rxn-show').forEach((m) => { if (m !== row) m.classList.remove('rxn-show'); });
+  if (row) row.classList.toggle('rxn-show');
 });
 
 /* #2806/#2834: close the shared reaction picker and reset every opener's aria-expanded.

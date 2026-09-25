@@ -638,6 +638,45 @@ const now = () => new Date().toISOString();
       await narrowPage.close();
     }
 
+    /* #718 mobile (Josh, 2026-09-24): on a PHONE the room (#pj-room) runs a leaner row, a 28px
+       avatar and an 8px gap, so the bubble is not squeezed to a column of words (measured 167px at
+       375 before). #3361's rule must still hold THERE: the far gutter equals the near avatar+gap.
+       The arms above render into a detached .thread, which the #pj-room-scoped phone rules never
+       reach, so they cannot see this; this arm renders the REAL rows inside the REAL #pj-room at
+       375px wide. */
+    const phonePage = await browser.newPage({ viewport: { width: 375, height: 800 }, colorScheme: 'light' });
+    try {
+      await phonePage.addInitScript(() => {
+        window.setInterval = () => 0;
+        const enc = (o) => new Response(JSON.stringify(o), { status: 200, headers: { 'content-type': 'application/json' } });
+        window.fetch = async () => enc({});
+      });
+      await phonePage.goto(PAGE);
+      const ph = await phonePage.evaluate((ts) => {
+        const p = { agents: [{ sessionName: 'april', name: 'April' }] };
+        const long = 'this is a deliberately long message so the bubble fills the whole available width on a phone and would reach the far edge if it were not capped short of the opposite avatar column.';
+        const room = document.getElementById('pj-room');
+        document.body.appendChild(room);
+        room.style.cssText = 'position:absolute;left:0;top:0;width:297px;max-height:none;';
+        room.hidden = false;
+        room.innerHTML = pjRoomRow({ from: 'april', at: ts, text: long }, p) + pjRoomRow({ operator: true, at: ts, text: long }, p);
+        const rows = Array.from(room.querySelectorAll('.msg'));
+        const a = rows.find((r) => !r.classList.contains('you') && r.querySelector('.msg-bd'));
+        const o = rows.find((r) => r.classList.contains('you') && r.querySelector('.msg-bd'));
+        const rr = (el) => el.getBoundingClientRect();
+        const aR = rr(a), aB = rr(a.querySelector('.msg-bd')), oR = rr(o), oB = rr(o.querySelector('.msg-bd'));
+        return { aFar: Math.round(aR.right - aB.right), aNear: Math.round(aB.left - aR.left), aW: Math.round(aB.width),
+          oFar: Math.round(oB.left - oR.left), oNear: Math.round(oR.right - oB.right), oW: Math.round(oB.width),
+          av: Math.round(rr(a.querySelector('.msg-av')).width) };
+      }, now());
+      chk(ph.av === 28, `[phone] the room avatar is 28px on a phone`, `avatar=${ph.av}px`);
+      chk(Math.abs(ph.aFar - ph.aNear) <= 1 && ph.aNear <= 37, `[phone] the agent far gutter equals the near avatar+gap (#3361 on a phone)`, `far=${ph.aFar} near=${ph.aNear}`);
+      chk(Math.abs(ph.oFar - ph.oNear) <= 1 && ph.oNear <= 37, `[phone] the operator far gutter equals the near avatar+gap`, `far=${ph.oFar} near=${ph.oNear}`);
+      chk(ph.aW >= 200 && ph.oW >= 200, `[phone] both bubbles are wide on a phone (was 167px at 375)`, `agent=${ph.aW}px operator=${ph.oW}px`);
+    } finally {
+      await phonePage.close();
+    }
+
     /* #3361 (WARNING 2 from iter-1 review): the fix's claim is that at GENUINELY WIDE widths the
        78ch max-width binds first, so the far gutter is slack and the approved wide look is UNCHANGED
        (only narrow widths get capped). Prove it: at a 1200px row the 78ch bubble plus both gutters
