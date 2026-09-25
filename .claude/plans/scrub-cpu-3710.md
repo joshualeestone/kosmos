@@ -15,7 +15,7 @@ validation gate while the Mac was busy.
   run, which had the same wall-time shape) bound CPU ms < 3000 (same number).
   The no-throw assertion is unchanged.
 - A standing control: a fixed 1e8-iteration loop must
-  measure between 20 and 3000ms, so cpuMillisecondsOf provably reports milliseconds.
+  measure at least 1 and under 3000ms (named constants), so cpuMillisecondsOf provably reports milliseconds.
   Review iteration 1 replaced a regex control: its cost depended on V8
   interpreting a regex on first use (86ms once compiled to native), so a V8
   or flag change could red it with the instrument fine.
@@ -65,3 +65,10 @@ reviewer measured at about half in the test's own shape; the figure, the
 an always-true assertion were deleted rather than restated. The control now
 says only what it checks, and fails for microseconds, seconds, and fn never
 called (all three perturbations run).
+
+## Review iteration 4
+The control's floor was 20ms, which is speed-dependent (the loop measured 88 to
+151ms). It only has to separate milliseconds from a seconds result (under 1)
+and from a measure that never ran fn (about 0), so it is now 1ms. The bounds
+are named constants (SCRUB_CPU_BOUND_MS, CONTROL_CPU_FLOOR_MS,
+CONTROL_CPU_CEILING_MS). All three control perturbations re-run and red.

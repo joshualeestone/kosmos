@@ -552,6 +552,13 @@ test('#1760 scrub stops a value at & so a following query param survives', () =>
 // busy Mac inflates wall time far more than CPU time: the degenerate run below
 // failed at 3.4 to 4.4s of wall time under load 16 to 31, and measured about
 // 270ms of CPU alone and about 480ms under load 22, well inside 3000.
+/** CPU budget for one scrub() call. Unchanged from the old wall-time bound. */
+const SCRUB_CPU_BOUND_MS = 3000;
+/** The units control's band. The floor only has to sit above a seconds result
+ *  (a fraction of 1) and above a measure that never ran fn (about 0); the
+ *  ceiling only has to sit below a microseconds result (tens of thousands). */
+const CONTROL_CPU_FLOOR_MS = 1;
+const CONTROL_CPU_CEILING_MS = 3000;
 function cpuMillisecondsOf(fn) {
   const before = process.cpuUsage();
   fn();
@@ -569,7 +576,7 @@ test('#1760 scrub stays fast on a long non-URL run (no ReDoS in the URL arm)', (
   let out;
   const ms = cpuMillisecondsOf(() => { out = feedbacksend.scrub(big); });
   assert.equal(out, big, 'a non-credential run should pass through unchanged');
-  assert.ok(ms < 3000, `scrub used ${Math.round(ms)}ms of CPU on a ${big.length}-char run - possible ReDoS regression`);
+  assert.ok(ms < SCRUB_CPU_BOUND_MS, `scrub used ${Math.round(ms)}ms of CPU on a ${big.length}-char run - possible ReDoS regression`);
 });
 
 // #1760 iter-8: the Basic arm must be case-insensitive on the scheme word, like
@@ -602,7 +609,7 @@ test('#1760 scrub survives a multi-MB degenerate assignment run without throwing
   let out, threw = null;
   const ms = cpuMillisecondsOf(() => { try { out = feedbacksend.scrub(big); } catch (e) { threw = e.message; } });
   assert.equal(threw, null, 'scrub threw on a large run: ' + threw);
-  assert.ok(ms < 3000, `scrub used ${Math.round(ms)}ms of CPU on a large run - possible unbounded backtracking`);
+  assert.ok(ms < SCRUB_CPU_BOUND_MS, `scrub used ${Math.round(ms)}ms of CPU on a large run - possible unbounded backtracking`);
 });
 
 // #3710 CONTROL: cpuMillisecondsOf must report the function's CPU in
@@ -612,5 +619,5 @@ test('#1760 scrub survives a multi-MB degenerate assignment run without throwing
 test('#3710 control: cpuMillisecondsOf reports a fixed CPU load in milliseconds', () => {
   let x = 0;
   const ms = cpuMillisecondsOf(() => { for (let i = 0; i < 1e8; i++) x = (x + i) | 0; });
-  assert.ok(ms >= 20 && ms < 3000, `a fixed 1e8-step loop measured ${ms}ms of CPU; cpuMillisecondsOf is not reporting CPU milliseconds`);
+  assert.ok(ms >= CONTROL_CPU_FLOOR_MS && ms < CONTROL_CPU_CEILING_MS, `a fixed 1e8-step loop measured ${ms}ms of CPU; cpuMillisecondsOf is not reporting CPU milliseconds`);
 });
