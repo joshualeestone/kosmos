@@ -1,8 +1,8 @@
 'use strict';
 /* #718 mobile: the project room on a phone. The geometry and the tap behaviour are measured
    by docs/browser-checks/render-room-msgbox-2806.js (phone, touch and hover arms). This file
-   pins what that check does not render: that the conversation-first order is a DOM move,
-   and the touchscreen rules that keep the reaction bar reachable and closable. */
+   pins SOURCE, not behaviour: that the conversation-first order is written as a DOM move, and
+   that the touchscreen rules sit where they must. Whether they work is the browser check's job. */
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');

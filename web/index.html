@@ -46484,7 +46484,7 @@ if (window.matchMedia) {
    has no temporal dead zone, so that call is safe whatever order the script's code runs in. */
 var RXN_SHOW_POST = null;
 var RXN_SHOW_PID = null;
-var RXN_PINNED = false;   // the open bar was pinned by a tap (a scroll, viewport change or repaint re-places it)
+var RXN_PINNED = false;   // the open bar is pinned (by a tap, or a tall post's re-place); a scroll, viewport change or repaint re-places it
 function pjRxnVisibleBand(room) {
   // The part of the thread a person can actually see: inside the thread's box, below the
   // screen's top and the sticky app header, above the screen's bottom and the sticky composer.
@@ -46532,7 +46532,7 @@ function pjRxnPlace(row, fromTap) {
   // sticky composer or header, its emoji untappable: close it instead.
   if (band.bottom - band.top < quickBar.offsetHeight + 2 * RXN_BAR_GAP_PX) { pjRxnClose(); return; }
   RXN_PINNED = true;
-  // A post taller than what is showing, just tapped: pin the bar to the top of the visible
+  // A post taller than what is showing (just tapped, or re-placed): pin the bar in the visible
   // thread, where the post is, at the same left edge. A scroll or viewport change re-places it (below).
   const barLeft = quickBar.getBoundingClientRect().left;
   // At the post's own top when that is showing (so it does not cover the message above), else at
@@ -46601,7 +46601,7 @@ if (window.MutationObserver) {
     else { RXN_SHOW_POST = null; RXN_SHOW_PID = null; }   // the post is gone from view
   }).observe(document.getElementById('pj-room'), { childList: true, subtree: true });
 }
-/* Any scroll (or a viewport change, below) RE-PLACES an open bar (pjRxnReplacePinned): an
+/* Any scroll (or a viewport change, below) RE-PLACES an open bar (pjRxnReplaceOpenBar): an
    ordinary bar flips below its post at the thread's edge, a pinned one stays over its post while
    the post fills what is showing, and any bar closes once its post has left the screen
    (pjRxnPlace decides). Re-placing, not closing: on iOS the keyboard closing both resizes the
@@ -46613,17 +46613,15 @@ document.addEventListener('scroll', (event) => {
   if (target && target.nodeType === 1 && target.closest && target.closest('.rxn-picker')) return;
   pjRxnReplaceSoon();
 }, true);
-/* A viewport change (a turn, the keyboard closing when a tap leaves the composer, pinch zoom)
-   re-places a pinned bar rather than closing it: the tap that pinned it often closes the
-   keyboard itself. pjRxnPlace closes it only if its post is no longer on screen. */
-/* Coalesced: iOS fires scroll continuously during momentum; one re-place per frame is enough. */
+/* Coalesced: iOS fires scroll and visual-viewport events continuously (momentum, pinch pan, the
+   keyboard); one re-place per frame is enough. */
 let RXN_REPLACE_QUEUED = false;
 function pjRxnReplaceSoon() {
   if (RXN_REPLACE_QUEUED || !RXN_SHOW_POST) return;
   RXN_REPLACE_QUEUED = true;
-  requestAnimationFrame(() => { RXN_REPLACE_QUEUED = false; pjRxnReplacePinned(); });
+  requestAnimationFrame(() => { RXN_REPLACE_QUEUED = false; pjRxnReplaceOpenBar(); });
 }
-function pjRxnReplacePinned() {
+function pjRxnReplaceOpenBar() {
   // Any open bar, not only a pinned one: an ordinary bar whose post scrolls to the thread's edge
   // flips below it (or closes when neither side fits), and closes once its post leaves.
   if (!RXN_SHOW_POST) return;
@@ -46632,11 +46630,14 @@ function pjRxnReplacePinned() {
   const row = box && box.closest('.msg');
   if (row) pjRxnPlace(row, RXN_PINNED); else pjRxnClose();
 }
-window.addEventListener('resize', pjRxnReplacePinned);
+/* A viewport change (a turn, the keyboard closing when a tap leaves the composer, pinch zoom)
+   re-places an open bar rather than closing it: the tap that opened it often closes the keyboard
+   itself. pjRxnPlace closes it only if its post is no longer on screen. */
+window.addEventListener('resize', pjRxnReplaceSoon);
 // iOS reports the keyboard and pinch zoom on the visual viewport, not as a window resize.
 if (window.visualViewport) {
-  window.visualViewport.addEventListener('resize', pjRxnReplacePinned);
-  window.visualViewport.addEventListener('scroll', pjRxnReplacePinned);
+  window.visualViewport.addEventListener('resize', pjRxnReplaceSoon);
+  window.visualViewport.addEventListener('scroll', pjRxnReplaceSoon);
 }
 /* A tap anywhere outside the room closes an open bar too, except inside the shared emoji
    picker (it lives in body, outside the room): the bar it was opened from stays with it.

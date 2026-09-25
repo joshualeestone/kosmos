@@ -1036,7 +1036,8 @@ const now = () => new Date().toISOString();
       const repaintResult = await phonePage.evaluate(() => {
         const room = document.getElementById('pj-room');
         const openPost = room.querySelector('.msg.rxn-show .rxns') && room.querySelector('.msg.rxn-show .rxns').getAttribute('data-post');
-        room.innerHTML = room.innerHTML.replace(/ rxn-(show|below)/g, '');   // what paintRoom's rewrite does to the class
+        // What paintRoom's rewrite gives: fresh rows, no open class and no inline pin on the bar.
+        { const fresh = room.cloneNode(true); fresh.querySelectorAll('.msg').forEach((m) => m.classList.remove('rxn-show', 'rxn-below')); fresh.querySelectorAll('.rxn-quick').forEach((q) => q.removeAttribute('style')); room.innerHTML = fresh.innerHTML; }
         return new Promise((res) => setTimeout(() => {
           const now = room.querySelector('.msg.rxn-show .rxns');
           res({ openPost, after: now ? now.getAttribute('data-post') : null });
@@ -1064,7 +1065,8 @@ const now = () => new Date().toISOString();
       await phonePage.waitForTimeout(200);
       const afterGap = await phonePage.evaluate(() => new Promise((res) => {
         const room = document.getElementById('pj-room');
-        room.innerHTML = room.innerHTML.replace(/ rxn-(show|below)/g, '');
+        // What paintRoom's rewrite gives: fresh rows, no open class and no inline pin on the bar.
+        { const fresh = room.cloneNode(true); fresh.querySelectorAll('.msg').forEach((m) => m.classList.remove('rxn-show', 'rxn-below')); fresh.querySelectorAll('.rxn-quick').forEach((q) => q.removeAttribute('style')); room.innerHTML = fresh.innerHTML; }
         setTimeout(() => res(room.querySelectorAll('.msg.rxn-show').length), 50);
       }));
       chk(!gap.error && gap.hit === 'thread' && gap.opened === 1 && afterGap === 0, `[phone/touch] a tap between messages closes the bar for good (a repaint does not bring it back)`, JSON.stringify(Object.assign({ afterGap }, gap)));
@@ -1170,7 +1172,8 @@ const now = () => new Date().toISOString();
       // keeps it pinned, rather than closing it under the person's thumb.
       const afterRepaint = await phonePage.evaluate(() => new Promise((res) => {
         const room = document.getElementById('pj-room'); const keep = room.scrollTop;
-        room.innerHTML = room.innerHTML.replace(/ rxn-(show|below)/g, '');   // what paintRoom's rewrite does to the class
+        // What paintRoom's rewrite gives: fresh rows, no open class and no inline pin on the bar.
+        { const fresh = room.cloneNode(true); fresh.querySelectorAll('.msg').forEach((m) => m.classList.remove('rxn-show', 'rxn-below')); fresh.querySelectorAll('.rxn-quick').forEach((q) => q.removeAttribute('style')); room.innerHTML = fresh.innerHTML; }
         room.scrollTop = keep;
         setTimeout(() => { const q = document.querySelector('#pj-room .msg.rxn-show .rxn-quick');
           res({ shown: document.querySelectorAll('#pj-room .msg.rxn-show').length, pinned: !!(q && q.style.position === 'fixed') }); }, 100);
@@ -1401,10 +1404,10 @@ const now = () => new Date().toISOString();
             window.fetch = async () => new Response('{}', { status: 200, headers: { 'content-type': 'application/json' } });
           });
           await sizePage.goto(PAGE);
-          const fit = await sizePage.evaluate((ts) => {
+          const fit = await sizePage.evaluate(([ts, viewSelectors]) => {
             const fr = document.getElementById('firstrun'); if (fr) fr.remove();
-            // All six project views (every one the 16px rule reaches), one at a time.
-            const views = ['#pj-one-view', '#pj-list-view', '#pj-task-view', '#pj-docs-view', '#pj-settings-view', '#pj-add-view'].map((selector) => document.querySelector(selector));
+            // All six project views, read from the 16px rule's scope (FIELD_VIEWS), one at a time.
+            const views = viewSelectors.map((selector) => document.querySelector(selector));
             if (views.some((view) => !view)) return { error: 'a view is missing' };
             // An ancestor clips the page, so it never SCROLLS sideways even when content is too
             // wide (a 520px column passed that test: the control showed it). What matters is content
@@ -1438,7 +1441,7 @@ const now = () => new Date().toISOString();
               result[view.id] = { pageScrolls: pageScrolls(view), scrollWidth: document.documentElement.scrollWidth, outside: offenders(view), rendered };
             }
             return { screenWidth, innerWidth, result };
-          }, now());
+          }, [now(), FIELD_VIEWS]);
           // The reference IS this phone's width (an engine that zoomed out to fit would widen it and
           // pass everything), and every view really rendered something to measure.
           const fits = !fit.error && Math.round(fit.screenWidth) === phoneWidth
