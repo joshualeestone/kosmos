@@ -15792,6 +15792,11 @@ function stateCopyOf(a) {
   // the red "Issue". The predicate is byte-identical to cardStOf's above (inlined, not
   // shared, so this painter stays self-contained for eval-extraction), so label and card agree.
   if (a && a.state === 'needs_you' && a.stateReportedBy === 'agent') return STATE_COPY.question;
+  /* #3410: while the self-heal still has retries to give (a.reconnect, from /api/status), the
+     person has nothing to do yet, so the card says Kosmos is on it, calmly. Only when it has
+     given up, or is not running, does the card go back to the red "Connection lost". */
+  if (a && a.state === 'connection_lost' && a.reconnect
+    && (a.reconnect.phase === 'waiting' || a.reconnect.phase === 'retried')) return { label: 'Reconnecting…', attn: false };
   return STATE_COPY[a.state] || STATE_COPY.unknown;
 }
 function taskLine(a, opts) {
@@ -15949,9 +15954,16 @@ function stateReason(a, opts) {
      today's engine (connection_lost is only ever SCRAPED) and kept for symmetry,
      so a structured source strengthens the sentence by arriving. */
   if (a && a.state === 'connection_lost') {
-    return a.stateConfidence === 'scraped'
+    /* #3410: then say what Kosmos is doing about it (a.reconnect, from /api/status). No
+       reconnect field means the self-heal is not running, so no retry is promised. */
+    const ph = a.reconnect && a.reconnect.phase;
+    if (ph === 'gave_up') return "Still can't connect after several tries. Check this Mac's internet, then restart it.";
+    const lost = a.stateConfidence === 'scraped'
       ? 'Looks like it lost its internet connection'
       : 'It lost its internet connection';
+    if (ph === 'waiting') return lost + '. Kosmos will retry once it is back.';
+    if (ph === 'retried') return lost + '. Kosmos asked it to try again.';
+    return lost;
   }
   if (!a || a.state !== 'rate_limited') return '';
   /* 📌 THE HEDGE STAYS, THE VOCABULARY CHANGED (#215, Josh 2026-08-21 18:38:

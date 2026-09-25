@@ -217,3 +217,20 @@ test('#3410: a retry cycle longer than RECOVERED_MS does not reset the nudge bud
   assert.equal(h.sent.length, heal.MAX_NUDGES, `nudged ${h.sent.length} times across long retry cycles`);
   assert.equal(h.book.get(lost()[0].sessionName).escalated, true);
 });
+
+/* #3410 copy: reconnectPhase names where the self-heal stands, for the board to say in words. */
+test('reconnectPhase: null when the self-heal is not running, so the page promises no retry', () => {
+  const heal = require('./connlost-heal');
+  assert.equal(heal.reconnectPhase({ evidence: 'x', sweeps: 5, nudges: [] }, false), null);
+  assert.equal(heal.reconnectPhase(undefined, undefined), null);
+});
+test('reconnectPhase: waiting before any retry, retried under the cap, gave_up at the cap or escalated', () => {
+  const heal = require('./connlost-heal');
+  assert.deepEqual(heal.reconnectPhase(undefined, true), { phase: 'waiting', tries: 0 });
+  assert.deepEqual(heal.reconnectPhase({ evidence: 'x', sweeps: 1, nudges: [] }, true), { phase: 'waiting', tries: 0 });
+  assert.deepEqual(heal.reconnectPhase({ evidence: 'x', sweeps: 3, nudges: [1] }, true), { phase: 'retried', tries: 1 });
+  assert.deepEqual(heal.reconnectPhase({ evidence: 'x', sweeps: 3, nudges: [1, 2, 3] }, true), { phase: 'gave_up', tries: heal.MAX_NUDGES });
+  assert.equal(heal.reconnectPhase({ evidence: 'x', sweeps: 3, nudges: [1], escalated: true }, true).phase, 'gave_up');
+  // Corrupt history counts as used up, the same way planHeal treats it.
+  assert.equal(heal.reconnectPhase({ evidence: 'x', sweeps: 3, nudges: 'bad' }, true).phase, 'gave_up');
+});

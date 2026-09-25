@@ -173,4 +173,23 @@ function makeTick(deps) {
   }
 }
 
-module.exports = { planHeal, observe, sweepOnce, makeTick, probeApi, MIN_SWEEPS, MAX_NUDGES, WINDOW_MS, RECOVERED_MS, NUDGE_TEXT };
+/*
+ * #3410: where the self-heal stands for one connection_lost agent, for the board to say in words.
+ * `entry` is this agent's book entry (or undefined before the first sweep has seen it); `enabled`
+ * is whether the sweep runs at all (live execution allowed and the operator brake off).
+ * Returns null when the sweep is not running (nothing will retry it, so the page must not promise
+ * a retry), else { phase, tries }:
+ *   'waiting'  - no retry sent yet (the sweep is waiting out the error or for the network)
+ *   'retried'  - one or more retries sent in this outage, still under the cap
+ *   'gave_up'  - the cap is spent or the entry escalated; a person has to step in
+ * Corrupt history counts as used up, matching planHeal.
+ */
+function reconnectPhase(entry, enabled) {
+  if (enabled !== true) return null;
+  if (!entry) return { phase: 'waiting', tries: 0 };
+  const tries = Array.isArray(entry.nudges) ? entry.nudges.length : MAX_NUDGES;
+  if (entry.escalated || tries >= MAX_NUDGES) return { phase: 'gave_up', tries };
+  return tries > 0 ? { phase: 'retried', tries } : { phase: 'waiting', tries: 0 };
+}
+
+module.exports = { planHeal, observe, sweepOnce, makeTick, probeApi, reconnectPhase, MIN_SWEEPS, MAX_NUDGES, WINDOW_MS, RECOVERED_MS, NUDGE_TEXT };

@@ -116,3 +116,35 @@ test('card: a connection_lost agent shows a human sentence, not the raw API-Erro
   assert.doesNotMatch(html, /ENOTFOUND/,
     'the raw terminal evidence leaked onto the card face instead of a human sentence');
 });
+
+/* #3410 copy: what Kosmos is doing about it, from the route's `reconnect` field. Each phase is
+   rendered through the REAL card/lrow, and the no-field case is the control that keeps the
+   original "Connection lost" (the self-heal is not running, so nothing may promise a retry). */
+for (const which of ['card', 'lrow']) {
+  test(`${which}: while Kosmos still has retries to give, the label is "Reconnecting…", not red "Connection lost"`, () => {
+    for (const phase of ['waiting', 'retried']) {
+      const html = api[which](connLostAgent({ reconnect: { phase, tries: phase === 'retried' ? 1 : 0 } }));
+      assert.match(html, /Reconnecting…/, `${which} (${phase}) did not say Kosmos is reconnecting`);
+      assert.doesNotMatch(html, /Connection lost/, `${which} (${phase}) still shows the red label while Kosmos is on it`);
+    }
+  });
+  test(`${which}: once Kosmos has given up, or is not retrying at all, it is "Connection lost" again`, () => {
+    for (const extra of [{ reconnect: { phase: 'gave_up', tries: 3 } }, { reconnect: null }, {}]) {
+      const html = api[which](connLostAgent(extra));
+      assert.match(html, /Connection lost/, `${which} ${JSON.stringify(extra)} lost the red label`);
+      assert.doesNotMatch(html, /Reconnecting…/, `${which} ${JSON.stringify(extra)} claimed a reconnect`);
+    }
+  });
+}
+
+test('card: the sentence says what Kosmos is doing, and promises nothing when it is not retrying', () => {
+  const says = (extra) => api.card(connLostAgent(extra));
+  assert.match(says({ reconnect: { phase: 'waiting', tries: 0 } }), /Kosmos will retry once it is back/);
+  assert.match(says({ reconnect: { phase: 'retried', tries: 2 } }), /Kosmos asked it to try again/);
+  const gaveUp = says({ reconnect: { phase: 'gave_up', tries: 3 } });
+  assert.match(gaveUp, /Still can(&#39;|'|&#x27;)t connect after several tries/);
+  assert.match(gaveUp, /restart it/);
+  const off = says({});
+  assert.match(off, /lost its internet connection/);
+  assert.doesNotMatch(off, /Kosmos (will retry|asked)/, 'promised a retry with no self-heal running');
+});
