@@ -9296,11 +9296,13 @@ body.plus-active #plus-state2 { max-width: 26rem; padding: 2rem; }
      Accepted trade: hidden this way they are also out of the accessibility tree until focus
      leaves the composer. Searching keeps its own row and sets the composer aside instead, since
      the person is reading results, not writing. */
-  body:has(.dmbar:focus-within, #d-talk-search:focus) #panel-detail:has(#d-sec-talk:not([hidden])) > .back,
-  body:has(.dmbar:focus-within, #d-talk-search:focus) #panel-detail:has(#d-sec-talk:not([hidden])) .dleft,
-  body:has(.dmbar:focus-within, #d-talk-search:focus) #d-talk-box #d-talk-older,
-  body:has(.dmbar:focus-within) #d-talk-box .d-talk-caprow,
-  body:has(#d-talk-search:focus) #d-talk-box .dmbar { display: none; }
+  /* `html body`, not `body`: a line beginning `body:has(` reads as a stray `prop: value` to the
+     stylesheet guard in server.test.js. Same elements, one type selector more specific. */
+  html body:has(.dmbar:focus-within, #d-talk-search:focus) #panel-detail:has(#d-sec-talk:not([hidden])) > .back,
+  html body:has(.dmbar:focus-within, #d-talk-search:focus) #panel-detail:has(#d-sec-talk:not([hidden])) .dleft,
+  html body:has(.dmbar:focus-within, #d-talk-search:focus) #d-talk-box #d-talk-older,
+  html body:has(.dmbar:focus-within) #d-talk-box .d-talk-caprow,
+  html body:has(#d-talk-search:focus) #d-talk-box .dmbar { display: none; }
   /* Thumb reach: the composer's controls meet the 44px minimum on a phone. */
   #d-talk-box .composerbox .attachbtn { width: 44px; height: 44px; }
   #d-talk-box .composerbox .cpost { min-height: 44px; min-width: 64px; }
