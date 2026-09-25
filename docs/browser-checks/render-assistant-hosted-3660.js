@@ -347,6 +347,33 @@ const waitFor = (page, fn, ms = 6000) => page.waitForFunction(fn, null, { timeou
     unseed();
     fleet.install([fleet.agent('beatrix', { state: 'idle', displayName: 'Beatrix', role: 'Collections Coordinator' })]);
 
+    // H19: a refusal while folded (their own AI connected), then the guide is made before they open it: the guide's
+    // chat opens clean, Send works, and no hosted step-aside runs against it.
+    await page.evaluate(() => { try { sessionStorage.clear(); } catch { /* */ } });
+    await boot();
+    chk(await waitFor(page, () => { const b = document.getElementById('asb'); return b && !b.hidden && ASB.hosted === true && ASB.guide === null; }, 8000), 'H19 precondition: hosted, no guide');
+    answer = { status: 409, body: { error: "you've connected your own AI, so the setup assistant will use that", code: 'own_model' } };
+    slow = 1500;
+    await page.click('#asb');
+    await page.fill('#asp-say', 'Still there?');
+    await page.keyboard.press('Enter');
+    await page.waitForTimeout(200);
+    await page.click('#asp-fold');
+    chk(await waitFor(page, () => ASB.asideOnOpen !== null, 4000), 'H19 precondition: a folded refusal is waiting to be read');
+    slow = 0;
+    fleet.install([fleet.agent('josh', { state: 'idle', displayName: 'Josh', role: 'Setup guide' }),
+      fleet.agent('beatrix', { state: 'idle', displayName: 'Beatrix', role: 'Collections Coordinator' })]);
+    seedGuide('josh');
+    await page.evaluate(() => { ASB.nextFind = 0; });
+    chk(await waitFor(page, () => ASB.guide === 'josh', 15000), 'H19 precondition: the guide is adopted');
+    await page.click('#asb');
+    await page.waitForTimeout(500);
+    const h19 = await page.evaluate(() => ({ sending: ASB.sending, send: document.getElementById('asp-send').disabled, msg: document.getElementById('asp-msg').textContent, pending: ASB.asideOnOpen }));
+    chk(!h19.sending && !h19.send && h19.msg === '' && h19.pending === null, 'H19 the guide\'s chat opens clean: Send works and no hosted refusal runs against it', JSON.stringify(h19));
+    await page.click('#asp-fold');
+    unseed();
+    fleet.install([fleet.agent('beatrix', { state: 'idle', displayName: 'Beatrix', role: 'Collections Coordinator' })]);
+
     chk(MARK_WORKS && !fs.existsSync(RAN), 'H12 the connector never ran (CONTROL: run by hand at the start, it leaves its mark)', JSON.stringify({ MARK_WORKS }));
     chk(badResponses.length === 0, 'H11 no failed resource other than the refusals the check asked for', badResponses.join(' | '));
     chk(errs.length === 0, 'H11 no page errors', errs.join(' | '));

@@ -54450,7 +54450,7 @@ function asbPaintThread(rows, session) {
 function asbOpen() {
   ASB.open = true; ASB.asking = false; ASB.dot = false; ASB.openGen++;
   /* A refusal that came while folded is read now, and the six seconds start from here. */
-  if (ASB.asideOnOpen !== null) { const st = ASB.asideOnOpen; ASB.asideOnOpen = null; asbStepAside(st); }
+  if (ASB.asideOnOpen !== null) { const st = ASB.asideOnOpen; ASB.asideOnOpen = null; if (asbIsHosted()) asbStepAside(st); }   // never a guide's chat
   asbPaint();
   asbTellScreen(true);
   asbPoll(true);
@@ -54695,6 +54695,7 @@ async function asbFind() {
   ASB.deferEvery = 0;
   ASB.guide = guide;
   { const pm = document.getElementById('asp-msg'); if (pm) pm.textContent = ''; }   // a line from before is not the guide's
+  ASB.asideOnOpen = null; ASB.dot = false;   // a hosted refusal waiting to be read belongs to the hosted assistant, not the guide
   /* A guide now exists: the bubble talks to it. The hosted conversation stays behind; it was another assistant. */
   if (ASB.hosted) { ASB.hosted = false; ASB.heard = null; ASB.shown = ''; ASB.readOnce = false; ASB.lastPoll = 0; ASB.remaining = null; }
   ASB.finding = false;
@@ -54725,7 +54726,7 @@ async function asbReadSetting() {
 function asbForgetGuide() {
   const hadFocus = !!document.activeElement && !!document.activeElement.closest('#asblayer');
   ASB.guide = null; ASB.open = false; ASB.asking = false; ASB.heard = null; ASB.shown = ''; ASB.dot = false;
-  ASB.wroteOnce = false; ASB.readOnce = false; ASB.lastPoll = 0; ASB.nudgeGone = false;
+  ASB.wroteOnce = false; ASB.readOnce = false; ASB.lastPoll = 0; ASB.nudgeGone = false; ASB.asideOnOpen = null;
   const pm = document.getElementById('asp-msg'); if (pm) pm.textContent = '';   // nothing stale when it comes back
   if (hadFocus) setTimeout(asbFocusPage, 0);
   ASB.findEvery = ASB_FIND_FIRST_MS; ASB.nextFind = Date.now() + ASB_FIND_FIRST_MS;

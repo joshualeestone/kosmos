@@ -87,3 +87,8 @@ rebuilt one. A board on an old connector sees the 501 path once per session.
   - an unreadable model list is 503 'unchecked', not "your own AI" (hostedWhy, with unit arms);
   - each turn is trimmed to 2,000 characters;
   - the live region is cleared on a refusal.
+
+## Review iteration 6 (fixed)
+- BLOCKER: a folded hosted refusal still waiting (asideOnOpen, and its dot) survived the move to a guide. Opening
+  the guide's chat then locked Send for six seconds. It is now cleared on adoption and in asbForgetGuide, and asbOpen
+  never steps aside for a guide's chat. H19 covers that exact order.
