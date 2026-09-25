@@ -43,6 +43,19 @@ test('#3769 a password or key given as name = value keeps the name and masks the
   assert.deepEqual(out.fired, [{ kind: 'assigned_secret', count: 2 }]);
 });
 
+test('#3769 the forms a model writes in words, sign-ins in links, GitLab tokens and a hex key are masked (review round 1)', () => {
+  const cases = [
+    ['Your password is hunter2hunter.', `Your password is ${MASK}.`],
+    ['The API key is: AbCdEf123456', `The API key is: ${MASK}`],
+    ['my access key was AKzz12345678x', `my access key was ${MASK}`],
+    ['https://user:pa55word@host.example/x', `https://user:${MASK}@host.example/x`],
+    ['postgres://admin:pw9abc@db:5432/app', `postgres://admin:${MASK}@db:5432/app`],
+    [j('glpat-', 'ABCDEFGHIJKLMNOPQRSTuv'), MASK],
+    ['key: 3f2a9c1d8e7b6a5f4e3d2c1b0a9f8e7d6c5b4a3f99', `key: ${MASK}`],
+  ];
+  for (const [input, want] of cases) assert.equal(mask(input).text, want, input);
+});
+
 test('#3769 ordinary text is untouched: prose, links, commit ids, short words after a key name', () => {
   const plain = [
     'Open Settings, AI Models, then choose Add a provider.',
@@ -51,6 +64,8 @@ test('#3769 ordinary text is untouched: prose, links, commit ids, short words af
     'token: none, password: ask',
     'The ring is your agent\'s memory.',
     'Your key starts with sk- and is pasted in Settings.',
+    'the password is required, and the key: Enter moves on',
+    'Your files are in /Users/agent1/Library/Application Support/Kosmos/agents/Researcher1Folder/notes.md',
   ];
   for (const t of plain) {
     const out = mask(t);

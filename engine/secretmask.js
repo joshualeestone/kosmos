@@ -36,15 +36,29 @@ const PATTERNS = [
   { kind: 'aws_key', re: /\b(?:AKIA|ASIA)[0-9A-Z]{16}\b/g },
   { kind: 'slack_token', re: /\bxox[abprs]-[A-Za-z0-9-]{10,300}/g },
   { kind: 'stripe_key', re: /\b(?:sk|rk)_(?:live|test)_[A-Za-z0-9]{10,300}/g },
+  { kind: 'gitlab_token', re: /\bglpat-[A-Za-z0-9_-]{20,300}/g },
 ];
+
+/* A sign-in inside a link, scheme://user:password@host: the password is masked, the rest kept. */
+const URL_CREDENTIAL = /\b([a-z][a-z0-9+.-]{1,20}:\/\/[^\s:@/]{1,100}:)([^\s@/]{1,200})@/gi;
 
 /* "password = hunter2", "API_KEY: abc...", "token=..." : the VALUE is masked and the name kept, so
    the sentence still reads. Six characters or more, so "token: none" and prose survive. */
-const ASSIGNMENT = /\b((?:[A-Za-z0-9]{1,40}[_-])?(?:password|passwd|passphrase|pwd|secret|token|api[_-]?key|access[_-]?key|private[_-]?key|client[_-]?secret)["']?[ \t]{0,3}[:=][ \t]{0,3}["']?)([^\s"'`,;<>]{6,400})/gi;
+const SECRET_NAMES = '(?:password|passwd|passphrase|pwd|secret|token|api[_-]?key|access[_-]?key|private[_-]?key|client[_-]?secret)';
+const ASSIGNMENT = new RegExp(`\\b((?:[A-Za-z0-9]{1,40}[_-])?${SECRET_NAMES}["']?[ \\t]{0,3}[:=][ \\t]{0,3}["']?)([^\\s"'\`,;<>]{6,400})`, 'gi');
+/* The same in words, "your password is hunter2hunter", "the API key is: AbC123...". The value must
+   hold a digit or a symbol, so "the password is required" stays readable. */
+const SPOKEN = new RegExp(`\\b(${SECRET_NAMES.replace('api[_-]?key', 'api[_ -]?key').replace('access[_-]?key', 'access[_ -]?key').replace('private[_-]?key', 'private[_ -]?key')}[ \\t]{1,3}(?:is|was)(?:[ \\t]{0,3}:[ \\t]{0,3}|[ \\t]{1,3})["'\`]?)([^\\s"'\`,;<>]{6,400})`, 'gi');
+/* A bare "key" only with = or : and a value holding a digit (a hex key, say): "key: Enter" survives. */
+const BARE_KEY = /\b(key["']?[ \t]{0,3}[:=][ \t]{0,3}["']?)([^\s"'`,;<>]{8,400})/gi;
+/* The sentence's own closing punctuation stays outside the mask ("... is hunter2hunter." keeps its stop). */
+const splitTail = (v) => { const t = /[.!?)\]]+$/.exec(v); return t ? [v.slice(0, t.index), t[0]] : [v, '']; };
+const hasDigitOrSymbol = (v) => /[0-9]/.test(v) || /[^A-Za-z0-9]/.test(v);
 
 /* A long run with upper case, lower case and a digit in it, and not all hex: the shape of a token
    no named pattern knows. Hex-only runs (git commits, checksums) are left alone. */
-const LONG_TOKEN = /[A-Za-z0-9+/_-]{32,600}={0,2}/g;
+/* No slash in the run, so a file path (/Users/me/Library/Application Support) is never taken for one. */
+const LONG_TOKEN = /[A-Za-z0-9+_-]{32,600}={0,2}/g;
 function looksRandom(s) {
   return /[A-Z]/.test(s) && /[a-z]/.test(s) && /[0-9]/.test(s) && !/^[0-9a-fA-F]+$/.test(s);
 }
@@ -61,10 +75,28 @@ function mask(text) {
   for (const { kind, re } of PATTERNS) {
     out = out.replace(re, () => { hit(kind); return MASK; });
   }
-  out = out.replace(ASSIGNMENT, (whole, name, value) => {
-    if (value === MASK || value.startsWith(MASK)) return whole;
+  out = out.replace(URL_CREDENTIAL, (whole, head, value) => {
+    if (value === MASK) return whole;
+    hit('url_credential');
+    return head + MASK + '@';
+  });
+  out = out.replace(ASSIGNMENT, (whole, name, raw) => {
+    const [value, tail] = splitTail(raw);
+    if (value.length < 6 || value.startsWith(MASK)) return whole;
     hit('assigned_secret');
-    return name + MASK;
+    return name + MASK + tail;
+  });
+  out = out.replace(SPOKEN, (whole, name, raw) => {
+    const [value, tail] = splitTail(raw);
+    if (value.length < 6 || value.startsWith(MASK) || !hasDigitOrSymbol(value)) return whole;
+    hit('assigned_secret');
+    return name + MASK + tail;
+  });
+  out = out.replace(BARE_KEY, (whole, name, raw) => {
+    const [value, tail] = splitTail(raw);
+    if (value.length < 8 || value.startsWith(MASK) || !/[0-9]/.test(value)) return whole;
+    hit('assigned_secret');
+    return name + MASK + tail;
   });
   out = out.replace(LONG_TOKEN, (run) => {
     if (!looksRandom(run)) return run;

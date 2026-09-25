@@ -2439,12 +2439,16 @@ function swarmSweepDeps(roster) {
 }
 
 /* #3769 (Josh, 2026-09-25 11:54: the guide must never give out passwords or keys): is `name` the setup
-   guide? The seeded name, in its marked folder. Compared WITHOUT case: a route can be asked for
-   "Josh" or "josh" and reach the same thread, and a case-sensitive miss here would skip the mask. */
+   guide? Either its folder carries the guide marker (create.js writes it for EVERY setup-role agent
+   before it starts, so this holds even when the seed's name record was never written), or it is the
+   seeded name in its marked folder. The name compared WITHOUT case: a route can be asked for "Josh"
+   or "josh" and reach the same thread, and a case-sensitive miss would skip the mask. */
 function isSetupGuide(name) {
+  if (typeof name !== 'string' || !name) return false;
+  try { if (setupAssistant.isGuideFolder(name)) return true; } catch { /* then the recorded name decides */ }
   try {
     const guide = setupAssistant.guideName();
-    if (!guide || typeof name !== 'string' || create.cleanName(guide).toLowerCase() !== create.cleanName(name).toLowerCase()) return false;
+    if (!guide || create.cleanName(guide).toLowerCase() !== create.cleanName(name).toLowerCase()) return false;
     return setupAssistant.isGuideFolder(guide);
   } catch { return false; }
 }
@@ -2457,6 +2461,10 @@ function guideMasked(who, text) {
   if (out.fired.length) console.error(`#3769: masked ${require('./engine/secretmask').describeFired(out.fired)} in the setup guide's words`);
   return out.text;
 }
+
+/* #3769: the guide's posts into a project room and its messages to other agents go through
+   engine/messages.js; the same mask applies there, keyed on the resolved sender. */
+messages.setSenderTextFilter(guideMasked);
 
 /* Record an agent's reply in its thread with the person: the one write both
    /api/reply and the outbox drain make, so a drained reply is exactly a reply.
@@ -12101,15 +12109,22 @@ const server = http.createServer((req, res) => {
     /* #3650: the person's reactions on the agent's messages, in the room's pill shape
        ({emoji, count, who, mine}) so the page draws them with the room's renderer.
        `reactionsTold` is the engine's own bookkeeping and is not sent. */
-    const reactedMessages = Array.isArray(servedMessages)
-      ? servedMessages.map((m) => {
+    /* #3769: in the setup guide's thread EVERY row is masked as read: its own rows stored before the
+       write-side mask, the question row taken off its screen, and a key the person pasted to it, which
+       is not shown back either. Decided once per request, on the name asked for AND the card's own
+       name, so a differently-cased URL cannot skip it. */
+    const guideThread = isSetupGuide(name) || Boolean(card && isSetupGuide(card.sessionName));
+    const guideName = guideThread ? ((card && card.sessionName) || name) : null;
+    const maskedMessages = guideThread && Array.isArray(servedMessages)
+      ? servedMessages.map((m) => (m && typeof m.text === 'string' ? { ...m, text: guideMasked(guideName, m.text) } : m))
+      : servedMessages;
+    const reactedMessages = Array.isArray(maskedMessages)
+      ? maskedMessages.map((m) => {
         if (!m || m.from !== name) return m;
         const { reactionsTold, ...rest } = m;
-        /* #3769: the guide's words masked as read too, for a row stored before the write-side mask. */
-        if (typeof rest.text === 'string') rest.text = guideMasked(name, rest.text);
         return Array.isArray(m.reactions) ? { ...rest, reactions: chat.dmReactionPills(m) } : rest;
       })
-      : servedMessages;
+      : maskedMessages;
     sendJson(res, 200, {
       messages: withPreviews(reactedMessages),
       olderCount,
@@ -12129,7 +12144,7 @@ const server = http.createServer((req, res) => {
       presenceBecause,
       asking,
       /* #3769: a question read off the guide's screen is its words too. */
-      question: question && typeof question.text === 'string' ? { ...question, text: guideMasked(name, question.text) } : question,
+      question: guideThread && question && typeof question.text === 'string' ? { ...question, text: guideMasked(guideName, question.text) } : question,
       questionBecause,
       /* #1629: the page draws a composer under a question, and for the trust
          dialog that invites the one keystroke that ends the session. The
@@ -12138,7 +12153,7 @@ const server = http.createServer((req, res) => {
          for every other question. */
       answerNote: (question && view && view.text && trustPrompt(view.text) !== null) ? TRUST_DIALOG_SENTENCE : null,
       /* #3769: a menu's labels come from the same screen text, so they are masked too. */
-      options: Array.isArray(options) ? options.map((o) => (o && typeof o.label === 'string' ? { ...o, label: guideMasked(name, o.label) } : o)) : options,
+      options: guideThread && Array.isArray(options) ? options.map((o) => (o && typeof o.label === 'string' ? { ...o, label: guideMasked(guideName, o.label) } : o)) : options,
     });
     return;
   }

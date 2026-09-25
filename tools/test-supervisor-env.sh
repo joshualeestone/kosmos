@@ -220,6 +220,16 @@ else
   ok "#3769: the setup guide's pane gets no Cloudflare, GitHub or token-door value, not even an inherited GH_TOKEN"
 fi
 if grep -qx "HOME=$SB5/knownhome" "$SB5/new-session.args"; then ok "#3769: and the rest of its environment is unchanged (HOME still rides)"; else bad "#3769: skipping tokens dropped HOME too"; fi
+# A default-account Grok (or Gemini) guide signs in with the key door, so it keeps THAT one door and
+# no other. The Claude guide above must not get it (the key file is present for both runs).
+printf '%s\n' 'xai-own-key-3769' > "$SB5/secrets/env/XAI_API_KEY"
+guide_run
+if grep -q 'xai-own-key-3769' "$SB5/new-session.args"; then bad "#3769: a Claude guide got the Grok key door"; else ok "#3769: a Claude guide does not get another runner's key door"; fi
+rm -f "$SB5/new-session.args"
+STUB_DIR="$SB5" HOME="$SB5/knownhome" GH_TOKEN='inherited-canary-3769' AGENT_WORKFORCE_WAIT_POLL_SECS=1 \
+  bash "$SB5/bin/agent-supervisor.sh" guidetest "$SB5/work" /usr/bin/true "$SB5/tmux" "$SB5/start.log" "" grok > "$SB5/out.log" 2>&1 || true
+if grep -qx 'XAI_API_KEY=xai-own-key-3769' "$SB5/new-session.args"; then ok "#3769: a Grok guide on a default key still gets its own XAI_API_KEY, so it can sign in"; else bad "#3769: a Grok guide lost its own key and cannot sign in: $(tr '\n' ' ' < "$SB5/new-session.args")"; fi
+if grep -q 'canary-3769' "$SB5/new-session.args"; then bad "#3769: the Grok guide got another token: $(grep 'canary-3769' "$SB5/new-session.args" | tr '\n' ' ')"; else ok "#3769: and no other token"; fi
 
 [ "$FAILS" -eq 0 ] && echo "supervisor env handoff: all hold" || echo "supervisor env handoff: $FAILS FAILED"
 exit "$FAILS"

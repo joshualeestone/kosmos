@@ -189,6 +189,12 @@ function guideDenyRules({ home = kosmosHome(), dataRoot = store.ROOT } = {}) {
     'Read(**/.env)', 'Read(**/.env.*)', 'Read(**/*.pem)', 'Read(**/*.key)',
     'Bash(security find-generic-password:*)', 'Bash(security find-internet-password:*)',
     'Bash(security dump-keychain:*)', 'Bash(printenv:*)', 'Bash(printenv)', 'Bash(env)', 'Bash(history:*)',
+    'Bash(set)', 'Bash(export)', 'Bash(export -p)',
+    /* Its own guards and instructions (relative to its folder, where it runs). Measured: an Edit rule
+       stops the Edit and Write tools AND a shell redirect into the path; a Write(...) rule is not a
+       file rule at all, Claude Code says so and ignores it. Deleting the marker would hand the next
+       session the tokens; removing the rule from CLAUDE.md is undone at the next board start. */
+    'Edit(.claude/**)', 'Edit(.kosmos-setup-guide)', 'Edit(CLAUDE.md)',
   ];
   if (home && path.resolve(home) !== path.resolve(require('os').homedir())) {
     /* A Kosmos home that is not the login home (a named world, a test): its credential folders too. */

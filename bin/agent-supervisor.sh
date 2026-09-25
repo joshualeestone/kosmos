@@ -471,13 +471,19 @@ if [ -z "$adopt" ]; then
   # here. Only names that are variable names are taken; anything else in the
   # directory is left alone rather than typed into a pane.
   _envdir="$(cd "$(dirname "$0")/.." && pwd)/secrets/env"
-  if [ "$IS_SETUP_GUIDE" = 0 ] && [ -d "$_envdir" ]; then
+  # #3769: the setup guide takes ONE door only, the key its own runner signs in with on a default
+  # account (a default Gemini or Grok key arrives only this way). Everything else stays out.
+  _guide_key=""
+  [ "$RUNNER" = gemini ] && _guide_key=GEMINI_API_KEY
+  [ "$RUNNER" = grok ] && _guide_key=XAI_API_KEY
+  if [ -d "$_envdir" ]; then
     for _f in "$_envdir"/*; do
       [ -s "$_f" ] || continue
       _name="$(basename "$_f")"
       case "$_name" in
         *[!A-Z0-9_]*|[0-9]*) continue ;;
       esac
+      if [ "$IS_SETUP_GUIDE" = 1 ] && [ "$_name" != "$_guide_key" ]; then continue; fi
       PANE_ENV+=(-e "$_name=$(head -1 "$_f")")
     done
   fi

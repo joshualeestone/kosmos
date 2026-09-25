@@ -170,3 +170,52 @@ test('#3769 a question and its menu read off the guide\'s screen are masked; the
     assert.ok(JSON.stringify(g.options).includes(MASK));
   } finally { board.restore(); chat.setRunner(null); chat.setDryRun(true); }
 });
+
+/* ---- review round 1 ----------------------------------------------------------- */
+
+test('#3769 a differently-cased URL for the guide\'s thread is still masked, the question row included', async () => {
+  const fleet = require('./test-support/fleet');
+  const screen = `Do you want to proceed with ${KEY}?\n❯ 1. Yes, use ${KEY}\n  2. No\n`;
+  const board = fleet.install([fleet.agent(GUIDE, { state: 'needs_you', screen })]);
+  const ok = (out) => ({ ran: true, spawnFailed: false, status: 0, out, err: '' });
+  chat.setRunner((args) => (args[0] === 'capture-pane' ? ok(screen) : args[0] === 'display-message' ? ok('2.1.212\t\t0\n') : ok('')));
+  chat.setDryRun(false);
+  try {
+    const r = await fetch(`${base}/api/agent/${GUIDE.toUpperCase()}/thread`);
+    const g = await r.json();
+    assert.equal(r.status, 200, 'CONTROL: the upper-case URL reaches the thread: ' + JSON.stringify(g).slice(0, 200));
+    assert.ok(g.question, 'CONTROL: the question was read');
+    assert.ok(!JSON.stringify(g).includes(KEY), 'an upper-case URL served the key: ' + JSON.stringify(g).slice(0, 400));
+  } finally { board.restore(); chat.setRunner(null); chat.setDryRun(true); }
+});
+
+test('#3769 an agent known only by its guide marker (no seed record) is masked too', () => {
+  const was = setupAssistant.guideName;
+  const wasFolder = setupAssistant.isGuideFolder;
+  setupAssistant.guideName = () => null;
+  setupAssistant.isGuideFolder = (n) => n === 'markedbot';
+  try {
+    assert.equal(guideMasked('markedbot', KEY), MASK, 'a marked setup agent with no seed record was not masked');
+    assert.equal(guideMasked(OTHER, KEY), KEY, 'CONTROL: an unmarked agent is untouched');
+  } finally { setupAssistant.guideName = was; setupAssistant.isGuideFolder = wasFolder; }
+});
+
+test('#3769 the guide\'s room posts and messages to other agents are masked (messages.js filter, installed by the board)', () => {
+  const messages = require('./engine/messages');
+  assert.equal(messages.filteredText(GUIDE, `use ${KEY}`), `use ${MASK}`, 'the board did not install the guide mask on messages');
+  assert.equal(messages.filteredText(OTHER, `use ${KEY}`), `use ${KEY}`, 'CONTROL: another agent\'s message was changed');
+  const src = fs.readFileSync(path.join(__dirname, 'engine', 'messages.js'), 'utf8');
+  for (const fn of ['function send(', 'function sendPost(']) {
+    const at = src.indexOf(fn);
+    const from = src.indexOf('sender.card.sessionName;', at);
+    const filtered = src.indexOf('text = filteredText(from, text);', from);
+    const firstUse = src.indexOf('chat.messageProblem(chat.cleanMessage(text)', at);
+    assert.ok(at > 0 && from > at && filtered > from && filtered < firstUse, `${fn} does not filter the text before it first uses it`);
+  }
+});
+
+test('#3769 the guide cannot edit its own guards or instructions, and there is no ignored Write(...) rule', () => {
+  const rules = setupAssistant.guideDenyRules();
+  for (const r of ['Edit(.claude/**)', 'Edit(.kosmos-setup-guide)', 'Edit(CLAUDE.md)', 'Bash(set)', 'Bash(export -p)']) assert.ok(rules.includes(r), 'missing ' + r);
+  assert.ok(!rules.some((r) => r.startsWith('Write(')), 'Write(...) is not a file rule in Claude Code and is ignored');
+});
