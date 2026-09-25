@@ -323,14 +323,17 @@ function guideFailure(card) {
    guideFailure; Josh 2026-09-25 07:22). An install that has a working model, or a model and no guide, does not
    spend the shared allowance on Kosmos's key. And only where a connector is at a real path
    (remote.hostedAvailable), so a source checkout or a check sandbox never offers it. */
-function hostedWhy({ available = () => require('./remote').hostedAvailable(), listed = () => listedModels(), failing = () => null } = {}) {
-  let there = false;
-  try { there = available() === true; } catch { there = false; }
-  if (!there) return { ok: false, why: 'no_connector' };
+function hostedConnector(available = () => require('./remote').hostedAvailable()) {
+  try { return available() === true; } catch { return false; }
+}
+function hostedWhy({ available = undefined, listed = () => listedModels(), failing = () => null } = {}) {
+  if (!hostedConnector(available)) return { ok: false, why: 'no_connector' };
   /* A guide that cannot answer is on a model they connected (the seed creates a guide only once a model is
-     connected, and setupGuideNow checks its marker), so the listing is not needed to know it. */
+     connected, and setupGuideNow checks its marker), so the listing is not needed to know it. `failing`
+     THROWS when the guide's card could not be read: that is not known, so 'unchecked' (a retryable 503 on
+     the hosted route), never 'own_model', which would end a fallback chat over a board hiccup. */
   let f = null;
-  try { f = failing(); } catch { f = null; }
+  try { f = failing(); } catch { return { ok: false, why: 'unchecked' }; }
   if (f) return { ok: true, why: 'own_model_failing' };
   let got;
   try { got = listed(); } catch { return { ok: false, why: 'unchecked' }; }
@@ -527,6 +530,7 @@ module.exports = {
   hostedOffered,
   hostedWhy,
   guideFailure,
+  hostedConnector,
   refreshGuideRole,
   usable,
   RETRY_AFTER_MS,

@@ -3238,24 +3238,29 @@ function setupGuideNow() {
 
 /* #3660: the guide `name`'s card read as failing (setupAssistant.guideFailure), or null when it is
    answering or the board could not be read. The bubble asks before every message and a board read captures
-   every pane, so a reading is kept for GUIDE_CARD_TTL_MS (a flip back waits at most that long). `roster` is
-   injectable for the test. */
-const GUIDE_CARD_TTL_MS = 5000;
+   every pane, so a reading is kept for GUIDE_CARD_TTL_MS (a flip back waits at most that long). The TTL is
+   longer than the bubble's poll (about 6 seconds apart while open), or the memo would save nothing, and it is
+   stamped AFTER the read, so a slow capture does not shorten it. A board that cannot be read THROWS rather than
+   answering null, because null means "answering" and would end a fallback chat (setupAssistant.hostedWhy turns
+   the throw into 'unchecked'); an unreadable read is not kept. `roster` and `clock` are injectable for the test. */
+const GUIDE_CARD_TTL_MS = 15000;
 let guideCardMemo = null;
-function guideCardFailing(name, roster = safeRoster) {
-  const now = Date.now();
-  if (guideCardMemo && guideCardMemo.name === name && now - guideCardMemo.at < GUIDE_CARD_TTL_MS) return guideCardMemo.failing;
+function guideCardFailing(name, roster = safeRoster, clock = Date.now) {
+  if (guideCardMemo && guideCardMemo.name === name && clock() - guideCardMemo.at < GUIDE_CARD_TTL_MS) return guideCardMemo.failing;
   const cards = roster();
-  if (!Array.isArray(cards)) return null;
+  if (!Array.isArray(cards)) throw new Error('we could not read the board just now');
   const failing = setupAssistant.guideFailure(cards.find((c) => c && c.sessionName === name));
-  guideCardMemo = { name, at: now, failing };
+  guideCardMemo = { name, at: clock(), failing };
   return failing;
 }
 function resetGuideCardMemoForTests() { guideCardMemo = null; }
-/* The same, for a caller that has not looked up the guide itself. */
+/* The same, for the hosted route, which has not looked up the guide itself. No guide is null (nothing is
+   failing); a guide whose removal could not be checked throws, like an unreadable board. */
 function setupGuideFailing() {
   const found = setupGuideNow();
-  return found.ok ? guideCardFailing(found.name) : null;
+  if (found.ok) return guideCardFailing(found.name);
+  if (found.reason === 'unchecked') throw new Error(found.error);
+  return null;
 }
 
 const server = http.createServer((req, res) => {
@@ -14049,8 +14054,13 @@ const server = http.createServer((req, res) => {
   /**
    * #3034: which agent is the setup guide, for the help bubble. The page has no other
    * way to know: /api/status carries no guide marker, and the name alone is not
-   * enough (see setupGuideNow). { ok: false, reason: 'none' } means no guide, which until
-   * #3660 creates one is every install, and the bubble then shows nothing.
+   * enough (see setupGuideNow). The answers:
+   * - no guide: 200 { ok: false, reason: 'none', hosted, hostedWhy } (hosted: the bubble may stand in on
+   *   Kosmos's own model, #3660); a name that is not the guide's is the same with 409 and 'not-guide'.
+   * - a guide that answers, or any guide where no connector is installed: { ok: true, name }.
+   * - a guide that cannot answer (#3660 fallback): { ok: true, name, hosted, hostedWhy: 'own_model_failing',
+   *   problem, runner }, problem being the card's #3723 state.
+   * - a guide whose card could not be read: { ok: true, name, hosted: false, hostedWhy: 'unchecked' }.
    */
   if (pathname === '/api/setup-guide' && (req.method === 'GET' || req.method === 'HEAD')) {
     /* `hostedWhy` says why not (own_model, no_connector, unchecked): the bubble keeps its state on 'unchecked', and
@@ -14069,8 +14079,12 @@ const server = http.createServer((req, res) => {
        stands in rather than vanishing. */
     if (!found.ok) { sendJson(res, found.status, { error: found.error, reason: found.reason, ...(found.reason === 'not-guide' ? hostedAnswer() : {}) }); return; }
     /* The guide exists but cannot answer (#3660 fallback): say which problem and on which runner, and whether
-       the bubble may answer this chat on the hosted assistant instead. It asks again before each message. */
-    const failing = guideCardFailing(found.name);
+       the bubble may answer this chat on the hosted assistant instead. It asks again before each message.
+       With no connector there is nothing to fall back to, so the board is not read at all and the answer is
+       the plain one. A board that cannot be read says hostedWhy 'unchecked' (the bubble keeps its state). */
+    if (!setupAssistant.hostedConnector()) { sendJson(res, 200, { ok: true, name: found.name }); return; }
+    let failing;
+    try { failing = guideCardFailing(found.name); } catch { sendJson(res, 200, { ok: true, name: found.name, hosted: false, hostedWhy: 'unchecked' }); return; }
     if (failing) {
       const w = setupAssistant.hostedWhy({ failing: () => failing });
       sendJson(res, 200, { ok: true, name: found.name, hosted: w.ok, hostedWhy: w.why, problem: failing.problem, runner: failing.runner });

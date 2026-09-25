@@ -48,6 +48,6 @@ test('#3660 hostedWhy: no connector wins over a failing guide; an unreadable lis
     'a failing guide was kept from the fallback because the account list could not be read');
   assert.deepEqual(sa.hostedWhy({ available: there, listed: () => { throw new Error('unreadable'); }, failing: () => null }), { ok: false, why: 'unchecked' },
     'CONTROL: with no failing guide an unreadable listing is still unchecked');
-  assert.deepEqual(sa.hostedWhy({ available: there, listed: withModel, failing: () => { throw new Error('board'); } }), { ok: false, why: 'own_model' },
-    'a failure reading the guide is not taken as the guide failing');
+  assert.deepEqual(sa.hostedWhy({ available: there, listed: withModel, failing: () => { throw new Error('board'); } }), { ok: false, why: 'unchecked' },
+    'a failure reading the guide ended the chat as own_model, or was taken as the guide failing');
 });

@@ -29,6 +29,7 @@ fs.writeFileSync(path.join(process.env.AGENT_WORKFORCE_HOME, '.codex', 'auth.jso
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const { start, server, guideCardFailing, resetGuideCardMemoForTests } = require('./server');
+const removal = require('./engine/remove');
 const fleet = require('./test-support/fleet');
 const setupAssistant = require('./engine/setup-assistant');
 const remote = require('./engine/remote');
@@ -90,27 +91,86 @@ test('#3660 a guide that answers keeps the old shape, and the hosted route refus
   } finally { board.restore(); }
 });
 
-test('#3660 a failing guide with no connector says what is wrong, and hosted is false', async () => {
+test('#3660 with no connector a failing guide gets the plain answer: nothing to fall back to', async () => {
   const was = remote.hostedAvailable;
   remote.hostedAvailable = () => false;
   resetGuideCardMemoForTests();
   const board = fleet.install([fleet.agent(GUIDE, { state: 'auth_failed' })]);
   try {
+    assert.deepEqual(await status(), { ok: true, name: GUIDE }, 'no connector still reported the fallback fields');
+    remote.hostedAvailable = was;
     const g = await status();
-    assert.equal(g.hosted, false);
-    assert.equal(g.hostedWhy, 'no_connector');
-    assert.equal(g.problem, 'auth_failed');
+    assert.equal(g.problem, 'auth_failed', 'CONTROL: with the connector back the same card is reported');
     assert.equal(g.runner, 'claude', 'an agent with no recorded runner is claude, as its card says');
   } finally { board.restore(); remote.hostedAvailable = was; }
 });
 
-test('#3660 a board that cannot be read is not a failing guide, and does not throw', () => {
+test('#3660 a board that cannot be read is unchecked, never "answering": GET keeps the bubble\'s state and the hosted route says retry', async () => {
   resetGuideCardMemoForTests();
-  assert.equal(guideCardFailing(GUIDE, () => null), null, 'an unreadable board read as their model failing, or threw');
+  assert.throws(() => guideCardFailing(GUIDE, () => null), 'an unreadable board read as an answer');
   const board = fleet.install([fleet.agent(GUIDE, { state: 'auth_failed' })]);
   try {
     assert.deepEqual(guideCardFailing(GUIDE, () => board.agents), { problem: 'auth_failed', runner: 'claude' },
       'CONTROL: a readable failing card is read');
+  } finally { board.restore(); }
+  resetGuideCardMemoForTests();
+  const blind = fleet.blind();
+  try {
+    assert.deepEqual(await status(), { ok: true, name: GUIDE, hosted: false, hostedWhy: 'unchecked' });
+    const r = await ask();
+    assert.equal(r.status, 503, 'an unreadable board ended the fallback chat (own_model 409)');
+    assert.equal((await r.json()).code, 'unchecked');
+  } finally { blind.restore(); }
+});
+
+test('#3660 a guide whose removal could not be checked is unchecked on the hosted route, not own_model', async () => {
+  resetGuideCardMemoForTests();
+  const was = removal.removedNames;
+  removal.removedNames = () => ({ ok: false });
+  const board = fleet.install([fleet.agent(GUIDE, { state: 'auth_failed' })]);
+  try {
+    const r = await ask();
+    assert.equal(r.status, 503);
+    assert.equal((await r.json()).code, 'unchecked');
+  } finally { board.restore(); removal.removedNames = was; }
+  resetGuideCardMemoForTests();
+  const again = fleet.install([fleet.agent(GUIDE, { state: 'idle' })]);
+  try {
+    assert.equal((await ask()).status, 409, 'CONTROL: with the removals readable an answering guide is own_model');
+  } finally { again.restore(); }
+});
+
+test('#3660 the flip back: failing, then answering, with the memo live, waits out the memo and no longer', () => {
+  resetGuideCardMemoForTests();
+  let t = 1000000;
+  const clock = () => t;
+  const failing = fleet.install([fleet.agent(GUIDE, { state: 'rate_limited' })]);
+  const failingCards = failing.agents;
+  failing.restore();
+  const answering = fleet.install([fleet.agent(GUIDE, { state: 'idle' })]);
+  const answeringCards = answering.agents;
+  answering.restore();
+  let cards = failingCards;
+  const roster = () => cards;
+  assert.deepEqual(guideCardFailing(GUIDE, roster, clock), { problem: 'rate_limited', runner: 'claude' });
+  cards = answeringCards;   // their model answers again
+  t += 14000;
+  assert.notEqual(guideCardFailing(GUIDE, roster, clock), null, 'the memo was not kept for its window');
+  t += 1001;
+  assert.equal(guideCardFailing(GUIDE, roster, clock), null, 'the flip back did not happen once the memo ran out');
+});
+
+test('#3660 the memo is stamped after the board read, so a slow read does not shorten it', () => {
+  resetGuideCardMemoForTests();
+  let t = 2000000;
+  const clock = () => t;
+  const board = fleet.install([fleet.agent(GUIDE, { state: 'auth_failed' })]);
+  try {
+    let reads = 0;
+    const slow = () => { reads += 1; t += 20000; return board.agents; };   // a capture that takes 20 seconds
+    guideCardFailing(GUIDE, slow, clock);
+    guideCardFailing(GUIDE, slow, clock);
+    assert.equal(reads, 1, 'the memo was stamped before the read, so it was already stale when written');
   } finally { board.restore(); }
 });
 
