@@ -7,8 +7,9 @@
  *   - no bubble starts off the left edge or ends past the right edge of its row. Before this,
  *     a message carrying attachment cards sat 112px off the left of an iPhone SE: the file
  *     name is one line, the person's bubble is sized to its content, so the name set the
- *     bubble's width. The same arm runs at 900 and 1280 with a 120-character file name,
- *     because the cause does not depend on width. The fix under test is the cap on the
+ *     bubble's width. It happens in any row narrower than the bubble's 78ch cap plus gutters,
+ *     so the same arm runs at 900 (red on origin/main) and 1280 (green there too: the 78ch
+ *     cap already binds) with a 120-character file name. The fix under test is the cap on the
  *     person's bubble (removing only that cap fails this arm);
  *   - every attachment card sits inside its own bubble, pictures included (a companion invariant:
  *     on the old code the bubble grew with the card, so it is the row assertion above that catches
@@ -22,7 +23,10 @@
  *   - the bubble tail's ground mask never reaches the avatar (it paints the thread ground over it);
  *   - a wide table on the PERSON's own row stays inside its bubble too (their bubble is sized to
  *     its content in a right-aligned column, the same shape that sent attachments off screen);
- *   - at 1280 a short-named attachment bubble still fits its content, not the whole row.
+ *   - at 1280 the person's short-named attachment bubble still fits its content, not the whole row
+ *     (the rejected alternative stretched that bubble).
+ * Viewport widths, not mobile emulation (no isMobile/touch); scrollbars are shown so the wide
+ * arms are not optimistic about the thread's width.
  *
  * Harness posture mirrors render-agentdm-3414.js: file://, the thread poll answered from a
  * fixture, CURRENT set through openDetail. No board and no real conversation are involved.
@@ -51,6 +55,8 @@ const FX = {
     { at: at(2), text: 'here are the screenshots', delivery: { state: 'placed' }, attachments: [
       { url: '/api/f/1', name: 'IMG_2041.png', kind: 'image', type: 'image/png', size: 845000, preview: '/api/f/1/preview' },
       { url: '/api/f/2', name: 'quarterly-board-report-final-v3-really-final.pdf', kind: 'pdf', type: 'application/pdf', size: 2300000, preview: '/api/f/2/preview' } ] },
+    { at: at(6), text: 'and one more', delivery: { state: 'placed' }, attachments: [
+      { url: '/api/f/5', name: 'notes.txt', kind: 'text', type: 'text/plain', size: 900 } ] },
     { from: 'april', at: at(3), text: 'got them', attachments: [
       { url: '/api/f/3', name: 'annotated.png', kind: 'image', type: 'image/png', size: 120000 } ] },
     { at: at(4), text: 'and the export', delivery: { state: 'placed' }, attachments: [
@@ -120,10 +126,12 @@ function measure() {
   const namesOverOneLine = [...document.querySelectorAll('#d-dmthread .att-name')].filter((n) =>
     R(n).height > parseFloat(getComputedStyle(n).fontSize) * 1.5).length;
   const wraps = [...document.querySelectorAll('#d-dmthread .mdtablewrap')];
-  const short = document.querySelector('#d-dmthread .msg:not(.you) .att');
+  /* The person's own short-named card: their bubble is the one this branch caps, so it is the one
+     that must still fit its content rather than stretch to the row. */
+  const short = [...document.querySelectorAll('#d-dmthread .msg.you .att')].find((a) => /notes\.txt/.test(a.textContent));
   return {
     bubbles: bubbles.length, offscreen, cards: cards.length, escaped,
-    pics: document.querySelectorAll('#d-dmthread .att .att-pic').length,
+    pics: [...document.querySelectorAll('#d-dmthread .att .att-pic')].filter((e) => { const r = R(e); const c = R(e.closest('.att')); return r.width > 0 && r.left >= c.left - 0.5 && r.right <= c.right + 0.5; }).length, // height follows the image, which cannot load over file://
     cells: cellsList.length, crushed,
     tableInBubble: wraps.length === 2 && wraps.every((tw) => {
       const b = R(tw.closest('.msg-bd')); return R(tw).left >= b.left - 0.5 && R(tw).right <= b.right + 0.5; }),
@@ -160,16 +168,16 @@ async function open(browser, w, h, theme) {
 
 (async () => {
   for (const eng of (process.env.ENGINES || 'chromium').split(',')) {
-    const browser = await pw[eng].launch({ headless: process.env.HEADED === '0' });
+    const browser = await pw[eng].launch({ headless: process.env.HEADED === '0', ignoreDefaultArgs: eng === 'chromium' ? ['--hide-scrollbars'] : [] });
     try {
       for (const [w, h] of SIZES) for (const theme of ['light', 'dark']) {
         const { page, errs } = await open(browser, w, h, theme);
         const m = await page.evaluate(measure);
         const t = `[${eng} ${w}x${h} ${theme}]`;
-        chk(m.bubbles >= 6 && m.offscreen === 0, `${t} every bubble stays inside its row`, `bubbles=${m.bubbles} offscreen=${m.offscreen}`);
-        chk(m.cards === 4 && m.escaped === 0, `${t} every attachment card sits inside its bubble`, `cards=${m.cards} escaped=${m.escaped}`);
+        chk(m.bubbles >= 7 && m.offscreen === 0, `${t} every bubble stays inside its row`, `bubbles=${m.bubbles} offscreen=${m.offscreen}`);
+        chk(m.cards === 5 && m.escaped === 0, `${t} every attachment card sits inside its bubble`, `cards=${m.cards} escaped=${m.escaped}`);
         chk(m.namesOverOneLine === 0, `${t} every file name stays on one line`, `over=${m.namesOverOneLine}`);
-        chk(m.pics === 2, `${t} the preview slots are laid out in their cards (the images themselves cannot load over file://)`, `pics=${m.pics}`);
+        chk(m.pics === 2, `${t} the preview slots have width inside their cards (the images themselves cannot load over file://, so an image slot has no height)`, `pics=${m.pics}`);
         chk(m.cells > 0 && m.crushed.length === 0, `${t} no table cell is narrower than its longest word`, m.crushed.join(' | '));
         chk(m.tablesOnYou === 1 && m.tableInBubble, `${t} both tables' scroll boxes (the agent's and the person's own) stay inside their bubbles`);
         chk(!m.pageHScroll && !m.threadHScroll, `${t} neither the page nor the thread scrolls sideways`, `page=${m.pageHScroll} thread=${m.threadHScroll}`);
@@ -185,9 +193,9 @@ async function open(browser, w, h, theme) {
         const { page, errs } = await open(browser, w, h, 'light');
         const m = await page.evaluate(measure);
         const t = `[${eng} ${w}x${h}]`;
-        chk(m.bubbles >= 6 && m.cards === 4 && m.offscreen === 0 && m.escaped === 0, `${t} every bubble and card stays inside its row`, `bubbles=${m.bubbles} cards=${m.cards} offscreen=${m.offscreen} escaped=${m.escaped}`);
+        chk(m.bubbles >= 7 && m.cards === 5 && m.offscreen === 0 && m.escaped === 0, `${t} every bubble and card stays inside its row`, `bubbles=${m.bubbles} cards=${m.cards} offscreen=${m.offscreen} escaped=${m.escaped}`);
         chk(m.namesOverOneLine === 0, `${t} every file name stays on one line`, `over=${m.namesOverOneLine}`);
-        chk(m.shortCardBubble < m.row * 0.8, `${t} a short-named attachment bubble fits its content, not the whole row`, `bubble=${m.shortCardBubble} row=${m.row}`);
+        chk(m.shortCardBubble !== null && m.shortCardBubble < m.row * 0.8, `${t} the person's short-named attachment bubble fits its content, not the whole row`, `bubble=${m.shortCardBubble} row=${m.row}`);
         chk(errs.length === 0, `${t} no page errors`, errs.join(' | '));
         await page.close();
       }
