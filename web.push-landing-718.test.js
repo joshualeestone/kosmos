@@ -18,9 +18,10 @@ test('a push link arrival settles ONCE: reveal if the agent opened, else the boa
   assert.ok(i > 0, 'the boot open is gated on WANT_AGENT_GONE');
   const block = html.slice(i, i + 900);
   // The poll runs every few seconds: the reveal must not (it pulled the page back each time).
-  assert.match(block, /if \(!WANT_AGENT_SETTLED\) \{\n\s*WANT_AGENT_SETTLED = true;/);
-  assert.match(block, /if \(CURRENT && CURRENT\.sessionName === WANT_AGENT\) detailRevealTalkOnPhone\(\);/);
-  assert.match(block, /else \{ WANT_AGENT_GONE = true; if \(URL_TAB === 'detail'\) \{ showTab\('agents'\); syncUrl\(\); \} \}/);
+  assert.match(block, /if \(CURRENT && CURRENT\.sessionName === WANT_AGENT\) \{ WANT_AGENT_SETTLED = true; detailRevealTalkOnPhone\(\); \}/);
+  // Gone only after two statuses without it (an agent a moment late on the first still opens).
+  assert.match(block, /else if \(\+\+WANT_AGENT_MISSES >= 2\) \{\n\s*WANT_AGENT_SETTLED = true; WANT_AGENT_GONE = true;\n\s*if \(URL_TAB === 'detail'\) \{ showTab\('agents'\); syncUrl\(\); \}/);
+  assert.match(html, /let WANT_AGENT_MISSES = 0;/);
   assert.match(html, /let WANT_AGENT_SETTLED = false;/);
   assert.match(html, /let WANT_AGENT_GONE = false;/);
 });
