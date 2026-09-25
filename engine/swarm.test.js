@@ -262,6 +262,27 @@ test('#3564 meter: a session untouched for over a day is not asked about; a "can
   assert.deepEqual(asked, ['unplaced.jsonl', 'unplaced.jsonl'], 'CONTROL: it is asked again after the retry time');
 });
 
+test('#3564 meter: one call reads at most its budget ACROSS all files, not per file', () => {
+  swarm.resetForTests({ perCallBytes: 500 });
+  const line = (id) => JSON.stringify({ type: 'assistant', timestamp: today(9), message: { id, role: 'assistant', stop_reason: 'end_turn', usage: U(1, 0), content: [{ type: 'text', text: 'y'.repeat(100) }] } });
+  const lines = (p) => { const out = []; for (let i = 0; i < 4; i += 1) out.push(line(p + i)); return out; };
+  const dir = transcripts('budget', [
+    ['s.jsonl', lines('s'), NOW - 60000],
+    ['s/subagents/agent-1.jsonl', lines('h'), NOW - 60000],
+    ['t.jsonl', lines('t'), NOW - 60000],
+  ]);
+  const total = ['s.jsonl', 's/subagents/agent-1.jsonl', 't.jsonl'].reduce((n, f) => n + fs.statSync(path.join(dir, f)).size, 0);
+  assert.ok(total > 3 * 500, 'CONTROL: the files together need several calls');
+  const first = swarm.meter(path.join(dir, 's.jsonl'), NOW);
+  assert.equal(first.complete, false);
+  assert.ok(line('x').length < 500 && 2 * line('x').length > 500, 'CONTROL: one line fits the budget, two do not');
+  assert.ok(first.tokensToday <= 1, 'one call read past its budget: ' + first.tokensToday + ' messages');
+  let m = first;
+  for (let i = 0; i < 50 && !m.complete; i += 1) m = swarm.meter(path.join(dir, 's.jsonl'), NOW);
+  assert.equal(m.tokensToday, 12, 'CONTROL: it catches up to every message');
+  swarm.resetForTests();
+});
+
 test('#3564 meter: a file larger than one call reads catches up over polls, and says it is not complete until it has', () => {
   swarm.resetForTests({ perCallBytes: 256 });
   const line = (id) => JSON.stringify({ type: 'assistant', timestamp: today(9), message: { id, role: 'assistant', stop_reason: 'tool_use', usage: U(1, 0), content: [{ type: 'text', text: 'x'.repeat(100) }] } });
@@ -374,12 +395,12 @@ test('#3564 a PAUSED swarm is typed at NOT AT ALL; an active one and a looking-a
       assert.equal(chat.deliver('lead', '/Users/x/file.txt please fix this', board.agents).state, chat.DELIVERY.COULD_NOT);
       assert.equal(tmux.calls.length, 0, 'a message starting with a path got past the pause');
       // Work, even as a slash command, stays paused.
-      for (const cmd of ['/pplan build it', '/make-it-so', '/plugin:tidy now']) {
+      for (const cmd of ['/pplan build it', '/make-it-so', '/plugin:tidy now', '/clear\nnow build the whole feature', '/compact\r\nwrite the code']) {
         const before = tmux.calls.length;
         assert.equal(chat.deliver('lead', cmd, board.agents).state, chat.DELIVERY.COULD_NOT, `${cmd} reached a paused swarm`);
         assert.equal(tmux.calls.length, before, `${cmd} was typed at a paused swarm`);
       }
-      for (const cmd of ['/compact', '/clear', '/cost', '/context', '/status']) {
+      for (const cmd of ['/compact', '/clear', '/cost', '/context', '/status', '/compact keep the plan']) {
         const before = tmux.calls.length;
         const v = chat.deliver('lead', cmd, board.agents);
         assert.ok(tmux.calls.length > before || v.because !== require('./swarm').pausedSentence('lead', 'limit'), `${cmd} was refused as paused`);
@@ -407,6 +428,23 @@ test('#3564 interrupt: Escape to our pane, through the same gate as deliver; a s
       const r = chat.interrupt('other', board.agents);
       assert.equal(r.ok, false);
       assert.equal(tmux.calls.length, before, 'a stranger\'s pane was sent a key');
+    });
+  } finally { chat.setRunner(null); }
+});
+
+test('#3564 Stop now sends NO key to an agent reached by channel (Windows); an ordinary one gets them', () => {
+  try {
+    withFleet([fleet.agent('winlead', { state: 'idle' }), fleet.agent('maclead', { state: 'idle' })], (board) => {
+      const win = board.agents.find((a) => a.sessionName === 'winlead');
+      win.reachedByChannel = true;
+      const tmux = armTmux();
+      const i = chat.interrupt('winlead', board.agents);
+      const h = chat.stopHelpers('winlead', board.agents);
+      assert.equal(i.ok, false);
+      assert.equal(h.ok, false);
+      assert.match(i.because, /Windows/);
+      assert.equal(tmux.calls.filter((a) => a[0] === 'send-keys').length, 0, 'a key was sent to a Windows agent');
+      assert.deepEqual(chat.interrupt('maclead', board.agents), { ok: true }, 'CONTROL: an ordinary agent is sent the key');
     });
   } finally { chat.setRunner(null); }
 });

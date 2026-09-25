@@ -1158,7 +1158,7 @@ function interrupt(sessionName, roster) {
 }
 
 /* #3564: what a paused swarm still accepts. */
-const PAUSED_SWARM_COMMANDS = /^\/(compact|clear|cost|context|status)(\s|$)/i;
+const PAUSED_SWARM_COMMANDS = /^\/(compact|clear|cost|context|status)([ \t][^\r\n]*)?$/i;
 
 /**
  * Put one message into one agent's session.

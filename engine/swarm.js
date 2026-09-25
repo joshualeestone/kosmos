@@ -241,7 +241,7 @@ function isInterruptedLine(j) {
    🛑 EACH MESSAGE COUNTS ONCE. Claude Code writes one line per content block, and every line
    of one message carries the same `message.id` and the same `usage` (measured on this Mac: 2660
    assistant lines, 1191 ids; summing lines overcounted 2.23x). So usage is added once per id. */
-function readFile(file, since, now = Date.now()) {
+function readFile(file, since, now = Date.now(), budget = { left: readPerCallBytes }) {
   let st;
   try { st = fs.statSync(file); } catch { return { tokens: 0, finished: true, mtimeMs: 0, caughtUp: false }; }
   let e = fileCache.get(file);
@@ -262,13 +262,14 @@ function readFile(file, since, now = Date.now()) {
         if (Number.isFinite(at) && at >= since) e.tokens += tokensOf(j.message.usage);
       }
     };
-    /* Bounded reads: READ_CHUNK_BYTES at a time, at most READ_PER_CALL_BYTES per call (a larger
-       file catches up over the next polls). Lines are cut at the byte 0x0A, so a character is
-       never split, and the offset moves only past bytes actually read. */
+    /* Bounded reads: READ_CHUNK_BYTES at a time, and at most `budget.left` bytes, a budget the
+       whole meter() call shares (READ_PER_CALL_BYTES), so one board poll reads a bounded amount
+       however many files are behind; the rest catch up over the next polls. Lines are cut at
+       the byte 0x0A, so a character is never split, and the offset moves only past bytes read. */
     let fd = null;
     try {
       fd = fs.openSync(file, 'r');
-      const stop = Math.min(st.size, e.offset + readPerCallBytes);
+      const stop = Math.min(st.size, e.offset + Math.max(0, budget.left));
       while (e.offset < stop) {
         const buf = Buffer.alloc(Math.min(READ_CHUNK_BYTES, stop - e.offset));
         const n = fs.readSync(fd, buf, 0, buf.length, e.offset);
@@ -278,6 +279,7 @@ function readFile(file, since, now = Date.now()) {
         if (cut >= 0) take(data.subarray(0, cut).toString('utf8'));
         e.tail = Buffer.from(cut >= 0 ? data.subarray(cut + 1) : data);
         e.offset += n;
+        budget.left -= n;
       }
     } catch { /* the offset stays after the last chunk read, so the next poll resumes there */ }
     finally { if (fd !== null) { try { fs.closeSync(fd); } catch { /* already closed */ } } }
@@ -306,7 +308,7 @@ const OWNER_RETRY_MS = 5 * 60 * 1000;
  * helpers, true or null (cannot tell) counts it. With no `owns`, every session counts.
  * activeHelpers counts only helpers of sessions written in the last ACTIVE_WINDOW_MS
  * that have not finished. `complete` is false when there is no transcript, or a file was
- * not read to its end in this call. Never throws; no transcript is all zeros.
+ * not read to its end in this call (the call reads at most READ_PER_CALL_BYTES in all). Never throws; no transcript is all zeros.
  */
 function meter(transcriptPath, now = Date.now(), owns = null) {
   const out = { tokensToday: 0, leadTokens: 0, helperTokens: 0, activeHelpers: 0, complete: false };
@@ -316,6 +318,7 @@ function meter(transcriptPath, now = Date.now(), owns = null) {
   let names;
   try { names = fs.readdirSync(dir); } catch { return out; }
   out.complete = true;
+  const budget = { left: readPerCallBytes };
   const count = (r) => { if (!r.caughtUp) out.complete = false; return r; };
   for (const n of names) {
     if (!n.endsWith('.jsonl')) continue;
@@ -338,7 +341,7 @@ function meter(transcriptPath, now = Date.now(), owns = null) {
       if (mine === false) continue;
     }
     const subDir = path.join(dir, n.slice(0, -'.jsonl'.length), 'subagents');
-    if (st.mtimeMs >= since) out.leadTokens += count(readFile(file, since, now)).tokens;
+    if (st.mtimeMs >= since) out.leadTokens += count(readFile(file, since, now, budget)).tokens;
     let subs;
     try { subs = fs.readdirSync(subDir); } catch { subs = []; }
     for (const s of subs) {
@@ -347,7 +350,7 @@ function meter(transcriptPath, now = Date.now(), owns = null) {
       let sst;
       try { sst = fs.statSync(sf); } catch { continue; }
       if (sst.mtimeMs < since) continue;
-      const r = count(readFile(sf, since, now));
+      const r = count(readFile(sf, since, now, budget));
       out.helperTokens += r.tokens;
       if (!r.finished && now - r.mtimeMs <= ACTIVE_WINDOW_MS) out.activeHelpers += 1;
     }

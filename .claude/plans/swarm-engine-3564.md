@@ -63,18 +63,22 @@ split (22:26): engine is Renet's, UI is Mona's. Claude-only v1. The engine/UI co
 3. A helper that parked its work in a background shell and ended its turn counts as finished while that shell runs
    (seen in the same measurement). The stop chord is sent regardless of the count, so this only affects the card.
 
-4. The meter reads at most READ_PER_CALL_BYTES (64 MiB) of a transcript per call, so a larger one catches up
+4. The meter reads at most READ_PER_CALL_BYTES (64 MiB) per call, across all the lead's files, so a larger backlog catches up
    over the next polls rather than stalling the board; until it does, today's tokens read low and the card
    says `metered: false`. The sweep still acts on what it has read.
 5. Sessions the lead ran today under a DIFFERENT account root (after an account move) sit in another folder
    and are not counted. Not handled in v1.
+6. The stop keys were measured on an idle lead and a busy one, NOT on a lead showing a permission or question
+   prompt. keysAllowed refuses only the folder-trust dialog; on another prompt the chord's effect is unmeasured,
+   and Escape there declines the prompt (which is what a stop means).
 
 ## Settings behaviour worth knowing
 - Raising `dailyTokenLimit` on a swarm paused at its limit does not switch it back on; `active: true` does.
 - Once the person switches a swarm paused at its limit TODAY back on, with the limit unchanged, the limit is not
   enforced again that day (`limitOverrideDay`). Setting a different limit (in the same change or later) re-arms it,
   so the new number holds. A limit pause left over from yesterday gives no override.
-- A paused swarm accepts only /compact, /clear, /cost, /context and /status; any other slash command is work.
+- A paused swarm accepts only /compact, /clear, /cost, /context and /status, on ONE line (arguments allowed, a
+  newline is not, so work cannot ride in behind one); any other slash command is work.
 
 ## Verification
 - `engine/swarm.test.js`, `engine/create.test.js` (#3564), `server.swarm-3564.test.js`, and the #3564 tests in
