@@ -290,3 +290,23 @@ test('one check asks Kosmos+ for edges once, however many owner projects are lin
   assert.strictEqual(h.asked, 1, 'asked ' + h.asked + ' times');
   assert.strictEqual(fedseats.statusOf('proj-o3'), 'waiting');
 });
+
+test('a stopped seat that does not exit is killed; one that exits is not', async (t) => {
+  t.mock.timers.enable({ apis: ['setTimeout'] });
+  federation.recordLink('proj-hang', { role: 'member', edge_id: 'edge-hang' });
+  federation.recordLink('proj-bye', { role: 'member', edge_id: 'edge-bye' });
+  const h = harness();
+  await fedseats.ensure('proj-hang');
+  await fedseats.ensure('proj-bye');
+  const [hung, polite] = h.spawned;
+  let killed = [];
+  hung.kill = () => killed.push('hung');
+  polite.kill = () => killed.push('polite');
+  fedseats.stop('proj-hang');
+  fedseats.stop('proj-bye');
+  polite.emit('exit', 0);
+  t.mock.timers.tick(fedseats.STOP_KILL_MS - 1);
+  assert.deepStrictEqual(killed, [], 'not before the grace period');
+  t.mock.timers.tick(1);
+  assert.deepStrictEqual(killed, ['hung']);
+});

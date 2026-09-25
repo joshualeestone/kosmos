@@ -66,9 +66,12 @@ board yet carried messages between a federated project's room and its seat.
   does not attest the poster); the room shows them as an external speaker.
 
 ## Verified
-- engine/fedseats.test.js (15), engine/messages.external-3311.test.js (5),
-  server.fedmsg-3311.test.js (6), server.federation-3311.test.js (8),
-  engine/federation.test.js (10): 44 pass.
+- engine/fedseats.test.js, engine/messages.external-3311.test.js,
+  server.fedmsg-3311.test.js, server.federation-3311.test.js,
+  engine/federation.test.js: all pass (counts live in the runs, not here).
+- Review round 6 controls: removing the kill in letGo reds the stopped-seat
+  test (the hung seat is never killed); dropping the blank-text check reds the
+  no-words test.
 - Review round 5 controls: passing the owner's name straight through reds the
   name-clash test; passing the owner's description back into create reds it on
   "written into this computer's brief"; counting only posts reds the unread test;

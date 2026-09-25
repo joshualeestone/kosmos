@@ -218,12 +218,23 @@ async function ensure(projectId, edges) {
   }
 }
 
+/* Let a seat go: closing its stdin is how it is told to end, and a seat that
+   has not exited STOP_KILL_MS later is killed, so a hung connector is never
+   left running for a project that is gone. */
+const STOP_KILL_MS = 5000;
+function letGo(child) {
+  try { child.stdin.end(); } catch { /* gone */ }
+  const t = setTimeout(() => { try { child.kill(); } catch { /* gone */ } }, STOP_KILL_MS);
+  if (typeof t.unref === 'function') t.unref();
+  child.once('exit', () => clearTimeout(t));
+}
+
 function stop(projectId) {
   const s = seats.get(projectId);
   if (!s) return;
   s.stopped = true;
   if (s.timer) clearTimeout(s.timer);
-  if (s.child) { try { s.child.stdin.end(); } catch { /* gone */ } }
+  if (s.child) letGo(s.child);
   seats.delete(projectId);
 }
 
@@ -272,9 +283,9 @@ function stopAll() {
   for (const s of seats.values()) {
     s.stopped = true;
     if (s.timer) clearTimeout(s.timer);
-    if (s.child) { try { s.child.stdin.end(); } catch { /* gone */ } }
+    if (s.child) letGo(s.child);
   }
   seats.clear();
 }
 
-module.exports = { configure, ensure, ensureAll, post, statusOf, stop, stopAll, onEvent, MAC_EDGES, INBOUND_PER_WINDOW, INBOUND_BYTES_PER_WINDOW };
+module.exports = { STOP_KILL_MS, configure, ensure, ensureAll, post, statusOf, stop, stopAll, onEvent, MAC_EDGES, INBOUND_PER_WINDOW, INBOUND_BYTES_PER_WINDOW };

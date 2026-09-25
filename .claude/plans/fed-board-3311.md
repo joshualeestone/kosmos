@@ -33,7 +33,7 @@ them in `mac-request` (MAC_REQUEST_ROUTES). A board on an older connector gets t
 connector's own refusal as the error, which the page shows.
 
 ## Verified
-- `engine/federation.test.js` (7): request shapes, bad input refused before
+- `engine/federation.test.js`: request shapes, bad input refused before
   signing, refusals mapped to reasons (the coordinator's own sentences), the
   snapshot remembered and forgotten, the link record refusing to overwrite a
   damaged file.

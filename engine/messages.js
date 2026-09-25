@@ -410,7 +410,7 @@ function externalPost(projectId, { from, fromKind, text }) {
     text: String(text == null ? '' : text).replace(EXTERNAL_CONTROL, '').slice(0, EXTERNAL_TEXT_MAX),
     at: new Date().toISOString(),
   };
-  if (!rowShaped(row)) return null;
+  if (!row.text.trim() || !rowShaped(row)) return null;
   appendLog(row);
   return row;
 }

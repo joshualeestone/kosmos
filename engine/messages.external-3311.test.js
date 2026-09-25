@@ -53,3 +53,8 @@ test('a message from outside counts as unread in its project', () => {
   messages.externalPost('proj-unread', { from: 'Grace', fromKind: 'person', text: 'anyone here?' });
   assert.strictEqual((messages.unreadAll() || {})['proj-unread'] || 0, before + 1);
 });
+
+test('a message from outside with no words is not stored', () => {
+  assert.strictEqual(messages.externalPost('proj-blank', { from: 'Grace', fromKind: 'person', text: '   \n ' }), null);
+  assert.strictEqual(messages.record().rows.filter((m) => m.project === 'proj-blank').length, 0);
+});
