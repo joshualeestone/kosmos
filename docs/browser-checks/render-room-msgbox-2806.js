@@ -705,6 +705,28 @@ const now = () => new Date().toISOString();
       chk(splitFocus === 'pj-add-member' && splitWide === 'pj-add-member' && splitBack === 'pj-add-member' && splitOrder.startsWith('members-files,room'),
         `[phone] a control focused in Members/Files keeps its focus when the phone turns`, `${splitFocus} -> ${splitWide} -> ${splitBack} (order ${splitOrder})`);
       await phonePage.evaluate(() => { const b = document.getElementById('pj-add-member'); if (b) b.blur(); });
+      // The first-visit project tip (#3574) must land ON SCREEN on a phone: its old anchor, Add
+      // member, sits below the room there. Placed by the real tipPlace with the real TIPS entry.
+      const tipAt = async () => phonePage.evaluate(() => {
+        if (typeof TIPS === 'undefined' || typeof tipPlace !== 'function') return { error: 'TIPS/tipPlace missing' };
+        const t = TIPS.find((x) => x.id === 'project'); if (!t) return { error: 'no project tip' };
+        const card = document.createElement('div'); card.className = 'tipcard';
+        card.innerHTML = '<h4>' + t.title + '</h4>' + t.body; document.body.appendChild(card);
+        tipPlace(card, t.at, t.side, { key: t.id, avoid: true });
+        const C = card.getBoundingClientRect(); card.remove();
+        const anchor = [...document.querySelectorAll(t.at)].find((x) => { const r = x.getBoundingClientRect(); return r.width > 0 && r.height > 0 && !x.closest('[hidden]'); });
+        return { inView: C.top >= 0 && C.bottom <= innerHeight && C.left >= 0 && C.right <= innerWidth, card: [Math.round(C.top), Math.round(C.bottom)], vh: innerHeight,
+          anchor: anchor ? (anchor.id || anchor.className) : null };
+      });
+      await phonePage.evaluate(() => window.scrollTo(0, 0));
+      const tip375 = await tipAt();
+      chk(!tip375.error && tip375.inView && tip375.anchor === 'pjmidhead', `[phone] the first-visit project tip sits inside the screen, at the conversation`, JSON.stringify(tip375));
+      await phonePage.setViewportSize({ width: 800, height: 800 });
+      await phonePage.waitForTimeout(100);
+      const tip800 = await tipAt();
+      chk(!tip800.error && tip800.anchor === 'pj-add-member', `[wide] the project tip still anchors at Add member wider than a phone`, JSON.stringify(tip800));
+      await phonePage.setViewportSize({ width: 375, height: 800 });
+      await phonePage.waitForTimeout(100);
       await phonePage.setViewportSize({ width: 800, height: 800 });
       await phonePage.waitForTimeout(100);
       const o800 = await order();

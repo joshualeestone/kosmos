@@ -2044,6 +2044,16 @@ body.filter-noproj #orgview .onode:not([data-noproj]) { opacity: .26; }
   :root:not([data-theme="light"]) .astate.st-question { border-color: rgba(140,175,230,.58); }
   :root:not([data-theme="light"]) .acard.question { border-color: rgba(140,175,230,.42); }
 }
+/* #718 mobile: at a phone's width the projects row's two cells (Add Project, and the sort
+   beside the view toggle) were each their full natural width, 3px more than an iPhone SE
+   has (Raiden's harness, .panel 330 > 327). The right cell may shrink, and the sort's
+   select gives up space before anything leaves the screen: its label truncates. */
+@media (max-width: 30rem) {
+  #pj-list-view .statsrow { grid-template-columns: auto minmax(0, 1fr); }
+  #pj-list-view .statsrow > .viewctl { min-width: 0; }
+  #pj-list-view .sortctl { min-width: 0; flex: 0 1 auto; }
+  #pj-list-view .sortctl select { min-width: 0; max-width: 100%; text-overflow: ellipsis; }
+}
 @media (max-width: 56rem) {
   .statsrow { grid-template-columns: auto auto; justify-content: space-between; }
   .statsrow > .stats { grid-column: 1 / -1; order: 3; }

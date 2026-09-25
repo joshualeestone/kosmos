@@ -72,3 +72,15 @@ test("your own bubble's room cap repeats the base bubble cap (78ch), pinned", ()
   assert.ok(base && room, 'both rules found');
   assert.equal(room[1], base[1]);
 });
+
+test('the projects row fits an iPhone SE: its right cell and the sort may shrink at phone width', () => {
+  // Measured by the shared harness (projects, se, Chromium: .panel 330 > 327 before). The
+  // harness is the behaviour check; this pins the rules so they cannot quietly go.
+  const phone = blocks('max-width: 30rem');
+  assert.match(phone, /#pj-list-view \.statsrow \{ grid-template-columns: auto minmax\(0, 1fr\); \}/);
+  assert.match(phone, /#pj-list-view \.sortctl select \{ min-width: 0; max-width: 100%; text-overflow: ellipsis; \}/);
+});
+
+test('the first-visit project tip anchors at the conversation first on a phone (page order)', () => {
+  assert.match(html, /at: '\.pj3 > \.pjmid \.pjmidhead, #pj-add-member',/);
+});
