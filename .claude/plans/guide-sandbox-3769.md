@@ -52,6 +52,14 @@ then close two gaps before 0.6.95. This branch is those gaps.
   keeps a reply in the outbox only when the board serves another Kosmos, which a guide never meets.
   Member names on the team route are not masked: a masked name would not be a usable agent name.
 
+## Review round 2 (sonnet)
+- No correctness issue: 40 split points each for held and shaped keys left no fragment; lists, tables, code
+  blocks and wrapped URLs pass unchanged.
+- Cost: ordinary lists and tables triggered the second scan (four times the cost). The line join now needs
+  three key characters each side and a digit, "-" or "_" in them. My first version of that gate backtracked
+  quadratically (37 s on a 200,000-character token, caught by the existing CPU test); it is anchored at the
+  start of a run now (18 to 43 ms on the hostile inputs; a 40KB table with 2000 held values, 74 ms).
+
 ## Weakest premises
 - The sandbox is measured on this Mac with this Claude Code version; a version that changes its sandbox
   settings would silently stop enforcing. The unit test pins the settings written, not the enforcement.
