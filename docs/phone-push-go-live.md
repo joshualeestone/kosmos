@@ -306,13 +306,12 @@ eval "$(secrets-map.sh env kosmos-android-upload-signing)"
   call for Josh.
 
 **No purchase inside the Android app** (kosmos #718, Liu Kang's decision of 2026-09-25, matching
-iOS; Josh can overrule it). Read on kosmos-relay branch `android-no-purchase-718` (kosmos-relay #121)
-the same day: inside the app the sign-in page shows no checkout, price or billing portal, and an
+iOS; Josh can overrule it). Read on kosmos-relay #121 the same day (merged as `3558f2e4`): inside the app the sign-in page shows no checkout, price or billing portal, and an
 unpaid account is told only "This account does not include Kosmos+ yet." The switch is
 `CAN_BUY_HERE` in `coordinator/src/signin.html`; it recognises the app by the referrer Chrome sends
 when it opens the app (`android-app://io.kosmos.app/`). That Chrome sends it is reasoned from
 Chrome's documented behaviour, not yet seen on a phone.
-- **Not live yet:** it takes that PR merging AND the next coordinator deploy [Josh, a production
+- **Not live yet:** it is merged but takes the next coordinator deploy [Josh, a production
   change], like the assetlinks route above. Every phone check below waits for that deploy; to
   confirm it shipped, the `build` in `curl -s https://coordinator.kosmosplus.com/v1/meta` must be
   #121's merge commit or later.
@@ -331,25 +330,28 @@ Chrome's documented behaviour, not yet seen on a phone.
   2. sign in with a paid account and confirm the signed-in home has no billing section;
   3. open sign-in in a NEW Chrome tab (not the app's "Open in Chrome", which carries the app's
      memory into that tab) and confirm the pay step does appear.
-  If 1 or 2 fails, the app would sell inside Play: do not upload; report on #718 [fleet].
+  If 1 or 2 fails, the app would sell inside Play: do not upload; report on #718 [fleet]. If 3
+  fails, plain Chrome has lost the pay step, which breaks sign-up on the public website: report on
+  #718 at once [fleet]; the fix or a revert of #121 is Josh's call [Josh].
 - **Background-return check, once, on either build** [fleet, with a person holding a phone]: sign
   in with an unpaid account, leave the app in the background for a long while, return, and move to
   another page; confirm no pay step or price appears. The app is remembered only for the life of its
   tab, so a phone that reclaims Chrome's memory could bring the pay step back until the app is next
   opened fresh. There is no reliable way to force that, so a pass here is weak evidence. A failure
-  is reported on #718 [fleet]; the ruling before the production release is Josh's [Josh]. It does
-  not stop Internal testing.
+  is reported on #718 [fleet] and needs a ruling before the production release [Josh]. It does not
+  stop Internal testing.
 - **Play-install check, after the Internal testing upload, gates this step** [fleet, with a person
   holding a phone]. Checks 1 to 3 on the app installed from Play. A Play install is signed with
   Play's app-signing key, which assetlinks.json did not list on 2026-09-25, so until that key is
   added it opens with a browser bar, and whether Chrome sends the same referrer that way is not
   confirmed. A sideload passing does not prove it. If 1 or 2 fails, the Internal testing build sells
-  inside Play: report on #718 [fleet]; whether testers keep that build is Josh's call [Josh], and
-  it must not go further.
+  inside Play: report on #718 [fleet]; whether testers keep that build is decided [Josh], and it
+  must not go further. If 3 fails, as in the sideload check.
 - **Release check, gates Step 10 only** [fleet, with a person holding a phone]. Once Play's
   app-signing fingerprint is in assetlinks.json and deployed (above), a Play install opens as the
   verified full-screen app, which is what real users get and a different way of opening from the
-  check before. Repeat checks 1 to 3 on a Play install at that point.
+  check before. Repeat checks 1 to 3 on a Play install at that point. If any fails, the production
+  release does not start: report on #718 [fleet]; what happens next is decided [Josh].
 
 **Upload:** to Play's Internal testing track [Josh, or whoever he gives Console access].
 
