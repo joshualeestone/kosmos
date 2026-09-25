@@ -215,13 +215,14 @@ const waitFor = (page, fn, ms = 6000) => page.waitForFunction(fn, null, { timeou
     await page.evaluate(() => { ASB.nextFind = 0; });
     chk(await waitFor(page, () => ASB.guide === 'josh' && /\/api\/agent\/josh\/avatar/.test(document.querySelector('#asb img').getAttribute('src') || ''), 20000), 'H8 once a guide exists the bubble moves to it, with its picture');
     await page.click('#asb');
+    /* Read before anything is sent to the guide: a send clears the line on its own, which would hide a missing clear. */
+    chk(!/questions? left today/.test((await state(page)).msg), 'H8 the guide\'s chat opens without the hosted allowance line', (await state(page)).msg);
     const before8 = asked.length;
     await page.fill('#asp-say', 'Hello guide');
     await page.keyboard.press('Enter');
     chk(await waitFor(page, () => document.getElementById('asp-say').value === ''), 'H8 precondition: the question was sent');
     chk(asked.length === before8 && threadPosts.some((u) => /\/api\/agent\/josh\/thread$/.test(u)), 'H8 and it went to the guide\'s thread, not the hosted route', JSON.stringify({ asked: asked.length - before8, threadPosts }));
     chk((await state(page)).note === 'An AI that knows Kosmos, in Josh\'s voice. Josh isn\'t typing live.', 'H8 the note is the guide\'s own again');
-    chk(!/questions? left today/.test((await state(page)).msg), 'H8 and the hosted allowance line is gone', (await state(page)).msg);
     await page.click('#asp-fold');
 
     // H9: an app whose connector predates the assistant (501): it says so once, then steps aside.
