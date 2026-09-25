@@ -123,3 +123,55 @@ test('#3769 a long reply cannot make the mask backtrack (it runs on the board\'s
     assert.ok(ms < 3000, `mask used ${Math.round(ms)}ms of CPU on a ${big.length}-char input`);
   }
 });
+
+/* ---- follow-up: Ice Cream Kitty's review ----------------------------------------------------------- */
+
+const { WITHHELD, setKnownSecrets } = require('./secretmask');
+
+test('#3769 a key the board holds is masked however it is written: raw, hex, base64 (padded or not), base64url', () => {
+  const held = j('sk-ant-', 'api03-', 'HeldByTheBoard0123456789abcdefXYZ');
+  const tok = '9f8e7d6c5b4a39f8e7d6c5b4a3aa11bb22cc33dd';
+  setKnownSecrets([held, tok, 'shortvalue']);
+  try {
+    const b = Buffer.from(held);
+    for (const form of [held, b.toString('hex'), b.toString('base64'), b.toString('base64').replace(/=+$/, ''), b.toString('base64url'), tok, Buffer.from(tok).toString('base64')]) {
+      const out = mask(`here: ${form} ok`);
+      assert.equal(out.text, `here: ${MASK} ok`, `a held key written as ${form.slice(0, 12)}... was shown: ${out.text}`);
+    }
+    assert.equal(mask('a shortvalue stays').text, 'a shortvalue stays', 'a value under 12 characters was treated as a key');
+  } finally { setKnownSecrets([]); }
+  assert.equal(mask(`here: ${tok} ok`).text, `here: ${tok} ok`, 'CONTROL: once the board holds nothing, a lowercase hex token is ordinary text again');
+});
+
+test('#3769 a key split across lines, spaced out, or hidden with zero-width characters is withheld or masked', () => {
+  const held = j('sk-ant-', 'api03-', 'HeldByTheBoard0123456789abcdefXYZ');
+  const shaped = j('sk-ant-', 'api03-', 'NeverHeldButShaped0123456789abcXYZ');
+  setKnownSecrets([held]);
+  try {
+    assert.equal(mask(`part one:\n${held.slice(0, 20)}\n${held.slice(20)}`).text, WITHHELD, 'a held key split across lines was shown');
+    assert.equal(mask(`part one:\n${shaped.slice(0, 25)}\n${shaped.slice(25)}`).text, WITHHELD, 'a key-shaped value split across lines was shown');
+    assert.equal(mask(`spaced: ${held.split('').join(' ')}`).text, WITHHELD, 'a spaced-out key was shown');
+    assert.equal(mask(`zw: ${held.slice(0, 10)}​${held.slice(10)}`).text, `zw: ${MASK}`, 'a zero-width character hid a key');
+  } finally { setKnownSecrets([]); }
+});
+
+test('#3769 a JSON Web Token is masked whole, its short middle part included', () => {
+  const jwt = j('eyJhbGciOiJIUzI1NiJ9', '.eyJzdWIiOiIxMjM0NTY3ODkwIn0', '.SflKxwRJSMeKKF2QT4fwpMeJf36POk6yJV_adQssw5c');
+  assert.equal(mask(`Bearer ${jwt}`).text, `Bearer ${MASK}`);
+});
+
+test('#3769 ordinary answers over several lines pass untouched by the split check', () => {
+  for (const t of [
+    'Step 1: open Settings\nStep 2: choose AI Models\nThen click Add a provider and paste your key there.',
+    'The model is claude-sonnet-5.\nIt runs in the background\nand you can stop it any time.',
+    'Use sk-ant keys\nfrom Settings, AI Models.',
+    'Your files are in\n/Users/me/Library/Application Support/Kosmos\nunder agents.',
+  ]) assert.equal(mask(t).text, t, t);
+});
+
+test('#3769 the split check cannot make a long reply backtrack either', () => {
+  for (const big of ['a '.repeat(150000), 'x\n'.repeat(150000), 'sk-ant-' + 'a\n'.repeat(100000)]) {
+    const ms = cpuMillisecondsOf(() => mask(big));
+    assert.ok(ms < 3000, `mask used ${Math.round(ms)}ms of CPU on a ${big.length}-character input`);
+  }
+});

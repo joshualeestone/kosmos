@@ -37,7 +37,46 @@ const PATTERNS = [
   { kind: 'slack_token', re: /\bxox[abprs]-[A-Za-z0-9-]{10,300}/g },
   { kind: 'stripe_key', re: /\b(?:sk|rk)_(?:live|test)_[A-Za-z0-9]{10,300}/g },
   { kind: 'gitlab_token', re: /\bglpat-[A-Za-z0-9_-]{20,300}/g },
+  /* A JSON Web Token, all three parts: the middle one is short enough to slip past the catch-all. */
+  { kind: 'jwt', re: /\beyJ[A-Za-z0-9_-]{8,2000}\.[A-Za-z0-9_-]{4,4000}\.[A-Za-z0-9_-]{8,2000}/g },
 ];
+
+/*
+ * Mask by VALUE (Ice Cream Kitty's review): the board knows the real keys it holds (the AI Models keys,
+ * its secrets folder, its own token) and hands them here with setKnownSecrets. Every occurrence is
+ * masked, also written as hex, base64 or base64url, so "show it as hex" does not get one out. Shape
+ * patterns stay as the net for keys the board never held. Values under 12 characters are ignored, so
+ * a short word can never be taken for a key. The values live only in this process's memory.
+ */
+let knownForms = [];
+function setKnownSecrets(values) {
+  const forms = new Set();
+  for (const v of Array.isArray(values) ? values : []) {
+    if (typeof v !== 'string') continue;
+    const k = v.trim();
+    if (k.length < 12) continue;
+    const buf = Buffer.from(k, 'utf8');
+    for (const f of [k, buf.toString('hex'), buf.toString('base64'), buf.toString('base64').replace(/=+$/, ''), buf.toString('base64url')]) forms.add(f);
+  }
+  /* Longest first, so a value inside a longer one's encoding is not half-replaced. */
+  knownForms = [...forms].sort((a, b) => b.length - a.length);
+}
+function knownSecretCount() { return knownForms.length; }
+
+/* Zero-width and joining characters have no place in an answer and are the cheapest way to hide a key
+   from a pattern, so they are removed before anything is matched. */
+const ZERO_WIDTH = /[\u200B-\u200D\u2060\uFEFF\u00AD]/g;
+
+/* A copy with the tricks undone (review): a key broken across lines, or spelled with a space between
+   each character. It is only ever SEARCHED, never shown: if a known value or a named key shape is in
+   it and was not in the text itself, the key's place in the text cannot be pinned down, so the whole
+   message is withheld. */
+function normalisedCopy(text) {
+  return text
+    .replace(/([A-Za-z0-9_+/=-])[ \t]*\r?\n[ \t>|*`]*(?=[A-Za-z0-9_+/=-])/g, '$1')
+    .replace(/(?:\S ){8,}\S/g, (run) => (run.split(' ').every((c) => c.length === 1) ? run.replace(/ /g, '') : run));
+}
+const WITHHELD = `${'••••'} (Kosmos removed a password or key from this message.)`;
 
 /* A sign-in inside a link, scheme://user:password@host: the password is masked, the rest kept. */
 const URL_CREDENTIAL = /\b([a-z][a-z0-9+.-]{1,20}:\/\/[^\s:@/]{1,100}:)([^\s@/]{1,200})@/gi;
@@ -96,7 +135,34 @@ function mask(text) {
   if (typeof text !== 'string' || !text) return { text, fired: [] };
   const counts = new Map();
   const hit = (kind) => { counts.set(kind, (counts.get(kind) || 0) + 1); };
-  let out = text;
+  const report = () => [...counts].map(([kind, count]) => ({ kind, count }));
+  const original = text.replace(ZERO_WIDTH, '');
+  /* The tricks first, on the ORIGINAL text: a known value, or a key shape, that exists only once a split
+     or a spacing is undone withholds the whole message. Checked before masking, because masking the
+     first half of a split key would hide the evidence and leave the second half showing. */
+  const norm = normalisedCopy(original);
+  if (norm !== original) {
+    /* A match in the copy counts only if no match of the same pattern in the text itself is the same
+       characters once whitespace is set aside: a private key block legitimately spans lines (the same key
+       either way), while a split key's first line matches only its first half. */
+    const bare = (x) => x.replace(/\s+/g, '');
+    let sneaky = knownForms.some((f) => norm.includes(f) && !original.includes(f));
+    for (const { re } of PATTERNS) {
+      if (sneaky) break;
+      re.lastIndex = 0;
+      const inText = new Set([...original.matchAll(re)].map((m) => bare(m[0])));
+      re.lastIndex = 0;
+      for (const m of norm.matchAll(re)) { if (!inText.has(bare(m[0]))) { sneaky = true; break; } }
+      re.lastIndex = 0;
+    }
+    if (sneaky) { hit('split_secret'); return { text: WITHHELD, fired: report() }; }
+  }
+  let out = original;
+  for (const f of knownForms) {
+    if (!out.includes(f)) continue;
+    out = out.split(f).join(MASK);
+    hit('known_secret');
+  }
   for (const { kind, re } of PATTERNS) {
     out = out.replace(re, () => { hit(kind); return MASK; });
   }
@@ -128,7 +194,7 @@ function mask(text) {
     hit('long_token');
     return MASK;
   });
-  return { text: out, fired: [...counts].map(([kind, count]) => ({ kind, count })) };
+  return { text: out, fired: report() };
 }
 
 /* The one-line log for a mask that fired: kinds and counts, never the value. */
@@ -136,4 +202,4 @@ function describeFired(fired) {
   return fired.map((f) => `${f.kind} x${f.count}`).join(', ');
 }
 
-module.exports = { MASK, mask, describeFired };
+module.exports = { MASK, WITHHELD, mask, describeFired, setKnownSecrets, knownSecretCount };
