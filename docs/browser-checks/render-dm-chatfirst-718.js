@@ -12,8 +12,12 @@
  *   - the composer's controls and the section tabs meet the 44px tap minimum;
  *   - Profile is one tap away: its tab is on screen and opens the Profile section;
  *   - no sideways page scroll;
- *   - and at 800 and 1280 the Talk section keeps its stacked or side-by-side layout: the page
- *     is not locked to the screen height below 56rem, and the tiles keep their box layout.
+ *   - while typing the thread still shows some conversation, focus on Post does not bring the
+ *     header back, and searching keeps the search row while the rest steps aside;
+ *   - and at 800 and 1280 the Talk section keeps its stacked or side-by-side layout: the body is
+ *     not locked, the 800px page still scrolls, and the tiles keep their box layout.
+ *   Not covered: pinch zoom (the listener multiplies by visualViewport.scale; Playwright cannot
+ *   drive a pinch), and iOS panning the layout viewport on focus (on the iOS simulator list).
  *
  * Harness posture mirrors render-dm-phone-718.js: file://, the thread poll answered from a
  * fixture, the agent opened through openDetail. No board and no real conversation are involved.
@@ -38,6 +42,8 @@ const chk = (ok, label, extra) => {
 const SIMULATED_KEYBOARD_PX = 300;
 /** Apple's and Google's minimum comfortable tap target. */
 const MIN_TAP_PX = 44;
+/** While typing, the thread must still show at least a line or two of conversation. */
+const MIN_THREAD_WHILE_TYPING_PX = 40;
 
 const at = (i) => new Date(Date.now() - (60 - i) * 60e3).toISOString();
 const FX = {
@@ -79,7 +85,7 @@ async function open(browser, w, h, theme) {
 
 /* Runs in the page: rects of what a person needs, and whether the page itself scrolls. */
 function measure() {
-  const R = (s) => { const e = document.querySelector(s); if (!e) return null; const r = e.getBoundingClientRect(); return { top: r.top, bottom: r.bottom, w: r.width, h: r.height, shown: r.width > 0 && r.height > 0 }; };
+  const R = (s) => { const e = document.querySelector(s); if (!e) return null; const r = e.getBoundingClientRect(); return { top: r.top, bottom: r.bottom, left: r.left, right: r.right, w: r.width, h: r.height, shown: r.width > 0 && r.height > 0 }; };
   const th = document.getElementById('d-dmthread');
   return {
     vh: window.innerHeight, vw: document.documentElement.clientWidth,
@@ -89,6 +95,10 @@ function measure() {
     threadScrolls: th.scrollHeight > th.clientHeight, threadH: th.clientHeight,
     head: R('.dhead'), label: R('#d-talk-label'),
     tabsRow: getComputedStyle(document.getElementById('d-nav')).flexDirection,
+    bodyOverflow: getComputedStyle(document.body).overflowY,
+    search: R('#d-talk-search'), conn: R('#conn'),
+    bodyPadLeft: parseFloat(getComputedStyle(document.body).paddingLeft),
+    boxLeft: R('#d-talk-box') && R('#d-talk-box').left,
   };
 }
 
@@ -105,9 +115,10 @@ function measure() {
         chk(m.box && m.box.bottom <= m.vh && m.box.top >= 0, `${t} the composer is on screen`, JSON.stringify(m.box));
         chk(m.send && m.send.bottom <= m.vh && m.send.h >= MIN_TAP_PX, `${t} Post is on screen and at least ${MIN_TAP_PX}px tall`, JSON.stringify(m.send));
         chk(m.attach && m.attach.w >= MIN_TAP_PX && m.attach.h >= MIN_TAP_PX, `${t} the add-a-file button is at least ${MIN_TAP_PX}px`, JSON.stringify(m.attach));
-        chk(m.profile && m.profile.shown && m.profile.bottom <= m.vh && m.profile.h >= MIN_TAP_PX, `${t} the Profile tab is on screen and at least ${MIN_TAP_PX}px`, JSON.stringify(m.profile));
+        chk(m.profile && m.profile.shown && m.profile.bottom <= m.vh && m.profile.left >= 0 && m.profile.right <= m.vw && m.profile.h >= MIN_TAP_PX, `${t} the Profile tab is on screen and at least ${MIN_TAP_PX}px`, JSON.stringify(m.profile));
+        chk(Math.abs(m.boxLeft) <= 0.5, `${t} the conversation box runs edge to edge (its negative margin matches the page gutter)`, `left=${m.boxLeft} bodyPad=${m.bodyPadLeft}`);
         chk(m.tabsRow === 'row', `${t} the section tabs are one row`, m.tabsRow);
-        chk(!(m.label && m.label.shown), `${t} the caption that repeats the agent's name is not shown`);
+        chk(!(m.label && m.label.w > 2 && m.label.h > 2), `${t} the caption that repeats the agent's name is not shown (kept for screen readers)`, JSON.stringify(m.label));
         chk(m.docW <= m.vw, `${t} no sideways page scroll`, `docW=${m.docW} vw=${m.vw}`);
 
         // Simulated keyboard: focus the composer, shrink the visible height the way the page's
@@ -118,6 +129,20 @@ function measure() {
         const limit = k.vh - SIMULATED_KEYBOARD_PX;
         chk(k.box && k.box.bottom <= limit + 1 && k.box.top >= 0, `${t} with the keyboard up the composer sits above it`, `bottom=${k.box && Math.round(k.box.bottom)} limit=${limit}`);
         chk(k.head && !k.head.shown, `${t} while typing the header steps aside`);
+        chk(k.threadH >= MIN_THREAD_WHILE_TYPING_PX, `${t} while typing the thread still shows conversation`, `threadH=${k.threadH}`);
+        // Post takes focus (it does on Android, and sendTalk hands focus back to it): the header
+        // must not flash back while focus is anywhere in the composer.
+        await page.focus('#d-send');
+        const kp = await page.evaluate(measure);
+        chk(kp.head && !kp.head.shown, `${t} with focus on Post the header stays aside`);
+        // Searching opens the keyboard too: the search row stays, the rest steps aside. A person
+        // leaves the composer first (the search row is aside while it has focus).
+        await page.evaluate(() => document.activeElement.blur());
+        await page.focus('#d-talk-search');
+        const searchFocused = await page.evaluate(() => document.activeElement && document.activeElement.id === 'd-talk-search');
+        chk(searchFocused, `${t} the search box can take focus`);
+        const ks = await page.evaluate(measure);
+        chk(ks.search && ks.search.shown && ks.search.bottom <= limit && ks.threadH >= MIN_THREAD_WHILE_TYPING_PX, `${t} searching with the keyboard up keeps the search box and some thread visible`, `search=${ks.search && Math.round(ks.search.bottom)} threadH=${ks.threadH} limit=${limit}`);
 
         // Leave the composer (a person dismisses the keyboard), then Profile is one tap.
         await page.evaluate(() => { document.activeElement.blur(); document.documentElement.style.removeProperty('--kosmos-visible-height'); });
@@ -132,6 +157,8 @@ function measure() {
         const t = `[${eng} ${w}x${h}]`;
         const m = await page.evaluate(measure);
         chk(m.tabsRow === 'column', `${t} the section tiles keep their stacked box layout`, m.tabsRow);
+        chk(m.bodyOverflow !== 'hidden', `${t} the page is not locked to the screen`, m.bodyOverflow);
+        if (w < 900) chk(m.docH > m.vh, `${t} the stacked tablet page still scrolls`, `docH=${m.docH} vh=${m.vh}`);
         chk(m.label && m.label.shown, `${t} the "Direct Message to" caption still shows`);
         chk(m.dm && m.dm.h > 60, `${t} the Direct Message tile keeps its large size`, JSON.stringify(m.dm));
         chk(errs.length === 0, `${t} no page errors`, errs.join(' | '));
