@@ -79,7 +79,7 @@ const WRONG_WORLD_STATUS = 421;
 const USAGE = {
   msg: 'Usage: kosmos msg [--stdin] <agent> <what you want to tell them>  (--stdin: read the message from stdin, so backticks and $ arrive as written)',
   reply: 'Usage: kosmos reply <what you want to tell them>   (up to 2000 characters; longer is refused, not truncated)',
-  post: 'Usage: kosmos post [--no-reply] [--in-reply-to <id>] [--stdin] <project-id> <what you want to tell the room>  (--stdin: read the message from stdin, so backticks and $ arrive as written; text only, file attachments are not supported yet, kosmos#1955)',
+  post: 'Usage: kosmos post [--no-reply] [--in-reply-to <id>] [--new] [--stdin] <project-id> <what you want to tell the room>  (--stdin: read the message from stdin, so backticks and $ arrive as written; text only, file attachments are not supported yet, kosmos#1955)',
   react: 'Usage: kosmos react <project-id> <post-id> <emoji>   (the post id is in brackets before each post in kosmos room, e.g. [m3])',
   report: 'Usage: kosmos report <started|working|idle|needs_you|blocked|stopped> [--on <what>] [--owner <who>] [--until <when>] [--project <project-id>] [--auto] [what you want to say about it]\n  kosmos report show     (what the board has for you now; kosmos report status is the same)',
   whoami: 'Usage: kosmos whoami   (asks the board which agent you are and which account you are on)',
@@ -346,9 +346,13 @@ async function verbPost(ctx, args) {
   let noReply = false;
   let inReplyTo = '';
   let fromStdin = false;
+  // #3224: --new says this post is deliberately new for this room, so the board does not
+  // hold it back to ask about a question the agent owes the person in another room.
+  let newPost = false;
   for (;;) {
     if (args[0] === '--no-reply') { noReply = true; args.shift(); continue; }
     if (args[0] === '--stdin') { fromStdin = true; args.shift(); continue; }
+    if (args[0] === '--new') { newPost = true; args.shift(); continue; }
     if (args[0] === '--in-reply-to') {
       args.shift();
       inReplyTo = args.shift() || '';
@@ -382,6 +386,7 @@ async function verbPost(ctx, args) {
   const body = { project, text, from_pane: '' };
   if (noReply) body.reply_expected = false;
   if (inReplyTo) body.in_reply_to = inReplyTo;
+  if (newPost) body.new_post = true;
   /* #2909: a piped message may have no other copy, so a failure after the read keeps it in a
      private file and names the path. A no-op without --stdin. */
   const keepPiped = () => { if (fromStdin) keepPipedCopy(ctx, text); };

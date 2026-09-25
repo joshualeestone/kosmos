@@ -1056,7 +1056,7 @@ function _roomMembers(members) {
   return { members: members.filter((m) => !gone.has(clean(m))), ok: true };
 }
 
-function sendPost({ fromPane, sender: resolvedSender, project, projectName, text, operator, attachment, attachments, trailer, replyExpected }, roster, members) {
+function sendPost({ fromPane, sender: resolvedSender, project, projectName, text, operator, attachment, attachments, trailer, replyExpected, askWhichRoom, projectNameOf }, roster, members) {
   const at = new Date().toISOString();
   /* The OPERATOR path: no pane to derive (the post comes off the room's
      composer through the server, which is the operator's own surface),
@@ -1156,6 +1156,31 @@ function sendPost({ fromPane, sender: resolvedSender, project, projectName, text
      agents, not the person. */
   if (operator !== true && !members.includes(from)) {
     return refuse('you are not on that project, so this room is not yours to post into');
+  }
+  /* #3224, the proactive half: the caller (live /api/post, never the outbox drain,
+     whose author is not there to answer) asks for this on a post that is not a reply.
+     If the agent owes the person an answer in another room, ask which room it meant
+     rather than post. NOT through refuse(): that logs a refused row the room shows,
+     and this is a question to the agent, not a refusal of the room. No double quotes
+     or backticks in the sentence: the bash CLI reads `because` with a sed that stops
+     at the first quote. */
+  if (askWhichRoom === true && operator !== true) {
+    const owed = owedElsewhere(from, projectId, Date.parse(at));
+    if (owed) {
+      const safe = (v) => (v && /^[A-Za-z0-9._ -]+$/.test(v) && !v.includes(']') ? v : null);
+      let otherName = null;
+      try { otherName = safe(typeof projectNameOf === 'function' ? projectNameOf(owed.project) : null); } catch { otherName = null; }
+      const other = otherName || owed.project;
+      return {
+        state: chat.DELIVERY.COULD_NOT,
+        code: 'which_room',
+        because: 'you have an unanswered question from the person in ' + other + ' (' + owed.id + '), and this post is for '
+          + shownProject + '. If it answers that question, post it there: kosmos post --in-reply-to ' + owed.id + ' '
+          + owed.project + ' <your text>. If it is a new post for ' + shownProject + ', send it again with --new: kosmos post --new '
+          + projectId + ' <your text>',
+        id: null, at, outcomes: null,
+      };
+    }
   }
   const recipients = operator === true ? members.slice() : members.filter((m) => m !== from);
   /**
@@ -2084,6 +2109,59 @@ function reopenRoom(project, at) {
   return { ok: true, at: when };
 }
 
+/* #3224, the proactive half: a post that is NOT a reply (no in_reply_to), sent by an
+ * agent that owes the person an answer in a DIFFERENT room, is the likeliest shape of
+ * the misroute Josh reported. This finds that owed question, so /api/post can ask the
+ * agent which room it meant instead of posting blind. Returns { id, project } for the
+ * most recent owed question, or null when there is nothing to ask about.
+ *
+ * "Owed" is the same test the #185 nudge (`unanswered`) and the daily misroute count
+ * use: an operator post that mentioned this agent and reached its pane (anything but
+ * could_not), with no room post from the agent in that project since. Two bounds keep
+ * the cost of a wrong guess to one rerun, and rarely:
+ * - only questions from the last WHICH_ROOM_WINDOW_MS count, so an ask the agent
+ *   ignored yesterday does not hold every post it makes today;
+ * - if the agent ALSO owes an answer in the target room, posting there is ordinary
+ *   and nothing is asked.
+ * An unreadable record returns null (post as before): this is a question to the
+ * agent, not a gate, and sendPost's own writes meet the same record. */
+let WHICH_ROOM_WINDOW_MS = 60 * 60 * 1000;
+function setWhichRoomWindowForTests(ms) {
+  WHICH_ROOM_WINDOW_MS = Number.isFinite(ms) ? ms : 60 * 60 * 1000;
+}
+function owedElsewhere(agent, targetProject, now) {
+  const who = String(agent == null ? '' : agent);
+  const target = String(targetProject == null ? '' : targetProject);
+  if (!who || !target) return null;
+  const at = Number.isFinite(now) ? now : Date.now();
+  const rec = record();
+  if (!rec || rec.ok !== true || !Array.isArray(rec.rows)) return null;
+  const asks = [];
+  const lastPostIn = new Map();   // project -> latest room post time by this agent
+  for (const m of rec.rows) {
+    if (!m || m.kind !== 'post' || !m.project) continue;
+    const t = Date.parse(m.at);
+    if (!Number.isFinite(t)) continue;
+    if (m.operator === true) {
+      if (!Array.isArray(m.mentioned) || !m.mentioned.includes(who)) continue;
+      const oc = m.outcomes && m.outcomes[who];
+      if (!oc || oc === chat.DELIVERY.COULD_NOT) continue;
+      const age = at - t;
+      if (age < 0 || age > WHICH_ROOM_WINDOW_MS) continue;
+      asks.push({ id: m.id, project: m.project, t });
+    } else if (m.from === who) {
+      /* operator !== true, as in `unanswered`: an agent named "you" must not find
+         operator posts standing in as its own answers. */
+      if (!(lastPostIn.get(m.project) >= t)) lastPostIn.set(m.project, t);
+    }
+  }
+  /* >= as in `unanswered`: an answer in the same millisecond as the ask clears it. */
+  const owed = asks.filter((a) => !(lastPostIn.get(a.project) >= a.t));
+  if (!owed.length || owed.some((a) => a.project === target)) return null;
+  const latest = owed.reduce((x, y) => (y.t >= x.t ? y : x));
+  return latest.id ? { id: String(latest.id), project: latest.project } : null;
+}
+
 /* #3224: the project a POST belongs to, by its id, or null if no such post is in
  * the record. This is the NON-CIRCULAR oracle a reply binds to: the project of the
  * message being answered is a fact recorded when that message was posted (appendLog
@@ -2116,7 +2194,7 @@ function projectOfPost(id) {
 module.exports = {
   setSenderTextFilter, filteredText, // #3769
   quotedSegments, quoteWorthy, QUOTE_MIN_CHARS, QUOTE_MIN_WORDS,
-  projectOfPost,
+  projectOfPost, owedElsewhere, setWhichRoomWindowForTests,
   react, reactionsFor, normalizeReactionEmoji,
   operatorDirect, operatorNowLabel, validTimeZone, roomClock,
   START, END, blockBody,
