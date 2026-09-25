@@ -63,7 +63,8 @@
   --tip-dim: rgba(20,22,26,.28);   /* #3737: the tour's dim, one value for the layer and the gutter */
   /* #3132 (Josh, 6.68): the consolidated link size, defined once so the archived
      toggle (#pj-arch-toggle) and the Files/Tasks "View All" doors (.pj-viewall)
-     are guaranteed equal by construction, not by two matching literals
+     are guaranteed equal by construction in the consolidated view (#3756 also
+     gives the tab view's doors this size), not by two matching literals
      (convention #5 -- two derivations of one fact). Defined on :root, not on the
      consolidated body, because #pj-arch-toggle's consolidated rule applies at all
      widths while the consolidated grid is gated to windows 960px and wider, so a
@@ -3355,11 +3356,12 @@ html[data-layout="consolidated"] body.consolidated #panel-projects > #panel-task
    `.linkish` (WCAG 2.5.8) is deliberately KEPT -- only the text shrinks. */
 html[data-layout="consolidated"] body.consolidated #pj-arch-toggle { font-size: var(--consolidated-link-size); font-weight: 500; text-decoration: none; }
 /* #3132 (Josh, 6.68): the Files/Tasks "View All" doors should read at the same
-   size as the "Archived (X)" link on Projects. Both are .linkish (.875rem base),
-   so they already match in the tab view; only consolidated shrinks the Archived
-   toggle to .6875rem, so match the doors here. Scoped to consolidated so the tab
-   view keeps its existing (already-equal) .875rem. Both doors share .pj-viewall,
-   so they stay consistent with each other as well as with Archived. */
+   size as the "Archived (X)" link on Projects. Both are .linkish (.875rem base);
+   consolidated shrinks the Archived toggle to .6875rem, so match the doors here.
+   #3756 (Josh, 0.6.94) supersedes this for the TAB view: its doors now take the
+   consolidated link size too (they sit in the header row like the consolidated
+   view's), so there they no longer equal the tab view's .875rem Archived toggle,
+   which is on another screen. */
 html[data-layout="consolidated"] body.consolidated .pj-viewall { font-size: var(--consolidated-link-size); }
 /* ⚠️ `color` is explicit, and it is the fix for a real dark-mode contrast
    failure. A <button> does NOT inherit the page's colour -- it uses the UA's
@@ -5086,6 +5088,25 @@ body:not(.consolidated) .pjcard-members > .pj-addmem, body:not(.consolidated) #p
 body:not(.consolidated) .pjcard-members > .pj-addmem > span, body:not(.consolidated) #pj-tasks-field > #pj-newtask > span { font: 600 15px/1 var(--font-ui); }
 body:not(.consolidated) .pjcard-members > .pj-addmem:hover, body:not(.consolidated) #pj-tasks-field > #pj-newtask:hover { color: var(--k-ink); }
 body:not(.consolidated) .pjcard-members > .pj-members, body:not(.consolidated) #pj-tasks-field > .tkcards { margin-top: 6px; }
+/* #3756 (Josh, 0.6.94: "let's make tasks and files work just like they do on the consolidated
+   view, where we have the header"): in the tab view too, the Tasks and Files headers are the title
+   on the left and, on the same line at the right, a small View All (and Tasks' +), not View All
+   centred on a second line. Same tracks, sizes and order as the consolidated header (#3218, #3304):
+   Tasks is title | View All | +, Files is title | View All, and the doors take the consolidated link
+   size. The consolidated rules are NOT unscoped to serve both: they sit in its 960px media block
+   among higher-specificity catch-alls (`> * { grid-column: 1 / -1 }`) that would override a shared
+   rule the moment its consolidated twin was removed. Instead render-consolidated-layouts.js measures
+   the two headers against each other, so a change to either one that makes them differ goes red.
+   This supersedes #3132 for the tab view: its doors are now the consolidated link size, not .875rem. */
+body:not(.consolidated) .pj3 #pj-tasks-field { grid-template-columns: minmax(0, 1fr) auto auto; }
+body:not(.consolidated) .pj3 #pj-tasks-field > #pj-newtask { grid-column: 3; margin: 0; }
+body:not(.consolidated) .pj3 #pj-tasks-field > #pj-alltasks, body:not(.consolidated) .pj3 .pjcard-files > #pj-docs-all { grid-column: 2; grid-row: 1; margin: 0; width: auto; justify-self: end; align-self: center; font-size: var(--consolidated-link-size); }
+body:not(.consolidated) .pj3 .pjcard-files { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; column-gap: 8px; }
+body:not(.consolidated) .pj3 .pjcard-files > * { grid-column: 1 / -1; }
+body:not(.consolidated) .pj3 .pjcard-files > .dlab { grid-column: 1; grid-row: 1; margin-bottom: 0; }
+body:not(.consolidated) .pj3 .pjcard-files > #pj-docs-msg { grid-row: 2; }
+body:not(.consolidated) .pj3 .pjcard-files > #pj-docs-msg:empty { min-height: 0; margin: 0; }
+body:not(.consolidated) .pj3 .pjcard-files > .pj-docs { grid-row: 3; }
 /* Josh, 2026-09-10 (#2711 item 6): the dialog area is white in the tab view,
    not the super-light gray. The .pjmid column is already --k-surface, so the
    thread joins it as one flat white area. Consolidated keeps its own thread
@@ -12908,8 +12929,8 @@ window.kosmosMeasureScrollbarWidth();
         <h3 class="dlab">Files</h3>
         <!-- #3218: View-All sits right after the header (before the list) so keyboard focus reaches
              it in reading order. The consolidated view grids it into the header row far-right; being
-             DOM-early keeps tab order matching that visual position (WCAG 2.4.3). The tab view then
-             shows it just under the header rather than at the bottom. -->
+             DOM-early keeps tab order matching that visual position (WCAG 2.4.3). Since #3756 the tab
+             view grids it into the header row at the right too. -->
         <!-- ⚠️ "Show them all in Finder", NOT "see all files". Josh asked for a
              view-all that opens a SCREEN listing everything. That screen is a
              later slice; this control does something real and says exactly what
@@ -12920,8 +12941,8 @@ window.kosmosMeasureScrollbarWidth();
         <button class="linkish pj-viewall" id="pj-docs-all" type="button" hidden>View All</button>
         <!-- #3218: the message sits BEFORE the list in the DOM, matching its visual position (the
              consolidated Files grid places it in the row directly under the header, above the list),
-             so reading/tab order and visual order agree. In the tab view (no grid) it also reads as
-             an empty-state line above the list. -->
+             so reading/tab order and visual order agree. The tab view's Files card is the same header
+             grid since #3756 (message row 2, list row 3). -->
         <p class="fmsg" id="pj-docs-msg" aria-live="polite"></p>
         <div id="pj-docs" class="pj-docs"></div>
       </div>
@@ -13165,23 +13186,17 @@ window.kosmosMeasureScrollbarWidth();
          to scroll to find). -->
     <div class="field" id="pj-tasks-field">
       <h3 class="dlab">Tasks</h3>
-      <button class="btn" id="pj-newtask" type="button"><span aria-hidden="true">+</span> New task</button>
-      <!-- #3218 + #3304: the View-All door sits in the DOM right after the + control (before the
-           list), so keyboard focus reaches it in reading order. #3304 (Josh 2026-09-19) reordered the
-           consolidated header to Tasks(col 1) | View All(col 2) | +(col 3), so View All now sits to
-           the LEFT of the +, no longer top-right. NOTE (was a clean invariant, now a documented
-           tradeoff): the DOM keeps + before View All so the TAB view's vertical order (+ on top of
-           the header, View All just below) stays focus-clean; in the CONSOLIDATED view that same DOM
-           means focus reaches + then View All while the eye reads View All then +. A single DOM order
-           cannot match both views once #3304 flips the consolidated one, and these are two
-           independent header actions (add vs open-all) whose order is meaning-independent, so this
-           does not fail WCAG 2.4.3 (which targets order that changes meaning). In the tab view View
-           All still shows just under the header. -->
+      <!-- #3218 + #3304 + #3756: both views now draw the Tasks header the same way, TASKS | View All
+           | + (#3304 for the consolidated view, #3756 for the tab view), so the DOM puts View All
+           BEFORE the + and keyboard focus follows what the eye reads in both (WCAG 2.4.3). (Until
+           #3756 the tab view stacked + over View All and the DOM kept + first for it, a documented
+           mismatch in the consolidated view; one visual order ended that tradeoff.) -->
       <!-- The door: everything the five-cap column does not show (capped-off and
            finished tasks) is behind it. It opens the Tasks view scoped to this
            project (#3703; it opened its own all-tasks screen from #1382 until
            then, and revealed in place before that). -->
       <button class="linkish pj-viewall" id="pj-alltasks" type="button" hidden></button>
+      <button class="btn" id="pj-newtask" type="button"><span aria-hidden="true">+</span> New task</button>
       <div class="tkcards" id="pj-tasklist"></div>
     </div>
     </aside>
@@ -42664,7 +42679,8 @@ function paintProjectTasks(p) {
      derived from the rows it renders. */
   door.hidden = false;
   // Josh, 2026-09-10 (#2711 item 12): just "View All" (capital V and A),
-  // no "tasks", no arrow, centred and un-underlined via .pj-viewall.
+  // no "tasks", no arrow, un-underlined via .pj-viewall (in the header row at the right in both
+  // views since #3756; it was centred on its own line in the tab view before).
   door.textContent = 'View All';
 }
 
