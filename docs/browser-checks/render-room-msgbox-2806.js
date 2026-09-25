@@ -747,6 +747,17 @@ const now = () => new Date().toISOString();
         const small = fields.map((el) => ({ id: el.id || el.className || el.tagName, px: parseFloat(getComputedStyle(el).fontSize) })).filter((f) => f.px < 16);
         return { count: fields.length, small, hoverNone: matchMedia('(hover: none)').matches };
       });
+      // And at 16px nothing in those dialogs runs off the side at 375: each dialog shown, its
+      // fields and its own box must fit the screen, and the page must not scroll sideways.
+      const dlgFit = await phonePage.evaluate(() => ['nt-modal', 'am-modal'].map((id) => {
+        const m = document.getElementById(id); if (!m) return { id, error: 'missing' };
+        const was = m.hidden; m.hidden = false; m.removeAttribute('inert');
+        const over = [...m.querySelectorAll('input, select, textarea, button')].filter((el) => el.getBoundingClientRect().width > 0)
+          .filter((el) => { const r = el.getBoundingClientRect(); return r.left < -0.5 || r.right > innerWidth + 0.5; }).map((el) => el.id || el.className);
+        const res = { id, fields: m.querySelectorAll('input, select, textarea').length, over, pageScrolls: document.documentElement.scrollWidth > innerWidth + 1 };
+        m.hidden = was; return res;
+      }));
+      chk(dlgFit.every((d) => !d.error && d.fields >= 1 && d.over.length === 0 && !d.pageScrolls), `[phone/touch] at 16px the Tasks and add-member dialogs fit a 375 screen`, JSON.stringify(dlgFit));
       chk(!fonts.error && fonts.hoverNone && fonts.count >= 6 && fonts.small.length === 0, `[phone/touch] every field on the project page is at least 16px (no iOS zoom)`, JSON.stringify(fonts));
       // The first-visit project tip (#3574) must land ON SCREEN on a phone: its old anchor, Add
       // member, sits below the room there. Placed by the real tipPlace with the real TIPS entry.
