@@ -151,7 +151,7 @@ if grep -qE '^PUT kosmos-9\.9\.1-win-x64\.zip \| if-none-match=\*$' "$FAKE/.call
    && grep -qE '^PUT latest-win-staging\.json \| cache-control=no-cache$' "$FAKE/.calls"; then pass "staging sends If-None-Match on the new zip and no-cache on the sidecar and pointer"
 else fail "staging headers: $(cat "$FAKE/.calls")"; fi
 # The next step is printed with the sha left for Josh's message to supply.
-if grep -qF -- "-ApprovedSha <sha from his go>" "$TMP/out" && ! grep -F -- "-ApprovedSha $SHA_A" "$TMP/out" >/dev/null; then pass "staging does not hand out the sha to paste into the approval"
+if grep -qF -- "-ApprovedSha <sha from his go>" "$TMP/out" && ! grep -qF -- "-ApprovedSha $SHA_A" "$TMP/out"; then pass "staging does not hand out the sha to paste into the approval"
 else fail "staging next-step line: $(grep -F -- '-Promote' "$TMP/out")"; fi
 # A same-bytes re-run (the advice after an interrupted run) keeps the versioned zip cacheable.
 fake -Zip "$TMP/a.zip"; rc=$?
@@ -317,7 +317,7 @@ else fail "pre-pointer undo: rc=$rc $(undo_state) pinned=$(undo_pinned no && ech
 undo_setup; printf '{"someone":"else"}\n' > "$TMP/other.json"
 KOSMOS_PUBLISH_R2_FAKE_AFTER="PUT latest-win.json|kosmos-9.9.1-win-x64.zip|$TMP/b.zip
 PUT latest-win.json|latest-win.json|$TMP/other.json" promote; rc=$?
-if [ "$rc" -eq 1 ] && grep -qF "PUTTING latest-win.json BACK FAILED (412), SO PROD STILL NAMES" "$TMP/out" && grep -qF "left as written, to match" "$TMP/out" && cmp -s "$FAKE/kosmos-win-x64.zip" "$TMP/a.zip" && ! grep -qE '^PUT kosmos-win-x64\.zip(\.sha256)? .*(\| |;)if-match=' "$FAKE/.calls"; then pass "a pointer that cannot be put back leaves the alias matching it, and says prod still names the build"
+if [ "$rc" -eq 1 ] && grep -qF "PUTTING latest-win.json BACK FAILED (412), SO PROD STILL NAMES" "$TMP/out" && ! grep -qF "Prod was not left naming" "$TMP/out" && grep -qF "left as written, to match" "$TMP/out" && cmp -s "$FAKE/kosmos-win-x64.zip" "$TMP/a.zip" && ! awk '/^PUT latest-win\.json /{p=1; next} p && /^PUT kosmos-win-x64\.zip/{f=1} END{exit !f}' "$FAKE/.calls"; then pass "a pointer that cannot be put back leaves the alias matching it, and says prod still names the build"
 else fail "undo with a lost pointer: rc=$rc alias=$(cmp -s "$FAKE/kosmos-win-x64.zip" "$TMP/a.zip" && echo new || echo CHANGED) $(tail -1 "$TMP/out")"; fi
 # Someone else rewrote the alias after this run read it back: the undo leaves THEIR alias alone
 # (R2 ignores a COPY's destination If-Match, so the HEAD check is all that protects it).
@@ -326,6 +326,22 @@ KOSMOS_PUBLISH_R2_FAKE_AFTER="PUT latest-win.json|kosmos-9.9.1-win-x64.zip|$TMP/
 PUT latest-win.json|kosmos-win-x64.zip|$TMP/theirs.zip" promote; rc=$?
 if [ "$rc" -eq 1 ] && cmp -s "$FAKE/kosmos-win-x64.zip" "$TMP/theirs.zip" && grep -qF "the alias left as it is (not ours any more" "$TMP/out" && cmp -s "$FAKE/latest-win.json" "$TMP/u.ptr"; then pass "the undo does not overwrite an alias someone else wrote since"
 else fail "undo vs a newer alias: rc=$rc alias=$(cmp -s "$FAKE/kosmos-win-x64.zip" "$TMP/theirs.zip" && echo theirs || echo OVERWRITTEN) $(tail -1 "$TMP/out")"; fi
+# Someone else writes the alias right after this promote's copy: the read-back sees it, and the
+# alias and its sidecar go back to the previous release (the pointer never moved), not left foreign.
+undo_setup
+# (Triggered by the sidecar write, which follows the copy: a trigger on the alias key would also
+# fire on the undo's own copy back, AFTER fires on every match.)
+KOSMOS_PUBLISH_R2_FAKE_AFTER="PUT kosmos-win-x64.zip.sha256|kosmos-win-x64.zip|$TMP/theirs.zip" promote; rc=$?
+if [ "$rc" -eq 1 ] && grep -qF "not what this promote wrote; latest-win.json was NOT written" "$TMP/out" && undo_restored; then pass "an alias that reads back foreign is put back to the previous release, the pointer untouched"
+else fail "alias read-back undo: rc=$rc $(undo_state) $(tail -1 "$TMP/out")"; fi
+# The alias sidecar write is pinned: to the sidecar read at the start, or to its absence.
+undo_setup; promote >/dev/null
+if grep -qE '^PUT kosmos-win-x64\.zip\.sha256 \| cache-control=no-cache;if-match="[0-9a-f]{64}"$' "$FAKE/.calls"; then pass "the alias sidecar write is pinned to the sidecar the promote read"
+else fail "sidecar pin: $(grep '^PUT kosmos-win-x64.zip.sha256' "$FAKE/.calls" | head -1)"; fi
+undo_setup; rm -f "$FAKE/kosmos-win-x64.zip.sha256"; promote >/dev/null
+if grep -qE '^PUT kosmos-win-x64\.zip\.sha256 \| cache-control=no-cache;if-none-match=\*$' "$FAKE/.calls"; then pass "with no sidecar yet, its write is pinned to its absence"
+else fail "sidecar absent pin: $(grep '^PUT kosmos-win-x64.zip.sha256' "$FAKE/.calls" | head -1)"; fi
+
 # The first promote ever (no previous pointer): the undo removes the pointer it wrote, and says
 # the alias still holds this build rather than claiming a restore.
 undo_setup; rm -f "$FAKE/latest-win.json" "$FAKE/kosmos-win-x64.zip" "$FAKE/kosmos-win-x64.zip.sha256"
@@ -337,7 +353,7 @@ else fail "first-promote undo: rc=$rc latest-win.json=$([ -e "$FAKE/latest-win.j
 undo_setup; rm -f "$FAKE/latest-win.json" "$FAKE/kosmos-win-x64.zip" "$FAKE/kosmos-win-x64.zip.sha256"
 KOSMOS_PUBLISH_R2_FAKE_AFTER="PUT latest-win.json|kosmos-9.9.1-win-x64.zip|$TMP/b.zip
 PUT latest-win.json|latest-win.json|$TMP/other.json" promote; rc=$?
-if [ "$rc" -eq 1 ] && cmp -s "$FAKE/latest-win.json" "$TMP/other.json" && ! grep -q '^DELETE ' "$FAKE/.calls" && grep -qF "SO PROD STILL NAMES" "$TMP/out"; then pass "a first-ever undo does not delete a pointer someone else wrote since"
+if [ "$rc" -eq 1 ] && cmp -s "$FAKE/latest-win.json" "$TMP/other.json" && ! grep -q '^DELETE ' "$FAKE/.calls" && grep -qF "SO PROD STILL NAMES" "$TMP/out" && ! grep -qF "Prod was not left naming" "$TMP/out"; then pass "a first-ever undo does not delete a pointer someone else wrote since"
 else fail "first-promote undo vs a newer pointer: rc=$rc $(grep '^DELETE' "$FAKE/.calls") $(tail -1 "$TMP/out")"; fi
 cp "$TMP/a.zip" "$FAKE/kosmos-9.9.1-win-x64.zip"; undo_setup
 # A zip whose duplicate differs only by case or slash is refused too (Windows extracts both to one file).
