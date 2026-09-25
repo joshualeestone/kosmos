@@ -36,7 +36,7 @@ test('the doctrine version and the block text move together', () => {
   const print = crypto.createHash('sha256').update(defaults.block()).digest('hex').slice(0, 16);
   /* Kept per version rather than replaced, so the log in defaults.js and this
      map can be read against each other. */
-  const PINNED = { 3: '78435e4dc9286b30', 4: '3ea7865f183bff5b', 5: 'c424dc531fca1b91', 6: '6b112e796679a028', 7: '92cbc9e7da9b313b', 8: '8e5de18bfdef3631', 9: '55166f13216cf92a', 10: 'd6043a51e7c6b5b7', 11: '7264c62fb8605bcc', 12: '0a27542356985c22', 13: 'a1369c0c9db5dd06', 14: '0310a25a51649642' };
+  const PINNED = { 3: '78435e4dc9286b30', 4: '3ea7865f183bff5b', 5: 'c424dc531fca1b91', 6: '6b112e796679a028', 7: '92cbc9e7da9b313b', 8: '8e5de18bfdef3631', 9: '55166f13216cf92a', 10: 'd6043a51e7c6b5b7', 11: '7264c62fb8605bcc', 12: '0a27542356985c22', 13: 'a1369c0c9db5dd06', 14: '0310a25a51649642', 15: '48ac419c5b7aadf7' };
   assert.ok(PINNED[defaults.DOCTRINE_VERSION],
     `DOCTRINE_VERSION ${defaults.DOCTRINE_VERSION} has no pinned fingerprint: add {${defaults.DOCTRINE_VERSION}: '${print}'} here and a line to the version log in defaults.js`);
   assert.equal(print, PINNED[defaults.DOCTRINE_VERSION],
@@ -331,7 +331,7 @@ test('#2909: the block tells the agent to send rich-text-formatted messages', ()
     'the block does not tell the agent formatting is available and unbroken text is a choice');
   assert.match(b, /from your first message/,
     'the from-first-message default (Josh: agents print solid blocks) is not stated');
-  assert.match(b, /in your direct dialogues alike/,
+  assert.match(b, /in your dialogue with the person alike/,
     'the rooms-AND-dialogues scope Josh named is not both covered');
   // The supported subset the room renderer actually renders.
   assert.match(b, /headings written with/, 'the supported subset is not listed');
@@ -339,7 +339,7 @@ test('#2909: the block tells the agent to send rich-text-formatted messages', ()
   // The two things a room does NOT render, so an agent does not reach for them.
   assert.match(b, /\[label\]\(address\)/, 'the label-only link caveat is missing');
   // The > asymmetry: renders in a dialogue, literal in a room (pjRich styles .mdq; pjProse does not).
-  assert.match(b, /becomes a quote in a direct dialogue but stays literal text\s+in a project room/,
+  assert.match(b, /becomes a quote in your dialogue with the person but stays\s+literal text in a project room/,
     'the room-vs-dialogue blockquote asymmetry is missing');
   // The shell trap, with advice that is true today (single-quote).
   assert.match(b, /backticks and a `\$`/, 'the shell-metacharacter trap is not named');
@@ -395,4 +395,65 @@ test('#3570: an agent holding the old headings is still offered the reactions se
   const complete = all.map((s) => s.text).join('\n\n');
   assert.ok(!defaults.missingFrom(complete).some((s) => s.heading === heading),
     'the section is offered to an agent that already has it');
+});
+
+test('#2909 v15: formatted messages are written across lines, per surface, and the examples cannot split the block', () => {
+  const sec = defaults.sections().find((x) => x.heading === '### Formatted messages need line breaks');
+  assert.ok(sec, 'the section is its own heading, so missingFrom re-offers it to existing agents');
+  assert.match(sec.text, /kosmos post --stdin <project> <<'KOSMOS_MSG'/, 'a room post pipes a quoted heredoc');
+  assert.match(sec.text, /IFS= read -r -d '' msg <<'KOSMOS_MSG' \|\| true[\s\S]*kosmos reply "\$msg"/, 'kosmos reply has no --stdin, so the heredoc is read into a variable first');
+  assert.ok(!/\$\(cat <</.test(sec.text), 'not $(cat <<...): macOS bash 3.2 cannot parse it when the message holds an apostrophe');
+  assert.ok(!/kosmos msg --stdin/.test(sec.text), 'kosmos msg is stored as one line (messages.send), so it is not offered as a way to format');
+  assert.ok(!/<<'?EOF/.test(sec.text), 'not EOF: a message line that is exactly EOF would end the heredoc early');
+  assert.match(sec.text, /kosmos post <project> @'/, 'PowerShell, which cannot pipe into kosmos, gets the here-string form');
+  // The examples show a heading, but never a `### ` line: sections() splits the block on those, so
+  // one would cut this section short and turn the rest into a "rule" of its own. Checked by where
+  // the section ENDS (its lines can never start with ### by construction, so reading them proves nothing).
+  assert.ok(sec.text.trimEnd().endsWith('so keep such a line out of the message.'), 'the section runs to its last sentence');
+  const all = defaults.sections().map((x) => x.heading);
+  assert.equal(all[all.indexOf(sec.heading) + 1], '### Before you do something you cannot take back', 'and the next section is the one that always followed');
+});
+
+test('#2909 v15: an agent holding the old headings is still offered the line-breaks section', () => {
+  const all = defaults.sections();
+  const heading = '### Formatted messages need line breaks';
+  const legacy = all.filter((s) => s.heading !== heading).map((s) => s.text).join('\n\n');
+  assert.ok(defaults.missingFrom(legacy).some((s) => s.heading === heading),
+    'an existing agent would never be offered the line-breaks section');
+  // CONTROL: an agent that holds it is offered nothing, so the filter discriminated.
+  const complete = all.map((s) => s.text).join('\n\n');
+  assert.ok(!defaults.missingFrom(complete).some((s) => s.heading === heading),
+    'the section is offered to an agent that already has it');
+});
+
+test('#2909 v15: the section\'s shell examples run as written in bash and zsh, and deliver the lines', (t) => {
+  const { spawnSync } = require('node:child_process');
+  const fs = require('node:fs');
+  const os = require('node:os');
+  const path = require('node:path');
+  const sec = defaults.sections().find((x) => x.heading === '### Formatted messages need line breaks');
+  const fences = [...sec.text.matchAll(/```\n([\s\S]*?)\n```/g)].map((m) => m[1]).filter((f) => !f.includes("@'"));
+  assert.equal(fences.length, 2, 'the room example and the reply example');
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'kosmos-doctrine-2909-'));
+  t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
+  const out = path.join(dir, 'got');
+  // A stub kosmos: records its words and, for --stdin, what was piped in. A message holding an
+  // apostrophe, backticks and $ proves the quoting, not only the line breaks.
+  const stub = 'kosmos() { printf "%s|" "$@" >> "' + out + '"; case "$2" in --stdin) cat >> "' + out + '";; esac; echo >> "' + out + '"; }\n';
+  const body = fences.map((f) => f.replace(/<project>/g, 'proj').replace('- the first point', "- it's `x` and $HOME")).join('\n');
+  let ran = 0;
+  for (const sh of ['/bin/bash', '/bin/zsh']) {
+    if (!fs.existsSync(sh)) continue;
+    ran += 1;
+    fs.writeFileSync(out, '');
+    const script = path.join(dir, 's.sh');
+    fs.writeFileSync(script, 'set -euo pipefail\n' + stub + body + '\necho DONE >> "' + out + '"\n');
+    const r = spawnSync(sh, [script], { encoding: 'utf8' });
+    assert.equal(r.status, 0, sh + ' ran the examples: ' + r.stderr);
+    const got = fs.readFileSync(out, 'utf8');
+    assert.match(got, /post\|--stdin\|proj\|## What changed\n\n- it's `x` and \$HOME\n/, sh + ': the room post arrives with its lines and characters intact');
+    assert.match(got, /reply\|## What changed\n\n- it's `x` and \$HOME\n\|/, sh + ': the reply arrives with its lines and characters intact');
+    assert.match(got, /DONE/, sh + ': the script carried on past the reply (set -e did not stop it)');
+  }
+  assert.ok(ran >= 1, 'neither /bin/bash nor /bin/zsh exists, so the examples were never run');
 });

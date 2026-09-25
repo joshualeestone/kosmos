@@ -167,8 +167,10 @@ test('#2762: the number of avatar URLs on the page is PINNED', () => {
   // #3414 added one: the rebuilt agent-DM row (dmRow) paints a versioned
   // avatar (`/avatar?v=' + pjAvatarVer(m.from)`), the same staleness-safe form
   // the room row uses, so the pinned total moved 19 -> 20.
-  assert.equal(count, 20,
-    'the page now has ' + count + ' avatar URLs, not 20. NOTE: this counts every occurrence, '
+  // #3034 added one: the setup assistant's bubble and panel picture (asbAvatar) is versioned the same way
+  // (`'/avatar?v=' + (row.avatarVer || 0)`), since both are re-set on every tick; 20 -> 21.
+  assert.equal(count, 21,
+    'the page now has ' + count + ' avatar URLs, not 21. NOTE: this counts every occurrence, '
     + 'including 6 fetch() calls and 4 /api/you/avatar lines, so an unrelated fetch moves it too; '
     + 'that is deliberate fail-closed noise rather than a hole. If you ADDED a RENDER: is it painted through '
     + 'setLive / setIfChanged / paintThreadInto? Then it needs `?v=` the avatar version, or it will '
@@ -204,5 +206,5 @@ test('#2762 CONTROL: each assertion above can actually fail', () => {
     'PRE-CONTROL: the typo mutant no longer contains the substring, so it would not test the boundary');
 
   const fewer = CODE.replace('/avatar', 'XavatarX');
-  assert.notEqual(fewer.split('/avatar').length - 1, 20, 'the count is insensitive to an avatar URL being removed');
+  assert.notEqual(fewer.split('/avatar').length - 1, 21, 'the count is insensitive to an avatar URL being removed');   // the pin above
 });

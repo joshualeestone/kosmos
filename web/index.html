@@ -1340,26 +1340,32 @@ button.uprime:hover, .btn.uprime:hover, .utoast .uacts button.uprime:hover,
 .layopt[aria-checked="true"]:focus-visible { outline-color: #14161a; }
 .layopt:focus-visible { outline: 2px solid var(--label); outline-offset: 1px; }
 @media (max-width: 959.98px) { .laypick { display: none; } }
-/* #3312 (Josh 2026-09-19): the Add-Project mode toggle. Bigger than the .laypick segmented
-   control (this is the screen's top-level choice), and it uses ink/surface rather than gold so it
-   never competes with the gold "Create project" / "Join Project" CTA. */
-/* #3495 (Josh, 2026-09-23): the Create/Join toggle is now a SEGMENTED selector - the two tabs are
-   joined (shared border, outer corners rounded) rather than separate pills with an "or". The active
-   tab fills; the radio stays the source of truth. */
-.pj-mode { display: inline-flex; align-items: stretch; flex-wrap: nowrap; margin: 4px 0 24px;
-           border: 0; padding: 0; min-width: 0; }
-.pj-mode-opt { display: inline-flex; align-items: center; font: inherit; font-weight: 700;
-               font-size: 1.0625rem; line-height: 1; padding: .7em 1.4em;
-               border: 1.5px solid var(--label); border-radius: 0;
-               background: none; color: var(--label); cursor: pointer; }
-.pj-mode-opt:first-of-type { border-top-left-radius: 10px; border-bottom-left-radius: 10px; }
-.pj-mode-opt:last-of-type { border-top-right-radius: 10px; border-bottom-right-radius: 10px; }
-.pj-mode-opt:not(:first-of-type) { border-left-width: 0; }
+/* #3312 (Josh 2026-09-19): the Add-Project mode toggle. #3495 (Josh, 2026-09-24 17:50, on the
+   ink-filled version: "hideous. It looks like a wireframe... It should just match our styling"):
+   it now speaks the app's own segmented-control language, the .laypick/.viewtoggle values
+   (0.5px separator, radius-control, elevated ground, GOLD active with #14161a ink, per the
+   2026-08-17 "selected is gold" ruling: ink flips between themes and inverts what selected
+   means). Wider than those two because it carries words and is the screen's top-level choice: it
+   spans the form's width on its own row, two equal halves. The radio stays the source of truth. */
+.pj-mode { display: flex; align-items: stretch; flex-wrap: nowrap; margin: var(--space-4) 0 var(--space-7);
+           border: 0.5px solid var(--separator); border-radius: var(--radius-control); overflow: hidden;
+           background: var(--bg-elevated); padding: 0; min-width: 0; }
+.pj-mode-opt { flex: 1 1 0; display: flex; align-items: center; justify-content: center; font: inherit;
+               font-weight: 600; font-size: 14px; line-height: 1.2; min-height: 36px;
+               padding: 0 var(--space-5); text-align: center; background: none; color: var(--label-2); cursor: pointer;
+               position: relative; }   /* the hidden radio positions against its own segment */
+.pj-mode-opt + .pj-mode-opt { border-left: 0.5px solid var(--separator); }
 /* The tab IS the control; the radio is visually hidden but stays focusable + keyboard-navigable. */
 .pj-mode-opt input { position: absolute; width: 1px; height: 1px; margin: 0; opacity: 0; pointer-events: none; }
-.pj-mode-opt:hover:not(:has(input:checked)) { background: var(--bg-elevated); }
-.pj-mode-opt:has(input:checked) { background: var(--label); color: var(--bg-elevated); border-color: var(--label); }
-.pj-mode-opt:has(input:focus-visible) { outline: 2px solid var(--label); outline-offset: 2px; }
+.pj-mode-opt:hover:not(:has(input:checked)) { color: var(--label); }
+.pj-mode-opt:has(input:checked) { background: var(--gold-bright); color: #14161a; }
+/* Inset, as .vt's is, because the bar clips (overflow: hidden); 3px so the 2px ring clears the hairline. */
+.pj-mode-opt:has(input:focus-visible) { outline: 2px solid var(--label); outline-offset: -3px; }
+.pj-mode-opt:has(input:checked:focus-visible) { outline-color: #14161a; }
+/* #3495: the fields below it match Project settings (#750, "just like the new agent"): no bounding
+   box and no rule between fields, spacing does the separating. */
+#pj-add-view .field { border-top: 0; padding-top: 0; margin-top: var(--space-6); }
+#pj-create-mode > .field:first-child, #pj-join-mode > .field:first-child { margin-top: 0; }   /* both modes start at the same height */
 /* A read-only value line in Join mode (the owner's project name/description, which the receiver
    cannot edit) -- plain text, not a filled field, so it reads clearly as not-an-input. */
 .pj-ro { margin: 2px 0 0; color: var(--label); white-space: pre-wrap; }
@@ -1453,6 +1459,59 @@ button.uprime:hover, .btn.uprime:hover, .utoast .uacts button.uprime:hover,
   .tipcard { left: 12px !important; right: 12px; width: auto; }
   .tipcard .tip-arrow { display: none; }
 }
+/* #3034 (Josh, 2026-09-24: 16:05 "bottom-right app-wide", 18:02 "I love it" on the mock): the setup
+   assistant. A bubble with the guide's picture in the corner of every screen, and a small chat that opens
+   in place so the page stays usable beside it. Design: chaoskosmos-site design/setup-assistant.html.
+   Built at runtime into #asblayer (as the tips layer is). Stacked below the tip card and halo (45/46)
+   and every dialog backdrop (50/60), so the tour, a tip or a dialog always sits over it. */
+.asb { position: fixed; right: 16px; bottom: 16px; z-index: 44; width: 52px; height: 52px; border-radius: 50%; padding: 3px;
+  border: 0; cursor: pointer; background: var(--k-surface); box-shadow: 0 0 0 2px var(--gold-bright), 0 12px 32px rgba(20,22,26,.22); }
+.asb[hidden], .asb-nudge[hidden], .asp[hidden], .asp-ask[hidden], .asb-dot[hidden] { display: none; }
+.asb img { width: 100%; height: 100%; border-radius: 50%; object-fit: cover; display: block; }
+.asb:focus-visible { outline: 2px solid var(--k-ink); outline-offset: 4px; }
+/* A reply that came while the chat was folded. */
+.asb-dot { position: absolute; right: 1px; top: 1px; width: 12px; height: 12px; border-radius: 50%; background: var(--gold-bright); box-shadow: 0 0 0 2px var(--k-surface); }
+.asb-nudge { position: fixed; right: 78px; bottom: 24px; z-index: 44; display: flex; align-items: center; gap: 10px; max-width: calc(100vw - 100px);
+  background: var(--bg-elevated); color: var(--k-ink); border: 1px solid var(--k-rule); border-radius: 12px; padding: 8px 8px 8px 14px;
+  box-shadow: 0 12px 32px rgba(20,22,26,.18); font: 600 .875rem var(--font-ui); }
+.asb-nudge button { border: 0; background: none; cursor: pointer; font: inherit; color: inherit; padding: 0; text-align: left; }
+.asb-nudge .asb-nudge-x { width: 24px; height: 24px; border-radius: 7px; color: var(--k-ink-2); font-weight: 400; text-align: center; }
+.asb-nudge .asb-nudge-x:hover { background: var(--k-sunk); color: var(--k-ink); }
+.asp { position: fixed; right: 16px; bottom: 16px; z-index: 44; width: 300px; height: 420px; max-width: calc(100vw - 32px); max-height: calc(100vh - 96px);
+  display: flex; flex-direction: column; overflow: hidden; background: var(--bg-elevated); color: var(--k-ink);
+  border: 1px solid var(--k-rule); border-radius: 16px; box-shadow: 0 12px 32px rgba(20,22,26,.22); font-size: .875rem; }
+.asp-h { display: flex; align-items: center; gap: 10px; padding: 12px 10px 10px 12px; border-bottom: 0.5px solid var(--separator); }
+.asp-h img { width: 34px; height: 34px; border-radius: 50%; object-fit: cover; flex: none; }
+.asp-who { flex: 1; min-width: 0; line-height: 1.25; }
+.asp-who b { display: block; }
+.asp-tag { display: inline-block; margin-top: 2px; padding: 1px 8px; border-radius: 999px; font: 700 .6875rem var(--font-ui); letter-spacing: .04em;
+  color: var(--gold-edge); background: color-mix(in srgb, var(--gold-bright) 14%, transparent); }
+.asp-ctl { display: flex; gap: 2px; }
+.asp-ctl button { width: 28px; height: 28px; border: 0; border-radius: 7px; background: none; cursor: pointer; color: var(--k-ink-2); font: 400 1.125rem/1 var(--font-ui); }
+.asp-ctl button:hover { background: var(--k-sunk); color: var(--k-ink); }
+.asp-th { flex: 1; min-height: 0; overflow-y: auto; padding: 12px; display: flex; flex-direction: column; gap: 8px; }
+.asp-m { max-width: 88%; padding: 8px 11px; border-radius: 12px; line-height: 1.45; white-space: pre-wrap; overflow-wrap: anywhere; }
+.asp-m.him { background: var(--k-sunk); border-top-left-radius: 4px; }
+.asp-m.you { align-self: flex-end; background: color-mix(in srgb, var(--gold-bright) 14%, transparent);
+  border: 1px solid color-mix(in srgb, var(--gold-bright) 35%, transparent); border-top-right-radius: 4px; }
+.asp-empty { color: var(--k-ink-2); }
+.asp-note { padding: 0 12px 6px; font-size: .75rem; color: var(--k-ink-2); }
+.asp-msg { padding: 0 12px 6px; font-size: .75rem; color: var(--k-ink-2); }
+.asp-msg:empty { display: none; }
+.asp-in { display: flex; gap: 6px; align-items: flex-end; margin: 0 12px 12px; border: 1px solid var(--k-rule); border-radius: 12px; padding: 6px 6px 6px 12px; background: var(--k-surface); }
+.asp-in textarea { flex: 1; min-width: 0; border: 0; resize: none; background: none; color: var(--k-ink); font: .875rem/1.4 var(--font-ui); max-height: 96px; padding: 3px 0; }
+.asp-in textarea:focus { outline: none; }
+.asp-in:focus-within { border-color: var(--gold-edge); }
+.asp-in button { flex: none; width: 28px; height: 28px; border: 0; border-radius: 8px; background: var(--gold-bright); color: #14161a; cursor: pointer; font: 700 .875rem var(--font-ui); }
+.asp-in button:disabled { opacity: .5; cursor: default; }
+/* The first x asks, once (Josh 18:02): inside the panel, so it reads as the panel asking. */
+.asp-ask { margin: 0 12px 12px; border: 1px solid var(--k-rule); border-radius: 12px; padding: 12px; background: var(--k-surface); display: flex; flex-direction: column; gap: 8px; }
+.asp-ask button { border: 1px solid var(--k-rule); border-radius: 10px; padding: 7px 12px; font: 600 .875rem var(--font-ui); background: var(--bg-elevated); color: var(--k-ink); cursor: pointer; }
+.asp-ask button.pri { background: var(--gold-bright); border-color: var(--gold-bright); color: #14161a; }
+.asp-ask small { font-size: .75rem; color: var(--k-ink-2); line-height: 1.4; }
+.asb button:focus-visible, .asp button:focus-visible, .asb-nudge button:focus-visible { outline: 2px solid var(--k-ink); outline-offset: 2px; }
+.asp-ask button.pri:focus-visible, .asp-in button:focus-visible { outline-color: #14161a; }
+@media (max-width: 40rem) { .asp { right: 12px; left: 12px; width: auto; max-width: none; } .asb-nudge { display: none; } }
 .userpop-plus { font-weight: 600; }
 /* --gold-deep, not --gold: --gold (#d6a62e) is only 2.25:1 on the light menu bg (#ffffff),
    under the 3:1 non-text-contrast floor (WCAG SC 1.4.11) this file measures every accent
@@ -5177,8 +5236,9 @@ body:not(.consolidated) .pjmidhead:has(.pjhead) .tsearch:focus-within { flex-bas
    gutter caps the bubble and keeps the avatar column clear. So the 640/760px fixtures are on the
    narrow side of that threshold and DO get capped; that is correct, not a regression. No media
    query, no magic breakpoint. The tail wing/mask live on the NEAR side (toward the avatar), so the
-   far gutter never touches them. Applies only to the room's .msg rows (pjRoomRow); the agent-detail
-   Talk view renders .dm bubbles (dmRow), which this never selects. */
+   far gutter never touches them. Since #3414 the agent-detail Talk view (dmRow) renders the same
+   .msg rows, so this applies there too. (#718 then shrinks the DM avatar on phones in a media
+   query of its own, mirrored the same way and guarded by render-dm-phone-718.js.) */
 .msg:not(.you) .msg-b { margin-right: calc(34px + 14px); }
 .msg.you .msg-b { margin-left: calc(34px + 14px); }
 /* #2806 (Josh, 2026-09-11): the room message BODY box. The person's own post
@@ -5199,6 +5259,38 @@ body:not(.consolidated) .pjmidhead:has(.pjhead) .tsearch:focus-within { flex-bas
    .msg-bd renders paragraphs via pjProse <p> blocks (no literal \n), so it needs none and
    is left untouched. */
 #d-dmthread .msg-bd { white-space: pre-wrap; overflow-wrap: anywhere; }
+/* #718 (agent chat on a phone). Three things the DM bubble got wrong once it was narrow:
+   1. A TABLE inherited `overflow-wrap: anywhere` from the rule above, which makes every
+      cell's min-content one character, so the table crushed to a letter per line instead
+      of scrolling inside .mdtablewrap. Cells wrap at words again; the wrapper scrolls.
+   2. The PERSON's own bubble is sized to its content inside a right-aligned column, so
+      anything with a large minimum width made it wider than its row and pushed it off the
+      left edge: an attachment's one-line file name (112px off an iPhone SE) or a wide table.
+      Capped at the row below; the file name then ellipsizes and the table scrolls, as they
+      already do inside a bubble that fits. (A breakable, line-clamped file name was tried
+      first and dropped: the cap alone does the job and keeps the ellipsis at the line's end.)
+   3. On a phone the side gutters (34px avatar + 14px gap, mirrored opposite) left an iPhone
+      SE a ~155px text column; the 40rem block shrinks the avatar for the DM, still mirrored. */
+#d-dmthread .mdtablewrap { overflow-wrap: normal; }
+/* The rule above applies at every width: on desktop a cell holding a long unbroken token now
+   scrolls with its table instead of breaking mid-token. */
+#d-dmthread .msg.you .msg-bd { max-width: min(78ch, 100%); }
+/* The phone gutters follow the VIEWPORT width (40rem), not the thread's own width: a narrow
+   thread inside a wider window keeps the 34px avatar. Nothing overflows either way (the check's
+   900 and 1280 arms); a later slice that wants the gutters to track the column needs a container
+   query instead. */
+@media (max-width: 40rem) {
+  /* The avatar shrinks; the 14px gap does NOT, because the bubble tail's ground mask
+     (.msg-bd::after, 14px wide beside the bubble) would paint over a closer avatar. The far
+     side mirrors avatar + gap.
+     ⚠️ The 28px and 14px are written twice (avatar/gap here, the calc() margins below), the same
+     duplication the desktop rule carries; render-dm-phone-718.js measures the two sides equal, so
+     changing one literal without the other goes red. (The bare `att` surface token is left out of
+     that check's header on purpose: it matches every JS variable named `att`.) */
+  #d-dmthread .msg-av { width: 28px; height: 28px; flex-basis: 28px; font-size: .8125rem; }
+  #d-dmthread .msg:not(.you) .msg-b { margin-right: calc(28px + 14px); }
+  #d-dmthread .msg.you .msg-b { margin-left: calc(28px + 14px); }
+}
 .msg.you .msg-bd { background: var(--usermsg-tint); }
 /* #2947 / #3260: the one flat cream fill (background-COLOR, not the `background`
    shorthand, so the #2921 hover overlay -- a background-IMAGE on .msg:hover
@@ -13190,11 +13282,11 @@ window.kosmosMeasureScrollbarWidth();
     <!-- #3312 (Josh 2026-09-19): the Add-Project screen is one of two modes -- create a new
          project of your own, or join an EXTERNAL project someone shared a code for (relay
          federation MVP, messaging only). The h2 is kept for the heading list but visually
-         hidden; the pill toggle is the visible top control (Josh's wireframe). -->
+         hidden; the segmented control is the visible top control (#3495 restyle). -->
     <h2 class="vh">Add a project</h2>
     <!-- #3312: NATIVE RADIOS grouped by name, in a fieldset -- Mona Lisa's #178 ruling (see the
          roles picker: native radios give arrow-key movement from the browser, make `checked` the
-         single source of truth, and retire the aria-checked desync class). The pill styling lives
+         single source of truth, and retire the aria-checked desync class). The segment styling lives
          on the label; the input is visually hidden but focusable. -->
     <fieldset class="pj-mode">
       <legend class="vh">Create a new project or join an external one</legend>
@@ -13870,12 +13962,21 @@ window.kosmosMeasureScrollbarWidth();
 
     <section class="dbox" id="tips-box" hidden>
       <!-- #3574: "Stop showing tips" on any tip turns them all off; this is the way back on. -->
-      <h3 class="dlab">Tips</h3>
+      <!-- #3034 (Josh, 2026-09-24 18:02): titled Help, and the Setup assistant switch sits under Show tips,
+           so both ways of getting help live together. The assistant's first x points here. The row
+           shows only when a setup guide exists (asbPaintSetting). -->
+      <h3 class="dlab">Help</h3>
       <div class="setrow" id="tips-row">
         <div><b>Show tips</b>
           <p class="dhint" style="margin:2px 0 0;">A short note the first time you open each screen. The ? beside your name brings any of them back.</p></div>
         <button class="toggle" id="tips-toggle" role="switch" aria-label="Show tips the first time you open each screen"><i></i></button>
       </div>
+      <div class="setrow" id="asb-row" hidden>
+        <div><b>Setup assistant</b>
+          <p class="dhint" style="margin:2px 0 0;">Josh's face in the corner. Click it for help setting up Kosmos on whatever page you're on.</p></div>
+        <button class="toggle" id="asb-toggle" role="switch" aria-label="Show the setup assistant"><i></i></button>
+      </div>
+      <p class="dhint" id="asb-row-msg" role="status" hidden></p>
     </section>
 
     <section class="dbox">
@@ -53914,8 +54015,14 @@ wireHelpq();
 function paintTipsToggle() {
   const box = document.getElementById('tips-box');
   if (!box) return;
-  box.hidden = !(TIPS_STATE && TIPS_STATE.ok);
-  if (!box.hidden) paintSwitch('tips-toggle', !TIPS_STATE.off);
+  const tipsOk = !!(TIPS_STATE && TIPS_STATE.ok);
+  const row = document.getElementById('tips-row');
+  if (row) row.hidden = !tipsOk;
+  if (tipsOk) paintSwitch('tips-toggle', !TIPS_STATE.off);
+  /* #3034: the box also holds the Setup assistant switch, which must not vanish because the TIPS could
+     not be read ("Don't show this again" promises it is here). Hidden only when neither row shows. */
+  const asbRow = document.getElementById('asb-row');
+  box.hidden = !tipsOk && (!asbRow || asbRow.hidden);
 }
 document.getElementById('tips-toggle')?.addEventListener('click', async (e) => {
   const sw = e.currentTarget;
@@ -53925,6 +54032,435 @@ document.getElementById('tips-toggle')?.addEventListener('click', async (e) => {
   if (TIPS_STATE.off && TIP_OPEN && TIP_AUTO) tipClose({ record: false });   // off means the one on screen goes too
   paintTipsToggle();
 });
+
+/* ---- #3034: the setup assistant (the Mac UI; the guide itself is Renet's, #3666) -------------
+   A bubble with the guide's picture in the corner of every screen and a small chat that opens in
+   place. The guide is an ordinary agent, so the chat IS its direct-message thread
+   (/api/agent/<session>/thread); only the frame is new. Nothing shows unless the board names a
+   guide (GET /api/setup-guide; until #3660 creates guides, no install has one) AND the person has
+   not switched it off (/api/settings setupAssistant.on). Hidden during first run. */
+const ASB_TICK_MS = 1500;
+const ASB_OPEN_POLL_MS = 5000;     // the thread, while the chat is open (the agent page polls at 5s too)
+const ASB_FOLDED_POLL_MS = 60000;  // the thread, while folded, only to light the reply dot
+const ASB_FIND_FIRST_MS = 5000;    // looking for the guide again: 5s, doubling to a minute, until one is named
+const ASB_FIND_MAX_MS = 60000;
+let ASB = { started: false, guide: null, setting: null, open: false, asking: false, nudgeGone: false,
+  wroteOnce: false, heard: null, lastPoll: 0, screenKey: '', sending: false, dot: false,
+  nextFind: 0, findEvery: ASB_FIND_FIRST_MS, finding: false, shown: '', readOnce: false,
+  nextSetting: 0, settingEvery: ASB_FIND_FIRST_MS, settingReading: false };
+
+function asbGuideRow() {
+  if (!ASB.guide || !Array.isArray(LAST)) return null;
+  const want = String(ASB.guide).toLowerCase();
+  /* By SESSION name only: the seed records the board's session name (createAgent's slug, e.g. "josh"), and
+     /api/status's `name` is the display name, which the person's own agent can share ("Josh" as josh-2). */
+  return LAST.find((a) => a && String(a.sessionName || '').toLowerCase() === want) || null;
+}
+function asbAvatar(row) {
+  return '/api/agent/' + encodeURIComponent(row.sessionName) + '/avatar?v=' + (row.avatarVer || 0);
+}
+
+/* The screen, in pagecontext's closed vocabulary, from the same state syncUrl writes. */
+function asbScreen() {
+  const fr = document.getElementById('firstrun');
+  if (fr && !fr.hidden) return { screen: 'firstrun' };
+  if (URL_TAB === 'detail' && CURRENT) return { screen: 'agent', agent: CURRENT.name || CURRENT.sessionName };
+  if (URL_TAB === 'create') return { screen: 'create' };
+  if (URL_TAB === 'projects' && PJ_VIEW === 'alltasks') return { screen: 'tasks' };
+  if (URL_TAB === 'projects' && PJ_CURRENT && PJ_VIEW !== 'list') {
+    const pj = Array.isArray(PROJECTS) ? PROJECTS.find((x) => x && x.id === PJ_CURRENT) : null;
+    return { screen: 'project', project: (pj && pj.name) || String(PJ_CURRENT) };
+  }
+  if (URL_TAB === 'projects') return { screen: 'projects' };
+  if (URL_TAB === 'settings') return SETTINGS_SEC === 'you' ? { screen: 'you' } : { screen: 'settings', tab: SETTINGS_SEC };
+  return { screen: 'board' };
+}
+function asbTellScreen(force) {
+  const page = asbScreen();
+  const key = JSON.stringify(page);
+  if (!force && key === ASB.screenKey) return;
+  ASB.screenKey = key;
+  fetch('/api/setup-guide/page', { method: 'POST', headers: { 'content-type': 'application/json' }, body: key })
+    .then(async (r) => {
+      const b = await r.json().catch(() => null);   // read on every answer (see asbFind)
+      /* Gone means no guide, or a folder that is not the guide's (a new agent took its name). A write that
+         failed, or a check the board could not make just now, keeps it. */
+      if (r.status === 404 || (b && b.reason === 'not-guide')) asbForgetGuide();
+    })
+    .catch(() => { /* the guide answers without it; it is a courtesy, not a dependency */ });
+}
+
+function asbLayerEnsure() {
+  if (document.getElementById('asblayer')) return;
+  const layer = document.createElement('div');
+  layer.id = 'asblayer';
+  /* No aria-modal on the panel: it is non-modal (the page stays usable), which is the dialog default,
+     and the modal sweep (web.modal-way-out-1316) counts anything carrying aria-modal. */
+  layer.innerHTML = '<div class="asb-nudge" id="asb-nudge" hidden><button type="button" id="asb-nudge-go">Want help setting up Kosmos?</button>'
+    + '<button type="button" class="asb-nudge-x" id="asb-nudge-x" aria-label="Hide this for now">&times;</button></div>'
+    + '<button type="button" class="asb" id="asb" aria-label="Open the setup assistant" hidden><img alt=""><span class="asb-dot" hidden></span></button>'
+    + '<div class="asp" id="asp" role="dialog" aria-label="Setup assistant" hidden>'
+    +   '<div class="asp-h"><img alt=""><div class="asp-who"><b>Josh</b><span class="asp-tag">JOSH\'S AI</span></div>'
+    +   '<div class="asp-ctl"><button type="button" id="asp-fold" aria-label="Fold the assistant away">&minus;</button>'
+    +   '<button type="button" id="asp-x" aria-label="Close the assistant">&times;</button></div></div>'
+    +   '<div class="asp-th" id="asp-th"></div><span class="vh" id="asp-live" aria-live="polite"></span>'
+    +   '<div class="asp-note">An AI that knows Kosmos, in Josh\'s voice. Josh isn\'t typing live.</div>'
+    +   '<div class="asp-msg" id="asp-msg" role="status"></div>'
+    +   '<div class="asp-ask" id="asp-ask" hidden><b>Close the assistant?</b>'
+    +     '<button type="button" class="pri" id="asp-close-now">Close for now</button>'
+    +     '<button type="button" id="asp-close-off">Don\'t show this again</button>'
+    +     '<small>You can turn it back on in Settings, under This computer.</small></div>'
+    +   '<form class="asp-in" id="asp-in"><textarea id="asp-say" rows="1" aria-label="Ask about Kosmos" placeholder="Ask me anything about Kosmos"></textarea>'
+    +   '<button type="submit" id="asp-send" aria-label="Send">&uarr;</button></form>'
+    + '</div>';
+  document.body.appendChild(layer);
+  document.getElementById('asb').addEventListener('click', () => asbOpen());
+  document.getElementById('asb-nudge-go').addEventListener('click', () => asbOpen());
+  document.getElementById('asb-nudge-x').addEventListener('click', () => { ASB.nudgeGone = true; asbPaint(); });
+  document.getElementById('asp-fold').addEventListener('click', () => asbFold());
+  document.getElementById('asp-x').addEventListener('click', () => asbX());
+  document.getElementById('asp-close-now').addEventListener('click', () => asbCloseChoice(false));
+  document.getElementById('asp-close-off').addEventListener('click', () => asbCloseChoice(true));
+  document.getElementById('asp-in').addEventListener('submit', (e) => { e.preventDefault(); asbSend(); });
+  document.getElementById('asp-say').addEventListener('keydown', (e) => {
+    if (e.key === 'Enter' && !e.shiftKey && !e.isComposing) { e.preventDefault(); asbSend(); }
+  });
+  document.getElementById('asp').addEventListener('keydown', (e) => {
+    if (e.key === 'Escape') { e.stopPropagation(); asbFold(); }
+  });
+}
+
+/* The corner is shared: on an agent's page the chat's Send button lives there. The bubble is lifted just
+   above any control it would cover; the open panel only above controls in the page's bottom band (a
+   composer), since it is meant to sit over the page. Measured against the page, not the assistant. */
+const ASB_SEL = 'button, a[href], input:not([type="hidden"]), select, textarea, [role="button"], [role="switch"], [role="tab"], [data-agent], [contenteditable="true"]';
+function asbLift(el, bandOnly) {
+  if (!el || el.hidden) return;
+  el.style.bottom = '';
+  if (bandOnly) el.style.maxHeight = '';
+  const vh = window.innerHeight;
+  for (let pass = 0; pass < 3; pass++) {
+    const a = el.getBoundingClientRect();
+    let lift = 0;
+    for (const q of document.querySelectorAll(ASB_SEL)) {
+      if (q.closest('#asblayer, #tiplayer, [hidden]')) continue;
+      const b = q.getBoundingClientRect();
+      if (b.width < 1 || b.height < 1 || getComputedStyle(q).visibility === 'hidden') continue;
+      if (bandOnly && b.bottom <= vh - 160) continue;   // anything reaching into the bottom band
+      if (b.left < a.right && b.right > a.left && b.top < a.bottom && b.bottom > a.top) lift = Math.max(lift, vh - b.top + 12);
+    }
+    if (!lift) return;
+    /* Never above the window: a lift is capped so the whole thing stays on screen, and the panel gives up
+       height instead (a short window). */
+    const cap = bandOnly ? vh - 160 : vh - el.offsetHeight - 12;
+    lift = Math.min(lift, Math.max(16, cap));
+    el.style.bottom = Math.round(lift) + 'px';
+    if (bandOnly) el.style.maxHeight = Math.max(160, Math.round(vh - lift - 12)) + 'px';
+  }
+}
+
+/* Whether the bubble belongs on screen right now. */
+function asbShows() {
+  if (!ASB.setting || ASB.setting.on !== true || ASB.holding) return false;
+  const fr = document.getElementById('firstrun');
+  if (fr && !fr.hidden) return false;
+  return !!asbGuideRow();
+}
+
+function asbPaint() {
+  const bub = document.getElementById('asb');
+  if (!bub) return;
+  const row = asbGuideRow();
+  const shows = asbShows();
+  const panel = document.getElementById('asp');
+  if (!shows) {
+    bub.hidden = true; panel.hidden = true; document.getElementById('asb-nudge').hidden = true;
+    ASB.open = false;
+    return;
+  }
+  const src = asbAvatar(row);
+  for (const img of [bub.querySelector('img'), panel.querySelector('.asp-h img')]) if (img.getAttribute('src') !== src) img.setAttribute('src', src);
+  panel.hidden = !ASB.open;
+  bub.hidden = ASB.open;
+  asbLift(bub, false);
+  asbLift(panel, true);
+  const nudge = document.getElementById('asb-nudge');
+  nudge.style.bottom = (parseFloat(bub.style.bottom) || 16) + 8 + 'px';
+  bub.querySelector('.asb-dot').hidden = !ASB.dot || ASB.open;
+  document.getElementById('asb-nudge').hidden = ASB.open || ASB.nudgeGone || ASB.wroteOnce || !ASB.readOnce;   // not before the thread says whether they wrote
+  document.getElementById('asp-ask').hidden = !ASB.asking;
+  document.getElementById('asp-in').hidden = ASB.asking;
+}
+
+/* The board's answer NOW to "which agent is the guide". Asked before every thread read and every send,
+   so a guide removed (or a new agent that took its name) is never read or written as the guide, open
+   or folded. Local and cheap: at most every 5s while open, every minute while folded. */
+async function asbConfirmGuide({ forgetLater = false } = {}) {
+  let r = null, b = null;
+  try {
+    r = await fetch('/api/setup-guide', { cache: 'no-store' });
+    b = await r.json().catch(() => null);   // read on every answer (see asbFind)
+  } catch { return !!ASB.guide; }   // the board did not answer: keep what we have rather than blink the bubble
+  /* Gone: no guide (reason none), a folder that is not the guide's (409, reason not-guide: a new agent
+     took the name), or a DIFFERENT guide. Only 'unchecked' (the board could not read its removed list just now)
+     keeps it, and the next read decides. */
+  if (r.ok && b && b.ok && typeof b.name === 'string') {
+    if (ASB.guide && b.name.toLowerCase() === String(ASB.guide).toLowerCase()) return true;
+  } else if (!(b && (b.reason === 'none' || b.reason === 'not-guide'))) return !!ASB.guide;
+  if (forgetLater) setTimeout(asbForgetGuide, 4000); else asbForgetGuide();
+  return false;
+}
+
+async function asbReadThread() {
+  const row = asbGuideRow();
+  if (!row) return null;
+  try {
+    const r = await fetch('/api/agent/' + encodeURIComponent(row.sessionName) + '/thread', { cache: 'no-store' });
+    const body = await r.json().catch(() => null);   // read on every answer (see asbStart)
+    if (!r.ok) return null;
+    /* The route answers 200 with messages: null when the thread read FAILED; that is not an empty thread. */
+    return body && Array.isArray(body.messages) ? { rows: body.messages, session: row.sessionName } : null;
+  } catch { return null; }
+}
+function asbSpeech(rows) { return rows.filter((m) => m && !(m.kind && ROOM_NOT_SPEECH.has(m.kind))); }
+
+async function asbPoll(force) {
+  const now = Date.now();
+  const every = ASB.open ? ASB_OPEN_POLL_MS : ASB_FOLDED_POLL_MS;
+  if (!force && now - ASB.lastPoll < every) return;
+  ASB.lastPoll = now;
+  if (!(await asbConfirmGuide())) return;
+  const t = await asbReadThread();
+  if (!t) { if (ASB.open) document.getElementById('asp-msg').textContent = 'We could not load the conversation just now.'; return; }
+  const speech = asbSpeech(t.rows);
+  ASB.wroteOnce = speech.some((m) => m.from !== t.session);
+  ASB.readOnce = true;
+  const heard = speech.filter((m) => m.from === t.session).length;
+  /* The first read is the baseline: replies already in the thread are not new, so they light nothing. */
+  if (ASB.open) {
+    /* Only the newest reply is announced, not the whole rebuilt thread. */
+    if (ASB.heard !== null && heard > ASB.heard) {
+      const last = speech.filter((m) => m.from === t.session).pop();
+      document.getElementById('asp-live').textContent = last ? String(last.text || '') : '';
+    }
+    ASB.heard = heard; ASB.dot = false; asbPaintThread(speech, t.session);
+  }
+  else if (ASB.heard === null) ASB.heard = heard;
+  else if (heard > ASB.heard) ASB.dot = true;
+  asbPaint();
+}
+function asbPaintThread(rows, session) {
+  const th = document.getElementById('asp-th');
+  if (document.getElementById('asp-msg').textContent === 'We could not load the conversation just now.') document.getElementById('asp-msg').textContent = '';
+  /* Rebuilt only when something changed, so a poll does not wipe what the person has selected. */
+  const shown = rows.length + '|' + (rows.length ? String(rows[rows.length - 1].at || '') + String(rows[rows.length - 1].text || '').length : '');
+  if (shown === ASB.shown && th.childElementCount) return;
+  ASB.shown = shown;
+  const atEnd = th.scrollHeight - th.scrollTop - th.clientHeight < 24;
+  th.replaceChildren();
+  if (!rows.length) {
+    const p = document.createElement('p');
+    p.className = 'asp-empty';
+    p.textContent = 'Hi, I built Kosmos. Ask me anything about setting it up, on whatever page you\'re on.';
+    th.appendChild(p);
+  }
+  for (const m of rows) {
+    const d = document.createElement('div');
+    d.className = 'asp-m ' + (m.from === session ? 'him' : 'you');
+    d.textContent = String(m.text || '');
+    th.appendChild(d);
+  }
+  if (atEnd || ASB.sending) th.scrollTop = th.scrollHeight;
+}
+
+function asbOpen() {
+  ASB.open = true; ASB.asking = false; ASB.dot = false;
+  asbPaint();
+  asbTellScreen(true);
+  asbPoll(true);
+  const say = document.getElementById('asp-say');
+  if (say) say.focus();
+}
+function asbFold() {
+  ASB.open = false; ASB.asking = false;
+  asbPaint();
+  const bub = document.getElementById('asb');
+  if (bub && !bub.hidden) bub.focus();
+}
+/* The first x asks once (Josh 18:02); after that it just closes. */
+function asbX() {
+  if (ASB.setting && ASB.setting.asked !== true) { ASB.asking = true; asbPaint(); document.getElementById('asp-close-now').focus(); return; }
+  asbFold();
+}
+async function asbSaveSetting(patch) {
+  try {
+    const r = await fetch('/api/settings', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ setupAssistant: patch }) });
+    const body = await r.json();
+    if (r.ok && body && body.setupAssistant) { ASB.setting = body.setupAssistant; return true; }
+  } catch { /* said below */ }
+  return false;
+}
+async function asbCloseChoice(forGood) {
+  const ok = await asbSaveSetting(forGood ? { asked: true, on: false } : { asked: true });
+  if (!ok) { document.getElementById('asp-msg').textContent = 'We could not save that just now. Try again in a moment.'; return; }
+  ASB.asking = false;
+  asbFold();
+  asbPaintSetting();
+  /* Closed for good the bubble is gone too, so the keyboard goes back to the page, not nowhere. */
+  if (forGood) asbFocusPage();
+}
+function asbFocusPage() {
+  const to = [...document.querySelectorAll('#tabs .tab.on, #tabs [data-tab="agents"], #new-agent, #rail-agents-new')].find((x) => x.getClientRects().length && getComputedStyle(x).visibility !== 'hidden');
+  if (to) to.focus(); else document.body.focus();
+}
+
+async function asbSend() {
+  const say = document.getElementById('asp-say');
+  const msg = document.getElementById('asp-msg');
+  const text = say.value.trim();
+  const row = asbGuideRow();
+  if (!text || ASB.sending || !row) return;
+  ASB.sending = true;
+  document.getElementById('asp-send').disabled = true;
+  msg.textContent = '';
+  /* The guide went: say so in the open panel (the words stay in the box) before it closes a moment later. */
+  if (!(await asbConfirmGuide({ forgetLater: true }))) {
+    msg.textContent = 'The setup assistant is not on this computer any more, so that was not sent.';
+    ASB.sending = false;
+    document.getElementById('asp-send').disabled = false;
+    return;
+  }
+  /* sendTalk's rules (#402, #3419): clear only the text THIS send took, and only when the box is not its
+     only copy: placed, or unconfirmed but kept in the thread. could_not, or anything unrecognised, keeps it. */
+  const clearSent = () => { if (say.value.trim() === text) say.value = ''; ASB.wroteOnce = true; };
+  try {
+    const r = await fetch('/api/agent/' + encodeURIComponent(row.sessionName) + '/thread', {
+      method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ text }) });
+    const body = await r.json().catch(() => ({}));
+    const d = (body && body.delivery) || {};
+    const inThread = body && body.recorded === true;
+    if (r.ok && d.state === 'placed') {
+      clearSent();
+    } else if (r.ok && d.state === 'unconfirmed') {
+      if (inThread) clearSent();
+      msg.textContent = 'We could not confirm the assistant got that. ' + (inThread ? 'Your message is kept above.' : 'Your message is still in the box below.');
+    } else {
+      msg.textContent = 'We could not get that to the assistant: ' + pjSentence((body && body.error) || d.because || 'we could not reach it');
+    }
+  } catch {
+    msg.textContent = 'We could not get that to the assistant: ' + pjSentence('we could not reach it');
+  } finally {
+    document.getElementById('asp-send').disabled = false;
+    await asbPoll(true);
+    ASB.sending = false;
+  }
+}
+
+/* Settings > This computer > Help: the switch shows only when a guide exists. */
+function asbPaintSetting() {
+  const row = document.getElementById('asb-row');
+  if (!row) return;
+  row.hidden = !ASB.guide || !ASB.setting;
+  if (!row.hidden) paintSwitch('asb-toggle', ASB.setting.on === true);
+  paintTipsToggle();   // the Help box shows while either of its rows does
+}
+document.getElementById('asb-toggle')?.addEventListener('click', async (e) => {
+  const sw = e.currentTarget;
+  if (!ASB.setting || sw.disabled) return;
+  sw.disabled = true;
+  let ok = false;
+  ASB.holding = true;   // nothing is drawn until the board has said who the guide is (below)
+  try { ok = await asbSaveSetting({ on: !(ASB.setting.on === true) }); } catch { ok = false; }
+  const m = document.getElementById('asb-row-msg');
+  if (m) { m.textContent = ok ? '' : 'We could not save that just now. Try again in a moment.'; m.hidden = ok; }
+  asbPaintSetting();
+  /* Switched back on: ask the board who the guide is before drawing it, so a name the guide lost while the
+     assistant was off is not painted from the page's memory. */
+  const confirmed = !(ok && ASB.setting && ASB.setting.on === true) || await asbConfirmGuide();
+  ASB.holding = false;
+  sw.disabled = false;   // only now: a second click mid-check would start a second hold
+  if (!confirmed) {
+    /* The row goes with the guide; say why, and keep the keyboard on the page. */
+    if (m) { m.textContent = 'The setup assistant is not on this computer right now.'; m.hidden = false; }
+    document.getElementById('tips-toggle')?.focus();
+    return;
+  }
+  asbPaint();
+  if (asbShows()) asbPoll(true);
+});
+
+function asbTick() {
+  if (!ASB.guide) { if (Date.now() >= ASB.nextFind) asbFind(); return; }
+  if (!ASB.setting) { if (Date.now() >= ASB.nextSetting) asbReadSetting(); return; }
+  asbPaint();
+  if (!asbShows()) return;
+  if (ASB.open) asbTellScreen(false);
+  asbPoll(false);
+}
+
+/* Which agent is the guide. Asked again until one is named: on a new install the guide is created
+   at the end of first run or when the first model connects (#3660), after this page has loaded. */
+async function asbFind() {
+  if (ASB.finding) return;
+  ASB.finding = true;
+  let guide = null;
+  try {
+    const r = await fetch('/api/setup-guide', { cache: 'no-store' });
+    /* Read the body on every answer: a response whose body is never read stays open, which holds the page's
+       network busy for good (it broke every browser check's page load). "No guide" is 200 { ok: false,
+       reason: 'none' } here, not a 404, which the browser would log as a failed resource on every page. */
+    const b = await r.json().catch(() => null);
+    if (r.ok && b && b.ok && typeof b.name === 'string') guide = b.name;
+  } catch { /* no guide read, no bubble */ }
+  if (!guide) {
+    ASB.nextFind = Date.now() + ASB.findEvery;
+    ASB.findEvery = Math.min(ASB.findEvery * 2, ASB_FIND_MAX_MS);
+    ASB.finding = false;
+    return;
+  }
+  ASB.guide = guide;
+  ASB.finding = false;
+  asbLayerEnsure();
+  await asbReadSetting();
+}
+/* The on/off setting. An unread setting shows no bubble rather than guess, and is read again (the same
+   backoff as the guide), so one bad read at startup does not hide the assistant until a reload. */
+async function asbReadSetting() {
+  if (ASB.settingReading) return;
+  ASB.settingReading = true;
+  try {
+    const r = await fetch('/api/settings', { cache: 'no-store' });
+    const b = await r.json().catch(() => null);
+    if (r.ok && b && b.setupAssistant && typeof b.setupAssistant.on === 'boolean') ASB.setting = b.setupAssistant;
+  } catch { /* retried below */ }
+  ASB.settingReading = false;
+  if (!ASB.setting) {
+    ASB.nextSetting = Date.now() + ASB.settingEvery;
+    ASB.settingEvery = Math.min(ASB.settingEvery * 2, ASB_FIND_MAX_MS);
+  }
+  asbPaintSetting();
+  if (asbShows()) asbPoll(true);   // nothing is read from the thread while the assistant is off
+  asbPaint();
+}
+/* The board says the guide is gone (removed, or its folder no longer the seed's): stop using the name,
+   hide everything, and look again from the start. */
+function asbForgetGuide() {
+  const hadFocus = !!document.activeElement && !!document.activeElement.closest('#asblayer');
+  ASB.guide = null; ASB.open = false; ASB.asking = false; ASB.heard = null; ASB.shown = ''; ASB.dot = false;
+  ASB.wroteOnce = false; ASB.readOnce = false; ASB.lastPoll = 0; ASB.nudgeGone = false;
+  const pm = document.getElementById('asp-msg'); if (pm) pm.textContent = '';   // nothing stale when it comes back
+  if (hadFocus) setTimeout(asbFocusPage, 0);
+  ASB.findEvery = ASB_FIND_FIRST_MS; ASB.nextFind = Date.now() + ASB_FIND_FIRST_MS;
+  asbPaint();
+  asbPaintSetting();
+}
+
+function asbStart() {
+  if (ASB.started) return;
+  ASB.started = true;
+  asbFind();
+  setInterval(asbTick, ASB_TICK_MS);
+}
 
 /* #12 (0.6.39): the platform-aware first-run copy (kosmos#2086: frIsMac,
    frFindAppHint, frApplyPlatformCopy) was removed. It existed only to rewrite
@@ -53962,6 +54498,7 @@ async function firstRunBoot(force, step) {
        done/error paths the cover comes down onto the board, which is correct. */
     revealBoot();
     tipsStart();   // #3574: the tips read the screen, so they wait out first run by themselves
+    asbStart();    // #3034: the setup assistant; it hides itself during first run and keeps looking for a guide
   }
 }
 
@@ -54019,7 +54556,7 @@ fetch('/api/roles').then((r) => (r.ok ? r.json() : null)).then((j) => {
    ready), so a hung check must reveal the board rather than blank the app. This
    is the concern the comment above records, now that the board starts hidden.
    Idempotent with firstRunBoot's finally: whichever fires first wins. */
-setTimeout(() => { revealBoot(); tipsStart(); }, 3000);
+setTimeout(() => { revealBoot(); tipsStart(); asbStart(); }, 3000);
 firstRunBoot(PARAMS.get('first-run') === '1', Number(PARAMS.get('fr-step')) || 1);
 
 /* #3641 (Josh, 2026-09-24): the corner version marker was removed; the version lives in

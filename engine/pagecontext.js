@@ -36,6 +36,7 @@ const instructions = require('./instructions');
 const SCREENS = Object.freeze({
   board: 'the Agents board',
   agent: 'an agent\'s page',
+  create: 'the New agent form',   // #3034: the bubble's commonest screen while setting up
   talk: 'a direct conversation with an agent',
   projects: 'the Projects list',
   project: 'a project',

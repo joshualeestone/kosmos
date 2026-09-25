@@ -14,7 +14,9 @@ cd "$(dirname "$0")/.." || exit 1
 FAILS=0; ok(){ echo "PASS  $1"; }; bad(){ echo "FAIL  $1"; FAILS=$((FAILS+1)); }
 [ -d dist/kosmos-bundle ] && [ -d dist/tmux-bundle ] || { echo "SKIP: dist/ staged trees missing (build them first)"; exit 1; }
 C="$(mktemp -d "${TMPDIR:-/tmp}/install-gate-control.XXXXXX")"; trap 'rm -rf "$C"' EXIT
-mkdir -p "$C/repo"; cp -R install tools package.json "$C/repo/"; cp -R dist "$C/repo/dist"
+# #3691: test-support/ too. test-install.sh points the board at test-support/fake-tmux.sh
+# (#1651); a copy without it made the untouched arm red on every bundle, so nothing discriminated.
+mkdir -p "$C/repo"; cp -R install tools test-support package.json "$C/repo/"; cp -R dist "$C/repo/dist"
 # Two gate runs back to back share nothing but the machine's ports: the
 # harness picks a free port at start, and a board from the previous run can
 # still be winding down on it (measured: the second run's update pass went
@@ -56,7 +58,7 @@ grep -q "^FAIL  install exits 0" "$C/red.log" && ok "and the red names the insta
 # proves nothing about a defect that lives only in the artifact people
 # receive. A second copy with the staged tree INTACT and only the packed
 # tarball broken must red at the download-path pass.
-rm -rf "$C/repo2"; mkdir -p "$C/repo2"; cp -R install tools package.json "$C/repo2/"; cp -R dist "$C/repo2/dist"
+rm -rf "$C/repo2"; mkdir -p "$C/repo2"; cp -R install tools test-support package.json "$C/repo2/"; cp -R dist "$C/repo2/dist"
 ( cd "$C/repo2/dist" && mkdir -p repack && tar -xzf kosmos-arm64.tar.gz -C repack && rm -f repack/app/bin/kosmos-tunnel && ( cd repack && tar -czf ../kosmos-arm64.tar.gz -- * ) && rm -rf repack && shasum -a 256 kosmos-arm64.tar.gz > kosmos-arm64.tar.gz.sha256 )
 [ -x "$C/repo2/dist/kosmos-bundle/app/bin/kosmos-tunnel" ] && ok "CONTROL: the second copy's staged tree is intact (only the tarball is broken)" || bad "the second copy's staged tree lost the file too"
 settle
