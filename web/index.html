@@ -42364,7 +42364,9 @@ function tskPaint() {
      project a door just asked for (#3703). */
   if (TSK.data && TSK.proj && !projMap.has(TSK.proj)) TSK.proj = null;
   const projectsList = [...projMap.values()].sort((a, b) => String(a.name).localeCompare(String(b.name)));
-  const openAll = all.filter((t) => t.state !== 'closed').length;
+  /* "All tasks" counts what clicking it shows: every task but an archived project's, even while a
+     door has us scoped to that archived project (#1346: a count agrees with its destination). */
+  const openAll = tskVisible(TSK.data, null).filter((t) => t.state !== 'closed').length;
   /* The rail, and its narrow-window twin. */
   const rail = document.getElementById('tsk-projects');
   if (rail) {
