@@ -1579,8 +1579,7 @@ html.tip-dimming:not([data-layout="consolidated"]) > body { min-height: 100vh; }
 .swpanel[hidden] { display: none; }
 .swbox { border: 1px solid var(--k-rule); border-radius: 12px; padding: 10px 12px; background: var(--k-surface); }
 .swlab { display: block; margin: 0 0 6px; font: 650 .75rem var(--font-ui); letter-spacing: .02em; color: var(--k-ink-2); text-transform: uppercase; }
-.swctl { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
-.swctl .swstop { margin-left: 16px; }   /* #3564 review: an interrupt kept apart from the two settings beside it */
+.swctl { display: flex; gap: 8px 16px; align-items: center; flex-wrap: wrap; }   /* #3564 review: Stop now kept apart from the two settings beside it; wrapped under them it lines up, no indent */
 .swmode { margin: 0; flex: 1 1 auto; }
 .swmode .pj-mode-opt { font-size: 13px; min-height: 30px; }
 .swstop { border: 1.5px solid var(--danger); color: var(--danger); background: transparent; font-weight: 650; }
