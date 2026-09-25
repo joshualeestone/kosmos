@@ -282,6 +282,12 @@ const say = (n, cond, note) => {
     await p.waitForTimeout(200);
     const setAside = await p.evaluate((id) => [...document.querySelectorAll('#tsk-groups .tsk-row')].filter((r) => r.dataset.key.startsWith(id + '#')).length, made[1]);
     say('on All tasks the archived project is set aside again', setAside === 0, String(setAside));
+    /* And the All-tasks picker leaves it out too (Beta is archived now; Alpha is not). */
+    await p.click('#tsk-new');
+    await p.waitForSelector('#nt-modal', { state: 'visible', timeout: 5000 });
+    const optsNow = await p.evaluate(() => [...document.querySelectorAll('#nt-proj option')].map((o) => o.textContent));
+    say('the All-tasks picker leaves the archived project out', optsNow.includes('Alpha Project') && !optsNow.includes('Beta Project'), JSON.stringify(optsNow));
+    await p.click('#nt-back');
 
     /* ---- the consolidated layout: the door opens Tasks in the display column ---- */
     await p.evaluate(() => fetch('/api/style', { method: 'PUT', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ layout: 'consolidated' }) }).then((r) => r.text()));

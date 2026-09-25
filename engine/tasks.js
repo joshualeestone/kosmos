@@ -627,8 +627,8 @@ function columnTasks(p) {
  * real machine with enough finished work to scroll, not a guess about one.
  *
  * 🔑 ONE ARRAY, SO A COUNT CANNOT DISAGREE WITH ITS OWN DESTINATION. The
- * "View all tasks (N)" control and the rows on the screen both derive from
- * what this returns. That is #1346 stated as a construction rather than as a
+ * Tasks view's open count and its rows both derive from what this returns
+ * (the project door carries no count at all). That is #1346 stated as a construction rather than as a
  * rule to remember: that screen said "3 agents" over three rows and "6" below
  * them because one number came from the DATA and the other from a
  * document-wide DOM query.
