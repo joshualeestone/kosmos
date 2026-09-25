@@ -177,3 +177,46 @@ test('POST /api/tasks/close: empty, too many, an over-long note and junk are ref
   assert.equal(long.json.results, undefined, 'the route tried the tasks instead of refusing the note');
   assert.equal(projects.readAll().find((x) => x.id === p.id).tasks[0].closedAt, null);
 });
+
+test('GET /api/tasks?view=tasks: a project whose claims cannot be read says so on its assigned rows, never "not started" as a fact', async () => {
+  const p = projects.create({ name: 'Unreadable' });
+  projects.addAgent(p.id, 'unreadagent', null);
+  tasks.create(p.id, { sentence: 'Given to someone', who: 'unreadagent' });
+  tasks.create(p.id, { sentence: 'Nobody has it' });
+  const real = projects.joinTaskClaims;
+  projects.joinTaskClaims = () => { throw new Error('planted'); };
+  const quiet = console.error;
+  console.error = () => {};
+  let body;
+  try { body = await all(`?view=tasks&project=${encodeURIComponent(p.id)}`); } finally {
+    projects.joinTaskClaims = real;
+    console.error = quiet;
+  }
+  const by = Object.fromEntries(body.tasks.map((t) => [t.sentence, t]));
+  assert.equal(by['Given to someone'].state, 'assigned');
+  assert.equal(by['Given to someone'].claim.claimed, null);
+  assert.match(by['Given to someone'].claim.because, /could not read/);
+  assert.equal(by['Nobody has it'].claim, null, 'a task nobody is on has no claim to be unsure about');
+  // Control: with the join working, the same row carries the join's own answer, not the planted-failure one.
+  commitments.report('unreadagent', [{ what: 'nothing about that task' }]);
+  const fine = await all(`?view=tasks&project=${encodeURIComponent(p.id)}`);
+  const fineClaim = fine.tasks.find((t) => t.sentence === 'Given to someone').claim;
+  assert.equal(fineClaim.claimed, false, JSON.stringify(fineClaim));
+});
+
+test('GET /api/tasks?view=tasks leaves out archived projects (and pays nothing for them); the plain list keeps them', async () => {
+  const p = projects.create({ name: 'Set aside' });
+  tasks.create(p.id, { sentence: 'In an archived project' });
+  projects.setArchived(p.id, true);
+  assert.equal(projects.readAll().find((x) => x.id === p.id).archived, true, 'the fixture did not archive the project; update this test');
+  const real = projects.joinTaskClaims;
+  const seen = [];
+  projects.joinTaskClaims = (...a) => { seen.push(a[4] && a[4].id); return real(...a); };
+  let view;
+  try { view = await all('?view=tasks'); } finally { projects.joinTaskClaims = real; }
+  assert.ok(!view.tasks.some((t) => t.projectId === p.id), 'an archived project\'s task is in the Tasks view');
+  assert.ok(!seen.includes(p.id), 'claims were read for an archived project');
+  assert.ok(seen.length > 0, 'the spy saw no project at all (control)');
+  const plain = await all();
+  assert.ok(plain.tasks.some((t) => t.projectId === p.id && t.projectArchived === true), 'the plain list lost the archived task');
+});
