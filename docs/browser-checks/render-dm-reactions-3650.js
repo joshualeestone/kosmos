@@ -10,6 +10,7 @@
  *     row from the response;
  *   - the grey smiley opens the SHARED picker for that DM row (data-at), and a pick from it
  *     goes to the DM route, not the room's, then closes the picker.
+ *   - a quiet poll leaves a DM-opened picker open; a poll that rewrites the thread closes it.
  *
  *   NODE_PATH="$HOME/work/pw-runtime/node_modules" HEADED=0 node docs/browser-checks/render-dm-reactions-3650.js
  */
@@ -168,6 +169,23 @@ const FX = {
     return { opened, sent: window.__reacts.length };
   }, A1);
   chk(r5.opened && r5.sent === 0, 'a pick into a DM that is no longer on screen sends nothing', JSON.stringify(r5));
+  // A DM-opened picker stays open across a poll that changes nothing, and closes when a poll
+  // rewrites the thread (the smiley it is anchored to is replaced).
+  const r6 = await page.evaluate(async (A1) => {
+    rxnCloseAllPickers();
+    const picker = document.getElementById('rxn-picker');
+    document.querySelector('#d-dmthread .rxns[data-at="' + A1 + '"] .rxn-more').click();
+    const opened = !picker.hidden;
+    await paintTalk('april', 'April');
+    const openAfterQuiet = !picker.hidden;
+    const f = JSON.parse(JSON.stringify(window.__fx));
+    f.messages.push({ from: 'april', text: 'one more', at: '2026-09-24T21:59:00.000Z' });
+    window.__fx = f;
+    await paintTalk('april', 'April');
+    return { opened, openAfterQuiet, closedAfterChange: picker.hidden, at: picker.getAttribute('data-at') };
+  }, A1);
+  chk(r6.opened && r6.openAfterQuiet, 'a quiet poll leaves a DM-opened picker open', JSON.stringify(r6));
+  chk(r6.closedAfterChange && r6.at === null, 'a poll that rewrites the DM thread closes the picker', JSON.stringify(r6));
   chk(errs.length === 0, 'no page errors', errs.join(' | '));
 
   await browser.close();

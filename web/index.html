@@ -25833,6 +25833,8 @@ function setThread(el, html, key) {
   }
   const rewrote = el.__lastThread !== html;
   if (rewrote) {
+    /* #3650: the write replaces the smiley a DM-opened reaction picker is anchored to. */
+    if (el.id === 'd-dmthread') rxnCloseDmPicker();
     el.__lastThread = html;
     el.innerHTML = html;
   }
@@ -26282,11 +26284,6 @@ function paintTalkThread(body, name) {
     const threadKey = (filtering ? TALK_QUERY : '') + '\u0000' + rows.length
       + '\u0000' + (tailRow ? String(tailRow.id || tailRow.at || '') : '');
     const dmHtml = rows.map((m) => dmRow(m, name)).join('') + (filtering ? '' : dmOwesLine(body.owes, rows));
-    /* #3650: a repaint that rewrites the thread replaces the smiley a DM-opened reaction
-       picker is anchored to, so close it first, as the room does (paintThreadInto). A quiet
-       poll that changes nothing leaves it open. */
-    const rxnPk = document.getElementById('rxn-picker');
-    if (rxnPk && !rxnPk.hidden && rxnPk.getAttribute('data-at') !== null && thread && thread.__lastThread !== dmHtml) rxnCloseAllPickers();
     setThread(thread, dmHtml, threadKey);
   }
 }
@@ -44047,6 +44044,10 @@ document.getElementById('pj-room').addEventListener('click', (e) => {
 /* #2806/#2834: close the shared reaction picker and reset every opener's aria-expanded.
    Used to keep at most one open, and by the dismiss paths below (outside click / Escape
    / outside scroll), mirroring the composer emoji panel's behaviour. */
+function rxnCloseDmPicker() {
+  const picker = document.getElementById('rxn-picker');
+  if (picker && !picker.hidden && picker.getAttribute('data-at') !== null) rxnCloseAllPickers();
+}
 function rxnCloseAllPickers() {
   const picker = document.getElementById('rxn-picker');
   if (picker) { picker.hidden = true; picker.removeAttribute('data-post'); picker.removeAttribute('data-at'); }

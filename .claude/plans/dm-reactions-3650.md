@@ -59,7 +59,7 @@ reaction alone to reach the agent, which would need a quiet channel that does no
 start a turn.
 
 ## Verification
-- engine/chat.dm-reactions-3650.test.js (11, incl. the cap, the bounded note and the code-point cut): toggle, only agent rows, ambiguity
+- engine/chat.dm-reactions-3650.test.js (incl. the cap, the bounded note and the code-point cut): toggle, only agent rows, ambiguity
   refused, survives appends, told once then silent, taken-back never told, one-line
   note with quoting, stray values skipped. Perturbations: accepting any row, and a
   no-op told-marker, each red their arm.
@@ -67,8 +67,14 @@ start a turn.
   note pending, no note on a menu answer, the note typed after the person's words,
   and not typed again. Perturbations: no note, told-marking regardless of delivery,
   no told-marking, and no digit guard each red it.
-- docs/browser-checks/render-dm-reactions-3650.js (9): rows on agent messages only,
+- docs/browser-checks/render-dm-reactions-3650.js: rows on agent messages only,
   a pressed pill, quick-bar POST + repaint, shared picker routed to the DM route and
-  closed. Perturbations: picker DM branch off, and no DM row, each red. The room's
-  render-reactions-2255 (46), render-agentdm-3414 and render-talk still pass.
+  closed, a quiet poll leaving a DM-opened picker open and a rewriting poll closing it.
+  Perturbations: picker DM branch off, and no DM row, each red; after the rebase, the
+  picker close removed from setThread reds the rewrite arm, and a close on every
+  setThread reds the quiet arm. The room's render-reactions-2255, render-agentdm-3414
+  (40/40 on the rebased branch) and render-talk still pass.
+- The picker close lives in setThread's own rewrite decision (review pass 3), so the DM
+  thread has one "did it change" and every arm that rewrites it (notes included)
+  closes a DM-opened picker.
 - engine/defaults.test.js: fingerprint 14 pinned.
