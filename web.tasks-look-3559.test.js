@@ -68,7 +68,7 @@ test('one fact, one wording: the project card and the task page say "never repor
   // CONTROL: another could-not-tell case keeps its own reason on the card.
   assert.match(taskClaimHtml({ claimed: null, neverReported: false, because: 'its record could not be read' }), />its record could not be read</);
   // The task page's line uses the same helper.
-  assert.match(SCRIPT, /const notReported = claimNotReported\(t\.claim\);[\s\S]{0,300}why\.textContent = notReported \? \(who \|\| 'It'\) \+ ' ' \+ notReported \+ '\.'/);
+  assert.match(SCRIPT, /const notReported = claimNotReported\(t\.claim\);[\s\S]{0,500}why\.textContent = notReported && claimWho \? claimWho \+ ' ' \+ notReported \+ '\.'/);
 });
 
 test('could not tell for another reason: the row keeps the reason, never "has not said"', () => {
@@ -95,7 +95,10 @@ test('Closed is not a tile; it stays the folded list', () => {
 test('the two big gaps: less top padding, and an empty crumb or status line takes no room', () => {
   assert.match(PAGE, /\.tsk-main \{ padding: 25px 26px 110px;/);
   assert.match(PAGE, /\.tsk-crumb:empty \{ min-height: 0; margin: 0; \}/);
-  assert.match(PAGE, /#tsk-msg:empty \{ min-height: 0; margin: 0; \}/);
+  // The status line keeps its reserved line (a message must not push the list down); its margins go.
+  assert.match(PAGE, /#tsk-msg \{ margin: 0; min-height: 1\.6em; min-height: 1lh; \}/);
+  assert.doesNotMatch(PAGE, /#tsk-msg:empty \{[^}]*min-height: 0/, 'an empty status line collapses, so a message shifts the list');
+  assert.match(PAGE, /#tsk-groups > \.tsk-grp:first-child \{ margin-top: 3px; \}/);
   // The status line must stay a live region: it is never display:none.
   assert.doesNotMatch(PAGE, /#tsk-msg[^{]*\{[^}]*display:\s*none/);
 });

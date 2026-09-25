@@ -232,6 +232,24 @@ test('the unknown claim gets its reason on the page, where there is room for it'
   assert.equal(settled.doc.els['tk-why'].hidden, true);
 });
 
+test('an agent that never reported is named, on a plain task and on one kept as parts (never "It")', () => {
+  const claim = { claimed: null, neverReported: true, because: 'this agent has never reported what it is holding' };
+  const plain = runPaint({
+    project: { ...PROJECT, tasks: [] },
+    task: { number: 7, sentence: 's', who: 'april', createdAt: new Date().toISOString(), addedBy: 'operator', closedAt: null, claim },
+  });
+  assert.equal(plain.doc.els['tk-why'].hidden, false);
+  assert.match(plain.doc.els['tk-why'].textContent, /^April has not reported what it is working on yet\.$/);
+  // A task kept as parts has no `who`; the claim is about its first part's agent, so name that one.
+  const parted = runPaint({
+    project: { ...PROJECT, tasks: [] },
+    task: { number: 8, sentence: 's', createdAt: new Date().toISOString(), addedBy: 'operator', closedAt: null, claim,
+      parts: [{ id: 1, sentence: 'first half', who: 'april', closedAt: null }, { id: 2, sentence: 'second half', who: null, closedAt: null }] },
+  });
+  assert.doesNotMatch(parted.doc.els['tk-why'].textContent, /^It /, 'the page says "It" about an agent it can name');
+  assert.match(parted.doc.els['tk-why'].textContent, /^April has not reported what it is working on yet\.$/);
+});
+
 test('a task that disappears under the open page sends you to its project', () => {
   const doc = stubDoc(TK_IDS);
   const views = [];
