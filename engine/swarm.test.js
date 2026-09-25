@@ -282,6 +282,17 @@ test('#3564 per project: a swarm switched off is off only in that project, and b
   assert.equal(projects.swarmOffIn(id, 'lead'), false);
 });
 
+test('#3564 per project: leaving a project clears its Off, so the agent re-added later starts On; a member who stays keeps it', () => {
+  const p = projects.create({ name: 'Swarm Leave Room' });
+  const id = p.id || (p.project && p.project.id);
+  projects.mutate(id, (x) => ({ ...x, agents: ['leaver', 'stayer'] }));
+  projects.setSwarmOn(id, 'leaver', false);
+  projects.setSwarmOn(id, 'stayer', false);
+  projects.removeAgent(id, 'leaver');
+  assert.equal(projects.swarmOffIn(id, 'leaver'), false, 'an agent that left kept its Off, so it would come back switched off');
+  assert.equal(projects.swarmOffIn(id, 'stayer'), true, 'CONTROL: removing one member cleared another member\'s Off');
+});
+
 test('#3564 sweepRows: only OUR swarms, as { name, tokensToday, activeHelpers }; a plain agent and a stranger are left out', () => {
   store.writeProfile('rowlead', swarm.birthProfile({ dailyTokenLimit: 1000 }));
   store.writeProfile('rowstranger', swarm.birthProfile({ dailyTokenLimit: 1000 }));
