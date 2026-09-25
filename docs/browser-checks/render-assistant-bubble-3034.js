@@ -156,20 +156,18 @@ const waitFor = (page, fn, ms = 6000) => page.waitForFunction(fn, null, { timeou
     await page.click('#asp-fold');
     // B17: a short window. The lift is capped, so the bubble and the open chat stay wholly on screen.
     await page.setViewportSize({ width: 1280, height: 420 });
-    /* A tall control in the corner, so the lift the bubble wants is taller than the window: only the cap
-       keeps it on screen (without one it goes off the top). */
+    /* A tall control in the corner. The bubble only clips it, so it no longer climbs it (Josh 2026-09-25: the
+       chat stays in the corner); either way the bubble and the open chat must stay on screen. */
     await page.evaluate(() => { const t = document.createElement('button'); t.dataset.check = 'b17'; t.textContent = 'tall'; t.style.cssText = 'position:fixed;right:0;bottom:0;width:120px;height:380px;z-index:1'; document.body.appendChild(t); });
     await page.waitForTimeout(1700);
     const b17 = await page.evaluate(() => { const r = document.getElementById('asb').getBoundingClientRect(); return { top: Math.round(r.top), bottom: Math.round(r.bottom), vh: innerHeight }; });
     await page.click('#asb');
     await page.waitForTimeout(300);
-    const b17p = await page.evaluate(() => { const r = document.getElementById('asp').getBoundingClientRect(); return { top: Math.round(r.top), bottom: Math.round(r.bottom), vh: innerHeight }; });
-    /* The tall control reaches into the page's bottom band, so the open chat must sit above it: its lower
-       part is still what the pointer hits (the old band rule, which looked only at a control's top, left the
-       chat covering it). */
-    const b17hit = await page.evaluate(() => { const h = document.elementFromPoint(1200, innerHeight - 120);   /* in the band, above where Send alone would lift the chat */ return !!h && h.dataset.check === 'b17'; });
+    const b17p = await page.evaluate(() => { const r = document.getElementById('asp').getBoundingClientRect(); const h = document.querySelector('.apphead').getBoundingClientRect();
+      return { top: Math.round(r.top), bottom: Math.round(r.bottom), vh: innerHeight, head: Math.round(Math.max(0, h.bottom)) }; });
     chk(b17.top >= 0 && b17.bottom <= b17.vh && b17p.top >= 0 && b17p.bottom <= b17p.vh, 'B17 on a short window the lifted bubble and the open chat stay on screen', JSON.stringify({ b17, b17p }));
-    chk(b17hit, 'B17 and the open chat does not cover a control reaching into the bottom band');
+    /* Josh 2026-09-25: the chat keeps to the bubble's corner and gives up height, never sliding up under the header. */
+    chk(b17p.top >= b17p.head, 'B17 and the open chat never runs under the header bar', JSON.stringify(b17p));
     await page.click('#asp-fold');
     await page.evaluate(() => document.querySelector('[data-check="b17"]').remove());
     await page.setViewportSize({ width: 1280, height: 860 });
@@ -178,8 +176,21 @@ const waitFor = (page, fn, ms = 6000) => page.waitForFunction(fn, null, { timeou
 
     // B3: clicking it opens the chat in place, headed Josh and tagged as AI, and tells the guide the screen.
     pageReports.length = 0;
+    /* A card-sized control under the corner (a board full of agent cards): the bubble dodged it, and the chat dodged
+       anything in the bottom band, so both climbed toward the header. Now both stay in the corner over it. */
+    await page.evaluate(() => { const t = document.createElement('button'); t.dataset.check = 'b3band'; t.textContent = 'card'; t.style.cssText = 'position:fixed;right:0;bottom:0;width:280px;height:250px;z-index:1'; document.body.appendChild(t); });
+    await page.waitForTimeout(1700);   // a tick: the bubble re-measures the corner
+    const b3bub = await page.evaluate(() => { const r = document.getElementById('asb').getBoundingClientRect(); return { right: Math.round(r.right), bottom: Math.round(r.bottom), fromBottom: Math.round(document.documentElement.clientHeight - r.bottom) }; });
+    chk(b3bub.fromBottom === 16, 'B3 a card under the corner does not push the bubble up (it only clips the card)', JSON.stringify(b3bub));
     await page.click('#asb');
     chk(await waitFor(page, () => !document.getElementById('asp').hidden), 'B3 the chat opens');
+    /* Josh 2026-09-25: it pops up in the bottom-right corner like a support chat, its bottom-right corner where the
+       bubble was, growing up and left; not pinned under the header (a board full of cards used to push it there). */
+    const b3pan = await page.evaluate(() => { const r = document.getElementById('asp').getBoundingClientRect(); const h = document.querySelector('.apphead').getBoundingClientRect();
+      return { right: Math.round(r.right), bottom: Math.round(r.bottom), top: Math.round(r.top), height: Math.round(r.height), head: Math.round(Math.max(0, h.bottom)) }; });
+    chk(Math.abs(b3pan.right - b3bub.right) <= 1 && Math.abs(b3pan.bottom - b3bub.bottom) <= 1 && b3pan.top > b3pan.head && b3pan.height === 420,
+      'B3 the chat opens in the bottom-right corner, its corner where the bubble was, at full height below the header', JSON.stringify({ b3bub, b3pan }));
+    await page.evaluate(() => document.querySelector('[data-check="b3band"]').remove());
     await waitFor(page, () => document.querySelectorAll('#asp-th .asp-m.him').length > 0);   // the thread's first read
     const head = await page.evaluate(() => {
       const note = document.querySelector('.asp-note');
