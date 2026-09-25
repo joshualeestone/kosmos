@@ -225,6 +225,16 @@ const waitFor = (page, fn, ms = 6000) => page.waitForFunction(fn, null, { timeou
     chk(await waitFor(page, () => { const b = document.getElementById('asb'); return b && !b.hidden && ASB.hosted === true; }, 8000), 'H9 precondition: hosted again with the guide gone');
     answer = { status: 501, body: { error: 'the setup assistant arrives with the next Kosmos update', unsupported: true } };
     await page.click('#asb');
+    // H9c first: folded and opened again inside the six seconds, the chat the person reopened is left open.
+    await page.fill('#asp-say', 'Hello?');
+    await page.keyboard.press('Enter');
+    chk(await waitFor(page, () => /arrives with the next Kosmos update/.test(document.getElementById('asp-msg').textContent)), 'H9c precondition: the 501 sentence');
+    await page.click('#asp-fold');
+    await page.click('#asb');
+    await page.waitForTimeout(7000);
+    const h9c = await page.evaluate(() => ({ panel: !document.getElementById('asp').hidden, focusIn: !!document.activeElement && !!document.activeElement.closest('#asblayer'), send: document.getElementById('asp-send').disabled }));
+    chk(h9c.panel && h9c.focusIn && !h9c.send, 'H9c a chat reopened inside the six seconds stays open, keeps focus, and can send again', JSON.stringify(h9c));
+    // H9: asked again, it says so, and this time, left alone, it steps aside.
     await page.fill('#asp-say', 'Hello?');
     await page.keyboard.press('Enter');
     chk(await waitFor(page, () => /arrives with the next Kosmos update/.test(document.getElementById('asp-msg').textContent)), 'H9 an old connector: it says the assistant arrives with the next update');

@@ -67,3 +67,10 @@ rebuilt one. A board on an old connector sees the 501 path once per session.
   adopted only once the board lists its row.
 - NITs taken: the gold dot for an answer while folded (H16); asp-msg cleared whenever a guide is named; a 409 splits
   into own_model and no_connector with true sentences; /bin/kosmos-tunnel is gitignored so a checkout never offers it.
+
+## Review iteration 4 (fixed)
+- BLOCKER: the step-aside timer flipped hosted/hostedOff before its reopen check, so a chat folded and reopened in the
+  six seconds was still hidden, with focus taken. The reopen check (openGen) now gates the flip as well. H9c covers
+  it; control: with the old order, H9c fails.
+- NIT: the duplicate asp-msg clear on guide adoption was removed. The double asbFocusPage on "Don't show this again"
+  was left alone: it is the same target, and it predates this branch.

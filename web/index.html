@@ -54587,10 +54587,13 @@ async function asbHostedSend(text) {
       document.getElementById('asp-send').disabled = true;
       const gen = ASB.openGen;
       setTimeout(() => {
-        if (r.status === 501) ASB.hostedOff = true; else ASB.hosted = false;
         ASB.sending = false;
         document.getElementById('asp-send').disabled = false;
-        if (ASB.guide || ASB.openGen !== gen) { asbPaint(); asbPaintSetting(); return; }
+        /* A guide adopted since, or the chat folded and opened again: leave it exactly as it is. The state is
+           not flipped either, or the next paint would hide the reopened chat anyway; a further question gets
+           the same answer and starts this again. */
+        if (ASB.guide || ASB.openGen !== gen) return;
+        if (r.status === 501) ASB.hostedOff = true; else ASB.hosted = false;
         ASB.open = false;
         asbPaint(); asbPaintSetting();
       }, 6000);
@@ -54680,10 +54683,7 @@ async function asbFind() {
   ASB.guide = guide;
   { const pm = document.getElementById('asp-msg'); if (pm) pm.textContent = ''; }   // a line from before is not the guide's
   /* A guide now exists: the bubble talks to it. The hosted conversation stays behind; it was another assistant. */
-  if (ASB.hosted) {
-    ASB.hosted = false; ASB.heard = null; ASB.shown = ''; ASB.readOnce = false; ASB.lastPoll = 0; ASB.remaining = null;
-    const pm = document.getElementById('asp-msg'); if (pm) pm.textContent = '';   // an allowance or a refusal was the hosted one's
-  }
+  if (ASB.hosted) { ASB.hosted = false; ASB.heard = null; ASB.shown = ''; ASB.readOnce = false; ASB.lastPoll = 0; ASB.remaining = null; }
   ASB.finding = false;
   asbLayerEnsure();
   await asbReadSetting();
