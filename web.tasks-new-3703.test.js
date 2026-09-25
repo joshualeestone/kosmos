@@ -5,10 +5,21 @@
  *   node --test web.tasks-new-3703.test.js
  */
 const fs = require('node:fs');
+const os = require('node:os');
 const path = require('node:path');
+// The members are REAL board cards (fixture-discipline): sandbox the roots before requiring the fleet.
+const SANDBOX = fs.mkdtempSync(path.join(os.tmpdir(), 'aw-tasksnew-page-'));
+process.env.AGENT_WORKFORCE_DATA = path.join(SANDBOX, 'data');
+process.env.AGENT_WORKFORCE_WORKERS = path.join(SANDBOX, 'workers');
+process.env.AGENT_WORKFORCE_CLAUDE_CONFIG = path.join(SANDBOX, 'claude.json');
+process.env.AGENT_WORKFORCE_LAUNCH = path.join(SANDBOX, 'launch');
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const page = require('./test-support/page');
+const fleet = require('./test-support/fleet');
+const BOARD = fleet.install([fleet.agent('rex'), fleet.agent('ada')]);
+const card = (name) => BOARD.agents.find((c) => c.sessionName === name);
+test.after(() => { try { BOARD.restore(); } catch { /* restored */ } fs.rmSync(SANDBOX, { recursive: true, force: true }); });
 
 const PAGE = fs.readFileSync(path.join(__dirname, 'web', 'index.html'), 'utf8');
 const SCRIPT = page.scriptOf(PAGE);
@@ -31,8 +42,8 @@ function world(projects, { current = null } = {}) {
 }
 
 const P = [
-  { id: 'b', name: 'Newsletter', agents: [{ sessionName: 'rex', name: 'Rex' }] },
-  { id: 'a', name: 'Spring launch', agents: [{ sessionName: 'ada', name: 'Ada', role: 'writer' }] },
+  { id: 'b', name: 'Newsletter', agents: [card('rex')] },
+  { id: 'a', name: 'Spring launch', agents: [card('ada')] },
   { id: 'z', name: 'Old stuff', archived: true, agents: [] },
 ];
 
