@@ -48,6 +48,12 @@ if (!process.env.AGENT_WORKFORCE_CLAUDE_CONFIG) process.env.AGENT_WORKFORCE_CLAU
 const realSkills = path.join(os.homedir(), '.claude', 'skills');
 const skills = process.env.AGENT_WORKFORCE_SKILLS_DIR;
 if (!skills || path.resolve(skills) === path.resolve(realSkills)) process.env.AGENT_WORKFORCE_SKILLS_DIR = freshHome();
+/* The same trap for projects: engine/projects.js reads AGENT_WORKFORCE_PROJECTS || the REAL
+   ~/Kosmos/Projects, and creating a project makes its folder there (makeFolder). Checks
+   set it by hand; this covers the one that forgets. */
+const realProjects = path.join(os.homedir(), 'Kosmos', 'Projects');
+const projects = process.env.AGENT_WORKFORCE_PROJECTS;
+if (!projects || path.resolve(projects) === path.resolve(realProjects)) process.env.AGENT_WORKFORCE_PROJECTS = freshHome();
 /* Sealed by REMOVAL, not by naming a sandbox: setting AGENT_WORKFORCE_CODEX_HOME puts the
    board into the #1488 "operator named a codex home" mode (other OpenAI rows unofferable),
    which is not the ordinary product. Removed, the OpenAI default falls through to
