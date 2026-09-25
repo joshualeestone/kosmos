@@ -450,7 +450,8 @@ h1 { font: 600 var(--text-title-1) var(--font-ui); letter-spacing: -0.012em; }
      on every view, with the gold edge (attention) and never the warning
      tint: the common case is the person's own phone, in their hand. */
   /* #718: the gold edge is the whole border now, not a solid left bar (Josh, 2026-09-24:
-     no solid coloured left bars on cards). Same attention, same gold. */
+     no solid coloured left bars on cards). --gold-edge, not --gold: a 1px line needs the
+     token measured to clear 3:1 non-text contrast (it is deeper than --gold in light). */
   .askcard { margin: 10px 24px 0; padding: 12px 16px; border: 1px solid var(--gold-edge);
              border-radius: 10px;
              background: var(--k-surface); font-size: .875rem; color: var(--k-ink-2); }
@@ -28109,7 +28110,9 @@ function detailSection(key) {
    question is and where you answer. On a phone the page stacks (max-width 56rem, the
    .dbody and #d-nav rules): the identity block, five full-width section boxes and Files
    come first, so the question sat about two screens down on an iPhone SE (measured).
-   Only arrivals call this, never an ordinary open, and only when the stacked layout is
+   Only arrivals call this: a page load with ?tab=detail&agent= (a push tap, or a reload of
+   an agent page, which also lands on the conversation) and the Answer button; never an
+   ordinary open from the board. Only when the stacked layout is
    on (any window up to 56rem wide, a phone or a narrow window); wider, the Direct Message
    is already beside the menu. */
 /* #718: a ?tab=detail&agent= link (a push tap) is settled ONCE, from the poll (which runs
