@@ -28129,21 +28129,31 @@ const WANT_AGENT_GRACE_MS = 4000;
    touch ends it sooner. */
 const REVEAL_HOLD_MS = 4000;
 const REVEAL_HOLD_TICK_MS = 150;
+/* How far (px) the conversation may drift before the hold puts it back: sub-pixel layout
+   rounding must not count as content pushing it down. */
+const REVEAL_HOLD_DRIFT_PX = 2;
 function settleWantAgent() {
-  if (!WANT_AGENT || CURRENT || WANT_AGENT_DONE) return;
+  if (!WANT_AGENT || WANT_AGENT_DONE) return;
+  // The person already opened some agent themselves: the link is spent, never pull them away.
+  if (CURRENT) { if (CURRENT.sessionName !== WANT_AGENT) WANT_AGENT_DONE = true; return; }
   openDetail(WANT_AGENT);
   if (CURRENT && CURRENT.sessionName === WANT_AGENT) {
     WANT_AGENT_DONE = true;
     detailRevealTalkOnPhone();
     return;
   }
-  const now = Date.now();
+  // performance.now, not Date.now: a wall-clock change mid-window cannot stretch or cut it.
+  const now = performance.now();
   if (!WANT_AGENT_FIRST_MISS) { WANT_AGENT_FIRST_MISS = now; return; }
   if (now - WANT_AGENT_FIRST_MISS < WANT_AGENT_GRACE_MS) return;
   WANT_AGENT_DONE = true;
   if (URL_TAB === 'detail') showTab('agents');
 }
 let REVEAL_HOLD = null;
+/* What ends the hold at once: the person's own input, and ANY focus change. A focused composer
+   makes the browser scroll it above the on-screen keyboard (the Answer path focuses it); the
+   hold must never pull it back under. */
+const REVEAL_HOLD_STOPS = ['touchstart', 'wheel', 'keydown', 'mousedown', 'focusin'];
 function detailRevealTalkOnPhone() {
   if (!(window.matchMedia && window.matchMedia('(max-width: 56rem)').matches)) return;
   const talk = detailSection('talk');
@@ -28151,23 +28161,24 @@ function detailRevealTalkOnPhone() {
   try { talk.scrollIntoView({ block: 'start' }); } catch (_e) { /* old engines: stay put */ }
   /* Content above the conversation (the Files list, painted from its own fetch) can still
      grow and push it down, and an engine without scroll anchoring (WebKit, Safari) does not
-     compensate. For 4 seconds, put it back if it moves, and stop at the person's first
-     touch, wheel or key: never fight their own scroll. */
+     compensate. For a few seconds, put it back if it moves, and stop at the person's first
+     touch, wheel, key or click, or any focus change: never fight them or the keyboard. */
   if (REVEAL_HOLD) REVEAL_HOLD();
   const top0 = talk.getBoundingClientRect().top;
-  const until = Date.now() + REVEAL_HOLD_MS;
+  const until = performance.now() + REVEAL_HOLD_MS;
   const stop = () => {
     clearInterval(timer);
-    for (const ev of ['touchstart', 'wheel', 'keydown', 'mousedown']) window.removeEventListener(ev, stop, { capture: true });
+    for (const ev of REVEAL_HOLD_STOPS) window.removeEventListener(ev, stop, { capture: true });
     if (REVEAL_HOLD === stop) REVEAL_HOLD = null;
   };
   const timer = setInterval(() => {
-    if (Date.now() > until || talk.hidden) return stop();
-    if (Math.abs(talk.getBoundingClientRect().top - top0) > 2) {
+    // Stop when time is up, or the section or its panel is no longer on screen.
+    if (performance.now() > until || talk.hidden || !talk.offsetParent) return stop();
+    if (Math.abs(talk.getBoundingClientRect().top - top0) > REVEAL_HOLD_DRIFT_PX) {
       try { talk.scrollIntoView({ block: 'start' }); } catch (_e) { stop(); }
     }
   }, REVEAL_HOLD_TICK_MS);
-  for (const ev of ['touchstart', 'wheel', 'keydown', 'mousedown']) window.addEventListener(ev, stop, { capture: true, passive: true });
+  for (const ev of REVEAL_HOLD_STOPS) window.addEventListener(ev, stop, { capture: true, passive: true });
   REVEAL_HOLD = stop;
 }
 function detailPaintWindow(a) {

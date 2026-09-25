@@ -37,7 +37,8 @@ const chk = (ok, label, extra) => {
 async function open(browser, opts) {
   const page = await browser.newPage(opts);
   await page.addInitScript(() => {
-    window.setInterval = () => 0;
+    window.__realSetInterval = window.setInterval.bind(window);   // the hold arm needs real timers
+    window.setInterval = () => 0;                                  // the app's polls stay off
     window.fetch = async () => new Response('{}', { status: 200, headers: { 'content-type': 'application/json' } });
   });
   await page.goto(PAGE);
@@ -85,10 +86,15 @@ async function open(browser, opts) {
       const b = host.querySelector('.ansgo');
       if (!b) return { error: 'no Answer button on a needs-you card' };
       const a = getComputedStyle(b, '::after');
-      return { content: a.content, top: a.top, left: a.left };
+      b.scrollIntoView({ block: 'center' });
+      const r = b.getBoundingClientRect();
+      // A real hit test just above the pill's text: the extended area must catch it on touch.
+      const hit = document.elementFromPoint(r.left + r.width / 2, r.top - 5);
+      return { content: a.content, top: a.top, left: a.left, hitAbove: !!(hit && hit.closest && hit.closest('.ansgo')) };
     }, BASE);
     const a1 = await ans(phone);
     chk(!a1.error && a1.content === '""' && a1.top === '-8px' && a1.left === '-6px', '[answer/touch] Answer has an extended hit area on a touchscreen', JSON.stringify(a1));
+    chk(!a1.error && a1.hitAbove === true, '[answer/touch] a tap 5px above the Answer text still lands on Answer', JSON.stringify(a1));
     // (c) the landing: reveal on a phone scrolls the conversation to the top
     const land = async (page) => page.evaluate(() => {
       if (typeof detailRevealTalkOnPhone !== 'function' || typeof showTab !== 'function') return { error: 'reveal/showTab missing' };
@@ -108,12 +114,29 @@ async function open(browser, opts) {
       return { before, after: Math.round(talk.getBoundingClientRect().top), scrollY: Math.round(window.scrollY), asked };
     });
     const l1 = await land(phone);
+    // The hold, with REAL timers: content painted above the conversation after the reveal (the
+    // Files list arriving late) pushes it down; the hold puts it back. Chromium's scroll
+    // anchoring would compensate by itself (measured: the section did not move), so anchoring is
+    // turned OFF here to stand in for an engine without it (Safari), which is what the hold is for.
+    const hold = await phone.evaluate(() => new Promise((res) => {
+      window.setInterval = window.__realSetInterval;
+      document.documentElement.style.overflowAnchor = 'none'; document.body.style.overflowAnchor = 'none';
+      const talk = document.getElementById('d-sec-talk');
+      window.scrollTo(0, 0);
+      detailRevealTalkOnPhone();
+      const pushed = document.createElement('div'); pushed.style.height = '300px';
+      talk.parentElement.insertBefore(pushed, talk);   // late content above it
+      const right = Math.round(talk.getBoundingClientRect().top);
+      setTimeout(() => res({ rightAfterPush: right, settled: Math.round(talk.getBoundingClientRect().top) }), 500);
+    }));
+    chk(Math.abs(hold.rightAfterPush) > 50 && Math.abs(hold.settled) <= 2, '[landing/phone] the hold puts the conversation back when late content pushes it down', JSON.stringify(hold));
     chk(!l1.error && l1.asked >= 1 && l1.before > 5 && Math.abs(l1.after) <= 2, '[landing/phone] an arrival scrolls the Direct Message section to the top', JSON.stringify(l1));
     await phone.close();
 
     const wide = await open(browser, { viewport: { width: 1200, height: 900 } });
     const a2 = await ans(wide);
     chk(!a2.error && (a2.content === 'none' || a2.content === 'normal'), '[answer/mouse] no extended hit area with a mouse', JSON.stringify(a2));
+    chk(!a2.error && a2.hitAbove === false, '[answer/mouse] with a mouse, 5px above the text is not Answer', JSON.stringify(a2));
     const l2 = await land(wide);
     chk(!l2.error && l2.asked === 0 && l2.after === l2.before, '[landing/wide] in a wide window the reveal does not scroll at all', JSON.stringify(l2));
     await wide.close();
