@@ -65,7 +65,9 @@ test('#3759: the block names BOTH destinations and when each applies, says where
   // save it here, say so, and ask which project in the same line.
   assert.match(flat, /When you cannot tell whether the file belongs to a project, or to which one, do not guess a project\. Save it in your Files folder\. In the same line where you tell them it is under Files on your page, ask which project it belongs to/);
   // The doctrine's general "ask, do not guess" is carried out this way for these files (round 15).
-  assert.match(flat, /this is how the rule to ask one short question and not guess, wherever it appears in your instructions, is carried out: save here and ask, never wait with the file unsaved/);
+  assert.match(flat, /Never wait with the file unsaved\. If your instructions also say to ask one short question rather than guess, this is how that applies to a file made for the person: save here and ask/);
+  // Conditional on purpose: an agent without the doctrine section must not be told a rule is in its file (round 17).
+  assert.doesNotMatch(flat, /wherever it appears in your instructions/);
   // The project rule is its own paragraph, not folded into the first one (which an agent may act on
   // alone); the first paragraph points to it instead.
   assert.doesNotMatch(dmfiles.blockBody('/x').split('When the conversation is about')[0], /project's folder instead/);
