@@ -392,6 +392,15 @@ function cardField(profile, transcriptFor, now = Date.now(), owns = null) {
   };
 }
 
+/* The card field for a swarm that is NOT running (no pane): its settings, unmeasured. No transcript is
+   read, so `metered` is false and the token figures are the unmeasured zeros cardField gives a swarm with
+   no transcript. Without it a stopped swarm reached the board with no `swarm` field and was drawn as a
+   plain agent (Mona Lisa, review of #3690). The daily-limit sweep never sees these rows: it reads the
+   running roster only. Null for an ordinary agent. */
+function offlineCardField(profile) {
+  return cardField(profile, () => null);
+}
+
 /** The settings after a pause for `because` ("limit" or "stopped") at `now`. */
 function pausedFor(settings, because, now = Date.now()) {
   return { ...settings, active: false, pausedBecause: because, pausedAt: new Date(now).toISOString(),
@@ -449,5 +458,5 @@ function resetForTests({ perCallBytes } = {}) {
 module.exports = {
   MIN_HELPERS, MAX_HELPERS, DEFAULT_HELPERS, ACTIVE_WINDOW_MS, STOP_REPEAT_MS, READ_CHUNK_BYTES, READ_PER_CALL_BYTES, PAUSED_BECAUSE, START, END,
   createProblem, birthProfile, settingsOf, patchProblem, applyPatch, pausedSentence,
-  blockBody, tellLead, tokensOf, meter, cardField, pausedFor, sweepRows, sweepOnce, startOfDay, resetForTests,
+  blockBody, tellLead, tokensOf, meter, cardField, offlineCardField, pausedFor, sweepRows, sweepOnce, startOfDay, resetForTests,
 };

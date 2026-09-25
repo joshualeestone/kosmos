@@ -3903,6 +3903,9 @@ const server = http.createServer((req, res) => {
                    the avatar. Carried in the URL as `?v=`; see store.avatarVersion. */
                 avatarVer: store.avatarVersion(k.name),
                 profile,
+                /* #3564: a swarm that is not running is still a swarm (its settings, unmeasured), so the
+                   screen offers its On/Off and not the provider switch create refuses for a swarm. */
+                swarm: (() => { try { return require('./engine/swarm').offlineCardField(profile); } catch { return null; } })(),
                 plannedModelName: plannedFor({ sessionName: k.name, isNamedOurs: true }),
                 /* #149/#150: same field the roster rows carry, same meaning.
                    A stopped agent with no launch file is exactly the state
