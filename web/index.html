@@ -35553,8 +35553,9 @@ try { sessionStorage.removeItem('ask-later'); } catch { /* no storage: nothing t
 /* #3829 (Josh's shots: a list row named just "device"): a request with no name reads "Unknown device",
    never the bare noun. The name comes from the device's own sign-in ("Windows browser", "iPhone"). */
 function askKind(d) {
-  /* #3829 follow-up (ICK): this Mac's own in-app sign-in has no name; it is this Mac, not an unknown device. */
-  if (d && ASK.self && d.device_id === ASK.self) return 'This Mac (Kosmos app)';
+  /* #3829 follow-up (ICK): this computer's own in-app sign-in has no name; it is this computer, not an unknown
+     device. "computer", not "Mac": Kosmos runs on Windows too, and engine/machine.test.js holds the page to it. */
+  if (d && ASK.self && d.device_id === ASK.self) return 'This computer (Kosmos app)';
   return d && typeof d.name === 'string' && d.name ? d.name : 'Unknown device';
 }
 /* The request card's icon, from the kind: a phone, a tablet, or a computer (a browser, or unknown). */

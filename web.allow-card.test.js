@@ -50,8 +50,8 @@ test('#3829 each request is a compact card: kind, when, the code, one device-neu
 
 test('#3829 an unnamed request is "Unknown device", never the bare noun', () => {
   assert.match(JS, /return d && typeof d\.name === 'string' && d\.name \? d\.name : 'Unknown device';/);
-  // ICK's finding: this Mac's own in-app sign-in (no name) is "This Mac (Kosmos app)", matched by its own device id.
-  assert.match(JS, /if \(d && ASK\.self && d\.device_id === ASK\.self\) return 'This Mac \(Kosmos app\)';/);
+  // ICK's finding: this computer's own in-app sign-in (no name) is "This computer (Kosmos app)", matched by its own device id.
+  assert.match(JS, /if \(d && ASK\.self && d\.device_id === ASK\.self\) return 'This computer \(Kosmos app\)';/);
   assert.match(SERVER, /self_device_id: self/, 'the devices route no longer names this Mac\'s own id');
 });
 
