@@ -246,3 +246,37 @@ test('#3769 rows served by /api/messages and the project thread are masked when 
   assert.match(src, /messages: withPreviews\(guideMaskedRows\(messages, guideMember\)\)/, 'the project thread does not mask on read');
   assert.match(src, /const rows = guideMaskedRows\(rec\.rows, null\)/, 'the project room feed does not mask on read');
 });
+
+/* ---- follow-up: sandboxed Bash, and the purpose on agents the guide makes ---------------------------- */
+
+test('#3769 on a Mac the guide\'s shell is sandboxed and can still reach the board on localhost; not elsewhere', () => {
+  const mac = mk('guard-mac');
+  fs.mkdirSync(path.join(mac, '.claude'));
+  fs.writeFileSync(path.join(mac, '.claude', 'settings.json'), JSON.stringify({ sandbox: { excludedCommands: ['docker'], network: { allowUnixSockets: ['/x.sock'] } } }));
+  assert.deepEqual(setupAssistant.guardGuideFolder(mac, GUIDE, { platform: 'darwin' }), { ok: true });
+  const s = JSON.parse(fs.readFileSync(path.join(mac, '.claude', 'settings.json'), 'utf8'));
+  assert.equal(s.sandbox.enabled, true);
+  assert.equal(s.sandbox.autoAllowBashIfSandboxed, true);
+  assert.equal(s.sandbox.network.allowLocalBinding, true, 'the sandboxed kosmos command could not reach the board');
+  assert.equal(s.sandbox.allowUnsandboxedCommands, false, 'a refused command could be re-run outside the sandbox (measured: that retry read the denied file)');
+  assert.deepEqual(s.sandbox.excludedCommands, ['docker'], 'an existing sandbox setting was lost');
+  assert.deepEqual(s.sandbox.network.allowUnixSockets, ['/x.sock'], 'an existing network setting was lost');
+  const win = mk('guard-win');
+  assert.deepEqual(setupAssistant.guardGuideFolder(win, GUIDE, { platform: 'win32' }), { ok: true });
+  assert.equal(JSON.parse(fs.readFileSync(path.join(win, '.claude', 'settings.json'), 'utf8')).sandbox, undefined,
+    'CONTROL: the sandbox is only turned on where it was measured');
+});
+
+test('#3769 the purpose the guide gives for an agent it makes is masked before it is used', () => {
+  const src = fs.readFileSync(path.join(__dirname, 'server.js'), 'utf8');
+  const at = src.indexOf("if (callerKind === 'agent' && typeof body.purpose === 'string') body.purpose = guideMasked(effectiveCreator, body.purpose);");
+  const firstUse = src.indexOf('creatorRunsOn(effectiveCreator)');
+  const decided = src.indexOf("callerKind = 'operator';");
+  assert.ok(at > 0, 'the team route does not mask an agent\'s purpose');
+  assert.ok(at > decided && at < firstUse, 'the purpose is masked after it could already have been used');
+});
+
+test('#3769 the board loads the keys it holds into the mask at start', () => {
+  const src = fs.readFileSync(path.join(__dirname, 'server.js'), 'utf8');
+  assert.match(src, /setKnownSecrets\(require\('\.\/engine\/knownsecrets'\)\.collect\(\)\)/);
+});

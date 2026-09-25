@@ -5752,6 +5752,10 @@ const server = http.createServer((req, res) => {
           callerKind = 'operator';
         }
 
+        /* #3769: the purpose an agent gives for the agents it makes is its words, and the setup guide makes
+           agents (#3734): masked here, before it is echoed, recorded on the team or given to the members. */
+        if (callerKind === 'agent' && typeof body.purpose === 'string') body.purpose = guideMasked(effectiveCreator, body.purpose);
+
         /* #3734: a member that names no provider, account or model runs where the agent that asked runs: its
            provider and, on a non-default account, that account. The setup guide making an agent for a new
            person then uses the model the person connected, not Claude by default. A member that names a model
@@ -15931,6 +15935,14 @@ function start(port = PORT) {
       try { setupAssistant.refreshGuideRole(); } catch { /* best-effort */ }
       /* #3769: an existing guide gets the secrets section and its folder's deny rules, once, at start. */
       try { setupAssistant.refreshGuideGuards(); } catch { /* best-effort */ }
+      /* #3769: the keys this board holds, so the guide's words are masked by value too (engine/knownsecrets.js).
+         Loaded now and every five minutes, so a key pasted later is known within that time. */
+      const loadKnownSecrets = () => {
+        try { require('./engine/secretmask').setKnownSecrets(require('./engine/knownsecrets').collect()); } catch { /* shape masking still stands */ }
+      };
+      loadKnownSecrets();
+      const knownSecretsTimer = setInterval(loadKnownSecrets, 5 * 60 * 1000);
+      if (knownSecretsTimer && typeof knownSecretsTimer.unref === 'function') knownSecretsTimer.unref();
       /* #3034/#3660: the setup guide is created the moment the first model is connected,
          after Giddy Up, from any provider's connect path (keys, sign-ins that finish in the
          background). One sweep sees them all instead of a hook in every route. Cheap until
