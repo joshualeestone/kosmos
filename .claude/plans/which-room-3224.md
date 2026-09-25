@@ -46,3 +46,23 @@ The daily digest's suspected-misroute count (#3231) is the measure of how often 
 - cli.post-new-3224.test.js (4) and a Windows CLI parity test.
 - Mutations, all RED: route never asks, --new ignored, reply also asked, drain asks, no window, no owes-target
   exemption, hold via refuse(), bash CLI drops new_post, Windows CLI drops new_post.
+
+## Review round 1 (opus): no BLOCKER; four SHOULD-FIX, all fixed
+- The hold fired on every post for an hour, not once: a `--new` post is now marked `newPost: true` on its
+  row, and questions owed at or before the agent's latest `--new` post are not asked about again.
+- A question from a room the agent can no longer post in (removed from it, or the room deleted) sent it to a
+  refused command: `sendPost` gets `membersOf` from the server and skips such rooms (removed agents via the
+  same `_roomMembers` filter the room uses).
+- The digest could not tell a deliberate `--new` post from a misroute: `newPost` rows are not counted. A hold
+  writes no row; it logs one line with no identifiers ("held a room post to ask which room it meant").
+- The hold ran before the text checks: it now runs after them (a post refused anyway gets that refusal) and
+  still before the room valve (a misroute never meets the wrong room's loop guard).
+- NITs taken: owing the target room exempts only when that question is at least as recent as the newest one
+  elsewhere; asks with no id or a non-plain id/project are skipped (the next owed room is used); the Windows
+  CLI hands the text back on a hold, and both CLIs say "send again" for it.
+- NITs left: the agent instructions (engine/defaults.js) do not mention `--new`, deliberately: an agent learns
+  it from the hold's own sentence, and naming it up front invites passing it by reflex. The extra record()
+  pass per post is accepted (tail-read cache; same order as the valve pass).
+- Mutations added, all RED: no --new acknowledgement, canPostIn ignored, digest counts --new, an older
+  target question excuses, newPost not on the row, Windows no hand-back, server drops membersOf. The
+  "after the text checks" order is pinned by the oversized-post test (reasoned, not mutated).
