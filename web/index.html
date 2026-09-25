@@ -1452,6 +1452,59 @@ button.uprime:hover, .btn.uprime:hover, .utoast .uacts button.uprime:hover,
   .tipcard { left: 12px !important; right: 12px; width: auto; }
   .tipcard .tip-arrow { display: none; }
 }
+/* #3034 (Josh, 2026-09-24: 16:05 "bottom-right app-wide", 18:02 "I love it" on the mock): the setup
+   assistant. A bubble with the guide's picture in the corner of every screen, and a small chat that opens
+   in place so the page stays usable beside it. Design: chaoskosmos-site design/setup-assistant.html.
+   Built at runtime into #asblayer (as the tips layer is). Stacked below the tip card and halo (45/46)
+   and every dialog backdrop (50/60), so the tour, a tip or a dialog always sits over it. */
+.asb { position: fixed; right: 16px; bottom: 16px; z-index: 44; width: 52px; height: 52px; border-radius: 50%; padding: 3px;
+  border: 0; cursor: pointer; background: var(--k-surface); box-shadow: 0 0 0 2px var(--gold-bright), 0 12px 32px rgba(20,22,26,.22); }
+.asb[hidden], .asb-nudge[hidden], .asp[hidden], .asp-ask[hidden], .asb-dot[hidden] { display: none; }
+.asb img { width: 100%; height: 100%; border-radius: 50%; object-fit: cover; display: block; }
+.asb:focus-visible { outline: 2px solid var(--k-ink); outline-offset: 4px; }
+/* A reply that came while the chat was folded. */
+.asb-dot { position: absolute; right: 1px; top: 1px; width: 12px; height: 12px; border-radius: 50%; background: var(--gold-bright); box-shadow: 0 0 0 2px var(--k-surface); }
+.asb-nudge { position: fixed; right: 78px; bottom: 24px; z-index: 44; display: flex; align-items: center; gap: 10px; max-width: calc(100vw - 100px);
+  background: var(--bg-elevated); color: var(--k-ink); border: 1px solid var(--k-rule); border-radius: 12px; padding: 8px 8px 8px 14px;
+  box-shadow: 0 12px 32px rgba(20,22,26,.18); font: 600 .875rem var(--font-ui); }
+.asb-nudge button { border: 0; background: none; cursor: pointer; font: inherit; color: inherit; padding: 0; text-align: left; }
+.asb-nudge .asb-nudge-x { width: 24px; height: 24px; border-radius: 7px; color: var(--k-ink-2); font-weight: 400; text-align: center; }
+.asb-nudge .asb-nudge-x:hover { background: var(--k-sunk); color: var(--k-ink); }
+.asp { position: fixed; right: 16px; bottom: 16px; z-index: 44; width: 300px; height: 420px; max-width: calc(100vw - 32px); max-height: calc(100vh - 96px);
+  display: flex; flex-direction: column; overflow: hidden; background: var(--bg-elevated); color: var(--k-ink);
+  border: 1px solid var(--k-rule); border-radius: 16px; box-shadow: 0 12px 32px rgba(20,22,26,.22); font-size: .875rem; }
+.asp-h { display: flex; align-items: center; gap: 10px; padding: 12px 10px 10px 12px; border-bottom: 0.5px solid var(--separator); }
+.asp-h img { width: 34px; height: 34px; border-radius: 50%; object-fit: cover; flex: none; }
+.asp-who { flex: 1; min-width: 0; line-height: 1.25; }
+.asp-who b { display: block; }
+.asp-tag { display: inline-block; margin-top: 2px; padding: 1px 8px; border-radius: 999px; font: 700 .6875rem var(--font-ui); letter-spacing: .04em;
+  color: var(--gold-edge); background: color-mix(in srgb, var(--gold-bright) 14%, transparent); }
+.asp-ctl { display: flex; gap: 2px; }
+.asp-ctl button { width: 28px; height: 28px; border: 0; border-radius: 7px; background: none; cursor: pointer; color: var(--k-ink-2); font: 400 1.125rem/1 var(--font-ui); }
+.asp-ctl button:hover { background: var(--k-sunk); color: var(--k-ink); }
+.asp-th { flex: 1; min-height: 0; overflow-y: auto; padding: 12px; display: flex; flex-direction: column; gap: 8px; }
+.asp-m { max-width: 88%; padding: 8px 11px; border-radius: 12px; line-height: 1.45; white-space: pre-wrap; overflow-wrap: anywhere; }
+.asp-m.him { background: var(--k-sunk); border-top-left-radius: 4px; }
+.asp-m.you { align-self: flex-end; background: color-mix(in srgb, var(--gold-bright) 14%, transparent);
+  border: 1px solid color-mix(in srgb, var(--gold-bright) 35%, transparent); border-top-right-radius: 4px; }
+.asp-empty { color: var(--k-ink-2); }
+.asp-note { padding: 0 12px 6px; font-size: .75rem; color: var(--k-ink-2); }
+.asp-msg { padding: 0 12px 6px; font-size: .75rem; color: var(--k-ink-2); }
+.asp-msg:empty { display: none; }
+.asp-in { display: flex; gap: 6px; align-items: flex-end; margin: 0 12px 12px; border: 1px solid var(--k-rule); border-radius: 12px; padding: 6px 6px 6px 12px; background: var(--k-surface); }
+.asp-in textarea { flex: 1; min-width: 0; border: 0; resize: none; background: none; color: var(--k-ink); font: .875rem/1.4 var(--font-ui); max-height: 96px; padding: 3px 0; }
+.asp-in textarea:focus { outline: none; }
+.asp-in:focus-within { border-color: var(--gold-edge); }
+.asp-in button { flex: none; width: 28px; height: 28px; border: 0; border-radius: 8px; background: var(--gold-bright); color: #14161a; cursor: pointer; font: 700 .875rem var(--font-ui); }
+.asp-in button:disabled { opacity: .5; cursor: default; }
+/* The first x asks, once (Josh 18:02): inside the panel, so it reads as the panel asking. */
+.asp-ask { margin: 0 12px 12px; border: 1px solid var(--k-rule); border-radius: 12px; padding: 12px; background: var(--k-surface); display: flex; flex-direction: column; gap: 8px; }
+.asp-ask button { border: 1px solid var(--k-rule); border-radius: 10px; padding: 7px 12px; font: 600 .875rem var(--font-ui); background: var(--bg-elevated); color: var(--k-ink); cursor: pointer; }
+.asp-ask button.pri { background: var(--gold-bright); border-color: var(--gold-bright); color: #14161a; }
+.asp-ask small { font-size: .75rem; color: var(--k-ink-2); line-height: 1.4; }
+.asb button:focus-visible, .asp button:focus-visible, .asb-nudge button:focus-visible { outline: 2px solid var(--k-ink); outline-offset: 2px; }
+.asp-ask button.pri:focus-visible, .asp-in button:focus-visible { outline-color: #14161a; }
+@media (max-width: 40rem) { .asp { right: 12px; left: 12px; width: auto; max-width: none; } .asb-nudge { display: none; } }
 .userpop-plus { font-weight: 600; }
 /* --gold-deep, not --gold: --gold (#d6a62e) is only 2.25:1 on the light menu bg (#ffffff),
    under the 3:1 non-text-contrast floor (WCAG SC 1.4.11) this file measures every accent
@@ -13827,11 +13880,19 @@ window.kosmosMeasureScrollbarWidth();
 
     <section class="dbox" id="tips-box" hidden>
       <!-- #3574: "Stop showing tips" on any tip turns them all off; this is the way back on. -->
-      <h3 class="dlab">Tips</h3>
+      <!-- #3034 (Josh, 2026-09-24 18:02): titled Help, and the Setup assistant switch sits under Show tips,
+           so both ways of getting help live together. The assistant's first x points here. The row
+           shows only when a setup guide exists (asbPaintSetting). -->
+      <h3 class="dlab">Help</h3>
       <div class="setrow" id="tips-row">
         <div><b>Show tips</b>
           <p class="dhint" style="margin:2px 0 0;">A short note the first time you open each screen. The ? beside your name brings any of them back.</p></div>
         <button class="toggle" id="tips-toggle" role="switch" aria-label="Show tips the first time you open each screen"><i></i></button>
+      </div>
+      <div class="setrow" id="asb-row" hidden>
+        <div><b>Setup assistant</b>
+          <p class="dhint" style="margin:2px 0 0;">Josh's face in the corner. Click it for help setting up Kosmos on whatever page you're on.</p></div>
+        <button class="toggle" id="asb-toggle" role="switch" aria-label="Show the setup assistant"><i></i></button>
       </div>
     </section>
 
@@ -53482,6 +53543,277 @@ document.getElementById('tips-toggle')?.addEventListener('click', async (e) => {
   paintTipsToggle();
 });
 
+/* ---- #3034: the setup assistant (the Mac UI; the guide itself is Renet's, #3666) -------------
+   A bubble with the guide's picture in the corner of every screen and a small chat that opens in
+   place. The guide is an ordinary agent, so the chat IS its direct-message thread
+   (/api/agent/<session>/thread); only the frame is new. Nothing shows unless the board names a
+   guide (GET /api/setup-guide; until #3660 creates guides, no install has one) AND the person has
+   not switched it off (/api/settings setupAssistant.on). Hidden during first run. */
+const ASB_TICK_MS = 1500;
+const ASB_OPEN_POLL_MS = 5000;     // the thread, while the chat is open (the agent page polls at 5s too)
+const ASB_FOLDED_POLL_MS = 60000;  // the thread, while folded, only to light the reply dot
+let ASB = { started: false, guide: null, setting: null, open: false, asking: false, nudgeGone: false,
+  wroteOnce: false, heard: 0, lastPoll: 0, screenKey: '', sending: false, dot: false };
+
+function asbGuideRow() {
+  if (!ASB.guide || !Array.isArray(LAST)) return null;
+  const want = String(ASB.guide).toLowerCase();
+  return LAST.find((a) => a && (String(a.name || '').toLowerCase() === want || String(a.sessionName || '').toLowerCase() === want)) || null;
+}
+function asbAvatar(row) {
+  return '/api/agent/' + encodeURIComponent(row.sessionName) + '/avatar?v=' + (row.avatarVer || 0);
+}
+
+/* The screen, in pagecontext's closed vocabulary, from the same state syncUrl writes. */
+function asbScreen() {
+  const fr = document.getElementById('firstrun');
+  if (fr && !fr.hidden) return { screen: 'firstrun' };
+  if (URL_TAB === 'detail' && CURRENT) return { screen: 'agent', agent: CURRENT.name || CURRENT.sessionName };
+  if (URL_TAB === 'create') return { screen: 'create' };
+  if (URL_TAB === 'projects' && PJ_VIEW === 'alltasks') return { screen: 'tasks' };
+  if (URL_TAB === 'projects' && PJ_CURRENT && PJ_VIEW !== 'list') {
+    const pj = Array.isArray(PROJECTS) ? PROJECTS.find((x) => x && x.id === PJ_CURRENT) : null;
+    return { screen: 'project', project: (pj && pj.name) || String(PJ_CURRENT) };
+  }
+  if (URL_TAB === 'projects') return { screen: 'projects' };
+  if (URL_TAB === 'settings') return SETTINGS_SEC === 'you' ? { screen: 'you' } : { screen: 'settings', tab: SETTINGS_SEC };
+  return { screen: 'board' };
+}
+function asbTellScreen(force) {
+  const page = asbScreen();
+  const key = JSON.stringify(page);
+  if (!force && key === ASB.screenKey) return;
+  ASB.screenKey = key;
+  fetch('/api/setup-guide/page', { method: 'POST', headers: { 'content-type': 'application/json' }, body: key })
+    .catch(() => { /* the guide answers without it; it is a courtesy, not a dependency */ });
+}
+
+function asbLayerEnsure() {
+  if (document.getElementById('asblayer')) return;
+  const layer = document.createElement('div');
+  layer.id = 'asblayer';
+  /* No aria-modal on the panel: it is non-modal (the page stays usable), which is the dialog default,
+     and the modal sweep (web.modal-way-out-1316) counts anything carrying aria-modal. */
+  layer.innerHTML = '<div class="asb-nudge" id="asb-nudge" hidden><button type="button" id="asb-nudge-go">Want help setting up Kosmos?</button>'
+    + '<button type="button" class="asb-nudge-x" id="asb-nudge-x" aria-label="Hide this for now">&times;</button></div>'
+    + '<button type="button" class="asb" id="asb" aria-label="Open the setup assistant" hidden><img alt=""><span class="asb-dot" hidden></span></button>'
+    + '<div class="asp" id="asp" role="dialog" aria-label="Setup assistant" hidden>'
+    +   '<div class="asp-h"><img alt=""><div class="asp-who"><b>Josh</b><span class="asp-tag">JOSH\'S AI</span></div>'
+    +   '<div class="asp-ctl"><button type="button" id="asp-fold" aria-label="Fold the assistant away">&minus;</button>'
+    +   '<button type="button" id="asp-x" aria-label="Close the assistant">&times;</button></div></div>'
+    +   '<div class="asp-th" id="asp-th" aria-live="polite"></div>'
+    +   '<div class="asp-note">An AI that knows Kosmos, in Josh\'s voice. Josh isn\'t typing live.</div>'
+    +   '<div class="asp-msg" id="asp-msg" role="status"></div>'
+    +   '<div class="asp-ask" id="asp-ask" hidden><b>Close the assistant?</b>'
+    +     '<button type="button" class="pri" id="asp-close-now">Close for now</button>'
+    +     '<button type="button" id="asp-close-off">Don\'t show this again</button>'
+    +     '<small>You can turn it back on in Settings, under This computer.</small></div>'
+    +   '<form class="asp-in" id="asp-in"><textarea id="asp-say" rows="1" aria-label="Ask about Kosmos" placeholder="Ask me anything about Kosmos"></textarea>'
+    +   '<button type="submit" id="asp-send" aria-label="Send">&uarr;</button></form>'
+    + '</div>';
+  document.body.appendChild(layer);
+  document.getElementById('asb').addEventListener('click', () => asbOpen());
+  document.getElementById('asb-nudge-go').addEventListener('click', () => asbOpen());
+  document.getElementById('asb-nudge-x').addEventListener('click', () => { ASB.nudgeGone = true; asbPaint(); });
+  document.getElementById('asp-fold').addEventListener('click', () => asbFold());
+  document.getElementById('asp-x').addEventListener('click', () => asbX());
+  document.getElementById('asp-close-now').addEventListener('click', () => asbCloseChoice(false));
+  document.getElementById('asp-close-off').addEventListener('click', () => asbCloseChoice(true));
+  document.getElementById('asp-in').addEventListener('submit', (e) => { e.preventDefault(); asbSend(); });
+  document.getElementById('asp-say').addEventListener('keydown', (e) => {
+    if (e.key === 'Enter' && !e.shiftKey && !e.isComposing) { e.preventDefault(); asbSend(); }
+  });
+  document.getElementById('asp').addEventListener('keydown', (e) => {
+    if (e.key === 'Escape') { e.stopPropagation(); asbFold(); }
+  });
+}
+
+/* Whether the bubble belongs on screen right now. */
+function asbShows() {
+  if (!ASB.setting || ASB.setting.on !== true) return false;
+  const fr = document.getElementById('firstrun');
+  if (fr && !fr.hidden) return false;
+  return !!asbGuideRow();
+}
+
+function asbPaint() {
+  const bub = document.getElementById('asb');
+  if (!bub) return;
+  const row = asbGuideRow();
+  const shows = asbShows();
+  const panel = document.getElementById('asp');
+  if (!shows) {
+    bub.hidden = true; panel.hidden = true; document.getElementById('asb-nudge').hidden = true;
+    ASB.open = false;
+    return;
+  }
+  const src = asbAvatar(row);
+  for (const img of [bub.querySelector('img'), panel.querySelector('.asp-h img')]) if (img.getAttribute('src') !== src) img.setAttribute('src', src);
+  panel.hidden = !ASB.open;
+  bub.hidden = ASB.open;
+  bub.querySelector('.asb-dot').hidden = !ASB.dot || ASB.open;
+  document.getElementById('asb-nudge').hidden = ASB.open || ASB.nudgeGone || ASB.wroteOnce;
+  document.getElementById('asp-ask').hidden = !ASB.asking;
+  document.getElementById('asp-in').hidden = ASB.asking;
+}
+
+async function asbReadThread() {
+  const row = asbGuideRow();
+  if (!row) return null;
+  try {
+    const r = await fetch('/api/agent/' + encodeURIComponent(row.sessionName) + '/thread', { cache: 'no-store' });
+    if (!r.ok) return null;
+    const body = await r.json();
+    /* The route answers 200 with messages: null when the thread read FAILED; that is not an empty thread. */
+    return body && Array.isArray(body.messages) ? { rows: body.messages, session: row.sessionName } : null;
+  } catch { return null; }
+}
+function asbSpeech(rows) { return rows.filter((m) => m && !(m.kind && ROOM_NOT_SPEECH.has(m.kind))); }
+
+async function asbPoll(force) {
+  const now = Date.now();
+  const every = ASB.open ? ASB_OPEN_POLL_MS : ASB_FOLDED_POLL_MS;
+  if (!force && now - ASB.lastPoll < every) return;
+  ASB.lastPoll = now;
+  const t = await asbReadThread();
+  if (!t) { if (ASB.open) document.getElementById('asp-msg').textContent = 'We could not load the conversation just now.'; return; }
+  const speech = asbSpeech(t.rows);
+  ASB.wroteOnce = speech.some((m) => m.from !== t.session);
+  const heard = speech.filter((m) => m.from === t.session).length;
+  if (ASB.open) { ASB.heard = heard; ASB.dot = false; asbPaintThread(speech, t.session); }
+  else if (heard > ASB.heard) ASB.dot = true;
+  asbPaint();
+}
+function asbPaintThread(rows, session) {
+  const th = document.getElementById('asp-th');
+  if (document.getElementById('asp-msg').textContent === 'We could not load the conversation just now.') document.getElementById('asp-msg').textContent = '';
+  const atEnd = th.scrollHeight - th.scrollTop - th.clientHeight < 24;
+  th.replaceChildren();
+  if (!rows.length) {
+    const p = document.createElement('p');
+    p.className = 'asp-empty';
+    p.textContent = 'Hi, I built Kosmos. Ask me anything about setting it up, on whatever page you\'re on.';
+    th.appendChild(p);
+  }
+  for (const m of rows) {
+    const d = document.createElement('div');
+    d.className = 'asp-m ' + (m.from === session ? 'him' : 'you');
+    d.textContent = String(m.text || '');
+    th.appendChild(d);
+  }
+  if (atEnd || ASB.sending) th.scrollTop = th.scrollHeight;
+}
+
+function asbOpen() {
+  ASB.open = true; ASB.asking = false; ASB.dot = false;
+  asbPaint();
+  asbTellScreen(true);
+  asbPoll(true);
+  const say = document.getElementById('asp-say');
+  if (say) say.focus();
+}
+function asbFold() {
+  ASB.open = false; ASB.asking = false;
+  asbPaint();
+  const bub = document.getElementById('asb');
+  if (bub && !bub.hidden) bub.focus();
+}
+/* The first x asks once (Josh 18:02); after that it just closes. */
+function asbX() {
+  if (ASB.setting && ASB.setting.asked !== true) { ASB.asking = true; asbPaint(); document.getElementById('asp-close-now').focus(); return; }
+  asbFold();
+}
+async function asbSaveSetting(patch) {
+  try {
+    const r = await fetch('/api/settings', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ setupAssistant: patch }) });
+    const body = await r.json();
+    if (r.ok && body && body.setupAssistant) { ASB.setting = body.setupAssistant; return true; }
+  } catch { /* said below */ }
+  return false;
+}
+async function asbCloseChoice(forGood) {
+  const ok = await asbSaveSetting(forGood ? { asked: true, on: false } : { asked: true });
+  if (!ok) { document.getElementById('asp-msg').textContent = 'We could not save that just now. Try again in a moment.'; return; }
+  ASB.asking = false;
+  asbFold();
+  asbPaintSetting();
+}
+
+async function asbSend() {
+  const say = document.getElementById('asp-say');
+  const msg = document.getElementById('asp-msg');
+  const text = say.value.trim();
+  const row = asbGuideRow();
+  if (!text || ASB.sending || !row) return;
+  ASB.sending = true;
+  document.getElementById('asp-send').disabled = true;
+  msg.textContent = '';
+  try {
+    const r = await fetch('/api/agent/' + encodeURIComponent(row.sessionName) + '/thread', {
+      method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ text }) });
+    const body = await r.json().catch(() => ({}));
+    const state = body && body.delivery && body.delivery.state;
+    if (!r.ok || state === 'could_not') {
+      /* Kept in the box, so nothing typed is lost. */
+      msg.textContent = (body && (body.error || (body.delivery && body.delivery.because))) || 'That did not reach the assistant. Try again in a moment.';
+    } else {
+      say.value = '';
+      if (state === 'unconfirmed') msg.textContent = 'Sent. We could not confirm it arrived yet.';
+      ASB.wroteOnce = true;
+    }
+  } catch {
+    msg.textContent = 'That did not reach the assistant. Try again in a moment.';
+  } finally {
+    document.getElementById('asp-send').disabled = false;
+    await asbPoll(true);
+    ASB.sending = false;
+  }
+}
+
+/* Settings > This computer > Help: the switch shows only when a guide exists. */
+function asbPaintSetting() {
+  const row = document.getElementById('asb-row');
+  if (!row) return;
+  row.hidden = !ASB.guide || !ASB.setting;
+  if (!row.hidden) paintSwitch('asb-toggle', ASB.setting.on === true);
+}
+document.getElementById('asb-toggle')?.addEventListener('click', async (e) => {
+  const sw = e.currentTarget;
+  if (!ASB.setting || sw.disabled) return;
+  sw.disabled = true;
+  try { await asbSaveSetting({ on: !(ASB.setting.on === true) }); } finally { sw.disabled = false; }
+  asbPaintSetting();
+  asbPaint();
+});
+
+function asbTick() {
+  asbPaint();
+  if (!asbShows()) return;
+  if (ASB.open) asbTellScreen(false);
+  asbPoll(false);
+}
+
+async function asbStart() {
+  if (ASB.started) return;
+  ASB.started = true;
+  let guide = null;
+  try {
+    const r = await fetch('/api/setup-guide', { cache: 'no-store' });
+    if (r.ok) { const b = await r.json(); if (b && b.ok && typeof b.name === 'string') guide = b.name; }
+  } catch { /* no guide read, no bubble */ }
+  if (!guide) return;   // every install until #3660: nothing more is fetched or drawn
+  ASB.guide = guide;
+  try {
+    const r = await fetch('/api/settings', { cache: 'no-store' });
+    const b = await r.json();
+    if (b && b.setupAssistant && typeof b.setupAssistant.on === 'boolean') ASB.setting = b.setupAssistant;
+  } catch { /* an unread setting shows no bubble rather than guess */ }
+  asbPaintSetting();
+  asbLayerEnsure();
+  asbPoll(true);
+  setInterval(asbTick, ASB_TICK_MS);
+}
+
 /* #12 (0.6.39): the platform-aware first-run copy (kosmos#2086: frIsMac,
    frFindAppHint, frApplyPlatformCopy) was removed. It existed only to rewrite
    the Success screen's #fr-return-keep line on non-macOS and to word the
@@ -53518,6 +53850,7 @@ async function firstRunBoot(force, step) {
        done/error paths the cover comes down onto the board, which is correct. */
     revealBoot();
     tipsStart();   // #3574: the tips read the screen, so they wait out first run by themselves
+    asbStart();    // #3034: the setup assistant, likewise hidden during first run
   }
 }
 
@@ -53575,7 +53908,7 @@ fetch('/api/roles').then((r) => (r.ok ? r.json() : null)).then((j) => {
    ready), so a hung check must reveal the board rather than blank the app. This
    is the concern the comment above records, now that the board starts hidden.
    Idempotent with firstRunBoot's finally: whichever fires first wins. */
-setTimeout(() => { revealBoot(); tipsStart(); }, 3000);
+setTimeout(() => { revealBoot(); tipsStart(); asbStart(); }, 3000);
 firstRunBoot(PARAMS.get('first-run') === '1', Number(PARAMS.get('fr-step')) || 1);
 
 /* #3641 (Josh, 2026-09-24): the corner version marker was removed; the version lives in

@@ -206,3 +206,11 @@ test('#3034 read: an agent that took a deleted guide\'s name is not the guide (4
     assert.equal((await getGuide()).status, 200, 'CONTROL: restored, the guide is named again');
   } finally { fs.rmSync(removedFile, { force: true }); }
 });
+
+test('#3034 bubble: the New agent form is a screen the guide is told about', async () => {
+  const guideDir = folderFor('Josh', { guide: true });
+  setupAssistant.markSetupAssistantSeeded({ name: 'Josh', via: 'test' });
+  const r = await post({ screen: 'create' });
+  assert.equal(r.status, 200, await r.clone().text());
+  assert.match(fs.readFileSync(path.join(guideDir, roles.PAGE_FILE), 'utf8'), /Screen: the New agent form/);
+});
