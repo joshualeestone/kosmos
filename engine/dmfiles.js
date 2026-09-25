@@ -79,8 +79,9 @@ function blockBody(dir) {
   return [
     '## Where to save files you make for the person',
     '',
-    'When you make a file for the person in a direct conversation with you, or they',
-    'ask you for one there, save it in your Files folder:',
+    'When you make a file for the person in a direct conversation with them, or they',
+    'ask you for one there, save it in your Files folder, unless it belongs to one of',
+    'your projects (below):',
     '',
     '`' + where + '`',
     '',

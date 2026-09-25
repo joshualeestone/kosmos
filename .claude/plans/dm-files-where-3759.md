@@ -32,8 +32,9 @@ conversation, and be context-aware enough to put a project's file in that projec
   it went" still holds: the fallback is saying where it went.
 - The trigger covers a file the agent makes in a direct conversation as well as one asked for, as the
   #3614 block did, so an unprompted file is still told the exact path.
-- Running agents read the new words on their next start (they read instructions at start), which the
-  release note should say.
+- Running agents read the new words on their next start (they read instructions at start). The board
+  rewrites every agent's block at its own start (an update restarts the board), and the PR says so for
+  the release notes, which are generated from what lands.
 
 ## Measured (real agent runs, `claude -p` in a sandboxed agent folder holding this block and one project, 2026-09-25 12:25 CDT, final wording)
 One run per case, so a check of the wording, not a rate. The agent's first reply line and the file it wrote:
@@ -43,6 +44,10 @@ One run per case, so a check of the wording, not a rate. The agent's first reply
 | "a short packing list for a weekend camping trip as a file" | `workers/writer/Files/weekend-camping-packing-list.md` | I saved your packing list as `weekend-camping-packing-list.md` in your Files folder. It's there because it isn't part of the Henderson lease project, and you can open it from my page in Kosmos. |
 | "For the Henderson lease, ... a one-paragraph summary ... as a file" | `projects/henderson-lease/renewal-notice-summary.md` | I saved it in the Henderson lease project folder as `renewal-notice-summary.md`. |
 | "draft a short email to my landlord asking about renewing, as a file" (no project named) | `projects/henderson-lease/renewal-inquiry-email.md` | I saved it in the Henderson lease project as `renewal-inquiry-email.md`. |
+| same landlord email, with TWO lease projects (Henderson, Maple Street) | nothing saved | Is this for the Henderson lease or the Maple Street lease? I'll save the draft in that project's folder. If it's for neither, I'll put it in your Files folder. |
+
+The ask-first rule fires when the project is genuinely unclear; with one plausible project the agent
+files it there and says so (row 3), which is the "plainly part of that project's work" branch.
 
 Control, main's old wording with the Henderson ask (earlier run): also saved in the project. So the old
 words already handled a clearly named project once; what this adds is the rule stated outright, the
