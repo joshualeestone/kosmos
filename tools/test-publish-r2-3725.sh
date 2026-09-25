@@ -66,11 +66,13 @@ refuses() { # <label> <expected substring> <args...>
 }
 refuses "bad arch refused" "implausible arch" -Zip "$TMP/x.zip" -Arch '../x'
 refuses "bad key prefix refused" "-KeyPrefix" -Zip "$TMP/x.zip" -KeyPrefix 'no-trailing-slash'
+refuses "dot-dot key prefix refused" "no . or .. segment" -Zip "$TMP/x.zip" -KeyPrefix '../'
 refuses "no key refused" "no R2_ACCOUNT_ID" -Zip "$TMP/x.zip"
 refuses "promote with no key refused" "no R2_ACCOUNT_ID" -Promote -ApprovedVersion 1 -ApprovedSha nothex -ApprovalRef 1.2
 # The credential check runs before the mode's own checks, so give it a key to reach them.
 printf 'R2_ACCOUNT_ID=%s\nR2_ACCESS_KEY_ID=AKIDTEST\nR2_SECRET_ACCESS_KEY=secret\n' "$(printf 'a%.0s' $(seq 32))" > "$TMP/cred.env"
 refuses "missing zip refused" "no such zip" -Zip "$TMP/absent.zip" -CredentialFile "$TMP/cred.env"
+refuses "leading-dash version refused" "not starting with -" -Promote -ApprovedVersion '-0.6.94' -ApprovedSha "$SHA" -ApprovalRef 1.2 -CredentialFile "$TMP/cred.env"
 refuses "malformed sha refused" "lowercase 64-hex" -Promote -ApprovedVersion 1 -ApprovedSha nothex -ApprovalRef 1.2 -CredentialFile "$TMP/cred.env"
 refuses "shell-ish approval ref refused" "is not a Slack message ts" -Promote -ApprovedVersion 1 -ApprovedSha "$SHA" -ApprovalRef 'x; rm' -CredentialFile "$TMP/cred.env"
 

@@ -31,7 +31,8 @@ gates. `publish-r2.ps1` produces the same files with the same gates, directly in
    ```
 
    Then restrict the folder to your own user:
-   `icacls "%LOCALAPPDATA%\Kosmos\release-secrets" /inheritance:r /grant:r "%USERNAME%:(OI)(CI)F"`.
+   `icacls "$env:LOCALAPPDATA\Kosmos\release-secrets" /inheritance:r /grant:r "${env:USERNAME}:(OI)(CI)F"`
+   in PowerShell (in Command Prompt the same line uses `%LOCALAPPDATA%` and `%USERNAME%`).
    The script never prints the secret.
 2. **Tools.** Git for Windows (bash, curl, unzip), node, and PowerShell (5.1 or 7). The build also
    needs `zip` and `shasum` on the bash PATH. Git for Windows ships `shasum` but not `zip`.

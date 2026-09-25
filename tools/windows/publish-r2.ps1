@@ -46,6 +46,7 @@ param(
   [Parameter(ParameterSetName = 'Staging', Mandatory = $true)] [string] $Zip,
   [Parameter(ParameterSetName = 'Staging')] [string] $Version,
   [Parameter(ParameterSetName = 'Staging')] [switch] $ReplaceVersioned,
+  [Parameter(ParameterSetName = 'Staging')] [switch] $SkipSignatureCheck,
 
   [Parameter(ParameterSetName = 'Promote', Mandatory = $true)] [switch] $Promote,
   [Parameter(ParameterSetName = 'Promote', Mandatory = $true)] [string] $ApprovedVersion,
@@ -60,7 +61,6 @@ param(
   # For tests only: write every key under this prefix (e.g. "_selftest/abc/"), and verify through
   # -ServedBase, which a test points at the bucket's public URL plus the same prefix.
   [string] $KeyPrefix = '',
-  [switch] $SkipSignatureCheck,
   [switch] $DryRun
 )
 
@@ -77,10 +77,10 @@ function Refuse([string] $m) { [Console]::Error.WriteLine("publish-r2: REFUSING 
 # Every name below is interpolated into an object key, so the tokens get the same guard as
 # publish-kosmos-windows.sh: letters, digits and . + _ - only.
 function Assert-Token([string] $what, [string] $v) {
-  if ($v -notmatch '^[0-9A-Za-z.+_-]+$') { Refuse "an implausible $what '$v' (only letters, digits and . + _ - allowed)" }
+  if ($v -notmatch '^[0-9A-Za-z.+_-]+$' -or $v.StartsWith('-')) { Refuse "an implausible $what '$v' (only letters, digits and . + _ -, not starting with -)" }
 }
 Assert-Token 'arch' $Arch
-if ($KeyPrefix -and $KeyPrefix -notmatch '^[0-9A-Za-z._-]+(/[0-9A-Za-z._-]+)*/$') { Refuse "-KeyPrefix '$KeyPrefix' must be path segments ending in '/'" }
+if ($KeyPrefix -and ($KeyPrefix -notmatch '^[0-9A-Za-z._-]+(/[0-9A-Za-z._-]+)*/$' -or ($KeyPrefix.TrimEnd('/') -split '/') -contains '..' -or ($KeyPrefix.TrimEnd('/') -split '/') -contains '.')) { Refuse "-KeyPrefix '$KeyPrefix' must be path segments ending in '/', with no . or .. segment" }
 $Alias = "kosmos-win-$Arch.zip"
 
 # ---------- hashing -----------------------------------------------------------------------------
@@ -151,6 +151,8 @@ function Invoke-R2 {
     $resp = $Http.SendAsync($req).GetAwaiter().GetResult()
     $text = $resp.Content.ReadAsStringAsync().GetAwaiter().GetResult()
     [pscustomobject]@{ Status = [int]$resp.StatusCode; Body = $text }
+  } catch {
+    Refuse "network error on $Method $Key ($($_.Exception.GetBaseException().Message)). Writes before this one may have landed: re-run with -DryRun to see what is served before re-running for real."
   } finally { if ($stream) { $stream.Dispose() }; $req.Dispose() }
 }
 
@@ -179,6 +181,8 @@ function Get-Served([string] $Name) {
     $resp = $Http.SendAsync($req).GetAwaiter().GetResult()
     $bytes = $resp.Content.ReadAsByteArrayAsync().GetAwaiter().GetResult()
     [pscustomobject]@{ Status = [int]$resp.StatusCode; Bytes = $bytes; Url = $url }
+  } catch {
+    Refuse "network error reading $url ($($_.Exception.GetBaseException().Message))"
   } finally { $req.Dispose() }
 }
 function Assert-Served([string] $Name, [string] $WantSha) {
@@ -194,7 +198,13 @@ function Assert-Served([string] $Name, [string] $WantSha) {
 function Read-ServedPointer([string] $Name) {
   $s = Get-Served $Name
   if ($s.Status -ne 200) { return $null }
-  try { [pscustomobject]@{ Bytes = $s.Bytes; Json = ($Utf8.GetString($s.Bytes) | ConvertFrom-Json) } } catch { $null }
+  try { $j = $Utf8.GetString($s.Bytes) | ConvertFrom-Json } catch { Refuse "$($s.Url) is not JSON" }
+  # Every field is checked before anything reads it: StrictMode turns a missing property into a
+  # crash, and a hand-staged pointer with the wrong shape has happened (0.6.94, 2026-09-25).
+  foreach ($f in 'version', 'sha256', 'artifact', 'versioned', 'arch') {
+    if (-not ($j.PSObject.Properties.Name -contains $f) -or -not ($j.$f -is [string]) -or -not $j.$f) { Refuse "$($s.Url) is not a usable pointer: '$f' is missing or empty" }
+  }
+  [pscustomobject]@{ Bytes = $s.Bytes; Json = $j }
 }
 
 # The one pointer shape, byte for byte what tools/lib/write-latest-win-pointer.js writes, so a
@@ -253,9 +263,11 @@ if ($PSCmdlet.ParameterSetName -eq 'Staging') {
   # keeps): republishing different bytes under it hands two builds one name, which is how
   # 0.6.94 staging was served with bytes nobody had announced (2026-09-25).
   $prod = Read-ServedPointer 'latest-win.json'
-  $existing = Get-Served "$Versioned.sha256"
+  # Keyed on the ZIP, not its sidecar: a run interrupted between the two PUTs leaves a served zip
+  # with no sidecar, and a sidecar-keyed check would then overwrite it unrefused.
+  $existing = Get-Served $Versioned
   if ($existing.Status -eq 200) {
-    $existingSha = ($Utf8.GetString($existing.Bytes) -split '\s+')[0]
+    $existingSha = Sha256-Bytes $existing.Bytes
     if ($existingSha -eq $Sha) { Say "$Versioned is already published with these bytes; re-writing is a no-op for users" }
     elseif ($prod -and $prod.Json.versioned -eq $Versioned) { Refuse "$Versioned is what PROD's latest-win.json names ($existingSha); replacing it would change prod's bytes. Bump the version." }
     elseif (-not $ReplaceVersioned) { Refuse "$Versioned is already published with DIFFERENT bytes ($existingSha). Versioned names are immutable: bump the version, or pass -ReplaceVersioned if the published one was never announced." }
@@ -322,6 +334,9 @@ Say "verification record: $verdict"
 Write-ApprovalLine "$(Stamp) family=win path=promote-r2 version=$ApprovedVersion sha256=$ApprovedSha approval_ref=$ApprovalRef record_sha256=$recordSha approval=given record=$recordPath"
 
 # Alias bytes, then its sidecar, then latest-win.json LAST (the staging pointer's bytes verbatim).
+# Re-check the staged bytes right before the copy: the record check and the log took time, and
+# the copy takes whatever sits at the versioned name NOW (promote-channel.sh's one-snapshot rule).
+Assert-Served $Versioned $ApprovedSha
 Copy-Object $Versioned $Alias
 $aliasSide = New-SidecarBytes $ApprovedSha $Alias
 Put-Object "$Alias.sha256" $aliasSide $null (Sha256-Bytes $aliasSide) 'text/plain; charset=utf-8'
