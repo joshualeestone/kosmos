@@ -28120,6 +28120,15 @@ function detailSection(key) {
    - It is not: keep trying for at least 4 seconds from the first miss (an agent a moment
      late to appear still opens; counting statuses was not enough, two arrive ~100ms apart
      at boot), then go to the board home instead of an empty agent page, and stop. */
+/* How long a ?agent= link keeps looking for its agent before it gives up and opens the
+   board home. Long enough to cover the two boot ticks and a slow first scan; short enough
+   that a push for a removed agent does not leave an empty page for long. */
+const WANT_AGENT_GRACE_MS = 4000;
+/* How long the phone landing holds the conversation in place while content above it (the
+   Files list, painted from its own fetch) settles, and how often it looks. A person's first
+   touch ends it sooner. */
+const REVEAL_HOLD_MS = 4000;
+const REVEAL_HOLD_TICK_MS = 150;
 function settleWantAgent() {
   if (!WANT_AGENT || CURRENT || WANT_AGENT_DONE) return;
   openDetail(WANT_AGENT);
@@ -28130,7 +28139,7 @@ function settleWantAgent() {
   }
   const now = Date.now();
   if (!WANT_AGENT_FIRST_MISS) { WANT_AGENT_FIRST_MISS = now; return; }
-  if (now - WANT_AGENT_FIRST_MISS < 4000) return;
+  if (now - WANT_AGENT_FIRST_MISS < WANT_AGENT_GRACE_MS) return;
   WANT_AGENT_DONE = true;
   if (URL_TAB === 'detail') showTab('agents');
 }
@@ -28146,10 +28155,10 @@ function detailRevealTalkOnPhone() {
      touch, wheel or key: never fight their own scroll. */
   if (REVEAL_HOLD) REVEAL_HOLD();
   const top0 = talk.getBoundingClientRect().top;
-  const until = Date.now() + 4000;
+  const until = Date.now() + REVEAL_HOLD_MS;
   const stop = () => {
     clearInterval(timer);
-    for (const ev of ['touchstart', 'wheel', 'keydown', 'mousedown']) window.removeEventListener(ev, stop, true);
+    for (const ev of ['touchstart', 'wheel', 'keydown', 'mousedown']) window.removeEventListener(ev, stop, { capture: true });
     if (REVEAL_HOLD === stop) REVEAL_HOLD = null;
   };
   const timer = setInterval(() => {
@@ -28157,8 +28166,8 @@ function detailRevealTalkOnPhone() {
     if (Math.abs(talk.getBoundingClientRect().top - top0) > 2) {
       try { talk.scrollIntoView({ block: 'start' }); } catch (_e) { stop(); }
     }
-  }, 150);
-  for (const ev of ['touchstart', 'wheel', 'keydown', 'mousedown']) window.addEventListener(ev, stop, true);
+  }, REVEAL_HOLD_TICK_MS);
+  for (const ev of ['touchstart', 'wheel', 'keydown', 'mousedown']) window.addEventListener(ev, stop, { capture: true, passive: true });
   REVEAL_HOLD = stop;
 }
 function detailPaintWindow(a) {
@@ -47540,7 +47549,8 @@ async function pjAnswerFrom(sessionName, displayName) {
    * be the stranded state this whole path exists to make impossible.
    */
   openDetail(sessionName);
-  detailRevealTalkOnPhone();
+  // Only when this agent actually opened: it can have left the board since the card painted.
+  if (CURRENT && CURRENT.sessionName === sessionName) detailRevealTalkOnPhone();
   /**
    * 🛑 AND FOCUS FOLLOWS THE PERSON TO IT. A keyboard user pressing this button
    * was being left on `<body>`: the card that carried the button is torn down
