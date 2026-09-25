@@ -249,3 +249,12 @@ always a stray keystroke, and trimming it keeps "  hello" stored as "hello".
 - Recorded: a direct message walks storeText three times (validate, stored check, append), each
   linear and bounded; and pjRich's stricter fence rule also applies to raw task details, where
   an opener with a backtick in its info string no longer opens a fence.
+
+## Review pass 18 (sonnet)
+- Fixed (raised as a BLOCKER and a WARNING with one root cause): the shared indent was read
+  over every line, fence bodies included, so one column-0 line of code cancelled the dedent for
+  the whole message. It is now read outside fence bodies only, and a body line loses at most
+  that much. The BLOCKER's other symptom (a whole-message indent coming off the fence content
+  too) is CommonMark's own rule, so it is kept and now documented. Tested both ways; reading
+  the indent over every line again reds the test.
+- NIT recorded: sendPost computes cleanMessage three times; each is linear.

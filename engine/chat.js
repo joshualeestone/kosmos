@@ -353,8 +353,8 @@ function cleanMessage(raw) {
  *   - a tab → four spaces (a tab is a control character `CONTROL` refuses)
  *   - #3679: indentation is kept, and inside a ``` fence each line is kept as
  *     written except its trailing spaces, so code and nested lists arrive as
- *     written. The tab rule above and the leading-space and shared-indent rules
- *     apply inside a fence too.
+ *     written. The tab and leading-space rules apply inside a fence too, and a
+ *     fence body loses at most the message's shared indent (see the dedent below).
  *   - In a fence left open, blank lines at the very end of the message go with
  *     the final trim. Outside a fence, a run of spaces INSIDE a line becomes one space
  *     and trailing spaces go.
@@ -389,12 +389,13 @@ function storeText(raw) {
   const lines = String(raw == null ? '' : raw).replace(/^\ufeff+/, '').replace(/\r\n?|[\u2028\u2029]/g, '\n').replace(/\t/g, STORE_TAB)
     .split('\n').map((l) => l.replace(/^[ \u00a0\u3000]+/, (run) => run.replace(/\u3000/g, '  ').replace(/\u00a0/g, ' ')));
   const out = [];
+  const inBody = [];   // parallel to out: true for a line inside a fence body
   let fenceLen = 0;   // the opening run's length while inside a fence, else 0
   let blanks = 0;
   for (const line of lines) {
     const f = STORE_FENCE.exec(line);
     if (fenceLen) {
-      if (!(f && f[1].length >= fenceLen && /^ *$/.test(f[2]))) { out.push(trimSpacesEnd(line)); continue; }
+      if (!(f && f[1].length >= fenceLen && /^ *$/.test(f[2]))) { out.push(trimSpacesEnd(line)); inBody.push(true); continue; }
       fenceLen = 0;
     } else if (f) {
       fenceLen = f[1].length;
@@ -403,15 +404,20 @@ function storeText(raw) {
     const rest = trimSpacesEnd(line.slice(lead.length).replace(/ +/g, ' '));
     // Blank means no visible character, whatever the whitespace (a full-width space line too).
     // (A form feed or vertical tab is not blank: it stays, so CONTROL refuses it.)
-    if (!/\S/.test(rest) && !/[\v\f]/.test(rest)) { blanks += 1; if (blanks > 1) continue; out.push(''); continue; }
+    if (!/\S/.test(rest) && !/[\v\f]/.test(rest)) { blanks += 1; if (blanks > 1) continue; out.push(''); inBody.push(false); continue; }
     blanks = 0;
     out.push(lead + rest);
+    inBody.push(false);
   }
-  // The indentation every non-blank line shares comes off, so a block indented as a whole
-  // keeps its relative depths instead of losing only its first line's.
+  // The indentation every non-blank line OUTSIDE a fence body shares comes off, so a block
+  // indented as a whole keeps its relative depths instead of losing only its first line's. A
+  // fence body loses at most that much from each line (CommonMark removes the opener's
+  // indentation from its content), so a column-0 line of code cannot cancel the dedent.
   let common = Infinity;
-  for (const l of out) if (l) common = Math.min(common, /^ */.exec(l)[0].length);
-  const dedented = common > 0 && common !== Infinity ? out.map((l) => l.slice(common)) : out;
+  out.forEach((l, k) => { if (l && !inBody[k]) common = Math.min(common, /^ */.exec(l)[0].length); });
+  const dedented = common > 0 && common !== Infinity
+    ? out.map((l, k) => (inBody[k] ? l.slice(Math.min(common, /^ */.exec(l)[0].length)) : l.slice(common)))
+    : out;
   // Then trim the ends, which also takes any indentation left on the first line alone.
   return dedented.join('\n').trim();
 }

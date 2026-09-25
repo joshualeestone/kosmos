@@ -152,6 +152,15 @@ test('#3679: the Unicode line and paragraph separators are stored as line breaks
   assert.equal(chat.storeText('a\u2028b\u2029c'), 'a\nb\nc');
 });
 
+test('#3679: the shared indent is read outside fence bodies; a body loses at most that much', () => {
+  // A whole message indented, fence included: the opener's indent comes off the code too
+  // (CommonMark), so the code keeps its own relative indentation.
+  assert.equal(chat.storeText('  Fix:\n  ```\n  def foo():\n      return 1\n  ```'), 'Fix:\n```\ndef foo():\n    return 1\n```');
+  // A column-0 line of code does not cancel the dedent for the rest of the message.
+  assert.equal(chat.storeText('  intro\n  ```\ncode at col 0\n  more code\n  ```\n  - item\n    - nested'),
+    'intro\n```\ncode at col 0\nmore code\n```\n- item\n  - nested');
+});
+
 test('#3679: whitespace the old trim removed is still removed', () => {
   for (const ws of ['\u00a0', '\ufeff', '\u3000', ' \n\u00a0 ']) {
     assert.equal(chat.messageProblem(ws), 'write something to send', JSON.stringify(ws));
