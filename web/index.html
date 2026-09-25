@@ -42536,10 +42536,12 @@ function paintProjectTasks(p) {
          is the TASK's, asked of one report, not a per-part fact nobody
          computed). */
       const firstWho = assigned.length ? assigned[0].who : null;
+      /* The claim is about that agent, once: on its first part only, even when it holds several. */
+      const sayPart = firstWho ? parts.find((x) => x.who === firstWho) : null;
       const rows = parts.map((part) => '<span class="tkcard-part' + (part.who ? '' : ' none') + '">'
         + tkFace(p, part.who)
         + '<span class="tkcard-who-b"><b>' + esc(part.who ? tkMemberName(p, part.who) : 'Nobody yet') + '</b>'
-        + (part.who && part.who === firstWho ? sayHtml : '') + '</span></span>').join('');
+        + (part === sayPart ? sayHtml : '') + '</span></span>').join('');
       who = '<span class="tkcard-parts">' + rows + '</span>'
         + '<span class="tkcard-status">' + esc(t.progress.assigned + ' of ' + t.progress.total + ' assigned') + '</span>';
     } else {
@@ -43172,6 +43174,9 @@ function paintTaskPage() {
      nobody computed under somebody's name. */
   const sayHtml = taskClaimHtml(t.claim);
   const firstWho = parts.map((x) => x.who).filter(Boolean)[0] || null;
+  /* ONE part carries the claim line: that agent's first OPEN part (the claim is about the agent,
+     so it is said once even when it holds several). The why line below reads the same value. */
+  const sayPart = firstWho ? parts.find((x) => x.who === firstWho && !x.closedAt) || null : null;
   document.getElementById('tk-who').innerHTML = parts.map((part) => {
     const shown = nameOf(part.who);
     const line = part.sentence && part.sentence !== t.sentence ? part.sentence : '';
@@ -43194,7 +43199,7 @@ function paintTaskPage() {
         : '<button class="tkwho-pick" type="button" data-pick-part="' + esc(String(part.id)) + '"'
           + ' aria-label="Change who is on this part">' + esc(shown || 'Nobody yet') + '</button>')
       + (line ? '<small>' + esc(line) + '</small>' : '')
-      + (part.who && part.who === firstWho && !part.closedAt ? sayHtml : '')
+      + (part === sayPart ? sayHtml : '')
       + '</div>'
       + '<button class="linkish tkpart-go" type="button" data-part-act="' + (part.closedAt ? 'reopen' : 'close') + '">'
       + (part.closedAt ? 'Put back' : 'Done') + '</button>'
@@ -43213,7 +43218,7 @@ function paintTaskPage() {
      line stays quiet for "not reported" (it still explains any other could-not-tell reason). */
   /* Named only while that agent holds open work here (the engine's own rule for "never reported"):
      naming the agent of a finished part would point at the one who is done. */
-  const firstOpen = !!firstWho && parts.some((x) => x.who === firstWho && !x.closedAt);
+  const firstOpen = !!sayPart;
   const claimWho = who || (firstOpen ? tkMemberName(p, firstWho) : null);
   const sayShown = firstOpen;   // the same fact: that agent's open part (and its claim line) is on screen
   const unknownBecause = (t.claim && t.claim.claimed === null && t.claim.because) ? t.claim.because : '';

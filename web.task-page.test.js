@@ -251,6 +251,13 @@ test('an agent that never reported is said ONCE on the page, beside its name, ne
       parts: [{ id: 1, sentence: 'first half', who: 'april', closedAt: null }, { id: 2, sentence: 'second half', who: null, closedAt: null }] },
   });
   assert.equal(said(parted.doc), 1);
+  // The same agent holding TWO open parts: still said once.
+  const twice = runPaint({
+    project: { ...PROJECT, tasks: [] },
+    task: { number: 11, sentence: 's', createdAt: new Date().toISOString(), addedBy: 'operator', closedAt: null, claim,
+      parts: [{ id: 1, sentence: 'one', who: 'april', closedAt: null }, { id: 2, sentence: 'two', who: 'april', closedAt: null }] },
+  });
+  assert.equal(said(twice.doc), 1, 'an agent holding two open parts is told off twice');
   // The engine's real case when the first agent's part is done: neverReported is false (it names
   // nobody who is finished), so the page gives the reason without pointing at the finished agent.
   const done = runPaint({
@@ -265,7 +272,9 @@ test('an agent that never reported is said ONCE on the page, beside its name, ne
 
 test('whether the agent is named and whether its claim line is on screen are ONE derivation', () => {
   const src = fnSource('paintTaskPage');
-  assert.match(src, /const firstOpen = !!firstWho && parts\.some\(\(x\) => x\.who === firstWho && !x\.closedAt\);/);
+  assert.match(src, /const sayPart = firstWho \? parts\.find\(\(x\) => x\.who === firstWho && !x\.closedAt\) \|\| null : null;/);
+  assert.match(src, /\+ \(part === sayPart \? sayHtml : ''\)/, 'the part list decides the claim line on its own');
+  assert.match(src, /const firstOpen = !!sayPart;/);
   assert.match(src, /const sayShown = firstOpen;/, 'two expressions for one fact can drift, and the page then says it twice or never');
 });
 

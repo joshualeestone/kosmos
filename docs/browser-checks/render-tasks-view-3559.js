@@ -5,10 +5,12 @@
  * grouped by where the work is.
  *
  * What this pins, and why each line can fail:
- *  - the Tasks tab is in the top nav and opens #panel-tasks; in the consolidated view (tab bar
- *    hidden) the projects rail's Tasks button opens it,
- *  - the tiles are exactly the four groups the engine can prove, with the right counts, and
- *    NO "Waiting on you" / "Done, check it" / category appears anywhere (they are not guessed),
+ *  - the Tasks tab and the consolidated rail's Tasks button are hidden below 25 tasks ever and
+ *    shown once the saved flag is set (Josh's ruling); then the tab opens #panel-tasks, and in
+ *    the consolidated view (tab bar hidden) the rail button opens it,
+ *  - the tiles are exactly the three OPEN groups the engine can prove, with the right counts;
+ *    Closed is the folded list, not a tile (Mona's look review of #3701); NO "Waiting on you" /
+ *    "Done, check it" / category appears anywhere (they are not guessed),
  *  - a row sits in the group its evidence says (the agent that named its task is In progress),
  *  - the search filters as you type (sentence, number, project, agent), and combines with the
  *    project rail,
