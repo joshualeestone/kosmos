@@ -53,7 +53,9 @@ nothing identifying was printed.)
 
 Full browser-check runs: on f138ef26 all page checks passed (one retry, render-type-to-focus-3283,
 the focus area tracked as #3557); and after the codex home moved to removal, on 3ab9d1f3, all page
-checks passed with no retries. The only commits after 3ab9d1f3 touch this plan.
+checks passed with no retries; and after the rebase onto main and round 5 (the Claude config moved
+into a lib-made folder, render-assistant-bubble-3034 wired), on 15e1d124, all page checks passed
+with no retries. The only commit after 15e1d124 touches this plan.
 
 Rejected: changing the account modules to refuse the real home under a fixture. The seam already
 exists and every module honours it; the defect was fixtures not using it.
