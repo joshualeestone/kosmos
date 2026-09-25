@@ -23,3 +23,7 @@ render-help-tips-3574:
 - T19: on Settings the ? hides the screen item. CONTROL: on the board it offers it.
 - T31 covers the four remaining screens.
 - T14 moved to New agent, and T20 opens New agent's tip. Both relied on the Settings tip.
+
+## Found by the full suite
+engine/tips.js still allowed 'settings', which the page-to-allowlist test caught. It is dropped: read() filters unknown
+ids, so a stored 'settings' disappears quietly, and set() now refuses it (nothing sends it).
