@@ -249,10 +249,15 @@ function chk(ok, label, extra) {
         await page.check('#tsk-groups input[data-key="' + news.id + '#2"]');
         await page.check('#tsk-groups input[data-key="' + launch.id + '#1"]');
         await page.fill('#tsk-bnote', 'not doing these this season');
+        const groupsTopBefore = await page.evaluate(() => Math.round(document.getElementById('tsk-groups').getBoundingClientRect().top + window.scrollY));
         await page.click('#tsk-bclose');
         await page.waitForFunction(() => /Closed 2 tasks/.test(document.getElementById('tsk-msg').textContent), null, { timeout: 8000 }).catch(() => {});
         const msg = await page.evaluate(() => document.getElementById('tsk-msg').textContent);
         chk(/Closed 2 tasks/.test(msg), `${tag} Close them closes both and says so`, msg);
+        /* The status line keeps its reserved line (Mona's gap fix must not bring back a jump): the
+           list does not move down under the pointer when the message appears. */
+        const groupsTopAfter = await page.evaluate(() => Math.round(document.getElementById('tsk-groups').getBoundingClientRect().top + window.scrollY));
+        chk(groupsTopAfter === groupsTopBefore, `${tag} the message appearing does not shift the list`, JSON.stringify({ groupsTopBefore, groupsTopAfter }));
         const landed = await page.evaluate(() => document.activeElement && document.activeElement.id);
         chk(landed === 'tsk-msg', `${tag} after Close them, focus lands on what happened (not the page body)`, landed);
         const stored = projects.readAll();

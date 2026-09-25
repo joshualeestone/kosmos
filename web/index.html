@@ -3145,10 +3145,14 @@ button.boardname[aria-expanded="true"] { opacity: 1; color: var(--k-ink); border
 .tsk-main { padding: 25px 26px 110px; min-width: 0; position: relative; }
 .tsk-crumb { font-size: .8125rem; color: var(--k-ink-2); margin: 0 0 2px; min-height: 1.3em; }
 /* Mona's look review of #3701: halve the two big vertical gaps (measured 51px above the title,
-   49px from the tile hint to the first group). An empty crumb and an empty status line take no
-   room; the status line keeps display so it stays a live region that can announce. */
+   49px from the tile hint to the first group). An empty crumb takes no room (it appears when the
+   person picks a project, a navigation they made). The status line KEEPS its one reserved line,
+   so a message ("Closed 2 tasks.") never pushes the list down under the pointer; its margins go
+   and the first group sits closer instead. It stays a live region. */
 .tsk-crumb:empty { min-height: 0; margin: 0; }
-#tsk-msg:empty { min-height: 0; margin: 0; }
+#tsk-msg { margin: 0; min-height: 1.6em; min-height: 1lh; }   /* exactly one message line, reserved */
+#panel-tasks #tsk-hint { margin-bottom: 0; }
+#tsk-groups > .tsk-grp:first-child { margin-top: 3px; }
 .tsk-crumb button { border: 0; background: none; padding: 0; font: inherit; font-weight: 600; color: var(--k-ink); cursor: pointer;
   text-decoration: underline; text-decoration-color: var(--gold); text-underline-offset: 3px; }
 #panel-tasks .tsk-head h2 { font-size: 1.5rem; letter-spacing: -.015em; margin: 0; font-weight: 700; }
@@ -43177,8 +43181,11 @@ function paintTaskPage() {
 
   const why = document.getElementById('tk-why');
   const notReported = claimNotReported(t.claim);
+  /* The claim is read for the task's first agent (whoOf(t)[0]); a task kept as parts has no t.who,
+     so name the first part's agent rather than an "It" that reads as the task. */
+  const claimWho = who || (firstWho ? tkMemberName(p, firstWho) : null);
   const unknownBecause = (t.claim && t.claim.claimed === null && t.claim.because) ? t.claim.because : '';
-  why.textContent = notReported ? (who || 'It') + ' ' + notReported + '.'
+  why.textContent = notReported && claimWho ? claimWho + ' ' + notReported + '.'
     : unknownBecause ? 'We could not check whether ' + (who || 'it') + ' is on this: ' + unknownBecause + '.' : '';
   why.hidden = !notReported && !unknownBecause;
 
