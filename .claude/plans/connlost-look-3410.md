@@ -15,6 +15,9 @@ up needs the person, so it should look like it. Angel makes the edit (agreed in 
 - web/index.html stateReason: Mona's two sentences, verbatim.
 - web/index.html cardStOf: connection_lost with reconnect.phase 'gave_up' returns CARD_ST.needs_you.
   cardStOf is the only reader of CARD_ST (19 callers, grep today), so card, row and detail agree.
+  That includes the org chart (a given-up node gets the needs-you glow and ", needs you" in its
+  accessible name) and the agent detail panel: intended, the same "needs the person" look.
+  cardStOf stays on one line because two existing tests slice it to the newline.
 - web/index.html pjMember: its red triangle and red row read cardStOf(liveM), the copy that carries
   the board's reconnect phase, so the project members row turns red with the card.
 - web/index.html prompterCheckinQuestion: given up asks "Restart it, or is it done?", the card's verb.
