@@ -118,9 +118,10 @@ const KNOWN_NATIVE_SLIDERS = ['d-swarm-max', 'd-swarm-cap', 'create-swarm-max', 
    So these are skipped, by name and no wider, from the cross-scheme check (fields) and the
    button-boundary check (the one secondary button), the two that failed. The per-scheme "same
    fill" check and the boundary check for the wizard's primary (.uprime) buttons still run on
-   the same wrong ground: they pass today by margin (the fixed #16223e fill and #2f57c4 border
-   are far from both bare grounds), so a pass there says little about the real card, and a
-   future failure there is likely this same artifact before it is a defect. A NEW #plus-state2 field fails here until
+   the same wrong ground: they pass today by margin (the #2f57c4 border is about 3:1 on the
+   dark bare ground; the #16223e fill only about 1.2:1 there, against a 1.03 bar), so a pass
+   there says little about the real card, and a future failure there is likely this same
+   artifact before it is a defect. A NEW #plus-state2 field fails here until
    it is added. The enrol flow's white fields (#plus-flow) are measured off their ground too;
    they pass only because white is lighter than both bare grounds, so that pass means little.
    ⚠️ WHAT COVERS THE WIZARD INSTEAD IS NARROWER: render-plus-signin-3478 navigates to the tab
@@ -409,6 +410,13 @@ async function measure(engine, scheme) {
       seen[scheme] = r;
       console.log(`\n== ${engine} / ${scheme} ==  fields ${r.fields.length}, page errors ${r.errs.length}`);
       console.log(`  native sliders not measured (they paint no field fill): ${r.nativeSliders.length}${r.nativeSliders.length ? ' - ' + r.nativeSliders.join(', ') : ''}`);
+      // The Kosmos+ wizard skips are PRINTED (this file names what it leaves out) and each listed
+      // id must still be on the page, so a rename cannot leave a dead entry behind.
+      const measuredFieldIds = new Set(r.fields.map((f) => '#' + f.id));
+      const measuredButtonIds = new Set((r.buttons || []).map((b) => b.id));
+      console.log(`  Kosmos+ wizard skipped (not on its real ground here): ${PLUS_WIZARD_FIELDS.size} fields, ${PLUS_WIZARD_BUTTONS.size} button - ${[...PLUS_WIZARD_FIELDS, ...PLUS_WIZARD_BUTTONS].join(', ')}`);
+      for (const id of PLUS_WIZARD_FIELDS) if (!measuredFieldIds.has(id)) fail(`${engine}/${scheme} ${id} is in PLUS_WIZARD_FIELDS but is not on the page: remove it or rename it there`);
+      for (const id of PLUS_WIZARD_BUTTONS) if (!measuredButtonIds.has(id)) fail(`${engine}/${scheme} button ${id} is in PLUS_WIZARD_BUTTONS but is not on the page: remove it or rename it there`);
       for (const id of r.nativeSliders) if (!KNOWN_NATIVE_SLIDERS.includes(id)) fail(`${engine}/${scheme} slider ${id} is skipped as native but is not in KNOWN_NATIVE_SLIDERS: ${id.startsWith('input[type=range][') ? 'give it an id and add the id there' : 'add it there'} if it is meant to be a native slider, or restyle it (appearance:none) to be measured as a field`);
       for (const e of r.errs) fail(`${engine}/${scheme} ${e}`);
 
