@@ -114,6 +114,16 @@ const waitFor = (page, fn, ms = 6000) => page.waitForFunction(fn, null, { timeou
     const two = await bubble(page);
     chk(/\/api\/agent\/josh\/avatar\?v=/.test(two.src), 'B2 it shows the guide\'s picture', two.src);
     chk(two.nudge, 'B2 the nudge shows before the person has written to the guide');
+    // B2b: the lookup itself, with the person's own "Josh" (session josh-2) placed FIRST: the guide is found by
+    // its session name, never by a display name the person's agent can share.
+    const b2b = await page.evaluate(() => {
+      const keep = LAST;
+      LAST = [{ name: 'Josh', sessionName: 'josh-2' }, { name: 'Josh', sessionName: 'josh' }];
+      const row = asbGuideRow();
+      LAST = keep;
+      return row && row.sessionName;
+    });
+    chk(b2b === 'josh', 'B2b with the person\'s own "Josh" listed first, the guide is still the agent whose session is josh', String(b2b));
     chk(await waitFor(page, () => ASB.heard !== null && ASB.readOnce === true), 'B2 precondition: the first thread read has landed');
     chk(!(await bubble(page)).dot, 'B2 a reply already in the thread does not light the dot on load (control: B6 lights it for a new one)');
     /* Measured from the page's content edge (body.clientWidth). The root reserves a stable scrollbar
@@ -148,7 +158,12 @@ const waitFor = (page, fn, ms = 6000) => page.waitForFunction(fn, null, { timeou
     await page.click('#asb');
     await page.waitForTimeout(300);
     const b17p = await page.evaluate(() => { const r = document.getElementById('asp').getBoundingClientRect(); return { top: Math.round(r.top), bottom: Math.round(r.bottom), vh: innerHeight }; });
+    /* The tall control reaches into the page's bottom band, so the open chat must sit above it: its lower
+       part is still what the pointer hits (the old band rule, which looked only at a control's top, left the
+       chat covering it). */
+    const b17hit = await page.evaluate(() => { const h = document.elementFromPoint(1200, innerHeight - 120);   /* in the band, above where Send alone would lift the chat */ return !!h && h.dataset.check === 'b17'; });
     chk(b17.top >= 0 && b17.bottom <= b17.vh && b17p.top >= 0 && b17p.bottom <= b17p.vh, 'B17 on a short window the lifted bubble and the open chat stay on screen', JSON.stringify({ b17, b17p }));
+    chk(b17hit, 'B17 and the open chat does not cover a control reaching into the bottom band');
     await page.click('#asp-fold');
     await page.evaluate(() => document.querySelector('[data-check="b17"]').remove());
     await page.setViewportSize({ width: 1280, height: 860 });
