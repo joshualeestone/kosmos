@@ -501,6 +501,13 @@ function homeDir() {
  * homeDir() rather than above the function it documents, so it described the
  * wrong thing to any reader who trusted its position.
  */
+/* #3568: the name the pane will show for an agy path. tmux reports the file that runs, after
+   symlinks, so a link called agy that points at agy-1.2.10 shows agy-1.2.10. Falls back to the
+   given name when the path cannot be resolved (it does not exist yet). */
+function agyRealName(bin) {
+  const given = String(bin || '');
+  try { return path.basename(fs.realpathSync(given)); } catch { return path.basename(given); }
+}
 function resolveBin(provider, opts) {
   if (provider === 'claude') {
     // Same authoritative-override contract as openai, with Claude's own
@@ -564,6 +571,25 @@ function resolveBin(provider, opts) {
     const legacy = (opts && opts.legacyBin) || '/opt/homebrew/bin/grok';
     if (isRunnable(legacy)) return { bin: legacy, present: true, managed: false, overridden: false };
     return { bin: managed, present: false, managed: true, overridden: false };
+  }
+  /* #3568: the Antigravity runner (Google's `agy`, a native binary). Its own installer puts it
+     in the vendor's ~/.local/bin/agy, the same shape as Claude Code's ~/.local/bin/claude, so it
+     resolves under homeDir() (the AGENT_WORKFORCE_HOME sandbox seam) rather than a fixed path.
+     Env override first, like every runner. Not managed (no Kosmos install). An override must keep
+     the basename `agy`: the board recognises the pane by that command (status.isAntigravityCommand). */
+  if (provider === 'antigravity') {
+    const envAgy = process.env.AGENT_WORKFORCE_ANTIGRAVITY_BIN;
+    if (envAgy) {
+      // A pane running any other name is invisible to the board and the supervisor, so say so here.
+      if (agyRealName(envAgy) !== 'agy') {
+        return { bin: envAgy, present: false, managed: false, overridden: true, envName: 'AGENT_WORKFORCE_ANTIGRAVITY_BIN',
+          because: 'AGENT_WORKFORCE_ANTIGRAVITY_BIN must name a file called agy, or Kosmos cannot see the agent running' };
+      }
+      return { bin: envAgy, present: isRunnable(envAgy), managed: false, overridden: true, envName: 'AGENT_WORKFORCE_ANTIGRAVITY_BIN' };
+    }
+    const canonical = (opts && opts.legacyBin) || path.join(homeDir(), '.local', 'bin', 'agy');
+    // The same name rule as the override: a canonical path that resolves to another name is not agy.
+    return { bin: canonical, present: isRunnable(canonical) && agyRealName(canonical) === 'agy', managed: false, overridden: false };
   }
   if (provider !== 'openai') return { bin: null, present: false, managed: false, overridden: false };
   // An operator-set override is AUTHORITATIVE, not a candidate: when the
@@ -1582,4 +1608,4 @@ function resetForTests() { for (const k of Object.keys(jobs)) delete jobs[k]; }
 /* pathextCandidates is exported for the SAME reason create.unusablePath is: its
    win32 branch cannot be asserted from the Mac the suite runs on unless the
    platform is injectable from a test. */
-module.exports = { MANIFEST, CODEX_WIN32, GROK_DARWIN, nodeLauncher, launcherHasNode, installing, manifestFor, managedBin, verifiedMarker, tarBin, fileIntegrity, plainFailure, managedRoot, resolveBin, homeDir, status, install, download, isRunnable, runnableCandidate, pathextCandidates, runnableExactly, resetForTests };
+module.exports = { MANIFEST, CODEX_WIN32, GROK_DARWIN, nodeLauncher, launcherHasNode, installing, manifestFor, managedBin, verifiedMarker, tarBin, fileIntegrity, plainFailure, managedRoot, resolveBin, agyRealName, homeDir, status, install, download, isRunnable, runnableCandidate, pathextCandidates, runnableExactly, resetForTests };

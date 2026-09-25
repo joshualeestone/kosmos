@@ -114,7 +114,7 @@ function resolvers() {
    and either `confidence:` or `...NONE_BASE`, whose keys include tokens and because) and
    EXPANDS the `...NONE_BASE` spread, which a named-function walk cannot see.
    🛑 SHARED BY TWO ARMS ON PURPOSE. The "context key-set" arm counts these (four distinct,
-   the family shape fifteen times); the #2553 nested-drift arm asserts the recorded fixture
+   the family shape sixteen times); the #2553 nested-drift arm asserts the recorded fixture
    matches one of them. An inline byte-copy in each would be the drift this very tree keeps
    catching in its own guards, so the scan lives once, here. */
 function contextShapes(statusSrc) {
@@ -744,19 +744,20 @@ test('#2519: the context key-set claim is DERIVED from status.js, not restated',
     + 'That count is the stated justification for the top-level-only anti-rot comparison, so it has to be re-argued, not just re-typed.');
   /* CONTROL: the scan must have found the family shape many times over, or a regex that
      matched almost nothing would report a plausible small number. */
-  /* 🛑 THE EXACT COUNT, BECAUSE THE DOCUMENTS SAY "FIFTEEN" AND CALL IT DERIVED. A
+  /* 🛑 THE EXACT COUNT, BECAUSE THE DOCUMENTS SAY "SIXTEEN" AND CALL IT DERIVED. A
      `>= 8` floor left that number unpinned while the prose presented it as arm-backed,
      which is the exact shape this branch is a record of. If status.js legitimately grows
-     a sixteenth object with the family shape, this reds and the prose copies get updated
+     a seventeenth object with the family shape, this reds and the prose copies get updated
      in the same commit, which is the point. (#3296 raised it 11 -> 13; #3391 raised it
-     13 -> 15; the prose copies are the two in this file, the shared contextShapes comment
+     13 -> 15; #3568 raised it 15 -> 16; the prose copies are the two in this file, the shared contextShapes comment
      above, and render-talk.js.) */
   const family = Math.max(...shapes.values());
-  assert.equal(family, 15,
-    `the NONE_BASE family shape occurs ${family} times in status.js, not the FIFTEEN the documents state. `
+  assert.equal(family, 16,
+    `the NONE_BASE family shape occurs ${family} times in status.js, not the SIXTEEN the documents state. `
     + 'Update those copies in this commit rather than relaxing this assertion. '
     + '(#3296 raised it 11 -> 13: readGeminiContext adds the codex-mirrored UNREADABLE + NO_TRANSCRIPT branches for the third provider. '
-    + '#3391 raised it 13 -> 15: readGrokContext adds the same two branches for the fourth provider.)');
+    + '#3391 raised it 13 -> 15: readGrokContext adds the same two branches for the fourth provider. '
+    + '#3568 raised it 15 -> 16: the Antigravity pane\'s cannot-read-yet context in snapshot().)');
 });
 
 test('#2519: the CATEGORY list is ascending, gap-free, and the same categories in both documents', () => {
@@ -994,7 +995,7 @@ test('#2519: the non-string INVENTORY outside profile is fixed, so a new produce
        mtime, an epoch-ms timestamp that must not reach a committed file verbatim. */
     const PINNED_NUMBER = ['avatarVer'];
     const ALWAYS = STRUCTURAL.concat(PINNED_BOOLEAN, PINNED_NUMBER);
-    /* ⚠️ TWO INVENTORIES, BECAUSE `context` has FOUR distinct key sets in status.js, counted rather than asserted: the NONE_BASE family (FIFTEEN objects share that one key set, derived by the arm; earlier versions said six by counting only readContext and missing readCodexContext and the two inline card literals, then eleven before #3296's readGeminiContext added the codex-mirrored UNREADABLE and NO_TRANSCRIPT branches for the third provider, then thirteen before #3391's readGrokContext added the same two branches for the fourth provider), neverRecordedResult (adds `neverRecorded`), measuredResult (adds `overCeiling`, `ceiling`, `ceilingAssumed`) and noCeilingResult (adds `ceiling`, `ceilingSource`, `noCeiling`) (an earlier version said FIVE) AND THE TWO
+    /* ⚠️ TWO INVENTORIES, BECAUSE `context` has FOUR distinct key sets in status.js, counted rather than asserted: the NONE_BASE family (SIXTEEN objects share that one key set, derived by the arm; earlier versions said six by counting only readContext and missing readCodexContext and the two inline card literals, then eleven before #3296's readGeminiContext added the codex-mirrored UNREADABLE and NO_TRANSCRIPT branches for the third provider, then thirteen before #3391's readGrokContext added the same two branches for the fourth provider, then fifteen before #3568's Antigravity context in snapshot()), neverRecordedResult (adds `neverRecorded`), measuredResult (adds `overCeiling`, `ceiling`, `ceilingAssumed`) and noCeilingResult (adds `ceiling`, `ceilingSource`, `noCeiling`) (an earlier version said FIVE) AND THE TWO
        CARDS HERE ARE DIFFERENT ONES. The fleet agent has no transcript, so its context is
        the no-reading shape; the committed recording was captured from an agent with a
        measured context. A single expected list would have been wrong for one of them, and
@@ -1641,7 +1642,7 @@ test('#2519: the check has NO live-vs-fixture drift guard, deliberately', () => 
      MEASURED on an 18-agent board: TWO distinct `profile` shapes among our pane cards,
      17 carrying id/idInstall/instructionsWrite/updatedAt and ONE empty, because
      store.readProfile() returns {} for an agent with no profile file. `profile` is a
-     free-form operator record and `context` has FOUR distinct key sets in status.js, counted rather than asserted: the NONE_BASE family (FIFTEEN objects share that one key set, derived by the arm; earlier versions said six by counting only readContext and missing readCodexContext and the two inline card literals, then eleven before #3296's readGeminiContext added the codex-mirrored UNREADABLE and NO_TRANSCRIPT branches for the third provider, then thirteen before #3391's readGrokContext added the same two branches for the fourth provider), neverRecordedResult (adds `neverRecorded`), measuredResult (adds `overCeiling`, `ceiling`, `ceilingAssumed`) and noCeilingResult (adds `ceiling`, `ceilingSource`, `noCeiling`) (an earlier version said FIVE) depending on
+     free-form operator record and `context` has FOUR distinct key sets in status.js, counted rather than asserted: the NONE_BASE family (SIXTEEN objects share that one key set, derived by the arm; earlier versions said six by counting only readContext and missing readCodexContext and the two inline card literals, then eleven before #3296's readGeminiContext added the codex-mirrored UNREADABLE and NO_TRANSCRIPT branches for the third provider, then thirteen before #3391's readGrokContext added the same two branches for the fourth provider, then fifteen before #3568's Antigravity context in snapshot()), neverRecordedResult (adds `neverRecorded`), measuredResult (adds `overCeiling`, `ceiling`, `ceilingAssumed`) and noCeilingResult (adds `ceiling`, `ceilingSource`, `noCeiling`) (an earlier version said FIVE) depending on
      that agent's transcript and ceiling, so no two cards are guaranteed to share a
      nested shape.
      ⚠️ And WHICH card was compared was arbitrary: liveCard() takes the first pane card
