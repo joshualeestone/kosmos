@@ -304,23 +304,34 @@ eval "$(secrets-map.sh env kosmos-android-upload-signing)"
   and (optionally) `KOSMOS_UPLOAD_KEY_ALIAS` exist. None are set. Setting them is a repo-admin
   call for Josh.
 
-**Before the first upload to any Play track** (the Internal testing upload below; it holds for
-the production release in Step 10 too):
-- **A person reads the current Google Play Payments policy and its exceptions** [Josh]. This doc
-  deliberately states none of the policy's details: they change, they differ by country, and a
-  summary written here would go stale unnoticed. What the app does, so the reader can check it
-  against the policy: inside the Android app the sign-in page shows no checkout, price or billing
-  portal, and an unpaid account is told only "This account does not include Kosmos+ yet." (kosmos
-  #718, Liu Kang's decision of 2026-09-25, matching iOS; Josh can overrule it). The switch is
-  `CAN_BUY_HERE` in kosmos-relay `coordinator/src/signin.html`, which recognises the app by the
-  referrer Chrome sends when it opens the app (`android-app://io.kosmos.app/`). This is reasoned
-  from Chrome's documented behaviour, not yet seen on a phone.
-- **On a phone** [a tester with an Android phone; Mortals has none, see Check below]: open sign-in
-  with an unpaid account and confirm no pay step or price appears; then open the same page in plain
-  Chrome and confirm it does. Do it on a sideloaded build signed with the upload key AND on a Play
-  install: until Play's app-signing key is in assetlinks.json, a Play install opens with a browser
-  bar, and whether Chrome sends the same referrer that way is not confirmed. A sideload passing does
-  not prove the Play install.
+**No purchase inside the Android app** (kosmos #718, Liu Kang's decision of 2026-09-25, matching
+iOS; Josh can overrule it). Read on kosmos-relay branch `android-no-purchase-718` (kosmos-relay #121),
+2026-09-25: inside the app the sign-in page shows no checkout, price or billing portal, and an
+unpaid account is told only "This account does not include Kosmos+ yet." The switch is
+`CAN_BUY_HERE` in `coordinator/src/signin.html`; it recognises the app by the referrer Chrome sends
+when it opens the app (`android-app://io.kosmos.app/`), which is reasoned from Chrome's documented
+behaviour, not yet seen on a phone.
+- **Not live yet:** it takes that PR merging AND the next coordinator deploy [Josh, a production
+  change], like the assetlinks route above. Every phone check below waits for that deploy.
+- **Before the first upload to any Play track** (the Internal testing upload below; it holds for
+  the production release in Step 10 too): **a person reads the current Google Play Payments policy
+  and its exceptions** [Josh], against what the app does as described above. This doc deliberately
+  states none of the policy's details: they change, they differ by country, and a summary written
+  here would go stale unnoticed.
+- **Sideload check, before the first upload** [fleet, with a person holding a phone; Mortals has
+  none]. Only meaningful once the assetlinks `curl` in Check below returns the upload key's
+  fingerprint: before that, a sideloaded build also opens with a browser bar. With a build signed
+  with the upload key: sign in with an unpaid account and confirm no pay step or price appears; sign
+  in with a paid account and confirm the signed-in home has no billing section; then open sign-in
+  in a NEW Chrome tab (not the app's "Open in Chrome", which carries the app's memory into that tab)
+  and confirm the pay step does appear. Once, leave the app in the background for a long while and
+  return to a later page: the app is remembered only for the life of its tab, so a phone that
+  reclaims Chrome's memory could bring the pay step back until the app is next opened fresh.
+- **Play-install check, after the Internal testing upload** [fleet, with a person holding a phone].
+  The same three checks on the app installed from Play. It is a separate check because a Play
+  install is signed with Play's app-signing key, which assetlinks.json does not list yet, so it
+  opens with a browser bar, and whether Chrome sends the same referrer that way is not confirmed. A
+  sideload passing does not prove it. This gates the production release in Step 10.
 
 **Upload:** to Play's Internal testing track [Josh, or whoever he gives Console access].
 
