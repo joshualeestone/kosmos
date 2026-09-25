@@ -326,6 +326,70 @@ test('ensureGuide: single-flight (Giddy Up and a sweep together make one guide) 
   } finally { armed(false); setupAssistant.resetEnsureGuideForTests(); }
 });
 
+test('ensureGuide: a listed but DEAD sign-in backs off too (the live check is the cost), and the back-off grows', async () => {
+  setupAssistant.resetEnsureGuideForTests();
+  armed(true);
+  try {
+    let checks = 0;
+    const dead = { listFor: (mod) => (mod === './accounts' ? [{ dir: '/h/.claude', isDefault: true }] : []),
+      connectable: async () => { checks += 1; return { ok: false }; } };
+    const calls = [];
+    const t0 = 5_000_000;
+    const r1 = await setupAssistant.ensureGuide({ createAgent: createdOk(calls), now: t0, deps: dead });
+    assert.match(r1.reason, /listed but none could run/);
+    assert.equal(checks, 1);
+    const r2 = await setupAssistant.ensureGuide({ createAgent: createdOk(calls), now: t0 + 60 * 1000, deps: dead });
+    assert.match(r2.reason, /waiting/);
+    assert.equal(checks, 1, 'a dead sign-in was checked live again inside the back-off');
+    // Second failure after the first wait; the NEXT wait doubles.
+    const t1 = t0 + setupAssistant.RETRY_AFTER_MS + 1;
+    await setupAssistant.ensureGuide({ createAgent: createdOk(calls), now: t1, deps: dead });
+    assert.equal(checks, 2);
+    await setupAssistant.ensureGuide({ createAgent: createdOk(calls), now: t1 + setupAssistant.RETRY_AFTER_MS + 1, deps: dead });
+    assert.equal(checks, 2, 'the back-off did not grow after a second failure');
+    await setupAssistant.ensureGuide({ createAgent: createdOk(calls), now: t1 + 2 * setupAssistant.RETRY_AFTER_MS + 1, deps: dead });
+    assert.equal(checks, 3, 'CONTROL: it tries again once the doubled wait has passed');
+    assert.equal(calls.length, 0, 'an agent was created on a dead sign-in');
+    assert.ok(setupAssistant.RETRY_MAX_MS <= 24 * 60 * 60 * 1000, 'the back-off is capped at a day');
+  } finally { armed(false); setupAssistant.resetEnsureGuideForTests(); }
+});
+
+test('ensureGuide: "Don\'t show this again" (setupAssistant.on false) also means no guide agent later', async () => {
+  setupAssistant.resetEnsureGuideForTests();
+  armed(true);
+  try {
+    const calls = [];
+    const conn = MODELS({ './accounts': [{ dir: '/h/.claude', isDefault: true }] });
+    const off = await setupAssistant.ensureGuide({ createAgent: createdOk(calls), deps: { ...conn, settings: { setupAssistant: { on: false, asked: true } } } });
+    assert.match(off.reason, /turned setup assistance off/);
+    assert.equal(calls.length, 0);
+    const on = await setupAssistant.ensureGuide({ createAgent: createdOk(calls), deps: { ...conn, settings: { setupAssistant: { on: true, asked: true } } } });
+    assert.equal(on.seeded, true, 'CONTROL: switched back on, it is created');
+  } finally { armed(false); setupAssistant.resetEnsureGuideForTests(); }
+});
+
+test('ensureGuide: under dry run (test boards) it is off unless AGENT_WORKFORCE_SETUP_GUIDE=on', async () => {
+  setupAssistant.resetEnsureGuideForTests();
+  armed(true);
+  const had = { dry: process.env.AGENT_WORKFORCE_DRY_RUN, on: process.env.AGENT_WORKFORCE_SETUP_GUIDE };
+  try {
+    const conn = MODELS({ './accounts': [{ dir: '/h/.claude', isDefault: true }] });
+    process.env.AGENT_WORKFORCE_DRY_RUN = '1';
+    delete process.env.AGENT_WORKFORCE_SETUP_GUIDE;
+    const calls = [];
+    const r = await setupAssistant.ensureGuide({ createAgent: createdOk(calls), deps: conn });
+    assert.match(r.reason, /switched off/);
+    assert.equal(calls.length, 0);
+    process.env.AGENT_WORKFORCE_SETUP_GUIDE = 'on';
+    const r2 = await setupAssistant.ensureGuide({ createAgent: createdOk(calls), deps: conn });
+    assert.equal(r2.seeded, true, 'CONTROL: the explicit test switch turns it back on');
+  } finally {
+    if (had.dry === undefined) delete process.env.AGENT_WORKFORCE_DRY_RUN; else process.env.AGENT_WORKFORCE_DRY_RUN = had.dry;
+    if (had.on === undefined) delete process.env.AGENT_WORKFORCE_SETUP_GUIDE; else process.env.AGENT_WORKFORCE_SETUP_GUIDE = had.on;
+    armed(false); setupAssistant.resetEnsureGuideForTests();
+  }
+});
+
 test('ensureGuide: the switch off means nothing automatic at all', async () => {
   setupAssistant.resetEnsureGuideForTests();
   armed(true);

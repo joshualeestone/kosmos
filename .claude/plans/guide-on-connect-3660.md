@@ -18,7 +18,12 @@ bubble hands off to it. Josh's direction behind it: 16:05 (his avatar, speaks as
 - `firstConnectedModel()`: the first LISTED account in provider order (Claude, OpenAI, Gemini, Grok) that passes
   create's own `accountConnectable` gate. The guide is created **on that model**, so an OpenAI-only person gets a guide
   that can run.
-- After a found-but-refused try, the next waits 10 minutes (the Claude gate runs a live `claude -p`). Single-flight.
+- After a try that reached a live check and did not create (a listed but dead sign-in, a rejected key, a refused
+  create), the next try waits 10 minutes, doubling each time, capped at a day: the Claude gate is a live `claude -p`,
+  a real request on their account. Single-flight.
+- "Don't show this again" (`setupAssistant.on` false) also means no guide agent is created later.
+- Under `AGENT_WORKFORCE_DRY_RUN=1` (test boards only) it is off unless `AGENT_WORKFORCE_SETUP_GUIDE=on`: review round 2
+  measured server.projects.test.js creating an unasserted "josh" guide in its sandbox; now 0.
 - The role text says the guide was created when they connected their first model.
 
 ## Decided, and why
@@ -40,4 +45,10 @@ Splinter's own: people may not mind an agent appearing right after they connect 
   guard removed); `firstConnectedModel` order, named vs default, dead accounts skipped; `ensureGuide`: unarmed never
   creates, no model creates nothing, the first model creates on THAT model once, single-flight shared result, back-off
   with a control, switch off does nothing. Each RED under its mutation.
-- server.test.js, server.projects.test.js (first-run completion paths), roles, create: 647 pass.
+- `server.guide-on-connect-3660.test.js` (real server as a child, every root sealed): Giddy Up with a connected Claude
+  account creates the guide on anthropic via first-run; a dry-run board without the switch creates none, with the arm file
+  as the control. RED with the dry-run default removed.
+- Engine: a dead sign-in backs off and the back-off doubles (controls on both), the switch off stops it, dry run is off
+  unless turned on. Each RED under its mutation.
+- server.test.js, server.projects.test.js (first-run completion paths), roles, create: pass; a probe measured 0 guide
+  creates in server.projects.test.js after the fix (1 before).

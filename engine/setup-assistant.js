@@ -10,8 +10,10 @@
  * would run on one of their models. It would burn through their user quota but
  * that's fine because they're giving us access to one of their models."
  *
- * This seeds exactly one such agent, ONCE EVER, at first-run completion. The
- * design is deliberately conservative and reversible (a normal deletable agent,
+ * This seeds exactly one such agent, ONCE EVER, the moment the first model is
+ * connected on an install that has been through first-run since #3660 (Splinter,
+ * 2026-09-24 19:06): ensureGuide(), below, at Giddy Up or from the board's sweep.
+ * The design is deliberately conservative and reversible (a normal deletable agent,
  * additive, one flag file), and every branch fails toward NOT disrupting
  * onboarding -- see the decisions below.
  *
@@ -25,20 +27,17 @@
  *   shipped (no picture -> the initials avatar; never fatal). The role's own text
  *   (engine/roles.js, `setup`) says the same, so the words and the face agree.
  *   A saved user name is therefore no longer needed to seed.
- * - MODEL/ACCOUNT = the user's default connected account (createAgent with no
- *   model/account). Josh: runs on the user's own model, quota-burn accepted.
- * - CONNECTED-ACCOUNT GATE (the correctness crux). The wizard's model step is
- *   SKIPPABLE, so a fresh user can reach Giddy Up with no account connected.
- *   createAgent does NOT refuse for that -- its account/model refusal only fires
- *   for an explicitly-passed unknown account, and we pass none; its own refusal
- *   is keyed on the runner BINARY (Claude Code) being installed. A created agent
- *   launches under launchd KeepAlive (ThrottleInterval 30), so an agent with no
- *   account to authenticate would respawn and fail auth on a loop. So we GATE on
- *   a connected Claude account (accounts.list(), a fast config read -- NOT the
- *   slow live `claude -p` probe) and seed nothing when there is none. A user who
- *   skipped account connection gets no assistant. Documented limitation: an
- *   OpenAI-only user also gets none in v1 (we default to the Claude provider); a
- *   follow-up could seed on the connected provider, or on first account-connect.
+ * - MODEL/ACCOUNT = the first connected model, on ITS provider (Claude, OpenAI,
+ *   Gemini, Grok, in that order; a named account by its dir, a default as none),
+ *   found by findModel() through create's own accountConnectable gate. Josh: runs
+ *   on the user's own model, quota-burn accepted. An OpenAI-only person gets a
+ *   guide on OpenAI (the v1 limitation, Claude only, is gone).
+ * - CONNECTED-MODEL GATE (the correctness crux). A created agent launches under
+ *   launchd KeepAlive, so an agent with no model would respawn and fail on a loop.
+ *   So nothing is created until a model is connected; before that the bubble runs
+ *   on the hosted model (#3660). seedSetupAssistant()'s own `hasConnectedAccount`
+ *   check (Claude-only by default) is kept for direct callers; ensureGuide bypasses
+ *   it because findModel has already answered it, more strictly.
  * - ROLE = the `setup` role (engine/roles.js, menu:false so it is never in the
  *   normal create flow).
  * - The help-BUBBLE Josh floated is explicitly phase 2 and NOT built here.
@@ -181,12 +180,14 @@ function guideName() {
 
 /*
  * Seed the setup assistant if it has never been seeded. Returns:
- *   { seeded: true, name, avatarCopied }        -- created
- *   { seeded: false, reason: '<why>' }           -- did not create (all benign)
+ *   { seeded: true, name, avatarCopied, marked } -- created
+ *   { seeded: false, reason: '<why>' }            -- did not create (all benign)
  *
- * NEVER throws: the caller runs this in first-run completion, which has already
- * succeeded, and a helper is a nicety that must not turn a done onboarding into
- * an error. The caller writes the once-ever flag on `seeded: true`.
+ * `model` ({ provider, account }) picks what it runs on; ensureGuide passes the
+ * first connected one. NEVER throws: its automatic caller (ensureGuide) runs at
+ * Giddy Up, which has already succeeded, and from a sweep; a helper is a nicety
+ * that must not turn either into an error. The caller writes the once-ever flag
+ * on `seeded: true`.
  */
 function seedSetupAssistant({ createAgent, hasConnectedAccount = defaultHasConnectedAccount, avatarDir, model } = {}) {
   if (typeof createAgent !== 'function') return { seeded: false, reason: 'no createAgent provided' };
@@ -276,10 +277,11 @@ const MODEL_PROVIDERS = Object.freeze([
  * gate (accountConnectable), so a positively dead sign-in is skipped, not used.
  * `listFor` and `connectable` are injectable for tests.
  */
-async function firstConnectedModel({
+async function findModel({
   listFor = (mod) => require(mod).list(),
   connectable = (q) => create.accountConnectable(q),
 } = {}) {
+  let refused = false;
   for (const [provider, mod] of MODEL_PROVIDERS) {
     let rows;
     try { rows = listFor(mod); } catch { rows = []; }
@@ -289,18 +291,32 @@ async function firstConnectedModel({
       const account = row.isDefault ? null : row.dir;
       let gate;
       try { gate = await connectable({ provider, accountDir: account }); } catch { gate = { ok: false }; }
-      if (gate && gate.ok) return { provider, account };
+      if (gate && gate.ok) return { model: { provider, account }, refused };
+      refused = true;
     }
   }
-  return null;
+  /* refused: an account WAS listed and every one failed the gate (a dead sign-in, a
+     rejected key). That check can be a live probe, so the caller backs off on it. */
+  return { model: null, refused };
 }
 
-/* After a try that found a model but could not create (a refused or dead account), the
-   next try waits this long: the check can run a live `claude -p`, and the sweep runs
-   every minute. */
+async function firstConnectedModel(deps) {
+  return (await findModel(deps)).model;
+}
+
+/* After a try that reached a live check and did not create (a dead sign-in, a rejected
+   key, a refused create), the next try waits: 10 minutes, doubling each time, at most a
+   day. The check can be a live `claude -p` (a real request on their account) and the
+   sweep runs every minute, so a failure that never clears costs one check a day. */
 const RETRY_AFTER_MS = 10 * 60 * 1000;
+const RETRY_MAX_MS = 24 * 60 * 60 * 1000;
 let inFlight = null;
 let lastFailedAt = 0;
+let failures = 0;
+
+function retryWaitMs() {
+  return Math.min(RETRY_MAX_MS, RETRY_AFTER_MS * Math.pow(2, Math.max(0, failures - 1)));
+}
 
 /**
  * Create the guide if, and only if: the automatic path is on, this install is armed,
@@ -310,25 +326,43 @@ let lastFailedAt = 0;
  */
 function ensureGuide({ createAgent, via = 'model-connected', now = Date.now(), deps = {} } = {}) {
   if (inFlight) return inFlight;
-  const enabled = deps.enabled !== undefined ? deps.enabled : FIRSTRUN_AUTOCREATE_ENABLED;
+  /* Test servers run with AGENT_WORKFORCE_DRY_RUN=1, and with a signed-in sandbox account
+     they would each create a guide nobody asserts (review round 2, measured). So under dry
+     run it is off unless a test turns it on with AGENT_WORKFORCE_SETUP_GUIDE=on. */
+  const dryRun = process.env.AGENT_WORKFORCE_DRY_RUN === '1' && process.env.AGENT_WORKFORCE_SETUP_GUIDE !== 'on';
+  const enabled = deps.enabled !== undefined ? deps.enabled : (FIRSTRUN_AUTOCREATE_ENABLED && !dryRun);
   if (!enabled) return Promise.resolve({ seeded: false, reason: 'the automatic setup guide is switched off' });
+  /* "Don't show this again" (the bubble's switch) also means: no guide agent later. */
+  let wanted = true;
+  try { wanted = settingFrom(deps.settings !== undefined ? deps.settings : store.readSettings()).on; } catch { wanted = true; }
+  if (!wanted) return Promise.resolve({ seeded: false, reason: 'the person turned setup assistance off' });
   if (!isArmed()) return Promise.resolve({ seeded: false, reason: 'not armed (this install was set up before the guide existed)' });
   if (setupAssistantSeeded()) return Promise.resolve({ seeded: false, reason: 'already seeded' });
-  if (lastFailedAt && now - lastFailedAt < RETRY_AFTER_MS) return Promise.resolve({ seeded: false, reason: 'waiting before trying again' });
+  if (lastFailedAt && now - lastFailedAt < retryWaitMs()) return Promise.resolve({ seeded: false, reason: 'waiting before trying again' });
   inFlight = (async () => {
     try {
-      const model = await firstConnectedModel(deps);
-      if (!model) return { seeded: false, reason: 'no model connected yet' };
+      const found = await findModel(deps);
+      const model = found.model;
+      if (!model) {
+        if (found.refused) { lastFailedAt = now; failures += 1; }
+        return { seeded: false, reason: found.refused ? 'a model is listed but none could run yet' : 'no model connected yet' };
+      }
+      /* hasConnectedAccount is already answered, more strictly, by findModel (any provider,
+         create's own gate); the seed's default check is Claude-only and would refuse an
+         OpenAI-only person, so it is bypassed here on purpose. */
       const seed = seedSetupAssistant({ createAgent, hasConnectedAccount: () => true, avatarDir: deps.avatarDir, model });
       if (seed && seed.seeded) {
         markSetupAssistantSeeded({ name: seed.name, via, provider: model.provider });
         lastFailedAt = 0;
+        failures = 0;
         return seed;
       }
       lastFailedAt = now;
+      failures += 1;
       return seed || { seeded: false, reason: 'not created' };
     } catch (err) {
       lastFailedAt = now;
+      failures += 1;
       return { seeded: false, reason: 'ensureGuide failed: ' + String((err && err.message) || err) };
     } finally {
       inFlight = null;
@@ -338,7 +372,7 @@ function ensureGuide({ createAgent, via = 'model-connected', now = Date.now(), d
 }
 
 /* Test seam: forget the backoff between cases. */
-function resetEnsureGuideForTests() { inFlight = null; lastFailedAt = 0; }
+function resetEnsureGuideForTests() { inFlight = null; lastFailedAt = 0; failures = 0; }
 
 /*
  * The person's switch for the setup assistant bubble (#3034; Josh, 2026-09-24 18:02:
@@ -392,6 +426,7 @@ module.exports = {
   MODEL_PROVIDERS,
   firstConnectedModel,
   RETRY_AFTER_MS,
+  RETRY_MAX_MS,
   ensureGuide,
   resetEnsureGuideForTests,
   SETTING_DEFAULT,

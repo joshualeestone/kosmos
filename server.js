@@ -15072,6 +15072,10 @@ function start(port = PORT) {
          sweeps above: its own timer, unref'd so it never holds the process open,
          best-effort. It sends nothing when the person has opted out, and nothing
          under test (feedbacksend's underTest guard). */
+      const feedbackSweep = setInterval(() => {
+        try { feedbacksend.sendDailyOnce(feedback.today()); } catch { /* best-effort, like the sweeps above */ }
+      }, Number(process.env.AGENT_WORKFORCE_FEEDBACK_SWEEP_MS) > 0 ? Number(process.env.AGENT_WORKFORCE_FEEDBACK_SWEEP_MS) : 60 * 60 * 1000); // the env is the test seam only
+      if (feedbackSweep && typeof feedbackSweep.unref === 'function') feedbackSweep.unref();
       /* #3034/#3660: the setup guide is created the moment the first model is connected,
          after Giddy Up, from any provider's connect path (keys, sign-ins that finish in the
          background). One sweep sees them all instead of a hook in every route. Cheap until
@@ -15089,10 +15093,6 @@ function start(port = PORT) {
         const guideSweep = setInterval(guideTick, Number(process.env.AGENT_WORKFORCE_GUIDE_SWEEP_MS) > 0 ? Number(process.env.AGENT_WORKFORCE_GUIDE_SWEEP_MS) : 60 * 1000); // the env is the test seam only
         if (guideSweep && typeof guideSweep.unref === 'function') guideSweep.unref();
       }
-      const feedbackSweep = setInterval(() => {
-        try { feedbacksend.sendDailyOnce(feedback.today()); } catch { /* best-effort, like the sweeps above */ }
-      }, Number(process.env.AGENT_WORKFORCE_FEEDBACK_SWEEP_MS) > 0 ? Number(process.env.AGENT_WORKFORCE_FEEDBACK_SWEEP_MS) : 60 * 60 * 1000); // the env is the test seam only
-      if (feedbackSweep && typeof feedbackSweep.unref === 'function') feedbackSweep.unref();
       /* #3038: register this install with installkosmos.com so the homepage
          INSTALL count moves (Josh's #1-frustration regression: it was frozen at
          32 because the app never POSTed /api/created). UNCONDITIONAL -- it
