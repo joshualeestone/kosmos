@@ -30,9 +30,9 @@ multi-line messages (#3678), so this is newly reachable.
 - Changing `engine/you.js`'s own multiline clean: a different field with its own tests.
 
 ## Weakest premise
-The ends are still trimmed, so a message whose FIRST line is indented loses that one line's
-indentation. Code needs a fence to render as code anyway, and a nested list does not start a
-message, so this was kept rather than special-cased.
+Indentation left on the first line ALONE is still trimmed (after the shared indent comes off),
+so a message whose first line is deeper than all the rest loses that difference. That is almost
+always a stray keystroke, and trimming it keeps "  hello" stored as "hello".
 
 ## Verification
 - engine/store-indent-3679.test.js: the card's example round-trips; fence contents kept;
@@ -64,7 +64,19 @@ message, so this was kept rather than special-cased.
 ## Review pass 2 (sonnet)
 - CONVENTION fixed: the depth rule's numbers are LIST_DEPTH_SPACES and LIST_DEPTH_MAX, and the
   test reads LIST_DEPTH_MAX to check that a style exists for every depth and for none beyond it.
-- Deferred, with reasoning: the length limit now reads the one-line form, so a stored message can
-  be larger than MAX_TEXT (a tab stores as four spaces). The stored text is never more than what
-  the sender typed with each tab widened, the pane budget is what MAX_TEXT protects, and the
-  request body limit bounds the raw input. Keeping what was written is the point of the card.
+- Deferred at pass 2, reversed at pass 3: the stored form's size. See pass 3.
+
+## Review pass 3 (opus)
+- BLOCKER fixed: `/ +$/` backtracks on a long run of spaces that ends in text (quadratic; 17 s on
+  200k spaces here). Trailing spaces now come off with a loop, and so do trailing blank lines
+  (`/\n+$/` had the same shape on a fence full of blank lines). A timing test covers spaces,
+  tabs and newline runs; the old regex reds it.
+- WARNING fixed: trimming the whole message took indentation off the first line only, so a
+  block indented as a whole drew its second item as nested. The indentation every line shares
+  now comes off first.
+- WARNING fixed: the stored form has its own ceiling, STORE_GROWTH (4) times the one-line limit,
+  on the DM path and both room paths, so a thread read on every poll stays bounded.
+- WARNING fixed: a fence line must have no backtick after the opening three, in the store and in
+  pjRich, so an inline ```span``` line does not open a fence.
+- Duplicate of the recorded pjBody column-0 difference: skipped.
+- NIT fixed: the storeText doc no longer claims `\n` is the only control character left.

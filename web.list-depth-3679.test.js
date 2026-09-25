@@ -47,6 +47,14 @@ for (const [name, make] of RENDERERS) {
   });
 }
 
+test('#3679: pjRich reads a fence as the store does: an inline ```span``` line is not one', () => {
+  const fn = RENDERERS.find(([n]) => n === 'pjRich')[1]();
+  const inline = fn('```x``` then\n- a');
+  assert.doesNotMatch(inline, /class="mdcb"/, 'an inline span opened a code block');
+  assert.match(inline, /<span class="mdli">a<\/span>/, 'the list after it was swallowed');
+  assert.match(fn('```js\ncode\n```'), /<span class="mdcb">code<\/span>/, 'CONTROL: a real fence still makes a code block');
+});
+
 test('#3679: the page styles each depth on every surface that shows these items', () => {
   const max = Number(/const LIST_DEPTH_MAX = (\d+);/.exec(SCRIPT)[1]);
   assert.equal(PAGE.includes('.mdli-d' + (max + 1)), false, 'a style for a depth the renderer never emits');

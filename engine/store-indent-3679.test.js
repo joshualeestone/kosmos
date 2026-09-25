@@ -62,6 +62,34 @@ test('#3679: the length limit reads the one-line form, so indentation cannot pus
   assert.notEqual(chat.messageProblem('y '.repeat(chat.MAX_TEXT)), null, 'a message really over the limit is still refused');
 });
 
+test('#3679: a block indented as a whole keeps its relative depths', () => {
+  assert.equal(chat.storeText('  - a\n  - b'), '- a\n- b', 'siblings stay siblings');
+  assert.equal(chat.storeText('\n\n   - first\n     - child\n   - second'), '- first\n  - child\n- second');
+  assert.equal(chat.storeText('intro\n  - a\n  - b'), 'intro\n  - a\n  - b', 'nothing shared, nothing removed');
+});
+
+test('#3679: an inline triple-backtick span is not a fence', () => {
+  assert.equal(chat.storeText(FENCE + 'x' + FENCE + ' then\n  y   y\n\n\n\nz'), FENCE + 'x' + FENCE + ' then\n  y y\n\nz');
+});
+
+test('#3679: a long run of spaces is stored in linear time', () => {
+  const long = FENCE + '\n' + ' '.repeat(200000) + 'x\n' + FENCE + '\n' + ' '.repeat(200000) + 'y';
+  const t0 = process.hrtime.bigint();
+  chat.storeText(long);
+  chat.storeText('\t'.repeat(200000) + 'z');
+  chat.storeText(FENCE + '\n' + '\n'.repeat(200000) + 'x');
+  chat.storeText('\n'.repeat(200000) + 'x' + '\n'.repeat(200000));
+  const ms = Number(process.hrtime.bigint() - t0) / 1e6;
+  assert.ok(ms < 500, 'storeText took ' + ms.toFixed(0) + 'ms on 200k spaces; a backtracking trim is quadratic');
+});
+
+test('#3679: the stored form has its own ceiling', () => {
+  const huge = FENCE + '\n' + ('    a' + ' '.repeat(40) + 'b\n').repeat(1000) + FENCE;
+  assert.ok(chat.cleanMessage(huge).length <= chat.MAX_TEXT, 'CONTROL: the one-line form must be under the limit');
+  assert.ok(chat.storeText(huge).length > chat.STORE_GROWTH * chat.MAX_TEXT, 'CONTROL: the stored form must be over the ceiling');
+  assert.notEqual(chat.messageProblem(huge), null, 'a stored form past the ceiling must be refused');
+});
+
 test('#3679: an unclosed fence keeps its code as written to the end', () => {
   assert.equal(chat.storeText('see:\n' + FENCE + '\n  a\n\n\n  b'), 'see:\n' + FENCE + '\n  a\n\n\n  b');
 });

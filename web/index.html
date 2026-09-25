@@ -44046,10 +44046,12 @@ function pjRich(text) {
        an unclosed fence still renders as code so no raw ``` ever leaks).
        Nothing inside is markdown-parsed or linkified; CSS gives `.mdcb` its
        own `pre-wrap` so the block keeps its newlines on both surfaces. */
-    if (/^[ \t]*```/.test(line)) {
+    // #3679: no backtick after the opening three, as the store reads a fence, so an
+    // inline ```span``` line is not a fence.
+    if (/^[ \t]*```[^`]*$/.test(line)) {
       const body = [];
       i += 1;
-      while (i < src.length && !/^[ \t]*```/.test(src[i])) { body.push(src[i]); i += 1; }
+      while (i < src.length && !/^[ \t]*```[^`]*$/.test(src[i])) { body.push(src[i]); i += 1; }
       if (i < src.length) i += 1;
       out.push('<span class="mdcb">' + esc(body.join('\n')) + '</span>');
       continue;

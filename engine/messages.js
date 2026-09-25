@@ -753,7 +753,7 @@ function send({ fromPane, sender: resolvedSender, to, text, inReplyTo }, roster)
   /* Spill relaxes chat's 2000-character cap, not the idea of a cap: past
      MAX_BODY this is a document, and documents have a home that is not a
      message log which every send re-reads whole. Refused in words. */
-  if (chat.cleanMessage(text).length > MAX_BODY) {
+  if (chat.cleanMessage(text).length > MAX_BODY || chat.storeText(text).length > chat.STORE_GROWTH * MAX_BODY) {
     return refuse(toName, 'that is a document, not a message; put it in the project folder and send your colleague the path');
   }
   /* ⚠️ THE MARKER IS OURS. A body carrying the envelope's own prefix would
@@ -1178,7 +1178,7 @@ function sendPost({ fromPane, sender: resolvedSender, project, projectName, text
   }
   const bodyProblem = chat.messageProblem(chat.cleanMessage(text).slice(0, chat.MAX_TEXT));
   if (bodyProblem) return refuse(bodyProblem);
-  if (chat.cleanMessage(text).length > MAX_BODY) {
+  if (chat.cleanMessage(text).length > MAX_BODY || chat.storeText(text).length > chat.STORE_GROWTH * MAX_BODY) {
     return refuse('that is a document, not a message; put it in the project folder and post your colleagues the path');
   }
   const markerBad = markerProblem(text);
