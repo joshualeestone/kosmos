@@ -107,3 +107,24 @@ test('notificationFor honors an explicit title/body and survives a payload-less 
     assert.ok(n.title && n.options.body, 'a non-object push body (' + JSON.stringify(weird) + ') was dropped');
   }
 });
+
+test('#718: a tap opens the agent the push names, as the board\'s own link', () => {
+  assert.equal(boardUrlFor({ address: 'study.kosmos.io', session: 'april' }), 'https://study.kosmos.io/?tab=detail&agent=april');
+  assert.equal(boardUrlFor({ address: 'study.kosmos.io', session: 'leo-2_x' }), 'https://study.kosmos.io/?tab=detail&agent=leo-2_x');
+  // No address: the agent on this origin.
+  assert.equal(boardUrlFor({ session: 'april' }), '/?tab=detail&agent=april');
+  // The shown notification carries it.
+  const { options } = notificationFor({ data: { json: () => ({ kind: 'needs_you', agent: 'April', address: 'study.kosmos.io', session: 'april' }) } });
+  assert.equal(options.data.url, 'https://study.kosmos.io/?tab=detail&agent=april');
+});
+
+test('#718: a session that is not a plain id is dropped, never put in the URL', () => {
+  for (const bad of ['', '-april', '_april', 'April', 'apr.il', '../x', 'a/b', '/a', 'a:1', 'https://evil.com',
+    '//evil.com', 'a%2fb', 'a?x=1', 'a#x', 'a&agent=b', 'a b', 'a\n', 'a\u0000', '\u00e9', 'a'.repeat(65),
+    'javascript:alert(1)', null, 7, {}, ['a']]) {
+    assert.equal(boardUrlFor({ address: 'study.kosmos.io', session: bad }), 'https://study.kosmos.io/', 'must drop: ' + JSON.stringify(bad));
+    assert.equal(boardUrlFor({ session: bad }), '/', 'must drop: ' + JSON.stringify(bad));
+  }
+  // A hostile address still falls back to this origin even with a good session.
+  assert.equal(boardUrlFor({ address: 'javascript:alert(1)', session: 'april' }), '/?tab=detail&agent=april');
+});
