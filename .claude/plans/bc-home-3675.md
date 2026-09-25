@@ -61,4 +61,6 @@ That the scan's definition of "boots a board" (requires server, spawns server.js
 a check can reach the account routes. A check that talks to a board started some third way would
 be missed; the runner's export covers the boards it starts itself. A check that loads engine
 modules directly without booting a board (live-connect.js loads engine/connect.js) is outside the
-scan; it sets its own home.
+scan; it sets its own home. Run recipes in the checks' header comments that boot a board by
+hand still omit the home (the runner covers them); the one for render-create-made, which presses
+Create, is fixed in the README.

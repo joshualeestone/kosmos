@@ -1011,7 +1011,15 @@ the server with `AGENT_WORKFORCE_DRY_RUN=1` on top of the sandboxed roots, and
 pass `--yes-dry-run` as the second argument or it refuses to run:
 
 ```sh
+# #3675: its own home (a fixture account) and a stand-in Claude Code, as sb8 in
+# tools/browser-checks.sh has, or Create runs against your real account and binary.
+mkdir -p "$SB/home/.claude"
+printf '%s\n' '{"oauthAccount":{"emailAddress":"fixture@example.invalid"}}' > "$SB/home/.claude.json"
+printf '#!/bin/sh\n[ "$1" = --version ] && { echo "2.1.282 (Claude Code)"; exit 0; }\nexit 1\n' > "$SB/fake-claude"
+chmod +x "$SB/fake-claude"
 PORT=4561 AGENT_WORKFORCE_DRY_RUN=1 \
+  AGENT_WORKFORCE_HOME="$SB/home" AGENT_WORKFORCE_CLAUDE_BIN="$SB/fake-claude" \
+  AGENT_WORKFORCE_CLAUDE_CONFIG="$SB/config/.claude.json" \
   AGENT_WORKFORCE_DATA="$SB/data" AGENT_WORKFORCE_WORKERS="$SB/workers" \
   AGENT_WORKFORCE_LAUNCH="$SB/launch" AGENT_WORKFORCE_PROJECTS="$SB/projects" \
   node server.js &
