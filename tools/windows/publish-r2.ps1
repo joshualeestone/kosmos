@@ -109,6 +109,7 @@ if ($KeyPrefix -and ($KeyPrefix -cnotmatch '^[0-9A-Za-z._-]+(/[0-9A-Za-z._-]+)*/
 # drives the real gates and orderings. Nothing leaves this machine in that mode.
 $FakeDir = $env:KOSMOS_PUBLISH_R2_FAKE_DIR
 if ($FakeDir) { [Console]::Error.WriteLine("publish-r2: TEST TRANSPORT: the bucket is the local directory $FakeDir; nothing is published") }
+$ServedBase = $ServedBase.TrimEnd('/')   # a trailing slash names the same place
 if ($ServedBase -cne 'https://installkosmos.com/dist' -and -not $KeyPrefix) { Refuse "-ServedBase is for tests and needs -KeyPrefix; users are served from https://installkosmos.com/dist" }
 if ($KeyPrefix -and $ServedBase -match '^https?://([a-z0-9-]+\.)*installkosmos\.com(/|:|$)' -and -not $FakeDir) { Refuse "-KeyPrefix needs a -ServedBase that serves that prefix; otherwise the checks after writing would read prod's objects" }
 
@@ -327,14 +328,24 @@ function Assert-Object([string] $Name, [string] $WantSha) {
 # lock makes those impossible unless it is broken by hand. The detection stays, as a second
 # line. A lock left by a run that died is removed only with -BreakLock, which says whose it was.
 function Lock-Publish([string] $Mode) {
-  if ($DryRun) { return }
   $key = "${KeyPrefix}publish.lock"
+  if ($DryRun) {
+    # A dry run takes no lock, but says whether the real run would be refused by one.
+    $held = Invoke-R2 -Soft -Method GET -Key $key
+    if ($held.Status -eq 200) { Say "DRY RUN: another publish run holds $key ($($held.Body.Trim())); the real run would refuse (or need -BreakLock)." }
+    return
+  }
   if ($BreakLock) {
     $old = Invoke-R2 -Soft -Method GET -Key $key
     if ($old.Status -eq 200) {
+      # Only a lock older than any live run can be (every request times out at 30 minutes):
+      # a younger one may belong to a run that is still working.
+      $age = $null
+      if ($old.Body -cmatch 'started=(\S+)') { try { $age = ([DateTime]::UtcNow - [DateTime]::Parse($Matches[1], $Invariant, [Globalization.DateTimeStyles]::AdjustToUniversal)).TotalMinutes } catch { $age = $null } }
+      if ($null -eq $age -or $age -lt 35) { Refuse "-BreakLock: $key ($($old.Body.Trim())) is $(if ($null -eq $age) { 'of unknown age' } else { '{0:N0} minutes old' -f $age }); a run started less than 35 minutes ago may still be working. Wait, or remove it by hand only if you know that run is dead. Nothing was written." }
+      Say "breaking the lock ($('{0:N0}' -f $age) minutes old): $($old.Body.Trim())"
       $d = Invoke-R2 -Soft -Method DELETE -Key $key
       if ($d.Status -ne 200 -and $d.Status -ne 204) { Refuse "-BreakLock could not remove $key ($($d.Status)). Nothing was written." }
-      Say "broke the lock: $($old.Body.Trim())"
     }
   }
   $body = $Utf8.GetBytes("run=$([Guid]::NewGuid().ToString('N')) mode=$Mode started=$(Stamp) host=$([Environment]::MachineName)`n")
@@ -353,7 +364,12 @@ function Unlock-Publish {
   $key = "${KeyPrefix}publish.lock"
   # R2 ignores If-Match on a DELETE (measured): check it is still this run's lock first.
   $h = Invoke-R2 -Soft -Method HEAD -Key $key
-  if ($h.Status -eq 200 -and $h.ETag -ceq $etag) { [void](Invoke-R2 -Soft -Method DELETE -Key $key) }
+  if ($h.Status -eq 200 -and $h.ETag -ceq $etag) {
+    $d = Invoke-R2 -Soft -Method DELETE -Key $key
+    if ($d.Status -ne 200 -and $d.Status -ne 204) { [Console]::Error.WriteLine("publish-r2: WARNING could not remove $key ($($d.Status)); the next run will be refused until it is removed (-BreakLock after 35 minutes).") }
+  } elseif ($h.Status -ne 200 -and $h.Status -ne 404) {
+    [Console]::Error.WriteLine("publish-r2: WARNING could not check $key before removing it ($($h.Status)); if it is still there, the next run will be refused until it is removed (-BreakLock after 35 minutes).")
+  }
 }
 
 # ---------- confirming what users are served (after writing) ------------------------------------

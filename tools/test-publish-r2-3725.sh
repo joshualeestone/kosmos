@@ -446,8 +446,16 @@ refuses_clean "a stage while another run holds publish.lock is refused" "another
 [ -e "$FAKE/publish.lock" ] && grep -qF 'run=other' "$FAKE/publish.lock" && pass "a refused run leaves ANOTHER run's lock alone" || fail "the other run's lock was removed or changed"
 promote; rc=$?
 refuses_clean "a promote while another run holds publish.lock is refused" "another publish run holds publish.lock"
+fake -Zip "$TMP/lk2.zip" -DryRun; rc=$?
+if [ "$rc" -eq 0 ] && grep -qF "DRY RUN: another publish run holds publish.lock (run=other" "$TMP/out" && grep -qF 'run=other' "$FAKE/publish.lock"; then pass "a dry run says a held lock would refuse the real run, and leaves it"
+else fail "dry-run lock: rc=$rc $(tail -1 "$TMP/out")"; fi
+printf 'run=young mode=stage started=%s host=PC\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" > "$TMP/young.lock"; cp "$FAKE/publish.lock" "$TMP/old.lock"; cp "$TMP/young.lock" "$FAKE/publish.lock"
 fake -Zip "$TMP/lk2.zip" -BreakLock; rc=$?
-if [ "$rc" -eq 0 ] && grep -qF "broke the lock: run=other" "$TMP/out" && [ ! -e "$FAKE/publish.lock" ]; then pass "-BreakLock removes a dead run's lock, says whose it was, and proceeds"
+refuses_clean "-BreakLock refuses a lock younger than 35 minutes (its run may be alive)" "less than 35 minutes ago may still be working"
+cmp -s "$FAKE/publish.lock" "$TMP/young.lock" && pass "a young lock is left in place" || fail "a young lock was removed"
+cp "$TMP/old.lock" "$FAKE/publish.lock"
+fake -Zip "$TMP/lk2.zip" -BreakLock; rc=$?
+if [ "$rc" -eq 0 ] && grep -qE "breaking the lock \([0-9,]+ minutes old\): run=other" "$TMP/out" && [ ! -e "$FAKE/publish.lock" ]; then pass "-BreakLock removes an OLD lock, says whose and how old, and proceeds"
 else fail "-BreakLock: rc=$rc lock=$([ -e "$FAKE/publish.lock" ] && echo LEFT || echo gone) $(tail -1 "$TMP/out")"; fi
 # A refusal after the lock is taken still removes it.
 : > "$FAKE/.calls"; KOSMOS_PUBLISH_R2_FAKE_GET_STATUS=latest-win.json:403 fake -Zip "$TMP/lk.zip"; rc=$?
