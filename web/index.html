@@ -25907,6 +25907,8 @@ function setThread(el, html, key) {
   }
   const rewrote = el.__lastThread !== html;
   if (rewrote) {
+    /* #3650: the write replaces the smiley a DM-opened reaction picker is anchored to. */
+    if (el.id === 'd-dmthread') rxnCloseDmPicker();
     el.__lastThread = html;
     el.innerHTML = html;
   }
@@ -26164,12 +26166,18 @@ function dmRow(m, name) {
     const av = (card && card.hasAvatar)
       ? '<div class="msg-av" aria-hidden="true"><img src="/api/agent/' + encodeURIComponent(m.from) + '/avatar?v=' + pjAvatarVer(m.from) + '" alt=""></div>'
       : '<div class="msg-av" aria-hidden="true" style="background:' + discTint(m.from) + ';color:' + discInk(m.from) + '">' + esc(initials(m.from)) + '</div>';
+    /* #3650: the person can react to the agent's message, as in a project room: the
+       room's own pills + hover quick bar (rxnsInner), keyed by the message's `at`
+       (a DM row has no id; the react route finds the message by it). `typeof`-guarded
+       because the lifted dmRow tests run without the room's reaction helpers. */
+    const rxns = (m.at && typeof rxnsInner === 'function')
+      ? '<div class="rxns" data-at="' + esc(String(m.at)) + '">' + rxnsInner(m.reactions) + '</div>' : '';
     return '<div class="msg" data-mid="' + midOf(m) + '">' + av
       + '<div class="msg-b"><div class="msg-bd">'
       + '<b class="msg-nm">' + esc(dmWho(m.from, name)) + '</b>'
       + pjRich(pjWords(m)) + pjPreviewCard(m.preview) + pjAttachmentCards(m)
       + (whenStr ? '<span class="msg-t">' + whenStr + '</span>' : '')
-      + '</div></div></div>';
+      + '</div>' + rxns + '</div></div>';
   }
   const v = pjVerdict(m, name);
   /* ⚠️ WHAT WAS TYPED, when it is not what the bubble shows. A numbered answer
@@ -26349,7 +26357,8 @@ function paintTalkThread(body, name) {
     const tailRow = rows.length ? rows[rows.length - 1] : null;
     const threadKey = (filtering ? TALK_QUERY : '') + '\u0000' + rows.length
       + '\u0000' + (tailRow ? String(tailRow.id || tailRow.at || '') : '');
-    setThread(thread, rows.map((m) => dmRow(m, name)).join('') + (filtering ? '' : dmOwesLine(body.owes, rows)), threadKey);
+    const dmHtml = rows.map((m) => dmRow(m, name)).join('') + (filtering ? '' : dmOwesLine(body.owes, rows));
+    setThread(thread, dmHtml, threadKey);
   }
 }
 async function paintTalk(sessionName, agentName) {
@@ -43966,7 +43975,22 @@ function rxnPickerEl() {
      longer resets an inline picker, so the close is explicit). */
   el.addEventListener('click', async (e) => {
     const b = e.target.closest ? e.target.closest('.rxn-pick') : null;
-    if (!b || !PJ_CURRENT) return;
+    if (!b) return;
+    /* #3650: the picker is shared with the Direct Message thread. `data-at` (set when it
+       was opened from a DM row) routes the pick to the DM route; `data-post` to the room. */
+    const dmAt = el.getAttribute('data-at');
+    if (dmAt !== null) {
+      let box = null;
+      document.querySelectorAll('#d-dmthread .rxns').forEach((r) => {
+        if (r.getAttribute('data-at') === dmAt) box = r;
+      });
+      // Only into a DM that is still on screen: a picker left open across a view switch
+      // must not react in a thread the person is no longer looking at.
+      if (box && CURRENT && box.offsetParent !== null) await dmRxnToggle(CURRENT.sessionName, box, b.getAttribute('data-emoji'));
+      rxnCloseAllPickers();
+      return;
+    }
+    if (!PJ_CURRENT) return;
     const postId = el.getAttribute('data-post');
     let box = null;
     document.querySelectorAll('#pj-room .rxns').forEach((r) => {
@@ -44039,6 +44063,44 @@ document.getElementById('pj-room').addEventListener('click', async (e) => {
   await rxnToggle(PJ_CURRENT, box, btn.getAttribute('data-emoji'));
 });
 
+/* #3650: reactions in a Direct Message. The same pills, quick bar and shared picker as
+   the room, on the agent's messages in #d-dmthread; the toggle goes to the DM react route
+   (the message named by its `at`) and repaints that one row from the fresh list. A failed
+   toggle leaves the row; the next thread poll reconciles. */
+async function dmRxnToggle(forAgent, box, emoji) {
+  const at = box && box.getAttribute('data-at');
+  if (!emoji || !at || !forAgent) return;
+  try {
+    const res = await fetch('/api/agent/' + encodeURIComponent(forAgent) + '/thread/react',
+      { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ at, emoji }) });
+    if (!CURRENT || CURRENT.sessionName !== forAgent || !res.ok) return;
+    const body = await res.json();
+    repaintReactions(box, Array.isArray(body.reactions) ? body.reactions : []);
+  } catch { /* a failed toggle leaves the row; the next poll reconciles */ }
+}
+document.getElementById('d-dmthread').addEventListener('click', async (e) => {
+  const box = e.target && e.target.closest ? e.target.closest('.rxns') : null;
+  if (!box || !CURRENT) return;
+  const more = e.target.closest('.rxn-more');
+  if (more) {
+    const picker = rxnPickerEl();
+    const at = box.getAttribute('data-at');
+    const openForThis = !picker.hidden && picker.getAttribute('data-at') === at;
+    rxnCloseAllPickers();
+    if (!openForThis) {
+      rxnPickerBuild();
+      picker.setAttribute('data-at', at);
+      picker.hidden = false;
+      rxnPositionPicker(picker, more);
+      more.setAttribute('aria-expanded', 'true');
+    }
+    return;
+  }
+  const btn = e.target.closest('.rxn, .rxn-pick');
+  if (!btn) return;
+  await dmRxnToggle(CURRENT.sessionName, box, btn.getAttribute('data-emoji'));
+});
+
 /* #3134-followup (Josh 6.72): clicking an agent's NAME or AVATAR in a room bubble opens
    that agent directly, the same openDetail path the members list uses (#2574), passing
    PJ_CURRENT so detail-back returns to this project. Delegated on the thread (every poll
@@ -44056,11 +44118,17 @@ document.getElementById('pj-room').addEventListener('click', (e) => {
 /* #2806/#2834: close the shared reaction picker and reset every opener's aria-expanded.
    Used to keep at most one open, and by the dismiss paths below (outside click / Escape
    / outside scroll), mirroring the composer emoji panel's behaviour. */
+function rxnCloseDmPicker() {
+  const picker = document.getElementById('rxn-picker');
+  if (picker && !picker.hidden && picker.getAttribute('data-at') !== null) rxnCloseAllPickers();
+}
 function rxnCloseAllPickers() {
   const picker = document.getElementById('rxn-picker');
-  if (picker) { picker.hidden = true; picker.removeAttribute('data-post'); }
-  const room = document.getElementById('pj-room');
-  if (room) room.querySelectorAll('.rxn-more[aria-expanded="true"]').forEach((b) => b.setAttribute('aria-expanded', 'false'));
+  if (picker) { picker.hidden = true; picker.removeAttribute('data-post'); picker.removeAttribute('data-at'); }
+  for (const id of ['pj-room', 'd-dmthread']) {   // #3650: the DM thread opens it too
+    const host = document.getElementById(id);
+    if (host) host.querySelectorAll('.rxn-more[aria-expanded="true"]').forEach((b) => b.setAttribute('aria-expanded', 'false'));
+  }
 }
 /* #2806: place the FIXED reaction picker as a popover anchored to the smiley button.
    Below it when there is room, flipped above when the viewport bottom is close, and

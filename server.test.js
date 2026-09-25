@@ -14630,3 +14630,127 @@ test('#2811: a LIVE pane marker beats the record on the board row, so a mid-swit
     try { fsX.unlinkSync(create.plistPath(name)); } catch { /* may not exist */ }
   }
 });
+
+test('#3650: a pane that merely borrows the name cannot react in the real agent\'s DM', async () => {
+  const chatEngine = require('./engine/chat');
+  const status = require('./engine/status');
+  const AT = '2026-09-24T21:10:00.000Z';
+  chatEngine.appendMessage(chatEngine.DIRECT, 'rxborrow', { text: 'private', from: 'rxborrow', at: AT });
+  const react = () => req('/api/agent/rxborrow/thread/react', {
+    method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ at: AT, emoji: '👍' }),
+  });
+  status.setPaneSource(() => fleet.line({ session: 'rxborrow', title: 'stranger' }));
+  status.setPaneCapture(() => 'Worked for 1m\n> \n');
+  try {
+    const board = JSON.parse((await req('/api/status')).body);
+    const card = (board.agents || []).find((a) => a.sessionName === 'rxborrow');
+    assert.ok(card && card.isNamedOurs === false, 'the fixture is not exercising the untied case');
+    const res = await react();
+    assert.equal(res.status, 404, res.body);
+    assert.equal(JSON.parse(res.body).because, 'borrowed');
+    assert.deepEqual(chatEngine.dmReactions(chatEngine.readThread(chatEngine.DIRECT, 'rxborrow').messages[0]), []);
+  } finally {
+    status.setPaneSource(null);
+    status.setPaneCapture(null);
+  }
+  // CONTROL: the tied agent under the same name reacts, so the 404 above is the gate.
+  const tied = fleet.install([fleet.agent('rxborrow', { state: 'idle' })]);
+  try {
+    const ok = await react();
+    assert.equal(ok.status, 200, 'CONTROL: the tied agent could not react, so the refusal proves nothing: ' + ok.body);
+  } finally {
+    tied.restore();
+    chatEngine.resetForTests();
+  }
+});
+
+/**
+ * #3650: the person reacts to an agent's message in a Direct Message. The react route
+ * toggles it on the message, the thread read carries the pills, and the person's NEXT
+ * message tells the agent once, as a `[kosmos]` note typed after their words.
+ */
+test('#3650: a DM reaction is stored, shown, and told to the agent once with the next message', async () => {
+  const chatEngine = require('./engine/chat');
+  const board = fleet.install([fleet.agent('lena', { state: 'idle', displayName: 'Lena' })]);
+  const AT = '2026-09-24T21:00:00.000Z';
+  try {
+    chatEngine.appendMessage(chatEngine.DIRECT, 'lena', { text: 'Done with the login fix', from: 'lena', at: AT });
+    const react = (body) => req('/api/agent/lena/thread/react', {
+      method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body),
+    });
+
+    const on = await react({ at: AT, emoji: '👍' });
+    assert.equal(on.status, 200, on.body);
+    assert.deepEqual(JSON.parse(on.body).reactions, [{ emoji: '👍', count: 1, who: ['you'], mine: true }]);
+    const missing = await react({ at: '2026-01-01T00:00:00.000Z', emoji: '👍' });
+    assert.equal(missing.status, 400, 'a reaction to no message must be refused');
+    const junk = await react({ at: AT, emoji: 'ok' });
+    assert.equal(junk.status, 400, 'a non-emoji must be refused');
+
+    const read = JSON.parse((await req('/api/agent/lena/thread')).body);
+    const row = (read.messages || []).find((m) => m.at === AT);
+    assert.ok(row, 'the reacted message is not in the thread');
+    assert.deepEqual(row.reactions, [{ emoji: '👍', count: 1, who: ['you'], mine: true }]);
+
+    const say = (text, extra) => req('/api/agent/lena/thread', {
+      method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ text, ...(extra || {}) }),
+    });
+    /* A send that never reaches the pane (dry run, the default here) must leave the
+       reaction untold, so it rides the next message instead. */
+    const failed = await say('are you there?');
+    assert.ok([200, 202].includes(failed.status), failed.body);
+    assert.notEqual(chatEngine.dmReactionNote('lena'), '', 'an undelivered note was marked told');
+
+    const sends = [];
+    chatEngine.setRunner((args) => {
+      sends.push(args);
+      if (args[0] === 'display-message') return { ran: true, spawnFailed: false, status: 0, out: '2.1.212\t\t0\n', err: '' };
+      return { ran: true, spawnFailed: false, status: 0, out: '', err: '' };
+    });
+    chatEngine.setDryRun(false);
+
+    /* A bare digit (what a numbered menu takes) must not carry the note, and it must
+       still be pending afterwards. The agent is idle, so the route drops `chose` and this
+       exercises the DIGIT guard; the `chose` guard is dmNoteMayRide's engine test. The
+       digit must actually be typed, or "the note did not ride it" proves nothing. */
+    const answered = await say('1', { chose: 'Yes, go ahead' });
+    assert.ok([200, 202].includes(answered.status), answered.body);
+    assert.match(pastedChunks(sends).join(''), /(^|\D)1\s*$/, 'the digit was not what was typed last, so this arm tests nothing');
+    assert.equal(pastedChunks(sends).join('').includes('[kosmos] reactions'), false, 'the note rode a bare digit');
+    assert.notEqual(chatEngine.dmReactionNote('lena'), '', 'a bare digit marked the note told');
+    sends.length = 0;
+
+    const first = await say('thanks');
+    assert.ok([200, 202].includes(first.status), first.body);
+    const typed1 = pastedChunks(sends).join('');
+    assert.ok(typed1.includes('thanks [kosmos] reactions from the person you have not been told about yet: 👍 on your message "Done with the login fix"'),
+      'the note did not ride the message: ' + typed1);
+    const told = chatEngine.readThread(chatEngine.DIRECT, 'lena').messages.find((m) => m.at === AT);
+    assert.deepEqual(told.reactionsTold, ['👍'], 'CONTROL: the engine did not record it as told');
+    const served = JSON.parse((await req('/api/agent/lena/thread')).body).messages.find((m) => m.at === AT);
+    assert.equal(served.reactionsTold, undefined, 'the engine\'s bookkeeping was sent to the page');
+
+    sends.length = 0;
+    const second = await say('one more thing');
+    assert.ok([200, 202].includes(second.status), second.body);
+    const typed2 = pastedChunks(sends).join('');
+    assert.ok(typed2.includes('one more thing'), 'the second message was not typed: ' + typed2);
+    assert.equal(typed2.includes('[kosmos] reactions'), false, 'a reaction was told twice: ' + typed2);
+
+    /* An UNCONFIRMED send (here: Enter could not be pressed) may have lost the note, which
+       rides the tail, so the reaction stays pending rather than being marked told. */
+    await react({ at: AT, emoji: '🎉' });
+    chatEngine.setRunner((args) => {
+      if (args[0] === 'display-message') return { ran: true, spawnFailed: false, status: 0, out: '2.1.212\t\t0\n', err: '' };
+      if (args[0] === 'send-keys' && args.includes('Enter')) return { ran: true, spawnFailed: false, status: 1, out: '', err: 'no pane' };
+      return { ran: true, spawnFailed: false, status: 0, out: '', err: '' };
+    });
+    const lost = await say('did you see that?');
+    const lostState = JSON.parse(lost.body).delivery && JSON.parse(lost.body).delivery.state;
+    assert.equal(lostState, chatEngine.DELIVERY.UNCONFIRMED, 'CONTROL: the send was not unconfirmed, so this arm tests nothing: ' + lost.body);
+    assert.ok(chatEngine.dmReactionNote('lena').includes('🎉'), 'an unconfirmed send marked the reaction told');
+  } finally {
+    chatEngine.resetForTests();
+    board.restore();
+  }
+});
