@@ -667,7 +667,7 @@ async function forget() {
   forgetGen += 1;
   if (registerInFlight) {
     let timer;
-    await Promise.race([registerInFlight, new Promise((r) => { timer = setTimeout(r, FORGET_WAIT_MS_OVERRIDE ?? FORGET_WAIT_MS); })]);
+    await Promise.race([registerInFlight, new Promise((r) => { timer = setTimeout(r, forgetWaitMs()); })]);
     clearTimeout(timer);
   }
   const was = { enrolled: enrolled(), address: address() };
@@ -1216,7 +1216,8 @@ function switchOffNote(on) { return on ? {} : { switchOff: true, note: SIGNED_IN
 let registerInFlight = null;
 let forgetGen = 0;
 const FORGET_WAIT_MS = 20000;
-let FORGET_WAIT_MS_OVERRIDE = null;   // tests only
+// The same env seam as AGENT_WORKFORCE_TUNNEL_BIN: a test shortens the wait.
+const forgetWaitMs = () => Number(process.env.AGENT_WORKFORCE_FORGET_WAIT_MS) || FORGET_WAIT_MS;
 
 async function signinRegister(name) {
   if (!signinSession || typeof signinSession.token !== 'string') {
@@ -1290,7 +1291,7 @@ async function signinRegister(name) {
   } };
 }
 
-module.exports = { _setForgetWaitMs: (ms) => { FORGET_WAIT_MS_OVERRIDE = ms; }, secondReset, forget, macRequest, assistantChat, hostedAvailable, DEFAULT_RELAY, DEFAULT_COORDINATOR, configured,
+module.exports = { secondReset, forget, macRequest, assistantChat, hostedAvailable, DEFAULT_RELAY, DEFAULT_COORDINATOR, configured,
   FILE,
   read,
   kosmosPlus,

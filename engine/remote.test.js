@@ -936,7 +936,7 @@ test('#3827 review: the same-Mac (#1010) path also says so when the switch canno
 test('#3827 review: Forget does not hang on a register that is still out, and the late register undoes itself', async () => {
   process.env.AGENT_WORKFORCE_TUNNEL_RELAY = '127.0.0.1:9444';
   process.env.FAKE_TUNNEL_MODE = 'slow-register';
-  remote._setForgetWaitMs(50);
+  process.env.AGENT_WORKFORCE_FORGET_WAIT_MS = '50';
   try {
     await remote.signinStart('her@example.com');
     await remote.signinVerify('her@example.com', '111111');
@@ -950,7 +950,7 @@ test('#3827 review: Forget does not hang on a register that is still out, and th
     assert.equal(remote.read().on, false);
   } finally {
     delete process.env.FAKE_TUNNEL_MODE;
-    remote._setForgetWaitMs(null);
+    delete process.env.AGENT_WORKFORCE_FORGET_WAIT_MS;
   }
 });
 

@@ -37,3 +37,5 @@ Controls: removing each fix reds exactly its test (epoch -> both race tests; for
 - WARNING (accepted): a brand-new sign-in STARTED after forget began is a new, deliberate sign-in; it is not cancelled.
 - NIT: the dead catch around the await is gone.
 - Validation gate (#1720): web/ changed with no browser-check assertion. render-plus-signin-3478.js gains a 'switch-off' scenario: registered with switchOff, board enrolled and off; asserts the note is in #plus-msg, the Turn on button is there, and no "Connecting".
+
+- Validation (engine.reachable guard): the test-only export _setForgetWaitMs was "reachable from nowhere"; replaced by the env seam AGENT_WORKFORCE_FORGET_WAIT_MS, like AGENT_WORKFORCE_TUNNEL_BIN.
