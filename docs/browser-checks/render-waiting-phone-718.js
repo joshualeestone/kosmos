@@ -11,6 +11,9 @@
  *     (inset -8px -6px), and with a mouse there is none.
  * (c) The landing: an arrival (a push tap or Answer) on a phone scrolls the Direct Message
  *     section to the top of the screen; in a wide window it does not move the page.
+ * (d) The hold, with real timers: late content above the conversation is put back.
+ * (e) End to end from a page load of ?tab=detail&agent=<name>, as a push tap arrives: a
+ *     present agent lands on its conversation; a missing one goes to the board home.
  *
  * Touch is a Chromium mobile context (hasTouch + isMobile), which is what makes the page's
  * `(hover: none)` rules apply. Chromium only: no committed check covers WebKit here.
@@ -148,7 +151,7 @@ async function open(browser, opts) {
       await page.waitForTimeout(waitMs);
       const r = await page.evaluate(() => {
         const panel = document.getElementById('panel-detail'); const talk = document.getElementById('d-sec-talk');
-        return { detailShown: !!(panel && !panel.hidden && panel.offsetParent), search: location.search,
+        return { detailShown: !!(panel && !panel.hidden && panel.offsetParent), tab: (typeof URL_TAB !== 'undefined') ? URL_TAB : null,
           current: (typeof CURRENT !== 'undefined' && CURRENT) ? CURRENT.sessionName : null,
           talkTop: talk ? Math.round(talk.getBoundingClientRect().top) : null, scrollY: Math.round(window.scrollY) };
       });
@@ -161,8 +164,10 @@ async function open(browser, opts) {
     chk(present.detailShown && present.current === BASE.sessionName && present.scrollY > 0 && present.talkTop >= 0 && present.talkTop <= 667 / 4,
       '[link/phone] a page load with ?tab=detail&agent= lands on that agent\'s conversation', JSON.stringify(present));
     const missing = await fromLink([], 11000);
-    chk(!missing.detailShown && missing.current === null && missing.search.indexOf('agent=') === -1,
-      '[link/phone] a link to an agent not on the board goes to the board home and drops the link', JSON.stringify(missing));
+    // The board home is the agents tab. (The address loses agent= at boot anyway, before the
+    // settle runs, so checking the address here could not fail; it is not asserted.)
+    chk(!missing.detailShown && missing.current === null && missing.tab === 'agents',
+      '[link/phone] a link to an agent not on the board goes to the board home', JSON.stringify(missing));
 
     const wide = await open(browser, { viewport: { width: 1200, height: 900 } });
     const a2 = await ans(wide);

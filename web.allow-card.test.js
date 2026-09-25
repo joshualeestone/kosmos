@@ -83,6 +83,7 @@ test('#718: the Allow card has no solid coloured left bar (Josh, 2026-09-24), an
   assert.ok(m, 'the .askcard rule exists');
   assert.doesNotMatch(m[0], /border-left/, 'no left bar: ' + m[0]);
   assert.match(m[0], /border: 1px solid var\(--gold-edge\);/, 'the gold edge is the whole border');
-  const touch = [...PAGE.matchAll(/@media \(hover: none\) \{([\s\S]*?)\n\}/g)].map((m) => m[1]).join('\n');
-  assert.match(touch, /\.askcard button \{ min-height: 44px; \}/, 'a touchscreen block gives the Allow buttons 44px');
+  // The rule is a one-line block: anchor on the whole of it, so the 44px cannot drift out of
+  // the touchscreen query unnoticed.
+  assert.match(PAGE, /@media \(hover: none\) \{ \.askcard button \{ min-height: 44px; \} \}/, 'a touchscreen block gives the Allow buttons 44px');
 });

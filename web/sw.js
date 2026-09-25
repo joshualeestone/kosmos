@@ -132,7 +132,9 @@ const KIND_HEADLINE = {
    `?tab=detail&agent=<session>`, which it reads at boot. Checked again here
    with the same rule, and put in with URLSearchParams, so it can only ever be
    a query value, never a path, a scheme or another host. Anything else opens
-   the board's home, as before. The iOS app builds the same link. */
+   the board's home, as before. The iOS app builds the same link, but only the
+   link's SHAPE is shared: iOS also checks which host it opens (one name under
+   the relay domain), and this worker does not yet (kosmos#3689). */
 const TAP_SESSION = /^[a-z0-9][a-z0-9_-]{0,63}$/;
 function boardUrlFor(data) {
   let url = '/';
