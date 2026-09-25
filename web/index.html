@@ -52740,6 +52740,7 @@ let TIP_PLACES = [];            // the tour's steps whose place is on screen
 let TIP_STEP = 0;               // the tour step showing
 let TIP_AUTO = false;           // the open tip showed by itself (not from the ?)
 let TIP_TOUR_MET = false;       // the tour showed by itself this session (a new board)
+let TIP_NEW_BOARD = null;       // latched at the board's first answer this session: had no agents
 let TIP_TOUR_SAVED = false;     // the board has said 'tour' is in its seen list
 let TIP_TOUR_NEXT_TRY = 0;      // when recording the met tour may be tried (again)
 let TIP_TOUR_RETRY_MS = 5000;   // doubles on each failed try, to a minute
@@ -52856,7 +52857,13 @@ function tipsCheck() {
    that already has agents (an upgrade) was set up by someone who knows their way round. Screen tips
    follow the tour, so they never start on their own on such a board. The ? offers all of it anyway. */
 function tipAutoOk(t) {
-  if (t.tour) return LAST_AT > 0 && Array.isArray(LAST) && LAST.length === 0;
+  if (t.tour) {
+    if (!(LAST_AT > 0 && Array.isArray(LAST))) return false;
+    /* Decided once, at the first answer: a board that had agents then and has since removed its
+       last one is not someone new, and the tour would be the wrong help. */
+    if (TIP_NEW_BOARD === null) TIP_NEW_BOARD = LAST.length === 0;
+    return TIP_NEW_BOARD && LAST.length === 0;
+  }
   return TIPS_STATE.seen.includes('tour');
 }
 

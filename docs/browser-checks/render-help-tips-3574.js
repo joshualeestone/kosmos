@@ -153,6 +153,14 @@ const resetStore = (state) => fs.writeFileSync(tipsStore.FILE(), JSON.stringify(
     const hasCard = await page.evaluate(() => !!document.querySelector('#grid [data-agent="beatrix"]'));
     chk(hasCard && !upg.shown, 'T23 with an agent on the board and nothing seen, no tip shows by itself', JSON.stringify({ hasCard, upg }));
     chk(!(await api('GET')).seen.includes('tour'), 'T23 and the tour is not recorded for a board that already had agents (control: T24, a met tour, is)');
+    // T26: the same board then removes its last agent. It had agents at its first answer, so it is not
+    // someone new and the tour must not appear (control: T1, empty at its first answer, shows it).
+    noAgents();
+    const emptied = await page.waitForFunction(() => Array.isArray(LAST) && LAST.length === 0, null, { timeout: 8000 }).then(() => true, () => false);
+    await page.waitForTimeout(2800);
+    const t26 = await cardState(page);
+    chk(emptied && !/ of /.test(t26.step) && !t26.shown, 'T26 a board that had agents and removed the last one gets no tour', JSON.stringify({ emptied, t26 }));
+    withAgent();
     resetStore({ seen: ['tour', 'ring', 'agents'], off: false });
     await page.reload({ waitUntil: 'networkidle' });
 
