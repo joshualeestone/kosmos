@@ -482,6 +482,8 @@ $nodeExe = Get-Command node -CommandType Application -ErrorAction SilentlyContin
 if (-not $nodeExe) { Refuse "node (an executable, not a .cmd shim) is required to validate the verification record. Nothing was written." }
 if (-not (Test-Path -LiteralPath $spec)) { Refuse "the record spec $spec is missing. Nothing was written." }
 $verdictJs = @'
+// Any crash says why on STDOUT (the only stream read), as AMBIGUOUS, so a refusal is never blank.
+process.on('uncaughtException', (e) => { console.log('AMBIGUOUS node crashed: ' + (e && e.message)); process.exit(3); });
 const [specFile, wantVersion, wantSha] = process.argv.slice(2);   // `node - a b c`: argv[1] is '-'
 const spec = require(specFile); const fs = require('node:fs');
 const file = spec.recordPath(process.env, wantSha);
@@ -495,8 +497,11 @@ console.log((verdict === 'pass' ? 'PASS ' : 'FAIL ') + sha + ' ' + file); proces
 $prevEnc = [Console]::OutputEncoding
 $rc = -1
 # The script goes to node on STDIN (`node -`), so there is no temp file another process could swap.
-try { [Console]::OutputEncoding = $Utf8; $verdict = ($verdictJs | & $nodeExe.Source - $spec $ApprovedVersion $ApprovedSha) -join ' '; $rc = $LASTEXITCODE }
-finally { [Console]::OutputEncoding = $prevEnc }
+# Both directions UTF-8: $OutputEncoding is what PowerShell writes to node's STDIN (5.1
+# defaults it to a legacy code page), [Console]::OutputEncoding what it reads back.
+$prevPipeEnc = $OutputEncoding
+try { [Console]::OutputEncoding = $Utf8; $OutputEncoding = $Utf8; $verdict = ($verdictJs | & $nodeExe.Source - $spec $ApprovedVersion $ApprovedSha) -join ' '; $rc = $LASTEXITCODE }
+finally { [Console]::OutputEncoding = $prevEnc; $OutputEncoding = $prevPipeEnc }
 if ($rc -ne 0) { Refuse "the verification record does not pass ($verdict). Verify the staged build on this PC first (node tools/win-staging-verify.js). Nothing was written." }
 $recordSha = ($verdict -split ' ')[1]; $recordPath = ($verdict -split ' ', 3)[2]
 Say "verification record: $verdict"

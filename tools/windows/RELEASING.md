@@ -53,8 +53,8 @@ gates. `publish-r2.ps1` produces the same files with the same gates, directly in
    This produces `dist/kosmos-win-x64.zip`. The launcher inside it is the committed, signed
    `tools/windows/Kosmos.exe` (#3677).
 
-2. **Stage.** This checks that the zip's `Kosmos.exe` is byte for byte the committed launcher (and
-   Authenticode Valid), then uploads the versioned zip, its sidecar, and `latest-win-staging.json`
+2. **Stage.** This checks that the zip's `Kosmos.exe` is byte for byte the committed launcher (and,
+   on Windows, that its Authenticode signature is Valid), then uploads the versioned zip, its sidecar, and `latest-win-staging.json`
    **last**, and reads every file back through installkosmos.com. Prod does not move. Everything
    that decides whether to write is read from the bucket itself with the key, so a slow or
    challenging edge produces a refusal, never a wrong write.
@@ -106,7 +106,8 @@ gates. `publish-r2.ps1` produces the same files with the same gates, directly in
   is his message itself, which the log line names by `approval_ref`.
 - **R2 enforces the two conditional writes this script relies on** (measured 2026-09-25 against
   the real bucket): a create with `If-None-Match: *` over an existing key, and a copy with a
-  stale `x-amz-copy-source-if-match`, both fail with PreconditionFailed and change nothing.
+  stale `x-amz-copy-source-if-match`, and (for `-ReplaceVersioned`) a PUT with a stale
+  `If-Match`, all fail with PreconditionFailed and change nothing.
   `-DryRun` does not issue them.
 - **Overwritten objects are stored `Cache-Control: no-cache`** (the pointers, the alias and its
   sidecar), so nothing between R2 and a user keeps serving the previous bytes. A versioned zip
@@ -118,6 +119,8 @@ gates. `publish-r2.ps1` produces the same files with the same gates, directly in
 - **Quote the approval ref.** Unquoted at a PowerShell prompt, a Slack ts is read as a number
   and rounded, and a permalink containing `&` becomes a background job. The script refuses a ts
   that is not exactly 10 digits, a dot and 6 digits, and anything else that is not `https://`.
+  That is stricter than the Mac side's check (tools/lib/win-approval.sh accepts any string of
+  the allowed characters) on purpose: a rounded ts looks plausible there.
 
 ## The pointer shape
 
