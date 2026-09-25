@@ -6,17 +6,18 @@ call to hide it; Josh ruled at 09:22: "I agree.. let's hide it" (grid, list, org
 
 ## What
 - **Server** (`/api/status`): `markGuide` states `isGuide` on every row. The setup guide (`setupGuideNow()`) gets
-  role `roles.GUIDE_TITLE` ("Kosmos Guide"). When no model is known, it gets `plannedModelName`
-  "<Claude|OpenAI|Gemini|Grok> (its default model)". The counts (`countAgents`, `notRunning`) leave it out, so the
-  tiles count what the grid draws.
+  role `roles.GUIDE_TITLE` ("Kosmos Guide"). A Claude guide with no model known gets `plannedModelName`
+  "Claude (its default model)" (Claude only: the OpenAI picker reads that field as a model id, and the page already
+  names other runners). The counts (`countAgents`, the offline total, `notRunning`, needs-you) leave it out, so the
+  tiles count what the grid draws. An unreadable removed list ('unchecked') still marks the seeded guide.
 - **Role text** (`engine/roles.js`): `GUIDE_TITLE`; the setup label is the title; the first line is
   "You are **{{NAME}}**, the Kosmos Guide. You are an AI version of Josh, ..." so a new guide's card parses the
   same title (the identity parser reads the text after "the" up to the full stop).
 - **Page** (`web/index.html`): `LISTED` (= `LAST` without the guide) is used wherever the page LISTS or COUNTS
   agents: the grid, the list, the org chart, the tiles, the first-board flag, the connection banner, the
-  reports-to pickers, the project add pickers, and the tour's new-board test. `LAST` stays complete for every
-  lookup by name, so the guide's own page, its DM and the bubble still find it. Its ring before a reading is the
-  plain empty track, not the dashed unknown ring.
+  reports-to pickers, the project add pickers, the DM tally, and the tour's new-board test (an inline isGuide
+  filter at each). `LAST` stays complete for every lookup by name, so the guide's own page, its DM and the bubble
+  still find it.
 
 ## Decided, and why
 - **Mark on the server, filter on the page at the listing sites.** Dropping the guide from the payload would break
@@ -30,8 +31,9 @@ call to hide it; Josh ruled at 09:22: "I agree.. let's hide it" (grid, list, org
 ## Weakest premises
 - Listing sites were found by searching for `LAST`/`data.agents` uses; a listing built another way would still
   show the guide. The browser check covers the grid, the tile, the banner and the guide's page, not every picker.
-- The card also asks to start the guide's session sooner; not done. The ring and model now read honestly before
-  it runs instead.
+- The card's ring half is NOT done: the guide's own page draws its avatar without a ring before a reading. A
+  first attempt changed the grid card's ring, which the guide no longer has (review round 1), so it was removed.
+  Starting the guide's session sooner is not done either. Both are named on the card as a follow-up.
 - #3734 also edits the setup role in `engine/roles.js`; whichever lands second rebases.
 
 ## Verification

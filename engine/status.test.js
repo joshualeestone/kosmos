@@ -4700,10 +4700,10 @@ test('#3410/#3718: countAgents.needsYou counts needs_trust and a given-up connec
    so this pins the route's source: the offline rows are counted into needsYou with needsPerson. */
 test('#3718: the /api/status route adds offline needs_trust rows to the Issue count with needsPerson', () => {
   const src = require('fs').readFileSync(require('path').join(__dirname, '..', 'server.js'), 'utf8');
-  const at = src.indexOf('const counts = countAgents(agents,');
+  const at = src.indexOf('const counts = countAgents(agents');
   assert.ok(at > -1, 'the route no longer counts with countAgents');
   const region = src.slice(at, at + 6000); // the route's count block; the assertion names the exact statement
-  assert.match(region, /counts\.needsYou \+= offline\.filter\(needsPerson\)\.length;/,
+  assert.match(region, /counts\.needsYou \+= offline\.filter\(\(a\) => !a\.isGuide\)\.filter\(needsPerson\)\.length;/,
     'the route does not count offline needs_trust rows into the Issue tile, so the filter would show more than the tile says');
   const { needsPerson } = require('./status');
   assert.equal(needsPerson({ state: 'needs_trust' }), true);

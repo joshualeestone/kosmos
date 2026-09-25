@@ -69,13 +69,18 @@ test('#3739 with no guide, nothing is marked and every agent is counted', async 
   } finally { board.restore(); setupAssistant.guideName = was; }
 });
 
-test('#3739 markGuide: the default-model line names the runner, and a known model is left alone', () => {
-  const rows = markGuide([{ sessionName: 'g', runner: 'codex' }, { sessionName: 'h', runner: 'claude' }], 'g');
-  assert.equal(rows[0].plannedModelName, 'OpenAI (its default model)');
-  assert.equal(rows[0].role, 'Kosmos Guide');
-  assert.equal(rows[1].isGuide, false);
-  assert.equal(rows[1].plannedModelName, undefined, 'a row that is not the guide was given a model line');
-  const known = markGuide([{ sessionName: 'g', runner: 'claude', modelName: 'Claude Opus 5.5' }], 'g');
-  assert.equal(known[0].plannedModelName, undefined, 'a guide whose model is known was given the default line');
-  assert.equal(markGuide([{ sessionName: 'g' }], null)[0].isGuide, false, 'with no guide name a row was marked');
+test('#3739 a guide with no session yet (an offline row) is not counted in the total or not-running', async () => {
+  // A worker folder with no pane is an offline row: the fresh-install state before the guide's first session.
+  fs.mkdirSync(path.join(process.env.AGENT_WORKFORCE_WORKERS, GUIDE), { recursive: true });
+  require('./engine/store').writeProfile(GUIDE, { provider: 'anthropic' });
+  const board = fleet.install([fleet.agent('mara', { state: 'idle' })]);
+  try {
+    const s = await (await fetch(base + '/api/status')).json();
+    const guide = s.agents.find((a) => a.sessionName === GUIDE);
+    assert.ok(guide, 'CONTROL: the offline guide row is in the payload');
+    assert.equal(guide.isGuide, true);
+    assert.equal(guide.role, 'Kosmos Guide');
+    assert.equal(s.counts.total, 1, 'an offline guide was counted as an agent');
+    assert.equal(s.counts.notRunning, 0, 'an offline guide was counted as not running');
+  } finally { board.restore(); fs.rmSync(path.join(process.env.AGENT_WORKFORCE_WORKERS, GUIDE), { recursive: true, force: true }); }
 });

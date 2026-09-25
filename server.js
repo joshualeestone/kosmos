@@ -2129,17 +2129,18 @@ const AGENT_FILES_DEFAULT_CAP = 20;
 const AGENT_FILES_MAX_CAP = 500;
 
 /* #3739: mark the setup guide's row, stated on every row (`isGuide`), and give it its title. Before its first
-   session its model is unread and its job may name none (it starts on the runner's own default), so it says
-   which runner's default rather than "Unknown", which Josh saw and does not want. */
-const GUIDE_RUNNER_WORD = { claude: 'Claude', codex: 'OpenAI', gemini: 'Gemini', grok: 'Grok' };
+   session its model is unread and its job may name none (it starts on Claude's own default), so it says so
+   rather than "Unknown", which Josh saw and does not want. */
 function markGuide(rows, guideName) {
   for (const a of rows) {
     if (!a || typeof a !== 'object') continue;
     a.isGuide = Boolean(guideName) && a.sessionName === guideName;
     if (!a.isGuide) continue;
     a.role = roles.GUIDE_TITLE;
-    if (!a.modelName && !a.plannedModelName) {
-      a.plannedModelName = (GUIDE_RUNNER_WORD[a.runner] || 'Claude') + ' (its default model)';
+    /* Claude only: plannedModelName is read as a model id by the OpenAI picker, and the page already names
+       another runner ("OpenAI Codex") when no model is known. */
+    if (!a.modelName && !a.plannedModelName && (!a.runner || a.runner === 'claude')) {
+      a.plannedModelName = 'Claude (its default model)';
     }
   }
   return rows;
@@ -3935,7 +3936,11 @@ const server = http.createServer((req, res) => {
          row is marked `isGuide` so the page leaves it out of every list while still finding it by name, and the
          counts leave it out here, so the fleet the tiles count is the fleet the grid draws. */
       const guideNow = setupGuideNow();
-      markGuide(agents.concat(offline), guideNow.ok ? guideNow.name : null);
+      /* An unreadable removed list ('unchecked') is not "no guide": mark the seeded guide anyway, or it would
+         flicker back onto the board on that poll. */
+      const markName = guideNow.ok ? guideNow.name
+        : (guideNow.reason === 'unchecked' && setupAssistant.isGuideFolder(setupAssistant.guideName()) ? setupAssistant.guideName() : null);
+      markGuide(agents.concat(offline), markName);
       const counts = countAgents(agents.filter((a) => !a.isGuide), snap.counts && snap.counts.unreadableLines, snap.counts && snap.counts.unreadableSamples);
       /* #3216: the RAW active-projects DM-unread total, so a cross-tab Projects nav badge can
          read a FRESH number every /api/status tick (the projects poll that refreshes p.unread is
@@ -3960,10 +3965,10 @@ const server = http.createServer((req, res) => {
          same way it shows a blind poll. */
       const couldNotAccount = Boolean(snap.counts && snap.counts.unreadableLines > 0);
       counts.notRunning = couldNotAccount ? null : offline.filter((a) => !a.isGuide).length;
-      counts.total += offline.length;
+      counts.total += offline.filter((a) => !a.isGuide).length;
       /* #3718: an offline row waiting at the trust prompt needs the person too; countAgents only
          saw the running rows, so the Issue tile adds these here with the same rule. */
-      counts.needsYou += offline.filter(needsPerson).length;
+      counts.needsYou += offline.filter((a) => !a.isGuide).filter(needsPerson).length;
       // ⚠️ A MACHINE-LEVEL FACT, DELIBERATELY NOT A PER-AGENT ONE. Whether this
       // computer can reach a Claude subscription is one fact about the machine,
       // not thirteen facts about thirteen agents, and putting it on every card
@@ -4004,6 +4009,7 @@ const server = http.createServer((req, res) => {
          someAgentNeedsClaude: an unknown runner ('' / 'claude') still counts, so a
          real Claude failure is never hidden; no agents / every agent codex ->
          false and the banner stays down. */
+      // #3739: the guide is included on purpose: the bubble depends on Claude even though its row is hidden.
       const dependsOnClaude = someAgentNeedsClaude(agents.concat(offline));
       body = JSON.stringify({
         ...snap, agents: withDmUnread(agents.concat(offline)), counts, connection, version, dependsOnClaude,

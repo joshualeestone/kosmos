@@ -57,7 +57,9 @@ const say = (ok, label, extra) => { console.log((ok ? 'PASS  ' : 'FAIL  ') + lab
     say(!board.cards.some((t) => /Josh|Kosmos Guide/.test(t)), 'the guide is not on the grid', JSON.stringify(board.cards.map((t) => t.slice(0, 40))));
     say(board.all.includes('guidebot') && !board.listed.includes('guidebot'), 'the page still holds the guide for lookups, and lists it nowhere');
     say(String(board.total).trim() === '1', 'the Agents tile counts one agent, not the guide', 'tile=' + board.total);
-    say(!/2 agents are sitting idle/.test(board.banner), 'the connection banner does not count the guide');
+    const bannerOn = /agents? (is|are) sitting idle/.test(board.banner);
+    say(bannerOn, 'CONTROL: the connection banner is on screen, so the next line can fail');
+    say(bannerOn && /\b1 agent is sitting idle/.test(board.banner), 'the connection banner does not count the guide');
 
     await page.goto(URL + '/?tab=detail&agent=guidebot', { waitUntil: 'networkidle' });
     await page.waitForTimeout(800);

@@ -27,7 +27,7 @@ const SCRIPT = page.scriptOf(PAGE);
 /* The sum is inline in tick(); extract the exact expression from source and
    evaluate it (with CURRENT injected, since the reduce suppresses the open
    agent), so the test guards the real reduce rather than a paraphrase. */
-const m = SCRIPT.match(/const dmTotal = (data\.agents\.reduce\([\s\S]*?\}, 0\));/);
+const m = SCRIPT.match(/const dmTotal = (data\.agents(?:\.filter\(\(a\) => !\(a && a\.isGuide === true\)\))?\.reduce\([\s\S]*?\}, 0\));/);
 const sumOf = (agents, current = null) => {
   assert.ok(m, 'the dmTotal reduce is gone from tick()');
   return new Function('agents', 'CURRENT', 'return ' + m[1].replace('data.agents', 'agents') + ';')(agents, current);
