@@ -554,17 +554,10 @@ test('#1760 scrub stops a value at & so a following query param survives', () =>
 // 270ms of CPU alone and about 480ms under load 22, well inside 3000.
 /** CPU budget for one scrub() call. Unchanged from the old wall-time bound. */
 const SCRUB_CPU_BOUND_MS = 3000;
-/** The units control's band. The floor only has to sit above a seconds result
- *  (a fraction of 1) and above a measure that never ran fn (about 0); the
- *  ceiling only has to sit below a microseconds result (tens of thousands). */
-const CONTROL_CPU_FLOOR_MS = 1;
-const CONTROL_CPU_CEILING_MS = 3000;
-function cpuMillisecondsOf(fn) {
-  const before = process.cpuUsage();
-  fn();
-  const d = process.cpuUsage(before);
-  return (d.user + d.system) / 1000;
-}
+// The shared helper (#3715). Its own controls, in test-support.cpu-time.test.js, check
+// that it reads milliseconds and CPU rather than wall time; this file kept a private copy
+// and a units control of its own until the helper existed.
+const { cpuMillisecondsOf } = require('../test-support/cpu-time');
 
 // #1760 iter-7: scrub() runs synchronously on the board event loop, so no arm may
 // be O(N^2). A long dotted/hex run (a stack trace / digest chain) with no `://`
@@ -610,14 +603,4 @@ test('#1760 scrub survives a multi-MB degenerate assignment run without throwing
   const ms = cpuMillisecondsOf(() => { try { out = feedbacksend.scrub(big); } catch (e) { threw = e.message; } });
   assert.equal(threw, null, 'scrub threw on a large run: ' + threw);
   assert.ok(ms < SCRUB_CPU_BOUND_MS, `scrub used ${Math.round(ms)}ms of CPU on a large run - possible unbounded backtracking`);
-});
-
-// #3710 CONTROL: cpuMillisecondsOf must report the function's CPU in
-// MILLISECONDS, or the 3000 bounds above mean nothing. The work is a fixed loop,
-// not a regex, so V8's regex tiering cannot move it. A result in microseconds,
-// in seconds, or one that never ran fn falls outside the band.
-test('#3710 control: cpuMillisecondsOf reports a fixed CPU load in milliseconds', () => {
-  let x = 0;
-  const ms = cpuMillisecondsOf(() => { for (let i = 0; i < 1e8; i++) x = (x + i) | 0; });
-  assert.ok(ms >= CONTROL_CPU_FLOOR_MS && ms < CONTROL_CPU_CEILING_MS, `a fixed 1e8-step loop measured ${ms}ms of CPU; cpuMillisecondsOf is not reporting CPU milliseconds`);
 });

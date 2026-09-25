@@ -13760,7 +13760,7 @@ test('#734: the status route carries the lines it could not read, beside the cou
   assert.equal(c.unreadableSamples.length <= 3, true);
   // The route rebuilds counts with its own countAgents call; the samples must survive that (they did not, once).
   const src = require('node:fs').readFileSync(require('node:path').join(__dirname, 'server.js'), 'utf8');
-  assert.match(src, /countAgents\(agents, snap\.counts && snap\.counts\.unreadableLines, snap\.counts && snap\.counts\.unreadableSamples\)/);
+  assert.match(src, /countAgents\(agents\.filter\(\(a\) => !a\.isGuide\), snap\.counts && snap\.counts\.unreadableLines, snap\.counts && snap\.counts\.unreadableSamples\)/);
 });
 
 /* #761: an assignee is TOLD (its instructions, for its next start) and HEARD
