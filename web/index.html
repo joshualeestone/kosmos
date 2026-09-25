@@ -5828,7 +5828,8 @@ body:not(.consolidated) .pjmidhead:has(.pjhead) .tsearch:focus-within { flex-bas
   #pj-room .msg:hover:not(.rxn-show) .rxn-quick:not(:focus-within) { opacity: 0; pointer-events: none; }
   /* The bar is about 156px wide: pinned right on a short agent bubble it would cross the
      thread's left edge and be clipped, so an agent's bar starts at the bubble's left.
-     -12px, not -18px: the thread's top padding is 12px, so the first post's bar is not cut. */
+     -12px, not -18px: the PHONE thread's top padding is 12px, so the first post's bar is not
+     cut (on a touch tablet the padding is 14px, so it clears there too). */
   #pj-room .rxn-quick { gap: 4px; top: -12px; }
   #pj-room .msg:not(.you) .rxn-quick { right: auto; left: 0; }
   #pj-room .rxn-pick, #pj-room .rxn-more { min-width: 36px; min-height: 36px; }
@@ -46371,6 +46372,7 @@ document.getElementById('d-dmthread').addEventListener('click', async (e) => {
    Wider than a phone it goes back after the Members/Files column, the desktop order. The room
    keeps its scroll position across the move. */
 const PJ_PHONE_MQ = '(max-width: 30rem)';   // the same width as the room's phone CSS block
+const PJ_TOUCH_MQ = '(hover: none)';         // the same query as the room's touchscreen CSS block
 function pjPhoneOrder() {
   const grid = document.querySelector('.pj3');
   const mid = grid && grid.querySelector(':scope > .pjmid');
@@ -46402,16 +46404,17 @@ if (window.matchMedia) {
    is left to its own handler, except that picking a reaction closes the bar. Registered
    BEFORE the data-open-agent listener below, which asks to stay last. */
 document.getElementById('pj-room').addEventListener('click', (e) => {
-  if (!(window.matchMedia && window.matchMedia('(hover: none)').matches)) return;
+  if (!(window.matchMedia && window.matchMedia(PJ_TOUCH_MQ).matches)) return;
   if (!e.target || !e.target.closest) return;
   const room = document.getElementById('pj-room');
   if (e.target.closest('.rxn-pick')) { pjRxnClose(); return; }
   if (e.target.closest('a, button, .rxns, [data-open-agent]')) return;
   const row = e.target.closest('.msg');
   room.querySelectorAll('.msg.rxn-show').forEach((m) => { if (m !== row) m.classList.remove('rxn-show'); });
-  if (!row) return;
+  if (!row) { pjRxnClose(); return; }   // a tap between messages closes it for good
   const box = row.querySelector('.rxns[data-post]');
-  RXN_SHOW_POST = row.classList.toggle('rxn-show') && box ? box.getAttribute('data-post') : null;
+  const open = row.classList.toggle('rxn-show');
+  RXN_SHOW_POST = open && box ? box.getAttribute('data-post') : null;
 });
 /* A repaint of the room (a new post, a timestamp re-worded) rewrites its rows and would drop an
    open bar between the tap that opened it and the tap on an emoji: put it back on the same post. */
@@ -46420,6 +46423,9 @@ function pjRxnClose() {
   RXN_SHOW_POST = null;
   const room = document.getElementById('pj-room');
   if (room) room.querySelectorAll('.msg.rxn-show').forEach((m) => m.classList.remove('rxn-show'));
+  // A tapped button keeps focus on Android, and .rxn-quick:focus-within would keep the bar up.
+  const a = document.activeElement;
+  if (a && a.closest && a.closest('#pj-room .rxn-quick') && a.blur) a.blur();
 }
 if (window.MutationObserver) {
   new MutationObserver(() => {

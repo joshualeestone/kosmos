@@ -740,6 +740,7 @@ const now = () => new Date().toISOString();
       const t1 = await bar();
       chk(t1.hoverNone && t1.shown === 1 && t1.op === '1', `[phone/touch] a tap on a message shows its add-reaction bar`, JSON.stringify(t1));
       // The first post's bar sits above its bubble: it must not be cut by the thread's top edge.
+      // Zero margin by design (bar -12px against the 12px phone padding): do not loosen this.
       const clip = await phonePage.evaluate(() => {
         const q = document.querySelector('#pj-room .msg.rxn-show .rxn-quick'); const room = document.getElementById('pj-room');
         if (!q) return { error: 'no open bar' };
@@ -750,7 +751,7 @@ const now = () => new Date().toISOString();
       await firstBody.tap();
       await phonePage.waitForTimeout(300);
       const t2 = await bar();
-      chk(t2.shown === 0 && t2.op === '0', `[phone/touch] a second tap closes it (no sticky-hover reveal)`, JSON.stringify(t2));
+      chk(t2.shown === 0 && t2.op === '0', `[phone/touch] a second tap closes it`, JSON.stringify(t2));
       // A repaint (new post, re-worded time) rewrites the rows: an open bar comes back on its post.
       await firstBody.tap();
       await phonePage.waitForTimeout(300);
@@ -766,6 +767,44 @@ const now = () => new Date().toISOString();
       chk(rp.openPost && rp.after === rp.openPost, `[phone/touch] a repaint keeps the open bar on the same post`, JSON.stringify(rp));
       await firstBody.tap();   // close it
       await phonePage.waitForTimeout(300);
+      // A tap BETWEEN messages (the thread's padding) closes an open bar for good: a repaint after
+      // it must not bring it back.
+      await firstBody.tap();
+      await phonePage.waitForTimeout(300);
+      const gap = await phonePage.evaluate(async () => {
+        const room = document.getElementById('pj-room'); const R = room.getBoundingClientRect();
+        const opened = room.querySelectorAll('.msg.rxn-show').length;
+        // A point whose topmost element IS the thread itself (its padding, not a message and not
+        // anything drawn over it), so the tap exercises the in-room "no message" path.
+        const x = Math.round(R.left + 3);
+        for (let y = Math.max(0, Math.round(R.top) + 2); y < Math.min(window.innerHeight, R.bottom); y += 2) {
+          if (document.elementFromPoint(x, y) === room) return { opened, x, y, hit: 'thread' };
+        }
+        return { opened, error: 'no point where the thread itself is on top' };
+      });
+      await phonePage.touchscreen.tap(gap.x, gap.y);
+      await phonePage.waitForTimeout(200);
+      const afterGap = await phonePage.evaluate(() => new Promise((res) => {
+        const room = document.getElementById('pj-room');
+        room.innerHTML = room.innerHTML.replace(/ rxn-show/g, '');
+        setTimeout(() => res(room.querySelectorAll('.msg.rxn-show').length), 50);
+      }));
+      chk(!gap.error && gap.hit === 'thread' && gap.opened === 1 && afterGap === 0, `[phone/touch] a tap between messages closes the bar for good (a repaint does not bring it back)`, JSON.stringify(Object.assign({ afterGap }, gap)));
+      // Picking a reaction closes the bar even when the tapped button keeps focus (Android does).
+      await firstBody.tap();
+      await phonePage.waitForTimeout(300);
+      const picked = await phonePage.evaluate(() => new Promise((res) => {
+        const b = document.querySelector('#pj-room .msg.rxn-show .rxn-pick');
+        if (!b) return res({ error: 'no open bar' });
+        b.focus(); b.click();
+        setTimeout(() => {
+          const q = document.querySelector('#pj-room .msg .rxn-quick');
+          res({ shown: document.querySelectorAll('#pj-room .msg.rxn-show').length,
+            focusInBar: !!(document.activeElement && document.activeElement.closest && document.activeElement.closest('#pj-room .rxn-quick')),
+            op: q ? getComputedStyle(q).opacity : null });
+        }, 300);
+      }));
+      chk(!picked.error && picked.shown === 0 && !picked.focusInBar && picked.op === '0', `[phone/touch] picking a reaction closes the bar and lets go of focus`, JSON.stringify(picked));
       // A file card is a download link: stop the navigation (the check must stay on this page),
       // then tap it for real and require the room to still be here before reading anything.
       await phonePage.evaluate(() => document.querySelectorAll('#pj-room .att').forEach((a) => a.addEventListener('click', (e) => e.preventDefault())));
