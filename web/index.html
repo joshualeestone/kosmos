@@ -9224,7 +9224,8 @@ body.plus-active #plus-state2 { max-width: 26rem; padding: 2rem; }
 #plus-state2 #plus-signin-msg:empty { display: none; }
 #plus-state2 .plus-si-lead + .frow { margin-top: 1rem; }   /* a button under a one-line lead gets room (the #3796 landing) */
 @media (max-width: 640px) { .plus-val { grid-template-columns: 1fr; } }
-/* #718 CHAT FIRST ON A PHONE (Josh 2026-09-24: "make sure the designs fit well on mobile"; Liu Kang
+/* #718 CHAT FIRST ON A PHONE (the 40rem here is repeated in trackVisibleViewportHeight's
+   matchMedia; change both together) (Josh 2026-09-24: "make sure the designs fit well on mobile"; Liu Kang
    decided the build 2026-09-24 22:30 CDT). Below 40rem, with Direct Message the shown section, the
    agent page used to stack the whole identity column (88px avatar, name, state, five big nav tiles,
    Files) above the conversation, so a phone opened a chat and saw the conversation two screens down
@@ -30125,6 +30126,7 @@ function detailGo(section, opts) {
      that shows up as window.scrollY, and only while typing in the phone chat with the keyboard up
      (not on a pinch zoom), so a tall header menu's own scroll is left alone. A pan that shows up only as visualViewport.offsetTop is NOT
      handled: unobserved (no iOS simulator on this Mac), on Johnny's simulator checklist. */
+  // Same breakpoint as the CSS block "#718 CHAT FIRST ON A PHONE"; change both together.
   const PHONE_WIDTH = window.matchMedia('(max-width: 40rem)');
   viewport.addEventListener('resize', () => {
     write();
@@ -51181,11 +51183,12 @@ async function pjSend() {
 }
 
 /* --- the agent page's own composer, and the answers above it -------------- */
-/* #718: pressing Post (or the emoji button, shown from 481px) while typing keeps focus in the text box. Safari/WebKit does not focus a
+/* #718: pressing Post, the emoji button (shown from 481px) or an emoji in its panel (#d-emoji,
+   delegated: its items are rebuilt) while typing keeps focus in the text box. Safari/WebKit does not focus a
    button on click, so focus used to fall to the talk box, the phone layout's header came back
    mid-tap and the keyboard dropped; chat apps keep the keyboard up across a send. Only when the
    text box already has focus, so a Post press from anywhere else behaves as before. */
-for (const id of ['d-send', 'd-emoji-btn']) {
+for (const id of ['d-send', 'd-emoji-btn', 'd-emoji']) {
   document.getElementById(id).addEventListener('mousedown', (e) => {
     if (document.activeElement === document.getElementById('d-say')) e.preventDefault();
   });
