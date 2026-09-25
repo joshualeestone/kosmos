@@ -39,3 +39,9 @@ Controls: removing each fix reds exactly its test (epoch -> both race tests; for
 - Validation gate (#1720): web/ changed with no browser-check assertion. render-plus-signin-3478.js gains a 'switch-off' scenario: registered with switchOff, board enrolled and off; asserts the note is in #plus-msg, the Turn on button is there, and no "Connecting".
 
 - Validation (engine.reachable guard): the test-only export _setForgetWaitMs was "reachable from nowhere"; replaced by the env seam AGENT_WORKFORCE_FORGET_WAIT_MS, like AGENT_WORKFORCE_TUNNEL_BIN.
+
+## Round 4 review (opus)
+- BLOCKER: the late-register self-undo keyed on forgetGen, so a register that finished INSIDE the forget wait also undid itself, and forget retired again: two concurrent retires, forget answering "could not be updated". Now only a register forget actually abandoned (its wait timed out) undoes itself. Test: register finishes within the wait; forget says retired and retire runs exactly once.
+- WARNING: a late register could wipe a newer sign-in. While an abandoned register is out, a new sign-in is refused ("a previous sign-in on this computer is still finishing"), and register has its own timeout (REGISTER_TIMEOUT_MS 60s), so the refusal is bounded. Test: blocked while out, allowed after.
+- WARNING: the self-undo's retire result was ignored; a failure is now logged.
+- NIT: AGENT_WORKFORCE_FORGET_WAIT_MS=0 means the default, now said.

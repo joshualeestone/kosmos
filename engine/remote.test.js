@@ -933,6 +933,24 @@ test('#3827 review: the same-Mac (#1010) path also says so when the switch canno
   }
 });
 
+test('#3827 review: a register that finishes WITHIN the forget wait is retired once, by forget, and forget says retired', async () => {
+  process.env.AGENT_WORKFORCE_TUNNEL_RELAY = '127.0.0.1:9444';
+  process.env.FAKE_TUNNEL_MODE = 'slow-register';   // ~600ms, inside the default wait
+  try {
+    await remote.signinStart('her@example.com');
+    await remote.signinVerify('her@example.com', '111111');
+    const racing = remote.signinRegister('hers');
+    fs.rmSync(RECORD, { force: true });
+    const got = await remote.forget();
+    await racing;
+    assert.equal(got.retired, true, 'forget reported the Mac not retired: ' + got.because);
+    assert.equal(recorded().filter((c) => c[0] === 'retire').length, 1, 'the Mac was retired more (or less) than once');
+    assert.equal(remote.enrolled(), false);
+  } finally {
+    delete process.env.FAKE_TUNNEL_MODE;
+  }
+});
+
 test('#3827 review: Forget does not hang on a register that is still out, and the late register undoes itself', async () => {
   process.env.AGENT_WORKFORCE_TUNNEL_RELAY = '127.0.0.1:9444';
   process.env.FAKE_TUNNEL_MODE = 'slow-register';
@@ -944,10 +962,22 @@ test('#3827 review: Forget does not hang on a register that is still out, and th
     const t0 = Date.now();
     await remote.forget();
     assert.ok(Date.now() - t0 < 500, 'Forget waited on a register that had not finished (' + (Date.now() - t0) + 'ms)');
+    // While the abandoned register is still out, a new sign-in is refused, so the
+    // late result cannot land on top of it.
+    await remote.signinStart('her@example.com');
+    await remote.signinVerify('her@example.com', '111111');
+    const blocked = await remote.signinRegister('other');
+    assert.equal(blocked.ok, false, 'a new sign-in ran while an abandoned one was still out');
+    assert.match(blocked.because, /still finishing/);
+    fs.rmSync(RECORD, { force: true });
     const late = await racing;
     assert.equal(late.ok, false, 'a register that finished after Forget reported success');
     assert.equal(remote.enrolled(), false, 'a register that finished after Forget left the Mac registered');
     assert.equal(remote.read().on, false);
+    assert.equal(recorded().filter((c) => c[0] === 'retire').length, 1, 'the late register did not retire what it registered');
+    // And once it has undone itself, signing in works again.
+    const again = await remote.signinRegister('other');
+    assert.equal(again.ok, true, 'sign-in stayed refused after the abandoned register finished: ' + again.because);
   } finally {
     delete process.env.FAKE_TUNNEL_MODE;
     delete process.env.AGENT_WORKFORCE_FORGET_WAIT_MS;

@@ -664,11 +664,17 @@ async function forget() {
   // the switch back on for the state this is about to wipe (#3827 review).
   signinEpoch += 1;
   signinSession = null;
-  forgetGen += 1;
   if (registerInFlight) {
+    const waited = registerInFlight;
     let timer;
-    await Promise.race([registerInFlight, new Promise((r) => { timer = setTimeout(r, forgetWaitMs()); })]);
+    const timedOut = await Promise.race([
+      waited.then(() => false),
+      new Promise((r) => { timer = setTimeout(() => r(true), forgetWaitMs()); }),
+    ]);
     clearTimeout(timer);
+    // Only a register this forget STOPPED waiting for undoes itself later; one that
+    // finished in time is covered by the retire below (one retire, not two).
+    if (timedOut) abandonedRegister = waited;
   }
   const was = { enrolled: enrolled(), address: address() };
   stopChild();
@@ -1207,16 +1213,19 @@ function turnOnAfterSignin() {
   return false;
 }
 function switchOffNote(on) { return on ? {} : { switchOff: true, note: SIGNED_IN_SWITCH_OFF }; }
-/* #3827 review: forget() waits (bounded) for a register already on its way, so the
-   state it retires and wipes includes that registration; otherwise the register
-   child writes a fresh identity into the directory forget just emptied, and the Mac
-   comes back as signed in to an account the person just forgot. The wait is bounded
-   (FORGET_WAIT_MS) so a hung register cannot hang Forget; a register that finishes
-   after a forget undoes itself (forgetGen), so the Mac still ends up forgotten. */
+/* #3827 review: forget() waits (bounded, FORGET_WAIT_MS) for a register already on
+   its way, so the state it retires and wipes includes that registration; otherwise
+   the register child writes a fresh identity into the directory forget just emptied.
+   A register forget stopped waiting for is `abandonedRegister`: when it finally
+   returns it undoes itself, and until it has, a new sign-in is refused, so a late
+   result can never land on top of a newer sign-in. A register is itself bounded
+   (REGISTER_TIMEOUT_MS), so that refusal cannot last. */
 let registerInFlight = null;
-let forgetGen = 0;
+let abandonedRegister = null;
 const FORGET_WAIT_MS = 20000;
+const REGISTER_TIMEOUT_MS = 60000;
 // The same env seam as AGENT_WORKFORCE_TUNNEL_BIN: a test shortens the wait.
+// (0 or unset means the default, not "do not wait".)
 const forgetWaitMs = () => Number(process.env.AGENT_WORKFORCE_FORGET_WAIT_MS) || FORGET_WAIT_MS;
 
 async function signinRegister(name) {
@@ -1252,13 +1261,15 @@ async function signinRegister(name) {
       return { ok: true, because: null, data: { stage: 'registered', address: have, name, standing: '', alreadySetUp: true, ...switchOffNote(on) } };
     }
   }
+  if (abandonedRegister) {
+    return { ok: false, because: 'a previous sign-in on this computer is still finishing; try again in a minute' };
+  }
   secureStateDir();
   // Like every other step: a Sign out (or a forget) that lands while register is
   // waiting on the tunnel program must not be followed by this turning Kosmos+ on.
   const epoch = signinEpoch;
-  const gen = forgetGen;
   const running = setupRun(['signin', 'register', '--coordinator', COORDINATOR(),
-    '--name', name, '--state-dir', STATE_DIR()], signinSession.token);
+    '--name', name, '--state-dir', STATE_DIR()], signinSession.token, REGISTER_TIMEOUT_MS);
   registerInFlight = running;
   let r;
   try { r = parseSaid(await running); } finally { if (registerInFlight === running) registerInFlight = null; }
@@ -1266,13 +1277,21 @@ async function signinRegister(name) {
   // it: the Mac is registered, the page has already dropped this answer, and the
   // next paint shows the connected pane with the switch OFF, which is the truth.
   // What a cancel must never do is let this turn Kosmos+ on.
-  if (gen !== forgetGen && r.ok) {
-    // A forget landed while this was out and stopped waiting (FORGET_WAIT_MS): the
-    // Mac was forgotten, so what this register wrote is undone the same way.
-    stopChild();
-    await setupRun(['retire', '--coordinator', COORDINATOR(), '--state-dir', STATE_DIR()]);
-    try { fs.rmSync(STATE_DIR(), { recursive: true, force: true }); } catch { /* enrolled() re-reads */ }
-    write({ on: false, standing: '' });
+  if (abandonedRegister === running) {
+    // A forget stopped waiting for this one. The Mac was forgotten, so what this
+    // register wrote is undone the same way. No newer sign-in can have started
+    // (refused above while this was out), so the state dir is this register's.
+    try {
+      if (r.ok) {
+        stopChild();
+        const ret = await setupRun(['retire', '--coordinator', COORDINATOR(), '--state-dir', STATE_DIR()]);
+        if (!ret.ok) process.stderr.write('remote: a sign-in that finished after Forget could not be retired at Kosmos+ (' + ret.because + '); its address may show on the account page until it is removed there\n');
+        try { fs.rmSync(STATE_DIR(), { recursive: true, force: true }); } catch { /* enrolled() re-reads */ }
+        write({ on: false, standing: '' });
+      }
+    } finally {
+      abandonedRegister = null;
+    }
     return SIGNIN_CANCELLED;
   }
   if (epoch !== signinEpoch) return SIGNIN_CANCELLED;
