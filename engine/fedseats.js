@@ -86,6 +86,10 @@ function onEvent(projectId, line) {
   if (ev.event === 'disconnected') { setStatus(projectId, 'reconnecting'); return; }
   if (ev.event === 'ended') {
     s.ended = clean(ev.because, 200) || 'the connection ended';
+    // An owner's seat is pinned to one member's edge: that edge ending is not
+    // the owner leaving, so the note (and its "ask the owner") is a member's.
+    const link = safeLink(projectId);
+    if (!link || link.role !== 'member') return;
     say(projectId, 'This computer is no longer connected to the external project: ' + s.ended + '. To take part again, ask the owner for a new code.');
     return;
   }
@@ -182,6 +186,8 @@ function spawnFor(projectId, edge) {
       if (link && link.role === 'owner') {
         if (!cur.refused) cur.refused = new Set();
         if (cur.edge) cur.refused.add(cur.edge);
+        // Kept on the link, so a restart does not try the refused edge again.
+        try { federation.recordLink(projectId, Object.assign({}, link, { refused: [...cur.refused].slice(-64) })); } catch { /* retried once next boot */ }
         setStatus(projectId, 'waiting');
         return;
       }
@@ -202,6 +208,7 @@ function spawnFor(projectId, edge) {
     cur.connectedAt = null;
     setStatus(projectId, 'reconnecting');
     cur.timer = setTimeout(() => { cur.timer = null; ensure(projectId).catch(() => {}); }, cur.backoff);
+    if (typeof cur.timer.unref === 'function') cur.timer.unref();
     cur.backoff = Math.min(cur.backoff * 2, RESTART_MAX_MS);
   });
 }
@@ -233,6 +240,7 @@ async function ensure(projectId, edges) {
   if (s.child || s.starting || s.timer || s.stopped || s.status === 'ended') return s.status;
   s.starting = true;
   try {
+    if (link.role === 'owner' && !s.refused && Array.isArray(link.refused)) s.refused = new Set(link.refused);
     const edge = link.role === 'member' ? link.edge_id : await ownerEdge(link, s.refused, edges);
     if (!edge) { setStatus(projectId, 'waiting'); return 'waiting'; }
     if (s.stopped || s.child) return s.status;

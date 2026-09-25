@@ -69,6 +69,9 @@ board yet carried messages between a federated project's room and its seat.
 - engine/fedseats.test.js, engine/messages.external-3311.test.js,
   server.fedmsg-3311.test.js, server.federation-3311.test.js,
   engine/federation.test.js: all pass (counts live in the runs, not here).
+- Review round 9 controls: sending the ended note on an owner seat, or not
+  loading refused edges from the link on restart, reds the owner test; letting an
+  over-long ref through reds the long-ref test.
 - Review round 8 controls: failing closed on an unreadable link record reds the
   damaged-record test (no project is made); dropping the direction-override range
   from clean() reds the connector-reason test.
@@ -110,6 +113,17 @@ board yet carried messages between a federated project's room and its seat.
   closed. A second local project carrying a real ref only puts this same account's
   own Mac in its own room twice. It grants nothing across accounts, because the room
   ticket is still minted per edge by the coordinator.
+
+## Decided in round 9
+- The "no longer connected" note is a member's: an owner seat's edge ending is
+  one member leaving, and the owner seat goes back to waiting. An owner's refused
+  edges are kept on its link, so a restart does not retry them.
+- Not changed, recorded: the External tag sits under the name (the name is a
+  block) and the name shows a pointer cursor with nothing to open; and the text
+  view flattens an outside message's newlines, so a peer can write text that
+  looks like another row after its own [external] tag. Both are display only,
+  the tag is always there, and a web/index.html change belongs with the next
+  visual pass on this row.
 
 ## Decided in round 7
 - REVERSES round 4: `federation_ref` on create is accepted only from the screen.

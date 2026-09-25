@@ -200,3 +200,12 @@ test('a damaged link record does not stop a project being made, and does not lin
     if (before === null) fs.rmSync(f, { force: true }); else fs.writeFileSync(f, before);
   }
 });
+
+test('an over-long ref from the screen is no ref: the stale link is cleared and nothing is linked', async () => {
+  federation.recordLink('longrefclub', { role: 'owner', ref: 'ref-stale-long' });
+  const r = await post('/api/projects', { name: 'Long Ref Club', federation_ref: 'x'.repeat(201) }, SCREEN);
+  assert.equal(r.status, 200, JSON.stringify(r.json));
+  assert.equal(r.json.id, 'longrefclub', 'fixture: the stale link sits on this id');
+  assert.equal(r.json.federationLinked, undefined);
+  assert.equal(federation.linkFor('longrefclub'), null);
+});

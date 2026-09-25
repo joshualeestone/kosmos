@@ -13363,12 +13363,16 @@ const server = http.createServer((req, res) => {
            runs BEFORE any member is told, so taking it back leaves nobody told of a
            project that does not exist. */
         let federationLinked;
+        // One decision for both blocks below: a ref only from the screen, and
+        // within bounds. Anything else is no ref at all.
+        const fedRef = (viaScreen && typeof body.federation_ref === 'string' && body.federation_ref
+          && body.federation_ref.length <= 200) ? body.federation_ref : null;
         // A new project starts with no link, whatever an earlier project of the
         // same id left behind. A link that is there but cannot be removed stops
         // the project being made. A record that cannot be read at all does not:
         // every reader of it (federateOut, the seats) then finds no link, so
         // nothing is federated, and a damaged file must not block making projects.
-        if (!(viaScreen && typeof body.federation_ref === 'string' && body.federation_ref)) {
+        if (!fedRef) {
           let stale = false;
           let found = null;
           try { found = federation.linkFor(made.id); } catch { found = null; }
@@ -13383,8 +13387,8 @@ const server = http.createServer((req, res) => {
         }
         // Only the page sends federation_ref (the create screen that minted the
         // invites); a process caller's is ignored.
-        if (viaScreen && typeof body.federation_ref === 'string' && body.federation_ref && body.federation_ref.length <= 200) {
-          try { federation.recordLink(made.id, { role: 'owner', ref: body.federation_ref }); federationLinked = true; }
+        if (fedRef) {
+          try { federation.recordLink(made.id, { role: 'owner', ref: fedRef }); federationLinked = true; }
           catch (err) {
             try { projects.remove(made.id); } catch { /* reported below either way */ }
             sendJson(res, 500, { error: 'We could not record this shared project on this computer, so it was not made. Try again. ('

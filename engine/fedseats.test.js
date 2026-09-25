@@ -386,3 +386,19 @@ test('a reason from the connector loses direction overrides before it reaches th
   assert.ok(n, JSON.stringify(h.notes));
   assert.ok(!/[‪-‮⁦-⁩]/.test(n.text), JSON.stringify(n.text));
 });
+
+test('an owner whose edge ends gets no member note, and a restart does not retry that edge', async () => {
+  federation.recordLink('proj-own', { role: 'owner', ref: 'ref-own' });
+  const edges = [{ id: 'edge-gone', project_ref: 'ref-own', status: 'active' }];
+  let h = harness({ edges });
+  await fedseats.ensure('proj-own');
+  say(h.spawned[0], { event: 'ended', because: 'that connection has been revoked. Ask to be re-invited.' });
+  await tick();
+  h.spawned[0].emit('exit', 3);
+  assert.strictEqual(h.notes.filter((n) => n.projectId === 'proj-own').length, 0, JSON.stringify(h.notes));
+  assert.deepStrictEqual(federation.linkFor('proj-own').refused, ['edge-gone']);
+  h = harness({ edges: [...edges, { id: 'edge-live', project_ref: 'ref-own', status: 'active' }] });   // a board restart
+  await fedseats.ensure('proj-own');
+  assert.strictEqual(h.spawned.length, 1);
+  assert.strictEqual(h.spawned[0].edge, 'edge-live', 'the refused edge is skipped after the restart');
+});
