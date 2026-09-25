@@ -44,3 +44,19 @@ message, so this was kept rather than special-cased.
 - docs/browser-checks/render-richtext-room-2239.js: a Layer 1 nested arm, and Layer 2 posts a
   nested list and indented code through the real server and asserts the painted indent and the
   code's spaces. The old `storeText` reds both Layer 2 arms in both themes.
+
+## Review pass 1 (opus)
+- The first validation failed on #1732's Windows-coupling audit: the fence regex held a literal
+  backtick, which that scanner reads as opening a template string, so a later comment counted as
+  code. The regex spells it `\x60{3}`.
+- `messageProblem` measured MAX_TEXT on the stored form, so kept indentation (a tab is four
+  spaces) could refuse a DM the room accepts. It now measures the one-line form, as the room
+  does; a test pins both sides, and the old check reds it.
+- Stale comments fixed in render-talk.js, messages.js and the messageProblem doc.
+- Recorded, not changed: the room's code-block split (`pjBody`) takes a fence only at column 0,
+  while the store (and `pjRich`) accept an indented one. An indented fence in the room is kept
+  verbatim by the store and drawn as prose, so it shows its spaces under pre-wrap. Bounded, and
+  aligning the renderer is a separate change.
+- Recorded, not changed: depth is two spaces a level, so four-space or one-tab nesting draws two
+  levels deep; and an inline item's margin indents only its first line when it wraps. Both are
+  presentation, and a real `<ul>` tree is the fix for either.

@@ -351,9 +351,10 @@ function cleanMessage(raw) {
  * `messageProblem` would otherwise refuse:
  *   - CRLF and lone CR → LF
  *   - a tab → four spaces (a tab is a control character `CONTROL` refuses)
- *   - #3679: indentation is kept, and so is every line inside a ``` fence, so
- *     code and nested lists arrive as written. Outside a fence, a run of spaces
- *     INSIDE a line becomes one space and trailing spaces go.
+ *   - #3679: indentation is kept, and inside a ``` fence each line is kept as
+ *     written except its trailing spaces, so code and nested lists arrive as
+ *     written. Outside a fence, a run of spaces INSIDE a line becomes one space
+ *     and trailing spaces go.
  *   - outside a fence, three or more newlines → a single blank line
  *   - trim the ends.
  * After this the ONLY whitespace/control character left in range is `\n`, which
@@ -388,7 +389,7 @@ function storeText(raw) {
  * arriving in a TUI: in Claude Code that cancels what is on screen. A message
  * that quietly cancels the agent's current prompt and then types the rest of
  * itself is not the message anybody wrote. `storeText` has already dealt with
- * the ordinary ones (tab → space, CR → LF), so anything left in this range got
+ * the ordinary ones (tab → four spaces, CR → LF), so anything left in this range got
  * there on purpose or by paste accident, and refusing names it.
  *
  * 🛑 ONE EXEMPTION, AND ONLY ONE: `\n` (U+000A). The store keeps paragraph
@@ -416,7 +417,9 @@ function messageProblem(raw) {
   // refused -- `storeText` leaves those untouched.
   const text = storeText(raw);
   if (!text) return 'write something to send';
-  if (text.length > MAX_TEXT) return `keep it to ${MAX_TEXT} characters or fewer`;
+  // #3679: measured on the one-line form, as the room does, so kept indentation
+  // (and a tab's four spaces) cannot push a message over the limit.
+  if (cleanMessage(raw).length > MAX_TEXT) return `keep it to ${MAX_TEXT} characters or fewer`;
   if (CONTROL.test(text)) return 'that message has characters we will not type into a terminal';
   return null;
 }

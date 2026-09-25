@@ -24,6 +24,8 @@ const assert = require('node:assert/strict');
 
 const chat = require('./chat');
 
+test.after(() => { fs.rmSync(SANDBOX, { recursive: true, force: true }); });
+
 const FENCE = '```';
 const ESC = String.fromCharCode(27);
 
@@ -32,7 +34,7 @@ test('#3679: the card\'s example keeps its code indentation and its nested list'
   assert.equal(chat.storeText(raw), raw);
 });
 
-test('#3679: inside a fence every space and every blank line is kept', () => {
+test('#3679: inside a fence every leading and inner space and every blank line is kept', () => {
   const code = 'def f():\n\n\n    x  =  1\n        return   x';
   assert.equal(chat.storeText(FENCE + 'py\n' + code + '\n' + FENCE), FENCE + 'py\n' + code + '\n' + FENCE);
 });
@@ -51,6 +53,13 @@ test('#3679: a tab becomes four spaces, so indentation survives and CONTROL has 
   assert.equal(stored, 'x\n    - nested\n' + FENCE + '\n    return 1;\n' + FENCE);
   assert.equal(stored.includes('\t'), false);
   assert.equal(chat.messageProblem('x\n\t- nested'), null, 'an indented message is sendable');
+});
+
+test('#3679: the length limit reads the one-line form, so indentation cannot push a DM over it', () => {
+  const body = 'x\n' + '\ty\n'.repeat(2100);   // ~4200 one-line characters, ~12600 stored
+  assert.ok(chat.storeText(body).length > chat.MAX_TEXT, 'CONTROL: the stored form must exceed the limit, or this proves nothing');
+  assert.equal(chat.messageProblem(body), null, 'an indented message under the limit was refused');
+  assert.notEqual(chat.messageProblem('y '.repeat(chat.MAX_TEXT)), null, 'a message really over the limit is still refused');
 });
 
 test('#3679: an unclosed fence keeps its code as written to the end', () => {
