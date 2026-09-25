@@ -27,6 +27,10 @@ process.env.AGENT_WORKFORCE_LAUNCH = mkroot('launch-');
 process.env.AGENT_WORKFORCE_PROJECTS = mkroot('projects-');
 process.env.AGENT_WORKFORCE_TMUX_BIN = '/bin/echo';
 process.env.AGENT_WORKFORCE_TUNNEL_STATE = mkroot('tunnel-');
+/* Its own home, so "has this person a model of their own" reads the sandbox, never this Mac's real accounts
+   (which would make the check pass on a clean CI box and fail on a developer's Mac, or the reverse). */
+const HOME = mkroot('home-');
+process.env.AGENT_WORKFORCE_HOME = HOME;
 /* The fake connector: it exists (so the board says hosted), and if anything ever runs it, it leaves a mark. */
 const TUNNEL_DIR = mkroot('bin-');
 const FAKE_TUNNEL = path.join(TUNNEL_DIR, 'kosmos-tunnel');
@@ -34,6 +38,11 @@ const RAN = path.join(TUNNEL_DIR, 'ran');
 fs.writeFileSync(FAKE_TUNNEL, '#!/bin/sh\ntouch "' + RAN + '"\necho "error: unrecognized subcommand" >&2\nexit 2\n', { mode: 0o755 });
 const NO_TUNNEL = path.join(TUNNEL_DIR, 'absent-kosmos-tunnel');
 process.env.AGENT_WORKFORCE_TUNNEL_BIN = FAKE_TUNNEL;
+/* H12's positive control, before anything else: the mark appears when the fake DOES run, so its absence at
+   the end means something. */
+require('node:child_process').spawnSync(FAKE_TUNNEL, ['assistant-chat']);
+const MARK_WORKS = fs.existsSync(RAN);
+fs.rmSync(RAN, { force: true });
 
 const { chromium } = require('playwright');
 const fleet = require('../../test-support/fleet');
@@ -87,8 +96,10 @@ const waitFor = (page, fn, ms = 6000) => page.waitForFunction(fn, null, { timeou
     /* The hosted route, answered here. `answer` is what the next question gets. */
     const asked = [];
     let answer = { status: 200, body: { reply: 'Click New agent at the top, then pick what it should do.', remaining: 29 } };
+    let slow = 0;
     await page.route('**/api/setup-guide/hosted', async (route) => {
       asked.push(JSON.parse(route.request().postData() || '{}'));
+      if (slow) await new Promise((r) => setTimeout(r, slow));
       route.fulfill({ status: answer.status, contentType: 'application/json', body: JSON.stringify(answer.body) });
     });
     const pageReports = [];
@@ -125,18 +136,22 @@ const waitFor = (page, fn, ms = 6000) => page.waitForFunction(fn, null, { timeou
     await page.click('#asb');
     chk(await waitFor(page, () => !document.getElementById('asp').hidden), 'H2 the chat opens');
     const h2 = await state(page);
-    chk(h2.note === 'An AI in Josh\'s voice, on Kosmos\'s own AI until you connect yours. Josh isn\'t typing live.', 'H2 it says it runs on Kosmos\'s own AI until they connect theirs', h2.note);
+    chk(h2.note === 'An AI in Josh\'s voice, running on Kosmos until you connect your own AI. Josh isn\'t typing live.', 'H2 it says it runs on Kosmos\'s own AI until they connect theirs', h2.note);
     chk(await page.evaluate(() => /I built Kosmos/.test(document.querySelector('#asp-th .asp-empty')?.textContent || '')), 'H2 and greets as the guide does');
     await page.waitForTimeout(1800);
     chk(pageReports.length === 0, 'H2 no screen report goes to a guide that does not exist (its 404 would reset the bubble)', JSON.stringify(pageReports));
 
     // H3: a question goes to the hosted route with the screen, and the answer shows.
+    slow = 1500;
     await page.fill('#asp-say', 'How do I make an agent?');
     await page.keyboard.press('Enter');
+    chk(await waitFor(page, () => !!document.querySelector('#asp-th .asp-wait') && /Thinking/.test(document.querySelector('#asp-th .asp-wait').textContent), 2000), 'H3 while the answer comes, the chat says it is thinking');
     chk(await waitFor(page, () => [...document.querySelectorAll('#asp-th .asp-m.him')].some((m) => /New agent/.test(m.textContent))), 'H3 the answer shows in the chat');
+    chk(!(await page.$('#asp-th .asp-wait')), 'H3 and the thinking line is gone');
+    slow = 0;
     const h3 = await state(page);
-    chk(asked.length === 1 && JSON.stringify(asked[0].messages) === JSON.stringify([{ role: 'user', content: 'How do I make an agent?' }]) && asked[0].page && asked[0].page.screen === 'board',
-      'H3 it asked once, with the question and the screen it was asked on', JSON.stringify(asked));
+    chk(asked.length === 1 && JSON.stringify(asked[0].messages) === JSON.stringify([{ role: 'user', content: 'How do I make an agent?' }]) && JSON.stringify(asked[0].page) === JSON.stringify({ screen: 'board' }),
+      'H3 it asked once, with the question and only the screen it was asked on', JSON.stringify(asked));
     chk(h3.box === '' && h3.you.length === 1 && h3.live === 'Click New agent at the top, then pick what it should do.', 'H3 the box empties and the answer is read out', JSON.stringify(h3));
     chk(h3.msg === '', 'H3 CONTROL: with plenty left, no count is shown', h3.msg);
     chk(threadPosts.length === 0, 'H3 and nothing is written to any agent\'s thread', JSON.stringify(threadPosts));
@@ -156,13 +171,21 @@ const waitFor = (page, fn, ms = 6000) => page.waitForFunction(fn, null, { timeou
     const h5 = await state(page);
     chk(h5.box === 'One more?' && h5.you.length === 2 && !h5.you.includes('One more?'), 'H5 and the words stay in the box, not in the chat', JSON.stringify(h5));
     chk(/^You've reached today's limit/.test(h5.msg), 'H5 the sentence starts with a capital', h5.msg);
+    // H5b: the next question that goes through carries alternating turns, with the refused one asked once.
+    answer = { status: 200, body: { reply: 'Sure.', remaining: 20 } };
+    await page.keyboard.press('Enter');
+    chk(await waitFor(page, () => [...document.querySelectorAll('#asp-th .asp-m.him')].some((m) => m.textContent === 'Sure.')), 'H5b precondition: the retried question is answered');
+    const turns = asked[asked.length - 1].messages;
+    chk(turns.every((m, i) => i === 0 || m.role !== turns[i - 1].role) && turns[0].role === 'user' && turns[turns.length - 1].content === 'One more?' && turns.filter((m) => m.content === 'One more?').length === 1,
+      'H5b after a refusal the turns still alternate, and the refused question is asked once', JSON.stringify(turns));
 
     // H6: the conversation survives a reload in the same window.
     await boot();
     chk(await waitFor(page, () => { const b = document.getElementById('asb'); return b && !b.hidden; }, 8000), 'H6 precondition: the bubble is back after a reload');
-    chk(await waitFor(page, () => !document.getElementById('asb-nudge').hidden === false, 3000), 'H6 and no nudge once the person has asked');
+    await page.waitForTimeout(2500);
+    chk(await page.evaluate(() => ASB.readOnce === true && document.getElementById('asb-nudge').hidden), 'H6 and no nudge once the person has asked (after the conversation was read)');
     await page.click('#asb');
-    chk(await waitFor(page, () => document.querySelectorAll('#asp-th .asp-m').length === 4), 'H6 the earlier conversation is still there', JSON.stringify((await state(page)).you));
+    chk(await waitFor(page, () => document.querySelectorAll('#asp-th .asp-m').length === 6), 'H6 the earlier conversation is still there', JSON.stringify((await state(page)).you));
     await page.click('#asp-fold');
 
     // H7: Settings shows the switch while the hosted assistant stands in.
@@ -190,6 +213,7 @@ const waitFor = (page, fn, ms = 6000) => page.waitForFunction(fn, null, { timeou
     chk(await waitFor(page, () => document.getElementById('asp-say').value === ''), 'H8 precondition: the question was sent');
     chk(asked.length === before8 && threadPosts.some((u) => /\/api\/agent\/josh\/thread$/.test(u)), 'H8 and it went to the guide\'s thread, not the hosted route', JSON.stringify({ asked: asked.length - before8, threadPosts }));
     chk((await state(page)).note === 'An AI that knows Kosmos, in Josh\'s voice. Josh isn\'t typing live.', 'H8 the note is the guide\'s own again');
+    chk(!/questions? left today/.test((await state(page)).msg), 'H8 and the hosted allowance line is gone', (await state(page)).msg);
     await page.click('#asp-fold');
 
     // H9: an app whose connector predates the assistant (501): it says so once, then steps aside.
@@ -207,6 +231,11 @@ const waitFor = (page, fn, ms = 6000) => page.waitForFunction(fn, null, { timeou
     const h9 = await page.evaluate(() => ({ panel: !document.getElementById('asp').hidden, send: document.getElementById('asp-send').disabled }));
     chk(h9.panel && h9.send, 'H9 the sentence stays up long enough to read, with nothing more to send', JSON.stringify(h9));
     chk(await waitFor(page, () => document.getElementById('asb').hidden && document.getElementById('asp').hidden, 9000), 'H9 then the bubble steps aside');
+    chk(await page.evaluate(() => !!document.activeElement && document.activeElement !== document.body && !document.activeElement.closest('#asblayer')), 'H9 and the keyboard goes back to the page, not nowhere',
+      await page.evaluate(() => document.activeElement ? (document.activeElement.id || document.activeElement.tagName) : 'none'));
+    await boot();
+    await page.waitForTimeout(3000);
+    chk(!(await state(page)).bubble, 'H9b after a reload in the same window it stays aside, not said again');
     await page.evaluate(() => showTab('settings'));
     chk(await waitFor(page, () => document.getElementById('asb-row').hidden), 'H9 and the Settings switch goes with it',
       JSON.stringify(await page.evaluate(() => ({ hidden: document.getElementById('asb-row').hidden, guide: ASB.guide, hosted: ASB.hosted, off: ASB.hostedOff, setting: ASB.setting }))));
@@ -215,12 +244,27 @@ const waitFor = (page, fn, ms = 6000) => page.waitForFunction(fn, null, { timeou
     // H10: the switch off hides the hosted bubble too (the same setting as the guide's).
     await fetch(URL + '/api/settings', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ setupAssistant: { on: false } }) });
     answer = { status: 200, body: { reply: 'ok', remaining: 20 } };
+    await page.evaluate(() => { try { sessionStorage.clear(); } catch { /* */ } });   // so only the switch can hide it
     await boot();
     await page.waitForTimeout(3000);
     chk(!(await state(page)).bubble && await page.evaluate(() => ASB.hosted === true), 'H10 switched off, the hosted assistant shows no bubble (it is still hosted)');
     await fetch(URL + '/api/settings', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ setupAssistant: { on: true } }) });
 
-    chk(!fs.existsSync(RAN), 'H12 the real connector path never ran: nothing reached a coordinator');
+    // H13: a model of their own is connected (an install from before the guide, or a guide removed): the hosted
+    // assistant is not offered and the route refuses, so Kosmos's key is never spent for them. CONTROL: H1.
+    fs.writeFileSync(path.join(HOME, '.claude.json'), JSON.stringify({ oauthAccount: { emailAddress: 'person@example.com' } }));
+    fs.mkdirSync(path.join(HOME, '.claude'), { recursive: true });
+    const own = await (await fetch(URL + '/api/setup-guide')).json();
+    chk(own.reason === 'none' && own.hosted === false, 'H13 with a model of their own and no guide, the board does not offer the hosted assistant', JSON.stringify(own));
+    const refused = await fetch(URL + '/api/setup-guide/hosted', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ messages: [{ role: 'user', content: 'hi' }] }) });
+    const rb = await refused.json();
+    chk(refused.status === 409 && rb.code === 'own_model', 'H13 and the hosted route refuses them (it never reaches the connector)', JSON.stringify({ status: refused.status, rb }));
+    await page.evaluate(() => { try { sessionStorage.clear(); } catch { /* */ } });
+    await boot();
+    await page.waitForTimeout(3000);
+    chk(!(await state(page)).bubble && await page.evaluate(() => ASB.hosted === false), 'H13 and no bubble is drawn');
+
+    chk(MARK_WORKS && !fs.existsSync(RAN), 'H12 the connector never ran (CONTROL: run by hand at the start, it leaves its mark)', JSON.stringify({ MARK_WORKS }));
     chk(badResponses.length === 0, 'H11 no failed resource other than the refusals the check asked for', badResponses.join(' | '));
     chk(errs.length === 0, 'H11 no page errors', errs.join(' | '));
   } finally {

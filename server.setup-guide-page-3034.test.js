@@ -266,3 +266,13 @@ test('#3660: the bundled picture of Josh is served as a JPEG, and a neighbouring
   assert.equal(miss.status, 404);
   await miss.text();
 });
+
+test('#3660: the hosted assistant is offered only before the person has a model of their own', () => {
+  const none = () => ({ rows: [] });
+  const one = () => ({ rows: [{ provider: 'anthropic', dir: '/x' }] });
+  assert.equal(setupAssistant.hostedOffered({ available: () => true, listed: none }), true, 'a new install with a connector was not offered it');
+  // The dangerous answer: an install that already has its own model (no guide yet) must not use Kosmos's key.
+  assert.equal(setupAssistant.hostedOffered({ available: () => true, listed: one }), false, 'offered to someone with their own model');
+  assert.equal(setupAssistant.hostedOffered({ available: () => false, listed: none }), false, 'offered without a connector');
+  assert.equal(setupAssistant.hostedOffered({ available: () => true, listed: () => { throw new Error('unreadable'); } }), false, 'an unreadable model list offered it');
+});

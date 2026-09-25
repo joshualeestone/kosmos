@@ -54190,6 +54190,8 @@ let ASB = { started: false, guide: null, setting: null, open: false, asking: fal
      conversation lives on this page for the session: there is no agent thread to hold it. */
   hosted: false, hostedOff: false, hmsgs: null, remaining: null };
 const ASB_HOSTED_KEY = 'kosmos.asb.hosted.v1';
+const ASB_HOSTED_OFF_KEY = 'kosmos.asb.hosted-off.v1';
+try { if (sessionStorage.getItem(ASB_HOSTED_OFF_KEY) === '1') ASB.hostedOff = true; } catch { /* not remembered: said once more */ }
 const ASB_HOSTED_AVATAR = '/icons/setup-guide-avatar.jpg';
 function asbHostedMsgs() {
   if (!ASB.hmsgs) {
@@ -54336,7 +54338,7 @@ function asbPaint() {
   const src = row ? asbAvatar(row) : ASB_HOSTED_AVATAR;
   const note = document.querySelector('#asp .asp-note');
   const words = row ? 'An AI that knows Kosmos, in Josh\'s voice. Josh isn\'t typing live.'
-    : 'An AI in Josh\'s voice, on Kosmos\'s own AI until you connect yours. Josh isn\'t typing live.';
+    : 'An AI in Josh\'s voice, running on Kosmos until you connect your own AI. Josh isn\'t typing live.';
   if (note && note.textContent !== words) note.textContent = words;
   for (const img of [bub.querySelector('img'), panel.querySelector('.asp-h img')]) if (img.getAttribute('src') !== src) img.setAttribute('src', src);
   panel.hidden = !ASB.open;
@@ -54366,6 +54368,7 @@ async function asbConfirmGuide({ forgetLater = false } = {}) {
   if (r.ok && b && b.ok && typeof b.name === 'string') {
     if (ASB.guide && b.name.toLowerCase() === String(ASB.guide).toLowerCase()) return true;
   } else if (!(b && (b.reason === 'none' || b.reason === 'not-guide'))) return !!ASB.guide;
+  if (b && b.reason === 'none') ASB.hosted = b.hosted === true;   // the hosted assistant stands in at once, no blink
   if (forgetLater) setTimeout(asbForgetGuide, 4000); else asbForgetGuide();
   return false;
 }
@@ -54537,12 +54540,21 @@ async function asbHostedSend(text) {
   msg.textContent = '';
   hm.push({ role: 'user', content: text });
   asbPaintThread(hm.map((m) => ({ from: m.role === 'user' ? 'you' : 'hosted', text: m.content })), 'hosted');
+  /* An answer can take a while (a model, and a retry): say so in the chat, where they are looking. */
+  const th = document.getElementById('asp-th');
+  const wait = document.createElement('div');
+  wait.className = 'asp-m him asp-wait'; wait.textContent = 'Thinking\u2026';
+  th.appendChild(wait); th.scrollTop = th.scrollHeight;
   let r = null, b = null;
   try {
+    /* The screen only: the route keeps nothing else, and the names of their agents and projects never need
+       to leave the page for it. Seven turns, starting and ending with theirs (the contract's usable window). */
     r = await fetch('/api/setup-guide/hosted', { method: 'POST', headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ messages: hm.slice(-8), page: asbScreen() }) });
+      body: JSON.stringify({ messages: hm.slice(-7), page: { screen: asbScreen().screen } }) });
     b = await r.json().catch(() => null);
   } catch { r = null; }
+  wait.remove();
+  ASB.shown = '';   // the thread is painted again below, from the conversation, whatever it showed while waiting
   if (r && r.ok && b && typeof b.reply === 'string' && b.reply) {
     hm.push({ role: 'assistant', content: b.reply });
     asbHostedKeep();
@@ -54556,7 +54568,13 @@ async function asbHostedSend(text) {
     msg.textContent = pjSentence((b && b.error) || 'we could not reach the setup assistant just now; try again in a moment');
     if (r && r.status === 501) {
       /* Long enough to read, with nothing more to send, then gone for the session. */
-      setTimeout(() => { ASB.hostedOff = true; ASB.open = false; ASB.sending = false; document.getElementById('asp-send').disabled = false; asbPaint(); asbPaintSetting(); }, 6000);
+      try { sessionStorage.setItem(ASB_HOSTED_OFF_KEY, '1'); } catch { /* this page still knows */ }
+      setTimeout(() => {
+        const hadFocus = !!document.activeElement && !!document.activeElement.closest('#asblayer');
+        ASB.hostedOff = true; ASB.open = false; ASB.sending = false; document.getElementById('asp-send').disabled = false;
+        asbPaint(); asbPaintSetting();
+        if (hadFocus) asbFocusPage();   // the keyboard goes back to the page, not nowhere
+      }, 6000);
       asbPaintThread(hm.map((m) => ({ from: m.role === 'user' ? 'you' : 'hosted', text: m.content })), 'hosted');
       return;
     }
@@ -54639,7 +54657,10 @@ async function asbFind() {
   }
   ASB.guide = guide;
   /* A guide now exists: the bubble talks to it. The hosted conversation stays behind; it was another assistant. */
-  if (ASB.hosted) { ASB.hosted = false; ASB.heard = null; ASB.shown = ''; ASB.readOnce = false; ASB.lastPoll = 0; }
+  if (ASB.hosted) {
+    ASB.hosted = false; ASB.heard = null; ASB.shown = ''; ASB.readOnce = false; ASB.lastPoll = 0; ASB.remaining = null;
+    const pm = document.getElementById('asp-msg'); if (pm) pm.textContent = '';   // an allowance or a refusal was the hosted one's
+  }
   ASB.finding = false;
   asbLayerEnsure();
   await asbReadSetting();

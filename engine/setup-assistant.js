@@ -307,6 +307,15 @@ function listedModels({ listFor = (mod) => require(mod).list() } = {}) {
   return { rows, fingerprint: rows.map((r) => `${r.provider}:${r.dir}:${r.authMode || ''}:${r.who}`).join('|') };
 }
 
+/* #3660: whether the bubble may use the hosted assistant (Kosmos's own model) here. Only BEFORE the person
+   has any model of their own: rule 7 on #3660 is that once they connect theirs the hosted path is not used,
+   and an install that already has a model but no guide (one from before the guide, a guide removed, both
+   names taken) must not spend the shared allowance on Kosmos's key. And only where a connector is at a
+   real path (remote.hostedAvailable), so a source checkout or a check sandbox never offers it. */
+function hostedOffered({ available = () => require('./remote').hostedAvailable(), listed = () => listedModels() } = {}) {
+  try { return available() === true && listed().rows.length === 0; } catch { return false; }
+}
+
 /* Could a guide run on this listed account? create's own gate, plus the default-key check
    above. A live check that errors is uncertainty, not a refusal (create's own rule). */
 async function usable(row, { connectable = (q) => create.accountConnectable(q), liveDefault = defaultLive } = {}) {
@@ -472,6 +481,7 @@ module.exports = {
   armPath,
   armSetupAssistant,
   listedModels,
+  hostedOffered,
   usable,
   RETRY_AFTER_MS,
   RETRY_MAX_MS,

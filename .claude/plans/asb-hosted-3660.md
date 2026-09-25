@@ -25,6 +25,19 @@ checkout and every browser-check sandbox show no bubble, as before.
 - The allowance is shown only at 5 or fewer, so it is not a meter on every answer.
 - The picture is served from the /icons allowlist as image/jpeg.
 
+## Review iteration 1 (fixed)
+- BLOCKER: hosted must also mean no model of their own (#3660 rule 7). Every install from before the guide has no
+  guide but has a model. It is now setupAssistant.hostedOffered: a connector AND listedModels() empty. It is used by
+  the GET and by the POST, which refuses 409 own_model. H13 and unit arms cover it; the check has its own
+  AGENT_WORKFORCE_HOME so it never reads this Mac's accounts.
+- The 501 hands focus back to the page, and it is remembered for the session (sessionStorage). H9 and H9b cover it.
+- On the move to a guide, the hosted allowance or refusal line is cleared (H8).
+- NITs taken: a Thinking line while it answers (H3); only { screen } is sent (H3); 7 turns; no blink when a guide
+  goes (confirmGuide reads hosted); the copy is "running on Kosmos until you connect your own AI"; turns alternate
+  after a refusal (H5b); H6 waits, then asserts; H12 has a positive control.
+- NIT left: the page hard-codes the .jpg. The engine allows other extensions, but the shipped file is the .jpg, and
+  engine.setup-assistant-3034 pins that one ships.
+
 ## Weakest premise
 That the connector ships with the page. It does: it is in the same bundle (app/bin), and the 0.6.94 cut carries the
 rebuilt one. A board on an old connector sees the 501 path once per session.

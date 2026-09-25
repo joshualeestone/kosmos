@@ -13723,8 +13723,9 @@ const server = http.createServer((req, res) => {
        logged by the browser as a failed resource on every page load (it failed every "no page errors"
        check). So it is 200 { ok: false, reason: 'none' }; only a refusal (409) keeps its status. */
     /* `hosted`: no guide, but the setup assistant can run on Kosmos's own model here (#3660), so the bubble
-       shows and talks to /api/setup-guide/hosted. False in a checkout or a sandbox (remote.hostedAvailable). */
-    if (!found.ok && found.reason === 'none') { sendJson(res, 200, { ok: false, reason: 'none', error: found.error, hosted: require('./engine/remote').hostedAvailable() }); return; }
+       shows and talks to /api/setup-guide/hosted. False once they have a model of their own, and in a checkout
+       or a sandbox (setupAssistant.hostedOffered). */
+    if (!found.ok && found.reason === 'none') { sendJson(res, 200, { ok: false, reason: 'none', error: found.error, hosted: require('./engine/setup-assistant').hostedOffered() }); return; }
     if (!found.ok) { sendJson(res, found.status, { error: found.error, reason: found.reason }); return; }
     sendJson(res, 200, { ok: true, name: found.name });
     return;
@@ -13740,6 +13741,12 @@ const server = http.createServer((req, res) => {
    * a guide agent exists on their own model, the bubble talks to that instead.
    */
   if (pathname === '/api/setup-guide/hosted' && req.method === 'POST') {
+    /* The same test the bubble is shown by, so the route cannot be used past it (a model connected, a checkout). */
+    if (!require('./engine/setup-assistant').hostedOffered()) {
+      req.resume();
+      sendJson(res, 409, { error: 'you have your own AI connected now, so the setup assistant runs on that', code: 'own_model' });
+      return;
+    }
     readBody(req)
       .then(async (buf) => {
         let body;
