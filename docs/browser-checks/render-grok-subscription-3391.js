@@ -1,4 +1,4 @@
-// Browser-check-surface: acct-grok-flow acct-grok-pick acct-grok-sub-go fr-grok-sub data-grok-reauth
+// Browser-check-surface: acct-grok-flow acct-grok-pick acct-grok-sub-go fr-grok-sub-step data-grok-reauth
 'use strict';
 /**
  * kosmos#3391 part 2: a Grok SUBSCRIPTION sign-in, started from Settings > AI Models and from
@@ -12,8 +12,9 @@
  *     Stop and closing the dialog both cancel on the engine, and a late answer paints nothing;
  *   - a row's Sign in again opens straight onto the sign-in with that account's reauthDir, and
  *     a fresh "+ Add a provider" afterwards is not a sign-in again;
- *   - first run: Grok's box offers the sign-in; closing the box cancels it; connected closes
- *     the box, names the account and leaves Gemini's row as it was.
+ *   - first run (#3731, GPT's flow in Grok's own panel): the choice, then the sign-in starts at
+ *     once; the key, another provider or leaving the step cancels it; connected closes the panel,
+ *     names the account and leaves Gemini's row as it was.
  *
  *   NODE_PATH="$HOME/work/pw-runtime/node_modules" HEADED=0 node docs/browser-checks/render-grok-subscription-3391.js
  */
@@ -80,6 +81,8 @@ const chk = (ok, label, extra) => {
         return enc(window.__status);
       }
       if (/\/api\/accounts\/(gemini|grok)\/apikey$/.test(u)) return enc({ error: 'that does not look like a key' }, 400);
+      // #3731: both tools are installed here; the install itself is render-firstrun-keyed-connect-3658.js's.
+      if (/\/api\/runners(\?|$)/.test(u)) return enc({ runners: { gemini: { present: true }, grok: { present: true } } });
       if (/\/api\/accounts(\?|$)/.test(u)) return enc({ accounts: window.__accounts.slice() });
       return enc({});
     };
@@ -185,19 +188,19 @@ const chk = (ok, label, extra) => {
     install: !document.getElementById('acct-keyed-install').hidden, ask: document.getElementById('acct-keyed-install-t').textContent,
     grok: !document.getElementById('acct-grok-flow').hidden }));
   // #3713: Kosmos installs grok now, so a sign-in that finds none opens the download box in its place.
-  chk(miss.install && /xAI's Grok CLI/.test(miss.ask) && !miss.grok && !/cannot install/.test(miss.msg),
+  chk(miss.install && miss.ask === 'In order to connect to xAI Grok we need to download the installer.' && !miss.grok && !/cannot install/.test(miss.msg),
     '#3713 a sign-in that finds no grok opens the download box in its place', JSON.stringify(miss));
-  await q(() => { window.__startAnswer = null; acctPick('xai'); document.getElementById('acct-grok-pick-sub').click(); });
-  await q(() => new Promise((r) => setTimeout(r, 50)));
   // #3713 review pass 2: on Windows Kosmos does not install grok, so the same answer must not promise a download.
+  // (#3731: "Sign in with Grok" starts the sign-in itself, so the answer is staged before it.)
   await q(() => {
     document.querySelector('meta[name="kosmos-platform"]').content = 'win32';
     window.__startAnswer = [400, { needsRunner: true, error: 'we could not find the Grok runner' }];
-    document.getElementById('acct-grok-sub-go').click();
+    acctPick('xai');
+    document.getElementById('acct-grok-pick-sub').click();
   });
   await q(() => new Promise((r) => setTimeout(r, 50)));
   const winMiss = await q(() => ({ msg: document.getElementById('acct-grok-msg').textContent, go: document.getElementById('acct-grok-sub-go').disabled }));
-  chk(/cannot install it on Windows yet/.test(winMiss.msg) && !/offer to download/.test(winMiss.msg) && !winMiss.go,
+  chk(/cannot connect xAI Grok on Windows yet/.test(winMiss.msg) && !/offer to/.test(winMiss.msg) && !winMiss.go,
     '#3713 on Windows, a missing grok is said plainly, with no promise of a download', JSON.stringify(winMiss));
   await q(() => { window.__startAnswer = null; document.querySelector('meta[name="kosmos-platform"]').content = '__KOSMOS_PLATFORM__'; });
 
@@ -295,7 +298,7 @@ const chk = (ok, label, extra) => {
   chk(fresh.pickShown && fresh.starts.length === 1 && !('reauthDir' in fresh.starts[0]) && fresh.title !== 'Sign in again',
     'a fresh "+ Add a provider" afterwards is a new sign-in, not a sign-in again', JSON.stringify(fresh));
 
-  /* ---------------- first run ---------------- */
+  /* ---------------- first run (#3731: Grok's own panel, GPT's flow) ---------------- */
   await q(async () => {
     window.__accounts = [{ provider: 'google', providerName: 'Gemini', dir: '/h/.gemini-work1', keyTail: 'ab12', authMode: 'apikey', connection: { state: 'connected' } }];
     const fr = document.getElementById('firstrun'); if (fr) fr.hidden = false;
@@ -304,58 +307,60 @@ const chk = (ok, label, extra) => {
   });
   const fr1 = await q(async () => {
     document.getElementById('fr-grok-connect').click();
-    await new Promise((r) => setTimeout(r, 120));
-    return { box: !document.getElementById('fr-apikey-flow').hidden, sub: !document.getElementById('fr-grok-sub').hidden,
-      head: document.getElementById('fr-apikey-t').textContent, gemini: document.getElementById('fr-gemini-connect').textContent.trim(),
+    await new Promise((r) => setTimeout(r, 200));
+    return { pick: !document.getElementById('fr-grok-pick').hidden, gemini: document.getElementById('fr-gemini-connect').textContent.trim(),
       focus: document.activeElement && document.activeElement.id };
   });
-  chk(fr1.focus === 'fr-grok-sub-go', 'first run: Grok\'s box puts focus on its sign-in, the first thing in it', JSON.stringify({ focus: fr1.focus }));
-  chk(fr1.box && fr1.sub && /Sign in with your Grok subscription, or paste an xAI API key/.test(fr1.head),
-    'first run: Grok\'s box offers the subscription sign-in beside the key', JSON.stringify(fr1));
+  chk(fr1.pick && fr1.focus === 'fr-grok-pick-sub', 'first run: with grok installed, Grok\'s Connect shows the choice, focus on Sign in with Subscription', JSON.stringify(fr1));
   chk(/Connected/.test(fr1.gemini), 'CONTROL: Gemini is connected before the Grok sign-in', JSON.stringify(fr1));
 
   const frSwitch = await q(async () => {
     window.__cancels.length = 0;
     window.__starts.length = 0;
     window.__status = { state: 'awaiting-code', userCode: 'CCCC-DDDD' };
-    document.getElementById('fr-grok-sub-go').click();
+    document.getElementById('fr-grok-pick-sub').click();
     await new Promise((r) => setTimeout(r, 50));
     await window.__tick();
-    const code = document.getElementById('fr-grok-sub-code').textContent;
-    return { code, starts: window.__starts.slice() };
+    return { code: document.getElementById('fr-grok-sub-code').textContent, starts: window.__starts.slice(),
+      msg: document.getElementById('fr-grok-msg').textContent };
   });
-  chk(frSwitch.starts.length === 1 && !('reauthDir' in frSwitch.starts[0]) && /CCCC-DDDD/.test(frSwitch.code),
-    'first run\'s sign-in starts as a new account and shows its code', JSON.stringify(frSwitch));
+  chk(frSwitch.starts.length === 1 && !('reauthDir' in frSwitch.starts[0]) && /CCCC-DDDD/.test(frSwitch.code) && /Confirm the code/.test(frSwitch.msg),
+    'first run\'s sign-in starts at once as a new account and shows its code', JSON.stringify(frSwitch));
 
-  // The key's own answer survives the sign-in's poll: the two write different lines.
-  const lines = await q(async () => {
-    document.getElementById('fr-apikey-key').value = '';
-    document.getElementById('fr-apikey-go').click();
-    await new Promise((r) => setTimeout(r, 50));
-    const keySaid = document.getElementById('fr-apikey-msg').textContent;
-    await window.__tick();
-    return { keySaid, keyAfter: document.getElementById('fr-apikey-msg').textContent, subSaid: document.getElementById('fr-grok-sub-msg').textContent };
-  });
-  chk(lines.keySaid === 'Paste the key first.' && lines.keyAfter === lines.keySaid && /Confirm the code/.test(lines.subSaid),
-    'first run: the sign-in\'s progress has its own line and does not wipe the key\'s answer', JSON.stringify(lines));
-
-  // Close and reopen Grok's box: the sign-in in flight is cancelled on the engine.
-  const frClose = await q(async () => {
+  // Choosing the key instead ends the sign-in on the engine (the two cannot both be open).
+  const toKey = await q(async () => {
     window.__cancels.length = 0;
-    document.getElementById('fr-grok-connect').click();   // a second press closes the box
-    await new Promise((r) => setTimeout(r, 120));
-    return { cancels: window.__cancels.slice(), box: !document.getElementById('fr-apikey-flow').hidden, polls: window.__polls.size };
+    document.getElementById('fr-grok-connect').click();
+    await new Promise((r) => setTimeout(r, 200));
+    document.getElementById('fr-grok-pick-key').click();
+    await new Promise((r) => setTimeout(r, 50));
+    return { cancels: window.__cancels.slice(), polls: window.__polls.size, key: !document.getElementById('fr-grok-flow').hidden,
+      step: !document.getElementById('fr-grok-sub-step').hidden };
   });
-  chk(frClose.cancels.length === 1 && !frClose.box && frClose.polls === 0,
-    'first run: closing Grok\'s box ends its sign-in on the engine', JSON.stringify(frClose));
+  chk(toKey.cancels.length === 1 && toKey.polls === 0 && toKey.key && !toKey.step, 'first run: choosing the key ends a sign-in in flight on the engine', JSON.stringify(toKey));
 
-  // Leaving the step (no close) ends the sign-in at the next poll.
+  // Opening another provider collapses Grok's panel and ends its sign-in on the engine.
+  const frClose = await q(async () => {
+    window.__status = { state: 'awaiting-code', userCode: 'CCCC-DDDD' };
+    document.getElementById('fr-grok-connect').click();
+    await new Promise((r) => setTimeout(r, 200));
+    document.getElementById('fr-grok-pick-sub').click();
+    await new Promise((r) => setTimeout(r, 50));
+    window.__cancels.length = 0;
+    document.getElementById('fr-openai-connect').click();
+    await new Promise((r) => setTimeout(r, 200));
+    return { cancels: window.__cancels.slice(), step: !document.getElementById('fr-grok-sub-step').hidden, polls: window.__polls.size };
+  });
+  chk(frClose.cancels.length === 1 && !frClose.step && frClose.polls === 0,
+    'first run: opening another provider closes Grok\'s panel and ends its sign-in on the engine', JSON.stringify(frClose));
+
+  // Leaving the step ends the sign-in (the panel closes with it).
   const frLeave = await q(async () => {
     document.getElementById('fr-grok-connect').click();
-    await new Promise((r) => setTimeout(r, 120));
+    await new Promise((r) => setTimeout(r, 200));
     window.__cancels.length = 0;
     window.__status = { state: 'awaiting-code', userCode: 'EEEE-FFFF' };
-    document.getElementById('fr-grok-sub-go').click();
+    document.getElementById('fr-grok-pick-sub').click();
     await new Promise((r) => setTimeout(r, 50));
     const id = 'sess' + window.__starts.length;
     frGo(6);
@@ -367,11 +372,11 @@ const chk = (ok, label, extra) => {
   });
   chk(frLeave.cancels.includes(frLeave.id) && frLeave.polls === 0, 'first run: leaving the model step ends a sign-in in flight', JSON.stringify(frLeave));
 
-  // First run's own words when its repaint throws (review pass 6: the texts are per caller).
+  // First run's own words when its repaint throws (the texts are per caller).
   const frThrown = await q(async () => {
     document.getElementById('fr-grok-connect').click();
-    await new Promise((r) => setTimeout(r, 120));
-    document.getElementById('fr-grok-sub-go').click();
+    await new Promise((r) => setTimeout(r, 200));
+    document.getElementById('fr-grok-pick-sub').click();
     await new Promise((r) => setTimeout(r, 50));
     const real = window.frPaintKeyed;
     window.frPaintKeyed = async () => { throw new Error('repaint failed'); };
@@ -379,34 +384,33 @@ const chk = (ok, label, extra) => {
     await window.__tick();
     await new Promise((r) => setTimeout(r, 50));
     window.frPaintKeyed = real;
-    // What the person can SEE: the box is closed by now, so its own line would be invisible.
-    const line = document.getElementById('fr-apikey-msg');
-    const out = { msg: line.textContent, visible: line.getClientRects().length > 0 };
-    document.getElementById('fr-apikey-flow').hidden = true; FR_APIKEY_WHICH = null; frApikeyExpanded(null);
-    return out;
+    const line = document.getElementById('fr-grok-msg');
+    return { msg: line.textContent, visible: line.getClientRects().length > 0, step: !document.getElementById('fr-grok-sub-step').hidden };
   });
-  chk(frThrown.visible && frThrown.msg === 'Grok is connected (me@example.com). This screen could not update the Grok row; Grok will show as connected in Settings, AI Models.',
+  chk(frThrown.visible && !frThrown.step && frThrown.msg === 'Grok is connected (me@example.com). This screen could not update the Grok row; Grok will show as connected in Settings, AI Models.',
     'first run: a repaint that throws after connected is said on the line that stays on screen', JSON.stringify(frThrown));
 
   const frDone = await q(async () => {
     document.getElementById('fr-grok-connect').click();
-    await new Promise((r) => setTimeout(r, 120));
-    document.getElementById('fr-grok-sub-go').click();
+    await new Promise((r) => setTimeout(r, 200));
+    window.__cancels.length = 0;
+    document.getElementById('fr-grok-pick-sub').click();
     await new Promise((r) => setTimeout(r, 50));
     window.__accounts.push({ provider: 'xai', providerName: 'Grok', email: 'me@example.com', dir: '/h/.grok-work1', authMode: 'subscription', connection: { state: 'connected', badge: 'signed_in_unverified' } });
     window.__status = { state: 'connected', account: { provider: 'xai', email: 'me@example.com', authMode: 'subscription', dir: '/h/.grok-work1', connection: { state: 'connected' } } };
     await window.__tick();
     await new Promise((r) => setTimeout(r, 120));
     return {
-      box: !document.getElementById('fr-apikey-flow').hidden,
-      msg: document.getElementById('fr-apikey-msg').textContent,
+      step: !document.getElementById('fr-grok-sub-step').hidden,
+      msg: document.getElementById('fr-grok-msg').textContent,
       grok: document.getElementById('fr-grok-connect').textContent.trim(),
       grokDisabled: document.getElementById('fr-grok-connect').disabled,
       gemini: document.getElementById('fr-gemini-connect').textContent.trim(),
+      cancels: window.__cancels.slice(),
     };
   });
-  chk(!frDone.box && frDone.msg === 'Grok is connected (me@example.com).' && /Connected/.test(frDone.grok) && frDone.grokDisabled,
-    'first run: connected closes the box, names the account and marks Grok Connected', JSON.stringify(frDone));
+  chk(!frDone.step && frDone.msg === 'Grok is connected (me@example.com).' && /Connected/.test(frDone.grok) && frDone.grokDisabled && frDone.cancels.length === 0,
+    'first run: connected closes the panel, names the account, marks Grok Connected, and cancels nothing', JSON.stringify(frDone));
   chk(/Connected/.test(frDone.gemini), 'first run: Gemini\'s row is left as it was', JSON.stringify(frDone));
 
   chk(errs.length === 0, 'no page errors', errs.join(' | '));

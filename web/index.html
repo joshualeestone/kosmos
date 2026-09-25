@@ -10524,17 +10524,17 @@ window.kosmosMeasureScrollbarWidth();
          computer, this offers to download it (pinned and verified, engine/runners.js) before
          the key or sign-in step, which then opens by itself. -->
     <div id="acct-keyed-install" hidden style="margin-top: var(--space-5);">
-      <p class="dwarn" style="margin:0 0 8px;"><b id="acct-keyed-install-t">Kosmos needs to download a small program first.</b></p>
+      <p class="dhint" id="acct-keyed-install-t" style="margin:0 0 8px;">In order to connect we need to download the installer.</p>
       <div class="frow">
-        <button class="btn uprime" id="acct-keyed-install-go" type="button" aria-describedby="acct-keyed-install-t">Download</button>
+        <button class="btn uprime" id="acct-keyed-install-go" type="button" aria-describedby="acct-keyed-install-t">Confirm</button>
       </div>
       <p class="dhint" id="acct-keyed-install-msg" role="status" aria-live="polite" style="margin:8px 0 0;"></p>
     </div>
     <div id="acct-grok-flow" hidden style="margin-top: var(--space-5);">
       <div id="acct-grok-pick">
-        <p class="dhint" style="margin:0 0 8px;">Choose how to connect Grok.</p>
+        <p class="dhint" style="margin:0 0 8px;">Choose how to connect xAI Grok.</p>
         <div class="frow">
-          <button class="btn uprime" id="acct-grok-pick-sub" type="button">Sign in with your Grok subscription</button>
+          <button class="btn uprime" id="acct-grok-pick-sub" type="button">Sign in with Grok</button>
           <button class="btn" id="acct-grok-pick-key" type="button">Use an API key</button>
         </div>
         <p class="dhint" style="margin:8px 0 0;">A Grok subscription signs in through xAI, with nothing to paste. An API key is a string you create on xAI's site.</p>
@@ -11603,54 +11603,97 @@ window.kosmosMeasureScrollbarWidth();
                      GPT, appeared inside the API-key form, then vanished again when the
                      form hid itself on success. The order test still passed, because it
                      read source order and not whether a hidden container opened in between. -->
-                <!-- #3422 (Josh's asset, 2026-09-22): the Gemini spark as a single currentColor path, NOT a fixed-id radialGradient. providerMarkNode CLONES the span below into the enhanceProviderSelect combobox; a cloned fill="url(#pmark-gemini-g)" depended on the gradient def living in the (hidden) #firstrun and collided on a duplicated id, so the cloned mark rendered blank in the settings/create picker while the monochrome currentColor marks cloned fine. currentColor also lets it dim/live with .pmark like every other provider mark. This comment is OUTSIDE the .llm row (before the div) so it is neither cloned into every combobox mark nor between the div and span, which web.connect-confirm's row regex requires to be adjacent. --><div class="llm on"><span class="llm-m pmark live" data-pmark="gemini" role="img" aria-label="Gemini"><svg viewBox="0 0 300 300" fill="currentColor" xmlns="http://www.w3.org/2000/svg"><path d="M265.9,134.3c-22.8-9.8-42.7-23.3-59.8-40.4-17.1-17.1-30.6-37-40.4-59.8-3.8-8.7-6.8-17.7-9.1-26.9-.8-3-3.5-5.1-6.6-5.1s-5.8,2.1-6.6,5.1c-2.3,9.2-5.3,18.2-9.1,26.9-9.8,22.8-23.3,42.7-40.4,59.8-17.1,17.1-37,30.6-59.8,40.4-8.7,3.8-17.7,6.8-26.9,9.1-3,.8-5.1,3.5-5.1,6.6s2.1,5.8,5.1,6.6c9.2,2.3,18.2,5.3,26.9,9.1,22.8,9.8,42.7,23.3,59.8,40.4,17.1,17.1,30.6,37,40.4,59.8,3.8,8.7,6.8,17.7,9.1,26.9.8,3,3.5,5.1,6.6,5.1s5.8-2.1,6.6-5.1c2.3-9.2,5.3-18.2,9.1-26.9,9.8-22.8,23.3-42.7,40.4-59.8,17.1-17.1,37-30.6,59.8-40.4,8.7-3.8,17.7-6.8,26.9-9.1,3-.8,5.1-3.5,5.1-6.6s-2.1-5.8-5.1-6.6c-9.2-2.3-18.2-5.3-26.9-9.1Z"/></svg></span><div class="llm-w"><b>Gemini</b><small>Google &middot; API key today</small></div><button class="connect-b" type="button" id="fr-gemini-connect" data-keyed="google" aria-expanded="false" aria-controls="fr-keyed-install fr-apikey-flow" aria-label="Connect Gemini">Connect</button></div>
+                <!-- #3422 (Josh's asset, 2026-09-22): the Gemini spark as a single currentColor path, NOT a fixed-id radialGradient. providerMarkNode CLONES the span below into the enhanceProviderSelect combobox; a cloned fill="url(#pmark-gemini-g)" depended on the gradient def living in the (hidden) #firstrun and collided on a duplicated id, so the cloned mark rendered blank in the settings/create picker while the monochrome currentColor marks cloned fine. currentColor also lets it dim/live with .pmark like every other provider mark. This comment is OUTSIDE the .llm row (before the div) so it is neither cloned into every combobox mark nor between the div and span, which web.connect-confirm's row regex requires to be adjacent. --><div class="llm on"><span class="llm-m pmark live" data-pmark="gemini" role="img" aria-label="Gemini"><svg viewBox="0 0 300 300" fill="currentColor" xmlns="http://www.w3.org/2000/svg"><path d="M265.9,134.3c-22.8-9.8-42.7-23.3-59.8-40.4-17.1-17.1-30.6-37-40.4-59.8-3.8-8.7-6.8-17.7-9.1-26.9-.8-3-3.5-5.1-6.6-5.1s-5.8,2.1-6.6,5.1c-2.3,9.2-5.3,18.2-9.1,26.9-9.8,22.8-23.3,42.7-40.4,59.8-17.1,17.1-37,30.6-59.8,40.4-8.7,3.8-17.7,6.8-26.9,9.1-3,.8-5.1,3.5-5.1,6.6s2.1,5.8,5.1,6.6c9.2,2.3,18.2,5.3,26.9,9.1,22.8,9.8,42.7,23.3,59.8,40.4,17.1,17.1,30.6,37,40.4,59.8,3.8,8.7,6.8,17.7,9.1,26.9.8,3,3.5,5.1,6.6,5.1s5.8-2.1,6.6-5.1c2.3-9.2,5.3-18.2,9.1-26.9,9.8-22.8,23.3-42.7,40.4-59.8,17.1-17.1,37-30.6,59.8-40.4,8.7-3.8,17.7-6.8,26.9-9.1,3-.8,5.1-3.5,5.1-6.6s-2.1-5.8-5.1-6.6c-9.2-2.3-18.2-5.3-26.9-9.1Z"/></svg></span><div class="llm-w"><b>Gemini</b><small>Google &middot; API key today</small></div><button class="connect-b" type="button" id="fr-gemini-connect" data-keyed="google" aria-expanded="false" aria-controls="fr-gemini-confirm fr-gemini-pick" aria-label="Connect Gemini">Connect</button></div>
+                <!-- #3731 (Josh, 0.6.94): Google Gemini connects EXACTLY like GPT, directly under its own row: install
+                     first (Confirm / Not now), then the choice, then the sign-in or the key. Same classes, same
+                     copy with the name swapped, no command-line talk. The driver is frKeyed* below. -->
+                <div id="fr-gemini-confirm" class="fr-confirm" role="group" aria-labelledby="fr-gemini-confirm-t" hidden>
+                  <p class="fr-confirm-t" id="fr-gemini-confirm-t">In order to connect to Google Gemini we need to download the installer.</p>
+                  <div class="frow">
+                    <button class="btn uprime" type="button" id="fr-gemini-confirm-go" aria-describedby="fr-gemini-confirm-t">Confirm</button>
+                    <button class="btn" type="button" id="fr-gemini-confirm-no">Not now</button>
+                  </div>
+                  <div class="fr-progress fr-indet" id="fr-gemini-confirm-bar" role="progressbar"
+                       aria-label="Installing Google Gemini" hidden><i></i></div>
+                  <p class="dhint" id="fr-gemini-confirm-msg" role="status" aria-live="polite" style="margin:8px 0 0;"></p>
+                </div>
+                <div id="fr-gemini-pick" hidden class="fr-confirm" role="group" aria-labelledby="fr-gemini-pick-t">
+                  <p class="fr-confirm-t" id="fr-gemini-pick-t">Download complete. Choose how to connect Google Gemini.</p>
+                  <div class="frow" style="margin-top:8px;">
+                    <button class="btn uprime" id="fr-gemini-pick-sub" type="button">Sign in with Subscription</button>
+                    <button class="btn" id="fr-gemini-pick-key" type="button">Use an API key</button>
+                  </div>
+                </div>
+                <div id="fr-gemini-sub-step" hidden class="fr-confirm" role="group" aria-labelledby="fr-gemini-sub-t">
+                  <p class="fr-confirm-t" id="fr-gemini-sub-t"><b>Sign in with your Google subscription.</b> Kosmos opens Google's sign-in in your browser and never sees your password. Your agents then run on your own subscription, on this computer.</p>
+                  <div class="frow" style="margin-top:12px;">
+                    <button class="btn uprime" id="fr-gemini-sub-go" type="button">Sign in with Google</button>
+                  </div>
+                  <div class="frow" id="fr-gemini-sub-open-row" hidden style="margin-top:8px;">
+                    <a class="btn" id="fr-gemini-sub-open" href="#" target="_blank" rel="noopener">Open the sign-in page</a>
+                  </div>
+                  <p class="dhint" id="fr-gemini-sub-code" role="status" aria-live="polite" hidden style="margin:8px 0 0;"></p>
+                  <div class="frow" id="fr-gemini-sub-cancel-row" hidden style="margin-top:8px;"><button class="btn" id="fr-gemini-sub-cancel" type="button">Stop this sign-in</button></div>
+                </div>
+                <div id="fr-gemini-flow" hidden class="fr-confirm">
+                  <p class="fr-confirm-t" id="fr-gemini-key-t">Download complete. You will need a Google API key to finish. A key is a bit like a password that Google issues for this computer. Getting one takes about 2 minutes on their site and you paste it here once you are done.</p>
+                  <div class="frow"><a class="btn" id="fr-gemini-getkey" href="https://aistudio.google.com/app/apikey" target="_blank" rel="noopener">Get a key</a></div>
+                  <p class="fr-confirm-t" id="fr-gemini-key-back" style="margin-top:8px;">Then come back and paste it here.</p>
+                  <div class="frow">
+                    <input type="password" id="fr-gemini-key" autocomplete="new-password" spellcheck="false"
+                           aria-label="Google Gemini API key" placeholder="AIza…">
+                    <button class="btn uprime" id="fr-gemini-go" type="button">Add</button>
+                  </div>
+                </div>
+                <div class="dhint" id="fr-gemini-msg" role="status" aria-live="polite"></div>
                 <!-- #3386 (Josh, 2026-09-21): Grok shown up front, right under Gemini. #3708: the
                      real Grok mark (from grok.com's own header logo, recorded in
                      docs/provider-marks/manifest.md), and each subtitle says what works today:
                      each names how it connects: Grok by subscription (#3391) or key, Gemini by key only
                      (its subscription path, #3568, is not live). -->
-                <div class="llm on"><span class="llm-m pmark live" data-pmark="xai" role="img" aria-label="Grok"><svg viewBox="0 0 34 33" fill="currentColor" xmlns="http://www.w3.org/2000/svg"><path d="M13.2371 21.0407L24.3186 12.8506C24.8619 12.4491 25.6384 12.6057 25.8973 13.2294C27.2597 16.5185 26.651 20.4712 23.9403 23.1851C21.2297 25.8989 17.4581 26.4941 14.0108 25.1386L10.2449 26.8843C15.6463 30.5806 22.2053 29.6665 26.304 25.5601C29.5551 22.3051 30.562 17.8683 29.6205 13.8673L29.629 13.8758C28.2637 7.99809 29.9647 5.64871 33.449 0.844576C33.5314 0.730667 33.6139 0.616757 33.6964 0.5L29.1113 5.09055V5.07631L13.2343 21.0436" fill="currentColor"/><path d="M10.9503 23.0313C7.07343 19.3235 7.74185 13.5853 11.0498 10.2763C13.4959 7.82722 17.5036 6.82767 21.0021 8.2971L24.7595 6.55998C24.0826 6.07017 23.215 5.54334 22.2195 5.17313C17.7198 3.31926 12.3326 4.24192 8.67479 7.90126C5.15635 11.4239 4.0499 16.8403 5.94992 21.4622C7.36924 24.9165 5.04257 27.3598 2.69884 29.826C1.86829 30.7002 1.0349 31.5745 0.36364 32.5L10.9474 23.0341" fill="currentColor"/></svg></span><div class="llm-w"><b>Grok</b><small>xAI &middot; subscription or API key today</small></div><button class="connect-b" type="button" id="fr-grok-connect" data-keyed="xai" aria-expanded="false" aria-controls="fr-keyed-install fr-apikey-flow" aria-label="Connect Grok">Connect</button></div>
-                <!-- #3658 (Josh, 2026-09-24 17:46): Gemini and Grok connect HERE, with the same gold
-                     Connect as Claude and GPT, instead of the old later-in-Settings pill and pointer.
-                     One box shared by both, a first-run mirror of Settings' #acct-apikey-flow
-                     (same POST /api/accounts/{gemini|grok}/apikey, same ACCT_APIKEY_PROVIDERS), the
-                     way #fr-openai-flow mirrors #acct-openai-flow. Grok's box ALSO offers its subscription
-                     sign-in (#fr-grok-sub, from #3391 part 2); Gemini is a key only, since there is
-                     no Gemini sign-in to start (open card: #3568), and a button that dead-ends is
-                     worse than none. #3713: when the command-line tool a provider runs on is not on
-                     this computer, #fr-keyed-install offers to download it first (Kosmos installs it,
-                     pinned and verified, engine/runners.js), then this box opens. The "Runs on this
-                     computer" subheading is gone too: one uninterrupted list, in PROVIDER_ORDER. -->
-                <div id="fr-keyed-install" class="fr-confirm" role="group" aria-labelledby="fr-keyed-install-t" hidden>
-                  <p class="fr-confirm-t" id="fr-keyed-install-t">Kosmos needs to download a small program first.</p>
+                <div class="llm on"><span class="llm-m pmark live" data-pmark="xai" role="img" aria-label="Grok"><svg viewBox="0 0 34 33" fill="currentColor" xmlns="http://www.w3.org/2000/svg"><path d="M13.2371 21.0407L24.3186 12.8506C24.8619 12.4491 25.6384 12.6057 25.8973 13.2294C27.2597 16.5185 26.651 20.4712 23.9403 23.1851C21.2297 25.8989 17.4581 26.4941 14.0108 25.1386L10.2449 26.8843C15.6463 30.5806 22.2053 29.6665 26.304 25.5601C29.5551 22.3051 30.562 17.8683 29.6205 13.8673L29.629 13.8758C28.2637 7.99809 29.9647 5.64871 33.449 0.844576C33.5314 0.730667 33.6139 0.616757 33.6964 0.5L29.1113 5.09055V5.07631L13.2343 21.0436" fill="currentColor"/><path d="M10.9503 23.0313C7.07343 19.3235 7.74185 13.5853 11.0498 10.2763C13.4959 7.82722 17.5036 6.82767 21.0021 8.2971L24.7595 6.55998C24.0826 6.07017 23.215 5.54334 22.2195 5.17313C17.7198 3.31926 12.3326 4.24192 8.67479 7.90126C5.15635 11.4239 4.0499 16.8403 5.94992 21.4622C7.36924 24.9165 5.04257 27.3598 2.69884 29.826C1.86829 30.7002 1.0349 31.5745 0.36364 32.5L10.9474 23.0341" fill="currentColor"/></svg></span><div class="llm-w"><b>Grok</b><small>xAI &middot; subscription or API key today</small></div><button class="connect-b" type="button" id="fr-grok-connect" data-keyed="xai" aria-expanded="false" aria-controls="fr-grok-confirm fr-grok-pick" aria-label="Connect Grok">Connect</button></div>
+                <!-- #3731 (Josh, 0.6.94): xAI Grok connects EXACTLY like GPT, directly under its own row: install
+                     first (Confirm / Not now), then the choice, then the sign-in or the key. Same classes, same
+                     copy with the name swapped, no command-line talk. The driver is frKeyed* below. -->
+                <div id="fr-grok-confirm" class="fr-confirm" role="group" aria-labelledby="fr-grok-confirm-t" hidden>
+                  <p class="fr-confirm-t" id="fr-grok-confirm-t">In order to connect to xAI Grok we need to download the installer.</p>
                   <div class="frow">
-                    <button class="btn uprime" type="button" id="fr-keyed-install-go" aria-describedby="fr-keyed-install-t">Download</button>
-                    <button class="btn" type="button" id="fr-keyed-install-no">Not now</button>
+                    <button class="btn uprime" type="button" id="fr-grok-confirm-go" aria-describedby="fr-grok-confirm-t">Confirm</button>
+                    <button class="btn" type="button" id="fr-grok-confirm-no">Not now</button>
                   </div>
-                  <div class="fr-progress fr-indet" id="fr-keyed-install-bar" role="progressbar"
-                       aria-label="Downloading" hidden><i></i></div>
-                  <p class="dhint" id="fr-keyed-install-msg" role="status" aria-live="polite" style="margin:8px 0 0;"></p>
+                  <div class="fr-progress fr-indet" id="fr-grok-confirm-bar" role="progressbar"
+                       aria-label="Installing xAI Grok" hidden><i></i></div>
+                  <p class="dhint" id="fr-grok-confirm-msg" role="status" aria-live="polite" style="margin:8px 0 0;"></p>
                 </div>
-                <div id="fr-apikey-flow" hidden class="fr-confirm" role="group" aria-labelledby="fr-apikey-t">
-                  <p class="fr-confirm-t" id="fr-apikey-t">Paste an API key.</p>
-                  <!-- #3391 part 2: Grok can also sign in with a subscription (xAI's device
-                       sign-in: a link and a code). Shown only when the box is open for Grok;
-                       the key below stays the other way. -->
-                  <div id="fr-grok-sub" hidden>
-                    <div class="frow"><button class="btn uprime" id="fr-grok-sub-go" type="button">Sign in with Grok</button></div>
-                    <div class="frow" id="fr-grok-sub-open-row" hidden style="margin-top:8px;"><a class="btn" id="fr-grok-sub-open" href="#" target="_blank" rel="noopener">Open the sign-in page</a></div>
-                    <p class="dhint" id="fr-grok-sub-code" hidden style="margin:8px 0 0;"></p>
-                    <div class="frow" id="fr-grok-sub-cancel-row" hidden style="margin-top:8px;"><button class="btn" id="fr-grok-sub-cancel" type="button">Stop this sign-in</button></div>
-                    <p class="dhint" id="fr-grok-sub-msg" role="status" aria-live="polite" style="margin:8px 0 0;"></p>
-                    <p class="dhint" style="margin:8px 0;">Or use an API key instead:</p>
-                  </div>
-                  <div class="frow"><a class="btn" id="fr-apikey-getkey" href="#" target="_blank" rel="noopener">Get a key</a></div>
+                <div id="fr-grok-pick" hidden class="fr-confirm" role="group" aria-labelledby="fr-grok-pick-t">
+                  <p class="fr-confirm-t" id="fr-grok-pick-t">Download complete. Choose how to connect xAI Grok.</p>
                   <div class="frow" style="margin-top:8px;">
-                    <input type="password" id="fr-apikey-key" autocomplete="new-password" spellcheck="false" aria-label="API key" placeholder="API key">
-                    <button class="btn uprime" id="fr-apikey-go" type="button">Add</button>
+                    <button class="btn uprime" id="fr-grok-pick-sub" type="button">Sign in with Subscription</button>
+                    <button class="btn" id="fr-grok-pick-key" type="button">Use an API key</button>
                   </div>
                 </div>
-                <div class="dhint" id="fr-apikey-msg" role="status" aria-live="polite"></div>
+                <div id="fr-grok-sub-step" hidden class="fr-confirm" role="group" aria-labelledby="fr-grok-sub-t">
+                  <p class="fr-confirm-t" id="fr-grok-sub-t"><b>Sign in with your Grok subscription.</b> Kosmos opens xAI's sign-in in your browser and never sees your password. Your agents then run on your own subscription, on this computer.</p>
+                  <div class="frow" style="margin-top:12px;">
+                    <button class="btn uprime" id="fr-grok-sub-go" type="button">Sign in with Grok</button>
+                  </div>
+                  <div class="frow" id="fr-grok-sub-open-row" hidden style="margin-top:8px;">
+                    <a class="btn" id="fr-grok-sub-open" href="#" target="_blank" rel="noopener">Open the sign-in page</a>
+                  </div>
+                  <p class="dhint" id="fr-grok-sub-code" role="status" aria-live="polite" hidden style="margin:8px 0 0;"></p>
+                  <div class="frow" id="fr-grok-sub-cancel-row" hidden style="margin-top:8px;"><button class="btn" id="fr-grok-sub-cancel" type="button">Stop this sign-in</button></div>
+                </div>
+                <div id="fr-grok-flow" hidden class="fr-confirm">
+                  <p class="fr-confirm-t" id="fr-grok-key-t">Download complete. You will need an xAI API key to finish. A key is a bit like a password that xAI issues for this computer. Getting one takes about 2 minutes on their site and you paste it here once you are done.</p>
+                  <div class="frow"><a class="btn" id="fr-grok-getkey" href="https://console.x.ai/" target="_blank" rel="noopener">Get a key</a></div>
+                  <p class="fr-confirm-t" id="fr-grok-key-back" style="margin-top:8px;">Then come back and paste it here.</p>
+                  <div class="frow">
+                    <input type="password" id="fr-grok-key" autocomplete="new-password" spellcheck="false"
+                           aria-label="xAI Grok API key" placeholder="xai-…">
+                    <button class="btn uprime" id="fr-grok-go" type="button">Add</button>
+                  </div>
+                </div>
+                <div class="dhint" id="fr-grok-msg" role="status" aria-live="polite"></div>
                 <div class="llm off"><span class="llm-m pmark dim" data-pmark="meta" role="img" aria-label="Meta"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 25.6 17" fill="currentColor" aria-label="Meta"><path d="M18.4 0c-2.1 0-3.8 1.6-5.3 3.6v-.1l-.1-.1-.1-.2h-.1l-.1-.2-.1-.1-.1-.1-.1-.1-.1-.1a6.4 6.4 0 0 0-.1-.1v-.1H12l-.2-.2-.1-.2h-.1l-.1-.1-.1-.1-.1-.1-.1-.1-.2-.1v-.1H11v-.1l-.2-.1h-.1l-.1-.1V1h-.2V.8h-.2V.7H10L10 .6h-.1V.5h-.1L9.6.5h-.1L9.3.3h-.2L9 .2H9L8.7.1H8.4L8.4 0h-.8V0h-.2C3.2 0 0 5.4 0 11.1 0 14.7 1.7 17 4.6 17c2.1 0 3.6-1 6.3-5.7L12.8 8l.1.2v.1h.1l.1.2.1.2.1.2.1.1.1.2.1.2.2.3 1.1 1.8c2.4 4.1 3.8 5.5 6.3 5.5 2.8 0 4.4-2.3 4.4-6 0-6-3.3-11-7.2-11ZM8.9 10c-2.2 3.5-3 4.2-4.2 4.2-1.2 0-2-1-2-3 0-4.2 2.1-8.4 4.6-8.4H8.2V3H8.5V3h.2l.1.1h.1v.1H9l.2.1v.1h.1l.1.1.1.1h.1v.1h.1l.1.1V4h.1a5.6 5.6 0 0 1 .2.3h.1v.1h.1l.1.2.1.1.1.1v.1h.1l.1.2h.1l.1.3.2.2.1.2h.1l.1.2V6L9 10Zm12.3 4.2c-1.2 0-1.8-.8-4.1-4.6l-1.5-2.5-1.2-1.8c1.3-2 2.5-3.1 3.8-3.1 2.7 0 5 4 5 9 0 2-.7 3-2 3Z"/></svg></span><div class="llm-w"><b>Llama</b><small>Meta</small></div><span class="soon">Coming soon</span></div>
                 <div class="llm off"><span class="llm-m pmark dim" data-pmark="qwen" role="img" aria-label="Qwen"><svg xmlns="http://www.w3.org/2000/svg" viewBox="218.8 129.4 354.4 354.4"><path fill="#0a2cff" d="M354.3,263.9h140.6c18,0,32.8-14.8,32.8-32.8v-10.2c0-18-14.8-32.8-32.8-32.8h-73c2.3-12.7-3.1-26.2-14.7-33.5l-8.6-5.5c-15.2-9.7-35.6-5.1-45.3,10.1l-26.2,41.2c-2.6,4.1-4.2,8.6-4.8,13.2-.5,2.4-.8,4.8-.8,7.3v10.2c0,18,14.8,32.8,32.8,32.8Z"/><path fill="#0a2cff" d="M308.6,247.6c-8.6-15.8-28.7-21.7-44.5-13.1l-9,4.9c-15.8,8.6-21.7,28.7-13.1,44.5l35,64.1c-12.2,4.1-21.5,15.3-22.4,28.9l-.7,10.2c-1.2,18,12.6,33.7,30.6,34.9l48.7,3.2c4.9.3,9.6-.5,13.9-2.1,2.3-.7,4.6-1.6,6.9-2.8l9-4.9c15.8-8.6,21.7-28.7,13.1-44.5l-67.4-123.4Z"/><path fill="#0a2cff" d="M550.8,348.4l-21.2-43.9c-2.1-4.4-5.1-8.1-8.7-11-1.7-1.7-3.7-3.3-5.8-4.6l-8.7-5.4c-15.3-9.5-35.7-4.7-45.2,10.6l-74.1,119.5c-9.5,15.3-4.7,35.7,10.6,45.2l8.7,5.4c15.3,9.5,35.7,4.7,45.2-10.6l38.5-62.1c9.6,8.6,23.9,11.1,36.2,5.2l9.2-4.5c16.2-7.8,23.1-27.5,15.3-43.8Z"/></svg></span><div class="llm-w"><b>Qwen</b><small>Alibaba</small></div><span class="soon">Coming soon</span></div>
                 <div class="llm off"><span class="llm-m pmark dim" data-pmark="mistral" role="img" aria-label="Mistral"><svg viewBox="0 0 21 15" fill="none" xmlns="http://www.w3.org/2000/svg"> <path d="M6 0H3V3H6V0Z" fill="#FFAF01"/> <path d="M6 9H3V12H6V9Z" fill="#E61300"/> <path d="M9 12H0V15H9V12Z" fill="#C4001D"/> <path d="M9 3H3V6H9V3Z" fill="#FF8204"/> <path d="M12 9H9V12H12V9Z" fill="#E61300"/> <path d="M18 6H3V9H18V6Z" fill="#FA500F"/> <path d="M18 3H12V6H18V3Z" fill="#FF8204"/> <path d="M18 0H15V3H18V0Z" fill="#FFAF01"/> <path d="M18 9H15V12H18V9Z" fill="#E61300"/> <path d="M21 12H12V15H21V12Z" fill="#C4001D"/> </svg></span><div class="llm-w"><b>Mistral</b><small>Open weights</small></div><span class="soon">Coming soon</span></div>
@@ -23495,7 +23538,7 @@ const GROK_SUB_SAY = { starting: 'Starting the sign-in…', 'awaiting-code': 'Co
    pass 2: this path kept the Mac promise on Windows). */
 function grokMissingTool() {
   return onWindows() ? keyedMissingOnWindows('xai')
-    : 'Grok runs on its own command-line tool, "grok", and it is not on this computer yet. Choose Grok again and Kosmos will offer to download it.';
+    : 'xAI Grok is not on this computer yet. Choose it again and Kosmos will offer to install it.';
 }
 function grokSubDriver(o) {
   let session = null;
@@ -23510,7 +23553,7 @@ function grokSubDriver(o) {
   function reset() {
     for (const k of ['openRow', 'code', 'cancelRow']) { const e = el(k); if (e) e.hidden = true; }
     const c = el('code'); if (c) c.textContent = '';
-    const g = el('go'); if (g) g.disabled = false;
+    const g = el('go'); if (g) { g.disabled = false; g.hidden = false; }   // #3731: hidden while a pick-started sign-in ran
   }
   function show(out) {
     const a = el('open');
@@ -23578,12 +23621,12 @@ function grokSubDriver(o) {
       });
       out = await res.json().catch(() => null);
     } catch {
-      if (mine === gen) { if (go) go.disabled = false; say('We could not reach Kosmos to start that sign-in. Try again.'); }
+      if (mine === gen) { if (go) { go.disabled = false; go.hidden = false; } say('We could not reach Kosmos to start that sign-in. Try again.'); }
       return;
     }
     if (mine !== gen) { if (res.ok && out && out.sessionId) cancelOnEngine(out.sessionId); return; }
     if (!res.ok || !out || !out.sessionId) {
-      if (go) go.disabled = false;
+      if (go) { go.disabled = false; go.hidden = false; }   // #3731: first run hides it while starting; a failed start needs its retry back
       /* #3713 (review pass 3): a missing grok on a Mac opens the caller's own download box, as
          Settings' Add does, rather than telling the person to choose Grok again (re-choosing the
          provider already chosen fires nothing). Windows, or a caller with no box, is told plainly. */
@@ -23633,12 +23676,19 @@ function acctGrokShow(which) {
   flow.hidden = false;
   document.getElementById('acct-grok-pick').hidden = again;
   document.getElementById('acct-grok-sub-step').hidden = !again;
+  document.getElementById('acct-grok-sub-go').hidden = false;   // #3731: a sign in again shows its button
   document.getElementById('acct-apikey-flow').hidden = true;   // until "Use an API key"
 }
 document.getElementById('acct-grok-pick-sub').addEventListener('click', () => {
+  /* #3731 (Josh, 0.6.94): straight to xAI's sign-in, no second screen asking to sign in again.
+     The step's own button shows again only if the start fails (the driver re-shows it). */
   document.getElementById('acct-grok-pick').hidden = true;
-  document.getElementById('acct-grok-sub-step').hidden = false;
-  document.getElementById('acct-grok-sub-go').focus();
+  const step = document.getElementById('acct-grok-sub-step');
+  step.hidden = false;
+  document.getElementById('acct-grok-sub-go').hidden = true;
+  if (!step.hasAttribute('tabindex')) step.setAttribute('tabindex', '-1');
+  step.focus();
+  ACCT_GROK_SUB.start();
 });
 document.getElementById('acct-grok-pick-key').addEventListener('click', () => {
   document.getElementById('acct-grok-flow').hidden = true;
@@ -23649,7 +23699,9 @@ document.getElementById('acct-grok-sub-go').addEventListener('click', () => ACCT
 document.getElementById('acct-grok-sub-cancel').addEventListener('click', () => {
   ACCT_GROK_SUB.leave();
   const m = document.getElementById('acct-grok-msg'); if (m) m.textContent = 'Sign-in stopped.';
-  document.getElementById('acct-grok-sub-go').focus();
+  const go = document.getElementById('acct-grok-sub-go');
+  go.hidden = false;   // #3731: hidden while a pick-started sign-in ran; stopping brings the retry back
+  go.focus();
 });
 /* Sign in again AS an existing Grok subscription account: the dialog in its sign-in-again
    chrome, straight to the sign-in; the engine moves the new sign-in over this account
@@ -23670,25 +23722,22 @@ function openAcctReauthGrok(dir, email) {
    still showing it; once it is not, the driver stops watching (the download carries on in the
    engine, and the next Connect finds it done or joins it). */
 const KEYED_RUNNER = { google: 'gemini', xai: 'grok' };
-const KEYED_TOOL = { google: "Google's Gemini CLI", xai: "xAI's Grok CLI" };
 async function keyedRunnerInfo(which) {
   try {
     const r = (((await (await fetch('/api/runners', { cache: 'no-store' })).json()) || {}).runners || {})[KEYED_RUNNER[which]];
     return r || null;
   } catch { return null; }
 }
-function keyedInstallAsk(which, info) {
-  const p = ACCT_APIKEY_PROVIDERS[which];
-  const mb = info && info.downloadBytes ? Math.max(1, Math.round(info.downloadBytes / 1e6)) : null;
-  return 'To connect ' + (p ? p.name : 'it') + ', Kosmos needs ' + KEYED_TOOL[which] + ' on this computer.'
-    + (mb ? ' It is a ' + mb + ' MB download.' : '') + ' Download it now?';
+/* #3731 (Josh): GPT's sentence, word for word, with the provider's name; no talk of what the
+   download is. `info` is kept for callers (it carried the size before). */
+const KEYED_FULL_NAME = { google: 'Google Gemini', xai: 'xAI Grok' };
+function keyedInstallAsk(which, info) {   // eslint-disable-line no-unused-vars
+  return 'In order to connect to ' + (KEYED_FULL_NAME[which] || 'it') + ' we need to download the installer.';
 }
 /* On Windows Kosmos does not install these yet (no Gemini or Grok agent can start there), so a
    missing tool is said plainly there instead of offering a download that would be refused. */
 function keyedMissingOnWindows(which) {
-  const p = ACCT_APIKEY_PROVIDERS[which];
-  return (p ? p.name : 'It') + ' runs on its own command-line tool, "' + KEYED_RUNNER[which]
-    + '", and it is not on this computer. Kosmos cannot install it on Windows yet.';
+  return 'Kosmos cannot connect ' + (KEYED_FULL_NAME[which] || 'it') + ' on Windows yet.';   // #3731: no tool talk
 }
 /* A job that is still going, so a return to the box joins it rather than asking again. */
 const keyedJobLive = (info) => !!(info && info.job && info.job.phase !== 'failed' && info.job.phase !== 'installed');
@@ -23726,57 +23775,79 @@ async function keyedRunnerInstall(which, say, alive) {
     }
   }
 }
-/* #3658: Gemini and Grok connect from first run's model step, by API key (the only path
-   that works today for both). The box is shared; FR_APIKEY_WHICH is the provider it is
-   open for ('google' | 'xai'), read from ACCT_APIKEY_PROVIDERS so the route, vendor and
-   key hint are Settings' own. FR_APIKEY_GEN drops an answer that returns after the box was
-   switched or closed, the same guard Settings uses. */
-const FR_APIKEY_GETKEY = { google: 'https://aistudio.google.com/app/apikey', xai: 'https://console.x.ai/' };
-let FR_APIKEY_WHICH = null;
-let FR_APIKEY_GEN = 0;
-/* The command-line tool each keyed provider runs on, named in a sentence when one is missing.
-   Kosmos installs both since #3713 (#fr-keyed-install); these are the words a person reads. */
-const FR_APIKEY_TOOL = { google: 'gemini', xai: 'grok' };
-/* #3713: which provider the download box is open for, and a token so an answer or a finished
-   download from an earlier opening changes nothing on a later one. */
-let FR_KEYED_WHICH = null;
-let FR_KEYED_GEN = 0;
-function frKeyedInstallHide() {
+/* #3731 (Josh, 0.6.94): Gemini and Grok connect EXACTLY like GPT (#fr-openai-*), each directly
+   under its own row: Connect, then the install (Confirm / Not now), then the choice (Sign in with
+   Subscription / Use an API key), then the sign-in or the key. One driver for both, keyed by
+   provider ('google' | 'xai'). Grok's subscription starts xAI's sign-in at once, #3335's rule for
+   GPT: no screen whose only job is a second press. Gemini's subscription is Angel's Antigravity
+   sign-in (#3568); until its route exists Gemini goes from the install straight to the key, and
+   KEYED_SUB_READY.google turns the choice on. It replaces #3658's one shared box and #3713's
+   download box (both sat below Grok, whichever row was pressed). */
+const FR_KEYED = { google: { pre: 'gemini' }, xai: { pre: 'grok' } };
+const KEYED_SUB_READY = { google: false, xai: true };
+let FR_KEYED_GEN = 0;   // an answer, a finished download or an Add from an earlier opening changes nothing
+const frK = (which, part) => document.getElementById('fr-' + FR_KEYED[which].pre + '-' + part);
+const frKeyedPanels = (which) => ['confirm', 'pick', 'sub-step', 'flow'].map((part) => frK(which, part)).filter(Boolean);
+const frKeyedOpenNow = (which) => frKeyedPanels(which).some((el) => !el.hidden);
+/* Close one provider's panels. `keepSignIn` is for a sign-in that just FINISHED: leaving would
+   cancel it on the engine. */
+function frKeyedCollapse(which, keepSignIn) {
+  for (const el of frKeyedPanels(which)) el.hidden = true;
+  const bar = frK(which, 'confirm-bar'); if (bar) bar.hidden = true;
+  // A closed panel keeps no "Checking..." behind (#3658); a finished sign-in writes its result next.
+  const msg = frK(which, 'msg'); if (msg && !keepSignIn) msg.textContent = '';
+  if (which === 'xai' && !keepSignIn) FR_GROK_SUB.leave();
+  const btn = frK(which, 'connect'); if (btn && btn.setAttribute) btn.setAttribute('aria-expanded', 'false');
+}
+/* Leaving first run or its model step closes both and retires any watcher. */
+function frKeyedHideAll() { FR_KEYED_GEN += 1; frKeyedCollapse('google'); frKeyedCollapse('xai'); }
+function frKeyedShowPick(which) {
+  for (const el of frKeyedPanels(which)) el.hidden = true;
+  if (!KEYED_SUB_READY[which]) { frKeyedChoose(which, 'key'); return; }
+  frK(which, 'pick').hidden = false;
+  frK(which, 'pick-sub').focus();
+}
+function frKeyedChoose(which, how) {
+  const msg = frK(which, 'msg'); if (msg) msg.textContent = '';
+  if (which === 'xai') FR_GROK_SUB.leave();   // a switch between the two ends a sign-in in flight
+  frK(which, 'pick').hidden = true;
+  frK(which, 'flow').hidden = how !== 'key';
+  frK(which, 'sub-step').hidden = how !== 'sub';
+  if (how === 'key') { frK(which, 'key').focus(); return; }
+  /* The sign-in starts now; its own Sign-in button shows again only if the start fails (the
+     driver re-shows it), so a failed start still has a retry. Focus goes to the status region. */
+  const go = frK(which, 'sub-go'); if (go) go.hidden = true;
+  const step = frK(which, 'sub-step');
+  if (!step.hasAttribute('tabindex')) step.setAttribute('tabindex', '-1');
+  step.focus();
+  if (which === 'xai') FR_GROK_SUB.start();
+}
+async function frKeyedConnect(which) {
+  const btn = frK(which, 'connect');
+  const msg = frK(which, 'msg');
+  frCollapseProviders(which);
   FR_KEYED_GEN += 1;
-  FR_KEYED_WHICH = null;
-  const box = document.getElementById('fr-keyed-install');
-  if (box) box.hidden = true;
-  const bar = document.getElementById('fr-keyed-install-bar'); if (bar) bar.hidden = true;
-  const m = document.getElementById('fr-keyed-install-msg'); if (m) m.textContent = '';
-}
-async function frKeyedInstallShow(which) {
-  frKeyedInstallHide();
-  FR_KEYED_WHICH = which;
   const mine = FR_KEYED_GEN;
-  const box = document.getElementById('fr-keyed-install');
-  const go = document.getElementById('fr-keyed-install-go');
-  document.getElementById('fr-keyed-install-t').textContent = keyedInstallAsk(which, null);
+  btn.setAttribute('aria-expanded', 'true');
+  msg.textContent = '';
+  const info = await keyedRunnerInfo(which);
+  if (mine !== FR_KEYED_GEN) return;
+  if (info && info.present) { frKeyedShowPick(which); return; }
+  // On Windows Kosmos does not install these yet (#3713), so it says so instead of offering it.
+  if (onWindows()) { btn.setAttribute('aria-expanded', 'false'); msg.textContent = keyedMissingOnWindows(which); return; }
+  frK(which, 'confirm').hidden = false;
+  const go = frK(which, 'confirm-go');
   go.disabled = false;
-  box.hidden = false;
-  frApikeyExpanded(which);
   go.focus();
-  const info = await keyedRunnerInfo(which);   // the size, when the engine can say it
-  if (mine !== FR_KEYED_GEN || !info) return;
-  document.getElementById('fr-keyed-install-t').textContent = keyedInstallAsk(which, info);
-  // A download already under way (started earlier, then left): watch it rather than ask again.
-  if (keyedJobLive(info)) go.click();
+  if (keyedJobLive(info)) go.click();   // a download already under way: watch it rather than ask again
 }
-document.getElementById('fr-keyed-install-go').addEventListener('click', async () => {
-  const which = FR_KEYED_WHICH;
-  if (!which) return;
+async function frKeyedConfirm(which) {
   const mine = FR_KEYED_GEN;
-  const box = document.getElementById('fr-keyed-install');
-  const go = document.getElementById('fr-keyed-install-go');
-  const bar = document.getElementById('fr-keyed-install-bar');
-  const msg = document.getElementById('fr-keyed-install-msg');
-  /* Also gone when first run itself was left or moved to another step (review pass 1: a closed
-     overlay kept the box "shown" and the watcher polled on for minutes). */
-  const alive = () => mine === FR_KEYED_GEN && FR_KEYED_WHICH === which && !box.hidden
+  const box = frK(which, 'confirm');
+  const go = frK(which, 'confirm-go');
+  const bar = frK(which, 'confirm-bar');
+  const msg = frK(which, 'confirm-msg');
+  const alive = () => mine === FR_KEYED_GEN && !box.hidden
     && !document.getElementById('firstrun').hidden && !document.getElementById('fr-pane-5').hidden;
   go.disabled = true;
   bar.hidden = false;
@@ -23784,79 +23855,58 @@ document.getElementById('fr-keyed-install-go').addEventListener('click', async (
   if (!alive()) return;
   bar.hidden = true;
   if (!ok) { go.disabled = false; return; }
-  frKeyedInstallHide();
-  frApikeyOpen(which);   // the tool is here now, so this opens the key box (or Grok's choice)
-});
-document.getElementById('fr-keyed-install-no').addEventListener('click', () => {
-  const which = FR_KEYED_WHICH;
-  frKeyedInstallHide();
-  frApikeyExpanded(null);
-  // Focus goes back to the Connect that opened it, not to the page body.
-  const back = document.getElementById(which === 'xai' ? 'fr-grok-connect' : 'fr-gemini-connect');
-  if (back) back.focus();
-});
-function frApikeyExpanded(which) {
-  for (const id of ['fr-gemini-connect', 'fr-grok-connect']) {
-    const b = document.getElementById(id);
-    if (b) b.setAttribute('aria-expanded', String(!!which && b.dataset.keyed === which));
-  }
+  msg.textContent = '';
+  frKeyedShowPick(which);
 }
-/* PROBE BEFORE THE BOX (review pass 1): the key route checks for the runner BEFORE it
-   reads the key, so a POST with no key answers needsRunner when the runner is missing,
-   and otherwise refuses the empty key without storing anything. Asking first means a
-   person is never sent off to make a key for a runner this computer does not have. */
-async function frApikeyOpen(which) {
-  FR_APIKEY_GEN += 1;
-  const mine = FR_APIKEY_GEN;
-  FR_GROK_SUB.leave();   // #3391 part 2: a switch or a close ends a Grok sign-in in flight
-  document.getElementById('fr-grok-sub-msg').textContent = '';
-  const flow = document.getElementById('fr-apikey-flow');
-  const msg = document.getElementById('fr-apikey-msg');
-  const p = which ? ACCT_APIKEY_PROVIDERS[which] : null;
-  const keyedBox = document.getElementById('fr-keyed-install');
-  const same = (FR_APIKEY_WHICH === which && !flow.hidden) || (!!which && FR_KEYED_WHICH === which && !keyedBox.hidden);
-  frKeyedInstallHide();   // #3713: a switch or a close also closes the download box
-  document.getElementById('fr-apikey-go').disabled = false;   // an Add left pending by a switch must not stay dead
-  if (!p || same) { flow.hidden = true; FR_APIKEY_WHICH = null; frApikeyExpanded(null); msg.textContent = ''; return; }   // a second press closes it
-  flow.hidden = true;
-  frApikeyExpanded(null);
-  msg.textContent = 'Checking ' + p.name + ' on this computer…';
-  let missing = false;
+async function frKeyedAdd(which) {
+  const p = ACCT_APIKEY_PROVIDERS[which];
+  const keyField = frK(which, 'key');
+  const go = frK(which, 'go');
+  const msg = frK(which, 'msg');
+  const key = keyField.value.trim();
+  if (!key) { msg.textContent = 'Paste the key first.'; keyField.focus(); return; }
+  const mine = FR_KEYED_GEN;
+  go.disabled = true;
+  msg.textContent = 'Checking the key with ' + p.vendor + '…';
   try {
     const res = await fetch('/api/accounts/' + p.route + '/apikey', {
-      method: 'POST', headers: { 'content-type': 'application/json' }, body: '{}',
+      method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ key }),
     });
     const out = await res.json().catch(() => null);
-    missing = !!(out && out.needsRunner);
-  } catch { /* could not ask: open the box and let Add say what is wrong */ }
-  if (mine !== FR_APIKEY_GEN) return;
-  if (missing) {
-    // #3713: offer to download the tool it runs on; the box opens by itself once it is here.
-    FR_APIKEY_WHICH = null;
-    if (onWindows()) { msg.textContent = keyedMissingOnWindows(which); return; }
-    msg.textContent = '';
-    frKeyedInstallShow(which);
-    return;
+    if (mine !== FR_KEYED_GEN) {
+      /* A key that landed after the person moved on still counts. If this provider's panels
+         are open again, close them: a second Add would make a second account (#3658). */
+      if (res.ok) {
+        if (frKeyedOpenNow(which)) frKeyedCollapse(which);
+        msg.textContent = p.name + ' is connected.';
+        frPaintKeyed();
+      }
+      return;
+    }
+    if (!res.ok) {
+      if (out && out.needsRunner) {   // the tool went missing after the box opened
+        if (onWindows()) throw new Error(keyedMissingOnWindows(which));
+        msg.textContent = '';
+        frKeyedCollapse(which);
+        frKeyedConnect(which);   // offers the install again, in place
+        return;
+      }
+      throw new Error((out && (out.error || out.because)) || 'We could not add that key.');
+    }
+    keyField.value = '';
+    frKeyedCollapse(which);
+    msg.setAttribute('tabindex', '-1');
+    msg.focus();   // the box that held focus is hidden now; the result is where it lands
+    const unknown = !!(out && out.account && out.account.connection && out.account.connection.state === 'unknown');
+    msg.textContent = unknown
+      ? 'The ' + p.name + ' key is saved. ' + p.vendor + ' did not answer just now, so it will be checked again when an agent uses it.'
+      : p.name + ' is connected.';
+    await frPaintKeyed();
+  } catch (err) {
+    if (mine === FR_KEYED_GEN) msg.textContent = String((err && err.message) || 'We could not add that key.');
+  } finally {
+    go.disabled = false;
   }
-  msg.textContent = '';
-  frApikeyExpanded(which);
-  if (FR_APIKEY_WHICH !== which) {
-    const k = document.getElementById('fr-apikey-key'); k.value = '';
-    document.getElementById('fr-apikey-msg').textContent = '';
-  }
-  FR_APIKEY_WHICH = which;
-  const article = /^(x|[aeiou])/i.test(p.vendor) ? 'an ' : 'a ';   // "an xAI key"
-  document.getElementById('fr-apikey-t').textContent = (which === 'xai'
-    ? 'Sign in with your Grok subscription, or paste an xAI API key.'
-    : 'Paste ' + article + p.vendor + ' API key for ' + p.name + '.') + ' A key is a bit like a password that ' + p.vendor + ' issues for this computer.';
-  document.getElementById('fr-grok-sub').hidden = which !== 'xai';
-  document.getElementById('fr-apikey-getkey').href = FR_APIKEY_GETKEY[which] || '#';
-  const key = document.getElementById('fr-apikey-key');
-  key.setAttribute('aria-label', p.name + ' API key');
-  key.placeholder = p.hint;
-  flow.hidden = false;
-  // Grok's box leads with its sign-in (the heading says so), so focus starts there.
-  (which === 'xai' ? document.getElementById('fr-grok-sub-go') : key).focus();
 }
 /* Paint one keyed row's Connect as Connected (green check, disabled) or Connect, from a
    known answer or from /api/accounts, the way frPaintOpenai does for GPT. A read that
@@ -23891,39 +23941,44 @@ async function frPaintKeyed(known) {
     b.setAttribute('aria-label', connected ? name + ' is connected' : saved ? name + ' key saved' : 'Connect ' + name);
   }
 }
-for (const id of ['fr-gemini-connect', 'fr-grok-connect']) {
-  const b = document.getElementById(id);
-  if (b) b.addEventListener('click', () => frApikeyOpen(b.dataset.keyed));
+for (const which of ['google', 'xai']) {
+  frK(which, 'connect').addEventListener('click', () => frKeyedConnect(which));
+  frK(which, 'confirm-go').addEventListener('click', () => frKeyedConfirm(which));
+  frK(which, 'confirm-no').addEventListener('click', () => {
+    FR_KEYED_GEN += 1;
+    frKeyedCollapse(which);
+    frK(which, 'connect').focus();
+  });
+  frK(which, 'pick-sub').addEventListener('click', () => frKeyedChoose(which, 'sub'));
+  frK(which, 'pick-key').addEventListener('click', () => frKeyedChoose(which, 'key'));
+  frK(which, 'go').addEventListener('click', () => frKeyedAdd(which));
+  /* Enter adds the key, like GPT's key field, and stops there: the step's own Enter-to-continue
+     must not carry the person past a key they have not added. */
+  frK(which, 'key').addEventListener('keydown', (e) => {
+    if (e.key !== 'Enter') return;
+    e.preventDefault();
+    e.stopPropagation();
+    frK(which, 'go').click();
+  });
 }
-/* #3391 part 2: Grok's subscription sign-in in first run's box, on the shared driver. A new
-   account only (a sign-in again is a Settings row action). Connected closes the box the
-   way an added key does, and the Grok row repaints as Connected. */
+/* #3391 part 2 / #3731: Grok's subscription sign-in, on the shared driver, in Grok's own panel. A
+   new account only (a sign-in again is a Settings row action). Connected closes the panel the way
+   an added key does, and the Grok row repaints as Connected. */
 const FR_GROK_REPAINT_FAILED = 'This screen could not update the Grok row; Grok will show as connected in Settings, AI Models.';
 const FR_GROK_SUB = grokSubDriver({
   ids: { go: 'fr-grok-sub-go', openRow: 'fr-grok-sub-open-row', open: 'fr-grok-sub-open', code: 'fr-grok-sub-code', cancelRow: 'fr-grok-sub-cancel-row', cancel: 'fr-grok-sub-cancel' },
-  /* Its own line, not the box's: the key and the sign-in sit side by side here, and a poll
-     writing every 1.2s into the shared line would wipe the key's answer. */
-  msg: () => document.getElementById('fr-grok-sub-msg'),
+  msg: () => document.getElementById('fr-grok-msg'),
   reauthDir: () => null,
-  onMissing: () => {   // #3713: the key box closes and the download box opens in its place
-    document.getElementById('fr-apikey-flow').hidden = true;
-    FR_APIKEY_WHICH = null;
-    frKeyedInstallShow('xai');
-  },
+  onMissing: () => { frKeyedCollapse('xai'); frKeyedConnect('xai'); },   // no grok: the install, in place
   alive: () => FR_STEP === 5,
-  repaintFailed: 'Signed in, but this screen could not update. Grok will show as connected in Settings, AI Models.',   // before the box closes
+  repaintFailed: 'Signed in, but this screen could not update. Grok will show as connected in Settings, AI Models.',
   onConnected: async (account) => {
-    FR_APIKEY_GEN += 1;   // a key Add still in flight is now the stale one
-    document.getElementById('fr-apikey-flow').hidden = true;
-    FR_APIKEY_WHICH = null;
-    frApikeyExpanded(null);
-    const msg = document.getElementById('fr-apikey-msg');
-    document.getElementById('fr-grok-sub-msg').textContent = '';
+    FR_KEYED_GEN += 1;   // a key Add still in flight is now the stale one
+    frKeyedCollapse('xai', true);
+    const msg = frK('xai', 'msg');
     msg.setAttribute('tabindex', '-1');
     msg.focus();
     msg.textContent = 'Grok is connected' + (account && account.email ? ' (' + account.email + ')' : '') + '.';
-    /* The box is hidden by now, so a repaint that fails is said HERE, on the line that stays
-       on screen, not by the driver into the box's own line (review pass 7). */
     try { await frPaintKeyed(); }   // a fresh read: the Grok answer alone would repaint Gemini as not connected
     catch { msg.textContent += ' ' + FR_GROK_REPAINT_FAILED; }
   },
@@ -23931,78 +23986,10 @@ const FR_GROK_SUB = grokSubDriver({
 document.getElementById('fr-grok-sub-go').addEventListener('click', () => FR_GROK_SUB.start());
 document.getElementById('fr-grok-sub-cancel').addEventListener('click', () => {
   FR_GROK_SUB.leave();
-  document.getElementById('fr-grok-sub-msg').textContent = 'Sign-in stopped.';
-  document.getElementById('fr-grok-sub-go').focus();
-});
-/* Enter adds the key, like GPT's key field, and stops there: the step's own Enter-to-
-   continue must not carry the person past a key they have not added. */
-document.getElementById('fr-apikey-key').addEventListener('keydown', (e) => {
-  if (e.key !== 'Enter') return;
-  e.preventDefault();
-  e.stopPropagation();
-  document.getElementById('fr-apikey-go').click();
-});
-document.getElementById('fr-apikey-go').addEventListener('click', async () => {
-  const which = FR_APIKEY_WHICH;
-  const p = which ? ACCT_APIKEY_PROVIDERS[which] : null;
-  const keyField = document.getElementById('fr-apikey-key');
-  const go = document.getElementById('fr-apikey-go');
-  const msg = document.getElementById('fr-apikey-msg');
-  if (!p) return;
-  const key = keyField.value.trim();
-  if (!key) { msg.textContent = 'Paste the key first.'; keyField.focus(); return; }
-  const mine = FR_APIKEY_GEN;
-  go.disabled = true;
-  msg.textContent = 'Checking the key with ' + p.vendor + '…';
-  try {
-    const res = await fetch('/api/accounts/' + p.route + '/apikey', {
-      method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ key }),
-    });
-    const out = await res.json().catch(() => null);
-    if (mine !== FR_APIKEY_GEN) {
-      if (!res.ok) return;
-      /* A key that landed after the person moved on still shows as Connected. If they
-         have since reopened the box for the SAME provider, close it: a second Add there
-         would make a second account for a provider that is already connected. */
-      if (FR_APIKEY_WHICH === which) {
-        document.getElementById('fr-apikey-flow').hidden = true;
-        FR_APIKEY_WHICH = null;
-        frApikeyExpanded(null);
-      }
-      if (FR_APIKEY_WHICH === null) msg.textContent = p.name + ' is connected.';   // never leave "Checking..." behind
-      frPaintKeyed();
-      return;
-    }
-    if (!res.ok) {
-      if (out && out.needsRunner) {
-        // #3713: the tool went missing after the box opened; offer to download it again
-        // (on Windows, which Kosmos does not install for, say so plainly: review pass 3).
-        if (onWindows()) throw new Error(keyedMissingOnWindows(which));
-        document.getElementById('fr-apikey-flow').hidden = true;
-        FR_APIKEY_WHICH = null;
-        msg.textContent = '';
-        frKeyedInstallShow(which);
-        return;
-      }
-      throw new Error((out && (out.error || out.because)) || 'We could not add that key.');
-    }
-    keyField.value = '';
-    FR_GROK_SUB.leave();   // #3391 part 2: the key connected Grok; a sign-in beside it is moot
-    document.getElementById('fr-apikey-flow').hidden = true;
-    FR_APIKEY_WHICH = null;
-    frApikeyExpanded(null);
-    msg.setAttribute('tabindex', '-1');
-    msg.focus();   // the box that held focus is hidden now; the result is where it lands
-    const unknown = !!(out && out.account && out.account.connection && out.account.connection.state === 'unknown');
-    msg.textContent = unknown
-      ? 'The ' + p.name + ' key is saved. ' + p.vendor + ' did not answer just now, so it will be checked again when an agent uses it.'
-      : p.name + ' is connected.';
-    await frPaintKeyed();
-  } catch (err) {
-    if (mine === FR_APIKEY_GEN) msg.textContent = String((err && err.message) || 'We could not add that key.');
-  } finally {
-    if (mine === FR_APIKEY_GEN) go.disabled = false;
-  }
+  frK('xai', 'msg').textContent = 'Sign-in stopped.';
+  const go = document.getElementById('fr-grok-sub-go');
+  go.hidden = false;
+  go.focus();
 });
 document.getElementById('acct-openai-pick-sub').addEventListener('click', () => acctOpenaiChoose('sub'));
 document.getElementById('acct-openai-pick-key').addEventListener('click', () => acctOpenaiChoose('key'));
@@ -50517,8 +50504,8 @@ function frGo(step) {
   /* #3713: leaving the step that holds the download box closes it (and retires its watcher), for
      the same reason as frClose. Asked of the DOM rather than a step number, so a renumber cannot
      break it. */
-  { const kb = document.getElementById('fr-keyed-install'); const to = document.getElementById('fr-pane-' + step);
-    if (kb && !(to && to.contains(kb))) frKeyedInstallHide(); }
+  { const kb = document.getElementById('fr-gemini-confirm'); const to = document.getElementById('fr-pane-' + step);
+    if (kb && !(to && to.contains(kb))) frKeyedHideAll(); }   // #3731: Gemini's and Grok's panels
   FR_STEP = step;
   // The dot field warms from grey toward the golds as the steps advance.
   frDots.progress(frStepProgress(step));
@@ -52024,6 +52011,8 @@ let FR_CONFIRM_OPENER = null;
  * unconditionally before showing its own.
  */
 function frCollapseProviders(keep) {
+  // #3731: Gemini's and Grok's panels are part of the one-open-panel rule too.
+  for (const which of ['google', 'xai']) if (keep !== which && typeof frKeyedCollapse === 'function') frKeyedCollapse(which);
   if (keep !== 'claude') {
     const box = document.getElementById('fr-claude-confirm');
     if (box && !box.hidden) frClaudeConfirmClose();
@@ -54339,7 +54328,7 @@ function frClose() {
   // Retire any in-flight About-you settlement on the way out (Skip, Escape, the
   // fork buttons). The Success screen no longer has an async look to retire (#12).
   FR_YOU_GEN += 1;
-  frKeyedInstallHide();   // #3713: a download box left open must not make the next Connect a "second press"
+  frKeyedHideAll();   // #3713/#3731: Gemini's and Grok's panels close with first run, and their watchers stop
   document.getElementById('firstrun').hidden = true;
   document.querySelectorAll('body > *:not(#firstrun)').forEach((el) => { el.inert = false; });
   if (FR_RETURN && FR_RETURN.focus) FR_RETURN.focus();
