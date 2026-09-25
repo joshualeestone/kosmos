@@ -56745,6 +56745,17 @@ function asbGuideRow() {
   return LAST.find((a) => a && String(a.sessionName || '').toLowerCase() === want) || null;
 }
 function asbAvatar(row) {
+  /* #3707: a guide with no picture gets the initial on its disc, drawn by the board card's own face() (one renderer of
+     that fact), as a data: SVG so both <img>s (the bubble and the chat's header) keep their one src and size rules. The
+     viewBox crops face()'s 72-unit box to its disc; the font is given here because page CSS does not reach an image. */
+  if (!row.hasAvatar) {
+    const who = { sessionName: row.sessionName || '', name: row.name || row.sessionName || '', hasAvatar: false };
+    /* The font as presentation attributes on a group (inherited by face()'s text): no style element, which the page's
+       stylesheet guards would read as a second stylesheet. */
+    const svg = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="13 13 46 46"><g font-family="-apple-system,BlinkMacSystemFont,Helvetica,Arial,sans-serif" font-size="20" font-weight="600">'
+      + face(who) + '</g></svg>';
+    return 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(svg);
+  }
   return '/api/agent/' + encodeURIComponent(row.sessionName) + '/avatar?v=' + (row.avatarVer || 0);
 }
 
