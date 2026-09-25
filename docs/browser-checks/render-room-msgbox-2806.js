@@ -47,7 +47,7 @@
  * ENGINES=chromium,webkit runs every arm in each (WebKit is Playwright's build, not Safari), the
  * same switch as render-dm-phone-718. Chromium alone by default, which is what the gate runs.
  */
-// Browser-check-surface: pj-room rxn-quick rxn-show rxn-below pj-list-view sortctl viewtoggle nt-modal am-modal pj-post-mirror pjmidhead pj-add-member
+// Browser-check-surface: pj-room rxn-quick rxn-show rxn-below pj-list-view sortctl viewtoggle nt-modal am-modal pj-post-mirror pj-add-member
 const path = require('node:path');
 const playwright = require('playwright');
 /* ENGINES=chromium,webkit (the render-dm-phone-718 switch). An unknown name is refused rather
@@ -851,38 +851,47 @@ const now = () => new Date().toISOString();
       chk(dlgFit.every((d) => !d.error && d.screenWidth === 375 && d.fields >= 1 && d.over.length === 0 && d.cardFits), `[phone/touch] at 16px the Tasks and add-member dialogs fit a 375 screen`, JSON.stringify(dlgFit));
       // 24 fields measured; the floor catches a sweep that stopped finding them.
       chk(!fonts.error && fonts.hoverNone && fonts.count >= 20 && fonts.small.length === 0, `[phone/touch] every field on the project page is at least 16px (no iOS zoom)`, JSON.stringify(fonts));
-      // The first-visit project tip (#3574) must land ON SCREEN on a phone: its old anchor, Add
-      // member, sits below the room there. Placed by the real tipPlace with the real TIPS entry.
-      const tipAt = async () => phonePage.evaluate(() => {
-        if (typeof TIPS === 'undefined' || typeof tipPlace !== 'function') return { error: 'TIPS/tipPlace missing' };
-        const t = TIPS.find((x) => x.id === 'project'); if (!t) return { error: 'no project tip' };
-        const card = document.createElement('div'); card.className = 'tipcard';
-        card.innerHTML = '<h4>' + t.title + '</h4>' + t.body; document.body.appendChild(card);
-        tipPlace(card, t.at, t.side, { key: t.id, avoid: true });
-        // What tipPlace ACTUALLY did (since #3700 it keeps any card on screen, so "in view" alone
-        // cannot fail): a pointing card (not the arrowless "flat" fallback), and where it sits
-        // relative to the conversation header and to Add member.
-        const cardRect = card.getBoundingClientRect(); const cardClass = card.className; card.remove();
-        const near = (el) => { if (!el) return false; const r = el.getBoundingClientRect(); if (!r.width) return false;
-          // Above or below it (overlapping it horizontally), or to its left or right (overlapping
-          // it vertically), within 40px: tipPlace's four places.
-          const aboveOrBelow = ((cardRect.top >= r.bottom - 2 && cardRect.top <= r.bottom + 40) || (cardRect.bottom <= r.top + 2 && cardRect.bottom >= r.top - 40))
-            && cardRect.left < r.right && cardRect.right > r.left;
-          const leftOrRight = ((cardRect.left >= r.right - 2 && cardRect.left <= r.right + 40) || (cardRect.right <= r.left + 2 && cardRect.right >= r.left - 40))
-            && cardRect.top < r.bottom && cardRect.bottom > r.top;
-          return aboveOrBelow || leftOrRight; };
-        const screen = window.visualViewport || { width: innerWidth, height: innerHeight };
-        return { inView: cardRect.top >= 0 && cardRect.bottom <= screen.height && cardRect.left >= 0 && cardRect.right <= screen.width,
-          pointing: !/\bflat\b/.test(cardClass), cardClass, card: [Math.round(cardRect.top), Math.round(cardRect.bottom)], vh: innerHeight, screenWidth: Math.round(screen.width),
-          nearConversation: near(document.querySelector('.pj3 > .pjmid .pjmidhead')), nearAddMember: near(document.getElementById('pj-add-member')) };
-      });
+      // The project tip (#3755: four steps, each ringing its own area) must work on a phone, where
+      // this branch moves Members and Files below the conversation. Opened with the real tipShow
+      // and walked with its own Next button: at every step the card is on screen and pointing (not
+      // the arrowless "flat" card, which is what an off-screen target gives since #3700), and the
+      // step's area is on screen (the step scrolls it into view).
+      const tipWalk = async () => {
+        const opened = await phonePage.evaluate(() => {
+          if (typeof TIPS === 'undefined' || typeof tipShow !== 'function') return { error: 'TIPS/tipShow missing' };
+          const t = TIPS.find((x) => x.id === 'project'); if (!t || !t.steps) return { error: 'no stepped project tip' };
+          tipShow(t); return { places: TIP_PLACES.map((st) => st.sel) };
+        });
+        if (opened.error) return opened;
+        const steps = [];
+        for (let i = 0; i < opened.places.length; i += 1) {
+          await phonePage.waitForTimeout(200);
+          steps.push(await phonePage.evaluate(() => {
+            const card = document.getElementById('tipcard'); const st = TIP_PLACES[TIP_STEP];
+            const target = st && st.sel && document.querySelector(st.sel);
+            if (!card || card.hidden || !target) return { error: 'no card or no target', title: st && st.title };
+            const C = card.getBoundingClientRect(), T = target.getBoundingClientRect();
+            const screen = window.visualViewport || { width: innerWidth, height: innerHeight };
+            return { title: st.title, pointing: !/\bflat\b/.test(card.className),
+              cardInView: C.top >= 0 && C.bottom <= screen.height && C.left >= 0 && C.right <= screen.width,
+              targetInView: T.bottom > 0 && T.top < screen.height && T.right > 0 && T.left < screen.width,
+              screenWidth: Math.round(screen.width) };
+          }));
+          await phonePage.evaluate(() => { const go = document.querySelector('#tipcard .tip-go'); if (go) go.click(); });
+        }
+        await phonePage.evaluate(() => { if (typeof tipClose === 'function') tipClose({ record: false }); window.scrollTo(0, 0); });
+        return { places: opened.places.length, steps };
+      };
+      const stepOk = (width) => (st) => !st.error && st.screenWidth === width && st.pointing && st.cardInView && st.targetInView;
       await phonePage.evaluate(() => window.scrollTo(0, 0));
-      const tip375 = await tipAt();
-      chk(!tip375.error && tip375.screenWidth === 375 && tip375.inView && tip375.pointing && tip375.nearConversation, `[phone] the first-visit project tip is a pointing card beside the conversation, on screen`, JSON.stringify(tip375));
+      const tip375 = await tipWalk();
+      chk(!tip375.error && tip375.places === 4 && tip375.steps.length === 4 && tip375.steps.every(stepOk(375)),
+        `[phone] every step of the project tip is a pointing card, on screen, with its area on screen`, JSON.stringify(tip375));
       await phonePage.setViewportSize({ width: 800, height: 800 });
       await phonePage.waitForTimeout(100);
-      const tip800 = await tipAt();
-      chk(!tip800.error && tip800.screenWidth === 800 && tip800.pointing && tip800.nearAddMember, `[wide] the project tip still points at Add member wider than a phone`, JSON.stringify(tip800));
+      const tip800 = await tipWalk();
+      chk(!tip800.error && tip800.places === 4 && tip800.steps.length === 4 && tip800.steps.every(stepOk(800)),
+        `[wide] every step of the project tip is a pointing card, on screen, wider than a phone`, JSON.stringify(tip800));
       await phonePage.setViewportSize({ width: 375, height: 800 });
       await phonePage.waitForTimeout(100);
       await phonePage.setViewportSize({ width: 800, height: 800 });
@@ -1263,7 +1272,8 @@ const now = () => new Date().toISOString();
         const room = document.getElementById('pj-room'); room.style.top = '0px';
         if (typeof pjRxnClose === 'function') pjRxnClose();
         const people = { agents: [{ sessionName: 'april', name: 'April' }] };
-        room.innerHTML = ['e1', 'e2', 'e3', 'e4', 'e5', 'e6'].map((id, i) => pjRoomRow({ from: 'april', at: ts, text: 'Post ' + i + ' with a line of text in it.', id }, people)).join('');
+        // Enough posts below it that the room can scroll it right off (six could not: a sliver stayed).
+        room.innerHTML = ['e1', 'e2', 'e3', 'e4', 'e5', 'e6', 'e7', 'e8', 'e9', 'e10', 'e11', 'e12'].map((id, i) => pjRoomRow({ from: 'april', at: ts, text: 'Post ' + i + ' with a line of text in it.', id }, people)).join('');
         room.scrollTop = 0; res(true);
       }), now());
       await phonePage.locator('#pj-room .msg .msg-bd p').nth(3).tap();
@@ -1280,10 +1290,10 @@ const now = () => new Date().toISOString();
           const bar = row.querySelector('.rxn-quick'); const barRect = bar.getBoundingClientRect(); const band = pjRxnVisibleBand(room);
           const atEdge = { open: row.classList.contains('rxn-show'), below: row.classList.contains('rxn-below'), inBand: barRect.top >= band.top - 1 && barRect.bottom <= band.bottom + 1 };
           room.scrollTop += 2000; room.dispatchEvent(new Event('scroll'));   // the post leaves the screen
-          setTimeout(() => res({ pinnedAtOpen, atEdge, afterLeaving: { shown: document.querySelectorAll('#pj-room .msg.rxn-show').length, post: RXN_SHOW_POST } }), 100);
+          setTimeout(() => res({ pinnedAtOpen, atEdge, postGone: row.getBoundingClientRect().bottom <= pjRxnVisibleBand(room).top, afterLeaving: { shown: document.querySelectorAll('#pj-room .msg.rxn-show').length, post: RXN_SHOW_POST } }), 100);
         }, 100);
       }));
-      chk(!edgeResult.error && !edgeResult.pinnedAtOpen && edgeResult.atEdge.open && edgeResult.atEdge.inBand && edgeResult.afterLeaving.shown === 0 && edgeResult.afterLeaving.post === null,
+      chk(!edgeResult.error && !edgeResult.pinnedAtOpen && edgeResult.atEdge.open && edgeResult.atEdge.inBand && edgeResult.postGone && edgeResult.afterLeaving.shown === 0 && edgeResult.afterLeaving.post === null,
         `[phone/touch] an ordinary bar stays in view as its post reaches the thread's edge, and closes once the post leaves`, JSON.stringify(edgeResult));
       // A PINNED bar on a tall post whose top is showing sits at the post's own top, not over the
       // message above it (where a tap meant for that message would react to this post).

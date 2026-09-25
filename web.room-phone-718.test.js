@@ -121,10 +121,6 @@ test('the projects row fits an iPhone SE: Add Project at its narrowest, the sort
   assert.equal(rowBlock[1], mq);
 });
 
-test('the first-visit project tip anchors at the conversation first on a phone (page order)', () => {
-  assert.match(html, /at: '\.pj3 > \.pjmid \.pjmidhead, #pj-add-member',/);
-});
-
 test('the pinned bar keeps the same gap from its edge as the CSS bar does from its message', () => {
   const js = html.match(/const RXN_BAR_GAP_PX = (\d+);/);
   const css = blocks('hover: none').match(/#pj-room \.rxn-quick \{ gap: 4px; top: auto; bottom: calc\(100% \+ (\d+)px\); \}/);
