@@ -771,7 +771,7 @@ function claimFor(task, reading, opts) {
   // (1.5 matches "task 175"). Same way-out validation commitments.js does.
   const n = task.number;
   if (typeof n !== 'number' || !Number.isSafeInteger(n)) {
-    return { claimed: null, because: 'this task\'s number is not a whole number, so a report cannot name it' };
+    return { claimed: null, because: 'this task\'s number is not a whole number, so a report cannot name it', neverReported: false };
   }
   // The trailing guard is two lookaheads, not \b: \b sits happily between
   // "1" and ".", so "task 1.5" in a report would join task 1. Not-a-digit
@@ -785,7 +785,7 @@ function claimFor(task, reading, opts) {
     if (saysQualified) return { claimed: true, because: null };
     if (saysBare) {
       return { claimed: null, because: '"task ' + n + '" names more than one of this agent\'s open tasks: it has a task '
-        + n + ' in two projects and has not said which' + (project && project.name ? ' (say "task ' + n + ' of ' + String(project.name).trim() + '")' : '') };
+        + n + ' in two projects and has not said which' + (project && project.name ? ' (say "task ' + n + ' of ' + String(project.name).trim() + '")' : ''), neverReported: false };
     }
     return { claimed: false, because: null };
   }

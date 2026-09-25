@@ -42410,11 +42410,19 @@ function tkFace(p, sessionName) {
    of statement. Shared here so the task detail page's per-part row, which
    had fallen back to the same canned "we could not check" with no
    distinguishing style at all, gets the same fix in one place. */
+/* ONE FACT, ONE WORDING (#3559, Mona's look review of #3701): an agent that has never written its
+   report is said the same way on every surface that draws a claim (the Tasks row, the project
+   card, the task page). The engine's `neverReported` field decides it, never our prose; every
+   other could-not-tell case keeps its own reason. */
+function claimNotReported(claim) {
+  return claim && claim.claimed === null && claim.neverReported === true
+    ? 'has not reported what it is working on yet' : '';
+}
 function taskClaimHtml(claim) {
   if (!claim) return '';
   if (claim.claimed === true) return '<em class="tksay">says it is on this</em>';
   if (claim.claimed === false) return '<em class="tksay">says it is not on this</em>';
-  const why = claim.because || 'we could not check';
+  const why = claimNotReported(claim) || claim.because || 'we could not check';
   return '<em class="tkunk" title="' + esc(why) + '">' + esc(why) + '</em>';
 }
 
@@ -42720,8 +42728,8 @@ function tskRow(t) {
      reported what it is working on yet." When we could not read the report, or it is too old to
      trust, that would be false too, so those rows keep the reason. */
   const cannot = t.state !== 'assigned' || !t.claim || t.claim.claimed !== null ? ''
-    : t.claim.neverReported && who.length
-      ? '<div class="why">' + esc(tskAgentName(who[0])) + ' has not reported what it is working on yet.</div>'
+    : claimNotReported(t.claim) && who.length
+      ? '<div class="why">' + esc(tskAgentName(who[0])) + ' ' + claimNotReported(t.claim) + '.</div>'
       : t.claim.because ? '<div class="why">We cannot tell whether it started: ' + esc(t.claim.because) + '.</div>' : '';
   return '<div class="tsk-row' + (on ? ' sel' : '') + '" data-key="' + esc(tskKey(t)) + '">'
     + '<input type="checkbox" data-key="' + esc(tskKey(t)) + '"' + (on ? ' checked' : '')
@@ -43168,10 +43176,11 @@ function paintTaskPage() {
   void prog;
 
   const why = document.getElementById('tk-why');
+  const notReported = claimNotReported(t.claim);
   const unknownBecause = (t.claim && t.claim.claimed === null && t.claim.because) ? t.claim.because : '';
-  why.textContent = unknownBecause ? 'We could not check whether ' + (who || 'it')
-    + ' is on this: ' + unknownBecause + '.' : '';
-  why.hidden = !unknownBecause;
+  why.textContent = notReported ? (who || 'It') + ' ' + notReported + '.'
+    : unknownBecause ? 'We could not check whether ' + (who || 'it') + ' is on this: ' + unknownBecause + '.' : '';
+  why.hidden = !notReported && !unknownBecause;
 
   /* The close-note: both clauses are about what KOSMOS does not do. Needed
      most by somebody who assumes closing a task stops the agent. Only when

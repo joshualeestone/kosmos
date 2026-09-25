@@ -76,7 +76,7 @@ function runPaintProjectTasks(project, showAll) {
   const doc = stubDoc();
   const src = [
     'let TK_SHOW_ALL = ' + (showAll ? 'true' : 'false') + ';',
-    fnSource('tkFace'), fnSource('taskClaimHtml'), fnSource('tkMemberName'),
+    fnSource('tkFace'), fnSource('claimNotReported'), fnSource('taskClaimHtml'), fnSource('tkMemberName'),
     'let TK_LIST_HTML = null;',
     fnSource('paintProjectTasks'),
   ].join('\n');
