@@ -931,7 +931,14 @@ const now = () => new Date().toISOString();
         const hits = [...q.querySelectorAll('button')].map((b) => { const r = b.getBoundingClientRect(); const t = document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2); return t === b || b.contains(t); });
         return { inView: Q.top >= R.top && Q.bottom <= R.bottom && Q.left >= R.left && Q.right <= R.right + 1, bar: [Math.round(Q.top), Math.round(Q.bottom)], room: [Math.round(R.top), Math.round(R.bottom)], hits, pinned: q.style.position === 'fixed' };
       });
-      chk(tallAt.tall && !tall.error && tall.inView && tall.hits.every(Boolean), `[phone/touch] on a post taller than the thread the bar is in view and takes its taps`, JSON.stringify(Object.assign({ tall: tallAt.tall }, tall)));
+      chk(tallAt.tall && !tall.error && tall.pinned && tall.inView && tall.hits.length === 4 && tall.hits.every(Boolean), `[phone/touch] on a post taller than the thread the bar is pinned in view and takes its taps`, JSON.stringify(Object.assign({ tall: tallAt.tall }, tall)));
+      // A pinned bar does not follow the thread, so scrolling closes it (like the fixed picker).
+      const afterScroll = await phonePage.evaluate(() => new Promise((res) => {
+        const room = document.getElementById('pj-room'); room.scrollTop += 120;
+        setTimeout(() => res({ shown: document.querySelectorAll('#pj-room .msg.rxn-show').length,
+          pinnedLeft: !!document.querySelector('#pj-room .rxn-quick[style]') }), 150);
+      }));
+      chk(afterScroll.shown === 0 && !afterScroll.pinnedLeft, `[phone/touch] scrolling the thread closes a pinned bar (it would float over other posts)`, JSON.stringify(afterScroll));
     } finally {
       await phonePage.close();
     }

@@ -78,7 +78,7 @@ test('the projects row fits an iPhone SE: its right cell and the sort may shrink
   // harness is the behaviour check; this pins the rules so they cannot quietly go.
   const phone = blocks('max-width: 30rem');
   assert.match(phone, /#pj-list-view \.statsrow \{ grid-template-columns: auto minmax\(0, 1fr\); \}/);
-  assert.match(phone, /#pj-list-view \.sortctl select \{ min-width: 0; max-width: 100%; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; \}/, 'an ellipsis needs overflow hidden, or the label is simply cut');
+  assert.match(phone, /#pj-list-view \.sortctl select \{ min-width: 0; max-width: 100%; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; \}/, 'the select may shrink (min-width 0, max-width 100%), which is what stops the overflow in every engine; the ellipsis needs overflow hidden where the engine draws one on a select');
   // The projects-row block and the room's block are the same phone width as the script's query.
   const mq = html.match(/const PJ_PHONE_MQ = '\(max-width: ([\d.]+rem)\)';/)[1];
   const rowBlock = html.match(/@media \(max-width: ([\d.]+rem)\) \{\n  #pj-list-view \.statsrow/);
@@ -88,4 +88,11 @@ test('the projects row fits an iPhone SE: its right cell and the sort may shrink
 
 test('the first-visit project tip anchors at the conversation first on a phone (page order)', () => {
   assert.match(html, /at: '\.pj3 > \.pjmid \.pjmidhead, #pj-add-member',/);
+});
+
+test('the pinned bar keeps the same gap from its edge as the CSS bar does from its message', () => {
+  const js = html.match(/const RXN_BAR_GAP_PX = (\d+);/);
+  const css = blocks('hover: none').match(/#pj-room \.rxn-quick \{ gap: 4px; top: auto; bottom: calc\(100% \+ (\d+)px\); \}/);
+  assert.ok(js && css, 'both found');
+  assert.equal(js[1], css[1]);
 });

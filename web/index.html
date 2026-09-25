@@ -5859,7 +5859,7 @@ body:not(.consolidated) .pjmidhead:has(.pjhead) .tsearch:focus-within { flex-bas
   #pj-room .msg:not(.you) .rxn-quick { right: auto; left: 0; }
   /* A tap on a message is a gesture now: no grey iOS flash over the whole thread. Links and
      buttons in it keep a tap flash of their own. */
-  #pj-room { -webkit-tap-highlight-color: transparent; }
+  #pj-room { -webkit-tap-highlight-color: transparent; touch-action: manipulation; }   /* and no double-tap zoom: open then close is two quick taps */
   #pj-room a, #pj-room button { -webkit-tap-highlight-color: rgba(120, 120, 128, .2); }
   /* iOS zooms into a focused field under 16px and does not zoom back, leaving the page to pan
      sideways. The mirror draws the same text for the @mention colour, so it moves with it
@@ -41649,6 +41649,7 @@ function pjView(which) {
      navigation-only (room polls never pass through here), so a picker in use stays
      open; only a navigation closes it. */
   rxnCloseAllPickers();
+  if (typeof pjRxnClose === 'function') pjRxnClose();   // #718: a touchscreen reaction bar too
   // Arriving at a project resets the member picker to its resting state (the
   // "+ Add Member" button), so an open picker does not leak from the last
   // project into this one. Navigation-only: repaints while the view is open
@@ -46413,7 +46414,8 @@ document.getElementById('d-dmthread').addEventListener('click', async (e) => {
    holds the composer would blur it, and iOS does not bring the keyboard back for a focus()
    outside a tap, so a phone turned mid-post would lose its keyboard. The room and its
    composer never leave the page, so the composer's focus and the thread's own scroll are
-   untouched (the page's scroll can shift; the browser keeps a focused field in view). */
+   untouched. The page's scroll can shift; pjPhoneOrder brings a focused composer back into
+   view itself (WebKit has no scroll anchoring to do it). */
 // 30rem (480px): above the widest phone in portrait (430px) and below a small tablet.
 const PJ_PHONE_MQ = '(max-width: 30rem)';   // the room's phone CSS block uses this exact query (pinned by web.room-phone-718.test.js)
 const PJ_TOUCH_MQ = '(hover: none)';         // the room's touchscreen CSS block uses this exact query (pinned the same way)
@@ -46464,21 +46466,33 @@ function pjRxnVisibleBand(room) {
   if (comp && comp.offsetParent) bottom = Math.min(bottom, comp.getBoundingClientRect().top);
   return { top, bottom };
 }
-function pjRxnPlace(row) {
+/* The gap between the bar and its message: the touch block's calc(100% + 4px), repeated
+   here for the pinned case (pinned equal by web.room-phone-718.test.js). */
+const RXN_BAR_GAP_PX = 4;
+/* Clears everything placement put on a row, so a closed bar keeps no stale position. */
+function pjRxnResetRow(m) {
+  m.classList.remove('rxn-show', 'rxn-below');
+  const q = m.querySelector('.rxn-quick'); if (q) q.removeAttribute('style');
+}
+function pjRxnPlace(row, fromTap) {
   row.classList.remove('rxn-below');
   const q = row.querySelector('.rxn-quick'); const room = document.getElementById('pj-room');
   if (!q || !room) return;
-  q.style.position = ''; q.style.top = ''; q.style.left = ''; q.style.right = ''; q.style.bottom = '';
+  q.removeAttribute('style');
   const band = pjRxnVisibleBand(room);
+  const R = row.getBoundingClientRect();
+  // Only a tap guarantees the post is in view. A repaint of a post that is no longer on
+  // screen (or a thread scrolled off the page) closes the bar rather than float it.
+  if (band.bottom <= band.top || R.bottom <= band.top || R.top >= band.bottom) { if (!fromTap) pjRxnClose(); return; }
   if (q.getBoundingClientRect().top >= band.top) return;           // above the message: fits
   row.classList.add('rxn-below');
-  const B = q.getBoundingClientRect();
-  if (B.bottom <= band.bottom) return;                               // below it: fits
-  // A post taller than what is showing: neither side fits. Pin the bar to the top of the
-  // visible thread, where the post is, at the same left edge.
+  if (q.getBoundingClientRect().bottom <= band.bottom) return;      // below it: fits
   row.classList.remove('rxn-below');
+  if (!fromTap) { pjRxnClose(); return; }
+  // A post taller than what is showing, just tapped: pin the bar to the top of the visible
+  // thread, where the post is, at the same left edge. Any scroll closes a pinned bar (below).
   const L = q.getBoundingClientRect().left;
-  q.style.position = 'fixed'; q.style.top = Math.round(band.top + 4) + 'px';
+  q.style.position = 'fixed'; q.style.top = Math.round(band.top + RXN_BAR_GAP_PX) + 'px';
   q.style.left = Math.round(L) + 'px'; q.style.right = 'auto'; q.style.bottom = 'auto';
 }
 /* #718 mobile: on a touchscreen, a tap on a message shows its add-reaction bar (hover
@@ -46492,14 +46506,16 @@ document.getElementById('pj-room').addEventListener('click', (e) => {
   if (e.target.closest('.rxn-pick, .rxn')) { pjRxnClose(); return; }   // any reaction taken closes it
   if (e.target.closest('a, button, .rxns, [data-open-agent]')) return;
   const row = e.target.closest('.msg');
-  room.querySelectorAll('.msg.rxn-show').forEach((m) => { if (m !== row) m.classList.remove('rxn-show'); });
+  room.querySelectorAll('.msg.rxn-show, .msg.rxn-below').forEach((m) => { if (m !== row) pjRxnResetRow(m); });
   if (!row) { pjRxnClose(); return; }   // a tap between messages closes it for good
   const box = row.querySelector('.rxns[data-post]');
   if (!box) { pjRxnClose(); return; }   // nothing to react to (a system row, an unsaved post)
-  const open = row.classList.toggle('rxn-show');
-  RXN_SHOW_POST = open && box ? box.getAttribute('data-post') : null;
-  RXN_SHOW_PID = RXN_SHOW_POST ? PJ_CURRENT : null;
-  if (open) pjRxnPlace(row);
+  const open = !row.classList.contains('rxn-show');
+  if (!open) { pjRxnResetRow(row); RXN_SHOW_POST = null; RXN_SHOW_PID = null; return; }
+  row.classList.add('rxn-show');
+  RXN_SHOW_POST = box.getAttribute('data-post');
+  RXN_SHOW_PID = PJ_CURRENT;
+  pjRxnPlace(row, true);
 });
 /* A repaint of the room (a new post, a timestamp re-worded) rewrites its rows and would drop an
    open bar between the tap that opened it and the tap on an emoji: put it back on the same post. */
@@ -46507,7 +46523,7 @@ function pjRxnClose() {
   RXN_SHOW_POST = null;
   RXN_SHOW_PID = null;
   const room = document.getElementById('pj-room');
-  if (room) room.querySelectorAll('.msg.rxn-show, .msg.rxn-below').forEach((m) => m.classList.remove('rxn-show', 'rxn-below'));
+  if (room) room.querySelectorAll('.msg.rxn-show, .msg.rxn-below').forEach(pjRxnResetRow);
   if (room) room.querySelectorAll('.rxn-quick[style]').forEach((q) => q.removeAttribute('style'));
   // A tapped button keeps focus on Android, and .rxn-quick:focus-within would keep the bar up.
   const a = document.activeElement;
@@ -46520,10 +46536,15 @@ if (window.MutationObserver) {
     const room = document.getElementById('pj-room');
     const box = room && [...room.querySelectorAll('.rxns[data-post]')].find((b) => b.getAttribute('data-post') === RXN_SHOW_POST);
     const row = box && box.closest('.msg');
-    if (row) { if (!row.classList.contains('rxn-show')) { row.classList.add('rxn-show'); pjRxnPlace(row); } }
+    if (row) { if (!row.classList.contains('rxn-show')) { row.classList.add('rxn-show'); pjRxnPlace(row, false); } }
     else { RXN_SHOW_POST = null; RXN_SHOW_PID = null; }   // the post is gone from view
   }).observe(document.getElementById('pj-room'), { childList: true, subtree: true });
 }
+/* A PINNED bar (position fixed) does not follow the thread when anything scrolls, the same as
+   the fixed emoji picker (#2834 below): any scroll or resize closes it. */
+function pjRxnPinned() { return !!document.querySelector('#pj-room .rxn-quick[style*="fixed"]'); }
+document.addEventListener('scroll', () => { if (RXN_SHOW_POST && pjRxnPinned()) pjRxnClose(); }, true);
+window.addEventListener('resize', () => { if (RXN_SHOW_POST && pjRxnPinned()) pjRxnClose(); });
 /* A tap anywhere outside the room closes an open bar too, except inside the shared emoji
    picker (it lives in body, outside the room): the bar it was opened from stays with it.
    pointerdown, not click: iOS Safari sends no click for a tap on plain content unless
