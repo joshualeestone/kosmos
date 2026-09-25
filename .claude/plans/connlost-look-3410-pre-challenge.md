@@ -2,24 +2,29 @@
 pre_challenge: true
 method: challenge-loop
 branch: connlost-look-3410
-diff_hash: 87909a57846216b679dad0021676c57191c826d5d7556b4810a05ea9b108720a
+diff_hash: 75dcc78affd85d22792624aeeffe24192497f1924e78d1dbe88f307add188c5b
 validation: passed
 subdir_audit: passed
-timestamp: 2026-09-25T11:43:51Z
-iterations: 4
+timestamp: 2026-09-25T13:47:54Z
+iterations: 10
 converged: true
 ---
 
 ## [CHALLENGE-LOOP] Summary
 
-**Iterations:** 4
+**Iterations:** 10
 **Converged:** Yes
-**Total findings:** 1 BLOCKER, 6 WARNINGs, 0 CONVENTIONs, 9 NITs
-**Fixed:** 1 BLOCKER, 5 WARNINGs, most NITs | **Deferred:** 1 WARNING (asked of the design owner, not a loop ASKED: it is her call and does not block this change) | **Asked:** 0
+**Total findings:** 2 BLOCKERs, 14 WARNINGs, 1 CONVENTION, 16 NITs, plus 2 validation findings
+**Fixed:** 2 BLOCKERs, 12 WARNINGs, 2 validation findings, most NITs | **Deferred:** 2 WARNINGs (tracked as #3726, and a question answered with evidence) | **Asked:** 0
 
-Validation: full run on HEAD 109ac863, 9220 tests, 0 failures; subdir audit passed. Every change was
-also checked on the live page with the browser check render-connlost-reconnect-3410 (headless via
-pw-runtime), with red controls for the card look, the border colour and the members row.
+Scope grew during the loop by decision, not drift: after iteration 4, Mona Lisa (design owner) ruled that a
+given-up connection counts under the Issue tile and filter, and April handed over #3718 (needs_trust, the
+same predicate at the same sites), which was folded in. The branch was rebased onto main before iteration 9
+(one export-line conflict, both sides kept).
+
+Validation: full run on HEAD af6b38689, 9289 tests, 0 failures; subdir audit passed. Browser checks
+render-connlost-reconnect-3410 and render-chip-filters-3423 (headless, pw-runtime) pass, each with red
+controls; render-dm-badges-2863 re-run and passing (44 PASS) for the surface-gate trailer.
 
 ### Per-Iteration Breakdown
 
@@ -27,55 +32,89 @@ pw-runtime), with red controls for the card look, the border colour and the memb
 **Reviewer model:** opus
 **New findings:** 0 BLOCKERs, 5 WARNINGs, 0 CONVENTIONs, 4 NITs
 **Self-generated:** 0 of the above
-- [WARNING] web/index.html pjMember — the members row read cardStOf(m) (no reconnect), so it stayed grey beside a red card --> FIXED (77c3a0a9, cardStOf(liveM); browser check asserts pjm-attn per phase; red control bit)
-- [WARNING] docs/browser-checks/render-connlost-reconnect-3410.js — the members check compared only the label --> FIXED (77c3a0a9)
-- [WARNING] web/index.html data-attn — a given-up card is red but not counted under the Issue filter/tile --> DEFERRED: that filter keys on needs_you (#3423), needs_trust already works this way, and widening it changes another card's feature; recorded in the plan and put to Mona Lisa (design owner)
-- [WARNING] web/index.html stateCopyOf comment said the look never changes --> FIXED (77c3a0a9)
-- [WARNING] web/index.html CARD_ST.connection_lost comment said the louder look was undecided --> FIXED (77c3a0a9)
-- [NIT] check-in verb for given up --> FIXED (77c3a0a9, "Restart it, or is it done?")
-- [NIT] bgOf held a border colour --> FIXED (77c3a0a9, borderOf)
-- [NIT] README row did not mention the look --> FIXED (77c3a0a9)
-- [NIT] cardStOf readability --> FIXED in 77c3a0a9 by splitting it, which iteration 2 found broke two tests; reverted in ef7c84c1
+- [WARNING] pjMember read cardStOf(m), so the members row stayed grey beside a red card --> FIXED (liveM; browser check; red control bit)
+- [WARNING] members check compared only the label --> FIXED
+- [WARNING] Issue filter omitted given up --> ASKED of Mona Lisa, then FIXED after her ruling (iteration 5)
+- [WARNING] two comments stale about the look --> FIXED
+- NITs: check-in verb, variable name, README row, cardStOf readability (the split was reverted in iteration 2)
 
 #### Iteration 2
 **Reviewer model:** sonnet
-**New findings:** 1 BLOCKER, 1 WARNING, 0 CONVENTIONs, 0 NITs
-**Self-generated:** 1 of the above (the BLOCKER was the iteration-1 NIT fix)
-- [BLOCKER] web/index.html cardStOf — splitting it across lines broke web.needsyou-dealarm-2808.test.js and server.test.js, which slice it to the newline --> FIXED (ef7c84c1, back on one line with a comment naming both tests; both files pass)
-- [WARNING] org chart and detail panel also take the needs-you look via cardStOf, unstated --> FIXED (ef7c84c1, plan states it as intended)
+**New findings:** 1 BLOCKER, 1 WARNING
+**Self-generated:** 1 (the iteration-1 NIT fix)
+- [BLOCKER] splitting cardStOf across lines broke two tests that slice it to the newline --> FIXED (one line, comment names both tests)
+- [WARNING] org chart and detail panel take the look via cardStOf, unstated --> FIXED (plan)
 
 #### Iteration 3
 **Reviewer model:** opus
-**New findings:** 0 BLOCKERs, 0 new WARNINGs (its one WARNING was the deferred Issue-filter item), 0 CONVENTIONs, 3 NITs
-**Self-generated:** 0 of the above
-- [NIT] pjMember comment named only two routes to the red row --> FIXED (109ac863)
-- [NIT] org-chart #3423 comment listed divergences incompletely --> FIXED (109ac863)
-- [NIT] a substring count stands in for a stylesheet check (same shape as its sibling) --> left; the browser check's computed border proves the look
+**New findings:** 0 new actionable (its WARNING was the Issue-filter item), 3 NITs --> two comment NITs FIXED
 
 #### Iteration 4
 **Reviewer model:** sonnet
-**New findings:** 0 BLOCKERs, 0 WARNINGs, 0 CONVENTIONs, 1 NIT
-**Self-generated:** 0 of the above
-- [NIT] an inline `cardStOf(m)` mention in the pjMember comment; the same comment's last sentence names liveM
+**New findings:** 0 BLOCKERs, 0 WARNINGs, 1 NIT
+**Converged** on the look change. Mona Lisa then ruled on the Issue filter and #3718 was folded in.
+
+#### Iteration 5
+**Reviewer model:** opus
+**New findings:** 1 BLOCKER, 2 WARNINGs, 4 NITs
+**Self-generated:** 1
+- [BLOCKER] needs_trust rows are built by the route after countAgents, so the tile never counted them while the filter showed them --> FIXED (engine/status.js needsPerson; the route adds offline rows with it; source pin with red control)
+- [WARNING] the countAgents test fed an input production never sends --> FIXED (route pin)
+- [WARNING] project Issue pill still needs_you only --> DEFERRED: filed #3726, cited in the plan and at engine/projects.js
+- NITs: org comment, snapshot counts note, plan wording --> FIXED
+
+#### Iteration 6
+**Reviewer model:** sonnet
+**New findings:** 0 BLOCKERs, 1 new WARNING (chip-filter check header stated the old rule) --> FIXED; the project-pill WARNING duplicated iteration 5
+
+#### Iteration 7
+**Reviewer model:** opus
+**New findings:** 0 BLOCKERs, 2 WARNINGs, 1 CONVENTION, 4 NITs
+- [WARNING] seven inline copies of the Issue rule were not all pinned --> FIXED (browser-check arm 2f compares card, list row and org node with needsPerson for needs_trust, given up, reconnecting, idle; red control on the needs_trust list-row copy bit)
+- [WARNING] #3726 not cited where the next reader looks --> FIXED
+- [CONVENTION] raw 'connection_lost' literal --> FIXED (STATE.CONNECTION_LOST)
+- NITs: needsPerson above its own doc block, 2e wording, route pin robustness --> FIXED
+
+#### Iteration 8
+**Reviewer model:** sonnet
+**New findings:** 0 BLOCKERs, 1 WARNING, 2 NITs
+- [WARNING] Windows has a --resume path, so "anything it was in the middle of is lost" might not hold there --> DEFERRED with evidence: engine/win32supervisor.js resumes only when an agent dies under a live supervisor; a restart from the board runs main(), "a fresh conversation, as a Mac restart gives". Recorded in the plan.
+Validation finding: surface gate flagged render-dm-badges-2863 (lrow changed) --> FIXED (re-ran the check, 44 PASS; per-check trailer)
+
+#### Iteration 9 (after rebasing onto main)
+**Reviewer model:** opus
+**New findings:** 0 BLOCKERs, 1 new WARNING (README index row stated the old rule), 3 NITs
+- [WARNING] README row --> FIXED
+- NITs: CARD_ST header, an assertion that could not fail (removed)
+It checked the new main (Agent Swarms, the setup-assistant bubble): nothing new reads the changed counts, states or filters.
+
+#### Iteration 10
+**Reviewer model:** sonnet
+**New findings:** 0 BLOCKERs, 0 WARNINGs, 0 CONVENTIONs, 1 NIT (a blank line)
 **Converged** — no new actionable findings.
 
 ### Final Ledger
 
 | # | Iter | Category | File:Line | Origin | Description | Status | Resolution |
 |---|------|----------|-----------|--------|-------------|--------|------------|
-| 1 | 1 | WARNING | web/index.html pjMember | BRANCH | members row grey beside red card | FIXED | 77c3a0a9 |
-| 2 | 1 | WARNING | render-connlost-reconnect-3410.js | BRANCH | members check label-only | FIXED | 77c3a0a9 |
-| 3 | 1 | WARNING | web/index.html data-attn | BRANCH | Issue filter omits given up | DEFERRED | design owner's call; plan |
-| 4 | 1 | WARNING | web/index.html stateCopyOf | BRANCH | stale look comment | FIXED | 77c3a0a9 |
-| 5 | 1 | WARNING | web/index.html CARD_ST | BRANCH | stale design-call comment | FIXED | 77c3a0a9 |
-| 6 | 2 | BLOCKER | web/index.html cardStOf | SELF | multi-line broke slicing tests | FIXED | ef7c84c1 |
-| 7 | 2 | WARNING | .claude/plans/connlost-look-3410.md | BRANCH | org chart/detail unstated | FIXED | ef7c84c1 |
+| 1 | 1 | WARNING | web/index.html pjMember | BRANCH | members row grey beside red card | FIXED | liveM |
+| 2 | 1 | WARNING | render-connlost-reconnect-3410.js | BRANCH | members check label-only | FIXED | pjm-attn assert |
+| 3 | 1 | WARNING | web/index.html data-attn | BRANCH | Issue filter omits given up | FIXED | Mona's ruling, needsPerson |
+| 4 | 2 | BLOCKER | web/index.html cardStOf | SELF | multi-line broke slicing tests | FIXED | one line |
+| 5 | 5 | BLOCKER | server.js /api/status | BRANCH | offline needs_trust never counted | FIXED | needsPerson on offline rows |
+| 6 | 5 | WARNING | engine/status.test.js | SELF | test fed an impossible input | FIXED | route pin |
+| 7 | 5 | WARNING | engine/projects.js | BRANCH | project pill needs_you only | DEFERRED | #3726 |
+| 8 | 6 | WARNING | render-chip-filters-3423.js header | BRANCH | stated old rule | FIXED | header |
+| 9 | 7 | WARNING | web/index.html (7 copies) | BRANCH | copies not all pinned | FIXED | arm 2f |
+| 10 | 8 | WARNING | web/index.html give-up copy | BRANCH | Windows resume doubt | DEFERRED | evidence: fresh session on board restart |
+| 11 | 9 | WARNING | docs/browser-checks/README.md | BRANCH | index row stated old rule | FIXED | row |
 
 ### NITs (non-blocking, across all iterations)
-- [NIT] substring count as a stylesheet check (iteration 3, left: browser check measures the border)
-- [NIT] inline `cardStOf(m)` in a comment (iteration 4)
+- [NIT] needs_trust has no STATE constant (repo-wide, left)
+- [NIT] the route pin is a text pin (Windows-only producer; documented in the test)
+- [NIT] a blank line after needsPerson (iteration 10)
 
 ### Strengths (across all iterations)
-- [STRENGTH] — One derivation (cardStOf) drives the card, row, org node, detail and members row, so they cannot disagree (iterations 1-4)
-- [STRENGTH] — The browser check measures what the person sees (computed border colour) with red controls, not only class names (iterations 1, 3, 4)
-- [STRENGTH] — Mona Lisa's weakest premise was checked against every launch line before keeping her clause (iterations 1, 4)
+- [STRENGTH] — One rule (needsPerson) drives the tile count and, via arm 2f, is checked against every render copy of the filter
+- [STRENGTH] — The look is one derivation (cardStOf) for card, row, org node, detail and members row
+- [STRENGTH] — Every new test has a control that returns the dangerous answer, and red controls were run for each fix
