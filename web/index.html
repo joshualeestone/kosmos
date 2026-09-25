@@ -60,6 +60,7 @@
    copying a contrast failure faithfully would be a stupid way to fail.
 --------------------------------------------------------------------------- */
 :root {
+  --tip-dim: rgba(20,22,26,.28);   /* #3737: the tour's dim, one value for the layer and the gutter */
   /* #3132 (Josh, 6.68): the consolidated link size, defined once so the archived
      toggle (#pj-arch-toggle) and the Files/Tasks "View All" doors (.pj-viewall)
      are guaranteed equal by construction, not by two matching literals
@@ -1462,7 +1463,20 @@ button.uprime:hover, .btn.uprime:hover, .utoast .uacts button.uprime:hover,
 .tipcard .tip-go { font: 650 .8125rem var(--font-ui); padding: 6px 14px; border-radius: 9px; background: var(--gold-bright); color: #14161a; border: 0; cursor: pointer; }
 .tipcard .tip-bd:focus-visible, .tipcard .tip-go:focus-visible, .tipcard .tip-off:focus-visible, .tipcard .tip-skip:focus-visible, .tipcard .tip-x:focus-visible { outline: 2px solid var(--k-ink); outline-offset: 2px; }
 .tiphalo { position: fixed; z-index: 45; border-radius: 12px; pointer-events: none;
-  box-shadow: 0 0 0 3px var(--gold-bright), 0 0 0 7px color-mix(in srgb, var(--gold) 35%, transparent), 0 0 0 100vmax rgba(20,22,26,.28); }
+  box-shadow: 0 0 0 3px var(--gold-bright), 0 0 0 7px color-mix(in srgb, var(--gold) 35%, transparent); }
+/* #3737: the tour's dim is its own full-window layer with the ringed place cut out. It was the ring's
+   100vmax shadow, and a shadow that wide takes the ring's rounded corner at its own size, so a place near
+   one corner left the far corner undimmed (Josh's white triangle). */
+.tipdim { position: fixed; inset: 0; z-index: 45; pointer-events: none; background: var(--tip-dim); }
+/* A fixed layer cannot paint the scrollbar gutter the tab layout keeps (scrollbar-gutter: stable, above),
+   so the page's own ground is dimmed there while the tour dims, and the body fills the window so that dimmed
+   canvas shows nowhere but the gutter. The dimmed ground is ONE colour, worked out by tipDimming: a gutter
+   paints the canvas's colour and not its image (Chromium with a mouse attached, measured), so a dim laid on
+   as a gradient left the gutter bright. The gradient is only the fallback when that colour could not be read, and it
+   reads the root's ground, so a look that sets its ground on the body (Kosmos+ navy) would get light's there. */
+html.tip-dimming:not([data-layout="consolidated"]) { background: linear-gradient(var(--tip-dim), var(--tip-dim)), var(--k-bg); }
+html.tip-dimming[data-tip-ground]:not([data-layout="consolidated"]) { background: var(--tip-canvas, var(--k-bg)); }
+html.tip-dimming:not([data-layout="consolidated"]) > body { min-height: 100vh; }
 .tipcard .tip-dots { display: flex; gap: 5px; }
 .tipcard .tip-dots i { width: 6px; height: 6px; border-radius: 50%; background: color-mix(in srgb, var(--k-ink-2) 35%, transparent); }
 .tipcard .tip-dots i.on { background: var(--gold-deep); }
@@ -3142,8 +3156,19 @@ button.boardname[aria-expanded="true"] { opacity: 1; color: var(--k-ink); border
 .tsk-ritem.on { background: var(--k-surface); border-color: var(--gold-edge); font-weight: 650; }
 .tsk-ritem .nm { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .tsk-ritem .ct { font: 500 .75rem var(--font-mono); color: var(--k-ink-2); font-variant-numeric: tabular-nums; }
-.tsk-main { padding: 22px 26px 110px; min-width: 0; position: relative; }
+.tsk-main { padding: 25px 26px 110px; min-width: 0; position: relative; }
 .tsk-crumb { font-size: .8125rem; color: var(--k-ink-2); margin: 0 0 2px; min-height: 1.3em; }
+/* Mona's look review of #3701: halve the two big vertical gaps (measured 51px above the title,
+   49px from the tile hint to the first group). An empty crumb takes no room (it appears when the
+   person picks a project, a navigation they made). The status line KEEPS its one reserved line,
+   so a one-line message ("Closed 2 tasks.") never pushes the list down under the pointer; its
+   margins go and the first group sits closer instead. A rare message long enough to wrap (a
+   long project name plus "Could not confirm Rex saw it: ...") does push it one line: accepted,
+   because truncating would hide the part the person needs. It stays a live region. */
+.tsk-crumb:empty { min-height: 0; margin: 0; }
+#tsk-msg { margin: 0; min-height: 1.6em; min-height: 1lh; }   /* one message line, reserved */
+#panel-tasks #tsk-hint { margin-bottom: 0; }
+#tsk-groups > .tsk-grp:first-child { margin-top: 3px; }
 .tsk-crumb button { border: 0; background: none; padding: 0; font: inherit; font-weight: 600; color: var(--k-ink); cursor: pointer;
   text-decoration: underline; text-decoration-color: var(--gold); text-underline-offset: 3px; }
 #panel-tasks .tsk-head h2 { font-size: 1.5rem; letter-spacing: -.015em; margin: 0; font-weight: 700; }
@@ -3224,6 +3249,9 @@ details.tsk-fold summary { cursor: pointer; color: var(--k-ink-2); font-size: .8
 html[data-layout="consolidated"] body.consolidated #panel-projects > #panel-tasks { grid-column: 2; grid-row: 1; margin: 0; width: 100%;
   padding: var(--space-8) var(--space-8) 0 var(--space-8); min-height: 0; overflow-y: auto; }
 html[data-layout="consolidated"] body.consolidated #panel-projects > #panel-tasks .tsk-view { grid-template-columns: 1fr; }
+/* Mona's look review of #3701: in the column the panel's own top inset already spaces the title,
+   so the view's does not stack on it (was about 49px, like the tab view's 51px before halving). */
+html[data-layout="consolidated"] body.consolidated #panel-projects > #panel-tasks .tsk-main { padding-top: 0; }
 html[data-layout="consolidated"] body.consolidated #panel-projects > #panel-tasks .tsk-rail { display: none; }
 html[data-layout="consolidated"] body.consolidated #panel-projects > #panel-tasks .tsk-mobsel { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 12px; }
 /* The consolidated projects rail's way into Tasks (the tab bar is hidden there). */
@@ -3237,7 +3265,7 @@ html[data-layout="consolidated"] body.consolidated #panel-projects > #panel-task
   .tsk-search { max-width: none; }
   .tsk-ctl { flex-wrap: wrap; row-gap: 4px; }
   .tsk-seg button { padding: 0 8px; }
-  .tsk-main { padding: 16px 14px 120px; }
+  .tsk-main { padding: 22px 14px 120px; }
   .tsk-row { grid-template-columns: 22px minmax(0, 1fr); }
   .tsk-side { grid-column: 2; flex-direction: row; align-items: center; justify-content: flex-start; min-width: 0; flex-wrap: wrap; }
 }
@@ -7996,6 +8024,10 @@ html:not([data-fed-ui="show"]) #pj-add-ext-person,html:not([data-fed-ui="show"])
 .fr-cmd-row { display: flex; align-items: flex-start; gap: var(--space-4); }
 .fr-cmd-row .fr-cmd { flex: 1 1 auto; min-width: 0; }
 .fr-copy { margin: var(--space-4) 0; flex: none; }
+/* #3436: the OpenAI one-time code on Windows. It is read and typed by a person, so it
+   is large and spaced, sized to itself rather than stretched, with Copy beside it. */
+.fr-cmd-row.oa-devrow { align-items: center; }
+.fr-cmd-row .fr-cmd.oa-devcode { flex: 0 1 auto; font-size: 1.25rem; font-weight: 600; letter-spacing: .08em; }
 /* The manual update offer's numbered steps (W-25). */
 .upd-manual-steps { margin: 8px 0 0; padding-left: 1.4em; }
 .upd-manual-steps li { margin: 2px 0; }
@@ -9006,7 +9038,8 @@ window.kosmosMeasureScrollbarWidth();
     <button class="tab"     data-tab="projects" role="tab" aria-selected="false">Projects<span class="navbadge" id="nav-badge-projects" aria-hidden="true" hidden></span></button>
     <!-- #3559: Tasks, the third top-level view (Josh, 2026-09-24 06:42). No badge yet: the
          mock's badge counts tasks waiting on you, which no task can prove today. -->
-    <button class="tab"     data-tab="tasks"    role="tab" aria-selected="false">Tasks</button>
+    <!-- #3559 (Josh): shown once the person has 25 tasks ever (the status poll's tasksTab), and it stays. -->
+    <button class="tab"     data-tab="tasks"    role="tab" aria-selected="false" hidden>Tasks</button>
     <!-- #3051 (Josh, 6.63 for 6.65): Settings left the top nav; it is reached from
          the user menu (avatar + name) in the upper-right .headright below. The
          #panel-settings panel and every showTab('settings') caller are unchanged;
@@ -10757,7 +10790,7 @@ window.kosmosMeasureScrollbarWidth();
            types on OpenAI's OWN page. So the shape is start -> open the page ->
            wait, with no code field in Kosmos. Kosmos never sees the password. -->
       <div id="acct-openai-sub-step" hidden>
-        <p class="dwarn" style="margin:0 0 8px;"><span class="dwarn-ok" aria-hidden="true">&#10003;</span><b>Sign in with your ChatGPT subscription.</b> Kosmos opens OpenAI's sign-in in your browser and never sees your password. Your agents then run on your own subscription, on this computer.</p>
+        <p class="dwarn" style="margin:0 0 8px;"><span class="dwarn-ok" aria-hidden="true">&#10003;</span><b>Sign in with your ChatGPT subscription.</b> <span data-win-copy="openaiSubHow">Kosmos opens OpenAI's sign-in in your browser and never sees your password. Your agents then run on your own subscription, on this computer.</span></p>
         <!-- #2913: no name field here. The subscription sign-in pulls in the account's
              email automatically, and that is what tells one subscription account apart
              from another -- so asking for a name is extra work for nothing. (The API-key
@@ -10767,7 +10800,9 @@ window.kosmosMeasureScrollbarWidth();
         </div>
         <!-- The sign-in page opens on its own once you start; this link opens it
              again if the browser did not, or on a remote Mac where there is no
-             browser to open. Device mode shows a code to type on that page. -->
+             browser to open. Device mode shows a code to type on that page.
+             #3436: on Windows the sign-in is always device mode, and this button is
+             how the page opens (codex's own browser pop landed behind Kosmos). -->
         <div class="frow" id="acct-openai-sub-open-row" hidden style="margin-top:8px;">
           <a class="btn" id="acct-openai-sub-open" href="#" target="_blank" rel="noopener">Open the sign-in page</a>
         </div>
@@ -11586,7 +11621,7 @@ window.kosmosMeasureScrollbarWidth();
                   </div>
                 </div>
                 <div id="fr-openai-sub-step" hidden class="fr-confirm" role="group" aria-labelledby="fr-openai-sub-t">
-                  <p class="fr-confirm-t" id="fr-openai-sub-t"><b>Sign in with your ChatGPT subscription.</b> Kosmos opens OpenAI's sign-in in your browser and never sees your password. Your agents then run on your own subscription, on this computer.</p>
+                  <p class="fr-confirm-t" id="fr-openai-sub-t"><b>Sign in with your ChatGPT subscription.</b> <span data-win-copy="openaiSubHow">Kosmos opens OpenAI's sign-in in your browser and never sees your password. Your agents then run on your own subscription, on this computer.</span></p>
                   <!-- #2913: no name field -- the subscription sign-in pulls the account's
                        email automatically, and that distinguishes accounts (mirror of the
                        Settings acct-openai-sub-step). -->
@@ -12590,7 +12625,7 @@ window.kosmosMeasureScrollbarWidth();
            Tasks lives here, beside the "Projects" name it lists tasks from (the + stays alone at
            the far right). It opens Tasks INSIDE the display column (openConsolidatedTasks), the
            way the user menu opens Settings there (#2842), never out to the tab view. -->
-      <span class="lead"><span class="railname">Projects</span><button class="rail-tasks" type="button" id="rail-projects-tasks" title="Every task across your projects">Tasks</button></span>
+      <span class="lead"><span class="railname">Projects</span><button class="rail-tasks" type="button" id="rail-projects-tasks" title="Every task across your projects" hidden>Tasks</button></span>
       <span class="railacts">
         <button class="fold plus" type="button" id="rail-projects-new" aria-label="Add Project" title="Add Project">+</button>
       </span>
@@ -15514,6 +15549,13 @@ function windowsCopyTable() {
     copyLabel: 'Copy',
     copyDone: 'Copied',
     copyFallback: 'Select it and copy',
+    /* #3436: the ChatGPT subscription sign-in runs by device code on Windows, because
+       codex's own browser window opened behind Kosmos. The explainer on both sign-in
+       steps, the line above the code, and the line above codex's own words when the
+       code could not be picked out. */
+    openaiSubHow: 'Kosmos shows you a link and a short code. Open the link, sign in to OpenAI, and type the code there. Kosmos never sees your password. Your agents then run on your own subscription, on this computer.',
+    openaiSubCodeLead: 'On that page, enter this code:',
+    openaiSubRawLead: 'We could not pick out the code, so here is what OpenAI&rsquo;s sign-in says to do:',
     /* The manual update offer's folder button (W-25). */
     updateOpenFolder: 'Open my Kosmos folder',
     openKosmosFolderFailure: 'We could not open your Kosmos folder just now.',
@@ -18984,6 +19026,8 @@ async function tick() {
     // from sourceChannel + the federation-live flip + this viewer's Plus entitlement,
     // and stamp it on <html> for the CSS gate. Fail-safe (see fedGateMode).
     fedGateStamp(data);
+    // #3559 (Josh): the Tasks tab and the consolidated rail's Tasks button, once 25 tasks ever.
+    tskTabGate(data.tasksTab === true);
 
     // The freshness stamp is load-bearing. An ambient board gets trusted
     // passively, and silence reads as "all fine". If this stops updating, the
@@ -21784,6 +21828,9 @@ let ACCT_OPENAI_POLL = null;
    connect, cancel, and dialog close so a reopen never resumes a dead session. */
 let ACCT_OPENAI_SUB_SESSION = null;
 let ACCT_OPENAI_SUB_POLL = null;
+/* #3436: the mode the engine chose for this sign-in (its start answer): 'device' on
+   Windows, where the poll paints the link and code (openaiSubPaintDevice). */
+let ACCT_OPENAI_SUB_MODE = null;
 /* #2338: with the runner present (or its state unknown, which must NOT force an
    install per #979) the person meets the PICKER, not a flow -- the choice of a
    ChatGPT subscription vs an API key comes before either flow's controls. Both
@@ -21839,6 +21886,40 @@ function acctOpenaiSubView(state) {
     case 'cancelled':        return { done: true,  ok: false, say: 'Sign-in stopped.' };
     default:                 return { done: false, ok: false, say: 'Signing in…' };
   }
+}
+/* #3436: what a DEVICE-code sign-in shows while it waits. The engine runs device code on
+   Windows (openaiaccounts.chatgptLoginMode), because codex's own browser pop opens BEHIND
+   Kosmos there. So the page shows the one-time code with a Copy button, and the
+   open-page button beside it opens the link from this page, which is in front. When the
+   engine could not read a code it sends codex's own words (`instructions`); those are
+   shown rather than a link with nothing to type. Pure: returns the markup and a key, so
+   the painter repaints only when something changed (a rebuild every poll would undo a
+   "Copied" under the person's click). A Mac runs browser mode and never reaches this. */
+function openaiSubDeviceMarkup(out) {
+  if (out && out.userCode) {
+    return { key: 'code:' + out.userCode, html: windowsCopy('openaiSubCodeLead')
+      + '<span class="fr-cmd-row oa-devrow"><code class="fr-cmd oa-devcode">' + esc(out.userCode) + '</code>'
+      + '<button class="btn-quiet fr-copy" type="button" data-copy-command>' + windowsCopy('copyLabel') + '</button></span>' };
+  }
+  if (out && out.instructions) {
+    return { key: 'said:' + out.instructions, html: windowsCopy('openaiSubRawLead')
+      + '<span class="fr-cmd-row"><code class="fr-cmd">' + esc(out.instructions) + '</code></span>' };
+  }
+  return { key: '', html: '' };
+}
+/* Settings and first run both paint through this; `ids` names that screen's open link,
+   its row, and the code line. */
+function openaiSubPaintDevice(ids, out) {
+  const openA = document.getElementById(ids.open);
+  const openRow = document.getElementById(ids.openRow);
+  if (openA && out && out.authUrl) { openA.href = out.authUrl; if (openRow) openRow.hidden = false; }
+  const code = document.getElementById(ids.code);
+  if (!code) return;
+  const view = openaiSubDeviceMarkup(out);
+  if (code.__osKey === view.key && (code.textContent || !view.key)) return;
+  code.__osKey = view.key;
+  code.innerHTML = view.html;
+  code.hidden = !view.key;
 }
 /* The sentence for a refused POST /api/runners/<p>/install. The reason lives at
    `job.because` (and, since the Windows fix, at top-level `error` too); the old
@@ -24232,6 +24313,8 @@ function acctOpenaiSubWatch() {
     if (!r.ok) return;    // a 5xx or other non-404 error is transient: keep polling
     const out = await r.json().catch(() => null);
     if (!out) return;
+    // #3436: a device sign-in's link and code arrive by this poll, not by the start answer.
+    if (ACCT_OPENAI_SUB_MODE === 'device') openaiSubPaintDevice({ open: 'acct-openai-sub-open', openRow: 'acct-openai-sub-open-row', code: 'acct-openai-sub-code' }, out);
     const view = acctOpenaiSubView(out.state);
     if (msg && view.say) msg.textContent = view.say;
     if (!view.done) return;
@@ -24296,6 +24379,7 @@ document.getElementById('acct-openai-sub-go').addEventListener('click', async (e
       throw new Error((out && (out.error || out.because)) || 'We could not start that sign-in.');
     }
     ACCT_OPENAI_SUB_SESSION = out.sessionId;
+    ACCT_OPENAI_SUB_MODE = out.mode;
     acctOpenaiSubShowStart(out);
     acctOpenaiSubWatch();
   } catch (err) {
@@ -42409,11 +42493,25 @@ function tkFace(p, sessionName) {
    of statement. Shared here so the task detail page's per-part row, which
    had fallen back to the same canned "we could not check" with no
    distinguishing style at all, gets the same fix in one place. */
+/* ONE FACT, ONE WORDING (#3559, Mona's look review of #3701): an agent that has never written its
+   report is said the same way on every surface that draws a claim (the Tasks row, the project
+   card, the task page). The engine's `neverReported` field decides it, never our prose; every
+   other could-not-tell case keeps its own reason. */
+function claimNotReported(claim) {
+  return claim && claim.claimed === null && claim.neverReported === true
+    ? 'has not reported what it is working on yet' : '';
+}
+/* The ONE part that carries an agent's claim line, on every surface that lists parts (the project
+   card, the task page): that agent's first OPEN part. The claim is about the agent, so it is said
+   once even when it holds several parts, and never beside a part it has finished. */
+function tkSayPart(parts, who) {
+  return who ? (parts || []).find((x) => x && x.who === who && !x.closedAt) || null : null;
+}
 function taskClaimHtml(claim) {
   if (!claim) return '';
   if (claim.claimed === true) return '<em class="tksay">says it is on this</em>';
   if (claim.claimed === false) return '<em class="tksay">says it is not on this</em>';
-  const why = claim.because || 'we could not check';
+  const why = claimNotReported(claim) || claim.because || 'we could not check';
   return '<em class="tkunk" title="' + esc(why) + '">' + esc(why) + '</em>';
 }
 
@@ -42510,15 +42608,15 @@ function paintProjectTasks(p) {
          and not just for the whole task, the pack's own "+" row -- and an
          honest "N of M assigned" summary: t.progress.assigned/total,
          engine-computed (progressOf, #206/#803), never counted client-side.
-         The claim line still lands on the FIRST assigned part, the same
-         convention the task detail page's own per-part rows use (the claim
-         is the TASK's, asked of one report, not a per-part fact nobody
-         computed). */
-      const firstWho = assigned.length ? assigned[0].who : null;
+         The claim is the TASK's (asked of one report, not a per-part fact
+         nobody computed); where it lands is below. */
+      /* Once, beside the agent the claim is ABOUT (claim.about, which the engine only sets to an
+         agent still holding open work), on that agent's first open part (tkSayPart). */
+      const sayPart = tkSayPart(parts, t.claim && t.claim.about);
       const rows = parts.map((part) => '<span class="tkcard-part' + (part.who ? '' : ' none') + '">'
         + tkFace(p, part.who)
         + '<span class="tkcard-who-b"><b>' + esc(part.who ? tkMemberName(p, part.who) : 'Nobody yet') + '</b>'
-        + (part.who && part.who === firstWho ? sayHtml : '') + '</span></span>').join('');
+        + (part === sayPart ? sayHtml : '') + '</span></span>').join('');
       who = '<span class="tkcard-parts">' + rows + '</span>'
         + '<span class="tkcard-status">' + esc(t.progress.assigned + ' of ' + t.progress.total + ' assigned') + '</span>';
     } else {
@@ -42713,11 +42811,23 @@ function tskRow(t) {
     : '<span class="tsk-who nobody">Nobody yet</span>';
   /* The claim could not be read: say WHY on the row, so "Assigned, not started" is never read
      as a fact about a task we simply could not check. */
-  const cannot = t.state === 'assigned' && t.claim && t.claim.claimed === null && t.claim.because
-    ? '<div class="why">We cannot tell whether it has started: ' + esc(t.claim.because) + '.</div>' : '';
+  /* Mona's look review of #3701: in Josh's words, and short. The field says only that the agent
+     has never written its report (the engine's `neverReported`), not that it has said nothing
+     anywhere (it may have in the room), so the sentence claims exactly that: "Rex has not
+     reported what it is working on yet." When we could not read the report, or it is too old to
+     trust, that would be false too, so those rows keep the reason. */
+  const notReported = claimNotReported(t.claim);
+  const cannot = t.state !== 'assigned' || !t.claim || t.claim.claimed !== null ? ''
+    : notReported && t.claim.about
+      ? '<div class="why">' + esc(tskAgentName(t.claim.about)) + ' ' + notReported + '.</div>'
+      : t.claim.because ? '<div class="why">We cannot tell whether it started: ' + esc(t.claim.because) + '.</div>' : '';
   return '<div class="tsk-row' + (on ? ' sel' : '') + '" data-key="' + esc(tskKey(t)) + '">'
     + '<input type="checkbox" data-key="' + esc(tskKey(t)) + '"' + (on ? ' checked' : '')
-    + (t.state === 'closed' ? ' disabled' : '') + ' aria-label="Select task ' + Number(t.number) + ' of ' + esc(t.projectName) + '">'
+    /* The row no longer repeats its state in a status group (the heading says it), so there the
+       label carries it: a screen reader moving between checkboxes still hears where each task is.
+       Grouped by project the row shows its state line, so the label does not say it again. */
+    + (t.state === 'closed' ? ' disabled' : '') + ' aria-label="Select task ' + Number(t.number) + ' of ' + esc(t.projectName)
+    + (g && TSK.by !== 'project' ? ' (' + esc(g.l) + ')' : '') + '">'
     + '<div class="t"><span class="n">#' + Number(t.number) + '</span>'
     + '<button type="button" class="tl" data-open-task="' + esc(tskKey(t)) + '">' + esc(t.sentence) + '</button>'
     + '<div class="meta"><button type="button" data-open-project="' + esc(t.projectId) + '">' + esc(t.projectName) + '</button>'
@@ -42726,7 +42836,9 @@ function tskRow(t) {
     + (t.dueDate ? '<span>due ' + esc(t.dueDate) + '</span>' : '')
     + '</div>' + cannot + '</div>'
     + '<div class="tsk-side">' + whoHtml
-    + (g ? '<span class="tsk-state" style="--tsk-c:' + g.c + '"><span class="tsk-dot"></span>' + esc(g.l) + '</span>' : '') + '</div>'
+    /* Said once per row (Mona): inside a status group the heading already names the state, so the
+       row's state line shows only when grouping by project, where it is information. */
+    + (g && TSK.by === 'project' ? '<span class="tsk-state" style="--tsk-c:' + g.c + '"><span class="tsk-dot"></span>' + esc(g.l) + '</span>' : '') + '</div>'
     + '</div>';
 }
 function tskList(rows) {
@@ -42784,7 +42896,9 @@ function tskPaint() {
   document.getElementById('tsk-by').innerHTML = TSK_BYS.map(([k, l]) => '<button type="button" data-by="' + k + '" aria-pressed="' + (TSK.by === k) + '">' + esc(l) + '</button>').join('');
   document.getElementById('tsk-sort').value = TSK.sort;
   /* Tiles: the proven groups only, counted before the tile filter so every tile keeps its number. */
-  document.getElementById('tsk-tiles').innerHTML = !TSK.data ? '' : TSK_GROUPS.map((g) => {
+  /* Closed is not a tile (Mona, as the mock draws it): tiles are where the open work is, and the
+     sub-line counts open tasks, so a Closed tile read as one more. Closed stays the folded list. */
+  document.getElementById('tsk-tiles').innerHTML = !TSK.data ? '' : TSK_GROUPS.filter((g) => g.k !== 'closed').map((g) => {
     const n = scoped.filter((t) => t.state === g.k).length;
     return '<button type="button" class="tsk-tile" data-tile="' + g.k + '" aria-pressed="' + (TSK.tile === g.k) + '" style="--tsk-c:' + g.c + '">'
       + '<span class="num">' + n + '</span><span class="lab"><span class="tsk-dot"></span>' + esc(g.l) + '</span><span class="ts">' + esc(g.s) + '</span></button>';
@@ -42825,8 +42939,8 @@ function tskPaint() {
     groups.innerHTML = TSK_GROUPS.filter((g) => !TSK.tile || TSK.tile === g.k).map((g) => {
       const ts = sorted.filter((t) => t.state === g.k);
       const head = '<h3><span class="tsk-dot" style="--tsk-c:' + g.c + '"></span>' + esc(g.l) + '<span class="count">' + ts.length + '</span></h3><p class="why">' + esc(g.why) + '</p>';
-      /* Closed is folded unless its tile was picked: finished work is reachable, not in the way. */
-      if (g.k === 'closed' && TSK.tile !== 'closed') {
+      /* Closed is always the fold (it has no tile): finished work is reachable, not in the way. */
+      if (g.k === 'closed') {
         return '<section class="tsk-grp" style="--tsk-c:' + g.c + '"><details class="tsk-fold"' + (TSK.closedOpen ? ' open' : '') + '><summary>' + esc(g.l) + ' (' + ts.length + ')</summary>' + tskList(ts) + '</details></section>';
       }
       return '<section class="tsk-grp">' + head + tskList(ts) + '</section>';
@@ -42862,6 +42976,19 @@ async function tskOpenTask(key) {
 async function tskOpenProject(id) {
   await tskGoToProject(id);
 }
+/* #3559, Josh's ruling: the top-level ways into Tasks (the tab, and the consolidated projects
+   rail's button, which stands in for the tab there) appear once the person has 25 tasks ever,
+   from the status poll's `tasksTab` (the engine counts and saves the flag, so once shown they stay).
+   A project's View All still opens this view below 25: it is that project's only full list. */
+function tskTabGate(show) {
+  for (const el of [document.querySelector('.tab[data-tab="tasks"]'), document.getElementById('rail-projects-tasks')]) {
+    if (el && el.hidden === show) el.hidden = !show;
+  }
+  /* This viewer's last answer, so a board past 25 does not pop the tab into the bar a moment after
+     every load. A convenience only: the status tick stays the authority and corrects it. */
+  try { localStorage.setItem('kosmos.tasksTab', show ? '1' : '0'); } catch { /* private window or blocked */ }
+}
+try { if (localStorage.getItem('kosmos.tasksTab') === '1') tskTabGate(true); } catch { /* no storage: the tick decides */ }
 /* #3703: the project page's View-all door. ONE list screen: it opens this view scoped to the project
    rather than a second list of its own. A door is a fresh look at that project, so the window goes
    back to All (the door has always meant every task, closed included), and the search and tile go;
@@ -43120,8 +43247,14 @@ function paintTaskPage() {
      report naming "task 15" is a claim about the task; agents have not been
      taught a per-part spelling, so pretending otherwise would put a fact
      nobody computed under somebody's name. */
-  const sayHtml = taskClaimHtml(t.claim);
-  const firstWho = parts.map((x) => x.who).filter(Boolean)[0] || null;
+  /* Said ONCE on this page: a could-not-tell REASON is given in full by the why line below (it has
+     the room), so the part's claim line leaves it out; "not reported" and a definite claim stay on
+     the part's line, where the why line stays quiet for them. */
+  const sayHtml = t.claim && t.claim.claimed === null && !claimNotReported(t.claim) ? '' : taskClaimHtml(t.claim);
+  /* ONE part carries the claim line: the open part of the agent the claim is ABOUT (claim.about,
+     the engine's claimWho; tkSayPart, the same rule as the project card). The why line below reads
+     the same value. */
+  const sayPart = tkSayPart(parts, t.claim && t.claim.about);
   document.getElementById('tk-who').innerHTML = parts.map((part) => {
     const shown = nameOf(part.who);
     const line = part.sentence && part.sentence !== t.sentence ? part.sentence : '';
@@ -43144,7 +43277,7 @@ function paintTaskPage() {
         : '<button class="tkwho-pick" type="button" data-pick-part="' + esc(String(part.id)) + '"'
           + ' aria-label="Change who is on this part">' + esc(shown || 'Nobody yet') + '</button>')
       + (line ? '<small>' + esc(line) + '</small>' : '')
-      + (part.who && part.who === firstWho && !part.closedAt ? sayHtml : '')
+      + (part === sayPart ? sayHtml : '')
       + '</div>'
       + '<button class="linkish tkpart-go" type="button" data-part-act="' + (part.closedAt ? 'reopen' : 'close') + '">'
       + (part.closedAt ? 'Put back' : 'Done') + '</button>'
@@ -43156,19 +43289,31 @@ function paintTaskPage() {
   void prog;
 
   const why = document.getElementById('tk-why');
+  const notReported = claimNotReported(t.claim);
+  /* The agent the claim is ABOUT, by name (claim.about: an agent still holding open work here, so a
+     finished agent is never named). Said ONCE: when its part's claim line is on screen, that line
+     already says "not reported" beside the name and this line stays quiet for it; a could-not-tell
+     reason is given here in full (the part line leaves it out). */
+  const aboutName = t.claim && t.claim.about ? tkMemberName(p, t.claim.about) : null;
+  const sayShown = !!sayPart;
   const unknownBecause = (t.claim && t.claim.claimed === null && t.claim.because) ? t.claim.because : '';
-  why.textContent = unknownBecause ? 'We could not check whether ' + (who || 'it')
-    + ' is on this: ' + unknownBecause + '.' : '';
-  why.hidden = !unknownBecause;
+  why.textContent = notReported ? (sayShown || !aboutName ? '' : aboutName + ' ' + notReported + '.')
+    : unknownBecause ? 'We could not check whether ' + (aboutName || 'its agent') + ' is on this: ' + unknownBecause + '.' : '';
+  why.hidden = !why.textContent;
 
   /* The close-note: both clauses are about what KOSMOS does not do. Needed
      most by somebody who assumes closing a task stops the agent. Only when
      somebody is on it and it is open. */
   const note = document.getElementById('tk-note');
-  if (who && !t.closedAt) {
-    const says = (t.claim && t.claim.claimed === true) ? who + ' says it is on this. ' : '';
-    note.textContent = says + 'Marking it done closes it here. It does not stop ' + who
-      + ' or change what ' + who + ' is doing.';
+  /* The agent on it: the one the claim is about (a task assigned through its parts has no t.who,
+     and the warning matters there as much), else a legacy task's own who. */
+  const noteWho = aboutName || who;
+  if (noteWho && !t.closedAt) {
+    /* Kept on purpose although the part line says it too (THE JOIN, pinned by render-tasks): here
+       it is the premise of the warning that follows, that closing does not stop an agent on it. */
+    const says = (t.claim && t.claim.claimed === true) ? noteWho + ' says it is on this. ' : '';
+    note.textContent = says + 'Marking it done closes it here. It does not stop ' + noteWho
+      + ' or change what ' + noteWho + ' is doing.';
     note.hidden = false;
   } else {
     note.hidden = true;
@@ -52460,6 +52605,8 @@ function frOpenaiSubWatch() {
     if (!r.ok) return;
     const out = await r.json().catch(() => null);
     if (!out) return;
+    // #3436: a device sign-in's link and code arrive by this poll, not by the start answer.
+    if (ACCT_OPENAI_SUB_MODE === 'device') openaiSubPaintDevice({ open: 'fr-openai-sub-open', openRow: 'fr-openai-sub-open-row', code: 'fr-openai-sub-code' }, out);
     const view = acctOpenaiSubView(out.state);
     if (msg && view.say) { msg.className = 'dhint'; msg.textContent = view.say; }
     if (!view.done) return;
@@ -52517,6 +52664,7 @@ async function frOpenaiSubStart() {
       throw new Error((out && (out.error || out.because)) || 'We could not start that sign-in.');
     }
     ACCT_OPENAI_SUB_SESSION = out.sessionId;
+    ACCT_OPENAI_SUB_MODE = out.mode;
     frOpenaiSubShowStart(out);
     frOpenaiSubWatch();
   } catch (err) {
@@ -54701,20 +54849,14 @@ const TIPS = [
       { at: ['#new-agent', '#rail-agents-new'], title: 'Make your first agent',
         body: 'Start here. You give it a name, a picture and a job, and it gets to work.' },
       { at: ['#tabs [data-tab="agents"]', '#rail-agents .railname'], title: 'Your agents',
-        body: 'Agents shows everyone working for you. Click any agent to talk to it.' },
+        body: 'Access all your agents to see what they are working on and talk to them directly.' },
       { at: ['#tabs [data-tab="projects"]', '#rail-projects .railname', '#rail-projects'], title: 'Your projects',
-        body: 'Projects is where agents work together on something.' },
-      { at: ['#userpop-btn'], title: 'Your settings',
-        body: 'Settings live under your name, top right. Tips come back from the ? beside it.' },
+        body: 'Create projects for your agents to work on together.' },
+      { at: ['#userpop-btn'], title: 'Your Profile',
+        body: 'Access all your Kosmos settings here.' },
     ] },
   { id: 'newagent', title: 'Make an agent', show: () => tipVisible('#panel-create'), at: '#panel-create h2', side: true,
     body: '<p>Give it a name and a picture so you can tell it apart, then tell it what the job is in plain words. You can change all of it later.</p>' },
-  { id: 'ring', title: 'The ring is your agent\'s memory', /* Only a card that draws the gauge: a filled band (.gf) or the unknown-memory dashed ring (.gu).
-       An off or needs-trust card has a face and no ring. */
-    show: () => tipVisibleAny('#grid .agauge .gf, #grid .agauge .gu, #alist .lring'), at: '#grid .agauge:has(.gf), #grid .agauge:has(.gu), #alist .lring',
-    body: '<p>It fills up as you work together. The fuller it gets, the more your agent has to hold in mind at once.</p>'
-      + '<div class="tip-bands">' + TIP_BAND('', 'Plenty of room') + TIP_BAND('warn', 'Getting full') + TIP_BAND('high', 'Nearly full') + '</div>'
-      + '<p>When it is nearly full, a Fresh start on the agent\'s page clears its memory. Its files and instructions stay.</p>' },
   { id: 'agents', title: 'See your agents your way', show: () => tipVisible('#boardbar') && !!document.querySelector('#grid [data-agent]'),
     at: '.viewtoggle[data-scope="agents"]',
     body: '<p>Cards, a list, or an org chart that shows who reports to whom. Click any agent to talk to it.</p>' },
@@ -54732,6 +54874,15 @@ const TIPS = [
   { id: 'agentpage', title: 'Your agent\'s page', show: () => tipVisible('#panel-detail #d-sec-talk'), at: '#panel-detail .snav',
     body: '<p>Talk to your agent here. Messages go straight to it. Profile, Instructions, AI Settings and Advanced are in the boxes on the left, and Instructions is where you change what it does.</p>' },
   /* #3574 (Josh 2026-09-25 07:46): no Settings tip ("wonky and pointless"), not on first visit and not from the ?. */
+  /* #3737 (Josh 2026-09-25 08:51): the ring's tip lives on the agent's own page, by its ring, and shows after
+     that page's own tip. The ? still opens it anywhere: it points at this page's ring, else a card's. The body
+     is Josh's words; his first line repeated the head, so it starts at "The ring shows". */
+  { id: 'ring', title: 'Your agent\'s memory',
+    show: () => tipVisible('#panel-detail #d-ring svg') && tipVisible('#panel-detail #d-sec-talk'),   // with the page's own tip, which goes first
+    at: '#panel-detail #d-ring svg, #grid .agauge:has(.gf), #grid .agauge:has(.gu), #alist .lring', side: true,   // beside it: above and below are her name and buttons
+    body: '<p>The ring shows how full your agent\'s memory is.</p>'
+      + '<div class="tip-bands">' + TIP_BAND('', 'Plenty of room') + TIP_BAND('warn', 'Getting full') + TIP_BAND('high', 'Nearly full') + '</div>'
+      + '<p>This is normal and the agent will automatically write themselves a handoff, You can also manage their memory under AI settings.</p>' },
 ];
 let TIPS_STATE = null;          // { ok, seen, off } from the board; null until read
 let TIP_OPEN = null;            // the tip on screen, or null
@@ -54991,20 +55142,68 @@ function tipSuspend(on) {
   card.dataset.suspended = String(on);
   card.hidden = on;
   document.getElementById('tippins').hidden = on;
-  if (!on) tipLayout(TIP_OPEN, card);
+  if (on) tipDimming(false);
+  else tipLayout(TIP_OPEN, card);
+}
+
+/* #3737: the scrollbar gutter dims with the tour (the html.tip-dimming rules), from the body's own ground. Read from
+   the body because a look can set --k-bg there, where the root cannot see it (Kosmos+ navy), and as the token,
+   because navy's body paints a gradient, so its background colour reads transparent. The ground and the dim are
+   mixed here into one colour, because a gutter paints only the canvas's colour. */
+let TIP_GROUND = { key: null, colour: null };   // the last mix, by what it was mixed from: it changes only with the look
+function tipDimmedGround() {
+  const key = getComputedStyle(document.body).getPropertyValue('--k-bg').trim() + '|' + getComputedStyle(document.body).getPropertyValue('--tip-dim').trim();
+  if (TIP_GROUND.key === key) return TIP_GROUND.colour;
+  const probe = document.createElement('i');
+  probe.style.cssText = 'position:absolute;visibility:hidden;width:0;height:0';
+  document.body.appendChild(probe);
+  try {
+    /* rgb() or rgba() only: a look written in another colour space reads back as color(...), which falls back. */
+    const rgba = (v) => { probe.style.backgroundColor = ''; probe.style.backgroundColor = v; const cs = getComputedStyle(probe).backgroundColor; const m = /^rgba?\(/.test(cs) ? cs.match(/[\d.]+/g) : null; return m && m.length >= 3 ? m.map(Number) : null; };
+    const g = rgba(getComputedStyle(document.body).getPropertyValue('--k-bg').trim()), d = rgba('var(--tip-dim)');
+    let colour = null;
+    if (g && d && !(g.length > 3 && g[3] < 1)) {   // a see-through ground cannot be mixed to one colour
+      const a = d.length > 3 ? d[3] : 1;
+      colour = 'rgb(' + [0, 1, 2].map((i) => Math.round(g[i] * (1 - a) + d[i] * a)).join(', ') + ')';
+    }
+    TIP_GROUND = { key, colour };
+    return colour;
+  } finally { probe.remove(); }
+}
+function tipDimming(on) {
+  const root = document.documentElement;
+  if (on) {
+    const c = tipDimmedGround();
+    if (c) { root.style.setProperty('--tip-canvas', c); root.setAttribute('data-tip-ground', ''); } else { root.style.removeProperty('--tip-canvas'); root.removeAttribute('data-tip-ground'); }
+  } else { root.style.removeProperty('--tip-canvas'); root.removeAttribute('data-tip-ground'); }
+  root.classList.toggle('tip-dimming', !!on);
 }
 
 /* Position only; the card's content and focus are left alone, so a resize or scroll does not rebuild it. */
 function tipLayout(t, card) {
   if (t.tour) {
-    /* The step's place stays bright inside a gold ring and the rest of the page dims: one fixed ring
-       whose outer shadow is the dim, so nothing in the app has to be lifted above it. */
+    /* The step's place stays bright inside a gold ring and the rest of the page dims: a fixed shade
+       with a ring-shaped hole cut in it, so nothing in the app has to be lifted above it. */
     const st = TIP_PLACES[TIP_STEP];
     const halo = document.getElementById('tippins');
     const el = st && st.sel ? document.querySelector(st.sel) : null;
     halo.innerHTML = '';
+    let dim = false;
     if (el && tipVisible(st.sel)) {
       const r = el.getBoundingClientRect();
+      /* The dim, with a hole the ring's size and shape (evenodd: the window minus the rounded ring). */
+      const x = Math.round(r.left - 4), y = Math.round(r.top - 4), w = Math.round(r.width + 8), h = Math.round(r.height + 8);
+      const k = Math.min(12, w / 2, h / 2);
+      const shade = document.createElement('span');
+      shade.className = 'tipdim';
+      shade.setAttribute('aria-hidden', 'true');
+      shade.style.clipPath = 'path(evenodd, "M-10 -10H100000V100000H-10Z'
+        + 'M' + (x + k) + ' ' + y + 'H' + (x + w - k) + 'A' + k + ' ' + k + ' 0 0 1 ' + (x + w) + ' ' + (y + k)
+        + 'V' + (y + h - k) + 'A' + k + ' ' + k + ' 0 0 1 ' + (x + w - k) + ' ' + (y + h)
+        + 'H' + (x + k) + 'A' + k + ' ' + k + ' 0 0 1 ' + x + ' ' + (y + h - k)
+        + 'V' + (y + k) + 'A' + k + ' ' + k + ' 0 0 1 ' + (x + k) + ' ' + y + 'Z")';
+      halo.appendChild(shade);
+      dim = true;
       const ring = document.createElement('span');
       ring.className = 'tiphalo';
       ring.setAttribute('aria-hidden', 'true');
@@ -55014,9 +55213,11 @@ function tipLayout(t, card) {
       ring.style.height = Math.round(r.height + 8) + 'px';
       halo.appendChild(ring);
     }
+    tipDimming(dim);
     /* The tour dims the page and any click outside ends it, so it only keeps clear of its ringed place. */
     tipPlace(card, st && st.sel, false, { key: t.id + '#' + TIP_STEP, avoid: false });
   } else {
+    tipDimming(false);
     tipPlace(card, t.at, t.side, { key: t.id, avoid: true });
   }
 }
@@ -55084,6 +55285,18 @@ function tipPlace(card, sel, side = false, { key = '', avoid = true } = {}) {
      The scroll listener places the card again, arrow and all, once the target is in view. */
   const offScreen = r.bottom <= 0 || r.top >= vh || r.right <= 0 || r.left >= pageW;
   if (!offScreen) for (const c of side ? [right, below, above, leftSide] : [below, above, right, leftSide]) if (onScreen(c.left, c.top)) cands.push(c);
+  /* #3737: beside a target, the card may also slide up or down, as far as its arrow can still point at the target's
+     middle (the --ay range below), so a crowded column (an agent's page: her name, then her buttons) keeps an arrow.
+     Tried only after the usual places, so wherever one of those was clear the choice is unchanged. */
+  if (!offScreen) {
+    const mid = r.top + r.height / 2;
+    const lo = Math.max(pad, mid - h + 19), hi = Math.min(vh - h - pad, mid - 19);
+    for (const base of [right, leftSide]) {
+      for (let d = 24; sideTop - d >= lo || sideTop + d <= hi; d += 24) {   // nearest first, up then down
+        for (const top of [sideTop - d, sideTop + d]) if (top >= lo && top <= hi && onScreen(base.left, top)) cands.push({ ...base, top });
+      }
+    }
+  }
   if (!cands.length) cands.push({ ...below, cls: offScreen ? 'flat' : below.cls, top: Math.max(pad, Math.min(r.bottom + 12, vh - h - pad)) });
   /* The target itself is kept clear too (with the ring's margin): the card points at it, never sits on it. */
   const covered = (avoid ? tipCoveredControls(el) : []).concat([{ l: r.left - 6, t: r.top - 6, r: r.right + 6, b: r.bottom + 6 }]);
@@ -55156,6 +55369,7 @@ function tipClose({ record, also = null }) {
   if (card) { card.hidden = true; card.innerHTML = ''; card.className = 'tipcard'; delete card.dataset.covers; delete card.dataset.tipKey; }
   const pins = document.getElementById('tippins');
   if (pins) { pins.innerHTML = ''; pins.hidden = false; }
+  tipDimming(false);
   TIP_OPEN = null;
   const ret = TIP_RETURN;
   TIP_RETURN = null;

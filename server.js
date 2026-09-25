@@ -4077,6 +4077,10 @@ const server = http.createServer((req, res) => {
         federationLive: federationLiveNow(),
         /* #3564: this board can make and run swarms; the New agent screen offers one only then. */
         swarms: true,
+        /* #3559 (Josh): the top-level Tasks tab appears once the person has 25 tasks ever, and
+           stays. Cheap on this poll: a saved flag, else a count redone only when the projects
+           file changed (tasks.tasksTabShown). */
+        tasksTab: (() => { try { return tasks.tasksTabShown(); } catch { return false; } })(),
         /* 🛑 NO OFFER FROM A BOARD THAT CANNOT TAKE ONE. A Kosmos running from
            its source (this Mac's, under the hand plist) cannot install: the
            install route answers "it updates from git, not from here". But the
@@ -9985,10 +9989,9 @@ const server = http.createServer((req, res) => {
       /* #3034/#3660: Giddy Up ARMS the setup guide; it is created the moment a model is
          connected (Splinter, 19:06), which may already be true here or may come later
          from Settings (the sweep at board start catches that). Never created without a
-         model: it could not run. An existing install is armed only if someone
-         deliberately re-runs first-run (?first-run=1), so existing boards never get an
-         unasked-for agent. The why lives with FIRSTRUN_AUTOCREATE_ENABLED and
-         ensureGuide in engine/setup-assistant.js.
+         model: it could not run. An install whose first run finished before the guide existed
+         is armed once at board start instead (#3760, armExistingInstall). The why lives with
+         FIRSTRUN_AUTOCREATE_ENABLED and ensureGuide in engine/setup-assistant.js.
          Fire-and-forget and best-effort: onboarding has already succeeded. */
       if (setupAssistant.FIRSTRUN_AUTOCREATE_ENABLED) {
         try {
@@ -13287,8 +13290,11 @@ const server = http.createServer((req, res) => {
     }
     const rows = scoped.filter((t) => !t.projectArchived || t.projectId === withArchived).map((t) => {
       let claim = claims.get(t.projectId + '\u0000' + t.number) || null;
-      if (!claim && unreadable.has(t.projectId) && tasks.taskState(t) === 'assigned') {
-        claim = { claimed: null, because: 'we could not read what its agent reports' };
+      /* The same rule as the join: a claim is about the agent still holding open work (claimWho),
+         and carries it as `about`; nobody holding open work, no claim. */
+      const about = !claim && unreadable.has(t.projectId) ? tasks.claimWho(t) : null;
+      if (about) {
+        claim = { claimed: null, because: 'we could not read what its agent reports', about, neverReported: false };
       }
       return Object.assign({}, t, {
         claim,
@@ -15718,6 +15724,11 @@ function start(port = PORT) {
          refusal, is single-flight, and does nothing on an unarmed (pre-existing) install or
          once seeded. Its own timer, unref'd, best-effort, like the sweeps above. */
       if (setupAssistant.FIRSTRUN_AUTOCREATE_ENABLED) {
+        /* #3760: arm, once, an install whose first run finished before the guide existed (see
+           armExistingInstall). Not under the test dry run, like ensureGuide. */
+        if (process.env.AGENT_WORKFORCE_DRY_RUN !== '1' || process.env.AGENT_WORKFORCE_SETUP_GUIDE === 'on') {
+          try { setupAssistant.armExistingInstall({ firstRunSeen: firstrun.seen }); } catch { /* best-effort */ }
+        }
         let guideSweep = null;
         const guideTick = () => {
           try {
