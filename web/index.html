@@ -9335,10 +9335,10 @@ body.plus-active #plus-state2 { max-width: 26rem; padding: 2rem; }
      the person is reading results, not writing. */
   /* Lines begin `html.kosmos-keyboard-up body`, not `body:has(`: the stylesheet guard in
      server.test.js reads a line beginning `body:has(` as a stray `prop: value`. */
-  html.kosmos-keyboard-up body:has(#d-talk-box :is(#d-say, #d-send, #d-emoji-btn):focus, #d-talk-search:focus) #panel-detail:has(#d-sec-talk:not([hidden])) > .back,
-  html.kosmos-keyboard-up body:has(#d-talk-box :is(#d-say, #d-send, #d-emoji-btn):focus, #d-talk-search:focus) #panel-detail:has(#d-sec-talk:not([hidden])) .dleft,
-  html.kosmos-keyboard-up body:has(#d-talk-box :is(#d-say, #d-send, #d-emoji-btn):focus, #d-talk-search:focus) #d-talk-box #d-talk-older,
-  html.kosmos-keyboard-up body:has(#d-talk-box :is(#d-say, #d-send, #d-emoji-btn):focus) #d-talk-box .d-talk-caprow,
+  html.kosmos-keyboard-up body:has(#d-talk-box :is(#d-say, #d-send, #d-emoji-btn, #d-emoji button):focus, #d-talk-search:focus) #panel-detail:has(#d-sec-talk:not([hidden])) > .back,
+  html.kosmos-keyboard-up body:has(#d-talk-box :is(#d-say, #d-send, #d-emoji-btn, #d-emoji button):focus, #d-talk-search:focus) #panel-detail:has(#d-sec-talk:not([hidden])) .dleft,
+  html.kosmos-keyboard-up body:has(#d-talk-box :is(#d-say, #d-send, #d-emoji-btn, #d-emoji button):focus, #d-talk-search:focus) #d-talk-box #d-talk-older,
+  html.kosmos-keyboard-up body:has(#d-talk-box :is(#d-say, #d-send, #d-emoji-btn, #d-emoji button):focus) #d-talk-box .d-talk-caprow,
   html.kosmos-keyboard-up body:has(#d-talk-search:focus) #d-talk-box .dmbar { display: none; }
   /* Thumb reach: the composer's controls meet the 44px minimum on a phone. */
   #d-talk-box .composerbox .attachbtn,
