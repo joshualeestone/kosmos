@@ -22,9 +22,17 @@ set -u
 cd "$(dirname "$0")/.." || exit 1
 K="install/kosmos"
 
-# A dead, unlikely-used high test port. Set BEFORE sourcing so the CLI's PORT derives
-# from it, and KOSMOS_HOME to a scratch dir so sourcing touches no real install state.
-TEST_PORT=17629
+# The test port, set BEFORE sourcing so the CLI's PORT derives from it, and KOSMOS_HOME
+# to a scratch dir so sourcing touches no real install state.
+# #3716: a FREE port per run, asked of the kernel (listen on 0, as browser-checks.sh's
+# free_port does), not a fixed one: two suites running at once each bound the same fixed
+# port, and the second then asserted against the first's listener. Without node the
+# owner-resolution arm below is skipped anyway, so the fallback port is never bound.
+TEST_PORT=""
+if command -v node >/dev/null 2>&1; then
+  TEST_PORT="$(node -e 'const s=require("node:net").createServer();s.listen(0,"127.0.0.1",()=>{process.stdout.write(String(s.address().port));s.close()})' 2>/dev/null)"
+fi
+case "$TEST_PORT" in ''|*[!0-9]*) TEST_PORT=17629 ;; esac
 export KOSMOS_PORT="$TEST_PORT"
 SANDBOX="$(mktemp -d "${TMPDIR:-/tmp}/kosmos-3079.XXXXXX")"
 export KOSMOS_HOME="$SANDBOX/home"

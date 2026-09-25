@@ -85,6 +85,11 @@ const GEMINI_BIN = '/usr/bin/true';
    distinct -- so an assertion can tell a grok-labelled job pointing at the GROK
    binary from one pointing at claude's, codex's, or gemini's. */
 const GROK_BIN = '/bin/pwd';
+/* #3568: an Antigravity stand-in must be NAMED agy (create refuses any other name), so a real
+   runnable copy under that name in the sandbox. */
+const AGY_BIN = nodePath.join(SANDBOX, 'agy-bin', 'agy');
+fs.mkdirSync(nodePath.dirname(AGY_BIN), { recursive: true });
+fs.writeFileSync(AGY_BIN, '#!/bin/sh\nexit 0\n', { mode: 0o755 });
 
 /**
  * The supervisor as SHIPPED, read from disk.
@@ -3118,7 +3123,7 @@ test('a job made by a server on another port carries KOSMOS_PORT, so the agent a
   // launchd environment alone never reaches the agent.
   const script = supervisorText();
   const launches = script.split('\n').filter((l) => /new-session -d -s "\$SESSION"/.test(l));
-  assert.equal(launches.length, 6, 'the supervisor launch lines moved; update this test with them');
+  assert.equal(launches.length, 7, 'the supervisor launch lines moved; update this test with them'); // #3568: +1 antigravity
   for (const l of launches) assert.match(l, /PANE_ENV/, 'a launch line does not pass the pane environment: ' + l);
   // The names handed into the pane, pinned as a list so a new one cannot be forgotten silently
   // (#577, #540, #529). #3296/#3391 added GEMINI_CLI_HOME + GROK_HOME so a per-account gemini/grok
@@ -4217,6 +4222,89 @@ test('#3391: a Grok agent is created on the grok runner, recorded, with the righ
   assert.equal(plistArgs(name)[7], '', 'an empty Grok model choice must clear the -m slot');
   assert.ok(setAuto.model && setAuto.model.label && setAuto.model.label !== 'null',
     'the auto (empty) Grok model must carry a real label');
+});
+
+/* #3568: the Antigravity runner (Google's agy), OFF unless AGENT_WORKFORCE_ANTIGRAVITY=1. */
+function withAgyFlag(on, fn) {
+  const was = process.env.AGENT_WORKFORCE_ANTIGRAVITY;
+  if (on) process.env.AGENT_WORKFORCE_ANTIGRAVITY = '1'; else delete process.env.AGENT_WORKFORCE_ANTIGRAVITY;
+  try { return fn(); } finally { if (was === undefined) delete process.env.AGENT_WORKFORCE_ANTIGRAVITY; else process.env.AGENT_WORKFORCE_ANTIGRAVITY = was; }
+}
+test('#3568: with the flag off, an Antigravity create is refused as an unknown provider, exactly as before', () => {
+  recorder();
+  create.setDryRun(false);
+  const r = withAgyFlag(false, () => create.createAgent({ ...BINS, antigravityBin: AGY_BIN, name: 'agy-off', role: 'pm', provider: 'antigravity' }));
+  assert.equal(r.outcome, create.OUTCOME.REFUSED);
+  assert.match(r.because, /pick a provider/);
+  assert.equal(create.readJob('agy-off'), null, 'a refused create must not write a job');
+});
+test('#3568: with the flag on, an Antigravity agent is created on the antigravity runner, with AGENTS.md and no Claude trust', () => {
+  recorder();
+  create.setDryRun(false);
+  const name = 'agy-kid';
+  const out = withAgyFlag(true, () => create.createAgent({ ...BINS, antigravityBin: AGY_BIN, name, role: 'pm', provider: 'antigravity' }));
+  assert.equal(out.outcome, create.OUTCOME.CREATED, out.because);
+  const args = plistArgs(name);
+  assert.equal(args[4], AGY_BIN, 'the runner binary is not the agy path');
+  assert.equal(args[7], '', 'no model chosen: the slot stays empty so agy picks its own');
+  assert.equal(args[8], 'antigravity', 'the recorded runner is not antigravity');
+  assert.equal(store.readProfile(name).provider, 'antigravity');
+  const dir = create.workerDir(name);
+  assert.ok(fs.existsSync(nodePath.join(dir, 'AGENTS.md')), 'an Antigravity agent got no AGENTS.md');
+  assert.ok(!fs.existsSync(nodePath.join(dir, 'CLAUDE.md')), 'an Antigravity agent must not get CLAUDE.md');
+  assert.equal(create.recordedRunner(name), 'antigravity');
+  // The create-time guard: no Claude folder-trust entry was written for the agy worker folder.
+  let cfg = {};
+  try { cfg = JSON.parse(fs.readFileSync(nodePath.join(SANDBOX, 'claude.json'), 'utf8')); } catch { /* absent is fine */ }
+  const projects = cfg.projects || {};
+  assert.ok(!Object.keys(projects).some((k) => k === dir || k === fs.realpathSync(dir)), 'a Claude trust entry was written for an Antigravity agent');
+  assert.deepEqual(create.trustAgentFolder(name), { wrote: false, runner: 'antigravity' }, 'trust-and-restart must not write a Claude trust entry');
+  const acct = create.setAccount(name, '/somewhere/.claude-x');
+  assert.equal(acct.outcome, create.OUTCOME.REFUSED, 'there are no Antigravity accounts to switch to');
+  // A Claude catalogue key cannot reach an agy launch; a free-form id lands in the model slot.
+  assert.match(create.setModel(name, 'opus').because, /is a Claude model/);
+  assert.equal(create.setModel(name, 'gemini-3-pro').outcome, create.OUTCOME.CREATED);
+  assert.equal(plistArgs(name)[7], 'gemini-3-pro');
+  const auto = create.setModel(name, '');
+  assert.equal(plistArgs(name)[7], '');
+  assert.equal(auto.model.label, "Antigravity's default");
+});
+test('#3568: an Antigravity create is refused when agy is missing, when an account is given, and on Windows', () => {
+  recorder();
+  create.setDryRun(false);
+  withAgyFlag(true, () => {
+    const missing = create.createAgent({ ...BINS, antigravityBin: '/nonexistent/agy', name: 'agy-none', role: 'pm', provider: 'antigravity' });
+    assert.equal(missing.outcome, create.OUTCOME.REFUSED);
+    assert.match(missing.because, /could not find Antigravity/);
+    const acct = create.createAgent({ ...BINS, antigravityBin: AGY_BIN, name: 'agy-acct', role: 'pm', provider: 'antigravity', account: '/x/.claude-y' });
+    assert.equal(acct.outcome, create.OUTCOME.REFUSED);
+    assert.match(acct.because, /signs in to Antigravity in its own window/);
+    const win = create.createAgent({ ...BINS, antigravityBin: AGY_BIN, name: 'agy-win', role: 'pm', provider: 'antigravity', platform: 'win32' });
+    assert.equal(win.outcome, create.OUTCOME.REFUSED);
+    assert.match(win.because, /Windows/);
+    // A runnable program under another name would start an agent the board cannot see.
+    const renamed = create.createAgent({ ...BINS, antigravityBin: '/bin/pwd', name: 'agy-name', role: 'pm', provider: 'antigravity' });
+    assert.equal(renamed.outcome, create.OUTCOME.REFUSED);
+    assert.match(renamed.because, /must be named agy/);
+    // Windows AND no agy: the Windows reason, not "install it", which would not help.
+    const winMissing = create.createAgent({ ...BINS, antigravityBin: '/nonexistent/agy', name: 'agy-win2', role: 'pm', provider: 'antigravity', platform: 'win32' });
+    assert.equal(winMissing.outcome, create.OUTCOME.REFUSED);
+    assert.match(winMissing.because, /Windows/);
+  });
+});
+test('#3568: the provider and runner maps round-trip antigravity, and it is a non-Claude runner', () => {
+  assert.equal(create.providerRunner('antigravity'), 'antigravity');
+  assert.equal(create.runnerProvider('antigravity'), 'antigravity');
+  assert.equal(create.isNonClaudeRunner('antigravity'), true);
+  assert.equal(create.briefFilename('antigravity'), 'AGENTS.md');
+  assert.equal(create.providerLabel('antigravity'), 'Antigravity');
+});
+test('#3568: the supervisor launches agy with its documented auto-approve flag, and --model only when one is set', () => {
+  const script = supervisorText();
+  assert.match(script, /elif \[ "\$RUNNER" = antigravity \]; then/);
+  assert.match(script, /_AGY_ARGS=\(--dangerously-skip-permissions\)/);
+  assert.match(script, /\[ -n "\$\{MODEL:-\}" \] && _AGY_ARGS\+=\(--model "\$MODEL"\)/);
+  assert.match(script, /"\$CLAUDE" "\$\{_AGY_ARGS\[@\]\}" \|\| exit 1/);
 });
 
 test('#3391: a Grok create is refused when the runner is missing', () => {

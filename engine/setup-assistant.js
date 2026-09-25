@@ -289,9 +289,10 @@ const defaultLive = async (mod, dir) => {
    list() calls read config, never the network. */
 function listedModels({ listFor = (mod) => require(mod).list() } = {}) {
   const rows = [];
+  let failed = false;   // a provider that could not be read: nothing is known about it (#3660 reads this)
   for (const [provider, mod] of MODEL_PROVIDERS) {
     let got;
-    try { got = listFor(mod); } catch { got = []; }
+    try { got = listFor(mod); } catch { got = []; failed = true; }
     if (!Array.isArray(got)) continue;
     for (const row of got) {
       if (!row || typeof row.dir !== 'string') continue;
@@ -304,7 +305,43 @@ function listedModels({ listFor = (mod) => require(mod).list() } = {}) {
      one-hour cap below bounds both: re-signing in to the SAME account in place, and a new
      key pasted over a Claude API-key account (Claude rows carry no key suffix, and the
      listing should not start exposing one for this). */
-  return { rows, fingerprint: rows.map((r) => `${r.provider}:${r.dir}:${r.authMode || ''}:${r.who}`).join('|') };
+  return { rows, failed, fingerprint: rows.map((r) => `${r.provider}:${r.dir}:${r.authMode || ''}:${r.who}`).join('|') };
+}
+
+/* #3660: whether the bubble may use the hosted assistant (Kosmos's own model) here. Only BEFORE the person
+   has any model of their own: rule 7 on #3660 is that once they connect theirs the hosted path is not used,
+   and an install that already has a model but no guide (one from before the guide, a guide removed, both
+   names taken) must not spend the shared allowance on Kosmos's key. And only where a connector is at a
+   real path (remote.hostedAvailable), so a source checkout or a check sandbox never offers it. */
+function hostedWhy({ available = () => require('./remote').hostedAvailable(), listed = () => listedModels() } = {}) {
+  let there = false;
+  try { there = available() === true; } catch { there = false; }
+  if (!there) return { ok: false, why: 'no_connector' };
+  let got;
+  try { got = listed(); } catch { return { ok: false, why: 'unchecked' }; }
+  /* A provider that could not be read may be the one they connected: not known, so not offered, and not said to be theirs. */
+  if (!got || got.failed === true) return { ok: false, why: 'unchecked' };
+  const rows = got.rows;
+  return rows.length === 0 ? { ok: true, why: null } : { ok: false, why: 'own_model' };
+}
+function hostedOffered(deps) { return hostedWhy(deps).ok; }
+
+/* #3734: an existing guide was born told it never creates agents. Replace that paragraph, once, with the
+   current hands-off and make-agents lines, in the marked guide folder only. The running guide reads its
+   new instructions from its next session. { changed: boolean } */
+function refreshGuideRole({ name = guideName(), isGuide = isGuideFolder } = {}) {
+  if (!name || !isGuide(name)) return { changed: false };
+  const roles = require('./roles');
+  const instructions = require('./instructions');
+  let cur;
+  try { cur = instructions.read(name); } catch { return { changed: false }; }
+  const old = roles.HANDS_OFF_LINES_BEFORE_3734.join('\n');
+  if (!cur || !cur.exists || typeof cur.text !== 'string' || !cur.text.includes(old)) return { changed: false };
+  const now = [...(roles.SETUP_HANDS_OFF ? roles.HANDS_OFF_LINES : []), ...(roles.SETUP_MAKES_AGENTS ? roles.MAKE_AGENTS_LINES : [])].join('\n');
+  try {
+    instructions.write(name, cur.text.replace(old, () => now), cur.version, undefined, { who: 'kosmos', because: 'Kosmos let the setup guide make agents for you' });
+    return { changed: true };
+  } catch { return { changed: false }; }
 }
 
 /* Could a guide run on this listed account? create's own gate, plus the default-key check
@@ -472,6 +509,9 @@ module.exports = {
   armPath,
   armSetupAssistant,
   listedModels,
+  hostedOffered,
+  hostedWhy,
+  refreshGuideRole,
   usable,
   RETRY_AFTER_MS,
   RETRY_MAX_MS,

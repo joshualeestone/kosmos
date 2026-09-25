@@ -837,7 +837,7 @@ function addressable(sessionName, roster) {
     if (card.isAgentSession === true) {
       return { ok: false, because: 'its window is scrolled back right now, so anything we typed would go to the scrollback instead of to the agent' };
     }
-    const runnerName = card.runner === 'codex' ? 'Codex' : card.runner === 'gemini' ? 'Gemini' : card.runner === 'grok' ? 'Grok' : 'Claude';
+    const runnerName = card.runner === 'codex' ? 'Codex' : card.runner === 'gemini' ? 'Gemini' : card.runner === 'grok' ? 'Grok' : card.runner === 'antigravity' ? 'Antigravity' : 'Claude';
     return { ok: false, because: 'there is no ' + runnerName + ' running in its window right now, so anything we typed would be run as a command instead of read' };
   }
   return { ok: true, card };
@@ -1038,7 +1038,7 @@ function waitingNote(state, outcome, runner, backgroundWait) {
   // provider copy class). Product name 'Gemini', matching create.js's create/model copy.
   // #3391: grok names Grok for the same reason -- an auth-failed grok agent points at its
   // own XAI_API_KEY/sign-in, not Claude's. Product name 'Grok', matching create.js.
-  const provider = runner === 'codex' ? 'OpenAI' : runner === 'gemini' ? 'Gemini' : runner === 'grok' ? 'Grok' : 'Claude';
+  const provider = runner === 'codex' ? 'OpenAI' : runner === 'gemini' ? 'Gemini' : runner === 'grok' ? 'Grok' : runner === 'antigravity' ? 'Antigravity' : 'Claude';
   /* 🛑 #1889. ONE `working` MEANS THE OPPOSITE OF THE OTHER, FOR THIS SENTENCE.
      A pane whose screen says it is waiting on a BACKGROUND agent classifies
      `working`, but its own turn has ENDED and its REPL is at its prompt, so the
@@ -1400,8 +1400,9 @@ function deliver(sessionName, raw, roster, envelope, trailer) {
        agent-comms cadence) for the core task-delivery mechanism, taken as a precaution
        rather than measured per-runner. Grok drives a full-screen TUI with its own
        composer, so the paste-swallow risk is the same class; the floor is the safe
-       default and a 0 here would be the unmeasured gamble. */
-    (allowed.card.runner === 'codex' || allowed.card.runner === 'gemini' || allowed.card.runner === 'grok') ? CODEX_ENTER_GAP_MS : 0,
+       default and a 0 here would be the unmeasured gamble. #3568: antigravity takes the same
+       floor for the same reason, unmeasured like grok's. */
+    (allowed.card.runner === 'codex' || allowed.card.runner === 'gemini' || allowed.card.runner === 'grok' || allowed.card.runner === 'antigravity') ? CODEX_ENTER_GAP_MS : 0,
   );
   submitGap(gapMs);
   /**
@@ -2388,6 +2389,27 @@ function withQuestionRow(messages, agentName, question) {
   }]);
 }
 
+/**
+ * #3723: Kosmos's own line in an agent's Direct Message thread while the agent is stopped by its
+ * account (engine/accountproblem.js). Like withQuestionRow it is NOT stored: it is derived from the
+ * agent's card on every read, so there is exactly one line per problem and it goes away by itself
+ * the moment the card no longer shows the problem. `kind: 'kosmos'` draws it as Kosmos's quiet band,
+ * not as a message from the agent or the person.
+ */
+const ACCOUNT_ROW_ID_PREFIX = 'kosmos-account:';
+function withAccountRow(messages, agentName, problem) {
+  const list = Array.isArray(messages) ? messages : [];
+  if (!problem || typeof problem.text !== 'string' || !problem.text) return list;
+  return list.concat([{
+    id: ACCOUNT_ROW_ID_PREFIX + String(agentName),
+    at: null,
+    text: problem.text,
+    from: null,
+    delivery: null,
+    kind: 'kosmos',
+  }]);
+}
+
 function appendMessage(projectId, agent, entry, bornAt) {
   // ⚠️ EVERYTHING from the read to the rename happens inside the lock. Holding
   // it for the write alone would not help: the loss is in the gap between the
@@ -3033,6 +3055,7 @@ module.exports = {
   chunkUtf8, pasteToEnterMs, PASTE_CHUNK_BYTES,
   deliver, interrupt, stopHelpers, viewport, questionIn, optionsIn, questionAbove, waitingNote, spawnFailure, verifyAtSend,
   withQuestionRow,
+  withAccountRow,
   threadFile, readThread, appendMessage, supersede, withThreadLock,
   defaultAgentFor, looksLikeManager,
   dmSeenRead, markDmSeen, dmUnreadAll, dmUnread, DM_SEEN,

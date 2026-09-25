@@ -111,7 +111,7 @@
      theme like --k-sunk beside it so light/dark flip. Navy keeps --k-sunk (its
      bluish inset is that world's own language, out of scope). #3260: this is now
      ONE fixed color per theme -- the earlier per-message variation was removed. */
-  --agent-msg: #f4f1ea;  /* #3267 (Josh 2026-09-18): agent bubble cream re-set to the approved-mockup value so the bubble reads on the new WHITE thread ground (the prior #f9f7f1 dissolved into the white). Matches scratchpad/bubble-mockup.html Option A. #3130 (Josh 6.70) history: the agent message bubble, his "a bit lighter" pick (exact hex). #2947 deliberately made this ONE token for BOTH the room bubble and the agent DM bubble so the two "agent message" surfaces cannot drift; #3414 then rebuilt the DM onto the room's markup, so both are now literally the same selector, .msg:not(.you) .msg-bd. #3260 (Josh 2026-09-18): every agent bubble is this one flat color now -- the per-message [data-am] variation was removed on his ruling that agent-message backgrounds should not vary. */
+  --agent-msg: #fbf4e4;  /* Josh 2026-09-25 09:14: light-mode agent messages everywhere (projects, DMs, the setup assistant) take this warmer cream, fill only ("No stroke outlines though"); the person's own stay --usermsg-tint. Dark and navy unchanged. Was #f4f1ea. #3267 (Josh 2026-09-18): agent bubble cream re-set to the approved-mockup value so the bubble reads on the new WHITE thread ground (the prior #f9f7f1 dissolved into the white). Matches scratchpad/bubble-mockup.html Option A. #3130 (Josh 6.70) history: the agent message bubble, his "a bit lighter" pick (exact hex). #2947 deliberately made this ONE token for BOTH the room bubble and the agent DM bubble so the two "agent message" surfaces cannot drift; #3414 then rebuilt the DM onto the room's markup, so both are now literally the same selector, .msg:not(.you) .msg-bd. #3260 (Josh 2026-09-18): every agent bubble is this one flat color now -- the per-message [data-am] variation was removed on his ruling that agent-message backgrounds should not vary. */
   /* #2660: the wash behind the PERSON'S OWN messages (royal blue #4171E3 =
      rgb 65,113,227). One token, defined per theme like --k-sunk beside it, so
      the two selectors that use it (.msg.you .msg-bd, .pj-msg) stay a single
@@ -505,7 +505,7 @@ h1 { font: 600 var(--text-title-1) var(--font-ui); letter-spacing: -0.012em; }
 .dhead { display: flex; flex-direction: column; align-items: center; text-align: center; gap: 12px; margin-bottom: 16px; }
 /* #3385: the text block is full column-width (not content-width) so the name has a fixed width
    to shrink against and the notes wrap inside the column instead of bleeding past its edge. */
-/* overflow-wrap:anywhere so a long scraped token in the column notes (#d-said, #d-conflict, the
+/* overflow-wrap:anywhere so a long scraped token in the column notes (#d-said, the
    restart card) breaks inside the 220px column instead of overflowing. The detail name keeps
    white-space:nowrap (via the .dnamerow .dname rule, scoped so it does not reach the shared .dname
    titles on other screens), which suppresses wrapping, so it is unaffected -- it is fitted by JS
@@ -1960,18 +1960,17 @@ body.filter-msgs #alist .lrow:not([data-has-msgs]) { display: none; }
 body.filter-msgs #orgview .onode:not([data-has-msgs]) { opacity: .26; }
 /* #3423 (Josh 0.6.88): the Issue + No-project tiles are ALSO clickable filter
    toggles, the same pattern as Messages above. Keyed on data-attn
-   (a.state==='needs_you', matching the Issue tile count c.needsYou) and data-noproj
+   (needs the person, matching the Issue tile count c.needsYou) and data-noproj
    (needs_you && no project, matching c.needsYouUnattributed). Only one board filter
    is active at a time (the JS setBoardFilter enforces it); each hides non-matching
    rows in grid+list and DIMS them in org so the tree stays intact. The gold
    pressed/hover accent signals the active filter regardless of the tile's own red
    alert colour, matching #st-dm-tile.
-   DELIBERATE DIVERGENCE (do not "fix"): a needs_trust card wears the visual .attn
-   class (cardStOf folds needs_trust into attn, so it reads red) but is NOT marked
-   data-attn, because the Issue count c.needsYou keys on state==='needs_you' only.
-   The filter must match its chip count, so needs_trust is excluded from it; adding
-   it here would show more cards than the "Issue" chip claims. render-chip-filters-3423.js
-   pins this with a needs_trust arm, so a future refactor that merges the two sets fails. */
+   #3410/#3718 (Mona Lisa, 2026-09-25): the Issue tile and filter mean "needs the person",
+   so data-attn and c.needsYou (engine/status.js countAgents) both count needs_you,
+   needs_trust, and a connection Kosmos has given up reconnecting. The filter must still
+   match its chip count: change the two together. render-chip-filters-3423.js pins it.
+   data-noproj is unchanged (needs_you with no project). */
 #st-attn-tile, #st-attn-noproj-tile { cursor: pointer; }
 #st-attn-tile:hover, #st-attn-noproj-tile:hover { border-color: var(--gold-deep); background: rgba(198,154,50,.07); }
 #st-attn-tile:focus-visible, #st-attn-noproj-tile:focus-visible { outline: 2px solid var(--k-ink); outline-offset: 2px; }
@@ -2619,7 +2618,7 @@ body.filter-noproj #orgview .onode:not([data-noproj]) { opacity: .26; }
   height: calc(100vh - var(--talk-fill-top, 157px)); }
 #panel-detail:has(#d-sec-talk:not([hidden])) .dbody { flex: 1 1 auto; min-height: 0; align-items: stretch; }
 /* #3385: bound the left column in the fill state -- if its optional notes (#d-said auth quote,
-   #d-conflict, #d-instr-stale) grow taller than the panel they scroll inside the column rather than
+   #d-instr-stale) grow taller than the panel they scroll inside the column rather than
    stretching the grid row and pushing the talk composer below the fold (#761 dialog-always-visible). */
 #panel-detail:has(#d-sec-talk:not([hidden])) .dleft { min-height: 0; overflow: auto; }
 #panel-detail:has(#d-sec-talk:not([hidden])) .dsecs { display: flex; flex-direction: column; min-height: 0; }
@@ -3219,8 +3218,15 @@ button.boardname[aria-expanded="true"] { opacity: 1; color: var(--k-ink); border
 .tsk-seg button { border: 0; background: none; cursor: pointer; padding: 0 11px; height: 30px; color: var(--k-ink-2); font: 600 .8125rem var(--font-ui); white-space: nowrap; }
 .tsk-seg button + button { border-left: 1px solid var(--k-rule); }
 .tsk-seg button[aria-pressed="true"] { color: #231b06; background: linear-gradient(150deg, var(--gold-bright), var(--gold-deep)); }
-select.tsk-sel { font: 600 .8125rem var(--font-ui); height: 32px; padding: 0 8px; border-radius: 9px; border: 1px solid var(--k-rule);
-  background: var(--k-surface); color: var(--k-ink); }
+/* The arrow's position and size and the radius come from the global `select`
+   rule; `background-color`, not the `background` shorthand, so they survive.
+   The 2rem right padding is restated because the `padding` shorthand replaces
+   the global `padding-right`. The arrow takes `--k-ink-2`, as `.dbox select`
+   does, since this panel is built from k-tokens. */
+select.tsk-sel { font: 600 .8125rem var(--font-ui); height: 32px; padding: 0 2rem 0 8px; border: 1px solid var(--k-rule);
+  background-color: var(--k-surface); color: var(--k-ink);
+  background-image: linear-gradient(45deg, transparent 50%, var(--k-ink-2) 50%),
+                    linear-gradient(135deg, var(--k-ink-2) 50%, transparent 50%); }
 .tsk-mobsel { display: none; }
 .tsk-tiles { display: grid; grid-template-columns: repeat(auto-fit, minmax(138px, 1fr)); gap: 10px; margin: 16px 0 4px; }
 .tsk-tile { background: var(--k-surface); border: 1px solid var(--k-rule); border-radius: 12px; padding: 11px 13px 10px; cursor: pointer;
@@ -8079,6 +8085,7 @@ html:not([data-fed-ui="show"]) #pj-add-ext-person,html:not([data-fed-ui="show"])
      subtree unconditionally, exactly like the k-tokens above. Nothing enhances
      --danger under prefers-contrast, so there is no arm this clobbers. */
   --danger: #b3261e;
+  --ok: #1f7a4d;   /* #3724: the same for green (the dark #4ade80 is 1.74:1 on this white card) */
   background: var(--k-bg);
 }
 /* ⚠️ `--label-2` AND `--separator` ARE PINNED IN DARK ONLY, because the root
@@ -8361,8 +8368,8 @@ html:not([data-fed-ui="show"]) #pj-add-ext-person,html:not([data-fed-ui="show"])
 /* #2241: the plain-hint spacing (was an inline margin on the div, which beat the
    .fr-connbox rule and left the connected box's top margin 2px off Claude's #fr-sub;
    moved here so the .fr-connbox rule below matches #fr-sub exactly for the box). */
-#firstrun #fr-openai-msg { margin: -4px 0 10px; }
-#firstrun #fr-openai-msg.fr-connbox { margin: -2px 0 10px; padding: 10px 12px; border-radius: 10px;
+#firstrun #fr-openai-msg, #firstrun #fr-gemini-msg, #firstrun #fr-grok-msg { margin: -4px 0 10px; }   /* #3731: Gemini and Grok clone GPT */
+#firstrun #fr-openai-msg.fr-connbox, #firstrun #fr-gemini-msg.fr-connbox, #firstrun #fr-grok-msg.fr-connbox { margin: -2px 0 10px; padding: 10px 12px; border-radius: 10px;
   background: rgba(184,137,32,.08); border: 1px solid rgba(184,137,32,.28); }
 /* #2241 sibling for the SETTINGS add-provider success (#acct-success-box): the same
    gold-wash check-row box as first-run's .fr-connbox, but scoped here because .fr-connbox
@@ -8391,6 +8398,17 @@ html:not([data-fed-ui="show"]) #pj-add-ext-person,html:not([data-fed-ui="show"])
    nobody asked about. */
 /* Same revert as the app-wide primary above (Josh, 22:05): no edge. */
 #firstrun .fr-confirm .btn.uprime { background: var(--gold-bright); color: var(--k-ink); border-color: var(--gold-bright); }
+/* #3731 (Josh, 0.6.94: "is there really a blue stroke around the buttons?"). When a download
+   finishes, focus moves to "Sign in with Subscription" so a keyboard user lands on the choice,
+   and the browser drew that focus in its own blue. The ring is Kosmos's now, the same ink ring as
+   the step's other buttons. Measured, Chromium and WebKit: after a real mouse press the browser
+   draws no ring there at all; the stroke in the screenshot came from a check that pressed the
+   buttons by script, which sends no mouse event (render-firstrun-keyed-connect-3658.js now
+   presses them with the mouse and asserts both cases). */
+#firstrun .fr-confirm .btn:focus-visible { outline: 2px solid var(--k-ink); outline-offset: 3px; }
+/* And the same in Settings' Add a provider dialog (review pass 2), where the choice, the install and
+   the key step are the same buttons and drew the same blue. */
+#acct-add-dialog .btn:focus-visible { outline: 2px solid var(--k-ink); outline-offset: 2px; }
 #firstrun .fr-confirm .btn.uprime:hover { background: var(--gold); }
 #firstrun .fr-msg { color: var(--k-ink); }
 /* When a permission step's action FAILS, its message must read as an error, not
@@ -8416,7 +8434,8 @@ html:not([data-fed-ui="show"]) #pj-add-ext-person,html:not([data-fed-ui="show"])
    match the size of the line above it"). Measured: `.fr-confirm-t` is
    `--text-body` = 13px, `.dhint` is .9375rem = 15px, so the status sat 15%
    LARGER than the sentence it reports on. */
-#firstrun #fr-openai-confirm-msg, #acct-openai-install-msg {
+#firstrun #fr-openai-confirm-msg, #acct-openai-install-msg,
+#firstrun #fr-gemini-confirm-msg, #firstrun #fr-grok-confirm-msg, #acct-keyed-install-msg {   /* #3731 */
   font: var(--text-body) var(--font-ui); }
 
 /* 🛑 INDETERMINATE, AND THAT IS THE HONEST SHAPE (#1205 items 4 and 5).
@@ -8730,7 +8749,19 @@ body.plus-active {
   --bg: #132140; --bg-elevated: #1c2c4f; --bg-sunken: #0b1428;
   --label: #E6EBF7; --label-2: #9fb0d0; --label-3: #8fa0c4;
   --separator: #22345a;
+  /* #3724: the colours that carry meaning, pinned to their dark-look values. Unset here they followed the Mac's
+     light or dark mode, so a light-mode Mac painted light-mode red, green, warning and @mention on navy, where
+     they fail (2.30 to 3.03:1). On navy the dark values read at 5.70 to 10.48:1. */
+  --pj-mention: #5aa2ff; --gold-edge: #d6a62e; --ok: #4ade80; --danger: #ff6b5e; --warn-ink: #ffca55;
 }
+/* #3724: the update toast sets its own red (--utone) on itself, so the navy block above cannot reach it. Restated
+   in the dark look's order: the bare override is (0,2,1), so each severity must be restated to stay above it.
+   ⚠️ In dark mode the dark :root .utoast rules (0,3,0 and up) outrank these, and paint the same values: keep the
+   two sets equal, or dark + Plus drifts from light + Plus with nothing to catch it. */
+body.plus-active .utoast { --utone: #ff8c82; }
+body.plus-active .utoast.stale, body.plus-active .utoast.login-adv.notice { --utone: var(--label-2); }
+body.plus-active .utoast.login-adv.warn { --utone: var(--warn-ink); }
+body.plus-active .utoast.login-adv.urgent { --utone: #ff8c82; }
 /* The section is the positioning context for the ambient star field, which sits
    behind everything else in the pane. Every direct child is lifted above it. */
 #s-sec-plus { position: relative; }
@@ -8787,6 +8818,9 @@ a.plus-btn:focus-visible { outline: 2px solid #fff; outline-offset: 2px; }
    white-on-white. -webkit-text-fill-color because WebKit paints an autofilled value with it
    rather than with color; the inset shadow covers the tint WebKit paints behind an autofill.
    A button row under a field gets the standard gap (it sat flush against the field). */
+/* #3724: these fields stay white on navy, so the navy look's coral --danger (2.79:1 on white) is not theirs: the light
+   red keeps their error border readable (6.53:1), as #firstrun's white card does. */
+#s-sec-plus .tk-inp:not(select) { --danger: #b3261e; }
 #s-sec-plus .tk-inp:not(select) { background: #ffffff; color: #14161a; -webkit-text-fill-color: #14161a;
   caret-color: #14161a; border-color: rgba(20, 22, 26, .28); }
 #s-sec-plus .tk-inp::placeholder { color: #6b7280; -webkit-text-fill-color: #6b7280; opacity: 1; }
@@ -9318,11 +9352,9 @@ window.kosmosMeasureScrollbarWidth();
         </div>
         <p class="fmsg" id="d-swarm-msg" role="status" aria-live="polite"></p>
       </section>
-      <!-- #569: where the state came from, under the badge, in Mona Lisa's
-           words ("Said so itself" / "Read from its screen"); and the two
-           witnesses disagreeing, as the engine's own sentence in a note.
-           Both filled by the painter beside d-state, both hidden when they
-           have nothing to say, which is almost always for the conflict. -->
+      <!-- #569 put two notes under the badge: where the state came from, and the two
+           witnesses disagreeing. #3729 (Josh, 2026-09-25) removed the second one and its
+           slot for good: no agent-status diagnostic sentence on an agent's page or card. -->
       <!-- 🛑 THE QUOTED SAID-LINE IS GONE FROM HERE TOO (kosmos#986). #855 cut
            it from the grid card and df0a502 from the list row; this was the
            third surface and the only one left. Josh reported it still showing
@@ -9337,7 +9369,6 @@ window.kosmosMeasureScrollbarWidth();
            rendered once in its life.
            📌 So removing this is not only the third cut: it is what lets the
            blockquote below finally be the element it was written to be. -->
-      <div class="note" id="d-conflict" hidden></div>
       <!-- 🛑 MOVED HERE FROM THE INSTRUCTIONS SECTION (Josh, 2026-08-21). The
            card puts a ⚠️ beside the agent's name; the sentence explaining it was
            at the BOTTOM of this page, under Instructions, below the conversation
@@ -10601,11 +10632,21 @@ window.kosmosMeasureScrollbarWidth();
          and Kosmos never sees the password. "Use an API key" opens the shared key step
          below. A sign-in again (the row's button) skips the choice and lands on the
          sign-in, since a key cannot refresh a subscription. -->
+    <!-- #3713: Gemini and Grok each run on their own command-line tool. When it is not on this
+         computer, this offers to download it (pinned and verified, engine/runners.js) before
+         the key or sign-in step, which then opens by itself. -->
+    <div id="acct-keyed-install" hidden style="margin-top: var(--space-5);">
+      <p class="dhint" id="acct-keyed-install-t" style="margin:0 0 8px;">In order to connect we need to download the installer.</p>
+      <div class="frow">
+        <button class="btn uprime" id="acct-keyed-install-go" type="button" aria-describedby="acct-keyed-install-t">Confirm</button>
+      </div>
+      <p class="dhint" id="acct-keyed-install-msg" role="status" aria-live="polite" style="margin:8px 0 0;"></p>
+    </div>
     <div id="acct-grok-flow" hidden style="margin-top: var(--space-5);">
       <div id="acct-grok-pick">
-        <p class="dhint" style="margin:0 0 8px;">Choose how to connect Grok.</p>
+        <p class="dhint" style="margin:0 0 8px;">Choose how to connect xAI Grok.</p>
         <div class="frow">
-          <button class="btn uprime" id="acct-grok-pick-sub" type="button">Sign in with your Grok subscription</button>
+          <button class="btn uprime" id="acct-grok-pick-sub" type="button">Sign in with Grok</button>
           <button class="btn" id="acct-grok-pick-key" type="button">Use an API key</button>
         </div>
         <p class="dhint" style="margin:8px 0 0;">A Grok subscription signs in through xAI, with nothing to paste. An API key is a string you create on xAI's site.</p>
@@ -11674,44 +11715,97 @@ window.kosmosMeasureScrollbarWidth();
                      GPT, appeared inside the API-key form, then vanished again when the
                      form hid itself on success. The order test still passed, because it
                      read source order and not whether a hidden container opened in between. -->
-                <!-- #3422 (Josh's asset, 2026-09-22): the Gemini spark as a single currentColor path, NOT a fixed-id radialGradient. providerMarkNode CLONES the span below into the enhanceProviderSelect combobox; a cloned fill="url(#pmark-gemini-g)" depended on the gradient def living in the (hidden) #firstrun and collided on a duplicated id, so the cloned mark rendered blank in the settings/create picker while the monochrome currentColor marks cloned fine. currentColor also lets it dim/live with .pmark like every other provider mark. This comment is OUTSIDE the .llm row (before the div) so it is neither cloned into every combobox mark nor between the div and span, which web.connect-confirm's row regex requires to be adjacent. --><div class="llm on"><span class="llm-m pmark live" data-pmark="gemini" role="img" aria-label="Gemini"><svg viewBox="0 0 300 300" fill="currentColor" xmlns="http://www.w3.org/2000/svg"><path d="M265.9,134.3c-22.8-9.8-42.7-23.3-59.8-40.4-17.1-17.1-30.6-37-40.4-59.8-3.8-8.7-6.8-17.7-9.1-26.9-.8-3-3.5-5.1-6.6-5.1s-5.8,2.1-6.6,5.1c-2.3,9.2-5.3,18.2-9.1,26.9-9.8,22.8-23.3,42.7-40.4,59.8-17.1,17.1-37,30.6-59.8,40.4-8.7,3.8-17.7,6.8-26.9,9.1-3,.8-5.1,3.5-5.1,6.6s2.1,5.8,5.1,6.6c9.2,2.3,18.2,5.3,26.9,9.1,22.8,9.8,42.7,23.3,59.8,40.4,17.1,17.1,30.6,37,40.4,59.8,3.8,8.7,6.8,17.7,9.1,26.9.8,3,3.5,5.1,6.6,5.1s5.8-2.1,6.6-5.1c2.3-9.2,5.3-18.2,9.1-26.9,9.8-22.8,23.3-42.7,40.4-59.8,17.1-17.1,37-30.6,59.8-40.4,8.7-3.8,17.7-6.8,26.9-9.1,3-.8,5.1-3.5,5.1-6.6s-2.1-5.8-5.1-6.6c-9.2-2.3-18.2-5.3-26.9-9.1Z"/></svg></span><div class="llm-w"><b>Gemini</b><small>Google &middot; API key today</small></div><button class="connect-b" type="button" id="fr-gemini-connect" data-keyed="google" aria-expanded="false" aria-controls="fr-apikey-flow" aria-label="Connect Gemini">Connect</button></div>
+                <!-- #3422 (Josh's asset, 2026-09-22): the Gemini spark as a single currentColor path, NOT a fixed-id radialGradient. providerMarkNode CLONES the span below into the enhanceProviderSelect combobox; a cloned fill="url(#pmark-gemini-g)" depended on the gradient def living in the (hidden) #firstrun and collided on a duplicated id, so the cloned mark rendered blank in the settings/create picker while the monochrome currentColor marks cloned fine. currentColor also lets it dim/live with .pmark like every other provider mark. This comment is OUTSIDE the .llm row (before the div) so it is neither cloned into every combobox mark nor between the div and span, which web.connect-confirm's row regex requires to be adjacent. --><div class="llm on"><span class="llm-m pmark live" data-pmark="gemini" role="img" aria-label="Gemini"><svg viewBox="0 0 300 300" fill="currentColor" xmlns="http://www.w3.org/2000/svg"><path d="M265.9,134.3c-22.8-9.8-42.7-23.3-59.8-40.4-17.1-17.1-30.6-37-40.4-59.8-3.8-8.7-6.8-17.7-9.1-26.9-.8-3-3.5-5.1-6.6-5.1s-5.8,2.1-6.6,5.1c-2.3,9.2-5.3,18.2-9.1,26.9-9.8,22.8-23.3,42.7-40.4,59.8-17.1,17.1-37,30.6-59.8,40.4-8.7,3.8-17.7,6.8-26.9,9.1-3,.8-5.1,3.5-5.1,6.6s2.1,5.8,5.1,6.6c9.2,2.3,18.2,5.3,26.9,9.1,22.8,9.8,42.7,23.3,59.8,40.4,17.1,17.1,30.6,37,40.4,59.8,3.8,8.7,6.8,17.7,9.1,26.9.8,3,3.5,5.1,6.6,5.1s5.8-2.1,6.6-5.1c2.3-9.2,5.3-18.2,9.1-26.9,9.8-22.8,23.3-42.7,40.4-59.8,17.1-17.1,37-30.6,59.8-40.4,8.7-3.8,17.7-6.8,26.9-9.1,3-.8,5.1-3.5,5.1-6.6s-2.1-5.8-5.1-6.6c-9.2-2.3-18.2-5.3-26.9-9.1Z"/></svg></span><div class="llm-w"><b>Gemini</b><small>Google &middot; API key today</small></div><button class="connect-b" type="button" id="fr-gemini-connect" data-keyed="google" aria-expanded="false" aria-controls="fr-gemini-confirm fr-gemini-pick" aria-label="Connect Gemini">Connect</button></div>
+                <!-- #3731 (Josh, 0.6.94): Google Gemini connects EXACTLY like GPT, directly under its own row: install
+                     first (Confirm / Not now), then the choice, then the sign-in or the key. Same classes, same
+                     copy with the name swapped, no command-line talk. The driver is frKeyed* below. -->
+                <div id="fr-gemini-confirm" class="fr-confirm" role="group" aria-labelledby="fr-gemini-confirm-t" hidden>
+                  <p class="fr-confirm-t" id="fr-gemini-confirm-t">In order to connect to Google Gemini we need to download the installer.</p>
+                  <div class="frow">
+                    <button class="btn uprime" type="button" id="fr-gemini-confirm-go" aria-describedby="fr-gemini-confirm-t">Confirm</button>
+                    <button class="btn" type="button" id="fr-gemini-confirm-no">Not now</button>
+                  </div>
+                  <div class="fr-progress fr-indet" id="fr-gemini-confirm-bar" role="progressbar"
+                       aria-label="Installing Google Gemini" hidden><i></i></div>
+                  <p class="dhint" id="fr-gemini-confirm-msg" role="status" aria-live="polite" style="margin:8px 0 0;"></p>
+                </div>
+                <div id="fr-gemini-pick" hidden class="fr-confirm" role="group" aria-labelledby="fr-gemini-pick-t">
+                  <p class="fr-confirm-t" id="fr-gemini-pick-t">Download complete. Choose how to connect Google Gemini.</p>
+                  <div class="frow" style="margin-top:8px;">
+                    <button class="btn uprime" id="fr-gemini-pick-sub" type="button">Sign in with Subscription</button>
+                    <button class="btn" id="fr-gemini-pick-key" type="button">Use an API key</button>
+                  </div>
+                </div>
+                <div id="fr-gemini-sub-step" hidden class="fr-confirm" role="group" aria-labelledby="fr-gemini-sub-t">
+                  <p class="fr-confirm-t" id="fr-gemini-sub-t"><b>Sign in with your Google subscription.</b> Kosmos opens Google's sign-in in your browser and never sees your password. Your agents then run on your own subscription, on this computer.</p>
+                  <div class="frow" style="margin-top:12px;">
+                    <button class="btn uprime" id="fr-gemini-sub-go" type="button">Sign in with Google</button>
+                  </div>
+                  <div class="frow" id="fr-gemini-sub-open-row" hidden style="margin-top:8px;">
+                    <a class="btn" id="fr-gemini-sub-open" href="#" target="_blank" rel="noopener">Open the sign-in page</a>
+                  </div>
+                  <p class="dhint" id="fr-gemini-sub-code" role="status" aria-live="polite" hidden style="margin:8px 0 0;"></p>
+                  <div class="frow" id="fr-gemini-sub-cancel-row" hidden style="margin-top:8px;"><button class="btn" id="fr-gemini-sub-cancel" type="button">Stop this sign-in</button></div>
+                </div>
+                <div id="fr-gemini-flow" hidden class="fr-confirm">
+                  <p class="fr-confirm-t" id="fr-gemini-key-t">Download complete. You will need a Google API key to finish. A key is a bit like a password that Google issues for this computer. Getting one takes about 2 minutes on their site and you paste it here once you are done.</p>
+                  <div class="frow"><a class="btn" id="fr-gemini-getkey" href="https://aistudio.google.com/app/apikey" target="_blank" rel="noopener">Get a key</a></div>
+                  <p class="fr-confirm-t" id="fr-gemini-key-back" style="margin-top:8px;">Then come back and paste it here.</p>
+                  <div class="frow">
+                    <input type="password" id="fr-gemini-key" autocomplete="new-password" spellcheck="false"
+                           aria-label="Google Gemini API key" placeholder="AIza…">
+                    <button class="btn uprime" id="fr-gemini-go" type="button">Add</button>
+                  </div>
+                </div>
+                <div class="dhint" id="fr-gemini-msg" role="status" aria-live="polite"></div>
                 <!-- #3386 (Josh, 2026-09-21): Grok shown up front, right under Gemini. #3708: the
                      real Grok mark (from grok.com's own header logo, recorded in
                      docs/provider-marks/manifest.md), and each subtitle says what works today:
                      each names how it connects: Grok by subscription (#3391) or key, Gemini by key only
                      (its subscription path, #3568, is not live). -->
-                <div class="llm on"><span class="llm-m pmark live" data-pmark="xai" role="img" aria-label="Grok"><svg viewBox="0 0 34 33" fill="currentColor" xmlns="http://www.w3.org/2000/svg"><path d="M13.2371 21.0407L24.3186 12.8506C24.8619 12.4491 25.6384 12.6057 25.8973 13.2294C27.2597 16.5185 26.651 20.4712 23.9403 23.1851C21.2297 25.8989 17.4581 26.4941 14.0108 25.1386L10.2449 26.8843C15.6463 30.5806 22.2053 29.6665 26.304 25.5601C29.5551 22.3051 30.562 17.8683 29.6205 13.8673L29.629 13.8758C28.2637 7.99809 29.9647 5.64871 33.449 0.844576C33.5314 0.730667 33.6139 0.616757 33.6964 0.5L29.1113 5.09055V5.07631L13.2343 21.0436" fill="currentColor"/><path d="M10.9503 23.0313C7.07343 19.3235 7.74185 13.5853 11.0498 10.2763C13.4959 7.82722 17.5036 6.82767 21.0021 8.2971L24.7595 6.55998C24.0826 6.07017 23.215 5.54334 22.2195 5.17313C17.7198 3.31926 12.3326 4.24192 8.67479 7.90126C5.15635 11.4239 4.0499 16.8403 5.94992 21.4622C7.36924 24.9165 5.04257 27.3598 2.69884 29.826C1.86829 30.7002 1.0349 31.5745 0.36364 32.5L10.9474 23.0341" fill="currentColor"/></svg></span><div class="llm-w"><b>Grok</b><small>xAI &middot; subscription or API key today</small></div><button class="connect-b" type="button" id="fr-grok-connect" data-keyed="xai" aria-expanded="false" aria-controls="fr-apikey-flow" aria-label="Connect Grok">Connect</button></div>
-                <!-- #3658 (Josh, 2026-09-24 17:46): Gemini and Grok connect HERE, with the same gold
-                     Connect as Claude and GPT, instead of the old later-in-Settings pill and pointer.
-                     One box shared by both, a first-run mirror of Settings' #acct-apikey-flow
-                     (same POST /api/accounts/{gemini|grok}/apikey, same ACCT_APIKEY_PROVIDERS), the
-                     way #fr-openai-flow mirrors #acct-openai-flow. Grok's box ALSO offers its subscription
-                     sign-in (#fr-grok-sub, from #3391 part 2); Gemini is a key only, since there is
-                     no Gemini sign-in to start (open card: #3568), and a button that dead-ends is
-                     worse than none. There is no managed
-                     installer for either runner yet (engine/runners.js), so a missing runner is
-                     said plainly from the route's own needsRunner answer. The "Runs on this
-                     computer" subheading is gone too: one uninterrupted list, in PROVIDER_ORDER. -->
-                <div id="fr-apikey-flow" hidden class="fr-confirm" role="group" aria-labelledby="fr-apikey-t">
-                  <p class="fr-confirm-t" id="fr-apikey-t">Paste an API key.</p>
-                  <!-- #3391 part 2: Grok can also sign in with a subscription (xAI's device
-                       sign-in: a link and a code). Shown only when the box is open for Grok;
-                       the key below stays the other way. -->
-                  <div id="fr-grok-sub" hidden>
-                    <div class="frow"><button class="btn uprime" id="fr-grok-sub-go" type="button">Sign in with Grok</button></div>
-                    <div class="frow" id="fr-grok-sub-open-row" hidden style="margin-top:8px;"><a class="btn" id="fr-grok-sub-open" href="#" target="_blank" rel="noopener">Open the sign-in page</a></div>
-                    <p class="dhint" id="fr-grok-sub-code" hidden style="margin:8px 0 0;"></p>
-                    <div class="frow" id="fr-grok-sub-cancel-row" hidden style="margin-top:8px;"><button class="btn" id="fr-grok-sub-cancel" type="button">Stop this sign-in</button></div>
-                    <p class="dhint" id="fr-grok-sub-msg" role="status" aria-live="polite" style="margin:8px 0 0;"></p>
-                    <p class="dhint" style="margin:8px 0;">Or use an API key instead:</p>
+                <div class="llm on"><span class="llm-m pmark live" data-pmark="xai" role="img" aria-label="Grok"><svg viewBox="0 0 34 33" fill="currentColor" xmlns="http://www.w3.org/2000/svg"><path d="M13.2371 21.0407L24.3186 12.8506C24.8619 12.4491 25.6384 12.6057 25.8973 13.2294C27.2597 16.5185 26.651 20.4712 23.9403 23.1851C21.2297 25.8989 17.4581 26.4941 14.0108 25.1386L10.2449 26.8843C15.6463 30.5806 22.2053 29.6665 26.304 25.5601C29.5551 22.3051 30.562 17.8683 29.6205 13.8673L29.629 13.8758C28.2637 7.99809 29.9647 5.64871 33.449 0.844576C33.5314 0.730667 33.6139 0.616757 33.6964 0.5L29.1113 5.09055V5.07631L13.2343 21.0436" fill="currentColor"/><path d="M10.9503 23.0313C7.07343 19.3235 7.74185 13.5853 11.0498 10.2763C13.4959 7.82722 17.5036 6.82767 21.0021 8.2971L24.7595 6.55998C24.0826 6.07017 23.215 5.54334 22.2195 5.17313C17.7198 3.31926 12.3326 4.24192 8.67479 7.90126C5.15635 11.4239 4.0499 16.8403 5.94992 21.4622C7.36924 24.9165 5.04257 27.3598 2.69884 29.826C1.86829 30.7002 1.0349 31.5745 0.36364 32.5L10.9474 23.0341" fill="currentColor"/></svg></span><div class="llm-w"><b>Grok</b><small>xAI &middot; subscription or API key today</small></div><button class="connect-b" type="button" id="fr-grok-connect" data-keyed="xai" aria-expanded="false" aria-controls="fr-grok-confirm fr-grok-pick" aria-label="Connect Grok">Connect</button></div>
+                <!-- #3731 (Josh, 0.6.94): xAI Grok connects EXACTLY like GPT, directly under its own row: install
+                     first (Confirm / Not now), then the choice, then the sign-in or the key. Same classes, same
+                     copy with the name swapped, no command-line talk. The driver is frKeyed* below. -->
+                <div id="fr-grok-confirm" class="fr-confirm" role="group" aria-labelledby="fr-grok-confirm-t" hidden>
+                  <p class="fr-confirm-t" id="fr-grok-confirm-t">In order to connect to xAI Grok we need to download the installer.</p>
+                  <div class="frow">
+                    <button class="btn uprime" type="button" id="fr-grok-confirm-go" aria-describedby="fr-grok-confirm-t">Confirm</button>
+                    <button class="btn" type="button" id="fr-grok-confirm-no">Not now</button>
                   </div>
-                  <div class="frow"><a class="btn" id="fr-apikey-getkey" href="#" target="_blank" rel="noopener">Get a key</a></div>
+                  <div class="fr-progress fr-indet" id="fr-grok-confirm-bar" role="progressbar"
+                       aria-label="Installing xAI Grok" hidden><i></i></div>
+                  <p class="dhint" id="fr-grok-confirm-msg" role="status" aria-live="polite" style="margin:8px 0 0;"></p>
+                </div>
+                <div id="fr-grok-pick" hidden class="fr-confirm" role="group" aria-labelledby="fr-grok-pick-t">
+                  <p class="fr-confirm-t" id="fr-grok-pick-t">Download complete. Choose how to connect xAI Grok.</p>
                   <div class="frow" style="margin-top:8px;">
-                    <input type="password" id="fr-apikey-key" autocomplete="new-password" spellcheck="false" aria-label="API key" placeholder="API key">
-                    <button class="btn uprime" id="fr-apikey-go" type="button">Add</button>
+                    <button class="btn uprime" id="fr-grok-pick-sub" type="button">Sign in with Subscription</button>
+                    <button class="btn" id="fr-grok-pick-key" type="button">Use an API key</button>
                   </div>
                 </div>
-                <div class="dhint" id="fr-apikey-msg" role="status" aria-live="polite"></div>
+                <div id="fr-grok-sub-step" hidden class="fr-confirm" role="group" aria-labelledby="fr-grok-sub-t">
+                  <p class="fr-confirm-t" id="fr-grok-sub-t"><b>Sign in with your Grok subscription.</b> Kosmos opens xAI's sign-in in your browser and never sees your password. Your agents then run on your own subscription, on this computer.</p>
+                  <div class="frow" style="margin-top:12px;">
+                    <button class="btn uprime" id="fr-grok-sub-go" type="button">Sign in with Grok</button>
+                  </div>
+                  <div class="frow" id="fr-grok-sub-open-row" hidden style="margin-top:8px;">
+                    <a class="btn" id="fr-grok-sub-open" href="#" target="_blank" rel="noopener">Open the sign-in page</a>
+                  </div>
+                  <p class="dhint" id="fr-grok-sub-code" role="status" aria-live="polite" hidden style="margin:8px 0 0;"></p>
+                  <div class="frow" id="fr-grok-sub-cancel-row" hidden style="margin-top:8px;"><button class="btn" id="fr-grok-sub-cancel" type="button">Stop this sign-in</button></div>
+                </div>
+                <div id="fr-grok-flow" hidden class="fr-confirm">
+                  <p class="fr-confirm-t" id="fr-grok-key-t">Download complete. You will need an xAI API key to finish. A key is a bit like a password that xAI issues for this computer. Getting one takes about 2 minutes on their site and you paste it here once you are done.</p>
+                  <div class="frow"><a class="btn" id="fr-grok-getkey" href="https://console.x.ai/" target="_blank" rel="noopener">Get a key</a></div>
+                  <p class="fr-confirm-t" id="fr-grok-key-back" style="margin-top:8px;">Then come back and paste it here.</p>
+                  <div class="frow">
+                    <input type="password" id="fr-grok-key" autocomplete="new-password" spellcheck="false"
+                           aria-label="xAI Grok API key" placeholder="xai-…">
+                    <button class="btn uprime" id="fr-grok-go" type="button">Add</button>
+                  </div>
+                </div>
+                <div class="dhint" id="fr-grok-msg" role="status" aria-live="polite"></div>
                 <div class="llm off"><span class="llm-m pmark dim" data-pmark="meta" role="img" aria-label="Meta"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 25.6 17" fill="currentColor" aria-label="Meta"><path d="M18.4 0c-2.1 0-3.8 1.6-5.3 3.6v-.1l-.1-.1-.1-.2h-.1l-.1-.2-.1-.1-.1-.1-.1-.1-.1-.1a6.4 6.4 0 0 0-.1-.1v-.1H12l-.2-.2-.1-.2h-.1l-.1-.1-.1-.1-.1-.1-.1-.1-.2-.1v-.1H11v-.1l-.2-.1h-.1l-.1-.1V1h-.2V.8h-.2V.7H10L10 .6h-.1V.5h-.1L9.6.5h-.1L9.3.3h-.2L9 .2H9L8.7.1H8.4L8.4 0h-.8V0h-.2C3.2 0 0 5.4 0 11.1 0 14.7 1.7 17 4.6 17c2.1 0 3.6-1 6.3-5.7L12.8 8l.1.2v.1h.1l.1.2.1.2.1.2.1.1.1.2.1.2.2.3 1.1 1.8c2.4 4.1 3.8 5.5 6.3 5.5 2.8 0 4.4-2.3 4.4-6 0-6-3.3-11-7.2-11ZM8.9 10c-2.2 3.5-3 4.2-4.2 4.2-1.2 0-2-1-2-3 0-4.2 2.1-8.4 4.6-8.4H8.2V3H8.5V3h.2l.1.1h.1v.1H9l.2.1v.1h.1l.1.1.1.1h.1v.1h.1l.1.1V4h.1a5.6 5.6 0 0 1 .2.3h.1v.1h.1l.1.2.1.1.1.1v.1h.1l.1.2h.1l.1.3.2.2.1.2h.1l.1.2V6L9 10Zm12.3 4.2c-1.2 0-1.8-.8-4.1-4.6l-1.5-2.5-1.2-1.8c1.3-2 2.5-3.1 3.8-3.1 2.7 0 5 4 5 9 0 2-.7 3-2 3Z"/></svg></span><div class="llm-w"><b>Llama</b><small>Meta</small></div><span class="soon">Coming soon</span></div>
                 <div class="llm off"><span class="llm-m pmark dim" data-pmark="qwen" role="img" aria-label="Qwen"><svg xmlns="http://www.w3.org/2000/svg" viewBox="218.8 129.4 354.4 354.4"><path fill="#0a2cff" d="M354.3,263.9h140.6c18,0,32.8-14.8,32.8-32.8v-10.2c0-18-14.8-32.8-32.8-32.8h-73c2.3-12.7-3.1-26.2-14.7-33.5l-8.6-5.5c-15.2-9.7-35.6-5.1-45.3,10.1l-26.2,41.2c-2.6,4.1-4.2,8.6-4.8,13.2-.5,2.4-.8,4.8-.8,7.3v10.2c0,18,14.8,32.8,32.8,32.8Z"/><path fill="#0a2cff" d="M308.6,247.6c-8.6-15.8-28.7-21.7-44.5-13.1l-9,4.9c-15.8,8.6-21.7,28.7-13.1,44.5l35,64.1c-12.2,4.1-21.5,15.3-22.4,28.9l-.7,10.2c-1.2,18,12.6,33.7,30.6,34.9l48.7,3.2c4.9.3,9.6-.5,13.9-2.1,2.3-.7,4.6-1.6,6.9-2.8l9-4.9c15.8-8.6,21.7-28.7,13.1-44.5l-67.4-123.4Z"/><path fill="#0a2cff" d="M550.8,348.4l-21.2-43.9c-2.1-4.4-5.1-8.1-8.7-11-1.7-1.7-3.7-3.3-5.8-4.6l-8.7-5.4c-15.3-9.5-35.7-4.7-45.2,10.6l-74.1,119.5c-9.5,15.3-4.7,35.7,10.6,45.2l8.7,5.4c15.3,9.5,35.7,4.7,45.2-10.6l38.5-62.1c9.6,8.6,23.9,11.1,36.2,5.2l9.2-4.5c16.2-7.8,23.1-27.5,15.3-43.8Z"/></svg></span><div class="llm-w"><b>Qwen</b><small>Alibaba</small></div><span class="soon">Coming soon</span></div>
                 <div class="llm off"><span class="llm-m pmark dim" data-pmark="mistral" role="img" aria-label="Mistral"><svg viewBox="0 0 21 15" fill="none" xmlns="http://www.w3.org/2000/svg"> <path d="M6 0H3V3H6V0Z" fill="#FFAF01"/> <path d="M6 9H3V12H6V9Z" fill="#E61300"/> <path d="M9 12H0V15H9V12Z" fill="#C4001D"/> <path d="M9 3H3V6H9V3Z" fill="#FF8204"/> <path d="M12 9H9V12H12V9Z" fill="#E61300"/> <path d="M18 6H3V9H18V6Z" fill="#FA500F"/> <path d="M18 3H12V6H18V3Z" fill="#FF8204"/> <path d="M18 0H15V3H18V0Z" fill="#FFAF01"/> <path d="M18 9H15V12H18V9Z" fill="#E61300"/> <path d="M21 12H12V15H21V12Z" fill="#C4001D"/> </svg></span><div class="llm-w"><b>Mistral</b><small>Open weights</small></div><span class="soon">Coming soon</span></div>
@@ -15780,7 +15874,8 @@ const STATE_COPY = {
  * the exact distinction this product exists to keep.
  *
  * ⚠️ The CARD treatment follows the pack, not STATE_COPY.attn: red border is
- * needs_you ONLY. Paused, stopped and unknown are attention-worthy in
+ * for the cards that need the person (needs_you, needs_trust, and via cardStOf a
+ * connection Kosmos gave up reconnecting). Paused, stopped and unknown are attention-worthy in
  * STATE_COPY (the detail page and counts still treat them so) but the pack
  * renders them as their own quieter shapes (.off, .unk, dashed pill) so red
  * stays reserved for "somebody is waiting on you".
@@ -15804,8 +15899,8 @@ const CARD_ST = {
      stopped by something the agent cannot get past on its own, but the process
      is still up (pres: 'on'), it just cannot reach the API. It is not alarmed
      red because it is recoverable (the #3410 self-heal, engine/connlost-heal.js,
-     nudges it to retry when the network is back); a louder treatment,
-     if wanted, is a design call for whoever owns the pack, not decided here. */
+     nudges it to retry when the network is back). Once the self-heal has given up,
+     cardStOf gives it needs_you's look instead (Mona Lisa's call on #3410). */
   connection_lost: { st: 'paused', pres: 'on' },
   /* blocked wears paused's quieter shape: waiting is waiting, and red stays
      reserved for "somebody is waiting on YOU". */
@@ -15868,7 +15963,10 @@ const PRESSAY = {
    safe direction. The predicate is INLINED here and in stateCopyOf (kept byte-identical, not a
    shared helper) so each painter stays self-contained -- the node tests eval-extract cardStOf /
    stateCopyOf in isolation, and a shared global would ReferenceError in every one of those slices. */
-function cardStOf(a) { return (a && a.state === 'needs_you' && a.stateReportedBy === 'agent') ? CARD_ST.question : (CARD_ST[a.state] || CARD_ST.unknown); }
+/* #3410 (Mona Lisa's look): a lost connection Kosmos has given up on needs the person, so it wears
+   needs_you's card, not the quiet paused one it keeps while Kosmos is still reconnecting.
+   Kept on ONE line: web.needsyou-dealarm-2808.test.js and server.test.js slice it to the newline. */
+function cardStOf(a) { if (a && a.state === 'connection_lost' && a.reconnect && a.reconnect.phase === 'gave_up') return CARD_ST.needs_you; return (a && a.state === 'needs_you' && a.stateReportedBy === 'agent') ? CARD_ST.question : (CARD_ST[a.state] || CARD_ST.unknown); }
 /* #2019: the state's word. For every state but 'restarting' it is the static
    STATE_COPY entry. For 'restarting' the word names the CAUSE (present-continuous,
    no blame), so the person knows WHY their agent went quiet, and it is computed
@@ -15908,8 +16006,7 @@ function stateCopyOf(a) {
   if (a && a.state === 'needs_you' && a.stateReportedBy === 'agent') return STATE_COPY.question;
   /* #3410: while the self-heal still has retries to give (a.reconnect, from /api/status), the
      person has nothing to do yet, so the label says Kosmos is on it. Only when it has given up,
-     or is not running, does the label go back to "Connection lost" (the card's look is the same
-     paused style either way; only the word changes). */
+     or is not running, does the label go back to "Connection lost" (cardStOf sets the look). */
   if (a && a.state === 'connection_lost' && a.reconnect
     && (a.reconnect.phase === 'waiting' || a.reconnect.phase === 'retried')) return { label: 'Reconnecting…', attn: false };
   return STATE_COPY[a.state] || STATE_COPY.unknown;
@@ -16076,11 +16173,11 @@ function stateReason(a, opts) {
        a give-up usually means the agent is stuck, not the internet; and the retry budget can span
        more than one drop (connlost-heal.js WINDOW_MS/RECOVERED_MS), so it says tries were made,
        not that they were made this time. */
-    if (ph === 'gave_up') return 'Kosmos tried to reconnect it several times and has stopped. If the internet is working, restart the agent. It will start fresh.';
+    if (ph === 'gave_up') return 'Kosmos tried a few times and stopped. If your internet is working, restart the agent. It starts fresh, so anything it was in the middle of is lost.';
     const lost = a.stateConfidence === 'scraped'
       ? 'Looks like it lost its internet connection'
       : 'It lost its internet connection';
-    if (ph === 'waiting') return lost + '. Kosmos will retry it automatically.';
+    if (ph === 'waiting') return lost + '. Kosmos will try again for you.';
     /* "Has asked": an attempt was made, not that it landed (the sweep counts every attempt). */
     if (ph === 'retried') return lost + '. Kosmos has asked it to try again.';
     return lost;
@@ -16121,13 +16218,6 @@ function saidLine(a) {
 }
 
 /**
- * The two witnesses disagreeing, as a sentence the person sees (#569). The
- * ENGINE composes the sentence (status.reconcileReport surfaces it instead of
- * silently resolving, and its wording already names both witnesses); this
- * only dresses it as a card note: capitalized, one full stop. Empty when the
- * witnesses agree, which is almost always.
- */
-/**
  * An engine sentence, dressed as something a person reads: capitalized, one
  * full stop. The ENGINE owns the words; this owns nothing but the casing.
  *
@@ -16141,9 +16231,6 @@ function asSentence(s) {
   const t = typeof s === 'string' ? s.trim() : '';
   if (!t) return '';
   return t.charAt(0).toUpperCase() + t.slice(1) + (/[.!?]$/.test(t) ? '' : '.');
-}
-function conflictNote(a) {
-  return asSentence(a && typeof a.stateConflict === 'string' ? a.stateConflict : '');
 }
 function modelLine(a) {
   /* Provider-first ("Claude Opus 5"), guarded so a modelName that already
@@ -16887,7 +16974,7 @@ function card(a) {
        the stronger, more specific fact. Its own `needstrust` marker class and the
        attn pill make it read as an agent that wants a person, not one that is off. */
     if (a.needsTrust === true) {
-      return `<div class="acard attn notrunning needstrust" data-agent="${esc(a.sessionName)}"${Number.isFinite(Number(a && a.dmUnread)) && Number(a && a.dmUnread) > 0 ? ' data-has-msgs' : ''}${a && a.state === 'needs_you' ? ' data-attn' : ''}${a && a.state === 'needs_you' && a.stateProject === null ? ' data-noproj' : ''}>
+      return `<div class="acard attn notrunning needstrust" data-agent="${esc(a.sessionName)}"${Number.isFinite(Number(a && a.dmUnread)) && Number(a && a.dmUnread) > 0 ? ' data-has-msgs' : ''}${a && (a.state === 'needs_you' || a.state === 'needs_trust' || (a.state === 'connection_lost' && a.reconnect && a.reconnect.phase === 'gave_up')) ? ' data-attn' : ''}${a && a.state === 'needs_you' && a.stateProject === null ? ' data-noproj' : ''}>
       <div class="agauge"><svg viewBox="0 0 72 72" role="img" aria-label="${esc(a.name)}. Waiting at a workspace-trust prompt.">${face(a)}</svg><span class="pres unsure" aria-hidden="true"></span>${dmBadge(a)}</div>
       <div class="aname"><button class="namego" type="button" aria-label="Open ${esc(a.name)}">${esc(a.name)}</button></div>
       <div class="ameta">${esc((typeof SWARMS_ON !== 'undefined' && SWARMS_ON && Object.prototype.hasOwnProperty.call(a, 'swarm') && a.swarm) ? 'Swarm · ' + swarmStatusWords(a) : roleLine(a, ROLE_TITLES))}</div>
@@ -16902,7 +16989,7 @@ function card(a) {
        disagreeing facts. Everything else about the card stays the offline
        shape: there is still no pane to act on. */
     const split = a.jobRunningUnseen === true;
-    return `<div class="acard off notrunning" data-agent="${esc(a.sessionName)}"${Number.isFinite(Number(a && a.dmUnread)) && Number(a && a.dmUnread) > 0 ? ' data-has-msgs' : ''}${a && a.state === 'needs_you' ? ' data-attn' : ''}${a && a.state === 'needs_you' && a.stateProject === null ? ' data-noproj' : ''}>
+    return `<div class="acard off notrunning" data-agent="${esc(a.sessionName)}"${Number.isFinite(Number(a && a.dmUnread)) && Number(a && a.dmUnread) > 0 ? ' data-has-msgs' : ''}${a && (a.state === 'needs_you' || a.state === 'needs_trust' || (a.state === 'connection_lost' && a.reconnect && a.reconnect.phase === 'gave_up')) ? ' data-attn' : ''}${a && a.state === 'needs_you' && a.stateProject === null ? ' data-noproj' : ''}>
     <div class="agauge"><svg viewBox="0 0 72 72" role="img" aria-label="${esc(a.name)}. ${split ? 'Could not check.' : 'Not running.'}">${face(a)}</svg>
       <!-- ⚠️ THE DOT IS DECORATIVE HERE, unlike on a running card. Its hidden
            text is PRESSAY.off, which is the same words as the pill two rows
@@ -16926,20 +17013,17 @@ function card(a) {
      fact survives on the DETAIL page's meta line, per the pack's
      card-signals/panel-explanation split. What SURVIVES on the card,
      deliberately: the stale badge on the name (an honest-state mark with
-     no pack equivalent), and the unknown note -- the pack's own comment
-     requires the reason to ride with any card that shows an unknown. */
+     no pack equivalent). (The unknown note that also survived here went in #3729.) */
   const m = cardStOf(a);
   const copy = stateCopyOf(a);
   const pct = pctOf(a.context);
   const answer = answerBtn(a);
 
-  /* Gated on the TREATMENT (m.st), not the literal state: cardStOf maps
-     any unrecognised server state to the unknown treatment, and a card
-     drawn as "Can't tell" must carry the whole honesty payload, note
-     included, whichever spelling put it there. */
-  const unknownNote = m.st === 'unknown'
-    ? '<div class="note">Not the same as idle. We cannot see this one, so we are not telling you it is fine.</div>'
-    : '';
+  /* #3729 (Josh, 2026-09-25): the unknown card's note ("Not the same as idle. We cannot see this
+     one, so we are not telling you it is fine.") is gone with the conflict line. It was an
+     agent-status diagnostic sentence on a card, which the standing rule forbids; the "Can't tell"
+     badge still says the state. The needs-trust card keeps its note: that one asks the person to
+     act (#3723's category, not this). */
 
   /* #3501: the unknown-memory WORD badge (.membadge.unk, states unknown /
      not-yet-read / not-set-yet) was removed. Josh flagged it as meaningless to
@@ -16951,7 +17035,7 @@ function card(a) {
   const badge = (pct >= NEARLY_FULL ? `<span class="membadge">${memPrint(a.context, pct)}</span>` : '');
   const pres = `<span class="pres ${m.pres}"><span class="vh">${PRESSAY[m.pres]}</span></span>`;
 
-  return `<div class="acard ${boardMods(a, m)}" data-agent="${esc(a.sessionName)}"${Number.isFinite(Number(a && a.dmUnread)) && Number(a && a.dmUnread) > 0 ? ' data-has-msgs' : ''}${a && a.state === 'needs_you' ? ' data-attn' : ''}${a && a.state === 'needs_you' && a.stateProject === null ? ' data-noproj' : ''}>
+  return `<div class="acard ${boardMods(a, m)}" data-agent="${esc(a.sessionName)}"${Number.isFinite(Number(a && a.dmUnread)) && Number(a && a.dmUnread) > 0 ? ' data-has-msgs' : ''}${a && (a.state === 'needs_you' || a.state === 'needs_trust' || (a.state === 'connection_lost' && a.reconnect && a.reconnect.phase === 'gave_up')) ? ' data-attn' : ''}${a && a.state === 'needs_you' && a.stateProject === null ? ' data-noproj' : ''}>
     <div class="agauge">${ring(a)}${pres}${badge}${dmBadge(a)}</div>
     <div class="aname"><button class="namego" type="button" aria-label="Open ${esc(a.name)}">${esc(a.name)}</button>${staleBadge(a)}</div>
     <div class="ameta">${esc((typeof SWARMS_ON !== 'undefined' && SWARMS_ON && Object.prototype.hasOwnProperty.call(a, 'swarm') && a.swarm) ? 'Swarm · ' + swarmStatusWords(a) : roleLine(a, ROLE_TITLES))}</div>
@@ -16959,8 +17043,6 @@ function card(a) {
     ${a.activeWhileWaiting ? '<div class="alsowork"><span class="act" aria-hidden="true"><i></i><i></i><i></i></span><span>Working now</span></div>' : ''}
     <div class="amodel">${esc(modelLine(a))}</div>
     <div class="atask">${esc(taskLine(a, { noQuote: true }))}</div>
-    ${conflictNote(a) ? `<div class="note">${esc(conflictNote(a))}</div>` : ''}
-    ${unknownNote}
   </div>`;
 }
 
@@ -17090,7 +17172,7 @@ function lrow(a) {
       const tav = (typeof SWARMS_ON !== 'undefined' && SWARMS_ON && Object.prototype.hasOwnProperty.call(a, 'swarm') && a.swarm) ? swarmCluster(a, 34, { decorative: true }) : a.hasAvatar
         ? `<img src="/api/agent/${encodeURIComponent(a.sessionName)}/avatar" alt="">`
         : `<span class="lavtint" style="background:${discTint(a.name)};color:${discInk(a.name)}">${esc(initials(a.name))}</span>`;
-      return `<div class="lrow attn notrunning needstrust" data-agent="${esc(a.sessionName)}"${Number.isFinite(Number(a && a.dmUnread)) && Number(a && a.dmUnread) > 0 ? ' data-has-msgs' : ''}${a && a.state === 'needs_you' ? ' data-attn' : ''}${a && a.state === 'needs_you' && a.stateProject === null ? ' data-noproj' : ''}>
+      return `<div class="lrow attn notrunning needstrust" data-agent="${esc(a.sessionName)}"${Number.isFinite(Number(a && a.dmUnread)) && Number(a && a.dmUnread) > 0 ? ' data-has-msgs' : ''}${a && (a.state === 'needs_you' || a.state === 'needs_trust' || (a.state === 'connection_lost' && a.reconnect && a.reconnect.phase === 'gave_up')) ? ' data-attn' : ''}${a && a.state === 'needs_you' && a.stateProject === null ? ' data-noproj' : ''}>
       <div class="lav">${tav}</div>${dmBadge(a)}
       <div class="lname"><b><button class="namego" type="button" aria-label="Open ${esc(a.name)}">${esc(a.name)}</button></b></div>
       <div class="ltitle">${esc((typeof SWARMS_ON !== 'undefined' && SWARMS_ON && Object.prototype.hasOwnProperty.call(a, 'swarm') && a.swarm) ? 'Swarm · ' + swarmStatusWords(a) : roleLine(a, ROLE_TITLES))}</div>
@@ -17103,7 +17185,7 @@ function lrow(a) {
     const off = (typeof SWARMS_ON !== 'undefined' && SWARMS_ON && Object.prototype.hasOwnProperty.call(a, 'swarm') && a.swarm) ? swarmCluster(a, 34, { decorative: true }) : a.hasAvatar
       ? `<img src="/api/agent/${encodeURIComponent(a.sessionName)}/avatar" alt="">`
       : `<span class="lavtint" style="background:${discTint(a.name)};color:${discInk(a.name)}">${esc(initials(a.name))}</span>`;
-    return `<div class="lrow off notrunning" data-agent="${esc(a.sessionName)}"${Number.isFinite(Number(a && a.dmUnread)) && Number(a && a.dmUnread) > 0 ? ' data-has-msgs' : ''}${a && a.state === 'needs_you' ? ' data-attn' : ''}${a && a.state === 'needs_you' && a.stateProject === null ? ' data-noproj' : ''}>
+    return `<div class="lrow off notrunning" data-agent="${esc(a.sessionName)}"${Number.isFinite(Number(a && a.dmUnread)) && Number(a && a.dmUnread) > 0 ? ' data-has-msgs' : ''}${a && (a.state === 'needs_you' || a.state === 'needs_trust' || (a.state === 'connection_lost' && a.reconnect && a.reconnect.phase === 'gave_up')) ? ' data-attn' : ''}${a && a.state === 'needs_you' && a.stateProject === null ? ' data-noproj' : ''}>
       <div class="lav">${off}</div>${dmBadge(a)}
       <div class="lname"><b><button class="namego" type="button" aria-label="Open ${esc(a.name)}">${esc(a.name)}</button></b></div>
       <div class="ltitle">${esc((typeof SWARMS_ON !== 'undefined' && SWARMS_ON && Object.prototype.hasOwnProperty.call(a, 'swarm') && a.swarm) ? 'Swarm · ' + swarmStatusWords(a) : roleLine(a, ROLE_TITLES))}</div>
@@ -17162,7 +17244,7 @@ function lrow(a) {
   const mem = pct === null
     ? `<span class="bar unknown"></span><span class="pct"><span aria-hidden="true">${memu.word}</span><span class="vh">${memu.aria}</span></span>`
     : `<span class="bar"><i class="${band}" style="width:${pct}%"></i></span><span class="pct">${memPrint(a.context, pct)}</span>`;
-  return `<div class="lrow ${boardMods(a, m)}" data-agent="${esc(a.sessionName)}"${Number.isFinite(Number(a && a.dmUnread)) && Number(a && a.dmUnread) > 0 ? ' data-has-msgs' : ''}${a && a.state === 'needs_you' ? ' data-attn' : ''}${a && a.state === 'needs_you' && a.stateProject === null ? ' data-noproj' : ''}>
+  return `<div class="lrow ${boardMods(a, m)}" data-agent="${esc(a.sessionName)}"${Number.isFinite(Number(a && a.dmUnread)) && Number(a && a.dmUnread) > 0 ? ' data-has-msgs' : ''}${a && (a.state === 'needs_you' || a.state === 'needs_trust' || (a.state === 'connection_lost' && a.reconnect && a.reconnect.phase === 'gave_up')) ? ' data-attn' : ''}${a && a.state === 'needs_you' && a.stateProject === null ? ' data-noproj' : ''}>
     <div class="lav">${av}${lrowRing(a)}${m.st === 'attn' ? LROW_WARN : ''}</div>${dmBadge(a)}
     <div class="lname"><b><button class="namego" type="button" aria-label="Open ${esc(a.name)}">${esc(a.name)}</button>${staleBadge(a)}</b></div>
     <div class="ltitle">${esc((typeof SWARMS_ON !== 'undefined' && SWARMS_ON && Object.prototype.hasOwnProperty.call(a, 'swarm') && a.swarm) ? 'Swarm · ' + swarmStatusWords(a) : roleLine(a, ROLE_TITLES))}</div>
@@ -19911,6 +19993,8 @@ function prompterCheckinQuestion(n) {
     const live = (typeof LAST !== 'undefined' && Array.isArray(LAST)) ? LAST.find((a) => a && a.sessionName === n.session) : null;
     const ph = live && live.reconnect && live.reconnect.phase;
     if (ph === 'waiting' || ph === 'retried') return 'lost its connection, and Kosmos is reconnecting it. Is it done, or still mid-something?';
+    // Given up: the card tells the person to restart it, so the question does too.
+    if (ph === 'gave_up') return 'lost its connection, and Kosmos stopped trying. Restart it, or is it done?';
     return 'lost its connection. Reconnect it, or is it done?';
   }
   // The catch-all covers stopped/idle/unknown (all in heartbeat's ASK_ON_EXIT_TO),
@@ -21961,12 +22045,10 @@ function acctPick(which, opts) {
   if (sel.value !== which) sel.value = which;
   document.getElementById('acct-claude-flow').hidden = which !== 'claude';
   document.getElementById('acct-openai-flow').hidden = which !== 'openai';
+  /* Same as the Claude and OpenAI picks: focus lands on the first thing to fill in. #3731: that
+     thing now shows only once the software is known to be here, so acctKeyedReveal places it. */
+  ACCT_KEYED_FOCUS = !(opts && opts.focus === false);
   acctApikeyShow(ACCT_APIKEY_PROVIDERS[which] ? which : null);
-  if (ACCT_APIKEY_PROVIDERS[which]) {
-    // Same as the Claude and OpenAI picks: focus lands on the first thing to fill in.
-    const first = which === 'xai' ? 'acct-grok-pick-sub' : 'acct-apikey-key';
-    if (!(opts && opts.focus === false)) { const k = document.getElementById(first); if (k) k.focus(); }
-  }
   if (which !== 'openai') {
     acctOpenaiStop(); acctOpenaiSubStop(); ACCT_OPENAI_SUB_SESSION = null;
     if (which === 'claude') {
@@ -23426,6 +23508,63 @@ let ACCT_APIKEY_WHICH = null;
 /* Bumped on every show/close, so an Add answer that returns after the step was left (a
    provider change, a close, a close-and-reopen onto the same provider) is ignored. */
 let ACCT_APIKEY_GEN = 0;
+/* #3713: Settings' download step for the tool Gemini or Grok runs on (see keyedRunnerInstall). */
+/* Which provider Settings' download box is showing for. A second call for the same one (the
+   background probe landing after Add already opened it) only refreshes the words: it never
+   re-arms Download or clicks it again, which started a second watcher and a second install
+   request (review pass 2). */
+let ACCT_KEYED_WHICH = null;
+function acctKeyedInstallHide() {
+  ACCT_KEYED_WHICH = null;
+  const box = document.getElementById('acct-keyed-install');
+  if (box) box.hidden = true;
+  const m = document.getElementById('acct-keyed-install-msg'); if (m) m.textContent = '';
+}
+/* The step that follows the install: Grok's choice, or Gemini's key. */
+let ACCT_KEYED_FOCUS = true;
+function acctKeyedReveal(which, afterInstall) {
+  acctKeyedInstallHide();
+  if (which === 'xai') acctGrokShow('xai');
+  else document.getElementById('acct-apikey-flow').hidden = false;
+  // After a download the focused button is gone, so focus always moves to what is showing.
+  if (!ACCT_KEYED_FOCUS && !afterInstall) return;
+  const again = which === 'xai' && !!ACCT_GROK_REAUTH_DIR;
+  const k = document.getElementById(which === 'xai' ? (again ? 'acct-grok-sub-go' : 'acct-grok-pick-sub') : 'acct-apikey-key');
+  if (k) k.focus();
+}
+/* On Windows Kosmos does not install these yet: the sentence, and nothing to press. */
+function acctKeyedWindows(which) {
+  const box = document.getElementById('acct-keyed-install');
+  if (!box) return;
+  ACCT_KEYED_WHICH = which;
+  ACCT_GROK_SUB.leave();
+  document.getElementById('acct-apikey-flow').hidden = true;
+  document.getElementById('acct-grok-flow').hidden = true;
+  document.getElementById('acct-keyed-install-t').textContent = keyedMissingOnWindows(which);
+  document.getElementById('acct-keyed-install-msg').textContent = '';
+  document.getElementById('acct-keyed-install-go').hidden = true;
+  box.hidden = false;
+}
+function acctKeyedInstallShow(which, info) {
+  const box = document.getElementById('acct-keyed-install');
+  if (!box) return;
+  if (!box.hidden && ACCT_KEYED_WHICH === which) {
+    if (info) document.getElementById('acct-keyed-install-t').textContent = keyedInstallAsk(which, info);
+    return;
+  }
+  ACCT_KEYED_WHICH = which;
+  ACCT_GROK_SUB.leave();
+  document.getElementById('acct-apikey-flow').hidden = true;
+  document.getElementById('acct-grok-flow').hidden = true;
+  document.getElementById('acct-keyed-install-t').textContent = keyedInstallAsk(which, info);
+  document.getElementById('acct-keyed-install-msg').textContent = '';
+  const go = document.getElementById('acct-keyed-install-go');
+  go.hidden = false;
+  go.disabled = false;
+  box.hidden = false;
+  go.focus();   // what had focus (Add, or the provider picker) may now be hidden
+  if (keyedJobLive(info)) go.click();   // a download already under way: watch it
+}
 function acctApikeyShow(which) {
   ACCT_APIKEY_GEN += 1;
   // A new visit starts armed; a request left behind by an earlier one no longer owns the button.
@@ -23442,14 +23581,49 @@ function acctApikeyShow(which) {
     const m = document.getElementById('acct-apikey-msg'); if (m) m.textContent = '';
   }
   ACCT_APIKEY_WHICH = p ? which : null;
-  flow.hidden = !p;
-  acctGrokShow(which);   // #3391 part 2: Grok shows its choice first, and hides the key step until it is chosen
+  acctKeyedInstallHide();
+  /* #3731 (card item 5): never a key box, or Grok's choice, before the software is known to be
+     here. Both stay hidden until /api/runners answers; an answer that does not say "present"
+     (missing, or a read that failed) shows GPT's install step, whose Confirm is safe either way. */
+  flow.hidden = true;
+  acctGrokShow(null);
   if (!p) return;
+  /* A sign in again is for an account this computer already runs, so it opens straight onto the
+     sign-in as before (no key box is involved); the probe below still swaps in the download if
+     the software has since gone. */
+  const again = which === 'xai' && !!ACCT_GROK_REAUTH_DIR;
+  if (again) acctKeyedReveal(which);
+  const visit = ACCT_APIKEY_GEN;
+  keyedRunnerInfo(which).then((info) => {
+    if (visit !== ACCT_APIKEY_GEN || ACCT_APIKEY_WHICH !== which) return;
+    if (info && info.present) { if (!again) acctKeyedReveal(which); return; }
+    if (onWindows()) { acctKeyedWindows(which); return; }
+    acctKeyedInstallShow(which, info);
+  });
   document.getElementById('acct-apikey-head').textContent = 'Paste a ' + p.vendor + ' API key for ' + p.name + '.';
   const key = document.getElementById('acct-apikey-key');
   key.setAttribute('aria-label', p.name + ' API key');
   key.placeholder = p.hint;
 }
+document.getElementById('acct-keyed-install-go').addEventListener('click', async () => {
+  const which = ACCT_APIKEY_WHICH;
+  if (!which) return;
+  const mine = ACCT_APIKEY_GEN;
+  const box = document.getElementById('acct-keyed-install');
+  const go = document.getElementById('acct-keyed-install-go');
+  const msg = document.getElementById('acct-keyed-install-msg');
+  const alive = () => mine === ACCT_APIKEY_GEN && ACCT_APIKEY_WHICH === which && !box.hidden;
+  go.disabled = true;
+  const ok = await keyedRunnerInstall(which, (t) => { if (alive()) msg.textContent = t; }, alive);
+  if (!alive()) return;
+  if (!ok) { go.disabled = false; return; }
+  acctKeyedReveal(which, true);   // the tool is here now: the key step (or Grok's choice) shows
+  // Grok's choice is hidden in a sign-in again (it goes straight to the sign-in step), so focus the
+  // control that is actually showing (review pass 3).
+  const grokPickShown = !document.getElementById('acct-grok-pick').hidden;
+  const next = document.getElementById(which !== 'xai' ? 'acct-apikey-key' : grokPickShown ? 'acct-grok-pick-sub' : 'acct-grok-sub-go');
+  if (next) next.focus();
+});
 document.getElementById('acct-apikey-show').addEventListener('click', () => {
   const key = document.getElementById('acct-apikey-key');
   const show = document.getElementById('acct-apikey-show');
@@ -23487,9 +23661,13 @@ document.getElementById('acct-apikey-go').addEventListener('click', async () => 
     const out = await res.json().catch(() => null);
     if (!stillHere()) { if (res.ok) paintAccounts(); return; }
     if (!res.ok) {
-      /* needsRunner: gemini/grok have no managed install yet (server.js says so), so
-         the honest sentence names what is missing rather than offering a button. */
-      if (out && out.needsRunner) throw new Error('The ' + p.name + ' runner is not installed on this computer, so there is nothing to connect it to yet.');
+      /* needsRunner: the tool it runs on is not here, so offer to download it (#3713). */
+      if (out && out.needsRunner) {   // #3713: offer the download (on Windows, say plainly it cannot)
+        if (onWindows()) throw new Error(keyedMissingOnWindows(which));
+        msg.textContent = '';
+        acctKeyedInstallShow(which, null);
+        return;
+      }
       throw new Error((out && (out.error || out.because)) || 'We could not add that account.');
     }
     keyField.value = '';
@@ -23527,7 +23705,13 @@ document.getElementById('acct-apikey-go').addEventListener('click', async () => 
    close, a provider switch, a Stop) changes nothing; leaving also ends the sign-in on the
    engine, which otherwise holds its slot until its five-minute watchdog. */
 const GROK_SUB_SAY = { starting: 'Starting the sign-in…', 'awaiting-code': 'Confirm the code on xAI’s page to finish.' };
-const GROK_MISSING_TOOL = 'Grok runs on its own command-line tool, "grok", and it is not installed on this computer yet. Kosmos cannot install it for you yet; once it is installed, try again.';
+/* #3713: the sentence when a Grok sign-in finds no grok. On a Mac, Kosmos offers the download when
+   Grok is chosen again; on Windows it does not install it yet, so it says that instead (review
+   pass 2: this path kept the Mac promise on Windows). */
+function grokMissingTool() {
+  return onWindows() ? keyedMissingOnWindows('xai')
+    : 'xAI Grok is not on this computer yet. Choose it again and Kosmos will offer to install it.';
+}
 function grokSubDriver(o) {
   let session = null;
   let poll = null;
@@ -23541,7 +23725,7 @@ function grokSubDriver(o) {
   function reset() {
     for (const k of ['openRow', 'code', 'cancelRow']) { const e = el(k); if (e) e.hidden = true; }
     const c = el('code'); if (c) c.textContent = '';
-    const g = el('go'); if (g) g.disabled = false;
+    const g = el('go'); if (g) { g.disabled = false; g.hidden = false; }   // #3731: hidden while a pick-started sign-in ran
   }
   function show(out) {
     const a = el('open');
@@ -23609,13 +23793,17 @@ function grokSubDriver(o) {
       });
       out = await res.json().catch(() => null);
     } catch {
-      if (mine === gen) { if (go) go.disabled = false; say('We could not reach Kosmos to start that sign-in. Try again.'); }
+      if (mine === gen) { if (go) { go.disabled = false; go.hidden = false; } say('We could not reach Kosmos to start that sign-in. Try again.'); }
       return;
     }
     if (mine !== gen) { if (res.ok && out && out.sessionId) cancelOnEngine(out.sessionId); return; }
     if (!res.ok || !out || !out.sessionId) {
-      if (go) go.disabled = false;
-      say(out && out.needsRunner ? GROK_MISSING_TOOL : (pjSentence(out && (out.error || out.because)) || 'We could not start that sign-in.'));
+      if (go) { go.disabled = false; go.hidden = false; }   // #3731: first run hides it while starting; a failed start needs its retry back
+      /* #3713 (review pass 3): a missing grok on a Mac opens the caller's own download box, as
+         Settings' Add does, rather than telling the person to choose Grok again (re-choosing the
+         provider already chosen fires nothing). Windows, or a caller with no box, is told plainly. */
+      if (out && out.needsRunner && o.onMissing && !onWindows()) { say(''); o.onMissing(); return; }
+      say(out && out.needsRunner ? grokMissingTool() : (pjSentence(out && (out.error || out.because)) || 'We could not start that sign-in.'));
       return;
     }
     session = out.sessionId;
@@ -23634,6 +23822,7 @@ const ACCT_GROK_SUB = grokSubDriver({
   ids: { go: 'acct-grok-sub-go', openRow: 'acct-grok-sub-open-row', open: 'acct-grok-sub-open', code: 'acct-grok-sub-code', cancelRow: 'acct-grok-sub-cancel-row', cancel: 'acct-grok-sub-cancel' },
   msg: () => document.getElementById('acct-grok-msg'),
   reauthDir: () => ACCT_GROK_REAUTH_DIR,
+  onMissing: () => acctKeyedInstallShow('xai', null),   // #3713
   repaintFailed: 'Signed in, but this screen could not update. Close it and look in Settings, AI Models.',
   onConnected: async (account) => {
     const email = account && account.email;
@@ -23659,12 +23848,19 @@ function acctGrokShow(which) {
   flow.hidden = false;
   document.getElementById('acct-grok-pick').hidden = again;
   document.getElementById('acct-grok-sub-step').hidden = !again;
+  document.getElementById('acct-grok-sub-go').hidden = false;   // #3731: a sign in again shows its button
   document.getElementById('acct-apikey-flow').hidden = true;   // until "Use an API key"
 }
 document.getElementById('acct-grok-pick-sub').addEventListener('click', () => {
+  /* #3731 (Josh, 0.6.94): straight to xAI's sign-in, no second screen asking to sign in again.
+     The step's own button shows again only if the start fails (the driver re-shows it). */
   document.getElementById('acct-grok-pick').hidden = true;
-  document.getElementById('acct-grok-sub-step').hidden = false;
-  document.getElementById('acct-grok-sub-go').focus();
+  const step = document.getElementById('acct-grok-sub-step');
+  step.hidden = false;
+  document.getElementById('acct-grok-sub-go').hidden = true;
+  if (!step.hasAttribute('tabindex')) step.setAttribute('tabindex', '-1');
+  step.focus();
+  ACCT_GROK_SUB.start();
 });
 document.getElementById('acct-grok-pick-key').addEventListener('click', () => {
   document.getElementById('acct-grok-flow').hidden = true;
@@ -23674,8 +23870,14 @@ document.getElementById('acct-grok-pick-key').addEventListener('click', () => {
 document.getElementById('acct-grok-sub-go').addEventListener('click', () => ACCT_GROK_SUB.start());
 document.getElementById('acct-grok-sub-cancel').addEventListener('click', () => {
   ACCT_GROK_SUB.leave();
+  /* #3731 (review pass 3): a new sign-in's Stop goes back to the choice, as GPT's does
+     (acctOpenaiStep(ACCT_OPENAI_READY)), so "Use an API key" is one press away. A sign in again
+     has no choice to go back to, so it stays on its own step with the retry. */
+  if (!ACCT_GROK_REAUTH_DIR) { acctGrokShow('xai'); document.getElementById('acct-grok-pick-sub').focus(); return; }
   const m = document.getElementById('acct-grok-msg'); if (m) m.textContent = 'Sign-in stopped.';
-  document.getElementById('acct-grok-sub-go').focus();
+  const go = document.getElementById('acct-grok-sub-go');
+  go.hidden = false;   // #3731: hidden while a pick-started sign-in ran; stopping brings the retry back
+  go.focus();
 });
 /* Sign in again AS an existing Grok subscription account: the dialog in its sign-in-again
    chrome, straight to the sign-in; the engine moves the new sign-in over this account
@@ -23688,75 +23890,214 @@ function openAcctReauthGrok(dir, email) {
   acctPick('xai', { focus: false });
   document.getElementById('acct-grok-sub-go').focus();
 }
-/* #3658: Gemini and Grok connect from first run's model step, by API key (the only path
-   that works today for both). The box is shared; FR_APIKEY_WHICH is the provider it is
-   open for ('google' | 'xai'), read from ACCT_APIKEY_PROVIDERS so the route, vendor and
-   key hint are Settings' own. FR_APIKEY_GEN drops an answer that returns after the box was
-   switched or closed, the same guard Settings uses. */
-const FR_APIKEY_GETKEY = { google: 'https://aistudio.google.com/app/apikey', xai: 'https://console.x.ai/' };
-let FR_APIKEY_WHICH = null;
-let FR_APIKEY_GEN = 0;
-/* The command-line tool each keyed provider runs on. There is no managed installer for
-   either yet (engine/runners.js), so when it is missing the screen names it. */
-const FR_APIKEY_TOOL = { google: 'gemini', xai: 'grok' };
-function frApikeyExpanded(which) {
-  for (const id of ['fr-gemini-connect', 'fr-grok-connect']) {
-    const b = document.getElementById(id);
-    if (b) b.setAttribute('aria-expanded', String(!!which && b.dataset.keyed === which));
+/* #3713: Gemini and Grok each run on their own command-line tool, and Kosmos now installs it
+   (pinned, checksum-verified, engine/runners.js) the way it installs OpenAI's Codex. ONE driver
+   for both screens (first run and Settings), so the two cannot drift. It asks the engine for the
+   job's own phase and byte counts, never a guess from elapsed time, and a failed job ends it at
+   once with the engine's own reason. `alive()` says whether the place it was started from is
+   still showing it; once it is not, the driver stops watching (the download carries on in the
+   engine, and the next Connect finds it done or joins it). */
+const KEYED_RUNNER = { google: 'gemini', xai: 'grok' };
+async function keyedRunnerInfo(which) {
+  try {
+    const r = (((await (await fetch('/api/runners', { cache: 'no-store' })).json()) || {}).runners || {})[KEYED_RUNNER[which]];
+    return r || null;
+  } catch { return null; }
+}
+/* #3731 (Josh): GPT's sentence, word for word, with the provider's name; no talk of what the
+   download is. `info` is kept for callers (it carried the size before). */
+const KEYED_FULL_NAME = { google: 'Google Gemini', xai: 'xAI Grok' };
+function keyedInstallAsk(which, info) {   // eslint-disable-line no-unused-vars
+  return 'In order to connect to ' + (KEYED_FULL_NAME[which] || 'it') + ' we need to download the installer.';
+}
+/* On Windows Kosmos does not install these yet (no Gemini or Grok agent can start there), so a
+   missing tool is said plainly there instead of offering a download that would be refused. */
+function keyedMissingOnWindows(which) {
+  return 'Kosmos cannot connect ' + (KEYED_FULL_NAME[which] || 'it') + ' on Windows yet.';   // #3731: no tool talk
+}
+/* A job that is still going, so a return to the box joins it rather than asking again. */
+const keyedJobLive = (info) => !!(info && info.job && info.job.phase !== 'failed' && info.job.phase !== 'installed');
+const KEYED_PHASE_SAY = { verifying: 'Checking the download\u2026', unpacking: 'Unpacking\u2026', proving: 'Making sure it runs on this computer\u2026' };
+async function keyedRunnerInstall(which, say, alive) {
+  try {
+    const res = await fetch('/api/runners/' + KEYED_RUNNER[which] + '/install', { method: 'POST' });
+    const out = await res.json().catch(() => null);
+    if (!res.ok) { say(runnerInstallRefusal(out)); return false; }
+  } catch {
+    say('We could not start that download. Check this computer is online, then try again.');
+    return false;
+  }
+  say('Starting\u2026');
+  const started = Date.now();
+  for (;;) {
+    await new Promise((ok) => setTimeout(ok, 1000));
+    if (!alive()) return false;
+    const o = await keyedRunnerInfo(which);
+    if (!alive()) return false;
+    if (o && o.present) { say(''); return true; }
+    const job = o && o.job;
+    if (job && job.phase === 'failed') {
+      say(job.because ? pjSentence(job.because) : 'That download did not finish. Nothing changed; you can try again.');
+      return false;
+    }
+    if (job && job.phase === 'downloading' && job.totalBytes) {
+      say('Downloading\u2026 ' + Math.round((job.receivedBytes || 0) / 1e6) + ' of ' + Math.max(1, Math.round(job.totalBytes / 1e6)) + ' MB');
+    } else if (job && KEYED_PHASE_SAY[job.phase]) {
+      say(KEYED_PHASE_SAY[job.phase]);
+    }
+    if (Date.now() - started > 600000) {
+      say('This is taking longer than expected. It may still be working, or it may be stuck. Press Confirm to check again.');
+      return false;
+    }
   }
 }
-/* PROBE BEFORE THE BOX (review pass 1): the key route checks for the runner BEFORE it
-   reads the key, so a POST with no key answers needsRunner when the runner is missing,
-   and otherwise refuses the empty key without storing anything. Asking first means a
-   person is never sent off to make a key for a runner this computer does not have. */
-async function frApikeyOpen(which) {
-  FR_APIKEY_GEN += 1;
-  const mine = FR_APIKEY_GEN;
-  FR_GROK_SUB.leave();   // #3391 part 2: a switch or a close ends a Grok sign-in in flight
-  document.getElementById('fr-grok-sub-msg').textContent = '';
-  const flow = document.getElementById('fr-apikey-flow');
-  const msg = document.getElementById('fr-apikey-msg');
-  const p = which ? ACCT_APIKEY_PROVIDERS[which] : null;
-  const same = FR_APIKEY_WHICH === which && !flow.hidden;
-  document.getElementById('fr-apikey-go').disabled = false;   // an Add left pending by a switch must not stay dead
-  if (!p || same) { flow.hidden = true; FR_APIKEY_WHICH = null; frApikeyExpanded(null); msg.textContent = ''; return; }   // a second press closes it
-  flow.hidden = true;
-  frApikeyExpanded(null);
-  msg.textContent = 'Checking ' + p.name + ' on this computer…';
-  let missing = false;
+/* #3731 (Josh, 0.6.94): Gemini and Grok connect EXACTLY like GPT (#fr-openai-*), each directly
+   under its own row: Connect, then the install (Confirm / Not now), then the choice (Sign in with
+   Subscription / Use an API key), then the sign-in or the key. One driver for both, keyed by
+   provider ('google' | 'xai'). Grok's subscription starts xAI's sign-in at once, #3335's rule for
+   GPT: no screen whose only job is a second press. Gemini's subscription is Angel's Antigravity
+   sign-in (#3568); until its route exists Gemini goes from the install straight to the key, and
+   filling in KEYED_SUB_START.google turns the choice on. It replaces #3658's one shared box and #3713's
+   download box (both sat below Grok, whichever row was pressed). */
+const FR_KEYED = { google: { pre: 'gemini' }, xai: { pre: 'grok' } };
+/* The subscription sign-in each provider can start. Grok's is the shared driver; Gemini's is
+   Angel's Antigravity sign-in (#3568) and does not exist yet. The choice (Sign in with
+   Subscription / Use an API key) is offered only where a start exists, so wiring Gemini is one
+   function here and nothing else: no flag that could show a button with nothing behind it. */
+const KEYED_SUB_START = { google: null, xai: () => FR_GROK_SUB.start() };
+const keyedSubReady = (which) => typeof KEYED_SUB_START[which] === 'function';
+let FR_KEYED_GEN = 0;   // an answer, a finished download or an Add from an earlier opening changes nothing
+const frK = (which, part) => document.getElementById('fr-' + FR_KEYED[which].pre + '-' + part);
+const frKeyedPanels = (which) => ['confirm', 'pick', 'sub-step', 'flow'].map((part) => frK(which, part)).filter(Boolean);
+const frKeyedOpenNow = (which) => frKeyedPanels(which).some((el) => !el.hidden);
+/* Close one provider's panels. `keepSignIn` is for a sign-in that just FINISHED: leaving would
+   cancel it on the engine. */
+function frKeyedCollapse(which, keepSignIn) {
+  for (const el of frKeyedPanels(which)) el.hidden = true;
+  const bar = frK(which, 'confirm-bar'); if (bar) bar.hidden = true;
+  // A closed panel keeps no "Checking..." behind (#3658); a finished sign-in writes its result next.
+  const msg = frK(which, 'msg'); if (msg && !keepSignIn && !msg.classList.contains('fr-connbox')) msg.textContent = '';
+  if (which === 'xai' && !keepSignIn) FR_GROK_SUB.leave();
+  /* A read, install or Add started for this panel no longer owns it (review pass 1: a late
+     /api/runners answer reopened a panel another provider's Connect had just closed). */
+  if (!keepSignIn) FR_KEYED_GEN += 1;
+  const btn = frK(which, 'connect'); if (btn && btn.setAttribute) btn.setAttribute('aria-expanded', 'false');
+}
+/* Leaving first run or its model step closes both and retires any watcher. */
+function frKeyedHideAll() { FR_KEYED_GEN += 1; frKeyedCollapse('google'); frKeyedCollapse('xai'); }
+function frKeyedShowPick(which) {
+  for (const el of frKeyedPanels(which)) el.hidden = true;
+  if (!keyedSubReady(which)) { frKeyedChoose(which, 'key'); return; }
+  frK(which, 'pick').hidden = false;
+  frK(which, 'pick-sub').focus();
+}
+function frKeyedChoose(which, how) {
+  const msg = frK(which, 'msg'); if (msg) msg.textContent = '';
+  if (which === 'xai') FR_GROK_SUB.leave();   // a switch between the two ends a sign-in in flight
+  frK(which, 'pick').hidden = true;
+  frK(which, 'flow').hidden = how !== 'key';
+  frK(which, 'sub-step').hidden = how !== 'sub';
+  if (how === 'key') { frK(which, 'key').focus(); return; }
+  /* The sign-in starts now; its own Sign-in button shows again only if the start fails (the
+     driver re-shows it), so a failed start still has a retry. Focus goes to the status region. */
+  const go = frK(which, 'sub-go'); if (go) go.hidden = true;
+  const step = frK(which, 'sub-step');
+  if (!step.hasAttribute('tabindex')) step.setAttribute('tabindex', '-1');
+  step.focus();
+  if (keyedSubReady(which)) KEYED_SUB_START[which]();
+}
+async function frKeyedConnect(which) {
+  const btn = frK(which, 'connect');
+  const msg = frK(which, 'msg');
+  frCollapseProviders(which);
+  /* Pressed again while its own panel is open: start clean, so the install step cannot appear
+     beside a choice or key form still showing, and a sign-in in flight ends rather than polling
+     on, hidden. */
+  if (frKeyedOpenNow(which)) frKeyedCollapse(which);
+  FR_KEYED_GEN += 1;
+  const mine = FR_KEYED_GEN;
+  btn.setAttribute('aria-expanded', 'true');
+  if (!msg.classList.contains('fr-connbox')) msg.textContent = '';
+  // A fresh opening: no bar or progress left from an install that was being watched before.
+  { const bar = frK(which, 'confirm-bar'); if (bar) bar.hidden = true; const cm = frK(which, 'confirm-msg'); if (cm) cm.textContent = ''; }
+  const info = await keyedRunnerInfo(which);
+  if (mine !== FR_KEYED_GEN) return;
+  if (info && info.present) { frKeyedShowPick(which); return; }
+  // On Windows Kosmos does not install these yet (#3713), so it says so instead of offering it.
+  if (onWindows()) { btn.setAttribute('aria-expanded', 'false'); msg.textContent = keyedMissingOnWindows(which); return; }
+  frK(which, 'confirm').hidden = false;
+  const go = frK(which, 'confirm-go');
+  go.disabled = false;
+  go.focus();
+  if (keyedJobLive(info)) go.click();   // a download already under way: watch it rather than ask again
+}
+async function frKeyedConfirm(which) {
+  const mine = FR_KEYED_GEN;
+  const box = frK(which, 'confirm');
+  const go = frK(which, 'confirm-go');
+  const bar = frK(which, 'confirm-bar');
+  const msg = frK(which, 'confirm-msg');
+  const alive = () => mine === FR_KEYED_GEN && !box.hidden
+    && !document.getElementById('firstrun').hidden && !document.getElementById('fr-pane-5').hidden;
+  go.disabled = true;
+  bar.hidden = false;
+  const ok = await keyedRunnerInstall(which, (t) => { if (alive()) msg.textContent = t; }, alive);
+  if (!alive()) return;
+  bar.hidden = true;
+  if (!ok) { go.disabled = false; return; }
+  msg.textContent = '';
+  frKeyedShowPick(which);
+}
+async function frKeyedAdd(which) {
+  const p = ACCT_APIKEY_PROVIDERS[which];
+  const keyField = frK(which, 'key');
+  const go = frK(which, 'go');
+  const msg = frK(which, 'msg');
+  const key = keyField.value.trim();
+  if (!key) { msg.textContent = 'Paste the key first.'; keyField.focus(); return; }
+  const mine = FR_KEYED_GEN;
+  go.disabled = true;
+  msg.textContent = 'Checking the key with ' + p.vendor + '…';
   try {
     const res = await fetch('/api/accounts/' + p.route + '/apikey', {
-      method: 'POST', headers: { 'content-type': 'application/json' }, body: '{}',
+      method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ key }),
     });
     const out = await res.json().catch(() => null);
-    missing = !!(out && out.needsRunner);
-  } catch { /* could not ask: open the box and let Add say what is wrong */ }
-  if (mine !== FR_APIKEY_GEN) return;
-  if (missing) {
-    FR_APIKEY_WHICH = null;
-    msg.textContent = p.name + ' runs on its own command-line tool, "' + FR_APIKEY_TOOL[which]
-      + '", and it is not installed on this computer yet. Kosmos cannot install it for you yet; once it is installed, press Connect again.';
-    return;
+    if (mine !== FR_KEYED_GEN) {
+      /* A key that landed after the person moved on still counts. If this provider's panels
+         are open again, close them: a second Add would make a second account (#3658). */
+      if (res.ok) {
+        if (frKeyedOpenNow(which)) frKeyedCollapse(which);
+        msg.textContent = p.name + ' is connected.';
+        frPaintKeyed();
+      }
+      return;
+    }
+    if (!res.ok) {
+      if (out && out.needsRunner) {   // the tool went missing after the box opened
+        if (onWindows()) throw new Error(keyedMissingOnWindows(which));
+        msg.textContent = '';
+        frKeyedCollapse(which);
+        frKeyedConnect(which);   // offers the install again, in place
+        return;
+      }
+      throw new Error((out && (out.error || out.because)) || 'We could not add that key.');
+    }
+    keyField.value = '';
+    frKeyedCollapse(which);
+    msg.setAttribute('tabindex', '-1');
+    msg.focus();   // the box that held focus is hidden now; the result is where it lands
+    const unknown = !!(out && out.account && out.account.connection && out.account.connection.state === 'unknown');
+    msg.className = 'dhint';
+    msg.textContent = unknown
+      ? 'The ' + p.name + ' key is saved. ' + p.vendor + ' did not answer just now, so it will be checked again when an agent uses it.'
+      : p.name + ' is connected.';
+    await frPaintKeyed();   // a connected account repaints this line as GPT's gold box
+  } catch (err) {
+    if (mine === FR_KEYED_GEN) msg.textContent = String((err && err.message) || 'We could not add that key.');
+  } finally {
+    go.disabled = false;
   }
-  msg.textContent = '';
-  frApikeyExpanded(which);
-  if (FR_APIKEY_WHICH !== which) {
-    const k = document.getElementById('fr-apikey-key'); k.value = '';
-    document.getElementById('fr-apikey-msg').textContent = '';
-  }
-  FR_APIKEY_WHICH = which;
-  const article = /^(x|[aeiou])/i.test(p.vendor) ? 'an ' : 'a ';   // "an xAI key"
-  document.getElementById('fr-apikey-t').textContent = (which === 'xai'
-    ? 'Sign in with your Grok subscription, or paste an xAI API key.'
-    : 'Paste ' + article + p.vendor + ' API key for ' + p.name + '.') + ' A key is a bit like a password that ' + p.vendor + ' issues for this computer.';
-  document.getElementById('fr-grok-sub').hidden = which !== 'xai';
-  document.getElementById('fr-apikey-getkey').href = FR_APIKEY_GETKEY[which] || '#';
-  const key = document.getElementById('fr-apikey-key');
-  key.setAttribute('aria-label', p.name + ' API key');
-  key.placeholder = p.hint;
-  flow.hidden = false;
-  // Grok's box leads with its sign-in (the heading says so), so focus starts there.
-  (which === 'xai' ? document.getElementById('fr-grok-sub-go') : key).focus();
 }
 /* Paint one keyed row's Connect as Connected (green check, disabled) or Connect, from a
    known answer or from /api/accounts, the way frPaintOpenai does for GPT. A read that
@@ -23789,107 +24130,84 @@ async function frPaintKeyed(known) {
     b.classList.toggle('is-connected', connected);
     b.setAttribute('aria-disabled', String(connected || saved));
     b.setAttribute('aria-label', connected ? name + ' is connected' : saved ? name + ' key saved' : 'Connect ' + name);
+    /* #3731: GPT's connected state, cloned (frPaintOpenai, #2241): the gold check box on the
+       provider's own line, not a plain sentence. */
+    const which = provider;
+    const line = frK(which, 'msg');
+    if (line && connected) {
+      /* As GPT's paint does (#2621): a connected provider shows no key form or choice under its box,
+         or a second paste would make a second account. keepSignIn: the box is being drawn now. */
+      if (frKeyedOpenNow(which)) frKeyedCollapse(which, true);
+      const acct = mine.find((x) => x.connection && x.connection.state === 'connected') || {};
+      line.className = 'fr-connbox';
+      line.innerHTML = frCheckRow({
+        state: 'ok',
+        title: KEYED_FULL_NAME[which] + ' is connected',
+        detail: 'This computer is signed in' + (acct.email ? ' as ' + acct.email : '') + '.' + (acct.keyTail ? ' (API key ending ' + acct.keyTail + ')' : ''),
+      });
+    } else if (line && line.classList.contains('fr-connbox')) {
+      line.className = 'dhint';
+      line.textContent = '';
+    }
   }
+  /* #3731: and GPT's Continue (#2134): a connected Gemini or Grok is a usable model provider, so
+     the step offers Next rather than leaving "Skip connecting a model" as the only way on, unless
+     Claude has already offered its own. */
+  const anyKeyed = list.some((x) => (acctProvider(x) === 'google' || acctProvider(x) === 'xai') && x.connection && x.connection.state === 'connected');
+  const claudeConnected = FR && FR.subscription && FR.subscription.state === 'connected';
+  if (anyKeyed && !claudeConnected && FR_STEP === 5) frActions({ label: 'Next', go: () => frGo(frStepAfter(5)) }, null);
 }
-for (const id of ['fr-gemini-connect', 'fr-grok-connect']) {
-  const b = document.getElementById(id);
-  if (b) b.addEventListener('click', () => frApikeyOpen(b.dataset.keyed));
+for (const which of ['google', 'xai']) {
+  frK(which, 'connect').addEventListener('click', () => frKeyedConnect(which));
+  frK(which, 'confirm-go').addEventListener('click', () => frKeyedConfirm(which));
+  frK(which, 'confirm-no').addEventListener('click', () => {
+    FR_KEYED_GEN += 1;
+    frKeyedCollapse(which);
+    frK(which, 'connect').focus();
+  });
+  frK(which, 'pick-sub').addEventListener('click', () => frKeyedChoose(which, 'sub'));
+  frK(which, 'pick-key').addEventListener('click', () => frKeyedChoose(which, 'key'));
+  frK(which, 'go').addEventListener('click', () => frKeyedAdd(which));
+  /* Enter adds the key, like GPT's key field, and stops there: the step's own Enter-to-continue
+     must not carry the person past a key they have not added. */
+  frK(which, 'key').addEventListener('keydown', (e) => {
+    if (e.key !== 'Enter') return;
+    e.preventDefault();
+    e.stopPropagation();
+    frK(which, 'go').click();
+  });
 }
-/* #3391 part 2: Grok's subscription sign-in in first run's box, on the shared driver. A new
-   account only (a sign-in again is a Settings row action). Connected closes the box the
-   way an added key does, and the Grok row repaints as Connected. */
+/* #3391 part 2 / #3731: Grok's subscription sign-in, on the shared driver, in Grok's own panel. A
+   new account only (a sign-in again is a Settings row action). Connected closes the panel the way
+   an added key does, and the Grok row repaints as Connected. */
 const FR_GROK_REPAINT_FAILED = 'This screen could not update the Grok row; Grok will show as connected in Settings, AI Models.';
 const FR_GROK_SUB = grokSubDriver({
   ids: { go: 'fr-grok-sub-go', openRow: 'fr-grok-sub-open-row', open: 'fr-grok-sub-open', code: 'fr-grok-sub-code', cancelRow: 'fr-grok-sub-cancel-row', cancel: 'fr-grok-sub-cancel' },
-  /* Its own line, not the box's: the key and the sign-in sit side by side here, and a poll
-     writing every 1.2s into the shared line would wipe the key's answer. */
-  msg: () => document.getElementById('fr-grok-sub-msg'),
+  msg: () => document.getElementById('fr-grok-msg'),
   reauthDir: () => null,
+  onMissing: () => { frKeyedCollapse('xai'); frKeyedConnect('xai'); },   // no grok: the install, in place
   alive: () => FR_STEP === 5,
-  repaintFailed: 'Signed in, but this screen could not update. Grok will show as connected in Settings, AI Models.',   // before the box closes
+  repaintFailed: 'Signed in, but this screen could not update. Grok will show as connected in Settings, AI Models.',
   onConnected: async (account) => {
-    FR_APIKEY_GEN += 1;   // a key Add still in flight is now the stale one
-    document.getElementById('fr-apikey-flow').hidden = true;
-    FR_APIKEY_WHICH = null;
-    frApikeyExpanded(null);
-    const msg = document.getElementById('fr-apikey-msg');
-    document.getElementById('fr-grok-sub-msg').textContent = '';
+    FR_KEYED_GEN += 1;   // a key Add still in flight is now the stale one
+    frKeyedCollapse('xai', true);
+    const msg = frK('xai', 'msg');
     msg.setAttribute('tabindex', '-1');
     msg.focus();
     msg.textContent = 'Grok is connected' + (account && account.email ? ' (' + account.email + ')' : '') + '.';
-    /* The box is hidden by now, so a repaint that fails is said HERE, on the line that stays
-       on screen, not by the driver into the box's own line (review pass 7). */
     try { await frPaintKeyed(); }   // a fresh read: the Grok answer alone would repaint Gemini as not connected
     catch { msg.textContent += ' ' + FR_GROK_REPAINT_FAILED; }
   },
 });
-document.getElementById('fr-grok-sub-go').addEventListener('click', () => FR_GROK_SUB.start());
 document.getElementById('fr-grok-sub-cancel').addEventListener('click', () => {
+  // Like GPT's Stop (frOpenaiShowPick): back to the choice, so the key is one press away.
   FR_GROK_SUB.leave();
-  document.getElementById('fr-grok-sub-msg').textContent = 'Sign-in stopped.';
-  document.getElementById('fr-grok-sub-go').focus();
+  frKeyedShowPick('xai');
 });
-/* Enter adds the key, like GPT's key field, and stops there: the step's own Enter-to-
-   continue must not carry the person past a key they have not added. */
-document.getElementById('fr-apikey-key').addEventListener('keydown', (e) => {
-  if (e.key !== 'Enter') return;
-  e.preventDefault();
-  e.stopPropagation();
-  document.getElementById('fr-apikey-go').click();
-});
-document.getElementById('fr-apikey-go').addEventListener('click', async () => {
-  const which = FR_APIKEY_WHICH;
-  const p = which ? ACCT_APIKEY_PROVIDERS[which] : null;
-  const keyField = document.getElementById('fr-apikey-key');
-  const go = document.getElementById('fr-apikey-go');
-  const msg = document.getElementById('fr-apikey-msg');
-  if (!p) return;
-  const key = keyField.value.trim();
-  if (!key) { msg.textContent = 'Paste the key first.'; keyField.focus(); return; }
-  const mine = FR_APIKEY_GEN;
-  go.disabled = true;
-  msg.textContent = 'Checking the key with ' + p.vendor + '…';
-  try {
-    const res = await fetch('/api/accounts/' + p.route + '/apikey', {
-      method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ key }),
-    });
-    const out = await res.json().catch(() => null);
-    if (mine !== FR_APIKEY_GEN) {
-      if (!res.ok) return;
-      /* A key that landed after the person moved on still shows as Connected. If they
-         have since reopened the box for the SAME provider, close it: a second Add there
-         would make a second account for a provider that is already connected. */
-      if (FR_APIKEY_WHICH === which) {
-        document.getElementById('fr-apikey-flow').hidden = true;
-        FR_APIKEY_WHICH = null;
-        frApikeyExpanded(null);
-      }
-      if (FR_APIKEY_WHICH === null) msg.textContent = p.name + ' is connected.';   // never leave "Checking..." behind
-      frPaintKeyed();
-      return;
-    }
-    if (!res.ok) {
-      if (out && out.needsRunner) throw new Error(p.name + ' runs on its own command-line tool, "' + FR_APIKEY_TOOL[which] + '", and it is not installed on this computer yet.');
-      throw new Error((out && (out.error || out.because)) || 'We could not add that key.');
-    }
-    keyField.value = '';
-    FR_GROK_SUB.leave();   // #3391 part 2: the key connected Grok; a sign-in beside it is moot
-    document.getElementById('fr-apikey-flow').hidden = true;
-    FR_APIKEY_WHICH = null;
-    frApikeyExpanded(null);
-    msg.setAttribute('tabindex', '-1');
-    msg.focus();   // the box that held focus is hidden now; the result is where it lands
-    const unknown = !!(out && out.account && out.account.connection && out.account.connection.state === 'unknown');
-    msg.textContent = unknown
-      ? 'The ' + p.name + ' key is saved. ' + p.vendor + ' did not answer just now, so it will be checked again when an agent uses it.'
-      : p.name + ' is connected.';
-    await frPaintKeyed();
-  } catch (err) {
-    if (mine === FR_APIKEY_GEN) msg.textContent = String((err && err.message) || 'We could not add that key.');
-  } finally {
-    if (mine === FR_APIKEY_GEN) go.disabled = false;
-  }
-});
+for (const which of ['google', 'xai']) {
+  // The step's own Sign-in button: the retry after a failed or stopped start.
+  frK(which, 'sub-go').addEventListener('click', () => { if (keyedSubReady(which)) KEYED_SUB_START[which](); });
+}
 document.getElementById('acct-openai-pick-sub').addEventListener('click', () => acctOpenaiChoose('sub'));
 document.getElementById('acct-openai-pick-key').addEventListener('click', () => acctOpenaiChoose('key'));
 /* #2433: the Claude picker's two choices. */
@@ -25175,9 +25493,9 @@ function paintOrg() {
       /* #3423: the chip-filter markers, keyed on the SERVER state to match the
          "Issue" (c.needsYou) and "No project" (c.needsYouUnattributed) tile counts
          exactly -- NOT the local `needsYou` above (cardStOf.st==='attn', which folds
-         in needs_trust and splits off agent questions, so it would not match the
+         in the same cases data-attn does but splits off agent questions, so it would not match the
          count). Kept inline/self-contained like data-has-msgs. */
-      + (a && a.state === 'needs_you' ? ' data-attn' : '')
+      + (a && (a.state === 'needs_you' || a.state === 'needs_trust' || (a.state === 'connection_lost' && a.reconnect && a.reconnect.phase === 'gave_up')) ? ' data-attn' : '')
       + (a && a.state === 'needs_you' && a.stateProject === null ? ' data-noproj' : '')
       + ' style="left:' + x.toFixed(1) + 'px;top:' + y.toFixed(1) + 'px"'
       /* #2577: the badge's own aria-label is inert inside a button that has its
@@ -25670,7 +25988,7 @@ const ROOM_SPOKE_SEEDED = new Set();
    skips it. Listed anyway, because the test above requires every emitted kind
    to be classified, and "unreachable today" is a property of the other file. */
 const ROOM_SPEECH_KINDS = new Set(['message', 'post']);
-const ROOM_NOT_SPEECH = new Set(['refused', 'valve', 'note', 'nudge', 'reaction', 'reopen']);
+const ROOM_NOT_SPEECH = new Set(['refused', 'valve', 'note', 'nudge', 'reaction', 'reopen', 'kosmos']); // kosmos: #3723's account line, Kosmos speaking
 // Whether a status tick has ever ANSWERED. [] before the first answer means
 // "not heard yet", not "empty board", and the two must never be conflated
 // (the Recommended pill reads this).
@@ -26846,6 +27164,24 @@ function dmRow(m, name) {
      `at`, the anchor matches the FIRST -- a drift of at most one adjacent row,
      no worse than the pixel offset it replaces. */
   const midOf = (r) => esc(String((r && (r.id || r.at)) || ''));
+  /* #3723: Kosmos's own line (an account problem), in the room's quiet Kosmos band: no avatar and no
+     name, so nobody takes it for the agent speaking or for something they sent. */
+  if (m && m.kind === 'kosmos') {
+    /* The vendor's link (e.g. where to add credits) is made clickable: the text is escaped FIRST,
+       then only https:// addresses ON A KNOWN VENDOR HOST become links. The sentence is read from
+       the agent's screen, so any other address stays plain text: Kosmos's band must not lend its
+       authority to a link something else printed. */
+    const VENDOR = /^(?:[a-z0-9-]+\.)*(?:chatgpt\.com|openai\.com|claude\.ai|anthropic\.com)$/i;
+    const linked = esc(m.text || '').replace(/https:\/\/[^\s"'<>&]+[^\s"'<>&.,;:!?)]/g, (u) => {
+      // The host the BROWSER will open (URL parsing, so "https://chatgpt.com:x@evil.example" is
+      // evil.example), and never a link that carries a user name or password.
+      let parsed = null;
+      try { parsed = new URL(u); } catch { parsed = null; }
+      const ok = parsed && parsed.protocol === 'https:' && !parsed.username && !parsed.password && VENDOR.test(parsed.hostname);
+      return ok ? '<a href="' + u + '" target="_blank" rel="noopener">' + u + '</a>' : u;
+    });
+    return '<div class="msg-valve dm-kosmos" data-mid="' + midOf(m) + '">' + linked + '</div>';
+  }
   const whenStr = esc(pjWhen(m.at) || '');
   if (m && m.from) {
     /* #3414: the agent's row now IS the room's `.msg` bubble -- gray ground, avatar to
@@ -28086,14 +28422,8 @@ function openDetail(sessionName, section, fromProject) {
   const dst = document.getElementById('d-state');
   dst.className = 'detail-state astate st-' + dm.st;
   dst.innerHTML = glyphOf(a) + '<b>' + esc(copy.label) + '</b>';
-  /* #569: the same derivations the card reads (saidLine, conflictNote),
-     called not copied, so the panel and the card cannot disagree about
-     where a state came from or whether the witnesses do. */
-  const dconf = document.getElementById('d-conflict');
-  if (dconf) {
-    dconf.textContent = conflictNote(a);
-    dconf.hidden = !dconf.textContent;
-  }
+  /* #3729 (Josh, 2026-09-25): there is no "its reports and its screen disagree" line here, or on
+     the card, any more. The slot is gone, not hidden, so nothing can be written into it. */
   /* ⚠️ HIDDEN WHEN THERE IS NO TASK. Beside a badge that already says Idle,
      a task line would restate the badge; this panel shows nothing rather than
      that. Since #209 the card, too, shows nothing here rather than a frozen
@@ -41176,11 +41506,12 @@ function pjMember(m, suppressTold, withMinus, hideState) {
      which is why this keys on CARD_ST instead of a count that goes stale),
      so keying on it would paint every paused/unreadable/stopped member as urgent too and
      defeat the card. CARD_ST maps only needs_you and needs_trust to st:'attn' (the two
-     states that genuinely need a person now) - close to the org-node badge (#2576/#2577)
+     states that genuinely need a person now), and cardStOf adds a connection Kosmos gave up
+     on (#3410, via liveM) - close to the org-node badge (#2576/#2577)
      mapping for "needs-you gets a mark". Gated on m.present
      because a member we cannot see says why instead of a state. LROW_WARN is the agents
      list's warning glyph; it is display:none inside a .lav until the CSS below shows it. */
-  const needsYou = m.present === true && cardStOf(m).st === 'attn';
+  const needsYou = m.present === true && cardStOf(liveM).st === 'attn'; // liveM: a given-up connection is red here too (#3410)
   const warn = needsYou ? LROW_WARN : '';
   /* #2711 item 16: the member box takes a ground by state, the same read the
      agent homepage cards make (.acard.working/.acard.attn) so the two surfaces
@@ -41192,7 +41523,7 @@ function pjMember(m, suppressTold, withMinus, hideState) {
      reason line), not a state colour. The CSS scopes these to #pj-one-agents. */
   const present = m.present || m.state === 'restarting';
   const stClass = present
-    ? ({ working: ' pjm-working', attn: ' pjm-attn', idle: ' pjm-idle' }[cardStOf(m).st] || '')
+    ? ({ working: ' pjm-working', attn: ' pjm-attn', idle: ' pjm-idle' }[cardStOf(liveM).st] || '')
     : '';
   /* #3212 (Josh 6.72): a member the board cannot see (`!present`) is one a room post could
      not reach, so mark the avatar with the question-mark badge instead of a status sentence.
@@ -50735,6 +51066,11 @@ function frGo(step) {
   // #3/#4 half (a): the grant-flip re-scan poll runs only on the find-agents screen
   // (S9 = FR_STEP_YOU + 1); leaving it retires the poll, same generation contract as above.
   if (step !== FR_STEP_YOU + 1) frRescanStop();
+  /* #3713: leaving the step that holds the download box closes it (and retires its watcher), for
+     the same reason as frClose. Asked of the DOM rather than a step number, so a renumber cannot
+     break it. */
+  { const kb = document.getElementById('fr-gemini-confirm'); const to = document.getElementById('fr-pane-' + step);
+    if (kb && !(to && to.contains(kb))) frKeyedHideAll(); }   // #3731: Gemini's and Grok's panels
   FR_STEP = step;
   // The dot field warms from grey toward the golds as the steps advance.
   frDots.progress(frStepProgress(step));
@@ -52240,6 +52576,8 @@ let FR_CONFIRM_OPENER = null;
  * unconditionally before showing its own.
  */
 function frCollapseProviders(keep) {
+  // #3731: Gemini's and Grok's panels are part of the one-open-panel rule too.
+  for (const which of ['google', 'xai']) if (keep !== which && typeof frKeyedCollapse === 'function') frKeyedCollapse(which);
   if (keep !== 'claude') {
     const box = document.getElementById('fr-claude-confirm');
     if (box && !box.hidden) frClaudeConfirmClose();
@@ -54555,6 +54893,7 @@ function frClose() {
   // Retire any in-flight About-you settlement on the way out (Skip, Escape, the
   // fork buttons). The Success screen no longer has an async look to retire (#12).
   FR_YOU_GEN += 1;
+  frKeyedHideAll();   // #3713/#3731: Gemini's and Grok's panels close with first run, and their watchers stop
   document.getElementById('firstrun').hidden = true;
   document.querySelectorAll('body > *:not(#firstrun)').forEach((el) => { el.inert = false; });
   if (FR_RETURN && FR_RETURN.focus) FR_RETURN.focus();
@@ -54759,8 +55098,7 @@ const TIPS = [
       + '<li><i>4</i><span><b>Tasks</b> is the to-do list, and who is on each one.</span></li></ol>' },
   { id: 'agentpage', title: 'Your agent\'s page', show: () => tipVisible('#panel-detail #d-sec-talk'), at: '#panel-detail .snav',
     body: '<p>Talk to your agent here. Messages go straight to it. Profile, Instructions, AI Settings and Advanced are in the boxes on the left, and Instructions is where you change what it does.</p>' },
-  { id: 'settings', title: 'Settings for this computer', show: () => tipVisible('#panel-settings'), at: '#panel-settings .dsec:not([hidden]) .dlab',
-    body: '<p>Your AI accounts, how Kosmos looks, and tips: turn them back on under This computer.</p>' },
+  /* #3574 (Josh 2026-09-25 07:46): no Settings tip ("wonky and pointless"), not on first visit and not from the ?. */
 ];
 let TIPS_STATE = null;          // { ok, seen, off } from the board; null until read
 let TIP_OPEN = null;            // the tip on screen, or null
@@ -55251,9 +55589,12 @@ function wireHelpq() {
   document.getElementById('userpop-btn')?.addEventListener('click', () => closeHelpMenu(), true);
   btn.addEventListener('click', () => {
     const open = menu.hidden;
+    /* Settings has no tip of its own (Josh 07:46), so the ? does not offer one there: no fallback to the tour either. */
+    const screenItem = menu.querySelector('[data-help="screen"]');
+    if (open && screenItem) screenItem.hidden = tipVisible('#panel-settings');
     menu.hidden = !open;
     btn.setAttribute('aria-expanded', String(open));
-    if (open) menu.querySelector('.userpop-item')?.focus();
+    if (open) menu.querySelector('.userpop-item:not([hidden])')?.focus();   // the first item that shows (not the screen item on Settings)
   });
   menu.addEventListener('click', (e) => {
     const b = e.target.closest('[data-help]');
@@ -55265,6 +55606,7 @@ function wireHelpq() {
     let t = null;
     /* This screen's own tip: the ring has its own item, and its rail rings show on every
        consolidated screen, so it is not a screen's answer. */
+    if (want === 'screen' && tipVisible('#panel-settings')) return;   // Settings has none, even if the menu was open when the screen changed
     if (want === 'screen') t = TIPS.find((x) => !x.tour && x.id !== 'ring' && x.show()) || TIPS.find((x) => x.tour);
     else t = TIPS.find((x) => x.id === want);
     if (t) tipShow(t, { returnTo: btn });
@@ -55313,7 +55655,43 @@ const ASB_FIND_MAX_MS = 60000;
 let ASB = { started: false, guide: null, setting: null, open: false, asking: false, nudgeGone: false,
   wroteOnce: false, heard: null, lastPoll: 0, screenKey: '', sending: false, dot: false,
   nextFind: 0, findEvery: ASB_FIND_FIRST_MS, finding: false, shown: '', readOnce: false,
-  nextSetting: 0, settingEvery: ASB_FIND_FIRST_MS, settingReading: false };
+  nextSetting: 0, settingEvery: ASB_FIND_FIRST_MS, settingReading: false,
+  /* #3660: no guide yet, but the board can ask Kosmos's own model (GET /api/setup-guide says hosted). The
+     conversation lives on this page for the session: there is no agent thread to hold it. */
+  hosted: false, hostedOff: false, hmsgs: null, remaining: null, deferEvery: 0,
+  /* When the hosted assistant ends (a 501 or 409, or the board no longer offering it) its state flips at once. Only
+     what is SHOWN is held, and nothing is timed: the open chat keeps the sentence saying why until the person closes
+     it (`asideShowing`), and one that came while folded (`asideOnOpen`) keeps the bubble, with its dot, until it
+     is opened. Closing it, by any route, is reading it. */
+  asideShowing: false, asideOnOpen: false, asideText: '', frWas: false };
+const ASB_HOSTED_KEY = 'kosmos.asb.hosted.v1';
+/* The two reasons the hosted assistant ends, in the same words as the board's refusals (server.js). */
+const ASB_WHY_OWN = 'You\'ve connected your own AI, so this chat has ended.';
+const ASB_WHY_NONE = 'The setup assistant is not available on this computer right now.';
+/* A reason waiting behind the dot survives a reload in the same window, so it is still read. */
+const ASB_ASIDE_KEY = 'kosmos.asb.aside.v1';
+function asbAsideWait(text) {
+  ASB.asideOnOpen = true; ASB.dot = true; ASB.asideText = text;
+  try { sessionStorage.setItem(ASB_ASIDE_KEY, text); } catch { /* this page still knows */ }
+}
+function asbAsideDone() { ASB.asideOnOpen = false; ASB.asideText = ''; try { sessionStorage.removeItem(ASB_ASIDE_KEY); } catch { /* */ } }
+try { const t = sessionStorage.getItem(ASB_ASIDE_KEY); if (t) { ASB.asideOnOpen = true; ASB.dot = true; ASB.asideText = t; } } catch { /* */ }
+const ASB_HOSTED_OFF_KEY = 'kosmos.asb.hosted-off.v1';
+try { if (sessionStorage.getItem(ASB_HOSTED_OFF_KEY) === '1') ASB.hostedOff = true; } catch { /* not remembered: said once more */ }
+const ASB_HOSTED_AVATAR = '/icons/setup-guide-avatar.jpg';
+function asbHostedMsgs() {
+  if (!ASB.hmsgs) {
+    let got = [];
+    try { const v = JSON.parse(sessionStorage.getItem(ASB_HOSTED_KEY) || '[]'); if (Array.isArray(v)) got = v.filter((m) => m && (m.role === 'user' || m.role === 'assistant') && typeof m.content === 'string'); } catch { got = []; }
+    ASB.hmsgs = got.slice(-40);
+  }
+  return ASB.hmsgs;
+}
+function asbHostedKeep() { try { sessionStorage.setItem(ASB_HOSTED_KEY, JSON.stringify(ASB.hmsgs.slice(-40))); } catch { /* the page still holds it */ } }
+/* Would the hosted assistant stand in once the guide is forgotten? (Its flag is set before the guide goes.) */
+function asbIsHostedAfterForget() { return ASB.hosted && !ASB.hostedOff; }
+/* Talking to the hosted assistant rather than a guide agent. */
+function asbIsHosted() { return !ASB.guide && ASB.hosted && !ASB.hostedOff; }
 
 function asbGuideRow() {
   if (!ASB.guide || !Array.isArray(LAST)) return null;
@@ -55344,6 +55722,7 @@ function asbScreen() {
   return { screen: 'board' };
 }
 function asbTellScreen(force) {
+  if (!ASB.guide) return;   // a guide agent's courtesy; the hosted assistant is told the screen with each question
   const page = asbScreen();
   const key = JSON.stringify(page);
   if (!force && key === ASB.screenKey) return;
@@ -55432,7 +55811,13 @@ function asbShows() {
   if (!ASB.setting || ASB.setting.on !== true || ASB.holding) return false;
   const fr = document.getElementById('firstrun');
   if (fr && !fr.hidden) return false;
-  return !!asbGuideRow();
+  return !!asbGuideRow() || asbIsHosted() || asbStepping();
+}
+/* The hosted assistant has just ended, and the person has yet to read why: folded with the dot, or open for the
+   six seconds. Never with a guide, which takes the corner at once. */
+function asbStepping() {
+  if (ASB.guide) return false;
+  return ASB.asideOnOpen || (ASB.open && ASB.asideShowing);
 }
 
 function asbPaint() {
@@ -55442,11 +55827,20 @@ function asbPaint() {
   const shows = asbShows();
   const panel = document.getElementById('asp');
   if (!shows) {
+    /* Whatever hid it (a guide gone, the hosted assistant no longer offered, first run), the keyboard goes back
+       to the page rather than falling to nowhere. */
+    const hadFocus = !!document.activeElement && !!document.activeElement.closest('#asblayer');
     bub.hidden = true; panel.hidden = true; document.getElementById('asb-nudge').hidden = true;
     ASB.open = false;
+    if (hadFocus) setTimeout(asbFocusPage, 0);
     return;
   }
-  const src = asbAvatar(row);
+  const src = row ? asbAvatar(row) : ASB_HOSTED_AVATAR;
+  const note = document.querySelector('#asp .asp-note');
+  const words = row ? 'An AI that knows Kosmos, in Josh\'s voice. Josh isn\'t typing live.'
+    : asbIsHosted() ? 'An AI in Josh\'s voice. Until you connect your own AI, your questions go online to Kosmos\'s AI. Josh isn\'t typing live.'
+    : 'This chat has ended. Josh isn\'t typing live.';   // stepping aside: it no longer takes questions
+  if (note && note.textContent !== words) note.textContent = words;
   for (const img of [bub.querySelector('img'), panel.querySelector('.asp-h img')]) if (img.getAttribute('src') !== src) img.setAttribute('src', src);
   panel.hidden = !ASB.open;
   bub.hidden = ASB.open;
@@ -55455,8 +55849,17 @@ function asbPaint() {
   const nudge = document.getElementById('asb-nudge');
   nudge.style.bottom = (parseFloat(bub.style.bottom) || 16) + 8 + 'px';
   bub.querySelector('.asb-dot').hidden = !ASB.dot || ASB.open;
+  const lab = ASB.dot && !ASB.open ? 'Open the setup assistant, there is something new to read' : 'Open the setup assistant';
+  if (bub.getAttribute('aria-label') !== lab) bub.setAttribute('aria-label', lab);   // the dot, for a screen reader
   document.getElementById('asb-nudge').hidden = ASB.open || ASB.nudgeGone || ASB.wroteOnce || !ASB.readOnce;   // not before the thread says whether they wrote
   document.getElementById('asp-ask').hidden = !ASB.asking;
+  const ended = !row && !asbIsHosted();
+  document.getElementById('asp-send').disabled = ASB.sending || ended;   // nothing to send to while it steps aside
+  const sayBox = document.getElementById('asp-say');
+  if (sayBox.readOnly !== ended) {
+    sayBox.readOnly = ended;   // an ended chat takes no words, and says why to whoever lands in the box
+    if (ended) sayBox.setAttribute('aria-describedby', 'asp-msg'); else sayBox.removeAttribute('aria-describedby');
+  }
   document.getElementById('asp-in').hidden = ASB.asking;
 }
 
@@ -55475,7 +55878,8 @@ async function asbConfirmGuide({ forgetLater = false } = {}) {
   if (r.ok && b && b.ok && typeof b.name === 'string') {
     if (ASB.guide && b.name.toLowerCase() === String(ASB.guide).toLowerCase()) return true;
   } else if (!(b && (b.reason === 'none' || b.reason === 'not-guide'))) return !!ASB.guide;
-  if (forgetLater) setTimeout(asbForgetGuide, 4000); else asbForgetGuide();
+  if (b && (b.reason === 'none' || b.reason === 'not-guide') && !(b.hosted !== true && b.hostedWhy === 'unchecked')) ASB.hosted = b.hosted === true;   // stands in at once, no blink
+  if (forgetLater && !asbIsHostedAfterForget()) setTimeout(asbForgetGuide, 4000); else asbForgetGuide();   // hosted stands in at once
   return false;
 }
 
@@ -55497,6 +55901,17 @@ async function asbPoll(force) {
   const every = ASB.open ? ASB_OPEN_POLL_MS : ASB_FOLDED_POLL_MS;
   if (!force && now - ASB.lastPoll < every) return;
   ASB.lastPoll = now;
+  if (asbIsHosted()) {
+    const hm = asbHostedMsgs();
+    ASB.readOnce = true;
+    ASB.wroteOnce = hm.some((m) => m.role === 'user');
+    if (ASB.open) asbPaintThread(hm.map((m) => ({ from: m.role === 'user' ? 'you' : 'hosted', text: m.content })), 'hosted');
+    asbPaint();
+    return;
+  }
+  /* Only a guide has a thread to confirm and read. Without one (the hosted assistant just ended and is showing
+     why), confirming would "forget" a guide that never was, closing the chat the person just opened. */
+  if (!ASB.guide) return;
   if (!(await asbConfirmGuide())) return;
   const t = await asbReadThread();
   if (!t) { if (ASB.open) document.getElementById('asp-msg').textContent = 'We could not load the conversation just now.'; return; }
@@ -55543,13 +55958,19 @@ function asbPaintThread(rows, session) {
 
 function asbOpen() {
   ASB.open = true; ASB.asking = false; ASB.dot = false;
+  /* A refusal that came while folded is read now, and the six seconds start from here. */
+  const waiting = ASB.asideOnOpen && !ASB.guide ? (ASB.asideText || document.getElementById('asp-msg').textContent) : '';
+  if (ASB.asideOnOpen) { asbAsideDone(); if (!ASB.guide) ASB.asideShowing = true; }
   asbPaint();
   asbTellScreen(true);
   asbPoll(true);
   const say = document.getElementById('asp-say');
   if (say) say.focus();
+  /* Written while the panel was hidden, the reason was never announced: write it again now it shows. */
+  if (waiting) { const pm = document.getElementById('asp-msg'); pm.textContent = ''; setTimeout(() => { pm.textContent = waiting; }, 50); }
 }
 function asbFold() {
+  ASB.asideShowing = false;   // closing the sentence that says why the hosted assistant ended is reading it
   ASB.open = false; ASB.asking = false;
   asbPaint();
   const bub = document.getElementById('asb');
@@ -55557,6 +55978,7 @@ function asbFold() {
 }
 /* The first x asks once (Josh 18:02); after that it just closes. */
 function asbX() {
+  if (asbStepping()) { asbFold(); return; }   // nothing to ask about: it is going anyway
   if (ASB.setting && ASB.setting.asked !== true) { ASB.asking = true; asbPaint(); document.getElementById('asp-close-now').focus(); return; }
   asbFold();
 }
@@ -55586,6 +56008,7 @@ async function asbSend() {
   const say = document.getElementById('asp-say');
   const msg = document.getElementById('asp-msg');
   const text = say.value.trim();
+  if (asbIsHosted()) { if (text && !ASB.sending) await asbHostedSend(text); return; }
   const row = asbGuideRow();
   if (!text || ASB.sending || !row) return;
   ASB.sending = true;
@@ -55593,9 +56016,10 @@ async function asbSend() {
   msg.textContent = '';
   /* The guide went: say so in the open panel (the words stay in the box) before it closes a moment later. */
   if (!(await asbConfirmGuide({ forgetLater: true }))) {
-    msg.textContent = 'The setup assistant is not on this computer any more, so that was not sent.';
     ASB.sending = false;
     document.getElementById('asp-send').disabled = false;
+    if (asbIsHosted()) { await asbHostedSend(text); return; }   // the guide went, and the hosted assistant stands in: ask it
+    msg.textContent = 'The setup assistant is not on this computer any more, so that was not sent.';
     return;
   }
   /* sendTalk's rules (#402, #3419): clear only the text THIS send took, and only when the box is not its
@@ -55621,14 +56045,81 @@ async function asbSend() {
     document.getElementById('asp-send').disabled = false;
     await asbPoll(true);
     ASB.sending = false;
+    asbPaint();   // Send reflects `sending` in asbPaint: paint again now it is done
   }
 }
 
-/* Settings > This computer > Help: the switch shows only when a guide exists. */
+/* #3660: a question to Kosmos's own model (POST /api/setup-guide/hosted). The words leave the box only
+   once there is an answer; a refusal keeps them there and shows the sentence the board gave. An answer of
+   501 means this app's connector predates the assistant: say so once, then the bubble steps aside for the
+   session rather than offer a chat that cannot answer. */
+async function asbHostedSend(text) {
+  const say = document.getElementById('asp-say');
+  const msg = document.getElementById('asp-msg');
+  const hm = asbHostedMsgs();
+  const paint = () => asbPaintThread(hm.map((m) => ({ from: m.role === 'user' ? 'you' : 'hosted', text: m.content })), 'hosted');
+  ASB.sending = true;
+  document.getElementById('asp-send').disabled = true;
+  msg.textContent = '';
+  hm.push({ role: 'user', content: text });
+  paint();
+  /* An answer can take a while (a model, and a retry): say so in the chat, where they are looking. */
+  const th = document.getElementById('asp-th');
+  const wait = document.createElement('div');
+  wait.className = 'asp-m him asp-wait'; wait.textContent = 'Thinking\u2026';
+  th.appendChild(wait); th.scrollTop = th.scrollHeight;
+  document.getElementById('asp-live').textContent = 'Thinking';
+  let r = null, b = null;
+  try {
+    /* The screen only: the route keeps nothing else, and the names of their agents and projects never need
+       to leave the page for it. Seven turns, starting and ending with theirs (the contract's usable window). */
+    r = await fetch('/api/setup-guide/hosted', { method: 'POST', headers: { 'content-type': 'application/json' },
+      /* Each turn within the contract's 2,000 characters: one long reply kept from before must not refuse every
+         question after it. */
+      body: JSON.stringify({ messages: hm.slice(-7).map((m) => ({ role: m.role, content: m.content.slice(0, 2000) })), page: { screen: asbScreen().screen } }) });
+    b = await r.json().catch(() => null);
+  } catch { r = null; }
+  wait.remove();
+  ASB.sending = false;
+  document.getElementById('asp-send').disabled = false;
+  const ok = !!(r && r.ok && b && typeof b.reply === 'string' && b.reply);
+  if (ok) { hm.push({ role: 'assistant', content: b.reply }); asbHostedKeep(); } else hm.pop();   // not asked: the words are still in the box
+  /* The panel may belong to a guide by now (one was made while this was being answered): the answer is kept
+     with the hosted conversation, and nothing of it is written over the guide's chat. */
+  if (ASB.guide) return;
+  ASB.shown = '';   // the thread is painted again from the conversation, whatever it showed while waiting
+  if (ok) {
+    if (say.value.trim() === text) say.value = '';
+    ASB.wroteOnce = true;
+    if (!ASB.open) ASB.dot = true;   // answered while folded: the gold dot, as a guide's reply lights it
+    if (!ASB.open && !asbIsHosted() && !ASB.asideOnOpen) asbAsideWait(document.getElementById('asp-msg').textContent || ASB_WHY_NONE);   // the answer to a question asked just before it ended
+    ASB.remaining = Number.isInteger(b.remaining) ? b.remaining : null;
+    document.getElementById('asp-live').textContent = b.reply;
+    if (asbIsHosted() && ASB.remaining !== null && ASB.remaining <= 5) msg.textContent = ASB.remaining === 0 ? 'That was your last question for today.' : ASB.remaining === 1 ? '1 question left today.' : ASB.remaining + ' questions left today.';
+  } else {
+    msg.textContent = pjSentence((b && b.error) || 'we could not reach the setup assistant just now; try again in a moment');
+    document.getElementById('asp-live').textContent = '';
+    /* Said, then the bubble steps aside: 501, a connector older than the assistant (for the session), or 409, the
+       assistant is not offered here any more (their own AI connected, or the connector gone). If the chat is folded,
+       the gold dot says there is something to read, and the six seconds start when it is opened. */
+    const stepAside = r && (r.status === 501 || (r.status === 409 && b && (b.code === 'own_model' || b.code === 'no_connector')));
+    if (stepAside) {
+      if (r.status === 501) { try { sessionStorage.setItem(ASB_HOSTED_OFF_KEY, '1'); } catch { /* this page still knows */ } }
+      if (b && b.code === 'own_model') { ASB.findEvery = ASB_FIND_FIRST_MS; ASB.nextFind = 0; }   // look for the guide now
+      if (r.status === 501) ASB.hostedOff = true; else ASB.hosted = false;
+      if (ASB.open) ASB.asideShowing = true; else asbAsideWait(msg.textContent);
+    }
+  }
+  paint();
+  asbPaint();
+}
+
+/* Settings > This computer > Help: the switch shows only when a guide exists (or the hosted assistant). */
 function asbPaintSetting() {
   const row = document.getElementById('asb-row');
   if (!row) return;
-  row.hidden = !ASB.guide || !ASB.setting;
+  /* Also whenever it is switched OFF: "You can turn it back on in Settings" must stay true with no assistant showing. */
+  row.hidden = !ASB.setting || !(ASB.guide || asbIsHosted() || ASB.setting.on === false);
   if (!row.hidden) paintSwitch('asb-toggle', ASB.setting.on === true);
   paintTipsToggle();   // the Help box shows while either of its rows does
 }
@@ -55644,9 +56135,10 @@ document.getElementById('asb-toggle')?.addEventListener('click', async (e) => {
   asbPaintSetting();
   /* Switched back on: ask the board who the guide is before drawing it, so a name the guide lost while the
      assistant was off is not painted from the page's memory. */
-  const confirmed = !(ok && ASB.setting && ASB.setting.on === true) || await asbConfirmGuide();
+  const confirmed = !(ok && ASB.setting && ASB.setting.on === true) || asbIsHosted() || await asbConfirmGuide();
   ASB.holding = false;
   sw.disabled = false;   // only now: a second click mid-check would start a second hold
+  if (!confirmed && asbIsHosted()) { asbPaint(); asbPaintSetting(); return; }   // the guide went, and the hosted assistant stands in
   if (!confirmed) {
     /* The row goes with the guide; say why, and keep the keyboard on the page. */
     if (m) { m.textContent = 'The setup assistant is not on this computer right now.'; m.hidden = false; }
@@ -55658,7 +56150,13 @@ document.getElementById('asb-toggle')?.addEventListener('click', async (e) => {
 });
 
 function asbTick() {
-  if (!ASB.guide) { if (Date.now() >= ASB.nextFind) asbFind(); return; }
+  /* Still looking for a guide while the hosted assistant stands in: once one is made, the bubble moves to it. */
+  /* First run just ended (a model may have been connected in it): look again now, not after the backoff. */
+  const frNow = !!document.getElementById('firstrun') && !document.getElementById('firstrun').hidden;
+  if (ASB.frWas && !frNow) { ASB.findEvery = ASB_FIND_FIRST_MS; ASB.nextFind = 0; }
+  ASB.frWas = frNow;
+  if (!ASB.guide && Date.now() >= ASB.nextFind) asbFind();
+  if (!ASB.guide && !asbIsHosted()) { if (document.getElementById('asb')) { asbPaint(); asbPaintSetting(); } return; }   // stepping aside ends on a tick
   if (!ASB.setting) { if (Date.now() >= ASB.nextSetting) asbReadSetting(); return; }
   asbPaint();
   if (!asbShows()) return;
@@ -55679,14 +56177,55 @@ async function asbFind() {
        reason: 'none' } here, not a 404, which the browser would log as a failed resource on every page. */
     const b = await r.json().catch(() => null);
     if (r.ok && b && b.ok && typeof b.name === 'string') guide = b.name;
+    else if (b && (b.reason === 'none' || b.reason === 'not-guide') && !(b.hosted !== true && b.hostedWhy === 'unchecked')) {
+      /* (Unchecked: the board could not read which AI is connected, so nothing changes on its word.) */
+      const was = ASB.hosted;
+      ASB.hosted = b.hosted === true;
+      if (ASB.hosted && !was) {
+        if (!ASB.hostedOff) {   // truly back (not a connector already found too old): an old refusal is not its news
+          asbAsideDone(); ASB.asideShowing = false;
+          const pm = document.getElementById('asp-msg'); if (pm) pm.textContent = '';
+        }
+        asbLayerEnsure(); if (!ASB.setting) asbReadSetting(); else { asbPaint(); asbPaintSetting(); }
+      }
+      if (!ASB.hosted && was) {
+        /* Withdrawn: open, the chat says why and goes when they close it. Folded, it waits behind the dot, but only
+           for someone who was using it; a bubble never asked anything has no news to keep, and simply goes. */
+        const pm = document.getElementById('asp-msg');
+        const why = b.hostedWhy === 'own_model' ? ASB_WHY_OWN : ASB_WHY_NONE;
+        if (ASB.open && !ASB.asideShowing) { if (pm) pm.textContent = why; ASB.asideShowing = true; }
+        else if (!ASB.open && !ASB.asideOnOpen && (ASB.wroteOnce || ASB.sending)) { if (pm) pm.textContent = why; asbAsideWait(why); }
+        asbPaint(); asbPaintSetting();
+      }
+    }
   } catch { /* no guide read, no bubble */ }
+  /* A reason still waiting to be read (kept across a reload) needs its bubble, whatever the board says now. */
+  if (!guide && ASB.asideOnOpen) { asbLayerEnsure(); if (!ASB.setting) asbReadSetting(); }
+  /* The switch itself: switched off, with no assistant showing, it must still be there to turn back on. */
+  else if (!guide && !ASB.setting && Date.now() >= ASB.nextSetting) asbReadSetting();
   if (!guide) {
+    ASB.deferEvery = 0;
     ASB.nextFind = Date.now() + ASB.findEvery;
     ASB.findEvery = Math.min(ASB.findEvery * 2, ASB_FIND_MAX_MS);
     ASB.finding = false;
     return;
   }
+  /* Standing in as the hosted assistant (or still showing why it ended), move to the guide only once the board lists
+     its row: named but not yet listed would hide the bubble for a tick and read a thread that is not there. */
+  if ((asbIsHosted() || asbStepping()) && !(Array.isArray(LAST) && LAST.some((a) => a && String(a.sessionName || '').toLowerCase() === String(guide).toLowerCase()))) {
+    /* Soon, then backing off to the usual minute: a name the board never lists must not be asked every tick. */
+    ASB.deferEvery = Math.min(Math.max(ASB_TICK_MS, ASB.deferEvery * 2), ASB_FIND_MAX_MS);
+    ASB.nextFind = Date.now() + ASB.deferEvery;
+    ASB.finding = false;
+    return;
+  }
+  ASB.deferEvery = 0;
   ASB.guide = guide;
+  { const pm = document.getElementById('asp-msg'); if (pm) pm.textContent = ''; }   // a line from before is not the guide's
+  asbAsideDone(); ASB.asideShowing = false; ASB.dot = false;   // a hosted refusal waiting to be read belongs to the hosted assistant, not the guide
+  { const th = document.getElementById('asp-th'); if (th) th.replaceChildren(); }   // the hosted conversation is not the guide's
+  /* A guide now exists: the bubble talks to it. The hosted conversation stays behind; it was another assistant. */
+  if (ASB.hosted) { ASB.hosted = false; ASB.heard = null; ASB.shown = ''; ASB.readOnce = false; ASB.lastPoll = 0; ASB.remaining = null; }
   ASB.finding = false;
   asbLayerEnsure();
   await asbReadSetting();
@@ -55713,10 +56252,14 @@ async function asbReadSetting() {
 /* The board says the guide is gone (removed, or its folder no longer the seed's): stop using the name,
    hide everything, and look again from the start. */
 function asbForgetGuide() {
-  const hadFocus = !!document.activeElement && !!document.activeElement.closest('#asblayer');
-  ASB.guide = null; ASB.open = false; ASB.asking = false; ASB.heard = null; ASB.shown = ''; ASB.dot = false;
-  ASB.wroteOnce = false; ASB.readOnce = false; ASB.lastPoll = 0; ASB.nudgeGone = false;
+  /* The hosted assistant stands in (#3660): an open chat stays open, as the same bubble with a new voice behind it. */
+  const standIn = asbIsHostedAfterForget();
+  const hadFocus = !standIn && !!document.activeElement && !!document.activeElement.closest('#asblayer');
+  const keepOpen = standIn && ASB.open;
+  ASB.guide = null; ASB.open = keepOpen; ASB.asking = false; ASB.heard = null; ASB.shown = ''; ASB.dot = false;
+  ASB.wroteOnce = false; ASB.readOnce = false; ASB.lastPoll = 0; ASB.nudgeGone = false; ASB.asideShowing = false; asbAsideDone();
   const pm = document.getElementById('asp-msg'); if (pm) pm.textContent = '';   // nothing stale when it comes back
+  if (keepOpen) { const th = document.getElementById('asp-th'); if (th) th.replaceChildren(); }   // the guide's thread is not the hosted one's
   if (hadFocus) setTimeout(asbFocusPage, 0);
   ASB.findEvery = ASB_FIND_FIRST_MS; ASB.nextFind = Date.now() + ASB_FIND_FIRST_MS;
   asbPaint();

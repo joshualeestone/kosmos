@@ -117,6 +117,23 @@ test('store: a missing runner answers needsRunner (never stores a key for a runn
   }
 });
 
+test('#3713 store: a runner still mid-install is not taken as there (its path can exist while it is being proved)', async () => {
+  const was = runners.installing;
+  for (const [route, label] of [['gemini', 'midinstall-g'], ['grok', 'midinstall-x']]) {
+    runners.installing = (p) => p === route;
+    try {
+      const r = await post('/api/accounts/' + route + '/apikey', { label, key: route === 'gemini' ? 'AIzaSyMidInstall000000000000000000000' : 'xai-key-midinstall-1234' });
+      assert.equal(r.status, 400, route + ': a key is not stored against a runner still installing');
+      assert.equal((await r.json()).needsRunner, true);
+    } finally {
+      runners.installing = was;
+    }
+    // Control: the same request with no install running gets past the runner check.
+    const ok = await post('/api/accounts/' + route + '/apikey', { label: label + '-ctl', key: 'x' });
+    assert.notEqual((await ok.json()).needsRunner, true, route + ': control, the runner check passes with no install running');
+  }
+});
+
 test('GET /api/accounts merges gemini/grok rows with provider + a live connection', async () => {
   // Ensure at least one of each exists (work-key gemini from test 1; add a grok one).
   grokAccounts.setFetcher(async () => ({ status: 200, body: {} }));

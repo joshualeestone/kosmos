@@ -15,6 +15,7 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const fg = require('./feedguard');
+const { cpuMillisecondsOf } = require('../test-support/cpu-time');   // #3715: bound CPU time, not wall time
 
 /* A minimal, valid, clean candidate. The positive control. */
 function clean() {
@@ -246,9 +247,9 @@ test('a spelled-out currency amount (no $ symbol) is caught', () => {
 test('a huge body is held (oversize) and does not hang the content scan', () => {
   const cand = clean();
   cand.body = 'x'.repeat(5_000_000); // 5 MB
-  const start = Date.now();
-  const v = fg.guard(cand, { trusted: true });
-  assert.ok(Date.now() - start < 2000, 'content scan took too long on a huge body');
+  let v;
+  const ms = cpuMillisecondsOf(() => { v = fg.guard(cand, { trusted: true }); });
+  assert.ok(ms < 2000, 'content scan used ' + Math.round(ms) + 'ms of CPU on a huge body');
   assert.equal(v.clean, false);
   assert.ok(v.findings.some((x) => x.cls === 'oversize' && x.field === 'body'));
 });
@@ -284,11 +285,10 @@ const EMAIL_UNANCHORED = /[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}/;
 test('#3608: the email pattern is linear on a long run with no match', () => {
   const inputs = ['x'.repeat(65536), 'a.'.repeat(32768), 'a@' + 'a-'.repeat(32767), 'a@'.repeat(32768)];
   for (const s of inputs) {
-    const start = Date.now();
-    const hit = EMAIL.test(s);
-    const ms = Date.now() - start;
+    let hit;
+    const ms = cpuMillisecondsOf(() => { hit = EMAIL.test(s); });
     assert.equal(hit, false);
-    assert.ok(ms < 200, 'email pattern took ' + ms + ' ms on a ' + s.length + '-char ' + JSON.stringify(s.slice(0, 4)) + '... run');
+    assert.ok(ms < 200, 'email pattern used ' + Math.round(ms) + ' ms of CPU on a ' + s.length + '-char ' + JSON.stringify(s.slice(0, 4)) + '... run');
   }
 });
 
@@ -361,11 +361,10 @@ test('#3609: the spelled grouped-currency check is linear on long inputs', () =>
     ['1,234.' + '5'.repeat(65536) + ' USD', true],
   ];
   for (const [s, want] of inputs) {
-    const start = Date.now();
-    const hit = SPELLED(s);
-    const ms = Date.now() - start;
+    let hit;
+    const ms = cpuMillisecondsOf(() => { hit = SPELLED(s); });
     assert.equal(hit, want, 'wrong answer on ' + JSON.stringify(s.slice(0, 12)) + '...');
-    assert.ok(ms < 200, 'spelled currency check took ' + ms + ' ms on a ' + s.length + '-char ' + JSON.stringify(s.slice(0, 6)) + '... input');
+    assert.ok(ms < 200, 'spelled currency check used ' + Math.round(ms) + ' ms of CPU on a ' + s.length + '-char ' + JSON.stringify(s.slice(0, 6)) + '... input');
   }
 });
 
@@ -447,9 +446,9 @@ test('a many-links candidate is bounded and does not hang the scan', () => {
   const cand = clean();
   cand.links = [];
   for (let i = 0; i < 60; i++) cand.links.push('https://example.com/' + 'a'.repeat(2000));
-  const start = Date.now();
-  const v = fg.guard(cand, { trusted: true });
-  assert.ok(Date.now() - start < 2000, 'many-links scan took too long');
+  let v;
+  const ms = cpuMillisecondsOf(() => { v = fg.guard(cand, { trusted: true }); });
+  assert.ok(ms < 2000, 'many-links scan used ' + Math.round(ms) + 'ms of CPU');
   assert.equal(v.clean, false); // > LIMITS.links -> oversize
   assert.ok(v.findings.some((x) => x.cls === 'oversize' && x.field === 'links'));
 });
