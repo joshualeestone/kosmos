@@ -160,7 +160,7 @@ function measure() {
         const kp = await page.evaluate(measure);
         const keptFocus = await page.evaluate(() => document.activeElement && document.activeElement.id);
         await page.mouse.move(2, 2); await page.mouse.up();
-        chk(kp.head && !kp.head.shown && keptFocus === 'd-say', `${t} pressing Post keeps focus in the text box and the header aside`, `active=${keptFocus}`);
+        chk(kp.head && !kp.head.shown && keptFocus === 'd-say', `${t} pressing Post keeps focus in the text box (the handler's job) and the header aside`, `active=${keptFocus}`);
         // Searching opens the keyboard too: the search row stays, the rest steps aside. A person
         // leaves the composer first (the search row is aside while it has focus).
         await page.evaluate(() => document.activeElement.blur());
@@ -256,7 +256,7 @@ function measure() {
         await page.mouse.move(eb.x, eb.y); await page.mouse.down();
         const kept = await page.evaluate(() => ({ active: document.activeElement && document.activeElement.id, headShown: document.querySelector('.dhead').getBoundingClientRect().height > 0 }));
         await page.mouse.move(2, 2); await page.mouse.up();
-        chk(kept.active === 'd-say' && !kept.headShown, `${t} pressing the emoji button keeps focus in the text box and the header aside`, JSON.stringify(kept));
+        chk(kept.active === 'd-say' && !kept.headShown, `${t} pressing the emoji button keeps focus in the text box (the handler's job) and the header aside`, JSON.stringify(kept));
         const sf = await page.evaluate(() => getComputedStyle(document.getElementById('d-talk-search')).fontSize);
         chk(sf === '16px', `${t} the search box is 16px (iOS does not zoom on focus)`, sf);
         chk(errs.length === 0, `${t} no page errors`, errs.join(' | '));
@@ -284,13 +284,18 @@ function measure() {
         await page.waitForTimeout(200);
         const active = await page.evaluate(() => document.activeElement && document.activeElement.id);
         chk(active === 'd-say', `[${eng} 375x667 touch] a tap on Post while typing keeps focus in the text box (touch emulation, not iOS)`, `active=${active}`);
+        chk(errs.length === 0, `[${eng} 375x667 touch] no page errors`, errs.join(' | '));
         await ctx.close();
       }
       // The visualViewport listener, driven through a stub (a real keyboard or pinch cannot be
       // driven here). The stub is installed before the page's script reads window.visualViewport.
       {
         const page = await browser.newPage({ viewport: { width: 375, height: 667 } });
+        const vvErrs = []; page.on('pageerror', (e) => vvErrs.push(e.message));
         await page.addInitScript(() => {
+          const enc = (o) => new Response(JSON.stringify(o), { status: 200, headers: { 'content-type': 'application/json' } });
+          window.setInterval = () => 0;
+          window.fetch = async () => enc({});
           const vv = new EventTarget(); vv.height = window.innerHeight || 667; vv.scale = 1; vv.width = 375; vv.offsetTop = 0;
           Object.defineProperty(window, 'visualViewport', { value: vv, configurable: true });
           window.__vv = (height, scale) => { vv.height = height; vv.scale = scale; vv.dispatchEvent(new Event('resize')); };
@@ -315,6 +320,7 @@ function measure() {
         await page.setViewportSize({ width: 667, height: 375 });
         await page.evaluate(() => window.__vv(375, 1));
         chk(!(await kb()), `${t} after rotation the new height is the baseline`);
+        chk(vvErrs.length === 0, `${t} no page errors`, vvErrs.join(' | '));
         await page.close();
       }
       // A long agent name in the compact phone header: it must stay inside the screen.
