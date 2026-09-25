@@ -104,8 +104,16 @@ function deleting(str, map, re, pick) {
    blank line allowed) between key characters, and closes up a spaced-out run of single characters. */
 function normalisedCopy(text) {
   let cur = { str: text, map: Array.from(text, (_, i) => i) };
-  cur = deleting(cur.str, cur.map, /[A-Za-z0-9_+/=-]((?:[ \t]*\r?\n){1,2}[ \t>|*`]*)(?=[A-Za-z0-9_+/=-])/g,
-    (m) => [m.index + 1, m.index + m[0].length]);
+  /* Only where the join could be inside a key: three or more key characters on each side, and a digit,
+     "-" or "_" in them. Two plain words across a line break (every list and table has them) are left
+     alone, so an ordinary answer pays for no second scan (review round 2 measured four times the cost).
+     Anchored at the start of a run of key characters, so a long run is tried once, not from every
+     position in it (unanchored, a 200,000-character token took 37 seconds). */
+  cur = deleting(cur.str, cur.map, /(?<![A-Za-z0-9_+/=-])([A-Za-z0-9_+/=-]{3,})((?:[ \t]*\r?\n){1,2}[ \t>|*`]*)(?=([A-Za-z0-9_+/=-]{3,}))/g, (m) => {
+    if (!/[0-9_-]/.test(m[1] + m[3])) return null;
+    const from = m.index + m[1].length;
+    return [from, from + m[2].length];
+  });
   /* A run of nine or more single characters, each followed by one space ("s k - a n t ..."), and not
      "I am a person": every space inside the run goes. */
   cur = deleting(cur.str, cur.map, /(?<!\S)(?:\S ){8,}\S(?!\S)/g, (m) => {
