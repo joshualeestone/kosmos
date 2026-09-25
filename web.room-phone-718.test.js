@@ -154,3 +154,16 @@ test('the media-block reader is sound: real blocks only, none overlapping, each 
   assert.deepEqual(bad, [], 'a block ran past its own </style>');
   assert.ok(MEDIA.some((b) => b.query === '(hover: none)' && !b.body.includes('\n')), 'the one-line touch block (the case that fooled the old reader) is read as its own block');
 });
+
+test('the 16px rule and the textarea line-height rule name the same places, and the line height is only for .tk-inp', () => {
+  // Two copies of one list: a place added to one and not the other would go unnoticed.
+  const t = blocks('hover: none');
+  const fontViews = (t.match(/:is\((#pj-list-view[^)]*)\) :is\(input:not/) || [])[1];
+  const lineViews = (t.match(/:is\((#pj-list-view[^)]*)\) textarea\.tk-inp \{ line-height: 1\.35; \}/) || [])[1];
+  assert.ok(fontViews && lineViews, 'both rules found');
+  const dialogs = [...t.matchAll(/(#[\w-]+) :is\(input:not\(\[type=checkbox\]\)/g)].map((m) => m[1]);
+  assert.deepEqual(lineViews.split(', '), [...fontViews.split(', '), ...dialogs]);
+  // The composer is a textarea in #pj-one-view: an unqualified textarea rule would change its line
+  // height away from its mirror's (measured 21.6 vs 24px, the round 28 blocker).
+  assert.doesNotMatch(t, /#pj-add-view, #nt-modal, #am-modal\) textarea \{/);
+});

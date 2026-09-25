@@ -5872,8 +5872,9 @@ body:not(.consolidated) .pjmidhead:has(.pjhead) .tsearch:focus-within { flex-bas
   #pj-room { -webkit-tap-highlight-color: transparent; touch-action: manipulation; }
   #pj-room a, #pj-room button { -webkit-tap-highlight-color: rgba(120, 120, 128, .2); }
   /* iOS zooms into a focused field under 16px and does not zoom back, leaving the page to pan
-     sideways. The mirror draws the same text for the @mention colour, so it moves with it
-     (pinned equal by web.room-phone-718.test.js). */
+     sideways. The mirror draws the same text for the @mention colour, so it moves with it:
+     font size AND line height must match the composer's, measured together in the browser
+     check (render-room-msgbox-2806, "composer and its @mention mirror match"). */
   /* The composer itself is 16px through the project page's one field rule (after .tk-inp). */
   .pjmid #pj-post-mirror .pj-mirror-in { font-size: 16px; }
   #pj-room .rxn-pick, #pj-room .rxn-more { min-width: 36px; min-height: 36px; }
@@ -7736,9 +7737,10 @@ body.consolidated .tkcard:hover { border-color: transparent; }
 @media (hover: none) {
   :is(#pj-list-view, #pj-one-view, #pj-task-view, #pj-docs-view, #pj-settings-view, #pj-add-view) :is(input:not([type=checkbox]):not([type=radio]), select, textarea),
   #nt-modal :is(input:not([type=checkbox]):not([type=radio]), select, textarea), #am-modal :is(input:not([type=checkbox]):not([type=radio]), select, textarea) { font-size: 16px; }   /* text fields only: iOS does not zoom a checkbox or a radio */
-  /* .tk-inp's font shorthand carries a 16px line height, too tight for 16px text in a box of
-     several lines; the one-line fields keep their own. */
-  :is(#pj-list-view, #pj-one-view, #pj-task-view, #pj-docs-view, #pj-settings-view, #pj-add-view, #nt-modal, #am-modal) textarea { line-height: 1.35; }
+  /* .tk-inp's font shorthand carries a 16px line height, too tight for 16px text in a form box of
+     several lines. ONLY .tk-inp: the room composer (#pj-post) keeps its own 1.5, which its
+     @mention mirror must match line for line (the arm "composer and its @mention mirror match"). */
+  :is(#pj-list-view, #pj-one-view, #pj-task-view, #pj-docs-view, #pj-settings-view, #pj-add-view, #nt-modal, #am-modal) textarea.tk-inp { line-height: 1.35; }
 }
 .rm-back { position: fixed; inset: 0; background: rgba(17, 20, 24, 0.72);
            display: flex; align-items: center; justify-content: center;

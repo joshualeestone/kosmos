@@ -763,6 +763,23 @@ const now = () => new Date().toISOString();
           toggleW: Math.round(T.width) };
       });
       chk(!pjRow.error && pjRow.fontPx >= 16 && pjRow.clear && pjRow.inside && pjRow.sortWhole && pjRow.toggleWhole, `[phone/touch] the projects row's Add Project, sort and toggle do not overlap at 375, and neither the sort's label nor the toggle is cut or squeezed`, JSON.stringify(pjRow));
+      // The composer and its @mention mirror (which draws the text the person reads once the value
+      // is not empty) must match on a touchscreen: same font size, same line height, and after
+      // three lines the mirror is not taller than the composer (it is clipped to the composer's
+      // height, so a mismatch drifts the text off the cursor and cuts the last line).
+      const mirrorMatch = await phonePage.evaluate(() => {
+        const post = document.getElementById('pj-post'); const mirrorText = document.querySelector('#pj-post-mirror .pj-mirror-in');
+        if (!post || !mirrorText) return { error: 'composer or mirror missing' };
+        post.value = 'first line\nsecond line\nthird line';
+        post.dispatchEvent(new Event('input', { bubbles: true }));
+        const postStyle = getComputedStyle(post), mirrorStyle = getComputedStyle(mirrorText);
+        return { hoverNone: matchMedia('(hover: none)').matches,
+          font: [postStyle.fontSize, mirrorStyle.fontSize], lineHeight: [postStyle.lineHeight, mirrorStyle.lineHeight],
+          heights: [post.scrollHeight, mirrorText.scrollHeight] };
+      });
+      await phonePage.evaluate(() => { const post = document.getElementById('pj-post'); if (post) { post.value = ''; post.dispatchEvent(new Event('input', { bubbles: true })); } });
+      chk(!mirrorMatch.error && mirrorMatch.hoverNone && mirrorMatch.font[0] === mirrorMatch.font[1] && mirrorMatch.lineHeight[0] === mirrorMatch.lineHeight[1] && mirrorMatch.heights[1] <= mirrorMatch.heights[0] + 1,
+        `[phone/touch] the composer and its @mention mirror match (size, line height, height after three lines)`, JSON.stringify(mirrorMatch));
       // A SWEEP, not a hand list (Liu Kang m705): every field on the project page, its Tasks and
       // members dialogs included, computes at 16px or more on a touchscreen, or iOS zooms in and
       // the page pans sideways.
@@ -1186,8 +1203,9 @@ const now = () => new Date().toISOString();
       await phonePage.close();
     }
     // THE WHOLE PAGE at all four phone sizes and both themes, touch, in its REAL layout (not a
-    // lifted room): the project page with a long post, a long file name and a link card in the
-    // room must not scroll sideways, and neither may the projects list. Guards what the lifted
+    // lifted room): the project page with a long post and a long file name in the room, and the
+    // projects list's top row (its empty state: this page has no server, so no project cards), must
+    // not run past the screen. The link card's own width is covered by the unit pin (.lpv = .att). Guards what the lifted
     // arms cannot (paddings, the column, the 16px fields in place).
     for (const [phoneWidth, phoneHeight] of [[375, 667], [393, 852], [430, 932], [412, 915]]) {
       for (const theme of ['light', 'dark']) {
@@ -1255,20 +1273,30 @@ const now = () => new Date().toISOString();
         const fr = document.getElementById('firstrun'); if (fr) fr.remove();
         const places = rootSelectors.map((selector) => document.querySelector(selector));
         if (places.some((place) => !place)) return { error: 'a place is missing' };
-        places.forEach((place) => { for (let el = place; el && el !== document.body; el = el.parentElement) { el.hidden = false; el.removeAttribute('inert'); if (getComputedStyle(el).display === 'none') el.style.display = 'block'; } });
-        const fields = places.flatMap((place) => [...place.querySelectorAll('input, select, textarea')])
-          .filter((el) => !(el.tagName === 'INPUT' && skipTypes.includes((el.type || '').toLowerCase())))
-          .filter((el) => el.getBoundingClientRect().width > 0);
-        const outside = fields.filter((el) => {
-          // Its column, dialog card, or (the list, settings and add views) the panel.
-          const box = el.closest('.pjcol, .rm-box, .pj3, .panel') || document.body; const fieldRect = el.getBoundingClientRect(); const boxRect = box.getBoundingClientRect();
-          return fieldRect.left < boxRect.left - 0.5 || fieldRect.right > boxRect.right + 0.5;
-        }).map((el) => el.id || el.className);
-        return { hoverNone: matchMedia('(hover: none)').matches, fields: fields.length, at16: fields.filter((el) => parseFloat(getComputedStyle(el).fontSize) >= 16).length, outside };
+        // ONE place shown at a time (as the app shows them), each field bounded by its nearest real
+        // container: its column, dialog card, card or field row, else the view itself.
+        const views = places.filter((place) => place.parentElement && place.parentElement.id === 'panel-projects');
+        let fieldCount = 0, at16 = 0; const outside = [];
+        for (const place of places) {
+          if (views.includes(place)) views.forEach((other) => { other.hidden = other !== place; });
+          for (let el = place; el && el !== document.body; el = el.parentElement) { el.hidden = false; el.removeAttribute('inert'); if (getComputedStyle(el).display === 'none') el.style.display = 'block'; }
+          const fields = [...place.querySelectorAll('input, select, textarea')]
+            .filter((el) => !(el.tagName === 'INPUT' && skipTypes.includes((el.type || '').toLowerCase())))
+            .filter((el) => el.getBoundingClientRect().width > 0);
+          fieldCount += fields.length;
+          at16 += fields.filter((el) => parseFloat(getComputedStyle(el).fontSize) >= 16).length;
+          fields.forEach((el) => {
+            const box = el.closest('.pjcol, .rm-box, .pjcard, .field') || place;
+            const fieldRect = el.getBoundingClientRect(); const boxRect = box.getBoundingClientRect();
+            if (fieldRect.left < boxRect.left - 0.5 || fieldRect.right > boxRect.right + 0.5) outside.push((el.id || el.className) + ' in ' + (box.id || box.className));
+          });
+          if (!views.includes(place)) place.hidden = true;   // a dialog closes again
+        }
+        return { hoverNone: matchMedia('(hover: none)').matches, fields: fieldCount, at16, outside };
       }, { rootSelectors: FIELD_ROOTS, skipTypes: FIELD_SKIP });
       // 15 fields render at 1180 (measured, both engines; others sit in views hidden at that width).
       chk(!tablet.error && tablet.hoverNone && tablet.fields >= 12 && tablet.at16 === tablet.fields && tablet.outside.length === 0,
-        `[tablet 1180/touch] at 16px every field stays inside its column, dialog card or panel`, JSON.stringify(tablet));
+        `[tablet 1180/touch] at 16px every field stays inside its nearest container, one view at a time`, JSON.stringify(tablet));
     } finally {
       await tabletPage.close();
     }
