@@ -472,6 +472,16 @@ KOSMOS_PUBLISH_R2_FAKE_AFTER="PUT latest-win-staging.json|publish.lock|$TMP/thie
 if [ "$rc" -eq 0 ] && cmp -s "$FAKE/publish.lock" "$TMP/thief.lock" && grep -qF "was someone else's when this run finished" "$TMP/out"; then pass "a run whose lock was taken after its last write keeps the other lock and warns"
 else fail "late swap: rc=$rc lock=$(cmp -s "$FAKE/publish.lock" "$TMP/thief.lock" && echo theirs || echo CHANGED) $(tail -2 "$TMP/out" | tr '\n' ' ')"; fi
 rm -f "$FAKE/publish.lock"
+# The lock is stolen at the moment an UNDO is needed: the undo's restores are best effort but
+# never blind, so each is skipped and reported, and nothing is written after the theft.
+cp "$TMP/staging.lock-keep" "$FAKE/latest-win-staging.json"   # the lock tests above moved it
+undo_setup; printf 'run=thief mode=promote started=2026-09-25T20:00:00Z host=PC2\n' > "$TMP/thief2.lock"
+KOSMOS_PUBLISH_R2_FAKE_AFTER="PUT kosmos-win-x64.zip.sha256|kosmos-win-x64.zip|$TMP/theirs.zip
+PUT kosmos-win-x64.zip.sha256|publish.lock|$TMP/thief2.lock" promote; rc=$?
+_after_theft=$(awk '/^PUT kosmos-win-x64\.zip\.sha256 /{f=1; next} f && /^(PUT|DELETE) / && !/ publish\.lock /' "$FAKE/.calls")
+if [ "$rc" -eq 1 ] && grep -qF "publish.lock was lost before it" "$TMP/out" && [ -z "$_after_theft" ] && cmp -s "$FAKE/publish.lock" "$TMP/thief2.lock"; then pass "an undo whose lock was stolen skips every restore and says so, and keeps the other lock"
+else fail "undo after lock theft: rc=$rc writes-after=[$_after_theft] $(tail -1 "$TMP/out")"; fi
+rm -f "$FAKE/publish.lock"; undo_setup
 # A refusal after the lock is taken still removes it.
 : > "$FAKE/.calls"; KOSMOS_PUBLISH_R2_FAKE_GET_STATUS=latest-win.json:403 fake -Zip "$TMP/lk.zip"; rc=$?
 if [ "$rc" -eq 1 ] && [ ! -e "$FAKE/publish.lock" ] && grep -q '^DELETE publish\.lock' "$FAKE/.calls"; then pass "a refusal after taking publish.lock removes it"

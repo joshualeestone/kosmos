@@ -381,6 +381,19 @@ function Touch-Lock {
   $script:LockEtag = ''   # not ours any more: never delete it on the way out
   Refuse "this run's $key was taken from it ($($r.Status)): another run broke the lock, so this one stops before writing more."
 }
+# The same heartbeat for a best-effort RESTORE (the undo, the replace put-back): it must not
+# write once the lock is not this run's, but it must not abort half-way either, so it answers
+# instead of refusing. $true: the lock is still ours (and refreshed); $false: skip the write.
+function Test-LockStillOurs {
+  if (-not $script:LockEtag) { return $false }
+  $key = "${KeyPrefix}publish.lock"
+  $body = $Utf8.GetBytes("$($script:LockHead) touched=$(Stamp)`n")
+  $r = Invoke-R2 -Soft -Method PUT -Key $key -Body $body -PayloadSha (Sha256-Bytes $body) -ContentType 'text/plain; charset=utf-8' -Extra @{ 'if-match' = $script:LockEtag; 'cache-control' = 'no-cache' }
+  if ($r.Status -eq 200 -and $r.ETag) { $script:LockEtag = $r.ETag; return $true }
+  if ($r.Status -eq 412) { $script:LockEtag = '' }
+  return $false
+}
+$LockLostNote = "SKIPPED, this run's publish.lock was lost before it (another run may be writing): check the bucket"
 function Unlock-Publish {
   if (-not $script:LockEtag) { return }
   $etag = $script:LockEtag; $script:LockEtag = ''
@@ -575,7 +588,8 @@ if ($PSCmdlet.ParameterSetName -ceq 'Staging') {
     $prodNow = Get-Object 'latest-win.json'
     $pfNow = if ($prodNow) { Read-PointerFields $prodNow.Bytes } else { $null }
     if ($prodNow -and (-not $pfNow -or $pfNow.versioned -ceq $Versioned)) {
-      $back = Invoke-R2 -Method PUT -Key "$KeyPrefix$Versioned" -Body $existing.Bytes -PayloadSha (Sha256-Bytes $existing.Bytes) -ContentType 'application/zip' -Extra @{ 'cache-control' = 'no-cache'; 'if-match' = $zipPut.ETag }
+      # A best-effort restore: checked against the lock first, never written blind.
+      $back = if (Test-LockStillOurs) { Invoke-R2 -Soft -Method PUT -Key "$KeyPrefix$Versioned" -Body $existing.Bytes -PayloadSha (Sha256-Bytes $existing.Bytes) -ContentType 'application/zip' -Extra @{ 'cache-control' = 'no-cache'; 'if-match' = $zipPut.ETag } } else { [pscustomobject]@{ Status = "not attempted: $LockLostNote" } }
       if ($back.Status -eq 200) { $how = "the previous bytes ($existingSha) were put back" }
       else {
         # Say what the key holds NOW (a 412 means someone else wrote it since), not what it
@@ -709,6 +723,7 @@ function Undo-Promote([switch] $PointerWritten, [string] $PointerEtag, [string] 
   if ($PointerWritten -and -not $PointerEtag) { return 'NOTHING was undone: the pointer write answered no ETag to pin an undo to, SO PROD STILL NAMES ' + $Versioned }
   if ($PointerWritten) {
     $pointerOk = $false
+    if (-not (Test-LockStillOurs)) { return "NOTHING was undone ($LockLostNote), SO PROD STILL NAMES $Versioned" }
     if ($prodBefore) {
       $r = Invoke-R2 -Soft -Method PUT -Key "${KeyPrefix}latest-win.json" -Body $prodBefore.Bytes -PayloadSha (Sha256-Bytes $prodBefore.Bytes) -ContentType 'application/json' -Extra @{ 'cache-control' = 'no-cache'; 'if-match' = $PointerEtag }
       if ($r.Status -eq 200) { $pointerOk = $true; $done += 'latest-win.json put back' }
@@ -747,10 +762,12 @@ function Undo-Promote([switch] $PointerWritten, [string] $PointerEtag, [string] 
   # a sidecar left by an earlier, interrupted promote can name a different release, and the
   # pair must agree by construction (iteration 18). Pinned to the sidecar this run wrote.
   $oldSide = New-SidecarBytes $pf.sha256 $Alias
+  if (-not (Test-LockStillOurs)) { $done += "the alias and its sidecar: $LockLostNote"; return ($done -join '; ') }
   $r2 = Invoke-R2 -Soft -Method PUT -Key "$KeyPrefix$Alias.sha256" -Body $oldSide -PayloadSha (Sha256-Bytes $oldSide) -ContentType 'text/plain; charset=utf-8' -Extra @{ 'cache-control' = 'no-cache'; 'if-match' = $SideEtag }
   $sideOk = $r2.Status -eq 200
   $done += $(if ($sideOk) { "the alias sidecar put back (naming $($pf.versioned)'s sha)" } elseif ($r2.Status -eq 412) { 'the alias sidecar left as it is (someone else rewrote it since)' } else { "PUTTING THE ALIAS SIDECAR BACK FAILED ($($r2.Status))" })
   if (-not $sideOk) { $done += "the alias left as written ($Versioned)"; return ($done -join '; ') }
+  if (-not (Test-LockStillOurs)) { $done += "the alias (its sidecar was put back): $LockLostNote, SO ITS SIDECAR AND IT DISAGREE"; return ($done -join '; ') }
   $c = Invoke-R2 -Soft -Method PUT -Key "$KeyPrefix$Alias" -ContentType 'application/zip' -Extra @{ 'x-amz-copy-source' = "/$Bucket/$KeyPrefix$($pf.versioned)"; 'x-amz-copy-source-if-match' = $old.ETag; 'x-amz-metadata-directive' = 'REPLACE'; 'cache-control' = 'no-cache' }
   if ($c.Status -eq 200 -and $c.Body -cnotmatch '<Error>') { $done += "the alias restored from $($pf.versioned)"; $script:UndoClean = $true }
   else { $done += "RESTORING THE ALIAS FAILED ($($c.Status)), SO ITS SIDECAR AND IT DISAGREE" }

@@ -102,7 +102,8 @@ gates. `publish-r2.ps1` produces the same files with the same gates, directly in
 - **One run at a time.** Every stage, replace and promote takes `publish.lock` in the bucket
   (a create with `If-None-Match: *`) before it reads anything it decides on, refreshes it
   before every write (a `touched=` time, pinned to its own copy: if the lock is no longer its
-  own, it stops), and removes it when it finishes or refuses. A run killed outright (Ctrl+C,
+  own, it stops; an undo's restores check it the same way and are skipped, and reported, rather
+  than written blind), and removes it when it finishes or refuses. A run killed outright (Ctrl+C,
   closing the window) leaves its lock. A second run meanwhile refuses with the lock's contents
   (which run, which mode, when, which PC). `-BreakLock` removes a lock last touched more than
   35 minutes ago (every request times out at 30), saying whose it was and how old; it refuses
