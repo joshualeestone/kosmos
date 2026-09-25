@@ -89,7 +89,8 @@ turns out dead, it posts `{token: null}` (kosmos-relay `apns-718`).
   provisioning profile, `production` otherwise (read from
   `embedded.mobileprovision` at runtime, not `#if DEBUG`).
 
-- **Tapping a notification** opens `https://<address>/`, where `address` is the
+- **Tapping a notification** opens `https://<address>/` (on the agent that asked, when the
+  push names one; see "The shell on a phone" below), where `address` is the
   Mac's host from the coordinator's payload. Only a single hostname label under
   the coordinator's domain (`kosmosplus.com`, taken from
   `KosmosConfig.coordinatorOrigin`) is accepted (`PushBridge.boardURL`); anything

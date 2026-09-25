@@ -258,8 +258,13 @@ struct WebView: UIViewRepresentable {
         ) {
             // A new-window request (no target frame) is decided in createWebViewWith.
             guard let url = navigationAction.request.url,
-                  let frame = navigationAction.targetFrame, frame.isMainFrame
+                  let frame = navigationAction.targetFrame
             else { decisionHandler(.allow); return }
+            // A frame inside the page: https and about: only.
+            guard frame.isMainFrame else {
+                decisionHandler(Shell.allowsSubframe(url) ? .allow : .cancel)
+                return
+            }
             let origin: Shell.Origin = navigationAction.navigationType == .linkActivated ? .tapped : .pageFlow
             switch Shell.linkDecision(for: url, coordinator: KosmosConfig.coordinatorOrigin, origin: origin) {
             case .inApp: decisionHandler(.allow)
@@ -308,7 +313,8 @@ struct WebView: UIViewRepresentable {
             let e = error as NSError
             guard let failure = Shell.loadFailure(domain: e.domain, code: e.code) else { return }
             failedURL = e.userInfo[NSURLErrorFailingURLErrorKey] as? URL
-            // The host only: a Mac link carries the session in its fragment (#kst=).
+            // The host only: a Mac link carries the person's sign-in token in its
+            // fragment (#kst=), which must never reach a log.
             NSLog("[Shell] load failed: \(e.domain) \(e.code) host=\(failedURL?.host ?? "?")")
             shell?.failureDetail = e.localizedDescription
             shell?.failure = failure

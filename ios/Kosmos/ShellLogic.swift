@@ -59,6 +59,18 @@ enum Shell {
         case block
     }
 
+    // A navigation inside a frame of the page (an iframe), which linkDecision never
+    // sees. Embedded content keeps working over https (and about:blank / about:srcdoc,
+    // which WebKit uses for frames); every other scheme (javascript:, file:, data:,
+    // blob:, plain http, custom schemes) is refused, so a frame cannot do what the
+    // main frame may not.
+    static func allowsSubframe(_ url: URL) -> Bool {
+        switch url.scheme?.lowercased() ?? "" {
+        case "https", "about": return true
+        default: return false
+        }
+    }
+
     // What started a navigation, as far as the rule cares.
     enum Origin {
         // The person tapped a link.

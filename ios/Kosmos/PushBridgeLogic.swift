@@ -168,8 +168,10 @@ enum PushBridge {
     // wider than NAME_RE's 2 to 32 on both ends (1 to 64): a found agent's session
     // may not follow NAME_RE, and a name the board does not know just opens the
     // board home, so width here is safe while the character rule is what matters.
+    static let agentSessionMaxLength = 64
+
     static func isAgentSession(_ s: String) -> Bool {
-        guard (1...64).contains(s.count), let first = s.unicodeScalars.first,
+        guard (1...agentSessionMaxLength).contains(s.count), let first = s.unicodeScalars.first,
               ("a"..."z").contains(first) || ("0"..."9").contains(first)
         else { return false }
         return s.unicodeScalars.allSatisfy {

@@ -204,6 +204,11 @@ check(link("https://hers.kosmosplus.com/", .newWindow) == .inApp, "a new window 
 check(link("http://evil.example.com/", .pageFlow) == .block, "a redirect to a third-party plain http page: refused")
 check(link("https://hers.kosmosplus.com:8443/") == .external, "a Mac host with a port is not ours: Safari")
 check(link("https://x@login.kosmosplus.com/") == .external, "the coordinator with a user part is not ours: Safari")
+check(Shell.allowsSubframe(URL(string: "https://js.stripe.com/v3/")!), "a frame over https: allowed")
+check(Shell.allowsSubframe(URL(string: "about:srcdoc")!), "about:srcdoc in a frame: allowed (WebKit uses it)")
+for bad in ["javascript:alert(1)", "file:///etc/passwd", "data:text/html,hi", "blob:https://x/1", "http://evil.example/", "kosmos://x"] {
+    check(!Shell.allowsSubframe(URL(string: bad)!), "a frame to \(bad.prefix(18)): refused")
+}
 
 section("response outcomes")
 check(PushBridge.outcome(status: 200) == .ok, "200 ok")

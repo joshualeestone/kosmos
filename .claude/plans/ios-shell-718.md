@@ -47,6 +47,9 @@ the separate kosmos-relay PR (signin-mobile-718).
   a flow could therefore steer the WebView to an arbitrary https page in the app rather than Safari.
   Narrowing it to an allow list (Stripe and known identity hosts) is a follow-up if it matters; with
   Liu Kang's default (no purchase in the iOS app) the checkout part mostly goes away.
+- **Frames inside a page** may load https and about: only; every other scheme is refused
+  (`Shell.allowsSubframe`, challenge-loop round 4). Before this PR there was no navigation delegate,
+  so frames were unrestricted.
 - **Load failures are logged** by error domain, code and host only (a Mac link carries the session
   in its URL fragment, so the URL itself is never logged).
 - **Error page wording** (no em dashes): "You're offline" / "Kosmos+ isn't answering" / "This page
