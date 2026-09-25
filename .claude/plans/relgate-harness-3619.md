@@ -20,10 +20,16 @@ on another branch had the same shape (5 failures, 26 of 26 alone).
 `tools.release-gate.test.js`: set `KOSMOS_CUT_IGNORE_HARNESS: '1'` next to
 `KOSMOS_HARNESS_IGNORE_CUT` in the env of the spawn that reaches the guards. None of these arms
 tests the harness guard; `tools/test-cut-guard.sh` does, and is unchanged. The first spawn helper
-(`run`) is untouched: its arms refuse on the version before release.sh reaches the guards.
+(`run`) is untouched: its arms stop at the version gate or the site check, both before the libs
+are sourced and the guards run.
 
 Rejected: pointing the harness probe at a stub. It needs the probe seam threaded into this test,
 for no gain over the documented escape the guard itself names.
+
+Same family, found in review and fixed here: the arms that pass step 2 reach the load guard (step
+2b), which waits up to 600 s on a loaded Mac, so `KOSMOS_FAKE_LOAD=0`; and release.sh recreates
+`$TMPDIR/kosmos-cut-home`, so TMPDIR is kept inside the sandbox (as tools.cut-home-2724.test.js
+does) rather than the per-user one a real cut uses.
 
 ## Not in scope, surveyed
 Other tests mention release.sh; `tools.cut-home-2724.test.js` already sets both. The card's
