@@ -173,6 +173,7 @@ const resetStore = (state) => fs.writeFileSync(tipsStore.FILE(), JSON.stringify(
     chk(await page.waitForFunction(() => TIP_NEW_BOARD === false, null, { timeout: 8000 }).then(() => true, () => false), 'T27 precondition: tips off, and the board still decided it is not new');
     noAgents();
     const emptied27 = await page.waitForFunction(() => Array.isArray(LAST) && LAST.length === 0, null, { timeout: 8000 }).then(() => true, () => false);
+    chk(await page.waitForFunction(() => TIPS_STATE !== null && TIPS_TIMER !== null, null, { timeout: 8000 }).then(() => true, () => false), 'T27 precondition: the tips checks are running');
     await page.evaluate(() => tipsSave({ off: false }));   // what the Settings switch does
     const onNow = await page.evaluate(() => TIPS_STATE.ok && TIPS_STATE.off === false);
     await page.waitForTimeout(2800);
@@ -553,6 +554,16 @@ const resetStore = (state) => fs.writeFileSync(tipsStore.FILE(), JSON.stringify(
     chk(!(await cardState(page)).shown, 'T7 an unreadable tips store shows no tips rather than all of them');
     const row = await page.evaluate(() => document.getElementById('tips-box')?.hidden);
     chk(row === true, 'T7 and the Settings Tips box is hidden rather than showing a state it did not read');
+    // T29: the store is mended while the page still holds the failed read, and the person opens a tip
+    // from the ? and closes it. That save is the first real answer, so tips are on again and the
+    // Settings box comes back (before, the failed read's stand-in "off" stuck for the session).
+    resetStore({ seen: [], off: false });
+    await page.click('#helpq-btn');
+    await page.click('#helpq-menu [data-help="ring"]');
+    await page.click('#tipcard .tip-go');
+    const mended = await page.waitForFunction(() => TIPS_STATE && TIPS_STATE.ok && TIPS_STATE.off === false, null, { timeout: 6000 }).then(() => true, () => false);
+    const box29 = await page.evaluate(() => document.getElementById('tips-box')?.hidden);
+    chk(mended && box29 === false, 'T29 after a failed read, the first save that answers turns tips back on and shows the Settings box', JSON.stringify({ mended, box29 }));
 
     chk(errs.length === 0, 'T8 no page errors', errs.join(' | '));
   } finally {

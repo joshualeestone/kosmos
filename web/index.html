@@ -52778,11 +52778,11 @@ async function tipsLoad() {
     /* Merged with anything saved while this read was out (a tip opened from the ? and closed, or "Stop
        showing tips"), so a slow answer cannot drop a newer close or turn tips back on. */
     const had = TIPS_STATE && TIPS_STATE.ok ? TIPS_STATE : null;
-    TIPS_STATE = (r && r.ok === true && Array.isArray(r.seen))
-      ? { ok: true, seen: [...new Set([...(had ? had.seen : []), ...r.seen])], off: had ? had.off : r.off === true }
-      : { ok: false, seen: [], off: true };
-    if (TIPS_STATE.ok && r.seen.includes('tour')) TIP_TOUR_SAVED = true;
-  } catch { TIPS_STATE = { ok: false, seen: [], off: true }; }
+    if (r && r.ok === true && Array.isArray(r.seen)) {
+      TIPS_STATE = { ok: true, seen: [...new Set([...(had ? had.seen : []), ...r.seen])], off: had ? had.off : r.off === true };
+      if (r.seen.includes('tour')) TIP_TOUR_SAVED = true;
+    } else if (!had) TIPS_STATE = { ok: false, seen: [], off: true };   // a save that answered meanwhile is newer: keep it
+  } catch { if (!(TIPS_STATE && TIPS_STATE.ok)) TIPS_STATE = { ok: false, seen: [], off: true }; }
 }
 
 async function tipsSave(patch) {
@@ -52795,8 +52795,12 @@ async function tipsSave(patch) {
       const local = TIPS_STATE && TIPS_STATE.ok ? TIPS_STATE.seen : [];
       /* off comes from the answer only when this save set it: an answer to a seen-only save that lands
          after "Stop showing tips" was clicked must not turn tips back on here. */
-      const off = patch.off !== undefined ? r.off === true : (TIPS_STATE ? TIPS_STATE.off : r.off === true);
+      /* The local off is kept only when it was READ: after a failed read it is a stand-in (off: true),
+         and this answer is the first real one, so it wins. */
+      const off = patch.off !== undefined ? r.off === true : (TIPS_STATE && TIPS_STATE.ok ? TIPS_STATE.off : r.off === true);
+      const wasOk = !!(TIPS_STATE && TIPS_STATE.ok);
       TIPS_STATE = { ok: true, seen: [...new Set([...local, ...r.seen])], off };
+      if (!wasOk) paintTipsToggle();   // the Settings box was hidden while the tips could not be read
       return true;
     }
   } catch { /* the tip still closes; it may show once more next time */ }
