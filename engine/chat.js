@@ -361,7 +361,8 @@ function cleanMessage(raw) {
  * the rest) is preserved here so `messageProblem` still sees and refuses it.
  */
 const STORE_TAB = '    ';
-const STORE_FENCE = /^ *```/;
+// \x60 is a backtick: a literal one here reads as a template string to the #1732 scanner.
+const STORE_FENCE = /^ *\x60{3}/;
 function storeText(raw) {
   const lines = String(raw == null ? '' : raw).replace(/\r\n?/g, '\n').replace(/\t/g, STORE_TAB).split('\n');
   const out = [];
