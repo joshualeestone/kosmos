@@ -57,6 +57,16 @@ outside a short, justified allow-list, and a browser check proves the computed s
   bar. With the old 3px bar restored, the light arm fails. The dark arm keeps its ring through the
   dark override, which is correct.
 
+## Review (challenge loop)
+- The check now also proves the replacement exists: each fixed element carries an even border, a
+  tint or a ring, and the unsure message's tint differs from a plain message's. It runs in three
+  themes: light, dark by the media query, and an explicit `data-theme="dark"`. The explicit arm must
+  take the dark ring, not the light one. Controls: dropping the unsure tint fails in all three
+  themes, and dropping the explicit dark ring rule fails the explicit arm. 103/103 pass.
+- `.detail-said` quotes the agent's own words, and quotes are out of scope. It stays in scope
+  because the card lists it separately from the quote exclusions, so it is raised for Josh along
+  with the tree lines.
+
 ## Weakest part
 The browser check builds the elements in a sheet instead of reaching each real screen, so it proves
 the styles the browser applies, not how each looks in its own context. The screenshot sheet is the

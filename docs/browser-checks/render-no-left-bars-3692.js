@@ -1,4 +1,4 @@
-// Browser-check-surface: detail-said svc-door dmoff msg-valve pj-warn rst-list pj-folder-state pj-question rolelimit d-untied d-withdrawn
+// Browser-check-surface: detail-said svc-door dmoff pj-folder-state rolelimit d-untied d-withdrawn
 'use strict';
 /**
  * #3692: no solid left bars (Josh's rule, 2026-09-24). Each card, note and warning that used
@@ -60,14 +60,18 @@ const SAMPLES = [
   const server = await srv.start(0);
   const URL = 'http://127.0.0.1:' + server.address().port;
   const browser = await chromium.launch({ headless: process.env.HEADED === '0' });
+  const ringByTheme = {};
   try {
-    for (const theme of ['light', 'dark']) {
-      const page = await browser.newPage({ viewport: { width: 1000, height: 1100 }, colorScheme: theme });
+    /* [label, the browser's colour scheme, an explicit data-theme]: the dark overrides live twice,
+       under the prefers-color-scheme media query and under :root[data-theme="dark"]. */
+    for (const [theme, scheme, explicit] of [['light', 'light', null], ['dark', 'dark', null], ['dark-explicit', 'light', 'dark']]) {
+      const page = await browser.newPage({ viewport: { width: 1000, height: 1100 }, colorScheme: scheme });
       const errs = [];
       page.on('pageerror', (e) => errs.push(e.message));
       await page.goto(URL, { waitUntil: 'networkidle' });
       if (await page.$('#firstrun:not([hidden])')) { await page.keyboard.press('Escape'); await page.waitForTimeout(400); }
 
+      if (explicit) await page.evaluate((t) => { document.documentElement.dataset.theme = t; }, explicit);
       const res = await page.evaluate((samples) => {
         /* A left bar: a left border wider than the others, or an inset shadow offset only in x. */
         function bar(el) {
@@ -79,18 +83,25 @@ const SAMPLES = [
             const n = s.replace(/rgba?\([^)]*\)/, '').match(/-?\d*\.?\d+px/g) || [];
             return n.length >= 2 && parseFloat(n[0]) !== 0 && parseFloat(n[1]) === 0;
           });
-          return { widths: w, sidesEqual: w.every((x) => x === w[0]), insetX, shadow };
+          /* What replaced the bar: an even border, a visible background, or a full inset ring. */
+          const bg = cs.backgroundColor || '';
+          const alpha = /rgba?\(([^)]*)\)/.exec(bg);
+          const tinted = !!alpha && (alpha[1].split(',').length < 4 || parseFloat(alpha[1].split(',')[3]) > 0);
+          const ring = shadow.split(/,(?![^(]*\))/).some((s) => /inset/.test(s) && /\b0px 0px 0px [1-9]/.test(s.replace(/rgba?\([^)]*\)/, '')));
+          const sidesEqual = w.every((x) => x === w[0]);
+          return { widths: w, sidesEqual, insetX, shadow, bg, marked: (sidesEqual && w[0] > 0) || tinted || ring };
         }
         document.body.classList.remove('consolidated');
         const sheet = document.createElement('div');
         sheet.id = 'nlb-sheet';
         sheet.style.cssText = 'position:fixed;inset:0;z-index:99999;overflow:auto;padding:24px;display:flex;flex-direction:column;gap:12px;background:var(--bg, Canvas);';
         const ctl = '<div class="dm-b"><div class="mdq" data-nlb-ctl="quote">a quote keeps its rule</div></div>' +
-          '<div data-nlb-ctl="shadow" style="box-shadow: inset 3px 0 0 red; padding: 6px">an inset left shadow</div>';
+          '<div data-nlb-ctl="shadow" style="box-shadow: inset 3px 0 0 red; padding: 6px">an inset left shadow</div>' +
+          '<div class="pj-msg" data-nlb-ctl="plainmsg">a plain room message, to compare the unsure tint with</div>';
         sheet.innerHTML = ctl + samples.map((s) => s[1]).join('');
         document.body.appendChild(sheet);
         const ctlEl = (k) => sheet.querySelector('[data-nlb-ctl="' + k + '"]');
-        const out = { controls: { quote: bar(ctlEl('quote')), shadow: bar(ctlEl('shadow')) }, samples: [] };
+        const out = { controls: { quote: bar(ctlEl('quote')), shadow: bar(ctlEl('shadow')), plainmsg: bar(ctlEl('plainmsg')) }, samples: [] };
         const els = [...sheet.querySelectorAll('[data-nlb]')];
         els.forEach((el, i) => out.samples.push({ label: samples[i][0], ...bar(el) }));
         /* Elements the page already has, measured in place (hidden is fine for computed style). */
@@ -115,15 +126,23 @@ const SAMPLES = [
       chk(res.controls.quote.widths[3] > res.controls.quote.widths[1], `[${theme}] control: the quote's left rule is seen as a left bar`, JSON.stringify(res.controls.quote.widths));
       chk(res.controls.shadow.insetX, `[${theme}] control: an inset left shadow is seen as a left bar`, res.controls.shadow.shadow);
       chk(res.samples.length === SAMPLES.length + 3, `[${theme}] every fixed element was measured`, String(res.samples.length));
+      ringByTheme[theme] = res.samples.find((s) => s.label === 'roadmap .pj-row.attn').shadow;
       chk(res.roadmap && res.roadmap.widths.every((w) => w === 0) && res.roadmap.ringed,
         `[${theme}] the roadmap rules applied to the needs-you row (no border, an inset ring)`, JSON.stringify(res.roadmap));
       for (const s of res.samples) {
         chk(!s.missing && s.sidesEqual && !s.insetX, `[${theme}] ${s.label} has no left bar`, JSON.stringify({ widths: s.widths, shadow: s.shadow }));
+        chk(!s.missing && s.marked, `[${theme}] ${s.label} is still marked (an even border, a tint or a ring)`, JSON.stringify({ widths: s.widths, bg: s.bg, shadow: s.shadow }));
       }
+      const unsure = res.samples.find((s) => s.label === '.pj-msg.unsure');
+      chk(unsure && unsure.bg !== res.controls.plainmsg.bg, `[${theme}] the unsure room message is tinted differently from a plain one`, JSON.stringify({ unsure: unsure && unsure.bg, plain: res.controls.plainmsg.bg }));
       await page.screenshot({ path: path.join(OUT, `no-left-bars-${theme}.png`), fullPage: false });
       chk(errs.length === 0, `[${theme}] no page errors`, errs.join(' | '));
       await page.close();
     }
+    /* The explicit dark theme reaches its own override: the same ring colour as the media-query
+       dark, and not the light one (which it would fall back to if that override were missing). */
+    chk(ringByTheme['dark-explicit'] === ringByTheme.dark && ringByTheme['dark-explicit'] !== ringByTheme.light,
+      'data-theme="dark" takes the dark roadmap ring, not the light one', JSON.stringify(ringByTheme));
   } finally {
     await browser.close();
     server.close();
