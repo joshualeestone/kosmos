@@ -23,8 +23,8 @@ struct ContentView: View {
         Group {
             if isUnlocked {
                 ZStack {
-                    // Edge to edge: the pages keep clear of the notch and home bar
-                    // themselves (viewport-fit=cover and the safe-area insets).
+                    // Edge to edge, as before; how each page keeps clear of the notch
+                    // and home bar is set in makeUIView (safe areas).
                     WebView(
                         url: KosmosConfig.boardURL,
                         pushManager: pushManager,
@@ -171,9 +171,11 @@ struct WebView: UIViewRepresentable {
         // Navy until the first page paints, instead of a white flash.
         webView.isOpaque = false
         webView.backgroundColor = .kosmosNavy
-        // The pages pad for the safe area themselves (env(safe-area-inset-*)), so
-        // the scroll view must not add the same inset a second time.
-        webView.scrollView.contentInsetAdjustmentBehavior = .never
+        // Safe areas: the scroll view keeps WebKit's default inset behaviour, as in
+        // Safari. A page that opts in with viewport-fit=cover (sign-in, the gate)
+        // runs under the notch and pads itself with env(safe-area-inset-*); a page
+        // that does not (the board today) is kept clear of the notch by WebKit.
+        // Setting .never here would push the board's top under the status bar.
         // Dragging the page down dismisses the keyboard, as in Messages.
         webView.scrollView.keyboardDismissMode = .interactive
         // Pull to refresh.

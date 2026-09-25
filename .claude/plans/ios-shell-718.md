@@ -19,8 +19,12 @@ the separate kosmos-relay PR (signin-mobile-718).
   (agreed with Kano, m544), the session accepted only as `^[a-z0-9][a-z0-9_-]{0,63}$`, else the
   board home.
 - Navy (the sign-in page's background) until the first page paints, instead of a white flash.
-- Safe areas: the WebView stays edge to edge and the scroll view adds no inset of its own, because
-  the pages pad with `env(safe-area-inset-*)` (the relay PR does this for sign-in and the gate).
+- Safe areas: the WebView stays edge to edge (as on main) and keeps WebKit's default inset
+  behaviour, as in Safari. Pages that opt in with `viewport-fit=cover` pad themselves with
+  `env(safe-area-inset-*)` (kosmos-relay #114 does this for sign-in and the gate); the board does not
+  opt in today, so WebKit keeps it clear of the notch. (An earlier version set the scroll view's
+  inset adjustment to `.never`, which would have put the board's top under the status bar, since
+  its env() values are 0 without cover. Scorpion caught it, m578.)
 - Keyboard: dragging the page down dismisses it.
 - The decisions are in Foundation-only code (`ShellLogic.swift`, `PushBridge.boardURL`) with
   tests that run on this Mac; each rule has a mutation that turns them red.
@@ -68,7 +72,7 @@ the separate kosmos-relay PR (signin-mobile-718).
 Everything that touches UIKit or WebKit (the delegate wiring, the refresh control, the error
 overlay, the order WebKit asks its two questions in for a target=_blank link) is compiled and
 reasoned, not run. The simulator pass has to cover: an offline launch, a reconnect, Try again on a
-tapped agent whose Mac is offline, pull to refresh (and whether its spinner shows under the status
-bar, since the scroll view has no top inset), a COMPLETE sign-in through every redirect (and any sign-in popup, which as a new window would
+tapped agent whose Mac is offline, pull to refresh (and where its spinner sits on a cover page), the board and the sign-in page clear of the notch and home bar in portrait and landscape,
+a COMPLETE sign-in through every redirect (and any sign-in popup, which as a new window would
 go to Safari), the billing
 button, a mail link, and a tap with and without a session.

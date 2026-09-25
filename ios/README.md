@@ -110,8 +110,9 @@ turns out dead, it posts `{token: null}` (kosmos-relay `apns-718`).
 - **A tapped notification** opens the agent that asked
   (`?tab=detail&agent=<session>`, the session checked against the board's agent-name rule), or
   the board home when the push carries no usable session.
-- **No white flash:** the WebView is navy until the first page paints. The pages keep clear of the
-  notch and home bar themselves, so the WebView adds no inset of its own.
+- **No white flash:** the WebView is navy until the first page paints. Safe areas behave as in
+  Safari: a page that opts in with `viewport-fit=cover` (sign-in, the gate) pads for the notch and
+  home bar itself, and WebKit keeps any other page (the board today) clear of them.
 - **Not yet:** a navy launch screen needs an asset catalog or a launch storyboard, and both need
   the iOS platform installed (see "Buildable, not yet runnable" above).
 
