@@ -259,8 +259,8 @@ test('#2519: the fixture carries the PLACEHOLDER identity, asserted positively',
   /* ⚠️ NOT `''`. The capture preserves the TYPE and neutralises only string CONTENT,
      because status.js emits `status.conflict || null` and an empty string is a value it
      can never produce. So: null, or a neutral sentence. */
-  assert.ok(card.stateConflict === null || card.stateConflict === 'an example conflict',
-    `stateConflict is ${JSON.stringify(card.stateConflict)}, which is neither null nor the neutral sentence`);
+  // #3729: the engine never sends a conflict sentence, so the captured card carries null.
+  assert.ok(card.stateConflict === null, `stateConflict is ${JSON.stringify(card.stateConflict)}; since #3729 it is always null`);
   assert.ok(card.stateEvidence === null || /^✽ Working…/.test(card.stateEvidence),
     `stateEvidence is ${JSON.stringify(card.stateEvidence)}`);
   assert.match(card.profile.idInstall, /^0{8}-0{4}-4000-8000-0{12}$/);

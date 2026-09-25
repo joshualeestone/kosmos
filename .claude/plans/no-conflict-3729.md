@@ -32,10 +32,31 @@ sentences on agent cards, ever.
   `conflict:` sentence from engine/status.js INJECTED into every agent object on every /api
   response (counted, and shown to be in the page's own data). On the grid, list, org chart, agent
   page, Projects tab and one-screen layout, on Mac and Windows: none of the sentences shows, no
-  #d-conflict, no card note slot, no empty note. Against main's page it fails 12 arms.
+  #d-conflict, no card note slot, no empty note. (Strengthened in review pass 1, below.)
 - server.test.js (the detail-badge prelude no longer lifts conflictNote);
   web.open-sentence-1199.test.js (the conflictNote-delegation test went with the function).
 
 ## Weakest premise
 - The Projects member boxes are only covered by "nothing in the page reads stateConflict" (the
   fixture has no project with members), not by a render of a member box with the sentence injected.
+
+## Review pass 1 (opus): 0 blockers, 3 warnings, 4 nits
+- W the unknown card still carried a note ("Not the same as idle. We cannot see this one, so we are
+  not telling you it is fine."), and the check's "no card note" claim only held because its fixture
+  had no unknown agent. **Call: removed it too.** It is an agent-status diagnostic sentence on a card,
+  which this card's standing rule forbids ("no agent-status 'diagnostic' sentences on agent cards,
+  ever"), and the "Can't tell" badge, dashed card, pill and screen-reader words still carry the state.
+  **Weakest premise: this overrides an earlier ruling** (the pack's comment that an unknown card must
+  carry its reason, pinned in server.test.js); restoring it is a one-line revert if Josh wants it
+  back. The needs-trust card's note STAYS: it asks the person to act, which the card puts out of
+  scope (#3723's category).
+- W the injection index reset per response, so only the first two sentences ever reached the page,
+  neither of them Josh's. Now indexed by the running total, asserted all 11 reached the page (the
+  ternary OpenAI sentence included, which the first regex missed).
+- W most arms failed on main only because of hidden cards and the always-present slot. Card notes now
+  count only on visible cards; each surface asserts it is actually showing (view pressed, layout
+  switched); an unknown and a needs-trust agent are in the fixture; the unknown agent's page is its
+  own arm. Against main: 14 arms fail, the sentence itself on the grid and both agent pages.
+- NITs fixed: stale comments in engine/status.js and web/index.html; the golden-card test now
+  requires null; the said-line test's lrow "saidLine(" matched only its own HTML comment (no code
+  calls saidLine, on main either), now pinned as what it is.

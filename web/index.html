@@ -16031,13 +16031,6 @@ function saidLine(a) {
 }
 
 /**
- * The two witnesses disagreeing, as a sentence the person sees (#569). The
- * ENGINE composes the sentence (status.reconcileReport surfaces it instead of
- * silently resolving, and its wording already names both witnesses); this
- * only dresses it as a card note: capitalized, one full stop. Empty when the
- * witnesses agree, which is almost always.
- */
-/**
  * An engine sentence, dressed as something a person reads: capitalized, one
  * full stop. The ENGINE owns the words; this owns nothing but the casing.
  *
@@ -16828,20 +16821,17 @@ function card(a) {
      fact survives on the DETAIL page's meta line, per the pack's
      card-signals/panel-explanation split. What SURVIVES on the card,
      deliberately: the stale badge on the name (an honest-state mark with
-     no pack equivalent), and the unknown note -- the pack's own comment
-     requires the reason to ride with any card that shows an unknown. */
+     no pack equivalent). (The unknown note that also survived here went in #3729.) */
   const m = cardStOf(a);
   const copy = stateCopyOf(a);
   const pct = pctOf(a.context);
   const answer = answerBtn(a);
 
-  /* Gated on the TREATMENT (m.st), not the literal state: cardStOf maps
-     any unrecognised server state to the unknown treatment, and a card
-     drawn as "Can't tell" must carry the whole honesty payload, note
-     included, whichever spelling put it there. */
-  const unknownNote = m.st === 'unknown'
-    ? '<div class="note">Not the same as idle. We cannot see this one, so we are not telling you it is fine.</div>'
-    : '';
+  /* #3729 (Josh, 2026-09-25): the unknown card's note ("Not the same as idle. We cannot see this
+     one, so we are not telling you it is fine.") is gone with the conflict line. It was an
+     agent-status diagnostic sentence on a card, which the standing rule forbids; the "Can't tell"
+     badge still says the state. The needs-trust card keeps its note: that one asks the person to
+     act (#3723's category, not this). */
 
   /* #3501: the unknown-memory WORD badge (.membadge.unk, states unknown /
      not-yet-read / not-set-yet) was removed. Josh flagged it as meaningless to
@@ -16861,7 +16851,6 @@ function card(a) {
     ${a.activeWhileWaiting ? '<div class="alsowork"><span class="act" aria-hidden="true"><i></i><i></i><i></i></span><span>Working now</span></div>' : ''}
     <div class="amodel">${esc(modelLine(a))}</div>
     <div class="atask">${esc(taskLine(a, { noQuote: true }))}</div>
-    ${unknownNote}
   </div>`;
 }
 

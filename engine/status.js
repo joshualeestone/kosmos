@@ -6297,10 +6297,8 @@ function reconcileReport(reported, scraped, nowMs, liveAuth, disruptionRec, code
          be broken" note. It is internal telemetry-staleness hedging that reads as
          broken/uncertain to a user, and Josh asked for it gone from the app on
          BOTH Mac and Windows. Removed at the SOURCE (conflict: null) rather than
-         suppressed per-string in the render, so no surface -- the agent card, the
-         agent-page #d-conflict slot, or the Windows client, all of which read
-         this shared field -- ever shows it, and no empty placeholder is left
-         (conflictNote returns '' and both slots hide). The verdict is unchanged
+         suppressed per-string in the render (the card and agent-page slots it
+         would have filled are gone since #3729 anyway). The verdict is unchanged
          (still reported:false, working); only the display sentence is dropped.
          #3729 (Josh, 2026-09-25): the other stateConflict sentences went too ("it
          reported stopping, but it is still running", "its screen shows a question
@@ -7185,10 +7183,10 @@ function snapshot() {
          boolean, never undefined, so a consumer branching on it gets `false`
          rather than absence on every other state. */
       stateBackgroundWait: status.backgroundWait === true,
-      /* A sentence when the agent's report and the pane reader materially
-         disagree, null otherwise. Surfaced rather than silently resolved:
-         the two witnesses disagreeing is a fact the operator gets to see. */
-      stateConflict: null,   // #3729: never sent to a person (see the other card builder)
+      /* #3729: always null. The engine still computes `conflict` (its own record of the agent's
+         report and the pane reader disagreeing), but Josh ruled that no such sentence reaches a
+         person, so it is never put on the card (see the other card builder). */
+      stateConflict: null,
       context,
       model,
       modelName: modelDisplayName(model),

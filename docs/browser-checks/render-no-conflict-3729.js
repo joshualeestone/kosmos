@@ -38,7 +38,13 @@ const srv = require('../../server.js');
 
 /* Every sentence the engine can put in `conflict`, straight from its source. */
 const STATUS_SRC = fs.readFileSync(path.join(__dirname, '..', '..', 'engine', 'status.js'), 'utf8');
-const PHRASES = [...new Set([...STATUS_SRC.matchAll(/conflict:\s*'([^']{12,})'/g)].map((m) => m[1]))];
+const PHRASES = [...new Set([
+  ...[...STATUS_SRC.matchAll(/conflict:\s*'([^']{12,})'/g)].map((m) => m[1]),
+  // the ternary shape too (review pass 1: the OpenAI sign-in sentence is written `conflict: x ? '...' : null`)
+  ...[...STATUS_SRC.matchAll(/conflict:[^;{}]*?\?\s*'([^']{12,})'/g)].map((m) => m[1]),
+])];
+/* The unknown card's old note, the other agent-status diagnostic sentence #3729 removed. */
+const UNKNOWN_NOTE = 'Not the same as idle';
 
 const fail = [];
 function chk(ok, label, extra) {
@@ -47,12 +53,14 @@ function chk(ok, label, extra) {
 }
 
 (async () => {
-  chk(PHRASES.length >= 6 && PHRASES.some((p) => /reported stopping, but it is still running/.test(p))
-      && PHRASES.some((p) => /question its reports do not mention/.test(p)),
+  chk(PHRASES.length >= 7 && PHRASES.some((p) => /reported stopping, but it is still running/.test(p))
+      && PHRASES.some((p) => /question its reports do not mention/.test(p)) && PHRASES.some((p) => /OpenAI sign-in is being rejected/.test(p)),
     'precondition: the engine\'s conflict sentences were read from its source (' + PHRASES.length + ')');
   fleet.install([
     fleet.agent('beatrix', { state: 'working', displayName: 'Beatrix', role: 'Collections Coordinator' }),
     fleet.agent('cosmo', { state: 'idle', displayName: 'Cosmo', role: 'Researcher' }),
+    fleet.agent('dora', { state: 'idle', displayName: 'Dora', role: 'Analyst' }),     // shown as unknown below
+    fleet.agent('ned', { state: 'idle', displayName: 'Ned', role: 'Writer' }),        // shown as needs-trust below
   ]);
   const server = await srv.start(0);
   const URL = 'http://127.0.0.1:' + server.address().port;
@@ -63,6 +71,7 @@ function chk(ok, label, extra) {
       const errs = [];
       page.on('pageerror', (e) => errs.push(e.message));
       let injected = 0;
+      const seen = new Set();
       await page.route('**/api/**', async (route) => {
         let res;
         try { res = await route.fetch(); } catch { return route.continue(); }
@@ -70,11 +79,16 @@ function chk(ok, label, extra) {
         if (!/json/.test(type)) return route.fulfill({ response: res });
         let body;
         try { body = await res.json(); } catch { return route.fulfill({ response: res }); }
-        let i = 0;
         const walk = (v) => {
           if (Array.isArray(v)) { v.forEach(walk); return; }
           if (v && typeof v === 'object') {
-            if (typeof v.sessionName === 'string') { v.stateConflict = PHRASES[i % PHRASES.length]; i += 1; injected += 1; }
+            if (typeof v.sessionName === 'string') {
+              // Indexed by the running total (review pass 1: a per-response index only ever sent the first two).
+              v.stateConflict = PHRASES[injected % PHRASES.length]; injected += 1;
+              seen.add(v.stateConflict);
+              if (/^dora/.test(v.sessionName)) v.state = 'unknown';
+              if (/^ned/.test(v.sessionName)) v.needsTrust = true;
+            }
             for (const k of Object.keys(v)) walk(v[k]);
           }
         };
@@ -98,31 +112,40 @@ function chk(ok, label, extra) {
       chk(platform === 'win32' ? onWin : !onWin, '[' + platform + '] precondition: the page believes it is on ' + platform);
       chk(injected > 0, '[' + platform + '] control: the conflict sentences were injected into the page\'s agent data', 'injected ' + injected);
 
-      const look = (where) => page.evaluate(({ phrases }) => {
+      const look = () => page.evaluate(({ phrases }) => {
         const text = document.body.innerText.toLowerCase();
         const hits = phrases.filter((p) => text.includes(p.toLowerCase().slice(0, 40)));
+        const shown = (el) => !el.hidden && el.offsetParent !== null;
         return {
           hits,
           slot: !!document.getElementById('d-conflict'),
-          cardNotes: document.querySelectorAll('.acard .note').length,
-          emptyNotes: [...document.querySelectorAll('.note')].filter((n) => !n.hidden && n.offsetParent && !n.textContent.trim()).length,
+          // Only notes on cards that are ON SCREEN count (review pass 1: hidden grid cards counted on
+          // other surfaces), and the needs-trust card's note is allowed: it asks the person to act.
+          cardNotes: [...document.querySelectorAll('.acard:not(.needstrust) .note')].filter(shown).length,
+          emptyNotes: [...document.querySelectorAll('.note')].filter((n) => shown(n) && !n.textContent.trim()).length,
+          layout: document.documentElement.getAttribute('data-layout') || 'tabs',
+          view: (document.querySelector('.viewtoggle[data-scope="agents"] .vt[aria-pressed="true"]') || {}).dataset?.layout || null,
         };
-      }, { phrases: PHRASES });
+      }, { phrases: [...PHRASES, UNKNOWN_NOTE] });
       const surfaces = [
-        ['grid', async () => { await page.click('.viewtoggle[data-scope="agents"] .vt[data-layout="grid"]'); }],
-        ['list', async () => { await page.click('.viewtoggle[data-scope="agents"] .vt[data-layout="list"]'); }],
-        ['org chart', async () => { await page.click('.viewtoggle[data-scope="agents"] .vt[data-layout="org"]'); }],
-        ['agent page', async () => { await page.evaluate(() => openDetail('beatrix')); }],
-        ['Projects tab', async () => { await page.evaluate(() => showTab('projects')); }],
-        ['one-screen layout', async () => { await page.evaluate(() => { showTab('agents'); const b = document.querySelector('[data-layout-switch="consolidated"]'); if (b) b.click(); }); }],
+        ['grid', async () => { await page.click('.viewtoggle[data-scope="agents"] .vt[data-layout="grid"]'); }, (m) => m.view === 'grid'],
+        ['list', async () => { await page.click('.viewtoggle[data-scope="agents"] .vt[data-layout="list"]'); }, (m) => m.view === 'list'],
+        ['org chart', async () => { await page.click('.viewtoggle[data-scope="agents"] .vt[data-layout="org"]'); }, (m) => m.view === 'org'],
+        ['agent page', async () => { await page.evaluate(() => openDetail('beatrix')); }, () => true],
+        ['unknown agent\'s page', async () => { await page.evaluate(() => openDetail('dora')); }, () => true],
+        ['Projects tab', async () => { await page.evaluate(() => showTab('projects')); }, () => true],
+        ['one-screen layout', async () => { await page.evaluate(() => { showTab('agents'); const b = document.querySelector('[data-layout-switch="consolidated"]'); if (b) b.click(); }); }, (m) => m.layout === 'consolidated'],
       ];
-      for (const [name, go] of surfaces) {
+      for (const [name, go, arrived] of surfaces) {
         await go();
         await page.waitForTimeout(900);
-        const m = await look(name);
+        const m = await look();
+        chk(arrived(m), '[' + platform + '] precondition: ' + name + ' is actually showing', JSON.stringify({ view: m.view, layout: m.layout }));
         chk(m.hits.length === 0 && !m.slot && m.cardNotes === 0 && m.emptyNotes === 0,
-          '[' + platform + '] ' + name + ': no conflict sentence, no slot for one, no empty note', JSON.stringify(m));
+          '[' + platform + '] ' + name + ': no status sentence, no slot for one, no empty note', JSON.stringify(m));
       }
+      // Every sentence reached the page at least once, including the two Josh named.
+      chk(PHRASES.every((p) => seen.has(p)), '[' + platform + '] control: every conflict sentence was injected', seen.size + ' of ' + PHRASES.length);
       // Control: the injected sentence really is in the page's own agent data, so the absences above
       // mean the page does not show it, not that it never arrived.
       const inData = await page.evaluate(() => {

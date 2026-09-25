@@ -80,9 +80,12 @@ test('the list row and the detail painter still read the shared derivations, so 
   /* The list row and the detail painter must call saidLine, not re-derive it:
      surfaces that disagree about one agent are worse than either being wrong,
      this file's own recurring lesson. (The conflict slot is gone, #3729.) */
-  const lrowFn = page.lift(SCRIPT, 'lrow');
-  assert.ok(lrowFn.includes('saidLine('), 'the list row stopped reading saidLine');
-  assert.ok(SCRIPT.includes("getElementById('d-said')"), 'the detail painter stopped filling the provenance slot');
+  /* #3729 review: the list row's `saidLine(` match was its own HTML COMMENT; no code in the page
+     calls saidLine any more (on main either). Pinned as what it is, with comments stripped, rather
+     than as a caller that does not exist. */
+  const code = SCRIPT.replace(/\/\*[\s\S]*?\*\//g, '').replace(/<!--[\s\S]*?-->/g, '');
+  assert.ok(!/\bsaidLine\(a\)/.test(page.lift(SCRIPT, 'lrow').replace(/<!--[\s\S]*?-->/g, '').replace(/\/\*[\s\S]*?\*\//g, '')), 'the list row calls saidLine again; update this test to pin it as a real caller');
+  assert.ok(code.includes("getElementById('d-said')"), 'the detail painter stopped filling the provenance slot');
 });
 
 /* #855 (Josh, 2026-08-25 10:22): "let's do away with the status line
