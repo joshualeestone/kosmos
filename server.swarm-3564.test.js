@@ -255,3 +255,19 @@ test('#3564 Stop now within a few seconds of the LIMIT sweep\'s pause sends no s
     assert.deepEqual(keys, ['C-x', 'C-k', 'C-x', 'C-k'], 'Stop now right after the sweep\'s pause sent a second Escape');
   } finally { chat.setRunner(null); chat.setDryRun(true); board.restore(); }
 });
+
+test('#3564 a swarm that is not running still reaches the board as a swarm: settings, unmeasured; a plain agent gets null', async () => {
+  lead('sleepyhive', swarm.birthProfile({ maxHelpers: 4, dailyTokenLimit: 2000 }));
+  lead('sleepysolo', { role: 'pm' });
+  await put('/api/agent/sleepyhive/swarm', { active: false });
+  const b = await (await fetch(base + '/api/status')).json();
+  const row = (n) => (b.agents || []).find((a) => a && a.sessionName === n);
+  assert.ok(row('sleepyhive'), 'CONTROL: the stopped swarm is on the board as an offline row');
+  assert.equal(row('sleepyhive').running, false, 'CONTROL: the row is the offline one, not a pane');
+  const s = row('sleepyhive').swarm;
+  assert.ok(s && typeof s === 'object', 'a stopped swarm reached the board with no swarm field: ' + JSON.stringify(s));
+  assert.equal(s.metered, false, 'nothing was read, so it must not claim to be measured');
+  assert.deepEqual([s.maxHelpers, s.dailyTokenLimit, s.active, s.pausedBecause, s.activeHelpers], [4, 2000, false, 'person', 0]);
+  assert.ok(row('sleepysolo'), 'CONTROL: the plain agent is on the board too');
+  assert.equal(row('sleepysolo').swarm, null, 'an ordinary stopped agent was given a swarm field');
+});
