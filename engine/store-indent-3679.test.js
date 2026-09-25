@@ -81,8 +81,7 @@ test('#3679: a long run of spaces is stored in linear time', () => {
     chat.storeText(FENCE + '\n' + '\n'.repeat(200000) + 'x');
     chat.storeText('\n'.repeat(200000) + 'x' + '\n'.repeat(200000));
   });
-  // Generous for a busy shared Mac: the quadratic trim this guards took about 17 s here.
-  assert.ok(ms < 3000, 'storeText took ' + ms.toFixed(0) + 'ms on 200k spaces; a backtracking trim is quadratic');
+  assert.ok(ms < 3000, 'storeText used ' + ms.toFixed(0) + 'ms of CPU on 200k spaces; a backtracking trim is quadratic');
 });
 
 test('#3679: the stored form has its own ceiling', () => {
@@ -136,7 +135,7 @@ test('#3679: a huge raw text of blank lines is refused before the store walks it
   let why;
   const ms = cpuMillisecondsOf(() => { why = chat.storedProblem(text); });
   assert.match(String(why), /indentation and spacing/);
-  assert.ok(ms < 1000, 'took ' + ms.toFixed(0) + 'ms');
+  assert.ok(ms < 1000, 'used ' + ms.toFixed(0) + 'ms of CPU');
 });
 
 test('#3679: the routes\' composed check refuses a huge raw text quickly, as production calls it', () => {
@@ -144,7 +143,7 @@ test('#3679: the routes\' composed check refuses a huge raw text quickly, as pro
   let why;
   const ms = cpuMillisecondsOf(() => { why = chat.messageProblem(text) || chat.storedProblem(text); });
   assert.notEqual(why, null, 'a 5.8MB message was accepted');
-  assert.ok(ms < 300, 'the composed check took ' + ms.toFixed(0) + 'ms; storeText walked the raw text before the cap');
+  assert.ok(ms < 300, 'the composed check used ' + ms.toFixed(0) + 'ms of CPU; storeText walked the raw text before the cap');
 });
 
 test('#3679: the Unicode line and paragraph separators are stored as line breaks', () => {

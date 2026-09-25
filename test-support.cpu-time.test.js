@@ -11,6 +11,11 @@ test('#3715 cpuMillisecondsOf reads milliseconds: a ~40ms busy loop reads betwee
   assert.ok(ms >= 1 && ms < 3000, 'a 40ms spin read ' + ms + 'ms of CPU');
 });
 
+test('#3715 cpuMillisecondsOf refuses an async function instead of timing it up to its first await', () => {
+  assert.throws(() => cpuMillisecondsOf(async () => { await null; }), /synchronous work only/);
+  assert.equal(typeof cpuMillisecondsOf(() => 1), 'number', 'CONTROL: a plain function that returns a value is measured');
+});
+
 test('#3715 cpuMillisecondsOf reads CPU, not wall: 200ms asleep reads well under 200', () => {
   const sab = new Int32Array(new SharedArrayBuffer(4));
   const wallStart = Date.now();

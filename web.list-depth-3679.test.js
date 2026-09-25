@@ -110,7 +110,7 @@ test('#3679: pjRich closes a fence in CRLF text (a task detail is stored raw)', 
 test('#3679: pjRich renders a long space run before a line separator in linear time (raw task details)', () => {
   const fn = RENDERERS.find(([n]) => n === 'pjRich')[1]();
   const ms = cpuMillisecondsOf(() => fn('- ' + ' '.repeat(200000) + '\u2028x\n# ' + ' '.repeat(200000) + '\u2028y\n1. ' + ' '.repeat(200000) + '\u2029z'));
-  assert.ok(ms < 3000, 'took ' + ms.toFixed(0) + 'ms');
+  assert.ok(ms < 3000, 'used ' + ms.toFixed(0) + 'ms of CPU');
 });
 
 test('#3679: the page styles each depth on every surface that shows these items', () => {

@@ -13,7 +13,11 @@ Card: kosmos#3715, the follow-up to #3710 (Ice Cream Kitty, scrub-cpu-3710, open
 ## Not changed
 `test-support.board-child.test.js` times how long we wait on a child process, which is genuinely wall time
 (the card says so). `engine/feedbacksend.test.js` is #3710's, still open; not touched here, so the two branches
-do not collide. Pointing it at the shared helper is a two-line follow-up once both are merged.
+do not collide. Pointing it at the shared helper is a two-line follow-up once both are merged (Kitty agreed,
+and asked me to do it).
+Three other linear-time guards stay on wall time because this helper cannot measure them:
+`cli.post-stdin-2909.test.js` (two) times a child process (`runCli`), whose CPU is not this process's, and
+`tools.windows-kosmos-cli-570.test.js` wraps an async `run`. The helper refuses async work.
 
 ## Measured
 - The four files plus the helper test: 113 pass.
@@ -22,7 +26,9 @@ do not collide. Pointing it at the shared helper is a two-line follow-up once bo
   trips on CPU time: 27,201ms against its 3,000ms bound.
 
 ## Weakest premise
-CPU time is at most wall time, so each guard is laxer than before by up to the load factor; a real
-backtracking regression is orders of magnitude over the bound (the planted one, 9x), so it still trips.
+CPU time leaves out time spent waiting to be scheduled, so a loaded machine inflates it far less than wall
+time, and a guard is laxer than before under load. It can exceed wall time through other threads in the process
+(GC), which only makes a guard stricter. A real backtracking regression is far over the bound (the planted one,
+9x), so it still trips.
 Only one guard was checked with a real plant (store-indent); the other nine are shown to read the helper
 by the mutation, not by planting a backtracking pattern in each.

@@ -120,11 +120,11 @@ test('#3679: the prose around a quote is trimmed in linear time (a long space ru
   const text = 'Mara said: ' + QUOTE + ' then' + ' '.repeat(200000) + 'more';
   const start = text.indexOf(QUOTE);
   const ms = cpuMillisecondsOf(() => api.pjRoomRow(row('leo', text, { quotes: [{ of: 'rmara', from: 'mara', start, end: start + QUOTE.length }] }), P));
-  assert.ok(ms < 3000, 'rendering took ' + ms.toFixed(0) + 'ms; a backtracking trim is quadratic');
+  assert.ok(ms < 3000, 'rendering used ' + ms.toFixed(0) + 'ms of CPU; a backtracking trim is quadratic');
 });
 
 test('#3679: a list line with a long space run and a line separator renders in linear time in the room', () => {
   const text = 'look:\n```\n- ' + ' '.repeat(200000) + ' x';
   const ms = cpuMillisecondsOf(() => api.pjRoomRow(row('leo', text), P));
-  assert.ok(ms < 3000, 'rendering took ' + ms.toFixed(0) + 'ms; a (.*)$ line rule backtracks');
+  assert.ok(ms < 3000, 'rendering used ' + ms.toFixed(0) + 'ms of CPU; a (.*)$ line rule backtracks');
 });
