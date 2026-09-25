@@ -253,6 +253,16 @@ if [ -z "${AGENT_WORKFORCE_HOME:-}" ] || [ "${AGENT_WORKFORCE_HOME%/}" = "${HOME
   # both fail. The address is .invalid on purpose: nothing real can answer to it.
   printf '%s\n' '{"oauthAccount":{"emailAddress":"fixture@example.invalid","organizationName":"Kosmos browser checks"}}' \
     > "$AGENT_WORKFORCE_HOME/.claude.json"
+  # Claude Code's canonical path is <home>/.local/bin/claude, so a sandbox home has
+  # none and creation refuses. A stand-in that exits at once, as the sb4 board's
+  # fake-claude does: the create path's liveness probe then fails open (the
+  # not-live case the create checks already allow for) instead of running the
+  # host's real Claude Code against a real account. A caller's override is kept.
+  if [ -z "${AGENT_WORKFORCE_CLAUDE_BIN:-}" ]; then
+    printf '#!/bin/sh\nexit 1\n' > "$RUN_DIR/fake-claude-home"
+    chmod +x "$RUN_DIR/fake-claude-home"
+    export AGENT_WORKFORCE_CLAUDE_BIN="$RUN_DIR/fake-claude-home"
+  fi
 fi
 # #1818: a run that dies AFTER the checks begin but BEFORE the summary (a kill, an
 # OOM, or -- pre-fix -- a mid-run edit) otherwise leaves no FAILED line and no
