@@ -5832,6 +5832,18 @@ body:not(.consolidated) .pjmidhead:has(.pjhead) .tsearch:focus-within { flex-bas
              display: inline-flex; align-items: center; gap: 2px; opacity: 0;
              pointer-events: none; transition: opacity .12s ease; }
 .msg:hover .rxn-quick, .rxn-quick:focus-within { opacity: 1; pointer-events: auto; }
+/* #3745: replying to a room post. */
+.rxn-reply { font: inherit; font-size: .75rem; border: 1px solid var(--k-rule); background: var(--k-surface); color: var(--k-ink-2); border-radius: 999px; padding: 1px 10px; margin-left: 4px; cursor: pointer; min-height: 24px; }   /* WCAG 2.5.8 target size */
+.rxn-reply:hover, .rxn-reply:focus-visible { color: var(--k-ink); border-color: var(--k-ink-2); }
+.pj-replying { display: flex; align-items: center; gap: 8px; margin: 0 0 6px; padding: 6px 10px; border-left: 3px solid var(--gold-deep); background: var(--k-surface); color: var(--k-ink-2); font-size: .8125rem; border-radius: 4px; }
+.pj-replying[hidden] { display: none; }
+.pj-replying-h { flex: 0 1 auto; min-width: 0; color: var(--k-ink-2); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.pj-replying-t { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.pj-replying-x { font: inherit; font-size: 1rem; line-height: 1; border: 0; background: none; color: var(--k-ink-2); cursor: pointer; padding: 0; min-width: 24px; min-height: 24px; border-radius: 4px; }
+.msg-replyto { display: block; max-width: 100%; margin: 0 0 4px; padding: 2px 8px; border: 0; border-left: 2px solid currentColor; background: none; font: inherit; font-size: .75rem; text-align: left; color: inherit; cursor: pointer; min-height: 24px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.msg-replyto.gone { cursor: default; font-style: italic; }
+.msg-flash .msg-bd { outline: 2px solid var(--gold-deep); outline-offset: 2px; transition: outline-color .3s; }
+@media (prefers-reduced-motion: reduce) { .msg-flash .msg-bd { transition: none; } }
 .rxn-more { display: inline-flex; align-items: center; justify-content: center; width: 24px; height: 24px;
             border-radius: 100px; border: 1px solid var(--k-rule); background: transparent;
             cursor: pointer; padding: 0; }
@@ -5839,7 +5851,7 @@ body:not(.consolidated) .pjmidhead:has(.pjhead) .tsearch:focus-within { flex-bas
 /* Grey smiley, muted like the composer's emoji glyph (#2357): a colour-font glyph
    ignores CSS `color`, so grayscale it with a filter. */
 .rxn-more-glyph { filter: grayscale(1) opacity(.6); font-size: .95rem; line-height: 1; }
-.rxn-more:focus-visible, .rxn:focus-visible, .rxn-pick:focus-visible { outline: 2px solid var(--k-ink); outline-offset: 2px; }
+.rxn-more:focus-visible, .rxn:focus-visible, .rxn-pick:focus-visible, .rxn-reply:focus-visible, .msg-replyto:focus-visible, .pj-replying-x:focus-visible { outline: 2px solid var(--k-ink); outline-offset: 2px; }   /* #3745: Reply, the header and the x get the bar's ring */
 /* The full picker the grey smiley opens (PJ_EMOJI): a scrollable grid. It is
    `position: fixed` and JS-positioned from the smiley's rect (see the room click
    handler), NOT absolute: the room thread (`.thread`) is an `overflow: auto` scroll
@@ -13316,6 +13328,8 @@ window.kosmosMeasureScrollbarWidth();
            The `@` picker still opens on typing @ (asserted in
            web.mention-picker.test.js); the composer hint that named it was
            removed in #2711 item 9. -->
+      <!-- #3745: "Replying to <name>: <first words>" with an x, while a reply is being written. -->
+      <div class="pj-replying" id="pj-reply" hidden></div>
       <div class="composer">
         <div class="composerbox">
           <!-- ⚠️ THE PLACEHOLDER CARRIES THE @name MECHANISM (Josh, 6.59 QA
@@ -46947,9 +46961,50 @@ document.getElementById('pj-room').addEventListener('click', async (e) => {
     }
     return;
   }
+  if (e.target.closest('.rxn-reply')) { rxnCloseAllPickers(); pjReplyStart(box.getAttribute('data-post')); return; }
   const btn = e.target.closest('.rxn, .rxn-pick');
   if (!btn || !PJ_CURRENT) return;
   await rxnToggle(PJ_CURRENT, box, btn.getAttribute('data-emoji'));
+});
+
+/* #3745: a reply's header jumps to the post it answers and briefly highlights it. A post the
+   search is hiding says so; a post that is gone was already drawn as unavailable. */
+document.getElementById('pj-room').addEventListener('click', (e) => {
+  const head = e.target && e.target.closest ? e.target.closest('.msg-replyto[data-jump]') : null;
+  if (!head) return;
+  const id = head.getAttribute('data-jump');
+  const box = document.querySelector('#pj-room .rxns[data-post="' + CSS.escape(id) + '"]');
+  const row = box ? box.closest('.msg') : null;
+  if (!row) {
+    const why = PJ_ROOM_POSTS.has(id) ? PJ_HIDDEN_BY_SEARCH : 'The original message is unavailable.';
+    document.getElementById('pj-room-msg').textContent = why;   // seen, not only heard
+    pjRoomAnnounce(why);
+    return;
+  }
+  const still = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+  row.scrollIntoView({ block: 'center', behavior: still ? 'auto' : 'smooth' });
+  if (!row.hasAttribute('tabindex')) row.setAttribute('tabindex', '-1');
+  row.focus({ preventScroll: true });   // keyboard and screen-reader users land on the original too
+  PJ_JUMP_FOCUS = id;
+  row.classList.remove('msg-flash'); void row.offsetWidth; row.classList.add('msg-flash');
+  setTimeout(() => row.classList.remove('msg-flash'), 1800);
+});
+document.getElementById('pj-reply').addEventListener('click', (e) => {
+  if (!e.target.closest('.pj-replying-x') || !PJ_CURRENT) return;
+  const r = PJ_REPLY[PJ_CURRENT];
+  if (PJ_REPLY_SENDING && PJ_REPLY_SENDING.project === PJ_CURRENT && r && r.id === PJ_REPLY_SENDING.id) {
+    // THIS reply already left with the post on its way; cancelling now would only look like it worked
+    const say = 'This is already being sent as a reply.';
+    document.getElementById('pj-room-msg').textContent = say;
+    pjRoomAnnounce(say);
+    return;
+  }
+  delete PJ_REPLY[PJ_CURRENT];
+  pjReplyPaint(PJ_CURRENT);
+  const said = document.getElementById('pj-room-msg');   // a refusal that said "Press ×" is done with
+  if (said && /Press \u00d7/.test(said.textContent)) said.textContent = '';
+  pjRoomAnnounce('Not replying.');
+  document.getElementById('pj-post').focus();
 });
 
 /* #3650: reactions in a Direct Message. The same pills, quick bar and shared picker as
@@ -47391,6 +47446,7 @@ function openProject(id) {
        previous project's thread never painted under the new name. */
     document.getElementById('pj-post').value = PJ_ROOM_DRAFTS[id] || '';
     attachPaint(ATTACH_ROOM);   // this project's pending files, not the last one's
+    pjReplyPaint(id);           // #3745: this project's pending reply, not the last one's
     /* A parked draft comes back at the height it was written at: the grow
        runs on `input`, and setting `.value` in code fires no such event. */
     pjGrowComposer(document.getElementById('pj-post'));
@@ -47412,6 +47468,8 @@ function openProject(id) {
     const roomBox = document.getElementById('pj-room');
     roomBox.__lastRoom = undefined;
     roomBox.__lastBody = undefined;
+    PJ_ROOM_POSTS_OF = null;   // #3745: the posts on screen are the last project's until this one paints
+    PJ_JUMP_FOCUS = null;
     // A query is a reading posture, not project state: carried across
     // projects it would hide another room's posts silently. The
     // transition flag resets with it, or project B's first no-match
@@ -47463,8 +47521,67 @@ function openProject(id) {
    built from the outcomes the engine returns -- a post to three that
    reaches two must never render as sent. */
 const PJ_ROOM_DRAFTS = {};
+/* #3745: the post a reply is answering, one per project (like the drafts): { id, who, words }. */
+const PJ_REPLY = {};
+/* #3745: the room's posts by id, refreshed on every paint, so a reply's header can name the post it
+   answers and the jump can tell "gone" from "hidden by your search". */
+let PJ_ROOM_POSTS = new Map();
+let PJ_ROOM_POSTS_OF = null;   // which project PJ_ROOM_POSTS was painted for
+let PJ_ROOM_PARTIAL = false;   // the last room read could not read everything (ok:false)
+let PJ_JUMP_FOCUS = null;      // the post a jump focused, so a repaint can put focus back on it
+const PJ_HIDDEN_BY_SEARCH = 'That message is hidden by your search.';   // said by the jump, cleared by the search
+/* A post's first line, for the reply strip and the reply header. */
+function pjReplyWords(text) {
+  // At most two marks on a letter, as agents are told: a stack of them ("zalgo") stays one short line.
+  const line = (String(text || '').split('\n').map((l) => l.trim()).find(Boolean) || '').replace(/(\p{M}{2})\p{M}+/gu, '$1');
+  const chars = Array.from(line);   // by code point, so no character is cut into invalid halves
+  return chars.length > 80 ? chars.slice(0, 80).join('').trimEnd() + '\u2026' : line;
+}
+/* What the strip and the header quote: the first line, or for a post with no words the file it
+   carried, so "Replying to You:" is never followed by nothing. */
+function pjReplyGist(m) {
+  const words = pjReplyWords(m && m.text);
+  if (words) return words;
+  const f = pjFiles(m)[0];
+  return f ? (typeof f.name === 'string' && f.name ? f.name : 'a file') : 'a message';
+}
+function pjReplyWho(p, m) { return m && m.operator === true ? 'You' : (pjNameOf(p, m && m.from) || (m && m.from) || 'someone'); }
+/* The strip above the composer, for the project on screen. */
+function pjReplyPaint(projectId) {
+  const el = document.getElementById('pj-reply');
+  if (!el) return;
+  const r = projectId ? PJ_REPLY[projectId] : null;
+  const input = document.getElementById('pj-post');
+  if (!r) {
+    el.hidden = true; el.innerHTML = '';
+    if (input) input.removeAttribute('aria-describedby');
+    return;
+  }
+  el.hidden = false;
+  if (input) input.setAttribute('aria-describedby', 'pj-reply-what');   // a screen reader hears "Replying to" each time it lands on the box
+  /* Reply threads; it does not call the author (who is asked is what the words @-name), so say how. */
+  el.innerHTML = '<span class="pj-replying-t" id="pj-reply-what">Replying to <b>' + esc(r.who) + '</b>: ' + esc(r.words) + '</span>'
+    + (r.mine ? '' : '<span class="pj-replying-h">Add @name to ask them directly</span>')
+    + '<button type="button" class="pj-replying-x" aria-label="Stop replying">\u00d7</button>';
+}
+function pjReplyStart(postId) {
+  const p = pjById(PJ_CURRENT);
+  const m = PJ_ROOM_POSTS.get(postId);
+  // Covers the moment between a project switch and the new room's first paint (a switch clears the
+  // room and drops a late fetch). The real guard is the server's: it refuses a reply to a post that is
+  // not in this room, so nothing is ever misfiled.
+  if (!p || !m || !PJ_CURRENT || PJ_ROOM_POSTS_OF !== PJ_CURRENT) { pjRoomAnnounce('Could not start a reply. Try again.'); return; }
+  PJ_REPLY[PJ_CURRENT] = { id: m.id, who: pjReplyWho(p, m), words: pjReplyGist(m), mine: m.operator === true };
+  pjReplyPaint(PJ_CURRENT);
+  const said = document.getElementById('pj-room-msg');   // a refusal about the previous reply is done with
+  if (said && /Press \u00d7/.test(said.textContent)) said.textContent = '';
+  pjRoomAnnounce('Replying to ' + PJ_REPLY[PJ_CURRENT].who + ': ' + PJ_REPLY[PJ_CURRENT].words);   // the strip itself is not a live region
+  const input = document.getElementById('pj-post');
+  if (input) input.focus();
+}
 let PJ_ROOM_GEN = 0;
 let PJ_POSTING = false;
+let PJ_REPLY_SENDING = null;   // #3745: { project, id } of the reply on its way, so x knows whether THIS reply already left
 
 function pjJoinNames(list) {
   if (list.length <= 1) return list.join('');
@@ -47674,7 +47791,7 @@ const RXN_DEFAULTS = ['\u{1F44D}', '\u{2764}\u{FE0F}', '\u{1F525}'];
    carried thousands of dead nodes. The full list now lives in ONE shared `#rxn-picker`
    (rxnPickerEl / rxnPickerBuild below), the same shape the composer's `#pj-emoji`
    panel already uses, opened beside whichever post's smiley was clicked. */
-function rxnsInner(list) {
+function rxnsInner(list, withReply) {
   const pills = (Array.isArray(list) ? list : []).map((r) => {
     const e = String(r && r.emoji ? r.emoji : '');
     if (!e) return '';
@@ -47694,8 +47811,10 @@ function rxnsInner(list) {
      smiley (`.rxn-more`) that opens the full picker -- the Discord shape he asked
      for. Existing pills stay visible always; only the `.rxn-quick` bar is hover-
      gated. #2834: the smiley opens the SHARED `#rxn-picker`, not an inline one. */
+  /* #3745: Reply, in the same hover bar, for a ROOM post only (the DM thread shares this bar). */
+  const reply = withReply ? '<button class="rxn-reply" type="button" aria-label="Reply to this message">Reply</button>' : '';
   return pills
-    + '<span class="rxn-quick">' + quicks
+    + '<span class="rxn-quick">' + quicks + reply
     + '<button class="rxn-more" type="button" aria-label="More reactions" aria-expanded="false">'
     + '<span class="rxn-more-glyph" aria-hidden="true">\u{1F600}</span></button>'
     + '</span>';
@@ -47703,12 +47822,12 @@ function rxnsInner(list) {
 function pjReactions(m) {
   const id = String(m && m.id ? m.id : '');
   if (!id) return '';
-  return '<div class="rxns" data-post="' + esc(id) + '">' + rxnsInner(m && m.reactions) + '</div>';
+  return '<div class="rxns" data-post="' + esc(id) + '">' + rxnsInner(m && m.reactions, true) + '</div>';
 }
 /* Repaint one post's reaction row in place from a fresh list (the react route's
    response), so a toggle updates its own row without a full room re-fetch. */
 function repaintReactions(box, list) {
-  if (box) box.innerHTML = rxnsInner(list);
+  if (box) box.innerHTML = rxnsInner(list, box.hasAttribute('data-post'));   // a room row keeps its Reply
 }
 /* #2700: fold a run of consecutive room refusals that share one reason into a
    single 'refused-group' row, so a valve-stopped busy room shows ONE band
@@ -47764,7 +47883,7 @@ function pjAvatarVer(from) {
   const c = (LAST || []).find((a) => a && a.sessionName === from);
   return (c && c.avatarVer) || 0;
 }
-function pjRoomRow(m, p) {
+function pjRoomRow(m, p, hideHeader) {
   /* A refusal the room can see (#315): Scarlett tried to answer, was stopped,
      and the only record was inside her own window, so from the outside she
      read as broken. The engine's refusal contract already dedups (one row per
@@ -47853,12 +47972,29 @@ function pjRoomRow(m, p) {
      timestamp only ever appear alongside a real message. The name also carries
      data-open-agent (click-to-open, wired on the thread). */
   const nameEl = (!isOp && name) ? '<b class="msg-nm" data-open-agent="' + esc(m.from) + '">' + esc(name) + '</b>' : '';
+  /* #3745: the post this one answers, as a compact header that jumps to it. */
+  let replyEl = '';
+  const origForSr = (hideHeader === true && typeof m.replyTo === 'string' && m.replyTo)
+    ? PJ_ROOM_POSTS.get(m.replyTo) : null;
+  /* The header is left out when the reply sits right under what it answers; that closeness is only
+     seen, so a screen reader still hears what it answers. */
+  if (origForSr) replyEl = '<span class="vh">Answers ' + esc(pjReplyWho(p, origForSr)) + ': ' + esc(pjReplyGist(origForSr)) + '.</span>';
+  // Left out only when the original is there to name; otherwise the header says it is gone (never silence).
+  if (typeof m.replyTo === 'string' && m.replyTo && !origForSr) {
+    const orig = PJ_ROOM_POSTS.get(m.replyTo);
+    replyEl = !orig && PJ_ROOM_PARTIAL
+      ? '<span class="msg-replyto gone">Original message could not be read just now</span>'   // unknown is not gone
+      : orig
+      ? '<button type="button" class="msg-replyto" data-jump="' + esc(m.replyTo) + '" aria-label="' + esc(pjReplyWho(p, orig) + ': ' + pjReplyGist(orig) + ', the message this answers. Go to it') + '">'
+        + '<b>' + esc(pjReplyWho(p, orig)) + ':</b> ' + esc(pjReplyGist(orig)) + '</button>'
+      : '<span class="msg-replyto gone">Original message unavailable</span>';
+  }
   const timeEl = whenStr ? '<span class="msg-t">' + whenStr + '</span>' : '';
   const hasBubble = bd;
   /* #3743: data-mid, as a DM row has, so an unread post can be found after the paint and given its edge. */
   return '<div class="msg' + (isOp ? ' you' : '') + '" data-mid="' + esc(String(m.id || m.at || '')) + '">' + av
     + '<div class="msg-b">'
-    + (hasBubble ? '<div class="msg-bd">' + nameEl + bd + timeEl + '</div>' : '')
+    + (hasBubble ? '<div class="msg-bd">' + nameEl + replyEl + bd + timeEl + '</div>' : '')
     + pjReactions(m) + '</div></div>';
 }
 
@@ -48166,7 +48302,26 @@ function paintRoom(body) {
      ever hoisted above that loop, the group would read as a single speaker
      keyed on an array. Keep this the last transform before the render, and
      those consumers keep seeing only real message kinds. */
-  const rows = pjFoldRoomRows(shown).map((m) => pjRoomRow(m, p) + pjUnansweredLine(m, p, body.unanswered)).join('');
+  PJ_ROOM_POSTS = new Map(allRows.filter((r) => r && r.kind === 'post' && typeof r.id === 'string').map((r) => [r.id, r]));   // #3745
+  PJ_ROOM_POSTS_OF = p ? p.id : null;
+  PJ_ROOM_PARTIAL = body.ok === false;
+  /* #3745: a reply needs no header when the room already reads that way: it sits right under the
+     post it answers, or right under another answer to the same post (three agents answering one
+     question). Any other row in between (a refusal, a note, an unanswered line) shows it, and so
+     does a search, which hides the rows between. */
+  let prev = null;   // { id, replyTo } of the row just drawn, when it was a post with nothing after it
+  const rows = pjFoldRoomRows(shown).map((m) => {
+    // Not while searching: a search hides the rows between, so two posts only LOOK adjacent there.
+    // A sibling answer hides its header only when the one above hid its own: the chain back to the
+    // original must be unbroken, or nothing on screen ties this answer to what it answers (round 27).
+    const adjacent = !filtering && prev && m && typeof m.replyTo === 'string'
+      && (prev.id === m.replyTo || (prev.replyTo === m.replyTo && prev.hid === true));
+    const unanswered = pjUnansweredLine(m, p, body.unanswered);
+    const html = pjRoomRow(m, p, !!adjacent) + unanswered;
+    prev = m && m.kind === 'post' && typeof m.id === 'string' && !unanswered
+      ? { id: m.id, replyTo: typeof m.replyTo === 'string' ? m.replyTo : null, hid: !!adjacent } : null;
+    return html;
+  }).join('');
   /* An unreadable record is SAID, ahead of whatever could be read --
      no-state-as-silence, the same rule as every list on this app. */
   const note = body.ok === false
@@ -48213,6 +48368,13 @@ function paintRoom(body) {
     box.__lastRoom = html;
     box.__lastRoomQuery = PJ_ROOM_QUERY;
     paintThreadInto(box, html, rows !== '', queryChanged, filtering);
+    /* #3745: a repaint replaces the row a jump focused; put focus back so a keyboard or screen-reader
+       user keeps their place (only if focus fell to the page, never taken from somewhere else). */
+    if (PJ_JUMP_FOCUS && (!document.activeElement || document.activeElement === document.body)) {
+      const b = box.querySelector('.rxns[data-post="' + CSS.escape(PJ_JUMP_FOCUS) + '"]');
+      const r = b ? b.closest('.msg') : null;
+      if (r) { r.setAttribute('tabindex', '-1'); r.focus({ preventScroll: true }); }
+    }
   }
   /* #3743: after the paint, and on every poll; not on a read that did not answer (ok false, no rows), which would
      make the room's whole history look new on the next one. */
@@ -48229,8 +48391,19 @@ document.getElementById('d-talk-search').addEventListener('input', () => {
   paintTalkThread(th.__lastBody, th.__lastName);
 });
 let PJ_SEARCH_WAS_EMPTY = false;
+/* #3745: the person moved on from a jumped-to post (focus went elsewhere, or they clicked anywhere,
+   which can drop focus to the page without a focusin). */
+document.addEventListener('focusin', (e) => {
+  if (!PJ_JUMP_FOCUS) return;
+  const row = e.target && e.target.closest ? e.target.closest('#pj-room .msg') : null;
+  // Only the row itself keeps it: tabbing on to a button inside the row is moving on.
+  if (!(row && e.target === row && row.querySelector('.rxns[data-post="' + CSS.escape(PJ_JUMP_FOCUS) + '"]'))) PJ_JUMP_FOCUS = null;
+});
+document.addEventListener('pointerdown', () => { PJ_JUMP_FOCUS = null; }, true);
 document.getElementById('pj-room-search').addEventListener('input', () => {
   PJ_ROOM_QUERY = document.getElementById('pj-room-search').value;
+  const said = document.getElementById('pj-room-msg');   // #3745: "hidden by your search" is stale once the search changes
+  if (said && said.textContent === PJ_HIDDEN_BY_SEARCH) said.textContent = '';
   const box = document.getElementById('pj-room');
   if (!box.__lastBody) return;
   paintRoom(box.__lastBody);
@@ -48313,10 +48486,14 @@ async function pjPostSend(attachment) {
     pjRoomAnnounce(line);
   };
   try {
+    const replying = PJ_REPLY[sentProject] || null;   // #3745: the post this answers, if any
+    PJ_REPLY_SENDING = replying ? { project: sentProject, id: replying.id } : null;
     const res = await fetch('/api/project/' + encodeURIComponent(sentProject) + '/room', {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
-      body: JSON.stringify(pendingIds.length ? { text, attachments: pendingIds } : { text }),
+      body: JSON.stringify(Object.assign({ text },
+        pendingIds.length ? { attachments: pendingIds } : {},
+        replying ? { reply_to: replying.id } : {})),   // #3745
     });
     const body = await res.json().catch(() => ({}));
     const d = (body && body.delivery) || {};
@@ -48332,6 +48509,7 @@ async function pjPostSend(attachment) {
     if (PJ_CURRENT === sentProject && input.value.trim() === sentText) pjComposerReset(input);
     if ((PJ_ROOM_DRAFTS[sentProject] || '').trim() === sentText) delete PJ_ROOM_DRAFTS[sentProject];
     if (pendingIds.length) attachClear(ATTACH_ROOM, sentProject);   // the files went with it; the composer repaints if it is this project
+    if (replying && PJ_REPLY[sentProject] && PJ_REPLY[sentProject].id === replying.id) { delete PJ_REPLY[sentProject]; if (PJ_CURRENT === sentProject) pjReplyPaint(sentProject); }
     if (PJ_CURRENT === sentProject) msg.textContent = '';
     /* The headline carries the aggregate: "Posted." over a partial
        delivery would say more on the audio channel than the engine did. */
@@ -48342,6 +48520,7 @@ async function pjPostSend(attachment) {
     verdict('We could not reach Kosmos to post that.');
   } finally {
     PJ_POSTING = false;
+    PJ_REPLY_SENDING = null;
     document.getElementById('pj-post-go').disabled = false;
   }
 }

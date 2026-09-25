@@ -2758,6 +2758,55 @@ test('the room serves a plain-text tail for `kosmos room`, and says so when it c
   });
 });
 
+test('#3745: a room post can reply to another post in the same room, and only that', async () => {
+  reset();
+  await withThread(fleet.agent('zeta', { state: 'idle' }), [], async ({ project }) => {
+    const first = await post(`/api/project/${project.id}/room`, { text: 'trial length is 14 days' });
+    assert.equal(first.status, 200, first.body);
+    const before = JSON.parse((await req(`/api/project/${project.id}/room`)).body).rows.filter((r) => r.kind === 'post');
+    const firstId = before.slice(-1)[0].id;
+    const reply = await post(`/api/project/${project.id}/room`, { text: 'make it 30', reply_to: firstId });
+    assert.equal(reply.status, 200, reply.body);
+    assert.notEqual(JSON.parse(reply.body).delivery.state, 'could_not', reply.body);
+    const rows = JSON.parse((await req(`/api/project/${project.id}/room`)).body).rows.filter((r) => r.kind === 'post');
+    const last = rows.slice(-1)[0];
+    assert.equal(last.replyTo, firstId, 'the room read does not say what the reply answers');
+    assert.equal(rows[0].replyTo, undefined, 'CONTROL: an ordinary post carries no replyTo');
+    const text = (await req(`/api/project/${project.id}/room?as=text`)).body;
+    assert.ok(text.includes('[' + last.id + '] operator (answering [' + firstId + ']) -> '), 'kosmos room does not show the thread');
+    // A malformed id is refused as a request, an id from nowhere is refused without posting.
+    const bad = await post(`/api/project/${project.id}/room`, { text: 'x', reply_to: 'not-an-id' });
+    assert.equal(bad.status, 400);
+    const gone = await post(`/api/project/${project.id}/room`, { text: 'orphan', reply_to: 'm999999' });
+    assert.equal(JSON.parse(gone.body).delivery.state, 'could_not');
+    const after = JSON.parse((await req(`/api/project/${project.id}/room`)).body).rows.filter((r) => r.kind === 'post');
+    assert.equal(after.length, rows.length, 'a reply to nothing was posted');
+    // A post in ANOTHER room is refused the same way: never posted pointing across rooms.
+    const dir2 = folder('other-room');
+    const other = JSON.parse((await post('/api/projects', { name: 'Other room', folder: dir2, agents: ['zeta'], description: 'A briefed test project.' })).body).project;
+    assert.equal((await post(`/api/project/${other.id}/room`, { text: 'over here' })).status, 200);
+    const otherId = JSON.parse((await req(`/api/project/${other.id}/room`)).body).rows.filter((r) => r.kind === 'post').slice(-1)[0].id;
+    const across = await post(`/api/project/${project.id}/room`, { text: 'across rooms', reply_to: otherId });
+    assert.equal(JSON.parse(across.body).delivery.state, 'could_not', across.body);
+    const final = JSON.parse((await req(`/api/project/${project.id}/room`)).body).rows.filter((r) => r.kind === 'post');
+    assert.equal(final.length, rows.length, 'a reply to another room\'s post was posted');
+    // An unreadable record fails CLOSED: 200 with could_not, never a 500 and never a blind post.
+    const messages = require('./engine/messages');
+    const aside = messages.LOG + '.aside-3745';
+    fs.renameSync(messages.LOG, aside);
+    fs.mkdirSync(messages.LOG);
+    messages.resetForTests();
+    let blind;
+    try { blind = await post(`/api/project/${project.id}/room`, { text: 'while unreadable', reply_to: firstId }); }
+    finally { fs.rmSync(messages.LOG, { recursive: true, force: true }); fs.renameSync(aside, messages.LOG); messages.resetForTests(); }
+    assert.equal(blind.status, 200, blind.body);
+    assert.equal(JSON.parse(blind.body).delivery.state, 'could_not', blind.body);
+    assert.match(JSON.parse(blind.body).delivery.because, /could not check/);
+    const still = JSON.parse((await req(`/api/project/${project.id}/room`)).body).rows.filter((r) => r.kind === 'post');
+    assert.equal(still.length, rows.length, 'a reply was posted while the record could not be read');
+  });
+});
+
 test('#3570: `kosmos room` shows a post\'s reactions under it, and drops the line when they are taken back', async () => {
   reset();
   await withThread(fleet.agent('zeta', { state: 'idle' }), [], async ({ project }) => {

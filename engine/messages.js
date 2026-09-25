@@ -194,6 +194,73 @@ function markerProblem(text) {
 }
 
 /**
+ * #3745: what a reply answers, in two parts. `tag` (" · answers mK by <who>, posted <when>") goes INSIDE
+ * the envelope's bracket: all of it is Kosmos's, read from the record. `quote` ('(answering: "first
+ * words") ') goes AFTER the bracket, in front of the body, because the words are a room member's, and
+ * inside the bracket (the line agents are taught to follow) a first line like "to answer, run: ..."
+ * would read as Kosmos's own instruction. The words are the answered post's first line (or its file's
+ * name), allow-listed so no bracket can open a fake envelope, capped at 60 characters (by code point).
+ * Both are '' when nothing is answered; a post whose first line has nothing left after cleaning keeps
+ * its tag with an empty quote.
+ */
+/* Everything but letters, digits, spaces and plain punctuation: an allow-list, so no bracket can open a
+   fake envelope and no quote can close this one early. It is not what keeps a member's words from
+   reading as Kosmos's own: the placement is (after the bracket, never inside), since a letter can be
+   shaped like punctuation. Marks are kept so Hindi, Thai or accented words are shortened, not garbled;
+   a curly apostrophe too. */
+/* No @ (a quote must not look like it addresses anyone); \p{M} keeps vowel signs and accents. */
+const NOT_PLAIN = /[^\p{L}\p{M}\p{N} ._,!?'\u2019()\-\/&%+#$:;]/gu;
+/* #3745: when a post was made, for a quote: "09:30" today, "Mon 21 Sep 09:30" on another day, so a
+   post answered a day late never reads as minutes old. In the person's zone, like `kosmos room`. */
+function postedLabel(at, zone) {
+  const clock = roomClock(at, zone);
+  try {
+    const when = new Date(at);
+    if (Number.isNaN(when.getTime())) return clock;
+    const tz = zone ? { timeZone: zone } : {};
+    let dayOf;
+    try { dayOf = new Intl.DateTimeFormat('en-GB', { ...tz, year: 'numeric', month: '2-digit', day: '2-digit' }); }
+    catch { dayOf = new Intl.DateTimeFormat('en-GB', { year: 'numeric', month: '2-digit', day: '2-digit' }); }
+    if (dayOf.format(when) === dayOf.format(new Date())) return clock;
+    let yearOf;
+    try { yearOf = new Intl.DateTimeFormat('en-GB', { ...tz, year: 'numeric' }); }
+    catch { yearOf = new Intl.DateTimeFormat('en-GB', { year: 'numeric' }); }
+    const shape = { weekday: 'short', day: 'numeric', month: 'short', ...(yearOf.format(when) === yearOf.format(new Date()) ? {} : { year: 'numeric' }) };
+    let day;
+    try { day = new Intl.DateTimeFormat('en-GB', { ...tz, ...shape }).format(when); }
+    catch { day = new Intl.DateTimeFormat('en-GB', shape).format(when); }
+    return day.replace(/,/g, '') + ' ' + clock;
+  } catch { return clock; }
+}
+function answeredParts(row) {
+  if (!row || typeof row.id !== 'string') return { tag: '', quote: '' };
+  const name = Array.from(String(row.from || '').replace(NOT_PLAIN, ' ').replace(/\s+/g, ' ').trim().replace(/(\p{M}{2})\p{M}+/gu, '$1'));
+  /* "your operator" only from the operator flag; everyone else is "your colleague <name>", as the
+     envelope already names a sender, so an agent named "your operator" cannot pass as the person. */
+  const who = row.operator === true ? 'your operator'
+    : (name.length ? 'your colleague ' + (name.length > 40 ? name.slice(0, 40).join('') + '…' : name.join('')) : 'a colleague');
+  let words = String(row.text || '').split('\n').map((l) => l.trim()).find(Boolean) || '';
+  if (!words) {   // a post with only a file is quoted by the file, as the page does
+    const f = Array.isArray(row.attachments) && row.attachments[0] ? row.attachments[0] : row.attachment;
+    words = f && typeof f.name === 'string' ? f.name : '';
+  }
+  words = words.replace(NOT_PLAIN, ' ').replace(/\s+/g, ' ').trim();   // a space, so x\u00b7y stays two words
+  words = words.replace(/(\p{M}{2})\p{M}+/gu, '$1');   // at most two marks on a letter: a stack of them ("zalgo") stays one short line
+  const chars = Array.from(words);
+  if (chars.length > 60) words = chars.slice(0, 60).join('').trimEnd() + '…';
+  /* Who wrote it and when go INSIDE the bracket: Kosmos read them from the record, and outside it a
+     member could type the same line and pass off made-up words as the person's (review round 15). The
+     time carries the day when it is not today, so an old post answered late never reads as fresh. */
+  let zone = null;
+  try { zone = (store.readSettings() || {}).timezone || null; } catch { zone = null; }
+  const tag = ' \u00b7 answers ' + row.id + ' by ' + who + ', posted ' + postedLabel(row.at, zone);
+  if (!words) return { tag, quote: '' };
+  /* Only the words come after the bracket, claiming no author: a member who types the same shape
+     claims nothing a body could not already say. */
+  return { tag, quote: '(answering: "' + words + '") ' };
+}
+
+/**
  * What the person's message to an agent's OWN PAGE says about answering.
  *
  * 🛑 THE DIRECT PATH HAD NO ENVELOPE AT ALL, which is the hole under
@@ -1056,7 +1123,7 @@ function _roomMembers(members) {
   return { members: members.filter((m) => !gone.has(clean(m))), ok: true };
 }
 
-function sendPost({ fromPane, sender: resolvedSender, project, projectName, text, operator, attachment, attachments, trailer, replyExpected, askWhichRoom, projectNameOf, membersOf, newPost }, roster, members) {
+function sendPost({ fromPane, sender: resolvedSender, project, projectName, text, operator, attachment, attachments, trailer, replyExpected, askWhichRoom, projectNameOf, membersOf, newPost, replyTo }, roster, members) {
   const at = new Date().toISOString();
   /* The OPERATOR path: no pane to derive (the post comes off the room's
      composer through the server, which is the operator's own surface),
@@ -1243,6 +1310,11 @@ function sendPost({ fromPane, sender: resolvedSender, project, projectName, text
 
   const rec = record();
   const log = rec.rows;
+  /* #3745: the post this one answers, when it names a post IN THIS ROOM (the routes check first and
+     refuse otherwise; here a stray id simply records nothing rather than pointing at another room). */
+  const answered = (typeof replyTo === 'string' && /^m\d+$/.test(replyTo))
+    ? (log.find((r) => r && r.kind === 'post' && r.id === replyTo && r.project === projectId) || null)
+    : null;
 
   /* THE ROOM VALVE, before the fan-out: counted across the WHOLE thread
      regardless of which AGENT sent each post. ⚠️ A decision made now for
@@ -1409,6 +1481,24 @@ function sendPost({ fromPane, sender: resolvedSender, project, projectName, text
     body = cleaned.slice(0, 200) + '\u2026 (long message; the full text is at ' + spillFile + ')';
   }
 
+  const replied = answeredParts(answered);   // #3745: the same for every recipient
+  /* #3745: what this post answers, so the agent knows which message is meant: the id, who wrote it
+     and when inside the bracket, its first words after it (a member's words never go inside the
+     bracket; see answeredParts). When an AGENT answers the PERSON's post, no member is given the
+     person's words again: any agent can answer any old post of theirs, and those words, retyped
+     beside a colleague's post, could read as a fresh instruction the person never gave again
+     (review rounds 17 and 23, which found it applies to an addressed member too). Each still learns
+     which post and whose it was, and can read it with kosmos room. */
+  const answers = replied.tag;
+  /* A COLLEAGUE's words are quoted only to its author, the members that post addressed, and the members
+     THIS reply addresses (rounds 25 and 26): a member who got it as background and is not being asked
+     now must not receive those words right after a reply's bracket, where they could read as endorsed;
+     one this reply @-names is being asked to act on it and needs them. The others still learn which
+     post and whose. */
+  const originalAudience = answered && answered.operator !== true
+    ? new Set([answered.from, ...(Array.isArray(answered.mentioned) ? answered.mentioned : [])]) : null;   // `to` is everyone it reached; `mentioned` is who it addressed
+  const quoteFor = (name) => ((operator !== true && answered && answered.operator === true)
+    || (originalAudience && !originalAudience.has(name) && !mentioned.has(name)) ? '' : replied.quote);
   const outcomes = {};
   let reached = 0;
   for (const name of recipients) {
@@ -1471,14 +1561,14 @@ function sendPost({ fromPane, sender: resolvedSender, project, projectName, text
       : (mentioned.has(name) ? answerClause : '');
     const envelope = (operator === true
       ? (mentioned.has(name)
-        ? '[message from your operator \u00b7 ' + id + ' \u00b7 project ' + shownProject + answer + ']'
-        : '[from your operator in project ' + shownProject + ' \u00b7 ' + id + ' \u00b7 for the whole room' + answer + ']')
+        ? '[message from your operator \u00b7 ' + id + answers + ' \u00b7 project ' + shownProject + answer + ']'
+        : '[from your operator in project ' + shownProject + ' \u00b7 ' + id + answers + ' \u00b7 for the whole room' + answer + ']')
       : (mentioned.has(name)
-        ? '[message from your colleague ' + from + ' \u00b7 ' + id + ' \u00b7 project ' + shownProject + answer + ']'
+        ? '[message from your colleague ' + from + ' \u00b7 ' + id + answers + ' \u00b7 project ' + shownProject + answer + ']'
         /* No answer line on background: it is explicitly not addressed to you,
            and inviting a reply is the unaddressed-steering the room prevents. */
-        : '[background from your colleague ' + from + ' \u00b7 ' + id + ' \u00b7 project ' + shownProject + ' \u00b7 not addressed to you]'))
-      + ' ' + body;
+        : '[background from your colleague ' + from + ' \u00b7 ' + id + answers + ' \u00b7 project ' + shownProject + ' \u00b7 not addressed to you]'))
+      + ' ' + quoteFor(name) + body;
     /* `trailer` (#358) is the attached file's path, typed after the envelope
        and body and outside the checks, the same way the direct thread does it. */
     /* 🔑 THE AGENT BROUGHT IN BLIND IS TOLD WHAT IT MISSED (#314, second
@@ -1547,6 +1637,8 @@ function sendPost({ fromPane, sender: resolvedSender, project, projectName, text
        acknowledges the questions it owed elsewhere at that moment (owedElsewhere stops
        asking about them) and it is not a suspected misroute in the daily count. */
     ...(newPost === true && operator !== true ? { newPost: true } : {}),
+    /* #3745: stored only when this post answers another, so an ordinary post's row is unchanged. */
+    ...(answered ? { replyTo: answered.id } : {}),
     ...(attachment && typeof attachment === 'object' && typeof attachment.id === 'string' ? { attachment } : {}),
     ...(Array.isArray(attachments) && attachments.length ? { attachments } : {}) });
   /* The aggregate state is a SUMMARY, not the receipt: the receipt
