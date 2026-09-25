@@ -159,6 +159,7 @@ for bad in ["", "Leo", "leo.x", "a/b", "../x", "leo?tab=settings", "leo&agent=x"
     check(tapURL(["address": "hers.kosmosplus.com", "session": bad]) == "https://hers.kosmosplus.com/", "session \(bad.debugDescription.prefix(24)): refused, the board home")
 }
 check(tapURL(["address": "hers.kosmosplus.com", "session": String(repeating: "a", count: 64)]) != "https://hers.kosmosplus.com/", "a 64-character session: accepted (control)")
+check(tapURL(["address": "hers.kosmosplus.com", "session": "a"]) == "https://hers.kosmosplus.com/?tab=detail&agent=a", "a 1-character session: accepted (the length is deliberately wider than NAME_RE)")
 check(tapURL(["address": "hers.kosmosplus.com", "session": 7]) == "https://hers.kosmosplus.com/", "a non-string session: the board home")
 check(tapURL(["address": "evil.example.com", "session": "leo"]) == nil, "a good session cannot rescue a bad address")
 

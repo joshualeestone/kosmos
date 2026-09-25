@@ -42,6 +42,13 @@ the separate kosmos-relay PR (signin-mobile-718).
 - **Raised, not decided here:** if the Kosmos+ subscription is bought through Stripe inside the iOS
   app, App Store guideline 3.1.1 (digital goods must use in-app purchase) likely applies. Sent to Liu
   Kang for Josh. The shell keeps a checkout flow working either way.
+- **Accepted risk, recorded:** a redirect or script step to another https site stays in the app
+  (so sign-in and checkout flows keep their session). A compromised third-party script inside such
+  a flow could therefore steer the WebView to an arbitrary https page in the app rather than Safari.
+  Narrowing it to an allow list (Stripe and known identity hosts) is a follow-up if it matters; with
+  Liu Kang's default (no purchase in the iOS app) the checkout part mostly goes away.
+- **Load failures are logged** by error domain, code and host only (a Mac link carries the session
+  in its URL fragment, so the URL itself is never logged).
 - **Error page wording** (no em dashes): "You're offline" / "Kosmos+ isn't answering" / "This page
   didn't load", each with Try again. Colours are Mona's sign-in tokens (navy ground, gold icon,
   royal button).

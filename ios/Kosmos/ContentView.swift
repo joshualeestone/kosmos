@@ -82,6 +82,10 @@ struct ContentView: View {
             guard generation == unlockGeneration else { return }
             switch result {
             case .success:
+                // A failure page from before the lock belongs to a WebView that is
+                // gone; the new one starts clean.
+                shell.failure = nil
+                shell.retrying = false
                 isUnlocked = true
             case .failed(let message):
                 NSLog("[Biometric] unlock failed: \(message)")
@@ -301,6 +305,8 @@ struct WebView: UIViewRepresentable {
             let e = error as NSError
             guard let failure = Shell.loadFailure(domain: e.domain, code: e.code) else { return }
             failedURL = e.userInfo[NSURLErrorFailingURLErrorKey] as? URL
+            // The host only: a Mac link carries the session in its fragment (#kst=).
+            NSLog("[Shell] load failed: \(e.domain) \(e.code) host=\(failedURL?.host ?? "?")")
             shell?.failureDetail = e.localizedDescription
             shell?.failure = failure
         }

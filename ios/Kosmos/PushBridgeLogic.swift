@@ -161,9 +161,12 @@ enum PushBridge {
         return parts.url
     }
 
-    // The same rule as the board's agent names (engine/create.js NAME_RE), with room
-    // to 64: lowercase letters, digits, hyphen and underscore, starting with a letter
-    // or digit. No dots, slashes, colons, percent signs, spaces or Unicode.
+    // The board's agent-name characters (engine/create.js NAME_RE): lowercase letters,
+    // digits, hyphen and underscore, starting with a letter or digit. No dots,
+    // slashes, colons, percent signs, spaces or Unicode. The LENGTH is deliberately
+    // wider than NAME_RE's 2 to 32 on both ends (1 to 64): a found agent's session
+    // may not follow NAME_RE, and a name the board does not know just opens the
+    // board home, so width here is safe while the character rule is what matters.
     static func isAgentSession(_ s: String) -> Bool {
         guard (1...64).contains(s.count), let first = s.unicodeScalars.first,
               ("a"..."z").contains(first) || ("0"..."9").contains(first)
