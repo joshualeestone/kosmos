@@ -1056,7 +1056,7 @@ function _roomMembers(members) {
   return { members: members.filter((m) => !gone.has(clean(m))), ok: true };
 }
 
-function sendPost({ fromPane, sender: resolvedSender, project, projectName, text, operator, attachment, attachments, trailer, replyExpected }, roster, members) {
+function sendPost({ fromPane, sender: resolvedSender, project, projectName, text, operator, attachment, attachments, trailer, replyExpected, askWhichRoom, projectNameOf, membersOf, newPost }, roster, members) {
   const at = new Date().toISOString();
   /* The OPERATOR path: no pane to derive (the post comes off the room's
      composer through the server, which is the operator's own surface),
@@ -1201,6 +1201,45 @@ function sendPost({ fromPane, sender: resolvedSender, project, projectName, text
   }
   const markerBad = markerProblem(text);
   if (markerBad) return refuse(markerBad);
+
+  /* #3224, the proactive half: the caller (live /api/post, never the outbox drain,
+     whose author is not there to answer) asks for this on a post that is not a reply.
+     If the agent owes the person an answer in another room, ask which room it meant
+     rather than post. After the text checks, so a post that would be refused anyway
+     gets that refusal first; before the room valve, so a misroute never meets the
+     wrong room's loop guard. NOT through refuse(): that logs a refused row the room shows,
+     and this is a question to the agent, not a refusal of the room. No double quotes
+     or backticks in the sentence: the bash CLI reads `because` with a sed that stops
+     at the first quote. */
+  if (askWhichRoom === true && operator !== true) {
+    /* The rooms the agent can still post in: a question from a room it was removed
+       from, or one that is gone, must not send it to a command that is refused. */
+    const canPostIn = (pid) => {
+      if (typeof membersOf !== 'function') return true;
+      const m = membersOf(pid);
+      if (!Array.isArray(m)) return false;
+      const r = _roomMembers(m);
+      return r.ok === true && r.members.includes(from);
+    };
+    const owed = owedElsewhere(from, projectId, Date.parse(at), { canPostIn });
+    if (owed) {
+      /* Counted, never named: no agent, project or post id in the log line. */
+      console.error('#3224: held a room post to ask which room it meant');
+      const safe = (v) => (v && /^[A-Za-z0-9._ -]+$/.test(v) && !v.includes(']') ? v : null);
+      let otherName = null;
+      try { otherName = safe(typeof projectNameOf === 'function' ? projectNameOf(owed.project) : null); } catch { otherName = null; }
+      const other = otherName || owed.project;
+      return {
+        state: chat.DELIVERY.COULD_NOT,
+        code: 'which_room',
+        because: 'you have an unanswered question from the person in ' + other + ' (' + owed.id + '), and this post is for '
+          + shownProject + '. If it answers that question, post it there: kosmos post --in-reply-to ' + owed.id + ' '
+          + owed.project + ' <your text>. If it is a new post for ' + shownProject + ', send it again with --new: kosmos post --new '
+          + projectId + ' <your text>',
+        id: null, at, outcomes: null,
+      };
+    }
+  }
 
   const rec = record();
   const log = rec.rows;
@@ -1504,6 +1543,10 @@ function sendPost({ fromPane, sender: resolvedSender, project, projectName, text
        "this was an acknowledgement, no reply was requested". Omitted for the default/true case so
        an ordinary post's record is byte-unchanged (a strict boolean === false, never a truthy). */
     ...(replyExpected === false ? { replyExpected: false } : {}),
+    /* #3224: a post sent with --new is the agent's own answer to "which room": it
+       acknowledges the questions it owed elsewhere at that moment (owedElsewhere stops
+       asking about them) and it is not a suspected misroute in the daily count. */
+    ...(newPost === true && operator !== true ? { newPost: true } : {}),
     ...(attachment && typeof attachment === 'object' && typeof attachment.id === 'string' ? { attachment } : {}),
     ...(Array.isArray(attachments) && attachments.length ? { attachments } : {}) });
   /* The aggregate state is a SUMMARY, not the receipt: the receipt
@@ -1886,6 +1929,25 @@ function sweepUnanswered(roster, now) {
    index) and correctness risk to a function whose exactness is the point. The
    lever if a long backfill ever proves slow is to build the index once in
    compileAll and pass windows to a count-from-index variant. */
+/* #3224: how many room posts in [sinceMs, untilMs) were sent with --new, that is, confirmed
+   as new for their room after (or instead of) the which-room question. Counts only, for the
+   digest beside the suspected-misroute line, because those posts are left out of that count:
+   without this line the digest would read lower while the heuristic's cost went unseen.
+   NULL when the record cannot be read, as suspectedMisrouteCount. */
+function confirmedNewPostCount(sinceMs, untilMs) {
+  const rec = record();
+  if (!rec.ok) return null;
+  const from = Number.isFinite(sinceMs) ? sinceMs : -Infinity;
+  const until = Number.isFinite(untilMs) ? untilMs : Infinity;
+  let n = 0;
+  for (const m of rec.rows) {
+    if (!m || m.kind !== 'post' || m.operator === true || m.newPost !== true) continue;
+    const t = Date.parse(m.at);
+    if (Number.isFinite(t) && t >= from && t < until) n += 1;
+  }
+  return n;
+}
+
 function suspectedMisrouteCount(sinceMs, untilMs) {
   const rec = record();
   if (!rec.ok) return null;   // could-not-read, NOT empty: caller omits the line rather than showing 0
@@ -1928,6 +1990,8 @@ function suspectedMisrouteCount(sinceMs, untilMs) {
   let count = 0;
   for (const p of rows) {
     if (!p || p.kind !== 'post' || p.operator === true) continue;   // W's own room post
+    // #3224: a post sent with --new is the agent's own answer to "which room" -- deliberate, not suspected.
+    if (p.newPost === true) continue;
     const who = p.from;
     const target = p.project;
     const postAt = Date.parse(p.at);
@@ -2084,6 +2148,73 @@ function reopenRoom(project, at) {
   return { ok: true, at: when };
 }
 
+/* #3224, the proactive half: a post that is NOT a reply (no in_reply_to), sent by an
+ * agent that owes the person an answer in a DIFFERENT room, is the likeliest shape of
+ * the misroute Josh reported. This finds that owed question, so /api/post can ask the
+ * agent which room it meant instead of posting blind. Returns { id, project } for the
+ * most recent owed question, or null when there is nothing to ask about.
+ *
+ * "Owed" is the same test the #185 nudge (`unanswered`) and the daily misroute count
+ * use: an operator post that mentioned this agent and reached its pane (anything but
+ * could_not), with no room post from the agent in that project since. Two bounds keep
+ * the cost of a wrong guess to one rerun, and rarely:
+ * - only questions from the last WHICH_ROOM_WINDOW_MS count, so an ask the agent
+ *   ignored yesterday does not hold every post it makes today;
+ * - if the agent ALSO owes an answer in the target room, posting there is ordinary
+ *   and nothing is asked.
+ * An unreadable record returns null (post as before): this is a question to the
+ * agent, not a gate, and sendPost's own writes meet the same record. */
+const WHICH_ROOM_WINDOW_MS = 60 * 60 * 1000;
+function owedElsewhere(agent, targetProject, now, opts) {
+  const who = String(agent == null ? '' : agent);
+  const target = String(targetProject == null ? '' : targetProject);
+  if (!who || !target) return null;
+  const at = Number.isFinite(now) ? now : Date.now();
+  const canPostIn = opts && typeof opts.canPostIn === 'function' ? opts.canPostIn : () => true;
+  const rec = record();
+  if (!rec || rec.ok !== true || !Array.isArray(rec.rows)) return null;
+  /* The id and project go into a sentence the bash CLI reads with a sed that stops at a
+     quote, and into a command the agent reruns: only the plain id shapes qualify. */
+  const plain = (v) => typeof v === 'string' && /^[A-Za-z0-9._-]+$/.test(v);
+  const asks = [];
+  const lastPostIn = new Map();   // project -> latest room post time by this agent
+  let lastNewAt = -Infinity;      // the agent's latest --new post: it answered "which room" then
+  for (const m of rec.rows) {
+    if (!m || m.kind !== 'post' || !m.project) continue;
+    const t = Date.parse(m.at);
+    if (!Number.isFinite(t)) continue;
+    if (m.operator === true) {
+      if (!Array.isArray(m.mentioned) || !m.mentioned.includes(who)) continue;
+      const oc = m.outcomes && m.outcomes[who];
+      if (!oc || oc === chat.DELIVERY.COULD_NOT) continue;
+      const age = at - t;
+      if (age < 0 || age > WHICH_ROOM_WINDOW_MS) continue;
+      if (!plain(String(m.id == null ? '' : m.id)) || !plain(m.project)) continue;
+      asks.push({ id: String(m.id), project: m.project, t });
+    } else if (m.from === who) {
+      /* operator !== true, as in `unanswered`: an agent named "you" must not find
+         operator posts standing in as its own answers. */
+      if (!(lastPostIn.get(m.project) >= t)) lastPostIn.set(m.project, t);
+      if (m.newPost === true && t > lastNewAt) lastNewAt = t;
+    }
+  }
+  /* >= as in `unanswered`: an answer in the same millisecond as the ask clears it. An
+     ask at or before the agent's latest --new post is treated as acknowledged. That is
+     slightly wider than "was put to it": a question landing between the hold and the
+     --new rerun is cleared too. Accepted: the window is one rerun long. */
+  const owed = asks.filter((a) => !(lastPostIn.get(a.project) >= a.t) && a.t > lastNewAt);
+  const elsewhere = owed.filter((a) => a.project !== target && (() => {
+    try { return canPostIn(a.project) === true; } catch { return false; }
+  })());
+  if (!elsewhere.length) return null;
+  const latest = elsewhere.reduce((x, y) => (y.t >= x.t ? y : x));
+  /* Owing the target room too makes a post there ordinary, but only when that question
+     is at least as recent as the newest one elsewhere: a question ignored in A fifty
+     minutes ago does not excuse answering B's question of two minutes ago into A. */
+  if (owed.some((a) => a.project === target && a.t >= latest.t)) return null;
+  return { id: latest.id, project: latest.project };
+}
+
 /* #3224: the project a POST belongs to, by its id, or null if no such post is in
  * the record. This is the NON-CIRCULAR oracle a reply binds to: the project of the
  * message being answered is a fact recorded when that message was posted (appendLog
@@ -2116,13 +2247,13 @@ function projectOfPost(id) {
 module.exports = {
   setSenderTextFilter, filteredText, // #3769
   quotedSegments, quoteWorthy, QUOTE_MIN_CHARS, QUOTE_MIN_WORDS,
-  projectOfPost,
+  projectOfPost, owedElsewhere,
   react, reactionsFor, normalizeReactionEmoji,
   operatorDirect, operatorNowLabel, validTimeZone, roomClock,
   START, END, blockBody,
   LOG,
   unanswered, sweepUnanswered, setUnansweredAfterForTests,
-  suspectedMisrouteCount,
+  suspectedMisrouteCount, confirmedNewPostCount,
   resolveSender, paneSession, paneClaim, send, logRefusedSend, sendPost, reopenRoom, list, owesReply, pairCount, readLog, record, roomNote, markerProblem,
   unreadAll, unread, markSeen, seenRead, SEEN,
   setRunner, resetForTests,

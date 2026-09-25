@@ -2535,7 +2535,7 @@ function keepAgentReply(who, text, at) {
  * order the route has always answered in), or null for the pane path. Returns the
  * delivery verdict.
  */
-function sendRoomPostAsAgent({ fromPane, sender, project, text, replyExpected, inReplyTo }, roster) {
+function sendRoomPostAsAgent({ fromPane, sender, project, text, replyExpected, inReplyTo, askWhichRoom, newPost }, roster) {
   let found = null;
   try { found = projects.get(String(project == null ? '' : project).trim(), roster); } catch { found = null; }
   if (!found) return { state: 'could_not', because: 'there is no project by that name, so there is no room to post into' };
@@ -2561,8 +2561,8 @@ function sendRoomPostAsAgent({ fromPane, sender, project, text, replyExpected, i
      (projectOfPost null) is treated as absent: never block a legit reply over a stale
      id. A proactive post (no in_reply_to) is unchanged. */
   const citedId = String(inReplyTo == null ? '' : inReplyTo).trim();
+  let answeredProject = null;   // outside the block: the which-room ask below keys on it (round 3)
   if (citedId) {
-    let answeredProject = null;
     try {
       answeredProject = messages.projectOfPost(citedId);
     } catch {
@@ -2591,6 +2591,23 @@ function sendRoomPostAsAgent({ fromPane, sender, project, text, replyExpected, i
     projectName: found.name,
     text,
     replyExpected,
+    /* #3224, the proactive half: only a post that is not a reply is asked which room
+       it meant (a reply is already bound above). The caller decides whether to ask at
+       all: the live route does, the outbox drain does not. */
+    askWhichRoom: askWhichRoom === true && !answeredProject,
+    /* ^ keyed on the citation RESOLVING, not on one being present (round 3): an id that
+       names no post (a copied "[q12]" with its brackets, a typo) is bound to nothing, so
+       it is asked like any other non-reply rather than slipping past both checks. */
+    projectNameOf: (id) => {
+      try { const p = projects.get(id, roster); return p ? p.name : null; } catch { return null; }
+    },
+    // Members of the room a question came from, or null when it is gone.
+    membersOf: (id) => {
+      try { const p = projects.get(id, roster); return p ? (p.agents || []).map((a) => a.sessionName) : null; } catch { return null; }
+    },
+    /* Only a post that could have been asked is marked: a reply carrying --new too must
+       not acknowledge (and so silence) every question owed elsewhere (round 2). */
+    newPost: newPost === true && !citedId,
   }, roster, members);
 }
 
@@ -2669,6 +2686,8 @@ function drainOutboxNow(pass) {
         // #3224: the kept body carries in_reply_to too, so a replayed answer binds to
         // the same room a live one would (and the mismatch guard applies identically).
         inReplyTo: entry.body.in_reply_to,
+        // #3224: a kept --new post is NOT marked (round 3): written at drain time, the mark
+        // would acknowledge questions that arrived after the agent typed --new.
       }, now));
     },
     onExpired: (entry, because) => {
@@ -11894,6 +11913,14 @@ const server = http.createServer((req, res) => {
           bad.status = 400;
           throw bad;
         }
+        /* #3224: new_post is an OPTIONAL strict boolean, the same shape rule as
+           reply_expected. true says this post is deliberately new for this room, so it
+           is not held back to ask about a question the agent owes in another room. */
+        if ('new_post' in body && typeof body.new_post !== 'boolean') {
+          const bad = new Error('new_post must be true or false');
+          bad.status = 400;
+          throw bad;
+        }
         const roster = safeRoster();
         if (roster === null) {
           sendJson(res, 200, { delivery: { state: 'could_not', because: 'we could not check which agents are running, so nothing was posted' } });
@@ -11911,6 +11938,8 @@ const server = http.createServer((req, res) => {
           text: body.text,
           replyExpected: body.reply_expected,
           inReplyTo: body.in_reply_to,   // #3224: bind an answer to the room the message came from
+          askWhichRoom: body.new_post !== true,   // #3224: ask which room a non-reply meant, unless --new
+          newPost: body.new_post === true,        // #3224: recorded on the row (acknowledges; not a suspected misroute)
         }, roster);
         /* #2623: the phone seam (engine/notify.js) was deleted. A post that
            reached the room is delivered on the board as before; it no longer
