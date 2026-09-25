@@ -90,12 +90,12 @@ function blockBody(dir) {
     /* The Files list on the agent page (April's half of #3614) ships in the same change as
        this sentence, so the promise and the page land together. */
     'Tell them in one line where you saved it. This Files folder is inside your own',
-    'folder, and it is where "your own folder" points for a file made for the person,',
-    'wherever else these instructions use that phrase. Create the folder if it is not',
-    'there yet. Keeping what you make in a direct conversation in one place means',
-    'they always know where to find it: Kosmos lists what is in it on your page,',
-    'where they can open it. Save files directly in it, not in subfolders: the page',
-    'lists only what sits at the top of the folder.',
+    'folder, and it is only for files made for the person: your running summaries and',
+    'other working files stay where your instructions put them. Create the folder if',
+    'it is not there yet. Keeping what you make in a direct conversation in one place',
+    'means they always know where to find it: Kosmos lists what is in it on your',
+    'page, where they can open it. Save files directly in it, not in subfolders: the',
+    'page lists only what sits at the top of the folder.',
     '',
     'When the conversation is about one of your projects (the person names it, or the',
     'file is unmistakably that project\'s work, not only the same kind of thing), save',

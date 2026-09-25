@@ -42,7 +42,10 @@ test('#3614: the block names the REAL path, and says to create it and to keep pr
   assert.match(flat, /Create the folder if it is not there yet/);
   assert.match(flat, /Tell them in one line where you saved it\./, 'the plain Files case does not say to tell the person where it went');
   // #3759: the doctrine says "your own folder"; the block says which folder that is for these files.
-  assert.match(flat, /This Files folder is inside your own folder, and it is where "your own folder" points for a file made for the person, wherever else these instructions use that phrase/);
+  // Only files made for the person: the role's running summaries (roles.js SUMMARY_RHYTHM, "inside your
+  // own folder") must not be pulled into the list the person sees (review round 12).
+  assert.match(flat, /This Files folder is inside your own folder, and it is only for files made for the person: your running summaries and other working files stay where your instructions put them/);
+  assert.doesNotMatch(flat, /wherever else these instructions use that phrase/);
   assert.match(flat, /Kosmos lists what is in it on your page, where they can open it/, 'the block does not tell the agent the person sees its Files on its page (#3614 item 2 ships with it)');
   assert.match(flat, /Save files directly in it, not in subfolders: the page lists only what sits at the top of the folder/, 'the agent is not told the list skips subfolders, so tidied work reads as "Nothing here yet"');
   assert.match(flat, /Inside a project, keep using the project's own folder/);

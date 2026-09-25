@@ -13,8 +13,9 @@ Josh, 0.6.94 test, 2026-09-25 11:07 in #admin: agents should store files where t
 conversation, and be context-aware enough to put a project's file in that project instead.
 
 ## Change
-- engine/dmfiles.js also says the Files folder is inside the agent's own folder, so the doctrine's "your
-  own folder" and this block's "Files folder" name one place for a file made for the person (round 7).
+- engine/dmfiles.js also says the Files folder is inside the agent's own folder and only for files made
+  for the person (round 7, narrowed in round 12: a role agent's running summaries, written "inside your
+  own folder" by roles.js, stay where they are and never fill the person's Files list).
 - engine/dmfiles.js blockBody: the rewritten block (both destinations, say where it went, and when
   unclear save in Files and ask which project in the same line).
 - engine/dmfiles.test.js: the #3614 test follows the new first sentence; a new #3759 test pins both
@@ -54,20 +55,21 @@ conversation, and be context-aware enough to put a project's file in that projec
   a board run from a checkout, as on the fleet Mac, waits for its next restart), and the PR says so for
   the release notes, which are generated from what lands.
 
-## Measured (real agent runs, `claude -p` in a sandboxed agent folder holding this block, 2026-09-25 ~13:40 CDT, on the wording committed with "review round 11")
+## Measured (real agent runs, `claude -p` in a sandboxed agent folder holding this block, 2026-09-25 ~13:50 CDT, on the wording committed with "review round 12")
 One run per case, each in a fresh sandbox: a check of the wording, not a rate.
 
 | Case | Projects the agent is on | Saved to | First line of its reply |
 |---|---|---|---|
-| "a short packing list for a weekend camping trip as a file" | Henderson lease | `workers/writer/Files/weekend-camping-packing-list.md` | I saved the packing list as `weekend-camping-packing-list.md` in your Files folder. It's a checklist with five sections: shelter and sleep, kitchen, clothing, gear and safety, and personal items. |
-| "For the Henderson lease, a one-paragraph summary ... as a file" | Henderson lease | `projects/Henderson lease/renewal-notice-summary.md` | I saved it as `renewal-notice-summary.md` in the Henderson lease project folder. |
+| "a short packing list for a weekend camping trip as a file" | Henderson lease | `workers/writer/Files/weekend-camping-packing-list.md` | I saved the packing list as `weekend-camping-packing-list.md` in your Files folder. It's a checklist in six sections: shelter and sleep, kitchen, clothing, tools and safety, personal items, and a few ... |
+| "For the Henderson lease, a one-paragraph summary ... as a file" | Henderson lease | `projects/Henderson lease/Renewal notice summary.md` | I saved the summary in the Henderson lease project folder as `Renewal notice summary.md`. |
 | "draft a short email to my landlord asking about renewing, as a file" | Henderson lease | `workers/writer/Files/lease-renewal-email.md` | I saved the draft as `lease-renewal-email.md` in my Files folder. Is this for the Henderson lease project? If it is, I'll move it into that project's folder. |
-| same landlord email | Henderson lease, Maple Street lease | `workers/writer/Files/lease-renewal-email.md` | I saved the draft as `lease-renewal-email.md` in my Files folder. You're on two leases, Henderson and Maple Street. Which one is this for? Once you tell me, I'll move the draft into that project's folder. |
-| same landlord email | none | `workers/writer/Files/landlord-lease-renewal-email.md` | I saved the draft as `landlord-lease-renewal-email.md` in my Files folder. |
-| "For the Oak Avenue lease, a one-paragraph summary ... as a file" (a project it is not on) | Henderson lease | `workers/writer/Files/Oak Avenue lease - renewal notice summary.md` | I saved it in my Files folder as `Oak Avenue lease - renewal notice summary.md`. The only project I'm on is Henderson lease, and nothing I have mentions Oak Avenue. Which project does it belong to? I can move it there. |
+| same landlord email | Henderson lease, Maple Street lease | `workers/writer/Files/lease-renewal-email.md` | I wrote the email and saved it as `lease-renewal-email.md` in your Files folder, because I couldn't tell which lease it's for. Is it the Henderson lease or the Maple Street lease? I'll move it to ... |
+| same landlord email | none | `workers/writer/Files/landlord-lease-renewal-email.md` | I saved the draft to your Files folder as `landlord-lease-renewal-email.md`. |
+| "For the Oak Avenue lease, a one-paragraph summary ... as a file" (a project it is not on) | Henderson lease | `workers/writer/Files/Oak Avenue lease - renewal notice summary.md` | I saved the summary as `Oak Avenue lease - renewal notice summary.md` in your Files folder, because Oak Avenue isn't one of my projects. Should it go in the Henderson lease project, or somewhere ... |
+| "time for your four-hourly running summary" (the role's running-record section added) | Henderson lease | `workers/writer/summaries/2026-09-25-13.md` | I wrote the summary to `summaries/2026-09-25-13.md`. There's nothing to report yet. This is my first summary, the Henderson lease project folder is empty, and I haven't been given any work on it. ... |
 
 Row 3 changed with round 10: under "plainly part of that project's work" the agent filed the landlord email
 straight into its only project; under "unmistakably that project's work, not only the same kind of thing"
-it saves it in Files and asks whether it belongs to Henderson. A named project still goes to the project
-(row 2); a named project it is not on is unclear (row 6). Control, main's old wording, with the Henderson
-ask (an earlier run): also saved in the project.
+it saves it in Files and asks. A named project still goes to the project (row 2); a named project it is
+not on is unclear (row 6); a running summary stays out of Files (row 7). Control, main's old wording, with
+the Henderson ask (an earlier run): also saved in the project.
