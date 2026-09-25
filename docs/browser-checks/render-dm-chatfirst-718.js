@@ -1,4 +1,4 @@
-// Browser-check-surface: d-sec-talk d-talk-box d-dmthread d-say d-send d-attach d-nav dleft dhead d-talk-label
+// Browser-check-surface: d-sec-talk d-talk-box d-dmthread d-say d-send d-attach d-emoji-btn d-emoji d-talk-search d-talk-older d-nav dleft dhead d-talk-label dmbar kosmos-keyboard-up
 'use strict';
 
 /**
@@ -126,6 +126,7 @@ function measure() {
         chk(m.box && m.box.bottom <= m.vh && m.box.top >= 0, `${t} the composer is on screen`, JSON.stringify(m.box));
         chk(m.send && m.send.bottom <= m.vh && m.send.h >= MIN_TAP_PX, `${t} Post is on screen and at least ${MIN_TAP_PX}px tall`, JSON.stringify(m.send));
         chk(m.attach && m.attach.w >= MIN_TAP_PX && m.attach.h >= MIN_TAP_PX, `${t} the add-a-file button is at least ${MIN_TAP_PX}px`, JSON.stringify(m.attach));
+        chk(m.dm && m.dm.h >= MIN_TAP_PX && m.dm.left >= 0 && m.dm.bottom <= m.vh, `${t} the Direct Message tab is on screen and at least ${MIN_TAP_PX}px`, JSON.stringify(m.dm));
         chk(m.profile && m.profile.shown && m.profile.bottom <= m.vh && m.profile.left >= 0 && m.profile.right <= m.vw && m.profile.h >= MIN_TAP_PX, `${t} the Profile tab is on screen and at least ${MIN_TAP_PX}px`, JSON.stringify(m.profile));
         const ring = await page.evaluate(() => { const r = document.getElementById('d-ring').getBoundingClientRect(); const h = document.querySelector('.dhead').getBoundingClientRect(); const svg = document.querySelector('#d-ring svg'); return { drawn: !!svg, w: r.width, left: r.left, right: r.right, top: r.top, bottom: r.bottom, hl: h.left, hr: h.right, ht: h.top, hb: h.bottom }; });
         chk(ring.drawn && ring.w <= 60 && ring.left >= ring.hl - 0.5 && ring.right <= ring.hr + 0.5 && ring.top >= ring.ht - 0.5 && ring.bottom <= ring.hb + 0.5, `${t} the memory ring is sized to the compact avatar and sits inside the header`, JSON.stringify(ring));
@@ -257,6 +258,19 @@ function measure() {
         const kept = await page.evaluate(() => ({ active: document.activeElement && document.activeElement.id, headShown: document.querySelector('.dhead').getBoundingClientRect().height > 0 }));
         await page.mouse.move(2, 2); await page.mouse.up();
         chk(kept.active === 'd-say' && !kept.headShown, `${t} pressing the emoji button keeps focus in the text box (the handler's job) and the header aside`, JSON.stringify(kept));
+        // An emoji picked from the panel while typing: focus stays in the text box too.
+        await page.evaluate(() => document.getElementById('d-say').focus());
+        await page.click('#d-emoji-btn');
+        await page.waitForSelector('#d-emoji:not([hidden]) button', { timeout: 3000 }).catch(() => {});
+        const pick = await page.evaluate(() => { const b = document.querySelector('#d-emoji button'); if (!b) return null; const r = b.getBoundingClientRect(); return { x: r.x + r.width / 2, y: r.y + r.height / 2 }; });
+        let pickKept = null;
+        if (pick) {
+          await page.evaluate(() => document.getElementById('d-say').focus());
+          await page.mouse.move(pick.x, pick.y); await page.mouse.down();
+          pickKept = await page.evaluate(() => ({ active: document.activeElement && document.activeElement.id, headShown: document.querySelector('.dhead').getBoundingClientRect().height > 0 }));
+          await page.mouse.move(2, 2); await page.mouse.up();
+        }
+        chk(pickKept && pickKept.active === 'd-say' && !pickKept.headShown, `${t} pressing an emoji in the panel keeps focus in the text box (the handler's job) and the header aside`, JSON.stringify({ pick: !!pick, pickKept }));
         const sf = await page.evaluate(() => getComputedStyle(document.getElementById('d-talk-search')).fontSize);
         chk(sf === '16px', `${t} the search box is 16px (iOS does not zoom on focus)`, sf);
         chk(errs.length === 0, `${t} no page errors`, errs.join(' | '));
