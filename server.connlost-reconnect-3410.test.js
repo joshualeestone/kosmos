@@ -73,3 +73,28 @@ test('the route reports the reconnect phase from the sweep\'s own book, and null
   assert.equal(app.connlostHealEnabled(), false);
   assert.equal((await cards()).Nettie.reconnect, null, 'promised a reconnect with the operator brake on');
 });
+
+/* #3726: the project routes read the roster through safeRoster, which now carries the same
+   reconnect, so a connection Kosmos has given up on lights the project's Issue count as it lights
+   the board's. Control: a reconnect still waiting does not. */
+test('#3726: /api/projects counts a given-up connection as needing the person, from the same book', async (t) => {
+  const b = fleet.install([fleet.agent('Nettie', { state: 'connection_lost' })]);
+  t.after(() => { b.restore(); CONNLOST_BOOK.clear(); liveExecution.resetForTests(); });
+  liveExecution.allowLiveExecution();
+  const nettie = (await cards()).Nettie;
+  const projectsEngine = require('./engine/projects');
+  const dir = fs.mkdtempSync(path.join(process.env.AGENT_WORKFORCE_PROJECTS, 'pj-3726-'));
+  const made = projectsEngine.create({ name: 'Issue 3726', folder: dir, agents: [nettie.sessionName] });
+  const row = async () => {
+    const r = await fetch(`http://127.0.0.1:${server.address().port}/api/projects`);
+    assert.equal(r.status, 200);
+    return ((await r.json()).projects || []).find((p) => p.id === made.id);
+  };
+  let p = await row();
+  assert.equal(p.agents[0].reconnect.phase, 'waiting', 'the project member does not carry the board\'s reconnect');
+  assert.equal(p.summary.needsYou, 0, 'a reconnect still waiting was counted as needing the person');
+  CONNLOST_BOOK.set(nettie.sessionName, { evidence: 'x', sweeps: 3, nudges: [1], escalated: true });
+  p = await row();
+  assert.equal(p.agents[0].reconnect.phase, 'gave_up');
+  assert.equal(p.summary.needsYou, 1, 'a given-up connection did not light the project (#3726)');
+});

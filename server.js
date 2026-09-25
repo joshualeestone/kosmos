@@ -1701,7 +1701,11 @@ function safeRoster() {
     // itself is retired now -- success says nothing -- but the write
     // gate this comment justifies is unchanged).
     const gone = new Set(removal.removedAgents().filter((r) => removal.hidesCard(r)).map((r) => r.name));
-    return agents.filter((a) => !gone.has(a.sessionName));
+    /* #3726: the roster carries where the automatic reconnect stands, as /api/status's rows do (the
+       same expression), so the project routes can tell a connection Kosmos has given up on. */
+    return agents.filter((a) => !gone.has(a.sessionName)).map((a) => (a.state === 'connection_lost'
+      ? Object.assign({}, a, { reconnect: connlostHeal.reconnectPhase(CONNLOST_BOOK.get(a.sessionName), connlostHealEnabled()) })
+      : a));
   } catch {
     return null;
   }
