@@ -1,0 +1,97 @@
+# Releasing Kosmos for Windows from the Windows PC
+
+Josh ruled on 2026-09-25 that Homer releases Windows builds on his own, with no Mac step (#3725).
+This page covers the whole path. Every step runs on the Windows PC. Prod still moves only on Josh's go.
+
+## Where users are served from
+
+installkosmos.com answers every Windows name under `/dist/` with a 307 redirect to the public R2
+bucket `kosmos-dist-win`. That covers the versioned zips and their `.sha256` files, the alias
+`kosmos-win-x64.zip` and its sidecar, `latest-win.json` and `latest-win-staging.json`. **Publishing
+means writing to that bucket.** No site deploy is involved, because the site's wildcard redirects
+already cover every version.
+
+`publish-kosmos-windows.sh` and `promote-channel.sh --family win` only write a site checkout's
+`dist/`, which users never see for these names. They stay as the reference for the file set and the
+gates. `publish-r2.ps1` produces the same files with the same gates, directly in R2.
+
+## One-time setup
+
+1. **The R2 key.** It is an R2 API token with **Object Read & Write** on the one bucket
+   `kosmos-dist-win`, nothing else. Only the Cloudflare account owner can create one. The steps
+   are on #3725. Save its three values to
+   `%LOCALAPPDATA%\Kosmos\release-secrets\r2-dist-win.env`:
+
+   ```
+   R2_ACCOUNT_ID=<32 hex>
+   R2_ACCESS_KEY_ID=<access key id>
+   R2_SECRET_ACCESS_KEY=<secret access key>
+   ```
+
+   Then restrict the folder to your own user:
+   `icacls "%LOCALAPPDATA%\Kosmos\release-secrets" /inheritance:r /grant:r "%USERNAME%:(OI)(CI)F"`.
+   The script never prints the secret.
+2. **Tools.** Git for Windows (bash, curl, unzip), node, and PowerShell (5.1 or 7). The build also
+   needs `zip` and `shasum` on the bash PATH. Git for Windows ships `shasum` but not `zip`.
+
+## Each release
+
+1. **Build** from a clean checkout of `main`. A dirty tree is flagged in the zip's manifest, and
+   `win-staging-verify.js` refuses to verify it.
+
+   ```
+   bash tools/build-kosmos-windows.sh
+   ```
+
+   This produces `dist/kosmos-win-x64.zip`. The launcher inside it is the committed, signed
+   `tools/windows/Kosmos.exe` (#3677).
+
+2. **Stage.** This checks the launcher's Authenticode signature, uploads the versioned zip, then its
+   sidecar, then `latest-win-staging.json` **last**, and reads every file back through
+   installkosmos.com. Prod does not move.
+
+   ```
+   pwsh tools\windows\publish-r2.ps1 -Zip dist\kosmos-win-x64.zip -DryRun   # reads and checks only
+   pwsh tools\windows\publish-r2.ps1 -Zip dist\kosmos-win-x64.zip
+   ```
+
+   A versioned name is immutable. Re-staging the same bytes is a no-op. Different bytes under a
+   published version are refused: bump the version instead. `-ReplaceVersioned` overrides that only
+   for a staged build nobody was told about, and never for the version prod names.
+
+3. **Verify** the staged build on this PC. This writes the verification record that the promote
+   requires.
+
+   ```
+   node tools/win-staging-verify.js
+   node tools/win-staging-verify.js --yes --for-sha <sha> --attest install=pass ...   # as it prints
+   ```
+
+4. **Ask Josh** for a go on that exact version and sha256.
+
+5. **Promote, only on his go.** The script refuses unless all of these hold:
+   - the served staging pointer names exactly this version and sha,
+   - his message reference is well formed, and it is logged before any write,
+   - this PC holds a passing verification record for that sha.
+
+   It then copies the staged zip to the alias `kosmos-win-x64.zip` inside R2 and rewrites the
+   alias sidecar. It writes `latest-win.json` last, as the staging pointer's bytes verbatim, and
+   reads all three back as users are served them.
+
+   ```
+   pwsh tools\windows\publish-r2.ps1 -Promote -ApprovedVersion <v> -ApprovedSha <sha> -ApprovalRef <Slack ts or permalink> -DryRun
+   pwsh tools\windows\publish-r2.ps1 -Promote -ApprovedVersion <v> -ApprovedSha <sha> -ApprovalRef <Slack ts or permalink>
+   ```
+
+## The pointer shape
+
+Both pointers have exactly this shape, the one `tools/lib/write-latest-win-pointer.js` writes:
+
+```
+{"version":"<v>","sha256":"<sha>","artifact":"kosmos-win-x64.zip","versioned":"kosmos-<v>-win-x64.zip","arch":"x64"}
+```
+
+`artifact` is **always the alias**, even in the staging pointer. That is what lets a promote copy the
+staging pointer onto prod byte for byte. A staging pointer whose `artifact` is the versioned name
+is refused by both promotes. The hand-staged 0.6.94 pointer (2026-09-25) had that shape, so
+re-stage it with `publish-r2.ps1` before promoting it.
