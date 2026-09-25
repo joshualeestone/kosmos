@@ -231,6 +231,24 @@ function measure() {
         chk(errs.length === 0, `${t} no page errors`, errs.join(' | '));
         await page.close();
       }
+      // The emoji button shows from 481px (still a phone layout below 40rem): pressing it while
+      // typing keeps focus in the text box, like Post, and it meets the tap minimum.
+      {
+        const { page, errs } = await open(browser, 520, 800, 'light');
+        const t = `[${eng} 520x800 emoji]`;
+        await page.focus('#d-say');
+        await page.evaluate(() => { document.documentElement.style.setProperty('--kosmos-visible-height', (window.innerHeight - 300) + 'px'); document.documentElement.classList.add('kosmos-keyboard-up'); });
+        const eb = await page.evaluate(() => { const r = document.getElementById('d-emoji-btn').getBoundingClientRect(); return { x: r.x + r.width / 2, y: r.y + r.height / 2, w: r.width, h: r.height }; });
+        chk(eb.w >= MIN_TAP_PX && eb.h >= MIN_TAP_PX, `${t} the emoji button is at least ${MIN_TAP_PX}px`, JSON.stringify(eb));
+        await page.mouse.move(eb.x, eb.y); await page.mouse.down();
+        const kept = await page.evaluate(() => ({ active: document.activeElement && document.activeElement.id, headShown: document.querySelector('.dhead').getBoundingClientRect().height > 0 }));
+        await page.mouse.move(2, 2); await page.mouse.up();
+        chk(kept.active === 'd-say' && !kept.headShown, `${t} pressing the emoji button keeps focus in the text box and the header aside`, JSON.stringify(kept));
+        const sf = await page.evaluate(() => getComputedStyle(document.getElementById('d-talk-search')).fontSize);
+        chk(sf === '16px', `${t} the search box is 16px (iOS does not zoom on focus)`, sf);
+        chk(errs.length === 0, `${t} no page errors`, errs.join(' | '));
+        await page.close();
+      }
       // The visualViewport listener, driven through a stub (a real keyboard or pinch cannot be
       // driven here). The stub is installed before the page's script reads window.visualViewport.
       {

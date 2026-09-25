@@ -9328,6 +9328,7 @@ body.plus-active #plus-state2 { max-width: 26rem; padding: 2rem; }
      visualViewport listener), and come back when either ends: the same trade chat apps make.
      Keyed on the keyboard too, so a focus with no keyboard (a script focusing the box after an
      answer, which on iOS raises no keyboard; a narrow desktop window) leaves the header alone.
+     Known edge: a narrow desktop window made 150px+ shorter at the same width reads as a keyboard.
      Accepted trade: hidden this way they are also out of the accessibility tree until focus
      leaves the composer. Searching keeps its own row and sets the composer aside instead, since
      the person is reading results, not writing. */
@@ -9349,7 +9350,9 @@ body.plus-active #plus-state2 { max-width: 26rem; padding: 2rem; }
   #d-talk-box .d-talk-caprow { margin-bottom: 6px; }
   #d-talk-box #d-talk-label { position: absolute; width: 1px; height: 1px; overflow: hidden;
     clip: rect(0 0 0 0); clip-path: inset(50%); white-space: nowrap; }
-  #d-talk-box .d-talk-caprow #d-talk-search-wrap { flex: 1 1 auto; min-height: 36px; }
+  #d-talk-box .d-talk-caprow #d-talk-search-wrap { flex: 1 1 auto; min-height: 44px; }
+  /* 16px or iOS zooms the page when the search box takes focus (as for the composer above). */
+  #d-talk-box #d-talk-search { font-size: 16px; }
   #panel-detail:has(#d-sec-talk:not([hidden])) > .back { margin: 4px 0 0; min-height: 44px; }
 }
 /* The canvases honour prefers-reduced-motion in JS (a single static frame, no
@@ -51175,13 +51178,15 @@ async function pjSend() {
 }
 
 /* --- the agent page's own composer, and the answers above it -------------- */
-/* #718: pressing Post while typing keeps focus in the text box. Safari/WebKit does not focus a
+/* #718: pressing Post (or the emoji button, shown from 481px) while typing keeps focus in the text box. Safari/WebKit does not focus a
    button on click, so focus used to fall to the talk box, the phone layout's header came back
    mid-tap and the keyboard dropped; chat apps keep the keyboard up across a send. Only when the
    text box already has focus, so a Post press from anywhere else behaves as before. */
-document.getElementById('d-send').addEventListener('mousedown', (e) => {
-  if (document.activeElement === document.getElementById('d-say')) e.preventDefault();
-});
+for (const id of ['d-send', 'd-emoji-btn']) {
+  document.getElementById(id).addEventListener('mousedown', (e) => {
+    if (document.activeElement === document.getElementById('d-say')) e.preventDefault();
+  });
+}
 document.getElementById('d-send').addEventListener('click', () => {
   const say = document.getElementById('d-say');
   /* ⚠️ THE TRIMMED TEXT IS WHAT IS SENT, matching pjSend's `box.value.trim()`
