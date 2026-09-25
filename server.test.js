@@ -14754,3 +14754,20 @@ test('#3650: a DM reaction is stored, shown, and told to the agent once with the
     board.restore();
   }
 });
+
+test('#3679: the DM route refuses a message whose stored form is past the ceiling, and says why', async () => {
+  const chatEngine = require('./engine/chat');
+  const board = fleet.install([fleet.agent('indenta', { state: 'idle' })]);
+  try {
+    const text = '```\n' + ('    a' + ' '.repeat(40) + 'b\n').repeat(1000) + '```';
+    assert.ok(chatEngine.cleanMessage(text).length <= chatEngine.MAX_TEXT, 'CONTROL: the one-line form is under the limit');
+    const res = await req('/api/agent/indenta/thread', {
+      method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ text }),
+    });
+    assert.equal(res.status, 400, res.body);
+    assert.match(res.body, /indentation and spacing/);
+  } finally {
+    chatEngine.resetForTests();
+    board.restore();
+  }
+});

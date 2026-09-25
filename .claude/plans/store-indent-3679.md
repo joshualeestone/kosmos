@@ -210,3 +210,15 @@ always a stray keystroke, and trimming it keeps "  hello" stored as "hello".
   room). DM and room tests; removing either cap reds its test.
 - WARNING fixed: the linear quote-path trim now has a timing test in web.quoteb.test.js; the old
   regex reds it.
+
+## Review pass 15 (opus)
+- WARNING fixed: `messageProblem` also guards pane-only paths (every delivery, the assigner's
+  ask, option labels, `chose`), and the stored-form ceiling and raw cap had been added to it, so
+  those paths refused text they never keep with a sentence about keeping it. The store-side
+  limits moved to `chat.storedWithin(raw, limit)` / `chat.storedProblem(raw)`, called only where
+  the stored form is kept: the two DM routes, `agentReplyProblem`, and the room post (one
+  helper, one factor, so the room and DM caps cannot drift). `messageProblem` is the pane rule
+  again. A server test pins the DM route's wiring; removing it reds the test.
+- NITs fixed: any number of leading byte-order marks is dropped; pjProse's comment and test no
+  longer claim a fence behaviour pjProse does not have (pjBody splits fences out first); the
+  room blank-line test asserts the post was placed.

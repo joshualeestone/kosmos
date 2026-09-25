@@ -88,8 +88,9 @@ test('#3679: the stored form has its own ceiling', () => {
   const huge = FENCE + '\n' + ('    a' + ' '.repeat(40) + 'b\n').repeat(1000) + FENCE;
   assert.ok(chat.cleanMessage(huge).length <= chat.MAX_TEXT, 'CONTROL: the one-line form must be under the limit');
   assert.ok(chat.storeText(huge).length > chat.STORE_GROWTH * chat.MAX_TEXT, 'CONTROL: the stored form must be over the ceiling');
-  const why = chat.messageProblem(huge);
-  assert.notEqual(why, null, 'a stored form past the ceiling must be refused');
+  assert.equal(chat.messageProblem(huge), null, 'the pane rule keeps nothing, so the store ceiling is not its business');
+  const why = chat.storedProblem(huge);
+  assert.notEqual(why, null, 'a stored form past the ceiling must be refused where it is kept');
   assert.doesNotMatch(why, /characters or fewer/, 'it must not name a limit the message is under');
   assert.match(why, /indentation/);
 });
@@ -103,6 +104,7 @@ test('#3679: a longer fence holds a shorter one, and only a bare run as long clo
 
 test('#3679: a byte-order mark and non-breaking-space indentation do not unbalance a list', () => {
   assert.equal(chat.storeText('\ufeff  - a\n  - b'), '- a\n- b');
+  assert.equal(chat.storeText('\ufeff\ufeff  a\n  b'), 'a\nb', 'more than one leading mark');
   assert.equal(chat.storeText('\u00a0\u00a0- a\n\u00a0\u00a0\u00a0\u00a0- b'), '- a\n  - b');
   assert.equal(chat.storeText('a\u00a0\u00a0b'), 'a\u00a0\u00a0b', 'a non-breaking space inside a line is left alone');
   assert.equal(chat.storeText('x\n  \u00a0\u00a0- b'), 'x\n    - b', 'spaces then non-breaking spaces count as one run');
@@ -123,13 +125,14 @@ test('#3679: a DM of deep indentation under the one-line limit, which main accep
   const text = '{\n' + '        "k": 1,\n'.repeat(700) + '}';
   assert.ok(chat.storeText(text).length > chat.MAX_TEXT, 'CONTROL: the stored form is past the one-line limit');
   assert.equal(chat.messageProblem(text), null);
+  assert.equal(chat.storedProblem(text), null, 'and it is under the stored ceiling');
 });
 
 test('#3679: a huge raw text of blank lines is refused before the store walks it', () => {
   const text = 'hi' + '\n\n'.repeat(200000) + 'bye';
   assert.ok(chat.cleanMessage(text).length < 20, 'CONTROL: the one-line form is tiny');
   const t0 = process.hrtime.bigint();
-  const why = chat.messageProblem(text);
+  const why = chat.storedProblem(text);
   const ms = Number(process.hrtime.bigint() - t0) / 1e6;
   assert.match(String(why), /indentation and spacing/);
   assert.ok(ms < 1000, 'took ' + ms.toFixed(0) + 'ms');

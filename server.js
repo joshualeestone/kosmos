@@ -2391,7 +2391,7 @@ function wrongWorldRefusal(req, pathname) {
    then the delivery-marker impersonation refusal. One function, so /api/reply and
    the outbox drain refuse exactly the same replies. */
 function agentReplyProblem(text) {
-  return chat.messageProblem(text) || messages.markerProblem(text) || null;
+  return chat.messageProblem(text) || chat.storedProblem(text) || messages.markerProblem(text) || null;
 }
 
 /* Record an agent's reply in its thread with the person: the one write both
@@ -11953,7 +11953,8 @@ const server = http.createServer((req, res) => {
         }
         // Refused before anything is looked up, so a message we would never
         // send does not cost a tmux fan-out.
-        const problem = chat.messageProblem(body.text);
+        // #3679: storedProblem too, because this route keeps the stored form.
+        const problem = chat.messageProblem(body.text) || chat.storedProblem(body.text);
         if (problem) throw new Error(problem);
         /**
          * ⚠️ `chose` IS THE OPTION'S OWN WORDS, and it is bounded like any
@@ -14523,7 +14524,8 @@ const server = http.createServer((req, res) => {
         }
         // Refused before anything is looked up, so a message we would never
         // send does not cost a tmux fan-out.
-        const problem = chat.messageProblem(body.text);
+        // #3679: storedProblem too, because this route keeps the stored form.
+        const problem = chat.messageProblem(body.text) || chat.storedProblem(body.text);
         if (problem) throw new Error(problem);
 
         const roster = safeRoster();

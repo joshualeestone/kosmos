@@ -43755,8 +43755,8 @@ function pjProse(text, names, agentNames) {
   const listStack = [];   // #3679: pjListDepth's open levels for the current list
   for (let i = 0; i < src.length; i += 1) {
     const line = src[i];
-    // A non-list line ends the list only when it is not indented under it (a fence, table or
-    // heading nested in an item keeps the list open).
+    // A non-list line ends the list only when it is not indented under it (a table or heading
+    // nested in an item, and in pjRich a fence, keeps the list open).
     if (listStack.length && /\S/.test(line) && !/^[ \t]*([-+*]|\d+\.)[ \t]+/.test(line)
         && /^[ \t]*/.exec(line)[0].replace(/\t/g, '    ').length <= listStack[0]) listStack.length = 0;
     /* #2701: a GFM table -- this line is the header ONLY when the next line is a
@@ -44053,8 +44053,8 @@ function pjRich(text) {
   let i = 0;
   while (i < src.length) {
     const line = src[i];
-    // A non-list line ends the list only when it is not indented under it (a fence, table or
-    // heading nested in an item keeps the list open).
+    // A non-list line ends the list only when it is not indented under it (a table or heading
+    // nested in an item, and in pjRich a fence, keeps the list open).
     if (listStack.length && /\S/.test(line) && !/^[ \t]*([-+*]|\d+\.)[ \t]+/.test(line)
         && /^[ \t]*/.exec(line)[0].replace(/\t/g, '    ').length <= listStack[0]) listStack.length = 0;
     /* Fenced code block: from a ``` line to the next ``` (or end of message --

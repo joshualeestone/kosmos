@@ -385,7 +385,7 @@ function storeText(raw) {
   // A leading byte-order mark goes, and a line's leading non-breaking spaces (how rich-text
   // pastes indent) become spaces, so the dedent below and the final trim agree on what
   // indentation is.
-  const lines = String(raw == null ? '' : raw).replace(/^\ufeff/, '').replace(/\r\n?/g, '\n').replace(/\t/g, STORE_TAB)
+  const lines = String(raw == null ? '' : raw).replace(/^\ufeff+/, '').replace(/\r\n?/g, '\n').replace(/\t/g, STORE_TAB)
     .split('\n').map((l) => l.replace(/^[ \u00a0]+/, (run) => ' '.repeat(run.length)));
   const out = [];
   let fenceLen = 0;   // the opening run's length while inside a fence, else 0
@@ -453,14 +453,27 @@ function messageProblem(raw) {
   // (and a tab's four spaces) cannot push a message over the limit. Checked first, so
   // the stored form is not built for a message that is refused anyway.
   if (cleanMessage(raw).length > MAX_TEXT) return `keep it to ${MAX_TEXT} characters or fewer`;
-  // The raw text is bounded too, before the store walks it line by line: a few words and a
-  // million blank lines pass the one-line check and would still cost the store real time.
-  if (raw != null && raw.length > STORE_GROWTH * STORE_GROWTH * MAX_TEXT) return STORE_TOO_SPACED;
   const text = storeText(raw);
   if (!text) return 'write something to send';
-  if (text.length > STORE_GROWTH * MAX_TEXT) return STORE_TOO_SPACED;
   if (CONTROL.test(text)) return 'that message has characters we will not type into a terminal';
   return null;
+}
+
+/**
+ * #3679: the stored form, or null when it is too large to keep: the raw text past
+ * STORE_GROWTH squared times `limit` (checked first, so a few words and a million blank
+ * lines are refused before the store walks them), or the stored form past STORE_GROWTH
+ * times `limit`. Only for paths that PERSIST `storeText`; a pane-only path keeps nothing,
+ * so these limits do not apply to it (`messageProblem` is the pane's rule).
+ */
+function storedWithin(raw, limit) {
+  if (raw != null && String(raw).length > STORE_GROWTH * STORE_GROWTH * limit) return null;
+  const text = storeText(raw);
+  return text.length > STORE_GROWTH * limit ? null : text;
+}
+/** The refusal for a direct message whose stored form is too large to keep, or null. */
+function storedProblem(raw) {
+  return storedWithin(raw, MAX_TEXT) === null ? STORE_TOO_SPACED : null;
 }
 
 /**
@@ -2930,7 +2943,7 @@ function markDmReactionsTold(agent, named) {
 }
 
 module.exports = {
-  DELIVERY, DIRECT, MAX_TEXT, MAX_MESSAGES, VIEWPORT_LINES, STORE_GROWTH,
+  DELIVERY, DIRECT, MAX_TEXT, MAX_MESSAGES, VIEWPORT_LINES, STORE_GROWTH, storedWithin, storedProblem,
   cleanMessage, storeText, messageProblem, addressable, resolveCard, paneTarget, wireText,
   dmReactions, dmReactionPills, reactDirect, dmReactionNews, dmReactionNote, markDmReactionsTold, dmNoteMayRide,
   chunkUtf8, pasteToEnterMs, PASTE_CHUNK_BYTES,

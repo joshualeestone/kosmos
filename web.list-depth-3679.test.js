@@ -53,8 +53,10 @@ for (const [name, make] of RENDERERS) {
     assert.match(make()('- a\r\n  - b'), /<span class="mdli mdli-d1">b<\/span>/, `${name}: a CRLF list was not split`);
   });
 
-  test(`#3679: ${name} keeps the depth across a fence, table or heading nested in an item`, () => {
-    for (const inner of ['    ```\n    code\n    ```', '    | A | B |\n    | --- | --- |\n    | 1 | 2 |', '    ## note']) {
+  test(`#3679: ${name} keeps the depth across a block nested in an item`, () => {
+    // pjProse never reads a fence (pjBody splits them out first), so its arm is table and heading.
+    const inners = ['    | A | B |\n    | --- | --- |\n    | 1 | 2 |', '    ## note'].concat(name === 'pjRich' ? ['    ```\n    code\n    ```'] : []);
+    for (const inner of inners) {
       const html = make()('- a\n  - nested\n' + inner + '\n  - nested sibling\n- top');
       assert.match(html, /<span class="mdli mdli-d1">nested sibling<\/span>/, `${name}: depth lost after ${JSON.stringify(inner)}`);
       assert.match(html, /<span class="mdli">top<\/span>/, `${name}: back to the top after ${JSON.stringify(inner)}`);

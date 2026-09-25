@@ -2206,6 +2206,7 @@ test('#3679: a post of blank lines the room accepted before is still accepted', 
     assert.ok(chat.storeText(text).length > 64 * 1024, 'CONTROL: the stored form exceeds MAX_BODY itself');
     const sent = messages.sendPost({ fromPane: '%7', project: 'henderson-lease', text }, board.agents, MEMBERS);
     assert.doesNotMatch(String(sent.because || ''), /indentation/, 'refused for indentation it does not have');
+    assert.equal(sent.state, chat.DELIVERY.PLACED, 'not placed: ' + (sent.because || ''));
   });
 });
 
