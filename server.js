@@ -13364,11 +13364,17 @@ const server = http.createServer((req, res) => {
            project that does not exist. */
         let federationLinked;
         // A new project starts with no link, whatever an earlier project of the
-        // same id left behind; if that cannot be made true it is not made.
+        // same id left behind. A link that is there but cannot be removed stops
+        // the project being made. A record that cannot be read at all does not:
+        // every reader of it (federateOut, the seats) then finds no link, so
+        // nothing is federated, and a damaged file must not block making projects.
         if (!(viaScreen && typeof body.federation_ref === 'string' && body.federation_ref)) {
           let stale = false;
-          try { stale = !!federation.linkFor(made.id); if (stale) federation.forgetLink(made.id); stale = false; }
-          catch { /* stale stays as read */ }
+          let found = null;
+          try { found = federation.linkFor(made.id); } catch { found = null; }
+          if (found) {
+            try { federation.forgetLink(made.id); } catch { stale = true; }
+          }
           if (stale) {
             try { projects.remove(made.id); } catch { /* reported below either way */ }
             sendJson(res, 500, { error: 'We could not make this project cleanly on this computer. Try again.' });

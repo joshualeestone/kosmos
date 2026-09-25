@@ -65,9 +65,10 @@ function statusOf(projectId) {
 }
 
 /* A one-line label from outside: control characters (terminal escapes among
-   them) become spaces, whitespace collapses. */
+   them), direction overrides and line separators become spaces, whitespace
+   collapses. */
 function clean(v, max) {
-  return String(v == null ? '' : v).replace(/[\u0000-\u001f\u007f-\u009f]/g, ' ').replace(/\s+/g, ' ').trim().slice(0, max);
+  return String(v == null ? '' : v).replace(/[\u0000-\u001f\u007f-\u009f\u202a-\u202e\u2066-\u2069\u2028\u2029]/g, ' ').replace(/\s+/g, ' ').trim().slice(0, max);
 }
 
 /* One event line from a seat. Unknown shapes are ignored; a message is recorded

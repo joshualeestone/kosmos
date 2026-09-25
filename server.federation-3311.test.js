@@ -186,3 +186,17 @@ test('a process caller cannot attach a project to a shared room', async () => {
   assert.equal(r.json.federationLinked, undefined);
   assert.equal(federation.linkFor(r.json.id), null);
 });
+
+test('a damaged link record does not stop a project being made, and does not link it', async () => {
+  const f = path.join(require('./engine/store').ROOT, federation.FILE);
+  const before = fs.existsSync(f) ? fs.readFileSync(f, 'utf8') : null;
+  fs.writeFileSync(f, '{ not json');
+  try {
+    assert.throws(() => federation.linkFor('damagedclub'), 'fixture: the record cannot be read');
+    const r = await post('/api/projects', { name: 'Damaged Club' }, SCREEN);
+    assert.equal(r.status, 200, JSON.stringify(r.json));
+    assert.equal(r.json.federationLinked, undefined);
+  } finally {
+    if (before === null) fs.rmSync(f, { force: true }); else fs.writeFileSync(f, before);
+  }
+});

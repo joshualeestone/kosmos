@@ -69,6 +69,9 @@ board yet carried messages between a federated project's room and its seat.
 - engine/fedseats.test.js, engine/messages.external-3311.test.js,
   server.fedmsg-3311.test.js, server.federation-3311.test.js,
   engine/federation.test.js: all pass (counts live in the runs, not here).
+- Review round 8 controls: failing closed on an unreadable link record reds the
+  damaged-record test (no project is made); dropping the direction-override range
+  from clean() reds the connector-reason test.
 - Review round 7 controls, each reds its own test: no forgetLink on delete; no
   stale-link clear on create; federation_ref accepted from a process; backoff
   reset on every connect; a synthetic exit for any child error; no exit-2

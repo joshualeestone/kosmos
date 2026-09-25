@@ -375,3 +375,14 @@ test('a member seat ended for good stays ended after a restart, with no new seat
   assert.strictEqual(h.spawned.length, 0, 'no seat started');
   assert.strictEqual(h.notes.filter((n) => n.projectId === 'proj-gone').length, 0, 'no note repeated');
 });
+
+test('a reason from the connector loses direction overrides before it reaches the room', async () => {
+  federation.recordLink('proj-bidi', { role: 'member', edge_id: 'edge-bidi' });
+  const h = harness();
+  await fedseats.ensure('proj-bidi');
+  say(h.spawned[0], { event: 'ended', because: 'revoked‮.ti deweiver' });
+  await tick();
+  const n = h.notes.find((x) => x.projectId === 'proj-bidi');
+  assert.ok(n, JSON.stringify(h.notes));
+  assert.ok(!/[‪-‮⁦-⁩]/.test(n.text), JSON.stringify(n.text));
+});
