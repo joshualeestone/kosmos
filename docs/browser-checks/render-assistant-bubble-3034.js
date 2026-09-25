@@ -118,7 +118,15 @@ const waitFor = (page, fn, ms = 6000) => page.waitForFunction(fn, null, { timeou
     await boot();
     chk(await waitFor(page, () => { const b = document.getElementById('asb'); return b && !b.hidden; }, 8000), 'B2 with a guide, the bubble shows');
     const two = await bubble(page);
-    chk(/\/api\/agent\/josh\/avatar\?v=/.test(two.src), 'B2 it shows the guide\'s picture', two.src);
+    /* #3707: this guide has no picture (the fixture saves none), so the bubble shows its initial on its disc, as its
+       board card does, never a broken image. Both <img>s, and each one has really drawn. */
+    const face2 = await page.evaluate(() => [document.querySelector('#asb img'), document.querySelector('#asp .asp-h img')].map((i) => ({
+      src: (i.getAttribute('src') || '').slice(0, 40), svg: decodeURIComponent(i.getAttribute('src') || ''), drawn: i.complete && i.naturalWidth > 0 })));
+    chk(face2.every((x) => x.src.startsWith('data:image/svg+xml') && x.drawn && />J<\/text>/.test(x.svg)), 'B2 with no picture, the guide shows its initial (J) on its disc, not a broken image (#3707)',
+      JSON.stringify(face2.map((x) => ({ src: x.src, drawn: x.drawn }))));
+    // CONTROL: a guide WITH a picture gets its picture (the same function, the row saying it has one).
+    const withPic = await page.evaluate(() => asbAvatar({ sessionName: 'josh', name: 'Josh', hasAvatar: true, avatarVer: 3 }));
+    chk(withPic === '/api/agent/josh/avatar?v=3', 'B2 CONTROL: a guide with a picture shows its picture', withPic);
     chk(two.nudge, 'B2 the nudge shows before the person has written to the guide');
     // B2b: the lookup itself, with the person's own "Josh" (session josh-2) placed FIRST: the guide is found by
     // its session name, never by a display name the person's agent can share.
