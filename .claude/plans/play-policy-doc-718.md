@@ -37,5 +37,6 @@ no-purchase change (kosmos-relay android-no-purchase-718).
   upload puts checkout back in a Play app; the "shipped" precondition is checkable via /v1/meta.
 
 ## Weakest part
-The item names kosmos-relay's `CAN_BUY_HERE` and the Android change, which merge separately. If
-the relay PR changes shape in review, this paragraph must follow it.
+The item names kosmos-relay `CAN_BUY_HERE` and #121 (merged as 3558f2e4, 2026-09-25). If the switch
+changes later, this paragraph must follow it; nothing checks the two against each other. The phone
+checks are written from the code and Chrome's documented behaviour; nobody has run them yet.
