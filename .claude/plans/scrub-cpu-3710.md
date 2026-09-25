@@ -11,15 +11,19 @@ validation gate while the Mac was busy.
 
 ## Change
 - A `cpuMsOf(fn)` helper: `process.cpuUsage()` delta, user + system, in ms.
-- The scrub test bounds CPU ms < 3000 (same number). The no-throw assertion is
-  unchanged.
-- A standing control test: `/^(a+)+$/` on 24 a's plus '!' must measure >= 500ms
-  of CPU (measured ~1.15s), so the measure provably sees backtracking.
+- Both scrub timing tests (the degenerate run, and its sibling long non-URL
+  run, which had the same wall-time shape) bound CPU ms < 3000 (same number).
+  The no-throw assertion is unchanged.
+- A standing control: a fixed 1e8-iteration loop (~170ms CPU on an M4) must
+  measure between 20 and 3000ms, so cpuMsOf provably reports milliseconds.
+  Review iteration 1 replaced a regex control: its cost depended on V8
+  interpreting a regex on first use (86ms once compiled to native), so a V8
+  or flag change could red it with the instrument fine.
 
 ## Verified
 - Under 20 busy loops on 10 cores (load ~22), the same scrub call measured
-  wall 1410 / 1424 / 1430ms and CPU 486 / 474 / 477ms: wall is what load
-  inflates, CPU is steady.
+  wall 1410 / 1424 / 1430ms and CPU 486 / 474 / 477ms: load inflated wall time ~5x (vs ~270ms alone)
+  and CPU time ~1.7x, well inside the 3000ms bound.
 - Perturbation: an exponential regex planted at the top of `scrub()` makes the
   test fail (11677ms), so the CPU bound still catches a real regression. File
   restored from HEAD afterwards.
@@ -33,6 +37,12 @@ validation gate while the Mac was busy.
   busy protects nothing exactly when many agents run suites.
 
 ## Weakest premise
-`process.cpuUsage()` counts the whole process, including GC threads; a heavy
-concurrent GC in the same test process could add CPU. The file's tests run in
-one process sequentially, so nothing else in-process runs during the call.
+CPU time is not load-proof either: it rose ~1.7x under load 22 (efficiency
+cores, cache contention). The bound keeps ~6x headroom over that, measured, not
+infinite. And `process.cpuUsage()` counts the whole process, including GC
+threads; the file's tests run sequentially in one process.
+
+## Controls run
+- Exponential regex planted in `scrub()`: the degenerate-run test fails (11677ms).
+- cpuMsOf with no division (microseconds) and with /1e6 (seconds): the control
+  test fails both ways.

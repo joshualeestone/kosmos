@@ -547,6 +547,18 @@ test('#1760 scrub stops a value at & so a following query param survives', () =>
     'the reset link /reset?token=[redacted-secret]&email=foo@bar.com failed');
 });
 
+// #3710: the two scrub timing tests below bound CPU time, not wall time.
+// Backtracking is CPU work, so a real regression still burns past the bound. A
+// busy Mac inflates wall time far more than CPU time: the degenerate run below
+// failed at 3.4 to 4.4s of wall time under load 16 to 31, and measured about
+// 270ms of CPU alone and about 480ms under load 22, well inside 3000.
+function cpuMsOf(fn) {
+  const before = process.cpuUsage();
+  fn();
+  const d = process.cpuUsage(before);
+  return (d.user + d.system) / 1000;
+}
+
 // #1760 iter-7: scrub() runs synchronously on the board event loop, so no arm may
 // be O(N^2). A long dotted/hex run (a stack trace / digest chain) with no `://`
 // used to make the URL-userinfo arm backtrack quadratically (~53s at 200k chars);
@@ -554,11 +566,10 @@ test('#1760 scrub stops a value at & so a following query param survives', () =>
 // still fails hard on a return of the quadratic blowup.
 test('#1760 scrub stays fast on a long non-URL run (no ReDoS in the URL arm)', () => {
   const big = 'a' + '.b1c'.repeat(40000); // ~160k chars of [a-z0-9.], no ://
-  const t = Date.now();
-  const out = feedbacksend.scrub(big);
-  const ms = Date.now() - t;
+  let out;
+  const ms = cpuMsOf(() => { out = feedbacksend.scrub(big); });
   assert.equal(out, big, 'a non-credential run should pass through unchanged');
-  assert.ok(ms < 3000, `scrub took ${ms}ms on a ${big.length}-char run - possible ReDoS regression`);
+  assert.ok(ms < 3000, `scrub used ${Math.round(ms)}ms of CPU on a ${big.length}-char run - possible ReDoS regression`);
 });
 
 // #1760 iter-8: the Basic arm must be case-insensitive on the scheme word, like
@@ -586,17 +597,6 @@ test('#1760 scrub stops the value at , and ; (no cross-separator over-redaction)
 
 // #1760 iter-8: bounded quantifiers -> a multi-MB degenerate run cannot stack-overflow
 // (scrub runs synchronously on the board event loop). It must return, not throw.
-// #3710: the bound is CPU time, not wall time. Backtracking is CPU work, so a
-// real regression still burns past it; a busy Mac handing the CPU to other
-// agents' suites stretches wall time only (it failed at 3.4 to 4.4s under
-// load 16 to 31 and ran in ~270ms alone).
-function cpuMsOf(fn) {
-  const before = process.cpuUsage();
-  fn();
-  const d = process.cpuUsage(before);
-  return (d.user + d.system) / 1000;
-}
-
 test('#1760 scrub survives a multi-MB degenerate assignment run without throwing', () => {
   const big = 'token:' + 'a'.repeat(3_000_000); // no digit/symbol, no separator
   let out, threw = null;
@@ -605,11 +605,14 @@ test('#1760 scrub survives a multi-MB degenerate assignment run without throwing
   assert.ok(ms < 3000, `scrub used ${Math.round(ms)}ms of CPU on a large run - possible unbounded backtracking`);
 });
 
-// #3710 CONTROL: the CPU measure must still see catastrophic backtracking, or
-// the bound above could never fail. (a+)+$ on a run of a's ending in a non-match
-// is exponential; 24 characters is about a second of CPU with nothing else running.
-test('#3710 control: cpuMsOf sees a catastrophically backtracking regex', () => {
-  const evil = /^(a+)+$/;
-  const ms = cpuMsOf(() => evil.test('a'.repeat(24) + '!'));
-  assert.ok(ms >= 500, `a known-catastrophic regex measured only ${Math.round(ms)}ms of CPU; the measure cannot see backtracking`);
+// #3710 CONTROL: cpuMsOf must report the function's CPU in MILLISECONDS, or the
+// 3000 bounds above mean nothing. A fixed amount of work (a loop, not a regex, so
+// V8's regex tiering cannot move it) is ~170ms of CPU on an M4. The band is wide
+// enough for a much slower or busier machine, and still fails a microseconds
+// result (~170000), a seconds result (~0.17) or a measure that misses fn.
+test('#3710 control: cpuMsOf reports a fixed CPU load in milliseconds', () => {
+  let x = 0;
+  const ms = cpuMsOf(() => { for (let i = 0; i < 1e8; i++) x = (x + i) | 0; });
+  assert.ok(x !== 0.5, 'unreachable; keeps the loop observable');
+  assert.ok(ms >= 20 && ms < 3000, `a ~170ms CPU loop measured ${ms}ms; cpuMsOf is not reporting CPU milliseconds`);
 });
