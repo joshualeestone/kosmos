@@ -27122,11 +27122,14 @@ const unreadEdgeRecheck = () => document.querySelectorAll('.msg-bd[data-unread]'
 window.addEventListener('focus', unreadEdgeRecheck);
 window.addEventListener('blur', () => document.querySelectorAll('.msg-bd[data-unread]').forEach(unreadEdgeStop));
 document.addEventListener('visibilitychange', unreadEdgeRecheck);
-document.addEventListener('scroll', () => {
+document.addEventListener('scroll', (ev) => {
+  /* Clipped by what scrolled (a thread scrolls inside its own box, not the page) as well as by the window. */
+  const box = ev.target instanceof Element ? ev.target.getBoundingClientRect() : null;
+  const top = Math.max(0, box ? box.top : 0), bottom = Math.min(innerHeight, box ? box.bottom : innerHeight);
   for (const bd of UNREAD_WATCHED) {
-    if (!bd.__near || !bd.isConnected) continue;
+    if (!bd.__near || !bd.isConnected || (ev.target instanceof Element && !ev.target.contains(bd))) continue;
     const r = bd.getBoundingClientRect();
-    const seen = Math.min(r.bottom, innerHeight) - Math.max(r.top, 0);
+    const seen = Math.min(r.bottom, bottom) - Math.max(r.top, top);
     bd.__inView = seen > 0 && (seen >= 120 || seen >= r.height / 2);   // the observer's own rule, measured
     unreadEdgeTry(bd);
   }

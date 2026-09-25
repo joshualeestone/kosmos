@@ -144,15 +144,24 @@ const EDGE_LIGHT = 'rgb(245, 228, 188)';
     chk(u12a === true && u12b === false, 'U12 leaving the window inside the moment starts it again: still edged 0.5s after coming back, gone after 1.2s', JSON.stringify({ u12a, u12b }));
 
     // U13: a message far taller than the window, read by scrolling down it a little at a time, still loses its edge.
-    await page.evaluate(() => window.scrollTo(0, 0));
     await add('2026-09-25T09:14:00Z', Array.from({ length: 1200 }, (_, i) => 'A very long report, line ' + (i + 1) + '.').join('\n'));
-    const huge = await page.evaluate(() => { const b = [...document.querySelectorAll('#d-dmthread .msg:not(.you) .msg-bd')].pop(); const r = b.getBoundingClientRect(); return { h: Math.round(r.height), top: Math.round(r.top + scrollY) }; });
-    await page.evaluate((t) => window.scrollTo(0, t - innerHeight + 10), huge.top);   // its first 10px on screen
-    await page.waitForTimeout(300);
-    for (let i = 0; i < 6; i++) { await page.evaluate(() => window.scrollBy(0, 60)); await page.waitForTimeout(120); }
+    /* The thread scrolls inside its own box. Put the new message's first 10px at that box's bottom, then read down it
+       60px at a time: no ratio threshold is crossed on the way (it is over twenty boxes tall). */
+    const huge = await page.evaluate(() => {
+      const b = [...document.querySelectorAll('#d-dmthread .msg:not(.you) .msg-bd')].pop();
+      let sc = b.parentElement; while (sc && !(sc.scrollHeight > sc.clientHeight + 1 && /auto|scroll/.test(getComputedStyle(sc).overflowY))) sc = sc.parentElement;
+      if (!sc) return { scroller: false };
+      window.__sc = sc;
+      const box = sc.getBoundingClientRect(), r = b.getBoundingClientRect();
+      sc.scrollTop += (r.top - box.bottom) + 10;
+      return { scroller: true, h: Math.round(r.height), box: Math.round(box.height), onScreen: Math.round(box.bottom - b.getBoundingClientRect().top) };
+    });
+    await page.waitForTimeout(400);
+    const before13 = await page.evaluate(() => [...document.querySelectorAll('#d-dmthread .msg:not(.you) .msg-bd')].pop().hasAttribute('data-unread'));
+    for (let i = 0; i < 6; i++) { await page.evaluate(() => { window.__sc.scrollTop += 60; }); await page.waitForTimeout(120); }
     await page.waitForTimeout(1600);
     const u13 = await page.evaluate(() => [...document.querySelectorAll('#d-dmthread .msg:not(.you) .msg-bd')].pop().hasAttribute('data-unread'));
-    chk(huge.h > 20 * 800 && u13 === false, 'U13 a message over twenty windows tall, scrolled into a little at a time, loses its edge', JSON.stringify({ ...huge, stillUnread: u13 }));
+    chk(huge.scroller && huge.h > 20 * huge.box && huge.onScreen <= 20 && before13 && u13 === false, 'U13 a message over twenty thread-heights tall, read down a little at a time, loses its edge', JSON.stringify({ ...huge, before13, stillUnread: u13 }));
 
     // U14: the edge in the dark looks: the gold at half strength, forced dark and Kosmos+ navy.
     const edgeIn = (setup) => page.evaluate((how) => {
