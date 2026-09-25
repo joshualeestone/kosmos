@@ -385,6 +385,11 @@ async function main() {
     const url = m.location().url || '';
     if (exempt400(m.text(), url)) return;
     if (expectUntiedRefusals && /Failed to load resource.*404/.test(m.text()) && /\/thread$/.test(url)) return;
+    /* #3542: the agent page's Files list (#3614) asks the same route family, and it too answers 404
+       for a borrowed name that has no folder here. By design, like /thread: the page turns it into
+       its own sentence, asserted below, so it is exempted only for the untied agent's /files. */
+    if (expectUntiedRefusals && /Failed to load resource.*404/.test(m.text())
+      && new RegExp('/api/agent/' + UNTIED_NAME + '/files$').test(url)) return;
     /* 🔑 THE OPERATOR'S OWN PICTURE, WHICH A FRESH MACHINE DOES NOT HAVE. The
        route answers 404 for "no picture is set" and the page reads exactly that
        (`YOU_PIC = r.ok`), so this is the fixture's normal state rather than a
@@ -595,6 +600,11 @@ async function main() {
     check(rookTalk.sayDisabled === true && rookTalk.sendDisabled === true,
       'the composer is closed over a conversation we cannot read (a box that accepts text here is the two-state lie)',
       JSON.stringify(rookTalk));
+    /* #3542: the /files 404 tolerated above is only by design if the page says what it means. */
+    const rookFiles = await page.evaluate(() => (document.getElementById('d-files-msg') || {}).textContent || '');
+    check(rookFiles.includes('This agent has no folder of its own on this computer'),
+      'the borrowed name\u2019s Files list says it has no folder here (the reason its /files 404 is tolerated)',
+      JSON.stringify(rookFiles));
     await page.click('#detail-back');
     await page.waitForTimeout(300);
     expectUntiedRefusals = false;
