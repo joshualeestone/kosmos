@@ -2,20 +2,20 @@
 pre_challenge: true
 method: challenge-loop
 branch: connlost-copy-3410
-diff_hash: 8fbbca196a3b4f788f96b3a1a2ba7652915d56d07c43b59f81cf788a46d91681
-validation: failed (1 test, contention: engine/feedbacksend.test.js #1760 scrub timing 3316ms over a 3000ms bound, load 15-25 on 10 cores with 3 other run-tests.sh suites; the file is untouched by this diff and passes alone)
+diff_hash: 5d237529c0d10e58e9d1f744b6c8b94f471795a809b8d6609a5a6db9bda010d4
+validation: failed (1 test, contention: engine/feedbacksend.test.js #1760 scrub timing 3055ms over a 3000ms bound, load 18-25 with other agents' run-tests.sh suites; the file is untouched by this diff and passes alone, 52/52)
 subdir_audit: passed
-timestamp: 2026-09-25T10:26:41Z
-iterations: 6
+timestamp: 2026-09-25T10:54:21Z
+iterations: 8
 converged: true
 ---
 
 ## [CHALLENGE-LOOP] Summary
 
-**Iterations:** 6
+**Iterations:** 8
 **Converged:** Yes
-**Total findings:** 1 BLOCKER, 12 WARNINGs, 0 CONVENTIONs, 16 NITs (across rounds), plus 2 validation findings
-**Fixed:** 1 BLOCKER, 12 WARNINGs, 2 validation findings, most NITs | **Deferred:** 2 NITs | **Asked:** 0
+**Total findings:** 1 BLOCKER, 14 WARNINGs, 0 CONVENTIONs, 16 NITs (across rounds), plus 2 validation findings
+**Fixed:** 1 BLOCKER, 14 WARNINGs, 2 validation findings, most NITs | **Deferred:** 2 NITs | **Asked:** 0
 
 Validation, honestly stated: the last full run (HEAD 91607c67) had 9201 tests with 1 failure, the
 #1760 scrub timing test in engine/feedbacksend.test.js, which this diff does not touch. It failed on
@@ -77,6 +77,25 @@ Validation finding (6g): [WARNING] fixture-discipline.test.js — the check-in t
 - [NIT] plan's "3 of 12" arithmetic is not checkable from the diff alone --> DEFERRED (measured at the time; the test file has since grown)
 **Converged** — no new actionable findings.
 
+#### Iteration 7 (after rebasing onto main at 05:40; the earlier convergence was on the pre-rebase tree)
+**Reviewer model:** opus
+**New findings:** 0 BLOCKERs, 2 WARNINGs, 0 CONVENTIONs, 3 NITs
+**Self-generated:** 0 of the above
+- Rebase resolution: browser-check counts re-derived on main (EXPECTED_SITES 139 -> 141, EXPECTED_CATCH_SITES 99 -> 100); browser-checks-reason-grep.test.js 5/5.
+- [WARNING] engine/connlost-heal.js reconnectPhase — a drop the sweep has not yet seen (entry still reads recovered) reported the earlier drop's retry as "retried" --> FIXED (e90d153e; evidence==null reads waiting; test; red control bit)
+- [WARNING] no test for an escalated agent's new drop reading gave_up --> FIXED (e90d153e, same test)
+- [NIT] local Array guard in reconnectPhase --> FIXED (e90d153e)
+- [NIT] plan quoted the give-up sentence loosely --> FIXED (e90d153e)
+- [NIT] "Reconnecting…" not in STATE_COPY --> DEFERRED: the label depends on a phase, not a state
+
+#### Iteration 8
+**Reviewer model:** sonnet
+**New findings:** 0 BLOCKERs, 0 WARNINGs, 0 CONVENTIONs, 2 NITs
+**Self-generated:** 0 of the above
+- [NIT] pjMember LAST.find per connection_lost row (O(n), harmless at fleet scale)
+- [NIT] CONNLOST_BOOK at module scope (required by the route; comment already accurate)
+**Converged** — no new actionable findings.
+
 ### Final Ledger
 
 | # | Iter | Category | File:Line | Origin | Description | Status | Resolution |
@@ -93,6 +112,8 @@ Validation finding (6g): [WARNING] fixture-discipline.test.js — the check-in t
 | 10 | 5 | WARNING | web/index.html | BRANCH | check-in contradicted card | FIXED | ddcfae5c |
 | 11 | 5 | WARNING | engine/connlost-heal.js | BRANCH | previous drop's retries shown | FIXED | ddcfae5c |
 | 12 | 5 | WARNING | fixture-discipline.test.js | BRANCH | hand-built rows (validation) | FIXED | 91607c67 |
+| 14 | 7 | WARNING | engine/connlost-heal.js | BRANCH | unseen drop read as retried | FIXED | e90d153e |
+| 15 | 7 | WARNING | engine/connlost-heal.test.js | BRANCH | escalated new drop untested | FIXED | e90d153e |
 | 13 | 4 | NIT | .claude/plans/connlost-copy-3410.md | BRANCH | no timestamp in filename | DEFERRED | repo-wide |
 
 ### NITs (non-blocking, across all iterations)
