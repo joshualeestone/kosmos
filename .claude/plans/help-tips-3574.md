@@ -15,11 +15,15 @@ upgraders included": the auto tour covered the agent card render-url-state click
   the place ringed, the rest dimmed, dots, Skip and Next, Got it on the last). Got it, Skip, the x,
   Escape or a click outside record it. If its screen goes without any of those (keyboard, Back, a
   link) it is not recorded and shows again on the next visit to an empty board.
-- Once a tour that showed by itself this session sees agents on the board, it counts as seen (its job
-  is done) and the screen tips can follow. This is keyed on the board confirming "tour" (TIP_TOUR_SAVED),
-  not the local list, and a failed save retries, backing off 5s to a minute. Without it, a new user
-  whose tour went unrecorded, or whose save failed, would look like an upgrader for good.
-- Each first-visit screen tip shows by itself once, and only after "tour" is seen.
+- Once a new board (no agents at its first answer) has an agent, the tour counts as seen, whether or
+  not it was ever shown (its job is done), and the screen tips can follow. This is keyed on the board
+  confirming "tour" (TIP_TOUR_SAVED), not the local list, and a failed save retries, backing off 5s to
+  a minute. Without it, a new user whose tour went unrecorded, whose save failed, or who took first
+  run's create ending (it lands on the create form, where the tour never shows) would look like an
+  upgrader for good.
+- Each first-visit screen tip shows by itself once, and only after "tour" is seen. One exception: on a
+  new board the create form's own tip (Make an agent) does not wait for the tour, because first run's
+  create ending lands there and that is where someone new needs it.
 - A board that already had agents at load (every upgrade) gets nothing by itself. The ? beside the
   user's name offers this screen's tip, the welcome tour, and the ring explainer. Closing a tour taken
   from the ? records it, and from then on the first-visit screen tips follow as for anyone else:
@@ -70,5 +74,6 @@ restores them; light and dark; narrow width places the card in-page. Controls fo
 T23: a board with agents and nothing seen shows nothing and records nothing. T24: a tour that went
 unrecorded is recorded once the first agent arrives, through a failed first save. T25: an ordinary
 close whose save failed is mended the same way. T26: a board that had agents at its first answer and then removed
-the last one gets no tour. Each was run against the code with its fix removed
+the last one gets no tour; T27 the same with tips off at load. T28: first run's create ending gets
+the Make an agent tip, then the screen tips once the agent exists. Each was run against the code with its fix removed
 and failed.
