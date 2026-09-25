@@ -426,8 +426,8 @@ const resetStore = (state) => fs.writeFileSync(tipsStore.FILE(), JSON.stringify(
       'T12 under the consolidated layout the tour still finds all four places (the rail heads)', JSON.stringify(cons));
     await page.keyboard.press('Escape');
     // T19: under the consolidated layout the rail (with its rings) shows on every screen. On Settings
-    // the tour does not start by itself (it belongs to the board), and "this screen" is the Settings
-    // tip, not the ring explainer.
+    // the tour does not start by itself (it belongs to the board), and the ? offers no "this screen" there
+    // (Settings has no tip since 2026-09-25).
     resetStore({ seen: ['ring', 'agents', 'settings'], off: false });
     await page.goto(URL + '/?tab=settings', { waitUntil: 'load' });
     await page.waitForTimeout(2800);
@@ -587,8 +587,8 @@ const resetStore = (state) => fs.writeFileSync(tipsStore.FILE(), JSON.stringify(
     await page.waitForTimeout(150);
 
     // T31: a tip never sits on a real control (0.6.93 cut: the Settings tip took Check for Update's
-    // click). Every screen's tip is opened from the ? and must cover no visible control; on Settings >
-    // Updates, Check for Update is still the thing under the pointer.
+    // click; Settings has no tip since 2026-09-25). Every screen's tip is opened from the ? and must cover no
+    // visible control.
     resetStore({ seen: ['tour', 'ring', 'agents', 'projects', 'project', 'newagent', 'agentpage', 'settings'], off: false });
     withAgent();
     await page.goto(URL, { waitUntil: 'networkidle' });
