@@ -76,8 +76,12 @@ connector_verbs_check "$T/no-such-tunnel" "$OPEN" 2>"$T/err" && bad "a missing c
 # The gate-closed rule rests on which features need mac-request: an old connector breaks nothing
 # that works today only because these three callers were already failing without it (#3626,
 # Liu Kang on #718). A NEW caller must re-decide that before it ships, so the set is pinned.
+# #3311 re-decided for engine/federation.js and engine/fedseats.js: federation never worked
+# before this connector, so an old one breaks nothing that works. It refuses the unlisted
+# federation routes (the board shows that sentence on invite/verify) and has no fed-room
+# verb (a seat that cannot start backs off; the room stays local).
 callers="$(grep -l "macRequest(" engine/*.js 2>/dev/null | grep -v -e "engine/remote.js" -e "\.test\.js$" | sort | tr '\n' ' ')"
-[ "$callers" = "engine/mac-standing.js engine/phonenotify.js engine/updating.js " ] && ok "mac-request callers are exactly the three the gate-closed rule was decided on" || bad "the mac-request callers changed ($callers); re-decide whether an old connector breaks something that works, then update this list"
+[ "$callers" = "engine/federation.js engine/fedseats.js engine/mac-standing.js engine/phonenotify.js engine/updating.js " ] && ok "mac-request callers are exactly the five the gate-closed rule was decided on" || bad "the mac-request callers changed ($callers); re-decide whether an old connector breaks something that works, then update this list"
 
 # The real connector on this Mac, when it is there: an integration line, reported but never failed.
 R="${KOSMOS_TUNNEL_BIN:-$HOME/work/kosmos-relay/dist/kosmos-tunnel}"
