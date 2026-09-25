@@ -2252,6 +2252,15 @@ function nameRefusal(name) {
   }
 }
 
+/* The 404 body for a `nameRefusal` reason, shared by the DM thread's routes so the two
+   sentences are written once. */
+function nameRefusalBody(refusal) {
+  return {
+    error: refusal === 'borrowed' ? 'no agent by that name' : 'we could not check which agents are running',
+    because: refusal,
+  };
+}
+
 /**
  * Is this spelling answered by a card we cannot tie to the name it is filed
  * under? The question for a READ. ONE derivation: the reason above decides,
@@ -11596,10 +11605,7 @@ const server = http.createServer((req, res) => {
     // not tied to it must not write into the real agent's private thread.
     const refusal = nameRefusal(name);
     if (refusal) {
-      sendJson(res, 404, {
-        error: refusal === 'borrowed' ? 'no agent by that name' : 'we could not check which agents are running',
-        because: refusal,
-      });
+      sendJson(res, 404, nameRefusalBody(refusal));
       return;
     }
     readBody(req)
@@ -11671,12 +11677,7 @@ const server = http.createServer((req, res) => {
        `nameRefusal`: 'borrowed' is standing and 'unreadable' is a blip. */
     const refusal = nameRefusal(name);
     if (refusal) {
-      sendJson(res, 404, {
-        error: refusal === 'borrowed'
-          ? 'no agent by that name'
-          : 'we could not check which agents are running',
-        because: refusal,
-      });
+      sendJson(res, 404, nameRefusalBody(refusal));
       return;
     }
     /**
