@@ -4248,6 +4248,15 @@ function sessionIdsFor(sessionName, exactSession) {
  * could, because that is what creates the new file. Josh pressed it three times
  * on 2026-08-22; the restart had worked every time (found by Splinter).
  */
+/* #3564: the card's `swarm` field. The transcript is resolved only for a swarm. */
+function swarmField(agentName, exactSession) {
+  let profile;
+  try { profile = store.readProfile(agentName); } catch { return null; }
+  try {
+    return require('./swarm').cardField(profile, () => transcriptFor(agentName, exactSession));
+  } catch { return null; }
+}
+
 function transcriptForSession(agentName, exactSession) {
   for (const sessionId of sessionIdsFor(agentName, exactSession)) {
     for (const root of configRoots()) {
@@ -7180,6 +7189,10 @@ function snapshot() {
       // rule this block already states. Untied -> 0, the no-picture value.
       avatarVer: tied ? store.avatarVersion(pane.name) : 0,
       profile: tied ? store.readProfile(pane.name) : null,
+      /* #3564: null for an ordinary agent; for a swarm, its helpers and today's tokens,
+         read from the lead's transcripts (engine/swarm.js). Same `tied` gate as every
+         other read keyed on the name. The contract with the UI is on #3564. */
+      swarm: tied ? swarmField(pane.name, pane.session) : null,
     };
   });
 

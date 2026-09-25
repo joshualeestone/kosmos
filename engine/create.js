@@ -3852,6 +3852,14 @@ function createAgentInner(opts) {
   if (provider !== 'anthropic' && provider !== 'openai' && provider !== 'google' && provider !== 'xai') {
     return { outcome: OUTCOME.REFUSED, because: REFUSE_PROVIDER, steps };
   }
+  /* #3564: an Agent or a Swarm. A swarm is refused here, before anything is written,
+     when its settings are wrong or it is not on Claude (v1). */
+  const kind = opts && opts.kind !== undefined && opts.kind !== null && opts.kind !== '' ? String(opts.kind) : 'agent';
+  if (kind !== 'agent' && kind !== 'swarm') return { outcome: OUTCOME.REFUSED, because: 'pick Agent or Swarm', steps };
+  if (kind === 'swarm') {
+    const swarmProblem = require('./swarm').createProblem({ provider, maxHelpers: opts.maxHelpers, dailyTokenLimit: opts.dailyTokenLimit });
+    if (swarmProblem) return { outcome: OUTCOME.REFUSED, because: swarmProblem, field: 'swarm', steps };
+  }
   if (provider === 'google') {
     // #3296: refuse a Gemini create the machine could never start, the same
     // preflight the openai arm does -- a launchd job pointing at an absent runner
@@ -4718,6 +4726,20 @@ function createAgentInner(opts) {
           steps.push({ label: 'could not add the files section to its instructions, so it does not know where to save what it makes for you; edit its instructions or remake it', ok: false });
         }
       }
+      /* #3564: a swarm lead is told, from birth, how many helpers it may run and how. */
+      if (kind === 'swarm') {
+        let swarmLanded = false;
+        try {
+          const swarmMod = require('./swarm');
+          const n = Number.isInteger(opts.maxHelpers) ? opts.maxHelpers : swarmMod.DEFAULT_HELPERS;
+          const spliced = require('./projects').spliceBlock(text, swarmMod.blockBody(n), swarmMod.START, swarmMod.END);
+          const { MAX_BYTES } = require('./instructions');
+          if (Buffer.byteLength(spliced, 'utf8') <= MAX_BYTES) { text = spliced; swarmLanded = true; }
+        } catch { /* reported below rather than swallowed */ }
+        if (!swarmLanded) {
+          steps.push({ label: 'could not add the swarm section to its instructions, so it does not know how to run its helpers; edit its instructions or remake it', ok: false });
+        }
+      }
     // The projects block rides from birth too (#323). It used to arrive by
     // `projects.syncAgent` once the board could see the session, which is at
     // least one poll AFTER the session started, so every agent made onto a
@@ -5196,6 +5218,8 @@ function createAgentInner(opts) {
     /* The provider, recorded at birth beside the id (#245, per the OpenAI
        outline): never inferred from what happens to be running in a pane. */
     profile.provider = provider;
+    /* #3564: a swarm's kind and settings, from birth (engine/swarm.js). */
+    if (kind === 'swarm') Object.assign(profile, require('./swarm').birthProfile({ maxHelpers: opts.maxHelpers, dailyTokenLimit: opts.dailyTokenLimit }));
     /* Which revision of the working rules this agent was born with (#539),
        beside the id for the same reason the provider is: recorded at the
        moment it is true, never inferred later from file contents a person

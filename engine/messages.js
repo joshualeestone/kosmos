@@ -1348,7 +1348,14 @@ function sendPost({ fromPane, sender: resolvedSender, project, projectName, text
 
   const outcomes = {};
   let reached = 0;
+  /* #3564: a swarm switched OFF in this project is not woken by the room, unless the
+     post @-names it. It stays a member and the record still lists it. */
+  const offHere = new Set(recipients.filter((n) => {
+    if (mentioned.has(n)) return false;
+    try { return require('./projects').swarmOffIn(projectId, n); } catch { return false; }
+  }));
   for (const name of recipients) {
+    if (offHere.has(name)) continue;
     /* The operator's arrivals carry their OWN markers: an @-mentioned
        member reads a request from the person; everyone else reads the
        room-wide form, which is the person speaking to the room rather
@@ -1447,7 +1454,7 @@ function sendPost({ fromPane, sender: resolvedSender, project, projectName, text
    * were recipients and none took it, and wrong when there were none to try.
    * The person reads the room from the record, and the record is written below.
    */
-  if (!reached && recipients.length) {
+  if (!reached && recipients.length - offHere.size > 0) {
     /* Reaching NOBODY is a failed post, not a quieter success: nothing
        was typed anywhere, so nothing is logged (send()'s typed-only
        rule) and the spill must not wait for the next mint of this id. */

@@ -212,6 +212,9 @@ const CONNECTIONS_END = '<!-- kosmos:connections:end -->';
 // the neutralisers derive from the list and the registry test reads it.
 const DMFILES_START = '<!-- kosmos:dmfiles:start -->';
 const DMFILES_END = '<!-- kosmos:dmfiles:end -->';
+/* #3564: a swarm lead's own block (how many helpers, isolation, one voice). */
+const SWARM_START = '<!-- kosmos:swarm:start -->';
+const SWARM_END = '<!-- kosmos:swarm:end -->';
 // The AI-policy pair (#479), defined beside the others for the same reason:
 // the neutralisers derive from the list and the registry test reads it.
 const POLICY_START = '<!-- kosmos:policy:start -->';
@@ -249,7 +252,7 @@ const POLICY_END = '<!-- kosmos:policy:end -->';
  */
 function ALL_MARKERS() {
   const mm = require('./messages');
-  return [BLOCK_START, BLOCK_END, YOU_START, YOU_END, REPORTS_START, REPORTS_END, CONNECTIONS_START, CONNECTIONS_END, DMFILES_START, DMFILES_END, POLICY_START, POLICY_END, DOCTRINE_START, DOCTRINE_END, mm.START, mm.END];
+  return [BLOCK_START, BLOCK_END, YOU_START, YOU_END, REPORTS_START, REPORTS_END, CONNECTIONS_START, CONNECTIONS_END, DMFILES_START, DMFILES_END, SWARM_START, SWARM_END, POLICY_START, POLICY_END, DOCTRINE_START, DOCTRINE_END, mm.START, mm.END];
 }
 
 /**
@@ -2130,6 +2133,28 @@ function cleanArchivedAt(value) {
  * leaving a stale "archived at" beside a project that is not archived, which
  * would be a sentence about a thing that is no longer true.
  */
+/**
+ * #3564: swarms switched OFF in a project. An Off swarm stays a member, but work in
+ * that project does not reach it: room posts skip it unless it is @-named, and a
+ * message or task line to it there is refused with a sentence. Stored on the project
+ * as `swarmOff: [sessionName]`.
+ */
+function swarmOffIn(projectId, name) {
+  try {
+    const p = readAll().find((x) => x && x.id === projectId);
+    return Boolean(p && Array.isArray(p.swarmOff) && p.swarmOff.includes(String(name)));
+  } catch { return false; }
+}
+function setSwarmOn(projectId, name, on) {
+  return mutate(projectId, (p) => {
+    const off = new Set(Array.isArray(p.swarmOff) ? p.swarmOff : []);
+    if (on) off.delete(String(name)); else off.add(String(name));
+    p.swarmOff = [...off];
+    return p;
+  });
+}
+const SWARM_OFF_SENTENCE = (who) => `${who} is switched off in this project. Switch it on in the project's members to send it work here.`;
+
 function setArchived(id, want) {
   // One rule: this is edit with one field carried.
   return edit(id, { archived: want });
@@ -2722,8 +2747,9 @@ function toldOverride(verdict, sessionName, known) {
   } catch { return verdict; }
 }
 
-module.exports = { memberValve, processMemberChanges, ageMemberChangesForTests, MEMBERS_PER_HOUR, toldOverride,
-  FILE, FOLDER, TOLD, BLOCK_START, BLOCK_END, YOU_START, YOU_END, REPORTS_START, REPORTS_END, CONNECTIONS_START, CONNECTIONS_END, DMFILES_START, DMFILES_END, POLICY_START, POLICY_END, DOCTRINE_START, DOCTRINE_END, ALL_MARKERS, neutralise,
+module.exports = {
+  swarmOffIn, setSwarmOn, SWARM_OFF_SENTENCE, memberValve, processMemberChanges, ageMemberChangesForTests, MEMBERS_PER_HOUR, toldOverride,
+  FILE, FOLDER, TOLD, BLOCK_START, BLOCK_END, YOU_START, YOU_END, REPORTS_START, REPORTS_END, CONNECTIONS_START, CONNECTIONS_END, DMFILES_START, DMFILES_END, SWARM_START, SWARM_END, POLICY_START, POLICY_END, DOCTRINE_START, DOCTRINE_END, ALL_MARKERS, neutralise,
   file, readAll, writeAll, idFor, folderState, describe, andList,
   list, get, projectsFor, namesFor, create, edit, rename, setDescription, setArchived, addAgent, removeAgent, remove, mutate,
   WELCOME_NAME, WELCOME_DESCRIPTION, WELCOME_ROOM_NOTE, welcomeSeeded, markWelcomeSeeded, seedWelcomeHome, homeForFirstAgent,

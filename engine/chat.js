@@ -1029,6 +1029,22 @@ function waitingNote(state, outcome, runner, backgroundWait) {
  * for the one fact that separates them: whether anything of the person's text
  * could have reached the pane. None of them says the agent knows anything.
  */
+/**
+ * #3564 Stop now: interrupt the agent's current turn (Escape, as a person would press
+ * it), which ends a swarm lead's work and its helpers. Through the SAME gate as
+ * deliver (`addressable`: exact name, ours, an agent pane), so it can only ever
+ * reach a pane deliver could. Never throws.
+ *   { ok: true } | { ok: false, because }
+ */
+function interrupt(sessionName, roster) {
+  const allowed = addressable(sessionName, roster);
+  if (!allowed.ok) return { ok: false, because: allowed.because };
+  const got = tmux(['send-keys', '-t', paneTarget(allowed.card), 'Escape']);
+  if (got.spawnFailed) return { ok: false, because: got.err || 'we could not reach its window, so nothing was stopped' };
+  if (!got.ran || got.status !== 0) return { ok: false, because: 'we could not tell whether it stopped; look at its window' };
+  return { ok: true };
+}
+
 function deliver(sessionName, raw, roster, envelope, trailer) {
   const at = new Date().toISOString();
   const problem = messageProblem(raw);
@@ -1058,6 +1074,18 @@ function deliver(sessionName, raw, roster, envelope, trailer) {
     return {
       state: DELIVERY.COULD_NOT,
       because: status.TRUST_DIALOG_SENTENCE,
+      at, paneState: null, paneNote: null,
+    };
+  }
+  /* #3564: a PAUSED swarm is not typed at. Every caller comes through here (DMs, rooms,
+     tasks, the sweeps), so this is the one place that makes "paused" true. A slash
+     command (/compact, /clear) still goes in: a paused swarm can be looked after. The
+     card's `swarm` field is the snapshot this request already holds. */
+  if (allowed.card && allowed.card.swarm && allowed.card.swarm.active === false
+      && !String(raw).trim().startsWith('/')) {
+    return {
+      state: DELIVERY.COULD_NOT,
+      because: require('./swarm').pausedSentence(allowed.card.name || sessionName, allowed.card.swarm.pausedBecause),
       at, paneState: null, paneNote: null,
     };
   }
@@ -2878,7 +2906,7 @@ module.exports = {
   cleanMessage, storeText, messageProblem, addressable, resolveCard, paneTarget, wireText,
   dmReactions, dmReactionPills, reactDirect, dmReactionNews, dmReactionNote, markDmReactionsTold, dmNoteMayRide,
   chunkUtf8, pasteToEnterMs, PASTE_CHUNK_BYTES,
-  deliver, viewport, questionIn, optionsIn, questionAbove, waitingNote, spawnFailure, verifyAtSend,
+  deliver, interrupt, viewport, questionIn, optionsIn, questionAbove, waitingNote, spawnFailure, verifyAtSend,
   withQuestionRow,
   threadFile, readThread, appendMessage, supersede, withThreadLock,
   defaultAgentFor, looksLikeManager,
