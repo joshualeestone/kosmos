@@ -308,10 +308,10 @@ eval "$(secrets-map.sh env kosmos-android-upload-signing)"
 **No purchase inside the Android app** [live; Josh for the policy read]
 (kosmos #718, Liu Kang's decision of 2026-09-25, matching iOS; Josh can overrule it). Inside the
 app the sign-in page is built to show no checkout, price or billing portal; an unpaid account sees
-"This account does not include Kosmos+ yet." where the pay step would be. This has not yet been seen
-on a phone (see Phone checks). It is the switch `CAN_BUY_HERE` in kosmos-relay `coordinator/src/signin.html`,
-which came with kosmos-relay #117 for iOS and was extended to the Android app by kosmos-relay #121
-(five commits).
+"This account does not include Kosmos+ yet." where the pay step would be. This has not yet been
+seen on a phone (see Phone checks). It is the switch `CAN_BUY_HERE` in kosmos-relay
+`coordinator/src/signin.html`, which came with kosmos-relay #117 for iOS and was extended to the
+Android app by kosmos-relay #121 (five commits).
 - **Policy read** (Josh's call): before the first upload to any Play track, and again before the
   production release in Step 10, Josh reads the current Google Play Payments policy and its
   exceptions, against what the app does as described above. This doc deliberately states none of
