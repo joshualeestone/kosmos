@@ -12160,17 +12160,18 @@ const server = http.createServer((req, res) => {
         const opPrefix = messages.operatorDirect(messages.operatorNowLabel(store.readSettings().timezone));
         /* #3650: reactions the person put on the agent's messages since it was last told
            ride this message as one `[kosmos]` note after the person's words (a reaction
-           is feedback, so it waits for a message rather than waking the agent). Marked
-           told only once the words reached the pane; otherwise they wait for the next. */
+           is feedback, so it waits for a message rather than waking the agent). */
         /* Not on a numbered menu answer (chat.dmNoteMayRide); the note waits for the next
            ordinary message. */
         const news = chat.dmNoteMayRide(body.text, chose) ? chat.dmReactionNews(name) : { note: '', named: {} };
         const reactionNote = news.note;
         const delivery = chat.deliver(name, body.text, roster, opPrefix,
           (attachments.wireNote(files.recs) || '') + reactionNote);
-        if (reactionNote && delivery && (delivery.state === chat.DELIVERY.PLACED || delivery.state === chat.DELIVERY.UNCONFIRMED)) {
-          // A failed mark (the thread lock busy) means these are told again next time,
-          // never lost; the send itself already happened.
+        /* Only PLACED counts as told. The note is the tail of the wire, so an UNCONFIRMED
+           send (a paste that failed part-way, a pane that changed before Enter) is the case
+           most likely to have lost it. Telling twice costs one extra note; not telling is
+           silent. A failed mark (the thread lock busy) also just tells again next time. */
+        if (reactionNote && delivery && delivery.state === chat.DELIVERY.PLACED) {
           chat.markDmReactionsTold(name, news.named);
         }
         const kept = chat.appendMessage(chat.DIRECT, name, {

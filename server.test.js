@@ -14736,6 +14736,19 @@ test('#3650: a DM reaction is stored, shown, and told to the agent once with the
     const typed2 = pastedChunks(sends).join('');
     assert.ok(typed2.includes('one more thing'), 'the second message was not typed: ' + typed2);
     assert.equal(typed2.includes('[kosmos] reactions'), false, 'a reaction was told twice: ' + typed2);
+
+    /* An UNCONFIRMED send (here: Enter could not be pressed) may have lost the note, which
+       rides the tail, so the reaction stays pending rather than being marked told. */
+    await react({ at: AT, emoji: '🎉' });
+    chatEngine.setRunner((args) => {
+      if (args[0] === 'display-message') return { ran: true, spawnFailed: false, status: 0, out: '2.1.212\t\t0\n', err: '' };
+      if (args[0] === 'send-keys' && args.includes('Enter')) return { ran: true, spawnFailed: false, status: 1, out: '', err: 'no pane' };
+      return { ran: true, spawnFailed: false, status: 0, out: '', err: '' };
+    });
+    const lost = await say('did you see that?');
+    const lostState = JSON.parse(lost.body).delivery && JSON.parse(lost.body).delivery.state;
+    assert.equal(lostState, chatEngine.DELIVERY.UNCONFIRMED, 'CONTROL: the send was not unconfirmed, so this arm tests nothing: ' + lost.body);
+    assert.ok(chatEngine.dmReactionNote('lena').includes('🎉'), 'an unconfirmed send marked the reaction told');
   } finally {
     chatEngine.resetForTests();
     board.restore();

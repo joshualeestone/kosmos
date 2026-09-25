@@ -23,7 +23,7 @@ Josh, 2026-09-24 12:27, #admin: reactions "in both their conversations and proje
 - DELIVERY: not a push. A reaction is feedback, so it must not wake the agent into a
   turn. It rides the person's NEXT message as one `[kosmos]` note after their words
   (the deliver() trailer), naming the emoji and the start of the message. Marked told
-  only when that message placed or was typed (unconfirmed); a failed send keeps it
+  only when that message PLACED (review pass 8: an unconfirmed send may have lost the tail, which is where the note rides); anything else keeps it
   pending. A reaction taken back before then is never told. Same as the room, where a
   reaction is seen on the agent's next read.
 - UI: the room's own pieces. dmRow draws the room's `.rxns` row (rxnsInner) under each

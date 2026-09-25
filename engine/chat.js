@@ -2842,8 +2842,8 @@ function dmNoteMayRide(text, chose) {
 /* After a message carrying that note reached the pane, record that the agent has now
    been told what the note NAMED (`named` from dmReactionNews), not whatever is on the
    message by the time this runs. A reaction taken back since drops out of
-   `reactionsTold`, so putting it back later is told again. Called only when the delivery
-   placed or was typed (unconfirmed). Returns false, marking nothing, without `named`. */
+   `reactionsTold`, so putting it back later is told again. Returns false, marking
+   nothing, without `named`. */
 function markDmReactionsTold(agent, named) {
   const name = String(agent);
   if (!named || typeof named !== 'object') return false;
