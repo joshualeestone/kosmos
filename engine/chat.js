@@ -1103,6 +1103,64 @@ function waitingNote(state, outcome, runner, backgroundWait) {
 }
 
 /**
+ * #3564: the gate for Stop now's keystrokes. deliver's own checks for a key that is not a
+ * message: exact name, ours, an agent pane (`addressable`); NOT on Claude Code's trust
+ * dialog, where one Escape ends the session (measured, Claude Code 2.1.282, 2026-09-25);
+ * and not a Windows agent, whose input is a supervisor channel with no keys to send.
+ */
+function keysAllowed(sessionName, roster) {
+  const allowed = addressable(sessionName, roster);
+  if (!allowed.ok) return { ok: false, because: allowed.because };
+  if (allowed.card.state === status.STATE.NEEDS_YOU && status.isTrustDialogEvidence(allowed.card.stateEvidence)) {
+    return { ok: false, because: status.TRUST_DIALOG_SENTENCE };
+  }
+  if (allowed.card.reachedByChannel === true) {
+    return { ok: false, because: 'Kosmos cannot send keys to an agent on Windows yet, so it was not stopped; stop it from its own window' };
+  }
+  return { ok: true, card: allowed.card };
+}
+
+/* #3564: Claude Code's "stop all agents" chord, pressed twice (the second press confirms).
+   Measured on 2.1.282 (2026-09-25): from the plain prompt it stops every background helper,
+   and with none running it leaves the prompt untouched. */
+const STOP_ALL_HELPERS_KEYS = ['C-x', 'C-k', 'C-x', 'C-k'];
+
+/**
+ * #3564 Stop now, the half Escape cannot do: stop ALL of a swarm lead's background helpers
+ * (one Escape does not reach them, measured). Sends STOP_ALL_HELPERS_KEYS through
+ * keysAllowed. It drives Claude Code's own keys, so a change there can break it; the card's
+ * activeHelpers, read from the helpers' own files, is how anyone sees whether it held.
+ * Never throws.  { ok: true } | { ok: false, because }
+ */
+function stopHelpers(sessionName, roster) {
+  const allowed = keysAllowed(sessionName, roster);
+  if (!allowed.ok) return { ok: false, because: allowed.because };
+  const t = paneTarget(allowed.card);
+  for (const k of STOP_ALL_HELPERS_KEYS) {
+    const got = tmux(['send-keys', '-t', t, k]);
+    if (got.spawnFailed || !got.ran || got.status !== 0) return { ok: false, because: 'we could not finish stopping its helpers; look at its window' };
+  }
+  return { ok: true };
+}
+
+/**
+ * #3564 Stop now: interrupt the agent's current turn (Escape, as a person would press
+ * it). Through keysAllowed. Never throws.
+ *   { ok: true } | { ok: false, because }
+ */
+function interrupt(sessionName, roster) {
+  const allowed = keysAllowed(sessionName, roster);
+  if (!allowed.ok) return { ok: false, because: allowed.because };
+  const got = tmux(['send-keys', '-t', paneTarget(allowed.card), 'Escape']);
+  if (got.spawnFailed) return { ok: false, because: got.err || 'we could not reach its window, so nothing was stopped' };
+  if (!got.ran || got.status !== 0) return { ok: false, because: 'we could not tell whether it stopped; look at its window' };
+  return { ok: true };
+}
+
+/* #3564: what a paused swarm still accepts. */
+const PAUSED_SWARM_COMMANDS = /^\/(compact|clear|cost|context|status)([ \t][^\r\n]*)?$/i;
+
+/**
  * Put one message into one agent's session.
  *
  * ⚠️ NEVER THROWS, and never claims more than a keystroke. The return is a
@@ -1139,6 +1197,20 @@ function deliver(sessionName, raw, roster, envelope, trailer) {
     return {
       state: DELIVERY.COULD_NOT,
       because: status.TRUST_DIALOG_SENTENCE,
+      at, paneState: null, paneNote: null,
+    };
+  }
+  /* #3564: a PAUSED swarm is not typed at. Every caller comes through here (DMs, rooms,
+     tasks, the sweeps), so this is the one place that makes "paused" true. Only the
+     commands that look after an agent without setting it to work go in
+     (PAUSED_SWARM_COMMANDS); a skill such as /pplan is work. The card's `swarm` field is
+     the snapshot this request already holds. */
+  if (allowed.card && allowed.card.swarm && allowed.card.swarm.active === false
+      && !PAUSED_SWARM_COMMANDS.test(String(raw).trim())) {
+    return {
+      state: DELIVERY.COULD_NOT,
+      // Lazy: swarm requires projects, which requires this module at its top.
+      because: require('./swarm').pausedSentence(allowed.card.name || sessionName, allowed.card.swarm.pausedBecause),
       at, paneState: null, paneNote: null,
     };
   }
@@ -2959,7 +3031,7 @@ module.exports = {
   cleanMessage, storeText, messageProblem, addressable, resolveCard, paneTarget, wireText,
   dmReactions, dmReactionPills, reactDirect, dmReactionNews, dmReactionNote, markDmReactionsTold, dmNoteMayRide,
   chunkUtf8, pasteToEnterMs, PASTE_CHUNK_BYTES,
-  deliver, viewport, questionIn, optionsIn, questionAbove, waitingNote, spawnFailure, verifyAtSend,
+  deliver, interrupt, stopHelpers, viewport, questionIn, optionsIn, questionAbove, waitingNote, spawnFailure, verifyAtSend,
   withQuestionRow,
   threadFile, readThread, appendMessage, supersede, withThreadLock,
   defaultAgentFor, looksLikeManager,

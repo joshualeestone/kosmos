@@ -186,6 +186,10 @@ test('#3034 read: no guide on this computer is 200 { ok: false, reason: none }, 
   const nb = await none.json();
   assert.equal(nb.ok, false);
   assert.equal(nb.reason, 'none');
+  /* #3660: and not hosted, since this board runs from a checkout with no connector at a real path. A source
+     checkout must never offer a chat that goes to the production coordinator. */
+  assert.equal(nb.hosted, false, 'a checkout board offered the hosted assistant');
+  assert.equal(nb.hostedWhy, 'no_connector', 'the reason it is not offered is not said');
   // CONTROL: the same computer with a seeded, marked guide names it.
   folderFor('Josh', { guide: true });
   setupAssistant.markSetupAssistantSeeded({ name: 'Josh', via: 'test' });
@@ -231,4 +235,55 @@ test('#3034 read: the guide is named by the slug the seed records (production sh
   const r = await getGuide();
   assert.equal(r.status, 200, await r.clone().text());
   assert.deepEqual(await r.json(), { ok: true, name: 'josh-ai' });
+});
+
+test('#3660: the hosted assistant is offered only with a connector at a real path', () => {
+  const remote = require('./engine/remote');
+  const was = process.env.AGENT_WORKFORCE_TUNNEL_BIN;
+  const fake = path.join(SB, 'kosmos-tunnel');
+  fs.writeFileSync(fake, '#!/bin/sh\nexit 2\n', { mode: 0o755 });
+  try {
+    process.env.AGENT_WORKFORCE_TUNNEL_BIN = fake;
+    assert.equal(remote.hostedAvailable(), true, 'a connector file at a real path was not seen');
+    process.env.AGENT_WORKFORCE_TUNNEL_BIN = path.join(SB, 'no-such-tunnel');
+    assert.equal(remote.hostedAvailable(), false, 'a missing connector was offered');
+    process.env.AGENT_WORKFORCE_TUNNEL_BIN = 'kosmos-tunnel';
+    assert.equal(remote.hostedAvailable(), false, 'a bare name on PATH (a source checkout) was offered');
+    process.env.AGENT_WORKFORCE_TUNNEL_BIN = SB;
+    assert.equal(remote.hostedAvailable(), false, 'a directory was taken for the connector');
+  } finally {
+    if (was === undefined) delete process.env.AGENT_WORKFORCE_TUNNEL_BIN; else process.env.AGENT_WORKFORCE_TUNNEL_BIN = was;
+  }
+});
+
+test('#3660: the bundled picture of Josh is served as a JPEG, and a neighbouring name is not', async () => {
+  const r = await fetch(board.base + '/icons/setup-guide-avatar.jpg');
+  assert.equal(r.status, 200);
+  assert.equal(r.headers.get('content-type'), 'image/jpeg');
+  const bytes = Buffer.from(await r.arrayBuffer());
+  assert.ok(bytes.length > 1000 && bytes[0] === 0xff && bytes[1] === 0xd8, 'not a JPEG body');
+  // CONTROL: the allowlist still refuses anything else under /icons/.
+  const miss = await fetch(board.base + '/icons/setup-guide-avatar.png');
+  assert.equal(miss.status, 404);
+  await miss.text();
+});
+
+test('#3660: the hosted assistant is offered only before the person has a model of their own', () => {
+  const none = () => ({ rows: [] });
+  const one = () => ({ rows: [{ provider: 'anthropic', dir: '/x' }] });
+  assert.equal(setupAssistant.hostedOffered({ available: () => true, listed: none }), true, 'a new install with a connector was not offered it');
+  // The dangerous answer: an install that already has its own model (no guide yet) must not use Kosmos's key.
+  assert.equal(setupAssistant.hostedOffered({ available: () => true, listed: one }), false, 'offered to someone with their own model');
+  assert.equal(setupAssistant.hostedOffered({ available: () => false, listed: none }), false, 'offered without a connector');
+  assert.equal(setupAssistant.hostedOffered({ available: () => true, listed: () => { throw new Error('unreadable'); } }), false, 'an unreadable model list offered it');
+});
+
+test('#3660: the reason the hosted assistant is not offered is told apart, and an unreadable list is not "your own AI"', () => {
+  assert.deepEqual(setupAssistant.hostedWhy({ available: () => false, listed: () => ({ rows: [] }) }), { ok: false, why: 'no_connector' });
+  assert.deepEqual(setupAssistant.hostedWhy({ available: () => true, listed: () => ({ rows: [{}] }) }), { ok: false, why: 'own_model' });
+  assert.deepEqual(setupAssistant.hostedWhy({ available: () => true, listed: () => { throw new Error('x'); } }), { ok: false, why: 'unchecked' });
+  assert.deepEqual(setupAssistant.hostedWhy({ available: () => true, listed: () => ({ rows: [] }) }), { ok: true, why: null });
+  // Through the REAL listing: one provider that cannot be read must not offer Kosmos's key (it may be theirs).
+  const realBroken = () => setupAssistant.listedModels({ listFor: (mod) => { if (mod === './accounts') throw new Error('unreadable'); return []; } });
+  assert.deepEqual(setupAssistant.hostedWhy({ available: () => true, listed: realBroken }), { ok: false, why: 'unchecked' });
 });

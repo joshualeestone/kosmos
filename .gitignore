@@ -55,3 +55,7 @@ dist/
 
 # Agent worktrees (engine/subagent scratch checkouts, never part of the tree)
 .claude/worktrees/
+
+# #3660: the connector is staged only by the bundle build. A copy here would make a checkout offer the hosted setup
+# assistant (remote.hostedAvailable), sending a developer's chat to the production coordinator.
+/bin/kosmos-tunnel
