@@ -21,11 +21,20 @@ Built as the mock, against the contract, visible only when the engine is present
    menu), Most helpers at once (slider, PUT), and Today (tokensToday of dailyTokenLimit, unrounded, the bar,
    "Pauses itself at the limit and tells you. Resets at midnight."), and the paused sentence by reason.
 4. A project's Members: a small On / Off beside a swarm (PUT /api/project/<id>/swarm/<name>).
-Nothing of this shows, and no swarm route is called, until /api/status says the engine is in (flag asked of
-Renet 2026-09-25 00:03).
+Nothing of this shows, and no swarm route is called, until /api/status says the engine is in: the `swarms`
+flag (asked of Renet 2026-09-25 00:03), or until it lands, the engine's own sign, a `swarm` key on the rows.
+
+## Decided (review iteration 1)
+- For a swarm the model field steps aside for "Runs on Claude" (the mock) and no provider, model or account
+  is sent; the engine gives it Claude's default and the model can be changed on its page later.
+- The page can raise the daily limit (a slider in Today), since the create hint promises it can be raised.
+- Stop now stays usable while any helper still works under Paused (Paused stops NEW helpers only).
+- The engine answers a change with settings only; they are merged into the latest status row.
 
 ## Weakest premise
-That the engine's capability flag lands as asked. Until it does, the UI stays hidden, which is safe.
+That the engine's rows carry a `swarm` key (null for an ordinary agent) as its status.js does today, since
+the UI turns on from that until the flag lands. An empty board cannot show that sign, so the first agent on
+a new install is offered Swarm only once the flag exists.
 
 ## Verification
 A browser check with a fixture engine (status rows carrying the contract's swarm field and the flag; routes
