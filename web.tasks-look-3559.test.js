@@ -1,0 +1,86 @@
+'use strict';
+/* Mona's look review of #3701 (the Tasks view, #3559): each thing said once per row, the Assigned
+ * row in Josh's words where that is true, no Closed tile, and the two big gaps halved. The row is
+ * the REAL tskRow lifted from web/index.html; "never reported" is the engine's field, end to end.
+ *
+ *   node --test web.tasks-look-3559.test.js
+ */
+const fs = require('node:fs');
+const os = require('node:os');
+const path = require('node:path');
+// The roster is REAL board cards (fixture-discipline): sandbox the roots before requiring the fleet.
+const SANDBOX = fs.mkdtempSync(path.join(os.tmpdir(), 'aw-tasklook-'));
+process.env.AGENT_WORKFORCE_DATA = path.join(SANDBOX, 'data');
+process.env.AGENT_WORKFORCE_WORKERS = path.join(SANDBOX, 'workers');
+process.env.AGENT_WORKFORCE_CLAUDE_CONFIG = path.join(SANDBOX, 'claude.json');
+process.env.AGENT_WORKFORCE_LAUNCH = path.join(SANDBOX, 'launch');
+process.env.AGENT_WORKFORCE_PROJECTS = path.join(SANDBOX, 'projects');
+const test = require('node:test');
+const assert = require('node:assert/strict');
+const page = require('./test-support/page');
+const commitments = require('./engine/commitments');
+const tasks = require('./engine/tasks');
+const fleet = require('./test-support/fleet');
+const BOARD = fleet.install([fleet.agent('rex')]);
+const REX = BOARD.agents.find((c) => c.sessionName === 'rex');
+test.after(() => { try { BOARD.restore(); } catch { /* restored */ } fs.rmSync(SANDBOX, { recursive: true, force: true }); });
+
+const PAGE = fs.readFileSync(path.join(__dirname, 'web', 'index.html'), 'utf8');
+const SCRIPT = page.scriptOf(PAGE);
+const GROUPS = SCRIPT.match(/const TSK_GROUPS = \[[\s\S]*?\n\];/)[0];
+const FNS = page.liftAll(SCRIPT, ['tskAgentName', 'tskRow']);
+const rowOf = (t, by) => new Function('TSK', 'LAST', 'esc', 'agoWords', 'tskKey',
+  GROUPS + '\n' + FNS + '\nreturn tskRow;')(
+  { sel: new Set(), by }, [REX], (s) => String(s), () => '1 hour ago',
+  (x) => x.projectId + '#' + x.number)(t);
+const T = (over) => Object.assign({ number: 3, projectId: 'p', projectName: 'Launch', sentence: 'Do it',
+  whoNames: ['rex'], state: 'assigned', createdAt: '2026-09-25T00:00:00Z', lastActivityAt: null, claim: null }, over);
+
+test('the engine says "never reported" as a field, only for a record that does not exist', () => {
+  const never = commitments.read('nobody-has-ever-reported');
+  assert.equal(never.state, 'unknown');
+  assert.equal(never.neverReported, true);
+  const claim = tasks.claimFor({ number: 1, who: 'nobody-has-ever-reported' }, never);
+  assert.equal(claim.claimed, null);
+  assert.equal(claim.neverReported, true);
+  // CONTROL: an unknown reading that is NOT "never reported" (unreadable, stale) does not say so.
+  const unreadable = tasks.claimFor({ number: 1, who: 'x' }, { state: 'unknown', commitments: [], because: 'its record could not be read' });
+  assert.equal(unreadable.neverReported, false);
+  assert.equal(tasks.claimFor({ number: 1, who: 'x' }, null).neverReported, false);
+});
+
+test('an agent that never reported: the row says so in the agent\'s name, briefly', () => {
+  const html = rowOf(T({ claim: { claimed: null, neverReported: true, because: 'this agent has never reported what it is holding' } }), 'status');
+  assert.ok(REX && REX.name, 'the fleet card has no name to speak');
+  assert.ok(html.includes('<div class="why">' + REX.name + ' has not said yet whether it started.</div>'), html);
+  assert.doesNotMatch(html, /holding/, 'our word is back on the row');
+});
+
+test('could not tell for another reason: the row keeps the reason, never "has not said"', () => {
+  const html = rowOf(T({ claim: { claimed: null, neverReported: false, because: 'its record could not be read' } }), 'status');
+  assert.match(html, /We cannot tell whether it started: its record could not be read\./);
+  assert.doesNotMatch(html, /has not said/, 'an unreadable record is reported as silence');
+  assert.doesNotMatch(rowOf(T({ claim: { claimed: false } }), 'status'), /class="why"/, 'a definite answer carries a sentence');
+});
+
+test('the state line shows only when grouping by project; the agent pill shows in both', () => {
+  const t = T({ claim: { claimed: false } });
+  const byStatus = rowOf(t, 'status');
+  const byProject = rowOf(t, 'project');
+  assert.doesNotMatch(byStatus, /class="tsk-state"/, 'the row repeats its own group heading');
+  assert.match(byProject, /class="tsk-state"[^>]*><span class="tsk-dot"><\/span>Assigned, not started<\/span>/);
+  for (const html of [byStatus, byProject]) assert.match(html, /class="tsk-who" data-agent="rex">/);
+});
+
+test('Closed is not a tile; it stays the folded list', () => {
+  assert.match(SCRIPT, /getElementById\('tsk-tiles'\)\.innerHTML = !TSK\.data \? '' : TSK_GROUPS\.filter\(\(g\) => g\.k !== 'closed'\)\.map/);
+  assert.match(SCRIPT, /<details class="tsk-fold"/, 'the Closed fold is gone');
+});
+
+test('the two big gaps: less top padding, and an empty crumb or status line takes no room', () => {
+  assert.match(PAGE, /\.tsk-main \{ padding: 25px 26px 110px;/);
+  assert.match(PAGE, /\.tsk-crumb:empty \{ min-height: 0; margin: 0; \}/);
+  assert.match(PAGE, /#tsk-msg:empty \{ min-height: 0; margin: 0; \}/);
+  // The status line must stay a live region: it is never display:none.
+  assert.doesNotMatch(PAGE, /#tsk-msg[^{]*\{[^}]*display:\s*none/);
+});
