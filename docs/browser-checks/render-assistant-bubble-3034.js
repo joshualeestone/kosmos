@@ -278,6 +278,9 @@ const waitFor = (page, fn, ms = 6000) => page.waitForFunction(fn, null, { timeou
     guideState('working');
     chk(await waitFor(page, () => { const b = document.getElementById('asp-busy'); return !!b && !b.hidden && b.querySelectorAll('.act i').length === 3 && /Josh is working/.test(b.textContent); }, 12000),
       'B20 the guide working: the open chat shows the working row', await page.evaluate(() => document.getElementById('asp-busy').outerHTML.slice(0, 200)));
+    /* The row took the thread's height as it showed: the thread, at its end before, is still at its end. */
+    const atEnd20 = await page.evaluate(() => { const th = document.getElementById('asp-th'); return Math.round(th.scrollHeight - th.scrollTop - th.clientHeight); });
+    chk(atEnd20 <= 2, 'B20 as the working row shows, the thread stays at its end (its last message is not under the row)', 'from end: ' + atEnd20);
     if (SHOTS) { fs.mkdirSync(SHOTS, { recursive: true }); await page.screenshot({ path: path.join(SHOTS, 'asb-working-open.png') }); }
     // B20: the dots keep ONE node across paints (#3421): a rebuilt node restarts their loop every tick.
     await page.evaluate(() => { document.querySelector('#asp-busy .act').__kept = true; });
@@ -309,6 +312,13 @@ const waitFor = (page, fn, ms = 6000) => page.waitForFunction(fn, null, { timeou
     // B20: the guide's sign-in broken: the chat says so (busyRow's line), and the folded bubble shows no working dots.
     guideState('auth_failed');
     chk(await waitFor(page, () => { const b = document.getElementById('asp-busy'); return !!b && !b.hidden && /sign-in isn.t working/.test(b.textContent) && !b.querySelector('.act'); }, 12000), 'B20 a broken sign-in says so in the chat, not silence');
+    /* Said once, in words only (the row's face and "!" are hidden from a screen reader), and not again when only its
+       evidence changes, which it does from poll to poll. */
+    const said20 = await page.evaluate(() => document.getElementById('asp-live-busy').textContent);
+    chk(/^Josh\u2019s Claude sign-in isn\u2019t working/.test(said20), 'B20 the broken sign-in is said once, in words only', JSON.stringify(said20));
+    const again20 = await page.evaluate(() => { const l = document.getElementById('asp-live-busy'); l.textContent = '';
+      const r = asbGuideRow(); r.stateEvidence = 'evidence that moved on'; asbPaint(); return l.textContent; });
+    chk(again20 === '', 'B20 and is not said again when only its evidence changes', JSON.stringify(again20));
     await page.click('#asp-fold');
     await page.waitForTimeout(400);
     chk(await page.evaluate(() => document.querySelector('#asb .asb-act').hidden), 'B20 and the folded bubble shows no working dots for it');

@@ -55376,7 +55376,7 @@ function asbPaint() {
        to the page rather than falling to nowhere. */
     const hadFocus = !!document.activeElement && !!document.activeElement.closest('#asblayer');
     bub.hidden = true; panel.hidden = true; document.getElementById('asb-nudge').hidden = true;
-    ASB.open = false; ASB.wasWorking = false;   // so a chat that comes back already working is announced
+    ASB.open = false; ASB.wasWorking = false; ASB.saidSignIn = '';   // so a chat that comes back is announced afresh
     if (hadFocus) setTimeout(asbFocusPage, 0);
     return;
   }
@@ -55412,7 +55412,8 @@ function asbPaint() {
        character), and rebuilding the .act dots restarts their loop every paint. Keyed as paintBusy keys. */
     const key = !(working || signIn) ? '' : [row ? row.sessionName : 'hosted', row ? row.state : 'hosted', who, row && row.hasAvatar ? '1' : '0',
       signIn ? (row.stateEvidence || '') : ''].join('\u0001');
-    if (busy.dataset.busyKey !== key) {
+    const rekeyed = busy.dataset.busyKey !== key;
+    if (rekeyed) {
       busy.innerHTML = !key ? '' : row ? busyRow(row, who)
         : '<div class="msg-av" aria-hidden="true"><img src="' + ASB_HOSTED_AVATAR + '" alt=""></div><span class="act" aria-hidden="true"><i></i><i></i><i></i></span><span>' + esc(who) + ' is ' + WORKING_VERB + '&hellip;</span>';
       busy.dataset.busyKey = key;
@@ -55420,7 +55421,7 @@ function asbPaint() {
     /* The row sits under the thread and takes its height, so a thread that was at its end stays there: a reply that
        lands while the row shows is then in view, not under it. */
     const hide = !(working || signIn);
-    if (busy.hidden !== hide) {
+    if (busy.hidden !== hide || (rekeyed && !hide)) {   // shown, hidden, or its height changed (a sign-in line can wrap)
       const th = document.getElementById('asp-th');
       const atEnd = !!th && th.scrollHeight - th.scrollTop - th.clientHeight < 24;
       busy.hidden = hide;
@@ -55432,8 +55433,10 @@ function asbPaint() {
     const seen = working && ASB.open;
     if (seen && !ASB.wasWorking) liveBusy.textContent = who + ' is ' + WORKING_VERB;
     ASB.wasWorking = seen;
-    const said = signIn && ASB.open ? key : '';
-    if (said && ASB.saidSignIn !== said) liveBusy.textContent = busy.textContent.trim();
+    /* Keyed on the guide and its state, not the evidence, which changes from poll to poll; spoken from the words
+       alone (the row's face and "!" are aria-hidden, and textContent would read them out). */
+    const said = signIn && ASB.open ? row.sessionName + '\u0001auth_failed' : '';
+    if (said && ASB.saidSignIn !== said) liveBusy.textContent = (busy.lastElementChild ? busy.lastElementChild.textContent : '').trim();
     ASB.saidSignIn = said;
   }
   /* #3738: the opening message is there from the start, before the first read and when a read fails. */
@@ -55519,10 +55522,10 @@ async function asbPoll(force) {
       /* A reply landed: a "working" from an older board snapshot is stale. One that landed while folded was
          timed when its dot lit, so opening the chat later does not restart that clock. */
       if (!ASB.dotTimed) ASB.heardAt = Date.now();   // dotTimed, not dot: opening the chat clears the dot first
-      ASB.dotTimed = false;
       const last = speech.filter((m) => m.from === t.session).pop();
       document.getElementById('asp-live').textContent = last ? String(last.text || '') : '';
     }
+    ASB.dotTimed = false;   // consumed, or outlived (a count that fell): either way the next open reply is timed afresh
     ASB.heard = heard; ASB.dot = false; asbPaintThread(speech, t.session);
   }
   else if (ASB.heard === null) ASB.heard = heard;
@@ -55818,7 +55821,7 @@ async function asbFind() {
   asbAsideDone(); ASB.asideShowing = false; ASB.dot = false;   // a hosted refusal waiting to be read belongs to the hosted assistant, not the guide
   { const th = document.getElementById('asp-th'); if (th) th.replaceChildren(); }   // the hosted conversation is not the guide's
   /* A guide now exists: the bubble talks to it. The hosted conversation stays behind; it was another assistant. */
-  if (ASB.hosted) { ASB.hosted = false; ASB.heard = null; ASB.heardAt = 0; ASB.dotTimed = false; ASB.shown = ''; ASB.readOnce = false; ASB.lastPoll = 0; ASB.remaining = null; }
+  if (ASB.hosted) { ASB.hosted = false; ASB.heard = null; ASB.heardAt = 0; ASB.dotTimed = false; ASB.wasWorking = false; ASB.saidSignIn = ''; ASB.shown = ''; ASB.readOnce = false; ASB.lastPoll = 0; ASB.remaining = null; }
   ASB.finding = false;
   asbLayerEnsure();
   await asbReadSetting();
@@ -55849,7 +55852,7 @@ function asbForgetGuide() {
   const standIn = asbIsHostedAfterForget();
   const hadFocus = !standIn && !!document.activeElement && !!document.activeElement.closest('#asblayer');
   const keepOpen = standIn && ASB.open;
-  ASB.guide = null; ASB.open = keepOpen; ASB.asking = false; ASB.heard = null; ASB.heardAt = 0; ASB.wasWorking = false; ASB.dotTimed = false; ASB.shown = ''; ASB.dot = false;
+  ASB.guide = null; ASB.open = keepOpen; ASB.asking = false; ASB.heard = null; ASB.heardAt = 0; ASB.wasWorking = false; ASB.saidSignIn = ''; ASB.dotTimed = false; ASB.shown = ''; ASB.dot = false;
   ASB.wroteOnce = false; ASB.readOnce = false; ASB.lastPoll = 0; ASB.nudgeGone = false; ASB.asideShowing = false; asbAsideDone();
   const pm = document.getElementById('asp-msg'); if (pm) pm.textContent = '';   // nothing stale when it comes back
   if (keepOpen) { const th = document.getElementById('asp-th'); if (th) th.replaceChildren(); }   // the guide's thread is not the hosted one's
