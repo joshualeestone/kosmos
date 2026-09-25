@@ -308,15 +308,33 @@ function listedModels({ listFor = (mod) => require(mod).list() } = {}) {
   return { rows, failed, fingerprint: rows.map((r) => `${r.provider}:${r.dir}:${r.authMode || ''}:${r.who}`).join('|') };
 }
 
-/* #3660: whether the bubble may use the hosted assistant (Kosmos's own model) here. Only BEFORE the person
-   has any model of their own: rule 7 on #3660 is that once they connect theirs the hosted path is not used,
-   and an install that already has a model but no guide (one from before the guide, a guide removed, both
-   names taken) must not spend the shared allowance on Kosmos's key. And only where a connector is at a
-   real path (remote.hostedAvailable), so a source checkout or a check sandbox never offers it. */
-function hostedWhy({ available = () => require('./remote').hostedAvailable(), listed = () => listedModels() } = {}) {
-  let there = false;
-  try { there = available() === true; } catch { there = false; }
-  if (!there) return { ok: false, why: 'no_connector' };
+/* #3660: the guide agent's card, read as "their model cannot answer right now": the three states #3723
+   surfaces (a usage limit or no credits, a rejected login, the provider unreachable after its retries).
+   { problem, runner } or null. Josh, 2026-09-25 07:22: then the bubble falls back to the hosted assistant
+   for that chat, and goes back to their model once it answers. */
+function guideFailure(card) {
+  const { STATE } = require('./status');   // lazy: status requires create, which the seed uses
+  if (!card || ![STATE.RATE_LIMITED, STATE.AUTH_FAILED, STATE.CONNECTION_LOST].includes(card.state)) return null;
+  return { problem: card.state, runner: typeof card.runner === 'string' && card.runner ? card.runner : null };
+}
+
+/* #3660: whether the bubble may use the hosted assistant (Kosmos's own model) here. Before the person has any
+   model of their own; and, once they have one, only while their guide cannot answer (`failing`, from
+   guideFailure; Josh 2026-09-25 07:22). An install that has a working model, or a model and no guide, does not
+   spend the shared allowance on Kosmos's key. And only where a connector is at a real path
+   (remote.hostedAvailable), so a source checkout or a check sandbox never offers it. */
+function hostedConnector(available = () => require('./remote').hostedAvailable()) {
+  try { return available() === true; } catch { return false; }
+}
+function hostedWhy({ available = undefined, listed = () => listedModels(), failing = () => null } = {}) {
+  if (!hostedConnector(available)) return { ok: false, why: 'no_connector' };
+  /* A guide that cannot answer is on a model they connected (the seed creates a guide only once a model is
+     connected, and setupGuideNow checks its marker), so the listing is not needed to know it. `failing`
+     THROWS when the guide's card could not be read: that is not known, so 'unchecked' (a retryable 503 on
+     the hosted route), never 'own_model', which would end a fallback chat over a board hiccup. */
+  let f = null;
+  try { f = failing(); } catch { return { ok: false, why: 'unchecked' }; }
+  if (f) return { ok: true, why: 'own_model_failing' };
   let got;
   try { got = listed(); } catch { return { ok: false, why: 'unchecked' }; }
   /* A provider that could not be read may be the one they connected: not known, so not offered, and not said to be theirs. */
@@ -511,6 +529,8 @@ module.exports = {
   listedModels,
   hostedOffered,
   hostedWhy,
+  guideFailure,
+  hostedConnector,
   refreshGuideRole,
   usable,
   RETRY_AFTER_MS,
