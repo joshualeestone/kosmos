@@ -18,10 +18,10 @@ split (22:26): engine is Renet's, UI is Mona's. Claude-only v1. The engine/UI co
 - **The card:** every `/api/status` card gains `swarm` (null for an ordinary agent).
 - **Settings:** `PUT /api/agent/<name>/swarm { maxHelpers?, dailyTokenLimit?, active? }`.
 - **Paused is real:** `chat.deliver` refuses a paused swarm (every caller goes through it), except slash commands.
-- **Stop now:** `POST /api/agent/<name>/swarm/stop` pauses it "stopped" and sends Escape through `chat.interrupt`,
-  the same gate as deliver; the answer says whether the interrupt was confirmed.
-- **The daily limit:** a one-minute sweep (`swarm.sweepOnce`) pauses a swarm at its limit, interrupts it, and says so
-  in its own DM; a limit pause lifts at local midnight, a person's or Stop now's never does.
+- **Stop now:** `POST /api/agent/<name>/swarm/stop` pauses it "stopped", sends Escape (`chat.interrupt`) and the
+  stop-all chord (`chat.stopHelpers`), both through `keysAllowed`; the answer says whether both were sent.
+- **The daily limit:** a one-minute sweep (`swarm.sweepOnce`) pauses a swarm at its limit, interrupts it, stops its
+  helpers, and says so in its own DM; a limit pause lifts at local midnight, a person's or Stop now's never does.
 - **Per project:** `PUT /api/project/<id>/swarm/<name> { on }`; an Off swarm is skipped by room posts unless @-named,
   and a person's message or task line to it in that project is refused / not sent.
 
@@ -33,15 +33,20 @@ split (22:26): engine is Renet's, UI is Mona's. Claude-only v1. The engine/UI co
 
 ## Weakest premises (not yet measured)
 1. ~~That Escape ends BACKGROUND subagents.~~ MEASURED FALSE (2026-09-24, a throwaway Claude Code 2.1.282 pane): one
-   Escape to an idle lead leaves a background helper running. Its agent manager stops it (`Down` opens the list, `Down`
-   selects a helper, `x` stops it), so Stop now also sends that sequence for each working helper (`chat.stopHelpers`).
-   It types `x` only while Claude Code shows a helper selected ("x to stop"), so a stale count sends no stray key.
-   The residual: it drives Claude Code's own screen and can break when that screen changes. The card's activeHelpers
-   lags a stop by up to ACTIVE_WINDOW_MS (10 minutes) in the "still working" direction: an interrupted helper never
-   writes `end_turn`. Deliberate: counting only helpers written since the pause would err toward "stopped" while a
-   background helper sits in a long tool call, and for a spending control the false "stopped" is the worse lie.
+   Escape to an idle lead leaves a background helper running.
+   MEASURED 2026-09-25 (throwaway 2.1.282 session, two helpers busy in a foreground command): Claude Code's
+   "stop all agents" chord, ctrl+x ctrl+k pressed twice (the second press confirms), stops every background helper
+   from the plain prompt (their processes went from 2 to 0), with no list navigation; with no helper running it leaves
+   the prompt untouched. So Stop now and the limit sweep send that chord every time (`chat.stopHelpers`), with no
+   count and no reading of the screen. A stopped helper's file then ends with a "[Request interrupted by user" line,
+   and the meter counts it as finished, so the card's activeHelpers shows the stop at once.
+   Also measured the same night: ONE Escape on Claude Code's folder-trust question ENDS the session. Both keys
+   therefore go through `keysAllowed` (deliver's trust-dialog floor, and no keys to a Windows agent).
+   The residual: these are Claude Code's own keys and can change with it; the card's activeHelpers, read from the
+   helpers' own files, is how anyone sees whether a stop held.
 2. That the lead keeps to N when told.
-3. The daily-limit sweep stops working helpers as Stop now does (one Escape does not reach background ones).
+3. A helper that parked its work in a background shell and ended its turn counts as finished while that shell runs
+   (seen in the same measurement). The stop chord is sent regardless of the count, so this only affects the card.
 
 ## Settings behaviour worth knowing
 - Raising `dailyTokenLimit` on a swarm paused at its limit does not switch it back on; `active: true` does.

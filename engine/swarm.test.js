@@ -101,6 +101,20 @@ test('#3564 meter: today\'s lead + helper tokens (all four counts), yesterday le
   assert.deepEqual(swarm.meter(null, NOW), { tokensToday: 0, leadTokens: 0, helperTokens: 0, activeHelpers: 0 });
 });
 
+test('#3564 meter: a helper stopped by "stop all agents" is not working, though it never wrote end_turn; a busy one still is', () => {
+  swarm.resetForTests();
+  // The shape measured on Claude Code 2.1.282 (2026-09-25): the stopped helper's file ends with this user line.
+  const stoppedLine = JSON.stringify({ type: 'user', timestamp: today(14, 59), message: { role: 'user', content: [{ type: 'text', text: '[Request interrupted by user for tool use]' }] } });
+  const dir = transcripts('stop', [
+    ['s.jsonl', [asst(today(9), U(1, 1), 'end_turn')], NOW - 60000],
+    ['s/subagents/agent-stopped.jsonl', [asst(today(14, 58), U(5, 5), 'tool_use'), stoppedLine], NOW - 20000],
+    ['s/subagents/agent-busy.jsonl', [asst(today(14, 59), U(5, 5), 'tool_use')], NOW - 20000],
+  ]);
+  const m = swarm.meter(path.join(dir, 's.jsonl'), NOW);
+  assert.equal(m.activeHelpers, 1, 'a stopped helper was still counted as working, or the busy one was not');
+  assert.equal(m.helperTokens, 20, 'CONTROL: the stopped helper\'s spend still counts toward today');
+});
+
 test('#3564 meter: one message counts ONCE, however many content-block lines carry its usage (measured 2.23x overcount)', () => {
   swarm.resetForTests();
   const line = (id, stop) => JSON.stringify({ type: 'assistant', timestamp: today(9), message: { id, role: 'assistant', stop_reason: stop || null, usage: U(100, 0) } });
@@ -145,18 +159,18 @@ function deps(profiles) {
     readProfile: (n) => profiles[n],
     writeProfile: (n, patch) => { calls.writes.push([n, patch]); profiles[n] = { ...profiles[n], ...patch }; },
     interrupt: (n) => { calls.interrupts.push(n); return { ok: true }; },
-    stopHelpers: (n, count) => { calls.stops.push([n, count]); return { ok: true, sent: count }; },
+    stopHelpers: (n) => { calls.stops.push(n); return { ok: true }; },
     say: (n, text) => { calls.says.push([n, text]); },
   };
 }
-const card = (name, tokensToday, activeHelpers = 0) => ({ name, tokensToday, activeHelpers });   // a sweep row, not a board card (sweepRows derives these)
+const card = (name, tokensToday) => ({ name, tokensToday });   // a sweep row, not a board card (sweepRows derives these)
 
-test('#3564 sweep: at the limit it stops its working helpers too (one Escape does not); none working, none stopped', () => {
-  const profiles = { busy: swarm.birthProfile({ dailyTokenLimit: 1000 }), calm: swarm.birthProfile({ dailyTokenLimit: 1000 }) };
+test('#3564 sweep: a swarm paused at its limit has all its helpers stopped too (one Escape does not); one under it is left alone', () => {
+  const profiles = { over: swarm.birthProfile({ dailyTokenLimit: 1000 }), under: swarm.birthProfile({ dailyTokenLimit: 1000 }) };
   const d = deps(profiles);
-  const did = swarm.sweepOnce([card('busy', 1000, 3), card('calm', 1000, 0)], d, NOW);
-  assert.deepEqual(d.calls.stops, [['busy', 3]], 'the helpers of a swarm paused at its limit were left running');
-  assert.deepEqual(did.map((x) => [x.name, x.helpersStopped]), [['busy', 3], ['calm', 0]]);
+  const did = swarm.sweepOnce([card('over', 1000), card('under', 999)], d, NOW);
+  assert.deepEqual(d.calls.stops, ['over'], 'the helpers of a swarm paused at its limit were left running');
+  assert.deepEqual(did.map((x) => [x.name, x.stopped]), [['over', true]]);
 });
 
 test('#3564 sweep: at the limit it pauses itself, interrupts, and says so in its DM; below the limit nothing happens', () => {
@@ -293,42 +307,56 @@ test('#3564 per project: leaving a project clears its Off, so the agent re-added
   assert.equal(projects.swarmOffIn(id, 'stayer'), true, 'CONTROL: removing one member cleared another member\'s Off');
 });
 
-test('#3564 sweepRows: only OUR swarms, as { name, tokensToday, activeHelpers }; a plain agent and a stranger are left out', () => {
+test('#3564 sweepRows: only OUR swarms, as { name, tokensToday }; a plain agent and a stranger are left out', () => {
   store.writeProfile('rowlead', swarm.birthProfile({ dailyTokenLimit: 1000 }));
   store.writeProfile('rowstranger', swarm.birthProfile({ dailyTokenLimit: 1000 }));
   withFleet([fleet.agent('rowlead', { state: 'idle' }), fleet.agent('rowplain', { state: 'idle' }), fleet.stranger('rowstranger', { state: 'idle' })], (board) => {
     const rows = swarm.sweepRows(board.agents);
     assert.deepEqual(rows.map((r) => r.name), ['rowlead']);
     assert.ok(Number.isFinite(rows[0].tokensToday));
-    const lead = board.agents.find((c) => c.sessionName === 'rowlead');
-    assert.ok(Number.isInteger(rows[0].activeHelpers), 'the board card\'s helper count does not reach the sweep');
-    assert.equal(rows[0].activeHelpers, lead.swarm.activeHelpers);
   });
 });
 
-test('#3564 stopHelpers: the measured agent-manager keys (Down, then Down+x per helper, then Escape), same gate as deliver', () => {
+/* A pane on Claude Code's folder-trust question, where one Escape ends the session (measured). */
+const TRUST_SCREEN = [
+  ' Accessing workspace:',
+  ' /Users/somebody/work/workers/lead9',
+  ' Quick safety check: Is this a project you created or one you trust? (Like your own code, a well-known open source',
+  ' project, or work from your team). If not, take a moment to review what\'s in this folder first.',
+  ' Claude Code\'ll be able to read, edit, and execute files here.',
+  ' \u276f No, exit',
+  '   Yes, I trust this folder',
+  '',
+].join('\n');
+
+test('#3564 stopHelpers: the measured stop-all chord (ctrl+x ctrl+k, twice) and nothing else, same gate as deliver', () => {
   try {
     withFleet([fleet.agent('lead3', { state: 'idle' }), fleet.stranger('other3', { state: 'idle' })], (board) => {
       const tmux = armTmux();
-      const onScreen = (screen) => chat.setRunner((args) => {
-        tmux.calls.push(args);
-        return { ran: true, spawnFailed: false, status: 0, out: args[0] === 'capture-pane' ? screen : '', err: '' };
-      });
-      onScreen('  helper-1 running\n  Enter to view \u00b7 x to stop');
-      assert.deepEqual(chat.stopHelpers('lead3', board.agents, 2), { ok: true, sent: 2 });
+      assert.deepEqual(chat.stopHelpers('lead3', board.agents), { ok: true });
       const keys = tmux.calls.filter((a) => a[0] === 'send-keys').map((a) => a[a.length - 1]);
-      assert.deepEqual(keys, ['Down', 'Down', 'x', 'Down', 'x', 'Escape']);
-      // No helper selected on screen (a stale count): no `x` is typed anywhere.
-      tmux.calls.length = 0;
-      onScreen('> ');
-      assert.deepEqual(chat.stopHelpers('lead3', board.agents, 2), { ok: true, sent: 0 });
-      const keys2 = tmux.calls.filter((a) => a[0] === 'send-keys').map((a) => a[a.length - 1]);
-      assert.deepEqual(keys2, ['Down', 'Down', 'Escape'], 'x was typed with no helper on screen');
+      assert.deepEqual(keys, ['C-x', 'C-k', 'C-x', 'C-k'], 'not the measured chord');
+      assert.equal(tmux.calls.some((a) => a[0] === 'capture-pane'), false, 'it reads the screen, which it does not need to');
       const before = tmux.calls.length;
-      assert.deepEqual(chat.stopHelpers('lead3', board.agents, 0), { ok: true, sent: 0 });
-      assert.equal(tmux.calls.length, before, 'CONTROL: no helpers, no keys');
-      assert.equal(chat.stopHelpers('other3', board.agents, 2).ok, false);
+      assert.equal(chat.stopHelpers('other3', board.agents).ok, false);
       assert.equal(tmux.calls.length, before, 'a stranger\'s pane was sent keys');
+    });
+  } finally { chat.setRunner(null); }
+});
+
+test('#3564 Stop now sends NO key to an agent on the trust dialog (one Escape there ends its session, measured); an idle one gets them', () => {
+  try {
+    withFleet([fleet.agent('lead9', { state: 'needs_you', screen: TRUST_SCREEN }), fleet.agent('lead8', { state: 'idle' })], (board) => {
+      const c = board.agents.find((a) => a.sessionName === 'lead9');
+      assert.ok(c && c.state === 'needs_you', 'CONTROL: the card reads as the trust dialog');
+      const tmux = armTmux();
+      const i = chat.interrupt('lead9', board.agents);
+      const h = chat.stopHelpers('lead9', board.agents);
+      assert.equal(i.ok, false, 'Escape was allowed at the trust dialog');
+      assert.equal(h.ok, false, 'the stop chord was allowed at the trust dialog');
+      assert.equal(tmux.calls.filter((a) => a[0] === 'send-keys').length, 0, 'a key reached a pane on the trust dialog');
+      assert.equal(chat.interrupt('lead8', board.agents).ok, true, 'CONTROL: an idle lead is interrupted');
+      assert.ok(tmux.calls.some((a) => a[0] === 'send-keys'), 'CONTROL: keys reach an idle lead');
     });
   } finally { chat.setRunner(null); }
 });

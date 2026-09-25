@@ -168,3 +168,28 @@ test('#3564 /api/status says the board can run swarms, even with no agents on it
   const b = await r.json();
   assert.equal(b.swarms, true);
 });
+
+test('#3564 the limit sweep\'s wiring: interrupt and the stop chord reach the lead\'s own pane, and say lands in its DM thread', () => {
+  const fleetMod = require('./test-support/fleet');
+  const chat = require('./engine/chat');
+  const { swarmSweepDeps } = require('./server');
+  lead('hive7', swarm.birthProfile({ dailyTokenLimit: 1000 }));
+  const board = fleetMod.install([fleetMod.agent('hive7', { state: 'idle' }), fleetMod.agent('bystander7', { state: 'idle' })]);
+  const calls = [];
+  chat.setRunner((args) => { calls.push(args); return { ran: true, spawnFailed: false, status: 0, out: '', err: '' }; });
+  chat.setDryRun(false);
+  try {
+    const d = swarmSweepDeps(board.agents);
+    const own = board.agents.find((c) => c.sessionName === 'hive7');
+    assert.equal(d.interrupt('hive7').ok, true);
+    assert.equal(d.stopHelpers('hive7').ok, true);
+    const keys = calls.filter((a) => a[0] === 'send-keys');
+    assert.deepEqual(keys.map((a) => a[a.length - 1]), ['Escape', 'C-x', 'C-k', 'C-x', 'C-k']);
+    for (const a of keys) assert.ok(a.join(' ').includes(own.target), 'a sweep key went to a pane that is not the lead\'s: ' + a.join(' '));
+    d.say('hive7', 'paused at the limit (wiring test)');
+    const thread = chat.readThread(chat.DIRECT, 'hive7');
+    const rows = Array.isArray(thread) ? thread : (thread && thread.messages) || [];
+    assert.ok(rows.some((m) => m && m.text === 'paused at the limit (wiring test)' && m.from === 'hive7'), 'the sweep\'s message did not land in the lead\'s own DM thread');
+    assert.equal(swarm.settingsOf(d.readProfile('hive7')).dailyTokenLimit, 1000, 'readProfile does not read the lead\'s profile');
+  } finally { chat.setRunner(null); chat.setDryRun(true); board.restore(); }
+});

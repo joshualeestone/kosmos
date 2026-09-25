@@ -15,7 +15,8 @@
  *     own files. Measured on this Mac: each subagent writes
  *     `<session>/subagents/agent-*.jsonl` with per-message `usage` and timestamps,
  *     and a finished one ends with an assistant message whose `stop_reason` is
- *     `end_turn`. Nothing here is estimated.
+ *     `end_turn`, or, once stopped, with an "interrupted by user" line. Nothing here
+ *     is estimated.
  *
  * The contract with the UI is on #3564 (Renet, 2026-09-24 22:33).
  */
@@ -213,6 +214,17 @@ function freshEntry(since) {
   return { since, offset: 0, tokens: 0, seen: new Set(), finished: false, tail: '', mtimeMs: 0, touched: 0 };
 }
 
+/* A stopped helper's file ends with this user line (measured, Claude Code 2.1.282,
+   2026-09-25, after "stop all agents"), so it is not working even though it never
+   wrote `end_turn`. */
+const INTERRUPTED = '[Request interrupted by user';
+function isInterruptedLine(j) {
+  if (!j || j.type !== 'user' || !j.message) return false;
+  const c = j.message.content;
+  if (typeof c === 'string') return c.startsWith(INTERRUPTED);
+  return Array.isArray(c) && c.some((b) => b && b.type === 'text' && typeof b.text === 'string' && b.text.startsWith(INTERRUPTED));
+}
+
 /* One transcript file: tokens written since `since`, and whether it has finished (its last
    assistant message ended the turn). Never throws.
    🛑 EACH MESSAGE COUNTS ONCE. Claude Code writes one line per content block, and every line
@@ -240,6 +252,7 @@ function readFile(file, since, now = Date.now()) {
       if (!line) continue;
       let j;
       try { j = JSON.parse(line); } catch { continue; }
+      if (isInterruptedLine(j)) { e.finished = true; continue; }
       if (j.type !== 'assistant' || !j.message || typeof j.message !== 'object') continue;
       e.finished = j.message.stop_reason === 'end_turn';
       const id = typeof j.message.id === 'string' && j.message.id ? j.message.id : null;
@@ -330,7 +343,7 @@ function pausedFor(settings, because, now = Date.now()) {
 function sweepRows(cards) {
   return (Array.isArray(cards) ? cards : [])
     .filter((c) => c && c.isNamedOurs === true && c.sessionName && c.swarm && Number.isFinite(c.swarm.tokensToday))
-    .map((c) => ({ name: c.sessionName, tokensToday: c.swarm.tokensToday, activeHelpers: c.swarm.activeHelpers }));
+    .map((c) => ({ name: c.sessionName, tokensToday: c.swarm.tokensToday }));
 }
 
 /**
@@ -339,7 +352,7 @@ function sweepRows(cards) {
  *     working helpers, and say so in its own DM thread;
  *   - paused by the limit on an EARLIER day: switch it back on (a new day's budget).
  * A pause by the person or by Stop now never lifts by itself. `deps` supplies
- * readProfile, writeProfile, interrupt(name), stopHelpers(name, count), say(name, text).
+ * readProfile, writeProfile, interrupt(name), stopHelpers(name), say(name, text).
  * Never throws; returns what it did, per swarm.
  */
 function sweepOnce(rows, deps, now = Date.now()) {
@@ -354,10 +367,9 @@ function sweepOnce(rows, deps, now = Date.now()) {
       if (s.active && s.dailyTokenLimit && c.tokensToday >= s.dailyTokenLimit && s.limitOverrideDay !== dayKey(now)) {
         deps.writeProfile(name, { swarm: pausedFor(s, 'limit', now) });
         const stopped = deps.interrupt(name);
-        const helpers = Number.isInteger(c.activeHelpers) && c.activeHelpers > 0 && typeof deps.stopHelpers === 'function'
-          ? deps.stopHelpers(name, c.activeHelpers) : null;
+        const helpers = deps.stopHelpers(name);
         deps.say(name, `I paused myself at today's token limit (${s.dailyTokenLimit} tokens). I'll start again tomorrow, or switch me back on.`);
-        did.push({ name, action: 'paused', stopped: Boolean(stopped && stopped.ok), helpersStopped: helpers && helpers.ok ? helpers.sent : 0 });
+        did.push({ name, action: 'paused', stopped: Boolean(stopped && stopped.ok && helpers && helpers.ok) });
       } else if (!s.active && s.pausedBecause === 'limit' && s.pausedAt && Date.parse(s.pausedAt) < startOfDay(now)) {
         deps.writeProfile(name, { swarm: { ...s, active: true, pausedBecause: null, pausedAt: null } });
         did.push({ name, action: 'resumed' });

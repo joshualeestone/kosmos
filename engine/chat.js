@@ -1022,53 +1022,53 @@ function waitingNote(state, outcome, runner, backgroundWait) {
 }
 
 /**
- * #3564 Stop now, the half Escape cannot do: stop a swarm lead's BACKGROUND helpers.
- * Measured on Claude Code 2.1.282 (a throwaway pane, 2026-09-24): one Escape to an idle lead
- * does NOT stop a background subagent (its transcript kept growing). Its agent manager does:
- * `Down` opens the list with the lead's own row first, each further `Down` selects the next
- * helper ("Enter to view · x to stop"), and `x` stops the selected one. `Escape` leaves the list.
- * ⚠️ This drives Claude Code's own screen, so a change to that screen can break it; the
- * card's activeHelpers (read from the helpers' own files) is how anyone sees whether it held.
- * `count` is the most helpers to stop (the card's activeHelpers); 0 sends nothing. `sent` is
- * how many were stopped. Same gate as deliver. Never throws.  { ok: true, sent } | { ok: false, because }
+ * #3564: the gate for Stop now's keystrokes. deliver's own checks for a key that is not a
+ * message: exact name, ours, an agent pane (`addressable`); NOT on Claude Code's trust
+ * dialog, where one Escape ends the session (measured, Claude Code 2.1.282, 2026-09-25);
+ * and not a Windows agent, whose input is a supervisor channel with no keys to send.
  */
-function stopHelpers(sessionName, roster, count) {
-  const n = Number.isInteger(count) && count > 0 ? Math.min(count, require('./swarm').MAX_HELPERS) : 0;
-  if (!n) return { ok: true, sent: 0 };
+function keysAllowed(sessionName, roster) {
   const allowed = addressable(sessionName, roster);
   if (!allowed.ok) return { ok: false, because: allowed.because };
-  const t = paneTarget(allowed.card);
-  const key = (k) => {
-    const got = tmux(['send-keys', '-t', t, k]);
-    return !(got.spawnFailed || !got.ran || got.status !== 0);
-  };
-  /* `x` only while a helper is selected ON SCREEN; the card's count can be stale. */
-  const helperSelected = () => {
-    const got = tmux(['capture-pane', '-p', '-J', '-t', t]);
-    return Boolean(got.ran && got.status === 0 && /x to stop/i.test(String(got.out || '')));
-  };
-  const failed = { ok: false, because: 'we could not finish stopping its helpers; look at its window' };
-  if (!key('Down')) return failed;
-  let sent = 0;
-  for (let i = 0; i < n; i += 1) {
-    if (!key('Down')) return failed;
-    if (!helperSelected()) break;
-    if (!key('x')) return failed;
-    sent += 1;
+  if (allowed.card.state === status.STATE.NEEDS_YOU && status.isTrustDialogEvidence(allowed.card.stateEvidence)) {
+    return { ok: false, because: status.TRUST_DIALOG_SENTENCE };
   }
-  if (!key('Escape')) return failed;
-  return { ok: true, sent };
+  if (allowed.card.reachedByChannel === true) {
+    return { ok: false, because: 'Stop now cannot reach an agent on Windows yet; stop it from its own window' };
+  }
+  return { ok: true, card: allowed.card };
+}
+
+/* #3564: Claude Code's "stop all agents" chord, pressed twice (the second press confirms).
+   Measured on 2.1.282 (2026-09-25): from the plain prompt it stops every background helper,
+   and with none running it leaves the prompt untouched. */
+const STOP_ALL_HELPERS_KEYS = ['C-x', 'C-k', 'C-x', 'C-k'];
+
+/**
+ * #3564 Stop now, the half Escape cannot do: stop ALL of a swarm lead's background helpers
+ * (one Escape does not reach them, measured). Sends STOP_ALL_HELPERS_KEYS through
+ * keysAllowed. It drives Claude Code's own keys, so a change there can break it; the card's
+ * activeHelpers, read from the helpers' own files, is how anyone sees whether it held.
+ * Never throws.  { ok: true } | { ok: false, because }
+ */
+function stopHelpers(sessionName, roster) {
+  const allowed = keysAllowed(sessionName, roster);
+  if (!allowed.ok) return { ok: false, because: allowed.because };
+  const t = paneTarget(allowed.card);
+  for (const k of STOP_ALL_HELPERS_KEYS) {
+    const got = tmux(['send-keys', '-t', t, k]);
+    if (got.spawnFailed || !got.ran || got.status !== 0) return { ok: false, because: 'we could not finish stopping its helpers; look at its window' };
+  }
+  return { ok: true };
 }
 
 /**
  * #3564 Stop now: interrupt the agent's current turn (Escape, as a person would press
- * it), which ends a swarm lead's work and its helpers. Through the SAME gate as
- * deliver (`addressable`: exact name, ours, an agent pane), so it can only ever
- * reach a pane deliver could. Never throws.
+ * it). Through keysAllowed. Never throws.
  *   { ok: true } | { ok: false, because }
  */
 function interrupt(sessionName, roster) {
-  const allowed = addressable(sessionName, roster);
+  const allowed = keysAllowed(sessionName, roster);
   if (!allowed.ok) return { ok: false, because: allowed.because };
   const got = tmux(['send-keys', '-t', paneTarget(allowed.card), 'Escape']);
   if (got.spawnFailed) return { ok: false, because: got.err || 'we could not reach its window, so nothing was stopped' };

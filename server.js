@@ -2398,6 +2398,18 @@ function agentReplyProblem(text) {
   return chat.messageProblem(text) || messages.markerProblem(text) || null;
 }
 
+/* #3564: what the daily-limit sweep acts through, for one roster. Named so its wiring is
+   tested (server.swarm-3564.test.js), not only the sweep's decisions. */
+function swarmSweepDeps(roster) {
+  return {
+    readProfile: (n) => store.readProfile(n),
+    writeProfile: (n, patch) => store.writeProfile(n, patch),
+    interrupt: (n) => chat.interrupt(n, roster),
+    stopHelpers: (n) => chat.stopHelpers(n, roster),
+    say: (n, text) => keepAgentReply(n, text),
+  };
+}
+
 /* Record an agent's reply in its thread with the person: the one write both
    /api/reply and the outbox drain make, so a drained reply is exactly a reply.
    `at` is the original send time for a drained reply, now for the route. */
@@ -4846,7 +4858,7 @@ const server = http.createServer((req, res) => {
     return;
   }
 
-  /* #3564 Stop now: interrupt the lead's current turn (its helpers end with it) and
+  /* #3564 Stop now: interrupt the lead's current turn, stop all its background helpers, and
      pause it with the reason "stopped", so nothing new is typed at it until the person
      switches it back on. Paused even if the interrupt could not be confirmed: the answer
      says which. */
@@ -4862,13 +4874,10 @@ const server = http.createServer((req, res) => {
     store.writeProfile(name, { swarm: next });
     const roster = safeRoster();
     const stopped = chat.interrupt(name, roster);
-    /* Escape does not reach BACKGROUND helpers (measured): stop each through the agent
-       manager, as many as the card says are working. */
-    const card = chat.resolveCard(Array.isArray(roster) ? roster : [], name);
-    const helpers = card && card.swarm ? card.swarm.activeHelpers : 0;
-    const helped = helpers > 0 ? chat.stopHelpers(name, roster, helpers) : { ok: true, sent: 0 };
+    /* Escape does not reach BACKGROUND helpers (measured); Claude Code's stop-all does. */
+    const helped = chat.stopHelpers(name, roster);
     const ok = stopped.ok === true && helped.ok === true;
-    sendJson(res, 200, { ok: true, stopped: ok, helpersStopped: helped.ok ? helped.sent : 0,
+    sendJson(res, 200, { ok: true, stopped: ok,
       because: ok ? null : (stopped.ok ? helped.because : stopped.because), swarm: next });
     return;
   }
@@ -15306,13 +15315,7 @@ function start(port = PORT) {
         try {
           const roster = safeRoster();
           const swarmMod = require('./engine/swarm');
-          swarmMod.sweepOnce(swarmMod.sweepRows(roster), {
-            readProfile: (n) => store.readProfile(n),
-            writeProfile: (n, patch) => store.writeProfile(n, patch),
-            interrupt: (n) => chat.interrupt(n, roster),
-            stopHelpers: (n, count) => chat.stopHelpers(n, roster, count),
-            say: (n, text) => keepAgentReply(n, text),
-          });
+          swarmMod.sweepOnce(swarmMod.sweepRows(roster), swarmSweepDeps(roster));
         } catch { /* best-effort; the card still shows today's tokens against the limit */ }
       }, Number(process.env.AGENT_WORKFORCE_SWARM_SWEEP_MS) > 0 ? Number(process.env.AGENT_WORKFORCE_SWARM_SWEEP_MS) : 60 * 1000); // the env is the test seam only
       if (swarmSweep && typeof swarmSweep.unref === 'function') swarmSweep.unref();
@@ -15833,6 +15836,7 @@ if (require.main === module) {
 module.exports = {
   server, start, pathOf, decodeSegment, resetHeardBudgetForTests,
   givePart, // #3595: the assign-and-tell path, exported so the Assigner's real write path is tested
+  swarmSweepDeps, // #3564: the limit sweep's wiring, exported so it is tested
   /* #2036: the boot diagnostic's condition (pure truth table) AND its real call-site
      composition, exported together so BOTH are pinned. stagingRevertWarningNow wires the raw
      install stamp rather than the #2934 badge; sourceChannelNow is exported alongside so the
