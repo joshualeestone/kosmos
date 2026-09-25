@@ -15084,14 +15084,17 @@ function start(port = PORT) {
          refusal, is single-flight, and does nothing on an unarmed (pre-existing) install or
          once seeded. Its own timer, unref'd, best-effort, like the sweeps above. */
       if (setupAssistant.FIRSTRUN_AUTOCREATE_ENABLED) {
+        let guideSweep = null;
         const guideTick = () => {
           try {
+            /* Once a guide exists there is nothing left to do: stop the timer. */
+            if (setupAssistant.setupAssistantSeeded()) { if (guideSweep) clearInterval(guideSweep); return; }
             setupAssistant.ensureGuide({ createAgent: create.createAgent, via: 'model-connected' })
               .catch(() => { /* best-effort */ });
           } catch { /* best-effort */ }
         };
         guideTick();
-        const guideSweep = setInterval(guideTick, Number(process.env.AGENT_WORKFORCE_GUIDE_SWEEP_MS) > 0 ? Number(process.env.AGENT_WORKFORCE_GUIDE_SWEEP_MS) : 60 * 1000); // the env is the test seam only
+        guideSweep = setInterval(guideTick, Number(process.env.AGENT_WORKFORCE_GUIDE_SWEEP_MS) > 0 ? Number(process.env.AGENT_WORKFORCE_GUIDE_SWEEP_MS) : 60 * 1000); // the env is the test seam only
         if (guideSweep && typeof guideSweep.unref === 'function') guideSweep.unref();
       }
       /* #3038: register this install with installkosmos.com so the homepage

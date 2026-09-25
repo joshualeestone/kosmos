@@ -345,6 +345,10 @@ let failedFingerprint = null;
 /* Set once a guide is created in this process, whatever happened to the flag write, so a
    failed write (full disk) cannot let the next sweep tick create a second guide. */
 let createdHere = false;
+/* Both guide names already taken by other agents: that does not clear by itself, so it is
+   final for this process rather than an hourly live check plus refused creates forever
+   (review round 8). A board restart tries once more. */
+let namesTaken = false;
 
 function retryWaitMs() {
   return Math.min(RETRY_MAX_MS, RETRY_AFTER_MS * Math.pow(2, Math.max(0, failures - 1)));
@@ -367,12 +371,15 @@ function ensureGuide({ createAgent, via = 'model-connected', now = Date.now(), d
   const dryRun = process.env.AGENT_WORKFORCE_DRY_RUN === '1' && process.env.AGENT_WORKFORCE_SETUP_GUIDE !== 'on';
   const enabled = deps.enabled !== undefined ? deps.enabled : (FIRSTRUN_AUTOCREATE_ENABLED && !dryRun);
   if (!enabled) return Promise.resolve({ seeded: false, reason: 'the automatic setup guide is switched off' });
+  /* The cheap, permanent answers first: on an existing (unarmed) or already-seeded install
+     the sweep then costs one stat a minute. */
+  if (!isArmed()) return Promise.resolve({ seeded: false, reason: 'not armed (this install was set up before the guide existed)' });
+  if (createdHere || setupAssistantSeeded()) return Promise.resolve({ seeded: false, reason: 'already seeded' });
+  if (namesTaken) return Promise.resolve({ seeded: false, reason: 'both guide names are taken by other agents' });
   /* "Don't show this again" (the bubble's switch) also means: no guide agent later. */
   let wanted = true;
   try { wanted = settingFrom(deps.settings !== undefined ? deps.settings : store.readSettings()).on; } catch { wanted = true; }
   if (!wanted) return Promise.resolve({ seeded: false, reason: 'the person turned setup assistance off' });
-  if (!isArmed()) return Promise.resolve({ seeded: false, reason: 'not armed (this install was set up before the guide existed)' });
-  if (createdHere || setupAssistantSeeded()) return Promise.resolve({ seeded: false, reason: 'already seeded' });
   const listed = listedModels(deps);
   if (!listed.rows.length) return Promise.resolve({ seeded: false, reason: 'no model connected yet' });
   const changed = failedFingerprint !== null && listed.fingerprint !== failedFingerprint;
@@ -400,7 +407,7 @@ function ensureGuide({ createAgent, via = 'model-connected', now = Date.now(), d
         last = seed;
         /* Both names taken: that is about the NAME, not the model, so the next model would
            be refused the same way after paying for its live check. Stop here. */
-        if (/already an agent called/.test(String((seed && seed.reason) || ''))) break;
+        if (/already an agent called/.test(String((seed && seed.reason) || ''))) { namesTaken = true; break; }
         /* Refused on this model (its runner missing, say): try the next one. */
       }
       return fail(last ? ('not created: ' + (last.reason || 'refused')) : 'a model is listed but none could run yet');
@@ -414,7 +421,7 @@ function ensureGuide({ createAgent, via = 'model-connected', now = Date.now(), d
 }
 
 /* Test seam: forget the backoff between cases. */
-function resetEnsureGuideForTests() { inFlight = null; lastFailedAt = 0; failures = 0; failedFingerprint = null; createdHere = false; }
+function resetEnsureGuideForTests() { inFlight = null; lastFailedAt = 0; failures = 0; failedFingerprint = null; createdHere = false; namesTaken = false; }
 
 /*
  * The person's switch for the setup assistant bubble (#3034; Josh, 2026-09-24 18:02:

@@ -340,7 +340,7 @@ test('ensureGuide: armed but no model yet creates nothing; the first connected m
     const again = await setupAssistant.ensureGuide({ createAgent: createdOk(calls), deps: conn });
     assert.match(again.reason, /already seeded/);
     assert.equal(calls.length, 1, 'a second guide was created');
-  } finally { armed(false); }
+  } finally { armed(false); setupAssistant.resetEnsureGuideForTests(); }
 });
 
 test('ensureGuide: single-flight (Giddy Up and a sweep together make one guide) and a refusal backs off', async () => {
@@ -393,7 +393,6 @@ test('ensureGuide: a listed but DEAD sign-in backs off too (the live check is th
     await setupAssistant.ensureGuide({ createAgent: createdOk(calls), now: t1 + 2 * setupAssistant.RETRY_AFTER_MS + 1, deps: dead });
     assert.equal(checks, 3, 'CONTROL: it tries again once the doubled wait has passed');
     assert.equal(calls.length, 0, 'an agent was created on a dead sign-in');
-    assert.ok(setupAssistant.RETRY_MAX_MS <= 24 * 60 * 60 * 1000, 'the back-off is capped at a day');
   } finally { armed(false); setupAssistant.resetEnsureGuideForTests(); }
 });
 
@@ -450,6 +449,11 @@ test('ensureGuide: both names taken stops at the first model (no live check paid
     const r = await setupAssistant.ensureGuide({ createAgent: refused(taken, 'there is already an agent called josh-ai.'), deps });
     assert.equal(r.seeded, false);
     assert.equal(checks, 1, 'a name refusal went on to live-check the next model');
+    // And it is final for the process: well past any back-off, no live check and no create again.
+    const later = await setupAssistant.ensureGuide({ createAgent: refused(taken, 'x'), now: Date.now() + 10 * setupAssistant.RETRY_MAX_MS, deps });
+    assert.match(later.reason, /both guide names are taken/);
+    assert.equal(checks, 1, 'a permanent name clash was live-checked again');
+    assert.equal(taken.length, 2, 'refused creates were retried (Josh, then Josh AI, once only)');
   } finally { armed(false); setupAssistant.resetEnsureGuideForTests(); }
 });
 
@@ -486,6 +490,28 @@ test('ensureGuide: if the seeded flag cannot be written, the next tick still mak
     assert.match(again.reason, /already seeded/);
     assert.equal(calls.length, 1, 'a failed flag write let a second guide be created');
   } finally { fs.chmodSync(root, 0o755); fs.rmSync(flag, { recursive: true, force: true }); armed(false); setupAssistant.resetEnsureGuideForTests(); }
+});
+
+test('ensureGuide: the back-off stops growing at RETRY_MAX_MS (a sign-in that stays dead is retried hourly, not after days)', async () => {
+  setupAssistant.resetEnsureGuideForTests();
+  armed(true);
+  try {
+    let checks = 0;
+    const dead = { listFor: (mod) => (mod === './accounts' ? [{ dir: '/h/.claude', isDefault: true }] : []),
+      connectable: async () => { checks += 1; return { ok: false }; }, liveDefault: async () => true };
+    let t = 50_000_000;
+    // Eight failures: uncapped, the next wait would be 10 min * 2^7, over 21 hours.
+    for (let i = 0; i < 8; i += 1) {
+      await setupAssistant.ensureGuide({ createAgent: createdOk([]), now: t, deps: dead });
+      t += setupAssistant.RETRY_MAX_MS * 4;   // always past any wait so each call is a real try
+    }
+    assert.equal(checks, 8, 'CONTROL: each spaced call was a real try');
+    const lastTry = t - setupAssistant.RETRY_MAX_MS * 4;
+    await setupAssistant.ensureGuide({ createAgent: createdOk([]), now: lastTry + setupAssistant.RETRY_MAX_MS - 1000, deps: dead });
+    assert.equal(checks, 8, 'CONTROL: inside the cap it still waits');
+    await setupAssistant.ensureGuide({ createAgent: createdOk([]), now: lastTry + setupAssistant.RETRY_MAX_MS + 1, deps: dead });
+    assert.equal(checks, 9, 'after 8 failures the wait exceeded RETRY_MAX_MS: the cap is not applied');
+  } finally { armed(false); setupAssistant.resetEnsureGuideForTests(); }
 });
 
 test('ensureGuide: "Don\'t show this again" (setupAssistant.on false) also means no guide agent later', async () => {
@@ -532,7 +558,7 @@ test('ensureGuide: the switch off means nothing automatic at all', async () => {
     const r = await setupAssistant.ensureGuide({ createAgent: createdOk(calls), deps: { ...MODELS({ './accounts': [{ dir: '/h/.claude', isDefault: true }] }), enabled: false } });
     assert.match(r.reason, /switched off/);
     assert.equal(calls.length, 0);
-  } finally { armed(false); }
+  } finally { armed(false); setupAssistant.resetEnsureGuideForTests(); }
 });
 
 test('SETTING: defaults to on and not yet asked; anything malformed reads as the default', () => {

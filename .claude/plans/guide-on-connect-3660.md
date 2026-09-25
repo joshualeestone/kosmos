@@ -23,8 +23,9 @@ bubble hands off to it. Josh's direction behind it: 16:05 (his avatar, speaks as
   create), the next try waits 10 minutes, doubling each time, capped at an HOUR: the Claude gate is a live `claude -p`,
   a real request on their account. A change in what is listed or WHO is signed in (email, key suffix, sign-in type)
   skips and resets the wait, and Giddy Up never waits (review round 6). Signing in again to the same account in the
-  same place is the one change invisible here; the hour bounds it. Both guide names taken stops at the first model.
-  Single-flight.
+  same place is the one change invisible here; the hour bounds it. Both guide names taken stops at the first model and
+  is final for the process (a restart tries once more). The sweep stops once a guide exists, and on an unarmed or seeded
+  install it costs one stat a minute. Single-flight.
 - "Don't show this again" (`setupAssistant.on` false) also means no guide agent is created later.
 - Review round 4: a change in what is listed (they just connected something) skips the back-off, so the guide still
   comes the moment a model is connected; a create refused on one model tries the next connected one; a guide created in
@@ -52,6 +53,8 @@ Splinter's own: people may not mind an agent appearing right after they connect 
   guard removed); `listedModels` order and fingerprint, `usable` (dead skipped, default Gemini/Grok key live-checked, nothing asked twice); `ensureGuide`: unarmed never
   creates, no model creates nothing, the first model creates on THAT model once, single-flight shared result, back-off
   with a control, switch off does nothing. Each RED under its mutation.
+- `server.guide-on-connect-3660.test.js` also pins the SWEEP path: arm with no account, no guide over several ticks
+  (control), then sign in and the guide is created with via model-connected (RED with the sweep disabled).
 - `server.guide-on-connect-3660.test.js` (real server as a child, every root sealed): Giddy Up with a connected Claude
   account creates the guide on anthropic via first-run; a dry-run board without the switch creates none, with the arm file
   as the control. RED with the dry-run default removed.

@@ -18,12 +18,16 @@ const { stopBoard } = require('./test-support/board-child');
 
 const REPO = __dirname;
 
-function sandbox() {
+function signIn(home) {
+  // A signed-in default Claude account; the fake claude bin makes its liveness check pass.
+  fs.writeFileSync(path.join(home, '.claude.json'), JSON.stringify({ oauthAccount: { emailAddress: 'guide-test@example.com' } }));
+}
+
+function sandbox({ signedIn = true } = {}) {
   const sb = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'kosmos-3660-')));
   const home = path.join(sb, 'home');
   fs.mkdirSync(path.join(home, '.claude', 'projects'), { recursive: true });
-  // A signed-in default Claude account; the fake claude bin makes its liveness check pass.
-  fs.writeFileSync(path.join(home, '.claude.json'), JSON.stringify({ oauthAccount: { emailAddress: 'guide-test@example.com' } }));
+  if (signedIn) signIn(home);
   fs.writeFileSync(path.join(sb, 'panes.txt'), '');
   return { sb, home, data: path.join(sb, 'data') };
 }
@@ -106,6 +110,28 @@ test('#3660: a dry-run board creates no guide unless a test turns it on, even af
     assert.ok(fs.existsSync(armFile(box)), 'CONTROL: the install is armed, so only the dry-run default can be what stops it');
     await new Promise((res) => setTimeout(res, 2500));
     assert.equal(fs.existsSync(flagFile(box)), false, 'a test board created a guide nobody asked for');
+  } finally {
+    if (child) await stopBoard(child);
+    fs.rmSync(box.sb, { recursive: true, force: true });
+  }
+});
+
+test('#3660: a model connected AFTER Giddy Up is picked up by the sweep, and the guide is created on it', async () => {
+  const box = sandbox({ signedIn: false });
+  let child;
+  try {
+    const booted = await boot(box, { AGENT_WORKFORCE_SETUP_GUIDE: 'on', AGENT_WORKFORCE_GUIDE_SWEEP_MS: '300' });
+    child = booted.child;
+    const r = await fetch(booted.base + '/api/first-run/complete', { method: 'POST', headers: { 'content-type': 'application/json' }, body: '{}' });
+    assert.equal(r.status, 200);
+    assert.ok(fs.existsSync(armFile(box)), 'Giddy Up did not arm');
+    await new Promise((res) => setTimeout(res, 1200));
+    assert.equal(fs.existsSync(flagFile(box)), false, 'CONTROL: no model yet, so no guide (the sweep has run several times)');
+    signIn(box.home);   // they connect Claude later, from Settings
+    const flag = await waitFor(() => (fs.existsSync(flagFile(box)) ? JSON.parse(fs.readFileSync(flagFile(box), 'utf8')) : null), 10000);
+    assert.ok(flag, 'the sweep did not create the guide after a model was connected');
+    assert.equal(flag.via, 'model-connected', 'created, but not by the sweep');
+    assert.equal(flag.provider, 'anthropic');
   } finally {
     if (child) await stopBoard(child);
     fs.rmSync(box.sb, { recursive: true, force: true });
