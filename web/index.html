@@ -16514,7 +16514,9 @@ function discInk(name) { return DISC_INKS[discIndex(name)]; }
 function face(a) {
   /* #3564: a swarm's face is its cluster, drawn in this same 72-unit box so every card, the not-running card
      and the memory ring (which then goes round the whole cluster, the lead's memory) get it from one place. */
-  if (a && a.swarm && SWARMS_ON) return swarmFaceSvg(a);
+  /* Checked for presence, not read: until the engine is in, /api/status emits no `swarm`, and a lifted copy of
+     this function (the unit tests) has no SWARMS_ON. */
+  if (a && (typeof SWARMS_ON !== 'undefined' && SWARMS_ON && Object.prototype.hasOwnProperty.call(a, 'swarm') && a.swarm)) return swarmFaceSvg(a);
   /* The clip id lands in id="…" AND url(#…) -- an attribute and a CSS
      reference -- so esc() is the wrong tool (entities decode in one context
      and not the other). A slug restricted to id-safe characters is correct
@@ -16688,7 +16690,7 @@ function card(a) {
       return `<div class="acard attn notrunning needstrust" data-agent="${esc(a.sessionName)}"${Number.isFinite(Number(a && a.dmUnread)) && Number(a && a.dmUnread) > 0 ? ' data-has-msgs' : ''}${a && a.state === 'needs_you' ? ' data-attn' : ''}${a && a.state === 'needs_you' && a.stateProject === null ? ' data-noproj' : ''}>
       <div class="agauge"><svg viewBox="0 0 72 72" role="img" aria-label="${esc(a.name)}. Waiting at a workspace-trust prompt.">${face(a)}</svg><span class="pres unsure" aria-hidden="true"></span>${dmBadge(a)}</div>
       <div class="aname"><button class="namego" type="button" aria-label="Open ${esc(a.name)}">${esc(a.name)}</button></div>
-      <div class="ameta">${esc(a.swarm && SWARMS_ON ? 'Swarm · ' + swarmStatusWords(a) : roleLine(a, ROLE_TITLES))}</div>
+      <div class="ameta">${esc((typeof SWARMS_ON !== 'undefined' && SWARMS_ON && Object.prototype.hasOwnProperty.call(a, 'swarm') && a.swarm) ? 'Swarm · ' + swarmStatusWords(a) : roleLine(a, ROLE_TITLES))}</div>
       <div class="astate st-attn"><span class="haz" aria-hidden="true">!</span><b>${esc(STATE_COPY.needs_trust.label)}</b></div>
       <div class="note">${esc(a.because || 'It started but has not registered -- most likely waiting at a workspace-trust prompt no one can see.')}</div>
     </div>`;
@@ -16708,7 +16710,7 @@ function card(a) {
            pill is the one that carries it. -->
       <span class="pres off" aria-hidden="true"></span>${dmBadge(a)}</div>
     <div class="aname"><button class="namego" type="button" aria-label="Open ${esc(a.name)}">${esc(a.name)}</button></div>
-    <div class="ameta">${esc(a.swarm && SWARMS_ON ? 'Swarm · ' + swarmStatusWords(a) : roleLine(a, ROLE_TITLES))}</div>
+    <div class="ameta">${esc((typeof SWARMS_ON !== 'undefined' && SWARMS_ON && Object.prototype.hasOwnProperty.call(a, 'swarm') && a.swarm) ? 'Swarm · ' + swarmStatusWords(a) : roleLine(a, ROLE_TITLES))}</div>
     <div class="astate ${split ? 'st-unknown' : 'st-stopped'}">${split ? GLYPH.unknown : GLYPH.stopped}<b>${split ? STATE_COPY.unknown.label : 'Not running'}</b></div>
   </div>`;
   }
@@ -16752,7 +16754,7 @@ function card(a) {
   return `<div class="acard ${boardMods(a, m)}" data-agent="${esc(a.sessionName)}"${Number.isFinite(Number(a && a.dmUnread)) && Number(a && a.dmUnread) > 0 ? ' data-has-msgs' : ''}${a && a.state === 'needs_you' ? ' data-attn' : ''}${a && a.state === 'needs_you' && a.stateProject === null ? ' data-noproj' : ''}>
     <div class="agauge">${ring(a)}${pres}${badge}${dmBadge(a)}</div>
     <div class="aname"><button class="namego" type="button" aria-label="Open ${esc(a.name)}">${esc(a.name)}</button>${staleBadge(a)}</div>
-    <div class="ameta">${esc(a.swarm && SWARMS_ON ? 'Swarm · ' + swarmStatusWords(a) : roleLine(a, ROLE_TITLES))}</div>
+    <div class="ameta">${esc((typeof SWARMS_ON !== 'undefined' && SWARMS_ON && Object.prototype.hasOwnProperty.call(a, 'swarm') && a.swarm) ? 'Swarm · ' + swarmStatusWords(a) : roleLine(a, ROLE_TITLES))}</div>
     <div class="astate st-${m.st}">${glyphOf(a)}<b>${esc(copy.label)}</b>${answer}</div>
     ${a.activeWhileWaiting ? '<div class="alsowork"><span class="act" aria-hidden="true"><i></i><i></i><i></i></span><span>Working now</span></div>' : ''}
     <div class="amodel">${esc(modelLine(a))}</div>
@@ -16885,26 +16887,26 @@ function lrow(a) {
        leaves them. The state word carries the diagnosis; the full because rides
        the card and the detail panel, which have the room the row does not. */
     if (a.needsTrust === true) {
-      const tav = a.swarm && SWARMS_ON ? swarmCluster(a, 34, { decorative: true }) : a.hasAvatar
+      const tav = (typeof SWARMS_ON !== 'undefined' && SWARMS_ON && Object.prototype.hasOwnProperty.call(a, 'swarm') && a.swarm) ? swarmCluster(a, 34, { decorative: true }) : a.hasAvatar
         ? `<img src="/api/agent/${encodeURIComponent(a.sessionName)}/avatar" alt="">`
         : `<span class="lavtint" style="background:${discTint(a.name)};color:${discInk(a.name)}">${esc(initials(a.name))}</span>`;
       return `<div class="lrow attn notrunning needstrust" data-agent="${esc(a.sessionName)}"${Number.isFinite(Number(a && a.dmUnread)) && Number(a && a.dmUnread) > 0 ? ' data-has-msgs' : ''}${a && a.state === 'needs_you' ? ' data-attn' : ''}${a && a.state === 'needs_you' && a.stateProject === null ? ' data-noproj' : ''}>
       <div class="lav">${tav}</div>${dmBadge(a)}
       <div class="lname"><b><button class="namego" type="button" aria-label="Open ${esc(a.name)}">${esc(a.name)}</button></b></div>
-      <div class="ltitle">${esc(a.swarm && SWARMS_ON ? 'Swarm · ' + swarmStatusWords(a) : roleLine(a, ROLE_TITLES))}</div>
+      <div class="ltitle">${esc((typeof SWARMS_ON !== 'undefined' && SWARMS_ON && Object.prototype.hasOwnProperty.call(a, 'swarm') && a.swarm) ? 'Swarm · ' + swarmStatusWords(a) : roleLine(a, ROLE_TITLES))}</div>
       <div class="lstate st-attn"><span class="haz" aria-hidden="true">!</span>${esc(STATE_COPY.needs_trust.label)}</div>
       <div class="ltask"></div>
       <div class="lmodel"></div>
       <div class="lmem"></div>
     </div>`;
     }
-    const off = a.swarm && SWARMS_ON ? swarmCluster(a, 34, { decorative: true }) : a.hasAvatar
+    const off = (typeof SWARMS_ON !== 'undefined' && SWARMS_ON && Object.prototype.hasOwnProperty.call(a, 'swarm') && a.swarm) ? swarmCluster(a, 34, { decorative: true }) : a.hasAvatar
       ? `<img src="/api/agent/${encodeURIComponent(a.sessionName)}/avatar" alt="">`
       : `<span class="lavtint" style="background:${discTint(a.name)};color:${discInk(a.name)}">${esc(initials(a.name))}</span>`;
     return `<div class="lrow off notrunning" data-agent="${esc(a.sessionName)}"${Number.isFinite(Number(a && a.dmUnread)) && Number(a && a.dmUnread) > 0 ? ' data-has-msgs' : ''}${a && a.state === 'needs_you' ? ' data-attn' : ''}${a && a.state === 'needs_you' && a.stateProject === null ? ' data-noproj' : ''}>
       <div class="lav">${off}</div>${dmBadge(a)}
       <div class="lname"><b><button class="namego" type="button" aria-label="Open ${esc(a.name)}">${esc(a.name)}</button></b></div>
-      <div class="ltitle">${esc(a.swarm && SWARMS_ON ? 'Swarm · ' + swarmStatusWords(a) : roleLine(a, ROLE_TITLES))}</div>
+      <div class="ltitle">${esc((typeof SWARMS_ON !== 'undefined' && SWARMS_ON && Object.prototype.hasOwnProperty.call(a, 'swarm') && a.swarm) ? 'Swarm · ' + swarmStatusWords(a) : roleLine(a, ROLE_TITLES))}</div>
       <div class="lstate ${a.jobRunningUnseen === true ? 'st-unknown' : 'st-stopped'}">${a.jobRunningUnseen === true ? GLYPH.unknown + STATE_COPY.unknown.label : GLYPH.stopped + 'Not running'}</div>
       <div class="ltask"></div>
       <div class="lmodel"></div>
@@ -16915,7 +16917,7 @@ function lrow(a) {
   const copy = stateCopyOf(a);
   const pct = pctOf(a.context);
   const band = memBand(pct);
-  const av = a.swarm && SWARMS_ON ? swarmCluster(a, 34, { decorative: true }) : a.hasAvatar
+  const av = (typeof SWARMS_ON !== 'undefined' && SWARMS_ON && Object.prototype.hasOwnProperty.call(a, 'swarm') && a.swarm) ? swarmCluster(a, 34, { decorative: true }) : a.hasAvatar
     ? `<img src="/api/agent/${encodeURIComponent(a.sessionName)}/avatar" alt="">`
     : `<span class="lavtint" style="background:${discTint(a.name)};color:${discInk(a.name)}">${esc(initials(a.name))}</span>`;
   /* ⚠️ A VISIBLE WORD, NOT AN EMPTY SLOT. This rendered a dashed track beside a
@@ -16963,7 +16965,7 @@ function lrow(a) {
   return `<div class="lrow ${boardMods(a, m)}" data-agent="${esc(a.sessionName)}"${Number.isFinite(Number(a && a.dmUnread)) && Number(a && a.dmUnread) > 0 ? ' data-has-msgs' : ''}${a && a.state === 'needs_you' ? ' data-attn' : ''}${a && a.state === 'needs_you' && a.stateProject === null ? ' data-noproj' : ''}>
     <div class="lav">${av}${lrowRing(a)}${m.st === 'attn' ? LROW_WARN : ''}</div>${dmBadge(a)}
     <div class="lname"><b><button class="namego" type="button" aria-label="Open ${esc(a.name)}">${esc(a.name)}</button>${staleBadge(a)}</b></div>
-    <div class="ltitle">${esc(a.swarm && SWARMS_ON ? 'Swarm · ' + swarmStatusWords(a) : roleLine(a, ROLE_TITLES))}</div>
+    <div class="ltitle">${esc((typeof SWARMS_ON !== 'undefined' && SWARMS_ON && Object.prototype.hasOwnProperty.call(a, 'swarm') && a.swarm) ? 'Swarm · ' + swarmStatusWords(a) : roleLine(a, ROLE_TITLES))}</div>
     <!-- #569: the said line stacks INSIDE the state cell -- the seven-slot
          rule above forbids an eighth child, and .lstate already stacks a
          second line within its own cell, so this is the sanctioned shape.
@@ -25783,7 +25785,7 @@ function renderAvatar(a) {
   /* #3564: a swarm's page shows its cluster in place of the picture (and it is repainted every poll, see tick). */
   const swEl = document.getElementById('d-swarm');
   if (swEl) {
-    const isSwarm = !!(a && a.swarm && SWARMS_ON);
+    const isSwarm = !!(a && (typeof SWARMS_ON !== 'undefined' && SWARMS_ON && Object.prototype.hasOwnProperty.call(a, 'swarm') && a.swarm));
     swEl.hidden = !isSwarm;
     if (isSwarm) {
       const size = Math.round((swEl.parentElement && swEl.parentElement.getBoundingClientRect().width) || 88);
@@ -38265,7 +38267,7 @@ var SWARM_PAINTED = null;   // whose panel is on screen: a different agent's pag
 function swarmPagePaint(a) {
   const panel = document.getElementById('d-swarm-panel');
   if (!panel) return;
-  const sw = a && a.swarm && SWARMS_ON ? a.swarm : null;
+  const sw = a && (typeof SWARMS_ON !== 'undefined' && SWARMS_ON && Object.prototype.hasOwnProperty.call(a, 'swarm') && a.swarm) ? a.swarm : null;
   SWARM_ROW = sw ? a : null;
   const who = a && a.sessionName;
   if (who !== SWARM_PAINTED) { SWARM_PAINTED = who; document.getElementById('d-swarm-msg').textContent = ''; }
@@ -40825,7 +40827,8 @@ function pjMember(m, suppressTold, withMinus, hideState) {
      other surface (the card pill is deliberately SOLID). Suppress it for
      restarting, matching the present-branch caption below and pres='on' elsewhere. */
   /* #3564: a swarm member shows its cluster and, in the project's Agents column, a small On / Off (the mock). */
-  const swRow = SWARMS_ON && Array.isArray(LAST) ? LAST.find((x) => x && x.sessionName === m.sessionName && x.swarm) : null;
+  const swRow = typeof SWARMS_ON !== 'undefined' && SWARMS_ON && typeof LAST !== 'undefined' && Array.isArray(LAST)
+    ? LAST.find((x) => x && x.sessionName === m.sessionName && Object.prototype.hasOwnProperty.call(x, 'swarm') && x.swarm) : null;
   const swFace = swRow ? '<span class="lav pj-face pj-swface" aria-hidden="true">' + swarmCluster(swRow, 32) + warn + reachMark + '</span>' : '';
   let swToggle = '';
   if (swRow && hideState && PJ_CURRENT) {
