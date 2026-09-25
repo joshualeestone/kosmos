@@ -777,3 +777,49 @@ test('#979/#133: a codex binary that is not executable BY US reads absent, on ev
     fs.rmSync(spot, { recursive: true, force: true });
   }
 });
+
+test('#3568: resolveBin(antigravity) is env override, then the vendor path ~/.local/bin/agy under the home seam', () => {
+  const AGY_HOME = nodePath.join(SANDBOX, 'agy-home');
+  const canonical = nodePath.join(AGY_HOME, '.local', 'bin', 'agy');
+  const envBin = nodePath.join(SANDBOX, 'env', 'agy');
+  const prevHome = process.env.AGENT_WORKFORCE_HOME;
+  const prevBin = process.env.AGENT_WORKFORCE_ANTIGRAVITY_BIN;
+  process.env.AGENT_WORKFORCE_HOME = AGY_HOME;
+  try {
+    let r = runners.resolveBin('antigravity');
+    assert.deepEqual({ bin: r.bin, present: r.present, managed: r.managed, overridden: r.overridden },
+      { bin: canonical, present: false, managed: false, overridden: false });
+    put(canonical);
+    r = runners.resolveBin('antigravity');
+    assert.deepEqual({ bin: r.bin, present: r.present }, { bin: canonical, present: true });
+    put(envBin);
+    process.env.AGENT_WORKFORCE_ANTIGRAVITY_BIN = envBin;
+    r = runners.resolveBin('antigravity');
+    assert.deepEqual({ bin: r.bin, present: r.present, overridden: r.overridden, envName: r.envName },
+      { bin: envBin, present: true, overridden: true, envName: 'AGENT_WORKFORCE_ANTIGRAVITY_BIN' });
+    // An override under any other name would run a pane the board cannot see: not present, and says why.
+    const renamed = nodePath.join(SANDBOX, 'env', 'agy-1.2.10');
+    put(renamed);
+    process.env.AGENT_WORKFORCE_ANTIGRAVITY_BIN = renamed;
+    r = runners.resolveBin('antigravity');
+    assert.equal(r.present, false, 'a runnable file not called agy must not count as present');
+    assert.match(r.because, /called agy/);
+    // A symlink CALLED agy that points at a versioned file: the pane shows the real file's name,
+    // so it is refused too. The link's own name is not what tmux reports.
+    const link = nodePath.join(SANDBOX, 'env', 'link', 'agy');
+    fs.mkdirSync(nodePath.dirname(link), { recursive: true });
+    fs.rmSync(link, { force: true });
+    fs.symlinkSync(renamed, link);
+    process.env.AGENT_WORKFORCE_ANTIGRAVITY_BIN = link;
+    r = runners.resolveBin('antigravity');
+    assert.equal(r.present, false, 'a symlink named agy onto agy-1.2.10 would show agy-1.2.10 in the pane');
+    assert.equal(runners.agyRealName(link), 'agy-1.2.10');
+    fs.rmSync(link, { force: true });
+    fs.rmSync(renamed, { force: true });
+  } finally {
+    if (prevBin === undefined) delete process.env.AGENT_WORKFORCE_ANTIGRAVITY_BIN; else process.env.AGENT_WORKFORCE_ANTIGRAVITY_BIN = prevBin;
+    if (prevHome === undefined) delete process.env.AGENT_WORKFORCE_HOME; else process.env.AGENT_WORKFORCE_HOME = prevHome;
+    fs.rmSync(canonical, { force: true });
+    fs.rmSync(envBin, { force: true });
+  }
+});

@@ -3834,11 +3834,14 @@ test('the board renderers hold the pack grammar: thresholds, states, parity, esc
     assert.match(api.lrow(spoofed), /bar unknown/,
       'CONTROL: the spoofed percent did not degrade to the unknown bar');
 
-    // An UNRECOGNISED server state gets the unknown treatment's WHOLE
-    // honesty payload, note included: the gate reads the treatment
-    // (cardStOf's fallback), not the state's spelling.
-    assert.match(api.card(as(vex, { state: 'martian' })), /not telling you it is fine/,
-      'a future server state renders as Can’t-tell without the note that makes it honest');
+    // An UNRECOGNISED server state gets the unknown treatment (cardStOf's
+    // fallback reads the treatment, not the state's spelling). #3729: with no
+    // note any more; the "Can't tell" badge carries it, and no diagnostic
+    // sentence rides on the card.
+    const martian = api.card(as(vex, { state: 'martian' }));
+    assert.match(martian, /acard unk/, 'a future server state no longer renders as Can’t-tell');
+    assert.match(martian, /st-unknown/, 'a future server state lost the Can’t-tell pill');
+    assert.doesNotMatch(martian, /not telling you it is fine|class="note"/, 'the unknown card has a diagnostic note again (#3729 removed it)');
     const attn88 = api.card(withPct(mara, 88));
     assert.match(attn88, /acard attn/, 'needs_you lost its red card treatment');
     assert.doesNotMatch(attn88, /\bhot\b/,
@@ -3871,7 +3874,8 @@ test('the board renderers hold the pack grammar: thresholds, states, parity, esc
     assert.match(unk, /pres unsure/, 'unknown presence collapsed into on/off');
     assert.match(unk, /st-unknown/, 'unknown lost its own pill');
     assert.match(unk, /could not check/, 'the unknown pill lost its screen-reader words');
-    assert.match(unk, /not telling you it is fine/, 'the unknown card lost its note');
+    // #3729: the unknown card keeps its dashed card, pill and screen-reader words above, and has no note.
+    assert.doesNotMatch(unk, /not telling you it is fine|class="note"/, 'the unknown card has a diagnostic note again (#3729 removed it)');
     const off = api.card(nils);
     assert.match(off, /acard off/, 'stopped lost its off treatment');
     assert.match(off, /pres off/, 'a stopped agent shows a live presence dot');
@@ -8803,15 +8807,11 @@ test('the detail badge reads the card’s own derivations, and the task is a sep
      header no longer shows the frozen pane title in any state.) */
   const tables = script.slice(tablesFrom, script.indexOf('\n', cardStAt) + 1)
     + '\n' + pageFnSource('stateReason') + '\n' + pageFnSource('taskLine')
-    /* #569: the painter fills the provenance and conflict slots beside the
-       badge, through the same shared derivations the card reads. They join
-       the prelude for the rule stated above: a stub would let this pass
-       while the shipped helpers said something else. */
-    /* ⚠️ `asSentence` JOINS THEM for the same reason (#1199): `conflictNote`
-       now delegates its casing to the one shared dresser, so the prelude
-       without it evaluates a body calling an undefined function. */
+    /* #569: the painter fills the provenance slot beside the badge, through
+       the same shared derivation the card reads. It joins the prelude for the
+       rule stated above: a stub would let this pass while the shipped helper
+       said something else. (#3729 removed the conflict slot and conflictNote.) */
     + '\n' + pageFnSource('saidLine') + '\n' + pageFnSource('asSentence')
-    + '\n' + pageFnSource('conflictNote')
     /* #2019: the badge's `copy` now comes from `stateCopyOf` (the shared state-copy
        derivation), which for 'restarting' names the cause via `restartingLabel`.
        Its GLYPH now comes from `glyphOf` (the shared glyph derivation, which for a

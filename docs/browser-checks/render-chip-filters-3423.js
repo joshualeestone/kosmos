@@ -7,7 +7,8 @@
  * drill-down; clicking it jumps to the actual agent).
  *
  * Markers are keyed on the SERVER state to match the tile counts exactly:
- *   data-attn   = a.state === 'needs_you'                          (== c.needsYou, the "Issue" count)
+ *   data-attn   = needs the person: needs_you, needs_trust, or a connection Kosmos gave up
+ *                 reconnecting (engine/status.js needsPerson; == c.needsYou, the "Issue" count)
  *   data-noproj = a.state === 'needs_you' && a.stateProject===null (== c.needsYouUnattributed)
  *
  * Asserts (real page + real render + real handlers):
@@ -15,9 +16,9 @@
  *      agent's carries neither.
  *   2. the attn-vs-noproj DISTINCTION: card() on a needs_you agent WITH a project
  *      (stateProject set) emits data-attn but NOT data-noproj (real card clone).
- *   2b. the needs_trust DIVERGENCE: a needs_trust card wears the red visual attn
- *      class but carries NEITHER data-attn nor data-noproj, so the Issue filter
- *      excludes it (data-attn matches c.needsYou, which keys on needs_you only).
+ *   2b. needs_trust (#3718, Mona Lisa 2026-09-25): a needs_trust card wears the red
+ *      visual attn class AND carries data-attn (the Issue filter means "needs the
+ *      person", matching c.needsYou), but not data-noproj.
  *   2c/2d. the SAME predicate lives inline in all three render families; lrow()
  *      (#alist) and onode() (#orgview) are pinned too, so a drift in any one copy
  *      fails here rather than shipping a silent list/org count-filter mismatch.
@@ -51,6 +52,7 @@ const { chromium } = require('playwright');
 const fleet = require('../../test-support/fleet');
 const create = require('../../engine/create');
 const srv = require('../../server.js');
+const { needsPerson } = require('../../engine/status'); // #3410/#3718: the engine's Issue rule, compared below
 
 const OUT = process.env.SHOT_DIR || fs.mkdtempSync(path.join(os.tmpdir(), 'cf-shots-'));
 const fail = [];
@@ -110,11 +112,9 @@ function chk(ok, label, extra) {
     chk(distinction.noProject_noproj === true,
       'and a needs_you agent with NO project does get data-noproj', JSON.stringify(distinction));
 
-    // 2b. DELIBERATE DIVERGENCE (#3423): a needs_trust card wears the red .attn
-    // visual (class="acard attn ... needstrust") but is NOT marked data-attn,
-    // because the Issue count c.needsYou keys on state==='needs_you' only. The
-    // filter must match its chip count, so needs_trust is excluded. This pins it:
-    // if a future refactor merges the visual attn set into data-attn, it fails.
+    // 2b. #3718 (Mona Lisa, 2026-09-25): a needs_trust card wears the red .attn visual
+    // and IS marked data-attn, because the Issue tile c.needsYou now counts it too
+    // (engine/status.js countAgents). It is not data-noproj (that stays needs_you only).
     const trust = await page.evaluate(() => {
       const html = card({ sessionName: 'trusty', running: false, state: 'needs_trust',
         needsTrust: true, name: 'Trusty', because: 'Waiting at a workspace-trust prompt.' });
@@ -126,8 +126,8 @@ function chk(ok, label, extra) {
     });
     chk(trust.hasVisualAttn === true,
       'a needs_trust card still wears the red visual attn/needstrust class', JSON.stringify(trust));
-    chk(trust.hasDataAttn === false && trust.hasDataNoproj === false,
-      'but a needs_trust card carries NEITHER data-attn nor data-noproj (excluded from the Issue filter to match c.needsYou)', JSON.stringify(trust));
+    chk(trust.hasDataAttn === true && trust.hasDataNoproj === false,
+      'a needs_trust card is in the Issue filter (data-attn, matching c.needsYou) but not data-noproj', JSON.stringify(trust));
 
     // 2c. #alist family: lrow() carries the SAME inline predicate as card(). Pin it
     // directly so a drift in the list-row copy (repo convention #5, two derivations
@@ -171,7 +171,8 @@ function chk(ok, label, extra) {
         && onodeMarks.beaFound === true && onodeMarks.beaAttn === false && onodeMarks.beaNoproj === false,
       'onode() (#orgview) marks match: the needs_you-no-project node gets both markers, the idle node gets neither', JSON.stringify(onodeMarks));
 
-    // 2e. the QUESTION divergence (the mirror of 2b): a needs_you agent whose question
+    // 2e. the QUESTION divergence (the one case where the red look and the Issue filter
+    // differ, now that 2b's needs_trust is in both): a needs_you agent whose question
     // was reported BY THE AGENT (stateReportedBy:'agent') renders the CALM .question
     // visual (cardStOf calms it), NOT the red .attn. But it IS still in c.needsYou, so
     // it MUST carry data-attn. Pins the other direction: a refactor keying data-attn on
@@ -191,6 +192,37 @@ function chk(ok, label, extra) {
     });
     chk(q.dataAttn === true && q.visualQuestion === true && q.visualAttn === false,
       'an agent-reported needs_you question gets data-attn (matches c.needsYou) but the calm question visual, not attn', JSON.stringify(q));
+
+    // 2f. #3410/#3718: every render copy of the Issue rule agrees with the engine's needsPerson,
+    // for the cases the rule grew: needs_trust (the offline trust-wait row) and a connection
+    // Kosmos gave up (versus one still reconnecting). card() and lrow() are called directly; the
+    // org node is read from a real paintOrg with LAST swapped for the case, then restored.
+    const CASES = [
+      { key: 'needs_trust', patch: { state: 'needs_trust', running: false, needsTrust: true } },
+      { key: 'gave_up', patch: { state: 'connection_lost', reconnect: { phase: 'gave_up', tries: 3 } } },
+      { key: 'waiting', patch: { state: 'connection_lost', reconnect: { phase: 'waiting', tries: 0 } } },
+      { key: 'idle', patch: { state: 'idle' } },
+    ];
+    for (const c of CASES) {
+      const got = await page.evaluate((patch) => {
+        const real = LAST.find((a) => a.sessionName === 'nyx');
+        const row = Object.assign({}, real, patch);
+        const has = (html) => { const d = document.createElement('div'); d.innerHTML = html; return d.firstElementChild.hasAttribute('data-attn'); };
+        const saved = LAST;
+        let org = null;
+        try {
+          LAST = saved.map((a) => (a.sessionName === 'nyx' ? row : a));
+          document.getElementById('orgview').hidden = false;
+          paintOrg();
+          const n = document.querySelector('#orgmap .onode[data-agent="nyx"]');
+          org = n ? n.hasAttribute('data-attn') : null;
+        } finally { LAST = saved; }
+        return { card: has(card(row)), lrow: has(lrow(row)), org };
+      }, c.patch);
+      const want = needsPerson(c.patch);
+      chk(got.card === want && got.lrow === want && got.org === want,
+        `2f ${c.key}: card, list row and org node all ${want ? 'are' : 'are not'} in the Issue filter, as needsPerson says`, JSON.stringify(got));
+    }
 
     // 3. setBoardFilter mutual exclusivity + aria-pressed.
     const excl = await page.evaluate(() => {

@@ -41,7 +41,7 @@ const worldRegistryBase = require('./engine/worldenv').bootstrapWorldEnv(process
 // literal there is a comparison that silently stops matching the day the engine
 // renames one.
 const {
-  snapshot, paneRoster, countAgents, projectsUnreadTotal, STATE, modelDisplayName,
+  snapshot, paneRoster, countAgents, needsPerson, projectsUnreadTotal, STATE, modelDisplayName,
   /* #1304: the tier vocabulary, imported rather than hand-written. A literal
      'structured' beside a value read off a process command line is exactly the
      two-copies-of-one-fact habit this file criticises elsewhere. */
@@ -1389,7 +1389,7 @@ function runnerDisplayName(runner) {
      speculative transform would quietly produce a WRONG name instead of an
      obviously unfinished one, and this file has already deleted one branch for
      describing behaviour the code could not produce. */
-  return runner === 'codex' ? 'Codex' : String(runner);
+  return runner === 'codex' ? 'Codex' : runner === 'antigravity' ? 'Antigravity' : String(runner); // #3568
 }
 
 function sentenceForWhoami(account, model, runner) {
@@ -3939,6 +3939,9 @@ const server = http.createServer((req, res) => {
       const couldNotAccount = Boolean(snap.counts && snap.counts.unreadableLines > 0);
       counts.notRunning = couldNotAccount ? null : offline.length;
       counts.total += offline.length;
+      /* #3718: an offline row waiting at the trust prompt needs the person too; countAgents only
+         saw the running rows, so the Issue tile adds these here with the same rule. */
+      counts.needsYou += offline.filter(needsPerson).length;
       // ⚠️ A MACHINE-LEVEL FACT, DELIBERATELY NOT A PER-AGENT ONE. Whether this
       // computer can reach a Claude subscription is one fact about the machine,
       // not thirteen facts about thirteen agents, and putting it on every card

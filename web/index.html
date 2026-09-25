@@ -505,7 +505,7 @@ h1 { font: 600 var(--text-title-1) var(--font-ui); letter-spacing: -0.012em; }
 .dhead { display: flex; flex-direction: column; align-items: center; text-align: center; gap: 12px; margin-bottom: 16px; }
 /* #3385: the text block is full column-width (not content-width) so the name has a fixed width
    to shrink against and the notes wrap inside the column instead of bleeding past its edge. */
-/* overflow-wrap:anywhere so a long scraped token in the column notes (#d-said, #d-conflict, the
+/* overflow-wrap:anywhere so a long scraped token in the column notes (#d-said, the
    restart card) breaks inside the 220px column instead of overflowing. The detail name keeps
    white-space:nowrap (via the .dnamerow .dname rule, scoped so it does not reach the shared .dname
    titles on other screens), which suppresses wrapping, so it is unaffected -- it is fitted by JS
@@ -1903,18 +1903,17 @@ body.filter-msgs #alist .lrow:not([data-has-msgs]) { display: none; }
 body.filter-msgs #orgview .onode:not([data-has-msgs]) { opacity: .26; }
 /* #3423 (Josh 0.6.88): the Issue + No-project tiles are ALSO clickable filter
    toggles, the same pattern as Messages above. Keyed on data-attn
-   (a.state==='needs_you', matching the Issue tile count c.needsYou) and data-noproj
+   (needs the person, matching the Issue tile count c.needsYou) and data-noproj
    (needs_you && no project, matching c.needsYouUnattributed). Only one board filter
    is active at a time (the JS setBoardFilter enforces it); each hides non-matching
    rows in grid+list and DIMS them in org so the tree stays intact. The gold
    pressed/hover accent signals the active filter regardless of the tile's own red
    alert colour, matching #st-dm-tile.
-   DELIBERATE DIVERGENCE (do not "fix"): a needs_trust card wears the visual .attn
-   class (cardStOf folds needs_trust into attn, so it reads red) but is NOT marked
-   data-attn, because the Issue count c.needsYou keys on state==='needs_you' only.
-   The filter must match its chip count, so needs_trust is excluded from it; adding
-   it here would show more cards than the "Issue" chip claims. render-chip-filters-3423.js
-   pins this with a needs_trust arm, so a future refactor that merges the two sets fails. */
+   #3410/#3718 (Mona Lisa, 2026-09-25): the Issue tile and filter mean "needs the person",
+   so data-attn and c.needsYou (engine/status.js countAgents) both count needs_you,
+   needs_trust, and a connection Kosmos has given up reconnecting. The filter must still
+   match its chip count: change the two together. render-chip-filters-3423.js pins it.
+   data-noproj is unchanged (needs_you with no project). */
 #st-attn-tile, #st-attn-noproj-tile { cursor: pointer; }
 #st-attn-tile:hover, #st-attn-noproj-tile:hover { border-color: var(--gold-deep); background: rgba(198,154,50,.07); }
 #st-attn-tile:focus-visible, #st-attn-noproj-tile:focus-visible { outline: 2px solid var(--k-ink); outline-offset: 2px; }
@@ -2562,7 +2561,7 @@ body.filter-noproj #orgview .onode:not([data-noproj]) { opacity: .26; }
   height: calc(100vh - var(--talk-fill-top, 157px)); }
 #panel-detail:has(#d-sec-talk:not([hidden])) .dbody { flex: 1 1 auto; min-height: 0; align-items: stretch; }
 /* #3385: bound the left column in the fill state -- if its optional notes (#d-said auth quote,
-   #d-conflict, #d-instr-stale) grow taller than the panel they scroll inside the column rather than
+   #d-instr-stale) grow taller than the panel they scroll inside the column rather than
    stretching the grid row and pushing the talk composer below the fold (#761 dialog-always-visible). */
 #panel-detail:has(#d-sec-talk:not([hidden])) .dleft { min-height: 0; overflow: auto; }
 #panel-detail:has(#d-sec-talk:not([hidden])) .dsecs { display: flex; flex-direction: column; min-height: 0; }
@@ -8029,6 +8028,7 @@ html:not([data-fed-ui="show"]) #pj-add-ext-person,html:not([data-fed-ui="show"])
      subtree unconditionally, exactly like the k-tokens above. Nothing enhances
      --danger under prefers-contrast, so there is no arm this clobbers. */
   --danger: #b3261e;
+  --ok: #1f7a4d;   /* #3724: the same for green (the dark #4ade80 is 1.74:1 on this white card) */
   background: var(--k-bg);
 }
 /* ⚠️ `--label-2` AND `--separator` ARE PINNED IN DARK ONLY, because the root
@@ -8692,7 +8692,19 @@ body.plus-active {
   --bg: #132140; --bg-elevated: #1c2c4f; --bg-sunken: #0b1428;
   --label: #E6EBF7; --label-2: #9fb0d0; --label-3: #8fa0c4;
   --separator: #22345a;
+  /* #3724: the colours that carry meaning, pinned to their dark-look values. Unset here they followed the Mac's
+     light or dark mode, so a light-mode Mac painted light-mode red, green, warning and @mention on navy, where
+     they fail (2.30 to 3.03:1). On navy the dark values read at 5.70 to 10.48:1. */
+  --pj-mention: #5aa2ff; --gold-edge: #d6a62e; --ok: #4ade80; --danger: #ff6b5e; --warn-ink: #ffca55;
 }
+/* #3724: the update toast sets its own red (--utone) on itself, so the navy block above cannot reach it. Restated
+   in the dark look's order: the bare override is (0,2,1), so each severity must be restated to stay above it.
+   ⚠️ In dark mode the dark :root .utoast rules (0,3,0 and up) outrank these, and paint the same values: keep the
+   two sets equal, or dark + Plus drifts from light + Plus with nothing to catch it. */
+body.plus-active .utoast { --utone: #ff8c82; }
+body.plus-active .utoast.stale, body.plus-active .utoast.login-adv.notice { --utone: var(--label-2); }
+body.plus-active .utoast.login-adv.warn { --utone: var(--warn-ink); }
+body.plus-active .utoast.login-adv.urgent { --utone: #ff8c82; }
 /* The section is the positioning context for the ambient star field, which sits
    behind everything else in the pane. Every direct child is lifted above it. */
 #s-sec-plus { position: relative; }
@@ -8749,6 +8761,9 @@ a.plus-btn:focus-visible { outline: 2px solid #fff; outline-offset: 2px; }
    white-on-white. -webkit-text-fill-color because WebKit paints an autofilled value with it
    rather than with color; the inset shadow covers the tint WebKit paints behind an autofill.
    A button row under a field gets the standard gap (it sat flush against the field). */
+/* #3724: these fields stay white on navy, so the navy look's coral --danger (2.79:1 on white) is not theirs: the light
+   red keeps their error border readable (6.53:1), as #firstrun's white card does. */
+#s-sec-plus .tk-inp:not(select) { --danger: #b3261e; }
 #s-sec-plus .tk-inp:not(select) { background: #ffffff; color: #14161a; -webkit-text-fill-color: #14161a;
   caret-color: #14161a; border-color: rgba(20, 22, 26, .28); }
 #s-sec-plus .tk-inp::placeholder { color: #6b7280; -webkit-text-fill-color: #6b7280; opacity: 1; }
@@ -9249,11 +9264,9 @@ window.kosmosMeasureScrollbarWidth();
         <button type="button" class="btn" id="d-start-agent">Start this agent</button>
         <p class="fmsg" id="d-start-msg" role="status" aria-live="polite"></p>
       </div>
-      <!-- #569: where the state came from, under the badge, in Mona Lisa's
-           words ("Said so itself" / "Read from its screen"); and the two
-           witnesses disagreeing, as the engine's own sentence in a note.
-           Both filled by the painter beside d-state, both hidden when they
-           have nothing to say, which is almost always for the conflict. -->
+      <!-- #569 put two notes under the badge: where the state came from, and the two
+           witnesses disagreeing. #3729 (Josh, 2026-09-25) removed the second one and its
+           slot for good: no agent-status diagnostic sentence on an agent's page or card. -->
       <!-- 🛑 THE QUOTED SAID-LINE IS GONE FROM HERE TOO (kosmos#986). #855 cut
            it from the grid card and df0a502 from the list row; this was the
            third surface and the only one left. Josh reported it still showing
@@ -9268,7 +9281,6 @@ window.kosmosMeasureScrollbarWidth();
            rendered once in its life.
            📌 So removing this is not only the third cut: it is what lets the
            blockquote below finally be the element it was written to be. -->
-      <div class="note" id="d-conflict" hidden></div>
       <!-- 🛑 MOVED HERE FROM THE INSTRUCTIONS SECTION (Josh, 2026-08-21). The
            card puts a ⚠️ beside the agent's name; the sentence explaining it was
            at the BOTTOM of this page, under Instructions, below the conversation
@@ -15748,7 +15760,8 @@ const STATE_COPY = {
  * the exact distinction this product exists to keep.
  *
  * ⚠️ The CARD treatment follows the pack, not STATE_COPY.attn: red border is
- * needs_you ONLY. Paused, stopped and unknown are attention-worthy in
+ * for the cards that need the person (needs_you, needs_trust, and via cardStOf a
+ * connection Kosmos gave up reconnecting). Paused, stopped and unknown are attention-worthy in
  * STATE_COPY (the detail page and counts still treat them so) but the pack
  * renders them as their own quieter shapes (.off, .unk, dashed pill) so red
  * stays reserved for "somebody is waiting on you".
@@ -15772,8 +15785,8 @@ const CARD_ST = {
      stopped by something the agent cannot get past on its own, but the process
      is still up (pres: 'on'), it just cannot reach the API. It is not alarmed
      red because it is recoverable (the #3410 self-heal, engine/connlost-heal.js,
-     nudges it to retry when the network is back); a louder treatment,
-     if wanted, is a design call for whoever owns the pack, not decided here. */
+     nudges it to retry when the network is back). Once the self-heal has given up,
+     cardStOf gives it needs_you's look instead (Mona Lisa's call on #3410). */
   connection_lost: { st: 'paused', pres: 'on' },
   /* blocked wears paused's quieter shape: waiting is waiting, and red stays
      reserved for "somebody is waiting on YOU". */
@@ -15836,7 +15849,10 @@ const PRESSAY = {
    safe direction. The predicate is INLINED here and in stateCopyOf (kept byte-identical, not a
    shared helper) so each painter stays self-contained -- the node tests eval-extract cardStOf /
    stateCopyOf in isolation, and a shared global would ReferenceError in every one of those slices. */
-function cardStOf(a) { return (a && a.state === 'needs_you' && a.stateReportedBy === 'agent') ? CARD_ST.question : (CARD_ST[a.state] || CARD_ST.unknown); }
+/* #3410 (Mona Lisa's look): a lost connection Kosmos has given up on needs the person, so it wears
+   needs_you's card, not the quiet paused one it keeps while Kosmos is still reconnecting.
+   Kept on ONE line: web.needsyou-dealarm-2808.test.js and server.test.js slice it to the newline. */
+function cardStOf(a) { if (a && a.state === 'connection_lost' && a.reconnect && a.reconnect.phase === 'gave_up') return CARD_ST.needs_you; return (a && a.state === 'needs_you' && a.stateReportedBy === 'agent') ? CARD_ST.question : (CARD_ST[a.state] || CARD_ST.unknown); }
 /* #2019: the state's word. For every state but 'restarting' it is the static
    STATE_COPY entry. For 'restarting' the word names the CAUSE (present-continuous,
    no blame), so the person knows WHY their agent went quiet, and it is computed
@@ -15876,8 +15892,7 @@ function stateCopyOf(a) {
   if (a && a.state === 'needs_you' && a.stateReportedBy === 'agent') return STATE_COPY.question;
   /* #3410: while the self-heal still has retries to give (a.reconnect, from /api/status), the
      person has nothing to do yet, so the label says Kosmos is on it. Only when it has given up,
-     or is not running, does the label go back to "Connection lost" (the card's look is the same
-     paused style either way; only the word changes). */
+     or is not running, does the label go back to "Connection lost" (cardStOf sets the look). */
   if (a && a.state === 'connection_lost' && a.reconnect
     && (a.reconnect.phase === 'waiting' || a.reconnect.phase === 'retried')) return { label: 'Reconnecting…', attn: false };
   return STATE_COPY[a.state] || STATE_COPY.unknown;
@@ -16044,11 +16059,11 @@ function stateReason(a, opts) {
        a give-up usually means the agent is stuck, not the internet; and the retry budget can span
        more than one drop (connlost-heal.js WINDOW_MS/RECOVERED_MS), so it says tries were made,
        not that they were made this time. */
-    if (ph === 'gave_up') return 'Kosmos tried to reconnect it several times and has stopped. If the internet is working, restart the agent. It will start fresh.';
+    if (ph === 'gave_up') return 'Kosmos tried a few times and stopped. If your internet is working, restart the agent. It starts fresh, so anything it was in the middle of is lost.';
     const lost = a.stateConfidence === 'scraped'
       ? 'Looks like it lost its internet connection'
       : 'It lost its internet connection';
-    if (ph === 'waiting') return lost + '. Kosmos will retry it automatically.';
+    if (ph === 'waiting') return lost + '. Kosmos will try again for you.';
     /* "Has asked": an attempt was made, not that it landed (the sweep counts every attempt). */
     if (ph === 'retried') return lost + '. Kosmos has asked it to try again.';
     return lost;
@@ -16089,13 +16104,6 @@ function saidLine(a) {
 }
 
 /**
- * The two witnesses disagreeing, as a sentence the person sees (#569). The
- * ENGINE composes the sentence (status.reconcileReport surfaces it instead of
- * silently resolving, and its wording already names both witnesses); this
- * only dresses it as a card note: capitalized, one full stop. Empty when the
- * witnesses agree, which is almost always.
- */
-/**
  * An engine sentence, dressed as something a person reads: capitalized, one
  * full stop. The ENGINE owns the words; this owns nothing but the casing.
  *
@@ -16109,9 +16117,6 @@ function asSentence(s) {
   const t = typeof s === 'string' ? s.trim() : '';
   if (!t) return '';
   return t.charAt(0).toUpperCase() + t.slice(1) + (/[.!?]$/.test(t) ? '' : '.');
-}
-function conflictNote(a) {
-  return asSentence(a && typeof a.stateConflict === 'string' ? a.stateConflict : '');
 }
 function modelLine(a) {
   /* Provider-first ("Claude Opus 5"), guarded so a modelName that already
@@ -16850,7 +16855,7 @@ function card(a) {
        the stronger, more specific fact. Its own `needstrust` marker class and the
        attn pill make it read as an agent that wants a person, not one that is off. */
     if (a.needsTrust === true) {
-      return `<div class="acard attn notrunning needstrust" data-agent="${esc(a.sessionName)}"${Number.isFinite(Number(a && a.dmUnread)) && Number(a && a.dmUnread) > 0 ? ' data-has-msgs' : ''}${a && a.state === 'needs_you' ? ' data-attn' : ''}${a && a.state === 'needs_you' && a.stateProject === null ? ' data-noproj' : ''}>
+      return `<div class="acard attn notrunning needstrust" data-agent="${esc(a.sessionName)}"${Number.isFinite(Number(a && a.dmUnread)) && Number(a && a.dmUnread) > 0 ? ' data-has-msgs' : ''}${a && (a.state === 'needs_you' || a.state === 'needs_trust' || (a.state === 'connection_lost' && a.reconnect && a.reconnect.phase === 'gave_up')) ? ' data-attn' : ''}${a && a.state === 'needs_you' && a.stateProject === null ? ' data-noproj' : ''}>
       <div class="agauge"><svg viewBox="0 0 72 72" role="img" aria-label="${esc(a.name)}. Waiting at a workspace-trust prompt.">${face(a)}</svg><span class="pres unsure" aria-hidden="true"></span>${dmBadge(a)}</div>
       <div class="aname"><button class="namego" type="button" aria-label="Open ${esc(a.name)}">${esc(a.name)}</button></div>
       <div class="ameta">${esc(roleLine(a, ROLE_TITLES))}</div>
@@ -16865,7 +16870,7 @@ function card(a) {
        disagreeing facts. Everything else about the card stays the offline
        shape: there is still no pane to act on. */
     const split = a.jobRunningUnseen === true;
-    return `<div class="acard off notrunning" data-agent="${esc(a.sessionName)}"${Number.isFinite(Number(a && a.dmUnread)) && Number(a && a.dmUnread) > 0 ? ' data-has-msgs' : ''}${a && a.state === 'needs_you' ? ' data-attn' : ''}${a && a.state === 'needs_you' && a.stateProject === null ? ' data-noproj' : ''}>
+    return `<div class="acard off notrunning" data-agent="${esc(a.sessionName)}"${Number.isFinite(Number(a && a.dmUnread)) && Number(a && a.dmUnread) > 0 ? ' data-has-msgs' : ''}${a && (a.state === 'needs_you' || a.state === 'needs_trust' || (a.state === 'connection_lost' && a.reconnect && a.reconnect.phase === 'gave_up')) ? ' data-attn' : ''}${a && a.state === 'needs_you' && a.stateProject === null ? ' data-noproj' : ''}>
     <div class="agauge"><svg viewBox="0 0 72 72" role="img" aria-label="${esc(a.name)}. ${split ? 'Could not check.' : 'Not running.'}">${face(a)}</svg>
       <!-- ⚠️ THE DOT IS DECORATIVE HERE, unlike on a running card. Its hidden
            text is PRESSAY.off, which is the same words as the pill two rows
@@ -16889,20 +16894,17 @@ function card(a) {
      fact survives on the DETAIL page's meta line, per the pack's
      card-signals/panel-explanation split. What SURVIVES on the card,
      deliberately: the stale badge on the name (an honest-state mark with
-     no pack equivalent), and the unknown note -- the pack's own comment
-     requires the reason to ride with any card that shows an unknown. */
+     no pack equivalent). (The unknown note that also survived here went in #3729.) */
   const m = cardStOf(a);
   const copy = stateCopyOf(a);
   const pct = pctOf(a.context);
   const answer = answerBtn(a);
 
-  /* Gated on the TREATMENT (m.st), not the literal state: cardStOf maps
-     any unrecognised server state to the unknown treatment, and a card
-     drawn as "Can't tell" must carry the whole honesty payload, note
-     included, whichever spelling put it there. */
-  const unknownNote = m.st === 'unknown'
-    ? '<div class="note">Not the same as idle. We cannot see this one, so we are not telling you it is fine.</div>'
-    : '';
+  /* #3729 (Josh, 2026-09-25): the unknown card's note ("Not the same as idle. We cannot see this
+     one, so we are not telling you it is fine.") is gone with the conflict line. It was an
+     agent-status diagnostic sentence on a card, which the standing rule forbids; the "Can't tell"
+     badge still says the state. The needs-trust card keeps its note: that one asks the person to
+     act (#3723's category, not this). */
 
   /* #3501: the unknown-memory WORD badge (.membadge.unk, states unknown /
      not-yet-read / not-set-yet) was removed. Josh flagged it as meaningless to
@@ -16914,7 +16916,7 @@ function card(a) {
   const badge = (pct >= NEARLY_FULL ? `<span class="membadge">${memPrint(a.context, pct)}</span>` : '');
   const pres = `<span class="pres ${m.pres}"><span class="vh">${PRESSAY[m.pres]}</span></span>`;
 
-  return `<div class="acard ${boardMods(a, m)}" data-agent="${esc(a.sessionName)}"${Number.isFinite(Number(a && a.dmUnread)) && Number(a && a.dmUnread) > 0 ? ' data-has-msgs' : ''}${a && a.state === 'needs_you' ? ' data-attn' : ''}${a && a.state === 'needs_you' && a.stateProject === null ? ' data-noproj' : ''}>
+  return `<div class="acard ${boardMods(a, m)}" data-agent="${esc(a.sessionName)}"${Number.isFinite(Number(a && a.dmUnread)) && Number(a && a.dmUnread) > 0 ? ' data-has-msgs' : ''}${a && (a.state === 'needs_you' || a.state === 'needs_trust' || (a.state === 'connection_lost' && a.reconnect && a.reconnect.phase === 'gave_up')) ? ' data-attn' : ''}${a && a.state === 'needs_you' && a.stateProject === null ? ' data-noproj' : ''}>
     <div class="agauge">${ring(a)}${pres}${badge}${dmBadge(a)}</div>
     <div class="aname"><button class="namego" type="button" aria-label="Open ${esc(a.name)}">${esc(a.name)}</button>${staleBadge(a)}</div>
     <div class="ameta">${esc(roleLine(a, ROLE_TITLES))}</div>
@@ -16922,8 +16924,6 @@ function card(a) {
     ${a.activeWhileWaiting ? '<div class="alsowork"><span class="act" aria-hidden="true"><i></i><i></i><i></i></span><span>Working now</span></div>' : ''}
     <div class="amodel">${esc(modelLine(a))}</div>
     <div class="atask">${esc(taskLine(a, { noQuote: true }))}</div>
-    ${conflictNote(a) ? `<div class="note">${esc(conflictNote(a))}</div>` : ''}
-    ${unknownNote}
   </div>`;
 }
 
@@ -17053,7 +17053,7 @@ function lrow(a) {
       const tav = a.hasAvatar
         ? `<img src="/api/agent/${encodeURIComponent(a.sessionName)}/avatar" alt="">`
         : `<span class="lavtint" style="background:${discTint(a.name)};color:${discInk(a.name)}">${esc(initials(a.name))}</span>`;
-      return `<div class="lrow attn notrunning needstrust" data-agent="${esc(a.sessionName)}"${Number.isFinite(Number(a && a.dmUnread)) && Number(a && a.dmUnread) > 0 ? ' data-has-msgs' : ''}${a && a.state === 'needs_you' ? ' data-attn' : ''}${a && a.state === 'needs_you' && a.stateProject === null ? ' data-noproj' : ''}>
+      return `<div class="lrow attn notrunning needstrust" data-agent="${esc(a.sessionName)}"${Number.isFinite(Number(a && a.dmUnread)) && Number(a && a.dmUnread) > 0 ? ' data-has-msgs' : ''}${a && (a.state === 'needs_you' || a.state === 'needs_trust' || (a.state === 'connection_lost' && a.reconnect && a.reconnect.phase === 'gave_up')) ? ' data-attn' : ''}${a && a.state === 'needs_you' && a.stateProject === null ? ' data-noproj' : ''}>
       <div class="lav">${tav}</div>${dmBadge(a)}
       <div class="lname"><b><button class="namego" type="button" aria-label="Open ${esc(a.name)}">${esc(a.name)}</button></b></div>
       <div class="ltitle">${esc(roleLine(a, ROLE_TITLES))}</div>
@@ -17066,7 +17066,7 @@ function lrow(a) {
     const off = a.hasAvatar
       ? `<img src="/api/agent/${encodeURIComponent(a.sessionName)}/avatar" alt="">`
       : `<span class="lavtint" style="background:${discTint(a.name)};color:${discInk(a.name)}">${esc(initials(a.name))}</span>`;
-    return `<div class="lrow off notrunning" data-agent="${esc(a.sessionName)}"${Number.isFinite(Number(a && a.dmUnread)) && Number(a && a.dmUnread) > 0 ? ' data-has-msgs' : ''}${a && a.state === 'needs_you' ? ' data-attn' : ''}${a && a.state === 'needs_you' && a.stateProject === null ? ' data-noproj' : ''}>
+    return `<div class="lrow off notrunning" data-agent="${esc(a.sessionName)}"${Number.isFinite(Number(a && a.dmUnread)) && Number(a && a.dmUnread) > 0 ? ' data-has-msgs' : ''}${a && (a.state === 'needs_you' || a.state === 'needs_trust' || (a.state === 'connection_lost' && a.reconnect && a.reconnect.phase === 'gave_up')) ? ' data-attn' : ''}${a && a.state === 'needs_you' && a.stateProject === null ? ' data-noproj' : ''}>
       <div class="lav">${off}</div>${dmBadge(a)}
       <div class="lname"><b><button class="namego" type="button" aria-label="Open ${esc(a.name)}">${esc(a.name)}</button></b></div>
       <div class="ltitle">${esc(roleLine(a, ROLE_TITLES))}</div>
@@ -17125,7 +17125,7 @@ function lrow(a) {
   const mem = pct === null
     ? `<span class="bar unknown"></span><span class="pct"><span aria-hidden="true">${memu.word}</span><span class="vh">${memu.aria}</span></span>`
     : `<span class="bar"><i class="${band}" style="width:${pct}%"></i></span><span class="pct">${memPrint(a.context, pct)}</span>`;
-  return `<div class="lrow ${boardMods(a, m)}" data-agent="${esc(a.sessionName)}"${Number.isFinite(Number(a && a.dmUnread)) && Number(a && a.dmUnread) > 0 ? ' data-has-msgs' : ''}${a && a.state === 'needs_you' ? ' data-attn' : ''}${a && a.state === 'needs_you' && a.stateProject === null ? ' data-noproj' : ''}>
+  return `<div class="lrow ${boardMods(a, m)}" data-agent="${esc(a.sessionName)}"${Number.isFinite(Number(a && a.dmUnread)) && Number(a && a.dmUnread) > 0 ? ' data-has-msgs' : ''}${a && (a.state === 'needs_you' || a.state === 'needs_trust' || (a.state === 'connection_lost' && a.reconnect && a.reconnect.phase === 'gave_up')) ? ' data-attn' : ''}${a && a.state === 'needs_you' && a.stateProject === null ? ' data-noproj' : ''}>
     <div class="lav">${av}${lrowRing(a)}${m.st === 'attn' ? LROW_WARN : ''}</div>${dmBadge(a)}
     <div class="lname"><b><button class="namego" type="button" aria-label="Open ${esc(a.name)}">${esc(a.name)}</button>${staleBadge(a)}</b></div>
     <div class="ltitle">${esc(roleLine(a, ROLE_TITLES))}</div>
@@ -19867,6 +19867,8 @@ function prompterCheckinQuestion(n) {
     const live = (typeof LAST !== 'undefined' && Array.isArray(LAST)) ? LAST.find((a) => a && a.sessionName === n.session) : null;
     const ph = live && live.reconnect && live.reconnect.phase;
     if (ph === 'waiting' || ph === 'retried') return 'lost its connection, and Kosmos is reconnecting it. Is it done, or still mid-something?';
+    // Given up: the card tells the person to restart it, so the question does too.
+    if (ph === 'gave_up') return 'lost its connection, and Kosmos stopped trying. Restart it, or is it done?';
     return 'lost its connection. Reconnect it, or is it done?';
   }
   // The catch-all covers stopped/idle/unknown (all in heartbeat's ASK_ON_EXIT_TO),
@@ -25365,9 +25367,9 @@ function paintOrg() {
       /* #3423: the chip-filter markers, keyed on the SERVER state to match the
          "Issue" (c.needsYou) and "No project" (c.needsYouUnattributed) tile counts
          exactly -- NOT the local `needsYou` above (cardStOf.st==='attn', which folds
-         in needs_trust and splits off agent questions, so it would not match the
+         in the same cases data-attn does but splits off agent questions, so it would not match the
          count). Kept inline/self-contained like data-has-msgs. */
-      + (a && a.state === 'needs_you' ? ' data-attn' : '')
+      + (a && (a.state === 'needs_you' || a.state === 'needs_trust' || (a.state === 'connection_lost' && a.reconnect && a.reconnect.phase === 'gave_up')) ? ' data-attn' : '')
       + (a && a.state === 'needs_you' && a.stateProject === null ? ' data-noproj' : '')
       + ' style="left:' + x.toFixed(1) + 'px;top:' + y.toFixed(1) + 'px"'
       /* #2577: the badge's own aria-label is inert inside a button that has its
@@ -28262,14 +28264,8 @@ function openDetail(sessionName, section, fromProject) {
   const dst = document.getElementById('d-state');
   dst.className = 'detail-state astate st-' + dm.st;
   dst.innerHTML = glyphOf(a) + '<b>' + esc(copy.label) + '</b>';
-  /* #569: the same derivations the card reads (saidLine, conflictNote),
-     called not copied, so the panel and the card cannot disagree about
-     where a state came from or whether the witnesses do. */
-  const dconf = document.getElementById('d-conflict');
-  if (dconf) {
-    dconf.textContent = conflictNote(a);
-    dconf.hidden = !dconf.textContent;
-  }
+  /* #3729 (Josh, 2026-09-25): there is no "its reports and its screen disagree" line here, or on
+     the card, any more. The slot is gone, not hidden, so nothing can be written into it. */
   /* ⚠️ HIDDEN WHEN THERE IS NO TASK. Beside a badge that already says Idle,
      a task line would restate the badge; this panel shows nothing rather than
      that. Since #209 the card, too, shows nothing here rather than a frozen
@@ -41045,11 +41041,12 @@ function pjMember(m, suppressTold, withMinus, hideState) {
      which is why this keys on CARD_ST instead of a count that goes stale),
      so keying on it would paint every paused/unreadable/stopped member as urgent too and
      defeat the card. CARD_ST maps only needs_you and needs_trust to st:'attn' (the two
-     states that genuinely need a person now) - close to the org-node badge (#2576/#2577)
+     states that genuinely need a person now), and cardStOf adds a connection Kosmos gave up
+     on (#3410, via liveM) - close to the org-node badge (#2576/#2577)
      mapping for "needs-you gets a mark". Gated on m.present
      because a member we cannot see says why instead of a state. LROW_WARN is the agents
      list's warning glyph; it is display:none inside a .lav until the CSS below shows it. */
-  const needsYou = m.present === true && cardStOf(m).st === 'attn';
+  const needsYou = m.present === true && cardStOf(liveM).st === 'attn'; // liveM: a given-up connection is red here too (#3410)
   const warn = needsYou ? LROW_WARN : '';
   /* #2711 item 16: the member box takes a ground by state, the same read the
      agent homepage cards make (.acard.working/.acard.attn) so the two surfaces
@@ -41061,7 +41058,7 @@ function pjMember(m, suppressTold, withMinus, hideState) {
      reason line), not a state colour. The CSS scopes these to #pj-one-agents. */
   const present = m.present || m.state === 'restarting';
   const stClass = present
-    ? ({ working: ' pjm-working', attn: ' pjm-attn', idle: ' pjm-idle' }[cardStOf(m).st] || '')
+    ? ({ working: ' pjm-working', attn: ' pjm-attn', idle: ' pjm-idle' }[cardStOf(liveM).st] || '')
     : '';
   /* #3212 (Josh 6.72): a member the board cannot see (`!present`) is one a room post could
      not reach, so mark the avatar with the question-mark badge instead of a status sentence.
@@ -54622,8 +54619,7 @@ const TIPS = [
       + '<li><i>4</i><span><b>Tasks</b> is the to-do list, and who is on each one.</span></li></ol>' },
   { id: 'agentpage', title: 'Your agent\'s page', show: () => tipVisible('#panel-detail #d-sec-talk'), at: '#panel-detail .snav',
     body: '<p>Talk to your agent here. Messages go straight to it. Profile, Instructions, AI Settings and Advanced are in the boxes on the left, and Instructions is where you change what it does.</p>' },
-  { id: 'settings', title: 'Settings for this computer', show: () => tipVisible('#panel-settings'), at: '#panel-settings .dsec:not([hidden]) .dlab',
-    body: '<p>Your AI accounts, how Kosmos looks, and tips: turn them back on under This computer.</p>' },
+  /* #3574 (Josh 2026-09-25 07:46): no Settings tip ("wonky and pointless"), not on first visit and not from the ?. */
 ];
 let TIPS_STATE = null;          // { ok, seen, off } from the board; null until read
 let TIP_OPEN = null;            // the tip on screen, or null
@@ -55114,9 +55110,12 @@ function wireHelpq() {
   document.getElementById('userpop-btn')?.addEventListener('click', () => closeHelpMenu(), true);
   btn.addEventListener('click', () => {
     const open = menu.hidden;
+    /* Settings has no tip of its own (Josh 07:46), so the ? does not offer one there: no fallback to the tour either. */
+    const screenItem = menu.querySelector('[data-help="screen"]');
+    if (open && screenItem) screenItem.hidden = tipVisible('#panel-settings');
     menu.hidden = !open;
     btn.setAttribute('aria-expanded', String(open));
-    if (open) menu.querySelector('.userpop-item')?.focus();
+    if (open) menu.querySelector('.userpop-item:not([hidden])')?.focus();   // the first item that shows (not the screen item on Settings)
   });
   menu.addEventListener('click', (e) => {
     const b = e.target.closest('[data-help]');
@@ -55128,6 +55127,7 @@ function wireHelpq() {
     let t = null;
     /* This screen's own tip: the ring has its own item, and its rail rings show on every
        consolidated screen, so it is not a screen's answer. */
+    if (want === 'screen' && tipVisible('#panel-settings')) return;   // Settings has none, even if the menu was open when the screen changed
     if (want === 'screen') t = TIPS.find((x) => !x.tour && x.id !== 'ring' && x.show()) || TIPS.find((x) => x.tour);
     else t = TIPS.find((x) => x.id === want);
     if (t) tipShow(t, { returnTo: btn });

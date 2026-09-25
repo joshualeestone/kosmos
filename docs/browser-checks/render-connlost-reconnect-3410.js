@@ -42,10 +42,10 @@ function chk(ok, label, extra) {
 }
 
 const PHASES = [
-  { key: 'none', reconnect: null, label: 'Connection lost', says: /lost its internet connection/, not: /Kosmos (will retry|has asked)/ },
-  { key: 'waiting', reconnect: { phase: 'waiting', tries: 0 }, label: 'Reconnecting…', says: /Kosmos will retry it automatically/ },
-  { key: 'retried', reconnect: { phase: 'retried', tries: 1 }, label: 'Reconnecting…', says: /Kosmos has asked it to try again/ },
-  { key: 'gave_up', reconnect: { phase: 'gave_up', tries: 3 }, label: 'Connection lost', says: /Kosmos tried to reconnect it several times and has stopped\. If the internet is working, restart the agent\. It will start fresh\./ },
+  { key: 'none', reconnect: null, label: 'Connection lost', st: 'st-paused', says: /lost its internet connection/, not: /Kosmos (will try|has asked)/ },
+  { key: 'waiting', reconnect: { phase: 'waiting', tries: 0 }, label: 'Reconnecting…', st: 'st-paused', says: /Kosmos will try again for you\./ },
+  { key: 'retried', reconnect: { phase: 'retried', tries: 1 }, label: 'Reconnecting…', st: 'st-paused', says: /Kosmos has asked it to try again/ },
+  { key: 'gave_up', reconnect: { phase: 'gave_up', tries: 3 }, label: 'Connection lost', st: 'st-attn', says: /Kosmos tried a few times and stopped\. If your internet is working, restart the agent\. It starts fresh, so anything it was in the middle of is lost\./ },
 ];
 
 (async () => {
@@ -61,6 +61,7 @@ const PHASES = [
     const errs = [];
     page.on('pageerror', (e) => errs.push(e.message));
     let phase = PHASES[0];
+    const borderOf = {};
     await page.route('**/api/status', async (route) => {
       const res = await route.fetch();
       const body = await res.json();
@@ -79,7 +80,7 @@ const PHASES = [
           if (!c) return null;
           const r = c.getBoundingClientRect();
           const pill = c.querySelector('.astate');
-          return { text: c.textContent.replace(/\s+/g, ' ').trim(), pill: pill ? pill.textContent.replace(/\s+/g, ' ').trim() : '', shown: r.width > 0 && r.height > 0 };
+          return { text: c.textContent.replace(/\s+/g, ' ').trim(), pill: pill ? pill.textContent.replace(/\s+/g, ' ').trim() : '', cls: pill ? pill.className : '', border: pill ? getComputedStyle(pill).borderTopColor : '', shown: r.width > 0 && r.height > 0 };
         };
         return { nettie: one('Nettie'), ida: one('Ida') };
       });
@@ -90,6 +91,9 @@ const PHASES = [
         chk(!seen.nettie.pill.includes(other), `${p.key}: the label does not also read "${other}"`, seen.nettie.pill);
         chk(p.says.test(seen.nettie.text), `${p.key}: the card says what Kosmos is doing`, seen.nettie.text.slice(0, 200));
         if (p.not) chk(!p.not.test(seen.nettie.text), `${p.key}: no retry is promised`, seen.nettie.text.slice(0, 200));
+        /* Mona Lisa's look: quiet (paused) while Kosmos is reconnecting, the needs-you look once it gave up. */
+        chk(seen.nettie.cls.split(/\s+/).includes(p.st), `${p.key}: the card wears ${p.st}`, seen.nettie.cls);
+        borderOf[p.key] = seen.nettie.border;
       }
       chk(seen.ida && !/Reconnecting|Connection lost/.test(seen.ida.text), `${p.key}: the idle agent's card is untouched (control)`);
       /* The project members list renders from a projection without `reconnect`; it must borrow it
@@ -100,11 +104,14 @@ const PHASES = [
         if (!n) return null;
         const html = pjMember({ sessionName: n.sessionName, name: n.name, present: true, tied: true, role: null, state: 'connection_lost' });
         const d = document.createElement('div'); d.innerHTML = html;
-        return d.textContent.replace(/\s+/g, ' ').trim();
+        const row = d.firstElementChild;
+        return { text: d.textContent.replace(/\s+/g, ' ').trim(), attn: !!(row && row.className.split(/\s+/).includes('pjm-attn')) };
       });
-      chk(member && member.includes(p.label), `${p.key}: the project members list agrees with the card ("${p.label}")`, member || 'no member row');
+      chk(member && member.text.includes(p.label), `${p.key}: the project members list agrees with the card ("${p.label}")`, member ? member.text : 'no member row');
+      chk(member && member.attn === (p.st === 'st-attn'), `${p.key}: the members row is ${p.st === 'st-attn' ? '' : 'not '}red, like the card`, member ? String(member.attn) : 'no member row');
       await page.screenshot({ path: path.join(OUT, `connlost-${p.key}.png`) });
     }
+    chk(borderOf.gave_up && borderOf.waiting && borderOf.gave_up !== borderOf.waiting, 'given up has the needs-you border, not the paused one', `${borderOf.gave_up} vs ${borderOf.waiting}`);
     chk(errs.length === 0, 'no page errors', errs.join(' | '));
   } finally {
     await browser.close();
