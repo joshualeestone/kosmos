@@ -55361,6 +55361,10 @@ function revealBoot() {
    showing never paints; one tip at a time; the tour first. */
 /* The gauge's own classes colour the dots (light and dark); one inline width keeps the three the same size. */
 const TIP_BAND = (cls, label) => '<span><svg width="10" height="10" viewBox="0 0 10 10" aria-hidden="true"><circle cx="5" cy="5" r="2.25" fill="none" style="stroke-width:4.5" class="gf' + (cls ? ' ' + cls : '') + '"/></svg>' + label + '</span>';
+/* The ring's explainer, #3737's words (Josh 08:51): the first step of an agent page's tips, or on its own (below). */
+const TIP_RING_BODY = '<p>The ring shows how full your agent\'s memory is.</p>'
+  + '<div class="tip-bands">' + TIP_BAND('', 'Plenty of room') + TIP_BAND('warn', 'Getting full') + TIP_BAND('high', 'Nearly full') + '</div>'
+  + '<p>This is normal and the agent will automatically write themselves a handoff, You can also manage their memory under AI settings.</p>';
 const TIPS = [
   /* Josh, 2026-09-24 15:51: the step-through tour (the mock's B), one place at a time. Each step
      names its tab-layout target first and its consolidated-layout one second; a step whose place is
@@ -55404,11 +55408,9 @@ const TIPS = [
      each button. The ring step is left out when her page draws no ring (memory not known), since there is nothing
      to point at. Josh's words, verbatim; in his paste "Instructions" slipped under Profile, it heads step 3. */
   { id: 'agentpage', steps: [
-      /* Beside the ring (#3737): above and below it are her name and buttons. */
-      { at: ['#panel-detail #d-ring svg'], side: true, title: 'Your agent\'s memory', html: true,
-        body: '<p>The ring shows how full your agent\'s memory is.</p>'
-          + '<div class="tip-bands">' + TIP_BAND('', 'Plenty of room') + TIP_BAND('warn', 'Getting full') + TIP_BAND('high', 'Nearly full') + '</div>'
-          + '<p>This is normal and the agent will automatically write themselves a handoff, You can also manage their memory under AI settings.</p>' },
+      /* Beside the ring (#3737): above and below it are her name and buttons. Shown here, it counts as the ring's own
+         tip too (alsoSeen), so it does not come back on its own below. */
+      { at: ['#panel-detail #d-ring svg'], side: true, title: 'Your agent\'s memory', html: true, alsoSeen: 'ring', body: TIP_RING_BODY },
       { at: ['#d-nav [data-go="talk"]'], title: 'Direct Message', body: 'Talk to your agent directly, ask questions, and give it work to do.' },
       { at: ['#d-nav [data-go="profile"]'], title: 'Profile', body: 'Give your agent a name, photo, and description.' },
       { at: ['#d-nav [data-go="instr"]'], title: 'Instructions', body: 'Tell your agent what to do and how you want it to work.' },
@@ -55416,6 +55418,10 @@ const TIPS = [
       { at: ['#d-nav [data-go="term"]'], title: 'Advanced', body: 'Fine-tune your agent\'s technical settings.' },
     ],
     show: () => tipVisible('#panel-detail #d-sec-talk') },
+  /* A new agent has no memory reading on its first visit, so her page's tips usually run without the ring step. The
+     ring's explainer then shows by itself, beside it, the first time her page draws one. */
+  { id: 'ring', title: 'Your agent\'s memory', at: '#panel-detail #d-ring svg', side: true, body: TIP_RING_BODY,
+    show: () => tipVisible('#panel-detail #d-ring svg') && tipVisible('#panel-detail #d-sec-talk') },
   /* #3574 (Josh 2026-09-25 07:46): no Settings tip ("wonky and pointless"). */
 ];
 let TIPS_STATE = null;          // { ok, seen, off } from the board; null until read
@@ -55656,6 +55662,8 @@ function tipTourRender(card, auto) {
     TIP_STEP += 1;
     tipTourRender(card, false);
   });
+  /* A step whose place is below the fold (a short window) is brought into view once, as the step opens. */
+  if (st && st.sel) { try { document.querySelector(st.sel)?.scrollIntoView({ block: 'nearest' }); } catch { /* an older webview */ } }
   tipAnnounce(card);
   tipLayout(TIP_OPEN, card);
   /* It takes focus, unless it opened by itself while the person is typing somewhere. */
@@ -55906,9 +55914,11 @@ function tipClose({ record, also = null }) {
   if (ret && ret.focus && ret.isConnected) ret.focus();
   else if (hadFocus) document.activeElement?.blur();   // the card it was on is gone
   if (t && record) {
-    if (TIPS_STATE && !TIPS_STATE.seen.includes(t.id)) TIPS_STATE.seen.push(t.id);
+    /* A step shown as another tip's stand-in (the ring on an agent's page) records that tip as seen too. */
+    const ids = [t.id].concat(t.steps ? TIP_PLACES.filter((st) => st.sel).map((st) => st.alsoSeen).filter(Boolean) : []);   // only a step that was shown on its place
+    for (const id of ids) if (TIPS_STATE && !TIPS_STATE.seen.includes(id)) TIPS_STATE.seen.push(id);
     /* One write for "closed" and "turn tips off", so two responses cannot race each other. */
-    return tipsSave({ seen: [t.id], ...(also || {}) });
+    return tipsSave({ seen: ids, ...(also || {}) });
   }
   return Promise.resolve();
 }

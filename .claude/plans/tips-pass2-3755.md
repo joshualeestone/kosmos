@@ -18,7 +18,10 @@ Stacked on #3737 (tour-copy-3737): same files. Rebase onto main once #3737 merge
 - The tour's step machinery (ring, dim, N of M, Skip/Next/Got it) serves any tip with `steps`; the welcome tour is
   just the one with id 'tour' (new-board rules, "Close the tour"). A step may carry html words and ask to sit beside
   its target (the ring step).
-- engine/tips.js allowlist drops 'newagent' and 'ring' (read() already drops unknown stored ids).
+- engine/tips.js allowlist drops 'newagent' (read() already drops unknown stored ids). 'ring' stays: a new agent has
+  no memory reading on its first visit, so her page's tips run without the ring step (1 of 5), and the ring's
+  explainer then shows by itself, beside it, the first time her page draws one. Shown as a step, it is recorded too.
+- A step whose place is below the fold is scrolled into view once, as the step opens.
 - Ids kept: 'project' and 'agentpage', so someone who already closed those does not get them again.
 
 ## Decided
@@ -26,6 +29,10 @@ Stacked on #3737 (tour-copy-3737): same files. Rebase onto main once #3737 merge
   and dim is the highlight this app already has. Rejected: a screen tip moving between targets with no dim (no
   highlight). Would change my mind: Josh finding the dim heavy on an agent's page.
 - Focus after closing an auto tip from the keyboard goes to the page (there is no "?" to hand it to).
+
+- Stepped tips follow the tour's rules: Next takes focus, any click outside and Escape (even while typing) close and
+  record them. Screen tips' "never sit on a control" rule does not bind them (the page is dimmed and a click ends
+  them); they keep off their ringed place.
 
 ## Weakest premise
 Reusing the ids means a person who saw the old one-card agent-page tip in 0.6.93 never sees the new buttons tour. Few

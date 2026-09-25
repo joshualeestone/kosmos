@@ -227,13 +227,14 @@ const resetStore = (state) => fs.writeFileSync(tipsStore.FILE(), JSON.stringify(
     chk(await page.evaluate(() => document.querySelector('#tipcard .tip-go').textContent) === 'Got it', 'T34 the last step closes with Got it');
     await page.click('#tipcard .tip-go');
     await page.waitForTimeout(300);
-    chk(!(await cardState(page)).shown && (await api('GET')).seen.includes('agentpage'), 'T34 Got it closes her page\'s tips and counts them as seen');
+    const seen34 = (await api('GET')).seen;
+    chk(!(await cardState(page)).shown && seen34.includes('agentpage') && seen34.includes('ring'), 'T34 Got it closes her page\'s tips and counts them, and the ring\'s, as seen', JSON.stringify(seen34));
     await page.click('#tabs [data-tab="agents"]');
     await page.waitForTimeout(300);
     // T3c: an agent whose memory is unknown has no ring on her page, so the ring step is left out and her page's
     // tips start at Direct Message, 1 of 5 (CONTROL: the same page with a reading starts at the ring, T3 above).
     const seen3c = (await api('GET')).seen;
-    resetStore({ seen: seen3c.filter((id) => id !== 'agentpage'), off: false });
+    resetStore({ seen: seen3c.filter((id) => id !== 'agentpage' && id !== 'ring'), off: false });
     await page.evaluate(() => localStorage.removeItem('aw-check-ctx'));
     await page.reload({ waitUntil: 'networkidle' });
     await page.click('#grid [data-agent]');
@@ -241,6 +242,22 @@ const resetStore = (state) => fs.writeFileSync(tipsStore.FILE(), JSON.stringify(
     const t3c = await page.evaluate(() => ({ ring: !!document.querySelector('#panel-detail #d-ring svg'), step: document.querySelector('#tipcard .tip-eb').textContent }));
     chk(!t3c.ring && t3c.step === '1 of 5', 'T3c no ring on her page, and no ring step: 1 of 5', JSON.stringify(t3c));
     await page.keyboard.press('Escape');
+    await page.waitForTimeout(300);
+    const seen3c2 = (await api('GET')).seen;
+    chk(seen3c2.includes('agentpage') && !seen3c2.includes('ring'), 'T3c closing them records her page\'s tips, not the ring\'s it never showed', JSON.stringify(seen3c2));
+    // T3e: the first time her page draws a ring after that, the ring's explainer shows by itself, beside it, once.
+    // (A new agent has no reading on its first visit, so this is how someone new meets it.)
+    await page.click('#tabs [data-tab="agents"]');
+    await page.evaluate(() => localStorage.setItem('aw-check-ctx', '62'));
+    await page.reload({ waitUntil: 'networkidle' });
+    await page.click('#grid [data-agent]');
+    chk(await waitTitle(page, RING, 5000), 'T3e with a reading now, the ring\'s explainer shows by itself on her page');
+    const t3e = await page.evaluate(() => { const c = document.getElementById('tipcard'); return { eb: c.querySelector('.tip-eb').textContent, cls: ['up', 'down', 'left', 'right', 'flat'].find((k) => c.classList.contains(k)), bands: c.querySelectorAll('.tip-bands .gf').length }; });
+    chk(t3e.eb === 'Tip' && ['left', 'right'].includes(t3e.cls) && t3e.bands === 3, 'T3e on its own (not a step), beside the ring, with its three colours', JSON.stringify(t3e));
+    await page.keyboard.press('Escape');
+    await page.waitForTimeout(300);
+    chk((await api('GET')).seen.includes('ring'), 'T3e closing it records it');
+    await page.evaluate(() => localStorage.removeItem('aw-check-ctx'));
     resetStore({ seen: seen3c, off: false });
     await page.click('#tabs [data-tab="agents"]');
     await page.reload({ waitUntil: 'networkidle' });
@@ -338,7 +355,8 @@ const resetStore = (state) => fs.writeFileSync(tipsStore.FILE(), JSON.stringify(
     await page.click('#tabs [data-tab="projects"]');
     chk(await waitTitle(page, 'Setup a Project', 5000), 'T9 Projects shows its tip: Setup a Project');
     chk(await page.evaluate(() => document.querySelector('#tipcard .tip-bd').innerText.trim()) === 'Add multiple agents to work together in one conversation with shared files and tasks.', 'T9 in Josh\'s words (#3755)');
-    // T15: a tip that opened by itself, closed from the keyboard, leaves focus on the page, not on a card that is gone.
+    // T15: a tip that opened by itself, closed from the keyboard, leaves focus on the page, not on a card that is gone
+    // (nor on some other control). The engine may do this by itself as the card hides; the arm is about the outcome.
     await page.evaluate(() => document.querySelector('#tipcard .tip-go').focus());
     await page.keyboard.press('Enter');
     await page.waitForTimeout(250);
