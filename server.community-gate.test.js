@@ -82,3 +82,83 @@ test('#3485: the moderation route is reachable WITH the board token', async () =
   assert.notEqual(await hit('/api/community/moderation', { headers: { 'x-kosmos-board-token': TOK } }), 403,
     'a valid board token reaches the moderation surface');
 });
+
+// ── Human WRITE routes: gated, and the response never leaks moderation findings.
+async function post(p, body, headers = {}) {
+  const res = await fetch(base + p, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json', ...headers },
+    body: JSON.stringify(body), redirect: 'manual',
+  });
+  let json = null;
+  const txt = await res.text().catch(() => '');
+  try { json = JSON.parse(txt); } catch { /* non-JSON */ }
+  return { status: res.status, json };
+}
+
+test('#3485 CONTROL: POST /api/community/human/post STAYS gated (403 without a token)', async () => {
+  assert.equal(await hit('/api/community/human/post', { method: 'POST' }), 403,
+    'a human post is the operator identity; it must require the board token');
+});
+
+test('#3485 CONTROL: POST /api/community/human/comment STAYS gated (403 without a token)', async () => {
+  assert.equal(await hit('/api/community/human/comment', { method: 'POST' }), 403,
+    'a human comment must require the board token');
+});
+
+test('#3485: a clean human post publishes WITH the token and never echoes findings', async () => {
+  const r = await post('/api/community/human/post',
+    { authorName: 'Ivy', topic: 'hi', body: 'a perfectly clean human post', board: 'gate-test' },
+    { 'x-kosmos-board-token': TOK });
+  assert.equal(r.status, 200);
+  assert.equal(r.json.ok, true);
+  assert.equal(r.json.status, 'published', 'trusted + clean -> published');
+  assert.ok(r.json.id);
+  assert.equal(r.json.findings, undefined, 'findings are moderator-only and MUST NOT be echoed to the submitter');
+});
+
+test('#3485: a BODY leak is collapsed to held for the submitter (no findings, no oracle)', async () => {
+  const r = await post('/api/community/human/post',
+    { authorName: 'Jae', body: 'here is a secret sk-' + 'a'.repeat(30) },
+    { 'x-kosmos-board-token': TOK });
+  assert.equal(r.status, 200);
+  assert.equal(r.json.ok, true);
+  // The store status is 'quarantined' (a real leak); the SUBMITTER sees 'held' so
+  // the response is not a scrubber oracle. Either way, never 'published'.
+  assert.equal(r.json.status, 'held', 'quarantined collapses to held in the submitter response');
+  assert.notEqual(r.json.status, 'published');
+  assert.equal(r.json.findings, undefined, 'the leak class/field is never echoed to the submitter');
+});
+
+test('#3485: a leaky/impersonating author name is a clean 400', async () => {
+  const r = await post('/api/community/human/post',
+    { authorName: 'reach me at leak@example.com', body: 'clean body' },
+    { 'x-kosmos-board-token': TOK });
+  assert.equal(r.status, 400, 'a name carrying PII is rejected up front');
+  assert.equal(r.json.ok, undefined);
+  assert.match(r.json.error, /display name/i);
+});
+
+test('#3485: a human comment publishes through the real route (HTTP success path)', async () => {
+  // Prove the comment route's own wiring (JSON parse, valve, error-code mapping, the
+  // findings-collapse) at the HTTP boundary, not only via the engine seam. First make a
+  // post to comment on, then comment on it through the route.
+  const p = await post('/api/community/human/post',
+    { authorName: 'Kit', body: 'a post to comment on via HTTP' },
+    { 'x-kosmos-board-token': TOK });
+  assert.equal(p.status, 200);
+  assert.ok(p.json.id, 'need a post id to comment on');
+  const c = await post('/api/community/human/comment',
+    { authorName: 'Lee', body: 'a human reply through the route', postId: p.json.id },
+    { 'x-kosmos-board-token': TOK });
+  assert.equal(c.status, 200);
+  assert.equal(c.json.ok, true);
+  assert.equal(c.json.status, 'published', 'trusted + clean comment publishes');
+  assert.ok(c.json.id);
+  assert.equal(c.json.findings, undefined, 'findings never echoed on the comment route either');
+  // A missing postId is a clean 400 through the route (not a 500).
+  const bad = await post('/api/community/human/comment',
+    { authorName: 'Lee', body: 'orphan comment' },
+    { 'x-kosmos-board-token': TOK });
+  assert.equal(bad.status, 400, 'a comment with no postId is a clean client error');
+});
