@@ -19,7 +19,13 @@
 - The Files screen is an agent-page section, not the project Documents view: that view is a
   project's (its back button and its room's attachments), and a section keeps the agent's own nav.
 
-## Weakest premise
+## Weakest premises
+- OPEN IN FINDER IS NOW REACHED ONLY THROUGH VIEW ALL, and View All shows only past 10 files, per
+  Josh's own words ("a View All if we exceeded the number that we display. Right now we would just
+  say Files"). So an agent with 1 to 10 files has no Open in Finder on its page (review pass 1, W1).
+  One line to overturn: show View All whenever there are files, as the project page does.
+- "not show this section and show that it has no files" read as: the section's absence IS the
+  signal; no "has no files" sentence in the sidebar.
 - "The same size as the agent's title" read as the title LINE under the name (#d-meta, "Archivist"),
   per Splinter's card text, not the name itself (which is far larger).
 
@@ -29,3 +35,17 @@
   moved, View All opens the screen.
 - render-agent-files-3614.js reshaped (37 arms, both themes, 760 wide): red on main for the new arms.
 - Shots: ~/.cache/claude-handoffs/shots-3757/{before,after}.
+
+## Review pass 1 (opus): 1 blocker, 4 warnings, 5 nits
+- BLOCKER render-thread.js's #3542 arm expected the 404 sentence in the sidebar -> the arm now asserts
+  no Files section for the borrowed name and never "no agent by that name"; the 404 sentence lives on
+  the Files screen (unit-tested). Control: the old arm passes on main, the new one on the branch.
+- W1 Finder unreachable with 1 to 10 files -> kept per Josh's words; now the first weakest premise.
+- W2 the Files screen went stale when the folder emptied, 404'd or was refused -> it repaints from
+  every branch after the stamp check. Unit arm, red without it.
+- W3 the poll repaint and the network-error path had no arm -> unit arms, each red without its fix.
+- W4 no way back from the Files screen -> "<- Direct Message" back button, as the project file view
+  has; browser arm. (The Files screen is not in the URL: a refresh lands on Talk. Not taken.)
+- N1 empty band under the title -> the empty message collapses. N2 double fetch -> removed.
+  N3 (the list twice at 56rem and below), N4 (nav measured at light 1400 only), N5 (tight limits,
+  still red on revert): not taken.

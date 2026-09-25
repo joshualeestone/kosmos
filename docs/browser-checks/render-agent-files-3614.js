@@ -199,6 +199,12 @@ function chk(ok, label, extra) {
         await page3.waitForTimeout(400);
         chk(opened.length === before + 1 && /rex-13\.txt$/.test(opened[opened.length - 1] || ''), `${tag} #3757: a row on the Files screen opens that file`, JSON.stringify(opened.slice(before)));
       }
+      // Back to the conversation from the Files screen (it has its own back, as the project's does).
+      await page3.click('#d-files-back');
+      await page3.waitForTimeout(300);
+      const back = await page3.evaluate(() => ({ talk: !document.getElementById('d-sec-talk').hidden, files: !document.getElementById('d-sec-files').hidden,
+        dm: document.querySelector('#d-nav .dnav-dm').classList.contains('on') }));
+      chk(back.talk && !back.files && back.dm, `${tag} #3757: the Files screen's back returns to the Direct Message`, JSON.stringify(back));
       await page3.close();
     }
   } finally {

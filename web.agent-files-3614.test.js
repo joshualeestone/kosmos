@@ -214,3 +214,26 @@ test('#3757: the Files screen lists them all, with Open in Finder, and says what
   assert.match(screen, /id="d-files-finder"/, 'Open in Finder is not on the Files screen');
   assert.match(SCRIPT, /getElementById\('d-files-all'\)\.addEventListener\('click', \(\) => \{\s*if \(!CURRENT\) return;\s*detailGo\('files'\);/, 'View All does not open the Files screen');
 });
+
+test('#3757: a showing Files screen follows every change, an emptied folder included; a hidden one is not fetched', async () => {
+  let files = [{ name: 'a.txt', size: 1 }];
+  let stamp = 's1';
+  const h = harness(() => ({ ok: true, total: files.length, stamp, files }));
+  await h.api.paintAgentFiles('ana');
+  assert.equal(h.calls.filter((u) => /limit=500/.test(u)).length, 0, 'the Files screen was fetched while hidden');
+  h.el['d-sec-files'].hidden = false;
+  files = []; stamp = 's2';
+  await h.api.paintAgentFiles('ana');
+  await new Promise((r) => setImmediate(r));
+  assert.equal(h.calls.filter((u) => /limit=500/.test(u)).length, 1, 'an emptied folder left the showing Files screen stale');
+  assert.equal(h.el['d-files'].hidden, true);
+  assert.match(h.el['d-filesall-msg'].textContent, /no files yet/, 'the Files screen still lists what is gone');
+});
+
+test('#3757: a read that fails on the network keeps the section, with its reason (a failure is not "no files")', async () => {
+  const h = harness(() => { throw new Error('offline'); });
+  h.el['d-files'].hidden = true;
+  await h.api.paintAgentFiles('ana');
+  assert.equal(h.el['d-files'].hidden, false, 'a network failure hid the section as if there were no files');
+  assert.match(h.el['d-files-msg'].textContent, /could not read this agent/);
+});

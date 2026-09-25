@@ -6309,7 +6309,9 @@ body:not(.consolidated) .pjmidhead:has(.pjhead) .tsearch:focus-within { flex-bas
 .dfiles .pj-docs { margin-top: 8px; }
 /* #3757: View All sits at the right of the Files header, as on the project page's header. */
 .dfiles-head .pj-viewall { display: inline; width: auto; }
-.dfiles-screen-head { margin-bottom: 12px; }
+.dfiles-screen-head { margin-bottom: 4px; }
+#d-sec-files #d-filesall-msg:empty { display: none; }   /* no empty band between the title and the first row */
+#d-files-back { align-self: flex-start; }
 .dfiles-title { margin: 0; font-size: 1.375rem; font-weight: 700; letter-spacing: -.02em; color: var(--k-ink); line-height: 1.2; }   /* as #d-talk-label, the page's other section title */
 #d-sec-files .pj-docs { margin-top: 0; }
 /* #pj-one-add sits in a `.frow`, so the shared `select` rule dresses it and
@@ -9427,6 +9429,8 @@ window.kosmosMeasureScrollbarWidth();
   <!-- #3757: every file in the agent's Files folder, reached from View All beside the list. Open
        in Finder moved here from the sidebar. It has no pill of its own; the nav lights none. -->
   <section class="dsec" id="d-sec-files" data-sec="files" tabindex="-1" aria-label="Files" hidden>
+    <!-- Back to the conversation, as the project's file screen has its own back (review pass 1). -->
+    <button class="back" id="d-files-back" type="button">&larr; Direct Message</button>
     <div class="dfiles-head dfiles-screen-head">
       <h2 class="dfiles-title" id="d-filesall-h">Files</h2>
       <button class="btn" id="d-files-finder" type="button" data-win-copy="docsOpenFolder">Open in Finder</button>
@@ -28077,6 +28081,8 @@ async function paintAgentFiles(sessionName) {
   const stamp = ok ? String(body.stamp || '') : 'refused:' + status + ':' + String((body && body.because) || '');
   if (stamp && stamp === AGENT_FILES_STAMP) return;
   AGENT_FILES_STAMP = stamp;
+  // The Files screen, when it is the one showing, follows every change, an emptied folder included.
+  { const screen = detailSection('files'); if (screen && !screen.hidden) paintAgentFilesAll(sessionName); }
   list.textContent = '';
   if (all) all.hidden = true;
   const files = ok && Array.isArray(body.files) ? body.files : [];
@@ -28094,9 +28100,6 @@ async function paintAgentFiles(sessionName) {
   msg.textContent = '';
   for (const f of files) list.append(agentFileRow(f));
   if (all) all.hidden = !(Number(body.total) > files.length);
-  // The Files screen, when it is the one showing, follows the same change.
-  const screen = detailSection('files');
-  if (screen && !screen.hidden) paintAgentFilesAll(sessionName);
 }
 /* #3757: the Files screen, reached from View All: every file (up to the route's own cap), with
    Open in Finder, which moved here from the sidebar. */
@@ -28160,6 +28163,10 @@ document.getElementById('d-files-all') && document.getElementById('d-files-all')
   if (!CURRENT) return;
   detailGo('files');
 });
+document.getElementById('d-files-back') && document.getElementById('d-files-back').addEventListener('click', () => {
+  if (!CURRENT) return;
+  detailGo('talk');
+});
 document.getElementById('d-files-finder') && document.getElementById('d-files-finder').addEventListener('click', async () => {
   if (!CURRENT) return;
   const who = CURRENT.sessionName;
@@ -28178,8 +28185,7 @@ document.getElementById('d-files-finder') && document.getElementById('d-files-fi
   if (!CURRENT || CURRENT.sessionName !== who) return;
   if (failed) { if (msg) msg.textContent = failed; return; } // keep the reason on screen: no repaint over it
   AGENT_FILES_STAMP = null;
-  paintAgentFiles(who);
-  paintAgentFilesAll(who);
+  paintAgentFiles(who);   // with the stamp reset this also repaints the Files screen, which is showing
 });
 
 function openDetail(sessionName, section, fromProject) {
