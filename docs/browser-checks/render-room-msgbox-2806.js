@@ -1015,6 +1015,17 @@ const now = () => new Date().toISOString();
           pinnedLeft: !!document.querySelector('#pj-room .rxn-quick[style]') }), 150);
       }));
       chk(afterScroll.shown === 0 && !afterScroll.pinnedLeft, `[phone/touch] scrolling the thread closes a pinned bar (it would float over other posts)`, JSON.stringify(afterScroll));
+      // Nothing of the thread showing (header and composer take the whole screen): a tapped bar
+      // has nowhere to go and closes, rather than sit open at an unplaced default.
+      const emptyBand = await phonePage.evaluate(() => {
+        const row = document.querySelector('#pj-room .msg'); if (!row || typeof pjRxnPlace !== 'function') return { error: 'no row or pjRxnPlace' };
+        const real = window.pjRxnVisibleBand; window.pjRxnVisibleBand = () => ({ top: 300, bottom: 200 });
+        row.classList.add('rxn-show'); RXN_SHOW_POST = 'x';
+        try { pjRxnPlace(row, true); } finally { window.pjRxnVisibleBand = real; }
+        const res = { shownAfter: row.classList.contains('rxn-show'), post: RXN_SHOW_POST };
+        return res;
+      });
+      chk(!emptyBand.error && emptyBand.shownAfter === false && emptyBand.post === null, `[phone/touch] with no thread showing a tapped bar closes`, JSON.stringify(emptyBand));
     } finally {
       await phonePage.close();
     }

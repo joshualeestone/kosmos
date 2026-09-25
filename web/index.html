@@ -46489,7 +46489,9 @@ function pjRxnPlace(row, fromTap) {
   const R = row.getBoundingClientRect();
   // Only a tap guarantees the post is in view. A repaint of a post that is no longer on
   // screen (or a thread scrolled off the page) closes the bar rather than float it.
-  if (band.bottom <= band.top || R.bottom <= band.top || R.top >= band.bottom) { if (!fromTap) pjRxnClose(); return; }
+  // Also when nothing of the thread is showing (a very short window, header and composer
+  // taking the rest): with no place to put the bar, close it, tap or not.
+  if (band.bottom <= band.top || R.bottom <= band.top || R.top >= band.bottom) { pjRxnClose(); return; }
   if (q.getBoundingClientRect().top >= band.top) return;           // above the message: fits
   row.classList.add('rxn-below');
   if (q.getBoundingClientRect().bottom <= band.bottom) return;      // below it: fits
@@ -46562,6 +46564,11 @@ if (window.MutationObserver) {
 function pjRxnPinned() { return !!document.querySelector('#pj-room .rxn-quick[style*="fixed"]'); }
 document.addEventListener('scroll', () => { if (RXN_SHOW_POST && pjRxnPinned()) pjRxnClose(); }, true);
 window.addEventListener('resize', () => { if (RXN_SHOW_POST && pjRxnPinned()) pjRxnClose(); });
+// iOS reports the keyboard and pinch zoom on the visual viewport, not as a window resize.
+if (window.visualViewport) {
+  window.visualViewport.addEventListener('resize', () => { if (RXN_SHOW_POST && pjRxnPinned()) pjRxnClose(); });
+  window.visualViewport.addEventListener('scroll', () => { if (RXN_SHOW_POST && pjRxnPinned()) pjRxnClose(); });
+}
 /* A tap anywhere outside the room closes an open bar too, except inside the shared emoji
    picker (it lives in body, outside the room): the bar it was opened from stays with it.
    pointerdown, not click: iOS Safari sends no click for a tap on plain content unless
