@@ -3593,9 +3593,20 @@ async function accountConnectable({ provider, accountDir } = {}) {
       return { ok: true };
     };
     // #3391: one sentence for a lapsed subscription, default or named.
-    /* Says what works TODAY: Kosmos cannot sign in to Grok again yet (the sign-in button is #3391
-       part 2, and a default ~/.grok has no in-product path back at all), so it points at the key. */
-    const expiredSignIn = (w) => `That ${w} sign-in has expired, so an agent created on it could not run. Kosmos cannot sign in to ${w} again yet; for now, add a ${w} API key in Settings, AI Models, and choose that account for this agent.`;
+    /* It points at the account row's Sign in again (#3391 part 2), which works for a named
+       account and for the default ~/.grok alike. Only reached for authMode 'subscription',
+       which today only a Grok account has: if Gemini ever gains a sign-in, check that its
+       rows offer Sign in again before this sentence is said about one. */
+    /* The row offers Sign in again only when the account's email can be read (the engine tells
+       a refresh from a swap by it), so without one the sentence names what that row does have. */
+    /* Without an email there is no Sign in again, and a new sign-in never merges into such an
+       account; it lands as a new account, or refreshes ANOTHER account with its email, so the
+       sentence names it by what the person did rather than calling it new. The
+       same sentence serves a default row (which has no Disconnect) and a named one. */
+    const expiredSignIn = (w, email) => `That ${w} sign-in has expired, so an agent created on it could not run. `
+      + (email
+        ? `Sign in again on that account in Settings, AI Models, or choose another ${w} account for this agent.`
+        : `Sign in with Add a provider in Settings, AI Models, then choose the ${w} account you signed in to for this agent.`);
     /* #3391: a DEFAULT grok account that is a subscription sign-in is the one default the
        board CAN see (it is listed), so a lapsed one is refused here as the named one is. */
     if (!dir && prov === 'xai') {
@@ -3606,7 +3617,7 @@ async function accountConnectable({ provider, accountDir } = {}) {
       let dlive;
       try { dlive = await grok.checkLive(def.dir); } catch (err) { return failOpenK('Grok.checkLive (default)', err); }
       if (dlive && dlive.state === NONE) {
-        return { ok: false, because: expiredSignIn('Grok') };
+        return { ok: false, because: expiredSignIn('Grok', def.email) };
       }
       return { ok: true };
     }
@@ -3620,7 +3631,7 @@ async function accountConnectable({ provider, accountDir } = {}) {
     let live; try { live = await mod.checkLive(acct.dir); } catch (err) { return failOpenK(word + '.checkLive', err); }
     if (live && live.state === mod.STATE.NONE) {
       /* #3391: a Grok subscription account has no key; its NONE is a lapsed sign-in. */
-      if (acct.authMode === 'subscription') return { ok: false, because: expiredSignIn(word) };
+      if (acct.authMode === 'subscription') return { ok: false, because: expiredSignIn(word, acct.email) };
       return { ok: false, because: `${vendor} rejected that ${word} account's key, so an agent created on it could not run. `
         + 'Add a working key in Settings, AI Models.' };
     }
