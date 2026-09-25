@@ -135,7 +135,8 @@ enum PushBridge {
 
     // The coordinator puts the Mac's address in every push as a top-level
     // `address` ("<mac name>.<relay domain>", kosmos-relay apns.rs payload()), and
-    // a tap opens https://<address>/, the same URL the coordinator's own web-push
+    // a tap opens https://<address>/ (plus ?tab=detail&agent=<session> when the push
+    // names a valid agent session), the same base URL the coordinator's own web-push
     // tap opens (coordinator sw.js). A push is not trusted input: only a single
     // ASCII DNS label directly under the relay domain is accepted, so a payload can
     // never steer the app's WebView to another site, a path, a port or a scheme.

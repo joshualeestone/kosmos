@@ -52,8 +52,10 @@ the separate kosmos-relay PR (signin-mobile-718).
 - **Error page wording** (no em dashes): "You're offline" / "Kosmos+ isn't answering" / "This page
   didn't load", each with Try again. Colours are Mona's sign-in tokens (navy ground, gold icon,
   royal button).
-- **Only the WebView's own background is navy.** Its overscroll area is left to each page, so a
-  light board page does not get a navy edge.
+- **Only the WebView's own background is navy** (not its scroll view), so the overscroll area is
+  left to each page and a light board page does not get a navy band. Check on the simulator.
+- **Connection lost counts as "Kosmos+ isn't answering"**, not offline: the phone usually stayed
+  online, so an automatic "back online" reload would never come.
 - **A new-window link never opens a second WebView:** in-app ones load in the one view, others go
   to Safari.
 
@@ -62,5 +64,6 @@ Everything that touches UIKit or WebKit (the delegate wiring, the refresh contro
 overlay, the order WebKit asks its two questions in for a target=_blank link) is compiled and
 reasoned, not run. The simulator pass has to cover: an offline launch, a reconnect, Try again on a
 tapped agent whose Mac is offline, pull to refresh (and whether its spinner shows under the status
-bar, since the scroll view has no top inset), a COMPLETE sign-in through every redirect, the billing
+bar, since the scroll view has no top inset), a COMPLETE sign-in through every redirect (and any sign-in popup, which as a new window would
+go to Safari), the billing
 button, a mail link, and a tap with and without a session.

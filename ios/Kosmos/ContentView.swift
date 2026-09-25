@@ -96,6 +96,8 @@ struct ContentView: View {
                 // of their own board - fall open. Whether to hard-gate even that
                 // case is a product decision (#718).
                 NSLog("[Biometric] unlock unavailable, falling open: \(message)")
+                shell.failure = nil
+                shell.retrying = false
                 isUnlocked = true
             }
         }
@@ -166,7 +168,6 @@ struct WebView: UIViewRepresentable {
         // Navy until the first page paints, instead of a white flash.
         webView.isOpaque = false
         webView.backgroundColor = .kosmosNavy
-        webView.scrollView.backgroundColor = .kosmosNavy
         // The pages pad for the safe area themselves (env(safe-area-inset-*)), so
         // the scroll view must not add the same inset a second time.
         webView.scrollView.contentInsetAdjustmentBehavior = .never
@@ -228,7 +229,8 @@ struct WebView: UIViewRepresentable {
         var failedURL: URL?
 
         func reloadOrHome() {
-            guard let webView = webView else { return }
+            // No WebView to act on: say so rather than leave Try again stuck on "Trying".
+            guard let webView = webView else { shell?.retrying = false; return }
             if let failed = failedURL {
                 failedURL = nil
                 webView.load(URLRequest(url: failed))
@@ -288,6 +290,7 @@ struct WebView: UIViewRepresentable {
         func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
             endRefreshing()
             shell?.retrying = false
+            failedURL = nil
             if shell?.failure != nil { shell?.failure = nil }
         }
 

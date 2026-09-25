@@ -26,11 +26,14 @@ enum Shell {
             switch code {
             case NSURLErrorCancelled:
                 return nil
-            case NSURLErrorNotConnectedToInternet, NSURLErrorNetworkConnectionLost,
+            // Connection lost is NOT offline: the far end usually dropped it while
+            // the phone stayed online, so "back online" would never come.
+            case NSURLErrorNotConnectedToInternet,
                  NSURLErrorDataNotAllowed, NSURLErrorInternationalRoamingOff,
                  NSURLErrorCallIsActive:
                 return .offline
-            case NSURLErrorCannotFindHost, NSURLErrorCannotConnectToHost, NSURLErrorTimedOut,
+            case NSURLErrorNetworkConnectionLost,
+                 NSURLErrorCannotFindHost, NSURLErrorCannotConnectToHost, NSURLErrorTimedOut,
                  NSURLErrorDNSLookupFailed, NSURLErrorSecureConnectionFailed,
                  NSURLErrorServerCertificateUntrusted, NSURLErrorServerCertificateHasBadDate,
                  NSURLErrorServerCertificateNotYetValid, NSURLErrorServerCertificateHasUnknownRoot,
@@ -86,7 +89,10 @@ enum Shell {
         switch scheme {
         case "https", "http":
             guard let host = url.host?.lowercased(), !host.isEmpty else { return .block }
-            let ours = host == coordinator.host?.lowercased() || PushBridge.isMacHost(host, coordinator: coordinator)
+            // Ours means the plain host: no port and no user part, the same rule a
+            // tapped notification's address follows.
+            let plain = url.port == nil && url.user == nil && url.password == nil
+            let ours = plain && (host == coordinator.host?.lowercased() || PushBridge.isMacHost(host, coordinator: coordinator))
             if scheme == "https" {
                 if ours { return .inApp }
                 return origin == .pageFlow ? .inApp : .external
