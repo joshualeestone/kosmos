@@ -37,3 +37,6 @@ paintRoom. Controls: without the backlog and the focus test U1, U4 and U6 fail; 
   what was read (U10); the sets are bounded by the rows shown (U11).
 - Known and accepted: while a search filter is active the matching unread messages show no edge (clearing it brings
   it back), and a repaint inside the 1.2s fade ends it at once rather than finishing the animation.
+- U13 (a message over twenty thread-heights tall, read down gradually) passes, but its negative control is not yet
+  conclusive: without the scroll pass a plain run still passes, while an instrumented run fails. Not claimed as a
+  guard until explained.
