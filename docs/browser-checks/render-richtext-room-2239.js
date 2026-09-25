@@ -103,6 +103,8 @@ const bad = (n, why) => { ran++; failures++; console.log('FAIL  ' + n + '  --  '
           ol: body('1. first', N),
           codeInline: body('run `kosmos open`', N),
           fence: body('before\n```\ncode\nline\n```\nafter', N),
+          // #3685: a fence indented under a list item is code in the room too.
+          nestedFence: body('- step\n  ```\n  # not a heading\n  ```\n- next', N),
           // the room's citation chip must SURVIVE alongside markdown
           chip: body('see notes.md now', N),
           chipInHeading: body('# See plan.md', N),
@@ -140,6 +142,7 @@ const bad = (n, why) => { ran++; failures++; console.log('FAIL  ' + n + '  --  '
       if (/<span class="mdli mdli-d1">two<\/span>/.test(r.nested)) ok(t + ' nested list item keeps its depth (#3679)'); else bad(t + ' nested list depth', r.nested);
       if (/<code class="mdc">kosmos open<\/code>/.test(r.codeInline)) ok(t + ' inline code'); else bad(t + ' inline code', r.codeInline);
       if (/<figure class="codeb"><pre>code\nline<\/pre><\/figure>/.test(r.fence) && !/```/.test(r.fence)) ok(t + ' fenced code (no leak, figure kept)'); else bad(t + ' fenced code', r.fence);
+      if (/<figure class="codeb"><pre># not a heading<\/pre><\/figure>/.test(r.nestedFence) && !/mdh/.test(r.nestedFence)) ok(t + ' fence nested in a list item is code (#3685)'); else bad(t + ' nested fence', r.nestedFence);
       if (/<span class="ref">notes\.md<button class="refgo"/.test(r.chip)) ok(t + ' citation chip survives'); else bad(t + ' citation chip', r.chip);
       if (/<span class="mdh mdh1">See <span class="ref">plan\.md/.test(r.chipInHeading)) ok(t + ' chip inside heading'); else bad(t + ' chip inside heading', r.chipInHeading);
       // room-specific: `>` is literal (escaped), never an .mdq quote span

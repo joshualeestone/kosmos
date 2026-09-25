@@ -43996,12 +43996,49 @@ function pjProse(text, names, agentNames) {
 }
 function pjBody(text, names, agentNames) {
   const raw = String(text == null ? '' : text);
-  /* The capture keeps each fence line's infostring; the old pattern ate it.
-     With the capture, k closed blocks yield 4k+1 segments:
-     [prose, openInfo, code, closeInfo, prose, ...]. Any other count means an
-     unclosed fence, and an uncertain reading stays the flat paragraph. */
-  const parts = raw.split(/^```([^\n]*)$/m);
-  if (parts.length < 5 || (parts.length - 1) % 4 !== 0) return pjProse(raw, names, agentNames);
+  /* #3685: fences are read the way the store (engine/chat.js storeText) and pjRich read
+     them: leading spaces or tabs allowed, three or more backticks, no backtick after them,
+     and closed only by a bare run at least as long as the opener. So an indented fence
+     (under a list item), a four-backtick fence holding a ``` example, and an inline
+     ```span``` line are read the same on every surface. The segments are cut at the same
+     offsets the old split used, [prose, openInfo, code, closeInfo, prose, ...], so a
+     column-0 three-backtick fence renders exactly as before. An unclosed fence is still an
+     uncertain reading, and the whole message stays the flat paragraph. */
+  const parts = [];
+  let proseFrom = 0;
+  let open = null;   // { lead, len, info, codeFrom } while inside a fence
+  let at = 0;
+  let closedAny = false;
+  while (at <= raw.length) {
+    const nl = raw.indexOf('\n', at);
+    const end = nl === -1 ? raw.length : nl;
+    const line = raw.slice(at, end);
+    if (!open) {
+      const fo = /^([ \t]*)(`{3,})([^`]*)$/.exec(line);
+      if (fo) {
+        parts.push(raw.slice(proseFrom, at), fo[3]);
+        open = { lead: fo[1].replace(/\t/g, '    ').length, len: fo[2].length, codeFrom: end };
+      }
+    } else {
+      const fc = /^[ \t]*(`{3,})([ \t]*)\r?$/.exec(line);
+      if (fc && fc[1].length >= open.len) {
+        let code = raw.slice(open.codeFrom, at);
+        // CommonMark: the opener's indentation comes off each code line, up to that much.
+        if (open.lead) {
+          const cut = open.lead;
+          code = code.split('\n').map((l) => l.slice(Math.min(cut, /^ */.exec(l)[0].length))).join('\n');
+        }
+        parts.push(code, fc[2]);
+        proseFrom = end;
+        open = null;
+        closedAny = true;
+      }
+    }
+    if (nl === -1) break;
+    at = nl + 1;
+  }
+  if (open || !closedAny) return pjProse(raw, names, agentNames);
+  parts.push(raw.slice(proseFrom));
   let out = '';
   for (let i = 0; i < parts.length; i += 1) {
     const at = i % 4;
