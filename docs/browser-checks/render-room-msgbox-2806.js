@@ -1295,6 +1295,46 @@ const now = () => new Date().toISOString();
       });
       await phonePage.evaluate(() => { if (typeof pjRxnClose === 'function') pjRxnClose(); const room = document.getElementById('pj-room'); room.style.maxHeight = ''; room.style.top = '0px'; });
       chk(!pinAtTop.error && pinAtTop.pinned && pinAtTop.rowTopShowing && pinAtTop.atRowTop && pinAtTop.clearOfAbove, `[phone/touch] a pinned bar sits at its post's own top, not over the message above`, JSON.stringify(pinAtTop));
+      // Setup shared by the next two arms: the room below the page's sticky header, a short post
+      // then a tall one, the tall post's top placed `topInto` px into what shows, then tapped.
+      const tallSetup = async (topInto) => {
+        await phonePage.evaluate(({ ts, topInto }) => {
+          const room = document.getElementById('pj-room'); room.style.top = '250px'; room.style.maxHeight = '416px';
+          if (typeof pjRxnClose === 'function') pjRxnClose();
+          const people = { agents: [{ sessionName: 'april', name: 'April' }] };
+          room.innerHTML = pjRoomRow({ from: 'april', at: ts, text: 'A short message above.', id: 'q1' }, people)
+            + pjRoomRow({ from: 'april', at: ts, text: 'a long report line. '.repeat(160), id: 'q2' }, people);
+          const tall = room.querySelectorAll('.msg')[1];
+          room.scrollTop += tall.getBoundingClientRect().top - (pjRxnVisibleBand(room).top + topInto);
+        }, { ts: now(), topInto });
+        const point = await phonePage.evaluate(() => { const r = document.querySelectorAll('#pj-room .msg')[1].querySelector('.msg-bd').getBoundingClientRect(); return { x: Math.round(r.left + 40), y: Math.round(r.top + 120) }; });
+        await phonePage.touchscreen.tap(point.x, point.y);
+        await phonePage.waitForTimeout(250);
+      };
+      // A pinned bar whose reaction row is rewritten IN PLACE (a reaction's reply repaints .rxns):
+      // the fresh bar is re-pinned by the observer, not left unpinned and clipped.
+      await tallSetup(20);
+      const inPlaceRepaint = await phonePage.evaluate(() => new Promise((res) => {
+        const row = document.querySelector('#pj-room .msg.rxn-show'); if (!row || !RXN_PINNED) { res({ error: 'no pinned bar to start from' }); return; }
+        // What repaintReactions does: rebuild the row from rxnsInner (fresh markup, no inline pin).
+        // Copying innerHTML back would keep the bar's inline style and could not fail.
+        if (typeof rxnsInner !== 'function') { res({ error: 'rxnsInner missing' }); return; }
+        const rxns = row.querySelector('.rxns'); rxns.innerHTML = rxnsInner([]);
+        const freshUnpinned = !(rxns.querySelector('.rxn-quick') && rxns.querySelector('.rxn-quick').style.position === 'fixed');
+        setTimeout(() => { const bar = row.querySelector('.rxn-quick'); res({ freshUnpinned, shown: row.classList.contains('rxn-show'), pinned: !!(bar && bar.style.position === 'fixed') }); }, 100);
+      }));
+      chk(!inPlaceRepaint.error && inPlaceRepaint.freshUnpinned && inPlaceRepaint.shown && inPlaceRepaint.pinned, `[phone/touch] a pinned bar whose reaction row is rewritten in place is pinned again`, JSON.stringify(inPlaceRepaint));
+      // A tall post's bar tapped while the post's TOP showed (so it opened above, unpinned) stays,
+      // pinned, once that top scrolls away while the post still fills what shows.
+      await tallSetup(90);
+      const tallFollow = await phonePage.evaluate(() => new Promise((res) => {
+        const room = document.getElementById('pj-room'); const row = document.querySelectorAll('#pj-room .msg')[1];
+        const openedUnpinned = row.classList.contains('rxn-show') && !RXN_PINNED;
+        room.scrollTop += 200; room.dispatchEvent(new Event('scroll'));   // the post's top leaves; the post still fills what shows
+        setTimeout(() => res({ openedUnpinned, afterScroll: { shown: row.classList.contains('rxn-show'), pinned: RXN_PINNED } }), 120);
+      }));
+      chk(tallFollow.openedUnpinned && tallFollow.afterScroll.shown && tallFollow.afterScroll.pinned, `[phone/touch] a tall post's bar tapped with its top showing follows it, pinned, as the top scrolls away`, JSON.stringify(tallFollow));
+      await phonePage.evaluate(() => { if (typeof pjRxnClose === 'function') pjRxnClose(); const room = document.getElementById('pj-room'); room.style.maxHeight = ''; room.style.top = '0px'; });
       // FOUR MORE WAYS A BAR CLOSES, each measured: Escape, a pick from the full picker (closed
       // BEFORE the reaction's round trip), a tap outside the room, and navigating away (pjView).
       const freshBar = async () => {

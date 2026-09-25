@@ -46485,8 +46485,6 @@ if (window.matchMedia) {
 var RXN_SHOW_POST = null;
 var RXN_SHOW_PID = null;
 var RXN_PINNED = false;   // the open bar was pinned by a tap (a scroll, viewport change or repaint re-places it)
-/* Above the message unless the thread's top edge, or the top of the screen (the page itself
-   scrolls on a phone), would cut it; then below (CSS .rxn-below). */
 function pjRxnVisibleBand(room) {
   // The part of the thread a person can actually see: inside the thread's box, below the
   // screen's top and the sticky app header, above the screen's bottom and the sticky composer.
@@ -46508,6 +46506,8 @@ function pjRxnResetRow(messageRow) {
   messageRow.classList.remove('rxn-show', 'rxn-below');
   const quickBar = messageRow.querySelector('.rxn-quick'); if (quickBar) quickBar.removeAttribute('style');
 }
+/* Above the message unless the thread's top edge, or the top of the screen (the page itself
+   scrolls on a phone), would cut it; then below (CSS .rxn-below). */
 function pjRxnPlace(row, fromTap) {
   row.classList.remove('rxn-below');
   const quickBar = row.querySelector('.rxn-quick'); const room = document.getElementById('pj-room');
@@ -46524,7 +46524,10 @@ function pjRxnPlace(row, fromTap) {
   row.classList.add('rxn-below');
   if (quickBar.getBoundingClientRect().bottom <= band.bottom) { RXN_PINNED = false; return; }      // below it: fits
   row.classList.remove('rxn-below');
-  if (!fromTap) { pjRxnClose(); return; }
+  // A post taller than what shows may be pinned whether or not this is the tap: otherwise a bar
+  // tapped while the post's top showed would close as soon as that top scrolled away.
+  const tallerThanShowing = rowRect.height > band.bottom - band.top;
+  if (!fromTap && !tallerThanShowing) { pjRxnClose(); return; }
   // A visible band thinner than the bar (landscape with the keyboard up) would pin it under the
   // sticky composer or header, its emoji untappable: close it instead.
   if (band.bottom - band.top < quickBar.offsetHeight + 2 * RXN_BAR_GAP_PX) { pjRxnClose(); return; }
@@ -46590,7 +46593,11 @@ if (window.MutationObserver) {
     const row = box && box.closest('.msg');
     // A bar a tap pinned may be pinned again (a scroll would already have re-placed it).
     // rxn-still: no fade-in when a repaint puts the same bar back (it was already showing).
-    if (row) { if (!row.classList.contains('rxn-show')) { row.classList.add('rxn-still', 'rxn-show'); pjRxnPlace(row, RXN_PINNED); requestAnimationFrame(() => requestAnimationFrame(() => row.classList.remove('rxn-still'))); } }
+    if (row) {
+      if (!row.classList.contains('rxn-show')) { row.classList.add('rxn-still', 'rxn-show'); pjRxnPlace(row, RXN_PINNED); requestAnimationFrame(() => requestAnimationFrame(() => row.classList.remove('rxn-still'))); }
+      // Its reaction row was rewritten in place (a reaction's reply): the new bar has no pin yet.
+      else if (RXN_PINNED) { const bar = row.querySelector('.rxn-quick'); if (bar && bar.style.position !== 'fixed') pjRxnPlace(row, true); }
+    }
     else { RXN_SHOW_POST = null; RXN_SHOW_PID = null; }   // the post is gone from view
   }).observe(document.getElementById('pj-room'), { childList: true, subtree: true });
 }
@@ -46604,11 +46611,18 @@ document.addEventListener('scroll', (event) => {
   // Scrolling the full emoji picker's own list is not the thread moving (#2834's same guard).
   const target = event.target;
   if (target && target.nodeType === 1 && target.closest && target.closest('.rxn-picker')) return;
-  pjRxnReplacePinned();
+  pjRxnReplaceSoon();
 }, true);
 /* A viewport change (a turn, the keyboard closing when a tap leaves the composer, pinch zoom)
    re-places a pinned bar rather than closing it: the tap that pinned it often closes the
    keyboard itself. pjRxnPlace closes it only if its post is no longer on screen. */
+/* Coalesced: iOS fires scroll continuously during momentum; one re-place per frame is enough. */
+let RXN_REPLACE_QUEUED = false;
+function pjRxnReplaceSoon() {
+  if (RXN_REPLACE_QUEUED || !RXN_SHOW_POST) return;
+  RXN_REPLACE_QUEUED = true;
+  requestAnimationFrame(() => { RXN_REPLACE_QUEUED = false; pjRxnReplacePinned(); });
+}
 function pjRxnReplacePinned() {
   // Any open bar, not only a pinned one: an ordinary bar whose post scrolls to the thread's edge
   // flips below it (or closes when neither side fits), and closes once its post leaves.
