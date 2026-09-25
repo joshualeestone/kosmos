@@ -233,6 +233,12 @@ if command -v ruby >/dev/null 2>&1; then
   printf '%s' "$out" | grep -q '::error::false issue list failed 3 times' && printf '%s' "$out" | grep -q 'rc=1' || fail "ghr did not report a final failure: $out"
   # FAILED-LIST splits on "|", so no FAILED entry may contain one.
   if grep -vE '^[[:space:]]*#' "$REPO/tools/browser-checks.sh" | grep -E 'FAILED\+=\(' | grep -qF '|'; then fail "a FAILED+=() entry in browser-checks.sh contains '|', which FAILED-LIST would split into fake checks"; fi
+  # The driver's OWN FAILED-LIST line, run on a fixture with a spaced entry, must split back
+  # into the same entries on "|" (a separator change would turn a spaced entry into fake checks).
+  fl_line=$(grep -E '^[[:space:]]*log "FAILED-LIST:' "$REPO/tools/browser-checks.sh" | head -1)
+  fl_out=$(bash -c 'log() { printf "%s\n" "$*"; }; FAILED=("render-fields" "render-list-row render-fields (rich board did not boot)"); '"$fl_line" 2>&1)
+  fl_back=$(printf '%s' "${fl_out#FAILED-LIST:}" | sed 's/^[[:space:]]*//' | tr '|' '\n')
+  [ "$fl_back" = "$(printf 'render-fields\nrender-list-row render-fields (rich board did not boot)')" ] || fail "the driver's FAILED-LIST line does not split back into its entries on '|': [$fl_out]"
   # A cut-short run: a log that never reached the summary has no FAILED-LIST line.
   mkdir -p "$BT/cut"; printf 'PASS  render-a\nFAIL  render-b (failed twice)\n' > "$BT/cut/browser-checks.log"
   RUNNER_TEMP="$BT/cut" GITHUB_OUTPUT="$BT/o3" bash -eo pipefail -c ': > "$GITHUB_OUTPUT"; . "$1"' _ "$BT/collect.sh" >/dev/null 2>&1 || fail "the collector aborted on a cut-short log"
@@ -256,7 +262,7 @@ if command -v ruby >/dev/null 2>&1; then
   mkdir -p "$BT/poison" "$BT/ghcfg"; printf '#!/bin/sh\necho "REAL gh REACHED: $*" >&2; exit 99\n' > "$BT/poison/gh"; chmod +x "$BT/poison/gh"
   card() {
     PATH="$BT/poison:$PATH" GH_TOKEN=invalid GH_CONFIG_DIR="$BT/ghcfg" GH_RETRY_SECONDS=0 \
-    LISTFAIL="${LISTFAIL:-}" LABELFAIL="${LABELFAIL:-}" LCFAIL="${LCFAIL:-}" CREATEFAIL="${CREATEFAIL:-}" FLAGDIR="$BT/flags" GITHUB_RUN_ATTEMPT="${ATTEMPT:-1}" COMMENTFILE="${COMMENTFILE:-}" \
+    CLOSEFAIL="${CLOSEFAIL:-}" LISTFAIL="${LISTFAIL:-}" LABELFAIL="${LABELFAIL:-}" LCFAIL="${LCFAIL:-}" CREATEFAIL="${CREATEFAIL:-}" FLAGDIR="$BT/flags" GITHUB_RUN_ATTEMPT="${ATTEMPT:-1}" COMMENTFILE="${COMMENTFILE:-}" \
     VIEWFAIL="${VIEWFAIL:-}" BODYFILE="${BODYFILE:-}" VIEWBODY="${VIEWBODY:-}" LABEL="${LABEL:-}" RESULT="$1" OPEN="$2" RED="${REDV-render-fields|render-thread|regress-a-night (server did not boot)|render-list-row render-fields (rich board did not boot)}" GITHUB_REPOSITORY=o/r GITHUB_SHA=abc RUN_URL=https://example.test/actions/runs/4242 bash -eo pipefail -c '
       qarg() { local prevarg="" a; for a in "$@"; do [ "$prevarg" = "-q" ] && { printf "%s" "$a"; return 0; }; prevarg="$a"; done; return 1; }
       gh() { case "$1 $2" in
@@ -280,19 +286,21 @@ if command -v ruby >/dev/null 2>&1; then
           f=$(qarg "$@") || { echo "CALL unexpected api list without -q"; return 1; }
           T="Nightly full browser-check run is not green on main"
           lab="[{\"name\":\"nightly-browser-checks-red\"}]"
-          items="{\"number\":5,\"title\":\"something else\",\"labels\":[]},{\"number\":6,\"title\":\"$T\",\"labels\":[],\"pull_request\":{}}"
-          [ -f "$FLAGDIR/ghost" ] && items="{\"number\":9,\"title\":\"$T\",\"labels\":$lab},$items"
-          case "$OPEN" in ""|null) ;; *) items="{\"number\":$OPEN,\"title\":\"$T\",\"labels\":$lab},{\"number\":3,\"title\":\"$T\",\"labels\":$lab},$items" ;; esac
+          bot="{\"login\":\"github-actions[bot]\"}"
+          # #8: an OUTSIDER opened an issue with the card title (the repo is public).
+          items="{\"number\":5,\"title\":\"something else\",\"labels\":[],\"user\":$bot},{\"number\":6,\"title\":\"$T\",\"labels\":[],\"pull_request\":{},\"user\":$bot},{\"number\":8,\"title\":\"$T\",\"labels\":[],\"user\":{\"login\":\"mallory\"}}"
+          [ -f "$FLAGDIR/ghost" ] && items="{\"number\":9,\"title\":\"$T\",\"labels\":$lab,\"user\":$bot},$items"
+          case "$OPEN" in ""|null) ;; *) items="{\"number\":$OPEN,\"title\":\"$T\",\"labels\":$lab,\"user\":$bot},{\"number\":3,\"title\":\"$T\",\"labels\":$lab,\"user\":$bot},$items" ;; esac
           all="[$items]"
           case "$3" in *labels=*) all=$(printf "%s" "$all" | jq -c "map(select(any(.labels[]; .name == \"nightly-browser-checks-red\")))") ;; esac
           printf "%s" "$all" | jq -r "$f" ;;
         "issue view")
           [ -n "$VIEWFAIL" ] && { echo "HTTP 502" >&2; return 1; }
           f=$(qarg "$@") || { echo "CALL unexpected issue view without -q"; return 1; }
-          if [ -n "$VIEWBODY" ]; then jq -n --arg b "$VIEWBODY" "{body: \$b, comments: []}" | jq -r "$f"; return; fi
+          if [ -n "$VIEWBODY" ]; then jq -n --arg b "$VIEWBODY" "{author: {login: \"app/github-actions\"}, body: \$b, comments: []}" | jq -r "$f"; return; fi
           # The ghost card (#9) is the one THIS run made: its body names this run.
-          if [ "$3" = 9 ]; then jq -n --arg b "The nightly full page-layer run ended failure: $RUN_URL" "{body: \$b, comments: []}" | jq -r "$f"; return; fi
-          printf "%s" "{\"body\":\"The nightly full page-layer run failed\\n\\nRed checks: an old entry\",\"comments\":[{\"body\":\"Still not green (failure) at old: u\\nNEW since the last red night: none\\nRed checks: render-fields | regress-a-night (server did not boot)\"},{\"body\":\"a person quoting it: Red checks: something else entirely\"}]}" | jq -r "$f" ;;
+          if [ "$3" = 9 ]; then jq -n --arg b "The nightly full page-layer run ended failure: $RUN_URL" "{author: {login: \"app/github-actions\"}, body: \$b, comments: []}" | jq -r "$f"; return; fi
+          printf "%s" "{\"author\":{\"login\":\"app/github-actions\"},\"body\":\"The nightly full page-layer run failed\\n\\nRed checks: an old entry\",\"comments\":[{\"author\":{\"login\":\"github-actions\"},\"body\":\"Still not green (failure) at old: u\\nNEW since the last red night: none\\nRed checks: render-fields | regress-a-night (server did not boot)\"},{\"author\":{\"login\":\"someone\"},\"body\":\"a person quoting it: Red checks: something else entirely\"},{\"author\":{\"login\":\"mallory\"},\"body\":\"Still not green (failure) at spoof: u\\nRed checks: render-thread | render-list-row render-fields (rich board did not boot)\"}]}" | jq -r "$f" ;;
         "issue comment") echo "CALL comment $3 :: $*"
           [ -n "$COMMENTFILE" ] && { prevarg=""; for a in "$@"; do [ "$prevarg" = "--body" ] && printf "%s" "$a" > "$COMMENTFILE"; prevarg="$a"; done; }; true ;;
         "issue create")
@@ -302,7 +310,7 @@ if command -v ruby >/dev/null 2>&1; then
           echo "CALL create :: $*"
           # keep the real body, so a later arm can read back what this job wrote
           [ -n "$BODYFILE" ] && { prevarg=""; for a in "$@"; do [ "$prevarg" = "--body" ] && printf "%s" "$a" > "$BODYFILE"; prevarg="$a"; done; }; true ;;
-        "issue close") echo "CALL close $3 :: $*" ;;
+        "issue close") [ -n "$CLOSEFAIL" ] && { echo "HTTP 502" >&2; return 1; }; echo "CALL close $3 :: $*" ;;
         *) echo "CALL unexpected $*"; return 1 ;;
       esac; }
       . "$1"' _ "$BT/card.sh" > "$BT/arm.out" 2>&1
@@ -404,13 +412,21 @@ if command -v ruby >/dev/null 2>&1; then
   [ "$rc" -eq 0 ] || fail "a correctly filed ghost card ended the card job non-zero: $out"
   case "$out" in *"CALL comment"*) fail "a ghost card got an extra comment: $out" ;; esac
   rm -f "$BT/flags/"*
+  # A close that fails (3 tries) leaves the card open on a green main: the job ends NON-ZERO,
+  # and no closing note is posted for a card that did not close.
+  out="$(CLOSEFAIL=1 card success 7)" && rc=0 || rc=$?
+  [ "$rc" -ne 0 ] || fail "a failed close ended the card job green: $out"
+  case "$out" in *"Green again"*) fail "a closing note was posted for a card that did not close: $out" ;; esac
   # CRLF from a web edit must not make every check NEW.
   out="$(VIEWBODY="$(printf 'Still not green (failure) at x: u\r\nNEW since the last red night: none\r\nRed checks: render-fields | render-thread\r')" REDV="render-fields|render-thread" card failure 7)" || fail "CRLF report: $out"
   [ "$(printf '%s\n' "$out" | sed -n 's/^NEW since the last red night: //p')" = "none" ] || fail "a CRLF previous report made entries NEW: $out"
   # The open-card lookup itself fails (3 tries): a red night still files a card, a green does nothing.
   out="$(LISTFAIL=1 LABEL=1 card failure 7)" || fail "a failed lookup aborted the red report: $out"
   case "$out" in *"CALL create"*) ;; *) fail "a red night with a failed card lookup filed nothing: $out" ;; esac
-  out="$(LISTFAIL=1 card success 7)" || fail "a failed lookup aborted a green night: $out"
+  # A green night that cannot list the cards acts on nothing and ends NON-ZERO (the run list
+  # shows it; the next night retries).
+  out="$(LISTFAIL=1 card success 7)" && rc=0 || rc=$?
+  [ "$rc" -ne 0 ] || fail "a green night with a failed lookup ended green: $out"
   case "$out" in *"CALL "*) fail "a green night with a failed lookup acted: $out" ;; esac
   [ -s "$BT/all-arms.out" ] || fail "no card arm output was collected, so the real-gh check below would see nothing"
   grep -q "REAL gh REACHED" "$BT/all-arms.out" && fail "the card script reached the real gh in some arm: $(grep -m1 'REAL gh REACHED' "$BT/all-arms.out")"

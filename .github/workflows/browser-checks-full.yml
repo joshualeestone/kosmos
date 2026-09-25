@@ -29,7 +29,7 @@
 # ⚠️ SILENCE IS NOT GREEN: GitHub disables a schedule after 60 days without repository
 # activity, and a queued run can be superseded before it starts; neither files a card. A card
 # that neither gets a comment nor closes for 2+ days means: look at this workflow's run list.
-# A green DISPATCH run never touches the card (only scheduled runs report), by design.
+# A DISPATCH run, red or green, never touches the card (only scheduled runs report).
 #
 # ⚠️ LIMIT: a check that is red EVERY night on this runner is never NEW, so a real regression
 # in that same check adds no signal, and the card stays open with a comment a night. The card
@@ -159,13 +159,15 @@ jobs:
           # queries the search index, which lags a just-made issue (a missed card is a duplicate).
           # The list is newest first; pull requests (also returned by it) are dropped.
           cards_by_label() { ghr gh api --paginate "repos/$GITHUB_REPOSITORY/issues?state=open&labels=$label&per_page=100" -q '[.[] | select(.pull_request == null) | .number] | .[]'; }
-          cards_by_title() { ghr gh api --paginate "repos/$GITHUB_REPOSITORY/issues?state=open&per_page=100" -q "[.[] | select(.pull_request == null and .title == \"$title\") | .number] | .[]"; }
+          cards_by_title() { ghr gh api --paginate "repos/$GITHUB_REPOSITORY/issues?state=open&per_page=100" -q "[.[] | select(.pull_request == null and .title == \"$title\" and (.user.login // \"\" | test(\"^(app/)?github-actions(\\\\[bot\\\\])?$\"))) | .number] | .[]"; }
           # If even this lookup fails, the report is not dropped: a red night files a NEW card
           # (a possible duplicate is better than silence); a green night does nothing.
           lookup_failed=""
           open_list=$(cards_by_label) || { open_list=""; lookup_failed=1; }
           open=${open_list%%$'\n'*}
-          [ -n "$lookup_failed" ] && [ "$RESULT" = success ] && exit 0
+          # A green night that cannot even list the cards ends RED (the next night retries), so
+          # the run list shows it; a quiet green here would hide a card left open.
+          if [ -n "$lookup_failed" ] && [ "$RESULT" = success ]; then echo "::error::green, but the open cards could not be listed; not closed. Run: $RUN_URL" >&2; exit 1; fi
           if [ "$RESULT" = success ]; then
             [ -n "$open" ] || exit 0
             # Only a FIRST attempt may close: a re-run of an older night (same event, old sha)
@@ -177,13 +179,16 @@ jobs:
               gh1 gh issue comment "$open" --repo "$GITHUB_REPOSITORY" --body "A re-run (attempt ${GITHUB_RUN_ATTEMPT}) of the night at $GITHUB_SHA was green: $RUN_URL. Not closing on a re-run; the next scheduled night decides." || true
               exit 0
             fi
+            close_failed=""
             for n in $open_list; do
               # Close first (safe to repeat, retried), then the note ONCE and only if it closed,
               # so a card that stays open never gets a second "closing" note tomorrow.
               if ghr gh issue close "$n" --repo "$GITHUB_REPOSITORY"; then
                 gh1 gh issue comment "$n" --repo "$GITHUB_REPOSITORY" --body "Green again at $GITHUB_SHA: $RUN_URL. Closed; the next red night opens a new card." || true
-              fi
+              else close_failed=1; fi
             done
+            # A card left open on a green main ends the job RED, so the run list shows it.
+            [ -z "$close_failed" ] || exit 1
             exit 0
           fi
           # A red RE-RUN still reports (the first attempt's comment may be what failed), tagged
@@ -197,8 +202,12 @@ jobs:
             # pasting a report verbatim would also match), so only NEW ones lead.
             # If that report cannot be read, say so rather than calling everything new.
             unread=""
-            if ! prev=$(ghr gh issue view "$open" --repo "$GITHUB_REPOSITORY" --json body,comments \
-                -q '[.body] + [.comments[].body] | map(select(startswith("The nightly full") or startswith("Still not green"))) | last // ""' \
+            # Only reports THIS JOB wrote count: the repo is public, and anyone could post a
+            # comment starting "Still not green" to steer NEW. The bot login is matched in all
+            # three spellings gh and the API use (github-actions, app/github-actions,
+            # github-actions[bot]).
+            if ! prev=$(ghr gh issue view "$open" --repo "$GITHUB_REPOSITORY" --json author,body,comments \
+                -q '([select((.author.login // "") | test("^(app/)?github-actions(\\[bot\\])?$")) | .body]) + [.comments[] | select((.author.login // "") | test("^(app/)?github-actions(\\[bot\\])?$")) | .body] | map(select(startswith("The nightly full") or startswith("Still not green"))) | last // ""' \
                 | tr -d '\r' | sed -n 's/^.*Red checks: //p' | tail -n 1); then
               prev=""; unread=" (the previous report could not be read, so every entry is listed)"
             fi
@@ -218,9 +227,6 @@ jobs:
             done
             IFS=$_ifs; set +f
             case "$red" in *"(none captured"*) new="(not computed: no labels were captured this run)" ;; esac
-            # A red RE-RUN still reports (the first attempt's comment may be what failed), tagged
-            # so it reads as the same night again, not a new one.
-            :
             gh1 gh issue comment "$open" --repo "$GITHUB_REPOSITORY" --body "Still not green ($RESULT) at $GITHUB_SHA$rerun: $RUN_URL
           NEW since the last red night: ${new:-none}$unread
           Red checks: $red"
