@@ -37,8 +37,9 @@ sentences on agent cards, ever.
   web.open-sentence-1199.test.js (the conflictNote-delegation test went with the function).
 
 ## Weakest premise
-- The Projects member boxes are only covered by "nothing in the page reads stateConflict" (the
-  fixture has no project with members), not by a render of a member box with the sentence injected.
+- (Was: project member boxes covered only by "nothing reads stateConflict". Closed in review pass 2:
+  the check now opens a real project and inspects its member boxes.)
+- The unknown-card note removal overrides an earlier ruling (see review pass 1).
 
 ## Review pass 1 (opus): 0 blockers, 3 warnings, 4 nits
 - W the unknown card still carried a note ("Not the same as idle. We cannot see this one, so we are
@@ -60,3 +61,15 @@ sentences on agent cards, ever.
 - NITs fixed: stale comments in engine/status.js and web/index.html; the golden-card test now
   requires null; the said-line test's lrow "saidLine(" matched only its own HTML comment (no code
   calls saidLine, on main either), now pinned as what it is.
+
+## Review pass 2 (sonnet): 0 blockers, 2 warnings, 2 nits, all fixed
+- W the check never drew a project member box (no project in the fixture). It now creates a project
+  whose members include the unknown and needs-trust agents and opens it; its precondition is that
+  member boxes render. Against main this arm fails too (16 arms in all).
+- W the needs-trust fixture agent never became a needs-trust card (card() needs running === false,
+  and the fixture agent is live), so the exclusion `.acard:not(.needstrust) .note` never engaged. The
+  injection now sets running: false too; the grid's precondition requires exactly one needs-trust
+  card with its note. Removing that note reds the grid precondition on both platforms.
+- NIT three arms had no-op preconditions: the agent pages now require the named agent on
+  #panel-detail, the Projects tab requires #panel-projects showing.
+- NIT tools/capture-agent-card.js and render-talk.js described stateConflict as varying; corrected.

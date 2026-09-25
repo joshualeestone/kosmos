@@ -122,8 +122,8 @@ function liveCard() {
  * asserting a thing and its negation is worse than either answer, which is the rule this
  * very header states twenty lines down. `state`, `stateConfidence` and `runner` come from
  * the RAW card, the structural booleans pass through as captured, and role, task,
- * stateEvidence, stateProject, stateConflict and disruption each vary between null and a
- * value. The recording holds `state: "working"`, a fact about one capture. What the pins
+ * stateEvidence, stateProject and disruption each vary between null and a value
+ * (stateConflict is always null since #3729). The recording holds `state: "working"`, a fact about one capture. What the pins
  * buy is that the volatile MEASUREMENTS do not move.
  *
  * ⚠️ "AND TWO PROFILE TIMESTAMPS" WAS WRONG TWICE OVER and sat in three copies. No pin

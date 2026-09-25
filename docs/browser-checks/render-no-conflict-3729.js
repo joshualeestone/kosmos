@@ -34,6 +34,7 @@ process.env.AGENT_WORKFORCE_TMUX_BIN = '/bin/echo';
 
 const { chromium } = require('playwright');
 const fleet = require('../../test-support/fleet');
+const projects = require('../../engine/projects');
 const srv = require('../../server.js');
 
 /* Every sentence the engine can put in `conflict`, straight from its source. */
@@ -62,6 +63,10 @@ function chk(ok, label, extra) {
     fleet.agent('dora', { state: 'idle', displayName: 'Dora', role: 'Analyst' }),     // shown as unknown below
     fleet.agent('ned', { state: 'idle', displayName: 'Ned', role: 'Writer' }),        // shown as needs-trust below
   ]);
+  /* Review pass 2: a real project whose members include the unknown and the needs-trust agent, so
+     the project member boxes (a surface the card names) are actually drawn and looked at. */
+  const pj = projects.create({ name: 'Conflict Check' });
+  projects.writeAll(projects.readAll().map((x) => (x.id === pj.id ? { ...x, agents: ['beatrix', 'dora', 'ned'] } : x)));
   const server = await srv.start(0);
   const URL = 'http://127.0.0.1:' + server.address().port;
   const browser = await chromium.launch({ headless: process.env.HEADED === '0' });
@@ -87,7 +92,9 @@ function chk(ok, label, extra) {
               v.stateConflict = PHRASES[injected % PHRASES.length]; injected += 1;
               seen.add(v.stateConflict);
               if (/^dora/.test(v.sessionName)) v.state = 'unknown';
-              if (/^ned/.test(v.sessionName)) v.needsTrust = true;
+              // A needs-trust card is drawn only for a stopped agent (card(): running === false), so the
+              // fixture says so too (review pass 2: without it this agent drew as a plain card).
+              if (/^ned/.test(v.sessionName)) { v.needsTrust = true; v.running = false; }
             }
             for (const k of Object.keys(v)) walk(v[k]);
           }
@@ -124,16 +131,23 @@ function chk(ok, label, extra) {
           cardNotes: [...document.querySelectorAll('.acard:not(.needstrust) .note')].filter(shown).length,
           emptyNotes: [...document.querySelectorAll('.note')].filter((n) => shown(n) && !n.textContent.trim()).length,
           layout: document.documentElement.getAttribute('data-layout') || 'tabs',
+          trustCards: document.querySelectorAll('.acard.needstrust').length,
+          trustNote: [...document.querySelectorAll('.acard.needstrust .note')].filter(shown).length,
+          detail: (() => { const d = document.getElementById('panel-detail'); return d && !d.hidden ? (document.getElementById('d-name') || {}).textContent : null; })(),
+          projects: (() => { const pp = document.getElementById('panel-projects'); return !!pp && !pp.hidden; })(),
+          members: [...document.querySelectorAll('.pj-member')].filter(shown).length,
           view: (document.querySelector('.viewtoggle[data-scope="agents"] .vt[aria-pressed="true"]') || {}).dataset?.layout || null,
         };
       }, { phrases: [...PHRASES, UNKNOWN_NOTE] });
       const surfaces = [
-        ['grid', async () => { await page.click('.viewtoggle[data-scope="agents"] .vt[data-layout="grid"]'); }, (m) => m.view === 'grid'],
+        // The grid is also where the needs-trust card must exist and keep its note: the one note allowed.
+        ['grid', async () => { await page.click('.viewtoggle[data-scope="agents"] .vt[data-layout="grid"]'); }, (m) => m.view === 'grid' && m.trustCards === 1 && m.trustNote === 1],
         ['list', async () => { await page.click('.viewtoggle[data-scope="agents"] .vt[data-layout="list"]'); }, (m) => m.view === 'list'],
         ['org chart', async () => { await page.click('.viewtoggle[data-scope="agents"] .vt[data-layout="org"]'); }, (m) => m.view === 'org'],
-        ['agent page', async () => { await page.evaluate(() => openDetail('beatrix')); }, () => true],
-        ['unknown agent\'s page', async () => { await page.evaluate(() => openDetail('dora')); }, () => true],
-        ['Projects tab', async () => { await page.evaluate(() => showTab('projects')); }, () => true],
+        ['agent page', async () => { await page.evaluate(() => openDetail('beatrix')); }, (m) => m.detail === 'Beatrix'],
+        ['unknown agent\'s page', async () => { await page.evaluate(() => openDetail('dora')); }, (m) => m.detail === 'Dora'],
+        ['Projects tab', async () => { await page.evaluate(() => showTab('projects')); }, (m) => m.projects],
+        ['project members', async () => { await page.evaluate((id) => { showTab('projects'); openProject(id); }, pj.id); }, (m) => m.members >= 3],
         ['one-screen layout', async () => { await page.evaluate(() => { showTab('agents'); const b = document.querySelector('[data-layout-switch="consolidated"]'); if (b) b.click(); }); }, (m) => m.layout === 'consolidated'],
       ];
       for (const [name, go, arrived] of surfaces) {
