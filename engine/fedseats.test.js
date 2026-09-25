@@ -206,3 +206,9 @@ test('an external sender name loses control characters', async () => {
   await tick();
   assert.strictEqual(h.recorded[0].from, 'A ]0;pwned da');
 });
+
+test('a post in a project that is not federated says nothing in its room', async () => {
+  const h = harness();
+  assert.strictEqual(fedseats.post('proj-local-only', { from: 'Josh', kind: 'person', text: 'hi team' }), false);
+  assert.strictEqual(h.notes.length, 0);
+});

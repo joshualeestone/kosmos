@@ -210,6 +210,9 @@ async function ensureAll() {
 function post(projectId, { from, kind, text }) {
   const s = seats.get(projectId);
   if (!s || !s.child || !s.child.stdin || s.status !== 'connected') {
+    // Every room post passes through here; only a federated project's room has
+    // anywhere else for it to go, so only there is staying local worth a line.
+    if (!safeLink(projectId)) return false;
     say(projectId, 'That message stayed on this computer: the connection to the external project is not up right now.');
     return false;
   }
