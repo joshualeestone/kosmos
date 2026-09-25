@@ -169,8 +169,10 @@ test('#2762: the number of avatar URLs on the page is PINNED', () => {
   // the room row uses, so the pinned total moved 19 -> 20.
   // #3034 added one: the setup assistant's bubble and panel picture (asbAvatar) is versioned the same way
   // (`'/avatar?v=' + (row.avatarVer || 0)`), since both are re-set on every tick; 20 -> 21.
-  assert.equal(count, 21,
-    'the page now has ' + count + ' avatar URLs, not 21. NOTE: this counts every occurrence, '
+  // #3564 added two: a swarm's cluster, as HTML (swarmCluster) and inside the card's SVG face (swarmFaceSvg),
+  // both versioned (`/avatar?v=${a.avatarVer || 0}`) since the lit circles repaint every poll; 21 -> 23.
+  assert.equal(count, 23,
+    'the page now has ' + count + ' avatar URLs, not 23. NOTE: this counts every occurrence, '
     + 'including 6 fetch() calls and 4 /api/you/avatar lines, so an unrelated fetch moves it too; '
     + 'that is deliberate fail-closed noise rather than a hole. If you ADDED a RENDER: is it painted through '
     + 'setLive / setIfChanged / paintThreadInto? Then it needs `?v=` the avatar version, or it will '
@@ -206,5 +208,5 @@ test('#2762 CONTROL: each assertion above can actually fail', () => {
     'PRE-CONTROL: the typo mutant no longer contains the substring, so it would not test the boundary');
 
   const fewer = CODE.replace('/avatar', 'XavatarX');
-  assert.notEqual(fewer.split('/avatar').length - 1, 21, 'the count is insensitive to an avatar URL being removed');   // the pin above
+  assert.notEqual(fewer.split('/avatar').length - 1, 23, 'the count is insensitive to an avatar URL being removed');   // the pin above
 });
