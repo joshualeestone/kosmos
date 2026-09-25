@@ -892,6 +892,7 @@ test('#3827 review: a register in flight when the Mac is forgotten does not turn
   await remote.forget();
   await racing;
   assert.equal(remote.read().on, false, 'a register finishing after forget turned the switch back on');
+  assert.equal(remote.enrolled(), false, 'a register finishing after forget brought the Mac back as registered');
 });
 
 test('#3827 review: when the switch cannot be saved, sign-in says so instead of reporting success', async () => {
@@ -903,9 +904,28 @@ test('#3827 review: when the switch cannot be saved, sign-in says so instead of 
   fs.mkdirSync(remote.FILE + '.tmp', { recursive: true });
   try {
     const done = await remote.signinRegister('hers');
-    assert.equal(done.ok, false, 'a sign-in whose switch stayed off reported success');
-    assert.match(done.because, /Press Turn on/);
+    assert.equal(done.ok, true, 'the Mac IS registered; the sign-in did not fail');
+    assert.equal(done.data.switchOff, true, 'a sign-in whose switch stayed off did not say so');
+    assert.match(done.data.note, /Press Turn on/);
     assert.equal(remote.read().on, false, 'fixture: the switch really is off');
+  } finally {
+    fs.rmSync(remote.FILE + '.tmp', { recursive: true, force: true });
+  }
+});
+
+test('#3827 review: the same-Mac (#1010) path also says so when the switch cannot be saved', async () => {
+  process.env.AGENT_WORKFORCE_TUNNEL_RELAY = '127.0.0.1:9444';
+  await remote.signinStart('her@example.com');
+  await remote.signinVerify('her@example.com', '111111');
+  await remote.signinRegister('hers');
+  remote.setOn(false);
+  await remote.signinStart('her@example.com');
+  await remote.signinVerify('her@example.com', '111111');
+  fs.mkdirSync(remote.FILE + '.tmp', { recursive: true });
+  try {
+    const again = await remote.signinRegister('hers');
+    assert.equal(again.data.alreadySetUp, true, 'fixture: the recognised path ran');
+    assert.equal(again.data.switchOff, true, 'the recognised path hid a switch that stayed off');
   } finally {
     fs.rmSync(remote.FILE + '.tmp', { recursive: true, force: true });
   }

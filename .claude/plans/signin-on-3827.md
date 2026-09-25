@@ -25,3 +25,9 @@ when someone already pressed the switch.
 - WARNING: forget() racing a register could have its on:false overwritten. forget() now bumps the sign-in epoch and drops the held session first.
 - WARNING: a failed switch save was swallowed and the wizard said "connecting". It now returns "you are signed in, but Kosmos+ could not be switched on here. Press Turn on".
 Controls: removing each fix reds exactly its test (epoch -> both race tests; forget bump -> the forget race; swallowed write -> the save test).
+
+## Round 2 review (opus) fixes
+- WARNING: forget() during a register let the register child rewrite the state dir after forget emptied it, so the Mac came back registered. forget() now waits for a register in flight (registerInFlight), then retires and wipes. Test asserts enrolled() is false; control without the wait fails "brought the Mac back as registered".
+- WARNING (documented, not changed): a Sign out that lands after the coordinator accepted the register cannot undo it; the page drops the late answer and the next paint shows the connected pane with the switch OFF, which is true.
+- WARNING: a failed switch save now returns ok with switchOff + note (the Mac IS registered); server passes them; the wizard puts the note in the connected pane's message line and repaints, so "Press Turn on" sits beside the Turn on button. Recognised-path test added.
+- NIT: fedSetStanding now runs before the switch write.

@@ -664,6 +664,7 @@ async function forget() {
   // the switch back on for the state this is about to wipe (#3827 review).
   signinEpoch += 1;
   signinSession = null;
+  if (registerInFlight) { try { await registerInFlight; } catch { /* its outcome is wiped below either way */ } }
   const was = { enrolled: enrolled(), address: address() };
   stopChild();
   let retired = false;
@@ -1189,16 +1190,23 @@ async function signinConfirmEnrol(code) {
    tunnel, and the pane said "Connecting" over a "Turn on" button nobody had
    pressed. Turning it off stays one press away. A failed write is not fatal:
    the Mac is registered either way, and the switch still says off. */
-// Returns null when the switch is on, or the sentence to give the person when it
-// could not be saved: the Mac IS registered, so this is not a failed sign-in, but
-// saying "signed in, connecting" over a switch that stayed off is the bug itself.
-const SIGNED_IN_SWITCH_OFF = 'you are signed in, but Kosmos+ could not be switched on here. Press Turn on';
+// Returns true when the switch is on. False means it could not be saved: the Mac
+// IS registered, so this is not a failed sign-in, and the answer says so
+// (`switchOff` + `note`) so the page shows it beside the Turn on button instead
+// of "Connecting" over a switch that stayed off.
+const SIGNED_IN_SWITCH_OFF = 'You are signed in, but Kosmos+ could not be switched on here. Press Turn on.';
 function turnOnAfterSignin() {
   const wrote = write({ on: true });
-  if (wrote.ok) return null;
+  if (wrote.ok) return true;
   process.stderr.write('remote: could not turn on after sign-in: ' + wrote.because + '\n');
-  return { ok: false, because: SIGNED_IN_SWITCH_OFF };
+  return false;
 }
+function switchOffNote(on) { return on ? {} : { switchOff: true, note: SIGNED_IN_SWITCH_OFF }; }
+/* #3827 review: forget() waits for a register already on its way, so the state it
+   retires and wipes includes that registration; otherwise the register child writes
+   a fresh identity into the directory forget just emptied, and the Mac comes back
+   as signed in to an account the person just forgot. */
+let registerInFlight = null;
 
 async function signinRegister(name) {
   if (!signinSession || typeof signinSession.token !== 'string') {
@@ -1224,35 +1232,41 @@ async function signinRegister(name) {
     const have = address();
     if (have && have.split('.')[0] === name) {
       signinSession = null;
-      const off = turnOnAfterSignin();
-      if (off) return off;
+      const on = turnOnAfterSignin();
       ensure(localPort);
       // standing is '' on this path, not omitted: the engine cannot know it
       // without the coordinator round-trip this short-circuit skips, and a
       // uniform shape (always a standing key) is easier for the wizard than a
       // sometimes-absent field. 3b treats '' as "unknown, ask on next check".
-      return { ok: true, because: null, data: { stage: 'registered', address: have, name, standing: '', alreadySetUp: true } };
+      return { ok: true, because: null, data: { stage: 'registered', address: have, name, standing: '', alreadySetUp: true, ...switchOffNote(on) } };
     }
   }
   secureStateDir();
   // Like every other step: a Sign out (or a forget) that lands while register is
   // waiting on the tunnel program must not be followed by this turning Kosmos+ on.
   const epoch = signinEpoch;
-  const r = parseSaid(await setupRun(['signin', 'register', '--coordinator', COORDINATOR(),
-    '--name', name, '--state-dir', STATE_DIR()], signinSession.token));
+  const running = setupRun(['signin', 'register', '--coordinator', COORDINATOR(),
+    '--name', name, '--state-dir', STATE_DIR()], signinSession.token);
+  registerInFlight = running;
+  let r;
+  try { r = parseSaid(await running); } finally { if (registerInFlight === running) registerInFlight = null; }
+  // A Sign out that lands after the coordinator accepted the register cannot undo
+  // it: the Mac is registered, the page has already dropped this answer, and the
+  // next paint shows the connected pane with the switch OFF, which is the truth.
+  // What a cancel must never do is let this turn Kosmos+ on.
   if (epoch !== signinEpoch) return SIGNIN_CANCELLED;
   if (!r.ok) return r;
   signinSession = null;   // the token is spent; it must not linger in this process
-  const off = turnOnAfterSignin();
-  if (off) return off;
-  ensure(localPort);
   const d = r.data && typeof r.data === 'object' ? r.data : {};
   fedSetStanding(d.standing);   // fed gate: SET (or clear) standing from this fresh register
+  const on = turnOnAfterSignin();
+  ensure(localPort);
   return { ok: true, because: null, data: {
     stage: 'registered',
     address: typeof d.address === 'string' ? d.address : address(),
     name: typeof d.name === 'string' ? d.name : name,
     standing: typeof d.standing === 'string' ? d.standing : '',
+    ...switchOffNote(on),
   } };
 }
 

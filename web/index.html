@@ -36252,6 +36252,14 @@ document.getElementById('plus-si-register-go').addEventListener('click', async (
      person onto the marketing state the instant after they succeeded. Leaving it set makes
      that unlucky window fall back to the wizard with this confirmation instead, and the
      recurring 5s tick completes the handoff once enrolled reads true. */
+  /* #3827: registered, but the switch could not be saved on. Say so where the Turn on
+     button is (the connected pane's message line), not "Connecting". */
+  if (r.data && r.data.switchOff) {
+    plusSiMsg('');
+    plusSay(r.data.note || 'You are signed in, but Kosmos+ could not be switched on here. Press Turn on.', 'switch');
+    paintPlus();
+    return;
+  }
   plusSiMsg('Signed in. Connecting this computer to Kosmos+.');
   paintPlus();
 });

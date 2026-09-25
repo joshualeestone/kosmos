@@ -7079,6 +7079,9 @@ const server = http.createServer((req, res) => {
           // than freshly registered (#1010), so the wizard can say "already
           // signed in" instead of "you're signed in". Absent (falsy) otherwise.
           alreadySetUp: got.data.alreadySetUp === true,
+          // #3827: registered, but the switch could not be saved on.
+          switchOff: got.data.switchOff === true,
+          note: typeof got.data.note === 'string' ? got.data.note : undefined,
           status: remote.status(),
         });
       })
