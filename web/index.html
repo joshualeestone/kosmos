@@ -1438,6 +1438,9 @@ button.uprime:hover, .btn.uprime:hover, .utoast .uacts button.uprime:hover,
    card still fits on screen. The scroll is on the words, not the card, which would clip the arrow. The height is
    set by tipPlace from the window it is actually placed in (a vh budget overstates a phone with its toolbar up). */
 .tipcard .tip-bd { overflow-y: auto; }
+/* overflow makes the wrapper its own box, so its first child's top margin no longer folds into the title's: zero it,
+   or a list-led tip gains 4px under its title. */
+.tipcard .tip-bd > :first-child { margin-top: 0; }
 .tipcard h2 { margin: 2px 26px 4px 0; font-size: 1rem; letter-spacing: -.005em; }
 .tipcard p { margin: 0 0 6px; font-size: .875rem; color: var(--k-ink-2); line-height: 1.5; }
 .tipcard ol { margin: 4px 0 8px; padding: 0; list-style: none; font-size: .875rem; color: var(--k-ink-2); }
