@@ -138,24 +138,13 @@ const say = (n, cond, note) => {
        never recreates the <img> and the face stays stale. This is the same class
        #2698 fixed on the org chart, asserted here in a real browser against the
        real rendered src. */
-    /* ⚠️ SCOPED, WITH NO FALLBACK. This file's own header records that the project
-       page BEHIND this screen also renders `.tkcard`, and that an unscoped query is
-       what produced #1346's second number. A fallback to `.tkcard .lav img` would
-       silently measure a card on that other page and still report PASS. If the
-       scoped selector misses, that is a finding, not something to route around. */
-    /* 🛑 SCOPED TO THE PROJECT'S OWN TASK LIST, NOT THE ALL-TASKS VIEW, and that
-       distinction was measured rather than assumed. #2762 is about `tkFace` in
-       `paintProjectTasks`, which paints `#pj-tasklist` on the project page. The
-       all-tasks screen holds `.tkcard` rows too, but NONE of them carry a `.lav img`:
-       probed live, `#pj-alltasks-view .tkcard .lav img` is 0 while the document has
-       2, and both of those are on the project page behind.
-
-       ⚠️ AN EARLIER VERSION OF THIS ARM QUERIED `#pj-alltasks-view …` WITH AN
-       UNSCOPED FALLBACK, and passed. The scoped half matched nothing; the FALLBACK
-       was doing all the work, so the arm reported a result from a screen it did not
-       name. Removing the fallback (correctly, on review) is what exposed it. A
-       fallback that rescues a wrong selector does not make an arm robust, it makes
-       it untruthful about what it measured. */
+    /* 🛑 SCOPED TO THE PROJECT'S OWN TASK LIST (#pj-tasklist), WITH NO FALLBACK. #2762 is about
+       `tkFace` in `paintProjectTasks`, which paints that list on the project page. Measured then:
+       the retired all-tasks screen (#3703) held `.tkcard` rows with no `.lav img`, and an earlier
+       version of this arm queried that screen with an unscoped fallback and passed while the
+       FALLBACK did all the work, reporting a result from a screen it did not name. A fallback that
+       rescues a wrong selector does not make an arm robust, it makes it untruthful about what it
+       measured, so a scoped miss here is a finding, not something to route around. */
     const face = await p.evaluate(() => {
       const list = document.getElementById('pj-tasklist');
       const img = list && list.querySelector('.lav img');

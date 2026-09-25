@@ -42283,7 +42283,8 @@ async function tskLoad(arrival) {
   try {
     /* #3703: an archived project's own door still shows its tasks (the server keeps only the one
        named here); without a scope the read leaves every archived project out. */
-    const r = await fetch('/api/tasks?view=tasks' + (TSK.proj ? '&withArchived=' + encodeURIComponent(TSK.proj) : ''), { cache: 'no-store' });
+    const door = TSK.proj && TSK.projHint && TSK.projHint.id === TSK.proj ? TSK.proj : null;   // a door scope, not a rail pick
+    const r = await fetch('/api/tasks?view=tasks' + (door ? '&withArchived=' + encodeURIComponent(door) : ''), { cache: 'no-store' });
     const body = await r.json().catch(() => ({}));
     if (mine !== TSK.gen) return;
     if (!r.ok || !Array.isArray(body.tasks)) {
@@ -42292,7 +42293,7 @@ async function tskLoad(arrival) {
       TSK.error = String(body.error || 'we could not read your tasks just now');
     } else {
       /* A good read clears the error a failed one left, and only that (a "Closed N" line stays). */
-      if (TSK.error && msg) msg.textContent = '';
+      if (TSK.error && msg && msg.textContent === asSentence(TSK.error)) msg.textContent = '';
       TSK.error = null;
       /* Archived projects are set aside: their tasks are not in this view (the rails tuck archived
          projects away too), except the one a project door scoped us to (#3703; tskVisible). */
@@ -42356,7 +42357,8 @@ function tskPaint() {
     if (t.state !== 'closed') projMap.get(t.projectId).open += 1;
   }
   /* A project door can scope us to a project with no tasks yet: it is still the project, with 0. */
-  if (TSK.proj && !projMap.has(TSK.proj) && TSK.projHint && TSK.projHint.id === TSK.proj) {
+  if (TSK.proj && !projMap.has(TSK.proj) && TSK.projHint && TSK.projHint.id === TSK.proj
+      && PROJECTS.some((x) => x && x.id === TSK.proj)) {   // only while the project still exists
     projMap.set(TSK.proj, { id: TSK.proj, name: TSK.projHint.name, open: 0 });
   }
   /* A scope to a project that is gone falls back to All tasks, but only once the tasks are read:
@@ -43204,7 +43206,9 @@ function openNewTask(projectId, origin) {
   document.getElementById('nt-msg').textContent = '';
   document.getElementById('nt-go').disabled = !document.getElementById('nt-what').value.trim();
   document.getElementById('nt-modal').hidden = false;
-  document.getElementById('nt-what').focus();
+  /* With the picker showing, focus starts on it: its chosen project is heard first, before any
+     words are typed for it. */
+  document.getElementById(row.hidden ? 'nt-what' : 'nt-proj').focus();
 }
 /* Point the dialog at one project: its name, the draft kept for it, and its members as the choices. */
 function ntAimAt(p) {

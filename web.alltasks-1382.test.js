@@ -97,7 +97,8 @@ test('#3703: the scope a door sets survives the paint before the first read', ()
     'the scope can be dropped before any data is read, which loses the door\'s project');
   // CONTROL: the pre-fix line (no data guard) is a different line, so the match above can fail.
   assert.doesNotMatch('  if (TSK.proj && !projMap.has(TSK.proj)) TSK.proj = null;', /if \(TSK\.data && TSK\.proj/);
-  assert.match(fn, /TSK\.projHint && TSK\.projHint\.id === TSK\.proj/, 'a door to a project with no tasks falls back to All tasks');
+  assert.match(fn, /TSK\.projHint && TSK\.projHint\.id === TSK\.proj\s*&& PROJECTS\.some\(\(x\) => x && x\.id === TSK\.proj\)\)/,
+    'the hint keeps a deleted project as the scope forever, or a door to an empty project falls back to All tasks');
 });
 
 test('#1346 on the new destination: the count and the rows come from the same scoped array', () => {
@@ -110,14 +111,19 @@ test('#1346 on the new destination: the count and the rows come from the same sc
 
 test('#1382 on the new destination: an unreadable read is said, and a row opens its task on its own project', () => {
   const load = body('tskLoad');
+  // A good read clears only the error line it left, never a "Closed N" or "Added task N" line.
+  assert.match(load, /if \(TSK\.error && msg && msg\.textContent === asSentence\(TSK\.error\)\) msg\.textContent = '';/);
   assert.match(load, /TSK\.error = String\(body\.error \|\| 'we could not read your tasks just now'\)/);
   assert.match(load, /msg\.textContent = asSentence\(TSK\.error\)/, 'a failed read would render as an empty list');
   assert.match(body('tskOpenTask'), /tskGoToProject\(t\.projectId\)/, 'a row would open its task on the wrong project');
 });
 
 test('#3703: an archived project\'s own door still lists its tasks; no other archived project shows', () => {
-  assert.match(body('tskLoad'), /'&withArchived=' \+ encodeURIComponent\(TSK\.proj\)/,
-    'the read does not name the scoped project, so an archived project\'s door shows nothing');
+  const load = body('tskLoad');
+  assert.match(load, /const door = TSK\.proj && TSK\.projHint && TSK\.projHint\.id === TSK\.proj \? TSK\.proj : null;/,
+    'a rail pick is treated as a door, so a project archived after it was picked stays listed');
+  assert.match(load, /'&withArchived=' \+ encodeURIComponent\(door\)/,
+    'the read does not name the door\'s project, so an archived project\'s door shows nothing');
   const tskVisible = new Function(body('tskVisible') + '\nreturn tskVisible;')();
   const rows = [
     { projectId: 'live', projectArchived: false },
