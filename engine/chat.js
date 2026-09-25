@@ -2389,6 +2389,27 @@ function withQuestionRow(messages, agentName, question) {
   }]);
 }
 
+/**
+ * #3723: Kosmos's own line in an agent's Direct Message thread while the agent is stopped by its
+ * account (engine/accountproblem.js). Like withQuestionRow it is NOT stored: it is derived from the
+ * agent's card on every read, so there is exactly one line per problem and it goes away by itself
+ * the moment the card no longer shows the problem. `kind: 'kosmos'` draws it as Kosmos's quiet band,
+ * not as a message from the agent or the person.
+ */
+const ACCOUNT_ROW_ID_PREFIX = 'kosmos-account:';
+function withAccountRow(messages, agentName, problem) {
+  const list = Array.isArray(messages) ? messages : [];
+  if (!problem || typeof problem.text !== 'string' || !problem.text) return list;
+  return list.concat([{
+    id: ACCOUNT_ROW_ID_PREFIX + String(agentName),
+    at: null,
+    text: problem.text,
+    from: null,
+    delivery: null,
+    kind: 'kosmos',
+  }]);
+}
+
 function appendMessage(projectId, agent, entry, bornAt) {
   // ⚠️ EVERYTHING from the read to the rename happens inside the lock. Holding
   // it for the write alone would not help: the loss is in the gap between the
@@ -3034,6 +3055,7 @@ module.exports = {
   chunkUtf8, pasteToEnterMs, PASTE_CHUNK_BYTES,
   deliver, interrupt, stopHelpers, viewport, questionIn, optionsIn, questionAbove, waitingNote, spawnFailure, verifyAtSend,
   withQuestionRow,
+  withAccountRow,
   threadFile, readThread, appendMessage, supersede, withThreadLock,
   defaultAgentFor, looksLikeManager,
   dmSeenRead, markDmSeen, dmUnreadAll, dmUnread, DM_SEEN,

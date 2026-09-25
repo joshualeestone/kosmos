@@ -1549,6 +1549,51 @@ const CODEX_NEEDS_YOU_MARKERS = Object.freeze([
 ]);
 
 /**
+ * #3723: Codex's own "you are out of usage or credits" messages. READ FROM CODEX'S PROGRAM TEXT
+ * (the installed codex binary, 2026-09-25), not captured from a live pane: nobody here had an
+ * exhausted account to capture. The sentences are Codex's own, so they are what its screen prints;
+ * how the TUI wraps or prefixes them is unobserved, so each marker is a short unanchored phrase.
+ *   "You've hit your usage limit. Visit https://chatgpt.com/codex/settings/usage to purchase more credits"
+ *   "You've hit your usage limit. Upgrade to Plus to continue using Codex (https://chatgpt.com/explore/plus)"
+ *   "You've hit your usage limit. To get more access now, send a request to your admin"
+ *   "You've hit your usage limit for ..." (then "Try again at ...")
+ *   "Your workspace is out of credits. Ask your workspace owner to add more."
+ *   "You've reached your workspace credit limit"
+ */
+const CODEX_LIMIT_MARKERS = Object.freeze([
+  /You['’]ve hit your usage limit/i,
+  /Your workspace is out of credits/i,
+  /You['’]ve reached your workspace credit limit/i,
+]);
+/* Only the last rows count, and only while nothing has happened since: Codex redraws its empty
+   prompt (and a footer) right under the message, but once a newer turn shows (a message the person
+   sent, echoed after `›`, or an answer, drawn after `•`), the limit line is from before it was fixed. */
+const CODEX_LIMIT_ROWS = 12;
+/* The vendor's message as the person should read it: the LAST limit row plus the rows that continue
+   it, stopping at a blank row, the prompt (`›`) or a new answer (`•`), so Codex's prompt and footer
+   (model, folder, "context left") are never glued onto it. Read from the raw rows, blanks kept,
+   because a blank row is where the message ends. */
+function codexLimitMessage(rawRows) {
+  let at = -1;
+  rawRows.forEach((r, i) => { if (CODEX_LIMIT_MARKERS.some((re) => re.test(r))) at = i; });
+  if (at < 0) return null;
+  const clean = (r) => r.replace(/^[\s>│├└─*❯›•■●]+/, '').trim();
+  let out = clean(rawRows[at]);
+  for (let i = at + 1; i < rawRows.length && i <= at + 2; i++) {
+    const r = rawRows[i];
+    if (!r.trim() || /^\s*[›•■●]/.test(r)) break;
+    out += ' ' + r.trim();
+  }
+  return out.length > 240 ? out.slice(0, 240) + '…' : out;
+}
+function codexLimitStillCurrent(rows) {
+  let at = -1;
+  rows.forEach((r, i) => { if (CODEX_LIMIT_MARKERS.some((re) => re.test(r))) at = i; });
+  if (at < 0) return false;
+  return !rows.slice(at + 1).some((r) => /^\s*[›•]/.test(r) && !/^\s*›\s*Ask Codex to do anything/.test(r));
+}
+
+/**
  * Claude Code's workspace-trust dialog (#1629, point 3). OBSERVED, per this
  * file's rule that a guessed wording is 0 for 1: captured from a live pane on
  * this machine, 2026-09-01, Claude Code 2.1.258, by starting `claude` in a
@@ -3516,6 +3561,18 @@ function classify(pane, paneText) {
     // matched deliberately: it was captured from a real pane, not assumed.
     if (hasLiveInterruptLine(codexTail)) {   /* #2378: on a row, not anywhere in the tail */
       return { state: STATE.WORKING, confidence: CONFIDENCE.SCRAPED, because: 'it is mid-task' };
+    }
+    // #3723: out of usage or credits. Below working (a live turn means it is not stopped) and above
+    // idle (Codex shows its empty prompt under the message, which would otherwise read as idle).
+    const codexRows = codexTail.split('\n').filter((r) => r.trim()).slice(-CODEX_LIMIT_ROWS);
+    if (codexLimitStillCurrent(codexRows)) {
+      return {
+        state: STATE.RATE_LIMITED,
+        confidence: CONFIDENCE.SCRAPED,
+        because: 'its screen says it is out of usage or credits',
+        evidence: codexLimitMessage(codexTail.split('\n')),
+        limitFrom: 'codex', // reconcileReport: Codex's automatic end-of-turn idle cannot contradict it
+      };
     }
     // Observed: the empty composer, codex's equivalent of sitting at the
     // prompt. Like Claude's footer rule this sits below the checks above:
@@ -6178,7 +6235,11 @@ function reconcileReport(reported, scraped, nowMs, liveAuth, disruptionRec, code
   if (scraped.state === STATE.RATE_LIMITED) {
     const atRl = Date.parse(reported.at || '');
     const freshRl = Number.isFinite(atRl) && (nowMs - atRl) <= REPORT_WORKING_DECAY_MS;
-    if (freshRl) {
+    /* #3723: except Codex's own limit message against an AUTOMATIC report. Codex's bridge reports
+       idle at the end of every turn, and a turn that failed on the limit still ends, so that report
+       is the machine noticing the turn ended, not evidence the account works. */
+    const autoOverCodexLimit = scraped.limitFrom === 'codex' && reported.by === 'auto';
+    if (freshRl && !autoOverCodexLimit) {
       const answer = reconcileReport(reported, { ...scraped, state: STATE.UNKNOWN, confidence: CONFIDENCE.NONE }, nowMs, liveAuth, disruptionRec, codexLiveAuth, activity);
       return { ...answer, conflict: 'its screen shows a usage limit, but it is still reporting, so it may be working through it' };
     }
@@ -7536,7 +7597,7 @@ module.exports = {
   // first time a marker is added here. The card that says "Needs you" and the
   // thread that shows the question must never be able to disagree.
   NEEDS_YOU_MARKERS,
-  CODEX_NEEDS_YOU_MARKERS,
+  CODEX_NEEDS_YOU_MARKERS, CODEX_LIMIT_MARKERS,
   ALL_NEEDS_YOU_MARKERS,
   /* #2456: the placeholder `because` string, so the routes can tell a real
      reported question from the board's generic "asking" and never render the

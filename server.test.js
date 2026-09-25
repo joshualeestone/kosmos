@@ -9676,6 +9676,56 @@ test('the reply route writes as the pane’s agent, whatever the body claims', a
   }
 });
 
+test('#3723 an agent stopped by its account gets one Kosmos line in its thread, and an idle one gets none', async () => {
+  const board = fleet.install([
+    fleet.agent('rae', { state: 'rate_limited' }),
+    fleet.agent('sid', { state: 'auth_failed' }),
+    fleet.agent('ida', { state: 'idle' }),
+  ]);
+  try {
+    const rae = JSON.parse((await req('/api/agent/rae/thread')).body);
+    const rows = rae.messages.filter((m) => m.kind === 'kosmos');
+    assert.equal(rows.length, 1, 'exactly one Kosmos line');
+    assert.match(rows[0].text, /has run out of Claude usage or credits, so it has stopped/);
+    assert.equal(rows[0].from, null, 'Kosmos speaking: not the agent, not the person');
+    assert.equal(rows[0].at, null, 'derived each read, not stored');
+    assert.equal(rows[0].id, 'kosmos-account:rae');
+    const sid = JSON.parse((await req('/api/agent/sid/thread')).body);
+    const signin = sid.messages.find((m) => m.kind === 'kosmos');
+    assert.ok(signin, 'a sign-in that stopped working gets the line too');
+    assert.match(signin.text, /sign-in has stopped working.*Sign in again/);
+    // CONTROL: an idle agent's thread has no Kosmos line, so the line is caused by the state.
+    const ida = JSON.parse((await req('/api/agent/ida/thread')).body);
+    assert.ok(!ida.messages.some((m) => m.kind === 'kosmos'), 'an idle agent got an account line');
+  } finally {
+    fleet.restore();
+    void board;
+  }
+});
+
+test('#3723 no link preview is fetched for Kosmos\'s account line (it quotes screen text)', async () => {
+  const unfurl = require('./engine/unfurl');
+  const fetched = [];
+  unfurl.resetForTests();
+  unfurl.setResolver(async () => ['93.184.216.34']);
+  unfurl.setFetcher(async (url) => { fetched.push(String(url)); return { status: 200, headers: { 'content-type': 'text/html' }, body: Buffer.from('<title>x</title>') }; });
+  const board = fleet.install([
+    fleet.agent('cod', { state: 'rate_limited', runner: 'codex', command: 'node',
+      screen: "• You've hit your usage limit. Visit https://chatgpt.com/codex/settings/usage to purchase more credits\n\n› Ask Codex to do anything" }),
+  ]);
+  try {
+    const body = JSON.parse((await req('/api/agent/cod/thread')).body);
+    const row = body.messages.find((m) => m.kind === 'kosmos');
+    assert.ok(row && /chatgpt\.com\/codex\/settings\/usage/.test(row.text), 'CONTROL: the line carries the link');
+    await new Promise((r) => setTimeout(r, 200));
+    assert.deepEqual(fetched, [], 'the board fetched an address read off an agent\'s screen');
+  } finally {
+    unfurl.resetForTests();
+    fleet.restore();
+    void board;
+  }
+});
+
 test('#3419 a needs_you agent’s thread payload carries its question as a message row', async () => {
   // The engine half of #3419: the agent's question shows AS A MESSAGE in the
   // dialog, not only via the interruptive "waiting on an answer" banner. Read back

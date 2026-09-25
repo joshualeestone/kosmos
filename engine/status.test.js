@@ -244,6 +244,67 @@ const CODEX_IDLE = `╭───────────────────
 const CODEX_WORKING = `• Reconnecting... 4/5 (4s • esc to interrupt)
   └ Unexpected status 401 Unauthorized`;
 
+/* #3723: Codex's out-of-usage / out-of-credits messages (read from Codex's own program text; see
+   CODEX_LIMIT_MARKERS). Codex prints the message and then redraws its empty prompt under it, which
+   on its own reads as idle. */
+const CODEX_OUT_OF_CREDITS = `• You've hit your usage limit. Visit https://chatgpt.com/codex/settings/usage to purchase more credits
+  or try again at 4:10 PM.
+
+› Ask Codex to do anything
+  gpt-5.6-sol default · /private/tmp/somewhere`;
+
+test('#3723: a Codex pane showing its usage-limit message is rate_limited, with the message as evidence, not idle', () => {
+  const r = classify(pane({ command: 'node', runner: 'codex' }), CODEX_OUT_OF_CREDITS);
+  assert.equal(r.state, 'rate_limited');
+  assert.match(r.evidence, /You've hit your usage limit\. Visit https:\/\/chatgpt\.com\/codex\/settings\/usage/);
+  assert.equal(r.limitFrom, 'codex');
+  const ws = classify(pane({ command: 'node', runner: 'codex' }), "  Your workspace is out of credits. Ask your workspace owner to add more.\n› Ask Codex to do anything");
+  assert.equal(ws.state, 'rate_limited');
+  // CONTROL: the same prompt without the message is idle.
+  assert.equal(classify(pane({ command: 'node', runner: 'codex' }), CODEX_IDLE).state, 'idle');
+});
+
+test('#3723: an old limit line further up the scrollback does not hold a recovered Codex agent', () => {
+  const later = Array.from({ length: 14 }, (_, i) => `  line ${i} of the next answer`).join('\n');
+  const r = classify(pane({ command: 'node', runner: 'codex' }), `• You've hit your usage limit. Upgrade to Plus to continue using Codex\n${later}\n› Ask Codex to do anything`);
+  assert.equal(r.state, 'idle');
+});
+
+test('#3723: the quoted message is Codex\'s sentence alone, never its prompt or footer (real sentences end without a full stop)', () => {
+  const screen = "■ You've hit your usage limit. Visit https://chatgpt.com/codex/settings/usage to purchase more credits\n\n› Ask Codex to do anything\n  gpt-5-codex high · 62% context left · ~/secret-project";
+  const r = classify(pane({ command: 'node', runner: 'codex' }), screen);
+  assert.equal(r.state, 'rate_limited');
+  assert.equal(r.evidence, "You've hit your usage limit. Visit https://chatgpt.com/codex/settings/usage to purchase more credits");
+  const noBlank = classify(pane({ command: 'node', runner: 'codex' }), "• You've hit your usage limit. Upgrade to Plus to continue using Codex (https://chatgpt.com/explore/plus),\n› Ask Codex to do anything\n  gpt-5.6-sol default · /Users/josh/secret-project");
+  assert.doesNotMatch(noBlank.evidence, /Ask Codex|secret-project/);
+  // It still reaches the DM line and the manager (the footer's "context left" must not suppress it).
+  const { accountProblemOf } = require('./accountproblem');
+  const p = accountProblemOf({ state: r.state, runner: 'codex', name: 'Cx', stateEvidence: r.evidence });
+  assert.ok(p, 'the headline case produced no account line');
+  assert.doesNotMatch(p.text, /context left|secret-project/);
+});
+
+test('#3723: a short reply after the limit ends it (the person fixed it and the agent carried on)', () => {
+  const r = classify(pane({ command: 'node', runner: 'codex' }), `• You've hit your usage limit. Visit https://chatgpt.com/codex/settings/usage to purchase more credits\n› continue\n• Done.\n› Ask Codex to do anything\n  gpt-5.6-sol default`);
+  assert.equal(r.state, 'idle');
+});
+
+test('#3723: a live Codex turn beats a limit line (it is working, not stopped)', () => {
+  const r = classify(pane({ command: 'node', runner: 'codex' }), `• You've hit your usage limit for GPT-5.\n${CODEX_WORKING}`);
+  assert.equal(r.state, 'working');
+});
+
+test('#3723: Codex automatic end-of-turn idle does not hide a Codex limit, but an agent\'s own report still wins', () => {
+  const now = T0 + 5000;
+  const scraped = { state: 'rate_limited', confidence: 'scraped', because: 'x', evidence: 'You\'ve hit your usage limit.', limitFrom: 'codex' };
+  const auto = reconcileReport(rep('idle', { by: 'auto' }), scraped, now);
+  assert.equal(auto.state, 'rate_limited', 'Codex\'s own turn-ended idle hid the limit');
+  const agent = reconcileReport(rep('idle', { by: 'agent' }), scraped, now);
+  assert.equal(agent.state, 'idle', 'CONTROL: an agent\'s own fresh report still wins, as for Claude');
+  const claude = reconcileReport(rep('idle', { by: 'auto' }), { ...scraped, limitFrom: undefined }, now);
+  assert.equal(claude.state, 'idle', 'CONTROL: a Claude limit still gives way to a fresh report, unchanged');
+});
+
 test('#246: the recorded runner reaches the board row, and absent means claude', () => {
   const { setPaneSource, setPaneCapture, snapshot } = require('./status');
   try {
