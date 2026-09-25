@@ -19,10 +19,13 @@
 # before a cut. Dispatching on a PR's own branch attaches the run to that PR's head commit,
 # so a runner false-red there can stop /merge-on-green, the very thing this design avoids:
 # dispatch on a throwaway branch pointing at the same commit instead.
-# The nightly checks out main as a BRANCH (not the detached merge commit a PR run gets), so
-# browser-checks.sh takes its freeze-and-re-exec path here, which no PR run has exercised: a
-# first-night red may be that harness path, not a regression. Dispatch once before relying
-# on the first card.
+# The checkout is detached (see the job), so browser-checks.sh takes the same single-process
+# path as the cut's 3b. Still, the full set has never run on this runner before its first
+# night: dispatch once before relying on the first card.
+#
+# ⚠️ LIMIT: a check that is red EVERY night on this runner is never NEW, so a real regression
+# in that same check adds no signal, and the card stays open with a comment a night. The card
+# says so; the remedy is to fix the check or record it as runner noise, not to read past it.
 #
 # Same script and pin as the cut's 3b: tools/browser-checks.sh with no
 # KOSMOS_BC_CI_ALLOWLIST runs every check, headless (run_one sets HEADED=0).
@@ -69,6 +72,11 @@ jobs:
       - uses: actions/checkout@v4
         with:
           persist-credentials: false
+      # DETACHED, like the cut's frozen tree: on a branch, browser-checks.sh freezes the tree
+      # and re-execs itself (a path the cut never takes); nothing can move a runner's own
+      # checkout mid-run, so the freeze buys nothing here and only differs from the cut.
+      - name: 'detach HEAD, as the cut runs it (#2518)'
+        run: git checkout --detach
       - uses: actions/setup-node@v4
         with:
           node-version: '26'
@@ -147,7 +155,8 @@ jobs:
               gh1 gh issue comment "$open" --repo "$GITHUB_REPOSITORY" --body "A re-run (attempt ${GITHUB_RUN_ATTEMPT}) of the night at $GITHUB_SHA was green: $RUN_URL. Not closing on a re-run; the next scheduled night decides." || true
               exit 0
             fi
-            for n in $(ghr gh issue list --repo "$GITHUB_REPOSITORY" --state open --label "$label" --json number -q '.[].number'); do
+            cards=$(ghr gh issue list --repo "$GITHUB_REPOSITORY" --state open --label "$label" --json number -q '.[].number') || cards="$open"
+            for n in $cards; do
               # The note once (a retried comment would post twice), then the close (safe to repeat).
               gh1 gh issue comment "$n" --repo "$GITHUB_REPOSITORY" --body "Green again at $GITHUB_SHA: $RUN_URL. Closing; the next red night opens a new card." || true
               ghr gh issue close "$n" --repo "$GITHUB_REPOSITORY"
@@ -184,17 +193,20 @@ jobs:
             # A red night with no open card MUST end with a card. A failed label lookup counts as
             # "not known"; a label that cannot be created means the card is filed without it.
             have=$(ghr gh label list --repo "$GITHUB_REPOSITORY" --search "$label" --json name -q '.[].name') || have=""
-            if ! printf '%s\n' "$have" | grep -qx "$label"; then
-              if gh label create "$label" --repo "$GITHUB_REPOSITORY" --color B60205 \
+            if ! grep -qx "$label" <<<"$have"; then
+              # --force succeeds whether or not the label exists, so a failed LOOKUP of an
+              # existing label cannot end in an unlabelled (never found, never closed) card.
+              if gh label create "$label" --repo "$GITHUB_REPOSITORY" --color B60205 --force \
                    --description "The nightly full browser-check run on main is not green (#2518)"; then have="$label"
               else echo "::warning::could not create the $label label; filing the card without it"; fi
             fi
-            labelled=(); printf '%s\n' "$have" | grep -qx "$label" && labelled=(--label "$label")
-            card_body="The nightly full page-layer run (browser-checks-full.yml, #2518) ended $RESULT on main at $GITHUB_SHA: $RUN_URL
+            labelled=(); grep -qx "$label" <<<"$have" && labelled=(--label "$label")
+            rerun_note=""; [ "${GITHUB_RUN_ATTEMPT:-1}" != 1 ] && rerun_note=" This card was filed by a RE-RUN (attempt ${GITHUB_RUN_ATTEMPT}) of an earlier night; main may be green since."
+            card_body="The nightly full page-layer run (browser-checks-full.yml, #2518) ended $RESULT on main at $GITHUB_SHA: $RUN_URL$rerun_note
 
           Red checks: $red
 
-          Decide per check: a product regression (fix it before the next cut), or runner noise (record it here, with its output, as part of the runner baseline). Each further night that is not green comments here and leads with the checks NEW since the last one. The first green scheduled night closes this card."
+          Decide per check: a product regression (fix it before the next cut), or runner noise (record it here, with its output, as part of the runner baseline). Each further night that is not green comments here and leads with the checks NEW since the last one. The first green scheduled night (a first attempt) closes this card. A check that is red EVERY night is never NEW, so a regression inside it adds no signal: fix it or record it as runner noise rather than reading past it."
             [ "${#labelled[@]}" -eq 0 ] && card_body="$card_body
 
           (Filed without the $label label, which could not be created: add it, or the next red night will not find this card.)"
@@ -208,7 +220,8 @@ jobs:
               if [ "${#labelled[@]}" -gt 0 ]; then
                 again=$(ghr gh issue list --repo "$GITHUB_REPOSITORY" --state open --label "$label" --json number -q '.[0].number') || again=""
               else
-                again=$(ghr gh issue list --repo "$GITHUB_REPOSITORY" --state open --search "in:title \"Nightly full browser-check run is not green on main\"" --json number -q '.[0].number') || again=""
+                # An exact title match over the open list, not GitHub search (whose index lags).
+                again=$(ghr gh issue list --repo "$GITHUB_REPOSITORY" --state open --json number,title -q 'map(select(.title == "Nightly full browser-check run is not green on main")) | .[0].number') || again=""
               fi
               [ "$again" = null ] && again=""
               if [ -z "$again" ]; then

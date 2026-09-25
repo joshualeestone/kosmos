@@ -173,6 +173,7 @@ if command -v ruby >/dev/null 2>&1; then
     abort "browser-checks-full.yml must never cancel a nightly run in progress (concurrency cancel-in-progress false), got #{(f["concurrency"] || {}).inspect}" unless (f["concurrency"] || {})["cancel-in-progress"] == false
     # The red-check list crosses jobs: collector step (id failed) -> job output "failed" ->
     # RED in the card step. A break anywhere turns every card into "(none captured)".
+    abort "browser-checks-full must detach HEAD before the checks (the cut runs from a detached, frozen tree; on a branch browser-checks.sh takes a re-exec path the cut never does)" unless fsteps.any? { |st| st["run"].to_s.strip == "git checkout --detach" }
     abort "no collector step with id failed" unless (fj["steps"] || []).any? { |st| st["id"] == "failed" && st["run"].to_s.include?("labels=") }
     abort "browser-checks-full must export steps.failed.outputs.labels as outputs.failed, got #{fj["outputs"].inspect}" unless (fj["outputs"] || {})["failed"].to_s.gsub(/\s+/, "") == "${{steps.failed.outputs.labels}}"
     abort "the card step must read RED from needs.browser-checks-full.outputs.failed" unless (cj["steps"] || []).any? { |st| (st["env"] || {})["RED"].to_s.gsub(/\s+/, "") == "${{needs.browser-checks-full.outputs.failed}}" }
@@ -325,7 +326,7 @@ if command -v ruby >/dev/null 2>&1; then
   out="$(VIEWBODY="$(cat "$BT/comment-body")" REDV="render-fields|render-thread|render-push-718" card failure 7)" || fail "comment round trip: second night failed: $out"
   newline="$(printf '%s\n' "$out" | sed -n 's/^NEW since the last red night: //p')"
   [ "$newline" = "render-push-718" ] || fail "comment round trip: reading back this job's own comment, NEW should be exactly render-push-718, got [$newline]: $out"
-  # Green closes only on a first attempt at main's current head, and closes EVERY open card.
+  # Green closes only on a first attempt, and closes EVERY open card.
   out="$(card success 7)" || fail "green close failed: $out"
   case "$out" in *"CALL close 7"*"CALL close 3"*) ;; *) fail "a green night did not close every open card: $out" ;; esac
   [ "$(printf '%s\n' "$out" | grep -c 'CALL comment 7')" -eq 1 ] || fail "the closing note was not posted exactly once on card 7: $out"
