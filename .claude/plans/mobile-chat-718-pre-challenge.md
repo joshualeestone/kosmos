@@ -2,77 +2,79 @@
 pre_challenge: true
 method: challenge-loop
 branch: mobile-chat-718
-diff_hash: 925370571b050ff189756bd314c75a62c4adb4ec253e126eb1e2d11a9d80594b
+diff_hash: a6a1c99e2cf9491477f372067cce19bc484f997a768cff4f9c67a571ceb5a6a5
 validation: passed
 subdir_audit: passed
-timestamp: 2026-09-25T04:47:21Z
+timestamp: 2026-09-25T06:05:02Z
 iterations: 4
 converged: true
 ---
 
 ## [CHALLENGE-LOOP] Summary
 
-This proof regenerates the one written at 04:08Z, after a rebase onto origin/main 4d4145e8
-(conflict in tools/browser-checks.sh's gated list only, both sides kept). The pre-rebase loop
-converged at iteration 4; this post-rebase loop ran 4 more iterations and converged at its round 4.
+Third proof for this branch, regenerated after a second rebase onto origin/main 293940f6 (conflict
+in tools/browser-checks.sh's gated list only, both sides kept). Earlier loops: the pre-rebase loop
+converged at iteration 4, the first post-rebase loop converged at its round 4. This loop ran 4 rounds
+and converged at round 4.
 
 **Iterations (this run):** 4
 **Converged:** Yes
-**Total findings (this run):** 5 WARNINGs, 0 BLOCKERs, 0 CONVENTIONs, 11 NITs
-**Fixed:** 5 WARNINGs | **Deferred:** 0 | **Asked (awaiting user):** 0
+**Total findings (this run):** 0 BLOCKERs, 4 WARNINGs, 1 CONVENTION, 7 NITs
+**Fixed:** 4 WARNINGs, 1 CONVENTION (partly: `att` token deferred) | **Deferred:** 1 | **Asked:** 0
 
-Final validation after the last commit: tools/run-tests.sh 8927 pass, 0 fail; subdir audit clean;
-render-dm-phone-718.js 176 PASS exit 0 (Chromium + WebKit). Origin column: BRANCH for every finding
-(fail-safe; the per-finding blame lookup was not run, so nothing was acted on as SELF).
+Validation on this exact head (75fe6711): tools/run-tests.sh 8931 pass, 0 fail (hash a6a1c99e2cf9,
+PASSED read from the log, machine free at the time); subdir audit clean; render-dm-phone-718.js
+176 PASS exit 0, Chromium + WebKit. Negative control on origin/main: 17 FAIL (bubbles off-row at
+every phone size and at 900, crushed cells at every phone size; 1280 green, as the plan now states).
+A 0.6.94 release held the machine from about 00:20 to 00:54 CDT; round 3 was read-only for that
+reason and every run above was made after the hold cleared. Origin column: BRANCH throughout.
 
 ### Per-Iteration Breakdown
 
 #### Iteration 1
 **Reviewer model:** opus
-**New findings:** 0 BLOCKERs, 1 WARNINGs, 0 CONVENTIONs, 4 NITs
+**New findings:** 0 BLOCKERs, 2 WARNINGs, 0 CONVENTIONs, 2 NITs
 **Self-generated:** 0 recorded (BRANCH fail-safe)
-- [WARNING] render-dm-phone-718.js — nothing checked the file name stays on one line; without the clamp every containment assertion stays green --> FIXED (8fd72108; control with the clamp removed: 10 FAIL)
-- [NIT] gutters follow viewport not column --> comment added (8fd72108); [NIT] null guard on a row with no body --> FIXED; [NIT] long-token cells; [NIT] dark arm adds no colour assertion --> noted, kept (page-error coverage)
+- [WARNING] web/index.html:5280 — the breakable, line-clamped file name was credited with the attachment fix, but the cap on the person's bubble does the work (check green without the name rule) --> FIXED (58a4209f: name rule removed; removing only the cap fails 9 arms)
+- [WARNING] render-dm-phone-718.js:118 — no assertion could fail on the name rule --> FIXED by removing the rule
+- [NIT] README "previews rendered" overclaim --> FIXED; [NIT] clamp note named the least common break --> moot
 
 #### Iteration 2
 **Reviewer model:** sonnet
-**New findings:** 0 BLOCKERs, 1 WARNINGs, 0 CONVENTIONs, 0 NITs
+**New findings:** 0 BLOCKERs, 0 WARNINGs, 1 CONVENTION, 1 NIT
 **Self-generated:** 0 recorded
-- [WARNING] render-dm-phone-718.js:1 — surface tokens `att` / `msg` do not match `.att-name` / `.msg-av` in the repo matcher --> FIXED (3d979189; verified with bc_surface_token_hits, bare `att` control does not hit)
+- [CONVENTION] render-dm-phone-718.js:1 — surface tokens omit `att` and `att-pic` --> FIXED for `att-pic` (f2214b4b); `att` DEFERRED: as a whole token it matches every JS variable named `att` (an earlier round flagged the same noise for `msg`); the coarse #1720 gate still covers edits
+- [NIT] duplicated 28/14 literals uncommented --> FIXED (note added, f2214b4b)
 
 #### Iteration 3
-**Reviewer model:** opus
-**New findings:** 0 BLOCKERs, 2 WARNINGs, 0 CONVENTIONs, 4 NITs
+**Reviewer model:** opus (read-only: release hold)
+**New findings:** 0 BLOCKERs, 2 WARNINGs, 0 CONVENTIONs, 3 NITs
 **Self-generated:** 0 recorded
-- [WARNING] render-dm-phone-718.js:45 — table fixture could not tell whether the overflow-wrap rule was present (headers' nowrap masked it) --> FIXED (7538a73f: an ID column of unbreakable tokens wider than its header; control with only that rule removed: 8 FAIL). The headers-nowrap rule was then shown to change nothing visible and was removed.
-- [WARNING] render-dm-phone-718.js:11 — card-in-bubble presented as guarding a defect it cannot fail on --> FIXED (documented as a companion invariant; the row assertion is the guard)
-- [NIT] th nowrap unexplained --> moot (rule removed); [NIT] plan's "desktop unchanged" --> FIXED (states the every-width table effect); [NIT] broad tokens --> FIXED (narrowed); [NIT] fixture order --> FIXED
+- [WARNING] render-dm-phone-718.js:123 — the 1280 fit-its-content assertion measured the agent's row, not the capped person's bubble --> FIXED (75fe6711: a short-named card on the person's row)
+- [WARNING] plan Audit 1 — "width-independent" overstated; the 78ch cap already binds at 1280 --> FIXED (reworded; negative control shows red at 900, green at 1280)
+- [NIT] preview slots counted, not measured --> FIXED (must sit inside the card; an image slot has no height over file://, stated); [NIT] hidden scrollbars in wide arms --> FIXED (shown in Chromium); [NIT] viewport widths vs mobile emulation --> stated in the header
 
 #### Iteration 4
 **Reviewer model:** sonnet
-**New findings:** 0 BLOCKERs, 0 WARNINGs, 0 CONVENTIONs, 2 NITs
+**New findings:** 0 BLOCKERs, 0 WARNINGs, 0 CONVENTIONs, 0 NITs
 **Self-generated:** 0
-**Converged** — no new actionable findings. README row nit fixed (adf45fbd). Bare `msg` token nit
-deliberately not taken: iteration 3 flagged it as matching 688 lines; the coarse #1720 gate covers it.
+**Converged** — "No issues found." The reviewer independently re-ran the check and three mutated
+copies (cap removed, table rule removed, gutter de-mirrored); each went red on its own assertion.
 
 ### Final Ledger (this run)
 
 | # | Iter | Category | File:Line | Origin | Description | Status | Resolution |
 |---|------|----------|-----------|--------|-------------|--------|------------|
-| 1 | 1 | WARNING | render-dm-phone-718.js | BRANCH | one-line clamp unguarded | FIXED | 8fd72108 |
-| 2 | 2 | WARNING | render-dm-phone-718.js:1 | BRANCH | surface tokens miss .att-name/.msg-av | FIXED | 3d979189 |
-| 3 | 3 | WARNING | render-dm-phone-718.js:45 | BRANCH | table fixture masks overflow-wrap removal | FIXED | 7538a73f |
-| 4 | 3 | WARNING | render-dm-phone-718.js:11 | BRANCH | card-in-bubble overclaimed | FIXED | 7538a73f |
+| 1 | 1 | WARNING | web/index.html:5280 | BRANCH | name rule credited, cap does the work | FIXED | 58a4209f |
+| 2 | 1 | WARNING | render-dm-phone-718.js:118 | BRANCH | no assertion guards the name rule | FIXED | 58a4209f |
+| 3 | 2 | CONVENTION | render-dm-phone-718.js:1 | BRANCH | surface tokens omit att / att-pic | FIXED (att-pic) / DEFERRED (att) | f2214b4b; `att` too broad |
+| 4 | 3 | WARNING | render-dm-phone-718.js:123 | BRANCH | desktop assertion aimed at the wrong row | FIXED | 75fe6711 |
+| 5 | 3 | WARNING | plan Audit 1 | BRANCH | width-independence overstated | FIXED | 75fe6711 |
 
-Pre-rebase run (same branch, converged at iteration 4): 1 BLOCKER (tail mask painting over the avatar
-at an 8px gap), 8 WARNINGs, 2 CONVENTIONs; all fixed except one CONVENTION deferred (colon in the
-first commit subject; history not rewritten, PR body accurate).
-
-### NITs (non-blocking)
-- Dark arm duplicates geometry; kept for page-error coverage (iteration 1)
-- Bare `msg` surface token not declared, by choice (iteration 4)
+### NITs
+- All NITs of this run addressed in 58a4209f, f2214b4b and 75fe6711 (see per-iteration notes)
 
 ### Strengths
-- Root cause fixed (unbreakable name set the bubble minimum width), width-independent, desktop look kept
-- Each fix has a control that turns its assertion red when that fix alone is removed
-- Everything scoped to #d-dmthread; rooms untouched; Kano coordinating one shared .att-name rule
+- The cap on the person's bubble fixes both the file-name and the wide-table overflow at the cause
+- Every credited rule has a control that turns its own assertion red when removed alone
+- Scoped to #d-dmthread; Kano measured the room independently and adopted the same cap there
