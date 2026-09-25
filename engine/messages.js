@@ -1076,7 +1076,7 @@ function _roomMembers(members) {
   return { members: members.filter((m) => !gone.has(clean(m))), ok: true };
 }
 
-function sendPost({ fromPane, sender: resolvedSender, project, projectName, text, operator, attachment, attachments, trailer, replyExpected }, roster, members) {
+function sendPost({ fromPane, sender: resolvedSender, project, projectName, text, operator, attachment, attachments, trailer, replyExpected, federated }, roster, members) {
   const at = new Date().toISOString();
   /* The OPERATOR path: no pane to derive (the post comes off the room's
      composer through the server, which is the operator's own surface),
@@ -1199,8 +1199,10 @@ function sendPost({ fromPane, sender: resolvedSender, project, projectName, text
    * ⚠️ THE OPERATOR'S OWN ARM KEEPS ITS REFUSAL, deliberately. A person posting
    * into a project with no agents on it is talking to nobody — there is no
    * second party at all, which is a different fact from having one.
+   * #3311: a FEDERATED project has a second party outside this Kosmos, whom
+   * the post reaches through the project's seat, so there it is not refused.
    */
-  if (operator === true && !recipients.length) {
+  if (operator === true && !recipients.length && federated !== true) {
     return refuse('nobody is on that project yet, so there is no room to post to');
   }
 

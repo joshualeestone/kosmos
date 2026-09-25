@@ -13861,8 +13861,10 @@ const server = http.createServer((req, res) => {
         const files = attachments.resolveForMessage(body, 'project', found.id, 'that attachment is not one this project can send');
         if (!files.ok) { sendJson(res, 400, { error: files.because }); return; }
         const fields = attachments.rowFields(files.recs);
+        let federated = false;
+        try { federated = !!federation.linkFor(found.id); } catch { federated = false; }
         const delivery = messages.sendPost({
-          operator: true, project: found.id, projectName: found.name, text: body.text,
+          operator: true, project: found.id, projectName: found.name, text: body.text, federated,
           attachment: fields.attachment || null, attachments: fields.attachments || null, trailer: attachments.wireNote(files.recs),
         }, roster, members);
         federateOut(found.id, delivery, body.text, true);
