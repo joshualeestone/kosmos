@@ -52775,10 +52775,12 @@ function tipVisible(sel) {
 async function tipsLoad() {
   try {
     const r = await (await fetch('/api/tips', { cache: 'no-store', signal: AbortSignal.timeout(10000) })).json();
-    /* Merged with anything saved while this read was out (a tip opened from the ? and closed), so a slow
-       answer cannot drop a newer close. */
-    const local = TIPS_STATE && TIPS_STATE.ok ? TIPS_STATE.seen : [];
-    TIPS_STATE = (r && r.ok === true && Array.isArray(r.seen)) ? { ok: true, seen: [...new Set([...local, ...r.seen])], off: r.off === true } : { ok: false, seen: [], off: true };
+    /* Merged with anything saved while this read was out (a tip opened from the ? and closed, or "Stop
+       showing tips"), so a slow answer cannot drop a newer close or turn tips back on. */
+    const had = TIPS_STATE && TIPS_STATE.ok ? TIPS_STATE : null;
+    TIPS_STATE = (r && r.ok === true && Array.isArray(r.seen))
+      ? { ok: true, seen: [...new Set([...(had ? had.seen : []), ...r.seen])], off: had ? had.off : r.off === true }
+      : { ok: false, seen: [], off: true };
     if (TIPS_STATE.ok && r.seen.includes('tour')) TIP_TOUR_SAVED = true;
   } catch { TIPS_STATE = { ok: false, seen: [], off: true }; }
 }

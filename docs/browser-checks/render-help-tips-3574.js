@@ -173,11 +173,11 @@ const resetStore = (state) => fs.writeFileSync(tipsStore.FILE(), JSON.stringify(
     chk(await page.waitForFunction(() => TIP_NEW_BOARD === false, null, { timeout: 8000 }).then(() => true, () => false), 'T27 precondition: tips off, and the board still decided it is not new');
     noAgents();
     const emptied27 = await page.waitForFunction(() => Array.isArray(LAST) && LAST.length === 0, null, { timeout: 8000 }).then(() => true, () => false);
-    await api('PUT', { off: false });
-    await page.evaluate(() => tipsLoad());
+    await page.evaluate(() => tipsSave({ off: false }));   // what the Settings switch does
+    const onNow = await page.evaluate(() => TIPS_STATE.ok && TIPS_STATE.off === false);
     await page.waitForTimeout(2800);
     const t27 = await cardState(page);
-    chk(emptied27 && !/ of /.test(t27.step), 'T27 tips turned on after the last agent went: still no tour', JSON.stringify({ emptied27, t27 }));
+    chk(emptied27 && onNow && !/ of /.test(t27.step), 'T27 tips turned on after the last agent went: still no tour', JSON.stringify({ emptied27, onNow, t27 }));
     withAgent();
     resetStore({ seen: ['tour', 'ring', 'agents'], off: false });
     await page.reload({ waitUntil: 'networkidle' });
