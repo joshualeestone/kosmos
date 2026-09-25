@@ -67,13 +67,22 @@ const waitFor = (page, fn, arg, ms = 6000) => page.waitForFunction(fn, arg, { ti
       route.fulfill({ response: r, json: j });
     });
     const sent = [];
+    let stopAnswer = null;   // null = the engine stops it; an object = the engine's answer as given
+    /* The engine's REAL answer shapes (origin/swarm-engine-3564): PUT and stop return { ok, swarm: settings }
+       where settings carry maxHelpers / dailyTokenLimit / active / pausedBecause but NOT activeHelpers,
+       tokensToday or helperTokenRatio; stop adds { stopped, because }. */
+    const settingsOf = (x) => ({ maxHelpers: x.maxHelpers, dailyTokenLimit: x.dailyTokenLimit, active: x.active, pausedBecause: x.pausedBecause });
     await page.route('**/api/agent/crew/swarm**', async (route) => {
       const q = route.request();
       const body = JSON.parse(q.postData() || '{}');
       sent.push({ method: q.method(), url: new URL(q.url()).pathname, body });
       if (q.method() === 'PUT') crewSwarm = { ...crewSwarm, ...body };
-      if (q.url().endsWith('/stop')) crewSwarm = { ...crewSwarm, active: false, pausedBecause: 'stopped' };
-      route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ ok: true, swarm: crewSwarm }) });
+      if (q.url().endsWith('/stop')) {
+        if (stopAnswer) return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(stopAnswer) });
+        crewSwarm = { ...crewSwarm, active: false, pausedBecause: 'stopped' };
+        return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ ok: true, stopped: true, because: null, swarm: settingsOf(crewSwarm) }) });
+      }
+      route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ ok: true, swarm: settingsOf(crewSwarm) }) });
     });
     let createBody = null;
     await page.route('**/api/agents', async (route) => {
@@ -96,7 +105,7 @@ const waitFor = (page, fn, arg, ms = 6000) => page.waitForFunction(fn, arg, { ti
 
     // S1: no engine. New agent offers no Swarm choice and no card is a cluster (control: S2).
     await boot();
-    await page.waitForTimeout(2600);
+    chk(await waitFor(page, () => LAST_AT > 0, null, 8000), 'S1 precondition: the board has answered at least once');
     await openForm();
     const s1 = await page.evaluate(() => ({ kind: document.getElementById('create-kind').hidden, clusters: document.querySelectorAll('.swc').length, flag: SWARMS_ON }));
     chk(s1.kind === true && s1.flag === false, 'S1 without the engine, New agent offers no Swarm choice', JSON.stringify(s1));
@@ -112,9 +121,9 @@ const waitFor = (page, fn, arg, ms = 6000) => page.waitForFunction(fn, arg, { ti
     await openForm();
     chk(await page.evaluate(() => !document.getElementById('create-kind').hidden && document.getElementById('create-swarm').hidden), 'S2 the Agent / Swarm choice shows, Agent first and chosen');
     await page.click('label.ctype-opt:has(input[value="swarm"])');
-    const s2 = await page.evaluate(() => ({ settings: !document.getElementById('create-swarm').hidden, prov: document.getElementById('create-provider').value,
-      provDisabled: document.getElementById('create-provider').disabled, go: document.getElementById('create-go').textContent, circles: document.querySelectorAll('#create-kind-swarm-face .swd').length }));
-    chk(s2.settings && s2.prov === 'anthropic' && s2.provDisabled && s2.go === 'Make this swarm' && s2.circles === 3, 'S2 Swarm shows its settings, holds Claude, and reads Make this swarm', JSON.stringify(s2));
+    const s2 = await page.evaluate(() => ({ settings: !document.getElementById('create-swarm').hidden, modelField: document.getElementById('create-model-field').hidden,
+      go: document.getElementById('create-go').textContent, circles: document.querySelectorAll('#create-kind-swarm-face .swd').length }));
+    chk(s2.settings && s2.modelField === true && s2.go === 'Make this swarm' && s2.circles === 3, 'S2 Swarm shows its settings, Runs on Claude in place of the model picker, and reads Make this swarm', JSON.stringify(s2));
     if (SHOTS) { fs.mkdirSync(SHOTS, { recursive: true }); await (await page.$('#cstep-name')).screenshot({ path: path.join(SHOTS, 'create.png') }); }
 
     // S3: the slider moves the value and the warning (helpers plus the lead); the limit shows unrounded.
@@ -129,14 +138,15 @@ const waitFor = (page, fn, arg, ms = 6000) => page.waitForFunction(fn, arg, { ti
     // S4: the create request carries the contract's fields (and no provider).
     await page.evaluate(() => document.getElementById('create-go').click());
     chk(await waitFor(page, () => true, null, 100) && await (async () => { for (let i = 0; i < 20 && !createBody; i++) await page.waitForTimeout(150); return !!createBody; })()
-      && createBody.kind === 'swarm' && createBody.maxHelpers === 7 && createBody.dailyTokenLimit === 9000000 && !('provider' in createBody),
+      && createBody.kind === 'swarm' && createBody.maxHelpers === 7 && createBody.dailyTokenLimit === 9000000 && !('provider' in createBody) && !('model' in createBody) && !('account' in createBody),
       'S4 Make this swarm sends kind, maxHelpers and dailyTokenLimit', JSON.stringify(createBody));
     // S4b CONTROL: back to Agent, the request carries none of them.
     createBody = null;
     await openForm();
     await page.evaluate(() => document.getElementById('create-go').click());
     for (let i = 0; i < 20 && !createBody; i++) await page.waitForTimeout(150);
-    chk(!!createBody && !('kind' in createBody) && !('maxHelpers' in createBody), 'S4b a plain Agent sends no swarm fields', JSON.stringify(createBody));
+    chk(!!createBody && !('kind' in createBody) && !('maxHelpers' in createBody) && await page.evaluate(() => document.getElementById('create-model-field').hidden === false),
+      'S4b a plain Agent sends no swarm fields and shows the model picker', JSON.stringify(createBody));
 
     // S5: the board card. The crew is its cluster (min(max, 7) circles, the badge working/most, the Swarm line);
     // Rex stays a plain face (the control).
@@ -178,15 +188,33 @@ const waitFor = (page, fn, arg, ms = 6000) => page.waitForFunction(fn, arg, { ti
     await page.fill('#d-swarm-max', '8');
     for (let i = 0; i < 20 && !find((q) => q.method === 'PUT' && q.body.maxHelpers === 8); i++) await page.waitForTimeout(100);
     chk(!!find((q) => q.method === 'PUT' && q.url === '/api/agent/crew/swarm' && q.body.maxHelpers === 8), 'S7 Most helpers sends PUT { maxHelpers: 8 }', JSON.stringify(sent));
+    // S11: the engine answers a change with its SETTINGS only; Today and the lit circles must not blank.
+    await page.waitForTimeout(300);
+    const s11 = await page.evaluate(() => ({ today: document.getElementById('d-swarm-today').textContent, lit: document.querySelectorAll('#d-swarm .swd.on').length }));
+    chk(s11.today === '2,461,380 tokens' && s11.lit === 3, 'S11 after a change, Today and the working circles keep today\'s numbers', JSON.stringify(s11));
+    // S13: the daily limit can be raised on the page (the create form's hint promises it).
+    await page.fill('#d-swarm-cap', '12');
+    for (let i = 0; i < 20 && !find((q) => q.body.dailyTokenLimit === 12000000); i++) await page.waitForTimeout(100);
+    chk(!!find((q) => q.method === 'PUT' && q.body.dailyTokenLimit === 12000000), 'S13 the page raises the daily limit: PUT { dailyTokenLimit: 12000000 }', JSON.stringify(sent.slice(-2)));
     await page.click('#d-swarm-stop');
     for (let i = 0; i < 20 && !find((q) => q.method === 'POST'); i++) await page.waitForTimeout(100);
     chk(!!find((q) => q.method === 'POST' && q.url === '/api/agent/crew/swarm/stop'), 'S7 Stop now sends POST /api/agent/crew/swarm/stop', JSON.stringify(sent));
+    // S12: Paused stops NEW helpers only, so Stop now stays usable while one is still working.
+    crewSwarm = { ...crewSwarm, active: false, pausedBecause: 'person', activeHelpers: 2 };
+    chk(await waitFor(page, () => document.querySelector('input[name="d-swarm-active"][value="off"]').checked && !document.getElementById('d-swarm-stop').disabled, null, 8000),
+      'S12 paused with helpers still working, Stop now is still there to press');
+    // S14: a stop that did not take says the engine's reason, not "Stopped".
+    stopAnswer = { ok: true, stopped: false, because: 'we could not reach the lead just now' };
+    await page.click('#d-swarm-stop');
+    chk(await waitFor(page, () => /could not reach the lead/i.test(document.getElementById('d-swarm-msg').textContent)), 'S14 a stop that did not take says why, never Stopped', await page.evaluate(() => document.getElementById('d-swarm-msg').textContent));
+    stopAnswer = null;
+    crewSwarm = { ...crewSwarm, active: true, pausedBecause: null, activeHelpers: 3 };
 
     // S8: a swarm paused at its limit says why and cannot be stopped again (from the board's own answer).
-    crewSwarm = { ...crewSwarm, active: false, pausedBecause: 'limit' };
+    crewSwarm = { ...crewSwarm, active: false, pausedBecause: 'limit', activeHelpers: 0 };   // the engine interrupts the lead at the limit, ending its helpers
     chk(await waitFor(page, () => /today's limit/.test(document.getElementById('d-swarm-why').textContent) && document.getElementById('d-swarm-stop').disabled
       && document.querySelector('input[name="d-swarm-active"][value="off"]').checked, null, 8000), 'S8 paused at the limit: says so, shows Paused, Stop now is off');
-    crewSwarm = { ...crewSwarm, active: true, pausedBecause: null };
+    crewSwarm = { ...crewSwarm, active: true, pausedBecause: null, activeHelpers: 3 };
 
     // S9: a project's Members: the swarm has its cluster and an On / Off; Off sends the contract's PUT.
     await page.route('**/api/project/pj1/swarm/crew', async (route) => { sent.push({ method: route.request().method(), url: new URL(route.request().url()).pathname, body: JSON.parse(route.request().postData() || '{}') }); route.fulfill({ status: 200, contentType: 'application/json', body: '{"ok":true}' }); });
@@ -207,6 +235,16 @@ const waitFor = (page, fn, arg, ms = 6000) => page.waitForFunction(fn, arg, { ti
     chk(last && last.method === 'PUT' && last.url === '/api/project/pj1/swarm/crew' && last.body.on === false
       && await page.evaluate(() => document.querySelector('#pj-one-agents [data-agent="crew"] .swmini [data-swarm-on="0"]').getAttribute('aria-pressed') === 'true'),
       'S9 Off sends PUT /api/project/pj1/swarm/crew { on: false } and shows Off', JSON.stringify(last));
+
+    // S15: dark. The cluster, the badge and the panel draw in the dark theme too.
+    await page.emulateMedia({ colorScheme: 'dark' });
+    await page.evaluate(() => { showTab('agents'); });
+    await page.waitForTimeout(1700);
+    const s15 = await page.evaluate(() => ({ dark: matchMedia('(prefers-color-scheme: dark)').matches, clusters: document.querySelectorAll('#grid clipPath[id^="swc-"]').length,
+      badge: getComputedStyle(document.querySelector('#grid [data-agent="crew"] .agauge rect')).fill }));
+    chk(s15.dark && s15.clusters >= 5 && s15.badge && s15.badge !== 'none', 'S15 in dark the swarm card still draws its cluster and badge', JSON.stringify(s15));
+    if (SHOTS) await (await page.$('#grid')).screenshot({ path: path.join(SHOTS, 'board-dark.png') });
+    await page.emulateMedia({ colorScheme: 'light' });
 
     chk(errs.length === 0, 'S10 no page errors', errs.join(' | '));
   } finally {

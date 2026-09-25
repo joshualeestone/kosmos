@@ -1564,6 +1564,8 @@ button.uprime:hover, .btn.uprime:hover, .utoast .uacts button.uprime:hover,
 .swmini button { border: 0; background: none; padding: 3px 9px; font: 600 12px var(--font-ui); color: var(--label-2); cursor: pointer; }
 .swmini button + button { border-left: 0.5px solid var(--separator); }
 .swmini button[aria-pressed="true"] { background: var(--gold-bright); color: #14161a; }
+.swmini-msg { flex-basis: 100%; font-size: .75rem; color: var(--danger); }
+.swmini-msg:empty { display: none; }
 .swmini button:focus-visible { outline: 2px solid var(--label); outline-offset: -2px; }
 .swfixed { font-size: .9375rem; }
 .swfixed span { color: var(--k-ink-2); font-size: .8125rem; margin-left: 6px; }
@@ -9159,6 +9161,8 @@ window.kosmosMeasureScrollbarWidth();
           <div class="swbar" aria-hidden="true"><i id="d-swarm-bar"></i></div>
           <div class="swnums"><span id="d-swarm-today"></span><span id="d-swarm-limit"></span></div>
           <p class="dhint">Pauses itself at the limit and tells you. Resets at midnight.</p>
+          <label class="swlab" for="d-swarm-cap" style="margin-top:8px">Daily limit</label>
+          <div class="swrow"><input type="range" id="d-swarm-cap" min="1" max="20" step="1"><span class="swval" id="d-swarm-cap-v"></span></div>
         </div>
         <p class="fmsg" id="d-swarm-msg" role="status" aria-live="polite"></p>
       </section>
@@ -18272,7 +18276,10 @@ async function tick() {
     // tips are doing then (off, a dialog, first run); see tipAutoOk.
     if (TIP_NEW_BOARD === null && Array.isArray(data.agents)) TIP_NEW_BOARD = data.agents.length === 0;
     // #3564: whether the board's engine can make and run a swarm (the flag asked of the engine on #3564).
-    SWARMS_ON = data.swarms === true;
+    /* The flag when the engine sends it; until then the engine's own sign, a `swarm` key on the rows (null for an
+       ordinary agent, present only when the engine is in). An empty board shows neither, so New agent offers
+       Swarm once the flag lands (asked of the engine on #3564). */
+    SWARMS_ON = data.swarms === true || (Array.isArray(data.agents) && data.agents.some((x) => x && Object.prototype.hasOwnProperty.call(x, 'swarm')));
     swarmCreatePaint();
     /**
      * 🛑 THE ROOM'S WORKING LINE PAINTS HERE, ON THE CLOCK ITS DATA ARRIVES ON.
@@ -38252,10 +38259,12 @@ function swarmStatusWords(a) {
 }
 /* The swarm's page (the mock, section 3): Active / Paused, Stop now, Most helpers, and Today. Painted from the
    status row every poll; a control the person is using is not repainted under them. */
+var SWARM_ROW = null;   // the open swarm's latest status row, so a change or a slider reads today's numbers
 function swarmPagePaint(a) {
   const panel = document.getElementById('d-swarm-panel');
   if (!panel) return;
   const sw = a && a.swarm && SWARMS_ON ? a.swarm : null;
+  SWARM_ROW = sw ? a : null;
   panel.hidden = !sw;
   if (!sw) return;
   renderAvatarSwarmOnly(a);
@@ -38267,7 +38276,8 @@ function swarmPagePaint(a) {
     : sw.pausedBecause === 'stopped' ? 'Stopped. Switch it back to Active when you want it working again.'
     : 'Paused. It starts no new helpers until you switch it back to Active.';
   why.textContent = words; why.hidden = !words;
-  document.getElementById('d-swarm-stop').disabled = !on;
+  /* Paused stops NEW helpers, not running ones (the contract), so Stop now stays while any helper works. */
+  document.getElementById('d-swarm-stop').disabled = !on && !(Number(sw.activeHelpers) > 0);
   const max = Math.max(2, Math.min(10, Number(sw.maxHelpers) || 3));
   const range = document.getElementById('d-swarm-max');
   if (document.activeElement !== range && !SWARM_BUSY) range.value = String(max);
@@ -38278,6 +38288,9 @@ function swarmPagePaint(a) {
   document.getElementById('d-swarm-bar').style.width = (cap ? Math.min(100, used / cap * 100) : 0).toFixed(1) + '%';
   document.getElementById('d-swarm-today').textContent = used.toLocaleString('en-US') + ' tokens';
   document.getElementById('d-swarm-limit').textContent = cap ? 'of ' + cap.toLocaleString('en-US') + ' limit' : 'no limit set';
+  const capR = document.getElementById('d-swarm-cap');
+  if (document.activeElement !== capR && !SWARM_BUSY) capR.value = String(Math.max(1, Math.min(20, Math.round(cap / 1000000) || 1)));
+  document.getElementById('d-swarm-cap-v').textContent = (Number(capR.value) * 1000000).toLocaleString('en-US');
 }
 /* The page's cluster, repainted with the panel so the lit circles follow the helpers. */
 function renderAvatarSwarmOnly(a) {
@@ -38296,11 +38309,13 @@ async function swarmSend(url, method, body, doneWords) {
     const r = await fetch(url, { method, headers: { 'content-type': 'application/json' }, body: JSON.stringify(body || {}) });
     const b = await r.json().catch(() => null);
     if (!r.ok || (b && b.ok === false)) { msg.textContent = pjSentence((b && (b.because || b.error)) || 'we could not change that just now'); return false; }
-    if (b && b.swarm && CURRENT) { CURRENT.swarm = b.swarm; }
-    msg.textContent = doneWords || '';
+    /* The engine answers with the SETTINGS only (no helpers or tokens): merged into the live row, never
+       swapped in, or Today and the circles would blank until the next poll. */
+    if (b && b.swarm && SWARM_ROW) SWARM_ROW = { ...SWARM_ROW, swarm: { ...SWARM_ROW.swarm, ...b.swarm } };
+    msg.textContent = typeof doneWords === 'function' ? doneWords(b) : (doneWords || '');
     return true;
   } catch { msg.textContent = pjSentence('we could not reach Kosmos just now'); return false; }
-  finally { SWARM_BUSY = false; if (CURRENT) swarmPagePaint(CURRENT); }
+  finally { SWARM_BUSY = false; if (SWARM_ROW) swarmPagePaint(SWARM_ROW); }
 }
 document.addEventListener('change', async (e) => {
   const t = e.target;
@@ -38308,17 +38323,27 @@ document.addEventListener('change', async (e) => {
   const base = '/api/agent/' + encodeURIComponent(CURRENT.sessionName) + '/swarm';
   if (t.name === 'd-swarm-active') await swarmSend(base, 'PUT', { active: t.value === 'on' });
   if (t.id === 'd-swarm-max') await swarmSend(base, 'PUT', { maxHelpers: Number(t.value) });
+  if (t.id === 'd-swarm-cap') await swarmSend(base, 'PUT', { dailyTokenLimit: Number(t.value) * 1000000 });
 });
 document.addEventListener('input', (e) => {
+  if (e.target && e.target.id === 'd-swarm-cap') document.getElementById('d-swarm-cap-v').textContent = (Number(e.target.value) * 1000000).toLocaleString('en-US');
   if (e.target && e.target.id === 'd-swarm-max' && CURRENT) {
     document.getElementById('d-swarm-max-v').textContent = e.target.value;
-    document.getElementById('d-swarm-warn').innerHTML = swarmWarnWords(Number(e.target.value), CURRENT.swarm ? Number(CURRENT.swarm.helperTokenRatio) : null);
+    document.getElementById('d-swarm-warn').innerHTML = swarmWarnWords(Number(e.target.value), SWARM_ROW && SWARM_ROW.swarm ? Number(SWARM_ROW.swarm.helperTokenRatio) : null);
   }
 });
 document.addEventListener('click', async (e) => {
   if (!e.target || !e.target.closest || !e.target.closest('#d-swarm-stop') || !CURRENT) return;
-  await swarmSend('/api/agent/' + encodeURIComponent(CURRENT.sessionName) + '/swarm/stop', 'POST', {}, 'Stopped. Every helper has been told to stop.');
+  await swarmSend('/api/agent/' + encodeURIComponent(CURRENT.sessionName) + '/swarm/stop', 'POST', {},
+    (b) => (b && b.stopped === false ? pjSentence(b.because || 'we could not stop it just now') : 'Stopped. Every helper has been told to stop.'));
 });
+function swminiSay(group, words) {
+  const row = group.closest('.pj-member');
+  if (!row) return;
+  let m = row.querySelector('.swmini-msg');
+  if (!m) { m = document.createElement('small'); m.className = 'swmini-msg'; m.setAttribute('role', 'status'); row.appendChild(m); }
+  m.textContent = words;
+}
 /* A project's Members: switch a swarm on or off in this project (the contract's PUT /api/project/<id>/swarm/<name>).
    Off keeps it a member; that project's messages do not wake it. */
 document.addEventListener('click', async (e) => {
@@ -38339,8 +38364,9 @@ document.addEventListener('click', async (e) => {
         pj.swarmOff = [...offs];
       }
       group.querySelectorAll('button').forEach((x) => x.setAttribute('aria-pressed', String((x.dataset.swarmOn === '1') === on)));
-    }
-  } catch { /* the next poll shows the board's own answer */ }
+      swminiSay(group, '');
+    } else swminiSay(group, pjSentence((body && (body.because || body.error)) || 'we could not change that just now'));
+  } catch { swminiSay(group, pjSentence('we could not reach Kosmos just now')); }
   finally { group.querySelectorAll('button').forEach((x) => { x.disabled = false; }); }
 });
 function createKind() {
@@ -38372,12 +38398,10 @@ function swarmCreatePaint() {
   const html = swarmCluster(stand, 44);
   if (f.innerHTML !== html) f.innerHTML = html;
   document.getElementById('create-kind-agent-face').textContent = initials(name);
-  /* Claude only for now: the provider picker is set to Claude and held there while Swarm is chosen. */
-  const prov = document.getElementById('create-provider');
-  if (prov) {
-    if (swarm && prov.value !== 'anthropic' && [...prov.options].some((o) => o.value === 'anthropic' && !o.disabled)) { prov.value = 'anthropic'; prov.dispatchEvent(new Event('change')); }
-    prov.disabled = swarm;
-  }
+  /* Claude only for now: the mock shows "Runs on Claude" in place of the model picker, so the whole model field
+     steps aside for a swarm (the engine gives it Claude's default; the model can be changed on its page later). */
+  const mf = document.getElementById('create-model-field');
+  if (mf) mf.hidden = swarm;
   const go = document.getElementById('create-go');
   if (go && go.dataset.swarmWas === undefined) go.dataset.swarmWas = go.textContent;
   if (go) go.textContent = swarm ? 'Make this swarm' : go.dataset.swarmWas;
@@ -39679,14 +39703,6 @@ document.getElementById('create-go').addEventListener('click', async () => {
            sending them would turn every OpenAI creation into a refusal. */
         const prov = document.getElementById('create-provider').value;
         if (prov && prov !== 'anthropic') b.provider = prov;
-        /* #3564: a swarm travels as kind + its two settings (the contract on #3564); it is Claude-only, so no
-           provider is sent (anthropic is the default). */
-        if (createKind() === 'swarm') {
-          b.kind = 'swarm';
-          b.maxHelpers = Number(document.getElementById('create-swarm-max').value);
-          b.dailyTokenLimit = Number(document.getElementById('create-swarm-cap').value) * 1000000;
-          delete b.provider;
-        }
         const model = document.getElementById('create-model').value;
         /* #2140: send the chosen model for EITHER provider. For OpenAI the picker's
            empty value is "Let OpenAI choose" (auto), which is falsy and so is not
@@ -39717,6 +39733,14 @@ document.getElementById('create-go').addEventListener('click', async () => {
            ping unless notifyCreated is explicitly false. */
         b.notifyCreated = document.getElementById('create-tell').checked;
         if (CREATE_PROJECTS.length) b.projects = CREATE_PROJECTS;
+        /* #3564: a swarm travels as kind + its two settings (the contract on #3564); it is Claude-only, so no
+           provider is sent (anthropic is the default). */
+        if (createKind() === 'swarm') {
+          b.kind = 'swarm';
+          b.maxHelpers = Number(document.getElementById('create-swarm-max').value);
+          b.dailyTokenLimit = Number(document.getElementById('create-swarm-cap').value) * 1000000;
+          delete b.provider; delete b.model; delete b.account;   // Claude's default; the picker is not shown
+        }
         return b;
       })()),
     });
@@ -40782,7 +40806,7 @@ function pjMember(m, suppressTold, withMinus, hideState) {
   if (swRow && hideState && PJ_CURRENT) {
     const pj = Array.isArray(PROJECTS) ? PROJECTS.find((x) => x && x.id === PJ_CURRENT) : null;
     const off = !!(pj && Array.isArray(pj.swarmOff) && pj.swarmOff.includes(m.sessionName));
-    swToggle = '<span class="swmini" role="group" aria-label="' + esc(m.name + ' in this project') + '">'
+    swToggle = '<span class="swmini" role="group" aria-label="' + esc(m.name + ' in this project') + '" title="Off on a project stops it picking up that project\'s work; it stays on your other projects.">'
       + '<button type="button" data-swarm-on="1" data-agent-name="' + esc(m.sessionName) + '" aria-pressed="' + (!off) + '">On</button>'
       + '<button type="button" data-swarm-on="0" data-agent-name="' + esc(m.sessionName) + '" aria-pressed="' + off + '">Off</button></span>';
   }
