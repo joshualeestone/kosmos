@@ -5800,14 +5800,13 @@ body:not(.consolidated) .pjmidhead:has(.pjhead) .tsearch:focus-within { flex-bas
      avatar column), now 28px + 14px.
    - Reaction pills are thumb height; the add-reaction bar is reachable by touch (below).
    - The placeholder stays on one line instead of spilling a clipped second line. */
-/* A file's name is one unbreakable line (.att-name is nowrap), so a long name became the
-   bubble's MINIMUM width: on the person's own right-aligned post a 120-character name made
-   a 544px card that hung 330px off the left edge at 375 (measured; the thread box clipped
-   it, so the page did not scroll). The Direct Message has the same bubble and the same bug,
-   so this is ONE rule for both (.msg-b is the bubble column in the room and the DM): the
-   name wraps like text but still shows one line with an ellipsis. Every width. */
-.msg-b .att-name { white-space: normal; overflow-wrap: anywhere;
-  display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 1; line-clamp: 1; }
+/* The person's own bubble is content-sized in a right-aligned column, so anything wide inside
+   it set its width: a 120-character file name (one nowrap line) made a 544px card that hung
+   330px off the left edge at 375 (measured; the thread box clipped it, so the page did not
+   scroll). Capping the bubble at its row fixes the cause, and the name keeps its one-line
+   ellipsis. Scorpion measured the same fix on the Direct Message (his #3687, scoped to
+   #d-dmthread); this is the room's. At desktop widths 78ch still binds first, unchanged. */
+#pj-room .msg.you .msg-bd { max-width: min(78ch, 100%); }
 @media (max-width: 30rem) {
   .pjcol.pjmid { padding: 12px 8px 8px; }
   #pj-room.thread { padding: 12px 6px; gap: 12px; }
