@@ -3199,6 +3199,12 @@ details.tsk-fold summary { cursor: pointer; color: var(--k-ink-2); font-size: .8
   background: var(--k-surface); color: var(--k-ink); cursor: pointer; }
 .tsk-bulk button.tsk-pri { background: var(--gold-bright); border-color: var(--gold-bright); color: #14161a; }
 #panel-tasks :is(button, select, input):focus-visible { outline: 2px solid var(--k-ink); outline-offset: 2px; }
+/* #3559: relocated into the consolidated display column: its own rail folds to the dropdown. */
+html[data-layout="consolidated"] body.consolidated #panel-projects > #panel-tasks { grid-column: 2; grid-row: 1; margin: 0; width: 100%;
+  padding: var(--space-8) var(--space-8) 0 var(--space-8); min-height: 0; overflow-y: auto; }
+html[data-layout="consolidated"] body.consolidated #panel-projects > #panel-tasks .tsk-view { grid-template-columns: 1fr; }
+html[data-layout="consolidated"] body.consolidated #panel-projects > #panel-tasks .tsk-rail { display: none; }
+html[data-layout="consolidated"] body.consolidated #panel-projects > #panel-tasks .tsk-projsel { display: inline-block; }
 /* The consolidated projects rail's way into Tasks (the tab bar is hidden there). */
 .rail-tasks { border: 1px solid var(--k-rule); background: var(--k-surface); color: var(--k-ink-2); font: 600 .75rem var(--font-ui);
   padding: 2px 8px; border-radius: 999px; cursor: pointer; margin-left: 8px; }
@@ -12470,7 +12476,8 @@ window.kosmosMeasureScrollbarWidth();
     <div class="railhead" id="rail-projects" hidden>
       <!-- #3559: the consolidated view hides the tab bar (it is one screen), so its way into
            Tasks lives here, beside the "Projects" name it lists tasks from (the + stays alone at
-           the far right). It opens the Tasks page, a whole page in both views, like Settings. -->
+           the far right). It opens Tasks INSIDE the display column (openConsolidatedTasks), the
+           way the user menu opens Settings there (#2842), never out to the tab view. -->
       <span class="lead"><span class="railname">Projects</span><button class="rail-tasks" type="button" id="rail-projects-tasks" title="Every task across your projects">Tasks</button></span>
       <span class="railacts">
         <button class="fold plus" type="button" id="rail-projects-new" aria-label="Add Project" title="Add Project">+</button>
@@ -19182,6 +19189,8 @@ function showTab(tab) {
   // #3053: same relocation for the New Agent create panel, so it opens in the consolidated
   // display column and is restored to the top level in the tab view. Same chokepoint + `cons`.
   placeCreatePanel(cons);
+  // #3559: the Tasks view's consolidated home, same chokepoint and flag.
+  placeTasksPanel(cons);
   // #3052: the consolidated projects panel has its own view (the list), independent of the
   // Projects tab's saved grid/list/map choice. Force the list for display in the consolidated
   // view and restore the saved layout on the way out. Same chokepoint + `cons`/`wasCons` flags,
@@ -34061,7 +34070,7 @@ function takeOverDisplayColumn() {
   }
   document.getElementById('pj-list-view').hidden = false;   // keep the projects column beside it
   // Hide the other relocated takeover overlays so the column holds one at a time.
-  for (const id of ['panel-settings', 'panel-create']) {
+  for (const id of ['panel-settings', 'panel-create', 'panel-tasks']) {
     const p = document.getElementById(id);
     if (p && p.parentElement === projects) p.hidden = true;
   }
@@ -34102,6 +34111,34 @@ function openConsolidatedSettings() {
    instead of kicking back to the tab view. placeCreatePanel mirrors placeAppSettings (relocate
    #panel-create into #panel-projects, restore it in the tab view); openConsolidatedCreate mirrors
    openConsolidatedSettings (show it in place). */
+/* #3559: the Tasks view in the consolidated display column, the same relocation as app settings
+   (#2842) and create (#3053): the consolidated view is one screen, so its Tasks button must not
+   kick the person out to the tab view. In the column the view's own project rail folds to its
+   dropdown (the consolidated projects rail is right beside it). The tab view shows Tasks as its
+   own page. Transient like consolidated settings: a reload restores the project view. */
+let TASKS_PANEL_HOME = null;
+function placeTasksPanel(consolidated) {
+  const panel = document.getElementById('panel-tasks');
+  const projects = document.getElementById('panel-projects');
+  if (!panel || !projects) return;
+  if (consolidated) {
+    if (panel.parentElement !== projects) {
+      if (!TASKS_PANEL_HOME) TASKS_PANEL_HOME = { parent: panel.parentElement, next: panel.nextElementSibling };
+      panel.hidden = true;   // relocated but not shown until openConsolidatedTasks()
+      projects.appendChild(panel);
+    }
+  } else if (TASKS_PANEL_HOME && panel.parentElement === projects) {
+    TASKS_PANEL_HOME.parent.insertBefore(panel, TASKS_PANEL_HOME.next);
+  }
+}
+function openConsolidatedTasks() {
+  // Same guard as openConsolidatedSettings: only correct while the consolidated class is on.
+  if (!document.body.classList.contains('consolidated')) { showTab('tasks'); return; }
+  placeTasksPanel(true);
+  takeOverDisplayColumn();
+  document.getElementById('panel-tasks').hidden = false;
+  tskLoad();
+}
 let CREATE_PANEL_HOME = null;
 function placeCreatePanel(consolidated) {
   const panel = document.getElementById('panel-create');
@@ -34235,7 +34272,13 @@ function paintPjNone(which) {
     const pp = document.getElementById('panel-projects');
     return !!(pc && pp && pc.parentElement === pp && !pc.hidden);
   })();
-  const show = document.body.classList.contains('consolidated') && view === 'list' && !appSettingsOpen && !appCreateOpen;
+  /* #3559: the relocated Tasks view takes over the column the same way. */
+  const appTasksOpen = (() => {
+    const pt = document.getElementById('panel-tasks');
+    const pp = document.getElementById('panel-projects');
+    return !!(pt && pp && pt.parentElement === pp && !pt.hidden);
+  })();
+  const show = document.body.classList.contains('consolidated') && view === 'list' && !appSettingsOpen && !appCreateOpen && !appTasksOpen;
   el.hidden = !show;
   if (!show) return;
   /* A failed read leaves the rail saying it cannot look, and this sentence
@@ -40538,6 +40581,9 @@ function pjView(which) {
        projects display without dropping the consolidated layout). */
     const appC = document.getElementById('panel-create');
     if (appC && proj && appC.parentElement === proj) appC.hidden = true;
+    /* #3559: and the relocated Tasks view, so opening a project from the rail replaces it. */
+    const appT = document.getElementById('panel-tasks');
+    if (appT && proj && appT.parentElement === proj) appT.hidden = true;
   }
   syncPlusChrome();   // #3599: leaving consolidated settings on Kosmos+ takes the blue down
   paintPjNone(which);
@@ -42179,20 +42225,6 @@ document.getElementById('alltasks-back').addEventListener('click', () => {
   pjView(PJ_CURRENT ? 'one' : 'list');
 });
 
-/**
- * Every task on the current project, open and finished (#2498 scoped it from
- * the old every-project set to the project this door was opened from).
- *
- * 🛑 AN UNREADABLE ANSWER IS SAID OUT LOUD, NEVER SHOWN AS AN EMPTY LIST. "No
- * tasks yet" is a claim about somebody's own work; the route refuses to serve
- * it when it could not read, and this screen must not invent it either.
- *
- * 🔑 ONE ARRAY. The heading's count and the rows below it are the same `rows`,
- * so they cannot disagree. #1346 as a construction rather than a rule to
- * remember: that screen said "3 agents" over three rows and "6" underneath,
- * because one number came from the data and the other from a document-wide DOM
- * query.
- */
 /* ---- #3559: the Tasks view ------------------------------------------------------------
    Every task on every project, grouped by WHERE THE WORK IS. The engine derives each task's
    `state` (tasks.taskState, from the same claim the project card shows); this code renders it
@@ -42210,7 +42242,8 @@ const TSK_GROUPS = [
 ];
 const TSK_WINDOWS = [['24h', 1], ['48h', 2], ['1 week', 7], ['1 month', 30], ['All', 0]];
 const TSK_BYS = [['status', 'Status'], ['project', 'Project']];
-const TSK = { data: null, error: null, proj: null, q: '', win: 0, by: 'status', sort: 'new', tile: null, sel: new Set(), gen: 0, busy: false, names: '' };
+const TSK = { data: null, error: null, proj: null, q: '', win: 0, by: 'status', sort: 'new', tile: null, sel: new Set(), gen: 0, busy: false, names: '', closedOpen: false };
+TSK_READY = true;
 const tskKey = (t) => String(t.projectId) + '#' + Number(t.number);
 /* The name the board prints for an agent (its roster card's `name`; a card has no `displayName`
    field -- test-support/fleet refuses the read), falling back to the
@@ -42221,15 +42254,15 @@ function tskAgentName(sessionName) {
   return String((a && a.name) || sessionName || '');
 }
 /* Called from the board poll's LAST assignment, which sits far ABOVE `const TSK` in this script:
-   a function declaration is hoisted, and the try covers the one ordering (a poll landing before
-   the script finished) in which TSK would still be uninitialised. */
+   a function declaration is hoisted, and TSK_READY (a hoisted var) covers the one ordering (a poll
+   landing before the script finished) in which TSK would still be uninitialised. */
+var TSK_READY;   // hoisted (undefined) until `const TSK` below has run
 function tskRosterChanged() {
-  try {
-    if (TSK.data && !document.getElementById('panel-tasks').hidden && tskNamesSig() !== TSK.names) tskPaint();
-  } catch { /* the Tasks view is not ready yet; its own load paints with the roster it finds */ }
+  if (!TSK_READY) return;   // the Tasks view is not set up yet; its own load paints with the roster it finds
+  if (TSK.data && !document.getElementById('panel-tasks').hidden && tskNamesSig() !== TSK.names) tskPaint();
 }
 function tskNamesSig() {
-  return (Array.isArray(LAST) ? LAST : []).map((a) => a && (a.sessionName + '=' + (a.name || ''))).join('|');
+  return (Array.isArray(LAST) ? LAST : []).map((a) => a && (a.sessionName + '=' + (a.name || ''))).sort().join('|');
 }
 /* Pure (the tests lift these): does a task fall in the Added-in window, match the search, and in
    what order. `now` is passed in so a test pins it. */
@@ -42276,7 +42309,7 @@ async function tskLoad() {
   const mine = ++TSK.gen;
   const msg = document.getElementById('tsk-msg');
   try {
-    const r = await fetch('/api/tasks', { cache: 'no-store' });
+    const r = await fetch('/api/tasks?view=tasks', { cache: 'no-store' });
     const body = await r.json().catch(() => ({}));
     if (mine !== TSK.gen) return;
     if (!r.ok || !Array.isArray(body.tasks)) {
@@ -42284,6 +42317,8 @@ async function tskLoad() {
          would be a claim about somebody's work that we did not make. */
       TSK.error = String(body.error || 'we could not read your tasks just now');
     } else {
+      /* A good read clears the error a failed one left, and only that (a "Closed N" line stays). */
+      if (TSK.error && msg) msg.textContent = '';
       TSK.error = null;
       TSK.data = body.tasks;
       /* A ticked task that has since closed or gone cannot stay ticked. */
@@ -42344,8 +42379,8 @@ function tskPaint() {
   /* The rail, and its narrow-window twin. */
   const rail = document.getElementById('tsk-projects');
   if (rail) {
-    rail.innerHTML = '<button type="button" class="tsk-ritem' + (TSK.proj ? '' : ' on') + '" data-proj=""><span class="nm">All tasks</span><span class="ct">' + openAll + '</span></button>'
-      + projectsList.map((p) => '<button type="button" class="tsk-ritem' + (TSK.proj === p.id ? ' on' : '') + '" data-proj="' + esc(p.id) + '"><span class="nm">' + esc(p.name) + '</span><span class="ct">' + p.open + '</span></button>').join('');
+    rail.innerHTML = '<button type="button" class="tsk-ritem' + (TSK.proj ? '' : ' on') + '" aria-pressed="' + !TSK.proj + '" data-proj=""><span class="nm">All tasks</span><span class="ct">' + openAll + '</span></button>'
+      + projectsList.map((p) => '<button type="button" class="tsk-ritem' + (TSK.proj === p.id ? ' on' : '') + '" aria-pressed="' + (TSK.proj === p.id) + '" data-proj="' + esc(p.id) + '"><span class="nm">' + esc(p.name) + '</span><span class="ct">' + p.open + '</span></button>').join('');
   }
   const sel = document.getElementById('tsk-projsel');
   if (sel) {
@@ -42388,11 +42423,15 @@ function tskPaint() {
       const head = '<h3><span class="tsk-dot" style="--tsk-c:' + g.c + '"></span>' + esc(g.l) + '<span class="count">' + ts.length + '</span></h3><p class="why">' + esc(g.why) + '</p>';
       /* Closed is folded unless its tile was picked: finished work is reachable, not in the way. */
       if (g.k === 'closed' && TSK.tile !== 'closed') {
-        return '<section class="tsk-grp" style="--tsk-c:' + g.c + '"><details class="tsk-fold"><summary>' + esc(g.l) + ' (' + ts.length + ')</summary>' + tskList(ts) + '</details></section>';
+        return '<section class="tsk-grp" style="--tsk-c:' + g.c + '"><details class="tsk-fold"' + (TSK.closedOpen ? ' open' : '') + '><summary>' + esc(g.l) + ' (' + ts.length + ')</summary>' + tskList(ts) + '</details></section>';
       }
       return '<section class="tsk-grp">' + head + tskList(ts) + '</section>';
     }).join('');
   }
+  /* A tick only ever covers a row on screen: a filter that hides a ticked row drops the tick, so
+     "N selected" and Close them can never reach tasks the person cannot see. */
+  const onScreen = new Set(shown.filter((t) => t.state !== 'closed').map(tskKey));
+  TSK.sel.forEach((k) => { if (!onScreen.has(k)) TSK.sel.delete(k); });
   tskPaintBulk();
 }
 function tskPaintBulk() {
@@ -42402,18 +42441,26 @@ function tskPaintBulk() {
   bar.hidden = n === 0;
   document.getElementById('tsk-bc').textContent = n + (n === 1 ? ' task selected' : ' tasks selected');
 }
+/* Into a project (and a task in it) from the Tasks view. The project list may not have been read
+   yet this visit, so it is read first; a project that is gone gets this view's own sentence rather
+   than openProject's "was created, but we could not read it back". */
+async function tskGoToProject(id) {
+  await loadProjects();
+  if (!pjById(id)) {
+    document.getElementById('tsk-msg').textContent = 'We could not open that project just now.';
+    return false;
+  }
+  if (URL_TAB !== 'projects') showTab('projects');
+  openProject(id);
+  return true;
+}
 async function tskOpenTask(key) {
   const t = (TSK.data || []).find((x) => tskKey(x) === key);
   if (!t) return;
-  showTab('projects');
-  await loadProjects();
-  openProject(t.projectId);
-  openTaskPage(Number(t.number));
+  if (await tskGoToProject(t.projectId)) openTaskPage(Number(t.number));
 }
 async function tskOpenProject(id) {
-  showTab('projects');
-  await loadProjects();
-  openProject(id);
+  await tskGoToProject(id);
 }
 async function tskBulkClose() {
   if (TSK.busy || !TSK.sel.size) return;
@@ -42434,7 +42481,7 @@ async function tskBulkClose() {
       msg.textContent = asSentence(body.error || 'those tasks were not closed');
     } else if (failed.length) {
       msg.textContent = 'Closed ' + (results.length - failed.length) + ' of ' + results.length + '. '
-        + failed.map((x) => '#' + x.number + ': ' + x.error).join('; ') + '.';
+        + failed.map((x) => { const t = (TSK.data || []).find((y) => y.projectId === x.projectId && y.number === x.number); return (t ? t.projectName + ' ' : '') + '#' + x.number + ': ' + x.error; }).join('; ') + '.';
     } else {
       msg.textContent = 'Closed ' + results.length + (results.length === 1 ? ' task.' : ' tasks.')
         + ' Closing a task does not stop an agent that is working on it.';
@@ -42448,13 +42495,20 @@ async function tskBulkClose() {
   }
   tskLoad();
 }
+/* A repaint replaces the control just pressed, so focus goes back to its replacement (the same
+   data attribute and value): a keyboard or screen-reader user keeps their place. */
+function tskPaintKeepingFocus(attr, value) {
+  tskPaint();
+  const again = document.querySelector('#panel-tasks [' + attr + '="' + CSS.escape(String(value)) + '"]');
+  if (again) again.focus();
+}
 document.getElementById('panel-tasks').addEventListener('click', (e) => {
   const el = (sel) => e.target.closest(sel);
   let b;
-  if ((b = el('[data-proj]'))) { TSK.proj = b.dataset.proj || null; TSK.tile = null; tskPaint(); return; }
-  if ((b = el('[data-win]'))) { TSK.win = Number(b.dataset.win) || 0; tskPaint(); return; }
-  if ((b = el('[data-by]'))) { TSK.by = b.dataset.by; tskPaint(); return; }
-  if ((b = el('[data-tile]'))) { TSK.tile = TSK.tile === b.dataset.tile ? null : b.dataset.tile; tskPaint(); return; }
+  if ((b = el('[data-proj]'))) { TSK.proj = b.dataset.proj || null; TSK.tile = null; tskPaintKeepingFocus('data-proj', b.dataset.proj); return; }
+  if ((b = el('[data-win]'))) { TSK.win = Number(b.dataset.win) || 0; tskPaintKeepingFocus('data-win', b.dataset.win); return; }
+  if ((b = el('[data-by]'))) { TSK.by = b.dataset.by; tskPaintKeepingFocus('data-by', b.dataset.by); return; }
+  if ((b = el('[data-tile]'))) { TSK.tile = TSK.tile === b.dataset.tile ? null : b.dataset.tile; tskPaintKeepingFocus('data-tile', b.dataset.tile); return; }
   if ((b = el('[data-open-task]'))) { tskOpenTask(b.dataset.openTask); return; }
   if ((b = el('[data-open-project]'))) { tskOpenProject(b.dataset.openProject); return; }
   if ((b = el('[data-agent]'))) { openDetail(b.dataset.agent); return; }
@@ -42471,11 +42525,30 @@ document.getElementById('panel-tasks').addEventListener('change', (e) => {
   if (e.target.id === 'tsk-sort') { TSK.sort = e.target.value; tskPaint(); return; }
   if (e.target.id === 'tsk-projsel') { TSK.proj = e.target.value || null; TSK.tile = null; tskPaint(); }
 });
+/* `toggle` does not bubble, so the Closed fold's open state is caught in the capture phase and
+   kept across repaints. */
+document.getElementById('panel-tasks').addEventListener('toggle', (e) => {
+  if (e.target && e.target.classList && e.target.classList.contains('tsk-fold')) TSK.closedOpen = e.target.open;
+}, true);
 document.getElementById('tsk-search').addEventListener('input', (e) => { TSK.q = e.target.value; tskPaint(); });
 document.getElementById('tsk-bclose').addEventListener('click', tskBulkClose);
 document.getElementById('tsk-bclear').addEventListener('click', () => { TSK.sel.clear(); tskPaint(); });
-document.getElementById('rail-projects-tasks').addEventListener('click', () => showTab('tasks'));
+document.getElementById('rail-projects-tasks').addEventListener('click', openConsolidatedTasks);
 
+/**
+ * Every task on the current project, open and finished (#2498 scoped it from
+ * the old every-project set to the project this door was opened from).
+ *
+ * 🛑 AN UNREADABLE ANSWER IS SAID OUT LOUD, NEVER SHOWN AS AN EMPTY LIST. "No
+ * tasks yet" is a claim about somebody's own work; the route refuses to serve
+ * it when it could not read, and this screen must not invent it either.
+ *
+ * 🔑 ONE ARRAY. The heading's count and the rows below it are the same `rows`,
+ * so they cannot disagree. #1346 as a construction rather than a rule to
+ * remember: that screen said "3 agents" over three rows and "6" underneath,
+ * because one number came from the data and the other from a document-wide DOM
+ * query.
+ */
 async function openAllTasksView() {
   const list = document.getElementById('alltasks-list');
   const count = document.getElementById('alltasks-count');
@@ -54636,6 +54709,9 @@ function asbScreen() {
   if (URL_TAB === 'detail' && CURRENT) return { screen: 'agent', agent: CURRENT.name || CURRENT.sessionName };
   if (URL_TAB === 'create') return { screen: 'create' };
   if (URL_TAB === 'projects' && PJ_VIEW === 'alltasks') return { screen: 'tasks' };
+  /* #3559: the Tasks view, as its own tab or opened inside the consolidated display column. */
+  if (URL_TAB === 'tasks') return { screen: 'tasks' };
+  { const pt = document.getElementById('panel-tasks'); if (pt && !pt.hidden && pt.getClientRects().length) return { screen: 'tasks' }; }
   if (URL_TAB === 'projects' && PJ_CURRENT && PJ_VIEW !== 'list') {
     const pj = Array.isArray(PROJECTS) ? PROJECTS.find((x) => x && x.id === PJ_CURRENT) : null;
     return { screen: 'project', project: (pj && pj.name) || String(PJ_CURRENT) };

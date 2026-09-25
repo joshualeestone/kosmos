@@ -90,7 +90,10 @@ test('the wiring: a Tasks tab, both allowlists, showTab loads it, and the consol
   assert.match(SCRIPT, /if \(tab === 'tasks'\) tskLoad\(\);/);
   assert.match(PAGE, /<section class="panel panel-wide" id="panel-tasks" hidden>/);
   assert.match(PAGE, /id="rail-projects-tasks"/);
-  assert.match(SCRIPT, /getElementById\('rail-projects-tasks'\)\.addEventListener\('click', \(\) => showTab\('tasks'\)\)/);
+  assert.match(SCRIPT, /getElementById\('rail-projects-tasks'\)\.addEventListener\('click', openConsolidatedTasks\)/, 'the consolidated button must open Tasks inside the column, not kick out to the tabs (#2842)');
+  assert.match(SCRIPT, /placeTasksPanel\(cons\);/, 'showTab does not place the Tasks panel with the layout');
+  assert.match(SCRIPT, /for \(const id of \['panel-settings', 'panel-create', 'panel-tasks'\]\)/, 'taking over the display column does not hide the Tasks view');
+  assert.match(SCRIPT, /if \(URL_TAB === 'tasks'\) return \{ screen: 'tasks' \};/, 'the setup guide is told the wrong screen on Tasks');
   assert.match(PAGE, /id="tsk-search" type="search"/, 'the search box must be type=search (Enter must not submit)');
 });
 

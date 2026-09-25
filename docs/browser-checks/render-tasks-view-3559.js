@@ -109,7 +109,10 @@ function chk(ok, label, extra) {
       if (width >= 1000) {
         await page.click('#tabs .tab[data-tab="tasks"]');
       } else {
-        await page.evaluate(() => showTab('tasks')); // narrow: the tab bar sits behind the menu button
+        // Narrow: the tab bar sits behind the menu button, the route a person actually takes.
+        await page.click('#burger');
+        await page.waitForSelector('#tabs .tab[data-tab="tasks"]', { state: 'visible', timeout: 5000 });
+        await page.click('#tabs .tab[data-tab="tasks"]');
       }
       await page.waitForFunction(() => document.querySelectorAll('#tsk-tiles .tsk-tile').length > 0 && document.querySelectorAll('#tsk-groups .tsk-row').length > 0, null, { timeout: 8000 });
       const a = await page.evaluate(read);
@@ -184,9 +187,26 @@ function chk(ok, label, extra) {
     if (inCons.btn) {
       await page.click('#rail-projects-tasks');
       await page.waitForFunction(() => !document.getElementById('panel-tasks').hidden && document.querySelectorAll('#tsk-tiles .tsk-tile').length === 4, null, { timeout: 8000 }).catch(() => {});
-      const got = await page.evaluate(() => ({ shown: !document.getElementById('panel-tasks').hidden, tiles: document.querySelectorAll('#tsk-tiles .tsk-tile').length }));
-      chk(got.shown && got.tiles === 4, '[consolidated] it opens the Tasks page', JSON.stringify(got));
+      const got = await page.evaluate(() => {
+        const pt = document.getElementById('panel-tasks');
+        return {
+          shown: !pt.hidden && pt.getClientRects().length > 0,
+          tiles: document.querySelectorAll('#tsk-tiles .tsk-tile').length,
+          stillCons: document.body.classList.contains('consolidated'),
+          inColumn: pt.parentElement && pt.parentElement.id === 'panel-projects',
+          ownRailHidden: getComputedStyle(pt.querySelector('.tsk-rail')).display === 'none',
+          dropdown: getComputedStyle(document.getElementById('tsk-projsel')).display !== 'none',
+        };
+      });
+      chk(got.shown && got.tiles === 4, '[consolidated] it opens the Tasks view', JSON.stringify(got));
+      chk(got.stillCons && got.inColumn, '[consolidated] it stays in the consolidated view, in the display column (#2842)', JSON.stringify(got));
+      chk(got.ownRailHidden && got.dropdown, '[consolidated] its own project rail folds to the dropdown beside the projects rail', JSON.stringify(got));
       if (SHOTS) await page.screenshot({ path: path.join(SHOTS, 'tasks-from-consolidated.png'), fullPage: false });
+      /* Opening a project from the consolidated rail replaces the Tasks view. */
+      await page.click('#pj-list [data-project="' + launch.id + '"]', { timeout: 5000 }).catch(() => {});
+      await page.waitForTimeout(600);
+      const after = await page.evaluate(() => ({ tasksHidden: document.getElementById('panel-tasks').hidden }));
+      chk(after.tasksHidden, '[consolidated] opening a project replaces the Tasks view', JSON.stringify(after));
     }
     await page.close();
   } finally {
