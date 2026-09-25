@@ -262,6 +262,59 @@ function chk(ok, label, extra) {
       chk(!narrow.overflow, `[${theme}] at 420px the page does not scroll sideways`);
       await page.screenshot({ path: path.join(OUT, `settings-${theme}-narrow.png`), fullPage: false });
 
+      /* #718 phone (375x667, the smallest of the four #718 sizes). The pills are ONE row that
+         scrolls sideways inside the nav, the page itself never does, and picking a pill off the
+         right edge brings it into view. Fields are 16px (iOS zooms the page for smaller) and the
+         controls are 44px to tap. The pill count is asserted first so "one row" cannot pass on
+         a nav that lost its pills. */
+      await page.setViewportSize({ width: 375, height: 667 });
+      await page.click('#s-nav button[data-go="you"]');
+      await page.waitForTimeout(300);
+      const phone = await page.evaluate(() => {
+        const nav = document.getElementById('s-nav');
+        const pills = [...nav.querySelectorAll('button[data-go]')];
+        return {
+          pills: pills.length,
+          rows: new Set(pills.map((b) => Math.round(b.getBoundingClientRect().top))).size,
+          navScrolls: nav.scrollWidth > nav.clientWidth,
+          pageOverflow: document.documentElement.scrollWidth > document.documentElement.clientWidth,
+          minPillH: Math.min(...pills.map((b) => b.getBoundingClientRect().height)),
+          nameFont: parseFloat(getComputedStyle(document.getElementById('you-name')).fontSize),
+          saveH: document.getElementById('you-name-save').getBoundingClientRect().height,
+        };
+      });
+      chk(phone.pills >= 9 && phone.rows === 1, `[${theme}] at 375px the section pills are one row`, JSON.stringify(phone));
+      chk(phone.navScrolls && !phone.pageOverflow, `[${theme}] at 375px the pill row scrolls inside itself and the page does not scroll sideways`, JSON.stringify(phone));
+      chk(phone.minPillH >= 44 && phone.saveH >= 44, `[${theme}] at 375px pills and the Save button are at least 44px tall`, JSON.stringify(phone));
+      chk(phone.nameFont >= 16, `[${theme}] at 375px the name field is at least 16px, so iOS does not zoom`, JSON.stringify(phone));
+
+      /* Control first: the last pill starts past the nav's right edge. The click is an in-page
+         el.click(), because Playwright's own click scrolls its target into view and would pass
+         this with settingsGo doing nothing. */
+      const offEdge = await page.evaluate(() => {
+        const n = document.getElementById('s-nav').getBoundingClientRect();
+        return document.querySelector('#s-nav button[data-go="advanced"]').getBoundingClientRect().left > n.right;
+      });
+      chk(offEdge, `[${theme}] control: at 375px the last pill starts past the nav's right edge`);
+      await page.evaluate(() => document.querySelector('#s-nav button[data-go="advanced"]').click());
+      await page.waitForTimeout(300);
+      const last = await page.evaluate(() => {
+        const n = document.getElementById('s-nav').getBoundingClientRect();
+        const c = document.querySelector('#s-nav button[data-go="advanced"]').getBoundingClientRect();
+        return { navL: n.left, navR: n.right, pillL: c.left, pillR: c.right, scrollY: window.scrollY };
+      });
+      chk(last.pillL >= last.navL - 1 && last.pillR <= last.navR + 1, `[${theme}] at 375px the chosen last pill is scrolled into view`, JSON.stringify(last));
+
+      // A switch keeps its drawn size; a point just above it, inside the 44px band, still hits it.
+      const hit = await page.evaluate(() => {
+        const t = document.getElementById('eng-toggle');
+        const r = t.getBoundingClientRect();
+        const at = document.elementFromPoint(r.left + r.width / 2, r.top - 8);
+        return { h: r.height, hits: !!at && (at === t || t.contains(at)) };
+      });
+      chk(hit.h < 44 && hit.hits, `[${theme}] at 375px a switch keeps its drawn size and a tap 8px above it lands on it`, JSON.stringify(hit));
+      await page.screenshot({ path: path.join(OUT, `settings-${theme}-phone.png`), fullPage: false });
+
       chk(errs.length === 0, `[${theme}] no page errors`, errs.join(' | '));
       await page.close();
     }
