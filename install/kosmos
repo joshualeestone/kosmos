@@ -2348,6 +2348,69 @@ cmd_project() {
   esac
 }
 
+# kosmos#3734: the setup guide makes an agent for the person, after they confirm. The board
+# accepts this only from the setup guide (its launch token); any other agent is refused with
+# the board's own sentence. `roles` lists the role keys a create can use.
+cmd_agent() {
+  local sub; sub="${1:-}"; shift 2>/dev/null || true
+  case "$sub" in
+    ''|help|-h|--help)
+      say "Usage: kosmos agent <create|roles>"
+      say "  kosmos agent create \"<name>\" <role>   make an agent for the person (the setup guide only)"
+      say "  kosmos agent roles                     list the roles an agent can be made with"
+      exit 2 ;;
+    create)
+      { [ -n "${1:-}" ] && [ -n "${2:-}" ]; } || { say "Usage: kosmos agent create \"<name>\" <role>   (quote the name; kosmos agent roles lists roles)"; exit 2; } ;;
+    roles) : ;;
+    *)
+      say "Unknown: kosmos agent $sub. Try: create, roles"
+      exit 2 ;;
+  esac
+  if ! healthy; then
+    say "Kosmos is not running, so an agent cannot be made. Start it with: kosmos start"
+    exit 1
+  fi
+  local _bt; _bt="$(board_token || true)"   # #1946: board token for an enforcing board; inert when empty
+  local body rc=0 because made
+  case "$sub" in
+    roles)
+      body=$(kosmos_curl "$_bt" "" -sS -m 15 "$URL/api/roles" 2>/dev/null) || rc=$?
+      if [ "$rc" -ne 0 ] || [ -z "$body" ]; then say "We could not reach Kosmos to list the roles. Is it running at $URL?"; exit 1; fi
+      printf '%s' "$body" | node -e 'let s="";process.stdin.on("data",(d)=>s+=d).on("end",()=>{let j;try{j=JSON.parse(s)}catch{process.exit(1)}for(const r of (j.roles||[]))if(r&&r.key)console.log(r.key+"  "+(r.label||""))})' \
+        || { say "Kosmos gave an answer we could not read when listing the roles."; exit 1; }
+      ;;
+    create)
+      local name role esc_name esc_role _tok=""
+      name="$1"; role="$2"
+      case "${KOSMOS_AGENT_TOKEN:-}" in
+        ''|*[!0-9a-f]*) ;;
+        *) _tok="$KOSMOS_AGENT_TOKEN" ;;
+      esac
+      esc_name=$(printf '%s' "$name" | tr '\n\t\r' '   ' | sed 's/\\/\\\\/g; s/"/\\"/g')
+      esc_role=$(printf '%s' "$role" | tr '\n\t\r' '   ' | sed 's/\\/\\\\/g; s/"/\\"/g')
+      body=$(kosmos_curl "$_bt" "$_tok" -sS -m 60 -X POST "$URL/api/agents" \
+        -H 'content-type: application/json' \
+        --data "{\"name\":\"$esc_name\",\"role\":\"$esc_role\"}" 2>/dev/null) || rc=$?
+      if [ "$rc" -ne 0 ]; then
+        say "We could not reach Kosmos to make that agent. Is it running at $URL?"
+        exit 1
+      fi
+      # The answer is parsed as JSON (top-level fields only), never grepped: a nested "name" is not the agent's.
+      local parsed outcome
+      parsed=$(printf '%s' "$body" | node -e 'let s="";process.stdin.on("data",(d)=>s+=d).on("end",()=>{let j;try{j=JSON.parse(s)}catch{process.exit(1)}const one=(v)=>String(v==null?"":v).replace(/[\r\n]+/g," ");console.log([one(j.error?"error":j.outcome),one(j.name),one(j.error||j.because)].join("\t"))})') \
+        || { say "Kosmos gave an answer we could not read when making that agent."; exit 1; }
+      outcome=$(printf '%s' "$parsed" | cut -f1)
+      made=$(printf '%s' "$parsed" | cut -f2)
+      because=$(printf '%s' "$parsed" | cut -f3)
+      case "$outcome" in
+        created) say "Made \"${made:-$name}\". It's on your board now: $URL/" ;;
+        error|refused) say "Kosmos did not make that agent: ${because:-it did not say why}."; exit 1 ;;
+        *) say "Kosmos made part of that agent and stopped: ${because:-it did not say why}. Look at it on your board: $URL/"; exit 1 ;;
+      esac
+      ;;
+  esac
+}
+
 # #3079: let a test `source` this file to reach the pure helpers
 # (_kosmos_reclaim_decision et al.) without running a verb. Executed directly,
 # BASH_SOURCE[0] == $0 and we fall through to the dispatch; sourced, they differ and
@@ -2375,6 +2438,7 @@ case "${1:-}" in
   feedback) shift; cmd_feedback "$@" ;;
   task)    shift; cmd_task "$@" ;;
   project) shift; cmd_project "$@" ;;
+  agent) shift; cmd_agent "$@" ;;
   *)
     printf '\n  kosmos start | stop | restart | status | open | agents | version | msg | post | reply | react | report | room | feedback | task | project | adopt | whoami\n\n'
     printf '  The dashboard lives at %s once started.\n\n' "$URL"

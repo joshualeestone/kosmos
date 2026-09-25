@@ -3219,6 +3219,33 @@ function setupGuideNow() {
   return { ok: true, name: guide };
 }
 
+/* #3734: agents the setup guide made in the last hour (in memory; a restart forgets, which only
+   loosens a runaway bound for one hour). */
+const GUIDE_CREATES_PER_HOUR = 6;
+let guideCreates = [];
+function guideCreatesThisHour(now = Date.now()) {
+  guideCreates = guideCreates.filter((t) => now - t < 3600000);
+  return guideCreates.length;
+}
+function resetGuideCreatesForTests() { guideCreates = []; }
+
+/* #3734: an AGENT asking to create an agent (it presents its launch token) may do so only if it is the
+   setup guide (Josh 2026-09-25 08:23: the guide makes agents for a new person). { ok: true, guide }
+   or { ok: false, status, error }. The screen and a tokenless caller are not affected. */
+function agentCreateAllowed(req, body) {
+  const roster = safeRoster() || [];
+  const who = senderFromAgentToken(req, body, roster);
+  const asker = who && who.ok && who.card ? who.card.sessionName : null;
+  const found = setupGuideNow();
+  if (!asker || !found.ok || asker !== found.name) {
+    return { ok: false, status: 403, error: 'only the setup guide can make agents for the person; they can make one from New agent' };
+  }
+  if (guideCreatesThisHour() >= GUIDE_CREATES_PER_HOUR) {
+    return { ok: false, status: 429, error: 'the setup guide has made ' + GUIDE_CREATES_PER_HOUR + ' agents in the last hour, so Kosmos is pausing it; the person can still make them from New agent' };
+  }
+  return { ok: true, guide: found.name };
+}
+
 const server = http.createServer((req, res) => {
   gateLog(req);
   const pathname = pathOf(req);
@@ -5125,6 +5152,18 @@ const server = http.createServer((req, res) => {
           throw new Error('we could not read that request');
         }
 
+        /* #3734: an agent may ask only if it is the setup guide. With no provider named, the new agent
+           runs on the guide's own provider, the one the person connected and the guide is answering on. */
+        let madeByGuide = null;
+        if (presentedAgentToken(req, body)) {
+          const allowed = agentCreateAllowed(req, body);
+          if (!allowed.ok) { sendJson(res, allowed.status, { error: allowed.error }); return; }
+          madeByGuide = allowed.guide;
+          if (body.provider === undefined) {
+            try { const p = store.readProfile(allowed.guide).provider; if (p) body.provider = p; } catch { /* the engine's default */ }
+          }
+        }
+
         /**
          * ⚠️ The projects the new agent should join are validated HERE,
          * BEFORE the engine writes anything: a refusal after the folder
@@ -5287,6 +5326,8 @@ const server = http.createServer((req, res) => {
         // ours, and it is a 200 because the thing half-happened and the caller
         // needs the detail rather than an error.
         const code = result.outcome === create.OUTCOME.REFUSED ? 400 : 200;
+        /* #3734: counted against the guide's hourly bound, and named in the answer. */
+        if (madeByGuide && result.outcome === create.OUTCOME.CREATED) { guideCreates.push(Date.now()); result.madeBy = madeByGuide; }
         if (result.outcome === create.OUTCOME.CREATED && projectsToJoin.length) {
           // One roster read for the whole request, same rule as the project
           // routes: syncAgent refuses to write without an exact match in it.
@@ -15572,6 +15613,9 @@ function start(port = PORT) {
          something is connected (the accounts lists only); ensureGuide backs off after a
          refusal, is single-flight, and does nothing on an unarmed (pre-existing) install or
          once seeded. Its own timer, unref'd, best-effort, like the sweeps above. */
+      /* #3734: an existing guide's instructions still say it never creates agents; say what it may do now.
+         Once, at start; a no-op when the paragraph is not there. */
+      try { setupAssistant.refreshGuideRole(); } catch { /* best-effort */ }
       if (setupAssistant.FIRSTRUN_AUTOCREATE_ENABLED) {
         let guideSweep = null;
         const guideTick = () => {
@@ -16081,6 +16125,7 @@ module.exports = {
   CONNLOST_BOOK, connlostHealEnabled, // #3410: exported so a test can pin the route's reconnect field to the sweep's own book
   givePart, // #3595: the assign-and-tell path, exported so the Assigner's real write path is tested
   swarmSweepDeps, // #3564: the limit sweep's wiring, exported so it is tested
+  resetGuideCreatesForTests, GUIDE_CREATES_PER_HOUR, // #3734: the guide's hourly create bound, for its tests
   /* #2036: the boot diagnostic's condition (pure truth table) AND its real call-site
      composition, exported together so BOTH are pinned. stagingRevertWarningNow wires the raw
      install stamp rather than the #2934 badge; sourceChannelNow is exported alongside so the
