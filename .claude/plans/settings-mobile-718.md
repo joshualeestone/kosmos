@@ -60,3 +60,6 @@ it too; that is intended, but a dense future section may look taller than its de
   Settings section is at least 44px tall. The three Automation guard checkboxes (shown while the
   recommender is on) measured 23, 47 and 47px; the check shows their row, counts the labels, and
   fails at 23px with the rule removed. Wrapped account actions keep a 6px gap between rows.
+- The lower Kosmos Plus sign-in link ("Already a member? Sign in") measured 43.5px; it now takes
+  the top pill's 44px inline-flex rule, and the check measures both links. The checkbox-label
+  rule sets height only: the guard labels align to the top inline, which suits a two-line label.
