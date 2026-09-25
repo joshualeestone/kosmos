@@ -55,9 +55,10 @@ test('#3759: the block names BOTH destinations and when each applies, says where
   assert.match(flat, /When the conversation is about one of your projects \(the person names it, or the file is plainly part of that project's work\), save it in that project's folder instead/);
   assert.match(flat, /even when they asked for it, or you made it, in a direct conversation/);
   assert.match(flat, /tell them in one line where you put it: which project, and the file's name/);
-  // Unsure: ask first (the doctrine's "one short question, not a licence to guess"); save here and say
-  // so only when nobody is there to answer.
-  assert.match(flat, /When you cannot tell whether the file belongs to a project, ask them in one short line\. If they do not answer, save it in your Files folder and say so/);
+  // Unsure: no project is guessed (the doctrine's "not a licence to guess") and nothing waits unsaved:
+  // save it here, say so, and ask which project in the same line.
+  assert.match(flat, /When you cannot tell whether the file belongs to a project, do not guess a project: save it in your Files folder, and in the same line that says so, ask which project it belongs to/);
+  assert.match(flat, /The file is never left unsaved while you wait for an answer/);
   // The project rule is its own paragraph, not folded into the first one (which an agent may act on
   // alone); the first paragraph points to it instead.
   assert.doesNotMatch(dmfiles.blockBody('/x').split('When the conversation is about')[0], /project's folder instead/);

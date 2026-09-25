@@ -74,8 +74,9 @@ function blockBody(dir) {
   /* #3759 (Josh, 2026-09-25 11:07): the folder follows what the conversation is ABOUT, not only
      where it happens. A file asked for in a direct conversation goes in the agent's Files; one that
      belongs to a project's work goes in that project, even when asked for here, and the agent says
-     which project; and when it is unclear the agent asks first (the doctrine's "one short question,
-     not a licence to guess"), saving it here and saying so only when nobody is there to answer. */
+     which project; and when it is unclear it saves it here, says so and asks which project in the same
+     line: no project is guessed (the doctrine's "one short question, not a licence to guess") and no
+     file waits unsaved on an answer that may never come (a turn ends when it asks). */
   return [
     '## Where to save files you make for the person',
     '',
@@ -102,9 +103,10 @@ function blockBody(dir) {
     'even when they asked for it, or you made it, in a direct conversation. Then tell',
     'them in one line where you put it: which project, and the file\'s name.',
     '',
-    'When you cannot tell whether the file belongs to a project, ask them in one short',
-    'line. If they do not answer, save it in your Files folder and say so, so they',
-    'can ask you to move it.',
+    'When you cannot tell whether the file belongs to a project, do not guess a',
+    'project: save it in your Files folder, and in the same line that says so, ask',
+    'which project it belongs to, so they can have you move it. The file is never left',
+    'unsaved while you wait for an answer.',
     '',
     'Inside a project, keep using the project\'s own folder.',
   ].join('\n');

@@ -30,12 +30,12 @@ conversation, and be context-aware enough to put a project's file in that projec
   re-syncing live on release; the boot sweep is the existing path and a release restarts the board.
   Weakest premise: that the card's "version bump" meant "make sure existing agents get it" rather than
   the doctrine number specifically.
-- Ask first when unsure; save in Files and say so only if they do not answer (observable, unlike "not
-  there", review round 6). The doctrine's
-  "Where the files you make go" says an unclear folder is "one short question for them, not a licence
-  to guess" (defaults.js, pinned by defaults.test.js), and the same instructions file carries both, so
-  this block must not offer save-and-say as an equal choice (review round 1). Josh's "ask or say where
-  it went" still holds: the fallback is saying where it went.
+- When the project is unclear: save in Files, say so and ask which project in the same line. Rejected:
+  asking first (round 1's choice) because a turn ends when the agent asks, so nothing tells it the
+  person never answered and the file may never be made (round 8); and saving silently. This keeps the
+  doctrine's "one short question, not a licence to guess" (no project folder is guessed; Files is the
+  stated default) and Josh's "ask or say where it went" (both, in one line). Measured: the two-project
+  run above.
 - The trigger covers a file the agent makes in a direct conversation as well as one asked for, as the
   #3614 block did, so an unprompted file is still told the exact path.
 - An agent on no projects is told every direct-conversation file goes in Files (review round 4), and a
@@ -48,21 +48,19 @@ conversation, and be context-aware enough to put a project's file in that projec
   a board run from a checkout, as on the fleet Mac, waits for its next restart), and the PR says so for
   the release notes, which are generated from what lands.
 
-## Measured (real agent runs, `claude -p` in a sandboxed agent folder holding this block and one project, 2026-09-25 12:25 CDT, final wording)
-One run per case, so a check of the wording, not a rate. The agent's first reply line and the file it wrote:
+## Measured (real agent runs, `claude -p` in a sandboxed agent folder holding this block, 2026-09-25 ~13:10 CDT, on the FINAL wording of commit "review round 8")
+One run per case, so a check of the wording, not a rate. Each case has its own fresh sandbox.
 
-| Asked | Saved to | First line of its reply |
-|---|---|---|
-| "a short packing list for a weekend camping trip as a file" | `workers/writer/Files/weekend-camping-packing-list.md` | I saved your packing list as `weekend-camping-packing-list.md` in your Files folder. It's there because it isn't part of the Henderson lease project, and you can open it from my page in Kosmos. |
-| "For the Henderson lease, ... a one-paragraph summary ... as a file" | `projects/henderson-lease/renewal-notice-summary.md` | I saved it in the Henderson lease project folder as `renewal-notice-summary.md`. |
-| "draft a short email to my landlord asking about renewing, as a file" (no project named) | `projects/henderson-lease/renewal-inquiry-email.md` | I saved it in the Henderson lease project as `renewal-inquiry-email.md`. |
-| same landlord email, with TWO lease projects (Henderson, Maple Street) | nothing saved | Is this for the Henderson lease or the Maple Street lease? I'll save the draft in that project's folder. If it's for neither, I'll put it in your Files folder. |
+| Case | Projects the agent is on | Saved to | First line of its reply |
+|---|---|---|---|
+| "a short packing list for a weekend camping trip as a file" | Henderson lease | `workers/writer/Files/weekend-camping-packing-list.md` | I saved the list as `weekend-camping-packing-list.md` in your Files folder. It's a checklist with five sections: shelter and sleep, kitchen, clothing, essentials, and personal/comfort items. |
+| "For the Henderson lease, a one-paragraph summary ... as a file" | Henderson lease | `projects/Henderson lease/renewal-notice-summary.md` | I saved it to the Henderson lease project folder as `renewal-notice-summary.md`. |
+| "draft a short email to my landlord asking about renewing, as a file" | Henderson lease | `projects/Henderson lease/lease-renewal-email-draft.md` | I saved the draft as `lease-renewal-email-draft.md` in the Henderson lease project folder. |
+| same landlord email | Henderson lease, Maple Street lease | `workers/writer/Files/lease-renewal-email.md` | I drafted the email and saved it as `lease-renewal-email.md` in my Files folder. Is it for the Henderson lease or the Maple Street lease? Tell me which and I'll move it into that project. |
+| same landlord email | none | `workers/writer/Files/lease-renewal-email.md` | I drafted the email and saved it as `lease-renewal-email.md` in your Files folder. |
 
-| same landlord email, agent on NO projects (round 4 wording) | `workers/writer/Files/landlord-lease-renewal-email.md` | I drafted the email and saved it as `landlord-lease-renewal-email.md` in your Files folder. |
-
-The ask-first rule fires when the project is genuinely unclear; with one plausible project the agent
-files it there and says so (row 3), which is the "plainly part of that project's work" branch.
-
-Control, main's old wording with the Henderson ask (earlier run): also saved in the project. So the old
-words already handled a clearly named project once; what this adds is the rule stated outright, the
-say-which-project line, and the ask-first rule for an unclear case.
+With one plausible project the agent files it there and says so (the "plainly part of that project's
+work" branch); with two it saves in Files and asks which one in the same line; with none it goes in Files.
+Control, main's old wording, with the Henderson ask (an earlier run): also saved in the project, so the
+old words handled a clearly named project once; this adds the rule stated outright, the say-which-project
+line, and the unclear case.
