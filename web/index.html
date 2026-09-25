@@ -5282,7 +5282,11 @@ body:not(.consolidated) .pjmidhead:has(.pjhead) .tsearch:focus-within { flex-bas
 @media (max-width: 40rem) {
   /* The avatar shrinks; the 14px gap does NOT, because the bubble tail's ground mask
      (.msg-bd::after, 14px wide beside the bubble) would paint over a closer avatar. The far
-     side mirrors avatar + gap; render-dm-phone-718.js measures the two sides equal. */
+     side mirrors avatar + gap.
+     ⚠️ The 28px and 14px are written twice (avatar/gap here, the calc() margins below), the same
+     duplication the desktop rule carries; render-dm-phone-718.js measures the two sides equal, so
+     changing one literal without the other goes red. (The bare `att` surface token is left out of
+     that check's header on purpose: it matches every JS variable named `att`.) */
   #d-dmthread .msg-av { width: 28px; height: 28px; flex-basis: 28px; font-size: .8125rem; }
   #d-dmthread .msg:not(.you) .msg-b { margin-right: calc(28px + 14px); }
   #d-dmthread .msg.you .msg-b { margin-left: calc(28px + 14px); }
