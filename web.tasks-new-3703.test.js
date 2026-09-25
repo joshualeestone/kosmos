@@ -25,7 +25,7 @@ const PAGE = fs.readFileSync(path.join(__dirname, 'web', 'index.html'), 'utf8');
 const SCRIPT = page.scriptOf(PAGE);
 const FNS = page.liftAll(SCRIPT, ['pjById', 'ntChoices', 'openNewTask', 'ntAimAt', 'leaveNewTask']);
 
-function world(projects, { current = null } = {}) {
+function world(projects, { current = null, readFailed = false } = {}) {
   const els = {};
   const el = (id) => (els[id] = els[id] || { id, hidden: false, value: '', textContent: '', innerHTML: '', disabled: false, selectedIndex: 0, focused: 0, focus() { this.focused += 1; focusLog.push(id); } });
   const focusLog = [];
@@ -34,10 +34,10 @@ function world(projects, { current = null } = {}) {
   els['nt-modal'].hidden = true;
   const document = { getElementById: (id) => els[id] || null };
   const esc = (s) => String(s);
-  const api = new Function('document', 'PROJECTS', 'PJ_CURRENT', 'esc',
+  const api = new Function('document', 'PROJECTS', 'PJ_CURRENT', 'PJ_READ_FAILED', 'esc',
     'let NT_FOR = null; let NT_ORIGIN = "project"; let NT_PROJECT = null;\n' + FNS
     + '\nreturn { openNewTask, leaveNewTask, ntChoices, get NT_PROJECT() { return NT_PROJECT; }, get NT_ORIGIN() { return NT_ORIGIN; }, set NT_FOR(v) { NT_FOR = v; } };')(
-    document, projects, current, esc);
+    document, projects, current, readFailed, esc);
   return { api, els, focusLog };
 }
 
@@ -71,7 +71,7 @@ test('All tasks: the dialog asks which project, lists only live projects by name
 });
 
 test('no projects at all: the dialog says to make one, and Create stays down', () => {
-  const w = world([{ id: 'z', name: 'Old', archived: true }]);
+  const w = world([]);
   w.api.openNewTask(null, 'tasks');
   assert.equal(w.api.NT_PROJECT, null);
   assert.match(w.els['nt-msg'].textContent, /Make a project first/);
@@ -80,6 +80,44 @@ test('no projects at all: the dialog says to make one, and Create stays down', (
   assert.deepEqual(w.focusLog, ['nt-back'], 'focus is not on the way out');
   // The Create gate on typing also refuses without a project.
   assert.match(SCRIPT, /getElementById\('nt-go'\)\.disabled = !document\.getElementById\('nt-what'\)\.value\.trim\(\) \|\| !NT_PROJECT;/);
+});
+
+test('an unreadable project list is said as unreadable, never as "make a project first"', () => {
+  const w = world([], { readFailed: true });
+  w.api.openNewTask(null, 'tasks');
+  assert.match(w.els['nt-msg'].textContent, /could not read your projects/);
+  assert.doesNotMatch(w.els['nt-msg'].textContent, /Make a project first/);
+  assert.equal(w.els['nt-go'].disabled, true);
+});
+
+test('projects that are all archived are not "no projects"', () => {
+  const w = world([{ id: 'z', name: 'Old', archived: true, agents: [] }]);
+  w.els['nt-project'].textContent = 'Stale name';
+  w.api.openNewTask(null, 'tasks');
+  assert.match(w.els['nt-msg'].textContent, /Every project is archived/);
+  assert.equal(w.els['nt-project'].textContent, '', 'the hidden describedby line still names an old project');
+});
+
+test('the picker offers a kept draft\'s project only when the draft has words in it', () => {
+  const w = world(P, { current: 'a' });
+  w.api.openNewTask();              // opened on Spring launch's page, nothing typed
+  w.api.leaveNewTask();
+  w.api.openNewTask(null, 'tasks');
+  assert.equal(w.els['nt-proj'].value, 'b', 'an empty open steered the picker away from the first by name');
+  w.api.leaveNewTask();
+  w.api.openNewTask();              // Spring launch again, and this time something is typed
+  w.els['nt-what'].value = 'Draft for Spring';
+  w.api.leaveNewTask();
+  w.api.openNewTask(null, 'tasks');
+  assert.equal(w.els['nt-proj'].value, 'a', 'a real draft is not offered its own project');
+});
+
+test('changing the project in the dialog keeps the words and resets who is on it', () => {
+  const at = SCRIPT.indexOf("getElementById('nt-proj').addEventListener('change'");
+  const fn = SCRIPT.slice(at, SCRIPT.indexOf('\n});\n', at) + 5);
+  assert.ok(at > -1, 'the picker handler moved; update this test');
+  assert.match(fn, /NT_FOR = p\.id;[\s\S]*getElementById\('nt-who'\)\.value = '';[\s\S]*ntAimAt\(p\);/,
+    'an agent picked for one project is carried to another, or the words are cleared');
 });
 
 test('from the project page nothing changes: its own project, no picker, focus back to its button', () => {
