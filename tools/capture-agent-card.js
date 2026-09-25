@@ -34,7 +34,7 @@
  *     poisons those three context booleans with the opposite values and asserts they come
  *     out pinned. The file proved its own sentence wrong and nothing noticed.
  *   - NEUTRALISES identifying string CONTENT: session, name, target, role, task, the
- *     `because` line, any `stateConflict` sentence, the scraped evidence line, every
+ *     `because` line, any `stateConflict` sentence (always null since #3729), the scraped evidence line, every
  *     string under `profile`, and every string anywhere else that is not re-pinned to a
  *     known-safe producer value below. "Known-safe" means ENUM-BOUNDED by status.js
  *     (state, stateConfidence, runner, stateReportedBy), not merely "a field I recognise": model and
@@ -67,8 +67,8 @@
  *     IS FALSE. A re-capture minutes later on the same box differs without any shape
  *     moving: `state`, `stateConfidence` and `runner` are restored from the RAW card
  *     (they are enum-bounded, see below), the structural booleans pass through as
- *     captured, and role/task/stateEvidence/stateProject/stateConflict/disruption each
- *     vary between null and a value. The committed recording holds `state: "working"`
+ *     captured, and role/task/stateEvidence/stateProject/disruption each vary between null and a
+ *     value (stateConflict is always null since #3729). The committed recording holds `state: "working"`
  *     and `stateConfidence: "scraped"`, which are facts about one capture. What the pins
  *     buy is that the VOLATILE MEASUREMENTS do not move; they never bought byte equality.
  *     ⚠️ KEEP THIS LIST IN STEP WITH THE CODE. It has gone stale twice, in four places
@@ -377,6 +377,7 @@ function neutralise(live) {
   if (typeof card.because === 'string' && card.state === 'blocked') card.because = 'it is waiting on something that is not you';
   /* #3410: connection_lost carries classify()'s own fixed sentence (status.js). */
   if (typeof card.because === 'string' && card.state === 'connection_lost') card.because = 'it lost its connection to the API';
+  // #3729: the engine never sends a stateConflict sentence any more; a string here would be a regression, kept visible.
   if (typeof card.stateConflict === 'string') card.stateConflict = 'an example conflict';
   /* PIN the volatile MEASUREMENTS so they do not move between captures.
      🛑 NOT "so a re-run is byte-identical unless the SHAPE moved". That sentence stood

@@ -505,7 +505,7 @@ h1 { font: 600 var(--text-title-1) var(--font-ui); letter-spacing: -0.012em; }
 .dhead { display: flex; flex-direction: column; align-items: center; text-align: center; gap: 12px; margin-bottom: 16px; }
 /* #3385: the text block is full column-width (not content-width) so the name has a fixed width
    to shrink against and the notes wrap inside the column instead of bleeding past its edge. */
-/* overflow-wrap:anywhere so a long scraped token in the column notes (#d-said, #d-conflict, the
+/* overflow-wrap:anywhere so a long scraped token in the column notes (#d-said, the
    restart card) breaks inside the 220px column instead of overflowing. The detail name keeps
    white-space:nowrap (via the .dnamerow .dname rule, scoped so it does not reach the shared .dname
    titles on other screens), which suppresses wrapping, so it is unaffected -- it is fitted by JS
@@ -2562,7 +2562,7 @@ body.filter-noproj #orgview .onode:not([data-noproj]) { opacity: .26; }
   height: calc(100vh - var(--talk-fill-top, 157px)); }
 #panel-detail:has(#d-sec-talk:not([hidden])) .dbody { flex: 1 1 auto; min-height: 0; align-items: stretch; }
 /* #3385: bound the left column in the fill state -- if its optional notes (#d-said auth quote,
-   #d-conflict, #d-instr-stale) grow taller than the panel they scroll inside the column rather than
+   #d-instr-stale) grow taller than the panel they scroll inside the column rather than
    stretching the grid row and pushing the talk composer below the fold (#761 dialog-always-visible). */
 #panel-detail:has(#d-sec-talk:not([hidden])) .dleft { min-height: 0; overflow: auto; }
 #panel-detail:has(#d-sec-talk:not([hidden])) .dsecs { display: flex; flex-direction: column; min-height: 0; }
@@ -9253,11 +9253,9 @@ window.kosmosMeasureScrollbarWidth();
         <button type="button" class="btn" id="d-start-agent">Start this agent</button>
         <p class="fmsg" id="d-start-msg" role="status" aria-live="polite"></p>
       </div>
-      <!-- #569: where the state came from, under the badge, in Mona Lisa's
-           words ("Said so itself" / "Read from its screen"); and the two
-           witnesses disagreeing, as the engine's own sentence in a note.
-           Both filled by the painter beside d-state, both hidden when they
-           have nothing to say, which is almost always for the conflict. -->
+      <!-- #569 put two notes under the badge: where the state came from, and the two
+           witnesses disagreeing. #3729 (Josh, 2026-09-25) removed the second one and its
+           slot for good: no agent-status diagnostic sentence on an agent's page or card. -->
       <!-- 🛑 THE QUOTED SAID-LINE IS GONE FROM HERE TOO (kosmos#986). #855 cut
            it from the grid card and df0a502 from the list row; this was the
            third surface and the only one left. Josh reported it still showing
@@ -9272,7 +9270,6 @@ window.kosmosMeasureScrollbarWidth();
            rendered once in its life.
            📌 So removing this is not only the third cut: it is what lets the
            blockquote below finally be the element it was written to be. -->
-      <div class="note" id="d-conflict" hidden></div>
       <!-- 🛑 MOVED HERE FROM THE INSTRUCTIONS SECTION (Josh, 2026-08-21). The
            card puts a ⚠️ beside the agent's name; the sentence explaining it was
            at the BOTTOM of this page, under Instructions, below the conversation
@@ -16050,13 +16047,6 @@ function saidLine(a) {
 }
 
 /**
- * The two witnesses disagreeing, as a sentence the person sees (#569). The
- * ENGINE composes the sentence (status.reconcileReport surfaces it instead of
- * silently resolving, and its wording already names both witnesses); this
- * only dresses it as a card note: capitalized, one full stop. Empty when the
- * witnesses agree, which is almost always.
- */
-/**
  * An engine sentence, dressed as something a person reads: capitalized, one
  * full stop. The ENGINE owns the words; this owns nothing but the casing.
  *
@@ -16070,9 +16060,6 @@ function asSentence(s) {
   const t = typeof s === 'string' ? s.trim() : '';
   if (!t) return '';
   return t.charAt(0).toUpperCase() + t.slice(1) + (/[.!?]$/.test(t) ? '' : '.');
-}
-function conflictNote(a) {
-  return asSentence(a && typeof a.stateConflict === 'string' ? a.stateConflict : '');
 }
 function modelLine(a) {
   /* Provider-first ("Claude Opus 5"), guarded so a modelName that already
@@ -16850,20 +16837,17 @@ function card(a) {
      fact survives on the DETAIL page's meta line, per the pack's
      card-signals/panel-explanation split. What SURVIVES on the card,
      deliberately: the stale badge on the name (an honest-state mark with
-     no pack equivalent), and the unknown note -- the pack's own comment
-     requires the reason to ride with any card that shows an unknown. */
+     no pack equivalent). (The unknown note that also survived here went in #3729.) */
   const m = cardStOf(a);
   const copy = stateCopyOf(a);
   const pct = pctOf(a.context);
   const answer = answerBtn(a);
 
-  /* Gated on the TREATMENT (m.st), not the literal state: cardStOf maps
-     any unrecognised server state to the unknown treatment, and a card
-     drawn as "Can't tell" must carry the whole honesty payload, note
-     included, whichever spelling put it there. */
-  const unknownNote = m.st === 'unknown'
-    ? '<div class="note">Not the same as idle. We cannot see this one, so we are not telling you it is fine.</div>'
-    : '';
+  /* #3729 (Josh, 2026-09-25): the unknown card's note ("Not the same as idle. We cannot see this
+     one, so we are not telling you it is fine.") is gone with the conflict line. It was an
+     agent-status diagnostic sentence on a card, which the standing rule forbids; the "Can't tell"
+     badge still says the state. The needs-trust card keeps its note: that one asks the person to
+     act (#3723's category, not this). */
 
   /* #3501: the unknown-memory WORD badge (.membadge.unk, states unknown /
      not-yet-read / not-set-yet) was removed. Josh flagged it as meaningless to
@@ -16883,8 +16867,6 @@ function card(a) {
     ${a.activeWhileWaiting ? '<div class="alsowork"><span class="act" aria-hidden="true"><i></i><i></i><i></i></span><span>Working now</span></div>' : ''}
     <div class="amodel">${esc(modelLine(a))}</div>
     <div class="atask">${esc(taskLine(a, { noQuote: true }))}</div>
-    ${conflictNote(a) ? `<div class="note">${esc(conflictNote(a))}</div>` : ''}
-    ${unknownNote}
   </div>`;
 }
 
@@ -28202,14 +28184,8 @@ function openDetail(sessionName, section, fromProject) {
   const dst = document.getElementById('d-state');
   dst.className = 'detail-state astate st-' + dm.st;
   dst.innerHTML = glyphOf(a) + '<b>' + esc(copy.label) + '</b>';
-  /* #569: the same derivations the card reads (saidLine, conflictNote),
-     called not copied, so the panel and the card cannot disagree about
-     where a state came from or whether the witnesses do. */
-  const dconf = document.getElementById('d-conflict');
-  if (dconf) {
-    dconf.textContent = conflictNote(a);
-    dconf.hidden = !dconf.textContent;
-  }
+  /* #3729 (Josh, 2026-09-25): there is no "its reports and its screen disagree" line here, or on
+     the card, any more. The slot is gone, not hidden, so nothing can be written into it. */
   /* ⚠️ HIDDEN WHEN THERE IS NO TASK. Beside a badge that already says Idle,
      a task line would restate the badge; this panel shows nothing rather than
      that. Since #209 the card, too, shows nothing here rather than a frozen
