@@ -3599,10 +3599,14 @@ async function accountConnectable({ provider, accountDir } = {}) {
        rows offer Sign in again before this sentence is said about one. */
     /* The row offers Sign in again only when the account's email can be read (the engine tells
        a refresh from a swap by it), so without one the sentence names what that row does have. */
-    const expiredSignIn = (w, email) => `That ${w} sign-in has expired, so an agent created on it could not run. `
+    /* A DEFAULT keyed row has no Disconnect either (paintAccounts), so without an email the
+       one thing it can do is a new sign-in beside it, from Add a provider. */
+    const expiredSignIn = (w, email, isDefault) => `That ${w} sign-in has expired, so an agent created on it could not run. `
       + (email
         ? `Sign in again on that account in Settings, AI Models, or choose another ${w} account for this agent.`
-        : `Disconnect it in Settings, AI Models and sign in with Add a provider, or choose another ${w} account for this agent.`);
+        : isDefault
+          ? `Sign in with Add a provider in Settings, AI Models, then choose that ${w} account for this agent.`
+          : `Disconnect it in Settings, AI Models and sign in with Add a provider, or choose another ${w} account for this agent.`);
     /* #3391: a DEFAULT grok account that is a subscription sign-in is the one default the
        board CAN see (it is listed), so a lapsed one is refused here as the named one is. */
     if (!dir && prov === 'xai') {
@@ -3613,7 +3617,7 @@ async function accountConnectable({ provider, accountDir } = {}) {
       let dlive;
       try { dlive = await grok.checkLive(def.dir); } catch (err) { return failOpenK('Grok.checkLive (default)', err); }
       if (dlive && dlive.state === NONE) {
-        return { ok: false, because: expiredSignIn('Grok', def.email) };
+        return { ok: false, because: expiredSignIn('Grok', def.email, true) };
       }
       return { ok: true };
     }

@@ -289,6 +289,13 @@ test('#3391: a lapsed DEFAULT Grok subscription is refused at create too (the de
     const bad = await create.accountConnectable({ provider: 'xai' });
     assert.equal(bad.ok, false, 'a lapsed default sign-in was accepted');
     assert.match(bad.because, /sign-in has expired/);
+    /* Review pass 4: a default row has no Disconnect and, without an email, no Sign in again,
+       so the sentence must name only what that row can do: a new sign-in beside it. */
+    fs.writeFileSync(f, JSON.stringify({ 'https://auth.x.ai::d': { expires_at: '2000-01-01T00:00:00.000000Z' } }), { mode: 0o600 });
+    const noEmail = await create.accountConnectable({ provider: 'xai' });
+    assert.equal(noEmail.ok, false);
+    assert.doesNotMatch(noEmail.because, /Disconnect|Sign in again/, 'a control the default row does not have');
+    assert.match(noEmail.because, /Sign in with Add a provider in Settings, AI Models, then choose that Grok account/);
     fs.writeFileSync(f, JSON.stringify({ 'https://auth.x.ai::d': { email: 'd@example.com', refresh_token: 'r' } }), { mode: 0o600 });
     assert.equal((await create.accountConnectable({ provider: 'xai' })).ok, true, 'CONTROL: a renewable default passes');
     fs.rmSync(f, { force: true });

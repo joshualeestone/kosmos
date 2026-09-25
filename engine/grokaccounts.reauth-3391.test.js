@@ -247,3 +247,33 @@ test('two accounts with that email, or one being signed in, leave the new sign-i
   });
   grok.cancelGrokLogin(pending.sessionId);
 });
+
+/* Review pass 4: a typed name asks for a separate account; a merge whose rename fails keeps
+   the finished sign-in as its own account instead of throwing it away. */
+test('a NAMED new sign-in is never merged, even with an email already here', () => withMode('approve', 'named@example.com', async () => {
+  const there = account('.grok-namedthere', JSON.stringify({ 'https://auth.x.ai::u1': { email: 'named@example.com', refresh_token: 'OLD' } }));
+  const out = grok.startGrokLogin({ grokBin: FAKE, label: 'second' });
+  const s = await settled(out.sessionId);
+  assert.equal(s.state, 'connected', JSON.stringify(s));
+  assert.equal(s.account.dir, nodePath.join(SANDBOX, '.grok-second'), 'the named account the person asked for');
+  assert.equal(s.account.name, 'second');
+  assert.match(auth(there), /"OLD"/, 'the other account is untouched');
+  fs.rmSync(s.account.dir, { recursive: true, force: true });
+}));
+
+test('a merge whose rename fails keeps the new sign-in as its own account', () => withMode('approve', 'rofail@example.com', async () => {
+  const BODY = JSON.stringify({ 'https://auth.x.ai::u1': { email: 'rofail@example.com', refresh_token: 'OLD' } });
+  const there = account('.grok-rofail', BODY);
+  fs.chmodSync(there, 0o500);
+  try {
+    const out = grok.startGrokLogin({ grokBin: FAKE });
+    const s = await settled(out.sessionId);
+    assert.equal(s.state, 'connected', 'the finished sign-in is kept: ' + JSON.stringify(s));
+    assert.notEqual(s.account.dir, there);
+    assert.match(auth(s.account.dir), /"NEW"/);
+    assert.equal(auth(there), BODY);
+    fs.rmSync(s.account.dir, { recursive: true, force: true });
+  } finally {
+    fs.chmodSync(there, 0o700);
+  }
+}));

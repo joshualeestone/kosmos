@@ -82,3 +82,14 @@ signing a lapsed subscription back in from the app.
   chooser; a Stop followed at once by a new sign-in again can be refused for a moment while
   grok exits ("already in progress", honest and transient); status 404 and a cancelled state
   in Settings are handled by the same finish() path the Stop and error arms cover.
+
+## Review pass 4 (sonnet): 1 blocker, 2 warnings, fixed
+- [BLOCKER] a lapsed DEFAULT ~/.grok without an email was told to Disconnect it, but a
+  default keyed row has no Disconnect (and without an email no Sign in again): the sentence
+  for that case now says to sign in with Add a provider and choose that account.
+- [WARNING] a same-email merge whose rename failed threw away the sign-in just finished: it
+  now stays as its own account (the behaviour before the merge existed). The explicit Sign in
+  again keeps its error, since there the person asked to update that account.
+- [WARNING] a typed name was dropped on merge: a named sign-in is never merged (the person
+  asked for a separate account). No UI sends a name today; the engine contract stays honest.
+- Arms for all three, each perturbed red.

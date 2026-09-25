@@ -839,19 +839,23 @@ function startGrokLogin({ label, grokBin, reauthDir } = {}) {
            that account instead of adding a second with the same email. Only when exactly
            one account matches and nothing else is signing it in; otherwise the new slot
            stands, as before, rather than guessing. */
-        const into = sameAccountFor(who.email, session.dir);
-        if (into) {
-          const moved = promoteReauth(session.dir, into.dir);
-          const row = moved.ok ? rowFor(into.dir, into.isDefault) : null;
+        /* A typed name asks for a separate named account, so it is never merged. And a rename
+           that fails keeps the new sign-in as its own account (what happened before this
+           merge existed) rather than throwing away a sign-in the person just finished. */
+        const named = session.typedLabel != null && String(session.typedLabel).trim();
+        const into = named ? null : sameAccountFor(who.email, session.dir);
+        const moved = into ? promoteReauth(session.dir, into.dir) : { ok: false };
+        if (moved.ok) {
+          const row = rowFor(into.dir, into.isDefault);
+          session.reauthDir = into.dir;   // the new slot is staging now, and is cleaned as such
           if (row) {
-            session.reauthDir = into.dir;   // so the new slot is cleaned as staging
             session.state = 'connected';
             session.account = row;
             freeSlotAndDir();
             reapGrokSession(session);
             return;
           }
-          session.error = moved.ok ? 'the sign-in could not be read back after updating this account' : moved.because;
+          session.error = 'the sign-in could not be read back after updating this account';
           session.state = 'error';
           freeSlotAndDir();
           reapGrokSession(session);
