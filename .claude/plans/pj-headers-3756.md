@@ -26,3 +26,15 @@
 - render-consolidated-layouts.js: #3756 arms measure the header in both views. On the check-only
   commit (4a03aaed4, main's page) the tab-view arms are RED; with b8d74cd93 all 70 pass.
 - Shots: ~/.cache/claude-handoffs/shots-3756/{before,after}/3756-tab-view.png.
+
+## Review pass 1 (opus): 2 blockers, 4 warnings, 3 nits
+- BLOCKER web.controls-1303h.test.js and web.rules-boxes-1303b.test.js anchors matched the tab view's
+  new copies too -> anchors now carry the consolidated prefix (body.consolidated / .pjsplit >), and a
+  #3756 test pins the tab view's own rules (tracks, + column, View All placement and size).
+- W1 the DOM kept + before View All for the old tab layout -> View All now precedes + in the DOM, so
+  keyboard order matches what both views show; the comment rewritten.
+- W2 my CSS comment named a check that does not exist -> render-consolidated-layouts.js.
+- W3 #3132's "by construction" size comments -> say #3756 supersedes it for the tab view.
+- W4 the title size (12 vs 11px) against Splinter's "identical header" -> recorded on the card.
+- NIT stale tab-view comments rewritten; a consolidated "after" shot added; the 4px title shift with
+  and without a door not taken (the door's 24px hit area, #3132's WCAG 2.5.8 floor).

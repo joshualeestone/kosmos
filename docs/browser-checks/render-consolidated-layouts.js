@@ -240,6 +240,7 @@ const path = require('path');
     say(headerTR(va.tasks), '#3218: Tasks View All sits in the header, top-right', JSON.stringify(va.tasks));
     say(headerTR(va.files), '#3218: Files View All sits in the header, top-right', JSON.stringify(va.files));
     consHdr = await hdr();
+    if (process.env.KOSMOS_SHOTS) await pg.screenshot({ path: path.join(process.env.KOSMOS_SHOTS, '3756-consolidated-view.png') });
     say(hdrShape(consHdr.tasks, true) && hdrShape(consHdr.files, false), '#3756: consolidated: Tasks and Files headers are title | small View All (| +) on one line', JSON.stringify(consHdr));
 
     /* #3304 (Josh 2026-09-19): the Tasks header reordered to TASKS | View All | +, so the + now
