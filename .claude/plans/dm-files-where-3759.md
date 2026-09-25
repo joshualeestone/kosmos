@@ -12,6 +12,8 @@ Josh, 0.6.94 test, 2026-09-25 11:07 in #admin: agents should store files where t
 conversation, and be context-aware enough to put a project's file in that project instead.
 
 ## Change
+- web/index.html: the agent page's empty Files list says a project's file shows in the project, not
+  here (it said every Direct Message file shows up here, no longer true).
 - engine/dmfiles.js blockBody: the rewritten block (both destinations, the say-which-project line, ask
   first when unsure).
 - engine/dmfiles.test.js: the #3614 test follows the new first sentence; a new #3759 test pins both
@@ -25,7 +27,8 @@ conversation, and be context-aware enough to put a project's file in that projec
   re-syncing live on release; the boot sweep is the existing path and a release restarts the board.
   Weakest premise: that the card's "version bump" meant "make sure existing agents get it" rather than
   the doctrine number specifically.
-- Ask first when unsure; save in Files and say so only when nobody is there to answer. The doctrine's
+- Ask first when unsure; save in Files and say so only if they do not answer (observable, unlike "not
+  there", review round 6). The doctrine's
   "Where the files you make go" says an unclear folder is "one short question for them, not a licence
   to guess" (defaults.js, pinned by defaults.test.js), and the same instructions file carries both, so
   this block must not offer save-and-say as an equal choice (review round 1). Josh's "ask or say where
