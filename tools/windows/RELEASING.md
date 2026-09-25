@@ -112,6 +112,9 @@ gates. `publish-r2.ps1` produces the same files with the same gates, directly in
   sidecar), so nothing between R2 and a user keeps serving the previous bytes. Versioned zips
   never change, so they carry no such header.
 
+- **`TEST TRANSPORT` in the output means nothing was published**: `KOSMOS_PUBLISH_R2_FAKE_DIR` is
+  set (the offline test uses it). `Remove-Item Env:KOSMOS_PUBLISH_R2_FAKE_DIR` and run again.
+
 ## The pointer shape
 
 Both pointers have exactly this shape, the one `tools/lib/write-latest-win-pointer.js` writes:

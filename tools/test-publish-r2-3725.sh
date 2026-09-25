@@ -159,6 +159,17 @@ if [ "$rc" -eq 0 ] && [ "$order" = "kosmos-win-x64.zip(copy) kosmos-win-x64.zip.
 else fail "promote order: rc=$rc order=[$order] $(tail -2 "$TMP/out")"; fi
 if [ "$(grep -c 'approval=given.*transport=test' "$ALOG")" -eq 1 ] && [ "$(grep -c 'promoted=yes.*transport=test' "$ALOG")" -eq 1 ]; then pass "both approval-log lines name where the promote wrote"
 else fail "approval log: $(cat "$ALOG")"; fi
+# The alias copy is pinned to the zip the promote checked: a re-stage that lands between the
+# checks and the copy must stop the promote before prod's pointer moves.
+rm -f "$FAKE/kosmos-win-x64.zip" "$FAKE/kosmos-win-x64.zip.sha256" "$FAKE/latest-win.json"
+KOSMOS_PUBLISH_R2_FAKE_RESTAGE_BEFORE_COPY="$TMP/b.zip" promote; rc=$?
+if [ "$rc" -eq 1 ] && grep -qF "COPY kosmos-9.9.1-win-x64.zip -> kosmos-win-x64.zip answered 412" "$TMP/out" && [ ! -e "$FAKE/latest-win.json" ] && [ ! -e "$FAKE/kosmos-win-x64.zip" ]; then pass "a re-stage between the checks and the copy stops the promote before prod moves"
+else fail "ETag pin: rc=$rc latest-win.json=$([ -e "$FAKE/latest-win.json" ] && echo WRITTEN || echo absent) $(tail -2 "$TMP/out")"; fi
+cp "$TMP/a.zip" "$FAKE/kosmos-9.9.1-win-x64.zip"
+# The approval line keeps record= LAST, since a Windows record path can hold spaces.
+_given=$(grep 'approval=given' "$ALOG" | tail -1)
+if [ -n "$_given" ] && printf '%s' "$_given" | grep -qE ' record=[^ ]+$'; then pass "record= is the last field of the approval line"
+else fail "approval line field order: $_given"; fi
 # A failure after prod-facing writes began says so.
 : > "$FAKE/.calls"; KOSMOS_PUBLISH_R2_FAKE_FAIL=latest-win.json promote; rc=$?
 if [ "$rc" -eq 1 ] && grep -qF "prod-facing writes had begun" "$TMP/out"; then pass "a failure after the first prod-facing write says what may have changed"

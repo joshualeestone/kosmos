@@ -122,6 +122,8 @@ function New-SigV4Authorization([string] $Method, [string] $HostName, [string] $
   $all = @{ 'host' = $HostName }
   foreach ($k in $Headers.Keys) { $all[$k] = $Headers[$k] }
   [string[]] $names = @($all.Keys); [Array]::Sort($names, [StringComparer]::Ordinal)   # what SigV4 specifies
+  # Values are trimmed; SigV4 also collapses INNER runs of spaces, which none of the headers
+  # this script signs can contain (dates, hashes, keys, ETags, fixed words).
   $canonHeaders = -join ($names | ForEach-Object { "$($_):$(([string]$all[$_]).Trim())`n" })
   $signed = $names -join ';'
   $canonical = "$Method`n$UriPath`n`n$canonHeaders`n$signed`n$PayloadSha"
@@ -208,6 +210,9 @@ function Invoke-FakeR2([string] $Method, [string] $Key, [byte[]] $Body, [string]
   [void](New-Item -ItemType Directory -Force -Path (Split-Path -Parent $path))
   if ($copy) {
     $src = Join-Path $FakeDir ($copy.Substring($Bucket.Length + 2))
+    # Test seam: a concurrent re-stage landing between the promote's checks and its copy.
+    $drift = [Environment]::GetEnvironmentVariable('KOSMOS_PUBLISH_R2_FAKE_RESTAGE_BEFORE_COPY')
+    if ($drift) { [IO.File]::Copy($drift, $src, $true) }
     if (-not (Test-Path -LiteralPath $src -PathType Leaf)) { return [pscustomobject]@{ Status = 404; Bytes = [byte[]]@(); Body = 'NoSuchKey'; ETag = '' } }
     if ($Extra.ContainsKey('x-amz-copy-source-if-match') -and $Extra['x-amz-copy-source-if-match'] -cne (& $tag $src)) { return [pscustomobject]@{ Status = 412; Bytes = [byte[]]@(); Body = 'PreconditionFailed'; ETag = '' } }
     [IO.File]::Copy($src, $path, $true)
@@ -446,7 +451,7 @@ if (-not $again -or (Sha256-Bytes $again.Bytes) -cne (Sha256-Bytes $staging.Byte
 # Josh's go is logged BEFORE any write; a go that is not logged is not given. bucket= and
 # prefix= tell a real promote from a self-test in the one log.
 $Where = "bucket=$Bucket prefix=$(if ($KeyPrefix) { $KeyPrefix } else { '-' })$(if ($FakeDir) { ' transport=test' })"
-Write-ApprovalLine "$(Stamp) family=win path=promote-r2 version=$ApprovedVersion sha256=$ApprovedSha approval_ref=$ApprovalRef record_sha256=$recordSha approval=given record=$recordPath $Where"
+Write-ApprovalLine "$(Stamp) family=win path=promote-r2 version=$ApprovedVersion sha256=$ApprovedSha approval_ref=$ApprovalRef record_sha256=$recordSha approval=given $Where record=$recordPath"   # record= LAST: the path may hold spaces (promote-channel.sh does the same)
 
 # The alias (a copy pinned to the exact object checked above) and its sidecar, both read back from
 # the bucket BEFORE prod's pointer moves; then latest-win.json LAST, the staging bytes verbatim.
