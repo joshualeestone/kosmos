@@ -51,8 +51,9 @@ nothing identifying was printed.)
   #1488 "operator named a codex home" mode, which is not the ordinary product.
 - The runner's shared home stays EMPTY, so no check's premise depends on which check ran first.
 
-Full browser-check run on f138ef26: all page checks passed (one retry, render-type-to-focus-3283,
-the focus area tracked as #3557).
+Full browser-check runs: on f138ef26 all page checks passed (one retry, render-type-to-focus-3283,
+the focus area tracked as #3557); and after the codex home moved to removal, on 3ab9d1f3, all page
+checks passed with no retries. The only commits after 3ab9d1f3 touch this plan.
 
 Rejected: changing the account modules to refuse the real home under a fixture. The seam already
 exists and every module honours it; the defect was fixtures not using it.
