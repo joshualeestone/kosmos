@@ -158,7 +158,7 @@ test('#3769 a key split across lines, spaced out, or hidden with zero-width char
     ];
     for (const [input, key, head, tail] of cases) {
       const out = mask(input).text;
-      for (const piece of [key.slice(0, 12), key.slice(14, 26), key.slice(-12)]) assert.ok(!out.includes(piece), `a piece of the key survived: ${out}`);
+      for (const piece of [key.slice(0, 10), key.slice(14, 26), key.slice(-12)]) assert.ok(!out.includes(piece), `a piece of the key survived: ${out}`);
       assert.ok(out.startsWith(head) && out.endsWith(tail) && out.includes(MASK), `the text around the key was lost: ${JSON.stringify(out)}`);
     }
     assert.equal(mask(`zw: ${held.slice(0, 10)}​${held.slice(10)}`).text, `zw: ${MASK}`, 'a zero-width character hid a key');
