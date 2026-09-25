@@ -42255,7 +42255,7 @@ function tskAgentName(sessionName) {
 var TSK_READY;   // hoisted (undefined) until `const TSK` below has run
 function tskRosterChanged() {
   if (!TSK_READY) return;   // the Tasks view is not set up yet; its own load paints with the roster it finds
-  if (TSK.data && !document.getElementById('panel-tasks').hidden && tskNamesSig() !== TSK.names) tskPaint();
+  if (TSK.data && !document.getElementById('panel-tasks').hidden && tskNamesSig() !== TSK.names) tskPaintKeepingCurrentFocus();
 }
 function tskNamesSig() {
   return (Array.isArray(LAST) ? LAST : []).map((a) => a && (a.sessionName + '=' + (a.name || ''))).sort().join('|');
@@ -42326,7 +42326,7 @@ async function tskLoad() {
     TSK.error = 'we could not reach Kosmos to read your tasks';
   }
   if (msg && TSK.error) msg.textContent = asSentence(TSK.error);
-  tskPaint();
+  tskPaintKeepingCurrentFocus();
 }
 function tskRow(t) {
   const on = TSK.sel.has(tskKey(t));
@@ -42497,6 +42497,16 @@ function tskPaintKeepingFocus(attr, value) {
   tskPaint();
   const again = document.querySelector('#panel-tasks [' + attr + '="' + CSS.escape(String(value)) + '"]');
   if (again) again.focus();
+}
+/* The same for a repaint nobody pressed for (a load finishing, the roster renaming an agent): if
+   focus is on a control inside the view, it follows that control's replacement. */
+const TSK_FOCUS_KEYS = ['data-key', 'data-open-task', 'data-open-project', 'data-agent', 'data-tile', 'data-proj', 'data-win', 'data-by'];
+function tskPaintKeepingCurrentFocus() {
+  const active = document.activeElement;
+  const panel = document.getElementById('panel-tasks');
+  const attr = active && panel && panel.contains(active) ? TSK_FOCUS_KEYS.find((k) => active.hasAttribute(k)) : null;
+  if (!attr) { tskPaint(); return; }
+  tskPaintKeepingFocus(attr, active.getAttribute(attr));
 }
 document.getElementById('panel-tasks').addEventListener('click', (e) => {
   const el = (sel) => e.target.closest(sel);

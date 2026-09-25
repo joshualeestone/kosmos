@@ -131,6 +131,18 @@ function chk(ok, label, extra) {
       if (SHOTS) { fs.mkdirSync(SHOTS, { recursive: true }); await page.screenshot({ path: path.join(SHOTS, `tasks-${theme}-${width}.png`), fullPage: true }); }
 
       if (theme === 'light' && width === 1400) {
+        /* A repaint nobody pressed for (a load finishing) keeps focus on the same control. */
+        await page.focus('#tsk-tiles [data-tile="working"]');
+        await page.evaluate(() => tskLoad());
+        await page.waitForTimeout(300);
+        const kept = await page.evaluate(() => (document.activeElement && document.activeElement.dataset && document.activeElement.dataset.tile) || document.activeElement.tagName);
+        chk(kept === 'working', `${tag} a background reload keeps focus on the same tile`, kept);
+        /* And a press keeps it too. */
+        await page.keyboard.press('Enter');
+        await page.waitForTimeout(200);
+        const pressed = await page.evaluate(() => ({ tile: document.activeElement && document.activeElement.dataset && document.activeElement.dataset.tile, on: TSK.tile }));
+        chk(pressed.tile === 'working' && pressed.on === 'working', `${tag} Enter on a tile filters and keeps focus there`, JSON.stringify(pressed));
+        await page.keyboard.press('Enter'); // back to everything
         /* Search: by agent name, then by number, combined with the rail. */
         await page.fill('#tsk-search', 'rex');
         let rows = await page.evaluate(() => [...document.querySelectorAll('#tsk-groups .tsk-row .tl')].map((x) => x.textContent));
