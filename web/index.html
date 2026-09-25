@@ -54195,6 +54195,9 @@ let ASB = { started: false, guide: null, setting: null, open: false, asking: fal
      is opened. Closing it, by any route, is reading it. */
   asideShowing: false, asideOnOpen: false, frWas: false };
 const ASB_HOSTED_KEY = 'kosmos.asb.hosted.v1';
+/* The two reasons the hosted assistant ends, in the same words as the board's refusals (server.js). */
+const ASB_WHY_OWN = 'You\'ve connected your own AI, so the setup assistant will use that.';
+const ASB_WHY_NONE = 'The setup assistant is not available on this computer right now.';
 const ASB_HOSTED_OFF_KEY = 'kosmos.asb.hosted-off.v1';
 try { if (sessionStorage.getItem(ASB_HOSTED_OFF_KEY) === '1') ASB.hostedOff = true; } catch { /* not remembered: said once more */ }
 const ASB_HOSTED_AVATAR = '/icons/setup-guide-avatar.jpg';
@@ -54353,7 +54356,8 @@ function asbPaint() {
   const src = row ? asbAvatar(row) : ASB_HOSTED_AVATAR;
   const note = document.querySelector('#asp .asp-note');
   const words = row ? 'An AI that knows Kosmos, in Josh\'s voice. Josh isn\'t typing live.'
-    : 'An AI in Josh\'s voice. Until you connect your own AI, your questions go to ours, online. Josh isn\'t typing live.';
+    : asbIsHosted() ? 'An AI in Josh\'s voice. Until you connect your own AI, your questions go to ours, online. Josh isn\'t typing live.'
+    : 'This chat has ended. Josh isn\'t typing live.';   // stepping aside: it no longer takes questions
   if (note && note.textContent !== words) note.textContent = words;
   for (const img of [bub.querySelector('img'), panel.querySelector('.asp-h img')]) if (img.getAttribute('src') !== src) img.setAttribute('src', src);
   panel.hidden = !ASB.open;
@@ -54689,12 +54693,12 @@ async function asbFind() {
         asbLayerEnsure(); if (!ASB.setting) asbReadSetting(); else { asbPaint(); asbPaintSetting(); }
       }
       if (!ASB.hosted && was) {
-        /* Withdrawn while the chat is open: say why, and it goes when they close it (not mid-sentence, not silently). */
-        if (ASB.open && !ASB.asideShowing) {
-          const pm = document.getElementById('asp-msg');
-          if (pm) pm.textContent = b.hostedWhy === 'own_model' ? 'You\'ve connected your own AI, so the setup assistant will use that.' : 'The setup assistant is not available on this computer right now.';
-          ASB.asideShowing = true;
-        }
+        /* Withdrawn: open, the chat says why and goes when they close it. Folded, it waits behind the dot, but only
+           for someone who was using it; a bubble never asked anything has no news to keep, and simply goes. */
+        const pm = document.getElementById('asp-msg');
+        const why = b.hostedWhy === 'own_model' ? ASB_WHY_OWN : ASB_WHY_NONE;
+        if (ASB.open && !ASB.asideShowing) { if (pm) pm.textContent = why; ASB.asideShowing = true; }
+        else if (!ASB.open && !ASB.asideOnOpen && ASB.wroteOnce) { if (pm) pm.textContent = why; ASB.asideOnOpen = true; ASB.dot = true; }
         asbPaint(); asbPaintSetting();
       }
     }

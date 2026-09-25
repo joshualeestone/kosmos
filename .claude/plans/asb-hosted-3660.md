@@ -132,3 +132,11 @@ the same state sooner. Replaced:
   - an old refusal is cleared when hosted comes back;
   - a send after the guide went is asked of the hosted assistant when it stands in;
   - the bubble's label says "there is something new to read" while the dot is lit (H18).
+
+## Review iteration 10 (fixed)
+- BLOCKER: the board withdrawing hosted while FOLDED still vanished silently (round 9 fixed only the open case). Now,
+  for someone who was using it (wroteOnce), it waits behind the dot with the reason (H22). A bubble never asked
+  anything simply goes (H22b, the control). Decided: wroteOnce is the line, because a person who never asked has no
+  news to keep.
+- NITs taken: one sentence per reason (ASB_WHY_OWN / ASB_WHY_NONE, matching the server's words), and while stepping the
+  note reads "This chat has ended. Josh isn't typing live." instead of offering the service.

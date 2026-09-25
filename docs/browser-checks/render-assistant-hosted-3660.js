@@ -320,6 +320,38 @@ const waitFor = (page, fn, ms = 6000) => page.waitForFunction(fn, null, { timeou
     chk(await waitFor(page, () => document.getElementById('asb').hidden, 3000), 'H21 closed, it goes');
     fs.rmSync(path.join(HOME, '.claude.json'), { force: true });
 
+    // H22: withdrawn while FOLDED, for someone who was using it: the bubble waits with the dot, and the reason is there
+    // when opened. CONTROL (H22b): someone who never asked anything has no news to keep, and the bubble simply goes.
+    await page.evaluate(() => { try { sessionStorage.clear(); } catch { /* */ } });
+    answer = { status: 200, body: { reply: 'Sure.', remaining: 20 } };
+    await boot();
+    chk(await waitFor(page, () => { const b = document.getElementById('asb'); return b && !b.hidden && ASB.hosted === true; }, 8000), 'H22 precondition: hosted');
+    await page.click('#asb');
+    await page.fill('#asp-say', 'One thing?');
+    await page.keyboard.press('Enter');
+    chk(await waitFor(page, () => ASB.wroteOnce === true && !ASB.sending), 'H22 precondition: they asked something');
+    await page.click('#asp-fold');
+    fs.writeFileSync(path.join(HOME, '.claude.json'), JSON.stringify({ oauthAccount: { emailAddress: 'person@example.com' } }));
+    fs.mkdirSync(path.join(HOME, '.claude'), { recursive: true });
+    await page.evaluate(() => { ASB.nextFind = 0; });
+    chk(await waitFor(page, () => ASB.hosted === false, 8000), 'H22 precondition: the board has withdrawn it');
+    await page.waitForTimeout(2000);
+    const h22 = await page.evaluate(() => ({ bubble: !document.getElementById('asb').hidden, dot: !document.querySelector('#asb .asb-dot').hidden }));
+    chk(h22.bubble && h22.dot, 'H22 withdrawn while folded, the bubble waits with the dot', JSON.stringify(h22));
+    await page.click('#asb');
+    const h22o = await page.evaluate(() => ({ msg: document.getElementById('asp-msg').textContent, note: document.querySelector('#asp .asp-note').textContent }));
+    chk(/connected your own AI/.test(h22o.msg) && /^This chat has ended/.test(h22o.note), 'H22 opened, it says why, and the note no longer offers the service', JSON.stringify(h22o));
+    await page.click('#asp-x');
+    chk(await waitFor(page, () => document.getElementById('asb').hidden, 3000), 'H22 closed, it goes');
+    fs.rmSync(path.join(HOME, '.claude.json'), { force: true });
+    await page.evaluate(() => { try { sessionStorage.clear(); } catch { /* */ } });
+    await boot();
+    chk(await waitFor(page, () => { const b = document.getElementById('asb'); return b && !b.hidden && ASB.hosted === true && ASB.wroteOnce === false; }, 8000), 'H22b precondition: hosted, never asked');
+    fs.writeFileSync(path.join(HOME, '.claude.json'), JSON.stringify({ oauthAccount: { emailAddress: 'person@example.com' } }));
+    await page.evaluate(() => { ASB.nextFind = 0; });
+    chk(await waitFor(page, () => ASB.hosted === false && document.getElementById('asb').hidden, 8000), 'H22b CONTROL: never asked anything, it simply goes');
+    fs.rmSync(path.join(HOME, '.claude.json'), { force: true });
+
     // H13: a model of their own is connected (an install from before the guide, or a guide removed): the hosted
     // assistant is not offered and the route refuses, so Kosmos's key is never spent for them. CONTROL: H1.
     fs.writeFileSync(path.join(HOME, '.claude.json'), JSON.stringify({ oauthAccount: { emailAddress: 'person@example.com' } }));
