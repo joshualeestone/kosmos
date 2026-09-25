@@ -125,6 +125,7 @@ jobs:
     needs: browser-checks-full
     if: always() && github.event_name == 'schedule'
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     permissions:
       issues: write
     steps:
@@ -147,15 +148,14 @@ jobs:
           # Every lookup is the REST issues LIST, never GitHub search: `gh issue list --label`
           # queries the search index, which lags a just-made issue (a missed card is a duplicate).
           # The list is newest first; pull requests (also returned by it) are dropped.
-          cards_by_label() { ghr gh api "repos/$GITHUB_REPOSITORY/issues?state=open&labels=$label&per_page=100" -q '[.[] | select(.pull_request == null) | .number] | .[]'; }
-          cards_by_title() { ghr gh api "repos/$GITHUB_REPOSITORY/issues?state=open&per_page=100" -q "[.[] | select(.pull_request == null and .title == \"$title\") | .number] | .[]"; }
+          cards_by_label() { ghr gh api --paginate "repos/$GITHUB_REPOSITORY/issues?state=open&labels=$label&per_page=100" -q '[.[] | select(.pull_request == null) | .number] | .[]'; }
+          cards_by_title() { ghr gh api --paginate "repos/$GITHUB_REPOSITORY/issues?state=open&per_page=100" -q "[.[] | select(.pull_request == null and .title == \"$title\") | .number] | .[]"; }
           # If even this lookup fails, the report is not dropped: a red night files a NEW card
           # (a possible duplicate is better than silence); a green night does nothing.
           lookup_failed=""
           open_list=$(cards_by_label) || { open_list=""; lookup_failed=1; }
           open=${open_list%%$'\n'*}
           [ -n "$lookup_failed" ] && [ "$RESULT" = success ] && exit 0
-          [ "$open" = null ] && open=""
           if [ "$RESULT" = success ]; then
             [ -n "$open" ] || exit 0
             # Only a FIRST attempt may close: a re-run of an older night (same event, old sha)
@@ -190,7 +190,9 @@ jobs:
               prev=""; unread=" (the previous report could not be read, so every entry is listed)"
             fi
             new=""
-            case "$red$prev" in *"(none captured"*) unread="${unread:- (no labels were captured on one side, so NEW is not computed)}"; prev="$red" ;; esac
+            # No real baseline on one side: list everything as NEW (as for an unreadable report),
+            # never "none", which would hide a first-time regression.
+            case "$red$prev" in *"(none captured"*) unread="${unread:- (no labels were captured on one side, so every entry is listed)}"; prev="" ;; esac
             set -f; _ifs=$IFS; IFS='|'
             for w in $red; do
               w="${w# }"; w="${w% }"; [ -n "$w" ] || continue
@@ -199,6 +201,8 @@ jobs:
               [ -n "$seen" ] || new="${new:+$new | }$w"
             done
             IFS=$_ifs; set +f
+            # A red RE-RUN still reports (the first attempt's comment may be what failed), tagged
+            # so it reads as the same night again, not a new one.
             rerun=""; [ "${GITHUB_RUN_ATTEMPT:-1}" != 1 ] && rerun=" (a re-run, attempt ${GITHUB_RUN_ATTEMPT}, of an earlier night)"
             gh1 gh issue comment "$open" --repo "$GITHUB_REPOSITORY" --body "Still not green ($RESULT) at $GITHUB_SHA$rerun: $RUN_URL
           NEW since the last red night: ${new:-none}$unread
@@ -210,7 +214,7 @@ jobs:
             if ! grep -qx "$label" <<<"$have"; then
               # --force succeeds whether or not the label exists, so a failed LOOKUP of an
               # existing label cannot end in an unlabelled (never found, never closed) card.
-              if gh label create "$label" --repo "$GITHUB_REPOSITORY" --color B60205 --force \
+              if ghr gh label create "$label" --repo "$GITHUB_REPOSITORY" --color B60205 --force \
                    --description "The nightly full browser-check run on main is not green (#2518)"; then have="$label"
               else echo "::warning::could not create the $label label; filing the card without it"; fi
             fi

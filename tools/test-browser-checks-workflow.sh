@@ -252,15 +252,9 @@ if command -v ruby >/dev/null 2>&1; then
           f=$(qarg "$@") || { echo "CALL unexpected label list without -q"; return 1; }
           if [ -n "$LABEL" ]; then printf "%s" "[{\"name\":\"nightly-browser-checks-red\"}]"; else printf "%s" "[]"; fi | jq -r "$f" ;;
         "label create") [ -n "$LCFAIL" ] && { echo "HTTP 502" >&2; return 1; }; echo "CALL label-create" ;;
-        "issue list") [ -n "$LISTFAIL" ] && { echo "HTTP 502" >&2; return 1; }
-          # A create that failed AFTER GitHub made the card: the card is now listed.
-          [ -f "$FLAGDIR/ghost" ] && { echo 9; return 0; }
-          f=$(qarg "$@") || { echo "CALL unexpected issue list without -q"; return 1; }
-          # Real gh prints an EMPTY line for a null -q result (jq -r would print "null");
-          # OPEN=null forces a literal "null" to exercise the guard in the script.
-          if [ "$OPEN" = null ]; then echo null
-          else r=$( { if [ -n "$OPEN" ]; then printf "%s" "[{\"number\":$OPEN},{\"number\":3}]"; else printf "%s" "[]"; fi; } | jq -r "$f"); [ "$r" = null ] && r=""; printf "%s\n" "$r"; fi ;;
-        "api repos/o/r/issues?"*)
+        "api --paginate")
+          # (every lookup pages through the list: gh api --paginate <url>)
+          case "$3" in repos/o/r/issues\?*) ;; *) echo "CALL unexpected api $3"; return 1 ;; esac
           # The REST issues list the script now uses for every lookup. Fixture issues: the open
           # card (OPEN) and #3 carry the label; the ghost card (#9, made by a create that
           # reported an error) exists once its flag is set; #5 is an unrelated issue; #6 is a PR
@@ -278,7 +272,7 @@ if command -v ruby >/dev/null 2>&1; then
           [ -f "$FLAGDIR/ghost" ] && items="{\"number\":9,\"title\":\"$T\",\"labels\":$lab},$items"
           case "$OPEN" in ""|null) ;; *) items="{\"number\":$OPEN,\"title\":\"$T\",\"labels\":$lab},{\"number\":3,\"title\":\"$T\",\"labels\":$lab},$items" ;; esac
           all="[$items]"
-          case "$2" in *labels=*) all=$(printf "%s" "$all" | jq -c "map(select(any(.labels[]; .name == \"nightly-browser-checks-red\")))") ;; esac
+          case "$3" in *labels=*) all=$(printf "%s" "$all" | jq -c "map(select(any(.labels[]; .name == \"nightly-browser-checks-red\")))") ;; esac
           printf "%s" "$all" | jq -r "$f" ;;
         "issue view")
           [ -n "$VIEWFAIL" ] && { echo "HTTP 502" >&2; return 1; }
@@ -374,6 +368,13 @@ if command -v ruby >/dev/null 2>&1; then
   rm -f "$BT/flags/"*; out="$(LISTFAIL=first CREATEFAIL=once LABEL=1 card failure 7)" || fail "lookup+create failure aborted: $out"
   case "$out" in *"CALL comment 7"*"not computed"*) ;; *) fail "a night whose lookup and create both failed left no report on the open card: $out" ;; esac
   rm -f "$BT/flags/"*
+  # After a night with no captured labels, the next real reds are ALL listed as NEW, never
+  # "none" (which would hide a first-time regression).
+  out="$(VIEWBODY="$(printf 'Still not green (failure) at x: u\nNEW since the last red night: none\nRed checks: (none captured; see the run log)')" REDV="render-fields|render-thread" card failure 7)" || fail "placeholder report: $out"
+  case "$(printf '%s\n' "$out" | sed -n 's/^NEW since the last red night: //p')" in
+    "render-fields | render-thread"*) ;;
+    *) fail "after a no-labels night, the real reds were not all listed as NEW: $out" ;;
+  esac
   # CRLF from a web edit must not make every check NEW.
   out="$(VIEWBODY="$(printf 'Still not green (failure) at x: u\r\nNEW since the last red night: none\r\nRed checks: render-fields | render-thread\r')" REDV="render-fields|render-thread" card failure 7)" || fail "CRLF report: $out"
   [ "$(printf '%s\n' "$out" | sed -n 's/^NEW since the last red night: //p')" = "none" ] || fail "a CRLF previous report made entries NEW: $out"
