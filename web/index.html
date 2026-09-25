@@ -42315,6 +42315,12 @@ function claimNotReported(claim) {
   return claim && claim.claimed === null && claim.neverReported === true
     ? 'has not reported what it is working on yet' : '';
 }
+/* The ONE part that carries an agent's claim line, on every surface that lists parts (the project
+   card, the task page): that agent's first OPEN part. The claim is about the agent, so it is said
+   once even when it holds several parts, and never beside a part it has finished. */
+function tkSayPart(parts, who) {
+  return who ? (parts || []).find((x) => x && x.who === who && !x.closedAt) || null : null;
+}
 function taskClaimHtml(claim) {
   if (!claim) return '';
   if (claim.claimed === true) return '<em class="tksay">says it is on this</em>';
@@ -42421,8 +42427,7 @@ function paintProjectTasks(p) {
          is the TASK's, asked of one report, not a per-part fact nobody
          computed). */
       const firstWho = assigned.length ? assigned[0].who : null;
-      /* The claim is about that agent, once: on its first part only, even when it holds several. */
-      const sayPart = firstWho ? parts.find((x) => x.who === firstWho) : null;
+      const sayPart = tkSayPart(parts, firstWho);   // once, on its first open part
       const rows = parts.map((part) => '<span class="tkcard-part' + (part.who ? '' : ' none') + '">'
         + tkFace(p, part.who)
         + '<span class="tkcard-who-b"><b>' + esc(part.who ? tkMemberName(p, part.who) : 'Nobody yet') + '</b>'
@@ -43059,9 +43064,9 @@ function paintTaskPage() {
      nobody computed under somebody's name. */
   const sayHtml = taskClaimHtml(t.claim);
   const firstWho = parts.map((x) => x.who).filter(Boolean)[0] || null;
-  /* ONE part carries the claim line: that agent's first OPEN part (the claim is about the agent,
-     so it is said once even when it holds several). The why line below reads the same value. */
-  const sayPart = firstWho ? parts.find((x) => x.who === firstWho && !x.closedAt) || null : null;
+  /* ONE part carries the claim line (tkSayPart, the same rule as the project card); the why line
+     below reads the same value. */
+  const sayPart = tkSayPart(parts, firstWho);
   document.getElementById('tk-who').innerHTML = parts.map((part) => {
     const shown = nameOf(part.who);
     const line = part.sentence && part.sentence !== t.sentence ? part.sentence : '';
