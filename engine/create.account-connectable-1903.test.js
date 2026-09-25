@@ -270,7 +270,7 @@ test('#3391: a lapsed Grok subscription is refused as an expired sign-in; a rene
     const noEmail = await create.accountConnectable({ provider: 'xai', accountDir: dir });
     assert.equal(noEmail.ok, false);
     assert.doesNotMatch(noEmail.because, /Sign in again/, 'a button that row does not have');
-    assert.match(noEmail.because, /Sign in with Add a provider in Settings, AI Models, then choose the new Grok account/);
+    assert.match(noEmail.because, /Sign in with Add a provider in Settings, AI Models, then choose the Grok account you signed in to for this agent/);
     assert.doesNotMatch(noEmail.because, /Disconnect/, 'a step that changes nothing and can refuse while agents run');
     write({ refresh_token: 'r' });
     const good = await create.accountConnectable({ provider: 'xai', accountDir: dir });
@@ -298,7 +298,7 @@ test('#3391: a lapsed DEFAULT Grok subscription is refused at create too (the de
     const noEmail = await create.accountConnectable({ provider: 'xai' });
     assert.equal(noEmail.ok, false);
     assert.doesNotMatch(noEmail.because, /Disconnect|Sign in again/, 'a control the default row does not have');
-    assert.match(noEmail.because, /Sign in with Add a provider in Settings, AI Models, then choose the new Grok account/);
+    assert.match(noEmail.because, /Sign in with Add a provider in Settings, AI Models, then choose the Grok account you signed in to for this agent/);
     fs.writeFileSync(f, JSON.stringify({ 'https://auth.x.ai::d': { email: 'd@example.com', refresh_token: 'r' } }), { mode: 0o600 });
     assert.equal((await create.accountConnectable({ provider: 'xai' })).ok, true, 'CONTROL: a renewable default passes');
     fs.rmSync(f, { force: true });

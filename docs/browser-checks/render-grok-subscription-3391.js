@@ -160,9 +160,10 @@ const chk = (ok, label, extra) => {
     await new Promise((r) => setTimeout(r, 50));
     window.removeEventListener('unhandledrejection', onRej);
     window.paintAccounts = real;
-    return { msg: document.getElementById('acct-grok-msg').textContent, rejections };
+    const m = document.getElementById('acct-grok-msg');
+    return { msg: m.textContent, visible: m.getClientRects().length > 0, rejections };
   });
-  chk(thrown.msg === 'Signed in, but this screen could not update. Close it and look in Settings, AI Models.' && thrown.rejections.length === 0,
+  chk(thrown.msg === 'Signed in, but this screen could not update. Close it and look in Settings, AI Models.' && thrown.visible && thrown.rejections.length === 0,
     'a repaint that throws after connected is said in Settings\' own words, not left on Checking', JSON.stringify(thrown));
 
   // An engine error is said in words; the button re-arms.
@@ -362,12 +363,14 @@ const chk = (ok, label, extra) => {
     await window.__tick();
     await new Promise((r) => setTimeout(r, 50));
     window.frPaintKeyed = real;
-    const out = { msg: document.getElementById('fr-grok-sub-msg').textContent };
+    // What the person can SEE: the box is closed by now, so its own line would be invisible.
+    const line = document.getElementById('fr-apikey-msg');
+    const out = { msg: line.textContent, visible: line.getClientRects().length > 0 };
     document.getElementById('fr-apikey-flow').hidden = true; FR_APIKEY_WHICH = null; frApikeyExpanded(null);
     return out;
   });
-  chk(frThrown.msg === 'Signed in, but this screen could not update. Grok will show as connected in Settings, AI Models.',
-    'first run: a repaint that throws after connected is said in first run\'s own words', JSON.stringify(frThrown));
+  chk(frThrown.visible && frThrown.msg === 'Grok is connected (me@example.com). This screen could not update the Grok row; Grok will show as connected in Settings, AI Models.',
+    'first run: a repaint that throws after connected is said on the line that stays on screen', JSON.stringify(frThrown));
 
   const frDone = await q(async () => {
     document.getElementById('fr-grok-connect').click();

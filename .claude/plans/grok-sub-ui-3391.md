@@ -112,3 +112,11 @@ signing a lapsed subscription back in from the app.
   repaint throws) asserts first run's; deleting either caller's text now goes red.
 - [NIT] the driver's fallback text was unreachable: removed, `repaintFailed` is part of the
   driver's contract (documented in its header).
+
+## Review pass 7 (opus): no blockers, 1 warning, 1 nit, both taken
+- [WARNING] first run's repaint-failed text went into a line inside the box that had just been
+  hidden, and the arm read only textContent. First run now catches its own repaint failure and
+  appends it to #fr-apikey-msg, the line that stays on screen; both arms (Settings and first
+  run) now assert the line is VISIBLE. Removing first run's catch goes red.
+- [NIT] "choose the new Grok account" can be wrong when the sign-in refreshed another account
+  with the same email: now "choose the Grok account you signed in to".

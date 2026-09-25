@@ -23314,6 +23314,7 @@ for (const id of ['fr-gemini-connect', 'fr-grok-connect']) {
 /* #3391 part 2: Grok's subscription sign-in in first run's box, on the shared driver. A new
    account only (a sign-in again is a Settings row action). Connected closes the box the
    way an added key does, and the Grok row repaints as Connected. */
+const FR_GROK_REPAINT_FAILED = 'This screen could not update the Grok row; Grok will show as connected in Settings, AI Models.';
 const FR_GROK_SUB = grokSubDriver({
   ids: { go: 'fr-grok-sub-go', openRow: 'fr-grok-sub-open-row', open: 'fr-grok-sub-open', code: 'fr-grok-sub-code', cancelRow: 'fr-grok-sub-cancel-row', cancel: 'fr-grok-sub-cancel' },
   /* Its own line, not the box's: the key and the sign-in sit side by side here, and a poll
@@ -23321,7 +23322,7 @@ const FR_GROK_SUB = grokSubDriver({
   msg: () => document.getElementById('fr-grok-sub-msg'),
   reauthDir: () => null,
   alive: () => FR_STEP === 5,
-  repaintFailed: 'Signed in, but this screen could not update. Grok will show as connected in Settings, AI Models.',
+  repaintFailed: 'Signed in, but this screen could not update. Grok will show as connected in Settings, AI Models.',   // before the box closes
   onConnected: async (account) => {
     FR_APIKEY_GEN += 1;   // a key Add still in flight is now the stale one
     document.getElementById('fr-apikey-flow').hidden = true;
@@ -23332,7 +23333,10 @@ const FR_GROK_SUB = grokSubDriver({
     msg.setAttribute('tabindex', '-1');
     msg.focus();
     msg.textContent = 'Grok is connected' + (account && account.email ? ' (' + account.email + ')' : '') + '.';
-    await frPaintKeyed();   // a fresh read: the Grok answer alone would repaint Gemini as not connected
+    /* The box is hidden by now, so a repaint that fails is said HERE, on the line that stays
+       on screen, not by the driver into the box's own line (review pass 7). */
+    try { await frPaintKeyed(); }   // a fresh read: the Grok answer alone would repaint Gemini as not connected
+    catch { msg.textContent += ' ' + FR_GROK_REPAINT_FAILED; }
   },
 });
 document.getElementById('fr-grok-sub-go').addEventListener('click', () => FR_GROK_SUB.start());

@@ -3600,12 +3600,13 @@ async function accountConnectable({ provider, accountDir } = {}) {
     /* The row offers Sign in again only when the account's email can be read (the engine tells
        a refresh from a swap by it), so without one the sentence names what that row does have. */
     /* Without an email there is no Sign in again, and a new sign-in never merges into such an
-       account, so it always lands as a NEW account beside it: that is the one to choose. The
+       account; it lands as a new account, or refreshes ANOTHER account with its email, so the
+       sentence names it by what the person did rather than calling it new. The
        same sentence serves a default row (which has no Disconnect) and a named one. */
     const expiredSignIn = (w, email) => `That ${w} sign-in has expired, so an agent created on it could not run. `
       + (email
         ? `Sign in again on that account in Settings, AI Models, or choose another ${w} account for this agent.`
-        : `Sign in with Add a provider in Settings, AI Models, then choose the new ${w} account for this agent.`);
+        : `Sign in with Add a provider in Settings, AI Models, then choose the ${w} account you signed in to for this agent.`);
     /* #3391: a DEFAULT grok account that is a subscription sign-in is the one default the
        board CAN see (it is listed), so a lapsed one is refused here as the named one is. */
     if (!dir && prov === 'xai') {
