@@ -9292,23 +9292,24 @@ body.plus-active #plus-state2 { max-width: 26rem; padding: 2rem; }
   #panel-detail:has(#d-sec-talk:not([hidden])) #d-files { display: none; }
   #panel-detail:has(#d-sec-talk:not([hidden])) .dsecs { flex: 1 1 auto; min-height: 0; padding-top: 0; }
   #panel-detail:has(#d-sec-talk:not([hidden])) #d-talk-box {
-    height: auto; min-height: 0; flex: 1 1 auto; overflow: hidden;
+    height: auto; min-height: 0; flex: 1 1 auto; overflow-x: hidden;
     margin: 0 calc(-1 * var(--space-8)); padding: 10px 12px calc(8px + var(--safe-bottom, 0px)); }
   #panel-detail:has(#d-sec-talk:not([hidden])) #d-dmthread { flex: 1 1 auto; min-height: 0; overflow-y: auto; overscroll-behavior: contain; }
   /* While the person is typing, the keyboard takes about half a phone screen, and the header,
      tabs and search above the thread would leave the thread no room (an iPhone SE had the
      composer pushed below the keyboard). They step aside while focus is anywhere in the
-     composer (the text box, add-a-file or Post, so tapping Post does not flash them back mid-tap)
-     or in the search box, and come back when focus leaves: the same trade chat apps make.
+     composer's text box or on Post (so tapping Post does not flash them back mid-tap; not
+     add-a-file, which keeps focus after the file picker closes with no keyboard up) or in the
+     search box, and come back when focus leaves: the same trade chat apps make.
      Accepted trade: hidden this way they are also out of the accessibility tree until focus
      leaves the composer. Searching keeps its own row and sets the composer aside instead, since
      the person is reading results, not writing. */
   /* `html body`, not `body`: a line beginning `body:has(` reads as a stray `prop: value` to the
      stylesheet guard in server.test.js. Same elements, one type selector more specific. */
-  html body:has(#d-talk-box .dmbar:focus-within, #d-talk-search:focus) #panel-detail:has(#d-sec-talk:not([hidden])) > .back,
-  html body:has(#d-talk-box .dmbar:focus-within, #d-talk-search:focus) #panel-detail:has(#d-sec-talk:not([hidden])) .dleft,
-  html body:has(#d-talk-box .dmbar:focus-within, #d-talk-search:focus) #d-talk-box #d-talk-older,
-  html body:has(#d-talk-box .dmbar:focus-within) #d-talk-box .d-talk-caprow,
+  html body:has(#d-talk-box :is(#d-say, #d-send):focus, #d-talk-search:focus) #panel-detail:has(#d-sec-talk:not([hidden])) > .back,
+  html body:has(#d-talk-box :is(#d-say, #d-send):focus, #d-talk-search:focus) #panel-detail:has(#d-sec-talk:not([hidden])) .dleft,
+  html body:has(#d-talk-box :is(#d-say, #d-send):focus, #d-talk-search:focus) #d-talk-box #d-talk-older,
+  html body:has(#d-talk-box :is(#d-say, #d-send):focus) #d-talk-box .d-talk-caprow,
   html body:has(#d-talk-search:focus) #d-talk-box .dmbar { display: none; }
   /* Thumb reach: the composer's controls meet the 44px minimum on a phone. */
   #d-talk-box .composerbox .attachbtn { width: 44px; height: 44px; }
@@ -30074,7 +30075,17 @@ function detailGo(section, opts) {
   const write = () => {
     document.documentElement.style.setProperty('--kosmos-visible-height', Math.round(viewport.height * viewport.scale) + 'px');
   };
-  viewport.addEventListener('resize', write);
+  /* iOS can pan the page to show a focused text box before this resize arrives; with the page
+     already exactly the visible height, that pan only cuts off the header. Undo it, and only
+     while typing in the phone chat so a tall header menu's own scroll is left alone.
+     Reasoned, not observed: on the iOS simulator checklist (no simulator on this Mac). */
+  const PHONE_WIDTH = window.matchMedia('(max-width: 40rem)');
+  viewport.addEventListener('resize', () => {
+    write();
+    const talk = document.getElementById('d-sec-talk');
+    const typing = document.activeElement && document.activeElement.closest && document.activeElement.closest('#d-talk-box');
+    if (PHONE_WIDTH.matches && talk && !talk.hidden && typing && window.scrollY) window.scrollTo(0, 0);
+  });
   write();
 })();
 document.getElementById('d-nav').addEventListener('click', (e) => {
