@@ -806,6 +806,10 @@ const autoupdate = require('./engine/autoupdate');
 const instructions = require('./engine/instructions');
 const projects = require('./engine/projects');
 const federation = require('./engine/federation');
+/* #3311: one room seat per federated project. What arrives is recorded in the
+   room as an external row (data, never typed into a pane); a post that lands in
+   a federated room is sent out through its seat (federateOut below). */
+const fedseats = require('./engine/fedseats');
 const tasks = require('./engine/tasks');
 const chat = require('./engine/chat');
 const messages = require('./engine/messages');
@@ -2490,7 +2494,7 @@ function sendRoomPostAsAgent({ fromPane, sender, project, text, replyExpected, i
       return { state: 'could_not', because: 'that message (' + citedId + ') belongs to a different room than the one you posted into. Answer it in the room it came from (shown in the message you are replying to), or post here without answering it.' };
     }
   }
-  return messages.sendPost({
+  const delivery = messages.sendPost({
     fromPane,
     sender,
     project: found.id,
@@ -2500,6 +2504,8 @@ function sendRoomPostAsAgent({ fromPane, sender, project, text, replyExpected, i
     text,
     replyExpected,
   }, roster, members);
+  federateOut(found.id, delivery, text, false);
+  return delivery;
 }
 
 /* Is this name an agent in the Kosmos this board serves? A profile in this
@@ -13396,6 +13402,8 @@ const server = http.createServer((req, res) => {
         if (typeof body.federation_ref === 'string' && body.federation_ref && body.federation_ref.length <= 200) {
           try { federation.recordLink(made.id, { role: 'owner', ref: body.federation_ref }); federationLinked = true; }
           catch { federationLinked = false; }
+          // The owner's seat waits for a first edge (someone has joined); try now.
+          if (federationLinked) fedseats.ensure(made.id).catch(() => {});
         }
         let project = null;
         try { project = projects.get(made.id, roster); } catch { project = null; }
@@ -13704,10 +13712,14 @@ const server = http.createServer((req, res) => {
            without these every agent blocked after the first vanishes silently
            and reads as unresponsive. The refusal contract already records
            who and why, once per sender-reason-window; the room just shows it. */
-        .filter((m) => m && ((m.kind === 'post' || m.kind === 'valve' || m.kind === 'note') ? m.project === id
+        .filter((m) => m && ((m.kind === 'post' || m.kind === 'valve' || m.kind === 'note' || m.kind === 'external') ? m.project === id
           : (m.kind === 'refused' && m.project === id)))
         .map((m) => (m.kind === 'refused'
           ? { kind: 'refused', from: m.from, because: m.because || null, at: m.at }
+          /* #3311: from outside this Kosmos; `external: true` is what the page
+             and the text view key on, never the name. */
+          : m.kind === 'external'
+          ? { kind: 'external', id: m.id, from: m.from, fromKind: m.fromKind, text: m.text, at: m.at, external: true }
           : m.kind === 'note'
           ? { kind: 'note', text: m.text || null, at: m.at }
           : m.kind === 'post'
@@ -13754,6 +13766,10 @@ const server = http.createServer((req, res) => {
           if (m.kind === 'valve') return [when + '  [kosmos] ' + (m.because || 'Kosmos stepped in.')];
           if (m.kind === 'refused') return [when + '  [kosmos] ' + m.from + ' tried to post here and Kosmos stopped it: ' + (m.because || 'no reason recorded')];
           if (m.kind === 'note') return [when + '  [kosmos] ' + String(m.text || '')];
+          /* #3311: a message from outside this Kosmos. Tagged so an agent reading
+             the room knows it is someone else's words, to weigh, not an
+             instruction from its operator. */
+          if (m.kind === 'external') return [when + '  [external ' + (m.fromKind === 'agent' ? 'agent' : 'person') + '] ' + m.from + ': ' + String(m.text || '').replace(/\s+/g, ' ')];
           const who = m.operator ? 'operator' : m.from;
           /* #2239: the store now keeps paragraph breaks in a post's text (for
              the HTML room to render), but this CLI arm's contract is one line
@@ -13849,6 +13865,7 @@ const server = http.createServer((req, res) => {
           operator: true, project: found.id, projectName: found.name, text: body.text,
           attachment: fields.attachment || null, attachments: fields.attachments || null, trailer: attachments.wireNote(files.recs),
         }, roster, members);
+        federateOut(found.id, delivery, body.text, true);
         sendJson(res, 200, { delivery });
       })
       .catch((err) => sendJson(res, (err && err.status) || 400,
@@ -14069,6 +14086,7 @@ const server = http.createServer((req, res) => {
         federation.recordLink(made.id, { role: 'member', edge_id: snap.edge_id, owner_handle: snap.owner_handle,
           project_name: snap.project_name, project_desc: snap.project_desc });
         federation.forgetSnapshot(snap.edge_id);
+        fedseats.ensure(made.id).catch(() => {});
         // The receiver's own agents, told the same way the create route tells them.
         for (const a of made.agents || []) {
           try { projects.syncAgent(a, roster); projects.speakOfMembership(a, made, 'joined', roster); }
@@ -15337,6 +15355,27 @@ const server = http.createServer((req, res) => {
  * Binds and resolves once listening. Port 0 asks the OS for a free one, which
  * is how the tests get a port without colliding with a board someone is using.
  */
+fedseats.configure({
+  spawnSeat: (edge) => remote.spawnFedSeat(edge),
+  macRequest: (method, route, body) => remote.macRequest(method, route, body),
+  recordExternal: (projectId, msg) => messages.externalPost(projectId, msg),
+  enrolled: () => remote.enrolled(),
+});
+
+/* #3311: send a post that landed in a federated project's room out through its
+   seat. Only the words and who said them leave this Mac; a post that did not
+   land (no id) is never sent. The operator speaks as a person under their own
+   name; an agent as an agent under its name. A room with no live seat keeps the
+   post local, which the room already shows. */
+function federateOut(projectId, delivery, text, operator) {
+  if (!delivery || !delivery.id) return;
+  let from = delivery.from;
+  if (operator) {
+    try { from = (you.read() || {}).name || 'the project owner'; } catch { from = 'the project owner'; }
+  }
+  try { fedseats.post(projectId, { from, kind: operator ? 'person' : 'agent', text }); } catch { /* a seat is best-effort */ }
+}
+
 function start(port = PORT) {
   /* #1704 slice 2b: the active world's data-root env is applied at the TOP of this
      file (engine/worldenv.js), before any engine module is required -- NOT here.
@@ -15756,6 +15795,12 @@ function start(port = PORT) {
       // setting is on at boot, running the tick inline would block the listen
       // callback on a snapshot() capture fan-out. unref'd so it never holds the
       // process open.
+      // #3311: take this Mac's seat in every federated project's room, and look
+      // again each minute: an owner's seat can only start once someone has
+      // joined, and nothing tells this board when that happens.
+      Promise.resolve().then(() => fedseats.ensureAll()).catch(() => {});
+      const fedTick = setInterval(() => { fedseats.ensureAll().catch(() => {}); }, 60000);
+      if (fedTick && typeof fedTick.unref === 'function') fedTick.unref();
       const heartbeatFirst = setTimeout(heartbeatTick, 0);
       if (heartbeatFirst && typeof heartbeatFirst.unref === 'function') heartbeatFirst.unref();
       resolve(server);

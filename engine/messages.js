@@ -52,6 +52,7 @@
 
 const fs = require('node:fs');
 const path = require('node:path');
+const crypto = require('node:crypto');
 const { execFileSync } = require('node:child_process');
 const chat = require('./chat');
 const store = require('./store');
@@ -394,6 +395,28 @@ function resolveSender(fromPane, roster) {
  * look -- a screen whose rule is no-state-as-silence needs the
  * difference, and the old swallow-everything read predates that screen.
  */
+/* #3311: record a message that arrived from outside, through a federated
+   project's seat. The sender's words are data: bounded, never parsed for
+   commands, and stored under their own kind so no reader can take them for a
+   local agent. Returns the row, or null if it did not fit the shape. */
+const EXTERNAL_FROM_MAX = 80;
+const EXTERNAL_TEXT_MAX = 8000;
+function externalPost(projectId, { from, fromKind, text }) {
+  const row = {
+    kind: 'external',
+    id: 'x-' + crypto.randomUUID(),
+    project: String(projectId),
+    from: String(from || '').replace(/\s+/g, ' ').trim().slice(0, EXTERNAL_FROM_MAX),
+    fromKind: fromKind === 'agent' ? 'agent' : 'person',
+    external: true,
+    text: String(text == null ? '' : text).slice(0, EXTERNAL_TEXT_MAX),
+    at: new Date().toISOString(),
+  };
+  if (!rowShaped(row)) return null;
+  appendLog(row);
+  return row;
+}
+
 /* Kosmos speaking in a room, in its own voice (#167). Only the product may
    write these; the shape validator refuses any other author, so a note can
    never dress an agent in words it did not say. Best-effort like every
@@ -570,6 +593,14 @@ function rowShaped(m) {
      to an agent. Same shape as the valve band it renders in. */
   if (m.kind === 'note') {
     return m.from === 'kosmos' && str(m.project) && str(m.text);
+  }
+  /* #3311: a message from OUTSIDE this Kosmos, delivered into a federated
+     project's room by its seat. `from` is the sender's own display name and
+     `fromKind` says person or agent; `external: true` is what every reader keys
+     on, so it can never be mistaken for a local agent or the operator. */
+  if (m.kind === 'external') {
+    return str(m.id) && str(m.project) && str(m.from) && typeof m.text === 'string'
+      && (m.fromKind === 'person' || m.fromKind === 'agent') && m.external === true;
   }
   /* #185: the nudge receipt. Kosmos's own voice into ONE pane, recorded so
      the at-most-once rule is checkable from the store rather than believed. */
@@ -2110,7 +2141,7 @@ module.exports = {
   LOG,
   unanswered, sweepUnanswered, setUnansweredAfterForTests,
   suspectedMisrouteCount,
-  resolveSender, paneSession, paneClaim, send, logRefusedSend, sendPost, reopenRoom, list, owesReply, pairCount, readLog, record, roomNote, markerProblem,
+  resolveSender, paneSession, paneClaim, send, logRefusedSend, sendPost, reopenRoom, list, owesReply, pairCount, readLog, record, roomNote, externalPost, markerProblem,
   unreadAll, unread, markSeen, seenRead, SEEN,
   setRunner, resetForTests,
 };

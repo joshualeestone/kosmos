@@ -5427,6 +5427,12 @@ body:not(.consolidated) .pjmidhead:has(.pjhead) .tsearch:focus-within { flex-bas
   #d-dmthread .msg.you .msg-b { margin-left: calc(28px + 14px); }
 }
 .msg.you .msg-bd { background: var(--usermsg-tint); }
+/* #3311: a message from outside this Kosmos keeps the agent bubble's fill and adds
+   a dashed edge and an External tag, so it is never read as one of your agents. */
+.msg.ext .msg-bd { outline: 1px dashed var(--k-rule); outline-offset: -1px; }
+.msg-ext-tag { font: 600 .6875rem var(--font-ui); text-transform: uppercase; letter-spacing: .04em;
+  color: var(--label-2); border: 1px solid var(--k-rule); border-radius: 999px; padding: 0 6px; vertical-align: 1px; }
+.msg-ext-tx { white-space: normal; overflow-wrap: anywhere; }
 /* #2947 / #3260: the one flat cream fill (background-COLOR, not the `background`
    shorthand, so the #2921 hover overlay -- a background-IMAGE on .msg:hover
    .msg-bd -- composites on top of the cream instead of being cleared by a
@@ -45847,6 +45853,22 @@ function pjRoomRow(m, p) {
     const whenN = pjWhen(m.at) || '';
     return '<div class="msg-valve">' + esc(m.text || '')
       + (whenN ? '<span class="msg-t">' + esc(whenN) + '</span>' : '') + '</div>';
+  }
+  /* #3311: a message from OUTSIDE this Kosmos, through a federated project. The
+     sender's own name, tagged External (or External agent), initials only (there
+     is no local card), and the words as plain escaped text: no mentions, no
+     quotes, no links drawn, nothing clickable that acts. */
+  if (m.kind === 'external') {
+    const whoX = m.from || 'Someone outside';
+    const tagX = m.fromKind === 'agent' ? 'External agent' : 'External';
+    const whenX = pjWhen(m.at) || '';
+    return '<div class="msg ext">'
+      + '<div class="msg-av" aria-hidden="true" style="background:' + discTint(whoX) + ';color:' + discInk(whoX) + '">' + esc(initials(whoX)) + '</div>'
+      + '<div class="msg-b"><div class="msg-bd">'
+      + '<b class="msg-nm">' + esc(whoX) + '</b> <span class="msg-ext-tag">' + tagX + '</span>'
+      + '<div class="msg-ext-tx">' + esc(m.text || '').replace(/\n/g, '<br>') + '</div>'
+      + (whenX ? '<span class="msg-t">' + esc(whenX) + '</span>' : '')
+      + '</div></div></div>';
   }
   if (m.kind === 'refused') {
     const whenR = pjWhen(m.at) || '';
