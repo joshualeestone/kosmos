@@ -230,7 +230,7 @@ No deploy step copies a key file, and the template only holds its path.
   uses it.
 - **No purchase inside the app.** The sign-in page hides checkout, prices and the billing portal
   inside the iOS app (kosmos-relay #117). Anything said to App Review about where Kosmos+ is sold
-  is Josh's.
+  is Josh's. The Android app does the same (Step 5).
 - **Waiting on the iOS simulator runtime** (`xcodebuild -downloadPlatform iOS`): the app icon (the
   artwork is ready: `assets/Kosmos-1024.png`, 1024 px, full bleed, no transparency) and a navy
   launch screen. Both need an asset catalog, which does not compile on a Mac without the runtime.
@@ -305,12 +305,12 @@ eval "$(secrets-map.sh env kosmos-android-upload-signing)"
   call for Josh.
 
 **No purchase inside the Android app** (kosmos #718, Liu Kang's decision of 2026-09-25, matching
-iOS; Josh can overrule it). Read on kosmos-relay branch `android-no-purchase-718` (kosmos-relay #121),
-2026-09-25: inside the app the sign-in page shows no checkout, price or billing portal, and an
+iOS; Josh can overrule it). Read on kosmos-relay branch `android-no-purchase-718` (kosmos-relay #121)
+the same day: inside the app the sign-in page shows no checkout, price or billing portal, and an
 unpaid account is told only "This account does not include Kosmos+ yet." The switch is
 `CAN_BUY_HERE` in `coordinator/src/signin.html`; it recognises the app by the referrer Chrome sends
-when it opens the app (`android-app://io.kosmos.app/`), which is reasoned from Chrome's documented
-behaviour, not yet seen on a phone.
+when it opens the app (`android-app://io.kosmos.app/`). That Chrome sends it is reasoned from
+Chrome's documented behaviour, not yet seen on a phone.
 - **Not live yet:** it takes that PR merging AND the next coordinator deploy [Josh, a production
   change], like the assetlinks route above. Every phone check below waits for that deploy.
 - **Before the first upload to any Play track** (the Internal testing upload below; it holds for
@@ -328,7 +328,8 @@ behaviour, not yet seen on a phone.
   return to a later page: the app is remembered only for the life of its tab, so a phone that
   reclaims Chrome's memory could bring the pay step back until the app is next opened fresh.
 - **Play-install check, after the Internal testing upload** [fleet, with a person holding a phone].
-  The same three checks on the app installed from Play. It is a separate check because a Play
+  The same three checks on the app installed from Play (the background-return check need only be
+  done once, on either build: it depends on Chrome's memory, not on which key signed the app). It is a separate check because a Play
   install is signed with Play's app-signing key, which assetlinks.json does not list yet, so it
   opens with a browser bar, and whether Chrome sends the same referrer that way is not confirmed. A
   sideload passing does not prove it. This gates the production release in Step 10.
@@ -482,7 +483,9 @@ stops once the service restarts.
 ## Step 10. Public app releases [Josh]
 
 - **iOS:** App Store review and release. A phased release can be paused in App Store Connect.
-- **Android:** Production track, as a staged rollout (for example 10%).
+- **Android:** Production track, as a staged rollout (for example 10%). Not before the two Step 5
+  gates for "No purchase inside the Android app": Josh's read of the Play Payments policy, and the
+  Play-install check.
   - "Halt rollout" stops new installs. Anyone who already has it keeps it.
   - A fix ships as a new build with a higher `versionCode`. An older one cannot be re-published.
   - Because the Android app is a shell around the website, most problems are fixed by a server
