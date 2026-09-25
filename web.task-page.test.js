@@ -263,6 +263,12 @@ test('an agent that never reported is said ONCE on the page, beside its name, ne
   assert.doesNotMatch(done.doc.els['tk-why'].textContent, /April/, 'the finished agent is named');
 });
 
+test('whether the agent is named and whether its claim line is on screen are ONE derivation', () => {
+  const src = fnSource('paintTaskPage');
+  assert.match(src, /const firstOpen = !!firstWho && parts\.some\(\(x\) => x\.who === firstWho && !x\.closedAt\);/);
+  assert.match(src, /const sayShown = firstOpen;/, 'two expressions for one fact can drift, and the page then says it twice or never');
+});
+
 test('any other could-not-tell reason on a task kept as parts names its agent, never "it"', () => {
   const parted = runPaint({
     project: { ...PROJECT, tasks: [] },
