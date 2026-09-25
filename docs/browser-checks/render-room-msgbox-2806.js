@@ -777,6 +777,16 @@ const now = () => new Date().toISOString();
         return { barTop: Math.round(Q.top), roomTop: Math.round(R.top + parseFloat(getComputedStyle(room).borderTopWidth)), barLeft: Math.round(Q.left), roomLeft: Math.round(R.left) };
       });
       chk(!clip.error && clip.barTop >= clip.roomTop && clip.barLeft >= clip.roomLeft, `[phone/touch] the first post's bar is not clipped by the thread`, JSON.stringify(clip));
+      // What a thumb actually hits: at each emoji's centre the topmost element must be that
+      // emoji, not the next message painted over a bar that opened below its post.
+      const hits = await phonePage.evaluate(() => {
+        const row = document.querySelector('#pj-room .msg.rxn-show'); const q = row && row.querySelector('.rxn-quick');
+        if (!q) return { error: 'no open bar' };
+        return { below: row.classList.contains('rxn-below'), hits: [...q.querySelectorAll('button')].map((b) => {
+          const r = b.getBoundingClientRect(); const top = document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2);
+          return top === b || b.contains(top); }) };
+      });
+      chk(!hits.error && hits.below && hits.hits.length === 4 && hits.hits.every(Boolean), `[phone/touch] a bar that opens below its post is on top: every emoji takes its own tap`, JSON.stringify(hits));
       await firstBody.tap();
       await phonePage.waitForTimeout(300);
       const t2 = await bar();
@@ -871,6 +881,11 @@ const now = () => new Date().toISOString();
         return { clear: Q.bottom <= B.top || Q.top >= B.bottom, bar: [Math.round(Q.top), Math.round(Q.bottom)], bubble: [Math.round(B.top), Math.round(B.bottom)] };
       });
       chk(!clear.error && clear.clear, `[phone/touch] the open bar does not cover its own short bubble`, JSON.stringify(clear));
+      const hitsAbove = await phonePage.evaluate(() => {
+        const q = document.querySelector('#pj-room .msg.rxn-show .rxn-quick'); if (!q) return { error: 'no open bar' };
+        return [...q.querySelectorAll('button')].map((b) => { const r = b.getBoundingClientRect(); const top = document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2); return top === b || b.contains(top); });
+      });
+      chk(Array.isArray(hitsAbove) && hitsAbove.length === 4 && hitsAbove.every(Boolean), `[phone/touch] a bar above its post is on top of the message before it`, JSON.stringify(hitsAbove));
       await own.tap();
       await phonePage.waitForTimeout(300);
       const again = await phonePage.evaluate(() => ({ shown: document.querySelectorAll('#pj-room .msg.rxn-show').length, reacts: window.__reacts }));

@@ -5836,9 +5836,18 @@ body:not(.consolidated) .pjmidhead:has(.pjhead) .tsearch:focus-within { flex-bas
      thread's left edge and be clipped, so an agent's bar starts at the bubble's left. */
   #pj-room .rxn-quick { gap: 4px; top: auto; bottom: calc(100% + 4px); }
   #pj-room .msg.rxn-below .rxn-quick { bottom: auto; top: calc(100% + 4px); }
+  /* Every row's .msg-b is its own stacking context (isolation), painted in order, so a bar that
+     opens BELOW its post sat under the next message and lost every tap to it. The open row is
+     lifted above its neighbours. */
+  #pj-room .msg.rxn-show .msg-b { z-index: 4; }
+  /* Outside its bubble it lies over another message: its own ground, so the emoji read. */
+  #pj-room .msg.rxn-show .rxn-quick { background: var(--k-surface); border: 1px solid var(--k-rule);
+    border-radius: 100px; padding: 2px 4px; box-shadow: 0 2px 8px rgba(0,0,0,.12); }
   #pj-room .msg:not(.you) .rxn-quick { right: auto; left: 0; }
-  /* A tap on a message is a gesture now: no grey iOS flash over the whole thread. */
+  /* A tap on a message is a gesture now: no grey iOS flash over the whole thread. Links and
+     buttons in it keep a tap flash of their own. */
   #pj-room { -webkit-tap-highlight-color: transparent; }
+  #pj-room a, #pj-room button { -webkit-tap-highlight-color: rgba(0, 0, 0, .12); }
   #pj-room .rxn-pick, #pj-room .rxn-more { min-width: 36px; min-height: 36px; }
   /* A reaction already on a post is a target too, on any touchscreen (a phone turned
      sideways is wider than the phone block but still a thumb). */
@@ -46416,13 +46425,15 @@ if (window.matchMedia) {
    so a repaint can put it back (below) and another project's same id never inherits it. */
 let RXN_SHOW_POST = null;
 let RXN_SHOW_PID = null;
-/* Above the message unless the thread's top edge would cut it, then below (CSS .rxn-below). */
+/* Above the message unless the thread's top edge, or the top of the screen (the page itself
+   scrolls on a phone), would cut it; then below (CSS .rxn-below). */
 function pjRxnPlace(row) {
   row.classList.remove('rxn-below');
   const q = row.querySelector('.rxn-quick'); const room = document.getElementById('pj-room');
   if (!q || !room) return;
   const roomTop = room.getBoundingClientRect().top + (parseFloat(getComputedStyle(room).borderTopWidth) || 0);
-  if (q.getBoundingClientRect().top < roomTop) row.classList.add('rxn-below');
+  const screenTop = window.visualViewport ? window.visualViewport.offsetTop : 0;
+  if (q.getBoundingClientRect().top < Math.max(roomTop, screenTop)) row.classList.add('rxn-below');
 }
 /* #718 mobile: on a touchscreen, a tap on a message shows its add-reaction bar (hover
    does it on a computer). One row at a time. A tap on a link, a button or the reaction row
@@ -46469,9 +46480,11 @@ if (window.MutationObserver) {
    picker (it lives in body, outside the room): the bar it was opened from stays with it.
    pointerdown, not click: iOS Safari sends no click for a tap on plain content unless
    something below body listens, so a document click listener would miss most taps.
-   Not gated on touch, and neither is the observer: both act only on RXN_SHOW_POST, which
-   only the touch-gated tap listener sets, so with a mouse they do nothing. */
+   It also fires as a page scroll starts outside the room, which closes the bar too.
+   Not gated on touch, and neither is the observer: both return at once unless RXN_SHOW_POST
+   is set, which only the touch-gated tap listener does, so with a mouse they do nothing. */
 document.addEventListener('pointerdown', (e) => {
+  if (!RXN_SHOW_POST) return;   // nothing open: a mouse click (or any tap) costs nothing here
   const room = document.getElementById('pj-room');
   if (!room || (e.target && room.contains(e.target))) return;
   if (e.target && e.target.closest && e.target.closest('.rxn-picker')) return;
