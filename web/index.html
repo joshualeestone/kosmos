@@ -2691,7 +2691,7 @@ body.filter-noproj #orgview .onode:not([data-noproj]) { opacity: .26; }
 #d-nav .dnav-ico svg { display: block; }
 #d-nav .dnav-lab { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 /* Direct Message: the largest box and the default landing. */
-#d-nav.dnav-boxed button.dnav-dm { padding: 16px; font-size: 1.0625rem; border-radius: 14px; }
+#d-nav.dnav-boxed button.dnav-dm { padding: 10px 16px; border-radius: 14px; }
 /* The four smaller boxes below the DM box, as a 2x2 grid (Josh, 2026-09-24: the 2x2 is the ideal;
    all four tiles the exact same size; the label must never wrap). Two equal `1fr` columns plus
    `grid-auto-rows: 1fr` keep every tile identical in BOTH width and height (the two rows are forced
@@ -2704,8 +2704,13 @@ body.filter-noproj #orgview .onode:not([data-noproj]) { opacity: .26; }
    column - see the media query below - so a label never wraps rather than being forced into a 2x2
    that no longer fits. The #3045 no-overflow guard still holds in both. */
 #d-nav .dnav-pack { display: grid; grid-template-columns: 1fr 1fr; grid-auto-rows: 1fr; gap: 8px; margin: 0; }
-#d-nav .dnav-pack button { padding: 14px 8px; }
-#d-nav .dnav-pack .dnav-lab { font-size: .875rem; }
+#d-nav .dnav-pack button { padding: 8px 8px; }
+/* #3757 (Josh, 0.6.94: "the text font is just too big ... the same size as the agent's title";
+   "tighten up the buttons so they're not quite so tall"; width, grid and icons unchanged): every
+   label, the Direct Message box's too, takes the title line's font (.detail-meta, --text-callout),
+   and the boxes lose height through padding and the icon-to-label gap only. */
+#d-nav.dnav-boxed .dnav-lab { font: var(--text-callout) var(--font-ui); font-weight: 600; }
+#d-nav.dnav-boxed button { gap: 4px; }
 /* ACTIVE STATE - deliberately NOT the old full-solid-gold fill (`.snav button.on`, which Josh
    said does not make sense here). One reasoned default (he wants to pick from options): a faint gold
    wash + a gold outline + a gold-deep icon, with the label in ink, so "selected" reads without the
@@ -6302,6 +6307,11 @@ body:not(.consolidated) .pjmidhead:has(.pjhead) .tsearch:focus-within { flex-bas
 .dfiles-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
 .dfiles-head .dlab { margin: 0; }
 .dfiles .pj-docs { margin-top: 8px; }
+/* #3757: View All sits at the right of the Files header, as on the project page's header. */
+.dfiles-head .pj-viewall { display: inline; width: auto; }
+.dfiles-screen-head { margin-bottom: 12px; }
+.dfiles-title { margin: 0; font-size: 1.375rem; font-weight: 700; letter-spacing: -.02em; color: var(--k-ink); line-height: 1.2; }   /* as #d-talk-label, the page's other section title */
+#d-sec-files .pj-docs { margin-top: 0; }
 /* #pj-one-add sits in a `.frow`, so the shared `select` rule dresses it and
    the named width rule above widths it. ⚠️ NOT `.frow select` — this comment
    said so and that selector does not exist: it was deliberately replaced by an
@@ -9400,17 +9410,31 @@ window.kosmosMeasureScrollbarWidth();
        four-pack. The folder is the agent's own Files folder (engine/dmfiles.js; the agent is told
        to save there). Rows use the project documents look; a click opens the file. Painted by
        paintAgentFiles on open and on the 5-second poll while this page is on screen. -->
-  <section class="dfiles" id="d-files" aria-labelledby="d-files-h">
+  <!-- #3757 (Josh, 0.6.94): the section is not shown at all while the agent has no files, and it
+       reads like the project page's: "Files", a short list, and View All on the right only when
+       there are more than the list shows. View All opens the Files screen (#d-sec-files), which is
+       where Open in Finder now lives ("it looks crowded and junky" here). -->
+  <section class="dfiles" id="d-files" aria-labelledby="d-files-h" hidden>
     <div class="dfiles-head">
       <h3 class="dlab" id="d-files-h">Files</h3>
-      <button class="btn" id="d-files-finder" type="button" data-win-copy="docsOpenFolder">Open in Finder</button>
+      <button class="linkish pj-viewall" id="d-files-all" type="button" hidden>View All</button>
     </div>
     <p class="dhint" id="d-files-msg" role="status"></p>
     <div class="pj-docs" id="d-files-list"></div>
-    <p class="dhint" id="d-files-more" hidden></p>
   </section>
   </div>
   <div class="dsecs">
+  <!-- #3757: every file in the agent's Files folder, reached from View All beside the list. Open
+       in Finder moved here from the sidebar. It has no pill of its own; the nav lights none. -->
+  <section class="dsec" id="d-sec-files" data-sec="files" tabindex="-1" aria-label="Files" hidden>
+    <div class="dfiles-head dfiles-screen-head">
+      <h2 class="dfiles-title" id="d-filesall-h">Files</h2>
+      <button class="btn" id="d-files-finder" type="button" data-win-copy="docsOpenFolder">Open in Finder</button>
+    </div>
+    <p class="dhint" id="d-filesall-msg" role="status"></p>
+    <div class="pj-docs" id="d-filesall-list"></div>
+    <p class="dhint" id="d-filesall-more" hidden></p>
+  </section>
   <section class="dsec" id="d-sec-talk" data-sec="talk" tabindex="-1" aria-label="Talk">
 
   <!-- 🛑 THE ROOM-CONVERSATION BOX IS GONE (Josh, 2026-08-23 12:38: "i want to
@@ -27996,19 +28020,43 @@ function fitDetailName() {
 
 /* #3614: the agent page's Files list. The server lists the agent's own Files folder; a folder
    not made yet is the empty state. The stamp skips a repaint when nothing changed, and the epoch
-   and agent re-check stop a late answer painting one agent's files under another's name. */
+   and agent re-check stop a late answer painting one agent's files under another's name.
+   #3757 (Josh, 0.6.94): an agent with no files shows no Files section at all ("let's not show
+   this section"); with files, the list is the first AGENT_FILES_SHOWN and View All appears only
+   when there are more ("a View All if we exceeded the number that we display"). A folder of its
+   own that is missing, or none at all (404), is no files too. A read that FAILED is not "no
+   files", so it keeps the section and says so. */
+const AGENT_FILES_SHOWN = 10;   // as many as the project page's Files list shows
 let AGENT_FILES_EPOCH = 0;
 let AGENT_FILES_STAMP = null;
+function agentFileRow(f) {
+  // A BUTTON: it opens a file, so it must be reachable from the keyboard.
+  const b = document.createElement('button');
+  b.type = 'button';
+  b.className = 'pj-doc';
+  b.dataset.doc = f.name;
+  b.insertAdjacentHTML('afterbegin', fileIcon(f.name));
+  const n = document.createElement('span');
+  n.className = 'pj-doc-n';
+  n.textContent = f.name;
+  const w = document.createElement('span');
+  w.className = 'pj-doc-w';
+  const when = f.modified ? new Date(f.modified) : null;
+  w.textContent = (when && !isNaN(when) ? when.toLocaleDateString() + ' · ' : '') + pjSize(f.size);
+  b.append(n, w);
+  return b;
+}
 async function paintAgentFiles(sessionName) {
+  const section = document.getElementById('d-files');
   const list = document.getElementById('d-files-list');
   const msg = document.getElementById('d-files-msg');
-  const more = document.getElementById('d-files-more');
-  if (!list || !msg) return;
+  const all = document.getElementById('d-files-all');
+  if (!section || !list || !msg) return;
   const epoch = (AGENT_FILES_EPOCH += 1);
   let body;
   let status = 0;
   try {
-    const res = await fetch('/api/agent/' + encodeURIComponent(sessionName) + '/files');
+    const res = await fetch('/api/agent/' + encodeURIComponent(sessionName) + '/files?limit=' + AGENT_FILES_SHOWN);
     status = res.status;
     body = await res.json();
   } catch {
@@ -28017,8 +28065,9 @@ async function paintAgentFiles(sessionName) {
     if (AGENT_FILES_STAMP === 'neterr') return;
     AGENT_FILES_STAMP = 'neterr';
     list.textContent = '';
-    if (more) more.hidden = true;
-    msg.textContent = 'We could not read this agent\u2019s files just now.';
+    if (all) all.hidden = true;
+    msg.textContent = 'We could not read this agent’s files just now.';
+    section.hidden = false;
     return;
   }
   if (epoch !== AGENT_FILES_EPOCH || !CURRENT || CURRENT.sessionName !== sessionName) return;
@@ -28029,48 +28078,71 @@ async function paintAgentFiles(sessionName) {
   if (stamp && stamp === AGENT_FILES_STAMP) return;
   AGENT_FILES_STAMP = stamp;
   list.textContent = '';
-  if (more) more.hidden = true;
-  if (!ok) {
-    // A 404 means this agent has no folder of its own here: say that, not the route's "no agent".
-    msg.textContent = status === 404
-      ? 'This agent has no folder of its own on this computer, so there is no Files list.'
-      : asSentence((body && body.because) || 'We could not read this agent\u2019s files just now.');
+  if (all) all.hidden = true;
+  const files = ok && Array.isArray(body.files) ? body.files : [];
+  // No folder of its own (404), a folder not made yet, or an empty one: no files, no section.
+  if ((ok && !files.length) || status === 404) {
+    msg.textContent = '';
+    section.hidden = true;
     return;
   }
-  const files = Array.isArray(body.files) ? body.files : [];
-  if (!files.length) {
-    msg.textContent = 'Nothing here yet. Files this agent makes for you in a Direct Message show up here.';
+  section.hidden = false;
+  if (!ok) {
+    msg.textContent = asSentence((body && body.because) || 'We could not read this agent’s files just now.');
     return;
   }
   msg.textContent = '';
-  for (const f of files) {
-    // A BUTTON: it opens a file, so it must be reachable from the keyboard.
-    const b = document.createElement('button');
-    b.type = 'button';
-    b.className = 'pj-doc';
-    b.dataset.doc = f.name;
-    b.insertAdjacentHTML('afterbegin', fileIcon(f.name));
-    const n = document.createElement('span');
-    n.className = 'pj-doc-n';
-    n.textContent = f.name;
-    const w = document.createElement('span');
-    w.className = 'pj-doc-w';
-    const when = f.modified ? new Date(f.modified) : null;
-    w.textContent = (when && !isNaN(when) ? when.toLocaleDateString() + ' \u00b7 ' : '') + pjSize(f.size);
-    b.append(n, w);
-    list.append(b);
+  for (const f of files) list.append(agentFileRow(f));
+  if (all) all.hidden = !(Number(body.total) > files.length);
+  // The Files screen, when it is the one showing, follows the same change.
+  const screen = detailSection('files');
+  if (screen && !screen.hidden) paintAgentFilesAll(sessionName);
+}
+/* #3757: the Files screen, reached from View All: every file (up to the route's own cap), with
+   Open in Finder, which moved here from the sidebar. */
+let AGENT_FILES_ALL_EPOCH = 0;
+async function paintAgentFilesAll(sessionName) {
+  const list = document.getElementById('d-filesall-list');
+  const msg = document.getElementById('d-filesall-msg');
+  const more = document.getElementById('d-filesall-more');
+  if (!list || !msg) return;
+  const epoch = (AGENT_FILES_ALL_EPOCH += 1);
+  let body;
+  let status = 0;
+  try {
+    const res = await fetch('/api/agent/' + encodeURIComponent(sessionName) + '/files?limit=500');
+    status = res.status;
+    body = await res.json();
+  } catch {
+    if (epoch !== AGENT_FILES_ALL_EPOCH || !CURRENT || CURRENT.sessionName !== sessionName) return;
+    list.textContent = '';
+    if (more) more.hidden = true;
+    msg.textContent = 'We could not read this agent’s files just now.';
+    return;
   }
+  if (epoch !== AGENT_FILES_ALL_EPOCH || !CURRENT || CURRENT.sessionName !== sessionName) return;
+  list.textContent = '';
+  if (more) more.hidden = true;
+  if (!body || body.ok !== true) {
+    msg.textContent = status === 404
+      ? 'This agent has no folder of its own on this computer, so there is no Files list.'
+      : asSentence((body && body.because) || 'We could not read this agent’s files just now.');
+    return;
+  }
+  const files = Array.isArray(body.files) ? body.files : [];
+  msg.textContent = files.length ? '' : 'This agent has no files yet.';
+  for (const f of files) list.append(agentFileRow(f));
   const rest = Number(body.total) - files.length;
   if (more && rest > 0) {
-    more.textContent = 'And ' + rest + ' more in the folder.';
+    more.textContent = 'And ' + rest + ' more in the folder. Open in Finder shows them all.';
     more.hidden = false;
   }
 }
-document.getElementById('d-files-list') && document.getElementById('d-files-list').addEventListener('click', async (e) => {
+for (const [listId, msgId] of [['d-files-list', 'd-files-msg'], ['d-filesall-list', 'd-filesall-msg']]) document.getElementById(listId) && document.getElementById(listId).addEventListener('click', async (e) => {
   const row = e.target.closest('.pj-doc');
   if (!row || !CURRENT) return;
   const who = CURRENT.sessionName;
-  const msg = document.getElementById('d-files-msg');
+  const msg = document.getElementById(msgId);
   let say;
   try {
     const res = await fetch('/api/agent/' + encodeURIComponent(who) + '/files/open', {
@@ -28084,10 +28156,14 @@ document.getElementById('d-files-list') && document.getElementById('d-files-list
   // Only on the agent it was for: the person may have switched agents while this was in flight.
   if (msg && CURRENT && CURRENT.sessionName === who) msg.textContent = say;
 });
+document.getElementById('d-files-all') && document.getElementById('d-files-all').addEventListener('click', () => {
+  if (!CURRENT) return;
+  detailGo('files');
+});
 document.getElementById('d-files-finder') && document.getElementById('d-files-finder').addEventListener('click', async () => {
   if (!CURRENT) return;
   const who = CURRENT.sessionName;
-  const msg = document.getElementById('d-files-msg');
+  const msg = document.getElementById('d-filesall-msg');
   let failed = null;
   try {
     const res = await fetch('/api/agent/' + encodeURIComponent(who) + '/files/reveal', { method: 'POST', headers: { 'content-type': 'application/json' }, body: '{}' });
@@ -28103,6 +28179,7 @@ document.getElementById('d-files-finder') && document.getElementById('d-files-fi
   if (failed) { if (msg) msg.textContent = failed; return; } // keep the reason on screen: no repaint over it
   AGENT_FILES_STAMP = null;
   paintAgentFiles(who);
+  paintAgentFilesAll(who);
 });
 
 function openDetail(sessionName, section, fromProject) {
@@ -28130,10 +28207,12 @@ function openDetail(sessionName, section, fromProject) {
     // send that agent's filename to this one.
     const fl = document.getElementById('d-files-list');
     const fm = document.getElementById('d-files-msg');
-    const fo = document.getElementById('d-files-more');
+    const fa = document.getElementById('d-files-all');
     if (fl) fl.textContent = '';
     if (fm) fm.textContent = '';
-    if (fo) fo.hidden = true;
+    if (fa) fa.hidden = true;
+    for (const id of ['d-filesall-list', 'd-filesall-msg']) { const el = document.getElementById(id); if (el) el.textContent = ''; }
+    { const el = document.getElementById('d-filesall-more'); if (el) el.hidden = true; }
   }
   paintAgentFiles(a.sessionName);
   URL_TAB = 'detail';
@@ -28730,7 +28809,7 @@ function detailPaintWindow(a) {
    `detailGo` is the only writer of `.dsec[hidden]` ON THIS PANEL (Settings
    has `settingsGo` for its own), and it is called from a nav click and from
    `openDetail`, never from the poll. */
-const DETAIL_SECTIONS = ['talk', 'model', 'memory', 'instr', 'skills', 'profile', 'term', 'remove'];
+const DETAIL_SECTIONS = ['talk', 'model', 'memory', 'instr', 'skills', 'profile', 'term', 'remove', 'files'];   // #3757: files has no pill (View All reaches it)
 /* #2916 (Josh 6.59): two pills now each cover two sections. "AI Settings" (the `model`
    pill, relabelled from "Model and Memory" by #3500) reveals the model AND memory sections
    together; "Instructions" (the `instr` pill)
@@ -28824,6 +28903,7 @@ function detailGo(section, opts) {
      otherwise paint the wrong sentence for a round of the tick. No fallback
      to the open-time record: a missing one means the agent left the board,
      which is the case the helper's first arm exists for. */
+  if (section === 'files' && CURRENT && arriving) paintAgentFilesAll(CURRENT.sessionName);   // #3757
   if (section === 'term' && CURRENT && arriving) {
     detailPaintWindow(LAST.find((x) => x.sessionName === CURRENT.sessionName));
   }
