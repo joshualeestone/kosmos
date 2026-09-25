@@ -32,6 +32,13 @@ Liu Kang (m634).
 - **Not in code, on purpose:** the store version (Josh's at submission) and export compliance (a
   declaration Josh makes to Apple). Both are in the doc.
 
+- **CI time.** The Release build roughly doubles the build part of the iOS job; the whole job took
+  34 s on its last run (kosmos #3688), against a 20-minute timeout, so the timeout is left alone.
+- **Build paths.** `xcodebuild -target` without a scheme writes to `ios/build/<Config>-<sdk>/`. The
+  README records this for `iphoneos`; the simulator paths the CI step reads are confirmed by
+  building both configurations on this Mac before the PR. A wrong path fails loud (the script exits
+  2 on a missing Info.plist), never green.
+
 ## Weakest part
 None of this has run on a device: whether iOS offers exactly these options in a WKWebView file
 picker, and that the photo-library path needs no read permission, are from Apple's documented
