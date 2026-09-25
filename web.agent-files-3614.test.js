@@ -1,5 +1,6 @@
 'use strict';
-/* #3614: the agent page's Files block. Placement is checked on the shipped markup (directly under
+/* #3614: the agent page's Files block, as #3757 reshaped it (no section while there are no files;
+ * View All when there are more than it lists; Open in Finder on the Files screen). Placement is checked on the shipped markup (directly under
  * the four-pack, inside the left column); the painter is the REAL function lifted from
  * web/index.html, run against a stub DOM and fetch.
  *
@@ -24,7 +25,7 @@ test.after(() => { try { BOARD.restore(); } catch { /* restored */ } fs.rmSync(S
 
 const PAGE = fs.readFileSync(path.join(__dirname, 'web', 'index.html'), 'utf8');
 const SCRIPT = page.scriptOf(PAGE);
-const FNS = page.liftAll(SCRIPT, ['paintAgentFiles']);
+const FNS = page.liftAll(SCRIPT, ['agentFileRow', 'paintAgentFiles', 'paintAgentFilesAll']);
 
 test('the Files block sits directly under the four-pack, inside the left column, with the Explorer copy', () => {
   const navEnd = PAGE.indexOf('</nav>', PAGE.indexOf('id="d-nav"'));
@@ -47,7 +48,9 @@ function harness(respond, current = card('ana')) {
     });
     return el;
   };
-  const el = { 'd-files-list': make('d-files-list'), 'd-files-msg': make('d-files-msg'), 'd-files-more': make('d-files-more') };
+  const el = {};
+  for (const id of ['d-files', 'd-files-list', 'd-files-msg', 'd-files-all', 'd-filesall-list', 'd-filesall-msg', 'd-filesall-more', 'd-sec-files']) el[id] = make(id);
+  el['d-sec-files'].hidden = true;
   const document = {
     getElementById: (id) => el[id] || null,
     createElement: () => {
@@ -58,10 +61,11 @@ function harness(respond, current = card('ana')) {
   const calls = [];
   const env = { CURRENT: current };
   const make2 = new Function('document', 'fetch', 'fileIcon', 'pjSize', 'asSentence', 'env',
-    'let AGENT_FILES_EPOCH = 0; let AGENT_FILES_STAMP = null;\n'
+    'let AGENT_FILES_EPOCH = 0; let AGENT_FILES_STAMP = null; let AGENT_FILES_ALL_EPOCH = 0; const AGENT_FILES_SHOWN = 10;\n'
+    + 'const detailSection = (k) => document.getElementById("d-sec-" + k);\n'
     + 'const CURRENT_REF = env; \n'
     + FNS.replace(/\bCURRENT\b/g, 'CURRENT_REF.CURRENT')
-    + '\nreturn { paintAgentFiles, resetStamp: () => { AGENT_FILES_STAMP = null; } };');
+    + '\nreturn { paintAgentFiles, paintAgentFilesAll, resetStamp: () => { AGENT_FILES_STAMP = null; } };');
   const api = make2(document, async (url) => {
     calls.push(url);
     const out = respond(url);
@@ -71,12 +75,15 @@ function harness(respond, current = card('ana')) {
   return { el, api, calls, env };
 }
 
-test('a Files folder not made yet shows the empty sentence and no rows', async () => {
-  const h = harness(() => ({ ok: true, missing: true, files: [], total: 0, stamp: 'missing' }));
-  await h.api.paintAgentFiles('ana');
-  assert.match(h.el['d-files-msg'].textContent, /Nothing here yet\. Files this agent makes for you in a Direct Message show up here\./);
-  assert.equal(h.el['d-files-list'].children.length, 0);
-  assert.equal(h.calls[0], '/api/agent/ana/files');
+test('#3757: no files (a folder not made yet, or an empty one) shows no Files section at all', async () => {
+  for (const answer of [{ ok: true, missing: true, files: [], total: 0, stamp: 'missing' }, { ok: true, files: [], total: 0, stamp: 'e' }]) {
+    const h = harness(() => answer);
+    await h.api.paintAgentFiles('ana');
+    assert.equal(h.el['d-files'].hidden, true, 'an agent with no files still shows the Files section');
+    assert.equal(h.el['d-files-msg'].textContent, '', 'an empty-state sentence was written');
+    assert.equal(h.el['d-files-list'].children.length, 0);
+    assert.equal(h.calls[0], '/api/agent/ana/files?limit=10', 'the list does not ask for the number it shows');
+  }
 });
 
 test('files render as rows with name, date and size; the rest are counted', async () => {
@@ -92,8 +99,13 @@ test('files render as rows with name, date and size; the rest are counted', asyn
   assert.match(rows[0].parts[1].textContent, /2048 B$/);
   assert.match(rows[0].parts[1].textContent, /·/, 'no date shown');
   assert.equal(h.el['d-files-msg'].textContent, '');
-  assert.equal(h.el['d-files-more'].hidden, false);
-  assert.match(h.el['d-files-more'].textContent, /And 1 more/);
+  assert.equal(h.el['d-files'].hidden, false, 'an agent with files does not show the section');
+  assert.equal(h.el['d-files-all'].hidden, false, '#3757: more files than listed, and no View All');
+  // Exactly as many as listed: no View All (Josh: "a View All if we exceeded the number that we display").
+  const all = harness(() => ({ ok: true, total: 1, stamp: 's1', files: [{ name: 'only.txt', size: 1 }] }));
+  await all.api.paintAgentFiles('ana');
+  assert.equal(all.el['d-files'].hidden, false);
+  assert.equal(all.el['d-files-all'].hidden, true, '#3757: View All shown although every file is listed');
 });
 
 test('an unchanged folder is not repainted; a changed one is', async () => {
@@ -113,16 +125,20 @@ test('a read the server refuses shows its reason; an answer for another agent is
   const refused = harness(() => ({ ok: false, because: 'this agent’s Files is a link to somewhere else, so Kosmos will not list or open it', files: [] }));
   await refused.api.paintAgentFiles('ana');
   assert.match(refused.el['d-files-msg'].textContent, /is a link to somewhere else/);
+  assert.equal(refused.el['d-files'].hidden, false, 'a read that failed is not "no files": its reason must show');
   const other = harness(() => ({ ok: true, total: 1, stamp: 'x', files: [{ name: 'theirs.txt', size: 1 }] }), card('bix'));
   await other.api.paintAgentFiles('ana');
   assert.equal(other.el['d-files-list'].children.length, 0, 'one agent’s files were painted under another agent');
 });
 
-test('a 404 (no folder of its own) says so in agent-page words, not "no agent by that name"; reasons are sentences', async () => {
+test('a 404 (no folder of its own) is no files in the sidebar, and on the Files screen says so in agent-page words; reasons are sentences', async () => {
   const h = harness(() => ({ __status: 404, ok: false, because: 'there is no agent by that name on this computer' }));
   await h.api.paintAgentFiles('ana');
-  assert.match(h.el['d-files-msg'].textContent, /This agent has no folder of its own on this computer/);
+  assert.equal(h.el['d-files'].hidden, true, '#3757: an agent with no folder of its own showed a Files section');
   assert.doesNotMatch(h.el['d-files-msg'].textContent, /no agent by that name/, 'the agent page told the person their open agent does not exist');
+  await h.api.paintAgentFilesAll('ana');
+  assert.match(h.el['d-filesall-msg'].textContent, /This agent has no folder of its own on this computer/);
+  assert.doesNotMatch(h.el['d-filesall-msg'].textContent, /no agent by that name/);
   const r = harness(() => ({ ok: false, because: 'this is a file, not a folder' }));
   await r.api.paintAgentFiles('ana');
   assert.equal(r.el['d-files-msg'].textContent, 'This is a file, not a folder.', 'a reason was shown unformed');
@@ -132,7 +148,7 @@ test('a 404 (no folder of its own) says so in agent-page words, not "no agent by
    shipped source: each must re-check the agent after its await, clear on a plain success, and
    the reveal handler must not repaint over its own failure. */
 test('the click handlers: agent re-checked after the await, success clears, a failed reveal keeps its reason', () => {
-  const at = SCRIPT.indexOf("document.getElementById('d-files-list') && document.getElementById('d-files-list').addEventListener('click'");
+  const at = SCRIPT.indexOf("for (const [listId, msgId] of [['d-files-list', 'd-files-msg'], ['d-filesall-list', 'd-filesall-msg']]) document.getElementById(listId) && document.getElementById(listId).addEventListener('click'");
   const reveal = SCRIPT.indexOf("document.getElementById('d-files-finder') && document.getElementById('d-files-finder').addEventListener('click'");
   assert.ok(at > 0 && reveal > at, 'the handlers moved; update this test');
   const openSrc = SCRIPT.slice(at, reveal);
@@ -179,5 +195,45 @@ test('opening an agent clears the previous agent\'s Files rows before its own ar
   const body = SCRIPT.slice(at, SCRIPT.indexOf('paintAgentFiles(a.sessionName);', at));
   assert.match(body, /fl\.textContent = ''/, 'the old rows stay on screen under the new agent');
   assert.match(body, /fm\.textContent = ''/);
-  assert.match(body, /fo\.hidden = true/);
+  assert.match(body, /fa\.hidden = true/, 'the previous agent\'s View All stays');
+  assert.match(body, /'d-filesall-list', 'd-filesall-msg'/, 'the previous agent\'s Files screen rows stay');
+});
+
+test('#3757: the Files screen lists them all, with Open in Finder, and says what is beyond the cap', async () => {
+  const many = Array.from({ length: 12 }, (_, i) => ({ name: 'f' + i + '.txt', size: 1 }));
+  const h = harness((url) => ({ ok: true, total: 520, stamp: 'm', files: /limit=500/.test(url) ? many : many.slice(0, 10) }));
+  await h.api.paintAgentFilesAll('ana');
+  assert.equal(h.calls[0], '/api/agent/ana/files?limit=500');
+  assert.equal(h.el['d-filesall-list'].children.length, 12);
+  assert.equal(h.el['d-filesall-more'].hidden, false);
+  assert.match(h.el['d-filesall-more'].textContent, /And 508 more in the folder/);
+  // The Finder button lives on that screen now, not in the sidebar.
+  const side = PAGE.slice(PAGE.indexOf('id="d-files"'), PAGE.indexOf('</section>', PAGE.indexOf('id="d-files"')));
+  assert.doesNotMatch(side, /d-files-finder/, 'Open in Finder is still in the sidebar');
+  const screen = PAGE.slice(PAGE.indexOf('id="d-sec-files"'), PAGE.indexOf('</section>', PAGE.indexOf('id="d-sec-files"')));
+  assert.match(screen, /id="d-files-finder"/, 'Open in Finder is not on the Files screen');
+  assert.match(SCRIPT, /getElementById\('d-files-all'\)\.addEventListener\('click', \(\) => \{\s*if \(!CURRENT\) return;\s*detailGo\('files'\);/, 'View All does not open the Files screen');
+});
+
+test('#3757: a showing Files screen follows every change, an emptied folder included; a hidden one is not fetched', async () => {
+  let files = [{ name: 'a.txt', size: 1 }];
+  let stamp = 's1';
+  const h = harness(() => ({ ok: true, total: files.length, stamp, files }));
+  await h.api.paintAgentFiles('ana');
+  assert.equal(h.calls.filter((u) => /limit=500/.test(u)).length, 0, 'the Files screen was fetched while hidden');
+  h.el['d-sec-files'].hidden = false;
+  files = []; stamp = 's2';
+  await h.api.paintAgentFiles('ana');
+  await new Promise((r) => setImmediate(r));
+  assert.equal(h.calls.filter((u) => /limit=500/.test(u)).length, 1, 'an emptied folder left the showing Files screen stale');
+  assert.equal(h.el['d-files'].hidden, true);
+  assert.match(h.el['d-filesall-msg'].textContent, /no files yet/, 'the Files screen still lists what is gone');
+});
+
+test('#3757: a read that fails on the network keeps the section, with its reason (a failure is not "no files")', async () => {
+  const h = harness(() => { throw new Error('offline'); });
+  h.el['d-files'].hidden = true;
+  await h.api.paintAgentFiles('ana');
+  assert.equal(h.el['d-files'].hidden, false, 'a network failure hid the section as if there were no files');
+  assert.match(h.el['d-files-msg'].textContent, /could not read this agent/);
 });
