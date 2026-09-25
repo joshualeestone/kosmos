@@ -167,6 +167,8 @@ if command -v ruby >/dev/null 2>&1; then
     # cancelled job makes failure() false), and on success to close the card.
     abort "file-red-card must run on every scheduled run and nothing else, got if: #{cj["if"].inspect}" unless cj["if"].to_s.gsub(/\s+/, " ").strip == "always() && github.event_name == \x27schedule\x27"
     abort "file-red-card must hold exactly issues: write (it makes issue and label calls only), got #{cj["permissions"].inspect}" unless cj["permissions"] == { "issues" => "write" }
+    # A continue-on-error card job would show a red night that failed to report as GREEN.
+    abort "file-red-card or its step is continue-on-error; a card that could not be filed must fail the run" if cj["continue-on-error"] || (cj["steps"] || []).any? { |st| st["continue-on-error"] }
     fsteps = fj["steps"] || []
     col = fsteps.find { |st| st["id"] == "failed" }
     abort "the label collector must run after a failed, timed-out or cancelled checks step (if: always())" unless col && col["if"].to_s.strip == "always()"
