@@ -9104,19 +9104,6 @@ body.plus-active #plus-state2 { max-width: 26rem; padding: 2rem; }
 #plus-state2 .plus-si-foot { margin-top: 1.4rem; }
 #plus-state2 .plus-signin-link[aria-disabled="true"] { opacity: .55; pointer-events: none; }
 #plus-state2 #plus-signin-msg:empty { display: none; }
-/* #3796 addendum 9: the signed-in landing. The address row and the connect tiles follow the website's
-   #3794 treatment: a badge per step, each step its own subtle tile. */
-/* The whole address, always (#3792's lesson: an address cut short is not an address): the UI face, Copy
-   stacked under it, and a break anywhere only if even that cannot fit. */
-#plus-state2 .plus-si-addrrow { display: flex; flex-direction: column; align-items: flex-start; gap: .5rem; margin: .5rem 0 0; }
-#plus-state2 .plus-si-addrrow code { align-self: stretch; padding: .55rem .7rem; border-radius: 8px; background: rgba(47,87,196,.22); border: 1px solid rgba(126,160,240,.45); color: #E6EBF7; font: 600 1rem var(--font-ui, system-ui, sans-serif); text-align: center; overflow-wrap: anywhere; }
-#plus-state2 .plus-si-sub { color: #E6EBF7; font-weight: 600; margin: 1.2rem 0 .5rem; }
-#plus-state2 .plus-si-steps { list-style: none; margin: 0 0 1rem; padding: 0; }
-#plus-state2 .plus-si-steps li { display: flex; gap: .65rem; align-items: flex-start; padding: .6rem .75rem; margin: 0 0 .5rem; border: 1px solid #2a3f6b; border-radius: 10px; background: rgba(255,255,255,.035); }
-#plus-state2 .plus-si-steps .num { flex: 0 0 1.6rem; height: 1.6rem; border-radius: 50%; display: grid; place-items: center; background: #2f57c4; color: #fff; font-weight: 700; font-size: .85rem; }
-#plus-state2 .plus-si-steps strong { display: block; color: #E6EBF7; font-size: .95rem; }
-#plus-state2 .plus-si-steps span { display: block; color: var(--k-ink-2); font-size: .9rem; line-height: 1.4; }
-#plus-state2 .plus-si-steps b { color: #E6EBF7; overflow-wrap: anywhere; }
 @media (max-width: 640px) { .plus-val { grid-template-columns: 1fr; } }
 /* The canvases honour prefers-reduced-motion in JS (a single static frame, no
    rAF loop); this makes that intent visible to a source reader too. */
@@ -15391,15 +15378,11 @@ window.kosmosMeasureScrollbarWidth();
            step entirely. The wizard registers this computer to that address itself and lands HERE: the
            address read-only (with Copy) and how to connect from other devices (the #3794 tiles' shape).
            Done hands over to the connected flow. -->
+      <!-- #3796 addendum 10 (Josh's ruling, 17:28): the landing is the heading and ONE line. No address,
+           no Copy, no tiles: another device signs in at the website, and this computer then asks to allow
+           it (the approval lives in Settings > Kosmos Plus). -->
       <div id="plus-si-done" hidden>
-        <p class="plus-si-lead">This computer is connected as:</p>
-        <div class="plus-si-addrrow"><code id="plus-si-done-addr"></code><button class="btn" type="button" id="plus-si-done-copy">Copy</button></div>
-        <p class="plus-si-sub">Connect from your other devices</p>
-        <ol class="plus-si-steps">
-          <li><span class="num" aria-hidden="true">1</span><div><strong>Open your address</strong><span>On your phone or another computer, open <b id="plus-si-done-addr2"></b> in a browser.</span></div></li>
-          <li><span class="num" aria-hidden="true">2</span><div><strong>Sign in</strong><span>Use your Kosmos+ email and your codes.</span></div></li>
-          <li><span class="num" aria-hidden="true">3</span><div><strong>Allow it here</strong><span>The first time, this computer asks you to allow the new device.</span></div></li>
-        </ol>
+        <p class="plus-si-lead" id="plus-si-done-line">To use Kosmos on another device, sign in at login.kosmosplus.com.</p>
         <div class="frow"><button class="btn uprime" type="button" id="plus-si-done-go">Done</button></div>
       </div>
 
@@ -36467,9 +36450,6 @@ async function plusSiDoRegister(name, owned) {
   if (!r.ok) { plusSiFail(r.because); return; }
   if (owned) {
     /* The landing, not the connected flow: PLUS_SI_LANDED keeps paintPlus from taking the pane. */
-    const addr = /\./.test(owned) ? owned : String((r.data && r.data.address) || owned);
-    document.getElementById('plus-si-done-addr').textContent = addr;
-    document.getElementById('plus-si-done-addr2').textContent = addr;
     PLUS_SI_LANDED = true;
     plusSiShow('plus-si-done');
     document.getElementById('plus-si-done-go').focus();
@@ -36505,12 +36485,7 @@ document.getElementById('plus-si-done-go').addEventListener('click', () => {
   PLUS_SIGNIN_ACTIVE = false;
   paintPlus();
 });
-document.getElementById('plus-si-done-copy').addEventListener('click', (e) => {
-  const b = e.currentTarget;
-  const text = document.getElementById('plus-si-done-addr').textContent;
-  const said = () => { b.textContent = 'Copied'; plusSiMsg('Address copied.'); setTimeout(() => { b.textContent = 'Copy'; }, 1500); };
-  try { navigator.clipboard.writeText(text).then(said, () => {}); } catch (err) { /* no clipboard: the address is on screen to copy by hand */ }
-});
+
 
 function paintModelWhy(selId, whyId) {
   const sel = document.getElementById(selId);

@@ -1,4 +1,4 @@
-// Browser-check-surface: plus-state1 plus-state2 plus-si-owned plus-si-name-count plus-si-expired plus-si-second-lead plus-si-second-help plus-si-cancel plus-si-code-resend plus-si-code-to plus-si-email plus-si-code plus-si-second plus-si-enrol plus-si-enrol-sms plus-si-enrol-why plus-si-enrol-confirm plus-si-secret plus-si-register plus-flow plus-status
+// Browser-check-surface: plus-state1 plus-state2 plus-si-done plus-si-owned plus-si-name-count plus-si-expired plus-si-second-lead plus-si-second-help plus-si-cancel plus-si-code-resend plus-si-code-to plus-si-email plus-si-code plus-si-second plus-si-enrol plus-si-enrol-sms plus-si-enrol-why plus-si-enrol-confirm plus-si-secret plus-si-register plus-flow plus-status
 'use strict';
 /**
  * #3478: the Kosmos+ sign-in links open the IN-APP wizard, not the web.
@@ -317,9 +317,10 @@ const visible = (page, sel) => page.evaluate((s) => {
       // Step: session -> name -> hand off to the connected flow.
       /* #3796 addendum 9 (Josh's ruling): the landing, shared by the two owned-address paths. */
       const landed = async (addr, why) => {
+        /* #3796 addendum 10 (Josh's ruling): the heading and ONE line, no address, no Copy, no tiles. */
         await page.waitForSelector('#plus-si-done', { state: 'visible', timeout: 5000 });
-        const d = await page.evaluate(() => ({ title: document.getElementById('plus-si-title').textContent.trim(), addr: document.getElementById('plus-si-done-addr').textContent.trim(), tiles: document.querySelectorAll('#plus-si-done .plus-si-steps li').length, sub: document.querySelector('#plus-si-done .plus-si-sub').textContent.trim(), nameShown: !!(document.getElementById('plus-si-register') && !document.getElementById('plus-si-register').hidden), msg: document.getElementById('plus-signin-msg').textContent.trim() }));
-        chk(d.title === "You're signed in to Kosmos+" && d.addr === addr && d.tiles === 3 && d.sub === 'Connect from your other devices' && !d.nameShown && !/409|said no/.test(d.msg), `[${key}] #3796 addendum 9: ${why} lands on "You're signed in to Kosmos+" with the address and the connect tiles`, JSON.stringify(d));
+        const d = await page.evaluate(() => ({ title: document.getElementById('plus-si-title').textContent.trim(), text: document.getElementById('plus-si-done').innerText.replace(/\s+/g, ' ').trim(), buttons: document.querySelectorAll('#plus-si-done button').length, nameShown: !!(document.getElementById('plus-si-register') && !document.getElementById('plus-si-register').hidden), msg: document.getElementById('plus-signin-msg').textContent.trim() }));
+        chk(d.title === "You're signed in to Kosmos+" && d.text === 'To use Kosmos on another device, sign in at login.kosmosplus.com. Done' && d.buttons === 1 && !d.nameShown && !/409|said no/.test(d.msg), `[${key}] #3796 addenda 9 and 10: ${why} lands on "You're signed in to Kosmos+" and one line`, JSON.stringify(d));
       };
       if (key === 'straight-session') {
         await landed('quiet-heron.kosmosplus.com', 'an account with an address skips the address step and');
