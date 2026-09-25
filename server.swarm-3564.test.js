@@ -116,3 +116,24 @@ test('#3564 per project: a message to a swarm switched off in that project is re
   assert.doesNotMatch(JSON.stringify(b2), /switched off in this project/);
   } finally { board.restore(); }
 });
+
+test('#3564 per project: a task line is not sent to a swarm switched off in that project; switched on, it is', async () => {
+  const fleetMod = require('./test-support/fleet');
+  const tasks = require('./engine/tasks');
+  lead('hive5', swarm.birthProfile({ dailyTokenLimit: 1000 }));
+  const board = fleetMod.install([fleetMod.agent('hive5', { state: 'idle' })]);
+  try {
+    const p = projects.create({ name: 'Swarm Task Room' });
+    projects.addAgent(p.id, 'hive5', board.agents);
+    const t = tasks.create(p.id, { sentence: 'Split this up', who: 'hive5' }, board.agents);
+    const say = () => fetch(`${base}/api/project/${encodeURIComponent(p.id)}/task/${t.number}/message`, {
+      method: 'POST', headers: { 'content-type': 'application/json', 'sec-fetch-site': 'same-origin' }, body: JSON.stringify({ text: 'how is it going' }),
+    });
+    projects.setSwarmOn(p.id, 'hive5', false);
+    const off = await (await say()).json();
+    assert.deepEqual((off.delivered || []).map((d) => d.agent), [], 'a switched-off swarm was told about its task');
+    projects.setSwarmOn(p.id, 'hive5', true);
+    const on = await (await say()).json();
+    assert.deepEqual((on.delivered || []).map((d) => d.agent), ['hive5'], 'CONTROL: switched on, the assignee is told');
+  } finally { board.restore(); }
+});
