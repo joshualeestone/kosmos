@@ -6985,6 +6985,8 @@ const server = http.createServer((req, res) => {
           stage: got.data.stage,
           sms_available: got.data.sms_available,
           why_authenticator: got.data.why_authenticator,
+          // #3796 addendum 8: on the session stage, the account's existing address (if any).
+          account_address: got.data.account_address,
           // #3796: on the second stage, which factor the account has (totp | sms) and, for sms,
           // the masked tail the code went to, so the step names the one factor it can use.
           second_kind: got.data.second_kind,
@@ -7004,7 +7006,7 @@ const server = http.createServer((req, res) => {
         if (!code) { sendJson(res, 400, { error: 'type the code from your phone' }); return; }
         const got = await remote.signinSecond(code);
         if (!got.ok) { sendJson(res, 400, { error: got.because }); return; }
-        sendJson(res, 200, { ok: true, stage: got.data.stage });
+        sendJson(res, 200, { ok: true, stage: got.data.stage, account_address: got.data.account_address });   // #3796 addendum 8
       })
       .catch(() => sendJson(res, 400, { error: 'we could not check that code' }));
     return;
@@ -7050,7 +7052,7 @@ const server = http.createServer((req, res) => {
         if (!code) { sendJson(res, 400, { error: 'type the code your second step shows' }); return; }
         const got = await remote.signinConfirmEnrol(code);
         if (!got.ok) { sendJson(res, 400, { error: got.because }); return; }
-        sendJson(res, 200, { ok: true, stage: got.data.stage });
+        sendJson(res, 200, { ok: true, stage: got.data.stage, account_address: got.data.account_address });   // #3796 addendum 8
       })
       .catch(() => sendJson(res, 400, { error: 'we could not check that code' }));
     return;

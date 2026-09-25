@@ -69,3 +69,20 @@ test('#3796 the second step names the one factor the account has, and never gues
   assert.doesNotMatch(none.lead + none.label, /authenticator|text/i, 'an unknown kind guessed a factor');
   assert.doesNotMatch(HTML, /Open your authenticator app, or check your phone for a text|or the one we texted you/, 'the either-factor copy is back');
 });
+
+/* #3796 addenda 5 and 6 (Josh typed "MacbookPro..." and was refused for capitals): the in-app name
+   fields are cleaned as typed, like login.kosmosplus.com's (#3791). Lifted from the shipped page. */
+test('#3796 the in-app name is cleaned as typed: capitals lowercased, spaces to hyphens, nothing refused for case', () => {
+  const start = SCRIPT.indexOf('function plusNameClean');
+  const end = SCRIPT.indexOf('\n}\n', start) + 3;
+  assert.ok(start > 0 && end > start, 'plusNameClean moved');
+  const clean = vm.runInNewContext(SCRIPT.slice(start, end) + '\nplusNameClean');
+  const rule = /^[a-z0-9-]{3,32}$/;
+  assert.equal(clean('MacbookPro'), 'macbookpro');
+  assert.ok(rule.test(clean('MacbookPro')), 'a capitalised name is still refused');
+  assert.equal(clean("Josh's MacBook Pro"), 'joshs-macbook-pro');
+  assert.equal(clean(' my_mac'), 'my-mac', 'a leading space became a leading hyphen');
+  assert.equal(clean('x'.repeat(40)).length, 32);
+  for (const id of ['plus-si-name', 'plus-name']) assert.ok(SCRIPT.includes("'" + id + "'") && /for \(const id of \['plus-si-name', 'plus-name'\]\)/.test(SCRIPT), id + ' is not cleaned as typed');
+  assert.doesNotMatch(HTML, /lowercase letters, digits/, 'a hint still says names must be lowercase');
+});

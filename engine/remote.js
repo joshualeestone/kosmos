@@ -743,8 +743,11 @@ async function setupComplete(code, name) {
   if (!CODE_RULE.test(String(code || ''))) {
     return { ok: false, because: 'the code is six digits' };
   }
+  /* #3796 addendum 6 (Josh: "support either capital or lowercase"): the coordinator lowercases a
+     name anyway, so only this app refused "MacbookPro". Lowercase (and trim) BEFORE the rule. */
+  if (typeof name === 'string') name = name.trim().toLowerCase();
   if (typeof name !== 'string' || !NAME_RULE.test(name)) {
-    return { ok: false, because: 'the name is 3 to 32 lowercase letters, digits or hyphens' };
+    return { ok: false, because: 'the name is 3 to 32 letters, digits or hyphens' };
   }
   secureStateDir();
   const result = await setupRun([
@@ -943,7 +946,12 @@ function absorbSession(data) {
     const token = data && typeof data.token === 'string' ? data.token : '';
     if (!token) { signinSession = null; return { ok: false, because: 'Kosmos+ sign-in did not return a usable session' }; }
     signinSession = { token };
-    return { ok: true, because: null, data: { stage: 'session' } };
+    /* #3796 addendum 8: when the account already has an address, the name step asks for nothing and
+       says "This computer will connect as <address>". The coordinator's sign-in answer carries it as
+       account_address (a coordinator that predates it sends none, and the page falls back). Passed
+       through only in its own shape: a lowercase label and a domain, nothing else. */
+    const addr = typeof data.account_address === 'string' && /^[a-z0-9-]{3,32}\.[a-z0-9.-]{3,253}$/.test(data.account_address) ? data.account_address : '';
+    return { ok: true, because: null, data: { stage: 'session', account_address: addr } };
   }
   if (stage === 'second') {
     const challenge = data && typeof data.challenge === 'string' ? data.challenge : '';
@@ -1190,8 +1198,11 @@ async function signinRegister(name) {
   if (!signinSession || typeof signinSession.token !== 'string') {
     return { ok: false, because: 'finish the code steps first' };
   }
+  /* #3796 addendum 6 (Josh: "support either capital or lowercase"): the coordinator lowercases a
+     name anyway, so only this app refused "MacbookPro". Lowercase (and trim) BEFORE the rule. */
+  if (typeof name === 'string') name = name.trim().toLowerCase();
   if (typeof name !== 'string' || !NAME_RULE.test(name)) {
-    return { ok: false, because: 'the name is 3 to 32 lowercase letters, digits or hyphens' };
+    return { ok: false, because: 'the name is 3 to 32 letters, digits or hyphens' };
   }
   // #1010/#1003: a surviving state dir already at this name IS this Mac. Do not
   // re-register -- it would mint a fresh identity key and spend a scarce
