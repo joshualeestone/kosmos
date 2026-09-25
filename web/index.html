@@ -38554,7 +38554,7 @@ function swarmCluster(a, size, { ring = false, decorative = false } = {}) {
   const n = Math.min(max, 7), L = swarmLayout(n), r = L.r * size;
   const pic = a && a.hasAvatar && a.sessionName ? `url('/api/agent/${encodeURIComponent(a.sessionName)}/avatar?v=${a.avatarVer || 0}')` : '';
   const tint = discTint(a && a.name), ink = discInk(a && a.name), ini = esc(initials(a && a.name));
-  const named = decorative ? 'aria-hidden="true"' : `role="img" aria-label="${esc(measured ? 'Swarm, ' + real + ' of ' + max + ' helpers working' : 'Swarm, up to ' + max + ' helpers')}"`;
+  const named = decorative ? 'aria-hidden="true"' : `role="img" aria-label="${esc(!measured ? 'Swarm, up to ' + max + ' helpers' : real > max ? 'Swarm, ' + real + ' helpers working, most ' + max : 'Swarm, ' + real + ' of ' + max + ' helpers working')}"`;
   let h = `<span class="swc" ${named} style="width:${size}px;height:${size}px;--swd-font:${Math.max(7, Math.round(r * 0.95))}px;--swd-edge:${Math.max(1, size / 44).toFixed(1)}px">`;
   for (let i = 0; i < n; i += 1) {
     const x = L.p[i][0] * size - r, y = L.p[i][1] * size - r;
@@ -49903,7 +49903,7 @@ document.getElementById('pjs-members').addEventListener('click', (e) => {
 document.getElementById('pj-one-agents').addEventListener('click', (e) => {
   const btn = e.target.closest('.pj-minus[data-drop]');
   if (btn) { if (PJ_CURRENT) openMemModal(btn, document.getElementById('pj-one-msg')); return; }
-  if (e.target.closest('.swmini')) return;   // #3564: a swarm's On / Off is its own control, not a way into its page
+  if (e.target.closest('.swmini, .swmini-msg')) return;   // #3564: a swarm's On / Off is its own control, not a way into its page
   // #2574: a member click opens that agent's detail page, id-keyed via data-agent
   // (sessionName) -- the SAME open-agent path the agents grid uses (openDetail) --
   // passing PJ_CURRENT so detail-back returns to this project.

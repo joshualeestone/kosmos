@@ -294,8 +294,10 @@ const waitFor = (page, fn, arg, ms = 6000) => page.waitForFunction(fn, arg, { ti
     await page.evaluate(() => showTab('agents'));
     chk(await waitFor(page, () => { const c = document.querySelector('#grid [data-agent="crew"]'); return !!c && /7 helpers working \(most \d+\)/.test(c.textContent); }, null, 15000), 'S27 the card says the real count, with the maximum',
       await page.evaluate(() => (document.querySelector('#grid [data-agent="crew"]') || {}).textContent));
-    crewSwarm = { ...crewSwarm, activeHelpers: 3 };
     await page.evaluate(() => document.querySelector('#grid [data-agent="crew"]').click());
+    chk(await waitFor(page, () => { const c = document.querySelector('#d-swarm .swc[role="img"]'); return !!c && /Swarm, 7 helpers working, most \d+/.test(c.getAttribute('aria-label')); }, null, 8000),
+      'S27 and the page\'s cluster says so to a screen reader (not "7 of 5")', await page.evaluate(() => (document.querySelector('#d-swarm .swc') || {}).getAttribute && document.querySelector('#d-swarm .swc').getAttribute('aria-label')));
+    crewSwarm = { ...crewSwarm, activeHelpers: 3 };
     await waitFor(page, () => !document.getElementById('d-swarm-panel').hidden && CURRENT.sessionName === 'crew');
     // S28: the page header follows the field: dropped, the cluster goes; back, it returns.
     crewNoSwarm = true;
