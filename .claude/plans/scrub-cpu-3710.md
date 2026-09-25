@@ -14,7 +14,7 @@ validation gate while the Mac was busy.
 - Both scrub timing tests (the degenerate run, and its sibling long non-URL
   run, which had the same wall-time shape) bound CPU ms < 3000 (same number).
   The no-throw assertion is unchanged.
-- A standing control: a fixed 1e8-iteration loop (~170ms CPU on an M4) must
+- A standing control: a fixed 1e8-iteration loop must
   measure between 20 and 3000ms, so cpuMillisecondsOf provably reports milliseconds.
   Review iteration 1 replaced a regex control: its cost depended on V8
   interpreting a regex on first use (86ms once compiled to native), so a V8
@@ -49,10 +49,19 @@ threads; the file's tests run sequentially in one process.
 
 ## Review iteration 2
 - CI runner (macos-latest, image macos-26-arm64) ran the degenerate scrub in
-  510ms of WALL time on main (run 36125175797), so its CPU time is at most that:
-  ~6x headroom under 3000 on the runner itself, measured, not assumed. The
+  510ms of WALL time on main (run 36125175797). Its CPU time was NOT measured
+  there; process CPU can exceed wall time (parallel GC threads), so the runner's
+  headroom is an inference until this PR's CI run reports the new tests. The
   control's CI duration is checked on this PR's run.
 - The same wall-time shape is in 10 more guards across 4 files; filed as
   kosmos#3715 with every site. Only #1760's was seen failing, so converting the
   rest (with per-guard perturbations) is its own reviewable change.
 - `cpuMsOf` renamed `cpuMillisecondsOf`.
+
+## Review iteration 3
+The control's comment and message carried a per-machine CPU figure that a
+reviewer measured at about half in the test's own shape; the figure, the
+"wide enough for a much slower machine" assurance (untrue under --jitless) and
+an always-true assertion were deleted rather than restated. The control now
+says only what it checks, and fails for microseconds, seconds, and fn never
+called (all three perturbations run).

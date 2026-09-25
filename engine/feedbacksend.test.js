@@ -606,15 +606,11 @@ test('#1760 scrub survives a multi-MB degenerate assignment run without throwing
 });
 
 // #3710 CONTROL: cpuMillisecondsOf must report the function's CPU in
-// MILLISECONDS, or the 3000 bounds above mean nothing. A fixed amount of work
-// (a loop, not a regex, so V8's regex tiering cannot move it) is ~170ms of CPU
-// on an M4. The band is wide
-// enough for a much slower or busier machine, and still fails a microseconds
-// result (~170000), a seconds result (~0.17) or a measure that misses fn.
+// MILLISECONDS, or the 3000 bounds above mean nothing. The work is a fixed loop,
+// not a regex, so V8's regex tiering cannot move it. A result in microseconds,
+// in seconds, or one that never ran fn falls outside the band.
 test('#3710 control: cpuMillisecondsOf reports a fixed CPU load in milliseconds', () => {
   let x = 0;
   const ms = cpuMillisecondsOf(() => { for (let i = 0; i < 1e8; i++) x = (x + i) | 0; });
-  // Always true (x is an integer). It only USES x, so V8 cannot drop the loop as dead code.
-  assert.ok(x !== 0.5, 'keeps the loop observable');
-  assert.ok(ms >= 20 && ms < 3000, `a ~170ms CPU loop measured ${ms}ms; cpuMillisecondsOf is not reporting CPU milliseconds`);
+  assert.ok(ms >= 20 && ms < 3000, `a fixed 1e8-step loop measured ${ms}ms of CPU; cpuMillisecondsOf is not reporting CPU milliseconds`);
 });
