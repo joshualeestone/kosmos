@@ -1475,7 +1475,7 @@ button.uprime:hover, .btn.uprime:hover, .utoast .uacts button.uprime:hover,
    as a gradient left the gutter bright. The gradient is only the fallback when that colour could not be read, and it
    reads the root's ground, so a look that sets its ground on the body (Kosmos+ navy) would get light's there. */
 html.tip-dimming:not([data-layout="consolidated"]) { background: linear-gradient(var(--tip-dim), var(--tip-dim)), var(--k-bg); }
-html.tip-dimming[data-tip-ground]:not([data-layout="consolidated"]) { background: var(--tip-canvas); }
+html.tip-dimming[data-tip-ground]:not([data-layout="consolidated"]) { background: var(--tip-canvas, var(--k-bg)); }
 html.tip-dimming:not([data-layout="consolidated"]) > body { min-height: 100vh; }
 .tipcard .tip-dots { display: flex; gap: 5px; }
 .tipcard .tip-dots i { width: 6px; height: 6px; border-radius: 50%; background: color-mix(in srgb, var(--k-ink-2) 35%, transparent); }
