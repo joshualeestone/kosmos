@@ -65,6 +65,11 @@ const chk = (ok, label, extra) => {
         }
         return enc({ runners: out });
       }
+      if (/\/api\/accounts\/grok\/subscription\/start$/.test(u) && opts && opts.method === 'POST') {
+        if (window.__missing.grok) return enc({ needsRunner: true, error: 'we could not find the Grok runner' }, 400);
+        return enc({ sessionId: 's1' });
+      }
+      if (/\/api\/accounts\/grok\/subscription\/(status|cancel)/.test(u)) return enc({ state: 'starting' });
       const key = u.match(/\/api\/accounts\/(gemini|grok)\/apikey$/);
       if (key && opts && opts.method === 'POST') {
         if (window.__missing[key[1]]) return enc({ needsRunner: true, error: 'we could not find the runner' }, 400);
@@ -245,6 +250,47 @@ const chk = (ok, label, extra) => {
     return { opened, installPosts: window.__installs.length - before };
   });
   chk(r7.opened && r7.installPosts === 1, 'Settings: a slow probe landing after Download was pressed does not start the install a second time', JSON.stringify(r7));
+
+  // Review pass 3.
+  await q(() => { closeAcctAdd(); window.__missing = { gemini: false, grok: false }; window.__jobs = {}; const fr = document.getElementById('firstrun'); fr.hidden = false; frGo(5); });
+  await wait(150);
+  const r8 = await q(async () => {
+    document.getElementById('fr-grok-connect').click();
+    await new Promise((r) => setTimeout(r, 300));
+    const boxOpen = !document.getElementById('fr-apikey-flow').hidden;
+    window.__missing.grok = true;   // it goes missing after the box opened
+    document.getElementById('fr-grok-sub-go').click();
+    await new Promise((r) => setTimeout(r, 400));
+    FR_GROK_SUB.leave();
+    return { boxOpen, install: !document.getElementById('fr-keyed-install').hidden, keyBox: !document.getElementById('fr-apikey-flow').hidden,
+      ask: document.getElementById('fr-keyed-install-t').textContent, subMsg: document.getElementById('fr-grok-sub-msg').textContent };
+  });
+  chk(r8.boxOpen && r8.install && !r8.keyBox && /xAI's Grok CLI/.test(r8.ask) && !/Choose Grok again/.test(r8.subMsg),
+    'first run: a Grok sign-in that finds no grok opens the download box in place of the key box', JSON.stringify(r8));
+  await setWin(true);
+  const r9 = await q(async () => {
+    frKeyedInstallHide(); window.__missing.gemini = false;
+    document.getElementById('fr-gemini-connect').click();
+    await new Promise((r) => setTimeout(r, 300));
+    window.__missing.gemini = true;
+    document.getElementById('fr-apikey-key').value = 'AIza-typed';
+    document.getElementById('fr-apikey-go').click();
+    await new Promise((r) => setTimeout(r, 300));
+    return { install: !document.getElementById('fr-keyed-install').hidden, msg: document.getElementById('fr-apikey-msg').textContent, posts: window.__installs.length };
+  });
+  chk(!r9.install && /cannot install it on Windows yet/.test(r9.msg), 'on Windows, first run\'s Add says it plainly when the tool is gone, and opens no download box', JSON.stringify(r9));
+  await setWin(false);
+  const r10 = await q(async () => {
+    frClose();
+    window.__missing.grok = true; window.__jobs = {};
+    openAcctReauthGrok('/tmp/grok-home', 'me@example.com');
+    await new Promise((r) => setTimeout(r, 300));
+    const shown = !document.getElementById('acct-keyed-install').hidden;
+    document.getElementById('acct-keyed-install-go').click();
+    await new Promise((r) => setTimeout(r, 3500));
+    return { shown, focus: document.activeElement && document.activeElement.id, pickHidden: document.getElementById('acct-grok-pick').hidden };
+  });
+  chk(r10.shown && r10.pickHidden && r10.focus === 'acct-grok-sub-go', 'a Grok sign in again: after the download, focus is on the sign-in that is showing', JSON.stringify(r10));
 
   chk(errs.length === 0, 'no page errors', errs.join(' | '));
   await browser.close();

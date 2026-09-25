@@ -23371,7 +23371,10 @@ document.getElementById('acct-keyed-install-go').addEventListener('click', async
   if (!alive()) return;
   if (!ok) { go.disabled = false; return; }
   acctApikeyShow(which);   // the tool is here now: the key step (or Grok's choice) shows
-  const next = document.getElementById(which === 'xai' ? 'acct-grok-pick-sub' : 'acct-apikey-key');
+  // Grok's choice is hidden in a sign-in again (it goes straight to the sign-in step), so focus the
+  // control that is actually showing (review pass 3).
+  const grokPickShown = !document.getElementById('acct-grok-pick').hidden;
+  const next = document.getElementById(which !== 'xai' ? 'acct-apikey-key' : grokPickShown ? 'acct-grok-pick-sub' : 'acct-grok-sub-go');
   if (next) next.focus();
 });
 document.getElementById('acct-apikey-show').addEventListener('click', () => {
@@ -23549,6 +23552,10 @@ function grokSubDriver(o) {
     if (mine !== gen) { if (res.ok && out && out.sessionId) cancelOnEngine(out.sessionId); return; }
     if (!res.ok || !out || !out.sessionId) {
       if (go) go.disabled = false;
+      /* #3713 (review pass 3): a missing grok on a Mac opens the caller's own download box, as
+         Settings' Add does, rather than telling the person to choose Grok again (re-choosing the
+         provider already chosen fires nothing). Windows, or a caller with no box, is told plainly. */
+      if (out && out.needsRunner && o.onMissing && !onWindows()) { say(''); o.onMissing(); return; }
       say(out && out.needsRunner ? grokMissingTool() : (pjSentence(out && (out.error || out.because)) || 'We could not start that sign-in.'));
       return;
     }
@@ -23568,6 +23575,7 @@ const ACCT_GROK_SUB = grokSubDriver({
   ids: { go: 'acct-grok-sub-go', openRow: 'acct-grok-sub-open-row', open: 'acct-grok-sub-open', code: 'acct-grok-sub-code', cancelRow: 'acct-grok-sub-cancel-row', cancel: 'acct-grok-sub-cancel' },
   msg: () => document.getElementById('acct-grok-msg'),
   reauthDir: () => ACCT_GROK_REAUTH_DIR,
+  onMissing: () => acctKeyedInstallShow('xai', null),   // #3713
   repaintFailed: 'Signed in, but this screen could not update. Close it and look in Settings, AI Models.',
   onConnected: async (account) => {
     const email = account && account.email;
@@ -23865,6 +23873,11 @@ const FR_GROK_SUB = grokSubDriver({
      writing every 1.2s into the shared line would wipe the key's answer. */
   msg: () => document.getElementById('fr-grok-sub-msg'),
   reauthDir: () => null,
+  onMissing: () => {   // #3713: the key box closes and the download box opens in its place
+    document.getElementById('fr-apikey-flow').hidden = true;
+    FR_APIKEY_WHICH = null;
+    frKeyedInstallShow('xai');
+  },
   alive: () => FR_STEP === 5,
   repaintFailed: 'Signed in, but this screen could not update. Grok will show as connected in Settings, AI Models.',   // before the box closes
   onConnected: async (account) => {
@@ -23930,7 +23943,9 @@ document.getElementById('fr-apikey-go').addEventListener('click', async () => {
     }
     if (!res.ok) {
       if (out && out.needsRunner) {
-        // #3713: the tool went missing after the box opened; offer to download it again.
+        // #3713: the tool went missing after the box opened; offer to download it again
+        // (on Windows, which Kosmos does not install for, say so plainly: review pass 3).
+        if (onWindows()) throw new Error(keyedMissingOnWindows(which));
         document.getElementById('fr-apikey-flow').hidden = true;
         FR_APIKEY_WHICH = null;
         msg.textContent = '';

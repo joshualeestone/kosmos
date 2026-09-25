@@ -181,11 +181,14 @@ const chk = (ok, label, extra) => {
   // A missing grok names the tool (reachable only if it went missing after the box opened).
   await q(() => { window.__startAnswer = [400, { needsRunner: true, error: 'we could not find the Grok runner' }]; document.getElementById('acct-grok-sub-go').click(); });
   await q(() => new Promise((r) => setTimeout(r, 50)));
-  const miss = await q(() => ({ msg: document.getElementById('acct-grok-msg').textContent, go: document.getElementById('acct-grok-sub-go').disabled }));
-  // #3713: Kosmos installs grok now, so the sentence points at the download instead of saying it cannot.
-  chk(/"grok"/.test(miss.msg) && /not on this computer/.test(miss.msg) && /offer to download it/.test(miss.msg) && !/cannot install/.test(miss.msg) && !miss.go,
-    'a missing grok names its tool, says Kosmos will offer to download it, and re-arms', JSON.stringify(miss));
-  await q(() => { window.__startAnswer = null; });
+  const miss = await q(() => ({ msg: document.getElementById('acct-grok-msg').textContent, go: document.getElementById('acct-grok-sub-go').disabled,
+    install: !document.getElementById('acct-keyed-install').hidden, ask: document.getElementById('acct-keyed-install-t').textContent,
+    grok: !document.getElementById('acct-grok-flow').hidden }));
+  // #3713: Kosmos installs grok now, so a sign-in that finds none opens the download box in its place.
+  chk(miss.install && /xAI's Grok CLI/.test(miss.ask) && !miss.grok && !/cannot install/.test(miss.msg),
+    '#3713 a sign-in that finds no grok opens the download box in its place', JSON.stringify(miss));
+  await q(() => { window.__startAnswer = null; acctPick('xai'); document.getElementById('acct-grok-pick-sub').click(); });
+  await q(() => new Promise((r) => setTimeout(r, 50)));
   // #3713 review pass 2: on Windows Kosmos does not install grok, so the same answer must not promise a download.
   await q(() => {
     document.querySelector('meta[name="kosmos-platform"]').content = 'win32';

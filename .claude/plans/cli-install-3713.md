@@ -103,6 +103,20 @@ directly and make it work exactly like GPT does.
 - Measured clean: the launcher script against managedRoot for an installed and a from-source board,
   launcherHasNode, installing() in both routes, the API-key-path Windows coverage, frGo/frClose.
 
+## Review pass 3 (opus): 0 blockers, 2 warnings, 1 nit, all fixed
+- W first run's Add still opened the download box on Windows when the tool went missing after the
+  box opened (the one first-run missing-tool path pass 1's Windows fix did not reach). Now it says
+  plainly that Kosmos cannot install it on Windows yet. Arm r9; perturbed red.
+- W "Choose Grok again and Kosmos will offer to download it" led nowhere in Settings (re-choosing the
+  chosen provider fires no change). The shared Grok sign-in driver now takes an `onMissing` hook: on a
+  Mac a sign-in that finds no grok opens the caller's own download box (Settings' box; first run
+  closes the key box and opens its box in its place). Windows, or a caller with no hook, keeps the
+  plain sentence. Arms in render-grok-subscription-3391.js and r8; perturbed red.
+- NIT after a download during a Grok sign in again, focus went to Grok's choice, which is hidden in
+  that mode. It goes to whichever Grok control is showing. Arm r10; perturbed red.
+- Measured clean: grokMissingTool on every caller; ACCT_KEYED_WHICH cleared on every path that
+  hides Settings' box (open, close, provider change, the three reauth entries, a finished download).
+
 ## Suite
 Both full runs (4c86126b..86ab7d68 and 5bb22c04): every node test passed (9212 and 9215, 0 failed).
 The one red both times was tools/test-kosmos-addr-reclaim-3079.sh, which listens on a FIXED port
