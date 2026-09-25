@@ -1472,7 +1472,8 @@ button.uprime:hover, .btn.uprime:hover, .utoast .uacts button.uprime:hover,
    so the page's own ground is dimmed there while the tour dims, and the body fills the window so that dimmed
    canvas shows nowhere but the gutter. The dimmed ground is ONE colour, worked out by tipDimming: a gutter
    paints the canvas's colour and not its image (Chromium with a mouse attached, measured), so a dim laid on
-   as a gradient left the gutter bright. The gradient is only the fallback when that colour could not be read. */
+   as a gradient left the gutter bright. The gradient is only the fallback when that colour could not be read, and it
+   reads the root's ground, so a look that sets its ground on the body (Kosmos+ navy) would get light's there. */
 html.tip-dimming:not([data-layout="consolidated"]) { background: linear-gradient(var(--tip-dim), var(--tip-dim)), var(--k-bg); }
 html.tip-dimming[data-tip-ground]:not([data-layout="consolidated"]) { background: var(--tip-canvas); }
 html.tip-dimming:not([data-layout="consolidated"]) > body { min-height: 100vh; }
@@ -54925,24 +54926,32 @@ function tipSuspend(on) {
    the body because a look can set --k-bg there, where the root cannot see it (Kosmos+ navy), and as the token,
    because navy's body paints a gradient, so its background colour reads transparent. The ground and the dim are
    mixed here into one colour, because a gutter paints only the canvas's colour. */
+let TIP_GROUND = { key: null, colour: null };   // the last mix, by what it was mixed from: it changes only with the look
 function tipDimmedGround() {
+  const key = getComputedStyle(document.body).getPropertyValue('--k-bg').trim() + '|' + getComputedStyle(document.body).getPropertyValue('--tip-dim').trim();
+  if (TIP_GROUND.key === key) return TIP_GROUND.colour;
   const probe = document.createElement('i');
   probe.style.cssText = 'position:absolute;visibility:hidden;width:0;height:0';
   document.body.appendChild(probe);
   try {
-    const rgba = (v) => { probe.style.backgroundColor = ''; probe.style.backgroundColor = v; const m = getComputedStyle(probe).backgroundColor.match(/[\d.]+/g); return m && m.length >= 3 ? m.map(Number) : null; };
+    /* rgb() or rgba() only: a look written in another colour space reads back as color(...), which falls back. */
+    const rgba = (v) => { probe.style.backgroundColor = ''; probe.style.backgroundColor = v; const cs = getComputedStyle(probe).backgroundColor; const m = /^rgba?\(/.test(cs) ? cs.match(/[\d.]+/g) : null; return m && m.length >= 3 ? m.map(Number) : null; };
     const g = rgba(getComputedStyle(document.body).getPropertyValue('--k-bg').trim()), d = rgba('var(--tip-dim)');
-    if (!g || !d || (g.length > 3 && g[3] < 1)) return null;   // a see-through ground cannot be mixed to one colour
-    const a = d.length > 3 ? d[3] : 1;
-    return 'rgb(' + [0, 1, 2].map((i) => Math.round(g[i] * (1 - a) + d[i] * a)).join(', ') + ')';
+    let colour = null;
+    if (g && d && !(g.length > 3 && g[3] < 1)) {   // a see-through ground cannot be mixed to one colour
+      const a = d.length > 3 ? d[3] : 1;
+      colour = 'rgb(' + [0, 1, 2].map((i) => Math.round(g[i] * (1 - a) + d[i] * a)).join(', ') + ')';
+    }
+    TIP_GROUND = { key, colour };
+    return colour;
   } finally { probe.remove(); }
 }
 function tipDimming(on) {
   const root = document.documentElement;
   if (on) {
     const c = tipDimmedGround();
-    if (c) { root.style.setProperty('--tip-canvas', c); root.setAttribute('data-tip-ground', ''); } else root.removeAttribute('data-tip-ground');
-  } else root.removeAttribute('data-tip-ground');
+    if (c) { root.style.setProperty('--tip-canvas', c); root.setAttribute('data-tip-ground', ''); } else { root.style.removeProperty('--tip-canvas'); root.removeAttribute('data-tip-ground'); }
+  } else { root.style.removeProperty('--tip-canvas'); root.removeAttribute('data-tip-ground'); }
   root.classList.toggle('tip-dimming', !!on);
 }
 

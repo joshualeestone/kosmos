@@ -430,11 +430,12 @@ const resetStore = (state) => fs.writeFileSync(tipsStore.FILE(), JSON.stringify(
         onScreen: cr.top >= 0 && cr.bottom <= innerHeight, top: Math.round(cr.top), headOn: tr.top >= 0 && tr.bottom <= innerHeight };
     });
     const want14 = { up: 12, down: 12, left: 14, right: 14 }[after14.cls];
-    /* Within a pixel: the card's place is rounded to a whole pixel, and with a scrollbar gutter reserved (a Mac with a
-       mouse) the page's centre, and so the heading's edge, falls on a half pixel. */
     /* It FOLLOWED: the card moved up by the scroll (a card that stayed put while its heading moved fails here). */
     const moved = top0 - after14.top;
-    chk(title14 === 'Make an agent' && scrolled > 0 && after14.headOn && after14.cls !== 'flat' && Math.abs(moved - scrolled) <= 1 && after14.onScreen && after14.covers === '0' && Math.abs(after14.gap - want14) <= 1,
+    /* A side card within a pixel: its place is rounded to a whole pixel, and with a scrollbar gutter reserved (a Mac
+       with a mouse) the page's centre, and so the heading's edge, falls on a half pixel. Above or below, exact. */
+    const gapOk14 = ['left', 'right'].includes(after14.cls) ? Math.abs(after14.gap - want14) <= 1 : after14.gap === want14;
+    chk(title14 === 'Make an agent' && scrolled > 0 && after14.headOn && after14.cls !== 'flat' && Math.abs(moved - scrolled) <= 1 && after14.onScreen && after14.covers === '0' && gapOk14,
       'T14 after a scroll the card still points at its target from its gap, or sits clear of every control', JSON.stringify({ top0, scrolled, after14 }));
     await page.keyboard.press('Escape');
     await page.evaluate(() => window.scrollTo(0, 0));
