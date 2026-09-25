@@ -880,6 +880,16 @@ fi
 # check one day old.
 run_one "render-member-modal" node docs/browser-checks/render-member-modal.js
 
+# --- #718: the phone screenshot harness -----------------------------------
+# It boots its OWN throwaway board (temp HOME and data roots, fake tmux) and its
+# leak guard exits 3 on a real email, key or this Mac's name in the page, so a
+# run here proves the harness still boots, still reaches its screens and still
+# refuses to photograph a real account. The slice is the frame and the accounts
+# page at the smallest phone, both engines; --strict makes horizontal overflow
+# red on those screens. The full sweep (160 shots) is a by-hand tool, not a gate.
+run_one "mobile-shots" node docs/browser-checks/mobile-shots.js --out "$RUN_DIR/mobile-shots" \
+  --screens home,nav-menu,agents-list,settings-accounts --sizes se --themes light --strict
+
 # --- 3. render-thread: the send-capable thread, on the fixture server --------
 # #540: a board with a stand-in codex, so the add-an-OpenAI-account flow can
 # run for real with no real key. HOME is the sandbox too, so the account it
