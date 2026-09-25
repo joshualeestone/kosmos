@@ -5805,7 +5805,8 @@ body:not(.consolidated) .pjmidhead:has(.pjhead) .tsearch:focus-within { flex-bas
    330px off the left edge at 375 (measured; the thread box clipped it, so the page did not
    scroll). Capping the bubble at its row fixes the cause, and the name keeps its one-line
    ellipsis. Scorpion measured the same fix on the Direct Message (his #3687, scoped to
-   #d-dmthread); this is the room's. At desktop widths 78ch still binds first, unchanged. */
+   #d-dmthread); this is the room's. At desktop widths 78ch still binds first, unchanged.
+   78ch is the base .msg-bd cap repeated; web.room-phone-718.test.js pins the two equal. */
 #pj-room .msg.you .msg-bd { max-width: min(78ch, 100%); }
 @media (max-width: 30rem) {
   .pjcol.pjmid { padding: 12px 8px 8px; }
@@ -46460,7 +46461,7 @@ function pjRxnClose() {
   RXN_SHOW_POST = null;
   RXN_SHOW_PID = null;
   const room = document.getElementById('pj-room');
-  if (room) room.querySelectorAll('.msg.rxn-show').forEach((m) => m.classList.remove('rxn-show'));
+  if (room) room.querySelectorAll('.msg.rxn-show, .msg.rxn-below').forEach((m) => m.classList.remove('rxn-show', 'rxn-below'));
   // A tapped button keeps focus on Android, and .rxn-quick:focus-within would keep the bar up.
   const a = document.activeElement;
   if (a && a.closest && a.closest('#pj-room .rxn-quick') && a.blur) a.blur();

@@ -60,3 +60,10 @@ test('the tap listener is registered before the data-open-agent one, which must 
   const last = html.indexOf('Keep this one last among the room\'s click listeners');
   assert.ok(tap > 0 && last > 0 && tap < last, 'tap listener at ' + tap + ', last listener at ' + last);
 });
+
+test("your own bubble's room cap repeats the base bubble cap (78ch), pinned", () => {
+  const base = html.match(/\n\.msg-bd \{ [^}]*max-width: ([\d.]+ch);/);
+  const room = html.match(/#pj-room \.msg\.you \.msg-bd \{ max-width: min\(([\d.]+ch), 100%\); \}/);
+  assert.ok(base && room, 'both rules found');
+  assert.equal(room[1], base[1]);
+});
