@@ -54544,8 +54544,7 @@ const TIPS = [
       + '<li><i>4</i><span><b>Tasks</b> is the to-do list, and who is on each one.</span></li></ol>' },
   { id: 'agentpage', title: 'Your agent\'s page', show: () => tipVisible('#panel-detail #d-sec-talk'), at: '#panel-detail .snav',
     body: '<p>Talk to your agent here. Messages go straight to it. Profile, Instructions, AI Settings and Advanced are in the boxes on the left, and Instructions is where you change what it does.</p>' },
-  { id: 'settings', title: 'Settings for this computer', show: () => tipVisible('#panel-settings'), at: '#panel-settings .dsec:not([hidden]) .dlab',
-    body: '<p>Your AI accounts, how Kosmos looks, and tips: turn them back on under This computer.</p>' },
+  /* #3574 (Josh 2026-09-25 07:46): no Settings tip ("wonky and pointless"), not on first visit and not from the ?. */
 ];
 let TIPS_STATE = null;          // { ok, seen, off } from the board; null until read
 let TIP_OPEN = null;            // the tip on screen, or null
@@ -55036,6 +55035,9 @@ function wireHelpq() {
   document.getElementById('userpop-btn')?.addEventListener('click', () => closeHelpMenu(), true);
   btn.addEventListener('click', () => {
     const open = menu.hidden;
+    /* Settings has no tip of its own (Josh 07:46), so the ? does not offer one there: no fallback to the tour either. */
+    const screenItem = menu.querySelector('[data-help="screen"]');
+    if (open && screenItem) screenItem.hidden = tipVisible('#panel-settings');
     menu.hidden = !open;
     btn.setAttribute('aria-expanded', String(open));
     if (open) menu.querySelector('.userpop-item')?.focus();
