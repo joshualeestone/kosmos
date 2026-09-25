@@ -9224,8 +9224,6 @@ body.plus-active #plus-state2 { max-width: 26rem; padding: 2rem; }
 #plus-state2 #plus-signin-msg:empty { display: none; }
 #plus-state2 .plus-si-lead + .frow { margin-top: 1rem; }   /* a button under a one-line lead gets room (the #3796 landing) */
 @media (max-width: 640px) { .plus-val { grid-template-columns: 1fr; } }
-/* The canvases honour prefers-reduced-motion in JS (a single static frame, no
-   rAF loop); this makes that intent visible to a source reader too. */
 /* #718 CHAT FIRST ON A PHONE (Josh 2026-09-24: "make sure the designs fit well on mobile"; Liu Kang
    decided the build 2026-09-24 22:30 CDT). Below 40rem, with Direct Message the shown section, the
    agent page used to stack the whole identity column (88px avatar, name, state, five big nav tiles,
@@ -9234,9 +9232,11 @@ body.plus-active #plus-state2 { max-width: 26rem; padding: 2rem; }
      - the identity block is one compact row (small avatar beside the name and state);
      - the section tiles become one row of small tabs that scrolls sideways, so Profile and the rest
        stay one tap away through the same buttons and the same click handler;
-     - Files is not shown (its one action opens Finder on the Mac, which a phone cannot use);
+     - Files is not shown here, to keep the first screen for the conversation (it stays on the
+       other sections);
      - the page is exactly the visible screen and the thread scrolls inside it, so the composer sits
-       at the bottom. The height is --kosmos-visible-height when the script below has set it (the
+       at the bottom, padded by Raiden's shared --safe-bottom (0 today: the board does not opt into
+       viewport-fit=cover, per Johnny's ruling). The height is --kosmos-visible-height when the script below has set it (the
        visual viewport, which shrinks when the on-screen keyboard opens), else 100dvh.
    Other sections, tablets (40rem to 56rem) and desktop keep their layout.
    Stated weakest part: verified in Playwright Chromium and WebKit with a simulated smaller visual
@@ -9244,7 +9244,10 @@ body.plus-active #plus-state2 { max-width: 26rem; padding: 2rem; }
 @media (max-width: 40rem) {
   body:has(> #panel-detail:not([hidden]) #d-sec-talk:not([hidden])) {
     display: flex; flex-direction: column; padding-bottom: 0;
-    height: 100vh; height: var(--kosmos-visible-height, 100dvh); overflow: hidden; }
+    height: var(--kosmos-visible-height, 100dvh); overflow: hidden; }
+  /* In-flow notices that follow the panel in the markup (the connection-lost banner) sit above
+     it here instead of under the composer. */
+  body > #panel-detail:has(#d-sec-talk:not([hidden])) { order: 1; }
   body:has(> #panel-detail:not([hidden]) #d-sec-talk:not([hidden])) > :not(#panel-detail) { flex: none; }
   body:has(> #panel-detail:not([hidden]) #d-sec-talk:not([hidden])) > .apphead { margin-bottom: 0; }
   body > #panel-detail:has(#d-sec-talk:not([hidden])) {
@@ -9283,27 +9286,36 @@ body.plus-active #plus-state2 { max-width: 26rem; padding: 2rem; }
   #panel-detail:has(#d-sec-talk:not([hidden])) .dsecs { flex: 1 1 auto; min-height: 0; padding-top: 0; }
   #panel-detail:has(#d-sec-talk:not([hidden])) #d-talk-box {
     height: auto; min-height: 0; flex: 1 1 auto; overflow: hidden;
-    margin: 0 calc(-1 * var(--page-gutter, 24px)); padding: 10px 12px max(8px, env(safe-area-inset-bottom, 0px)); }
+    margin: 0 calc(-1 * var(--space-8)); padding: 10px 12px calc(8px + var(--safe-bottom, 0px)); }
   #panel-detail:has(#d-sec-talk:not([hidden])) #d-dmthread { flex: 1 1 auto; min-height: 0; overflow-y: auto; overscroll-behavior: contain; }
   /* While the person is typing, the keyboard takes about half a phone screen, and the header,
      tabs and search above the thread would leave the thread no room (an iPhone SE had the
-     composer pushed below the keyboard). They step aside while the composer has focus and come
-     back when it loses it: the same trade chat apps make. */
-  body:has(#d-say:focus) #panel-detail:has(#d-sec-talk:not([hidden])) > .back,
-  body:has(#d-say:focus) #panel-detail:has(#d-sec-talk:not([hidden])) .dleft,
-  body:has(#d-say:focus) #d-talk-box .d-talk-caprow,
-  body:has(#d-say:focus) #d-talk-box #d-talk-older { display: none; }
+     composer pushed below the keyboard). They step aside while focus is anywhere in the
+     composer (the text box, add-a-file or Post, so tapping Post does not flash them back mid-tap)
+     or in the search box, and come back when focus leaves: the same trade chat apps make.
+     Accepted trade: hidden this way they are also out of the accessibility tree until focus
+     leaves the composer. Searching keeps its own row and sets the composer aside instead, since
+     the person is reading results, not writing. */
+  body:has(.dmbar:focus-within, #d-talk-search:focus) #panel-detail:has(#d-sec-talk:not([hidden])) > .back,
+  body:has(.dmbar:focus-within, #d-talk-search:focus) #panel-detail:has(#d-sec-talk:not([hidden])) .dleft,
+  body:has(.dmbar:focus-within, #d-talk-search:focus) #d-talk-box #d-talk-older,
+  body:has(.dmbar:focus-within) #d-talk-box .d-talk-caprow,
+  body:has(#d-talk-search:focus) #d-talk-box .dmbar { display: none; }
   /* Thumb reach: the composer's controls meet the 44px minimum on a phone. */
   #d-talk-box .composerbox .attachbtn { width: 44px; height: 44px; }
   #d-talk-box .composerbox .cpost { min-height: 44px; min-width: 64px; }
   #d-talk-box .composerbox .cinput { font-size: 16px; }
   /* The compact header above already names the agent, so the "Direct Message to <name>"
-     caption would say it twice; the search takes the row. */
+     caption would say it twice; the search takes the row. Hidden visually only, so the
+     conversation keeps its heading for screen-reader heading navigation. */
   #d-talk-box .d-talk-caprow { margin-bottom: 6px; }
-  #d-talk-box #d-talk-label { display: none; }
+  #d-talk-box #d-talk-label { position: absolute; width: 1px; height: 1px; overflow: hidden;
+    clip: rect(0 0 0 0); clip-path: inset(50%); white-space: nowrap; }
   #d-talk-box .d-talk-caprow #d-talk-search-wrap { flex: 1 1 auto; min-height: 36px; }
   #panel-detail:has(#d-sec-talk:not([hidden])) > .back { margin: 4px 0 0; }
 }
+/* The canvases honour prefers-reduced-motion in JS (a single static frame, no
+   rAF loop); this makes that intent visible to a source reader too. */
 </style>
 <!-- ⚠️ THE id HERE IS LOAD-BEARING, NOT DECORATION. Every page test in this
      repo lifts the app's source with a regex for an ATTRIBUTE-LESS script tag,
@@ -30048,8 +30060,10 @@ function detailGo(section, opts) {
 (function trackVisibleViewportHeight() {
   const viewport = window.visualViewport;
   if (!viewport) return;
+  /* Height times scale: the keyboard shrinks the visual viewport at scale 1, while a pinch
+     zoom shrinks it by the zoom factor, and only the keyboard should shrink the page. */
   const write = () => {
-    document.documentElement.style.setProperty('--kosmos-visible-height', Math.round(viewport.height) + 'px');
+    document.documentElement.style.setProperty('--kosmos-visible-height', Math.round(viewport.height * viewport.scale) + 'px');
   };
   viewport.addEventListener('resize', write);
   write();
