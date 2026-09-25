@@ -2,10 +2,10 @@
 pre_challenge: true
 method: challenge-loop
 branch: swarm-ui-3564
-diff_hash: 5950eff666afa2a4d27a0f8d6395859e007f228aa016b2dbd7e6a64c4f98b2f0
+diff_hash: c8e18e0d851c524d7848c5dfdf396aa1628f73f16ae928888742da14584da167
 validation: passed
 subdir_audit: passed
-timestamp: 2026-09-25T18:21:42Z
+timestamp: 2026-09-25T18:33:32Z
 iterations: 8
 converged: true
 ---
@@ -78,6 +78,11 @@ After iteration 8: main merged in again (#3756, #3757, #3776; README resolved, E
 reason-grep test), and 41c98696d: Stop now keeps its distance with a column gap, since the 16px margin left it indented
 when it wraps under the radios (seen in the shot). CSS only; S1-S28 pass on it.
 
+Then main again (3a15302e2), bringing Renet's #3771: a stopped swarm's offline row now carries its swarm settings,
+closing iteration 6's engine WARNING; a plain offline agent carries swarm: null, and every swarm read here also requires
+a.swarm to be truthy, so null is not a swarm. Conflicts resolved: the runner list (render-swarm-ui-3564 inside it,
+before `; do`) and the status handler (main's guide-aware TIP_NEW_BOARD kept, the swarm lines after it).
+
 ## Validation (this session)
-6j on HEAD 41c98696d: full suite clean (hash 5950eff666af), subdir audit clean. render-swarm-ui-3564: 60 pass, 0 fail.
+6j on HEAD 3a15302e2: full suite clean (hash c8e18e0d851c), subdir audit clean. render-swarm-ui-3564: 60 pass, 0 fail.
 
