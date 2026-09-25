@@ -93,10 +93,12 @@ function selfCheck() {
 /* Everything a person types into. ⚠️ ASKED, NOT LISTED: an earlier version
    named `input[type=text], textarea, select` and was silently blind to
    `type=search`. Name what it is NOT rather than enumerating what it is.
-   A SLIDER (`type=range`) is not typed into: it draws a track and a thumb, not a field fill,
-   so "the same fill as its box" does not apply, exactly as for a checkbox. #3690's swarm
-   sliders failed here at the 0.6.95 cut for that reason (two of its four; the other two passed
-   only because their container's fill differed). */
+   A SLIDER (`type=range`) is not typed into, and a native one never PAINTS its computed
+   fill: measured 2026-09-25 on chromium and webkit, a slider computing rgb(255,255,255) on a
+   dark card drew the card's colour at its edges, even with an explicit white background,
+   while an appearance:none control drew white. So "the same fill as its box" measured a
+   colour nobody sees, exactly as for a checkbox. #3690's swarm sliders failed here at the
+   0.6.95 cut for that reason (two of its four). */
 const FIELDS = 'input:not([type=button]):not([type=file]):not([type=checkbox]):not([type=radio]):not([type=submit]):not([type=range]), textarea, select';
 /* ⚠️ BUTTONS TOO, and their absence was a hole shaped exactly like the defect
    this branch shipped: `#cstep-made`'s buttons sat at 1.05:1 against their own

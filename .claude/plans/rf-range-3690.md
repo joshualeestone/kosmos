@@ -17,6 +17,14 @@ Rejected: restyling the sliders to give them a raised fill. That would satisfy t
 adding a field look to a control that is not a field, which is the wrong fix for a
 wrong-category assertion.
 
+## Measured: a native slider does not paint its fill
+Review 2 asked whether the white computed fill IS painted (a white box in dark mode would be a
+real defect the exclusion hides). Playwright, chromium and webkit, a dark card (44,44,46):
+- a slider with the swarm CSS (computed rgb(255,255,255)): its edge pixels read 44,44,46;
+- a native slider with an explicit `background:#fff`: also 44,44,46;
+- POSITIVE CONTROL, `appearance:none` + white: reads 255,255,255.
+So a native slider never paints the fill the check measured; nothing visible is hidden.
+
 ## Weakest premise
 That no slider should ever be held to a contrast rule. A slider's TRACK can still be invisible
 against its box; this check never measured tracks, and now explicitly does not measure sliders.
