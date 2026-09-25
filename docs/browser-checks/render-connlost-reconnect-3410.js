@@ -42,10 +42,10 @@ function chk(ok, label, extra) {
 }
 
 const PHASES = [
-  { key: 'none', reconnect: null, label: 'Connection lost', says: /lost its internet connection$/, not: /Kosmos (will retry|is asking)/ },
+  { key: 'none', reconnect: null, label: 'Connection lost', says: /lost its internet connection/, not: /Kosmos (will retry|has asked)/ },
   { key: 'waiting', reconnect: { phase: 'waiting', tries: 0 }, label: 'Reconnecting…', says: /Kosmos will retry once it is back/ },
-  { key: 'retried', reconnect: { phase: 'retried', tries: 1 }, label: 'Reconnecting…', says: /Kosmos is asking it to try again/ },
-  { key: 'gave_up', reconnect: { phase: 'gave_up', tries: 3 }, label: 'Connection lost', says: /Still can.t connect after several tries\. Check this computer.s internet connection, then restart the agent\. It will start fresh\./ },
+  { key: 'retried', reconnect: { phase: 'retried', tries: 1 }, label: 'Reconnecting…', says: /Kosmos has asked it to try again/ },
+  { key: 'gave_up', reconnect: { phase: 'gave_up', tries: 3 }, label: 'Connection lost', says: /Kosmos tried to reconnect it several times and has stopped\. If the internet is working, restart the agent\. It will start fresh\./ },
 ];
 
 (async () => {
@@ -92,6 +92,17 @@ const PHASES = [
         if (p.not) chk(!p.not.test(seen.nettie.text), `${p.key}: no retry is promised`, seen.nettie.text.slice(0, 200));
       }
       chk(seen.ida && !/Reconnecting|Connection lost/.test(seen.ida.text), `${p.key}: the idle agent's card is untouched (control)`);
+      /* The project members list renders from a projection without `reconnect`; it must borrow it
+         from the same agent in the page's latest status (LAST) and agree with the card. Driven
+         through the page's own pjMember on the live page. */
+      const member = await page.evaluate(() => {
+        const n = (LAST || []).find((a) => a && a.state === 'connection_lost');
+        if (!n) return null;
+        const html = pjMember({ sessionName: n.sessionName, name: n.name, present: true, tied: true, role: null, state: 'connection_lost' });
+        const d = document.createElement('div'); d.innerHTML = html;
+        return d.textContent.replace(/\s+/g, ' ').trim();
+      });
+      chk(member && member.includes(p.label), `${p.key}: the project members list agrees with the card ("${p.label}")`, member || 'no member row');
       await page.screenshot({ path: path.join(OUT, `connlost-${p.key}.png`) });
     }
     chk(errs.length === 0, 'no page errors', errs.join(' | '));
