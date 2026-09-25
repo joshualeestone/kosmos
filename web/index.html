@@ -56843,6 +56843,22 @@ function asbLift(el, bandOnly) {
   }
 }
 
+/* #3821 (Josh 2026-09-25 16:25, Windows): the open chat sits where the bubble was, at its bottom-right, and grows
+   upward, capped below the header (the thread then scrolls inside). It is not lifted over the page's controls as the
+   folded bubble is: an open chat covering the page is what an open chat does, and lifting it put it under the header
+   on a shorter window. */
+function asbAnchorPanel(panel, bub) {
+  if (!panel || panel.hidden) return;
+  const head = document.querySelector('.apphead') || document.querySelector('header');
+  const hr = head ? head.getBoundingClientRect() : null;
+  const top = hr && hr.height > 0 && hr.bottom > 0 ? hr.bottom : 0;
+  /* The bubble's own place, lifted or not (it lifts over a Send button in the corner); on a window too short for
+     that, low enough that 160px of chat still fits under the header. */
+  const bottom = Math.max(16, Math.min(parseFloat(bub && bub.style.bottom) || 16, window.innerHeight - top - 160 - 12));
+  panel.style.bottom = Math.round(bottom) + 'px';
+  panel.style.maxHeight = Math.max(160, Math.round(window.innerHeight - bottom - top - 12)) + 'px';
+}
+
 /* Whether the bubble belongs on screen right now. */
 function asbShows() {
   if (!ASB.setting || ASB.setting.on !== true || ASB.holding) return false;
@@ -56884,7 +56900,7 @@ function asbPaint() {
   panel.hidden = !ASB.open;
   bub.hidden = ASB.open;
   asbLift(bub, false);
-  asbLift(panel, true);
+  asbAnchorPanel(panel, bub);
   const nudge = document.getElementById('asb-nudge');
   nudge.style.bottom = (parseFloat(bub.style.bottom) || 16) + 8 + 'px';
   /* #3733: working on a reply. A guide is working when the board says so (its card state), the hosted assistant while
