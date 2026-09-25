@@ -264,6 +264,33 @@ function armSetupAssistant() {
   } catch { return false; }
 }
 
+/*
+ * #3760, Josh 2026-09-25 11:07 (0.6.94): "anybody that has a current install won't have the helper agent. Is
+ * there a way to activate that for existing users and then allow them the ability to turn it off, like we
+ * normally would let new users turn it off". So an install that finished first run BEFORE the guide existed
+ * is armed once, at board start after the update, exactly as Giddy Up arms a new one. Everything after
+ * arming is the new-user path unchanged: ensureGuide still creates at most one guide ever (the seeded flag),
+ * never while the person has turned setup assistance off, and never without a model.
+ * - Only a FINISHED first run arms here. A fresh install still in onboarding is left to Giddy Up, so it is
+ *   unchanged. `firstRunSeen` is firstrun.seen(); a flag we could not read (known: false) does NOT arm:
+ *   first run treats it as done so onboarding is not shown over a working board, but creating an agent
+ *   on a guess is the other direction.
+ * - Already armed is a no-op, so this runs once per install, and a guide someone removed is not re-created
+ *   (the seeded flag is once-ever; the arm file never grants a second).
+ * Returns { armed: true } when it armed now, else { armed: false, reason }. Never throws.
+ */
+function armExistingInstall({ firstRunSeen } = {}) {
+  try {
+    if (isArmed()) return { armed: false, reason: 'already armed' };
+    const seen = typeof firstRunSeen === 'function' ? firstRunSeen() : null;
+    if (!seen || seen.known !== true || seen.done !== true) return { armed: false, reason: 'first run not finished' };
+    fs.writeFileSync(armPath(), JSON.stringify({ at: new Date().toISOString(), via: 'update' }) + '\n', 'utf8');
+    return { armed: true };
+  } catch (err) {
+    return { armed: false, reason: 'could not arm: ' + String((err && err.message) || err) };
+  }
+}
+
 /* The providers, in the order the person sees them (Josh 17:05, #3651), each with the
    module that lists its accounts. Only a LISTED account counts as connected. */
 const MODEL_PROVIDERS = Object.freeze([
@@ -508,6 +535,7 @@ module.exports = {
   SETUP_ROLE_KEY,
   armPath,
   armSetupAssistant,
+  armExistingInstall,
   listedModels,
   hostedOffered,
   hostedWhy,
