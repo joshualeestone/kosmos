@@ -8,9 +8,10 @@
 /*
  * kosmos#3051 (Josh, 0.6.63 review, for 6.65): the upper-right nav is a user AVATAR + NAME that
  * opens a dropdown. The Settings LINK lives in the dropdown (Settings is GONE from the top nav,
- * which is now Agents + Projects, plus Tasks since #3559), together with the light/dark control, the view toggle,
- * and the agent-status line. Removing the Settings tab is safe because 'settings' is in the
- * BUTTONLESS array, so showTab('settings') still shows #panel-settings with no tab lit.
+ * which is now Agents + Projects, plus Tasks since #3559), together with the light/dark
+ * control, the view toggle, and the agent-status line. Removing the Settings tab is safe
+ * because 'settings' is in the BUTTONLESS array, so showTab('settings') still shows
+ * #panel-settings with no tab lit.
  *
  * kosmos#3360 (Josh, 2026-09-21): the dropdown was reworked so every line is a real clickable
  * row -- a Kosmos+ promo (dormant member line behind it), the four settings deep-links (Your
@@ -28,7 +29,7 @@
  * runtime (unreachable over file://), so the button reads its "You" default here -- this check
  * asserts the STRUCTURE and the INTERACTION, not the fetched name.
  *
- * Reds on origin/main, where there is a third Settings tab, no #userpop, and the light/dark +
+ * Red before #3051 landed, when the top nav still had a Settings tab, no #userpop, and the light/dark +
  * view controls sit bare on the header row.
  *
  * Run:
