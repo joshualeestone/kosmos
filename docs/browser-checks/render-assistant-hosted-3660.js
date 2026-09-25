@@ -279,6 +279,41 @@ const waitFor = (page, fn, ms = 6000) => page.waitForFunction(fn, null, { timeou
     chk(await waitFor(page, () => { const b = document.getElementById('asb'); return b && !b.hidden && ASB.hosted === true && ASB.guide === null; }, 8000), 'H14 and the hosted bubble stands in');
     unseed();
 
+    // H16: an answer that lands while the chat is folded lights the gold dot, as a guide's reply does.
+    await boot();
+    chk(await waitFor(page, () => { const b = document.getElementById('asb'); return b && !b.hidden && ASB.hosted === true && ASB.guide === null; }, 8000), 'H16 precondition: hosted, no guide');
+    answer = { status: 200, body: { reply: 'Folded answer.', remaining: 20 } };
+    slow = 1500;
+    await page.click('#asb');
+    await page.fill('#asp-say', 'Fold me?');
+    await page.keyboard.press('Enter');
+    await page.waitForTimeout(200);
+    await page.click('#asp-fold');
+    chk(await waitFor(page, () => { const d = document.querySelector('#asb .asb-dot'); return !!d && !d.hidden; }, 5000), 'H16 answered while folded, the gold dot lights');
+    slow = 0;
+
+    // H17: a guide is made while a hosted answer is on its way: the late answer is kept with the hosted
+    // conversation and nothing of it is written over the guide's chat (its allowance line, its reply).
+    await page.click('#asb');
+    answer = { status: 200, body: { reply: 'Late hosted answer.', remaining: 2 } };
+    slow = 4000;
+    await page.fill('#asp-say', 'Race?');
+    await page.keyboard.press('Enter');
+    await page.waitForTimeout(400);
+    fleet.install([fleet.agent('josh', { state: 'idle', displayName: 'Josh', role: 'Setup guide' }),
+      fleet.agent('beatrix', { state: 'idle', displayName: 'Beatrix', role: 'Collections Coordinator' })]);
+    seedGuide('josh');
+    await page.evaluate(() => { ASB.nextFind = 0; });
+    chk(await waitFor(page, () => ASB.guide === 'josh', 12000), 'H17 precondition: the guide is adopted while the answer is on its way');
+    await page.waitForTimeout(4500);
+    const h17 = await page.evaluate(() => ({ msg: document.getElementById('asp-msg').textContent, th: document.getElementById('asp-th').textContent,
+      sending: ASB.sending, send: document.getElementById('asp-send').disabled, kept: (sessionStorage.getItem('kosmos.asb.hosted.v1') || '').includes('Late hosted answer.') }));
+    chk(!/left today/.test(h17.msg) && !/Late hosted answer/.test(h17.th), 'H17 the late hosted answer writes nothing over the guide\'s chat', JSON.stringify(h17));
+    chk(!h17.sending && !h17.send && h17.kept, 'H17 and Send works again, with the answer kept in the hosted conversation', JSON.stringify(h17));
+    slow = 0;
+    unseed();
+    fleet.install([fleet.agent('beatrix', { state: 'idle', displayName: 'Beatrix', role: 'Collections Coordinator' })]);
+
     chk(MARK_WORKS && !fs.existsSync(RAN), 'H12 the connector never ran (CONTROL: run by hand at the start, it leaves its mark)', JSON.stringify({ MARK_WORKS }));
     chk(badResponses.length === 0, 'H11 no failed resource other than the refusals the check asked for', badResponses.join(' | '));
     chk(errs.length === 0, 'H11 no page errors', errs.join(' | '));

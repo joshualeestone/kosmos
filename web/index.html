@@ -54188,7 +54188,7 @@ let ASB = { started: false, guide: null, setting: null, open: false, asking: fal
   nextSetting: 0, settingEvery: ASB_FIND_FIRST_MS, settingReading: false,
   /* #3660: no guide yet, but the board can ask Kosmos's own model (GET /api/setup-guide says hosted). The
      conversation lives on this page for the session: there is no agent thread to hold it. */
-  hosted: false, hostedOff: false, hmsgs: null, remaining: null };
+  hosted: false, hostedOff: false, hmsgs: null, remaining: null, openGen: 0 };
 const ASB_HOSTED_KEY = 'kosmos.asb.hosted.v1';
 const ASB_HOSTED_OFF_KEY = 'kosmos.asb.hosted-off.v1';
 try { if (sessionStorage.getItem(ASB_HOSTED_OFF_KEY) === '1') ASB.hostedOff = true; } catch { /* not remembered: said once more */ }
@@ -54331,8 +54331,12 @@ function asbPaint() {
   const shows = asbShows();
   const panel = document.getElementById('asp');
   if (!shows) {
+    /* Whatever hid it (a guide gone, the hosted assistant no longer offered, first run), the keyboard goes back
+       to the page rather than falling to nowhere. */
+    const hadFocus = !!document.activeElement && !!document.activeElement.closest('#asblayer');
     bub.hidden = true; panel.hidden = true; document.getElementById('asb-nudge').hidden = true;
     ASB.open = false;
+    if (hadFocus) setTimeout(asbFocusPage, 0);
     return;
   }
   const src = row ? asbAvatar(row) : ASB_HOSTED_AVATAR;
@@ -54444,7 +54448,7 @@ function asbPaintThread(rows, session) {
 }
 
 function asbOpen() {
-  ASB.open = true; ASB.asking = false; ASB.dot = false;
+  ASB.open = true; ASB.asking = false; ASB.dot = false; ASB.openGen++;
   asbPaint();
   asbTellScreen(true);
   asbPoll(true);
@@ -54535,11 +54539,12 @@ async function asbHostedSend(text) {
   const say = document.getElementById('asp-say');
   const msg = document.getElementById('asp-msg');
   const hm = asbHostedMsgs();
+  const paint = () => asbPaintThread(hm.map((m) => ({ from: m.role === 'user' ? 'you' : 'hosted', text: m.content })), 'hosted');
   ASB.sending = true;
   document.getElementById('asp-send').disabled = true;
   msg.textContent = '';
   hm.push({ role: 'user', content: text });
-  asbPaintThread(hm.map((m) => ({ from: m.role === 'user' ? 'you' : 'hosted', text: m.content })), 'hosted');
+  paint();
   /* An answer can take a while (a model, and a retry): say so in the chat, where they are looking. */
   const th = document.getElementById('asp-th');
   const wait = document.createElement('div');
@@ -54555,42 +54560,43 @@ async function asbHostedSend(text) {
     b = await r.json().catch(() => null);
   } catch { r = null; }
   wait.remove();
-  ASB.shown = '';   // the thread is painted again below, from the conversation, whatever it showed while waiting
-  if (r && r.ok && b && typeof b.reply === 'string' && b.reply) {
-    hm.push({ role: 'assistant', content: b.reply });
-    asbHostedKeep();
+  ASB.sending = false;
+  document.getElementById('asp-send').disabled = false;
+  const ok = !!(r && r.ok && b && typeof b.reply === 'string' && b.reply);
+  if (ok) { hm.push({ role: 'assistant', content: b.reply }); asbHostedKeep(); } else hm.pop();   // not asked: the words are still in the box
+  /* The panel may belong to a guide by now (one was made while this was being answered): the answer is kept
+     with the hosted conversation, and nothing of it is written over the guide's chat. */
+  if (!asbIsHosted()) return;
+  ASB.shown = '';   // the thread is painted again from the conversation, whatever it showed while waiting
+  if (ok) {
     if (say.value.trim() === text) say.value = '';
     ASB.wroteOnce = true;
+    if (!ASB.open) ASB.dot = true;   // answered while folded: the gold dot, as a guide's reply lights it
     ASB.remaining = Number.isInteger(b.remaining) ? b.remaining : null;
     document.getElementById('asp-live').textContent = b.reply;
     if (ASB.remaining !== null && ASB.remaining <= 5) msg.textContent = ASB.remaining === 0 ? 'That was your last question for today.' : ASB.remaining === 1 ? '1 question left today.' : ASB.remaining + ' questions left today.';
   } else {
-    hm.pop();   // not asked: the words are still in the box
     msg.textContent = pjSentence((b && b.error) || 'we could not reach the setup assistant just now; try again in a moment');
-    /* They connected their own AI meanwhile: say so, and the bubble goes (the guide follows on its own). */
-    if (r && r.status === 409 && b && b.code === 'own_model') {
+    /* Said, then the bubble steps aside: 501, a connector older than the assistant (for the session), or 409, the
+       assistant is not offered here any more (their own AI connected, or the connector gone). Nothing more is sent
+       meanwhile. The timer closes only this hosted chat: not a guide's that arrived since, not one reopened since. */
+    const stepAside = r && (r.status === 501 || (r.status === 409 && b && (b.code === 'own_model' || b.code === 'no_connector')));
+    if (stepAside) {
+      if (r.status === 501) { try { sessionStorage.setItem(ASB_HOSTED_OFF_KEY, '1'); } catch { /* this page still knows */ } }
+      ASB.sending = true;
+      document.getElementById('asp-send').disabled = true;
+      const gen = ASB.openGen;
       setTimeout(() => {
-        const hadFocus = !!document.activeElement && !!document.activeElement.closest('#asblayer');
-        ASB.hosted = false; ASB.open = false; asbPaint(); asbPaintSetting();
-        if (hadFocus) asbFocusPage();
-      }, 6000);
-    }
-    if (r && r.status === 501) {
-      /* Long enough to read, with nothing more to send, then gone for the session. */
-      try { sessionStorage.setItem(ASB_HOSTED_OFF_KEY, '1'); } catch { /* this page still knows */ }
-      setTimeout(() => {
-        const hadFocus = !!document.activeElement && !!document.activeElement.closest('#asblayer');
-        ASB.hostedOff = true; ASB.open = false; ASB.sending = false; document.getElementById('asp-send').disabled = false;
+        if (r.status === 501) ASB.hostedOff = true; else ASB.hosted = false;
+        ASB.sending = false;
+        document.getElementById('asp-send').disabled = false;
+        if (ASB.guide || ASB.openGen !== gen) { asbPaint(); asbPaintSetting(); return; }
+        ASB.open = false;
         asbPaint(); asbPaintSetting();
-        if (hadFocus) asbFocusPage();   // the keyboard goes back to the page, not nowhere
       }, 6000);
-      asbPaintThread(hm.map((m) => ({ from: m.role === 'user' ? 'you' : 'hosted', text: m.content })), 'hosted');
-      return;
     }
   }
-  asbPaintThread(hm.map((m) => ({ from: m.role === 'user' ? 'you' : 'hosted', text: m.content })), 'hosted');
-  document.getElementById('asp-send').disabled = false;
-  ASB.sending = false;
+  paint();
   asbPaint();
 }
 
@@ -54664,7 +54670,15 @@ async function asbFind() {
     ASB.finding = false;
     return;
   }
+  /* Standing in as the hosted assistant, move to the guide only once the board lists its row: named but not yet
+     listed would hide the open chat for a tick and read a thread that is not there. */
+  if (asbIsHosted() && !(Array.isArray(LAST) && LAST.some((a) => a && String(a.sessionName || '').toLowerCase() === String(guide).toLowerCase()))) {
+    ASB.nextFind = Date.now() + ASB_TICK_MS;
+    ASB.finding = false;
+    return;
+  }
   ASB.guide = guide;
+  { const pm = document.getElementById('asp-msg'); if (pm) pm.textContent = ''; }   // a line from before is not the guide's
   /* A guide now exists: the bubble talks to it. The hosted conversation stays behind; it was another assistant. */
   if (ASB.hosted) {
     ASB.hosted = false; ASB.heard = null; ASB.shown = ''; ASB.readOnce = false; ASB.lastPoll = 0; ASB.remaining = null;

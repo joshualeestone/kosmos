@@ -57,3 +57,13 @@ rebuilt one. A board on an old connector sees the 501 path once per session.
   region. The refusal's copy is "you've connected your own AI, so the setup assistant is moving over to it".
 - NIT kept as a choice: listedModels() on each no-guide poll. It is local config reads, the poll backs off to a
   minute, and accounts already pays the same on the 5s tick.
+
+## Review iteration 3 (fixed)
+- WARNING: a guide made mid-answer got the hosted answer painted over its chat. Now the answer is kept in the hosted
+  conversation and nothing is written once the mode changed (H17).
+- WARNING: the 6s step-aside timers could close a guide's chat or a reopened one. They now only do so for the
+  same hosted chat (openGen), never with a guide.
+- WARNING: a mode switch hid the panel with focus inside. asbPaint's hide hands focus to the page, and a guide is
+  adopted only once the board lists its row.
+- NITs taken: the gold dot for an answer while folded (H16); asp-msg cleared whenever a guide is named; a 409 splits
+  into own_model and no_connector with true sentences; /bin/kosmos-tunnel is gitignored so a checkout never offers it.
