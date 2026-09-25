@@ -9,7 +9,8 @@ style much better", with the mock's B screenshot); A (all four at once) was buil
 Tips show by themselves only for someone new (changed 2026-09-24 18:02 from "every install once,
 upgraders included": the auto tour covered the agent card render-url-state clicks, and its step 1
 "Make your first agent" is wrong on a board that has agents).
-- The welcome tour shows by itself when the board has answered and has no agents, and "tour" is not
+- The welcome tour shows by itself when the board had no agents at its first answer this session
+  (decided once, so removing your last agent never brings it), still has none, and "tour" is not
   in seen. It walks the four places one at a time (New agent, Agents, Projects, your name: "N of 4",
   the place ringed, the rest dimmed, dots, Skip and Next, Got it on the last). Got it, Skip, the x,
   Escape or a click outside record it. If its screen goes without any of those (keyboard, Back, a
@@ -68,5 +69,6 @@ A browser check: fresh sandbox shows the tour once; Got it records it and a relo
 restores them; light and dark; narrow width places the card in-page. Controls for each "shows once".
 T23: a board with agents and nothing seen shows nothing and records nothing. T24: a tour that went
 unrecorded is recorded once the first agent arrives, through a failed first save. T25: an ordinary
-close whose save failed is mended the same way. Each was run against the code with its fix removed
+close whose save failed is mended the same way. T26: a board that had agents at its first answer and then removed
+the last one gets no tour. Each was run against the code with its fix removed
 and failed.
