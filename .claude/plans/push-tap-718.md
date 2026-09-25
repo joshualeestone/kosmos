@@ -3,7 +3,7 @@
 Pair of kosmos-relay push-session-718 (the coordinator passes a validated `session`).
 Shape agreed with Johnny (iOS) and Liu Kang: https://<address>/?tab=detail&agent=<session>,
 the board's own link (syncUrl writes it, WANT_AGENT reads it at boot, openDetail matches
-by sessionName and returns quietly if the agent is gone, leaving the board home).
+by sessionName). A link to an agent that is not on the board goes to the board home (Part 2).
 
 ## Finished looks like
 - web/sw.js boardUrlFor adds ?tab=detail&agent=<session> only when session matches
@@ -21,13 +21,21 @@ by sessionName and returns quietly if the agent is gone, leaving the board home)
 A tap opens ?tab=detail&agent=<session>, but on a phone the agent page stacks (max-width
 56rem): identity, five full-width section boxes and Files come first, so the question sat
 about two screens down on an iPhone SE. detailRevealTalkOnPhone scrolls the Direct Message
-section into view on the two ARRIVALS (the push link at boot, and the Answer button), only
-when the stacked layout is on.
-Measured, sandboxed board, Chromium and WebKit (engine build, not Safari), SE and Pro Max:
-push link question top 1036/998 -> 127, composer off -> on screen. The Answer button was
-already fine (it focuses the composer) and is unchanged.
-Tests: web.push-landing-718.test.js pins both call sites, the shared 56rem breakpoint, and
-the behaviour (phone scrolls, computer does not, hidden/missing section left alone).
+section into view on the two ARRIVALS, only when the stacked layout is on:
+- the push link at boot: SETTLED ONCE on the first status (the boot open sits in the poll,
+  which runs every few seconds; review iteration 1 caught the reveal re-running there). If
+  the agent opened, reveal; if it is not on the board (a push for an agent removed since),
+  go to the board home instead of the empty agent page the link used to leave, and stop
+  reopening it.
+- the Answer button: it already put the question on screen (it focuses the composer); the
+  reveal is a belt-and-braces call before that focus, re-measured with it in place.
+Measured, sandboxed board, Chromium and WebKit (engine build, not Safari), SE:
+push link: question off screen (scrollY 0, top 1036) -> fully on screen; Answer: on screen
+before and after; a link to a missing agent: stuck on an empty agent page -> the board home;
+scrolled back to the top after landing and waited 7s: stays put (no re-pull).
+Tests: web.push-landing-718.test.js pins the one-shot settle, the fallback home, the Answer
+call site, the shared 56rem breakpoint, and the behaviour (phone scrolls, computer does not,
+hidden/missing section left alone).
 Control: dropping the boot call fails it.
 Not touched: the Direct Message layout itself (Scorpion's screen).
 
@@ -38,5 +46,6 @@ Not touched: the Direct Message layout itself (Scorpion's screen).
   and 24). Measured at all 4 sizes x 2 themes x 2 engines (the card is injected at
   /api/remote/pending in the audit; a sandbox has no tunnel): no left bar, 44px buttons,
   no horizontal scroll. Test pins it; control (bar restored) fails it.
-- "Answer" on a needs-you card: a larger invisible hit area on a touchscreen (about 44px
-  tall), the pill layout unchanged.
+- "Answer" on a needs-you card: a larger invisible hit area on a touchscreen (about 40px
+  tall, inset -8px -6px so it does not reach the next row in the list layout), the pill
+  layout unchanged.
