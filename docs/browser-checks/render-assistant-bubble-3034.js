@@ -75,13 +75,14 @@ const waitFor = (page, fn, ms = 6000) => page.waitForFunction(fn, null, { timeou
     /* The guide's thread, answered here. */
     let thread = [{ from: 'Josh', text: 'Hi, I built Kosmos. Want me to set up your first agent with you?', at: new Date().toISOString() }];
     const sent = [];
+    let verdict = { delivery: { state: 'placed' }, recorded: true };
     await page.route('**/api/agent/Josh/thread', async (route) => {
       const r = route.request();
       if (r.method() === 'POST') {
         const body = JSON.parse(r.postData() || '{}');
         sent.push(body.text);
-        thread = thread.concat([{ from: 'you', text: body.text, at: new Date().toISOString() }]);
-        return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ delivery: { state: 'placed' }, recorded: true }) });
+        if (verdict.recorded) thread = thread.concat([{ from: 'you', text: body.text, at: new Date().toISOString() }]);
+        return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(verdict) });
       }
       return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ messages: thread, olderCount: 0 }) });
     });
@@ -99,13 +100,19 @@ const waitFor = (page, fn, ms = 6000) => page.waitForFunction(fn, null, { timeou
     chk(!none.layer && !none.bubble, 'B1 with no setup guide, no bubble and no layer', JSON.stringify(none));
     chk(await page.evaluate(() => document.getElementById('asb-row').hidden === true), 'B1 and no Setup assistant row in Settings');
 
-    // B2: a guide exists and the setting is on (the default): the bubble with the guide's picture, and the nudge.
+    // B1b: the guide is created AFTER the page loaded (a new install: end of first run, or the first
+    // model connecting). The page keeps looking and the bubble arrives without a reload.
     seedGuide('Josh');
+    chk(await waitFor(page, () => { const b = document.getElementById('asb'); return b && !b.hidden; }, 15000), 'B1b a guide created after the page loaded shows up without a reload');
+
+    // B2: a guide exists and the setting is on (the default): the bubble with the guide's picture, and the nudge.
     await boot();
     chk(await waitFor(page, () => { const b = document.getElementById('asb'); return b && !b.hidden; }, 8000), 'B2 with a guide, the bubble shows');
     const two = await bubble(page);
     chk(/\/api\/agent\/Josh\/avatar\?v=/.test(two.src), 'B2 it shows the guide\'s picture', two.src);
     chk(two.nudge, 'B2 the nudge shows before the person has written to the guide');
+    await page.waitForTimeout(1600);   // past a tick: the first read of the thread has landed
+    chk(!(await bubble(page)).dot, 'B2 a reply already in the thread does not light the dot on load (control: B6 lights it for a new one)');
     /* Measured from the page's content edge (body.clientWidth). The root reserves a stable scrollbar
        gutter (scrollbar-gutter: stable), and a fixed element sits inside it, as the tip card does. */
     const pos = await page.evaluate(() => { const r = document.getElementById('asb').getBoundingClientRect(); return { right: Math.round(document.body.clientWidth - r.right), bottom: Math.round(document.documentElement.clientHeight - r.bottom) }; });
@@ -145,6 +152,22 @@ const waitFor = (page, fn, ms = 6000) => page.waitForFunction(fn, null, { timeou
     await page.keyboard.press('Enter');
     chk(await waitFor(page, () => [...document.querySelectorAll('#asp-th .asp-m.you')].some((m) => m.textContent === 'How do I make an agent?')), 'B5 the message shows in the chat');
     chk(sent.length === 1 && sent[0] === 'How do I make an agent?' && await page.evaluate(() => document.getElementById('asp-say').value === ''), 'B5 it went to the guide\'s thread once and the box emptied', JSON.stringify(sent));
+
+    // B5b: unconfirmed and NOT kept in the thread: the box is the only copy, so the words stay, and it says so.
+    verdict = { delivery: { state: 'unconfirmed' }, recorded: false };
+    await page.fill('#asp-say', 'Is it working?');
+    await page.keyboard.press('Enter');
+    await page.waitForTimeout(600);
+    const b5b = await page.evaluate(() => ({ box: document.getElementById('asp-say').value, msg: document.getElementById('asp-msg').textContent }));
+    chk(b5b.box === 'Is it working?' && /still in the box/.test(b5b.msg), 'B5b an unconfirmed send that was not kept leaves the words in the box and says so', JSON.stringify(b5b));
+    // B5c: could_not keeps them too, with the reason as a sentence.
+    verdict = { delivery: { state: 'could_not', because: 'the assistant is not running' }, recorded: false };
+    await page.keyboard.press('Enter');
+    await page.waitForTimeout(600);
+    const b5c = await page.evaluate(() => ({ box: document.getElementById('asp-say').value, msg: document.getElementById('asp-msg').textContent }));
+    chk(b5c.box === 'Is it working?' && /The assistant is not running/.test(b5c.msg), 'B5c a send that could not go keeps the words and gives the reason', JSON.stringify(b5c));
+    verdict = { delivery: { state: 'placed' }, recorded: true };
+    await page.fill('#asp-say', '');
 
     // B6: the minus folds it back to the bubble; a reply while folded lights the dot; opening clears it.
     await page.click('#asp-fold');
@@ -200,11 +223,16 @@ const waitFor = (page, fn, ms = 6000) => page.waitForFunction(fn, null, { timeou
     await page.evaluate(() => { const fr = document.getElementById('firstrun'); if (fr) fr.hidden = true; });
     chk(await waitFor(page, () => !document.getElementById('asb').hidden), 'B9 CONTROL: it comes back when first run is gone');
 
-    // B10: a removed or unmarked guide is no guide (the board's gates, seen through the page).
+    // B10: the guide goes while the page is open: the next page report is refused and the page stops using
+    // the name (a new agent that took it must never get the guide's chat).
     unseed();
+    await page.click('#asb');
+    chk(await waitFor(page, () => document.getElementById('asb').hidden && document.getElementById('asp').hidden, 6000), 'B10 a guide gone while the page is open: the bubble and chat go');
+    chk(await page.evaluate(() => ASB.guide === null), 'B10 and the page no longer holds the name');
+    // B10b: and a fresh page with no guide shows none.
     await boot();
     await page.waitForTimeout(3800);
-    chk(!(await bubble(page)).bubble, 'B10 once the board names no guide, the bubble does not show');
+    chk(!(await bubble(page)).bubble, 'B10b once the board names no guide, a fresh page shows no bubble');
 
     chk(errs.length === 0, 'B11 no page errors', errs.join(' | '));
   } finally {

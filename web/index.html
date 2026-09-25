@@ -13894,6 +13894,7 @@ window.kosmosMeasureScrollbarWidth();
           <p class="dhint" style="margin:2px 0 0;">Josh's face in the corner. Click it for help setting up Kosmos on whatever page you're on.</p></div>
         <button class="toggle" id="asb-toggle" role="switch" aria-label="Show the setup assistant"><i></i></button>
       </div>
+      <p class="dhint" id="asb-row-msg" role="status" hidden></p>
     </section>
 
     <section class="dbox">
@@ -53552,8 +53553,11 @@ document.getElementById('tips-toggle')?.addEventListener('click', async (e) => {
 const ASB_TICK_MS = 1500;
 const ASB_OPEN_POLL_MS = 5000;     // the thread, while the chat is open (the agent page polls at 5s too)
 const ASB_FOLDED_POLL_MS = 60000;  // the thread, while folded, only to light the reply dot
+const ASB_FIND_FIRST_MS = 5000;    // looking for the guide again: 5s, doubling to a minute, until one is named
+const ASB_FIND_MAX_MS = 60000;
 let ASB = { started: false, guide: null, setting: null, open: false, asking: false, nudgeGone: false,
-  wroteOnce: false, heard: 0, lastPoll: 0, screenKey: '', sending: false, dot: false };
+  wroteOnce: false, heard: null, lastPoll: 0, screenKey: '', sending: false, dot: false,
+  nextFind: 0, findEvery: ASB_FIND_FIRST_MS, finding: false, shown: '' };
 
 function asbGuideRow() {
   if (!ASB.guide || !Array.isArray(LAST)) return null;
@@ -53585,7 +53589,7 @@ function asbTellScreen(force) {
   if (!force && key === ASB.screenKey) return;
   ASB.screenKey = key;
   fetch('/api/setup-guide/page', { method: 'POST', headers: { 'content-type': 'application/json' }, body: key })
-    .then((r) => r.text())   // read on every answer (see asbStart)
+    .then((r) => { r.text().catch(() => {}); if (r.status === 404 || r.status === 409) asbForgetGuide(); })   // read on every answer (see asbFind)
     .catch(() => { /* the guide answers without it; it is a courtesy, not a dependency */ });
 }
 
@@ -53681,13 +53685,19 @@ async function asbPoll(force) {
   const speech = asbSpeech(t.rows);
   ASB.wroteOnce = speech.some((m) => m.from !== t.session);
   const heard = speech.filter((m) => m.from === t.session).length;
+  /* The first read is the baseline: replies already in the thread are not new, so they light nothing. */
   if (ASB.open) { ASB.heard = heard; ASB.dot = false; asbPaintThread(speech, t.session); }
+  else if (ASB.heard === null) ASB.heard = heard;
   else if (heard > ASB.heard) ASB.dot = true;
   asbPaint();
 }
 function asbPaintThread(rows, session) {
   const th = document.getElementById('asp-th');
   if (document.getElementById('asp-msg').textContent === 'We could not load the conversation just now.') document.getElementById('asp-msg').textContent = '';
+  /* Rebuilt only when something changed, so a poll does not wipe what the person has selected. */
+  const shown = rows.length + '|' + (rows.length ? String(rows[rows.length - 1].at || '') + String(rows[rows.length - 1].text || '').length : '');
+  if (shown === ASB.shown && th.childElementCount) return;
+  ASB.shown = shown;
   const atEnd = th.scrollHeight - th.scrollTop - th.clientHeight < 24;
   th.replaceChildren();
   if (!rows.length) {
@@ -53749,21 +53759,25 @@ async function asbSend() {
   ASB.sending = true;
   document.getElementById('asp-send').disabled = true;
   msg.textContent = '';
+  /* sendTalk's rules (#402, #3419): clear only the text THIS send took, and only when the box is not its
+     only copy: placed, or unconfirmed but kept in the thread. could_not, or anything unrecognised, keeps it. */
+  const clearSent = () => { if (say.value.trim() === text) say.value = ''; ASB.wroteOnce = true; };
   try {
     const r = await fetch('/api/agent/' + encodeURIComponent(row.sessionName) + '/thread', {
       method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ text }) });
     const body = await r.json().catch(() => ({}));
-    const state = body && body.delivery && body.delivery.state;
-    if (!r.ok || state === 'could_not') {
-      /* Kept in the box, so nothing typed is lost. */
-      msg.textContent = (body && (body.error || (body.delivery && body.delivery.because))) || 'That did not reach the assistant. Try again in a moment.';
+    const d = (body && body.delivery) || {};
+    const inThread = body && body.recorded === true;
+    if (r.ok && d.state === 'placed') {
+      clearSent();
+    } else if (r.ok && d.state === 'unconfirmed') {
+      if (inThread) clearSent();
+      msg.textContent = 'We could not confirm the assistant got that. ' + (inThread ? 'Your message is kept above.' : 'Your message is still in the box below.');
     } else {
-      say.value = '';
-      if (state === 'unconfirmed') msg.textContent = 'Sent. We could not confirm it arrived yet.';
-      ASB.wroteOnce = true;
+      msg.textContent = 'We could not get that to the assistant: ' + pjSentence((body && body.error) || d.because || 'we could not reach it');
     }
   } catch {
-    msg.textContent = 'That did not reach the assistant. Try again in a moment.';
+    msg.textContent = 'We could not get that to the assistant: ' + pjSentence('we could not reach it');
   } finally {
     document.getElementById('asp-send').disabled = false;
     await asbPoll(true);
@@ -53782,21 +53796,27 @@ document.getElementById('asb-toggle')?.addEventListener('click', async (e) => {
   const sw = e.currentTarget;
   if (!ASB.setting || sw.disabled) return;
   sw.disabled = true;
-  try { await asbSaveSetting({ on: !(ASB.setting.on === true) }); } finally { sw.disabled = false; }
+  let ok = false;
+  try { ok = await asbSaveSetting({ on: !(ASB.setting.on === true) }); } finally { sw.disabled = false; }
+  const m = document.getElementById('asb-row-msg');
+  if (m) { m.textContent = ok ? '' : 'We could not save that just now. Try again in a moment.'; m.hidden = ok; }
   asbPaintSetting();
   asbPaint();
 });
 
 function asbTick() {
+  if (!ASB.guide) { if (Date.now() >= ASB.nextFind) asbFind(); return; }
   asbPaint();
   if (!asbShows()) return;
   if (ASB.open) asbTellScreen(false);
   asbPoll(false);
 }
 
-async function asbStart() {
-  if (ASB.started) return;
-  ASB.started = true;
+/* Which agent is the guide. Asked again until one is named: on a new install the guide is created
+   at the end of first run or when the first model connects (#3660), after this page has loaded. */
+async function asbFind() {
+  if (ASB.finding) return;
+  ASB.finding = true;
   let guide = null;
   try {
     const r = await fetch('/api/setup-guide', { cache: 'no-store' });
@@ -53805,16 +53825,39 @@ async function asbStart() {
     const b = await r.json().catch(() => null);
     if (r.ok && b && b.ok && typeof b.name === 'string') guide = b.name;
   } catch { /* no guide read, no bubble */ }
-  if (!guide) return;   // every install until #3660: nothing more is fetched or drawn
+  if (!guide) {
+    ASB.nextFind = Date.now() + ASB.findEvery;
+    ASB.findEvery = Math.min(ASB.findEvery * 2, ASB_FIND_MAX_MS);
+    ASB.finding = false;
+    return;
+  }
   ASB.guide = guide;
-  try {
-    const r = await fetch('/api/settings', { cache: 'no-store' });
-    const b = await r.json();
-    if (b && b.setupAssistant && typeof b.setupAssistant.on === 'boolean') ASB.setting = b.setupAssistant;
-  } catch { /* an unread setting shows no bubble rather than guess */ }
+  if (!ASB.setting) {
+    try {
+      const r = await fetch('/api/settings', { cache: 'no-store' });
+      const b = await r.json().catch(() => null);
+      if (b && b.setupAssistant && typeof b.setupAssistant.on === 'boolean') ASB.setting = b.setupAssistant;
+    } catch { /* an unread setting shows no bubble rather than guess */ }
+  }
+  ASB.finding = false;
   asbPaintSetting();
   asbLayerEnsure();
   asbPoll(true);
+  asbPaint();
+}
+/* The board says the guide is gone (removed, or its folder no longer the seed's): stop using the name,
+   hide everything, and look again from the start. */
+function asbForgetGuide() {
+  ASB.guide = null; ASB.open = false; ASB.asking = false; ASB.heard = null; ASB.shown = ''; ASB.dot = false;
+  ASB.findEvery = ASB_FIND_FIRST_MS; ASB.nextFind = Date.now() + ASB_FIND_FIRST_MS;
+  asbPaint();
+  asbPaintSetting();
+}
+
+function asbStart() {
+  if (ASB.started) return;
+  ASB.started = true;
+  asbFind();
   setInterval(asbTick, ASB_TICK_MS);
 }
 
@@ -53854,7 +53897,7 @@ async function firstRunBoot(force, step) {
        done/error paths the cover comes down onto the board, which is correct. */
     revealBoot();
     tipsStart();   // #3574: the tips read the screen, so they wait out first run by themselves
-    asbStart();    // #3034: the setup assistant, likewise hidden during first run
+    asbStart();    // #3034: the setup assistant; it hides itself during first run and keeps looking for a guide
   }
 }
 
