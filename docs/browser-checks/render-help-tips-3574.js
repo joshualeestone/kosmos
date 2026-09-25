@@ -94,12 +94,23 @@ const resetStore = (state) => fs.writeFileSync(tipsStore.FILE(), JSON.stringify(
 
     // T2: Next walks the four places in order, and Got it on the last closes it and the board remembers.
     const walked = [];
+    const placed = [];
+    const tourPlace = () => page.evaluate(() => {
+      const c = document.getElementById('tipcard'), h = document.querySelector('#tippins .tiphalo');
+      const a = c.getBoundingClientRect(), b = h ? h.getBoundingClientRect() : null;
+      return { cls: ['up', 'down', 'left', 'flat'].find((k) => c.classList.contains(k)), overRing: !!b && a.left < b.right && a.right > b.left && a.top < b.bottom && a.bottom > b.top };
+    });
+    placed.push(await tourPlace());
     for (let i = 0; i < 3; i++) {
       await page.click('#tipcard .tip-go');
       await page.waitForTimeout(150);
       const st = await cardState(page);
       walked.push(st.step + ' ' + st.title);
+      placed.push(await tourPlace());
     }
+    /* Every step's card points at its own ringed place and never sits on it (a card's last place must
+       not carry over from the step before). */
+    chk(placed.length === 4 && placed.every((p) => p.cls !== 'flat' && !p.overRing), 'T2 every tour step\'s card points at its ring and does not cover it', JSON.stringify(placed));
     chk(JSON.stringify(walked) === JSON.stringify(['2 of 4 Your agents', '3 of 4 Your projects', '4 of 4 Your settings']), 'T2 Next walks Agents, Projects, then your name', JSON.stringify(walked));
     const lastBtn = await page.evaluate(() => ({ go: document.querySelector('#tipcard .tip-go').textContent, skip: !!document.querySelector('#tipcard .tip-skip') }));
     chk(lastBtn.go === 'Got it' && !lastBtn.skip, 'T2 the last step says Got it and offers no Skip', JSON.stringify(lastBtn));
@@ -582,13 +593,15 @@ const resetStore = (state) => fs.writeFileSync(tipsStore.FILE(), JSON.stringify(
       await go();
       await page.waitForTimeout(300);
       const t = await openHere();
-      got31.push({ name, shown: t.shown, covers: t.covers });
+      got31.push({ name, shown: t.shown, covers: t.covers, title: t.title });
       if (name === 'settings (updates)') {
         const upd = await page.evaluate(() => { const b = document.getElementById('upd-btn'); if (!b || b.hidden) return 'no button'; const r = b.getBoundingClientRect(); const hit = document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2); return !!hit && !!hit.closest('#upd-btn'); });
         chk(t.shown && upd === true, 'T31 on Settings > Updates, with its tip open, Check for Update is still under the pointer', JSON.stringify({ t, upd }));
       }
     }
-    const bad31 = got31.filter((g) => !g.shown || g.covers !== '0');
+    /* Each screen's own tip, so a missed click that leaves the page on another screen cannot pass. */
+    const want31 = { board: 'See your agents your way', projects: 'A project is shared work', create: 'Make an agent', 'agent page': 'Your agent\'s page' };
+    const bad31 = got31.filter((g) => !g.shown || g.covers !== '0' || g.title !== (want31[g.name] || 'Settings for this computer'));
     chk(got31.length === 9 && bad31.length === 0, 'T31 every screen\'s tip opens and covers no visible control', JSON.stringify(bad31.length ? bad31 : got31.map((g) => g.name)));
     await page.keyboard.press('Escape');
 

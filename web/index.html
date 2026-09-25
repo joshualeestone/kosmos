@@ -53327,15 +53327,17 @@ function tipLayout(t, card) {
       ring.style.height = Math.round(r.height + 8) + 'px';
       halo.appendChild(ring);
     }
-    tipPlace(card, st && st.sel);
+    /* The tour dims the page and any click outside ends it, so it only keeps clear of its ringed place. */
+    tipPlace(card, st && st.sel, false, { key: t.id + '#' + TIP_STEP, avoid: false });
   } else {
-    tipPlace(card, t.at, t.side);
+    tipPlace(card, t.at, t.side, { key: t.id, avoid: true });
   }
 }
 
-/* Beside the thing, never over it: below when there is room, above otherwise, clamped to the
-   window; the arrow points at the target's centre. No target on screen: centred, no arrow. */
-function tipPlace(card, sel, side = false) {
+/* Beside the thing, never over it, and never over another control (0.6.93): the first clear place of
+   beside (when asked), below, above, either side, pointing at the target; else the nearest clear place on
+   the page with no arrow. No target on screen: centred, no arrow. */
+function tipPlace(card, sel, side = false, { key = '', avoid = true } = {}) {
   /* The first match that is on screen: a selector list names the tab layout's target and the
      consolidated layout's, and only one of them is showing. */
   let el = null;
@@ -53346,8 +53348,12 @@ function tipPlace(card, sel, side = false) {
   const pageW = document.documentElement.getBoundingClientRect().width;
   if (!el || !el.getBoundingClientRect().width) {
     card.className = 'tipcard flat';
-    card.style.left = Math.round((pageW - w) / 2) + 'px';
-    card.style.top = Math.round(Math.max(80, (window.innerHeight - h) / 2)) + 'px';
+    const cl = Math.round((pageW - w) / 2), ct = Math.round(Math.max(80, (window.innerHeight - h) / 2));
+    card.style.left = cl + 'px';
+    card.style.top = ct + 'px';
+    const all = avoid ? tipCoveredControls(null) : [];
+    card.dataset.covers = String(all.filter((q) => q.l < cl + w && q.r > cl && q.t < ct + h && q.b > ct).length);
+    card.dataset.tipKey = key;
     return;
   }
   const r = el.getBoundingClientRect();
@@ -53365,8 +53371,9 @@ function tipPlace(card, sel, side = false) {
   const leftSide = { cls: 'flat', left: r.left - 14 - w, top: sideTop, fits: r.left - 14 - w >= pad };
   for (const c of side ? [right, below, above, leftSide] : [below, above, right, leftSide]) if (c.fits) cands.push(c);
   if (!cands.length) cands.push({ ...below, top: Math.max(pad, Math.min(r.bottom + 12, vh - h - pad)) });
-  const covered = tipCoveredControls(el);
-  const hitsAt = (left, top) => covered.filter((q) => q.l < left + w && q.r > left && q.t < top + h && q.b > top).length;
+  /* The target itself is kept clear too (with the ring's margin): the card points at it, never sits on it. */
+  const covered = (avoid ? tipCoveredControls(el) : []).concat([{ l: r.left - 6, t: r.top - 6, r: r.right + 6, b: r.bottom + 6 }]);
+  const hitsAt = (left, top) => { let n = 0; for (const q of covered) if (q.l < left + w && q.r > left && q.t < top + h && q.b > top) n++; return n; };
   let best = null;
   for (const c of cands) {
     c.hits = hitsAt(c.left, c.top);
@@ -53379,9 +53386,11 @@ function tipPlace(card, sel, side = false) {
   if (best.hits > 0) {
     /* A card already sitting in a clear place stays there while it is still clear and on screen, so it
        does not hop about as the page scrolls; only a card with an arrow follows its target. */
-    if (card.classList.contains('flat') && card.dataset.covers === '0' && !card.hidden) {
+    /* Only the same tip (and tour step) keeps its place, and only while its target is still near. */
+    if (card.classList.contains('flat') && card.dataset.covers === '0' && card.dataset.tipKey === key && !card.hidden) {
       const nowL = parseFloat(card.style.left), nowT = parseFloat(card.style.top);
-      if (Number.isFinite(nowL) && Number.isFinite(nowT) && nowT >= pad && nowT + h <= vh - pad && nowL >= pad && nowL + w <= pageW - pad && !hitsAt(nowL, nowT)) {
+      const near = Number.isFinite(nowT) && Math.abs(nowT + h / 2 - (r.top + r.height / 2)) <= h + 120;
+      if (near && Number.isFinite(nowL) && nowT >= pad && nowT + h <= vh - pad && nowL >= pad && nowL + w <= pageW - pad && !hitsAt(nowL, nowT)) {
         best = { cls: 'flat', left: nowL, top: nowT, hits: 0 };
       }
     }
@@ -53402,6 +53411,7 @@ function tipPlace(card, sel, side = false) {
   card.style.left = Math.round(best.left) + 'px';
   card.style.top = Math.round(best.top) + 'px';
   card.dataset.covers = String(best.hits);   // read by the browser check
+  card.dataset.tipKey = key;
   if (best.cls === 'left') card.style.setProperty('--ay', Math.round(Math.min(Math.max(12, r.top + r.height / 2 - best.top - 7), h - 26)) + 'px');
   else card.style.setProperty('--ax', Math.round(Math.min(Math.max(14, r.left + r.width / 2 - best.left - 7), w - 28)) + 'px');
 }
@@ -53427,7 +53437,7 @@ function tipClose({ record, also = null }) {
   const t = TIP_OPEN;
   const card = document.getElementById('tipcard');
   const hadFocus = !!card && card.contains(document.activeElement);   // read before the card empties
-  if (card) { card.hidden = true; card.innerHTML = ''; }
+  if (card) { card.hidden = true; card.innerHTML = ''; card.className = 'tipcard'; delete card.dataset.covers; delete card.dataset.tipKey; }
   const pins = document.getElementById('tippins');
   if (pins) { pins.innerHTML = ''; pins.hidden = false; }
   TIP_OPEN = null;
