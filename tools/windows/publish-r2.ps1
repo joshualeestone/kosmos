@@ -65,7 +65,9 @@ param(
   # Where users are served from; read only to confirm a write reached them.
   [string] $ServedBase = 'https://installkosmos.com/dist',
   # For tests only: write every key under this prefix (e.g. "_selftest/abc/"). A non-default
-  # -ServedBase is refused without it, so no stand-in server can speak for prod.
+  # -ServedBase is refused without it, so no stand-in server can speak for prod. -ServedBase
+  # must then ALREADY END IN the prefix (the bucket's public URL + "/_selftest/abc"): names are
+  # appended to it as they are, so the served checks read the prefixed objects.
   [string] $KeyPrefix = '',
   [switch] $DryRun
 )
@@ -335,7 +337,7 @@ function Read-PointerFields([byte[]] $Bytes) {
   try { $j = $Utf8.GetString($Bytes) | ConvertFrom-Json } catch { return $null }
   if (-not $j -or -not ($j -is [psobject])) { return $null }
   foreach ($f in 'version', 'sha256', 'artifact', 'versioned', 'arch') {
-    if (-not ($j.PSObject.Properties.Name -contains $f) -or -not ($j.$f -is [string]) -or -not $j.$f) { return $null }
+    if (-not ($j.PSObject.Properties.Name -ccontains $f) -or -not ($j.$f -is [string]) -or -not $j.$f) { return $null }
   }
   $j
 }
@@ -430,6 +432,9 @@ if ($PSCmdlet.ParameterSetName -ceq 'Staging') {
   # see one: that race is closed by re-reading prod right after the upload (below). A same-bytes
   # re-run stays cacheable.
   $replacing = [bool]($existing -and (Sha256-Bytes $existing.Bytes) -cne $Sha)
+  # A same-bytes re-upload is pinned too: unpinned, it could silently revert a concurrent
+  # -ReplaceVersioned of the same name back to these bytes.
+  if ($existing -and -not $replacing -and $existing.ETag) { $putExtra = @{ 'if-match' = $existing.ETag } }
   if ($replacing) {
     if (-not $existing.ETag) { Refuse "the bucket gave no ETag for $Versioned, so the replace cannot be pinned to the object just read. Nothing was written." }
     $putExtra = @{ 'cache-control' = 'no-cache'; 'if-match' = $existing.ETag }

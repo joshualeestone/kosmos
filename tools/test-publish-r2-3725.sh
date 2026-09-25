@@ -155,7 +155,7 @@ if grep -qF -- "-ApprovedSha <sha from his go>" "$TMP/out" && ! grep -F -- "-App
 else fail "staging next-step line: $(grep -F -- '-Promote' "$TMP/out")"; fi
 # A same-bytes re-run (the advice after an interrupted run) keeps the versioned zip cacheable.
 fake -Zip "$TMP/a.zip"; rc=$?
-if [ "$rc" -eq 0 ] && grep -qE '^PUT kosmos-9\.9\.1-win-x64\.zip \| $' "$FAKE/.calls"; then pass "a same-bytes re-stage uploads the zip with no no-cache and no create-only header"
+if [ "$rc" -eq 0 ] && grep -qE '^PUT kosmos-9\.9\.1-win-x64\.zip \| if-match="[0-9a-f]{64}"$' "$FAKE/.calls"; then pass "a same-bytes re-stage is pinned (If-Match) and stays cacheable (no no-cache)"
 else fail "same-bytes re-stage headers: rc=$rc $(grep '^PUT kosmos-9.9.1-win-x64.zip ' "$FAKE/.calls")"; fi
 fake -Zip "$TMP/b.zip"; rc=$?; refuses_clean "different bytes under a published version are refused, nothing written" "DIFFERENT bytes"
 fake -Zip "$TMP/a.zip" -Version 9.9.2; rc=$?; refuses_clean "a -Version the zip was not built as is refused" "not the version this zip was built as"
