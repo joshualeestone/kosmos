@@ -330,6 +330,13 @@ const waitFor = (page, fn, ms = 6000) => page.waitForFunction(fn, null, { timeou
     await page.click('#asp-x');
     const ask = await bubble(page);
     chk(ask.panel && ask.ask, 'B7 the first x asks Close the assistant?');
+    // B7b (#3758, Josh 11:07): his words: "Close for now", "Close forever", and the line under them.
+    const words = await page.evaluate(() => ({ now: document.getElementById('asp-close-now').textContent, off: document.getElementById('asp-close-off').textContent,
+      line: document.querySelector('#asp-ask small').textContent.replace(/\u00a0/g, ' ') }));   // non-breaking spaces hold the path together
+    chk(words.now === 'Close for now' && words.off === 'Close forever' && words.line === 'You can turn it back on under Settings > Computer', 'B7b the ask reads in Josh\'s words (#3758)', JSON.stringify(words));
+    // The Settings section it names is called that: CONTROL for the words above pointing somewhere real.
+    const navName = await page.evaluate(() => document.querySelector('#s-nav [data-go="mac"]').textContent.trim());
+    chk(navName === 'Computer', 'B7b the Settings section the line names is called Computer (#3758)', JSON.stringify(navName));
     if (SHOTS) await page.screenshot({ path: path.join(SHOTS, 'ask-light.png') });
     await page.click('#asp-close-now');
     await page.waitForTimeout(300);
@@ -342,7 +349,7 @@ const waitFor = (page, fn, ms = 6000) => page.waitForFunction(fn, null, { timeou
     const again = await bubble(page);
     chk(!again.panel && !again.ask && again.bubble, 'B7 a later x just closes, without asking again', JSON.stringify(again));
 
-    // B8: Don't show this again turns it off; the Settings switch reads that and brings it back.
+    // B8: Close forever turns it off; the Settings switch reads that and brings it back.
     await setting({ asked: false });
     await boot();
     await waitFor(page, () => { const b = document.getElementById('asb'); return b && !b.hidden; }, 8000);
@@ -352,7 +359,7 @@ const waitFor = (page, fn, ms = 6000) => page.waitForFunction(fn, null, { timeou
     await page.waitForTimeout(300);
     const off = await bubble(page);
     const s8 = (await (await fetch(URL + '/api/settings')).json()).setupAssistant;
-    chk(!off.bubble && !off.panel && s8.on === false && s8.asked === true, 'B8 Don\'t show this again hides it and turns it off', JSON.stringify({ off, s8 }));
+    chk(!off.bubble && !off.panel && s8.on === false && s8.asked === true, 'B8 Close forever hides it and turns it off', JSON.stringify({ off, s8 }));
     await page.evaluate(() => showTab('settings'));
     await page.evaluate(() => { const b = document.querySelector('[data-sec="mac"], [data-sec="computer"]'); if (b) b.click(); });
     const row = await page.evaluate(() => ({ hidden: document.getElementById('asb-row').hidden, on: document.getElementById('asb-toggle').getAttribute('aria-checked'),
@@ -392,7 +399,7 @@ const waitFor = (page, fn, ms = 6000) => page.waitForFunction(fn, null, { timeou
     await page.unroute('**/api/settings');
 
     // B16: the tips cannot be read. The Setup assistant switch lives in the same Help box and must still be
-    // there ("Don't show this again" promises it is), while the tips row hides (CONTROL: B1, no guide, no row).
+    // there ("Close forever" promises it is), while the tips row hides (CONTROL: B1, no guide, no row).
     /* The page retries a failed tips read every second (tipsCheck), and a retry that succeeds repaints the
        row before this arm reads it: hold the retry off for the arm, then let it run again. */
     await page.evaluate(() => { TIPS_LOAD_NEXT = Date.now() + 1e9; TIPS_STATE = { ok: false, seen: [], off: true }; paintTipsToggle(); showTab('settings'); document.querySelector('#s-nav button[data-go="mac"]').click(); });
