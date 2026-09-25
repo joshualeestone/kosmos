@@ -16,8 +16,11 @@ guard: three layers, each tested to go red without it.
 - `setupAssistant.guardGuideFolder(dir, name)` writes the guide marker and deny rules into the guide's
   OWN `.claude/settings.json` (an account's settings.json is shared by every agent on it), merged with
   whatever is there: credential folders (`~/.ssh`, `~/.aws`, `~/.config`, `~/.claude`, `~/.codex`,
-  `~/.gemini`, `~/.grok`, ...), `**/.env*`, key files, shell history, Kosmos's own data folder, and
-  `security find-*-password`, `printenv`, `env`, `history`.
+  `~/.gemini`, `~/.grok`, and every extra account folder `~/.claude-*` etc.), `**/.env*`,
+  `.kosmos-claude-apikey`, key files, shell history, Kosmos's own data folder; `security find-*-password`,
+  `printenv`, `env`, `set`, `export`, `history`; and Edit on its own `.claude/`, marker and `CLAUDE.md`,
+  so it cannot remove its guards (measured: an Edit rule also stops a shell redirect into the path; a
+  `Write(...)` rule is ignored by Claude Code, it says so).
 - **Measured with a real Claude Code run on this Mac:** the deny rules hold under
   `--dangerously-skip-permissions` (how every Kosmos agent runs), and a `Read(**/.env)` rule also stops
   `cat .env` through Bash. Control: the same request with the settings file removed printed the canary.
@@ -25,17 +28,23 @@ guard: three layers, each tested to go red without it.
   session is guarded; a guide it could not guard is not made. `refreshGuideGuards` writes them for an
   existing guide at board start.
 - `bin/agent-supervisor.sh` hands a folder carrying the guide marker none of the tokens Kosmos holds for
-  the person: Cloudflare, GitHub (also an inherited GH_TOKEN), and every token door under secrets/env.
+  the person: Cloudflare, GitHub (also an inherited GH_TOKEN), and every token door under secrets/env
+  EXCEPT its own runner's sign-in key (GEMINI_API_KEY for a Gemini guide, XAI_API_KEY for Grok), which a
+  default-account guide needs to start.
 
 ## 3. What it says
 - `engine/secretmask.js`: Anthropic, OpenAI, xAI, Google, GitHub, AWS, Slack, Stripe keys, private key
   blocks, `name = value` for password/secret/token/key names, and long mixed-case random tokens become
   `••••`. Hex ids, links and prose are left alone. Bounded patterns (CPU-tested on 200k-character
   inputs). Reports the kinds and counts, never the value.
-- Applied to the guide's words only (`isSetupGuide`, case-insensitive): where its replies are stored
-  (`keepAgentReply`, the one write the reply route and the outbox drain share), where its thread is read
-  (rows stored earlier), the question and menu read off its screen, and the hosted assistant's reply in
-  `engine/hostedguide.js` on the board.
+- Applied to the guide's words only (`isSetupGuide`: its folder marker, or the seeded name, case-insensitive):
+  - written: its replies (`keepAgentReply`, shared by the reply route and the outbox drain), its room
+    posts and messages to other agents (`engine/messages.js` filters an agent sender's text once known);
+  - read: its direct thread (every row, the question and the menu, decided once per request), the project
+    thread when it is the member, and `/api/messages`, for rows stored before this;
+  - the hosted assistant's reply in `engine/hostedguide.js`.
+- A `name: value` is masked only when the value looks like a secret (letters with a digit or symbol, not
+  a path), so a settings form being explained survives; slugs made of words are not tokens.
 
 ## Decided
 - Mask on write AND on read: write keeps the key out of the store (and every later reader); read covers
@@ -53,6 +62,13 @@ guard: three layers, each tested to go red without it.
 - **The guide's terminal and card line** are not masked: the guide is hidden from the board (#3739), and
   its pane is not a chat surface.
 - A shell can still reach a file some way the deny rules do not name. That is why layer 3 exists.
+
+## Review rounds
+- Round 1 (opus): a Gemini/Grok default-key guide lost its key (BLOCKER, fixed); room posts and agent
+  messages, a mis-cased URL, the recorded-name-only check, mask gaps, path over-masking, self-editable
+  guards: all fixed.
+- Round 2 (opus): extra account folders not denied (fixed, measured); plain words masked after a key
+  name, a last "!" outside the mask, slugs, old rows on two routes: fixed.
 
 ## Verification
 - `server.guide-secrets-3769.test.js`, `engine/secretmask.test.js`, `tools/test-supervisor-env.sh`
