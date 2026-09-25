@@ -2850,6 +2850,37 @@ body.filter-noproj #orgview .onode:not([data-noproj]) { opacity: .26; }
   .snav button { width: auto; }
   .snav .sep { display: none; }
 }
+/* #718 mobile (Josh, 2026-09-24: "make sure the designs fit well on mobile"). Settings on a
+   PHONE, scoped to #panel-settings so the agent nav (#d-nav) and every shared token are
+   untouched. Measured before this block at 375/393/430/412 wide: the eleven pills wrapped into
+   six rows and, on a 375x667 phone, header plus pills filled about 70% of the first screen
+   before any setting; fields were 13px, which iOS Safari zooms the page for on focus; most
+   controls were 20 to 35px tall against a 44px touch target.
+   The nav becomes ONE row that scrolls sideways inside itself (the page never does) and the
+   current pill is brought into view by settingsGo. The right-edge fade says there is more;
+   the end padding lets the last pill clear the fade. A switch keeps its drawn 42x24 size and
+   gains an invisible 44px-tall hit area instead. */
+@media (max-width: 40rem) {
+  #s-nav { width: 100%; flex-wrap: nowrap; overflow-x: auto; overscroll-behavior-x: contain;
+           scroll-snap-type: x proximity; scrollbar-width: none; padding: 2px 32px 2px 2px;
+           -webkit-mask-image: linear-gradient(to right, #000 calc(100% - 32px), transparent);
+           mask-image: linear-gradient(to right, #000 calc(100% - 32px), transparent); }
+  #s-nav::-webkit-scrollbar { display: none; }
+  #s-nav button { flex: 0 0 auto; min-height: 44px; padding: 8px 18px; white-space: nowrap; scroll-snap-align: start; }
+  #panel-settings input:not([type="checkbox"]):not([type="radio"]):not([type="range"]):not([type="file"]),
+  #panel-settings textarea, #panel-settings select { font-size: 16px; }
+  #panel-settings .dsec button:not(.toggle), #panel-settings .dsec select,
+  #panel-settings .dsec input:not([type="checkbox"]):not([type="radio"]):not([type="range"]):not([type="file"]) { min-height: 44px; }
+  #panel-settings .skillrm { padding: 0 10px; }
+  #panel-settings .toggle::after { content: ""; position: absolute; inset: -10px -1px; }
+  #panel-settings .con-group { font-size: .75rem; }
+  #panel-settings #plus-signin-bottom { display: inline-block; padding: 10px 0; }
+  #panel-settings #plus-signin-top { min-height: 44px; }
+  /* The account actions wrap at this width, so a wrapped line began with a divider and an
+     indent. Spaced links with no dividers wrap cleanly. */
+  #panel-settings .acct-actions { gap: 0 22px; }
+  #panel-settings .acct-actions > button:not(:first-child) { border-left: 0; margin-left: 0; padding-left: 0; }
+}
 .chk { display: flex; gap: 14px; align-items: flex-start; padding: 14px 0; }
 .chk + .chk { border-top: 1px solid var(--k-rule); }
 /* #2963 (out of #2955): a CIRCLE, not a rounded square. These machine checks are
@@ -29255,6 +29286,13 @@ function settingsGo(section, opts) {
     b.classList.toggle('on', on);
     if (on) b.setAttribute('aria-current', 'true'); else b.removeAttribute('aria-current');
   });
+  /* #718 mobile: on a phone the nav is one sideways-scrolling row, so centre the current pill
+     in it. Horizontal only (scrollLeft), so the page never jumps vertically. */
+  const cur = nav.querySelector('button.on');
+  if (cur && nav.scrollWidth > nav.clientWidth) {
+    const n = nav.getBoundingClientRect(), c = cur.getBoundingClientRect();
+    nav.scrollLeft += (c.left - n.left) - (nav.clientWidth - c.width) / 2;
+  }
   let target = null;
   document.querySelectorAll('#panel-settings .dsec').forEach((sec) => {
     const on = sec.dataset.sec === section;
