@@ -32,11 +32,14 @@ conversation, and be context-aware enough to put a project's file in that projec
   it went" still holds: the fallback is saying where it went.
 - The trigger covers a file the agent makes in a direct conversation as well as one asked for, as the
   #3614 block did, so an unprompted file is still told the exact path.
+- An agent on no projects is told every direct-conversation file goes in Files (review round 4), and a
+  test pins that the section name matches the heading the projects block writes.
 - The project rule names the "Your projects" section by name, never by position: for an agent that had
   projects before #3614, the board appended this block after that section, so "below" would be wrong
   (review round 3).
 - Running agents read the new words on their next start (they read instructions at start). The board
-  rewrites every agent's block at its own start (an update restarts the board), and the PR says so for
+  rewrites every agent's block at its own start (an installed Kosmos restarts its board on update;
+  a board run from a checkout, as on the fleet Mac, waits for its next restart), and the PR says so for
   the release notes, which are generated from what lands.
 
 ## Measured (real agent runs, `claude -p` in a sandboxed agent folder holding this block and one project, 2026-09-25 12:25 CDT, final wording)
@@ -48,6 +51,8 @@ One run per case, so a check of the wording, not a rate. The agent's first reply
 | "For the Henderson lease, ... a one-paragraph summary ... as a file" | `projects/henderson-lease/renewal-notice-summary.md` | I saved it in the Henderson lease project folder as `renewal-notice-summary.md`. |
 | "draft a short email to my landlord asking about renewing, as a file" (no project named) | `projects/henderson-lease/renewal-inquiry-email.md` | I saved it in the Henderson lease project as `renewal-inquiry-email.md`. |
 | same landlord email, with TWO lease projects (Henderson, Maple Street) | nothing saved | Is this for the Henderson lease or the Maple Street lease? I'll save the draft in that project's folder. If it's for neither, I'll put it in your Files folder. |
+
+| same landlord email, agent on NO projects (round 4 wording) | `workers/writer/Files/landlord-lease-renewal-email.md` | I drafted the email and saved it as `landlord-lease-renewal-email.md` in your Files folder. |
 
 The ask-first rule fires when the project is genuinely unclear; with one plausible project the agent
 files it there and says so (row 3), which is the "plainly part of that project's work" branch.

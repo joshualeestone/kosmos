@@ -38,7 +38,7 @@ test('#3614: the block names the REAL path, and says to create it and to keep pr
   const body = dmfiles.blockBody('/Users/someone/work/workers/writer/Files');
   assert.match(body, /`\/Users\/someone\/work\/workers\/writer\/Files`/, 'the path is written in, not left to guess');
   const flat = body.replace(/\s+/g, ' ');
-  assert.match(flat, /When you make a file for the person in a direct conversation with them, or they ask you for one there, save it in your Files folder, unless it belongs to one of your projects/);
+  assert.match(flat, /When you make a file for the person in a direct conversation with them, or they ask you for one in a direct conversation, save it in your Files folder, unless it belongs to one of your projects/);
   assert.match(flat, /Create the folder if it is not there yet/);
   assert.match(flat, /Kosmos lists what is in it on your page, where they can open it/, 'the block does not tell the agent the person sees its Files on its page (#3614 item 2 ships with it)');
   assert.match(flat, /Save files directly in it, not in subfolders: the page lists only what sits at the top of the folder/, 'the agent is not told the list skips subfolders, so tidied work reads as "Nothing here yet"');
@@ -48,10 +48,10 @@ test('#3614: the block names the REAL path, and says to create it and to keep pr
 test('#3759: the block names BOTH destinations and when each applies, says where it put the file, and what to do when unsure', () => {
   const flat = dmfiles.blockBody('/Users/someone/work/workers/writer/Files').replace(/\s+/g, ' ');
   // A direct ask: the agent's own Files folder (with the real path).
-  assert.match(flat, /or they ask you for one there, save it in your Files folder, unless it belongs to one of your projects \(see the next paragraphs\): `\/Users\/someone\/work\/workers\/writer\/Files`/);
+  assert.match(flat, /save it in your Files folder, unless it belongs to one of your projects \(see the next paragraphs; if you are on no projects, it always goes here\): `\/Users\/someone\/work\/workers\/writer\/Files`/);
   // About a project: that project's folder instead, even when asked in the direct conversation.
   assert.match(flat, /When the conversation is about one of your projects \(the person names it, or the file is plainly part of that project's work\), save it in that project's folder instead/);
-  assert.match(flat, /even though they asked you here/);
+  assert.match(flat, /even though they asked in a direct conversation/);
   assert.match(flat, /tell them in one line where you put it: which project, and the file's name/);
   // Unsure: ask first (the doctrine's "one short question, not a licence to guess"); save here and say
   // so only when nobody is there to answer.
@@ -78,6 +78,13 @@ test('#3614: the block lands in an agent file with that agent\'s own path, and i
   const second = dmfiles.tellAgent('writer', roster);
   assert.equal(second.state, projects.TOLD.TOLD);
   assert.equal(fs.readFileSync(f, 'utf8'), text, 'a second sync rewrote the file');
+});
+
+test('#3759: the section the block sends the agent to is the one the projects block really writes', () => {
+  const said = (dmfiles.blockBody('/x').match(/under "([^"]+)" in your instructions/) || [])[1];
+  assert.ok(said, 'CONTROL: the block names a section');
+  const heading = projects.blockBody([{ id: 'p1', name: 'Henderson lease', folder: '/tmp/henderson', agents: ['writer'] }], 'writer').split('\n')[0];
+  assert.equal(heading, '## ' + said, 'the files block names a section the projects block does not write');
 });
 
 test('#3759: an agent that already carries the #3614 wording gets the new wording on the next sync', () => {
