@@ -552,9 +552,9 @@ h1 { font: 600 var(--text-title-1) var(--font-ui); letter-spacing: -0.012em; }
    0,1,0), which is what stops the badge adding a stray top gap now that it
    stacks in the name column (#3385: .dnamerow is a flex column). */
 .dnamerow .detail-state { margin: 0; }
-/* The agent's own words, marked as a quotation rather than as our sentence: a
-   rule down the left, the terminal's own face, and no italics (this is copied
-   text, not emphasis). */
+/* The agent's own words, marked as copied text rather than our sentence: a
+   hairline box (#3692: no left bars), the terminal's own face, and no italics
+   (this is copied text, not emphasis). */
 .detail-saidlab { margin: 10px 0 0; font-size: .75rem; color: var(--k-ink-2); }
 .detail-said { margin: 2px 0 0; padding: 6px 10px;
                border: 0.5px solid var(--separator); border-radius: var(--radius-control); color: var(--k-ink-2);
@@ -6919,9 +6919,8 @@ body:not(.consolidated) .pjmidhead:has(.pjhead) .tsearch:focus-within { flex-bas
 /* ⚠️ AND ONE WE COULD NOT CONFIRM DRAWS AS NEITHER. It is not a failure — the
    text may already be in that agent's composer — so it must not wear the
    failed row's dashed border, which reads as "this did not happen" and is what
-   makes somebody send it again. A left rule marks it as needing a look, the
-   same vocabulary `.pj-question` uses for the other thing on this screen that
-   wants the person's eyes. */
+   makes somebody send it again. The warn tint marks it as needing a look
+   (#3692: no left bars; #2660: no stroke on a room message). */
 .pj-msg.unsure { background: var(--warn-bg); }
 .pj-msg.unsure .pj-msg-said { color: var(--label); }
 /* Josh, 2026-09-21: more breathing room between the room input box and the
@@ -7467,7 +7466,7 @@ svg { display: block; }
      check (which exempts anything with a fallback, correctly) could not see it.
      A hard-coded dark goldenrod stays dark goldenrod in dark mode, where the
      rest of this note switches. `--warn-border` is the theme-aware one. */
-  border: 0.5px solid var(--warn-border); border-radius: var(--radius-control);
+  border: 0.5px solid var(--warn-border);
   background: var(--warn-bg);
   color: var(--label);
   /* ⚠️ `--text-small` has never existed. This line was invalid on `main` too,
