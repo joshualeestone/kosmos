@@ -15794,12 +15794,15 @@ function plusMarkRun() { cancelAnimationFrame(plusMarkRaf); plusMarkBuild(); var
    unevenly onto a different box and every dot became an oval. plusStarsWatch below re-sizes it
    whenever that box changes, not only on a window resize. */
 function plusStarsSize() { return [Math.max(1, plusStarsCv.clientWidth), Math.max(1, plusStarsCv.clientHeight)]; }   // the layout box (a transform does not change it)
-function plusStarsInit() { var sz = plusStarsSize(); plusSW = sz[0]; plusSH = sz[1];
-  plusStarsCv.width = plusSW * PLUS_DPR; plusStarsCv.height = plusSH * PLUS_DPR; plusStarsCtx.setTransform(PLUS_DPR, 0, 0, PLUS_DPR, 0, 0);
-  var rnd = function (a, b) { return a + Math.random() * (b - a); }, N = Math.min(150, Math.round(plusSW * plusSH / 7000));
-  plusParts = []; for (var i = 0; i < N; i++) plusParts.push({ x: rnd(0, plusSW), y: rnd(0, plusSH), r: rnd(0.8, 2.5),
+function plusStarNew() { var rnd = function (a, b) { return a + Math.random() * (b - a); };
+  return { x: rnd(0, plusSW), y: rnd(0, plusSH), r: rnd(0.8, 2.5),
     vx: rnd(-0.14, 0.14), vy: rnd(-0.11, 0.11), a: rnd(0.12, 0.34), ph: rnd(0, 6.28),
-    c: Math.random() < 0.32 ? '#41C2E3' : '#4171E3' }); }
+    c: Math.random() < 0.32 ? '#41C2E3' : '#4171E3' }; }
+function plusStarsBuffer() { var sz = plusStarsSize(); plusSW = sz[0]; plusSH = sz[1];
+  plusStarsCv.width = plusSW * PLUS_DPR; plusStarsCv.height = plusSH * PLUS_DPR; plusStarsCtx.setTransform(PLUS_DPR, 0, 0, PLUS_DPR, 0, 0); }
+function plusStarsCount() { return Math.min(150, Math.round(plusSW * plusSH / 7000)); }
+function plusStarsInit() { plusStarsBuffer();
+  plusParts = []; for (var i = 0, N = plusStarsCount(); i < N; i++) plusParts.push(plusStarNew()); }
 function plusStarsDraw(t) { plusStarsCtx.clearRect(0, 0, plusSW, plusSH);
   for (var i = 0; i < plusParts.length; i++) { var q = plusParts[i]; q.x += q.vx; q.y += q.vy;
     if (q.x < -4) q.x = plusSW + 4; else if (q.x > plusSW + 4) q.x = -4;
@@ -15815,9 +15818,24 @@ function plusStarsLoop(now) { plusStarsDraw(now); plusStarsRaf = requestAnimatio
 function plusStarsStart() { cancelAnimationFrame(plusStarsRaf); plusStarsInit();
   plusStarsDraw(plusReduce ? 0 : ((typeof performance !== 'undefined' && performance.now) ? performance.now() : 0));
   if (!plusReduce) plusStarsRaf = requestAnimationFrame(plusStarsLoop); }
+/* #3778 (review pass 2): a re-size KEEPS the field. Re-seeding on every change in the section's
+   height (a status line appearing is enough) made every dot jump to a new place each time. Each
+   dot keeps its place in proportion to the new box; the count follows the area (trimmed, or new
+   dots added), and one frame is drawn at once, as plusStarsStart does. */
+function plusStarsResize() {
+  var ow = plusSW, oh = plusSH;
+  if (!plusParts || !plusParts.length || !ow || !oh) { plusStarsStart(); return; }
+  plusStarsBuffer();
+  var fx = plusSW / ow, fy = plusSH / oh;
+  for (var i = 0; i < plusParts.length; i++) { plusParts[i].x *= fx; plusParts[i].y *= fy; }
+  var N = plusStarsCount();
+  if (plusParts.length > N) plusParts.length = N;
+  while (plusParts.length < N) plusParts.push(plusStarNew());
+  plusStarsDraw(plusReduce ? 0 : ((typeof performance !== 'undefined' && performance.now) ? performance.now() : 0));
+}
 /* #3778: the star field follows its canvas's displayed size. A change in the rounded box (the
-   section's content arriving, a sidebar folding, a window resize) re-sizes the buffer and re-seeds
-   the field so the dots stay round; an unchanged box does nothing. */
+   section's content arriving, a sidebar folding, a window resize) re-sizes the buffer so the dots
+   stay round; an unchanged box does nothing. */
 var plusStarsObs = null;
 function plusStarsWatch() {
   if (plusStarsObs || typeof ResizeObserver !== 'function' || !plusStarsCv) return;
@@ -15825,7 +15843,7 @@ function plusStarsWatch() {
     if (!plusMounted || !plusStarsCv) return;
     var sz = plusStarsSize();
     if (sz[0] === plusSW && sz[1] === plusSH) return;
-    plusStarsStart();
+    plusStarsResize();
   });
   plusStarsObs.observe(plusStarsCv);
 }
@@ -15865,7 +15883,7 @@ function syncPlusChrome() {
   if (active) { if (!plusMounted) plusMount(); }
   else if (plusMounted) plusTeardown();
 }
-if (typeof window !== 'undefined') window.addEventListener('resize', function () { if (plusMounted) { if (plusReduce) plusPaintStatic(); else { plusStarsStart(); plusMarkBuild(); plusMarkDraw(null); } } });
+if (typeof window !== 'undefined') window.addEventListener('resize', function () { if (plusMounted) { plusStarsResize(); plusMarkBuild(); plusMarkDraw(null); } });   // #3778: the field keeps its dots on a window resize too
 /* ================= end #1615 Plus canvases ================= */
 
 
