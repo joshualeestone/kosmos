@@ -79,7 +79,7 @@ const waitFor = (page, fn, ms = 6000) => page.waitForFunction(fn, null, { timeou
     const consoleErrs = [];
     page.on('console', (m) => { if (m.type() === 'error') consoleErrs.push(m.text()); });
     /* The guide's thread, answered here. */
-    let thread = [{ from: 'josh', text: 'Hi, I built Kosmos. Want me to set up your first agent with you?', at: new Date().toISOString() }];
+    let thread = [{ from: 'josh', text: 'Want me to set up your first agent with you?', at: new Date().toISOString() }];
     const sent = [];
     let verdict = { delivery: { state: 'placed' }, recorded: true };
     await page.route('**/api/agent/josh/thread', async (route) => {
