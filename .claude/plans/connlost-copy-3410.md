@@ -34,7 +34,7 @@ the person to act when they need not.
 - Gave up: "Kosmos tried to reconnect it several times and has stopped. If the internet is
   working, restart the agent. It will start fresh." The sweep only retries once it can reach the
   API, so a give-up usually means the agent is stuck, not the internet; the give-up can outlast
-  one outage (it clears about 30 minutes after the last retry), so the sentence says tries were
+  one outage (the retry budget spans drops until the agent has been fine for 10 minutes and the last retry is 30 minutes old), so the sentence says tries were
   made, not that they were made this time. "Several", not "3", so it stays true if the cap
   changes. Names the agent (not the computer) and says a restart loses its in-progress work.
 
@@ -44,8 +44,12 @@ the person to act when they need not.
 
 ## Measured
 Tests: web + engine + the server route test all pass; browser check render-connlost-reconnect-3410
-(card label and sentence per phase, plus the project members list agreeing with the card). Red control: the new page wording tests fail 3 of 12 against the old
+(card label and sentence per phase, plus the page's own members-list renderer, called with a member row, agreeing with the card). Red control: the new page wording tests fail 3 of 12 against the old
 page.
+
+- "Retried" counts only retries sent in this drop (connlost-heal.js lostSince); the planner's cap
+  still spans drops, as designed.
+- The 15-minute check-in no longer asks the person to reconnect an agent Kosmos is reconnecting.
 
 ## Known and left
 - "waiting" has no time limit: if the network never comes back the card says Reconnecting until
@@ -54,6 +58,6 @@ page.
   gave up.
 
 ## Weakest premise
-The heartbeat check-in question for connection_lost ("lost its connection. Reconnect it, or is it
-done?") can still fire while the card says Reconnecting; left as is (it is a question, not a
-contradiction), noted for Mona's review.
+That every surface showing connection_lost reads it through stateCopyOf/stateReason/the check-in,
+the three places changed here; a new surface that reads STATE_COPY directly would show the old
+label. Checked by grep today.

@@ -15793,8 +15793,9 @@ function stateCopyOf(a) {
   // shared, so this painter stays self-contained for eval-extraction), so label and card agree.
   if (a && a.state === 'needs_you' && a.stateReportedBy === 'agent') return STATE_COPY.question;
   /* #3410: while the self-heal still has retries to give (a.reconnect, from /api/status), the
-     person has nothing to do yet, so the card says Kosmos is on it, calmly. Only when it has
-     given up, or is not running, does the card go back to the red "Connection lost". */
+     person has nothing to do yet, so the label says Kosmos is on it. Only when it has given up,
+     or is not running, does the label go back to "Connection lost" (the card's look is the same
+     paused style either way; only the word changes). */
   if (a && a.state === 'connection_lost' && a.reconnect
     && (a.reconnect.phase === 'waiting' || a.reconnect.phase === 'retried')) return { label: 'Reconnecting…', attn: false };
   return STATE_COPY[a.state] || STATE_COPY.unknown;
@@ -15958,8 +15959,9 @@ function stateReason(a, opts) {
        reconnect field means the self-heal is not running, so no retry is promised. */
     const ph = a.reconnect && a.reconnect.phase;
     /* Worded for what is true every time: the sweep only retries once it can reach the API, so
-       a give-up usually means the agent is stuck, not the internet; and the give-up can outlast one
-       outage (it clears ~30 minutes after the last retry), so it says tries were made, not when. */
+       a give-up usually means the agent is stuck, not the internet; and the retry budget can span
+       more than one drop (connlost-heal.js WINDOW_MS/RECOVERED_MS), so it says tries were made,
+       not that they were made this time. */
     if (ph === 'gave_up') return 'Kosmos tried to reconnect it several times and has stopped. If the internet is working, restart the agent. It will start fresh.';
     const lost = a.stateConfidence === 'scraped'
       ? 'Looks like it lost its internet connection'
@@ -19777,7 +19779,14 @@ function prompterCheckinQuestion(n) {
      reason, #3410): both are "reconnect it" situations, not "it stopped". */
   const to = n && n.to;
   if (to === 'auth_failed') return 'needs to sign in again. Reconnect it, or is it done?';
-  if (to === 'connection_lost') return 'lost its connection. Reconnect it, or is it done?';
+  if (to === 'connection_lost') {
+    /* #3410: while Kosmos is still reconnecting it (the card says "Reconnecting…"), do not ask the
+       person to reconnect it; ask only whether it is finished. Same LAST lookup as pjMember. */
+    const live = (typeof LAST !== 'undefined' && Array.isArray(LAST)) ? LAST.find((a) => a && a.sessionName === n.session) : null;
+    const ph = live && live.reconnect && live.reconnect.phase;
+    if (ph === 'waiting' || ph === 'retried') return 'lost its connection, and Kosmos is reconnecting it. Is it done, or still mid-something?';
+    return 'lost its connection. Reconnect it, or is it done?';
+  }
   // The catch-all covers stopped/idle/unknown (all in heartbeat's ASK_ON_EXIT_TO),
   // so "gone quiet" reads honestly for an idle agent, not only a stopped one.
   return 'seems to have gone quiet. Still mid-something, finished, or stopped?';

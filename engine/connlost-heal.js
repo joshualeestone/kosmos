@@ -59,13 +59,17 @@ function planHeal(entry, now, probeOk) {
 
 /* Fold one sweep's reading of an agent into its book entry. A different evidence line restarts
    the count, so only a pane that has not changed can reach MIN_SWEEPS. */
-function observe(prev, evidence) {
+function observe(prev, evidence, now) {
   // A non-array prev.nudges is kept as-is on purpose: planHeal treats corrupt history as used up
   // (escalate), and sweepOnce re-wraps it only when a nudge is actually sent.
   const nudges = prev && Array.isArray(prev.nudges) ? prev.nudges : (prev ? prev.nudges : []);
   const escalated = !!(prev && prev.escalated); // log an escalation once per loss, not every sweep
-  if (prev && prev.evidence === evidence) return { evidence, sweeps: (prev.sweeps || 0) + 1, nudges, escalated, okSince: null };
-  return { evidence, sweeps: 1, nudges, escalated, okSince: null };
+  /* #3410: lostSince marks when THIS drop began (the first lost reading after a not-lost one), so
+     the board can tell retries sent in this drop from ones kept from an earlier drop in the same
+     budget window. It never feeds the planner's cap, which deliberately spans drops. */
+  const lostSince = prev && prev.evidence != null && Number.isFinite(prev.lostSince) ? prev.lostSince : (Number.isFinite(now) ? now : null);
+  if (prev && prev.evidence === evidence) return { evidence, sweeps: (prev.sweeps || 0) + 1, nudges, escalated, okSince: null, lostSince };
+  return { evidence, sweeps: 1, nudges, escalated, okSince: null, lostSince };
 }
 
 /*
@@ -102,7 +106,7 @@ async function sweepOnce(o) {
       book.set(session, { ...prev, evidence: null, sweeps: 0, okSince });
       continue;
     }
-    const entry = observe(book.get(session), agent.stateEvidence);
+    const entry = observe(book.get(session), agent.stateEvidence, now);
     book.set(session, entry);
     let plan = planHeal(entry, now, probed ? probeOk : undefined);
     if (plan.act === 'wait' && entry.sweeps >= MIN_SWEEPS && !probed) {
@@ -147,10 +151,6 @@ function probeApi({ host = 'api.anthropic.com', port = 443, timeoutMs = 3000 } =
   });
 }
 
-/* The server's per-tick wrapper, separate so its gating is testable: nothing runs unless live
-   execution is allowed and the brake is off, a tick never overlaps a slow previous one, and an
-   unreadable roster skips the tick. deps = { allowed, env, roster, probe, deliver, DELIVERY, log,
-   book, now }. Returns a function; each call returns the in-flight promise or null. */
 /* #3410: THE one "does the self-heal run" rule, read by the sweep (makeTick) and by the board's
    /api/status (so the page never promises a retry the sweep will not send). Two copies of this
    drifted is the class Convention #5 names; both callers read this one. */
@@ -158,6 +158,10 @@ function healEnabled(allowed, env) {
   return allowed === true && (env || process.env).AGENT_WORKFORCE_CONNLOST_HEAL_OFF !== '1';
 }
 
+/* The server's per-tick wrapper, separate so its gating is testable: nothing runs unless live
+   execution is allowed and the brake is off, a tick never overlaps a slow previous one, and an
+   unreadable roster skips the tick. deps = { allowed, env, roster, probe, deliver, DELIVERY, log,
+   book, now }. Returns a function; each call returns the in-flight promise or null. */
 function makeTick(deps) {
   let busy = false;
   return function tick() {
@@ -195,7 +199,10 @@ function reconnectPhase(entry, enabled) {
   if (!entry) return { phase: 'waiting', tries: 0 };
   const tries = Array.isArray(entry.nudges) ? entry.nudges.length : MAX_NUDGES;
   if (entry.escalated || tries >= MAX_NUDGES) return { phase: 'gave_up', tries };
-  return tries > 0 ? { phase: 'retried', tries } : { phase: 'waiting', tries: 0 };
+  // "retried" only for a retry sent in THIS drop (lostSince), not one kept from an earlier drop.
+  const since = Number.isFinite(entry.lostSince) ? entry.lostSince : -Infinity;
+  const thisDrop = entry.nudges.filter((t) => Number.isFinite(t) && t >= since).length;
+  return thisDrop > 0 ? { phase: 'retried', tries } : { phase: 'waiting', tries };
 }
 
 module.exports = { planHeal, observe, sweepOnce, makeTick, probeApi, reconnectPhase, healEnabled, MIN_SWEEPS, MAX_NUDGES, WINDOW_MS, RECOVERED_MS, NUDGE_TEXT };

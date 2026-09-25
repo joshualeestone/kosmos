@@ -242,3 +242,22 @@ test('healEnabled: the one rule the sweep and the route share (live execution AN
   assert.equal(heal.healEnabled(true, { AGENT_WORKFORCE_CONNLOST_HEAL_OFF: '1' }), false);
   assert.equal(heal.healEnabled(undefined, {}), false);
 });
+
+test('reconnectPhase: a retry kept from an EARLIER drop is not reported as a retry in this one', () => {
+  const heal = require('./connlost-heal');
+  // A new drop that began at t=100, with one retry sent at t=50 in the earlier drop: waiting.
+  assert.equal(heal.reconnectPhase({ evidence: 'x', sweeps: 1, nudges: [50], lostSince: 100 }, true).phase, 'waiting');
+  // A retry sent in this drop: retried.
+  assert.equal(heal.reconnectPhase({ evidence: 'x', sweeps: 3, nudges: [50, 120], lostSince: 100 }, true).phase, 'retried');
+  // The planner's cap still spans drops: three retries in the window is gave_up whatever the drop.
+  assert.equal(heal.reconnectPhase({ evidence: 'x', sweeps: 1, nudges: [10, 20, 30], lostSince: 100 }, true).phase, 'gave_up');
+});
+test('observe: lostSince is set when a drop begins and kept while it lasts', () => {
+  const heal = require('./connlost-heal');
+  const first = heal.observe(undefined, 'e1', 1000);
+  assert.equal(first.lostSince, 1000);
+  assert.equal(heal.observe(first, 'e1', 2000).lostSince, 1000, 'a continuing drop keeps its start');
+  assert.equal(heal.observe(first, 'e2', 3000).lostSince, 1000, 'a changed error line in the same drop keeps its start');
+  const recovered = { ...first, evidence: null, sweeps: 0 };
+  assert.equal(heal.observe(recovered, 'e1', 5000).lostSince, 5000, 'a new drop after a recovery starts fresh');
+});
