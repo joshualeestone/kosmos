@@ -29,8 +29,8 @@ build `59b0962` (kosmos #3764). Both repos move on, so treat the file and the na
     session bridge) and #109 (the Digital Asset Links file for the Android app). Each was checked
     with `git merge-base --is-ancestor <merge commit> 59b0962`.
   - The settings are not there. `deploy/kosmos-coordinator.env.template` sets no `KOSMOS_PUSH`,
-    and its four `KOSMOS_APNS_*` lines are still commented out. The deploy of 2026-09-25 14:34
-    rendered the box's env from that template and measured it identical, 20 of 20 variables
+    and its four `KOSMOS_APNS_*` lines are still commented out. The deploy that made `59b0962` live
+    (2026-09-25 15:17) measured the box's env identical to that template, 20 of 20 variables
     (kosmos #3763).
   - So today production **sends browser web push for real** (no `KOSMOS_PUSH=log`) and **refuses
     every app registration** (`KOSMOS_APNS_BUNDLE_IDS` unset). Steps 2 and 3 are still to do.
