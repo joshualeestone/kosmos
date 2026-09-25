@@ -8680,6 +8680,10 @@ body.plus-active {
   --bg: #132140; --bg-elevated: #1c2c4f; --bg-sunken: #0b1428;
   --label: #E6EBF7; --label-2: #9fb0d0; --label-3: #8fa0c4;
   --separator: #22345a;
+  /* #3724: the colours that carry meaning, pinned to their dark-look values. Unset here they followed the Mac's
+     light or dark mode, so a light-mode Mac painted light-mode red, green, warning and @mention on navy, where
+     they fail (2.30 to 3.03:1). On navy the dark values read at 5.70 to 10.48:1. */
+  --pj-mention: #5aa2ff; --gold-edge: #d6a62e; --ok: #4ade80; --danger: #ff6b5e; --warn-ink: #ffca55;
 }
 /* The section is the positioning context for the ambient star field, which sits
    behind everything else in the pane. Every direct child is lifted above it. */

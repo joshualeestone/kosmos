@@ -54,6 +54,8 @@ const GRADIENT_RE = /gradient/i;      /* the body ground is a radial-gradient on
   }
 
   const problems = [];
+  const MEANING_NAVY = '#5aa2ff,#d6a62e,#4ade80,#ff6b5e,#ffca55';
+  const MEANING_LIGHT = '#0a58d8,#8a6614,#1f7a4d,#b3261e,#7a5200';
   const results = {};
 
   /* One case = one scheme + reduced-motion setting, in its own context so the
@@ -83,6 +85,9 @@ const GRADIENT_RE = /gradient/i;      /* the body ground is a radial-gradient on
       settingsGo('plus');
       await raf();
       const enterActive = document.body.classList.contains('plus-active');
+      /* #3724: the meaning colours, as the navy look paints them (read off body, where plus-active sets them). */
+      const meaning = () => ['--pj-mention', '--gold-edge', '--ok', '--danger', '--warn-ink'].map((t) => getComputedStyle(document.body).getPropertyValue(t).trim().toLowerCase()).join(',');
+      const enterMeaning = meaning();
       const enterBg = bg();
       const enterBgImg = bgImg();
       /* CHROME, not just body: the whole-app blue is a token override that reaches
@@ -104,6 +109,7 @@ const GRADIENT_RE = /gradient/i;      /* the body ground is a radial-gradient on
       settingsGo('you');
       await raf();
       const leaveActive = document.body.classList.contains('plus-active');
+      const leaveMeaning = meaning();
       const leaveBg = bg();
       const leaveBgImg = bgImg();
       const leaveNavBg = head ? getComputedStyle(head).backgroundColor : null;
@@ -119,7 +125,7 @@ const GRADIENT_RE = /gradient/i;      /* the body ground is a radial-gradient on
       const offTabBg = bg();
       const offTabBgImg = bgImg();
 
-      return {
+      return { enterMeaning, leaveMeaning,
         enterActive, enterBg, enterBgImg, enterNavBg, mounted, starsSized, markSized,
         leaveActive, leaveBg, leaveBgImg, leaveNavBg, leaveMounted,
         reEnterActive, offTabActive, offTabBg, offTabBgImg,
@@ -142,6 +148,10 @@ const GRADIENT_RE = /gradient/i;      /* the body ground is a radial-gradient on
     if (!r.markSized) problems.push(label + ': #plus-mark has zero size (not laid out / not sized)');
     // Leave a section: blue off, torn down.
     if (r.leaveActive) problems.push(label + ': plus-active LEAKED to another Settings section');
+    /* #3724: navy pins the meaning colours to the dark look's, whatever the Mac's mode. CONTROL: off Plus in light
+       mode they are the light ones again, so this read can tell the two apart. */
+    if (r.enterMeaning !== MEANING_NAVY) problems.push(label + ': on Plus the meaning colours are not the dark ones (got ' + r.enterMeaning + ', want ' + MEANING_NAVY + ')');
+    if (opts.scheme === 'light' && r.leaveMeaning !== MEANING_LIGHT) problems.push(label + ': CONTROL: off Plus in light mode the meaning colours are not the light ones (got ' + r.leaveMeaning + ')');
     if (GRADIENT_RE.test(r.leaveBgImg)) problems.push(label + ': the navy gradient ground LEAKED to another Settings section (backgroundImage still ' + r.leaveBgImg + ')');
     if (r.leaveNavBg === NAV_NAVY) problems.push(label + ': the nav chrome (.apphead) stayed navy after leaving Plus, chrome navy LEAKED');
     if (r.leaveMounted) problems.push(label + ': the canvas engine did not tear down on leave (plusMounted still true) — it would burn CPU behind another screen');
