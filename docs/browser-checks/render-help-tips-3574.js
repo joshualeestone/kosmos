@@ -577,7 +577,22 @@ const resetStore = (state) => fs.writeFileSync(tipsStore.FILE(), JSON.stringify(
       await page.click('#helpq-btn');
       await page.click('#helpq-menu [data-help="screen"]');
       await page.waitForTimeout(250);
-      return page.evaluate(() => { const c = document.getElementById('tipcard'); return { shown: !!c && !c.hidden, title: c && c.querySelector('h2') ? c.querySelector('h2').textContent : null, covers: c ? c.dataset.covers : null }; });
+      /* Coverage computed HERE, with its own wider list (anything clickable or focusable), not read back
+         from what tipPlace reported about itself. */
+      return page.evaluate(() => {
+        const c = document.getElementById('tipcard');
+        if (!c || c.hidden) return { shown: false };
+        const a = c.getBoundingClientRect();
+        const sel = 'button, a[href], input:not([type="hidden"]), select, textarea, summary, [role], [data-agent], [tabindex]:not([tabindex="-1"]), [onclick]';
+        const hit = [...document.querySelectorAll(sel)].filter((q) => {
+          if (q.closest('#tiplayer, [hidden]') || q.contains(c)) return false;
+          const b = q.getBoundingClientRect(); const cs = getComputedStyle(q);
+          if (b.width < 1 || b.height < 1 || cs.visibility === 'hidden' || cs.display === 'none') return false;
+          if (!['button', 'link', 'switch', 'tab', 'checkbox', 'radio', 'textbox', 'combobox', 'menuitem', null].includes(q.getAttribute('role'))) return false;
+          return b.left < a.right && b.right > a.left && b.top < a.bottom && b.bottom > a.top;
+        }).map((q) => q.id || q.className || q.tagName);
+        return { shown: true, title: c.querySelector('h2') ? c.querySelector('h2').textContent : null, covers: String(hit.length), hit };
+      });
     };
     const screens31 = [
       ['board', async () => { await page.evaluate(() => showTab('agents')); }],
@@ -585,7 +600,11 @@ const resetStore = (state) => fs.writeFileSync(tipsStore.FILE(), JSON.stringify(
       ['create', async () => { await page.evaluate(() => openCreate()); }],
       ['agent page', async () => { await page.evaluate(() => { const a = document.querySelector('#grid [data-agent="beatrix"]'); if (a) a.click(); }); }],
       ['settings (you)', async () => { await page.evaluate(() => showTab('settings')); }],
-      ...['mac', 'updates', 'models', 'look'].map((sec) => ['settings (' + sec + ')', async () => { await page.evaluate(() => showTab('settings')); await page.evaluate((g) => { const b = document.querySelector('#s-nav button[data-go="' + g + '"]'); if (b) b.click(); }, sec); }]),
+      ...['mac', 'updates', 'accounts', 'advanced'].map((sec) => ['settings (' + sec + ')', async () => {
+        await page.evaluate(() => showTab('settings'));
+        await page.click('#s-nav button[data-go="' + sec + '"]');
+        chk(await page.evaluate((g) => document.querySelector('#s-nav button[data-go="' + g + '"]').getAttribute('aria-current') === 'true', sec), 'T31 precondition: Settings > ' + sec + ' is the section showing');
+      }]),
     ];
     const got31 = [];
     for (const [name, go] of screens31) {

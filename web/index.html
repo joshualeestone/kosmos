@@ -53422,7 +53422,7 @@ function tipPlace(card, sel, side = false, { key = '', avoid = true } = {}) {
 /* The page's visible controls a tip card could cover, as rectangles: anything a person clicks or types
    into, except the tip's own target (the card points at it, it does not cover it) and the tip and
    assistant layers themselves. */
-const TIP_CONTROL_SEL = 'button, a[href], input:not([type="hidden"]), select, textarea, summary, [role="switch"], [role="tab"], [role="button"], [contenteditable="true"]';
+const TIP_CONTROL_SEL = 'button, a[href], input:not([type="hidden"]), select, textarea, summary, [role="switch"], [role="tab"], [role="button"], [contenteditable="true"], [data-agent], [tabindex]:not([tabindex="-1"])';
 function tipCoveredControls(target) {
   const out = [];
   for (const q of document.querySelectorAll(TIP_CONTROL_SEL)) {
