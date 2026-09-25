@@ -383,7 +383,8 @@ const visible = (page, sel) => page.evaluate((s) => {
       // The wizard hands off to the connected flow: state 2 gone, flow shown, address in
       // its status line -- the same success screen the enrol flow ends on.
       await page.waitForSelector('#plus-flow', { state: 'visible', timeout: 5000 });
-      const flowStatus = await page.textContent('#plus-status');
+      // #3829: the connected panel shows the address in its chip (the status line is now the one plain sentence).
+      const flowStatus = await page.textContent('#plus-chip-addr');
       chk(!!(flowStatus && flowStatus.includes(wantAddr)), `[${key}] done: the connected flow shows the new address`, JSON.stringify(flowStatus));
       chk(!(await visible(page, '#plus-state2')), `[${key}] the wizard hands off to the connected flow after register`);
       await page.screenshot({ path: path.join(OUT, `plus-signin-${key}.png`), fullPage: false });
