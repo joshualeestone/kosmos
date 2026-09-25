@@ -4,7 +4,7 @@ Card: kosmos #718. Owner: Johnny Cage. Asked for by Liu Kang (m684, 2026-09-25) 
 no-purchase change (kosmos-relay android-no-purchase-718).
 
 ## Finished means
-- docs/phone-push-go-live.md Step 5 has a "Before the first Play submission" item: a person (Josh)
+- docs/phone-push-go-live.md Step 5 has a "Before the first upload to any Play track" item (read again before production): a person (Josh)
   reads the current Google Play Payments policy and its exceptions.
 - The doc states no policy details as fact; it describes what the app does so the reader can check
   it, names the decision and who can overrule it, and gives a phone check for both arms.
@@ -30,6 +30,11 @@ no-purchase change (kosmos-relay android-no-purchase-718).
   added and deployed, so a release check on it gates production. The policy is read twice (before
   the first upload and before production), since it changes. The background-return check has a pass
   condition and a route for a failure (a ruling on #718 before production). The item has an undo.
+
+- **Round 6:** the sideload check names the installable build (assembleRelease, an APK; an AAB
+  cannot be installed); every check has a pass condition and a failure route; the Check section
+  separates what gates Step 5 from what gates Step 10; the undo warns that reverting after a Play
+  upload puts checkout back in a Play app; the "shipped" precondition is checkable via /v1/meta.
 
 ## Weakest part
 The item names kosmos-relay's `CAN_BUY_HERE` and the Android change, which merge separately. If
