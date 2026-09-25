@@ -143,10 +143,17 @@ jobs:
                   echo "::error::$1 $2 $3 failed 3 times; see the steps above. Run: $RUN_URL" >&2; return 1; }
           gh1() { "$@" || { echo "::error::$1 $2 $3 failed; the card was NOT updated for this run (not retried, so it cannot be done twice). Run: $RUN_URL" >&2; return 1; }; }
           label=nightly-browser-checks-red
+          title="Nightly full browser-check run is not green on main"
+          # Every lookup is the REST issues LIST, never GitHub search: `gh issue list --label`
+          # queries the search index, which lags a just-made issue (a missed card is a duplicate).
+          # The list is newest first; pull requests (also returned by it) are dropped.
+          cards_by_label() { ghr gh api "repos/$GITHUB_REPOSITORY/issues?state=open&labels=$label&per_page=100" -q '[.[] | select(.pull_request == null) | .number] | .[]'; }
+          cards_by_title() { ghr gh api "repos/$GITHUB_REPOSITORY/issues?state=open&per_page=100" -q "[.[] | select(.pull_request == null and .title == \"$title\") | .number] | .[]"; }
           # If even this lookup fails, the report is not dropped: a red night files a NEW card
           # (a possible duplicate is better than silence); a green night does nothing.
           lookup_failed=""
-          open=$(ghr gh issue list --repo "$GITHUB_REPOSITORY" --state open --label "$label" --json number -q '.[0].number') || { open=""; lookup_failed=1; }
+          open_list=$(cards_by_label) || { open_list=""; lookup_failed=1; }
+          open=${open_list%%$'\n'*}
           [ -n "$lookup_failed" ] && [ "$RESULT" = success ] && exit 0
           [ "$open" = null ] && open=""
           if [ "$RESULT" = success ]; then
@@ -160,11 +167,12 @@ jobs:
               gh1 gh issue comment "$open" --repo "$GITHUB_REPOSITORY" --body "A re-run (attempt ${GITHUB_RUN_ATTEMPT}) of the night at $GITHUB_SHA was green: $RUN_URL. Not closing on a re-run; the next scheduled night decides." || true
               exit 0
             fi
-            cards=$(ghr gh issue list --repo "$GITHUB_REPOSITORY" --state open --label "$label" --json number -q '.[].number') || cards="$open"
-            for n in $cards; do
-              # The note once (a retried comment would post twice), then the close (safe to repeat).
-              gh1 gh issue comment "$n" --repo "$GITHUB_REPOSITORY" --body "Green again at $GITHUB_SHA: $RUN_URL. Closing; the next red night opens a new card." || true
-              ghr gh issue close "$n" --repo "$GITHUB_REPOSITORY" || true   # one failure must not skip the rest
+            for n in $open_list; do
+              # Close first (safe to repeat, retried), then the note ONCE and only if it closed,
+              # so a card that stays open never gets a second "closing" note tomorrow.
+              if ghr gh issue close "$n" --repo "$GITHUB_REPOSITORY"; then
+                gh1 gh issue comment "$n" --repo "$GITHUB_REPOSITORY" --body "Green again at $GITHUB_SHA: $RUN_URL. Closed; the next red night opens a new card." || true
+              fi
             done
             exit 0
           fi
@@ -182,6 +190,7 @@ jobs:
               prev=""; unread=" (the previous report could not be read, so every entry is listed)"
             fi
             new=""
+            case "$red$prev" in *"(none captured"*) unread="${unread:- (no labels were captured on one side, so NEW is not computed)}"; prev="$red" ;; esac
             set -f; _ifs=$IFS; IFS='|'
             for w in $red; do
               w="${w# }"; w="${w% }"; [ -n "$w" ] || continue
@@ -216,21 +225,25 @@ jobs:
 
           (Filed without the $label label, which could not be created: add it, or the next red night will not find this card.)"
             create_card() { gh issue create --repo "$GITHUB_REPOSITORY" ${labelled[@]+"${labelled[@]}"} \
-              --title "Nightly full browser-check run is not green on main" --body "$card_body"; }
+              --title "$title" --body "$card_body"; }
             # Not blindly retried (a create that failed after GitHub did it would duplicate):
             # wait, look for the card, and create again only if there is none.
             if ! create_card; then
               sleep "${GH_RETRY_SECONDS:-10}"
               # Look by label, or by title when the card had to be filed without one.
-              if [ "${#labelled[@]}" -gt 0 ]; then
-                again=$(ghr gh issue list --repo "$GITHUB_REPOSITORY" --state open --label "$label" --json number -q '.[0].number') || again=""
-              else
-                # An exact title match over the open list, not GitHub search (whose index lags).
-                again=$(ghr gh issue list --repo "$GITHUB_REPOSITORY" --state open --json number,title -q 'map(select(.title == "Nightly full browser-check run is not green on main")) | .[0].number') || again=""
-              fi
-              [ "$again" = null ] && again=""
+              if [ "${#labelled[@]}" -gt 0 ]; then again=$(cards_by_label) || again=""
+              else again=$(cards_by_title) || again=""; fi
+              again=${again%%$'\n'*}
               if [ -z "$again" ]; then
                 gh1 create_card
+              elif [ -n "$lookup_failed" ]; then
+                # The first lookup failed, so the card found is most likely one that was ALREADY
+                # open: this night's report goes on it, or the night would go unreported.
+                gh1 gh issue comment "$again" --repo "$GITHUB_REPOSITORY" --body "Still not green ($RESULT) at $GITHUB_SHA: $RUN_URL
+          NEW since the last red night: (not computed: the card lookup failed this run)
+          Red checks: $red"
+              else
+                echo "::warning::issue create reported an error but card #$again exists; treating the create as done"
               fi
             fi
           fi

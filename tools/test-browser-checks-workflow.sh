@@ -260,6 +260,26 @@ if command -v ruby >/dev/null 2>&1; then
           # OPEN=null forces a literal "null" to exercise the guard in the script.
           if [ "$OPEN" = null ]; then echo null
           else r=$( { if [ -n "$OPEN" ]; then printf "%s" "[{\"number\":$OPEN},{\"number\":3}]"; else printf "%s" "[]"; fi; } | jq -r "$f"); [ "$r" = null ] && r=""; printf "%s\n" "$r"; fi ;;
+        "api repos/o/r/issues?"*)
+          # The REST issues list the script now uses for every lookup. Fixture issues: the open
+          # card (OPEN) and #3 carry the label; the ghost card (#9, made by a create that
+          # reported an error) exists once its flag is set; #5 is an unrelated issue; #6 is a PR
+          # with the card title (the REST list returns PRs too). The -q filter of the script is
+          # applied with real jq, so every lookup filter is exercised.
+          # LISTFAIL=1 fails every list; LISTFAIL=first fails the FIRST lookup (its 3 retried
+          # attempts), then answers.
+          if [ "$LISTFAIL" = first ]; then c=$(cat "$FLAGDIR/listfail" 2>/dev/null || echo 0)
+            if [ "$c" -lt 3 ]; then echo $((c + 1)) > "$FLAGDIR/listfail"; echo "HTTP 502" >&2; return 1; fi
+          elif [ -n "$LISTFAIL" ]; then echo "HTTP 502" >&2; return 1; fi
+          f=$(qarg "$@") || { echo "CALL unexpected api list without -q"; return 1; }
+          T="Nightly full browser-check run is not green on main"
+          lab="[{\"name\":\"nightly-browser-checks-red\"}]"
+          items="{\"number\":5,\"title\":\"something else\",\"labels\":[]},{\"number\":6,\"title\":\"$T\",\"labels\":[],\"pull_request\":{}}"
+          [ -f "$FLAGDIR/ghost" ] && items="{\"number\":9,\"title\":\"$T\",\"labels\":$lab},$items"
+          case "$OPEN" in ""|null) ;; *) items="{\"number\":$OPEN,\"title\":\"$T\",\"labels\":$lab},{\"number\":3,\"title\":\"$T\",\"labels\":$lab},$items" ;; esac
+          all="[$items]"
+          case "$2" in *labels=*) all=$(printf "%s" "$all" | jq -c "map(select(any(.labels[]; .name == \"nightly-browser-checks-red\")))") ;; esac
+          printf "%s" "$all" | jq -r "$f" ;;
         "issue view")
           [ -n "$VIEWFAIL" ] && { echo "HTTP 502" >&2; return 1; }
           f=$(qarg "$@") || { echo "CALL unexpected issue view without -q"; return 1; }
@@ -346,6 +366,13 @@ if command -v ruby >/dev/null 2>&1; then
   case "$out" in *"CALL create"*) fail "a create that GitHub had done was repeated (a duplicate card): $out" ;; esac
   rm -f "$BT/flags/"*; out="$(LCFAIL=1 CREATEFAIL=ghost card failure "")" || fail "no label + a create GitHub did despite an error aborted: $out"
   case "$out" in *"CALL create"*) fail "with no label, a create GitHub had done was repeated (a duplicate card): $out" ;; esac
+  # No label and a create that TRULY failed: the title lookup must skip the PR carrying the
+  # card title (#6) and the unrelated #5, find nothing, and create exactly once.
+  rm -f "$BT/flags/"*; out="$(LCFAIL=1 CREATEFAIL=once card failure "")" || fail "no label + a real create failure aborted: $out"
+  [ "$(printf '%s\n' "$out" | grep -c 'CALL create')" -eq 1 ] || fail "no label + a real create failure did not end with exactly one card (the PR with the card title must not count): $out"
+  # The first lookup fails and the create fails while card 7 is open: the report goes on 7.
+  rm -f "$BT/flags/"*; out="$(LISTFAIL=first CREATEFAIL=once LABEL=1 card failure 7)" || fail "lookup+create failure aborted: $out"
+  case "$out" in *"CALL comment 7"*"not computed"*) ;; *) fail "a night whose lookup and create both failed left no report on the open card: $out" ;; esac
   rm -f "$BT/flags/"*
   # CRLF from a web edit must not make every check NEW.
   out="$(VIEWBODY="$(printf 'Still not green (failure) at x: u\r\nNEW since the last red night: none\r\nRed checks: render-fields | render-thread\r')" REDV="render-fields|render-thread" card failure 7)" || fail "CRLF report: $out"
