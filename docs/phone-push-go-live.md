@@ -316,12 +316,11 @@ Chrome's documented behaviour, not yet seen on a phone.
 - **Before the first upload to any Play track** (the Internal testing upload below), and again
   before the production release in Step 10, since the policy changes: **a person reads the current
   Google Play Payments policy and its exceptions** [Josh], against what the app does as described
-  above. This doc deliberately
-  states none of the policy's details: they change, they differ by country, and a summary written
-  here would go stale unnoticed.
+  above. This doc deliberately states none of the policy's details: they change, they differ by
+  country, and a summary written here would go stale unnoticed.
 - **Sideload check, before the first upload** [fleet, with a person holding a phone; Mortals has
-  none]. Only meaningful once the assetlinks `curl` in Check below returns the upload key's
-  fingerprint: before that, a sideloaded build also opens with a browser bar. With a build signed
+  none]. Only meaningful once the coordinator deploy above has shipped #121 AND the assetlinks `curl`
+  in Check below returns the upload key's fingerprint: before that, a sideloaded build also opens with a browser bar. With a build signed
   with the upload key: sign in with an unpaid account and confirm no pay step or price appears; sign
   in with a paid account and confirm the signed-in home has no billing section; then open sign-in
   in a NEW Chrome tab (not the app's "Open in Chrome", which carries the app's memory into that tab)
@@ -329,8 +328,8 @@ Chrome's documented behaviour, not yet seen on a phone.
   which key signed the app), sign in with an unpaid account, leave the app in the background for a
   long while, return, and move to another page: confirm no pay step or price appears. The app is
   remembered only for the life of its tab, so a phone that reclaims Chrome's memory could bring the
-  pay step back until the app is next opened fresh. If it does, report it on #718 for a ruling [Liu
-  Kang, or Josh] before the production release; it does not stop Internal testing.
+  pay step back until the app is next opened fresh. If it does, report it on #718 [fleet]; the ruling
+  before the production release is Josh's [Josh]. It does not stop Internal testing.
 - **Play-install check, after the Internal testing upload** [fleet, with a person holding a phone].
   The first three checks on the app installed from Play. A Play install is signed with Play's
   app-signing key, which assetlinks.json did not list on 2026-09-25, so until that key is added it
@@ -345,6 +344,8 @@ Chrome's documented behaviour, not yet seen on a phone.
 **Upload:** to Play's Internal testing track [Josh, or whoever he gives Console access].
 
 **Check:**
+- The no-purchase phone checks above (sideload, Play install, and before production the release
+  check) are part of this step's check, not optional.
 - `keytool -printcert -jarfile app-release.aab` shows the upload key's SHA-256. Sonya built and
   checked this AAB on the #3644 branch before it merged.
 - `curl -sS -D- https://login.kosmosplus.com/.well-known/assetlinks.json`: read the body, not
