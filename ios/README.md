@@ -117,7 +117,7 @@ turns out dead, it posts `{token: null}` (kosmos-relay `apns-718`).
 `LogicTests/run.sh` compiles the Foundation-only files (`PushBridgeLogic.swift`,
 `PushRegistrar.swift`, `ShellLogic.swift`) for macOS with the tests and runs them. It ends with one
 `VERDICT:` line; no verdict line means the run did not finish. Pass a directory
-to run the suite against a modified copy of those two files (how the suite was
+to run the suite against a modified copy of those files (how the suite was
 shown able to fail). CI runs it, plus a simulator-SDK build, in
 `.github/workflows/ios.yml` on any change under `ios/` (advisory, like the
 Android job).

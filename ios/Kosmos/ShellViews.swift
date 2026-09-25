@@ -10,6 +10,8 @@ final class ShellState: ObservableObject {
     @Published var failureDetail: String = ""
     // Bumped to ask the WebView to reload; the WebView remembers the last value it acted on.
     @Published var retryCount = 0
+    // True from Try again until the page loads or fails again, so the button answers.
+    @Published var retrying = false
 
     private let monitor = NWPathMonitor()
 
@@ -26,7 +28,7 @@ final class ShellState: ObservableObject {
 
     deinit { monitor.cancel() }
 
-    func retry() { retryCount += 1 }
+    func retry() { retrying = true; retryCount += 1 }
 }
 
 // Kosmos navy, the sign-in page's own background (--bg in coordinator signin.html),
@@ -35,10 +37,19 @@ extension UIColor {
     static let kosmosNavy = UIColor(red: 0x17 / 255.0, green: 0x23 / 255.0, blue: 0x3D / 255.0, alpha: 1)
 }
 
+// Mona's sign-in tokens (coordinator signin.html --gold, --ink, --muted, --accent).
+enum KosmosColor {
+    static let gold = Color(red: 0xE3 / 255.0, green: 0xB3 / 255.0, blue: 0x41 / 255.0)
+    static let ink = Color(red: 0xE6 / 255.0, green: 0xEB / 255.0, blue: 0xF7 / 255.0)
+    static let muted = Color(red: 0x8F / 255.0, green: 0xA0 / 255.0, blue: 0xC4 / 255.0)
+    static let accent = Color(red: 0x2F / 255.0, green: 0x57 / 255.0, blue: 0xC4 / 255.0)
+}
+
 // Shown in place of a blank WebView when a page cannot load.
 struct LoadFailureView: View {
     let failure: Shell.LoadFailure
     let detail: String
+    let retrying: Bool
     let onRetry: () -> Void
 
     private var title: String {
@@ -63,23 +74,27 @@ struct LoadFailureView: View {
             VStack(spacing: 16) {
                 Image(systemName: failure == .offline ? "wifi.slash" : "exclamationmark.icloud")
                     .font(.system(size: 44, weight: .regular))
-                    .foregroundColor(Color(red: 0xE3 / 255.0, green: 0xB3 / 255.0, blue: 0x41 / 255.0))
+                    .foregroundColor(KosmosColor.gold)
                     .accessibilityHidden(true)
                 Text(title)
                     .font(.title3.weight(.semibold))
-                    .foregroundColor(Color(red: 0xE6 / 255.0, green: 0xEB / 255.0, blue: 0xF7 / 255.0))
+                    .foregroundColor(KosmosColor.ink)
                 Text(message)
                     .font(.body)
                     .multilineTextAlignment(.center)
-                    .foregroundColor(Color(red: 0x8F / 255.0, green: 0xA0 / 255.0, blue: 0xC4 / 255.0))
+                    .foregroundColor(KosmosColor.muted)
                     .fixedSize(horizontal: false, vertical: true)
                 Button(action: onRetry) {
-                    Text("Try again")
-                        .font(.body.weight(.semibold))
-                        .frame(maxWidth: .infinity, minHeight: 50)
+                    HStack(spacing: 8) {
+                        if retrying { ProgressView().tint(.white) }
+                        Text(retrying ? "Trying" : "Try again")
+                            .font(.body.weight(.semibold))
+                    }
+                    .frame(maxWidth: .infinity, minHeight: 50)
                 }
+                .disabled(retrying)
                 .foregroundColor(.white)
-                .background(Color(red: 0x2F / 255.0, green: 0x57 / 255.0, blue: 0xC4 / 255.0))
+                .background(KosmosColor.accent)
                 .clipShape(RoundedRectangle(cornerRadius: 12))
                 .padding(.top, 8)
             }

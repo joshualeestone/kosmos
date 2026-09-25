@@ -10,8 +10,11 @@ the separate kosmos-relay PR (signin-mobile-718).
   phone reconnects.
 - Pull to refresh reloads the page.
 - A link that wants a new window (target=_blank: the Stripe billing button) is no longer silently
-  dropped. Kosmos+ and the person's Macs load in the app over https; any other site, and plain
-  http, opens in Safari; mail, phone and text links open their apps; other schemes are refused.
+  dropped. Kosmos+ and the person's Macs load in the app over https. Another site the person TAPS
+  (or opens in a new window) goes to Safari; another https site reached by a redirect or script (a
+  step in a sign-in or checkout flow) stays in the app, so the flow's session is not stranded in
+  Safari (challenge-loop round 1). Plain http never loads in the app. Mail, phone and text links open
+  their apps; other schemes, including data: and blob:, are refused on purpose.
 - A notification tap lands on the agent that asked: `https://<address>/?tab=detail&agent=<session>`
   (agreed with Kano, m544), the session accepted only as `^[a-z0-9][a-z0-9_-]{0,63}$`, else the
   board home.
@@ -33,6 +36,12 @@ the separate kosmos-relay PR (signin-mobile-718).
   composer).
 
 ## Decisions
+- **Try again retries the page that FAILED** (NSURLErrorFailingURLErrorKey), not the last page that
+  loaded, so a tap to an offline Mac is not silently replaced by the board home. The retry count is
+  passed to the WebView as a value, so SwiftUI always runs the update that acts on it.
+- **Raised, not decided here:** if the Kosmos+ subscription is bought through Stripe inside the iOS
+  app, App Store guideline 3.1.1 (digital goods must use in-app purchase) likely applies. Sent to Liu
+  Kang for Josh. The shell keeps a checkout flow working either way.
 - **Error page wording** (no em dashes): "You're offline" / "Kosmos+ isn't answering" / "This page
   didn't load", each with Try again. Colours are Mona's sign-in tokens (navy ground, gold icon,
   royal button).
@@ -44,5 +53,7 @@ the separate kosmos-relay PR (signin-mobile-718).
 ## Weakest part
 Everything that touches UIKit or WebKit (the delegate wiring, the refresh control, the error
 overlay, the order WebKit asks its two questions in for a target=_blank link) is compiled and
-reasoned, not run. The simulator pass has to cover: an offline launch, a reconnect, pull to refresh,
-the billing button, a mail link, and a tap with and without a session.
+reasoned, not run. The simulator pass has to cover: an offline launch, a reconnect, Try again on a
+tapped agent whose Mac is offline, pull to refresh (and whether its spinner shows under the status
+bar, since the scroll view has no top inset), a COMPLETE sign-in through every redirect, the billing
+button, a mail link, and a tap with and without a session.

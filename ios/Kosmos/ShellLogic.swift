@@ -56,27 +56,46 @@ enum Shell {
         case block
     }
 
-    // Decides a MAIN-FRAME navigation or a request for a new window (a link with
-    // target=_blank, which a WKWebView otherwise silently drops). Subframe loads
-    // never come here. Kosmos+ itself and the person's Macs stay in the app; any
-    // other web page (Stripe's billing page, a help link) opens in Safari, so the
-    // app never becomes a browser for someone else's site; mail, phone and text
-    // links go to their apps; any other scheme (javascript:, file:, data:, custom
-    // app schemes) is refused.
-    static func linkDecision(for url: URL, coordinator: URL) -> LinkDecision {
+    // What started a navigation, as far as the rule cares.
+    enum Origin {
+        // The person tapped a link.
+        case tapped
+        // A redirect, a form post or a script: part of a flow the page is running.
+        case pageFlow
+        // A request for a new window (target=_blank, window.open).
+        case newWindow
+    }
+
+    // Decides a MAIN-FRAME navigation or a new-window request. Subframe loads never
+    // come here.
+    // - Kosmos+ itself and the person's Macs, over https: in the app.
+    // - Another https site the person TAPPED, or asked to open in a new window
+    //   (Stripe's billing page, a help link): Safari, so the app never becomes a
+    //   browser for someone else's site.
+    // - Another https site reached by a redirect or script (a step in a sign-in or
+    //   checkout flow): stays in the app, because sending it to Safari would strand
+    //   the flow's session there.
+    // - Plain http: never loaded in the app; tapped, it goes to Safari.
+    // - mail, phone and text links: their apps.
+    // - about:blank: allowed for the page's own use, but never as a new window,
+    //   which would replace the board with a blank page.
+    // - Every other scheme (javascript:, file:, data:, blob:, custom schemes): refused.
+    //   A data: or blob: download is refused on purpose: the board has none today.
+    static func linkDecision(for url: URL, coordinator: URL, origin: Origin) -> LinkDecision {
         let scheme = url.scheme?.lowercased() ?? ""
         switch scheme {
         case "https", "http":
             guard let host = url.host?.lowercased(), !host.isEmpty else { return .block }
-            if scheme == "https",
-               host == coordinator.host?.lowercased() || PushBridge.isMacHost(host, coordinator: coordinator) {
-                return .inApp
+            let ours = host == coordinator.host?.lowercased() || PushBridge.isMacHost(host, coordinator: coordinator)
+            if scheme == "https" {
+                if ours { return .inApp }
+                return origin == .pageFlow ? .inApp : .external
             }
-            return .external
+            return origin == .pageFlow ? .block : .external
         case "mailto", "tel", "sms":
             return .external
         case "about":
-            return url.absoluteString == "about:blank" ? .inApp : .block
+            return url.absoluteString == "about:blank" && origin != .newWindow ? .inApp : .block
         default:
             return .block
         }

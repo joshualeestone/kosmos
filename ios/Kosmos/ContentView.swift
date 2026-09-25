@@ -29,11 +29,12 @@ struct ContentView: View {
                         url: KosmosConfig.boardURL,
                         pushManager: pushManager,
                         boardToOpen: pushManager.boardToOpen,
-                        shell: shell
+                        shell: shell,
+                        retryCount: shell.retryCount
                     )
                         .ignoresSafeArea()
                     if let failure = shell.failure {
-                        LoadFailureView(failure: failure, detail: shell.failureDetail, onRetry: shell.retry)
+                        LoadFailureView(failure: failure, detail: shell.failureDetail, retrying: shell.retrying, onRetry: shell.retry)
                     }
                 }
             } else {
@@ -141,8 +142,10 @@ struct WebView: UIViewRepresentable {
     let pushManager: PushNotificationManager
     // A board a tapped notification asked for (PushNotificationManager.boardToOpen).
     let boardToOpen: PushNotificationManager.BoardRequest?
-    // Where the WebView reports a failed load and hears a retry (kosmos#718).
+    // Where the WebView reports a failed load (kosmos#718).
     let shell: ShellState
+    // Passed as a value so a retry is a change SwiftUI sees, and updateUIView runs.
+    let retryCount: Int
 
     func makeUIView(context: Context) -> WKWebView {
         let config = WKWebViewConfiguration()
@@ -172,7 +175,7 @@ struct WebView: UIViewRepresentable {
         context.coordinator.webView = webView
         context.coordinator.shell = shell
         context.coordinator.home = url
-        context.coordinator.lastRetry = shell.retryCount
+        context.coordinator.lastRetry = retryCount
         // A cold launch from a tapped notification opens that board straight away.
         webView.load(URLRequest(url: boardToOpen?.url ?? url))
         if let request = boardToOpen {
@@ -184,8 +187,8 @@ struct WebView: UIViewRepresentable {
 
     func updateUIView(_ webView: WKWebView, context: Context) {
         // A retry from the failure page.
-        if shell.retryCount != context.coordinator.lastRetry {
-            context.coordinator.lastRetry = shell.retryCount
+        if retryCount != context.coordinator.lastRetry {
+            context.coordinator.lastRetry = retryCount
             context.coordinator.reloadOrHome()
         }
         // Each tap is loaded once, however many times SwiftUI updates before the
@@ -216,11 +219,20 @@ struct WebView: UIViewRepresentable {
         weak var shell: ShellState?
         var home: URL = KosmosConfig.boardURL
         var lastRetry = 0
+        // The page that failed, so Try again retries IT (say, the agent a tapped
+        // notification opened) and not whatever page was showing before.
+        var failedURL: URL?
 
         func reloadOrHome() {
             guard let webView = webView else { return }
-            // Nothing ever loaded (a failed first load) means there is nothing to reload.
-            if webView.url == nil { webView.load(URLRequest(url: home)) } else { webView.reload() }
+            if let failed = failedURL {
+                failedURL = nil
+                webView.load(URLRequest(url: failed))
+            } else if webView.url == nil {
+                webView.load(URLRequest(url: home))
+            } else {
+                webView.reload()
+            }
         }
 
         @objc func pulledToRefresh(_ sender: UIRefreshControl) {
@@ -238,10 +250,12 @@ struct WebView: UIViewRepresentable {
             decidePolicyFor navigationAction: WKNavigationAction,
             decisionHandler: @escaping (WKNavigationActionPolicy) -> Void
         ) {
+            // A new-window request (no target frame) is decided in createWebViewWith.
             guard let url = navigationAction.request.url,
-                  navigationAction.targetFrame?.isMainFrame ?? true
+                  let frame = navigationAction.targetFrame, frame.isMainFrame
             else { decisionHandler(.allow); return }
-            switch Shell.linkDecision(for: url, coordinator: KosmosConfig.coordinatorOrigin) {
+            let origin: Shell.Origin = navigationAction.navigationType == .linkActivated ? .tapped : .pageFlow
+            switch Shell.linkDecision(for: url, coordinator: KosmosConfig.coordinatorOrigin, origin: origin) {
             case .inApp: decisionHandler(.allow)
             case .external:
                 UIApplication.shared.open(url)
@@ -259,7 +273,7 @@ struct WebView: UIViewRepresentable {
             windowFeatures: WKWindowFeatures
         ) -> WKWebView? {
             guard let url = navigationAction.request.url else { return nil }
-            switch Shell.linkDecision(for: url, coordinator: KosmosConfig.coordinatorOrigin) {
+            switch Shell.linkDecision(for: url, coordinator: KosmosConfig.coordinatorOrigin, origin: .newWindow) {
             case .inApp: webView.load(navigationAction.request)
             case .external: UIApplication.shared.open(url)
             case .block: break
@@ -269,6 +283,7 @@ struct WebView: UIViewRepresentable {
 
         func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
             endRefreshing()
+            shell?.retrying = false
             if shell?.failure != nil { shell?.failure = nil }
         }
 
@@ -282,8 +297,10 @@ struct WebView: UIViewRepresentable {
 
         private func show(_ error: Error) {
             endRefreshing()
+            shell?.retrying = false
             let e = error as NSError
             guard let failure = Shell.loadFailure(domain: e.domain, code: e.code) else { return }
+            failedURL = e.userInfo[NSURLErrorFailingURLErrorKey] as? URL
             shell?.failureDetail = e.localizedDescription
             shell?.failure = failure
         }
