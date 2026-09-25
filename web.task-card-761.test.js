@@ -144,6 +144,18 @@ test('a task assigned only through parts, with no legacy top-level who, is not s
     'a parts-only-assigned task (no t.who) fell out of the column, the old t.who-only filter\'s bug');
 });
 
+test('an agent holding two parts gets its claim line once on the card, not once per part', () => {
+  const t = {
+    number: 3, sentence: 'Two halves', closedAt: null,
+    parts: [{ id: 1, who: 'april', sentence: 'one', closedAt: null }, { id: 2, who: 'april', sentence: 'two', closedAt: null }],
+    progress: { done: 0, total: 2, closed: false, assigned: 2 },
+    claim: { claimed: null, neverReported: true, because: 'this agent has never reported what it is holding' },
+  };
+  const doc = runPaintProjectTasks({ ...PROJECT, tasks: [t] });
+  const text = doc.els['pj-tasklist'].innerHTML.replace(/<[^>]*>/g, ' ');
+  assert.equal((text.match(/has not reported what it is working on yet/g) || []).length, 1, 'the card says it once per part');
+});
+
 test('multiple assignees, as the pack drew: one face+name row per part, including an unassigned one, and an honest N of M count', () => {
   const t = {
     number: 4, sentence: 'Two-person task', who: 'april', closedAt: null,
