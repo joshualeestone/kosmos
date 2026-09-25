@@ -9271,7 +9271,7 @@ body.plus-active #plus-state2 { max-width: 26rem; padding: 2rem; }
   #panel-detail:has(#d-sec-talk:not([hidden])) .dleft { flex: none; overflow: visible; min-height: 0; padding-top: 0; }
   /* Capped: the identity block's notes (a usage-limit quote, a stale-instructions note, sign in again, start this
      agent) can run to several lines, and uncapped they took the whole screen and left the thread at
-     0px. Past about a sixth of the visible height the block scrolls on its own, as the wide
+     0px. Past 18% of the visible height the block scrolls on its own, as the wide
      layout's column does (#3385). The tab row below it never shrinks, so Profile stays one tap. */
   #panel-detail:has(#d-sec-talk:not([hidden])) .dhead {
     flex-direction: row; align-items: flex-start; text-align: left; gap: 10px; margin: 0 0 8px;
@@ -9285,6 +9285,8 @@ body.plus-active #plus-state2 { max-width: 26rem; padding: 2rem; }
   #panel-detail:has(#d-sec-talk:not([hidden])) .dav-wrap .detail-av { width: 40px; height: 40px; flex-basis: 40px; }
   /* The memory ring (#1915) is drawn 100px around the 88px avatar; sized with the 40px avatar here,
      and the .dhead padding above makes room for the ring's 6px overhang instead of clipping it. */
+  /* The memory-full badge is placed for the 88px avatar; on the 40px one it would cover the face. */
+  #panel-detail:has(#d-sec-talk:not([hidden])) .dhead .membadge { top: -6px; right: -12px; transform: scale(.7); transform-origin: top right; }
   #panel-detail:has(#d-sec-talk:not([hidden])) .dhead .dring,
   #panel-detail:has(#d-sec-talk:not([hidden])) .dhead .dring svg { width: 52px; height: 52px; }
   #panel-detail:has(#d-sec-talk:not([hidden])) .dtext { align-items: flex-start; gap: 4px; }
@@ -9319,7 +9321,8 @@ body.plus-active #plus-state2 { max-width: 26rem; padding: 2rem; }
   /* While the person is typing, the keyboard takes about half a phone screen, and the header,
      tabs and search above the thread would leave the thread no room (an iPhone SE had the
      composer pushed below the keyboard). They step aside while focus is anywhere in the
-     composer's text box or on Post (so tapping Post does not flash them back mid-tap; not
+     composer's text box, on Post or on the emoji button (shown from 481px; so pressing them does not
+     flash the header back mid-tap; not
      add-a-file, which keeps focus after the file picker closes with no keyboard up) or in the
      search box, AND the on-screen keyboard is up (html.kosmos-keyboard-up, set by the
      visualViewport listener), and come back when either ends: the same trade chat apps make.
@@ -9330,13 +9333,14 @@ body.plus-active #plus-state2 { max-width: 26rem; padding: 2rem; }
      the person is reading results, not writing. */
   /* Lines begin `html.kosmos-keyboard-up body`, not `body:has(`: the stylesheet guard in
      server.test.js reads a line beginning `body:has(` as a stray `prop: value`. */
-  html.kosmos-keyboard-up body:has(#d-talk-box :is(#d-say, #d-send):focus, #d-talk-search:focus) #panel-detail:has(#d-sec-talk:not([hidden])) > .back,
-  html.kosmos-keyboard-up body:has(#d-talk-box :is(#d-say, #d-send):focus, #d-talk-search:focus) #panel-detail:has(#d-sec-talk:not([hidden])) .dleft,
-  html.kosmos-keyboard-up body:has(#d-talk-box :is(#d-say, #d-send):focus, #d-talk-search:focus) #d-talk-box #d-talk-older,
-  html.kosmos-keyboard-up body:has(#d-talk-box :is(#d-say, #d-send):focus) #d-talk-box .d-talk-caprow,
+  html.kosmos-keyboard-up body:has(#d-talk-box :is(#d-say, #d-send, #d-emoji-btn):focus, #d-talk-search:focus) #panel-detail:has(#d-sec-talk:not([hidden])) > .back,
+  html.kosmos-keyboard-up body:has(#d-talk-box :is(#d-say, #d-send, #d-emoji-btn):focus, #d-talk-search:focus) #panel-detail:has(#d-sec-talk:not([hidden])) .dleft,
+  html.kosmos-keyboard-up body:has(#d-talk-box :is(#d-say, #d-send, #d-emoji-btn):focus, #d-talk-search:focus) #d-talk-box #d-talk-older,
+  html.kosmos-keyboard-up body:has(#d-talk-box :is(#d-say, #d-send, #d-emoji-btn):focus) #d-talk-box .d-talk-caprow,
   html.kosmos-keyboard-up body:has(#d-talk-search:focus) #d-talk-box .dmbar { display: none; }
   /* Thumb reach: the composer's controls meet the 44px minimum on a phone. */
-  #d-talk-box .composerbox .attachbtn { width: 44px; height: 44px; }
+  #d-talk-box .composerbox .attachbtn,
+  #d-talk-box .composerbox #d-emoji-btn { width: 44px; height: 44px; }
   #d-talk-box .composerbox .cpost { min-height: 44px; min-width: 64px; }
   #d-talk-box .composerbox .cinput { font-size: 16px; }
   /* The compact header above already names the agent, so the "Direct Message to <name>"
@@ -30094,27 +30098,34 @@ function detailGo(section, opts) {
 (function trackVisibleViewportHeight() {
   const viewport = window.visualViewport;
   if (!viewport) return;
-  /* Height times scale: the keyboard shrinks the visual viewport at scale 1, while a pinch
-     zoom shrinks it by the zoom factor, and only the keyboard should shrink the page. */
-  /* The keyboard is "up" when the visible height falls well short of the layout viewport's; the
-     phone chat only moves its header aside then. A pinch zoom does not count (height x scale). */
+  /* The height written is height x scale: a keyboard shrinks the visual viewport at scale 1, a
+     pinch zoom shrinks it by the zoom factor, and only the keyboard should shrink the page.
+     The keyboard counts as "up" (the phone chat moves its header aside only then) when that height
+     falls 150px+ below the tallest seen at this width. Measured against the tallest, not the layout
+     viewport, so it also works where the keyboard shrinks the layout viewport too (Firefox Android,
+     Chrome with resizes-content, some Android web views). A width change (rotation) starts over. */
   const KEYBOARD_MIN_PX = 150;
+  let tallest = { width: 0, height: 0 };
   const write = () => {
     const visible = Math.round(viewport.height * viewport.scale);
+    if (window.innerWidth !== tallest.width) tallest = { width: window.innerWidth, height: 0 };
+    tallest.height = Math.max(tallest.height, visible);
     document.documentElement.style.setProperty('--kosmos-visible-height', visible + 'px');
-    document.documentElement.classList.toggle('kosmos-keyboard-up', document.documentElement.clientHeight - visible > KEYBOARD_MIN_PX);
+    document.documentElement.classList.toggle('kosmos-keyboard-up', tallest.height - visible > KEYBOARD_MIN_PX);
   };
+
   /* iOS can pan the page to show a focused text box before this resize arrives; with the page
      already exactly the visible height, that pan only cuts off the header. This undoes a pan
-     that shows up as window.scrollY, and only while typing in the phone chat so a tall header
-     menu's own scroll is left alone. A pan that shows up only as visualViewport.offsetTop is NOT
+     that shows up as window.scrollY, and only while typing in the phone chat with the keyboard up
+     (not on a pinch zoom), so a tall header menu's own scroll is left alone. A pan that shows up only as visualViewport.offsetTop is NOT
      handled: unobserved (no iOS simulator on this Mac), on Johnny's simulator checklist. */
   const PHONE_WIDTH = window.matchMedia('(max-width: 40rem)');
   viewport.addEventListener('resize', () => {
     write();
     const talk = document.getElementById('d-sec-talk');
     const typing = document.activeElement && document.activeElement.closest && document.activeElement.closest('#d-talk-box');
-    if (PHONE_WIDTH.matches && talk && !talk.hidden && typing && window.scrollY) window.scrollTo(0, 0);
+    const keyboardUp = document.documentElement.classList.contains('kosmos-keyboard-up');
+    if (PHONE_WIDTH.matches && talk && !talk.hidden && typing && keyboardUp && window.scrollY) window.scrollTo(0, 0);
   });
   write();
 })();
