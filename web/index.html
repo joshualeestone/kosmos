@@ -5788,9 +5788,9 @@ body:not(.consolidated) .pjmidhead:has(.pjhead) .tsearch:focus-within { flex-bas
 .rxn-picker[hidden] { display: none; }
 /* #718 mobile (Josh, 2026-09-24: "make sure the designs fit well on mobile"): the PROJECT
    ROOM on a phone (375 to 430 wide). Scoped to the room (#pj-room, the room column) so the
-   Direct Message thread, which shares .msg, is untouched. Measured at 375 before this: the
-   page, column and thread paddings plus a 34px avatar, a 14px gap and the matching far
-   gutter left a 167px bubble, so a long post read as a column of two or three words.
+   Direct Message thread, which shares .msg, is untouched. Before this, the page, column and
+   thread paddings plus the desktop avatar, gap and matching far gutter left a narrow bubble,
+   so a long post read as a column of two or three words (measurements: the plan).
    - The conversation comes FIRST on the project page (a DOM move, see pjPhoneOrder: CSS
      order would split reading order from tab order, the #1017 defect).
    - Leaner padding and a 28px avatar. The gap stays 14px: the bubble tail's ground mask
@@ -5801,9 +5801,8 @@ body:not(.consolidated) .pjmidhead:has(.pjhead) .tsearch:focus-within { flex-bas
    - Reaction pills are thumb height; the add-reaction bar is reachable by touch (below).
    - The placeholder stays on one line instead of spilling a clipped second line. */
 /* The person's own bubble is content-sized in a right-aligned column, so anything wide inside
-   it set its width: a 120-character file name (one nowrap line) made a 544px card that hung
-   330px off the left edge at 375 (measured; the thread box clipped it, so the page did not
-   scroll). Capping the bubble at its row fixes the cause, and the name keeps its one-line
+   it set its width: a long file name (one nowrap line) made the card, and the bubble with it,
+   hang off the left edge of the room (the thread box clipped it; measurements: the plan). Capping the bubble at its row fixes the cause, and the name keeps its one-line
    ellipsis. Scorpion measured the same fix on the Direct Message (his #3687, scoped to
    #d-dmthread); this is the room's. At desktop widths 78ch still binds first, unchanged.
    78ch is the base .msg-bd cap repeated; web.room-phone-718.test.js pins the two equal. */
@@ -5829,18 +5828,19 @@ body:not(.consolidated) .pjmidhead:has(.pjhead) .tsearch:focus-within { flex-bas
   #pj-room .msg:hover:not(.rxn-show) .msg-bd,
   #pj-room .msg:hover:not(.rxn-show) .msg-bd::before { background-image: none; }
   /* The open bar sits wholly ABOVE the message (its anchor is .msg-b, so the bubble and any
-     reactions under it), clear of it: at thumb size (about 44px tall)
+     reactions under it), clear of it: at thumb size
      the desktop overlap would cover a one-line bubble, so the tap meant to close the bar would
      land on an emoji and react. Where there is no room above (the top of the thread), the
      room's tap handler adds .rxn-below and it opens under the message instead.
-     The bar is about 156px wide: pinned right on a short agent bubble it would cross the
+     The bar is wider than a short bubble: pinned right on a short agent bubble it would cross the
      thread's left edge and be clipped, so an agent's bar starts at the bubble's left. */
   #pj-room .rxn-quick { gap: 4px; top: auto; bottom: calc(100% + 4px); }
   #pj-room .msg.rxn-below .rxn-quick { bottom: auto; top: calc(100% + 4px); }
   /* Every row's .msg-b is its own stacking context (isolation), painted in order, so a bar that
      opens BELOW its post sat under the next message and lost every tap to it. The open row is
-     lifted above its neighbours. */
-  #pj-room .msg.rxn-show .msg-b { z-index: 4; }
+     lifted above its neighbours (they are z auto), and only to 1: the sticky room composer is
+     z 2, and the open row must stay under it (pinned by web.room-phone-718.test.js). */
+  #pj-room .msg.rxn-show .msg-b { z-index: 1; }
   /* Outside its bubble it lies over another message: its own ground, so the emoji read. */
   #pj-room .msg.rxn-show .rxn-quick { background: var(--k-surface); border: 1px solid var(--k-rule);
     border-radius: 100px; padding: 2px 4px; box-shadow: 0 2px 8px rgba(0,0,0,.12); }
@@ -5848,7 +5848,12 @@ body:not(.consolidated) .pjmidhead:has(.pjhead) .tsearch:focus-within { flex-bas
   /* A tap on a message is a gesture now: no grey iOS flash over the whole thread. Links and
      buttons in it keep a tap flash of their own. */
   #pj-room { -webkit-tap-highlight-color: transparent; }
-  #pj-room a, #pj-room button { -webkit-tap-highlight-color: rgba(0, 0, 0, .12); }
+  #pj-room a, #pj-room button { -webkit-tap-highlight-color: rgba(120, 120, 128, .2); }
+  /* iOS zooms into a focused field under 16px and does not zoom back, leaving the page to pan
+     sideways. The mirror draws the same text for the @mention colour, so it moves with it
+     (pinned equal by web.room-phone-718.test.js). */
+  #pj-post { font-size: 16px; }
+  .pjmid #pj-post-mirror .pj-mirror-in { font-size: 16px; }
   #pj-room .rxn-pick, #pj-room .rxn-more { min-width: 36px; min-height: 36px; }
   /* A reaction already on a post is a target too, on any touchscreen (a phone turned
      sideways is wider than the phone block but still a thumb). */
@@ -46415,6 +46420,10 @@ function pjPhoneOrder() {
     grid.insertBefore(split, mid);
   }
   if (focused && document.activeElement !== focused && focused.isConnected) { try { focused.focus({ preventScroll: true }); } catch (_e) { /* gone */ } }
+  // Members/Files going above the room pushes the composer down the page; a person mid-post
+  // keeps it in view (WebKit has no scroll anchoring to do it).
+  const post = document.getElementById('pj-post');
+  if (post && document.activeElement === post && post.scrollIntoView) post.scrollIntoView({ block: 'nearest' });
 }
 pjPhoneOrder();
 if (window.matchMedia) {
@@ -46428,13 +46437,35 @@ let RXN_SHOW_POST = null;
 let RXN_SHOW_PID = null;
 /* Above the message unless the thread's top edge, or the top of the screen (the page itself
    scrolls on a phone), would cut it; then below (CSS .rxn-below). */
+function pjRxnVisibleBand(room) {
+  // The part of the thread a person can actually see: inside the thread's box, below the
+  // screen's top and the sticky app header, above the screen's bottom and the sticky composer.
+  const R = room.getBoundingClientRect();
+  const vv = window.visualViewport;
+  let top = Math.max(R.top + (parseFloat(getComputedStyle(room).borderTopWidth) || 0), vv ? vv.offsetTop : 0);
+  let bottom = Math.min(R.bottom, vv ? vv.offsetTop + vv.height : window.innerHeight);
+  const head = document.querySelector('.apphead');
+  if (head && getComputedStyle(head).position === 'sticky') top = Math.max(top, head.getBoundingClientRect().bottom);
+  const comp = document.querySelector('.pjmid .composer');
+  if (comp && comp.offsetParent) bottom = Math.min(bottom, comp.getBoundingClientRect().top);
+  return { top, bottom };
+}
 function pjRxnPlace(row) {
   row.classList.remove('rxn-below');
   const q = row.querySelector('.rxn-quick'); const room = document.getElementById('pj-room');
   if (!q || !room) return;
-  const roomTop = room.getBoundingClientRect().top + (parseFloat(getComputedStyle(room).borderTopWidth) || 0);
-  const screenTop = window.visualViewport ? window.visualViewport.offsetTop : 0;
-  if (q.getBoundingClientRect().top < Math.max(roomTop, screenTop)) row.classList.add('rxn-below');
+  q.style.position = ''; q.style.top = ''; q.style.left = ''; q.style.right = ''; q.style.bottom = '';
+  const band = pjRxnVisibleBand(room);
+  if (q.getBoundingClientRect().top >= band.top) return;           // above the message: fits
+  row.classList.add('rxn-below');
+  const B = q.getBoundingClientRect();
+  if (B.bottom <= band.bottom) return;                               // below it: fits
+  // A post taller than what is showing: neither side fits. Pin the bar to the top of the
+  // visible thread, where the post is, at the same left edge.
+  row.classList.remove('rxn-below');
+  const L = q.getBoundingClientRect().left;
+  q.style.position = 'fixed'; q.style.top = Math.round(band.top + 4) + 'px';
+  q.style.left = Math.round(L) + 'px'; q.style.right = 'auto'; q.style.bottom = 'auto';
 }
 /* #718 mobile: on a touchscreen, a tap on a message shows its add-reaction bar (hover
    does it on a computer). One row at a time. A tap on a link, a button or the reaction row
@@ -46450,6 +46481,7 @@ document.getElementById('pj-room').addEventListener('click', (e) => {
   room.querySelectorAll('.msg.rxn-show').forEach((m) => { if (m !== row) m.classList.remove('rxn-show'); });
   if (!row) { pjRxnClose(); return; }   // a tap between messages closes it for good
   const box = row.querySelector('.rxns[data-post]');
+  if (!box) { pjRxnClose(); return; }   // nothing to react to (a system row, an unsaved post)
   const open = row.classList.toggle('rxn-show');
   RXN_SHOW_POST = open && box ? box.getAttribute('data-post') : null;
   RXN_SHOW_PID = RXN_SHOW_POST ? PJ_CURRENT : null;
@@ -46462,6 +46494,7 @@ function pjRxnClose() {
   RXN_SHOW_PID = null;
   const room = document.getElementById('pj-room');
   if (room) room.querySelectorAll('.msg.rxn-show, .msg.rxn-below').forEach((m) => m.classList.remove('rxn-show', 'rxn-below'));
+  if (room) room.querySelectorAll('.rxn-quick[style]').forEach((q) => q.removeAttribute('style'));
   // A tapped button keeps focus on Android, and .rxn-quick:focus-within would keep the bar up.
   const a = document.activeElement;
   if (a && a.closest && a.closest('#pj-room .rxn-quick') && a.blur) a.blur();

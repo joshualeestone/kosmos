@@ -890,6 +890,26 @@ const now = () => new Date().toISOString();
       await phonePage.waitForTimeout(300);
       const again = await phonePage.evaluate(() => ({ shown: document.querySelectorAll('#pj-room .msg.rxn-show').length, reacts: window.__reacts }));
       chk(again.shown === 0 && again.reacts === 0, `[phone/touch] a second tap on a short post closes its bar and adds no reaction`, JSON.stringify(again));
+      // A post TALLER than the thread, read by scrolling: neither above nor below it fits, so the
+      // bar is pinned to the top of the visible thread. It must be fully in view and take taps.
+      const tallAt = await phonePage.evaluate((ts) => {
+        const room = document.getElementById('pj-room'); const p = { agents: [{ sessionName: 'april', name: 'April' }] };
+        room.innerHTML = pjRoomRow({ from: 'april', at: ts, text: 'a long report line. '.repeat(160), id: 'm9' }, p);
+        room.style.maxHeight = '360px'; room.style.overflowY = 'auto';
+        room.scrollTop = Math.round((room.scrollHeight - room.clientHeight) / 2);
+        const R = room.getBoundingClientRect();
+        return { x: Math.round(R.left + R.width / 2), y: Math.round(R.top + R.height / 2), tall: room.scrollHeight > 2 * room.clientHeight };
+      }, now());
+      await phonePage.touchscreen.tap(tallAt.x, tallAt.y);
+      await phonePage.waitForTimeout(300);
+      const tall = await phonePage.evaluate(() => {
+        const room = document.getElementById('pj-room'); const q = document.querySelector('#pj-room .msg.rxn-show .rxn-quick');
+        if (!q) return { error: 'no open bar' };
+        const Q = q.getBoundingClientRect(), R = room.getBoundingClientRect();
+        const hits = [...q.querySelectorAll('button')].map((b) => { const r = b.getBoundingClientRect(); const t = document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2); return t === b || b.contains(t); });
+        return { inView: Q.top >= R.top && Q.bottom <= R.bottom && Q.left >= R.left && Q.right <= R.right + 1, bar: [Math.round(Q.top), Math.round(Q.bottom)], room: [Math.round(R.top), Math.round(R.bottom)], hits, pinned: q.style.position === 'fixed' };
+      });
+      chk(tallAt.tall && !tall.error && tall.inView && tall.hits.every(Boolean), `[phone/touch] on a post taller than the thread the bar is in view and takes its taps`, JSON.stringify(Object.assign({ tall: tallAt.tall }, tall)));
     } finally {
       await phonePage.close();
     }
