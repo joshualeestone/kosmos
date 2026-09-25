@@ -33,6 +33,7 @@
  *   ENGINES=chromium,webkit ... for both engines. The gate runs Chromium only.
  */
 const path = require('node:path');
+const fs = require('node:fs');
 const pw = require('playwright');
 
 const PAGE = 'file://' + path.join(path.resolve(__dirname, '..', '..'), 'web', 'index.html');
@@ -114,6 +115,14 @@ function measure() {
 }
 
 (async () => {
+  // The phone breakpoint is written in the CSS block and in the listener's matchMedia; pin them equal.
+  {
+    const src = fs.readFileSync(path.join(path.resolve(__dirname, '..', '..'), 'web', 'index.html'), 'utf8');
+    const block = src.indexOf('#718 CHAT FIRST ON A PHONE');
+    const css = (/@media \(max-width: ([0-9.]+rem)\)/.exec(src.slice(block)) || [])[1];
+    const js = (/Same breakpoint as the CSS block[^\n]*\n\s*const PHONE_WIDTH = window\.matchMedia\('\(max-width: ([0-9.]+rem)\)'\)/.exec(src) || [])[1];
+    chk(!!css && css === js, 'the CSS phone breakpoint and the listener\'s matchMedia are the same', `css=${css} js=${js}`);
+  }
   for (const eng of (process.env.ENGINES || 'chromium').split(',')) {
     const browser = await pw[eng].launch({ headless: process.env.HEADED === '0' });
     try {
@@ -194,8 +203,7 @@ function measure() {
         await page.setViewportSize({ width: w, height: h });
         // Let the page's own listener settle on the restored height before simulating again, or
         // its late resize overwrites the simulation below.
-        await page.waitForFunction((want) => getComputedStyle(document.documentElement).getPropertyValue('--kosmos-visible-height').trim() === want + 'px', h, { timeout: 3000 }).catch(() => {});
-        await page.waitForTimeout(100);
+        await page.waitForFunction((want) => getComputedStyle(document.documentElement).getPropertyValue('--kosmos-visible-height').trim() === want + 'px' && !document.documentElement.classList.contains('kosmos-keyboard-up'), h, { timeout: 3000 });
         // The connection banner above the panel with the keyboard up: the composer must still sit
         // above the keyboard (it is sticky at the bottom of the talk box).
         {
@@ -334,6 +342,16 @@ function measure() {
         await page.setViewportSize({ width: 667, height: 375 });
         await page.evaluate(() => window.__vv(375, 1));
         chk(!(await kb()), `${t} after rotation the new height is the baseline`);
+        // Rotating while typing: the keyboard stays up across both rotations.
+        await page.setViewportSize({ width: 375, height: 667 });
+        await page.evaluate(() => window.__vv(667, 1));
+        await page.evaluate(() => window.__vv(367, 1));
+        await page.setViewportSize({ width: 667, height: 375 });
+        await page.evaluate(() => window.__vv(175, 1));
+        chk(await kb(), `${t} rotating to landscape with the keyboard up: still keyboard up`);
+        await page.setViewportSize({ width: 375, height: 667 });
+        await page.evaluate(() => window.__vv(367, 1));
+        chk(await kb(), `${t} rotating back with the keyboard up: still keyboard up`);
         chk(vvErrs.length === 0, `${t} no page errors`, vvErrs.join(' | '));
         await page.close();
       }
