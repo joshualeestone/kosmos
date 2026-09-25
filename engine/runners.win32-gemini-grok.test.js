@@ -27,7 +27,17 @@ delete process.env.AGENT_WORKFORCE_GROK_BIN;
 const runners = require('./runners');
 const platformGate = require('./platform');
 
-test.after(() => { fs.rmSync(SANDBOX, { recursive: true, force: true }); });
+/* #3795: a win32-shaped path handed to fs on macOS/Linux is ONE relative filename with
+   backslashes in it, created in the cwd (the repo root), so arms that WRITE to such a path
+   run on Windows only. This guard fails the file if any run leaves a backslash-named entry
+   behind in the cwd, the leak that made clean validations record "dirty". */
+const onWin = process.platform === 'win32';
+const cwdBefore = new Set(fs.readdirSync(process.cwd()));
+test.after(() => {
+  fs.rmSync(SANDBOX, { recursive: true, force: true });
+  const leaked = fs.readdirSync(process.cwd()).filter((n) => !cwdBefore.has(n) && n.includes('\\'));
+  assert.deepEqual(leaked, [], 'win32-shaped paths leaked into the cwd as files');
+});
 test.afterEach(() => runners.resetForTests());
 
 const LEGACY_GEMINI = path.join(SANDBOX, 'legacy', 'gemini');
@@ -134,7 +144,7 @@ test('spawnTarget: node on the bundle for our .cmd launcher; the plain file for 
   assert.deepEqual(runners.spawnTarget(cmd, 'darwin'), { file: cmd, args: [] });
 });
 
-test('on win32 a Gemini or Grok that exists but carries no verified marker is not present', () => {
+test('on win32 a Gemini or Grok that exists but carries no verified marker is not present', { skip: !onWin && 'win32 only: it writes to win32-shaped paths (#3795)' }, () => {
   for (const p of ['gemini', 'grok']) {
     clear(p);
     const m = runners.manifestFor(p, 'win32', 'x64');
@@ -154,7 +164,6 @@ test('on win32 a Gemini or Grok that exists but carries no verified marker is no
 
 /* ------------------------------------------------------------------------- */
 /* The real Windows pipeline: tar.exe, the brotli expand, the .cmd launcher, and a real prove. */
-const onWin = process.platform === 'win32';
 
 function winFixture(files) {
   const dir = fs.mkdtempSync(path.join(SANDBOX, 'fix-'));
