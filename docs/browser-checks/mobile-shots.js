@@ -36,11 +36,13 @@
  *
  * ADDING YOUR SCREENS: append to SCREENS below. Each entry is
  *   { name, owner, go: async (page, data) => { ...navigate to the screen... } }
+ * plus `noServiceWorker: true` if `go` stubs a request with page.route.
  * `go` starts on a freshly loaded board at the phone size and theme (data has
  * `projectId`); leave the page showing the screen. Keep names short and unique
  * (they are file names). Sample data: 5 agents (working, idle, needs you,
  * stopped; one very long name and task), Ada's DM with a long reply and a code
- * block, a project room with posts and reactions, Cleo's pending ask.
+ * block, a project room with posts and reactions, Cleo's pending ask. The
+ * allow-card screen stubs one phone asking to connect (see it below).
  */
 const { spawn, execFileSync } = require('node:child_process');
 const fs = require('node:fs');
@@ -118,6 +120,28 @@ const SCREENS = [
     // The board re-renders cards on its tick, so scroll inside the page.
     await page.waitForSelector('.acard[data-agent="cleo"]', { timeout: 5000 });
     await page.evaluate(() => document.querySelector('.acard[data-agent="cleo"]').scrollIntoView({ block: 'start' }));
+  } },
+  /* Where a push tap lands: the needs-you agent's page, shot once it has
+     settled (the conversation scrolls to the top after load). */
+  { name: 'push-landing', owner: 'Kano', go: async (page) => {
+    await at(page, '?tab=detail&agent=cleo');
+    await page.waitForSelector('#panel-detail', { state: 'visible', timeout: 5000 });
+    await page.waitForTimeout(1600);
+  } },
+  /* The Allow card (#askcard): one phone asking to connect. The throwaway
+     board has Plus off and no tunnel, so /api/remote/pending is always empty;
+     turning Plus on for real would start the tunnel. Instead the answer is
+     stubbed IN THIS PAGE ONLY, in server.js's shape, and the page's own poll
+     paints it. The email is example.com so the leak guard still judges it.
+     ⚠️ noServiceWorker: the board's sw.js claims the page, and in WebKit a
+     page.route never sees a controlled page's fetches (measured: the stub was
+     never hit and the card stayed hidden), so this screen's context blocks it. */
+  { name: 'allow-card', owner: 'Kano', noServiceWorker: true, go: async (page) => {
+    const pending = { email: 'owner@example.com', snapshot: true, devices: [
+      { device_id: 'd-sample-0001', name: 'iPhone', code: '482 913', first_seen: Math.floor(Date.now() / 1000) - 40, denied_at: 0 }] };
+    await page.route('**/api/remote/pending', (r) => r.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(pending) }));
+    await page.reload({ waitUntil: 'load' });
+    await page.waitForSelector('#askcard:not([hidden]) [data-ask="allow"]', { state: 'visible', timeout: 8000 });
   } },
   // Sonya: settings.
   { name: 'settings', owner: 'Sonya', go: async (page) => {
@@ -450,6 +474,7 @@ async function run() {
               const ctx = await browser.newContext({
                 viewport: { width: s.width, height: s.height }, deviceScaleFactor: s.dpr,
                 isMobile: en === 'chromium', hasTouch: true, colorScheme: theme,
+                ...(sc.noServiceWorker ? { serviceWorkers: 'block' } : {}),
               });
               await ctx.addInitScript((t) => { try { localStorage.setItem('kosmos-theme', t); } catch { /* no storage */ } }, theme);
               const page = await ctx.newPage();
