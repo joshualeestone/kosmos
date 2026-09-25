@@ -90,7 +90,7 @@ test('GET /api/tasks?view=tasks: the global list carries the fields across proje
   assert.ok(body.tasks.every((t) => ['nobody', 'assigned', 'working', 'closed'].includes(t.state)), 'a state outside the provable four');
 });
 
-test('POST /api/tasks/close: closes each task and writes the note to each history first', async () => {
+test('POST /api/tasks/close: closes each task, then writes the note to its history', async () => {
   const p = projects.create({ name: 'Bulk' });
   projects.addAgent(p.id, 'bulkagent', null);
   tasks.create(p.id, { sentence: 'One', who: 'bulkagent' });
@@ -105,12 +105,14 @@ test('POST /api/tasks/close: closes each task and writes the note to each histor
     const said = events.filter((e) => e.kind === 'said').map((e) => e.text);
     assert.deepEqual(said, ['no longer needed'], `the note is not on task ${n}'s history`);
     const kinds = events.map((e) => e.kind);
-    assert.ok(kinds.indexOf('said') !== -1 && kinds.indexOf('said') < kinds.lastIndexOf('closed'), `on task ${n} the note is not written before the close: ${kinds}`);
+    assert.ok(kinds.lastIndexOf('closed') !== -1 && kinds.lastIndexOf('said') > kinds.lastIndexOf('closed'), `on task ${n} the note is not written after the close: ${kinds}`);
   }
   // Sent again (a stale page): already closed, left alone, and the note is NOT written twice.
   const again = await bulk({ tasks: [{ projectId: p.id, number: 1 }], note: 'no longer needed' });
   assert.equal(again.status, 200);
   assert.equal(again.json.results[0].already, true);
+  assert.equal(again.json.closed, 0, 'an already-closed task was credited as closed by this request');
+  assert.equal(again.json.already, 1);
   assert.equal(taskchat.read(p.id, 1).filter((e) => e.kind === 'said').length, 1, 'a second close wrote the note again');
 });
 
