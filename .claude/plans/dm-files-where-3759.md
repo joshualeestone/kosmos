@@ -12,7 +12,8 @@ Josh, 0.6.94 test, 2026-09-25 11:07 in #admin: agents should store files where t
 conversation, and be context-aware enough to put a project's file in that project instead.
 
 ## Change
-- engine/dmfiles.js blockBody: the rewritten block (both destinations, the say-where line, the unsure rule).
+- engine/dmfiles.js blockBody: the rewritten block (both destinations, the say-which-project line, ask
+  first when unsure).
 - engine/dmfiles.test.js: the #3614 test follows the new first sentence; a new #3759 test pins both
   destinations, the say-where line and the unsure rule.
 
@@ -24,14 +25,25 @@ conversation, and be context-aware enough to put a project's file in that projec
   re-syncing live on release; the boot sweep is the existing path and a release restarts the board.
   Weakest premise: that the card's "version bump" meant "make sure existing agents get it" rather than
   the doctrine number specifically.
+- Ask first when unsure; save in Files and say so only when nobody is there to answer. The doctrine's
+  "Where the files you make go" says an unclear folder is "one short question for them, not a licence
+  to guess" (defaults.js, pinned by defaults.test.js), and the same instructions file carries both, so
+  this block must not offer save-and-say as an equal choice (review round 1). Josh's "ask or say where
+  it went" still holds: the fallback is saying where it went.
+- The trigger covers a file the agent makes in a direct conversation as well as one asked for, as the
+  #3614 block did, so an unprompted file is still told the exact path.
 - Running agents read the new words on their next start (they read instructions at start), which the
   release note should say.
 
-## Measured (real agent runs, claude -p, sandboxed agent folder with this block and one project)
-- "a packing list as a file" (direct ask): saved in the agent's Files folder, said so.
-- "For the Henderson lease, a summary as a file": saved in the project folder, said which project and name.
-- "an email to my landlord about renewing" (project not named): saved in the Henderson lease project,
-  said so (context-aware, as asked).
-- Control, main's old wording with the Henderson ask: also saved in the project in this run. So the old
-  words already handled a clearly named project once; what this adds is the rule stated outright, the
-  say-where line, and the unsure rule. One run each, not a rate.
+## Measured (real agent runs, `claude -p` in a sandboxed agent folder holding this block and one project, 2026-09-25 12:25 CDT, final wording)
+One run per case, so a check of the wording, not a rate. The agent's first reply line and the file it wrote:
+
+| Asked | Saved to | First line of its reply |
+|---|---|---|
+| "a short packing list for a weekend camping trip as a file" | `workers/writer/Files/weekend-camping-packing-list.md` | I saved your packing list as `weekend-camping-packing-list.md` in your Files folder. It's there because it isn't part of the Henderson lease project, and you can open it from my page in Kosmos. |
+| "For the Henderson lease, ... a one-paragraph summary ... as a file" | `projects/henderson-lease/renewal-notice-summary.md` | I saved it in the Henderson lease project folder as `renewal-notice-summary.md`. |
+| "draft a short email to my landlord asking about renewing, as a file" (no project named) | `projects/henderson-lease/renewal-inquiry-email.md` | I saved it in the Henderson lease project as `renewal-inquiry-email.md`. |
+
+Control, main's old wording with the Henderson ask (earlier run): also saved in the project. So the old
+words already handled a clearly named project once; what this adds is the rule stated outright, the
+say-which-project line, and the ask-first rule for an unclear case.

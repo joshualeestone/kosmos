@@ -73,13 +73,14 @@ function blockBody(dir) {
   const where = projects.neutralise(String(dir == null ? '' : dir));
   /* #3759 (Josh, 2026-09-25 11:07): the folder follows what the conversation is ABOUT, not only
      where it happens. A file asked for in a direct conversation goes in the agent's Files; one that
-     belongs to a project's work goes in that project, even when asked for here; and when it is
-     unclear the agent asks, or saves it here and says so. It always says where it put it. */
+     belongs to a project's work goes in that project, even when asked for here, and the agent says
+     which project; and when it is unclear the agent asks first (the doctrine's "one short question,
+     not a licence to guess"), saving it here and saying so only when nobody is there to answer. */
   return [
     '## Where to save files you make for the person',
     '',
-    'When the person asks you for a file in a direct conversation with you, save it',
-    'in your Files folder:',
+    'When you make a file for the person in a direct conversation with you, or they',
+    'ask you for one there, save it in your Files folder:',
     '',
     '`' + where + '`',
     '',
@@ -96,9 +97,11 @@ function blockBody(dir) {
     'asked you here. Then tell them in one line where you put it: which project, and',
     'the file\'s name.',
     '',
-    'When you cannot tell which it belongs to, ask in one short line, or save it in',
-    'your Files folder and say so, so they can ask you to move it. Inside a project,',
-    'keep using the project\'s own folder.',
+    'When you cannot tell whether the file belongs to a project, ask them in one short',
+    'line. Only if they are not there to answer, save it in your Files folder and say',
+    'so, so they can ask you to move it.',
+    '',
+    'Inside a project, keep using the project\'s own folder.',
   ].join('\n');
 }
 
