@@ -115,6 +115,28 @@ function chk(ok, label, extra) {
     };
   };
   try {
+    /* #3559, Josh's ruling: the Tasks tab (and the consolidated rail's button) appear only once the
+       person has 25 tasks ever. This fixture has fewer, so first they must be hidden after a real
+       status tick; then the saved flag (what "shown once, stays shown" writes) brings them in. */
+    {
+      chk(tasks.tasksEverCreated(projects.readAll()) < tasks.TASKS_TAB_MIN, '[gate] the fixture has fewer than 25 tasks, so the hidden arm below can mean something');
+      const page = await browser.newPage({ viewport: { width: 1400, height: 900 } });
+      await page.goto(URL, { waitUntil: 'networkidle' });
+      await clearFirstRun(page);
+      await page.waitForTimeout(2500);   // at least one status tick has landed (the tab's only source)
+      const before = await page.evaluate(() => ({
+        tab: document.querySelector('#tabs .tab[data-tab="tasks"]').getClientRects().length > 0,
+        rail: document.getElementById('rail-projects-tasks').hidden === false,
+      }));
+      chk(!before.tab && !before.rail, '[gate] below 25 tasks the Tasks tab and the rail button are hidden', JSON.stringify(before));
+      require('../../engine/store').writeSettings({ tasksTabShown: true });
+      await page.reload({ waitUntil: 'networkidle' });
+      await clearFirstRun(page);
+      await page.waitForFunction(() => document.querySelector('#tabs .tab[data-tab="tasks"]').getClientRects().length > 0, null, { timeout: 8000 }).catch(() => {});
+      const after = await page.evaluate(() => document.querySelector('#tabs .tab[data-tab="tasks"]').getClientRects().length > 0);
+      chk(after, '[gate] once shown (the saved flag), the Tasks tab is there', String(after));
+      await page.close();
+    }
     for (const [theme, width] of [['light', 1400], ['dark', 1400], ['light', 760], ['dark', 390]]) {
       const tag = `[${theme} ${width}]`;
       const page = await browser.newPage({ viewport: { width, height: 1000 }, colorScheme: theme });

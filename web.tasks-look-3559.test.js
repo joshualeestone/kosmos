@@ -114,3 +114,17 @@ test('the two big gaps: less top padding, and an empty crumb or status line take
   // The status line must stay a live region: it is never display:none.
   assert.doesNotMatch(PAGE, /#tsk-msg[^{]*\{[^}]*display:\s*none/);
 });
+
+test('#3559 (Josh): the Tasks tab and the rail button start hidden and follow the status poll\'s tasksTab', () => {
+  assert.match(PAGE, /<button class="tab"\s+data-tab="tasks"\s+role="tab" aria-selected="false" hidden>Tasks<\/button>/,
+    'the tab is on screen before the poll says there are 25 tasks');
+  assert.match(PAGE, /id="rail-projects-tasks" title="[^"]*" hidden>Tasks<\/button>/, 'the consolidated rail button is on screen before 25 tasks');
+  assert.match(SCRIPT, /fedGateStamp\(data\);\s*\/\/[^\n]*\n\s*tskTabGate\(data\.tasksTab === true\);/, 'the status poll does not apply the gate');
+  const els = { tab: { hidden: true }, rail: { hidden: true } };
+  const document = { querySelector: (q) => (q === '.tab[data-tab="tasks"]' ? els.tab : null), getElementById: (id) => (id === 'rail-projects-tasks' ? els.rail : null) };
+  const gate = new Function('document', page.liftAll(SCRIPT, ['tskTabGate']) + '\nreturn tskTabGate;')(document);
+  gate(true);
+  assert.deepEqual([els.tab.hidden, els.rail.hidden], [false, false]);
+  gate(false);
+  assert.deepEqual([els.tab.hidden, els.rail.hidden], [true, true], 'a false (or missing) tasksTab does not hide them');
+});
