@@ -5993,6 +5993,9 @@ body:not(.consolidated) .pjmidhead:has(.pjhead) .tsearch:focus-within { flex-bas
 /* The out. One line, and it points DOWN at the composer this page already has
    rather than away to another screen. */
 .dmbar { margin-top: 14px; }
+/* #3744: the DM's emoji panel is positioned from its own composer box, as the room's is from
+   .composer, so it opens just above the box it types into. */
+.dmbar.composerbox { position: relative; }
 #d-say { flex: 1 1 auto; }
 /* Inside the room's box the field is bare: the box carries the border and the
    focus ring. Specific enough to beat `.detail .dbox input[type=text]`. */
@@ -6018,6 +6021,7 @@ body:not(.consolidated) .pjmidhead:has(.pjhead) .tsearch:focus-within { flex-bas
    closed (opacity .5 when the agent is off). Same input-only-selector gap this file
    warns about at the `.composerbox textarea.cinput` note above. */
 .dmbar .btn[disabled], .dmbar input[disabled], .dmbar textarea[disabled] { opacity: .5; cursor: not-allowed; }
+.dmbar .emojibtn[disabled] { opacity: .5; cursor: not-allowed; }   /* #3744: greys with the box it types into */
 /* The room valve's row: reassurance, not an error. */
 .msg-valve { font-size: .8125rem; color: var(--k-ink-2); border-left: 2px solid var(--k-rule);
              padding-left: 10px; }
@@ -9485,7 +9489,12 @@ window.kosmosMeasureScrollbarWidth();
            the same reason. -->
       <textarea class="cinput" id="d-say" rows="1" maxlength="10000"
              aria-label="Type a message for this agent" placeholder="Write something&hellip;"></textarea>
+      <!-- #3744 (Josh, 2026-09-25 09:29: "We need emoji support in the agent DM."): the room's
+           grey smiley and panel, driven by the same code (EMOJI_AT below), so there is one list
+           of emoji and one behaviour. The panel sits inside this box, which is its anchor. -->
+      <button class="emojibtn" id="d-emoji-btn" type="button" aria-label="Add an emoji" title="Add an emoji" aria-expanded="false" aria-controls="d-emoji"><span class="emojibtn-glyph" aria-hidden="true">&#128512;</span></button>
             <button class="btn uprime cpost" id="d-send" type="button">Post</button>
+      <div class="emojipanel" id="d-emoji" role="group" aria-label="Pick an emoji" hidden></div>
     </div>
     <!-- #3403 (Josh: cut off mid-message with no warning): a SOFT near-limit counter that appears
          only in the last stretch before the 10000 cap, so the cap is never a silent cutoff. A block
@@ -27303,6 +27312,8 @@ async function paintTalk(sessionName, agentName) {
        panel saying we cannot resolve this agent. */
     document.getElementById('d-say').disabled = true;
     document.getElementById('d-send').disabled = true;
+    document.getElementById('d-emoji-btn').disabled = true;   // #3744: no emoji into a closed box
+    pjEmojiClose('agent');
     /* The section itself, never the composer this arm just closed: the
        success path's own rule, that a rescue must not hand focus to a
        control the same paint disables. `#d-talk-box` carries tabindex="-1"
@@ -27643,6 +27654,9 @@ async function paintTalk(sessionName, agentName) {
      it either, because that path declines to touch anything once the flight has
      moved. The flag is about a NAME, so it is read against one. */
   say.disabled = body.presence === 'off';
+  // #3744: the emoji button opens and closes with the box it types into.
+  document.getElementById('d-emoji-btn').disabled = say.disabled;
+  if (say.disabled) pjEmojiClose('agent');
   /* 🛑 #991: A CLOSED BOX MUST NOT STILL SAY "Message casey…". The composer is
      correctly disabled here and the reason is on screen above it, but the
      placeholder was set before the fetch and kept inviting a message the box
@@ -46871,11 +46885,18 @@ const PJ_EMOJI = [
   '❤️','🧡','💛','💚','💙','💜','🖤','💯','🔥','✨','⭐','🎉','🚀','✅','❌','⚠️',
   '💡','📌','📝','🐛','🔧','🔒','⏳','📈','☕','🎯','🧠','🍕','🐢','🎈','📎','🗂️',
 ];
-let PJ_EMOJI_BUILT = false;
+/* #3744: the same picker in two composers, the project room's and an agent's Direct Message. One
+   list (PJ_EMOJI) and one set of functions, keyed by where; each composer has its own button, panel
+   and input. `where` defaults to the room, so every existing caller is unchanged. */
+const EMOJI_AT = {
+  room: { btn: 'pj-emoji-btn', panel: 'pj-emoji', input: 'pj-post' },
+  agent: { btn: 'd-emoji-btn', panel: 'd-emoji', input: 'd-say' },
+};
+const EMOJI_BUILT = new Set();
 
-function pjEmojiBuild() {
-  if (PJ_EMOJI_BUILT) return;
-  const panel = document.getElementById('pj-emoji');
+function pjEmojiBuild(where = 'room') {
+  if (EMOJI_BUILT.has(where)) return;
+  const panel = document.getElementById(EMOJI_AT[where].panel);
   if (!panel) return;
   const frag = document.createDocumentFragment();
   for (const glyph of PJ_EMOJI) {
@@ -46887,21 +46908,22 @@ function pjEmojiBuild() {
     frag.appendChild(b);
   }
   panel.appendChild(frag);
-  PJ_EMOJI_BUILT = true;
+  EMOJI_BUILT.add(where);
 }
 
-function pjEmojiOpen() {
-  pjEmojiBuild();
-  const panel = document.getElementById('pj-emoji');
-  const btn = document.getElementById('pj-emoji-btn');
+function pjEmojiOpen(where = 'room') {
+  for (const other of Object.keys(EMOJI_AT)) if (other !== where) pjEmojiClose(other);   // one panel open at a time
+  pjEmojiBuild(where);
+  const panel = document.getElementById(EMOJI_AT[where].panel);
+  const btn = document.getElementById(EMOJI_AT[where].btn);
   if (!panel || !btn) return;
   panel.hidden = false;
   btn.setAttribute('aria-expanded', 'true');
 }
 
-function pjEmojiClose() {
-  const panel = document.getElementById('pj-emoji');
-  const btn = document.getElementById('pj-emoji-btn');
+function pjEmojiClose(where = 'room') {
+  const panel = document.getElementById(EMOJI_AT[where].panel);
+  const btn = document.getElementById(EMOJI_AT[where].btn);
   /* Restore focus to the trigger ONLY when a panel button held it (the keyboard
      Escape flow) -- otherwise the focused emoji button becomes display:none and
      focus falls to <body>. Guarded on activeElement so an OUTSIDE click, whose
@@ -46914,14 +46936,14 @@ function pjEmojiClose() {
   }
 }
 
-function pjEmojiToggle() {
-  const panel = document.getElementById('pj-emoji');
-  if (panel && panel.hidden) pjEmojiOpen(); else pjEmojiClose();
+function pjEmojiToggle(where = 'room') {
+  const panel = document.getElementById(EMOJI_AT[where].panel);
+  if (panel && panel.hidden) pjEmojiOpen(where); else pjEmojiClose(where);
 }
 
-function pjEmojiInsert(glyph) {
-  const input = document.getElementById('pj-post');
-  if (!input) return;
+function pjEmojiInsert(glyph, where = 'room') {
+  const input = document.getElementById(EMOJI_AT[where].input);
+  if (!input || input.disabled) return;
   const start = typeof input.selectionStart === 'number' ? input.selectionStart : input.value.length;
   const end = typeof input.selectionEnd === 'number' ? input.selectionEnd : input.value.length;
   input.value = input.value.slice(0, start) + glyph + input.value.slice(end);
@@ -46931,7 +46953,14 @@ function pjEmojiInsert(glyph) {
   input.focus();
 }
 
-document.getElementById('pj-emoji-btn').addEventListener('click', (e) => { e.preventDefault(); pjEmojiToggle(); });
+for (const where of Object.keys(EMOJI_AT)) {
+  document.getElementById(EMOJI_AT[where].btn).addEventListener('click', (e) => { e.preventDefault(); pjEmojiToggle(where); });
+  document.getElementById(EMOJI_AT[where].panel).addEventListener('click', (e) => {
+    const b = e.target.closest('button[data-emoji]');
+    if (!b) return;
+    pjEmojiInsert(b.dataset.emoji, where);
+  });
+}
 /* CLICK, not mousedown, so the picker is KEYBOARD-OPERABLE: a focused emoji button
    fires 'click' on Enter/Space, whereas a mousedown-only handler left keyboard
    users able to open the panel but unable to pick (an a11y gap the aria markup
@@ -46941,20 +46970,17 @@ document.getElementById('pj-emoji-btn').addEventListener('click', (e) => { e.pre
    document mousedown-outside-close excludes #pj-emoji, so the panel stays open
    either way (several picks in a row, Discord's behaviour). No double-insert: only
    'click' fires the insert, once per mouse-click and once per keyboard activation. */
-document.getElementById('pj-emoji').addEventListener('click', (e) => {
-  const b = e.target.closest('button[data-emoji]');
-  if (!b) return;
-  pjEmojiInsert(b.dataset.emoji);
-});
 /* Close on Escape (fires regardless of panel state; pjEmojiClose is a cheap no-op
    when already hidden) or a mousedown outside the button+panel (that listener
    early-returns while the panel is hidden). */
-document.addEventListener('keydown', (e) => { if (e.key === 'Escape') pjEmojiClose(); });
+document.addEventListener('keydown', (e) => { if (e.key === 'Escape') for (const where of Object.keys(EMOJI_AT)) pjEmojiClose(where); });
 document.addEventListener('mousedown', (e) => {
-  const panel = document.getElementById('pj-emoji');
-  if (!panel || panel.hidden) return;
-  if (e.target.closest('#pj-emoji') || e.target.closest('#pj-emoji-btn')) return;
-  pjEmojiClose();
+  for (const where of Object.keys(EMOJI_AT)) {
+    const panel = document.getElementById(EMOJI_AT[where].panel);
+    if (!panel || panel.hidden) continue;
+    if (e.target.closest('#' + EMOJI_AT[where].panel) || e.target.closest('#' + EMOJI_AT[where].btn)) continue;
+    pjEmojiClose(where);
+  }
 });
 
 /* ---- adding a document (#358) -----------------------------------------------
@@ -54994,7 +55020,7 @@ document.addEventListener('keydown', (e) => {
   const ae = document.activeElement;
   const inField = !!ae && !ae.closest('#tipcard') && ae.matches('input, textarea, select, [contenteditable=""], [contenteditable="true"]');
   const inMenu = !!ae && !!ae.closest('[role="menu"], .userpop-menu:not([hidden])');
-  const pickerOpen = !!document.querySelector('#rxn-picker:not([hidden]), #pj-emoji:not([hidden])');
+  const pickerOpen = !!document.querySelector('#rxn-picker:not([hidden]), #pj-emoji:not([hidden]), #d-emoji:not([hidden])');
   if (!TIP_OPEN.tour && (inField || inMenu || pickerOpen)) return;
   e.preventDefault();
   tipClose({ record: true });
