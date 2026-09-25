@@ -2,10 +2,10 @@
 pre_challenge: true
 method: challenge-loop
 branch: push-tap-718
-diff_hash: a521f23540d5b3644e5703f80873fc702978362b76445299b7381a2bacf07a1d
+diff_hash: 14ee3fb3bd55d295477b12622418bf809b9914a77fb61b5963b9fb61a6b4b149
 validation: passed (full kosmos sequence on 60a222ff, clean tree: 9099 tests, 8951 pass, 0 fail, 148 skipped; helper recorded PASSED hash=a521f23540d5. An earlier run on 75551af4 had the same counts but was recorded failed only because a plan note was edited mid-run; rerun clean)
 subdir_audit: passed
-timestamp: 2026-09-25T06:22:00Z
+timestamp: 2026-09-25T06:44:59Z
 iterations: 16
 converged: true
 ---
@@ -65,3 +65,11 @@ Iteration 15 found that a phone's web push is subscribed on the COORDINATOR's or
 
 ### Browser measurement (Chromium, headless; WebKit here is Playwright's engine build, not Safari)
 render-waiting-phone-718: all arms pass. Controls measured: Allow left bar restored fails (a); the reveal's width gate removed fails the wide arm; the hold disabled fails (d); no settle call fails both (e) arms; no fallback home fails the missing arm.
+
+### Rebase for merge (Liu Kang m686)
+Rebased onto origin/main after approval. The only conflict was tools/browser-checks.sh's check
+list (#3687 added render-dm-phone-718); both entries are kept. The branch's own diff against the
+new base differs from the approved one in that one line only (compared line by line: every other
+added and removed line is identical). The list lints (reason-grep, indexed, wired) and this
+branch's unit tests pass, 47/47. The full local validation above ran before the rebase; CI runs
+on the rebased head before merge. diff_hash is recomputed for the rebased diff.
