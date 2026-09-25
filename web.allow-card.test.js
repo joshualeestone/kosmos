@@ -77,3 +77,11 @@ test('no em dash in anything a person reads here', () => {
     PAGE.slice(PAGE.indexOf('id="plus-devices"'), PAGE.indexOf('id="plus-devmsg"'));
   assert.doesNotMatch(region, /—/);
 });
+
+test('#718: the Allow card has no solid coloured left bar (Josh, 2026-09-24), and thumb-size buttons on a touchscreen', () => {
+  const m = PAGE.match(/\.askcard \{[^}]*\}/);
+  assert.ok(m, 'the .askcard rule exists');
+  assert.doesNotMatch(m[0], /border-left/, 'no left bar: ' + m[0]);
+  assert.match(m[0], /border: 1px solid var\(--gold-edge/, 'the gold edge is the whole border');
+  assert.match(PAGE, /@media \(hover: none\) \{\n  \/\*[^*]*\*\/\n  \.askcard button \{ min-height: 44px; \}/);
+});
