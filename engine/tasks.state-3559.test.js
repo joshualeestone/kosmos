@@ -80,6 +80,21 @@ test('lastActivityOf: the newest transcript event, else created; never "now" for
   assert.equal(tasks.lastActivityOf(p.id, null), null);
 });
 
+test('lastActivityOf: a CLOSED task is last active when it closed; its transcript is not read', () => {
+  const closed = { number: 5, createdAt: '2026-09-01T00:00:00Z', closedAt: '2026-09-02T00:00:00Z' };
+  const p = freshProject('Closed activity');
+  // An event stamped long after the close: for an open task it would win; for a closed one it must not.
+  const orig = taskchat.read;
+  let reads = 0;
+  taskchat.read = () => { reads += 1; return [{ at: '2026-09-20T00:00:00Z', kind: 'said' }]; };
+  try {
+    assert.equal(tasks.lastActivityOf(p.id, closed), '2026-09-02T00:00:00Z');
+    assert.equal(reads, 0, 'a closed task\'s transcript was read');
+    assert.equal(tasks.lastActivityOf(p.id, { number: 6, createdAt: '2026-09-01T00:00:00Z', closedAt: null }), '2026-09-20T00:00:00Z', 'control: an open task does read it');
+    assert.equal(reads, 1);
+  } finally { taskchat.read = orig; }
+});
+
 test('allTasks(snapshot) reads the snapshot it is handed, not the store again', () => {
   const fake = [{ id: 'zz', name: 'Snapshot only', tasks: [{ number: 1, sentence: 'from the snapshot', createdAt: '2026-09-01T00:00:00Z', closedAt: null }] }];
   const rows = tasks.allTasks(fake);

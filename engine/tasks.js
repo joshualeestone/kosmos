@@ -697,9 +697,9 @@ function taskState(task) {
 }
 
 /**
- * The last time anything happened on a task (#3559's "Quietest first"): the
- * newest event in its transcript (engine/taskchat.js stamps every event with
- * `at`), else when it was made. A task with neither has no answer (null), never
+ * The last time anything happened on a task (#3559's "Quietest first"): for an
+ * open task the newest event in its transcript (engine/taskchat.js stamps every
+ * event with `at`), else when it was made; for a closed one, when it closed. A task with neither has no answer (null), never
  * "now", which would float an unknown to the top of Quietest first as if fresh.
  */
 function lastActivityOf(projectId, task) {
@@ -712,9 +712,14 @@ function lastActivityOf(projectId, task) {
   if (task) {
     consider(task.createdAt);
     consider(task.closedAt);
-    let events = [];
-    try { events = taskchat.read(projectId, task.number) || []; } catch { events = []; }
-    for (const e of events) consider(e && e.at);
+    /* A CLOSED task's last activity is its close (anything said after it is not work moving):
+       the transcript is read only for open tasks, so the view's cost follows open work, not the
+       whole history of finished tasks and their transcripts. */
+    if (!progressOf(task).closed) {
+      let events = [];
+      try { events = taskchat.read(projectId, task.number) || []; } catch { events = []; }
+      for (const e of events) consider(e && e.at);
+    }
   }
   return newest;
 }

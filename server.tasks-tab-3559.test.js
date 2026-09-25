@@ -78,7 +78,7 @@ test('GET /api/tasks: every row carries state, claim and lastActivityAt, derived
   assert.ok(body.tasks.every((t) => t.projectId === p.id && typeof t.isClosed === 'boolean'));
 });
 
-test('GET /api/tasks: without ?view=tasks the list is the cheap one it always was (no snapshot, no transcript reads)', async () => {
+test('GET /api/tasks: without ?view=tasks the rows carry none of the Tasks view\'s costly fields', async () => {
   const body = await all();
   assert.ok(body.tasks.length >= 4);
   assert.ok(body.tasks.every((t) => !('state' in t) && !('claim' in t) && !('lastActivityAt' in t)), 'the View-all door and the CLI now pay for the Tasks view\'s fields');
@@ -90,7 +90,7 @@ test('GET /api/tasks?view=tasks: the global list carries the fields across proje
   assert.ok(body.tasks.every((t) => ['nobody', 'assigned', 'working', 'closed'].includes(t.state)), 'a state outside the provable four');
 });
 
-test('POST /api/tasks/close: closes each task, writes the note to each history first, tells the assignees', async () => {
+test('POST /api/tasks/close: closes each task and writes the note to each history first', async () => {
   const p = projects.create({ name: 'Bulk' });
   projects.addAgent(p.id, 'bulkagent', null);
   tasks.create(p.id, { sentence: 'One', who: 'bulkagent' });

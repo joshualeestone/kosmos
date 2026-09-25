@@ -87,14 +87,14 @@ test('the wiring: a Tasks tab, both allowlists, showTab loads it, and the consol
   assert.match(PAGE, /<button class="tab"\s+data-tab="tasks"\s+role="tab"/);
   assert.match(SCRIPT, /const PANELS = \[[^\]]*'tasks'/);
   assert.match(SCRIPT, /const KNOWN_TABS = \[[^\]]*'tasks'/, 'a ?tab=tasks bookmark would land on Agents');
-  assert.match(SCRIPT, /if \(tab === 'tasks'\) tskLoad\(\);/);
+  assert.match(SCRIPT, /if \(tab === 'tasks'\) tskLoad\(true\);/, 'arriving on the tab does not load the view as an arrival');
   assert.match(PAGE, /<section class="panel panel-wide" id="panel-tasks" hidden>/);
   assert.match(PAGE, /id="rail-projects-tasks"/);
   assert.match(SCRIPT, /getElementById\('rail-projects-tasks'\)\.addEventListener\('click', openConsolidatedTasks\)/, 'the consolidated button must open Tasks inside the column, not kick out to the tabs (#2842)');
   assert.match(SCRIPT, /placeTasksPanel\(cons\);/, 'showTab does not place the Tasks panel with the layout');
   assert.match(SCRIPT, /for \(const id of \['panel-settings', 'panel-create', 'panel-tasks'\]\)/, 'taking over the display column does not hide the Tasks view');
   assert.match(SCRIPT, /if \(URL_TAB === 'tasks'\) return \{ screen: 'tasks' \};/, 'the setup guide is told the wrong screen on Tasks');
-  assert.match(PAGE, /id="tsk-search" type="search"/, 'the search box must be type=search (Enter must not submit)');
+  assert.match(PAGE, /id="tsk-search" type="search"/, 'the search box must be type=search (frEnterSubmit-style Enter handlers and assistive tech read it as a search field)');
 });
 
 test('no Tasks style declares a left border (Josh, 2026-09-24: no coloured bar down a left edge)', () => {
@@ -105,6 +105,10 @@ test('no Tasks style declares a left border (Josh, 2026-09-24: no coloured bar d
   const bad = rules.flatMap((r) => [...r.matchAll(/border-(?:left|inline-start)[^;}]*/g)].map((m) => m[0]))
     .filter((d) => !/^border-left:\s*1px solid var\(--k-rule\)$/.test(d.trim()));
   assert.deepEqual(bad, []);
-  // The check can see a bar (control): a coloured 3px left edge fails it.
-  assert.ok(!/^border-left:\s*1px solid var\(--k-rule\)$/.test('border-left: 3px solid var(--gold)'));
+  // CONTROL through the SAME extraction: a page with a planted coloured bar yields it.
+  const planted = PAGE + '\n.tsk-planted { border-left: 3px solid var(--gold); }\n';
+  const plantedBad = [...planted.matchAll(/^[^\n{]*(?:\.tsk-|#panel-tasks|\.rail-tasks)[^\n{]*\{[^}]*\}/gm)].map((x) => x[0])
+    .flatMap((r) => [...r.matchAll(/border-(?:left|inline-start)[^;}]*/g)].map((m) => m[0]))
+    .filter((d) => !/^border-left:\s*1px solid var\(--k-rule\)$/.test(d.trim()));
+  assert.deepEqual(plantedBad, ['border-left: 3px solid var(--gold)'], 'the extraction cannot see a planted bar');
 });
