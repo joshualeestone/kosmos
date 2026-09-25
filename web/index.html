@@ -1199,10 +1199,66 @@ button.uprime:hover, .btn.uprime:hover, .utoast .uacts button.uprime:hover,
    update is waiting" is the harm a person can live with, per the original
    trade. */
 @media (max-width: 720px) {
-  /* Inline everywhere now; narrow screens just drop the version line and
-     let the header's left group wrap the notice onto its own row. */
-  .headleft { flex-wrap: wrap; }
+  /* Inline everywhere now; narrow screens just drop the version line. */
   .utoast .utxt small { display: none; }
+}
+/* 📱 #718: ONE ROW ON A PHONE, and the notices are why it was not. Measured on
+   a seeded board (Scorpion, then Raiden): at 375px "Kosmos is not answering on
+   this computer" wrapped to five lines and the bar was 233px tall, the logo and
+   world switcher already sat on two rows with no notice at all (121px), and on
+   an agent's chat that left room for about one message. Now 83px at 320 to 720
+   with the long world name and two notices showing, in Chromium and WebKit.
+   🔑 A NOTICE BECOMES ITS DOT, AND THE DOT OPENS IT. Each header notice shrinks
+   to a 28px round chip in its own tone (red still means red) and a tap drops the
+   whole notice, text and buttons, as a card under the bar; a second tap closes
+   it (the click handler is `utoastPeek` in the script). The chip keeps
+   role=status and its text stays in the DOM, so a screen reader still hears it.
+   ⚠️ WEAKEST PART: the chip is not in the keyboard tab order. This is the phone
+   width, where people tap, but a narrow desktop window with a keyboard has to
+   widen past 720px to read the text.
+   ⚠️ `justify-self: stretch` AND `minmax(0, 1fr)` ARE A PAIR. The base rule
+   pins .headleft to `start`, which sizes it to its content and lets it run
+   under the right-hand group however narrow its column is (it measured 381px
+   wide in a 170px column). Stretch gives it the column's width and minmax lets
+   that column shrink, so the world name is what gives way, with its ellipsis.
+   The account button keeps its name for assistive tech (Label in Name, #3051)
+   but only the face shows. */
+/* 📱 #718 SAFE AREA: one name for each inset, so the frame and the pinned
+   composer (Scorpion) read the same number. The viewport meta deliberately has
+   NO viewport-fit=cover (Liu Kang m592, the iOS shell #3688 uses WebKit's
+   default insets), so today every one of these is 0 and WebKit keeps the page
+   clear of the notch and home bar itself. ⚠️ Whoever adds cover MUST pad the
+   frame with these in the same change, or the board draws under the status bar
+   again. Use them as `padding-bottom: calc(Npx + var(--safe-bottom))`. */
+:root { --safe-top: env(safe-area-inset-top, 0px); --safe-right: env(safe-area-inset-right, 0px);
+  --safe-bottom: env(safe-area-inset-bottom, 0px); --safe-left: env(safe-area-inset-left, 0px); }
+@media (max-width: 720px) {
+  .apphead header { grid-template-columns: minmax(0, 1fr) auto; gap: 10px; }
+  .apphead header > .headleft { justify-self: stretch; }
+  .appright { gap: 8px; }
+  .headleft { flex-wrap: nowrap; gap: 8px; min-width: 0; }
+  .headleft > * { flex: none; }
+  .headleft > .worldsw { flex: 0 1 auto; min-width: 0; }
+  .worldsw-btn { max-width: 100%; }
+  .userpop-btn { position: relative; }
+  .userpop-name { position: absolute; width: 1px; height: 1px; overflow: hidden;
+    clip: rect(0 0 0 0); clip-path: inset(50%); white-space: nowrap; }
+  .headleft .utoast { width: 28px; height: 28px; padding: 0; gap: 0; justify-content: center;
+    border-radius: 50%; box-shadow: none; cursor: pointer; }
+  .headleft .utoast .utxt, .headleft .utoast .uacts { display: none; }
+  .headleft .utoast.uopen { position: absolute; left: 0; right: 0; top: 100%; z-index: 6;
+    margin-top: 8px; width: auto; height: auto; padding: 9px 10px 9px 12px; gap: 11px;
+    justify-content: flex-start; border-radius: 11px; box-shadow: 0 10px 30px rgba(20,22,26,.12); }
+  .headleft .utoast.uopen .utxt { display: block; flex: 1; min-width: 0; }
+  .headleft .utoast.uopen .utxt small { display: block; }
+  .headleft .utoast.uopen .uacts { display: flex; }
+  /* ⌨️ THE BAR STEPS ASIDE WHILE SOMEONE TYPES (Liu Kang m582; seam agreed with
+     Scorpion m584). Every composer is a `textarea.cinput`, so this keys on its
+     focus with no script: the keyboard goes away, the textarea blurs, the bar
+     comes back. The chat page is the visible height with the thread flexing,
+     so the thread gets these pixels without knowing the number. A notice that
+     arrives mid-sentence waits for the blur; that is the accepted cost. */
+  body:has(textarea.cinput:focus) > .apphead { display: none; }
 }
 /* The updating overlay: the board is about to vanish on purpose, and this is
    the sentence that stops that being alarming. Same ground as the modals. */
@@ -24450,6 +24506,24 @@ document.getElementById('klink').addEventListener('click', () => {
   const t = document.querySelector('#tabs [data-tab="agents"]');
   if (t) t.click();
 });
+
+// #718: on a phone each header notice is a dot (the 720px rule beside
+// `.utoast`), and tapping it opens the notice under the bar. One delegated
+// listener, because the notices are re-rendered by innerHTML from six places
+// and a listener on the element would die with it. A tap on the notice's own
+// button or link does its job and leaves the card as it is. Wider than 720px
+// the notice is already open, so nothing toggles there.
+function utoastPeek(ev) {
+  if (!window.matchMedia('(max-width: 720px)').matches) return;
+  const t = ev.target;
+  if (!t || !t.closest || t.closest('button, a')) return;
+  const n = t.closest('.headleft .utoast');
+  if (!n) return;
+  const open = !n.classList.contains('uopen');
+  for (const o of document.querySelectorAll('.headleft .utoast.uopen')) o.classList.remove('uopen');
+  if (open) n.classList.add('uopen');
+}
+document.querySelector('.headleft').addEventListener('click', utoastPeek);
 
 // ---------------------------------------------------------------------------
 // Grid / list toggles. One handler, and the control NAMES what it operates on
