@@ -46983,7 +46983,16 @@ function pjRxnKeepInside(row) {
   row.classList.remove('rxn-left');
   if (q.getBoundingClientRect().left < room.getBoundingClientRect().left) row.classList.add('rxn-left');
 }
-document.getElementById('pj-room').addEventListener('mouseover', (e) => pjRxnKeepInside(e.target && e.target.closest ? e.target.closest('#pj-room .msg') : null));
+/* The post the pointer is over, by id: a repaint that redraws that row makes a NEW element, which is not
+   :hover until the pointer next moves, so the id is what lets the page measure it again (round 30). */
+let PJ_RXN_HOVER_POST = null;
+const pjRowPost = (row) => { const b = row && row.querySelector('.rxns[data-post]'); return b ? b.getAttribute('data-post') : null; };
+document.getElementById('pj-room').addEventListener('mouseover', (e) => {
+  const row = e.target && e.target.closest ? e.target.closest('#pj-room .msg') : null;
+  PJ_RXN_HOVER_POST = pjRowPost(row);
+  pjRxnKeepInside(row);
+});
+document.getElementById('pj-room').addEventListener('mouseleave', () => { PJ_RXN_HOVER_POST = null; });
 document.getElementById('pj-room').addEventListener('focusin', (e) => pjRxnKeepInside(e.target && e.target.closest ? e.target.closest('#pj-room .msg') : null));
 
 /* #3745: a reply's header jumps to the post it answers and briefly highlights it. A post the
@@ -48389,7 +48398,10 @@ function paintRoom(body) {
     paintThreadInto(box, html, rows !== '', queryChanged, filtering);
     /* #3745: a repaint rebuilds every row without its measured .rxn-left, and a still mouse sends no new
        mouseover; so the row under the pointer, and the one holding focus, are measured again here. */
-    pjRxnKeepInside(box.querySelector('.msg:hover'));
+    if (PJ_RXN_HOVER_POST) {
+      const hb = box.querySelector('.rxns[data-post="' + CSS.escape(PJ_RXN_HOVER_POST) + '"]');
+      pjRxnKeepInside(hb ? hb.closest('.msg') : null);
+    }
     pjRxnKeepInside(document.activeElement && document.activeElement.closest ? document.activeElement.closest('#pj-room .msg') : null);
     /* #3745: a repaint replaces the row a jump focused; put focus back so a keyboard or screen-reader
        user keeps their place (only if focus fell to the page, never taken from somewhere else). */

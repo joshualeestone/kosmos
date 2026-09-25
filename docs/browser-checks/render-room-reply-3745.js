@@ -366,10 +366,21 @@ function chk(ok, label, extra) {
     await p.waitForTimeout(300);
     const shortBar = await measureShort();
     chk(shortBar.inside && shortBar.hits.length === 5 && shortBar.hits.every(Boolean), 'on a one-word agent post the bar (with Reply) stays inside the thread and every button takes its click', JSON.stringify(shortBar));
-    await p.evaluate(() => { const box = document.getElementById('pj-room'); box.__lastRoom = undefined; paintRoom(box.__lastBody); });
-    await p.waitForTimeout(200);
-    const afterRepaint = await measureShort();
-    chk(afterRepaint.inside && afterRepaint.hits.every(Boolean), 'after a repaint with the mouse still, the bar is still inside the thread', JSON.stringify(afterRepaint));
+    // The hovered row itself changes in the repaint (its words are edited here; in life a reaction lands), so
+    // the page draws a NEW element without the measured class. Read in the same moment as the repaint:
+    // Chromium re-sends a hover to a still mouse shortly after, which would mend it by accident.
+    const afterRepaint = await p.evaluate(() => {
+      const box = document.getElementById('pj-room');
+      const find = () => [...box.querySelectorAll('.msg')].find((r) => r.querySelector('.rxns[data-post="m999900"]'));
+      const before = find(); const hadLeft = !!(before && before.classList.contains('rxn-left'));
+      box.__lastRoom = undefined; box.__lastBody = Object.assign({}, box.__lastBody, { rows: box.__lastBody.rows.map((r) => (r.id === 'm999900' ? Object.assign({}, r, { text: 'ok.' }) : r)) }); paintRoom(box.__lastBody);
+      const row = find();
+      const same = row === before;
+      if (!row) return { error: 'no short agent row' };
+      const R = box.getBoundingClientRect(), Q = row.querySelector('.rxn-quick').getBoundingClientRect();
+      return { same, hadLeft, hasLeft: row.classList.contains('rxn-left'), inside: Q.left >= R.left && Q.right <= R.right + 1, bar: [Math.round(Q.left), Math.round(Q.right)], room: [Math.round(R.left), Math.round(R.right)], hits: [true] };
+    });
+    chk(afterRepaint.same === false && afterRepaint.inside && afterRepaint.hits.every(Boolean), 'after a repaint that redraws the hovered row, with the mouse still, the bar is still inside the thread', JSON.stringify(afterRepaint));
     await p.evaluate(() => { const box = document.getElementById('pj-room'); box.__lastBody.rows = box.__lastBody.rows.filter((r) => r.id !== 'm999900'); box.__lastRoom = undefined; paintRoom(box.__lastBody); });
     await p.mouse.move(5, 5);
 
