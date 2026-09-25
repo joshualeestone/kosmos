@@ -1352,10 +1352,8 @@ function sendPost({ fromPane, sender: resolvedSender, project, projectName, text
      post @-names it. It stays a member, but a post it was not sent is not logged as
      sent to it, so an @-name later tells it what it missed. */
   const projectsMod = require('./projects');   // lazy: projects requires this module
-  const offHere = new Set(recipients.filter((n) => {
-    if (mentioned.has(n)) return false;
-    try { return projectsMod.swarmOffIn(projectId, n); } catch { return false; }
-  }));
+  const offInProject = projectsMod.swarmOffSet(projectId);
+  const offHere = new Set(recipients.filter((n) => !mentioned.has(n) && offInProject.has(String(n))));
   for (const name of recipients) {
     if (offHere.has(name)) continue;
     /* The operator's arrivals carry their OWN markers: an @-mentioned

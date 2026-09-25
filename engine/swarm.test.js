@@ -292,6 +292,7 @@ test('#3564 per project: a swarm switched off is off only in that project, and b
   projects.setSwarmOn(id, 'lead', false);
   assert.equal(projects.swarmOffIn(id, 'lead'), true);
   assert.equal(projects.swarmOffIn(id, 'someone-else'), false, 'another agent was switched off too');
+  assert.deepEqual([...projects.swarmOffSet(id)], ['lead'], 'the set disagrees with swarmOffIn');
   projects.setSwarmOn(id, 'lead', true);
   assert.equal(projects.swarmOffIn(id, 'lead'), false);
 });

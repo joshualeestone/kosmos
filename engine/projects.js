@@ -2135,6 +2135,13 @@ function swarmOffIn(projectId, name) {
     return Boolean(p && Array.isArray(p.swarmOff) && p.swarmOff.includes(String(name)));
   } catch { return false; }
 }
+/* The same fact for every member at once: one read of the store, for a caller that checks many. */
+function swarmOffSet(projectId) {
+  try {
+    const p = readAll().find((x) => x && x.id === projectId);
+    return new Set(p && Array.isArray(p.swarmOff) ? p.swarmOff.map(String) : []);
+  } catch { return new Set(); }
+}
 function setSwarmOn(projectId, name, on) {
   return mutate(projectId, (p) => {
     const off = new Set(Array.isArray(p.swarmOff) ? p.swarmOff : []);
@@ -2750,7 +2757,7 @@ function toldOverride(verdict, sessionName, known) {
 }
 
 module.exports = {
-  swarmOffIn, setSwarmOn, SWARM_OFF_SENTENCE, memberValve, processMemberChanges, ageMemberChangesForTests, MEMBERS_PER_HOUR, toldOverride,
+  swarmOffIn, swarmOffSet, setSwarmOn, SWARM_OFF_SENTENCE, memberValve, processMemberChanges, ageMemberChangesForTests, MEMBERS_PER_HOUR, toldOverride,
   FILE, FOLDER, TOLD, BLOCK_START, BLOCK_END, YOU_START, YOU_END, REPORTS_START, REPORTS_END, CONNECTIONS_START, CONNECTIONS_END, DMFILES_START, DMFILES_END, SWARM_START, SWARM_END, POLICY_START, POLICY_END, DOCTRINE_START, DOCTRINE_END, ALL_MARKERS, neutralise,
   file, readAll, writeAll, idFor, folderState, describe, andList,
   list, get, projectsFor, namesFor, create, edit, rename, setDescription, setArchived, addAgent, removeAgent, remove, mutate,
