@@ -38,11 +38,25 @@ test('#3614: the block names the REAL path, and says to create it and to keep pr
   const body = dmfiles.blockBody('/Users/someone/work/workers/writer/Files');
   assert.match(body, /`\/Users\/someone\/work\/workers\/writer\/Files`/, 'the path is written in, not left to guess');
   const flat = body.replace(/\s+/g, ' ');
-  assert.match(flat, /in a direct conversation with them, not inside a project/);
+  assert.match(flat, /asks you for a file in a direct conversation with you, save it in your Files folder/);
   assert.match(flat, /Create the folder if it is not there yet/);
   assert.match(flat, /Kosmos lists what is in it on your page, where they can open it/, 'the block does not tell the agent the person sees its Files on its page (#3614 item 2 ships with it)');
   assert.match(flat, /Save files directly in it, not in subfolders: the page lists only what sits at the top of the folder/, 'the agent is not told the list skips subfolders, so tidied work reads as "Nothing here yet"');
   assert.match(flat, /Inside a project, keep using the project's own folder/);
+});
+
+test('#3759: the block names BOTH destinations and when each applies, says where it put the file, and what to do when unsure', () => {
+  const flat = dmfiles.blockBody('/Users/someone/work/workers/writer/Files').replace(/\s+/g, ' ');
+  // A direct ask: the agent's own Files folder (with the real path).
+  assert.match(flat, /in a direct conversation with you, save it in your Files folder: `\/Users\/someone\/work\/workers\/writer\/Files`/);
+  // About a project: that project's folder instead, even when asked in the direct conversation.
+  assert.match(flat, /When the conversation is about one of your projects \(the person names it, or the file is plainly part of that project's work\), save it in that project's folder instead/);
+  assert.match(flat, /even though they asked you here/);
+  assert.match(flat, /tell them in one line where you put it: which project, and the file's name/);
+  // Unsure: ask, or save here and say so.
+  assert.match(flat, /When you cannot tell which it belongs to, ask in one short line, or save it in your Files folder and say so/);
+  // CONTROL: the project rule is a different sentence from the direct rule, so a block missing it goes red.
+  assert.doesNotMatch(dmfiles.blockBody('/x').split('When the conversation is about')[0], /project's folder instead/);
 });
 
 test('#3614: a folder name cannot close the block early (the value is neutralised)', () => {
