@@ -120,7 +120,7 @@ function blockBody(dir) {
     'they can have you move it. That is not guessing: your Files folder is where it',
     'goes by default. Never wait with the file unsaved. If your instructions also say',
     'to ask one short question rather than guess, this is how that applies to a file',
-    'made for the person: save here and ask.',
+    'made for the person in a direct conversation: save here and ask.',
     '',
     'When the conversation itself happens inside a project, not in a direct',
     'conversation, keep using that project\'s own folder, as you already do there.',
