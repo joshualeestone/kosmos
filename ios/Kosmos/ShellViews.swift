@@ -12,6 +12,10 @@ final class ShellState: ObservableObject {
     @Published var retryCount = 0
     // True from Try again until the page loads or fails again, so the button answers.
     @Published var retrying = false
+    // Bumped to ask the WebView to leave the failed page.
+    @Published var backCount = 0
+    // Whether this failure has already had its one immediate automatic retry.
+    private var autoRetried = false
 
     private let monitor = NWPathMonitor()
 
@@ -30,9 +34,21 @@ final class ShellState: ObservableObject {
 
     func retry() { retrying = true; retryCount += 1 }
 
-    // Bumped to ask the WebView to leave the failed page.
-    @Published var backCount = 0
-    func back() { failure = nil; retrying = false; backCount += 1 }
+    func back() { failure = nil; retrying = false; autoRetried = false; backCount += 1 }
+
+    // A page failed. If it says offline but the phone is already online again, the
+    // monitor will report no change, so retry once now (Shell.retriesOnShow).
+    func show(_ newFailure: Shell.LoadFailure) {
+        failure = newFailure
+        let online = monitor.currentPath.status == .satisfied
+        if Shell.retriesOnShow(failure: newFailure, online: online, alreadyRetried: autoRetried) {
+            autoRetried = true
+            retry()
+        }
+    }
+
+    // The page loaded: the next failure gets its own immediate retry again.
+    func loaded() { failure = nil; retrying = false; autoRetried = false }
 }
 
 // Kosmos navy, the sign-in page's own background (--bg in coordinator signin.html),

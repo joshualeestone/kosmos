@@ -106,7 +106,8 @@ turns out dead, it posts `{token: null}` (kosmos-relay `apns-718`).
   open in the app over https. Any other site, however it is reached (a tap, a redirect, a
   script), opens in Safari, so no third-party page ever shows inside the app's frame. Plain http
   never loads in the app. Mail, phone and text links need a tap. Other schemes are refused.
-- **A page that will not load** offers Try again and "Back to Kosmos".
+- **A page that will not load** offers Try again and "Back to Kosmos" (`Shell.backAction`: after a
+  tap that failed before loading it just closes, leaving the page you were on).
 - **A tapped notification** opens the agent that asked
   (`?tab=detail&agent=<session>`, the session checked against the board's agent-name rule), or
   the board home when the push carries no usable session.

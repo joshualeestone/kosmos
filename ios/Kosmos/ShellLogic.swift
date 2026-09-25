@@ -43,8 +43,7 @@ enum Shell {
                 return .other
             }
         }
-        // WebKitErrorDomain 102: frame load interrupted by a policy change.
-        // 102: frame load interrupted by a policy change; 204: a plug-in (media)
+        // WebKitErrorDomain 102: frame load interrupted by a policy change; 204: a plug-in (media)
         // handled the load, which is playing, not failing.
         if domain == "WebKitErrorDomain" && (code == 102 || code == 204) { return nil }
         return .other
@@ -87,6 +86,34 @@ enum Shell {
         return .reload
     }
 
+    // What "Back to Kosmos" does on the failure page.
+    enum BackAction: Equatable {
+        // Just close the failure page: the page before the failed one is still loaded.
+        case stay
+        // Go back one page in the WebView's history.
+        case goBack
+        // Nothing to go back to: load the board home.
+        case home
+    }
+
+    // `provisional` is true when the failure came before the new page committed
+    // (an offline Mac, a timeout, a bad certificate). Then the history's current
+    // item is still the page that was showing, and going back would skip it: board,
+    // Mac A, a tap to an offline Mac C, then Back, must land on Mac A, not the board.
+    static func backAction(provisional: Bool, current: URL?, canGoBack: Bool) -> BackAction {
+        if provisional && current != nil { return .stay }
+        return canGoBack ? .goBack : .home
+    }
+
+    // Whether an "offline" failure should retry by itself straight away. The
+    // automatic reload otherwise waits for NWPathMonitor to report a CHANGE; if the
+    // phone was already back online when the load failed, no change will come and
+    // the person would sit on "You're offline" while online. Once per failure, so a
+    // path that reads online while nothing loads (a captive portal) cannot loop.
+    static func retriesOnShow(failure: LoadFailure, online: Bool, alreadyRetried: Bool) -> Bool {
+        failure == .offline && online && !alreadyRetried
+    }
+
     // What started a navigation, as far as the rule cares.
     enum Origin {
         // The person tapped a link.
@@ -97,21 +124,6 @@ enum Shell {
         case newWindow
     }
 
-    // Decides a MAIN-FRAME navigation or a new-window request. Subframe loads never
-    // come here.
-    // - Kosmos+ itself and the person's Macs, over https: in the app.
-    // - Another https site the person TAPPED, or asked to open in a new window
-    //   (Stripe's billing page, a help link): Safari, so the app never becomes a
-    //   browser for someone else's site.
-    // - Another https site reached by a redirect or script (a step in a sign-in or
-    //   checkout flow): stays in the app, because sending it to Safari would strand
-    //   the flow's session there.
-    // - Plain http: never loaded in the app; tapped, it goes to Safari.
-    // - mail, phone and text links: their apps.
-    // - about:blank: allowed for the page's own use, but never as a new window,
-    //   which would replace the board with a blank page.
-    // - Every other scheme (javascript:, file:, data:, blob:, custom schemes): refused.
-    //   A data: or blob: download is refused on purpose: the board has none today.
     // Kosmos+ itself or one of the person's Macs, over https: the plain host with no
     // user part, and the coordinator's own port (443 and none are the same) or none.
     static func isOurs(_ url: URL, coordinator: URL) -> Bool {
@@ -126,13 +138,22 @@ enum Shell {
         return port == nil && PushBridge.isMacHost(host, coordinator: coordinator)
     }
 
-    // Kosmos+ sign-in is email plus a code, with no third-party identity provider,
-    // and the iOS app shows no purchase (Liu Kang's default, m556). So no flow
-    // needs another site inside the app, and any other site, however it is
-    // reached (a tap, a redirect, a script), opens in Safari. That keeps a hostile
-    // page from ever showing a fake Kosmos screen inside the app's own frame.
-    // `showing` is kept for callers; the rule no longer depends on it.
-    static func linkDecision(for url: URL, coordinator: URL, origin: Origin, showing: URL? = nil) -> LinkDecision {
+    // Decides a MAIN-FRAME navigation or a new-window request. Subframe loads never
+    // come here.
+    // - Kosmos+ itself and the person's Macs, over https: in the app.
+    // - Any other https site, however it is reached (a tap, a new window, a redirect,
+    //   a script): Safari. Kosmos+ sign-in is email plus a code with no third-party
+    //   identity provider, and the iOS app shows no purchase (Liu Kang's default,
+    //   m556), so no flow needs another site inside the app, and a hostile page can
+    //   never show a fake Kosmos screen inside the app's own frame.
+    // - Plain http: never loaded in the app; tapped, it goes to Safari.
+    // - mail, phone and text links: their apps, but only from a tap or a new window
+    //   the person asked for, never from a script or redirect.
+    // - about:blank: allowed for the page's own use, but never as a new window,
+    //   which would replace the board with a blank page.
+    // - Every other scheme (javascript:, file:, data:, blob:, custom schemes): refused.
+    //   A data: or blob: download is refused on purpose: the board has none today.
+    static func linkDecision(for url: URL, coordinator: URL, origin: Origin) -> LinkDecision {
         let scheme = url.scheme?.lowercased() ?? ""
         switch scheme {
         case "https":

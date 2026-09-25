@@ -197,12 +197,17 @@ struct WebView: UIViewRepresentable {
     }
 
     func updateUIView(_ webView: WKWebView, context: Context) {
-        // A retry from the failure page.
+        // "Back to Kosmos" from the failure page.
         if backCount != context.coordinator.lastBack {
             context.coordinator.lastBack = backCount
             context.coordinator.failedURL = nil
-            if webView.canGoBack { webView.goBack() } else { webView.load(URLRequest(url: context.coordinator.home)) }
+            switch Shell.backAction(provisional: context.coordinator.failedProvisionally, current: webView.url, canGoBack: webView.canGoBack) {
+            case .stay: break
+            case .goBack: webView.goBack()
+            case .home: webView.load(URLRequest(url: context.coordinator.home))
+            }
         }
+        // Try again from the failure page (or the automatic retry once back online).
         if retryCount != context.coordinator.lastRetry {
             context.coordinator.lastRetry = retryCount
             context.coordinator.reloadOrHome()
@@ -239,6 +244,9 @@ struct WebView: UIViewRepresentable {
         // The page that failed, so Try again retries IT (say, the agent a tapped
         // notification opened) and not whatever page was showing before.
         var failedURL: URL?
+        // Whether that failure came before the new page committed, which decides
+        // what "Back to Kosmos" does (Shell.backAction).
+        var failedProvisionally = false
 
         func reloadOrHome() {
             // No WebView to act on: say so rather than leave Try again stuck on "Trying".
@@ -279,7 +287,7 @@ struct WebView: UIViewRepresentable {
                 return
             }
             let origin: Shell.Origin = navigationAction.navigationType == .linkActivated ? .tapped : .pageFlow
-            switch Shell.linkDecision(for: url, coordinator: KosmosConfig.coordinatorOrigin, origin: origin, showing: webView.url) {
+            switch Shell.linkDecision(for: url, coordinator: KosmosConfig.coordinatorOrigin, origin: origin) {
             case .inApp: decisionHandler(.allow)
             case .external:
                 UIApplication.shared.open(url)
@@ -307,30 +315,30 @@ struct WebView: UIViewRepresentable {
 
         func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
             endRefreshing()
-            shell?.retrying = false
             failedURL = nil
-            if shell?.failure != nil { shell?.failure = nil }
+            shell?.loaded()
         }
 
         func webView(_ webView: WKWebView, didFailProvisionalNavigation navigation: WKNavigation!, withError error: Error) {
-            show(error)
+            show(error, provisional: true)
         }
 
         func webView(_ webView: WKWebView, didFail navigation: WKNavigation!, withError error: Error) {
-            show(error)
+            show(error, provisional: false)
         }
 
-        private func show(_ error: Error) {
+        private func show(_ error: Error, provisional: Bool) {
             endRefreshing()
             shell?.retrying = false
             let e = error as NSError
             guard let failure = Shell.loadFailure(domain: e.domain, code: e.code) else { return }
             failedURL = e.userInfo[NSURLErrorFailingURLErrorKey] as? URL
+            failedProvisionally = provisional
             // The host only: a Mac link carries the person's sign-in token in its
             // fragment (#kst=), which must never reach a log.
             NSLog("[Shell] load failed: \(e.domain) \(e.code) host=\(failedURL?.host ?? "?")")
             shell?.failureDetail = e.localizedDescription
-            shell?.failure = failure
+            shell?.show(failure)
         }
     }
 

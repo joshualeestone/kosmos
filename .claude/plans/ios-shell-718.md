@@ -6,15 +6,17 @@ the separate kosmos-relay PR (signin-mobile-718).
 
 ## Finished means
 - A page that cannot load shows a native page (offline, or Kosmos+ not answering, or the system's
-  own reason) with Try again, never a blank WebView; after "offline" it reloads by itself when the
-  phone reconnects.
+  own reason) with Try again and "Back to Kosmos", never a blank WebView; after "offline" it
+  reloads by itself when the phone reconnects, or at once if it is already back online.
+- "Back to Kosmos" after a tap that failed before loading closes the failure page over the page
+  still showing; after a loaded page failed, it goes back one page; with nothing loaded, the home.
 - Pull to refresh reloads the page.
 - A link that wants a new window (target=_blank: the Stripe billing button) is no longer silently
-  dropped. Kosmos+ and the person's Macs load in the app over https. Another site the person TAPS
-  (or opens in a new window) goes to Safari; another https site reached by a redirect or script (a
-  step in a sign-in or checkout flow) stays in the app, so the flow's session is not stranded in
-  Safari (challenge-loop round 1). Plain http never loads in the app. Mail, phone and text links open
-  their apps; other schemes, including data: and blob:, are refused on purpose.
+  dropped. Kosmos+ and the person's Macs load in the app over https. Any other site, however it is
+  reached (a tap, a new window, a redirect, a script), opens in Safari (see Decisions: round 7
+  replaced an earlier "redirects stay in the app" rule). Plain http never loads in the app. Mail,
+  phone and text links open their apps from a tap; other schemes, including data: and blob:, are
+  refused on purpose.
 - A notification tap lands on the agent that asked: `https://<address>/?tab=detail&agent=<session>`
   (agreed with Kano, m544), the session accepted only as `^[a-z0-9][a-z0-9_-]{0,63}$`, else the
   board home.
@@ -73,6 +75,5 @@ Everything that touches UIKit or WebKit (the delegate wiring, the refresh contro
 overlay, the order WebKit asks its two questions in for a target=_blank link) is compiled and
 reasoned, not run. The simulator pass has to cover: an offline launch, a reconnect, Try again on a
 tapped agent whose Mac is offline, pull to refresh (and where its spinner sits on a cover page), the board and the sign-in page clear of the notch and home bar in portrait and landscape,
-a COMPLETE sign-in through every redirect (and any sign-in popup, which as a new window would
-go to Safari), the billing
-button, a mail link, and a tap with and without a session.
+a COMPLETE sign-in (email and code; nothing in it should leave the app), the billing
+button opening in Safari, Back to Kosmos after a failed tap and after a failed loaded page, a mail link, and a tap with and without a session.
