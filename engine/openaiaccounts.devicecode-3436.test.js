@@ -172,6 +172,29 @@ test('on a Mac a browser request stays a browser sign-in and never carries instr
   } finally { openai.cancelChatgptLogin(r.sessionId); }
 });
 
+test('the win32 device-code sign-in waits 14 minutes; a browser sign-in keeps 5', () => {
+  assert.equal(openai.chatgptLoginTimeoutMs('device', 'win32'), 14 * 60 * 1000);
+  assert.ok(openai.chatgptLoginTimeoutMs('device', 'win32') < 15 * 60 * 1000, 'the wait outlives codex\'s 15-minute code');
+  assert.equal(openai.chatgptLoginTimeoutMs('browser', 'darwin'), 5 * 60 * 1000);
+  assert.equal(openai.chatgptLoginTimeoutMs('device', 'darwin'), 5 * 60 * 1000, 'only the win32 path waits longer');
+  assert.equal(openai.chatgptLoginTimeoutMs('browser', 'win32'), 5 * 60 * 1000);
+});
+
+test('the watchdog uses the longer wait only for a win32 device sign-in', async (t) => {
+  // Short stand-ins for the two waits, restored after, so the arm runs in well under a second.
+  openai.setChatgptTimers({ timeout: 150, deviceTimeout: 5000 });
+  t.after(() => openai.setChatgptTimers({ timeout: 5 * 60 * 1000, deviceTimeout: 14 * 60 * 1000 }));
+  const win = startWithStandin({ say: MEASURED_DEVICE_OUT, platform: 'win32', mode: 'browser' }).r;
+  const mac = startWithStandin({ say: 'https://auth.openai.com/oauth/authorize?x=1\n', platform: 'darwin', mode: 'browser' }).r;
+  assert.equal(win.ok && mac.ok, true);
+  try {
+    const m = await waitFor(mac.sessionId, (x) => x.state === 'error');
+    assert.equal(m.error, 'the OpenAI sign-in timed out');
+    const w = openai.chatgptLoginStatus(win.sessionId);
+    assert.equal(w.state, 'awaiting-code', 'the Windows device sign-in was timed out on the browser wait');
+  } finally { openai.cancelChatgptLogin(win.sessionId); openai.cancelChatgptLogin(mac.sessionId); }
+});
+
 test.after(async () => {
   // Let cancelled children exit so their slots free before the sandbox goes.
   await new Promise((r) => setTimeout(r, 300));

@@ -725,14 +725,24 @@ const chatgptSessions = new Map();
        accumulate. All timers are unref'd so they never keep the process alive.
    Both are overridable for tests (a 5-minute real timeout is not test-able). */
 let loginTimeoutMs = 5 * 60 * 1000;
+/* #3436: a Windows device-code sign-in waits longer. The person has to switch to the
+   browser, sign in to OpenAI and type the code, and codex's code lives 15 minutes
+   (measured, codex 0.149.1), so 14 keeps the watchdog just inside it. */
+let deviceLoginTimeoutMs = 14 * 60 * 1000;
 let sessionTtlMs = 2 * 60 * 1000;
 // After a SIGTERM (cancel/watchdog), escalate to an uncatchable SIGKILL if the
 // child has not exited within this grace, so a child that ignores SIGTERM cannot
 // leak its work slot / temp dir forever (the exit handler, which frees them, would
 // otherwise never fire). See cancel/watchdog.
 let forceKillMs = 3000;
-function setChatgptTimers({ timeout, ttl, forceKill } = {}) {
+// #3436: the watchdog for one sign-in. Only the win32 device-code path gets the longer
+// wait; a browser sign-in (every Mac one) keeps loginTimeoutMs.
+function chatgptLoginTimeoutMs(mode, platform = process.platform) {
+  return platform === 'win32' && mode === 'device' ? deviceLoginTimeoutMs : loginTimeoutMs;
+}
+function setChatgptTimers({ timeout, deviceTimeout, ttl, forceKill } = {}) {
   if (Number.isFinite(timeout)) loginTimeoutMs = timeout;
+  if (Number.isFinite(deviceTimeout)) deviceLoginTimeoutMs = deviceTimeout;
   if (Number.isFinite(ttl)) sessionTtlMs = ttl;
   if (Number.isFinite(forceKill)) forceKillMs = forceKill;
 }
@@ -1124,7 +1134,7 @@ function startChatgptLogin({ label, mode, codexBin, reauthDir, platform } = {}) 
     session.state = 'error';
     session.error = 'the OpenAI sign-in timed out';
     reapChatgptSession(session);
-  }, loginTimeoutMs);
+  }, chatgptLoginTimeoutMs(m, platform || process.platform));
   if (session.timer && typeof session.timer.unref === 'function') session.timer.unref();
   // authUrl/userCode are NOT returned here: they are printed by codex AFTER this
   // synchronous return (via onData), so they are always absent at this point. The
@@ -1769,7 +1779,7 @@ module.exports = {
   checkLive, listLive, setFetcher, setChatgptTimers, MISSING_RUNNER_SENTENCE,
   chatgptSubscriptionWindow, decodeIdTokenPayload,   // #2790 Phase 2: pure offline sub-window read, exported for unit tests
   parseChatgptLoginOutput,   // pure codex-login output parser, exported for unit tests (browser/device URL + device code)
-  chatgptLoginMode, chatgptLoginInstructions,   // #3436: win32 runs device code; the unparsed-code fallback text
+  chatgptLoginMode, chatgptLoginInstructions, chatgptLoginTimeoutMs,   // #3436: win32 runs device code (with a longer wait); the unparsed-code fallback text
   accountModels, chatModelsFromList, openaiSnapshotBase, chatRunnableIds, runnableAllowlist, openaiModelClass,
   readName, writeName,   // #2095: the human-chosen display name (sidecar file)
 };
