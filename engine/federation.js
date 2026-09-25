@@ -193,7 +193,12 @@ async function verify(remote, body) {
     // Shown on the join screen and made this project's name: cleaned as every
     // outside name is, so it cannot display reversed or pass for a local one.
     project_name: externalName(d.project_name, NAME_MAX),
-    project_desc: bound(d.project_desc, DESC_MAX),
+    // Paragraphs are kept (newlines), but format characters and other controls go,
+    // as they do from every outside name: bidi overrides and zero-widths could make
+    // the join screen show something other than what was sent.
+    project_desc: bound(typeof d.project_desc === 'string'
+      ? d.project_desc.replace(/\p{Cf}/gu, '').replace(/[\u0000-\u0009\u000b-\u001f\u007f-\u009f\u2028\u2029]/g, ' ')
+      : d.project_desc, DESC_MAX),
     owner_handle: bound(d.owner_handle, HANDLE_MAX),
   };
   verified.delete(d.edge_id);

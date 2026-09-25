@@ -139,3 +139,12 @@ test('verify bounds what the coordinator sends before it is kept or recorded', a
   assert.deepStrictEqual(federation.joinSnapshot('edge-big'), out.body, 'the kept snapshot is not the bounded one');
   federation.forgetSnapshot('edge-big');
 });
+
+test('#3311: an outside project description keeps its paragraphs but loses bidi and invisible characters', async () => {
+  const remote = stubRemote({ ok: true, data: { edge_id: 'edge-desc', project_name: 'Club', project_desc: 'line one\nsafe\u202etxt.exe\u200b\u0007end', owner_handle: 'reader' } });
+  const out = await federation.verify(remote, { code: 'DESC' });
+  assert.strictEqual(out.status, 200);
+  assert.ok(out.body.project_desc.includes('\n'), 'the paragraph break was lost');
+  assert.ok(!/[\u202e\u200b\u0007]/.test(out.body.project_desc), 'a bidi, invisible or control character survived: ' + JSON.stringify(out.body.project_desc));
+  federation.forgetSnapshot('edge-desc');
+});

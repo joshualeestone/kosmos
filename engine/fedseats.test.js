@@ -574,3 +574,30 @@ test('#3311: a connector that ignores SIGTERM is killed with SIGKILL, so a stopp
   if (signal === 'still running') { try { child.kill('SIGKILL'); } catch { /* gone */ } }
   assert.strictEqual(signal, 'SIGKILL', 'the connector ignoring SIGTERM was left running');
 });
+
+test('#3311: output from a stopped seat never lands in a new seat that reuses the project id', async () => {
+  federation.recordLink('proj-reuse', { role: 'member', edge_id: 'edge-old' });
+  const h = harness();
+  await fedseats.ensure('proj-reuse');
+  const old = h.spawned[h.spawned.length - 1];
+  say(old, { event: 'connected', room: 'r-old', expires_at: 9 });
+  await tick();
+  fedseats.stop('proj-reuse');
+  // The project is deleted and a new one with the same id is shared again at once.
+  federation.recordLink('proj-reuse', { role: 'member', edge_id: 'edge-new' });
+  await fedseats.ensure('proj-reuse');
+  const fresh = h.spawned[h.spawned.length - 1];
+  assert.notStrictEqual(fresh, old, 'fixture: a new child took the project id');
+  say(fresh, { event: 'connected', room: 'r-new', expires_at: 9 });
+  await tick();
+  const before = h.recorded.length;
+  // The old child, still dying, flushes a message from its old peer.
+  say(old, { event: 'message', data: { from: 'Old Peer', kind: 'person', text: 'from the old room' } });
+  await tick();
+  assert.strictEqual(h.recorded.length, before, 'a stopped seat\'s message landed in the new room: ' + JSON.stringify(h.recorded.slice(before)));
+  // The new child still speaks.
+  say(fresh, { event: 'message', data: { from: 'New Peer', kind: 'person', text: 'from the new room' } });
+  await tick();
+  assert.strictEqual(h.recorded.length, before + 1, 'the current seat\'s message was dropped');
+  fedseats.stop('proj-reuse');
+});

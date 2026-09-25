@@ -270,3 +270,8 @@ not count).
 - WARNING: verify now cleans project_name with externalName too (join screen and local name).
 - DEFERRED (carded): the minute-budget note rows and a total (not only per-day) bound on stored outside rows. They are growth bounds, not a leak or an injection; they need a retention decision. kosmos#3844.
 - NIT, left: text keeps LRM/RLM (only overrides/isolates are stripped from bodies; names get the full \p{Cf} strip), duplicate "stayed on this computer" notes during a reconnect, and the synchronous `pwned` read in a browser check.
+
+## Round 20 (sonnet) fixes
+- BLOCKER: onEvent resolved the seat by project id only, so a stopped child still flushing output could land its old peer's message in a NEW seat that reused the id (ids are slugs, reused on delete-and-recreate). The stdout handler now drops output from any child that is not the seat's current child (the check close already made). Test with two overlapping children for one id; control without the check fails "landed in the new room".
+- WARNING: project_desc from the other account kept bidi, invisible and control characters (only length-bounded). Now \p{Cf} and controls go, newlines stay. Test; control fails.
+- NIT (left, added to kosmos#3844): the per-day inbound budget lives in memory and resets on restart.

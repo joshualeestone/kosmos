@@ -207,6 +207,12 @@ function spawnFor(projectId, edge) {
   let buf = '';
   child.stdout.setEncoding && child.stdout.setEncoding('utf8');
   child.stdout.on('data', (chunk) => {
+    // Only the seat's CURRENT child speaks for the project. A stopped child can
+    // still flush output while it dies, and a new seat may already hold the same
+    // project id (ids are slugs, reused); its words must not land in that room.
+    // (The close handler below makes the same check.)
+    const cur = seats.get(projectId);
+    if (!cur || cur.child !== child) { buf = ''; return; }
     buf += chunk;
     if (buf.length > MAX_LINE && buf.indexOf('\n') < 0) buf = '';
     let i;
