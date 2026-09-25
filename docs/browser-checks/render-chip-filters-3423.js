@@ -7,7 +7,8 @@
  * drill-down; clicking it jumps to the actual agent).
  *
  * Markers are keyed on the SERVER state to match the tile counts exactly:
- *   data-attn   = a.state === 'needs_you'                          (== c.needsYou, the "Issue" count)
+ *   data-attn   = needs the person: needs_you, needs_trust, or a connection Kosmos gave up
+ *                 reconnecting (engine/status.js needsPerson; == c.needsYou, the "Issue" count)
  *   data-noproj = a.state === 'needs_you' && a.stateProject===null (== c.needsYouUnattributed)
  *
  * Asserts (real page + real render + real handlers):
