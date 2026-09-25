@@ -313,9 +313,10 @@ test('#1010: a reinstall whose state survived is recognised, not re-enrolled, an
   // mint a new identity key and hit the coordinator's 409 about "a Mac on this
   // account". Clear the record so we count only the second attempt's calls.
   fs.rmSync(RECORD, { force: true });
-  const again = await remote.setupComplete('123456', 'hers');
+  // #3796 review: typed with a capital, it is still THIS Mac (lowercased before the recognition).
+  const again = await remote.setupComplete('123456', 'Hers');
   assert.equal(again.ok, true, again.because);
-  assert.equal(again.alreadySetUp, true, 'a reinstall was re-enrolled instead of recognised');
+  assert.equal(again.alreadySetUp, true, 'a reinstall was re-enrolled instead of recognised (a capital broke the #1010 check)');
   assert.equal(again.address, 'hers.kosmos.invalid');
   assert.ok(
     !recorded().some((c) => c[0] === 'setup' && c[1] === 'complete'),

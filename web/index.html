@@ -15366,7 +15366,7 @@ window.kosmosMeasureScrollbarWidth();
              name (the coordinator refuses any other), so the step just says so. The address comes from
              the service (the sign-in answer's account_address, or the coordinator's "already owns the
              name" refusal on an older coordinator), never composed here. -->
-        <p class="plus-si-lead" id="plus-si-owned" hidden>Connecting this computer as <b id="plus-si-owned-addr"></b>...</p>
+        <p class="plus-si-lead" id="plus-si-owned" hidden tabindex="-1" role="status" aria-live="polite"><span id="plus-si-owned-lead">Connecting this computer as</span> <b id="plus-si-owned-addr"></b><span id="plus-si-owned-tail">...</span></p>
         <div class="field" id="plus-si-name-field">
           <label class="flabel" for="plus-si-name">Choose your Kosmos+ address</label>
           <p class="fhint">3 to 32 letters, numbers or hyphens. <span id="plus-si-name-count" aria-live="polite">0/32</span></p>
@@ -15404,7 +15404,7 @@ window.kosmosMeasureScrollbarWidth();
       </div>
 
       <div id="plus-si-expired" hidden>
-        <p class="plus-si-lead" id="plus-si-expired-words">That sign-in timed out. Start over and we'll send a new code.</p>
+        <p class="plus-si-lead" id="plus-si-expired-words" role="status" aria-live="polite">That sign-in timed out. Start over and we'll send a new code.</p>
         <div class="frow">
           <button class="btn uprime" type="button" id="plus-si-expired-go">Start over</button>
         </div>
@@ -35742,6 +35742,11 @@ let PLUS_SIGNIN_ACTIVE = false;
 /* #3796 addendum 9: while the signed-in landing is up, the wizard keeps the pane (paintPlus would
    otherwise hand straight to the connected flow the moment this computer reads enrolled). Done clears it. */
 let PLUS_SI_LANDED = false;
+/* Review: set while the automatic register is in flight. The engine writes the state dir before it
+   answers, so a repaint in that window would read enrolled and flash the connected flow first. */
+let PLUS_SI_REGISTERING = false;
+/* The owned address to retry after an automatic register failed (review: never a dead end). */
+let PLUS_SI_RETRY = '';
 /* The computer-name format, shared by the enrol flow's plus-confirm and the sign-in
    wizard's register step so the two cannot drift (CLAUDE.md #5). It mirrors the engine's
    own NAME_RULE; the engine validates too, so this is a fast local echo, not the source
@@ -35876,7 +35881,7 @@ async function paintPlus() {
     }
     return;
   }
-  if (typeof PLUS_SI_LANDED !== 'undefined' && PLUS_SI_LANDED) {
+  if ((typeof PLUS_SI_LANDED !== 'undefined' && PLUS_SI_LANDED) || (typeof PLUS_SI_REGISTERING !== 'undefined' && PLUS_SI_REGISTERING)) {
     state1.hidden = true; state2.hidden = false; flow.hidden = true;
     return;
   }
@@ -36150,6 +36155,7 @@ function plusSiFail(because) {
       : "That sign-in timed out. Start over and we'll send a new code.";
     plusSiMsg('');
     plusSiShow('plus-si-expired');
+    const go = document.getElementById('plus-si-expired-go'); if (go) go.focus();   // Verify is gone; do not drop focus to the page
     return;
   }
   plusSiMsg(text);
@@ -36248,6 +36254,8 @@ function plusSiClear() {
   const phoneField = document.getElementById('plus-si-phone-field'); if (phoneField) phoneField.hidden = true;
   if (document.getElementById('plus-si-register-go')) plusSiRegisterMode('');   // addendum 8: no owned name carried over
   if (typeof PLUS_SI_LANDED !== 'undefined') PLUS_SI_LANDED = false;
+  if (typeof PLUS_SI_REGISTERING !== 'undefined') PLUS_SI_REGISTERING = false;
+  if (typeof PLUS_SI_RETRY !== 'undefined') PLUS_SI_RETRY = '';
 }
 function plusSiEnter(e) {
   if (e) e.preventDefault();
@@ -36261,6 +36269,9 @@ function plusSiEnter(e) {
 }
 document.getElementById('plus-signin-top').addEventListener('click', plusSiEnter);
 document.getElementById('plus-signin-bottom').addEventListener('click', plusSiEnter);
+document.getElementById('plus-si-second-help').addEventListener('keydown', (e) => {
+  if (e.key === ' ') { e.preventDefault(); e.currentTarget.click(); }   // role=button: Space works as for a button
+});
 document.getElementById('plus-si-second-help').addEventListener('click', (e) => {
   e.preventDefault();
   const rec = document.getElementById('plus-si-second-recover');
@@ -36418,15 +36429,41 @@ document.getElementById('plus-si-enrol-confirm-go').addEventListener('click', as
    automatically for an account that already owns one (`owned` is then its full address, when known). */
 async function plusSiDoRegister(name, owned) {
   const btn = document.getElementById('plus-si-register-go');
+  const foot = document.getElementById('plus-si-cancel');
   plusSiMsg('');
   btn.disabled = true;
+  if (owned) {
+    /* Review: an automatic register cannot be taken back once the connector has written this computer's
+       identity, so no "Sign out" is offered while it runs (it would not sign out). The words say what is
+       happening, and take the focus the hidden controls had. */
+    PLUS_SI_REGISTERING = true;
+    if (foot && foot.parentElement) foot.parentElement.hidden = true;
+    const lead = document.getElementById('plus-si-owned-lead'); if (lead) lead.textContent = 'Connecting this computer as';
+    const tail = document.getElementById('plus-si-owned-tail'); if (tail) tail.textContent = '...';
+    const o = document.getElementById('plus-si-owned'); if (o) o.focus();
+  }
   const r = await plusSiPost('/api/remote/signin-register', { name });
+  PLUS_SI_REGISTERING = false;
   if (r.stale) return;
   btn.disabled = false;
+  if (owned && foot && foot.parentElement) foot.parentElement.hidden = false;
   /* A coordinator that does not yet send account_address: its refusal names the account's one name
      ("your account already owns the name X"). Register to that one instead, once. */
   const owns = !r.ok && !owned ? /already owns the name ([a-z0-9-]{3,32})\b/.exec(String(r.because || '')) : null;
   if (owns) { plusSiRegisterMode('', owns[1]); plusSiDoRegister(owns[1], owns[1]); return; }
+  if (!r.ok && owned && !/start again from the email/i.test(String(r.because || ''))) {
+    /* Review: an automatic register that failed (a second computer on a web-named account is refused
+       today, #3796's carded multi-Mac gap) must not leave the person with no control: say so, keep
+       the reason, and offer Try again. */
+    const lead = document.getElementById('plus-si-owned-lead'); if (lead) lead.textContent = 'This computer could not connect as';
+    const tail = document.getElementById('plus-si-owned-tail'); if (tail) tail.textContent = '.';
+    btn.textContent = 'Try again';
+    btn.hidden = false;
+    PLUS_SI_RETRY = owned;
+    plusSiMsg(r.because);
+    btn.focus();
+    return;
+  }
   if (!r.ok) { plusSiFail(r.because); return; }
   if (owned) {
     /* The landing, not the connected flow: PLUS_SI_LANDED keeps paintPlus from taking the pane. */
@@ -36450,7 +36487,10 @@ async function plusSiDoRegister(name, owned) {
   paintPlus();
 }
 document.getElementById('plus-si-register-go').addEventListener('click', () => {
-  const name = plusNameClean(document.getElementById('plus-si-name').value.trim());
+  if (PLUS_SI_OWNED) { plusSiDoRegister(PLUS_SI_OWNED, PLUS_SI_RETRY || PLUS_SI_OWNED); return; }   // Try again, owned
+  /* Review: a trailing hyphen is kept while typing (so "my-mac" can be typed) but is never a valid
+     name at the coordinator; drop it at submit. */
+  const name = plusNameClean(document.getElementById('plus-si-name').value.trim()).replace(/-+$/, '');
   /* signin-register requires a name server-side (server.js 400s on empty), so reject an
      empty one here for instant feedback rather than a round trip. Then the format rule. */
   if (!name) { plusSiMsg('pick a name for this computer'); return; }
@@ -36468,7 +36508,7 @@ document.getElementById('plus-si-done-go').addEventListener('click', () => {
 document.getElementById('plus-si-done-copy').addEventListener('click', (e) => {
   const b = e.currentTarget;
   const text = document.getElementById('plus-si-done-addr').textContent;
-  const said = () => { b.textContent = 'Copied'; setTimeout(() => { b.textContent = 'Copy'; }, 1500); };
+  const said = () => { b.textContent = 'Copied'; plusSiMsg('Address copied.'); setTimeout(() => { b.textContent = 'Copy'; }, 1500); };
   try { navigator.clipboard.writeText(text).then(said, () => {}); } catch (err) { /* no clipboard: the address is on screen to copy by hand */ }
 });
 

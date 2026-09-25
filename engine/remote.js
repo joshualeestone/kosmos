@@ -733,6 +733,10 @@ async function setupComplete(code, name) {
   // Mac and keeps account A's enrolment -- the new code is never used. Switching
   // the account on a Mac is what `forget()` (which wipes the state dir) is for;
   // once the state is gone, enrolled() is false and this guard does not fire.
+  /* #3796 addendum 6 (Josh: "support either capital or lowercase"): the coordinator lowercases a
+     name anyway, so only this app refused "MacbookPro". Lowercase (and trim) FIRST, before the
+     recognition below as well as the rule: "Hers" on a Mac enrolled as hers is this Mac (review). */
+  if (typeof name === 'string') name = name.trim().toLowerCase();
   if (enrolled()) {
     const have = address();
     if (have && have.split('.')[0] === name) {
@@ -743,9 +747,6 @@ async function setupComplete(code, name) {
   if (!CODE_RULE.test(String(code || ''))) {
     return { ok: false, because: 'the code is six digits' };
   }
-  /* #3796 addendum 6 (Josh: "support either capital or lowercase"): the coordinator lowercases a
-     name anyway, so only this app refused "MacbookPro". Lowercase (and trim) BEFORE the rule. */
-  if (typeof name === 'string') name = name.trim().toLowerCase();
   if (typeof name !== 'string' || !NAME_RULE.test(name)) {
     return { ok: false, because: 'the name is 3 to 32 letters, digits or hyphens' };
   }

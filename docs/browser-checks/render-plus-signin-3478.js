@@ -459,10 +459,40 @@ const visible = (page, sel) => page.evaluate((s) => {
       await page.click('#plus-si-code-go');
       await page.waitForSelector('#plus-si-expired', { state: 'visible', timeout: 5000 });
       const exp = { words: (await page.textContent('#plus-si-expired-words')).trim(), msg: (await page.textContent('#plus-signin-msg')).trim(), verify: await visible(page, '#plus-si-code-go') };
+      chk(await page.evaluate(() => document.activeElement && document.activeElement.id === 'plus-si-expired-go'), `[${k}] #3796 review: the timed-out panel takes the focus (its Verify is gone)`);
       chk(exp.words === "That sign-in timed out. Start over and we'll send a new code." && !/401|said no/.test(exp.msg + exp.words) && !exp.verify, `[${k}] #3796 addendum 4: an expired sign-in says it timed out, with no raw error and no Verify`, JSON.stringify(exp));
       await page.click('#plus-si-expired-go');
       await page.waitForSelector('#plus-si-email', { state: 'visible', timeout: 5000 });
       chk((await page.inputValue('#plus-signin-email')) === 'you@example.com', `[${k}] #3796 addendum 4: the panel's Start over returns to the email step with the email kept`);
+      /* #3796 review: an automatic register that fails (a second computer on a web-named account is refused
+         today) is not a dead end: it says so and offers Try again, which registers the owned name again. */
+      await page.unroute('**/api/remote/signin-**');
+      let regTries = 0;
+      await page.route('**/api/remote/signin-**', (route, req) => {
+        const p = req.url().replace(/^.*\/api\/remote\//, '');
+        if (p === 'signin-verify') { route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ ok: true, stage: 'session', account_address: 'twin-mac.kosmosplus.com' }) }); return; }
+        if (p === 'signin-register') {
+          regTries += 1;
+          if (regTries === 1) { route.fulfill({ status: 400, contentType: 'application/json', body: JSON.stringify({ error: 'the name twin-mac is already connected on another computer' }) }); return; }
+          route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ ok: true, stage: 'registered', address: 'twin-mac', name: 'twin-mac', standing: 'active' }) }); return;
+        }
+        route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ ok: true, stage: 'code_sent' }) });
+      });
+      await page.fill('#plus-signin-email', 'you@example.com');
+      await page.click('#plus-signin-code');
+      await page.waitForSelector('#plus-si-code', { state: 'visible', timeout: 5000 });
+      await page.fill('#plus-si-code-in', '123456');
+      await page.click('#plus-si-code-go');
+      await page.waitForSelector('#plus-si-register-go', { state: 'visible', timeout: 5000 });
+      const f = await page.evaluate(() => ({ lead: document.getElementById('plus-si-owned').textContent.trim(), btn: document.getElementById('plus-si-register-go').textContent.trim(), msg: document.getElementById('plus-signin-msg').textContent.trim() }));
+      chk(/could not connect as twin-mac\.kosmosplus\.com/.test(f.lead) && f.btn === 'Try again' && /already connected/.test(f.msg), `[${k}] #3796 review: a failed automatic register says so and offers Try again`, JSON.stringify(f));
+      await page.click('#plus-si-register-go');
+      await page.waitForSelector('#plus-si-done', { state: 'visible', timeout: 5000 });
+      chk(regTries === 2, `[${k}] #3796 review: Try again registers the owned name again and lands`, String(regTries));
+      await page.evaluate(() => { PLUS_SI_LANDED = false; });
+      await page.click('#plus-si-done-go');
+      await page.waitForTimeout(300);
+      if (!(await visible(page, '#plus-si-email'))) { await page.evaluate(() => { const s1 = document.getElementById('plus-state1'); if (s1 && !s1.hidden) document.getElementById('plus-signin-top').click(); }); await page.waitForSelector('#plus-si-email', { state: 'visible', timeout: 5000 }); }
       // The stroke on a secondary button (the enrol step's "Text me the codes").
       startAnswer = { status: 200, body: { ok: true, stage: 'code_sent' } };
       await page.unroute('**/api/remote/signin-**');
