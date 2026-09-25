@@ -54338,8 +54338,9 @@ async function asbFind() {
   let guide = null;
   try {
     const r = await fetch('/api/setup-guide', { cache: 'no-store' });
-    /* Read the body on every answer, the 404 included: a response whose body is never read stays
-       open, which holds the page's network busy for good (it broke every browser check's page load). */
+    /* Read the body on every answer: a response whose body is never read stays open, which holds the page's
+       network busy for good (it broke every browser check's page load). "No guide" is 200 { ok: false,
+       reason: 'none' } here, not a 404, which the browser would log as a failed resource on every page. */
     const b = await r.json().catch(() => null);
     if (r.ok && b && b.ok && typeof b.name === 'string') guide = b.name;
   } catch { /* no guide read, no bubble */ }

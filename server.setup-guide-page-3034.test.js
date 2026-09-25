@@ -177,7 +177,7 @@ test('#3034: a REMOVED guide (removal deletes nothing, so its marker survives) i
    guide), and a 200 when there is no guide at all. */
 const getGuide = () => fetch(board.base + '/api/setup-guide');
 
-test('#3034 read: no guide on this computer is a 404, and a marked guide answers its name', async () => {
+test('#3034 read: no guide on this computer is 200 { ok: false, reason: none }, and a marked guide answers its name', async () => {
   fs.rmSync(setupAssistant.flagPath(), { force: true });
   /* An ordinary answer, not a 404: the page asks on every install, and a 404 shows as a failed resource
      in every page's console (it broke the "no page errors" browser checks). */
