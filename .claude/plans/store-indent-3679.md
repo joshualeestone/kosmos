@@ -120,3 +120,15 @@ always a stray keystroke, and trimming it keeps "  hello" stored as "hello".
   and the refusal names indentation; the old wording reds it.
 - NIT fixed: the store's closing fence allows only spaces after the run, as pjRich does.
 - Duplicate: pjBody's fence rule, already recorded above; filed as a follow-up card.
+
+## Review pass 7 (opus)
+- WARNING fixed: the dedent counted only ASCII spaces while the final trim strips Unicode
+  whitespace, so a leading byte-order mark or non-breaking-space indentation (rich-text
+  pastes) made siblings look nested. A leading BOM is dropped and each line's leading run of
+  spaces and non-breaking spaces becomes spaces before the dedent. Tested, including a
+  non-breaking space inside a line being left alone; removing the conversion reds it.
+- NITs fixed: the fence comment says which CommonMark rules it follows; the stored-size
+  refusals say "indentation and spacing", since a fence's blank lines or alignment runs count.
+- Recorded, not changed: a fence's own indentation is not removed from its content lines
+  (CommonMark does that); the store and pjRich agree. And pjRich's list regex is the old shape
+  with a capture added; its behaviour on a long space run before a line separator predates this.

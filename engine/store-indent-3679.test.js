@@ -101,6 +101,13 @@ test('#3679: a longer fence holds a shorter one, and only a bare run as long clo
     'a fence line with an info string does not close a fence');
 });
 
+test('#3679: a byte-order mark and non-breaking-space indentation do not unbalance a list', () => {
+  assert.equal(chat.storeText('\ufeff  - a\n  - b'), '- a\n- b');
+  assert.equal(chat.storeText('\u00a0\u00a0- a\n\u00a0\u00a0\u00a0\u00a0- b'), '- a\n  - b');
+  assert.equal(chat.storeText('a\u00a0\u00a0b'), 'a\u00a0\u00a0b', 'a non-breaking space inside a line is left alone');
+  assert.equal(chat.storeText('x\n  \u00a0\u00a0- b'), 'x\n    - b', 'spaces then non-breaking spaces count as one run');
+});
+
 test('#3679: whitespace the old trim removed is still removed', () => {
   for (const ws of ['\u00a0', '\ufeff', '\u3000', ' \n\u00a0 ']) {
     assert.equal(chat.messageProblem(ws), 'write something to send', JSON.stringify(ws));

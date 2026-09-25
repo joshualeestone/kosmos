@@ -362,7 +362,7 @@ function cleanMessage(raw) {
  */
 // Every tab is four spaces, not the next tab stop, the same width pjListDepth reads.
 const STORE_TAB = '    ';
-// A fence line, as CommonMark reads one: optional leading spaces, three or more backticks, and
+// A fence line, by CommonMark's run-length and info-string rules: leading spaces, three or more backticks, and
 // no backtick after them (so an inline ```span``` is not one). A fence closes only on a bare
 // run at least as long as the one that opened it, so ```` can hold a ``` example.
 // \x60 is a backtick: a literal one here reads as a template string to the #1732 scanner.
@@ -377,7 +377,11 @@ function trimSpacesEnd(line) {
   return line.slice(0, e);
 }
 function storeText(raw) {
-  const lines = String(raw == null ? '' : raw).replace(/\r\n?/g, '\n').replace(/\t/g, STORE_TAB).split('\n');
+  // A leading byte-order mark goes, and a line's leading non-breaking spaces (how rich-text
+  // pastes indent) become spaces, so the dedent below and the final trim agree on what
+  // indentation is.
+  const lines = String(raw == null ? '' : raw).replace(/^\ufeff/, '').replace(/\r\n?/g, '\n').replace(/\t/g, STORE_TAB)
+    .split('\n').map((l) => l.replace(/^[ \u00a0]+/, (run) => ' '.repeat(run.length)));
   const out = [];
   let fenceLen = 0;   // the opening run's length while inside a fence, else 0
   let blanks = 0;
@@ -443,7 +447,7 @@ function messageProblem(raw) {
   // #3679: measured on the one-line form, as the room does, so kept indentation
   // (and a tab's four spaces) cannot push a message over the limit.
   if (cleanMessage(raw).length > MAX_TEXT) return `keep it to ${MAX_TEXT} characters or fewer`;
-  if (text.length > STORE_GROWTH * MAX_TEXT) return 'that has more indentation than we keep in a message; put it in a file and send the path';
+  if (text.length > STORE_GROWTH * MAX_TEXT) return 'that has more indentation and spacing than we keep in a message; put it in a file and send the path';
   if (CONTROL.test(text)) return 'that message has characters we will not type into a terminal';
   return null;
 }

@@ -1185,7 +1185,7 @@ function sendPost({ fromPane, sender: resolvedSender, project, projectName, text
      size one post's record could reach before indentation was kept. */
   const stored = chat.storeText(text);
   if (stored.length > MAX_BODY) {
-    return refuse('that has more indentation than we keep in a post; put it in the project folder and post your colleagues the path');
+    return refuse('that has more indentation and spacing than we keep in a post; put it in the project folder and post your colleagues the path');
   }
   const markerBad = markerProblem(text);
   if (markerBad) return refuse(markerBad);
