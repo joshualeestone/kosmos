@@ -5792,19 +5792,20 @@ body:not(.consolidated) .pjmidhead:has(.pjhead) .tsearch:focus-within { flex-bas
    page, column and thread paddings plus a 34px avatar, a 14px gap and the matching far
    gutter left a 167px bubble, so a long post read as a column of two or three words.
    - The conversation comes FIRST on the project page: Members and Files follow it.
-   - Leaner padding, a 28px avatar and an 8px gap. The far gutter still mirrors the
-     avatar column exactly (#3361: a bubble never grows into the opposite avatar column),
-     now 28px + 8px. Bubble at 375: 227px (measured, Chromium and WebKit).
+   - Leaner padding and a 28px avatar. The gap stays 14px: the bubble tail's ground mask
+     (.msg-bd::after, 14px wide, 14px outside the bubble) would otherwise paint over the
+     avatar's inner edge (Scorpion found it on the Direct Message). The far gutter still
+     mirrors the avatar column exactly (#3361: a bubble never grows into the opposite
+     avatar column), now 28px + 14px.
    - Reaction pills are thumb height; the add-reaction bar is reachable by touch (below).
    - The placeholder stays on one line instead of spilling a clipped second line. */
 @media (max-width: 30rem) {
   .pj3 > .pjmid { order: -1; }
   .pjcol.pjmid { padding: 12px 8px 8px; }
   #pj-room.thread { padding: 12px 6px; gap: 12px; }
-  #pj-room .msg { gap: 8px; }
   #pj-room .msg-av { width: 28px; height: 28px; flex-basis: 28px; font-size: .8125rem; }
-  #pj-room .msg:not(.you) .msg-b { margin-right: calc(28px + 8px); }
-  #pj-room .msg.you .msg-b { margin-left: calc(28px + 8px); }
+  #pj-room .msg:not(.you) .msg-b { margin-right: calc(28px + 14px); }
+  #pj-room .msg.you .msg-b { margin-left: calc(28px + 14px); }
   #pj-room .rxn { min-height: 32px; padding: 2px 10px; }
   #pj-post::placeholder { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 }
@@ -5872,9 +5873,11 @@ body:not(.consolidated) .pjmidhead:has(.pjhead) .tsearch:focus-within { flex-bas
    21:56, with Discord's card beside ours: "a much, much larger OG image...
    below the meta link information"): host small, title as the link,
    description clamped to four lines, then the picture at the card's width,
-   about half the room. Tokens only, so both themes follow. */
+   about half the room. Tokens only, so both themes follow.
+   #718: a full 1px border, no left bar (Josh, 2026-09-24: no left accent bar on cards,
+   whatever the colour). Shared with the Direct Message; this class has one owner. */
 .lpv { display: flex; flex-direction: column; margin-top: 8px; width: min(100%, 34rem);
-  border: 0.5px solid var(--separator); border-left: 3px solid var(--separator); border-radius: 10px; overflow: hidden; text-decoration: none;
+  border: 1px solid var(--separator); border-radius: 10px; overflow: hidden; text-decoration: none;
   color: var(--k-ink); background: var(--k-surface); }
 .lpv:hover { border-color: var(--k-ink-2); }
 .lpv-img { display: block; margin: 0 12px 12px; border-radius: 8px; overflow: hidden; background: var(--k-bg); }

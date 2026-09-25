@@ -12,7 +12,7 @@ Playwright's engine build, an approximation, not Safari):
 - the composer placeholder stays on one line.
 
 ## Measured before -> after (Chromium / WebKit, same numbers)
-- bubble width at 375: 167px -> 227px; 430: -> 282px. Composer text box 135 -> 151px.
+- bubble width at 375: 167px -> 215px; 393: 233; 412: 252; 430: 270 (Chromium and WebKit agree).
 - tap on a message: add-reaction bar never shown -> shown (opacity 1, pointer-events
   auto), four 36x36 buttons. Control: without the tap handler, nothing shows.
 
@@ -20,7 +20,9 @@ Playwright's engine build, an approximation, not Safari):
 - Phone rules scoped to #pj-room / the room column, at max-width 30rem, so the Direct
   Message thread (Scorpion's, shares .msg) and desktop are untouched.
 - #3361 (Josh): a bubble never grows into the opposite avatar column. Kept by shrinking the
-  avatar column (28px + 8px) and mirroring it, not by dropping the gutter. The 2806 check
+  avatar to 28px and mirroring the column (28px + 14px), not by dropping the gutter. The gap
+  stays 14px: at 8px the tail's ground mask (.msg-bd::after) painted over the avatar's inner
+  6px (Scorpion caught it on the DM; the phone arm now asserts the mask clears the avatar). The 2806 check
   gains a phone arm on the REAL #pj-room (its narrow arm renders a detached .thread that the
   scoped rules never reach, so it could not see this). Control: the old 48px gutter in the
   phone rule fails the new arm.
@@ -28,9 +30,15 @@ Playwright's engine build, an approximation, not Safari):
   (hover: none). Rejected: always showing the bar on every message on a phone (clutter).
 - Not touched here (other owners): page gutters and header (Raiden, app frame), the Direct
   Message thread and composer (Scorpion), safe areas (Raiden, shared frame).
-- Left alone and raised with Liu Kang: the grey left bar on link cards (.lpv) is shared
-  with the Direct Message.
+- Link cards (.lpv): the grey 3px left bar becomes a full 1px border (Liu Kang: Josh's rule
+  covers any colour). Shared with the Direct Message; one owner (me), Scorpion told.
 
 ## Weakest part
 Chromium does not ellipsize a textarea placeholder: it cuts it on one line without the
 "...". It no longer spills a clipped second line, which was the defect, but it is not pretty.
+
+## Screenshots
+Every audit run sandboxes AGENT_WORKFORCE_HOME (#3675) and passes a privacy tripwire before
+each shot (no email but the fixture's or a reserved domain, nothing key-shaped, not the
+Mac's user name; a hit exits 3 and deletes the run). Control: a planted real-looking email
+exits 3 with 0 PNGs. The first audit ran before this and was deleted unshared.

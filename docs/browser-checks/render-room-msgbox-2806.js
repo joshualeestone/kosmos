@@ -639,7 +639,7 @@ const now = () => new Date().toISOString();
     }
 
     /* #718 mobile (Josh, 2026-09-24): on a PHONE the room (#pj-room) runs a leaner row, a 28px
-       avatar and an 8px gap, so the bubble is not squeezed to a column of words (measured 167px at
+       avatar (the 14px gap stays, or the tail mask paints over the avatar), so the bubble is not squeezed to a column of words (measured 167px at
        375 before). #3361's rule must still hold THERE: the far gutter equals the near avatar+gap.
        The arms above render into a detached .thread, which the #pj-room-scoped phone rules never
        reach, so they cannot see this; this arm renders the REAL rows inside the REAL #pj-room at
@@ -667,12 +667,18 @@ const now = () => new Date().toISOString();
         const aR = rr(a), aB = rr(a.querySelector('.msg-bd')), oR = rr(o), oB = rr(o.querySelector('.msg-bd'));
         return { aFar: Math.round(aR.right - aB.right), aNear: Math.round(aB.left - aR.left), aW: Math.round(aB.width),
           oFar: Math.round(oB.left - oR.left), oNear: Math.round(oR.right - oB.right), oW: Math.round(oB.width),
-          av: Math.round(rr(a.querySelector('.msg-av')).width) };
+          av: Math.round(rr(a.querySelector('.msg-av')).width),
+          // the tail's ground mask (::after) must stop short of the avatar: mask left edge vs avatar right edge
+          maskClear: (() => { const bd = a.querySelector('.msg-bd'); const cs = getComputedStyle(bd, '::after');
+            const maskLeft = rr(bd).left + parseFloat(cs.left); return Math.round(maskLeft - rr(a.querySelector('.msg-av')).right); })() };
       }, now());
       chk(ph.av === 28, `[phone] the room avatar is 28px on a phone`, `avatar=${ph.av}px`);
-      chk(Math.abs(ph.aFar - ph.aNear) <= 1 && ph.aNear <= 37, `[phone] the agent far gutter equals the near avatar+gap (#3361 on a phone)`, `far=${ph.aFar} near=${ph.aNear}`);
-      chk(Math.abs(ph.oFar - ph.oNear) <= 1 && ph.oNear <= 37, `[phone] the operator far gutter equals the near avatar+gap`, `far=${ph.oFar} near=${ph.oNear}`);
-      chk(ph.aW >= 200 && ph.oW >= 200, `[phone] both bubbles are wide on a phone (was 167px at 375)`, `agent=${ph.aW}px operator=${ph.oW}px`);
+      chk(Math.abs(ph.aFar - ph.aNear) <= 1 && ph.aNear <= 43, `[phone] the agent far gutter equals the near avatar+gap (#3361 on a phone)`, `far=${ph.aFar} near=${ph.aNear}`);
+      chk(Math.abs(ph.oFar - ph.oNear) <= 1 && ph.oNear <= 43, `[phone] the operator far gutter equals the near avatar+gap`, `far=${ph.oFar} near=${ph.oNear}`);
+      chk(ph.maskClear >= 0, `[phone] the bubble tail's ground mask stops short of the avatar (it would paint over it)`, `clearance=${ph.maskClear}px`);
+      // 190: in this 297px room the desktop row (34px avatar, 16px thread padding, 48px far
+      // gutter) leaves about 169px, which fails this; the phone row leaves 199px.
+      chk(ph.aW >= 190 && ph.oW >= 190, `[phone] both bubbles are wide on a phone`, `agent=${ph.aW}px operator=${ph.oW}px`);
     } finally {
       await phonePage.close();
     }
