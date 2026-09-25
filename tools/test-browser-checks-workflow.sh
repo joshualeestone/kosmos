@@ -163,7 +163,11 @@ if command -v ruby >/dev/null 2>&1; then
     # always(): it must run after a failed, timed-out or cancelled checks job too (a
     # cancelled job makes failure() false), and on success to close the card.
     abort "file-red-card must run on every scheduled run and nothing else, got if: #{cj["if"].inspect}" unless cj["if"].to_s.gsub(/\s+/, " ").strip == "always() && github.event_name == \x27schedule\x27"
-    abort "file-red-card must hold exactly issues: write, got #{cj["permissions"].inspect}" unless cj["permissions"] == { "issues" => "write" }
+    abort "file-red-card must hold exactly contents: read + issues: write (it reads the head of main before closing), got #{cj["permissions"].inspect}" unless cj["permissions"] == { "contents" => "read", "issues" => "write" }
+    fsteps = fj["steps"] || []
+    col = fsteps.find { |st| st["id"] == "failed" }
+    abort "the label collector must run after a failed, timed-out or cancelled checks step (if: always())" unless col && col["if"].to_s.strip == "always()"
+    abort "browser-checks-full or one of its steps is continue-on-error; a red full run must not report success" if fj["continue-on-error"] || fsteps.any? { |st| st["continue-on-error"] }
     abort "browser-checks-full.yml must run steps as bash -eo pipefail (defaults.run.shell: bash); without it a pipeline reports its last command, got #{f["defaults"].inspect}" unless ((f["defaults"] || {})["run"] || {})["shell"] == "bash"
     abort "browser-checks-full.yml must never cancel a nightly run in progress (concurrency cancel-in-progress false), got #{(f["concurrency"] || {}).inspect}" unless (f["concurrency"] || {})["cancel-in-progress"] == false
     # The red-check list crosses jobs: collector step (id failed) -> job output "failed" ->
@@ -238,14 +242,15 @@ if command -v ruby >/dev/null 2>&1; then
   mkdir -p "$BT/poison" "$BT/ghcfg"; printf '#!/bin/sh\necho "REAL gh REACHED: $*" >&2; exit 99\n' > "$BT/poison/gh"; chmod +x "$BT/poison/gh"
   card() {
     PATH="$BT/poison:$PATH" GH_TOKEN=invalid GH_CONFIG_DIR="$BT/ghcfg" GH_RETRY_SECONDS=0 \
-    HEADSHA="${HEADSHA:-abc}" GITHUB_RUN_ATTEMPT="${ATTEMPT:-1}" COMMENTFILE="${COMMENTFILE:-}" \
+    LISTFAIL="${LISTFAIL:-}" HEADSHA="${HEADSHA:-abc}" GITHUB_RUN_ATTEMPT="${ATTEMPT:-1}" COMMENTFILE="${COMMENTFILE:-}" \
     VIEWFAIL="${VIEWFAIL:-}" BODYFILE="${BODYFILE:-}" VIEWBODY="${VIEWBODY:-}" LABEL="${LABEL:-}" RESULT="$1" OPEN="$2" RED="${REDV:-render-fields|render-thread|regress-a-night (server did not boot)|render-list-row render-fields (rich board did not boot)}" GITHUB_REPOSITORY=o/r GITHUB_SHA=abc RUN_URL=u bash -eo pipefail -c '
       qarg() { local prevarg="" a; for a in "$@"; do [ "$prevarg" = "-q" ] && { printf "%s" "$a"; return 0; }; prevarg="$a"; done; return 1; }
       gh() { case "$1 $2" in
         "label list") f=$(qarg "$@") || { echo "CALL unexpected label list without -q"; return 1; }
           if [ -n "$LABEL" ]; then printf "%s" "[{\"name\":\"nightly-browser-checks-red\"}]"; else printf "%s" "[]"; fi | jq -r "$f" ;;
         "label create") echo "CALL label-create" ;;
-        "issue list") f=$(qarg "$@") || { echo "CALL unexpected issue list without -q"; return 1; }
+        "issue list") [ -n "$LISTFAIL" ] && { echo "HTTP 502" >&2; return 1; }
+          f=$(qarg "$@") || { echo "CALL unexpected issue list without -q"; return 1; }
           # Real gh prints an EMPTY line for a null -q result (jq -r would print "null");
           # OPEN=null forces a literal "null" to exercise the guard in the script.
           if [ "$OPEN" = null ]; then echo null
@@ -317,6 +322,11 @@ if command -v ruby >/dev/null 2>&1; then
   out="$(HEADSHA=newer card success 7)" || fail "green at an old sha failed: $out"
   case "$out" in *"CALL close"*) fail "a green run at an old sha closed the card while main moved on: $out" ;; esac
   case "$out" in *"REAL gh REACHED"*) fail "the card script reached the real gh: $out" ;; esac
+  # The open-card lookup itself fails (3 tries): a red night still files a card, a green does nothing.
+  out="$(LISTFAIL=1 LABEL=1 card failure 7)" || fail "a failed lookup aborted the red report: $out"
+  case "$out" in *"CALL create"*) ;; *) fail "a red night with a failed card lookup filed nothing: $out" ;; esac
+  out="$(LISTFAIL=1 card success 7)" || fail "a failed lookup aborted a green night: $out"
+  case "$out" in *"CALL "*) fail "a green night with a failed lookup acted: $out" ;; esac
   pass "the card script: fresh red creates, open red comments leading with NEW checks, a timeout/cancel files, a null lookup is none, green closes, green with no card is a no-op"
   fi
 elif [ -n "${CI:-}" ]; then

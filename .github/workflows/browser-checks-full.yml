@@ -29,7 +29,9 @@ on:
   workflow_dispatch:
 
 # Least privilege per job: the checks job (third-party npm installs, every browser
-# check) holds only contents: read. Only the separate card job holds issues: write.
+# check) holds only contents: read. Only the separate card job holds issues: write, plus
+# contents: read, which it needs to read main's head before closing (job permissions
+# REPLACE the workflow's, they do not add to them).
 permissions:
   contents: read
 
@@ -106,6 +108,7 @@ jobs:
     if: always() && github.event_name == 'schedule'
     runs-on: ubuntu-latest
     permissions:
+      contents: read
       issues: write
     steps:
       - name: 'report a scheduled run to the card (#2518)'
@@ -123,7 +126,11 @@ jobs:
                   echo "::error::$1 $2 $3 failed 3 times; see the steps above. Run: $RUN_URL" >&2; return 1; }
           gh1() { "$@" || { echo "::error::$1 $2 $3 failed; the card was NOT updated for this run (not retried, so it cannot be done twice). Run: $RUN_URL" >&2; return 1; }; }
           label=nightly-browser-checks-red
-          open=$(ghr gh issue list --repo "$GITHUB_REPOSITORY" --state open --label "$label" --json number -q '.[0].number')
+          # If even this lookup fails, the report is not dropped: a red night files a NEW card
+          # (a possible duplicate is better than silence); a green night does nothing.
+          lookup_failed=""
+          open=$(ghr gh issue list --repo "$GITHUB_REPOSITORY" --state open --label "$label" --json number -q '.[0].number') || { open=""; lookup_failed=1; }
+          [ -n "$lookup_failed" ] && [ "$RESULT" = success ] && exit 0
           [ "$open" = null ] && open=""
           if [ "$RESULT" = success ]; then
             [ -n "$open" ] || exit 0
