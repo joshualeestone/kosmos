@@ -77,13 +77,14 @@ test("your own bubble's room cap repeats the base bubble cap (78ch), pinned", ()
   assert.equal(room[1], base[1]);
 });
 
-test('the projects row fits an iPhone SE: its right cell and the sort may shrink at phone width', () => {
-  // Measured by the shared harness (projects, se, Chromium: .panel 330 > 327 before). The
-  // harness is the behaviour check; this pins the rules so they cannot quietly go.
+test('the projects row fits an iPhone SE: Add Project at its narrowest, the sort and toggle may wrap', () => {
+  // The harness (overflow) and the 2806 phone arm (no overlap, whole sort label) are the behaviour
+  // checks; this pins the rules so they cannot quietly go.
   const phone = blocks('max-width: 30rem');
-  assert.match(phone, /#pj-list-view \.statsrow \{ grid-template-columns: auto minmax\(0, 1fr\); \}/);
-  assert.match(phone, /#pj-list-view \.sortctl select \{ min-width: 0; max-width: 100%; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; \}/, 'the select may shrink (min-width 0, max-width 100%), which is what stops the overflow in every engine; the ellipsis needs overflow hidden where the engine draws one on a select');
-  // The projects-row block and the room's block are the same phone width as the script's query.
+  assert.match(phone, /#pj-list-view \.statsrow \{ grid-template-columns: min-content minmax\(0, 1fr\); \}/);
+  assert.match(phone, /#pj-list-view \.statsrow > \.viewctl \{ min-width: 0; width: 100%; justify-content: flex-end; flex-wrap: wrap; gap: 8px; \}/);
+  assert.match(phone, /#pj-list-view \.sortctl \{ flex: 0 0 auto; \}/, 'the sort never shrinks below its label');
+  assert.match(phone, /#pj-list-view \.viewctl > \.viewtoggle \{ flex: 0 0 auto; \}/, 'nor the toggle below its buttons');
   const mq = html.match(/const PJ_PHONE_MQ = '\(max-width: ([\d.]+rem)\)';/)[1];
   const rowBlock = html.match(/@media \(max-width: ([\d.]+rem)\) \{\n  #pj-list-view \.statsrow/);
   assert.ok(rowBlock, 'the projects-row block moved; re-anchor');

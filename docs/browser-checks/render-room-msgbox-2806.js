@@ -705,6 +705,37 @@ const now = () => new Date().toISOString();
       chk(splitFocus === 'pj-add-member' && splitWide === 'pj-add-member' && splitBack === 'pj-add-member' && splitOrder.startsWith('members-files,room'),
         `[phone] a control focused in Members/Files keeps its focus when the phone turns`, `${splitFocus} -> ${splitWide} -> ${splitBack} (order ${splitOrder})`);
       await phonePage.evaluate(() => { const b = document.getElementById('pj-add-member'); if (b) b.blur(); });
+      // The projects list's top row at 375 on a touchscreen (16px sort): Add Project, the sort and
+      // the view toggle must not overlap and must stay inside the row. (The harness only flags
+      // overflow past the panel; controls drawn over each other inside it pass that.)
+      const pjRow = await phonePage.evaluate(() => {
+        const view = document.getElementById('pj-list-view'); const panel = document.getElementById('panel-projects');
+        if (!view || !panel) return { error: 'no projects list' };
+        for (let el = view; el && el !== document.body; el = el.parentElement) { el.hidden = false; el.removeAttribute('inert'); if (getComputedStyle(el).display === 'none') el.style.display = 'block'; }
+        const row = view.querySelector('.statsrow'); const add = document.getElementById('pj-new');
+        const sort = view.querySelector('.sortctl'); const tog = view.querySelector('.viewtoggle');
+        if (!row || !add || !sort || !tog) return { error: 'row parts missing' };
+        const r = (el) => el.getBoundingClientRect(); const R = r(row), A = r(add), S = r(sort), T = r(tog);
+        // Its label whole: the select at least as wide as it is when free to take its natural width.
+        // Natural width: a copy OUTSIDE the row (inside it, the shrunk flex box would bound it and
+        // the comparison could never fail), with the same computed font, padding and border.
+        const sel = sort.querySelector('select'); const shownW = sel.getBoundingClientRect().width;
+        const cs = getComputedStyle(sel); const copy = sel.cloneNode(true);
+        copy.style.cssText = 'position:absolute;left:-9999px;top:0;width:auto;min-width:0;max-width:none;'
+          + 'font:' + cs.font + ';padding:' + cs.padding + ';border:' + cs.border + ';box-sizing:' + cs.boxSizing + ';appearance:' + cs.appearance + ';';
+        document.body.appendChild(copy); copy.selectedIndex = sel.selectedIndex;
+        const naturalW = copy.getBoundingClientRect().width; copy.remove();
+        return { fontPx: parseFloat(getComputedStyle(sort.querySelector('select')).fontSize), row: [Math.round(R.left), Math.round(R.right)],
+          add: [Math.round(A.left), Math.round(A.right)], sort: [Math.round(S.left), Math.round(S.right)], toggle: [Math.round(T.left), Math.round(T.right)],
+          // No two of the three overlap, whichever line the toggle lands on.
+          clear: [[A, S], [A, T], [S, T]].every(([p, q]) => p.right <= q.left + 0.5 || q.right <= p.left + 0.5 || p.bottom <= q.top + 0.5 || q.bottom <= p.top + 0.5),
+          inside: [A, S, T].every((b) => b.left >= R.left - 0.5 && b.right <= R.right + 0.5),
+          sortWhole: shownW >= naturalW - 0.5, sortW: [Math.round(shownW), Math.round(naturalW)],
+          // The toggle at its full width too: its buttons are not squeezed (each at its own width).
+          toggleWhole: [...tog.querySelectorAll('button')].every((b) => b.getBoundingClientRect().width >= parseFloat(getComputedStyle(b).width) - 0.5 && b.getBoundingClientRect().width >= 36),
+          toggleW: Math.round(T.width) };
+      });
+      chk(!pjRow.error && pjRow.fontPx >= 16 && pjRow.clear && pjRow.inside && pjRow.sortWhole && pjRow.toggleWhole, `[phone/touch] the projects row's Add Project, sort and toggle do not overlap at 375, and neither the sort's label nor the toggle is cut or squeezed`, JSON.stringify(pjRow));
       // A SWEEP, not a hand list (Liu Kang m705): every field on the project page, its Tasks and
       // members dialogs included, computes at 16px or more on a touchscreen, or iOS zooms in and
       // the page pans sideways. A dynamically made part-assignee select is added so its class

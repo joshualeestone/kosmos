@@ -2045,16 +2045,20 @@ body.filter-noproj #orgview .onode:not([data-noproj]) { opacity: .26; }
   :root:not([data-theme="light"]) .acard.question { border-color: rgba(140,175,230,.42); }
 }
 /* #718 mobile: at a phone's width the projects row's two cells (Add Project, and the sort
-   beside the view toggle) were each their full natural width, 3px more than an iPhone SE
-   has (Raiden's harness, .panel 330 > 327). The right cell may shrink, and the sort's
-   select gives up space before anything leaves the screen: it shrinks, and engines that draw
-   text-overflow on a select show an ellipsis (Chromium cuts the label instead). 30rem is the room's phone width (PJ_PHONE_MQ); pinned equal by
+   beside the view toggle) were each their full natural width, 3px more than an iPhone SE has
+   (Raiden's harness, .panel 330 > 327). Now Add Project takes its narrowest width (two lines,
+   as on main) and the sort and toggle may wrap, so nothing leaves the row, nothing overlaps and
+   the sort's label is never cut. 30rem is the room's phone width (PJ_PHONE_MQ); pinned equal by
    web.room-phone-718.test.js, so "a phone" means one thing across the project pages. */
 @media (max-width: 30rem) {
-  #pj-list-view .statsrow { grid-template-columns: auto minmax(0, 1fr); }
-  #pj-list-view .statsrow > .viewctl { min-width: 0; }
-  #pj-list-view .sortctl { min-width: 0; flex: 0 1 auto; }
-  #pj-list-view .sortctl select { min-width: 0; max-width: 100%; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+  #pj-list-view .statsrow { grid-template-columns: min-content minmax(0, 1fr); }   /* Add Project wraps to two lines, as on main */
+  /* The sort and the view toggle may wrap: at 16px (touch) the sort's whole label and the toggle
+     at its full width do not both fit beside Add Project on an iPhone SE, so the toggle drops to
+     a second line rather than the label being cut, the toggle squeezed, or the sort drawn over
+     Add Project. Neither shrinks. */
+  #pj-list-view .statsrow > .viewctl { min-width: 0; width: 100%; justify-content: flex-end; flex-wrap: wrap; gap: 8px; }
+  #pj-list-view .sortctl { flex: 0 0 auto; }
+  #pj-list-view .viewctl > .viewtoggle { flex: 0 0 auto; }
 }
 @media (max-width: 56rem) {
   .statsrow { grid-template-columns: auto auto; justify-content: space-between; }
