@@ -108,6 +108,23 @@ test('a working agent, or one outside the project, is not assigned', () => {
   } finally { w.restore(); }
 });
 
+test('#3564: a swarm switched off in the project is neither assigned a task nor asked about its goal; switched on, it is', () => {
+  const w = world([{ name: 'wkoff' }]);
+  try {
+    addTask(w.pid, 'task one');
+    projects.setSwarmOn(w.pid, w.key.wkoff, false);
+    assert.deepEqual(afterIdle(w).toAssign, [], 'an Off swarm was handed a task in the project it is off in');
+    const rec = projects.readAll().find((p) => p.id === w.pid);
+    assert.equal(a.goalProject(w.key.wkoff, [{ ...rec, tasks: [] }], new Map([[w.pid, 'ship it']]), new Map(), T0), null,
+      'an Off swarm was asked about the goal of a project it is off in');
+    projects.setSwarmOn(w.pid, w.key.wkoff, true);
+    assert.deepEqual(afterIdle(w).toAssign.map((x) => x.session), [w.key.wkoff], 'control: switched on, it is assigned');
+    const rec2 = projects.readAll().find((p) => p.id === w.pid);
+    assert.ok(a.goalProject(w.key.wkoff, [{ ...rec2, tasks: [] }], new Map([[w.pid, 'ship it']]), new Map(), T0),
+      'control: switched on, it is asked');
+  } finally { w.restore(); }
+});
+
 test('an agent with an open part assigned to it is not idle for assignment; a closed one does not count', () => {
   const w = world([{ name: 'hasw' }]);
   try {

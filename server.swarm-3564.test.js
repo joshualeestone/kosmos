@@ -137,3 +137,24 @@ test('#3564 per project: a task line is not sent to a swarm switched off in that
     assert.deepEqual((on.delivered || []).map((d) => d.agent), ['hive5'], 'CONTROL: switched on, the assignee is told');
   } finally { board.restore(); }
 });
+
+test('#3564 per project: a task given to a swarm switched off in that project does not page it; switched on, it does', async () => {
+  const fleetMod = require('./test-support/fleet');
+  lead('hive6', swarm.birthProfile({ dailyTokenLimit: 1000 }));
+  const board = fleetMod.install([fleetMod.agent('hive6', { state: 'idle' })]);
+  try {
+    const p = projects.create({ name: 'Swarm Given Room' });
+    projects.addAgent(p.id, 'hive6', board.agents);
+    const give = async (sentence) => (await fetch(`${base}/api/project/${encodeURIComponent(p.id)}/tasks`, {
+      method: 'POST', headers: { 'content-type': 'application/json', 'sec-fetch-site': 'same-origin' }, body: JSON.stringify({ sentence, who: 'hive6' }),
+    })).json();
+    projects.setSwarmOn(p.id, 'hive6', false);
+    const off = await give('Split this up');
+    assert.ok(off.task, JSON.stringify(off));
+    assert.match((off.heard && off.heard.because) || '', /switched off in this project/, 'a switched-off swarm was paged about a task: ' + JSON.stringify(off.heard));
+    projects.setSwarmOn(p.id, 'hive6', true);
+    const on = await give('And this');
+    assert.ok(on.heard, JSON.stringify(on));
+    assert.doesNotMatch(on.heard.because || '', /switched off in this project/, 'CONTROL: switched on, it is not this refusal');
+  } finally { board.restore(); }
+});

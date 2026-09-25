@@ -266,6 +266,10 @@ function resetHeardBudgetForTests() {
 function heardBy(projectId, t, who, sentence, roster) {
   const name = typeof who === 'string' && who.trim() ? who.trim() : null;
   if (!name || !t || typeof t.number !== 'number') return undefined;
+  /* #3564: a swarm switched off in this project is not told it was given work here. */
+  if (projects.swarmOffIn(projectId, name)) {
+    return { who: name, state: chat.DELIVERY.COULD_NOT, because: projects.SWARM_OFF_SENTENCE(name) };
+  }
   let title = projectId;
   try { const rec = projects.readAll().find((x) => x && x.id === projectId); if (rec && rec.name) title = rec.name; } catch { /* the id will do */ }
   const line = '[Kosmos: you were given task ' + t.number + ' in "' + String(title).replace(/[\r\n"]/g, ' ') + '": '

@@ -55,6 +55,11 @@ function idleCard(a) {
   return Boolean(a && a.sessionName && a.isNamedOurs === true && a.state === 'idle');
 }
 
+/* #3564: a member this project has switched off (a swarm) takes no work in it. */
+function offIn(p, session) {
+  return Array.isArray(p.swarmOff) && p.swarmOff.includes(session);
+}
+
 /* Live (non-archived) project records only. */
 function liveProjects(records) {
   return (Array.isArray(records) ? records : []).filter((p) => p && typeof p.id === 'string' && p.archived !== true);
@@ -87,7 +92,7 @@ function ageKey(t) {
 function pick(session, projects, taken) {
   const candidates = [];
   for (const p of projects) {
-    if (!(Array.isArray(p.agents) && p.agents.includes(session))) continue;
+    if (!(Array.isArray(p.agents) && p.agents.includes(session)) || offIn(p, session)) continue;
     for (const t of Array.isArray(p.tasks) ? p.tasks : []) {
       if (typeof t.number !== 'number') continue;
       if (taken.has(p.id + '#' + t.number)) continue;
@@ -112,7 +117,7 @@ function emptyMemory() {
    the same step is already in `asked`, so a second agent in it is not asked.) */
 function goalProject(session, projects, goals, asked, now) {
   for (const p of projects) {
-    if (!(Array.isArray(p.agents) && p.agents.includes(session))) continue;
+    if (!(Array.isArray(p.agents) && p.agents.includes(session)) || offIn(p, session)) continue;
     const at = asked.get(p.id);
     if (typeof at === 'number' && now - at < GOAL_ASK_MS) continue;
     const goal = goals instanceof Map ? goals.get(p.id) : null;
