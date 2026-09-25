@@ -624,6 +624,35 @@ const resetStore = (state) => fs.writeFileSync(tipsStore.FILE(), JSON.stringify(
     chk(got31.length === 9 && bad31.length === 0, 'T31 every screen\'s tip opens and covers no visible control', JSON.stringify(bad31.length ? bad31 : got31.map((g) => g.name)));
     await page.keyboard.press('Escape');
 
+    // T32: the whole card stays on screen, whichever side of the fold its target is (#3574, Liu Kang
+    // 2026-09-25: a phone layout puts the project tip's target below the composer). The target is one this
+    // check places itself, below the fold and then above it; the control is a target in view, which must
+    // still get its arrow.
+    const place32 = (where) => page.evaluate((wh) => {
+      tipLayerEnsure();
+      document.querySelectorAll('[data-t32]').forEach((x) => x.remove());
+      const t = document.createElement('div'); t.setAttribute('data-t32', '');
+      const top = wh === 'below' ? window.innerHeight + 300 : wh === 'above' ? -400 : Math.round(window.innerHeight / 3);
+      t.style.cssText = 'position:fixed;left:200px;width:120px;height:30px;top:' + top + 'px';
+      document.body.appendChild(t);
+      const c = document.createElement('div'); c.className = 'tipcard'; c.setAttribute('data-t32', '');
+      c.style.cssText = 'position:fixed;width:300px;height:180px';
+      document.getElementById('tiplayer').appendChild(c);
+      const was = document.getElementById('tiplayer').hidden; document.getElementById('tiplayer').hidden = false;
+      tipPlace(c, 'div[data-t32]:not(.tipcard)', false, { key: 't32', avoid: false });
+      const b = c.getBoundingClientRect();
+      const out = { top: Math.round(b.top), bottom: Math.round(b.bottom), vh: window.innerHeight, flat: c.classList.contains('flat') };
+      document.getElementById('tiplayer').hidden = was;
+      document.querySelectorAll('[data-t32]').forEach((x) => x.remove());
+      return out;
+    }, where);
+    for (const wh of ['below', 'above']) {
+      const p32 = await place32(wh);
+      chk(p32.top >= 0 && p32.bottom <= p32.vh && p32.flat, 'T32 a target ' + wh + ' the fold: the card is wholly on screen, with no arrow', JSON.stringify(p32));
+    }
+    const in32 = await place32('in view');
+    chk(in32.top >= 0 && in32.bottom <= in32.vh && !in32.flat, 'T32 CONTROL: a target in view keeps its arrow', JSON.stringify(in32));
+
     // T7: a board that cannot say what was seen shows nothing. Seen is emptied first, so a guard
     // that let tips through would show the tour here (control: T1 and T6, the same empty state).
     resetStore({ seen: [], off: false });

@@ -53809,12 +53809,18 @@ function tipPlace(card, sel, side = false, { key = '', avoid = true } = {}) {
   const sideTop = Math.min(Math.max(pad, r.top - 10), vh - h - pad);
   const midLeft = Math.min(Math.max(pad, r.left + r.width / 2 - 28), pageW - w - pad);
   const cands = [];
-  const right = { cls: 'left', left: r.right + 14, top: sideTop, fits: r.right + 14 + w <= pageW - pad };
-  const below = { cls: 'up', left: midLeft, top: r.bottom + 12, fits: r.bottom + 12 + h <= vh - pad };
-  const above = { cls: 'down', left: midLeft, top: r.top - 12 - h, fits: r.top - 12 - h >= pad };
-  const leftSide = { cls: 'right', left: r.left - 14 - w, top: sideTop, fits: r.left - 14 - w >= pad };
-  for (const c of side ? [right, below, above, leftSide] : [below, above, right, leftSide]) if (c.fits) cands.push(c);
-  if (!cands.length) cands.push({ ...below, top: Math.max(pad, Math.min(r.bottom + 12, vh - h - pad)) });
+  /* The WHOLE card must be on screen, every edge (#3574, Liu Kang 2026-09-25): "above" used to check only its
+     top, so a target below the fold put the card below the fold too, and "below" did the same above it. */
+  const onScreen = (left, top) => top >= pad && top + h <= vh - pad && left >= pad && left + w <= pageW - pad;
+  const right = { cls: 'left', left: r.right + 14, top: sideTop };
+  const below = { cls: 'up', left: midLeft, top: r.bottom + 12 };
+  const above = { cls: 'down', left: midLeft, top: r.top - 12 - h };
+  const leftSide = { cls: 'right', left: r.left - 14 - w, top: sideTop };
+  /* A target off screen gets no arrow: a side place clamps onto the screen and would point at nothing.
+     The scroll listener places the card again, arrow and all, once the target is in view. */
+  const offScreen = r.bottom <= 0 || r.top >= vh;
+  if (!offScreen) for (const c of side ? [right, below, above, leftSide] : [below, above, right, leftSide]) if (onScreen(c.left, c.top)) cands.push(c);
+  if (!cands.length) cands.push({ ...below, cls: offScreen ? 'flat' : below.cls, top: Math.max(pad, Math.min(r.bottom + 12, vh - h - pad)) });
   /* The target itself is kept clear too (with the ring's margin): the card points at it, never sits on it. */
   const covered = (avoid ? tipCoveredControls(el) : []).concat([{ l: r.left - 6, t: r.top - 6, r: r.right + 6, b: r.bottom + 6 }]);
   const hitsAt = (left, top) => { let n = 0; for (const q of covered) if (q.l < left + w && q.r > left && q.t < top + h && q.b > top) n++; return n; };
