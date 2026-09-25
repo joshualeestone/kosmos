@@ -245,7 +245,11 @@ function guardGuideFolder(dir, agentName, deps = {}) {
     if ((deps.platform || process.platform) === 'darwin') {
       const sb = cur.sandbox && typeof cur.sandbox === 'object' && !Array.isArray(cur.sandbox) ? cur.sandbox : {};
       const net = sb.network && typeof sb.network === 'object' && !Array.isArray(sb.network) ? sb.network : {};
-      next.sandbox = { ...sb, enabled: true, autoAllowBashIfSandboxed: true, network: { ...net, allowLocalBinding: true } };
+      /* allowUnsandboxedCommands false: without it a refused command can simply be re-run with
+         dangerouslyDisableSandbox, and every Kosmos agent runs with --dangerously-skip-permissions, so the
+         retry is approved and the file is read. Measured: the retry printed the canary; with this set it
+         did not (round 1 of this branch's review). */
+      next.sandbox = { ...sb, enabled: true, autoAllowBashIfSandboxed: true, allowUnsandboxedCommands: false, network: { ...net, allowLocalBinding: true } };
     }
     const tmp = `${file}.${process.pid}.new`;
     fs.writeFileSync(tmp, JSON.stringify(next, null, 2) + '\n', 'utf8');
