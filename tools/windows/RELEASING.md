@@ -93,8 +93,8 @@ gates. `publish-r2.ps1` produces the same files with the same gates, directly in
    refusal says so; re-run the same command to finish.
 
    ```
-   pwsh tools\windows\publish-r2.ps1 -Promote -ApprovedVersion <v> -ApprovedSha <sha> -ApprovalRef <Slack ts or permalink> -DryRun
-   pwsh tools\windows\publish-r2.ps1 -Promote -ApprovedVersion <v> -ApprovedSha <sha> -ApprovalRef <Slack ts or permalink>
+   pwsh tools\windows\publish-r2.ps1 -Promote -ApprovedVersion <v> -ApprovedSha <sha> -ApprovalRef '<Slack ts or permalink>' -DryRun
+   pwsh tools\windows\publish-r2.ps1 -Promote -ApprovedVersion <v> -ApprovedSha <sha> -ApprovalRef '<Slack ts or permalink>'
    ```
 
 ## Records and guarantees
@@ -109,11 +109,15 @@ gates. `publish-r2.ps1` produces the same files with the same gates, directly in
   stale `x-amz-copy-source-if-match`, both fail with PreconditionFailed and change nothing.
   `-DryRun` does not issue them.
 - **Overwritten objects are stored `Cache-Control: no-cache`** (the pointers, the alias and its
-  sidecar), so nothing between R2 and a user keeps serving the previous bytes. Versioned zips
-  never change, so they carry no such header.
+  sidecar), so nothing between R2 and a user keeps serving the previous bytes. A versioned zip
+  carries no such header, except one replaced with `-ReplaceVersioned`, which is no-cache.
 
 - **`TEST TRANSPORT` in the output means nothing was published**: `KOSMOS_PUBLISH_R2_FAKE_DIR` is
   set (the offline test uses it). `Remove-Item Env:KOSMOS_PUBLISH_R2_FAKE_DIR` and run again.
+
+- **Quote the approval ref.** Unquoted at a PowerShell prompt, a Slack ts is read as a number
+  and rounded, and a permalink containing `&` becomes a background job. The script refuses a ts
+  that is not exactly 10 digits, a dot and 6 digits, and anything else that is not `https://`.
 
 ## The pointer shape
 

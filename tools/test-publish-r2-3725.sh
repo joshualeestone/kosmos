@@ -10,7 +10,11 @@
 #   3. POINTER PARITY: the bytes New-PointerBytes writes (with the script's own $Arch and $Alias)
 #      equal what tools/lib/write-latest-win-pointer.js writes for the same build. Both promotes
 #      copy a staging pointer onto prod byte for byte, so a drift in either writer breaks a promote;
-#   4. the refusals that need no network.
+#   4. the refusals that need no network;
+#   5. the gates and the write order, through the script's test transport (a local directory
+#      as the bucket, with seams for a failing read and for a concurrent writer). Its served
+#      checks read that same directory, so they pass by construction and prove nothing here;
+#      the bucket read-backs are what these tests exercise.
 #
 # Needs pwsh. GitHub's macOS runners ship it; locally a missing pwsh SKIPS, but under CI it FAILS,
 # because a guard that silently never runs is not a guard.
@@ -96,15 +100,15 @@ refuses() { # <label> <expected substring> <args...>
 printf 'R2_ACCOUNT_ID=%s\nR2_ACCESS_KEY_ID=AKIDTEST\nR2_SECRET_ACCESS_KEY=secret\n' "$(printf 'a%.0s' $(seq 32))" > "$TMP/cred.env"
 refuses "bad key prefix refused" "-KeyPrefix" -Zip "$TMP/x.zip" -KeyPrefix 'no-trailing-slash'
 refuses "dot-dot key prefix refused" "no . or .. segment" -Zip "$TMP/x.zip" -KeyPrefix '../'
-refuses "a stand-in served base needs a test prefix" "-ServedBase is for tests" -Promote -ApprovedVersion 1.2.3 -ApprovedSha "$SHA" -ApprovalRef 1.2 -ServedBase https://example.com/dist
+refuses "a stand-in served base needs a test prefix" "-ServedBase is for tests" -Promote -ApprovedVersion 1.2.3 -ApprovedSha "$SHA" -ApprovalRef 1789228393.821399 -ServedBase https://example.com/dist
 refuses "missing zip refused" "no such zip" -Zip "$TMP/absent.zip"
-refuses "no key refused" "no R2_ACCOUNT_ID" -Promote -ApprovedVersion 1.2.3 -ApprovedSha "$SHA" -ApprovalRef 1.2
-refuses "non-x.y.z version refused" "x.y.z" -Promote -ApprovedVersion '-0.6.94' -ApprovedSha "$SHA" -ApprovalRef 1.2 -CredentialFile "$TMP/cred.env"
-refuses "malformed sha refused" "lowercase 64-hex" -Promote -ApprovedVersion 1.2.3 -ApprovedSha nothex -ApprovalRef 1.2 -CredentialFile "$TMP/cred.env"
+refuses "no key refused" "no R2_ACCOUNT_ID" -Promote -ApprovedVersion 1.2.3 -ApprovedSha "$SHA" -ApprovalRef 1789228393.821399
+refuses "non-x.y.z version refused" "x.y.z" -Promote -ApprovedVersion '-0.6.94' -ApprovedSha "$SHA" -ApprovalRef 1789228393.821399 -CredentialFile "$TMP/cred.env"
+refuses "malformed sha refused" "lowercase 64-hex" -Promote -ApprovedVersion 1.2.3 -ApprovedSha nothex -ApprovalRef 1789228393.821399 -CredentialFile "$TMP/cred.env"
 # PowerShell's plain -match ignores case; these must not.
-refuses "UPPERCASE sha refused" "lowercase 64-hex" -Promote -ApprovedVersion 1.2.3 -ApprovedSha "$(printf '%s' "$SHA" | tr a-f A-F)" -ApprovalRef 1.2 -CredentialFile "$TMP/cred.env"
+refuses "UPPERCASE sha refused" "lowercase 64-hex" -Promote -ApprovedVersion 1.2.3 -ApprovedSha "$(printf '%s' "$SHA" | tr a-f A-F)" -ApprovalRef 1789228393.821399 -CredentialFile "$TMP/cred.env"
 refuses "shell-ish approval ref refused" "is not a Slack message ts" -Promote -ApprovedVersion 1.2.3 -ApprovedSha "$SHA" -ApprovalRef 'x; rm' -CredentialFile "$TMP/cred.env"
-refuses "approval ref with a trailing newline refused" "is not a Slack message ts" -Promote -ApprovedVersion 1.2.3 -ApprovedSha "$SHA" -ApprovalRef $'1.2\n' -CredentialFile "$TMP/cred.env"
+refuses "approval ref with a trailing newline refused" "is not a Slack message ts" -Promote -ApprovedVersion 1.2.3 -ApprovedSha "$SHA" -ApprovalRef $'1789228393.821399\n' -CredentialFile "$TMP/cred.env"
 # A zip whose launcher is not the committed Kosmos.exe (the refusal comes before any network).
 python3 - "$TMP/wrongexe.zip" <<'PYEOF'
 import sys, zipfile
@@ -193,6 +197,28 @@ fake -Zip "$TMP/b.zip" -ReplaceVersioned; rc=$?; refuses_clean "-ReplaceVersione
 KOSMOS_PUBLISH_R2_FAKE_FAIL=latest-win-staging.json fake -Zip "$TMP/c.zip"; rc=$?
 if [ "$rc" -eq 1 ] && grep -qF "staging writes had begun" "$TMP/out"; then pass "a staging failure after its first write says what may be up"
 else fail "staging partial-state note: rc=$rc $(tail -2 "$TMP/out")"; fi
+# A rounded ts (what PowerShell makes of an unquoted one) is refused, not logged.
+fake -Promote -ApprovedVersion 9.9.1 -ApprovedSha "$SHA_A" -ApprovalRef 1789228393.8214; rc=$?
+refuses_clean "a rounded (unquoted) Slack ts is refused" "10 digits . 6 digits"
+# A signed read that is neither 200 nor 404 is a refusal, never "nothing there".
+mkzip "$TMP/d.zip" 9.9.3 D
+KOSMOS_PUBLISH_R2_FAKE_GET_STATUS=kosmos-9.9.3-win-x64.zip:403 fake -Zip "$TMP/d.zip"; rc=$?
+refuses_clean "a 403 on the existence read refuses with nothing written" "answered 403"
+# Staging moves between the promote's first read and its re-check: refused, nothing written.
+cp "$FAKE/latest-win-staging.json" "$TMP/ptr.keep"; printf '{"moved":1}\n' > "$TMP/ptr.moved"
+KOSMOS_PUBLISH_R2_FAKE_AFTER="GET latest-win-staging.json|latest-win-staging.json|$TMP/ptr.moved" promote; rc=$?
+refuses_clean "staging moving during the promote is refused with nothing written" "changed while the promote was checking"
+cp "$TMP/ptr.keep" "$FAKE/latest-win-staging.json"
+# The alias is corrupted right after the copy: latest-win.json must NOT move.
+cp "$FAKE/latest-win.json" "$TMP/prod.before" 2>/dev/null || : > "$TMP/prod.before"
+KOSMOS_PUBLISH_R2_FAKE_AFTER="PUT kosmos-win-x64.zip|kosmos-win-x64.zip|$TMP/b.zip" promote; rc=$?
+if [ "$rc" -eq 1 ] && grep -qF "the bucket holds kosmos-win-x64.zip as" "$TMP/out" && ! grep -q '^PUT latest-win.json ' "$FAKE/.calls"; then pass "an alias that does not read back stops the promote before latest-win.json"
+else fail "alias read-back: rc=$rc $(grep '^PUT' "$FAKE/.calls" | tr '\n' ' ') $(tail -1 "$TMP/out")"; fi
+# The versioned zip is changed right after the pointer write: the post-write re-check refuses and says prod moved.
+KOSMOS_PUBLISH_R2_FAKE_AFTER="PUT latest-win.json|kosmos-9.9.1-win-x64.zip|$TMP/b.zip" promote; rc=$?
+if [ "$rc" -eq 1 ] && grep -qF "the bucket holds kosmos-9.9.1-win-x64.zip as" "$TMP/out" && grep -qF "latest-win.json was written" "$TMP/out"; then pass "a versioned zip changed after the pointer write is caught, and the refusal says prod moved"
+else fail "post-pointer re-check: rc=$rc $(tail -1 "$TMP/out")"; fi
+cp "$TMP/a.zip" "$FAKE/kosmos-9.9.1-win-x64.zip"
 # The alias copy is pinned to the zip the promote checked: a re-stage that lands between the
 # checks and the copy must stop the promote before prod's pointer moves.
 rm -f "$FAKE/kosmos-win-x64.zip" "$FAKE/kosmos-win-x64.zip.sha256" "$FAKE/latest-win.json"

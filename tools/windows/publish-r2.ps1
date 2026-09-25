@@ -198,7 +198,26 @@ function Invoke-R2 {
 }
 
 # The test stand-in: a directory with S3's semantics for the four requests this script makes.
+# Test seams, each one environment variable (all under the test transport only):
+#   KOSMOS_PUBLISH_R2_FAKE_GET_STATUS=<key suffix>:<status>   a GET of that key answers <status>
+#   KOSMOS_PUBLISH_R2_FAKE_AFTER=<METHOD> <key suffix>|<key>|<file>
+#     once a matching request is answered, <key> is overwritten with <file>'s bytes (a
+#     concurrent writer landing between two of this script's steps)
 function Invoke-FakeR2([string] $Method, [string] $Key, [byte[]] $Body, [string] $BodyFile, [hashtable] $Extra, [string] $PayloadSha) {
+  $gs = [Environment]::GetEnvironmentVariable('KOSMOS_PUBLISH_R2_FAKE_GET_STATUS')
+  if ($Method -ceq 'GET' -and $gs -and $Key.EndsWith($gs.Split(':')[0])) {
+    [IO.File]::AppendAllText((Join-Path $FakeDir '.calls'), "GET $Key | status=$($gs.Split(':')[1])`n", $Utf8)
+    return [pscustomobject]@{ Status = [int]$gs.Split(':')[1]; Bytes = [byte[]]@(); Body = 'injected'; ETag = '' }
+  }
+  $r = Invoke-FakeR2Core $Method $Key $Body $BodyFile $Extra $PayloadSha
+  $after = [Environment]::GetEnvironmentVariable('KOSMOS_PUBLISH_R2_FAKE_AFTER')
+  if ($after) {
+    $parts = $after.Split('|'); $trig = $parts[0].Split(' ')
+    if ($Method -ceq $trig[0] -and $Key.EndsWith($trig[1])) { [IO.File]::Copy($parts[2], (Join-Path $FakeDir $parts[1]), $true) }
+  }
+  $r
+}
+function Invoke-FakeR2Core([string] $Method, [string] $Key, [byte[]] $Body, [string] $BodyFile, [hashtable] $Extra, [string] $PayloadSha) {
   $path = Join-Path $FakeDir $Key
   $copy = if ($Extra.ContainsKey('x-amz-copy-source')) { $Extra['x-amz-copy-source'] } else { '' }
   # Each request is logged with the extra headers it carried, so a test can see them.
@@ -220,6 +239,7 @@ function Invoke-FakeR2([string] $Method, [string] $Key, [byte[]] $Body, [string]
   if ($fail -and $Key.EndsWith($fail)) { return [pscustomobject]@{ Status = 500; Bytes = [byte[]]@(); Body = 'injected failure'; ETag = '' } }
   $exists = Test-Path -LiteralPath $path -PathType Leaf
   if ($Extra.ContainsKey('if-none-match') -and $exists) { return [pscustomobject]@{ Status = 412; Bytes = [byte[]]@(); Body = 'PreconditionFailed'; ETag = '' } }
+  if ($Extra.ContainsKey('if-match') -and -not $copy -and (-not $exists -or $Extra['if-match'] -cne (& $tag $path))) { return [pscustomobject]@{ Status = 412; Bytes = [byte[]]@(); Body = 'PreconditionFailed'; ETag = '' } }
   [void](New-Item -ItemType Directory -Force -Path (Split-Path -Parent $path))
   if ($copy) {
     $src = Join-Path $FakeDir ($copy.Substring($Bucket.Length + 2))
@@ -321,12 +341,17 @@ function Read-PointerFields([byte[]] $Bytes) {
 # ---------- the approval log, shared with promote-channel.sh ------------------------------------
 $ApprovalLog = if ($env:KOSMOS_WIN_PROMOTE_LOG) { $env:KOSMOS_WIN_PROMOTE_LOG } else { Join-Path $HOME '.claude/logs/win-promote-approvals.log' }
 $ApprovalLog = $ExecutionContext.SessionState.Path.GetUnresolvedProviderPathFromPSPath($ApprovalLog)   # .NET resolves relative paths elsewhere
-function Write-ApprovalLine([string] $line) {
+function Write-ApprovalLine([string] $line, [switch] $Outcome) {
   if ($DryRun) { Say "DRY RUN: would log to ${ApprovalLog}: $line"; return }
   try {
     [void](New-Item -ItemType Directory -Force -Path (Split-Path -Parent $ApprovalLog))
     [IO.File]::AppendAllText($ApprovalLog, "$line`n", $Utf8)
-  } catch { Refuse "could not record Josh's go in $ApprovalLog (an approval that is not logged is not given)." }
+  } catch {
+    # The go is a gate (refuse); the outcome line after a finished promote is a record, and
+    # failing to write it must not report a promote that happened as a failure.
+    if ($Outcome) { [Console]::Error.WriteLine("publish-r2: WARNING could not append the outcome line to $ApprovalLog; the promote itself completed"); return }
+    Refuse "could not record Josh's go in $ApprovalLog (an approval that is not logged is not given)."
+  }
 }
 function Stamp { [DateTime]::UtcNow.ToString('yyyy-MM-ddTHH:mm:ssZ', $Invariant) }
 
@@ -398,7 +423,10 @@ if ($PSCmdlet.ParameterSetName -ceq 'Staging') {
 
   # Zip, then sidecar, then pointer LAST, so the pointer never names bytes that are not up.
   # A replace of an existing versioned name is not immutable any more, so it is no-cache too.
-  if ($existing -and (Sha256-Bytes $existing.Bytes) -cne $Sha) { $putExtra = $NoCache }   # a same-bytes re-run stays cacheable
+  # A real replace (-ReplaceVersioned, different bytes) is no-cache, and pinned with If-Match to
+  # the object read above, so a promote of this version landing in between makes it refuse
+  # (R2 honours If-Match on PUT, measured 2026-09-25). A same-bytes re-run stays cacheable.
+  if ($existing -and (Sha256-Bytes $existing.Bytes) -cne $Sha) { $putExtra = @{ 'cache-control' = 'no-cache'; 'if-match' = $existing.ETag } }
   if (-not $DryRun) { $script:AfterNote = " (staging writes had begun: $Versioned may be up; latest-win-staging.json still names the previous build unless the run said it was written. Re-run the same command to finish.)" }
   Put-Object $Versioned $null $ZipPath $Sha 'application/zip' $putExtra
   $side = New-SidecarBytes $Sha $Versioned
@@ -422,7 +450,10 @@ if ($PSCmdlet.ParameterSetName -ceq 'Staging') {
 # ========================================== PROMOTE ============================================
 Assert-Version 'approved version' $ApprovedVersion
 Assert-Sha '-ApprovedSha' $ApprovedSha
-if ($ApprovalRef -cnotmatch '^[A-Za-z0-9._:/?=&%#+-]+\z') { Refuse "-ApprovalRef '$ApprovalRef' is not a Slack message ts or permalink. Nothing was written." }
+# A bare Slack ts is exactly 10 digits, a dot and 6 digits. Unquoted at a PowerShell prompt it
+# is read as a NUMBER and rounded (1789228393.821399 -> 1789228393.8214); that must refuse,
+# not be logged as Josh's go. A permalink is https://.
+if (-not ($ApprovalRef -cmatch '^[0-9]{10}\.[0-9]{6}\z' -or $ApprovalRef -cmatch '^https://[A-Za-z0-9._:/?=&%#+-]+\z')) { Refuse "-ApprovalRef '$ApprovalRef' is not a Slack message ts (10 digits . 6 digits) or an https:// permalink. Quote it: -ApprovalRef '<ts or permalink>'. Nothing was written." }
 $Cred = Read-Credentials
 $Versioned = "kosmos-$ApprovedVersion-win-$Arch.zip"
 
@@ -451,7 +482,7 @@ $nodeExe = Get-Command node -CommandType Application -ErrorAction SilentlyContin
 if (-not $nodeExe) { Refuse "node (an executable, not a .cmd shim) is required to validate the verification record. Nothing was written." }
 if (-not (Test-Path -LiteralPath $spec)) { Refuse "the record spec $spec is missing. Nothing was written." }
 $verdictJs = @'
-const [specFile, wantVersion, wantSha] = process.argv.slice(2);   // run as a file: argv[1] is the script
+const [specFile, wantVersion, wantSha] = process.argv.slice(2);   // `node - a b c`: argv[1] is '-'
 const spec = require(specFile); const fs = require('node:fs');
 const file = spec.recordPath(process.env, wantSha);
 let bytes; try { bytes = fs.readFileSync(file); } catch { console.log('HOLD no verification record at ' + file); process.exit(2); }
@@ -461,12 +492,11 @@ const { problems, verdict } = spec.validateRecord(record, { version: wantVersion
 if (problems.length) { console.log('AMBIGUOUS ' + problems.join('; ')); process.exit(3); }
 console.log((verdict === 'pass' ? 'PASS ' : 'FAIL ') + sha + ' ' + file); process.exit(verdict === 'pass' ? 0 : 4);
 '@
-$verdictFile = Join-Path ([IO.Path]::GetTempPath()) ("kosmos-verdict-" + [Guid]::NewGuid().ToString('N') + '.js')
-[IO.File]::WriteAllText($verdictFile, $verdictJs, $Utf8)
 $prevEnc = [Console]::OutputEncoding
 $rc = -1
-try { [Console]::OutputEncoding = $Utf8; $verdict = (& $nodeExe.Source $verdictFile $spec $ApprovedVersion $ApprovedSha) -join ' '; $rc = $LASTEXITCODE }
-finally { [Console]::OutputEncoding = $prevEnc; Remove-Item -LiteralPath $verdictFile -Force -ErrorAction SilentlyContinue }
+# The script goes to node on STDIN (`node -`), so there is no temp file another process could swap.
+try { [Console]::OutputEncoding = $Utf8; $verdict = ($verdictJs | & $nodeExe.Source - $spec $ApprovedVersion $ApprovedSha) -join ' '; $rc = $LASTEXITCODE }
+finally { [Console]::OutputEncoding = $prevEnc }
 if ($rc -ne 0) { Refuse "the verification record does not pass ($verdict). Verify the staged build on this PC first (node tools/win-staging-verify.js). Nothing was written." }
 $recordSha = ($verdict -split ' ')[1]; $recordPath = ($verdict -split ' ', 3)[2]
 Say "verification record: $verdict"
@@ -485,9 +515,10 @@ Write-ApprovalLine "$(Stamp) family=win path=promote-r2 version=$ApprovedVersion
 # the bucket BEFORE prod's pointer moves; then latest-win.json LAST, the staging bytes verbatim.
 # From the first prod-facing write on, a failure says what may already have changed.
 if (-not $DryRun) { $script:AfterNote = " (prod-facing writes had begun: the alias, its sidecar or latest-win.json may already have changed. Re-run the same -Promote command to finish; it re-checks everything first.)" }
-# For a moment the alias holds the new zip while its sidecar still names the old one. Safe
-# because no client reads the alias except after reading latest-win.json (written LAST): the
-# updater's generic-name fallback pins the sha from that pointer (engine/win32update.js).
+# For a moment the alias holds the new zip while its sidecar still names the old one. The
+# updater never sees that (its alias fallback pins the sha from latest-win.json, written LAST),
+# but the website's download button fetches the alias directly: a run that dies between these
+# two writes leaves web downloads on the new zip with a stale sidecar. Re-run to finish.
 Copy-Object $Versioned $Alias $staged.ETag
 $aliasSide = New-SidecarBytes $ApprovedSha $Alias
 Put-Object "$Alias.sha256" $aliasSide $null (Sha256-Bytes $aliasSide) 'text/plain; charset=utf-8' $NoCache
@@ -497,7 +528,7 @@ if (-not $DryRun) {
 }
 Put-Object 'latest-win.json' $staging.Bytes $null (Sha256-Bytes $staging.Bytes) 'application/json' $NoCache
 if ($DryRun) { Say "DRY RUN complete: nothing was written."; exit 0 }
-$script:AfterNote = " (latest-win.json was written: prod points at $ApprovedVersion. Re-run the same -Promote command to finish the checks.)"
+$script:AfterNote = " (latest-win.json was written: prod points at $ApprovedVersion. To finish the checks, re-run the same -Promote with -DryRun, or compare the served files; a full re-run refuses if staging has moved since.)"
 # The versioned zip and its sidecar again, after the pointer names them: the updater fetches the
 # versioned sidecar first and refuses on a mismatch, and a -ReplaceVersioned staging run could
 # have changed them while this promote ran.
@@ -508,6 +539,6 @@ Assert-Served "$Alias.sha256" (Sha256-Bytes $aliasSide)
 Assert-Served 'latest-win.json' (Sha256-Bytes $staging.Bytes)
 Assert-Served $Versioned $ApprovedSha
 Assert-Served "$Versioned.sha256" (Sha256-Bytes (New-SidecarBytes $ApprovedSha $Versioned))
-Write-ApprovalLine "$(Stamp) family=win path=promote-r2 version=$ApprovedVersion sha256=$ApprovedSha approval_ref=$ApprovalRef promoted=yes $Where"
+Write-ApprovalLine "$(Stamp) family=win path=promote-r2 version=$ApprovedVersion sha256=$ApprovedSha approval_ref=$ApprovalRef promoted=yes $Where" -Outcome
 Say "PROMOTED $ApprovedVersion ($ApprovedSha) to prod; the bucket and the served bytes both verified."
 exit 0
