@@ -84,3 +84,32 @@ test('#3739 a guide with no session yet (an offline row) is not counted in the t
     assert.equal(s.counts.notRunning, 0, 'an offline guide was counted as not running');
   } finally { board.restore(); fs.rmSync(path.join(process.env.AGENT_WORKFORCE_WORKERS, GUIDE), { recursive: true, force: true }); }
 });
+
+test('#3739 markGuide names a default model for a Claude guide only (the OpenAI picker reads the field as a model id)', async () => {
+  const board = fleet.install([fleet.agent(GUIDE, { state: 'idle' })]);
+  try {
+    const s = await (await fetch(base + '/api/status')).json();
+    const real = s.agents.find((a) => a.sessionName === GUIDE);
+    assert.ok(real, 'CONTROL: the fleet card is there');
+    const base0 = { ...real, isGuide: undefined, role: undefined, modelName: null, plannedModelName: null };
+    for (const runner of ['codex', 'gemini', 'grok']) {
+      const [row] = markGuide([{ ...base0, runner }], GUIDE);
+      assert.equal(row.plannedModelName, null, runner + ' guide was given a Claude default-model line');
+      assert.equal(row.role, 'Kosmos Guide');
+    }
+    const [claude] = markGuide([{ ...base0, runner: 'claude' }], GUIDE);
+    assert.equal(claude.plannedModelName, 'Claude (its default model)', 'CONTROL: a Claude guide is named');
+  } finally { board.restore(); }
+});
+
+test('#3739 an unreadable removed list still marks the seeded guide, so it does not flicker onto the board', async () => {
+  const removal = require('./engine/remove');
+  const was = removal.removedNames;
+  removal.removedNames = () => ({ ok: false });
+  const board = fleet.install([fleet.agent(GUIDE, { state: 'idle' }), fleet.agent('mara', { state: 'idle' })]);
+  try {
+    const s = await (await fetch(base + '/api/status')).json();
+    assert.equal((s.agents.find((a) => a.sessionName === GUIDE) || {}).isGuide, true, 'an unchecked read unmarked the guide');
+    assert.equal(s.counts.total, 1);
+  } finally { board.restore(); removal.removedNames = was; }
+});

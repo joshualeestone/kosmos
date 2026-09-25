@@ -13,11 +13,10 @@ call to hide it; Josh ruled at 09:22: "I agree.. let's hide it" (grid, list, org
 - **Role text** (`engine/roles.js`): `GUIDE_TITLE`; the setup label is the title; the first line is
   "You are **{{NAME}}**, the Kosmos Guide. You are an AI version of Josh, ..." so a new guide's card parses the
   same title (the identity parser reads the text after "the" up to the full stop).
-- **Page** (`web/index.html`): `LISTED` (= `LAST` without the guide) is used wherever the page LISTS or COUNTS
-  agents: the grid, the list, the org chart, the tiles, the first-board flag, the connection banner, the
-  reports-to pickers, the project add pickers, the DM tally, and the tour's new-board test (an inline isGuide
-  filter at each). `LAST` stays complete for every lookup by name, so the guide's own page, its DM and the bubble
-  still find it.
+- **Page** (`web/index.html`): every place the page LISTS or COUNTS agents filters out the guide inline
+  (`!(a && a.isGuide === true)`): the grid, the list, the org chart, the tiles, the first-board flag, the connection
+  banner, the reports-to pickers, the project add pickers, the DM tally, and the tour's new-board test. `LAST` stays
+  complete for every lookup by name, so the guide's own page, its DM and the bubble still find it.
 
 ## Decided, and why
 - **Mark on the server, filter on the page at the listing sites.** Dropping the guide from the payload would break
@@ -32,6 +31,12 @@ call to hide it; Josh ruled at 09:22: "I agree.. let's hide it" (grid, list, org
   LISTED array) broke three web tests that evaluate page snippets without page globals, so they could not see it
   (measured). The rule is one expression, `!(a && a.isGuide === true)`, repeated; the browser check reads what is
   drawn (grid, list, tile, banner) rather than trusting the expression.
+
+## Accepted, and on the card
+- The guide's own attention state (needs you, the trust prompt, a lost connection) is shown nowhere now: the
+  bubble does not read the row's state. Follow-up for the bubble.
+- A reports-to that names the guide shows "You" in the menu and draws at the hub. Unlikely: the guide's own create
+  path sets no reports-to.
 
 ## Weakest premises
 - Listing sites were found by searching for `LAST`/`data.agents` uses; a listing built another way would still

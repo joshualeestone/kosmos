@@ -35778,7 +35778,7 @@ function paintReportsTo(a) {
   const sel = document.getElementById('d-reports');
   if (!wrap || !sel) return;
   const me = a && a.sessionName;
-  const others = (LAST || []).filter((a) => !(a && a.isGuide === true)).filter((x) => x && x.sessionName && x.sessionName !== me);
+  const others = (LAST || []).filter((x) => !(x && x.isGuide === true)).filter((x) => x && x.sessionName && x.sessionName !== me);
   /* 🛑 ALWAYS HERE, AND YOU ARE THE DEFAULT. This is the create form's ruling
      (0.2.95) arriving on the second surface that needed it, and it arrives late:
      Josh gave it once, for one screen, and this one kept the old shape for
