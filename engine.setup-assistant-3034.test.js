@@ -282,6 +282,18 @@ test('usable: create\'s gate decides; a DEFAULT Gemini or Grok KEY is also live-
   assert.deepEqual(checked, [], 'a subscription, a Claude default or a named key was live-checked again');
 });
 
+test('usable: a THROWING account check fails open and logs (#1916), unlike a refusal', async () => {
+  const row = { provider: 'anthropic', mod: './accounts', dir: '/h/.claude', account: null, authMode: null };
+  const logged = [];
+  const orig = console.error;
+  console.error = (...a) => { logged.push(a.join(' ')); };
+  try {
+    assert.equal(await setupAssistant.usable(row, { connectable: async () => { throw new Error('our own bug'); }, liveDefault: async () => true }), true);
+  } finally { console.error = orig; }
+  assert.ok(logged.some((l) => /#3660: setup guide account check errored/.test(l)), 'the crash was silent');
+  assert.equal(await setupAssistant.usable(row, { connectable: async () => ({ ok: false }), liveDefault: async () => true }), false, 'CONTROL: a refusal still refuses');
+});
+
 test('ensureGuide: picks the first USABLE model in provider order, skipping a dead one ahead of it', async () => {
   setupAssistant.resetEnsureGuideForTests();
   armed(true);

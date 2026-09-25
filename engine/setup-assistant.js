@@ -300,8 +300,10 @@ function listedModels({ listFor = (mod) => require(mod).list() } = {}) {
     }
   }
   /* WHO is in the fingerprint, not just WHERE: a new key or a different sign-in in the same
-     folder is a new connection (review round 6). Re-signing in to the SAME account in place
-     is invisible here; the one-hour cap below bounds that wait. */
+     folder is a new connection (review round 6). Two changes are invisible here, and the
+     one-hour cap below bounds both: re-signing in to the SAME account in place, and a new
+     key pasted over a Claude API-key account (Claude rows carry no key suffix, and the
+     listing should not start exposing one for this). */
   return { rows, fingerprint: rows.map((r) => `${r.provider}:${r.dir}:${r.authMode || ''}:${r.who}`).join('|') };
 }
 
@@ -309,7 +311,14 @@ function listedModels({ listFor = (mod) => require(mod).list() } = {}) {
    above. A live check that errors is uncertainty, not a refusal (create's own rule). */
 async function usable(row, { connectable = (q) => create.accountConnectable(q), liveDefault = defaultLive } = {}) {
   let gate;
-  try { gate = await connectable({ provider: row.provider, accountDir: row.account }); } catch { gate = { ok: false }; }
+  try { gate = await connectable({ provider: row.provider, accountDir: row.account }); }
+  catch (err) {
+    /* create's gate returns a state for every environmental case, so a throw is a bug in
+       our own code. Same rule as create (#1916): fail OPEN, and say so loudly, rather than
+       silently calling every model unusable and retrying forever with no trail. */
+    console.error('#3660: setup guide account check errored (failing open):', (err && err.stack) || err);
+    gate = { ok: true };
+  }
   if (!(gate && gate.ok)) return false;
   if (row.account === null && LIVE_CHECK_DEFAULT.has(row.provider) && row.authMode !== 'subscription') {
     let alive;
