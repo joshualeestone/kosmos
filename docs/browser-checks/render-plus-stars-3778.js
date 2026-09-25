@@ -65,6 +65,8 @@ const same = (m) => m && m.bufW > 0 && m.bufH > 0 && m.cssW > 0 && m.cssH > 0
       });
       await open();
       await page.waitForTimeout(600);
+      const watching = await page.evaluate(() => (typeof plusStarsObs !== 'undefined' && plusStarsObs !== null));
+      chk(watching, `${t} on Kosmos+ the size watcher is running`, String(watching));
       const settled = await read();
       chk(settled.active && same(settled), `${t} the star field's buffer has its displayed aspect once Kosmos+ has settled`, JSON.stringify(settled));
       if (SHOTS) await page.screenshot({ path: path.join(SHOTS, `3778-${w}x${h}.png`) });
@@ -74,6 +76,19 @@ const same = (m) => m && m.bufW > 0 && m.bufH > 0 && m.cssW > 0 && m.cssH > 0
       await page.waitForTimeout(300);
       const grown = await read();
       chk(same(grown) && grown.cssH > settled.cssH, `${t} after the section grows, the buffer follows (not only on a window resize)`, JSON.stringify({ settled, grown }));
+      /* Review pass 1: no blank frame when the buffer re-sizes. An observer made AFTER the page's own
+         fires after it in the same frame, before paint; the field it sees must already have dots. */
+      const blink = await page.evaluate(() => new Promise((resolve) => {
+        const c = document.getElementById('plus-stars');
+        const lit = () => { const g = c.getContext('2d'); const d = g.getImageData(0, 0, c.width, c.height).data; let n = 0; for (let i = 3; i < d.length; i += 4) if (d[i] > 0) n += 1; return n; };
+        let seen = null;
+        const ro = new ResizeObserver(() => { if (seen === null && c.width) { seen = { lit: lit(), bufH: c.height }; ro.disconnect(); resolve(seen); } });
+        ro.observe(c);
+        requestAnimationFrame(() => { const d = document.createElement('div'); d.id = 'check-3778-grow2'; d.style.height = '37px'; document.getElementById('s-sec-plus').appendChild(d); });
+        setTimeout(() => resolve(seen || { timeout: true }), 1500);
+      }));
+      chk(blink && blink.lit > 0, `${t} the field is drawn in the same frame it re-sizes (no blank frame)`, JSON.stringify(blink));
+      await page.evaluate(() => { const d = document.getElementById('check-3778-grow2'); if (d) d.remove(); });
       await page.evaluate(() => { const d = document.getElementById('check-3778-grow'); if (d) d.remove(); });
       await page.waitForTimeout(300);
 

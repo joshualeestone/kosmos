@@ -10,7 +10,9 @@
 - The window 'resize' handler could not see it: the window did not change size, the section did.
 
 ## Fix
-- plusStarsInit sizes from the canvas's own displayed rect (getBoundingClientRect).
+- plusStarsInit sizes from the canvas's own layout box (clientWidth/Height). (Pass 1 measured that the
+  ResizeObserver is what fixes the ovals; sizing from the canvas rather than the parent is kept because
+  it is the box the buffer is drawn onto, and clientWidth ignores transforms where a rect would not.)
 - plusStarsWatch: a ResizeObserver on the canvas re-sizes and re-seeds the field whenever its rounded
   box changes (content arriving, a column folding, a resize); disconnected in plusTeardown.
 
@@ -39,3 +41,12 @@
   web.plus-tab.test.js asserts the new sentence and the absence of "not open yet" (comments stripped,
   so a comment quoting the old sentence cannot satisfy or trip it); red with the old sentence back.
 - Shots: ~/.cache/claude-handoffs/shots-3780 -> the #3778 before/after (same page, both changes visible).
+
+## Review pass 1 (opus) on #3778: 0 blockers, 1 warning, 4 nits
+- W a blank frame on every observer-driven re-size (setting width clears the canvas and the observer
+  runs after that frame's rAF) -> plusStarsStart draws one frame at once; arm samples pixels from a
+  later observer before paint: 4009 lit, 0 without the fix (red).
+- N the rect sizing was untested and transform-sensitive -> clientWidth/Height, plan corrected.
+- N the disconnect arm passed when no observer was ever made -> an arm asserts the watcher runs on Kosmos+.
+- N the 1400x900 resize arm cannot fail there (the box does not move); it bites at 900x700. Not taken.
+- N re-seeding on every change: the named weakest premise.

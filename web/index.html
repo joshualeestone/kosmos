@@ -15674,12 +15674,13 @@ function plusMarkDraw(t) { var ctx = plusMarkCv.getContext('2d'); ctx.setTransfo
 function plusMarkRun() { cancelAnimationFrame(plusMarkRaf); plusMarkBuild(); var t0 = performance.now(), D = 1.5;
   (function f(now) { var t = (now - t0) / 1000; plusMarkDraw(t / D >= 1 ? null : t / D); if (t / D < 1) plusMarkRaf = requestAnimationFrame(f); })(performance.now()); }
 /* #3778 (Josh, 0.6.94: "the background circles are stretched out into really long elliptical
-   ovals"): the buffer is sized from the CANVAS'S OWN displayed box, not the parent's client box
-   read once at mount. The canvas is stretched by CSS (inset: 0) over #s-sec-plus, whose height
+   ovals"): the buffer is sized from the CANVAS'S OWN layout box (clientWidth/Height), and kept
+   there by plusStarsWatch; the parent's client box read once at mount is what went stale. The canvas is stretched by CSS (inset: 0) over #s-sec-plus, whose height
    moves after mount as the section's content paints in, so a buffer measured once was scaled
    unevenly onto a different box and every dot became an oval. plusStarsWatch below re-sizes it
    whenever that box changes, not only on a window resize. */
-function plusStarsInit() { var r = plusStarsCv.getBoundingClientRect(); plusSW = Math.max(1, Math.round(r.width)); plusSH = Math.max(1, Math.round(r.height));
+function plusStarsSize() { return [Math.max(1, plusStarsCv.clientWidth), Math.max(1, plusStarsCv.clientHeight)]; }   // the layout box (a transform does not change it)
+function plusStarsInit() { var sz = plusStarsSize(); plusSW = sz[0]; plusSH = sz[1];
   plusStarsCv.width = plusSW * PLUS_DPR; plusStarsCv.height = plusSH * PLUS_DPR; plusStarsCtx.setTransform(PLUS_DPR, 0, 0, PLUS_DPR, 0, 0);
   var rnd = function (a, b) { return a + Math.random() * (b - a); }, N = Math.min(150, Math.round(plusSW * plusSH / 7000));
   plusParts = []; for (var i = 0; i < N; i++) plusParts.push({ x: rnd(0, plusSW), y: rnd(0, plusSH), r: rnd(0.8, 2.5),
@@ -15693,7 +15694,13 @@ function plusStarsDraw(t) { plusStarsCtx.clearRect(0, 0, plusSW, plusSH);
     plusStarsCtx.globalAlpha = q.a * tw; plusStarsCtx.beginPath(); plusStarsCtx.arc(q.x, q.y, q.r, 0, 7); plusStarsCtx.fillStyle = q.c; plusStarsCtx.fill(); }
   plusStarsCtx.globalAlpha = 1; }
 function plusStarsLoop(now) { plusStarsDraw(now); plusStarsRaf = requestAnimationFrame(plusStarsLoop); }
-function plusStarsStart() { cancelAnimationFrame(plusStarsRaf); plusStarsInit(); if (plusReduce) plusStarsDraw(0); else plusStarsRaf = requestAnimationFrame(plusStarsLoop); }
+/* #3778 (review pass 1): one frame is drawn AT ONCE after sizing. Setting the canvas's width clears
+   it, and a ResizeObserver callback runs after that frame's requestAnimationFrame callbacks, so
+   waiting for the loop's next frame painted an empty field for a frame on every re-size (a blink
+   each time the section's content changed height). */
+function plusStarsStart() { cancelAnimationFrame(plusStarsRaf); plusStarsInit();
+  plusStarsDraw(plusReduce ? 0 : ((typeof performance !== 'undefined' && performance.now) ? performance.now() : 0));
+  if (!plusReduce) plusStarsRaf = requestAnimationFrame(plusStarsLoop); }
 /* #3778: the star field follows its canvas's displayed size. A change in the rounded box (the
    section's content arriving, a sidebar folding, a window resize) re-sizes the buffer and re-seeds
    the field so the dots stay round; an unchanged box does nothing. */
@@ -15702,8 +15709,8 @@ function plusStarsWatch() {
   if (plusStarsObs || typeof ResizeObserver !== 'function' || !plusStarsCv) return;
   plusStarsObs = new ResizeObserver(function () {
     if (!plusMounted || !plusStarsCv) return;
-    var r = plusStarsCv.getBoundingClientRect();
-    if (Math.max(1, Math.round(r.width)) === plusSW && Math.max(1, Math.round(r.height)) === plusSH) return;
+    var sz = plusStarsSize();
+    if (sz[0] === plusSW && sz[1] === plusSH) return;
     plusStarsStart();
   });
   plusStarsObs.observe(plusStarsCv);
