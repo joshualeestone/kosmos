@@ -1543,6 +1543,63 @@ html.tip-dimming:not([data-layout="consolidated"]) > body { min-height: 100vh; }
 .asb button:focus-visible, .asp button:focus-visible, .asb-nudge button:focus-visible { outline: 2px solid var(--k-ink); outline-offset: 2px; }
 .asp-ask button.pri:focus-visible, .asp-in button:focus-visible { outline-color: #14161a; }
 @media (max-width: 40rem) { .asp { right: 12px; left: 12px; width: auto; max-width: none; } .asb-nudge { display: none; } }
+/* #3564 (Josh, 2026-09-24, mock approved 12:13): Agent Swarms. Built as chaoskosmos-site
+   design/agent-swarms.html (c8284df). A swarm is one agent to the person; the cluster is its avatar. */
+.swc { position: relative; display: inline-block; flex: none; vertical-align: middle; }
+.swc .swd { position: absolute; border-radius: 50%; overflow: hidden; display: grid; place-items: center;
+  font: 700 var(--swd-font, 10px) var(--font-ui); box-shadow: 0 0 0 var(--swd-edge, 1px) var(--k-bg); background-size: cover; background-position: center; }
+.swc .swd.rest { opacity: .72; filter: saturate(.7); }
+.swc .swd.on { opacity: 1; box-shadow: 0 0 0 var(--swd-edge, 1px) var(--k-bg), 0 0 0 calc(var(--swd-edge, 1px) + 1.5px) var(--gold-bright); }
+.swc .swb { position: absolute; right: -4px; bottom: -3px; padding: 0 5px; border-radius: 999px; background: var(--k-ink); color: var(--k-bg);
+  font: 700 .625rem/15px var(--font-ui); letter-spacing: .02em; box-shadow: 0 0 0 2px var(--k-bg); }
+.swc .swring { position: absolute; inset: 0; border-radius: 50%; box-shadow: 0 0 0 2.5px var(--ok); pointer-events: none; }
+/* The Agent / Swarm choice at the top of New agent (the mock's two cards). */
+.ctype { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin: 0 0 var(--space-6); border: 0; padding: 0; min-width: 0; }
+.ctype-opt { display: flex; gap: 12px; align-items: center; padding: 12px 14px; border: 1px solid var(--k-rule); border-radius: 12px;
+  background: var(--k-surface); cursor: pointer; position: relative; }
+.ctype-opt input { position: absolute; width: 1px; height: 1px; margin: 0; opacity: 0; pointer-events: none; }
+.ctype-opt:has(input:checked) { border-color: var(--gold-edge); box-shadow: 0 0 0 1px var(--gold-edge); background: color-mix(in srgb, var(--gold-bright) 8%, var(--k-surface)); }
+.ctype-opt:has(input:focus-visible) { outline: 2px solid var(--k-ink); outline-offset: 2px; }
+.ctype-opt b { display: block; }
+.ctype-opt .d { display: block; font-size: .8125rem; color: var(--k-ink-2); line-height: 1.35; }
+.ctype-dot { width: 44px; height: 44px; border-radius: 50%; flex: none; display: grid; place-items: center; background: var(--k-side); font: 700 1rem var(--font-ui); color: var(--k-ink-2); }
+@media (max-width: 40rem) { .ctype { grid-template-columns: 1fr; } }
+/* Sliders: the mock's value beside the track, gold. */
+.swrow, .swticks { max-width: 26rem; }
+.swrow { display: flex; align-items: center; gap: 12px; }
+.swrow input[type="range"] { flex: 1; accent-color: var(--gold-deep); min-width: 0; }
+.swval { font: 700 .9375rem var(--font-ui); font-variant-numeric: tabular-nums; min-width: 3ch; text-align: right; color: var(--k-ink); }
+.swticks { display: flex; justify-content: space-between; font-size: .75rem; color: var(--k-ink-2); margin-top: 2px; padding-right: calc(3ch + 12px); }
+.swwarn { max-width: 34rem; display: flex; gap: 10px; align-items: flex-start; margin: 10px 0 0; padding: 10px 12px; border: 1px solid color-mix(in srgb, var(--gold-edge) 55%, transparent);
+  border-radius: 10px; background: color-mix(in srgb, var(--gold-bright) 9%, transparent); font-size: .875rem; line-height: 1.45; color: var(--k-ink); }
+.swwarn .i { flex: none; width: 20px; height: 20px; border-radius: 50%; background: var(--gold-bright); color: #14161a; display: grid; place-items: center; font: 800 .75rem var(--font-ui); }
+.swpanel { display: grid; gap: 10px; margin: var(--space-5) 0 0; text-align: left; }
+/* The page's cluster needs its badge: the circle frame does not clip while a swarm shows. */
+.detail-av:has(#d-swarm:not([hidden])) { overflow: visible; background: transparent !important; }
+.swpanel[hidden] { display: none; }
+.swbox { border: 1px solid var(--k-rule); border-radius: 12px; padding: 10px 12px; background: var(--k-surface); }
+.swlab { display: block; margin: 0 0 6px; font: 650 .75rem var(--font-ui); letter-spacing: .02em; color: var(--k-ink-2); text-transform: uppercase; }
+.swctl { display: flex; gap: 8px 16px; align-items: center; flex-wrap: wrap; }   /* #3564 review: Stop now kept apart from the two settings beside it; wrapped under them it lines up, no indent */
+.swmode { margin: 0; flex: 1 1 auto; }
+.swmode .pj-mode-opt { font-size: 13px; min-height: 30px; }
+.swstop { border: 1.5px solid var(--danger); color: var(--danger); background: transparent; font-weight: 650; }
+.swstop:hover { background: color-mix(in srgb, var(--danger) 10%, transparent); }
+.swstop:disabled { opacity: .5; }
+.swwhy { margin: 6px 0 0; font-size: .8125rem; color: var(--k-ink); }
+.swbar { height: 8px; border-radius: 999px; background: var(--k-side); overflow: hidden; margin: 2px 0 6px; }
+.swbar i { display: block; height: 100%; background: var(--ok); border-radius: 999px; }   /* the mock's green: gold means selected */
+.swnums { display: flex; justify-content: space-between; flex-wrap: wrap; gap: 6px; font-size: .8125rem; font-variant-numeric: tabular-nums; }
+.swnums span + span { color: var(--k-ink-2); }
+.pj-swface { background: transparent !important; overflow: visible; }
+.swmini { display: inline-flex; border: 0.5px solid var(--separator); border-radius: var(--radius-control); overflow: hidden; background: var(--bg-elevated); flex: none; margin-left: auto; }
+.swmini button { border: 0; background: none; padding: 3px 9px; font: 600 12px var(--font-ui); color: var(--label-2); cursor: pointer; }
+.swmini button + button { border-left: 0.5px solid var(--separator); }
+.swmini button[aria-pressed="true"] { background: var(--gold-bright); color: #14161a; }
+.swmini-msg { flex-basis: 100%; font-size: .75rem; color: var(--danger); }
+.swmini-msg:empty { display: none; }
+.swmini button:focus-visible { outline: 2px solid var(--label); outline-offset: -2px; }
+.swfixed { font-size: .9375rem; }
+.swfixed span { color: var(--k-ink-2); font-size: .8125rem; margin-left: 6px; }
 .userpop-plus { font-weight: 600; }
 /* --gold-deep, not --gold: --gold (#d6a62e) is only 2.25:1 on the light menu bg (#ffffff),
    under the 3:1 non-text-contrast floor (WCAG SC 1.4.11) this file measures every accent
@@ -9289,6 +9346,7 @@ window.kosmosMeasureScrollbarWidth();
       <div class="detail-av">
         <img id="d-img" alt="" hidden>
         <div id="d-initials" class="detail-initials"></div>
+        <span id="d-swarm" hidden></span>
       </div>
       <span class="membadge" id="d-membadge" hidden></span>
     </div>
@@ -9343,6 +9401,36 @@ window.kosmosMeasureScrollbarWidth();
         <button type="button" class="btn" id="d-start-agent">Start this agent</button>
         <p class="fmsg" id="d-start-msg" role="status" aria-live="polite"></p>
       </div>
+      <!-- #3564: a swarm's controls, under its name on every section (the mock, section 3). Shown only for a swarm
+           when the engine is in (swarmPagePaint). Stop now is outlined red and never inside a menu. -->
+      <section class="swpanel" id="d-swarm-panel" hidden aria-label="Swarm controls">
+        <div class="swbox">
+          <h3 class="swlab">Swarm</h3>
+          <div class="swctl">
+            <fieldset class="pj-mode swmode"><legend class="vh">Active or paused</legend>
+              <label class="pj-mode-opt"><input type="radio" name="d-swarm-active" value="on"> Active</label>
+              <label class="pj-mode-opt"><input type="radio" name="d-swarm-active" value="off"> Paused</label>
+            </fieldset>
+            <button type="button" class="btn swstop" id="d-swarm-stop" aria-describedby="d-swarm-stop-hint">Stop now</button>
+          </div>
+          <p class="dhint" id="d-swarm-stop-hint">Stop now ends its current work and every helper straight away, and pauses it until you switch it back to Active. Work not handed back is dropped.</p>
+          <p class="swwhy" id="d-swarm-why" hidden></p>
+        </div>
+        <div class="swbox">
+          <label class="swlab" for="d-swarm-max">Most helpers at once</label>
+          <div class="swrow"><input type="range" id="d-swarm-max" min="2" max="10" step="1" aria-describedby="d-swarm-warn"><span class="swval" id="d-swarm-max-v"></span></div>
+          <p class="dhint" id="d-swarm-warn"></p>
+        </div>
+        <div class="swbox">
+          <h3 class="swlab">Today</h3>
+          <div class="swbar" aria-hidden="true"><i id="d-swarm-bar"></i></div>
+          <div class="swnums"><span id="d-swarm-today"></span><span id="d-swarm-limit"></span></div>
+          <p class="dhint" id="d-swarm-hint">Pauses itself at the limit and tells you. Resets at midnight.</p>
+          <label class="swlab" for="d-swarm-cap" style="margin-top:8px">Daily limit</label>
+          <div class="swrow"><input type="range" id="d-swarm-cap" min="1" max="20" step="1"><span class="swval" id="d-swarm-cap-v"></span></div>
+        </div>
+        <p class="fmsg" id="d-swarm-msg" role="status" aria-live="polite"></p>
+      </section>
       <!-- #569 put two notes under the badge: where the state came from, and the two
            witnesses disagreeing. #3729 (Josh, 2026-09-25) removed the second one and its
            slot for good: no agent-status diagnostic sentence on an agent's page or card. -->
@@ -12290,6 +12378,13 @@ window.kosmosMeasureScrollbarWidth();
   <div id="cstep-name" hidden>
     <h2 id="create-meet">Set up your agent</h2>
     <p id="create-blurb"></p>
+    <!-- #3564: Agent / Swarm, shown only when the board's engine can make a swarm (SWARMS_ON). Native radios in
+         a fieldset, as the other choices here; the card is the label. -->
+    <fieldset class="ctype" id="create-kind" hidden>
+      <legend class="vh">What kind of agent</legend>
+      <label class="ctype-opt"><input type="radio" name="create-kind" value="agent" aria-label="Agent" checked><span class="ctype-dot" id="create-kind-agent-face" aria-hidden="true"></span><span><b>Agent</b><span class="d">One agent, works on one thing at a time.</span></span></label>
+      <label class="ctype-opt"><input type="radio" name="create-kind" value="swarm" aria-label="Swarm"><span id="create-kind-swarm-face" aria-hidden="true"></span><span><b>Swarm</b><span class="d">A team that answers as one. Faster on big jobs, uses more tokens.</span></span></label>
+    </fieldset>
 
 
     <!-- ⚠️ NO BOX around this form (pack): each step is its own pane now,
@@ -12410,6 +12505,25 @@ window.kosmosMeasureScrollbarWidth();
          what the engine can read. Whoever wires a second provider into the create
          path enables its option in the same change, because the failure direction
          is understating the product on the screen where somebody is choosing. -->
+    <!-- #3564: the swarm's two settings and the warning beside them (the mock, section 1). -->
+    <section class="sform-sec" id="create-swarm" hidden>
+      <div class="field">
+        <span class="flabel">Runs on</span>
+        <p class="swfixed"><b>Claude</b><span>Swarms use Claude for now. More choices later.</span></p>
+      </div>
+      <div class="field">
+        <label class="flabel" for="create-swarm-max">Most helpers at once</label>
+        <div class="swrow"><input type="range" id="create-swarm-max" min="2" max="10" step="1" value="3"><span class="swval" id="create-swarm-max-v">3</span></div>
+        <div class="swticks" aria-hidden="true"><span>2</span><span>10</span></div>
+        <p class="dhint">The swarm adds helpers when there is a lot to split and lets them go when there is not. With nothing to split, it works alone.</p>
+        <p class="swwarn" id="create-swarm-warn" role="note"><span class="i" aria-hidden="true">!</span><span></span></p>
+      </div>
+      <div class="field">
+        <label class="flabel" for="create-swarm-cap">Daily limit</label>
+        <div class="swrow"><input type="range" id="create-swarm-cap" min="1" max="20" step="1" value="6"><span class="swval" id="create-swarm-cap-v"></span></div>
+        <p class="dhint">When it reaches this, the swarm pauses itself until tomorrow and tells you. You can raise it any time.</p>
+      </div>
+    </section>
     <div class="field" id="create-model-field">
       <span class="flabel" id="create-model-lab">Model <span class="flabel-soft">(you can change this later)</span></span>
       <div class="msteps" role="group" aria-labelledby="create-model-lab">
@@ -16789,6 +16903,11 @@ function discInk(name) { return DISC_INKS[discIndex(name)]; }
  * the defect this codebase names as its worst habit.
  */
 function face(a) {
+  /* #3564: a swarm's face is its cluster, drawn in this same 72-unit box so every card, the not-running card
+     and the memory ring (which then goes round the whole cluster, the lead's memory) get it from one place. */
+  /* Checked for presence, not read: until the engine is in, /api/status emits no `swarm`, and a lifted copy of
+     this function (the unit tests) has no SWARMS_ON. */
+  if (a && (typeof SWARMS_ON !== 'undefined' && SWARMS_ON && Object.prototype.hasOwnProperty.call(a, 'swarm') && a.swarm)) return swarmFaceSvg(a);
   /* The clip id lands in id="…" AND url(#…) -- an attribute and a CSS
      reference -- so esc() is the wrong tool (entities decode in one context
      and not the other). A slug restricted to id-safe characters is correct
@@ -16962,7 +17081,7 @@ function card(a) {
       return `<div class="acard attn notrunning needstrust" data-agent="${esc(a.sessionName)}"${Number.isFinite(Number(a && a.dmUnread)) && Number(a && a.dmUnread) > 0 ? ' data-has-msgs' : ''}${a && (a.state === 'needs_you' || a.state === 'needs_trust' || (a.state === 'connection_lost' && a.reconnect && a.reconnect.phase === 'gave_up')) ? ' data-attn' : ''}${a && a.state === 'needs_you' && a.stateProject === null ? ' data-noproj' : ''}>
       <div class="agauge"><svg viewBox="0 0 72 72" role="img" aria-label="${esc(a.name)}. Waiting at a workspace-trust prompt.">${face(a)}</svg><span class="pres unsure" aria-hidden="true"></span>${dmBadge(a)}</div>
       <div class="aname"><button class="namego" type="button" aria-label="Open ${esc(a.name)}">${esc(a.name)}</button></div>
-      <div class="ameta">${esc(roleLine(a, ROLE_TITLES))}</div>
+      <div class="ameta">${esc((typeof SWARMS_ON !== 'undefined' && SWARMS_ON && Object.prototype.hasOwnProperty.call(a, 'swarm') && a.swarm) ? 'Swarm · ' + swarmStatusWords(a) : roleLine(a, ROLE_TITLES))}</div>
       <div class="astate st-attn"><span class="haz" aria-hidden="true">!</span><b>${esc(STATE_COPY.needs_trust.label)}</b></div>
       <div class="note">${esc(a.because || 'It started but has not registered -- most likely waiting at a workspace-trust prompt no one can see.')}</div>
     </div>`;
@@ -16982,7 +17101,7 @@ function card(a) {
            pill is the one that carries it. -->
       <span class="pres off" aria-hidden="true"></span>${dmBadge(a)}</div>
     <div class="aname"><button class="namego" type="button" aria-label="Open ${esc(a.name)}">${esc(a.name)}</button></div>
-    <div class="ameta">${esc(roleLine(a, ROLE_TITLES))}</div>
+    <div class="ameta">${esc((typeof SWARMS_ON !== 'undefined' && SWARMS_ON && Object.prototype.hasOwnProperty.call(a, 'swarm') && a.swarm) ? 'Swarm · ' + swarmStatusWords(a) : roleLine(a, ROLE_TITLES))}</div>
     <div class="astate ${split ? 'st-unknown' : 'st-stopped'}">${split ? GLYPH.unknown : GLYPH.stopped}<b>${split ? STATE_COPY.unknown.label : 'Not running'}</b></div>
   </div>`;
   }
@@ -17023,7 +17142,7 @@ function card(a) {
   return `<div class="acard ${boardMods(a, m)}" data-agent="${esc(a.sessionName)}"${Number.isFinite(Number(a && a.dmUnread)) && Number(a && a.dmUnread) > 0 ? ' data-has-msgs' : ''}${a && (a.state === 'needs_you' || a.state === 'needs_trust' || (a.state === 'connection_lost' && a.reconnect && a.reconnect.phase === 'gave_up')) ? ' data-attn' : ''}${a && a.state === 'needs_you' && a.stateProject === null ? ' data-noproj' : ''}>
     <div class="agauge">${ring(a)}${pres}${badge}${dmBadge(a)}</div>
     <div class="aname"><button class="namego" type="button" aria-label="Open ${esc(a.name)}">${esc(a.name)}</button>${staleBadge(a)}</div>
-    <div class="ameta">${esc(roleLine(a, ROLE_TITLES))}</div>
+    <div class="ameta">${esc((typeof SWARMS_ON !== 'undefined' && SWARMS_ON && Object.prototype.hasOwnProperty.call(a, 'swarm') && a.swarm) ? 'Swarm · ' + swarmStatusWords(a) : roleLine(a, ROLE_TITLES))}</div>
     <div class="astate st-${m.st}">${glyphOf(a)}<b>${esc(copy.label)}</b>${answer}</div>
     ${a.activeWhileWaiting ? '<div class="alsowork"><span class="act" aria-hidden="true"><i></i><i></i><i></i></span><span>Working now</span></div>' : ''}
     <div class="amodel">${esc(modelLine(a))}</div>
@@ -17154,26 +17273,26 @@ function lrow(a) {
        leaves them. The state word carries the diagnosis; the full because rides
        the card and the detail panel, which have the room the row does not. */
     if (a.needsTrust === true) {
-      const tav = a.hasAvatar
+      const tav = (typeof SWARMS_ON !== 'undefined' && SWARMS_ON && Object.prototype.hasOwnProperty.call(a, 'swarm') && a.swarm) ? swarmCluster(a, 34, { decorative: true }) : a.hasAvatar
         ? `<img src="/api/agent/${encodeURIComponent(a.sessionName)}/avatar" alt="">`
         : `<span class="lavtint" style="background:${discTint(a.name)};color:${discInk(a.name)}">${esc(initials(a.name))}</span>`;
       return `<div class="lrow attn notrunning needstrust" data-agent="${esc(a.sessionName)}"${Number.isFinite(Number(a && a.dmUnread)) && Number(a && a.dmUnread) > 0 ? ' data-has-msgs' : ''}${a && (a.state === 'needs_you' || a.state === 'needs_trust' || (a.state === 'connection_lost' && a.reconnect && a.reconnect.phase === 'gave_up')) ? ' data-attn' : ''}${a && a.state === 'needs_you' && a.stateProject === null ? ' data-noproj' : ''}>
       <div class="lav">${tav}</div>${dmBadge(a)}
       <div class="lname"><b><button class="namego" type="button" aria-label="Open ${esc(a.name)}">${esc(a.name)}</button></b></div>
-      <div class="ltitle">${esc(roleLine(a, ROLE_TITLES))}</div>
+      <div class="ltitle">${esc((typeof SWARMS_ON !== 'undefined' && SWARMS_ON && Object.prototype.hasOwnProperty.call(a, 'swarm') && a.swarm) ? 'Swarm · ' + swarmStatusWords(a) : roleLine(a, ROLE_TITLES))}</div>
       <div class="lstate st-attn"><span class="haz" aria-hidden="true">!</span>${esc(STATE_COPY.needs_trust.label)}</div>
       <div class="ltask"></div>
       <div class="lmodel"></div>
       <div class="lmem"></div>
     </div>`;
     }
-    const off = a.hasAvatar
+    const off = (typeof SWARMS_ON !== 'undefined' && SWARMS_ON && Object.prototype.hasOwnProperty.call(a, 'swarm') && a.swarm) ? swarmCluster(a, 34, { decorative: true }) : a.hasAvatar
       ? `<img src="/api/agent/${encodeURIComponent(a.sessionName)}/avatar" alt="">`
       : `<span class="lavtint" style="background:${discTint(a.name)};color:${discInk(a.name)}">${esc(initials(a.name))}</span>`;
     return `<div class="lrow off notrunning" data-agent="${esc(a.sessionName)}"${Number.isFinite(Number(a && a.dmUnread)) && Number(a && a.dmUnread) > 0 ? ' data-has-msgs' : ''}${a && (a.state === 'needs_you' || a.state === 'needs_trust' || (a.state === 'connection_lost' && a.reconnect && a.reconnect.phase === 'gave_up')) ? ' data-attn' : ''}${a && a.state === 'needs_you' && a.stateProject === null ? ' data-noproj' : ''}>
       <div class="lav">${off}</div>${dmBadge(a)}
       <div class="lname"><b><button class="namego" type="button" aria-label="Open ${esc(a.name)}">${esc(a.name)}</button></b></div>
-      <div class="ltitle">${esc(roleLine(a, ROLE_TITLES))}</div>
+      <div class="ltitle">${esc((typeof SWARMS_ON !== 'undefined' && SWARMS_ON && Object.prototype.hasOwnProperty.call(a, 'swarm') && a.swarm) ? 'Swarm · ' + swarmStatusWords(a) : roleLine(a, ROLE_TITLES))}</div>
       <div class="lstate ${a.jobRunningUnseen === true ? 'st-unknown' : 'st-stopped'}">${a.jobRunningUnseen === true ? GLYPH.unknown + STATE_COPY.unknown.label : GLYPH.stopped + 'Not running'}</div>
       <div class="ltask"></div>
       <div class="lmodel"></div>
@@ -17184,7 +17303,7 @@ function lrow(a) {
   const copy = stateCopyOf(a);
   const pct = pctOf(a.context);
   const band = memBand(pct);
-  const av = a.hasAvatar
+  const av = (typeof SWARMS_ON !== 'undefined' && SWARMS_ON && Object.prototype.hasOwnProperty.call(a, 'swarm') && a.swarm) ? swarmCluster(a, 34, { decorative: true }) : a.hasAvatar
     ? `<img src="/api/agent/${encodeURIComponent(a.sessionName)}/avatar" alt="">`
     : `<span class="lavtint" style="background:${discTint(a.name)};color:${discInk(a.name)}">${esc(initials(a.name))}</span>`;
   /* ⚠️ A VISIBLE WORD, NOT AN EMPTY SLOT. This rendered a dashed track beside a
@@ -17232,7 +17351,7 @@ function lrow(a) {
   return `<div class="lrow ${boardMods(a, m)}" data-agent="${esc(a.sessionName)}"${Number.isFinite(Number(a && a.dmUnread)) && Number(a && a.dmUnread) > 0 ? ' data-has-msgs' : ''}${a && (a.state === 'needs_you' || a.state === 'needs_trust' || (a.state === 'connection_lost' && a.reconnect && a.reconnect.phase === 'gave_up')) ? ' data-attn' : ''}${a && a.state === 'needs_you' && a.stateProject === null ? ' data-noproj' : ''}>
     <div class="lav">${av}${lrowRing(a)}${m.st === 'attn' ? LROW_WARN : ''}</div>${dmBadge(a)}
     <div class="lname"><b><button class="namego" type="button" aria-label="Open ${esc(a.name)}">${esc(a.name)}</button>${staleBadge(a)}</b></div>
-    <div class="ltitle">${esc(roleLine(a, ROLE_TITLES))}</div>
+    <div class="ltitle">${esc((typeof SWARMS_ON !== 'undefined' && SWARMS_ON && Object.prototype.hasOwnProperty.call(a, 'swarm') && a.swarm) ? 'Swarm · ' + swarmStatusWords(a) : roleLine(a, ROLE_TITLES))}</div>
     <!-- #569: the said line stacks INSIDE the state cell -- the seven-slot
          rule above forbids an eighth child, and .lstate already stacks a
          second line within its own cell, so this is the sanctioned shape.
@@ -18548,6 +18667,12 @@ async function tick() {
     // #3574: whether this is someone new is decided by the board's FIRST answer, whatever the
     // tips are doing then (off, a dialog, first run); see tipAutoOk.
     if (TIP_NEW_BOARD === null && Array.isArray(data.agents)) TIP_NEW_BOARD = (data.agents || []).filter((a) => !(a && a.isGuide === true)).length === 0;
+    // #3564: whether the board's engine can make and run a swarm (the flag asked of the engine on #3564).
+    /* The flag when the engine sends it; until then the engine's own sign, a `swarm` key on the rows (null for an
+       ordinary agent, present only when the engine is in). An empty board shows neither, so New agent offers
+       Swarm once the flag lands (asked of the engine on #3564). */
+    SWARMS_ON = data.swarms === true || (Array.isArray(data.agents) && data.agents.some((x) => x && Object.prototype.hasOwnProperty.call(x, 'swarm')));
+    swarmCreatePaint();
     /**
      * 🛑 THE ROOM'S WORKING LINE PAINTS HERE, ON THE CLOCK ITS DATA ARRIVES ON.
      *
@@ -18635,6 +18760,7 @@ async function tick() {
     // one call. Same fact, one source: the shape this whole branch is about.
     if (CURRENT) {
       const fresh = data.agents.find((a) => a.sessionName === CURRENT.sessionName);
+      if (fresh) swarmPagePaint(fresh);   // #3564: the swarm panel and cluster follow every poll
 
       /* The window box rides the SAME fresh-card lookup as the write
          controls below (one fact, one derivation -- a second find() for
@@ -26314,6 +26440,20 @@ let DETAIL_FROM_PROJECT = null;
 function renderAvatar(a) {
   const img = document.getElementById('d-img');
   const ini = document.getElementById('d-initials');
+  /* #3564: a swarm's page shows its cluster in place of the picture (and it is repainted every poll, see tick). */
+  const swEl = document.getElementById('d-swarm');
+  if (swEl) {
+    const isSwarm = !!(a && (typeof SWARMS_ON !== 'undefined' && SWARMS_ON && Object.prototype.hasOwnProperty.call(a, 'swarm') && a.swarm));
+    swEl.hidden = !isSwarm;
+    if (isSwarm) {
+      const size = Math.round((swEl.parentElement && swEl.parentElement.getBoundingClientRect().width) || 88);
+      const html = swarmCluster(a, size);
+      if (swEl.innerHTML !== html) swEl.innerHTML = html;
+      img.hidden = true; ini.hidden = true;
+      ini.parentElement.style.background = 'transparent';
+      return;
+    }
+  }
   if (a && a.hasAvatar) {
     img.src = '/api/agent/' + encodeURIComponent(a.sessionName) + '/avatar?t=' + Date.now();
     img.hidden = false;
@@ -28719,6 +28859,7 @@ function openDetail(sessionName, section, fromProject) {
   document.getElementById('d-initials').textContent = initials(a.name);
 
   renderAvatar(a);
+  swarmPagePaint(a);   // #3564
   document.getElementById('d-msg').textContent = '';
   document.getElementById('d-role-msg').textContent = '';
   /* #149/#150: the Terminal-tab action receipts clear on switch for the same reason as
@@ -38903,8 +39044,306 @@ document.getElementById('orgchart-create').addEventListener('click', async () =>
    ARIA role PROMISED this behaviour, so the code had to keep the promise. A
    native radio makes the promise and keeps it in the same breath. */
 
+/* ---- #3564: Agent Swarms (the UI; the engine is Renet's, contract on #3564) ------------------------
+   Built as the approved mock (chaoskosmos-site design/agent-swarms.html, c8284df). Nothing here shows,
+   and no swarm route is called, until the board says its engine can run a swarm (/api/status swarms). */
+var SWARMS_ON = false;   // var, not let: the status handler far above writes it (no dead zone)
+
+/* Circle places as fractions of the box, the mock's own: 2-4 in a small group, 5-7 as a centre circle with
+   the rest evenly round it, so every count reads as round. */
+function swarmLayout(n) {
+  if (n <= 2) return { r: 0.21, p: [[0.3, 0.5], [0.7, 0.5]] };
+  if (n === 3) return { r: 0.2, p: [[0.5, 0.29], [0.3, 0.65], [0.7, 0.65]] };
+  if (n === 4) return { r: 0.19, p: [[0.31, 0.31], [0.69, 0.31], [0.31, 0.69], [0.69, 0.69]] };
+  const k = n - 1, d = n === 5 ? 0.28 : 0.31, r = n === 5 ? 0.17 : (n === 6 ? 0.155 : 0.145), pts = [[0.5, 0.5]];
+  for (let i = 0; i < k; i += 1) { const t = -Math.PI / 2 + i * 2 * Math.PI / k; pts.push([0.5 + d * Math.cos(t), 0.5 + d * Math.sin(t)]); }
+  return { r, p: pts };
+}
+/* The cluster avatar: the agent's own picture (or its initials on its tint), repeated in a round cluster.
+   The number of circles is the most helpers it can use (seven drawn at most; the badge carries the count),
+   each lit while a helper works; the badge says working/most at 32px and up; the memory ring goes round
+   the whole cluster when asked (it is the lead's memory). `a` is a status row with a swarm field, or a
+   stand-in { name, sessionName, hasAvatar, avatarVer, swarm: { maxHelpers, activeHelpers } }. */
+function swarmCluster(a, size, { ring = false, decorative = false } = {}) {
+  const sw = (a && a.swarm) || {};
+  const max = Math.max(2, Math.min(10, Number(sw.maxHelpers) || 3));
+  const measured = sw.metered !== false;   // not read in full: no circle lit, no count claimed
+  const real = measured ? Math.max(0, Number(sw.activeHelpers) || 0) : 0;
+  const live = Math.min(max, real);   // circles lit: at most the circles drawn
+  const n = Math.min(max, 7), L = swarmLayout(n), r = L.r * size;
+  const pic = a && a.hasAvatar && a.sessionName ? `url('/api/agent/${encodeURIComponent(a.sessionName)}/avatar?v=${a.avatarVer || 0}')` : '';
+  const tint = discTint(a && a.name), ink = discInk(a && a.name), ini = esc(initials(a && a.name));
+  const named = decorative ? 'aria-hidden="true"' : `role="img" aria-label="${esc(!measured ? 'Swarm, up to ' + max + ' helpers' : real > max ? 'Swarm, ' + real + ' helpers working, most ' + max : 'Swarm, ' + real + ' of ' + max + ' helpers working')}"`;
+  let h = `<span class="swc" ${named} style="width:${size}px;height:${size}px;--swd-font:${Math.max(7, Math.round(r * 0.95))}px;--swd-edge:${Math.max(1, size / 44).toFixed(1)}px">`;
+  for (let i = 0; i < n; i += 1) {
+    const x = L.p[i][0] * size - r, y = L.p[i][1] * size - r;
+    const look = pic ? `background-image:${pic}` : `background:${tint};color:${ink}`;
+    h += `<span class="swd ${i < live ? 'on' : 'rest'}" style="left:${x.toFixed(1)}px;top:${y.toFixed(1)}px;width:${(2 * r).toFixed(1)}px;height:${(2 * r).toFixed(1)}px;${look}">${pic || size < 56 ? '' : ini}</span>`;
+  }
+  if (ring) h += '<span class="swring" aria-hidden="true"></span>';
+  if (size >= 32 && measured) h += `<span class="swb" aria-hidden="true">${real}/${max}</span>`;
+  return h + '</span>';
+}
+
+/* The cluster inside face()'s 72-unit box (the avatar disc is r 23 at 36,36): the same layout as
+   swarmCluster, in SVG, with the badge as a small pill at the bottom right. */
+function swarmFaceSvg(a) {
+  const sw = a.swarm || {};
+  const max = Math.max(2, Math.min(10, Number(sw.maxHelpers) || 3));
+  const measured = sw.metered !== false;
+  const real = measured ? Math.max(0, Number(sw.activeHelpers) || 0) : 0;
+  const live = Math.min(max, real);
+  const n = Math.min(max, 7), L = swarmLayout(n), size = 46, off = 13, r = L.r * size;
+  const id = 'swc-' + String(a.sessionName || a.name || 'x').replace(/[^A-Za-z0-9_-]/g, '_');
+  const href = a.hasAvatar ? `/api/agent/${encodeURIComponent(a.sessionName)}/avatar?v=${a.avatarVer || 0}` : '';
+  let h = '<defs>';
+  for (let i = 0; i < n; i += 1) h += `<clipPath id="${id}-${i}"><circle cx="${(off + L.p[i][0] * size).toFixed(1)}" cy="${(off + L.p[i][1] * size).toFixed(1)}" r="${r.toFixed(1)}"/></clipPath>`;
+  h += '</defs>';
+  for (let i = 0; i < n; i += 1) {
+    const cx = off + L.p[i][0] * size, cy = off + L.p[i][1] * size, on = i < live;
+    h += `<g style="opacity:${on ? 1 : 0.72}">`;
+    h += href
+      ? `<image href="${href}" x="${(cx - r).toFixed(1)}" y="${(cy - r).toFixed(1)}" width="${(2 * r).toFixed(1)}" height="${(2 * r).toFixed(1)}" preserveAspectRatio="xMidYMid slice" clip-path="url(#${id}-${i})"/>`
+      : `<circle cx="${cx.toFixed(1)}" cy="${cy.toFixed(1)}" r="${r.toFixed(1)}" style="fill:${discTint(a.name)}"/>`;
+    h += `<circle cx="${cx.toFixed(1)}" cy="${cy.toFixed(1)}" r="${r.toFixed(1)}" fill="none" style="stroke:var(--k-bg)" stroke-width="1"/>`;
+    if (on) h += `<circle cx="${cx.toFixed(1)}" cy="${cy.toFixed(1)}" r="${(r + 1.3).toFixed(1)}" fill="none" style="stroke:var(--gold-bright)" stroke-width="1.3"/>`;
+    h += '</g>';
+  }
+  const label = measured ? real + '/' + max : 'up to ' + max, bw = 7 + label.length * 5.2;
+  /* Bottom LEFT: the card's presence dot owns the bottom right. */
+  h += `<rect x="12" y="52" width="${bw.toFixed(1)}" height="12" rx="6" style="fill:var(--k-ink)"/><text x="${(12 + bw / 2).toFixed(1)}" y="58.3" text-anchor="middle" dominant-baseline="central" style="fill:var(--k-bg);font:700 8px var(--font-ui)">${label}</text>`;
+  return h;
+}
+/* The mock's status words for a swarm: "3 of 5 helpers working", "Idle, working alone", or why it is paused. */
+function swarmStatusWords(a) {
+  const sw = (a && a.swarm) || {};
+  if (sw.active === false) return sw.pausedBecause === 'limit' ? 'Paused at today\'s limit' : sw.pausedBecause === 'stopped' ? 'Stopped' : 'Paused';
+  const max = Number(sw.maxHelpers) || 0, live = Math.max(0, Number(sw.activeHelpers) || 0);   // the real count, not capped
+  /* Not read in full (metered false): the helper count is not a measurement, so claim none. */
+  if (sw.metered === false) return `Up to ${max} helpers`;
+  if (live > max) return `${live} helpers working (most ${max})`;   // the maximum was lowered, or the lead went over it
+  if (live > 0) return `${live} of ${max} helpers working`;
+  /* "Idle" only when the board says idle: a lead that is paused, stuck or unreadable is not idle, and the card's own
+     state pill already says which. */
+  const st = a && a.state;
+  return st === 'working' ? 'Working alone' : st === 'idle' ? 'Idle, working alone' : 'No helpers working';
+}
+/* The swarm's page (the mock, section 3): Active / Paused, Stop now, Most helpers, and Today. Painted from the
+   status row every poll; a control the person is using is not repainted under them. */
+var SWARM_ROW = null;   // the open swarm's latest status row, so a change or a slider reads today's numbers
+var SWARM_PAINTED = null;   // whose panel is on screen: a different agent's page starts with an empty message line
+function swarmPagePaint(a, { force = false } = {}) {
+  const panel = document.getElementById('d-swarm-panel');
+  if (!panel) return;
+  const sw = a && (typeof SWARMS_ON !== 'undefined' && SWARMS_ON && Object.prototype.hasOwnProperty.call(a, 'swarm') && a.swarm) ? a.swarm : null;
+  SWARM_ROW = sw ? a : null;
+  const who = a && a.sessionName;
+  if (who !== SWARM_PAINTED) { SWARM_PAINTED = who; document.getElementById('d-swarm-msg').textContent = ''; }
+  panel.hidden = !sw;
+  /* The page's header face follows the field: it gains or loses the cluster when a poll brings or drops `swarm`. */
+  { const head = document.getElementById('d-swarm'); if (head && a && (!!sw) === head.hidden && typeof renderAvatar === 'function') renderAvatar(a); }
+  /* A swarm runs on Claude only (the engine refuses a move off it), so it is not offered a switch that cannot work. */
+  { const pv = document.getElementById('d-provider'); const prow = pv && pv.closest('.frow'); if (prow) prow.hidden = !!sw; }
+  if (!sw) return;
+  renderAvatarSwarmOnly(a);
+  const on = sw.active !== false;
+  const want = document.querySelector(`input[name="d-swarm-active"][value="${on ? 'on' : 'off'}"]`);
+  if (want && !want.checked && SWARM_BUSY !== who) want.checked = true;
+  const why = document.getElementById('d-swarm-why');
+  const words = on ? '' : sw.pausedBecause === 'limit' ? `Paused at today's limit. It starts again at midnight, or switch it back to Active.`
+    : sw.pausedBecause === 'stopped' ? 'Stopped. Switch it back to Active when you want it working again.'
+    : 'Paused. It takes no new work until you switch it back to Active.';
+  why.textContent = words; why.hidden = !words;
+  /* Paused stops NEW helpers, not running ones (the contract), so Stop now stays while any helper works, and while
+     the count itself could not be read in full (metered false), since it may be missing one that is. */
+  /* A person's pause sends nothing to the lead, so its turn runs on: Stop now (the only interrupt) stays. It greys only
+     once it has nothing left to stop: stopped, or paused at the limit, with no helper counted in a full read. */
+  /* ...and only when the lead itself is known idle: the meter counts helpers only, and a stop whose interrupt failed
+     still leaves it paused as stopped with its turn running. Any other state (working, starting, unknown) keeps it. */
+  document.getElementById('d-swarm-stop').disabled = !on && (sw.pausedBecause === 'stopped' || sw.pausedBecause === 'limit') && !(Number(sw.activeHelpers) > 0) && sw.metered !== false && a.state === 'idle';
+  const max = Math.max(2, Math.min(10, Number(sw.maxHelpers) || 3));
+  const range = document.getElementById('d-swarm-max');
+  if ((force || document.activeElement !== range) && SWARM_BUSY !== who) range.value = String(max);
+  const shown = Number(range.value) || max;
+  document.getElementById('d-swarm-max-v').textContent = String(shown);
+  range.setAttribute('aria-valuetext', shown + ' helpers at most');
+  /* The ratio comes from the same read as tokensToday: not read in full, it is not a measurement either. */
+  document.getElementById('d-swarm-warn').innerHTML = swarmWarnWords(shown, sw.metered === false ? null : Number(sw.helperTokenRatio));
+  const used = Math.max(0, Number(sw.tokensToday) || 0), cap = Math.max(0, Number(sw.dailyTokenLimit) || 0);
+  /* metered false: today's tokens could not be read in full, so the number is a floor, not the day. Say so rather
+     than show a low number and a short bar that read as "plenty left" (Renet, #3564). */
+  const unmeasured = sw.metered === false;
+  document.getElementById('d-swarm-bar').style.width = (cap && !unmeasured ? Math.min(100, used / cap * 100) : 0).toFixed(1) + '%';
+  document.getElementById('d-swarm-bar').parentElement.hidden = unmeasured;
+  document.getElementById('d-swarm-today').textContent = unmeasured ? 'Could not measure today\'s tokens' : used.toLocaleString('en-US') + ' tokens';
+  document.getElementById('d-swarm-limit').textContent = !cap ? 'no limit set' : unmeasured ? 'Limit ' + cap.toLocaleString('en-US') + ' a day' : 'of ' + cap.toLocaleString('en-US') + ' limit';
+  /* Unmeasured, the limit cannot be watched for either, so the page does not promise to pause at it. */
+  const hint = document.getElementById('d-swarm-hint');
+  hint.hidden = unmeasured || !cap;   // no limit set: nothing to pause at
+  /* Switched back on over the limit: the engine will not pause it again today, so the page does not promise to. */
+  /* Over the limit while Active: either the person switched it back on (it then runs to midnight) or the limit sweep
+     has yet to notice (up to a minute). The page cannot tell which, so it says only what is true of both. */
+  hint.textContent = on && !unmeasured && cap && used >= cap ? 'Over today\'s limit.' : 'Pauses itself at the limit and tells you. Resets at midnight.';
+  /* The slider follows the REAL limit: widened past 20 million when the limit is higher, and its label shows the
+     exact number until the person moves it (a 2,500,000 limit is not shown as 3,000,000). No limit: no slider. */
+  const capR = document.getElementById('d-swarm-cap');
+  capR.closest('.swrow').hidden = !cap;
+  if (cap && (force || document.activeElement !== capR) && SWARM_BUSY !== who) {
+    capR.max = String(Math.max(20, Math.ceil(cap / 1000000)));
+    capR.value = String(Math.max(1, Math.round(cap / 1000000)));
+    document.getElementById('d-swarm-cap-v').textContent = cap.toLocaleString('en-US');
+    capR.setAttribute('aria-valuetext', cap.toLocaleString('en-US') + ' tokens a day');
+  }
+}
+/* The page's cluster, repainted with the panel so the lit circles follow the helpers. */
+function renderAvatarSwarmOnly(a) {
+  const swEl = document.getElementById('d-swarm');
+  if (!swEl || swEl.hidden) return;
+  const size = Math.round((swEl.parentElement && swEl.parentElement.getBoundingClientRect().width) || 88);
+  const html = swarmCluster(a, size);
+  if (swEl.innerHTML !== html) swEl.innerHTML = html;
+}
+var SWARM_BUSY = null;   // the session a change is in flight for; its controls are not repainted under it
+async function swarmSend(url, method, body, doneWords) {
+  const msg = document.getElementById('d-swarm-msg');
+  /* Tied to the swarm it was sent for: if the person opens another swarm before the answer comes, the answer
+     is not merged into, painted over or reported under that other swarm's page. */
+  const who = CURRENT && CURRENT.sessionName;
+  const still = () => !!CURRENT && CURRENT.sessionName === who;
+  SWARM_BUSY = who;
+  msg.textContent = '';
+  let failed = true;   // a refused change puts the sliders back to the saved numbers, even under the person's focus
+  try {
+    const r = await fetch(url, { method, headers: { 'content-type': 'application/json' }, body: JSON.stringify(body || {}) });
+    const b = await r.json().catch(() => null);
+    if (!still()) return r.ok;
+    if (!r.ok || (b && b.ok === false)) { msg.textContent = pjSentence((b && (b.because || b.error)) || 'we could not change that just now'); return false; }
+    /* The engine answers with the SETTINGS only (no helpers or tokens): merged into the live row, never
+       swapped in, or Today and the circles would blank until the next poll. */
+    if (b && b.swarm && SWARM_ROW && SWARM_ROW.sessionName === who) SWARM_ROW = { ...SWARM_ROW, swarm: { ...SWARM_ROW.swarm, ...b.swarm } };
+    msg.textContent = typeof doneWords === 'function' ? doneWords(b) : (doneWords || '');
+    failed = false;
+    return true;
+  } catch { if (still()) msg.textContent = pjSentence('we could not reach Kosmos just now'); return false; }
+  finally { if (SWARM_BUSY === who) SWARM_BUSY = null; if (SWARM_ROW && still()) swarmPagePaint(SWARM_ROW, { force: failed }); }
+}
+document.addEventListener('change', async (e) => {
+  const t = e.target;
+  if (!t || !CURRENT) return;
+  const base = '/api/agent/' + encodeURIComponent(CURRENT.sessionName) + '/swarm';
+  if (t.name === 'd-swarm-active') await swarmSend(base, 'PUT', { active: t.value === 'on' });
+  /* Saved but the lead could not be told (told.could_not): the page must not show the new number as if it runs. */
+  if (t.id === 'd-swarm-max') {
+    await swarmSend(base, 'PUT', { maxHelpers: Number(t.value) },
+      (b) => (b && b.told && b.told.state === 'could_not'
+        ? pjSentence('saved, but it is still working to its old number: ' + (b.told.because || 'it did not answer') + '. Move the slider to try again')
+        : ''));
+  }
+  if (t.id === 'd-swarm-cap') await swarmSend(base, 'PUT', { dailyTokenLimit: Number(t.value) * 1000000 });
+});
+/* On body, not document: web.found-scale.test.js reads the FIRST document input listener as the found-list filter. */
+document.body.addEventListener('input', (e) => {
+  if (e.target && e.target.id === 'd-swarm-cap') {
+    const t = (Number(e.target.value) * 1000000).toLocaleString('en-US');
+    document.getElementById('d-swarm-cap-v').textContent = t;
+    e.target.setAttribute('aria-valuetext', t + ' tokens a day');
+  }
+  if (e.target && e.target.id === 'd-swarm-max' && CURRENT) {
+    document.getElementById('d-swarm-max-v').textContent = e.target.value;
+    e.target.setAttribute('aria-valuetext', e.target.value + ' helpers at most');
+    document.getElementById('d-swarm-warn').innerHTML = swarmWarnWords(Number(e.target.value), SWARM_ROW && SWARM_ROW.swarm && SWARM_ROW.swarm.metered !== false ? Number(SWARM_ROW.swarm.helperTokenRatio) : null);
+  }
+});
+document.addEventListener('click', async (e) => {
+  if (!e.target || !e.target.closest || !e.target.closest('#d-swarm-stop') || !CURRENT) return;
+  await swarmSend('/api/agent/' + encodeURIComponent(CURRENT.sessionName) + '/swarm/stop', 'POST', {},
+    (b) => (b && b.stopped === false ? pjSentence(b.because || 'we could not stop it just now') : 'Stopped. Every helper has been told to stop, and work not handed back was dropped.'));
+});
+function swminiSay(group, words) {
+  const row = group.closest('.pj-member');
+  if (!row) return;
+  let m = row.querySelector('.swmini-msg');
+  if (!m) { m = document.createElement('small'); m.className = 'swmini-msg'; m.setAttribute('role', 'status'); row.appendChild(m); }
+  m.textContent = words;
+}
+/* A project's Members: switch a swarm on or off in this project (the contract's PUT /api/project/<id>/swarm/<name>).
+   Off keeps it a member; that project's messages do not wake it. */
+document.addEventListener('click', async (e) => {
+  const b = e.target && e.target.closest && e.target.closest('.swmini button[data-swarm-on]');
+  if (!b || !PJ_CURRENT) return;
+  const name = b.dataset.agentName, on = b.dataset.swarmOn === '1';
+  const group = b.parentElement;
+  group.querySelectorAll('button').forEach((x) => { x.disabled = true; });
+  try {
+    const r = await fetch('/api/project/' + encodeURIComponent(PJ_CURRENT) + '/swarm/' + encodeURIComponent(name), {
+      method: 'PUT', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ on }) });
+    const body = await r.json().catch(() => null);
+    if (r.ok && !(body && body.ok === false)) {
+      const pj = Array.isArray(PROJECTS) ? PROJECTS.find((x) => x && x.id === PJ_CURRENT) : null;
+      if (pj) {
+        const offs = new Set(Array.isArray(pj.swarmOff) ? pj.swarmOff : []);
+        if (on) offs.delete(name); else offs.add(name);
+        pj.swarmOff = [...offs];
+      }
+      group.querySelectorAll('button').forEach((x) => x.setAttribute('aria-pressed', String((x.dataset.swarmOn === '1') === on)));
+      swminiSay(group, '');
+    } else swminiSay(group, pjSentence((body && (body.because || body.error)) || 'we could not change that just now'));
+  } catch { swminiSay(group, pjSentence('we could not reach Kosmos just now')); }
+  finally { group.querySelectorAll('button').forEach((x) => { x.disabled = false; }); }
+});
+function createKind() {
+  const on = document.querySelector('input[name="create-kind"]:checked');
+  return SWARMS_ON && on && on.value === 'swarm' ? 'swarm' : 'agent';
+}
+/* The warning moves with the slider (the mock): helpers plus the lead, as a multiple of one agent. */
+function swarmWarnWords(max, ratio) {
+  /* Measured (the engine's helperTokenRatio, today's lead + helpers over the lead alone) when there is data;
+     otherwise the mock's estimate, helpers plus the lead, which assumes a helper costs about one agent. */
+  if (Number.isFinite(ratio) && ratio > 1) {
+    const r = Math.round(ratio * 10) / 10;
+    /* The bound assumes a helper costs about one agent; once the measured figure has passed it, the bound is not true. */
+    return r <= max + 1 ? `Today it has used about <b>${r} times</b> the tokens of one agent. With up to ${max} helpers it can use up to about ${max + 1} times while it is busy.`
+      : `Today it has used about <b>${r} times</b> the tokens of one agent, because its helpers are doing the heavy reading.`;
+  }
+  return `While it is busy, it can use up to about <b>${max + 1} times</b> the tokens of one agent: ${max} helpers plus the lead. It only adds helpers when there is enough work to split.`;
+}
+function swarmCreatePaint() {
+  const box = document.getElementById('create-kind');
+  if (!box) return;
+  box.hidden = !SWARMS_ON;
+  const swarm = createKind() === 'swarm';
+  document.getElementById('create-swarm').hidden = !swarm;
+  const max = Number(document.getElementById('create-swarm-max').value) || 3;
+  document.getElementById('create-swarm-max-v').textContent = String(max);
+  document.getElementById('create-swarm-max').setAttribute('aria-valuetext', max + ' helpers at most');
+  const capWords = (Number(document.getElementById('create-swarm-cap').value) * 1000000).toLocaleString('en-US');
+  document.getElementById('create-swarm-cap-v').textContent = capWords;
+  document.getElementById('create-swarm-cap').setAttribute('aria-valuetext', capWords + ' tokens a day');
+  document.querySelector('#create-swarm-warn span:last-child').innerHTML = swarmWarnWords(max, null);
+  const name = document.getElementById('create-name').value.trim() || 'Swarm';
+  const stand = { name, swarm: { maxHelpers: max, activeHelpers: 0 } };
+  const f = document.getElementById('create-kind-swarm-face');
+  const html = swarmCluster(stand, 44);
+  if (f.innerHTML !== html) f.innerHTML = html;
+  document.getElementById('create-kind-agent-face').textContent = initials(name);
+  /* Claude only for now: the mock shows "Runs on Claude" in place of the model picker, so the whole model field
+     steps aside for a swarm (the engine gives it Claude's default; the model can be changed on its page later). */
+  const mf = document.getElementById('create-model-field');
+  if (mf) mf.hidden = swarm;
+  const go = document.getElementById('create-go');
+  if (go && go.dataset.swarmWas === undefined) go.dataset.swarmWas = go.textContent;
+  if (go) go.textContent = swarm ? 'Make this swarm' : go.dataset.swarmWas;
+}
+document.addEventListener('change', (e) => { if (e.target && e.target.name === 'create-kind') swarmCreatePaint(); });
+document.body.addEventListener('input', (e) => {
+  if (e.target && (e.target.id === 'create-swarm-max' || e.target.id === 'create-swarm-cap' || e.target.id === 'create-name')) swarmCreatePaint();
+});
+
 function openCreate(initialMode) {
   PICKED = null;
+  /* #3564: each visit starts as a plain Agent. */
+  { const ag = document.querySelector('input[name="create-kind"][value="agent"]'); if (ag) ag.checked = true; }
+  swarmCreatePaint();
   /* 🛑 THE RADIOS ARE CLEARED, WHICH THE OLD PICKER NEVER DID. A form control
      keeps its state across a hidden panel, so reopening this form used to show
      the previous visit's option still marked while `PICKED` was null and
@@ -40222,6 +40661,14 @@ document.getElementById('create-go').addEventListener('click', async () => {
            ping unless notifyCreated is explicitly false. */
         b.notifyCreated = document.getElementById('create-tell').checked;
         if (CREATE_PROJECTS.length) b.projects = CREATE_PROJECTS;
+        /* #3564: a swarm travels as kind + its two settings (the contract on #3564); it is Claude-only, so no
+           provider is sent (anthropic is the default). */
+        if (createKind() === 'swarm') {
+          b.kind = 'swarm';
+          b.maxHelpers = Number(document.getElementById('create-swarm-max').value);
+          b.dailyTokenLimit = Number(document.getElementById('create-swarm-cap').value) * 1000000;
+          delete b.provider; delete b.model; delete b.account;   // Claude's default; the picker is not shown
+        }
         return b;
       })()),
     });
@@ -41288,8 +41735,20 @@ function pjMember(m, suppressTold, withMinus, hideState) {
      "slot waiting / cannot see this" border the restarting state refuses on every
      other surface (the card pill is deliberately SOLID). Suppress it for
      restarting, matching the present-branch caption below and pres='on' elsewhere. */
+  /* #3564: a swarm member shows its cluster and, in the project's Agents column, a small On / Off (the mock). */
+  const swRow = typeof SWARMS_ON !== 'undefined' && SWARMS_ON && typeof LAST !== 'undefined' && Array.isArray(LAST)
+    ? LAST.find((x) => x && x.sessionName === m.sessionName && Object.prototype.hasOwnProperty.call(x, 'swarm') && x.swarm) : null;
+  const swFace = swRow ? '<span class="lav pj-face pj-swface" aria-hidden="true">' + swarmCluster(swRow, 32) + warn + reachMark + '</span>' : '';
+  let swToggle = '';
+  if (swRow && hideState && PJ_CURRENT) {
+    const pj = Array.isArray(PROJECTS) ? PROJECTS.find((x) => x && x.id === PJ_CURRENT) : null;
+    const off = !!(pj && Array.isArray(pj.swarmOff) && pj.swarmOff.includes(m.sessionName));
+    swToggle = '<span class="swmini" role="group" aria-label="' + esc(m.name + ' in this project') + '" title="Off on a project stops it picking up that project\'s work; it stays on your other projects.">'
+      + '<button type="button" data-swarm-on="1" data-agent-name="' + esc(m.sessionName) + '" aria-pressed="' + (!off) + '">On</button>'
+      + '<button type="button" data-swarm-on="0" data-agent-name="' + esc(m.sessionName) + '" aria-pressed="' + off + '">Off</button></span>';
+  }
   return '<div class="pj-member' + (present ? '' : ' unseen') + stClass + '" data-agent="' + esc(m.sessionName) + '">'
-    + face
+    + (swFace || face)
     + '<span class="pj-member-b">'
     + '<b>' + esc(m.name) + '</b>'
     /* 🔑 THE ROLE, UNDER THE NAME (Josh, 2026-08-21): *"put the title of the
@@ -41355,6 +41814,7 @@ function pjMember(m, suppressTold, withMinus, hideState) {
       ? '<button class="pj-minus" type="button" data-drop="' + esc(m.sessionName) + '"'
         + ' aria-label="Remove ' + esc(m.name) + ' from this project" title="Remove from this project">\u2212</button>'
       : '')
+    + swToggle
     + '</div>';
 }
 
@@ -50093,6 +50553,7 @@ document.getElementById('pjs-members').addEventListener('click', (e) => {
 document.getElementById('pj-one-agents').addEventListener('click', (e) => {
   const btn = e.target.closest('.pj-minus[data-drop]');
   if (btn) { if (PJ_CURRENT) openMemModal(btn, document.getElementById('pj-one-msg')); return; }
+  if (e.target.closest('.swmini, .swmini-msg')) return;   // #3564: a swarm's On / Off is its own control, not a way into its page
   // #2574: a member click opens that agent's detail page, id-keyed via data-agent
   // (sessionName) -- the SAME open-agent path the agents grid uses (openDetail) --
   // passing PJ_CURRENT so detail-back returns to this project.
