@@ -265,6 +265,11 @@ const waitFor = (page, fn, ms = 6000) => page.waitForFunction(fn, null, { timeou
     const guideState = (st) => fleet.install([fleet.agent('josh-2', { state: 'idle', displayName: 'Josh', role: 'Personal assistant' }),
       fleet.agent('josh', { state: st, displayName: 'Josh', role: 'Setup guide' }),
       fleet.agent('beatrix', { state: 'idle', displayName: 'Beatrix', role: 'Collections Coordinator' })]);
+    /* A thread long enough to scroll, read to its end, so the arms below can see whether the row pushes a reply out of view. */
+    for (let i = 0; i < 12; i++) thread = thread.concat([{ from: i % 2 ? 'josh' : 'you', text: 'Line ' + i + ' of an earlier conversation.', at: new Date().toISOString() }]);
+    await page.evaluate(() => asbPoll(true));
+    await page.evaluate(() => { const th = document.getElementById('asp-th'); th.scrollTop = th.scrollHeight; });
+    chk(await page.evaluate(() => { const th = document.getElementById('asp-th'); return th.scrollHeight > th.clientHeight + 40; }), 'B20 precondition: the thread scrolls');
     guideState('working');
     chk(await waitFor(page, () => { const b = document.getElementById('asp-busy'); return !!b && !b.hidden && b.querySelectorAll('.act i').length === 3 && /Josh is working/.test(b.textContent); }, 12000),
       'B20 the guide working: the open chat shows the working row', await page.evaluate(() => document.getElementById('asp-busy').outerHTML.slice(0, 200)));
@@ -277,6 +282,15 @@ const waitFor = (page, fn, ms = 6000) => page.waitForFunction(fn, null, { timeou
     thread = thread.concat([{ from: 'josh', text: 'Here you go.', at: new Date().toISOString() }]);
     await page.evaluate(() => asbPoll(true));
     chk(await page.evaluate(() => document.getElementById('asp-busy').hidden), 'B20 a reply that has landed outranks the stale "working" from the last board snapshot');
+    /* The row took the thread's height while it showed; the thread stayed at its end, so the reply is in view. */
+    const inView = await page.evaluate(() => { const th = document.getElementById('asp-th'), last = th.lastElementChild;
+      const a = th.getBoundingClientRect(), b = last.getBoundingClientRect(); return { text: last.textContent, bottom: Math.round(b.bottom), thBottom: Math.round(a.bottom) }; });
+    chk(inView.text === 'Here you go.' && inView.bottom <= inView.thBottom + 1, 'B20 the reply that lands under the working row is in view, not scrolled under it', JSON.stringify(inView));
+    /* The next snapshot still says working: its announcement goes to its own region and leaves the reply's alone. */
+    await page.evaluate(() => tick());
+    await waitFor(page, () => !document.getElementById('asp-busy').hidden, 6000);
+    const lives = await page.evaluate(() => ({ reply: document.getElementById('asp-live').textContent, busy: document.getElementById('asp-live-busy').textContent }));
+    chk(lives.reply === 'Here you go.' && lives.busy === 'Josh is working', 'B20 "working" again does not replace the reply a screen reader has yet to read', JSON.stringify(lives));
     await page.click('#asp-fold');
     await page.evaluate(() => tick());   // the next board snapshot, forced: it is newer than the reply, so "working" counts again
     chk(await waitFor(page, () => { const a = document.querySelector('#asb .asb-act'); return !!a && !a.hidden && getComputedStyle(a).display !== 'none'; }, 6000)

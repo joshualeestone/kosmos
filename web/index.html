@@ -55295,7 +55295,7 @@ function asbLayerEnsure() {
     +   '<div class="asp-h"><img alt=""><div class="asp-who"><b>Josh, Kosmos Guide</b></div>'
     +   '<div class="asp-ctl"><button type="button" id="asp-fold" aria-label="Fold the assistant away">&minus;</button>'
     +   '<button type="button" id="asp-x" aria-label="Close the assistant">&times;</button></div></div>'
-    +   '<div class="asp-th" id="asp-th"></div><p class="dmbusy asp-busy" id="asp-busy" hidden></p><span class="vh" id="asp-live" aria-live="polite"></span>'
+    +   '<div class="asp-th" id="asp-th"></div><p class="dmbusy asp-busy" id="asp-busy" hidden></p><span class="vh" id="asp-live" aria-live="polite"></span><span class="vh" id="asp-live-busy" aria-live="polite"></span>'
     +   '<div class="asp-note"></div>'   /* its words are asbPaint's, one copy (#3738) */
     +   '<div class="asp-msg" id="asp-msg" role="status"></div>'
     +   '<div class="asp-ask" id="asp-ask" hidden><b>Close the assistant?</b>'
@@ -55417,12 +55417,28 @@ function asbPaint() {
         : '<div class="msg-av" aria-hidden="true"><img src="' + ASB_HOSTED_AVATAR + '" alt=""></div><span class="act" aria-hidden="true"><i></i><i></i><i></i></span><span>' + esc(who) + ' is ' + WORKING_VERB + '&hellip;</span>';
       busy.dataset.busyKey = key;
     }
-    busy.hidden = !(working || signIn);
-    /* Said once as it starts, or when the chat is opened while it works, for a screen reader. */
+    /* The row sits under the thread and takes its height, so a thread that was at its end stays there: a reply that
+       lands while the row shows is then in view, not under it. */
+    const hide = !(working || signIn);
+    if (busy.hidden !== hide) {
+      const th = document.getElementById('asp-th');
+      const atEnd = !!th && th.scrollHeight - th.scrollTop - th.clientHeight < 24;
+      busy.hidden = hide;
+      if (atEnd) th.scrollTop = th.scrollHeight;
+    }
+    /* Said once as it starts, or when the chat is opened while it works, for a screen reader. In its own region, so it
+       cannot replace a reply (#asp-live) before that reply has been read out. A broken sign-in is said once too. */
+    const liveBusy = document.getElementById('asp-live-busy');
     const seen = working && ASB.open;
-    if (seen && !ASB.wasWorking) document.getElementById('asp-live').textContent = who + ' is ' + WORKING_VERB;
+    if (seen && !ASB.wasWorking) liveBusy.textContent = who + ' is ' + WORKING_VERB;
     ASB.wasWorking = seen;
+    const said = signIn && ASB.open ? key : '';
+    if (said && ASB.saidSignIn !== said) liveBusy.textContent = busy.textContent.trim();
+    ASB.saidSignIn = said;
   }
+  /* #3738: the opening message is there from the start, before the first read and when a read fails. */
+  const th0 = document.getElementById('asp-th');
+  if (th0 && !th0.childElementCount) th0.appendChild(asbOpening());
   bub.querySelector('.asb-dot').hidden = !ASB.dot || ASB.open;
   /* Something new to read outranks working; and "working" is all the board knows, not what it is working on. */
   const lab = ASB.dot && !ASB.open ? 'Open the setup assistant, there is something new to read'
@@ -55500,15 +55516,24 @@ async function asbPoll(force) {
   if (ASB.open) {
     /* Only the newest reply is announced, not the whole rebuilt thread. */
     if (ASB.heard !== null && heard > ASB.heard) {
-      ASB.heardAt = Date.now();   // a reply landed: a "working" from an older board snapshot is stale
+      /* A reply landed: a "working" from an older board snapshot is stale. One that landed while folded was
+         timed when its dot lit, so opening the chat later does not restart that clock. */
+      if (!ASB.dot) ASB.heardAt = Date.now();
       const last = speech.filter((m) => m.from === t.session).pop();
       document.getElementById('asp-live').textContent = last ? String(last.text || '') : '';
     }
     ASB.heard = heard; ASB.dot = false; asbPaintThread(speech, t.session);
   }
   else if (ASB.heard === null) ASB.heard = heard;
-  else if (heard > ASB.heard) { ASB.dot = true; ASB.heardAt = Date.now(); }
+  else if (heard > ASB.heard && !ASB.dot) { ASB.dot = true; ASB.heardAt = Date.now(); }   // timed once, when the dot lights
   asbPaint();
+}
+/* #3738 (Josh 08:51, verbatim): one opening message, always the first guide bubble. */
+function asbOpening() {
+  const open = document.createElement('div');
+  open.className = 'asp-m him asp-open';
+  open.textContent = 'Hi, I\'m Josh\'s AI guide. Ask me anything about setting up Kosmos.';
+  return open;
 }
 function asbPaintThread(rows, session) {
   const th = document.getElementById('asp-th');
@@ -55518,12 +55543,7 @@ function asbPaintThread(rows, session) {
   if (shown === ASB.shown && th.childElementCount) return;
   ASB.shown = shown;
   const atEnd = th.scrollHeight - th.scrollTop - th.clientHeight < 24;
-  th.replaceChildren();
-  /* #3738 (Josh 08:51, verbatim): one opening message, always the first guide bubble. */
-  const open = document.createElement('div');
-  open.className = 'asp-m him asp-open';
-  open.textContent = 'Hi, I\'m Josh\'s AI guide. Ask me anything about setting up Kosmos.';
-  th.appendChild(open);
+  th.replaceChildren(asbOpening());
   for (const m of rows) {
     const d = document.createElement('div');
     d.className = 'asp-m ' + (m.from === session ? 'him' : 'you');
@@ -55828,7 +55848,7 @@ function asbForgetGuide() {
   const standIn = asbIsHostedAfterForget();
   const hadFocus = !standIn && !!document.activeElement && !!document.activeElement.closest('#asblayer');
   const keepOpen = standIn && ASB.open;
-  ASB.guide = null; ASB.open = keepOpen; ASB.asking = false; ASB.heard = null; ASB.heardAt = 0; ASB.shown = ''; ASB.dot = false;
+  ASB.guide = null; ASB.open = keepOpen; ASB.asking = false; ASB.heard = null; ASB.heardAt = 0; ASB.wasWorking = false; ASB.shown = ''; ASB.dot = false;
   ASB.wroteOnce = false; ASB.readOnce = false; ASB.lastPoll = 0; ASB.nudgeGone = false; ASB.asideShowing = false; asbAsideDone();
   const pm = document.getElementById('asp-msg'); if (pm) pm.textContent = '';   // nothing stale when it comes back
   if (keepOpen) { const th = document.getElementById('asp-th'); if (th) th.replaceChildren(); }   // the guide's thread is not the hosted one's
