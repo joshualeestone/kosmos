@@ -153,7 +153,7 @@ test('an agent holding two parts gets its claim line once on the card, not once 
   };
   const doc = runPaintProjectTasks({ ...PROJECT, tasks: [t] });
   const text = doc.els['pj-tasklist'].innerHTML.replace(/<[^>]*>/g, ' ');
-  assert.equal((text.match(/has not reported what it is working on yet/g) || []).length, 1, 'the card says it once per part');
+  assert.equal((text.match(/has not reported what it is working on yet/g) || []).length, 1, 'the card does not say it exactly once (it repeated it per part, or dropped it)');
 });
 
 test('the card puts the claim beside the agent\'s OPEN part, never a part it has finished', () => {

@@ -289,6 +289,9 @@ test('any other could-not-tell reason on a task kept as parts names its agent, n
   });
   assert.match(parted.doc.els['tk-why'].textContent, /^We could not check whether April is on this: this agent is no longer on the project/);
   assert.doesNotMatch(parted.doc.els['tk-why'].textContent, /whether it is on this/);
+  // Once: the why line gives the reason, so the part's claim line does not repeat it.
+  const inParts = parted.doc.els['tk-who'].innerHTML.replace(/<[^>]*>/g, ' ');
+  assert.doesNotMatch(inParts, /no longer on the project/, 'the reason is said twice: beside the agent and in the why line');
 });
 
 test('a task that disappears under the open page sends you to its project', () => {
