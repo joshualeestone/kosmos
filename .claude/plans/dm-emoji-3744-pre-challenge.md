@@ -2,7 +2,7 @@
 pre_challenge: true
 method: challenge-loop
 branch: dm-emoji-3744
-diff_hash: 1217359e309fff82025f99a33d74f2117c745204ee7997ac661c059b5afa1114
+diff_hash: e753250e8168bcb0309f04a0185c8c45a0738f6b581e54db0086b765918d9fe0
 subdir_audit: passed
 timestamp: 2026-09-25T16:06:25Z
 iterations: 5
@@ -40,6 +40,12 @@ converged: true
 - render-dm-emoji-3744.js: 70 arms on Mac and Windows, all pass; 6 red on main; every fix perturbed red.
 - The room's emoji-picker-2254.js and render-emoji-mute-2357.js pass; seven other checks whose tokens moved pass unchanged.
 - Full suite PASSED on f7e368937 (9328 tests, 0 failed). One earlier run failed server.doorflight-1618 (untouched by this branch); it passed 3 of 3 alone and the rerun passed.
+
+## Merge of main (#3723 landed its own check)
+- Conflicts in tools/browser-checks.sh and browser-checks-reason-grep.test.js, both from main adding
+  render-account-problem-3723 beside this branch's check. Both kept; reason-grep counts MEASURED on the
+  merged tree at 152 and 105. render-dm-emoji-3744, emoji-picker-2254 and render-account-problem-3723
+  pass on the merged tree; suite re-run on the merged head.
 
 ## Weakest premise
 - No DM smiley under 480px wide (a phone's keyboard has emoji). One media rule to undo.
