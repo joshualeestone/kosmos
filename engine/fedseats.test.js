@@ -402,3 +402,35 @@ test('an owner whose edge ends gets no member note, and a restart does not retry
   assert.strictEqual(h.spawned.length, 1);
   assert.strictEqual(h.spawned[0].edge, 'edge-live', 'the refused edge is skipped after the restart');
 });
+
+test('a peer sending at the minute limit all day is cut off at the day budget, with one note', async (t) => {
+  t.mock.timers.enable({ apis: ['Date'], now: Date.parse('2026-09-25T00:00:00Z') });
+  federation.recordLink('proj-day', { role: 'member', edge_id: 'edge-day' });
+  const h = harness();
+  await fedseats.ensure('proj-day');
+  const text = 'x'.repeat(60 * 1024);                       // under the minute's byte budget
+  const perDay = Math.floor(fedseats.INBOUND_BYTES_PER_DAY / text.length);
+  for (let i = 0; i < perDay + 5; i++) {
+    fedseats.onEvent('proj-day', JSON.stringify({ event: 'message', data: { from: 'Flood', text } }));
+    t.mock.timers.tick(61 * 1000);                          // a fresh minute each time
+  }
+  const kept = h.recorded.filter((r) => r.projectId === 'proj-day').length;
+  assert.ok(kept <= perDay, `kept ${kept}, day budget allows ${perDay}`);
+  assert.ok(kept >= perDay - 1, `kept ${kept}: the minute bound alone did not stop it`);
+  assert.strictEqual(h.notes.filter((n) => n.projectId === 'proj-day' && /in a day/.test(n.text)).length, 1);
+});
+
+test('an unreadable link record when a seat exits 3 is a restart, not an ending', async () => {
+  federation.recordLink('proj-unread', { role: 'owner', ref: 'ref-unread' });
+  const h = harness({ edges: [{ id: 'edge-u', project_ref: 'ref-unread', status: 'active' }] });
+  await fedseats.ensure('proj-unread');
+  const f = require('path').join(require('./store').ROOT, federation.FILE);
+  const before = fs.readFileSync(f, 'utf8');
+  fs.writeFileSync(f, '{ not json');
+  try {
+    h.spawned[0].emit('exit', 3);
+    assert.strictEqual(fedseats.statusOf('proj-unread'), 'reconnecting');
+  } finally {
+    fs.writeFileSync(f, before);
+  }
+});

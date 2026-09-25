@@ -64,3 +64,8 @@ test('a tab from outside becomes a space, and a name loses direction overrides',
   assert.strictEqual(row.text, 'one two');
   assert.ok(!/[\u202a-\u202e\u2066-\u2069]/.test(row.from), JSON.stringify(row.from));
 });
+
+test('an outside message loses direction overrides in its text too', () => {
+  const row = messages.externalPost('proj-bidi-text', { from: 'Grace', fromKind: 'person', text: 'safe‮etirw' });
+  assert.ok(!/[‪-‮⁦-⁩]/.test(row.text), JSON.stringify(row.text));
+});

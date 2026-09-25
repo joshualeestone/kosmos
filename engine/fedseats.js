@@ -26,10 +26,14 @@ const RESTART_START_MS = 2000;
    room says so once per window. */
 const INBOUND_PER_WINDOW = 60;
 /* And a byte budget in the same window, so the count bound cannot be spent on
-   max-size messages: 64 KiB a minute is far above any conversation and keeps a
-   flooding peer to under 100 MiB a day in the append-only message log. */
+   max-size messages. */
 const INBOUND_BYTES_PER_WINDOW = 64 * 1024;
 const INBOUND_WINDOW_MS = 60000;
+/* A day's budget per project on top of the minute's: every stored row is kept in
+   memory and scanned by the room and unread reads, so a peer sending at the
+   minute's limit all day must not be able to grow them without end. 2 MiB of
+   words a day is far above any conversation. Counted per board run. */
+const INBOUND_BYTES_PER_DAY = 2 * 1024 * 1024;
 /* The longest stdout line kept while waiting for its newline. The connector
    prints one event per line, each under its 16 KiB post bound plus framing; a
    longer unterminated run is a broken child, and is dropped rather than held. */
@@ -97,8 +101,16 @@ function onEvent(projectId, line) {
   if (ev.event === 'message' && ev.data && typeof ev.data === 'object' && typeof ev.data.text === 'string' && ev.data.text.trim()) {
     const now = Date.now();
     if (!s.inbound || now - s.inbound.since >= INBOUND_WINDOW_MS) s.inbound = { since: now, count: 0, bytes: 0, noted: false };
+    const day = new Date(now).toISOString().slice(0, 10);
+    if (!s.inday || s.inday.day !== day) s.inday = { day, bytes: 0, noted: false };
+    const size = Buffer.byteLength(ev.data.text) + Buffer.byteLength(String(ev.data.from || ''));
     s.inbound.count += 1;
-    s.inbound.bytes += Buffer.byteLength(ev.data.text) + Buffer.byteLength(String(ev.data.from || ''));
+    s.inbound.bytes += size;
+    s.inday.bytes += size;
+    if (s.inday.bytes > INBOUND_BYTES_PER_DAY) {
+      if (!s.inday.noted) { s.inday.noted = true; say(projectId, 'The external project sent more than Kosmos keeps in a day; its messages are not kept until tomorrow.'); }
+      return;
+    }
     if (s.inbound.count > INBOUND_PER_WINDOW || s.inbound.bytes > INBOUND_BYTES_PER_WINDOW) {
       if (!s.inbound.noted) { s.inbound.noted = true; say(projectId, 'The external project sent more messages than Kosmos keeps in a minute; some were not kept.'); }
       return;
@@ -132,9 +144,8 @@ function setStatus(projectId, status) {
 
 /* The owner's seat needs an edge of the project; any active one names the room. */
 /* An active edge of the owner's project, skipping any edge whose seat was
-   already refused for good: the coordinator can still list an edge as active
-   while refusing its ticket (the owner's own account lapsed), and without the
-   skip the owner's seat would spawn, be refused, and spawn again every minute. */
+   already refused for good (the seat exited 3), so the owner's seat does not
+   spawn, be refused, and spawn again every minute. */
 async function ownerEdge(link, refused, edges) {
   const r = await (edges ? edges() : deps.macRequest('POST', MAC_EDGES, {}));
   if (!r.ok || !r.data || !Array.isArray(r.data.as_owner)) return null;
@@ -178,11 +189,14 @@ function spawnFor(projectId, edge) {
     if (!cur || cur.child !== child) return;
     cur.child = null;
     if (cur.stopped) return;
-    // 3 = refused for good (revoked, lapsed). A member's seat ends there. An
-    // owner's seat was pinned to one member's edge; it looks for another active
-    // edge on the next check and ends only when none is left.
-    if (code === 3) {
-      const link = safeLink(projectId);
+    // 3 = a refusal retrying cannot fix: the connector exits 3 only on the
+    // coordinator's final sentences (revoked, no such connection, account gone,
+    // unknown or retired Mac). A lapsed account is NOT 3: the connector waits and
+    // retries itself. A member's seat ends here. An owner's seat was pinned to one
+    // member's edge; it looks for another active edge on the next check.
+    const link = code === 3 ? safeLink(projectId) : null;
+    // An unreadable link record is not an ending: restart like any other exit.
+    if (code === 3 && link) {
       if (link && link.role === 'owner') {
         if (!cur.refused) cur.refused = new Set();
         if (cur.edge) cur.refused.add(cur.edge);
@@ -321,4 +335,4 @@ function stopAll() {
   seats.clear();
 }
 
-module.exports = { STOP_KILL_MS, STABLE_MS, configure, ensure, ensureAll, post, statusOf, stop, stopAll, onEvent, MAC_EDGES, INBOUND_PER_WINDOW, INBOUND_BYTES_PER_WINDOW };
+module.exports = { STOP_KILL_MS, STABLE_MS, INBOUND_BYTES_PER_DAY, configure, ensure, ensureAll, post, statusOf, stop, stopAll, onEvent, MAC_EDGES, INBOUND_PER_WINDOW, INBOUND_BYTES_PER_WINDOW };

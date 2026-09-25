@@ -15448,6 +15448,12 @@ function federateOut(projectId, delivery, operator) {
   try { linked = !!federation.linkFor(projectId); } catch { linked = false; }
   if (!linked) return;
   const text = typeof delivery.text === 'string' ? delivery.text : '';
+  // The connector's post limit (fedroom MAX_POST, 16 KiB for the whole line):
+  // said here, before sending, rather than as a refusal after.
+  if (Buffer.byteLength(text) > 15 * 1024) {
+    messages.roomNote(projectId, 'That post stayed on this computer: it is too long to send to the external project. Shorter posts go out.');
+    return;
+  }
   if (!text.trim()) {
     messages.roomNote(projectId, 'That post stayed on this computer: attachments are not sent to the external project, only words.');
     return;

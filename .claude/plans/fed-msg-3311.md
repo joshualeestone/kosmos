@@ -69,6 +69,9 @@ board yet carried messages between a federated project's room and its seat.
 - engine/fedseats.test.js, engine/messages.external-3311.test.js,
   server.fedmsg-3311.test.js, server.federation-3311.test.js,
   engine/federation.test.js: all pass (counts live in the runs, not here).
+- Review round 11 controls: no day budget, ending on an unreadable link record,
+  keeping overrides in outside text, and sending an over-long post each red their
+  own test.
 - Review round 10 control: dropping the description bound in invite() reds the
   1001-character test (it would have been signed and sent).
 - Review round 9 controls: sending the ended note on an owner seat, or not
@@ -115,6 +118,20 @@ board yet carried messages between a federated project's room and its seat.
   closed. A second local project carrying a real ref only puts this same account's
   own Mac in its own room twice. It grants nothing across accounts, because the room
   ticket is still minted per edge by the coordinator.
+
+## Decided in round 11
+- Two findings said a lapsed Kosmos+ account ends a seat for good, because the
+  persisted `ended` and `refused` are written on exit 3. The premise was my own
+  comments ("revoked, lapsed"; "the owner's own account lapsed"), which were
+  wrong: in the merged connector (kosmos-relay 63fc06f, fedroom.rs) a lapse is
+  `OpenError::Lapsed`, a long pause and a retry, never exit 3. Exit 3 is only the
+  coordinator's final refusals. The comments now say that; the behaviour stays.
+- A day budget per project (2 MiB of words) on top of the minute's: every stored
+  row is held in memory and scanned by room and unread reads, so a peer at the
+  minute's limit all day was about 90 MiB. Counted per board run.
+- A post over the connector's limit stays here with a note before anything is
+  sent; outside text loses direction overrides like the name does; an unreadable
+  link record at exit 3 restarts the seat rather than ending it.
 
 ## Decided in round 10
 - This branch sits on the two local fed-board-3311 commits (invite, verify,
