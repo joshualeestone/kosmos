@@ -1,4 +1,4 @@
-// Browser-check-surface: fr-keyed-install acct-keyed-install
+// Browser-check-surface: fr-gemini-confirm fr-grok-confirm acct-keyed-install
 'use strict';
 /**
  * kosmos#3713: Connect installs the Gemini CLI and the Grok CLI itself, the way it installs
@@ -89,19 +89,17 @@ const chk = (ok, label, extra) => {
   const f1 = await q(async () => {
     document.getElementById('fr-grok-connect').click();
     await new Promise((r) => setTimeout(r, 300));
-    return { shown: !document.getElementById('fr-keyed-install').hidden, ask: document.getElementById('fr-keyed-install-t').textContent,
-      box: !document.getElementById('fr-apikey-flow').hidden };
+    return { shown: !document.getElementById('fr-grok-confirm').hidden, ask: document.getElementById('fr-grok-confirm-t').textContent,
+      key: !document.getElementById('fr-grok-flow').hidden };
   });
-  chk(f1.shown && !f1.box && /xAI's Grok CLI/.test(f1.ask) && /43 MB/.test(f1.ask), 'first run: a missing grok offers to download xAI\'s Grok CLI, naming its size', JSON.stringify(f1));
+  chk(f1.shown && !f1.key && f1.ask === 'In order to connect to xAI Grok we need to download the installer.', 'first run: a missing grok offers GPT\'s install, under Grok\'s row', JSON.stringify(f1));
   const f2 = await q(async () => {
-    document.getElementById('fr-keyed-install-go').click();
+    document.getElementById('fr-grok-confirm-go').click();
     await new Promise((r) => setTimeout(r, 3500));
-    return { installHidden: document.getElementById('fr-keyed-install').hidden, box: !document.getElementById('fr-apikey-flow').hidden,
-      sub: !document.getElementById('fr-grok-sub').hidden, head: document.getElementById('fr-apikey-t').textContent,
+    return { confirmHidden: document.getElementById('fr-grok-confirm').hidden, pick: !document.getElementById('fr-grok-pick').hidden,
       focus: document.activeElement && document.activeElement.id };
   });
-  chk(f2.installHidden && f2.box && f2.sub && /Sign in with your Grok subscription/.test(f2.head) && f2.focus === 'fr-grok-sub-go',
-    'first run: once grok is installed, Grok\'s box opens on its sign-in, with the key beside it', JSON.stringify(f2));
+  chk(f2.confirmHidden && f2.pick && f2.focus === 'fr-grok-pick-sub', 'first run: once grok is installed, Grok\'s choice opens by itself', JSON.stringify(f2));
 
   // ---- Settings (frClose lifts first run's inert, the page's own way)
   await q(() => { frClose(); });
@@ -111,8 +109,8 @@ const chk = (ok, label, extra) => {
     return { install: !document.getElementById('acct-keyed-install').hidden, key: !document.getElementById('acct-apikey-flow').hidden,
       ask: document.getElementById('acct-keyed-install-t').textContent };
   });
-  chk(s1.install && !s1.key && /Google's Gemini CLI/.test(s1.ask) && /21 MB/.test(s1.ask),
-    'Settings: a missing gemini shows the download step instead of the key step, with the tool and its size', JSON.stringify(s1));
+  chk(s1.install && !s1.key && s1.ask === 'In order to connect to Google Gemini we need to download the installer.',
+    'Settings: a missing gemini shows GPT\'s install step instead of the key step', JSON.stringify(s1));
 
   const s2 = await q(async () => {
     const seen = [];
@@ -180,50 +178,49 @@ const chk = (ok, label, extra) => {
   const r1 = await q(async () => {
     document.getElementById('fr-gemini-connect').click();
     await new Promise((r) => setTimeout(r, 300));
-    document.getElementById('fr-keyed-install-go').click();
+    document.getElementById('fr-gemini-confirm-go').click();
     await new Promise((r) => setTimeout(r, 150));
     frClose();
     const at = window.__gets;
     await new Promise((r) => setTimeout(r, 2600));
     return { after: window.__gets - at, firstrun: document.getElementById('firstrun').hidden, live: !!window.__jobs.gemini };
   });
-  chk(r1.firstrun && r1.after <= 1 && r1.live, 'leaving first run stops the download watcher (the download itself carries on)', JSON.stringify(r1));
+  chk(r1.firstrun && r1.after <= 1 && r1.live, 'leaving first run stops the install watcher (the install itself carries on)', JSON.stringify(r1));
   const r2 = await q(async () => {
     const fr = document.getElementById('firstrun'); fr.hidden = false; frGo(5);
     await new Promise((r) => setTimeout(r, 150));
     const posts = window.__installs.length;
     document.getElementById('fr-gemini-connect').click();
     await new Promise((r) => setTimeout(r, 3800));
-    return { joinedWithoutAClick: window.__installs.length === posts + 1, open: !document.getElementById('fr-apikey-flow').hidden,
-      installHidden: document.getElementById('fr-keyed-install').hidden };
+    return { joinedWithoutAClick: window.__installs.length === posts + 1, key: !document.getElementById('fr-gemini-flow').hidden,
+      confirmHidden: document.getElementById('fr-gemini-confirm').hidden };
   });
-  chk(r2.joinedWithoutAClick && r2.open && r2.installHidden, 'coming back while it is still downloading joins it, and the key box opens when it is done', JSON.stringify(r2));
+  chk(r2.joinedWithoutAClick && r2.key && r2.confirmHidden, 'coming back while it is still installing joins it, and Gemini\'s key step opens when it is done', JSON.stringify(r2));
   const r3 = await q(async () => {
     window.__missing.grok = true; window.__jobs = {};
     document.getElementById('fr-grok-connect').click();
     await new Promise((r) => setTimeout(r, 300));
-    const onDownload = document.activeElement && document.activeElement.id;
-    document.getElementById('fr-keyed-install-no').click();
-    return { onDownload, after: document.activeElement && document.activeElement.id };
+    const onConfirm = document.activeElement && document.activeElement.id;
+    document.getElementById('fr-grok-confirm-no').click();
+    return { onConfirm, after: document.activeElement && document.activeElement.id };
   });
-  chk(r3.onDownload === 'fr-keyed-install-go' && r3.after === 'fr-grok-connect', 'Not now returns focus to the Connect that opened it', JSON.stringify(r3));
+  chk(r3.onConfirm === 'fr-grok-confirm-go' && r3.after === 'fr-grok-connect', 'Not now returns focus to the Connect that opened it', JSON.stringify(r3));
   await setWin(true);
   const r4 = await q(async () => {
     document.getElementById('fr-grok-connect').click();
     await new Promise((r) => setTimeout(r, 300));
-    return { install: !document.getElementById('fr-keyed-install').hidden, msg: document.getElementById('fr-apikey-msg').textContent };
+    return { confirm: !document.getElementById('fr-grok-confirm').hidden, msg: document.getElementById('fr-grok-msg').textContent };
   });
-  chk(!r4.install && /cannot install it on Windows yet/.test(r4.msg) && /"grok"/.test(r4.msg), 'on Windows, first run says it plainly and offers no download that would be refused', JSON.stringify(r4));
+  chk(!r4.confirm && /cannot connect xAI Grok on Windows yet/.test(r4.msg), 'on Windows, first run says it plainly and offers no install that would be refused', JSON.stringify(r4));
   const r5 = await q(async () => {
     frClose(); openAcctAdd(); window.__missing.gemini = true; acctPick('google');
     await new Promise((r) => setTimeout(r, 300));
-    const before = { install: !document.getElementById('acct-keyed-install').hidden, key: !document.getElementById('acct-apikey-flow').hidden };
-    document.getElementById('acct-apikey-key').value = 'AIza-typed';
-    document.getElementById('acct-apikey-go').click();
-    await new Promise((r) => setTimeout(r, 300));
-    return { before, install: !document.getElementById('acct-keyed-install').hidden, msg: document.getElementById('acct-apikey-msg').textContent };
+    return { box: !document.getElementById('acct-keyed-install').hidden, key: !document.getElementById('acct-apikey-flow').hidden,
+      said: document.getElementById('acct-keyed-install-t').textContent, go: !document.getElementById('acct-keyed-install-go').hidden };
   });
-  chk(!r5.before.install && r5.before.key && !r5.install && /cannot install it on Windows yet/.test(r5.msg), 'on Windows, Settings shows no download step, and Add says plainly it cannot install', JSON.stringify(r5));
+  // #3731 (review pass 1, W5): Windows gets the plain sentence and nothing to press or type, not
+  // a key box whose Add can only fail.
+  chk(r5.box && !r5.go && !r5.key && /cannot connect Google Gemini on Windows yet/.test(r5.said), 'on Windows, Settings says plainly it cannot, with no download button and no key box', JSON.stringify(r5));
   await setWin(false);
   const r6 = await q(async () => {
     closeAcctAdd(); openAcctAdd(); acctPick('google');
@@ -257,29 +254,48 @@ const chk = (ok, label, extra) => {
   const r8 = await q(async () => {
     document.getElementById('fr-grok-connect').click();
     await new Promise((r) => setTimeout(r, 300));
-    const boxOpen = !document.getElementById('fr-apikey-flow').hidden;
-    window.__missing.grok = true;   // it goes missing after the box opened
-    document.getElementById('fr-grok-sub-go').click();
+    const pickOpen = !document.getElementById('fr-grok-pick').hidden;
+    window.__missing.grok = true;   // it goes missing after the choice opened
+    document.getElementById('fr-grok-pick-sub').click();
     await new Promise((r) => setTimeout(r, 400));
-    FR_GROK_SUB.leave();
-    return { boxOpen, install: !document.getElementById('fr-keyed-install').hidden, keyBox: !document.getElementById('fr-apikey-flow').hidden,
-      ask: document.getElementById('fr-keyed-install-t').textContent, subMsg: document.getElementById('fr-grok-sub-msg').textContent };
+    return { pickOpen, confirm: !document.getElementById('fr-grok-confirm').hidden, step: !document.getElementById('fr-grok-sub-step').hidden,
+      ask: document.getElementById('fr-grok-confirm-t').textContent, msg: document.getElementById('fr-grok-msg').textContent };
   });
-  chk(r8.boxOpen && r8.install && !r8.keyBox && /xAI's Grok CLI/.test(r8.ask) && !/Choose Grok again/.test(r8.subMsg),
-    'first run: a Grok sign-in that finds no grok opens the download box in place of the key box', JSON.stringify(r8));
+  chk(r8.pickOpen && r8.confirm && !r8.step && !/Choose Grok again/.test(r8.msg),
+    'first run: a Grok sign-in that finds no grok offers the install in place of the sign-in', JSON.stringify(r8));
   await setWin(true);
   const r9 = await q(async () => {
-    frKeyedInstallHide(); window.__missing.gemini = false;
+    FR_KEYED_GEN += 1; frKeyedCollapse('xai'); window.__missing.gemini = false;
     document.getElementById('fr-gemini-connect').click();
     await new Promise((r) => setTimeout(r, 300));
     window.__missing.gemini = true;
-    document.getElementById('fr-apikey-key').value = 'AIza-typed';
-    document.getElementById('fr-apikey-go').click();
+    document.getElementById('fr-gemini-key').value = 'AIza-typed';
+    document.getElementById('fr-gemini-go').click();
     await new Promise((r) => setTimeout(r, 300));
-    return { install: !document.getElementById('fr-keyed-install').hidden, msg: document.getElementById('fr-apikey-msg').textContent, posts: window.__installs.length };
+    return { confirm: !document.getElementById('fr-gemini-confirm').hidden, msg: document.getElementById('fr-gemini-msg').textContent };
   });
-  chk(!r9.install && /cannot install it on Windows yet/.test(r9.msg), 'on Windows, first run\'s Add says it plainly when the tool is gone, and opens no download box', JSON.stringify(r9));
+  chk(!r9.confirm && /cannot connect Google Gemini on Windows yet/.test(r9.msg), 'on Windows, first run\'s Add says it plainly when the tool is gone, and offers no install', JSON.stringify(r9));
   await setWin(false);
+  // #3731 (review pass 3): Settings shows no key box and no Grok choice while /api/runners has not
+  // answered, and a late answer for a provider the person has left changes nothing.
+  const r11 = await q(async () => {
+    const wait = (ms) => new Promise((r) => setTimeout(r, ms));
+    closeAcctAdd(); openAcctAdd();
+    window.__missing = { gemini: false, grok: false }; window.__jobs = {}; window.__runnersDelay = 500;
+    acctPick('google');
+    await wait(100);
+    const pending = { key: !document.getElementById('acct-apikey-flow').hidden, grok: !document.getElementById('acct-grok-flow').hidden,
+      install: !document.getElementById('acct-keyed-install').hidden };
+    window.__runnersDelay = 0;   // Grok's own read answers at once, so Gemini's slow one lands LAST
+    acctPick('xai');   // switch before Gemini's read answers
+    await wait(900);   // both reads have answered now
+    const after = { key: !document.getElementById('acct-apikey-flow').hidden, grok: !document.getElementById('acct-grok-flow').hidden,
+      pick: !document.getElementById('acct-grok-pick').hidden, which: ACCT_APIKEY_WHICH };
+    return { pending, after };
+  });
+  chk(!r11.pending.key && !r11.pending.grok && !r11.pending.install, '#3731 Settings: nothing to type or choose while the install check has not answered', JSON.stringify(r11));
+  chk(r11.after.which === 'xai' && r11.after.grok && r11.after.pick && !r11.after.key,
+    '#3731 Settings: a late answer for Gemini, after switching to Grok, does not open Gemini\'s key box', JSON.stringify(r11));
   const r10 = await q(async () => {
     frClose();
     window.__missing.grok = true; window.__jobs = {};
