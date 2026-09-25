@@ -18,12 +18,12 @@ upgraders included": the auto tour covered the agent card render-url-state click
 - Once a new board (no agents at its first answer) has an agent, the tour counts as seen, whether or
   not it was ever shown (its job is done), and the screen tips can follow. This is keyed on the board
   confirming "tour" (TIP_TOUR_SAVED), not the local list, and a failed save retries, backing off 5s to
-  a minute. Without it, a new user whose tour went unrecorded, whose save failed, or who took first
-  run's create ending (it lands on the create form, where the tour never shows) would look like an
-  upgrader for good.
+  a minute. Without it, a new user whose tour went unrecorded, whose save failed, or who clicked New
+  agent before the tour's first tick (the tour never shows over the create form) would look like an
+  upgrader for good. (Every first-run ending lands on the board since #3575.)
 - Each first-visit screen tip shows by itself once, and only after "tour" is seen. One exception: on a
-  new board the create form's own tip (Make an agent) does not wait for the tour, because first run's
-  create ending lands there and that is where someone new needs it.
+  new board the create form's own tip (Make an agent) does not wait for the tour, because someone new
+  can reach the create form before the tour shows, and that is where they need it.
 - A board that already had agents at load (every upgrade) gets nothing by itself. The ? beside the
   user's name offers this screen's tip, the welcome tour, and the ring explainer. Closing a tour taken
   from the ? records it, and from then on the first-visit screen tips follow as for anyone else:
@@ -74,6 +74,6 @@ restores them; light and dark; narrow width places the card in-page. Controls fo
 T23: a board with agents and nothing seen shows nothing and records nothing. T24: a tour that went
 unrecorded is recorded once the first agent arrives, through a failed first save. T25: an ordinary
 close whose save failed is mended the same way. T26: a board that had agents at its first answer and then removed
-the last one gets no tour; T27 the same with tips off at load. T28: first run's create ending gets
-the Make an agent tip, then the screen tips once the agent exists. Each was run against the code with its fix removed
+the last one gets no tour; T27 the same with tips off at load. T28: someone new who clicks New agent
+before the tour shows gets the Make an agent tip, then the screen tips once the agent exists. Each was run against the code with its fix removed
 and failed.

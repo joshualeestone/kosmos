@@ -52828,8 +52828,8 @@ function tipsCheck() {
   /* A new board (no agents at its first answer) that now has an agent: the tour's job is done
      whether or not it was ever shown, so it counts as seen and the screen tips can follow. This is
      what carries someone new through: a tour that went with its screen (keyboard, Back, a link:
-     unrecorded, below), a save that failed, and first run's create ending, which lands on the
-     create form where the tour never shows. Above the open-tip return so a failed save is retried
+     unrecorded, below), a save that failed, and someone who went to the create form before the
+     tour's first tick (the tour never shows over it). Above the open-tip return so a failed save is retried
      while a screen tip is up; never while the tour itself is on screen. */
   if (TIP_NEW_BOARD === true && !TIP_TOUR_SAVED && TIPS_STATE && TIPS_STATE.ok && !(TIP_OPEN && TIP_OPEN.tour) && Array.isArray(LAST) && LAST.length > 0 && Date.now() >= TIP_TOUR_NEXT_TRY) {
     /* Keyed on what the board has confirmed, not on the local list: a close that recorded the tour
@@ -52870,8 +52870,9 @@ function tipAutoOk(t) {
        has since removed its last one is not someone new, and the tour would be the wrong help. */
     return TIP_NEW_BOARD === true && Array.isArray(LAST) && LAST.length === 0;
   }
-  /* On a new board the create form's own tip does not wait for the tour: first run's create ending
-     lands there, where the tour never shows, and it is exactly where someone new needs help. */
+  /* On a new board the create form's own tip does not wait for the tour: someone new who clicks New
+     agent before the tour's first tick is on a screen the tour never shows over, and it is exactly
+     where they need help. (First run's endings all land on the board since #3575.) */
   if (t.id === 'newagent' && TIP_NEW_BOARD === true) return true;
   return TIPS_STATE.seen.includes('tour');
 }

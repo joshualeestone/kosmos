@@ -512,15 +512,16 @@ const resetStore = (state) => fs.writeFileSync(tipsStore.FILE(), JSON.stringify(
     await page.keyboard.press('Escape');
     await page.waitForTimeout(150);
 
-    // T28: first run's create ending ("Giddy Up") lands someone new on the create form, where the tour
-    // never shows. The create form's own tip shows there anyway, and once they have made the agent the
-    // tour counts as seen and the screen tips follow. Before, this person got nothing, ever.
+    // T28: someone new clicks New agent before the tour's first tick, so they are on the create form,
+    // where the tour never shows. The create form's own tip shows there anyway, and once they have
+    // made the agent the tour counts as seen and the screen tips follow. Before, they got nothing, ever.
     resetStore({ seen: [], off: false });
     noAgents();
     await page.goto(URL, { waitUntil: 'networkidle' });
-    if (await page.$('#firstrun:not([hidden])')) await page.evaluate(() => frFinish(openCreate));
-    else await page.evaluate(() => openCreate());
-    chk(await waitTitle(page, 'Make an agent', 8000), 'T28 on the create form after first run, the Make an agent tip shows by itself');
+    if (await page.$('#firstrun:not([hidden])')) { await page.keyboard.press('Escape'); await page.waitForTimeout(100); }
+    await page.click('#new-agent');   // a real click, before tipsStart's first tick
+    chk(await page.evaluate(() => tipVisible('#panel-create')), 'T28 precondition: New agent opened the create form');
+    chk(await waitTitle(page, 'Make an agent', 8000), 'T28 on the create form, before any tour, the Make an agent tip shows by itself');
     const tourShown28 = await page.evaluate(() => !!document.querySelector('#tipcard .tip-dots'));
     await page.keyboard.press('Escape');
     withAgent();
