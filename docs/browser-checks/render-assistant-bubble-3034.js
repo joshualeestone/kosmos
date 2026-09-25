@@ -135,6 +135,20 @@ const waitFor = (page, fn, ms = 6000) => page.waitForFunction(fn, null, { timeou
     const b15p = await page.evaluate(() => { const r = document.getElementById('d-send').getBoundingClientRect(); const h = document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2); return !!h && !!h.closest('#d-send'); });
     chk(b15p, 'B15 with the chat open, the page\'s Send button is still reachable');
     await page.click('#asp-fold');
+    // B17: a short window. The lift is capped, so the bubble and the open chat stay wholly on screen.
+    await page.setViewportSize({ width: 1280, height: 420 });
+    /* A tall control in the corner, so the lift the bubble wants is taller than the window: only the cap
+       keeps it on screen (without one it goes off the top). */
+    await page.evaluate(() => { const t = document.createElement('button'); t.dataset.check = 'b17'; t.textContent = 'tall'; t.style.cssText = 'position:fixed;right:0;bottom:0;width:120px;height:380px;z-index:1'; document.body.appendChild(t); });
+    await page.waitForTimeout(1700);
+    const b17 = await page.evaluate(() => { const r = document.getElementById('asb').getBoundingClientRect(); return { top: Math.round(r.top), bottom: Math.round(r.bottom), vh: innerHeight }; });
+    await page.click('#asb');
+    await page.waitForTimeout(300);
+    const b17p = await page.evaluate(() => { const r = document.getElementById('asp').getBoundingClientRect(); return { top: Math.round(r.top), bottom: Math.round(r.bottom), vh: innerHeight }; });
+    chk(b17.top >= 0 && b17.bottom <= b17.vh && b17p.top >= 0 && b17p.bottom <= b17p.vh, 'B17 on a short window the lifted bubble and the open chat stay on screen', JSON.stringify({ b17, b17p }));
+    await page.click('#asp-fold');
+    await page.evaluate(() => document.querySelector('[data-check="b17"]').remove());
+    await page.setViewportSize({ width: 1280, height: 860 });
     await page.evaluate(() => showTab('agents'));
     await page.waitForTimeout(300);
 
@@ -177,12 +191,14 @@ const waitFor = (page, fn, ms = 6000) => page.waitForFunction(fn, null, { timeou
     await page.fill('#asp-say', 'Is it working?');
     await page.keyboard.press('Enter');
     await waitFor(page, () => /still in the box/.test(document.getElementById('asp-msg').textContent));
+    await waitFor(page, () => ASB.sending === false);   // the send (and its re-read) has finished before the next
     const b5b = await page.evaluate(() => ({ box: document.getElementById('asp-say').value, msg: document.getElementById('asp-msg').textContent }));
     chk(b5b.box === 'Is it working?' && /still in the box/.test(b5b.msg), 'B5b an unconfirmed send that was not kept leaves the words in the box and says so', JSON.stringify(b5b));
     // B5c: could_not keeps them too, with the reason as a sentence.
     verdict = { delivery: { state: 'could_not', because: 'the assistant is not running' }, recorded: false };
     await page.keyboard.press('Enter');
     await waitFor(page, () => /could not get that/.test(document.getElementById('asp-msg').textContent));
+    await waitFor(page, () => ASB.sending === false);
     const b5c = await page.evaluate(() => ({ box: document.getElementById('asp-say').value, msg: document.getElementById('asp-msg').textContent }));
     chk(b5c.box === 'Is it working?' && /The assistant is not running/.test(b5c.msg), 'B5c a send that could not go keeps the words and gives the reason', JSON.stringify(b5c));
     verdict = { delivery: { state: 'placed' }, recorded: true };

@@ -53720,6 +53720,7 @@ const ASB_SEL = 'button, a[href], input:not([type="hidden"]), select, textarea, 
 function asbLift(el, bandOnly) {
   if (!el || el.hidden) return;
   el.style.bottom = '';
+  if (bandOnly) el.style.maxHeight = '';
   const vh = window.innerHeight;
   for (let pass = 0; pass < 3; pass++) {
     const a = el.getBoundingClientRect();
@@ -53732,7 +53733,12 @@ function asbLift(el, bandOnly) {
       if (b.left < a.right && b.right > a.left && b.top < a.bottom && b.bottom > a.top) lift = Math.max(lift, vh - b.top + 12);
     }
     if (!lift) return;
+    /* Never above the window: a lift is capped so the whole thing stays on screen, and the panel gives up
+       height instead (a short window). */
+    const cap = bandOnly ? vh - 160 : vh - el.offsetHeight - 12;
+    lift = Math.min(lift, Math.max(16, cap));
     el.style.bottom = Math.round(lift) + 'px';
+    if (bandOnly) el.style.maxHeight = Math.max(160, Math.round(vh - lift - 12)) + 'px';
   }
 }
 
@@ -53941,7 +53947,7 @@ document.getElementById('asb-toggle')?.addEventListener('click', async (e) => {
   sw.disabled = true;
   let ok = false;
   ASB.holding = true;   // nothing is drawn until the board has said who the guide is (below)
-  try { ok = await asbSaveSetting({ on: !(ASB.setting.on === true) }); } finally { sw.disabled = false; }
+  try { ok = await asbSaveSetting({ on: !(ASB.setting.on === true) }); } catch { ok = false; }
   const m = document.getElementById('asb-row-msg');
   if (m) { m.textContent = ok ? '' : 'We could not save that just now. Try again in a moment.'; m.hidden = ok; }
   asbPaintSetting();
@@ -53949,6 +53955,7 @@ document.getElementById('asb-toggle')?.addEventListener('click', async (e) => {
      assistant was off is not painted from the page's memory. */
   const confirmed = !(ok && ASB.setting && ASB.setting.on === true) || await asbConfirmGuide();
   ASB.holding = false;
+  sw.disabled = false;   // only now: a second click mid-check would start a second hold
   if (!confirmed) {
     /* The row goes with the guide; say why, and keep the keyboard on the page. */
     if (m) { m.textContent = 'The setup assistant is not on this computer right now.'; m.hidden = false; }
