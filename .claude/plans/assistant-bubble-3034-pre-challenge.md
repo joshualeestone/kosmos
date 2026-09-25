@@ -2,17 +2,17 @@
 pre_challenge: true
 method: challenge-loop
 branch: assistant-bubble-3034
-diff_hash: 9ee47ba7adbf78a2a0b906a790823c685fdfdbb0c8a5c4f901d6b9f735342a33
+diff_hash: ebbe90ba3254dff27faa99779b7d111c65aa098393435752efa5b54de2f883c2
 validation: passed
 subdir_audit: passed
-timestamp: 2026-09-25T04:18:24Z
-iterations: 11
+timestamp: 2026-09-25T04:47:57Z
+iterations: 13
 converged: true
 ---
 
 ## [CHALLENGE-LOOP] Summary
 
-**Iterations:** 11
+**Iterations:** 13
 **Converged:** Yes (iteration 10 had nothing at WARNING or above; iteration 11 reviewed the post-convergence merge,
 trailers and avatar-pin change and found nothing at WARNING or above)
 
@@ -44,6 +44,12 @@ trailers and avatar-pin change and found nothing at WARNING or above)
 #### Iteration 11 - opus (post-convergence merge, trailers, avatar pin)
 - No findings at WARNING or above; [NIT] one trailer's wording.
 
+#### Iteration 12 - sonnet (after CI red)
+- CI's browser-checks went red: GET /api/setup-guide answered 404 with no guide, which the browser logs as a failed resource, failing other checks' "no page errors" arms. FIXED 6445f36d: no guide is 200 { ok: false, reason: 'none' } (B1 asserts no failed resource; fails with the 404 back, as does render-reactions-2255).
+- [WARNING] a test title still said 404 --> FIXED 010efd74 (with a stale comment)
+#### Iteration 13 - opus
+- No findings at WARNING or above. [NIT] three stale wordings (a test title "(404)", a test comment, the POST page route's comment); left, as each would cost another full validation run.
+
 ### Declined
 - The hosted no-guide chat (Renet's #3674): a separate follow-up PR; today it answers 501 on every install (on the card).
 
@@ -51,4 +57,4 @@ trailers and avatar-pin change and found nothing at WARNING or above)
 Surface gate: trailers for render-consolidated-newagent-3053.js, render-agentdm-3414.js, render-help-tips-3574.js (all
 run green unchanged). web.avatarver-2762 pin 20 -> 21 (the assistant's picture is versioned). Two contention reds
 (tools.release-gate #1455 while Baron's install harness ran; engine/updating-988 at load 11 on 10 cores) each passed
-alone repeatedly; final 6j PASSED on 6f543cbc's content (record hash 9ee47ba7).
+alone repeatedly; final 6j PASSED on 010efd74's content (record hash ebbe90ba).
