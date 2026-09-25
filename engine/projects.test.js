@@ -2545,24 +2545,26 @@ test('#2808 class 2: describe carries stateReportedBy onto the member, so pjMemb
 
 test('#3726: the project Issue count is the board\'s "needs the person" rule, not needs_you alone', () => {
   reset();
-  /* A connection Kosmos gave up on is red on the board and in the member row (#3410/#3720); the
+  /* Names no other test in this file uses: an earlier test leaves a self-report on claudebot, which
+     the fixture then classifies as needs_you, so a shared name measured another test's world.
+     A connection Kosmos gave up on is red on the board and in the member row (#3410/#3720); the
      project row must count it too. The roster is the real status engine's cards, with `reconnect`
      attached the way server.js's safeRoster attaches it; a trust wait is a card copy with its state
      set, since that row is built offline by the route and the fixture cannot produce it. */
-  const pj = projects.create({ name: 'Conn', folder: folder('conn-3726'), agents: ['mara', 'claudebot', 'ann'] });
-  const other = projects.create({ name: 'Also', folder: folder('also-3726'), agents: ['mara'] });
-  const base = cards([fleet.agent('mara', { state: 'connection_lost' }), fleet.agent('claudebot', { state: 'idle' }), fleet.agent('ann', { state: 'connection_lost' })]);
+  const pj = projects.create({ name: 'Conn', folder: folder('conn-3726'), agents: ['nika', 'tove', 'ines'] });
+  const other = projects.create({ name: 'Also', folder: folder('also-3726'), agents: ['nika'] });
+  const base = cards([fleet.agent('nika', { state: 'connection_lost' }), fleet.agent('tove', { state: 'idle' }), fleet.agent('ines', { state: 'connection_lost' })]);
   const withPhase = (name, phase) => Object.assign({}, base.find((c) => c.sessionName === name), { reconnect: phase ? { phase } : null });
-  const roster = [withPhase('mara', 'gave_up'), Object.assign({}, base.find((c) => c.sessionName === 'claudebot'), { state: 'needs_trust' }), withPhase('ann', 'retrying')];
+  const roster = [withPhase('nika', 'gave_up'), Object.assign({}, base.find((c) => c.sessionName === 'tove'), { state: 'needs_trust' }), withPhase('ines', 'retrying')];
   const row = projects.list(roster).find((p) => p.id === pj.id);
-  assert.equal(row.agents.find((m) => m.sessionName === 'mara').reconnect.phase, 'gave_up', 'the member does not carry where the reconnect stands');
+  assert.equal(row.agents.find((m) => m.sessionName === 'nika').reconnect.phase, 'gave_up', 'the member does not carry where the reconnect stands');
   assert.equal(row.summary.needsYou, 2, 'a given-up connection and a trust wait are not counted as needing the person');
   // Control: a reconnect still being tried does not need the person yet.
-  const retrying = projects.list([withPhase('ann', 'retrying')]).find((p) => p.id === pj.id);
+  const retrying = projects.list([withPhase('ines', 'retrying')]).find((p) => p.id === pj.id);
   assert.equal(retrying.summary.needsYou, 0, 'a connection still being retried was counted as needing the person');
   // The agent's own condition is about no project: it lights every project it is a member of.
   assert.equal(projects.list(roster).find((p) => p.id === other.id).summary.needsYou, 1, 'a given-up connection did not light the other project it belongs to');
   // Untied: a stranger's pane holding the name lends no state, so nothing is counted.
-  const untied = Object.assign({}, withPhase('mara', 'gave_up'), { isNamedOurs: false });
+  const untied = Object.assign({}, withPhase('nika', 'gave_up'), { isNamedOurs: false });
   assert.equal(projects.list([untied]).find((p) => p.id === other.id).summary.needsYou, 0, 'an untied pane\'s given-up connection was counted');
 });
