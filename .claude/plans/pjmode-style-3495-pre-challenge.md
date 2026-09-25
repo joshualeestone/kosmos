@@ -2,10 +2,10 @@
 pre_challenge: true
 method: challenge-loop
 branch: pjmode-style-3495
-diff_hash: 556b60216d7e3c250e2316b1c5f58eacf00868b1c35709ab39462bacf9567b98
+diff_hash: e7252f500c0f461eb930c726e47de8d496781340f661cd0a459032aee5a2bf68
 validation: passed
 subdir_audit: passed
-timestamp: 2026-09-25T03:30:49Z
+timestamp: 2026-09-25T03:46:20Z
 iterations: 4
 converged: true
 ---
@@ -29,4 +29,4 @@ comments say segmented control.
 ### Validation
 First run red on the surface gate (#2518): render-pjadd-back-2850.js and render-fed-plus-gate.js declare tokens
 this change touches. Both were run on the branch (merged with main) and pass unchanged; per-check trailers
-recorded (with the .js names the gate matches). Final 6j PASSED on 876ea7ac's content (clean tree).
+recorded (with the .js names the gate matches). main was merged in twice more for conflicts (EXPECTED_SITES and the runner list only; the new count measured each time). Final 6j PASSED on 512617c6's content (clean tree, validation record hash e7252f50).
