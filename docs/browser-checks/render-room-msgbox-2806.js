@@ -43,17 +43,52 @@
  *   NODE_PATH="$HOME/work/pw-runtime/node_modules" node docs/browser-checks/render-room-msgbox-2806.js
  *
  * HEADED by default (like its siblings). HEADED=0 on a machine with no console.
+ * The #2518 surface gate reads the line-leading annotation below.
+ * ENGINES=chromium,webkit runs every arm in each (WebKit is Playwright's build, not Safari), the
+ * same switch as render-dm-phone-718. Chromium alone by default, which is what the gate runs.
  */
+// Browser-check-surface: pj-room rxn-quick rxn-show rxn-below pj-list-view sortctl viewtoggle nt-modal am-modal pj-post-mirror pj-add-member
 const path = require('node:path');
-const { chromium } = require('playwright');
+const playwright = require('playwright');
+/* ENGINES=chromium,webkit (the render-dm-phone-718 switch). An unknown name is refused rather
+   than quietly running Chromium alone. */
+const ENGINES = (process.env.ENGINES || 'chromium').split(',').map((e) => e.trim()).filter(Boolean);
+const BAD_ENGINES = ENGINES.filter((e) => e !== 'chromium' && e !== 'webkit');
+if (BAD_ENGINES.length || !ENGINES.length) { console.error('ENGINES must be chromium and/or webkit, got: ' + (process.env.ENGINES || '')); process.exit(2); }
+let ENGINE = ENGINES[0];
 
 const PAGE = 'file://' + path.join(path.resolve(__dirname, '..', '..'), 'web', 'index.html');
+/* The places the page's 16px touch rule covers, read FROM THAT RULE (one list, not four copies),
+   and the input types it skips; every field sweep below uses these. */
+const PAGE_SOURCE = require('node:fs').readFileSync(path.join(path.resolve(__dirname, '..', '..'), 'web', 'index.html'), 'utf8');
+const FIELD_VIEWS = (PAGE_SOURCE.match(/:is\((#pj-list-view[^)]*)\) :is\(input:not/) || [, ''])[1].split(',').map((sel) => sel.trim()).filter(Boolean);
+const FIELD_DIALOGS = [...PAGE_SOURCE.matchAll(/(#[\w-]+) :is\(input:not\(\[type=checkbox\]\)/g)].map((match) => match[1]);
+const FIELD_ROOTS = [...FIELD_VIEWS, ...FIELD_DIALOGS];
+if (FIELD_VIEWS.length !== 6 || FIELD_DIALOGS.length !== 2) { console.error('the 16px rule\'s scope could not be read from the page: ' + JSON.stringify(FIELD_ROOTS)); process.exit(2); }
+/* Input types the sweeps skip: the rule's own :not(checkbox, radio), plus types that are not text
+   fields (iOS zooms text entry only). */
+const FIELD_SKIP = ['checkbox', 'radio', 'range', 'color', 'file', 'hidden', 'button', 'submit', 'reset', 'image'];
 
 const fail = [];
 const chk = (ok, label, extra) => {
-  console.log((ok ? 'PASS  ' : 'FAIL  ') + label + (extra ? '  ' + extra : ''));
-  if (!ok) fail.push(label);
+  const named = (ENGINES.length > 1 ? '[' + ENGINE + '] ' : '') + label;
+  console.log((ok ? 'PASS  ' : 'FAIL  ') + named + (extra ? '  ' + extra : ''));
+  if (!ok) fail.push(named);
 };
+/* A thrown handler (tap, observer, re-place) can leave the state an arm reads intact and pass it:
+   collect every page error, and each page asserts none before it closes. Loaded over file://, the
+   page's own /api/* polls cannot resolve: that is this harness having no server, not a page defect
+   (WebKit words it "Not allowed to load local resource: file:///..."). */
+function watchErrors(page) {
+  const errors = [];
+  page.on('pageerror', (e) => errors.push('pageerror ' + e.message));
+  page.on('console', (m) => {
+    if (m.type() !== 'error') return;
+    if (/ERR_FILE_NOT_FOUND|URL scheme "file" is not supported|Not allowed to load local resource: file:/.test(m.text())) return;
+    errors.push('console ' + m.text());
+  });
+  return errors;
+}
 
 /* rgb/rgba string -> [r,g,b,a]. "transparent" and rgba(...,0) both give a=0. */
 function parse(c) {
@@ -79,22 +114,16 @@ function blueLead(rgb) { return rgb[2] - Math.max(rgb[0], rgb[1]); }
 const now = () => new Date().toISOString();
 
 (async () => {
-  const browser = await chromium.launch({
-    headless: process.env.HEADED === '0',
-    ignoreDefaultArgs: ['--hide-scrollbars'],
-  });
+  for (const engineName of ENGINES) {
+  ENGINE = engineName;
+  const browser = await playwright[ENGINE].launch(ENGINE === 'chromium'
+    ? { headless: process.env.HEADED === '0', ignoreDefaultArgs: ['--hide-scrollbars'] }
+    : { headless: process.env.HEADED === '0' });
+  console.log('engine: ' + ENGINE + (ENGINE === 'webkit' ? ' (Playwright WebKit, not Safari)' : ''));
   try {
     for (const theme of ['light', 'dark']) {
       const page = await browser.newPage({ viewport: { width: 1100, height: 900 }, colorScheme: theme });
-      const errs = [];
-      page.on('pageerror', (e) => errs.push('pageerror ' + e.message));
-      page.on('console', (m) => {
-        if (m.type() !== 'error') return;
-        // Loaded over file://, so the page's own /api/* polls cannot resolve.
-        // That is this harness's condition (no server), not a page defect.
-        if (/ERR_FILE_NOT_FOUND|URL scheme "file" is not supported/.test(m.text())) return;
-        errs.push('console ' + m.text());
-      });
+      const errs = watchErrors(page);
       // Refuse the app's 5s polls so they neither race the render nor fill the
       // console against file:// (same posture as render-agent-msg-gray-2805.js).
       await page.addInitScript(() => {
@@ -638,6 +667,985 @@ const now = () => new Date().toISOString();
       await narrowPage.close();
     }
 
+    /* #718 mobile (Josh, 2026-09-24): on a PHONE the room (#pj-room) runs a leaner row, a 28px
+       avatar (the 14px gap stays, or the tail mask paints over the avatar), so the bubble is not squeezed to a column of words (measured 167px at
+       375 before). #3361's rule must still hold THERE: the far gutter equals the near avatar+gap.
+       The arms above render into a detached .thread, which the #pj-room-scoped phone rules never
+       reach, so they cannot see this; this arm renders the REAL rows inside the REAL #pj-room at
+       375px wide. */
+    const phonePage = await browser.newPage({ viewport: { width: 375, height: 800 }, colorScheme: 'light', hasTouch: true, isMobile: true });
+    const phonePageErrors = watchErrors(phonePage);
+    try {
+      await phonePage.addInitScript(() => {
+        window.setInterval = () => 0;
+        const enc = (o) => new Response(JSON.stringify(o), { status: 200, headers: { 'content-type': 'application/json' } });
+        window.fetch = async () => enc({});
+      });
+      await phonePage.goto(PAGE);
+      // Conversation first on a phone, in the DOM (reading order == tab order, #1017), and back
+      // after Members/Files once the window is wider than a phone.
+      const order = () => phonePage.evaluate(() => [...document.querySelector('.pj3').children].map((c) => c.classList.contains('pjmid') ? 'room' : (c.classList.contains('pjsplit') ? 'members-files' : 'other')).join(','));
+      const order375 = await order();
+      chk(order375.startsWith('room,'), `[phone] the conversation is first in the DOM at 375px`, order375);
+      // Turning a phone mid-post reorders the columns. The conversation column (the composer's)
+      // must never leave the page: re-inserting it blurs the composer, and iOS does not bring the
+      // keyboard back for a scripted focus, so a focus check alone would pass on a lost keyboard.
+      const focusedBefore = await phonePage.evaluate(() => {
+        const fr = document.getElementById('firstrun'); if (fr) fr.hidden = true;   // hidden, not removed: the app reads it
+        // The static page shows no project (and the first-run overlay left the app inert): un-hide
+        // and un-inert the room column's ancestors so the composer can take focus, as it does on a
+        // real open project.
+        for (let el = document.querySelector('.pj3 > .pjmid'); el && el !== document.body; el = el.parentElement) {
+          el.hidden = false; el.removeAttribute('inert'); if (getComputedStyle(el).display === 'none') el.style.display = 'block';
+        }
+        window.__midRemoved = 0;
+        new MutationObserver((recs) => recs.forEach((r) => r.removedNodes.forEach((n) => { if (n.classList && n.classList.contains('pjmid')) window.__midRemoved += 1; })))
+          .observe(document.querySelector('.pj3'), { childList: true });
+        const t = document.getElementById('pj-post'); if (!t) return 'no #pj-post'; t.focus(); return document.activeElement === t ? 'pj-post' : 'not focusable';
+      });
+      await phonePage.setViewportSize({ width: 800, height: 800 });
+      await phonePage.waitForTimeout(100);
+      const focusedWide = await phonePage.evaluate(() => (document.activeElement && document.activeElement.id) || '(none)');
+      const orderTurned = await order();   // the move really happened in this same turn
+      await phonePage.setViewportSize({ width: 375, height: 800 });
+      await phonePage.waitForTimeout(100);
+      const focusedBack = await phonePage.evaluate(() => (document.activeElement && document.activeElement.id) || '(none)');
+      chk(focusedBefore === 'pj-post' && focusedWide === 'pj-post' && focusedBack === 'pj-post', `[phone] turning the phone keeps the composer focused across the move`, `${focusedBefore} -> ${focusedWide} -> ${focusedBack}`);
+      const orderBack = await phonePage.evaluate(() => [...document.querySelector('.pj3').children].map((c) => (c.classList.contains('pjmid') ? 'room' : (c.classList.contains('pjsplit') ? 'members-files' : 'other'))).join(','));
+      const midRemoved = await phonePage.evaluate(() => window.__midRemoved);
+      // Control: the reorder must actually have happened both ways (back at 375 now), or "never removed" is vacuous.
+      chk(midRemoved === 0 && order375.startsWith('room,') && orderTurned.startsWith('members-files,room') && orderBack.startsWith('room,'), `[phone] the conversation column never leaves the page while the phone turns (the Members/Files column moves instead)`, `removed=${midRemoved} turned=${orderTurned} back=${orderBack}`);
+      await phonePage.evaluate(() => { const t = document.getElementById('pj-post'); if (t) t.blur(); });
+      // The column that DOES move (Members/Files) must give a focused control its focus back.
+      const splitFocus = await phonePage.evaluate(() => {
+        for (let el = document.querySelector('.pj3 > .pjsplit'); el && el !== document.body; el = el.parentElement) {
+          el.hidden = false; el.removeAttribute('inert'); if (getComputedStyle(el).display === 'none') el.style.display = 'block';
+        }
+        const b = document.getElementById('pj-add-member'); if (!b) return 'no #pj-add-member';
+        b.hidden = false; b.style.display = 'inline-block'; b.focus();
+        return document.activeElement === b ? 'pj-add-member' : 'not focusable';
+      });
+      await phonePage.setViewportSize({ width: 800, height: 800 });
+      await phonePage.waitForTimeout(100);
+      const splitWide = await phonePage.evaluate(() => (document.activeElement && document.activeElement.id) || '(none)');
+      const splitOrder = await order();
+      await phonePage.setViewportSize({ width: 375, height: 800 });
+      await phonePage.waitForTimeout(100);
+      const splitBack = await phonePage.evaluate(() => (document.activeElement && document.activeElement.id) || '(none)');
+      chk(splitFocus === 'pj-add-member' && splitWide === 'pj-add-member' && splitBack === 'pj-add-member' && splitOrder.startsWith('members-files,room'),
+        `[phone] a control focused in Members/Files keeps its focus when the phone turns`, `${splitFocus} -> ${splitWide} -> ${splitBack} (order ${splitOrder})`);
+      await phonePage.evaluate(() => { const b = document.getElementById('pj-add-member'); if (b) b.blur(); });
+      // The projects list's top row at 375 on a touchscreen (16px sort): Add Project, the sort and
+      // the view toggle must not overlap and must stay inside the row. (The harness only flags
+      // overflow past the panel; controls drawn over each other inside it pass that.)
+      // At 375 and just above the phone width (30rem) too: the 16px sort applies on every touchscreen,
+      // and above 30rem the row keeps its two-column, no-wrap layout (a folded phone open, a small tablet).
+      for (const rowWidth of [375, 490, 540, 600]) {
+      await phonePage.setViewportSize({ width: rowWidth, height: 800 });
+      await phonePage.waitForTimeout(100);
+      const pjRow = await phonePage.evaluate(() => {
+        const view = document.getElementById('pj-list-view'); const panel = document.getElementById('panel-projects');
+        if (!view || !panel) return { error: 'no projects list' };
+        for (let el = view; el && el !== document.body; el = el.parentElement) { el.hidden = false; el.removeAttribute('inert'); if (getComputedStyle(el).display === 'none') el.style.display = 'block'; }
+        const row = view.querySelector('.statsrow'); const add = document.getElementById('pj-new');
+        const sort = view.querySelector('.sortctl'); const tog = view.querySelector('.viewtoggle');
+        if (!row || !add || !sort || !tog) return { error: 'row parts missing' };
+        const r = (el) => el.getBoundingClientRect(); const R = r(row), A = r(add), S = r(sort), T = r(tog);
+        // Its label whole: the select at least as wide as it is when free to take its natural width.
+        // Natural width: a copy OUTSIDE the row (inside it, the shrunk flex box would bound it and
+        // the comparison could never fail), with the same computed font, padding and border.
+        const sel = sort.querySelector('select'); const shownW = sel.getBoundingClientRect().width;
+        const cs = getComputedStyle(sel); const copy = sel.cloneNode(true);
+        copy.style.cssText = 'position:absolute;left:-9999px;top:0;width:auto;min-width:0;max-width:none;'
+          + 'font:' + cs.font + ';padding:' + cs.padding + ';border:' + cs.border + ';box-sizing:' + cs.boxSizing + ';appearance:' + cs.appearance + ';';
+        document.body.appendChild(copy); copy.selectedIndex = sel.selectedIndex;
+        const naturalW = copy.getBoundingClientRect().width; copy.remove();
+        return { fontPx: parseFloat(getComputedStyle(sort.querySelector('select')).fontSize), row: [Math.round(R.left), Math.round(R.right)],
+          add: [Math.round(A.left), Math.round(A.right)], sort: [Math.round(S.left), Math.round(S.right)], toggle: [Math.round(T.left), Math.round(T.right)],
+          // No two of the three overlap, whichever line the toggle lands on.
+          clear: [[A, S], [A, T], [S, T]].every(([p, q]) => p.right <= q.left + 0.5 || q.right <= p.left + 0.5 || p.bottom <= q.top + 0.5 || q.bottom <= p.top + 0.5),
+          inside: [A, S, T].every((b) => b.left >= R.left - 0.5 && b.right <= R.right + 0.5),
+          sortWhole: shownW >= naturalW - 0.5, sortW: [Math.round(shownW), Math.round(naturalW)],
+          // The toggle at its full width too: its buttons are not squeezed (each at its own width).
+          // Against a copy of the toggle measured OUTSIDE the row (its own width, not the row's
+          // squeeze): comparing a button with its own computed width could never fail.
+          toggleWhole: (() => { const copy = tog.cloneNode(true); copy.style.cssText = 'position:absolute;left:-9999px;top:0;';
+            document.body.appendChild(copy); const free = [...copy.querySelectorAll('button')].map((b) => b.getBoundingClientRect().width); copy.remove();
+            const shown = [...tog.querySelectorAll('button')].map((b) => b.getBoundingClientRect().width);
+            return free.length > 0 && shown.length === free.length && shown.every((w, i) => w >= free[i] - 0.5); })(),
+          toggleW: Math.round(T.width) };
+      });
+      chk(!pjRow.error && pjRow.fontPx >= 16 && pjRow.clear && pjRow.inside && pjRow.sortWhole && pjRow.toggleWhole, `[phone/touch] the projects row's Add Project, sort and toggle do not overlap at ${rowWidth}, and neither the sort's label nor the toggle is cut or squeezed`, JSON.stringify(pjRow));
+      }
+      await phonePage.setViewportSize({ width: 375, height: 800 });
+      await phonePage.waitForTimeout(100);
+      // The composer and its @mention mirror (which draws the text the person reads once the value
+      // is not empty) must match on a touchscreen: same font size, same line height, and after
+      // three lines the mirror is not taller than the composer (it is clipped to the composer's
+      // height, so a mismatch drifts the text off the cursor and cuts the last line).
+      const mirrorMatch = await phonePage.evaluate(() => {
+        const post = document.getElementById('pj-post'); const mirrorText = document.querySelector('#pj-post-mirror .pj-mirror-in');
+        if (!post || !mirrorText) return { error: 'composer or mirror missing' };
+        post.value = 'first line\nsecond line\nthird line';
+        post.dispatchEvent(new Event('input', { bubbles: true }));
+        const postStyle = getComputedStyle(post), mirrorStyle = getComputedStyle(mirrorText);
+        return { hoverNone: matchMedia('(hover: none)').matches,
+          font: [postStyle.fontSize, mirrorStyle.fontSize], lineHeight: [postStyle.lineHeight, mirrorStyle.lineHeight],
+          heights: [post.scrollHeight, mirrorText.scrollHeight] };
+      });
+      await phonePage.evaluate(() => { const post = document.getElementById('pj-post'); if (post) { post.value = ''; post.dispatchEvent(new Event('input', { bubbles: true })); } });
+      chk(!mirrorMatch.error && mirrorMatch.hoverNone && mirrorMatch.font[0] === mirrorMatch.font[1] && mirrorMatch.lineHeight[0] === mirrorMatch.lineHeight[1] && mirrorMatch.heights[1] <= mirrorMatch.heights[0] + 1,
+        `[phone/touch] the composer and its @mention mirror match (size, line height, height after three lines)`, JSON.stringify(mirrorMatch));
+      // A SWEEP, not a hand list (Liu Kang m705): every field on the project page, its Tasks and
+      // members dialogs included, computes at 16px or more on a touchscreen, or iOS zooms in and
+      // the page pans sideways.
+      const fonts = await phonePage.evaluate(({ skipTypes }) => {
+        // The WHOLE project page (#panel-projects) and its two dialogs, not the rule's own list: a
+        // field added outside the six views would show up here. Screens the one-screen layout
+        // moves inside the panel (Settings, Tasks, Create agent) are other screens and excluded.
+        const roots = ['#panel-projects', '#nt-modal', '#am-modal'].map((selector) => document.querySelector(selector)).filter(Boolean);
+        if (roots.length !== 3) return { error: 'a root is missing', found: roots.length };
+        const skip = new Set(skipTypes);
+        const foreign = '#panel-settings, #panel-tasks, #panel-create';
+        const fields = roots.flatMap((root) => [...root.querySelectorAll('input, select, textarea')])
+          .filter((el) => !(el.tagName === 'INPUT' && skip.has((el.type || '').toLowerCase())))
+          .filter((el) => !el.closest(foreign));
+        const small = fields.map((el) => ({ id: el.id || el.className || el.tagName, px: parseFloat(getComputedStyle(el).fontSize) })).filter((f) => f.px < 16);
+        return { count: fields.length, small, hoverNone: matchMedia('(hover: none)').matches };
+      }, { skipTypes: FIELD_SKIP });
+      // The one-screen layout (960px and up) appends Settings inside #panel-projects
+      // (placeAppSettings). Its fields are another screen's and must keep their own size on a
+      // touchscreen: moved exactly the way that function moves it, then measured.
+      const settingsIn = await phonePage.evaluate((skipTypes) => {
+        const settings = document.getElementById('panel-settings'); const projects = document.getElementById('panel-projects');
+        if (!settings || !projects) return { error: 'panels missing' };
+        const home = { parent: settings.parentElement, next: settings.nextSibling };
+        const fields = [...settings.querySelectorAll('input, select, textarea')].filter((el) => !(el.tagName === 'INPUT' && skipTypes.includes((el.type || '').toLowerCase())));
+        // Each field's size AT HOME, then moved inside the projects panel: they must be EQUAL (our
+        // rule does not reach Settings), whatever Settings' own size is (it may fix its zoom itself).
+        const atHome = fields.map((el) => getComputedStyle(el).fontSize);
+        projects.appendChild(settings);
+        const changed = fields.filter((el, index) => getComputedStyle(el).fontSize !== atHome[index]).map((el) => el.id || el.className);
+        const res = { fields: fields.length, changed, inside: projects.contains(settings) };
+        home.parent.insertBefore(settings, home.next);
+        return res;
+      }, FIELD_SKIP);
+      chk(!settingsIn.error && settingsIn.inside && settingsIn.fields >= 3 && settingsIn.changed.length === 0,
+        `[touch, one-screen layout] Settings moved inside the projects panel keeps its own field sizes`, JSON.stringify(settingsIn));
+      // And at 16px nothing in those dialogs runs off the side at 375: each dialog shown, its
+      // card (.rm-box) and every field and button in it inside the screen.
+      // The SCREEN's width (visualViewport), not innerWidth: in a mobile context a page wider
+      // than the screen widens the layout viewport to fit, so innerWidth grows with the overflow
+      // and a comparison against it can never fail (measured: innerWidth 545 on a 375 screen).
+      const dlgFit = await phonePage.evaluate(() => { const screenWidth = window.visualViewport ? window.visualViewport.width : innerWidth; return ['nt-modal', 'am-modal'].map((id) => {
+        const m = document.getElementById(id); if (!m) return { id, error: 'missing' };
+        const was = m.hidden; m.hidden = false; m.removeAttribute('inert');
+        const over = [...m.querySelectorAll('input, select, textarea, button')].filter((el) => el.getBoundingClientRect().width > 0)
+          .filter((el) => { const r = el.getBoundingClientRect(); return r.left < -0.5 || r.right > screenWidth + 0.5; }).map((el) => el.id || el.className);
+        const shown = [...m.querySelectorAll('input, select, textarea')].filter((el) => el.getBoundingClientRect().width > 0).length;   // rendered fields only
+        const card = m.querySelector('.rm-box'); const cardRect = card ? card.getBoundingClientRect() : null;
+        const cardFits = !!(cardRect && cardRect.width > 0 && cardRect.left >= -0.5 && cardRect.right <= screenWidth + 0.5);
+        const res = { id, screenWidth: Math.round(screenWidth), fields: shown, over, cardFits, card: cardRect ? [Math.round(cardRect.left), Math.round(cardRect.right)] : null };
+        m.hidden = was; return res;
+      }); });
+      chk(dlgFit.every((d) => !d.error && d.screenWidth === 375 && d.fields >= 1 && d.over.length === 0 && d.cardFits), `[phone/touch] at 16px the Tasks and add-member dialogs fit a 375 screen`, JSON.stringify(dlgFit));
+      // 24 fields measured; the floor catches a sweep that stopped finding them.
+      chk(!fonts.error && fonts.hoverNone && fonts.count >= 20 && fonts.small.length === 0, `[phone/touch] every field on the project page is at least 16px (no iOS zoom)`, JSON.stringify(fonts));
+      // The project tip (#3755: four steps, each ringing its own area) must work on a phone, where
+      // this branch moves Members and Files below the conversation. Opened with the real tipShow
+      // and walked with its own Next button: at every step the card is on screen and pointing (not
+      // the arrowless "flat" card, which is what an off-screen target gives since #3700), and the
+      // step's area is on screen (the step scrolls it into view).
+      const tipWalk = async () => {
+        const opened = await phonePage.evaluate(() => {
+          if (typeof TIPS === 'undefined' || typeof tipShow !== 'function') return { error: 'TIPS/tipShow missing' };
+          const t = TIPS.find((x) => x.id === 'project'); if (!t || !t.steps) return { error: 'no stepped project tip' };
+          tipShow(t); return { places: TIP_PLACES.map((st) => st.sel) };
+        });
+        if (opened.error) return opened;
+        const steps = [];
+        for (let i = 0; i < opened.places.length; i += 1) {
+          await phonePage.waitForTimeout(200);
+          steps.push(await phonePage.evaluate(() => {
+            const card = document.getElementById('tipcard'); const st = TIP_PLACES[TIP_STEP];
+            const target = st && st.sel && document.querySelector(st.sel);
+            if (!card || card.hidden || !target) return { error: 'no card or no target', title: st && st.title };
+            const C = card.getBoundingClientRect(), T = target.getBoundingClientRect();
+            const screen = window.visualViewport || { width: innerWidth, height: innerHeight };
+            return { title: st.title, pointing: !/\bflat\b/.test(card.className),
+              cardInView: C.top >= 0 && C.bottom <= screen.height && C.left >= 0 && C.right <= screen.width,
+              targetInView: T.bottom > 0 && T.top < screen.height && T.right > 0 && T.left < screen.width,
+              screenWidth: Math.round(screen.width) };
+          }));
+          await phonePage.evaluate(() => { const go = document.querySelector('#tipcard .tip-go'); if (go) go.click(); });
+        }
+        await phonePage.evaluate(() => { if (typeof tipClose === 'function') tipClose({ record: false }); window.scrollTo(0, 0); });
+        return { places: opened.places.length, steps };
+      };
+      const stepOk = (width) => (st) => !st.error && st.screenWidth === width && st.pointing && st.cardInView && st.targetInView;
+      await phonePage.evaluate(() => window.scrollTo(0, 0));
+      const tip375 = await tipWalk();
+      chk(!tip375.error && tip375.places === 4 && tip375.steps.length === 4 && tip375.steps.every(stepOk(375)),
+        `[phone] every step of the project tip is a pointing card, on screen, with its area on screen`, JSON.stringify(tip375));
+      await phonePage.setViewportSize({ width: 800, height: 800 });
+      await phonePage.waitForTimeout(100);
+      const tip800 = await tipWalk();
+      chk(!tip800.error && tip800.places === 4 && tip800.steps.length === 4 && tip800.steps.every(stepOk(800)),
+        `[wide] every step of the project tip is a pointing card, on screen, wider than a phone`, JSON.stringify(tip800));
+      await phonePage.setViewportSize({ width: 375, height: 800 });
+      await phonePage.waitForTimeout(100);
+      await phonePage.setViewportSize({ width: 800, height: 800 });
+      await phonePage.waitForTimeout(100);
+      const order800 = await order();
+      chk(order800.startsWith('members-files,room'), `[wide] wider than a phone, it goes back after Members/Files`, order800);
+      await phonePage.setViewportSize({ width: 375, height: 800 });
+      await phonePage.waitForTimeout(100);
+      // IN PLACE: the room left in its real column, beside the real sticky composer (the arms below
+      // lift it to body, which cannot see ancestors or the composer). A short screen makes the
+      // sticky composer sit OVER the thread; a post that runs under it is tapped where it shows.
+      // Precondition asserted (the post really runs under the composer), or the composer half
+      // could not fail. Then: every emoji takes its tap, and the composer stays on top.
+      await phonePage.setViewportSize({ width: 375, height: 560 });
+      await phonePage.waitForTimeout(100);
+      const inPlace = await phonePage.evaluate((ts) => {
+        const room = document.getElementById('pj-room'); const comp = document.querySelector('.pjmid .composer');
+        if (!room || !comp || !room.closest('.pjmid')) return { error: 'room or composer not in its column' };
+        const p = { agents: [{ sessionName: 'april', name: 'April' }] };
+        room.hidden = false;
+        room.innerHTML = ['m21', 'm22', 'm23', 'm24', 'm25', 'm26', 'm27', 'm28'].map((id, i) => pjRoomRow({ from: 'april', at: ts, text: 'In-place post ' + i + ', a line or two of text so the thread has some height to it.', id }, p)).join('');
+        room.scrollTop = 0;
+        const R = room.getBoundingClientRect();
+        // Put the thread's top at 60% of the screen so its lower part runs past the bottom, where
+        // the sticky composer sits over it.
+        window.scrollTo(0, window.scrollY + R.top - Math.round(innerHeight * 0.6));
+        const C = comp.getBoundingClientRect();
+        // Scroll the thread so one post starts 40px above the composer and runs on under it.
+        const rows = [...room.querySelectorAll('.msg')];
+        const pick = rows.find((m) => m.getBoundingClientRect().top > C.top - 40) || rows[rows.length - 1];
+        room.scrollTop += Math.round(pick.getBoundingClientRect().top - (C.top - 40));
+        const under = rows.find((m) => { const r = m.getBoundingClientRect(); return r.top < C.top - 20 && r.bottom > C.top + 10; });
+        if (!under) { const R2 = room.getBoundingClientRect(); return { error: 'no post runs under the composer', comp: [Math.round(C.top), Math.round(C.bottom)], room: [Math.round(R2.top), Math.round(R2.bottom)], vh: innerHeight, scrollY: Math.round(scrollY), docH: document.documentElement.scrollHeight, rows: [...room.querySelectorAll('.msg')].map((m) => Math.round(m.getBoundingClientRect().top)).join(','), compPos: getComputedStyle(comp).position, roomOverflow: getComputedStyle(room).overflowY }; }
+        const r = under.getBoundingClientRect();
+        const bd = under.querySelector('.msg-bd').getBoundingClientRect();
+        return { x: Math.round(bd.left + Math.min(40, bd.width / 2)), y: Math.round(Math.max(bd.top + 6, Math.min(C.top - 10, bd.bottom - 6))), post: under.querySelector('.rxns') && under.querySelector('.rxns').getAttribute('data-post') };
+      }, now());
+      if (!inPlace.error) {
+        await phonePage.touchscreen.tap(inPlace.x, inPlace.y);
+        await phonePage.waitForTimeout(300);
+      }
+      const inPlaceHits = inPlace.error ? inPlace : await phonePage.evaluate(() => {
+        const row = document.querySelector('#pj-room .msg.rxn-show'); const comp = document.querySelector('.pjmid .composer');
+        if (!row) return { error: 'no open bar in place' };
+        const q = row.querySelector('.rxn-quick');
+        const at = (x, y) => document.elementFromPoint(x, y);
+        const hits = [...q.querySelectorAll('button')].map((b) => { const r = b.getBoundingClientRect(); const t = at(r.left + r.width / 2, r.top + r.height / 2); return t === b || b.contains(t); });
+        const C = comp.getBoundingClientRect(), Rw = row.getBoundingClientRect();
+        const overlap = Rw.bottom > C.top + 4;
+        const t = at(C.left + C.width / 2, Math.min(C.bottom - 4, Math.max(C.top + 4, (C.top + Math.min(C.bottom, Rw.bottom)) / 2)));
+        return { hits, overlap, composerOnTop: !!(t && comp.contains(t)), row: [Math.round(Rw.top), Math.round(Rw.bottom)], comp: [Math.round(C.top), Math.round(C.bottom)] };
+      });
+      await phonePage.evaluate(() => { if (typeof pjRxnClose === 'function') pjRxnClose(); window.scrollTo(0, 0); });
+      await phonePage.setViewportSize({ width: 375, height: 800 });
+      await phonePage.waitForTimeout(100);
+      chk(!inPlaceHits.error && inPlaceHits.overlap && inPlaceHits.hits.length === 4 && inPlaceHits.hits.every(Boolean) && inPlaceHits.composerOnTop,
+        `[phone/touch, in place] the open bar takes its taps and the sticky composer stays on top of the open row`, JSON.stringify(inPlaceHits));
+      const phoneGeometry = await phonePage.evaluate((ts) => {
+        const p = { agents: [{ sessionName: 'april', name: 'April' }] };
+        const long = 'this is a deliberately long message so the bubble fills the whole available width on a phone and would reach the far edge if it were not capped short of the opposite avatar column.';
+        const room = document.getElementById('pj-room');
+        // LIFTED to body: the geometry arms below measure the room on its own. pjRxnVisibleBand still
+        // reads the page's real sticky header (.apphead), which the lifted room is drawn over, so
+        // those placement arms are right for a partly different reason; the IN-PLACE arm above is
+        // the one that measures the room in its real column.
+        document.body.appendChild(room);
+        // Real taps: the first-run overlay (not part of the room) would intercept them.
+        const fr = document.getElementById('firstrun'); if (fr) fr.hidden = true;   // hidden, not removed: the app reads it
+        // The thread's real max-height and overflow stay (only width is set): the reaction bar's
+        // clipping against that scroll box is part of what is measured.
+        room.style.cssText = 'position:absolute;left:0;top:0;width:297px;z-index:50;';
+        room.hidden = false;
+        const longName = 'Henderson-Lease-Review-2026-signed-countersigned-final-FINAL-v7-with-exhibits-A-through-F-and-landlord-comments-inline.pdf';
+        room.innerHTML = pjRoomRow({ from: 'april', at: ts, text: long, id: 'm1' }, p) + pjRoomRow({ operator: true, at: ts, text: long, id: 'm2' }, p)
+          + pjRoomRow({ operator: true, at: ts, text: 'Here is the signed copy.', id: 'm3',
+            attachments: [{ id: 'a1', name: longName, type: 'application/pdf', size: 912345, kind: 'pdf', url: '/api/attachment/a1' }] }, p)
+          // A SHORT post of the person's own (right-aligned, the bar keeps its right anchor), with a reaction.
+          + pjRoomRow({ operator: true, at: ts, text: 'ok', id: 'm4', reactions: [{ emoji: '\u{1F44D}', count: 1, who: ['you'], mine: true }] }, p);
+        const rows = Array.from(room.querySelectorAll('.msg'));
+        const a = rows.find((r) => !r.classList.contains('you') && r.querySelector('.msg-bd'));
+        const o = rows.find((r) => r.classList.contains('you') && r.querySelector('.msg-bd'));
+        const rr = (el) => el.getBoundingClientRect();
+        const aR = rr(a), aB = rr(a.querySelector('.msg-bd')), oR = rr(o), oB = rr(o.querySelector('.msg-bd'));
+        return { aFar: Math.round(aR.right - aB.right), aNear: Math.round(aB.left - aR.left), aW: Math.round(aB.width),
+          oFar: Math.round(oB.left - oR.left), oNear: Math.round(oR.right - oB.right), oW: Math.round(oB.width),
+          av: Math.round(rr(a.querySelector('.msg-av')).width),
+          // a 120-character file name on the person's OWN post stays inside the ROOM. Measured
+          // against the room, not the bubble: without the fix the bubble grows WITH the card, so
+          // "card inside bubble" stays true while both hang off the left edge.
+          attIn: (() => { const row = room.querySelectorAll('.msg')[2]; const att = row && row.querySelector('.att'); const bd = row && row.querySelector('.msg-bd');
+            if (!att || !bd) return 'no card'; const A = rr(att), B = rr(bd), R = rr(room);
+            return (A.left >= R.left && B.left >= R.left && A.right <= R.right + 1) ? 'inside' : ('card left=' + Math.round(A.left) + ' bubble left=' + Math.round(B.left) + ' room left=' + Math.round(R.left)); })(),
+          opMaskClear: (() => { const bd = o.querySelector('.msg-bd'); const cs = getComputedStyle(bd, '::after');
+            const maskRight = rr(bd).right - parseFloat(cs.right); return Math.round(rr(o.querySelector('.msg-av')).left - maskRight); })(),
+          // the tail's ground mask (::after) must stop short of the avatar: mask left edge vs avatar right edge
+          maskClear: (() => { const bd = a.querySelector('.msg-bd'); const cs = getComputedStyle(bd, '::after');
+            const maskLeft = rr(bd).left + parseFloat(cs.left); return Math.round(maskLeft - rr(a.querySelector('.msg-av')).right); })() };
+      }, now());
+      chk(phoneGeometry.av === 28, `[phone] the room avatar is 28px on a phone`, `avatar=${phoneGeometry.av}px`);
+      chk(Math.abs(phoneGeometry.aFar - phoneGeometry.aNear) <= 1 && phoneGeometry.aNear <= 43, `[phone] the agent far gutter equals the near avatar+gap (#3361 on a phone)`, `far=${phoneGeometry.aFar} near=${phoneGeometry.aNear}`);
+      chk(Math.abs(phoneGeometry.oFar - phoneGeometry.oNear) <= 1 && phoneGeometry.oNear <= 43, `[phone] the operator far gutter equals the near avatar+gap`, `far=${phoneGeometry.oFar} near=${phoneGeometry.oNear}`);
+      chk(phoneGeometry.maskClear >= 0, `[phone] the bubble tail's ground mask stops short of the avatar (it would paint over it)`, `clearance=${phoneGeometry.maskClear}px`);
+      chk(phoneGeometry.attIn === 'inside', `[phone] a 120-character file name on your own post stays inside the room`, phoneGeometry.attIn);
+      chk(phoneGeometry.opMaskClear >= 0, `[phone] the operator tail mask stops short of its avatar`, `clearance=${phoneGeometry.opMaskClear}px`);
+      // 190: in this 297px room the desktop row (34px avatar, 16px thread padding, 48px far
+      // gutter) leaves about 169px, which fails this; the phone row leaves 199px.
+      chk(phoneGeometry.aW >= 190 && phoneGeometry.oW >= 190, `[phone] both bubbles are wide on a phone`, `agent=${phoneGeometry.aW}px operator=${phoneGeometry.oW}px`);
+      // Tap to react (a touchscreen has no hover). Real taps, in a touch context.
+      const bar = () => phonePage.evaluate(() => {
+        const r = document.querySelector('#pj-room .msg.rxn-show'); const q = document.querySelector('#pj-room .msg .rxn-quick');
+        return { shown: document.querySelectorAll('#pj-room .msg.rxn-show').length, op: r ? getComputedStyle(r.querySelector('.rxn-quick')).opacity : (q ? getComputedStyle(q).opacity : null),
+          hoverNone: matchMedia('(hover: none)').matches };
+      });
+      const firstBody = phonePage.locator('#pj-room .msg .msg-bd p').first();
+      await firstBody.tap();
+      await phonePage.waitForTimeout(300);   // the bar fades in over .12s
+      const barAfterFirstTap = await bar();
+      chk(barAfterFirstTap.hoverNone && barAfterFirstTap.shown === 1 && barAfterFirstTap.op === '1', `[phone/touch] a tap on a message shows its add-reaction bar`, JSON.stringify(barAfterFirstTap));
+      // The first post has no room above it inside the thread: its bar must open BELOW it
+      // (pjRxnPlace adds .rxn-below) rather than be cut by the thread's top edge.
+      const clip = await phonePage.evaluate(() => {
+        const q = document.querySelector('#pj-room .msg.rxn-show .rxn-quick'); const room = document.getElementById('pj-room');
+        if (!q) return { error: 'no open bar' };
+        const Q = q.getBoundingClientRect(), R = room.getBoundingClientRect();
+        return { barTop: Math.round(Q.top), roomTop: Math.round(R.top + parseFloat(getComputedStyle(room).borderTopWidth)), barLeft: Math.round(Q.left), roomLeft: Math.round(R.left) };
+      });
+      chk(!clip.error && clip.barTop >= clip.roomTop && clip.barLeft >= clip.roomLeft, `[phone/touch] the first post's bar is not clipped by the thread`, JSON.stringify(clip));
+      // What a thumb actually hits: at each emoji's centre the topmost element must be that
+      // emoji, not the next message painted over a bar that opened below its post.
+      const hits = await phonePage.evaluate(() => {
+        const row = document.querySelector('#pj-room .msg.rxn-show'); const q = row && row.querySelector('.rxn-quick');
+        if (!q) return { error: 'no open bar' };
+        return { below: row.classList.contains('rxn-below'), hits: [...q.querySelectorAll('button')].map((b) => {
+          const r = b.getBoundingClientRect(); const top = document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2);
+          return top === b || b.contains(top); }) };
+      });
+      chk(!hits.error && hits.below && hits.hits.length === 4 && hits.hits.every(Boolean), `[phone/touch] a bar that opens below its post is on top: every emoji takes its own tap`, JSON.stringify(hits));
+      // One bar at a time: a tap on a link in ANOTHER row closes it (the link keeps its own job).
+      const linkClose = await phonePage.evaluate(() => {
+        const rows = [...document.querySelectorAll('#pj-room .msg')]; const other = rows[1];
+        if (!other) return { error: 'no second row' };
+        const a = document.createElement('a'); a.href = '#'; a.textContent = 'a link'; a.setAttribute('data-arm', 'link');   // made by this check, not in the page (so no id)
+        a.addEventListener('click', (ev) => ev.preventDefault());
+        (other.querySelector('.msg-bd') || other).appendChild(a); a.scrollIntoView({ block: 'center' });
+        // Precondition: a bar IS open (on another row) right before the tap, or this proves nothing.
+        const open = [...document.querySelectorAll('#pj-room .msg.rxn-show')];
+        return { ok: open.length === 1 && open[0] !== other, openBefore: open.length };
+      });
+      if (!linkClose.error) {
+        await phonePage.locator('[data-arm="link"]').tap();
+        await phonePage.waitForTimeout(200);
+      }
+      const afterLink = await phonePage.evaluate(() => { const a = document.querySelector('[data-arm="link"]'); if (a) a.remove(); return { shown: document.querySelectorAll('#pj-room .msg.rxn-show').length }; });
+      chk(!linkClose.error && linkClose.ok && afterLink.shown === 0, `[phone/touch] a tap on a link in another row closes an open bar`, JSON.stringify(Object.assign({}, linkClose, afterLink)));
+      // Reopen it, so the arms below start from an open bar as before.
+      await firstBody.scrollIntoViewIfNeeded(); await firstBody.tap(); await phonePage.waitForTimeout(300);
+      const reopened = await bar();   // precondition: the bar IS open before the tap that must close it
+      await firstBody.tap();
+      await phonePage.waitForTimeout(300);
+      const barAfterSecondTap = await bar();
+      chk(reopened.shown === 1 && barAfterSecondTap.shown === 0 && barAfterSecondTap.op === '0', `[phone/touch] a second tap closes it`, JSON.stringify({ reopened: reopened.shown, after: barAfterSecondTap }));
+      // A repaint (new post, re-worded time) rewrites the rows: an open bar comes back on its post.
+      await firstBody.tap();
+      await phonePage.waitForTimeout(300);
+      const repaintResult = await phonePage.evaluate(() => {
+        const room = document.getElementById('pj-room');
+        const openPost = room.querySelector('.msg.rxn-show .rxns') && room.querySelector('.msg.rxn-show .rxns').getAttribute('data-post');
+        // What paintRoom's rewrite gives: fresh rows, no open class and no inline pin on the bar.
+        { const fresh = room.cloneNode(true); fresh.querySelectorAll('.msg').forEach((m) => m.classList.remove('rxn-show', 'rxn-below')); fresh.querySelectorAll('.rxn-quick').forEach((q) => q.removeAttribute('style')); room.innerHTML = fresh.innerHTML; }
+        return new Promise((res) => setTimeout(() => {
+          const now = room.querySelector('.msg.rxn-show .rxns');
+          res({ openPost, after: now ? now.getAttribute('data-post') : null });
+        }, 50));
+      });
+      chk(repaintResult.openPost && repaintResult.after === repaintResult.openPost, `[phone/touch] a repaint keeps the open bar on the same post`, JSON.stringify(repaintResult));
+      await firstBody.tap();   // close it
+      await phonePage.waitForTimeout(300);
+      // A tap BETWEEN messages (the thread's padding) closes an open bar for good: a repaint after
+      // it must not bring it back.
+      await firstBody.tap();
+      await phonePage.waitForTimeout(300);
+      const gap = await phonePage.evaluate(async () => {
+        const room = document.getElementById('pj-room'); const R = room.getBoundingClientRect();
+        const opened = room.querySelectorAll('.msg.rxn-show').length;
+        // A point whose topmost element IS the thread itself (its padding, not a message and not
+        // anything drawn over it), so the tap exercises the in-room "no message" path.
+        const x = Math.round(R.left + 3);
+        for (let y = Math.max(0, Math.round(R.top) + 2); y < Math.min(window.innerHeight, R.bottom); y += 2) {
+          if (document.elementFromPoint(x, y) === room) return { opened, x, y, hit: 'thread' };
+        }
+        return { opened, error: 'no point where the thread itself is on top' };
+      });
+      if (!gap.error) await phonePage.touchscreen.tap(gap.x, gap.y);   // a clean FAIL below, not a throw
+      await phonePage.waitForTimeout(200);
+      const afterGap = await phonePage.evaluate(() => new Promise((res) => {
+        const room = document.getElementById('pj-room');
+        // What paintRoom's rewrite gives: fresh rows, no open class and no inline pin on the bar.
+        { const fresh = room.cloneNode(true); fresh.querySelectorAll('.msg').forEach((m) => m.classList.remove('rxn-show', 'rxn-below')); fresh.querySelectorAll('.rxn-quick').forEach((q) => q.removeAttribute('style')); room.innerHTML = fresh.innerHTML; }
+        setTimeout(() => res(room.querySelectorAll('.msg.rxn-show').length), 50);
+      }));
+      chk(!gap.error && gap.hit === 'thread' && gap.opened === 1 && afterGap === 0, `[phone/touch] a tap between messages closes the bar for good (a repaint does not bring it back)`, JSON.stringify(Object.assign({ afterGap }, gap)));
+      // Picking a reaction closes the bar even when the tapped button keeps focus (Android does).
+      await firstBody.tap();
+      await phonePage.waitForTimeout(300);
+      const picked = await phonePage.evaluate(() => new Promise((res) => {
+        const b = document.querySelector('#pj-room .msg.rxn-show .rxn-pick');
+        if (!b) return res({ error: 'no open bar' });
+        b.focus();
+        const focusedFirst = document.activeElement === b;   // precondition: focus really is in the bar
+        b.click();
+        setTimeout(() => {
+          const q = document.querySelector('#pj-room .msg .rxn-quick');
+          res({ focusedFirst, shown: document.querySelectorAll('#pj-room .msg.rxn-show').length,
+            focusInBar: !!(document.activeElement && document.activeElement.closest && document.activeElement.closest('#pj-room .rxn-quick')),
+            op: q ? getComputedStyle(q).opacity : null });
+        }, 300);
+      }));
+      chk(!picked.error && picked.focusedFirst && picked.shown === 0 && !picked.focusInBar && picked.op === '0', `[phone/touch] picking a reaction closes the bar and lets go of focus`, JSON.stringify(picked));
+      // A file card is a download link: stop the navigation (the check must stay on this page),
+      // then tap it for real and require the room to still be here before reading anything.
+      await phonePage.evaluate(() => { window.__cardClicks = 0; document.querySelectorAll('#pj-room .att').forEach((card) => card.addEventListener('click', (event) => { event.preventDefault(); window.__cardClicks += 1; })); });
+      await phonePage.locator('#pj-room .att').first().tap();
+      await phonePage.waitForTimeout(300);
+      const barAfterCardTap = await bar();
+      // Precondition: the tap really reached the card (the bar was already closed, so "shown 0"
+      // alone would hold whatever the tap hit).
+      const rowsLeft = await phonePage.evaluate(() => document.querySelectorAll('#pj-room .msg').length);
+      const cardClicks = await phonePage.evaluate(() => window.__cardClicks);
+      chk(rowsLeft === 4 && cardClicks === 1 && barAfterCardTap.shown === 0 && barAfterCardTap.op === '0', `[phone/touch] a tap on a file card does not toggle the bar`, JSON.stringify(Object.assign({ rowsLeft, cardClicks }, barAfterCardTap)));
+      // The person's own SHORT post: its bar (right anchor) stays inside the thread, and every
+      // touch target in it, and the reaction pill, is at least 36px.
+      const own = phonePage.locator('#pj-room .msg.you .msg-bd p').last();
+      await own.tap();
+      await phonePage.waitForTimeout(300);
+      const ownBar = await phonePage.evaluate(() => {
+        const row = document.querySelector('#pj-room .msg.rxn-show'); const room = document.getElementById('pj-room');
+        const q = row && row.querySelector('.rxn-quick');
+        if (!row || !row.classList.contains('you') || !q) return { error: 'no open bar on the person\'s own row' };
+        const Q = q.getBoundingClientRect(), R = room.getBoundingClientRect();
+        const size = (el) => { const r = el.getBoundingClientRect(); return Math.round(Math.min(r.width, r.height)); };
+        return { inside: Q.left >= R.left && Q.right <= R.right + 1 && Q.top >= R.top, bar: [Math.round(Q.left), Math.round(Q.right)], room: [Math.round(R.left), Math.round(R.right)],
+          buttons: [...q.querySelectorAll('button')].map(size), pill: row.querySelector('.rxn') ? Math.round(row.querySelector('.rxn').getBoundingClientRect().height) : null };
+      });
+      chk(!ownBar.error && ownBar.inside, `[phone/touch] the bar on a short post of your own stays inside the thread`, JSON.stringify(ownBar));
+      chk(!ownBar.error && ownBar.buttons.length === 4 && ownBar.buttons.every((n) => n >= 36) && ownBar.pill >= 36, `[phone/touch] every reaction target is at least 36px (the bar's buttons and a reaction pill)`, JSON.stringify(ownBar));
+      // The open bar is CLEAR of its one-line bubble, so tapping the bubble again closes the bar
+      // and reacts with nothing (at thumb size an overlapping bar covered the whole bubble).
+      const clear = await phonePage.evaluate(() => {
+        const row = document.querySelector('#pj-room .msg.rxn-show'); const q = row && row.querySelector('.rxn-quick'); const bd = row && row.querySelector('.msg-bd');
+        if (!q || !bd) return { error: 'no open bar' };
+        const Q = q.getBoundingClientRect(), B = bd.getBoundingClientRect();
+        // Count reactions sent. The pick handler returns early with no project open, so open one,
+        // or a tap on an emoji would count nothing and this arm could not fail.
+        PJ_CURRENT = 'arm-project';
+        window.__reacts = 0; window.rxnToggle = async () => { window.__reacts += 1; };
+        return { clear: Q.bottom <= B.top || Q.top >= B.bottom, bar: [Math.round(Q.top), Math.round(Q.bottom)], bubble: [Math.round(B.top), Math.round(B.bottom)] };
+      });
+      chk(!clear.error && clear.clear, `[phone/touch] the open bar does not cover its own short bubble`, JSON.stringify(clear));
+      const hitsAbove = await phonePage.evaluate(() => {
+        const row = document.querySelector('#pj-room .msg.rxn-show'); const quickBar = row && row.querySelector('.rxn-quick'); if (!quickBar) return { error: 'no open bar' };
+        // Precondition: the bar really lies over the message before it, or "on top" proves nothing.
+        const previous = row.previousElementSibling; const barRect = quickBar.getBoundingClientRect();
+        const overlapsPrevious = !!(previous && (() => { const p = previous.getBoundingClientRect(); return barRect.top < p.bottom && barRect.bottom > p.top; })());
+        const hits = [...quickBar.querySelectorAll('button')].map((b) => { const r = b.getBoundingClientRect(); const top = document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2); return top === b || b.contains(top); });
+        return { overlapsPrevious, hits };
+      });
+      chk(!hitsAbove.error && hitsAbove.overlapsPrevious && hitsAbove.hits.length === 4 && hitsAbove.hits.every(Boolean), `[phone/touch] a bar above its post is on top of the message before it`, JSON.stringify(hitsAbove));
+      await own.tap();
+      await phonePage.waitForTimeout(300);
+      const again = await phonePage.evaluate(() => ({ shown: document.querySelectorAll('#pj-room .msg.rxn-show').length, reacts: window.__reacts }));
+      chk(again.shown === 0 && again.reacts === 0, `[phone/touch] a second tap on a short post closes its bar and adds no reaction`, JSON.stringify(again));
+      // Positive control for that spy: open the bar again and tap ONE emoji; exactly one reaction
+      // must be counted, or "reacts 0" above could come from a spy that never hooked.
+      await own.tap();
+      await phonePage.waitForTimeout(300);
+      await phonePage.locator('#pj-room .msg.rxn-show .rxn-pick').first().tap();
+      await phonePage.waitForTimeout(200);
+      const spyControl = await phonePage.evaluate(() => ({ reacts: window.__reacts }));
+      chk(spyControl.reacts === 1, `[phone/touch] (control) a real emoji tap is counted by the same spy`, JSON.stringify(spyControl));
+      // A post TALLER than the thread, read by scrolling: neither above nor below it fits, so the
+      // bar is pinned to the top of the visible thread. It must be fully in view and take taps.
+      const tallAt = await phonePage.evaluate((ts) => {
+        const room = document.getElementById('pj-room'); const p = { agents: [{ sessionName: 'april', name: 'April' }] };
+        room.innerHTML = pjRoomRow({ from: 'april', at: ts, text: 'a long report line. '.repeat(160), id: 'm9' }, p);
+        room.style.maxHeight = '360px'; room.style.overflowY = 'auto';
+        room.scrollTop = Math.round((room.scrollHeight - room.clientHeight) / 2);
+        const R = room.getBoundingClientRect();
+        return { x: Math.round(R.left + R.width / 2), y: Math.round(R.top + R.height / 2), tall: room.scrollHeight > 2 * room.clientHeight };
+      }, now());
+      await phonePage.touchscreen.tap(tallAt.x, tallAt.y);
+      await phonePage.waitForTimeout(300);
+      const tall = await phonePage.evaluate(() => {
+        const room = document.getElementById('pj-room'); const q = document.querySelector('#pj-room .msg.rxn-show .rxn-quick');
+        if (!q) return { error: 'no open bar' };
+        const Q = q.getBoundingClientRect(), R = room.getBoundingClientRect();
+        const hits = [...q.querySelectorAll('button')].map((b) => { const r = b.getBoundingClientRect(); const t = document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2); return t === b || b.contains(t); });
+        return { inView: Q.top >= R.top && Q.bottom <= R.bottom && Q.left >= R.left && Q.right <= R.right + 1, bar: [Math.round(Q.top), Math.round(Q.bottom)], room: [Math.round(R.top), Math.round(R.bottom)], hits, pinned: q.style.position === 'fixed' };
+      });
+      chk(tallAt.tall && !tall.error && tall.pinned && tall.inView && tall.hits.length === 4 && tall.hits.every(Boolean), `[phone/touch] on a post taller than the thread the bar is pinned in view and takes its taps`, JSON.stringify(Object.assign({ tall: tallAt.tall }, tall)));
+      // A repaint (a new post arriving) while the pinned bar is up and its post still on screen
+      // keeps it pinned, rather than closing it under the person's thumb.
+      const afterRepaint = await phonePage.evaluate(() => new Promise((res) => {
+        const room = document.getElementById('pj-room'); const keep = room.scrollTop;
+        // What paintRoom's rewrite gives: fresh rows, no open class and no inline pin on the bar.
+        { const fresh = room.cloneNode(true); fresh.querySelectorAll('.msg').forEach((m) => m.classList.remove('rxn-show', 'rxn-below')); fresh.querySelectorAll('.rxn-quick').forEach((q) => q.removeAttribute('style')); room.innerHTML = fresh.innerHTML; }
+        room.scrollTop = keep;
+        setTimeout(() => { const q = document.querySelector('#pj-room .msg.rxn-show .rxn-quick');
+          res({ shown: document.querySelectorAll('#pj-room .msg.rxn-show').length, pinned: !!(q && q.style.position === 'fixed') }); }, 100);
+      }));
+      chk(afterRepaint.shown === 1 && afterRepaint.pinned, `[phone/touch] a repaint keeps a pinned bar pinned while its post is on screen`, JSON.stringify(afterRepaint));
+      // A viewport change (the keyboard closing when the pinning tap left the composer, a turn)
+      // RE-PLACES a pinned bar instead of closing it: still open, still pinned, still on screen.
+      const afterResize = await phonePage.evaluate(() => new Promise((res) => {
+        const pinnedBefore = RXN_PINNED && !!document.querySelector('#pj-room .rxn-quick[style*="fixed"]');
+        window.dispatchEvent(new Event('resize'));
+        if (window.visualViewport) window.visualViewport.dispatchEvent(new Event('resize'));
+        setTimeout(() => { const bar = document.querySelector('#pj-room .msg.rxn-show .rxn-quick'); const rect = bar && bar.getBoundingClientRect();
+          res({ pinnedBefore, shown: document.querySelectorAll('#pj-room .msg.rxn-show').length, pinned: !!(bar && bar.style.position === 'fixed'),
+            onScreen: !!(rect && rect.top >= 0 && rect.bottom <= (window.visualViewport ? window.visualViewport.height : innerHeight)) }); }, 100);
+      }));
+      chk(afterResize.pinnedBefore && afterResize.shown === 1 && afterResize.pinned && afterResize.onScreen, `[phone/touch] a viewport change re-places a pinned bar instead of closing it`, JSON.stringify(afterResize));
+      // Scrolling INSIDE the full emoji picker is not the thread moving: a pinned bar stays.
+      const pickerScroll = await phonePage.evaluate(() => new Promise((res) => {
+        if (typeof rxnPickerEl !== 'function') { res({ error: 'rxnPickerEl missing' }); return; }
+        const pinnedBefore = !!document.querySelector('#pj-room .rxn-quick[style*="fixed"]');
+        const pickerElement = rxnPickerEl(); pickerElement.dispatchEvent(new Event('scroll'));   // a scroll whose target is the picker
+        setTimeout(() => res({ pinnedBefore, pinnedAfter: !!document.querySelector('#pj-room .rxn-quick[style*="fixed"]') }), 50);
+      }));
+      chk(!pickerScroll.error && pickerScroll.pinnedBefore && pickerScroll.pinnedAfter, `[phone/touch] scrolling inside the emoji picker keeps a pinned bar`, JSON.stringify(pickerScroll));
+      // A scroll RE-PLACES a pinned bar: while its post still fills what is showing it stays pinned
+      // over it; the iOS keyboard closing fires a resize AND a window scroll together; once the post
+      // has left the screen the bar closes.
+      const afterScroll = await phonePage.evaluate(() => new Promise((res) => {
+        const room = document.getElementById('pj-room'); room.scrollTop += 120;
+        window.dispatchEvent(new Event('resize')); window.dispatchEvent(new Event('scroll'));
+        setTimeout(() => {
+          const bar = document.querySelector('#pj-room .msg.rxn-show .rxn-quick'); const rect = bar && bar.getBoundingClientRect();
+          const room2 = room.getBoundingClientRect();
+          const kept = { shown: document.querySelectorAll('#pj-room .msg.rxn-show').length, pinned: !!(bar && bar.style.position === 'fixed'),
+            overItsRoom: !!(rect && rect.top >= room2.top - 1 && rect.bottom <= room2.bottom + 1) };
+          room.style.top = '-3000px'; document.dispatchEvent(new Event('scroll'));   // the post leaves the screen
+          setTimeout(() => {
+            res({ kept, afterLeaving: { shown: document.querySelectorAll('#pj-room .msg.rxn-show').length, pinnedLeft: !!document.querySelector('#pj-room .rxn-quick[style]') } });
+            room.style.top = '0px';
+          }, 100);
+        }, 150);
+      }));
+      chk(afterScroll.kept.shown === 1 && afterScroll.kept.pinned && afterScroll.kept.overItsRoom && afterScroll.afterLeaving.shown === 0 && !afterScroll.afterLeaving.pinnedLeft,
+        `[phone/touch] a scroll keeps a pinned bar over its own post, and closes it once the post leaves the screen`, JSON.stringify(afterScroll));
+      // Nothing of the thread showing (header and composer take the whole screen): a tapped bar
+      // has nowhere to go and closes, rather than sit open at an unplaced default.
+      const emptyBand = await phonePage.evaluate(() => {
+        const row = document.querySelector('#pj-room .msg'); if (!row || typeof pjRxnPlace !== 'function') return { error: 'no row or pjRxnPlace' };
+        let stubCalled = false;
+        const real = window.pjRxnVisibleBand; window.pjRxnVisibleBand = () => { stubCalled = true; return { top: 300, bottom: 200 }; };
+        // (A thin band, thinner than the bar, is checked just below with its own stub.)
+        row.classList.add('rxn-show'); RXN_SHOW_POST = 'x';
+        try { pjRxnPlace(row, true); } finally { window.pjRxnVisibleBand = real; }
+        const res = { stubCalled, shownAfter: row.classList.contains('rxn-show'), post: RXN_SHOW_POST };
+        return res;
+      });
+      chk(!emptyBand.error && emptyBand.stubCalled && emptyBand.shownAfter === false && emptyBand.post === null, `[phone/touch] with no thread showing a tapped bar closes`, JSON.stringify(emptyBand));
+      // A visible band THINNER than the bar (landscape with the keyboard up): pinning would put it
+      // under the sticky composer or header, so a tapped tall post's bar closes instead.
+      const thinBand = await phonePage.evaluate(() => {
+        const row = document.querySelector('#pj-room .msg'); if (!row || typeof pjRxnPlace !== 'function') return { error: 'no row or pjRxnPlace' };
+        const rowRect = row.getBoundingClientRect(); const bandTop = Math.round(rowRect.top + rowRect.height / 2);
+        let stubCalled = false;
+        const real = window.pjRxnVisibleBand; window.pjRxnVisibleBand = () => { stubCalled = true; return { top: bandTop, bottom: bandTop + 20 }; };
+        row.classList.add('rxn-show'); RXN_SHOW_POST = 'x';
+        try { pjRxnPlace(row, true); } finally { window.pjRxnVisibleBand = real; }
+        return { stubCalled, band: [bandTop, bandTop + 20], shownAfter: row.classList.contains('rxn-show'), pinned: RXN_PINNED };
+      });
+      chk(!thinBand.error && thinBand.stubCalled && thinBand.shownAfter === false && thinBand.pinned === false, `[phone/touch] a visible band thinner than the bar closes a tapped bar instead of pinning it under the composer`, JSON.stringify(thinBand));
+      // An ORDINARY (unpinned) bar follows its post on scroll: scrolled to the thread's top edge it
+      // stays in view (flipped below), and once its post has left the screen it closes.
+      const edge = await phonePage.evaluate((ts) => new Promise((res) => {
+        const room = document.getElementById('pj-room'); room.style.top = '0px';
+        if (typeof pjRxnClose === 'function') pjRxnClose();
+        const people = { agents: [{ sessionName: 'april', name: 'April' }] };
+        // Enough posts below it that the room can scroll it right off (six could not: a sliver stayed).
+        room.innerHTML = ['e1', 'e2', 'e3', 'e4', 'e5', 'e6', 'e7', 'e8', 'e9', 'e10', 'e11', 'e12'].map((id, i) => pjRoomRow({ from: 'april', at: ts, text: 'Post ' + i + ' with a line of text in it.', id }, people)).join('');
+        room.scrollTop = 0; res(true);
+      }), now());
+      await phonePage.locator('#pj-room .msg .msg-bd p').nth(3).tap();
+      await phonePage.waitForTimeout(250);
+      const edgeResult = await phonePage.evaluate(() => new Promise((res) => {
+        const room = document.getElementById('pj-room'); const row = document.querySelector('#pj-room .msg.rxn-show');
+        if (!row) { res({ error: 'no bar opened' }); return; }
+        const pinnedAtOpen = RXN_PINNED;
+        // The post's top at the top of what is SHOWING (pjRxnVisibleBand: the page's sticky header
+        // covers the top of this lifted room), so "above" no longer fits there.
+        room.scrollTop += row.getBoundingClientRect().top - pjRxnVisibleBand(room).top - 6;
+        room.dispatchEvent(new Event('scroll'));
+        setTimeout(() => {
+          const bar = row.querySelector('.rxn-quick'); const barRect = bar.getBoundingClientRect(); const band = pjRxnVisibleBand(room);
+          const atEdge = { open: row.classList.contains('rxn-show'), below: row.classList.contains('rxn-below'), inBand: barRect.top >= band.top - 1 && barRect.bottom <= band.bottom + 1 };
+          room.scrollTop += 2000; room.dispatchEvent(new Event('scroll'));   // the post leaves the screen
+          setTimeout(() => res({ pinnedAtOpen, atEdge, postGone: row.getBoundingClientRect().bottom <= pjRxnVisibleBand(room).top, afterLeaving: { shown: document.querySelectorAll('#pj-room .msg.rxn-show').length, post: RXN_SHOW_POST } }), 100);
+        }, 100);
+      }));
+      chk(!edgeResult.error && !edgeResult.pinnedAtOpen && edgeResult.atEdge.open && edgeResult.atEdge.inBand && edgeResult.postGone && edgeResult.afterLeaving.shown === 0 && edgeResult.afterLeaving.post === null,
+        `[phone/touch] an ordinary bar stays in view as its post reaches the thread's edge, and closes once the post leaves`, JSON.stringify(edgeResult));
+      // A PINNED bar on a tall post whose top is showing sits at the post's own top, not over the
+      // message above it (where a tap meant for that message would react to this post).
+      await phonePage.evaluate((ts) => {
+        // The room placed BELOW the page's sticky header here, so the tall post's top can be showing.
+        const room = document.getElementById('pj-room'); room.style.top = '250px'; room.style.maxHeight = '416px';
+        if (typeof pjRxnClose === 'function') pjRxnClose();
+        const people = { agents: [{ sessionName: 'april', name: 'April' }] };
+        room.innerHTML = pjRoomRow({ from: 'april', at: ts, text: 'A short message above.', id: 'p1' }, people)
+          + pjRoomRow({ from: 'april', at: ts, text: 'a long report line. '.repeat(160), id: 'p2' }, people);
+        const tall = room.querySelectorAll('.msg')[1];
+        // The tall post's top 20px below the top of what is SHOWING (the sticky header covers the top
+        // of this lifted room), so its top is visible and "above" does not fit.
+        room.scrollTop += tall.getBoundingClientRect().top - (pjRxnVisibleBand(room).top + 20);
+      }, now());
+      const tallTop = await phonePage.evaluate(() => { const r = document.querySelectorAll('#pj-room .msg')[1].querySelector('.msg-bd').getBoundingClientRect(); return { x: Math.round(r.left + 40), y: Math.round(r.top + 120) }; });
+      await phonePage.touchscreen.tap(tallTop.x, tallTop.y);
+      await phonePage.waitForTimeout(250);
+      const pinAtTop = await phonePage.evaluate(() => {
+        const rows = document.querySelectorAll('#pj-room .msg'); const row = rows[1]; const bar = row && row.querySelector('.rxn-quick');
+        if (!row || !row.classList.contains('rxn-show')) return { error: 'the tall post did not open a bar' };
+        const barRect = bar.getBoundingClientRect(), rowRect = row.getBoundingClientRect(), aboveRect = rows[0].getBoundingClientRect();
+        const band = pjRxnVisibleBand(document.getElementById('pj-room'));
+        return { pinned: RXN_PINNED, barTop: Math.round(barRect.top), rowTop: Math.round(rowRect.top), bandTop: Math.round(band.top), aboveBottom: Math.round(aboveRect.bottom),
+          rowTopShowing: rowRect.top > band.top + 1, atRowTop: Math.abs(barRect.top - (rowRect.top + 4)) <= 1, clearOfAbove: barRect.top >= aboveRect.bottom - 0.5 };
+      });
+      await phonePage.evaluate(() => { if (typeof pjRxnClose === 'function') pjRxnClose(); const room = document.getElementById('pj-room'); room.style.maxHeight = ''; room.style.top = '0px'; });
+      chk(!pinAtTop.error && pinAtTop.pinned && pinAtTop.rowTopShowing && pinAtTop.atRowTop && pinAtTop.clearOfAbove, `[phone/touch] a pinned bar sits at its post's own top, not over the message above`, JSON.stringify(pinAtTop));
+      // Setup shared by the next two arms: the room below the page's sticky header, a short post
+      // then a tall one, the tall post's top placed `topInto` px into what shows, then tapped.
+      const tallSetup = async (topInto) => {
+        await phonePage.evaluate(({ ts, topInto }) => {
+          const room = document.getElementById('pj-room'); room.style.top = '250px'; room.style.maxHeight = '416px';
+          if (typeof pjRxnClose === 'function') pjRxnClose();
+          const people = { agents: [{ sessionName: 'april', name: 'April' }] };
+          room.innerHTML = pjRoomRow({ from: 'april', at: ts, text: 'A short message above.', id: 'q1' }, people)
+            + pjRoomRow({ from: 'april', at: ts, text: 'a long report line. '.repeat(160), id: 'q2' }, people);
+          const tall = room.querySelectorAll('.msg')[1];
+          room.scrollTop += tall.getBoundingClientRect().top - (pjRxnVisibleBand(room).top + topInto);
+        }, { ts: now(), topInto });
+        const point = await phonePage.evaluate(() => { const r = document.querySelectorAll('#pj-room .msg')[1].querySelector('.msg-bd').getBoundingClientRect(); return { x: Math.round(r.left + 40), y: Math.round(r.top + 120) }; });
+        await phonePage.touchscreen.tap(point.x, point.y);
+        await phonePage.waitForTimeout(250);
+      };
+      // A pinned bar whose reaction row is rewritten IN PLACE (a reaction's reply repaints .rxns):
+      // the fresh bar is re-pinned by the observer, not left unpinned and clipped.
+      await tallSetup(20);
+      const inPlaceRepaint = await phonePage.evaluate(() => new Promise((res) => {
+        const row = document.querySelector('#pj-room .msg.rxn-show'); if (!row || !RXN_PINNED) { res({ error: 'no pinned bar to start from' }); return; }
+        // What repaintReactions does: rebuild the row from rxnsInner (fresh markup, no inline pin).
+        // Copying innerHTML back would keep the bar's inline style and could not fail.
+        if (typeof rxnsInner !== 'function') { res({ error: 'rxnsInner missing' }); return; }
+        const rxns = row.querySelector('.rxns'); rxns.innerHTML = rxnsInner([]);
+        const freshUnpinned = !(rxns.querySelector('.rxn-quick') && rxns.querySelector('.rxn-quick').style.position === 'fixed');
+        setTimeout(() => { const bar = row.querySelector('.rxn-quick'); res({ freshUnpinned, shown: row.classList.contains('rxn-show'), pinned: !!(bar && bar.style.position === 'fixed') }); }, 100);
+      }));
+      chk(!inPlaceRepaint.error && inPlaceRepaint.freshUnpinned && inPlaceRepaint.shown && inPlaceRepaint.pinned, `[phone/touch] a pinned bar whose reaction row is rewritten in place is pinned again`, JSON.stringify(inPlaceRepaint));
+      // A repaint that drops the pinned bar's post closes it fully (pjRxnClose), pin state included.
+      await tallSetup(20);
+      const postGone = await phonePage.evaluate((ts) => new Promise((res) => {
+        const pinnedBefore = RXN_PINNED && !!document.querySelector('#pj-room .msg.rxn-show');
+        const room = document.getElementById('pj-room');
+        room.innerHTML = pjRoomRow({ from: 'april', at: ts, text: 'A short message above.', id: 'q1' }, { agents: [{ sessionName: 'april', name: 'April' }] });
+        setTimeout(() => res({ pinnedBefore, post: RXN_SHOW_POST, pinned: RXN_PINNED }), 100);
+      }), now());
+      chk(postGone.pinnedBefore && postGone.post === null && postGone.pinned === false, `[phone/touch] a repaint that drops a pinned bar's post clears the bar's state, pin included`, JSON.stringify(postGone));
+      // A tall post's bar tapped while the post's TOP showed (so it opened above, unpinned) stays,
+      // pinned, once that top scrolls away while the post still fills what shows.
+      await tallSetup(90);
+      const tallFollow = await phonePage.evaluate(() => new Promise((res) => {
+        const room = document.getElementById('pj-room'); const row = document.querySelectorAll('#pj-room .msg')[1];
+        const openedUnpinned = row.classList.contains('rxn-show') && !RXN_PINNED;
+        room.scrollTop += 200; room.dispatchEvent(new Event('scroll'));   // the post's top leaves; the post still fills what shows
+        setTimeout(() => res({ openedUnpinned, afterScroll: { shown: row.classList.contains('rxn-show'), pinned: RXN_PINNED } }), 120);
+      }));
+      chk(tallFollow.openedUnpinned && tallFollow.afterScroll.shown && tallFollow.afterScroll.pinned, `[phone/touch] a tall post's bar tapped with its top showing follows it, pinned, as the top scrolls away`, JSON.stringify(tallFollow));
+      await phonePage.evaluate(() => { if (typeof pjRxnClose === 'function') pjRxnClose(); const room = document.getElementById('pj-room'); room.style.maxHeight = ''; room.style.top = '0px'; });
+      // FOUR MORE WAYS A BAR CLOSES, each measured: Escape, a pick from the full picker (closed
+      // BEFORE the reaction's round trip), a tap outside the room, and navigating away (pjView).
+      const freshBar = async () => {
+        await phonePage.evaluate((ts) => {
+          const room = document.getElementById('pj-room'); room.style.top = '0px'; room.scrollTop = 0;
+          if (typeof pjRxnClose === 'function') pjRxnClose();
+          room.innerHTML = pjRoomRow({ from: 'april', at: ts, text: 'A post to react to, two or three words long.', id: 'c1' }, { agents: [{ sessionName: 'april', name: 'April' }] })
+            + pjRoomRow({ from: 'april', at: ts, text: 'And one more below it so the bar has room.', id: 'c2' }, { agents: [{ sessionName: 'april', name: 'April' }] });
+        }, now());
+        await phonePage.locator('#pj-room .msg .msg-bd p').last().tap();
+        await phonePage.waitForTimeout(250);
+        return phonePage.evaluate(() => document.querySelectorAll('#pj-room .msg.rxn-show').length);
+      };
+      const barState = () => phonePage.evaluate(() => ({ shown: document.querySelectorAll('#pj-room .msg.rxn-show').length, post: RXN_SHOW_POST, pinned: RXN_PINNED }));
+      const closedClean = (state) => state.shown === 0 && state.post === null && state.pinned === false;
+      // A bar opened by KEYBOARD FOCUS (an iPad with a keyboard, VoiceOver) on the thread's first
+      // post: no tap placed it, so it would open above the post and be cut by the thread's top.
+      // The room sits below the sticky header (at top 0 the first post is under the header, which
+      // is a different case: the post itself is not showing).
+      await phonePage.evaluate((ts) => {
+        const room = document.getElementById('pj-room'); room.style.top = '250px'; room.scrollTop = 0;
+        if (typeof pjRxnClose === 'function') pjRxnClose();
+        room.innerHTML = pjRoomRow({ from: 'april', at: ts, text: 'A post to react to, two or three words long.', id: 'f1' }, { agents: [{ sessionName: 'april', name: 'April' }] })
+          + pjRoomRow({ from: 'april', at: ts, text: 'And one more below it so the bar has room.', id: 'f2' }, { agents: [{ sessionName: 'april', name: 'April' }] });
+      }, now());
+      const focusOpen = await phonePage.evaluate(() => new Promise((res) => {
+        const room = document.getElementById('pj-room'); const row = room.querySelector('.msg'); const bar = row && row.querySelector('.rxn-quick');
+        const button = bar && bar.querySelector('button'); if (!button) { res({ error: 'no bar button on the first post' }); return; }
+        // Precondition: unplaced, this bar really is cut by the top of what shows.
+        const wouldClip = bar.getBoundingClientRect().top < pjRxnVisibleBand(room).top;
+        button.focus();
+        setTimeout(() => {
+          const band = pjRxnVisibleBand(room); const B = bar.getBoundingClientRect();
+          const hits = [...bar.querySelectorAll('button')].map((b) => { const r = b.getBoundingClientRect(); const t = document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2); return t === b || b.contains(t); });
+          const placed = { rowTopShowing: row.getBoundingClientRect().top >= band.top - 0.5, below: row.classList.contains('rxn-below'), inView: B.top >= band.top - 0.5 && B.bottom <= band.bottom + 0.5, hits };
+          button.blur();
+          setTimeout(() => { const afterBlur = { below: row.classList.contains('rxn-below'), shown: RXN_SHOW_POST }; room.style.top = '0px'; res({ wouldClip, placed, afterBlur }); }, 50);
+        }, 300);
+      }));
+      chk(!focusOpen.error && focusOpen.wouldClip && focusOpen.placed.rowTopShowing && focusOpen.placed.below && focusOpen.placed.inView && focusOpen.placed.hits.length > 0 && focusOpen.placed.hits.every(Boolean)
+        && !focusOpen.afterBlur.below && focusOpen.afterBlur.shown === null,
+        `[phone/touch] a bar opened by keyboard focus on the first post opens below it, in view, takes its taps, and drops the flip when focus leaves`, JSON.stringify(focusOpen));
+      // Escape
+      const openBeforeEscape = await freshBar();
+      await phonePage.keyboard.press('Escape');
+      const afterEscape = await barState();
+      chk(openBeforeEscape === 1 && closedClean(afterEscape), `[phone/touch] Escape closes an open bar`, JSON.stringify({ openBeforeEscape, afterEscape }));
+      // A pick from the FULL picker: the bar is closed before the reaction's request resolves.
+      const openBeforePick = await freshBar();
+      const pick = await phonePage.evaluate(() => new Promise((res) => {
+        let resolveToggle; window.__fullPicks = 0;
+        window.rxnToggle = () => { window.__fullPicks += 1; return new Promise((done) => { resolveToggle = done; }); };   // held open: the request is in flight
+        const more = document.querySelector('#pj-room .msg.rxn-show .rxn-more'); if (!more) { res({ error: 'no smiley in the open bar' }); return; }
+        more.click();
+        setTimeout(() => {
+          const picker = document.getElementById('rxn-picker'); const choice = picker && !picker.hidden && picker.querySelector('.rxn-pick');
+          if (!choice) { res({ error: 'the full picker did not open' }); return; }
+          choice.click();
+          setTimeout(() => { const whileInFlight = { shown: document.querySelectorAll('#pj-room .msg.rxn-show').length, post: RXN_SHOW_POST, pinned: RXN_PINNED };
+            if (resolveToggle) resolveToggle(); res({ picks: window.__fullPicks, whileInFlight }); }, 50);
+        }, 100);
+      }));
+      chk(openBeforePick === 1 && !pick.error && pick.picks === 1 && closedClean(pick.whileInFlight), `[phone/touch] a pick from the full picker closes the bar before the reaction's request resolves`, JSON.stringify({ openBeforePick, pick }));
+      // A tap outside the room (pointerdown on the page, not the room)
+      const openBeforeOutside = await freshBar();
+      const outsidePoint = await phonePage.evaluate(() => { const room = document.getElementById('pj-room').getBoundingClientRect(); return { x: Math.round(Math.min(innerWidth - 8, room.right + 30)), y: Math.round(room.top + 40) }; });
+      const outsideTarget = await phonePage.evaluate(({ x, y }) => { const t = document.elementFromPoint(x, y); return t ? !t.closest('#pj-room') : false; }, outsidePoint);
+      await phonePage.touchscreen.tap(outsidePoint.x, outsidePoint.y);
+      await phonePage.waitForTimeout(150);
+      const afterOutside = await barState();
+      chk(openBeforeOutside === 1 && outsideTarget && closedClean(afterOutside), `[phone/touch] a tap outside the room closes an open bar`, JSON.stringify({ openBeforeOutside, outsidePoint, outsideTarget, afterOutside }));
+      // Navigating away (pjView, the one navigation path)
+      const openBeforeNav = await freshBar();
+      await phonePage.evaluate(() => pjView('list'));
+      const afterNav = await barState();
+      chk(openBeforeNav === 1 && closedClean(afterNav), `[phone/touch] navigating away (pjView) closes an open bar`, JSON.stringify({ openBeforeNav, afterNav }));
+    } finally {
+      chk(phonePageErrors.length === 0, '[phone] no script errors on the page', phonePageErrors.join(' | '));
+      await phonePage.close();
+    }
+    // THE WHOLE PAGE at five phone sizes (the four targets and 360) and both themes, touch, in its
+    // REAL layout (not a lifted room): each of the six project views in turn (the room with a long
+    // post and a long file name; the projects list's top row and empty state, as this page has no
+    // server so no project cards), must not run past the screen. The link card's own width is covered by the unit pin (.lpv = .att). Guards what the lifted
+    // arms cannot (paddings, the column, the 16px fields in place).
+    for (const [phoneWidth, phoneHeight] of [[375, 667], [393, 852], [430, 932], [412, 915], [360, 780]]) {
+      for (const theme of ['light', 'dark']) {
+        const sizePage = await browser.newPage({ viewport: { width: phoneWidth, height: phoneHeight }, colorScheme: theme, hasTouch: true, isMobile: true });
+        const sizePageErrors = watchErrors(sizePage);
+        try {
+          await sizePage.addInitScript(() => {
+            window.setInterval = () => 0;
+            window.fetch = async () => new Response('{}', { status: 200, headers: { 'content-type': 'application/json' } });
+          });
+          await sizePage.goto(PAGE);
+          const fit = await sizePage.evaluate(([ts, viewSelectors]) => {
+            const fr = document.getElementById('firstrun'); if (fr) fr.hidden = true;   // hidden, not removed: the app reads it
+            // All six project views, read from the 16px rule's scope (FIELD_VIEWS), one at a time.
+            const views = viewSelectors.map((selector) => document.querySelector(selector));
+            if (views.some((view) => !view)) return { error: 'a view is missing' };
+            // An ancestor clips the page, so it never SCROLLS sideways even when content is too
+            // wide (a 520px column passed that test: the control showed it). What matters is content
+            // cut off at the edge: every rendered element inside the screen, except inside the
+            // boxes made to scroll sideways (a table's .mdtablewrap, a code block). NOT every
+            // overflow:auto box: the thread scrolls vertically, so its overflow-x computes to auto
+            // too, and exempting it would skip the room, where the long-file-name bug lived.
+            // The SCREEN's width: a mobile context widens innerWidth to fit overflowing content.
+            const screenWidth = window.visualViewport ? window.visualViewport.width : innerWidth;
+            const pageScrolls = (view) => document.documentElement.scrollWidth > screenWidth + 1
+              || [...view.querySelectorAll('*')].some((el) => {
+                const rect = el.getBoundingClientRect(); if (!rect.width || !rect.height) return false;
+                if (el.closest('.mdtablewrap, pre')) return false;
+                return rect.left < -1 || rect.right > screenWidth + 1;
+              });
+            const offenders = (view) => [...view.querySelectorAll('*')].filter((el) => {
+                const rect = el.getBoundingClientRect(); if (!rect.width || !rect.height) return false;
+                if (el.closest('.mdtablewrap, pre')) return false;
+                return rect.left < -1 || rect.right > screenWidth + 1;
+              }).slice(0, 4).map((el) => (el.id ? '#' + el.id : el.tagName.toLowerCase() + '.' + String(el.className).split(' ')[0]) + ' ' + Math.round(el.getBoundingClientRect().left) + '..' + Math.round(el.getBoundingClientRect().right));
+            const result = {};
+            for (const view of views) {
+              document.querySelectorAll('#panel-projects > [id$="-view"]').forEach((other) => { other.hidden = other !== view; });
+              for (let el = view; el && el !== document.body; el = el.parentElement) { el.hidden = false; el.removeAttribute('inert'); if (getComputedStyle(el).display === 'none') el.style.display = 'block'; }
+              if (view.id === 'pj-one-view') {
+                const room = document.getElementById('pj-room'); const people = { agents: [{ sessionName: 'april', name: 'April' }] };
+                room.innerHTML = pjRoomRow({ from: 'april', at: ts, text: 'A long post that should read as lines on a phone and never push the page wider than the screen, whatever its words. '.repeat(3), id: 's1' }, people)
+                  + pjRoomRow({ operator: true, at: ts, text: 'Here is the file.', id: 's2', attachments: [{ id: 'a1', name: 'Henderson-Lease-Review-2026-signed-countersigned-final-FINAL-v7-with-exhibits.pdf', type: 'application/pdf', size: 912345, kind: 'pdf', url: '/api/attachment/a1' }] }, people);
+              }
+              const rendered = [...view.querySelectorAll('*')].filter((el) => { const rect = el.getBoundingClientRect(); return rect.width > 0 && rect.height > 0; }).length;
+              result[view.id] = { pageScrolls: pageScrolls(view), scrollWidth: document.documentElement.scrollWidth, outside: offenders(view), rendered };
+            }
+            return { screenWidth, innerWidth, result };
+          }, [now(), FIELD_VIEWS]);
+          // The reference IS this phone's width (an engine that zoomed out to fit would widen it and
+          // pass everything), and every view really rendered something to measure.
+          const fits = !fit.error && Math.round(fit.screenWidth) === phoneWidth
+            && Object.values(fit.result).every((r) => !r.pageScrolls && r.rendered >= 3);
+          chk(fits, `[${phoneWidth}x${phoneHeight} ${theme}/touch] nothing on the project page or the projects list runs past the screen`, JSON.stringify(fit));
+        } finally {
+          chk(sizePageErrors.length === 0, `[size ${phoneWidth}x${phoneHeight} ${theme}] no script errors on the page`, sizePageErrors.join(' | '));
+          await sizePage.close();
+        }
+      }
+    }
+    // TABLET, touch, 1180 wide (an iPad in landscape): the 16px rule applies there too (hover:
+    // none). Every field in all six project views and both dialogs (FIELD_ROOTS) must stay inside
+    // its own column or dialog card, so the larger text never pushes a field out of a narrow one.
+    const tabletPage = await browser.newPage({ viewport: { width: 1180, height: 820 }, colorScheme: 'light', hasTouch: true, isMobile: true });
+    const tabletPageErrors = watchErrors(tabletPage);
+    try {
+      await tabletPage.addInitScript(() => {
+        window.setInterval = () => 0;
+        window.fetch = async () => new Response('{}', { status: 200, headers: { 'content-type': 'application/json' } });
+      });
+      await tabletPage.goto(PAGE);
+      const tablet = await tabletPage.evaluate(({ rootSelectors, skipTypes }) => {
+        const fr = document.getElementById('firstrun'); if (fr) fr.hidden = true;   // hidden, not removed: the app reads it
+        const places = rootSelectors.map((selector) => document.querySelector(selector));
+        if (places.some((place) => !place)) return { error: 'a place is missing' };
+        // ONE place shown at a time (as the app shows them), each field bounded by its nearest real
+        // container: its column, dialog card, card or field row, else the view itself.
+        const views = places.filter((place) => place.parentElement && place.parentElement.id === 'panel-projects');
+        let fieldCount = 0, at16 = 0; const outside = [];
+        for (const place of places) {
+          if (views.includes(place)) views.forEach((other) => { other.hidden = other !== place; });
+          for (let el = place; el && el !== document.body; el = el.parentElement) { el.hidden = false; el.removeAttribute('inert'); if (getComputedStyle(el).display === 'none') el.style.display = 'block'; }
+          const fields = [...place.querySelectorAll('input, select, textarea')]
+            .filter((el) => !(el.tagName === 'INPUT' && skipTypes.includes((el.type || '').toLowerCase())))
+            .filter((el) => el.getBoundingClientRect().width > 0);
+          fieldCount += fields.length;
+          at16 += fields.filter((el) => parseFloat(getComputedStyle(el).fontSize) >= 16).length;
+          fields.forEach((el) => {
+            const box = el.closest('.pjcol, .rm-box, .pjcard, .field') || place;
+            const fieldRect = el.getBoundingClientRect(); const boxRect = box.getBoundingClientRect();
+            if (fieldRect.left < boxRect.left - 0.5 || fieldRect.right > boxRect.right + 0.5) outside.push((el.id || el.className) + ' in ' + (box.id || box.className));
+          });
+          if (!views.includes(place)) place.hidden = true;   // a dialog closes again
+        }
+        return { hoverNone: matchMedia('(hover: none)').matches, fields: fieldCount, at16, outside };
+      }, { rootSelectors: FIELD_ROOTS, skipTypes: FIELD_SKIP });
+      // 15 fields render at 1180 (measured, both engines; others sit in views hidden at that width).
+      chk(!tablet.error && tablet.hoverNone && tablet.fields >= 12 && tablet.at16 === tablet.fields && tablet.outside.length === 0,
+        `[tablet 1180/touch] at 16px every field stays inside its nearest container, one view at a time`, JSON.stringify(tablet));
+    } finally {
+      chk(tabletPageErrors.length === 0, '[tablet] no script errors on the page', tabletPageErrors.join(' | '));
+      await tabletPage.close();
+    }
+    // DARK, phone, touch: the open bar has its own ground against the dark room ground, so its
+    // emoji read over the message it covers, and it still takes its taps. (Lifted to body, the
+    // room's ground here is --k-bg; in its column it is black. The bar's --k-surface differs from
+    // both.)
+    const darkPage = await browser.newPage({ viewport: { width: 375, height: 800 }, colorScheme: 'dark', hasTouch: true, isMobile: true });
+    const darkPageErrors = watchErrors(darkPage);
+    try {
+      await darkPage.addInitScript(() => {
+        window.setInterval = () => 0;
+        window.fetch = async () => new Response('{}', { status: 200, headers: { 'content-type': 'application/json' } });
+      });
+      await darkPage.goto(PAGE);
+      await darkPage.evaluate((ts) => {
+        const room = document.getElementById('pj-room'); document.body.appendChild(room);
+        const fr = document.getElementById('firstrun'); if (fr) fr.hidden = true;   // hidden, not removed: the app reads it
+        document.querySelectorAll('[inert]').forEach((el) => el.removeAttribute('inert'));
+        room.style.cssText = 'position:absolute;left:0;top:200px;width:297px;z-index:50;'; room.hidden = false;
+        const people = { agents: [{ sessionName: 'april', name: 'April' }] };
+        room.innerHTML = pjRoomRow({ from: 'april', at: ts, text: 'An earlier message, a line or two long so the bar above the next one lies over it.', id: 'd1' }, people)
+          + pjRoomRow({ from: 'april', at: ts, text: 'ok', id: 'd2' }, people);
+      }, now());
+      await darkPage.locator('#pj-room .msg .msg-bd p').last().tap();
+      await darkPage.waitForTimeout(300);
+      const dark = await darkPage.evaluate(() => {
+        const rgba = (c) => { const m = c.match(/rgba?\(([^)]+)\)/); return m ? m[1].split(',').map((x) => parseFloat(x)) : [0, 0, 0, 0]; };
+        const quickBar = document.querySelector('#pj-room .msg.rxn-show .rxn-quick'); const room = document.getElementById('pj-room');
+        if (!quickBar) return { error: 'no open bar' };
+        const barBg = rgba(getComputedStyle(quickBar).backgroundColor); const threadBg = getComputedStyle(room).backgroundColor;
+        const hits = [...quickBar.querySelectorAll('button')].map((b) => { const r = b.getBoundingClientRect(); const t = document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2); return t === b || b.contains(t); });
+        return { dark: matchMedia('(prefers-color-scheme: dark)').matches, barBg: getComputedStyle(quickBar).backgroundColor, threadBg, opaque: (barBg[3] === undefined ? 1 : barBg[3]) > 0.9, differs: getComputedStyle(quickBar).backgroundColor !== threadBg, border: getComputedStyle(quickBar).borderTopWidth, hits };
+      });
+      chk(!dark.error && dark.dark && dark.opaque && dark.differs && parseFloat(dark.border) >= 1 && dark.hits.length === 4 && dark.hits.every(Boolean),
+        `[dark/phone/touch] the open bar has its own ground and edge on the dark thread and takes its taps`, JSON.stringify(dark));
+    } finally {
+      chk(darkPageErrors.length === 0, '[phone dark] no script errors on the page', darkPageErrors.join(' | '));
+      await darkPage.close();
+    }
+    // DESKTOP, a mouse (hover available), 1280 wide: the touch-only 16px rule must change nothing.
+    // #nt-modal and #am-modal also open from outside the project page, so this is where a leak
+    // would show. The same sweep as the phone arm; every field keeps its desktop size, and the
+    // named ones are pinned to what they are without the rule (13px, the body text).
+    const deskPage = await browser.newPage({ viewport: { width: 1280, height: 800 }, colorScheme: 'light' });
+    const deskPageErrors = watchErrors(deskPage);
+    try {
+      await deskPage.addInitScript(() => {
+        window.setInterval = () => 0;
+        window.fetch = async () => new Response('{}', { status: 200, headers: { 'content-type': 'application/json' } });
+      });
+      await deskPage.goto(PAGE);
+      const desk = await deskPage.evaluate(({ rootSelectors, skipTypes }) => {
+        const roots = rootSelectors.map((selector) => document.querySelector(selector)).filter(Boolean);
+        const skip = new Set(skipTypes);
+        const fields = roots.flatMap((r) => [...r.querySelectorAll('input, select, textarea')]).filter((el) => !(el.tagName === 'INPUT' && skip.has((el.type || '').toLowerCase())));
+        const px = (id) => { const el = document.getElementById(id); return el ? parseFloat(getComputedStyle(el).fontSize) : null; };
+        return { roots: roots.length, hoverNone: matchMedia('(hover: none)').matches, count: fields.length, at16: fields.filter((el) => parseFloat(getComputedStyle(el).fontSize) >= 16).map((el) => el.id || el.className),
+          named: { 'nt-what': px('nt-what'), 'nt-who': px('nt-who'), 'pj-one-add': px('pj-one-add'), 'tk-due': px('tk-due'), 'pj-name': px('pj-name') } };
+      }, { rootSelectors: FIELD_ROOTS, skipTypes: FIELD_SKIP });
+      const named = Object.values(desk.named || {});
+      chk(desk.roots === FIELD_ROOTS.length && desk.hoverNone === false && desk.count >= 20 && desk.at16.length === 0 && named.length === 5 && named.every((size) => size !== null && size < 16),   /* not a value pin: a desktop typography change is not this check's business; the zero-at-16 sweep is the leak test */
+        `[desktop/mouse] the touch-only 16px rule changes no field's size with a mouse`, JSON.stringify(desk));
+    } finally {
+      chk(deskPageErrors.length === 0, '[desktop] no script errors on the page', deskPageErrors.join(' | '));
+      await deskPage.close();
+    }
+    const hoverPage = await browser.newPage({ viewport: { width: 375, height: 800 }, colorScheme: 'light' });
+    const hoverPageErrors = watchErrors(hoverPage);
+    try {
+      await hoverPage.addInitScript(() => {
+        window.setInterval = () => 0;
+        window.fetch = async () => new Response('{}', { status: 200, headers: { 'content-type': 'application/json' } });
+      });
+      await hoverPage.goto(PAGE);
+      await hoverPage.evaluate((ts) => {
+        const room = document.getElementById('pj-room'); document.body.appendChild(room);
+        const fr = document.getElementById('firstrun'); if (fr) fr.hidden = true;   // hidden, not removed: the app reads it
+        room.style.cssText = 'position:absolute;left:0;top:0;width:297px;max-height:none;z-index:50;'; room.hidden = false;
+        room.innerHTML = pjRoomRow({ from: 'april', at: ts, text: 'hello there', id: 'h1' }, { agents: [{ sessionName: 'april', name: 'April' }] });
+      }, now());
+      // Precondition: the click really reaches the row (a click that landed elsewhere would also toggle nothing).
+      await hoverPage.evaluate(() => { window.__rowClicks = 0; document.querySelector('#pj-room .msg').addEventListener('click', () => { window.__rowClicks += 1; }); });
+      await hoverPage.locator('#pj-room .msg .msg-bd p').first().click();
+      const hoverResult = await hoverPage.evaluate(() => ({ hoverNone: matchMedia('(hover: none)').matches, rowClicks: window.__rowClicks, shown: document.querySelectorAll('#pj-room .msg.rxn-show').length }));
+      chk(!hoverResult.hoverNone && hoverResult.rowClicks === 1 && hoverResult.shown === 0, `[hover] with a mouse a click toggles nothing (hover reveals the bar there)`, JSON.stringify(hoverResult));
+    } finally {
+      chk(hoverPageErrors.length === 0, '[phone hover] no script errors on the page', hoverPageErrors.join(' | '));
+      await hoverPage.close();
+    }
+
     /* #3361 (WARNING 2 from iter-1 review): the fix's claim is that at GENUINELY WIDE widths the
        78ch max-width binds first, so the far gutter is slack and the approved wide look is UNCHANGED
        (only narrow widths get capped). Prove it: at a 1200px row the 78ch bubble plus both gutters
@@ -689,6 +1697,7 @@ const now = () => new Date().toISOString();
     }
   } finally {
     await browser.close();
+  }
   }
   if (fail.length) { console.log('\n' + fail.length + ' FAILED'); process.exit(1); }
   console.log('\nall passed');

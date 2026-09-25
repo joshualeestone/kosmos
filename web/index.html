@@ -2050,6 +2050,25 @@ body.filter-noproj #orgview .onode:not([data-noproj]) { opacity: .26; }
   :root:not([data-theme="light"]) .astate.st-question { border-color: rgba(140,175,230,.58); }
   :root:not([data-theme="light"]) .acard.question { border-color: rgba(140,175,230,.42); }
 }
+/* #718 mobile: at a phone's width the projects row's two cells (Add Project, and the sort
+   beside the view toggle) were each their full natural width, a little more than an iPhone SE
+   has (measured with Raiden's harness; numbers in the plan). Now Add Project takes its narrowest
+   width (two lines on every phone) and the sort and toggle may wrap, so nothing leaves the row,
+   nothing overlaps and the sort's label is never cut. Measured down to 360 wide; narrower (320,
+   a folded phone) is not. 30rem is the room's phone width (PJ_PHONE_MQ); pinned equal by
+   web.room-phone-718.test.js, so "a phone" means one thing across the PROJECT pages. (The Direct
+   Message's phone rules use 40rem, its owner's; between 480 and 640 the two differ.) */
+@media (max-width: 30rem) {
+  /* Add Project at its narrowest on every phone (two lines). */
+  #pj-list-view .statsrow { grid-template-columns: min-content minmax(0, 1fr); }
+  /* The sort and the view toggle may wrap: at 16px (touch) the sort's whole label and the toggle
+     at its full width do not both fit beside Add Project on an iPhone SE, so the toggle drops to
+     a second line rather than the label being cut, the toggle squeezed, or the sort drawn over
+     Add Project. Neither shrinks. */
+  #pj-list-view .statsrow > .viewctl { min-width: 0; width: 100%; justify-content: flex-end; flex-wrap: wrap; gap: 8px; }
+  #pj-list-view .sortctl { flex: 0 0 auto; }
+  #pj-list-view .viewctl > .viewtoggle { flex: 0 0 auto; }
+}
 @media (max-width: 56rem) {
   .statsrow { grid-template-columns: auto auto; justify-content: space-between; }
   .statsrow > .stats { grid-column: 1 / -1; order: 3; }
@@ -5834,6 +5853,84 @@ body:not(.consolidated) .pjmidhead:has(.pjhead) .tsearch:focus-within { flex-bas
               border: 1px solid var(--k-rule); border-radius: 10px; background: var(--k-surface);
               box-shadow: 0 8px 24px rgba(20,22,26,.16); }
 .rxn-picker[hidden] { display: none; }
+/* #718 mobile (Josh, 2026-09-24: "make sure the designs fit well on mobile"): the PROJECT
+   ROOM on a phone (375 to 430 wide). Scoped to the room (#pj-room, the room column) so the
+   Direct Message thread, which shares .msg, is untouched. Before this, the page, column and
+   thread paddings plus the desktop avatar, gap and matching far gutter left a narrow bubble,
+   so a long post read as a column of two or three words (measurements: the plan).
+   - The conversation comes FIRST on the project page (a DOM move, see pjPhoneOrder: CSS
+     order would split reading order from tab order, the #1017 defect).
+   - Leaner padding and a 28px avatar. The gap stays 14px: the bubble tail's ground mask
+     (.msg-bd::after, 14px wide, 14px outside the bubble) would otherwise paint over the
+     avatar's inner edge (Scorpion found it on the Direct Message). The far gutter still
+     mirrors the avatar column exactly (#3361: a bubble never grows into the opposite
+     avatar column), now 28px + 14px.
+   - Reaction pills are thumb height; the add-reaction bar is reachable by touch (below).
+   - The placeholder stays on one line instead of spilling a clipped second line. */
+/* The person's own bubble is content-sized in a right-aligned column, so anything wide inside
+   it set its width: a long file name (one nowrap line) made the card, and the bubble with it,
+   hang off the left edge of the room (the thread box clipped it; measurements: the plan).
+   Capping the bubble at its row fixes the cause, and the name keeps its one-line
+   ellipsis. Scorpion measured the same fix on the Direct Message (his #3687, scoped to
+   #d-dmthread); this is the room's. At desktop widths 78ch still binds first, unchanged.
+   78ch is the base .msg-bd cap repeated; web.room-phone-718.test.js pins the two equal. */
+#pj-room .msg.you .msg-bd { max-width: min(78ch, 100%); }
+@media (max-width: 30rem) {
+  .pjcol.pjmid { padding: 12px 8px 8px; }
+  /* The avatar's size and its gap, said once: the far-side margin mirrors the avatar's side. */
+  #pj-room.thread { padding: 12px 6px; gap: 12px; --room-av: 28px; --room-av-gap: 14px; }
+  #pj-room .msg-av { width: var(--room-av); height: var(--room-av); flex-basis: var(--room-av); font-size: .8125rem; }
+  #pj-room .msg:not(.you) .msg-b { margin-right: calc(var(--room-av) + var(--room-av-gap)); }
+  #pj-room .msg.you .msg-b { margin-left: calc(var(--room-av) + var(--room-av-gap)); }
+  #pj-post::placeholder { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+}
+/* #718 mobile: a touchscreen has no hover, so the add-reaction bar (.rxn-quick, shown on
+   .msg:hover) was unreachable on a phone. A tap on a message shows its bar (the room's
+   click handler sets .rxn-show on that one row), at thumb size. */
+@media (hover: none) {
+  #pj-room .msg.rxn-show .rxn-quick { opacity: 1; pointer-events: auto; }
+  /* Phones keep :hover on the element last tapped ("sticky hover"), so the base
+     .msg:hover reveal would open the bar on any tap and never let it close. In the room
+     on a touchscreen only .rxn-show (or keyboard focus) opens it. */
+  #pj-room .msg:hover:not(.rxn-show) .rxn-quick:not(:focus-within) { opacity: 0; pointer-events: none; }
+  /* The same sticky hover left the last-tapped bubble tinted after its bar closed. */
+  #pj-room .msg:hover:not(.rxn-show) .msg-bd,
+  #pj-room .msg:hover:not(.rxn-show) .msg-bd::before { background-image: none; }
+  /* The open bar sits wholly ABOVE the message (its anchor is .msg-b, so the bubble and any
+     reactions under it), clear of it: at thumb size
+     the desktop overlap would cover a one-line bubble, so the tap meant to close the bar would
+     land on an emoji and react. Where there is no room above (the top of the thread), the
+     room's tap handler adds .rxn-below and it opens under the message instead.
+     The bar is wider than a short bubble: pinned right on a short agent bubble it would cross the
+     thread's left edge and be clipped, so an agent's bar starts at the bubble's left. */
+  #pj-room .rxn-quick { gap: 4px; top: auto; bottom: calc(100% + 4px); }
+  #pj-room .msg.rxn-below .rxn-quick { bottom: auto; top: calc(100% + 4px); }
+  /* Every row's .msg-b is its own stacking context (isolation), painted in order, so a bar that
+     opens BELOW its post sat under the next message and lost every tap to it. The open row is
+     lifted above its neighbours (they are z auto), and only to 1: the sticky room composer is
+     z 2, and the open row must stay under it (pinned by web.room-phone-718.test.js). */
+  #pj-room .msg.rxn-show .msg-b, #pj-room .msg.rxn-below .msg-b { z-index: 1; }
+  #pj-room .msg.rxn-still .rxn-quick { transition: none; }
+  /* Outside its bubble it lies over another message: its own ground, so the emoji read. */
+  #pj-room .msg.rxn-show .rxn-quick, #pj-room .rxn-quick:focus-within { background: var(--k-surface); border: 1px solid var(--k-rule);
+    border-radius: 100px; padding: 2px 4px; box-shadow: 0 2px 8px rgba(0,0,0,.12); }
+  #pj-room .msg:not(.you) .rxn-quick { right: auto; left: 0; }
+  /* A tap on a message is a gesture now: no grey iOS flash over the whole thread. Links and
+     buttons in it keep a tap flash of their own. */
+  /* touch-action: no double-tap zoom, since open then close is two quick taps. */
+  #pj-room { -webkit-tap-highlight-color: transparent; touch-action: manipulation; }
+  #pj-room a, #pj-room button { -webkit-tap-highlight-color: rgba(120, 120, 128, .2); }
+  /* iOS zooms into a focused field under 16px and does not zoom back, leaving the page to pan
+     sideways. The mirror draws the same text for the @mention colour, so it moves with it:
+     font size AND line height must match the composer's, measured together in the browser
+     check (render-room-msgbox-2806, "composer and its @mention mirror match"). */
+  /* The composer itself is 16px through the project page's one field rule (after .tk-inp). */
+  .pjmid #pj-post-mirror .pj-mirror-in { font-size: 16px; }
+  #pj-room .rxn-pick, #pj-room .rxn-more { min-width: 36px; min-height: 36px; }
+  /* A reaction already on a post is a target too, on any touchscreen (a phone turned
+     sideways is wider than the phone block but still a thumb). */
+  #pj-room .rxn { min-height: 36px; padding: 2px 10px; }
+}
 .rxn-pick { border: 0; background: transparent; cursor: pointer; font-size: 1.15rem; line-height: 1;
             padding: 3px 5px; border-radius: 7px; }
 .rxn-pick:hover { background: rgba(20,22,26,.08); }
@@ -5890,9 +5987,12 @@ body:not(.consolidated) .pjmidhead:has(.pjhead) .tsearch:focus-within { flex-bas
    21:56, with Discord's card beside ours: "a much, much larger OG image...
    below the meta link information"): host small, title as the link,
    description clamped to four lines, then the picture at the card's width,
-   about half the room. Tokens only, so both themes follow. */
+   about half the room. Tokens only, so both themes follow.
+   #718: an even border all round, no left bar (Josh, 2026-09-24: no left accent bar on cards,
+   whatever the colour), the same weight as the file card (.att) it sits beside. Shared with
+   the Direct Message; this class has one owner. */
 .lpv { display: flex; flex-direction: column; margin-top: 8px; width: min(100%, 34rem);
-  border: 0.5px solid var(--separator); border-left: 3px solid var(--separator); border-radius: 10px; overflow: hidden; text-decoration: none;
+  border: 0.5px solid var(--separator); border-radius: 10px; overflow: hidden; text-decoration: none;
   color: var(--k-ink); background: var(--k-surface); }
 .lpv:hover { border-color: var(--k-ink-2); }
 .lpv-img { display: block; margin: 0 12px 12px; border-radius: 8px; overflow: hidden; background: var(--k-bg); }
@@ -7674,6 +7774,23 @@ body.consolidated .tkcard:hover { border-color: transparent; }
           border-radius: var(--radius-control); color: var(--label); }
 .tk-inp:not(select) { padding: var(--space-4) var(--space-5);
           border: 0.5px solid var(--border-strong); background: var(--field-fill); }
+/* #718 mobile (Liu Kang m705): iOS zooms into any field under 16px and does not zoom back, so
+   the page pans sideways. Every field on the project page and its Tasks and members dialogs, on
+   a touchscreen only: the ONE rule for them. Scoped to the project page's OWN six views, not the
+   whole #panel-projects: the one-screen layout (960px and up, so an iPad) appends Settings, Tasks
+   and Create agent inside #panel-projects, and those are other screens, unchanged here. (The New
+   task dialog, #nt-modal, also opens from the top-level Tasks screen, so it is 16px there too.) The
+   composer's @mention mirror must match the composer and is set beside the room's touch rules.
+   The phone check sweeps the whole projects panel and both dialogs; the tablet and desktop checks
+   sweep exactly these places (read from this rule). */
+@media (hover: none) {
+  :is(#pj-list-view, #pj-one-view, #pj-task-view, #pj-docs-view, #pj-settings-view, #pj-add-view) :is(input:not([type=checkbox]):not([type=radio]), select, textarea),
+  #nt-modal :is(input:not([type=checkbox]):not([type=radio]), select, textarea), #am-modal :is(input:not([type=checkbox]):not([type=radio]), select, textarea) { font-size: 16px; }   /* text fields only: iOS does not zoom a checkbox or a radio */
+  /* .tk-inp's font shorthand carries a 16px line height, too tight for 16px text in a form box of
+     several lines. ONLY .tk-inp: the room composer (#pj-post) keeps its own 1.5, which its
+     @mention mirror must match line for line (the arm "composer and its @mention mirror match"). */
+  :is(#pj-list-view, #pj-one-view, #pj-task-view, #pj-docs-view, #pj-settings-view, #pj-add-view, #nt-modal, #am-modal) textarea.tk-inp { line-height: 1.35; }
+}
 .rm-back { position: fixed; inset: 0; background: rgba(17, 20, 24, 0.72);
            display: flex; align-items: center; justify-content: center;
            padding: var(--space-5); z-index: 50; }
@@ -41870,6 +41987,7 @@ function pjView(which) {
      navigation-only (room polls never pass through here), so a picker in use stays
      open; only a navigation closes it. */
   rxnCloseAllPickers();
+  pjRxnClose();   // #718: a touchscreen reaction bar too (its state is var, so safe at any load point)
   // Arriving at a project resets the member picker to its resting state (the
   // "+ Add Member" button), so an open picker does not leak from the last
   // project into this one. Navigation-only: repaints while the view is open
@@ -46519,6 +46637,10 @@ function rxnPickerEl() {
     document.querySelectorAll('#pj-room .rxns').forEach((r) => {
       if (r.getAttribute('data-post') === postId) box = r;
     });
+    // Close the touchscreen bar BEFORE the reaction's round trip: a pick from the full list
+    // closes it as a quick pick does, even if the request fails, and a bar the person opens on
+    // another post meanwhile is not closed by this pick finishing late.
+    pjRxnClose();
     if (box) await rxnToggle(PJ_CURRENT, box, b.getAttribute('data-emoji'));
     rxnCloseAllPickers();
   });
@@ -46624,6 +46746,238 @@ document.getElementById('d-dmthread').addEventListener('click', async (e) => {
   await dmRxnToggle(CURRENT.sessionName, box, btn.getAttribute('data-emoji'));
 });
 
+/* #718 mobile: on a phone (max-width 30rem) the conversation comes FIRST on the project page,
+   before Members and Files. Moved in the DOM, not with CSS order: a visual-only reorder makes
+   a sighted reader and a keyboard or screen-reader user meet the panels in different orders
+   (WCAG 2.4.3 / 1.3.2), the exact #1017 defect this page already fixed once, by a DOM change.
+   Wider than a phone it goes back after the Members/Files column, the desktop order.
+   It is the Members/Files column that moves, never the conversation: moving the column that
+   holds the composer would blur it, and iOS does not bring the keyboard back for a focus()
+   outside a tap, so a phone turned mid-post would lose its keyboard. The room and its
+   composer never leave the page, so the composer's focus and the thread's own scroll are
+   untouched. The page's scroll can shift; pjPhoneOrder brings a focused composer back into
+   view itself (WebKit has no scroll anchoring to do it). */
+// 30rem (480px): above the widest phone in portrait (430px) and below a small tablet.
+const PJ_PHONE_MQ = '(max-width: 30rem)';   // the room's phone CSS block uses this exact query (pinned by web.room-phone-718.test.js)
+const PJ_TOUCH_MQ = '(hover: none)';         // the room's touchscreen CSS block uses this exact query (pinned the same way)
+function pjPhoneOrder() {
+  const grid = document.querySelector('.pj3');
+  const mid = grid && grid.querySelector(':scope > .pjmid');
+  const split = grid && grid.querySelector(':scope > .pjsplit');
+  if (!grid || !mid || !split || !window.matchMedia) return;
+  // Only these two swap. The grid's third child (Tasks) is last in the markup and stays last
+  // in both orders, because split only ever moves to just before or just after mid.
+  // A control focused in the column that moves (a keyboard or VoiceOver user in Members or
+  // Files) is blurred by the move. Those are buttons and links, not text fields, so putting
+  // the focus back works on every engine.
+  const focused = document.activeElement && split.contains(document.activeElement) ? document.activeElement : null;
+  if (window.matchMedia(PJ_PHONE_MQ).matches) {
+    if (mid.nextElementSibling !== split) mid.after(split);
+  } else if (mid.previousElementSibling !== split) {
+    grid.insertBefore(split, mid);
+  }
+  if (focused && document.activeElement !== focused && focused.isConnected) focused.focus({ preventScroll: true });
+  // Members/Files going above the room pushes the composer down the page; a person mid-post
+  // keeps it in view (WebKit has no scroll anchoring to do it).
+  const post = document.getElementById('pj-post');
+  if (post && document.activeElement === post && post.scrollIntoView) post.scrollIntoView({ block: 'nearest' });
+}
+pjPhoneOrder();
+if (window.matchMedia) {
+  const pjPhoneMq = window.matchMedia(PJ_PHONE_MQ);
+  if (pjPhoneMq.addEventListener) pjPhoneMq.addEventListener('change', pjPhoneOrder);
+  else if (pjPhoneMq.addListener) pjPhoneMq.addListener(pjPhoneOrder);
+}
+/* The post whose touchscreen reaction bar is open, and its project (post ids are per project),
+   so a repaint can put it back (below) and another project's same id never inherits it. */
+/* var, not let: pjView (much earlier in this script) closes an open bar on navigation, and a var
+   has no temporal dead zone, so that call is safe whatever order the script's code runs in. */
+var RXN_SHOW_POST = null;
+var RXN_SHOW_PID = null;
+var RXN_PINNED = false;   // the open bar is pinned (by a tap, or a tall post's re-place); a scroll, viewport change or repaint re-places it
+function pjRxnVisibleBand(room) {
+  // The part of the thread a person can actually see: inside the thread's box, below the
+  // screen's top and the sticky app header, above the screen's bottom and the sticky composer.
+  const roomRect = room.getBoundingClientRect();
+  const visual = window.visualViewport;
+  let top = Math.max(roomRect.top + (parseFloat(getComputedStyle(room).borderTopWidth) || 0), visual ? visual.offsetTop : 0);
+  let bottom = Math.min(roomRect.bottom, visual ? visual.offsetTop + visual.height : window.innerHeight);
+  const header = document.querySelector('.apphead');
+  if (header && getComputedStyle(header).position === 'sticky') top = Math.max(top, header.getBoundingClientRect().bottom);
+  const composer = document.querySelector('.pjmid .composer');
+  if (composer && composer.offsetParent) bottom = Math.min(bottom, composer.getBoundingClientRect().top);
+  return { top, bottom };
+}
+/* The gap between the bar and its message: the touch block's calc(100% + 4px), repeated
+   here for the pinned case (pinned equal by web.room-phone-718.test.js). */
+const RXN_BAR_GAP_PX = 4;
+/* Clears everything placement put on a row, so a closed bar keeps no stale position. */
+function pjRxnResetRow(messageRow) {
+  messageRow.classList.remove('rxn-show', 'rxn-below');
+  const quickBar = messageRow.querySelector('.rxn-quick'); if (quickBar) quickBar.removeAttribute('style');
+}
+/* Above the message unless the thread's top edge, or the top of the screen (the page itself
+   scrolls on a phone), would cut it; then below (CSS .rxn-below). */
+function pjRxnPlace(row, fromTap) {
+  row.classList.remove('rxn-below');
+  const quickBar = row.querySelector('.rxn-quick'); const room = document.getElementById('pj-room');
+  if (!quickBar || !room) { pjRxnClose(); return; }   // nothing to place: do not leave a lifted, empty row
+  quickBar.removeAttribute('style');
+  const band = pjRxnVisibleBand(room);
+  const rowRect = row.getBoundingClientRect();
+  // Only a tap guarantees the post is in view. A repaint of a post that is no longer on
+  // screen (or a thread scrolled off the page) closes the bar rather than float it.
+  // Also when nothing of the thread is showing (a very short window, header and composer
+  // taking the rest): with no place to put the bar, close it, tap or not.
+  if (band.bottom <= band.top || rowRect.bottom <= band.top || rowRect.top >= band.bottom) { pjRxnClose(); return; }
+  if (quickBar.getBoundingClientRect().top >= band.top) { RXN_PINNED = false; return; }           // above the message: fits
+  row.classList.add('rxn-below');
+  if (quickBar.getBoundingClientRect().bottom <= band.bottom) { RXN_PINNED = false; return; }      // below it: fits
+  row.classList.remove('rxn-below');
+  // A post taller than what shows may be pinned whether or not this is the tap: otherwise a bar
+  // tapped while the post's top showed would close as soon as that top scrolled away.
+  const tallerThanShowing = rowRect.height > band.bottom - band.top;
+  if (!fromTap && !tallerThanShowing) { pjRxnClose(); return; }
+  // A visible band thinner than the bar (landscape with the keyboard up) would pin it under the
+  // sticky composer or header, its emoji untappable: close it instead.
+  if (band.bottom - band.top < quickBar.offsetHeight + 2 * RXN_BAR_GAP_PX) { pjRxnClose(); return; }
+  RXN_PINNED = true;
+  // A post taller than what is showing (just tapped, or re-placed): pin the bar in the visible
+  // thread, where the post is, at the same left edge. A scroll or viewport change re-places it (below).
+  const barLeft = quickBar.getBoundingClientRect().left;
+  // At the post's own top when that is showing (so it does not cover the message above), else at
+  // the top of what is showing; never past the bottom of what is showing.
+  const pinTop = Math.min(Math.max(band.top, rowRect.top) + RXN_BAR_GAP_PX, band.bottom - quickBar.offsetHeight - RXN_BAR_GAP_PX);
+  quickBar.style.position = 'fixed'; quickBar.style.top = Math.round(pinTop) + 'px';
+  quickBar.style.left = Math.round(barLeft) + 'px'; quickBar.style.right = 'auto'; quickBar.style.bottom = 'auto';
+}
+/* #718 mobile: on a touchscreen, a tap on a message shows its add-reaction bar (hover
+   does it on a computer). One row at a time. A tap on a link, a button or the reaction row
+   is left to its own handler, except that picking a reaction closes the bar, and a tap on
+   another row's link or button closes an open bar (one at a time). Registered
+   BEFORE the data-open-agent listener below, which asks to stay last. */
+document.getElementById('pj-room').addEventListener('click', (e) => {
+  if (!(window.matchMedia && window.matchMedia(PJ_TOUCH_MQ).matches)) return;
+  if (!e.target || !e.target.closest) return;
+  const room = document.getElementById('pj-room');
+  if (e.target.closest('.rxn-pick, .rxn')) { pjRxnClose(); return; }   // any reaction taken closes it
+  if (e.target.closest('a, button, .rxns, [data-open-agent]')) {
+    // Left to its own handler, but one bar at a time: a tap on another row's link closes an open bar.
+    const tappedRow = e.target.closest('.msg');
+    room.querySelectorAll('.msg.rxn-show').forEach((openRow) => { if (openRow !== tappedRow) pjRxnResetRow(openRow); });
+    if (!room.querySelector('.msg.rxn-show')) pjRxnClose();   // the one close path (state, pin, focus)
+    return;
+  }
+  const row = e.target.closest('.msg');
+  room.querySelectorAll('.msg.rxn-show, .msg.rxn-below').forEach((openRow) => { if (openRow !== row) pjRxnResetRow(openRow); });
+  if (!row) { pjRxnClose(); return; }   // a tap between messages closes it for good
+  const box = row.querySelector('.rxns[data-post]');
+  if (!box) { pjRxnClose(); return; }   // nothing to react to (a system row, an unsaved post)
+  const open = !row.classList.contains('rxn-show');
+  if (!open) { pjRxnClose(); return; }   // the one close path (state, pin, focus)
+  RXN_PINNED = false;
+  row.classList.add('rxn-show');
+  RXN_SHOW_POST = box.getAttribute('data-post');
+  RXN_SHOW_PID = PJ_CURRENT;
+  pjRxnPlace(row, true);
+});
+function pjRxnClose() {
+  RXN_SHOW_POST = null;
+  RXN_SHOW_PID = null;
+  RXN_PINNED = false;
+  const room = document.getElementById('pj-room');
+  if (room) room.querySelectorAll('.msg.rxn-show, .msg.rxn-below').forEach(pjRxnResetRow);
+  if (room) room.querySelectorAll('.rxn-quick[style]').forEach((quickBar) => quickBar.removeAttribute('style'));
+  // A tapped button keeps focus on Android, and .rxn-quick:focus-within would keep the bar up.
+  const focusedElement = document.activeElement;
+  if (focusedElement && focusedElement.closest && focusedElement.closest('#pj-room .rxn-quick') && focusedElement.blur) focusedElement.blur();
+}
+/* A repaint of the room (a new post, a timestamp re-worded) rewrites its rows and would drop an
+   open bar between the tap that opened it and the tap on an emoji: put it back on the same post. */
+if (window.MutationObserver) {
+  new MutationObserver(() => {
+    if (!RXN_SHOW_POST) return;
+    if (RXN_SHOW_PID !== PJ_CURRENT) { pjRxnClose(); return; }
+    const room = document.getElementById('pj-room');
+    const box = room && [...room.querySelectorAll('.rxns[data-post]')].find((b) => b.getAttribute('data-post') === RXN_SHOW_POST);
+    const row = box && box.closest('.msg');
+    // A bar a tap pinned may be pinned again (a scroll would already have re-placed it).
+    // rxn-still: no fade-in when a repaint puts the same bar back (it was already showing).
+    if (row) {
+      if (!row.classList.contains('rxn-show')) { row.classList.add('rxn-still', 'rxn-show'); pjRxnPlace(row, RXN_PINNED); requestAnimationFrame(() => requestAnimationFrame(() => row.classList.remove('rxn-still'))); }
+      // Its reaction row was rewritten in place (a reaction's reply): the new bar has no pin yet.
+      else if (RXN_PINNED) { const bar = row.querySelector('.rxn-quick'); if (bar && bar.style.position !== 'fixed') pjRxnPlace(row, true); }
+    }
+    else pjRxnClose();   // the post is gone from view
+  }).observe(document.getElementById('pj-room'), { childList: true, subtree: true });
+}
+/* Any scroll (or a viewport change, below) RE-PLACES an open bar (pjRxnReplaceOpenBar): an
+   ordinary bar flips below its post at the thread's edge, a pinned one stays over its post while
+   the post fills what is showing, and any bar closes once its post has left the screen
+   (pjRxnPlace decides). Re-placing, not closing: on iOS the keyboard closing both resizes the
+   visual viewport and scrolls the window, and a new post scrolls the thread. */
+document.addEventListener('scroll', (event) => {
+  if (!RXN_SHOW_POST) return;   // nothing open: every scroll in the app costs nothing here
+  // Scrolling the full emoji picker's own list is not the thread moving (#2834's same guard).
+  const target = event.target;
+  if (target && target.nodeType === 1 && target.closest && target.closest('.rxn-picker')) return;
+  pjRxnReplaceSoon();
+}, true);
+/* Coalesced: iOS fires scroll and visual-viewport events continuously (momentum, pinch pan, the
+   keyboard); one re-place per frame is enough. */
+let RXN_REPLACE_QUEUED = false;
+function pjRxnReplaceSoon() {
+  if (RXN_REPLACE_QUEUED || !RXN_SHOW_POST) return;
+  RXN_REPLACE_QUEUED = true;
+  requestAnimationFrame(() => { RXN_REPLACE_QUEUED = false; pjRxnReplaceOpenBar(); });
+}
+function pjRxnReplaceOpenBar() {
+  // Any open bar, not only a pinned one: an ordinary bar whose post scrolls to the thread's edge
+  // flips below it (or closes when neither side fits), and closes once its post leaves.
+  if (!RXN_SHOW_POST) return;
+  const room = document.getElementById('pj-room');
+  const box = room && [...room.querySelectorAll('.rxns[data-post]')].find((rxns) => rxns.getAttribute('data-post') === RXN_SHOW_POST);
+  const row = box && box.closest('.msg');
+  if (row) pjRxnPlace(row, RXN_PINNED); else pjRxnClose();
+}
+/* A viewport change (a turn, the keyboard closing when a tap leaves the composer, pinch zoom)
+   re-places an open bar rather than closing it: the tap that opened it often closes the keyboard
+   itself. pjRxnPlace closes it only if its post is no longer on screen. */
+window.addEventListener('resize', pjRxnReplaceSoon);
+/* A bar opened by keyboard focus (an iPad with a keyboard, VoiceOver) opens without a tap, so
+   pjRxnPlace never runs for it: flip it below its post where the thread's top would cut it, as a
+   tapped bar does, and put it back when focus leaves the bar. */
+document.getElementById('pj-room').addEventListener('focusin', (event) => {
+  const quickBar = event.target && event.target.closest && event.target.closest('#pj-room .rxn-quick');
+  if (!quickBar || !(window.matchMedia && window.matchMedia(PJ_TOUCH_MQ).matches)) return;
+  const row = quickBar.closest('.msg'); if (!row || row.classList.contains('rxn-show')) return;
+  row.classList.remove('rxn-below');
+  if (quickBar.getBoundingClientRect().top < pjRxnVisibleBand(event.currentTarget).top) row.classList.add('rxn-below');
+});
+document.getElementById('pj-room').addEventListener('focusout', (event) => {
+  const quickBar = event.target && event.target.closest && event.target.closest('#pj-room .rxn-quick');
+  if (!quickBar || quickBar.contains(event.relatedTarget)) return;
+  const row = quickBar.closest('.msg'); if (row && !row.classList.contains('rxn-show')) row.classList.remove('rxn-below');
+});
+// iOS reports the keyboard and pinch zoom on the visual viewport, not as a window resize.
+if (window.visualViewport) {
+  window.visualViewport.addEventListener('resize', pjRxnReplaceSoon);
+  window.visualViewport.addEventListener('scroll', pjRxnReplaceSoon);
+}
+/* A tap anywhere outside the room closes an open bar too, except inside the shared emoji
+   picker (it lives in body, outside the room): the bar it was opened from stays with it.
+   pointerdown, not click: iOS Safari sends no click for a tap on plain content unless
+   something below body listens, so a document click listener would miss most taps.
+   It also fires as a page scroll starts outside the room, which closes the bar too.
+   Not gated on touch, and neither is the observer: both return at once unless RXN_SHOW_POST
+   is set, which only the touch-gated tap listener does, so with a mouse they do nothing. */
+document.addEventListener('pointerdown', (e) => {
+  if (!RXN_SHOW_POST) return;   // nothing open: a mouse click (or any tap) costs nothing here
+  const room = document.getElementById('pj-room');
+  if (!room || (e.target && room.contains(e.target))) return;
+  if (e.target && e.target.closest && e.target.closest('.rxn-picker')) return;
+  pjRxnClose();
+});
 /* #3134-followup (Josh 6.72): clicking an agent's NAME or AVATAR in a room bubble opens
    that agent directly, the same openDetail path the members list uses (#2574), passing
    PJ_CURRENT so detail-back returns to this project. Delegated on the thread (every poll
@@ -46635,7 +46989,7 @@ document.getElementById('d-dmthread').addEventListener('click', async (e) => {
    as the file-open handler. Keep this one last among the room's click listeners. */
 document.getElementById('pj-room').addEventListener('click', (e) => {
   const t = e.target && e.target.closest ? e.target.closest('[data-open-agent]') : null;
-  if (t && t.dataset.openAgent) openDetail(t.dataset.openAgent, undefined, PJ_CURRENT);
+  if (t && t.dataset.openAgent) { pjRxnClose(); openDetail(t.dataset.openAgent, undefined, PJ_CURRENT); }   // navigating to the agent closes a touch bar
 });
 
 /* #2806/#2834: close the shared reaction picker and reset every opener's aria-expanded.
@@ -46685,7 +47039,7 @@ document.addEventListener('click', (e) => {
   if (!inside) rxnCloseAllPickers();
 }, true);
 /* Escape closes any open picker. */
-document.addEventListener('keydown', (e) => { if (e.key === 'Escape') rxnCloseAllPickers(); });
+document.addEventListener('keydown', (e) => { if (e.key === 'Escape') { rxnCloseAllPickers(); if (RXN_SHOW_POST) pjRxnClose(); } });   // #718: the touch bar too (an iPad keyboard)
 /* The picker is `fixed`, so it does not follow the thread scroll -- close it on a
    scroll of anything OUTSIDE it (capture phase, since scroll does not bubble) so it
    never floats detached from the smiley. A scroll INSIDE the picker's own emoji grid
