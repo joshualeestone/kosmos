@@ -9254,10 +9254,6 @@ body.plus-active #plus-state2 { max-width: 26rem; padding: 2rem; }
      sets (padding-bottom, #d-talk-box height/min-height) with identical specificity and win only
      by coming later in the sheet, the same restatement the #770 note describes. Keep this block
      after that one. */
-  /* Any in-flow body child that follows the panel in the markup (the removed-agent note and
-     similar; the connection banner itself sits above the panels since #3708) stays above
-     it here instead of under the composer. */
-  body > #panel-detail:has(#d-sec-talk:not([hidden])) { order: 1; }
   /* The wide layout's companions to the header's zero bottom margin (the #3497 block), so the
      connection line and the pairing card keep their gap on Talk as on every other section. */
   body:has(> #panel-detail:not([hidden]) #d-sec-talk:not([hidden])) > #askcard:not([hidden]) { margin-bottom: var(--space-6); }
@@ -30111,12 +30107,14 @@ function detailGo(section, opts) {
      The keyboard counts as "up" (the phone chat moves its header aside only then) when that height
      falls 150px+ below the tallest seen at this width. Measured against the tallest, not the layout
      viewport, so it also works where the keyboard shrinks the layout viewport too (Firefox Android,
-     Chrome with resizes-content, some Android web views). A width change (rotation) starts over. */
+     Chrome with resizes-content, some Android web views). A width change (rotation) starts over; the layout width, not innerWidth, which Safari has
+     tracked through a pinch zoom. */
   const KEYBOARD_MIN_PX = 150;
   let tallest = { width: 0, height: 0 };
   const write = () => {
     const visible = Math.round(viewport.height * viewport.scale);
-    if (window.innerWidth !== tallest.width) tallest = { width: window.innerWidth, height: 0 };
+    const width = document.documentElement.clientWidth;
+    if (width !== tallest.width) tallest = { width, height: 0 };
     tallest.height = Math.max(tallest.height, visible);
     document.documentElement.style.setProperty('--kosmos-visible-height', visible + 'px');
     document.documentElement.classList.toggle('kosmos-keyboard-up', tallest.height - visible > KEYBOARD_MIN_PX);
