@@ -22,7 +22,7 @@ function liftSettle(env) {
 // The golden board card the browser checks use (never a hand-built one): the link names it.
 const CARD = require('./docs/browser-checks/fixtures/agent-card.json');
 function board({ present }) {
-  const env = { WANT_AGENT_GRACE_MS: 4000, WANT_AGENT: CARD.sessionName, CURRENT: null, WANT_AGENT_DONE: false, WANT_AGENT_FIRST_MISS: 0, URL_TAB: 'detail',
+  const env = { WANT_AGENT_GRACE_MS: 4000, WANT_AGENT: CARD.sessionName, CURRENT: null, WANT_AGENT_DONE: false, WANT_AGENT_FIRST_MISS: null, URL_TAB: 'detail',
     now: 1000, opens: 0, reveals: 0, tabs: [] };
   env.performance = { now: () => env.now };
   env.openDetail = (who) => { env.opens += 1; if (present() && who === CARD.sessionName) env.CURRENT = CARD; };
@@ -58,7 +58,7 @@ test('an agent on the board opens once, reveals once, and is never reopened', ()
   assert.equal(env.reveals, 1);
 });
 
-test('two quick misses at boot are not "gone": an agent 100ms late still opens', () => {
+test('two quick misses at boot are not "gone": an agent that appears on the 5s poll still opens, past the 4s grace', () => {
   let here = false;
   const env = board({ present: () => here });
   const settle = liftSettle(env);

@@ -28149,9 +28149,11 @@ function settleWantAgent() {
     detailRevealTalkOnPhone();
     return;
   }
+  // The grace is judged only on a read, and a read that finds the agent has already opened it
+  // above: an agent that turns up on the 5s poll opens, even though that poll is past the 4s.
   // performance.now, not Date.now: a wall-clock change mid-window cannot stretch or cut it.
   const now = performance.now();
-  if (!WANT_AGENT_FIRST_MISS) { WANT_AGENT_FIRST_MISS = now; return; }
+  if (WANT_AGENT_FIRST_MISS === null) { WANT_AGENT_FIRST_MISS = now; return; }
   if (now - WANT_AGENT_FIRST_MISS < WANT_AGENT_GRACE_MS) return;
   WANT_AGENT_DONE = true;
   if (URL_TAB === 'detail') showTab('agents');
@@ -54568,7 +54570,7 @@ async function firstRunBoot(force, step) {
 const PARAMS = new URLSearchParams(location.search);
 const WANT_AGENT = PARAMS.get('agent');
 let WANT_AGENT_DONE = false;      // #718: the ?agent= link has landed or given up; never reopen it
-let WANT_AGENT_FIRST_MISS = 0;    // #718: when a status first came back without the linked agent (ms)
+let WANT_AGENT_FIRST_MISS = null;    // #718: when a status first came back without the linked agent (ms)
 const WANT_PROJECT = PARAMS.get('project');
 const WANT_TASK = PARAMS.get('task');
 let WANT_PROJECT_DONE = false;
