@@ -34,11 +34,11 @@ description of the ring uses the same words.
 
 ## Weakest premise
 The gutter fix is reasoned, not reproduced: headless browsers here use overlay scrollbars, so no gutter strip shows.
-T33 asserts the mechanism (the canvas dims while the tour does) rather than a gutter pixel.
+T33 reads the colour the gutter is painted from, per look (light, and Kosmos+ navy, whose ground is on the body), rather than a gutter pixel: macOS draws overlay scrollbars in every headless engine, with Playwright's --hide-scrollbars removed and with a styled scrollbar. Control: without the body read, navy's gutter takes light's ground and T33 fails.
 
 ## Verification
 render-help-tips-3574: T2 (his words at steps 2 to 4), T3 (board shows the Agents tip, not the ring; her page shows
 its tip then the ring, beside it with an arrow, in his words, three gauge colours, announced), T16 (leaving her page
-closes it unrecorded; coming back shows it), T24/T28 (the board's first screen tip is now the Agents tip), T33 in
+closes it unrecorded, and no tip shows; coming back shows it), T3c (unknown memory: no ring on her page, no tip), T24/T28 (the board's first screen tip is now the Agents tip), T33 in
 Chromium and WebKit (all four steps dim the window's corners; the gutter dims; CONTROL: closed, the same pixels are
 bright). Negative control: with the old shadow dim, T33 fails in WebKit. roles.test passes.
