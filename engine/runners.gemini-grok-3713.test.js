@@ -152,7 +152,7 @@ test('#3713: a Gemini launcher whose node cannot start is failed at the prove st
   clean();
 });
 
-test('#3713: the pins: one Gemini tarball for every Mac, a Grok build per CPU, and Windows refused before a byte moves', async () => {
+test('#3713: the pins: one Gemini tarball for every Mac, a Grok build per CPU, and an unsupported platform refused before a byte moves', async () => {
   const gArm = runners.manifestFor('gemini', 'darwin', 'arm64');
   const gX64 = runners.manifestFor('gemini', 'darwin', 'x64');
   assert.equal(gArm.url, gX64.url);
@@ -164,12 +164,14 @@ test('#3713: the pins: one Gemini tarball for every Mac, a Grok build per CPU, a
   assert.notEqual(xArm.integrity, xX64.integrity);
   assert.equal(xX64.arch, 'x64', 'an Intel Mac gets the Intel build, not a refusal');
   assert.equal(xX64.brotliFrom, 'bin/grok.br', 'and the same expand step');
+  /* Windows installs both now (its own Grok build, the same Gemini bundle): see
+     runners.win32-gemini-grok.test.js. Linux is still refused before a byte moves. */
   for (const p of ['gemini', 'grok']) {
     let fetched = false;
-    const job = runners.install(p, { platform: 'win32', arch: 'x64', download: () => { fetched = true; return Promise.resolve(); } });
+    const job = runners.install(p, { platform: 'linux', arch: 'x64', download: () => { fetched = true; return Promise.resolve(); } });
     assert.equal(job.phase, 'failed');
-    assert.match(job.because, /not supported on this kind of computer \(win32\)/);
-    assert.equal(fetched, false, p + ': nothing was downloaded on Windows');
+    assert.match(job.because, /not supported on this kind of computer \(linux\)/);
+    assert.equal(fetched, false, p + ': nothing was downloaded on Linux');
   }
   // status() now reports both, so a screen can read their size and progress.
   const st = runners.status();

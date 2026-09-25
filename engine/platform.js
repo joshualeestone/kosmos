@@ -95,6 +95,12 @@ const CLAUDE_DOWNLOADS = Object.freeze(['darwin', 'win32']);
  * install." */
 const CODEX_DOWNLOADS = Object.freeze(['darwin', 'win32']);
 
+/* The Gemini CLI and the Grok CLI (#3713), the same shape as CODEX_DOWNLOADS and for the same
+ * reason: Kosmos pins a Windows build of each (Grok's own win32-x64/arm64 tarballs; Gemini's
+ * bundle is one tarball run by Kosmos's own node), measured on a Windows 11 box on 2026-09-25,
+ * so a Windows install fetches a build that runs there. RUNNER_DOWNLOADS stays darwin-only. */
+const KEYED_RUNNER_DOWNLOADS = Object.freeze(['darwin', 'win32']);
+
 /* 🛑 AND THE THIRD QUESTION, WHICH NOTHING ASKED UNTIL #570 WENT LOOKING FOR IT.
  * `engine/update.js` is the SELF-updater. On the Mac it answers "install the new
  * Kosmos" with `spawn('/bin/sh', ['-c', 'curl -fsSL "$1" | sh; ...'])`. There is
@@ -149,6 +155,13 @@ function canDownloadCodex(platform = process.platform) {
   return CODEX_DOWNLOADS.includes(platform);
 }
 
+/** True only where Kosmos pins a Gemini CLI and a Grok CLI build it can fetch (darwin and
+ *  win32). Same fail-closed shape as its siblings. runners.install reads this for the gemini
+ *  and grok runners only. */
+function canDownloadKeyedRunner(platform = process.platform) {
+  return KEYED_RUNNER_DOWNLOADS.includes(platform);
+}
+
 /** True only where Claude Code publishes a checksum-verifiable build Kosmos can
  *  fetch (darwin and, since the vendor shipped Windows builds, win32). Same
  *  fail-closed shape as its siblings. connect.js's download gate and the
@@ -184,4 +197,4 @@ function describe(platform = process.platform) {
   };
 }
 
-module.exports = { SUPPORTED, RUNNER_DOWNLOADS, CLAUDE_DOWNLOADS, CODEX_DOWNLOADS, SELF_INSTALL, isSupported, canDownloadRunner, canDownloadClaude, canDownloadCodex, canSelfInstall, describe };
+module.exports = { SUPPORTED, RUNNER_DOWNLOADS, CLAUDE_DOWNLOADS, CODEX_DOWNLOADS, KEYED_RUNNER_DOWNLOADS, SELF_INSTALL, isSupported, canDownloadRunner, canDownloadClaude, canDownloadCodex, canDownloadKeyedRunner, canSelfInstall, describe };
