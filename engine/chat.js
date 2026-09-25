@@ -352,14 +352,15 @@ function cleanMessage(raw) {
  *   - CRLF and lone CR → LF
  *   - a tab → four spaces (a tab is a control character `CONTROL` refuses)
  *   - #3679: indentation is kept, and inside a ``` fence each line is kept as
- *     written except its trailing spaces (the tab, leading non-breaking space and
- *     shared-indent rules below apply there too), so code and nested lists arrive
- *     as written. Outside a fence, a run of spaces INSIDE a line becomes one space
+ *     written except its trailing spaces (the tab rule above, and the leading
+ *     non-breaking space and shared-indent rules, apply there too), so code and
+ *     nested lists arrive as written. Outside a fence, a run of spaces INSIDE a line becomes one space
  *     and trailing spaces go.
  *   - outside a fence, three or more newlines → a single blank line
  *   - the indentation every line shares comes off, then the ends are trimmed.
- * Every other control char (ESC, `\v`, `\f` and the rest) is preserved here so
- * `messageProblem` still sees and refuses it; `\n` is the one `CONTROL` exempts.
+ * Every other control char (ESC, `\v`, `\f` and the rest) is preserved, except where the
+ * final trim takes one off an end, so `messageProblem` still sees and refuses it; `\n` is
+ * the one `CONTROL` exempts.
  */
 // Every tab is four spaces, not the next tab stop, the same width pjListDepth reads.
 const STORE_TAB = '    ';
@@ -369,8 +370,8 @@ const STORE_TAB = '    ';
 // \x60 is a backtick: a literal one here reads as a template string to the #1732 scanner.
 const STORE_FENCE = /^ *(\x60{3,})([^\x60]*)$/;
 // The stored form may exceed a one-line limit (kept indentation, a tab as four spaces), but
-// not by more than this factor, so a thread read on every poll stays bounded. Four is a tab's
-// width: text indented only with tabs grows by about that much, and more means padding.
+// not by more than this factor, so a thread read on every poll stays bounded. Four is a chosen
+// bound (a tab's width), not a measured ratio: deep indentation can grow further and is refused.
 const STORE_GROWTH = 4;
 // Trailing spaces off, in linear time: `/ +$/` backtracks on a long run that ends in text.
 function trimSpacesEnd(line) {

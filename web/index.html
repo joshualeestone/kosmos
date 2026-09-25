@@ -43743,7 +43743,7 @@ function pjTableHtml(headerLine, aligns, bodyLines, names, agentNames) {
   return h + '</tbody></table></span>';
 }
 function pjProse(text, names, agentNames) {
-  const src = String(text == null ? '' : text).split('\n');
+  const src = String(text == null ? '' : text).split(/\r?\n/);   // #3679: a CRLF text's fences still close
   /* Drop empty lines at the two ENDS only (never interior blank lines, which
      are the paragraph breaks this renderer exists to show). This absorbs the
      single boundary `\n` a fence split leaves on the prose either side of a
@@ -44047,7 +44047,7 @@ function pjRich(text) {
       && raw.indexOf('http://') === -1 && raw.indexOf('https://') === -1) {
     return esc(raw);
   }
-  const src = raw.split('\n');
+  const src = raw.split(/\r?\n/);   // #3679: a CRLF text (a task's detail) still closes its fences
   const out = [];
   const listStack = [];   // #3679: pjListDepth's open levels for the current list
   let i = 0;
@@ -44826,7 +44826,8 @@ function pjRoomBody(m, p) {
   /* Prose between quotes keeps the spacing the person typed inside it; only
      the whitespace at its edges goes, since that only separated it from the
      quote, so no empty paragraph or hanging indent is drawn beside the bar. */
-  const prose = (t) => { const k = t.replace(/^\s+|\s+$/g, ''); return k ? '<p>' + pjBody(k, PJ_DOC_NAMES, agentNames) + '</p>' : ''; };
+  // #3679: trim(), not /\s+$/, which backtracks on a long space run the store now keeps.
+  const prose = (t) => { const k = t.trim(); return k ? '<p>' + pjBody(k, PJ_DOC_NAMES, agentNames) + '</p>' : ''; };
   let out = '';
   let at = 0;
   for (const q of qs) {

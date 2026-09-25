@@ -185,3 +185,18 @@ always a stray keystroke, and trimming it keeps "  hello" stored as "hello".
   reds it.
 - Recorded, not changed: the reset compares a non-list line's indent with the outermost level,
   so text indented under an outer item but not the inner one keeps the inner levels open.
+
+## Review pass 13 (opus)
+- WARNING fixed: pjRich's new closing-fence regex did not match a line ending in `\r`, so CRLF
+  text (a task's detail is stored raw) drew everything after a fence as code. Both renderers
+  split on `\r?\n`. Tested; the old split reds three arms.
+- WARNING fixed (outside the diff, made reachable by it): the room's quote path trimmed with
+  `/^\s+|\s+$/g`, which backtracks on a long space run inside the text, and the store now keeps
+  such runs in fences. It uses `trim()`, which strips the same characters in linear time.
+- NITs fixed: STORE_GROWTH is described as a chosen bound, not a measured ratio; the storeText
+  doc says where the fence rules come from and that the final trim can take a control
+  character off an end.
+- Rejected: tilde (`~~~`) fences. The store and pjRich both read backtick fences only, and
+  agree; adding tildes is a separate change to both.
+- Recorded, not changed: the stored-form ceiling can refuse a heavily tab-indented message main
+  accepted. The refusal names the reason, and the bound keeps a thread read on every poll small.

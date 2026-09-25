@@ -49,6 +49,10 @@ for (const [name, make] of RENDERERS) {
     assert.match(four, /<span class="mdli">e<\/span>/, `${name}: back to the top`);
   });
 
+  test(`#3679: ${name} splits CRLF text into lines`, () => {
+    assert.match(make()('- a\r\n  - b'), /<span class="mdli mdli-d1">b<\/span>/, `${name}: a CRLF list was not split`);
+  });
+
   test(`#3679: ${name} keeps the depth across a fence, table or heading nested in an item`, () => {
     for (const inner of ['    ```\n    code\n    ```', '    | A | B |\n    | --- | --- |\n    | 1 | 2 |', '    ## note']) {
       const html = make()('- a\n  - nested\n' + inner + '\n  - nested sibling\n- top');
@@ -91,6 +95,13 @@ test('#3679: every test that lifts a renderer also lifts pjListDepth, so a list 
     const lists = fs.readFileSync(path.join(__dirname, f), 'utf8').match(/\[[^\]]*'pjRichSpans'[^\]]*\]/g) || [];
     for (const l of lists) assert.ok(l.includes("'pjListDepth'"), f + ': a lift list without pjListDepth: ' + l.slice(0, 80));
   }
+});
+
+test('#3679: pjRich closes a fence in CRLF text (a task detail is stored raw)', () => {
+  const fn = RENDERERS.find(([n]) => n === 'pjRich')[1]();
+  const html = fn('Steps:\r\n```\r\nnpm test\r\n```\r\n- **done** after');
+  assert.doesNotMatch(html, /```/, 'a fence line leaked into the output');
+  assert.match(html, /<strong>done<\/strong>/, 'the text after the fence was drawn as code');
 });
 
 test('#3679: the page styles each depth on every surface that shows these items', () => {
