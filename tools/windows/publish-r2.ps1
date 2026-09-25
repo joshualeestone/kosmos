@@ -493,10 +493,18 @@ if ($PSCmdlet.ParameterSetName -ceq 'Staging') {
     $pfNow = if ($prodNow) { Read-PointerFields $prodNow.Bytes } else { $null }
     if ($prodNow -and (-not $pfNow -or $pfNow.versioned -ceq $Versioned)) {
       $back = Invoke-R2 -Method PUT -Key "$KeyPrefix$Versioned" -Body $existing.Bytes -PayloadSha (Sha256-Bytes $existing.Bytes) -ContentType 'application/zip' -Extra @{ 'cache-control' = 'no-cache'; 'if-match' = $zipPut.ETag }
-      $how = if ($back.Status -eq 200) { "the previous bytes ($existingSha) were put back" } else { "PUTTING THE PREVIOUS BYTES BACK FAILED ($($back.Status)): prod names $Versioned but it now holds $Sha; restore it by hand" }
+      if ($back.Status -eq 200) { $how = "the previous bytes ($existingSha) were put back" }
+      else {
+        # Say what the key holds NOW (a 412 means someone else wrote it since), not what it
+        # should hold.
+        $nowK = Invoke-R2 -Soft -Method GET -Key "$KeyPrefix$Versioned"
+        $held = if ($nowK.Status -eq 200) { Sha256-Bytes $nowK.Bytes } else { "unknown (read answered $($nowK.Status))" }
+        $how = "PUTTING THE PREVIOUS BYTES BACK FAILED ($($back.Status)): the key now holds $held; restore it by hand"
+      }
       $script:AfterNote = ''
+      $said = if ($pfNow) { "prod's latest-win.json named $Versioned while this replace ran (a promote landed in between)" } else { "prod's latest-win.json could not be read after this replace's upload, so it may name $Versioned" }
       # The closing sentence only when it is true: a failed put-back means the replace DID land.
-      Refuse "prod's latest-win.json named $Versioned while this replace ran (a promote landed in between); $how.$(if ($back.Status -eq 200) { ' The replace was undone (for a moment the key held the new bytes).' })"
+      Refuse "$said; $how.$(if ($back.Status -eq 200) { ' The replace was undone (for a moment the key held the new bytes).' })"
     }
   }
   $side = New-SidecarBytes $Sha $Versioned
@@ -649,17 +657,13 @@ function Undo-Promote([switch] $PointerWritten, [string] $PointerEtag, [string] 
   # unannounced bytes on the alias; the copy is pinned to it.
   $old = Invoke-R2 -Soft -Method GET -Key "$KeyPrefix$($pf.versioned)"
   if ($old.Status -ne 200 -or (Sha256-Bytes $old.Bytes) -cne $pf.sha256 -or -not $old.ETag) { $done += "the alias and its sidecar left as written ($($pf.versioned) is not the previous release's bytes any more: $($old.Status))"; return ($done -join '; ') }
-  if ($aliasSideBefore) {
-    $r2 = Invoke-R2 -Soft -Method PUT -Key "$KeyPrefix$Alias.sha256" -Body $aliasSideBefore.Bytes -PayloadSha (Sha256-Bytes $aliasSideBefore.Bytes) -ContentType 'text/plain; charset=utf-8' -Extra @{ 'cache-control' = 'no-cache'; 'if-match' = $SideEtag }
-    $sideOk = $r2.Status -eq 200
-    $done += $(if ($sideOk) { 'the alias sidecar put back' } else { "PUTTING THE ALIAS SIDECAR BACK FAILED ($($r2.Status))" })
-  } else {
-    # There was no sidecar before: remove the one this run wrote, checked first.
-    $hs = Invoke-R2 -Soft -Method HEAD -Key "$KeyPrefix$Alias.sha256"
-    $sideOk = $false
-    if ($hs.Status -eq 200 -and $hs.ETag -ceq $SideEtag) { $d = Invoke-R2 -Soft -Method DELETE -Key "$KeyPrefix$Alias.sha256"; $sideOk = ($d.Status -eq 200 -or $d.Status -eq 204) }
-    $done += $(if ($sideOk) { 'the alias sidecar removed (there was no previous one)' } else { "REMOVING THE ALIAS SIDECAR FAILED (HEAD answered $($hs.Status))" })
-  }
+  # The sidecar is REBUILT from the previous pointer, not copied from what was read at the start:
+  # a sidecar left by an earlier, interrupted promote can name a different release, and the
+  # pair must agree by construction (iteration 18). Pinned to the sidecar this run wrote.
+  $oldSide = New-SidecarBytes $pf.sha256 $Alias
+  $r2 = Invoke-R2 -Soft -Method PUT -Key "$KeyPrefix$Alias.sha256" -Body $oldSide -PayloadSha (Sha256-Bytes $oldSide) -ContentType 'text/plain; charset=utf-8' -Extra @{ 'cache-control' = 'no-cache'; 'if-match' = $SideEtag }
+  $sideOk = $r2.Status -eq 200
+  $done += $(if ($sideOk) { "the alias sidecar put back (naming $($pf.versioned)'s sha)" } elseif ($r2.Status -eq 412) { 'the alias sidecar left as it is (someone else rewrote it since)' } else { "PUTTING THE ALIAS SIDECAR BACK FAILED ($($r2.Status))" })
   if (-not $sideOk) { $done += "the alias left as written ($Versioned)"; return ($done -join '; ') }
   $c = Invoke-R2 -Soft -Method PUT -Key "$KeyPrefix$Alias" -ContentType 'application/zip' -Extra @{ 'x-amz-copy-source' = "/$Bucket/$KeyPrefix$($pf.versioned)"; 'x-amz-copy-source-if-match' = $old.ETag; 'x-amz-metadata-directive' = 'REPLACE'; 'cache-control' = 'no-cache' }
   if ($c.Status -eq 200 -and $c.Body -cnotmatch '<Error>') { $done += "the alias restored from $($pf.versioned)"; $script:UndoClean = $true }
@@ -705,7 +709,10 @@ if ($DryRun) { Put-Object 'latest-win.json' $staging.Bytes $null (Sha256-Bytes $
 # this promote is never overwritten, and the alias writes are undone instead.
 $pointerPin = if ($prodBefore) { @{ 'cache-control' = 'no-cache'; 'if-match' = $prodBefore.ETag } } else { @{ 'cache-control' = 'no-cache'; 'if-none-match' = '*' } }
 $pointerPut = Invoke-R2 -Method PUT -Key "${KeyPrefix}latest-win.json" -Body $staging.Bytes -PayloadSha (Sha256-Bytes $staging.Bytes) -ContentType 'application/json' -Extra $pointerPin
-if ($pointerPut.Status -eq 412) { $how = Undo-Promote -AliasEtag $aliasEtag -SideEtag $sideEtag; $script:AfterNote = ''; Refuse "latest-win.json changed while this promote ran (someone else wrote it), so it was NOT overwritten; $how." }
+# A 412 means someone else's release is live now: rebuilding the alias from the pointer read at
+# the start would make it disagree with that live pointer, so the alias and sidecar are left and
+# the refusal says what they hold (iteration 18).
+if ($pointerPut.Status -eq 412) { $script:AfterNote = ''; Refuse "latest-win.json changed while this promote ran (someone else wrote it), so it was NOT overwritten. The alias and its sidecar still hold THIS build ($ApprovedVersion), which the live latest-win.json may not name: re-read latest-win.json and re-run the promote of the build it should name." }
 if ($pointerPut.Status -ne 200) { Refuse "PUT ${KeyPrefix}latest-win.json answered $($pointerPut.Status): $($pointerPut.Body)" }
 Say "wrote ${KeyPrefix}latest-win.json"
 $script:AfterNote = " (latest-win.json was written: prod points at $ApprovedVersion. To finish the checks, re-run the full -Promote (it refuses if staging has moved since), or compare the served files with the approved sha.)"

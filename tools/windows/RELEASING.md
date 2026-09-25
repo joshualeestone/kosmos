@@ -107,11 +107,14 @@ gates. `publish-r2.ps1` produces the same files with the same gates, directly in
 - **R2 enforces the three conditional writes this script relies on** (measured 2026-09-25 against
   the real bucket): a create with `If-None-Match: *` over an existing key, and a copy with a
   stale `x-amz-copy-source-if-match`, and a PUT with a stale `If-Match`, all fail with
-  PreconditionFailed and change nothing. The PUT pin guards every overwrite: a
-  `-ReplaceVersioned` and its put-back, a same-bytes re-stage, the alias sidecar, the prod
-  pointer, and the undo's put-backs. R2 IGNORES `If-Match` on a DELETE and on a COPY's
-  destination (also measured), so those steps check the object with a HEAD first and then act,
-  with a moment between the two. An R2 ETag is a hash of the bytes, so a byte-identical write by
+  PreconditionFailed and change nothing. The PUT pin guards these overwrites: a
+  `-ReplaceVersioned` and its put-back, a same-bytes re-stage (when the bucket gives an ETag),
+  the alias sidecar, the prod pointer, and the undo's put-backs. NOT pinned: the versioned
+  sidecar and latest-win-staging.json on a stage (two stagings of one version at once can
+  interleave; the run's served checks catch a mismatch). R2 IGNORES `If-Match` on a DELETE and
+  on a COPY's destination (also measured), so the undo's DELETE and COPY check the object with
+  a HEAD first and then act, with a moment between the two; the promote's forward alias COPY is
+  unpinned at its destination and is read back instead. An R2 ETag is a hash of the bytes, so a byte-identical write by
   someone else reads as this run's own. `-DryRun` issues none of them.
 - **Overwritten objects are stored `Cache-Control: no-cache`** (the pointers, the alias and its
   sidecar), so a cache honouring the header revalidates them. That does NOT evict bytes a

@@ -312,7 +312,7 @@ undo_state() { printf 'ptr=%s alias=%s side=%s' "$(cmp -s "$FAKE/latest-win.json
 undo_pinned() { # <pointer-too: yes|no>
   if [ "$1" = yes ]; then grep -qE '^PUT latest-win\.json \| cache-control=no-cache;if-match="[0-9a-f]{64}"$' "$FAKE/.calls" || return 1; fi
   grep -qE '^PUT kosmos-win-x64\.zip\.sha256 \| cache-control=no-cache;if-match="[0-9a-f]{64}"$' "$FAKE/.calls" || return 1
-  awk '/^HEAD kosmos-win-x64\.zip /{h=NR} /^PUT kosmos-win-x64\.zip COPY \/[^ ]*kosmos-9\.9\.0-win-x64\.zip /{c=NR} END{exit !(h && c && h < c)}' "$FAKE/.calls"
+  awk '/^HEAD kosmos-win-x64\.zip /{h=NR} /^PUT kosmos-win-x64\.zip COPY \/[^ ]*kosmos-9\.9\.0-win-x64\.zip .*x-amz-copy-source-if-match="[0-9a-f]{64}"/{c=NR} END{exit !(h && c && h < c)}' "$FAKE/.calls"
 }
 undo_setup
 KOSMOS_PUBLISH_R2_FAKE_AFTER="PUT latest-win.json|kosmos-9.9.1-win-x64.zip|$TMP/b.zip" promote; rc=$?
@@ -357,12 +357,24 @@ undo_setup
 KOSMOS_PUBLISH_R2_FAKE_AFTER="PUT latest-win.json|kosmos-9.9.1-win-x64.zip|$TMP/b.zip" promote; rc=$?
 if [ "$rc" -eq 1 ] && undo_restored && grep -qF "Prod is back on the previous release, consistently." "$TMP/out"; then pass "a clean undo, and only a clean one, says prod is consistent"
 else fail "clean undo claim: rc=$rc $(undo_state) $(tail -1 "$TMP/out")"; fi
-# No alias sidecar before this promote: the undo REMOVES the one it wrote (checked first), so
-# the restored alias is not described by this build's sidecar.
+# No alias sidecar before this promote: the undo REBUILDS it from the previous pointer, so the
+# restored alias is described by its own release, not by this build.
 undo_setup; rm -f "$FAKE/kosmos-win-x64.zip.sha256"
 KOSMOS_PUBLISH_R2_FAKE_AFTER="PUT latest-win.json|kosmos-9.9.1-win-x64.zip|$TMP/b.zip" promote; rc=$?
-if [ "$rc" -eq 1 ] && [ ! -e "$FAKE/kosmos-win-x64.zip.sha256" ] && cmp -s "$FAKE/kosmos-win-x64.zip" "$TMP/old.zip" && cmp -s "$FAKE/latest-win.json" "$TMP/u.ptr" && grep -qF "the alias sidecar removed (there was no previous one)" "$TMP/out"; then pass "with no previous sidecar the undo removes this build's, so the pair never disagrees"
-else fail "undo with no previous sidecar: rc=$rc sidecar=$([ -e "$FAKE/kosmos-win-x64.zip.sha256" ] && echo PRESENT || echo absent) $(undo_state) $(tail -1 "$TMP/out")"; fi
+if [ "$rc" -eq 1 ] && undo_restored && grep -qF "consistently" "$TMP/out"; then pass "with no previous sidecar the undo writes the previous release's, so the pair agrees"
+else fail "undo with no previous sidecar: rc=$rc $(undo_state) $(tail -1 "$TMP/out")"; fi
+# A STALE previous sidecar (left by an earlier promote whose pointer write failed) names another
+# release: the undo must not copy it back; it rebuilds the sidecar from the previous pointer.
+undo_setup; printf '%s  kosmos-win-x64.zip\n' "$SHA_A" > "$FAKE/kosmos-win-x64.zip.sha256"
+KOSMOS_PUBLISH_R2_FAKE_AFTER="PUT latest-win.json|kosmos-9.9.1-win-x64.zip|$TMP/b.zip" promote; rc=$?
+if [ "$rc" -eq 1 ] && undo_restored && grep -qF "consistently" "$TMP/out"; then pass "a stale previous sidecar is not restored: the pair is rebuilt to agree"
+else fail "undo with a stale previous sidecar: rc=$rc $(undo_state) $(tail -1 "$TMP/out")"; fi
+# The previous release's zip no longer matches its pointer: the alias is NOT restored from it.
+undo_setup; cp "$TMP/b.zip" "$FAKE/kosmos-9.9.0-win-x64.zip"
+KOSMOS_PUBLISH_R2_FAKE_AFTER="PUT latest-win.json|kosmos-9.9.1-win-x64.zip|$TMP/b.zip" promote; rc=$?
+if [ "$rc" -eq 1 ] && grep -qF "is not the previous release's bytes any more" "$TMP/out" && cmp -s "$FAKE/kosmos-win-x64.zip" "$TMP/a.zip" && ! grep -qF "consistently" "$TMP/out"; then pass "a previous zip that no longer matches its pointer is not copied onto the alias"
+else fail "undo with a changed previous zip: rc=$rc alias=$(cmp -s "$FAKE/kosmos-win-x64.zip" "$TMP/a.zip" && echo new || echo CHANGED) $(tail -1 "$TMP/out")"; fi
+cp "$TMP/old.zip" "$FAKE/kosmos-9.9.0-win-x64.zip"
 # Only the ALIAS changes after the pointer write (the versioned zip is intact): still undone.
 undo_setup
 KOSMOS_PUBLISH_R2_FAKE_AFTER="PUT latest-win.json|kosmos-win-x64.zip|$TMP/theirs.zip" promote; rc=$?
@@ -372,7 +384,7 @@ else fail "post-pointer alias change: rc=$rc ptr=$(cmp -s "$FAKE/latest-win.json
 # this promote's alias writes are undone.
 undo_setup
 KOSMOS_PUBLISH_R2_FAKE_AFTER="PUT kosmos-win-x64.zip.sha256|latest-win.json|$TMP/other.json" promote; rc=$?
-if [ "$rc" -eq 1 ] && cmp -s "$FAKE/latest-win.json" "$TMP/other.json" && grep -qF "so it was NOT overwritten" "$TMP/out" && cmp -s "$FAKE/kosmos-win-x64.zip" "$TMP/old.zip"; then pass "a pointer written by someone else mid-promote is not overwritten, and the alias goes back"
+if [ "$rc" -eq 1 ] && cmp -s "$FAKE/latest-win.json" "$TMP/other.json" && grep -qF "so it was NOT overwritten" "$TMP/out" && grep -qF "still hold THIS build" "$TMP/out" && cmp -s "$FAKE/kosmos-win-x64.zip" "$TMP/a.zip"; then pass "a pointer written by someone else mid-promote is not overwritten, and the refusal says the alias holds this build"
 else fail "pointer race: rc=$rc ptr=$(cmp -s "$FAKE/latest-win.json" "$TMP/other.json" && echo theirs || echo OVERWRITTEN) $(undo_state) $(tail -1 "$TMP/out")"; fi
 # A pointer with no ETag cannot be pinned: refused before any write.
 undo_setup
