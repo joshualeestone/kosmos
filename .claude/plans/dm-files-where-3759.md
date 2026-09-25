@@ -5,13 +5,16 @@ Every agent's instructions say: a file asked for in a direct conversation goes i
 folder (the list on its page); a file for one of its projects (named, or plainly that project's work) goes
 in that project's folder even when asked for in the direct conversation, and the agent says in one line
 where it put it; when unclear, it asks in one line or saves it in Files and says so. Existing agents get
-the new words at the next board start.
+the new words in their instructions file at the next board start, and a running agent
+reads them at its own next start.
 
 ## Why
 Josh, 0.6.94 test, 2026-09-25 11:07 in #admin: agents should store files where the person asked in a direct
 conversation, and be context-aware enough to put a project's file in that project instead.
 
 ## Change
+- engine/dmfiles.js also says the Files folder is inside the agent's own folder, so the doctrine's "your
+  own folder" and this block's "Files folder" name one place for a file made for the person (round 7).
 - web/index.html: the agent page's empty Files list says a project's file shows in the project, not
   here (it said every Direct Message file shows up here, no longer true).
 - engine/dmfiles.js blockBody: the rewritten block (both destinations, the say-which-project line, ask

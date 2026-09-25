@@ -40,6 +40,8 @@ test('#3614: the block names the REAL path, and says to create it and to keep pr
   const flat = body.replace(/\s+/g, ' ');
   assert.match(flat, /When you make a file for the person in a direct conversation with them, or they ask you for one in a direct conversation, save it in your Files folder, unless it belongs to one of your projects/);
   assert.match(flat, /Create the folder if it is not there yet/);
+  // #3759: the doctrine says "your own folder"; the block says which folder that is for these files.
+  assert.match(flat, /This Files folder is inside your own folder\. When your instructions say to put your own work in your own folder, a file made for the person goes here/);
   assert.match(flat, /Kosmos lists what is in it on your page, where they can open it/, 'the block does not tell the agent the person sees its Files on its page (#3614 item 2 ships with it)');
   assert.match(flat, /Save files directly in it, not in subfolders: the page lists only what sits at the top of the folder/, 'the agent is not told the list skips subfolders, so tidied work reads as "Nothing here yet"');
   assert.match(flat, /Inside a project, keep using the project's own folder/);
