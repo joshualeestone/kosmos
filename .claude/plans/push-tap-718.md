@@ -16,3 +16,17 @@ by sessionName and returns quietly if the agent is gone, leaving the board home)
 - Re-check on the phone even though the coordinator checks: the service worker must not
   trust a push. Same rule as the coordinator and the iOS app, one shape everywhere.
 - Weakest part: a found agent with a non-conforming session name gets no deep link.
+
+## Part 2: where the tap lands on a phone
+A tap opens ?tab=detail&agent=<session>, but on a phone the agent page stacks (max-width
+56rem): identity, five full-width section boxes and Files come first, so the question sat
+about two screens down on an iPhone SE. detailRevealTalkOnPhone scrolls the Direct Message
+section into view on the two ARRIVALS (the push link at boot, and the Answer button), only
+when the stacked layout is on.
+Measured, sandboxed board, Chromium and WebKit (engine build, not Safari), SE and Pro Max:
+push link question top 1036/998 -> 127, composer off -> on screen. The Answer button was
+already fine (it focuses the composer) and is unchanged.
+Tests: web.push-landing-718.test.js pins both call sites, the shared 56rem breakpoint, and
+the behaviour (phone scrolls, computer does not, hidden/missing section left alone).
+Control: dropping the boot call fails it.
+Not touched: the Direct Message layout itself (Scorpion's screen).

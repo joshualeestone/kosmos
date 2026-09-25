@@ -18263,7 +18263,7 @@ async function tick() {
     // picker for the whole flow and created the project with no agents on it.
     const addView = document.getElementById('pj-add-view');
     if (addView && !addView.hidden) paintAddAgents();
-    if (WANT_AGENT && !CURRENT) openDetail(WANT_AGENT);
+    if (WANT_AGENT && !CURRENT) { openDetail(WANT_AGENT); detailRevealTalkOnPhone(); }
 
     // ⚠️ Keep the OPEN PANEL's staleness in step with the card's.
     //
@@ -28094,6 +28094,19 @@ function openDetail(sessionName, section, fromProject) {
    first capture lands and "cannot show" on an untied one, via `data-tied`. */
 function detailSection(key) {
   return document.getElementById('d-sec-' + key);
+}
+/* #718 mobile: an ARRIVAL at an agent to answer it (the Answer button on a card, or a
+   push tap, which opens ?tab=detail&agent=) must show the conversation, where the
+   question is and where you answer. On a phone the page stacks (max-width 56rem, the
+   .dbody and #d-nav rules): the identity block, five full-width section boxes and Files
+   come first, so the question sat about two screens down on an iPhone SE (measured).
+   Only arrivals call this, never an ordinary open, and only when the stacked layout is
+   on; on a computer the Direct Message is already beside the menu. */
+function detailRevealTalkOnPhone() {
+  if (!(window.matchMedia && window.matchMedia('(max-width: 56rem)').matches)) return;
+  const talk = detailSection('talk');
+  if (!talk || talk.hidden) return;
+  try { talk.scrollIntoView({ block: 'start' }); } catch (_e) { /* old engines: stay put */ }
 }
 function detailPaintWindow(a) {
   /* No record at all (the agent left the board mid-open): say nothing here.
@@ -47474,6 +47487,7 @@ async function pjAnswerFrom(sessionName, displayName) {
    * be the stranded state this whole path exists to make impossible.
    */
   openDetail(sessionName);
+  detailRevealTalkOnPhone();
   /**
    * 🛑 AND FOCUS FOLLOWS THE PERSON TO IT. A keyboard user pressing this button
    * was being left on `<body>`: the card that carried the button is torn down
