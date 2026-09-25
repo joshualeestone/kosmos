@@ -16,7 +16,8 @@ that fails stops the list: undo it, fix the cause, and start that step again.
 
 Facts here were read from the code on 2026-09-24 (kosmos `main` at 8c4ca1d5, kosmos-relay `main` at
 50a846b). The Android facts were re-read later that day at kosmos `main` 677eacde (the last commit
-of #3644), and the asset-links facts at kosmos-relay `main` 6e2da95. Both repos move on, so treat
+of #3644), and the asset-links facts at kosmos-relay `main` 6e2da95. The Android no-purchase
+item was read on 2026-09-25 at kosmos-relay `main` 3558f2e. Both repos move on, so treat
 the file and the name as what to search for, not the commit or the line.
 
 ## Where things stand today
@@ -304,19 +305,21 @@ eval "$(secrets-map.sh env kosmos-android-upload-signing)"
   and (optionally) `KOSMOS_UPLOAD_KEY_ALIAS` exist. None are set. Setting them is a repo-admin
   call for Josh.
 
-**No purchase inside the Android app** (kosmos #718, Liu Kang's decision of 2026-09-25, matching
-iOS; Josh can overrule it). Inside the app the sign-in page shows no checkout, price or billing
-portal; an unpaid account is told only "This account does not include Kosmos+ yet." It is the
-switch `CAN_BUY_HERE` in kosmos-relay `coordinator/src/signin.html` (kosmos-relay #121, merged as
-`3558f2e4`).
+**No purchase inside the Android app** [code merged; Josh for the policy read and the deploy]
+(kosmos #718, Liu Kang's decision of 2026-09-25, matching iOS; Josh can overrule it). Inside the
+app the sign-in page is built to show no checkout, price or billing portal, and to tell an unpaid
+account only "This account does not include Kosmos+ yet."; this has not yet been seen on a phone
+(see Phone checks). It is the switch `CAN_BUY_HERE` in kosmos-relay `coordinator/src/signin.html`,
+added by kosmos-relay #121 (five commits).
 - **Before the first upload to any Play track, and again before the production release in
   Step 10: a person reads the current Google Play Payments policy and its exceptions** [Josh],
   against what the app does as described above. This doc deliberately states none of the policy's
   details: they change, they differ by country, and a summary written here would go stale unnoticed.
 - **Not live yet:** it takes the next coordinator deploy [Josh, a production change], like the
   assetlinks route above.
-- **Undo (turning it off):** in kosmos-relay `coordinator/src/signin.html`, drop `!IN_ANDROID_APP`
-  from `CAN_BUY_HERE` (or revert #121), then deploy the coordinator [Josh, a production change].
+- **Undo (turning it off):** in kosmos-relay `coordinator/src/signin.html`, set the line back to
+  `var CAN_BUY_HERE = !IN_IOS_APP;` (or revert all five commits of #121; iOS is unaffected either
+  way), then deploy the coordinator [Josh, a production change].
   Once an Android build is on any Play track, turning it off puts checkout back inside a
   Play-distributed app.
 - **Phone checks:** listed in kosmos-relay's plan `.claude/plans/android-no-purchase-718.md`; the
@@ -337,6 +340,7 @@ switch `CAN_BUY_HERE` in kosmos-relay `coordinator/src/signin.html` (kosmos-rela
 
 **Undo:**
 - Remove the testing release in Play Console.
+- For the no-purchase switch, see its own Undo line above.
 - Removing the assetlinks route only brings back the URL bar. Nothing breaks.
 
 ## Step 6. Rebuild the tunnel with `mac-request` [fleet builds; shipping it is Josh's tunnel release]
@@ -471,7 +475,8 @@ stops once the service restarts.
 ## Step 10. Public app releases [Josh]
 
 - **iOS:** App Store review and release. A phased release can be paused in App Store Connect.
-- **Android:** Production track, as a staged rollout (for example 10%).
+- **Android:** Production track, as a staged rollout (for example 10%). First, Josh reads the Play
+  Payments policy again (Step 5, "No purchase inside the Android app").
   - "Halt rollout" stops new installs. Anyone who already has it keeps it.
   - A fix ships as a new build with a higher `versionCode`. An older one cannot be re-published.
   - Because the Android app is a shell around the website, most problems are fixed by a server
