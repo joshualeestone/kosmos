@@ -77,17 +77,48 @@ test('#3650: the note names new reactions once, then nothing after they are told
   chat.reactDirect(agent, at(2), '👍');
   chat.reactDirect(agent, at(3), '🎉');
   const note = chat.dmReactionNote(agent);
-  assert.match(note, /^ \[kosmos\] reactions from the person since your last message here: /);
+  assert.match(note, /^ \[kosmos\] reactions from the person you have not been told about yet: /);
   assert.ok(note.includes('👍 on your message "I shipped the fix for the login page"'), note);
   assert.ok(note.includes('🎉 on your message "Also the tests are green now"'), note);
   assert.ok(note.indexOf('👍') < note.indexOf('🎉'), 'oldest message first');
   assert.match(note, /it needs no reply\.$/);
   assert.equal(/[\r\n\u0000-\u0008\u000b-\u001f\u007f]/.test(note), false, 'one line, safe to type into a pane');
-  assert.equal(chat.markDmReactionsTold(agent), true);
+  assert.equal(chat.markDmReactionsTold(agent, chat.dmReactionNews(agent).named), true);
   assert.equal(chat.dmReactionNote(agent), '', 'told reactions are not told again');
   chat.reactDirect(agent, at(2), '❤️');
   assert.ok(chat.dmReactionNote(agent).includes('❤️ on your message "I shipped'), 'a newer reaction is told');
   assert.equal(chat.dmReactionNote(agent).includes('👍'), false, 'an older one is not repeated');
+});
+
+test('#3650: only what the note named is marked told, so a reaction added mid-send is still told', () => {
+  const { agent, at } = thread();
+  chat.reactDirect(agent, at(2), '👍');
+  const news = chat.dmReactionNews(agent);
+  assert.deepEqual(news.named, { [at(2)]: ['👍'] });
+  chat.reactDirect(agent, at(2), '🎉');   // lands after the note was built, before the mark
+  chat.reactDirect(agent, at(3), '🔥');
+  assert.equal(chat.markDmReactionsTold(agent, news.named), true);
+  const next = chat.dmReactionNote(agent);
+  assert.ok(next.includes('🎉 on your message "I shipped'), next);
+  assert.ok(next.includes('🔥 on your message "Also the tests'), next);
+  assert.equal(next.includes('👍'), false, 'the named one is not told twice');
+});
+
+test('#3650: marking without what was named marks nothing', () => {
+  const { agent, at } = thread();
+  chat.reactDirect(agent, at(2), '👍');
+  assert.equal(chat.markDmReactionsTold(agent), false);
+  assert.ok(chat.dmReactionNote(agent).includes('👍'), 'still pending');
+});
+
+test('#3650: a named reaction taken back before the mark is not recorded as told', () => {
+  const { agent, at } = thread();
+  chat.reactDirect(agent, at(2), '👍');
+  const news = chat.dmReactionNews(agent);
+  chat.reactDirect(agent, at(2), '👍');   // taken back
+  chat.markDmReactionsTold(agent, news.named);
+  chat.reactDirect(agent, at(2), '👍');   // put back
+  assert.ok(chat.dmReactionNote(agent).includes('👍'), 'putting it back is told again');
 });
 
 test('#3650: a reaction taken back before the next message is never told', () => {
@@ -106,6 +137,16 @@ test('#3650: a long message is quoted by its start, and quotes and newlines cann
   assert.equal(/[\r\n]/.test(note), false);
   assert.ok(note.includes('"He said \'go\' and then xxx'), note);
   assert.ok(note.includes('…"'), 'the start is marked as cut');
+});
+
+test('#3650: C1 controls and bidi overrides in the quoted start are not typed into the pane', () => {
+  const agent = 'rxbidi';
+  const at = '2026-09-24T12:00:06.000Z';
+  chat.appendMessage(chat.DIRECT, agent, { text: 'ok\u0085then\u202eevil\u2066x', from: agent, at });
+  chat.reactDirect(agent, at, '👀');
+  const note = chat.dmReactionNote(agent);
+  assert.equal(/[\u0080-\u009f\u202a-\u202e\u2066-\u2069]/.test(note), false, note);
+  assert.ok(note.includes('"ok then evil x"'), note);
 });
 
 test('#3650: a stray non-array or non-emoji value in the file is skipped, not treated as damage', () => {

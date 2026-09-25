@@ -78,3 +78,20 @@ start a turn.
   thread has one "did it change" and every arm that rewrites it (notes included)
   closes a DM-opened picker.
 - engine/defaults.test.js: fingerprint 14 pinned.
+
+## Review pass 4 (after the rebase)
+- The react route now has the DM thread's own `nameRefusal` gate (a pane that merely
+  borrows the name gets 404 `borrowed`), with a server test and a tied-agent control;
+  removing the gate reds it.
+- Told-marking records exactly what the note NAMED (`dmReactionNews` returns `named`),
+  not whatever is on the message when the mark runs. It is safe today because
+  `deliver` is synchronous, but that was an unstated premise. A reaction taken back
+  before the mark drops out, so putting it back is told again. Engine tests for the
+  mid-send case and the take-back case; the old "told = now" reds the first.
+- The note's quoted start also strips C1 controls and bidi overrides.
+- The note says "reactions ... you have not been told about yet", which is its real window.
+- The thread GET no longer sends `reactionsTold` to the page.
+- The server test's menu arm is named for what it exercises (the digit guard, since an
+  idle agent's route drops `chose`) and no longer accepts a 409 that types nothing.
+- Not done: the hover quick bar can clip on the very first agent message at the top of
+  the DM scroll box. Rooms share that layout, and it is a nit, not a defect in this card.

@@ -2732,8 +2732,7 @@ function dmReactionPills(m) {
 
 /* Toggle the person's `emoji` on the agent's message sent at `at`. The message is
    found by its `at` (a DM row has no id; `at` is the key the page's anchor already
-   uses) and must be the AGENT's: a reaction on the person's own message, or on a
-   Kosmos notice, is refused. Two agent rows sharing one `at` are refused too, rather
+   uses) and must be the AGENT's (`from` is this agent); any other row is refused. Two agent rows sharing one `at` are refused too, rather
    than guessing which was meant. Returns {ok, op, emoji, at, reactions} or
    {ok:false, because}. */
 function reactDirect(agent, at, emoji) {
@@ -2786,33 +2785,42 @@ function reactDirect(agent, at, emoji) {
 /* The `[kosmos]` note for the person's next message: every reaction on the agent's
    messages the agent has not been told about yet, oldest message first, with the
    start of each message so the agent can tell which one is meant. '' when there is
-   nothing new. One line, no control characters: it is typed into a pane. */
+   nothing new. One line, no control characters: it is typed into a pane.
+   dmReactionNews also returns `named` ({at: emojis}), what the note covers, for
+   markDmReactionsTold. */
 const DM_REACTION_SNIPPET = 48;
 const DM_REACTION_NOTE_MESSAGES = 5;
 const DM_REACTIONS_PER_MESSAGE = 20;
-function dmReactionNote(agent) {
+function dmReactionNews(agent) {
+  const none = { note: '', named: {} };
   let thread;
-  try { thread = readThread(DIRECT, String(agent)); } catch { return ''; }
+  try { thread = readThread(DIRECT, String(agent)); } catch { return none; }
   const parts = [];
+  const named = {};
   for (const m of thread.messages) {
     if (!m || m.from !== String(agent)) continue;
     const told = new Set(Array.isArray(m.reactionsTold) ? m.reactionsTold : []);
     const fresh = dmReactions(m).filter((e) => !told.has(e));
     if (!fresh.length) continue;
-    const words = String(m.text || '').replace(/[\s\u0000-\u001f\u007f]+/g, ' ').trim();
+    named[String(m.at)] = (named[String(m.at)] || []).concat(fresh);
+    const words = String(m.text || '').replace(/[\s\u0000-\u001f\u007f-\u009f\u202a-\u202e\u2066-\u2069]+/g, ' ').trim();
     // By code point, so an emoji at the cut is never split into half a surrogate pair.
     const chars = Array.from(words);
     const snippet = chars.length > DM_REACTION_SNIPPET ? chars.slice(0, DM_REACTION_SNIPPET).join('').trimEnd() + '…' : words;
     parts.push(fresh.join(' ') + ' on your message "' + snippet.replace(/"/g, '\'') + '"');
   }
-  if (!parts.length) return '';
+  if (!parts.length) return none;
   /* Bounded: at most DM_REACTION_NOTE_MESSAGES messages named, the rest counted, so a
      backlog of reactions cannot turn one message into a wall of text in the pane. */
   const shown = parts.slice(-DM_REACTION_NOTE_MESSAGES);
   const more = parts.length - shown.length;
-  return ' [kosmos] reactions from the person since your last message here: '
+  const note = ' [kosmos] reactions from the person you have not been told about yet: '
     + (more ? 'reactions on ' + more + ' earlier message' + (more === 1 ? '' : 's') + '; ' : '') + shown.join('; ')
     + '. A reaction is feedback, not a message: it needs no reply.';
+  return { note, named };
+}
+function dmReactionNote(agent) {
+  return dmReactionNews(agent).note;
 }
 
 /* Whether the note may ride this message at all. Never on a numbered menu answer: the
@@ -2826,12 +2834,13 @@ function dmNoteMayRide(text, chose) {
 }
 
 /* After a message carrying that note reached the pane, record that the agent has now
-   been told: `reactionsTold` becomes each agent message's current `reactions`. Called
-   only when the delivery placed or was typed (unconfirmed); a send that never reached
-   the pane leaves the news pending for the next one. Best-effort: a failure here means
-   the agent may be told the same reaction twice, never that one is lost. */
-function markDmReactionsTold(agent) {
+   been told what the note NAMED (`named` from dmReactionNews), not whatever is on the
+   message by the time this runs. A reaction taken back since drops out of
+   `reactionsTold`, so putting it back later is told again. Called only when the delivery
+   placed or was typed (unconfirmed). Returns false, marking nothing, without `named`. */
+function markDmReactionsTold(agent, named) {
   const name = String(agent);
+  if (!named || typeof named !== 'object') return false;
   let file;
   try { file = threadFile(DIRECT, name); } catch { return false; }
   try {
@@ -2842,9 +2851,11 @@ function markDmReactionsTold(agent) {
         if (!m || m.from !== name) return m;
         const now = dmReactions(m);
         const told = Array.isArray(m.reactionsTold) ? m.reactionsTold : [];
-        if (now.length === told.length && now.every((e) => told.includes(e))) return m;
+        const said = Array.isArray(named[String(m.at)]) ? named[String(m.at)] : [];
+        const next = now.filter((e) => told.includes(e) || said.includes(e));
+        if (next.length === told.length && next.every((e) => told.includes(e))) return m;
         changed = true;
-        return { ...m, reactionsTold: now };
+        return { ...m, reactionsTold: next };
       });
       if (!changed) return true;
       const tmp = `${file}.${process.pid}.new`;
@@ -2859,7 +2870,7 @@ function markDmReactionsTold(agent) {
 module.exports = {
   DELIVERY, DIRECT, MAX_TEXT, MAX_MESSAGES, VIEWPORT_LINES,
   cleanMessage, storeText, messageProblem, addressable, resolveCard, paneTarget, wireText,
-  dmReactions, dmReactionPills, reactDirect, dmReactionNote, markDmReactionsTold, dmNoteMayRide,
+  dmReactions, dmReactionPills, reactDirect, dmReactionNews, dmReactionNote, markDmReactionsTold, dmNoteMayRide,
   chunkUtf8, pasteToEnterMs, PASTE_CHUNK_BYTES,
   deliver, viewport, questionIn, optionsIn, questionAbove, waitingNote, spawnFailure, verifyAtSend,
   withQuestionRow,
