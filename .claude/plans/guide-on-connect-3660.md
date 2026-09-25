@@ -23,6 +23,9 @@ bubble hands off to it. Josh's direction behind it: 16:05 (his avatar, speaks as
   create), the next try waits 10 minutes, doubling each time, capped at a day: the Claude gate is a live `claude -p`,
   a real request on their account. Single-flight.
 - "Don't show this again" (`setupAssistant.on` false) also means no guide agent is created later.
+- Review round 4: a change in what is listed (they just connected something) skips the back-off, so the guide still
+  comes the moment a model is connected; a create refused on one model tries the next connected one; a guide created in
+  this process is never created twice even if the seeded flag cannot be written (latch).
 - Under `AGENT_WORKFORCE_DRY_RUN=1` (test boards only) it is off unless `AGENT_WORKFORCE_SETUP_GUIDE=on`: review round 2
   measured server.projects.test.js creating an unasserted "josh" guide in its sandbox; now 0.
 - The role text says the guide was created when they connected their first model.

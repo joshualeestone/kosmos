@@ -277,6 +277,12 @@ test('findModel: a DEFAULT Gemini or Grok key that the provider positively rejec
     'a dead default Gemini key was used; the next (named) account is taken instead');
   assert.deepEqual(checked, [['./geminiaccounts', '/h/.gemini']], 'only the DEFAULT row is live-checked here (a named one is create\'s gate)');
   assert.deepEqual((await setupAssistant.findModel(deps(true))).model, { provider: 'google', account: null }, 'CONTROL: a live default key is used');
+  // A default Grok SUBSCRIPTION is already live-checked by create's gate: not asked twice.
+  checked.length = 0;
+  const sub = await setupAssistant.findModel({ listFor: (mod) => (mod === './grokaccounts' ? [{ dir: '/h/.grok', isDefault: true, authMode: 'subscription' }] : []),
+    connectable: async () => ({ ok: true }), liveDefault: async (mod, dir) => { checked.push([mod, dir]); return true; } });
+  assert.deepEqual(sub.model, { provider: 'xai', account: null });
+  assert.deepEqual(checked, [], 'a default Grok subscription was live-checked twice');
   // A Claude or OpenAI default is not re-checked here (create's gate already checks those live).
   checked.length = 0;
   await setupAssistant.findModel({ listFor: (mod) => (mod === './accounts' ? [{ dir: '/h/.claude', isDefault: true }] : []),
@@ -372,6 +378,61 @@ test('ensureGuide: a listed but DEAD sign-in backs off too (the live check is th
     assert.equal(calls.length, 0, 'an agent was created on a dead sign-in');
     assert.ok(setupAssistant.RETRY_MAX_MS <= 24 * 60 * 60 * 1000, 'the back-off is capped at a day');
   } finally { armed(false); setupAssistant.resetEnsureGuideForTests(); }
+});
+
+test('ensureGuide: connecting a NEW account skips the back-off (the guide comes the moment a model is connected)', async () => {
+  setupAssistant.resetEnsureGuideForTests();
+  armed(true);
+  try {
+    const rows = { './accounts': [{ dir: '/h/.claude', isDefault: true }] };
+    const deps = { listFor: (mod) => rows[mod] || [], liveDefault: async () => true,
+      connectable: async ({ provider }) => ({ ok: provider !== 'anthropic' }) };   // the Claude sign-in is dead
+    const calls = [];
+    const t0 = 9_000_000;
+    await setupAssistant.ensureGuide({ createAgent: createdOk(calls), now: t0, deps });
+    await setupAssistant.ensureGuide({ createAgent: createdOk(calls), now: t0 + setupAssistant.RETRY_AFTER_MS + 1, deps });
+    const waiting = await setupAssistant.ensureGuide({ createAgent: createdOk(calls), now: t0 + setupAssistant.RETRY_AFTER_MS + 120 * 1000, deps });
+    assert.match(waiting.reason, /waiting/, 'CONTROL: with nothing new listed, the grown back-off holds');
+    rows['./openaiaccounts'] = [{ dir: '/h/.codex-work', isDefault: false }];   // they add a working OpenAI key
+    const r = await setupAssistant.ensureGuide({ createAgent: createdOk(calls), now: t0 + setupAssistant.RETRY_AFTER_MS + 180 * 1000, deps });
+    assert.equal(r.seeded, true, 'a newly connected model waited out an old back-off: ' + r.reason);
+    assert.equal(calls[0].provider, 'openai');
+  } finally { armed(false); setupAssistant.resetEnsureGuideForTests(); }
+});
+
+test('ensureGuide: a create refused on the first model tries the NEXT connected model', async () => {
+  setupAssistant.resetEnsureGuideForTests();
+  armed(true);
+  try {
+    const conn = MODELS({ './accounts': [{ dir: '/h/.claude', isDefault: true }], './openaiaccounts': [{ dir: '/h/.codex-work', isDefault: false }] });
+    const calls = [];
+    const claudeMissing = (opts) => { calls.push(opts); return (opts.provider || 'anthropic') === 'anthropic'
+      ? { outcome: create.OUTCOME.REFUSED, because: 'we could not find Claude Code on this computer' }
+      : { outcome: create.OUTCOME.CREATED, name: opts.name }; };
+    const r = await setupAssistant.ensureGuide({ createAgent: claudeMissing, deps: conn });
+    assert.equal(r.seeded, true, r.reason || '');
+    assert.deepEqual(calls.map((c) => c.provider || 'anthropic'), ['anthropic', 'openai'], 'a working second model was stranded');
+  } finally { armed(false); setupAssistant.resetEnsureGuideForTests(); }
+});
+
+test('ensureGuide: if the seeded flag cannot be written, the next tick still makes no second guide', async () => {
+  setupAssistant.resetEnsureGuideForTests();
+  armed(true);
+  const flag = setupAssistant.flagPath();
+  const root = path.dirname(flag);
+  try {
+    fs.rmSync(flag, { force: true });
+    fs.chmodSync(root, 0o555);   // the store folder is read-only: the flag write fails, nothing sits at its path
+    const conn = MODELS({ './accounts': [{ dir: '/h/.claude', isDefault: true }] });
+    const calls = [];
+    const r = await setupAssistant.ensureGuide({ createAgent: createdOk(calls), deps: conn });
+    assert.equal(r.seeded, true);
+    assert.equal(setupAssistant.markSetupAssistantSeeded({ name: 'x' }), false, 'CONTROL: the flag write really fails');
+    assert.equal(setupAssistant.setupAssistantSeeded(), false, 'CONTROL: nothing on disk says seeded, so only the latch can stop a second');
+    const again = await setupAssistant.ensureGuide({ createAgent: createdOk(calls), deps: conn });
+    assert.match(again.reason, /already seeded/);
+    assert.equal(calls.length, 1, 'a failed flag write let a second guide be created');
+  } finally { fs.chmodSync(root, 0o755); fs.rmSync(flag, { recursive: true, force: true }); armed(false); setupAssistant.resetEnsureGuideForTests(); }
 });
 
 test('ensureGuide: "Don\'t show this again" (setupAssistant.on false) also means no guide agent later', async () => {

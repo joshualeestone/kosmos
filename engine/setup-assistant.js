@@ -98,14 +98,16 @@ function setupAssistantSeeded() {
 }
 
 /* Written by the caller only AFTER a successful create, so a refused/skipped
- * create leaves no flag. Best-effort: a failed flag write just risks a second
- * attempt on a later completion POST, which the name-collision refusal in
- * createAgent then catches -- belt and braces, not the primary guard. */
+ * create leaves no flag. Returns whether it stuck. A failed write would let a later
+ * try create a SECOND guide (the seed falls back to "Josh AI" when "Josh" is taken),
+ * so ensureGuide also keeps an in-process latch; across a restart with an unwritable
+ * store, the flag cannot be trusted and nothing here can do better. */
 function markSetupAssistantSeeded(meta) {
   try {
     fs.writeFileSync(flagPath(),
       JSON.stringify({ at: new Date().toISOString(), ...(meta || {}) }) + '\n', 'utf8');
-  } catch { /* the collision refusal still guards the common double-POST case */ }
+    return true;
+  } catch { return false; }
 }
 
 /* Fast, config-based "is a Claude account connected" (accounts.list() reads the
@@ -271,16 +273,11 @@ const MODEL_PROVIDERS = Object.freeze([
   ['xai', './grokaccounts'],
 ]);
 
-/**
- * The first connected model a guide could run on: { model: { provider, account } | null,
- * refused } (account null for a provider's default). A listed account must also pass create's own
- * gate (accountConnectable), so a positively dead sign-in is skipped, not used.
- * `listFor` and `connectable` are injectable for tests.
- */
 /* A DEFAULT Gemini or Grok key is the one account create's gate lets through unchecked
    (it cannot see the launch environment's key door, so it fails open for a default row).
    The guide is created only on a model that can run, so for those two it also asks the
-   provider's own live check, and a key the provider positively rejects is refused. */
+   provider's own live check, and a key the provider positively rejects is refused. A
+   default Grok SUBSCRIPTION is already live-checked by the gate, so it is not asked twice. */
 const LIVE_CHECK_DEFAULT = new Set(['google', 'xai']);
 const defaultLive = async (mod, dir) => {
   const m = require(mod);
@@ -288,45 +285,65 @@ const defaultLive = async (mod, dir) => {
   return !(live && live.state === m.STATE.NONE);
 };
 
-async function findModel({
-  listFor = (mod) => require(mod).list(),
-  connectable = (q) => create.accountConnectable(q),
-  liveDefault = defaultLive,
-} = {}) {
-  let refused = false;
+/* Every listed account, in provider order, and a fingerprint of the set. Cheap: the four
+   list() calls read config, never the network. */
+function listedModels({ listFor = (mod) => require(mod).list() } = {}) {
+  const rows = [];
   for (const [provider, mod] of MODEL_PROVIDERS) {
-    let rows;
-    try { rows = listFor(mod); } catch { rows = []; }
-    if (!Array.isArray(rows)) continue;
-    for (const row of rows) {
+    let got;
+    try { got = listFor(mod); } catch { got = []; }
+    if (!Array.isArray(got)) continue;
+    for (const row of got) {
       if (!row || typeof row.dir !== 'string') continue;
-      const account = row.isDefault ? null : row.dir;
-      let gate;
-      try { gate = await connectable({ provider, accountDir: account }); } catch { gate = { ok: false }; }
-      if (gate && gate.ok && account === null && LIVE_CHECK_DEFAULT.has(provider)) {
-        let alive;
-        try { alive = await liveDefault(mod, row.dir); } catch { alive = true; }
-        if (!alive) gate = { ok: false };
-      }
-      if (gate && gate.ok) return { model: { provider, account }, refused };
-      refused = true;
+      rows.push({ provider, mod, dir: row.dir, account: row.isDefault ? null : row.dir, authMode: row.authMode || null });
     }
   }
-  /* refused: an account WAS listed and every one failed the gate (a dead sign-in, a
-     rejected key). That check can be a live probe, so the caller backs off on it. */
-  return { model: null, refused };
+  return { rows, fingerprint: rows.map((r) => `${r.provider}:${r.dir}`).join('|') };
 }
 
+/* Could a guide run on this listed account? create's own gate, plus the default-key check
+   above. A live check that errors is uncertainty, not a refusal (create's own rule). */
+async function usable(row, { connectable = (q) => create.accountConnectable(q), liveDefault = defaultLive } = {}) {
+  let gate;
+  try { gate = await connectable({ provider: row.provider, accountDir: row.account }); } catch { gate = { ok: false }; }
+  if (!(gate && gate.ok)) return false;
+  if (row.account === null && LIVE_CHECK_DEFAULT.has(row.provider) && row.authMode !== 'subscription') {
+    let alive;
+    try { alive = await liveDefault(row.mod, row.dir); } catch { alive = true; }
+    if (!alive) return false;
+  }
+  return true;
+}
+
+/**
+ * The first connected model a guide could run on: { model: { provider, account } | null,
+ * refused } (account null for a provider's default; refused = something was listed and
+ * none of it could run). A listed account must pass create's own gate, so a positively
+ * dead sign-in is skipped, not used. `listFor`, `connectable`, `liveDefault` are for tests.
+ */
+async function findModel(deps = {}) {
+  const { rows } = listedModels(deps);
+  for (const row of rows) {
+    if (await usable(row, deps)) return { model: { provider: row.provider, account: row.account }, refused: rows.indexOf(row) > 0 };
+  }
+  return { model: null, refused: rows.length > 0 };
+}
 
 /* After a try that reached a live check and did not create (a dead sign-in, a rejected
    key, a refused create), the next try waits: 10 minutes, doubling each time, at most a
    day. The check can be a live `claude -p` (a real request on their account) and the
-   sweep runs every minute, so a failure that never clears costs one check a day. */
+   sweep runs every minute, so a failure that never clears costs one check a day. BUT a
+   change in what is listed (they just connected something) skips the wait: the guide is
+   created the moment a model is connected, not a day later (review round 4). */
 const RETRY_AFTER_MS = 10 * 60 * 1000;
 const RETRY_MAX_MS = 24 * 60 * 60 * 1000;
 let inFlight = null;
 let lastFailedAt = 0;
 let failures = 0;
+let failedFingerprint = null;
+/* Set once a guide is created in this process, whatever happened to the flag write, so a
+   failed write (full disk) cannot let the next sweep tick create a second guide. */
+let createdHere = false;
 
 function retryWaitMs() {
   return Math.min(RETRY_MAX_MS, RETRY_AFTER_MS * Math.pow(2, Math.max(0, failures - 1)));
@@ -334,9 +351,10 @@ function retryWaitMs() {
 
 /**
  * Create the guide if, and only if: the automatic path is on, this install is armed,
- * it has never been seeded, and a model is connected. Idempotent and single-flight:
- * a Giddy Up and a sweep tick arriving together create at most one. Never throws.
- * Resolves { seeded, name?, reason? }. `deps` is for tests.
+ * it has never been seeded, and a model is connected. Tries each connected model in
+ * order until one creates (a refused create on the first does not strand a working
+ * second). Idempotent and single-flight: a Giddy Up and a sweep tick arriving together
+ * create at most one. Never throws. Resolves { seeded, name?, reason? }. `deps` is for tests.
  */
 function ensureGuide({ createAgent, via = 'model-connected', now = Date.now(), deps = {} } = {}) {
   if (inFlight) return inFlight;
@@ -351,33 +369,36 @@ function ensureGuide({ createAgent, via = 'model-connected', now = Date.now(), d
   try { wanted = settingFrom(deps.settings !== undefined ? deps.settings : store.readSettings()).on; } catch { wanted = true; }
   if (!wanted) return Promise.resolve({ seeded: false, reason: 'the person turned setup assistance off' });
   if (!isArmed()) return Promise.resolve({ seeded: false, reason: 'not armed (this install was set up before the guide existed)' });
-  if (setupAssistantSeeded()) return Promise.resolve({ seeded: false, reason: 'already seeded' });
-  if (lastFailedAt && now - lastFailedAt < retryWaitMs()) return Promise.resolve({ seeded: false, reason: 'waiting before trying again' });
+  if (createdHere || setupAssistantSeeded()) return Promise.resolve({ seeded: false, reason: 'already seeded' });
+  const listed = listedModels(deps);
+  if (!listed.rows.length) return Promise.resolve({ seeded: false, reason: 'no model connected yet' });
+  const changed = listed.fingerprint !== failedFingerprint;
+  if (lastFailedAt && !changed && now - lastFailedAt < retryWaitMs()) return Promise.resolve({ seeded: false, reason: 'waiting before trying again' });
   inFlight = (async () => {
+    const fail = (reason) => { lastFailedAt = now; failures += 1; failedFingerprint = listed.fingerprint; return { seeded: false, reason }; };
     try {
-      const found = await findModel(deps);
-      const model = found.model;
-      if (!model) {
-        if (found.refused) { lastFailedAt = now; failures += 1; }
-        return { seeded: false, reason: found.refused ? 'a model is listed but none could run yet' : 'no model connected yet' };
+      let last = null;
+      for (const row of listed.rows) {
+        if (!(await usable(row, deps))) continue;
+        const model = { provider: row.provider, account: row.account };
+        /* hasConnectedAccount is already answered, more strictly, by usable() (any
+           provider, create's own gate); the seed's default check is Claude-only and would
+           refuse an OpenAI-only person, so it is bypassed here on purpose. */
+        const seed = seedSetupAssistant({ createAgent, hasConnectedAccount: () => true, avatarDir: deps.avatarDir, model });
+        if (seed && seed.seeded) {
+          createdHere = true;
+          markSetupAssistantSeeded({ name: seed.name, via, provider: model.provider });
+          lastFailedAt = 0;
+          failures = 0;
+          failedFingerprint = null;
+          return seed;
+        }
+        last = seed;
+        /* Refused on this model (its runner missing, say): try the next one. */
       }
-      /* hasConnectedAccount is already answered, more strictly, by findModel (any provider,
-         create's own gate); the seed's default check is Claude-only and would refuse an
-         OpenAI-only person, so it is bypassed here on purpose. */
-      const seed = seedSetupAssistant({ createAgent, hasConnectedAccount: () => true, avatarDir: deps.avatarDir, model });
-      if (seed && seed.seeded) {
-        markSetupAssistantSeeded({ name: seed.name, via, provider: model.provider });
-        lastFailedAt = 0;
-        failures = 0;
-        return seed;
-      }
-      lastFailedAt = now;
-      failures += 1;
-      return seed || { seeded: false, reason: 'not created' };
+      return fail(last ? ('not created: ' + (last.reason || 'refused')) : 'a model is listed but none could run yet');
     } catch (err) {
-      lastFailedAt = now;
-      failures += 1;
-      return { seeded: false, reason: 'ensureGuide failed: ' + String((err && err.message) || err) };
+      return fail('ensureGuide failed: ' + String((err && err.message) || err));
     } finally {
       inFlight = null;
     }
@@ -386,7 +407,7 @@ function ensureGuide({ createAgent, via = 'model-connected', now = Date.now(), d
 }
 
 /* Test seam: forget the backoff between cases. */
-function resetEnsureGuideForTests() { inFlight = null; lastFailedAt = 0; failures = 0; }
+function resetEnsureGuideForTests() { inFlight = null; lastFailedAt = 0; failures = 0; failedFingerprint = null; createdHere = false; }
 
 /*
  * The person's switch for the setup assistant bubble (#3034; Josh, 2026-09-24 18:02:
