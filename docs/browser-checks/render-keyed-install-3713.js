@@ -276,6 +276,26 @@ const chk = (ok, label, extra) => {
   });
   chk(!r9.confirm && /cannot connect Google Gemini on Windows yet/.test(r9.msg), 'on Windows, first run\'s Add says it plainly when the tool is gone, and offers no install', JSON.stringify(r9));
   await setWin(false);
+  // #3731 (review pass 3): Settings shows no key box and no Grok choice while /api/runners has not
+  // answered, and a late answer for a provider the person has left changes nothing.
+  const r11 = await q(async () => {
+    const wait = (ms) => new Promise((r) => setTimeout(r, ms));
+    closeAcctAdd(); openAcctAdd();
+    window.__missing = { gemini: false, grok: false }; window.__jobs = {}; window.__runnersDelay = 500;
+    acctPick('google');
+    await wait(100);
+    const pending = { key: !document.getElementById('acct-apikey-flow').hidden, grok: !document.getElementById('acct-grok-flow').hidden,
+      install: !document.getElementById('acct-keyed-install').hidden };
+    window.__runnersDelay = 0;   // Grok's own read answers at once, so Gemini's slow one lands LAST
+    acctPick('xai');   // switch before Gemini's read answers
+    await wait(900);   // both reads have answered now
+    const after = { key: !document.getElementById('acct-apikey-flow').hidden, grok: !document.getElementById('acct-grok-flow').hidden,
+      pick: !document.getElementById('acct-grok-pick').hidden, which: ACCT_APIKEY_WHICH };
+    return { pending, after };
+  });
+  chk(!r11.pending.key && !r11.pending.grok && !r11.pending.install, '#3731 Settings: nothing to type or choose while the install check has not answered', JSON.stringify(r11));
+  chk(r11.after.which === 'xai' && r11.after.grok && r11.after.pick && !r11.after.key,
+    '#3731 Settings: a late answer for Gemini, after switching to Grok, does not open Gemini\'s key box', JSON.stringify(r11));
   const r10 = await q(async () => {
     frClose();
     window.__missing.grok = true; window.__jobs = {};

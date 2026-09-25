@@ -223,10 +223,12 @@ const chk = (ok, label, extra) => {
   await q(() => new Promise((r) => setTimeout(r, 50)));
   const sid = await q(() => 'sess' + window.__starts.length);
   await q(() => document.getElementById('acct-grok-sub-cancel').click());
-  const stop = await q(() => ({ cancels: window.__cancels.slice(), msg: document.getElementById('acct-grok-msg').textContent, polls: window.__polls.size,
-    code: !document.getElementById('acct-grok-sub-code').hidden }));
-  chk(stop.cancels.length === 1 && stop.cancels[0] === sid && stop.msg === 'Sign-in stopped.' && stop.polls === 0 && !stop.code,
-    'Stop cancels this sign-in on the engine and says so', JSON.stringify({ ...stop, sid }));
+  const stop = await q(() => ({ cancels: window.__cancels.slice(), polls: window.__polls.size,
+    code: !document.getElementById('acct-grok-sub-code').hidden, pick: !document.getElementById('acct-grok-pick').hidden,
+    step: !document.getElementById('acct-grok-sub-step').hidden, focus: document.activeElement && document.activeElement.id }));
+  // #3731 (review pass 3): as GPT's Settings Stop does, back to the choice, with "Use an API key" one press away.
+  chk(stop.cancels.length === 1 && stop.cancels[0] === sid && stop.polls === 0 && !stop.code && stop.pick && !stop.step && stop.focus === 'acct-grok-pick-sub',
+    'Stop cancels this sign-in on the engine and goes back to the choice', JSON.stringify({ ...stop, sid }));
 
   // Closing the dialog mid-sign-in cancels it, and a late connected paints nothing.
   await q(() => { window.__cancels.length = 0; document.getElementById('acct-grok-sub-go').click(); });

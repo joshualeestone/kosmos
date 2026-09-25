@@ -70,3 +70,26 @@ asking to sign in again. "Match the exact design and styling and flow of how GPT
 - Weakest premise: only Chromium and WebKit were measured. Firefox was not, and which engine each
   person's board opens in was not measured either; an engine that did draw a ring after a mouse press
   would now draw Kosmos's ink ring rather than blue, not none.
+
+## Review pass 2 (sonnet): 0 blockers, 1 warning, 2 nits
+- W: Settings' Add a provider buttons still drew the browser's blue -> #acct-add-dialog .btn:focus-visible
+  ink ring; arm red without it (rgb(0, 95, 204)).
+- N: aria-controls lists 2 of 4 panels, byte-for-byte as GPT's does; two copies of the install sentence
+  (Settings JS, first-run HTML), GPT's convention. Not taken: both are faithful to GPT.
+
+## Review pass 3 (opus): 0 blockers, 4 warnings, 7 nits
+- W1 a slow paint left Gemini's key form open under "connected" -> the connected paint collapses an open
+  panel, as GPT's does (#2621). Arm (held /api/accounts read) red without it.
+- W2 Settings' Grok Stop stayed on the sign-in -> back to the choice, as GPT's Settings Stop does; a sign
+  in again (no choice) keeps its own step and retry. Arm updated.
+- W3 the "nothing before the install check answers" rule had no arm that could fail -> r11 pending arm,
+  red with the old show-at-once code.
+- W4 the visit guard in acctApikeyShow was unguarded -> r11 switch arm. It was blind at first (Grok's own
+  slow read landed last and hid the reopen); only Gemini's read is slow now, red without the guard.
+- N1 failed-start retry -> arm, red without go.hidden = false. N4 frKeyedConnect pressed again collapses
+  its own panels first (and ends a sign-in in flight); acctKeyedWindows leaves Grok's sign-in.
+- Not taken, with reasons: N2 (Next's FR_STEP/claude guards are correct, the reviewer confirmed; the
+  mid-Claude-sign-in overwrite is GPT's documented #2134 limit); N3 (a cleared "key saved" line when
+  another Connect is pressed; the button still says Key saved); N5 (a failed runners read on Windows says
+  it cannot connect: the read failing is itself not connectable); N6 double focus (harmless); N7
+  "Download complete." with nothing downloaded (GPT's copy, clone-faithful).

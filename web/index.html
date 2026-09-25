@@ -23409,6 +23409,7 @@ function acctKeyedWindows(which) {
   const box = document.getElementById('acct-keyed-install');
   if (!box) return;
   ACCT_KEYED_WHICH = which;
+  ACCT_GROK_SUB.leave();
   document.getElementById('acct-apikey-flow').hidden = true;
   document.getElementById('acct-grok-flow').hidden = true;
   document.getElementById('acct-keyed-install-t').textContent = keyedMissingOnWindows(which);
@@ -23741,6 +23742,10 @@ document.getElementById('acct-grok-pick-key').addEventListener('click', () => {
 document.getElementById('acct-grok-sub-go').addEventListener('click', () => ACCT_GROK_SUB.start());
 document.getElementById('acct-grok-sub-cancel').addEventListener('click', () => {
   ACCT_GROK_SUB.leave();
+  /* #3731 (review pass 3): a new sign-in's Stop goes back to the choice, as GPT's does
+     (acctOpenaiStep(ACCT_OPENAI_READY)), so "Use an API key" is one press away. A sign in again
+     has no choice to go back to, so it stays on its own step with the retry. */
+  if (!ACCT_GROK_REAUTH_DIR) { acctGrokShow('xai'); document.getElementById('acct-grok-pick-sub').focus(); return; }
   const m = document.getElementById('acct-grok-msg'); if (m) m.textContent = 'Sign-in stopped.';
   const go = document.getElementById('acct-grok-sub-go');
   go.hidden = false;   // #3731: hidden while a pick-started sign-in ran; stopping brings the retry back
@@ -23877,6 +23882,10 @@ async function frKeyedConnect(which) {
   const btn = frK(which, 'connect');
   const msg = frK(which, 'msg');
   frCollapseProviders(which);
+  /* Pressed again while its own panel is open: start clean, so the install step cannot appear
+     beside a choice or key form still showing, and a sign-in in flight ends rather than polling
+     on, hidden. */
+  if (frKeyedOpenNow(which)) frKeyedCollapse(which);
   FR_KEYED_GEN += 1;
   const mine = FR_KEYED_GEN;
   btn.setAttribute('aria-expanded', 'true');
@@ -23998,6 +24007,9 @@ async function frPaintKeyed(known) {
     const which = provider;
     const line = frK(which, 'msg');
     if (line && connected) {
+      /* As GPT's paint does (#2621): a connected provider shows no key form or choice under its box,
+         or a second paste would make a second account. keepSignIn: the box is being drawn now. */
+      if (frKeyedOpenNow(which)) frKeyedCollapse(which, true);
       const acct = mine.find((x) => x.connection && x.connection.state === 'connected') || {};
       line.className = 'fr-connbox';
       line.innerHTML = frCheckRow({

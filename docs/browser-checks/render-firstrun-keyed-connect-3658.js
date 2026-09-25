@@ -88,6 +88,7 @@ const chk = (ok, label, extra) => {
       // #3731: Grok's subscription sign-in (the driver's start / status / cancel).
       if (/\/api\/accounts\/grok\/subscription\/start$/.test(u)) {
         window.__subStarts = (window.__subStarts || 0) + 1;
+        if (window.__subStartFail) return enc({ error: 'xAI did not answer' }, 502);
         return enc({ sessionId: 's1' });
       }
       if (/\/api\/accounts\/grok\/subscription\/status/.test(u)) return enc({ state: 'awaiting-code', url: 'https://accounts.x.ai/oauth2/device?user_code=ABCD-EFGH', userCode: 'ABCD-EFGH' });
@@ -427,6 +428,42 @@ const chk = (ok, label, extra) => {
   });
   chk(fresh.confirm && !fresh.bar && fresh.msg === '', '#3731 opening the install again shows no leftover bar or message', JSON.stringify(fresh));
   await q(() => { frKeyedHideAll(); window.__runnerMissing.gemini = false; });
+
+  // #3731 (review pass 3): a paint that lands with Gemini connected closes an open key form under
+  // it, as GPT's does (#2621), or a second paste would make a second account.
+  const late = await q(async () => {
+    const wait = (ms) => new Promise((r) => setTimeout(r, ms));
+    window.__accounts = window.__accounts.filter((a) => a.provider !== 'google' && a.provider !== 'xai');
+    await frPaintKeyed();
+    window.__accounts.push({ provider: 'google', connection: { state: 'connected' } });
+    let release; window.__holdRead = new Promise((r) => { release = r; });
+    const painting = frPaintKeyed();   // its read began after Gemini connected, and is held
+    await wait(30);
+    document.getElementById('fr-gemini-connect').click();
+    await wait(250);
+    const before = !document.getElementById('fr-gemini-flow').hidden;
+    release(); window.__holdRead = null; await painting; await wait(50);
+    return { before, flow: !document.getElementById('fr-gemini-flow').hidden, box: document.getElementById('fr-gemini-msg').className,
+      btn: document.getElementById('fr-gemini-connect').textContent.trim() };
+  });
+  chk(late.before && !late.flow && late.box === 'fr-connbox' && /Connected/.test(late.btn),
+    '#3731 a paint that finds Gemini connected closes the key form still open under it', JSON.stringify(late));
+
+  // A Grok sign-in that fails to start gives its Sign-in button back, as the retry.
+  const retry = await q(async () => {
+    const wait = (ms) => new Promise((r) => setTimeout(r, ms));
+    window.__accounts = window.__accounts.filter((a) => a.provider !== 'google' && a.provider !== 'xai');
+    await frPaintKeyed();
+    window.__subStartFail = true;
+    document.getElementById('fr-grok-connect').click(); await wait(250);
+    document.getElementById('fr-grok-pick-sub').click(); await wait(250);
+    const out = { step: !document.getElementById('fr-grok-sub-step').hidden, go: !document.getElementById('fr-grok-sub-go').hidden,
+      disabled: document.getElementById('fr-grok-sub-go').disabled, msg: document.getElementById('fr-grok-msg').textContent };
+    window.__subStartFail = false;
+    frKeyedHideAll();
+    return out;
+  });
+  chk(retry.step && retry.go && !retry.disabled && /did not answer/.test(retry.msg), '#3731 a Grok sign-in that fails to start shows why and gives the Sign-in button back', JSON.stringify(retry));
 
   // Windows: Kosmos does not install these there (#3713), so it says so and offers nothing.
   const win = await q(async () => {
