@@ -250,6 +250,33 @@ asked for them:
   two variants.
 - **Fill fraction:** 100% x 100% (re-cropped to the mark's painted bbox).
 
+## 11. xAI / Grok
+
+### `xai-grok-mark.svg`
+- **Added:** 2026-09-25 by PigeonPete (kosmos#3708), replacing the "X" letter chip Grok had
+  on the first-run model list and in every provider picker.
+- **viewBox:** `0 0 34 33` (992 bytes)
+- **What:** The Grok mark, the ring cut by a diagonal stroke, on its own. The product mark,
+  like the Claude spark, not the xAI company wordmark.
+- **Source URL:** https://grok.com/ (inline SVG in page markup, the home-link logo in the
+  header, `viewBox="0 0 88 33"`). That SVG is the mark plus the "Grok" wordmark; the two
+  mark paths were kept unmodified and the four wordmark paths (x from 37) dropped. (Inlined in
+  `web/index.html`, the two paths are written self-closing, `<path .../>`, as the page's other marks are;
+  the path data is byte-identical.) The
+  mark's painted box, measured in Chromium, is x 0.36 to 33.70, y 0.5 to 32.5, so the
+  viewBox is `0 0 34 33` with no path edited.
+- **Why this is official:** served by grok.com, xAI's own product site, as its own logo.
+  x.ai itself answered 403 to the fetch (as in 2026-08-26, below).
+- **Monochrome or brand-coloured:** **Monochrome.** The vendor paths already use
+  `fill="currentColor"`, so it follows the theme. Rendered on light and dark and
+  confirmed to be the Grok mark.
+- **Permission:** **not captured**, the same state as OpenAI below: x.ai's pages refuse
+  automated fetching, so its trademark terms were not read. Josh asked for Gemini and
+  Grok to show "exactly like GPT" on this list (2026-09-24), and he supplied the Gemini
+  mark himself (#3422) after this folder's permission question was raised; that is the
+  basis for shipping it. It is reversible in one commit if the permission answer
+  changes.
+
 ---
 
 ## Permission for the four added 2026-09-08

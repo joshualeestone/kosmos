@@ -2599,6 +2599,9 @@ body.filter-noproj #orgview .onode:not([data-noproj]) { opacity: .26; }
      (#askcard, between the header and the panel) keeps a gap below it instead of being covered. */
   body:has(> #panel-detail:not([hidden]) #d-sec-talk:not([hidden])) > .apphead { margin-bottom: 0; }
   body:has(> #panel-detail:not([hidden]) #d-sec-talk:not([hidden])) > #askcard:not([hidden]) { margin-bottom: var(--space-6); }
+  /* #3708: the Claude-unreachable line (#conn) sits here too now, above every panel. It takes back the
+     header's own gap (--space-6, the one removed just above) so it reads the same as on every other view. */
+  body:has(> #panel-detail:not([hidden]) #d-sec-talk:not([hidden])) > #conn:not([hidden]) { margin-top: var(--space-6); }
   #panel-detail:has(#d-sec-talk:not([hidden])) {
     position: relative; flex: 1 1 auto; min-height: 0; height: auto;
     margin-right: calc(-1 * var(--space-8)); }
@@ -8421,13 +8424,6 @@ html:not([data-fed-ui="show"]) #pj-add-ext-person,html:not([data-fed-ui="show"])
    in this rule. His ask was 50% larger specifically, not "match exactly", so
    a plain scale rather than re-deriving a crop. */
 #firstrun .llm-m[data-pmark="openai"] svg { transform: scale(1.5); }
-/* #3386: Grok's first-run mark. xAI has no vendor SVG in this file (PROVIDER_MARK_KEY
-   maps xai -> null), and the app's rule is an initial-letter chip over a wrong-brand
-   lookalike, so Grok shows the same "X" letter chip the provider combobox falls back to
-   (providerMarkNode). Styled like .pcombo-chip but sized to the 34px first-run slot, and
-   dimmed the same way the coming-soon SVG marks are (.pmark.dim), without carrying the
-   `pmark` class (which the mark-theme + firstrun-model tests count on). */
-#firstrun .llm-m.llm-chip { display: grid; place-items: center; font: 700 1.05rem/1 var(--font-ui); color: var(--k-ink-2); background: var(--k-rule); border-radius: 8px; }
 #firstrun .fieldlab { display: block; font-size: .75rem; letter-spacing: .1em; text-transform: uppercase;
                       font-weight: 600; color: var(--k-ink-2); margin-bottom: 6px; }
 /* ⚠️ THIS IS THE RULE THAT ACTUALLY DRESSES THE WIZARD'S FIELDS, and it beats
@@ -9146,6 +9142,16 @@ window.kosmosMeasureScrollbarWidth();
   <p id="ask-lead" hidden></p>
   <div id="ask-rows"></div>
 </div>
+<!-- ⚠️ ONE FACT ABOUT THE MACHINE, ABOVE THE FLEET, not a badge on thirteen
+     cards. Whether this computer can reach a Claude subscription is a single
+     thing, and repeating it per agent would bury the sentence that explains why
+     the whole board looks asleep.
+     `role="status"` and not `alert`: it is a condition, announced when it
+     appears, not an interruption.
+     #3708: it sits here, above every panel, so it is at the top of every view. It
+     used to sit after the panels, just above the Agents board, which put it at the
+     top of Agents but below the content of Settings, Projects and an agent's page. -->
+<div class="conn" id="conn" role="status" aria-live="polite" hidden></div>
 <section class="detail" id="panel-detail" hidden>
   <button class="back" id="detail-back">&#8592; All agents</button>
   <!-- ⚠️ THE PACK'S AGENT PAGE (view B, pack-pass, scrappy): dhead carries
@@ -11597,11 +11603,13 @@ window.kosmosMeasureScrollbarWidth();
                      GPT, appeared inside the API-key form, then vanished again when the
                      form hid itself on success. The order test still passed, because it
                      read source order and not whether a hidden container opened in between. -->
-                <!-- #3422 (Josh's asset, 2026-09-22): the Gemini spark as a single currentColor path, NOT a fixed-id radialGradient. providerMarkNode CLONES the span below into the enhanceProviderSelect combobox; a cloned fill="url(#pmark-gemini-g)" depended on the gradient def living in the (hidden) #firstrun and collided on a duplicated id, so the cloned mark rendered blank in the settings/create picker while the monochrome currentColor marks cloned fine. currentColor also lets it dim/live with .pmark like every other provider mark. This comment is OUTSIDE the .llm row (before the div) so it is neither cloned into every combobox mark nor between the div and span, which web.connect-confirm's row regex requires to be adjacent. --><div class="llm on"><span class="llm-m pmark live" data-pmark="gemini" role="img" aria-label="Gemini"><svg viewBox="0 0 300 300" fill="currentColor" xmlns="http://www.w3.org/2000/svg"><path d="M265.9,134.3c-22.8-9.8-42.7-23.3-59.8-40.4-17.1-17.1-30.6-37-40.4-59.8-3.8-8.7-6.8-17.7-9.1-26.9-.8-3-3.5-5.1-6.6-5.1s-5.8,2.1-6.6,5.1c-2.3,9.2-5.3,18.2-9.1,26.9-9.8,22.8-23.3,42.7-40.4,59.8-17.1,17.1-37,30.6-59.8,40.4-8.7,3.8-17.7,6.8-26.9,9.1-3,.8-5.1,3.5-5.1,6.6s2.1,5.8,5.1,6.6c9.2,2.3,18.2,5.3,26.9,9.1,22.8,9.8,42.7,23.3,59.8,40.4,17.1,17.1,30.6,37,40.4,59.8,3.8,8.7,6.8,17.7,9.1,26.9.8,3,3.5,5.1,6.6,5.1s5.8-2.1,6.6-5.1c2.3-9.2,5.3-18.2,9.1-26.9,9.8-22.8,23.3-42.7,40.4-59.8,17.1-17.1,37-30.6,59.8-40.4,8.7-3.8,17.7-6.8,26.9-9.1,3-.8,5.1-3.5,5.1-6.6s-2.1-5.8-5.1-6.6c-9.2-2.3-18.2-5.3-26.9-9.1Z"/></svg></span><div class="llm-w"><b>Gemini</b><small>Google</small></div><button class="connect-b" type="button" id="fr-gemini-connect" data-keyed="google" aria-expanded="false" aria-controls="fr-apikey-flow" aria-label="Connect Gemini">Connect</button></div>
-                <!-- #3386 (Josh, 2026-09-21): Grok shown up front, right under Gemini; since #3658
-                     both connect here by API key. xAI has no vendor SVG here, so it uses the same
-                     "X" initial-letter chip the provider combobox falls back to, not a new asset. -->
-                <div class="llm on"><span class="llm-m llm-chip" data-pmark="xai" role="img" aria-label="Grok">X</span><div class="llm-w"><b>Grok</b><small>xAI</small></div><button class="connect-b" type="button" id="fr-grok-connect" data-keyed="xai" aria-expanded="false" aria-controls="fr-apikey-flow" aria-label="Connect Grok">Connect</button></div>
+                <!-- #3422 (Josh's asset, 2026-09-22): the Gemini spark as a single currentColor path, NOT a fixed-id radialGradient. providerMarkNode CLONES the span below into the enhanceProviderSelect combobox; a cloned fill="url(#pmark-gemini-g)" depended on the gradient def living in the (hidden) #firstrun and collided on a duplicated id, so the cloned mark rendered blank in the settings/create picker while the monochrome currentColor marks cloned fine. currentColor also lets it dim/live with .pmark like every other provider mark. This comment is OUTSIDE the .llm row (before the div) so it is neither cloned into every combobox mark nor between the div and span, which web.connect-confirm's row regex requires to be adjacent. --><div class="llm on"><span class="llm-m pmark live" data-pmark="gemini" role="img" aria-label="Gemini"><svg viewBox="0 0 300 300" fill="currentColor" xmlns="http://www.w3.org/2000/svg"><path d="M265.9,134.3c-22.8-9.8-42.7-23.3-59.8-40.4-17.1-17.1-30.6-37-40.4-59.8-3.8-8.7-6.8-17.7-9.1-26.9-.8-3-3.5-5.1-6.6-5.1s-5.8,2.1-6.6,5.1c-2.3,9.2-5.3,18.2-9.1,26.9-9.8,22.8-23.3,42.7-40.4,59.8-17.1,17.1-37,30.6-59.8,40.4-8.7,3.8-17.7,6.8-26.9,9.1-3,.8-5.1,3.5-5.1,6.6s2.1,5.8,5.1,6.6c9.2,2.3,18.2,5.3,26.9,9.1,22.8,9.8,42.7,23.3,59.8,40.4,17.1,17.1,30.6,37,40.4,59.8,3.8,8.7,6.8,17.7,9.1,26.9.8,3,3.5,5.1,6.6,5.1s5.8-2.1,6.6-5.1c2.3-9.2,5.3-18.2,9.1-26.9,9.8-22.8,23.3-42.7,40.4-59.8,17.1-17.1,37-30.6,59.8-40.4,8.7-3.8,17.7-6.8,26.9-9.1,3-.8,5.1-3.5,5.1-6.6s-2.1-5.8-5.1-6.6c-9.2-2.3-18.2-5.3-26.9-9.1Z"/></svg></span><div class="llm-w"><b>Gemini</b><small>Google · API key today</small></div><button class="connect-b" type="button" id="fr-gemini-connect" data-keyed="google" aria-expanded="false" aria-controls="fr-apikey-flow" aria-label="Connect Gemini">Connect</button></div>
+                <!-- #3386 (Josh, 2026-09-21): Grok shown up front, right under Gemini. #3708: the
+                     real Grok mark (from grok.com's own header logo, recorded in
+                     docs/provider-marks/manifest.md), and each subtitle says what works today:
+                     Grok signs in with a subscription (#3391) or a key, Gemini by key only
+                     (its subscription path, #3568, is not live). -->
+                <div class="llm on"><span class="llm-m pmark live" data-pmark="xai" role="img" aria-label="Grok"><svg viewBox="0 0 34 33" fill="currentColor" xmlns="http://www.w3.org/2000/svg"><path d="M13.2371 21.0407L24.3186 12.8506C24.8619 12.4491 25.6384 12.6057 25.8973 13.2294C27.2597 16.5185 26.651 20.4712 23.9403 23.1851C21.2297 25.8989 17.4581 26.4941 14.0108 25.1386L10.2449 26.8843C15.6463 30.5806 22.2053 29.6665 26.304 25.5601C29.5551 22.3051 30.562 17.8683 29.6205 13.8673L29.629 13.8758C28.2637 7.99809 29.9647 5.64871 33.449 0.844576C33.5314 0.730667 33.6139 0.616757 33.6964 0.5L29.1113 5.09055V5.07631L13.2343 21.0436" fill="currentColor" id="mark"/><path d="M10.9503 23.0313C7.07343 19.3235 7.74185 13.5853 11.0498 10.2763C13.4959 7.82722 17.5036 6.82767 21.0021 8.2971L24.7595 6.55998C24.0826 6.07017 23.215 5.54334 22.2195 5.17313C17.7198 3.31926 12.3326 4.24192 8.67479 7.90126C5.15635 11.4239 4.0499 16.8403 5.94992 21.4622C7.36924 24.9165 5.04257 27.3598 2.69884 29.826C1.86829 30.7002 1.0349 31.5745 0.36364 32.5L10.9474 23.0341" fill="currentColor" id="mark"/></svg></span><div class="llm-w"><b>Grok</b><small>xAI · works today</small></div><button class="connect-b" type="button" id="fr-grok-connect" data-keyed="xai" aria-expanded="false" aria-controls="fr-apikey-flow" aria-label="Connect Grok">Connect</button></div>
                 <!-- #3658 (Josh, 2026-09-24 17:46): Gemini and Grok connect HERE, with the same gold
                      Connect as Claude and GPT, instead of the old later-in-Settings pill and pointer.
                      One box shared by both, a first-run mirror of Settings' #acct-apikey-flow
@@ -15060,17 +15068,10 @@ window.kosmosMeasureScrollbarWidth();
   </div>
   </div>
 </section>
-<!-- ⚠️ ONE FACT ABOUT THE MACHINE, ABOVE THE FLEET, not a badge on thirteen
-     cards. Whether this computer can reach a Claude subscription is a single
-     thing, and repeating it per agent would bury the sentence that explains why
-     the whole board looks asleep.
-     `role="status"` and not `alert`: it is a condition, announced when it
-     appears, not an interruption. -->
 <!-- #541: ship-day made visible. One quiet line after an update installs
      under a running board; dismiss records the seen version server-side so
      it survives restarts and never returns for a seen version. First sight
      of a machine records silently: the line only ever describes a CHANGE. -->
-<div class="conn" id="conn" role="status" aria-live="polite" hidden></div>
 <!-- The pack's stats row: the New agent action as a dashed tile locked
      left, the counts on the true centre, the view toggle pinned right.
      The alert tile hides at zero (the pack draws only the nonzero case;
@@ -36574,7 +36575,7 @@ function fillSwitchAccounts() {
    focus management, aria-expanded/selected/activedescendant/disabled. */
 const PROVIDER_MARK_KEY = {
   anthropic: 'claude', openai: 'openai', google: 'gemini', meta: 'meta',
-  xai: null, alibaba: 'qwen', moonshot: 'kimi', mistral: 'mistral',
+  xai: 'xai', alibaba: 'qwen', moonshot: 'kimi', mistral: 'mistral',
   /* #1040 2b: #acct-provider-pick (the Add-a-provider screen) uses the value 'claude'
      where #d-provider uses 'anthropic'; both name the same provider and get the same
      'claude' mark. Additive: #d-provider never looks up 'claude', so this does not touch it. */
@@ -36599,7 +36600,7 @@ function providerMarkNode(value, label) {
       return n;
     }
   }
-  /* Fallback (Grok, or any unmapped value): an initial-letter chip, never a wrong-brand
+  /* Fallback (any unmapped value; Grok has its real mark since #3708): an initial-letter chip, never a wrong-brand
      lookalike. Decorative (aria-hidden), because the adjacent .pcombo-name names the provider. */
   const chip = document.createElement('span');
   chip.className = 'pmark pcombo-chip';

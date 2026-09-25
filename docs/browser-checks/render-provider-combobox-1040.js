@@ -7,7 +7,7 @@
  * contract: the native <select> stays the source of truth (hidden, still in the DOM with its
  * options), the trigger shows the selected mark+label, open/close + keyboard nav +
  * Enter-select sync the hidden select's .value and fire `change`, Esc closes and refocuses,
- * a coming-soon option is aria-disabled and NOT selectable, Grok gets an initial-letter chip
+ * a coming-soon option is aria-disabled and NOT selectable, Grok gets its real mark (#3708; it was an initial-letter chip)
  * (no wrong-brand mark), and a programmatic value change re-renders the trigger. Both themes,
  * plus a screenshot. It also checks the #acct-provider-pick reauth-hide contract: the
  * "Sign in again" screen hides the whole chooser container, widget included. This is the CI
@@ -129,9 +129,9 @@ const SELECTS = [
         disabledNotSelectable = select.value === before; // committing a disabled option is a no-op
       }
 
-      // Grok/xai option renders an initial-letter chip, never a cloned brand mark.
+      // #3708: the Grok/xai option wears the real Grok mark cloned from first run, not the letter chip.
       const grokLi = Array.from(list.children).find((li) => li.dataset.value === 'xai');
-      const grokChip = !!(grokLi && grokLi.querySelector('.pcombo-chip') && !grokLi.querySelector('svg'));
+      const grokChip = !!(grokLi && !grokLi.querySelector('.pcombo-chip') && grokLi.querySelector('[data-pmark="xai"] svg path'));
 
       // Esc closes and refocuses the trigger.
       trigger.click(); // open again
@@ -215,7 +215,7 @@ const SELECTS = [
     ok(t + 'Enter closes the listbox', r.closedAfterEnter);
     ok(t + 'a coming-soon option is aria-disabled', r.disabledIsDisabled);
     ok(t + 'a coming-soon option is NOT selectable', r.disabledNotSelectable);
-    ok(t + 'Grok/xai renders an initial-letter chip, not a brand mark', r.grokChip);
+    ok(t + 'Grok/xai renders its real Grok mark, not the letter chip (#3708)', r.grokChip);
     ok(t + 'Esc closes the listbox', r.reopened && r.escClosed);
     ok(t + 'Esc returns focus to the trigger', r.escRefocus);
     ok(t + 'a no-dispatch programmatic value change re-renders the trigger (value-setter wrap)',

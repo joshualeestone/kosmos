@@ -193,17 +193,19 @@ async function measure(page) {
     });
     chk(ask !== null && ask.askBottom <= ask.boxTop && Math.abs(ask.boxBottom - ask.innerHeight) <= 1,
       'A1i a visible phone-pairing card is not covered, and the box still meets the bottom', JSON.stringify(ask));
-    // A1j: a body-level notice BELOW the panel (#conn, the connection banner) stays visible and the
-    // box shrinks to make room, with no page scroll.
+    // A1j: the connection banner (#conn) sits ABOVE the panel since #3708 (at the top of every view,
+    // it was below the panel before). It is not covered by the box, keeps a gap under the header, and
+    // the box shrinks to make room: the box still meets the bottom, with no page scroll.
     const conn = await page.evaluate(() => {
       const c = document.getElementById('conn'); if (!c) return null;
       const keep = c.textContent; c.hidden = false; c.textContent = 'Fixture connection notice';
       const r = c.getBoundingClientRect(), x = document.getElementById('d-talk-box').getBoundingClientRect();
-      const out = { connTop: Math.round(r.top), connBottom: Math.round(r.bottom), boxBottom: Math.round(x.bottom), innerHeight: window.innerHeight, docScrollH: document.documentElement.scrollHeight };
+      const h = document.querySelector('.apphead').getBoundingClientRect();
+      const out = { headBottom: Math.round(h.bottom), connTop: Math.round(r.top), connBottom: Math.round(r.bottom), boxTop: Math.round(x.top), boxBottom: Math.round(x.bottom), innerHeight: window.innerHeight, docScrollH: document.documentElement.scrollHeight };
       c.textContent = keep; c.hidden = true; return out;
     });
-    chk(conn !== null && conn.boxBottom <= conn.connTop && conn.connBottom <= conn.innerHeight + 1 && conn.docScrollH <= conn.innerHeight + 1,
-      'A1j a connection notice below the panel stays on screen, the box makes room, no page scroll', JSON.stringify(conn));
+    chk(conn !== null && conn.connTop > conn.headBottom && conn.connBottom <= conn.boxTop && Math.abs(conn.boxBottom - conn.innerHeight) <= 1 && conn.docScrollH <= conn.innerHeight + 1,
+      'A1j a connection notice above the panel is not covered, the box makes room and still meets the bottom, no page scroll', JSON.stringify(conn));
     // A1k: scrolling a tall identity column (#3385) never slides it under the back link.
     const scrolled = await page.evaluate(() => {
       const d = document.querySelector('#panel-detail .dleft'); const b = document.getElementById('detail-back');
