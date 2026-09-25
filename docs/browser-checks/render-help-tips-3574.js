@@ -56,7 +56,7 @@ const tipsRunning = (page) => page.waitForFunction(() => TIPS_STATE !== null && 
    filter decodes a lone pixel to its raw bytes (no left or upper neighbour), so no decoder is needed. */
 const pixel = async (page, x, y) => {
   const buf = await page.screenshot({ clip: { x, y, width: 1, height: 1 } });
-  if (buf[24] !== 8 || (buf[25] !== 2 && buf[25] !== 6)) throw new Error('pixel: not an 8-bit RGB(A) PNG (depth ' + buf[24] + ', type ' + buf[25] + ')');
+  if (buf[24] !== 8 || (buf[25] !== 2 && buf[25] !== 6) || buf[28] !== 0) throw new Error('pixel: not an 8-bit, non-interlaced RGB(A) PNG (depth ' + buf[24] + ', type ' + buf[25] + ', interlace ' + buf[28] + ')');
   const idat = [];
   for (let o = 8; o < buf.length;) { const len = buf.readUInt32BE(o), type = buf.toString('ascii', o + 4, o + 8); if (type === 'IDAT') idat.push(buf.subarray(o + 8, o + 8 + len)); o += 12 + len; }
   const raw = zlib.inflateSync(Buffer.concat(idat));
@@ -183,7 +183,7 @@ const resetStore = (state) => fs.writeFileSync(tipsStore.FILE(), JSON.stringify(
     await page.click('#tabs [data-tab="agents"]');
     await page.waitForTimeout(2800);
     const left16 = await cardState(page);
-    chk(!(left16.shown && left16.title === 'Your agent\'s memory'), 'T16 leaving her page closes the ring tip, and it does not follow to the board', JSON.stringify(left16));
+    chk(!left16.shown, 'T16 leaving her page closes the ring tip, and it does not follow to the board', JSON.stringify(left16));
     chk(!(await api('GET')).seen.includes('ring'), 'T16 the ring tip was not recorded as seen when its screen went away');
     await page.click('#grid [data-agent]');
     chk(await waitTitle(page, 'Your agent\'s memory', 4000), 'T16 coming back to her page shows the ring tip again');
@@ -201,7 +201,7 @@ const resetStore = (state) => fs.writeFileSync(tipsStore.FILE(), JSON.stringify(
     await page.click('#grid [data-agent]');
     await page.waitForTimeout(3000);
     const t3c = await page.evaluate(() => ({ ring: !!document.querySelector('#panel-detail #d-ring svg'), card: (() => { const c = document.getElementById('tipcard'); return c && !c.hidden ? c.querySelector('h2').textContent : null; })() }));
-    chk(!t3c.ring && t3c.card !== 'Your agent\'s memory', 'T3c unknown memory: no ring on her page, and no ring tip', JSON.stringify(t3c));
+    chk(!t3c.ring && t3c.card === null, 'T3c unknown memory: no ring on her page, and no ring tip', JSON.stringify(t3c));
     resetStore({ seen: seen3c, off: false });
     await page.click('#tabs [data-tab="agents"]');
     await page.reload({ waitUntil: 'networkidle' });
@@ -835,7 +835,9 @@ const resetStore = (state) => fs.writeFileSync(tipsStore.FILE(), JSON.stringify(
     for (const [eng, launcher] of [['chromium', chromium], ['webkit', webkit]]) {
       noAgents();
       resetStore({ seen: [], off: false });
-      const b33 = eng === 'chromium' ? browser : await launcher.launch({ headless: process.env.HEADED === '0' });
+      /* Its own browser, and for Chromium without Playwright's --hide-scrollbars, so the page has a real scrollbar and
+         the tab layout's gutter is on screen to be read. */
+      const b33 = await launcher.launch({ headless: process.env.HEADED === '0', ...(eng === 'chromium' ? { ignoreDefaultArgs: ['--hide-scrollbars'] } : {}) });
       try {
         const p33 = await b33.newPage({ viewport: { width: 1280, height: 860 } });
         await p33.goto(URL, { waitUntil: 'networkidle' });
@@ -852,13 +854,23 @@ const resetStore = (state) => fs.writeFileSync(tipsStore.FILE(), JSON.stringify(
         const dimmed = (px) => px[0] < 225 && px[1] < 225 && px[2] < 225;
         chk(steps33.length === 4 && steps33.every((x) => x.px.every(dimmed)), 'T33 [' + eng + '] every tour step dims all the way to the window\'s corners', JSON.stringify(steps33));
         chk(steps33.every((x) => x.gutter.cls && /gradient/.test(x.gutter.img)), 'T33 [' + eng + '] the page ground under the scrollbar gutter dims with it', JSON.stringify(steps33.map((x) => x.gutter)));
+        /* The ground the gutter shows while dimmed, per look. A gutter pixel cannot be read here (macOS draws overlay
+           scrollbars in every headless engine), so this reads the canvas colour it is painted from: light's own ground,
+           then Kosmos+ navy's, which is set on the body where the root cannot see it (the case the body read exists
+           for; without it navy's gutter would take light's ground). */
+        const canvas = async () => p33.evaluate(() => getComputedStyle(document.documentElement).backgroundColor);
+        const lightCanvas = await canvas();
+        await p33.evaluate(() => { document.body.classList.add('plus-active'); tipLayout(TIP_OPEN, document.getElementById('tipcard')); });
+        const navyCanvas = await canvas();
+        await p33.evaluate(() => { document.body.classList.remove('plus-active'); tipLayout(TIP_OPEN, document.getElementById('tipcard')); });
+        chk(lightCanvas === 'rgb(250, 249, 247)' && navyCanvas === 'rgb(19, 33, 64)', 'T33 [' + eng + '] the gutter is painted from the look\'s own ground: light, and Kosmos+ navy', JSON.stringify({ lightCanvas, navyCanvas }));
         await p33.click('#tipcard .tip-go');
         await p33.waitForTimeout(300);
         const after = await corners();
         const cls33 = await p33.evaluate(() => document.documentElement.classList.contains('tip-dimming') || getComputedStyle(document.documentElement).backgroundImage !== 'none');
         chk(after.every((px) => px[0] > 240) && !cls33, 'T33 [' + eng + '] CONTROL: closed, the same pixels are the bright page and the gutter dim is gone', JSON.stringify({ after, cls33 }));
         await p33.close();
-      } finally { if (eng !== 'chromium') await b33.close(); }
+      } finally { await b33.close(); }
     }
 
     chk(errs.length === 0, 'T8 no page errors', errs.join(' | '));
