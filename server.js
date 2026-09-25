@@ -723,6 +723,7 @@ const githubdevice = require('./engine/githubdevice');
 const remote = require('./engine/remote');
 const phonenotify = require('./engine/phonenotify');
 const styles = require('./engine/styles');
+const tips = require('./engine/tips');
 const inflight = require('./engine/inflight');
 
 /**
@@ -6740,6 +6741,26 @@ const server = http.createServer((req, res) => {
         sendJson(res, 200, { ...styles.effective(), themes: styles.themeList() });
       })
       .catch(() => sendJson(res, 400, { error: 'we could not save the style' }));
+    return;
+  }
+  /* ---- First-run help and first-visit tips (#3574): which tips are closed, and the off switch ---- */
+  if (pathname === '/api/tips' && (req.method === 'GET' || req.method === 'HEAD')) {
+    try { const r = tips.read(); sendJson(res, 200, { ok: r.ok, seen: r.seen, off: r.off, because: r.because || null }); }
+    catch { sendJson(res, 500, { error: 'we could not read your tips' }); }
+    return;
+  }
+  if (pathname === '/api/tips' && req.method === 'PUT') {
+    readBody(req)
+      .then((buf) => {
+        let body;
+        try { body = JSON.parse(buf.toString('utf8') || '{}') || {}; }
+        catch { sendJson(res, 400, { error: 'we could not read that request' }); return; }
+        if (typeof body !== 'object' || Array.isArray(body)) { sendJson(res, 400, { error: 'we could not read that request' }); return; }
+        const saved = tips.set({ seen: body.seen, off: body.off });
+        if (!saved.ok) { sendJson(res, 400, { error: saved.because }); return; }
+        sendJson(res, 200, { ok: true, seen: saved.seen, off: saved.off });
+      })
+      .catch(() => sendJson(res, 400, { error: 'we could not save your tips' }));
     return;
   }
   /* #2623: the /api/notify-setting route (the "let the Kosmos team know when an
