@@ -7279,6 +7279,13 @@ function snapshot() {
   };
 }
 
+/* #3410/#3718 (Mona Lisa, 2026-09-25): the Issue tile and filter mean "needs the person":
+   needs_you, needs_trust, and a connection Kosmos has given up reconnecting. The page's data-attn
+   inlines the same rule (its painters stay self-contained), and the route counts with this. */
+function needsPerson(a) {
+  return Boolean(a) && (a.state === STATE.NEEDS_YOU || a.state === 'needs_trust'
+    || (a.state === STATE.CONNECTION_LOST && Boolean(a.reconnect) && a.reconnect.phase === 'gave_up'));
+}
 /**
  * The numbers on the summary line, for a given set of cards.
  *
@@ -7291,13 +7298,6 @@ function snapshot() {
  * `unreadableLines` is passed in rather than derived: it is a fact about what
  * tmux returned, not about the cards, and it survives filtering unchanged.
  */
-/* #3410/#3718 (Mona Lisa, 2026-09-25): the Issue tile and filter mean "needs the person":
-   needs_you, needs_trust, and a connection Kosmos has given up reconnecting. The page's data-attn
-   inlines the same rule (its painters stay self-contained), and the route counts with this. */
-function needsPerson(a) {
-  return Boolean(a) && (a.state === STATE.NEEDS_YOU || a.state === 'needs_trust'
-    || (a.state === 'connection_lost' && Boolean(a.reconnect) && a.reconnect.phase === 'gave_up'));
-}
 function countAgents(agents, unreadableLines, unreadableSamples) {
   return {
     total: agents.length,

@@ -30,9 +30,11 @@ up needs the person, so it should look like it. Angel makes the edit (agreed in 
   with it, and the route adds the offline needs_trust rows with it (they are built after the count).
   Not changed: the per-project pill counts (engine/projects.js). A project's members come from a
   projection without `reconnect` and without offline trust rows, so it cannot apply the rule
-  without the same borrow pjMember does; that is a separate change, recorded here, not built.
+  without the same borrow pjMember does; that is card #3726 (also cited at engine/projects.js).
 - web/index.html prompterCheckinQuestion: given up asks "Restart it, or is it done?", the card's verb.
-- Tests: web.connection-lost-3410.test.js pins the sentences and the look per phase (control: no
+- Tests: engine/status.test.js pins countAgents' rule and the route's offline needs_trust count;
+  render-chip-filters-3423.js 2f checks card, list row and org node against needsPerson for
+  needs_trust, given up, reconnecting and idle. web.connection-lost-3410.test.js pins the sentences and the look per phase (control: no
   self-heal stays paused). The browser check asserts the card class and the computed border colour
   per phase on the live page.
 

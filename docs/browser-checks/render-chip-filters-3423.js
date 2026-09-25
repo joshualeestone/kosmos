@@ -52,6 +52,7 @@ const { chromium } = require('playwright');
 const fleet = require('../../test-support/fleet');
 const create = require('../../engine/create');
 const srv = require('../../server.js');
+const { needsPerson } = require('../../engine/status'); // #3410/#3718: the engine's Issue rule, compared below
 
 const OUT = process.env.SHOT_DIR || fs.mkdtempSync(path.join(os.tmpdir(), 'cf-shots-'));
 const fail = [];
@@ -170,7 +171,8 @@ function chk(ok, label, extra) {
         && onodeMarks.beaFound === true && onodeMarks.beaAttn === false && onodeMarks.beaNoproj === false,
       'onode() (#orgview) marks match: the needs_you-no-project node gets both markers, the idle node gets neither', JSON.stringify(onodeMarks));
 
-    // 2e. the QUESTION divergence (the mirror of 2b): a needs_you agent whose question
+    // 2e. the QUESTION divergence (the one case where the red look and the Issue filter
+    // differ, now that 2b's needs_trust is in both): a needs_you agent whose question
     // was reported BY THE AGENT (stateReportedBy:'agent') renders the CALM .question
     // visual (cardStOf calms it), NOT the red .attn. But it IS still in c.needsYou, so
     // it MUST carry data-attn. Pins the other direction: a refactor keying data-attn on
@@ -190,6 +192,37 @@ function chk(ok, label, extra) {
     });
     chk(q.dataAttn === true && q.visualQuestion === true && q.visualAttn === false,
       'an agent-reported needs_you question gets data-attn (matches c.needsYou) but the calm question visual, not attn', JSON.stringify(q));
+
+    // 2f. #3410/#3718: every render copy of the Issue rule agrees with the engine's needsPerson,
+    // for the cases the rule grew: needs_trust (the offline trust-wait row) and a connection
+    // Kosmos gave up (versus one still reconnecting). card() and lrow() are called directly; the
+    // org node is read from a real paintOrg with LAST swapped for the case, then restored.
+    const CASES = [
+      { key: 'needs_trust', patch: { state: 'needs_trust', running: false, needsTrust: true } },
+      { key: 'gave_up', patch: { state: 'connection_lost', reconnect: { phase: 'gave_up', tries: 3 } } },
+      { key: 'waiting', patch: { state: 'connection_lost', reconnect: { phase: 'waiting', tries: 0 } } },
+      { key: 'idle', patch: { state: 'idle' } },
+    ];
+    for (const c of CASES) {
+      const got = await page.evaluate((patch) => {
+        const real = LAST.find((a) => a.sessionName === 'nyx');
+        const row = Object.assign({}, real, patch);
+        const has = (html) => { const d = document.createElement('div'); d.innerHTML = html; return d.firstElementChild.hasAttribute('data-attn'); };
+        const saved = LAST;
+        let org = null;
+        try {
+          LAST = saved.map((a) => (a.sessionName === 'nyx' ? row : a));
+          document.getElementById('orgview').hidden = false;
+          paintOrg();
+          const n = document.querySelector('#orgmap .onode[data-agent="nyx"]');
+          org = n ? n.hasAttribute('data-attn') : null;
+        } finally { LAST = saved; }
+        return { card: has(card(row)), lrow: has(lrow(row)), org };
+      }, c.patch);
+      const want = needsPerson(c.patch);
+      chk(got.card === want && got.lrow === want && got.org === want,
+        `2f ${c.key}: card, list row and org node all ${want ? 'are' : 'are not'} in the Issue filter, as needsPerson says`, JSON.stringify(got));
+    }
 
     // 3. setBoardFilter mutual exclusivity + aria-pressed.
     const excl = await page.evaluate(() => {

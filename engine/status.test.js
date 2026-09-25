@@ -4678,7 +4678,7 @@ test('#3718: the /api/status route adds offline needs_trust rows to the Issue co
   const src = require('fs').readFileSync(require('path').join(__dirname, '..', 'server.js'), 'utf8');
   const at = src.indexOf('const counts = countAgents(agents,');
   assert.ok(at > -1, 'the route no longer counts with countAgents');
-  const region = src.slice(at, src.indexOf('\n      // ', src.indexOf('counts.notRunning =', at)));
+  const region = src.slice(at, at + 6000); // the route's count block; the assertion names the exact statement
   assert.match(region, /counts\.needsYou \+= offline\.filter\(needsPerson\)\.length;/,
     'the route does not count offline needs_trust rows into the Issue tile, so the filter would show more than the tile says');
   const { needsPerson } = require('./status');
