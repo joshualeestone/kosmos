@@ -564,6 +564,8 @@ function progressOf(task) {
  * let a finished part's agent decide "In progress" and get named for work it had handed on.
  */
 function claimWho(task) {
+  // A closed task has nobody to ask about, whatever its parts say (closing leaves parts open).
+  if (!task || task.closedAt || progressOf(task).closed) return null;
   const p = partsOf(task).find((x) => x && x.who && !x.closedAt);
   return p ? p.who : null;
 }

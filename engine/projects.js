@@ -766,52 +766,52 @@ function joinTaskClaims(tasks, all, memberOf, roster, project) {
     const who = tasksMod.claimWho(t);
     if (!who || tasksMod.progressOf(t).closed) return withParts(t);
     return aboutWho(who, (() => {
-    // ⚠️ A departed assignee: removal does not unassign (the given-to record
-    // is the person's, and history should not vanish because membership
-    // changed), but the taught convention and the managed block both derive
-    // from membership, so a non-member's report cannot be checked against
-    // this task. Could-not-tell with the real reason -- rendering a
-    // still-fresh "task N" report as a definite claim here would be the
-    // told-when-not shape back through the removal door.
-    if (!members.includes(who)) {
-      return {
-        ...withParts(t),
-        claim: {
-          claimed: null,
-          because: 'this agent is no longer on the project, so what it reports cannot be checked against this task',
-        },
-      };
-    }
-    if (rosterUnreadable) {
-      return {
-        ...withParts(t),
-        claim: {
-          claimed: null,
-          because: 'we could not check which agents are running, so we cannot say who holds this task',
-        },
-      };
-    }
-    if (borrowed(who)) {
-      return {
-        ...withParts(t),
-        claim: {
-          claimed: null,
-          because: 'we cannot tell whether this is the same agent, so we cannot say whether it holds this task',
-        },
-      };
-    }
-    /* #779: an ambiguous number is not refused outright any more; the
-       matcher is asked for the qualified spelling ("task N of <project>"),
-       which alone is a claim here, and a bare "task N" is could-not-tell
-       with the reason and the spelling that would settle it. */
-    if (ambiguous(t, who)) {
-      return { ...withParts(t), claim: tasksMod.claimFor(t, readFor(who), { project: project || null, ambiguous: true }) };
-    }
-    /* One reading, for the agent the claim is about (claimWho). The claim is asked of
-       the task as a whole, because "task 15" in a report is a claim about the
-       task; per-part claims would need a spelling agents have not been taught
-       and would be a fact nobody computed. */
-    return { ...withParts(t), claim: tasksMod.claimFor(t, readFor(who)) };
+      // ⚠️ A departed assignee: removal does not unassign (the given-to record
+      // is the person's, and history should not vanish because membership
+      // changed), but the taught convention and the managed block both derive
+      // from membership, so a non-member's report cannot be checked against
+      // this task. Could-not-tell with the real reason -- rendering a
+      // still-fresh "task N" report as a definite claim here would be the
+      // told-when-not shape back through the removal door.
+      if (!members.includes(who)) {
+        return {
+          ...withParts(t),
+          claim: {
+            claimed: null,
+            because: 'this agent is no longer on the project, so what it reports cannot be checked against this task',
+          },
+        };
+      }
+      if (rosterUnreadable) {
+        return {
+          ...withParts(t),
+          claim: {
+            claimed: null,
+            because: 'we could not check which agents are running, so we cannot say who holds this task',
+          },
+        };
+      }
+      if (borrowed(who)) {
+        return {
+          ...withParts(t),
+          claim: {
+            claimed: null,
+            because: 'we cannot tell whether this is the same agent, so we cannot say whether it holds this task',
+          },
+        };
+      }
+      /* #779: an ambiguous number is not refused outright any more; the
+         matcher is asked for the qualified spelling ("task N of <project>"),
+         which alone is a claim here, and a bare "task N" is could-not-tell
+         with the reason and the spelling that would settle it. */
+      if (ambiguous(t, who)) {
+        return { ...withParts(t), claim: tasksMod.claimFor(t, readFor(who), { project: project || null, ambiguous: true }) };
+      }
+      /* One reading, for the agent the claim is about (claimWho). The claim is asked of
+         the task as a whole, because "task 15" in a report is a claim about the
+         task; per-part claims would need a spelling agents have not been taught
+         and would be a fact nobody computed. */
+      return { ...withParts(t), claim: tasksMod.claimFor(t, readFor(who)) };
     })());
   });
 }

@@ -110,7 +110,7 @@ test('the state line shows only when grouping by project; the agent pill shows i
 
 test('Closed is not a tile; it stays the folded list', () => {
   assert.match(SCRIPT, /getElementById\('tsk-tiles'\)\.innerHTML = !TSK\.data \? '' : TSK_GROUPS\.filter\(\(g\) => g\.k !== 'closed'\)\.map/);
-  assert.match(SCRIPT, /<details class="tsk-fold"/, 'the Closed fold is gone');
+  // That Closed renders as the fold (and its count) is pinned by render-tasks-view-3559's fold arms.
 });
 
 test('the two big gaps: less top padding, an empty crumb takes no room, and the status line keeps one reserved line', () => {
@@ -136,4 +136,9 @@ test('#3559 (Josh): the Tasks tab and the rail button start hidden and follow th
   assert.deepEqual([els.tab.hidden, els.rail.hidden], [false, false]);
   gate(false);
   assert.deepEqual([els.tab.hidden, els.rail.hidden], [true, true], 'a false (or missing) tasksTab does not hide them');
+});
+
+test('a closed task has no claim agent, whatever its parts say (closing leaves parts open)', () => {
+  assert.equal(tasks.claimWho({ number: 6, closedAt: '2026-09-25T00:00:00Z', parts: [{ id: 1, who: 'rex', closedAt: null }] }), null);
+  assert.equal(tasks.claimWho({ number: 7, closedAt: null, parts: [{ id: 1, who: 'rex', closedAt: null }] }), 'rex', 'an open task lost its agent (control)');
 });
