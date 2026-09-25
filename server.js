@@ -711,6 +711,14 @@ const prompternudge = require('./engine/prompternudge'); // #3508: the Prompter'
 const class1autohandle = require('./engine/class1-autohandle'); // #2808 class-1 (c): invisible auto-handle
 const connlostHeal = require('./engine/connlost-heal'); // #3410 PR 2b: nudge a network-wedged agent when the network is back
 const liveExecution = require('./engine/live-execution'); // #2808 class-1 (c): gate the auto-handle sweep on the board's live-execution opt-in
+/* #3410: the self-heal's per-agent record, at module scope so /api/status can say where a
+   connection_lost agent's recovery stands (connlostHeal.reconnectPhase). In memory: a board
+   restart clears it, and so clears an escalation. */
+const CONNLOST_BOOK = new Map();
+/* Whether the self-heal sweep actually runs, so the page never promises a retry nobody will send. */
+function connlostHealEnabled() {
+  return connlostHeal.healEnabled(liveExecution.liveExecutionAllowed(), process.env); // the sweep's own rule
+}
 const heartbeatSetting = require('./engine/heartbeat-setting');
 const recommenderSetting = require('./engine/recommender-setting'); // #2619
 const recommender = require('./engine/recommender'); // #3595: the Recommender's behaviour (pure step; the runner is below)
@@ -3526,6 +3534,9 @@ const server = http.createServer((req, res) => {
            Found by wrapping this route's output in the fixture's strict proxy,
            which threw the moment a renderer touched it. */
         running: true,
+        /* #3410: where the automatic reconnect stands, only for a connection_lost agent (null
+           otherwise, and null when the self-heal is not running, so the page promises nothing). */
+        reconnect: a.state === 'connection_lost' ? connlostHeal.reconnectPhase(CONNLOST_BOOK.get(a.sessionName), connlostHealEnabled()) : null,
         // The name only. `plannedModelArg` returns null for "we do not know",
         // and null travels as null: the screen must not be able to tell a
         // missing job from a default.
@@ -15321,11 +15332,10 @@ function start(port = PORT) {
          stays red for a person. Same gating as the class-1 sweep: inert under
          `node --test` and before the live-execution opt-in, operator brake
          AGENT_WORKFORCE_CONNLOST_HEAL_OFF=1, own ~1-min timer, unref'd, best-effort. */
-      const connlostBook = new Map(); // in memory: a board restart (or the outage ending) clears an escalation
       const connlostTick = connlostHeal.makeTick({
         allowed: () => liveExecution.liveExecutionAllowed(),
         roster: () => safeRoster(),
-        book: connlostBook,
+        book: CONNLOST_BOOK,
         probe: () => connlostHeal.probeApi(),
         deliver: (session, text, r) => chat.deliver(session, text, r, undefined, undefined),
         DELIVERY: chat.DELIVERY,
@@ -15912,6 +15922,7 @@ if (require.main === module) {
 // routes reading `req.url` around it were.
 module.exports = {
   server, start, pathOf, decodeSegment, resetHeardBudgetForTests,
+  CONNLOST_BOOK, connlostHealEnabled, // #3410: exported so a test can pin the route's reconnect field to the sweep's own book
   givePart, // #3595: the assign-and-tell path, exported so the Assigner's real write path is tested
   /* #2036: the boot diagnostic's condition (pure truth table) AND its real call-site
      composition, exported together so BOTH are pinned. stagingRevertWarningNow wires the raw

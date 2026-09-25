@@ -118,6 +118,9 @@ const SCREEN = {
   // invented separately here, for the same "install verifies it" reason
   // every other entry in this map exists.
   auth_failed: '401 {"type":"error","error":{"type":"authentication_error","message":"OAuth access token is invalid."},"request_id":null}\n',
+  // #3410. Claude Code's own ENOTFOUND line under its prompt footer, the same byte-exact line
+  // engine/status.connectionlost-3410.test.js pins (a quoted terminal line, not our copy).
+  connection_lost: "API Error: Can't reach the API server \u2014 check your internet or DNS (ENOTFOUND)\n\n\u23f5\u23f5 accept edits \u00b7 ? for shortcuts\n",
 };
 
 /**
@@ -127,7 +130,7 @@ const SCREEN = {
  * @param {object} [opts]
  * @param {string} [opts.state]        'working' | 'needs_you' | 'idle' |
  *                                     'stopped' | 'unknown' | 'rate_limited' |
- *                                     'auth_failed'.
+ *                                     'auth_failed' | 'connection_lost'.
  *                                     VERIFIED against the real classifier.
  * @param {boolean|string} [opts.ours] true (default) ties the pane by session
  *                                     suffix; 'claim' ties it by the tmux claim

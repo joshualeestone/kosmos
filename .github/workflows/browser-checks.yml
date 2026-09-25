@@ -227,6 +227,7 @@ jobs:
             render-engmode-gate-2131
             render-home-discovery-removed-3048
             render-createnav-2190
+            render-connlost-reconnect-3410
             render-create-prefs-3081
             render-claude-connect-choice-2433
             render-picker-provider-2097

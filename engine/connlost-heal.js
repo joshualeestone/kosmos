@@ -59,13 +59,17 @@ function planHeal(entry, now, probeOk) {
 
 /* Fold one sweep's reading of an agent into its book entry. A different evidence line restarts
    the count, so only a pane that has not changed can reach MIN_SWEEPS. */
-function observe(prev, evidence) {
+function observe(prev, evidence, now) {
   // A non-array prev.nudges is kept as-is on purpose: planHeal treats corrupt history as used up
   // (escalate), and sweepOnce re-wraps it only when a nudge is actually sent.
   const nudges = prev && Array.isArray(prev.nudges) ? prev.nudges : (prev ? prev.nudges : []);
   const escalated = !!(prev && prev.escalated); // log an escalation once per loss, not every sweep
-  if (prev && prev.evidence === evidence) return { evidence, sweeps: (prev.sweeps || 0) + 1, nudges, escalated, okSince: null };
-  return { evidence, sweeps: 1, nudges, escalated, okSince: null };
+  /* #3410: lostSince marks when THIS drop began (the first lost reading after a not-lost one), so
+     the board can tell retries sent in this drop from ones kept from an earlier drop in the same
+     budget window. It never feeds the planner's cap, which deliberately spans drops. */
+  const lostSince = prev && prev.evidence != null && Number.isFinite(prev.lostSince) ? prev.lostSince : (Number.isFinite(now) ? now : null);
+  if (prev && prev.evidence === evidence) return { evidence, sweeps: (prev.sweeps || 0) + 1, nudges, escalated, okSince: null, lostSince };
+  return { evidence, sweeps: 1, nudges, escalated, okSince: null, lostSince };
 }
 
 /*
@@ -102,7 +106,7 @@ async function sweepOnce(o) {
       book.set(session, { ...prev, evidence: null, sweeps: 0, okSince });
       continue;
     }
-    const entry = observe(book.get(session), agent.stateEvidence);
+    const entry = observe(book.get(session), agent.stateEvidence, now);
     book.set(session, entry);
     let plan = planHeal(entry, now, probed ? probeOk : undefined);
     if (plan.act === 'wait' && entry.sweeps >= MIN_SWEEPS && !probed) {
@@ -147,6 +151,13 @@ function probeApi({ host = 'api.anthropic.com', port = 443, timeoutMs = 3000 } =
   });
 }
 
+/* #3410: THE one "does the self-heal run" rule, read by the sweep (makeTick) and by the board's
+   /api/status (so the page never promises a retry the sweep will not send). Two copies of this
+   drifted is the class Convention #5 names; both callers read this one. */
+function healEnabled(allowed, env) {
+  return allowed === true && (env || process.env).AGENT_WORKFORCE_CONNLOST_HEAL_OFF !== '1';
+}
+
 /* The server's per-tick wrapper, separate so its gating is testable: nothing runs unless live
    execution is allowed and the brake is off, a tick never overlaps a slow previous one, and an
    unreadable roster skips the tick. deps = { allowed, env, roster, probe, deliver, DELIVERY, log,
@@ -157,8 +168,7 @@ function makeTick(deps) {
     try { return tickBody(); } catch { return null; } // best-effort, like the class-1 sweep
   };
   function tickBody() {
-    if (!deps.allowed()) return null;                                       // inert under test / before opt-in
-    if ((deps.env || process.env).AGENT_WORKFORCE_CONNLOST_HEAL_OFF === '1') return null; // operator brake
+    if (!healEnabled(deps.allowed() === true, deps.env)) return null;       // inert under test / before opt-in, or the operator brake
     if (busy) return null;                                                  // a slow probe must not overlap
     let roster;
     try { roster = deps.roster(); } catch { return null; }
@@ -173,4 +183,28 @@ function makeTick(deps) {
   }
 }
 
-module.exports = { planHeal, observe, sweepOnce, makeTick, probeApi, MIN_SWEEPS, MAX_NUDGES, WINDOW_MS, RECOVERED_MS, NUDGE_TEXT };
+/*
+ * #3410: where the self-heal stands for one connection_lost agent, for the board to say in words.
+ * `entry` is this agent's book entry (or undefined before the first sweep has seen it); `enabled`
+ * is whether the sweep runs at all (live execution allowed and the operator brake off).
+ * Returns null when the sweep is not running (nothing will retry it, so the page must not promise
+ * a retry), else { phase, tries }:
+ *   'waiting'  - no retry sent yet (the sweep is waiting out the error or for the network)
+ *   'retried'  - one or more retries sent in this outage, still under the cap
+ *   'gave_up'  - the cap is spent or the entry escalated; a person has to step in
+ * Corrupt history counts as used up, matching planHeal.
+ */
+function reconnectPhase(entry, enabled) {
+  if (enabled !== true) return null;
+  if (!entry) return { phase: 'waiting', tries: 0 };
+  const tries = Array.isArray(entry.nudges) ? entry.nudges.length : MAX_NUDGES;
+  if (entry.escalated || tries >= MAX_NUDGES) return { phase: 'gave_up', tries };
+  // "retried" only for a retry sent in THIS drop (lostSince), not one kept from an earlier drop.
+  // evidence null: the sweep last saw this agent recovered and has not yet seen this drop.
+  if (entry.evidence == null) return { phase: 'waiting', tries };
+  const since = Number.isFinite(entry.lostSince) ? entry.lostSince : -Infinity;
+  const thisDrop = (Array.isArray(entry.nudges) ? entry.nudges : []).filter((t) => Number.isFinite(t) && t >= since).length;
+  return thisDrop > 0 ? { phase: 'retried', tries } : { phase: 'waiting', tries };
+}
+
+module.exports = { planHeal, observe, sweepOnce, makeTick, probeApi, reconnectPhase, healEnabled, MIN_SWEEPS, MAX_NUDGES, WINDOW_MS, RECOVERED_MS, NUDGE_TEXT };

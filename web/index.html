@@ -15792,6 +15792,12 @@ function stateCopyOf(a) {
   // the red "Issue". The predicate is byte-identical to cardStOf's above (inlined, not
   // shared, so this painter stays self-contained for eval-extraction), so label and card agree.
   if (a && a.state === 'needs_you' && a.stateReportedBy === 'agent') return STATE_COPY.question;
+  /* #3410: while the self-heal still has retries to give (a.reconnect, from /api/status), the
+     person has nothing to do yet, so the label says Kosmos is on it. Only when it has given up,
+     or is not running, does the label go back to "Connection lost" (the card's look is the same
+     paused style either way; only the word changes). */
+  if (a && a.state === 'connection_lost' && a.reconnect
+    && (a.reconnect.phase === 'waiting' || a.reconnect.phase === 'retried')) return { label: 'Reconnecting…', attn: false };
   return STATE_COPY[a.state] || STATE_COPY.unknown;
 }
 function taskLine(a, opts) {
@@ -15949,9 +15955,21 @@ function stateReason(a, opts) {
      today's engine (connection_lost is only ever SCRAPED) and kept for symmetry,
      so a structured source strengthens the sentence by arriving. */
   if (a && a.state === 'connection_lost') {
-    return a.stateConfidence === 'scraped'
+    /* #3410: then say what Kosmos is doing about it (a.reconnect, from /api/status). No
+       reconnect field means the self-heal is not running, so no retry is promised. */
+    const ph = a.reconnect && a.reconnect.phase;
+    /* Worded for what is true every time: the sweep only retries once it can reach the API, so
+       a give-up usually means the agent is stuck, not the internet; and the retry budget can span
+       more than one drop (connlost-heal.js WINDOW_MS/RECOVERED_MS), so it says tries were made,
+       not that they were made this time. */
+    if (ph === 'gave_up') return 'Kosmos tried to reconnect it several times and has stopped. If the internet is working, restart the agent. It will start fresh.';
+    const lost = a.stateConfidence === 'scraped'
       ? 'Looks like it lost its internet connection'
       : 'It lost its internet connection';
+    if (ph === 'waiting') return lost + '. Kosmos will retry it automatically.';
+    /* "Has asked": an attempt was made, not that it landed (the sweep counts every attempt). */
+    if (ph === 'retried') return lost + '. Kosmos has asked it to try again.';
+    return lost;
   }
   if (!a || a.state !== 'rate_limited') return '';
   /* 📌 THE HEDGE STAYS, THE VOCABULARY CHANGED (#215, Josh 2026-08-21 18:38:
@@ -19761,7 +19779,14 @@ function prompterCheckinQuestion(n) {
      reason, #3410): both are "reconnect it" situations, not "it stopped". */
   const to = n && n.to;
   if (to === 'auth_failed') return 'needs to sign in again. Reconnect it, or is it done?';
-  if (to === 'connection_lost') return 'lost its connection. Reconnect it, or is it done?';
+  if (to === 'connection_lost') {
+    /* #3410: while Kosmos is still reconnecting it (the card says "Reconnecting…"), do not ask the
+       person to reconnect it; ask only whether it is finished. Same LAST lookup as pjMember. */
+    const live = (typeof LAST !== 'undefined' && Array.isArray(LAST)) ? LAST.find((a) => a && a.sessionName === n.session) : null;
+    const ph = live && live.reconnect && live.reconnect.phase;
+    if (ph === 'waiting' || ph === 'retried') return 'lost its connection, and Kosmos is reconnecting it. Is it done, or still mid-something?';
+    return 'lost its connection. Reconnect it, or is it done?';
+  }
   // The catch-all covers stopped/idle/unknown (all in heartbeat's ASK_ON_EXIT_TO),
   // so "gone quiet" reads honestly for an idle agent, not only a stopped one.
   return 'seems to have gone quiet. Still mid-something, finished, or stopped?';
@@ -40667,6 +40692,12 @@ function pjToldGroupLine(told) {
  * never as something healthy, and never as nothing at all.
  */
 function pjMember(m, suppressTold, withMinus, hideState) {
+  /* #3410: the member projection carries `state` but not the board's `reconnect`, so take it
+     from the same agent in the latest /api/status (LAST), keyed by sessionName. Without this
+     the members list says "Connection lost" while the agent's own card says "Reconnecting…". */
+  const liveM = (m && m.state === 'connection_lost' && typeof LAST !== 'undefined' && Array.isArray(LAST))
+    ? Object.assign({}, m, { reconnect: ((LAST.find((a) => a && a.sessionName === m.sessionName)) || {}).reconnect || null })
+    : m;
   // suppressTold: the roster's identical verdicts are being said ONCE below
   // the list (pjSharedTold), so the per-member span would triple-state it.
   // #3131 (Josh 6.68): hideState drops the per-member STATE LABEL text
@@ -40768,7 +40799,7 @@ function pjMember(m, suppressTold, withMinus, hideState) {
          the card/row/detail on the state word (it names the cause when the member
          payload carries a.disruption, and falls back to "Restarting agent" when it
          does not -- honest either way). */
-      ? (hideState ? '' : '<small' + (needsYou ? ' class="pj-attn"' : '') + '>' + esc(stateCopyOf(m).label)
+      ? (hideState ? '' : '<small' + (needsYou ? ' class="pj-attn"' : '') + '>' + esc(stateCopyOf(liveM).label)
         + (m.state === 'unknown' && m.because ? ': ' + esc(m.because) : '') + '</small>')
       /* #3212 (Josh 6.72): in the ROOM column (hideState) the question-mark badge on the avatar
          carries "cannot reach" visually, so the sentence is VISUALLY HIDDEN (.vh clip) rather than
