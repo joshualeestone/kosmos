@@ -9,8 +9,9 @@ things:
 1. A person (Josh) reads the current Google Play Payments policy and its exceptions before the first
    upload to any Play track, and again before the production release. No policy details are stated
    as fact.
-2. It is not live until the coordinator deploy.
-3. The undo: turn it off with the `CAN_BUY_HERE` switch (or revert #121) and deploy.
+2. It is not live until the coordinator deploy, which must be live before the first Play upload.
+3. The undo: revert all five commits of #121 and deploy (changing only the switch line would leave
+   #121's Android tests failing).
 4. One line saying the phone checks are in kosmos-relay's android-no-purchase-718 plan, with the
    full tester script as card kosmos #3699.
 
@@ -25,5 +26,6 @@ things:
 - **No policy summary:** policies change and differ by country; a stale summary would read as settled.
 
 ## Weakest part
-The item names kosmos-relay `CAN_BUY_HERE` and #121. If that switch changes, this paragraph must
-follow it; nothing checks the two against each other.
+The item names kosmos-relay `CAN_BUY_HERE`, #121 and its five commits, and the switch line before
+it. If later commits change that code, the undo may need a fresh read (a revert may conflict);
+nothing checks the doc against the code.
