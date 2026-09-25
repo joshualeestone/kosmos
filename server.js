@@ -3951,6 +3951,8 @@ const server = http.createServer((req, res) => {
            the fed routes enforce membership server-side regardless. */
         kosmos_plus: fedKosmosPlusNow(),
         federationLive: federationLiveNow(),
+        /* #3564: this board can make and run swarms; the New agent screen offers one only then. */
+        swarms: true,
         /* 🛑 NO OFFER FROM A BOARD THAT CANNOT TAKE ONE. A Kosmos running from
            its source (this Mac's, under the hand plist) cannot install: the
            install route answers "it updates from git, not from here". But the
@@ -15308,6 +15310,7 @@ function start(port = PORT) {
             readProfile: (n) => store.readProfile(n),
             writeProfile: (n, patch) => store.writeProfile(n, patch),
             interrupt: (n) => chat.interrupt(n, roster),
+            stopHelpers: (n, count) => chat.stopHelpers(n, roster, count),
             say: (n, text) => keepAgentReply(n, text),
           });
         } catch { /* best-effort; the card still shows today's tokens against the limit */ }

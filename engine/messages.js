@@ -1349,7 +1349,8 @@ function sendPost({ fromPane, sender: resolvedSender, project, projectName, text
   const outcomes = {};
   let reached = 0;
   /* #3564: a swarm switched OFF in this project is not woken by the room, unless the
-     post @-names it. It stays a member and the record still lists it. */
+     post @-names it. It stays a member, but a post it was not sent is not logged as
+     sent to it, so an @-name later tells it what it missed. */
   const projectsMod = require('./projects');   // lazy: projects requires this module
   const offHere = new Set(recipients.filter((n) => {
     if (mentioned.has(n)) return false;
@@ -1475,7 +1476,7 @@ function sendPost({ fromPane, sender: resolvedSender, project, projectName, text
   // tagged -- fewer matches, never a false one, which is exactly #460's law
   // that an ambiguous quote resolves to no styling.
   const quotes = quotedSegments(stored, from, projectId, log);
-  appendLog({ kind: 'post', id, project: projectId, from, to: recipients, text: stored, at, outcomes,
+  appendLog({ kind: 'post', id, project: projectId, from, to: recipients.filter((n) => !offHere.has(n)), text: stored, at, outcomes,
     ...(quotes.length ? { quotes } : {}),
     /* #185: the tokenizer's verdict, persisted at the one moment it runs.
        The unanswered state keys on WHO WAS ASKED, and re-deriving that at

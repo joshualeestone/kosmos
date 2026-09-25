@@ -2198,11 +2198,16 @@ test('#3564: a swarm switched OFF in a project is not woken by the room, unless 
       const row1 = messages.record().rows.filter((m) => m.kind === 'post').pop();
       assert.ok('leo' in row1.outcomes, 'CONTROL: the other member was woken');
       assert.equal('april' in row1.outcomes, false, 'a swarm switched off in this project was woken by the room');
+      assert.ok(row1.to.includes('leo'), 'CONTROL: the woken member is logged as sent to');
+      assert.equal(row1.to.includes('april'), false, 'a post the Off swarm was never sent is logged as sent to it');
       armSender('mara-discord');
-      arm([]);
+      const tmux = arm([]);
       messages.sendPost({ fromPane: '%7', project: pid, text: '@april can you take this one' }, board.agents, MEMBERS);
       const row2 = messages.record().rows.filter((m) => m.kind === 'post').pop();
       assert.ok('april' in row2.outcomes, 'an @-named swarm that is switched off was not reached');
+      const toApril = tmux.pastedMessages().find((t) => typeof t === 'string' && t.includes('message from your colleague'));
+      assert.match(toApril || '', /talking without you: 1 earlier post this hour did not reach you/,
+        'an Off swarm brought in by name was not told the post it was skipped for');
     });
   } finally { projects.setSwarmOn(pid, 'april', true); }
 });

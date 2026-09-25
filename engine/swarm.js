@@ -330,17 +330,17 @@ function pausedFor(settings, because, now = Date.now()) {
 function sweepRows(cards) {
   return (Array.isArray(cards) ? cards : [])
     .filter((c) => c && c.isNamedOurs === true && c.sessionName && c.swarm && Number.isFinite(c.swarm.tokensToday))
-    .map((c) => ({ name: c.sessionName, tokensToday: c.swarm.tokensToday }));
+    .map((c) => ({ name: c.sessionName, tokensToday: c.swarm.tokensToday, activeHelpers: c.swarm.activeHelpers }));
 }
 
 /**
  * One pass of the daily-limit sweep over `sweepRows(cards)`. For each swarm:
- *   - active and at or over its limit: pause it ("limit"), interrupt it, and say so
- *     in its own DM thread;
+ *   - active and at or over its limit: pause it ("limit"), interrupt it, stop its
+ *     working helpers, and say so in its own DM thread;
  *   - paused by the limit on an EARLIER day: switch it back on (a new day's budget).
  * A pause by the person or by Stop now never lifts by itself. `deps` supplies
- * readProfile, writeProfile, interrupt(name), say(name, text). Never throws; returns
- * what it did, per swarm.
+ * readProfile, writeProfile, interrupt(name), stopHelpers(name, count), say(name, text).
+ * Never throws; returns what it did, per swarm.
  */
 function sweepOnce(rows, deps, now = Date.now()) {
   const did = [];
@@ -354,8 +354,10 @@ function sweepOnce(rows, deps, now = Date.now()) {
       if (s.active && s.dailyTokenLimit && c.tokensToday >= s.dailyTokenLimit && s.limitOverrideDay !== dayKey(now)) {
         deps.writeProfile(name, { swarm: pausedFor(s, 'limit', now) });
         const stopped = deps.interrupt(name);
+        const helpers = Number.isInteger(c.activeHelpers) && c.activeHelpers > 0 && typeof deps.stopHelpers === 'function'
+          ? deps.stopHelpers(name, c.activeHelpers) : null;
         deps.say(name, `I paused myself at today's token limit (${s.dailyTokenLimit} tokens). I'll start again tomorrow, or switch me back on.`);
-        did.push({ name, action: 'paused', stopped: Boolean(stopped && stopped.ok) });
+        did.push({ name, action: 'paused', stopped: Boolean(stopped && stopped.ok), helpersStopped: helpers && helpers.ok ? helpers.sent : 0 });
       } else if (!s.active && s.pausedBecause === 'limit' && s.pausedAt && Date.parse(s.pausedAt) < startOfDay(now)) {
         deps.writeProfile(name, { swarm: { ...s, active: true, pausedBecause: null, pausedAt: null } });
         did.push({ name, action: 'resumed' });

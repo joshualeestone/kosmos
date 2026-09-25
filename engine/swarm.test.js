@@ -139,16 +139,27 @@ test('#3564 cardField: null for an ordinary agent; for a swarm, settings + meter
 /* ---- the daily limit --------------------------------------------------------------- */
 
 function deps(profiles) {
-  const calls = { writes: [], interrupts: [], says: [] };
+  const calls = { writes: [], interrupts: [], stops: [], says: [] };
   return {
     calls,
     readProfile: (n) => profiles[n],
     writeProfile: (n, patch) => { calls.writes.push([n, patch]); profiles[n] = { ...profiles[n], ...patch }; },
     interrupt: (n) => { calls.interrupts.push(n); return { ok: true }; },
+    stopHelpers: (n, count) => { calls.stops.push([n, count]); return { ok: true, sent: count }; },
     say: (n, text) => { calls.says.push([n, text]); },
   };
 }
-const card = (name, tokensToday) => ({ name, tokensToday });   // a sweep row, not a board card (sweepRows derives these)
+const card = (name, tokensToday, activeHelpers = 0) => ({ name, tokensToday, activeHelpers });   // a sweep row, not a board card (sweepRows derives these)
+
+test('#3564 sweep: at the limit it stops its working helpers too (one Escape does not); none working, none stopped', () => {
+  const profiles = { busy: swarm.birthProfile({ dailyTokenLimit: 1000 }), calm: swarm.birthProfile({ dailyTokenLimit: 1000 }) };
+  const d = deps(profiles);
+  const did = swarm.sweepOnce([card('busy', 1000, 3), card('calm', 1000, 0)], d, NOW);
+  assert.deepEqual(d.calls.stops, [['busy', 3]], 'the helpers of a swarm paused at its limit were left running');
+  assert.deepEqual(did.map((x) => [x.name, x.helpersStopped]), [['busy', 3], ['calm', 0]]);
+  assert.deepEqual(swarm.sweepRows([{ isNamedOurs: true, sessionName: 'busy', swarm: { tokensToday: 5, activeHelpers: 2 } }]),
+    [{ name: 'busy', tokensToday: 5, activeHelpers: 2 }], 'the board card\'s helper count does not reach the sweep');
+});
 
 test('#3564 sweep: at the limit it pauses itself, interrupts, and says so in its DM; below the limit nothing happens', () => {
   const profiles = { big: swarm.birthProfile({ dailyTokenLimit: 1000 }), small: swarm.birthProfile({ dailyTokenLimit: 1000 }) };
@@ -207,7 +218,7 @@ function armTmux() {
   return fn;
 }
 
-test('#3564 a PAUSED swarm is typed at NOT AT ALL; an active one and a slash command get past the gate', () => {
+test('#3564 a PAUSED swarm is typed at NOT AT ALL; an active one and a looking-after command get past the gate', () => {
   store.writeProfile('lead', { ...swarm.birthProfile({ dailyTokenLimit: 1000 }), swarm: swarm.pausedFor(swarm.settingsOf(swarm.birthProfile({ dailyTokenLimit: 1000 })), 'limit') });
   try {
     withFleet([fleet.agent('lead', { state: 'idle' })], (board) => {
@@ -221,7 +232,13 @@ test('#3564 a PAUSED swarm is typed at NOT AT ALL; an active one and a slash com
       // A path is not a command: it stays paused.
       assert.equal(chat.deliver('lead', '/Users/x/file.txt please fix this', board.agents).state, chat.DELIVERY.COULD_NOT);
       assert.equal(tmux.calls.length, 0, 'a message starting with a path got past the pause');
-      for (const cmd of ['/compact', '/review_2', '/plugin:tidy now']) {
+      // Work, even as a slash command, stays paused.
+      for (const cmd of ['/pplan build it', '/make-it-so', '/plugin:tidy now']) {
+        const before = tmux.calls.length;
+        assert.equal(chat.deliver('lead', cmd, board.agents).state, chat.DELIVERY.COULD_NOT, `${cmd} reached a paused swarm`);
+        assert.equal(tmux.calls.length, before, `${cmd} was typed at a paused swarm`);
+      }
+      for (const cmd of ['/compact', '/clear', '/cost', '/context', '/status']) {
         const before = tmux.calls.length;
         const v = chat.deliver('lead', cmd, board.agents);
         assert.ok(tmux.calls.length > before || v.because !== require('./swarm').pausedSentence('lead', 'limit'), `${cmd} was refused as paused`);
@@ -281,9 +298,20 @@ test('#3564 stopHelpers: the measured agent-manager keys (Down, then Down+x per 
   try {
     withFleet([fleet.agent('lead3', { state: 'idle' }), fleet.stranger('other3', { state: 'idle' })], (board) => {
       const tmux = armTmux();
+      const onScreen = (screen) => chat.setRunner((args) => {
+        tmux.calls.push(args);
+        return { ran: true, spawnFailed: false, status: 0, out: args[0] === 'capture-pane' ? screen : '', err: '' };
+      });
+      onScreen('  helper-1 running\n  Enter to view \u00b7 x to stop');
       assert.deepEqual(chat.stopHelpers('lead3', board.agents, 2), { ok: true, sent: 2 });
       const keys = tmux.calls.filter((a) => a[0] === 'send-keys').map((a) => a[a.length - 1]);
       assert.deepEqual(keys, ['Down', 'Down', 'x', 'Down', 'x', 'Escape']);
+      // No helper selected on screen (a stale count): no `x` is typed anywhere.
+      tmux.calls.length = 0;
+      onScreen('> ');
+      assert.deepEqual(chat.stopHelpers('lead3', board.agents, 2), { ok: true, sent: 0 });
+      const keys2 = tmux.calls.filter((a) => a[0] === 'send-keys').map((a) => a[a.length - 1]);
+      assert.deepEqual(keys2, ['Down', 'Down', 'Escape'], 'x was typed with no helper on screen');
       const before = tmux.calls.length;
       assert.deepEqual(chat.stopHelpers('lead3', board.agents, 0), { ok: true, sent: 0 });
       assert.equal(tmux.calls.length, before, 'CONTROL: no helpers, no keys');

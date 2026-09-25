@@ -1029,8 +1029,8 @@ function waitingNote(state, outcome, runner, backgroundWait) {
  * helper ("Enter to view · x to stop"), and `x` stops the selected one. `Escape` leaves the list.
  * ⚠️ This drives Claude Code's own screen, so a change to that screen can break it; the
  * card's activeHelpers (read from the helpers' own files) is how anyone sees whether it held.
- * `count` is how many helpers to stop (the card's activeHelpers); 0 sends nothing. Same gate
- * as deliver. Never throws.  { ok: true, sent } | { ok: false, because }
+ * `count` is the most helpers to stop (the card's activeHelpers); 0 sends nothing. `sent` is
+ * how many were stopped. Same gate as deliver. Never throws.  { ok: true, sent } | { ok: false, because }
  */
 function stopHelpers(sessionName, roster, count) {
   const n = Number.isInteger(count) && count > 0 ? Math.min(count, require('./swarm').MAX_HELPERS) : 0;
@@ -1038,14 +1038,26 @@ function stopHelpers(sessionName, roster, count) {
   const allowed = addressable(sessionName, roster);
   if (!allowed.ok) return { ok: false, because: allowed.because };
   const t = paneTarget(allowed.card);
-  const keys = ['Down'];
-  for (let i = 0; i < n; i += 1) keys.push('Down', 'x');
-  keys.push('Escape');
-  for (const k of keys) {
+  const key = (k) => {
     const got = tmux(['send-keys', '-t', t, k]);
-    if (got.spawnFailed || !got.ran || got.status !== 0) return { ok: false, because: 'we could not finish stopping its helpers; look at its window' };
+    return !(got.spawnFailed || !got.ran || got.status !== 0);
+  };
+  /* `x` only while a helper is selected ON SCREEN; the card's count can be stale. */
+  const helperSelected = () => {
+    const got = tmux(['capture-pane', '-p', '-J', '-t', t]);
+    return Boolean(got.ran && got.status === 0 && /x to stop/i.test(String(got.out || '')));
+  };
+  const failed = { ok: false, because: 'we could not finish stopping its helpers; look at its window' };
+  if (!key('Down')) return failed;
+  let sent = 0;
+  for (let i = 0; i < n; i += 1) {
+    if (!key('Down')) return failed;
+    if (!helperSelected()) break;
+    if (!key('x')) return failed;
+    sent += 1;
   }
-  return { ok: true, sent: n };
+  if (!key('Escape')) return failed;
+  return { ok: true, sent };
 }
 
 /**
@@ -1072,6 +1084,9 @@ function interrupt(sessionName, roster) {
  * for the one fact that separates them: whether anything of the person's text
  * could have reached the pane. None of them says the agent knows anything.
  */
+/* #3564: what a paused swarm still accepts. */
+const PAUSED_SWARM_COMMANDS = /^\/(compact|clear|cost|context|status)(\s|$)/i;
+
 function deliver(sessionName, raw, roster, envelope, trailer) {
   const at = new Date().toISOString();
   const problem = messageProblem(raw);
@@ -1105,12 +1120,12 @@ function deliver(sessionName, raw, roster, envelope, trailer) {
     };
   }
   /* #3564: a PAUSED swarm is not typed at. Every caller comes through here (DMs, rooms,
-     tasks, the sweeps), so this is the one place that makes "paused" true. A slash
-     COMMAND (/compact, /clear: a slash and a word) still goes in, so a paused swarm can be
-     looked after; a message that merely starts with a path (/Users/...) does not. The
-     card's `swarm` field is the snapshot this request already holds. */
+     tasks, the sweeps), so this is the one place that makes "paused" true. Only the
+     commands that look after an agent without setting it to work go in
+     (PAUSED_SWARM_COMMANDS); a skill such as /pplan is work. The card's `swarm` field is
+     the snapshot this request already holds. */
   if (allowed.card && allowed.card.swarm && allowed.card.swarm.active === false
-      && !/^\/[A-Za-z][\w:-]*(\s|$)/.test(String(raw).trim())) {
+      && !PAUSED_SWARM_COMMANDS.test(String(raw).trim())) {
     return {
       state: DELIVERY.COULD_NOT,
       because: require('./swarm').pausedSentence(allowed.card.name || sessionName, allowed.card.swarm.pausedBecause),

@@ -35,10 +35,21 @@ split (22:26): engine is Renet's, UI is Mona's. Claude-only v1. The engine/UI co
 1. ~~That Escape ends BACKGROUND subagents.~~ MEASURED FALSE (2026-09-24, a throwaway Claude Code 2.1.282 pane): one
    Escape to an idle lead leaves a background helper running. Its agent manager stops it (`Down` opens the list, `Down`
    selects a helper, `x` stops it), so Stop now also sends that sequence for each working helper (`chat.stopHelpers`).
-   The residual: it drives Claude Code's own screen and can break when that screen changes; the card's activeHelpers
-   (from the helpers' files) is how anyone sees whether it held.
+   It types `x` only while Claude Code shows a helper selected ("x to stop"), so a stale count sends no stray key.
+   The residual: it drives Claude Code's own screen and can break when that screen changes. The card's activeHelpers
+   lags a stop by up to ACTIVE_WINDOW_MS (10 minutes) in the "still working" direction: an interrupted helper never
+   writes `end_turn`. Deliberate: counting only helpers written since the pause would err toward "stopped" while a
+   background helper sits in a long tool call, and for a spending control the false "stopped" is the worse lie.
 2. That the lead keeps to N when told.
+3. The daily-limit sweep stops working helpers as Stop now does (one Escape does not reach background ones).
+
+## Settings behaviour worth knowing
+- Raising `dailyTokenLimit` on a swarm paused at its limit does not switch it back on; `active: true` does.
+- Once the person switches a limit-paused swarm back on, the limit is not enforced again that day
+  (`limitOverrideDay`), even if they lower it.
+- A paused swarm accepts only /compact, /clear, /cost, /context and /status; any other slash command is work.
 
 ## Verification
-- `engine/swarm.test.js` (10), `engine/create.test.js` (#3564 x2), `server.swarm-3564.test.js` (3). Nine mutations RED.
-- Existing create, projects, marker-registry, chat, messages, roles suites: 533 pass.
+- `engine/swarm.test.js`, `engine/create.test.js` (#3564), `server.swarm-3564.test.js`, and the #3564 tests in
+  `engine/messages.test.js` and `engine/assigner.test.js`. Every fix since review round 4 was mutated and went RED.
+- The full suite (`tools/run-tests.sh`) passes.

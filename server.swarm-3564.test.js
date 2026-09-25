@@ -78,6 +78,9 @@ test('#3564 Stop now: the swarm is paused "stopped" even when the interrupt cann
   const s = swarm.settingsOf(store.readProfile('hive2'));
   assert.deepEqual([s.active, s.pausedBecause], [false, 'stopped']);
   assert.equal((await post('/api/agent/nobody/swarm/stop')).status, 404);
+  lead('solo2', { role: 'pm' });
+  assert.equal((await post('/api/agent/solo2/swarm/stop')).status, 404, 'an ordinary agent was paused as a swarm');
+  assert.equal(swarm.settingsOf(store.readProfile('solo2')), null, 'an ordinary agent was given swarm settings by Stop now');
 });
 
 test('#3564 per project: On/Off only for a swarm that is a member; stored per project', async () => {
@@ -157,4 +160,11 @@ test('#3564 per project: a task given to a swarm switched off in that project do
     assert.ok(on.heard, JSON.stringify(on));
     assert.doesNotMatch(on.heard.because || '', /switched off in this project/, 'CONTROL: switched on, it is not this refusal');
   } finally { board.restore(); }
+});
+
+test('#3564 /api/status says the board can run swarms, even with no agents on it (the first agent a person makes)', async () => {
+  const r = await fetch(base + '/api/status');
+  assert.equal(r.status, 200);
+  const b = await r.json();
+  assert.equal(b.swarms, true);
 });
