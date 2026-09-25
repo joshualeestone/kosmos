@@ -3,7 +3,8 @@
 ## Finished looks like
 A committed headless browser check proves, on a real page, that after an agent is made with a
 non-default Claude account and model, reopening Create (after a reload) shows both pre-selected
-and still changeable; the check runs in tools/browser-checks.sh and in the CI DOM-state gate; and
+and still changeable (the provider half is not observed: the fixture is Claude-only and Claude
+is the default, so the two are indistinguishable); the check runs in tools/browser-checks.sh and in the CI DOM-state gate; and
 it goes red when the remembered choice is absent.
 
 ## Why

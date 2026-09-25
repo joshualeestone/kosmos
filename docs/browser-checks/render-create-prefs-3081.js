@@ -1,6 +1,6 @@
 'use strict';
 /**
- * #3081: Create an agent remembers the last provider, account and model.
+ * #3081: Create an agent remembers the last account and model.
  *
  * web.create-prefs-3081.test.js proves the save and restore functions exist and
  * are wired. Only a browser can prove the whole path on a screen: an agent made
@@ -8,6 +8,10 @@
  * two pre-selected. The create POST is answered by the page's own route with
  * outcome 'created' so nothing is launched; everything before and after the
  * answer is the real page.
+ *
+ * The provider half of #3081 is NOT observed here: this fixture has only Claude
+ * accounts, and Claude is also the default, so a remembered provider and the
+ * default are the same value. That line is a precondition, named as one.
  *
  * Leads with a control: on a fresh page (no remembered choice) the account and
  * model are the ordinary defaults, and the values the check picks differ from
@@ -55,7 +59,6 @@ async function openCreate(page) {
   await page.waitForFunction(() => !document.getElementById('cstep-name').hidden, null, { timeout: 8000 });
   /* The accounts arrive async; wait until the account menu is filled. */
   await page.waitForFunction(() => document.getElementById('create-account').options.length >= 2, null, { timeout: 8000 });
-  await page.waitForTimeout(400);
   return page.evaluate(() => {
     const v = (id) => document.getElementById(id).value;
     const opts = (id) => Array.from(document.getElementById(id).options).filter((o) => !o.disabled).map((o) => o.value);
@@ -102,6 +105,7 @@ async function openCreate(page) {
       name.value = 'prefcheck';
       name.dispatchEvent(new Event('input', { bubbles: true }));
     }, { a: pickAccount, m: pickModel });
+    /* Optional field; if it is gone the create never posts, and the remembered line below reds. */
     await page.fill('#create-label', 'Checks the create defaults').catch(() => {});
     await page.click('#create-go');
     await page.waitForFunction(() => !!localStorage.getItem('kosmos.create.account'), null, { timeout: 8000 })
@@ -117,16 +121,16 @@ async function openCreate(page) {
     await page.unroute('**/api/agents');
     await page.goto(URL, { waitUntil: 'networkidle' });
     const after = await openCreate(page);
-    chk(after.provider === 'anthropic', 'reopened: provider comes back', after.provider);
+    chk(after.provider === 'anthropic', 'reopened: still on Claude (precondition, not a restore)', after.provider);
     chk(after.account === pickAccount, 'reopened: the last account is pre-selected', after.account + ' want ' + pickAccount);
     chk(after.model === pickModel, 'reopened: the last model is pre-selected', after.model + ' want ' + pickModel);
 
-    /* A default, not a lock: the person can still change it. */
-    const changed = await page.evaluate((a) => {
-      const s = document.getElementById('create-account');
-      s.value = a; s.dispatchEvent(new Event('change', { bubbles: true }));
-      return s.value;
-    }, before.account);
+    /* A default, not a lock: the person can still change it. selectOption goes through
+       Playwright's actionability checks (a disabled or hidden menu fails), and the value is
+       re-read after the page settles, so a restore that re-forced it later would show. */
+    await page.selectOption('#create-account', before.account);
+    await page.waitForLoadState('networkidle');
+    const changed = await page.evaluate(() => document.getElementById('create-account').value);
     chk(changed === before.account, 'reopened: the account can still be changed', changed);
 
     chk(errs.length === 0, 'no page errors', errs.join(' | '));
@@ -137,4 +141,4 @@ async function openCreate(page) {
   }
   console.log(fail.length ? `\n${fail.length} FAILED` : '\nall passed');
   process.exit(fail.length ? 1 : 0);
-})().catch((e) => { console.error(e); process.exit(2); });
+})().catch((e) => { console.error('FAIL  render-create-prefs-3081: ' + (e && e.stack || e)); process.exit(2); });
