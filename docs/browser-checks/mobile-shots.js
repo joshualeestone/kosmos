@@ -104,8 +104,7 @@ const SCREENS = [
   // Scorpion: an agent's chat.
   { name: 'agent-chat', owner: 'Scorpion', go: async (page) => {
     await at(page, '?agent=ada');
-    const t = page.locator('#d-nav button[data-go="talk"]');
-    if (await t.count()) await t.first().click();
+    await page.locator('#d-nav button[data-go="talk"]').first().click({ timeout: 5000 });
   } },
   // Kano: projects, a room, and the waiting-on-you ask.
   { name: 'projects', owner: 'Kano', go: async (page) => openTab(page, 'projects') },
@@ -117,7 +116,8 @@ const SCREENS = [
   } },
   { name: 'ask-waiting', owner: 'Kano', go: async (page) => {
     // The board re-renders cards on its tick, so scroll inside the page.
-    await page.evaluate(() => { const c = document.querySelector('.acard[data-agent="cleo"]'); if (c) c.scrollIntoView({ block: 'start' }); });
+    await page.waitForSelector('.acard[data-agent="cleo"]', { timeout: 5000 });
+    await page.evaluate(() => document.querySelector('.acard[data-agent="cleo"]').scrollIntoView({ block: 'start' }));
   } },
   // Sonya: settings.
   { name: 'settings', owner: 'Sonya', go: async (page) => at(page, '?tab=settings') },
@@ -244,6 +244,7 @@ async function startBoard() {
   seedFiles(roots);
   const port = freePort();
   const base = `http://127.0.0.1:${port}`;
+  const stderrFd = fs.openSync(path.join(roots.DATA, 'board-stderr.log'), 'w');
   const srv = spawn(process.execPath, ['server.js'], {
     cwd: REPO,
     env: { ...process.env, ...sealed, PORT: String(port), AGENT_WORKFORCE_RELEASE_BASE: 'http://127.0.0.1:9/dist',
@@ -253,8 +254,9 @@ async function startBoard() {
       AGENT_WORKFORCE_FAKE_PANES: path.join(roots.DATA, 'fake-panes'),
       AGENT_WORKFORCE_FAKE_SESSIONS: path.join(roots.DATA, 'fake-sessions'),
       AGENT_WORKFORCE_FAKE_SCREEN: path.join(roots.DATA, 'fake-screen') },
-    stdio: ['ignore', 'ignore', fs.openSync(path.join(roots.DATA, 'board-stderr.log'), 'w')],
+    stdio: ['ignore', 'ignore', stderrFd],
   });
+  fs.closeSync(stderrFd);
   if (!(await waitForBoard(base, 20000))) {
     srv.kill();
     let tail = '';
@@ -334,8 +336,21 @@ const SHIPPED_EMAILS = new Set(SHIPPED_HTML.match(EMAIL_RE) || []);
    LONGER string (sk-ant-api03-...), which is not in this set, so it is still caught. */
 const SHIPPED_KEYS = new Set(SHIPPED_HTML.match(KEY_RE) || []);
 const escapeRegExp = (t) => t.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-const REAL_USER_RE = REAL_USER && REAL_USER.length > 2 ? new RegExp('\\b' + escapeRegExp(REAL_USER) + '\\b', 'i') : null;
-const REAL_HOST_RE = REAL_HOST && REAL_HOST.length > 2 ? new RegExp('\\b' + escapeRegExp(REAL_HOST) + '\\b', 'i') : null;
+/* A login or host name that is also a word the product ships (`kosmos`,
+   `agent`, the first-run placeholder `Josh`) would stop every run on the
+   product's own text, so that one check is switched off, SAID so at the start
+   of the run, and the home-path, email and key checks still stand. */
+const nameCheck = (name, label) => {
+  if (!name || name.length <= 2) return null;
+  const re = new RegExp('\\b' + escapeRegExp(name) + '\\b', 'i');
+  if (re.test(SHIPPED_HTML)) {
+    console.log(`note  the ${label}-name check is off: this Mac's ${label} name is a word in web/index.html`);
+    return null;
+  }
+  return re;
+};
+const REAL_USER_RE = nameCheck(REAL_USER, 'user');
+const REAL_HOST_RE = nameCheck(REAL_HOST, 'host');
 /* Judged on what a screenshot or a hover can show: the rendered text, form
    values, and title / aria-label / alt / placeholder. NOT the page source, whose
    comments and script would match a common login name such as a word in a
@@ -346,8 +361,9 @@ async function leaksOn(page) {
   const text = await page.evaluate(() => {
     if (!document.body) return '';
     const parts = [document.body.innerText];
-    for (const el of document.querySelectorAll('input, textarea, select')) if (el.value) parts.push(el.value);
+    for (const el of document.querySelectorAll('input, textarea, select')) if (el.value && el.checkVisibility()) parts.push(el.value);
     for (const el of document.querySelectorAll('[title], [aria-label], [alt], [placeholder]')) {
+      if (!el.checkVisibility()) continue;
       for (const a of ['title', 'aria-label', 'alt', 'placeholder']) { const v = el.getAttribute(a); if (v) parts.push(v); }
     }
     return parts.join(' ');
