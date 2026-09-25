@@ -125,3 +125,76 @@ test('#3801: tools/browser-checks.sh exports its own skills folder before it boo
   assert.ok(at > 0, 'the runner exports a sandbox skills folder when none, or the real one, is set');
   assert.ok(at < sh.indexOf('node ./server.js'), 'before it boots its first board');
 });
+
+/* The same trap for projects: engine/projects.js reads AGENT_WORKFORCE_PROJECTS || the REAL
+   ~/Kosmos/Projects. Without the lib, a check that forgets it is already stopped LOUDLY:
+   server.js refuses to boot half-sandboxed (#634). With the lib it boots, and its project
+   folder lands in a sandbox, never in the home. */
+function boardMakesProject({ home, data, withLib }) {
+  const code = `
+    const fs = require('fs'), path = require('path');
+    const D = ${JSON.stringify(data)};
+    for (const d of ['data', 'workers', 'launch']) fs.mkdirSync(path.join(D, d), { recursive: true });
+    Object.assign(process.env, { AGENT_WORKFORCE_DRY_RUN: '1', AGENT_WORKFORCE_CLAUDE_BIN: '/bin/echo', AGENT_WORKFORCE_RELEASE_BASE: 'http://127.0.0.1:9/dist',
+      AGENT_WORKFORCE_TMUX_BIN: ${JSON.stringify(path.join(__dirname, 'test-support', 'fake-tmux.sh'))},
+      AGENT_WORKFORCE_DATA: path.join(D, 'data'), AGENT_WORKFORCE_WORKERS: path.join(D, 'workers'),
+      AGENT_WORKFORCE_LAUNCH: path.join(D, 'launch'),
+      AGENT_WORKFORCE_CLAUDE_CONFIG: path.join(D, 'claude.json'), AGENT_WORKFORCE_HOME: path.join(D, 'home') });
+    ${withLib ? `require(${JSON.stringify(LIB)});` : ''}
+    const { start, server } = require(${JSON.stringify(SERVER)});
+    (async () => {
+      await start(0);
+      const base = 'http://127.0.0.1:' + server.address().port;
+      const r = await fetch(base + '/api/projects', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ name: 'Planted 3801' }) });
+      const made = await r.json().catch(() => ({}));
+      process.stdout.write('\\nRESULT-3801 ' + JSON.stringify({ status: r.status, folder: made.project && made.project.folder }));
+      server.close();
+      process.exit(0);
+    })().catch((e) => { console.error(e); process.exit(1); });`;
+  const env = { ...process.env, HOME: home };
+  delete env.AGENT_WORKFORCE_PROJECTS;
+  const r = spawnSync(process.execPath, ['-e', code], { env, encoding: 'utf8', timeout: 60000 });
+  if (r.status !== 0) return { refused: r.stderr };
+  const line = r.stdout.split('\n').find((l) => l.startsWith('RESULT-3801 '));
+  assert.ok(line, 'the child reported no result: ' + r.stdout.slice(-300));
+  return JSON.parse(line.slice('RESULT-3801 '.length));
+}
+
+test('#3801 CONTROL: without the lib, a board with no projects root refuses to start (#634), and makes nothing in the home', (t) => {
+  const home = realLookingDir(t, '.aw-3801-home-');
+  const data = fs.mkdtempSync(path.join(os.tmpdir(), 'aw-3801-'));
+  t.after(() => fs.rmSync(data, { recursive: true, force: true }));
+  const got = boardMakesProject({ home, data, withLib: false });
+  assert.match(got.refused || '', /will not start half-sandboxed[^\n]*AGENT_WORKFORCE_PROJECTS/, 'the half-sandbox refusal names the projects folder');
+  assert.equal(fs.existsSync(path.join(home, 'Kosmos')), false);
+});
+
+test('#3801: with the lib, a check that forgets its projects root never makes a folder in the home', (t) => {
+  const home = realLookingDir(t, '.aw-3801-home-');
+  const data = fs.mkdtempSync(path.join(os.tmpdir(), 'aw-3801-'));
+  t.after(() => fs.rmSync(data, { recursive: true, force: true }));
+  const got = boardMakesProject({ home, data, withLib: true });
+  assert.equal(got.refused, undefined, 'the board booted');
+  assert.equal(got.status, 200);
+  assert.ok(got.folder && !got.folder.startsWith(home), `the folder is outside the home, got ${got.folder}`);
+  assert.equal(fs.existsSync(path.join(home, 'Kosmos')), false, 'nothing was made in the home');
+});
+
+test('#3801: the lib names a fresh projects folder, replaces the real one, and keeps a caller\'s', () => {
+  const real = path.join(os.homedir(), 'Kosmos', 'Projects');
+  const run = (v) => {
+    const env = { ...process.env };
+    if (v === undefined) delete env.AGENT_WORKFORCE_PROJECTS; else env.AGENT_WORKFORCE_PROJECTS = v;
+    const r = spawnSync(process.execPath, ['-e', `require(${JSON.stringify(LIB)}); process.stdout.write(process.env.AGENT_WORKFORCE_PROJECTS);`], { env, encoding: 'utf8' });
+    assert.equal(r.status, 0, r.stderr);
+    return r.stdout;
+  };
+  const made = run(undefined);
+  const tmps = [os.tmpdir(), fs.realpathSync(os.tmpdir())];
+  assert.ok(tmps.some((d) => made.startsWith(d)), `unset: a temp folder, got ${made}`);
+  assert.equal(fs.existsSync(made), false, 'removed when the process exits');
+  assert.notEqual(run(real), real, 'set to the real folder: replaced');
+  const mine = fs.mkdtempSync(path.join(os.tmpdir(), 'aw-3801-mine-'));
+  assert.equal(run(mine), mine, 'set to a sandbox: kept');
+  fs.rmSync(mine, { recursive: true, force: true });
+});
