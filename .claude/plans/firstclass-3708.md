@@ -40,3 +40,8 @@ From PigeonPete's 0.6.94 staging QA. Josh asked (09-24) for Gemini and Grok to s
 - web.consolidated-980.test.js: stays green. The inlined paths are self-closing because its body-child
   counter treats `path` as void and a `</path>` closer drove its depth to -2 (114 "children").
 - browser-checks-reason-grep: 138 -> 139 and 98 -> 99, measured, both from the new check.
+
+## Suite round 1 (d2377c3c): 3 fails, all web.unique-ids
+grok.com's two mark paths each carry `id="mark"` (a hook for its own CSS), a duplicate id in the page
+and again in every providerMarkNode clone. Stripped from the inline copy; the path data is unchanged.
+web.unique-ids.test.js was the guard that caught it.

@@ -261,8 +261,9 @@ asked for them:
 - **Source URL:** https://grok.com/ (inline SVG in page markup, the home-link logo in the
   header, `viewBox="0 0 88 33"`). That SVG is the mark plus the "Grok" wordmark; the two
   mark paths were kept unmodified and the four wordmark paths (x from 37) dropped. (Inlined in
-  `web/index.html`, the two paths are written self-closing, `<path .../>`, as the page's other marks are;
-  the path data is byte-identical.) The
+  `web/index.html`, the two paths are written self-closing, `<path .../>`, as the page's other marks are, and
+  without grok.com's `id="mark"` on each, a hook for grok.com's own CSS that would be a duplicate id
+  in the page and in every picker clone; the path data is byte-identical.) The
   mark's painted box, measured in Chromium, is x 0.36 to 33.70, y 0.5 to 32.5, so the
   viewBox is `0 0 34 33` with no path edited.
 - **Why this is official:** served by grok.com, xAI's own product site, as its own logo.
