@@ -434,3 +434,56 @@ test('an unreadable link record when a seat exits 3 is a restart, not an ending'
     fs.writeFileSync(f, before);
   }
 });
+
+test('a flood the minute bound drops does not spend the room\'s day: the next minute\'s message is kept', async (t) => {
+  t.mock.timers.enable({ apis: ['Date'], now: Date.parse('2026-09-25T10:00:00Z') });
+  federation.recordLink('proj-flood', { role: 'member', edge_id: 'edge-flood' });
+  const h = harness();
+  await fedseats.ensure('proj-flood');
+  const big = 'x'.repeat(30 * 1024);
+  for (let i = 0; i < 200; i++) fedseats.onEvent('proj-flood', JSON.stringify({ event: 'message', data: { from: 'Flood', text: big } }));
+  const keptInFlood = h.recorded.filter((r) => r.projectId === 'proj-flood').length;
+  assert.ok(keptInFlood <= 3, `the minute bound kept ${keptInFlood}`);
+  t.mock.timers.tick(61 * 1000);
+  fedseats.onEvent('proj-flood', JSON.stringify({ event: 'message', data: { from: 'Grace', text: 'hello, still here' } }));
+  assert.ok(h.recorded.some((r) => r.projectId === 'proj-flood' && r.text === 'hello, still here'), 'the dropped flood spent the day for everyone');
+});
+
+test('a refusal about this Mac (not the edge) keeps nothing on the link and says to sign in again', async () => {
+  federation.recordLink('proj-macl', { role: 'owner', ref: 'ref-macl' });
+  federation.recordLink('proj-macm', { role: 'member', edge_id: 'edge-macm' });
+  const h = harness({ edges: [{ id: 'edge-o1', project_ref: 'ref-macl', status: 'active' }] });
+  await fedseats.ensure('proj-macl');
+  await fedseats.ensure('proj-macm');
+  const [owner, member] = h.spawned;
+  say(owner, { event: 'ended', because: 'Kosmos+ refused this Mac: unknown mac (HTTP 401 on /v1/mac/federation/room-ticket)' });
+  say(member, { event: 'ended', because: 'Kosmos+ refused this Mac: this Mac was retired (HTTP 401 on /v1/mac/federation/room-ticket)' });
+  await tick();
+  owner.emit('exit', 3);
+  member.emit('exit', 3);
+  assert.strictEqual(federation.linkFor('proj-macl').refused, undefined, 'the edge was refused for a Mac-level reason');
+  assert.strictEqual(federation.linkFor('proj-macm').ended, undefined, 'the membership was ended for a Mac-level reason');
+  assert.strictEqual(fedseats.statusOf('proj-macm'), 'ended');
+  const notes = h.notes.filter((n) => n.projectId === 'proj-macm');
+  assert.ok(notes.some((n) => /Sign in to Kosmos\+ again/.test(n.text)), JSON.stringify(notes));
+  assert.ok(!notes.some((n) => /ask the owner/.test(n.text)), 'told to ask for a new code when signing in fixes it');
+});
+
+test('a real child is handled on close, after its last line, not on exit', async () => {
+  federation.recordLink('proj-close', { role: 'member', edge_id: 'edge-close' });
+  const h = harness();
+  fedseats.configure({
+    spawnSeat: (edge) => { const c = fakeChild(); c.pid = 777; c.edge = edge; h.spawned.push(c); return c; },
+    macRequest: async () => ({ ok: false }), recordExternal: () => {}, onStatus: () => {},
+    enrolled: () => true, projectExists: () => true, note: (projectId, text) => h.notes.push({ projectId, text }),
+  });
+  await fedseats.ensure('proj-close');
+  const c = h.spawned[0];
+  c.emit('exit', 3);                                         // exit first, the reason not read yet
+  assert.notStrictEqual(fedseats.statusOf('proj-close'), 'ended', 'handled on exit, before the last line');
+  say(c, { event: 'ended', because: 'Kosmos+ refused this Mac: unknown mac' });
+  await tick();
+  c.emit('close', 3);
+  assert.strictEqual(fedseats.statusOf('proj-close'), 'ended');
+  assert.strictEqual(federation.linkFor('proj-close').ended, undefined, 'the late reason (Mac-level) was not seen');
+});

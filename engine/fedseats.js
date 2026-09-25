@@ -29,7 +29,8 @@ const INBOUND_PER_WINDOW = 60;
    max-size messages. */
 const INBOUND_BYTES_PER_WINDOW = 64 * 1024;
 const INBOUND_WINDOW_MS = 60000;
-/* A day's budget per project on top of the minute's: every stored row is kept in
+/* A day's budget per project (per ROOM, shared by every member of it; the
+   sender is unattested, so it cannot be per peer) on top of the minute's: every stored row is kept in
    memory and scanned by the room and unread reads, so a peer sending at the
    minute's limit all day must not be able to grow them without end. 2 MiB of
    words a day is far above any conversation. Counted per board run. */
@@ -37,6 +38,9 @@ const INBOUND_BYTES_PER_DAY = 2 * 1024 * 1024;
 /* The connector's limit on one stdin line (kosmos-relay fedroom MAX_POST, the
    relay's frame bound). */
 const MAX_POST_LINE = 16 * 1024;
+/* The connector's final refusals that are about this Mac or its account, not
+   the connection (kosmos-relay fedroom.rs FINAL_REFUSALS). */
+const MAC_LEVEL_REFUSAL = /unknown mac|this mac was retired|account gone/i;
 /* The longest stdout line kept while waiting for its newline. The connector
    prints one event per line, each under its 16 KiB post bound plus framing; a
    longer unterminated run is a broken child, and is dropped rather than held. */
@@ -93,6 +97,14 @@ function onEvent(projectId, line) {
   if (ev.event === 'disconnected') { setStatus(projectId, 'reconnecting'); return; }
   if (ev.event === 'ended') {
     s.ended = clean(ev.because, 200) || 'the connection ended';
+    // Some final refusals are about THIS Mac or account, not the edge (the
+    // connector's FINAL_REFUSALS). Signing in again fixes those, so nothing about
+    // the edge is kept and the person is told the real fix.
+    s.macLevel = MAC_LEVEL_REFUSAL.test(s.ended);
+    if (s.macLevel) {
+      say(projectId, 'This computer is not connected to Kosmos+ right now (' + s.ended + '). Sign in to Kosmos+ again in Settings, Kosmos Plus, and this shared project comes back.');
+      return;
+    }
     // An owner's seat is pinned to one member's edge: that edge ending is not
     // the owner leaving, so the note (and its "ask the owner") is a member's.
     const link = safeLink(projectId);
@@ -109,15 +121,17 @@ function onEvent(projectId, line) {
     const size = Buffer.byteLength(ev.data.text) + Buffer.byteLength(String(ev.data.from || ''));
     s.inbound.count += 1;
     s.inbound.bytes += size;
-    s.inday.bytes += size;
-    if (s.inday.bytes > INBOUND_BYTES_PER_DAY) {
-      if (!s.inday.noted) { s.inday.noted = true; say(projectId, 'The external project sent more than Kosmos keeps in a day; its messages are not kept until tomorrow.'); }
-      return;
-    }
     if (s.inbound.count > INBOUND_PER_WINDOW || s.inbound.bytes > INBOUND_BYTES_PER_WINDOW) {
       if (!s.inbound.noted) { s.inbound.noted = true; say(projectId, 'The external project sent more messages than Kosmos keeps in a minute; some were not kept.'); }
       return;
     }
+    // Only what is KEPT counts toward the day: a flood the minute bound drops
+    // must not spend the room's day for everyone else in it.
+    if (s.inday.bytes + size > INBOUND_BYTES_PER_DAY) {
+      if (!s.inday.noted) { s.inday.noted = true; say(projectId, 'The external project sent more than Kosmos keeps in a day; its messages are not kept until tomorrow.'); }
+      return;
+    }
+    s.inday.bytes += size;
     // Runs inside the child's stdout 'data' handler, where a throw (a full disk)
     // has nothing above it to catch it and would take the board down.
     try {
@@ -145,7 +159,6 @@ function setStatus(projectId, status) {
   }
 }
 
-/* The owner's seat needs an edge of the project; any active one names the room. */
 /* An active edge of the owner's project, skipping any edge whose seat was
    already refused for good (the seat exited 3), so the owner's seat does not
    spawn, be refused, and spawn again every minute. */
@@ -187,11 +200,18 @@ function spawnFor(projectId, edge) {
       if (line.trim()) onEvent(projectId, line);
     }
   });
-  child.on('exit', (code) => {
+  // A real child's 'exit' can come before its stdout is read, so its last line
+  // (the 'ended' reason) would arrive after the exit is handled. 'close' waits
+  // for stdout. A child that never started (no pid) gets only the synthetic
+  // 'exit' from the error listener.
+  child.on(typeof child.pid === 'number' ? 'close' : 'exit', (code) => {
     const cur = seats.get(projectId);
     if (!cur || cur.child !== child) return;
     cur.child = null;
     if (cur.stopped) return;
+    // About this Mac, not the edge: stop, keep nothing, and let the next sign-in
+    // (a board restart re-checks) bring the room back.
+    if (code === 3 && cur.macLevel) { setStatus(projectId, 'ended'); return; }
     // 3 = a refusal retrying cannot fix: the connector exits 3 only on the
     // coordinator's final sentences (revoked, no such connection, account gone,
     // unknown or retired Mac). A lapsed account is NOT 3: the connector waits and
@@ -200,7 +220,7 @@ function spawnFor(projectId, edge) {
     const link = code === 3 ? safeLink(projectId) : null;
     // An unreadable link record is not an ending: restart like any other exit.
     if (code === 3 && link) {
-      if (link && link.role === 'owner') {
+      if (link.role === 'owner') {
         if (!cur.refused) cur.refused = new Set();
         if (cur.edge) cur.refused.add(cur.edge);
         // Kept on the link, so a restart does not try the refused edge again.
@@ -210,14 +230,14 @@ function spawnFor(projectId, edge) {
       }
       // Kept on the link, so a board restart does not start the seat again only
       // to be refused and say so in the room once more.
-      if (link) { try { federation.recordLink(projectId, Object.assign({}, link, { ended: cur.ended || 'the connection ended' })); } catch { /* ends again next boot */ } }
+      try { federation.recordLink(projectId, Object.assign({}, link, { ended: cur.ended || 'the connection ended' })); } catch { /* ends again next boot */ }
       setStatus(projectId, 'ended');
       return;
     }
     // 2 is a usage error: this computer's connector does not know the verb.
     // Restarting cannot fix that; updating Kosmos does.
     if (code === 2) {
-      say(projectId, 'This computer cannot join the external project yet: its Kosmos connector is too old. Update Kosmos, then open this project again.');
+      say(projectId, 'This computer cannot join the external project yet: its Kosmos connector is too old. Update Kosmos and it will connect.');
       setStatus(projectId, 'ended');
       return;
     }
@@ -228,6 +248,15 @@ function spawnFor(projectId, edge) {
     if (typeof cur.timer.unref === 'function') cur.timer.unref();
     cur.backoff = Math.min(cur.backoff * 2, RESTART_MAX_MS);
   });
+}
+
+/* An unreadable link record makes a shared room act local; say so in the log
+   (at most once a minute), never silently. */
+let unreadableLoggedAt = 0;
+function logUnreadable(err) {
+  if (Date.now() - unreadableLoggedAt < 60000) return;
+  unreadableLoggedAt = Date.now();
+  console.error('#3311: the shared-project record (federation.json) cannot be read, so shared rooms act local until it can: ' + String((err && err.message) || err));
 }
 
 function safeLink(projectId) {
@@ -292,7 +321,7 @@ function stop(projectId) {
 async function ensureAll() {
   if (!deps) return;
   let links;
-  try { links = federation.readLinks(); } catch { return; }
+  try { links = federation.readLinks(); } catch (err) { logUnreadable(err); return; }
   // One edges request per pass, shared by every owner project: the number of
   // linked projects must not set how often this Mac calls Kosmos+.
   let pending = null;
@@ -345,4 +374,4 @@ function stopAll() {
   seats.clear();
 }
 
-module.exports = { STOP_KILL_MS, STABLE_MS, INBOUND_BYTES_PER_DAY, MAX_POST_LINE, configure, ensure, ensureAll, post, statusOf, stop, stopAll, onEvent, MAC_EDGES, INBOUND_PER_WINDOW, INBOUND_BYTES_PER_WINDOW };
+module.exports = { logUnreadable, STOP_KILL_MS, STABLE_MS, INBOUND_BYTES_PER_DAY, MAX_POST_LINE, configure, ensure, ensureAll, post, statusOf, stop, stopAll, onEvent, MAC_EDGES, INBOUND_PER_WINDOW, INBOUND_BYTES_PER_WINDOW };

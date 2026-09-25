@@ -13846,8 +13846,13 @@ const server = http.createServer((req, res) => {
         const head = rec.ok === false
           ? 'We could not read some of this room; what follows may be missing recent posts.\n'
           : (lines.length ? '' : 'Nothing has been said in this room yet.\n');
+        /* #3311: agents read this view before they post. In a shared project every
+           post here leaves this computer, so it says so first, every time. */
+        let shared = '';
+        try { if (federation.linkFor(id)) shared = '[kosmos] This room is shared with people outside this computer: every post here is sent to them. Do not post file paths, keys or anything private.\n'; }
+        catch (err) { fedseats.logUnreadable(err); }
         res.writeHead(200, { 'content-type': 'text/plain; charset=utf-8' });
-        res.end(head + lines.join('\n') + (lines.length ? '\n' : ''));
+        res.end(shared + head + lines.join('\n') + (lines.length ? '\n' : ''));
         return;
       }
       /* #185: which addressed agents have not answered which posts, from
@@ -13898,7 +13903,7 @@ const server = http.createServer((req, res) => {
         if (!files.ok) { sendJson(res, 400, { error: files.because }); return; }
         const fields = attachments.rowFields(files.recs);
         let federated = false;
-        try { federated = !!federation.linkFor(found.id); } catch { federated = false; }
+        try { federated = !!federation.linkFor(found.id); } catch (err) { federated = false; fedseats.logUnreadable(err); }
         const delivery = messages.sendPost({
           operator: true, project: found.id, projectName: found.name, text: body.text, federated,
           attachment: fields.attachment || null, attachments: fields.attachments || null, trailer: attachments.wireNote(files.recs),
@@ -15412,14 +15417,6 @@ fedseats.configure({
   note: (projectId, text) => messages.roomNote(projectId, text),
 });
 
-/* #3311: send a post that landed in a federated project's room out through its
-   seat. Only the words and who said them leave this Mac; a post that did not
-   land (no id) is never sent, and what is sent is the text the room STORED, so
-   both rooms show the same message. The operator speaks as a person under their
-   own name; an agent as an agent under the name its project shows (never the
-   internal session name). Attachments stay on this computer: a post that is
-   only an attachment says so in the room. A room with no live seat keeps the
-   post local, and the seat manager says so in the room with a Kosmos note. */
 /* #3311: a local name for a project joined from outside. The owner's name can
    clash with a project already here, break this computer's folder rules, or
    match a folder that already exists, and any of those would fail every join
@@ -15441,10 +15438,18 @@ function joinedProjectName(ownerName) {
   return 'Shared project ' + Date.now();
 }
 
+/* #3311: send a post that landed in a federated project's room out through its
+   seat. Only the words and who said them leave this Mac; a post that did not
+   land (no id) is never sent, and what is sent is the text the room STORED, so
+   both rooms show the same message. The operator speaks as a person under their
+   own name; an agent as an agent under the name its project shows (never the
+   internal session name). Attachments stay on this computer: a post that is
+   only an attachment says so in the room. A room with no live seat keeps the
+   post local, and the seat manager says so in the room with a Kosmos note. */
 function federateOut(projectId, delivery, operator) {
   if (!delivery || !delivery.id) return;
   let linked = false;
-  try { linked = !!federation.linkFor(projectId); } catch { linked = false; }
+  try { linked = !!federation.linkFor(projectId); } catch (err) { linked = false; fedseats.logUnreadable(err); }
   if (!linked) return;
   const text = typeof delivery.text === 'string' ? delivery.text : '';
   if (!text.trim()) {

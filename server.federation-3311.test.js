@@ -209,3 +209,27 @@ test('an over-long ref from the screen is no ref: the stale link is cleared and 
   assert.equal(r.json.federationLinked, undefined);
   assert.equal(federation.linkFor('longrefclub'), null);
 });
+
+test('the room view agents read says a shared room is shared, and a local one says nothing of the kind', async () => {
+  const shared = await post('/api/projects', { name: 'Told Club', federation_ref: 'ref-told' }, SCREEN);
+  const local = await post('/api/projects', { name: 'Home Club' }, SCREEN);
+  const read = async (id) => (await fetch(base + '/api/project/' + encodeURIComponent(id) + '/room?as=text')).text();
+  assert.match(await read(shared.json.id), /This room is shared with people outside this computer/);
+  assert.doesNotMatch(await read(local.json.id), /shared with people outside/);
+});
+
+test('an unreadable link record is said in the log, not silent', async () => {
+  const f = path.join(require('./engine/store').ROOT, federation.FILE);
+  const before = fs.existsSync(f) ? fs.readFileSync(f, 'utf8') : null;
+  const said = [];
+  const orig = console.error;
+  console.error = (...a) => { said.push(a.join(' ')); };
+  fs.writeFileSync(f, '{ not json');
+  try {
+    await fetch(base + '/api/project/homeclub/room?as=text');
+  } finally {
+    console.error = orig;
+    if (before === null) fs.rmSync(f, { force: true }); else fs.writeFileSync(f, before);
+  }
+  assert.ok(said.some((l) => /shared-project record/.test(l)), JSON.stringify(said.slice(-3)));
+});

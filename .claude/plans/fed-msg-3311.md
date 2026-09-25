@@ -69,6 +69,9 @@ board yet carried messages between a federated project's room and its seat.
 - engine/fedseats.test.js, engine/messages.external-3311.test.js,
   server.fedmsg-3311.test.js, server.federation-3311.test.js,
   engine/federation.test.js: all pass (counts live in the runs, not here).
+- Review round 13 controls, each reds its own test: counting dropped bytes toward
+  the day; ignoring the Mac-level reason; handling a real child on exit instead of
+  close; no shared-room line in the room view; no log for an unreadable record.
 - Review round 12 control: measuring the raw text instead of the JSON line lets a
   9 KiB post of quotes (18 KiB once escaped) through, and the too-long test reds.
 - Review round 11 controls: no day budget, ending on an unreadable link record,
@@ -120,6 +123,22 @@ board yet carried messages between a federated project's room and its seat.
   closed. A second local project carrying a real ref only puts this same account's
   own Mac in its own room twice. It grants nothing across accounts, because the room
   ticket is still minted per edge by the coordinator.
+
+## Decided in round 13
+- The day budget is per ROOM (every member shares it; the sender is unattested),
+  and only KEPT bytes count, so a flood the minute bound drops cannot silence the
+  room for the rest of the day.
+- A final refusal about this Mac or account (unknown mac, this Mac was retired,
+  account gone) is not a verdict on the edge: nothing is kept on the link, and the
+  room says to sign in to Kosmos+ again. Edge refusals (revoked, no such
+  connection) are kept as before. Real children are handled on 'close', so the
+  connector's last line (its reason) is read first.
+- The room view agents read (`kosmos room`) starts with a line saying the room is
+  shared outside this computer, every time.
+- An unreadable link record is logged (at most once a minute) wherever it makes
+  a shared room act local. Not a room note: it would land in every room.
+- Not changed: an owner project whose invites expired unredeemed keeps one edges
+  request a minute (bounded: one per pass for all projects).
 
 ## Decided in round 12
 - The too-long check lives in fedseats.post and measures the line the connector
