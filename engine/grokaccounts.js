@@ -326,8 +326,8 @@ function subscriptionVerdict(dir) {
   const until = typeof e.expires_at === 'string' ? Date.parse(e.expires_at) : NaN;
   if (!Number.isFinite(until)) return { state: STATE.UNKNOWN, checkedLive: true, because: 'Could not check the Grok sign-in' };
   if (until > Date.now()) return { state: STATE.CONNECTED, checkedLive: true, because: 'signed in with your Grok subscription' };
-  /* Pill-sized, and no promise: Kosmos cannot sign in to Grok again yet (create.js expiredSignIn says what
-     works instead), and a long sentence overflows the account pill (#2568). */
+  /* Pill-sized: a long sentence overflows the account pill (#2568). The remedy is the
+     row's own Sign in again button (startGrokLogin with reauthDir), not this text. */
   return { state: STATE.NONE, checkedLive: true, because: 'Grok sign-in expired' };
 }
 
@@ -564,7 +564,13 @@ async function listLiveNow() {
  * The grok mirror of openaiaccounts' ChatGPT sign-in driver (#2338): spawn
  * `grok login --device-auth` ASYNC into a FRESH account dir (GROK_HOME), keep a
  * session the route polls, and on a clean exit accept the dir only if it now reads
- * back as a subscription account. Device mode only; no reauth in this slice.
+ * back as a subscription account. Device mode only.
+ *
+ * Sign in AGAIN (#3391 part 2) is the openaiaccounts #2584 shape, for the same reason:
+ * the sign-in runs in a fresh STAGING slot exactly like a new one, and only a sign-in
+ * that finished AND reads back as the same email is moved over the live auth.json, in
+ * one rename. The live account is never in a cleanup path, so a failed, cancelled or
+ * timed-out sign-in again cannot lose it or leave a second account beside it.
  *
  * Measured against grok 1.0.41 (2026-09-24, in a throwaway GROK_HOME): it prints
  *   https://accounts.x.ai/oauth2/device?user_code=ABCD-EFGH
@@ -666,17 +672,73 @@ function resolveFreshGrokDir(label) {
   return { dir: spot.dir, label: spot.label, madeDir };
 }
 
+/* A dir handed in to sign in AGAIN: it must be this computer's default grok home or a
+   .grok-<name> dir directly in the home (so an arbitrary path is "not an account"), hold
+   no key file, and hold a subscription sign-in whose email we can read. The email is what
+   tells a refresh from a swap, so an account without one cannot be refreshed in place. */
+function reauthTarget(dir) {
+  const clean = path.resolve(String(dir == null ? '' : dir));
+  const isDefault = clean === path.resolve(defaultDir());
+  const named = path.dirname(clean) === path.resolve(homeDir()) && path.basename(clean).startsWith(DIR_PREFIX);
+  if (!isDefault && !named) return { error: 'that is not a Grok account on this computer' };
+  /* A symlinked account dir is refused, as storeKey, forget and remove refuse one: the rename
+     below would otherwise write through the link into wherever it points. */
+  let st = null;
+  try { st = fs.lstatSync(clean); } catch { st = null; }
+  if (st && st.isSymbolicLink()) return { error: 'that is not a Grok account on this computer' };
+  const who = identityOf(clean);
+  if (!who) return { error: 'that account has no readable sign-in to refresh' };
+  if (who.authMode !== 'subscription') return { error: 'that account is an API key, not a Grok subscription' };
+  if (!who.email) return { error: 'we could not read this account\'s identity, so it cannot be refreshed in place' };
+  return { dir: clean, isDefault, expectEmail: who.email };
+}
+
+/* Move a finished sign-in's auth.json from the staging slot over the live one. One
+   rename: the live file is replaced whole or not at all, and the staging copy is gone in
+   the same call, so list() never sees two accounts for one person. WHOLE means the file
+   grok just wrote replaces the old one, any other entries in it included, which is what a
+   fresh `grok login` in that home would leave too (the openaiaccounts #2584 choice). */
+function promoteReauth(stagingDir, liveDir) {
+  try { fs.renameSync(authFile(stagingDir), authFile(liveDir)); return { ok: true }; }
+  catch { return { ok: false, because: 'we signed in but could not update this account on the computer' }; }
+}
+
+/* The one existing subscription account a new sign-in as `email` belongs to, as a
+   reauthTarget, or null: no email, no match, more than one match, or the match is being
+   signed in already. `exceptDir` is the new sign-in's own slot. */
+function sameAccountFor(email, exceptDir) {
+  if (!email) return null;
+  const want = String(email).toLowerCase();
+  const skip = path.resolve(String(exceptDir || ''));
+  const hits = list().filter((a) => a.authMode === 'subscription' && a.email
+    && a.email.toLowerCase() === want && path.resolve(a.dir) !== skip);
+  if (hits.length !== 1) return null;
+  const t = reauthTarget(hits[0].dir);
+  if (t.error || activeGrokDirs.has(t.dir)) return null;
+  return t;
+}
+
 /**
  * Start a Grok subscription sign-in. Non-blocking; poll grokLoginStatus.
- * @param {{label?:string, grokBin:string}} args
+ * `reauthDir` signs in again AS that existing subscription account (see above); `label`
+ * is then ignored, since the account keeps its own name.
+ * @param {{label?:string, grokBin:string, reauthDir?:string}} args
  * @returns {{ok:true, sessionId:string} | {ok:false, because:string}}
  */
-function startGrokLogin({ label, grokBin } = {}) {
+function startGrokLogin({ label, grokBin, reauthDir } = {}) {
   const bin = String(grokBin || '');
   if (!bin || !runners.isRunnable(bin)) return { ok: false, because: MISSING_RUNNER_SENTENCE };
-  const spot = resolveFreshGrokDir(label);
+  let reauth = null;
+  if (reauthDir != null && String(reauthDir) !== '') {
+    reauth = reauthTarget(reauthDir);
+    if (reauth.error) return { ok: false, because: reauth.error };
+    if (activeGrokDirs.has(reauth.dir)) return { ok: false, because: 'a sign-in for that account is already in progress' };
+  }
+  const spot = resolveFreshGrokDir(reauth ? null : label);
   if (spot.error) return { ok: false, because: spot.error };
   activeGrokDirs.add(spot.dir);
+  // Held for the life of the sign-in, so forget/remove and a second sign-in again refuse it.
+  if (reauth) activeGrokDirs.add(reauth.dir);
   /* XAI_API_KEY REMOVED, not blanked: an empty value still reads as set to grok. */
   const env = { ...process.env, GROK_HOME: spot.dir };
   delete env.XAI_API_KEY;
@@ -693,16 +755,20 @@ function startGrokLogin({ label, grokBin } = {}) {
     child = spawn(bin, args, { env, stdio: ['ignore', 'pipe', 'pipe'] });
   } catch {
     activeGrokDirs.delete(spot.dir);
+    if (reauth) activeGrokDirs.delete(reauth.dir);
     if (spot.madeDir) { try { fs.rmSync(spot.dir, { recursive: true, force: true }); } catch { /* best effort */ } }
     return { ok: false, because: 'we could not start the Grok sign-in' };
   }
-  const session = { preexisting, id: sessionId, child, dir: spot.dir, label: spot.label || null, typedLabel: label, madeDir: spot.madeDir, state: 'starting', buf: '', account: null, error: null, timer: null, forceKillTimer: null, exited: false, reaped: false };
+  const session = { preexisting, id: sessionId, child, dir: spot.dir, label: spot.label || null, typedLabel: reauth ? null : label, madeDir: spot.madeDir, state: 'starting', buf: '', account: null, error: null, timer: null, forceKillTimer: null, exited: false, reaped: false,
+    reauthDir: reauth ? reauth.dir : null, reauthIsDefault: reauth ? reauth.isDefault : false, expectEmail: reauth ? reauth.expectEmail : null };
   grokSessions.set(sessionId, session);
   /* Anti-litter a sign-in that did not land an account: a dir we made goes whole; a
      reused slot loses only what grok writes there (auth.json, docs/, logs/, measured),
      never anything else in it. A landed account stays. */
   const dropDirIfOurs = () => {
-    if (session.account) return;
+    /* A sign-in again's slot is only ever staging: its auth.json was moved out on success,
+       and nothing in it is an account either way, so it is cleaned like a failed sign-in. */
+    if (session.account && !session.reauthDir) return;
     if (session.madeDir) { try { fs.rmSync(session.dir, { recursive: true, force: true }); } catch { /* best effort */ } return; }
     // Only what THIS sign-in created: an earlier agent's grok logs/ in a reused slot is not ours to delete.
     for (const name of GROK_WRITES) {
@@ -713,6 +779,7 @@ function startGrokLogin({ label, grokBin } = {}) {
   // Call only once the child is confirmed gone. Idempotent.
   const freeSlotAndDir = () => {
     activeGrokDirs.delete(session.dir);
+    if (session.reauthDir) activeGrokDirs.delete(session.reauthDir);
     dropDirIfOurs();
     try { fs.rmSync(sock, { force: true }); } catch { /* best effort */ }
   };
@@ -737,9 +804,64 @@ function startGrokLogin({ label, grokBin } = {}) {
     session.exited = true;
     if (session.forceKillTimer) { clearTimeout(session.forceKillTimer); session.forceKillTimer = null; }
     if (grokIsTerminal(session)) { freeSlotAndDir(); return; }
+    if (code === 0 && session.reauthDir) {
+      /* FAIL CLOSED: move the new sign-in over the live one only when BOTH emails are
+         read and equal. Anything else leaves the live account exactly as it was. */
+      const who = identityOf(session.dir);
+      const got = who && who.authMode === 'subscription' ? who.email : null;
+      // An email is one address whatever its capitals, so the comparison ignores them.
+      if (!got) {
+        session.error = 'we could not confirm that sign-in is the same account, so this account was left unchanged';
+      } else if (got.toLowerCase() !== String(session.expectEmail).toLowerCase()) {
+        session.error = 'that sign-in was for a different account, so this account was left unchanged';
+      } else {
+        const moved = promoteReauth(session.dir, session.reauthDir);
+        const row = moved.ok ? rowFor(session.reauthDir, session.reauthIsDefault) : null;
+        if (row) {
+          session.state = 'connected';
+          session.account = row;
+          freeSlotAndDir();
+          reapGrokSession(session);
+          return;
+        }
+        session.error = moved.ok ? 'the sign-in could not be read back after updating this account' : moved.because;
+      }
+      session.state = 'error';
+      freeSlotAndDir();
+      reapGrokSession(session);
+      return;
+    }
     if (code === 0) {
       const who = identityOf(session.dir);
       if (who && who.authMode === 'subscription') {
+        /* The same person signing in as a NEW account while one of theirs is already here
+           (a lapsed ~/.grok is the common case: first run offers Connect for it) refreshes
+           that account instead of adding a second with the same email. Only when exactly
+           one account matches and nothing else is signing it in; otherwise the new slot
+           stands, as before, rather than guessing. */
+        /* A typed name asks for a separate named account, so it is never merged. And a rename
+           that fails keeps the new sign-in as its own account (what happened before this
+           merge existed) rather than throwing away a sign-in the person just finished. */
+        const named = session.typedLabel != null && String(session.typedLabel).trim();
+        const into = named ? null : sameAccountFor(who.email, session.dir);
+        const moved = into ? promoteReauth(session.dir, into.dir) : { ok: false };
+        if (moved.ok) {
+          const row = rowFor(into.dir, into.isDefault);
+          session.reauthDir = into.dir;   // the new slot is staging now, and is cleaned as such
+          if (row) {
+            session.state = 'connected';
+            session.account = row;
+            freeSlotAndDir();
+            reapGrokSession(session);
+            return;
+          }
+          // Said for a NEW sign-in, where the person never picked an account: name which one.
+          session.error = 'your existing Grok account was updated, but we could not read it back';
+          session.state = 'error';
+          freeSlotAndDir();
+          reapGrokSession(session);
+          return;
+        }
         if (session.typedLabel != null && String(session.typedLabel).trim()) writeName(session.dir, session.typedLabel);
         const row = rowFor(session.dir, false);
         if (row) {
@@ -808,7 +930,7 @@ module.exports = {
   setFetcher, askModels, validateLive, checkLive, listLive,
   keyProblem, cleanLabel, dirForLabel, nextWorkDir,
   storeKey, forgetKey, forgetAccount, removeAccount,
-  authFile, readAuth, parseGrokLoginOutput, startGrokLogin, grokLoginStatus, cancelGrokLogin, setGrokTimers,
+  authFile, readAuth, parseGrokLoginOutput, startGrokLogin, reauthTarget, grokLoginStatus, cancelGrokLogin, setGrokTimers,
   isSignInPending, MISSING_RUNNER_SENTENCE, holdsCredentials,
   readName, writeName,
   get HOME_FOR_TEST() { return homeDir(); },

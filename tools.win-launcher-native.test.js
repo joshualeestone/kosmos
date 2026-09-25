@@ -211,10 +211,12 @@ test('W-08: the version information says Kosmos, carries the LAUNCHER version, a
   assert.equal(strings.ProductName, 'Kosmos');
   assert.equal(strings.FileVersion, sourceConstant('LauncherVersion'), 'the exe was not rebuilt after LauncherVersion changed');
   assert.equal(strings.ProductVersion, sourceConstant('LauncherProductVersion'));
-  /* It must match the code-signing certificate's subject, which is not issued
-     yet. A guessed company would contradict the signature once it lands. */
-  assert.ok(!strings.CompanyName, 'Kosmos.exe names a company before the signing certificate says which');
-  assert.doesNotMatch(SOURCE, /\[assembly:\s*AssemblyCompany/, 'the source sets AssemblyCompany before the signing certificate exists');
+  /* It must match the code-signing certificate's subject. The certificate is now
+     issued (Kosmos Agent Manager, Inc.) and the committed exe is signed with it,
+     but AssemblyCompany is a source change, so it lands with its own rebuild and
+     re-sign (a follow-up). Until then these hold, and that change flips them. */
+  assert.ok(!strings.CompanyName, 'Kosmos.exe names a company, but the AssemblyCompany follow-up has not landed; flip this assertion with it');
+  assert.doesNotMatch(SOURCE, /\[assembly:\s*AssemblyCompany/, 'the source sets AssemblyCompany; flip this assertion in the same change (rebuild + re-sign)');
   /* Never the app's version: the exe is copied unchanged into every release. */
   const appVersion = JSON.parse(fs.readFileSync(path.join(REPO, 'package.json'), 'utf8')).version;
   assert.notEqual(strings.FileVersion.replace(/(\.0)+$/, ''), appVersion.replace(/(\.0)+$/, ''),

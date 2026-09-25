@@ -36,12 +36,36 @@
 #   powershell -File tools/windows/verify-launcher.ps1
 #
 # Exit 0 = the committed exe reproduces from the committed source.
+#
+# 🔏 THE COMMITTED EXE IS AUTHENTICODE-SIGNED, AND THE SIGNATURE IS NOT PART OF
+# WHAT IS PROVEN HERE. Signing (Azure Artifact Signing, Kosmos Agent Manager,
+# Inc.) happens AFTER the compile and changes exactly three things, all defined
+# by the PE/COFF spec rather than by this compiler: it appends a certificate
+# table at the end of the file (after up to 7 bytes of zero padding to an 8-byte
+# boundary), it fills in the optional header's Security data directory entry
+# (index 4: the file offset and size of that table), and it recomputes the
+# CheckSum. So a signed exe is compared as the UNSIGNED image it was made from:
+# the bytes before the padding, with the 8-byte Security entry masked (CheckSum
+# already is). Every other byte is still compared, and the padding must be
+# zeros, so nothing can hide in the gap. What the signature itself says -- who
+# signed it and whether Windows accepts it -- is reported and must be Valid;
+# that is Windows' check to make, not a byte compare's.
+#
+# ⚠️ A SOURCE CHANGE MEANS A RE-SIGN. Rebuilding Kosmos.exe drops the signature,
+# and the signing tool lives only on the Windows box. See tools/windows/README.md.
+#
+#   powershell -File tools/windows/verify-launcher.ps1 -Exe <copy.exe>
+#
+# checks another file against the source instead of the committed one: the way
+# to prove this check still catches a flipped byte in a signed binary.
+
+param([string]$Exe)
 
 $ErrorActionPreference = 'Stop'
 
 $here = Split-Path -Parent $MyInvocation.MyCommand.Path
 $src = Join-Path $here 'KosmosLauncher.cs'
-$committed = Join-Path $here 'Kosmos.exe'
+$committed = if ($Exe) { [System.IO.Path]::GetFullPath($Exe) } else { Join-Path $here 'Kosmos.exe' }
 
 # The pinned compiler. Framework64 v4.0.30319 is present on every Windows 10/11
 # machine; naming the path rather than searching keeps two runs comparable.
@@ -90,6 +114,50 @@ try {
   $k = [System.IO.File]::ReadAllBytes($committed)
 
   if ($a.Length -ne $b.Length) { Write-Error "two rebuilds differ in SIZE ($($a.Length) vs $($b.Length)); this compiler is not usable for a masked compare"; exit 1 }
+
+  # 🔏 FIND THE SIGNATURE STRUCTURALLY, from the committed file's own headers:
+  # e_lfanew -> PE signature -> optional header, whose Magic says PE32 (0x10B,
+  # data directories at +96) or PE32+ (0x20B, at +112). The Security entry is
+  # directory 4, 8 bytes: a FILE offset (not an RVA) and a size. Zero/zero means
+  # unsigned, and the compare below is exactly what it always was.
+  $kPe = [BitConverter]::ToInt32($k, 0x3C)
+  $kOpt = $kPe + 24
+  $kMagic = [BitConverter]::ToUInt16($k, $kOpt)
+  if ($kMagic -eq 0x10B) { $dirsAt = $kOpt + 96; $countAt = $kOpt + 92 }
+  elseif ($kMagic -eq 0x20B) { $dirsAt = $kOpt + 112; $countAt = $kOpt + 108 }
+  else { Write-Host ('MISMATCH: the committed Kosmos.exe has an unknown optional-header magic 0x{0:X}.' -f $kMagic); exit 1 }
+  $secEntry = $null
+  $signed = $false
+  if ([BitConverter]::ToUInt32($k, $countAt) -gt 4) {
+    $secEntry = $dirsAt + 4 * 8
+    $secOff = [BitConverter]::ToUInt32($k, $secEntry)
+    $secSize = [BitConverter]::ToUInt32($k, $secEntry + 4)
+    $signed = ($secOff -ne 0 -or $secSize -ne 0)
+  }
+  if ($signed) {
+    # 🛑 THE CERTIFICATE TABLE MUST BE THE TAIL OF THE FILE, AND ALL OF IT.
+    # Anything after the table, or a table that starts somewhere other than the
+    # 8-byte-aligned end of the image, is bytes this check would otherwise skip
+    # -- refused rather than stripped.
+    if (([int64]$secOff + [int64]$secSize) -ne $k.Length) {
+      Write-Host "MISMATCH: the certificate table ($secOff + $secSize bytes) is not the end of the file ($($k.Length) bytes)."
+      exit 1
+    }
+    $pad = [int64]$secOff - $a.Length
+    if ($pad -lt 0 -or $pad -gt 7 -or ($secOff % 8) -ne 0) {
+      Write-Host "MISMATCH: the certificate table starts at $secOff, but a fresh build is $($a.Length) bytes (only up to 7 bytes of 8-byte alignment padding may sit between them)."
+      Write-Host 'The committed binary did not come from the committed source (or from these flags).'
+      exit 1
+    }
+    for ($i = $a.Length; $i -lt $secOff; $i++) {
+      if ($k[$i] -ne 0) { Write-Host ('MISMATCH: alignment padding byte at 0x{0:X4} is not zero.' -f $i); exit 1 }
+    }
+    # The unsigned image: everything before the padding and the table.
+    $unsigned = New-Object byte[] $a.Length
+    [Array]::Copy($k, $unsigned, $a.Length)
+    $k = $unsigned
+  }
+
   if ($k.Length -ne $a.Length) {
     Write-Host "MISMATCH: committed Kosmos.exe is $($k.Length) bytes, a fresh build is $($a.Length)."
     Write-Host 'The committed binary did not come from the committed source (or from these flags).'
@@ -122,12 +190,19 @@ try {
   foreach ($off in @(($peAt + 8), ($peAt + 24 + 64))) {
     for ($j = $off; $j -lt $off + 4 -and $j -lt $a.Length; $j++) { [void]$set.Add($j) }
   }
+  # 🔏 And, only when the committed exe is signed, the 8-byte Security entry
+  # itself: the one header field signing writes besides CheckSum. Same offset in
+  # the fresh build (same compiler, same layout -- and if it were not, the
+  # compare would say so).
+  if ($signed) {
+    for ($j = $secEntry; $j -lt $secEntry + 8; $j++) { [void]$set.Add($j) }
+  }
   $mask = @($set) | Sort-Object
 
   Write-Host ("compiler      : " + (Get-Item $csc).VersionInfo.FileVersion)
   Write-Host ("flags         : " + ($FLAGS -join ' ') + ' ' + $ICON_FLAG_FROM_REPO_ROOT)
   Write-Host ("size          : " + $a.Length + " bytes")
-  Write-Host ("build metadata: " + $mask.Count + " byte(s) vary between two runs")
+  Write-Host ("build metadata: " + $mask.Count + " byte(s) vary between two runs" + $(if ($signed) { ", incl. the 8-byte Security entry at 0x{0:X4}" -f $secEntry } else { '' }))
   if ($mask.Count -gt 0) {
     $shown = ($mask | ForEach-Object { '0x{0:X4}' -f $_ }) -join ' '
     Write-Host ("              : " + $shown)
@@ -146,9 +221,30 @@ try {
 
   Write-Host ("masked rebuild : " + $ha)
   Write-Host ("masked committed: " + $hk)
+
+  # 🔏 What Windows makes of the signature, shown so a reviewer sees WHO signed
+  # it, not just that some bytes were stripped. Checked after the compare, so a
+  # tampered binary is reported as the byte mismatch it is.
+  if ($signed) {
+    $sig = Get-AuthenticodeSignature -LiteralPath $committed
+    Write-Host ("signature      : " + $sig.Status + " (" + $sig.StatusMessage + ")")
+    Write-Host ("signer         : " + $(if ($sig.SignerCertificate) { $sig.SignerCertificate.Subject } else { '(none)' }))
+    Write-Host ("timestamped by : " + $(if ($sig.TimeStamperCertificate) { $sig.TimeStamperCertificate.Subject } else { '(none)' }))
+  } else {
+    Write-Host 'signature      : none (unsigned)'
+  }
   Write-Host ''
   if ($ha -eq $hk) {
-    Write-Host 'OK: the committed Kosmos.exe reproduces from the committed KosmosLauncher.cs.'
+    if ($signed -and $sig.Status -ne 'Valid') {
+      Write-Host "SIGNATURE NOT VALID: the image matches its source, but Windows reports the signature as $($sig.Status)."
+      Write-Host 'Re-sign tools\windows\Kosmos.exe on the Windows box (see tools/windows/README.md).'
+      exit 1
+    }
+    if ($signed) {
+      Write-Host 'OK: the committed Kosmos.exe, less its Authenticode signature, reproduces from the committed KosmosLauncher.cs.'
+    } else {
+      Write-Host 'OK: the committed Kosmos.exe reproduces from the committed KosmosLauncher.cs.'
+    }
     exit 0
   }
 
@@ -158,6 +254,7 @@ try {
   Write-Host 'The committed binary did not come from the committed source (or from these flags).'
   Write-Host 'Rebuild it in the same commit as the source change:'
   Write-Host ("  " + $csc + ' ' + ($FLAGS -join ' ') + ' ' + $ICON_FLAG_FROM_REPO_ROOT + ' /out:tools\windows\Kosmos.exe tools\windows\KosmosLauncher.cs')
+  Write-Host 'then re-sign it on the Windows box (see tools/windows/README.md).'
   exit 1
 } finally {
   Remove-Item -Recurse -Force $tmp -ErrorAction SilentlyContinue

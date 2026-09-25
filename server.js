@@ -7397,7 +7397,10 @@ const server = http.createServer((req, res) => {
           return;
         }
         if (body.label != null && typeof body.label !== 'string') { sendJson(res, 400, { error: 'we could not read that request' }); return; }
-        const out = grokAccounts.startGrokLogin({ label: body.label, grokBin: resolved.bin });
+        if (body.reauthDir != null && typeof body.reauthDir !== 'string') { sendJson(res, 400, { error: 'we could not read that request' }); return; }
+        /* #3391 part 2: `reauthDir` signs in again AS an existing Grok subscription account;
+           the engine validates it and moves the new sign-in over it only on an email match. */
+        const out = grokAccounts.startGrokLogin({ label: body.label, grokBin: resolved.bin, reauthDir: body.reauthDir || undefined });
         if (!out.ok) { sendJson(res, 400, { error: out.because }); return; }
         // The URL and code are printed by grok AFTER this returns; read them from status.
         sendJson(res, 200, { sessionId: out.sessionId });
@@ -13684,6 +13687,30 @@ const server = http.createServer((req, res) => {
       })
       .catch((err) => sendJson(res, 400,
         { error: String((err && err.message) || 'we could not read that request') }));
+    return;
+  }
+
+  /**
+   * #3660: the setup assistant on Kosmos's own model, for a person who has not
+   * connected a model yet. The bubble posts `{ messages, page? }` and gets back
+   * `{ reply, remaining }`, or a refusal `{ error, code, retryAfterSecs }` whose
+   * `error` is a sentence to show as-is (the coordinator's own, or ours for "could
+   * not reach it" and "arrives with the next update"). engine/hostedguide.js does
+   * the shaping and the one retry; the tunnel signs (no crypto on the board). Once
+   * a guide agent exists on their own model, the bubble talks to that instead.
+   */
+  if (pathname === '/api/setup-guide/hosted' && req.method === 'POST') {
+    readBody(req)
+      .then(async (buf) => {
+        let body;
+        try { body = JSON.parse(buf.toString('utf8') || '{}'); } catch { body = null; }
+        if (!body || typeof body !== 'object' || Array.isArray(body)) { sendJson(res, 400, { error: 'we could not read that request' }); return; }
+        const hosted = require('./engine/hostedguide');
+        const out = await hosted.ask({ messages: body.messages, page: body.page });
+        if (out.ok) { sendJson(res, 200, { reply: out.reply, remaining: out.remaining }); return; }
+        sendJson(res, out.status, { error: out.because, code: out.code, retryAfterSecs: out.retryAfterSecs, unsupported: !!out.unsupported });
+      })
+      .catch((err) => sendJson(res, err && err.status ? err.status : 400, { error: (err && err.message) || 'we could not read that request' }));
     return;
   }
 

@@ -177,3 +177,23 @@ test('GET /api/accounts badges a connected subscription row signed_in_unverified
   assert.equal(row.connection.badge, 'signed_in_unverified', 'a file alone is not a confirmed sign-in');
   fs.rmSync(sub, { recursive: true, force: true });
 });
+
+/* #3391 part 2: `reauthDir` on start signs in again AS an existing subscription account. */
+test('start with reauthDir signs in again as that account; a bad reauthDir is refused', async () => {
+  const live = nodePath.join(SANDBOX, '.grok-again');
+  fs.mkdirSync(live, { recursive: true });
+  fs.writeFileSync(nodePath.join(live, 'auth.json'), JSON.stringify({ 'https://auth.x.ai::u0': { email: 'route@example.com', refresh_token: 'OLD' } }), { mode: 0o600 });
+  const r = await post('/api/accounts/grok/subscription/start', { reauthDir: live });
+  assert.equal(r.status, 200);
+  const { sessionId } = await r.json();
+  const done = await poll(sessionId, (b) => b.state === 'connected' || b.state === 'error');
+  assert.equal(done.body.state, 'connected', JSON.stringify(done.body));
+  assert.equal(done.body.account.dir, live, 'the live account, not a new one');
+  assert.match(fs.readFileSync(nodePath.join(live, 'auth.json'), 'utf8'), /"r"/, 'the new sign-in replaced the old one');
+
+  const wrongType = await post('/api/accounts/grok/subscription/start', { reauthDir: 7 });
+  assert.equal(wrongType.status, 400);
+  const notAccount = await post('/api/accounts/grok/subscription/start', { reauthDir: nodePath.join(SANDBOX, 'elsewhere') });
+  assert.equal(notAccount.status, 400);
+  assert.match((await notAccount.json()).error, /not a Grok account/);
+});
