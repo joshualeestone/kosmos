@@ -2047,12 +2047,14 @@ body.filter-noproj #orgview .onode:not([data-noproj]) { opacity: .26; }
 /* #718 mobile: at a phone's width the projects row's two cells (Add Project, and the sort
    beside the view toggle) were each their full natural width, 3px more than an iPhone SE
    has (Raiden's harness, .panel 330 > 327). The right cell may shrink, and the sort's
-   select gives up space before anything leaves the screen: its label truncates. */
+   select gives up space before anything leaves the screen: its label truncates with an
+   ellipsis. 30rem is the room's phone width (PJ_PHONE_MQ); pinned equal by
+   web.room-phone-718.test.js, so "a phone" means one thing across the project pages. */
 @media (max-width: 30rem) {
   #pj-list-view .statsrow { grid-template-columns: auto minmax(0, 1fr); }
   #pj-list-view .statsrow > .viewctl { min-width: 0; }
   #pj-list-view .sortctl { min-width: 0; flex: 0 1 auto; }
-  #pj-list-view .sortctl select { min-width: 0; max-width: 100%; text-overflow: ellipsis; }
+  #pj-list-view .sortctl select { min-width: 0; max-width: 100%; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
 }
 @media (max-width: 56rem) {
   .statsrow { grid-template-columns: auto auto; justify-content: space-between; }
@@ -46420,6 +46422,8 @@ function pjPhoneOrder() {
   const mid = grid && grid.querySelector(':scope > .pjmid');
   const split = grid && grid.querySelector(':scope > .pjsplit');
   if (!grid || !mid || !split || !window.matchMedia) return;
+  // Only these two swap. The grid's third child (Tasks) is last in the markup and stays last
+  // in both orders, because split only ever moves to just before or just after mid.
   // A control focused in the column that moves (a keyboard or VoiceOver user in Members or
   // Files) is blurred by the move. Those are buttons and links, not text fields, so putting
   // the focus back works on every engine.

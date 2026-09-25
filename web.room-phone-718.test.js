@@ -78,7 +78,12 @@ test('the projects row fits an iPhone SE: its right cell and the sort may shrink
   // harness is the behaviour check; this pins the rules so they cannot quietly go.
   const phone = blocks('max-width: 30rem');
   assert.match(phone, /#pj-list-view \.statsrow \{ grid-template-columns: auto minmax\(0, 1fr\); \}/);
-  assert.match(phone, /#pj-list-view \.sortctl select \{ min-width: 0; max-width: 100%; text-overflow: ellipsis; \}/);
+  assert.match(phone, /#pj-list-view \.sortctl select \{ min-width: 0; max-width: 100%; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; \}/, 'an ellipsis needs overflow hidden, or the label is simply cut');
+  // The projects-row block and the room's block are the same phone width as the script's query.
+  const mq = html.match(/const PJ_PHONE_MQ = '\(max-width: ([\d.]+rem)\)';/)[1];
+  const rowBlock = html.match(/@media \(max-width: ([\d.]+rem)\) \{\n  #pj-list-view \.statsrow/);
+  assert.ok(rowBlock, 'the projects-row block moved; re-anchor');
+  assert.equal(rowBlock[1], mq);
 });
 
 test('the first-visit project tip anchors at the conversation first on a phone (page order)', () => {
