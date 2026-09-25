@@ -53811,14 +53811,16 @@ function tipPlace(card, sel, side = false, { key = '', avoid = true } = {}) {
   const cands = [];
   /* The WHOLE card must be on screen, every edge (#3574, Liu Kang 2026-09-25): "above" used to check only its
      top, so a target below the fold put the card below the fold too, and "below" did the same above it. */
-  const onScreen = (left, top) => top >= pad && top + h <= vh - pad && left >= pad && left + w <= pageW - pad;
+  /* A pixel of slack across: on a phone the card is the window's width less two pads, and offsetWidth is rounded
+     while pageW can be fractional, so an exact test could refuse every place that fits. */
+  const onScreen = (left, top) => top >= pad && top + h <= vh - pad && left >= pad - 1 && left + w <= pageW - pad + 1;
   const right = { cls: 'left', left: r.right + 14, top: sideTop };
   const below = { cls: 'up', left: midLeft, top: r.bottom + 12 };
   const above = { cls: 'down', left: midLeft, top: r.top - 12 - h };
   const leftSide = { cls: 'right', left: r.left - 14 - w, top: sideTop };
   /* A target off screen gets no arrow: a side place clamps onto the screen and would point at nothing.
      The scroll listener places the card again, arrow and all, once the target is in view. */
-  const offScreen = r.bottom <= 0 || r.top >= vh;
+  const offScreen = r.bottom <= 0 || r.top >= vh || r.right <= 0 || r.left >= pageW;
   if (!offScreen) for (const c of side ? [right, below, above, leftSide] : [below, above, right, leftSide]) if (onScreen(c.left, c.top)) cands.push(c);
   if (!cands.length) cands.push({ ...below, cls: offScreen ? 'flat' : below.cls, top: Math.max(pad, Math.min(r.bottom + 12, vh - h - pad)) });
   /* The target itself is kept clear too (with the ring's margin): the card points at it, never sits on it. */
@@ -53851,7 +53853,7 @@ function tipPlace(card, sel, side = false, { key = '', avoid = true } = {}) {
     const cx = r.left + r.width / 2, cy = r.top + r.height / 2;
     let near = null;
     for (let top = pad; top + h <= vh - pad; top += 24) {
-      for (let left = pad; left + w <= pageW - pad; left += 24) {
+      for (let left = pad; left + w <= pageW - pad + 1; left += 24) {
         if (!clearAt(left, top)) continue;
         const d = Math.hypot(left + w / 2 - cx, top + h / 2 - cy);
         if (!near || d < near.d) near = { cls: 'flat', left, top, hits: 0, d };

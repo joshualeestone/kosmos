@@ -628,30 +628,46 @@ const resetStore = (state) => fs.writeFileSync(tipsStore.FILE(), JSON.stringify(
     // 2026-09-25: a phone layout puts the project tip's target below the composer). The target is one this
     // check places itself, below the fold and then above it; the control is a target in view, which must
     // still get its arrow.
-    const place32 = (where) => page.evaluate((wh) => {
+    const place32 = (where, real = false) => page.evaluate(([wh, useReal]) => {
       tipLayerEnsure();
       document.querySelectorAll('[data-t32]').forEach((x) => x.remove());
       const t = document.createElement('div'); t.setAttribute('data-t32', '');
-      const top = wh === 'below' ? window.innerHeight + 300 : wh === 'above' ? -400 : Math.round(window.innerHeight / 3);
+      const top = wh === 'below' ? window.innerHeight + 300 : wh === 'above' ? -400 : wh === 'low' ? window.innerHeight - 70 : Math.round(window.innerHeight / 3);
       t.style.cssText = 'position:fixed;left:200px;width:120px;height:30px;top:' + top + 'px';
       document.body.appendChild(t);
-      const c = document.createElement('div'); c.className = 'tipcard'; c.setAttribute('data-t32', '');
-      c.style.cssText = 'position:fixed;width:300px;height:180px';
-      document.getElementById('tiplayer').appendChild(c);
+      /* On a phone the REAL card is used, so the stylesheet's pinned width and edges apply as they do for a person. */
+      let c = useReal ? document.getElementById('tipcard') : null;
+      if (!c) { c = document.createElement('div'); c.className = 'tipcard'; c.setAttribute('data-t32', ''); c.style.cssText = 'position:fixed;width:300px;height:180px'; document.getElementById('tiplayer').appendChild(c); }
       const was = document.getElementById('tiplayer').hidden; document.getElementById('tiplayer').hidden = false;
       tipPlace(c, 'div[data-t32]:not(.tipcard)', false, { key: 't32', avoid: false });
       const b = c.getBoundingClientRect();
-      const out = { top: Math.round(b.top), bottom: Math.round(b.bottom), vh: window.innerHeight, flat: c.classList.contains('flat') };
+      const tr = t.getBoundingClientRect();
+      const out = { top: Math.round(b.top), bottom: Math.round(b.bottom), left: Math.round(b.left), right: Math.round(window.innerWidth - b.right), vh: window.innerHeight, flat: c.classList.contains('flat'),
+        onTarget: b.left < tr.right && b.right > tr.left && b.top < tr.bottom && b.bottom > tr.top };
       document.getElementById('tiplayer').hidden = was;
       document.querySelectorAll('[data-t32]').forEach((x) => x.remove());
       return out;
-    }, where);
+    }, [where, real]);
+    const inside = (q) => q.top >= 11 && q.vh - q.bottom >= 11 && q.left >= 11 && q.right >= 11;
     for (const wh of ['below', 'above']) {
       const p32 = await place32(wh);
-      chk(p32.top >= 0 && p32.bottom <= p32.vh && p32.flat, 'T32 a target ' + wh + ' the fold: the card is wholly on screen, with no arrow', JSON.stringify(p32));
+      chk(inside(p32) && p32.flat, 'T32 a target ' + wh + ' the fold: the card is wholly on screen, with no arrow', JSON.stringify(p32));
     }
     const in32 = await place32('in view');
-    chk(in32.top >= 0 && in32.bottom <= in32.vh && !in32.flat, 'T32 CONTROL: a target in view keeps its arrow', JSON.stringify(in32));
+    chk(inside(in32) && !in32.flat && !in32.onTarget, 'T32 CONTROL: a target in view keeps its arrow', JSON.stringify(in32));
+    // T32b: the reported case, on a phone with the real card: a target low on the screen (the project tip's
+    // Members button under the composer), and one below the fold.
+    await page.setViewportSize({ width: 390, height: 800 });
+    await page.waitForTimeout(300);
+    await page.click('#helpq-btn');
+    await page.click('#helpq-menu [data-help="ring"]');
+    await page.waitForTimeout(200);
+    const low32 = await place32('low', true), fold32 = await place32('below', true);
+    chk(inside(low32) && !low32.onTarget, 'T32b on a phone, a target low on the screen: the real card is wholly on screen and off its target', JSON.stringify(low32));
+    chk(inside(fold32), 'T32b on a phone, a target below the fold: the real card is wholly on screen', JSON.stringify(fold32));
+    await page.keyboard.press('Escape');
+    await page.setViewportSize({ width: 1280, height: 860 });
+    await page.waitForTimeout(300);
 
     // T7: a board that cannot say what was seen shows nothing. Seen is emptied first, so a guard
     // that let tips through would show the tour here (control: T1 and T6, the same empty state).
