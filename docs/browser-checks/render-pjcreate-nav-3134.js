@@ -22,6 +22,7 @@
  *      (HEADED=0 on a machine with no console session)
  * Sandboxed roots; kills only what it starts.
  */
+require('./lib-sandbox-home.js'); // #3675: never read the host Mac's real accounts
 const { spawn, execFileSync } = require('node:child_process');
 const fs = require('node:fs');
 const os = require('node:os');

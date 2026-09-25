@@ -303,6 +303,7 @@ one invented by somebody who did not write them.
 | `regress-a-night.js` | Everything the night of 2026-08-21 added, drawn together on one build |
 | `render-agent-nav.js` | The agent page's left nav, on a screen (agent-page-nav, 2026-08-23). |
 | `render-agent-files-3614.js` | The agent page Files block (#3614): on screen directly under the four-pack in its column (both themes, and 760 wide); an agent with files lists them newest first with a date and a size; an agent with no Files folder shows the empty sentence; clicking a row reaches the (stubbed) opener with that file; Open in Finder makes the folder on first use and reaches the opener with it. |
+| `render-tasks-view-3559.js` | The Tasks view (#3559): the top nav's Tasks tab opens `#panel-tasks`, and in the consolidated view (tab bar hidden) the projects rail's Tasks button does. The tiles are exactly the four groups the engine can prove (Nobody on it, Assigned not started, In progress, Closed) with the right counts, and no Waiting-on-you, Done-check-it or category is drawn. A task its agent names is In progress; one it has not named is Assigned. Search finds tasks by agent name and by what they say, and combines with the project rail; Group by Project regroups them; ticking two rows and Close them closes both with the note on each history. No element in the view carries a coloured left border (Josh, 2026-09-24). Light, dark, and 760 wide (the rail becomes a dropdown). Self-hosted sandboxed server; headless-fine. |
 | `render-detail-header-1841.js` | The view-agent-detail header redesign (#1841): the working-rules prompt moved onto the Instructions tab for both doctrine cases (red tab dot, "Add Instructions & Restart"), the hand-edited stale case redesigned as the header restart card ("[name] needs to be restarted" + [Restart], never "it"), the reported self-quote dropped from the task line beside the bubble (#3043). #3271 (Josh 2026-09-18): the #d-why reason line under the name was REMOVED (no status line up there), so Part 3 now asserts #d-why does not exist while the #d-task engine-state sentence is kept. #3385 (Josh 2026-09-21): the header moved into a left identity column and #d-meta was simplified to the TITLE only, so Part 4 now asserts the meta line is the title plus the kept #684 machine-name disclosure with NO bold, no middot and no provider/account/model, and a new Part 5 asserts fitDetailName shrinks a long name to fit the column on a COLD open. Drives the real painters and asserts the real DOM. |
 | `render-start-agent-3410.js` | The "Start this agent" affordance in the detail-header identity column (#3410, Josh 0.6.88 live test): a prominent button shown ONLY when the open agent is confidently not running (`cardStOf(a).pres === 'off'`, i.e. 'stopped'), because Josh had agents that never connected and no UI way to start one without the buried Fresh-start section. It POSTs the EXISTING `/api/agent/<name>/restart` (not a new endpoint) and verifies real readiness via `restartReadyWait` before ever claiming success, so it stays honest on the #3418 restart false-success. Drives the real `openDetail` painter + click handler and asserts the real DOM. Arms: (1) visibility ON a stopped agent (`#d-start-wrap` shown, "Start this agent", enabled); (2) visibility OFF a running (idle) agent; (3) click POSTs `/restart`; a refused outcome (HTTP 400) with a reason shows the honest `restartFailureLine`, not a false "started", and re-enables; (3b) a refused outcome with NO reason reads "We could not start X." with no restart-worded double-up; (4) the #3418 false-success (`outcome:'restarted'` while the agent never becomes ready) shows "has not come back yet", never "Started"; (5) START_EPOCH guard: a reopen during the readiness wait suppresses the stale handler's late write; (6) START_FLIGHT guard: an in-flight start keeps the button disabled through a poll re-derive (no double-restart); (7) the REAL route against a genuinely-offline `FOUND.NONE` agent (a `ghost` fixture: profile+folder+plist, no pane) surfaces `restartInner`'s honest refusal (will go red when Angel's #3418 makes it start, the correct signal to update); (8) the SUCCESS path (readiness reached, hello placed) shows "Started X, and said hello to wake them." and hides the button, leaving the receipt. |
 | `render-org-rings-2576.js` | The context ring + needs-you badge on the Agents org-chart nodes (#2576/#2577): installs a needs_you agent plus two others, sets known readings on each agent's `LAST` entry, re-drives the real `paintOrg`, then reads every `#orgmap .onode` -- a context gauge on EVERY node with an arc tracking its reading (30/70/88% -> ok/warn/high band), a red warning-triangle badge (`.owarn`, the list row's glyph) on the needs-you node ONLY, and NO old `::after` state arc on any node. Unknown context draws no ring. Proven RED by reverting to the old `class="onode' + ring` + `.onode.attn::after` (the badge-only and no-::after arms fail); a fixed non-reading arc reds the arc-tracks-reading arm. |
@@ -441,6 +442,7 @@ one invented by somebody who did not write them.
 | `render-role-order.js` | The three role options in Josh's order, natively grouped, with the menu between two of them |
 | `render-pjsettings.js` | **no header sentence.** Read it before running it, and give it one. |
 | `render-pjcreate-nav-3134.js` | Project-create navigation (#3134, Josh 6.68): after "Create project" the shipped `#pj-create` handler returns to the projects LIST (list shown, `#pj-add-view` + `#pj-one-view` hidden, new project in the list), in both the tab and consolidated views, instead of diving into the new project's empty detail. Non-vacuous: origin/main shows `#pj-one-view` there. Server-based, sandboxed roots. |
+| `render-create-prefs-3081.js` | #3081: Create an agent remembers the last account and model. Makes an agent with a non-default account and model (the create answer is stubbed, nothing launches), reopens Create after a reload, and asserts both come back pre-selected and can still be changed. Control: a fresh page has no remembered choice. Provider restore is not observed (Claude-only fixture). |
 | `render-settings-nav.js` | The Settings page's left nav, on a screen (settings-nav, 2026-08-23). |
 | `render-plus-gate-1615.js` | The Kosmos Plus tab gates the on-switch on ENROLMENT, not `configured` (#1615). Stubs /api/remote per scenario and asserts, in both themes: an unenrolled machine (everyone today) shows the state 1 holding place with NO "Turn on" switch; an enrolled one keeps the connected flow with the switch so it can still turn Plus off. Also pins the "Kosmos Plus" retitle of the heading and nav pill. Guards the bug where `configured = Boolean(RELAY())` is always true, so gating on it showed the relay switch to every user with no paid gate. |
 | `render-plus-signin-3478.js` | The Kosmos+ sign-in links open the IN-APP wizard, not the web (#3478). Stubs /api/remote unenrolled (so state 1 and the sign-in link are on screen) and stubs the signin-* POSTs per scenario, then clicks "Sign in" and walks the wizard to a named, addressed computer across all three signin-verify branches: an account with an existing second factor (email code -> phone code -> name), one that must set up a second factor (email code -> authenticator key -> confirm -> name), and one that lands straight on a session (email code -> name). Asserts the sign-in link does NOT navigate away (the whole bug), that state 1 gives way to the wizard, that the why-authenticator copy and the authenticator key render, and that the new address is shown. Backend (server.js signin-* proxies + engine stage machine) is #3149; this guards the client wiring. |
@@ -608,6 +610,25 @@ The temp-root test mirrors `engine/status.js` and carries its two corrections: `
 is not `os.tmpdir()` on macOS, and both sides need resolving because `/var` is a symlink
 to `/private/var`.
 
+### `lib-sandbox-home.js` is a library, not a check
+
+**Every check that boots or spawns a board requires it first (#3675).** The account
+modules look under `AGENT_WORKFORCE_HOME || the real home`, and a fixture that sandboxed
+everything else still showed the host Mac's real Claude emails and the end of a real
+OpenAI key in Settings, where a local screenshot could carry them into a PR or a chat.
+Requiring it points `AGENT_WORKFORCE_HOME` and `AGENT_WORKFORCE_CLAUDE_CONFIG` at a sandbox
+unless the caller already set them, REMOVES the ambient homes read before that seam
+(`CODEX_HOME`, `AGENT_WORKFORCE_CODEX_HOME`, `GEMINI_CLI_HOME`, `GROK_HOME`,
+`CLAUDE_CONFIG_DIR`), and removes the folders it made when the check exits. Do not set
+`AGENT_WORKFORCE_CODEX_HOME` in a fixture: naming one puts the board into the #1488
+"operator named a codex home" mode. `tools/browser-checks.sh` exports an empty
+sandbox home for the whole run as well.
+
+A check whose screen needs a connected subscription calls `plantSubscribedClaude()`,
+which gives it its own home with a fixture account (`fixture@example.invalid`). It is
+opt-in because first-run checks want no account, and its own home so no later check sees
+it. `tools.browser-checks-home-3675.test.js` fails if a board-booting check skips the lib.
+
 ### `lib-firstrun-steps.js` is a library, not a check
 
 The other non-browser `.js` in here. The first-run wizard numbers its steps (`fr-pane-N`,
@@ -634,7 +655,13 @@ When the next step is inserted, discovery follows the pane; a hard-coded number 
 ```sh
 # 1. a server, with every root it writes to pointed somewhere disposable
 SB=$(mktemp -d)
+mkdir -p "$SB/home"
+# #3675: the home and the Claude config too, or Settings (and any screenshot) shows this
+# Mac's real accounts; and no ambient home read before the seam.
+env -u CODEX_HOME -u AGENT_WORKFORCE_CODEX_HOME -u GEMINI_CLI_HOME -u GROK_HOME -u CLAUDE_CONFIG_DIR \
 PORT=4399 \
+  AGENT_WORKFORCE_HOME="$SB/home" \
+  AGENT_WORKFORCE_CLAUDE_CONFIG="$SB/config/.claude.json" \
   AGENT_WORKFORCE_DATA="$SB/data" \
   AGENT_WORKFORCE_WORKERS="$SB/workers" \
   AGENT_WORKFORCE_LAUNCH="$SB/launch" \
@@ -995,7 +1022,17 @@ the server with `AGENT_WORKFORCE_DRY_RUN=1` on top of the sandboxed roots, and
 pass `--yes-dry-run` as the second argument or it refuses to run:
 
 ```sh
+# #3675: its own home (a fixture account) and a stand-in Claude Code, as sb8 in
+# tools/browser-checks.sh has, or Create runs against your real account and binary.
+# Its own home, not the one the step-1 board uses, so that board gains no account.
+mkdir -p "$SB/create-home/.claude"
+printf '%s\n' '{"oauthAccount":{"emailAddress":"fixture@example.invalid"}}' > "$SB/create-home/.claude.json"
+printf '#!/bin/sh\n[ "$1" = --version ] && { echo "2.1.282 (Claude Code)"; exit 0; }\nexit 1\n' > "$SB/fake-claude"
+chmod +x "$SB/fake-claude"
+env -u CODEX_HOME -u AGENT_WORKFORCE_CODEX_HOME -u GEMINI_CLI_HOME -u GROK_HOME -u CLAUDE_CONFIG_DIR \
 PORT=4561 AGENT_WORKFORCE_DRY_RUN=1 \
+  AGENT_WORKFORCE_HOME="$SB/create-home" AGENT_WORKFORCE_CLAUDE_BIN="$SB/fake-claude" \
+  AGENT_WORKFORCE_CLAUDE_CONFIG="$SB/config/.claude.json" \
   AGENT_WORKFORCE_DATA="$SB/data" AGENT_WORKFORCE_WORKERS="$SB/workers" \
   AGENT_WORKFORCE_LAUNCH="$SB/launch" AGENT_WORKFORCE_PROJECTS="$SB/projects" \
   node server.js &

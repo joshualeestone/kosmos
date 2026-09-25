@@ -637,13 +637,17 @@ function columnTasks(p) {
  * fields: a task that stores parts has no `who` at all, and overwriting it
  * with the derived list would make two different facts share one name.
  */
-function allTasks() {
+function allTasks(everyProject) {
   const out = [];
-  for (const p of projects.readAll() || []) {
+  /* #3559: a caller that already read the store passes that snapshot, so the
+     rows and anything it joins onto them come from ONE read. */
+  for (const p of (Array.isArray(everyProject) ? everyProject : projects.readAll()) || []) {
     for (const t of p.tasks || []) {
       out.push(Object.assign({}, t, {
         projectId: p.id,
         projectName: p.name,
+        /* #3559: the Tasks view leaves archived projects' tasks out, as the rails tuck them away. */
+        projectArchived: p.archived === true,
         whoNames: whoOf(t),
         /* Named on the row rather than inferred by the screen: `progressOf`
            lives here, and a caller re-deriving "is it finished" from another
@@ -667,6 +671,62 @@ function allTasks() {
   return out.sort((a, b) => (a.isClosed ? 1 : 0) - (b.isClosed ? 1 : 0)
     || String(a.projectName).localeCompare(String(b.projectName))
     || (b.number || 0) - (a.number || 0));
+}
+
+/**
+ * Where a task's work actually is, for the Tasks view (#3559), DERIVED from
+ * evidence, never a column somebody drags it into (Josh, 2026-09-24).
+ *
+ * Takes a task already shaped by `projects.joinTaskClaims` (so it carries its
+ * `claim`). The view renders this word and never computes it.
+ *
+ * 🔑 ONLY STATES THE ENGINE CAN PROVE TODAY (Mona's weakest-premise note):
+ *   'closed'   finished (`progressOf`, parts included)
+ *   'nobody'   open, nobody named on it
+ *   'working'  assigned, and the agent's own report NAMES this task
+ *   'assigned' assigned, and its report does not name it -- OR it could not be
+ *              read, in which case the claim's `because` travels with the task
+ *              and the screen says why it cannot tell, never "not started" as
+ *              a fact
+ * "Waiting on you" and "Done, check it" need a decision flag, a question and
+ * an agent-says-done that no task stores yet, so no task is ever put in them.
+ */
+function taskState(task) {
+  if (!task) return 'nobody';
+  if (progressOf(task).closed) return 'closed';
+  if (whoOf(task).length === 0) return 'nobody';
+  return (task.claim && task.claim.claimed === true) ? 'working' : 'assigned';
+}
+
+/**
+ * The last time anything happened on a task (#3559's "Quietest first"): for an
+ * open task the newest event in its transcript (engine/taskchat.js stamps every
+ * event with `at`), else when it was made; for a closed one, when it closed. A task with neither has no answer (null), never
+ * "now", which would float an unknown to the top of Quietest first as if fresh.
+ */
+function lastActivityOf(projectId, task) {
+  let newest = null;
+  let newestMs = -Infinity;
+  const consider = (iso) => {
+    const ms = typeof iso === 'string' ? Date.parse(iso) : NaN;
+    if (Number.isFinite(ms) && ms > newestMs) { newestMs = ms; newest = iso; }
+  };
+  if (task) {
+    consider(task.createdAt);
+    consider(task.closedAt);
+    /* A task closed because every PART closed has no closedAt of its own: its parts' closes are
+       when it closed (and a part closing is activity on an open task too). */
+    for (const part of partsOf(task)) consider(part.closedAt);
+    /* A CLOSED task's last activity is its close (anything said after it is not work moving):
+       the transcript is read only for open tasks, so the view's cost follows open work, not the
+       whole history of finished tasks and their transcripts. */
+    if (!progressOf(task).closed) {
+      let events = [];
+      try { events = taskchat.read(projectId, task.number) || []; } catch { events = []; }
+      for (const e of events) consider(e && e.at);
+    }
+  }
+  return newest;
 }
 
 function escapeRe(s) { return String(s).replace(/[.*+?^${}()|[\]\\]/g, '\\$&'); }
@@ -729,6 +789,7 @@ function claimFor(task, reading, opts) {
 }
 
 module.exports = { create, close, reopen, byNumber, columnTasks, allTasks, claimFor, claimPatterns, taskProblem,
+  taskState, lastActivityOf,
   partsOf, progressOf, whoOf, addPart, assignPart, setPartClosed, setDue, dueProblem, say,
   partValve, processPartWrites, agePartWritesForTests, PARTS_PER_HOUR,
   SENTENCE_MAX, DETAIL_MAX, MESSAGE_MAX, WHO_MAX };

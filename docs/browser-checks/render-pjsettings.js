@@ -5,6 +5,7 @@
  * Run: NODE_PATH=$HOME/work/pw-runtime/node_modules node docs/browser-checks/render-pjsettings.js
  * Sandboxed roots; kills only what it starts; Reveal is NOT clicked (it
  * opens a real Finder window; its route is wire-tested instead). */
+require('./lib-sandbox-home.js'); // #3675: never read the host Mac's real accounts
 const { spawn } = require('node:child_process');
 const fs = require('node:fs');
 const os = require('node:os');
