@@ -45,3 +45,7 @@ Controls: removing each fix reds exactly its test (epoch -> both race tests; for
 - WARNING: a late register could wipe a newer sign-in. While an abandoned register is out, a new sign-in is refused ("a previous sign-in on this computer is still finishing"), and register has its own timeout (REGISTER_TIMEOUT_MS 60s), so the refusal is bounded. Test: blocked while out, allowed after.
 - WARNING: the self-undo's retire result was ignored; a failure is now logged.
 - NIT: AGENT_WORKFORCE_FORGET_WAIT_MS=0 means the default, now said.
+
+## Round 5 review (sonnet)
+- BLOCKER: the "no new sign-in while an abandoned register is out" refusal sat below the #1010 same-name shortcut, so a same-name retry during the undo turned the switch on and was then wiped underneath. The refusal now runs before every path. Test: slow register + hung retire; a same-name sign-in during the undo is refused and the switch stays off; control with the refusal back below the shortcut fails.
+- BLOCKER: the undo's retire had no timeout, so a hung retire refused sign-in forever. It is bounded like the register (registerTimeoutMs, env seam AGENT_WORKFORCE_REGISTER_TIMEOUT_MS). Test asserts the undo ends well before the 4s hang; control without the bound fails "waited out a hung retire".

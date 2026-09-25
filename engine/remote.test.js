@@ -144,7 +144,7 @@ if (args[0] === 'signin') {
     if (name === 'taken') { process.stderr.write('the coordinator said no (409): a Mac on this account already has that name\\n'); process.exit(1); }
     const dir = flag('--state-dir');
     // #3827: a register that is still out when Forget is pressed.
-    if (mode === 'slow-register') { const until = Date.now() + 600; while (Date.now() < until) { /* busy wait: no timers in this script */ } }
+    if (mode.includes('slow-register')) { const until = Date.now() + 600; while (Date.now() < until) { /* busy wait: no timers in this script */ } }
     fs.mkdirSync(dir, { recursive: true });
     for (const f of ['mac_id', 'mac_key', 'coordinator_pubkey', 'tls.crt', 'tls.key']) {
       fs.writeFileSync(path.join(dir, f), 'fake');
@@ -168,6 +168,8 @@ if (args[0] === 'devices') {
   console.log(JSON.stringify({ [verb === 'allow' ? 'allowed' : verb === 'deny' ? 'denied' : 'removed']: true, device_id: flag('--device-id') }));
   process.exit(0);
 }
+// #3827: a retire that hangs (a dead network), for the abandoned-register undo.
+if (args[0] === 'retire' && mode.includes('hung-retire')) { const until = Date.now() + 4000; while (Date.now() < until) { /* busy wait */ } }
 if (args[0] === 'run') {
   if (mode === 'crash') process.exit(3);
   const statusFile = flag('--status-file');
@@ -930,6 +932,38 @@ test('#3827 review: the same-Mac (#1010) path also says so when the switch canno
     assert.equal(again.data.switchOff, true, 'the recognised path hid a switch that stayed off');
   } finally {
     fs.rmSync(remote.FILE + '.tmp', { recursive: true, force: true });
+  }
+});
+
+test('#3827 review: while an abandoned register undoes itself, even a same-name sign-in is refused, and a hung retire cannot refuse sign-in forever', async () => {
+  process.env.AGENT_WORKFORCE_TUNNEL_RELAY = '127.0.0.1:9444';
+  process.env.FAKE_TUNNEL_MODE = 'slow-register hung-retire';
+  process.env.AGENT_WORKFORCE_FORGET_WAIT_MS = '50';
+  process.env.AGENT_WORKFORCE_REGISTER_TIMEOUT_MS = '1500';
+  try {
+    await remote.signinStart('her@example.com');
+    await remote.signinVerify('her@example.com', '111111');
+    const t0 = Date.now();
+    const racing = remote.signinRegister('hers');
+    await remote.forget();                     // gives up after 50ms: abandoned
+    await until(() => remote.enrolled(), 'the late register to write its state (it is now undoing itself)');
+    // The #1010 shortcut would recognise this Mac by name; it must be refused too.
+    await remote.signinStart('her@example.com');
+    await remote.signinVerify('her@example.com', '111111');
+    const same = await remote.signinRegister('hers');
+    assert.equal(same.ok, false, 'a same-name sign-in took the shortcut during the undo');
+    assert.match(same.because, /still finishing/);
+    assert.equal(remote.read().on, false, 'the shortcut turned the switch on during the undo');
+    // The hung retire (4s) is bounded (1.5s), so the refusal ends well before it would.
+    await racing;
+    assert.ok(Date.now() - t0 < 3500, 'the abandoned register waited out a hung retire (' + (Date.now() - t0) + 'ms)');
+    const later = await remote.signinRegister('other');
+    assert.equal(later.ok, true, 'sign-in stayed refused after a hung retire: ' + later.because);
+  } finally {
+    delete process.env.FAKE_TUNNEL_MODE;
+    delete process.env.AGENT_WORKFORCE_FORGET_WAIT_MS;
+    delete process.env.AGENT_WORKFORCE_REGISTER_TIMEOUT_MS;
+    remote.setOn(false);
   }
 });
 
