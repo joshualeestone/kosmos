@@ -11,7 +11,9 @@
  *     the composer has focus (the visible height written the way the page's own script writes it);
  *   - the composer's controls and the section tabs meet the 44px tap minimum;
  *   - Profile is one tap away: its tab is on screen and opens the Profile section;
- *   - no sideways page scroll;
+ *   - no sideways page scroll, and the page is not scroll-locked (a tall header menu such as the
+ *     world switcher must still reach its last row);
+ *   - a long agent name stays inside the screen in the compact header;
  *   - while typing the thread still shows some conversation, focus on Post does not bring the
  *     header back, and searching keeps the search row while the rest steps aside;
  *   - and at 800 and 1280 the Talk section keeps its stacked or side-by-side layout: the body is
@@ -56,7 +58,10 @@ const FX = {
 const PHONES = [[375, 667], [393, 852], [412, 915], [430, 932]];
 const WIDE = [[800, 1000], [1280, 900]];
 
-async function open(browser, w, h, theme) {
+/** Long enough to overflow the compact one-row header on an iPhone SE if nothing ellipsizes it. */
+const LONG_AGENT_NAME = 'Alexandria Montgomery-Whitfield of the Northern Research Desk';
+
+async function open(browser, w, h, theme, agentName = 'April') {
   const page = await browser.newPage({ viewport: { width: w, height: h }, colorScheme: theme });
   const errs = [];
   page.on('pageerror', (e) => errs.push(e.message));
@@ -71,14 +76,14 @@ async function open(browser, w, h, theme) {
     };
   });
   await page.goto(PAGE);
-  await page.evaluate((f) => {
+  await page.evaluate(([f, agentName]) => {
     window.__fx = f;
     const fr = document.getElementById('firstrun'); if (fr) fr.hidden = true;
     document.querySelectorAll('body > *').forEach((el) => { el.inert = false; });
-    LAST = [{ sessionName: 'april', name: 'April', role: 'Researcher', status: 'working', isNamedOurs: true, nameDerived: true }];
+    LAST = [{ sessionName: 'april', name: agentName, role: 'Researcher', status: 'working', isNamedOurs: true, nameDerived: true }];
     openDetail('april', 'talk');
-  }, FX);
-  await page.evaluate(() => paintTalk('april', 'April'));
+  }, [FX, agentName]);
+  await page.evaluate((n) => paintTalk('april', n), agentName);
   await page.waitForSelector('#d-dmthread .msg');
   return { page, errs };
 }
@@ -120,6 +125,9 @@ function measure() {
         chk(m.tabsRow === 'row', `${t} the section tabs are one row`, m.tabsRow);
         chk(!(m.label && m.label.w > 2 && m.label.h > 2), `${t} the caption that repeats the agent's name is not shown (kept for screen readers)`, JSON.stringify(m.label));
         chk(m.docW <= m.vw, `${t} no sideways page scroll`, `docW=${m.docW} vw=${m.vw}`);
+        // Not scroll-locked: a header menu taller than the screen (the world switcher with many
+        // Kosmos instances) must still be able to scroll the page to its last row.
+        chk(m.bodyOverflow !== 'hidden', `${t} the page is not scroll-locked, so a tall header menu stays reachable`, m.bodyOverflow);
 
         // Simulated keyboard: focus the composer, shrink the visible height the way the page's
         // visualViewport listener would, and the composer must sit above the keyboard.
@@ -149,6 +157,19 @@ function measure() {
         await page.click('#d-nav [data-go=profile]');
         const prof = await page.evaluate(() => !document.getElementById('d-sec-profile').hidden);
         chk(prof, `${t} one tap on Profile opens the Profile section`);
+        chk(errs.length === 0, `${t} no page errors`, errs.join(' | '));
+        await page.close();
+      }
+      // A long agent name in the compact phone header: it must stay inside the screen.
+      for (const eng2 of [eng]) {
+        const { page, errs } = await open(browser, 375, 667, 'light', LONG_AGENT_NAME);
+        const t = `[${eng2} 375x667 long name]`;
+        const n = await page.evaluate(() => {
+          const name = document.getElementById('d-name'); const head = document.querySelector('.dhead');
+          const r = name.getBoundingClientRect(); const hr = head.getBoundingClientRect();
+          return { right: r.right, headRight: hr.right, vw: document.documentElement.clientWidth, docW: document.documentElement.scrollWidth, lines: Math.round(r.height / parseFloat(getComputedStyle(name).lineHeight || '20')) };
+        });
+        chk(n.right <= n.vw + 0.5 && n.headRight <= n.vw + 0.5 && n.docW <= n.vw, `${t} the name stays inside the screen`, JSON.stringify(n));
         chk(errs.length === 0, `${t} no page errors`, errs.join(' | '));
         await page.close();
       }

@@ -9244,7 +9244,15 @@ body.plus-active #plus-state2 { max-width: 26rem; padding: 2rem; }
 @media (max-width: 40rem) {
   body:has(> #panel-detail:not([hidden]) #d-sec-talk:not([hidden])) {
     display: flex; flex-direction: column; padding-bottom: 0;
-    height: var(--kosmos-visible-height, 100dvh); overflow: hidden; }
+    height: var(--kosmos-visible-height, 100dvh); }
+  /* Deliberately NOT overflow: hidden. The thread flexes to fit, so nothing overflows in the
+     normal case and the page does not scroll; but a header menu taller than the screen (the
+     world switcher with many Kosmos instances is absolutely positioned and has no max-height)
+     must still be able to scroll the page to its last row.
+     ⚠️ CASCADE: several rules below restate selectors the 56rem talk-fill block (~#2622) also
+     sets (padding-bottom, #d-talk-box height/min-height) with identical specificity and win only
+     by coming later in the sheet, the same restatement the #770 note describes. Keep this block
+     after that one. */
   /* In-flow notices that follow the panel in the markup (the connection-lost banner) sit above
      it here instead of under the composer. */
   body > #panel-detail:has(#d-sec-talk:not([hidden])) { order: 1; }
@@ -9252,7 +9260,6 @@ body.plus-active #plus-state2 { max-width: 26rem; padding: 2rem; }
   body:has(> #panel-detail:not([hidden]) #d-sec-talk:not([hidden])) > .apphead { margin-bottom: 0; }
   body > #panel-detail:has(#d-sec-talk:not([hidden])) {
     flex: 1 1 auto; min-height: 0; height: auto; display: flex; flex-direction: column; }
-  #panel-detail:has(#d-sec-talk:not([hidden])) > .back { min-height: 44px; }
   #panel-detail:has(#d-sec-talk:not([hidden])) .dbody {
     flex: 1 1 auto; min-height: 0; display: flex; flex-direction: column; gap: 8px; }
   #panel-detail:has(#d-sec-talk:not([hidden])) .dleft { flex: none; overflow: visible; min-height: 0; padding-top: 0; }
@@ -9298,10 +9305,10 @@ body.plus-active #plus-state2 { max-width: 26rem; padding: 2rem; }
      the person is reading results, not writing. */
   /* `html body`, not `body`: a line beginning `body:has(` reads as a stray `prop: value` to the
      stylesheet guard in server.test.js. Same elements, one type selector more specific. */
-  html body:has(.dmbar:focus-within, #d-talk-search:focus) #panel-detail:has(#d-sec-talk:not([hidden])) > .back,
-  html body:has(.dmbar:focus-within, #d-talk-search:focus) #panel-detail:has(#d-sec-talk:not([hidden])) .dleft,
-  html body:has(.dmbar:focus-within, #d-talk-search:focus) #d-talk-box #d-talk-older,
-  html body:has(.dmbar:focus-within) #d-talk-box .d-talk-caprow,
+  html body:has(#d-talk-box .dmbar:focus-within, #d-talk-search:focus) #panel-detail:has(#d-sec-talk:not([hidden])) > .back,
+  html body:has(#d-talk-box .dmbar:focus-within, #d-talk-search:focus) #panel-detail:has(#d-sec-talk:not([hidden])) .dleft,
+  html body:has(#d-talk-box .dmbar:focus-within, #d-talk-search:focus) #d-talk-box #d-talk-older,
+  html body:has(#d-talk-box .dmbar:focus-within) #d-talk-box .d-talk-caprow,
   html body:has(#d-talk-search:focus) #d-talk-box .dmbar { display: none; }
   /* Thumb reach: the composer's controls meet the 44px minimum on a phone. */
   #d-talk-box .composerbox .attachbtn { width: 44px; height: 44px; }
@@ -9314,7 +9321,7 @@ body.plus-active #plus-state2 { max-width: 26rem; padding: 2rem; }
   #d-talk-box #d-talk-label { position: absolute; width: 1px; height: 1px; overflow: hidden;
     clip: rect(0 0 0 0); clip-path: inset(50%); white-space: nowrap; }
   #d-talk-box .d-talk-caprow #d-talk-search-wrap { flex: 1 1 auto; min-height: 36px; }
-  #panel-detail:has(#d-sec-talk:not([hidden])) > .back { margin: 4px 0 0; }
+  #panel-detail:has(#d-sec-talk:not([hidden])) > .back { margin: 4px 0 0; min-height: 44px; }
 }
 /* The canvases honour prefers-reduced-motion in JS (a single static frame, no
    rAF loop); this makes that intent visible to a source reader too. */
