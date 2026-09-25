@@ -92,7 +92,8 @@ test('the Answer button arrival reveals it too, right after opening the agent', 
 test('it uses the SAME breakpoint that stacks the agent page', () => {
   assert.match(html, /@media \(max-width: 56rem\) \{\n  \.dbody \{ grid-template-columns: minmax\(0, 1fr\); \}/);
   const fn = html.slice(html.indexOf('function detailRevealTalkOnPhone()'), html.indexOf('function detailRevealTalkOnPhone()') + 600);
-  assert.match(fn, /matchMedia\('\(max-width: 56rem\)'\)/);
+  assert.match(fn, /matchMedia\(DETAIL_STACK_MQ\)/);
+  assert.match(html, /const DETAIL_STACK_MQ = '\(max-width: 56rem\)';/);
 });
 
 function lift(matches, talk, env = {}) {
@@ -100,7 +101,7 @@ function lift(matches, talk, env = {}) {
   const src = html.slice(i, html.indexOf('\n}\n', i) + 2);
   const listeners = {};
   const e = Object.assign({
-    REVEAL_HOLD: null, REVEAL_HOLD_MS: 4000, REVEAL_HOLD_TICK_MS: 150, REVEAL_HOLD_DRIFT_PX: 2,
+    DETAIL_STACK_MQ: '(max-width: 56rem)', REVEAL_HOLD: null, REVEAL_HOLD_MS: 4000, REVEAL_HOLD_TICK_MS: 150, REVEAL_HOLD_DRIFT_PX: 2,
     // Read from the page, so the test holds the REAL list (a missing 'focusin' must fail it).
     REVEAL_HOLD_STOPS: JSON.parse(html.match(/const REVEAL_HOLD_STOPS = (\[[^\]]*\]);/)[1].replace(/'/g, '"')),
     detailSection: () => talk,

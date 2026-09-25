@@ -133,6 +133,37 @@ async function open(browser, opts) {
     chk(Math.abs(hold.rightAfterPush) > 50 && Math.abs(hold.settled) <= 2, '[landing/phone] the hold puts the conversation back when late content pushes it down', JSON.stringify(hold));
     await phone.close();
 
+    // (e) END TO END from a page load, as a push tap arrives: ?tab=detail&agent=<name> on a phone,
+    // with /api/status stubbed and the page's own timers REAL, through tick -> settleWantAgent ->
+    // openDetail -> the reveal. Present: it lands on the conversation. Missing: after the grace
+    // it goes to the board home and the address loses the link.
+    const fromLink = async (agents, waitMs) => {
+      const page = await browser.newPage({ viewport: { width: 375, height: 667 }, hasTouch: true, isMobile: true });
+      await page.addInitScript((list) => {
+        const enc = (o) => new Response(JSON.stringify(o), { status: 200, headers: { 'content-type': 'application/json' } });
+        window.fetch = async (u) => (String(u).indexOf('/api/status') !== -1 ? enc({ agents: list, counts: {}, checkedAt: Date.now() }) : enc({}));
+      }, agents);
+      await page.goto(PAGE + '?tab=detail&agent=' + encodeURIComponent(BASE.sessionName));
+      await page.evaluate(() => { const fr = document.getElementById('firstrun'); if (fr) fr.remove(); });
+      await page.waitForTimeout(waitMs);
+      const r = await page.evaluate(() => {
+        const panel = document.getElementById('panel-detail'); const talk = document.getElementById('d-sec-talk');
+        return { detailShown: !!(panel && !panel.hidden && panel.offsetParent), search: location.search,
+          current: (typeof CURRENT !== 'undefined' && CURRENT) ? CURRENT.sessionName : null,
+          talkTop: talk ? Math.round(talk.getBoundingClientRect().top) : null, scrollY: Math.round(window.scrollY) };
+      });
+      await page.close();
+      return r;
+    };
+    const present = await fromLink([BASE], 2000);
+    // In the top quarter of the screen, not exactly 0: a short page scrolls only as far as it goes
+    // (measured: scrollY at its maximum left the section 24px down, fully in view).
+    chk(present.detailShown && present.current === BASE.sessionName && present.scrollY > 0 && present.talkTop >= 0 && present.talkTop <= 667 / 4,
+      '[link/phone] a page load with ?tab=detail&agent= lands on that agent\'s conversation', JSON.stringify(present));
+    const missing = await fromLink([], 11000);
+    chk(!missing.detailShown && missing.current === null && missing.search.indexOf('agent=') === -1,
+      '[link/phone] a link to an agent not on the board goes to the board home and drops the link', JSON.stringify(missing));
+
     const wide = await open(browser, { viewport: { width: 1200, height: 900 } });
     const a2 = await ans(wide);
     chk(!a2.error && (a2.content === 'none' || a2.content === 'normal'), '[answer/mouse] no extended hit area with a mouse', JSON.stringify(a2));
