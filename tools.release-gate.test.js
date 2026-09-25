@@ -39,6 +39,22 @@ const os = require('node:os');
 const path = require('node:path');
 const { spawnSync } = require('node:child_process');
 
+/* #3647: step 1c also checks the Developer ID Installer identity (`security
+   find-identity -v`) and the notary key (`secrets-map.sh path`). The sandbox has
+   neither (an empty HOME; CI's Linux has no `security`), so the arms that must reach
+   step 2 get two stand-ins, as KOSMOS_CODESIGN_BIN gets `true` below. They are
+   scripts rather than builtins because each must PRINT something: the identity name
+   and the path of a real file. The checks have their own tests in
+   tools/test-cut-sign-preflight.sh. */
+const SIGN_STUBS = fs.mkdtempSync(path.join(os.tmpdir(), 'kosmos-gitgate-signstubs-'));
+const SANDBOX_INSTALLER_ID = 'Developer ID Installer: kosmos release-gate sandbox';
+fs.writeFileSync(path.join(SIGN_STUBS, 'notary.p8'), 'not a key\n');
+test.after(() => fs.rmSync(SIGN_STUBS, { recursive: true, force: true }));
+fs.writeFileSync(path.join(SIGN_STUBS, 'security'),
+  `#!/bin/sh\nprintf '  1) 0000000000 "%s"\\n' '${SANDBOX_INSTALLER_ID}'\n`, { mode: 0o755 });
+fs.writeFileSync(path.join(SIGN_STUBS, 'secrets-map'),
+  `#!/bin/sh\nprintf '%s\\n' '${path.join(SIGN_STUBS, 'notary.p8')}'\n`, { mode: 0o755 });
+
 const REAL = path.join(__dirname, 'tools', 'release.sh');
 
 /**
@@ -420,6 +436,9 @@ function run_git(dir, version, home, site, { staleBy = 0, entry = true, pending 
          must reach step 2 point the preflight at the `true` builtin. The preflight has
          its own tests in tools/test-cut-sign-preflight.sh. */
       KOSMOS_CODESIGN_BIN: 'true',
+      KOSMOS_SECURITY_BIN: path.join(SIGN_STUBS, 'security'),
+      KOSMOS_SECRETS_MAP_BIN: path.join(SIGN_STUBS, 'secrets-map'),
+      KOSMOS_INSTALLER_CERT: SANDBOX_INSTALLER_ID,
     },
     timeout: 60000,
     killSignal: 'SIGKILL',

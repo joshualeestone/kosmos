@@ -87,7 +87,7 @@ const bad = (n, why) => { ran++; failures++; console.log('FAIL  ' + n + '  --  '
     }));
 
     if (/ready to start using Kosmos/i.test(view.title)) ok('first run shows the Giddy Up heading, not an import list'); else bad('Giddy Up heading', JSON.stringify(view.title));
-    if (/let’s get started/i.test(view.box)) ok('the Giddy Up copy is present'); else bad('Giddy Up copy', view.box.slice(0, 160));
+    if (/create or import agents/i.test(view.box)) ok('the Giddy Up copy is present'); else bad('Giddy Up copy', view.box.slice(0, 160));
     if (view.importRows === 0) ok('no import rows render on first run'); else bad('import rows still render', String(view.importRows));
     if (view.scanRows === 0) ok('no scan/found rows render on first run'); else bad('scan/found rows still render', String(view.scanRows));
     if (createCalls === 0) ok('no agent was auto-created on first run'); else bad('auto-created on first run', String(createCalls));

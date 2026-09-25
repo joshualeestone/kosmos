@@ -640,8 +640,8 @@ if [ -z "$adopt" ]; then
     # measured), so no auth pre-seed file is needed. GROK_CLAUDE_HOOKS_ENABLED=0 keeps
     # the grok agent from ALSO running the fleet's ~/.claude Claude-Code hooks via
     # grok's claude-compat -- it runs only its own report hooks (measured: our
-    # ~/.grok/hooks report hook still fires with this set). Default account reads
-    # ~/.grok (no GROK_HOME set).
+    # ~/.grok/hooks report hook still fires with this set). The default account reads
+    # ~/.grok, exported below as GROK_HOME (#3391).
     # #3391 accounts slice: a PER-ACCOUNT grok agent's account home is in GROK_HOME
     # (read VERBATIM as the storage root, unlike gemini). Its key lives in the mode-600
     # file engine/grokaccounts.js wrote at $GROK_HOME/.kosmos-grok-apikey; read it and
@@ -653,10 +653,76 @@ if [ -z "$adopt" ]; then
       [ -n "$_xkey" ] && PANE_ENV+=(-e "XAI_API_KEY=$_xkey")
       unset _xkey
     fi
+    # #3391: a SUBSCRIPTION account must reach grok with NO XAI_API_KEY at all, or grok
+    # uses the key instead of the sign-in. An EMPTY value still counts as set to grok
+    # (measured), so the variable is REMOVED: every `-e XAI_API_KEY=...` pair the
+    # secrets/env door added is dropped from PANE_ENV, and the pane runs grok through
+    # `env -u XAI_API_KEY` so a server-global value cannot reach it either.
+    # ONE RULE, whatever the sign-in's state (challenge iteration 14): a subscription
+    # account's agent runs on its OWN sign-in, named or default, so the board's row, the
+    # create gate and the runtime always describe the same credential. A lapsed sign-in
+    # therefore fails visibly (the row says expired) rather than quietly running on the
+    # machine's door key, which for a named account would also bill somebody else.
+    # WHICH DIR: GROK_HOME for a per-account agent; for a default one, the three tiers of
+    # engine/grokaccounts.js defaultDir(), EXPORTED into the pane as GROK_HOME the way the
+    # codex arm exports EFFECTIVE_CODEX_HOME, so the dir judged here is the dir grok reads.
+    # (The plist carries GROK_HOME only for a per-account agent; see create.js plistFor. A
+    # machine-wide `launchctl setenv GROK_HOME` would still reach a default agent, and then
+    # this names that dir; nothing in Kosmos sets one.)
+    # WHAT KIND: grokaccounts.identityOf ITSELF, asked through node, so there is one copy
+    # of the rule. With no engine or no node the key is kept, and the log says so.
+    _GROK_PREFIX=()
+    _GROK_ACCT="${GROK_HOME:-${AGENT_WORKFORCE_GROK_HOME:-${AGENT_WORKFORCE_HOME:-$HOME}/.grok}}"
+    [ -z "${GROK_HOME:-}" ] && PANE_ENV+=(-e "GROK_HOME=$_GROK_ACCT")
+    _GROK_KIND=""
+    if [ -n "$_eng" ] && [ -n "$NODE_BIN" ] && [ -f "$_eng/grokaccounts.js" ]; then
+      # The account's authMode, or nothing. A function, so its early return is legal:
+      # `node -e` runs a script, where a top-level return is a SyntaxError.
+      _GROK_KIND="$("$NODE_BIN" -e '
+        (function () {
+          try {
+            const w = require(process.argv[1]).identityOf(process.argv[2]);
+            if (w) process.stdout.write(String(w.authMode));
+            // A sign-in file that is not ONE readable Grok account (torn mid-refresh, a second
+            // account, another issuer): the key stays, as for any undescribed account, but it
+            // is never silent, because it may be a sign-in running on the machine key.
+            else if (require("fs").existsSync(require("path").join(process.argv[2], "auth.json"))) {
+              process.stderr.write("grok: " + process.argv[2] + "/auth.json is not one Grok sign-in Kosmos can read, so this agent keeps any XAI_API_KEY\n");
+            }
+          } catch (e) {
+            // The key stays, and the log says why: a silent keep would read as "not a subscription".
+            process.stderr.write("grok: could not read what kind of account " + process.argv[2] + " is (" + ((e && e.message) || e) + "), so this agent keeps any XAI_API_KEY\n");
+          }
+        })();
+      ' "$_eng/grokaccounts.js" "$_GROK_ACCT" || true)"
+    elif [ -e "${_GROK_ACCT}/auth.json" ]; then
+      echo "grok: ${_GROK_ACCT}/auth.json is there but this supervisor cannot reach the engine or node to read it, so this agent keeps any XAI_API_KEY rather than its sign-in" >&2
+    fi
+    if [ "$_GROK_KIND" = subscription ]; then
+      _kept=()
+      _i=0
+      _n=${#PANE_ENV[@]}
+      while [ "$_i" -lt "$_n" ]; do
+        if [ "${PANE_ENV[$_i]}" = "-e" ] && [ $((_i + 1)) -lt "$_n" ]; then
+          case "${PANE_ENV[$((_i + 1))]}" in
+            XAI_API_KEY=*) ;;
+            *) _kept+=(-e "${PANE_ENV[$((_i + 1))]}") ;;
+          esac
+          _i=$((_i + 2))
+        else
+          _kept+=("${PANE_ENV[$_i]}")
+          _i=$((_i + 1))
+        fi
+      done
+      PANE_ENV=(${_kept[@]+"${_kept[@]}"})
+      unset _kept _i _n
+      _GROK_PREFIX=(/usr/bin/env -u XAI_API_KEY)
+    fi
+    unset _GROK_ACCT _GROK_KIND
     GROK_MODEL="${MODEL:-grok-4.6}"
     "$TMUX_BIN" new-session -d -s "$SESSION" -c "$WORKDIR" ${PANE_ENV[@]+"${PANE_ENV[@]}"} \
       -e "GROK_CLAUDE_HOOKS_ENABLED=0" \
-      "$CLAUDE" --permission-mode bypassPermissions --always-approve --trust -m "$GROK_MODEL" || exit 1
+      ${_GROK_PREFIX[@]+"${_GROK_PREFIX[@]}"} "$CLAUDE" --permission-mode bypassPermissions --always-approve --trust -m "$GROK_MODEL" || exit 1
   else
     # #2808 class-1 / #2129: re-apply the folder-trust write + bypass pre-accept BEFORE
     # this (re)launch. engine/create.js writes them once at CREATE, but a restart re-runs
@@ -678,12 +744,25 @@ if [ -z "$adopt" ]; then
       # is launched with (the -e above), so the write and the read agree by construction.
       "$NODE_BIN" "$_eng/ensure-launch-trust.js" "$WORKDIR" "${EFFECTIVE_CCD:-}" >/dev/null 2>&1 || true
     fi
+    # #3633: the agent's own private browser (engine/agentbrowser.js). The shim prints
+    # a config path once the pinned browser is installed, and nothing otherwise, so
+    # an agent started before the install landed simply has no browser this launch.
+    # Only a path to an existing file is passed on: a missing --mcp-config file stops
+    # claude from starting. `--mcp-config` takes several values, so it goes before
+    # --dangerously-skip-permissions, a flag, which ends its list.
+    MCP_ARGS=()
+    if [ -n "${_eng:-}" ] && [ -f "$_eng/agent-browser-config.js" ] && [ -n "${NODE_BIN:-}" ]; then
+      _mcp="$("$NODE_BIN" "$_eng/agent-browser-config.js" 2>/dev/null || true)"
+      # Absolute only: claude runs from $WORKDIR, where a relative path would not resolve.
+      case "$_mcp" in /*) if [ -f "$_mcp" ]; then MCP_ARGS=(--mcp-config "$_mcp"); fi ;; esac
+      unset _mcp
+    fi
     if [ -n "$MODEL" ]; then
       "$TMUX_BIN" new-session -d -s "$SESSION" -c "$WORKDIR" ${PANE_ENV[@]+"${PANE_ENV[@]}"} \
-        "$CLAUDE" --dangerously-skip-permissions --model "$MODEL" || exit 1
+        "$CLAUDE" ${MCP_ARGS[@]+"${MCP_ARGS[@]}"} --dangerously-skip-permissions --model "$MODEL" || exit 1
     else
       "$TMUX_BIN" new-session -d -s "$SESSION" -c "$WORKDIR" ${PANE_ENV[@]+"${PANE_ENV[@]}"} \
-        "$CLAUDE" --dangerously-skip-permissions || exit 1
+        "$CLAUDE" ${MCP_ARGS[@]+"${MCP_ARGS[@]}"} --dangerously-skip-permissions || exit 1
     fi
   fi
 fi

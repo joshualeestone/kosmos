@@ -6064,6 +6064,11 @@ body:not(.consolidated) .pjmidhead:has(.pjhead) .tsearch:focus-within { flex-bas
 .pj-doc:focus-visible { outline: 2px solid var(--k-ink); outline-offset: 2px; }
 .pj-doc-n { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .pj-doc-w { flex: 0 0 auto; font: var(--text-caption) var(--font-ui); color: var(--k-ink-2); }
+/* #3614: the agent page's Files block, under the four-pack. */
+.dfiles { margin-top: 18px; }
+.dfiles-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.dfiles-head .dlab { margin: 0; }
+.dfiles .pj-docs { margin-top: 8px; }
 /* #pj-one-add sits in a `.frow`, so the shared `select` rule dresses it and
    the named width rule above widths it. ⚠️ NOT `.frow select` — this comment
    said so and that selector does not exist: it was deliberately replaced by an
@@ -9144,6 +9149,19 @@ window.kosmosMeasureScrollbarWidth();
       </button>
     </div>
   </nav>
+  <!-- #3614 (Josh, 2026-09-24): the files this agent makes for you in a Direct Message, under the
+       four-pack. The folder is the agent's own Files folder (engine/dmfiles.js; the agent is told
+       to save there). Rows use the project documents look; a click opens the file. Painted by
+       paintAgentFiles on open and on the 5-second poll while this page is on screen. -->
+  <section class="dfiles" id="d-files" aria-labelledby="d-files-h">
+    <div class="dfiles-head">
+      <h3 class="dlab" id="d-files-h">Files</h3>
+      <button class="btn" id="d-files-finder" type="button" data-win-copy="docsOpenFolder">Open in Finder</button>
+    </div>
+    <p class="dhint" id="d-files-msg" role="status"></p>
+    <div class="pj-docs" id="d-files-list"></div>
+    <p class="dhint" id="d-files-more" hidden></p>
+  </section>
   </div>
   <div class="dsecs">
   <section class="dsec" id="d-sec-talk" data-sec="talk" tabindex="-1" aria-label="Talk">
@@ -11321,19 +11339,30 @@ window.kosmosMeasureScrollbarWidth();
                      GPT, appeared inside the API-key form, then vanished again when the
                      form hid itself on success. The order test still passed, because it
                      read source order and not whether a hidden container opened in between. -->
-                <!-- #3422 (Josh's asset, 2026-09-22): the Gemini spark as a single currentColor path, NOT a fixed-id radialGradient. providerMarkNode CLONES the span below into the enhanceProviderSelect combobox; a cloned fill="url(#pmark-gemini-g)" depended on the gradient def living in the (hidden) #firstrun and collided on a duplicated id, so the cloned mark rendered blank in the settings/create picker while the monochrome currentColor marks cloned fine. currentColor also lets it dim/live with .pmark like every other provider mark. This comment is OUTSIDE the .llm row (before the div) so it is neither cloned into every combobox mark nor between the div and span, which web.connect-confirm's row regex requires to be adjacent. --><div class="llm off"><span class="llm-m pmark dim" data-pmark="gemini" role="img" aria-label="Gemini"><svg viewBox="0 0 300 300" fill="currentColor" xmlns="http://www.w3.org/2000/svg"><path d="M265.9,134.3c-22.8-9.8-42.7-23.3-59.8-40.4-17.1-17.1-30.6-37-40.4-59.8-3.8-8.7-6.8-17.7-9.1-26.9-.8-3-3.5-5.1-6.6-5.1s-5.8,2.1-6.6,5.1c-2.3,9.2-5.3,18.2-9.1,26.9-9.8,22.8-23.3,42.7-40.4,59.8-17.1,17.1-37,30.6-59.8,40.4-8.7,3.8-17.7,6.8-26.9,9.1-3,.8-5.1,3.5-5.1,6.6s2.1,5.8,5.1,6.6c9.2,2.3,18.2,5.3,26.9,9.1,22.8,9.8,42.7,23.3,59.8,40.4,17.1,17.1,30.6,37,40.4,59.8,3.8,8.7,6.8,17.7,9.1,26.9.8,3,3.5,5.1,6.6,5.1s5.8-2.1,6.6-5.1c2.3-9.2,5.3-18.2,9.1-26.9,9.8-22.8,23.3-42.7,40.4-59.8,17.1-17.1,37-30.6,59.8-40.4,8.7-3.8,17.7-6.8,26.9-9.1,3-.8,5.1-3.5,5.1-6.6s-2.1-5.8-5.1-6.6c-9.2-2.3-18.2-5.3-26.9-9.1Z"/></svg></span><div class="llm-w"><b>Gemini</b><small>Google</small></div><span class="soon" title="Gemini connects with an API key in Settings, AI Models, once setup is done.">After setup</span></div>
-                <!-- #3386 (Josh, 2026-09-21): Grok shown up front, grouped with
-                     Gemini (the other cloud provider, connected in Settings, AI Models) before the on-your-
-                     computer tier. xAI has no vendor SVG here, so it uses the same "X" initial-letter
-                     chip the provider combobox falls back to, not a new asset. -->
-                <div class="llm off"><span class="llm-m llm-chip" data-pmark="xai" role="img" aria-label="Grok">X</span><div class="llm-w"><b>Grok</b><small>xAI</small></div><span class="soon" title="Grok connects with an API key in Settings, AI Models, once setup is done.">After setup</span></div>
-                <!-- #3566 (Splinter's scope call, 2026-09-24): Gemini and Grok are connectable now, but
-                     in Settings, AI Models, not in this wizard: the wizard's Continue and first-agent
-                     steps are built for Claude and OpenAI. So their pill says "After setup" rather than
-                     "Coming soon", and this line says where. Same .llm off weight as the roster below,
-                     because they cannot be connected FROM here. -->
-                <p class="dhint" id="fr-later-models" style="margin:4px 0 10px;">Gemini and Grok connect with an API key in Settings, AI Models, once setup is done.</p>
-                <p class="smore-t">Runs on this computer</p>
+                <!-- #3422 (Josh's asset, 2026-09-22): the Gemini spark as a single currentColor path, NOT a fixed-id radialGradient. providerMarkNode CLONES the span below into the enhanceProviderSelect combobox; a cloned fill="url(#pmark-gemini-g)" depended on the gradient def living in the (hidden) #firstrun and collided on a duplicated id, so the cloned mark rendered blank in the settings/create picker while the monochrome currentColor marks cloned fine. currentColor also lets it dim/live with .pmark like every other provider mark. This comment is OUTSIDE the .llm row (before the div) so it is neither cloned into every combobox mark nor between the div and span, which web.connect-confirm's row regex requires to be adjacent. --><div class="llm on"><span class="llm-m pmark live" data-pmark="gemini" role="img" aria-label="Gemini"><svg viewBox="0 0 300 300" fill="currentColor" xmlns="http://www.w3.org/2000/svg"><path d="M265.9,134.3c-22.8-9.8-42.7-23.3-59.8-40.4-17.1-17.1-30.6-37-40.4-59.8-3.8-8.7-6.8-17.7-9.1-26.9-.8-3-3.5-5.1-6.6-5.1s-5.8,2.1-6.6,5.1c-2.3,9.2-5.3,18.2-9.1,26.9-9.8,22.8-23.3,42.7-40.4,59.8-17.1,17.1-37,30.6-59.8,40.4-8.7,3.8-17.7,6.8-26.9,9.1-3,.8-5.1,3.5-5.1,6.6s2.1,5.8,5.1,6.6c9.2,2.3,18.2,5.3,26.9,9.1,22.8,9.8,42.7,23.3,59.8,40.4,17.1,17.1,30.6,37,40.4,59.8,3.8,8.7,6.8,17.7,9.1,26.9.8,3,3.5,5.1,6.6,5.1s5.8-2.1,6.6-5.1c2.3-9.2,5.3-18.2,9.1-26.9,9.8-22.8,23.3-42.7,40.4-59.8,17.1-17.1,37-30.6,59.8-40.4,8.7-3.8,17.7-6.8,26.9-9.1,3-.8,5.1-3.5,5.1-6.6s-2.1-5.8-5.1-6.6c-9.2-2.3-18.2-5.3-26.9-9.1Z"/></svg></span><div class="llm-w"><b>Gemini</b><small>Google</small></div><button class="connect-b" type="button" id="fr-gemini-connect" data-keyed="google" aria-expanded="false" aria-controls="fr-apikey-flow" aria-label="Connect Gemini">Connect</button></div>
+                <!-- #3386 (Josh, 2026-09-21): Grok shown up front, right under Gemini; since #3658
+                     both connect here by API key. xAI has no vendor SVG here, so it uses the same
+                     "X" initial-letter chip the provider combobox falls back to, not a new asset. -->
+                <div class="llm on"><span class="llm-m llm-chip" data-pmark="xai" role="img" aria-label="Grok">X</span><div class="llm-w"><b>Grok</b><small>xAI</small></div><button class="connect-b" type="button" id="fr-grok-connect" data-keyed="xai" aria-expanded="false" aria-controls="fr-apikey-flow" aria-label="Connect Grok">Connect</button></div>
+                <!-- #3658 (Josh, 2026-09-24 17:46): Gemini and Grok connect HERE, with the same gold
+                     Connect as Claude and GPT, instead of the old later-in-Settings pill and pointer.
+                     One box shared by both, a first-run mirror of Settings' #acct-apikey-flow
+                     (same POST /api/accounts/{gemini|grok}/apikey, same ACCT_APIKEY_PROVIDERS), the
+                     way #fr-openai-flow mirrors #acct-openai-flow. API KEY ONLY for now: the
+                     subscription sign-in works for neither yet (open cards: #3391 Grok, #3568 Gemini), and a
+                     subscription button that dead-ends is worse than none. There is no managed
+                     installer for either runner yet (engine/runners.js), so a missing runner is
+                     said plainly from the route's own needsRunner answer. The "Runs on this
+                     computer" subheading is gone too: one uninterrupted list, in PROVIDER_ORDER. -->
+                <div id="fr-apikey-flow" hidden class="fr-confirm" role="group" aria-labelledby="fr-apikey-t">
+                  <p class="fr-confirm-t" id="fr-apikey-t">Paste an API key.</p>
+                  <div class="frow"><a class="btn" id="fr-apikey-getkey" href="#" target="_blank" rel="noopener">Get a key</a></div>
+                  <div class="frow" style="margin-top:8px;">
+                    <input type="password" id="fr-apikey-key" autocomplete="new-password" spellcheck="false" aria-label="API key" placeholder="API key">
+                    <button class="btn uprime" id="fr-apikey-go" type="button">Add</button>
+                  </div>
+                </div>
+                <div class="dhint" id="fr-apikey-msg" role="status" aria-live="polite"></div>
                 <div class="llm off"><span class="llm-m pmark dim" data-pmark="meta" role="img" aria-label="Meta"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 25.6 17" fill="currentColor" aria-label="Meta"><path d="M18.4 0c-2.1 0-3.8 1.6-5.3 3.6v-.1l-.1-.1-.1-.2h-.1l-.1-.2-.1-.1-.1-.1-.1-.1-.1-.1a6.4 6.4 0 0 0-.1-.1v-.1H12l-.2-.2-.1-.2h-.1l-.1-.1-.1-.1-.1-.1-.1-.1-.2-.1v-.1H11v-.1l-.2-.1h-.1l-.1-.1V1h-.2V.8h-.2V.7H10L10 .6h-.1V.5h-.1L9.6.5h-.1L9.3.3h-.2L9 .2H9L8.7.1H8.4L8.4 0h-.8V0h-.2C3.2 0 0 5.4 0 11.1 0 14.7 1.7 17 4.6 17c2.1 0 3.6-1 6.3-5.7L12.8 8l.1.2v.1h.1l.1.2.1.2.1.2.1.1.1.2.1.2.2.3 1.1 1.8c2.4 4.1 3.8 5.5 6.3 5.5 2.8 0 4.4-2.3 4.4-6 0-6-3.3-11-7.2-11ZM8.9 10c-2.2 3.5-3 4.2-4.2 4.2-1.2 0-2-1-2-3 0-4.2 2.1-8.4 4.6-8.4H8.2V3H8.5V3h.2l.1.1h.1v.1H9l.2.1v.1h.1l.1.1.1.1h.1v.1h.1l.1.1V4h.1a5.6 5.6 0 0 1 .2.3h.1v.1h.1l.1.2.1.1.1.1v.1h.1l.1.2h.1l.1.3.2.2.1.2h.1l.1.2V6L9 10Zm12.3 4.2c-1.2 0-1.8-.8-4.1-4.6l-1.5-2.5-1.2-1.8c1.3-2 2.5-3.1 3.8-3.1 2.7 0 5 4 5 9 0 2-.7 3-2 3Z"/></svg></span><div class="llm-w"><b>Llama</b><small>Meta</small></div><span class="soon">Coming soon</span></div>
                 <div class="llm off"><span class="llm-m pmark dim" data-pmark="qwen" role="img" aria-label="Qwen"><svg xmlns="http://www.w3.org/2000/svg" viewBox="218.8 129.4 354.4 354.4"><path fill="#0a2cff" d="M354.3,263.9h140.6c18,0,32.8-14.8,32.8-32.8v-10.2c0-18-14.8-32.8-32.8-32.8h-73c2.3-12.7-3.1-26.2-14.7-33.5l-8.6-5.5c-15.2-9.7-35.6-5.1-45.3,10.1l-26.2,41.2c-2.6,4.1-4.2,8.6-4.8,13.2-.5,2.4-.8,4.8-.8,7.3v10.2c0,18,14.8,32.8,32.8,32.8Z"/><path fill="#0a2cff" d="M308.6,247.6c-8.6-15.8-28.7-21.7-44.5-13.1l-9,4.9c-15.8,8.6-21.7,28.7-13.1,44.5l35,64.1c-12.2,4.1-21.5,15.3-22.4,28.9l-.7,10.2c-1.2,18,12.6,33.7,30.6,34.9l48.7,3.2c4.9.3,9.6-.5,13.9-2.1,2.3-.7,4.6-1.6,6.9-2.8l9-4.9c15.8-8.6,21.7-28.7,13.1-44.5l-67.4-123.4Z"/><path fill="#0a2cff" d="M550.8,348.4l-21.2-43.9c-2.1-4.4-5.1-8.1-8.7-11-1.7-1.7-3.7-3.3-5.8-4.6l-8.7-5.4c-15.3-9.5-35.7-4.7-45.2,10.6l-74.1,119.5c-9.5,15.3-4.7,35.7,10.6,45.2l8.7,5.4c15.3,9.5,35.7,4.7,45.2-10.6l38.5-62.1c9.6,8.6,23.9,11.1,36.2,5.2l9.2-4.5c16.2-7.8,23.1-27.5,15.3-43.8Z"/></svg></span><div class="llm-w"><b>Qwen</b><small>Alibaba</small></div><span class="soon">Coming soon</span></div>
                 <div class="llm off"><span class="llm-m pmark dim" data-pmark="mistral" role="img" aria-label="Mistral"><svg viewBox="0 0 21 15" fill="none" xmlns="http://www.w3.org/2000/svg"> <path d="M6 0H3V3H6V0Z" fill="#FFAF01"/> <path d="M6 9H3V12H6V9Z" fill="#E61300"/> <path d="M9 12H0V15H9V12Z" fill="#C4001D"/> <path d="M9 3H3V6H9V3Z" fill="#FF8204"/> <path d="M12 9H9V12H12V9Z" fill="#E61300"/> <path d="M18 6H3V9H18V6Z" fill="#FA500F"/> <path d="M18 3H12V6H18V3Z" fill="#FF8204"/> <path d="M18 0H15V3H18V0Z" fill="#FFAF01"/> <path d="M18 9H15V12H18V9Z" fill="#E61300"/> <path d="M21 12H12V15H21V12Z" fill="#C4001D"/> </svg></span><div class="llm-w"><b>Mistral</b><small>Open weights</small></div><span class="soon">Coming soon</span></div>
@@ -11476,7 +11505,7 @@ window.kosmosMeasureScrollbarWidth();
                 <div class="fr-msg" id="fr-you-msg" role="status" aria-live="polite"></div>
       </div>
 
-      <!-- S9 Your agents (reuse old fr-pane-7 #fr-fleet fork). Mona S9a head + #fr-found-agents; fork picks found(S9a) vs create(S9b). -->
+      <!-- S9 the ending, eyebrow SETUP COMPLETE since #3659 (reuse old fr-pane-7 #fr-fleet box). Setup always lands on this one screen (#2497/#3575); the found/scan painters are kept but not reached. -->
       <div class="fr-pane" id="fr-pane-9" hidden>
         <!-- ============================================================
              SCREEN 9A - YOUR AGENTS (found)   (new screen; shown ONLY if agents were found)
@@ -11505,15 +11534,15 @@ window.kosmosMeasureScrollbarWidth();
         .s9-row[data-added] .s9-added{display:inline-flex;align-items:center}
         </style>
 
-        <p class="fc-eyebrow">Your agents</p>
+        <p class="fc-eyebrow" id="fr-fleet-eyebrow">Setup complete</p>
         <!-- install-flow-9screen: this <h2> is DRIVEN by the fork painters
              (frPaintFleet / frPaintFound / frPaintScan) via `#fr-pane-9 h2`. The
-             text below is only the pre-JS default. #2497: first run now ALWAYS
-             lands on the no-agent create screen, so the default matches that
-             outcome to avoid a flash of the wrong heading before JS runs. The
+             text below is only the pre-JS default. #2497/#3575: first run ALWAYS
+             lands on the one ending screen, so the default is its headline
+             (frPaintFleet sets the same text) to avoid a flash of a wrong one. The
              kept-but-bypassed engine can still rewrite it to "We found N agents
              on this computer" / "You already have N agents here." elsewhere. -->
-        <h2 id="fr-fleet-title">Create your first agent.</h2>
+        <h2 id="fr-fleet-title">You’re ready to start using Kosmos.</h2>
         <!-- install-flow-9screen: the found/create/adopt fork renders into
              #fr-fleet below (the existing, tested add/undo/adopt flow, which
              already implements S9a's intent: "We found N agents..." + a per-row
@@ -15308,9 +15337,9 @@ const STATE_COPY = {
   auth_failed:  { label: "Sign-in isn't working", attn: true  },
   /* #3410: a TRANSIENT network error (DNS/network blip) took the agent's
      connection to the API, distinct from auth_failed (the account is fine).
-     An attention state, but a RECOVERABLE one: it is the kind of thing a restart
-     fixes once connectivity returns (the #3410 self-heal that will auto-restart
-     it is a follow-on PR, not built here -- this PR surfaces the state). Named its
+     An attention state, but a RECOVERABLE one: it is the kind of thing a retry
+     fixes once connectivity returns (the #3410 self-heal, engine/connlost-heal.js,
+     types a retry nudge into the agent when the network is back). Named its
      own label rather than folded into "Can't tell": the whole point of #3410 is to
      replace that opaque UNKNOWN with a state that says what happened. */
   connection_lost: { label: 'Connection lost', attn: true },
@@ -15369,8 +15398,8 @@ const CARD_ST = {
   /* #3410: wears the same quiet "paused" pack shape as auth_failed -- work is
      stopped by something the agent cannot get past on its own, but the process
      is still up (pres: 'on'), it just cannot reach the API. It is not alarmed
-     red because it is recoverable (a restart on connectivity return will heal it;
-     that self-heal is a #3410 follow-on PR, not built here); a louder treatment,
+     red because it is recoverable (the #3410 self-heal, engine/connlost-heal.js,
+     nudges it to retry when the network is back); a louder treatment,
      if wanted, is a design call for whoever owns the pack, not decided here. */
   connection_lost: { st: 'paused', pres: 'on' },
   /* blocked wears paused's quieter shape: waiting is waiting, and red stays
@@ -18154,6 +18183,8 @@ async function tick() {
          second find() for the same card is the one-fact-two-derivations habit
          this file keeps paying for. */
       paintBusy(fresh, CURRENT.name);
+      /* #3614: the Files list, on the same tab-and-panel gate as the Talk poll above. */
+      if (!document.hidden && !document.getElementById('panel-detail').hidden) paintAgentFiles(CURRENT.sessionName);
       /* The same tab gate as the poll above, for the same reason: this is a
          capture-pane every five seconds. 🛑 NOT GATED ON THE SWITCH ANY MORE
          (agent-page-nav): the route stopped reading it, the box stopped
@@ -19845,8 +19876,9 @@ function acctChosenName(a) {
    ChatGPT sign-in), mapped to the engine's route word (/api/accounts/<route>).
    Everything not listed is a Claude account. */
 const ACCT_KEYED_ROUTE = { openai: 'openai', google: 'gemini', xai: 'grok' };
-/* #3566: a provider connected only by a pasted key (Gemini, Grok): keyed, and not OpenAI,
-   whose sign-in and model picker are its own. Read from the route table. */
+/* #3566: a keyed provider other than OpenAI (Gemini, Grok), whose sign-in and model picker
+   are its own. (#3391: a Grok account may also be a subscription sign-in; Kosmos cannot start
+   one from these screens yet.) Read from the route table. */
 function keyOnlyProvider(p) {
   return p !== 'openai' && Object.prototype.hasOwnProperty.call(ACCT_KEYED_ROUTE, p);
 }
@@ -19886,8 +19918,9 @@ function acctProvider(a) {
 function switchKeyedWord(p) {
   return p === 'google' ? 'Gemini' : p === 'xai' ? 'Grok' : 'OpenAI';
 }
-/* #3566: an OpenAI sentence re-said for the picker's provider. Gemini and Grok accounts are
-   pasted keys, never a sign-in, so "OpenAI sign-in" becomes "Gemini account" there. */
+/* #3566: an OpenAI sentence re-said for the picker's provider, so "OpenAI sign-in" becomes
+   "Gemini account" there. (#3391: a Grok account may be a key OR a subscription sign-in;
+   "Grok account" is true of both. Connecting a Grok subscription from this screen is part 2.) */
 function switchKeyedSay(text, p) {
   if (!keyOnlyProvider(p)) return text;
   return String(text).replace(/OpenAI sign-in/g, switchKeyedWord(p) + ' account').replace(/OpenAI/g, switchKeyedWord(p));
@@ -19901,7 +19934,7 @@ function switchKeyedSay(text, p) {
 function paintKeyedProviderOptions(sel, accounts, known, current, failed) {
   if (!sel || !sel.options) return;
   for (const opt of sel.options) {
-    if (!ACCT_KEYED_ROUTE[opt.value] || opt.value === 'openai') continue;  // the key-only providers (Gemini, Grok)
+    if (!ACCT_KEYED_ROUTE[opt.value] || opt.value === 'openai') continue;  // Gemini and Grok
     /* "Usable" is BOTH rules: the create list's (acctOfferableTarget) and the switch list's
        (a live check that is not 'none', not marked unofferable). Offering the provider when
        either list would come up empty would post with no account. */
@@ -20267,8 +20300,10 @@ async function paintAccounts() {
        does the same. Never the key. */
     const isOpenai = acctProvider(a) === 'openai';
     /* #3566: Gemini and Grok rows are keyed rows like OpenAI's: no Claude history
-       arm, no Check now (a Claude probe), no reauth (there is no sign-in to redo),
-       and Disconnect / Delete go to their own route. `keyRoute` is that route. */
+       arm, no Check now (a Claude probe), no reauth (a Grok subscription's sign-in
+       again is a #3391 follow-up), and Disconnect / Delete go to their own route.
+       `keyRoute` is that route. #3391: a Grok row with authMode 'subscription'
+       holds a sign-in, not a key, and its titles say so. */
     const keyRoute = ACCT_KEYED_ROUTE[acctProvider(a)] || '';
     const isKeyed = !!keyRoute;
     /* #2095: the human-chosen name is the primary label (was key-last-4-only). */
@@ -20411,7 +20446,8 @@ async function paintAccounts() {
     // moves here, into the tooltip, and nudges toward the "Check now" button beside the badge
     // (added with #3145's on-demand probe). Still #874-safe: the dot stays muted, not green --
     // we are NOT claiming the sign-in works, only that it exists and can be verified on demand.
-    const unverifiedWhy = 'This account is signed in. We have not seen a request on it succeed recently, so we are not confirming it live here. Use Check now to verify it, or it confirms itself the next time an agent on it runs.';
+    const unverifiedWhy = 'This account is signed in. We have not seen a request on it succeed recently, so we are not confirming it live here. '
+      + (isKeyed ? 'It confirms itself the next time an agent on it runs.' : 'Use Check now to verify it, or it confirms itself the next time an agent on it runs.');
     let connBadge;
     if (badge === 'working') {
       connBadge = '<span class="acct-connected" title="' + esc(workingWhy) + '"><span class="dot" aria-hidden="true"></span>Signed in' + (ageStr ? ' · active ' + esc(ageStr) : '') + '</span>';
@@ -20566,7 +20602,7 @@ async function paintAccounts() {
              Claude row. Here it is true of the default alone, since `codexsession`
              reads transcripts out of `defaultHome()` only. */
           + 'title="Takes this account off the list. '
-          + (isOpenai ? 'Its sign-in file stays on this computer' : 'Its key is set aside on this computer')
+          + ((isOpenai || a.authMode === 'subscription') ? 'Its sign-in file stays on this computer' : 'Its key is set aside on this computer')
           + ', so nothing is deleted.'
           + (a.isDefault && isOpenai ? ' Kosmos stops looking inside it, so any history kept only '
             + 'there will not appear any more.' : '')
@@ -20626,7 +20662,7 @@ async function paintAccounts() {
              without the misleading comparison. */
           + 'title="' + (!isKeyed && a.apiKey
             ? 'Deletes this account from this computer: its saved API key and its whole folder, including any history in it. This cannot be undone.'
-            : (isKeyed && !isOpenai)
+            : (isKeyed && !isOpenai && a.authMode !== 'subscription')
               ? 'Deletes this account from this computer: its saved API key and its folder. Unlike Disconnect, this cannot be undone.'
               : 'Deletes this account from this computer, sign-in file and all. Unlike Disconnect, this cannot be undone.')
           + '">Delete and remove</button>')
@@ -23009,6 +23045,167 @@ document.getElementById('acct-apikey-go').addEventListener('click', async () => 
     if (ACCT_APIKEY_GEN === mine) go.disabled = false;
   }
 });
+/* #3658: Gemini and Grok connect from first run's model step, by API key (the only path
+   that works today for both). The box is shared; FR_APIKEY_WHICH is the provider it is
+   open for ('google' | 'xai'), read from ACCT_APIKEY_PROVIDERS so the route, vendor and
+   key hint are Settings' own. FR_APIKEY_GEN drops an answer that returns after the box was
+   switched or closed, the same guard Settings uses. */
+const FR_APIKEY_GETKEY = { google: 'https://aistudio.google.com/app/apikey', xai: 'https://console.x.ai/' };
+let FR_APIKEY_WHICH = null;
+let FR_APIKEY_GEN = 0;
+/* The command-line tool each keyed provider runs on. There is no managed installer for
+   either yet (engine/runners.js), so when it is missing the screen names it. */
+const FR_APIKEY_TOOL = { google: 'gemini', xai: 'grok' };
+function frApikeyExpanded(which) {
+  for (const id of ['fr-gemini-connect', 'fr-grok-connect']) {
+    const b = document.getElementById(id);
+    if (b) b.setAttribute('aria-expanded', String(!!which && b.dataset.keyed === which));
+  }
+}
+/* PROBE BEFORE THE BOX (review pass 1): the key route checks for the runner BEFORE it
+   reads the key, so a POST with no key answers needsRunner when the runner is missing,
+   and otherwise refuses the empty key without storing anything. Asking first means a
+   person is never sent off to make a key for a runner this computer does not have. */
+async function frApikeyOpen(which) {
+  FR_APIKEY_GEN += 1;
+  const mine = FR_APIKEY_GEN;
+  const flow = document.getElementById('fr-apikey-flow');
+  const msg = document.getElementById('fr-apikey-msg');
+  const p = which ? ACCT_APIKEY_PROVIDERS[which] : null;
+  const same = FR_APIKEY_WHICH === which && !flow.hidden;
+  document.getElementById('fr-apikey-go').disabled = false;   // an Add left pending by a switch must not stay dead
+  if (!p || same) { flow.hidden = true; FR_APIKEY_WHICH = null; frApikeyExpanded(null); msg.textContent = ''; return; }   // a second press closes it
+  flow.hidden = true;
+  frApikeyExpanded(null);
+  msg.textContent = 'Checking ' + p.name + ' on this computer…';
+  let missing = false;
+  try {
+    const res = await fetch('/api/accounts/' + p.route + '/apikey', {
+      method: 'POST', headers: { 'content-type': 'application/json' }, body: '{}',
+    });
+    const out = await res.json().catch(() => null);
+    missing = !!(out && out.needsRunner);
+  } catch { /* could not ask: open the box and let Add say what is wrong */ }
+  if (mine !== FR_APIKEY_GEN) return;
+  if (missing) {
+    FR_APIKEY_WHICH = null;
+    msg.textContent = p.name + ' runs on its own command-line tool, "' + FR_APIKEY_TOOL[which]
+      + '", and it is not installed on this computer yet. Kosmos cannot install it for you yet; once it is installed, press Connect again.';
+    return;
+  }
+  msg.textContent = '';
+  frApikeyExpanded(which);
+  if (FR_APIKEY_WHICH !== which) {
+    const k = document.getElementById('fr-apikey-key'); k.value = '';
+    document.getElementById('fr-apikey-msg').textContent = '';
+  }
+  FR_APIKEY_WHICH = which;
+  const article = /^(x|[aeiou])/i.test(p.vendor) ? 'an ' : 'a ';   // "an xAI key"
+  document.getElementById('fr-apikey-t').textContent = 'Paste ' + article + p.vendor + ' API key for ' + p.name + '. A key is a bit like a password that ' + p.vendor + ' issues for this computer.';
+  document.getElementById('fr-apikey-getkey').href = FR_APIKEY_GETKEY[which] || '#';
+  const key = document.getElementById('fr-apikey-key');
+  key.setAttribute('aria-label', p.name + ' API key');
+  key.placeholder = p.hint;
+  flow.hidden = false;
+  key.focus();
+}
+/* Paint one keyed row's Connect as Connected (green check, disabled) or Connect, from a
+   known answer or from /api/accounts, the way frPaintOpenai does for GPT. A read that
+   fails or cannot tell leaves the row as it was. */
+async function frPaintKeyed(known) {
+  /* A read can take seconds (live checks), so an older one landing after a newer paint
+     must not win: same token as frPaintOpenai. */
+  frPaintKeyed.seq = (frPaintKeyed.seq || 0) + 1;
+  const seq = frPaintKeyed.seq;
+  let list = known;
+  if (!list) {
+    try {
+      const res = await fetch('/api/accounts', { cache: 'no-store' });
+      if (!res.ok) return;
+      list = ((await res.json()) || {}).accounts || [];
+    } catch { return; }
+    if (seq !== frPaintKeyed.seq) return;
+  }
+  for (const [id, provider] of [['fr-gemini-connect', 'google'], ['fr-grok-connect', 'xai']]) {
+    const b = document.getElementById(id);
+    if (!b) continue;
+    const mine = list.filter((x) => acctProvider(x) === provider);
+    const connected = mine.some((x) => x.connection && x.connection.state === 'connected');
+    /* A key saved but not yet confirmed (the provider did not answer) is not "Connected",
+       and must not offer Connect again either: a second paste would make a second account. */
+    const saved = !connected && mine.some((x) => x.connection && x.connection.state === 'unknown');
+    const name = provider === 'google' ? 'Gemini' : 'Grok';
+    b.innerHTML = connected ? '<span aria-hidden="true">✓</span> Connected' : saved ? 'Key saved' : 'Connect';
+    b.disabled = connected || saved;
+    b.classList.toggle('is-connected', connected);
+    b.setAttribute('aria-disabled', String(connected || saved));
+    b.setAttribute('aria-label', connected ? name + ' is connected' : saved ? name + ' key saved' : 'Connect ' + name);
+  }
+}
+for (const id of ['fr-gemini-connect', 'fr-grok-connect']) {
+  const b = document.getElementById(id);
+  if (b) b.addEventListener('click', () => frApikeyOpen(b.dataset.keyed));
+}
+/* Enter adds the key, like GPT's key field, and stops there: the step's own Enter-to-
+   continue must not carry the person past a key they have not added. */
+document.getElementById('fr-apikey-key').addEventListener('keydown', (e) => {
+  if (e.key !== 'Enter') return;
+  e.preventDefault();
+  e.stopPropagation();
+  document.getElementById('fr-apikey-go').click();
+});
+document.getElementById('fr-apikey-go').addEventListener('click', async () => {
+  const which = FR_APIKEY_WHICH;
+  const p = which ? ACCT_APIKEY_PROVIDERS[which] : null;
+  const keyField = document.getElementById('fr-apikey-key');
+  const go = document.getElementById('fr-apikey-go');
+  const msg = document.getElementById('fr-apikey-msg');
+  if (!p) return;
+  const key = keyField.value.trim();
+  if (!key) { msg.textContent = 'Paste the key first.'; keyField.focus(); return; }
+  const mine = FR_APIKEY_GEN;
+  go.disabled = true;
+  msg.textContent = 'Checking the key with ' + p.vendor + '…';
+  try {
+    const res = await fetch('/api/accounts/' + p.route + '/apikey', {
+      method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ key }),
+    });
+    const out = await res.json().catch(() => null);
+    if (mine !== FR_APIKEY_GEN) {
+      if (!res.ok) return;
+      /* A key that landed after the person moved on still shows as Connected. If they
+         have since reopened the box for the SAME provider, close it: a second Add there
+         would make a second account for a provider that is already connected. */
+      if (FR_APIKEY_WHICH === which) {
+        document.getElementById('fr-apikey-flow').hidden = true;
+        FR_APIKEY_WHICH = null;
+        frApikeyExpanded(null);
+      }
+      if (FR_APIKEY_WHICH === null) msg.textContent = p.name + ' is connected.';   // never leave "Checking..." behind
+      frPaintKeyed();
+      return;
+    }
+    if (!res.ok) {
+      if (out && out.needsRunner) throw new Error(p.name + ' runs on its own command-line tool, "' + FR_APIKEY_TOOL[which] + '", and it is not installed on this computer yet.');
+      throw new Error((out && (out.error || out.because)) || 'We could not add that key.');
+    }
+    keyField.value = '';
+    document.getElementById('fr-apikey-flow').hidden = true;
+    FR_APIKEY_WHICH = null;
+    frApikeyExpanded(null);
+    msg.setAttribute('tabindex', '-1');
+    msg.focus();   // the box that held focus is hidden now; the result is where it lands
+    const unknown = !!(out && out.account && out.account.connection && out.account.connection.state === 'unknown');
+    msg.textContent = unknown
+      ? 'The ' + p.name + ' key is saved. ' + p.vendor + ' did not answer just now, so it will be checked again when an agent uses it.'
+      : p.name + ' is connected.';
+    await frPaintKeyed();
+  } catch (err) {
+    if (mine === FR_APIKEY_GEN) msg.textContent = String((err && err.message) || 'We could not add that key.');
+  } finally {
+    if (mine === FR_APIKEY_GEN) go.disabled = false;
+  }
+});
 document.getElementById('acct-openai-pick-sub').addEventListener('click', () => acctOpenaiChoose('sub'));
 document.getElementById('acct-openai-pick-key').addEventListener('click', () => acctOpenaiChoose('key'));
 /* #2433: the Claude picker's two choices. */
@@ -25181,8 +25378,8 @@ let START_FLIGHT = null;
    that it exists (#3410), deliberately does NOT fall under this gate: it ships
    pres:'on' because the Claude PROCESS is still up (it just cannot reach the
    API), and pres:'off' is reserved for 'stopped' (it gates plannedModelName).
-   Recovery for connection_lost is the #3410 self-heal (auto-restart on
-   connectivity return, a follow-on PR), not this Start button; a manual
+   Recovery for connection_lost is the #3410 self-heal (engine/connlost-heal.js
+   nudges the agent to retry on connectivity return), not this Start button; a manual
    "Reconnect" affordance, if ever wanted, would need its own gate rather than
    pres:'off'. */
 function refreshStartAffordance(a) {
@@ -26890,6 +27087,117 @@ function fitDetailName() {
   }
 }
 
+/* #3614: the agent page's Files list. The server lists the agent's own Files folder; a folder
+   not made yet is the empty state. The stamp skips a repaint when nothing changed, and the epoch
+   and agent re-check stop a late answer painting one agent's files under another's name. */
+let AGENT_FILES_EPOCH = 0;
+let AGENT_FILES_STAMP = null;
+async function paintAgentFiles(sessionName) {
+  const list = document.getElementById('d-files-list');
+  const msg = document.getElementById('d-files-msg');
+  const more = document.getElementById('d-files-more');
+  if (!list || !msg) return;
+  const epoch = (AGENT_FILES_EPOCH += 1);
+  let body;
+  let status = 0;
+  try {
+    const res = await fetch('/api/agent/' + encodeURIComponent(sessionName) + '/files');
+    status = res.status;
+    body = await res.json();
+  } catch {
+    if (epoch !== AGENT_FILES_EPOCH || !CURRENT || CURRENT.sessionName !== sessionName) return;
+    // A stamp of its own, like a refusal: a read that keeps failing is not re-announced each tick.
+    if (AGENT_FILES_STAMP === 'neterr') return;
+    AGENT_FILES_STAMP = 'neterr';
+    list.textContent = '';
+    if (more) more.hidden = true;
+    msg.textContent = 'We could not read this agent\u2019s files just now.';
+    return;
+  }
+  if (epoch !== AGENT_FILES_EPOCH || !CURRENT || CURRENT.sessionName !== sessionName) return;
+  const ok = Boolean(body && body.ok === true);
+  // A refusal gets a stamp of its own, so an unchanged refusal is not rewritten into the status
+  // region every 5 seconds (a screen reader may re-announce it each time).
+  const stamp = ok ? String(body.stamp || '') : 'refused:' + status + ':' + String((body && body.because) || '');
+  if (stamp && stamp === AGENT_FILES_STAMP) return;
+  AGENT_FILES_STAMP = stamp;
+  list.textContent = '';
+  if (more) more.hidden = true;
+  if (!ok) {
+    // A 404 means this agent has no folder of its own here: say that, not the route's "no agent".
+    msg.textContent = status === 404
+      ? 'This agent has no folder of its own on this computer, so there is no Files list.'
+      : asSentence((body && body.because) || 'We could not read this agent\u2019s files just now.');
+    return;
+  }
+  const files = Array.isArray(body.files) ? body.files : [];
+  if (!files.length) {
+    msg.textContent = 'Nothing here yet. Files this agent makes for you in a Direct Message show up here.';
+    return;
+  }
+  msg.textContent = '';
+  for (const f of files) {
+    // A BUTTON: it opens a file, so it must be reachable from the keyboard.
+    const b = document.createElement('button');
+    b.type = 'button';
+    b.className = 'pj-doc';
+    b.dataset.doc = f.name;
+    b.insertAdjacentHTML('afterbegin', fileIcon(f.name));
+    const n = document.createElement('span');
+    n.className = 'pj-doc-n';
+    n.textContent = f.name;
+    const w = document.createElement('span');
+    w.className = 'pj-doc-w';
+    const when = f.modified ? new Date(f.modified) : null;
+    w.textContent = (when && !isNaN(when) ? when.toLocaleDateString() + ' \u00b7 ' : '') + pjSize(f.size);
+    b.append(n, w);
+    list.append(b);
+  }
+  const rest = Number(body.total) - files.length;
+  if (more && rest > 0) {
+    more.textContent = 'And ' + rest + ' more in the folder.';
+    more.hidden = false;
+  }
+}
+document.getElementById('d-files-list') && document.getElementById('d-files-list').addEventListener('click', async (e) => {
+  const row = e.target.closest('.pj-doc');
+  if (!row || !CURRENT) return;
+  const who = CURRENT.sessionName;
+  const msg = document.getElementById('d-files-msg');
+  let say;
+  try {
+    const res = await fetch('/api/agent/' + encodeURIComponent(who) + '/files/open', {
+      method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ name: row.dataset.doc }),
+    });
+    const b = await res.json().catch(() => ({}));
+    say = res.ok ? (b.revealedInstead ? (b.say || '') : '') : asSentence(b.because || 'That file did not open.');
+  } catch {
+    say = 'We could not reach Kosmos to open that file.';
+  }
+  // Only on the agent it was for: the person may have switched agents while this was in flight.
+  if (msg && CURRENT && CURRENT.sessionName === who) msg.textContent = say;
+});
+document.getElementById('d-files-finder') && document.getElementById('d-files-finder').addEventListener('click', async () => {
+  if (!CURRENT) return;
+  const who = CURRENT.sessionName;
+  const msg = document.getElementById('d-files-msg');
+  let failed = null;
+  try {
+    const res = await fetch('/api/agent/' + encodeURIComponent(who) + '/files/reveal', { method: 'POST', headers: { 'content-type': 'application/json' }, body: '{}' });
+    const b = await res.json().catch(() => ({}));
+    // A 404 is an agent with no folder of its own here: the same sentence as the list, never the
+    // route's "no agent by that name" about the agent the person is looking at.
+    if (res.status === 404) failed = 'This agent has no folder of its own on this computer, so there is no Files folder to open.';
+    else if (!res.ok) failed = asSentence(b.because || 'The folder did not open.');
+  } catch {
+    failed = 'We could not reach Kosmos to open the folder.';
+  }
+  if (!CURRENT || CURRENT.sessionName !== who) return;
+  if (failed) { if (msg) msg.textContent = failed; return; } // keep the reason on screen: no repaint over it
+  AGENT_FILES_STAMP = null;
+  paintAgentFiles(who);
+});
+
 function openDetail(sessionName, section, fromProject) {
   // #3050: opening ANY agent - INCLUDING one no longer in LAST (removed while its
   // Update reload was in flight), which is why this precedes the `if (!a) return`
@@ -26909,6 +27217,18 @@ function openDetail(sessionName, section, fromProject) {
   const cameFrom = CURRENT && CURRENT.sessionName;
   CURRENT = a;
   SKILLS_LOADED_FOR = null;   // #2916: a fresh open reloads the Skills list on the first Instructions visit
+  AGENT_FILES_STAMP = null;   // #3614: a fresh open always paints its own Files list
+  {
+    // Clear the previous agent's rows now, not when the fetch returns: a click in between would
+    // send that agent's filename to this one.
+    const fl = document.getElementById('d-files-list');
+    const fm = document.getElementById('d-files-msg');
+    const fo = document.getElementById('d-files-more');
+    if (fl) fl.textContent = '';
+    if (fm) fm.textContent = '';
+    if (fo) fo.hidden = true;
+  }
+  paintAgentFiles(a.sessionName);
   URL_TAB = 'detail';
   /* #1615: openDetail is the THIRD writer of URL_TAB (after showTab and, via it,
      settingsGo). Jumping straight to the agent detail from the Plus tab must
@@ -48750,6 +49070,7 @@ function frGo(step) {
     // running server-side is repainted by frConnResume once its answer arrives.
     frPaintSubscription();
     frPaintOpenai();
+    frPaintKeyed();   // #3658: Gemini and Grok rows show Connected when an account already is
     frConnResume();
   } else if (step === 6) {
     // S6 Self improving: one consent switch (the daily feedback report). #11
@@ -48765,7 +49086,7 @@ function frGo(step) {
     // S8 About you: sets its own gated Next and advances to step 9.
     frPaintYou();
   } else {
-    // S9 Your agents: the found/create fork (frPaintFleet), ending in frFinish.
+    // S9 the ending (SETUP COMPLETE since #3659): frPaintFleet, ending in frFinish.
     frPaintFleet();
   }
 
@@ -50654,9 +50975,9 @@ function frEnterSubmit(e) {
     if (tag === 'TEXTAREA' || tag === 'BUTTON' || tag === 'A' || tag === 'SELECT') return;
     if (t.isContentEditable) return;
     // 🛑 A SEARCH FIELD IS A TYPE-AND-FILTER FIELD, NOT A FILL-AND-CONTINUE ONE.
-    // The "Your agents" ending (#fr-fleet) shows Continue enabled AND carries a
-    // live search box (#fr-foundsearch, type=search) whose only handler is an
-    // `input` filter -- so Enter there has no field action and would bubble here
+    // The found-agents screen (frPaintFound; kept, but not reached during setup since #2497)
+    // shows Continue enabled AND carries a live search box (#fr-foundsearch, type=search)
+    // whose only handler is an `input` filter -- so Enter there has no field action and would bubble here
     // and fire frFinish, ejecting the person mid-adoption. Before #2186 Enter in
     // that box did nothing; keep it that way. A blanket INPUT carve-out is wrong
     // (About-you's text inputs DO want Enter=Continue), so this is scoped to search.
@@ -51930,21 +52251,15 @@ function frPaintFleet() {
   /* #3575 (Josh, 2026-09-24 07:51): KEEP the "Giddy Up" button ("several people ... laughed and
      thought that was cute and fun"), but the page must be about starting to use Kosmos, not about
      creating a first agent, and Giddy Up lands on the Agents dashboard instead of Create Agent.
-     Copy is April's draft per his "come up with a message"; he swaps it if he wants. "Let's get
-     started." stays as the body's first line: it was Josh's own phrase for this screen. */
+     The eyebrow and body are Josh's #3659 copy (below). */
   title.textContent = 'You\u2019re ready to start using Kosmos.';
-  // #2497 follow-on (Mona Lisa, spec on the card): everyone now lands here, including a user who
-  // already runs agents in Claude Code or Codex that onboarding deliberately no longer scoops up.
-  // One quiet POINTER (not a scan: it lists nothing, finds nothing) tells that user Kosmos is
-  // choosing not to import them and where manual Import lives, so "where are my agents?" does not
-  // reappear one screen later. #3575: Import is now reached from the dashboard, not the next
-  // screen. The pointer names "New agent" (#new-agent in the boardbar, #rail-agents-new in the
-  // consolidated rail), which shows on an empty AND a populated board; the empty state's "Create
-  // your first agent" button does not exist on an adopt machine's populated board.
-  box.innerHTML = '<p>Let\u2019s get started. Giddy Up takes you to your Agents dashboard, '
-    + 'home base for everything you do in Kosmos.</p>'
-    + '<p class="dhint" style="margin:6px 0 0;">Already have agents in Claude Code or Codex on this computer? '
-    + 'On the dashboard, choose New agent, then pick the Import option.</p>';
+  /* #3659 (Josh, 2026-09-24 17:49, verbatim): eyebrow SETUP COMPLETE, the headline above
+     unchanged, and ONE body line replacing both earlier paragraphs (it names import, so the #2497
+     pointer paragraph is retired by his copy). */
+  const eyebrow = document.getElementById('fr-fleet-eyebrow');
+  if (eyebrow) eyebrow.textContent = 'Setup complete';
+  box.innerHTML = '<p>Head to your dashboard to create or import agents, set up your projects, '
+    + 'and start building your next big idea.</p>';
   frActions({ label: 'Giddy Up', go: () => frFinish(() => showTab('agents')) });
   return;
 

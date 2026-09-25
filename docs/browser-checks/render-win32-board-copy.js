@@ -63,6 +63,8 @@ const MAC_ONLY = {
 const WORDS = {
   win32: {
     '#docs-finder': 'Open in File Explorer',
+    // #3614: the agent page Files block's folder button.
+    '#d-files-finder': 'Open in File Explorer',
     '#set-reveal': 'Open the Kosmos folder',
     'button[data-go="term"]': 'Live output',
     '#fr-pane-7 p[data-win-copy="s7Body"]': 'Kosmos is running now, and its icon is on the taskbar at the bottom of your screen.',
@@ -72,6 +74,7 @@ const WORDS = {
   },
   darwin: {
     '#docs-finder': 'Open this folder in Finder',
+    '#d-files-finder': 'Open in Finder',
     '#set-reveal': 'Show me where it is',
     // #2916 renamed the Mac nav pill Terminal -> Advanced; Windows keeps "Live output" (above).
     'button[data-go="term"]': 'Advanced',

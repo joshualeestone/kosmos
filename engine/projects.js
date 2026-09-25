@@ -1389,12 +1389,13 @@ function listFiles(folder, limit) {
  *      comparing can see that, which is why this gate exists separately from
  *      the first rather than being folded into it.
  */
-function openFile(folder, name) {
+/* `where` names the folder in a refusal (#3614: the agent page's Files folder is not a project). */
+function openFile(folder, name, where = 'this project') {
   const given = String(name == null ? '' : name);
   if (!given) return { ok: false, because: 'no file was named' };
   if (given.includes('/') || given.includes('\\') || given === '.' || given === '..'
       || path.isAbsolute(given) || path.basename(given) !== given) {
-    return { ok: false, because: 'that is not a file in this project' };
+    return { ok: false, because: 'that is not a file in ' + where };
   }
   const state = folderState(folder);
   if (!state || state.state !== FOLDER.READABLE) {
@@ -1408,7 +1409,7 @@ function openFile(folder, name) {
   }
   const root = state.real.endsWith(path.sep) ? state.real : state.real + path.sep;
   if (!target.startsWith(root)) {
-    return { ok: false, because: 'that file lives outside this project, so we will not open it' };
+    return { ok: false, because: 'that file lives outside ' + where + ', so we will not open it' };
   }
   let st;
   try { st = statOfFolderPath(target); } catch { return { ok: false, because: 'that file is not there any more, or it was moved' }; }

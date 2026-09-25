@@ -16,11 +16,15 @@
  * onboarding -- see the decisions below.
  *
  * DECISIONS (mine, per Josh's make-your-best-call ruling; adjust freely):
- * - NAME = the user's own name (Josh: "we would name it My Name (Josh)"). If the
- *   About-you step was skipped so there is no saved name, we SKIP the assistant
- *   rather than invent a name -- a nameless helper is worse than none.
- * - AVATAR = the user's own picture, copied onto the agent, best-effort. No
- *   picture -> the agent keeps the default initials avatar. Never fatal.
+ * - NAME and AVATAR are JOSH'S, not the user's. Josh, 2026-09-24 16:05: "I think
+ *   i want to use my avatar and play off the fact that I built it and will help
+ *   them." The first version (#3153) read the 09-14 note ("give it my avatar")
+ *   as the USER'S picture and name; his 09-24 ruling settles it the other way. So
+ *   the guide is GUIDE_NAME, carries GUIDE_TAG so nobody mistakes it for him
+ *   typing live, and wears the bundled picture at GUIDE_AVATAR_BASE when one is
+ *   shipped (no picture -> the initials avatar; never fatal). The role's own text
+ *   (engine/roles.js, `setup`) says the same, so the words and the face agree.
+ *   A saved user name is therefore no longer needed to seed.
  * - MODEL/ACCOUNT = the user's default connected account (createAgent with no
  *   model/account). Josh: runs on the user's own model, quota-burn accepted.
  * - CONNECTED-ACCOUNT GATE (the correctness crux). The wizard's model step is
@@ -45,12 +49,33 @@
 
 const fs = require('fs');
 const path = require('path');
-const you = require('./you');
 const store = require('./store');
 const accounts = require('./accounts');
 const create = require('./create');
 
 const SETUP_ROLE_KEY = 'setup';
+
+/* The guide's name, and the words that say it is an AI (#3034, Josh 2026-09-24).
+   GUIDE_TAG is for every surface that shows the guide's name, so the label
+   travels with it; the role's label says the same. */
+const GUIDE_NAME = 'Josh';
+const GUIDE_TAG = require('./roles').GUIDE_TAG;
+/* Tried only when GUIDE_NAME is taken (Josh running his own build most likely has an
+   agent called Josh already): the seed runs once, so a refused name would otherwise mean
+   no guide ever, with nothing saying why. */
+const GUIDE_FALLBACK_NAME = 'Josh AI';
+
+/* A file the seed drops in the guide's own folder. The page route writes only where it
+   finds this, so a guide whose folder was deleted never has its page reports land in a
+   later, unrelated agent that happens to take the same name. A plain REMOVE deletes
+   nothing on disk, so the marker survives it; the route checks the removed list for that. */
+const GUIDE_MARKER = '.kosmos-setup-guide';
+
+/* Where the bundled picture of Josh lives: web/icons/setup-guide-avatar.<ext>,
+   inside web/ so the app bundle ships it (tools/build-kosmos-bundle.sh copies web/
+   whole). Absent until the photo is chosen; the seed then uses the initials. */
+const GUIDE_AVATAR_DIR = path.join(__dirname, '..', 'web', 'icons');
+const GUIDE_AVATAR_BASE = 'setup-guide-avatar';
 
 /* #3034 (Josh, 2026-09-16): the first-run auto-create is GATED OFF. Josh's words:
  * "I don't know why this was set up as complete or indicated it was complete
@@ -100,19 +125,61 @@ const MIME_BY_EXT = {
   '.gif': 'image/gif', '.webp': 'image/webp',
 };
 
-/* Copy the user's own picture onto the freshly-created agent. Best-effort and
+/* The bundled picture of Josh, or null when none is shipped. `dir` is injectable
+   so a test can point it at a sandbox. */
+function guideAvatarPath(dir = GUIDE_AVATAR_DIR) {
+  for (const ext of Object.keys(MIME_BY_EXT)) {
+    const f = path.join(dir, GUIDE_AVATAR_BASE + ext);
+    try { if (fs.statSync(f).isFile()) return f; } catch { /* not this one */ }
+  }
+  return null;
+}
+
+/* Copy the guide's picture onto the freshly-created agent. Best-effort and
  * fully isolated: any failure leaves the agent with its default avatar and never
- * affects the create outcome or onboarding. */
-function copyUserAvatar(agentName) {
+ * affects the create outcome or onboarding. store.saveAvatar sniffs the bytes, so
+ * a mislabelled file is refused there rather than trusted by its extension. */
+function copyGuideAvatar(agentName, dir) {
   try {
-    const pic = you.picturePath();           // null when the user has no picture
+    const pic = guideAvatarPath(dir);
     if (!pic) return false;
     const type = MIME_BY_EXT[path.extname(pic).toLowerCase()];
-    if (!type) return false;                 // an extension we do not serve -> skip
-    const buf = fs.readFileSync(pic);
-    store.saveAvatar(agentName, type, buf);
+    if (!type) return false;
+    store.saveAvatar(agentName, type, fs.readFileSync(pic));
     return true;
   } catch { return false; }
+}
+
+function guideFolder(agentName) {
+  try {
+    const file = require('./instructions').fileFor(agentName);
+    return typeof file === 'string' && file ? path.dirname(file) : null;
+  } catch { return null; }
+}
+
+/* Mark the freshly-created guide's folder. Best-effort: without it the page route
+   answers 409 rather than write somewhere it cannot vouch for. */
+function markGuideFolder(agentName) {
+  const dir = guideFolder(agentName);
+  if (!dir) return false;
+  try { fs.writeFileSync(path.join(dir, GUIDE_MARKER), `${agentName}\n`, { flag: 'w' }); return true; }
+  catch { return false; }
+}
+
+/* Is this agent's folder the one the seed made for the guide? */
+function isGuideFolder(agentName) {
+  const dir = guideFolder(agentName);
+  if (!dir) return false;
+  try { return fs.lstatSync(path.join(dir, GUIDE_MARKER)).isFile(); } catch { return false; }
+}
+
+/* The guide's agent name as recorded when it was seeded, or null (never seeded,
+ * or a flag we cannot read). The page-context route writes only for this agent. */
+function guideName() {
+  try {
+    const rec = JSON.parse(fs.readFileSync(flagPath(), 'utf8'));
+    return rec && typeof rec.name === 'string' && rec.name ? rec.name : null;
+  } catch { return null; }
 }
 
 /*
@@ -124,18 +191,10 @@ function copyUserAvatar(agentName) {
  * succeeded, and a helper is a nicety that must not turn a done onboarding into
  * an error. The caller writes the once-ever flag on `seeded: true`.
  */
-function seedSetupAssistant({ createAgent, hasConnectedAccount = defaultHasConnectedAccount } = {}) {
+function seedSetupAssistant({ createAgent, hasConnectedAccount = defaultHasConnectedAccount, avatarDir } = {}) {
   if (typeof createAgent !== 'function') return { seeded: false, reason: 'no createAgent provided' };
   if (setupAssistantSeeded()) return { seeded: false, reason: 'already seeded' };
 
-  // Name after the user; skip (do not invent a name) if there is none saved.
-  let name;
-  try {
-    const rec = you.read();
-    name = rec && rec.state === 'saved' && rec.you && typeof rec.you.name === 'string'
-      ? rec.you.name.trim() : '';
-  } catch { name = ''; }
-  if (!name) return { seeded: false, reason: 'no saved user name to name the assistant after' };
 
   // A live agent needs a model. Gate on a connected account rather than create a
   // KeepAlive agent that would loop on auth failure (see the header note).
@@ -144,17 +203,25 @@ function seedSetupAssistant({ createAgent, hasConnectedAccount = defaultHasConne
   if (!connected) return { seeded: false, reason: 'no connected account to run the assistant on' };
 
   let out;
-  try {
-    out = createAgent({
-      name,
-      role: SETUP_ROLE_KEY,
-      createdBy: 'kosmos',
-      purpose: 'default Kosmos setup assistant (auto-created on first-run, #3034)',
-    });
-  } catch (err) {
-    // createAgent is not expected to throw (it returns a refusal outcome), but
-    // if it does, swallow it -- onboarding has already completed.
-    return { seeded: false, reason: 'create threw: ' + String((err && err.message) || err) };
+  let name;
+  for (const candidate of [GUIDE_NAME, GUIDE_FALLBACK_NAME]) {
+    name = candidate;
+    try {
+      out = createAgent({
+        name,
+        role: SETUP_ROLE_KEY,
+        createdBy: 'kosmos',
+        purpose: `default Kosmos setup guide, ${GUIDE_TAG} (auto-created on first-run, #3034)`,
+      });
+    } catch (err) {
+      // createAgent is not expected to throw (it returns a refusal outcome), but
+      // if it does, swallow it -- onboarding has already completed.
+      return { seeded: false, reason: 'create threw: ' + String((err && err.message) || err) };
+    }
+    /* Only a TAKEN name moves on to the fallback; any other refusal (no runner) would
+       refuse the fallback the same way. The sentence is create.js's own. */
+    const taken = out && out.outcome !== create.OUTCOME.CREATED && /already an agent called/.test(String(out.because || ''));
+    if (!taken) break;
   }
 
   if (!out || out.outcome !== create.OUTCOME.CREATED) {
@@ -163,12 +230,69 @@ function seedSetupAssistant({ createAgent, hasConnectedAccount = defaultHasConne
     return { seeded: false, reason: 'not created: ' + ((out && out.because) || (out && out.outcome) || 'unknown') };
   }
 
-  const avatarCopied = copyUserAvatar(out.name || name);
-  return { seeded: true, name: out.name || name, avatarCopied };
+  const avatarCopied = copyGuideAvatar(out.name || name, avatarDir);
+  const marked = markGuideFolder(out.name || name);
+  return { seeded: true, name: out.name || name, avatarCopied, marked };
+}
+
+/*
+ * The person's switch for the setup assistant bubble (#3034; Josh, 2026-09-24 18:02:
+ * "the first time they hit the X to say close or like a close this forever function
+ * ... a switch in settings somewhere for setup assistance that we tell them where it
+ * is if they want to reactivate it").
+ *
+ * Stored in the board's settings (/api/settings), not the page's storage, for the
+ * reason the tips switch (#3574) gives: page storage can come back empty, and then a
+ * bubble somebody closed forever would come back.
+ *   on     the Settings switch. false = "Don't show this again": no bubble at all.
+ *   asked  the first-X choice (Close for now / Don't show this again) has been offered,
+ *          so later closes just close.
+ * The bubble, the X dialog and the Settings row are Mona's; this is only the state.
+ */
+const SETTING_DEFAULT = Object.freeze({ on: true, asked: false });
+const SETTING_KEYS = Object.keys(SETTING_DEFAULT);
+
+/** The stored setting with defaults filled in; anything malformed reads as the default. */
+function settingFrom(stored) {
+  const a = (stored && typeof stored.setupAssistant === 'object' && stored.setupAssistant) || {};
+  const out = {};
+  for (const k of SETTING_KEYS) out[k] = typeof a[k] === 'boolean' ? a[k] : SETTING_DEFAULT[k];
+  return out;
+}
+
+/** Why a POSTed patch is refused, or null. A patch sets one or both keys, booleans only. */
+function settingPatchProblem(patch) {
+  if (!patch || typeof patch !== 'object' || Array.isArray(patch)) return 'that is not a valid setup assistant setting';
+  const keys = Object.keys(patch);
+  if (!keys.length) return 'that is not a valid setup assistant setting';
+  for (const k of keys) {
+    if (!SETTING_KEYS.includes(k)) return 'that is not a valid setup assistant setting';
+    if (typeof patch[k] !== 'boolean') return 'that is not a valid setup assistant setting';
+  }
+  return null;
+}
+
+/** The whole setting after a valid patch, so a write of one key never drops the other. */
+function mergeSetting(stored, patch) {
+  const next = settingFrom(stored);
+  for (const k of SETTING_KEYS) if (k in patch) next[k] = patch[k];
+  return next;
 }
 
 module.exports = {
   SETUP_ROLE_KEY,
+  SETTING_DEFAULT,
+  settingFrom,
+  settingPatchProblem,
+  mergeSetting,
+  GUIDE_NAME,
+  GUIDE_FALLBACK_NAME,
+  GUIDE_TAG,
+  GUIDE_MARKER,
+  isGuideFolder,
+  GUIDE_AVATAR_BASE,
+  guideAvatarPath,
+  guideName,
   FIRSTRUN_AUTOCREATE_ENABLED,
   flagPath,
   setupAssistantSeeded,

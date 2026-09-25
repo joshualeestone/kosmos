@@ -40,7 +40,8 @@ test('#3614: the block names the REAL path, and says to create it and to keep pr
   const flat = body.replace(/\s+/g, ' ');
   assert.match(flat, /in a direct conversation with them, not inside a project/);
   assert.match(flat, /Create the folder if it is not there yet/);
-  assert.doesNotMatch(flat, /on your page/, 'it must not promise the agent-page list before that half ships');
+  assert.match(flat, /Kosmos lists what is in it on your page, where they can open it/, 'the block does not tell the agent the person sees its Files on its page (#3614 item 2 ships with it)');
+  assert.match(flat, /Save files directly in it, not in subfolders: the page lists only what sits at the top of the folder/, 'the agent is not told the list skips subfolders, so tidied work reads as "Nothing here yet"');
   assert.match(flat, /Inside a project, keep using the project's own folder/);
 });
 

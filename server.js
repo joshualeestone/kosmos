@@ -704,6 +704,7 @@ const createdbeacon = require('./engine/createdbeacon'); // #3038: install + age
 const heartbeat = require('./engine/heartbeat');
 const prompternudge = require('./engine/prompternudge'); // #3508: the Prompter's local in-app nudge store (the delivery half #2623 removed)
 const class1autohandle = require('./engine/class1-autohandle'); // #2808 class-1 (c): invisible auto-handle
+const connlostHeal = require('./engine/connlost-heal'); // #3410 PR 2b: nudge a network-wedged agent when the network is back
 const liveExecution = require('./engine/live-execution'); // #2808 class-1 (c): gate the auto-handle sweep on the board's live-execution opt-in
 const heartbeatSetting = require('./engine/heartbeat-setting');
 const recommenderSetting = require('./engine/recommender-setting'); // #2619
@@ -1758,8 +1759,7 @@ function enumerateAgentsOnAccount(dir, isDefault, runner) {
    `mod` (geminiaccounts/grokaccounts), so the two cannot drift. The raw key is never
    logged or echoed back -- the response carries the label + the live verdict only. */
 /* #3566: the exclusive-create marker a label-less add holds on its slot while the key is checked. */
-const CLAIM_FILE = '.kosmos-claim';
-const CLAIM_STALE_MS = 10 * 60 * 1000;
+const { CLAIM_FILE, CLAIM_STALE_MS } = require('./engine/accountclaim');
 function handleApikeyAccountStore(req, res, { mod, runner, providerLabel }) {
   readBody(req)
     .then(async (raw) => {
@@ -1803,6 +1803,9 @@ function handleApikeyAccountStore(req, res, { mod, runner, providerLabel }) {
         for (let n = 0; n < 50 && !named && !failed; n += 1) {
           const spot = mod.nextWorkDir(exclude);
           if (!spot) break;
+          /* #3391: a slot a Grok subscription sign-in holds is not free: its cleanup would
+             delete a key stored here, and its success would be overridden by it. */
+          if (typeof mod.isSignInPending === 'function' && mod.isSignInPending(spot.dir)) { exclude.add(spot.dir); continue; }
           const claimFile = path.join(spot.dir, CLAIM_FILE);
           try {
             // lstat, not existsSync: a dangling symlink must read as a link, not as absent.
@@ -1835,9 +1838,15 @@ function handleApikeyAccountStore(req, res, { mod, runner, providerLabel }) {
           let isLink = false;
           try { isLink = fs.lstatSync(named.dir).isSymbolicLink(); } catch { /* absent: fine */ }
           if (isLink) { sendJson(res, 400, { error: 'that name is not available on this computer' }); return; }
-          // An existing account is refused before anything is written into its folder.
-          if (mod.identityOf(named.dir)) {
+          // An existing account is refused before anything is written into its folder. #3391: a
+          // module that can say "credentials of any shape are here" (grok) is asked that instead,
+          // so an auth.json identityOf cannot describe is not stacked on.
+          if (typeof mod.holdsCredentials === 'function' ? mod.holdsCredentials(named.dir) : mod.identityOf(named.dir)) {
             sendJson(res, 400, { error: `there is already a ${providerLabel} account by that name on this computer` });
+            return;
+          }
+          if (typeof mod.isSignInPending === 'function' && mod.isSignInPending(named.dir)) {
+            sendJson(res, 400, { error: `a sign-in for a ${providerLabel} account by that name is in progress; finish or cancel it first` });
             return;
           }
           const claimFile = path.join(named.dir, CLAIM_FILE);
@@ -1933,6 +1942,9 @@ function handleApikeyAccountDelete(req, res, { mod, runner }) {
         sendJson(res, 400, { error: 'we could not check which agents are on this account, so nothing was changed', usedBy: [] });
         return;
       }
+      /* #3391: a Grok subscription account holds a sign-in, not a key; say which. */
+      let what = 'key';
+      try { const who = mod.identityOf(dir); if (who && who.authMode === 'subscription') what = 'sign-in'; } catch { /* keep "key" */ }
       const result = remove ? mod.removeAccount(dir, usedBy) : mod.forgetAccount(dir, usedBy);
       if (!result.ok) {
         /* #3566: stopUnavailable -- this route has no disconnect-and-stop (see above), so
@@ -1945,9 +1957,9 @@ function handleApikeyAccountDelete(req, res, { mod, runner }) {
          without it a Disconnect here read "Removed." against a tooltip saying nothing is deleted. */
       sendJson(res, 200, remove
         ? { removed: !!result.removed, wasDefault: !!result.wasDefault,
-          because: result.removed ? 'That account is deleted. Its key is gone from this computer.' : (result.because || 'That account is already gone from this computer.') }
+          because: result.removed ? `That account is deleted. Its ${what} is gone from this computer.` : (result.because || 'That account is already gone from this computer.') }
         : { forgotten: !!result.forgotten, movedTo: result.movedTo || null, wasDefault: !!result.wasDefault,
-          because: result.forgotten ? 'That account is off the list. Its key is set aside on this computer, so nothing was deleted.' : (result.because || 'That account is already gone from this computer.') });
+          because: result.forgotten ? `That account is off the list. Its ${what} is set aside on this computer, so nothing was deleted.` : (result.because || 'That account is already gone from this computer.') });
     })
     .catch(() => sendJson(res, 400, { error: deleteDoor ? 'we could not delete that account' : 'we could not read that request' }));
 }
@@ -2091,6 +2103,13 @@ function withCreatorLock(creator, fn) {
  * headroom); operator override via AGENT_WORKFORCE_CREATOR_AGENT_CAP; hard ceiling
  * 100 that no override may exceed -- same "Kosmos owns the bound, not the prompt"
  * posture as the per-team cap. Reversible; Josh can override. */
+/* #3614: the agent page's Files list. 20 is a glance list under the four-pack ("Open in Finder"
+ * is the way to everything else, and the page says "And N more"); 500 bounds the ROWS one ?limit=
+ * read returns. It does not bound the scan: listFiles still stats every file to sort them, so a
+ * folder of thousands costs that on each 5-second poll. Reversible. */
+const AGENT_FILES_DEFAULT_CAP = 20;
+const AGENT_FILES_MAX_CAP = 500;
+
 const CREATOR_AGENT_CAP_DEFAULT = 25;
 const MAX_CREATOR_AGENT_CAP = 100;
 function creatorAgentCap(env) {
@@ -4581,6 +4600,90 @@ const server = http.createServer((req, res) => {
     sendJson(res, gone.ok ? 200 : 400, gone);
     return;
   }
+  /* #3614 items 1, 2, 4: the agent page's Files list, for files an agent makes for the person in a
+     Direct Message. The folder is dmfiles.filesDir(name) (Renet's module, item 3), read through
+     the same engine functions as a project's documents: listFiles (top level, no dotfiles, no
+     symlinks, newest first, a stamp), openFile (bare names only, the target must resolve inside
+     the folder), revealFolder (Finder, or File Explorer on Windows). A Files folder that does not
+     exist yet is the EMPTY state, not an error: nothing has been saved there. */
+  const agentFiles = pathname.match(/^\/api\/agent\/([^/]+)\/files(?:\/(open|reveal))?$/);
+  if (agentFiles) {
+    const name = decodeSegment(agentFiles[1]);
+    if (name === null) { sendJson(res, 400, { ok: false, because: 'that is not a name we can read' }); return; }
+    // The folder is dmfiles.filesDir (beside the agent's own instructions file), and the agent's
+    // folder is its PARENT, so the existence check and the folder can never name two places. The
+    // parent is FOLLOWED (statSync): an agent folder that is a link is where the instructions are
+    // written and where the agent is told to save, so refusing it here would disagree with them.
+    // Only Files itself being a link is refused, below.
+    const folder = dmfiles.filesDir(name);
+    let ownIsDir = false;
+    try { ownIsDir = Boolean(folder) && fs.statSync(path.dirname(folder)).isDirectory(); } catch { ownIsDir = false; }
+    if (!folder || !ownIsDir) { sendJson(res, 404, { ok: false, because: 'there is no agent by that name on this computer' }); return; }
+    const verb = agentFiles[2] || null;
+    // A Files that is a LINK would list and open whatever it points at (listFiles and openFile
+    // resolve through it), so a link seen here is refused for every verb. This lstat is separate
+    // from the engine's own reads, so a link swapped in between them is not caught; only the
+    // agent, which already writes this folder, could make that swap.
+    let isLink = false;
+    try { isLink = fs.lstatSync(folder).isSymbolicLink(); } catch { isLink = false; }
+    if (isLink) {
+      const because = 'this agent\u2019s Files is a link to somewhere else, so Kosmos will not list or open it';
+      if (!verb && (req.method === 'GET' || req.method === 'HEAD')) sendJson(res, 200, { ok: false, because, files: [], folder });
+      else sendJson(res, 409, { ok: false, because });
+      return;
+    }
+    if (!verb && (req.method === 'GET' || req.method === 'HEAD')) {
+      let cap = AGENT_FILES_DEFAULT_CAP;
+      try { const l = Number(new URL(req.url, ROUTING_BASE).searchParams.get('limit')); if (Number.isFinite(l) && l > 0) cap = Math.min(Math.floor(l), AGENT_FILES_MAX_CAP); } catch { cap = AGENT_FILES_DEFAULT_CAP; }
+      if (projects.folderState(folder).state === projects.FOLDER.MISSING) {
+        sendJson(res, 200, { ok: true, missing: true, total: 0, files: [], stamp: 'missing', folder });
+        return;
+      }
+      // listFiles also returns `names` (every name in the folder, uncapped); the page never reads
+      // it, so it is dropped here rather than sent on every poll.
+      const { names: _allNames, ...listed } = projects.listFiles(folder, cap);
+      sendJson(res, 200, { ...listed, folder });
+      return;
+    }
+    if (verb === 'open' && req.method === 'POST') {
+      readBody(req)
+        .then((buf) => {
+          let named;
+          try { named = JSON.parse(buf.toString('utf8') || '{}').name; }
+          catch { sendJson(res, 400, { ok: false, because: 'we could not read that' }); return; }
+          // Every gate lives in projects.openFile (as the project open-file route): no second copy.
+          const opened = projects.openFile(folder, named, 'this agent\u2019s Files folder');
+          if (opened.ok) { sendJson(res, 200, opened.revealedInstead ? { ok: true, revealedInstead: true, say: opened.say } : { ok: true }); return; }
+          sendJson(res, 409, { ok: false, because: opened.because });
+        })
+        .catch((err) => sendJson(res, 400, { ok: false, because: String((err && err.message) || 'we could not read that request') }));
+      return;
+    }
+    if (verb === 'reveal' && req.method === 'POST') {
+      // Created on first use (#3614 item 1): inside the agent's own existing folder, one level,
+      // never following a link. An existing non-folder by that name is refused, not replaced.
+      try {
+        let st = null;
+        try { st = fs.lstatSync(folder); } catch (e) { if (!e || e.code !== 'ENOENT') throw e; }
+        if (st && !st.isDirectory()) { sendJson(res, 409, { ok: false, because: 'there is a file called Files in this agent\u2019s folder, so we will not make a folder there' }); return; }
+        if (!st) {
+          try { fs.mkdirSync(folder); } catch (e) {
+            // The agent made it between the lstat and here: fine if it is now a real folder.
+            if (!e || e.code !== 'EEXIST' || !fs.lstatSync(folder).isDirectory()) throw e;
+          }
+        }
+      } catch {
+        sendJson(res, 409, { ok: false, because: 'we could not make this agent\u2019s Files folder' });
+        return;
+      }
+      const shown = projects.revealFolder(folder);
+      if (shown && shown.ok) { sendJson(res, 200, { ok: true }); return; }
+      sendJson(res, 409, { ok: false, because: (shown && shown.because) || 'the folder did not open' });
+      return;
+    }
+    sendJson(res, 405, { ok: false, because: verb ? 'use POST for that' : 'the Files list is read-only; use open or reveal' });
+    return;
+  }
   const agentSkills = pathname.match(/^\/api\/agent\/([^/]+)\/skills$/);
   if (agentSkills && (req.method === 'GET' || req.method === 'HEAD')) {
     const name = decodeSegment(agentSkills[1]);
@@ -7055,9 +7158,9 @@ const server = http.createServer((req, res) => {
         });
         /* #3391 observability follow-on: the XAI/Grok observed-overlay, the identical sibling
            of the GOOGLE overlay above (positive-only, per-provider filter, per-account join,
-           newest-wins, additive-only). Same documented default-account boundary as gemini:
-           grokAccounts.listLive() emits only NAMED accounts in this slice, so a default-account
-           grok agent's observation is harmlessly orphaned and forward-compatible. */
+           newest-wins, additive-only). grokAccounts.listLive() lists the default ~/.grok only
+           when it holds a key file or a subscription sign-in (#3391); without either there is no
+           default row, and a default-account grok agent's observation has nothing to land on. */
         const obsByGrokDir = new Map();
         for (const o of observed.all()) {
           if (o.provider !== observed.PROVIDER.XAI) continue;
@@ -7066,9 +7169,15 @@ const server = http.createServer((req, res) => {
           const prev = obsByGrokDir.get(acct.dir);
           if (!prev || o.at > prev.at) obsByGrokDir.set(acct.dir, { outcome: o.outcome, at: o.at });
         }
+        /* #3391: a subscription row is CONNECTED on its file alone (grokaccounts.subscriptionVerdict),
+           so without a fresh working observation it must say so: signed_in_unverified, the muted
+           "Signed in" the page draws for a credential that exists but is not confirmed. Without this
+           it had no badge and fell through to the page's green legacy pill. */
+        const unverifiedSub = (a) => (a.authMode === 'subscription' && a.connection && a.connection.state === 'connected'
+          ? { ...a, connection: { ...a.connection, badge: 'signed_in_unverified' } } : a);
         const grok = grokRows.map((a) => {
           const obs = a.dir ? obsByGrokDir.get(a.dir) : null;
-          if (!obs) return a;
+          if (!obs) return unverifiedSub(a);
           const v = observed.verdict({
             checkLiveState: a.connection && a.connection.state,
             observedOutcome: obs.outcome,
@@ -7076,7 +7185,7 @@ const server = http.createServer((req, res) => {
             now: nowMs,
             freshMs: freshWindow,
           });
-          if (v.badge !== 'working') return a;
+          if (v.badge !== 'working') return unverifiedSub(a);
           return { ...a, connection: { ...(a.connection || {}), badge: v.badge, observedAt: v.observedAt, observedAgeMs: v.ageMs } };
         });
         sendJson(res, 200, { accounts: [...claude, ...openai, ...gemini, ...grok] });
@@ -7260,6 +7369,52 @@ const server = http.createServer((req, res) => {
   }
   if (pathname === '/api/accounts/grok' && req.method === 'DELETE') {
     handleApikeyAccountDelete(req, res, { mod: grokAccounts, runner: 'grok' });
+    return;
+  }
+  /* #3391: connect a Grok account with a SUBSCRIPTION (device sign-in, no key). The
+     grok mirror of /api/accounts/openai/subscription/*: `start` spawns `grok login
+     --device-auth` into a fresh account dir and returns a session; the screen polls
+     `status` for the URL, the code and the outcome; `cancel` ends a pending one. */
+  if (pathname === '/api/accounts/grok/subscription/start' && req.method === 'POST') {
+    readBody(req)
+      .then((raw) => {
+        let body = null;
+        try { body = JSON.parse(raw || 'null'); } catch { body = null; }
+        if (body != null && typeof body !== 'object') { sendJson(res, 400, { error: 'we could not read that request' }); return; }
+        body = body || {};
+        const resolved = runners.resolveBin('grok');
+        if (!resolved.present) {
+          sendJson(res, 400, { error: grokAccounts.MISSING_RUNNER_SENTENCE, needsRunner: true, provider: 'grok' });
+          return;
+        }
+        if (body.label != null && typeof body.label !== 'string') { sendJson(res, 400, { error: 'we could not read that request' }); return; }
+        const out = grokAccounts.startGrokLogin({ label: body.label, grokBin: resolved.bin });
+        if (!out.ok) { sendJson(res, 400, { error: out.because }); return; }
+        // The URL and code are printed by grok AFTER this returns; read them from status.
+        sendJson(res, 200, { sessionId: out.sessionId });
+      })
+      .catch(() => sendJson(res, 400, { error: 'we could not read that request' }));
+    return;
+  }
+  if (pathname === '/api/accounts/grok/subscription/status' && req.method === 'GET') {
+    let sessionId = '';
+    try { sessionId = new URL(req.url, ROUTING_BASE).searchParams.get('sessionId') || ''; } catch { sessionId = ''; }
+    const out = grokAccounts.grokLoginStatus(sessionId);
+    if (!out.ok) { sendJson(res, 404, { error: out.because }); return; }
+    sendJson(res, 200, { state: out.state, authUrl: out.authUrl, userCode: out.userCode, account: out.account, error: out.error });
+    return;
+  }
+  if (pathname === '/api/accounts/grok/subscription/cancel' && req.method === 'POST') {
+    readBody(req)
+      .then((raw) => {
+        let body = null;
+        try { body = JSON.parse(raw || 'null'); } catch { body = null; }
+        const sessionId = body && typeof body === 'object' ? String(body.sessionId || '') : '';
+        const out = grokAccounts.cancelGrokLogin(sessionId);
+        if (!out.ok) { sendJson(res, 404, { error: out.because }); return; }
+        sendJson(res, 200, { cancelled: out.cancelled });
+      })
+      .catch(() => sendJson(res, 400, { error: 'we could not read that request' }));
     return;
   }
 
@@ -9161,7 +9316,7 @@ const server = http.createServer((req, res) => {
     /* timezone is null until the operator sets one; the UI then defaults its
        dropdown to the browser's own machine timezone (detected client-side,
        the authoritative source for the operator's machine). */
-    sendJson(res, 200, { timezone: (s && s.timezone) || null, autohandoff: autohandoff.settingFrom(s) });
+    sendJson(res, 200, { timezone: (s && s.timezone) || null, autohandoff: autohandoff.settingFrom(s), setupAssistant: setupAssistant.settingFrom(s) });
     return;
   }
   if (pathname === '/api/settings' && req.method === 'POST') {
@@ -9187,12 +9342,21 @@ const server = http.createServer((req, res) => {
           }
           patch.autohandoff = { enabled: body.autohandoff.enabled, threshold: body.autohandoff.threshold };
         }
+        /* #3034: the setup assistant bubble's switch (on) and whether its first-X
+           choice was offered (asked). A patch may set either key; the other is kept. */
+        if ('setupAssistant' in body) {
+          const problem = setupAssistant.settingPatchProblem(body.setupAssistant);
+          if (problem) { sendJson(res, 400, { ok: false, because: problem }); return; }
+          let had;
+          try { had = store.readSettings(); } catch { had = {}; }
+          patch.setupAssistant = setupAssistant.mergeSetting(had, body.setupAssistant);
+        }
         if (Object.keys(patch).length === 0) {
           sendJson(res, 400, { ok: false, because: 'no known setting to save' });
           return;
         }
         const saved = store.writeSettings(patch);
-        sendJson(res, 200, { ok: true, timezone: saved.timezone || null, autohandoff: autohandoff.settingFrom(saved) });
+        sendJson(res, 200, { ok: true, timezone: saved.timezone || null, autohandoff: autohandoff.settingFrom(saved), setupAssistant: setupAssistant.settingFrom(saved) });
       })
       .catch((err) => sendJson(res, 400, { ok: false, because: String((err && err.message) || 'we could not read that request') }));
     return;
@@ -9604,12 +9768,13 @@ const server = http.createServer((req, res) => {
       } catch { /* the welcome project is a nicety; onboarding still completed */ }
       /* #3034: GATED OFF pending Josh's direction -- the why (and the release
          timing) lives with FIRSTRUN_AUTOCREATE_ENABLED in engine/setup-assistant.js,
-         not repeated here. WHEN ENABLED, this seeds the one-time setup-assistant
-         agent (named after the user, on their own connected account), same posture
-         as the welcome seed above: once-ever, best-effort, and it MUST NOT throw or
-         block because onboarding has already succeeded. It skips silently with no
-         connected Claude account, no saved user name, or if already seeded, and the
-         flag file is written only on a real create, so a skip leaves nothing behind. */
+         not repeated here. WHEN ENABLED, this seeds the one-time setup guide (Josh's
+         AI: his name and picture, on the user's own connected account; see
+         engine/setup-assistant.js), same posture as the welcome seed above: once-ever,
+         best-effort, and it MUST NOT throw or block because onboarding has already
+         succeeded. It skips silently with no connected Claude account or if already
+         seeded, and the flag file is written only on a real create, so a skip leaves
+         nothing behind. */
       if (setupAssistant.FIRSTRUN_AUTOCREATE_ENABLED) {
         try {
           const seed = setupAssistant.seedSetupAssistant({ createAgent: create.createAgent });
@@ -13462,6 +13627,50 @@ const server = http.createServer((req, res) => {
   }
 
   /**
+   * #3034: tell the setup guide which screen the person is on (Josh, 2026-09-24
+   * 16:05: "if it was like context aware for what page you were on that would be
+   * dope"). The help bubble posts here when it opens and as the person moves;
+   * engine/pagecontext.js writes the report beside the guide's instructions, and
+   * the guide's role tells it to read that before answering.
+   *
+   * 🔑 A FILE, NOT A LINE ON THE MESSAGE: the chat route records exactly what the
+   * person typed, and a prefix would put words in the thread they never wrote.
+   * Only the seeded guide is ever written to: the name the seed recorded
+   * (setupAssistant.guideName()), and only while that agent's folder still carries
+   * the seed's marker (isGuideFolder), so it cannot drop a file into any other
+   * agent's folder whatever the body says, including a later agent that took the
+   * name of a deleted guide. A REMOVED guide keeps its folder and marker (removal deletes
+   * nothing), so the route also checks the removed list and answers 404 for it.
+   * Until the first-run seed is switched on no install has a guide, so 404 is the
+   * normal answer and the bubble treats it as "no guide", not as an error.
+   */
+  if (pathname === '/api/setup-guide/page' && req.method === 'POST') {
+    readBody(req)
+      .then((buf) => {
+        let body;
+        try { body = JSON.parse(buf.toString('utf8') || '{}'); } catch { body = null; }
+        if (!body || typeof body !== 'object' || Array.isArray(body)) { sendJson(res, 400, { error: 'we could not read that request' }); return; }
+        const guide = setupAssistant.guideName();
+        if (!guide) { sendJson(res, 404, { error: 'there is no setup guide on this computer' }); return; }
+        /* The recorded name is not enough: a guide deleted and a new agent given the same
+           name would otherwise receive the reports. Only the folder the seed marked. */
+        if (!setupAssistant.isGuideFolder(guide)) { sendJson(res, 409, { error: 'the setup guide is not on this computer any more' }); return; }
+        /* Removing an agent deletes nothing on disk (engine/remove.js), so the marker
+           survives a removal: a REMOVED guide is "no guide" until it is restored. An
+           unreadable removed list refuses rather than write to an agent that may be gone. */
+        const removed = removal.removedNames();
+        if (!removed.ok) { sendJson(res, 409, { error: 'we could not check whether the setup guide was removed' }); return; }
+        if (removed.names.includes(create.cleanName(guide))) { sendJson(res, 404, { error: 'there is no setup guide on this computer' }); return; }
+        const pageContext = require('./engine/pagecontext');
+        const out = pageContext.write(guide, body);
+        if (out.ok) { sendJson(res, 200, { ok: true }); return; }
+        sendJson(res, out.bad ? 400 : 409, { error: out.because });
+      })
+      .catch((err) => sendJson(res, err && err.status ? err.status : 400, { error: (err && err.message) || 'we could not read that request' }));
+    return;
+  }
+
+  /**
    * Show a person where their stored dialogue lives (kosmos#969).
    *
    * Josh, 2026-08-26: Project Settings already has "Show me where the work
@@ -14825,6 +15034,26 @@ function start(port = PORT) {
         } catch { /* best-effort, like the sweeps above */ }
       }, Number(process.env.AGENT_WORKFORCE_CLASS1_AUTOHANDLE_MS) > 0 ? Number(process.env.AGENT_WORKFORCE_CLASS1_AUTOHANDLE_MS) : 60 * 1000); // the env is the test seam only
       if (class1Sweep && typeof class1Sweep.unref === 'function') class1Sweep.unref();
+      /* #3410 PR 2b: recover a network-wedged agent by itself. When an agent's pane has read
+         connection_lost with the same error line on consecutive ticks and the API host is
+         reachable again, type one retry message into it (engine/connlost-heal.js: a nudge keeps the
+         agent's context, where a restart would lose it). At most 3 nudges per outage (an outage
+         ends only after a sustained recovery, see connlost-heal.js), then it stops and the card
+         stays red for a person. Same gating as the class-1 sweep: inert under
+         `node --test` and before the live-execution opt-in, operator brake
+         AGENT_WORKFORCE_CONNLOST_HEAL_OFF=1, own ~1-min timer, unref'd, best-effort. */
+      const connlostBook = new Map(); // in memory: a board restart (or the outage ending) clears an escalation
+      const connlostTick = connlostHeal.makeTick({
+        allowed: () => liveExecution.liveExecutionAllowed(),
+        roster: () => safeRoster(),
+        book: connlostBook,
+        probe: () => connlostHeal.probeApi(),
+        deliver: (session, text, r) => chat.deliver(session, text, r, undefined, undefined),
+        DELIVERY: chat.DELIVERY,
+        log: (r) => process.stdout.write(`connlost-heal: ${r.name} (${r.session}) ${r.act}${r.act === 'nudge' ? ' delivery=' + (r.delivery || '?') : ''} - ${r.because}\n`),
+      });
+      const connlostSweep = setInterval(connlostTick, Number(process.env.AGENT_WORKFORCE_CONNLOST_HEAL_MS) > 0 ? Number(process.env.AGENT_WORKFORCE_CONNLOST_HEAL_MS) : 60 * 1000); // the env is the test seam only
+      if (connlostSweep && typeof connlostSweep.unref === 'function') connlostSweep.unref();
       /* #3595 phase 1: the Recommender runner. Reads recommender-setting every tick (default OFF
          until tool-level guards land; Splinter 2026-09-24), and for an agent that REPORTED itself
          stuck on a project past the grace period it convenes help ONCE: a room note, an ask
@@ -15091,6 +15320,13 @@ if (require.main === module) {
        an agent launched before it lands simply starts without a browser. */
     try { require('./engine/agentbrowser').kickInstall(); } catch { /* agents start without a browser */ }
   } else {
+    /* #3633: the Mac half of the agents' own browser. On a Mac the install also
+       fetches the pinned browser (about 100 MB, once), so a failure is logged and
+       retried with backoff rather than left until the next board start; when it
+       stops is listed on installWithRetry. Never fatal and never awaited. */
+    if (process.platform === 'darwin') {
+      try { require('./engine/agentbrowser').installWithRetry(); } catch { /* agents start without a browser */ }
+    }
     /* #1078: on the non-win32 (Mac, and any other launchd-shaped) path, wire the
        created-never-run roster source. An agent Kosmos created but has never run
        has a launchd job + worker dir but no tmux pane and no live beat, so the

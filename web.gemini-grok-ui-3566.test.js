@@ -117,14 +117,14 @@ test('#3566: the provider an agent is ON stays selectable so the menu can show i
   assert.equal(opt(sel, 'google').disabled, true);
 });
 
-test('#3566: the first-run model step does not call Gemini or Grok coming soon, and says where they connect', () => {
-  for (const name of ['Gemini', 'Grok']) {
-    const m = PAGE.match(new RegExp('<b>' + name + '</b><small>[^<]*</small></div><span class="soon"[^>]*>([^<]*)</span>'));
-    assert.ok(m, 'the first-run ' + name + ' row moved; re-anchor this test');
-    assert.equal(m[1], 'After setup', 'the first-run ' + name + ' pill says ' + JSON.stringify(m[1]));
+test('#3566/#3658: the first-run model step lets Gemini and Grok connect right there, with no "after setup" detour', () => {
+  /* #3658 superseded #3566's "After setup" pill and the pointer to Settings: each row now
+     ends in a gold Connect wired to the shared first-run key box. */
+  for (const [name, id, keyed] of [['Gemini', 'fr-gemini-connect', 'google'], ['Grok', 'fr-grok-connect', 'xai']]) {
+    const m = PAGE.match(new RegExp('<b>' + name + '</b><small>[^<]*</small></div><button class="connect-b" type="button" id="' + id + '" data-keyed="' + keyed + '"'));
+    assert.ok(m, 'the first-run ' + name + ' row has no Connect wired to the key box; re-anchor this test');
   }
-  assert.match(PAGE, /id="fr-later-models"[^>]*>Gemini and Grok connect with an API key in Settings, AI Models/,
-    'the first-run step no longer says where Gemini and Grok connect');
+  assert.doesNotMatch(PAGE, /id="fr-later-models"/, 'the "connect later in Settings" line came back');
   const llama = PAGE.match(/<b>Llama<\/b><small>[^<]*<\/small><\/div><span class="soon"[^>]*>([^<]*)<\/span>/);
   assert.ok(llama && llama[1] === 'Coming soon', 'CONTROL: a genuinely unavailable provider must still say Coming soon');
 });

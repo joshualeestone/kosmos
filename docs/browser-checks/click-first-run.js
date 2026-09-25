@@ -270,11 +270,11 @@ async function waitAnchorLeft(page, anchorSel, timeout = 5000) {
     // Continue SAVES before it advances (a real PUT), so wait for the About-you
     // pane to LEAVE rather than reading the head mid-flight.
     await waitAnchorLeft(page, '#fr-you');
-    // The Your-agents fork (step 9). #2497 (Josh, 2026-09-08): onboarding no longer
+    // The SETUP COMPLETE ending (step 9). #2497 (Josh, 2026-09-08): onboarding no longer
     // auto-scans/auto-imports, so this step ALWAYS lands on the no-agent Giddy Up screen,
     // even on a fleet-present (rich) board. What must be true is it rendered a real
     // heading and a single onward action (Giddy Up).
-    ok((await activeHead(page)).length > 0, 'the Your-agents fork rendered a heading');
+    ok((await activeHead(page)).length > 0, 'the SETUP COMPLETE ending rendered a heading');
     ok((await page.locator('#fr-next').textContent()).trim().length > 0, 'and a single onward action');
     console.log('   ...and out the front door, through the Giddy Up ending');
     await page.click('#fr-next');
@@ -284,11 +284,11 @@ async function waitAnchorLeft(page, anchorSel, timeout = 5000) {
     ok(await page.isHidden('#firstrun'), 'the overlay closed');
     ok(await page.isVisible('.tab[data-tab="agents"].on'), 'Giddy Up landed on the Agents dashboard (#3575)');
     ok(await page.isHidden('#panel-create'), 'and did NOT open Create Agent (#3575)');
-    // The ending's import pointer says "choose New agent". This is the fleet-present (rich)
-    // board, where the empty state's "Create your first agent" button does not exist, so this
-    // is the case that proves the pointer names a control that is really there.
+    // The ending says "Head to your dashboard to create or import agents" (#3659). This is the
+    // fleet-present (rich) board, where the empty state's "Create your first agent" button does
+    // not exist, so this is the case that proves the dashboard it sends them to has a way to do it.
     ok(await page.isVisible('#new-agent') || await page.isVisible('#rail-agents-new'),
-      'a New agent control is on the populated dashboard, as the ending\'s pointer says');
+      'a New agent control is on the populated dashboard, as the ending promises');
     ok(await page.evaluate(() => document.querySelector('.apphead').inert === false),
       'the app behind is interactive again');
     // #3030: poll for the flag (its write can lag this read under cut load).
@@ -380,8 +380,8 @@ async function waitAnchorLeft(page, anchorSel, timeout = 5000) {
     ok(await page.isHidden('#firstrun'), 'the overlay got out of the way');
     ok(await page.isVisible('.tab[data-tab="agents"].on'), 'on the Agents dashboard (#3575)');
     ok(await page.isHidden('#panel-create'), 'not dropped into Create Agent (#3575)');
-    // The ending's pointer tells the person "choose New agent" on the dashboard; prove that
-    // control is there on the empty board too and leads into a usable create flow.
+    // The ending sends the person to the dashboard to create or import agents (#3659); prove
+    // New agent is there on the empty board too and leads into a usable create flow.
     const newAgent = (await page.isVisible('#new-agent')) ? page.locator('#new-agent') : page.locator('#rail-agents-new');
     ok(await newAgent.isVisible(), 'the empty dashboard offers New agent, as the ending says');
     await newAgent.click();

@@ -308,3 +308,51 @@ test('#3566 store: an explicitly-labelled add cannot take a slot an unnamed add 
   assert.equal(b1.account.dir, spot.dir);
   assert.equal(fs.readFileSync(grokAccounts.keyFile(spot.dir), 'utf8'), 'xai-unnamed-inflight-key-1111', 'the unnamed add\'s key was overwritten');
 });
+
+/* #3391: a NAMED grok key add refuses a folder that already holds an auth.json of ANY shape,
+   even one identityOf cannot describe (two entries), so a key is never stacked on someone's
+   unrecognised sign-in. The same file-presence rule the named sign-in uses. */
+test('grok store: a named key add refuses a folder holding an undescribable auth.json', async () => {
+  const dir = nodePath.join(SANDBOX, '.grok-hassignin');
+  fs.mkdirSync(dir, { recursive: true });
+  fs.writeFileSync(nodePath.join(dir, 'auth.json'), JSON.stringify({ 'https://auth.x.ai::a': { email: 'a@x' }, 'https://auth.x.ai::b': { email: 'b@x' } }), { mode: 0o600 });
+  assert.equal(grokAccounts.identityOf(dir), null, 'CONTROL: identityOf cannot describe it');
+  grokAccounts.setFetcher(async () => ({ status: 200, body: {} }));
+  const r = await post('/api/accounts/grok/apikey', { label: 'hassignin', key: 'xai-stack-attempt-1234567890' });
+  assert.equal(r.status, 400, 'refused');
+  assert.match((await r.json()).error, /already a Grok account by that name/);
+  assert.equal(fs.existsSync(grokAccounts.keyFile(dir)), false, 'no key was written beside the sign-in');
+  fs.rmSync(dir, { recursive: true, force: true });
+});
+
+/* #3658: first run's Connect PROBES this route with an empty body before it opens the key
+   box, and relies on the probe changing nothing. Runner present: the empty key is refused
+   by keyProblem before any slot is claimed or any file written. Runner missing: needsRunner,
+   also before anything is written. Pinned here so a refactor that claims a slot earlier
+   cannot turn every Connect click into a new account directory. */
+test('#3658: an empty-body probe of the gemini/grok key routes writes nothing, runner present or not', async () => {
+  const snapshot = () => fs.readdirSync(SANDBOX).sort().join('|');
+  for (const route of ['gemini', 'grok']) {
+    const before = snapshot();
+    const present = await post('/api/accounts/' + route + '/apikey', {});
+    assert.equal(present.status, 400, route + ': an empty key must be refused');
+    const pb = await present.json();
+    assert.notEqual(pb.needsRunner, true, route + ': the runner is present in this test');
+    assert.equal(snapshot(), before, route + ': the probe (runner present) created something');
+    runners.resolveBin = () => ({ present: false, bin: null });
+    try {
+      const missing = await post('/api/accounts/' + route + '/apikey', {});
+      assert.equal(missing.status, 400);
+      assert.equal((await missing.json()).needsRunner, true, route + ': a missing runner must answer needsRunner to an empty probe');
+      assert.equal(snapshot(), before, route + ': the probe (runner missing) created something');
+    } finally {
+      runners.resolveBin = (p) => ({ present: true, bin: `/mock/${p}` });
+    }
+  }
+  // CONTROL: the snapshot can see a write. A real add changes it, so the equalities above mean something.
+  const before = snapshot();
+  geminiAccounts.setFetcher(async () => ({ status: 200, body: {} }));
+  const real = await post('/api/accounts/gemini/apikey', { key: 'AIzaSy-probe-control-12345678' });
+  assert.equal(real.status, 200, 'the control add failed, so it proves nothing');
+  assert.notEqual(snapshot(), before, 'a real add did not change the snapshot, so the probe equalities prove nothing');
+});

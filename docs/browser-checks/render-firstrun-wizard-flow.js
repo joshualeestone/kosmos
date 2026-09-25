@@ -129,7 +129,7 @@ const readStep = (page) => page.evaluate(() => (typeof FR_STEP !== 'undefined') 
         const box = document.getElementById('fr-fleet');
         return {
           title: title ? title.textContent.trim() : '',
-          giddy: box ? /let’s get started/i.test(box.innerHTML) : false,
+          giddy: box ? /create or import agents/i.test(box.innerHTML) : false,
           rows: box ? box.querySelectorAll('.fr-scanrow, .fr-foundrow, .fr-adoptrow').length : 0,
         };
       });

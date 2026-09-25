@@ -11,7 +11,7 @@
  *
  * The fix this file exists for: key on IDENTITY, not index. Every pane is in the
  * DOM from first paint (hidden until its step is shown), so a check can DISCOVER
- * the step that holds a given content anchor -- #fr-fleet for "Your agents",
+ * the step that holds a given content anchor -- #fr-fleet for the SETUP COMPLETE ending,
  * #fr-you for "About you" -- instead of hard-coding its position. When the next
  * step is inserted, discovery follows the pane; a hard-coded number does not.
  */
@@ -19,7 +19,7 @@
 /**
  * The step number of the pane that contains `anchorSel`.
  *
- *   stepForAnchor(page, '#fr-fleet')  ->  9   (the "Your agents" ending)
+ *   stepForAnchor(page, '#fr-fleet')  ->  9   (the SETUP COMPLETE ending)
  *   stepForAnchor(page, '#fr-you')    ->  8   (the "About you" step)
  *
  * Reads the DOM as loaded -- every pane is present (hidden) from first paint, so

@@ -18,9 +18,10 @@
  * follows a recorded folder for an agent brought in from elsewhere), plus `Files`.
  * `filesDir(name)` is the one derivation; nothing else should rebuild it.
  *
- * The folder itself (creating it, listing it on the agent page) is April's half
- * of #3614. This block only tells the agent where it is and to create it if it is
- * missing, so the instruction works before and after that half lands.
+ * The folder itself (creating it, listing it on the agent page) is the agent page's
+ * Files list (server.js /api/agent/:name/files and web/index.html paintAgentFiles).
+ * This block tells the agent where the folder is, to create it if it is missing,
+ * and that the person sees its files on its page.
  *
  * Same guards as reports.js / connections.js, deliberately: an ambiguous file is
  * refused rather than spliced into, an unreadable one is reported, nothing is ever
@@ -49,8 +50,8 @@ const WROTE_WHY = 'Kosmos told it where to save the files it makes for you';
  * named a different folder for any name safeKey changes (`orch.main`, `has space`,
  * `Writer` on a case-sensitive disk), so the agent was told a folder next to its own.
  *
- * April's agent-page list (#3614 items 1, 2, 4, not shipped yet) will read this function and
- * FOLDER, so both keep their names and signatures: tell her before changing either.
+ * The agent page's Files routes (server.js) read this function, so it is the one place the
+ * folder is derived: change it here, never rebuild it elsewhere.
  */
 function filesDir(sessionName) {
   let file = null;
@@ -78,11 +79,13 @@ function blockBody(dir) {
     '',
     '`' + where + '`',
     '',
-    /* Only what is true today. The Files list on the agent page is April's half of
-       #3614 and ships separately; this block must not promise it before it exists. */
+    /* The Files list on the agent page (April's half of #3614) ships in the same change as
+       this sentence, so the promise and the page land together. */
     'Create the folder if it is not there yet. Keeping everything you make for the',
-    'person in one place means they always know where to find it. Inside a project,',
-    'keep using the project\'s own folder.',
+    'person in one place means they always know where to find it: Kosmos lists what',
+    'is in it on your page, where they can open it. Save files directly in it, not in',
+    'subfolders: the page lists only what sits at the top of the folder. Inside a',
+    'project, keep using the project\'s own folder.',
   ].join('\n');
 }
 
