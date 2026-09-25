@@ -556,8 +556,8 @@ h1 { font: 600 var(--text-title-1) var(--font-ui); letter-spacing: -0.012em; }
    rule down the left, the terminal's own face, and no italics (this is copied
    text, not emphasis). */
 .detail-saidlab { margin: 10px 0 0; font-size: .75rem; color: var(--k-ink-2); }
-.detail-said { margin: 2px 0 0; padding: 6px 0 6px 12px;
-               border-left: 2px solid var(--k-rule); color: var(--k-ink-2);
+.detail-said { margin: 2px 0 0; padding: 6px 10px;
+               border: 0.5px solid var(--separator); border-radius: var(--radius-control); color: var(--k-ink-2);
                font: .8125rem/1.5 ui-monospace, SFMono-Regular, Menlo, monospace;
                white-space: pre-wrap; overflow-wrap: anywhere; }
 /* What the agent is doing, its own element rather than merged into the badge.
@@ -3069,7 +3069,7 @@ body.filter-noproj #orgview .onode:not([data-noproj]) { opacity: .26; }
 button.boardname { font: inherit; font-size: .875rem; cursor: pointer; text-align: left; }
 button.boardname:focus-visible { outline: 2px solid var(--k-ink); outline-offset: 2px; opacity: 1; }
 button.boardname[aria-expanded="true"] { opacity: 1; color: var(--k-ink); border-color: var(--k-ink-2); }
-.svc-door { margin: 10px 2px 2px; padding: 10px 12px; border-left: 2px solid var(--k-rule);
+.svc-door { margin: 10px 2px 2px; padding: 10px 12px; border: 0.5px solid var(--separator); border-radius: var(--radius-control);
             font-size: .875rem; color: var(--k-ink-2); }
 .svc-door b { color: var(--k-ink); }
 .dremove {
@@ -3703,9 +3703,10 @@ body:not(.consolidated).pj-roadmap #pj-list:not(.asgrid) .pj-row {
   margin: 0; }
 body:not(.consolidated).pj-roadmap #pj-list:not(.asgrid) .pj-row:hover {
   background: var(--k-surface); box-shadow: none; border: 0; }
-/* Needs-you: the card border is gone, so mark attn with a left accent bar instead. */
+/* Needs-you: the card border is gone, so attn gets the attn border colour as a full inset
+   ring (#3692: no left bars). A ring, not a border, so the row does not change size. */
 body:not(.consolidated).pj-roadmap #pj-list:not(.asgrid) .pj-row.attn {
-  box-shadow: inset 3px 0 0 rgba(179, 38, 30, .55); }
+  box-shadow: inset 0 0 0 1px rgba(179,38,30,.42); }
 
 /* Density (spec): drop the per-row description and the avatar faces -- both live one
    click away in the Grid card and the single-project view. Keep the agent COUNT, moved
@@ -6257,7 +6258,7 @@ body:not(.consolidated) .pjmidhead:has(.pjhead) .tsearch:focus-within { flex-bas
 .dmbusy-room { display: flex; align-items: center; gap: 8px;
                font-size: .875rem; color: var(--k-ink-2); margin: 10px 0 0; }
 .dmoff { margin-top: 12px; font-size: .8125rem; line-height: 1.45; color: var(--k-ink-2);
-  border-left: 3px solid var(--k-rule); padding-left: 12px; }
+  border: 0.5px solid var(--separator); border-radius: var(--radius-control); padding: 8px 12px; }
 /* ⚠️ The question box is NOT red. It is a thing to answer, not a thing that has
    gone wrong, and the product already spends red on genuine attention. Making
    an ordinary question look like a fault is how people start ignoring red.
@@ -6340,8 +6341,8 @@ body:not(.consolidated) .pjmidhead:has(.pjhead) .tsearch:focus-within { flex-bas
 .dmbar .btn[disabled], .dmbar input[disabled], .dmbar textarea[disabled] { opacity: .5; cursor: not-allowed; }
 .dmbar .emojibtn[disabled] { opacity: .5; cursor: not-allowed; }   /* #3744: greys with the box it types into */
 /* The room valve's row: reassurance, not an error. */
-.msg-valve { font-size: .8125rem; color: var(--k-ink-2); border-left: 2px solid var(--k-rule);
-             padding-left: 10px; }
+.msg-valve { font-size: .8125rem; color: var(--k-ink-2); border: 0.5px solid var(--separator);
+             border-radius: var(--radius-control); padding: 6px 10px; }
 /* In a .msg row the flex header supplies the gap before the timestamp; the
    band is a plain block, so nothing does and the sentence ran straight into
    it ("…bring you in.2 minutes ago"). Pack value, measured (FROZEN-2026-08-18c). */
@@ -6545,10 +6546,10 @@ body:not(.consolidated) .pjmidhead:has(.pjhead) .tsearch:focus-within { flex-bas
 /* ⚠️ A state, not a decoration. A folder we cannot read has to look different
    from one we can, or the row quietly reports a project that is fine. */
 .pj-warn { display: block; font: var(--text-callout) var(--font-ui); color: var(--k-ink);
-  margin-top: var(--space-3); padding-left: var(--space-4);
-  /* back on the theme token: the card surface flips with the pack's dark
-     set now, so the warn ink flips with it (#7a5200 light, #ffca55 dark) */
-  border-left: 2px solid var(--warn-ink); }
+  margin-top: var(--space-3); padding: var(--space-3) var(--space-4);
+  /* #3692: a warning is a tinted box with a full hairline, not a left bar. Both
+     tokens have a light and a dark value, so the box flips with the theme. */
+  background: var(--warn-bg); border: 0.5px solid var(--warn-border); border-radius: var(--radius-control); }
 .pj-empty { border: 0.5px dashed var(--separator); border-radius: var(--radius-card);
   padding: var(--space-7); text-align: center; }
 .pj-empty p { font: var(--text-body) var(--font-ui); color: var(--label-2); margin-bottom: var(--space-5); }
@@ -6591,7 +6592,7 @@ body:not(.consolidated) .pjmidhead:has(.pjhead) .tsearch:focus-within { flex-bas
    an agent wrote about its own work, and bullets make them read as options. */
 .rst-list { list-style: none; margin: 10px 0 0; padding: 0; }
 .rst-list li { font-size: .9375rem; line-height: 1.5; color: var(--k-ink);
-  padding: 8px 0 8px 12px; border-left: 2px solid var(--k-rule); }
+  padding: 8px 12px; border: 0.5px solid var(--separator); border-radius: var(--radius-control); }
 .rst-list li + li { margin-top: 6px; }
 .rst-list:empty { display: none; }
 .rm-cols { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin: 12px 0 8px; text-align: left; }
@@ -6600,7 +6601,8 @@ body:not(.consolidated) .pjmidhead:has(.pjhead) .tsearch:focus-within { flex-bas
 .rm-colhead { font: var(--text-caption) var(--font-ui); letter-spacing: .08em; text-transform: uppercase; color: var(--label-2); margin: 0; }
 @media (max-width: 480px) { .rm-cols { grid-template-columns: 1fr; } }
 .pj-folder-state { font: var(--text-callout) var(--font-ui); color: var(--label-2); margin-top: 2px; }
-.pj-folder-state.bad { color: var(--label); padding-left: var(--space-4); border-left: 2px solid var(--warn-ink); }
+.pj-folder-state.bad { color: var(--label); padding: var(--space-2) var(--space-4); background: var(--warn-bg);
+  border: 0.5px solid var(--warn-border); border-radius: var(--radius-control); }
 .pj-members { display: flex; flex-direction: column; gap: var(--space-3); }
 /* The documents list: rows that read as one tappable thing, in the members
    column's own rhythm. A row is a BUTTON because it acts — `open` launches a
@@ -6803,8 +6805,8 @@ body:not(.consolidated) .pjmidhead:has(.pjhead) .tsearch:focus-within { flex-bas
   max-height: 320px; overflow: auto; white-space: pre; }
 /* The question is the reason the person came, so it is not the same weight as
    the ambient screen below it. */
-.pj-question { margin: var(--space-5) 0; padding-left: var(--space-4);
-  border-left: 2px solid var(--warn-ink); }
+.pj-question { margin: var(--space-5) 0; padding: var(--space-4); background: var(--warn-bg);
+  border: 0.5px solid var(--warn-border); border-radius: var(--radius-control); }
 .pj-question .pj-screen { max-height: 240px; }
 .pj-thread-head { display: flex; align-items: baseline; }
 /* #2575: the state-clear control inside the question block. A quiet underlined
@@ -6869,11 +6871,8 @@ body:not(.consolidated) .pjmidhead:has(.pjhead) .tsearch:focus-within { flex-bas
    dropped. Two
    state cues survive that removal, but NOT the same way: `.pj-msg.failed`
    re-declares a full 0.5px dashed border below (its "did not go through" box),
-   while `.pj-msg.unsure` keeps only its own pre-existing warn-ink LEFT rule --
-   which was always its real cue -- and, like the normal box, no longer carries
-   the surrounding hairline it used to inherit. Dropping unsure's incidental
-   frame is consistent with the no-stroke intent; its left rule still marks it
-   as needing a look. */
+   while `.pj-msg.unsure` swaps the wash for the warn tint (#3692: no left bars),
+   so it is marked by colour alone, with no stroke, as the rule above asks. */
 .pj-msg { padding: var(--space-4) var(--space-5);
   border-radius: var(--radius-control); background: var(--usermsg-tint); }
 /* ⚠️ `overflow-wrap: anywhere` on BOTH message spans (round 21, measured): a
@@ -6923,7 +6922,7 @@ body:not(.consolidated) .pjmidhead:has(.pjhead) .tsearch:focus-within { flex-bas
    makes somebody send it again. A left rule marks it as needing a look, the
    same vocabulary `.pj-question` uses for the other thing on this screen that
    wants the person's eyes. */
-.pj-msg.unsure { border-left: 2px solid var(--warn-ink); }
+.pj-msg.unsure { background: var(--warn-bg); }
 .pj-msg.unsure .pj-msg-said { color: var(--label); }
 /* Josh, 2026-09-21: more breathing room between the room input box and the
    "Talk to one of them" agent-picker section below it (engineering mode). */
@@ -7397,8 +7396,8 @@ body:not(.consolidated) .pjmidhead:has(.pjhead) .tsearch:focus-within { flex-bas
 .rolelimit {
   /* The pack's values (#179): quieter ink, 14px lead; neither 14 nor the
      18 below is a scale step, said plainly rather than rounded to one. */
-  display: block; margin-top: var(--space-3); padding-left: 14px;
-  border-left: 2px solid var(--border-strong); color: var(--label-2);
+  display: block; margin-top: var(--space-3); padding: 8px 14px;
+  border: 0.5px solid var(--separator); border-radius: var(--radius-control); color: var(--label-2);
   font: var(--text-callout) var(--font-ui); }
 /* On the last step it is a block in its own right rather than a tail on a
    paragraph, so it gets the room a standalone sentence needs above the button. */
@@ -7449,7 +7448,7 @@ svg { display: block; }
 .note  { margin-top: var(--space-4); padding: var(--space-4) var(--space-5);
          font: var(--text-callout) var(--font-ui); color: var(--label);
          background: var(--bg-sunken); border-radius: var(--radius-control);
-         border-left: 2px solid var(--border-strong); }
+         border: 0.5px solid var(--separator); }
 .err   { background: var(--bg-elevated); border: 0.5px solid var(--border-strong);
          border-radius: var(--radius-card); padding: var(--space-6); font: var(--text-body) var(--font-ui); }
 
@@ -7468,8 +7467,8 @@ svg { display: block; }
      check (which exempts anything with a fallback, correctly) could not see it.
      A hard-coded dark goldenrod stays dark goldenrod in dark mode, where the
      rest of this note switches. `--warn-border` is the theme-aware one. */
-  border-left: 3px solid var(--warn-border);
-  background: var(--bg-sunken);
+  border: 0.5px solid var(--warn-border); border-radius: var(--radius-control);
+  background: var(--warn-bg);
   color: var(--label);
   /* ⚠️ `--text-small` has never existed. This line was invalid on `main` too,
      so the one sentence explaining why every write vanished has been rendering
@@ -7963,6 +7962,7 @@ body.consolidated .tkcard:hover { border-color: transparent; }
      token, which would shift every tertiary label in the UI. */
   :root:not([data-theme="light"]) .pj-msg .pj-msg-when { color: var(--label-2); }
   :root:not([data-theme="light"]) .pj-row.attn { border-color: rgba(255,140,130,.55); }
+  :root:not([data-theme="light"]) body:not(.consolidated).pj-roadmap #pj-list:not(.asgrid) .pj-row.attn { box-shadow: inset 0 0 0 1px rgba(255,140,130,.55); }
   :root:not([data-theme="light"]) .acard.attn { border-color: rgba(255,140,130,.55); box-shadow: 0 1px 3px rgba(255,140,130,.14); }
   :root:not([data-theme="light"]) .lrow.attn { border-color: rgba(255,140,130,.55); }
   :root:not([data-theme="light"]) .astate.st-attn { border-color: rgba(255,140,130,.62); }
@@ -8953,6 +8953,7 @@ html:not([data-fed-ui="show"]) #pj-add-ext-person,html:not([data-fed-ui="show"])
      token, which would shift every tertiary label in the UI. */
 :root[data-theme="dark"] .pj-msg .pj-msg-when { color: var(--label-2); }
 :root[data-theme="dark"] .pj-row.attn { border-color: rgba(255,140,130,.55); }
+:root[data-theme="dark"] body:not(.consolidated).pj-roadmap #pj-list:not(.asgrid) .pj-row.attn { box-shadow: inset 0 0 0 1px rgba(255,140,130,.55); }
 :root[data-theme="dark"] .acard.attn { border-color: rgba(255,140,130,.55); box-shadow: 0 1px 3px rgba(255,140,130,.14); }
 :root[data-theme="dark"] .lrow.attn { border-color: rgba(255,140,130,.55); }
 :root[data-theme="dark"] .astate.st-attn { border-color: rgba(255,140,130,.62); }
