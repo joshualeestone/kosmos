@@ -6,7 +6,7 @@
  * `boardUrlFor` is the arbitrary-navigation boundary -- its output is handed
  * straight to clients.openWindow()/navigate() in notificationclick -- and
  * `notificationFor` maps the coordinator's real EventSummary payload
- * {kind, agent, project, id, address} into the shown notification. Both were
+ * {kind, agent, project, id, address, session} into the shown notification. Both were
  * previously exercised only by docs/browser-checks/render-push-718.js, which
  * does not run in `yarn test` and only delivers one happy-path payload; it never
  * proves the allowlist REJECTS a hostile address. These are pure functions, so a
@@ -111,6 +111,8 @@ test('notificationFor honors an explicit title/body and survives a payload-less 
 test('#718: a tap opens the agent the push names, as the board\'s own link', () => {
   assert.equal(boardUrlFor({ address: 'study.kosmos.io', session: 'april' }), 'https://study.kosmos.io/?tab=detail&agent=april');
   assert.equal(boardUrlFor({ address: 'study.kosmos.io', session: 'leo-2_x' }), 'https://study.kosmos.io/?tab=detail&agent=leo-2_x');
+  // The longest accepted id is 64, the same bound as the coordinator's.
+  assert.equal(boardUrlFor({ session: 'a'.repeat(64) }), '/?tab=detail&agent=' + 'a'.repeat(64));
   // No address: the agent on this origin.
   assert.equal(boardUrlFor({ session: 'april' }), '/?tab=detail&agent=april');
   // The shown notification carries it.

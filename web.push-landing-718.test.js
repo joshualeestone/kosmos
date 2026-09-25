@@ -13,8 +13,16 @@ const path = require('node:path');
 
 const html = fs.readFileSync(path.join(__dirname, 'web', 'index.html'), 'utf8');
 
-test('a push link arrival (WANT_AGENT at boot) reveals the conversation', () => {
-  assert.match(html, /if \(WANT_AGENT && !CURRENT\) \{ openDetail\(WANT_AGENT\); detailRevealTalkOnPhone\(\); \}/);
+test('a push link arrival settles ONCE: reveal if the agent opened, else the board home and stop', () => {
+  const i = html.indexOf('if (WANT_AGENT && !CURRENT && !WANT_AGENT_GONE) {');
+  assert.ok(i > 0, 'the boot open is gated on WANT_AGENT_GONE');
+  const block = html.slice(i, i + 900);
+  // The poll runs every few seconds: the reveal must not (it pulled the page back each time).
+  assert.match(block, /if \(!WANT_AGENT_SETTLED\) \{\n\s*WANT_AGENT_SETTLED = true;/);
+  assert.match(block, /if \(CURRENT && CURRENT\.sessionName === WANT_AGENT\) detailRevealTalkOnPhone\(\);/);
+  assert.match(block, /else \{ WANT_AGENT_GONE = true; if \(URL_TAB === 'detail'\) \{ showTab\('agents'\); syncUrl\(\); \} \}/);
+  assert.match(html, /let WANT_AGENT_SETTLED = false;/);
+  assert.match(html, /let WANT_AGENT_GONE = false;/);
 });
 
 test('the Answer button arrival reveals it too, right after opening the agent', () => {
