@@ -348,6 +348,15 @@ function chk(ok, label, extra) {
         return { h: r.height, off: Math.round((t.top + t.height / 2) - (r.top + r.height / 2)) };
       });
       chk(signin && signin.h >= 44 && Math.abs(signin.off) <= 2, `[${theme}] at 375px the Kosmos Plus sign-in pill is 44px with its label centred`, JSON.stringify(signin));
+      const signinLow = await page.evaluate(() => {
+        const a = document.getElementById('plus-signin-bottom');
+        if (!a || !a.getClientRects().length) return null;
+        const r = a.getBoundingClientRect();
+        const range = document.createRange(); range.selectNodeContents(a);
+        const t = range.getBoundingClientRect();
+        return { h: r.height, off: Math.round((t.top + t.height / 2) - (r.top + r.height / 2)) };
+      });
+      chk(signinLow && signinLow.h >= 44 && Math.abs(signinLow.off) <= 2, `[${theme}] at 375px the lower Kosmos Plus sign-in link is 44px with its label centred`, JSON.stringify(signinLow));
 
       // A switch keeps its drawn size; a point just above it, inside the 44px band, still hits it.
       // tips-toggle is always shown (eng-toggle ships hidden), in the This Mac section, so open
