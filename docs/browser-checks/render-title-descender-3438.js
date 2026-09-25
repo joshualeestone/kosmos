@@ -19,6 +19,7 @@
  *
  * A screenshot of the title crop is written to $SHOT_DIR (default: a temp dir).
  */
+require('./lib-sandbox-home.js'); // #3675: never read the host Mac's real accounts
 const fs = require('fs');
 const os = require('os');
 const path = require('path');

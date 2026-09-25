@@ -28,6 +28,7 @@
  * the real .msg-b; getComputedStyle of a real .mdh/.mdc) rather than judging a
  * screenshot, so it is mode-independent.
  */
+require('./lib-sandbox-home.js'); // #3675: never read the host Mac's real accounts
 const { spawn } = require('node:child_process');
 const fs = require('node:fs');
 const os = require('node:os');

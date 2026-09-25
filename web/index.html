@@ -1439,6 +1439,13 @@ button.uprime:hover, .btn.uprime:hover, .utoast .uacts button.uprime:hover,
   color: var(--k-ink-2); cursor: pointer; font-size: 16px; line-height: 1; }
 .tipcard .tip-x:hover { background: var(--k-sunk); color: var(--k-ink); }
 .tipcard .tip-eb { font: 700 .625rem var(--font-ui); letter-spacing: .12em; text-transform: uppercase; color: var(--gold-edge); }
+/* On a window too short for the whole card, the words scroll inside it and the title and buttons stay, so the
+   card still fits on screen. The scroll is on the words, not the card, which would clip the arrow. The height is
+   set by tipPlace from the window it is actually placed in (a vh budget overstates a phone with its toolbar up). */
+.tipcard .tip-bd { overflow-y: auto; }
+/* overflow makes the wrapper its own box, so its first child's top margin no longer folds into the title's: zero it,
+   or a list-led tip gains 4px under its title. */
+.tipcard .tip-bd > :first-child { margin-top: 0; }
 .tipcard h2 { margin: 2px 26px 4px 0; font-size: 1rem; letter-spacing: -.005em; }
 .tipcard p { margin: 0 0 6px; font-size: .875rem; color: var(--k-ink-2); line-height: 1.5; }
 .tipcard ol { margin: 4px 0 8px; padding: 0; list-style: none; font-size: .875rem; color: var(--k-ink-2); }
@@ -1453,7 +1460,7 @@ button.uprime:hover, .btn.uprime:hover, .utoast .uacts button.uprime:hover,
 .tipcard .tip-off, .tipcard .tip-skip { border: 0; background: none; padding: 0; cursor: pointer; font: .75rem var(--font-ui);
   color: var(--k-ink-2); text-decoration: underline; text-underline-offset: 2px; }
 .tipcard .tip-go { font: 650 .8125rem var(--font-ui); padding: 6px 14px; border-radius: 9px; background: var(--gold-bright); color: #14161a; border: 0; cursor: pointer; }
-.tipcard .tip-go:focus-visible, .tipcard .tip-off:focus-visible, .tipcard .tip-skip:focus-visible, .tipcard .tip-x:focus-visible { outline: 2px solid var(--k-ink); outline-offset: 2px; }
+.tipcard .tip-bd:focus-visible, .tipcard .tip-go:focus-visible, .tipcard .tip-off:focus-visible, .tipcard .tip-skip:focus-visible, .tipcard .tip-x:focus-visible { outline: 2px solid var(--k-ink); outline-offset: 2px; }
 .tiphalo { position: fixed; z-index: 45; border-radius: 12px; pointer-events: none;
   box-shadow: 0 0 0 3px var(--gold-bright), 0 0 0 7px color-mix(in srgb, var(--gold) 35%, transparent), 0 0 0 100vmax rgba(20,22,26,.28); }
 .tipcard .tip-dots { display: flex; gap: 5px; }
@@ -3107,6 +3114,118 @@ button.boardname[aria-expanded="true"] { opacity: 1; color: var(--k-ink); border
    📌 These are containers: the measure belongs to the prose inside them, not to
    the panel, which also holds the collections. */
 #panel-settings, #panel-projects { max-width: none; background: none; border: 0; box-shadow: none; padding: 0; }
+/* #3559: the Tasks page on the same paper ground, for the same reason (its cards are the surfaces). */
+#panel-tasks { max-width: none; background: none; border: 0; box-shadow: none; padding: 0; }
+/* ---- #3559: the Tasks view (Mona's mock, tasks-view-3559 248c953) -----------------------
+   Built only on the app's own tokens, so light, dark and high contrast follow with no block of
+   their own. 🛑 NO COLOURED BAR DOWN A LEFT EDGE, ANYWHERE (Josh, 2026-09-24 12:52: "the em-dash
+   version of, this was made with Ai"): a status is a round DOT beside its label, and the
+   browser check asserts no element here carries a coloured left border.
+   The status colours: grey for nobody on it, gold for assigned, the working green for in
+   progress, a quiet grey for closed -- the app's existing meanings, no new palette. */
+#panel-tasks { --tsk-c: var(--k-ink-2); --tsk-nobody: var(--k-ink-2); --tsk-assigned: var(--gold-deep); --tsk-working: var(--ok);
+  --tsk-closed: color-mix(in srgb, var(--k-ink-2) 55%, var(--k-rule));
+  --tsk-wash: color-mix(in srgb, var(--gold) 14%, var(--k-surface)); color: var(--k-ink); }
+.tsk-view { display: grid; grid-template-columns: 232px minmax(0, 1fr); min-height: 70vh;
+  background: var(--k-bg); border: 1px solid var(--k-rule); border-radius: 14px; overflow: hidden; }
+.tsk-rail { background: var(--k-side); border-right: 1px solid var(--k-rule); padding: 18px 12px 24px; }
+.tsk-rcap { font: 650 .6875rem var(--font-ui); letter-spacing: .12em; text-transform: uppercase; color: var(--k-ink-2); margin: 4px 8px 6px; }
+.tsk-ritem { display: flex; align-items: center; gap: 8px; width: 100%; border: 1px solid transparent; background: none;
+  font: 500 .875rem var(--font-ui); color: var(--k-ink); padding: 6px 8px; border-radius: 8px; cursor: pointer; text-align: left; }
+.tsk-ritem:hover:not(.on) { background: var(--tsk-wash); }
+.tsk-ritem.on { background: var(--k-surface); border-color: var(--gold-edge); font-weight: 650; }
+.tsk-ritem .nm { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.tsk-ritem .ct { font: 500 .75rem var(--font-mono); color: var(--k-ink-2); font-variant-numeric: tabular-nums; }
+.tsk-main { padding: 22px 26px 110px; min-width: 0; position: relative; }
+.tsk-crumb { font-size: .8125rem; color: var(--k-ink-2); margin: 0 0 2px; min-height: 1.3em; }
+.tsk-crumb button { border: 0; background: none; padding: 0; font: inherit; font-weight: 600; color: var(--k-ink); cursor: pointer;
+  text-decoration: underline; text-decoration-color: var(--gold); text-underline-offset: 3px; }
+#panel-tasks .tsk-head h2 { font-size: 1.5rem; letter-spacing: -.015em; margin: 0; font-weight: 700; }
+.tsk-sub { color: var(--k-ink-2); font-size: .9375rem; margin: 2px 0 0; }
+.tsk-ctrls { display: flex; flex-wrap: wrap; gap: 10px 22px; align-items: center; margin: 18px 0 4px; }
+.tsk-ctl { display: flex; align-items: center; }
+.tsk-cl { font: 650 .6875rem var(--font-ui); letter-spacing: .1em; text-transform: uppercase; color: var(--k-ink-2); margin-right: 6px; white-space: nowrap; }
+.tsk-search { position: relative; margin: 16px 0 0; max-width: 520px; }
+.tsk-search svg { position: absolute; left: 11px; top: 50%; width: 16px; height: 16px; margin-top: -8px; color: var(--k-ink-2); pointer-events: none; }
+.tsk-search input { width: 100%; box-sizing: border-box; font: .9375rem var(--font-ui); height: 38px; padding: 0 34px 0 36px; border-radius: 10px;
+  border: 1px solid var(--k-rule); background: var(--k-surface); color: var(--k-ink); }
+.tsk-search input::-webkit-search-cancel-button { -webkit-appearance: none; appearance: none; }
+.tsk-search button { position: absolute; right: 6px; top: 50%; transform: translateY(-50%); border: 0; background: none; cursor: pointer;
+  color: var(--k-ink-2); font: 600 1rem var(--font-ui); width: 26px; height: 26px; border-radius: 7px; }
+.tsk-search button:hover { background: var(--k-rule); }
+.tsk-seg { display: inline-flex; border: 1px solid var(--k-rule); border-radius: 9px; overflow: hidden; background: var(--k-surface); }
+.tsk-seg button { border: 0; background: none; cursor: pointer; padding: 0 11px; height: 30px; color: var(--k-ink-2); font: 600 .8125rem var(--font-ui); white-space: nowrap; }
+.tsk-seg button + button { border-left: 1px solid var(--k-rule); }
+.tsk-seg button[aria-pressed="true"] { color: #231b06; background: linear-gradient(150deg, var(--gold-bright), var(--gold-deep)); }
+select.tsk-sel { font: 600 .8125rem var(--font-ui); height: 32px; padding: 0 8px; border-radius: 9px; border: 1px solid var(--k-rule);
+  background: var(--k-surface); color: var(--k-ink); }
+.tsk-mobsel { display: none; }
+.tsk-tiles { display: grid; grid-template-columns: repeat(auto-fit, minmax(138px, 1fr)); gap: 10px; margin: 16px 0 4px; }
+.tsk-tile { background: var(--k-surface); border: 1px solid var(--k-rule); border-radius: 12px; padding: 11px 13px 10px; cursor: pointer;
+  text-align: left; font: inherit; color: inherit; display: flex; flex-direction: column; gap: 1px; }
+.tsk-tile:hover { background: var(--agent-msg); }
+.tsk-tile[aria-pressed="true"] { background: var(--agent-msg); border-color: var(--gold-edge); }
+.tsk-tile .num { font: 650 1.5rem var(--font-ui); font-variant-numeric: tabular-nums; letter-spacing: -.01em; }
+.tsk-tile .lab { font-size: .8125rem; font-weight: 650; }
+.tsk-tile .ts { font-size: .75rem; color: var(--k-ink-2); }
+.tsk-dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; background: var(--tsk-c); margin-right: 6px; vertical-align: 1px; flex: none; }
+.tsk-hint { font-size: .8125rem; color: var(--k-ink-2); margin: 6px 0 4px; max-width: 80ch; }
+.tsk-grp { margin-top: 24px; }
+.tsk-grp h3 { font-size: 1.0625rem; margin: 0; display: flex; align-items: center; gap: 3px; }
+.tsk-grp h3 .count { font: 500 .8125rem var(--font-mono); color: var(--k-ink-2); margin-left: 6px; }
+.tsk-grp .why { margin: 1px 0 9px; color: var(--k-ink-2); font-size: .875rem; max-width: 76ch; }
+.tsk-list { background: var(--k-surface); border: 1px solid var(--k-rule); border-radius: 12px; overflow: hidden; }
+.tsk-row { display: grid; grid-template-columns: 22px minmax(0, 1fr) auto; gap: 12px; padding: 11px 14px; border-top: 1px solid var(--k-rule); align-items: start; }
+.tsk-row:first-child { border-top: 0; }
+.tsk-row.sel { background: var(--tsk-wash); }
+.tsk-row input { margin: 3px 0 0; width: 16px; height: 16px; accent-color: var(--gold-deep); }
+.tsk-row .t { min-width: 0; }
+.tsk-row .tl { border: 0; background: none; padding: 0; font: 600 .9375rem var(--font-ui); color: var(--k-ink); cursor: pointer; text-align: left; }
+.tsk-row .tl:hover { text-decoration: underline; text-decoration-color: var(--gold); }
+.tsk-row .n { font: 500 .8125rem var(--font-mono); color: var(--k-ink-2); margin-right: 6px; }
+.tsk-row .meta { font-size: .8125rem; color: var(--k-ink-2); margin-top: 2px; display: flex; flex-wrap: wrap; gap: 4px 10px; align-items: center; }
+.tsk-row .meta button { border: 0; background: none; padding: 0; font: inherit; font-weight: 600; color: var(--k-ink); cursor: pointer; }
+.tsk-row .meta button:hover { text-decoration: underline; text-decoration-color: var(--gold); }
+.tsk-row .why { font-size: .8125rem; color: var(--k-ink-2); margin-top: 4px; }
+.tsk-side { display: flex; flex-direction: column; align-items: flex-end; gap: 6px; min-width: 120px; }
+.tsk-who { display: inline-flex; align-items: center; gap: 6px; font: 600 .8125rem var(--font-ui); color: var(--k-ink); padding: 2px 9px;
+  border-radius: 999px; border: 1px solid var(--k-rule); background: var(--k-surface); cursor: pointer; }
+.tsk-who:hover { border-color: var(--gold-edge); }
+.tsk-who.nobody { color: var(--k-ink-2); font-weight: 500; border-style: dashed; cursor: default; }
+.tsk-state { font-size: .75rem; color: var(--k-ink-2); display: flex; align-items: center; }
+details.tsk-fold summary { cursor: pointer; color: var(--k-ink-2); font-size: .875rem; padding: 4px 0; }
+.tsk-empty { padding: 14px; color: var(--k-ink-2); font-size: .875rem; }
+.tsk-bulk { position: sticky; bottom: 14px; margin-top: 18px; display: flex; gap: 10px; align-items: center; flex-wrap: wrap; padding: 10px 14px;
+  border-radius: 12px; background: var(--k-surface); border: 1px solid var(--gold-edge); box-shadow: 0 6px 24px rgba(20, 22, 26, .14); }
+.tsk-bulk[hidden] { display: none; }
+.tsk-bc { font-weight: 650; font-size: .875rem; }
+.tsk-bulk input { flex: 1; min-width: 180px; font: .875rem var(--font-ui); padding: 7px 10px; border-radius: 8px; border: 1px solid var(--k-rule);
+  background: var(--k-bg); color: var(--k-ink); }
+.tsk-bulk button { font: 600 .875rem var(--font-ui); padding: 7px 13px; border-radius: 9px; border: 1px solid var(--k-rule);
+  background: var(--k-surface); color: var(--k-ink); cursor: pointer; }
+.tsk-bulk button.tsk-pri { background: var(--gold-bright); border-color: var(--gold-bright); color: #14161a; }
+#panel-tasks :is(button, select, input):focus-visible { outline: 2px solid var(--k-ink); outline-offset: 2px; }
+/* #3559: relocated into the consolidated display column: its own rail folds to the dropdown. */
+html[data-layout="consolidated"] body.consolidated #panel-projects > #panel-tasks { grid-column: 2; grid-row: 1; margin: 0; width: 100%;
+  padding: var(--space-8) var(--space-8) 0 var(--space-8); min-height: 0; overflow-y: auto; }
+html[data-layout="consolidated"] body.consolidated #panel-projects > #panel-tasks .tsk-view { grid-template-columns: 1fr; }
+html[data-layout="consolidated"] body.consolidated #panel-projects > #panel-tasks .tsk-rail { display: none; }
+html[data-layout="consolidated"] body.consolidated #panel-projects > #panel-tasks .tsk-mobsel { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 12px; }
+/* The consolidated projects rail's way into Tasks (the tab bar is hidden there). */
+.rail-tasks { border: 1px solid var(--k-rule); background: var(--k-surface); color: var(--k-ink-2); font: 600 .75rem var(--font-ui);
+  padding: 2px 8px; border-radius: 999px; cursor: pointer; margin-left: 8px; }
+.rail-tasks:hover { color: var(--k-ink); border-color: var(--gold-edge); }
+@media (max-width: 760px) {
+  .tsk-view { grid-template-columns: 1fr; }
+  .tsk-rail { display: none; }
+  .tsk-mobsel { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 12px; }
+  .tsk-search { max-width: none; }
+  .tsk-ctl { flex-wrap: wrap; row-gap: 4px; }
+  .tsk-seg button { padding: 0 8px; }
+  .tsk-main { padding: 16px 14px 120px; }
+  .tsk-row { grid-template-columns: 22px minmax(0, 1fr); }
+  .tsk-side { grid-column: 2; flex-direction: row; align-items: center; justify-content: flex-start; min-width: 0; flex-wrap: wrap; }
+}
 /* ⚠️ AND CREATE, for the same reason one line up, which is why this is the
    existing exemption rather than a new idea: the create steps are form fields,
    and the pack puts a form on the paper ground. Wrapping them in the panel
@@ -8866,6 +8985,9 @@ window.kosmosMeasureScrollbarWidth();
   <nav class="tabs closed" id="tabs" role="tablist">
     <button class="tab on"  data-tab="agents"   role="tab" aria-selected="true">Agents<span class="navbadge" id="nav-badge-agents" aria-hidden="true" hidden></span></button>
     <button class="tab"     data-tab="projects" role="tab" aria-selected="false">Projects<span class="navbadge" id="nav-badge-projects" aria-hidden="true" hidden></span></button>
+    <!-- #3559: Tasks, the third top-level view (Josh, 2026-09-24 06:42). No badge yet: the
+         mock's badge counts tasks waiting on you, which no task can prove today. -->
+    <button class="tab"     data-tab="tasks"    role="tab" aria-selected="false">Tasks</button>
     <!-- #3051 (Josh, 6.63 for 6.65): Settings left the top nav; it is reached from
          the user menu (avatar + name) in the upper-right .headright below. The
          #panel-settings panel and every showTab('settings') caller are unchanged;
@@ -12361,7 +12483,11 @@ window.kosmosMeasureScrollbarWidth();
          title aligned with the agents head, where a 22px fold button + 7px gap
          still inset the name. -->
     <div class="railhead" id="rail-projects" hidden>
-      <span class="lead"><span class="railname">Projects</span></span>
+      <!-- #3559: the consolidated view hides the tab bar (it is one screen), so its way into
+           Tasks lives here, beside the "Projects" name it lists tasks from (the + stays alone at
+           the far right). It opens Tasks INSIDE the display column (openConsolidatedTasks), the
+           way the user menu opens Settings there (#2842), never out to the tab view. -->
+      <span class="lead"><span class="railname">Projects</span><button class="rail-tasks" type="button" id="rail-projects-tasks" title="Every task across your projects">Tasks</button></span>
       <span class="railacts">
         <button class="fold plus" type="button" id="rail-projects-new" aria-label="Add Project" title="Add Project">+</button>
       </span>
@@ -13531,6 +13657,57 @@ window.kosmosMeasureScrollbarWidth();
           <button class="btn uprime big" id="pj-join-submit" type="button">Join Project</button>
         </div>
         <p class="fmsg" id="pj-join-msg" aria-live="polite"></p>
+      </div>
+    </div>
+  </div>
+</section>
+<!-- #3559 (Josh, 2026-09-24): Tasks is a top-level view beside Agents and Projects, every
+     task across every project. Mona's mock (chaoskosmos-site tasks-view-3559 248c953, the dot
+     revision) plus Josh's search box. Groups are WHERE THE WORK IS, derived by the engine
+     (tasks.taskState) and only those it can prove today: Nobody on it, Assigned not started, In
+     progress, Closed. Waiting on you, Done-check-it and categories need evidence no task stores
+     yet, so they are not drawn at all rather than guessed. No coloured left bars anywhere (Josh,
+     12:52): the status mark is a round dot beside the label. -->
+<section class="panel panel-wide" id="panel-tasks" hidden>
+  <div class="tsk-view">
+    <aside class="tsk-rail" aria-label="Filter tasks by project">
+      <div class="tsk-rcap">Projects</div>
+      <div id="tsk-projects"></div>
+    </aside>
+    <div class="tsk-main">
+      <p class="tsk-crumb" id="tsk-crumb"></p>
+      <div class="tsk-head"><h2 id="tsk-title">All tasks</h2></div>
+      <p class="tsk-sub" id="tsk-sub"></p>
+      <!-- Mona's a40bbe1: on a narrow window (and in the consolidated column) the rail becomes this
+           dropdown, and the search sits below it, full width. -->
+      <div class="tsk-mobsel"><select class="tsk-sel" id="tsk-projsel" aria-label="Project"></select></div>
+      <!-- #3559 (Josh, 14:39): search, on its own line above the controls (Mona's a40bbe1). Its own
+           clear button; the browser's native one is hidden. -->
+      <div class="tsk-search" role="search">
+        <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true"><circle cx="7" cy="7" r="5"/><path d="M11 11l3.5 3.5" stroke-linecap="round"/></svg>
+        <input id="tsk-search" type="search" autocomplete="off" spellcheck="false"
+               placeholder="Search tasks" aria-label="Search tasks by what they say, number, project or agent">
+        <button type="button" id="tsk-qclear" aria-label="Clear search" hidden>&times;</button>
+      </div>
+      <div class="tsk-ctrls">
+        <div class="tsk-ctl"><span class="tsk-cl" id="tsk-win-l">Added in</span><span class="tsk-seg" id="tsk-win" role="group" aria-labelledby="tsk-win-l"></span></div>
+        <div class="tsk-ctl"><span class="tsk-cl" id="tsk-by-l">Group by</span><span class="tsk-seg" id="tsk-by" role="group" aria-labelledby="tsk-by-l"></span></div>
+        <div class="tsk-ctl"><label class="tsk-cl" for="tsk-sort">Sort</label><select class="tsk-sel" id="tsk-sort">
+          <option value="new">Newest first</option><option value="stale">Quietest first</option><option value="old">Oldest first</option>
+        </select></div>
+      </div>
+      <div class="tsk-tiles" id="tsk-tiles"></div>
+      <p class="tsk-hint" id="tsk-hint">Tap a tile to see only that group, tap it again to see everything.</p>
+      <p class="fmsg" id="tsk-msg" role="status" aria-live="polite"></p>
+      <!-- What a search found, said to a screen reader while focus stays in the search box (the
+           rows themselves change silently). Visually hidden: the page already shows it. -->
+      <p class="vh" id="tsk-found" role="status" aria-live="polite"></p>
+      <div id="tsk-groups"></div>
+      <div class="tsk-bulk" id="tsk-bulk" hidden>
+        <span class="tsk-bc" id="tsk-bc"></span>
+        <input id="tsk-bnote" type="text" maxlength="2000" placeholder="Why these are closing (optional)" aria-label="Closing note">
+        <button type="button" class="tsk-pri" id="tsk-bclose">Close them</button>
+        <button type="button" id="tsk-bclear">Clear</button>
       </div>
     </div>
   </div>
@@ -18202,6 +18379,10 @@ async function tick() {
 
     const lim = new URLSearchParams(location.search).get('limit');
     LAST = data.agents;
+    /* #3559: the Tasks view prints agents by the board's names; repaint it once when the roster
+       brings a name it did not have (never on an unchanged poll, so the list does not churn). */
+    /* Isolated: a Tasks repaint failing must never read as the board's own read failing. */
+    try { tskRosterChanged(); } catch (err) { console.error('[tasks view] repaint after a roster change failed', err); }
     LAST_AT = Date.now();  // #1150: the moment this sample reached the page
     // #3574: whether this is someone new is decided by the board's FIRST answer, whatever the
     // tips are doing then (off, a dialog, first run); see tipAutoOk.
@@ -18891,7 +19072,7 @@ async function tick() {
 
 // A tab that does nothing reads as broken rather than as forthcoming, so each
 // unbuilt one says what it will be and why it isn't here yet.
-const PANELS = ['projects', 'settings', 'detail', 'create'];
+const PANELS = ['projects', 'tasks', 'settings', 'detail', 'create'];
 // Panels with no tab button of their own: reached by clicking an agent, or the
 // New agent button. Bailing when no button exists would silently do nothing,
 // which is how the detail page failed to open at all — so the exception is a
@@ -19029,6 +19210,8 @@ function showTab(tab) {
   // #3053: same relocation for the New Agent create panel, so it opens in the consolidated
   // display column and is restored to the top level in the tab view. Same chokepoint + `cons`.
   placeCreatePanel(cons);
+  // #3559: the Tasks view's consolidated home, same chokepoint and flag.
+  placeTasksPanel(cons);
   // #3052: the consolidated projects panel has its own view (the list), independent of the
   // Projects tab's saved grid/list/map choice. Force the list for display in the consolidated
   // view and restore the saved layout on the way out. Same chokepoint + `cons`/`wasCons` flags,
@@ -19080,6 +19263,8 @@ function showTab(tab) {
   // below: a machine report painted once would go on asserting a world
   // that stopped being true (the app can be moved, sleep settings change).
   if (tab === 'settings') paintSettings();
+  // #3559: the Tasks view re-reads on every arrival, same rule as Settings and Projects.
+  if (tab === 'tasks') tskLoad(true);
   if (tab !== 'projects') {
     pjCloseConfirm();
     // A note about what a removal could not reach describes a moment, not a
@@ -33906,7 +34091,7 @@ function takeOverDisplayColumn() {
   }
   document.getElementById('pj-list-view').hidden = false;   // keep the projects column beside it
   // Hide the other relocated takeover overlays so the column holds one at a time.
-  for (const id of ['panel-settings', 'panel-create']) {
+  for (const id of ['panel-settings', 'panel-create', 'panel-tasks']) {
     const p = document.getElementById(id);
     if (p && p.parentElement === projects) p.hidden = true;
   }
@@ -33941,6 +34126,36 @@ function openConsolidatedSettings() {
   // 'appsettings' value that syncUrl and every PJ_VIEW reader would then have to learn.
   settingsOpen(SETTINGS_SEC);
   syncPlusChrome();
+}
+/* #3559: the Tasks view in the consolidated display column, the same relocation as app settings
+   (#2842) and create (#3053): the consolidated view is one screen, so its Tasks button must not
+   kick the person out to the tab view. In the column the view's own project rail folds to its
+   dropdown (the consolidated projects rail is right beside it). The tab view shows Tasks as its
+   own page. Transient like consolidated settings: a reload restores the project view. */
+let TASKS_PANEL_HOME = null;
+function placeTasksPanel(consolidated) {
+  const panel = document.getElementById('panel-tasks');
+  const projects = document.getElementById('panel-projects');
+  if (!panel || !projects) return;
+  if (consolidated) {
+    if (panel.parentElement !== projects) {
+      if (!TASKS_PANEL_HOME) TASKS_PANEL_HOME = { parent: panel.parentElement, next: panel.nextElementSibling };
+      panel.hidden = true;   // relocated but not shown until openConsolidatedTasks()
+      projects.appendChild(panel);
+    }
+  } else if (TASKS_PANEL_HOME && panel.parentElement === projects) {
+    TASKS_PANEL_HOME.parent.insertBefore(panel, TASKS_PANEL_HOME.next);
+  }
+}
+function openConsolidatedTasks() {
+  // Same guard as openConsolidatedSettings: only correct while the consolidated class is on.
+  if (!document.body.classList.contains('consolidated')) { showTab('tasks'); return; }
+  const already = !document.getElementById('panel-tasks').hidden && document.getElementById('panel-tasks').parentElement === document.getElementById('panel-projects');
+  placeTasksPanel(true);
+  takeOverDisplayColumn();
+  document.getElementById('panel-tasks').hidden = false;
+  syncPlusChrome();   // #3599's rule: leaving consolidated Kosmos+ settings takes the blue down
+  tskLoad(!already);   // pressed again while open: a refresh, not an arrival (ticks stay)
 }
 /* #3053: the New Agent create panel gets the SAME consolidated-display treatment #2842 gave
    settings, so clicking New Agent in the consolidated view opens the form in the display column
@@ -34080,7 +34295,13 @@ function paintPjNone(which) {
     const pp = document.getElementById('panel-projects');
     return !!(pc && pp && pc.parentElement === pp && !pc.hidden);
   })();
-  const show = document.body.classList.contains('consolidated') && view === 'list' && !appSettingsOpen && !appCreateOpen;
+  /* #3559: the relocated Tasks view takes over the column the same way. */
+  const appTasksOpen = (() => {
+    const pt = document.getElementById('panel-tasks');
+    const pp = document.getElementById('panel-projects');
+    return !!(pt && pp && pt.parentElement === pp && !pt.hidden);
+  })();
+  const show = document.body.classList.contains('consolidated') && view === 'list' && !appSettingsOpen && !appCreateOpen && !appTasksOpen;
   el.hidden = !show;
   if (!show) return;
   /* A failed read leaves the rail saying it cannot look, and this sentence
@@ -40381,8 +40602,7 @@ function pjView(which) {
     /* #3053: same for the relocated New Agent create panel -- pjView is project navigation, so it
        always leaves the consolidated create view too (this is how create-back / done return to the
        projects display without dropping the consolidated layout). */
-    const appC = document.getElementById('panel-create');
-    if (appC && proj && appC.parentElement === proj) appC.hidden = true;
+    for (const id of ['panel-create', 'panel-tasks']) { const el = document.getElementById(id); if (el && proj && el.parentElement === proj) el.hidden = true; }   // #3559: Tasks too
   }
   syncPlusChrome();   // #3599: leaving consolidated settings on Kosmos+ takes the blue down
   paintPjNone(which);
@@ -42023,6 +42243,402 @@ document.getElementById('pj-alltasks').addEventListener('click', openAllTasksVie
 document.getElementById('alltasks-back').addEventListener('click', () => {
   pjView(PJ_CURRENT ? 'one' : 'list');
 });
+
+/* ---- #3559: the Tasks view ------------------------------------------------------------
+   Every task on every project, grouped by WHERE THE WORK IS. The engine derives each task's
+   `state` (tasks.taskState, from the same claim the project card shows); this code renders it
+   and never computes it. Only the groups the engine can prove exist here; waiting-on-you,
+   done-check-it and categories wait for evidence no task stores yet (Mona's weakest-premise
+   note on #3559), so they are not drawn at all rather than guessed. */
+const TSK_GROUPS = [
+  { k: 'nobody', l: 'Nobody on it', s: 'no agent assigned', c: 'var(--tsk-nobody)',
+    why: 'Open and unassigned. Give these to an agent, or close the ones that no longer matter.' },
+  { k: 'assigned', l: 'Assigned, not started', s: 'agent named, has not said it started', c: 'var(--tsk-assigned)',
+    why: 'An agent has these, and what it reports does not name them yet. Old ones here are worth a nudge.' },
+  { k: 'working', l: 'In progress', s: 'the agent says it is on it', c: 'var(--tsk-working)',
+    why: 'The agent’s own report names these as what it is working on.' },
+  { k: 'closed', l: 'Closed', s: 'finished and closed', c: 'var(--tsk-closed)', why: 'Closed tasks.' },
+];
+const TSK_WINDOWS = [['24h', 1], ['48h', 2], ['1 week', 7], ['1 month', 30], ['All', 0]];
+const TSK_BYS = [['status', 'Status'], ['project', 'Project']];
+const TSK = { data: null, error: null, proj: null, q: '', win: 0, by: 'status', sort: 'new', tile: null, sel: new Set(), gen: 0, busy: false, names: '', closedOpen: false };
+TSK_READY = true;
+const tskKey = (t) => String(t.projectId) + '#' + Number(t.number);
+/* The name the board prints for an agent (its roster card's `name`; a card has no `displayName`
+   field -- test-support/fleet refuses the read), falling back to the
+   session name while the roster has not arrived; TSK.names remembers what was painted so the
+   first roster that changes a name repaints once (see the LAST assignment). */
+function tskAgentName(sessionName) {
+  const a = Array.isArray(LAST) ? LAST.find((x) => x && x.sessionName === sessionName) : null;
+  return String((a && a.name) || sessionName || '');
+}
+/* Called from the board poll's LAST assignment, which sits far ABOVE `const TSK` in this script:
+   a function declaration is hoisted, and TSK_READY (a hoisted var) covers the one ordering (a poll
+   landing before the script finished) in which TSK would still be uninitialised. */
+var TSK_READY;   // hoisted (undefined) until `const TSK` below has run
+function tskRosterChanged() {
+  if (!TSK_READY) return;   // the Tasks view is not set up yet; its own load paints with the roster it finds
+  if (TSK.data && !document.getElementById('panel-tasks').hidden && tskNamesSig() !== TSK.names) tskPaintKeepingCurrentFocus();
+}
+function tskNamesSig() {
+  return (Array.isArray(LAST) ? LAST : []).map((a) => a && (a.sessionName + '=' + (a.name || ''))).sort().join('|');
+}
+/* Pure (the tests lift these): does a task fall in the Added-in window, match the search, and in
+   what order. `now` is passed in so a test pins it. */
+function tskInWindow(t, days, now) {
+  if (!days) return true;
+  const c = Date.parse(t && t.createdAt);
+  return Number.isFinite(c) && (now - c) <= days * 86400000;
+}
+function tskMatches(t, q) {
+  const needle = String(q || '').trim().toLowerCase();
+  if (!needle) return true;
+  const hay = [t.sentence, '#' + t.number, String(t.number), t.projectName]
+    .concat((t.whoNames || []).map((w) => w + ' ' + tskAgentName(w)))
+    .join(' \u0001 ').toLowerCase();
+  /* Every word must appear somewhere, so "logo april" finds April's logo task. A "#N" word
+     names one task, so it matches that number exactly: "#1" is not #12 or #100. */
+  return needle.split(/\s+/).every((w) => (/^#\d+$/.test(w) ? w === '#' + t.number : hay.includes(w)));
+}
+function tskSort(list, mode) {
+  const at = (iso) => { const v = Date.parse(iso); return Number.isFinite(v) ? v : null; };
+  const out = list.slice();
+  if (mode === 'stale') {
+    /* Quietest first: least recent activity at the top; a task with no known activity sorts
+       LAST (unknown is not "quiet", and floating it up would be a claim nobody computed). */
+    out.sort((a, b) => {
+      const x = at(a.lastActivityAt); const y = at(b.lastActivityAt);
+      if (x === null && y === null) return 0;
+      if (x === null) return 1;
+      if (y === null) return -1;
+      return x - y;
+    });
+  } else {
+    const dir = mode === 'old' ? 1 : -1;
+    out.sort((a, b) => ((at(a.createdAt) || 0) - (at(b.createdAt) || 0)) * dir);
+  }
+  return out;
+}
+/* The rows the view shows: project, window and search (not the tile, which only narrows the
+   groups drawn; the tiles' own counts are taken before it). */
+function tskScoped(all, st, now) {
+  return (all || []).filter((t) => (!st.proj || t.projectId === st.proj)
+    && tskInWindow(t, st.win, now) && tskMatches(t, st.q));
+}
+/* `arrival`: the person just came to the view (a tab or the consolidated button), so ticks from an
+   earlier visit are dropped, and a first visit says it is reading rather than showing zeros. */
+async function tskLoad(arrival) {
+  const mine = ++TSK.gen;
+  const msg = document.getElementById('tsk-msg');
+  if (arrival) {
+    TSK.sel.clear();
+    /* A line from an earlier visit ("Closed 3 tasks.") would read as news; an arrival starts clean. */
+    if (msg) msg.textContent = '';
+    tskPaint();   // the cleared ticks leave the screen too, not just the model
+  }
+  try {
+    const r = await fetch('/api/tasks?view=tasks', { cache: 'no-store' });
+    const body = await r.json().catch(() => ({}));
+    if (mine !== TSK.gen) return;
+    if (!r.ok || !Array.isArray(body.tasks)) {
+      /* An unreadable store is an error, never an empty list (the route says so): "No tasks"
+         would be a claim about somebody's work that we did not make. */
+      TSK.error = String(body.error || 'we could not read your tasks just now');
+    } else {
+      /* A good read clears the error a failed one left, and only that (a "Closed N" line stays). */
+      if (TSK.error && msg) msg.textContent = '';
+      TSK.error = null;
+      /* Archived projects are set aside: their tasks are not in this view (the rails tuck archived
+         projects away too). Unarchiving brings them back on the next read. */
+      TSK.data = body.tasks.filter((t) => !t.projectArchived);
+      /* A ticked task that has since closed or gone cannot stay ticked. */
+      const open = new Set(TSK.data.filter((t) => t.state !== 'closed').map(tskKey));
+      TSK.sel.forEach((k) => { if (!open.has(k)) TSK.sel.delete(k); });
+    }
+  } catch {
+    if (mine !== TSK.gen) return;
+    TSK.error = 'we could not reach Kosmos to read your tasks';
+  }
+  if (msg && TSK.error) msg.textContent = asSentence(TSK.error);
+  tskPaintKeepingCurrentFocus();
+}
+function tskRow(t) {
+  const on = TSK.sel.has(tskKey(t));
+  /* A state this view does not know gets no label at all, never a group the engine did not name. */
+  const g = TSK_GROUPS.find((x) => x.k === t.state) || null;
+  const now = Date.now();
+  const added = agoWords(now - Date.parse(t.createdAt));
+  const moved = t.lastActivityAt ? agoWords(now - Date.parse(t.lastActivityAt)) : '';
+  const who = (t.whoNames || []);
+  const whoHtml = who.length
+    ? who.map((w) => '<button type="button" class="tsk-who" data-agent="' + esc(w) + '">' + esc(tskAgentName(w)) + '</button>').join('')
+    : '<span class="tsk-who nobody">Nobody yet</span>';
+  /* The claim could not be read: say WHY on the row, so "Assigned, not started" is never read
+     as a fact about a task we simply could not check. */
+  const cannot = t.state === 'assigned' && t.claim && t.claim.claimed === null && t.claim.because
+    ? '<div class="why">We cannot tell whether it has started: ' + esc(t.claim.because) + '.</div>' : '';
+  return '<div class="tsk-row' + (on ? ' sel' : '') + '" data-key="' + esc(tskKey(t)) + '">'
+    + '<input type="checkbox" data-key="' + esc(tskKey(t)) + '"' + (on ? ' checked' : '')
+    + (t.state === 'closed' ? ' disabled' : '') + ' aria-label="Select task ' + Number(t.number) + ' of ' + esc(t.projectName) + '">'
+    + '<div class="t"><span class="n">#' + Number(t.number) + '</span>'
+    + '<button type="button" class="tl" data-open-task="' + esc(tskKey(t)) + '">' + esc(t.sentence) + '</button>'
+    + '<div class="meta"><button type="button" data-open-project="' + esc(t.projectId) + '">' + esc(t.projectName) + '</button>'
+    + (added ? '<span>added ' + esc(added) + '</span>' : '')
+    + (moved && moved !== added ? '<span>last activity ' + esc(moved) + '</span>' : '')
+    + (t.dueDate ? '<span>due ' + esc(t.dueDate) + '</span>' : '')
+    + '</div>' + cannot + '</div>'
+    + '<div class="tsk-side">' + whoHtml
+    + (g ? '<span class="tsk-state" style="--tsk-c:' + g.c + '"><span class="tsk-dot"></span>' + esc(g.l) + '</span>' : '') + '</div>'
+    + '</div>';
+}
+function tskList(rows) {
+  return rows.length ? '<div class="tsk-list">' + rows.map(tskRow).join('') + '</div>'
+    : '<div class="tsk-list"><p class="tsk-empty">Nothing here.</p></div>';
+}
+function tskPaint() {
+  const now = Date.now();
+  TSK.names = tskNamesSig();
+  const all = TSK.data || [];
+  const projMap = new Map();
+  for (const t of all) {
+    if (!projMap.has(t.projectId)) projMap.set(t.projectId, { id: t.projectId, name: t.projectName, open: 0 });
+    if (t.state !== 'closed') projMap.get(t.projectId).open += 1;
+  }
+  if (TSK.proj && !projMap.has(TSK.proj)) TSK.proj = null;
+  const projectsList = [...projMap.values()].sort((a, b) => String(a.name).localeCompare(String(b.name)));
+  const openAll = all.filter((t) => t.state !== 'closed').length;
+  /* The rail, and its narrow-window twin. */
+  const rail = document.getElementById('tsk-projects');
+  if (rail) {
+    rail.innerHTML = '<button type="button" class="tsk-ritem' + (TSK.proj ? '' : ' on') + '" aria-pressed="' + !TSK.proj + '" data-proj=""><span class="nm">All tasks</span><span class="ct">' + openAll + '</span></button>'
+      + projectsList.map((p) => '<button type="button" class="tsk-ritem' + (TSK.proj === p.id ? ' on' : '') + '" aria-pressed="' + (TSK.proj === p.id) + '" data-proj="' + esc(p.id) + '"><span class="nm">' + esc(p.name) + '</span><span class="ct">' + p.open + '</span></button>').join('');
+  }
+  const sel = document.getElementById('tsk-projsel');
+  if (sel) {
+    sel.innerHTML = '<option value="">All projects</option>' + projectsList.map((p) => '<option value="' + esc(p.id) + '"' + (TSK.proj === p.id ? ' selected' : '') + '>' + esc(p.name) + '</option>').join('');
+  }
+  const picked = TSK.proj ? projMap.get(TSK.proj) : null;
+  document.getElementById('tsk-title').textContent = picked ? picked.name : 'All tasks';
+  document.getElementById('tsk-crumb').innerHTML = picked
+    ? '<button type="button" data-proj="">All tasks</button> › ' + esc(picked.name) + ' · <button type="button" data-open-project="' + esc(picked.id) + '">Open project</button>'
+    : '';
+  const scoped = tskScoped(all, TSK, now);
+  const open = scoped.filter((t) => t.state !== 'closed');
+  document.getElementById('tsk-sub').textContent = TSK.error && !TSK.data ? ''
+    : open.length + (open.length === 1 ? ' open task' : ' open tasks')
+      + (picked ? '' : ' across ' + projectsList.length + (projectsList.length === 1 ? ' project' : ' projects'));
+  document.getElementById('tsk-win').innerHTML = TSK_WINDOWS.map(([l, d]) => '<button type="button" data-win="' + d + '" aria-pressed="' + (TSK.win === d) + '">' + esc(l) + '</button>').join('');
+  document.getElementById('tsk-by').innerHTML = TSK_BYS.map(([k, l]) => '<button type="button" data-by="' + k + '" aria-pressed="' + (TSK.by === k) + '">' + esc(l) + '</button>').join('');
+  document.getElementById('tsk-sort').value = TSK.sort;
+  /* Tiles: the proven groups only, counted before the tile filter so every tile keeps its number. */
+  document.getElementById('tsk-tiles').innerHTML = !TSK.data ? '' : TSK_GROUPS.map((g) => {
+    const n = scoped.filter((t) => t.state === g.k).length;
+    return '<button type="button" class="tsk-tile" data-tile="' + g.k + '" aria-pressed="' + (TSK.tile === g.k) + '" style="--tsk-c:' + g.c + '">'
+      + '<span class="num">' + n + '</span><span class="lab"><span class="tsk-dot"></span>' + esc(g.l) + '</span><span class="ts">' + esc(g.s) + '</span></button>';
+  }).join('');
+  const groups = document.getElementById('tsk-groups');
+  if (!TSK.data) { groups.innerHTML = TSK.error ? '' : '<p class="tsk-empty">Reading your tasks…</p>'; tskPaintBulk(); return; }
+  const shown = TSK.tile ? scoped.filter((t) => t.state === TSK.tile) : scoped;
+  const sorted = tskSort(shown, TSK.sort);
+  /* A tick only ever covers a row on screen: a filter that hides a ticked row drops the tick, so
+     "N selected" and Close them can never reach tasks the person cannot see. BEFORE any early
+     return below (a search that matches nothing hides every row). */
+  const onScreen = new Set(shown.filter((t) => t.state !== 'closed').map(tskKey));
+  TSK.sel.forEach((k) => { if (!onScreen.has(k)) TSK.sel.delete(k); });
+  /* The search's result, announced (only while a search is active, and only when it changes). */
+  {
+    const live = document.getElementById('tsk-found');
+    const q = String(TSK.q).trim();
+    const said = !q ? '' : (shown.length
+      ? shown.length + (shown.length === 1 ? ' task matches.' : ' tasks match.')
+      : 'No tasks match \u201c' + q + '\u201d. Try fewer words, or clear the search.');
+    if (live && live.textContent !== said) live.textContent = said;
+  }
+  /* Mona's a40bbe1: a search that finds nothing says so, and what to do. */
+  if (!shown.length && String(TSK.q).trim()) {
+    groups.innerHTML = '<p class="tsk-empty">No tasks match \u201c' + esc(String(TSK.q).trim()) + '\u201d. Try fewer words, or clear the search.</p>';
+    tskPaintBulk();
+    return;
+  }
+  if (TSK.by === 'project') {
+    const byP = new Map();
+    for (const t of sorted) { if (!byP.has(t.projectId)) byP.set(t.projectId, []); byP.get(t.projectId).push(t); }
+    groups.innerHTML = [...byP.entries()].sort((a, b) => String(a[1][0].projectName).localeCompare(String(b[1][0].projectName)))
+      .map(([, ts]) => {
+        const n = ts.filter((t) => t.state !== 'closed').length;
+        return '<section class="tsk-grp"><h3>' + esc(ts[0].projectName) + '<span class="count">' + n + ' open</span></h3>' + tskList(ts) + '</section>';
+      }).join('') || '<p class="tsk-empty">No tasks match.</p>';
+  } else {
+    groups.innerHTML = TSK_GROUPS.filter((g) => !TSK.tile || TSK.tile === g.k).map((g) => {
+      const ts = sorted.filter((t) => t.state === g.k);
+      const head = '<h3><span class="tsk-dot" style="--tsk-c:' + g.c + '"></span>' + esc(g.l) + '<span class="count">' + ts.length + '</span></h3><p class="why">' + esc(g.why) + '</p>';
+      /* Closed is folded unless its tile was picked: finished work is reachable, not in the way. */
+      if (g.k === 'closed' && TSK.tile !== 'closed') {
+        return '<section class="tsk-grp" style="--tsk-c:' + g.c + '"><details class="tsk-fold"' + (TSK.closedOpen ? ' open' : '') + '><summary>' + esc(g.l) + ' (' + ts.length + ')</summary>' + tskList(ts) + '</details></section>';
+      }
+      return '<section class="tsk-grp">' + head + tskList(ts) + '</section>';
+    }).join('');
+  }
+  tskPaintBulk();
+}
+function tskPaintBulk() {
+  const bar = document.getElementById('tsk-bulk');
+  if (!bar) return;
+  const n = TSK.sel.size;
+  bar.hidden = n === 0;
+  document.getElementById('tsk-bc').textContent = n + (n === 1 ? ' task selected' : ' tasks selected');
+}
+/* Into a project (and a task in it) from the Tasks view. The project list may not have been read
+   yet this visit, so it is read first; a project that is gone gets this view's own sentence rather
+   than openProject's "was created, but we could not read it back". */
+async function tskGoToProject(id) {
+  await loadProjects();
+  if (!pjById(id)) {
+    document.getElementById('tsk-msg').textContent = 'We could not open that project just now.';
+    return false;
+  }
+  if (URL_TAB !== 'projects') showTab('projects');
+  openProject(id);
+  return true;
+}
+async function tskOpenTask(key) {
+  const t = (TSK.data || []).find((x) => tskKey(x) === key);
+  if (!t) return;
+  if (await tskGoToProject(t.projectId)) openTaskPage(Number(t.number));
+}
+async function tskOpenProject(id) {
+  await tskGoToProject(id);
+}
+async function tskBulkClose() {
+  if (TSK.busy || !TSK.sel.size) return;
+  const msg = document.getElementById('tsk-msg');
+  const note = document.getElementById('tsk-bnote').value.trim();
+  const picks = [...TSK.sel].map((k) => { const i = k.lastIndexOf('#'); return { projectId: k.slice(0, i), number: Number(k.slice(i + 1)) }; });
+  TSK.busy = true;
+  document.getElementById('tsk-bclose').disabled = true;
+  try {
+    const r = await fetch('/api/tasks/close', {
+      method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ tasks: picks, note }),
+    });
+    const body = await r.json().catch(() => ({}));
+    const results = Array.isArray(body.results) ? body.results : [];
+    const failed = results.filter((x) => !x.ok);
+    const done = results.filter((x) => x.ok && !x.already).length;
+    const was = results.filter((x) => x.ok && x.already).length;
+    const noteLost = results.filter((x) => x.ok && x.noteRecorded === false).length;
+    const tail = (was ? ' ' + was + (was === 1 ? ' was' : ' were') + ' already closed.' : '')
+      + (noteLost ? ' The note could not be saved on ' + noteLost + ' of them.' : '');
+    results.filter((x) => x.ok).forEach((x) => TSK.sel.delete(String(x.projectId) + '#' + Number(x.number)));
+    if (!results.length) {
+      msg.textContent = asSentence(body.error || 'those tasks were not closed');
+    } else if (failed.length) {
+      msg.textContent = 'Closed ' + done + ' of ' + results.length + '.' + tail + ' '
+        + failed.map((x) => { const t = (TSK.data || []).find((y) => y.projectId === x.projectId && y.number === x.number); return (t ? t.projectName + ' ' : '') + '#' + x.number + ': ' + x.error; }).join('; ') + '.';
+    } else {
+      msg.textContent = 'Closed ' + done + (done === 1 ? ' task.' : ' tasks.') + tail
+        + ' Closing a task does not stop an agent that is working on it.';
+      document.getElementById('tsk-bnote').value = '';
+    }
+  } catch {
+    msg.textContent = 'We could not reach Kosmos, so nothing was closed.';
+  } finally {
+    TSK.busy = false;
+    document.getElementById('tsk-bclose').disabled = false;
+  }
+  /* The bar hides once its rows are gone, taking the focused button with it: move focus to the
+     status line, so a keyboard or screen-reader user lands on what happened. */
+  msg.tabIndex = -1;
+  msg.focus();
+  tskLoad();
+}
+/* A repaint replaces the control that had focus, so focus goes to its REPLACEMENT: the same kind
+   of control (tag + data attribute + value) inside the same container (its row by task key, the
+   crumb, the rail, the tiles, a segmented control), and only one that is on screen. Scoping to the
+   container is what makes it the same control: an agent's button repeats on every row it holds,
+   a row and its checkbox share a key, and the crumb's "All tasks" shares data-proj="" with a rail
+   item that is hidden in the consolidated view. */
+const TSK_FOCUS_KEYS = ['data-open-task', 'data-open-project', 'data-agent', 'data-tile', 'data-proj', 'data-win', 'data-by', 'data-key'];
+function tskFocusMark(el) {
+  const panel = document.getElementById('panel-tasks');
+  if (!el || !panel || !panel.contains(el)) return null;
+  const attr = TSK_FOCUS_KEYS.find((k) => el.hasAttribute(k));
+  if (!attr) return null;
+  const row = el.closest('.tsk-row');
+  const box = row ? null : el.closest('#tsk-crumb, #tsk-projects, #tsk-tiles, #tsk-win, #tsk-by');
+  return { tag: el.tagName.toLowerCase(), attr, value: el.getAttribute(attr), row: row ? row.dataset.key : null, box: box ? box.id : null };
+}
+function tskFocusRestore(mark) {
+  if (!mark) return;
+  const scope = mark.row !== null
+    ? document.querySelector('#tsk-groups .tsk-row[data-key="' + CSS.escape(mark.row) + '"]')
+    : (mark.box ? document.getElementById(mark.box) : document.getElementById('panel-tasks'));
+  const shown = (x) => x && x.getClientRects().length > 0;
+  const again = scope ? [...scope.querySelectorAll(mark.tag + '[' + mark.attr + '="' + CSS.escape(String(mark.value)) + '"]')].find(shown) : null;
+  if (again) { again.focus(); return; }
+  /* The control is gone with its container (the crumb's "All tasks" empties the crumb): land on
+     what now stands for it, the rail's item for that project, else the dropdown, else the search,
+     never the page body. */
+  const fallback = [...document.querySelectorAll('#tsk-projects [data-proj="' + CSS.escape(String(mark.attr === 'data-proj' ? mark.value : '')) + '"]')].find(shown)
+    || [document.getElementById('tsk-projsel'), document.getElementById('tsk-search')].find(shown);
+  if (fallback) fallback.focus();
+}
+function tskPaintKeepingFocus(el) {
+  const mark = tskFocusMark(el);
+  tskPaint();
+  tskFocusRestore(mark);
+}
+/* The same for a repaint nobody pressed for (a load finishing, the roster renaming an agent). */
+function tskPaintKeepingCurrentFocus() {
+  tskPaintKeepingFocus(document.activeElement);
+}
+document.getElementById('panel-tasks').addEventListener('click', (e) => {
+  const el = (sel) => e.target.closest(sel);
+  let b;
+  if ((b = el('[data-proj]'))) { TSK.proj = b.dataset.proj || null; TSK.tile = null; tskPaintKeepingFocus(b); return; }
+  if ((b = el('[data-win]'))) { TSK.win = Number(b.dataset.win) || 0; tskPaintKeepingFocus(b); return; }
+  if ((b = el('[data-by]'))) { TSK.by = b.dataset.by; tskPaintKeepingFocus(b); return; }
+  if ((b = el('[data-tile]'))) { TSK.tile = TSK.tile === b.dataset.tile ? null : b.dataset.tile; tskPaintKeepingFocus(b); return; }
+  if ((b = el('[data-open-task]'))) { tskOpenTask(b.dataset.openTask); return; }
+  if ((b = el('[data-open-project]'))) { tskOpenProject(b.dataset.openProject); return; }
+  if ((b = el('[data-agent]'))) { openDetail(b.dataset.agent); return; }
+});
+document.getElementById('panel-tasks').addEventListener('change', (e) => {
+  const box = e.target.closest('input[type="checkbox"][data-key]');
+  if (box) {
+    if (box.checked) TSK.sel.add(box.dataset.key); else TSK.sel.delete(box.dataset.key);
+    const row = box.closest('.tsk-row');
+    if (row) row.classList.toggle('sel', box.checked);
+    tskPaintBulk();
+    return;
+  }
+  if (e.target.id === 'tsk-sort') { TSK.sort = e.target.value; tskPaint(); return; }
+  if (e.target.id === 'tsk-projsel') { TSK.proj = e.target.value || null; TSK.tile = null; tskPaint(); }
+});
+/* `toggle` does not bubble, so the Closed fold's open state is caught in the capture phase and
+   kept across repaints. */
+document.getElementById('panel-tasks').addEventListener('toggle', (e) => {
+  if (e.target && e.target.classList && e.target.classList.contains('tsk-fold')) TSK.closedOpen = e.target.open;
+}, true);
+document.getElementById('tsk-search').addEventListener('input', (e) => {
+  TSK.q = e.target.value;
+  document.getElementById('tsk-qclear').hidden = !TSK.q;
+  tskPaint();
+});
+document.getElementById('tsk-qclear').addEventListener('click', () => {
+  const q = document.getElementById('tsk-search');
+  q.value = ''; TSK.q = '';
+  document.getElementById('tsk-qclear').hidden = true;
+  q.focus();
+  tskPaint();
+});
+document.getElementById('tsk-bclose').addEventListener('click', tskBulkClose);
+document.getElementById('tsk-bclear').addEventListener('click', () => {
+  TSK.sel.clear();
+  tskPaint();
+  // The bar hides with the ticks, taking this button with it: land on the search, not the body.
+  document.getElementById('tsk-search').focus();
+});
+document.getElementById('rail-projects-tasks').addEventListener('click', openConsolidatedTasks);
 
 /**
  * Every task on the current project, open and finished (#2498 scoped it from
@@ -53881,7 +54497,7 @@ function tipShow(t, { auto = false, returnTo = null } = {}) {
   card.innerHTML = '<span class="tip-arrow" aria-hidden="true"></span>'
     + '<button class="tip-x" type="button" aria-label="Close">&times;</button>'
     + '<div class="tip-eb">' + esc(t.eb || 'Tip') + '</div>'
-    + '<h2 id="tipcard-title">' + esc(t.title) + '</h2>' + t.body
+    + '<h2 id="tipcard-title">' + esc(t.title) + '</h2><div class="tip-bd">' + t.body + '</div>'
     + '<div class="tip-acts">'
     + '<button class="tip-off" type="button">Stop showing tips</button>'
     + '<button class="tip-go" type="button">Got it</button></div>';
@@ -53915,7 +54531,7 @@ function tipTourRender(card, auto) {
   card.innerHTML = '<span class="tip-arrow" aria-hidden="true"></span>'
     + '<button class="tip-x" type="button" aria-label="Close the tour">&times;</button>'
     + '<div class="tip-eb">' + (TIP_STEP + 1) + ' of ' + n + '</div>'
-    + '<h2 id="tipcard-title">' + esc(st.title) + '</h2><p>' + esc(st.body) + '</p>'
+    + '<h2 id="tipcard-title">' + esc(st.title) + '</h2><div class="tip-bd"><p>' + esc(st.body) + '</p></div>'
     + '<div class="tip-acts"><span class="tip-dots" aria-hidden="true">'
     + TIP_PLACES.map((_, i) => '<i' + (i === TIP_STEP ? ' class="on"' : '') + '></i>').join('') + '</span>'
     + '<span class="tip-btns">' + (last ? '' : '<button class="tip-skip" type="button">Skip</button>')
@@ -53984,11 +54600,30 @@ function tipPlace(card, sel, side = false, { key = '', avoid = true } = {}) {
   try {
     el = sel ? [...document.querySelectorAll(sel)].find((x) => { const r = x.getBoundingClientRect(); return r.width > 0 && r.height > 0 && !x.closest('[hidden]'); }) || null : null;
   } catch { el = null; }   // :has() in an older webview
+  /* A card taller than the window gives its words just enough scroll to fit, measured, not budgeted. They are a
+     tab stop only while they scroll, so a keyboard can reach the hidden part and a short tip adds no stop. */
+  const bd = card.querySelector('.tip-bd');
+  if (bd) {
+    /* Worked out from the card as it stands, never by clearing the height first: clearing it would pull the words
+       back to the top on every placement. The style is written only when the value changes. Below a window of
+       about 150px even the title and buttons do not fit, and the card keeps its top on screen. */
+    const natural = card.offsetHeight - bd.clientHeight + bd.scrollHeight;
+    const over = natural - (window.innerHeight - 24);
+    const want = over > 0 ? Math.max(24, bd.scrollHeight - over) + 'px' : '';
+    if (bd.style.maxHeight !== want) bd.style.maxHeight = want;
+    const scrolls = bd.scrollHeight > bd.clientHeight + 1;
+    if (scrolls) { bd.tabIndex = 0; bd.setAttribute('role', 'region'); bd.setAttribute('aria-label', 'Tip text, scrolls'); }
+    else if (bd.hasAttribute('tabindex')) {
+      /* A person on the words keeps their place: focus moves to Got it before the stop goes away. */
+      if (document.activeElement === bd) { const go = card.querySelector('.tip-go'); if (go) go.focus({ preventScroll: true }); }
+      bd.removeAttribute('tabindex'); bd.removeAttribute('role'); bd.removeAttribute('aria-label');
+    }
+  }
   const w = card.offsetWidth, h = card.offsetHeight, pad = 12;
   const pageW = document.documentElement.getBoundingClientRect().width;
   if (!el || !el.getBoundingClientRect().width) {
     card.className = 'tipcard flat';
-    const cl = Math.round((pageW - w) / 2), ct = Math.round(Math.max(80, (window.innerHeight - h) / 2));
+    const cl = Math.round((pageW - w) / 2), ct = Math.round(Math.max(pad, Math.min(Math.max(80, (window.innerHeight - h) / 2), window.innerHeight - h - pad)));
     card.style.left = cl + 'px';
     card.style.top = ct + 'px';
     const all = avoid ? tipCoveredControls(null) : [];
@@ -54005,12 +54640,20 @@ function tipPlace(card, sel, side = false, { key = '', avoid = true } = {}) {
   const sideTop = Math.min(Math.max(pad, r.top - 10), vh - h - pad);
   const midLeft = Math.min(Math.max(pad, r.left + r.width / 2 - 28), pageW - w - pad);
   const cands = [];
-  const right = { cls: 'left', left: r.right + 14, top: sideTop, fits: r.right + 14 + w <= pageW - pad };
-  const below = { cls: 'up', left: midLeft, top: r.bottom + 12, fits: r.bottom + 12 + h <= vh - pad };
-  const above = { cls: 'down', left: midLeft, top: r.top - 12 - h, fits: r.top - 12 - h >= pad };
-  const leftSide = { cls: 'right', left: r.left - 14 - w, top: sideTop, fits: r.left - 14 - w >= pad };
-  for (const c of side ? [right, below, above, leftSide] : [below, above, right, leftSide]) if (c.fits) cands.push(c);
-  if (!cands.length) cands.push({ ...below, top: Math.max(pad, Math.min(r.bottom + 12, vh - h - pad)) });
+  /* The WHOLE card must be on screen, every edge (#3574, Liu Kang 2026-09-25): "above" used to check only its
+     top, so a target below the fold put the card below the fold too, and "below" did the same above it. */
+  /* A pixel of slack across: on a phone the card is the window's width less two pads, and offsetWidth is rounded
+     while pageW can be fractional, so an exact test could refuse every place that fits. */
+  const onScreen = (left, top) => top >= pad && top + h <= vh - pad && left >= pad - 1 && left + w <= pageW - pad + 1;
+  const right = { cls: 'left', left: r.right + 14, top: sideTop };
+  const below = { cls: 'up', left: midLeft, top: r.bottom + 12 };
+  const above = { cls: 'down', left: midLeft, top: r.top - 12 - h };
+  const leftSide = { cls: 'right', left: r.left - 14 - w, top: sideTop };
+  /* A target off screen gets no arrow: a side place clamps onto the screen and would point at nothing.
+     The scroll listener places the card again, arrow and all, once the target is in view. */
+  const offScreen = r.bottom <= 0 || r.top >= vh || r.right <= 0 || r.left >= pageW;
+  if (!offScreen) for (const c of side ? [right, below, above, leftSide] : [below, above, right, leftSide]) if (onScreen(c.left, c.top)) cands.push(c);
+  if (!cands.length) cands.push({ ...below, cls: offScreen ? 'flat' : below.cls, top: Math.max(pad, Math.min(r.bottom + 12, vh - h - pad)) });
   /* The target itself is kept clear too (with the ring's margin): the card points at it, never sits on it. */
   const covered = (avoid ? tipCoveredControls(el) : []).concat([{ l: r.left - 6, t: r.top - 6, r: r.right + 6, b: r.bottom + 6 }]);
   const hitsAt = (left, top) => { let n = 0; for (const q of covered) if (q.l < left + w && q.r > left && q.t < top + h && q.b > top) n++; return n; };
@@ -54032,7 +54675,7 @@ function tipPlace(card, sel, side = false, { key = '', avoid = true } = {}) {
     if (card.classList.contains('flat') && card.dataset.covers === '0' && card.dataset.tipKey === key && !card.hidden) {
       const nowL = parseFloat(card.style.left), nowT = parseFloat(card.style.top);
       const near = Number.isFinite(nowT) && Math.abs(nowT + h / 2 - (r.top + r.height / 2)) <= h + 120;
-      if (near && Number.isFinite(nowL) && nowT >= pad && nowT + h <= vh - pad && nowL >= pad && nowL + w <= pageW - pad && !hitsAt(nowL, nowT)) {
+      if (near && Number.isFinite(nowL) && Number.isFinite(nowT) && onScreen(nowL, nowT) && !hitsAt(nowL, nowT)) {
         best = { cls: 'flat', left: nowL, top: nowT, hits: 0 };
       }
     }
@@ -54041,7 +54684,7 @@ function tipPlace(card, sel, side = false, { key = '', avoid = true } = {}) {
     const cx = r.left + r.width / 2, cy = r.top + r.height / 2;
     let near = null;
     for (let top = pad; top + h <= vh - pad; top += 24) {
-      for (let left = pad; left + w <= pageW - pad; left += 24) {
+      for (let left = pad; left + w <= pageW - pad + 1; left += 24) {
         if (!clearAt(left, top)) continue;
         const d = Math.hypot(left + w / 2 - cx, top + h / 2 - cy);
         if (!near || d < near.d) near = { cls: 'flat', left, top, hits: 0, d };
@@ -54123,7 +54766,9 @@ document.addEventListener('pointerdown', (e) => {
   tipClose({ record: true });
 }, true);
 let TIP_RELAYOUT = false;
-const tipRelayout = () => {
+const tipRelayout = (e) => {
+  /* Scrolling the tip's own words moves nothing else; placing the card for it would loop on WebKit. */
+  if (e && e.type === 'scroll' && e.target instanceof Element && e.target.closest('#tiplayer')) return;
   if (!TIP_OPEN || TIP_RELAYOUT) return;
   TIP_RELAYOUT = true;
   requestAnimationFrame(() => { TIP_RELAYOUT = false; const c = document.getElementById('tipcard'); if (TIP_OPEN && c && !c.hidden) tipLayout(TIP_OPEN, c); });
@@ -54228,6 +54873,9 @@ function asbScreen() {
   if (URL_TAB === 'detail' && CURRENT) return { screen: 'agent', agent: CURRENT.name || CURRENT.sessionName };
   if (URL_TAB === 'create') return { screen: 'create' };
   if (URL_TAB === 'projects' && PJ_VIEW === 'alltasks') return { screen: 'tasks' };
+  /* #3559: the Tasks view, as its own tab or opened inside the consolidated display column. */
+  if (URL_TAB === 'tasks') return { screen: 'tasks' };
+  { const pt = document.getElementById('panel-tasks'); if (pt && !pt.hidden && pt.getClientRects().length) return { screen: 'tasks' }; }
   if (URL_TAB === 'projects' && PJ_CURRENT && PJ_VIEW !== 'list') {
     const pj = Array.isArray(PROJECTS) ? PROJECTS.find((x) => x && x.id === PJ_CURRENT) : null;
     return { screen: 'project', project: (pj && pj.name) || String(PJ_CURRENT) };
@@ -54677,7 +55325,7 @@ let WANT_PROJECT_DONE = false;
    with the three-tab ruling and everything that lived behind it is in
    Projects, so a bookmark of the old tab lands where its content went. */
 const RAW_TAB = PARAMS.get('tab') || 'agents';
-const KNOWN_TABS = ['agents', 'projects', 'settings', 'detail', 'create'];
+const KNOWN_TABS = ['agents', 'projects', 'tasks', 'settings', 'detail', 'create'];
 const BOOT_TAB = RAW_TAB === 'joint' ? 'projects'
   : (KNOWN_TABS.includes(RAW_TAB) ? RAW_TAB : 'agents');
 showTab(BOOT_TAB);

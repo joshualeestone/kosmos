@@ -276,6 +276,11 @@ function heardBy(projectId, t, who, sentence, roster) {
   catch (err2) { sent = { state: chat.DELIVERY.COULD_NOT, because: String((err2 && err2.message) || 'we could not reach that agent') }; }
   return { who: name, state: sent.state, because: sent.because || null };
 }
+/* #3559: the most tasks one bulk close will take. The Tasks view ticks rows by
+   hand, so a real selection is far below this; the cap bounds one request's
+   writes so a malformed or hostile body cannot close a whole store in one go. */
+const BULK_CLOSE_MAX = 200;
+
 // `roster`: optional, so taskAct (close/reopen, below) keeps fetching its
 // own exactly as before -- only #761's routes, which already have one in
 // scope for `heardBy`, pass it through instead of paying for a second
@@ -13034,8 +13039,9 @@ const server = http.createServer((req, res) => {
    * six, because one number came from the data and the other from the DOM.
    */
   if (pathname === '/api/tasks' && (req.method === 'GET' || req.method === 'HEAD')) {
+    let everyProject;
     try {
-      projects.readAll();
+      everyProject = projects.readAll();
     } catch (err) {
       sendJson(res, 500, {
         error: String((err && err.message) || 'we cannot read your tasks right now'),
@@ -13050,10 +13056,161 @@ const server = http.createServer((req, res) => {
        the global set, unchanged: nothing serves a global all-tasks view today,
        but the route stays backward-compatible for one if it is ever added. */
     let projectScope = null;
-    try { projectScope = new URL(req.url, ROUTING_BASE).searchParams.get('project') || null; } catch { projectScope = null; }
-    const all = tasks.allTasks();
-    const rows = projectScope ? all.filter((t) => t.projectId === projectScope) : all;
+    let forTasksView = false;
+    try {
+      const q = new URL(req.url, ROUTING_BASE).searchParams;
+      projectScope = q.get('project') || null;
+      forTasksView = q.get('view') === 'tasks';
+    } catch { projectScope = null; }
+    const all = tasks.allTasks(everyProject);
+    const scoped = projectScope ? all.filter((t) => t.projectId === projectScope) : all;
+    /* The fields below cost a board snapshot plus a transcript read per task, so only the
+       Tasks view (?view=tasks) pays for them: the project View-all door and the agents'
+       `kosmos tasks` read the list exactly as cheaply as before. */
+    if (!forTasksView) {
+      sendJson(res, 200, { tasks: scoped, count: scoped.length, project: projectScope });
+      return;
+    }
+    /* #3559: the Tasks view groups by WHERE THE WORK IS, and the engine derives
+       that, never the page. Each row gains:
+         claim          the same join the project card uses ("says it is on
+                        this" / has not said / could not tell, with why), one
+                        roster read and one commitments reading per agent for
+                        the whole request
+         state          tasks.taskState: closed / nobody / working / assigned
+         lastActivityAt the newest transcript event, else created/closed
+       Added fields only, and only on ?view=tasks, which also leaves out archived
+       projects' tasks (the view does not list them). */
+    const roster = safeRoster();
+    const claims = new Map();
+    /* A project whose claims could not be read: its tasks say so (claimed: null, with why),
+       so the page shows "cannot tell" on the row rather than "not started" as a fact. */
+    const unreadable = new Set();
+    for (const p of everyProject || []) {
+      if (projectScope && p.id !== projectScope) continue;
+      // An archived project is set aside and the view does not list it, so it costs nothing.
+      if (p.archived === true) continue;
+      let joined = [];
+      try {
+        joined = projects.joinTaskClaims(Array.isArray(p.tasks) ? p.tasks : [], everyProject, p.agents || [], roster, { name: p.name, id: p.id });
+      } catch (err) {
+        console.error('[tasks view] could not read claims for project ' + p.id + ': ' + String((err && err.message) || err));
+        unreadable.add(p.id);
+        joined = [];
+      }
+      for (const j of joined) if (j && j.claim) claims.set(p.id + '\u0000' + j.number, j.claim);
+    }
+    const rows = scoped.filter((t) => !t.projectArchived).map((t) => {
+      let claim = claims.get(t.projectId + '\u0000' + t.number) || null;
+      if (!claim && unreadable.has(t.projectId) && tasks.taskState(t) === 'assigned') {
+        claim = { claimed: null, because: 'we could not read what its agent reports' };
+      }
+      return Object.assign({}, t, {
+        claim,
+        state: tasks.taskState(Object.assign({}, t, { claim })),
+        lastActivityAt: tasks.lastActivityOf(t.projectId, t),
+      });
+    });
     sendJson(res, 200, { tasks: rows, count: rows.length, project: projectScope });
+    return;
+  }
+
+  /**
+   * Close many tasks at once, with one optional note (#3559, the Tasks view's
+   * bulk bar). Body { tasks: [{ projectId, number }], note }.
+   *
+   * 🔑 A PERSON'S ACTION. A request that presents an agent token, or that does not
+   * come from a page at all, is refused: closing a pile of tasks in one call is what
+   * a looping agent must not do. ⚠️ Like every screen-or-process split here
+   * (isViaScreen), the page headers are ADVISORY: a local process that omits its
+   * token and sends them passes. This keeps honest agents out; it is not a lock.
+   * 🔑 EACH TASK STANDS ALONE. One that cannot close (gone, unreadable) does not
+   * stop the others, and the answer says which failed and why. Each task is
+   * closed FIRST and the note written after it, so a failed close never leaves a note behind to
+   * be written a second time on a retry.
+   * Closing tells the assignees exactly as a single close does (their managed
+   * block stops listing the task). Closing does not stop an agent (tasks.js).
+   */
+  if (pathname === '/api/tasks/close' && req.method === 'POST') {
+    readBody(req).then((raw) => {
+      let body = null;
+      try { body = JSON.parse(raw || 'null'); } catch { body = null; }
+      /* Who is asking comes first, so an agent sending anything, well-formed or not, is told 403. */
+      if (!isViaScreen(req, body && typeof body === 'object' ? body : null)) {
+        sendJson(res, 403, { error: 'closing several tasks at once is done from the Tasks screen' });
+        return;
+      }
+      if (!body || typeof body !== 'object' || !Array.isArray(body.tasks)) {
+        sendJson(res, 400, { error: 'we could not read which tasks to close' });
+        return;
+      }
+      if (!body.tasks.length) { sendJson(res, 400, { error: 'pick at least one task to close' }); return; }
+      if (body.tasks.length > BULK_CLOSE_MAX) {
+        sendJson(res, 400, { error: `close up to ${BULK_CLOSE_MAX} tasks at a time` });
+        return;
+      }
+      const note = typeof body.note === 'string' ? body.note.trim() : '';
+      if (note.length > tasks.MESSAGE_MAX) {
+        sendJson(res, 400, { error: `keep the note to ${tasks.MESSAGE_MAX} characters or fewer` });
+        return;
+      }
+      const results = [];
+      const toTell = new Set();
+      /* ONE store read for every lookup. projects.get() would run the whole claim join (every
+         project's tasks, a commitments read per assignee) once per item, and tasks.say() would run
+         it again: ~400 joins for a 200-task close. Closes made earlier in THIS request are not in
+         the snapshot, so they are remembered here (a task sent twice gets one note, one close). */
+      let everyProject;
+      try { everyProject = projects.readAll(); } catch (err) {
+        sendJson(res, 500, { error: String((err && err.message) || 'we cannot read your tasks right now') });
+        return;
+      }
+      const closedHere = new Set();
+      const taskchat = require('./engine/taskchat');
+      for (const item of body.tasks) {
+        const projectId = item && typeof item.projectId === 'string' ? item.projectId : null;
+        const number = item && Number.isSafeInteger(item.number) ? item.number : null;
+        if (!projectId || number === null) {
+          results.push({ projectId, number, ok: false, error: 'that is not a task we can find' });
+          continue;
+        }
+        try {
+          /* Looked up FIRST, so a missing task never gets the note, and one already closed
+             (a stale page, or sent twice) is left alone rather than re-stamped with the note
+             written a second time. */
+          const p = (everyProject || []).find((x) => x && x.id === projectId);
+          const found = p ? tasks.byNumber(p, number) : null;
+          if (!found) throw new Error(p ? 'there is no task by that number on this project' : 'there is no project by that name');
+          const here = projectId + '#' + number;
+          if (closedHere.has(here) || tasks.progressOf(found).closed) { results.push({ projectId, number, ok: true, already: true }); continue; }
+          /* CLOSE FIRST, then the note: a close that fails leaves no note behind to be written a
+             second time on a retry. The note is recorded exactly as tasks.say records it (a 'said'
+             event); say() itself would re-read and re-join the store just to find the task we
+             already hold. Length and emptiness were checked above. A note that cannot be saved does
+             not undo the close; the result says so. */
+          const t = tasks.close(projectId, number);
+          closedHere.add(here);
+          for (const one of tasks.whoOf(t)) toTell.add(one);
+          const noteRecorded = note ? !!taskchat.record(projectId, found.number, { kind: 'said', text: note }) : null;
+          results.push({ projectId, number, ok: true, ...(note ? { noteRecorded } : {}) });
+        } catch (err) {
+          results.push({ projectId, number, ok: false, error: String((err && err.message) || 'we could not close that task') });
+        }
+      }
+      /* Tell each assignee ONCE, after every close, from ONE roster read: a board
+         snapshot is synchronous tmux work, and one per task froze the board on a big
+         close. Their managed block then stops listing every task closed here. */
+      if (toTell.size) {
+        const roster = safeRoster();
+        for (const one of toTell) {
+          try { projects.syncAgent(one, roster); } catch { /* the close stands; the next sync catches up */ }
+        }
+      }
+      /* `closed` counts closes THIS request made; one already closed is ok but not credited here. */
+      const ok = results.filter((r) => r.ok).length;
+      const closed = results.filter((r) => r.ok && !r.already).length;
+      sendJson(res, ok === results.length ? 200 : (ok ? 207 : 400), { results, closed, already: ok - closed, failed: results.length - ok });
+    }).catch(() => sendJson(res, 400, { error: 'we could not read that request' }));
     return;
   }
 

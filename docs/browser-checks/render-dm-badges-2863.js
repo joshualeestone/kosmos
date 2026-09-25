@@ -29,6 +29,7 @@
 // refuses to boot half-sandboxed): a throwaway workers/data/projects/launch tree
 // and a stub tmux, so fleet.install writes no real worker file and the board reads
 // no real fleet. The same preamble every self-contained check in this dir uses.
+require('./lib-sandbox-home.js'); // #3675: never read the host Mac's real accounts
 const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');

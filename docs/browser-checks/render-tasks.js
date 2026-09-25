@@ -12,6 +12,7 @@
  * in this check can reach a live pane. It once could: a real session was
  * named as the member and every run typed the membership tell into that
  * agent, because sandboxing the store is not sandboxing delivery. */
+require('./lib-sandbox-home.js'); // #3675: never read the host Mac's real accounts
 const { spawn } = require('node:child_process');
 const fs = require('node:fs');
 const os = require('node:os');
