@@ -1022,14 +1022,6 @@ function waitingNote(state, outcome, runner, backgroundWait) {
 }
 
 /**
- * Put one message into one agent's session.
- *
- * ⚠️ NEVER THROWS, and never claims more than a keystroke. The return is a
- * verdict a screen can render as-is. See `DELIVERY` for the three states and
- * for the one fact that separates them: whether anything of the person's text
- * could have reached the pane. None of them says the agent knows anything.
- */
-/**
  * #3564 Stop now: interrupt the agent's current turn (Escape, as a person would press
  * it), which ends a swarm lead's work and its helpers. Through the SAME gate as
  * deliver (`addressable`: exact name, ours, an agent pane), so it can only ever
@@ -1045,6 +1037,14 @@ function interrupt(sessionName, roster) {
   return { ok: true };
 }
 
+/**
+ * Put one message into one agent's session.
+ *
+ * ⚠️ NEVER THROWS, and never claims more than a keystroke. The return is a
+ * verdict a screen can render as-is. See `DELIVERY` for the three states and
+ * for the one fact that separates them: whether anything of the person's text
+ * could have reached the pane. None of them says the agent knows anything.
+ */
 function deliver(sessionName, raw, roster, envelope, trailer) {
   const at = new Date().toISOString();
   const problem = messageProblem(raw);
@@ -1079,10 +1079,11 @@ function deliver(sessionName, raw, roster, envelope, trailer) {
   }
   /* #3564: a PAUSED swarm is not typed at. Every caller comes through here (DMs, rooms,
      tasks, the sweeps), so this is the one place that makes "paused" true. A slash
-     command (/compact, /clear) still goes in: a paused swarm can be looked after. The
+     COMMAND (/compact, /clear: a slash and a word) still goes in, so a paused swarm can be
+     looked after; a message that merely starts with a path (/Users/...) does not. The
      card's `swarm` field is the snapshot this request already holds. */
   if (allowed.card && allowed.card.swarm && allowed.card.swarm.active === false
-      && !String(raw).trim().startsWith('/')) {
+      && !/^\/[a-z][a-z-]*(\s|$)/.test(String(raw).trim())) {
     return {
       state: DELIVERY.COULD_NOT,
       because: require('./swarm').pausedSentence(allowed.card.name || sessionName, allowed.card.swarm.pausedBecause),

@@ -2124,16 +2124,6 @@ function cleanArchivedAt(value) {
 }
 
 /**
- * Archive or restore a project.
- *
- * ⚠️ A display state, not a removal. The record stays in the store, the folder
- * is untouched, and the agents that were on it stay as they are -- so nothing
- * here re-tells the members: their instructions still describe a project that
- * still exists under the same name. Restoring clears the timestamp rather than
- * leaving a stale "archived at" beside a project that is not archived, which
- * would be a sentence about a thing that is no longer true.
- */
-/**
  * #3564: swarms switched OFF in a project. An Off swarm stays a member, but work in
  * that project does not reach it: room posts skip it unless it is @-named, and a
  * message or task line to it there is refused with a sentence. Stored on the project
@@ -2155,6 +2145,16 @@ function setSwarmOn(projectId, name, on) {
 }
 const SWARM_OFF_SENTENCE = (who) => `${who} is switched off in this project. Switch it on in the project's members to send it work here.`;
 
+/**
+ * Archive or restore a project.
+ *
+ * ⚠️ A display state, not a removal. The record stays in the store, the folder
+ * is untouched, and the agents that were on it stay as they are -- so nothing
+ * here re-tells the members: their instructions still describe a project that
+ * still exists under the same name. Restoring clears the timestamp rather than
+ * leaving a stale "archived at" beside a project that is not archived, which
+ * would be a sentence about a thing that is no longer true.
+ */
 function setArchived(id, want) {
   // One rule: this is edit with one field carried.
   return edit(id, { archived: want });
@@ -2236,6 +2236,8 @@ function removeAgent(id, sessionName, made) {
     const told = { ...(p.told || {}) };
     const everSeen = { ...(p.everSeen || {}) };
     delete everSeen[key];
+    /* #3564: leaving the project clears its On/Off, so an agent re-added later starts On. */
+    if (Array.isArray(p.swarmOff)) p = { ...p, swarmOff: p.swarmOff.filter((n) => n !== key) };
     // The record of having told it goes with the membership. Keeping it would
     // leave a stale "we told this agent" beside an agent that is no longer on
     // the project, which is a sentence about a thing that is not true any more.

@@ -39,7 +39,7 @@ test('#3564 createProblem: Claude only, 2-10 helpers, a daily limit required', (
 test('#3564 settings: born active with the default count; a patch is checked key by key; switching on clears the reason', () => {
   const born = swarm.birthProfile({ dailyTokenLimit: 5000 });
   assert.equal(born.kind, 'swarm');
-  assert.deepEqual(swarm.settingsOf(born), { maxHelpers: swarm.DEFAULT_HELPERS, dailyTokenLimit: 5000, active: true, pausedBecause: null, pausedAt: null });
+  assert.deepEqual(swarm.settingsOf(born), { maxHelpers: swarm.DEFAULT_HELPERS, dailyTokenLimit: 5000, active: true, pausedBecause: null, pausedAt: null, limitOverrideDay: null });
   assert.equal(swarm.settingsOf({ role: 'pm' }), null, 'an ordinary agent has no swarm settings');
   for (const bad of [null, [], {}, { maxHelpers: 11 }, { dailyTokenLimit: 0 }, { active: 'no' }, { other: 1 }]) {
     assert.ok(swarm.patchProblem(bad), JSON.stringify(bad) + ' was accepted');
@@ -53,13 +53,13 @@ test('#3564 settings: born active with the default count; a patch is checked key
   assert.deepEqual(swarm.applyPatch(born, { maxHelpers: 7 }).maxHelpers, 7);
 });
 
-test('#3564 the lead\'s block names its own N, isolation, claims, one voice and the paused rule', () => {
+test('#3564 the lead\'s block names its own N, isolation, claims and one voice', () => {
   const flat = swarm.blockBody(6).replace(/\s+/g, ' ');
   assert.match(flat, /at most 6 at once/);
   assert.match(flat, /isolation set to "worktree"/);
   assert.match(flat, /exactly one part/);
   assert.match(flat, /Only you speak: helpers never post in a room/);
-  assert.match(flat, /If Kosmos tells you that you are paused, start no helpers/);
+  assert.doesNotMatch(flat, /Kosmos tells you that you are paused/, 'the block relies on a pause message nothing ever sends');
   assert.ok(projects.ALL_MARKERS().includes(swarm.START) && projects.ALL_MARKERS().includes(swarm.END), 'the markers are not registered');
 });
 
@@ -101,6 +101,28 @@ test('#3564 meter: today\'s lead + helper tokens (all four counts), yesterday le
   assert.deepEqual(swarm.meter(null, NOW), { tokensToday: 0, leadTokens: 0, helperTokens: 0, activeHelpers: 0 });
 });
 
+test('#3564 meter: one message counts ONCE, however many content-block lines carry its usage (measured 2.23x overcount)', () => {
+  swarm.resetForTests();
+  const line = (id, stop) => JSON.stringify({ type: 'assistant', timestamp: today(9), message: { id, role: 'assistant', stop_reason: stop || null, usage: U(100, 0) } });
+  const dir = transcripts('dup', [['s.jsonl', [line('msg_1', 'tool_use'), line('msg_1', 'tool_use'), line('msg_1', 'tool_use'), line('msg_2', 'end_turn')], NOW - 60000]]);
+  assert.equal(swarm.meter(path.join(dir, 's.jsonl'), NOW).leadTokens, 200, 'a message was counted once per content block');
+});
+
+test('#3564 meter: reads grow incrementally and stay exact, including a line cut in half at the read point', () => {
+  swarm.resetForTests();
+  const line = (id, n) => JSON.stringify({ type: 'assistant', timestamp: today(9), message: { id, role: 'assistant', stop_reason: 'tool_use', usage: U(n, 0) } });
+  const dir = transcripts('inc', [['s.jsonl', [line('a', 10)], NOW - 60000]]);
+  const f = path.join(dir, 's.jsonl');
+  assert.equal(swarm.meter(f, NOW).leadTokens, 10);
+  const next = line('b', 20);
+  fs.appendFileSync(f, next.slice(0, 25));            // half a line
+  assert.equal(swarm.meter(f, NOW).leadTokens, 10, 'half a line was counted');
+  fs.appendFileSync(f, next.slice(25) + '\n' + line('a', 10) + '\n' + line('c', 5) + '\n');
+  assert.equal(swarm.meter(f, NOW).leadTokens, 35, 'the rest of the line, a repeated id and a new one: 10 + 20 + 5');
+  fs.writeFileSync(f, line('z', 7) + '\n');           // rewritten shorter: read from the start
+  assert.equal(swarm.meter(f, NOW).leadTokens, 7);
+});
+
 test('#3564 cardField: null for an ordinary agent; for a swarm, settings + meter + the real ratio', () => {
   swarm.resetForTests();
   let resolved = 0;
@@ -140,6 +162,18 @@ test('#3564 sweep: at the limit it pauses itself, interrupts, and says so in its
   assert.equal(swarm.settingsOf(profiles.small).active, true, 'CONTROL: under the limit it keeps running');
   // Already paused: a second pass does nothing more.
   assert.equal(swarm.sweepOnce([card('big', 5000)], d, NOW).length, 0);
+});
+
+test('#3564 sweep: switched back on by the person over its limit, it is NOT re-paused that day; the next day the limit applies again', () => {
+  const limited = { ...swarm.birthProfile({ dailyTokenLimit: 1000 }), swarm: swarm.pausedFor(swarm.settingsOf(swarm.birthProfile({ dailyTokenLimit: 1000 })), 'limit', NOW - 3600000) };
+  const on = swarm.applyPatch(limited, { active: true }, NOW);
+  const profiles = { over: { ...limited, swarm: on } };
+  const d = deps(profiles);
+  assert.equal(swarm.sweepOnce([card('over', 5000)], d, NOW).length, 0, 'the person switched it on and the sweep paused it again');
+  assert.equal(d.calls.interrupts.length, 0);
+  // CONTROL: the next day, over its (new day's) limit, it pauses again.
+  const tomorrow = NOW + 24 * 3600000;
+  assert.deepEqual(swarm.sweepOnce([card('over', 5000)], deps(profiles), tomorrow).map((x) => x.action), ['paused']);
 });
 
 test('#3564 sweep: a LIMIT pause lifts on the next day; a person\'s pause or Stop now never lifts by itself', () => {

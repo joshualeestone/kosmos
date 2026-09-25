@@ -4235,6 +4235,15 @@ function sessionIdsFor(sessionName, exactSession) {
   return found;
 }
 
+/* #3564: the card's `swarm` field. The transcript is resolved only for a swarm. */
+function swarmField(agentName, exactSession) {
+  let profile;
+  try { profile = store.readProfile(agentName); } catch { return null; }
+  try {
+    return require('./swarm').cardField(profile, () => transcriptFor(agentName, exactSession));
+  } catch { return null; }
+}
+
 /**
  * The transcript belonging to THIS session, with no folder fallback.
  *
@@ -4248,15 +4257,6 @@ function sessionIdsFor(sessionName, exactSession) {
  * could, because that is what creates the new file. Josh pressed it three times
  * on 2026-08-22; the restart had worked every time (found by Splinter).
  */
-/* #3564: the card's `swarm` field. The transcript is resolved only for a swarm. */
-function swarmField(agentName, exactSession) {
-  let profile;
-  try { profile = store.readProfile(agentName); } catch { return null; }
-  try {
-    return require('./swarm').cardField(profile, () => transcriptFor(agentName, exactSession));
-  } catch { return null; }
-}
-
 function transcriptForSession(agentName, exactSession) {
   for (const sessionId of sessionIdsFor(agentName, exactSession)) {
     for (const root of configRoots()) {

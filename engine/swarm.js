@@ -63,6 +63,7 @@ function birthProfile({ maxHelpers, dailyTokenLimit }) {
       active: true,
       pausedBecause: null,
       pausedAt: null,
+      limitOverrideDay: null,
     },
   };
 }
@@ -77,6 +78,9 @@ function settingsOf(profile) {
     active: s.active !== false,
     pausedBecause: s.active === false && PAUSED_BECAUSE.includes(s.pausedBecause) ? s.pausedBecause : null,
     pausedAt: s.active === false && typeof s.pausedAt === 'string' ? s.pausedAt : null,
+    /* The local day on which the person switched it back on over its limit: the sweep leaves
+       it running for the rest of that day (it would otherwise re-pause within a minute). */
+    limitOverrideDay: typeof s.limitOverrideDay === 'string' ? s.limitOverrideDay : null,
   };
 }
 
@@ -101,16 +105,21 @@ function patchProblem(patch) {
   return null;
 }
 
-/** The swarm block of a profile after a valid patch. Switching it back on clears the reason. */
-function applyPatch(profile, patch) {
+/* A local day as a stable key: its midnight, as an ISO string. */
+function dayKey(now) { return new Date(startOfDay(now)).toISOString(); }
+
+/** The swarm block of a profile after a valid patch. Switching it back on clears the reason;
+ *  switching it on after a LIMIT pause also holds for the rest of that day. */
+function applyPatch(profile, patch, now = Date.now()) {
   const cur = settingsOf(profile);
   const next = { ...cur };
   if ('maxHelpers' in patch) next.maxHelpers = patch.maxHelpers;
   if ('dailyTokenLimit' in patch) next.dailyTokenLimit = patch.dailyTokenLimit;
   if ('active' in patch) {
+    if (patch.active && cur.pausedBecause === 'limit') next.limitOverrideDay = dayKey(now);
     next.active = patch.active;
     next.pausedBecause = patch.active ? null : 'person';
-    next.pausedAt = patch.active ? null : new Date().toISOString();
+    next.pausedAt = patch.active ? null : new Date(now).toISOString();
   }
   return next;
 }
@@ -144,8 +153,6 @@ function blockBody(maxHelpers) {
     '  same part.',
     '- You check and merge every helper\'s work yourself before you answer. Only you',
     '  speak: helpers never post in a room or message anyone.',
-    '- If Kosmos tells you that you are paused, start no helpers, and say you are',
-    '  paused until the person switches you back on.',
   ].join('\n');
 }
 
@@ -193,33 +200,63 @@ function tokensOf(usage) {
   return t;
 }
 
-/* Per-file cache: a status tick must not re-read unchanged transcripts. Keyed on the
-   path, valid while size and mtime match and the day has not turned. */
+/* Per-file state, read INCREMENTALLY: a working lead's transcript grows all the time, and a
+   board poll must not re-parse tens of megabytes to count the last few lines. Each entry keeps
+   the byte offset read to, the running tokens, the message ids already counted, whether the
+   last assistant message ended the turn, and the unfinished tail of a line cut at the offset.
+   A file that shrank, or a new day (a different `since`), is read again from the start.
+   Bounded: entries not touched for a day are dropped. */
 const fileCache = new Map();
+const CACHE_TTL_MS = 24 * 60 * 60 * 1000;
 
-/* One transcript file: tokens written since `since`, and whether it has finished
-   (its last assistant message ended the turn). Never throws. */
-function readFile(file, since) {
+function freshEntry(since) {
+  return { since, offset: 0, tokens: 0, seen: new Set(), finished: false, tail: '', mtimeMs: 0, touched: 0 };
+}
+
+/* One transcript file: tokens written since `since`, and whether it has finished (its last
+   assistant message ended the turn). Never throws.
+   🛑 EACH MESSAGE COUNTS ONCE. Claude Code writes one line per content block, and every line
+   of one message carries the same `message.id` and the same `usage` (measured on this Mac: 2660
+   assistant lines, 1191 ids; summing lines overcounted 2.23x). So usage is added once per id. */
+function readFile(file, since, now = Date.now()) {
   let st;
   try { st = fs.statSync(file); } catch { return { tokens: 0, finished: true, mtimeMs: 0 }; }
-  const hit = fileCache.get(file);
-  if (hit && hit.size === st.size && hit.mtimeMs === st.mtimeMs && hit.since === since) return hit.value;
-  let tokens = 0;
-  let finished = false;
-  let raw = '';
-  try { raw = fs.readFileSync(file, 'utf8'); } catch { raw = ''; }
-  for (const line of raw.split('\n')) {
-    if (!line) continue;
-    let j;
-    try { j = JSON.parse(line); } catch { continue; }
-    if (j.type !== 'assistant' || !j.message || typeof j.message !== 'object') continue;
-    finished = j.message.stop_reason === 'end_turn';
-    const at = Date.parse(j.timestamp || '');
-    if (Number.isFinite(at) && at >= since) tokens += tokensOf(j.message.usage);
+  let e = fileCache.get(file);
+  if (!e || e.since !== since || st.size < e.offset) e = freshEntry(since);
+  if (st.size > e.offset) {
+    let chunk = '';
+    try {
+      const fd = fs.openSync(file, 'r');
+      try {
+        const buf = Buffer.alloc(st.size - e.offset);
+        fs.readSync(fd, buf, 0, buf.length, e.offset);
+        chunk = buf.toString('utf8');
+      } finally { fs.closeSync(fd); }
+    } catch { chunk = ''; }
+    const text = e.tail + chunk;
+    const lines = text.split('\n');
+    e.tail = lines.pop();   // an unfinished last line waits for the rest of it
+    for (const line of lines) {
+      if (!line) continue;
+      let j;
+      try { j = JSON.parse(line); } catch { continue; }
+      if (j.type !== 'assistant' || !j.message || typeof j.message !== 'object') continue;
+      e.finished = j.message.stop_reason === 'end_turn';
+      const id = typeof j.message.id === 'string' && j.message.id ? j.message.id : null;
+      if (id && e.seen.has(id)) continue;
+      if (id) e.seen.add(id);
+      const at = Date.parse(j.timestamp || '');
+      if (Number.isFinite(at) && at >= since) e.tokens += tokensOf(j.message.usage);
+    }
+    e.offset = st.size;
   }
-  const value = { tokens, finished, mtimeMs: st.mtimeMs };
-  fileCache.set(file, { size: st.size, mtimeMs: st.mtimeMs, since, value });
-  return value;
+  e.mtimeMs = st.mtimeMs;
+  e.touched = now;
+  fileCache.set(file, e);
+  if (fileCache.size > 256) {
+    for (const [k, v] of fileCache) if (now - v.touched > CACHE_TTL_MS) fileCache.delete(k);
+  }
+  return { tokens: e.tokens, finished: e.finished, mtimeMs: e.mtimeMs };
 }
 
 /**
@@ -243,7 +280,7 @@ function meter(transcriptPath, now = Date.now()) {
     let st;
     try { st = fs.statSync(file); } catch { continue; }
     const subDir = path.join(dir, n.slice(0, -'.jsonl'.length), 'subagents');
-    if (st.mtimeMs >= since) out.leadTokens += readFile(file, since).tokens;
+    if (st.mtimeMs >= since) out.leadTokens += readFile(file, since, now).tokens;
     let subs;
     try { subs = fs.readdirSync(subDir); } catch { subs = []; }
     for (const s of subs) {
@@ -252,7 +289,7 @@ function meter(transcriptPath, now = Date.now()) {
       let sst;
       try { sst = fs.statSync(sf); } catch { continue; }
       if (sst.mtimeMs < since) continue;
-      const r = readFile(sf, since);
+      const r = readFile(sf, since, now);
       out.helperTokens += r.tokens;
       if (!r.finished && now - r.mtimeMs <= ACTIVE_WINDOW_MS) out.activeHelpers += 1;
     }
@@ -314,7 +351,7 @@ function sweepOnce(rows, deps, now = Date.now()) {
       const profile = deps.readProfile(name);
       const s = settingsOf(profile);
       if (!s) continue;
-      if (s.active && s.dailyTokenLimit && c.tokensToday >= s.dailyTokenLimit) {
+      if (s.active && s.dailyTokenLimit && c.tokensToday >= s.dailyTokenLimit && s.limitOverrideDay !== dayKey(now)) {
         deps.writeProfile(name, { swarm: pausedFor(s, 'limit', now) });
         const stopped = deps.interrupt(name);
         deps.say(name, `I paused myself at today's token limit (${s.dailyTokenLimit} tokens). I'll start again tomorrow, or switch me back on.`);

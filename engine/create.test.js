@@ -2442,7 +2442,7 @@ test('#3564: a swarm is born with its settings and its block; an ordinary agent 
   const made = create.createAgent({ ...BINS, name: 'hive', role: 'pm', kind: 'swarm', maxHelpers: 5, dailyTokenLimit: 250000 });
   assert.equal(made.outcome, create.OUTCOME.CREATED, made.because);
   const settings = swarmMod.settingsOf(store.readProfile('hive'));
-  assert.deepEqual(settings, { maxHelpers: 5, dailyTokenLimit: 250000, active: true, pausedBecause: null, pausedAt: null });
+  assert.deepEqual(settings, { maxHelpers: 5, dailyTokenLimit: 250000, active: true, pausedBecause: null, pausedAt: null, limitOverrideDay: null });
   const text = fs.readFileSync(create.instructionFile('hive'), 'utf8');
   const block = projects.findBlock(text, swarmMod.START, swarmMod.END);
   assert.ok(block, 'the swarm block is not in its instructions at birth');

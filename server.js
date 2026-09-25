@@ -4840,15 +4840,6 @@ const server = http.createServer((req, res) => {
     return;
   }
 
-  /* ── the working rules, consented (#539) ─────────────────────────────────
-     GET answers the banner and the dialog (which sections are missing, the
-     exact span a click would write, and the hash that click must present);
-     the two POSTs are the click and the Not-now. NOTHING here writes
-     without the click: the GET is pure planning, and the plan the dialog
-     shows is the composition the click writes, proven by hash (a file that
-     changed in between refuses with look-again). */
-  /* #3564: a swarm's settings (the contract on #3564): { maxHelpers?, dailyTokenLimit?, active? }.
-     Only a swarm has them. A new helper count is written into the lead's instructions. */
   /* #3564 Stop now: interrupt the lead's current turn (its helpers end with it) and
      pause it with the reason "stopped", so nothing new is typed at it until the person
      switches it back on. Paused even if the interrupt could not be confirmed: the answer
@@ -4867,6 +4858,8 @@ const server = http.createServer((req, res) => {
     sendJson(res, 200, { ok: true, stopped: stopped.ok === true, because: stopped.ok ? null : stopped.because, swarm: next });
     return;
   }
+  /* #3564: a swarm's settings (the contract on #3564): { maxHelpers?, dailyTokenLimit?, active? }.
+     Only a swarm has them. A new helper count is written into the lead's instructions. */
   const swarmSet = pathname.match(/^\/api\/agent\/([^/]+)\/swarm$/);
   if (swarmSet && req.method === 'PUT') {
     const name = decodeSegment(swarmSet[1]);
@@ -4889,6 +4882,13 @@ const server = http.createServer((req, res) => {
       .catch((err) => sendJson(res, 400, { ok: false, because: String((err && err.message) || 'we could not read that request') }));
     return;
   }
+  /* ── the working rules, consented (#539) ─────────────────────────────────
+     GET answers the banner and the dialog (which sections are missing, the
+     exact span a click would write, and the hash that click must present);
+     the two POSTs are the click and the Not-now. NOTHING here writes
+     without the click: the GET is pure planning, and the plan the dialog
+     shows is the composition the click writes, proven by hash (a file that
+     changed in between refuses with look-again). */
   const doc = pathname.match(/^\/api\/agent\/([^/]+)\/doctrine$/);
   if (doc && (req.method === 'GET' || req.method === 'HEAD')) {
     const name = decodeSegment(doc[1]);
