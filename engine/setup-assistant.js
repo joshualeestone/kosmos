@@ -339,7 +339,7 @@ function refreshGuideRole({ name = guideName(), isGuide = isGuideFolder } = {}) 
   if (!cur || !cur.exists || typeof cur.text !== 'string' || !cur.text.includes(old)) return { changed: false };
   const now = [...(roles.SETUP_HANDS_OFF ? roles.HANDS_OFF_LINES : []), ...(roles.SETUP_MAKES_AGENTS ? roles.MAKE_AGENTS_LINES : [])].join('\n');
   try {
-    instructions.write(name, cur.text.replace(old, now), cur.version, undefined, { who: 'kosmos', because: 'Kosmos let the setup guide make agents for you' });
+    instructions.write(name, cur.text.replace(old, () => now), cur.version, undefined, { who: 'kosmos', because: 'Kosmos let the setup guide make agents for you' });
     return { changed: true };
   } catch { return { changed: false }; }
 }

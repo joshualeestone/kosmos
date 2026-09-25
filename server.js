@@ -2128,6 +2128,18 @@ function withCreatorLock(creator, fn) {
 const AGENT_FILES_DEFAULT_CAP = 20;
 const AGENT_FILES_MAX_CAP = 500;
 
+/* #3734: where an agent runs, as a create spec reads it: the provider recorded at its birth, and the
+   account folder its launch job points at (null for the provider's default account). Null when the
+   provider is not recorded. */
+function creatorRunsOn(name) {
+  let provider = null;
+  try { provider = store.readProfile(name).provider || null; } catch { provider = null; }
+  if (!provider) return null;
+  let account = null;
+  try { const job = create.readJob(name); account = job && job.configDir ? job.configDir : null; } catch { account = null; }
+  return { provider, account };
+}
+
 const CREATOR_AGENT_CAP_DEFAULT = 25;
 const MAX_CREATOR_AGENT_CAP = 100;
 function creatorAgentCap(env) {
@@ -3217,33 +3229,6 @@ function setupGuideNow() {
   if (!removed.ok) return { ok: false, status: 409, reason: 'unchecked', error: 'we could not check whether the setup guide was removed' };
   if (removed.names.includes(create.cleanName(guide))) return { ok: false, status: 404, reason: 'none', error: 'there is no setup guide on this computer' };
   return { ok: true, name: guide };
-}
-
-/* #3734: agents the setup guide made in the last hour (in memory; a restart forgets, which only
-   loosens a runaway bound for one hour). */
-const GUIDE_CREATES_PER_HOUR = 6;
-let guideCreates = [];
-function guideCreatesThisHour(now = Date.now()) {
-  guideCreates = guideCreates.filter((t) => now - t < 3600000);
-  return guideCreates.length;
-}
-function resetGuideCreatesForTests() { guideCreates = []; }
-
-/* #3734: an AGENT asking to create an agent (it presents its launch token) may do so only if it is the
-   setup guide (Josh 2026-09-25 08:23: the guide makes agents for a new person). { ok: true, guide }
-   or { ok: false, status, error }. The screen and a tokenless caller are not affected. */
-function agentCreateAllowed(req, body) {
-  const roster = safeRoster() || [];
-  const who = senderFromAgentToken(req, body, roster);
-  const asker = who && who.ok && who.card ? who.card.sessionName : null;
-  const found = setupGuideNow();
-  if (!asker || !found.ok || asker !== found.name) {
-    return { ok: false, status: 403, error: 'only the setup guide can make agents for the person; they can make one from New agent' };
-  }
-  if (guideCreatesThisHour() >= GUIDE_CREATES_PER_HOUR) {
-    return { ok: false, status: 429, error: 'the setup guide has made ' + GUIDE_CREATES_PER_HOUR + ' agents in the last hour, so Kosmos is pausing it; the person can still make them from New agent' };
-  }
-  return { ok: true, guide: found.name };
 }
 
 const server = http.createServer((req, res) => {
@@ -5152,18 +5137,6 @@ const server = http.createServer((req, res) => {
           throw new Error('we could not read that request');
         }
 
-        /* #3734: an agent may ask only if it is the setup guide. With no provider named, the new agent
-           runs on the guide's own provider, the one the person connected and the guide is answering on. */
-        let madeByGuide = null;
-        if (presentedAgentToken(req, body)) {
-          const allowed = agentCreateAllowed(req, body);
-          if (!allowed.ok) { sendJson(res, allowed.status, { error: allowed.error }); return; }
-          madeByGuide = allowed.guide;
-          if (body.provider === undefined) {
-            try { const p = store.readProfile(allowed.guide).provider; if (p) body.provider = p; } catch { /* the engine's default */ }
-          }
-        }
-
         /**
          * ⚠️ The projects the new agent should join are validated HERE,
          * BEFORE the engine writes anything: a refusal after the folder
@@ -5326,8 +5299,6 @@ const server = http.createServer((req, res) => {
         // ours, and it is a 200 because the thing half-happened and the caller
         // needs the detail rather than an error.
         const code = result.outcome === create.OUTCOME.REFUSED ? 400 : 200;
-        /* #3734: counted against the guide's hourly bound, and named in the answer. */
-        if (madeByGuide && result.outcome === create.OUTCOME.CREATED) { guideCreates.push(Date.now()); result.madeBy = madeByGuide; }
         if (result.outcome === create.OUTCOME.CREATED && projectsToJoin.length) {
           // One roster read for the whole request, same rule as the project
           // routes: syncAgent refuses to write without an exact match in it.
@@ -5514,6 +5485,21 @@ const server = http.createServer((req, res) => {
           }
           effectiveCreator = body.creator;
           callerKind = 'operator';
+        }
+
+        /* #3734: a member with no provider (and no account) named runs where the agent that asked runs:
+           its provider and, on a non-default account, that account. The setup guide making an agent for a
+           new person then uses the model the person connected, not Claude by default. */
+        if (callerKind === 'agent' && Array.isArray(members)) {
+          const where = creatorRunsOn(effectiveCreator);
+          if (where) {
+            for (const m of members) {
+              if (m && typeof m === 'object' && !Array.isArray(m) && m.provider === undefined && m.account === undefined) {
+                m.provider = where.provider;
+                if (where.account) m.account = where.account;
+              }
+            }
+          }
         }
 
         /* #1279 GLOBAL per-creator active-agent cap: enforced INSIDE the
@@ -16125,7 +16111,7 @@ module.exports = {
   CONNLOST_BOOK, connlostHealEnabled, // #3410: exported so a test can pin the route's reconnect field to the sweep's own book
   givePart, // #3595: the assign-and-tell path, exported so the Assigner's real write path is tested
   swarmSweepDeps, // #3564: the limit sweep's wiring, exported so it is tested
-  resetGuideCreatesForTests, GUIDE_CREATES_PER_HOUR, // #3734: the guide's hourly create bound, for its tests
+  creatorRunsOn, // #3734: where an agent-made team member runs by default, for its tests
   /* #2036: the boot diagnostic's condition (pure truth table) AND its real call-site
      composition, exported together so BOTH are pinned. stagingRevertWarningNow wires the raw
      install stamp rather than the #2934 badge; sourceChannelNow is exported alongside so the

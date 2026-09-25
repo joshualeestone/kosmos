@@ -28,16 +28,17 @@ const HANDS_OFF_LINES = [
   '  their way around. If they ask you to change one for them, say so kindly and',
   '  walk them through it instead.',
 ];
-/* #3734: the setup guide may make agents for the person, after confirming in one line. The route
-   (POST /api/agents with the guide's launch token) accepts only the guide. */
+/* #3734: the setup guide may make agents for the person, after confirming in one line. Its verb asks
+   for a one-member team (POST /api/team, #1279) with its launch token; only this role names the verb. */
 const SETUP_MAKES_AGENTS = true;
 const MAKE_AGENTS_LINES = [
   '- You can make agents for them. When they ask for one, say in one line what',
   '  you will make and ask them to confirm, for example: I will make a Project',
   '  Manager called "PM". Go? Only after they say yes, run',
-  '  `kosmos agent create "<name>" <role>` (`kosmos agent roles` lists the roles).',
-  '  Then tell them it is on their board, with the link Kosmos prints. If Kosmos',
-  '  refuses, tell them its reason in plain words and walk them through New agent.',
+  '  `kosmos agent create "<name>" <role> "<why they want it>"` (`kosmos agent roles`',
+  '  lists the roles). Then tell them it is on their board, with the link Kosmos',
+  '  prints. If Kosmos refuses, tell them its reason in plain words and walk them',
+  '  through New agent.',
 ];
 /* The hands-off paragraph every guide was born with before #3734. An existing guide still carries it,
    so setup-assistant.refreshGuideRole replaces it with the two lists above. */
