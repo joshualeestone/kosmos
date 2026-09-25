@@ -2,7 +2,7 @@
 pre_challenge: true
 method: challenge-loop
 branch: gpt-clone-3731
-diff_hash: 6a3055321770a17ea6eca1a797db30178bbd97ac76c7f31db42d82bbdd21ec2e
+diff_hash: 8f6d8cb674757278351aef573742b05b585c30180c2733d57b7c5364a87712d6
 subdir_audit: passed
 timestamp: 2026-09-25T14:55:31Z
 iterations: 4
@@ -52,6 +52,11 @@ converged: true
 - Full suite PASSED on 713e3797f (9285 tests, 0 failed, surface gate 0 FAILED).
 - render-firstrun-keyed-connect-3658.js, render-grok-subscription-3391.js, render-keyed-install-3713.js pass;
   every new arm was perturbed red by me or a reviewer. Five other checks whose tokens moved pass unchanged.
+
+## Merge of main (#3729 landed; README rows conflicted)
+- Resolved by keeping this branch's three rows and main's new render-no-conflict-3729 row between them;
+  main had not changed the three rows (checked against the merge base). diff_hash updated because the
+  README's context lines moved. The four checks touching these files pass on the merged tree.
 
 ## Weakest premise
 - Gemini's subscription waits on #3568 (Angel's Antigravity sign-in). KEYED_SUB_START.google is the one
