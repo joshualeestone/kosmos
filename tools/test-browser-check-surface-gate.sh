@@ -135,12 +135,12 @@ else
 fi
 
 # 9. SELF-DEFENDING zsh arm: source the lib into zsh and reproduce the refuse path on a
-#    MULTI-token check (alltasks-count is render-alltasks's 3rd declared token). If either
+#    MULTI-token check (tsk-crumb is render-alltasks's 3rd declared token). If either
 #    zsh fix (find+while-read for the check glob, tr+while-read for the token split) were
 #    reverted, this would ALLOW under zsh and red here -- the bash-only suite cannot see that.
 if command -v zsh >/dev/null 2>&1; then
   printf '%s\n' '--- a/web/index.html' '+++ b/web/index.html' '@@ -1 +1 @@' \
-    '-  <b id="alltasks-count">3</b>' '+  <b id="alltasks-count">4</b>' > "$TMP/wd-zsh"
+    '-  <p id="tsk-crumb">3</p>' '+  <p id="tsk-crumb">4</p>' > "$TMP/wd-zsh"
   : > "$TMP/f-zsh"; : > "$TMP/m-zsh"
   BCDIR_ABS="$(cd "$HERE/.." && pwd)/docs/browser-checks"
   if zsh -c ". \"$HERE/lib/browser-check-surface-gate.sh\" && KOSMOS_BCSG_WEBDIFF=\"$TMP/wd-zsh\" KOSMOS_BCG_FILES=\"$TMP/f-zsh\" KOSMOS_BCG_MSGS=\"$TMP/m-zsh\" KOSMOS_BCSG_DIR=\"$BCDIR_ABS\" kosmos_browser_check_surface_gate" >/dev/null 2>&1; then

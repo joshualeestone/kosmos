@@ -3141,6 +3141,8 @@ button.boardname[aria-expanded="true"] { opacity: 1; color: var(--k-ink); border
 .tsk-crumb button { border: 0; background: none; padding: 0; font: inherit; font-weight: 600; color: var(--k-ink); cursor: pointer;
   text-decoration: underline; text-decoration-color: var(--gold); text-underline-offset: 3px; }
 #panel-tasks .tsk-head h2 { font-size: 1.5rem; letter-spacing: -.015em; margin: 0; font-weight: 700; }
+/* #3703: the head carries "+ New task" beside the title, as Mona's mock draws it (.mh / .newbtn). */
+#panel-tasks .tsk-head { display: flex; align-items: baseline; justify-content: space-between; gap: 16px; flex-wrap: wrap; }
 .tsk-sub { color: var(--k-ink-2); font-size: .9375rem; margin: 2px 0 0; }
 .tsk-ctrls { display: flex; flex-wrap: wrap; gap: 10px 22px; align-items: center; margin: 18px 0 4px; }
 .tsk-ctl { display: flex; align-items: center; }
@@ -4267,7 +4269,7 @@ body:not(.consolidated).pj-roadmap .pj-rm-strip {
      buttons). If that cost ever outweighs the tidiness, it is his call to
      reverse, not a defect to fix quietly. */
   html[data-layout="consolidated"] body.consolidated #pj-settings-view, html[data-layout="consolidated"] body.consolidated #pj-task-view,
-  html[data-layout="consolidated"] body.consolidated #pj-docs-view, html[data-layout="consolidated"] body.consolidated #pj-alltasks-view, html[data-layout="consolidated"] body.consolidated #pj-add-view { min-height: 0; overflow-y: auto; }
+  html[data-layout="consolidated"] body.consolidated #pj-docs-view, html[data-layout="consolidated"] body.consolidated #pj-add-view { min-height: 0; overflow-y: auto; }
   /* #2850 item 1 (Josh, 0.6.57): adding a project FROM the consolidated view,
      the "back / All projects" control is redundant -- you are already right
      here. Hide it, but keep the New project line exactly where it sits: he
@@ -4352,32 +4354,23 @@ body:not(.consolidated).pj-roadmap .pj-rm-strip {
      Measured at a 1600 window before this: the view ran left 489 to right 1600
      and the Finder button's right edge was at 1600 exactly, 0px of margin. A
      control flush against the window edge reads as clipped rather than placed. */
-  html[data-layout="consolidated"] body.consolidated #pj-docs-view,
-  html[data-layout="consolidated"] body.consolidated #pj-alltasks-view { padding-right: var(--space-8); }
-  /* #3133 (Josh, 6.68): "add more TOP margin - the project name is too close to the
-     top" in the consolidated View-all-tasks. Scoped to the alltasks view (not the
-     shared docs-view rule above, which Josh did not flag), and matching the
-     --space-8 right inset already applied so the view reads evenly boxed. */
-  html[data-layout="consolidated"] body.consolidated #pj-alltasks-view { padding-top: var(--space-8); }
+  html[data-layout="consolidated"] body.consolidated #pj-docs-view { padding-right: var(--space-8); }
   /* #3502 (Josh, 2026-09-23, consolidated project sub-views): the "Back to <project>"
      controls are redundant in the consolidated view -- the project is already open and
      its name is one click away, so remove them from Documents, Tasks and Project Settings.
      Kept in the tab view (body:not(.consolidated)), where the back control is the way out. */
   html[data-layout="consolidated"] body.consolidated #docs-back,
-  html[data-layout="consolidated"] body.consolidated #alltasks-back,
   html[data-layout="consolidated"] body.consolidated #pj-settings-back { display: none; }
   /* #3502: with the back button gone the heading must not jump against the top rule.
-     alltasks already carries the --space-8 top inset above; give docs and settings the
-     same so "Documents" and "Project settings" keep normal space above them (Josh flagged
+     Give docs and settings a --space-8 top inset so "Documents" and "Project settings" keep normal space above them (Josh flagged
      Settings by name; docs shares the same removed-back top gap). */
   html[data-layout="consolidated"] body.consolidated #pj-docs-view,
   html[data-layout="consolidated"] body.consolidated #pj-settings-view { padding-top: var(--space-8); }
   /* #3503 (Josh, 2026-09-23): the sub-view content was flush against the left rule while
      the right already carried the --space-8 inset above. Match it on the left so Documents
-     and Tasks (the "All Tasks" headline, the project name, the count) read evenly boxed.
+     reads evenly boxed (the old All Tasks screen shared this; #3703 retired it for the Tasks view).
      Settings is centered (max-width + margin auto), so it is not included here. */
-  html[data-layout="consolidated"] body.consolidated #pj-docs-view,
-  html[data-layout="consolidated"] body.consolidated #pj-alltasks-view { padding-left: var(--space-8); }
+  html[data-layout="consolidated"] body.consolidated #pj-docs-view { padding-left: var(--space-8); }
   /* #3477 (Josh, 2026-09-23, screenshot 7.53.43 AM, Kosmos+ in the consolidated view):
      "the formatting on this Kosmos Plus in the consolidated view looks terrible. Content
      is pushed way down the page ... let's just move the Kosmos+ content up ... Also let's
@@ -4408,12 +4401,10 @@ body:not(.consolidated).pj-roadmap .pj-rm-strip {
      drops the grow so the size follows the name instead of the row. */
   html[data-layout="consolidated"] body.consolidated #pj-docs-view .pj-doc-n { flex: 0 1 auto; }
   html[data-layout="consolidated"] body.consolidated #pj-docs-view,
-  html[data-layout="consolidated"] body.consolidated #pj-alltasks-view,
   html[data-layout="consolidated"] body.consolidated #pj-add-view { scrollbar-width: none; -ms-overflow-style: none; }
   html[data-layout="consolidated"] body.consolidated #pj-settings-view::-webkit-scrollbar,
   html[data-layout="consolidated"] body.consolidated #pj-task-view::-webkit-scrollbar,
   html[data-layout="consolidated"] body.consolidated #pj-docs-view::-webkit-scrollbar,
-  html[data-layout="consolidated"] body.consolidated #pj-alltasks-view::-webkit-scrollbar,
   html[data-layout="consolidated"] body.consolidated #pj-add-view::-webkit-scrollbar { display: none; }
   /* #980 (iteration 2): the projects rail header pins at the top of its
      scroller, so a long project list scrolls UNDER it -- the same gesture
@@ -7426,7 +7417,7 @@ code.t { font: 13px var(--k-mono); border-radius: 4px; padding: .12em .4em;
    works in both the tab min-height:14rem box and the consolidated flex-filled box.
    Scoped to the class, not one id, on purpose: BOTH `.tkcards` empty-state consumers
    carried the same bug -- the per-project column (#pj-tasklist) and the all-tasks
-   screen (#alltasks-list, "No tasks on this project yet"). One rule fixes both; both
+   screen (since retired, #3703). One rule fixes both; both
    measured centred via pw-runtime (61/61 and 82/82). A populated list has no `.tk-empty`
    child, so it keeps justify-content:normal and its cards stay top-aligned.
    `safe center`, not plain `center`: in the consolidated layout .tkcards is overflow-y:auto
@@ -7445,8 +7436,8 @@ code.t { font: 13px var(--k-mono); border-radius: 4px; padding: .12em .4em;
 /* #3131 (Josh 6.68, consolidated view): drop the stroke around task cards while the
    consolidated layout is active. The background + padding still read the card as a
    block. Scoped on body.consolidated, so this covers every .tkcard rendered in that
-   layout -- the per-project task list AND the View-all-tasks screen when it is opened
-   from consolidated. The base .tkcard border keeps its stroke in the tab/grid layout
+   layout (the per-project task list; the old View-all-tasks screen was retired in #3703).
+   The base .tkcard border keeps its stroke in the tab/grid layout
    (body:not(.consolidated)). Same TECHNIQUE the container cards use for their
    layout-specific border (gating a border property via a body-class selector), though
    the opposite direction: .pjcard drops its border in the tab layout, this drops the
@@ -7482,21 +7473,6 @@ body.consolidated .tkcard:hover { border-color: transparent; }
    "Not started"/"Waiting on you": no field on the wire says either yet. */
 .tkcard-status { display: block; margin-top: 4px; font-size: .75rem; color: var(--label-2); }
 .tkcard.closed .tkcard-t { text-decoration: line-through; color: var(--label-2); }
-/* #3171: open vs closed at a glance on the all-tasks index. A far-right pill per
-   card, a labelled divider between the open and closed groups, and the closed
-   titles struck the way the project column already draws them. Scoped to
-   #alltasks-list so the shared .tkcard elsewhere keeps its layout. Pills reuse
-   the existing semantic tokens (as .pcombo-soon / .tkcard-n do), so they follow
-   light and dark by construction rather than hardcoding a colour. */
-#alltasks-list .tkcard { position: relative; padding-right: 5.25rem; }
-#alltasks-list .tkcard.closed b { text-decoration: line-through; color: var(--label-2); }
-#alltasks-list .tkcard-badge { position: absolute; top: 50%; right: var(--space-5); transform: translateY(-50%);
-  font: var(--text-caption) var(--font-ui); border: 1px solid var(--label-2); border-radius: 999px;
-  padding: 1px 9px; color: var(--k-ink); background: var(--k-sunk); }
-#alltasks-list .tkcard-badge.closed { color: var(--k-ink-2); border-color: var(--k-rule); }
-#alltasks-list .tk-divider { display: flex; align-items: center; gap: var(--space-4);
-  color: var(--label-2); font: var(--text-caption) var(--font-ui); }
-#alltasks-list .tk-divider::before, #alltasks-list .tk-divider::after { content: ""; flex: 1 1 auto; height: 1px; background: var(--k-rule); }
 .tksay { font-style: normal; color: var(--label-2); margin-left: 4px; }
 /* ⚠️ A DIFFERENT APPEARANCE, not just different words. `.tksay` carries what
    the AGENT said; this carries what WE could not establish, which is a
@@ -10324,6 +10300,12 @@ window.kosmosMeasureScrollbarWidth();
   <div class="rm-box rm-box-form" role="dialog" aria-modal="true" aria-labelledby="nt-t" aria-describedby="nt-in">
     <h2 class="rm-title" id="nt-t">New task</h2>
     <p class="rm-small" id="nt-in">In <b id="nt-project"></b>.</p>
+    <!-- #3703: from the Tasks view with no project picked, the dialog asks which project. The task
+         belongs to a project, so this is the same question the project page answers by being one. -->
+    <div class="field" id="nt-projrow" hidden>
+      <label class="flabel tk-lab" for="nt-proj">Which project</label>
+      <select class="tk-inp" id="nt-proj"></select>
+    </div>
     <div class="field">
       <label class="flabel tk-lab" for="nt-what">What needs doing?</label>
       <input class="tk-inp" id="nt-what" type="text" maxlength="200" placeholder="Rewrite the handoff checklist">
@@ -13039,12 +13021,10 @@ window.kosmosMeasureScrollbarWidth();
            independent header actions (add vs open-all) whose order is meaning-independent, so this
            does not fail WCAG 2.4.3 (which targets order that changes meaning). In the tab view View
            All still shows just under the header. -->
-      <!-- The door, pack rule: the column is a task with somebody on it that
-           is not finished; finished and unpicked are both real and both
-           behind this. v1's door reveals them in place (there is no
-           all-tasks screen yet); the reveal survives repaints and
-           same-project Back-and-return (the page's round-31 rule) and
-           resets on a project SWITCH. -->
+      <!-- The door: everything the five-cap column does not show (capped-off and
+           finished tasks) is behind it. It opens the Tasks view scoped to this
+           project (#3703; it opened its own all-tasks screen from #1382 until
+           then, and revealed in place before that). -->
       <button class="linkish pj-viewall" id="pj-alltasks" type="button" hidden></button>
       <div class="tkcards" id="pj-tasklist"></div>
     </div>
@@ -13209,37 +13189,12 @@ window.kosmosMeasureScrollbarWidth();
     </div>
     <p class="fmsg" id="docs-msg" aria-live="polite"></p>
   </div>
-    <!-- The ALL TASKS screen (#1382). Josh: "for tasks, i want to see a view
-         of them in a list form basically", answering his earlier "where I can
-         see ALL of the tasks". Same bones as the Documents screen he named as
-         the model: Back is the leave, and there is no backdrop, focus trap or
-         Escape, because a page is not an overlay.
-         🛑 CLOSED TASKS ARE ON THIS SCREEN, and that is not a preference. It is
-         reached from `#pj-alltasks`, the per-project door, and #1009 already
-         put every OPEN task in the column, so what that door still reveals is
-         FINISHED work. Taking the door without taking its contents would leave
-         this project's finished work unreachable. (#2498 scoped the screen to
-         the door's own project; finished work stays reachable PER project,
-         each through its own door.)
-         ⚠️ NO COUNT IN THE DOOR'S LABEL. The door and the screen now sit on the
-         SAME one project (#2498), so a per-project number COULD agree with its
-         destination - it is still not added, as scope discipline rather than a
-         new feature, so there is no second number to disagree with the screen's
-         own count (the #1346 defect the card asked us to avoid). -->
-    <div id="pj-alltasks-view" hidden>
-      <button class="back" id="alltasks-back" type="button"></button>
-      <div class="pjhead">
-        <div class="pjtitle">
-          <h2 class="dname">All tasks</h2>
-          <!-- #2498: set per open to the project this door was opened from; the
-               door is per-project and its list is now scoped to that project. -->
-          <p class="pj-desc" id="alltasks-desc">In this project.</p>
-        </div>
-      </div>
-      <p class="dhint" id="alltasks-count" style="margin:0 0 8px;" hidden></p>
-      <div id="alltasks-list" class="tkcards"></div>
-      <p class="fmsg" id="alltasks-msg" aria-live="polite"></p>
-    </div>
+    <!-- #3703: the ALL TASKS screen (#1382) is retired. The project's View-all door (`#pj-alltasks`)
+         opens the Tasks view (#panel-tasks) scoped to the project: one list screen (Mona's #3559
+         mock). What this screen guaranteed moved with it: closed tasks stay reachable per project
+         (the door opens with window All, Closed is a fold), one array feeds the count and the rows,
+         an unreadable read is said rather than shown empty, and a row opens its task on its own
+         project. -->
   <!-- #766 (Josh, 2026-08-24 22:09): New task is a dialog over the project
        page again ("the problem that I have with the new task page right now
        is that it's got so much empty space... go back and implement the
@@ -13676,7 +13631,7 @@ window.kosmosMeasureScrollbarWidth();
     </aside>
     <div class="tsk-main">
       <p class="tsk-crumb" id="tsk-crumb"></p>
-      <div class="tsk-head"><h2 id="tsk-title">All tasks</h2></div>
+      <div class="tsk-head"><h2 id="tsk-title">All tasks</h2><button class="btn uprime" id="tsk-new" type="button"><span aria-hidden="true">+</span> New task</button></div>
       <p class="tsk-sub" id="tsk-sub"></p>
       <!-- Mona's a40bbe1: on a narrow window (and in the consolidated column) the rail becomes this
            dropdown, and the search sits below it, full width. -->
@@ -34085,7 +34040,7 @@ function takeOverDisplayColumn() {
   const projects = document.getElementById('panel-projects');
   if (!projects) return;
   projects.hidden = false;
-  for (const v of ['one', 'add', 'settings', 'task', 'docs', 'alltasks']) {
+  for (const v of ['one', 'add', 'settings', 'task', 'docs']) {
     const el = document.getElementById('pj-' + v + '-view');
     if (el) el.hidden = true;
   }
@@ -40588,7 +40543,7 @@ let PJ_THREAD_GEN = 0;
 let PJ_NAV_GEN = 0;
 
 function pjView(which) {
-  for (const v of ['list', 'one', 'add', 'settings', 'task', 'docs', 'alltasks']) {
+  for (const v of ['list', 'one', 'add', 'settings', 'task', 'docs']) {
     document.getElementById('pj-' + v + '-view').hidden = (v !== which);
   }
   /* #2842: pjView is project navigation, so it always leaves the consolidated
@@ -42227,22 +42182,10 @@ function paintProjectTasks(p) {
   door.textContent = 'View All';
 }
 
-/**
- * The door now LEAVES THE PAGE (#1382). Josh: "for tasks, i want to see a view
- * of them in a list form basically", answering his earlier "where I can see
- * ALL of the tasks".
- *
- * 🔑 THE BEHAVIOUR IT REPLACES IS NOT LOST, IT MOVED. Revealing in place showed
- * this project's tasks past the five-cap and its finished ones. This screen
- * shows all of THIS project's tasks (#2498 scoped it to the project the door
- * was opened from), capped-off and finished included - a superset of the
- * project's column, not of every project.
- */
-document.getElementById('pj-alltasks').addEventListener('click', openAllTasksView);
-
-document.getElementById('alltasks-back').addEventListener('click', () => {
-  pjView(PJ_CURRENT ? 'one' : 'list');
-});
+/* The door LEAVES THE PAGE (#1382), and since #3703 it opens the Tasks view scoped to this project
+   (openProjectTasks): every task of THIS project, capped-off and finished included, a superset of
+   the project's column. The old all-tasks screen it used to open is retired: one list screen. */
+document.getElementById('pj-alltasks').addEventListener('click', () => openProjectTasks(PJ_CURRENT));
 
 /* ---- #3559: the Tasks view ------------------------------------------------------------
    Every task on every project, grouped by WHERE THE WORK IS. The engine derives each task's
@@ -42261,7 +42204,7 @@ const TSK_GROUPS = [
 ];
 const TSK_WINDOWS = [['24h', 1], ['48h', 2], ['1 week', 7], ['1 month', 30], ['All', 0]];
 const TSK_BYS = [['status', 'Status'], ['project', 'Project']];
-const TSK = { data: null, error: null, proj: null, q: '', win: 0, by: 'status', sort: 'new', tile: null, sel: new Set(), gen: 0, busy: false, names: '', closedOpen: false };
+const TSK = { data: null, error: null, proj: null, projHint: null, q: '', win: 0, by: 'status', sort: 'new', tile: null, sel: new Set(), gen: 0, busy: false, names: '', closedOpen: false };
 TSK_READY = true;
 const tskKey = (t) => String(t.projectId) + '#' + Number(t.number);
 /* The name the board prints for an agent (its roster card's `name`; a card has no `displayName`
@@ -42337,7 +42280,9 @@ async function tskLoad(arrival) {
     tskPaint();   // the cleared ticks leave the screen too, not just the model
   }
   try {
-    const r = await fetch('/api/tasks?view=tasks', { cache: 'no-store' });
+    /* #3703: an archived project's own door still shows its tasks (the server keeps only the one
+       named here); without a scope the read leaves every archived project out. */
+    const r = await fetch('/api/tasks?view=tasks' + (TSK.proj ? '&withArchived=' + encodeURIComponent(TSK.proj) : ''), { cache: 'no-store' });
     const body = await r.json().catch(() => ({}));
     if (mine !== TSK.gen) return;
     if (!r.ok || !Array.isArray(body.tasks)) {
@@ -42349,8 +42294,8 @@ async function tskLoad(arrival) {
       if (TSK.error && msg) msg.textContent = '';
       TSK.error = null;
       /* Archived projects are set aside: their tasks are not in this view (the rails tuck archived
-         projects away too). Unarchiving brings them back on the next read. */
-      TSK.data = body.tasks.filter((t) => !t.projectArchived);
+         projects away too), except the one a project door scoped us to (#3703; tskVisible). */
+      TSK.data = body.tasks;
       /* A ticked task that has since closed or gone cannot stay ticked. */
       const open = new Set(TSK.data.filter((t) => t.state !== 'closed').map(tskKey));
       TSK.sel.forEach((k) => { if (!open.has(k)) TSK.sel.delete(k); });
@@ -42395,16 +42340,28 @@ function tskList(rows) {
   return rows.length ? '<div class="tsk-list">' + rows.map(tskRow).join('') + '</div>'
     : '<div class="tsk-list"><p class="tsk-empty">Nothing here.</p></div>';
 }
+/* What the view lists: every task except an archived project's, unless that project is the one
+   in scope (its own View-all door, #3703). Unarchiving brings them back on the next read. */
+function tskVisible(all, proj) {
+  return (all || []).filter((t) => !t.projectArchived || t.projectId === proj);
+}
 function tskPaint() {
   const now = Date.now();
   TSK.names = tskNamesSig();
-  const all = TSK.data || [];
+  const all = tskVisible(TSK.data, TSK.proj);
   const projMap = new Map();
   for (const t of all) {
     if (!projMap.has(t.projectId)) projMap.set(t.projectId, { id: t.projectId, name: t.projectName, open: 0 });
     if (t.state !== 'closed') projMap.get(t.projectId).open += 1;
   }
-  if (TSK.proj && !projMap.has(TSK.proj)) TSK.proj = null;
+  /* A project door can scope us to a project with no tasks yet: it is still the project, with 0. */
+  if (TSK.proj && !projMap.has(TSK.proj) && TSK.projHint && TSK.projHint.id === TSK.proj) {
+    projMap.set(TSK.proj, { id: TSK.proj, name: TSK.projHint.name, open: 0 });
+  }
+  /* A scope to a project that is gone falls back to All tasks, but only once the tasks are read:
+     before the first read there is no data to judge by, and dropping it then would lose the
+     project a door just asked for (#3703). */
+  if (TSK.data && TSK.proj && !projMap.has(TSK.proj)) TSK.proj = null;
   const projectsList = [...projMap.values()].sort((a, b) => String(a.name).localeCompare(String(b.name)));
   const openAll = all.filter((t) => t.state !== 'closed').length;
   /* The rail, and its narrow-window twin. */
@@ -42508,6 +42465,21 @@ async function tskOpenTask(key) {
 }
 async function tskOpenProject(id) {
   await tskGoToProject(id);
+}
+/* #3703: the project page's View-all door. ONE list screen: it opens this view scoped to the project
+   rather than a second list of its own. A door is a fresh look at that project, so the window goes
+   back to All (the door has always meant every task, closed included), and the search and tile go;
+   Group by and Sort are the person's own and stay. The way back is the crumb's "Open project". */
+function openProjectTasks(id) {
+  const p = id ? pjById(id) : null;
+  TSK.proj = id || null;
+  TSK.projHint = p ? { id: p.id, name: p.name } : null;
+  TSK.win = 0; TSK.tile = null; TSK.q = '';
+  const q = document.getElementById('tsk-search');
+  if (q) q.value = '';
+  document.getElementById('tsk-qclear').hidden = true;
+  if (document.body.classList.contains('consolidated')) openConsolidatedTasks();
+  else showTab('tasks');
 }
 async function tskBulkClose() {
   if (TSK.busy || !TSK.sel.size) return;
@@ -42639,117 +42611,6 @@ document.getElementById('tsk-bclear').addEventListener('click', () => {
   document.getElementById('tsk-search').focus();
 });
 document.getElementById('rail-projects-tasks').addEventListener('click', openConsolidatedTasks);
-
-/**
- * Every task on the current project, open and finished (#2498 scoped it from
- * the old every-project set to the project this door was opened from).
- *
- * 🛑 AN UNREADABLE ANSWER IS SAID OUT LOUD, NEVER SHOWN AS AN EMPTY LIST. "No
- * tasks yet" is a claim about somebody's own work; the route refuses to serve
- * it when it could not read, and this screen must not invent it either.
- *
- * 🔑 ONE ARRAY. The heading's count and the rows below it are the same `rows`,
- * so they cannot disagree. #1346 as a construction rather than a rule to
- * remember: that screen said "3 agents" over three rows and "6" underneath,
- * because one number came from the data and the other from a document-wide DOM
- * query.
- */
-async function openAllTasksView() {
-  const list = document.getElementById('alltasks-list');
-  const count = document.getElementById('alltasks-count');
-  const msg = document.getElementById('alltasks-msg');
-  const back = document.getElementById('alltasks-back');
-  const here = pjById(PJ_CURRENT);
-  back.textContent = '\u2190 ' + (here ? here.name : 'Projects');
-  /* #2498: this door is per-project and its list is scoped to the project it
-     was opened from, so the description names that project rather than the old
-     "Across every project." (which was true only while the screen was global). */
-  const desc = document.getElementById('alltasks-desc');
-  if (desc) desc.textContent = here ? ('In ' + here.name + '.') : 'In this project.';
-  list.textContent = ''; count.hidden = true; msg.textContent = 'Looking\u2026';
-  pjView('alltasks');
-  let body = null;
-  try {
-    /* #2498: carry the current project and let the route filter, rather than
-       fetching every project's tasks. PJ_CURRENT is always set when this door
-       is reachable; the empty fallback keeps a global read if it ever is not. */
-    const scope = PJ_CURRENT ? ('?project=' + encodeURIComponent(PJ_CURRENT)) : '';
-    const r = await fetch('/api/tasks' + scope, { cache: 'no-store' });
-    body = await r.json();
-    if (!r.ok) throw new Error((body && body.error) || 'we could not read your tasks');
-  } catch (err) {
-    msg.textContent = String((err && err.message) || 'we could not read your tasks right now');
-    return;
-  }
-  if (PJ_VIEW !== 'alltasks') return;   // they left while we were reading
-  const rows = (body && body.tasks) || [];
-  if (!rows.length) {
-    msg.textContent = '';
-    list.innerHTML = '<p class="tk-empty">No tasks on this project yet. Add one to start tracking progress.</p>';
-    return;
-  }
-  msg.textContent = '';
-  const live = rows.filter((t) => !t.isClosed).length;
-  /* The second clause appears ONLY when it says something, which is the
-     Documents screen's own convention one screen over ("N files", plus a page
-     count only when there is more than one page). "5 tasks, 5 still open" spends
-     four words repeating the first two. */
-  count.textContent = rows.length + (rows.length === 1 ? ' task' : ' tasks')
-    + (live < rows.length ? ' \u00b7 ' + live + ' still open' : '');
-  count.hidden = false;
-  /* 🛑 `closed`, NOT a class of this screen's own. The project column has marked
-     a finished card `tkcard closed` since #206, and `.tkcard.closed .tkcard-t`
-     is what strikes the title through and dims it. This screen shipped with
-     `tkdone`, which NOTHING styles and NOTHING reads, so a finished task here
-     looked exactly like an open one while looking correct everywhere else.
-     Caught by render-tasks, which clicks the door and asks for `.tkcard.closed`:
-     the check was right and this screen was wrong. Measured before renaming --
-     `tkdone` appeared exactly once in the whole tree, here, so nothing consumed
-     it, against a control of four live references to the `closed` form. */
-  /* #3171 (Josh, 2026-09-16): open vs closed at a glance. Group the open tasks
-     above the closed ones with a labelled divider between them, give every row a
-     far-right Open/Closed pill, and show the task number the way the project
-     column already does (`Task N`). The pill carries the closed state, so the
-     old ' \u00b7 finished' meta text is retired to avoid saying it twice.
-     \ud83d\udd11 ONE SORT, THE SERVER'S. allTasks() (engine/tasks.js) already returns
-     open-before-closed, pinned by engine/tasks.all-1382.test.js ("open work sorts
-     above finished work"), so this render TRUSTS that grouping rather than
-     re-deriving it (repo convention: no two derivations of one fact). The divider
-     therefore expects a single open->closed boundary, and render-alltasks asserts
-     exactly one divider, so a change to the server order is caught here.
-     \ud83d\udd11 THE #1346 GUARANTEE IS KEPT: `rows` is the one array the heading counted,
-     and the divider is a non-`.tkcard` element, so the rendered-row count
-     render-alltasks pins against the heading is unchanged.
-     The badge is the LAST child so the button's reading order (number, title,
-     who, then status) matches the visual order; `position: absolute` keeps it at
-     the far right regardless of DOM position. */
-  const anyOpen = rows.some((t) => !t.isClosed);
-  list.innerHTML = rows.map((t, i) => {
-    const opensClosedGroup = t.isClosed && anyOpen && (i === 0 || !rows[i - 1].isClosed);
-    return (opensClosedGroup ? '<div class="tk-divider" role="separator"><span>Closed</span></div>' : '')
-      + '<button class="tkcard' + (t.isClosed ? ' closed' : '')
-      + '" type="button" data-project="' + esc(t.projectId) + '" data-task="' + Number(t.number) + '">'
-      + '<span class="tkcard-n">Task ' + Number(t.number) + '</span>'
-      + '<b>' + esc(t.sentence || '') + '</b>'
-      + '<small>' + esc(t.projectName || '')
-      + (t.whoNames && t.whoNames.length ? ' \u00b7 ' + esc(t.whoNames.join(', ')) : '')
-      + '</small>'
-      + '<span class="tkcard-badge' + (t.isClosed ? ' closed' : '') + '">' + (t.isClosed ? 'Closed' : 'Open') + '</span>'
-      + '</button>';
-  }).join('');
-}
-
-/* A row opens its task on the project it belongs to. #2498 scoped this door to
-   the project it was opened from, so every row is that same project and the
-   switch is a safe no-op today; it is kept (each row still carries its project)
-   so the handler stays correct if the list is ever un-scoped again. */
-document.getElementById('alltasks-list').addEventListener('click', (e) => {
-  const card = e.target.closest('.tkcard');
-  if (!card) return;
-  const pid = card.dataset.project;
-  if (pid && pid !== PJ_CURRENT) { PJ_CURRENT = pid; }
-  openTaskPage(Number(card.dataset.task));
-});
 
 document.getElementById('pj-tasklist').addEventListener('click', (e) => {
   const card = e.target.closest('.tkcard');
@@ -43263,9 +43124,61 @@ document.getElementById('tk-say').addEventListener('keydown', (e) => {
    a DIFFERENT project starts clean, so one project's half-written task can
    never be filed under another. */
 let NT_FOR = null;
-function openNewTask() {
-  const p = pjById(PJ_CURRENT);
+/* #3703: the dialog opens from the project page (its project) or from the Tasks view
+   ("+ New task"): that view's picked project, or, on All tasks, a project the person picks in the
+   dialog. NT_PROJECT is the project it files to; NT_ORIGIN is where focus and the answer go back. */
+let NT_ORIGIN = 'project';
+let NT_PROJECT = null;
+/* The projects a task can be filed to from the Tasks view: every project that is not archived,
+   by name. The rails set archived projects aside, and so does this. */
+function ntChoices() {
+  return PROJECTS.filter((p) => p && p.archived !== true)
+    .slice().sort((a, b) => String(a.name).localeCompare(String(b.name)));
+}
+async function openNewTaskFromTasks() {
+  await loadProjects();
+  const picked = TSK.proj ? pjById(TSK.proj) : null;
+  openNewTask(picked ? picked.id : null, 'tasks');
+}
+function openNewTask(projectId, origin) {
+  NT_ORIGIN = origin === 'tasks' ? 'tasks' : 'project';
+  const row = document.getElementById('nt-projrow');
+  const said = document.getElementById('nt-in');
+  let p = pjById(projectId === undefined ? PJ_CURRENT : projectId);
+  if (NT_ORIGIN === 'tasks' && !p) {
+    /* All tasks: ask which project, in the dialog. A kept draft's project is the one offered first
+       (the person was aiming it there), else the first by name. */
+    const choices = ntChoices();
+    const sel = document.getElementById('nt-proj');
+    sel.innerHTML = choices.map((c) => '<option value="' + esc(c.id) + '">' + esc(c.name) + '</option>').join('');
+    row.hidden = false;
+    said.hidden = true;
+    if (!choices.length) {
+      /* Nothing to file it to: say so, rather than an empty picker and a Create that cannot work. */
+      NT_PROJECT = null;
+      document.getElementById('nt-who').innerHTML = '<option value="">Nobody yet</option>';
+      document.getElementById('nt-msg').textContent = 'Make a project first. A task belongs to a project.';
+      document.getElementById('nt-go').disabled = true;
+      document.getElementById('nt-modal').hidden = false;
+      document.getElementById('nt-back').focus();
+      return;
+    }
+    sel.value = choices.some((c) => c.id === NT_FOR) ? NT_FOR : choices[0].id;
+    p = pjById(sel.value);
+  } else {
+    row.hidden = true;
+    said.hidden = false;
+  }
   if (!p) return;
+  ntAimAt(p);
+  document.getElementById('nt-msg').textContent = '';
+  document.getElementById('nt-go').disabled = !document.getElementById('nt-what').value.trim();
+  document.getElementById('nt-modal').hidden = false;
+  document.getElementById('nt-what').focus();
+}
+/* Point the dialog at one project: its name, the draft kept for it, and its members as the choices. */
+function ntAimAt(p) {
+  NT_PROJECT = p.id;
   document.getElementById('nt-project').textContent = p.name;
   /* The dialog's Cancel keeps its word; the page's Back used to carry the project's name here. */
   /* Decided BEFORE the key moves: keepWho below must answer "was there a
@@ -43301,23 +43214,30 @@ function openNewTask() {
        Nobody, which is what an unselected select would submit anyway. */
     if (sel.selectedIndex === -1) sel.selectedIndex = 0;
   }
-  document.getElementById('nt-msg').textContent = '';
-  document.getElementById('nt-go').disabled = !document.getElementById('nt-what').value.trim();
-  document.getElementById('nt-modal').hidden = false;
-  document.getElementById('nt-what').focus();
 }
 function leaveNewTask() {
   document.getElementById('nt-modal').hidden = true;
-  document.getElementById('pj-newtask').focus();
+  document.getElementById(NT_ORIGIN === 'tasks' ? 'tsk-new' : 'pj-newtask').focus();
 }
-document.getElementById('pj-newtask').addEventListener('click', openNewTask);
+/* Wrapped: a bare listener would hand the click Event to openNewTask as its project id. */
+document.getElementById('pj-newtask').addEventListener('click', () => openNewTask());
+document.getElementById('tsk-new').addEventListener('click', openNewTaskFromTasks);
+/* A different project picked in the dialog: the same draft, aimed at it (the words stay; the
+   members to choose from are that project's). */
+document.getElementById('nt-proj').addEventListener('change', (e) => {
+  const p = pjById(e.target.value);
+  if (!p) return;
+  NT_FOR = p.id;   // the draft follows the pick, so ntAimAt keeps the words instead of clearing them
+  ntAimAt(p);
+});
 document.getElementById('nt-back').addEventListener('click', leaveNewTask);
 // Create is held down until the one required thing exists (pack: disabled).
 document.getElementById('nt-what').addEventListener('input', () => {
-  document.getElementById('nt-go').disabled = !document.getElementById('nt-what').value.trim();
+  // No project to file it to (the Tasks view with none made yet): Create stays down whatever is typed.
+  document.getElementById('nt-go').disabled = !document.getElementById('nt-what').value.trim() || !NT_PROJECT;
 });
 document.getElementById('nt-go').addEventListener('click', async () => {
-  const p = pjById(PJ_CURRENT);
+  const p = pjById(NT_PROJECT);
   if (!p) return;
   const go = document.getElementById('nt-go');
   go.disabled = true;
@@ -43341,6 +43261,17 @@ document.getElementById('nt-go').addEventListener('click', async () => {
     document.getElementById('nt-what').value = '';
     document.getElementById('nt-detail').value = '';
     leaveNewTask();
+    if (NT_ORIGIN === 'tasks') {
+      /* From the Tasks view: stay there. The view re-reads (a refresh, so ticks stay), and its
+         status line says where the task went, plus who was told when an agent was. */
+      await loadProjects();
+      const made = body && body.task;
+      const heardT = heardSentence(spokenHeard(pjById(p.id), body && body.heard));
+      const m = document.getElementById('tsk-msg');
+      if (m) m.textContent = 'Added task ' + (made && made.number ? made.number + ' ' : '') + 'to ' + p.name + '.' + (heardT ? ' ' + heardT : '');
+      await tskLoad(false);
+      return;
+    }
     await pjReload();
     // Set AFTER the reload and the dialog's own close, which both land on
     // the project page too: an earlier write here would be gone before
@@ -54872,7 +54803,6 @@ function asbScreen() {
   if (fr && !fr.hidden) return { screen: 'firstrun' };
   if (URL_TAB === 'detail' && CURRENT) return { screen: 'agent', agent: CURRENT.name || CURRENT.sessionName };
   if (URL_TAB === 'create') return { screen: 'create' };
-  if (URL_TAB === 'projects' && PJ_VIEW === 'alltasks') return { screen: 'tasks' };
   /* #3559: the Tasks view, as its own tab or opened inside the consolidated display column. */
   if (URL_TAB === 'tasks') return { screen: 'tasks' };
   { const pt = document.getElementById('panel-tasks'); if (pt && !pt.hidden && pt.getClientRects().length) return { screen: 'tasks' }; }

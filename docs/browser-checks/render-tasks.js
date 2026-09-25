@@ -383,14 +383,19 @@ const MEMBER = 'taskmate';
     if (/\d/.test(doorAfter)) die('the door carries a number again ("' + doorAfter + '"), which can disagree with the column and with the all-projects screen it opens');
     /* WAIT FOR THE DESTINATION. Until #1382 this door was a reveal IN PLACE, so
        the rows it exposed were already in the DOM and an immediate query was
-       correct. It now NAVIGATES to a screen that fetches its own rows, so the
+       correct. It now NAVIGATES to a view that fetches its own rows, so the
        same immediate query races the load and reports the done task missing
        when it is merely not there yet. The behaviour changed underneath a check
        that was right about the old one. */
+    /* #3703: the door opens the Tasks view scoped to this project (one list screen); finished
+       work is in its Closed fold, folded by default, so open the fold to reach it. */
     await p.click('#pj-alltasks');
-    await p.waitForSelector('#pj-alltasks-view', { state: 'visible', timeout: 10000 });
-    await p.waitForSelector('#pj-alltasks-view .tkcard', { timeout: 10000 });
-    const doneCard = p.locator('#pj-alltasks-view .tkcard.closed').first();
+    await p.waitForFunction(() => !document.getElementById('panel-tasks').hidden
+      && document.querySelectorAll('#tsk-groups .tsk-row').length > 0, null, { timeout: 10000 });
+    const fold = p.locator('#tsk-groups .tsk-fold');
+    if (!(await fold.count())) die('the done task is not behind the door (the Tasks view has no Closed fold)');
+    if (!(await fold.evaluate((d) => d.open))) await p.click('#tsk-groups .tsk-fold summary');
+    const doneCard = p.locator('#tsk-groups .tsk-fold .tsk-row .tl').first();
     if (!(await doneCard.count())) die('the done task is not behind the door');
     await doneCard.click();
     await p.waitForSelector('#pj-task-view', { state: 'visible' });
