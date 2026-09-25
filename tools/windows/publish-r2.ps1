@@ -12,54 +12,56 @@ upload step, with the same file set and the same gates as those two scripts.
 TWO MODES.
 
   Staging (the default). From a built zip (tools/build-kosmos-windows.sh):
-    kosmos-<v>-win-<arch>.zip, its .sha256 sidecar, then latest-win-staging.json LAST (the pointer
-    is the go-live, so it never names bytes that are not already up). Prod readers are untouched.
+    kosmos-<v>-win-x64.zip, its .sha256 sidecar, then latest-win-staging.json LAST (the pointer is
+    the go-live, so it never names bytes that are not already up). Prod readers are untouched.
 
     pwsh tools/windows/publish-r2.ps1 -Zip .\dist\kosmos-win-x64.zip
 
   Promote (prod, ONLY on Josh's go). Moves prod onto the staged build, the R2 twin of
-  promote-channel.sh --family win: the alias kosmos-win-<arch>.zip becomes a server-side copy of the
-  staged versioned zip, its sidecar is rewritten to name the alias, then latest-win.json becomes
-  the staging pointer's bytes verbatim, LAST. It refuses unless ALL of these hold:
-    - the served staging pointer names exactly -ApprovedVersion and -ApprovedSha,
-    - -ApprovalRef is a Slack ts or permalink of Josh's message, and is logged before any write,
-    - this PC holds a passing verification record for that sha (tools/win-staging-verify.js writes
-      it; tools/lib/win-staging-record.js validates it, through node).
+  promote-channel.sh --family win. It refuses unless ALL of these hold, checked case-sensitively:
+    - the staging pointer names exactly -ApprovedVersion and -ApprovedSha, in the one canonical
+      pointer shape, and the staged zip and its sidecar hold exactly those bytes;
+    - -ApprovalRef is a Slack ts or permalink of Josh's message, and is logged before any write;
+    - this PC holds a passing verification record for that sha (tools/win-staging-verify.js
+      writes it; tools/lib/win-staging-record.js validates it, through node).
+  Then: the alias kosmos-win-x64.zip becomes a server-side copy of the staged zip (pinned to the
+  exact object just verified), its sidecar is rewritten to name the alias, both are read back, and
+  only then latest-win.json becomes the staging pointer's bytes verbatim, LAST.
 
     pwsh tools/windows/publish-r2.ps1 -Promote -ApprovedVersion 0.6.94 -ApprovedSha <sha> -ApprovalRef <ref>
 
   -DryRun on either mode does every read and check and prints what it would write, writing nothing.
 
-CREDENTIALS. An R2 S3 key scoped to the one bucket (Object Read & Write on kosmos-dist-win only),
-from -CredentialFile (default %LOCALAPPDATA%\Kosmos\release-secrets\r2-dist-win.env, lines
+WHICH READS DECIDE. Every read that decides whether to write (does this version exist, what does
+prod name, what is staged) is a SIGNED read of the bucket itself, so an edge that is challenging or
+rate-limiting us answers with a refusal, never with "nothing there". The public URL is read only
+AFTER writing, to confirm users are served the new bytes.
+
+CREDENTIALS. An R2 S3 key scoped to the one bucket (Object Read & Write on kosmos-dist-win), from
+-CredentialFile (default %LOCALAPPDATA%\Kosmos\release-secrets\r2-dist-win.env, lines
 R2_ACCOUNT_ID=, R2_ACCESS_KEY_ID=, R2_SECRET_ACCESS_KEY=) or, when that file is absent, from
 environment variables of the same names. The secret is never printed.
 
-VERIFICATION. After writing, every name is read back through installkosmos.com (following its 307),
-and the bytes must match: the zip by sha256, the sidecar and pointer byte for byte. A publish that
-cannot see its own bytes served exits non-zero.
-
-Exit codes: 0 done (or dry run clean), 1 refused or failed. PowerShell 5.1 and 7 both work.
+Windows x64 only: every Windows redirect on the site is x64. Versions are x.y.z, what the updater
+accepts. Exit codes: 0 done (or dry run clean), 1 refused or failed. PowerShell 5.1 and 7.
 #>
 [CmdletBinding(DefaultParameterSetName = 'Staging')]
 param(
   [Parameter(ParameterSetName = 'Staging', Mandatory = $true)] [string] $Zip,
   [Parameter(ParameterSetName = 'Staging')] [string] $Version,
   [Parameter(ParameterSetName = 'Staging')] [switch] $ReplaceVersioned,
-  [Parameter(ParameterSetName = 'Staging')] [switch] $SkipSignatureCheck,
 
   [Parameter(ParameterSetName = 'Promote', Mandatory = $true)] [switch] $Promote,
   [Parameter(ParameterSetName = 'Promote', Mandatory = $true)] [string] $ApprovedVersion,
   [Parameter(ParameterSetName = 'Promote', Mandatory = $true)] [string] $ApprovedSha,
   [Parameter(ParameterSetName = 'Promote', Mandatory = $true)] [string] $ApprovalRef,
 
-  [string] $Arch = 'x64',
   [string] $Bucket = 'kosmos-dist-win',
   [string] $CredentialFile = $(if ($env:LOCALAPPDATA) { Join-Path $env:LOCALAPPDATA 'Kosmos\release-secrets\r2-dist-win.env' } else { '' }),
-  # Where users are served from. Verification reads through this, so it sees what users see.
+  # Where users are served from; read only to confirm a write reached them.
   [string] $ServedBase = 'https://installkosmos.com/dist',
-  # For tests only: write every key under this prefix (e.g. "_selftest/abc/"), and verify through
-  # -ServedBase, which a test points at the bucket's public URL plus the same prefix.
+  # For tests only: write every key under this prefix (e.g. "_selftest/abc/"). A non-default
+  # -ServedBase is refused without it, so no stand-in server can speak for prod.
   [string] $KeyPrefix = '',
   [switch] $DryRun
 )
@@ -69,21 +71,30 @@ Set-StrictMode -Version 2.0
 [Net.ServicePointManager]::SecurityProtocol = [Net.ServicePointManager]::SecurityProtocol -bor [Net.SecurityProtocolType]::Tls12
 Add-Type -AssemblyName System.Net.Http
 Add-Type -AssemblyName System.IO.Compression.FileSystem
+$Invariant = [Globalization.CultureInfo]::InvariantCulture
 
+# Anything that goes wrong after latest-win.json is written must say so (set just before it).
+$script:AfterNote = ''
 function Say([string] $m) { [Console]::Out.WriteLine("publish-r2: $m") }
-function Refuse([string] $m) { [Console]::Error.WriteLine("publish-r2: REFUSING - $m"); exit 1 }
+function Refuse([string] $m) { [Console]::Error.WriteLine("publish-r2: REFUSING - $m$script:AfterNote"); exit 1 }
 
 # ---------- names -------------------------------------------------------------------------------
-# Every name below is interpolated into an object key, so the tokens get the same guard as
-# publish-kosmos-windows.sh: letters, digits and . + _ - only.
-function Assert-Token([string] $what, [string] $v) {
-  if ($v -notmatch '^[0-9A-Za-z.+_-]+$' -or $v.StartsWith('-')) { Refuse "an implausible $what '$v' (only letters, digits and . + _ -, not starting with -)" }
-}
-Assert-Token 'arch' $Arch
-if ($KeyPrefix -and ($KeyPrefix -notmatch '^[0-9A-Za-z._-]+(/[0-9A-Za-z._-]+)*/$' -or ($KeyPrefix.TrimEnd('/') -split '/') -contains '..' -or ($KeyPrefix.TrimEnd('/') -split '/') -contains '.')) { Refuse "-KeyPrefix '$KeyPrefix' must be path segments ending in '/', with no . or .. segment" }
+# All comparisons below are CASE-SENSITIVE (-c...), because R2 keys are: PowerShell's plain -eq
+# would let X64 pass as x64 and then write a key nobody reads. \z, not $, so a trailing newline
+# cannot slip through.
+$Arch = 'x64'
 $Alias = "kosmos-win-$Arch.zip"
+function Assert-Version([string] $what, [string] $v) {
+  if ($v -cnotmatch '^[0-9]+\.[0-9]+\.[0-9]+\z') { Refuse "an implausible $what '$v' (x.y.z, what the updater accepts)" }
+}
+function Assert-Sha([string] $what, [string] $v) {
+  if ($v -cnotmatch '^[0-9a-f]{64}\z') { Refuse "$what '$v' must be a lowercase 64-hex sha256" }
+}
+if ($KeyPrefix -and ($KeyPrefix -cnotmatch '^[0-9A-Za-z._-]+(/[0-9A-Za-z._-]+)*/\z' -or ($KeyPrefix.TrimEnd('/') -split '/') -contains '..' -or ($KeyPrefix.TrimEnd('/') -split '/') -contains '.')) { Refuse "-KeyPrefix '$KeyPrefix' must be path segments ending in '/', with no . or .. segment" }
+if ($ServedBase -cne 'https://installkosmos.com/dist' -and -not $KeyPrefix) { Refuse "-ServedBase is for tests and needs -KeyPrefix; users are served from https://installkosmos.com/dist" }
 
-# ---------- hashing -----------------------------------------------------------------------------
+# ---------- hashing and signing -----------------------------------------------------------------
+$Utf8 = New-Object Text.UTF8Encoding $false
 function Hex([byte[]] $b) { -join ($b | ForEach-Object { $_.ToString('x2') }) }
 function Sha256-Bytes([byte[]] $b) { $h = [Security.Cryptography.SHA256]::Create(); try { Hex $h.ComputeHash($b) } finally { $h.Dispose() } }
 function Sha256-File([string] $p) {
@@ -92,16 +103,32 @@ function Sha256-File([string] $p) {
 }
 function Hmac([byte[]] $key, [string] $msg) {
   $h = New-Object Security.Cryptography.HMACSHA256 (, $key)
-  try { $h.ComputeHash([Text.Encoding]::UTF8.GetBytes($msg)) } finally { $h.Dispose() }
+  try { $h.ComputeHash($Utf8.GetBytes($msg)) } finally { $h.Dispose() }
 }
-$Utf8 = New-Object Text.UTF8Encoding $false
+# SigV4 for S3, a pure function of its inputs so a test can pin it against AWS's published vector.
+# $Headers holds every header to sign EXCEPT host (lower-case names). Returns the Authorization value.
+function New-SigV4Authorization([string] $Method, [string] $HostName, [string] $UriPath, [hashtable] $Headers,
+                                [string] $PayloadSha, [string] $AccessKey, [string] $Secret, [string] $AmzDate, [string] $Region) {
+  $all = @{ 'host' = $HostName }
+  foreach ($k in $Headers.Keys) { $all[$k] = $Headers[$k] }
+  $names = @($all.Keys | Sort-Object -CaseSensitive)
+  $canonHeaders = -join ($names | ForEach-Object { "$($_):$(([string]$all[$_]).Trim())`n" })
+  $signed = $names -join ';'
+  $canonical = "$Method`n$UriPath`n`n$canonHeaders`n$signed`n$PayloadSha"
+  $day = $AmzDate.Substring(0, 8)
+  $scope = "$day/$Region/s3/aws4_request"
+  $toSign = "AWS4-HMAC-SHA256`n$AmzDate`n$scope`n$(Sha256-Bytes $Utf8.GetBytes($canonical))"
+  $k = Hmac ($Utf8.GetBytes('AWS4' + $Secret)) $day
+  $k = Hmac $k $Region; $k = Hmac $k 's3'; $k = Hmac $k 'aws4_request'
+  "AWS4-HMAC-SHA256 Credential=$AccessKey/$scope, SignedHeaders=$signed, Signature=$(Hex (Hmac $k $toSign))"
+}
 
 # ---------- credentials -------------------------------------------------------------------------
 function Read-Credentials {
   $c = @{}
   if ($CredentialFile -and (Test-Path -LiteralPath $CredentialFile)) {
     foreach ($line in [IO.File]::ReadAllLines($CredentialFile)) {
-      if ($line -match '^\s*(?:export\s+)?(R2_ACCOUNT_ID|R2_ACCESS_KEY_ID|R2_SECRET_ACCESS_KEY)\s*=\s*"?([^"\s]+)"?\s*$') { $c[$Matches[1]] = $Matches[2] }
+      if ($line -cmatch '^\s*(?:export\s+)?(R2_ACCOUNT_ID|R2_ACCESS_KEY_ID|R2_SECRET_ACCESS_KEY)\s*=\s*"?([^"\s]+)"?\s*\z') { $c[$Matches[1]] = $Matches[2] }
     }
     $from = $CredentialFile
   } else {
@@ -111,67 +138,75 @@ function Read-Credentials {
   foreach ($n in 'R2_ACCOUNT_ID', 'R2_ACCESS_KEY_ID', 'R2_SECRET_ACCESS_KEY') {
     if (-not $c.ContainsKey($n)) { Refuse "no $n in $from (see the CREDENTIALS note at the top of this script)" }
   }
-  if ($c.R2_ACCOUNT_ID -notmatch '^[0-9a-f]{32}$') { Refuse "R2_ACCOUNT_ID from $from is not a 32-hex Cloudflare account id" }
+  if ($c.R2_ACCOUNT_ID -cnotmatch '^[0-9a-f]{32}\z') { Refuse "R2_ACCOUNT_ID from $from is not a 32-hex Cloudflare account id" }
   Say "credentials from $from (key id ending ...$($c.R2_ACCESS_KEY_ID.Substring([Math]::Max(0, $c.R2_ACCESS_KEY_ID.Length - 4))))"
   $c
 }
 
-# ---------- R2 over the S3 API, signed with SigV4 ----------------------------------------------
+# ---------- R2 over the S3 API ------------------------------------------------------------------
 $Http = New-Object Net.Http.HttpClient
 $Http.Timeout = [TimeSpan]::FromMinutes(30)
 
 function Invoke-R2 {
   param([string] $Method, [string] $Key, [byte[]] $Body = $null, [string] $BodyFile = $null,
-        [string] $PayloadSha = $null, [string] $ContentType = $null, [hashtable] $AmzHeaders = @{})
+        [string] $PayloadSha = $null, [string] $ContentType = $null, [hashtable] $Extra = @{})
   $hostName = "$($Cred.R2_ACCOUNT_ID).r2.cloudflarestorage.com"
-  $uriPath = "/$Bucket/$Key"   # keys are token-guarded, so no URI encoding is needed
+  $uriPath = "/$Bucket/$Key"   # keys are [0-9A-Za-z._/-] only, all unreserved, so none need encoding
   if (-not $PayloadSha) { $PayloadSha = if ($Body) { Sha256-Bytes $Body } else { Sha256-Bytes ([byte[]]@()) } }
-  $now = [DateTime]::UtcNow
-  $amzDate = $now.ToString('yyyyMMddTHHmmssZ'); $day = $now.ToString('yyyyMMdd')
-  $hdr = [ordered]@{ 'host' = $hostName; 'x-amz-content-sha256' = $PayloadSha; 'x-amz-date' = $amzDate }
-  foreach ($k in ($AmzHeaders.Keys | Sort-Object)) { $hdr[$k.ToLowerInvariant()] = $AmzHeaders[$k] }
-  $names = @($hdr.Keys | Sort-Object)
-  $canonHeaders = -join ($names | ForEach-Object { "$($_):$($hdr[$_])`n" })
-  $signed = $names -join ';'
-  $canonical = "$Method`n$uriPath`n`n$canonHeaders`n$signed`n$PayloadSha"
-  $scope = "$day/auto/s3/aws4_request"
-  $toSign = "AWS4-HMAC-SHA256`n$amzDate`n$scope`n$(Sha256-Bytes $Utf8.GetBytes($canonical))"
-  $k = Hmac ($Utf8.GetBytes('AWS4' + $Cred.R2_SECRET_ACCESS_KEY)) $day
-  $k = Hmac $k 'auto'; $k = Hmac $k 's3'; $k = Hmac $k 'aws4_request'
-  $sig = Hex (Hmac $k $toSign)
+  $amzDate = [DateTime]::UtcNow.ToString('yyyyMMddTHHmmssZ', $Invariant)
+  $hdr = @{ 'x-amz-content-sha256' = $PayloadSha; 'x-amz-date' = $amzDate }
+  foreach ($k in $Extra.Keys) { $hdr[$k.ToLowerInvariant()] = $Extra[$k] }
+  $auth = New-SigV4Authorization $Method $hostName $uriPath $hdr $PayloadSha $Cred.R2_ACCESS_KEY_ID $Cred.R2_SECRET_ACCESS_KEY $amzDate 'auto'
   $req = New-Object Net.Http.HttpRequestMessage ([Net.Http.HttpMethod]::new($Method)), "https://$hostName$uriPath"
-  foreach ($n in $names) { if ($n -ne 'host') { [void]$req.Headers.TryAddWithoutValidation($n, $hdr[$n]) } }
-  [void]$req.Headers.TryAddWithoutValidation('Authorization', "AWS4-HMAC-SHA256 Credential=$($Cred.R2_ACCESS_KEY_ID)/$scope, SignedHeaders=$signed, Signature=$sig")
+  foreach ($n in $hdr.Keys) { [void]$req.Headers.TryAddWithoutValidation($n, $hdr[$n]) }
+  [void]$req.Headers.TryAddWithoutValidation('Authorization', $auth)
   $stream = $null
   if ($BodyFile) { $stream = [IO.File]::OpenRead($BodyFile); $req.Content = New-Object Net.Http.StreamContent $stream }
   elseif ($Body) { $req.Content = New-Object Net.Http.ByteArrayContent (, $Body) }
-  elseif ($Method -eq 'PUT') { $req.Content = New-Object Net.Http.ByteArrayContent (, [byte[]]@()) }
+  elseif ($Method -ceq 'PUT') { $req.Content = New-Object Net.Http.ByteArrayContent (, [byte[]]@()) }
   if ($req.Content -and $ContentType) { $req.Content.Headers.ContentType = [Net.Http.Headers.MediaTypeHeaderValue]::Parse($ContentType) }
   try {
     $resp = $Http.SendAsync($req).GetAwaiter().GetResult()
-    $text = $resp.Content.ReadAsStringAsync().GetAwaiter().GetResult()
-    [pscustomobject]@{ Status = [int]$resp.StatusCode; Body = $text }
+    $bytes = $resp.Content.ReadAsByteArrayAsync().GetAwaiter().GetResult()
+    $etag = if ($resp.Headers.ETag) { $resp.Headers.ETag.Tag } else { '' }
+    [pscustomobject]@{ Status = [int]$resp.StatusCode; Bytes = $bytes; Body = $Utf8.GetString($bytes); ETag = $etag }
   } catch {
-    Refuse "network error on $Method $Key ($($_.Exception.GetBaseException().Message)). Writes before this one may have landed: re-run with -DryRun to see what is served before re-running for real."
+    $why = "network error on $Method $Key ($($_.Exception.GetBaseException().Message))"
+    if ($Method -ceq 'GET') { Refuse $why }
+    Refuse "$why. Writes before this one may have landed: re-run with -DryRun to see the bucket's state before re-running for real."
   } finally { if ($stream) { $stream.Dispose() }; $req.Dispose() }
 }
 
-function Put-Object([string] $Name, [byte[]] $Body, [string] $File, [string] $Sha, [string] $Type) {
+# The bucket's own answer for a name: $null when it does not exist (404), the object when it does,
+# and a REFUSAL for anything else. An unreadable bucket is never "nothing there".
+function Get-Object([string] $Name) {
+  $r = Invoke-R2 -Method GET -Key "$KeyPrefix$Name"
+  if ($r.Status -eq 404) { return $null }
+  if ($r.Status -ne 200) { Refuse "reading $KeyPrefix$Name from the bucket answered $($r.Status): $($r.Body)" }
+  $r
+}
+function Put-Object([string] $Name, [byte[]] $Body, [string] $File, [string] $Sha, [string] $Type, [hashtable] $Extra = @{}) {
   $key = "$KeyPrefix$Name"
   if ($DryRun) { Say "DRY RUN: would PUT $key ($Type, sha256 $Sha)"; return }
-  $r = Invoke-R2 -Method PUT -Key $key -Body $Body -BodyFile $File -PayloadSha $Sha -ContentType $Type
+  $r = Invoke-R2 -Method PUT -Key $key -Body $Body -BodyFile $File -PayloadSha $Sha -ContentType $Type -Extra $Extra
   if ($r.Status -ne 200) { Refuse "PUT $key answered $($r.Status): $($r.Body)" }
   Say "wrote $key"
 }
-function Copy-Object([string] $FromName, [string] $ToName) {
+function Copy-Object([string] $FromName, [string] $ToName, [string] $IfMatch) {
   $from = "$KeyPrefix$FromName"; $to = "$KeyPrefix$ToName"
-  if ($DryRun) { Say "DRY RUN: would COPY $from -> $to (server side)"; return }
-  $r = Invoke-R2 -Method PUT -Key $to -AmzHeaders @{ 'x-amz-copy-source' = "/$Bucket/$from" }
-  if ($r.Status -ne 200 -or $r.Body -match '<Error>') { Refuse "COPY $from -> $to answered $($r.Status): $($r.Body)" }
+  if ($DryRun) { Say "DRY RUN: would COPY $from -> $to (server side, only if it is still $IfMatch)"; return }
+  $r = Invoke-R2 -Method PUT -Key $to -Extra @{ 'x-amz-copy-source' = "/$Bucket/$from"; 'x-amz-copy-source-if-match' = $IfMatch }
+  if ($r.Status -ne 200 -or $r.Body -cmatch '<Error>') { Refuse "COPY $from -> $to answered $($r.Status): $($r.Body)" }
   Say "copied $from -> $to"
 }
+function Assert-Object([string] $Name, [string] $WantSha) {
+  $o = Get-Object $Name
+  $got = if ($o) { Sha256-Bytes $o.Bytes } else { '(absent)' }
+  if ($got -cne $WantSha) { Refuse "the bucket holds $KeyPrefix$Name as $got, not $WantSha" }
+  $o
+}
 
-# ---------- reading what users are served -------------------------------------------------------
+# ---------- confirming what users are served (after writing) ------------------------------------
 function Get-Served([string] $Name) {
   $url = "$($ServedBase.TrimEnd('/'))/$Name"
   $req = New-Object Net.Http.HttpRequestMessage ([Net.Http.HttpMethod]::Get), $url
@@ -182,7 +217,7 @@ function Get-Served([string] $Name) {
     $bytes = $resp.Content.ReadAsByteArrayAsync().GetAwaiter().GetResult()
     [pscustomobject]@{ Status = [int]$resp.StatusCode; Bytes = $bytes; Url = $url }
   } catch {
-    Refuse "network error reading $url ($($_.Exception.GetBaseException().Message))"
+    [pscustomobject]@{ Status = 0; Bytes = [byte[]]@(); Url = $url }
   } finally { $req.Dispose() }
 }
 function Assert-Served([string] $Name, [string] $WantSha) {
@@ -190,23 +225,13 @@ function Assert-Served([string] $Name, [string] $WantSha) {
   for ($i = 1; $i -le 6; $i++) {
     $s = Get-Served $Name
     $got = if ($s.Status -eq 200) { Sha256-Bytes $s.Bytes } else { '' }
-    if ($got -eq $WantSha) { Say "served OK: $($s.Url) ($WantSha)"; return }
+    if ($got -ceq $WantSha) { Say "served OK: $($s.Url) ($WantSha)"; return }
     Start-Sleep -Seconds 5
   }
   Refuse "$($s.Url) serves status $($s.Status) sha256 '$got', not the $WantSha just written"
 }
-function Read-ServedPointer([string] $Name) {
-  $s = Get-Served $Name
-  if ($s.Status -ne 200) { return $null }
-  try { $j = $Utf8.GetString($s.Bytes) | ConvertFrom-Json } catch { Refuse "$($s.Url) is not JSON" }
-  # Every field is checked before anything reads it: StrictMode turns a missing property into a
-  # crash, and a hand-staged pointer with the wrong shape has happened (0.6.94, 2026-09-25).
-  foreach ($f in 'version', 'sha256', 'artifact', 'versioned', 'arch') {
-    if (-not ($j.PSObject.Properties.Name -contains $f) -or -not ($j.$f -is [string]) -or -not $j.$f) { Refuse "$($s.Url) is not a usable pointer: '$f' is missing or empty" }
-  }
-  [pscustomobject]@{ Bytes = $s.Bytes; Json = $j }
-}
 
+# ---------- the file formats --------------------------------------------------------------------
 # The one pointer shape, byte for byte what tools/lib/write-latest-win-pointer.js writes, so a
 # promote can copy the staging pointer onto prod verbatim and deploy-site's checks still hold.
 function New-PointerBytes([string] $V, [string] $Sha, [string] $Versioned) {
@@ -214,6 +239,16 @@ function New-PointerBytes([string] $V, [string] $Sha, [string] $Versioned) {
 }
 # A sidecar in shasum's format: "<sha>  <name>\n", naming its own file so `shasum -c` verifies it.
 function New-SidecarBytes([string] $Sha, [string] $Name) { $Utf8.GetBytes("$Sha  $Name`n") }
+# A pointer's fields, or $null when it is not JSON or lacks one (StrictMode would crash on a
+# missing property, and a hand-staged pointer with the wrong shape has happened: 0.6.94).
+function Read-PointerFields([byte[]] $Bytes) {
+  try { $j = $Utf8.GetString($Bytes) | ConvertFrom-Json } catch { return $null }
+  if (-not $j -or -not ($j -is [psobject])) { return $null }
+  foreach ($f in 'version', 'sha256', 'artifact', 'versioned', 'arch') {
+    if (-not ($j.PSObject.Properties.Name -contains $f) -or -not ($j.$f -is [string]) -or -not $j.$f) { return $null }
+  }
+  $j
+}
 
 # ---------- the approval log, shared with promote-channel.sh ------------------------------------
 $ApprovalLog = if ($env:KOSMOS_WIN_PROMOTE_LOG) { $env:KOSMOS_WIN_PROMOTE_LOG } else { Join-Path $HOME '.claude/logs/win-promote-approvals.log' }
@@ -222,60 +257,73 @@ function Write-ApprovalLine([string] $line) {
   try {
     [void](New-Item -ItemType Directory -Force -Path (Split-Path -Parent $ApprovalLog))
     [IO.File]::AppendAllText($ApprovalLog, "$line`n", $Utf8)
-  } catch { Refuse "could not record Josh's go in $ApprovalLog (an approval that is not logged is not given). Nothing was written." }
+  } catch { Refuse "could not record Josh's go in $ApprovalLog (an approval that is not logged is not given)." }
 }
-function Stamp { [DateTime]::UtcNow.ToString('yyyy-MM-ddTHH:mm:ssZ') }
+function Stamp { [DateTime]::UtcNow.ToString('yyyy-MM-ddTHH:mm:ssZ', $Invariant) }
 
-$Cred = Read-Credentials
-
-if ($PSCmdlet.ParameterSetName -eq 'Staging') {
+if ($PSCmdlet.ParameterSetName -ceq 'Staging') {
   # ======================================== STAGING ==========================================
   if (-not (Test-Path -LiteralPath $Zip -PathType Leaf)) { Refuse "no such zip: $Zip" }
+  $Cred = Read-Credentials
   $ZipPath = (Resolve-Path -LiteralPath $Zip).Path
+  $committedExe = Join-Path $PSScriptRoot 'Kosmos.exe'
+  if (-not (Test-Path -LiteralPath $committedExe -PathType Leaf)) { Refuse "the committed launcher $committedExe is missing, so the zip's launcher cannot be checked" }
   $archive = [IO.Compression.ZipFile]::OpenRead($ZipPath)
   try {
     if (-not $Version) {
       # The version the build baked in (app/package.json inside the zip), never the repo's.
       $e = $archive.GetEntry('app/package.json')
       if (-not $e) { Refuse "$ZipPath has no app/package.json to read the version from (pass -Version)" }
-      $r = New-Object IO.StreamReader ($e.Open()); try { $Version = ($r.ReadToEnd() | ConvertFrom-Json).version } finally { $r.Dispose() }
+      $r = New-Object IO.StreamReader ($e.Open())
+      try { $pkg = $r.ReadToEnd() | ConvertFrom-Json } catch { Refuse "$ZipPath has an unreadable app/package.json" } finally { $r.Dispose() }
+      if ($pkg.PSObject.Properties.Name -contains 'version') { $Version = [string]$pkg.version }
     }
-    # The launcher is committed signed (#3677); a zip carrying an unsigned or altered one must not ship.
-    $exe = $archive.Entries | Where-Object { $_.FullName -match '(^|/)Kosmos\.exe$' } | Select-Object -First 1
-    if (-not $exe) { Refuse "$ZipPath carries no Kosmos.exe" }
-    if ($SkipSignatureCheck) { Say "NOTE -SkipSignatureCheck: the launcher's Authenticode signature was NOT checked" }
-    elseif (-not (Get-Command Get-AuthenticodeSignature -ErrorAction SilentlyContinue)) { Refuse "Get-AuthenticodeSignature is unavailable here, so the launcher's signature cannot be checked (run on Windows, or pass -SkipSignatureCheck deliberately)" }
-    else {
-      $tmp = Join-Path ([IO.Path]::GetTempPath()) ("kosmos-exe-" + [Guid]::NewGuid().ToString('N') + '.exe')
-      [IO.Compression.ZipFileExtensions]::ExtractToFile($exe, $tmp)
-      try { $sigStatus = (Get-AuthenticodeSignature -LiteralPath $tmp).Status.ToString() } finally { Remove-Item -LiteralPath $tmp -Force }
-      if ($sigStatus -ne 'Valid') { Refuse "the Kosmos.exe inside $ZipPath has Authenticode status '$sigStatus', not Valid" }
-      Say "launcher signature: Valid"
-    }
+    # The launcher must BE the committed, signed Kosmos.exe (#3677): a validly signed exe from
+    # anyone else, or an older launcher, is not the one we ship.
+    $exe = $archive.GetEntry('Kosmos.exe')
+    if (-not $exe) { Refuse "$ZipPath carries no Kosmos.exe at its root" }
+    $tmp = Join-Path ([IO.Path]::GetTempPath()) ("kosmos-exe-" + [Guid]::NewGuid().ToString('N') + '.exe')
+    [IO.Compression.ZipFileExtensions]::ExtractToFile($exe, $tmp)
+    try {
+      if ((Sha256-File $tmp) -cne (Sha256-File $committedExe)) { Refuse "the Kosmos.exe inside $ZipPath is not the committed launcher $committedExe" }
+      if (Get-Command Get-AuthenticodeSignature -ErrorAction SilentlyContinue) {
+        $sigStatus = (Get-AuthenticodeSignature -LiteralPath $tmp).Status.ToString()
+        if ($sigStatus -cne 'Valid') { Refuse "the launcher's Authenticode status on this PC is '$sigStatus', not Valid" }
+        Say "launcher: the committed Kosmos.exe, Authenticode Valid"
+      } else { Say "launcher: the committed Kosmos.exe (Authenticode is checked on Windows only)" }
+    } finally { Remove-Item -LiteralPath $tmp -Force }
   } finally { $archive.Dispose() }
-  if (-not $Version) { Refuse "could not read a version from $ZipPath" }
-  Assert-Token 'version' $Version
+  Assert-Version 'version' $Version
   $Versioned = "kosmos-$Version-win-$Arch.zip"
   $Sha = Sha256-File $ZipPath
   Say "staging $Versioned ($Sha) from $ZipPath"
 
   # The versioned name is IMMUTABLE once published (the same promise publish-kosmos-windows.sh
-  # keeps): republishing different bytes under it hands two builds one name, which is how
-  # 0.6.94 staging was served with bytes nobody had announced (2026-09-25).
-  $prod = Read-ServedPointer 'latest-win.json'
-  # Keyed on the ZIP, not its sidecar: a run interrupted between the two PUTs leaves a served zip
-  # with no sidecar, and a sidecar-keyed check would then overwrite it unrefused.
-  $existing = Get-Served $Versioned
-  if ($existing.Status -eq 200) {
+  # keeps): republishing different bytes under it hands two builds one name, which is how 0.6.94
+  # staging was served with bytes nobody had announced (2026-09-25). Read from the bucket itself,
+  # and keyed on the ZIP, so an earlier run cut off before its sidecar still counts.
+  $existing = Get-Object $Versioned
+  $putExtra = @{}
+  if ($existing) {
     $existingSha = Sha256-Bytes $existing.Bytes
-    if ($existingSha -eq $Sha) { Say "$Versioned is already published with these bytes; re-writing is a no-op for users" }
-    elseif ($prod -and $prod.Json.versioned -eq $Versioned) { Refuse "$Versioned is what PROD's latest-win.json names ($existingSha); replacing it would change prod's bytes. Bump the version." }
-    elseif (-not $ReplaceVersioned) { Refuse "$Versioned is already published with DIFFERENT bytes ($existingSha). Versioned names are immutable: bump the version, or pass -ReplaceVersioned if the published one was never announced." }
-    else { Say "NOTICE -ReplaceVersioned: $Versioned changes from $existingSha to $Sha" }
+    if ($existingSha -ceq $Sha) { Say "$Versioned is already in the bucket with these bytes; it is uploaded again unchanged" }
+    elseif (-not $ReplaceVersioned) { Refuse "$Versioned is already in the bucket with DIFFERENT bytes ($existingSha). Versioned names are immutable: bump the version, or pass -ReplaceVersioned if the published one was never announced." }
+    else {
+      $prod = Get-Object 'latest-win.json'
+      if ($prod) {
+        $pf = Read-PointerFields $prod.Bytes
+        if (-not $pf) { Refuse "prod's latest-win.json cannot be read, so it cannot be ruled out that prod names $Versioned; -ReplaceVersioned needs to know" }
+        if ($pf.versioned -ceq $Versioned) { Refuse "$Versioned is what PROD's latest-win.json names ($existingSha); replacing it would change prod's bytes. Bump the version." }
+      }
+      Say "NOTICE -ReplaceVersioned: $Versioned changes from $existingSha to $Sha"
+    }
+  } else {
+    # Not there when read, so create it only if it is STILL not there when the PUT lands.
+    $putExtra = @{ 'if-none-match' = '*' }
   }
 
   # Zip, then sidecar, then pointer LAST, so the pointer never names bytes that are not up.
-  Put-Object $Versioned $null $ZipPath $Sha 'application/zip'
+  Put-Object $Versioned $null $ZipPath $Sha 'application/zip' $putExtra
   $side = New-SidecarBytes $Sha $Versioned
   Put-Object "$Versioned.sha256" $side $null (Sha256-Bytes $side) 'text/plain; charset=utf-8'
   $ptr = New-PointerBytes $Version $Sha $Versioned
@@ -291,26 +339,30 @@ if ($PSCmdlet.ParameterSetName -eq 'Staging') {
 }
 
 # ========================================== PROMOTE ============================================
-Assert-Token 'approved version' $ApprovedVersion
-if ($ApprovedSha -notmatch '^[0-9a-f]{64}$') { Refuse "-ApprovedSha must be a lowercase 64-hex sha256" }
-if ($ApprovalRef -notmatch '^[A-Za-z0-9._:/?=&%#+-]+$') { Refuse "-ApprovalRef '$ApprovalRef' is not a Slack message ts or permalink. Nothing was written." }
-
-$staging = Read-ServedPointer 'latest-win-staging.json'
-if (-not $staging) { Refuse "cannot read the served latest-win-staging.json. Nothing was written." }
-$sp = $staging.Json
-if ($sp.version -ne $ApprovedVersion -or $sp.sha256 -ne $ApprovedSha) {
-  Refuse "the served staging pointer is $($sp.version) ($($sp.sha256)), not the approved $ApprovedVersion ($ApprovedSha). Josh's go covers one exact build. Nothing was written."
-}
+Assert-Version 'approved version' $ApprovedVersion
+Assert-Sha '-ApprovedSha' $ApprovedSha
+if ($ApprovalRef -cnotmatch '^[A-Za-z0-9._:/?=&%#+-]+\z') { Refuse "-ApprovalRef '$ApprovalRef' is not a Slack message ts or permalink. Nothing was written." }
+$Cred = Read-Credentials
 $Versioned = "kosmos-$ApprovedVersion-win-$Arch.zip"
-if ($sp.versioned -ne $Versioned -or $sp.artifact -ne $Alias -or $sp.arch -ne $Arch) {
-  Refuse "the staging pointer names versioned '$($sp.versioned)' artifact '$($sp.artifact)' arch '$($sp.arch)', expected '$Versioned' '$Alias' '$Arch' (the promoted latest-win.json would name a download that does not hold these bytes). Re-stage with this script. Nothing was written."
+
+$staging = Get-Object 'latest-win-staging.json'
+if (-not $staging) { Refuse "the bucket has no latest-win-staging.json. Nothing was written." }
+$sp = Read-PointerFields $staging.Bytes
+if (-not $sp) { Refuse "latest-win-staging.json is not a usable pointer. Re-stage with this script. Nothing was written." }
+if ($sp.version -cne $ApprovedVersion -or $sp.sha256 -cne $ApprovedSha) {
+  Refuse "the staging pointer is $($sp.version) ($($sp.sha256)), not the approved $ApprovedVersion ($ApprovedSha). Josh's go covers one exact build. Nothing was written."
 }
-# The staged bytes themselves, not just the pointer's claim about them.
-Assert-Served $Versioned $ApprovedSha
+# Canonical bytes, not just the right fields: latest-win.json becomes these bytes verbatim.
+if ((Sha256-Bytes $staging.Bytes) -cne (Sha256-Bytes (New-PointerBytes $ApprovedVersion $ApprovedSha $Versioned))) {
+  Refuse "latest-win-staging.json is not in the canonical pointer shape (artifact must be $Alias, versioned $Versioned, arch $Arch, in write-latest-win-pointer.js's byte form). Re-stage with this script. Nothing was written."
+}
+# The staged bytes themselves, and the sidecar the updater reads first (engine/win32update.js).
+$staged = Assert-Object $Versioned $ApprovedSha
+[void](Assert-Object "$Versioned.sha256" (Sha256-Bytes (New-SidecarBytes $ApprovedSha $Versioned)))
+if (-not $staged.ETag) { Refuse "the bucket gave no ETag for $Versioned, so the copy cannot be pinned to the bytes just checked. Nothing was written." }
 
 # The verification record for this sha on this PC, validated by the one spec the writer uses.
-$repoTools = Split-Path -Parent $PSScriptRoot
-$spec = Join-Path $repoTools 'lib/win-staging-record.js'
+$spec = Join-Path (Split-Path -Parent $PSScriptRoot) 'lib/win-staging-record.js'
 if (-not (Get-Command node -ErrorAction SilentlyContinue)) { Refuse "node is required to validate the verification record. Nothing was written." }
 if (-not (Test-Path -LiteralPath $spec)) { Refuse "the record spec $spec is missing. Nothing was written." }
 $verdictJs = @'
@@ -324,7 +376,7 @@ const { problems, verdict } = spec.validateRecord(record, { version: wantVersion
 if (problems.length) { console.log('AMBIGUOUS ' + problems.join('; ')); process.exit(3); }
 console.log((verdict === 'pass' ? 'PASS ' : 'FAIL ') + sha + ' ' + file); process.exit(verdict === 'pass' ? 0 : 4);
 '@
-$verdict = & node -e $verdictJs $spec $ApprovedVersion $ApprovedSha
+$verdict = (& node -e $verdictJs $spec $ApprovedVersion $ApprovedSha) -join ' '
 $rc = $LASTEXITCODE
 if ($rc -ne 0) { Refuse "the verification record does not pass ($verdict). Verify the staged build on this PC first (node tools/win-staging-verify.js). Nothing was written." }
 $recordSha = ($verdict -split ' ')[1]; $recordPath = ($verdict -split ' ', 3)[2]
@@ -333,19 +385,21 @@ Say "verification record: $verdict"
 # Josh's go is logged BEFORE any write; a go that is not logged is not given.
 Write-ApprovalLine "$(Stamp) family=win path=promote-r2 version=$ApprovedVersion sha256=$ApprovedSha approval_ref=$ApprovalRef record_sha256=$recordSha approval=given record=$recordPath"
 
-# Alias bytes, then its sidecar, then latest-win.json LAST (the staging pointer's bytes verbatim).
-# Re-check the staged bytes right before the copy: the record check and the log took time, and
-# the copy takes whatever sits at the versioned name NOW (promote-channel.sh's one-snapshot rule).
-Assert-Served $Versioned $ApprovedSha
-Copy-Object $Versioned $Alias
+# The alias (a copy pinned to the exact object checked above) and its sidecar, both read back from
+# the bucket BEFORE prod's pointer moves; then latest-win.json LAST, the staging bytes verbatim.
+Copy-Object $Versioned $Alias $staged.ETag
 $aliasSide = New-SidecarBytes $ApprovedSha $Alias
 Put-Object "$Alias.sha256" $aliasSide $null (Sha256-Bytes $aliasSide) 'text/plain; charset=utf-8'
+if (-not $DryRun) {
+  [void](Assert-Object $Alias $ApprovedSha)
+  [void](Assert-Object "$Alias.sha256" (Sha256-Bytes $aliasSide))
+}
+$script:AfterNote = " (latest-win.json WAS written: prod points at $ApprovedVersion. Re-run the same -Promote command to finish the checks.)"
 Put-Object 'latest-win.json' $staging.Bytes $null (Sha256-Bytes $staging.Bytes) 'application/json'
-
-if ($DryRun) { Say "DRY RUN complete: nothing was written."; exit 0 }
+if ($DryRun) { $script:AfterNote = ''; Say "DRY RUN complete: nothing was written."; exit 0 }
 Assert-Served $Alias $ApprovedSha
 Assert-Served "$Alias.sha256" (Sha256-Bytes $aliasSide)
 Assert-Served 'latest-win.json' (Sha256-Bytes $staging.Bytes)
 Write-ApprovalLine "$(Stamp) family=win path=promote-r2 version=$ApprovedVersion sha256=$ApprovedSha approval_ref=$ApprovalRef promoted=yes"
-Say "PROMOTED $ApprovedVersion ($ApprovedSha) to prod; served bytes verified."
+Say "PROMOTED $ApprovedVersion ($ApprovedSha) to prod; the bucket and the served bytes both verified."
 exit 0

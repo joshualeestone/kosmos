@@ -37,6 +37,10 @@ gates. `publish-r2.ps1` produces the same files with the same gates, directly in
 2. **Tools.** Git for Windows (bash, curl, unzip), node, and PowerShell (5.1 or 7). The build also
    needs `zip` and `shasum` on the bash PATH. Git for Windows ships `shasum` but not `zip`.
 
+   The commands below use `pwsh` (PowerShell 7). With only Windows PowerShell 5.1, whose default
+   execution policy blocks scripts, run them as
+   `powershell -ExecutionPolicy Bypass -File tools\windows\publish-r2.ps1 <the same arguments>`.
+
 ## Each release
 
 1. **Build** from a clean checkout of `main`. A dirty tree is flagged in the zip's manifest, and
@@ -49,18 +53,22 @@ gates. `publish-r2.ps1` produces the same files with the same gates, directly in
    This produces `dist/kosmos-win-x64.zip`. The launcher inside it is the committed, signed
    `tools/windows/Kosmos.exe` (#3677).
 
-2. **Stage.** This checks the launcher's Authenticode signature, uploads the versioned zip, then its
-   sidecar, then `latest-win-staging.json` **last**, and reads every file back through
-   installkosmos.com. Prod does not move.
+2. **Stage.** This checks that the zip's `Kosmos.exe` is byte for byte the committed launcher (and
+   Authenticode Valid), then uploads the versioned zip, its sidecar, and `latest-win-staging.json`
+   **last**, and reads every file back through installkosmos.com. Prod does not move. Everything
+   that decides whether to write is read from the bucket itself with the key, so a slow or
+   challenging edge produces a refusal, never a wrong write.
 
    ```
    pwsh tools\windows\publish-r2.ps1 -Zip dist\kosmos-win-x64.zip -DryRun   # reads and checks only
    pwsh tools\windows\publish-r2.ps1 -Zip dist\kosmos-win-x64.zip
    ```
 
-   A versioned name is immutable. Re-staging the same bytes is a no-op. Different bytes under a
-   published version are refused: bump the version instead. `-ReplaceVersioned` overrides that only
-   for a staged build nobody was told about, and never for the version prod names.
+   A versioned name is immutable. Re-staging the same bytes uploads them again unchanged and
+   rewrites `latest-win-staging.json` to name them, so re-staging an OLDER build moves staging
+   back to it. Different bytes under a published version are refused: bump the version instead.
+   `-ReplaceVersioned` overrides that only for a staged build nobody was told about, and never for
+   the version prod names. Windows builds are x64 and versions are x.y.z; nothing else is accepted.
 
 3. **Verify** the staged build on this PC. This writes the verification record that the promote
    requires.
@@ -73,13 +81,16 @@ gates. `publish-r2.ps1` produces the same files with the same gates, directly in
 4. **Ask Josh** for a go on that exact version and sha256.
 
 5. **Promote, only on his go.** The script refuses unless all of these hold:
-   - the served staging pointer names exactly this version and sha,
+   - the staging pointer names exactly this version and sha, in the canonical shape below, and the
+     staged zip and its sidecar hold exactly those bytes (all read from the bucket, case-sensitive),
    - his message reference is well formed, and it is logged before any write,
    - this PC holds a passing verification record for that sha.
 
-   It then copies the staged zip to the alias `kosmos-win-x64.zip` inside R2 and rewrites the
-   alias sidecar. It writes `latest-win.json` last, as the staging pointer's bytes verbatim, and
-   reads all three back as users are served them.
+   It then copies the staged zip to the alias `kosmos-win-x64.zip` inside R2, pinned to the exact
+   object it just checked, rewrites the alias sidecar, and reads both back from the bucket. Only
+   then does it write `latest-win.json`, as the staging pointer's bytes verbatim, and read all
+   three back as users are served them. If anything fails after `latest-win.json` is written, the
+   refusal says so; re-run the same command to finish.
 
    ```
    pwsh tools\windows\publish-r2.ps1 -Promote -ApprovedVersion <v> -ApprovedSha <sha> -ApprovalRef <Slack ts or permalink> -DryRun
