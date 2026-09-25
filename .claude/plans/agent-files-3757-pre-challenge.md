@@ -2,7 +2,7 @@
 pre_challenge: true
 method: challenge-loop
 branch: agent-files-3757
-diff_hash: 7139d5325ec3d1a625d709b0a3973d9aecb6aacbfc605678d5b80354c60c79c1
+diff_hash: d2f339f8432881927cb7b2b723aee9bce82b16e168881db7badcd4ba4c960797
 subdir_audit: passed
 timestamp: 2026-09-25T16:56:25Z
 iterations: 2
@@ -40,6 +40,11 @@ converged: true
 - Full suite PASSED on 105f473a8 (9385 tests, 0 failed).
 - web.agent-files-3614.test.js 13, render-agent-files-3614.js 40 arms (new arms red on main),
   render-thread.js, render-win32-board-copy.js, render-agent-nav.js, render-detail-header-1841.js pass.
+
+## Merge of main (#3559 landed a README row beside this branch's)
+- The README conflict was resolved by keeping this branch's render-agent-files-3614 row (main had not
+  changed it, checked against the merge base) and main's render-tasks-view-3559 row. diff_hash updated.
+  render-agent-files-3614.js and the related unit tests pass on the merged tree; suite re-run.
 
 ## Weakest premise
 - Open in Finder is reached only through View All, which shows only past 10 files (Josh's words). One line
