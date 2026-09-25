@@ -190,7 +190,10 @@ jobs:
             close_failed=""
             for n in $open_list; do
               # Close first (safe to repeat, retried), then the note ONCE and only if it closed,
-              # so a card that stays open never gets a second "closing" note tomorrow.
+              # so a card that stays open never gets a second "closing" note tomorrow. A note that
+              # fails is an ::error:: but not a red job, deliberately: the card is closed, which is
+              # the state that matters, and a red job would invite a re-run that cannot close or
+              # note anything (only first attempts close).
               if ghr gh issue close "$n" --repo "$GITHUB_REPOSITORY"; then
                 gh1 gh issue comment "$n" --repo "$GITHUB_REPOSITORY" --body "Green again at $GITHUB_SHA: $RUN_URL. Closed; the next red night opens a new card." || true
               else close_failed=1; fi
@@ -215,6 +218,9 @@ jobs:
             # comment starting "Still not green" to steer NEW. The bot login is matched in all
             # three spellings gh and the API use (github-actions, app/github-actions,
             # github-actions[bot]).
+            # KNOWN LIMIT: gh may return only the first page of a long card's comments (not
+            # measured; about 100). A card past that reads an OLD report as the last one, so NEW
+            # lists more than it should: noise, never silence. Close and refile a card that old.
             if ! prev=$(ghr gh issue view "$open" --repo "$GITHUB_REPOSITORY" --json author,body,comments \
                 -q '([select((.author.login // "") | test("^(app/)?github-actions(\\[bot\\])?$")) | .body]) + [.comments[] | select((.author.login // "") | test("^(app/)?github-actions(\\[bot\\])?$")) | .body] | map(select(startswith("The nightly full") or startswith("Still not green"))) | last // ""' \
                 | tr -d '\r' | sed -n 's/^.*Red checks: //p' | tail -n 1); then
@@ -278,6 +284,8 @@ jobs:
                 # The first lookup failed, so the list may hold a card that was ALREADY open: the
                 # report goes on it. Not on the card THIS run just made despite the error (its
                 # body names this run): that card already carries the report.
+                # (A view that fails here reads as "not this run's card": after two failures in a
+                # row the report may land on the wrong card, which the next night corrects.)
                 older=""
                 for c in $again_all; do
                   b=$(ghr gh issue view "$c" --repo "$GITHUB_REPOSITORY" --json body -q .body) || b=""
