@@ -3,8 +3,8 @@
 ## Finished looks like
 A card whose agent lost its API connection says, in plain words, what Kosmos is doing about it:
 "Reconnecting…" (the label; the card keeps its paused look) with "Kosmos will retry once it is back" or "Kosmos is asking it to
-try again" while the self-heal (#3667) still has retries to give; the red "Connection lost" with
-"Still can't connect after several tries. Check this computer's internet connection, then restart it." once it has
+try again" while the self-heal (#3667) still has retries to give; "Connection lost" with
+"Still can't connect after several tries. Check this computer's internet connection, then restart the agent. It will start fresh." once it has
 given up; and the unchanged "Connection lost / Looks like it lost its internet connection" when
 the self-heal is not running, so the page never promises a retry nobody will send.
 
