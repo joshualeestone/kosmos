@@ -70,6 +70,11 @@ guard: three layers, each tested to go red without it.
 - Round 2 (opus): extra account folders not denied (fixed, measured); plain words masked after a key
   name, a last "!" outside the mask, slugs, old rows on two routes: fixed.
 
+- Round 3 (sonnet): compound names (SECRET_KEY, SECRET_KEY_BASE) not masked, and long names made of words
+  with one number masked whole: both fixed (a long token needs digits in three separate places). The
+  absolute-path deny rule for Kosmos's data folder, whose path has a space, was not measured: measured
+  now, and it holds for Read and cat.
+
 ## Verification
 - `server.guide-secrets-3769.test.js`, `engine/secretmask.test.js`, `tools/test-supervisor-env.sh`
   (#3769 arm with a control). Mutations, all RED: store, read, question and menu unmasked; case-sensitive

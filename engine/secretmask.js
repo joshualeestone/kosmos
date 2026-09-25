@@ -44,11 +44,13 @@ const URL_CREDENTIAL = /\b([a-z][a-z0-9+.-]{1,20}:\/\/[^\s:@/]{1,100}:)([^\s@/]{
 
 /* "password = hunter2", "API_KEY: abc...", "token=..." : the VALUE is masked and the name kept, so
    the sentence still reads. Six characters or more, so "token: none" and prose survive. */
-const SECRET_NAMES = '(?:password|passwd|passphrase|secret|token|api[_-]?key|access[_-]?key|private[_-]?key|client[_-]?secret)';
+/* A secret word, then up to two more name parts, so SECRET_KEY, SECRET_KEY_BASE and API_KEY_ID are
+   caught as well as SECRET (review round 3). */
+const SECRET_NAMES = '(?:password|passwd|passphrase|secret(?:[_-]?key)?|token|api[_-]?key|access[_-]?key|private[_-]?key|client[_-]?secret)(?:[_-][A-Za-z0-9]{1,20}){0,2}';
 const ASSIGNMENT = new RegExp(`\\b((?:[A-Za-z0-9]{1,40}[_-])?${SECRET_NAMES}["']?[ \\t]{0,3}[:=][ \\t]{0,3}["']?)([^\\s"'\`,;<>]{6,400})`, 'gi');
 /* The same in words, "your password is hunter2hunter", "the API key is: AbC123...". The value must
    hold a digit or a symbol, so "the password is required" stays readable. */
-const SPOKEN = new RegExp(`\\b(${SECRET_NAMES.replace('api[_-]?key', 'api[_ -]?key').replace('access[_-]?key', 'access[_ -]?key').replace('private[_-]?key', 'private[_ -]?key')}[ \\t]{1,3}(?:is|was)(?:[ \\t]{0,3}:[ \\t]{0,3}|[ \\t]{1,3})["'\`]?)([^\\s"'\`,;<>]{6,400})`, 'gi');
+const SPOKEN = new RegExp(`\\b(${SECRET_NAMES.replace('api[_-]?key', 'api[_ -]?key').replace('access[_-]?key', 'access[_ -]?key').replace('private[_-]?key', 'private[_ -]?key').replace('secret(?:[_-]?key)?', 'secret(?:[_ -]?key)?')}[ \\t]{1,3}(?:is|was)(?:[ \\t]{0,3}:[ \\t]{0,3}|[ \\t]{1,3})["'\`]?)([^\\s"'\`,;<>]{6,400})`, 'gi');
 /* A bare "key" only with = or : and a value holding a digit (a hex key, say): "key: Enter" survives. */
 const BARE_KEY = /\b(key["']?[ \t]{0,3}[:=][ \t]{0,3}["']?)([^\s"'`,;<>]{8,400})/gi;
 /* The sentence's own closing punctuation stays outside the mask ("... is hunter2hunter." keeps its stop). */
@@ -65,6 +67,9 @@ const hasDigitOrSymbol = looksLikeSecretValue;
 const LONG_TOKEN = /[A-Za-z0-9+_-]{32,600}={0,2}/g;
 function looksRandom(s) {
   if (!(/[A-Z]/.test(s) && /[a-z]/.test(s) && /[0-9]/.test(s)) || /^[0-9a-fA-F]+$/.test(s)) return false;
+  /* Digits in three or more separate places: a random token scatters them, a long name made of words
+     (AddNewSetupGuideSecretMaskingSupport2026, a flag or a branch) carries one number (review round 3). */
+  if ((s.match(/[0-9]+/g) || []).length < 3) return false;
   /* A link slug or a file name made of words (Getting-Started-With-Your-First-Agent-2026) is not a token:
      four or more short parts joined by - or _. */
   const parts = s.split(/[-_]/);

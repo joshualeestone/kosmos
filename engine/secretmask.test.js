@@ -54,6 +54,11 @@ test('#3769 the forms a model writes in words, sign-ins in links, GitLab tokens 
     ['key: 3f2a9c1d8e7b6a5f4e3d2c1b0a9f8e7d6c5b4a3f99', `key: ${MASK}`],
     // A last "!" or "?" is part of many passwords, so only a full stop or bracket is left outside.
     ['password=MyP@ssw0rd!', `password=${MASK}`],
+    // Review round 3: compound names a framework uses.
+    ['SECRET_KEY=abc123XYZdef456', `SECRET_KEY=${MASK}`],
+    ['SECRET_KEY_BASE=9f8e7d6c5b4a3f2e1d', `SECRET_KEY_BASE=${MASK}`],
+    ['DJANGO_SECRET_KEY: "k3yV4lue99xx"', `DJANGO_SECRET_KEY: "${MASK}"`],
+    ['the secret key is xY7abcd9efgh', `the secret key is ${MASK}`],
   ];
   for (const [input, want] of cases) assert.equal(mask(input).text, want, input);
 });
@@ -71,6 +76,9 @@ test('#3769 ordinary text is untouched: prose, links, commit ids, short words af
     // Review round 2: a settings form being explained, a path, and a link slug made of words.
     'Password: required', 'Token: Settings, AI Models', 'secret: Kosmos keeps it', 'the pwd is /Users/me/work',
     'https://installkosmos.com/docs/Getting-Started-With-Your-First-Agent-2026',
+    // Review round 3: a long name made of words with one number is a flag or a branch, not a token.
+    'turn on SuperLongFeatureNameNoHyphensEnabled2026 first', 'branch AddNewSetupGuideSecretMaskingSupport2026',
+    'the model is claude-sonnet-5-20260101', 'the secret is out',
   ];
   for (const t of plain) {
     const out = mask(t);
