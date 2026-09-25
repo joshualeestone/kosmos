@@ -28,6 +28,15 @@ test('#3685: a fence indented under a list item is code, and loses the opener\'s
   assert.match(html, /<span class="mdli">next<\/span>/);
 });
 
+test('#3685: a list stays open across a fence nested in one of its items', () => {
+  const html = draw('- a\n  - b\n    ```\n    x\n    ```\n  - c\n- d');
+  assert.match(html, /<span class="mdli mdli-d1">b<\/span>/, html);
+  assert.match(html, /<span class="mdli mdli-d1">c<\/span>/, 'the item after the fence lost its depth: ' + html);
+  assert.match(html, /<span class="mdli">d<\/span>/);
+  // A column-0 fence ends the list, so an indented item after it starts a new one.
+  assert.match(draw('- a\n```\nx\n```\n  - c'), /<span class="mdli">c<\/span>/);
+});
+
 test('#3685: a four-backtick fence holds a three-backtick example', () => {
   assert.match(draw('````md\n```js\nx\n```\n````'), /<figure class="codeb"><pre>```js\nx\n```<\/pre><\/figure>/);
 });
@@ -45,5 +54,5 @@ test('#3685: a CRLF fence closes, and a path-shaped infostring is still labelled
   const html = draw('```notes.md\r\nx\r\n```\r\nafter');
   assert.match(html, /class="codesrc"/, 'the path label was lost');
   assert.match(html, /<figure class="codeb"><pre>/);
-  assert.match(html, /after/);
+  assert.match(html, /<\/figure>after$/, 'the text after the fence was not drawn after it');
 });

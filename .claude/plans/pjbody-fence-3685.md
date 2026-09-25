@@ -32,3 +32,17 @@ it cannot prove identity on inputs outside that vocabulary.
   fence, CRLF with a path label. main's pjBody reds four of six (the other two pin unchanged
   behaviour).
 - render-richtext-room-2239.js: a Layer 1 arm for a fence nested in a list item (82/82).
+
+## Review pass 1 (opus)
+- WARNING fixed: each prose segment started a fresh list stack, so an item after a fence
+  nested in a list lost its depth (the card's main shape). pjBody now passes one stack to every
+  pjProse call, and a fence opener that is not indented under the open list ends it, as any such
+  line does inside pjProse, so a column-0 fence still starts a new list. The fuzz against main
+  still shows 0 differences on the shared shape (14,904 inputs). Tested; removing the shared
+  stack or the reset reds it.
+- NITs fixed: the `open` comment names its real fields; the header no longer claims every
+  surface reads fences identically (pjRich draws an unclosed fence as code, pjBody keeps it
+  prose); the opener's indent is stripped by characters, tabs included; the CRLF test pins the
+  text after the fence.
+- Recorded: on CRLF input a `\r` can remain at the ends of code lines, as it did on main. Room
+  text is normalised by the store before it gets here.
