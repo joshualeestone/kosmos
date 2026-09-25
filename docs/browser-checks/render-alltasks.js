@@ -278,8 +278,19 @@ const say = (n, cond, note) => {
       rows: [...document.querySelectorAll('#tsk-groups .tsk-row')].filter((r) => r.dataset.key.startsWith(id + '#')).length,
     }), made[1]);
     say('an archived project\'s door still lists its tasks', arch.title === 'Beta Project' && arch.rows === 3, JSON.stringify(arch));
+    /* Read once the view's own read has come back (it knows Beta is archived); the arrival paint
+       before it draws from the previous read, when Beta was not archived yet. */
+    await p.waitForFunction(() => (TSK.data || []).some((t) => t.projectArchived), null, { timeout: 8000 }).catch(() => {});
+    const railAllBefore = await p.evaluate(() => Number(document.querySelector('#tsk-projects [data-proj=""] .ct').textContent));
     await p.click('#tsk-projects [data-proj=""]');
     await p.waitForTimeout(200);
+    const railAllAfter = await p.evaluate(() => ({
+      badge: Number(document.querySelector('#tsk-projects [data-proj=""] .ct').textContent),
+      openRows: Number((document.getElementById('tsk-sub').textContent.match(/^(\d+) open/) || [])[1]),
+    }));
+    /* #1346 on the rail: while scoped to an archived project, "All tasks" counts what clicking it shows. */
+    say('the rail\'s All tasks count agrees with its destination, even from an archived door',
+      railAllBefore === railAllAfter.badge && railAllAfter.badge === railAllAfter.openRows, JSON.stringify({ railAllBefore, ...railAllAfter }));
     const setAside = await p.evaluate((id) => [...document.querySelectorAll('#tsk-groups .tsk-row')].filter((r) => r.dataset.key.startsWith(id + '#')).length, made[1]);
     say('on All tasks the archived project is set aside again', setAside === 0, String(setAside));
     /* And the All-tasks picker leaves it out too (Beta is archived now; Alpha is not). */
