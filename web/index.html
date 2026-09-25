@@ -10289,6 +10289,34 @@ window.kosmosMeasureScrollbarWidth();
          at a time. Choosing one shows its form and closes the other, so the
          Claude code step can never sit under the OpenAI key field again.
          Functional first, by his ruling; he adds the look afterwards. -->
+    <!-- #3391 part 2: Grok connects with a SUBSCRIPTION or a key, so picking Grok shows
+         this choice first, the way OpenAI's does. The subscription is xAI's device sign-in:
+         the page shows a link and a code, the person confirms the code on xAI's own page,
+         and Kosmos never sees the password. "Use an API key" opens the shared key step
+         below. A sign-in again (the row's button) skips the choice and lands on the
+         sign-in, since a key cannot refresh a subscription. -->
+    <div id="acct-grok-flow" hidden style="margin-top: var(--space-5);">
+      <div id="acct-grok-pick">
+        <p class="dhint" style="margin:0 0 8px;">Choose how to connect Grok.</p>
+        <div class="frow">
+          <button class="btn uprime" id="acct-grok-pick-sub" type="button">Sign in with your Grok subscription</button>
+          <button class="btn" id="acct-grok-pick-key" type="button">Use an API key</button>
+        </div>
+        <p class="dhint" style="margin:8px 0 0;">A Grok subscription signs in through xAI, with nothing to paste. An API key is a string you create on xAI's site.</p>
+      </div>
+      <div id="acct-grok-sub-step" hidden>
+        <p class="dwarn" style="margin:0 0 8px;"><span class="dwarn-ok" aria-hidden="true">&#10003;</span><b>Sign in with your Grok subscription.</b> xAI's own page asks you to confirm a code, and Kosmos never sees your password. Your agents then run on your own subscription, on this computer.</p>
+        <div class="frow" style="margin-top:12px;">
+          <button class="btn uprime" id="acct-grok-sub-go" type="button">Sign in with Grok</button>
+        </div>
+        <div class="frow" id="acct-grok-sub-open-row" hidden style="margin-top:8px;">
+          <a class="btn" id="acct-grok-sub-open" href="#" target="_blank" rel="noopener">Open the sign-in page</a>
+        </div>
+        <p class="dhint" id="acct-grok-sub-code" hidden style="margin:8px 0 0;"></p>
+        <div class="frow" id="acct-grok-sub-cancel-row" hidden style="margin-top:8px;"><button class="btn" id="acct-grok-sub-cancel" type="button">Stop this sign-in</button></div>
+      </div>
+      <p class="dhint" id="acct-grok-msg" role="status" aria-live="polite" style="margin:8px 0 0;"></p>
+    </div>
     <!-- #3566: Gemini and Grok connect with a pasted API key, one shared step for both
          (the provider is whichever option is picked). It POSTs to
          /api/accounts/{gemini|grok}/apikey; the engine checks the key with the provider
@@ -11349,14 +11377,26 @@ window.kosmosMeasureScrollbarWidth();
                      Connect as Claude and GPT, instead of the old later-in-Settings pill and pointer.
                      One box shared by both, a first-run mirror of Settings' #acct-apikey-flow
                      (same POST /api/accounts/{gemini|grok}/apikey, same ACCT_APIKEY_PROVIDERS), the
-                     way #fr-openai-flow mirrors #acct-openai-flow. API KEY ONLY for now: the
-                     subscription sign-in works for neither yet (open cards: #3391 Grok, #3568 Gemini), and a
-                     subscription button that dead-ends is worse than none. There is no managed
+                     way #fr-openai-flow mirrors #acct-openai-flow. Grok's box ALSO offers its subscription
+                     sign-in (#fr-grok-sub, from #3391 part 2); Gemini is a key only, since there is
+                     no Gemini sign-in to start (open card: #3568), and a button that dead-ends is
+                     worse than none. There is no managed
                      installer for either runner yet (engine/runners.js), so a missing runner is
                      said plainly from the route's own needsRunner answer. The "Runs on this
                      computer" subheading is gone too: one uninterrupted list, in PROVIDER_ORDER. -->
                 <div id="fr-apikey-flow" hidden class="fr-confirm" role="group" aria-labelledby="fr-apikey-t">
                   <p class="fr-confirm-t" id="fr-apikey-t">Paste an API key.</p>
+                  <!-- #3391 part 2: Grok can also sign in with a subscription (xAI's device
+                       sign-in: a link and a code). Shown only when the box is open for Grok;
+                       the key below stays the other way. -->
+                  <div id="fr-grok-sub" hidden>
+                    <div class="frow"><button class="btn uprime" id="fr-grok-sub-go" type="button">Sign in with Grok</button></div>
+                    <div class="frow" id="fr-grok-sub-open-row" hidden style="margin-top:8px;"><a class="btn" id="fr-grok-sub-open" href="#" target="_blank" rel="noopener">Open the sign-in page</a></div>
+                    <p class="dhint" id="fr-grok-sub-code" hidden style="margin:8px 0 0;"></p>
+                    <div class="frow" id="fr-grok-sub-cancel-row" hidden style="margin-top:8px;"><button class="btn" id="fr-grok-sub-cancel" type="button">Stop this sign-in</button></div>
+                    <p class="dhint" id="fr-grok-sub-msg" role="status" aria-live="polite" style="margin:8px 0 0;"></p>
+                    <p class="dhint" style="margin:8px 0;">Or use an API key instead:</p>
+                  </div>
                   <div class="frow"><a class="btn" id="fr-apikey-getkey" href="#" target="_blank" rel="noopener">Get a key</a></div>
                   <div class="frow" style="margin-top:8px;">
                     <input type="password" id="fr-apikey-key" autocomplete="new-password" spellcheck="false" aria-label="API key" placeholder="API key">
@@ -19878,8 +19918,8 @@ function acctChosenName(a) {
    Everything not listed is a Claude account. */
 const ACCT_KEYED_ROUTE = { openai: 'openai', google: 'gemini', xai: 'grok' };
 /* #3566: a keyed provider other than OpenAI (Gemini, Grok), whose sign-in and model picker
-   are its own. (#3391: a Grok account may also be a subscription sign-in; Kosmos cannot start
-   one from these screens yet.) Read from the route table. */
+   are its own. (#3391: a Grok account may also be a subscription sign-in; that is started from
+   Settings, AI Models or first run, not from the screens that use this.) Read from the route table. */
 function keyOnlyProvider(p) {
   return p !== 'openai' && Object.prototype.hasOwnProperty.call(ACCT_KEYED_ROUTE, p);
 }
@@ -19921,7 +19961,7 @@ function switchKeyedWord(p) {
 }
 /* #3566: an OpenAI sentence re-said for the picker's provider, so "OpenAI sign-in" becomes
    "Gemini account" there. (#3391: a Grok account may be a key OR a subscription sign-in;
-   "Grok account" is true of both. Connecting a Grok subscription from this screen is part 2.) */
+   "Grok account" is true of both. A Grok subscription is connected in Settings, AI Models, not here.) */
 function switchKeyedSay(text, p) {
   if (!keyOnlyProvider(p)) return text;
   return String(text).replace(/OpenAI sign-in/g, switchKeyedWord(p) + ' account').replace(/OpenAI/g, switchKeyedWord(p));
@@ -20301,8 +20341,8 @@ async function paintAccounts() {
        does the same. Never the key. */
     const isOpenai = acctProvider(a) === 'openai';
     /* #3566: Gemini and Grok rows are keyed rows like OpenAI's: no Claude history
-       arm, no Check now (a Claude probe), no reauth (a Grok subscription's sign-in
-       again is a #3391 follow-up), and Disconnect / Delete go to their own route.
+       arm, no Check now (a Claude probe), a Sign in again only on a Grok SUBSCRIPTION
+       row (#3391 part 2), and Disconnect / Delete go to their own route.
        `keyRoute` is that route. #3391: a Grok row with authMode 'subscription'
        holds a sign-in, not a key, and its titles say so. */
     const keyRoute = ACCT_KEYED_ROUTE[acctProvider(a)] || '';
@@ -20561,7 +20601,16 @@ async function paintAccounts() {
           ? '<button class="acct-reauth" type="button" data-openai-reauth="' + esc(a.dir) + '" '
             + 'aria-label="Sign in again as ' + who + (qual ? ' (' + esc(qual) + ')' : '') + '" '
             + 'title="' + esc('Signs in again to this ChatGPT subscription and updates this account rather than making a second one.') + '">Sign in again</button>'
-          : '')
+          /* #3391 part 2: a Grok SUBSCRIPTION row signs in again the same way (the engine's
+             reauthDir), which is also how a lapsed one comes back. A Grok key row has no
+             sign-in to redo. */
+          /* Only with an email: the engine tells a refresh from a swap by it, and refuses
+             a sign-in again without one, so the button would only ever fail. */
+          : (acctProvider(a) === 'xai' && a.authMode === 'subscription' && a.email
+            ? '<button class="acct-reauth" type="button" data-grok-reauth="' + esc(a.dir) + '" '
+              + 'aria-label="Sign in again as ' + who + (qual ? ' (' + esc(qual) + ')' : '') + '" '
+              + 'title="' + esc('Signs in again to this Grok subscription and updates this account rather than making a second one.') + '">Sign in again</button>'
+            : ''))
         : (a.apiKey ? ''
           : '<button class="acct-reauth" type="button" data-reauth="' + esc(a.dir) + '" '
             + 'aria-label="Sign in again as ' + who + (qual ? ' (' + esc(qual) + ')' : '') + '" '
@@ -20695,6 +20744,13 @@ async function paintAccounts() {
     btn.addEventListener('click', () => {
       const row = list.find((x) => String(x.dir) === btn.dataset.openaiReauth);
       openAcctReauthOpenai(btn.dataset.openaiReauth, (row && row.email) || '');
+    });
+  }
+  /* #3391 part 2: the Grok subscription sign-in again, aimed at this account. */
+  for (const btn of box.querySelectorAll('[data-grok-reauth]')) {
+    btn.addEventListener('click', () => {
+      const row = list.find((x) => String(x.dir) === btn.dataset.grokReauth);
+      openAcctReauthGrok(btn.dataset.grokReauth, (row && row.email) || '');
     });
   }
   /* #3136: "Check now" fires a real liveness check for THIS Claude account and
@@ -21499,7 +21555,8 @@ function acctPick(which, opts) {
   acctApikeyShow(ACCT_APIKEY_PROVIDERS[which] ? which : null);
   if (ACCT_APIKEY_PROVIDERS[which]) {
     // Same as the Claude and OpenAI picks: focus lands on the first thing to fill in.
-    if (!(opts && opts.focus === false)) { const k = document.getElementById('acct-apikey-key'); if (k) k.focus(); }
+    const first = which === 'xai' ? 'acct-grok-pick-sub' : 'acct-apikey-key';
+    if (!(opts && opts.focus === false)) { const k = document.getElementById(first); if (k) k.focus(); }
   }
   if (which !== 'openai') {
     acctOpenaiStop(); acctOpenaiSubStop(); ACCT_OPENAI_SUB_SESSION = null;
@@ -22772,7 +22829,7 @@ function acctShowSuccess(accountLabel, goldBox) {
      stale "Success!" with no provider form on the next open. closeAcctAdd has already
      put the modal back to its form state by then, so a no-op here is the clean outcome. */
   if (document.getElementById('acct-add-modal').hidden) return;
-  ['acct-add-t', 'acct-add-in', 'acct-provider-field', 'acct-claude-flow', 'acct-openai-flow', 'acct-apikey-flow', 'acct-add-acts']
+  ['acct-add-t', 'acct-add-in', 'acct-provider-field', 'acct-claude-flow', 'acct-openai-flow', 'acct-apikey-flow', 'acct-grok-flow', 'acct-add-acts']
     .forEach((id) => { const el = document.getElementById(id); if (el) el.hidden = true; });
   /* Unhide the role="status" region BEFORE writing its text: a polite live region
      mutated while hidden is not reliably announced, so the order is what makes a
@@ -22819,6 +22876,7 @@ function openAcctAdd(ev) {
     document.getElementById('acct-claude-flow').hidden = true;
     document.getElementById('acct-openai-flow').hidden = true;
   }
+  ACCT_GROK_REAUTH_DIR = null;   // #3391 part 2: a fresh add is never a sign-in again
   acctApikeyShow(null);  /* #3566: the key step never outlives a visit (it holds a pasted key) */
   ACCT_REAUTH_DIR = null;
   ACCT_OPENAI_REAUTH_DIR = null;
@@ -22976,6 +23034,7 @@ function acctApikeyShow(which) {
   }
   ACCT_APIKEY_WHICH = p ? which : null;
   flow.hidden = !p;
+  acctGrokShow(which);   // #3391 part 2: Grok shows its choice first, and hides the key step until it is chosen
   if (!p) return;
   document.getElementById('acct-apikey-head').textContent = 'Paste a ' + p.vendor + ' API key for ' + p.name + '.';
   const key = document.getElementById('acct-apikey-key');
@@ -23046,6 +23105,180 @@ document.getElementById('acct-apikey-go').addEventListener('click', async () => 
     if (ACCT_APIKEY_GEN === mine) go.disabled = false;
   }
 });
+/* #3391 part 2: ONE Grok subscription sign-in driver, used by both places that start one
+   (Settings, AI Models, and first run's Grok row), so the two cannot drift. It drives
+   /api/accounts/grok/subscription/{start,status,cancel}: start answers a sessionId, status
+   carries the device link and code once grok prints them, then connected / error /
+   cancelled. `o.ids` names the controls (go, openRow, open, code, cancelRow, cancel), `o.msg()`
+   the status line, `o.reauthDir()` the account a sign-in again is for (null for a new one),
+   `o.repaintFailed` what to say if the screen cannot repaint after a sign-in (each caller has
+   its own place to point at), and `o.alive()`, if given, whether the place it was started from is still on screen: a
+   poll that finds it gone ends the sign-in (first run's step can be left without a close).
+   Every answer is checked against `gen`, so one that returns after the person left (a
+   close, a provider switch, a Stop) changes nothing; leaving also ends the sign-in on the
+   engine, which otherwise holds its slot until its five-minute watchdog. */
+const GROK_SUB_SAY = { starting: 'Starting the sign-in…', 'awaiting-code': 'Confirm the code on xAI’s page to finish.' };
+const GROK_MISSING_TOOL = 'Grok runs on its own command-line tool, "grok", and it is not installed on this computer yet. Kosmos cannot install it for you yet; once it is installed, try again.';
+function grokSubDriver(o) {
+  let session = null;
+  let poll = null;
+  let gen = 0;
+  const el = (k) => document.getElementById(o.ids[k]);
+  const say = (t) => { const m = o.msg(); if (m) m.textContent = t; };
+  const stopPoll = () => { if (poll) { clearInterval(poll); poll = null; } };
+  const cancelOnEngine = (id) => fetch('/api/accounts/grok/subscription/cancel', {
+    method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ sessionId: id }),
+  }).catch(() => { /* the engine's watchdog ends it regardless */ });
+  function reset() {
+    for (const k of ['openRow', 'code', 'cancelRow']) { const e = el(k); if (e) e.hidden = true; }
+    const c = el('code'); if (c) c.textContent = '';
+    const g = el('go'); if (g) g.disabled = false;
+  }
+  function show(out) {
+    const a = el('open');
+    if (a && out.authUrl) { a.href = out.authUrl; el('openRow').hidden = false; }
+    const c = el('code');
+    if (c && out.userCode) { c.hidden = false; c.textContent = 'On that page, confirm this code: ' + out.userCode; }
+  }
+  function leave() {
+    gen += 1;
+    stopPoll();
+    const id = session;
+    session = null;
+    reset();
+    if (id) cancelOnEngine(id);
+  }
+  function finish(text) {
+    /* Stop and the link vanish with the sign-in; focus on either goes back to the button that
+       starts one, not to the page body. */
+    const a = document.activeElement;
+    const had = !!a && (a === el('cancel') || a === el('open'));
+    stopPoll(); session = null; reset();
+    if (text != null) say(text);
+    if (had) { const g = el('go'); if (g) g.focus(); }
+  }
+  function watch(mine) {
+    stopPoll();
+    poll = setInterval(async () => {
+      const id = session;
+      if (!id || mine !== gen) { stopPoll(); return; }
+      if (o.alive && !o.alive()) { leave(); return; }
+      let r;
+      try { r = await fetch('/api/accounts/grok/subscription/status?sessionId=' + encodeURIComponent(id), { cache: 'no-store' }); }
+      catch { return; }   // a network blip: keep polling
+      if (mine !== gen || session !== id) return;
+      if (r.status === 404) { finish('That sign-in expired. Nothing changed; you can try again.'); return; }
+      if (!r.ok) return;
+      const out = await r.json().catch(() => null);
+      if (!out || mine !== gen || session !== id) return;
+      show(out);
+      if (out.state === 'connected') {
+        finish('');
+        /* The account exists on the engine now; a screen that fails to repaint must say so,
+           never sit on "Checking the connection…". */
+        try { await o.onConnected(out.account || null); }
+        catch { say(o.repaintFailed); }   // each caller says where the account will show
+        return;
+      }
+      if (out.state === 'cancelled') { finish('Sign-in stopped.'); return; }
+      if (out.state === 'error') { finish((pjSentence(out.error) || 'That sign-in did not finish.') + ' You can try again.'); return; }
+      say(GROK_SUB_SAY[out.state] || 'Signing in…');
+    }, 1200);
+  }
+  async function start() {
+    if (session) return;
+    gen += 1;
+    const mine = gen;
+    const go = el('go');
+    if (go) go.disabled = true;
+    say('Starting the sign-in…');
+    let res; let out = null;
+    try {
+      res = await fetch('/api/accounts/grok/subscription/start', {
+        method: 'POST', headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ reauthDir: o.reauthDir() || undefined }),
+      });
+      out = await res.json().catch(() => null);
+    } catch {
+      if (mine === gen) { if (go) go.disabled = false; say('We could not reach Kosmos to start that sign-in. Try again.'); }
+      return;
+    }
+    if (mine !== gen) { if (res.ok && out && out.sessionId) cancelOnEngine(out.sessionId); return; }
+    if (!res.ok || !out || !out.sessionId) {
+      if (go) go.disabled = false;
+      say(out && out.needsRunner ? GROK_MISSING_TOOL : (pjSentence(out && (out.error || out.because)) || 'We could not start that sign-in.'));
+      return;
+    }
+    session = out.sessionId;
+    const cr = el('cancelRow'); if (cr) cr.hidden = false;
+    // The Sign-in button just went disabled under the person's focus; Stop is the live control now.
+    const stop = el('cancel'); if (stop) stop.focus();
+    watch(mine);
+  }
+  return { start, leave, reset, get active() { return !!session; } };
+}
+/* Settings, AI Models. ACCT_GROK_REAUTH_DIR is the account a sign-in again is for; like its
+   Claude and OpenAI siblings it is cleared on every fresh "+ Add a provider", so an add is
+   never silently a sign-in again. */
+let ACCT_GROK_REAUTH_DIR = null;
+const ACCT_GROK_SUB = grokSubDriver({
+  ids: { go: 'acct-grok-sub-go', openRow: 'acct-grok-sub-open-row', open: 'acct-grok-sub-open', code: 'acct-grok-sub-code', cancelRow: 'acct-grok-sub-cancel-row', cancel: 'acct-grok-sub-cancel' },
+  msg: () => document.getElementById('acct-grok-msg'),
+  reauthDir: () => ACCT_GROK_REAUTH_DIR,
+  repaintFailed: 'Signed in, but this screen could not update. Close it and look in Settings, AI Models.',
+  onConnected: async (account) => {
+    const email = account && account.email;
+    const goldBox = frCheckRow({ state: 'ok', title: 'Grok is connected',
+      detail: 'Signed in with your Grok subscription.' + (email ? ' (' + email + ')' : '') });
+    const m = document.getElementById('acct-grok-msg');
+    if (m) m.textContent = 'Checking the connection…';
+    await paintAccounts();
+    if (m) m.textContent = '';
+    acctShowSuccess(email ? 'your Grok subscription (' + email + ')' : 'your Grok subscription', goldBox);
+  },
+});
+/* Show Grok's choice (or, for a sign-in again, go straight to the sign-in), or put it all
+   away for any other provider. Called from acctApikeyShow, so every path that opens,
+   closes or switches the add step reaches it. */
+function acctGrokShow(which) {
+  const flow = document.getElementById('acct-grok-flow');
+  if (!flow) return;
+  ACCT_GROK_SUB.leave();
+  const m = document.getElementById('acct-grok-msg'); if (m) m.textContent = '';
+  if (which !== 'xai') { flow.hidden = true; return; }
+  const again = !!ACCT_GROK_REAUTH_DIR;
+  flow.hidden = false;
+  document.getElementById('acct-grok-pick').hidden = again;
+  document.getElementById('acct-grok-sub-step').hidden = !again;
+  document.getElementById('acct-apikey-flow').hidden = true;   // until "Use an API key"
+}
+document.getElementById('acct-grok-pick-sub').addEventListener('click', () => {
+  document.getElementById('acct-grok-pick').hidden = true;
+  document.getElementById('acct-grok-sub-step').hidden = false;
+  document.getElementById('acct-grok-sub-go').focus();
+});
+document.getElementById('acct-grok-pick-key').addEventListener('click', () => {
+  document.getElementById('acct-grok-flow').hidden = true;
+  document.getElementById('acct-apikey-flow').hidden = false;
+  document.getElementById('acct-apikey-key').focus();
+});
+document.getElementById('acct-grok-sub-go').addEventListener('click', () => ACCT_GROK_SUB.start());
+document.getElementById('acct-grok-sub-cancel').addEventListener('click', () => {
+  ACCT_GROK_SUB.leave();
+  const m = document.getElementById('acct-grok-msg'); if (m) m.textContent = 'Sign-in stopped.';
+  document.getElementById('acct-grok-sub-go').focus();
+});
+/* Sign in again AS an existing Grok subscription account: the dialog in its sign-in-again
+   chrome, straight to the sign-in; the engine moves the new sign-in over this account
+   only if it is the same email. */
+function openAcctReauthGrok(dir, email) {
+  ACCT_GROK_REAUTH_DIR = dir;
+  acctReauthChrome(true, email);
+  document.getElementById('acct-add-note').textContent = '';
+  document.getElementById('acct-add-modal').hidden = false;
+  acctPick('xai', { focus: false });
+  document.getElementById('acct-grok-sub-go').focus();
+}
 /* #3658: Gemini and Grok connect from first run's model step, by API key (the only path
    that works today for both). The box is shared; FR_APIKEY_WHICH is the provider it is
    open for ('google' | 'xai'), read from ACCT_APIKEY_PROVIDERS so the route, vendor and
@@ -23070,6 +23303,8 @@ function frApikeyExpanded(which) {
 async function frApikeyOpen(which) {
   FR_APIKEY_GEN += 1;
   const mine = FR_APIKEY_GEN;
+  FR_GROK_SUB.leave();   // #3391 part 2: a switch or a close ends a Grok sign-in in flight
+  document.getElementById('fr-grok-sub-msg').textContent = '';
   const flow = document.getElementById('fr-apikey-flow');
   const msg = document.getElementById('fr-apikey-msg');
   const p = which ? ACCT_APIKEY_PROVIDERS[which] : null;
@@ -23102,13 +23337,17 @@ async function frApikeyOpen(which) {
   }
   FR_APIKEY_WHICH = which;
   const article = /^(x|[aeiou])/i.test(p.vendor) ? 'an ' : 'a ';   // "an xAI key"
-  document.getElementById('fr-apikey-t').textContent = 'Paste ' + article + p.vendor + ' API key for ' + p.name + '. A key is a bit like a password that ' + p.vendor + ' issues for this computer.';
+  document.getElementById('fr-apikey-t').textContent = (which === 'xai'
+    ? 'Sign in with your Grok subscription, or paste an xAI API key.'
+    : 'Paste ' + article + p.vendor + ' API key for ' + p.name + '.') + ' A key is a bit like a password that ' + p.vendor + ' issues for this computer.';
+  document.getElementById('fr-grok-sub').hidden = which !== 'xai';
   document.getElementById('fr-apikey-getkey').href = FR_APIKEY_GETKEY[which] || '#';
   const key = document.getElementById('fr-apikey-key');
   key.setAttribute('aria-label', p.name + ' API key');
   key.placeholder = p.hint;
   flow.hidden = false;
-  key.focus();
+  // Grok's box leads with its sign-in (the heading says so), so focus starts there.
+  (which === 'xai' ? document.getElementById('fr-grok-sub-go') : key).focus();
 }
 /* Paint one keyed row's Connect as Connected (green check, disabled) or Connect, from a
    known answer or from /api/accounts, the way frPaintOpenai does for GPT. A read that
@@ -23147,6 +23386,40 @@ for (const id of ['fr-gemini-connect', 'fr-grok-connect']) {
   const b = document.getElementById(id);
   if (b) b.addEventListener('click', () => frApikeyOpen(b.dataset.keyed));
 }
+/* #3391 part 2: Grok's subscription sign-in in first run's box, on the shared driver. A new
+   account only (a sign-in again is a Settings row action). Connected closes the box the
+   way an added key does, and the Grok row repaints as Connected. */
+const FR_GROK_REPAINT_FAILED = 'This screen could not update the Grok row; Grok will show as connected in Settings, AI Models.';
+const FR_GROK_SUB = grokSubDriver({
+  ids: { go: 'fr-grok-sub-go', openRow: 'fr-grok-sub-open-row', open: 'fr-grok-sub-open', code: 'fr-grok-sub-code', cancelRow: 'fr-grok-sub-cancel-row', cancel: 'fr-grok-sub-cancel' },
+  /* Its own line, not the box's: the key and the sign-in sit side by side here, and a poll
+     writing every 1.2s into the shared line would wipe the key's answer. */
+  msg: () => document.getElementById('fr-grok-sub-msg'),
+  reauthDir: () => null,
+  alive: () => FR_STEP === 5,
+  repaintFailed: 'Signed in, but this screen could not update. Grok will show as connected in Settings, AI Models.',   // before the box closes
+  onConnected: async (account) => {
+    FR_APIKEY_GEN += 1;   // a key Add still in flight is now the stale one
+    document.getElementById('fr-apikey-flow').hidden = true;
+    FR_APIKEY_WHICH = null;
+    frApikeyExpanded(null);
+    const msg = document.getElementById('fr-apikey-msg');
+    document.getElementById('fr-grok-sub-msg').textContent = '';
+    msg.setAttribute('tabindex', '-1');
+    msg.focus();
+    msg.textContent = 'Grok is connected' + (account && account.email ? ' (' + account.email + ')' : '') + '.';
+    /* The box is hidden by now, so a repaint that fails is said HERE, on the line that stays
+       on screen, not by the driver into the box's own line (review pass 7). */
+    try { await frPaintKeyed(); }   // a fresh read: the Grok answer alone would repaint Gemini as not connected
+    catch { msg.textContent += ' ' + FR_GROK_REPAINT_FAILED; }
+  },
+});
+document.getElementById('fr-grok-sub-go').addEventListener('click', () => FR_GROK_SUB.start());
+document.getElementById('fr-grok-sub-cancel').addEventListener('click', () => {
+  FR_GROK_SUB.leave();
+  document.getElementById('fr-grok-sub-msg').textContent = 'Sign-in stopped.';
+  document.getElementById('fr-grok-sub-go').focus();
+});
 /* Enter adds the key, like GPT's key field, and stops there: the step's own Enter-to-
    continue must not carry the person past a key they have not added. */
 document.getElementById('fr-apikey-key').addEventListener('keydown', (e) => {
@@ -23191,6 +23464,7 @@ document.getElementById('fr-apikey-go').addEventListener('click', async () => {
       throw new Error((out && (out.error || out.because)) || 'We could not add that key.');
     }
     keyField.value = '';
+    FR_GROK_SUB.leave();   // #3391 part 2: the key connected Grok; a sign-in beside it is moot
     document.getElementById('fr-apikey-flow').hidden = true;
     FR_APIKEY_WHICH = null;
     frApikeyExpanded(null);

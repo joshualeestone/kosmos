@@ -7397,7 +7397,10 @@ const server = http.createServer((req, res) => {
           return;
         }
         if (body.label != null && typeof body.label !== 'string') { sendJson(res, 400, { error: 'we could not read that request' }); return; }
-        const out = grokAccounts.startGrokLogin({ label: body.label, grokBin: resolved.bin });
+        if (body.reauthDir != null && typeof body.reauthDir !== 'string') { sendJson(res, 400, { error: 'we could not read that request' }); return; }
+        /* #3391 part 2: `reauthDir` signs in again AS an existing Grok subscription account;
+           the engine validates it and moves the new sign-in over it only on an email match. */
+        const out = grokAccounts.startGrokLogin({ label: body.label, grokBin: resolved.bin, reauthDir: body.reauthDir || undefined });
         if (!out.ok) { sendJson(res, 400, { error: out.because }); return; }
         // The URL and code are printed by grok AFTER this returns; read them from status.
         sendJson(res, 200, { sessionId: out.sessionId });
