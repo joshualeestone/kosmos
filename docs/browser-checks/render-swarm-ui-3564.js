@@ -309,10 +309,21 @@ const waitFor = (page, fn, arg, ms = 6000) => page.waitForFunction(fn, arg, { ti
     await page.click('#d-swarm-stop');
     for (let i = 0; i < 20 && !find((q) => q.method === 'POST'); i++) await page.waitForTimeout(100);
     chk(!!find((q) => q.method === 'POST' && q.url === '/api/agent/crew/swarm/stop'), 'S7 Stop now sends POST /api/agent/crew/swarm/stop', JSON.stringify(sent));
-    // S12: Paused stops NEW helpers only, so Stop now stays usable while one is still working.
-    crewSwarm = { ...crewSwarm, active: false, pausedBecause: 'person', activeHelpers: 2 };
-    chk(await waitFor(page, () => document.querySelector('input[name="d-swarm-active"][value="off"]').checked && !document.getElementById('d-swarm-stop').disabled, null, 8000),
-      'S12 paused with helpers still working, Stop now is still there to press');
+    chk(await waitFor(page, () => /^Stopped\..*work not handed back was dropped\.$/.test(document.getElementById('d-swarm-msg').textContent), null, 6000),
+      'S7 the done message says unfinished work was dropped', await page.evaluate(() => document.getElementById('d-swarm-msg').textContent));
+    const hint7 = await page.evaluate(() => { const id = document.getElementById('d-swarm-stop').getAttribute('aria-describedby'); const h = id && document.getElementById(id); return h ? h.textContent : null; });
+    chk(!!hint7 && /Work not handed back is dropped/.test(hint7), 'S7 Stop now is described by its hint, so a screen reader hears what it drops', JSON.stringify(hint7));
+    // S12: Paused stops NEW helpers only, so Stop now stays usable while one is still working. Set up so the helper
+    // count is the ONLY thing keeping it: stopped, the lead idle, a full count. CONTROL: the same with none greys it.
+    crewState = 'idle';
+    crewSwarm = { ...crewSwarm, active: false, pausedBecause: 'stopped', metered: true, activeHelpers: 2 };
+    chk(await waitFor(page, () => document.querySelector('input[name="d-swarm-active"][value="off"]').checked && !!CURRENT && CURRENT.state === 'idle' && !document.getElementById('d-swarm-stop').disabled, null, 8000),
+      'S12 stopped with an idle lead but two helpers still working: Stop now is still there to press');
+    crewSwarm = { ...crewSwarm, activeHelpers: 0 };
+    chk(await waitFor(page, () => document.getElementById('d-swarm-stop').disabled, null, 8000), 'S12 CONTROL: the same with no helper working, Stop now greys');
+    crewSwarm = { ...crewSwarm, activeHelpers: 2 };
+    crewState = null;
+    await waitFor(page, () => !document.getElementById('d-swarm-stop').disabled, null, 8000);
     // S14: a stop that did not take says the engine's reason, not "Stopped".
     stopAnswer = { ok: true, stopped: false, because: 'we could not reach the lead just now' };
     await page.click('#d-swarm-stop');

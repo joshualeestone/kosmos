@@ -1561,6 +1561,7 @@ button.uprime:hover, .btn.uprime:hover, .utoast .uacts button.uprime:hover,
 .swbox { border: 1px solid var(--k-rule); border-radius: 12px; padding: 10px 12px; background: var(--k-surface); }
 .swlab { display: block; margin: 0 0 6px; font: 650 .75rem var(--font-ui); letter-spacing: .02em; color: var(--k-ink-2); text-transform: uppercase; }
 .swctl { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+.swctl .swstop { margin-left: 16px; }   /* #3564 review: an interrupt kept apart from the two settings beside it */
 .swmode { margin: 0; flex: 1 1 auto; }
 .swmode .pj-mode-opt { font-size: 13px; min-height: 30px; }
 .swstop { border: 1.5px solid var(--danger); color: var(--danger); background: transparent; font-weight: 650; }
@@ -9332,9 +9333,9 @@ window.kosmosMeasureScrollbarWidth();
               <label class="pj-mode-opt"><input type="radio" name="d-swarm-active" value="on"> Active</label>
               <label class="pj-mode-opt"><input type="radio" name="d-swarm-active" value="off"> Paused</label>
             </fieldset>
-            <button type="button" class="btn swstop" id="d-swarm-stop">Stop now</button>
+            <button type="button" class="btn swstop" id="d-swarm-stop" aria-describedby="d-swarm-stop-hint">Stop now</button>
           </div>
-          <p class="dhint">Stop now ends its current work and every helper straight away, and pauses it until you switch it back to Active. Work not handed back is dropped.</p>
+          <p class="dhint" id="d-swarm-stop-hint">Stop now ends its current work and every helper straight away, and pauses it until you switch it back to Active. Work not handed back is dropped.</p>
           <p class="swwhy" id="d-swarm-why" hidden></p>
         </div>
         <div class="swbox">
@@ -38969,9 +38970,9 @@ function swarmPagePaint(a, { force = false } = {}) {
      the count itself could not be read in full (metered false), since it may be missing one that is. */
   /* A person's pause sends nothing to the lead, so its turn runs on: Stop now (the only interrupt) stays. It greys only
      once it has nothing left to stop: stopped, or paused at the limit, with no helper counted in a full read. */
-  /* ...and never while the lead itself is working: the meter counts helpers only, and a stop whose interrupt failed
-     still leaves it paused as stopped with its turn running. */
-  document.getElementById('d-swarm-stop').disabled = !on && (sw.pausedBecause === 'stopped' || sw.pausedBecause === 'limit') && !(Number(sw.activeHelpers) > 0) && sw.metered !== false && a.state !== 'working';
+  /* ...and only when the lead itself is known idle: the meter counts helpers only, and a stop whose interrupt failed
+     still leaves it paused as stopped with its turn running. Any other state (working, starting, unknown) keeps it. */
+  document.getElementById('d-swarm-stop').disabled = !on && (sw.pausedBecause === 'stopped' || sw.pausedBecause === 'limit') && !(Number(sw.activeHelpers) > 0) && sw.metered !== false && a.state === 'idle';
   const max = Math.max(2, Math.min(10, Number(sw.maxHelpers) || 3));
   const range = document.getElementById('d-swarm-max');
   if ((force || document.activeElement !== range) && SWARM_BUSY !== who) range.value = String(max);
@@ -39068,7 +39069,7 @@ document.body.addEventListener('input', (e) => {
 document.addEventListener('click', async (e) => {
   if (!e.target || !e.target.closest || !e.target.closest('#d-swarm-stop') || !CURRENT) return;
   await swarmSend('/api/agent/' + encodeURIComponent(CURRENT.sessionName) + '/swarm/stop', 'POST', {},
-    (b) => (b && b.stopped === false ? pjSentence(b.because || 'we could not stop it just now') : 'Stopped. Every helper has been told to stop.'));
+    (b) => (b && b.stopped === false ? pjSentence(b.because || 'we could not stop it just now') : 'Stopped. Every helper has been told to stop, and work not handed back was dropped.'));
 });
 function swminiSay(group, words) {
   const row = group.closest('.pj-member');
