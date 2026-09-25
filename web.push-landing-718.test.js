@@ -24,7 +24,7 @@ const CARD = require('./docs/browser-checks/fixtures/agent-card.json');
 function board({ present }) {
   const env = { WANT_AGENT_GRACE_MS: 4000, WANT_AGENT: CARD.sessionName, CURRENT: null, WANT_AGENT_DONE: false, WANT_AGENT_FIRST_MISS: 0, URL_TAB: 'detail',
     now: 1000, opens: 0, reveals: 0, tabs: [] };
-  env.Date = { now: () => env.now };
+  env.performance = { now: () => env.now };
   env.openDetail = (who) => { env.opens += 1; if (present() && who === CARD.sessionName) env.CURRENT = CARD; };
   env.detailRevealTalkOnPhone = () => { env.reveals += 1; };
   env.showTab = (t) => { env.tabs.push(t); env.URL_TAB = t; };
@@ -96,12 +96,15 @@ function lift(matches, talk, env = {}) {
   const src = html.slice(i, html.indexOf('\n}\n', i) + 2);
   const listeners = {};
   const e = Object.assign({
-    REVEAL_HOLD: null, REVEAL_HOLD_MS: 4000, REVEAL_HOLD_TICK_MS: 150,
+    REVEAL_HOLD: null, REVEAL_HOLD_MS: 4000, REVEAL_HOLD_TICK_MS: 150, REVEAL_HOLD_DRIFT_PX: 2,
+    // Read from the page, so the test holds the REAL list (a missing 'focusin' must fail it).
+    REVEAL_HOLD_STOPS: JSON.parse(html.match(/const REVEAL_HOLD_STOPS = (\[[^\]]*\]);/)[1].replace(/'/g, '"')),
     detailSection: () => talk,
     window: { matchMedia: () => ({ matches }),
-      addEventListener: (ev, fn) => { (listeners[ev] = listeners[ev] || []).push(fn); },
-      removeEventListener: (ev, fn) => { listeners[ev] = (listeners[ev] || []).filter((f) => f !== fn); } },
-    Date: { now: () => e.now }, now: 0,
+      // A listener is removed only by the same capture flag it was added with, as in a browser.
+      addEventListener: (ev, fn, o) => { (listeners[ev] = listeners[ev] || []).push({ fn, cap: !!(o && (o === true || o.capture)) }); },
+      removeEventListener: (ev, fn, o) => { const cap = !!(o && (o === true || o.capture)); listeners[ev] = (listeners[ev] || []).filter((l) => !(l.fn === fn && l.cap === cap)); } },
+    performance: { now: () => e.now }, now: 0,
     timers: [],
     setInterval: (fn) => { e.timers.push(fn); return e.timers.length; },
     clearInterval: (id) => { e.timers[id - 1] = null; },
@@ -112,7 +115,7 @@ function lift(matches, talk, env = {}) {
 
 test('on a phone it scrolls the Direct Message section to the top; on a computer it does nothing', () => {
   let calls = [];
-  const talk = { hidden: false, scrollIntoView: (o) => calls.push(o), getBoundingClientRect: () => ({ top: 0 }) };
+  const talk = { hidden: false, offsetParent: {}, scrollIntoView: (o) => calls.push(o), getBoundingClientRect: () => ({ top: 0 }) };
   lift(true, talk).run();
   assert.deepEqual(calls, [{ block: 'start' }]);
   calls = [];
@@ -125,15 +128,47 @@ test('on a phone it scrolls the Direct Message section to the top; on a computer
 
 test('it holds the conversation in place while content above settles, until the person touches', () => {
   let top = 0; let scrolls = 0;
-  const talk = { hidden: false, scrollIntoView: () => { scrolls += 1; top = 0; }, getBoundingClientRect: () => ({ top }) };
+  const talk = { hidden: false, offsetParent: {}, scrollIntoView: () => { scrolls += 1; top = 0; }, getBoundingClientRect: () => ({ top }) };
   const { run, env } = lift(true, talk);
   run();
   assert.equal(scrolls, 1);
   top = 180; env.now = 500; env.timers[0]();          // the Files list painted above it (WebKit: no anchoring)
   assert.equal(scrolls, 2, 'put back where it was');
-  env.listeners.touchstart.forEach((f) => f());         // the person takes over
+  env.listeners.touchstart.forEach((l) => l.fn());      // the person takes over
   assert.equal(env.timers[0], null, 'the watch stopped');
+  const left = Object.entries(env.listeners).filter(([, ls]) => ls.length).map(([ev]) => ev);
+  assert.deepEqual(left, [], 'every window listener the hold added is gone (same capture flag)');
   const { run: run2, env: env2 } = lift(true, talk);
   run2(); env2.now = 4100; top = 300; env2.timers[0]();
   assert.equal(env2.timers[0], null, 'and it stops on its own after 4 seconds');
+});
+
+test('any focus change ends the hold at once (the keyboard scrolls a focused composer; never fight it)', () => {
+  let top = 0; let scrolls = 0;
+  const talk = { hidden: false, offsetParent: {}, scrollIntoView: () => { scrolls += 1; top = 0; }, getBoundingClientRect: () => ({ top }) };
+  const { run, env } = lift(true, talk);
+  run();
+  env.listeners.focusin.forEach((l) => l.fn());       // e.g. the Answer path focuses the composer
+  top = 250; env.now = 300;
+  assert.equal(env.timers[0], null, 'stopped by the focus');
+  assert.equal(scrolls, 1, 'and it did not scroll back');
+});
+
+test('the hold stops when the section is no longer rendered (its panel was hidden)', () => {
+  let top = 0; const talk = { hidden: false, offsetParent: {}, scrollIntoView: () => { top = 0; }, getBoundingClientRect: () => ({ top }) };
+  const { run, env } = lift(true, talk);
+  run(); talk.offsetParent = null; top = 90; env.now = 200; env.timers[0]();
+  assert.equal(env.timers[0], null);
+});
+
+test('a link is spent once the person opens some other agent themselves', () => {
+  const env = board({ present: () => false });
+  const settle = liftSettle(env);
+  settle();                                  // first miss
+  env.CURRENT = Object.assign({}, CARD, {});  // they opened an agent on their own (the golden card, renamed below)
+  env.CURRENT.sessionName = CARD.sessionName + '-other';
+  settle();
+  assert.equal(env.WANT_AGENT_DONE, true);
+  env.CURRENT = null; settle();
+  assert.equal(env.opens, 1, 'never reopened to pull them away');
 });
