@@ -577,6 +577,30 @@ test('no output and empty output both yield an empty roster, not a crash', () =>
   assert.deepEqual(parsePanes('\n\n'), []);
 });
 
+test('#3568: an agy pane in one of our sessions is an agent session; the same command in a stranger\'s session is not', () => {
+  const [ours] = parsePanes('agyk-discord\t0.0\tagy\t0\t');
+  assert.equal(isAgentSession(ours), true, 'a Kosmos Antigravity pane (command agy) was not recognised, so nothing could be typed into it');
+  const [stranger] = parsePanes('agyk\t0.0\tagy\t0\t');
+  assert.equal(isAgentSession(stranger), false, "a person's own agy session was claimed as ours");
+  const [lookalike] = parsePanes('agyk-discord\t0.0\tagy2\t0\t');
+  assert.equal(isAgentSession(lookalike), false, 'only the literal agy command counts');
+});
+
+test('#3568: classify reads a running agy pane as unknown (not stopped), and a shell in its place as stopped, naming Antigravity', () => {
+  const up = classify(pane({ command: 'agy', runner: 'antigravity' }), 'anything on screen\n> ');
+  assert.equal(up.state, 'unknown', 'a live Antigravity agent read as ' + up.state);
+  assert.doesNotMatch(up.because, /Claude/);
+  const down = classify(pane({ command: '-zsh', runner: 'antigravity' }), '$ ');
+  assert.equal(down.state, 'stopped');
+  assert.match(down.because, /Antigravity is not running/);
+  // An agy pane read before its runner tag lands is still Antigravity, never "Claude is not running".
+  const untagged = classify(pane({ command: 'agy' }), '> ');
+  assert.equal(untagged.state, 'unknown');
+  assert.match(untagged.because, /Antigravity/);
+  // Control: a plain shell with no tag is still stopped, the Claude way.
+  assert.equal(classify(pane({ command: 'zsh' }), '> ').state, 'stopped');
+});
+
 test('a session that merely shares an agent name is not one of our agents', () => {
   // ⚠️ The roster STRIPS the `-discord` suffix but never requires it, so a
   // person running `tmux new -s kappa` for unrelated work appears on the board

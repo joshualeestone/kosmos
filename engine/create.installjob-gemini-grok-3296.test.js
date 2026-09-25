@@ -38,7 +38,8 @@ const CLAUDE_BIN = nodePath.join(BIN, 'claude');
 const GEMINI_BIN = nodePath.join(BIN, 'gemini');
 const GROK_BIN = nodePath.join(BIN, 'grok');
 const TMUX_BIN = nodePath.join(BIN, 'tmux');
-for (const b of [CLAUDE_BIN, GEMINI_BIN, GROK_BIN, TMUX_BIN]) fs.writeFileSync(b, '#!/bin/sh\nexit 0\n', { mode: 0o755 });
+const AGY_BIN = nodePath.join(BIN, 'agy'); // #3568: the override must keep the basename agy
+for (const b of [CLAUDE_BIN, GEMINI_BIN, GROK_BIN, TMUX_BIN, AGY_BIN]) fs.writeFileSync(b, '#!/bin/sh\nexit 0\n', { mode: 0o755 });
 const BINS = { claudeBin: CLAUDE_BIN, tmuxBin: TMUX_BIN, geminiBin: GEMINI_BIN, grokBin: GROK_BIN };
 /* register.repair does NOT forward bin paths to installJob (it passes only model/platform/
    runner), so installJob resolves them via runners.resolveBin, which honours these env
@@ -65,7 +66,7 @@ function bornMissingJob(name, provider) {
   fs.mkdirSync(create.AGENTS_DIR, { recursive: true });
   fs.mkdirSync(create.workerDir(name), { recursive: true });
   store.writeProfile(name, { provider });
-  const brief = provider === 'google' ? 'GEMINI.md' : provider === 'xai' ? 'AGENTS.md' : 'CLAUDE.md';
+  const brief = create.briefFilename(create.providerRunner(provider));
   fs.writeFileSync(nodePath.join(create.workerDir(name), brief), '# brief\n', 'utf8');
   return name;
 }
@@ -101,6 +102,14 @@ test('#3391: installJob still REFUSES a grok agent on win32', () => {
   assert.match(String(r.because), /Grok/, r.because);
 });
 
+/* #3568 round 10: a backfill tells the person it will run on their main Claude account only
+   when it is a Claude agent. A Gemini agent with no account runs on its own default, not Claude's. */
+test('#3568: a Gemini backfill does not say it will run on the main Claude account', () => {
+  const name = bornMissingJob('ij-gem-acct', 'google');
+  const r = create.installJob(name, { ...BINS, platform: process.platform });
+  assert.equal(r.ok, true, String(r.because));
+  assert.equal(r.guessed.account, null, 'a Gemini agent was told it runs on a Claude account');
+});
 test('#3296: installJob refuses a gemini backfill when the Gemini runner is not installed, naming it', () => {
   const name = bornMissingJob('ij-no-gemini-runner', 'google');
   const r = create.installJob(name, { ...BINS, geminiBin: nodePath.join(BIN, 'gemini-not-here') });
@@ -142,3 +151,58 @@ test('#3296/#3391: register.repair backfills a google agent as GEMINI and an xai
   assert.equal(create.readJob('rep-grok').runner, 'grok', 'repair backfilled the xai agent as the wrong runner');
   assert.equal(create.readJob('rep-claude').runner, 'claude', 'control: the claude agent should repair as claude');
 });
+
+/* #3568: the Antigravity runner in the backfill/repair path, with its flag on (off is tested below). */
+function withAgyOn(fn) {
+  const was = process.env.AGENT_WORKFORCE_ANTIGRAVITY;
+  process.env.AGENT_WORKFORCE_ANTIGRAVITY = '1';
+  try { return fn(); } finally {
+    if (was === undefined) delete process.env.AGENT_WORKFORCE_ANTIGRAVITY; else process.env.AGENT_WORKFORCE_ANTIGRAVITY = was;
+  }
+}
+test('#3568: with the flag off, installJob refuses an Antigravity agent and writes no job', () => {
+  const was = process.env.AGENT_WORKFORCE_ANTIGRAVITY;
+  delete process.env.AGENT_WORKFORCE_ANTIGRAVITY;
+  try {
+    const name = bornMissingJob('ij-agy-off', 'antigravity');
+    const r = create.installJob(name, { ...BINS, antigravityBin: AGY_BIN, platform: process.platform });
+    assert.equal(r.ok, false, 'the flag is off, so nothing may start an Antigravity agent');
+    assert.match(String(r.because), /switched off/);
+    assert.equal(create.readJob(name), null, 'a refused backfill must write no job');
+  } finally {
+    if (was === undefined) delete process.env.AGENT_WORKFORCE_ANTIGRAVITY; else process.env.AGENT_WORKFORCE_ANTIGRAVITY = was;
+  }
+});
+test('#3568: installJob refuses an Antigravity agent on win32 and refuses an account dir for one', () => withAgyOn(() => {
+  const name = bornMissingJob('ij-agy', 'antigravity');
+  const win32job = require('./win32job');
+  const realPresence = win32job.presence;
+  win32job.presence = () => ({ known: true, registered: false });
+  let r;
+  try { r = create.installJob(name, { ...BINS, antigravityBin: AGY_BIN, platform: 'win32' }); }
+  finally { win32job.presence = realPresence; }
+  assert.equal(r.ok, false);
+  assert.match(String(r.because), /Windows/);
+  assert.match(String(r.because), /Antigravity/);
+  assert.doesNotMatch(String(r.because), /created fresh/, 'create refuses Antigravity on Windows too, so do not offer it');
+  const acct = create.installJob(name, { ...BINS, antigravityBin: AGY_BIN, configDir: nodePath.join(SANDBOX, '.claude-other') });
+  assert.equal(acct.ok, false, 'an account dir would be written into the agy job as CLAUDE_CONFIG_DIR');
+  assert.match(String(acct.because), /Antigravity/);
+  assert.equal(create.readJob(name), null, 'a refused backfill must write no job');
+  // A backfill that goes through does not tell the person it will run on their Claude account.
+  const ok = create.installJob(name, { ...BINS, antigravityBin: AGY_BIN, platform: process.platform });
+  assert.equal(ok.ok, true, String(ok.because));
+  assert.equal(ok.guessed.account, null, 'an Antigravity agent has no Claude account to guess');
+}));
+test('#3568: register.repair backfills an Antigravity agent on the antigravity runner, not as Claude', () => withAgyOn(() => {
+  bornMissingJob('rep-agy', 'antigravity');
+  const was = process.env.AGENT_WORKFORCE_ANTIGRAVITY_BIN;
+  process.env.AGENT_WORKFORCE_ANTIGRAVITY_BIN = AGY_BIN;
+  try {
+    const out = register.repair({ ...BINS, platform: process.platform });
+    assert.equal(out.ok, true, 'repair failed: ' + out.because);
+    assert.equal((create.readJob('rep-agy') || {}).runner, 'antigravity', 'repair reinstalled an Antigravity agent as another runner');
+  } finally {
+    if (was === undefined) delete process.env.AGENT_WORKFORCE_ANTIGRAVITY_BIN; else process.env.AGENT_WORKFORCE_ANTIGRAVITY_BIN = was;
+  }
+}));

@@ -1646,8 +1646,8 @@ function connect(dir, opts) {
 
      🔑 #3519 THE ONE THING DISK CANNOT DECIDE: grok reads AGENTS.md too
      (create.briefFilename puts codex and grok on the same arm), so an AGENTS.md-only
-     folder is genuinely ambiguous between codex (OpenAI) and grok (xAI) and this loop
-     defaults it to codex, exactly as foundCodex does. It is not guessable from the
+     folder is genuinely ambiguous between codex (OpenAI), grok (xAI) and, with its flag on,
+     antigravity (#3568); this loop defaults it to codex, exactly as foundCodex does. It is not guessable from the
      folder. When the CALLER knows which -- the connect screen or API supplied a
      provider -- the hint below resolves that one case; absent a hint the codex
      default stands. (A grok DISCOVERY path -- a foundGrok that would offer grok
@@ -1674,7 +1674,8 @@ function connect(dir, opts) {
      to null, the loop's own claude value. */
   if (instructionsFile !== null && opts && opts.provider) {
     const hinted = create.providerRunner(String(opts.provider));
-    if (create.briefFilename(hinted) === instructionsFile) {
+    // #3568: an Antigravity hint counts only with its flag on, like every other way to make one.
+    if (create.briefFilename(hinted) === instructionsFile && (hinted !== 'antigravity' || create.antigravityEnabled())) {
       runner = hinted === 'claude' ? null : hinted;
     }
   }

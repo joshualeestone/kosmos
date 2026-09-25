@@ -714,7 +714,9 @@ function isAgentSession(pane) {
   // recognised by its `@kosmos_agent` claim (the name arm), which is why keying
   // membership on the command is unnecessary here and would be the looser,
   // wrong direction.
-  return isClaudeCommand(pane.command) || isCodexCommand(pane.command);
+  // #3568: Antigravity's agy is a native binary, so its pane command is `agy` itself. Only for a
+  // fleet session (the guard above), so a person's own `agy` in some other pane is never ours.
+  return isClaudeCommand(pane.command) || isCodexCommand(pane.command) || isAntigravityCommand(pane.command);
 }
 
 /**
@@ -957,9 +959,9 @@ function parsePanes(out) {
       claim: raw.claim || '',
       /* Empty means claude, the same absent-means-default the supervisor's
          optional runner argument carries (#245). Normalised to the runner
-         words the classifier dispatches on (codex, gemini, grok; empty is
-         claude), so a truncated line cannot invent a runner. */
-      runner: raw.runner === 'codex' ? 'codex' : raw.runner === 'gemini' ? 'gemini' : raw.runner === 'grok' ? 'grok' : '',
+         words the classifier dispatches on (codex, gemini, grok, antigravity;
+         empty is claude), so a truncated line cannot invent a runner. */
+      runner: raw.runner === 'codex' ? 'codex' : raw.runner === 'gemini' ? 'gemini' : raw.runner === 'grok' ? 'grok' : raw.runner === 'antigravity' ? 'antigravity' : '',
       title: raw.title || '',
     };
   /* ⚠️ AND THE ROW ITSELF (#603's other half, MEASURED before believed):
@@ -1285,7 +1287,7 @@ function rank(pane) {
     // a shell at RANK_NAMED_CRASHED (1), the identical `zsh` + `claude` bug the
     // comment above measured, reproduced for codex. Reuses the one
     // `isCodexCommand` source rather than a private copy.
-    if (isUnambiguousClaude(pane && pane.command) || isCodexCommand(pane && pane.command)) return RANK_NAMED_RUNNING + byClaimOnly;
+    if (isUnambiguousClaude(pane && pane.command) || isCodexCommand(pane && pane.command) || isAntigravityCommand(pane && pane.command)) return RANK_NAMED_RUNNING + byClaimOnly; // #3568: agy too
     // `isAgentSession` accepts these too, but they are weaker: `node` is what a
     // dev server looks like, and inside our own session it must not outrank the
     // pane that is unambiguously Claude.
@@ -1403,6 +1405,11 @@ function isClaudeRunning(command) {
 function isCodexCommand(command) {
   const c = String(command || '').trim();
   return c === 'codex' || c === 'codex.exe';
+}
+
+/* #3568: Antigravity (Google's agy), the same strict literal shape as isCodexCommand. */
+function isAntigravityCommand(command) {
+  return String(command || '').trim() === 'agy';
 }
 
 /**
@@ -3561,6 +3568,17 @@ function classify(pane, paneText) {
     // null (a failed/absent live read) or any status token we do not recognise:
     // refuse honestly rather than assert a state off a look that did not land.
     return { state: STATE.UNKNOWN, confidence: CONFIDENCE.NONE, because: 'we could not read its state' };
+  }
+  /* #3568: an Antigravity pane. agy is a native binary (its pane command is `agy`, never a
+     Claude version string or node), so the Claude running check below would call a live agy agent
+     stopped. Running-or-not comes from the command; WHAT it is doing is not read yet (no signed-in
+     agy screen or transcript has been captured), so a running one is honestly unknown. The
+     command counts too, as for codex: an agy pane read before its runner tag lands is still agy. */
+  if (pane.runner === 'antigravity' || isAntigravityCommand(pane.command)) {
+    if (!isAntigravityCommand(pane.command)) {
+      return { state: STATE.STOPPED, confidence: CONFIDENCE.STRUCTURED, because: 'Antigravity is not running for this one' };
+    }
+    return { state: STATE.UNKNOWN, confidence: CONFIDENCE.NONE, because: 'Kosmos cannot read what Antigravity is doing yet' };
   }
   if (!isClaudeRunning(pane.command)) {
     return { state: STATE.STOPPED, confidence: CONFIDENCE.STRUCTURED, because: 'Claude is not running for this one' };
@@ -6926,6 +6944,9 @@ function snapshot() {
        the command. Read the session once for the context ring below (no observation
        arm yet -- the account badge's XAI provider is the launcher slice). */
     const isGrokPane = pane.runner === 'grok';
+    /* #3568: an Antigravity pane is not a Claude pane either; kept out of the ANTHROPIC
+       observation arm below so it can never record a false Claude-account reading. */
+    const isAgyPane = pane.runner === 'antigravity' || isAntigravityCommand(pane.command);
     const grokSess = (isNamedOurs(pane) && isGrokPane) ? readGrokSession(pane.name) : null;
     try {
       /* #3296: EXCLUDE a gemini pane from the ANTHROPIC observation arm. Without
@@ -6939,7 +6960,7 @@ function snapshot() {
          would otherwise record a false observed.saw(PROVIDER.ANTHROPIC, ok). Grok's
          own XAI-provider observation is likewise the launcher slice; until then a grok
          pane takes NEITHER arm, only the context ring below. */
-      if (isNamedOurs(pane) && !isCodexPane && !isGeminiPane && !isGrokPane) {
+      if (isNamedOurs(pane) && !isCodexPane && !isGeminiPane && !isGrokPane && !isAgyPane) {
         /* 🛑 #1889 EXCLUSION, AND IT IS NOT A TWEAK TO THE RULE ABOVE, IT IS THE
            RULE ABOVE HOLDING. The OK arm's whole justification is that a scraped
            WORKING is a WITNESSED live streaming turn. #1889 added one scraped
@@ -7033,7 +7054,8 @@ function snapshot() {
     // underived, and carries no model and no context — which is the honest
     // answer, because we do not know whose conversation it is.
     const tied = isNamedOurs(pane);
-    const { model } = tied ? readModel(pane.name, pane.session) : { model: null };
+    // #3568: not for an agy pane: readModel is the Claude transcript lookup, same as the context ring.
+    const { model } = (tied && !isAgyPane) ? readModel(pane.name, pane.session) : { model: null };
     /* #2257: a Codex (OpenAI) agent does not write a Claude `.jsonl`, so
        `readContext` returned NO_TRANSCRIPT for every OpenAI agent and the ring
        read "Not yet read" forever. Its context lives in the Codex rollout, which
@@ -7050,6 +7072,9 @@ function snapshot() {
         // #3391: a Grok pane's context lives in its Grok Build session, read by
         // readGrokContext (same pre-read-once contract as the codex/gemini arms).
         : isGrokPane ? readGrokContext(pane.name, grokSess)
+        // #3568: no Antigravity transcript reader yet, and the Claude one below must never read
+        // an agy agent's folder (it could pick up a Claude transcript left there).
+        : isAgyPane ? { ...NONE_BASE, notYet: false, because: 'Kosmos cannot read how much of its memory an Antigravity agent has used yet' }
         : readContext(pane.name, model, pane.session))
       // ⚠️ Unknown, and not because it is ambiguous: this one is a REFUSAL. We
       // can see there is something to read and are declining to read it, so
@@ -7130,10 +7155,10 @@ function snapshot() {
          re-deciding what platform it is on. */
       reachedByChannel: require('./win32roster').isWin32Pane(pane),
       /* Which runner this pane RECORDED at launch (#245/#246): 'codex',
-         'gemini', 'grok' or 'claude', with empty meaning claude the way it does
+         'gemini', 'grok', 'antigravity' or 'claude', with empty meaning claude the way it does
          everywhere the option is absent. The switch screen keys on this, and it is
          the supervisor's record, never an inference from the command. */
-      runner: pane.runner === 'codex' ? 'codex' : pane.runner === 'gemini' ? 'gemini' : pane.runner === 'grok' ? 'grok' : 'claude',
+      runner: pane.runner === 'codex' ? 'codex' : pane.runner === 'gemini' ? 'gemini' : pane.runner === 'grok' ? 'grok' : pane.runner === 'antigravity' ? 'antigravity' : 'claude',
       task: taskLine(pane.title),
       state: status.state,
       stateConfidence: status.confidence,
@@ -7508,6 +7533,7 @@ module.exports = {
   TRUST_DIALOG_SENTENCE,
   SELECTOR_GLYPHS,
   isCodexCommand,
+  isAntigravityCommand, // #3568
   /* #570: exported so the two job gates can be asserted for BOTH platforms from
      either one. They read `create.hasJob`/`create.jobMissing`, which used to be
      a plist stat -- the reason a freshly made Windows agent was told it was

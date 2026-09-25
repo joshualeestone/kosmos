@@ -837,7 +837,7 @@ function addressable(sessionName, roster) {
     if (card.isAgentSession === true) {
       return { ok: false, because: 'its window is scrolled back right now, so anything we typed would go to the scrollback instead of to the agent' };
     }
-    const runnerName = card.runner === 'codex' ? 'Codex' : card.runner === 'gemini' ? 'Gemini' : card.runner === 'grok' ? 'Grok' : 'Claude';
+    const runnerName = card.runner === 'codex' ? 'Codex' : card.runner === 'gemini' ? 'Gemini' : card.runner === 'grok' ? 'Grok' : card.runner === 'antigravity' ? 'Antigravity' : 'Claude';
     return { ok: false, because: 'there is no ' + runnerName + ' running in its window right now, so anything we typed would be run as a command instead of read' };
   }
   return { ok: true, card };
@@ -1038,7 +1038,7 @@ function waitingNote(state, outcome, runner, backgroundWait) {
   // provider copy class). Product name 'Gemini', matching create.js's create/model copy.
   // #3391: grok names Grok for the same reason -- an auth-failed grok agent points at its
   // own XAI_API_KEY/sign-in, not Claude's. Product name 'Grok', matching create.js.
-  const provider = runner === 'codex' ? 'OpenAI' : runner === 'gemini' ? 'Gemini' : runner === 'grok' ? 'Grok' : 'Claude';
+  const provider = runner === 'codex' ? 'OpenAI' : runner === 'gemini' ? 'Gemini' : runner === 'grok' ? 'Grok' : runner === 'antigravity' ? 'Antigravity' : 'Claude';
   /* 🛑 #1889. ONE `working` MEANS THE OPPOSITE OF THE OTHER, FOR THIS SENTENCE.
      A pane whose screen says it is waiting on a BACKGROUND agent classifies
      `working`, but its own turn has ENDED and its REPL is at its prompt, so the
@@ -1400,8 +1400,9 @@ function deliver(sessionName, raw, roster, envelope, trailer) {
        agent-comms cadence) for the core task-delivery mechanism, taken as a precaution
        rather than measured per-runner. Grok drives a full-screen TUI with its own
        composer, so the paste-swallow risk is the same class; the floor is the safe
-       default and a 0 here would be the unmeasured gamble. */
-    (allowed.card.runner === 'codex' || allowed.card.runner === 'gemini' || allowed.card.runner === 'grok') ? CODEX_ENTER_GAP_MS : 0,
+       default and a 0 here would be the unmeasured gamble. #3568: antigravity takes the same
+       floor for the same reason, unmeasured like grok's. */
+    (allowed.card.runner === 'codex' || allowed.card.runner === 'gemini' || allowed.card.runner === 'grok' || allowed.card.runner === 'antigravity') ? CODEX_ENTER_GAP_MS : 0,
   );
   submitGap(gapMs);
   /**

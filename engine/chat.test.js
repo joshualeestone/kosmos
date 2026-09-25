@@ -274,6 +274,15 @@ test('#3296: a dead gemini agent (shell pane) is refused with "no Gemini running
   });
 });
 
+test('#3568: a dead Antigravity agent (shell pane) is refused naming Antigravity, not Claude', () => {
+  withFleet([fleet.agent('agybot', { state: 'stopped', runner: 'antigravity', command: '-zsh' })], (board) => {
+    const verdict = chat.deliver('agybot', 'hello', board.agents);
+    assert.equal(verdict.state, chat.DELIVERY.COULD_NOT);
+    assert.match(verdict.because, /no Antigravity running in its window/);
+    assert.doesNotMatch(verdict.because, /no Claude running/);
+  });
+});
+
 test('#3391: a dead grok agent (shell pane) is refused with "no Grok running", NOT "no Claude running"', () => {
   // The grok analog of the gemini/#2100 case: a grok agent whose runner never came up
   // holds a shell pane, so it hits the not-addressable branch. Its owner must not be
