@@ -119,6 +119,8 @@ gates. `publish-r2.ps1` produces the same files with the same gates, directly in
 - **`TEST TRANSPORT` in the output means nothing was published**: `KOSMOS_PUBLISH_R2_FAKE_DIR` is
   set (the offline test uses it). `Remove-Item Env:KOSMOS_PUBLISH_R2_FAKE_DIR` and run again.
 
+- **Run these from a PowerShell prompt**, not Command Prompt: cmd.exe keeps single quotes as
+  part of the value and splits a command at `&`.
 - **Quote the approval ref.** Unquoted at a PowerShell prompt, a Slack ts is read as a number
   and rounded, and a permalink containing `&` becomes a background job. The script refuses a ts
   that is not exactly 10 digits, a dot and 6 digits, and anything else that is not `https://`.

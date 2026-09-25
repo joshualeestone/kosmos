@@ -55,7 +55,7 @@ param(
   [Parameter(ParameterSetName = 'Staging')] [string] $Version,
   [Parameter(ParameterSetName = 'Staging')] [switch] $ReplaceVersioned,
 
-  [Parameter(ParameterSetName = 'Promote', Mandatory = $true)] [switch] $Promote,
+  [Parameter(ParameterSetName = 'Promote')] [switch] $Promote,
   [Parameter(ParameterSetName = 'Promote', Mandatory = $true)] [string] $ApprovedVersion,
   [Parameter(ParameterSetName = 'Promote', Mandatory = $true)] [string] $ApprovedSha,
   [Parameter(ParameterSetName = 'Promote', Mandatory = $true)] [string] $ApprovalRef,
@@ -191,7 +191,8 @@ function Invoke-R2 {
     $resp = $Http.SendAsync($req).GetAwaiter().GetResult()
     $bytes = $resp.Content.ReadAsByteArrayAsync().GetAwaiter().GetResult()
     $etag = if ($resp.Headers.ETag) { $resp.Headers.ETag.Tag } else { '' }
-    [pscustomobject]@{ Status = [int]$resp.StatusCode; Bytes = $bytes; Body = $(if ($bytes.Length -le 1MB) { $Utf8.GetString($bytes) } else { '' }); ETag = $etag }
+    $cc = if ($resp.Headers.CacheControl) { $resp.Headers.CacheControl.ToString() } else { '' }
+    [pscustomobject]@{ Status = [int]$resp.StatusCode; CacheControl = $cc; Bytes = $bytes; Body = $(if ($bytes.Length -le 1MB) { $Utf8.GetString($bytes) } else { '' }); ETag = $etag }
   } catch {
     $why = "network error on $Method $Key ($($_.Exception.GetBaseException().Message))"
     if ($Method -ceq 'GET') { Refuse $why }
@@ -235,7 +236,10 @@ function Invoke-FakeR2Core([string] $Method, [string] $Key, [byte[]] $Body, [str
   if ($Method -ceq 'GET') {
     if (-not (Test-Path -LiteralPath $path -PathType Leaf)) { return [pscustomobject]@{ Status = 404; Bytes = [byte[]]@(); Body = ''; ETag = '' } }
     $b = [IO.File]::ReadAllBytes($path)
-    return [pscustomobject]@{ Status = 200; Bytes = $b; Body = $Utf8.GetString($b); ETag = (& $tag $path) }
+    $cc = if (Test-Path -LiteralPath "$path.cc") { [IO.File]::ReadAllText("$path.cc") } else { '' }
+    $noEtag = [Environment]::GetEnvironmentVariable('KOSMOS_PUBLISH_R2_FAKE_NO_ETAG')
+    $et = if ($noEtag -and $Key.EndsWith($noEtag)) { '' } else { (& $tag $path) }
+    return [pscustomobject]@{ Status = 200; CacheControl = $cc; Bytes = $b; Body = $Utf8.GetString($b); ETag = $et }
   }
   $fail = [Environment]::GetEnvironmentVariable('KOSMOS_PUBLISH_R2_FAKE_FAIL')
   if ($fail -and $Key.EndsWith($fail)) { return [pscustomobject]@{ Status = 500; Bytes = [byte[]]@(); Body = 'injected failure'; ETag = '' } }
@@ -253,6 +257,8 @@ function Invoke-FakeR2Core([string] $Method, [string] $Key, [byte[]] $Body, [str
     [IO.File]::Copy($src, $path, $true)
   } elseif ($BodyFile) { [IO.File]::Copy($BodyFile, $path, $true) }
   else { [IO.File]::WriteAllBytes($path, $(if ($null -ne $Body) { $Body } else { [byte[]]@() })) }
+  # Like S3, a PUT replaces the object's metadata: its Cache-Control is what THIS PUT sent.
+  if ($Extra.ContainsKey('cache-control')) { [IO.File]::WriteAllText("$path.cc", $Extra['cache-control']) } else { Remove-Item -LiteralPath "$path.cc" -Force -ErrorAction SilentlyContinue }
   [pscustomobject]@{ Status = 200; Bytes = [byte[]]@(); Body = ''; ETag = (& $tag $path) }
 }
 
@@ -383,6 +389,10 @@ if ($PSCmdlet.ParameterSetName -ceq 'Staging') {
     } elseif ($baked -and $baked -cne $Version) { Refuse "-Version $Version is not the version this zip was built as ($baked)" }
     # The launcher must BE the committed, signed Kosmos.exe (#3677): a validly signed exe from
     # anyone else, or an older launcher, is not the one we ship.
+    # A zip with two entries of one name: the check below would read the first while Explorer
+    # extracts the last, so a different launcher could pass. Refuse it.
+    $dups = @($archive.Entries | Group-Object -Property FullName -CaseSensitive | Where-Object { $_.Count -gt 1 })
+    if ($dups.Count -gt 0) { Refuse "$ZipPath has duplicate entries ($(($dups | ForEach-Object { $_.Name }) -join ', '))" }
     $exe = $archive.GetEntry('Kosmos.exe')
     if (-not $exe) { Refuse "$ZipPath carries no Kosmos.exe at its root" }
     $tmp = Join-Path ([IO.Path]::GetTempPath()) ("kosmos-exe-" + [Guid]::NewGuid().ToString('N') + '.exe')
@@ -434,7 +444,12 @@ if ($PSCmdlet.ParameterSetName -ceq 'Staging') {
   $replacing = [bool]($existing -and (Sha256-Bytes $existing.Bytes) -cne $Sha)
   # A same-bytes re-upload is pinned too: unpinned, it could silently revert a concurrent
   # -ReplaceVersioned of the same name back to these bytes.
-  if ($existing -and -not $replacing -and $existing.ETag) { $putExtra = @{ 'if-match' = $existing.ETag } }
+  if ($existing -and -not $replacing -and $existing.ETag) {
+    $putExtra = @{ 'if-match' = $existing.ETag }
+    # A PUT replaces metadata: keep no-cache on a zip that had it (a re-run of an interrupted
+    # -ReplaceVersioned must not make the replaced zip cacheable again).
+    if ($existing.CacheControl -match 'no-cache') { $putExtra['cache-control'] = 'no-cache' }
+  }
   if ($replacing) {
     if (-not $existing.ETag) { Refuse "the bucket gave no ETag for $Versioned, so the replace cannot be pinned to the object just read. Nothing was written." }
     $putExtra = @{ 'cache-control' = 'no-cache'; 'if-match' = $existing.ETag }
@@ -476,6 +491,9 @@ if ($PSCmdlet.ParameterSetName -ceq 'Staging') {
 }
 
 # ========================================== PROMOTE ============================================
+# Promote is a deliberate act: the approval arguments alone must not select it (a mandatory
+# switch would make PowerShell PROMPT for it and one keypress would pick the prod path).
+if (-not $Promote) { Refuse "-ApprovedVersion/-ApprovedSha/-ApprovalRef are for -Promote; pass -Promote explicitly" }
 Assert-Version 'approved version' $ApprovedVersion
 Assert-Sha '-ApprovedSha' $ApprovedSha
 # A bare Slack ts is exactly 10 digits, a dot and 6 digits. Unquoted at a PowerShell prompt it
@@ -544,6 +562,34 @@ if (-not $again -or (Sha256-Bytes $again.Bytes) -cne (Sha256-Bytes $staging.Byte
 $Where = "bucket=$Bucket prefix=$(if ($KeyPrefix) { $KeyPrefix } else { '-' })$(if ($FakeDir) { ' transport=test' })"
 Write-ApprovalLine "$(Stamp) family=win path=promote-r2 version=$ApprovedVersion sha256=$ApprovedSha approval_ref=$ApprovalRef record_sha256=$recordSha approval=given $Where record=$recordPath"   # record= LAST: the path may hold spaces (promote-channel.sh does the same)
 
+# What prod is BEFORE this promote writes anything, so a promote that finds itself raced can
+# put it back: the pointer, and the alias sidecar (the alias zip is restored from the previous
+# pointer's versioned zip).
+$prodBefore = Get-Object 'latest-win.json'
+$aliasSideBefore = Get-Object "$Alias.sha256"
+function Test-StagedIntact {
+  $z = Get-Object $Versioned; $zs = Get-Object "$Versioned.sha256"
+  return [bool]($z -and $zs -and (Sha256-Bytes $z.Bytes) -ceq $ApprovedSha -and (Sha256-Bytes $zs.Bytes) -ceq (Sha256-Bytes (New-SidecarBytes $ApprovedSha $Versioned)))
+}
+# Undo this promote's prod writes (a -ReplaceVersioned changed the versioned zip under it).
+function Undo-Promote([string] $pointerEtag) {
+  $done = @()
+  if ($prodBefore) {
+    $r = Invoke-R2 -Method PUT -Key "${KeyPrefix}latest-win.json" -Body $prodBefore.Bytes -PayloadSha (Sha256-Bytes $prodBefore.Bytes) -ContentType 'application/json' -Extra @{ 'cache-control' = 'no-cache'; 'if-match' = $pointerEtag }
+    $done += $(if ($r.Status -eq 200) { 'latest-win.json put back' } else { "PUTTING latest-win.json BACK FAILED ($($r.Status))" })
+    $pf = Read-PointerFields $prodBefore.Bytes
+    if ($pf) {
+      $c = Invoke-R2 -Method PUT -Key "$KeyPrefix$Alias" -ContentType 'application/zip' -Extra @{ 'x-amz-copy-source' = "/$Bucket/$KeyPrefix$($pf.versioned)"; 'x-amz-metadata-directive' = 'REPLACE'; 'cache-control' = 'no-cache' }
+      $done += $(if ($c.Status -eq 200 -and $c.Body -cnotmatch '<Error>') { "the alias restored from $($pf.versioned)" } else { "RESTORING THE ALIAS FAILED ($($c.Status))" })
+    }
+  } else { $done += 'there was no previous latest-win.json to put back' }
+  if ($aliasSideBefore) {
+    $r2 = Invoke-R2 -Method PUT -Key "$KeyPrefix$Alias.sha256" -Body $aliasSideBefore.Bytes -PayloadSha (Sha256-Bytes $aliasSideBefore.Bytes) -ContentType 'text/plain; charset=utf-8' -Extra @{ 'cache-control' = 'no-cache' }
+    $done += $(if ($r2.Status -eq 200) { 'the alias sidecar put back' } else { "PUTTING THE ALIAS SIDECAR BACK FAILED ($($r2.Status))" })
+  }
+  $done -join '; '
+}
+
 # The alias (a copy pinned to the exact object checked above) and its sidecar, both read back from
 # the bucket BEFORE prod's pointer moves; then latest-win.json LAST, the staging bytes verbatim.
 # From the first prod-facing write on, a failure says what may already have changed.
@@ -558,15 +604,21 @@ Put-Object "$Alias.sha256" $aliasSide $null (Sha256-Bytes $aliasSide) 'text/plai
 if (-not $DryRun) {
   [void](Assert-Object $Alias $ApprovedSha)
   [void](Assert-Object "$Alias.sha256" (Sha256-Bytes $aliasSide))
+  # A -ReplaceVersioned may have landed since the checks: never let the pointer name it.
+  if (-not (Test-StagedIntact)) { $how = Undo-Promote ''; $script:AfterNote = ''; Refuse "$Versioned or its sidecar changed while this promote ran (a -ReplaceVersioned landed); latest-win.json was NOT written; $how." }
 }
 Put-Object 'latest-win.json' $staging.Bytes $null (Sha256-Bytes $staging.Bytes) 'application/json' $NoCache
 if ($DryRun) { Say "DRY RUN complete: nothing was written."; exit 0 }
-$script:AfterNote = " (latest-win.json was written: prod points at $ApprovedVersion. To finish the checks, re-run the same -Promote with -DryRun, or compare the served files; a full re-run refuses if staging has moved since.)"
-# The versioned zip and its sidecar again, after the pointer names them: the updater fetches the
-# versioned sidecar first and refuses on a mismatch, and a -ReplaceVersioned staging run could
-# have changed them while this promote ran.
-[void](Assert-Object $Versioned $ApprovedSha)
-[void](Assert-Object "$Versioned.sha256" (Sha256-Bytes (New-SidecarBytes $ApprovedSha $Versioned)))
+$pointerPut = $script:LastPut
+$script:AfterNote = " (latest-win.json was written: prod points at $ApprovedVersion. To finish the checks, re-run the full -Promote (it refuses if staging has moved since), or compare the served files with the approved sha.)"
+# The versioned zip and its sidecar again, AFTER the pointer names them. Each side of a race
+# writes its key and then reads the other's (the replace re-reads prod after its upload), so at
+# least one of them sees the other: if this one does, it puts prod back.
+if (-not (Test-StagedIntact)) {
+  $how = Undo-Promote $pointerPut.ETag
+  $script:AfterNote = ''
+  Refuse "$Versioned or its sidecar changed right after latest-win.json named it (a -ReplaceVersioned landed); $how. Prod was not left naming bytes it does not hold."
+}
 Assert-Served $Alias $ApprovedSha
 Assert-Served "$Alias.sha256" (Sha256-Bytes $aliasSide)
 Assert-Served 'latest-win.json' (Sha256-Bytes $staging.Bytes)

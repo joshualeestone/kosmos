@@ -215,6 +215,32 @@ if [ "$rc" -eq 1 ] && grep -qF "a promote landed in between" "$TMP/out" && cmp -
 else fail "replace/promote race: rc=$rc zip-restored=$(cmp -s "$FAKE/kosmos-9.9.4-win-x64.zip" "$TMP/r2.zip" && echo yes || echo no) $(tail -1 "$TMP/out")"; fi
 if [ -s "$TMP/prod.keep" ]; then cp "$TMP/prod.keep" "$FAKE/latest-win.json"; else rm -f "$FAKE/latest-win.json"; fi
 cp "$TMP/staging.keep" "$FAKE/latest-win-staging.json"
+# An AMBIGUOUS record (not a pass, not a fail: unparseable) refuses, nothing written.
+cp "$VDIR/win-staging-$SHA_A.json" "$TMP/record.keep"; printf 'not json' > "$VDIR/win-staging-$SHA_A.json"
+promote; rc=$?; refuses_clean "an unreadable verification record refuses with nothing written" "AMBIGUOUS"
+cp "$TMP/record.keep" "$VDIR/win-staging-$SHA_A.json"
+# The bucket gives no ETag for the staged zip: the copy cannot be pinned, so no promote.
+KOSMOS_PUBLISH_R2_FAKE_NO_ETAG=kosmos-9.9.1-win-x64.zip promote; rc=$?; refuses_clean "a staged zip with no ETag refuses the promote" "gave no ETag"
+# The approval arguments alone do not select a promote.
+fake -ApprovedVersion 9.9.1 -ApprovedSha "$SHA_A" -ApprovalRef 1789228393.821399; rc=$?; refuses_clean "approval arguments without -Promote refuse" "pass -Promote explicitly"
+# A zip with two entries of one name is refused (the check could read one, Explorer the other).
+python3 - "$TMP/dup.zip" "$EXE" <<'PYEOF'
+import sys, zipfile, warnings
+warnings.simplefilter('ignore')
+with zipfile.ZipFile(sys.argv[1], 'w') as z:
+    z.writestr('app/package.json', '{"version":"9.9.5"}'); z.writestr('Kosmos.exe', open(sys.argv[2], 'rb').read()); z.writestr('Kosmos.exe', 'MZ other')
+PYEOF
+fake -Zip "$TMP/dup.zip"; rc=$?; refuses_clean "a zip with duplicate entries is refused" "duplicate entries"
+# A garbage prod pointer means -ReplaceVersioned cannot rule out that prod names the version.
+cp "$FAKE/latest-win.json" "$TMP/prod.keep2"; printf 'garbage' > "$FAKE/latest-win.json"
+cp "$FAKE/latest-win-staging.json" "$TMP/staging.keep2"; mkzip "$TMP/g1.zip" 9.9.6 G1; mkzip "$TMP/g2.zip" 9.9.6 G2; fake -Zip "$TMP/g1.zip" >/dev/null
+fake -Zip "$TMP/g2.zip" -ReplaceVersioned; rc=$?; refuses_clean "-ReplaceVersioned with an unreadable prod pointer refuses" "cannot be read"
+cp "$TMP/prod.keep2" "$FAKE/latest-win.json"
+# A re-run of an interrupted replace (same bytes now) keeps the replaced zip no-cache.
+fake -Zip "$TMP/g2.zip" -ReplaceVersioned >/dev/null; fake -Zip "$TMP/g2.zip"; rc=$?
+if [ "$rc" -eq 0 ] && grep -qE '^PUT kosmos-9\.9\.6-win-x64\.zip \| cache-control=no-cache;if-match=' "$FAKE/.calls"; then pass "re-staging a replaced zip's same bytes keeps it no-cache"
+else fail "replace re-run cache-control: rc=$rc $(grep '^PUT kosmos-9.9.6-win-x64.zip ' "$FAKE/.calls")"; fi
+cp "$TMP/staging.keep2" "$FAKE/latest-win-staging.json"
 # A rounded ts (what PowerShell makes of an unquoted one) is refused, not logged.
 fake -Promote -ApprovedVersion 9.9.1 -ApprovedSha "$SHA_A" -ApprovalRef 1789228393.8214; rc=$?
 refuses_clean "a rounded (unquoted) Slack ts is refused" "10 digits . 6 digits"
@@ -232,10 +258,18 @@ cp "$FAKE/latest-win.json" "$TMP/prod.before" 2>/dev/null || : > "$TMP/prod.befo
 KOSMOS_PUBLISH_R2_FAKE_AFTER="PUT kosmos-win-x64.zip|kosmos-win-x64.zip|$TMP/b.zip" promote; rc=$?
 if [ "$rc" -eq 1 ] && grep -qF "the bucket holds kosmos-win-x64.zip as" "$TMP/out" && ! grep -q '^PUT latest-win.json ' "$FAKE/.calls"; then pass "an alias that does not read back stops the promote before latest-win.json"
 else fail "alias read-back: rc=$rc $(grep '^PUT' "$FAKE/.calls" | tr '\n' ' ') $(tail -1 "$TMP/out")"; fi
-# The versioned zip is changed right after the pointer write: the post-write re-check refuses and says prod moved.
+# A -ReplaceVersioned landing right AFTER the pointer write: the promote sees it, puts prod's
+# previous latest-win.json back, and refuses. Prod never names bytes it does not hold.
+printf '{"version":"9.9.0","sha256":"%s","artifact":"kosmos-win-x64.zip","versioned":"kosmos-9.9.0-win-x64.zip","arch":"x64"}\n' "$(printf '0%.0s' $(seq 64))" > "$FAKE/latest-win.json"
+cp "$FAKE/latest-win.json" "$TMP/prod.before"; cp "$TMP/a.zip" "$FAKE/kosmos-9.9.0-win-x64.zip"
 KOSMOS_PUBLISH_R2_FAKE_AFTER="PUT latest-win.json|kosmos-9.9.1-win-x64.zip|$TMP/b.zip" promote; rc=$?
-if [ "$rc" -eq 1 ] && grep -qF "the bucket holds kosmos-9.9.1-win-x64.zip as" "$TMP/out" && grep -qF "latest-win.json was written" "$TMP/out"; then pass "a versioned zip changed after the pointer write is caught, and the refusal says prod moved"
-else fail "post-pointer re-check: rc=$rc $(tail -1 "$TMP/out")"; fi
+if [ "$rc" -eq 1 ] && grep -qF "changed right after latest-win.json named it" "$TMP/out" && cmp -s "$FAKE/latest-win.json" "$TMP/prod.before"; then pass "a replace landing after the pointer write: prod's previous pointer is put back"
+else fail "post-pointer race: rc=$rc prod-restored=$(cmp -s "$FAKE/latest-win.json" "$TMP/prod.before" && echo yes || echo no) $(tail -1 "$TMP/out")"; fi
+cp "$TMP/a.zip" "$FAKE/kosmos-9.9.1-win-x64.zip"
+# ...and landing between the alias writes and the pointer write: the pointer is never written.
+KOSMOS_PUBLISH_R2_FAKE_AFTER="PUT kosmos-win-x64.zip.sha256|kosmos-9.9.1-win-x64.zip|$TMP/b.zip" promote; rc=$?
+if [ "$rc" -eq 1 ] && grep -qF "latest-win.json was NOT written" "$TMP/out" && cmp -s "$FAKE/latest-win.json" "$TMP/prod.before"; then pass "a replace landing before the pointer write: the pointer is never written, the alias is put back"
+else fail "pre-pointer race: rc=$rc prod-unchanged=$(cmp -s "$FAKE/latest-win.json" "$TMP/prod.before" && echo yes || echo no) $(tail -1 "$TMP/out")"; fi
 cp "$TMP/a.zip" "$FAKE/kosmos-9.9.1-win-x64.zip"
 # The alias copy is pinned to the zip the promote checked: a re-stage that lands between the
 # checks and the copy must stop the promote before prod's pointer moves.
