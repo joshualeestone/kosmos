@@ -58,6 +58,8 @@ test('#3759: the block names BOTH destinations and when each applies, says where
   // About a project: that project's folder instead, even when asked in the direct conversation.
   assert.match(flat, /When the conversation is about one of your projects \(the person names it, or the file is unmistakably that project's work, not only the same kind of thing\), save it in that project's folder instead\./);
   assert.match(flat, /This holds even when they asked for it, or you made it, in a direct conversation/);
+  // An agent on no projects has no "Your projects" section at all (projects.tellAgent removes it); the pointer says so.
+  assert.match(flat, /a section you have only while you are on a project\)/);
   assert.match(flat, /If they name a project you are not on, do not guess another: save it in your Files folder, say you are not on that project, and say it can move there once you are added to it/);
   assert.match(flat, /That is not guessing: your Files folder is where it goes by default/);
   assert.match(flat, /tell them in one line where you put it: which project, the file's name, and the folder inside the project if it is not at the top/);
