@@ -2557,9 +2557,11 @@ function sendRoomPostAsAgent({ fromPane, sender, project, text, replyExpected, i
      room that message came from. The answered post's project is a non-circular
      oracle (recorded when it was posted, independent of this reply). If the target
      project differs, this is the misroute Josh reported -- refuse rather than land
-     the answer in the wrong room. A citation that has aged out of the record
-     (projectOfPost null) is treated as absent: never block a legit reply over a stale
-     id. A proactive post (no in_reply_to) is unchanged. */
+     the answer in the wrong room. A citation the record does not hold
+     (projectOfPost null; the record is unpruned today, so an id that never existed)
+     is treated as absent: never block a legit reply over a stale id. The person's
+     room route refuses one instead (#3745, see its plan); a retention change must
+     revisit both. A proactive post (no in_reply_to) is unchanged. */
   const citedId = String(inReplyTo == null ? '' : inReplyTo).trim();
   let answeredProject = null;   // outside the block: the which-room ask below keys on it (round 3)
   if (citedId) {
@@ -2608,6 +2610,8 @@ function sendRoomPostAsAgent({ fromPane, sender, project, text, replyExpected, i
     /* Only a post that could have been asked is marked: a reply carrying --new too must
        not acknowledge (and so silence) every question owed elsewhere (round 2). */
     newPost: newPost === true && !citedId,
+    // #3745: kept on the post, so the room shows what it answers. The engine re-checks it is a post in this room.
+    replyTo: citedId && /^m\d+$/.test(citedId) ? citedId : null,
   }, roster, members);
 }
 
@@ -14071,6 +14075,8 @@ const server = http.createServer((req, res) => {
                 ...(Array.isArray(m.quotes) && m.quotes.length ? { quotes: m.quotes } : {}),
                 ...(m.attachment && typeof m.attachment === 'object' ? { attachment: m.attachment } : {}),
                 ...(Array.isArray(m.attachments) ? { attachments: m.attachments } : {}),
+                // #3745: the post this one answers (the page finds it in these rows, or says it is gone).
+                ...(typeof m.replyTo === 'string' ? { replyTo: m.replyTo } : {}),
                 ...(reactions.length ? { reactions } : {}) };
             })()
           : { kind: 'valve', project: m.project, because: m.because || null, at: m.at }));
@@ -14116,7 +14122,11 @@ const server = http.createServer((req, res) => {
              prefix the system lines already carry: a bracket after the gutter is
              a tag, and a post's tag is the id you react against. Only posts carry
              it -- valve/refused/note rows are not reactable and keep `[kosmos]`. */
-          const line = when + '  [' + m.id + '] ' + who + ' -> ' + (Array.isArray(m.to) && m.to.length ? m.to.join(', ') : 'the room') + ': ' + flatText;
+          // #3745: "answering [mK]" when this post replies to another, so an agent reading the room
+          // sees the thread too. The post's own tag stays first; this second bracket is a
+          // reference to another post, not this one's id.
+          const answering = typeof m.replyTo === 'string' && /^m\d+$/.test(m.replyTo) ? ' (answering [' + m.replyTo + '])' : '';
+          const line = when + '  [' + m.id + '] ' + who + answering + ' -> ' + (Array.isArray(m.to) && m.to.length ? m.to.join(', ') : 'the room') + ': ' + flatText;
           /* The same sentence the page shows, one per silent name, right
              under the post it is about (#563). */
           const owed = Array.isArray(silent[m.id]) ? silent[m.id] : [];
@@ -14192,9 +14202,27 @@ const server = http.createServer((req, res) => {
         const files = attachments.resolveForMessage(body, 'project', found.id, 'that attachment is not one this project can send');
         if (!files.ok) { sendJson(res, 400, { error: files.because }); return; }
         const fields = attachments.rowFields(files.recs);
+        /* #3745: a reply names the post it answers. It must be a post in THIS room; the answering
+           post is refused otherwise (never posted pointing at another room, or at nothing). */
+        let replyTo = null;
+        // '' is refused (400), unlike the agent route's in_reply_to '': the page never sends it, so one here is a bad client.
+        if (body.reply_to !== undefined && body.reply_to !== null) {
+          if (typeof body.reply_to !== 'string' || !/^m\d+$/.test(body.reply_to)) { sendJson(res, 400, { error: 'that is not a message we can reply to' }); return; }
+          let inRoom = null;
+          try { inRoom = messages.projectOfPost(body.reply_to); } catch {
+            sendJson(res, 200, { delivery: { state: 'could_not', because: 'we could not check the message you are replying to, so nothing was posted. Try again in a moment.' } });
+            return;
+          }
+          if (inRoom !== found.id) {
+            sendJson(res, 200, { delivery: { state: 'could_not', because: 'the message you are replying to is not one of this room\'s posts, so nothing was posted. Press \u00d7 (Stop replying) on "Replying to" to post it as a new message.' } });
+            return;
+          }
+          replyTo = body.reply_to;
+        }
         const delivery = messages.sendPost({
           operator: true, project: found.id, projectName: found.name, text: body.text,
           attachment: fields.attachment || null, attachments: fields.attachments || null, trailer: attachments.wireNote(files.recs),
+          replyTo,
         }, roster, members);
         sendJson(res, 200, { delivery });
       })
