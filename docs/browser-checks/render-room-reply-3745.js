@@ -338,6 +338,44 @@ function chk(ok, label, extra) {
       return { said: document.getElementById('pj-room-msg').textContent };
     });
     chk(hiddenJump.said === 'That message is hidden by your search.', 'a jump to a post the search hides says so on screen', JSON.stringify(hiddenJump));
+    // Desktop: on an agent's one-word post the wider bar (with Reply) stays inside the thread; every button
+    // takes its own click (round 29: it ran 48px off the left edge and the first emoji could not be clicked).
+    await p.evaluate(() => {
+      const room = document.getElementById('pj-room');
+      room.insertAdjacentHTML('beforeend', pjRoomRow({ kind: 'post', id: 'm999900', from: 'roomer', to: [], text: 'ok', at: new Date().toISOString(), outcomes: {} }, pjById(PJ_CURRENT)));
+    });
+    await p.locator('#pj-room .msg').last().hover();
+    await p.waitForTimeout(300);
+    const shortBar = await p.evaluate(() => {
+      const room = document.getElementById('pj-room'); const row = room.lastElementChild; const q = row.querySelector('.rxn-quick');
+      const R = room.getBoundingClientRect(), Q = q.getBoundingClientRect();
+      const hits = [...q.querySelectorAll('button')].map((b) => { const r = b.getBoundingClientRect(); const h = document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2); return !!(h && (h === b || b.contains(h))); });
+      row.remove();
+      return { inside: Q.left >= R.left && Q.right <= R.right + 1, bar: [Math.round(Q.left), Math.round(Q.right)], room: [Math.round(R.left), Math.round(R.right)], hits };
+    });
+    chk(shortBar.inside && shortBar.hits.length === 5 && shortBar.hits.every(Boolean), 'on a one-word agent post the bar (with Reply) stays inside the thread and every button takes its click', JSON.stringify(shortBar));
+
+    // Phone: tapping Reply in the tapped-open bar starts the reply and closes the bar (round 29).
+    // A touch page: opened wide (the project list is a click away there), then narrowed to a phone.
+    const phone = await browser.newPage({ viewport: { width: 1280, height: 800 }, hasTouch: true, isMobile: true, colorScheme: 'light' });
+    await phone.goto('http://127.0.0.1:' + PORT + '/', { waitUntil: 'networkidle' });
+    if (await phone.isVisible('#firstrun')) await phone.keyboard.press('Escape');
+    await phone.evaluate(() => document.querySelector('[data-tab="projects"]').click());
+    await phone.locator('#pj-list').getByText('Reply check', { exact: true }).first().tap();
+    await phone.waitForSelector('#pj-room .rxn-reply', { state: 'attached', timeout: 15000 });
+    await phone.setViewportSize({ width: 375, height: 740 });
+    await phone.waitForTimeout(300);
+    chk(await phone.evaluate(() => matchMedia('(hover: none)').matches), 'CONTROL: the phone page is a touchscreen to the page (hover: none)');
+    const phoneRow = phone.locator('#pj-room .msg').filter({ hasText: 'Unrelated second post' }).first();
+    await phoneRow.locator('.msg-bd p').first().tap();
+    await phone.waitForTimeout(300);
+    const opened = await phone.evaluate(() => document.querySelectorAll('#pj-room .msg.rxn-show').length);
+    await phoneRow.locator('.rxn-reply').tap();
+    await phone.waitForTimeout(300);
+    const afterTap = await phone.evaluate(() => ({ strip: !document.getElementById('pj-reply').hidden, text: document.getElementById('pj-reply').textContent.replace(/\s+/g, ' ').trim().slice(0, 60),
+      open: document.querySelectorAll('#pj-room .msg.rxn-show').length }));
+    chk(opened === 1 && afterTap.strip && /^Replying to You: Unrelated second post/.test(afterTap.text) && afterTap.open === 0, 'on a phone, tapping Reply in the tapped-open bar starts the reply and closes the bar', JSON.stringify(Object.assign({ opened }, afterTap)));
+    await phone.close();
     chk(errs.length === 0, 'no page errors', errs.join(' | '));
   } finally {
     if (browser) await browser.close();

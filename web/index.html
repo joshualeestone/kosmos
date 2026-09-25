@@ -5828,6 +5828,9 @@ body:not(.consolidated) .pjmidhead:has(.pjhead) .tsearch:focus-within { flex-bas
    reserves no height -- the avatar baseline aligns to the bubble bottom and the message gaps
    tighten. On hover it fades in at the message's top-right, in the gap above, the Discord-style
    popout in Josh's mockup. Anchored to .msg-b (position:relative). */
+/* #3745: an agent's bar sits at its bubble's right edge; on a bubble too short for it (Reply made the
+   bar wider), it would run off the thread's left edge, so it is set from the bubble's left instead. */
+#pj-room .msg.rxn-left .rxn-quick { right: auto; left: 0; }
 .rxn-quick { position: absolute; top: -10px; right: 0; z-index: 3;
              display: inline-flex; align-items: center; gap: 2px; opacity: 0;
              pointer-events: none; transition: opacity .12s ease; }
@@ -46961,11 +46964,28 @@ document.getElementById('pj-room').addEventListener('click', async (e) => {
     }
     return;
   }
-  if (e.target.closest('.rxn-reply')) { rxnCloseAllPickers(); pjReplyStart(box.getAttribute('data-post')); return; }
+  if (e.target.closest('.rxn-reply')) {
+    rxnCloseAllPickers();
+    if (typeof pjRxnClose === 'function') pjRxnClose();   // the tapped-open bar (touch) closes, as a reaction does
+    pjReplyStart(box.getAttribute('data-post'));
+    return;
+  }
   const btn = e.target.closest('.rxn, .rxn-pick');
   if (!btn || !PJ_CURRENT) return;
   await rxnToggle(PJ_CURRENT, box, btn.getAttribute('data-emoji'));
 });
+
+/* #3745: keep an agent's reaction bar inside the thread: measured when the row is hovered or focused,
+   because only then is the bar's width (with Reply) known against the bubble it hangs from. */
+function pjRxnKeepInside(row) {
+  if (!row || row.classList.contains('you')) return;
+  const q = row.querySelector('.rxn-quick'); const room = document.getElementById('pj-room');
+  if (!q || !room) return;
+  row.classList.remove('rxn-left');
+  if (q.getBoundingClientRect().left < room.getBoundingClientRect().left) row.classList.add('rxn-left');
+}
+document.getElementById('pj-room').addEventListener('mouseover', (e) => pjRxnKeepInside(e.target && e.target.closest ? e.target.closest('#pj-room .msg') : null));
+document.getElementById('pj-room').addEventListener('focusin', (e) => pjRxnKeepInside(e.target && e.target.closest ? e.target.closest('#pj-room .msg') : null));
 
 /* #3745: a reply's header jumps to the post it answers and briefly highlights it. A post the
    search is hiding says so; a post that is gone was already drawn as unavailable. */
