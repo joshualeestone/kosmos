@@ -43999,8 +43999,12 @@ function pjRichSpans(seg, names, agentNames) {
   s = s.replace(/(^|[^_\w])_([^\n_]+?)_(?![_\w])/g, '$1<em>$2</em>');
   return s.replace(/￼(\d+)￼/g, (mm, i) => (Number(i) < HOLD.length ? HOLD[Number(i)] : mm));
 }
+/* #3679: a list item's depth from its leading whitespace. LIST_DEPTH_MAX must match the
+   `.mdli-d1`..`.mdli-d3` rules in the stylesheet (web.list-depth-3679.test.js checks both). */
+const LIST_DEPTH_SPACES = 2;
+const LIST_DEPTH_MAX = 3;
 function pjListDepth(lead) {
-  const d = Math.min(3, Math.floor(String(lead).replace(/\t/g, '    ').length / 2));
+  const d = Math.min(LIST_DEPTH_MAX, Math.floor(String(lead).replace(/\t/g, '    ').length / LIST_DEPTH_SPACES));
   return d ? ' mdli-d' + d : '';
 }
 function pjRich(text) {

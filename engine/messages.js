@@ -1305,8 +1305,8 @@ function sendPost({ fromPane, sender: resolvedSender, project, projectName, text
   const id = 'm' + (rec.parsed.reduce((n, m) => Math.max(n, m && m.id ? Number(String(m.id).slice(1)) || 0 : 0), 0) + 1);
 
   const cleaned = chat.cleanMessage(text);
-  /* #2239: the STORED text keeps paragraph breaks (storeText: newlines, and since
-     #3679 indentation and fenced code, preserved), so the room
+  /* #2239: the STORED text keeps paragraph breaks (storeText keeps newlines, and
+     since #3679 also indentation and fenced code), so the room
      thread can render an agent's headings, lists and paragraph structure
      instead of one flattened line. This mirrors what #1927 did for the direct
      thread's store. `cleaned` stays the one-line form used for everything the

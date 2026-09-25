@@ -60,3 +60,11 @@ message, so this was kept rather than special-cased.
 - Recorded, not changed: depth is two spaces a level, so four-space or one-tab nesting draws two
   levels deep; and an inline item's margin indents only its first line when it wraps. Both are
   presentation, and a real `<ul>` tree is the fix for either.
+
+## Review pass 2 (sonnet)
+- CONVENTION fixed: the depth rule's numbers are LIST_DEPTH_SPACES and LIST_DEPTH_MAX, and the
+  test reads LIST_DEPTH_MAX to check that a style exists for every depth and for none beyond it.
+- Deferred, with reasoning: the length limit now reads the one-line form, so a stored message can
+  be larger than MAX_TEXT (a tab stores as four spaces). The stored text is never more than what
+  the sender typed with each tab widened, the pane budget is what MAX_TEXT protects, and the
+  request body limit bounds the raw input. Keeping what was written is the point of the card.

@@ -15,10 +15,15 @@ const page = require('./test-support/page');
 const PAGE = fs.readFileSync(path.join(__dirname, 'web', 'index.html'), 'utf8');
 const SCRIPT = page.scriptOf(PAGE);
 const lift = (names) => names.map((n) => page.lift(SCRIPT, n)).join('\n');
+const CONSTS = ['LIST_DEPTH_SPACES', 'LIST_DEPTH_MAX'].map((c) => {
+  const m = new RegExp('const ' + c + ' = (\\d+);').exec(SCRIPT);
+  if (!m) throw new Error('no ' + c + ' in the page');
+  return 'const ' + c + ' = ' + m[1] + ';';
+}).join('\n');
 const DEPS = ['esc', 'pjRichSpans', 'pjTableCells', 'pjTableAligns', 'pjTableHtml', 'pjListDepth'];
 const RENDERERS = [
-  ['pjProse', () => new Function(lift(DEPS.concat(['pjProse'])) + '\nreturn pjProse;')()],
-  ['pjRich', () => new Function(lift(DEPS.concat(['pjRich'])) + '\nreturn pjRich;')()],
+  ['pjProse', () => new Function(CONSTS + '\n' + lift(DEPS.concat(['pjProse'])) + '\nreturn pjProse;')()],
+  ['pjRich', () => new Function(CONSTS + '\n' + lift(DEPS.concat(['pjRich'])) + '\nreturn pjRich;')()],
 ];
 
 for (const [name, make] of RENDERERS) {
@@ -43,7 +48,9 @@ for (const [name, make] of RENDERERS) {
 }
 
 test('#3679: the page styles each depth on every surface that shows these items', () => {
-  for (const d of [1, 2, 3]) {
+  const max = Number(/const LIST_DEPTH_MAX = (\d+);/.exec(SCRIPT)[1]);
+  assert.equal(PAGE.includes('.mdli-d' + (max + 1)), false, 'a style for a depth the renderer never emits');
+  for (let d = 1; d <= max; d += 1) {
     for (const host of ['.dm-b', '.pj-msg-text', '.msg-b', '.tkdetail']) {
       assert.ok(PAGE.includes(host + ' .mdli-d' + d), `no ${host} rule for depth ${d}`);
     }
