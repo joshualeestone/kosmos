@@ -300,6 +300,9 @@ function measure() {
         await page.evaluate((f) => { window.__fx = f; const fr = document.getElementById('firstrun'); if (fr) fr.hidden = true; document.querySelectorAll('body > *').forEach((el) => { el.inert = false; }); LAST = [{ sessionName: 'april', name: 'April', status: 'working', isNamedOurs: true, nameDerived: true }]; openDetail('april', 'talk'); }, FX);
         await page.evaluate(() => paintTalk('april', 'April'));
         await page.waitForSelector('#d-dmthread .msg');
+        // sendTalk hands focus back to the text box after a send, which would mask a missing
+        // handler; the arm measures the tap alone.
+        await page.evaluate(() => { window.sendTalk = () => {}; });
         await page.focus('#d-say');
         await page.fill('#d-say', 'sent by a tap');
         const sb = await page.evaluate(() => { const r = document.getElementById('d-send').getBoundingClientRect(); return { x: r.x + r.width / 2, y: r.y + r.height / 2 }; });
@@ -397,10 +400,10 @@ function measure() {
           window.fetch = async (url) => { const u = String(url); if (u.includes('/thread')) return enc(window.__fx); if (u.includes('avatar')) return new Response('', { status: 404 }); return enc({}); };
         });
         await page.goto(PAGE);
-        await page.evaluate((f) => { window.__fx = f; const fr = document.getElementById('firstrun'); if (fr) fr.hidden = true; document.querySelectorAll('body > *').forEach((el) => { el.inert = false; }); SWARMS_ON = true; LAST = [{ sessionName: 'april', name: 'April', status: 'working', isNamedOurs: true, nameDerived: true, swarm: { maxHelpers: 4, activeHelpers: 2, metered: true } }]; openDetail('april', 'talk'); if (typeof swarmPagePaint === 'function') swarmPagePaint(LAST[0], { force: true }); }, FX);
+        await page.evaluate((f) => { window.__fx = f; const fr = document.getElementById('firstrun'); if (fr) fr.hidden = true; document.querySelectorAll('body > *').forEach((el) => { el.inert = false; }); SWARMS_ON = true; LAST = [{ sessionName: 'april', name: 'April', status: 'working', isNamedOurs: true, nameDerived: true, swarm: { maxHelpers: 4, activeHelpers: 2, metered: true } }]; openDetail('april', 'talk'); }, FX);
         await page.evaluate(() => paintTalk('april', 'April'));
         await page.waitForSelector('#d-dmthread .msg');
-        await page.waitForTimeout(100);
+        await page.evaluate(() => new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r))));
         const t = `[${eng} 375x667 swarm]`;
         const sw = await page.evaluate(() => {
           const R = (e) => e && e.getBoundingClientRect();
@@ -412,6 +415,14 @@ function measure() {
         chk(sw.panelShown && sw.cw && sw.cw <= sw.slotW + 0.5, `${t} the swarm cluster fits the compact avatar slot`, JSON.stringify(sw));
         chk(sw.stopTop >= 0 && sw.stopBottom <= sw.headBottom + 0.5 && sw.stopBottom <= sw.vh, `${t} Stop now is on screen in the header, not inside a scroll`, JSON.stringify(sw));
         chk(sw.threadH >= 60, `${t} the thread keeps room to read`, `threadH=${sw.threadH}`);
+        const swn = await page.evaluate(() => {
+          const show = (id, text) => { const e = document.getElementById(id); e.hidden = false; if (text) e.textContent = text; };
+          show('d-said-lab', 'Its last words'); show('d-said', 'You have hit your usage limit. It resets at 5pm. Upgrade your plan to keep going, or wait for the reset and try again then.');
+          show('d-instr-stale', 'These instructions changed since the agent last started. Restart it to use them.');
+          const stop = document.getElementById('d-swarm-stop').getBoundingClientRect(); const head = document.querySelector('.dhead').getBoundingClientRect();
+          return { stopTop: stop.top, stopBottom: stop.bottom, headTop: head.top, headBottom: head.bottom, threadH: document.getElementById('d-dmthread').clientHeight };
+        });
+        chk(swn.stopTop >= swn.headTop - 0.5 && swn.stopBottom <= swn.headBottom + 0.5 && swn.threadH >= 60, `${t} with notes showing too, Stop now stays visible and the thread keeps room`, JSON.stringify(swn));
         chk(serrs.length === 0, `${t} no page errors`, serrs.join(' | '));
         await page.close();
       }
