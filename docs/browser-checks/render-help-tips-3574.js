@@ -192,8 +192,9 @@ const resetStore = (state) => fs.writeFileSync(tipsStore.FILE(), JSON.stringify(
     // A tip that shows by itself is announced in the live region, which is how a screen reader hears it.
     const live = await page.evaluate(() => { const l = document.getElementById('tip-live'); return l ? { text: l.textContent, polite: l.getAttribute('aria-live') } : null; });
     chk(!!live && live.polite === 'polite' && live.text === 'Tip: ' + RING, 'T3 the tip is announced politely by its title', JSON.stringify(live));
-    // T16: leaving the screen closes a tip that showed by itself, without recording it; coming back shows it again.
-    await page.click('#tabs [data-tab="agents"]');
+    // T16: leaving the screen without a click (the keyboard, Back, a link) closes tips that showed by themselves, without
+    // recording them; coming back shows them again. (A click outside a stepped tip ends it and counts, as for the tour: T18.)
+    await page.evaluate(() => document.querySelector('#tabs [data-tab="agents"]').click());   // no pointerdown
     await page.waitForTimeout(2800);
     const left16 = await cardState(page);
     chk(!left16.shown, 'T16 leaving her page closes her page\'s tips, and they do not follow to the board', JSON.stringify(left16));
