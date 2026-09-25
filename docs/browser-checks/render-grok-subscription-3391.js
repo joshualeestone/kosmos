@@ -110,6 +110,17 @@ const chk = (ok, label, extra) => {
   }));
   chk(pick.flow && pick.pick && !pick.sub && !pick.key && pick.focus === 'acct-grok-pick-sub',
     'picking Grok shows the choice, with the key step hidden until it is chosen', JSON.stringify(pick));
+  // #3731 (review pass 2): Settings' buttons draw Kosmos's ink ring on the keyboard, not the browser's blue.
+  await page.keyboard.press('Tab'); await page.keyboard.press('Shift+Tab');
+  const sring = await q(() => {
+    const b = document.getElementById('acct-grok-pick-sub');
+    const probe = document.createElement('i'); probe.style.color = 'var(--k-ink)'; document.getElementById('acct-add-dialog').appendChild(probe);
+    const ink = getComputedStyle(probe).color; probe.remove();
+    const cs = getComputedStyle(b);
+    return { focused: document.activeElement === b, visible: b.matches(':focus-visible'), style: cs.outlineStyle, color: cs.outlineColor, ink };
+  });
+  chk(sring.focused && sring.visible && sring.style === 'solid' && sring.color === sring.ink,
+    '#3731 Settings: on the keyboard the ring is Kosmos\'s ink, not the browser\'s blue', JSON.stringify(sring));
 
   const key = await q(() => {
     document.getElementById('acct-grok-pick-key').click();

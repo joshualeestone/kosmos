@@ -8349,6 +8349,9 @@ html:not([data-fed-ui="show"]) #pj-add-ext-person,html:not([data-fed-ui="show"])
    buttons by script, which sends no mouse event (render-firstrun-keyed-connect-3658.js now
    presses them with the mouse and asserts both cases). */
 #firstrun .fr-confirm .btn:focus-visible { outline: 2px solid var(--k-ink); outline-offset: 3px; }
+/* And the same in Settings' Add a provider dialog (review pass 2), where the choice, the install and
+   the key step are the same buttons and drew the same blue. */
+#acct-add-dialog .btn:focus-visible { outline: 2px solid var(--k-ink); outline-offset: 2px; }
 #firstrun .fr-confirm .btn.uprime:hover { background: var(--gold); }
 #firstrun .fr-msg { color: var(--k-ink); }
 /* When a permission step's action FAILS, its message must read as an error, not
