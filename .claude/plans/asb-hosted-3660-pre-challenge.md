@@ -2,10 +2,10 @@
 pre_challenge: true
 method: challenge-loop
 branch: asb-hosted-3660
-diff_hash: 36145bb873b1d075db8461e3fcb217d9487e4fac6f0b1743629472ef8695b97e
+diff_hash: 26127349178989887e6ac19bba25bdb493c82eba63b29fd370b7d861f7b41a3f
 validation: passed
 subdir_audit: passed
-timestamp: 2026-09-25T11:07:33Z
+timestamp: 2026-09-25T11:25:36Z
 iterations: 12
 converged: true
 ---
@@ -50,6 +50,11 @@ No BLOCKER or WARNING.
 Every fix above was checked with its guard removed, and the named arm failed. The list is in the plan.
 
 ## Validation
-- Full suite clean: 9,153 tests, 0 failed (hash 36145bb873b1d075db8461e3fcb217d9487e4fac6f0b1743629472ef8695b97e).
+- Full suite clean after merging main: 9,210 tests, 0 failed (hash 26127349178989887e6ac19bba25bdb493c82eba63b29fd370b7d861f7b41a3f).
 - One earlier run went red on engine/feedbacksend's timing test at a load of 14.6 on 10 cores. That file is untouched by this branch, and it passed 3 of 3 alone.
 - render-assistant-hosted-3660: 96 arms. render-assistant-bubble-3034: 54. render-agentdm-3414 green.
+
+## After convergence
+- Main was merged in. The conflicts were tools/browser-checks.sh and EXPECTED_SITES, now 141 (measured).
+- The hosted check now requires lib-sandbox-home, a rule that landed on main meanwhile (#3675), and its guard passes.
+- The hosted check passes 96 arms and the bubble check 54 on the merged tree.
