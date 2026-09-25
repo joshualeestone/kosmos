@@ -164,6 +164,94 @@ function markGuideFolder(agentName) {
   catch { return false; }
 }
 
+/*
+ * #3769 (Josh, 2026-09-25 11:54): the guide is kept away from passwords and keys by three layers, and
+ * this is the second: what Kosmos lets it open. Deny rules in the guide's OWN project settings
+ * (<its folder>/.claude/settings.json), which Claude Code applies even to a session started with
+ * --dangerously-skip-permissions, as every Kosmos agent is. Its own folder, not the account's
+ * settings.json, because an account is shared by every agent on it.
+ * - Read covers Claude Code's file tools; the Bash rules stop the commands that print secrets by name.
+ *   A shell can still reach a file some other way, which is why the first layer (its instructions,
+ *   roles.GUIDE_SECRET_LINES) and the third (engine/secretmask.js on everything it says) exist.
+ * - Claude only: a Codex, Gemini or Grok guide has no such file, and relies on the other two layers.
+ * - Kosmos's own data folder is denied whole: the guide's instructions and page file live in its
+ *   worker folder, and the `kosmos` command it runs reads the board token as its own process.
+ */
+/* The same home accounts.js and create.js use (a named world or a test sets it). */
+function kosmosHome() { return process.env.AGENT_WORKFORCE_HOME || require('os').homedir(); }
+function guideDenyRules({ home = kosmosHome(), dataRoot = store.ROOT } = {}) {
+  const abs = (p) => '//' + String(p).replace(/^\/+/, '');
+  const rules = [
+    'Read(~/.ssh/**)', 'Read(~/.aws/**)', 'Read(~/.config/**)', 'Read(~/.gnupg/**)', 'Read(~/.kube/**)',
+    'Read(~/.docker/**)', 'Read(~/.azure/**)', 'Read(~/.netrc)', 'Read(~/.npmrc)', 'Read(~/.pypirc)',
+    'Read(~/.git-credentials)', 'Read(~/.zsh_history)', 'Read(~/.bash_history)', 'Read(~/.claude.json)',
+    'Read(~/.claude/**)', 'Read(~/.codex/**)', 'Read(~/.gemini/**)', 'Read(~/.grok/**)',
+    'Read(**/.env)', 'Read(**/.env.*)', 'Read(**/*.pem)', 'Read(**/*.key)',
+    'Bash(security find-generic-password:*)', 'Bash(security find-internet-password:*)',
+    'Bash(security dump-keychain:*)', 'Bash(printenv:*)', 'Bash(printenv)', 'Bash(env)', 'Bash(history:*)',
+  ];
+  if (home && path.resolve(home) !== path.resolve(require('os').homedir())) {
+    /* A Kosmos home that is not the login home (a named world, a test): its credential folders too. */
+    for (const d of ['.ssh', '.aws', '.config', '.claude', '.codex', '.gemini', '.grok']) rules.push(`Read(${abs(path.join(home, d))}/**)`);
+    rules.push(`Read(${abs(path.join(home, '.claude.json'))})`);
+  }
+  if (dataRoot) rules.push(`Read(${abs(dataRoot)}/**)`);
+  return rules;
+}
+
+/*
+ * Write the guide's guards into its folder: the marker (bin/agent-supervisor.sh reads it to launch the
+ * guide with none of the tokens Kosmos holds for the person) and the deny rules, merged into any
+ * settings already there. create.js calls this BEFORE the guide can start; refreshGuideGuards calls it
+ * again at board start, so a guide made before #3769 is guarded from its next session.
+ * { ok: true } | { ok: false, because }. Never throws.
+ */
+function guardGuideFolder(dir, agentName, deps = {}) {
+  try {
+    if (!dir || !agentName) return { ok: false, because: 'no folder' };
+    fs.writeFileSync(path.join(dir, GUIDE_MARKER), `${agentName}\n`, { flag: 'w' });
+    const settingsDir = path.join(dir, '.claude');
+    fs.mkdirSync(settingsDir, { recursive: true });
+    const file = path.join(settingsDir, 'settings.json');
+    let cur = {};
+    try {
+      const parsed = JSON.parse(fs.readFileSync(file, 'utf8'));
+      if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) cur = parsed;
+    } catch { cur = {}; }
+    const perms = cur.permissions && typeof cur.permissions === 'object' && !Array.isArray(cur.permissions) ? cur.permissions : {};
+    const had = Array.isArray(perms.deny) ? perms.deny.filter((r) => typeof r === 'string') : [];
+    const deny = [...new Set([...had, ...guideDenyRules(deps)])];
+    const next = { ...cur, permissions: { ...perms, deny } };
+    const tmp = `${file}.${process.pid}.new`;
+    fs.writeFileSync(tmp, JSON.stringify(next, null, 2) + '\n', 'utf8');
+    fs.renameSync(tmp, file);
+    return { ok: true };
+  } catch (err) {
+    return { ok: false, because: String((err && err.message) || err) };
+  }
+}
+
+/* #3769, for a guide made before it: add the secrets section to its instructions if it has none (its
+   heading is the marker), and write its folder's guards. Once at board start; the running guide reads
+   its instructions and settings from its next session. { rule: boolean, guarded: boolean } */
+function refreshGuideGuards({ name = guideName(), isGuide = isGuideFolder } = {}) {
+  const out = { rule: false, guarded: false };
+  if (!name || !isGuide(name)) return out;
+  const dir = guideFolder(name);
+  if (dir) out.guarded = guardGuideFolder(dir, name).ok;
+  const roles = require('./roles');
+  const instructions = require('./instructions');
+  let cur;
+  try { cur = instructions.read(name); } catch { return out; }
+  if (!cur || !cur.exists || typeof cur.text !== 'string' || cur.text.includes(roles.GUIDE_SECRETS_HEADING)) return out;
+  try {
+    const text = cur.text.replace(/\n*$/, '\n\n') + roles.GUIDE_SECRET_LINES.join('\n') + '\n';
+    instructions.write(name, text, cur.version, undefined, { who: 'kosmos', because: 'Kosmos told the setup guide never to share passwords or keys' });
+    out.rule = true;
+  } catch { /* the other two layers still stand */ }
+  return out;
+}
+
 /* Is this agent's folder the one the seed made for the guide? */
 function isGuideFolder(agentName) {
   const dir = guideFolder(agentName);
@@ -526,6 +614,9 @@ module.exports = {
   SETUP_ROLE_KEY,
   armPath,
   armSetupAssistant,
+  guideDenyRules,
+  guardGuideFolder,
+  refreshGuideGuards,
   listedModels,
   hostedOffered,
   hostedWhy,

@@ -28,7 +28,7 @@ AGENT_WORKFORCE_DATA="$(mktemp -d)"; export AGENT_WORKFORCE_DATA
 # gets that far. `${VAR:-}` keeps `set -u` happy for the ones it never reaches.
 #
 # ⇒ ADD A NEW TEMP DIR TO THIS LINE. Do not write another trap.
-trap 'rm -rf "$AGENT_WORKFORCE_DATA" "${SB:-}" "${SB2:-}" "${DATA2:-}" "${SB3:-}" "${DATA3:-}" "${SB4:-}" "${DATA4:-}"' EXIT
+trap 'rm -rf "$AGENT_WORKFORCE_DATA" "${SB:-}" "${SB2:-}" "${DATA2:-}" "${SB3:-}" "${DATA3:-}" "${SB4:-}" "${DATA4:-}" "${SB5:-}"' EXIT
 
 set -u
 cd "$(dirname "$0")/.." || exit 1
@@ -186,6 +186,40 @@ if [ -f "$MARKER4" ]; then
 else
   bad "#1911: the codex-dismiss shim did not run with node off PATH -- a bare node cannot resolve on a Kosmos-only host: $(tail -3 "$SB4/out.log")"
 fi
+
+# ---------------------------------------------------------------- #3769
+# THE SETUP GUIDE GETS NONE OF THE PERSON'S TOKENS (Josh, 2026-09-25 11:54: the helper
+# agent must never give out passwords or keys). Its folder carries .kosmos-setup-guide
+# from before its first start. Two runs of ONE sandbox: without the marker every token
+# arrives (the control, so the second run can show the danger), with it none does.
+SB5="$(mktemp -d)"   # removed by the single trap above
+mkdir -p "$SB5/bin" "$SB5/secrets/env" "$SB5/work" "$SB5/knownhome"
+cp bin/agent-supervisor.sh "$SB5/bin/agent-supervisor.sh"
+cp "$SB/tmux" "$SB5/tmux"
+printf '%s\n' 'cf-canary-3769' > "$SB5/secrets/cloudflare.token"
+printf '%s\n' 'gh-canary-3769' > "$SB5/secrets/github.token"
+printf '%s\n' 'door-canary-3769' > "$SB5/secrets/env/BRAVE_API_KEY"
+guide_run() {
+  rm -f "$SB5/new-session.args"
+  STUB_DIR="$SB5" HOME="$SB5/knownhome" GH_TOKEN='inherited-canary-3769' AGENT_WORKFORCE_WAIT_POLL_SECS=1 \
+    bash "$SB5/bin/agent-supervisor.sh" guidetest "$SB5/work" /usr/bin/true "$SB5/tmux" "$SB5/start.log" > "$SB5/out.log" 2>&1 || true
+}
+guide_run
+if grep -qx 'CLOUDFLARE_API_TOKEN=cf-canary-3769' "$SB5/new-session.args" && grep -qx 'BRAVE_API_KEY=door-canary-3769' "$SB5/new-session.args" \
+  && grep -q '^GH_TOKEN=' "$SB5/new-session.args"; then
+  ok "#3769 CONTROL: an ordinary agent gets the Cloudflare, GitHub and token-door values"
+else
+  bad "#3769 CONTROL: an ordinary agent did not get the tokens, so the guide arm below proves nothing: $(tr '\n' ' ' < "$SB5/new-session.args")"
+fi
+printf '%s\n' 'guidetest' > "$SB5/work/.kosmos-setup-guide"
+guide_run
+if [ -s "$SB5/new-session.args" ]; then ok "#3769: the setup guide still starts"; else bad "#3769: the guide never reached new-session: $(tail -3 "$SB5/out.log")"; fi
+if grep -q 'canary-3769' "$SB5/new-session.args"; then
+  bad "#3769: a token reached the setup guide's pane: $(grep 'canary-3769' "$SB5/new-session.args" | tr '\n' ' ')"
+else
+  ok "#3769: the setup guide's pane gets no Cloudflare, GitHub or token-door value, not even an inherited GH_TOKEN"
+fi
+if grep -qx "HOME=$SB5/knownhome" "$SB5/new-session.args"; then ok "#3769: and the rest of its environment is unchanged (HOME still rides)"; else bad "#3769: skipping tokens dropped HOME too"; fi
 
 [ "$FAILS" -eq 0 ] && echo "supervisor env handoff: all hold" || echo "supervisor env handoff: $FAILS FAILED"
 exit "$FAILS"

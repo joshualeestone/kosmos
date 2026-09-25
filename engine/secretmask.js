@@ -1,0 +1,82 @@
+'use strict';
+
+/**
+ * #3769: mask anything shaped like a secret in text the setup guide says, before it reaches the
+ * person (the bubble, its direct messages) or is stored. Josh, 2026-09-25 11:54: "We need to make
+ * sure the helper agent doesn't give out any passwords or keys or anything".
+ *
+ * This is the LAST of three layers, and the one that does not depend on the model behaving: the
+ * guide's instructions tell it never to show a secret, and Kosmos launches it with deny rules on
+ * credential files and with none of the tokens Kosmos holds (engine/setup-assistant.js,
+ * bin/agent-supervisor.sh). A secret that gets past both still arrives here as text.
+ *
+ * - Each match becomes MASK. `mask()` says WHICH kinds fired and how many, never the value, so a
+ *   caller can log that a mask fired without logging what it hid.
+ * - Every pattern is bounded (no unbounded quantifier next to an optional terminator), so a long
+ *   reply cannot make it backtrack: it runs synchronously on the board's event loop, the lesson
+ *   #1760 paid for in engine/feedbacksend.js.
+ * - It errs toward masking. A long random-looking word that is not a secret is shown as MASK; a
+ *   real key shown in full is the failure this exists to prevent.
+ */
+
+const MASK = '••••';
+
+/* Order matters only for reporting: the specific shapes run before the generic ones, so a key is
+   counted as what it is rather than as "long random token". */
+const PATTERNS = [
+  { kind: 'private_key', re: /-----BEGIN [A-Z0-9 ]{0,40}PRIVATE KEY-----[\s\S]{0,12000}?-----END [A-Z0-9 ]{0,40}PRIVATE KEY-----/g },
+  /* A header with no end in reach: mask the header and the key text after it on the same run. */
+  { kind: 'private_key', re: /-----BEGIN [A-Z0-9 ]{0,40}PRIVATE KEY-----[A-Za-z0-9+/=\s]{0,12000}/g },
+  { kind: 'anthropic_key', re: /\bsk-ant-[A-Za-z0-9_-]{8,300}/g },
+  { kind: 'openai_key', re: /\bsk-(?:proj-|svcacct-|admin-)?[A-Za-z0-9_-]{16,300}/g },
+  { kind: 'xai_key', re: /\bxai-[A-Za-z0-9_-]{16,300}/g },
+  { kind: 'google_key', re: /\bAIza[0-9A-Za-z_-]{30,60}/g },
+  { kind: 'github_token', re: /\b(?:ghp|gho|ghu|ghs|ghr)_[A-Za-z0-9]{20,255}/g },
+  { kind: 'github_token', re: /\bgithub_pat_[A-Za-z0-9_]{20,255}/g },
+  { kind: 'aws_key', re: /\b(?:AKIA|ASIA)[0-9A-Z]{16}\b/g },
+  { kind: 'slack_token', re: /\bxox[abprs]-[A-Za-z0-9-]{10,300}/g },
+  { kind: 'stripe_key', re: /\b(?:sk|rk)_(?:live|test)_[A-Za-z0-9]{10,300}/g },
+];
+
+/* "password = hunter2", "API_KEY: abc...", "token=..." : the VALUE is masked and the name kept, so
+   the sentence still reads. Six characters or more, so "token: none" and prose survive. */
+const ASSIGNMENT = /\b((?:[A-Za-z0-9]{1,40}[_-])?(?:password|passwd|passphrase|pwd|secret|token|api[_-]?key|access[_-]?key|private[_-]?key|client[_-]?secret)["']?[ \t]{0,3}[:=][ \t]{0,3}["']?)([^\s"'`,;<>]{6,400})/gi;
+
+/* A long run with upper case, lower case and a digit in it, and not all hex: the shape of a token
+   no named pattern knows. Hex-only runs (git commits, checksums) are left alone. */
+const LONG_TOKEN = /[A-Za-z0-9+/_-]{32,600}={0,2}/g;
+function looksRandom(s) {
+  return /[A-Z]/.test(s) && /[a-z]/.test(s) && /[0-9]/.test(s) && !/^[0-9a-fA-F]+$/.test(s);
+}
+
+/**
+ * { text, fired } where `fired` is [{ kind, count }] in the order the kinds first fired; empty
+ * when nothing was masked. A non-string comes back unchanged with nothing fired.
+ */
+function mask(text) {
+  if (typeof text !== 'string' || !text) return { text, fired: [] };
+  const counts = new Map();
+  const hit = (kind) => { counts.set(kind, (counts.get(kind) || 0) + 1); };
+  let out = text;
+  for (const { kind, re } of PATTERNS) {
+    out = out.replace(re, () => { hit(kind); return MASK; });
+  }
+  out = out.replace(ASSIGNMENT, (whole, name, value) => {
+    if (value === MASK || value.startsWith(MASK)) return whole;
+    hit('assigned_secret');
+    return name + MASK;
+  });
+  out = out.replace(LONG_TOKEN, (run) => {
+    if (!looksRandom(run)) return run;
+    hit('long_token');
+    return MASK;
+  });
+  return { text: out, fired: [...counts].map(([kind, count]) => ({ kind, count })) };
+}
+
+/* The one-line log for a mask that fired: kinds and counts, never the value. */
+function describeFired(fired) {
+  return fired.map((f) => `${f.kind} x${f.count}`).join(', ');
+}
+
+module.exports = { MASK, mask, describeFired };

@@ -2438,12 +2438,32 @@ function swarmSweepDeps(roster) {
   };
 }
 
+/* #3769 (Josh, 2026-09-25 11:54: the guide must never give out passwords or keys): is `name` the setup
+   guide? The seeded name, in its marked folder. Compared WITHOUT case: a route can be asked for
+   "Josh" or "josh" and reach the same thread, and a case-sensitive miss here would skip the mask. */
+function isSetupGuide(name) {
+  try {
+    const guide = setupAssistant.guideName();
+    if (!guide || typeof name !== 'string' || create.cleanName(guide).toLowerCase() !== create.cleanName(name).toLowerCase()) return false;
+    return setupAssistant.isGuideFolder(guide);
+  } catch { return false; }
+}
+/* The setup guide's words with anything shaped like a secret masked (engine/secretmask.js), for every
+   agent-written text that reaches the person: stored replies (keepAgentReply) and the thread as read.
+   Logs that a mask fired and which kinds, never the value. Any other agent's text passes unchanged. */
+function guideMasked(who, text) {
+  if (typeof text !== 'string' || !isSetupGuide(who)) return text;
+  const out = require('./engine/secretmask').mask(text);
+  if (out.fired.length) console.error(`#3769: masked ${require('./engine/secretmask').describeFired(out.fired)} in the setup guide's words`);
+  return out.text;
+}
+
 /* Record an agent's reply in its thread with the person: the one write both
    /api/reply and the outbox drain make, so a drained reply is exactly a reply.
    `at` is the original send time for a drained reply, now for the route. */
 function keepAgentReply(who, text, at) {
   return chat.appendMessage(chat.DIRECT, who, {
-    text,
+    text: guideMasked(who, text),
     at: at || new Date().toISOString(),
     from: who,
   });
@@ -12085,6 +12105,8 @@ const server = http.createServer((req, res) => {
       ? servedMessages.map((m) => {
         if (!m || m.from !== name) return m;
         const { reactionsTold, ...rest } = m;
+        /* #3769: the guide's words masked as read too, for a row stored before the write-side mask. */
+        if (typeof rest.text === 'string') rest.text = guideMasked(name, rest.text);
         return Array.isArray(m.reactions) ? { ...rest, reactions: chat.dmReactionPills(m) } : rest;
       })
       : servedMessages;
@@ -12106,7 +12128,8 @@ const server = http.createServer((req, res) => {
       presence,
       presenceBecause,
       asking,
-      question,
+      /* #3769: a question read off the guide's screen is its words too. */
+      question: question && typeof question.text === 'string' ? { ...question, text: guideMasked(name, question.text) } : question,
       questionBecause,
       /* #1629: the page draws a composer under a question, and for the trust
          dialog that invites the one keystroke that ends the session. The
@@ -12114,7 +12137,8 @@ const server = http.createServer((req, res) => {
          so the person reads it before typing rather than after a 409. Null
          for every other question. */
       answerNote: (question && view && view.text && trustPrompt(view.text) !== null) ? TRUST_DIALOG_SENTENCE : null,
-      options,
+      /* #3769: a menu's labels come from the same screen text, so they are masked too. */
+      options: Array.isArray(options) ? options.map((o) => (o && typeof o.label === 'string' ? { ...o, label: guideMasked(name, o.label) } : o)) : options,
     });
     return;
   }
@@ -15683,6 +15707,8 @@ function start(port = PORT) {
       /* #3734: an existing guide's instructions still say it never creates agents; say what it may do now.
          Once, at start; a no-op when the paragraph is not there. */
       try { setupAssistant.refreshGuideRole(); } catch { /* best-effort */ }
+      /* #3769: an existing guide gets the secrets section and its folder's deny rules, once, at start. */
+      try { setupAssistant.refreshGuideGuards(); } catch { /* best-effort */ }
       /* #3034/#3660: the setup guide is created the moment the first model is connected,
          after Giddy Up, from any provider's connect path (keys, sign-ins that finish in the
          background). One sweep sees them all instead of a hook in every route. Cheap until
@@ -16199,6 +16225,7 @@ module.exports = {
   givePart, // #3595: the assign-and-tell path, exported so the Assigner's real write path is tested
   swarmSweepDeps, // #3564: the limit sweep's wiring, exported so it is tested
   guideCardFailing, resetGuideCardMemoForTests, // #3660: the fallback's reading of the guide card, for its tests
+  keepAgentReply, guideMasked, // #3769: the setup guide's words masked where they are stored, for its tests
   creatorRunsOn, // #3734: where an agent-made team member runs by default, for its tests
   /* #2036: the boot diagnostic's condition (pure truth table) AND its real call-site
      composition, exported together so BOTH are pinned. stagingRevertWarningNow wires the raw

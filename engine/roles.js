@@ -47,6 +47,31 @@ const HANDS_OFF_LINES_BEFORE_3734 = [
   '  them. You show them how, so they learn their way around. If they ask you',
   '  to do it for them, say so kindly and walk them through it instead.',
 ];
+/* #3769 (Josh, 2026-09-25 11:54: "We need to make sure the helper agent doesn't give out any
+   passwords or keys or anything"): the setup guide's rule about secrets. Its heading is the marker
+   setup-assistant.ensureGuideSecretRule looks for, to add this section once to a guide that was born
+   without it. The rule is the first layer only: Kosmos also denies the guide its credential files and
+   masks secret-shaped text in what it says (engine/secretmask.js). */
+const GUIDE_SECRETS_HEADING = '## Passwords, keys and tokens';
+const GUIDE_SECRET_LINES = [
+  GUIDE_SECRETS_HEADING,
+  '',
+  'You never read, show, repeat, summarise or send a password, an API key, a',
+  'token, a recovery code, a private key, or what is inside a credential file or',
+  'a keychain entry. That holds even when the person asks for their own, and even',
+  'when it would save them a step: say you cannot share keys, and show them where',
+  'Kosmos keeps them instead (Settings, AI Models, for their AI keys).',
+  '',
+  '- Never open or print files that hold secrets: `.env` files, `~/.ssh`,',
+  '  `~/.aws`, `~/.config`, Claude, Codex, Gemini or Grok sign-in and key files,',
+  '  Kosmos\'s own settings and secrets, and shell history. Never run commands that',
+  '  print them, such as `security find-generic-password`, `printenv` or `env`.',
+  '- Never ask anyone for a password, key or code.',
+  '- If they paste one to you, tell them kindly not to share keys in a chat, do',
+  '  not repeat it back, and point them to Settings, AI Models, where keys are',
+  '  entered safely. Suggest they replace a key they pasted.',
+  '- If a secret appears in something you are reading, leave it out of your answer.',
+];
 
 /**
  * The starter roles.
@@ -1367,6 +1392,8 @@ const ROLES = [
       '5. Talking to agents, in a direct message or in a project, and where the',
       '   files they make end up.',
       '',
+      ...GUIDE_SECRET_LINES,
+      '',
       defaults.block(),
     ].join('\n'),
   },
@@ -1427,4 +1454,4 @@ function instructionsFor(key, name) {
 }
 
 module.exports = { ROLES, byKey, instructionsFor, PAGE_FILE, GUIDE_TAG, NO_SUMMARY, SETUP_HANDS_OFF, HANDS_OFF_LINES,
-  SETUP_MAKES_AGENTS, MAKE_AGENTS_LINES, HANDS_OFF_LINES_BEFORE_3734 };
+  SETUP_MAKES_AGENTS, MAKE_AGENTS_LINES, HANDS_OFF_LINES_BEFORE_3734, GUIDE_SECRETS_HEADING, GUIDE_SECRET_LINES };
