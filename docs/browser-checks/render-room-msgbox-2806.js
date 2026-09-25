@@ -676,6 +676,7 @@ const now = () => new Date().toISOString();
       await phonePage.setViewportSize({ width: 800, height: 800 });
       await phonePage.waitForTimeout(100);
       const focusedWide = await phonePage.evaluate(() => (document.activeElement && document.activeElement.id) || '(none)');
+      const orderTurned = await order();   // the move really happened in this same turn
       await phonePage.setViewportSize({ width: 375, height: 800 });
       await phonePage.waitForTimeout(100);
       const focusedBack = await phonePage.evaluate(() => (document.activeElement && document.activeElement.id) || '(none)');
@@ -683,7 +684,7 @@ const now = () => new Date().toISOString();
       const orderBack = await phonePage.evaluate(() => [...document.querySelector('.pj3').children].map((c) => (c.classList.contains('pjmid') ? 'room' : (c.classList.contains('pjsplit') ? 'members-files' : 'other'))).join(','));
       const midRemoved = await phonePage.evaluate(() => window.__midRemoved);
       // Control: the reorder must actually have happened both ways (back at 375 now), or "never removed" is vacuous.
-      chk(midRemoved === 0 && o375.startsWith('room,') && orderBack.startsWith('room,'), `[phone] the conversation column never leaves the page while the phone turns (the Members/Files column moves instead)`, `removed=${midRemoved} order=${orderBack}`);
+      chk(midRemoved === 0 && o375.startsWith('room,') && orderTurned.startsWith('members-files,room') && orderBack.startsWith('room,'), `[phone] the conversation column never leaves the page while the phone turns (the Members/Files column moves instead)`, `removed=${midRemoved} turned=${orderTurned} back=${orderBack}`);
       await phonePage.evaluate(() => { const t = document.getElementById('pj-post'); if (t) t.blur(); });
       await phonePage.setViewportSize({ width: 800, height: 800 });
       await phonePage.waitForTimeout(100);
@@ -748,8 +749,8 @@ const now = () => new Date().toISOString();
       await phonePage.waitForTimeout(300);   // the bar fades in over .12s
       const t1 = await bar();
       chk(t1.hoverNone && t1.shown === 1 && t1.op === '1', `[phone/touch] a tap on a message shows its add-reaction bar`, JSON.stringify(t1));
-      // The first post's bar sits above its bubble: it must not be cut by the thread's top edge.
-      // Zero margin by design (bar -12px against the 12px phone padding): do not loosen this.
+      // The first post has no room above it inside the thread: its bar must open BELOW it
+      // (pjRxnPlace adds .rxn-below) rather than be cut by the thread's top edge.
       const clip = await phonePage.evaluate(() => {
         const q = document.querySelector('#pj-room .msg.rxn-show .rxn-quick'); const room = document.getElementById('pj-room');
         if (!q) return { error: 'no open bar' };
@@ -838,6 +839,23 @@ const now = () => new Date().toISOString();
       });
       chk(!ownBar.error && ownBar.inside, `[phone/touch] the bar on a short post of your own stays inside the thread`, JSON.stringify(ownBar));
       chk(!ownBar.error && ownBar.buttons.length === 4 && ownBar.buttons.every((n) => n >= 36) && ownBar.pill >= 36, `[phone/touch] every reaction target is at least 36px (the bar's buttons and a reaction pill)`, JSON.stringify(ownBar));
+      // The open bar is CLEAR of its one-line bubble, so tapping the bubble again closes the bar
+      // and reacts with nothing (at thumb size an overlapping bar covered the whole bubble).
+      const clear = await phonePage.evaluate(() => {
+        const row = document.querySelector('#pj-room .msg.rxn-show'); const q = row && row.querySelector('.rxn-quick'); const bd = row && row.querySelector('.msg-bd');
+        if (!q || !bd) return { error: 'no open bar' };
+        const Q = q.getBoundingClientRect(), B = bd.getBoundingClientRect();
+        // Count reactions sent. The pick handler returns early with no project open, so open one,
+        // or a tap on an emoji would count nothing and this arm could not fail.
+        PJ_CURRENT = 'arm-project';
+        window.__reacts = 0; window.rxnToggle = async () => { window.__reacts += 1; };
+        return { clear: Q.bottom <= B.top || Q.top >= B.bottom, bar: [Math.round(Q.top), Math.round(Q.bottom)], bubble: [Math.round(B.top), Math.round(B.bottom)] };
+      });
+      chk(!clear.error && clear.clear, `[phone/touch] the open bar does not cover its own short bubble`, JSON.stringify(clear));
+      await own.tap();
+      await phonePage.waitForTimeout(300);
+      const again = await phonePage.evaluate(() => ({ shown: document.querySelectorAll('#pj-room .msg.rxn-show').length, reacts: window.__reacts }));
+      chk(again.shown === 0 && again.reacts === 0, `[phone/touch] a second tap on a short post closes its bar and adds no reaction`, JSON.stringify(again));
     } finally {
       await phonePage.close();
     }
