@@ -13,8 +13,9 @@ Rejected: restart (context loss), raw send-keys (chat.deliver is the sanctioned 
 by the Recommender sweep and server.js).
 
 ## Change
-1. `engine/status.js`: `connection_lost` only while the matched error line is the live tail (after
-   it only footer, prompt and status-bar chrome). Newer content after it means the agent recovered and
+1. `engine/status.js`: `connection_lost` only while Claude Code's own error row (column 0, and ending
+   the way its network messages end) is the latest thing that matters on screen: no later agent
+   output, error row, retry row or submitted prompt echo. Newer content means the agent recovered and
    the line is stale, so the rule does not fire. This fixes the documented stale read (a recovered
    agent's short turn kept reading connection_lost because that rule sits above the idle footer rule).
 2. `engine/connlost-heal.js`: pure planner + injected executor + in-memory loop guard, the shape of

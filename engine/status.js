@@ -2087,7 +2087,9 @@ const API_ERROR_CONTINUATION_ROWS = 4;
 // The joined error must end there. An agent's own reply that happens to start with "API Error:"
 // is drawn the same way ("⏺ " at column 0) but goes on with prose, so it does not end on one of
 // these. Residual: prose that itself ends on "(CODE)" still counts.
-const API_ERROR_MESSAGE_END = /(?:\([A-Z][A-Z0-9_]*\)|internet connection(?: and proxy settings)?|allows this host)\.?$/;
+// The code is printed as the runtime gave it: Node's ECONNREFUSED style and Bun's mixed-case
+// ConnectionRefused / FailedToOpenSocket / ConnectionClosed (read from Claude Code 2.1.282).
+const API_ERROR_MESSAGE_END = /(?:\([A-Za-z][A-Za-z0-9_]*\)|internet connection(?: and proxy settings)?|allows this host)\.?$/;
 function connectionLostAtTail(tail) {
   const rows = String(tail == null ? '' : tail).split('\n');
   let at = -1;

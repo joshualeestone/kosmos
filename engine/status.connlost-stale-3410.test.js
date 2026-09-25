@@ -114,3 +114,8 @@ test('#3410: a tool-output row under the error is not joined into it', () => {
   const pane = WEDGED.replace(ERR, '⏺ API Error: 529 Overloaded\n  ⎿  a firewall or proxy may be blocking it (ECONNREFUSED)');
   assert.notEqual(status.classify(PANE, pane).state, status.STATE.CONNECTION_LOST);
 });
+
+test('#3410: a Bun mixed-case error code still reads connection_lost on a wedged pane', () => {
+  const pane = WEDGED.replace('(ECONNREFUSED)', '(ConnectionRefused)');
+  assert.equal(status.classify(PANE, pane).state, status.STATE.CONNECTION_LOST);
+});
