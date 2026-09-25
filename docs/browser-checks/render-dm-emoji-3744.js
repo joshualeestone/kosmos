@@ -305,6 +305,25 @@ const FX = {
       const afterResize = await endAt();
       chk(afterResize.open && afterResize.at >= afterResize.max - 2, `${t} a resize leaves the list at its end`, JSON.stringify(afterResize));
       await page.evaluate(() => { pjEmojiClose('agent'); document.getElementById('d-say').value = ''; });
+      // Review pass 5: a browser font-size change moves the stylesheet's 15rem cap; the panel is placed
+      // from the height it really has, so it never covers the box it types into.
+      await page.setViewportSize({ width: 1200, height: 700 });
+      await page.waitForTimeout(100);
+      await page.evaluate(() => { document.getElementById('d-say').scrollIntoView({ block: 'end' }); pjEmojiOpen('agent'); });
+      await page.waitForTimeout(80);
+      await page.evaluate(() => { document.documentElement.style.fontSize = '20px'; });
+      await page.setViewportSize({ width: 1200, height: 701 });
+      await page.waitForTimeout(150);
+      const font = await page.evaluate(() => {
+        const r = document.getElementById('d-emoji').getBoundingClientRect();
+        const box = document.getElementById('d-say').closest('.composerbox').getBoundingClientRect();
+        const out = { open: !document.getElementById('d-emoji').hidden, panelTop: Math.round(r.top), panelBottom: Math.round(r.bottom), panelH: Math.round(r.height),
+          boxTop: Math.round(box.top), boxBottom: Math.round(box.bottom) };
+        document.documentElement.style.fontSize = ''; pjEmojiClose('agent');
+        return out;
+      });
+      chk(font.open && font.panelH > 240 && (font.panelBottom <= font.boxTop || font.panelTop >= font.boxBottom),
+        `${t} after a font-size change the panel is placed from its real height and does not cover the input`, JSON.stringify(font));
       await page.setViewportSize({ width: 1200, height: 700 });
       await page.waitForTimeout(100);
       /* Its box carried out of sight: the panel closes rather than staying open where nobody can see

@@ -85,3 +85,12 @@ Josh, 2026-09-25 09:29 in #admin: "We need emoji support in the agent DM." Filed
   Arms: a real click on the last emoji (with the refocus's scroll fired, since in this harness the
   input is already in view) and a 3px resize, both red with the old measure at exactly 116.
 - Lesson recorded here: fix the mechanism a reviewer names, not the trigger they happened to use.
+
+## Review pass 5 (opus, confirming): 0 blockers, 1 warning, 2 nits
+- WARNING reading the stylesheet's 15rem cap once went stale after a browser font-size change (panel
+  placed as 240 while 300 tall, covering the input) -> read fresh every place; the reviewer measured
+  that clearing the inline cap, reading the computed max-height and restoring it forces no layout, so
+  the scroll is untouched (the pass-4 arms pass). Arm: root font 20px then a resize; red when read once.
+- NIT the scroll listener's comment described the removed mechanism -> rewritten.
+- NIT scrollHeight + borders never decides for an 80-emoji list, and the change-only cap write is
+  unguarded: both harmless, kept (correct if the list ever shortens). Not taken.
