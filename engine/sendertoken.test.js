@@ -963,12 +963,27 @@ test('#1782: N CONCURRENT PROCESSES minting the same agent lose NO token', async
   const session = 'lock-concurrent';
   const mod = require.resolve('./sendertoken');
   const env = { ...process.env, AGENT_WORKFORCE_LOCK_MS: '5000' };
-  const script = `require(${JSON.stringify(mod)}).mint(${JSON.stringify(session)})`;
-  await Promise.all(Array.from({ length: N }, () => new Promise((resolve, reject) => {
+  /* #3686: each child REPORTS its result. A mint that waits out the lock refuses
+     safely (ELOCKBUSY) and writes nothing; that is contention on a busy machine,
+     not the lost update #1782 fixed. Counting only exits made the two look alike:
+     a refused child exited 0, so a loaded run read "12 minted, 7 stored" as a lost
+     token. Exit 3 = refused busy; anything else non-zero is a real failure. */
+  const script = `const r = require(${JSON.stringify(mod)}).mint(${JSON.stringify(session)});
+    process.exit(r && r.ok ? 0 : (r && /ELOCKBUSY/.test(String(r.because)) ? 3 : 1));`;
+  const codes = await Promise.all(Array.from({ length: N }, () => new Promise((resolve, reject) => {
     const c = nodeCP.spawn(process.execPath, ['-e', script], { env, stdio: 'ignore' });
-    c.on('exit', (code) => (code === 0 ? resolve() : reject(new Error('child mint exited ' + code))));
+    c.on('exit', (code) => (code === 0 || code === 3 ? resolve(code) : reject(new Error('child mint exited ' + code))));
     c.on('error', reject);
   })));
-  assert.equal(sendertoken.live(session).length, N,
-    `${N} concurrent launches minted but the store holds ${sendertoken.live(session).length}: a token was lost`);
+  const minted = codes.filter((c) => c === 0).length;
+  const busy = N - minted;
+  /* Fewer than two landing means the run exercised almost nothing. A working lock
+     always lets the first launch in, so ONE mint and N-1 refusals points at a lock
+     that was never released, not at load. */
+  assert.ok(minted >= 2, minted === 1 && busy === N - 1
+    ? `only the first of ${N} launches got the lock and every other one was refused busy: the lock may not be released`
+    : `only ${minted} of ${N} launches got the lock (${busy} refused busy): the machine was too loaded to exercise it, rerun alone`);
+  /* 🛑 THE DEFECT: every mint that SAID ok must be in the store. Fewer = a lost token. */
+  assert.equal(sendertoken.live(session).length, minted,
+    `${minted} launches reported a token (${busy} refused busy) but the store holds ${sendertoken.live(session).length}: a token was lost`);
 });
