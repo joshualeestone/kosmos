@@ -5825,11 +5825,16 @@ body:not(.consolidated) .pjmidhead:has(.pjhead) .tsearch:focus-within { flex-bas
      .msg:hover reveal would open the bar on any tap and never let it close. In the room
      on a touchscreen only .rxn-show (or keyboard focus) opens it. */
   #pj-room .msg:hover:not(.rxn-show) .rxn-quick:not(:focus-within) { opacity: 0; pointer-events: none; }
+  /* The same sticky hover left the last-tapped bubble tinted after its bar closed. */
+  #pj-room .msg:hover:not(.rxn-show) .msg-bd,
+  #pj-room .msg:hover:not(.rxn-show) .msg-bd::before { background-image: none; }
   /* The bar is about 156px wide: pinned right on a short agent bubble it would cross the
      thread's left edge and be clipped, so an agent's bar starts at the bubble's left.
      -12px, not -18px: the PHONE thread's top padding is 12px, so the first post's bar is not
      cut (on a touch tablet the padding is 14px, so it clears there too). */
   #pj-room .rxn-quick { gap: 4px; top: -12px; }
+  /* While open it sits over the top-left of the bubble, where an agent's name is (#3134):
+     a moment's overlap, gone on the next tap. */
   #pj-room .msg:not(.you) .rxn-quick { right: auto; left: 0; }
   #pj-room .rxn-pick, #pj-room .rxn-more { min-width: 36px; min-height: 36px; }
 }
@@ -5890,10 +5895,11 @@ body:not(.consolidated) .pjmidhead:has(.pjhead) .tsearch:focus-within { flex-bas
    below the meta link information"): host small, title as the link,
    description clamped to four lines, then the picture at the card's width,
    about half the room. Tokens only, so both themes follow.
-   #718: a full 1px border, no left bar (Josh, 2026-09-24: no left accent bar on cards,
-   whatever the colour). Shared with the Direct Message; this class has one owner. */
+   #718: an even border all round, no left bar (Josh, 2026-09-24: no left accent bar on cards,
+   whatever the colour), the same weight as the file card (.att) it sits beside. Shared with
+   the Direct Message; this class has one owner. */
 .lpv { display: flex; flex-direction: column; margin-top: 8px; width: min(100%, 34rem);
-  border: 1px solid var(--separator); border-radius: 10px; overflow: hidden; text-decoration: none;
+  border: 0.5px solid var(--separator); border-radius: 10px; overflow: hidden; text-decoration: none;
   color: var(--k-ink); background: var(--k-surface); }
 .lpv:hover { border-color: var(--k-ink-2); }
 .lpv-img { display: block; margin: 0 12px 12px; border-radius: 8px; overflow: hidden; background: var(--k-bg); }
@@ -46368,29 +46374,23 @@ document.getElementById('d-dmthread').addEventListener('click', async (e) => {
    before Members and Files. Moved in the DOM, not with CSS order: a visual-only reorder makes
    a sighted reader and a keyboard or screen-reader user meet the panels in different orders
    (WCAG 2.4.3 / 1.3.2), the exact #1017 defect this page already fixed once, by a DOM change.
-   Wider than a phone it goes back after the Members/Files column, the desktop order. The room
-   keeps its scroll position across the move. */
-const PJ_PHONE_MQ = '(max-width: 30rem)';   // the same width as the room's phone CSS block
-const PJ_TOUCH_MQ = '(hover: none)';         // the same query as the room's touchscreen CSS block
+   Wider than a phone it goes back after the Members/Files column, the desktop order.
+   It is the Members/Files column that moves, never the conversation: moving the column that
+   holds the composer would blur it, and iOS does not bring the keyboard back for a focus()
+   outside a tap, so a phone turned mid-post would lose its keyboard. The room and its
+   composer never leave the page, so their focus and scroll position are simply untouched. */
+const PJ_PHONE_MQ = '(max-width: 30rem)';   // the room's phone CSS block uses this exact query (pinned by web.room-phone-718.test.js)
+const PJ_TOUCH_MQ = '(hover: none)';         // the room's touchscreen CSS block uses this exact query (pinned the same way)
 function pjPhoneOrder() {
   const grid = document.querySelector('.pj3');
   const mid = grid && grid.querySelector(':scope > .pjmid');
   const split = grid && grid.querySelector(':scope > .pjsplit');
   if (!grid || !mid || !split || !window.matchMedia) return;
-  const th = document.getElementById('pj-room');
-  const kept = th ? th.scrollTop : 0;
-  // Moving a subtree blurs whatever is focused in it: a phone turned mid-post would lose the
-  // composer and its keyboard. Put the focus back where it was.
-  const focused = document.activeElement && mid.contains(document.activeElement) ? document.activeElement : null;
-  let moved = false;
   if (window.matchMedia(PJ_PHONE_MQ).matches) {
-    if (grid.firstElementChild !== mid) { grid.insertBefore(mid, grid.firstElementChild); moved = true; }
+    if (mid.nextElementSibling !== split) mid.after(split);
   } else if (mid.previousElementSibling !== split) {
-    split.after(mid); moved = true;
+    grid.insertBefore(split, mid);
   }
-  if (!moved) return;
-  if (th && th.scrollTop !== kept) th.scrollTop = kept;
-  if (focused && document.activeElement !== focused) { try { focused.focus({ preventScroll: true }); } catch (_e) { /* gone */ } }
 }
 pjPhoneOrder();
 if (window.matchMedia) {
@@ -46398,6 +46398,8 @@ if (window.matchMedia) {
   if (pjPhoneMq.addEventListener) pjPhoneMq.addEventListener('change', pjPhoneOrder);
   else if (pjPhoneMq.addListener) pjPhoneMq.addListener(pjPhoneOrder);
 }
+/* The post whose touchscreen reaction bar is open, so a repaint can put it back (below). */
+let RXN_SHOW_POST = null;
 /* #718 mobile: on a touchscreen, a tap on a message shows its add-reaction bar (hover
    does it on a computer). One row at a time. A tap on a link, a button or the reaction row
    is left to its own handler, except that picking a reaction closes the bar. Registered
@@ -46417,7 +46419,6 @@ document.getElementById('pj-room').addEventListener('click', (e) => {
 });
 /* A repaint of the room (a new post, a timestamp re-worded) rewrites its rows and would drop an
    open bar between the tap that opened it and the tap on an emoji: put it back on the same post. */
-let RXN_SHOW_POST = null;
 function pjRxnClose() {
   RXN_SHOW_POST = null;
   const room = document.getElementById('pj-room');
@@ -46436,10 +46437,12 @@ if (window.MutationObserver) {
     else RXN_SHOW_POST = null;   // the post is gone from view
   }).observe(document.getElementById('pj-room'), { childList: true, subtree: true });
 }
-/* A tap anywhere outside the room closes an open bar too. */
+/* A tap anywhere outside the room closes an open bar too, except inside the shared emoji
+   picker (it lives in body, outside the room): the bar it was opened from stays with it. */
 document.addEventListener('click', (e) => {
   const room = document.getElementById('pj-room');
   if (!room || (e.target && room.contains(e.target))) return;
+  if (e.target && e.target.closest && e.target.closest('.rxn-picker')) return;
   pjRxnClose();
 });
 /* #3134-followup (Josh 6.72): clicking an agent's NAME or AVATAR in a room bubble opens

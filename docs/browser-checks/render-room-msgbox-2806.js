@@ -657,7 +657,9 @@ const now = () => new Date().toISOString();
       const order = () => phonePage.evaluate(() => [...document.querySelector('.pj3').children].map((c) => c.classList.contains('pjmid') ? 'room' : (c.classList.contains('pjsplit') ? 'members-files' : 'other')).join(','));
       const o375 = await order();
       chk(o375.startsWith('room,'), `[phone] the conversation is first in the DOM at 375px`, o375);
-      // Turning a phone mid-post moves the column; the composer must keep focus (and its keyboard).
+      // Turning a phone mid-post reorders the columns. The conversation column (the composer's)
+      // must never leave the page: re-inserting it blurs the composer, and iOS does not bring the
+      // keyboard back for a scripted focus, so a focus check alone would pass on a lost keyboard.
       const focusedBefore = await phonePage.evaluate(() => {
         const fr = document.getElementById('firstrun'); if (fr) fr.remove();
         // The static page shows no project (and the first-run overlay left the app inert): un-hide
@@ -666,6 +668,9 @@ const now = () => new Date().toISOString();
         for (let el = document.querySelector('.pj3 > .pjmid'); el && el !== document.body; el = el.parentElement) {
           el.hidden = false; el.removeAttribute('inert'); if (getComputedStyle(el).display === 'none') el.style.display = 'block';
         }
+        window.__midRemoved = 0;
+        new MutationObserver((recs) => recs.forEach((r) => r.removedNodes.forEach((n) => { if (n.classList && n.classList.contains('pjmid')) window.__midRemoved += 1; })))
+          .observe(document.querySelector('.pj3'), { childList: true });
         const t = document.getElementById('pj-post'); if (!t) return 'no #pj-post'; t.focus(); return document.activeElement === t ? 'pj-post' : 'not focusable';
       });
       await phonePage.setViewportSize({ width: 800, height: 800 });
@@ -675,6 +680,10 @@ const now = () => new Date().toISOString();
       await phonePage.waitForTimeout(100);
       const focusedBack = await phonePage.evaluate(() => (document.activeElement && document.activeElement.id) || '(none)');
       chk(focusedBefore === 'pj-post' && focusedWide === 'pj-post' && focusedBack === 'pj-post', `[phone] turning the phone keeps the composer focused across the move`, `${focusedBefore} -> ${focusedWide} -> ${focusedBack}`);
+      const orderBack = await phonePage.evaluate(() => [...document.querySelector('.pj3').children].map((c) => (c.classList.contains('pjmid') ? 'room' : (c.classList.contains('pjsplit') ? 'members-files' : 'other'))).join(','));
+      const midRemoved = await phonePage.evaluate(() => window.__midRemoved);
+      // Control: the reorder must actually have happened both ways (back at 375 now), or "never removed" is vacuous.
+      chk(midRemoved === 0 && o375.startsWith('room,') && orderBack.startsWith('room,'), `[phone] the conversation column never leaves the page while the phone turns (the Members/Files column moves instead)`, `removed=${midRemoved} order=${orderBack}`);
       await phonePage.evaluate(() => { const t = document.getElementById('pj-post'); if (t) t.blur(); });
       await phonePage.setViewportSize({ width: 800, height: 800 });
       await phonePage.waitForTimeout(100);
