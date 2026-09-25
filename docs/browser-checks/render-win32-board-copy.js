@@ -71,6 +71,10 @@ const WORDS = {
     /* win32-update-arm (S4): the Update confirm dialog body. The win32 updater downloads first, THEN
        stops the board to swap in place, which the Mac's does not, so the win32 copy names both steps. */
     '#uc-small[data-win-copy="updateConfirmBody"]': 'Kosmos downloads the update, then closes for a few seconds while it swaps it in. Your agents keep working the whole time.',
+    /* #3436: the OpenAI subscription sign-in is device code on Windows (its browser pop opened
+       behind Kosmos), so both sign-in steps explain the link and the code. */
+    '#acct-openai-sub-step [data-win-copy="openaiSubHow"]': 'Kosmos shows you a link and a short code. Open the link, sign in to OpenAI, and type the code there. Kosmos never sees your password. Your agents then run on your own subscription, on this computer.',
+    '#fr-openai-sub-t [data-win-copy="openaiSubHow"]': 'Kosmos shows you a link and a short code. Open the link, sign in to OpenAI, and type the code there. Kosmos never sees your password. Your agents then run on your own subscription, on this computer.',
   },
   darwin: {
     '#docs-finder': 'Open this folder in Finder',
@@ -80,6 +84,8 @@ const WORDS = {
     'button[data-go="term"]': 'Advanced',
     '#fr-pane-7 p[data-win-copy="s7Body"]': 'Kosmos is now in your applications folder, and you will see Kosmos in your dock.',
     '#uc-small[data-win-copy="updateConfirmBody"]': 'Kosmos closes for a few seconds while it updates. Your agents keep working the whole time.',
+    '#acct-openai-sub-step [data-win-copy="openaiSubHow"]': "Kosmos opens OpenAI's sign-in in your browser and never sees your password. Your agents then run on your own subscription, on this computer.",
+    '#fr-openai-sub-t [data-win-copy="openaiSubHow"]': "Kosmos opens OpenAI's sign-in in your browser and never sees your password. Your agents then run on your own subscription, on this computer.",
   },
 };
 

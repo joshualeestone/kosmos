@@ -3147,8 +3147,19 @@ button.boardname[aria-expanded="true"] { opacity: 1; color: var(--k-ink); border
 .tsk-ritem.on { background: var(--k-surface); border-color: var(--gold-edge); font-weight: 650; }
 .tsk-ritem .nm { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .tsk-ritem .ct { font: 500 .75rem var(--font-mono); color: var(--k-ink-2); font-variant-numeric: tabular-nums; }
-.tsk-main { padding: 22px 26px 110px; min-width: 0; position: relative; }
+.tsk-main { padding: 25px 26px 110px; min-width: 0; position: relative; }
 .tsk-crumb { font-size: .8125rem; color: var(--k-ink-2); margin: 0 0 2px; min-height: 1.3em; }
+/* Mona's look review of #3701: halve the two big vertical gaps (measured 51px above the title,
+   49px from the tile hint to the first group). An empty crumb takes no room (it appears when the
+   person picks a project, a navigation they made). The status line KEEPS its one reserved line,
+   so a one-line message ("Closed 2 tasks.") never pushes the list down under the pointer; its
+   margins go and the first group sits closer instead. A rare message long enough to wrap (a
+   long project name plus "Could not confirm Rex saw it: ...") does push it one line: accepted,
+   because truncating would hide the part the person needs. It stays a live region. */
+.tsk-crumb:empty { min-height: 0; margin: 0; }
+#tsk-msg { margin: 0; min-height: 1.6em; min-height: 1lh; }   /* one message line, reserved */
+#panel-tasks #tsk-hint { margin-bottom: 0; }
+#tsk-groups > .tsk-grp:first-child { margin-top: 3px; }
 .tsk-crumb button { border: 0; background: none; padding: 0; font: inherit; font-weight: 600; color: var(--k-ink); cursor: pointer;
   text-decoration: underline; text-decoration-color: var(--gold); text-underline-offset: 3px; }
 #panel-tasks .tsk-head h2 { font-size: 1.5rem; letter-spacing: -.015em; margin: 0; font-weight: 700; }
@@ -3229,6 +3240,9 @@ details.tsk-fold summary { cursor: pointer; color: var(--k-ink-2); font-size: .8
 html[data-layout="consolidated"] body.consolidated #panel-projects > #panel-tasks { grid-column: 2; grid-row: 1; margin: 0; width: 100%;
   padding: var(--space-8) var(--space-8) 0 var(--space-8); min-height: 0; overflow-y: auto; }
 html[data-layout="consolidated"] body.consolidated #panel-projects > #panel-tasks .tsk-view { grid-template-columns: 1fr; }
+/* Mona's look review of #3701: in the column the panel's own top inset already spaces the title,
+   so the view's does not stack on it (was about 49px, like the tab view's 51px before halving). */
+html[data-layout="consolidated"] body.consolidated #panel-projects > #panel-tasks .tsk-main { padding-top: 0; }
 html[data-layout="consolidated"] body.consolidated #panel-projects > #panel-tasks .tsk-rail { display: none; }
 html[data-layout="consolidated"] body.consolidated #panel-projects > #panel-tasks .tsk-mobsel { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 12px; }
 /* The consolidated projects rail's way into Tasks (the tab bar is hidden there). */
@@ -3242,7 +3256,7 @@ html[data-layout="consolidated"] body.consolidated #panel-projects > #panel-task
   .tsk-search { max-width: none; }
   .tsk-ctl { flex-wrap: wrap; row-gap: 4px; }
   .tsk-seg button { padding: 0 8px; }
-  .tsk-main { padding: 16px 14px 120px; }
+  .tsk-main { padding: 22px 14px 120px; }
   .tsk-row { grid-template-columns: 22px minmax(0, 1fr); }
   .tsk-side { grid-column: 2; flex-direction: row; align-items: center; justify-content: flex-start; min-width: 0; flex-wrap: wrap; }
 }
@@ -6002,6 +6016,14 @@ body:not(.consolidated) .pjmidhead:has(.pjhead) .tsearch:focus-within { flex-bas
 /* The out. One line, and it points DOWN at the composer this page already has
    rather than away to another screen. */
 .dmbar { margin-top: 14px; }
+/* #3744: the DM's emoji panel is FIXED and placed by script from its composer box (emojiPlace),
+   the #2834 reaction picker's approach, not absolute: the box sits inside #d-talk-box, an
+   overflow:auto scroll box, and an absolute panel rising above that box's top edge was cut off
+   in any window under about 670px tall (review pass 1, measured at 1200x620). */
+#d-emoji { position: fixed; right: auto; bottom: auto; }
+/* On a phone the DM keeps its whole width for the words: the smiley's 40px cut "Write
+   something..." to "Write" at 390px (review pass 1), and a phone's own keyboard has emoji. */
+@media (max-width: 480px) { #d-emoji-btn { display: none; } }
 #d-say { flex: 1 1 auto; }
 /* Inside the room's box the field is bare: the box carries the border and the
    focus ring. Specific enough to beat `.detail .dbox input[type=text]`. */
@@ -6027,6 +6049,7 @@ body:not(.consolidated) .pjmidhead:has(.pjhead) .tsearch:focus-within { flex-bas
    closed (opacity .5 when the agent is off). Same input-only-selector gap this file
    warns about at the `.composerbox textarea.cinput` note above. */
 .dmbar .btn[disabled], .dmbar input[disabled], .dmbar textarea[disabled] { opacity: .5; cursor: not-allowed; }
+.dmbar .emojibtn[disabled] { opacity: .5; cursor: not-allowed; }   /* #3744: greys with the box it types into */
 /* The room valve's row: reassurance, not an error. */
 .msg-valve { font-size: .8125rem; color: var(--k-ink-2); border-left: 2px solid var(--k-rule);
              padding-left: 10px; }
@@ -7999,6 +8022,10 @@ html:not([data-fed-ui="show"]) #pj-add-ext-person,html:not([data-fed-ui="show"])
 .fr-cmd-row { display: flex; align-items: flex-start; gap: var(--space-4); }
 .fr-cmd-row .fr-cmd { flex: 1 1 auto; min-width: 0; }
 .fr-copy { margin: var(--space-4) 0; flex: none; }
+/* #3436: the OpenAI one-time code on Windows. It is read and typed by a person, so it
+   is large and spaced, sized to itself rather than stretched, with Copy beside it. */
+.fr-cmd-row.oa-devrow { align-items: center; }
+.fr-cmd-row .fr-cmd.oa-devcode { flex: 0 1 auto; font-size: 1.25rem; font-weight: 600; letter-spacing: .08em; }
 /* The manual update offer's numbered steps (W-25). */
 .upd-manual-steps { margin: 8px 0 0; padding-left: 1.4em; }
 .upd-manual-steps li { margin: 2px 0; }
@@ -9009,7 +9036,8 @@ window.kosmosMeasureScrollbarWidth();
     <button class="tab"     data-tab="projects" role="tab" aria-selected="false">Projects<span class="navbadge" id="nav-badge-projects" aria-hidden="true" hidden></span></button>
     <!-- #3559: Tasks, the third top-level view (Josh, 2026-09-24 06:42). No badge yet: the
          mock's badge counts tasks waiting on you, which no task can prove today. -->
-    <button class="tab"     data-tab="tasks"    role="tab" aria-selected="false">Tasks</button>
+    <!-- #3559 (Josh): shown once the person has 25 tasks ever (the status poll's tasksTab), and it stays. -->
+    <button class="tab"     data-tab="tasks"    role="tab" aria-selected="false" hidden>Tasks</button>
     <!-- #3051 (Josh, 6.63 for 6.65): Settings left the top nav; it is reached from
          the user menu (avatar + name) in the upper-right .headright below. The
          #panel-settings panel and every showTab('settings') caller are unchanged;
@@ -9516,7 +9544,12 @@ window.kosmosMeasureScrollbarWidth();
            the same reason. -->
       <textarea class="cinput" id="d-say" rows="1" maxlength="10000"
              aria-label="Type a message for this agent" placeholder="Write something&hellip;"></textarea>
+      <!-- #3744 (Josh, 2026-09-25 09:29: "We need emoji support in the agent DM."): the room's
+           grey smiley and panel, driven by the same code (EMOJI_AT below), so there is one list
+           of emoji and one behaviour. The panel sits inside this box, which is its anchor. -->
+      <button class="emojibtn" id="d-emoji-btn" type="button" aria-label="Add an emoji" title="Add an emoji" aria-expanded="false" aria-controls="d-emoji"><span class="emojibtn-glyph" aria-hidden="true">&#128512;</span></button>
             <button class="btn uprime cpost" id="d-send" type="button">Post</button>
+      <div class="emojipanel" id="d-emoji" role="group" aria-label="Pick an emoji" hidden></div>
     </div>
     <!-- #3403 (Josh: cut off mid-message with no warning): a SOFT near-limit counter that appears
          only in the last stretch before the 10000 cap, so the cap is never a silent cutoff. A block
@@ -10771,7 +10804,7 @@ window.kosmosMeasureScrollbarWidth();
            types on OpenAI's OWN page. So the shape is start -> open the page ->
            wait, with no code field in Kosmos. Kosmos never sees the password. -->
       <div id="acct-openai-sub-step" hidden>
-        <p class="dwarn" style="margin:0 0 8px;"><span class="dwarn-ok" aria-hidden="true">&#10003;</span><b>Sign in with your ChatGPT subscription.</b> Kosmos opens OpenAI's sign-in in your browser and never sees your password. Your agents then run on your own subscription, on this computer.</p>
+        <p class="dwarn" style="margin:0 0 8px;"><span class="dwarn-ok" aria-hidden="true">&#10003;</span><b>Sign in with your ChatGPT subscription.</b> <span data-win-copy="openaiSubHow">Kosmos opens OpenAI's sign-in in your browser and never sees your password. Your agents then run on your own subscription, on this computer.</span></p>
         <!-- #2913: no name field here. The subscription sign-in pulls in the account's
              email automatically, and that is what tells one subscription account apart
              from another -- so asking for a name is extra work for nothing. (The API-key
@@ -10781,7 +10814,9 @@ window.kosmosMeasureScrollbarWidth();
         </div>
         <!-- The sign-in page opens on its own once you start; this link opens it
              again if the browser did not, or on a remote Mac where there is no
-             browser to open. Device mode shows a code to type on that page. -->
+             browser to open. Device mode shows a code to type on that page.
+             #3436: on Windows the sign-in is always device mode, and this button is
+             how the page opens (codex's own browser pop landed behind Kosmos). -->
         <div class="frow" id="acct-openai-sub-open-row" hidden style="margin-top:8px;">
           <a class="btn" id="acct-openai-sub-open" href="#" target="_blank" rel="noopener">Open the sign-in page</a>
         </div>
@@ -11600,7 +11635,7 @@ window.kosmosMeasureScrollbarWidth();
                   </div>
                 </div>
                 <div id="fr-openai-sub-step" hidden class="fr-confirm" role="group" aria-labelledby="fr-openai-sub-t">
-                  <p class="fr-confirm-t" id="fr-openai-sub-t"><b>Sign in with your ChatGPT subscription.</b> Kosmos opens OpenAI's sign-in in your browser and never sees your password. Your agents then run on your own subscription, on this computer.</p>
+                  <p class="fr-confirm-t" id="fr-openai-sub-t"><b>Sign in with your ChatGPT subscription.</b> <span data-win-copy="openaiSubHow">Kosmos opens OpenAI's sign-in in your browser and never sees your password. Your agents then run on your own subscription, on this computer.</span></p>
                   <!-- #2913: no name field -- the subscription sign-in pulls the account's
                        email automatically, and that distinguishes accounts (mirror of the
                        Settings acct-openai-sub-step). -->
@@ -12604,7 +12639,7 @@ window.kosmosMeasureScrollbarWidth();
            Tasks lives here, beside the "Projects" name it lists tasks from (the + stays alone at
            the far right). It opens Tasks INSIDE the display column (openConsolidatedTasks), the
            way the user menu opens Settings there (#2842), never out to the tab view. -->
-      <span class="lead"><span class="railname">Projects</span><button class="rail-tasks" type="button" id="rail-projects-tasks" title="Every task across your projects">Tasks</button></span>
+      <span class="lead"><span class="railname">Projects</span><button class="rail-tasks" type="button" id="rail-projects-tasks" title="Every task across your projects" hidden>Tasks</button></span>
       <span class="railacts">
         <button class="fold plus" type="button" id="rail-projects-new" aria-label="Add Project" title="Add Project">+</button>
       </span>
@@ -15528,6 +15563,13 @@ function windowsCopyTable() {
     copyLabel: 'Copy',
     copyDone: 'Copied',
     copyFallback: 'Select it and copy',
+    /* #3436: the ChatGPT subscription sign-in runs by device code on Windows, because
+       codex's own browser window opened behind Kosmos. The explainer on both sign-in
+       steps, the line above the code, and the line above codex's own words when the
+       code could not be picked out. */
+    openaiSubHow: 'Kosmos shows you a link and a short code. Open the link, sign in to OpenAI, and type the code there. Kosmos never sees your password. Your agents then run on your own subscription, on this computer.',
+    openaiSubCodeLead: 'On that page, enter this code:',
+    openaiSubRawLead: 'We could not pick out the code, so here is what OpenAI&rsquo;s sign-in says to do:',
     /* The manual update offer's folder button (W-25). */
     updateOpenFolder: 'Open my Kosmos folder',
     openKosmosFolderFailure: 'We could not open your Kosmos folder just now.',
@@ -18997,6 +19039,8 @@ async function tick() {
     // from sourceChannel + the federation-live flip + this viewer's Plus entitlement,
     // and stamp it on <html> for the CSS gate. Fail-safe (see fedGateMode).
     fedGateStamp(data);
+    // #3559 (Josh): the Tasks tab and the consolidated rail's Tasks button, once 25 tasks ever.
+    tskTabGate(data.tasksTab === true);
 
     // The freshness stamp is load-bearing. An ambient board gets trusted
     // passively, and silence reads as "all fine". If this stops updating, the
@@ -21797,6 +21841,9 @@ let ACCT_OPENAI_POLL = null;
    connect, cancel, and dialog close so a reopen never resumes a dead session. */
 let ACCT_OPENAI_SUB_SESSION = null;
 let ACCT_OPENAI_SUB_POLL = null;
+/* #3436: the mode the engine chose for this sign-in (its start answer): 'device' on
+   Windows, where the poll paints the link and code (openaiSubPaintDevice). */
+let ACCT_OPENAI_SUB_MODE = null;
 /* #2338: with the runner present (or its state unknown, which must NOT force an
    install per #979) the person meets the PICKER, not a flow -- the choice of a
    ChatGPT subscription vs an API key comes before either flow's controls. Both
@@ -21852,6 +21899,40 @@ function acctOpenaiSubView(state) {
     case 'cancelled':        return { done: true,  ok: false, say: 'Sign-in stopped.' };
     default:                 return { done: false, ok: false, say: 'Signing in…' };
   }
+}
+/* #3436: what a DEVICE-code sign-in shows while it waits. The engine runs device code on
+   Windows (openaiaccounts.chatgptLoginMode), because codex's own browser pop opens BEHIND
+   Kosmos there. So the page shows the one-time code with a Copy button, and the
+   open-page button beside it opens the link from this page, which is in front. When the
+   engine could not read a code it sends codex's own words (`instructions`); those are
+   shown rather than a link with nothing to type. Pure: returns the markup and a key, so
+   the painter repaints only when something changed (a rebuild every poll would undo a
+   "Copied" under the person's click). A Mac runs browser mode and never reaches this. */
+function openaiSubDeviceMarkup(out) {
+  if (out && out.userCode) {
+    return { key: 'code:' + out.userCode, html: windowsCopy('openaiSubCodeLead')
+      + '<span class="fr-cmd-row oa-devrow"><code class="fr-cmd oa-devcode">' + esc(out.userCode) + '</code>'
+      + '<button class="btn-quiet fr-copy" type="button" data-copy-command>' + windowsCopy('copyLabel') + '</button></span>' };
+  }
+  if (out && out.instructions) {
+    return { key: 'said:' + out.instructions, html: windowsCopy('openaiSubRawLead')
+      + '<span class="fr-cmd-row"><code class="fr-cmd">' + esc(out.instructions) + '</code></span>' };
+  }
+  return { key: '', html: '' };
+}
+/* Settings and first run both paint through this; `ids` names that screen's open link,
+   its row, and the code line. */
+function openaiSubPaintDevice(ids, out) {
+  const openA = document.getElementById(ids.open);
+  const openRow = document.getElementById(ids.openRow);
+  if (openA && out && out.authUrl) { openA.href = out.authUrl; if (openRow) openRow.hidden = false; }
+  const code = document.getElementById(ids.code);
+  if (!code) return;
+  const view = openaiSubDeviceMarkup(out);
+  if (code.__osKey === view.key && (code.textContent || !view.key)) return;
+  code.__osKey = view.key;
+  code.innerHTML = view.html;
+  code.hidden = !view.key;
 }
 /* The sentence for a refused POST /api/runners/<p>/install. The reason lives at
    `job.because` (and, since the Windows fix, at top-level `error` too); the old
@@ -24245,6 +24326,8 @@ function acctOpenaiSubWatch() {
     if (!r.ok) return;    // a 5xx or other non-404 error is transient: keep polling
     const out = await r.json().catch(() => null);
     if (!out) return;
+    // #3436: a device sign-in's link and code arrive by this poll, not by the start answer.
+    if (ACCT_OPENAI_SUB_MODE === 'device') openaiSubPaintDevice({ open: 'acct-openai-sub-open', openRow: 'acct-openai-sub-open-row', code: 'acct-openai-sub-code' }, out);
     const view = acctOpenaiSubView(out.state);
     if (msg && view.say) msg.textContent = view.say;
     if (!view.done) return;
@@ -24309,6 +24392,7 @@ document.getElementById('acct-openai-sub-go').addEventListener('click', async (e
       throw new Error((out && (out.error || out.because)) || 'We could not start that sign-in.');
     }
     ACCT_OPENAI_SUB_SESSION = out.sessionId;
+    ACCT_OPENAI_SUB_MODE = out.mode;
     acctOpenaiSubShowStart(out);
     acctOpenaiSubWatch();
   } catch (err) {
@@ -27429,6 +27513,8 @@ async function paintTalk(sessionName, agentName) {
        panel saying we cannot resolve this agent. */
     document.getElementById('d-say').disabled = true;
     document.getElementById('d-send').disabled = true;
+    document.getElementById('d-emoji-btn').disabled = true;   // #3744: no emoji into a closed box
+    pjEmojiClose('agent');
     /* The section itself, never the composer this arm just closed: the
        success path's own rule, that a rescue must not hand focus to a
        control the same paint disables. `#d-talk-box` carries tabindex="-1"
@@ -27769,6 +27855,9 @@ async function paintTalk(sessionName, agentName) {
      it either, because that path declines to touch anything once the flight has
      moved. The flag is about a NAME, so it is read against one. */
   say.disabled = body.presence === 'off';
+  // #3744: the emoji button opens and closes with the box it types into.
+  document.getElementById('d-emoji-btn').disabled = say.disabled;
+  if (say.disabled) pjEmojiClose('agent');
   /* 🛑 #991: A CLOSED BOX MUST NOT STILL SAY "Message casey…". The composer is
      correctly disabled here and the reason is on screen above it, but the
      placeholder was set before the fetch and kept inviting a message the box
@@ -28581,6 +28670,7 @@ function openDetail(sessionName, section, fromProject) {
        words are not lost: the input handler parks them under their own agent
        on every keystroke. */
     pjComposerReset(document.getElementById('d-say'));
+    pjEmojiClose('agent');   // #3744: the panel belongs to the composer being left, like its words
     /* #967: the Terminal-tab box belongs to the agent being LEFT exactly as the
        composer above does, so it is cleared on switch and paintTalk restores the
        one being opened from TERM_DRAFTS. Without this a reply typed for one agent
@@ -42471,11 +42561,25 @@ function tkFace(p, sessionName) {
    of statement. Shared here so the task detail page's per-part row, which
    had fallen back to the same canned "we could not check" with no
    distinguishing style at all, gets the same fix in one place. */
+/* ONE FACT, ONE WORDING (#3559, Mona's look review of #3701): an agent that has never written its
+   report is said the same way on every surface that draws a claim (the Tasks row, the project
+   card, the task page). The engine's `neverReported` field decides it, never our prose; every
+   other could-not-tell case keeps its own reason. */
+function claimNotReported(claim) {
+  return claim && claim.claimed === null && claim.neverReported === true
+    ? 'has not reported what it is working on yet' : '';
+}
+/* The ONE part that carries an agent's claim line, on every surface that lists parts (the project
+   card, the task page): that agent's first OPEN part. The claim is about the agent, so it is said
+   once even when it holds several parts, and never beside a part it has finished. */
+function tkSayPart(parts, who) {
+  return who ? (parts || []).find((x) => x && x.who === who && !x.closedAt) || null : null;
+}
 function taskClaimHtml(claim) {
   if (!claim) return '';
   if (claim.claimed === true) return '<em class="tksay">says it is on this</em>';
   if (claim.claimed === false) return '<em class="tksay">says it is not on this</em>';
-  const why = claim.because || 'we could not check';
+  const why = claimNotReported(claim) || claim.because || 'we could not check';
   return '<em class="tkunk" title="' + esc(why) + '">' + esc(why) + '</em>';
 }
 
@@ -42572,15 +42676,15 @@ function paintProjectTasks(p) {
          and not just for the whole task, the pack's own "+" row -- and an
          honest "N of M assigned" summary: t.progress.assigned/total,
          engine-computed (progressOf, #206/#803), never counted client-side.
-         The claim line still lands on the FIRST assigned part, the same
-         convention the task detail page's own per-part rows use (the claim
-         is the TASK's, asked of one report, not a per-part fact nobody
-         computed). */
-      const firstWho = assigned.length ? assigned[0].who : null;
+         The claim is the TASK's (asked of one report, not a per-part fact
+         nobody computed); where it lands is below. */
+      /* Once, beside the agent the claim is ABOUT (claim.about, which the engine only sets to an
+         agent still holding open work), on that agent's first open part (tkSayPart). */
+      const sayPart = tkSayPart(parts, t.claim && t.claim.about);
       const rows = parts.map((part) => '<span class="tkcard-part' + (part.who ? '' : ' none') + '">'
         + tkFace(p, part.who)
         + '<span class="tkcard-who-b"><b>' + esc(part.who ? tkMemberName(p, part.who) : 'Nobody yet') + '</b>'
-        + (part.who && part.who === firstWho ? sayHtml : '') + '</span></span>').join('');
+        + (part === sayPart ? sayHtml : '') + '</span></span>').join('');
       who = '<span class="tkcard-parts">' + rows + '</span>'
         + '<span class="tkcard-status">' + esc(t.progress.assigned + ' of ' + t.progress.total + ' assigned') + '</span>';
     } else {
@@ -42775,11 +42879,23 @@ function tskRow(t) {
     : '<span class="tsk-who nobody">Nobody yet</span>';
   /* The claim could not be read: say WHY on the row, so "Assigned, not started" is never read
      as a fact about a task we simply could not check. */
-  const cannot = t.state === 'assigned' && t.claim && t.claim.claimed === null && t.claim.because
-    ? '<div class="why">We cannot tell whether it has started: ' + esc(t.claim.because) + '.</div>' : '';
+  /* Mona's look review of #3701: in Josh's words, and short. The field says only that the agent
+     has never written its report (the engine's `neverReported`), not that it has said nothing
+     anywhere (it may have in the room), so the sentence claims exactly that: "Rex has not
+     reported what it is working on yet." When we could not read the report, or it is too old to
+     trust, that would be false too, so those rows keep the reason. */
+  const notReported = claimNotReported(t.claim);
+  const cannot = t.state !== 'assigned' || !t.claim || t.claim.claimed !== null ? ''
+    : notReported && t.claim.about
+      ? '<div class="why">' + esc(tskAgentName(t.claim.about)) + ' ' + notReported + '.</div>'
+      : t.claim.because ? '<div class="why">We cannot tell whether it started: ' + esc(t.claim.because) + '.</div>' : '';
   return '<div class="tsk-row' + (on ? ' sel' : '') + '" data-key="' + esc(tskKey(t)) + '">'
     + '<input type="checkbox" data-key="' + esc(tskKey(t)) + '"' + (on ? ' checked' : '')
-    + (t.state === 'closed' ? ' disabled' : '') + ' aria-label="Select task ' + Number(t.number) + ' of ' + esc(t.projectName) + '">'
+    /* The row no longer repeats its state in a status group (the heading says it), so there the
+       label carries it: a screen reader moving between checkboxes still hears where each task is.
+       Grouped by project the row shows its state line, so the label does not say it again. */
+    + (t.state === 'closed' ? ' disabled' : '') + ' aria-label="Select task ' + Number(t.number) + ' of ' + esc(t.projectName)
+    + (g && TSK.by !== 'project' ? ' (' + esc(g.l) + ')' : '') + '">'
     + '<div class="t"><span class="n">#' + Number(t.number) + '</span>'
     + '<button type="button" class="tl" data-open-task="' + esc(tskKey(t)) + '">' + esc(t.sentence) + '</button>'
     + '<div class="meta"><button type="button" data-open-project="' + esc(t.projectId) + '">' + esc(t.projectName) + '</button>'
@@ -42788,7 +42904,9 @@ function tskRow(t) {
     + (t.dueDate ? '<span>due ' + esc(t.dueDate) + '</span>' : '')
     + '</div>' + cannot + '</div>'
     + '<div class="tsk-side">' + whoHtml
-    + (g ? '<span class="tsk-state" style="--tsk-c:' + g.c + '"><span class="tsk-dot"></span>' + esc(g.l) + '</span>' : '') + '</div>'
+    /* Said once per row (Mona): inside a status group the heading already names the state, so the
+       row's state line shows only when grouping by project, where it is information. */
+    + (g && TSK.by === 'project' ? '<span class="tsk-state" style="--tsk-c:' + g.c + '"><span class="tsk-dot"></span>' + esc(g.l) + '</span>' : '') + '</div>'
     + '</div>';
 }
 function tskList(rows) {
@@ -42846,7 +42964,9 @@ function tskPaint() {
   document.getElementById('tsk-by').innerHTML = TSK_BYS.map(([k, l]) => '<button type="button" data-by="' + k + '" aria-pressed="' + (TSK.by === k) + '">' + esc(l) + '</button>').join('');
   document.getElementById('tsk-sort').value = TSK.sort;
   /* Tiles: the proven groups only, counted before the tile filter so every tile keeps its number. */
-  document.getElementById('tsk-tiles').innerHTML = !TSK.data ? '' : TSK_GROUPS.map((g) => {
+  /* Closed is not a tile (Mona, as the mock draws it): tiles are where the open work is, and the
+     sub-line counts open tasks, so a Closed tile read as one more. Closed stays the folded list. */
+  document.getElementById('tsk-tiles').innerHTML = !TSK.data ? '' : TSK_GROUPS.filter((g) => g.k !== 'closed').map((g) => {
     const n = scoped.filter((t) => t.state === g.k).length;
     return '<button type="button" class="tsk-tile" data-tile="' + g.k + '" aria-pressed="' + (TSK.tile === g.k) + '" style="--tsk-c:' + g.c + '">'
       + '<span class="num">' + n + '</span><span class="lab"><span class="tsk-dot"></span>' + esc(g.l) + '</span><span class="ts">' + esc(g.s) + '</span></button>';
@@ -42887,8 +43007,8 @@ function tskPaint() {
     groups.innerHTML = TSK_GROUPS.filter((g) => !TSK.tile || TSK.tile === g.k).map((g) => {
       const ts = sorted.filter((t) => t.state === g.k);
       const head = '<h3><span class="tsk-dot" style="--tsk-c:' + g.c + '"></span>' + esc(g.l) + '<span class="count">' + ts.length + '</span></h3><p class="why">' + esc(g.why) + '</p>';
-      /* Closed is folded unless its tile was picked: finished work is reachable, not in the way. */
-      if (g.k === 'closed' && TSK.tile !== 'closed') {
+      /* Closed is always the fold (it has no tile): finished work is reachable, not in the way. */
+      if (g.k === 'closed') {
         return '<section class="tsk-grp" style="--tsk-c:' + g.c + '"><details class="tsk-fold"' + (TSK.closedOpen ? ' open' : '') + '><summary>' + esc(g.l) + ' (' + ts.length + ')</summary>' + tskList(ts) + '</details></section>';
       }
       return '<section class="tsk-grp">' + head + tskList(ts) + '</section>';
@@ -42924,6 +43044,19 @@ async function tskOpenTask(key) {
 async function tskOpenProject(id) {
   await tskGoToProject(id);
 }
+/* #3559, Josh's ruling: the top-level ways into Tasks (the tab, and the consolidated projects
+   rail's button, which stands in for the tab there) appear once the person has 25 tasks ever,
+   from the status poll's `tasksTab` (the engine counts and saves the flag, so once shown they stay).
+   A project's View All still opens this view below 25: it is that project's only full list. */
+function tskTabGate(show) {
+  for (const el of [document.querySelector('.tab[data-tab="tasks"]'), document.getElementById('rail-projects-tasks')]) {
+    if (el && el.hidden === show) el.hidden = !show;
+  }
+  /* This viewer's last answer, so a board past 25 does not pop the tab into the bar a moment after
+     every load. A convenience only: the status tick stays the authority and corrects it. */
+  try { localStorage.setItem('kosmos.tasksTab', show ? '1' : '0'); } catch { /* private window or blocked */ }
+}
+try { if (localStorage.getItem('kosmos.tasksTab') === '1') tskTabGate(true); } catch { /* no storage: the tick decides */ }
 /* #3703: the project page's View-all door. ONE list screen: it opens this view scoped to the project
    rather than a second list of its own. A door is a fresh look at that project, so the window goes
    back to All (the door has always meant every task, closed included), and the search and tile go;
@@ -43182,8 +43315,14 @@ function paintTaskPage() {
      report naming "task 15" is a claim about the task; agents have not been
      taught a per-part spelling, so pretending otherwise would put a fact
      nobody computed under somebody's name. */
-  const sayHtml = taskClaimHtml(t.claim);
-  const firstWho = parts.map((x) => x.who).filter(Boolean)[0] || null;
+  /* Said ONCE on this page: a could-not-tell REASON is given in full by the why line below (it has
+     the room), so the part's claim line leaves it out; "not reported" and a definite claim stay on
+     the part's line, where the why line stays quiet for them. */
+  const sayHtml = t.claim && t.claim.claimed === null && !claimNotReported(t.claim) ? '' : taskClaimHtml(t.claim);
+  /* ONE part carries the claim line: the open part of the agent the claim is ABOUT (claim.about,
+     the engine's claimWho; tkSayPart, the same rule as the project card). The why line below reads
+     the same value. */
+  const sayPart = tkSayPart(parts, t.claim && t.claim.about);
   document.getElementById('tk-who').innerHTML = parts.map((part) => {
     const shown = nameOf(part.who);
     const line = part.sentence && part.sentence !== t.sentence ? part.sentence : '';
@@ -43206,7 +43345,7 @@ function paintTaskPage() {
         : '<button class="tkwho-pick" type="button" data-pick-part="' + esc(String(part.id)) + '"'
           + ' aria-label="Change who is on this part">' + esc(shown || 'Nobody yet') + '</button>')
       + (line ? '<small>' + esc(line) + '</small>' : '')
-      + (part.who && part.who === firstWho && !part.closedAt ? sayHtml : '')
+      + (part === sayPart ? sayHtml : '')
       + '</div>'
       + '<button class="linkish tkpart-go" type="button" data-part-act="' + (part.closedAt ? 'reopen' : 'close') + '">'
       + (part.closedAt ? 'Put back' : 'Done') + '</button>'
@@ -43218,19 +43357,31 @@ function paintTaskPage() {
   void prog;
 
   const why = document.getElementById('tk-why');
+  const notReported = claimNotReported(t.claim);
+  /* The agent the claim is ABOUT, by name (claim.about: an agent still holding open work here, so a
+     finished agent is never named). Said ONCE: when its part's claim line is on screen, that line
+     already says "not reported" beside the name and this line stays quiet for it; a could-not-tell
+     reason is given here in full (the part line leaves it out). */
+  const aboutName = t.claim && t.claim.about ? tkMemberName(p, t.claim.about) : null;
+  const sayShown = !!sayPart;
   const unknownBecause = (t.claim && t.claim.claimed === null && t.claim.because) ? t.claim.because : '';
-  why.textContent = unknownBecause ? 'We could not check whether ' + (who || 'it')
-    + ' is on this: ' + unknownBecause + '.' : '';
-  why.hidden = !unknownBecause;
+  why.textContent = notReported ? (sayShown || !aboutName ? '' : aboutName + ' ' + notReported + '.')
+    : unknownBecause ? 'We could not check whether ' + (aboutName || 'its agent') + ' is on this: ' + unknownBecause + '.' : '';
+  why.hidden = !why.textContent;
 
   /* The close-note: both clauses are about what KOSMOS does not do. Needed
      most by somebody who assumes closing a task stops the agent. Only when
      somebody is on it and it is open. */
   const note = document.getElementById('tk-note');
-  if (who && !t.closedAt) {
-    const says = (t.claim && t.claim.claimed === true) ? who + ' says it is on this. ' : '';
-    note.textContent = says + 'Marking it done closes it here. It does not stop ' + who
-      + ' or change what ' + who + ' is doing.';
+  /* The agent on it: the one the claim is about (a task assigned through its parts has no t.who,
+     and the warning matters there as much), else a legacy task's own who. */
+  const noteWho = aboutName || who;
+  if (noteWho && !t.closedAt) {
+    /* Kept on purpose although the part line says it too (THE JOIN, pinned by render-tasks): here
+       it is the premise of the warning that follows, that closing does not stop an agent on it. */
+    const says = (t.claim && t.claim.claimed === true) ? noteWho + ' says it is on this. ' : '';
+    note.textContent = says + 'Marking it done closes it here. It does not stop ' + noteWho
+      + ' or change what ' + noteWho + ' is doing.';
     note.hidden = false;
   } else {
     note.hidden = true;
@@ -47055,11 +47206,18 @@ const PJ_EMOJI = [
   '❤️','🧡','💛','💚','💙','💜','🖤','💯','🔥','✨','⭐','🎉','🚀','✅','❌','⚠️',
   '💡','📌','📝','🐛','🔧','🔒','⏳','📈','☕','🎯','🧠','🍕','🐢','🎈','📎','🗂️',
 ];
-let PJ_EMOJI_BUILT = false;
+/* #3744: the same picker in two composers, the project room's and an agent's Direct Message. One
+   list (PJ_EMOJI) and one set of functions, keyed by where; each composer has its own button, panel
+   and input. `where` defaults to the room, so every existing caller is unchanged. */
+const EMOJI_AT = {
+  room: { btn: 'pj-emoji-btn', panel: 'pj-emoji', input: 'pj-post' },
+  agent: { btn: 'd-emoji-btn', panel: 'd-emoji', input: 'd-say' },
+};
+const EMOJI_BUILT = new Set();
 
-function pjEmojiBuild() {
-  if (PJ_EMOJI_BUILT) return;
-  const panel = document.getElementById('pj-emoji');
+function pjEmojiBuild(where = 'room') {
+  if (EMOJI_BUILT.has(where)) return;
+  const panel = document.getElementById(EMOJI_AT[where].panel);
   if (!panel) return;
   const frag = document.createDocumentFragment();
   for (const glyph of PJ_EMOJI) {
@@ -47071,21 +47229,76 @@ function pjEmojiBuild() {
     frag.appendChild(b);
   }
   panel.appendChild(frag);
-  PJ_EMOJI_BUILT = true;
+  EMOJI_BUILT.add(where);
 }
 
-function pjEmojiOpen() {
-  pjEmojiBuild();
-  const panel = document.getElementById('pj-emoji');
-  const btn = document.getElementById('pj-emoji-btn');
+function pjEmojiOpen(where = 'room') {
+  for (const other of Object.keys(EMOJI_AT)) if (other !== where) pjEmojiClose(other);   // one panel open at a time
+  pjEmojiBuild(where);
+  const panel = document.getElementById(EMOJI_AT[where].panel);
+  const btn = document.getElementById(EMOJI_AT[where].btn);
   if (!panel || !btn) return;
   panel.hidden = false;
   btn.setAttribute('aria-expanded', 'true');
+  if (where === 'agent') emojiPlace();
 }
 
-function pjEmojiClose() {
-  const panel = document.getElementById('pj-emoji');
-  const btn = document.getElementById('pj-emoji-btn');
+/* #3744: the DM's panel, placed from its composer box (see #d-emoji in the style block): above the
+   box, right-aligned with it as the room's is; below it when there is more room there; its height
+   capped to the room it has; and kept inside the window and below the sticky app header, which
+   would otherwise cover its top rows in a short window. */
+function emojiPlace() {
+  const panel = document.getElementById('d-emoji');
+  const btn = document.getElementById('d-emoji-btn');
+  if (!panel || panel.hidden || !btn) return;
+  const box = (btn.closest('.composerbox') || btn).getBoundingClientRect();
+  const GAP = 6, EDGE = 8;
+  const head = document.querySelector('.apphead');
+  const ceiling = Math.max(EDGE, head ? head.getBoundingClientRect().bottom + 4 : EDGE);
+  const floor = innerHeight - EDGE;
+  /* Review pass 2: its box scrolled out of sight, or a window with no room for even a row or two,
+     closes the panel rather than leaving it open somewhere nobody can see or reach. */
+  if (box.bottom < ceiling || box.top > floor || floor - ceiling < 56) { pjEmojiClose('agent'); return; }
+  /* Its full height, measured WITHOUT touching its cap (review pass 4): clearing the cap to measure
+     made the browser pull the list's scroll back to the middle on every re-place, after a pick, a
+     resize or any scroll. Content height plus borders, capped at the stylesheet's own max-height,
+     which is read fresh every time (it is 15rem, so a browser font-size change moves it; review pass
+     5). Reading a computed max-height with the inline cap briefly removed forces no layout, so the
+     scroll is untouched. */
+  const saved = panel.style.maxHeight;
+  panel.style.maxHeight = '';
+  const cssMax = parseFloat(getComputedStyle(panel).maxHeight) || 240;
+  panel.style.maxHeight = saved;
+  const natural = Math.min(cssMax, panel.scrollHeight + (panel.offsetHeight - panel.clientHeight));
+  const above = box.top - GAP - ceiling;
+  const below = floor - box.bottom - GAP;
+  const up = above >= natural || above >= below;
+  /* Never taller than the room it is given. (A fixed minimum here once pushed it off the window.)
+     The `floor - ceiling` term is belt and braces: the close above already keeps `above` and
+     `below` within it, so today it never decides; it keeps the clamp below safe if that changes. */
+  const h = Math.min(natural, Math.max(56, up ? above : below), floor - ceiling);
+  const cap = h < natural ? h + 'px' : '';
+  if (panel.style.maxHeight !== cap) panel.style.maxHeight = cap;
+  const want = up ? box.top - GAP - h : box.bottom + GAP;
+  panel.style.top = Math.round(Math.min(Math.max(want, ceiling), floor - h)) + 'px';
+  const w = panel.offsetWidth;
+  panel.style.left = Math.round(Math.max(EDGE, Math.min(box.right - 12 - w, innerWidth - EDGE - w))) + 'px';
+}
+window.addEventListener('resize', emojiPlace);
+/* Any scroll that moves the box: the page's (it scrolls at mid widths, where .apphead is not
+   sticky), or an ancestor's. Capture phase, because scroll events do not bubble; emojiPlace returns
+   at once while the panel is closed. The panel's own grid scrolling is skipped: nothing about the
+   box moved, so there is nothing to re-place (it once also reset the list's scroll, review pass 3;
+   emojiPlace no longer can, review pass 4). */
+document.addEventListener('scroll', (e) => {
+  const t = e.target;
+  if (t && t.nodeType === 1 && t.closest('#d-emoji')) return;
+  emojiPlace();
+}, { capture: true, passive: true });
+
+function pjEmojiClose(where = 'room') {
+  const panel = document.getElementById(EMOJI_AT[where].panel);
+  const btn = document.getElementById(EMOJI_AT[where].btn);
   /* Restore focus to the trigger ONLY when a panel button held it (the keyboard
      Escape flow) -- otherwise the focused emoji button becomes display:none and
      focus falls to <body>. Guarded on activeElement so an OUTSIDE click, whose
@@ -47098,14 +47311,14 @@ function pjEmojiClose() {
   }
 }
 
-function pjEmojiToggle() {
-  const panel = document.getElementById('pj-emoji');
-  if (panel && panel.hidden) pjEmojiOpen(); else pjEmojiClose();
+function pjEmojiToggle(where = 'room') {
+  const panel = document.getElementById(EMOJI_AT[where].panel);
+  if (panel && panel.hidden) pjEmojiOpen(where); else pjEmojiClose(where);
 }
 
-function pjEmojiInsert(glyph) {
-  const input = document.getElementById('pj-post');
-  if (!input) return;
+function pjEmojiInsert(glyph, where = 'room') {
+  const input = document.getElementById(EMOJI_AT[where].input);
+  if (!input || input.disabled) return;
   const start = typeof input.selectionStart === 'number' ? input.selectionStart : input.value.length;
   const end = typeof input.selectionEnd === 'number' ? input.selectionEnd : input.value.length;
   input.value = input.value.slice(0, start) + glyph + input.value.slice(end);
@@ -47115,7 +47328,14 @@ function pjEmojiInsert(glyph) {
   input.focus();
 }
 
-document.getElementById('pj-emoji-btn').addEventListener('click', (e) => { e.preventDefault(); pjEmojiToggle(); });
+for (const where of Object.keys(EMOJI_AT)) {
+  document.getElementById(EMOJI_AT[where].btn).addEventListener('click', (e) => { e.preventDefault(); pjEmojiToggle(where); });
+  document.getElementById(EMOJI_AT[where].panel).addEventListener('click', (e) => {
+    const b = e.target.closest('button[data-emoji]');
+    if (!b) return;
+    pjEmojiInsert(b.dataset.emoji, where);
+  });
+}
 /* CLICK, not mousedown, so the picker is KEYBOARD-OPERABLE: a focused emoji button
    fires 'click' on Enter/Space, whereas a mousedown-only handler left keyboard
    users able to open the panel but unable to pick (an a11y gap the aria markup
@@ -47125,20 +47345,17 @@ document.getElementById('pj-emoji-btn').addEventListener('click', (e) => { e.pre
    document mousedown-outside-close excludes #pj-emoji, so the panel stays open
    either way (several picks in a row, Discord's behaviour). No double-insert: only
    'click' fires the insert, once per mouse-click and once per keyboard activation. */
-document.getElementById('pj-emoji').addEventListener('click', (e) => {
-  const b = e.target.closest('button[data-emoji]');
-  if (!b) return;
-  pjEmojiInsert(b.dataset.emoji);
-});
 /* Close on Escape (fires regardless of panel state; pjEmojiClose is a cheap no-op
    when already hidden) or a mousedown outside the button+panel (that listener
    early-returns while the panel is hidden). */
-document.addEventListener('keydown', (e) => { if (e.key === 'Escape') pjEmojiClose(); });
+document.addEventListener('keydown', (e) => { if (e.key === 'Escape') for (const where of Object.keys(EMOJI_AT)) pjEmojiClose(where); });
 document.addEventListener('mousedown', (e) => {
-  const panel = document.getElementById('pj-emoji');
-  if (!panel || panel.hidden) return;
-  if (e.target.closest('#pj-emoji') || e.target.closest('#pj-emoji-btn')) return;
-  pjEmojiClose();
+  for (const where of Object.keys(EMOJI_AT)) {
+    const panel = document.getElementById(EMOJI_AT[where].panel);
+    if (!panel || panel.hidden) continue;
+    if (e.target.closest('#' + EMOJI_AT[where].panel) || e.target.closest('#' + EMOJI_AT[where].btn)) continue;
+    pjEmojiClose(where);
+  }
 });
 
 /* ---- adding a document (#358) -----------------------------------------------
@@ -52456,6 +52673,8 @@ function frOpenaiSubWatch() {
     if (!r.ok) return;
     const out = await r.json().catch(() => null);
     if (!out) return;
+    // #3436: a device sign-in's link and code arrive by this poll, not by the start answer.
+    if (ACCT_OPENAI_SUB_MODE === 'device') openaiSubPaintDevice({ open: 'fr-openai-sub-open', openRow: 'fr-openai-sub-open-row', code: 'fr-openai-sub-code' }, out);
     const view = acctOpenaiSubView(out.state);
     if (msg && view.say) { msg.className = 'dhint'; msg.textContent = view.say; }
     if (!view.done) return;
@@ -52513,6 +52732,7 @@ async function frOpenaiSubStart() {
       throw new Error((out && (out.error || out.because)) || 'We could not start that sign-in.');
     }
     ACCT_OPENAI_SUB_SESSION = out.sessionId;
+    ACCT_OPENAI_SUB_MODE = out.mode;
     frOpenaiSubShowStart(out);
     frOpenaiSubWatch();
   } catch (err) {
@@ -55180,7 +55400,7 @@ document.addEventListener('keydown', (e) => {
   const ae = document.activeElement;
   const inField = !!ae && !ae.closest('#tipcard') && ae.matches('input, textarea, select, [contenteditable=""], [contenteditable="true"]');
   const inMenu = !!ae && !!ae.closest('[role="menu"], .userpop-menu:not([hidden])');
-  const pickerOpen = !!document.querySelector('#rxn-picker:not([hidden]), #pj-emoji:not([hidden])');
+  const pickerOpen = !!document.querySelector('#rxn-picker:not([hidden]), #pj-emoji:not([hidden]), #d-emoji:not([hidden])');
   if (!TIP_OPEN.tour && (inField || inMenu || pickerOpen)) return;
   e.preventDefault();
   tipClose({ record: true });

@@ -725,14 +725,24 @@ const chatgptSessions = new Map();
        accumulate. All timers are unref'd so they never keep the process alive.
    Both are overridable for tests (a 5-minute real timeout is not test-able). */
 let loginTimeoutMs = 5 * 60 * 1000;
+/* #3436: a Windows device-code sign-in waits longer. The person has to switch to the
+   browser, sign in to OpenAI and type the code, and codex's code lives 15 minutes
+   (measured, codex 0.149.1), so 14 keeps the watchdog just inside it. */
+let deviceLoginTimeoutMs = 14 * 60 * 1000;
 let sessionTtlMs = 2 * 60 * 1000;
 // After a SIGTERM (cancel/watchdog), escalate to an uncatchable SIGKILL if the
 // child has not exited within this grace, so a child that ignores SIGTERM cannot
 // leak its work slot / temp dir forever (the exit handler, which frees them, would
 // otherwise never fire). See cancel/watchdog.
 let forceKillMs = 3000;
-function setChatgptTimers({ timeout, ttl, forceKill } = {}) {
+// #3436: the watchdog for one sign-in. Only the win32 device-code path gets the longer
+// wait; a browser sign-in (every Mac one) keeps loginTimeoutMs.
+function chatgptLoginTimeoutMs(mode, platform = process.platform) {
+  return platform === 'win32' && mode === 'device' ? deviceLoginTimeoutMs : loginTimeoutMs;
+}
+function setChatgptTimers({ timeout, deviceTimeout, ttl, forceKill } = {}) {
   if (Number.isFinite(timeout)) loginTimeoutMs = timeout;
+  if (Number.isFinite(deviceTimeout)) deviceLoginTimeoutMs = deviceTimeout;
   if (Number.isFinite(ttl)) sessionTtlMs = ttl;
   if (Number.isFinite(forceKill)) forceKillMs = forceKill;
 }
@@ -811,9 +821,22 @@ function resolveFreshChatgptDir(label) {
    touches only this function: it recognises the general shapes (an https URL; a
    short hyphenated device code of variable group length) rather than a fixed line
    format. */
+/* #3436: codex colours its device-auth output even into a pipe. MEASURED 2026-09-25
+   against real codex 0.149.1 on win32 (stdout piped, stdin ignored, exactly how
+   startChatgptLogin spawns it): the URL line is `\x1b[94mhttps://auth.openai.com/codex/device\x1b[0m`
+   and the code line `\x1b[94mABCD-EFGHI\x1b[0m`. Unstripped, the URL grab swallows the
+   trailing `\x1b[0m` (ESC is not \s), and the code's `\b` never matches because the `m`
+   that ends the colour sequence is a word character touching the code. Strip CSI and
+   OSC sequences before any matching. */
+function stripAnsi(text) {
+  return String(text)
+    .replace(/\x1b\][^\x07\x1b]*(?:\x07|\x1b\\)/g, '')
+    .replace(/\x1b\[[0-?]*[ -/]*[@-~]/g, '')
+    .replace(/\x1b[@-_]/g, '');
+}
 function parseChatgptLoginOutput(text) {
   const out = {};
-  const s = String(text);
+  const s = stripAnsi(text);
   // BROWSER mode prints TWO URLs, in order: codex's OWN local callback server
   // first ("Starting local login server on http://localhost:1455.") and the REAL
   // sign-in URL second ("...navigate to this URL to authenticate:\n\n
@@ -848,6 +871,32 @@ function parseChatgptLoginOutput(text) {
   const code = withoutUrls.match(/\b[A-Z0-9]{3,8}-[A-Z0-9]{3,8}\b/);
   if (code) out.userCode = code[0];
   return out;
+}
+
+/* #3436: the fallback when a device-auth code cannot be parsed. Rather than leave the
+   person with a link and no code, the screen shows what codex itself told them to do:
+   its output with colour codes and other control characters removed, blank runs
+   collapsed, and bounded so a chatty codex cannot flood the status response. */
+const CHATGPT_INSTRUCTIONS_MAX = 1200;
+function chatgptLoginInstructions(text) {
+  const clean = stripAnsi(text)
+    .replace(/\r\n?/g, '\n')
+    .replace(/[\x00-\x08\x0b-\x1f\x7f]/g, '')
+    .replace(/\n{3,}/g, '\n\n')
+    .trim();
+  return clean.length > CHATGPT_INSTRUCTIONS_MAX ? clean.slice(0, CHATGPT_INSTRUCTIONS_MAX).trimEnd() + '…' : clean;
+}
+
+/* #3436: which sign-in a subscription connect runs. On Windows it is ALWAYS device
+   code: in browser mode codex opens the sign-in page from its own background process,
+   and Windows' foreground-lock rules keep a background process from bringing a window
+   forward, so the page opened BEHIND Kosmos and people missed it. Device code has
+   codex print a link and a one-time code instead; the board shows both and opens the
+   link itself from the page the person is looking at, so it comes to the front the
+   way Claude's does. Every other platform keeps what the caller asked for. */
+function chatgptLoginMode(requested, platform = process.platform) {
+  if (platform === 'win32') return 'device';
+  return requested === 'device' ? 'device' : 'browser';
 }
 
 /* #2584: validate a dir handed to startChatgptLogin as a REAUTH target -- the
@@ -916,13 +965,15 @@ function promoteReauth(stagingDir, liveDir) {
  * sign-in still runs in a fresh throwaway staging dir; on success + an identity
  * match its auth.json is promoted atomically into `reauthDir`. A failed or
  * cancelled reauth leaves the live account untouched (no duplicate, no loss).
- * @param {{label?:string, mode?:string, codexBin:string, reauthDir?:string}} args
+ * #3436: on win32 the mode is always device (chatgptLoginMode); `platform` is
+ * injectable for tests and defaults to this computer's.
+ * @param {{label?:string, mode?:string, codexBin:string, reauthDir?:string, platform?:string}} args
  * @returns {{ok:true, sessionId:string, mode:string} | {ok:false, because:string}}
  */
-function startChatgptLogin({ label, mode, codexBin, reauthDir } = {}) {
+function startChatgptLogin({ label, mode, codexBin, reauthDir, platform } = {}) {
   const bin = String(codexBin || '');
   if (!bin || !runners.isRunnable(bin)) return { ok: false, because: MISSING_RUNNER_SENTENCE };
-  const m = mode === 'device' ? 'device' : 'browser';
+  const m = chatgptLoginMode(mode, platform || process.platform);
   // #2584: a REAUTH signs in again AS an existing chatgpt account. Validate the
   // target first, then run the sign-in into a FRESH throwaway STAGING dir exactly
   // like a new sign-in, and promote its auth.json into the live dir ONLY on
@@ -1083,7 +1134,7 @@ function startChatgptLogin({ label, mode, codexBin, reauthDir } = {}) {
     session.state = 'error';
     session.error = 'the OpenAI sign-in timed out';
     reapChatgptSession(session);
-  }, loginTimeoutMs);
+  }, chatgptLoginTimeoutMs(m, platform || process.platform));
   if (session.timer && typeof session.timer.unref === 'function') session.timer.unref();
   // authUrl/userCode are NOT returned here: they are printed by codex AFTER this
   // synchronous return (via onData), so they are always absent at this point. The
@@ -1095,7 +1146,15 @@ function startChatgptLogin({ label, mode, codexBin, reauthDir } = {}) {
 function chatgptLoginStatus(sessionId) {
   const s = chatgptSessions.get(sessionId);
   if (!s) return { ok: false, because: 'no such sign-in in progress' };
-  return { ok: true, state: s.state, authUrl: s.authUrl, userCode: s.userCode, account: s.account, error: s.error };
+  const out = { ok: true, state: s.state, authUrl: s.authUrl, userCode: s.userCode, account: s.account, error: s.error };
+  // #3436: a device sign-in whose code we could not read still hands the person
+  // codex's own words, so the screen never shows a link with nothing to type.
+  // Browser mode never carries it, so its answer is unchanged.
+  if (s.mode === 'device' && !s.userCode && s.buf) {
+    const said = chatgptLoginInstructions(s.buf);
+    if (said) out.instructions = said;
+  }
+  return out;
 }
 
 /** Cancel a PENDING subscription sign-in: kill the child; the exit handler then
@@ -1720,6 +1779,7 @@ module.exports = {
   checkLive, listLive, setFetcher, setChatgptTimers, MISSING_RUNNER_SENTENCE,
   chatgptSubscriptionWindow, decodeIdTokenPayload,   // #2790 Phase 2: pure offline sub-window read, exported for unit tests
   parseChatgptLoginOutput,   // pure codex-login output parser, exported for unit tests (browser/device URL + device code)
+  chatgptLoginMode, chatgptLoginInstructions, chatgptLoginTimeoutMs,   // #3436: win32 runs device code (with a longer wait); the unparsed-code fallback text
   accountModels, chatModelsFromList, openaiSnapshotBase, chatRunnableIds, runnableAllowlist, openaiModelClass,
   readName, writeName,   // #2095: the human-chosen display name (sidecar file)
 };
