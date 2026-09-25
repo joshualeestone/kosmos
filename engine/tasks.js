@@ -557,7 +557,6 @@ function progressOf(task) {
   };
 }
 
-/** Whoever is on this task at all, for the join and the card's face. */
 /**
  * #3559 (look review, iteration 15): the agent a task's claim is ABOUT. The claim asks "is this
  * agent on this task?", which has a subject only while some agent still holds open work here, so
@@ -568,6 +567,7 @@ function claimWho(task) {
   const p = partsOf(task).find((x) => x && x.who && !x.closedAt);
   return p ? p.who : null;
 }
+/** Whoever is on this task at all, for the join and the card's face. */
 function whoOf(task) {
   const named = partsOf(task).map((x) => x.who).filter(Boolean);
   return [...new Set(named)];

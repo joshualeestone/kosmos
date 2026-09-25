@@ -103,6 +103,7 @@ function chk(ok, label, extra) {
       tiles,
       rows,
       fold: !!document.querySelector('#tsk-groups .tsk-fold'),
+      foldCount: (() => { const sm = document.querySelector('#tsk-groups .tsk-fold summary'); const m = sm && sm.textContent.match(/\((\d+)\)/); return m ? Number(m[1]) : null; })(),
       bars,
       railShown: getComputedStyle(document.querySelector('.tsk-rail')).display !== 'none',
       /* On-screen boxes, not computed display: the dropdown's WRAPPER is what hides. */
@@ -166,6 +167,8 @@ function chk(ok, label, extra) {
       /* Closed is not a tile (Mona's look review of #3701): tiles are the open work; Closed stays the fold. */
       chk(JSON.stringify(a.tiles.map((t) => t.k)) === JSON.stringify(['nobody', 'assigned', 'working']), `${tag} the tiles are exactly the three provable open groups`, JSON.stringify(a.tiles));
       chk(a.fold, `${tag} Closed stays the folded list`);
+      // Closed has no tile now, so its count is checked on the fold's own "Closed (N)".
+      chk(a.foldCount === EXPECT.closed, `${tag} the Closed fold counts the closed tasks`, JSON.stringify({ fold: a.foldCount, expect: EXPECT.closed }));
       /* Mona's look review of #3701: the two big gaps, measured 51px above the title and 49px from
          the tile hint to the first group, are about halved. Bounded both ways so neither creeps
          back and neither collapses into crowding. */
