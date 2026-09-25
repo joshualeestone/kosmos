@@ -52748,6 +52748,9 @@ var TIP_NEW_BOARD = null;       // latched at the board's first answer this sess
 let TIP_TOUR_SAVED = false;     // the board has said 'tour' is in its seen list
 let TIP_TOUR_NEXT_TRY = 0;      // when recording the met tour may be tried (again)
 let TIP_TOUR_RETRY_MS = 5000;   // doubles on each failed try, to a minute
+let TIPS_LOAD_NEXT = 0;         // a failed tips read is tried again from here
+let TIPS_LOAD_RETRY_MS = 5000;  // doubles on each failed read, to a minute
+let TIPS_LOADING = false;
 
 /* The app's dialogs are .rm-back / .fr-back overlays, shown and hidden with [hidden], and the update
    takeover (.upd-back) is added while it is up. */
@@ -52834,6 +52837,17 @@ function tipsStart() {
 }
 
 function tipsCheck() {
+  /* A failed read shows no tips (it cannot tell what was seen), but it is tried again, less often each
+     time: for someone new, one bad read at startup would otherwise cost them every tip this session. */
+  if (TIPS_STATE && !TIPS_STATE.ok && !TIPS_LOADING && Date.now() >= TIPS_LOAD_NEXT) {
+    TIPS_LOADING = true;
+    tipsLoad().then(() => {
+      TIPS_LOADING = false;
+      if (TIPS_STATE.ok) { paintTipsToggle(); return; }
+      TIPS_LOAD_NEXT = Date.now() + TIPS_LOAD_RETRY_MS;
+      TIPS_LOAD_RETRY_MS = Math.min(TIPS_LOAD_RETRY_MS * 2, 60000);
+    });
+  }
   /* A new board (no agents at its first answer) that now has an agent: the tour's job is done
      whether or not it was ever shown, so it counts as seen and the screen tips can follow. This is
      what carries someone new through: a tour that went with its screen (keyboard, Back, a link:

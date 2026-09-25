@@ -178,7 +178,7 @@ const resetStore = (state) => fs.writeFileSync(tipsStore.FILE(), JSON.stringify(
     const onNow = await page.evaluate(() => TIPS_STATE.ok && TIPS_STATE.off === false);
     await page.waitForTimeout(2800);
     const t27 = await cardState(page);
-    chk(emptied27 && onNow && !/ of /.test(t27.step), 'T27 tips turned on after the last agent went: still no tour', JSON.stringify({ emptied27, onNow, t27 }));
+    chk(emptied27 && onNow && !t27.shown, 'T27 tips turned on after the last agent went: still no tour', JSON.stringify({ emptied27, onNow, t27 }));
     withAgent();
     resetStore({ seen: ['tour', 'ring', 'agents'], off: false });
     await page.reload({ waitUntil: 'networkidle' });
@@ -557,6 +557,7 @@ const resetStore = (state) => fs.writeFileSync(tipsStore.FILE(), JSON.stringify(
     // T29: the store is mended while the page still holds the failed read, and the person opens a tip
     // from the ? and closes it. That save is the first real answer, so tips are on again and the
     // Settings box comes back (before, the failed read's stand-in "off" stuck for the session).
+    await page.evaluate(() => { TIPS_LOAD_NEXT = Infinity; });   // the read retry (T30) held off, so this arm is about the save
     resetStore({ seen: [], off: false });
     await page.click('#helpq-btn');
     await page.click('#helpq-menu [data-help="ring"]');
@@ -564,6 +565,16 @@ const resetStore = (state) => fs.writeFileSync(tipsStore.FILE(), JSON.stringify(
     const mended = await page.waitForFunction(() => TIPS_STATE && TIPS_STATE.ok && TIPS_STATE.off === false, null, { timeout: 6000 }).then(() => true, () => false);
     const box29 = await page.evaluate(() => document.getElementById('tips-box')?.hidden);
     chk(mended && box29 === false, 'T29 after a failed read, the first save that answers turns tips back on and shows the Settings box', JSON.stringify({ mended, box29 }));
+    await page.keyboard.press('Escape');
+    // T30: a failed read is tried again by itself: the store is broken at load, then mended, and with
+    // no action from the person the tips come back (control: T7, a store that stays broken, shows none).
+    fs.writeFileSync(tipsStore.FILE(), '{ not json');
+    await page.reload({ waitUntil: 'networkidle' });
+    chk(await page.waitForFunction(() => TIPS_STATE !== null && TIPS_STATE.ok === false, null, { timeout: 8000 }).then(() => true, () => false), 'T30 precondition: the first read failed');
+    resetStore({ seen: ['tour', 'ring', 'agents'], off: false });
+    const retried = await page.waitForFunction(() => TIPS_STATE && TIPS_STATE.ok === true, null, { timeout: 12000 }).then(() => true, () => false);
+    const box30 = await page.evaluate(() => document.getElementById('tips-box')?.hidden);
+    chk(retried && box30 === false, 'T30 a failed read is retried and the tips come back without the person doing anything', JSON.stringify({ retried, box30 }));
 
     chk(errs.length === 0, 'T8 no page errors', errs.join(' | '));
   } finally {
