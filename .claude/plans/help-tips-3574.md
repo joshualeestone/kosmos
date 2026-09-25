@@ -70,6 +70,12 @@ tour once and then get the screen tips. Also: an upgrader never sees first-visit
 use the ?. And a tips file that will not parse is never repaired: set() refuses rather than overwrite
 it, so the retry keeps failing and that board shows no tips and no Settings Tips box for good (one read
 a minute). Consistent with never re-showing a seen tip; the retry only mends a read that failed.
+Also: "new board" is decided per page load (TIP_NEW_BOARD) and is not stored. If the page reloads
+after someone new makes their first agent but before the tour-seen save has landed, the reload sees
+agents and they are an upgrader from then on (the ? still offers everything). Declined as a store
+change (iteration 30): the catch-up saves on the first tips tick after the agent appears (about 1.2s)
+to the same board that just answered, so it takes a reload inside that second, or that board refusing
+the save and a reload before the retry lands. A stored "tour due" flag would close it if it is ever seen.
 
 ## Verification
 A browser check: fresh sandbox shows the tour once; Got it records it and a reload does not show it;
