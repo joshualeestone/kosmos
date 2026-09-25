@@ -4235,10 +4235,17 @@ function sessionIdsFor(sessionName, exactSession) {
   return found;
 }
 
-/* #3564: the card's `swarm` field. The transcript is resolved only for a swarm. */
+/* #3564: the card's `swarm` field. The transcript is resolved only for a swarm. `owns` tells
+   the meter whether a session file in the lead's folder is this agent's: two workdirs can
+   flatten to one folder (see byWorkdirDetailed). */
 function swarmField(profile, agentName, exactSession) {
   try {
-    return require('./swarm').cardField(profile, () => transcriptFor(agentName, exactSession));
+    const belongs = workdirBelongs(agentName);
+    const owns = (file) => {
+      const cwd = transcriptCwd(file);
+      return belongs && cwd != null ? belongs(cwd) : null;
+    };
+    return require('./swarm').cardField(profile, () => transcriptFor(agentName, exactSession), undefined, owns);
   } catch { return null; }
 }
 
@@ -4356,12 +4363,9 @@ function byWorkdir(agentName) {
  */
 function byWorkdirDetailed(agentName) {
   const nothing = { file: null, sawTranscripts: false };
-  // Lazily, and from create.js rather than re-derived here: the workers
-  // directory is that module's fact, and a second copy of it would drift the
-  // first time somebody moves it.
-  let dir;
-  try { dir = require('./create').workerDir(agentName); } catch { return nothing; }
-  if (!dir) return nothing;
+  const belongs = workdirBelongs(agentName);
+  if (!belongs) return nothing;
+  const { dir, canon } = belongs;
 
   /* 🔑 #2406: FLATTEN AND COMPARE THE ON-DISK CANONICAL SPELLING, NOT THE RAW
      RECORDED PATH. The agent is launched through the launchd `WorkingDirectory =
@@ -4382,18 +4386,10 @@ function byWorkdirDetailed(agentName) {
      and the macOS `/private` twin, and falls back to path.resolve when the folder
      is gone. Strictly additive: with no divergence canon is the resolved raw path,
      flatten(canon) === flatten(dir), and nothing changes for the common case. */
-  const trust = require('./trust');
   const flatten = (p) => String(p).replace(/[^A-Za-z0-9]/g, '-');
-  const canon = trust.canonicalOnDisk(dir);
   // Both spellings, deduped: the canonical folder the runner actually wrote into,
   // and the raw recorded one (identical when there is no case/symlink divergence).
   const flats = [...new Set([flatten(canon), flatten(dir)])];
-  // A transcript is this agent's when its recorded cwd is the same real folder.
-  // The two-paths-flatten-to-one collision guard is preserved: distinct real
-  // paths stay distinct under canonicalOnDisk. The direct `=== dir`/`=== canon`
-  // arms short-circuit the common case before any per-candidate realpath syscall.
-  const belongs = (cwd) => cwd != null
-    && (cwd === dir || cwd === canon || trust.canonicalOnDisk(cwd) === canon);
   let sawTranscripts = false;
 
   // Gather candidates from EVERY searched folder first, then rank globally.
@@ -4429,6 +4425,30 @@ function byWorkdirDetailed(agentName) {
     if (belongs(transcriptCwd(f.full))) return { file: f.full, sawTranscripts };
   }
   return { file: null, sawTranscripts };
+}
+
+/**
+ * Whether a transcript's recorded cwd is this agent's folder: a predicate over the cwd,
+ * carrying `dir` (the recorded workdir) and `canon` (its on-disk spelling), or null when
+ * the agent has no workdir we can read.
+ *
+ * Lazily, and from create.js rather than re-derived here: the workers directory is that
+ * module's fact, and a second copy of it would drift the first time somebody moves it.
+ * The two-paths-flatten-to-one collision guard: distinct real paths stay distinct under
+ * canonicalOnDisk. The direct `=== dir`/`=== canon` arms short-circuit the common case
+ * before any per-candidate realpath syscall.
+ */
+function workdirBelongs(agentName) {
+  let dir;
+  try { dir = require('./create').workerDir(agentName); } catch { return null; }
+  if (!dir) return null;
+  const trust = require('./trust');
+  const canon = trust.canonicalOnDisk(dir);
+  const belongs = (cwd) => cwd != null
+    && (cwd === dir || cwd === canon || trust.canonicalOnDisk(cwd) === canon);
+  belongs.dir = dir;
+  belongs.canon = canon;
+  return belongs;
 }
 
 /**
@@ -7434,6 +7454,7 @@ module.exports = {
   NO_READING,
   sessionStartedAtFromTmux, transcriptForSession, setSessionSource,
   identityFromText, configRoots, transcriptCwd,
+  swarmField,   // #3564: exported so the meter's owner test is tested through the real folder search
   countAgents, projectsUnreadTotal, snapshot, paneRoster, readPanes, isParseable, classify, isNamedOurs,
   /* #3532: exported so the pane-filter + advisory wiring is testable with injected deps. */
   computeLoginAdvisories,

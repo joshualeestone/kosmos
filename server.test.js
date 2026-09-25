@@ -508,6 +508,7 @@ const UNREAD_ON_PURPOSE = {
   dailyTokenLimit: SWARM_CARD_UNREAD,
   pausedBecause: SWARM_CARD_UNREAD,
   helperTokenRatio: SWARM_CARD_UNREAD,
+  metered: SWARM_CARD_UNREAD,
   isAgentPane: 'a classification the board uses to decide what IS an agent; it '
     + 'is an input to the list, never a thing to draw',
   reportedAt: 'the commitments timestamp. The restart dialog shows the age '

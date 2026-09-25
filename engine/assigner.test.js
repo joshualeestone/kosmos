@@ -125,6 +125,21 @@ test('#3564: a swarm switched off in the project is neither assigned a task nor 
   } finally { w.restore(); }
 });
 
+test('#3564: a PAUSED swarm is not given a task, so an idle agent after it in the roster gets it; switched on, it is', () => {
+  const w = world([{ name: 'wkfirst' }, { name: 'wksecond' }]);
+  try {
+    addTask(w.pid, 'task one');
+    // The swarm is whichever of the two the roster lists first, so without the fix it takes the task.
+    const ours = new Set(Object.values(w.key));
+    const [lead, other] = w.cards.filter((c) => ours.has(c.sessionName));
+    assert.ok(lead && other, 'fixture: both agents are on the roster');
+    lead.swarm = { active: false, pausedBecause: 'stopped' };
+    assert.deepEqual(afterIdle(w).toAssign.map((x) => x.session), [other.sessionName], 'a paused swarm was handed the task, or held it from the idle agent');
+    lead.swarm = { active: true, pausedBecause: null };
+    assert.deepEqual(afterIdle(w).toAssign.map((x) => x.session), [lead.sessionName], 'control: switched on, the first idle agent gets it');
+  } finally { w.restore(); }
+});
+
 test('an agent with an open part assigned to it is not idle for assignment; a closed one does not count', () => {
   const w = world([{ name: 'hasw' }]);
   try {

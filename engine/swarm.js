@@ -33,6 +33,7 @@ const DEFAULT_HELPERS = 3;
 const ACTIVE_WINDOW_MS = 10 * 60 * 1000;
 const READ_CHUNK_BYTES = 4 * 1024 * 1024;
 const READ_PER_CALL_BYTES = 64 * 1024 * 1024;
+let readPerCallBytes = READ_PER_CALL_BYTES;   // resetForTests can lower it
 const DAY_MS = 24 * 60 * 60 * 1000;
 /* The reasons a swarm can be paused. */
 const PAUSED_BECAUSE = Object.freeze(['person', 'limit', 'stopped']);
@@ -237,7 +238,7 @@ function isInterruptedLine(j) {
    assistant lines, 1191 ids; summing lines overcounted 2.23x). So usage is added once per id. */
 function readFile(file, since, now = Date.now()) {
   let st;
-  try { st = fs.statSync(file); } catch { return { tokens: 0, finished: true, mtimeMs: 0 }; }
+  try { st = fs.statSync(file); } catch { return { tokens: 0, finished: true, mtimeMs: 0, caughtUp: false }; }
   let e = fileCache.get(file);
   if (!e || e.since !== since || st.size < e.offset) e = freshEntry(since);
   if (st.size > e.offset) {
@@ -262,7 +263,7 @@ function readFile(file, since, now = Date.now()) {
     let fd = null;
     try {
       fd = fs.openSync(file, 'r');
-      const stop = Math.min(st.size, e.offset + READ_PER_CALL_BYTES);
+      const stop = Math.min(st.size, e.offset + readPerCallBytes);
       while (e.offset < stop) {
         const buf = Buffer.alloc(Math.min(READ_CHUNK_BYTES, stop - e.offset));
         const n = fs.readSync(fd, buf, 0, buf.length, e.offset);
@@ -282,31 +283,51 @@ function readFile(file, since, now = Date.now()) {
   if (fileCache.size > 256) {
     for (const [k, v] of fileCache) if (now - v.touched > CACHE_TTL_MS) fileCache.delete(k);
   }
-  return { tokens: e.tokens, finished: e.finished, mtimeMs: e.mtimeMs };
+  return { tokens: e.tokens, finished: e.finished, mtimeMs: e.mtimeMs, caughtUp: e.offset >= st.size };
 }
 
+/* Session file -> whether it is the lead's, for definite answers only (a session's cwd
+   never changes, and an answer not yet known is asked again next time). */
+const ownerCache = new Map();
+
 /**
- * Today's metering for a lead whose CURRENT transcript is `transcriptPath`. Every
- * session the lead ran today lives beside it (one folder per agent: each agent has
- * its own working directory), each with its helpers in `<session>/subagents/`.
- *   { tokensToday, leadTokens, helperTokens, activeHelpers }
+ * Today's metering for a lead whose CURRENT transcript is `transcriptPath`. The lead's
+ * other sessions today sit in the same folder, each with its helpers in
+ * `<session>/subagents/`.
+ *   { tokensToday, leadTokens, helperTokens, activeHelpers, complete }
+ * `owns(file)` answers whether a session file there is the lead's: false skips it and its
+ * helpers, true or null (cannot tell) counts it. With no `owns`, every session counts.
  * activeHelpers counts only helpers of sessions written in the last ACTIVE_WINDOW_MS
- * that have not finished. Never throws; no transcript is all zeros.
+ * that have not finished. `complete` is false when there is no transcript, or a file was
+ * not read to its end in this call. Never throws; no transcript is all zeros.
  */
-function meter(transcriptPath, now = Date.now()) {
-  const out = { tokensToday: 0, leadTokens: 0, helperTokens: 0, activeHelpers: 0 };
+function meter(transcriptPath, now = Date.now(), owns = null) {
+  const out = { tokensToday: 0, leadTokens: 0, helperTokens: 0, activeHelpers: 0, complete: false };
   if (typeof transcriptPath !== 'string' || !transcriptPath) return out;
   const dir = path.dirname(transcriptPath);
   const since = startOfDay(now);
   let names;
   try { names = fs.readdirSync(dir); } catch { return out; }
+  out.complete = true;
+  const count = (r) => { if (!r.caughtUp) out.complete = false; return r; };
   for (const n of names) {
     if (!n.endsWith('.jsonl')) continue;
     const file = path.join(dir, n);
     let st;
     try { st = fs.statSync(file); } catch { continue; }
+    if (typeof owns === 'function' && file !== transcriptPath) {
+      let mine = ownerCache.get(file);
+      if (mine === undefined) {
+        try { mine = owns(file); } catch { mine = null; }
+        if (typeof mine === 'boolean') {
+          if (ownerCache.size > 1024) ownerCache.clear();
+          ownerCache.set(file, mine);
+        }
+      }
+      if (mine === false) continue;
+    }
     const subDir = path.join(dir, n.slice(0, -'.jsonl'.length), 'subagents');
-    if (st.mtimeMs >= since) out.leadTokens += readFile(file, since, now).tokens;
+    if (st.mtimeMs >= since) out.leadTokens += count(readFile(file, since, now)).tokens;
     /* A session untouched for a day before today cannot have helpers writing today. */
     if (st.mtimeMs < since - DAY_MS) continue;
     let subs;
@@ -317,7 +338,7 @@ function meter(transcriptPath, now = Date.now()) {
       let sst;
       try { sst = fs.statSync(sf); } catch { continue; }
       if (sst.mtimeMs < since) continue;
-      const r = readFile(sf, since, now);
+      const r = count(readFile(sf, since, now));
       out.helperTokens += r.tokens;
       if (!r.finished && now - r.mtimeMs <= ACTIVE_WINDOW_MS) out.activeHelpers += 1;
     }
@@ -330,13 +351,16 @@ function meter(transcriptPath, now = Date.now()) {
  * The `swarm` field of a board card, or null for an ordinary agent. `transcriptFor`
  * is a function so an ordinary agent never pays for resolving its transcript.
  */
-function cardField(profile, transcriptFor, now = Date.now()) {
+function cardField(profile, transcriptFor, now = Date.now(), owns = null) {
   const s = settingsOf(profile);
   if (!s) return null;
   let t = null;
   try { t = transcriptFor(); } catch { t = null; }
-  const m = meter(t, now);
+  const m = meter(t, now, owns);
   return {
+    /* False when today's tokens could not be read in full (no transcript found, or a large
+       file still catching up), so a screen does not show an unmeasured swarm as under its limit. */
+    metered: m.complete,
     maxHelpers: s.maxHelpers,
     activeHelpers: m.activeHelpers,
     tokensToday: m.tokensToday,
@@ -396,7 +420,11 @@ function sweepOnce(rows, deps, now = Date.now()) {
   return did;
 }
 
-function resetForTests() { fileCache.clear(); }
+function resetForTests({ perCallBytes } = {}) {
+  fileCache.clear();
+  ownerCache.clear();
+  readPerCallBytes = perCallBytes > 0 ? perCallBytes : READ_PER_CALL_BYTES;
+}
 
 module.exports = {
   MIN_HELPERS, MAX_HELPERS, DEFAULT_HELPERS, ACTIVE_WINDOW_MS, READ_CHUNK_BYTES, READ_PER_CALL_BYTES, PAUSED_BECAUSE, START, END,

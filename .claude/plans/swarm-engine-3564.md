@@ -15,11 +15,16 @@ split (22:26): engine is Renet's, UI is Mona's. Claude-only v1. The engine/UI co
   for the lead's sessions in its transcript folder and every `<session>/subagents/agent-*.jsonl`; helpers working now =
   not ended with `end_turn` and written in the last 10 minutes; `helperTokenRatio` = (lead + helpers) / lead.
   Measured on this Mac: Claude Code writes subagent transcripts exactly there, with per-message usage.
-- **The card:** every `/api/status` card gains `swarm` (null for an ordinary agent).
+  Two workdirs can flatten to one transcript folder (`my_swarm`, `my-swarm`), so a session whose recorded
+  cwd is another agent's folder is skipped with its helpers (status.js `workdirBelongs`, the same test
+  `byWorkdir` uses); one that cannot be placed yet is counted, erring toward the limit.
+- **The card:** every `/api/status` card gains `swarm` (null for an ordinary agent). `swarm.metered` is false
+  when today's tokens could not be read in full (no transcript found, or a large file still catching up).
 - **Settings:** `PUT /api/agent/<name>/swarm { maxHelpers?, dailyTokenLimit?, active? }`.
 - **Paused is real:** `chat.deliver` refuses a paused swarm (every caller goes through it), except slash commands.
 - **Stop now:** `POST /api/agent/<name>/swarm/stop` pauses it "stopped", sends Escape (`chat.interrupt`) and the
   stop-all chord (`chat.stopHelpers`), both through `keysAllowed`; the answer says whether both were sent.
+- **The Assigner** skips a paused swarm (its card is not idle for assignment), as well as an Off one.
 - **The daily limit:** a one-minute sweep (`swarm.sweepOnce`) pauses a swarm at its limit, interrupts it, stops its
   helpers, and says so in its own DM; a limit pause lifts at local midnight, a person's or Stop now's never does.
 - **Per project:** `PUT /api/project/<id>/swarm/<name> { on }`; an Off swarm is skipped by room posts unless @-named,
@@ -28,6 +33,8 @@ split (22:26): engine is Renet's, UI is Mona's. Claude-only v1. The engine/UI co
 ## Decided, and why
 - **Helpers are subagents, not sessions** (the card: "built-in fan-out"). One voice holds by construction.
 - **Paused enforced in chat.deliver**, not per caller: every path (DMs, rooms, tasks, sweeps) goes through it.
+- **The sweep is gated on the live-execution opt-in**, like every sweep that types into panes: inert under
+  `node --test`, always on in a real board.
 - **Tokens include cache reads**: one definition everywhere; the ratio answers the mock's weakest premise.
 - **The count is reported, not enforced**: the lead is told N; the card shows activeHelpers > maxHelpers if it runs over.
 
@@ -54,7 +61,10 @@ split (22:26): engine is Renet's, UI is Mona's. Claude-only v1. The engine/UI co
    (seen in the same measurement). The stop chord is sent regardless of the count, so this only affects the card.
 
 4. The meter reads at most READ_PER_CALL_BYTES (64 MiB) of a transcript per call, so a larger one catches up
-   over the next polls rather than stalling the board; until it does, today's tokens read low.
+   over the next polls rather than stalling the board; until it does, today's tokens read low and the card
+   says `metered: false`. The sweep still acts on what it has read.
+5. Sessions the lead ran today under a DIFFERENT account root (after an account move) sit in another folder
+   and are not counted. Not handled in v1.
 
 ## Settings behaviour worth knowing
 - Raising `dailyTokenLimit` on a swarm paused at its limit does not switch it back on; `active: true` does.

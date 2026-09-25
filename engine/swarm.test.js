@@ -110,7 +110,8 @@ test('#3564 meter: today\'s lead + helper tokens (all four counts), yesterday le
   assert.equal(m.helperTokens, 200 + 10 + 2);
   assert.equal(m.tokensToday, m.leadTokens + m.helperTokens);
   assert.equal(m.activeHelpers, 1, 'only the helper that is unfinished AND moving is working');
-  assert.deepEqual(swarm.meter(null, NOW), { tokensToday: 0, leadTokens: 0, helperTokens: 0, activeHelpers: 0 });
+  assert.equal(m.complete, true, 'every file was read to its end');
+  assert.deepEqual(swarm.meter(null, NOW), { tokensToday: 0, leadTokens: 0, helperTokens: 0, activeHelpers: 0, complete: false });
 });
 
 test('#3564 meter: a helper stopped by "stop all agents" is not working, though it never wrote end_turn; a busy one still is', () => {
@@ -187,7 +188,45 @@ test('#3564 cardField: null for an ordinary agent; for a swarm, settings + meter
     ['s/subagents/agent-a.jsonl', [asst(today(9), U(170, 0), 'end_turn')], NOW - 60000],
   ]);
   const f = swarm.cardField(swarm.birthProfile({ maxHelpers: 4, dailyTokenLimit: 9999 }), () => path.join(dir, 's.jsonl'), NOW);
-  assert.deepEqual(f, { maxHelpers: 4, activeHelpers: 0, tokensToday: 270, dailyTokenLimit: 9999, active: true, pausedBecause: null, helperTokenRatio: 2.7 });
+  assert.deepEqual(f, { metered: true, maxHelpers: 4, activeHelpers: 0, tokensToday: 270, dailyTokenLimit: 9999, active: true, pausedBecause: null, helperTokenRatio: 2.7 });
+  const none = swarm.cardField(swarm.birthProfile({ maxHelpers: 4, dailyTokenLimit: 9999 }), () => null, NOW);
+  assert.equal(none.metered, false, 'a swarm whose transcript was not found reads as measured');
+  assert.equal(none.tokensToday, 0);
+});
+
+test('#3564 meter: a session in the lead\'s folder that another agent owns is not counted, nor its helpers; one it cannot place is', () => {
+  swarm.resetForTests();
+  const dir = transcripts('shared', [
+    ['mine.jsonl', [asst(today(9), U(10, 0), 'end_turn')], NOW - 60000],
+    ['theirs.jsonl', [asst(today(9), U(1000, 0), 'end_turn')], NOW - 60000],
+    ['theirs/subagents/agent-t.jsonl', [asst(today(14, 59), U(500, 0), 'tool_use')], NOW - 30000],
+    ['unknown.jsonl', [asst(today(9), U(3, 0), 'end_turn')], NOW - 60000],
+  ]);
+  const cur = path.join(dir, 'mine.jsonl');
+  const asked = [];
+  const owns = (f) => { asked.push(path.basename(f)); return f.endsWith('theirs.jsonl') ? false : f.endsWith('unknown.jsonl') ? null : true; };
+  const m = swarm.meter(cur, NOW, owns);
+  assert.equal(m.leadTokens, 13, 'another agent\'s session was counted, or one that cannot be placed was not');
+  assert.equal(m.helperTokens, 0, 'another agent\'s helper was counted');
+  assert.equal(m.activeHelpers, 0);
+  assert.equal(asked.includes('mine.jsonl'), false, 'the lead\'s own current transcript is its own without asking');
+  assert.equal(swarm.meter(cur, NOW).leadTokens, 1013, 'CONTROL: with no owner test, every session counts');
+});
+
+test('#3564 meter: a file larger than one call reads catches up over polls, and says it is not complete until it has', () => {
+  swarm.resetForTests({ perCallBytes: 256 });
+  const line = (id) => JSON.stringify({ type: 'assistant', timestamp: today(9), message: { id, role: 'assistant', stop_reason: 'tool_use', usage: U(1, 0), content: [{ type: 'text', text: 'x'.repeat(100) }] } });
+  const lines = [];
+  for (let i = 0; i < 10; i += 1) lines.push(line('m' + i));
+  const f = path.join(transcripts('slow', [['s.jsonl', lines, NOW - 60000]]), 's.jsonl');
+  const first = swarm.meter(f, NOW);
+  assert.equal(first.complete, false, 'a partly read file was reported complete');
+  assert.ok(first.leadTokens < 10, 'CONTROL: the first call really read only part of it');
+  let m = first;
+  for (let i = 0; i < 50 && !m.complete; i += 1) m = swarm.meter(f, NOW);
+  assert.equal(m.complete, true);
+  assert.equal(m.leadTokens, 10);
+  swarm.resetForTests();
 });
 
 /* ---- the daily limit --------------------------------------------------------------- */

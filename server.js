@@ -13404,21 +13404,6 @@ const server = http.createServer((req, res) => {
     return;
   }
 
-  /**
-   * Reveal the project's folder in Finder. POST, guard-inherited (it opens
-   * an app). The path is ALWAYS the stored record's, never the request's,
-   * same rule as the sleep-settings opener: this must not become an
-   * open-arbitrary-path primitive. Refused with the state's own sentence
-   * when the folder is not there to show.
-   */
-  /* --- the project room ----------------------------------------------------
-     The thread is the record filtered by PROJECT ALONE (the spec's
-     falsifiable claim: no reference to the member list), posts plus the
-     room's own valve closings. Read-only, best-effort history. */
-  /* #670: the person opened this project's room, so everything posted
-     before now is read. POST, behind the cross-site guard like every write.
-     The count itself is server-derived (see withUnread); this only moves
-     the cursor. */
   /* #3564: switch a swarm on or off in one project: { on: boolean }. Only a swarm that is
      a member of the project. Off means work in this project does not reach it
      (projects.swarmOffIn); it stays a member. */
@@ -13444,6 +13429,22 @@ const server = http.createServer((req, res) => {
       .catch((err) => sendJson(res, 400, { ok: false, because: String((err && err.message) || 'we could not read that request') }));
     return;
   }
+
+  /**
+   * Reveal the project's folder in Finder. POST, guard-inherited (it opens
+   * an app). The path is ALWAYS the stored record's, never the request's,
+   * same rule as the sleep-settings opener: this must not become an
+   * open-arbitrary-path primitive. Refused with the state's own sentence
+   * when the folder is not there to show.
+   */
+  /* --- the project room ----------------------------------------------------
+     The thread is the record filtered by PROJECT ALONE (the spec's
+     falsifiable claim: no reference to the member list), posts plus the
+     room's own valve closings. Read-only, best-effort history. */
+  /* #670: the person opened this project's room, so everything posted
+     before now is read. POST, behind the cross-site guard like every write.
+     The count itself is server-derived (see withUnread); this only moves
+     the cursor. */
   const roomSeen = pathname.match(/^\/api\/project\/([^/]+)\/seen$/);
   if (roomSeen && req.method === 'POST') {
     const id = decodeSegment(roomSeen[1]);
@@ -15343,14 +15344,16 @@ function start(port = PORT) {
       /* #3564: the swarms' daily token limit. At the limit a swarm pauses itself,
          its current turn is interrupted and it says so in its own DM; a limit pause
          lifts at local midnight. Its own ~1-minute timer, unref'd, best-effort, like
-         the sweeps above (engine/swarm.js sweepOnce does the deciding). */
+         the sweeps above (engine/swarm.js sweepOnce does the deciding). It types into
+         panes, so it is gated on the live-execution opt-in like them: inert under test. */
       const swarmSweep = setInterval(() => {
+        if (!liveExecution.liveExecutionAllowed()) return; // inert under test / before opt-in
         try {
           const roster = safeRoster();
           const swarmMod = require('./engine/swarm');
           swarmMod.sweepOnce(swarmMod.sweepRows(roster), swarmSweepDeps(roster));
         } catch { /* best-effort; the card still shows today's tokens against the limit */ }
-      }, Number(process.env.AGENT_WORKFORCE_SWARM_SWEEP_MS) > 0 ? Number(process.env.AGENT_WORKFORCE_SWARM_SWEEP_MS) : 60 * 1000); // the env is the test seam only
+      }, 60 * 1000);
       if (swarmSweep && typeof swarmSweep.unref === 'function') swarmSweep.unref();
       const feedbackSweep = setInterval(() => {
         try { feedbacksend.sendDailyOnce(feedback.today()); } catch { /* best-effort, like the sweeps above */ }

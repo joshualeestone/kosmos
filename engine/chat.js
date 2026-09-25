@@ -1157,6 +1157,9 @@ function interrupt(sessionName, roster) {
   return { ok: true };
 }
 
+/* #3564: what a paused swarm still accepts. */
+const PAUSED_SWARM_COMMANDS = /^\/(compact|clear|cost|context|status)(\s|$)/i;
+
 /**
  * Put one message into one agent's session.
  *
@@ -1165,9 +1168,6 @@ function interrupt(sessionName, roster) {
  * for the one fact that separates them: whether anything of the person's text
  * could have reached the pane. None of them says the agent knows anything.
  */
-/* #3564: what a paused swarm still accepts. */
-const PAUSED_SWARM_COMMANDS = /^\/(compact|clear|cost|context|status)(\s|$)/i;
-
 function deliver(sessionName, raw, roster, envelope, trailer) {
   const at = new Date().toISOString();
   const problem = messageProblem(raw);
