@@ -35538,10 +35538,11 @@ const PLUS_CODE_WORDS = {
 const PLUS_ASK_TIMEOUT_MS = 15000;
 let PLUS_COUNTDOWN = null;
 /* #3796: the wizard's resend is a small LINK, not a button, so "busy" is aria-disabled on it
-   (styled dim and unclickable) and the click handler checks it. A button keeps .disabled. */
+   (styled dim and unclickable) and the click handler checks it. A button keeps .disabled
+   (an <a> has no `disabled` property, so its presence is what tells the two apart). */
 function plusSetBusy(el, on) {
   if (!el) return;
-  if (el.tagName === 'BUTTON') { el.disabled = on; return; }
+  if ('disabled' in el) { el.disabled = on; return; }
   if (on) el.setAttribute('aria-disabled', 'true'); else el.removeAttribute('aria-disabled');
 }
 function plusCountdown(line, btn, why, secs) {
@@ -35669,7 +35670,7 @@ function plusSiMeasure() {
   const top = sec.getBoundingClientRect().top + window.scrollY;
   sec.style.setProperty('--plus-avail', Math.max(0, Math.round(window.innerHeight - top - 32)) + 'px');
 }
-if (typeof window.addEventListener === 'function') window.addEventListener('resize', plusSiMeasure);
+if (typeof window !== 'undefined' && typeof window.addEventListener === 'function') window.addEventListener('resize', plusSiMeasure);
 function plusSiMsg(text) {
   const m = document.getElementById('plus-signin-msg');
   if (m) m.textContent = text || '';
