@@ -69,6 +69,9 @@ param(
   # must then ALREADY END IN the prefix (the bucket's public URL + "/_selftest/abc"): names are
   # appended to it as they are, so the served checks read the prefixed objects.
   [string] $KeyPrefix = '',
+  # Removes a publish.lock left by a run that died (it says whose and when), then proceeds.
+  # Only when no other run of this script is active.
+  [switch] $BreakLock,
   [switch] $DryRun
 )
 
@@ -83,8 +86,10 @@ $Invariant = [Globalization.CultureInfo]::InvariantCulture
 $script:AfterNote = ''
 function Say([string] $m) { [Console]::Out.WriteLine("publish-r2: $m") }
 # Anything unexpected still ends in the same clear shape, with the partial-state note.
-trap { [Console]::Error.WriteLine("publish-r2: UNEXPECTED - $($_.Exception.Message)$script:AfterNote"); exit 1 }
-function Refuse([string] $m) { [Console]::Error.WriteLine("publish-r2: REFUSING - $m$script:AfterNote"); exit 1 }
+$script:LockEtag = ''   # set while this run holds publish.lock (see Lock-Publish; non-empty only
+                        # after that function is defined, so an early refusal never calls it)
+trap { [Console]::Error.WriteLine("publish-r2: UNEXPECTED - $($_.Exception.Message)$script:AfterNote"); if ($script:LockEtag) { Unlock-Publish }; exit 1 }
+function Refuse([string] $m) { [Console]::Error.WriteLine("publish-r2: REFUSING - $m$script:AfterNote"); if ($script:LockEtag) { Unlock-Publish }; exit 1 }
 
 # ---------- names -------------------------------------------------------------------------------
 # All comparisons below are CASE-SENSITIVE (-c...), because R2 keys are: PowerShell's plain -eq
@@ -315,6 +320,42 @@ function Assert-Object([string] $Name, [string] $WantSha) {
   $o
 }
 
+# ---------- one run at a time ---------------------------------------------------------------------
+# Every write run (a stage, a replace, a promote) holds publish.lock, created with If-None-Match
+# (honoured by R2, measured) before the first read it decides on, and removed on every exit.
+# The races the rest of this script detects and undoes were all between two runs of it; the
+# lock makes those impossible unless it is broken by hand. The detection stays, as a second
+# line. A lock left by a run that died is removed only with -BreakLock, which says whose it was.
+function Lock-Publish([string] $Mode) {
+  if ($DryRun) { return }
+  $key = "${KeyPrefix}publish.lock"
+  if ($BreakLock) {
+    $old = Invoke-R2 -Soft -Method GET -Key $key
+    if ($old.Status -eq 200) {
+      $d = Invoke-R2 -Soft -Method DELETE -Key $key
+      if ($d.Status -ne 200 -and $d.Status -ne 204) { Refuse "-BreakLock could not remove $key ($($d.Status)). Nothing was written." }
+      Say "broke the lock: $($old.Body.Trim())"
+    }
+  }
+  $body = $Utf8.GetBytes("run=$([Guid]::NewGuid().ToString('N')) mode=$Mode started=$(Stamp) host=$([Environment]::MachineName)`n")
+  $r = Invoke-R2 -Method PUT -Key $key -Body $body -PayloadSha (Sha256-Bytes $body) -ContentType 'text/plain; charset=utf-8' -Extra @{ 'if-none-match' = '*'; 'cache-control' = 'no-cache' }
+  if ($r.Status -eq 412) {
+    $held = Invoke-R2 -Soft -Method GET -Key $key
+    $who = if ($held.Status -eq 200) { $held.Body.Trim() } else { 'unreadable' }
+    Refuse "another publish run holds $key ($who). Wait for it to finish. If no other run is active (it died), re-run with -BreakLock. Nothing was written."
+  }
+  if ($r.Status -ne 200 -or -not $r.ETag) { Refuse "could not take $key ($($r.Status)). Nothing was written." }
+  $script:LockEtag = $r.ETag
+}
+function Unlock-Publish {
+  if (-not $script:LockEtag) { return }
+  $etag = $script:LockEtag; $script:LockEtag = ''
+  $key = "${KeyPrefix}publish.lock"
+  # R2 ignores If-Match on a DELETE (measured): check it is still this run's lock first.
+  $h = Invoke-R2 -Soft -Method HEAD -Key $key
+  if ($h.Status -eq 200 -and $h.ETag -ceq $etag) { [void](Invoke-R2 -Soft -Method DELETE -Key $key) }
+}
+
 # ---------- confirming what users are served (after writing) ------------------------------------
 function Get-Served([string] $Name) {
   if ($FakeDir) {
@@ -436,6 +477,7 @@ if ($PSCmdlet.ParameterSetName -ceq 'Staging') {
   # and keyed on the ZIP, so an earlier run cut off before its sidecar still counts.
   # WHATEVER the path (create, same bytes, replace): prod must not be naming this version at a
   # different sha, or the sidecar written below would pin bytes prod's updaters then refuse.
+  Lock-Publish 'stage'
   $prodNamed = Get-Object 'latest-win.json'
   if ($prodNamed) {
     $pn = Read-PointerFields $prodNamed.Bytes
@@ -523,6 +565,7 @@ if ($PSCmdlet.ParameterSetName -ceq 'Staging') {
   # The sha is deliberately NOT filled in: the one to promote is the one in HIS message
   # (promote-channel.sh never prints it for the same reason).
   Say "  pwsh tools/windows/publish-r2.ps1 -Promote -ApprovedVersion <v from his go> -ApprovedSha <sha from his go> -ApprovalRef <his message's Slack ts or permalink>"
+  Unlock-Publish
   exit 0
 }
 
@@ -539,6 +582,7 @@ if (-not ($ApprovalRef -cmatch '^[0-9]{10}\.[0-9]{6}\z' -or $ApprovalRef -cmatch
 $Cred = Read-Credentials
 $Versioned = "kosmos-$ApprovedVersion-win-$Arch.zip"
 
+Lock-Publish 'promote'
 $staging = Get-Object 'latest-win-staging.json'
 if (-not $staging) { Refuse "the bucket has no latest-win-staging.json. Nothing was written." }
 $sp = Read-PointerFields $staging.Bytes
@@ -649,10 +693,11 @@ function Undo-Promote([switch] $PointerWritten, [string] $PointerEtag, [string] 
   $pf = Read-PointerFields $prodBefore.Bytes
   if (-not $pf) { $done += 'the alias and its sidecar still hold this build: the previous latest-win.json could not be read, so there is nothing to restore them from'; return ($done -join '; ') }
   if (-not $AliasEtag -or -not $SideEtag) { $done += 'the alias and its sidecar left as written (no ETag to pin an undo to)'; return ($done -join '; ') }
-  # The alias first: if it is not ours any more, its sidecar describes someone else's write too,
-  # and both are left alone (touching only the sidecar would make the pair disagree).
+  # The alias first: if it is not ours any more, both are left alone and the report says the
+  # alias is someone else's. (Its sidecar may still be this run's, so the pair may disagree: with
+  # publish.lock held that needs a second run that broke the lock, and the refusal says so.)
   $h = Invoke-R2 -Soft -Method HEAD -Key "$KeyPrefix$Alias"
-  if ($h.Status -ne 200 -or $h.ETag -cne $AliasEtag) { $done += "the alias and its sidecar left as they are (the alias is not ours any more: HEAD answered $($h.Status) $($h.ETag))"; return ($done -join '; ') }
+  if ($h.Status -ne 200 -or $h.ETag -cne $AliasEtag) { $done += "the alias and its sidecar left as they are (the alias is not ours any more: HEAD answered $($h.Status) $($h.ETag); its sidecar may still name $ApprovedVersion, so check they agree)"; return ($done -join '; ') }
   # The previous release's zip must still be what its pointer says, or the restore would put
   # unannounced bytes on the alias; the copy is pinned to it.
   $old = Invoke-R2 -Soft -Method GET -Key "$KeyPrefix$($pf.versioned)"
@@ -736,4 +781,5 @@ Assert-Served "$Versioned.sha256" (Sha256-Bytes (New-SidecarBytes $ApprovedSha $
 Write-ApprovalLine "$(Stamp) family=win path=promote-r2 version=$ApprovedVersion sha256=$ApprovedSha approval_ref=$ApprovalRef promoted=yes $Where" -Outcome
 if ($FakeDir) { Say "TEST TRANSPORT, NOTHING PUBLISHED:" }
 Say "PROMOTED $ApprovedVersion ($ApprovedSha) to prod; the bucket and the served bytes both verified."
+Unlock-Publish
 exit 0

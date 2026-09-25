@@ -132,7 +132,8 @@ PYEOF
 mkzip "$TMP/a.zip" 9.9.1 A; mkzip "$TMP/b.zip" 9.9.1 B
 SHA_A=$(shasum -a 256 "$TMP/a.zip" | cut -d' ' -f1)
 fake() { : > "$FAKE/.calls"; KOSMOS_PUBLISH_R2_FAKE_DIR="$FAKE" KOSMOS_WIN_VERIFY_DIR="$VDIR" KOSMOS_WIN_PROMOTE_LOG="$ALOG" "$PWSH" -NoProfile -File "$PS1" -CredentialFile "$TMP/cred.env" "$@" > "$TMP/out" 2>&1; }
-writes() { grep -c '^PUT ' "$FAKE/.calls" || true; }
+# Writes to the bucket's CONTENT: publish.lock (taken and removed by every write run) is not one.
+writes() { grep '^PUT ' "$FAKE/.calls" | grep -vc '^PUT publish\.lock ' || true; }
 record() { node -e 'const s=require(process.argv[1]);const [v,sha,res,out]=process.argv.slice(2);const c={};for(const r of s.REQUIRED_CHECKS)c[r.id]={result:"pass"};if(res==="fail")c.msg={result:"fail"};require("fs").writeFileSync(out,JSON.stringify(s.buildRecord({version:v,sha256:sha,sourceSha:"a".repeat(40),checkResults:c,at:"2026-09-25T12:00:00Z"})))' "$HERE/lib/win-staging-record.js" 9.9.1 "$SHA_A" "$1" "$VDIR/win-staging-$SHA_A.json"; }
 promote() { fake -Promote -ApprovedVersion 9.9.1 -ApprovedSha "$SHA_A" -ApprovalRef 1789228393.821399 "$@"; }
 refuses_clean() { # <label> <expected substring>   (after a fake run): refused, said why, wrote nothing
@@ -142,7 +143,7 @@ refuses_clean() { # <label> <expected substring>   (after a fake run): refused, 
 fake -Zip "$TMP/a.zip" -DryRun; rc=$?
 if [ "$rc" -eq 0 ] && [ "$(writes)" -eq 0 ] && [ ! -e "$FAKE/latest-win-staging.json" ]; then pass "a staging -DryRun writes nothing"; else fail "staging dry run: rc=$rc writes=$(writes)"; fi
 fake -Zip "$TMP/a.zip"; rc=$?
-order=$(grep '^PUT ' "$FAKE/.calls" | awk '{print $2}' | tr '\n' ' ')
+order=$(grep '^PUT ' "$FAKE/.calls" | grep -v '^PUT publish\.lock ' | awk '{print $2}' | tr '\n' ' ')
 if [ "$rc" -eq 0 ] && [ "$order" = "kosmos-9.9.1-win-x64.zip kosmos-9.9.1-win-x64.zip.sha256 latest-win-staging.json " ]; then pass "staging writes zip, sidecar, then the pointer LAST"
 else fail "staging order: rc=$rc order=[$order] $(tail -2 "$TMP/out")"; fi
 # The headers that make it safe were SENT: a create-only zip, no-cache on what gets overwritten.
@@ -180,7 +181,7 @@ promote; rc=$?; refuses_clean "promote with a wrong versioned sidecar: refused, 
 cp "$TMP/side.good" "$FAKE/kosmos-9.9.1-win-x64.zip.sha256"
 : > "$ALOG"
 promote; rc=$?
-order=$(grep '^PUT ' "$FAKE/.calls" | awk '{print $2 ($3 == "COPY" ? "(copy)" : "")}' | tr '\n' ' ')
+order=$(grep '^PUT ' "$FAKE/.calls" | grep -v '^PUT publish\.lock ' | awk '{print $2 ($3 == "COPY" ? "(copy)" : "")}' | tr '\n' ' ')
 if [ "$rc" -eq 0 ] && [ "$order" = "kosmos-win-x64.zip(copy) kosmos-win-x64.zip.sha256 latest-win.json " ] \
    && cmp -s "$FAKE/latest-win.json" "$FAKE/latest-win-staging.json" && cmp -s "$FAKE/kosmos-win-x64.zip" "$TMP/a.zip"; then
   pass "promote writes the alias copy, its sidecar, then latest-win.json LAST (the staging bytes verbatim)"
@@ -311,7 +312,9 @@ undo_state() { printf 'ptr=%s alias=%s side=%s' "$(cmp -s "$FAKE/latest-win.json
 # pinned: the restore PUTs carry if-match, and a HEAD of the alias comes before the undo's COPY.
 undo_pinned() { # <pointer-too: yes|no>
   if [ "$1" = yes ]; then grep -qE '^PUT latest-win\.json \| cache-control=no-cache;if-match="[0-9a-f]{64}"$' "$FAKE/.calls" || return 1; fi
-  grep -qE '^PUT kosmos-win-x64\.zip\.sha256 \| cache-control=no-cache;if-match="[0-9a-f]{64}"$' "$FAKE/.calls" || return 1
+  # The LAST sidecar PUT is the undo's (the forward one comes first): it must be pinned itself.
+  [ "$(grep -c '^PUT kosmos-win-x64\.zip\.sha256 ' "$FAKE/.calls")" -ge 2 ] || return 1
+  grep '^PUT kosmos-win-x64\.zip\.sha256 ' "$FAKE/.calls" | tail -n 1 | grep -qE '\| cache-control=no-cache;if-match="[0-9a-f]{64}"$' || return 1
   awk '/^HEAD kosmos-win-x64\.zip /{h=NR} /^PUT kosmos-win-x64\.zip COPY \/[^ ]*kosmos-9\.9\.0-win-x64\.zip .*x-amz-copy-source-if-match="[0-9a-f]{64}"/{c=NR} END{exit !(h && c && h < c)}' "$FAKE/.calls"
 }
 undo_setup
@@ -389,7 +392,7 @@ else fail "pointer race: rc=$rc ptr=$(cmp -s "$FAKE/latest-win.json" "$TMP/other
 # A pointer with no ETag cannot be pinned: refused before any write.
 undo_setup
 KOSMOS_PUBLISH_R2_FAKE_NO_ETAG=latest-win.json promote; rc=$?
-if [ "$rc" -eq 1 ] && grep -qF "cannot pin its writes" "$TMP/out" && ! grep -qE '^(PUT|DELETE) ' "$FAKE/.calls"; then pass "an unpinnable prod pointer is refused before any write"
+if [ "$rc" -eq 1 ] && grep -qF "cannot pin its writes" "$TMP/out" && ! grep -E '^(PUT|DELETE) ' "$FAKE/.calls" | grep -qv ' publish\.lock '; then pass "an unpinnable prod pointer is refused before any write"
 else fail "no-ETag pointer: rc=$rc writes=$(grep -cE '^(PUT|DELETE) ' "$FAKE/.calls") $(tail -1 "$TMP/out")"; fi
 undo_setup
 
@@ -404,7 +407,7 @@ else fail "first-promote undo: rc=$rc latest-win.json=$([ -e "$FAKE/latest-win.j
 undo_setup; rm -f "$FAKE/latest-win.json" "$FAKE/kosmos-win-x64.zip" "$FAKE/kosmos-win-x64.zip.sha256"
 KOSMOS_PUBLISH_R2_FAKE_AFTER="PUT latest-win.json|kosmos-9.9.1-win-x64.zip|$TMP/b.zip
 PUT latest-win.json|latest-win.json|$TMP/other.json" promote; rc=$?
-if [ "$rc" -eq 1 ] && cmp -s "$FAKE/latest-win.json" "$TMP/other.json" && ! grep -q '^DELETE ' "$FAKE/.calls" && grep -qF "rewritten by someone else since" "$TMP/out" && ! grep -qF "consistently" "$TMP/out"; then pass "a first-ever undo does not delete a pointer someone else wrote since"
+if [ "$rc" -eq 1 ] && cmp -s "$FAKE/latest-win.json" "$TMP/other.json" && ! grep -q '^DELETE latest-win\.json' "$FAKE/.calls" && grep -qF "rewritten by someone else since" "$TMP/out" && ! grep -qF "consistently" "$TMP/out"; then pass "a first-ever undo does not delete a pointer someone else wrote since"
 else fail "first-promote undo vs a newer pointer: rc=$rc $(grep '^DELETE' "$FAKE/.calls") $(tail -1 "$TMP/out")"; fi
 cp "$TMP/a.zip" "$FAKE/kosmos-9.9.1-win-x64.zip"; undo_setup
 # A zip whose duplicate differs only by case or slash is refused too (Windows extracts both to one file).
@@ -430,6 +433,27 @@ python3 -c 'import sys,re;p=sys.argv[1];s=open(p).read();open(p,"w").write(re.su
 promote; rc=$?
 refuses_clean "a staging pointer naming the approved sha in capitals is refused" "the staging pointer names version"
 cp "$TMP/staging.case" "$FAKE/latest-win-staging.json"
+# One run at a time: every write run takes publish.lock (If-None-Match) before it reads, and
+# removes it on every exit, refused or not.
+[ ! -e "$FAKE/publish.lock" ] && pass "no publish.lock is left behind by the runs above" || fail "a run left publish.lock behind: $(cat "$FAKE/publish.lock")"
+cp "$FAKE/latest-win-staging.json" "$TMP/staging.lock-keep"   # the stages below move it
+: > "$FAKE/.calls"; mkzip "$TMP/lk.zip" 9.9.9 LK; fake -Zip "$TMP/lk.zip"; rc=$?
+if [ "$rc" -eq 0 ] && grep -qE '^PUT publish\.lock \| cache-control=no-cache;if-none-match=\*$' "$FAKE/.calls" && [ "$(grep -n '' "$FAKE/.calls" | grep -m1 -E '^[0-9]+:(GET|PUT) ' | cut -d: -f2- | cut -c1-16)" = "PUT publish.lock" ] && [ ! -e "$FAKE/publish.lock" ]; then pass "a stage takes publish.lock (If-None-Match) before any other request and removes it"
+else fail "stage lock: rc=$rc first=$(grep -m1 -E '^(GET|PUT) ' "$FAKE/.calls") lock=$([ -e "$FAKE/publish.lock" ] && echo LEFT || echo gone)"; fi
+printf 'run=other mode=promote started=2026-09-25T20:00:00Z host=PC\n' > "$FAKE/publish.lock"
+mkzip "$TMP/lk2.zip" 9.9.10 LK2; fake -Zip "$TMP/lk2.zip"; rc=$?
+refuses_clean "a stage while another run holds publish.lock is refused" "another publish run holds publish.lock (run=other"
+[ -e "$FAKE/publish.lock" ] && grep -qF 'run=other' "$FAKE/publish.lock" && pass "a refused run leaves ANOTHER run's lock alone" || fail "the other run's lock was removed or changed"
+promote; rc=$?
+refuses_clean "a promote while another run holds publish.lock is refused" "another publish run holds publish.lock"
+fake -Zip "$TMP/lk2.zip" -BreakLock; rc=$?
+if [ "$rc" -eq 0 ] && grep -qF "broke the lock: run=other" "$TMP/out" && [ ! -e "$FAKE/publish.lock" ]; then pass "-BreakLock removes a dead run's lock, says whose it was, and proceeds"
+else fail "-BreakLock: rc=$rc lock=$([ -e "$FAKE/publish.lock" ] && echo LEFT || echo gone) $(tail -1 "$TMP/out")"; fi
+# A refusal after the lock is taken still removes it.
+: > "$FAKE/.calls"; KOSMOS_PUBLISH_R2_FAKE_GET_STATUS=latest-win.json:403 fake -Zip "$TMP/lk.zip"; rc=$?
+if [ "$rc" -eq 1 ] && [ ! -e "$FAKE/publish.lock" ] && grep -q '^DELETE publish\.lock' "$FAKE/.calls"; then pass "a refusal after taking publish.lock removes it"
+else fail "lock after refusal: rc=$rc lock=$([ -e "$FAKE/publish.lock" ] && echo LEFT || echo gone) $(tail -1 "$TMP/out")"; fi
+cp "$TMP/staging.lock-keep" "$FAKE/latest-win-staging.json"
 # The approval line keeps record= LAST, since a Windows record path can hold spaces.
 _given=$(grep 'approval=given' "$ALOG" | tail -1)
 if [ -n "$_given" ] && printf '%s' "$_given" | grep -qE ' record=[^ ]+$'; then pass "record= is the last field of the approval line"
