@@ -341,6 +341,24 @@ function hostedWhy({ available = () => require('./remote').hostedAvailable(), li
 }
 function hostedOffered(deps) { return hostedWhy(deps).ok; }
 
+/* #3734: an existing guide was born told it never creates agents. Replace that paragraph, once, with the
+   current hands-off and make-agents lines, in the marked guide folder only. The running guide reads its
+   new instructions from its next session. { changed: boolean } */
+function refreshGuideRole({ name = guideName(), isGuide = isGuideFolder } = {}) {
+  if (!name || !isGuide(name)) return { changed: false };
+  const roles = require('./roles');
+  const instructions = require('./instructions');
+  let cur;
+  try { cur = instructions.read(name); } catch { return { changed: false }; }
+  const old = roles.HANDS_OFF_LINES_BEFORE_3734.join('\n');
+  if (!cur || !cur.exists || typeof cur.text !== 'string' || !cur.text.includes(old)) return { changed: false };
+  const now = [...(roles.SETUP_HANDS_OFF ? roles.HANDS_OFF_LINES : []), ...(roles.SETUP_MAKES_AGENTS ? roles.MAKE_AGENTS_LINES : [])].join('\n');
+  try {
+    instructions.write(name, cur.text.replace(old, () => now), cur.version, undefined, { who: 'kosmos', because: 'Kosmos let the setup guide make agents for you' });
+    return { changed: true };
+  } catch { return { changed: false }; }
+}
+
 /* Could a guide run on this listed account? create's own gate, plus the default-key check
    above. A live check that errors is uncertainty, not a refusal (create's own rule). */
 async function usable(row, { connectable = (q) => create.accountConnectable(q), liveDefault = defaultLive } = {}) {
@@ -509,6 +527,7 @@ module.exports = {
   hostedOffered,
   hostedWhy,
   guideFailure,
+  refreshGuideRole,
   usable,
   RETRY_AFTER_MS,
   RETRY_MAX_MS,

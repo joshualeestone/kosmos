@@ -41,7 +41,7 @@ const worldRegistryBase = require('./engine/worldenv').bootstrapWorldEnv(process
 // literal there is a comparison that silently stops matching the day the engine
 // renames one.
 const {
-  snapshot, paneRoster, countAgents, projectsUnreadTotal, STATE, modelDisplayName,
+  snapshot, paneRoster, countAgents, needsPerson, projectsUnreadTotal, STATE, modelDisplayName,
   /* #1304: the tier vocabulary, imported rather than hand-written. A literal
      'structured' beside a value read off a process command line is exactly the
      two-copies-of-one-fact habit this file criticises elsewhere. */
@@ -805,6 +805,7 @@ const readConnectionsShelf = inflight.collapse(() => {
 const autoupdate = require('./engine/autoupdate');
 const instructions = require('./engine/instructions');
 const projects = require('./engine/projects');
+const { accountProblemOf } = require('./engine/accountproblem'); // #3723
 const tasks = require('./engine/tasks');
 const chat = require('./engine/chat');
 const messages = require('./engine/messages');
@@ -1389,7 +1390,7 @@ function runnerDisplayName(runner) {
      speculative transform would quietly produce a WRONG name instead of an
      obviously unfinished one, and this file has already deleted one branch for
      describing behaviour the code could not produce. */
-  return runner === 'codex' ? 'Codex' : String(runner);
+  return runner === 'codex' ? 'Codex' : runner === 'antigravity' ? 'Antigravity' : String(runner); // #3568
 }
 
 function sentenceForWhoami(account, model, runner) {
@@ -2127,6 +2128,19 @@ function withCreatorLock(creator, fn) {
  * folder of thousands costs that on each 5-second poll. Reversible. */
 const AGENT_FILES_DEFAULT_CAP = 20;
 const AGENT_FILES_MAX_CAP = 500;
+
+/* #3734: where an agent runs, as a create spec reads it: its launch job's runner (as a provider) and the
+   account folder the job points at (null for the provider's default account), both from the one job so the
+   pair cannot disagree. With no job to read, the provider recorded at its birth and the default account.
+   Null when neither is known. */
+function creatorRunsOn(name) {
+  let job = null;
+  try { job = create.readJob(name); } catch { job = null; }
+  if (job && job.runner) return { provider: create.runnerProvider(job.runner), account: job.configDir || null };
+  let provider = null;
+  try { provider = store.readProfile(name).provider || null; } catch { provider = null; }
+  return provider ? { provider, account: null } : null;
+}
 
 const CREATOR_AGENT_CAP_DEFAULT = 25;
 const MAX_CREATOR_AGENT_CAP = 100;
@@ -2924,6 +2938,9 @@ function withPreviews(rows) {
   if (!Array.isArray(rows)) return rows;
   for (const r of rows) {
     if (!r || typeof r !== 'object' || typeof r.text !== 'string') continue;
+    // #3723: Kosmos's account line quotes text read off an agent's screen, so the board does not go
+    // and fetch whatever address that text contains.
+    if (r.kind === 'kosmos') continue;
     const link = unfurl.firstLink(r.text);
     if (!link) continue;
     const hit = unfurl.peek(link);
@@ -3961,6 +3978,9 @@ const server = http.createServer((req, res) => {
       const couldNotAccount = Boolean(snap.counts && snap.counts.unreadableLines > 0);
       counts.notRunning = couldNotAccount ? null : offline.length;
       counts.total += offline.length;
+      /* #3718: an offline row waiting at the trust prompt needs the person too; countAgents only
+         saw the running rows, so the Issue tile adds these here with the same rule. */
+      counts.needsYou += offline.filter(needsPerson).length;
       // ⚠️ A MACHINE-LEVEL FACT, DELIBERATELY NOT A PER-AGENT ONE. Whether this
       // computer can reach a Claude subscription is one fact about the machine,
       // not thirteen facts about thirteen agents, and putting it on every card
@@ -5495,6 +5515,22 @@ const server = http.createServer((req, res) => {
           }
           effectiveCreator = body.creator;
           callerKind = 'operator';
+        }
+
+        /* #3734: a member that names no provider, account or model runs where the agent that asked runs: its
+           provider and, on a non-default account, that account. The setup guide making an agent for a new
+           person then uses the model the person connected, not Claude by default. A member that names a model
+           keeps the old default, since the model says which provider it meant. */
+        if (callerKind === 'agent' && Array.isArray(members)) {
+          const where = creatorRunsOn(effectiveCreator);
+          if (where) {
+            for (const m of members) {
+              if (m && typeof m === 'object' && !Array.isArray(m) && m.provider === undefined && m.account === undefined && m.model === undefined) {
+                m.provider = where.provider;
+                if (where.account) m.account = where.account;
+              }
+            }
+          }
         }
 
         /* #1279 GLOBAL per-creator active-agent cap: enforced INSIDE the
@@ -12031,8 +12067,11 @@ const server = http.createServer((req, res) => {
        empty `[]` (the name simply cannot be filed, but the agent works), and a live
        question on such an agent SHOULD still show -- that is the intended behaviour
        the integration test below pins. */
+    /* #3723: and Kosmos's own line while the agent is stopped by its account (out of usage or
+       credits, a sign-in that stopped working), derived from the same card, so it clears itself. */
     const servedMessages = Array.isArray(messages)
-      ? chat.withQuestionRow(messages, (card && card.sessionName) || name, question)
+      ? chat.withAccountRow(chat.withQuestionRow(messages, (card && card.sessionName) || name, question),
+        (card && card.sessionName) || name, accountProblemOf(card))
       : messages;
     /* #3650: the person's reactions on the agent's messages, in the room's pill shape
        ({emoji, count, who, mine}) so the page draws them with the room's renderer.
@@ -15517,6 +15556,35 @@ function start(port = PORT) {
       });
       const connlostSweep = setInterval(connlostTick, Number(process.env.AGENT_WORKFORCE_CONNLOST_HEAL_MS) > 0 ? Number(process.env.AGENT_WORKFORCE_CONNLOST_HEAL_MS) : 60 * 1000); // the env is the test seam only
       if (connlostSweep && typeof connlostSweep.unref === 'function') connlostSweep.unref();
+      /* #3723: tell the person's project manager, once per incident, that an agent is stopped by its
+         account (engine/accountnotify.js). Same gating as the sweeps above: inert under `node --test`
+         and before the live-execution opt-in, operator brake AGENT_WORKFORCE_ACCOUNT_NOTIFY_OFF=1,
+         own ~1-min timer, unref'd, best-effort. */
+      const accountNotify = require('./engine/accountnotify');
+      let accountBusy = false;
+      const accountTick = () => {
+        if (accountBusy) return;
+        if (!liveExecution.liveExecutionAllowed() || process.env.AGENT_WORKFORCE_ACCOUNT_NOTIFY_OFF === '1') return;
+        accountBusy = true;
+        try {
+          const cards = safeRoster();
+          if (!Array.isArray(cards) || !cards.length) return;
+          const profile = (s) => { try { return store.readProfile(s) || {}; } catch { return {}; } };
+          accountNotify.sweepOnce({
+            cards,
+            lookups: {
+              reportsTo: (s) => profile(s).reportsTo,
+              roleOf: (s) => profile(s).role,
+              projectsOf: (s) => projects.readAll().filter((p) => p && p.archived !== true && (p.agents || []).includes(s)).map((p) => p.agents || []),
+            },
+            deliver: (session, text) => chat.deliver(session, text, cards, undefined, undefined),
+            DELIVERY: chat.DELIVERY,
+            log: (r) => process.stdout.write(`account-notify: ${r.session} ${r.act}${r.manager ? ' manager=' + r.manager : ''}${r.delivery ? ' delivery=' + r.delivery : ''}\n`),
+          });
+        } catch { /* best-effort, like the sweeps above */ } finally { accountBusy = false; }
+      };
+      const accountSweep = setInterval(accountTick, Number(process.env.AGENT_WORKFORCE_ACCOUNT_NOTIFY_MS) > 0 ? Number(process.env.AGENT_WORKFORCE_ACCOUNT_NOTIFY_MS) : 60 * 1000); // the env is the test seam only
+      if (accountSweep && typeof accountSweep.unref === 'function') accountSweep.unref();
       /* #3595 phase 1: the Recommender runner. Reads recommender-setting every tick (default OFF
          until tool-level guards land; Splinter 2026-09-24), and for an agent that REPORTED itself
          stuck on a project past the grace period it convenes help ONCE: a room note, an ask
@@ -15598,6 +15666,9 @@ function start(port = PORT) {
         try { feedbacksend.sendDailyOnce(feedback.today()); } catch { /* best-effort, like the sweeps above */ }
       }, Number(process.env.AGENT_WORKFORCE_FEEDBACK_SWEEP_MS) > 0 ? Number(process.env.AGENT_WORKFORCE_FEEDBACK_SWEEP_MS) : 60 * 60 * 1000); // the env is the test seam only
       if (feedbackSweep && typeof feedbackSweep.unref === 'function') feedbackSweep.unref();
+      /* #3734: an existing guide's instructions still say it never creates agents; say what it may do now.
+         Once, at start; a no-op when the paragraph is not there. */
+      try { setupAssistant.refreshGuideRole(); } catch { /* best-effort */ }
       /* #3034/#3660: the setup guide is created the moment the first model is connected,
          after Giddy Up, from any provider's connect path (keys, sign-ins that finish in the
          background). One sweep sees them all instead of a hook in every route. Cheap until
@@ -16114,6 +16185,7 @@ module.exports = {
   givePart, // #3595: the assign-and-tell path, exported so the Assigner's real write path is tested
   swarmSweepDeps, // #3564: the limit sweep's wiring, exported so it is tested
   guideCardFailing, resetGuideCardMemoForTests, // #3660: the fallback's reading of the guide card, for its tests
+  creatorRunsOn, // #3734: where an agent-made team member runs by default, for its tests
   /* #2036: the boot diagnostic's condition (pure truth table) AND its real call-site
      composition, exported together so BOTH are pinned. stagingRevertWarningNow wires the raw
      install stamp rather than the #2934 badge; sourceChannelNow is exported alongside so the

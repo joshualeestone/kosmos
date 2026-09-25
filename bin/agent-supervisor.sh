@@ -59,7 +59,8 @@ LOG="${5:-}"
 # an explicit model choice carry a sixth.
 MODEL="${6:-}"
 # The RUNNER this agent runs on, optional and NEW as of #245 (2026-08-24).
-# 'claude' (the default every existing plist means by omission) or 'codex'.
+# 'claude' (the default every existing plist means by omission), 'codex', 'gemini', 'grok',
+# or 'antigravity' (#3568, behind AGENT_WORKFORCE_ANTIGRAVITY=1).
 # Per the vector contract above: optional, defaulted, position seven, and
 # every earlier argument keeps its position and meaning. $3 stays "the path
 # to the runner binary" -- for a codex agent, create.js writes the codex
@@ -162,9 +163,10 @@ while "$TMUX_BIN" has-session -t "$TARGET" 2>/dev/null; do
       # status.js's isCodexCommand the way the claude entries mirror
       # isClaudeCommand. Without them, a LIVE codex agent's pane reads as
       # "every pane is a shell: it crashed" and this script kills it.
+      # #3568: agy (Antigravity) for the same reason, mirroring status.js's isAntigravityCommand.
       if [[ "$pane_cmd" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] \
         || [ "$pane_cmd" = claude ] || [ "$pane_cmd" = claude.exe ] || [ "$pane_cmd" = node ] \
-        || [ "$pane_cmd" = codex ] || [ "$pane_cmd" = codex.exe ]; then
+        || [ "$pane_cmd" = codex ] || [ "$pane_cmd" = codex.exe ] || [ "$pane_cmd" = agy ]; then
         alive=1
       fi
     done <<EOF
@@ -412,7 +414,8 @@ if [ -z "$adopt" ]; then
   # board scrapes. Measured on a private socket: an alt screen does not destroy
   # scrollback. `Does not destroy` is not a reason to move it while fixing a
   # prompt.
-  if [ "$RUNNER" != codex ]; then
+  # #3568: not for an Antigravity pane either; this is a Claude Code setting.
+  if [ "$RUNNER" != codex ] && [ "$RUNNER" != antigravity ]; then
     PANE_ENV+=(-e "CLAUDE_CODE_DISABLE_ALTERNATE_SCREEN=1")
   fi
   # 🛑 #3383c: HOME is the load-bearing addition here (its position in the loop is irrelevant --
@@ -442,7 +445,9 @@ if [ -z "$adopt" ]; then
   # PER-ACCOUNT gemini/grok agent (its account home written into the plist as that
   # var) reaches the pane with the home the CLI reads. Absent for a default-account
   # agent, so this is a no-op there -- exactly like CODEX_HOME.
+  # #3568: CLAUDE_CONFIG_DIR is not forwarded from this supervisor's env into an Antigravity pane.
   for _var in HOME KOSMOS_PORT CLAUDE_CONFIG_DIR CODEX_HOME GEMINI_CLI_HOME GROK_HOME CLOUDFLARE_API_TOKEN GH_TOKEN; do
+    [ "$RUNNER" = antigravity ] && [ "$_var" = CLAUDE_CONFIG_DIR ] && continue
     if [ -n "$(eval "printf '%s' \"\${$_var:-}\"")" ]; then
       PANE_ENV+=(-e "$_var=$(eval "printf '%s' \"\$$_var\"")")
     fi
@@ -501,7 +506,7 @@ if [ -z "$adopt" ]; then
   # below (it is not Claude-specific: a board cold-started under one account's CODEX_HOME leaks
   # it into a default-account codex pane the same way).
   EFFECTIVE_CCD="${CLAUDE_CONFIG_DIR:-}"
-  if [ "$RUNNER" != codex ] && [ -z "$EFFECTIVE_CCD" ]; then
+  if [ "$RUNNER" != codex ] && [ "$RUNNER" != antigravity ] && [ -z "$EFFECTIVE_CCD" ]; then # #3568: no explicit pin for an agy pane
     _srv_ccd="$("$TMUX_BIN" show-environment -g CLAUDE_CONFIG_DIR 2>/dev/null || true)"
     case "$_srv_ccd" in
       # `CLAUDE_CONFIG_DIR=<val>` sets it; a `-CLAUDE_CONFIG_DIR` unset line or an absent
@@ -723,6 +728,26 @@ if [ -z "$adopt" ]; then
     "$TMUX_BIN" new-session -d -s "$SESSION" -c "$WORKDIR" ${PANE_ENV[@]+"${PANE_ENV[@]}"} \
       -e "GROK_CLAUDE_HOOKS_ENABLED=0" \
       ${_GROK_PREFIX[@]+"${_GROK_PREFIX[@]}"} "$CLAUDE" --permission-mode bypassPermissions --always-approve --trust -m "$GROK_MODEL" || exit 1
+  elif [ "$RUNNER" = antigravity ]; then
+    # #3568: the Antigravity runner (Google's agy). Only a board started with
+    # AGENT_WORKFORCE_ANTIGRAVITY=1 sets one up, but a job set up while it was on keeps
+    # launching here after it is turned off, including the trust write below. Launched with its documented flags only (agy 1.2.10 --help):
+    #   --dangerously-skip-permissions : auto-approve tool requests (the claude/gemini/grok analog)
+    #   --model                        : only when a model was recorded; empty lets agy pick.
+    # The pane's own directory is agy's workspace (it has no --cwd). The person signs in to
+    # Antigravity inside this pane with their own Google account; Kosmos never reads or reuses
+    # agy's stored sign-in. No hooks yet: status comes in a later slice.
+    # agy asks "trust this folder?" on every new folder and has no flag to skip it (measured
+    # 2026-09-25), so pre-answer it here, before every launch. Best-effort, like
+    # ensure-launch-trust.js below for Claude: if it cannot write, the prompt shows instead.
+    if [ -n "${_eng:-}" ] && [ -f "$_eng/agytrust.js" ] && [ -n "${NODE_BIN:-}" ]; then
+      "$NODE_BIN" "$_eng/agytrust.js" "$WORKDIR" >/dev/null || true  # stderr (why, if it could not) goes to the agent log
+    fi
+    _AGY_ARGS=(--dangerously-skip-permissions)
+    [ -n "${MODEL:-}" ] && _AGY_ARGS+=(--model "$MODEL")
+    "$TMUX_BIN" new-session -d -s "$SESSION" -c "$WORKDIR" ${PANE_ENV[@]+"${PANE_ENV[@]}"} \
+      "$CLAUDE" "${_AGY_ARGS[@]}" || exit 1
+    unset _AGY_ARGS
   else
     # #2808 class-1 / #2129: re-apply the folder-trust write + bypass pre-accept BEFORE
     # this (re)launch. engine/create.js writes them once at CREATE, but a restart re-runs

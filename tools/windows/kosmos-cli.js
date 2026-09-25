@@ -97,6 +97,11 @@ const USAGE = {
     '  kosmos project create "<name>" <folder> ["<description>"]   make a new project (it shows on your board, tagged as made by you)',
     '  <folder> is a path on this machine; the project\'s files live there.',
   ].join('\n'),
+  agent: [
+    'Usage: kosmos agent <create|roles>',
+    '  kosmos agent create "<name>" <role> ["<why>"]   make an agent for the person, after they confirm',
+    '  kosmos agent roles                              list the roles an agent can be made with',
+  ].join('\n'),
   feedback: [
     'Usage: kosmos feedback write [text]      (or pipe the report in on stdin)',
     '       kosmos feedback show [YYYY-MM-DD]  (defaults to today)',
@@ -572,6 +577,37 @@ async function projectCreate(ctx, args) {
   return 1;
 }
 
+/* #3734: kosmos agent create / roles, as install/kosmos's cmd_agent: a one-member team (POST /api/team,
+   #1279) with this agent's launch token, so the board records who asked and why and runs the new agent
+   where the asker runs. */
+async function agentCreate(ctx, args) {
+  const name = args[0];
+  const role = args[1];
+  const why = args[2] || 'the person asked for it';
+  if (!name || !role) { ctx.err(USAGE.agent); return 2; }
+  if (!ctx.agentToken()) { ctx.err('kosmos agent create is for an agent acting for the person, and this one has no launch token; make the agent from New agent instead.'); return 1; }
+  // A create waits on a live account check and the create itself, so it gets the long timeout; a timeout
+  // after the request left is "may have been made", never "not made".
+  const r = await ctx.call('POST', '/api/team', { purpose: why, members: [{ name, role }] }, { timeoutMs: POST_TIMEOUT_MS });
+  if (!r.reached) return r.timedOut ? maybe(ctx.err, 'Kosmos was slow to answer and we stopped waiting. The agent may have been made; look at the board before trying again.') : ctx.unreachable('make that agent');
+  const j = r.json || {};
+  const made = Array.isArray(j.created) && j.created[0] ? j.created[0] : null;
+  if (made && !j.error) { ctx.out('Made "' + (made.shownAs || made.name || name) + '". It\'s on your board now: ' + ctx.url + '/'); return 0; }
+  const ref = Array.isArray(j.refused) && j.refused[0] ? j.refused[0] : null;
+  const because = j.error || (ref && ref.because) || j.because;
+  if (because) { ctx.err('Kosmos did not make that agent: ' + because + '.'); return 1; }
+  ctx.err('Kosmos gave an answer we could not read when making that agent.');
+  return 1;
+}
+async function agentRoles(ctx) {
+  const r = await ctx.call('GET', '/api/roles', undefined, { agent: false });
+  if (!r.reached) return ctx.unreachable('list the roles');
+  const roles = r.json && Array.isArray(r.json.roles) ? r.json.roles : null;
+  if (!roles) { ctx.err('Kosmos gave an answer we could not read when listing the roles.'); return 1; }
+  for (const x of roles) if (x && x.key) ctx.out(x.key + '  ' + (x.label || ''));
+  return 0;
+}
+
 /* The feedback verbs are engine-direct, as install/kosmos's `node -e` snippets are:
    the report store is local (engine/feedback.js), so they work with no board. */
 async function feedbackWrite(ctx, args) {
@@ -684,6 +720,7 @@ const VERB_HANDLERS = {
   room: verbRoom,
   task: subcommandRequired('task'),
   project: subcommandRequired('project'),
+  agent: subcommandRequired('agent'),
   feedback: subcommandRequired('feedback'),
 };
 const SUBCOMMAND_HANDLERS = {
@@ -691,6 +728,7 @@ const SUBCOMMAND_HANDLERS = {
   room: { reopen: roomReopen },
   task: { list: taskList, add: taskAdd, close: taskClose, message: taskMessage },
   project: { create: projectCreate },
+  agent: { create: agentCreate, roles: agentRoles },
   feedback: { write: feedbackWrite, show: feedbackShow, list: feedbackList, pull: feedbackPull, triage: feedbackTriage },
 };
 const VERBS = Object.keys(VERB_HANDLERS);
@@ -784,6 +822,8 @@ async function main(argv, io) {
        which this agent's environment points at its own Kosmos, as outbox does. */
     engine: (name) => (o.engine && o.engine[name]) || require(path.join(engineDir(), name + '.js')),
     unreachable: (what) => { err('We could not reach Kosmos to ' + what + '. Is it running at ' + url + '?'); return 1; },
+    url,
+    agentToken: () => hook.agentToken(env),
     refusedBy: (r) => (r.json && typeof r.json.error === 'string') ? clause(r.json.error) : null,
     /* The board is serving another Kosmos than this agent's. */
     wrongWorld: (r) => r.reached && r.status === WRONG_WORLD_STATUS && Boolean(r.json) && r.json.wrongWorld === true,
