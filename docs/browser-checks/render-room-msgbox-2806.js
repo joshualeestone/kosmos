@@ -1122,7 +1122,8 @@ const now = () => new Date().toISOString();
       const cardClicks = await phonePage.evaluate(() => window.__cardClicks);
       chk(rowsLeft === 4 && cardClicks === 1 && barAfterCardTap.shown === 0 && barAfterCardTap.op === '0', `[phone/touch] a tap on a file card does not toggle the bar`, JSON.stringify(Object.assign({ rowsLeft, cardClicks }, barAfterCardTap)));
       // The person's own SHORT post: its bar (right anchor) stays inside the thread, and every
-      // touch target in it, and the reaction pill, is at least 36px.
+      // touch target in it, and the reaction pill, is at least the room's --room-tap (#3811), which
+      // is itself at least 36px (the size decided for these small repeated targets).
       const own = phonePage.locator('#pj-room .msg.you .msg-bd p').last();
       await own.tap();
       await phonePage.waitForTimeout(300);
@@ -1132,11 +1133,11 @@ const now = () => new Date().toISOString();
         if (!row || !row.classList.contains('you') || !q) return { error: 'no open bar on the person\'s own row' };
         const Q = q.getBoundingClientRect(), R = room.getBoundingClientRect();
         const size = (el) => { const r = el.getBoundingClientRect(); return Math.round(Math.min(r.width, r.height)); };
-        return { inside: Q.left >= R.left && Q.right <= R.right + 1 && Q.top >= R.top, bar: [Math.round(Q.left), Math.round(Q.right)], room: [Math.round(R.left), Math.round(R.right)],
+        return { tapPx: parseFloat(getComputedStyle(room).getPropertyValue('--room-tap')), inside: Q.left >= R.left && Q.right <= R.right + 1 && Q.top >= R.top, bar: [Math.round(Q.left), Math.round(Q.right)], room: [Math.round(R.left), Math.round(R.right)],
           buttons: [...q.querySelectorAll('button')].map(size), pill: row.querySelector('.rxn') ? Math.round(row.querySelector('.rxn').getBoundingClientRect().height) : null };
       });
       chk(!ownBar.error && ownBar.inside, `[phone/touch] the bar on a short post of your own stays inside the thread`, JSON.stringify(ownBar));
-      chk(!ownBar.error && ownBar.buttons.length === 4 && ownBar.buttons.every((n) => n >= 36) && ownBar.pill >= 36, `[phone/touch] every reaction target is at least 36px (the bar's buttons and a reaction pill)`, JSON.stringify(ownBar));
+      chk(!ownBar.error && ownBar.tapPx >= 36 && ownBar.buttons.length === 4 && ownBar.buttons.every((n) => n >= ownBar.tapPx) && ownBar.pill >= ownBar.tapPx, `[phone/touch] every reaction target is at least --room-tap, and --room-tap is at least 36px (the bar's buttons and a reaction pill)`, JSON.stringify(ownBar));
       // The open bar is CLEAR of its one-line bubble, so tapping the bubble again closes the bar
       // and reacts with nothing (at thumb size an overlapping bar covered the whole bubble).
       const clear = await phonePage.evaluate(() => {

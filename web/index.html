@@ -5927,10 +5927,13 @@ body:not(.consolidated) .pjmidhead:has(.pjhead) .tsearch:focus-within { flex-bas
      check (render-room-msgbox-2806, "composer and its @mention mirror match"). */
   /* The composer itself is 16px through the project page's one field rule (after .tk-inp). */
   .pjmid #pj-post-mirror .pj-mirror-in { font-size: 16px; }
-  #pj-room .rxn-pick, #pj-room .rxn-more { min-width: 36px; min-height: 36px; }
+  /* The room's touch target, said once (#3811): 36px, under the 44px guidance, for these small
+     controls repeated on every post; the Allow card's primary buttons are 44. */
+  #pj-room { --room-tap: 36px; }
+  #pj-room .rxn-pick, #pj-room .rxn-more { min-width: var(--room-tap); min-height: var(--room-tap); }
   /* A reaction already on a post is a target too, on any touchscreen (a phone turned
      sideways is wider than the phone block but still a thumb). */
-  #pj-room .rxn { min-height: 36px; padding: 2px 10px; }
+  #pj-room .rxn { min-height: var(--room-tap); padding: 2px 10px; }
 }
 .rxn-pick { border: 0; background: transparent; cursor: pointer; font-size: 1.15rem; line-height: 1;
             padding: 3px 5px; border-radius: 7px; }
