@@ -44559,7 +44559,7 @@ function pjTableHtml(headerLine, aligns, bodyLines, names, agentNames) {
   }
   return h + '</tbody></table></span>';
 }
-function pjProse(text, names, agentNames) {
+function pjProse(text, names, agentNames, sharedStack) {
   const src = String(text == null ? '' : text).split(/\r?\n/);   // #3679: a CRLF line still matches the `$`-anchored line rules below
   /* Drop empty lines at the two ENDS only (never interior blank lines, which
      are the paragraph breaks this renderer exists to show). This absorbs the
@@ -44569,7 +44569,9 @@ function pjProse(text, names, agentNames) {
   while (src.length && src[0] === '') src.shift();
   while (src.length && src[src.length - 1] === '') src.pop();
   const out = [];
-  const listStack = [];   // #3679: pjListDepth's open levels for the current list
+  // #3679: pjListDepth's open levels for the current list. #3685: pjBody passes one stack to every
+  // prose segment, so a list stays open across a fence nested in one of its items.
+  const listStack = sharedStack || [];
   for (let i = 0; i < src.length; i += 1) {
     const line = src[i];
     // A non-list line ends the list only when it is not indented under it (a table or heading
@@ -44612,17 +44614,74 @@ function pjProse(text, names, agentNames) {
 }
 function pjBody(text, names, agentNames) {
   const raw = String(text == null ? '' : text);
-  /* The capture keeps each fence line's infostring; the old pattern ate it.
-     With the capture, k closed blocks yield 4k+1 segments:
-     [prose, openInfo, code, closeInfo, prose, ...]. Any other count means an
-     unclosed fence, and an uncertain reading stays the flat paragraph. */
-  const parts = raw.split(/^```([^\n]*)$/m);
-  if (parts.length < 5 || (parts.length - 1) % 4 !== 0) return pjProse(raw, names, agentNames);
+  /* #3685: fences are read the way the store (engine/chat.js storeText) and pjRich read
+     them: leading spaces or tabs allowed, three or more backticks, no backtick after them,
+     and closed only by a bare run at least as long as the opener. So an indented fence
+     (under a list item), a four-backtick fence holding a ``` example, and an inline
+     ```span``` line open and close the same way here as there. (Unlike pjRich, an
+     unclosed fence still leaves the message as prose; see below.) The segments are cut at the same
+     offsets the old split used, [prose, openInfo, code, closeInfo, prose, ...], so a
+     column-0 three-backtick fence renders exactly as before. An unclosed fence is still an
+     uncertain reading, and the whole message stays the flat paragraph. */
+  const parts = [];
+  let proseFrom = 0;
+  let open = null;   // { lead, len, codeFrom } while inside a fence
+  const openWidths = [];   // each fence opener's indent width, in order
+  const listStack = [];   // shared by every prose segment below (pjProse), see the loop
+  let at = 0;
+  let closedAny = false;
+  while (at <= raw.length) {
+    const nl = raw.indexOf('\n', at);
+    const end = nl === -1 ? raw.length : nl;
+    const line = raw.slice(at, end);
+    if (!open) {
+      const fo = /^([ \t]*)(`{3,})([^`]*)$/.exec(line);
+      if (fo) {
+        parts.push(raw.slice(proseFrom, at), fo[3]);
+        openWidths.push(fo[1].replace(/\t/g, '    ').length);
+        open = { lead: openWidths[openWidths.length - 1], len: fo[2].length, codeFrom: end };
+      }
+    } else {
+      const fc = /^[ \t]*(`{3,})([ \t]*)\r?$/.exec(line);
+      if (fc && fc[1].length >= open.len) {
+        let code = raw.slice(open.codeFrom, at);
+        // The opener's indentation comes off each code line, up to that much, measured in
+        // columns with a tab as 4 (the store's STORE_TAB and openWidths above). A tab that
+        // would cut past the opener's width leaves its remainder as spaces.
+        if (open.lead) {
+          const cut = open.lead;
+          code = code.split('\n').map((l) => {
+            let col = 0;
+            let i = 0;
+            while (i < l.length && col < cut && (l[i] === ' ' || l[i] === '\t')) {
+              const w = l[i] === '\t' ? 4 : 1;
+              if (col + w > cut) return ' '.repeat(col + w - cut) + l.slice(i + 1);
+              col += w;
+              i += 1;
+            }
+            return l.slice(i);
+          }).join('\n');
+        }
+        parts.push(code, fc[2]);
+        proseFrom = end;
+        open = null;
+        closedAny = true;
+      }
+    }
+    if (nl === -1) break;
+    at = nl + 1;
+  }
+  if (open || !closedAny) return pjProse(raw, names, agentNames);
+  parts.push(raw.slice(proseFrom));
   let out = '';
   for (let i = 0; i < parts.length; i += 1) {
     const at = i % 4;
-    if (at === 0) { out += pjProse(parts[i], names, agentNames); continue; }
+    if (at === 0) { out += pjProse(parts[i], names, agentNames, listStack); continue; }
     if (at === 1) {
+      // A fence that is not indented under the open list ends it, as any such line does in
+      // pjProse; one nested in an item keeps it open for the items after the fence.
+      const w = openWidths[(i - 1) / 4];
+      if (listStack.length && w <= listStack[0]) listStack.length = 0;
       const label = String(parts[i] || '').trim();
       /* Path-shaped: no whitespace (a save-as attribute is not an origin),
          no `..` (walking up is not a file of this project), and a dot or a
