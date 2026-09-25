@@ -2184,6 +2184,35 @@ test('#670: unread is every post after the person last opened the room, agent ch
   });
 });
 
+test('#3564: the room valve does not charge a swarm switched off in the project; switched on, the same post trips it', () => {
+  const projects = require('./projects');
+  const made = projects.create({ name: 'Swarm Valve Room' });
+  const pid = made.id || (made.project && made.project.id);
+  const seed = () => {
+    fs.mkdirSync(path.dirname(messages.LOG), { recursive: true });
+    fs.writeFileSync(messages.LOG, '');
+    const at = new Date(Date.now() - 60000).toISOString();
+    // One arrival short of the budget: a post that charges 2 trips it, one that charges 1 does not.
+    for (let i = 0; i < ROOM_BUDGET - 1; i += 1) {
+      fs.appendFileSync(messages.LOG, JSON.stringify({ kind: 'post', id: 'v' + (i + 1), project: pid, from: 'mara', to: ['leo'], text: 'r' + i, at, outcomes: {} }) + '\n');
+    }
+  };
+  projects.setSwarmOn(pid, 'april', false);
+  try {
+    withFleet(room3(), (board) => {
+      seed();
+      armSender('leo-discord'); arm([]);
+      const off = messages.sendPost({ fromPane: '%7', project: pid, text: 'one more' }, board.agents, MEMBERS);
+      assert.notEqual(off.state, chat.DELIVERY.COULD_NOT, 'the valve charged an Off swarm that is never sent the post: ' + (off.because || ''));
+      projects.setSwarmOn(pid, 'april', true);
+      seed();
+      armSender('leo-discord'); arm([]);
+      const on = messages.sendPost({ fromPane: '%7', project: pid, text: 'one more' }, board.agents, MEMBERS);
+      assert.equal(on.state, chat.DELIVERY.COULD_NOT, 'CONTROL: the same post with april on should trip the valve');
+    });
+  } finally { projects.setSwarmOn(pid, 'april', true); }
+});
+
 test('#3564: a swarm switched OFF in a project is not woken by the room, unless the post @-names it', () => {
   const projects = require('./projects');
   const made = projects.create({ name: 'Swarm Off Room' });

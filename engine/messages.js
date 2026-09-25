@@ -1257,7 +1257,12 @@ function sendPost({ fromPane, sender: resolvedSender, project, projectName, text
   const arrivals = log.filter((m) => m && m.kind === 'post' && !m.operator
     && m.project === projectId && Date.parse(m.at) >= countFrom)
     .reduce((n, m) => n + (Array.isArray(m.to) ? m.to.length : 0), 0);
-  if (operator !== true && arrivals + recipients.length > lim.roomArrivalsPerWindow) {
+  /* #3564: a swarm switched OFF in this project is not sent the room's posts, so it is not
+     charged for them (one that is @-named into this post goes uncharged for it). */
+  const projectsMod = require('./projects');   // lazy: projects requires this module
+  const offInProject = projectsMod.swarmOffSet(projectId);
+  const charged = recipients.filter((n) => !offInProject.has(String(n))).length;
+  if (operator !== true && arrivals + charged > lim.roomArrivalsPerWindow) {
     const because = lim.on
       ? 'This conversation went back and forth for a while without landing, '
         + 'so Kosmos stopped it and asked everyone to bring you in.'
@@ -1351,8 +1356,6 @@ function sendPost({ fromPane, sender: resolvedSender, project, projectName, text
   /* #3564: a swarm switched OFF in this project is not woken by the room, unless the
      post @-names it. It stays a member, but a post it was not sent is not logged as
      sent to it, so an @-name later tells it what it missed. */
-  const projectsMod = require('./projects');   // lazy: projects requires this module
-  const offInProject = projectsMod.swarmOffSet(projectId);
   const offHere = new Set(recipients.filter((n) => !mentioned.has(n) && offInProject.has(String(n))));
   for (const name of recipients) {
     if (offHere.has(name)) continue;

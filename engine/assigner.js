@@ -55,10 +55,10 @@ function idleCard(a) {
   return Boolean(a && a.sessionName && a.isNamedOurs === true && a.state === 'idle');
 }
 
-/* #3564: a member this project has switched off (a swarm) takes no work in it. */
-function offIn(p, session) {
-  return Array.isArray(p.swarmOff) && p.swarmOff.includes(session);
-}
+
+/* #3564: the projects module's own reading of "switched off here". Lazy: requiring it at the top
+   closes a require cycle and hands back a half-built module. */
+const isSwarmOff = (p, session) => require('./projects').isSwarmOff(p, session);
 
 /* Live (non-archived) project records only. */
 function liveProjects(records) {
@@ -92,7 +92,7 @@ function ageKey(t) {
 function pick(session, projects, taken) {
   const candidates = [];
   for (const p of projects) {
-    if (!(Array.isArray(p.agents) && p.agents.includes(session)) || offIn(p, session)) continue;
+    if (!(Array.isArray(p.agents) && p.agents.includes(session)) || isSwarmOff(p, session)) continue;
     for (const t of Array.isArray(p.tasks) ? p.tasks : []) {
       if (typeof t.number !== 'number') continue;
       if (taken.has(p.id + '#' + t.number)) continue;
@@ -117,7 +117,7 @@ function emptyMemory() {
    the same step is already in `asked`, so a second agent in it is not asked.) */
 function goalProject(session, projects, goals, asked, now) {
   for (const p of projects) {
-    if (!(Array.isArray(p.agents) && p.agents.includes(session)) || offIn(p, session)) continue;
+    if (!(Array.isArray(p.agents) && p.agents.includes(session)) || isSwarmOff(p, session)) continue;
     const at = asked.get(p.id);
     if (typeof at === 'number' && now - at < GOAL_ASK_MS) continue;
     const goal = goals instanceof Map ? goals.get(p.id) : null;

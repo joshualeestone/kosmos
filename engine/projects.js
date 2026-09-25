@@ -2129,10 +2129,13 @@ function cleanArchivedAt(value) {
  * message or task line to it there is refused with a sentence. Stored on the project
  * as `swarmOff: [sessionName]`.
  */
+/* The one reading of the stored fact, for a caller that already holds the project record. */
+function isSwarmOff(record, name) {
+  return Boolean(record && Array.isArray(record.swarmOff) && record.swarmOff.includes(String(name)));
+}
 function swarmOffIn(projectId, name) {
   try {
-    const p = readAll().find((x) => x && x.id === projectId);
-    return Boolean(p && Array.isArray(p.swarmOff) && p.swarmOff.includes(String(name)));
+    return isSwarmOff(readAll().find((x) => x && x.id === projectId), name);
   } catch { return false; }
 }
 /* The same fact for every member at once: one read of the store, for a caller that checks many. */
@@ -2757,7 +2760,7 @@ function toldOverride(verdict, sessionName, known) {
 }
 
 module.exports = {
-  swarmOffIn, swarmOffSet, setSwarmOn, SWARM_OFF_SENTENCE, memberValve, processMemberChanges, ageMemberChangesForTests, MEMBERS_PER_HOUR, toldOverride,
+  swarmOffIn, swarmOffSet, isSwarmOff, setSwarmOn, SWARM_OFF_SENTENCE, memberValve, processMemberChanges, ageMemberChangesForTests, MEMBERS_PER_HOUR, toldOverride,
   FILE, FOLDER, TOLD, BLOCK_START, BLOCK_END, YOU_START, YOU_END, REPORTS_START, REPORTS_END, CONNECTIONS_START, CONNECTIONS_END, DMFILES_START, DMFILES_END, SWARM_START, SWARM_END, POLICY_START, POLICY_END, DOCTRINE_START, DOCTRINE_END, ALL_MARKERS, neutralise,
   file, readAll, writeAll, idFor, folderState, describe, andList,
   list, get, projectsFor, namesFor, create, edit, rename, setDescription, setArchived, addAgent, removeAgent, remove, mutate,
