@@ -1,4 +1,4 @@
-// Browser-check-surface: tipcard tippins tiphalo tip-live tips-row tip-eb tip-x tip-go tip-off tip-skip tip-dots tip-arrow tip-bands helpq helpq-btn helpq-menu data-help tips-toggle tips-box
+// Browser-check-surface: tipcard tippins tiphalo tip-live tips-row tip-eb tip-x tip-go tip-off tip-skip tip-dots tip-arrow tip-bands tipdim tip-dimming helpq helpq-btn helpq-menu data-help tips-toggle tips-box
 'use strict';
 
 /**
@@ -45,7 +45,7 @@ const cardState = (page) => page.evaluate(() => {
   const c = document.getElementById('tipcard');
   const h = c && c.querySelector('h2');
   return { shown: !!c && !c.hidden, title: h ? h.textContent : null,
-    dim: !!document.querySelector('#tippins:not([hidden]) .tiphalo'),
+    dim: !!document.querySelector('#tippins:not([hidden]) .tiphalo, #tippins:not([hidden]) .tipdim') || document.documentElement.classList.contains('tip-dimming'),
     halo: document.querySelectorAll('#tippins .tiphalo').length,
     step: c ? (c.querySelector('.tip-eb')?.textContent || '') : '', dots: c ? c.querySelectorAll('.tip-dots i').length : 0 };
 });
@@ -209,7 +209,7 @@ const resetStore = (state) => fs.writeFileSync(tipsStore.FILE(), JSON.stringify(
     await page.click('#tabs [data-tab="agents"]');
     await page.reload({ waitUntil: 'networkidle' });
 
-    // T4: a reload does not bring back what was closed (control: T1-T3b each showed before closing).
+    // T4: a reload does not bring back what was closed (control: T1-T3 each showed before closing).
     await page.reload({ waitUntil: 'networkidle' });
     chk(await tipsRunning(page), 'T4 precondition: the tips code is running');
     await page.waitForTimeout(2800);
@@ -272,6 +272,8 @@ const resetStore = (state) => fs.writeFileSync(tipsStore.FILE(), JSON.stringify(
     await page.click('#helpq-btn');
     await page.click('#helpq-menu [data-help="ring"]');
     chk((await cardState(page)).title === 'Your agent\'s memory', 'T5 What does the ring mean shows the ring explainer');
+    const ringCls = await page.evaluate(() => ['up', 'down', 'left', 'right', 'flat'].find((k) => document.getElementById('tipcard').classList.contains(k)));
+    chk(ringCls && ringCls !== 'flat', 'T5 the ring explainer opened from the ? points at a ring, not a centred card', 'cls=' + ringCls);
 
     // T6: Stop showing tips turns them off in one write, and the Settings switch reads it. With tips
     // off and nothing seen, nothing shows; turning the switch on shows the tour from that same state

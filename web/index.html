@@ -54930,8 +54930,8 @@ function tipDimming(on) {
 /* Position only; the card's content and focus are left alone, so a resize or scroll does not rebuild it. */
 function tipLayout(t, card) {
   if (t.tour) {
-    /* The step's place stays bright inside a gold ring and the rest of the page dims: one fixed ring
-       whose outer shadow is the dim, so nothing in the app has to be lifted above it. */
+    /* The step's place stays bright inside a gold ring and the rest of the page dims: a fixed shade
+       with a ring-shaped hole cut in it, so nothing in the app has to be lifted above it. */
     const st = TIP_PLACES[TIP_STEP];
     const halo = document.getElementById('tippins');
     const el = st && st.sel ? document.querySelector(st.sel) : null;
