@@ -212,3 +212,19 @@ test('the room view keeps local posts in sight however much arrives from outside
   assert.ok(outsideLines <= 20, `${outsideLines} outside rows in the view`);
   assert.match(text, /a local note to find/);
 });
+
+test('a link in words from outside is never fetched when the room is read', async () => {
+  const unfurl = require('./engine/unfurl');
+  const calls = [];
+  const orig = { warm: unfurl.warm, peek: unfurl.peek };
+  unfurl.warm = (u) => { calls.push(['warm', u]); };
+  unfurl.peek = (u) => { calls.push(['peek', u]); return null; };
+  try {
+    children[0].stdout.write(JSON.stringify({ event: 'message', data: { from: 'Grace', kind: 'person', text: 'look https://tracker.example/unique-3311' } }) + '\n');
+    await new Promise((r) => setImmediate(r));
+    await (await fetch(`${base}/api/project/${encodeURIComponent(pid)}/room`)).json();
+  } finally {
+    unfurl.warm = orig.warm; unfurl.peek = orig.peek;
+  }
+  assert.equal(calls.filter(([, u]) => String(u).includes('tracker.example')).length, 0, JSON.stringify(calls));
+});

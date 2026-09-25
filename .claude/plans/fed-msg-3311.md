@@ -212,6 +212,24 @@ board yet carried messages between a federated project's room and its seat.
   The relay keys a seat by (room, member account), so the owner's seat and a
   member's seat on the same edge do not displace each other.
 
+## Merged origin/main (round 17)
+- Five conflicts, each resolved as the union: sendPost takes main's ask-which-room
+  parameters and `federated`; exports keep `confirmedNewPostCount` and
+  `externalPost`; server.js keeps both requires and both sets of agent-path fields;
+  ROOM_NOT_SPEECH holds main's `kosmos` and this branch's `external`; the browser
+  check list is main's plus render-fed-external-3311, and EXPECTED_SITES is main's
+  157 + 2 = 159 (the reason-grep test measures it).
+- Main's #3743 unread edge finds rows by `data-mid`: the external row now carries
+  it, and render-unread-edge-3743 gained U6b (a shared room whose unread are from
+  outside), run LAST because it switches the open room. Control: without the
+  data-mid the edge lands on the long-read local posts (["l1","l1","x0","x0"]).
+- withPreviews skips external rows, as main's #3723 skips its `kosmos` rows: a
+  link a peer planted is never fetched, so it cannot learn this Mac's address or
+  when the room was read. Control: without the skip the fetch happens.
+- Not changed: an outside name equal to a local session name is searched as that
+  agent in the room filter (search only); the link cache key omits the file path
+  (a world switch with an identical mtime and size).
+
 ## Decided in round 15
 - A failed edges request is not "nobody joined": the seat reconnects, and a
   connector too old for the route gets the update note (the member path already

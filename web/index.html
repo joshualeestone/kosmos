@@ -47548,7 +47548,8 @@ function pjRoomRow(m, p) {
     const whoX = m.from || 'Someone outside';
     const tagX = m.fromKind === 'agent' ? 'External agent' : 'External';
     const whenX = pjWhen(m.at) || '';
-    return '<div class="msg ext">'
+    /* data-mid like every other room row (#3743): the unread edge finds its rows by it. */
+    return '<div class="msg ext" data-mid="' + esc(String(m.id || m.at || '')) + '">'
       + '<div class="msg-av" aria-hidden="true" style="background:' + discTint(whoX) + ';color:' + discInk(whoX) + '">' + esc(initials(whoX)) + '</div>'
       + '<div class="msg-b"><div class="msg-bd">'
       + '<b class="msg-nm">' + esc(whoX) + '</b> <span class="msg-ext-tag">' + tagX + '</span>'

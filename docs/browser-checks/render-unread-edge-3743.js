@@ -119,6 +119,7 @@ const EDGE_LIGHT = 'rgb(245, 228, 188)';
     }, room);
     chk(JSON.stringify(u6) === JSON.stringify([false, false, true, true, true]), 'U6 a project room opened with three unread: the newest three agent posts have the edge', JSON.stringify(u6));
 
+
     // U8: a message taller than the window is read a screenful at a time: it still loses its edge.
     await page.evaluate(() => { document.getElementById('panel-detail').hidden = false; const pr = document.getElementById('panel-projects'); if (pr) pr.hidden = true; });
     await page.evaluate(() => { window.__fx = { messages: window.__fx.messages.concat([{ from: 'april', at: '2026-09-25T09:12:00Z', text: Array.from({ length: 200 }, (_, i) => 'A long report, line ' + (i + 1) + '.').join('\n') }]) }; });
@@ -260,6 +261,19 @@ const EDGE_LIGHT = 'rgb(245, 228, 188)';
       return { left: [...UNREAD_EDGE.keys()].filter((k) => k.startsWith('asb:') && k !== 'asb:guide').length, edged: document.querySelectorAll('#asp-th [data-unread]').length };
     });
     chk(u16.edged === 0 && u16.left === 0, 'U16 a new guide under the same name shows its history without the edge', JSON.stringify(u16));
+
+    // U6b (#3311), LAST because it switches the open room: in a shared project the unread can be words from OUTSIDE this Kosmos. They are
+    // rows too, so the edge goes on them, not on local posts read long ago.
+    const xrow = (i) => ({ id: 'x' + i, kind: 'external', external: true, from: 'Grace', fromKind: 'person', at: new Date(t0 + (10 + i) * 60000).toISOString(), text: 'Outside line ' + i });
+    const room6b = { rows: [rrow(1, 'april'), rrow(2, 'bo'), xrow(1), xrow(2)] };
+    const u6b = await page.evaluate((body) => {
+      PROJECTS = [{ id: 'p2', name: 'Shared', unread: 2, agents: [{ sessionName: 'april', name: 'April' }, { sessionName: 'bo', name: 'Bo' }] }];
+      PJ_CURRENT = 'p2';
+      pjMarkSeen('p2');
+      paintRoom(body);
+      return [...document.querySelectorAll('#pj-room .msg:not(.you)')].map((r) => (r.classList.contains('ext') ? 'x' : 'l') + (r.querySelector('.msg-bd').hasAttribute('data-unread') ? '1' : '0'));
+    }, room6b);
+    chk(JSON.stringify(u6b) === JSON.stringify(['l0', 'l0', 'x1', 'x1']), 'U6b a shared room whose two unread are from outside: those two have the edge, the local posts do not', JSON.stringify(u6b));
 
     chk(errs.length === 0, 'U7 no page errors', errs.join(' | '));
   } finally {

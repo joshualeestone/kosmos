@@ -3047,6 +3047,10 @@ function withPreviews(rows) {
     // #3723: Kosmos's account line quotes text read off an agent's screen, so the board does not go
     // and fetch whatever address that text contains.
     if (r.kind === 'kosmos') continue;
+    // #3311: nor for words from OUTSIDE this Kosmos. Fetching a link a peer planted
+    // would tell them this Mac's address and when the room was read; the external
+    // row never draws a preview anyway.
+    if (r.kind === 'external') continue;
     const link = unfurl.firstLink(r.text);
     if (!link) continue;
     const hit = unfurl.peek(link);
