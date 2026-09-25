@@ -128,3 +128,14 @@ test('an invite description longer than a project may have is refused before any
   const atLimit = await federation.invite(remote, { project_ref: 'r', project_name: 'n', project_desc: 'x'.repeat(1000), invited_kind: 'person' });
   assert.strictEqual(atLimit.status, 200, 'the limit itself is allowed');
 });
+
+test('verify bounds what the coordinator sends before it is kept or recorded', async () => {
+  const remote = stubRemote({ ok: true, data: { edge_id: 'edge-big', project_name: 'n'.repeat(5000), project_desc: 'd'.repeat(50000), owner_handle: 'h'.repeat(5000) } });
+  const out = await federation.verify(remote, { code: 'BIG' });
+  assert.strictEqual(out.status, 200);
+  assert.strictEqual(out.body.project_name.length, federation.NAME_MAX, 'the project name was not bounded');
+  assert.strictEqual(out.body.project_desc.length, federation.DESC_MAX, 'the description was not bounded');
+  assert.strictEqual(out.body.owner_handle.length, federation.HANDLE_MAX, 'the owner handle was not bounded');
+  assert.deepStrictEqual(federation.joinSnapshot('edge-big'), out.body, 'the kept snapshot is not the bounded one');
+  federation.forgetSnapshot('edge-big');
+});

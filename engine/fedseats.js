@@ -19,6 +19,7 @@
  *           them); found through the Mac-signed edges route.
  */
 const federation = require('./federation');
+const { externalName } = require('./externalname');
 
 const RESTART_START_MS = 2000;
 /* Inbound bound per project: a connected peer may not flood this Mac's message
@@ -80,11 +81,11 @@ function statusOf(projectId) {
   return s ? s.status : null;
 }
 
-/* A one-line label from outside: control characters (terminal escapes among
-   them), direction overrides and line separators become spaces, whitespace
-   collapses. */
+/* A one-line label from outside: externalname.js, the one cleaner for a
+   name or label that came from another account (format characters, controls and
+   line separators out, whitespace collapsed). */
 function clean(v, max) {
-  return String(v == null ? '' : v).replace(/[\u0000-\u001f\u007f-\u009f\u202a-\u202e\u2066-\u2069\u2028\u2029]/g, ' ').replace(/\s+/g, ' ').trim().slice(0, max);
+  return externalName(v, max);
 }
 
 /* One event line from a seat. Unknown shapes are ignored; a message is recorded
@@ -333,15 +334,21 @@ async function ensure(projectId, edges) {
   }
 }
 
-/* Let a seat go: closing its stdin is how it is told to end, and a seat that
-   has not exited STOP_KILL_MS later is killed, so a hung connector is never
-   left running for a project that is gone. */
+/* Let a seat go: closing its stdin is how it is told to end. One still running
+   STOP_KILL_MS later is sent SIGTERM, and one that ignores that is sent SIGKILL
+   STOP_KILL_MS after, so a hung connector is never left running for a project
+   that is gone. */
 const STOP_KILL_MS = 5000;
-function letGo(child) {
+function letGo(child, ms = STOP_KILL_MS) {
   try { child.stdin.end(); } catch { /* gone */ }
-  const t = setTimeout(() => { try { child.kill(); } catch { /* gone */ } }, STOP_KILL_MS);
+  let hard = null;
+  const t = setTimeout(() => {
+    try { child.kill('SIGTERM'); } catch { /* gone */ }
+    hard = setTimeout(() => { try { child.kill('SIGKILL'); } catch { /* gone */ } }, ms);
+    if (typeof hard.unref === 'function') hard.unref();
+  }, ms);
   if (typeof t.unref === 'function') t.unref();
-  child.once('exit', () => clearTimeout(t));
+  child.once('exit', () => { clearTimeout(t); if (hard) clearTimeout(hard); });
 }
 
 function stop(projectId) {
@@ -412,4 +419,4 @@ function stopAll() {
   seats.clear();
 }
 
-module.exports = { INBOUND_ROWS_PER_DAY, MAC_RETRY_MS, logUnreadable, STOP_KILL_MS, STABLE_MS, INBOUND_BYTES_PER_DAY, MAX_POST_LINE, configure, ensure, ensureAll, post, statusOf, stop, stopAll, onEvent, MAC_EDGES, INBOUND_PER_WINDOW, INBOUND_BYTES_PER_WINDOW };
+module.exports = { letGo, INBOUND_ROWS_PER_DAY, MAC_RETRY_MS, logUnreadable, STOP_KILL_MS, STABLE_MS, INBOUND_BYTES_PER_DAY, MAX_POST_LINE, configure, ensure, ensureAll, post, statusOf, stop, stopAll, onEvent, MAC_EDGES, INBOUND_PER_WINDOW, INBOUND_BYTES_PER_WINDOW };

@@ -143,6 +143,10 @@ function reasonFor(sentence) {
 }
 
 const DESC_MAX = 1000;
+// A project name is a ref (refOk's 200), and an owner handle is a Kosmos+ name
+// (3 to 32 characters at the coordinator), kept with room to spare.
+const NAME_MAX = 200;
+const HANDLE_MAX = 64;
 
 function refOk(v) {
   return typeof v === 'string' && v.length > 0 && v.length <= 200;
@@ -180,7 +184,15 @@ async function verify(remote, body) {
   if (typeof d.edge_id !== 'string' || typeof d.project_name !== 'string') {
     return { status: 502, body: { error: 'the connection service answered in a shape we could not read' } };
   }
-  const snap = { edge_id: d.edge_id, project_name: d.project_name, project_desc: d.project_desc || null, owner_handle: d.owner_handle || null };
+  // Bounded like everything else that arrives from outside: the name as a ref,
+  // the description as a project's own (DESC_MAX), the handle as a name.
+  const bound = (v, max) => (typeof v === 'string' && v ? v.slice(0, max) : null);
+  const snap = {
+    edge_id: d.edge_id,
+    project_name: d.project_name.slice(0, NAME_MAX),
+    project_desc: bound(d.project_desc, DESC_MAX),
+    owner_handle: bound(d.owner_handle, HANDLE_MAX),
+  };
   verified.delete(d.edge_id);
   verified.set(d.edge_id, Object.assign({ at: Date.now() }, snap));
   while (verified.size > SNAPSHOT_MAX) verified.delete(verified.keys().next().value);
@@ -203,5 +215,5 @@ function forgetSnapshot(edgeId) {
 module.exports = {
   FILE, MAC_INVITE, MAC_VERIFY,
   invite, verify, joinSnapshot, forgetSnapshot, linkFor, recordLink, forgetLink, readLinks, reasonFor, refOk,
-  SNAPSHOT_TTL_MS, SNAPSHOT_MAX,
+  SNAPSHOT_TTL_MS, SNAPSHOT_MAX, NAME_MAX, DESC_MAX, HANDLE_MAX,
 };

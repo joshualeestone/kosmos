@@ -14096,6 +14096,10 @@ window.kosmosMeasureScrollbarWidth();
           <p class="pj-ro" id="pj-join-name"></p>
         </div>
         <div class="field">
+          <span class="flabel">Shared by</span>
+          <p class="pj-ro" id="pj-join-owner"></p>
+        </div>
+        <div class="field">
           <span class="flabel">Description</span>
           <p class="pj-ro" id="pj-join-desc"></p>
         </div>
@@ -50780,6 +50784,11 @@ async function pjVerifyCode() {
     PJ_JOIN_ADD_AGENTS = [];
     document.getElementById('pj-join-name').textContent = body.project_name || '';
     document.getElementById('pj-join-desc').textContent = body.project_desc || 'No description.';
+    // Who is on the other end: the owner's Kosmos+ name, set by Kosmos+ itself, so
+    // unlike the name and description above the inviter cannot write it.
+    document.getElementById('pj-join-owner').textContent = body.owner_handle
+      ? body.owner_handle + '.kosmosplus.com'
+      : 'A Kosmos+ account with no name yet';
     // A fresh verify starts with no agents added, and any picker left open by a prior verify is
     // re-hidden: show the "No agents on it yet." hint rather than leaving the box empty. Set it
     // directly (a fresh verify is always the empty state) so this success path stays self-contained

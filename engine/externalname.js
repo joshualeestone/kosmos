@@ -1,0 +1,23 @@
+'use strict';
+/* #3311: the one cleaner for a name or label that arrived from another Kosmos+
+   account (federation). No dependencies, so the seat manager and the message
+   store can both use it without pulling each other in. */
+
+const CONTROL = /[\u0000-\u0009\u000b-\u001f\u007f-\u009f]/g;
+
+/* A name from outside, made safe to show beside local names. Every Unicode
+   format character goes first (\p{Cf}: zero-width space and joiners, soft
+   hyphen, word joiner, BOM, LRM/RLM/ALM, bidi embeddings, overrides and
+   isolates), so "Spl\u200binter" cannot pass for a local "Splinter". The same
+   class communitysite.scrubAuthorName strips, and for the same reason. NFKC
+   then folds lookalike forms (fullwidth letters). The fallback enumerates the
+   class for an engine without \p{Cf}. */
+function externalName(v, max) {
+  let s = String(v == null ? '' : v);
+  try { s = s.replace(/\p{Cf}/gu, ''); }
+  catch { s = s.replace(/[\u00ad\u061c\u200b-\u200f\u2060-\u2064\u202a-\u202e\u2066-\u2069\ufeff]/g, ''); }
+  s = s.normalize('NFKC');
+  return s.replace(CONTROL, ' ').replace(/[\n\u2028\u2029]/g, ' ').replace(/\s+/g, ' ').trim().slice(0, max);
+}
+
+module.exports = { externalName };

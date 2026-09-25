@@ -256,3 +256,10 @@ those classes; both checks pass on this branch (run through tools/browser-checks
 The commit carries a Browser-check-surface trailer for each, naming the check
 with its `.js` (the gate matches the file name; a first attempt without it did
 not count).
+
+## Round 18 (sonnet) fixes
+- BLOCKER: external names kept zero-width, soft hyphen, LRM/RLM/ALM, word joiner and BOM, so "Spl​inter" could pass for a local agent. New engine/externalname.js strips every \p{Cf} and NFKC-folds (the class communitysite.scrubAuthorName already strips); used by messages.externalPost and fedseats clean(). Test: eight lookalikes all store as "Splinter"; control with the old filter fails.
+- WARNING: letGo sent one SIGTERM and never escalated. Now SIGTERM then SIGKILL. Test: a child ignoring SIGTERM ends by SIGKILL; control without SIGKILL fails.
+- WARNING: verify kept coordinator strings unbounded. Now NAME_MAX 200, DESC_MAX, HANDLE_MAX 64. Test with oversized values; control fails.
+- WARNING: the join screen never showed who is inviting. Adds "Shared by" with the owner's Kosmos+ name (set by the coordinator, not the inviter).
+- NIT: stray blank line in render-unread-edge-3743.js removed.

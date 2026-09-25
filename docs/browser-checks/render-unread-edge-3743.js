@@ -119,7 +119,6 @@ const EDGE_LIGHT = 'rgb(245, 228, 188)';
     }, room);
     chk(JSON.stringify(u6) === JSON.stringify([false, false, true, true, true]), 'U6 a project room opened with three unread: the newest three agent posts have the edge', JSON.stringify(u6));
 
-
     // U8: a message taller than the window is read a screenful at a time: it still loses its edge.
     await page.evaluate(() => { document.getElementById('panel-detail').hidden = false; const pr = document.getElementById('panel-projects'); if (pr) pr.hidden = true; });
     await page.evaluate(() => { window.__fx = { messages: window.__fx.messages.concat([{ from: 'april', at: '2026-09-25T09:12:00Z', text: Array.from({ length: 200 }, (_, i) => 'A long report, line ' + (i + 1) + '.').join('\n') }]) }; });

@@ -562,3 +562,15 @@ test('tiny messages at the minute limit stop at the day row cap', async (t) => {
   }
   assert.strictEqual(h.recorded.filter((r) => r.projectId === 'proj-rows').length, fedseats.INBOUND_ROWS_PER_DAY);
 });
+
+test('#3311: a connector that ignores SIGTERM is killed with SIGKILL, so a stopped seat never lingers', async () => {
+  const { spawn } = require('node:child_process');
+  // A child that ignores both stdin closing and SIGTERM, as a hung connector would.
+  const child = spawn(process.execPath, ['-e', "process.on('SIGTERM', () => {}); process.stdin.resume(); process.stdin.on('end', () => {}); setInterval(() => {}, 1000); process.stdout.write('ready')"], { stdio: ['pipe', 'pipe', 'ignore'] });
+  await new Promise((r) => child.stdout.once('data', r));
+  const exited = new Promise((r) => child.once('exit', (code, signal) => r(signal)));
+  fedseats.letGo(child, 100);
+  const signal = await Promise.race([exited, new Promise((r) => setTimeout(() => r('still running'), 3000))]);
+  if (signal === 'still running') { try { child.kill('SIGKILL'); } catch { /* gone */ } }
+  assert.strictEqual(signal, 'SIGKILL', 'the connector ignoring SIGTERM was left running');
+});

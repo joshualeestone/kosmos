@@ -69,3 +69,15 @@ test('an outside message loses direction overrides in its text too', () => {
   const row = messages.externalPost('proj-bidi-text', { from: 'Grace', fromKind: 'person', text: 'safe‮etirw' });
   assert.ok(!/[‪-‮⁦-⁩]/.test(row.text), JSON.stringify(row.text));
 });
+
+test('#3311: a name from outside cannot hide invisible characters to pass for a local name', () => {
+  // Zero-width space, soft hyphen, LRM, word joiner, BOM, Arabic letter mark,
+  // zero-width joiner: each one renders as nothing, so each would make a
+  // lookalike of a local agent. And fullwidth letters fold to plain ones.
+  const tricks = ['Spl\u200binter', 'Spl\u00adinter', '\u200eSplinter', 'Splin\u2060ter', '\ufeffSplinter', 'Spl\u061cinter', 'Spli\u200dnter', '\uff33plinter'];
+  for (const from of tricks) {
+    const row = messages.externalPost('proj-zw', { from, fromKind: 'agent', text: 'hello' });
+    assert.ok(row, 'fixture: the row was stored for ' + JSON.stringify(from));
+    assert.equal(row.from, 'Splinter', 'an invisible or lookalike character survived in ' + JSON.stringify(from) + ' -> ' + JSON.stringify(row.from));
+  }
+});
