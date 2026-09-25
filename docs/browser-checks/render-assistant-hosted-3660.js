@@ -138,8 +138,8 @@ const waitFor = (page, fn, ms = 6000) => page.waitForFunction(fn, null, { timeou
     await page.click('#asb');
     chk(await waitFor(page, () => !document.getElementById('asp').hidden), 'H2 the chat opens');
     const h2 = await state(page);
-    chk(h2.note === 'An AI in Josh\'s voice. Until you connect your own AI, your questions go online to Kosmos\'s AI. Josh isn\'t typing live.', 'H2 it says their questions go online to Kosmos\'s AI until they connect theirs', h2.note);
-    chk(await page.evaluate(() => /I built Kosmos/.test(document.querySelector('#asp-th .asp-empty')?.textContent || '')), 'H2 and greets as the guide does');
+    chk(h2.note === 'Until you connect your own AI, your questions go online to Kosmos\'s AI.', 'H2 it says their questions go online to Kosmos\'s AI until they connect theirs', h2.note);
+    chk(await page.evaluate(() => (document.querySelector('#asp-th .asp-m.him.asp-open') || {}).textContent === 'Hi, I\'m Josh\'s AI guide. Ask me anything about setting up Kosmos.'), 'H2 and opens with the guide\'s own first message (#3738)');
     await page.waitForTimeout(1800);
     chk(pageReports.length === 0, 'H2 no screen report goes to a guide that does not exist (its 404 would reset the bubble)', JSON.stringify(pageReports));
 
@@ -187,7 +187,7 @@ const waitFor = (page, fn, ms = 6000) => page.waitForFunction(fn, null, { timeou
     await page.waitForTimeout(2500);
     chk(await page.evaluate(() => ASB.readOnce === true && document.getElementById('asb-nudge').hidden), 'H6 and no nudge once the person has asked (after the conversation was read)');
     await page.click('#asb');
-    chk(await waitFor(page, () => document.querySelectorAll('#asp-th .asp-m').length === 6), 'H6 the earlier conversation is still there', JSON.stringify((await state(page)).you));
+    chk(await waitFor(page, () => document.querySelectorAll('#asp-th .asp-m:not(.asp-open)').length === 6), 'H6 the earlier conversation is still there', JSON.stringify((await state(page)).you));
     await page.click('#asp-fold');
 
     // H7: Settings shows the switch while the hosted assistant stands in.
@@ -223,7 +223,7 @@ const waitFor = (page, fn, ms = 6000) => page.waitForFunction(fn, null, { timeou
     await page.keyboard.press('Enter');
     chk(await waitFor(page, () => document.getElementById('asp-say').value === ''), 'H8 precondition: the question was sent');
     chk(asked.length === before8 && threadPosts.some((u) => /\/api\/agent\/josh\/thread$/.test(u)), 'H8 and it went to the guide\'s thread, not the hosted route', JSON.stringify({ asked: asked.length - before8, threadPosts }));
-    chk((await state(page)).note === 'An AI that knows Kosmos, in Josh\'s voice. Josh isn\'t typing live.', 'H8 the note is the guide\'s own again');
+    chk((await state(page)).note === '', 'H8 the guide has no footer line (#3738), the hosted one is gone');
     await page.click('#asp-fold');
 
     // H9: an app whose connector predates the assistant (501), asked with the chat open: it says so, and the chat

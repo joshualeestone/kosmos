@@ -1502,6 +1502,7 @@ button.uprime:hover, .btn.uprime:hover, .utoast .uacts button.uprime:hover,
 .asp-h img { width: 34px; height: 34px; border-radius: 50%; object-fit: cover; flex: none; }
 .asp-who { flex: 1; min-width: 0; line-height: 1.25; }
 .asp-who b { display: block; }
+.asp-note:empty { display: none; }
 .asp-tag { display: inline-block; margin-top: 2px; padding: 1px 8px; border-radius: 999px; font: 700 .6875rem var(--font-ui); letter-spacing: .04em;
   color: var(--gold-edge); background: color-mix(in srgb, var(--gold-bright) 14%, transparent); }
 .asp-ctl { display: flex; gap: 2px; }
@@ -1509,9 +1510,9 @@ button.uprime:hover, .btn.uprime:hover, .utoast .uacts button.uprime:hover,
 .asp-ctl button:hover { background: var(--k-sunk); color: var(--k-ink); }
 .asp-th { flex: 1; min-height: 0; overflow-y: auto; padding: 12px; display: flex; flex-direction: column; gap: 8px; }
 .asp-m { max-width: 88%; padding: 8px 11px; border-radius: 12px; line-height: 1.45; white-space: pre-wrap; overflow-wrap: anywhere; }
-.asp-m.him { background: var(--k-sunk); border-top-left-radius: 4px; }
-.asp-m.you { align-self: flex-end; background: color-mix(in srgb, var(--gold-bright) 14%, transparent);
-  border: 1px solid color-mix(in srgb, var(--gold-bright) 35%, transparent); border-top-right-radius: 4px; }
+/* #3738 (Josh 08:51): the same bubbles as a Direct Message, from the same tokens: the person's own blue, the agent's cream. */
+.asp-m.him { background: var(--agent-msg); border-top-left-radius: 4px; }
+.asp-m.you { align-self: flex-end; background: var(--usermsg-tint); border-top-right-radius: 4px; }
 .asp-empty { color: var(--k-ink-2); }
 .asp-note { padding: 0 12px 6px; font-size: .75rem; color: var(--k-ink-2); }
 .asp-msg { padding: 0 12px 6px; font-size: .75rem; color: var(--k-ink-2); }
@@ -55208,7 +55209,9 @@ let ASB = { started: false, guide: null, setting: null, open: false, asking: fal
      what is SHOWN is held, and nothing is timed: the open chat keeps the sentence saying why until the person closes
      it (`asideShowing`), and one that came while folded (`asideOnOpen`) keeps the bubble, with its dot, until it
      is opened. Closing it, by any route, is reading it. */
-  asideShowing: false, asideOnOpen: false, asideText: '', frWas: false };
+  asideShowing: false, asideOnOpen: false, asideText: '', frWas: false,
+  /* #3733: when a reply last landed (a board "working" older than it is stale), and whether "working" was last seen open. */
+  heardAt: 0, wasWorking: false };
 const ASB_HOSTED_KEY = 'kosmos.asb.hosted.v1';
 /* The two reasons the hosted assistant ends, in the same words as the board's refusals (server.js). */
 const ASB_WHY_OWN = 'You\'ve connected your own AI, so this chat has ended.';
@@ -55292,7 +55295,7 @@ function asbLayerEnsure() {
     + '<button type="button" class="asb-nudge-x" id="asb-nudge-x" aria-label="Hide this for now">&times;</button></div>'
     + '<button type="button" class="asb" id="asb" aria-label="Open the setup assistant" hidden><img alt=""><span class="asb-dot" hidden></span><span class="act asb-act" aria-hidden="true" hidden><i></i><i></i><i></i></span></button>'
     + '<div class="asp" id="asp" role="dialog" aria-label="Setup assistant" hidden>'
-    +   '<div class="asp-h"><img alt=""><div class="asp-who"><b>Josh</b><span class="asp-tag">JOSH\'S AI</span></div>'
+    +   '<div class="asp-h"><img alt=""><div class="asp-who"><b>Josh, Kosmos Guide</b></div>'
     +   '<div class="asp-ctl"><button type="button" id="asp-fold" aria-label="Fold the assistant away">&minus;</button>'
     +   '<button type="button" id="asp-x" aria-label="Close the assistant">&times;</button></div></div>'
     +   '<div class="asp-th" id="asp-th"></div><p class="dmbusy asp-busy" id="asp-busy" hidden></p><span class="vh" id="asp-live" aria-live="polite"></span>'
@@ -55302,7 +55305,7 @@ function asbLayerEnsure() {
     +     '<button type="button" class="pri" id="asp-close-now">Close for now</button>'
     +     '<button type="button" id="asp-close-off">Don\'t show this again</button>'
     +     '<small>You can turn it back on in Settings, under This computer.</small></div>'
-    +   '<form class="asp-in" id="asp-in"><textarea id="asp-say" rows="1" aria-label="Ask about Kosmos" placeholder="Ask me anything about Kosmos"></textarea>'
+    +   '<form class="asp-in" id="asp-in"><textarea id="asp-say" rows="1" aria-label="Ask about Kosmos" placeholder="Ask about Kosmos\u2026"></textarea>'
     +   '<button type="submit" id="asp-send" aria-label="Send">&uarr;</button></form>'
     + '</div>';
   document.body.appendChild(layer);
@@ -55382,9 +55385,11 @@ function asbPaint() {
   }
   const src = row ? asbAvatar(row) : ASB_HOSTED_AVATAR;
   const note = document.querySelector('#asp .asp-note');
-  const words = row ? 'An AI that knows Kosmos, in Josh\'s voice. Josh isn\'t typing live.'
-    : asbIsHosted() ? 'An AI in Josh\'s voice. Until you connect your own AI, your questions go online to Kosmos\'s AI. Josh isn\'t typing live.'
-    : 'This chat has ended. Josh isn\'t typing live.';   // stepping aside: it no longer takes questions
+  /* #3738: the AI explanation is the opening message now, so the guide has no footer. The hosted assistant keeps only
+     where the words go (they leave this Mac), and an ended chat says it has ended. */
+  const words = row ? ''
+    : asbIsHosted() ? 'Until you connect your own AI, your questions go online to Kosmos\'s AI.'
+    : 'This chat has ended.';   // stepping aside: it no longer takes questions
   if (note && note.textContent !== words) note.textContent = words;
   for (const img of [bub.querySelector('img'), panel.querySelector('.asp-h img')]) if (img.getAttribute('src') !== src) img.setAttribute('src', src);
   panel.hidden = !ASB.open;
@@ -55517,12 +55522,11 @@ function asbPaintThread(rows, session) {
   ASB.shown = shown;
   const atEnd = th.scrollHeight - th.scrollTop - th.clientHeight < 24;
   th.replaceChildren();
-  if (!rows.length) {
-    const p = document.createElement('p');
-    p.className = 'asp-empty';
-    p.textContent = 'Hi, I built Kosmos. Ask me anything about setting it up, on whatever page you\'re on.';
-    th.appendChild(p);
-  }
+  /* #3738 (Josh 08:51, verbatim): one opening message, always the first guide bubble. */
+  const open = document.createElement('div');
+  open.className = 'asp-m him asp-open';
+  open.textContent = 'Hi, I\'m Josh\'s AI guide. Ask me anything about setting up Kosmos.';
+  th.appendChild(open);
   for (const m of rows) {
     const d = document.createElement('div');
     d.className = 'asp-m ' + (m.from === session ? 'him' : 'you');
@@ -55657,7 +55661,7 @@ async function asbHostedSend(text) {
   if (ok) { hm.push({ role: 'assistant', content: b.reply }); asbHostedKeep(); } else hm.pop();   // not asked: the words are still in the box
   /* The panel may belong to a guide by now (one was made while this was being answered): the answer is kept
      with the hosted conversation, and nothing of it is written over the guide's chat. */
-  if (ASB.guide) return;
+  if (ASB.guide) { asbPaint(); return; }   // the working row clears now, not a tick later
   ASB.shown = '';   // the thread is painted again from the conversation, whatever it showed while waiting
   if (ok) {
     if (say.value.trim() === text) say.value = '';
