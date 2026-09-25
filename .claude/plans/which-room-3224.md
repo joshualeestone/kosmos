@@ -90,3 +90,10 @@ were for"). A hold the agent abandons writes no row; the board logs one identifi
 - NIT accepted: `projectNameOf` and `membersOf` call `projects.get`, whose `describe` may rewrite
   projects.json. That runs only when an ask is found, the same lookup every other route makes.
 - Mutations RED: ask keyed on citedId, drain marks, the digest line never renders, the count counts all posts.
+
+## Review round 4 (sonnet): converged
+- No BLOCKER or SHOULD-FIX; 124/124 across the round's test set. It traced the answeredProject scoping, the
+  fail-closed citation branch, every renderDay/compileAll caller, the unescapable-hold question (none: every
+  failure path posts, `--new` always escapes, a hold writes nothing), and CLI parity.
+- NIT, pre-existing and left: on a generic could_not the Windows CLI does not hand non-piped text back, while
+  the bash CLI does (#2710); this branch added the which_room case only. Worth its own card.
