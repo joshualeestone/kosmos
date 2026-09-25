@@ -5813,7 +5813,6 @@ body:not(.consolidated) .pjmidhead:has(.pjhead) .tsearch:focus-within { flex-bas
   #pj-room .msg-av { width: 28px; height: 28px; flex-basis: 28px; font-size: .8125rem; }
   #pj-room .msg:not(.you) .msg-b { margin-right: calc(28px + 14px); }
   #pj-room .msg.you .msg-b { margin-left: calc(28px + 14px); }
-  #pj-room .rxn { min-height: 36px; padding: 2px 10px; }
   #pj-post::placeholder { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 }
 /* #718 mobile: a touchscreen has no hover, so the add-reaction bar (.rxn-quick, shown on
@@ -5828,7 +5827,8 @@ body:not(.consolidated) .pjmidhead:has(.pjhead) .tsearch:focus-within { flex-bas
   /* The same sticky hover left the last-tapped bubble tinted after its bar closed. */
   #pj-room .msg:hover:not(.rxn-show) .msg-bd,
   #pj-room .msg:hover:not(.rxn-show) .msg-bd::before { background-image: none; }
-  /* The open bar sits wholly ABOVE the message, clear of it: at thumb size (about 44px tall)
+  /* The open bar sits wholly ABOVE the message (its anchor is .msg-b, so the bubble and any
+     reactions under it), clear of it: at thumb size (about 44px tall)
      the desktop overlap would cover a one-line bubble, so the tap meant to close the bar would
      land on an emoji and react. Where there is no room above (the top of the thread), the
      room's tap handler adds .rxn-below and it opens under the message instead.
@@ -5840,6 +5840,9 @@ body:not(.consolidated) .pjmidhead:has(.pjhead) .tsearch:focus-within { flex-bas
   /* A tap on a message is a gesture now: no grey iOS flash over the whole thread. */
   #pj-room { -webkit-tap-highlight-color: transparent; }
   #pj-room .rxn-pick, #pj-room .rxn-more { min-width: 36px; min-height: 36px; }
+  /* A reaction already on a post is a target too, on any touchscreen (a phone turned
+     sideways is wider than the phone block but still a thumb). */
+  #pj-room .rxn { min-height: 36px; padding: 2px 10px; }
 }
 .rxn-pick { border: 0; background: transparent; cursor: pointer; font-size: 1.15rem; line-height: 1;
             padding: 3px 5px; border-radius: 7px; }
@@ -46384,6 +46387,7 @@ document.getElementById('d-dmthread').addEventListener('click', async (e) => {
    outside a tap, so a phone turned mid-post would lose its keyboard. The room and its
    composer never leave the page, so the composer's focus and the thread's own scroll are
    untouched (the page's scroll can shift; the browser keeps a focused field in view). */
+// 30rem (480px): above the widest phone in portrait (430px) and below a small tablet.
 const PJ_PHONE_MQ = '(max-width: 30rem)';   // the room's phone CSS block uses this exact query (pinned by web.room-phone-718.test.js)
 const PJ_TOUCH_MQ = '(hover: none)';         // the room's touchscreen CSS block uses this exact query (pinned the same way)
 function pjPhoneOrder() {
@@ -46391,11 +46395,16 @@ function pjPhoneOrder() {
   const mid = grid && grid.querySelector(':scope > .pjmid');
   const split = grid && grid.querySelector(':scope > .pjsplit');
   if (!grid || !mid || !split || !window.matchMedia) return;
+  // A control focused in the column that moves (a keyboard or VoiceOver user in Members or
+  // Files) is blurred by the move. Those are buttons and links, not text fields, so putting
+  // the focus back works on every engine.
+  const focused = document.activeElement && split.contains(document.activeElement) ? document.activeElement : null;
   if (window.matchMedia(PJ_PHONE_MQ).matches) {
     if (mid.nextElementSibling !== split) mid.after(split);
   } else if (mid.previousElementSibling !== split) {
     grid.insertBefore(split, mid);
   }
+  if (focused && document.activeElement !== focused && focused.isConnected) { try { focused.focus({ preventScroll: true }); } catch (_e) { /* gone */ } }
 }
 pjPhoneOrder();
 if (window.matchMedia) {
@@ -46423,7 +46432,7 @@ document.getElementById('pj-room').addEventListener('click', (e) => {
   if (!(window.matchMedia && window.matchMedia(PJ_TOUCH_MQ).matches)) return;
   if (!e.target || !e.target.closest) return;
   const room = document.getElementById('pj-room');
-  if (e.target.closest('.rxn-pick')) { pjRxnClose(); return; }
+  if (e.target.closest('.rxn-pick, .rxn')) { pjRxnClose(); return; }   // any reaction taken closes it
   if (e.target.closest('a, button, .rxns, [data-open-agent]')) return;
   const row = e.target.closest('.msg');
   room.querySelectorAll('.msg.rxn-show').forEach((m) => { if (m !== row) m.classList.remove('rxn-show'); });
@@ -46459,7 +46468,9 @@ if (window.MutationObserver) {
 /* A tap anywhere outside the room closes an open bar too, except inside the shared emoji
    picker (it lives in body, outside the room): the bar it was opened from stays with it.
    pointerdown, not click: iOS Safari sends no click for a tap on plain content unless
-   something below body listens, so a document click listener would miss most taps. */
+   something below body listens, so a document click listener would miss most taps.
+   Not gated on touch, and neither is the observer: both act only on RXN_SHOW_POST, which
+   only the touch-gated tap listener sets, so with a mouse they do nothing. */
 document.addEventListener('pointerdown', (e) => {
   const room = document.getElementById('pj-room');
   if (!room || (e.target && room.contains(e.target))) return;

@@ -686,6 +686,25 @@ const now = () => new Date().toISOString();
       // Control: the reorder must actually have happened both ways (back at 375 now), or "never removed" is vacuous.
       chk(midRemoved === 0 && o375.startsWith('room,') && orderTurned.startsWith('members-files,room') && orderBack.startsWith('room,'), `[phone] the conversation column never leaves the page while the phone turns (the Members/Files column moves instead)`, `removed=${midRemoved} turned=${orderTurned} back=${orderBack}`);
       await phonePage.evaluate(() => { const t = document.getElementById('pj-post'); if (t) t.blur(); });
+      // The column that DOES move (Members/Files) must give a focused control its focus back.
+      const splitFocus = await phonePage.evaluate(() => {
+        for (let el = document.querySelector('.pj3 > .pjsplit'); el && el !== document.body; el = el.parentElement) {
+          el.hidden = false; el.removeAttribute('inert'); if (getComputedStyle(el).display === 'none') el.style.display = 'block';
+        }
+        const b = document.getElementById('pj-add-member'); if (!b) return 'no #pj-add-member';
+        b.hidden = false; b.style.display = 'inline-block'; b.focus();
+        return document.activeElement === b ? 'pj-add-member' : 'not focusable';
+      });
+      await phonePage.setViewportSize({ width: 800, height: 800 });
+      await phonePage.waitForTimeout(100);
+      const splitWide = await phonePage.evaluate(() => (document.activeElement && document.activeElement.id) || '(none)');
+      const splitOrder = await order();
+      await phonePage.setViewportSize({ width: 375, height: 800 });
+      await phonePage.waitForTimeout(100);
+      const splitBack = await phonePage.evaluate(() => (document.activeElement && document.activeElement.id) || '(none)');
+      chk(splitFocus === 'pj-add-member' && splitWide === 'pj-add-member' && splitBack === 'pj-add-member' && splitOrder.startsWith('members-files,room'),
+        `[phone] a control focused in Members/Files keeps its focus when the phone turns`, `${splitFocus} -> ${splitWide} -> ${splitBack} (order ${splitOrder})`);
+      await phonePage.evaluate(() => { const b = document.getElementById('pj-add-member'); if (b) b.blur(); });
       await phonePage.setViewportSize({ width: 800, height: 800 });
       await phonePage.waitForTimeout(100);
       const o800 = await order();

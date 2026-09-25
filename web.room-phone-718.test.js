@@ -47,6 +47,7 @@ test('on a touchscreen only a tap (or focus) opens the room reaction bar, never 
   assert.match(t, /#pj-room \.msg\.rxn-show \.rxn-quick \{ opacity: 1; pointer-events: auto; \}/);
   assert.match(t, /#pj-room \.msg:hover:not\(\.rxn-show\) \.rxn-quick:not\(:focus-within\) \{ opacity: 0; pointer-events: none; \}/);
   assert.match(t, /#pj-room \.msg:hover:not\(\.rxn-show\) \.msg-bd,\n  #pj-room \.msg:hover:not\(\.rxn-show\) \.msg-bd::before \{ background-image: none; \}/, 'no sticky hover tint either');
+  assert.match(t, /#pj-room \.rxn \{ min-height: 36px; padding: 2px 10px; \}/, 'a reaction pill is thumb-size on ANY touchscreen, landscape phones included');
   assert.match(t, /#pj-room \.rxn-quick \{ gap: 4px; top: auto; bottom: calc\(100% \+ 4px\); \}/, 'the open bar sits wholly above the message, clear of a one-line bubble');
   assert.match(t, /#pj-room \.msg\.rxn-below \.rxn-quick \{ bottom: auto; top: calc\(100% \+ 4px\); \}/, 'and below it where the thread top would cut it');
   assert.match(html, /document\.addEventListener\('pointerdown', \(e\) => \{\n  const room = document\.getElementById\('pj-room'\);/, 'outside taps close on pointerdown (iOS sends no click to a document listener for plain content)');
@@ -54,7 +55,7 @@ test('on a touchscreen only a tap (or focus) opens the room reaction bar, never 
 });
 
 test('the tap listener is registered before the data-open-agent one, which must stay last', () => {
-  const tap = html.indexOf("if (e.target.closest('.rxn-pick')) { pjRxnClose(); return; }");
+  const tap = html.indexOf("if (e.target.closest('.rxn-pick, .rxn')) { pjRxnClose(); return; }");
   const last = html.indexOf('Keep this one last among the room\'s click listeners');
   assert.ok(tap > 0 && last > 0 && tap < last, 'tap listener at ' + tap + ', last listener at ' + last);
 });
