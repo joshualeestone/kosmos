@@ -269,7 +269,7 @@ simulator before any real phone:
 
 **Undo:** expire the build in TestFlight. Nothing public has shipped.
 
-## Step 5. Get the Android app onto testers' phones [Josh for the Play account, the policy read and deploys; fleet for the rest]
+## Step 5. Get the Android app onto testers' phones [Josh for the Play account, policy and deploys; fleet for the rest]
 
 Sonya owns these facts (her message of 2026-09-24).
 
