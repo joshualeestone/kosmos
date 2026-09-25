@@ -54414,6 +54414,9 @@ async function asbPoll(force) {
     asbPaint();
     return;
   }
+  /* Only a guide has a thread to confirm and read. Without one (the hosted assistant just ended and is showing
+     why), confirming would "forget" a guide that never was, closing the chat the person just opened. */
+  if (!ASB.guide) return;
   if (!(await asbConfirmGuide())) return;
   const t = await asbReadThread();
   if (!t) { if (ASB.open) document.getElementById('asp-msg').textContent = 'We could not load the conversation just now.'; return; }
@@ -54469,6 +54472,8 @@ function asbOpen() {
   if (say) say.focus();
 }
 function asbFold() {
+  /* Folded before the six seconds were up: the reason it ended is kept behind the dot, not lost. */
+  if (!ASB.guide && !asbIsHosted() && ASB.open && Date.now() < ASB.asideUntil) { ASB.asideOnOpen = true; ASB.dot = true; ASB.asideUntil = 0; }
   ASB.open = false; ASB.asking = false;
   asbPaint();
   const bub = document.getElementById('asb');

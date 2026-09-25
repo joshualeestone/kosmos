@@ -268,6 +268,16 @@ const waitFor = (page, fn, ms = 6000) => page.waitForFunction(fn, null, { timeou
     slow = 0;
     await page.click('#asb');
     chk(await waitFor(page, () => !document.getElementById('asp').hidden && /arrives with the next Kosmos update/.test(document.getElementById('asp-msg').textContent), 2000), 'H18 and opening it shows the sentence');
+    await page.waitForTimeout(3000);
+    const h18b = await page.evaluate(() => ({ panel: !document.getElementById('asp').hidden, msg: document.getElementById('asp-msg').textContent, focusIn: !!document.activeElement && !!document.activeElement.closest('#asblayer') }));
+    chk(h18b.panel && /next Kosmos update/.test(h18b.msg) && h18b.focusIn, 'H18 it stays open, with the sentence and the keyboard, a few seconds after opening', JSON.stringify(h18b));
+    // H18b: folded again before the six seconds are up, the sentence is kept behind the dot, not lost.
+    await page.click('#asp-fold');
+    await page.waitForTimeout(7000);
+    const h18c = await page.evaluate(() => ({ bubble: !document.getElementById('asb').hidden, dot: !document.querySelector('#asb .asb-dot').hidden }));
+    chk(h18c.bubble && h18c.dot, 'H18b folded inside the six seconds, the bubble stays with the dot', JSON.stringify(h18c));
+    await page.click('#asb');
+    chk(await waitFor(page, () => !document.getElementById('asp').hidden && /next Kosmos update/.test(document.getElementById('asp-msg').textContent), 2000), 'H18b and opening it again shows the sentence');
     chk(await waitFor(page, () => document.getElementById('asb').hidden && document.getElementById('asp').hidden, 9000), 'H18 then, read, it steps aside');
 
     // H10: the switch off hides the hosted bubble too (the same setting as the guide's).

@@ -111,3 +111,9 @@ the same state sooner. Replaced:
 - NITs left: the hosted answer after a mid-answer adoption is kept, not shown (H17's intended behaviour); hostedOff
   survives an in-window update (the connector ships with the page, so an update brings a new window); a11y of a
   folded answer is as for guide replies.
+
+## Review iteration 8 (fixed)
+- BLOCKER: opening a folded refusal ran asbPoll's guide confirm, which "forgot" a guide that never was, so the chat
+  closed within milliseconds. asbPoll now reads a thread only with a guide. H18 asserts the chat is still open with
+  the sentence and focus three seconds after opening (the old arm only checked "at some point" and "eventually").
+- WARNING: folding during the six seconds lost the sentence. It is now kept behind the dot (H18b).
