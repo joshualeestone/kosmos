@@ -53600,8 +53600,14 @@ wireHelpq();
 function paintTipsToggle() {
   const box = document.getElementById('tips-box');
   if (!box) return;
-  box.hidden = !(TIPS_STATE && TIPS_STATE.ok);
-  if (!box.hidden) paintSwitch('tips-toggle', !TIPS_STATE.off);
+  const tipsOk = !!(TIPS_STATE && TIPS_STATE.ok);
+  const row = document.getElementById('tips-row');
+  if (row) row.hidden = !tipsOk;
+  if (tipsOk) paintSwitch('tips-toggle', !TIPS_STATE.off);
+  /* #3034: the box also holds the Setup assistant switch, which must not vanish because the TIPS could
+     not be read ("Don't show this again" promises it is here). Hidden only when neither row shows. */
+  const asbRow = document.getElementById('asb-row');
+  box.hidden = !tipsOk && (!asbRow || asbRow.hidden);
 }
 document.getElementById('tips-toggle')?.addEventListener('click', async (e) => {
   const sw = e.currentTarget;
@@ -53707,9 +53713,32 @@ function asbLayerEnsure() {
   });
 }
 
+/* The corner is shared: on an agent's page the chat's Send button lives there. The bubble is lifted just
+   above any control it would cover; the open panel only above controls in the page's bottom band (a
+   composer), since it is meant to sit over the page. Measured against the page, not the assistant. */
+const ASB_SEL = 'button, a[href], input:not([type="hidden"]), select, textarea, [role="button"], [role="switch"], [role="tab"], [data-agent], [contenteditable="true"]';
+function asbLift(el, bandOnly) {
+  if (!el || el.hidden) return;
+  el.style.bottom = '';
+  const vh = window.innerHeight;
+  for (let pass = 0; pass < 3; pass++) {
+    const a = el.getBoundingClientRect();
+    let lift = 0;
+    for (const q of document.querySelectorAll(ASB_SEL)) {
+      if (q.closest('#asblayer, #tiplayer, [hidden]')) continue;
+      const b = q.getBoundingClientRect();
+      if (b.width < 1 || b.height < 1 || getComputedStyle(q).visibility === 'hidden') continue;
+      if (bandOnly && b.top < vh - 160) continue;
+      if (b.left < a.right && b.right > a.left && b.top < a.bottom && b.bottom > a.top) lift = Math.max(lift, vh - b.top + 12);
+    }
+    if (!lift) return;
+    el.style.bottom = Math.round(lift) + 'px';
+  }
+}
+
 /* Whether the bubble belongs on screen right now. */
 function asbShows() {
-  if (!ASB.setting || ASB.setting.on !== true) return false;
+  if (!ASB.setting || ASB.setting.on !== true || ASB.holding) return false;
   const fr = document.getElementById('firstrun');
   if (fr && !fr.hidden) return false;
   return !!asbGuideRow();
@@ -53730,6 +53759,10 @@ function asbPaint() {
   for (const img of [bub.querySelector('img'), panel.querySelector('.asp-h img')]) if (img.getAttribute('src') !== src) img.setAttribute('src', src);
   panel.hidden = !ASB.open;
   bub.hidden = ASB.open;
+  asbLift(bub, false);
+  asbLift(panel, true);
+  const nudge = document.getElementById('asb-nudge');
+  nudge.style.bottom = (parseFloat(bub.style.bottom) || 16) + 8 + 'px';
   bub.querySelector('.asb-dot').hidden = !ASB.dot || ASB.open;
   document.getElementById('asb-nudge').hidden = ASB.open || ASB.nudgeGone || ASB.wroteOnce || !ASB.readOnce;   // not before the thread says whether they wrote
   document.getElementById('asp-ask').hidden = !ASB.asking;
@@ -53854,7 +53887,7 @@ async function asbCloseChoice(forGood) {
   if (forGood) asbFocusPage();
 }
 function asbFocusPage() {
-  const to = document.querySelector('#tabs .tab.on, #tabs [data-tab="agents"], #new-agent, #rail-agents-new');
+  const to = [...document.querySelectorAll('#tabs .tab.on, #tabs [data-tab="agents"], #new-agent, #rail-agents-new')].find((x) => x.getClientRects().length && getComputedStyle(x).visibility !== 'hidden');
   if (to) to.focus(); else document.body.focus();
 }
 
@@ -53867,7 +53900,7 @@ async function asbSend() {
   ASB.sending = true;
   document.getElementById('asp-send').disabled = true;
   msg.textContent = '';
-  if (!(await asbConfirmGuide())) { ASB.sending = false; document.getElementById('asp-send').disabled = false; msg.textContent = 'The setup assistant is not on this computer any more, so that was not sent.'; return; }
+  if (!(await asbConfirmGuide())) { ASB.sending = false; document.getElementById('asp-send').disabled = false; return; }   // the panel has gone with the guide
   /* sendTalk's rules (#402, #3419): clear only the text THIS send took, and only when the box is not its
      only copy: placed, or unconfirmed but kept in the thread. could_not, or anything unrecognised, keeps it. */
   const clearSent = () => { if (say.value.trim() === text) say.value = ''; ASB.wroteOnce = true; };
@@ -53900,19 +53933,23 @@ function asbPaintSetting() {
   if (!row) return;
   row.hidden = !ASB.guide || !ASB.setting;
   if (!row.hidden) paintSwitch('asb-toggle', ASB.setting.on === true);
+  paintTipsToggle();   // the Help box shows while either of its rows does
 }
 document.getElementById('asb-toggle')?.addEventListener('click', async (e) => {
   const sw = e.currentTarget;
   if (!ASB.setting || sw.disabled) return;
   sw.disabled = true;
   let ok = false;
+  ASB.holding = true;   // nothing is drawn until the board has said who the guide is (below)
   try { ok = await asbSaveSetting({ on: !(ASB.setting.on === true) }); } finally { sw.disabled = false; }
   const m = document.getElementById('asb-row-msg');
   if (m) { m.textContent = ok ? '' : 'We could not save that just now. Try again in a moment.'; m.hidden = ok; }
   asbPaintSetting();
   /* Switched back on: ask the board who the guide is before drawing it, so a name the guide lost while the
      assistant was off is not painted from the page's memory. */
-  if (ok && ASB.setting && ASB.setting.on === true && !(await asbConfirmGuide())) {
+  const confirmed = !(ok && ASB.setting && ASB.setting.on === true) || await asbConfirmGuide();
+  ASB.holding = false;
+  if (!confirmed) {
     /* The row goes with the guide; say why, and keep the keyboard on the page. */
     if (m) { m.textContent = 'The setup assistant is not on this computer right now.'; m.hidden = false; }
     document.getElementById('tips-toggle')?.focus();
@@ -53980,6 +54017,7 @@ function asbForgetGuide() {
   const hadFocus = !!document.activeElement && !!document.activeElement.closest('#asblayer');
   ASB.guide = null; ASB.open = false; ASB.asking = false; ASB.heard = null; ASB.shown = ''; ASB.dot = false;
   ASB.wroteOnce = false; ASB.readOnce = false; ASB.lastPoll = 0; ASB.nudgeGone = false;
+  const pm = document.getElementById('asp-msg'); if (pm) pm.textContent = '';   // nothing stale when it comes back
   if (hadFocus) setTimeout(asbFocusPage, 0);
   ASB.findEvery = ASB_FIND_FIRST_MS; ASB.nextFind = Date.now() + ASB_FIND_FIRST_MS;
   asbPaint();

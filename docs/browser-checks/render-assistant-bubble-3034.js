@@ -119,6 +119,25 @@ const waitFor = (page, fn, ms = 6000) => page.waitForFunction(fn, null, { timeou
     chk(pos.right === 16 && pos.bottom === 16, 'B2 it sits in the bottom-right corner', JSON.stringify(pos));
     if (SHOTS) { fs.mkdirSync(SHOTS, { recursive: true }); await page.screenshot({ path: path.join(SHOTS, 'bubble-light.png') }); }
 
+    // B15: the corner is shared. On an agent's page the chat's Send button lives there: the bubble lifts
+    // above it, Send is still what the pointer hits, and the open panel does not cover it either.
+    await page.evaluate(() => { const a = document.querySelector('#grid [data-agent="beatrix"]'); if (a) a.click(); });
+    chk(await waitFor(page, () => { const s = document.getElementById('d-send'); return !!s && s.getClientRects().length > 0; }), 'B15 precondition: an agent page with its Send button');
+    await page.waitForTimeout(1700);   // a tick: the bubble re-measures the corner
+    const b15 = await page.evaluate(() => {
+      const hitAt = (el) => { const r = el.getBoundingClientRect(); const h = document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2); return !!h && !!h.closest('#d-send'); };
+      const s = document.getElementById('d-send').getBoundingClientRect(), a = document.getElementById('asb').getBoundingClientRect();
+      return { sendReachable: hitAt(document.getElementById('d-send')), overlap: s.left < a.right && s.right > a.left && s.top < a.bottom && s.bottom > a.top, lifted: document.getElementById('asb').style.bottom };
+    });
+    chk(b15.sendReachable && !b15.overlap, 'B15 on an agent\'s page the bubble sits clear of Send, which still takes the click', JSON.stringify(b15));
+    await page.click('#asb');
+    await page.waitForTimeout(300);
+    const b15p = await page.evaluate(() => { const r = document.getElementById('d-send').getBoundingClientRect(); const h = document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2); return !!h && !!h.closest('#d-send'); });
+    chk(b15p, 'B15 with the chat open, the page\'s Send button is still reachable');
+    await page.click('#asp-fold');
+    await page.evaluate(() => showTab('agents'));
+    await page.waitForTimeout(300);
+
     // B3: clicking it opens the chat in place, headed Josh and tagged as AI, and tells the guide the screen.
     pageReports.length = 0;
     await page.click('#asb');
@@ -245,6 +264,14 @@ const waitFor = (page, fn, ms = 6000) => page.waitForFunction(fn, null, { timeou
     await boot();
     chk(await waitFor(page, () => { const b = document.getElementById('asb'); return b && !b.hidden; }, 15000) && settingsFailed === 1, 'B13 a settings read that failed at load is retried and the bubble arrives', 'failed=' + settingsFailed);
     await page.unroute('**/api/settings');
+
+    // B16: the tips cannot be read. The Setup assistant switch lives in the same Help box and must still be
+    // there ("Don't show this again" promises it is), while the tips row hides (CONTROL: B1, no guide, no row).
+    await page.evaluate(() => { TIPS_STATE = { ok: false, seen: [], off: true }; paintTipsToggle(); showTab('settings'); document.querySelector('#s-nav button[data-go="mac"]').click(); });
+    await page.waitForTimeout(300);
+    const b16 = await page.evaluate(() => ({ box: document.getElementById('tips-box').hidden, tipsRow: document.getElementById('tips-row').hidden, asbRow: document.getElementById('asb-row').hidden }));
+    chk(b16.box === false && b16.asbRow === false && b16.tipsRow === true, 'B16 with the tips unreadable, the Help box still offers the Setup assistant switch', JSON.stringify(b16));
+    await page.evaluate(() => showTab('agents'));
 
     // B14: a new agent takes the guide's name (its folder has no guide marker). The board answers 409
     // "not-guide"; unlike a check it could not make (B12), that means the guide is gone.

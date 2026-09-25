@@ -22,7 +22,10 @@ On a board whose setup guide exists (and is not removed) and whose Setup assista
   asked; Don't show this again also sets on false and the bubble goes. Later x just closes.
 - Settings > This computer: the Tips box is titled Help and gains a Setup assistant switch under Show tips,
   shown only when a guide exists. Switching it on brings the bubble back at once.
-No guide, or the setting off: nothing shows and nothing is fetched beyond the one guide read.
+No guide: nothing shows; the page asks the board again (5s, doubling to once a minute) until a guide exists,
+since #3670 creates it mid-session. Setting off: nothing shows and the thread is not read.
+- The corner is shared: the bubble lifts above any control it would cover (an agent's Send button), and the
+  open panel above the page's bottom band (a composer).
 
 ## Pieces
 1. server.js: GET /api/setup-guide -> { ok: true, name } or 404 { error } (no guide, folder marker gone,
