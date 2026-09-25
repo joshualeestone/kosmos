@@ -23,6 +23,7 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 
 const chat = require('./chat');
+const { cpuMillisecondsOf } = require('../test-support/cpu-time');   // #3715: bound CPU time, not wall time
 
 test.after(() => { fs.rmSync(SANDBOX, { recursive: true, force: true }); });
 
@@ -74,12 +75,12 @@ test('#3679: an inline triple-backtick span is not a fence', () => {
 
 test('#3679: a long run of spaces is stored in linear time', () => {
   const long = FENCE + '\n' + ' '.repeat(200000) + 'x\n' + FENCE + '\n' + ' '.repeat(200000) + 'y';
-  const t0 = process.hrtime.bigint();
-  chat.storeText(long);
-  chat.storeText('\t'.repeat(200000) + 'z');
-  chat.storeText(FENCE + '\n' + '\n'.repeat(200000) + 'x');
-  chat.storeText('\n'.repeat(200000) + 'x' + '\n'.repeat(200000));
-  const ms = Number(process.hrtime.bigint() - t0) / 1e6;
+  const ms = cpuMillisecondsOf(() => {
+    chat.storeText(long);
+    chat.storeText('\t'.repeat(200000) + 'z');
+    chat.storeText(FENCE + '\n' + '\n'.repeat(200000) + 'x');
+    chat.storeText('\n'.repeat(200000) + 'x' + '\n'.repeat(200000));
+  });
   // Generous for a busy shared Mac: the quadratic trim this guards took about 17 s here.
   assert.ok(ms < 3000, 'storeText took ' + ms.toFixed(0) + 'ms on 200k spaces; a backtracking trim is quadratic');
 });
@@ -132,18 +133,16 @@ test('#3679: a DM of deep indentation under the one-line limit, which main accep
 test('#3679: a huge raw text of blank lines is refused before the store walks it', () => {
   const text = 'hi' + '\n\n'.repeat(200000) + 'bye';
   assert.ok(chat.cleanMessage(text).length < 20, 'CONTROL: the one-line form is tiny');
-  const t0 = process.hrtime.bigint();
-  const why = chat.storedProblem(text);
-  const ms = Number(process.hrtime.bigint() - t0) / 1e6;
+  let why;
+  const ms = cpuMillisecondsOf(() => { why = chat.storedProblem(text); });
   assert.match(String(why), /indentation and spacing/);
   assert.ok(ms < 1000, 'took ' + ms.toFixed(0) + 'ms');
 });
 
 test('#3679: the routes\' composed check refuses a huge raw text quickly, as production calls it', () => {
   const text = 'hi' + '\n\n'.repeat(2900000) + 'bye';   // ~5.8MB, inside the body cap
-  const t0 = process.hrtime.bigint();
-  const why = chat.messageProblem(text) || chat.storedProblem(text);
-  const ms = Number(process.hrtime.bigint() - t0) / 1e6;
+  let why;
+  const ms = cpuMillisecondsOf(() => { why = chat.messageProblem(text) || chat.storedProblem(text); });
   assert.notEqual(why, null, 'a 5.8MB message was accepted');
   assert.ok(ms < 300, 'the composed check took ' + ms.toFixed(0) + 'ms; storeText walked the raw text before the cap');
 });
