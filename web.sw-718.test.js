@@ -148,6 +148,23 @@ test('#718: a tap focuses the tab navigate() landed on, and opens a window when 
   const refused = await run({ url: 'https://board.example/', navigate: async () => { throw new TypeError('not controlled'); }, focus: () => 'old-focused' });
   assert.deepEqual(refused.opened, ['https://board.example/?tab=detail&agent=april'], 'an uncontrolled tab: open the link instead');
   assert.equal(refused.result, 'window');
+  // An engine with no navigate(): the link still lands, in a window of its own.
+  const noNav = await run({ url: 'https://board.example/', focus: () => 'old-focused' });
+  assert.deepEqual(noNav.opened, ['https://board.example/?tab=detail&agent=april'], 'no navigate(): open the link, never focus the old page');
+});
+
+test('#718: when the first open board tab cannot move, the next one is tried', async () => {
+  const handlers = {}; const opened = [];
+  const self2 = { addEventListener(k, f) { handlers[k] = f; }, location: { origin: 'https://board.example' },
+    clients: { matchAll: async () => [
+      { url: 'https://board.example/', navigate: async () => { throw new TypeError('not controlled'); }, focus: () => 'stale' },
+      { url: 'https://board.example/x', navigate: async () => ({ focus: () => 'second-landed' }), focus: () => 'second-old' },
+    ], openWindow: async (u) => { opened.push(u); return 'window'; } } };
+  factory(self2, {});
+  let done;
+  handlers.notificationclick({ notification: { close() {}, data: { url: 'https://board.example/?tab=detail&agent=april' } }, waitUntil(p) { done = p; } });
+  assert.equal(await done, 'second-landed');
+  assert.deepEqual(opened, []);
 });
 
 test('#718: every name an agent can have passes the tap rule (engine/create.js NAME_RE)', () => {
