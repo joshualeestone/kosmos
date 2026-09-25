@@ -40,6 +40,10 @@ test('the grace and hold windows are the named constants, at the values the test
 test('the poll calls settleWantAgent, and it is the only boot open of the link', () => {
   assert.match(html, /\n    settleWantAgent\(\);\n/);
   assert.doesNotMatch(html, /if \(WANT_AGENT && !CURRENT\)/, 'the old every-poll open is gone');
+  const opens = html.match(/openDetail\(WANT_AGENT\)/g) || [];
+  assert.equal(opens.length, 1, 'exactly one openDetail(WANT_AGENT), and it is in settleWantAgent');
+  const fn = html.slice(html.indexOf('function settleWantAgent()'), html.indexOf('function settleWantAgent()') + 1200);
+  assert.match(fn, /openDetail\(WANT_AGENT\)/);
 });
 
 test('an agent on the board opens once, reveals once, and is never reopened', () => {

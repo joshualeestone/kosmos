@@ -13,7 +13,7 @@
  *     section to the top of the screen; in a wide window it does not move the page.
  *
  * Touch is a Chromium mobile context (hasTouch + isMobile), which is what makes the page's
- * `(hover: none)` rules apply. Chromium only: WebKit is exercised by the ad hoc phone audit.
+ * `(hover: none)` rules apply. Chromium only: no committed check covers WebKit here.
  *
  *   NODE_PATH="$HOME/work/pw-runtime/node_modules" node docs/browser-checks/render-waiting-phone-718.js
  */
@@ -114,6 +114,7 @@ async function open(browser, opts) {
       return { before, after: Math.round(talk.getBoundingClientRect().top), scrollY: Math.round(window.scrollY), asked };
     });
     const l1 = await land(phone);
+    chk(!l1.error && l1.asked >= 1 && l1.before > 5 && Math.abs(l1.after) <= 2, '[landing/phone] an arrival scrolls the Direct Message section to the top', JSON.stringify(l1));
     // The hold, with REAL timers: content painted above the conversation after the reveal (the
     // Files list arriving late) pushes it down; the hold puts it back. Chromium's scroll
     // anchoring would compensate by itself (measured: the section did not move), so anchoring is
@@ -130,7 +131,6 @@ async function open(browser, opts) {
       setTimeout(() => res({ rightAfterPush: right, settled: Math.round(talk.getBoundingClientRect().top) }), 500);
     }));
     chk(Math.abs(hold.rightAfterPush) > 50 && Math.abs(hold.settled) <= 2, '[landing/phone] the hold puts the conversation back when late content pushes it down', JSON.stringify(hold));
-    chk(!l1.error && l1.asked >= 1 && l1.before > 5 && Math.abs(l1.after) <= 2, '[landing/phone] an arrival scrolls the Direct Message section to the top', JSON.stringify(l1));
     await phone.close();
 
     const wide = await open(browser, { viewport: { width: 1200, height: 900 } });
