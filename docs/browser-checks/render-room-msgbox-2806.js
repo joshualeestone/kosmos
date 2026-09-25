@@ -696,7 +696,9 @@ const now = () => new Date().toISOString();
         const longName = 'Henderson-Lease-Review-2026-signed-countersigned-final-FINAL-v7-with-exhibits-A-through-F-and-landlord-comments-inline.pdf';
         room.innerHTML = pjRoomRow({ from: 'april', at: ts, text: long, id: 'm1' }, p) + pjRoomRow({ operator: true, at: ts, text: long, id: 'm2' }, p)
           + pjRoomRow({ operator: true, at: ts, text: 'Here is the signed copy.', id: 'm3',
-            attachments: [{ id: 'a1', name: longName, type: 'application/pdf', size: 912345, kind: 'pdf', url: '/api/attachment/a1' }] }, p);
+            attachments: [{ id: 'a1', name: longName, type: 'application/pdf', size: 912345, kind: 'pdf', url: '/api/attachment/a1' }] }, p)
+          // A SHORT post of the person's own (right-aligned, the bar keeps its right anchor), with a reaction.
+          + pjRoomRow({ operator: true, at: ts, text: 'ok', id: 'm4', reactions: [{ emoji: '\u{1F44D}', count: 1, who: ['you'], mine: true }] }, p);
         const rows = Array.from(room.querySelectorAll('.msg'));
         const a = rows.find((r) => !r.classList.contains('you') && r.querySelector('.msg-bd'));
         const o = rows.find((r) => r.classList.contains('you') && r.querySelector('.msg-bd'));
@@ -771,7 +773,23 @@ const now = () => new Date().toISOString();
       await phonePage.waitForTimeout(300);
       const t3 = await bar();
       const rowsLeft = await phonePage.evaluate(() => document.querySelectorAll('#pj-room .msg').length);
-      chk(rowsLeft === 3 && t3.shown === 0 && t3.op === '0', `[phone/touch] a tap on a file card does not toggle the bar`, JSON.stringify(Object.assign({ rowsLeft }, t3)));
+      chk(rowsLeft === 4 && t3.shown === 0 && t3.op === '0', `[phone/touch] a tap on a file card does not toggle the bar`, JSON.stringify(Object.assign({ rowsLeft }, t3)));
+      // The person's own SHORT post: its bar (right anchor) stays inside the thread, and every
+      // touch target in it, and the reaction pill, is at least 36px.
+      const own = phonePage.locator('#pj-room .msg.you .msg-bd p').last();
+      await own.tap();
+      await phonePage.waitForTimeout(300);
+      const ownBar = await phonePage.evaluate(() => {
+        const row = document.querySelector('#pj-room .msg.rxn-show'); const room = document.getElementById('pj-room');
+        const q = row && row.querySelector('.rxn-quick');
+        if (!row || !row.classList.contains('you') || !q) return { error: 'no open bar on the person\'s own row' };
+        const Q = q.getBoundingClientRect(), R = room.getBoundingClientRect();
+        const size = (el) => { const r = el.getBoundingClientRect(); return Math.round(Math.min(r.width, r.height)); };
+        return { inside: Q.left >= R.left && Q.right <= R.right + 1 && Q.top >= R.top, bar: [Math.round(Q.left), Math.round(Q.right)], room: [Math.round(R.left), Math.round(R.right)],
+          buttons: [...q.querySelectorAll('button')].map(size), pill: row.querySelector('.rxn') ? Math.round(row.querySelector('.rxn').getBoundingClientRect().height) : null };
+      });
+      chk(!ownBar.error && ownBar.inside, `[phone/touch] the bar on a short post of your own stays inside the thread`, JSON.stringify(ownBar));
+      chk(!ownBar.error && ownBar.buttons.length === 4 && ownBar.buttons.every((n) => n >= 36) && ownBar.pill >= 36, `[phone/touch] every reaction target is at least 36px (the bar's buttons and a reaction pill)`, JSON.stringify(ownBar));
     } finally {
       await phonePage.close();
     }
