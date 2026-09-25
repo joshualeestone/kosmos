@@ -158,11 +158,15 @@ test('#3650: an emoji carrying a bidi override or C1 control is refused, and nev
   const file = path.join(require('./store').ROOT, 'chats', 'direct..' + agent + '.json');
   const rec = JSON.parse(fs.readFileSync(file, 'utf8'));
   const row = rec.messages.find((m) => m.at === at(3));
-  row.reactions = ['🎉\u202e'];
+  row.reactions = ['🎉\u202e', '\u202e\u0085', '🔥'];
   fs.writeFileSync(file, JSON.stringify(rec));
-  const note = chat.dmReactionNote(agent);
-  assert.equal(/[\u0080-\u009f\u202a-\u202e\u2066-\u2069]/.test(note), false, note);
-  assert.ok(note.includes('🎉 on your message "Also the tests'), note);
+  // One list for all three readers: the pills, the note and what gets marked told.
+  assert.deepEqual(chat.dmReactions(row), ['🔥']);
+  const news = chat.dmReactionNews(agent);
+  assert.equal(/[\u0080-\u009f\u202a-\u202e\u2066-\u2069]/.test(news.note), false, news.note);
+  assert.ok(news.note.includes('🔥 on your message "Also the tests'), news.note);
+  assert.equal(news.note.includes('🎉'), false, 'an unsafe stored value must not be shown in part either');
+  assert.deepEqual(news.named[at(3)], ['🔥'], 'only what the note named may be marked told');
 });
 
 test('#3650: a stray non-array or non-emoji value in the file is skipped, not treated as damage', () => {

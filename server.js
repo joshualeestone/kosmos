@@ -11615,9 +11615,10 @@ const server = http.createServer((req, res) => {
      messages are read in that room, and nothing else asked for the merge. */
   /* #3650: the person TOGGLES an emoji reaction on one of an agent's messages in their
      Direct Message, the DM twin of the room's react route below (same operator surface,
-     same cross-site posture as every POST here, and the thread GET's name gate). The message is named by its `at`; the
-     engine refuses anything that is not exactly one of this agent's own messages. The
-     response carries the message's fresh pills so the page repaints one row. */
+     same cross-site posture as every POST here, and the thread GET's name gate). The
+     message is named by its `at`; the engine refuses anything that is not exactly one of
+     this agent's own messages. The response carries the message's fresh pills so the
+     page repaints one row. */
   const dmReact = pathname.match(/^\/api\/agent\/([^/]+)\/thread\/react$/);
   if (dmReact && req.method === 'POST') {
     const name = decodeSegment(dmReact[1]);

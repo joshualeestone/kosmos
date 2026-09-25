@@ -103,8 +103,9 @@ start a turn.
   re-measured on the merged tree: still 133 and 94.
 - The pane-safety strip covered only the quoted start; the emoji itself could carry a
   bidi override (the shared `normalizeReactionEmoji` accepts any non-ASCII string).
-  The DM react route now refuses such an emoji, and the note strips it from a value
-  already in the file. Both are engine-tested and each reds under its perturbation. The
+  The DM react route now refuses such an emoji, and `dmReactions` skips one already in
+  the file (review pass 7), so the pills, the note and the told-marker read one list and
+  nothing is marked told that the note did not name. Both are engine-tested and each reds under its perturbation. The
   room's shared normaliser is unchanged: the room never types reactions into a pane.
 - Messages only counted in the note ("reactions on N earlier messages") are recorded as
   told too. That is deliberate: the agent was told they exist and that they need no reply.
