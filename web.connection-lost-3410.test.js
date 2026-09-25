@@ -101,6 +101,18 @@ test('card: the connection_lost pill wears a state class the stylesheet actually
   assert.ok(rules > 0, `card uses .${cls[1]}, which has no rule in the stylesheet`);
 });
 
+/* #3410 (Mona Lisa's look): while Kosmos is reconnecting the card stays quiet (paused); once it
+   has given up the person is needed, so it wears needs_you's card (st-attn). */
+test('card: reconnecting keeps the paused look; given up wears the needs-you look', () => {
+  const clsOf = (extra) => (/class="astate (st-[a-z-]+)"/.exec(api.card(connLostAgent(extra))) || [])[1];
+  assert.equal(clsOf({ reconnect: { phase: 'waiting', tries: 0 } }), 'st-paused');
+  assert.equal(clsOf({ reconnect: { phase: 'retried', tries: 1 } }), 'st-paused');
+  const gaveUp = clsOf({ reconnect: { phase: 'gave_up', tries: 3 } });
+  assert.equal(gaveUp, 'st-attn', 'a given-up connection should ask for the person, not sit paused');
+  assert.ok(PAGE.split('.st-attn').length - 1 > 0, 'card uses .st-attn, which has no rule in the stylesheet');
+  assert.equal(clsOf({}), 'st-paused', 'CONTROL: with no self-heal the card is unchanged');
+});
+
 test('the page ships the expected connection_lost label copy', () => {
   assert.equal(pageLabel(), 'Connection lost',
     'the shipped STATE_COPY.connection_lost label changed; update this pin deliberately');
@@ -139,14 +151,14 @@ for (const which of ['card', 'lrow']) {
 
 test('card: the sentence says what Kosmos is doing, and promises nothing when it is not retrying', () => {
   const says = (extra) => api.card(connLostAgent(extra));
-  assert.match(says({ reconnect: { phase: 'waiting', tries: 0 } }), /Kosmos will retry it automatically/);
+  assert.match(says({ reconnect: { phase: 'waiting', tries: 0 } }), /Kosmos will try again for you\./);
   assert.match(says({ reconnect: { phase: 'retried', tries: 2 } }), /Kosmos has asked it to try again/);
   const gaveUp = says({ reconnect: { phase: 'gave_up', tries: 3 } });
-  assert.match(gaveUp, /Kosmos tried to reconnect it several times and has stopped/);
-  assert.match(gaveUp, /If the internet is working, restart the agent\. It will start fresh/);
+  assert.match(gaveUp, /Kosmos tried a few times and stopped\./);
+  assert.match(gaveUp, /If your internet is working, restart the agent\. It starts fresh, so anything it was in the middle of is lost\./);
   const off = says({});
   assert.match(off, /lost its internet connection/);
-  assert.doesNotMatch(off, /Kosmos (will retry|has asked)/, 'promised a retry with no self-heal running');
+  assert.doesNotMatch(off, /Kosmos (will try|has asked)/, 'promised a retry with no self-heal running');
 });
 
 /* #3410: the 15-minute check-in does not ask the person to reconnect an agent Kosmos is already

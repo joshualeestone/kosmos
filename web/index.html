@@ -15781,7 +15781,9 @@ const PRESSAY = {
    safe direction. The predicate is INLINED here and in stateCopyOf (kept byte-identical, not a
    shared helper) so each painter stays self-contained -- the node tests eval-extract cardStOf /
    stateCopyOf in isolation, and a shared global would ReferenceError in every one of those slices. */
-function cardStOf(a) { return (a && a.state === 'needs_you' && a.stateReportedBy === 'agent') ? CARD_ST.question : (CARD_ST[a.state] || CARD_ST.unknown); }
+/* #3410 (Mona Lisa's look): a lost connection Kosmos has given up on needs the person, so it wears
+   needs_you's card, not the quiet paused one it keeps while Kosmos is still reconnecting. */
+function cardStOf(a) { if (a && a.state === 'connection_lost' && a.reconnect && a.reconnect.phase === 'gave_up') return CARD_ST.needs_you; return (a && a.state === 'needs_you' && a.stateReportedBy === 'agent') ? CARD_ST.question : (CARD_ST[a.state] || CARD_ST.unknown); }
 /* #2019: the state's word. For every state but 'restarting' it is the static
    STATE_COPY entry. For 'restarting' the word names the CAUSE (present-continuous,
    no blame), so the person knows WHY their agent went quiet, and it is computed
@@ -15989,11 +15991,11 @@ function stateReason(a, opts) {
        a give-up usually means the agent is stuck, not the internet; and the retry budget can span
        more than one drop (connlost-heal.js WINDOW_MS/RECOVERED_MS), so it says tries were made,
        not that they were made this time. */
-    if (ph === 'gave_up') return 'Kosmos tried to reconnect it several times and has stopped. If the internet is working, restart the agent. It will start fresh.';
+    if (ph === 'gave_up') return 'Kosmos tried a few times and stopped. If your internet is working, restart the agent. It starts fresh, so anything it was in the middle of is lost.';
     const lost = a.stateConfidence === 'scraped'
       ? 'Looks like it lost its internet connection'
       : 'It lost its internet connection';
-    if (ph === 'waiting') return lost + '. Kosmos will retry it automatically.';
+    if (ph === 'waiting') return lost + '. Kosmos will try again for you.';
     /* "Has asked": an attempt was made, not that it landed (the sweep counts every attempt). */
     if (ph === 'retried') return lost + '. Kosmos has asked it to try again.';
     return lost;
