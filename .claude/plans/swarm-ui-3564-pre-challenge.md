@@ -2,10 +2,10 @@
 pre_challenge: true
 method: challenge-loop
 branch: swarm-ui-3564
-diff_hash: 180a7575bc2b60abcf5ddc36642696b925b8e62d69948fe681dde122631f23d1
+diff_hash: 5950eff666afa2a4d27a0f8d6395859e007f228aa016b2dbd7e6a64c4f98b2f0
 validation: passed
 subdir_audit: passed
-timestamp: 2026-09-25T18:03:55Z
+timestamp: 2026-09-25T18:21:42Z
 iterations: 8
 converged: true
 ---
@@ -74,6 +74,10 @@ No BLOCKER or WARNING. Verified SWARM_ROW is set by swarmPagePaint from the poll
 reaches it, S24 can fail, and no arm still reads CURRENT.state. NIT not taken: S24 relies on S8's state without its
 own precondition line.
 
+After iteration 8: main merged in again (#3756, #3757, #3776; README resolved, EXPECTED_SITES still 155 by the
+reason-grep test), and 41c98696d: Stop now keeps its distance with a column gap, since the 16px margin left it indented
+when it wraps under the radios (seen in the shot). CSS only; S1-S28 pass on it.
+
 ## Validation (this session)
-6j on HEAD e9c37233d: full suite clean (hash 180a7575bc2b), subdir audit clean. render-swarm-ui-3564: 60 pass, 0 fail.
+6j on HEAD 41c98696d: full suite clean (hash 5950eff666af), subdir audit clean. render-swarm-ui-3564: 60 pass, 0 fail.
 
