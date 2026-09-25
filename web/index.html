@@ -28140,6 +28140,8 @@ const REVEAL_HOLD_DRIFT_PX = 2;
 function settleWantAgent() {
   if (!WANT_AGENT || WANT_AGENT_DONE) return;
   // An agent is already open (the person opened one, even this one): the link is spent.
+  // Only opening an agent spends it: a person who moves to another tab during the grace
+  // can still be taken to the linked agent if it shows up then (a short window, as before).
   if (CURRENT) { WANT_AGENT_DONE = true; return; }
   openDetail(WANT_AGENT);
   if (CURRENT && CURRENT.sessionName === WANT_AGENT) {
