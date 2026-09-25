@@ -90,10 +90,15 @@ const at = async (page, qs) => {
 const SCREENS = [
   // Raiden: the app frame on a phone (top bar, navigation, agents list, home).
   { name: 'home', owner: 'Raiden', go: async () => {} },
-  { name: 'nav-menu', owner: 'Raiden', go: async (page) => { if (await page.isVisible('#burger')) await page.click('#burger'); } },
+  /* Both assert they got there: a renamed control must fail the shot, not
+     quietly photograph the home screen again. */
+  { name: 'nav-menu', owner: 'Raiden', go: async (page) => {
+    await page.click('#burger');
+    await page.waitForSelector('#burger[aria-expanded="true"]', { timeout: 5000 });
+  } },
   { name: 'agents-list', owner: 'Raiden', go: async (page) => {
-    const b = page.locator('[aria-label="List"], [data-layout="list"], button[title="List"]').first();
-    if (await b.count()) await b.click();
+    await page.click('button.vt[data-layout="list"][aria-label="Show agents as a list"]');
+    await page.waitForSelector('button.vt[data-layout="list"][aria-pressed="true"][aria-label="Show agents as a list"]', { timeout: 5000 });
   } },
   { name: 'agent-page', owner: 'Raiden', go: async (page) => at(page, '?agent=ada') },
   // Scorpion: an agent's chat.
@@ -182,16 +187,19 @@ function seedFiles(roots) {
   fs.writeFileSync(path.join(roots.DATA, 'fake-sessions'), AGENTS.map((a) => a.claim + '-discord').join('\n') + '\n');
   fs.writeFileSync(path.join(roots.DATA, 'fake-screen'), fleet.SCREEN && fleet.SCREEN.idle ? fleet.SCREEN.idle : 'Worked for 1m 02s\n> \n');
   const store = require(path.join(REPO, 'engine', 'store'));
-  for (const a of AGENTS) store.writeProfile(a.claim, { displayName: a.name, role: a.role });
+  for (const a of AGENTS) {
+    const role = a.claim === 'ada' && LEAK_CONTROL === 'page' ? a.role + ', ' + PLANTED_EMAIL : a.role;
+    store.writeProfile(a.claim, { displayName: a.name, role });
+  }
   require(path.join(REPO, 'engine', 'firstrun')).complete();
   try { require(path.join(REPO, 'engine', 'tips')).set({ off: true }); } catch { /* tips optional */ }
   const chat = require(path.join(REPO, 'engine', 'chat'));
   const t0 = Date.now() - 3600e3;
-  const at = (min) => new Date(t0 + min * 60e3).toISOString();
-  chat.appendMessage(chat.DIRECT, 'ada', { text: 'Morning Ada. What is left on the catalogue?', at: at(1) });
-  chat.appendMessage(chat.DIRECT, 'ada', { text: 'Morning! Three things, and none of them are blocked.', at: at(2), from: 'ada' });
-  chat.appendMessage(chat.DIRECT, 'ada', { text: 'Can you write it up properly so I can read it on my phone later?', at: at(3) });
-  chat.appendMessage(chat.DIRECT, 'ada', { text: LONG_REPLY, at: at(4), from: 'ada' });
+  const stamp = (min) => new Date(t0 + min * 60e3).toISOString();
+  chat.appendMessage(chat.DIRECT, 'ada', { text: 'Morning Ada. What is left on the catalogue?', at: stamp(1) });
+  chat.appendMessage(chat.DIRECT, 'ada', { text: 'Morning! Three things, and none of them are blocked.', at: stamp(2), from: 'ada' });
+  chat.appendMessage(chat.DIRECT, 'ada', { text: 'Can you write it up properly so I can read it on my phone later?', at: stamp(3) });
+  chat.appendMessage(chat.DIRECT, 'ada', { text: LONG_REPLY, at: stamp(4), from: 'ada' });
   require(path.join(REPO, 'engine', 'selfreport')).record('cleo', {
     state: 'needs_you', because: 'The printer quoted two prices for the spring catalogue. May I accept the cheaper one (£1,240, five working days) or do you want the faster one (£1,610, two days)?',
   });
@@ -213,13 +221,15 @@ async function startBoard() {
   }
 
   /* Every home and config root the engine reads, sandboxed. HOME covers
-     os.homedir(); the named ones cover code that reads them first. The control
-     switch leaves them unset, ONLY so the leak guard can be shown to fire.
+     os.homedir(); the named ones cover code that reads them first.
      🛑 Set in THIS process too, BEFORE seedFiles requires any engine module:
      several resolve AGENT_WORKFORCE_HOME once, at require time (#3675). */
   const home = fs.mkdtempSync(path.join(os.tmpdir(), 'mshots-home-'));
   roots.HOME = home;
-  const sealed = process.env.MSHOTS_UNSEAL_FOR_CONTROL === '1' ? {} : {
+  if (LEAK_CONTROL === 'account') {
+    fs.writeFileSync(path.join(home, '.claude.json'), JSON.stringify({ oauthAccount: { emailAddress: PLANTED_EMAIL } }));
+  }
+  const sealed = {
     HOME: home, AGENT_WORKFORCE_HOME: home, AGENT_WORKFORCE_CONFIG_ROOT: path.join(home, 'config'),
     AGENT_WORKFORCE_CLAUDE_CONFIG: path.join(home, '.claude.json'), AGENT_WORKFORCE_CLAUDE_CONFIG_DIR: path.join(home, '.claude'),
     CLAUDE_CONFIG_DIR: path.join(home, '.claude'), AGENT_WORKFORCE_CLAUDE_SETTINGS: path.join(home, '.claude', 'settings.json'),
@@ -243,9 +253,15 @@ async function startBoard() {
       AGENT_WORKFORCE_FAKE_PANES: path.join(roots.DATA, 'fake-panes'),
       AGENT_WORKFORCE_FAKE_SESSIONS: path.join(roots.DATA, 'fake-sessions'),
       AGENT_WORKFORCE_FAKE_SCREEN: path.join(roots.DATA, 'fake-screen') },
-    stdio: 'ignore',
+    stdio: ['ignore', 'ignore', fs.openSync(path.join(roots.DATA, 'board-stderr.log'), 'w')],
   });
-  if (!(await waitForBoard(base, 20000))) { srv.kill(); throw new Error('the throwaway board did not come up on ' + base); }
+  if (!(await waitForBoard(base, 20000))) {
+    srv.kill();
+    let tail = '';
+    try { tail = fs.readFileSync(path.join(roots.DATA, 'board-stderr.log'), 'utf8').trim().split('\n').slice(-5).join('\n'); } catch { /* none */ }
+    for (const d of Object.values(roots)) { try { fs.rmSync(d, { recursive: true, force: true }); } catch { /* best effort */ } }
+    throw new Error('the throwaway board did not come up on ' + base + (tail ? '; its stderr ended:\n' + tail : ''));
+  }
   return { base, srv, roots };
 }
 
@@ -266,13 +282,13 @@ async function seed(base, roots) {
   }
   await post('/api/projects', { name: 'Quarterly accounts', agents: ['esme'] });
   const t0 = Date.now() - 1800e3;
-  const at = (min) => new Date(t0 + min * 60e3).toISOString();
+  const stamp = (min) => new Date(t0 + min * 60e3).toISOString();
   const lines = [
-    { kind: 'post', id: 'm1', project: pid, from: 'cleo', to: [], text: 'Kick-off: the catalogue goes to print on the 3rd. Ada has copy, Basil has research, I have the printer.', at: at(1), outcomes: {} },
-    { kind: 'post', id: 'm2', project: pid, from: 'basil', to: [], text: 'Competitor prices are in the shared sheet, tab "March". Two of them undercut us on the linen range by about 8%.', at: at(4), outcomes: {} },
-    { kind: 'post', id: 'm3', project: pid, from: 'ada', to: ['cleo'], text: 'Copy for pages 1-8 is done. Pages 9-12 need the new photos before I can caption them, so I am parked on those until Thursday.', at: at(9), outcomes: {} },
-    { kind: 'reaction', project: pid, of: 'm3', emoji: '👍', op: 'add', from: 'cleo', at: at(10) },
-    { kind: 'reaction', project: pid, of: 'm2', emoji: '🔥', op: 'add', from: 'ada', at: at(11) },
+    { kind: 'post', id: 'm1', project: pid, from: 'cleo', to: [], text: 'Kick-off: the catalogue goes to print on the 3rd. Ada has copy, Basil has research, I have the printer.', at: stamp(1), outcomes: {} },
+    { kind: 'post', id: 'm2', project: pid, from: 'basil', to: [], text: 'Competitor prices are in the shared sheet, tab "March". Two of them undercut us on the linen range by about 8%.', at: stamp(4), outcomes: {} },
+    { kind: 'post', id: 'm3', project: pid, from: 'ada', to: ['cleo'], text: 'Copy for pages 1-8 is done. Pages 9-12 need the new photos before I can caption them, so I am parked on those until Thursday.', at: stamp(9), outcomes: {} },
+    { kind: 'reaction', project: pid, of: 'm3', emoji: '👍', op: 'add', from: 'cleo', at: stamp(10) },
+    { kind: 'reaction', project: pid, of: 'm2', emoji: '🔥', op: 'add', from: 'ada', at: stamp(11) },
   ];
   fs.appendFileSync(path.join(roots.DATA, 'messages.jsonl'), lines.map((l) => JSON.stringify(l)).join('\n') + '\n');
   return { projectId: pid };
@@ -281,12 +297,14 @@ async function seed(base, roots) {
 /* Before ANY screenshot: a sealed board must have no accounts at all. The page
    guard below cannot see a bare key suffix; the accounts list can. */
 async function preflight(base) {
+  /* An unread list is not an empty one: a refused or unparseable answer stops
+     the run exactly as a listed account does. */
   const r = await fetch(base + '/api/accounts');
-  const body = await r.json().catch(() => null);
-  const rows = Array.isArray(body) ? body : (body && (body.accounts || body.rows || body.list)) || [];
+  const body = r.ok ? await r.json().catch(() => null) : null;
+  const rows = body && body.accounts;
   if (!Array.isArray(rows) || rows.length) {
-    const err = new Error('LEAK GUARD: the throwaway board lists ' + (Array.isArray(rows) ? rows.length : 'unreadable')
-      + ' account(s); a sealed board must list none. No screenshots taken.');
+    const err = new Error('LEAK GUARD: the throwaway board lists ' + (Array.isArray(rows) ? rows.length + ' account(s)' : 'accounts it would not show (HTTP ' + r.status + ')')
+      + '; a sealed board must list none. No screenshots taken.');
     err.leak = true;
     throw err;
   }
@@ -296,6 +314,12 @@ async function preflight(base) {
 /* What must never appear in a shot: a real email (anything not example.com),
    an `sk-` style key fragment, this Mac's home path, user name or host name.
    Returns the offending strings. */
+/* The two controls tools/browser-checks.sh runs, each of which must exit 3:
+   `account` plants a signed-in Claude account in the sandboxed home (the
+   preflight must stop it), `page` puts an address in an agent's role (the page
+   scan must stop it). The address is invented and not example.com. */
+const LEAK_CONTROL = process.env.MSHOTS_LEAK_CONTROL || '';
+const PLANTED_EMAIL = 'planted.leak@leak-control.test';
 const REAL_HOME = os.homedir();
 const REAL_USER = os.userInfo().username;
 const REAL_HOST = os.hostname().replace(/\.local$/, '');
@@ -309,15 +333,32 @@ const SHIPPED_EMAILS = new Set(SHIPPED_HTML.match(EMAIL_RE) || []);
 /* e.g. the `sk-ant-` placeholder on the API key field. A real key matches a
    LONGER string (sk-ant-api03-...), which is not in this set, so it is still caught. */
 const SHIPPED_KEYS = new Set(SHIPPED_HTML.match(KEY_RE) || []);
+const escapeRegExp = (t) => t.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+const REAL_USER_RE = REAL_USER && REAL_USER.length > 2 ? new RegExp('\\b' + escapeRegExp(REAL_USER) + '\\b', 'i') : null;
+const REAL_HOST_RE = REAL_HOST && REAL_HOST.length > 2 ? new RegExp('\\b' + escapeRegExp(REAL_HOST) + '\\b', 'i') : null;
+/* Judged on what a screenshot or a hover can show: the rendered text, form
+   values, and title / aria-label / alt / placeholder. NOT the page source, whose
+   comments and script would match a common login name such as a word in a
+   code comment, and stop every run on that Mac. Every hit is masked, because
+   the message itself lands in shared logs. */
+const mask = (t) => t.length <= 2 ? '***' : t[0] + '***' + (t.includes('@') ? t.slice(t.indexOf('@')) : '');
 async function leaksOn(page) {
-  const text = await page.evaluate(() => document.body ? document.body.innerText + ' ' + document.documentElement.outerHTML : '');
+  const text = await page.evaluate(() => {
+    if (!document.body) return '';
+    const parts = [document.body.innerText];
+    for (const el of document.querySelectorAll('input, textarea, select')) if (el.value) parts.push(el.value);
+    for (const el of document.querySelectorAll('[title], [aria-label], [alt], [placeholder]')) {
+      for (const a of ['title', 'aria-label', 'alt', 'placeholder']) { const v = el.getAttribute(a); if (v) parts.push(v); }
+    }
+    return parts.join(' ');
+  });
   const hits = new Set();
   for (const m of text.match(EMAIL_RE) || []) {
-    if (!/@example\.(com|org|net)$/i.test(m) && !SHIPPED_EMAILS.has(m)) hits.add(m);
+    if (!/@example\.(com|org|net)$/i.test(m) && !SHIPPED_EMAILS.has(m)) hits.add(mask(m));
   }
-  if (REAL_HOME.length > 1 && text.includes(REAL_HOME)) hits.add(REAL_HOME);
-  if (REAL_USER && REAL_USER.length > 2 && new RegExp('\\b' + REAL_USER + '\\b').test(text)) hits.add('user:' + REAL_USER);
-  if (REAL_HOST && REAL_HOST.length > 2 && text.includes(REAL_HOST)) hits.add('host:' + REAL_HOST);
+  if (REAL_HOME.length > 1 && text.includes(REAL_HOME)) hits.add('home:' + mask(REAL_HOME));
+  if (REAL_USER_RE && REAL_USER_RE.test(text)) hits.add('user:' + mask(REAL_USER));
+  if (REAL_HOST_RE && REAL_HOST_RE.test(text)) hits.add('host:' + mask(REAL_HOST));
   for (const m of text.match(KEY_RE) || []) if (!SHIPPED_KEYS.has(m)) hits.add(m.slice(0, 6) + '***');
   return [...hits];
 }
@@ -334,11 +375,20 @@ async function overflowOf(page) {
         if (el.scrollWidth > el.clientWidth + 1) out.push({ sel, scrollWidth: el.scrollWidth, clientWidth: el.clientWidth });
       }
     }
-    // The widest thing sticking out past the viewport, to say WHAT overflows.
+    /* The widest thing sticking out past the viewport, to say WHAT overflows.
+       Skipped: anything wholly off screen (a drawer parked with a transform)
+       and anything inside a sideways scroller (a chip row), which are laid out
+       that way on purpose. Content cut off at the edge still counts. */
+    const inScroller = (el) => {
+      for (let a = el.parentElement; a && a !== document.body; a = a.parentElement) {
+        if (/^(auto|scroll)$/.test(getComputedStyle(a).overflowX)) return true;
+      }
+      return false;
+    };
     let worst = null;
     for (const el of document.body.querySelectorAll('*')) {
       const r = el.getBoundingClientRect();
-      if (r.width === 0 || getComputedStyle(el).visibility === 'hidden') continue;
+      if (r.width === 0 || r.left >= vw || getComputedStyle(el).visibility === 'hidden' || inScroller(el)) continue;
       if (r.right > vw + 1 && (!worst || r.right > worst.right)) {
         worst = { right: Math.round(r.right), tag: el.tagName.toLowerCase(), id: el.id || '', cls: String(el.className || '').slice(0, 60) };
       }
@@ -391,7 +441,7 @@ async function run() {
                 const leaks = await leaksOn(page);
                 if (leaks.length) {
                   const err = new Error('LEAK GUARD: this screen shows real data (' + leaks.length + ' hits, e.g. '
-                    + leaks[0].replace(/^(.).*(@.*)$/, '$1***$2') + '). Stopping with no further shots.');
+                    + leaks[0] + '). Stopping with no further shots.');
                   err.leak = true;
                   throw err;
                 }
