@@ -16,9 +16,12 @@
 # merge friction, and every night on an unchanged tree adds to the runner baseline.
 #
 # workflow_dispatch runs it on demand: `gh workflow run browser-checks-full.yml --ref main`
-# before a cut. Dispatching on a PR's own branch attaches the run to that PR's head commit,
-# so a runner false-red there can stop /merge-on-green, the very thing this design avoids:
-# dispatch on a throwaway branch pointing at the same commit instead.
+# before a cut. Do NOT dispatch at a PR's head commit (its branch, or any branch at the same
+# sha): check runs are keyed by commit, so a runner false-red there can stop /merge-on-green,
+# the very thing this design avoids. To try a PR's code, dispatch a throwaway branch that
+# carries a NEW commit on top (for example an empty one), so its sha differs.
+# A check that failed once and passed on its retry counts as a pass here, and retries are not
+# reported on the card.
 # The checkout is detached (see the job), so browser-checks.sh takes the same single-process
 # path as the cut's 3b. Still, the full set has never run on this runner before its first
 # night: dispatch once before relying on the first card.
@@ -60,8 +63,9 @@ concurrency:
   # One lane per trigger, so a dispatch before a cut can never supersede a PENDING nightly
   # (a superseded pending run starts no jobs and so would file no card).
   group: browser-checks-full-${{ github.ref }}-${{ github.event_name }}
-  # A run in progress is never superseded; let it finish. (Within the schedule lane a
-  # pending run could only be replaced by the next night's.)
+  # A run in progress is never superseded; let it finish. Within the schedule lane a PENDING
+  # run can still be replaced, by the next night's or by a re-run of an older night (re-runs
+  # keep event_name schedule): avoid re-running old nights around 09:30 UTC.
   cancel-in-progress: false
 
 jobs:
@@ -237,13 +241,19 @@ jobs:
               # Look by label, or by title when the card had to be filed without one.
               if [ "${#labelled[@]}" -gt 0 ]; then again=$(cards_by_label) || again=""
               else again=$(cards_by_title) || again=""; fi
-              again=${again%%$'\n'*}
+              again_all=$again; again=${again%%$'\n'*}
               if [ -z "$again" ]; then
                 gh1 create_card
               elif [ -n "$lookup_failed" ]; then
-                # The first lookup failed, so the card found is most likely one that was ALREADY
-                # open: this night's report goes on it, or the night would go unreported.
-                gh1 gh issue comment "$again" --repo "$GITHUB_REPOSITORY" --body "Still not green ($RESULT) at $GITHUB_SHA: $RUN_URL
+                # The first lookup failed, so the list may hold a card that was ALREADY open: the
+                # report goes on it. Not on the card THIS run just made despite the error (its
+                # body names this run): that card already carries the report.
+                older=""
+                for c in $again_all; do
+                  b=$(ghr gh issue view "$c" --repo "$GITHUB_REPOSITORY" --json body -q .body) || b=""
+                  case "$b" in *"$RUN_URL"*) ;; *) older="$c"; break ;; esac
+                done
+                [ -n "$older" ] && gh1 gh issue comment "$older" --repo "$GITHUB_REPOSITORY" --body "Still not green ($RESULT) at $GITHUB_SHA$rerun: $RUN_URL
           NEW since the last red night: (not computed: the card lookup failed this run)
           Red checks: $red"
               else

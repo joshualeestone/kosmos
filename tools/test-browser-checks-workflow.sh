@@ -227,8 +227,8 @@ if command -v ruby >/dev/null 2>&1; then
   # The token the collector reads is the one the driver writes (the two are separate files).
   grep -qE '^[[:space:]]*log "FAILED-LIST:' "$REPO/tools/browser-checks.sh" || fail "browser-checks.sh no longer writes a FAILED-LIST: line, so every card would carry no labels"
   pass "the label collector reads only the FAILED-LIST: summary (entries kept whole), and falls back without aborting when there is no log"
-  # Card script. $1 = the checks job RESULT, $2 = what the stubbed issue list answers
-  # (empty / 7 / null); the open card's last report named render-fields only.
+  # Card script. $1 = the checks job RESULT, $2 = the open card the REST list holds (empty
+  # or a number); the open card's last report names render-fields and regress-a-night.
   # Every stubbed gh read (label list, issue list, issue view) answers with fixture JSON run
   # through the script's OWN -q filter with real jq, so all three filters are exercised,
   # not bypassed. An empty issue list makes real jq print "null" for .[0].number, which is
@@ -245,7 +245,7 @@ if command -v ruby >/dev/null 2>&1; then
   card() {
     PATH="$BT/poison:$PATH" GH_TOKEN=invalid GH_CONFIG_DIR="$BT/ghcfg" GH_RETRY_SECONDS=0 \
     LISTFAIL="${LISTFAIL:-}" LABELFAIL="${LABELFAIL:-}" LCFAIL="${LCFAIL:-}" CREATEFAIL="${CREATEFAIL:-}" FLAGDIR="$BT/flags" GITHUB_RUN_ATTEMPT="${ATTEMPT:-1}" COMMENTFILE="${COMMENTFILE:-}" \
-    VIEWFAIL="${VIEWFAIL:-}" BODYFILE="${BODYFILE:-}" VIEWBODY="${VIEWBODY:-}" LABEL="${LABEL:-}" RESULT="$1" OPEN="$2" RED="${REDV:-render-fields|render-thread|regress-a-night (server did not boot)|render-list-row render-fields (rich board did not boot)}" GITHUB_REPOSITORY=o/r GITHUB_SHA=abc RUN_URL=u bash -eo pipefail -c '
+    VIEWFAIL="${VIEWFAIL:-}" BODYFILE="${BODYFILE:-}" VIEWBODY="${VIEWBODY:-}" LABEL="${LABEL:-}" RESULT="$1" OPEN="$2" RED="${REDV:-render-fields|render-thread|regress-a-night (server did not boot)|render-list-row render-fields (rich board did not boot)}" GITHUB_REPOSITORY=o/r GITHUB_SHA=abc RUN_URL=https://example.test/actions/runs/4242 bash -eo pipefail -c '
       qarg() { local prevarg="" a; for a in "$@"; do [ "$prevarg" = "-q" ] && { printf "%s" "$a"; return 0; }; prevarg="$a"; done; return 1; }
       gh() { case "$1 $2" in
         "label list") [ -n "$LABELFAIL" ] && { echo "HTTP 502" >&2; return 1; }
@@ -278,6 +278,8 @@ if command -v ruby >/dev/null 2>&1; then
           [ -n "$VIEWFAIL" ] && { echo "HTTP 502" >&2; return 1; }
           f=$(qarg "$@") || { echo "CALL unexpected issue view without -q"; return 1; }
           if [ -n "$VIEWBODY" ]; then jq -n --arg b "$VIEWBODY" "{body: \$b, comments: []}" | jq -r "$f"; return; fi
+          # The ghost card (#9) is the one THIS run made: its body names this run.
+          if [ "$3" = 9 ]; then jq -n --arg b "The nightly full page-layer run ended failure: $RUN_URL" "{body: \$b, comments: []}" | jq -r "$f"; return; fi
           printf "%s" "{\"body\":\"The nightly full page-layer run failed\\n\\nRed checks: an old entry\",\"comments\":[{\"body\":\"Still not green (failure) at old: u\\nNEW since the last red night: none\\nRed checks: render-fields | regress-a-night (server did not boot)\"},{\"body\":\"a person quoting it: Red checks: something else entirely\"}]}" | jq -r "$f" ;;
         "issue comment") echo "CALL comment $3 :: $*"
           [ -n "$COMMENTFILE" ] && { prevarg=""; for a in "$@"; do [ "$prevarg" = "--body" ] && printf "%s" "$a" > "$COMMENTFILE"; prevarg="$a"; done; }; true ;;
@@ -315,9 +317,6 @@ if command -v ruby >/dev/null 2>&1; then
   case "$out" in *"CALL create"*|*"CALL label-create"*) fail "an open-card streak created again: $out" ;; esac
   out="$(card cancelled "")" || fail "card script failed on a cancelled run: $out"
   case "$out" in *"CALL create"*"ended cancelled"*) ;; *) fail "a cancelled (e.g. timed-out) run did not file a card: $out" ;; esac
-  out="$(card failure null)" || fail "card script failed on a null query result: $out"
-  case "$out" in *"CALL create"*) ;; *) fail "a literal null from the issue query did not create a card: $out" ;; esac
-  case "$out" in *"CALL comment null"*) fail "commented on issue 'null': $out" ;; esac
   out="$(card success 7)" || fail "card script failed on a green night with an open card: $out"
   case "$out" in *"CALL close 7"*) ;; *) fail "the first green night did not close the open card: $out" ;; esac
   case "$out" in *"CALL create"*) fail "a green night created a card: $out" ;; esac
@@ -375,6 +374,12 @@ if command -v ruby >/dev/null 2>&1; then
     "render-fields | render-thread"*) ;;
     *) fail "after a no-labels night, the real reds were not all listed as NEW: $out" ;;
   esac
+  # The first lookup fails AND the create was a ghost (GitHub made #9, whose body names this
+  # run): the report goes on the card that was already open (7), not on #9.
+  rm -f "$BT/flags/"*; out="$(LISTFAIL=first CREATEFAIL=ghost LABEL=1 card failure 7)" || fail "lookup failure + ghost create aborted: $out"
+  case "$out" in *"CALL comment 9"*) fail "the report went on the card this run had just made: $out" ;; esac
+  case "$out" in *"CALL comment 7"*) ;; *) fail "lookup failure + ghost create left no report on the already-open card: $out" ;; esac
+  rm -f "$BT/flags/"*
   # CRLF from a web edit must not make every check NEW.
   out="$(VIEWBODY="$(printf 'Still not green (failure) at x: u\r\nNEW since the last red night: none\r\nRed checks: render-fields | render-thread\r')" REDV="render-fields|render-thread" card failure 7)" || fail "CRLF report: $out"
   [ "$(printf '%s\n' "$out" | sed -n 's/^NEW since the last red night: //p')" = "none" ] || fail "a CRLF previous report made entries NEW: $out"
@@ -385,7 +390,7 @@ if command -v ruby >/dev/null 2>&1; then
   case "$out" in *"CALL "*) fail "a green night with a failed lookup acted: $out" ;; esac
   [ -s "$BT/all-arms.out" ] || fail "no card arm output was collected, so the real-gh check below would see nothing"
   grep -q "REAL gh REACHED" "$BT/all-arms.out" && fail "the card script reached the real gh in some arm: $(grep -m1 'REAL gh REACHED' "$BT/all-arms.out")"
-  pass "the card script: fresh red creates, open red comments leading with NEW checks, a timeout/cancel files, a null lookup is none, green closes, green with no card is a no-op"
+  pass "the card script: fresh red creates, open red comments leading with NEW checks, a timeout/cancel files, green closes, green with no card is a no-op"
   fi
 elif [ -n "${CI:-}" ]; then
   fail "ruby is missing under CI, so the embedded scripts cannot be run"
