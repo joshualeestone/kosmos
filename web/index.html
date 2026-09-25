@@ -43119,12 +43119,15 @@ function paintTaskPage() {
      most by somebody who assumes closing a task stops the agent. Only when
      somebody is on it and it is open. */
   const note = document.getElementById('tk-note');
-  if (who && !t.closedAt) {
+  /* The agent on it: the one the claim is about (a task assigned through its parts has no t.who,
+     and the warning matters there as much), else a legacy task's own who. */
+  const noteWho = aboutName || who;
+  if (noteWho && !t.closedAt) {
     /* Kept on purpose although the part line says it too (THE JOIN, pinned by render-tasks): here
        it is the premise of the warning that follows, that closing does not stop an agent on it. */
-    const says = (t.claim && t.claim.claimed === true) ? who + ' says it is on this. ' : '';
-    note.textContent = says + 'Marking it done closes it here. It does not stop ' + who
-      + ' or change what ' + who + ' is doing.';
+    const says = (t.claim && t.claim.claimed === true) ? noteWho + ' says it is on this. ' : '';
+    note.textContent = says + 'Marking it done closes it here. It does not stop ' + noteWho
+      + ' or change what ' + noteWho + ' is doing.';
     note.hidden = false;
   } else {
     note.hidden = true;

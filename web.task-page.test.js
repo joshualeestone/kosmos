@@ -292,6 +292,17 @@ test('any other could-not-tell reason on a task kept as parts names its agent, n
   assert.doesNotMatch(inParts, /no longer on the project/, 'the reason is said twice: beside the agent and in the why line');
 });
 
+test('the close-note warns about the agent on a task assigned through its parts (no legacy who)', () => {
+  const { doc } = runPaint({
+    project: { ...PROJECT, tasks: [] },
+    task: { number: 12, sentence: 's', createdAt: new Date().toISOString(), addedBy: 'operator', closedAt: null,
+      claim: { claimed: true, about: 'april' },
+      parts: [{ id: 1, sentence: 'the only part', who: 'april', closedAt: null }] },
+  });
+  assert.equal(doc.els['tk-note'].hidden, false, 'the warning is missing on a parts-assigned task');
+  assert.match(doc.els['tk-note'].textContent, /^April says it is on this\. Marking it done closes it here\. It does not stop April/);
+});
+
 test('a task that disappears under the open page sends you to its project', () => {
   const doc = stubDoc(TK_IDS);
   const views = [];
