@@ -145,16 +145,45 @@ enum PushBridge {
     static func boardURL(fromNotification userInfo: [AnyHashable: Any], coordinator: URL) -> URL? {
         guard let raw = userInfo["address"] as? String,
               raw.unicodeScalars.allSatisfy({ $0.isASCII }),
-              let coordinatorHost = coordinator.host?.lowercased(),
-              let relayDomain = relayDomain(ofCoordinatorHost: coordinatorHost)
+              isMacHost(raw.lowercased(), coordinator: coordinator)
         else { return nil }
-        let address = raw.lowercased()
-        guard address != coordinatorHost else { return nil }
+        var parts = URLComponents()
+        parts.scheme = "https"
+        parts.host = raw.lowercased()
+        parts.path = "/"
+        // kosmos#718 (agreed with Kano): a tap lands on the agent that asked, via the
+        // board's own deep link (?tab=detail&agent=, read at boot by web/index.html).
+        // The push's `session` is used only when it is a plain agent name; anything
+        // else, or none, opens the board home, never a dead tap.
+        if let session = userInfo["session"] as? String, isAgentSession(session) {
+            parts.queryItems = [URLQueryItem(name: "tab", value: "detail"), URLQueryItem(name: "agent", value: session)]
+        }
+        return parts.url
+    }
+
+    // The same rule as the board's agent names (engine/create.js NAME_RE), with room
+    // to 64: lowercase letters, digits, hyphen and underscore, starting with a letter
+    // or digit. No dots, slashes, colons, percent signs, spaces or Unicode.
+    static func isAgentSession(_ s: String) -> Bool {
+        guard (1...64).contains(s.count), let first = s.unicodeScalars.first,
+              ("a"..."z").contains(first) || ("0"..."9").contains(first)
+        else { return false }
+        return s.unicodeScalars.allSatisfy {
+            ("a"..."z").contains($0) || ("0"..."9").contains($0) || $0 == "-" || $0 == "_"
+        }
+    }
+
+    // A Mac's host: one RFC 1123 label directly under the coordinator's domain, and
+    // never the coordinator's own host. Lowercase ASCII expected; callers lowercase.
+    static func isMacHost(_ host: String, coordinator: URL) -> Bool {
+        guard host.unicodeScalars.allSatisfy({ $0.isASCII }),
+              let coordinatorHost = coordinator.host?.lowercased(),
+              let relayDomain = relayDomain(ofCoordinatorHost: coordinatorHost),
+              host != coordinatorHost
+        else { return false }
         let suffix = "." + relayDomain
-        guard address.hasSuffix(suffix) else { return nil }
-        let label = String(address.dropLast(suffix.count))
-        guard isHostLabel(label) else { return nil }
-        return URL(string: "https://\(address)/")
+        guard host.hasSuffix(suffix) else { return false }
+        return isHostLabel(String(host.dropLast(suffix.count)))
     }
 
     // "login.kosmosplus.com" -> "kosmosplus.com". Nil when the host has fewer than

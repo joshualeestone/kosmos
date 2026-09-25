@@ -95,10 +95,27 @@ turns out dead, it posts `{token: null}` (kosmos-relay `apns-718`).
   `KosmosConfig.coordinatorOrigin`) is accepted (`PushBridge.boardURL`); anything
   else leaves the app where it is.
 
+## The shell on a phone (#718)
+
+- **A page that cannot load** shows a native page (offline, Kosmos+ not answering, or the
+  system's own reason) with Try again, and reloads by itself when an offline phone reconnects
+  (`ShellViews.swift`, `Shell.loadFailure`).
+- **Pull to refresh** reloads the page.
+- **Links:** Kosmos+ and your Macs open in the app over https; any other site, and plain http,
+  opens in Safari; mail, phone and text links open their apps; other schemes are refused. Links
+  that ask for a new window (the billing button) are handled, not dropped (`Shell.linkDecision`).
+- **A tapped notification** opens the agent that asked
+  (`?tab=detail&agent=<session>`, the session checked against the board's agent-name rule), or
+  the board home when the push carries no usable session.
+- **No white flash:** the WebView is navy until the first page paints. The pages keep clear of the
+  notch and home bar themselves, so the WebView adds no inset of its own.
+- **Not yet:** a navy launch screen needs an asset catalog or a launch storyboard, and both need
+  the iOS platform installed (see "Buildable, not yet runnable" above).
+
 ### Tests that run without a simulator
 
 `LogicTests/run.sh` compiles the Foundation-only files (`PushBridgeLogic.swift`,
-`PushRegistrar.swift`) for macOS with the tests and runs them. It ends with one
+`PushRegistrar.swift`, `ShellLogic.swift`) for macOS with the tests and runs them. It ends with one
 `VERDICT:` line; no verdict line means the run did not finish. Pass a directory
 to run the suite against a modified copy of those two files (how the suite was
 shown able to fail). CI runs it, plus a simulator-SDK build, in
