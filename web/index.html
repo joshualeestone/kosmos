@@ -5870,8 +5870,7 @@ body:not(.consolidated) .pjmidhead:has(.pjhead) .tsearch:focus-within { flex-bas
   #pj-post { font-size: 16px; }
   .pjmid #pj-post-mirror .pj-mirror-in { font-size: 16px; }
   /* The same zoom hits the room's other fields, its search and its who picker, and the
-     projects list's sort. (The Tasks column's and add-member's fields are not this change's:
-     raised separately.) */
+     projects list's sort. (The Tasks and members fields: the touch rule after .tk-inp.) */
   #pj-room-search, #pj-thread-who, #pj-list-view .sortctl select { font-size: 16px; }
   #pj-room .rxn-pick, #pj-room .rxn-more { min-width: 36px; min-height: 36px; }
   /* A reaction already on a post is a target too, on any touchscreen (a phone turned
@@ -7721,6 +7720,16 @@ body.consolidated .tkcard:hover { border-color: transparent; }
           border-radius: var(--radius-control); color: var(--label); }
 .tk-inp:not(select) { padding: var(--space-4) var(--space-5);
           border: 0.5px solid var(--border-strong); background: var(--field-fill); }
+/* #718 mobile (Liu Kang m705): iOS zooms into any field under 16px and does not zoom back, so
+   the page pans sideways. Every field on the project page and its Tasks and members dialogs, on
+   a touchscreen only, plus the Tasks fields by name wherever they appear. After .tk-inp's rule
+   above, so it wins. The phone check sweeps the same three places, so a new field cannot slip
+   under 16px unnoticed. */
+@media (hover: none) {
+  #nt-what, #nt-who, .tk-inp, .tkwho-sel, #pj-one-add,
+  #panel-projects :is(input, select, textarea), #nt-modal :is(input, select, textarea),
+  #am-modal :is(input, select, textarea) { font-size: 16px; }
+}
 .rm-back { position: fixed; inset: 0; background: rgba(17, 20, 24, 0.72);
            display: flex; align-items: center; justify-content: center;
            padding: var(--space-5); z-index: 50; }

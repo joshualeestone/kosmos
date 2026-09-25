@@ -705,6 +705,21 @@ const now = () => new Date().toISOString();
       chk(splitFocus === 'pj-add-member' && splitWide === 'pj-add-member' && splitBack === 'pj-add-member' && splitOrder.startsWith('members-files,room'),
         `[phone] a control focused in Members/Files keeps its focus when the phone turns`, `${splitFocus} -> ${splitWide} -> ${splitBack} (order ${splitOrder})`);
       await phonePage.evaluate(() => { const b = document.getElementById('pj-add-member'); if (b) b.blur(); });
+      // A SWEEP, not a hand list (Liu Kang m705): every field on the project page, its Tasks and
+      // members dialogs included, computes at 16px or more on a touchscreen, or iOS zooms in and
+      // the page pans sideways. A dynamically made part-assignee select is added so its class
+      // rule is covered too.
+      const fonts = await phonePage.evaluate(() => {
+        const roots = ['#panel-projects', '#nt-modal', '#am-modal'].map((q) => document.querySelector(q)).filter(Boolean);
+        if (roots.length !== 3) return { error: 'a root is missing', found: roots.length };
+        const probe = document.createElement('select'); probe.className = 'tkwho-sel'; roots[0].appendChild(probe);
+        const skip = new Set(['checkbox', 'radio', 'range', 'color', 'file', 'hidden', 'button', 'submit', 'reset', 'image']);
+        const fields = roots.flatMap((r) => [...r.querySelectorAll('input, select, textarea')]).filter((el) => !(el.tagName === 'INPUT' && skip.has((el.type || '').toLowerCase())));
+        const small = fields.map((el) => ({ id: el.id || el.className || el.tagName, px: parseFloat(getComputedStyle(el).fontSize) })).filter((f) => f.px < 16);
+        probe.remove();
+        return { count: fields.length, small, hoverNone: matchMedia('(hover: none)').matches };
+      });
+      chk(!fonts.error && fonts.hoverNone && fonts.count >= 6 && fonts.small.length === 0, `[phone/touch] every field on the project page is at least 16px (no iOS zoom)`, JSON.stringify(fonts));
       // The first-visit project tip (#3574) must land ON SCREEN on a phone: its old anchor, Add
       // member, sits below the room there. Placed by the real tipPlace with the real TIPS entry.
       const tipAt = async () => phonePage.evaluate(() => {

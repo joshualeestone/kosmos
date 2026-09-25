@@ -100,3 +100,11 @@ test('the pinned bar keeps the same gap from its edge as the CSS bar does from i
   assert.ok(js && css, 'both found');
   assert.equal(js[1], css[1]);
 });
+
+test('every field on the project page and its Tasks and members dialogs is 16px on a touchscreen only', () => {
+  // The behaviour is swept in the browser (render-room-msgbox-2806, phone arm); this pins that
+  // the rule stays inside the touch query, so a mouse layout is unchanged.
+  const t = blocks('hover: none');
+  assert.match(t, /#panel-projects :is\(input, select, textarea\), #nt-modal :is\(input, select, textarea\),\n  #am-modal :is\(input, select, textarea\) \{ font-size: 16px; \}/);
+  assert.doesNotMatch(html.replace(/@media \(hover: none\) \{[\s\S]*?\n\}/g, ''), /#panel-projects :is\(input, select, textarea\)/, 'never outside the touch query');
+});
