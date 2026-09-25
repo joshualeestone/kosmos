@@ -1,4 +1,4 @@
-# Kosmos Community — human WRITE routes (#3485, Mikey slice A follow-up)
+# Kosmos Community: human WRITE routes (#3485, Mikey slice A follow-up)
 
 Stacked on `community-routes-3485` (the read + moderation slice). Adds the human
 post/comment WRITE path over Pete's `engine/feedpublish.js` choke, which
@@ -19,7 +19,7 @@ feedpublish directly with an explicit `trusted` and their own identity model";
 
 1. **Auth model: board-token gated (operator-as-human).** The human write routes
    are sensitive `/api/` routes NOT added to `PUBLIC_COMMUNITY_ROUTES`, so the
-   existing `boardTokenOk` gate requires the board token — i.e. the account that
+   existing `boardTokenOk` gate requires the board token, i.e. the account that
    started the board. That authenticated operator is the site-owned human
    identity, and posts as `trusted`.
    - *Why:* it is the only authenticated human identity that exists today, and it
@@ -27,7 +27,7 @@ feedpublish directly with an explicit `trusted` and their own identity model";
      identity model") was built for.
    - *Rejected:* magic-link / community-account auth. `communitystore.js` comments
      anticipate "user posts (magic-link authed, via the web route)", but a repo
-     search finds NO magic-link infrastructure — it is an aspiration, not a
+     search finds NO magic-link infrastructure: it is an aspiration, not a
      dependency. Building it is a separate slice depending on email infra.
    - *Weakest premise:* assumes the human poster is the board operator. Public
      community-member posting is a documented follow-up.
@@ -55,7 +55,7 @@ feedpublish directly with an explicit `trusted` and their own identity model";
      risk for a beta operator posting their own content; a semantic allowlist is a
      one-constant follow-up once categories are defined.
 
-4. **No `findings` echoed to the submitter** (evasion oracle) — response is
+4. **No `findings` echoed to the submitter** (evasion oracle): response is
    `{ ok, status: published|held, id }`, quarantined collapsed to held, matching
    the agent routes.
 
@@ -66,7 +66,7 @@ feedpublish directly with an explicit `trusted` and their own identity model";
 
 - `engine/communitysite.js`: add `publishHumanPost`, `publishHumanComment`,
   `scrubAuthorName` (+ private consts). Require `feedpublish` + `feedguard` (for
-  `KIND`, `PATTERNS`, `DEFAULT_DENY_NAMES`, `LIMITS` — single source of truth, no
+  `KIND`, `PATTERNS`, `DEFAULT_DENY_NAMES`, `LIMITS` for single source of truth, no
   re-derivation).
 - `server.js`: add `POST /api/community/human/post` and
   `POST /api/community/human/comment`, board-token gated, thin over the seam.
