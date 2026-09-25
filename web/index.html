@@ -23036,7 +23036,8 @@ document.getElementById('acct-apikey-go').addEventListener('click', async () => 
    carries the device link and code once grok prints them, then connected / error /
    cancelled. `o.ids` names the controls (go, openRow, open, code, cancelRow, cancel), `o.msg()`
    the status line, `o.reauthDir()` the account a sign-in again is for (null for a new one),
-   and `o.alive()`, if given, whether the place it was started from is still on screen: a
+   `o.repaintFailed` what to say if the screen cannot repaint after a sign-in (each caller has
+   its own place to point at), and `o.alive()`, if given, whether the place it was started from is still on screen: a
    poll that finds it gone ends the sign-in (first run's step can be left without a close).
    Every answer is checked against `gen`, so one that returns after the person left (a
    close, a provider switch, a Stop) changes nothing; leaving also ends the sign-in on the
@@ -23101,7 +23102,7 @@ function grokSubDriver(o) {
         /* The account exists on the engine now; a screen that fails to repaint must say so,
            never sit on "Checking the connection…". */
         try { await o.onConnected(out.account || null); }
-        catch { say(o.repaintFailed || 'Signed in, but this screen could not update.'); }
+        catch { say(o.repaintFailed); }   // each caller says where the account will show
         return;
       }
       if (out.state === 'cancelled') { finish('Sign-in stopped.'); return; }

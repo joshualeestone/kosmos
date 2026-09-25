@@ -162,7 +162,8 @@ const chk = (ok, label, extra) => {
     window.paintAccounts = real;
     return { msg: document.getElementById('acct-grok-msg').textContent, rejections };
   });
-  chk(/could not update/.test(thrown.msg) && thrown.rejections.length === 0, 'a repaint that throws after connected is said, not left on Checking', JSON.stringify(thrown));
+  chk(thrown.msg === 'Signed in, but this screen could not update. Close it and look in Settings, AI Models.' && thrown.rejections.length === 0,
+    'a repaint that throws after connected is said in Settings\' own words, not left on Checking', JSON.stringify(thrown));
 
   // An engine error is said in words; the button re-arms.
   await q(() => { closeAcctAdd(); openAcctAdd(); acctPick('xai'); document.getElementById('acct-grok-pick-sub').click(); document.getElementById('acct-grok-sub-go').click(); });
@@ -348,6 +349,25 @@ const chk = (ok, label, extra) => {
     return out;
   });
   chk(frLeave.cancels.includes(frLeave.id) && frLeave.polls === 0, 'first run: leaving the model step ends a sign-in in flight', JSON.stringify(frLeave));
+
+  // First run's own words when its repaint throws (review pass 6: the texts are per caller).
+  const frThrown = await q(async () => {
+    document.getElementById('fr-grok-connect').click();
+    await new Promise((r) => setTimeout(r, 120));
+    document.getElementById('fr-grok-sub-go').click();
+    await new Promise((r) => setTimeout(r, 50));
+    const real = window.frPaintKeyed;
+    window.frPaintKeyed = async () => { throw new Error('repaint failed'); };
+    window.__status = { state: 'connected', account: { email: 'me@example.com' } };
+    await window.__tick();
+    await new Promise((r) => setTimeout(r, 50));
+    window.frPaintKeyed = real;
+    const out = { msg: document.getElementById('fr-grok-sub-msg').textContent };
+    document.getElementById('fr-apikey-flow').hidden = true; FR_APIKEY_WHICH = null; frApikeyExpanded(null);
+    return out;
+  });
+  chk(frThrown.msg === 'Signed in, but this screen could not update. Grok will show as connected in Settings, AI Models.',
+    'first run: a repaint that throws after connected is said in first run\'s own words', JSON.stringify(frThrown));
 
   const frDone = await q(async () => {
     document.getElementById('fr-grok-connect').click();

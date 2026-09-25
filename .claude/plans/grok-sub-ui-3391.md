@@ -105,3 +105,10 @@ signing a lapsed subscription back in from the app.
 - [NIT] the repaint-failed text was Settings-only on a shared driver: each caller passes its own.
 - [NIT] the merge read-back error said "this account" on screens where no account was picked:
   "your existing Grok account was updated, but we could not read it back".
+
+## Review pass 6 (sonnet): no blockers, 1 warning (test gap), 1 nit, both taken
+- [WARNING] nothing pinned that each caller shows its OWN repaint-failed text (both deletions
+  stayed green): the Settings arm asserts its exact sentence and a new first-run arm (its
+  repaint throws) asserts first run's; deleting either caller's text now goes red.
+- [NIT] the driver's fallback text was unreachable: removed, `repaintFailed` is part of the
+  driver's contract (documented in its header).
