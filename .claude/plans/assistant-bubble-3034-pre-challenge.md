@@ -16,18 +16,33 @@ converged: true
 **Converged:** Yes (iteration 10 had nothing at WARNING or above; iteration 11 reviewed the post-convergence merge,
 trailers and avatar-pin change and found nothing at WARNING or above)
 
-### Per-Iteration Breakdown (fixes in the commit of the same iteration)
-- 1 opus: BLOCKER guide looked up once before it exists (re-find with backoff); reply dot on load; sendTalk clearing rules; silent Settings failure. B1b, B2 dot, B5b, B5c, B10.
-- 2 sonnet: folded reads never re-validated the guide; open-race (confirm before every read and send); live region. B10 folded.
-- 3 opus: 409 forgot the guide in a loop (only 404 forgets then); settings read retried; focus; nudge flash; per-guide reset. B12, B13.
-- 4 sonnet: production-shaped slug fixtures; switch-on confirms first. Server slug test.
-- 5 opus: BLOCKER (mine, from 3) every 409 kept the guide incl. not-guide; refusal reasons ('none','not-guide','unchecked'). B14.
-- 6 sonnet: README row stale.
-- 7 opus: MEASURED the bubble on an agent page's Send button: asbLift; Help box survives unreadable tips. B15, B16.
-- 8 sonnet: lift capped to the window; switch held until confirmed. B17.
-- 9 opus: BLOCKER guide matched by display name too (a person's own "Josh" as josh-2); refused send says so; band rule. B2b, B19; B2b/B17 re-aimed after their negative controls passed.
-- 10 sonnet: nothing at WARNING or above. Converged.
-- 11 opus: post-convergence merge (Renet's /api/setup-guide/hosted beside GET /api/setup-guide), trailers, avatar pin 20->21: clean.
+### Per-Iteration Breakdown
+
+#### Iteration 1 - opus
+- [BLOCKER] the guide was looked up once at boot, before a new install has one --> FIXED 67d88b6b (re-find with backoff; B1b)
+- [WARNING] reply dot lit on load --> FIXED (baseline; B2); [WARNING] sends departed from sendTalk's clearing rules --> FIXED (B5b, B5c); [WARNING] silent Settings failure --> FIXED
+#### Iteration 2 - sonnet
+- [WARNING] folded reads never re-validated the guide; opening raced a stale name --> FIXED 60483d3a (confirm before every read and send; B10)
+#### Iteration 3 - opus
+- [WARNING] a 409 forgot the guide in a loop --> FIXED 29a77c65; [WARNING] one failed settings read hid it for the session --> FIXED (B12, B13)
+#### Iteration 4 - sonnet
+- [WARNING] fixtures used a display-cased name, not the production slug --> FIXED 8af92787; [WARNING] switch-on painted before confirming --> FIXED
+#### Iteration 5 - opus
+- [BLOCKER] every 409 kept the guide, including "not the guide's folder" (a taken name) --> FIXED 90332519 (refusal reasons; B14)
+#### Iteration 6 - sonnet
+- [WARNING] README row stale --> FIXED 0f2da23b
+#### Iteration 7 - opus
+- [WARNING] the Help box hid the Setup assistant switch when tips were unreadable --> FIXED b6d8ce1c (B16); [WARNING] a refused send's message was unseen --> FIXED
+- MEASURED on screen: the bubble covered an agent page's Send button --> FIXED (asbLift; B15)
+#### Iteration 8 - sonnet
+- [WARNING] the lift had no cap on short windows --> FIXED 42c2bc6f (B17); [WARNING] the switch re-enabled mid-confirm --> FIXED
+#### Iteration 9 - opus
+- [BLOCKER] the guide matched by display name too, so the person's own "Josh" (josh-2) could be taken for it --> FIXED a03fefb9 (session name only; B2b)
+- [WARNING] a refused send vanished unseen --> FIXED (B19); [WARNING] B17's panel arm could not fail --> FIXED 0e8c058d (B2b and B17 re-aimed after their negative controls passed)
+#### Iteration 10 - sonnet
+- No new actionable findings at WARNING or above. **Converged.**
+#### Iteration 11 - opus (post-convergence merge, trailers, avatar pin)
+- No findings at WARNING or above; [NIT] one trailer's wording.
 
 ### Declined
 - The hosted no-guide chat (Renet's #3674): a separate follow-up PR; today it answers 501 on every install (on the card).
