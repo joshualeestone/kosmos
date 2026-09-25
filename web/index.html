@@ -8687,7 +8687,9 @@ body.plus-active {
   --pj-mention: #5aa2ff; --gold-edge: #d6a62e; --ok: #4ade80; --danger: #ff6b5e; --warn-ink: #ffca55;
 }
 /* #3724: the update toast sets its own red (--utone) on itself, so the navy block above cannot reach it. Restated
-   in the dark look's order: the bare override is (0,2,1), so each severity must be restated to stay above it. */
+   in the dark look's order: the bare override is (0,2,1), so each severity must be restated to stay above it.
+   ⚠️ In dark mode the dark :root .utoast rules (0,3,0 and up) outrank these, and paint the same values: keep the
+   two sets equal, or dark + Plus drifts from light + Plus with nothing to catch it. */
 body.plus-active .utoast { --utone: #ff8c82; }
 body.plus-active .utoast.stale, body.plus-active .utoast.login-adv.notice { --utone: var(--label-2); }
 body.plus-active .utoast.login-adv.warn { --utone: var(--warn-ink); }

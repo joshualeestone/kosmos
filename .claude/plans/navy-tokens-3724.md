@@ -15,3 +15,16 @@ That nothing on the Plus tab relies on the light-mode ones. Nothing does on purp
 ## Verification
 render-plus-blue-1615: the meaning colours on Plus equal the dark set in light, dark and reduced motion. CONTROL:
 off Plus in light mode they are the light set again. Without the fix, the light and reduced-motion arms fail.
+
+## Review record
+- Round 1: WARNING, pinning --danger would have failed the white sign-in fields' error border. Fixed with a carve-out
+  (as #firstrun has) and an arm that reads the painted border.
+- Round 2: nothing introduced. Two WARNINGs of the same class, already broken before this branch, taken in:
+  - the update toast's --utone on navy is restated per severity;
+  - #firstrun pins --ok too.
+  NITs taken: the carve-out skips selects, the check reads the painted border and the toast tone, and the success
+  line says more.
+- Round 3: no BLOCKER. Its WARNING (drop :not(select), since a select would sit on white) is declined. body.plus-active
+  DOES set --k-surface to #1c2c4f, so a select in the pane sits on navy, where coral is right. NIT taken: a comment on
+  the dark-mode coupling of the toast rules. NIT left: no arm for #firstrun --ok, which changes no pixel (its only
+  consumer already fell back to #1f7a4d).
