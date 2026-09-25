@@ -1,4 +1,4 @@
-// Browser-check-surface: detail-said svc-door dmoff pj-folder-state rolelimit d-untied d-withdrawn
+// Browser-check-surface: detail-said svc-door dmoff msg-valve pj-warn rst-list pj-folder-state pj-question rolelimit d-untied d-withdrawn
 'use strict';
 /**
  * #3692: no solid left bars (Josh's rule, 2026-09-24). Each card, note and warning that used

@@ -66,6 +66,9 @@ outside a short, justified allow-list, and a browser check proves the computed s
 - `.detail-said` quotes the agent's own words, and quotes are out of scope. It stays in scope
   because the card lists it separately from the quote exclusions, so it is raised for Josh along
   with the tree lines.
+- The check's `Browser-check-surface:` line names every class it builds, `msg-valve` and `rst-list`
+  included, even though those also appear in JS render code. The surface gate should ask about
+  this check when those classes change.
 
 ## Weakest part
 The browser check builds the elements in a sheet instead of reaching each real screen, so it proves
