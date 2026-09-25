@@ -115,6 +115,9 @@ const GROK_SUB_ROW = {
 /* #3391 part 2: a Grok API-KEY row, so the Sign in again arm can see a Grok row that must
    NOT carry one (a key has no sign-in to redo). */
 const GROK_KEY_ROW = { ...GROK_SUB_ROW, email: null, label: 'work2', dir: '/home/.grok-work2', keyTail: 'gk12', authMode: 'apikey' };
+/* A subscription row whose email could not be read: the engine refuses a sign-in again for it
+   (it tells a refresh from a swap by the email), so the row must not offer one. */
+const GROK_SUB_NOEMAIL = { ...GROK_SUB_ROW, email: null, label: 'noemail', name: 'No Email Grok', dir: '/home/.grok-noemail' };
 /* #3391 round 18: a LAPSED and an UNKNOWN Grok subscription. Neither is connected, so the server
    adds no badge and the page's legacy fallback puts connection.because in the VISIBLE pill. Those
    sentences must be pill-sized: the remedy is the row's own Sign in again button (#3391 part 2),
@@ -136,6 +139,7 @@ const ACCOUNTS = [
   OPENAI_APIKEY_ROW,
   GROK_SUB_ROW,
   GROK_KEY_ROW,
+  GROK_SUB_NOEMAIL,
   GROK_SUB_LAPSED,
   GROK_SUB_UNKNOWN,
 ];
@@ -228,6 +232,7 @@ const ACCOUNTS = [
     { email: 'API key ending cd34', claudeReauth: false, openaiReauth: false, checkNow: false },
     // #3391 part 2: a Grok KEY row has no sign-in to redo, so no Grok Sign in again.
     { email: 'API key ending gk12', claudeReauth: false, openaiReauth: false, grokReauth: false, checkNow: false },
+    { email: 'No Email Grok', grokReauth: false },
     // #3391: the Grok subscription row. Muted (honesty), no Check now button, and a title that
     // does not point at one; Disconnect / Delete say sign-in, never key.
     { email: 'grok@example.com', cls: 'acct-unknown', text: /Signed in/, honesty: true, checkNow: false, grokReauth: true,

@@ -67,6 +67,7 @@ const chk = (ok, label, extra) => {
       if (/\/api\/accounts\/grok\/subscription\/start$/.test(u)) {
         const body = JSON.parse((opts && opts.body) || '{}');
         window.__starts.push(body);
+        if (window.__holdStart) await window.__holdStart;
         if (window.__startAnswer) return enc(window.__startAnswer[1], window.__startAnswer[0]);
         return enc({ sessionId: 'sess' + window.__starts.length });
       }
@@ -126,7 +127,9 @@ const chk = (ok, label, extra) => {
     stop: !document.getElementById('acct-grok-sub-cancel-row').hidden,
     go: document.getElementById('acct-grok-sub-go').disabled,
     msg: document.getElementById('acct-grok-msg').textContent,
+    focus: document.activeElement && document.activeElement.id,
   }));
+  chk(mid.focus === 'acct-grok-sub-cancel', 'focus moves to Stop when the sign-in starts, not to the page body', JSON.stringify({ focus: mid.focus }));
   chk(mid.starts.length === 1 && !('reauthDir' in mid.starts[0]), 'a new sign-in POSTs start with no reauthDir', JSON.stringify(mid.starts));
   chk(mid.linkShown && /user_code=QWER-TYUI/.test(mid.link) && /QWER-TYUI/.test(mid.code) && mid.stop && mid.go && /Confirm the code/.test(mid.msg),
     'the link, the code, a way to stop and what to do are shown while it waits', JSON.stringify(mid));
@@ -148,7 +151,9 @@ const chk = (ok, label, extra) => {
   await q(() => { window.__status = { state: 'error', error: 'that sign-in was for a different account, so this account was left unchanged' }; });
   await tick();
   const bad = await q(() => ({ msg: document.getElementById('acct-grok-msg').textContent, go: document.getElementById('acct-grok-sub-go').disabled,
-    link: !document.getElementById('acct-grok-sub-open-row').hidden, polls: window.__polls.size }));
+    link: !document.getElementById('acct-grok-sub-open-row').hidden, polls: window.__polls.size,
+    focus: document.activeElement && document.activeElement.id }));
+  chk(bad.focus === 'acct-grok-sub-go', 'when it ends with Stop focused, focus returns to Sign in with Grok', JSON.stringify({ focus: bad.focus }));
   chk(/^That sign-in was for a different account, so this account was left unchanged\. You can try again\.$/.test(bad.msg) && !bad.go && !bad.link && bad.polls === 0,
     'an engine error is said in its own words and the button re-arms', JSON.stringify(bad));
 
@@ -179,6 +184,32 @@ const chk = (ok, label, extra) => {
     modal: !document.getElementById('acct-add-modal').hidden, box: document.getElementById('acct-success-box').textContent }));
   chk(lateTick === 1 && closed.cancels.includes(sid2) && !closed.success && !closed.modal && !/late@/.test(closed.box),
     'closing mid-sign-in cancels it on the engine, and a late answer paints nothing', JSON.stringify({ ...closed, lateTick, sid2 }));
+
+  // Switching provider mid-sign-in ends it on the engine.
+  const sw = await q(async () => {
+    openAcctAdd(); acctPick('xai'); document.getElementById('acct-grok-pick-sub').click();
+    window.__cancels.length = 0;
+    document.getElementById('acct-grok-sub-go').click();
+    await new Promise((r) => setTimeout(r, 50));
+    const id = 'sess' + window.__starts.length;
+    acctPick('google');
+    return { id, cancels: window.__cancels.slice(), polls: window.__polls.size };
+  });
+  chk(sw.cancels.length === 1 && sw.cancels[0] === sw.id && sw.polls === 0, 'switching provider mid-sign-in ends it on the engine', JSON.stringify(sw));
+
+  // A start that answers after the dialog closed is cancelled, not polled.
+  const held = await q(async () => {
+    acctPick('xai'); document.getElementById('acct-grok-pick-sub').click();
+    window.__cancels.length = 0;
+    let release; window.__holdStart = new Promise((r) => { release = r; });
+    document.getElementById('acct-grok-sub-go').click();
+    await new Promise((r) => setTimeout(r, 30));
+    closeAcctAdd();
+    release(); window.__holdStart = null;
+    await new Promise((r) => setTimeout(r, 80));
+    return { id: 'sess' + window.__starts.length, cancels: window.__cancels.slice(), polls: window.__polls.size };
+  });
+  chk(held.cancels.includes(held.id) && held.polls === 0, 'a start answered after the dialog closed is cancelled on the engine and never polled', JSON.stringify(held));
 
   // Sign in again from a row.
   await q(async () => {
@@ -257,6 +288,18 @@ const chk = (ok, label, extra) => {
   chk(frSwitch.starts.length === 1 && !('reauthDir' in frSwitch.starts[0]) && /CCCC-DDDD/.test(frSwitch.code),
     'first run\'s sign-in starts as a new account and shows its code', JSON.stringify(frSwitch));
 
+  // The key's own answer survives the sign-in's poll: the two write different lines.
+  const lines = await q(async () => {
+    document.getElementById('fr-apikey-key').value = '';
+    document.getElementById('fr-apikey-go').click();
+    await new Promise((r) => setTimeout(r, 50));
+    const keySaid = document.getElementById('fr-apikey-msg').textContent;
+    await window.__tick();
+    return { keySaid, keyAfter: document.getElementById('fr-apikey-msg').textContent, subSaid: document.getElementById('fr-grok-sub-msg').textContent };
+  });
+  chk(lines.keySaid === 'Paste the key first.' && lines.keyAfter === lines.keySaid && /Confirm the code/.test(lines.subSaid),
+    'first run: the sign-in\'s progress has its own line and does not wipe the key\'s answer', JSON.stringify(lines));
+
   // Close and reopen Grok's box: the sign-in in flight is cancelled on the engine.
   const frClose = await q(async () => {
     window.__cancels.length = 0;
@@ -266,6 +309,24 @@ const chk = (ok, label, extra) => {
   });
   chk(frClose.cancels.length === 1 && !frClose.box && frClose.polls === 0,
     'first run: closing Grok\'s box ends its sign-in on the engine', JSON.stringify(frClose));
+
+  // Leaving the step (no close) ends the sign-in at the next poll.
+  const frLeave = await q(async () => {
+    document.getElementById('fr-grok-connect').click();
+    await new Promise((r) => setTimeout(r, 120));
+    window.__cancels.length = 0;
+    window.__status = { state: 'awaiting-code', userCode: 'EEEE-FFFF' };
+    document.getElementById('fr-grok-sub-go').click();
+    await new Promise((r) => setTimeout(r, 50));
+    const id = 'sess' + window.__starts.length;
+    frGo(6);
+    await window.__tick();
+    const out = { id, cancels: window.__cancels.slice(), polls: window.__polls.size };
+    frGo(5);
+    await new Promise((r) => setTimeout(r, 120));
+    return out;
+  });
+  chk(frLeave.cancels.includes(frLeave.id) && frLeave.polls === 0, 'first run: leaving the model step ends a sign-in in flight', JSON.stringify(frLeave));
 
   const frDone = await q(async () => {
     document.getElementById('fr-grok-connect').click();

@@ -39,3 +39,22 @@ signing a lapsed subscription back in from the app.
 - docs/browser-checks/render-grok-subscription-3391.js (21 checks), 9 web perturbations red.
 - render-account-badge-1921: every row asserts the Grok Sign in again is present exactly on
   Grok subscription rows; a Grok KEY row fixture added so that arm can fail.
+
+## Review pass 1 (opus): no blockers, 3 warnings, fixed
+- First run's sign-in outlived leaving the step (OpenAI's aborts on FR_STEP !== 5): the
+  driver takes `alive()`, first run passes FR_STEP === 5, a poll that finds it false ends
+  the sign-in on the engine.
+- The poll wrote into the shared key-box line and wiped the key's answer: #fr-grok-sub-msg.
+- Focus fell to the body when Sign in went disabled: Stop takes it; when the sign-in ends
+  with Stop or the link focused, it goes back to Sign in with Grok.
+- NIT fixed: no Sign in again on a subscription row without an email (the engine refuses it).
+- CONVENTION fixed: reauthTarget refuses a symlinked account dir.
+- NIT fixed: the email match ignores capitals.
+- NIT, comment only: the rename replaces the whole auth.json, as a fresh `grok login` would
+  and as openaiaccounts #2584 does.
+- Recorded, not changed: a retry within the 3s force-kill window after a timeout is refused
+  as "already in progress"; a status poll answering a non-404 error keeps polling (both the
+  same as the OpenAI flow).
+- Arms added: switch provider mid-sign-in, a start answered after close, leaving first
+  run's step, the two lines, focus both ways, emailless row, watchdog and failed-rename on
+  the engine, symlink, capitals. Each new fix perturbed red.

@@ -681,6 +681,11 @@ function reauthTarget(dir) {
   const isDefault = clean === path.resolve(defaultDir());
   const named = path.dirname(clean) === path.resolve(homeDir()) && path.basename(clean).startsWith(DIR_PREFIX);
   if (!isDefault && !named) return { error: 'that is not a Grok account on this computer' };
+  /* A symlinked account dir is refused, as storeKey, forget and remove refuse one: the rename
+     below would otherwise write through the link into wherever it points. */
+  let st = null;
+  try { st = fs.lstatSync(clean); } catch { st = null; }
+  if (st && st.isSymbolicLink()) return { error: 'that is not a Grok account on this computer' };
   const who = identityOf(clean);
   if (!who) return { error: 'that account has no readable sign-in to refresh' };
   if (who.authMode !== 'subscription') return { error: 'that account is an API key, not a Grok subscription' };
@@ -690,7 +695,9 @@ function reauthTarget(dir) {
 
 /* Move a finished sign-in's auth.json from the staging slot over the live one. One
    rename: the live file is replaced whole or not at all, and the staging copy is gone in
-   the same call, so list() never sees two accounts for one person. */
+   the same call, so list() never sees two accounts for one person. WHOLE means the file
+   grok just wrote replaces the old one, any other entries in it included, which is what a
+   fresh `grok login` in that home would leave too (the openaiaccounts #2584 choice). */
 function promoteReauth(stagingDir, liveDir) {
   try { fs.renameSync(authFile(stagingDir), authFile(liveDir)); return { ok: true }; }
   catch { return { ok: false, because: 'we signed in but could not update this account on the computer' }; }
@@ -787,9 +794,10 @@ function startGrokLogin({ label, grokBin, reauthDir } = {}) {
          read and equal. Anything else leaves the live account exactly as it was. */
       const who = identityOf(session.dir);
       const got = who && who.authMode === 'subscription' ? who.email : null;
+      // An email is one address whatever its capitals, so the comparison ignores them.
       if (!got) {
         session.error = 'we could not confirm that sign-in is the same account, so this account was left unchanged';
-      } else if (got !== session.expectEmail) {
+      } else if (got.toLowerCase() !== String(session.expectEmail).toLowerCase()) {
         session.error = 'that sign-in was for a different account, so this account was left unchanged';
       } else {
         const moved = promoteReauth(session.dir, session.reauthDir);

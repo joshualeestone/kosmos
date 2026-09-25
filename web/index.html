@@ -11332,6 +11332,7 @@ window.kosmosMeasureScrollbarWidth();
                     <div class="frow" id="fr-grok-sub-open-row" hidden style="margin-top:8px;"><a class="btn" id="fr-grok-sub-open" href="#" target="_blank" rel="noopener">Open the sign-in page</a></div>
                     <p class="dhint" id="fr-grok-sub-code" hidden style="margin:8px 0 0;"></p>
                     <div class="frow" id="fr-grok-sub-cancel-row" hidden style="margin-top:8px;"><button class="btn" id="fr-grok-sub-cancel" type="button">Stop this sign-in</button></div>
+                    <p class="dhint" id="fr-grok-sub-msg" role="status" aria-live="polite" style="margin:8px 0 0;"></p>
                     <p class="dhint" style="margin:8px 0;">Or use an API key instead:</p>
                   </div>
                   <div class="frow"><a class="btn" id="fr-apikey-getkey" href="#" target="_blank" rel="noopener">Get a key</a></div>
@@ -20528,7 +20529,9 @@ async function paintAccounts() {
           /* #3391 part 2: a Grok SUBSCRIPTION row signs in again the same way (the engine's
              reauthDir), which is also how a lapsed one comes back. A Grok key row has no
              sign-in to redo. */
-          : (acctProvider(a) === 'xai' && a.authMode === 'subscription'
+          /* Only with an email: the engine tells a refresh from a swap by it, and refuses
+             a sign-in again without one, so the button would only ever fail. */
+          : (acctProvider(a) === 'xai' && a.authMode === 'subscription' && a.email
             ? '<button class="acct-reauth" type="button" data-grok-reauth="' + esc(a.dir) + '" '
               + 'aria-label="Sign in again as ' + who + (qual ? ' (' + esc(qual) + ')' : '') + '" '
               + 'title="' + esc('Signs in again to this Grok subscription and updates this account rather than making a second one.') + '">Sign in again</button>'
@@ -23031,8 +23034,10 @@ document.getElementById('acct-apikey-go').addEventListener('click', async () => 
    (Settings, AI Models, and first run's Grok row), so the two cannot drift. It drives
    /api/accounts/grok/subscription/{start,status,cancel}: start answers a sessionId, status
    carries the device link and code once grok prints them, then connected / error /
-   cancelled. `o.ids` names the controls (go, openRow, open, code, cancelRow), `o.msg()` the
-   status line, `o.reauthDir()` the account a sign-in again is for (null for a new one).
+   cancelled. `o.ids` names the controls (go, openRow, open, code, cancelRow, cancel), `o.msg()`
+   the status line, `o.reauthDir()` the account a sign-in again is for (null for a new one),
+   and `o.alive()`, if given, whether the place it was started from is still on screen: a
+   poll that finds it gone ends the sign-in (first run's step can be left without a close).
    Every answer is checked against `gen`, so one that returns after the person left (a
    close, a provider switch, a Stop) changes nothing; leaving also ends the sign-in on the
    engine, which otherwise holds its slot until its five-minute watchdog. */
@@ -23067,12 +23072,21 @@ function grokSubDriver(o) {
     reset();
     if (id) cancelOnEngine(id);
   }
-  function finish(text) { stopPoll(); session = null; reset(); if (text != null) say(text); }
+  function finish(text) {
+    /* Stop and the link vanish with the sign-in; focus on either goes back to the button that
+       starts one, not to the page body. */
+    const a = document.activeElement;
+    const had = !!a && (a === el('cancel') || a === el('open'));
+    stopPoll(); session = null; reset();
+    if (text != null) say(text);
+    if (had) { const g = el('go'); if (g) g.focus(); }
+  }
   function watch(mine) {
     stopPoll();
     poll = setInterval(async () => {
       const id = session;
       if (!id || mine !== gen) { stopPoll(); return; }
+      if (o.alive && !o.alive()) { leave(); return; }
       let r;
       try { r = await fetch('/api/accounts/grok/subscription/status?sessionId=' + encodeURIComponent(id), { cache: 'no-store' }); }
       catch { return; }   // a network blip: keep polling
@@ -23114,6 +23128,8 @@ function grokSubDriver(o) {
     }
     session = out.sessionId;
     const cr = el('cancelRow'); if (cr) cr.hidden = false;
+    // The Sign-in button just went disabled under the person's focus; Stop is the live control now.
+    const stop = el('cancel'); if (stop) stop.focus();
     watch(mine);
   }
   return { start, leave, reset, get active() { return !!session; } };
@@ -23123,7 +23139,7 @@ function grokSubDriver(o) {
    never silently a sign-in again. */
 let ACCT_GROK_REAUTH_DIR = null;
 const ACCT_GROK_SUB = grokSubDriver({
-  ids: { go: 'acct-grok-sub-go', openRow: 'acct-grok-sub-open-row', open: 'acct-grok-sub-open', code: 'acct-grok-sub-code', cancelRow: 'acct-grok-sub-cancel-row' },
+  ids: { go: 'acct-grok-sub-go', openRow: 'acct-grok-sub-open-row', open: 'acct-grok-sub-open', code: 'acct-grok-sub-code', cancelRow: 'acct-grok-sub-cancel-row', cancel: 'acct-grok-sub-cancel' },
   msg: () => document.getElementById('acct-grok-msg'),
   reauthDir: () => ACCT_GROK_REAUTH_DIR,
   onConnected: async (account) => {
@@ -23204,6 +23220,7 @@ async function frApikeyOpen(which) {
   FR_APIKEY_GEN += 1;
   const mine = FR_APIKEY_GEN;
   FR_GROK_SUB.leave();   // #3391 part 2: a switch or a close ends a Grok sign-in in flight
+  document.getElementById('fr-grok-sub-msg').textContent = '';
   const flow = document.getElementById('fr-apikey-flow');
   const msg = document.getElementById('fr-apikey-msg');
   const p = which ? ACCT_APIKEY_PROVIDERS[which] : null;
@@ -23288,15 +23305,19 @@ for (const id of ['fr-gemini-connect', 'fr-grok-connect']) {
    account only (a sign-in again is a Settings row action). Connected closes the box the
    way an added key does, and the Grok row repaints as Connected. */
 const FR_GROK_SUB = grokSubDriver({
-  ids: { go: 'fr-grok-sub-go', openRow: 'fr-grok-sub-open-row', open: 'fr-grok-sub-open', code: 'fr-grok-sub-code', cancelRow: 'fr-grok-sub-cancel-row' },
-  msg: () => document.getElementById('fr-apikey-msg'),
+  ids: { go: 'fr-grok-sub-go', openRow: 'fr-grok-sub-open-row', open: 'fr-grok-sub-open', code: 'fr-grok-sub-code', cancelRow: 'fr-grok-sub-cancel-row', cancel: 'fr-grok-sub-cancel' },
+  /* Its own line, not the box's: the key and the sign-in sit side by side here, and a poll
+     writing every 1.2s into the shared line would wipe the key's answer. */
+  msg: () => document.getElementById('fr-grok-sub-msg'),
   reauthDir: () => null,
+  alive: () => FR_STEP === 5,
   onConnected: async (account) => {
     FR_APIKEY_GEN += 1;   // a key Add still in flight is now the stale one
     document.getElementById('fr-apikey-flow').hidden = true;
     FR_APIKEY_WHICH = null;
     frApikeyExpanded(null);
     const msg = document.getElementById('fr-apikey-msg');
+    document.getElementById('fr-grok-sub-msg').textContent = '';
     msg.setAttribute('tabindex', '-1');
     msg.focus();
     msg.textContent = 'Grok is connected' + (account && account.email ? ' (' + account.email + ')' : '') + '.';
@@ -23306,7 +23327,7 @@ const FR_GROK_SUB = grokSubDriver({
 document.getElementById('fr-grok-sub-go').addEventListener('click', () => FR_GROK_SUB.start());
 document.getElementById('fr-grok-sub-cancel').addEventListener('click', () => {
   FR_GROK_SUB.leave();
-  document.getElementById('fr-apikey-msg').textContent = 'Sign-in stopped.';
+  document.getElementById('fr-grok-sub-msg').textContent = 'Sign-in stopped.';
   document.getElementById('fr-grok-sub-go').focus();
 });
 /* Enter adds the key, like GPT's key field, and stops there: the step's own Enter-to-

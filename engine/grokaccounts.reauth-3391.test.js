@@ -149,3 +149,53 @@ test('reauthTarget refuses what is not a Grok subscription account with an email
   assert.equal(r.ok, false, 'the driver refuses before anything runs');
   assert.ok(!grokDirs().some((n) => /^\.grok-work\d/.test(n)), 'no staging slot was made for a refused target');
 });
+
+test('the same email in different capitals is the same account', () => withMode('approve', 'Me@Example.COM', async () => {
+  const live = account('.grok-caps');
+  const out = grok.startGrokLogin({ grokBin: FAKE, reauthDir: live });
+  const s = await settled(out.sessionId);
+  assert.equal(s.state, 'connected', JSON.stringify(s));
+  assert.match(auth(live), /"NEW"/);
+}));
+
+test('a symlinked account dir is refused, so the rename cannot write through the link', () => {
+  const real = account('real-target');
+  const link = nodePath.join(SANDBOX, '.grok-linked');
+  fs.rmSync(link, { force: true });
+  fs.symlinkSync(real, link);
+  assert.equal(grok.identityOf(link).email, 'me@example.com', 'CONTROL: through the link it reads as an account');
+  assert.match(grok.reauthTarget(link).error, /not a Grok account/);
+});
+
+test('a sign-in again the watchdog ends leaves the live account and frees it', () => withMode('hang', 'me@example.com', async () => {
+  grok.setGrokTimers({ timeout: 300, forceKill: 200 });
+  try {
+    const live = account('.grok-slow');
+    const before = grokDirs();
+    const out = grok.startGrokLogin({ grokBin: FAKE, reauthDir: live });
+    const s = await settled(out.sessionId);
+    assert.equal(s.state, 'error');
+    assert.match(s.error, /timed out/);
+    await waitFor(() => grokDirs().join() === before.join());
+    assert.equal(auth(live), OLD);
+    await waitFor(() => grok.forgetAccount(live, []).ok === true || null);
+  } finally {
+    grok.setGrokTimers({ timeout: 5 * 60 * 1000 });
+  }
+}));
+
+test('a rename that fails reports it and leaves the live account as it was', () => withMode('approve', 'me@example.com', async () => {
+  const live = account('.grok-ro');
+  const before = grokDirs();
+  fs.chmodSync(live, 0o500);   // the live dir cannot take a new file, so the rename fails
+  try {
+    const out = grok.startGrokLogin({ grokBin: FAKE, reauthDir: live });
+    const s = await settled(out.sessionId);
+    assert.equal(s.state, 'error', JSON.stringify(s));
+    assert.match(s.error, /could not update this account/);
+    assert.equal(auth(live), OLD);
+    await waitFor(() => grokDirs().join() === before.join());
+  } finally {
+    fs.chmodSync(live, 0o700);
+  }
+}));
