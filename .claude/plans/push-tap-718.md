@@ -30,3 +30,13 @@ Tests: web.push-landing-718.test.js pins both call sites, the shared 56rem break
 the behaviour (phone scrolls, computer does not, hidden/missing section left alone).
 Control: dropping the boot call fails it.
 Not touched: the Direct Message layout itself (Scorpion's screen).
+
+## Part 3: the other "waiting on you" controls, at thumb size
+- The Allow card (#askcard, a phone asking to use this Kosmos): its 3px gold LEFT BAR is
+  now a 1px gold border all round (Josh, 2026-09-24: no solid coloured left bars on cards;
+  same attention, same gold token). On a touchscreen its buttons are 44px tall (were 34
+  and 24). Measured at all 4 sizes x 2 themes x 2 engines (the card is injected at
+  /api/remote/pending in the audit; a sandbox has no tunnel): no left bar, 44px buttons,
+  no horizontal scroll. Test pins it; control (bar restored) fails it.
+- "Answer" on a needs-you card: a larger invisible hit area on a touchscreen (about 44px
+  tall), the pill layout unchanged.

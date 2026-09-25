@@ -449,8 +449,10 @@ h1 { font: 600 var(--text-title-1) var(--font-ui); letter-spacing: -0.012em; }
   /* #567: the Allow moment. A device asking sits where the news line sits,
      on every view, with the gold edge (attention) and never the warning
      tint: the common case is the person's own phone, in their hand. */
-  .askcard { margin: 10px 24px 0; padding: 12px 16px; border: 1px solid var(--k-rule);
-             border-left: 3px solid var(--gold); border-radius: 10px;
+  /* #718: the gold edge is the whole border now, not a solid left bar (Josh, 2026-09-24:
+     no solid coloured left bars on cards). Same attention, same gold. */
+  .askcard { margin: 10px 24px 0; padding: 12px 16px; border: 1px solid var(--gold-edge, var(--gold));
+             border-radius: 10px;
              background: var(--k-surface); font-size: .875rem; color: var(--k-ink-2); }
   .askcard h3 { font: 600 1rem var(--font-ui); color: var(--k-ink); margin: 0 0 4px; }
   .askcard p { margin: 0; max-width: 64ch; }
@@ -2288,6 +2290,15 @@ body.filter-noproj #orgview .onode:not([data-noproj]) { opacity: .26; }
          min-height: 24px; display: inline-flex; align-items: center; }
 .ansgo > u { text-decoration: none; border-bottom: 1px solid currentColor; padding-bottom: 1px; }
 .ansgo:focus-visible { outline: 2px solid var(--k-ink); outline-offset: 3px; }
+/* #718 mobile: on a touchscreen "Answer" is the thumb's main target on a card that needs you,
+   and its box is one short line of text. A larger invisible hit area around it (the layout of
+   the pill does not change): about 44px tall. */
+@media (hover: none) {
+  /* The Allow card is a decision taken with a thumb, often on the phone being allowed. */
+  .askcard button { min-height: 44px; }
+  .ansgo { position: relative; }
+  .ansgo::after { content: ""; position: absolute; inset: -12px -10px; }
+}
 .acard:hover .ansgo, .lrow:hover .ansgo { color: var(--k-ink); }
 /* ---- the settings screen: the pack's view K (pack-pass, scrappy) ----
    Ported from CURRENT-FREEZE (17c) with the 17c full-width ruling
