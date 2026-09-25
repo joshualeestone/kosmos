@@ -214,7 +214,18 @@ const waitFor = (page, fn, ms = 6000) => page.waitForFunction(fn, null, { timeou
     const jpg = fs.readFileSync(path.join(__dirname, '..', '..', 'web', 'icons', 'setup-guide-avatar.jpg'));
     await page.route('**/api/agent/josh/avatar*', (route) => route.fulfill({ status: 200, contentType: 'image/jpeg', body: jpg }));
     await page.evaluate(() => { ASB.nextFind = 0; });
-    chk(await waitFor(page, () => ASB.guide === 'josh' && /\/api\/agent\/josh\/avatar/.test(document.querySelector('#asb img').getAttribute('src') || ''), 20000), 'H8 once a guide exists the bubble moves to it, with its picture');
+    /* #3828 (#3707): a guide with NO picture (this fixture's) is drawn as its initial on a disc, a
+       data: SVG, not the /avatar URL; a guide WITH one keeps the URL. Either proves the bubble moved to
+       the guide: the URL names josh, the disc carries its initial J. (This arm required the URL alone and
+       blocked the 0.6.95 cut after #3828.) */
+    chk(await waitFor(page, () => {
+      const src = (document.querySelector('#asb img') || {}).getAttribute ? document.querySelector('#asb img').getAttribute('src') || '' : '';
+      if (ASB.guide !== 'josh') return false;
+      if (/\/api\/agent\/josh\/avatar/.test(src)) return true;
+      if (!src.startsWith('data:image/svg+xml')) return false;
+      let svg = ''; try { svg = decodeURIComponent(src.slice(src.indexOf(',') + 1)); } catch { return false; }
+      return />\s*J\s*</.test(svg);
+    }, 20000), 'H8 once a guide exists the bubble moves to it, with its picture or (no picture) its initial');
     await page.click('#asb');
     /* Read before anything is sent to the guide: a send clears the line on its own, which would hide a missing clear. */
     chk(!/questions? left today/.test((await state(page)).msg), 'H8 the guide\'s chat opens without the hosted allowance line', (await state(page)).msg);
