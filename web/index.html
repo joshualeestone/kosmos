@@ -5571,8 +5571,7 @@ body:not(.consolidated) .pjmidhead:has(.pjhead) .tsearch:focus-within { flex-bas
      (#2711), so an agent message reads as its own bubble again. */
   background: transparent;
   /* #1927: the store keeps paragraph breaks now, so render them. `pre-wrap`
-     shows the stored `\n`; `storeText` already collapsed space RUNS, so this
-     does not resurrect ragged whitespace. Both surfaces that draw a message
+     shows the stored `\n` (and, since #3679, kept indentation). Both surfaces that draw a message
      bubble -- the operator DM view (`dmRow`) and the project room -- use this
      one class, so this covers both. `overflow-wrap: anywhere` still breaks a
      long unbroken token. */

@@ -75,8 +75,17 @@ always a stray keystroke, and trimming it keeps "  hello" stored as "hello".
   block indented as a whole drew its second item as nested. The indentation every line shares
   now comes off first.
 - WARNING fixed: the stored form has its own ceiling, STORE_GROWTH (4) times the one-line limit,
-  on the DM path and both room paths, so a thread read on every poll stays bounded.
+  on the DM path and the room post path, so a thread read on every poll stays bounded. (Pass 4:
+  agent-to-agent `send()` records the one-line form, so it has no stored-form ceiling.)
 - WARNING fixed: a fence line must have no backtick after the opening three, in the store and in
   pjRich, so an inline ```span``` line does not open a fence.
 - Duplicate of the recorded pjBody column-0 difference: skipped.
 - NIT fixed: the storeText doc no longer claims `\n` is the only control character left.
+
+## Review pass 4 (sonnet)
+- WARNING fixed: the ceiling had also been put on `send()`, which records `cleaned`, not the
+  stored form, so it could refuse a short message for indentation nobody keeps. Removed there.
+- WARNING fixed: a stale `.dm-b` comment still said storeText collapses space runs.
+- Recorded, not changed: `quotedSegments` matches an earlier post by its one-line form inside the
+  stored text, so a requote of a post with a fence or nested list is not tagged. That is its
+  documented fail-safe direction (an unmatched quote is simply not styled).
