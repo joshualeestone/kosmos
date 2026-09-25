@@ -53637,7 +53637,9 @@ let ASB = { started: false, guide: null, setting: null, open: false, asking: fal
 function asbGuideRow() {
   if (!ASB.guide || !Array.isArray(LAST)) return null;
   const want = String(ASB.guide).toLowerCase();
-  return LAST.find((a) => a && (String(a.name || '').toLowerCase() === want || String(a.sessionName || '').toLowerCase() === want)) || null;
+  /* By SESSION name only: the seed records the board's session name (createAgent's slug, e.g. "josh"), and
+     /api/status's `name` is the display name, which the person's own agent can share ("Josh" as josh-2). */
+  return LAST.find((a) => a && String(a.sessionName || '').toLowerCase() === want) || null;
 }
 function asbAvatar(row) {
   return '/api/agent/' + encodeURIComponent(row.sessionName) + '/avatar?v=' + (row.avatarVer || 0);
@@ -53729,7 +53731,7 @@ function asbLift(el, bandOnly) {
       if (q.closest('#asblayer, #tiplayer, [hidden]')) continue;
       const b = q.getBoundingClientRect();
       if (b.width < 1 || b.height < 1 || getComputedStyle(q).visibility === 'hidden') continue;
-      if (bandOnly && b.top < vh - 160) continue;
+      if (bandOnly && b.bottom <= vh - 160) continue;   // anything reaching into the bottom band
       if (b.left < a.right && b.right > a.left && b.top < a.bottom && b.bottom > a.top) lift = Math.max(lift, vh - b.top + 12);
     }
     if (!lift) return;
@@ -53778,7 +53780,7 @@ function asbPaint() {
 /* The board's answer NOW to "which agent is the guide". Asked before every thread read and every send,
    so a guide removed (or a new agent that took its name) is never read or written as the guide, open
    or folded. Local and cheap: at most every 5s while open, every minute while folded. */
-async function asbConfirmGuide() {
+async function asbConfirmGuide({ forgetLater = false } = {}) {
   let r = null, b = null;
   try {
     r = await fetch('/api/setup-guide', { cache: 'no-store' });
@@ -53790,7 +53792,7 @@ async function asbConfirmGuide() {
   if (r.ok && b && b.ok && typeof b.name === 'string') {
     if (ASB.guide && b.name.toLowerCase() === String(ASB.guide).toLowerCase()) return true;
   } else if (r.status !== 404 && !(b && b.reason === 'not-guide')) return !!ASB.guide;
-  asbForgetGuide();
+  if (forgetLater) setTimeout(asbForgetGuide, 4000); else asbForgetGuide();
   return false;
 }
 
@@ -53906,7 +53908,13 @@ async function asbSend() {
   ASB.sending = true;
   document.getElementById('asp-send').disabled = true;
   msg.textContent = '';
-  if (!(await asbConfirmGuide())) { ASB.sending = false; document.getElementById('asp-send').disabled = false; return; }   // the panel has gone with the guide
+  /* The guide went: say so in the open panel (the words stay in the box) before it closes a moment later. */
+  if (!(await asbConfirmGuide({ forgetLater: true }))) {
+    msg.textContent = 'The setup assistant is not on this computer any more, so that was not sent.';
+    ASB.sending = false;
+    document.getElementById('asp-send').disabled = false;
+    return;
+  }
   /* sendTalk's rules (#402, #3419): clear only the text THIS send took, and only when the box is not its
      only copy: placed, or unconfirmed but kept in the thread. could_not, or anything unrecognised, keeps it. */
   const clearSent = () => { if (say.value.trim() === text) say.value = ''; ASB.wroteOnce = true; };

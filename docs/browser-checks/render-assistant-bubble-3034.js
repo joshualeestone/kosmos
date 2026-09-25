@@ -59,7 +59,10 @@ const bubble = (page) => page.evaluate(() => {
 const waitFor = (page, fn, ms = 6000) => page.waitForFunction(fn, null, { timeout: ms }).then(() => true, () => false);
 
 (async () => {
-  fleet.install([fleet.agent('josh', { state: 'idle', displayName: 'Josh', role: 'Setup guide' }),
+  /* The person's OWN agent called "Josh" (session josh-2) comes first: the guide must be found by its
+     session name ("josh"), never by a display name the person's agent can share (B2's picture proves it). */
+  fleet.install([fleet.agent('josh-2', { state: 'idle', displayName: 'Josh', role: 'Personal assistant' }),
+    fleet.agent('josh', { state: 'idle', displayName: 'Josh', role: 'Setup guide' }),
     fleet.agent('beatrix', { state: 'idle', displayName: 'Beatrix', role: 'Collections Coordinator' })]);
   /* Tips quiet: they are their own feature with their own check, and a tip must not cover the corner. */
   fs.writeFileSync(tipsStore.FILE(), JSON.stringify({ seen: [], off: true }));
@@ -298,6 +301,19 @@ const waitFor = (page, fn, ms = 6000) => page.waitForFunction(fn, null, { timeou
     chk(await waitFor(page, () => document.getElementById('asb').hidden && ASB.guide === null, 6000), 'B14 a folder that is not the guide\'s (a new agent took the name) is not used as the guide');
     fs.writeFileSync(marker14, 'josh\n');   // the real guide back, for the arms after
     chk(await waitFor(page, () => { const b = document.getElementById('asb'); return b && !b.hidden; }, 15000), 'B14 CONTROL: the marked guide is found again');
+
+    // B19: the guide goes while the person is typing. Send says why, keeps their words, and the chat closes a
+    // moment later rather than vanishing with the message unread.
+    await page.click('#asb');
+    await waitFor(page, () => !document.getElementById('asp').hidden);
+    unseed();
+    await page.fill('#asp-say', 'Are you there?');
+    await page.keyboard.press('Enter');
+    chk(await waitFor(page, () => /not on this computer any more/.test(document.getElementById('asp-msg').textContent) && !document.getElementById('asp').hidden), 'B19 a send refused because the guide went says so in the open chat');
+    chk(await page.evaluate(() => document.getElementById('asp-say').value === 'Are you there?'), 'B19 and the words stay in the box');
+    chk(await waitFor(page, () => document.getElementById('asp').hidden && ASB.guide === null, 8000), 'B19 then the chat closes with the guide gone');
+    seedGuide('josh');
+    chk(await waitFor(page, () => { const b = document.getElementById('asb'); return b && !b.hidden; }, 15000), 'B19 CONTROL: the guide back, the bubble returns');
 
     // B10: the guide goes while the chat is FOLDED: the next thread read asks the board first, is told
     // there is no guide, and the page stops using the name (a new agent that took it must never get the
