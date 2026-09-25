@@ -9294,7 +9294,7 @@ const server = http.createServer((req, res) => {
     /* timezone is null until the operator sets one; the UI then defaults its
        dropdown to the browser's own machine timezone (detected client-side,
        the authoritative source for the operator's machine). */
-    sendJson(res, 200, { timezone: (s && s.timezone) || null, autohandoff: autohandoff.settingFrom(s) });
+    sendJson(res, 200, { timezone: (s && s.timezone) || null, autohandoff: autohandoff.settingFrom(s), setupAssistant: setupAssistant.settingFrom(s) });
     return;
   }
   if (pathname === '/api/settings' && req.method === 'POST') {
@@ -9320,12 +9320,21 @@ const server = http.createServer((req, res) => {
           }
           patch.autohandoff = { enabled: body.autohandoff.enabled, threshold: body.autohandoff.threshold };
         }
+        /* #3034: the setup assistant bubble's switch (on) and whether its first-X
+           choice was offered (asked). A patch may set either key; the other is kept. */
+        if ('setupAssistant' in body) {
+          const problem = setupAssistant.settingPatchProblem(body.setupAssistant);
+          if (problem) { sendJson(res, 400, { ok: false, because: problem }); return; }
+          let had;
+          try { had = store.readSettings(); } catch { had = {}; }
+          patch.setupAssistant = setupAssistant.mergeSetting(had, body.setupAssistant);
+        }
         if (Object.keys(patch).length === 0) {
           sendJson(res, 400, { ok: false, because: 'no known setting to save' });
           return;
         }
         const saved = store.writeSettings(patch);
-        sendJson(res, 200, { ok: true, timezone: saved.timezone || null, autohandoff: autohandoff.settingFrom(saved) });
+        sendJson(res, 200, { ok: true, timezone: saved.timezone || null, autohandoff: autohandoff.settingFrom(saved), setupAssistant: setupAssistant.settingFrom(saved) });
       })
       .catch((err) => sendJson(res, 400, { ok: false, because: String((err && err.message) || 'we could not read that request') }));
     return;
@@ -9737,12 +9746,13 @@ const server = http.createServer((req, res) => {
       } catch { /* the welcome project is a nicety; onboarding still completed */ }
       /* #3034: GATED OFF pending Josh's direction -- the why (and the release
          timing) lives with FIRSTRUN_AUTOCREATE_ENABLED in engine/setup-assistant.js,
-         not repeated here. WHEN ENABLED, this seeds the one-time setup-assistant
-         agent (named after the user, on their own connected account), same posture
-         as the welcome seed above: once-ever, best-effort, and it MUST NOT throw or
-         block because onboarding has already succeeded. It skips silently with no
-         connected Claude account, no saved user name, or if already seeded, and the
-         flag file is written only on a real create, so a skip leaves nothing behind. */
+         not repeated here. WHEN ENABLED, this seeds the one-time setup guide (Josh's
+         AI: his name and picture, on the user's own connected account; see
+         engine/setup-assistant.js), same posture as the welcome seed above: once-ever,
+         best-effort, and it MUST NOT throw or block because onboarding has already
+         succeeded. It skips silently with no connected Claude account or if already
+         seeded, and the flag file is written only on a real create, so a skip leaves
+         nothing behind. */
       if (setupAssistant.FIRSTRUN_AUTOCREATE_ENABLED) {
         try {
           const seed = setupAssistant.seedSetupAssistant({ createAgent: create.createAgent });
@@ -13591,6 +13601,50 @@ const server = http.createServer((req, res) => {
       })
       .catch((err) => sendJson(res, 400,
         { error: String((err && err.message) || 'we could not read that request') }));
+    return;
+  }
+
+  /**
+   * #3034: tell the setup guide which screen the person is on (Josh, 2026-09-24
+   * 16:05: "if it was like context aware for what page you were on that would be
+   * dope"). The help bubble posts here when it opens and as the person moves;
+   * engine/pagecontext.js writes the report beside the guide's instructions, and
+   * the guide's role tells it to read that before answering.
+   *
+   * 🔑 A FILE, NOT A LINE ON THE MESSAGE: the chat route records exactly what the
+   * person typed, and a prefix would put words in the thread they never wrote.
+   * Only the seeded guide is ever written to: the name the seed recorded
+   * (setupAssistant.guideName()), and only while that agent's folder still carries
+   * the seed's marker (isGuideFolder), so it cannot drop a file into any other
+   * agent's folder whatever the body says, including a later agent that took the
+   * name of a deleted guide. A REMOVED guide keeps its folder and marker (removal deletes
+   * nothing), so the route also checks the removed list and answers 404 for it.
+   * Until the first-run seed is switched on no install has a guide, so 404 is the
+   * normal answer and the bubble treats it as "no guide", not as an error.
+   */
+  if (pathname === '/api/setup-guide/page' && req.method === 'POST') {
+    readBody(req)
+      .then((buf) => {
+        let body;
+        try { body = JSON.parse(buf.toString('utf8') || '{}'); } catch { body = null; }
+        if (!body || typeof body !== 'object' || Array.isArray(body)) { sendJson(res, 400, { error: 'we could not read that request' }); return; }
+        const guide = setupAssistant.guideName();
+        if (!guide) { sendJson(res, 404, { error: 'there is no setup guide on this computer' }); return; }
+        /* The recorded name is not enough: a guide deleted and a new agent given the same
+           name would otherwise receive the reports. Only the folder the seed marked. */
+        if (!setupAssistant.isGuideFolder(guide)) { sendJson(res, 409, { error: 'the setup guide is not on this computer any more' }); return; }
+        /* Removing an agent deletes nothing on disk (engine/remove.js), so the marker
+           survives a removal: a REMOVED guide is "no guide" until it is restored. An
+           unreadable removed list refuses rather than write to an agent that may be gone. */
+        const removed = removal.removedNames();
+        if (!removed.ok) { sendJson(res, 409, { error: 'we could not check whether the setup guide was removed' }); return; }
+        if (removed.names.includes(create.cleanName(guide))) { sendJson(res, 404, { error: 'there is no setup guide on this computer' }); return; }
+        const pageContext = require('./engine/pagecontext');
+        const out = pageContext.write(guide, body);
+        if (out.ok) { sendJson(res, 200, { ok: true }); return; }
+        sendJson(res, out.bad ? 400 : 409, { error: out.because });
+      })
+      .catch((err) => sendJson(res, err && err.status ? err.status : 400, { error: (err && err.message) || 'we could not read that request' }));
     return;
   }
 
