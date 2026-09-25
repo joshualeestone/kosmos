@@ -57,8 +57,10 @@ const waitFor = (page, fn, arg, ms = 6000) => page.waitForFunction(fn, arg, { ti
 
     /* The engine, as the contract says. `engineOn` flips the flag; `crewSwarm` is the crew's card field. */
     let engineOn = false;
+    let holdStatus = false;   // S11: no poll may land while it checks the merge
     let crewSwarm = { maxHelpers: 5, activeHelpers: 3, tokensToday: 2461380, dailyTokenLimit: 6000000, active: true, pausedBecause: null, helperTokenRatio: null };
     await page.route('**/api/status', async (route) => {
+      while (holdStatus) await new Promise((res) => setTimeout(res, 100));
       const r = await route.fetch();
       const j = await r.json();
       if (engineOn) {
@@ -193,13 +195,25 @@ const waitFor = (page, fn, arg, ms = 6000) => page.waitForFunction(fn, arg, { ti
     for (let i = 0; i < 20 && !find((q) => q.method === 'PUT' && q.body.maxHelpers === 8); i++) await page.waitForTimeout(100);
     chk(!!find((q) => q.method === 'PUT' && q.url === '/api/agent/crew/swarm' && q.body.maxHelpers === 8), 'S7 Most helpers sends PUT { maxHelpers: 8 }', JSON.stringify(sent));
     // S11: the engine answers a change with its SETTINGS only; Today and the lit circles must not blank.
+    // Polls are held, so only the merge can keep today's numbers on screen.
+    holdStatus = true;
+    await page.fill('#d-swarm-max', '6');
+    for (let i = 0; i < 20 && !find((q) => q.body.maxHelpers === 6); i++) await page.waitForTimeout(100);
     await page.waitForTimeout(300);
     const s11 = await page.evaluate(() => ({ today: document.getElementById('d-swarm-today').textContent, lit: document.querySelectorAll('#d-swarm .swd.on').length }));
+    holdStatus = false;
     chk(s11.today === '2,461,380 tokens' && s11.lit === 3, 'S11 after a change, Today and the working circles keep today\'s numbers', JSON.stringify(s11));
     // S13: the daily limit can be raised on the page (the create form's hint promises it).
     await page.fill('#d-swarm-cap', '12');
     for (let i = 0; i < 20 && !find((q) => q.body.dailyTokenLimit === 12000000); i++) await page.waitForTimeout(100);
     chk(!!find((q) => q.method === 'PUT' && q.body.dailyTokenLimit === 12000000), 'S13 the page raises the daily limit: PUT { dailyTokenLimit: 12000000 }', JSON.stringify(sent.slice(-2)));
+    // S13b: a limit that is not a whole million shows exactly, and the slider says its value in words.
+    crewSwarm = { ...crewSwarm, dailyTokenLimit: 2500000 };
+    await page.evaluate(() => document.getElementById('d-swarm-cap').blur());
+    chk(await waitFor(page, () => document.getElementById('d-swarm-cap-v').textContent === '2,500,000', null, 8000)
+      && await page.evaluate(() => document.getElementById('d-swarm-cap').getAttribute('aria-valuetext') === '2,500,000 tokens a day'),
+      'S13b a 2,500,000 limit shows as 2,500,000, and the slider is spoken in tokens', await page.evaluate(() => document.getElementById('d-swarm-cap-v').textContent));
+    crewSwarm = { ...crewSwarm, dailyTokenLimit: 6000000 };
     await page.click('#d-swarm-stop');
     for (let i = 0; i < 20 && !find((q) => q.method === 'POST'); i++) await page.waitForTimeout(100);
     chk(!!find((q) => q.method === 'POST' && q.url === '/api/agent/crew/swarm/stop'), 'S7 Stop now sends POST /api/agent/crew/swarm/stop', JSON.stringify(sent));
@@ -242,6 +256,7 @@ const waitFor = (page, fn, arg, ms = 6000) => page.waitForFunction(fn, arg, { ti
 
     // S9: a project's Members: the swarm has its cluster and an On / Off; Off sends the contract's PUT.
     await page.route('**/api/project/pj1/swarm/crew', async (route) => { sent.push({ method: route.request().method(), url: new URL(route.request().url()).pathname, body: JSON.parse(route.request().postData() || '{}') }); route.fulfill({ status: 200, contentType: 'application/json', body: '{"ok":true}' }); });
+    await page.evaluate(() => showTab('projects'));
     await page.evaluate(() => {
       const p = { id: 'pj1', name: 'Newsletter', swarmOff: [], agents: [
         { name: 'Research crew', sessionName: 'crew', present: true, state: 'working' },
@@ -253,12 +268,15 @@ const waitFor = (page, fn, arg, ms = 6000) => page.waitForFunction(fn, arg, { ti
       rex: !!document.querySelector('#pj-one-agents [data-agent="rex"] .swmini'), onPressed: document.querySelector('#pj-one-agents [data-agent="crew"] .swmini [data-swarm-on="1"]') && document.querySelector('#pj-one-agents [data-agent="crew"] .swmini [data-swarm-on="1"]').getAttribute('aria-pressed') }));
     chk(s9.crew && s9.crewCluster && !s9.rex && s9.onPressed === 'true', 'S9 in Members the swarm has its cluster and On / Off (On); Rex has neither', JSON.stringify(s9));
     const before9 = sent.length;
-    await page.evaluate(() => document.querySelector('#pj-one-agents [data-agent="crew"] .swmini [data-swarm-on="0"]').click());
+    /* The Projects view repaints from the server's own list (which has no pj1) and clears PJ_CURRENT, so the
+       fixture project is re-established in the same turn as the press. */
+    await page.evaluate(() => { PJ_CURRENT = 'pj1'; document.querySelector('#pj-one-agents [data-agent="crew"] .swmini [data-swarm-on="0"]').click(); });
     for (let i = 0; i < 20 && sent.length === before9; i++) await page.waitForTimeout(100);
     const last = sent[sent.length - 1];
     chk(last && last.method === 'PUT' && last.url === '/api/project/pj1/swarm/crew' && last.body.on === false
       && await page.evaluate(() => document.querySelector('#pj-one-agents [data-agent="crew"] .swmini [data-swarm-on="0"]').getAttribute('aria-pressed') === 'true'),
       'S9 Off sends PUT /api/project/pj1/swarm/crew { on: false } and shows Off', JSON.stringify(last));
+    chk(await page.evaluate(() => URL_TAB === 'projects' && !(CURRENT && CURRENT.sessionName === 'crew' && URL_TAB === 'detail')), 'S9 and pressing Off stays on the project (it does not open the swarm\'s page)', await page.evaluate(() => URL_TAB));
 
     // S15: dark. The cluster, the badge and the panel draw in the dark theme too.
     await page.emulateMedia({ colorScheme: 'dark' });

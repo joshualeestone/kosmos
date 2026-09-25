@@ -1556,7 +1556,7 @@ button.uprime:hover, .btn.uprime:hover, .utoast .uacts button.uprime:hover,
 .swstop:disabled { opacity: .5; }
 .swwhy { margin: 6px 0 0; font-size: .8125rem; color: var(--k-ink); }
 .swbar { height: 8px; border-radius: 999px; background: var(--k-side); overflow: hidden; margin: 2px 0 6px; }
-.swbar i { display: block; height: 100%; background: var(--gold-deep); border-radius: 999px; }
+.swbar i { display: block; height: 100%; background: var(--ok); border-radius: 999px; }   /* the mock's green: gold means selected */
 .swnums { display: flex; justify-content: space-between; flex-wrap: wrap; gap: 6px; font-size: .8125rem; font-variant-numeric: tabular-nums; }
 .swnums span + span { color: var(--k-ink-2); }
 .pj-swface { background: transparent !important; overflow: visible; }
@@ -16885,7 +16885,7 @@ function lrow(a) {
        leaves them. The state word carries the diagnosis; the full because rides
        the card and the detail panel, which have the room the row does not. */
     if (a.needsTrust === true) {
-      const tav = a.swarm && SWARMS_ON ? swarmCluster(a, 34) : a.hasAvatar
+      const tav = a.swarm && SWARMS_ON ? swarmCluster(a, 34, { decorative: true }) : a.hasAvatar
         ? `<img src="/api/agent/${encodeURIComponent(a.sessionName)}/avatar" alt="">`
         : `<span class="lavtint" style="background:${discTint(a.name)};color:${discInk(a.name)}">${esc(initials(a.name))}</span>`;
       return `<div class="lrow attn notrunning needstrust" data-agent="${esc(a.sessionName)}"${Number.isFinite(Number(a && a.dmUnread)) && Number(a && a.dmUnread) > 0 ? ' data-has-msgs' : ''}${a && a.state === 'needs_you' ? ' data-attn' : ''}${a && a.state === 'needs_you' && a.stateProject === null ? ' data-noproj' : ''}>
@@ -16898,7 +16898,7 @@ function lrow(a) {
       <div class="lmem"></div>
     </div>`;
     }
-    const off = a.swarm && SWARMS_ON ? swarmCluster(a, 34) : a.hasAvatar
+    const off = a.swarm && SWARMS_ON ? swarmCluster(a, 34, { decorative: true }) : a.hasAvatar
       ? `<img src="/api/agent/${encodeURIComponent(a.sessionName)}/avatar" alt="">`
       : `<span class="lavtint" style="background:${discTint(a.name)};color:${discInk(a.name)}">${esc(initials(a.name))}</span>`;
     return `<div class="lrow off notrunning" data-agent="${esc(a.sessionName)}"${Number.isFinite(Number(a && a.dmUnread)) && Number(a && a.dmUnread) > 0 ? ' data-has-msgs' : ''}${a && a.state === 'needs_you' ? ' data-attn' : ''}${a && a.state === 'needs_you' && a.stateProject === null ? ' data-noproj' : ''}>
@@ -16915,7 +16915,7 @@ function lrow(a) {
   const copy = stateCopyOf(a);
   const pct = pctOf(a.context);
   const band = memBand(pct);
-  const av = a.swarm && SWARMS_ON ? swarmCluster(a, 34) : a.hasAvatar
+  const av = a.swarm && SWARMS_ON ? swarmCluster(a, 34, { decorative: true }) : a.hasAvatar
     ? `<img src="/api/agent/${encodeURIComponent(a.sessionName)}/avatar" alt="">`
     : `<span class="lavtint" style="background:${discTint(a.name)};color:${discInk(a.name)}">${esc(initials(a.name))}</span>`;
   /* ⚠️ A VISIBLE WORD, NOT AN EMPTY SLOT. This rendered a dashed track beside a
@@ -38205,14 +38205,15 @@ function swarmLayout(n) {
    each lit while a helper works; the badge says working/most at 32px and up; the memory ring goes round
    the whole cluster when asked (it is the lead's memory). `a` is a status row with a swarm field, or a
    stand-in { name, sessionName, hasAvatar, avatarVer, swarm: { maxHelpers, activeHelpers } }. */
-function swarmCluster(a, size, { ring = false } = {}) {
+function swarmCluster(a, size, { ring = false, decorative = false } = {}) {
   const sw = (a && a.swarm) || {};
   const max = Math.max(2, Math.min(10, Number(sw.maxHelpers) || 3));
   const live = Math.max(0, Math.min(max, Number(sw.activeHelpers) || 0));
   const n = Math.min(max, 7), L = swarmLayout(n), r = L.r * size;
   const pic = a && a.hasAvatar && a.sessionName ? `url('/api/agent/${encodeURIComponent(a.sessionName)}/avatar?v=${a.avatarVer || 0}')` : '';
   const tint = discTint(a && a.name), ink = discInk(a && a.name), ini = esc(initials(a && a.name));
-  let h = `<span class="swc" role="img" aria-label="${esc('Swarm, ' + live + ' of ' + max + ' helpers working')}" style="width:${size}px;height:${size}px;--swd-font:${Math.max(7, Math.round(r * 0.95))}px;--swd-edge:${Math.max(1, size / 44).toFixed(1)}px">`;
+  const named = decorative ? 'aria-hidden="true"' : `role="img" aria-label="${esc('Swarm, ' + live + ' of ' + max + ' helpers working')}"`;
+  let h = `<span class="swc" ${named} style="width:${size}px;height:${size}px;--swd-font:${Math.max(7, Math.round(r * 0.95))}px;--swd-edge:${Math.max(1, size / 44).toFixed(1)}px">`;
   for (let i = 0; i < n; i += 1) {
     const x = L.p[i][0] * size - r, y = L.p[i][1] * size - r;
     const look = pic ? `background-image:${pic}` : `background:${tint};color:${ink}`;
@@ -38286,14 +38287,22 @@ function swarmPagePaint(a) {
   if (document.activeElement !== range && SWARM_BUSY !== who) range.value = String(max);
   const shown = Number(range.value) || max;
   document.getElementById('d-swarm-max-v').textContent = String(shown);
+  range.setAttribute('aria-valuetext', shown + ' helpers at most');
   document.getElementById('d-swarm-warn').innerHTML = swarmWarnWords(shown, Number(sw.helperTokenRatio));
   const used = Math.max(0, Number(sw.tokensToday) || 0), cap = Math.max(0, Number(sw.dailyTokenLimit) || 0);
   document.getElementById('d-swarm-bar').style.width = (cap ? Math.min(100, used / cap * 100) : 0).toFixed(1) + '%';
   document.getElementById('d-swarm-today').textContent = used.toLocaleString('en-US') + ' tokens';
   document.getElementById('d-swarm-limit').textContent = cap ? 'of ' + cap.toLocaleString('en-US') + ' limit' : 'no limit set';
+  /* The slider follows the REAL limit: widened past 20 million when the limit is higher, and its label shows the
+     exact number until the person moves it (a 2,500,000 limit is not shown as 3,000,000). No limit: no slider. */
   const capR = document.getElementById('d-swarm-cap');
-  if (document.activeElement !== capR && SWARM_BUSY !== who) capR.value = String(Math.max(1, Math.min(20, Math.round(cap / 1000000) || 1)));
-  document.getElementById('d-swarm-cap-v').textContent = (Number(capR.value) * 1000000).toLocaleString('en-US');
+  capR.closest('.swrow').hidden = !cap;
+  if (cap && document.activeElement !== capR && SWARM_BUSY !== who) {
+    capR.max = String(Math.max(20, Math.ceil(cap / 1000000)));
+    capR.value = String(Math.max(1, Math.round(cap / 1000000)));
+    document.getElementById('d-swarm-cap-v').textContent = cap.toLocaleString('en-US');
+    capR.setAttribute('aria-valuetext', cap.toLocaleString('en-US') + ' tokens a day');
+  }
 }
 /* The page's cluster, repainted with the panel so the lit circles follow the helpers. */
 function renderAvatarSwarmOnly(a) {
@@ -38334,9 +38343,14 @@ document.addEventListener('change', async (e) => {
   if (t.id === 'd-swarm-cap') await swarmSend(base, 'PUT', { dailyTokenLimit: Number(t.value) * 1000000 });
 });
 document.addEventListener('input', (e) => {
-  if (e.target && e.target.id === 'd-swarm-cap') document.getElementById('d-swarm-cap-v').textContent = (Number(e.target.value) * 1000000).toLocaleString('en-US');
+  if (e.target && e.target.id === 'd-swarm-cap') {
+    const t = (Number(e.target.value) * 1000000).toLocaleString('en-US');
+    document.getElementById('d-swarm-cap-v').textContent = t;
+    e.target.setAttribute('aria-valuetext', t + ' tokens a day');
+  }
   if (e.target && e.target.id === 'd-swarm-max' && CURRENT) {
     document.getElementById('d-swarm-max-v').textContent = e.target.value;
+    e.target.setAttribute('aria-valuetext', e.target.value + ' helpers at most');
     document.getElementById('d-swarm-warn').innerHTML = swarmWarnWords(Number(e.target.value), SWARM_ROW && SWARM_ROW.swarm ? Number(SWARM_ROW.swarm.helperTokenRatio) : null);
   }
 });
@@ -38398,7 +38412,10 @@ function swarmCreatePaint() {
   document.getElementById('create-swarm').hidden = !swarm;
   const max = Number(document.getElementById('create-swarm-max').value) || 3;
   document.getElementById('create-swarm-max-v').textContent = String(max);
-  document.getElementById('create-swarm-cap-v').textContent = (Number(document.getElementById('create-swarm-cap').value) * 1000000).toLocaleString('en-US');
+  document.getElementById('create-swarm-max').setAttribute('aria-valuetext', max + ' helpers at most');
+  const capWords = (Number(document.getElementById('create-swarm-cap').value) * 1000000).toLocaleString('en-US');
+  document.getElementById('create-swarm-cap-v').textContent = capWords;
+  document.getElementById('create-swarm-cap').setAttribute('aria-valuetext', capWords + ' tokens a day');
   document.querySelector('#create-swarm-warn span:last-child').innerHTML = swarmWarnWords(max, null);
   const name = document.getElementById('create-name').value.trim() || 'Swarm';
   const stand = { name, swarm: { maxHelpers: max, activeHelpers: 0 } };
@@ -48995,6 +49012,7 @@ document.getElementById('pjs-members').addEventListener('click', (e) => {
 document.getElementById('pj-one-agents').addEventListener('click', (e) => {
   const btn = e.target.closest('.pj-minus[data-drop]');
   if (btn) { if (PJ_CURRENT) openMemModal(btn, document.getElementById('pj-one-msg')); return; }
+  if (e.target.closest('.swmini')) return;   // #3564: a swarm's On / Off is its own control, not a way into its page
   // #2574: a member click opens that agent's detail page, id-keyed via data-agent
   // (sessionName) -- the SAME open-agent path the agents grid uses (openDetail) --
   // passing PJ_CURRENT so detail-back returns to this project.
