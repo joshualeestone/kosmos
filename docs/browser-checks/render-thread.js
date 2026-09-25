@@ -352,10 +352,11 @@ async function main() {
        - the agent's Files list (#3614), a 404 for a name with no folder of
          its own here (#3542).
 
-     Both are the product refusing correctly, and neither is suppressible
+     All three are the product refusing correctly, and none is suppressible
      from the page: a browser logs any 4xx response as a failed resource.
-     Armed only around that block, so either probe failing anywhere else
-     -- for a TIED agent, where neither refusal is by design -- still
+     The thread one is armed only around that block; the removal and Files
+     ones are keyed on the untied name's URL instead (see below). Either way
+     a probe failing for a TIED agent, where no refusal is by design, still
      fails the run. The exemption is why the block below also ASSERTS
      what the refusal draws: a tolerated request that draws nothing is
      how a check turns into permission. */
@@ -392,7 +393,9 @@ async function main() {
     /* #3542: the agent page's Files list (#3614) asks the same route family, and it too answers 404
        for a borrowed name that has no folder here. By design, like /thread: the page turns it into
        its own sentence, asserted below, so it is exempted only for the untied agent's /files. */
-    if (expectUntiedRefusals && exempt404Files(m.text(), url)) return;
+    // Keyed on scope (the untied name's URL), not on the armed window, like exempt400: the Files
+    // list re-polls every 5 s, so a 404 can land just after the window closes.
+    if (exempt404Files(m.text(), url)) return;
     /* 🔑 THE OPERATOR'S OWN PICTURE, WHICH A FRESH MACHINE DOES NOT HAVE. The
        route answers 404 for "no picture is set" and the page reads exactly that
        (`YOU_PIC = r.ok`), so this is the fixture's normal state rather than a
@@ -563,6 +566,9 @@ async function main() {
     check(!exempt404Files('Failed to load resource: the server responded with a status of 404 (Not Found)',
       'http://127.0.0.1/api/agent/' + UNTIED_NAME + '/files/reveal'),
       'CONTROL: the /files exemption does not swallow a different route under it');
+    check(!exempt404Files('Failed to load resource: the server responded with a status of 500 (Server Error)',
+      'http://127.0.0.1/api/agent/' + UNTIED_NAME + '/files'),
+      'CONTROL: the /files exemption does not swallow statuses other than 404 on that route');
     expectUntiedRefusals = true;
     await rookCard.click();
     await page.waitForSelector('#panel-detail:not([hidden])', { timeout: 10000 });
