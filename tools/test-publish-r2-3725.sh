@@ -423,6 +423,13 @@ with zipfile.ZipFile(sys.argv[1], 'w') as z:
     z.writestr('app/x.js', 'a'); z.writestr('app\\x.js', 'b')
 PYEOF
 fake -Zip "$TMP/dupslash.zip"; rc=$?; refuses_clean "a zip with a slash-only duplicate is refused" "duplicate entries"
+# The staged pointer must name Josh's go EXACTLY: the same sha in capitals is a different
+# string and refused by this comparison itself (case-sensitive), not only by a later check.
+cp "$FAKE/latest-win-staging.json" "$TMP/staging.case"
+python3 -c 'import sys,re;p=sys.argv[1];s=open(p).read();open(p,"w").write(re.sub(r"\"sha256\":\"([0-9a-f]{64})\"",lambda m:"\"sha256\":\""+m.group(1).upper()+"\"",s))' "$FAKE/latest-win-staging.json"
+promote; rc=$?
+refuses_clean "a staging pointer naming the approved sha in capitals is refused" "the staging pointer names version"
+cp "$TMP/staging.case" "$FAKE/latest-win-staging.json"
 # The approval line keeps record= LAST, since a Windows record path can hold spaces.
 _given=$(grep 'approval=given' "$ALOG" | tail -1)
 if [ -n "$_given" ] && printf '%s' "$_given" | grep -qE ' record=[^ ]+$'; then pass "record= is the last field of the approval line"

@@ -317,7 +317,12 @@ sha256_publish_as "$SITE/dist/$ARTIFACT.sha256" "$SITE/dist/$ALIAS.sha256" "$ALI
 [ "$(awk 'NR==1{print $1}' "$SITE/dist/$ALIAS.sha256")" = "$SHA" ] || { echo "promote-channel: the refreshed alias $ALIAS does not hash to the promoted sha $SHA - refresh it by hand before any deploy" >&2; exit 1; }
 echo "   refreshed the prod alias $ALIAS to $V"
 
-echo "promote-channel: PROMOTED $V to prod - $PROD_NAME now points at the exact bytes staging verified ($ARTIFACT)."
+if [ "$FAMILY" = win ]; then
+  # Not "to prod": users are served the Windows files from R2, which this does not write (#3725).
+  echo "promote-channel: updated the SITE CHECKOUT's $PROD_NAME to $V ($ARTIFACT). This does NOT change what users are served: that is tools/windows/publish-r2.ps1 -Promote."
+else
+  echo "promote-channel: PROMOTED $V to prod - $PROD_NAME now points at the exact bytes staging verified ($ARTIFACT)."
+fi
 echo "   -> $(cat "$SITE/dist/$PROD_NAME")"
 echo "promote-channel: the next site deploy publishes the prod pointer. No rebuild happened."
 
