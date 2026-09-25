@@ -17,8 +17,8 @@ that fails stops the list: undo it, fix the cause, and start that step again.
 Facts here were read from the code on 2026-09-24 (kosmos `main` at 8c4ca1d5, kosmos-relay `main` at
 50a846b). The Android facts were re-read later that day at kosmos `main` 677eacde (the last commit
 of #3644), and the asset-links facts at kosmos-relay `main` 6e2da95. The Android no-purchase
-item was read on 2026-09-25 at kosmos-relay `main` 3558f2e. Both repos move on, so treat the file
-and the name as what to search for, not the commit or the line.
+item was read on 2026-09-25 at kosmos-relay `main` 879542d (live build `eac39e6`). Both repos
+move on, so treat the file and the name as what to search for, not the commit or the line.
 
 ## Where things stand today
 
@@ -317,14 +317,14 @@ Android app by kosmos-relay #121 (five commits).
   exceptions, against what the app does as described above. This doc deliberately states none of
   the policy's details: they change, they differ by country, and a summary written here would go
   stale unnoticed.
-- **Live on the production coordinator** since the deploy of build `eac39e6` (read on 2026-09-25
-  from `curl -s https://coordinator.kosmosplus.com/v1/meta`; other parts of this doc predate that
+- **Live on the production coordinator** (build `eac39e6`, read on 2026-09-25 from
+  `curl -s https://coordinator.kosmosplus.com/v1/meta`; other parts of this doc predate that
   deploy, kosmos #3764). On a Play install it likely also needs Play's app-signing key in
   assetlinks.json (the asset-links bullet above): without it the app opens as a browser tab, and
   whether the switch's signal arrives then is not confirmed. Before the first upload to any Play
   track, confirm it is still live [fleet]: take the `build` from that URL, run
   `git -C ~/work/kosmos-relay fetch -q origin`, then
-  `git -C ~/work/kosmos-relay merge-base --is-ancestor 3558f2e <build> && echo live`. A coordinator
+  `git -C ~/work/kosmos-relay merge-base --is-ancestor 3558f2e <build> && echo live || echo "NOT live, or the check failed"`. A coordinator
   rollback to a build before `3558f2e` brings checkout back inside the app, the same as the undo
   below.
 - **Undo (to show purchase in the Android app again):** revert all five commits of kosmos-relay
@@ -354,7 +354,8 @@ Android app by kosmos-relay #121 (five commits).
 **Undo:**
 - Remove the testing release in Play Console.
 - For the no-purchase switch, see its own Undo line above.
-- Removing the assetlinks route only brings back the URL bar. Nothing breaks.
+- Removing the assetlinks route brings back the URL bar, and may bring checkout back inside the app
+  (see the no-purchase item above).
 
 ## Step 6. Rebuild the tunnel with `mac-request` [fleet builds; shipping it is Josh's tunnel release]
 
