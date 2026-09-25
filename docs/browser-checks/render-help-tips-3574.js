@@ -512,14 +512,24 @@ const resetStore = (state) => fs.writeFileSync(tipsStore.FILE(), JSON.stringify(
     await page.keyboard.press('Escape');
     await page.waitForTimeout(150);
 
-    // T28: someone new clicks New agent before the tour's first tick, so they are on the create form,
-    // where the tour never shows. The create form's own tip shows there anyway, and once they have
-    // made the agent the tour counts as seen and the screen tips follow. Before, they got nothing, ever.
+    // T28: someone new clicks New agent before the tour's first tick (a busy machine: the tips read is
+    // slow), so they are on the create form, where the tour never shows. The create form's own tip
+    // shows there anyway, and once they have made the agent the tour counts as seen and the screen
+    // tips follow. Before, they got nothing, ever. The slow read is what makes the window real; on a
+    // fast board the tour is already up and clicking through it records it (T1's path).
     resetStore({ seen: [], off: false });
     noAgents();
-    await page.goto(URL, { waitUntil: 'networkidle' });
+    await page.route('**/api/tips', async (route) => {
+      if (route.request().method() === 'GET') await new Promise((r) => setTimeout(r, 3000));
+      return route.continue();
+    });
+    await page.goto(URL, { waitUntil: 'domcontentloaded' });
+    await page.waitForSelector('#new-agent', { state: 'visible', timeout: 8000 });
     if (await page.$('#firstrun:not([hidden])')) { await page.keyboard.press('Escape'); await page.waitForTimeout(100); }
-    await page.click('#new-agent');   // a real click, before tipsStart's first tick
+    chk(await page.evaluate(() => TIPS_STATE === null), 'T28 precondition: the tips have not loaded yet when New agent is clicked');
+    await page.click('#new-agent');   // a real click, inside the slow read
+    await page.waitForFunction(() => TIPS_STATE !== null, null, { timeout: 10000 }).catch(() => {});   // the held read has finished
+    await page.unroute('**/api/tips');
     chk(await page.evaluate(() => tipVisible('#panel-create')), 'T28 precondition: New agent opened the create form');
     chk(await waitTitle(page, 'Make an agent', 8000), 'T28 on the create form, before any tour, the Make an agent tip shows by itself');
     const tourShown28 = await page.evaluate(() => !!document.querySelector('#tipcard .tip-dots'));
