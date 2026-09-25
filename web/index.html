@@ -40579,11 +40579,7 @@ function pjView(which) {
     /* #3053: same for the relocated New Agent create panel -- pjView is project navigation, so it
        always leaves the consolidated create view too (this is how create-back / done return to the
        projects display without dropping the consolidated layout). */
-    const appC = document.getElementById('panel-create');
-    if (appC && proj && appC.parentElement === proj) appC.hidden = true;
-    /* #3559: and the relocated Tasks view, so opening a project from the rail replaces it. */
-    const appT = document.getElementById('panel-tasks');
-    if (appT && proj && appT.parentElement === proj) appT.hidden = true;
+    for (const id of ['panel-create', 'panel-tasks']) { const el = document.getElementById(id); if (el && proj && el.parentElement === proj) el.hidden = true; }   // #3559: Tasks too
   }
   syncPlusChrome();   // #3599: leaving consolidated settings on Kosmos+ takes the blue down
   paintPjNone(which);

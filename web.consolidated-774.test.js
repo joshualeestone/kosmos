@@ -34,7 +34,7 @@ test('an empty consolidated centre says what to press (the projects column is no
   // #2842 / #3053: the show also suppresses the hint while the consolidated user-settings view
   // OR the New Agent create panel is open (each takes over the display column), so #pj-none does
   // not render over them. It still keys on the record (view === 'list'), never the DOM.
-  assert.match(PAGE, /const show = document\.body\.classList\.contains\('consolidated'\) && view === 'list' && !appSettingsOpen && !appCreateOpen;/);
+  assert.match(PAGE, /const show = document\.body\.classList\.contains\('consolidated'\) && view === 'list' && !appSettingsOpen && !appCreateOpen && !appTasksOpen;/);
   assert.match(PAGE, /PJ_READ_FAILED = true;\n    paintPjNone\(\);/, 'the failure branch repaints the sentence');
   // painted after the read's outcome is recorded (PJ_READ_FAILED = false), never between the two
   assert.match(PAGE, /PJ_READ_FAILED = false;\n(?:[^\n]*\n){0,4}    paintPjNone\(\);\n  \} catch \{/);
