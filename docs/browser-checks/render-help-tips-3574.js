@@ -633,7 +633,8 @@ const resetStore = (state) => fs.writeFileSync(tipsStore.FILE(), JSON.stringify(
       document.querySelectorAll('[data-t32]').forEach((x) => x.remove());
       const t = document.createElement('div'); t.setAttribute('data-t32', '');
       const top = wh === 'below' ? window.innerHeight + 300 : wh === 'above' ? -400 : wh === 'low' ? window.innerHeight - 70 : Math.round(window.innerHeight / 3);
-      t.style.cssText = 'position:fixed;left:200px;width:120px;height:30px;top:' + top + 'px';
+      const left = wh === 'left' ? -500 : wh === 'right' ? window.innerWidth + 300 : 200;
+      t.style.cssText = 'position:fixed;width:120px;height:30px;left:' + left + 'px;top:' + (wh === 'left' || wh === 'right' ? Math.round(window.innerHeight / 3) : top) + 'px';
       document.body.appendChild(t);
       /* On a phone the REAL card is used, so the stylesheet's pinned width and edges apply as they do for a person. */
       let c = useReal ? document.getElementById('tipcard') : null;
@@ -649,9 +650,9 @@ const resetStore = (state) => fs.writeFileSync(tipsStore.FILE(), JSON.stringify(
       return out;
     }, [where, real]);
     const inside = (q) => q.top >= 11 && q.vh - q.bottom >= 11 && q.left >= 11 && q.right >= 11;
-    for (const wh of ['below', 'above']) {
+    for (const wh of ['below', 'above', 'left', 'right']) {
       const p32 = await place32(wh);
-      chk(inside(p32) && p32.flat, 'T32 a target ' + wh + ' the fold: the card is wholly on screen, with no arrow', JSON.stringify(p32));
+      chk(inside(p32) && p32.flat, 'T32 a target ' + (wh === 'left' || wh === 'right' ? 'off to the ' + wh : wh + ' the fold') + ': the card is wholly on screen, with no arrow', JSON.stringify(p32));
     }
     const in32 = await place32('in view');
     chk(inside(in32) && !in32.flat && !in32.onTarget, 'T32 CONTROL: a target in view keeps its arrow', JSON.stringify(in32));
@@ -664,7 +665,7 @@ const resetStore = (state) => fs.writeFileSync(tipsStore.FILE(), JSON.stringify(
     await page.waitForTimeout(200);
     const low32 = await place32('low', true), fold32 = await place32('below', true);
     chk(inside(low32) && !low32.onTarget, 'T32b on a phone, a target low on the screen: the real card is wholly on screen and off its target', JSON.stringify(low32));
-    chk(inside(fold32), 'T32b on a phone, a target below the fold: the real card is wholly on screen', JSON.stringify(fold32));
+    chk(inside(fold32) && fold32.flat, 'T32b on a phone, a target below the fold: the real card is wholly on screen, with no arrow', JSON.stringify(fold32));
     await page.keyboard.press('Escape');
     await page.setViewportSize({ width: 1280, height: 860 });
     await page.waitForTimeout(300);
