@@ -431,6 +431,14 @@ function run_git(dir, version, home, site, { staleBy = 0, entry = true, pending 
       HOME: home,
       KOSMOS_SITE: site,
       KOSMOS_HARNESS_IGNORE_CUT: '1',
+      /* #3619: and the other direction. release.sh also refuses while an install harness
+         (tools/test-install.sh) runs anywhere on the Mac, and tools/test-cut-guard.sh starts
+         a real stand-in for one (`bash tools/test-install.sh --sleep 4`) as its fixture. So
+         any other suite on the box that is inside test-cut-guard.sh turned these arms red
+         with the harness refusal, although none of them tests that guard
+         (test-cut-guard.sh does). Measured: 4 of 26 red alone under a loaded Mac, 26 of 26
+         the next run. */
+      KOSMOS_CUT_IGNORE_HARNESS: '1',
       /* #3579: step 1c test-signs with the Developer ID cert before the bump. The
          sandbox holds no cert (CI runs on Linux and cert-less macOS), so the arms that
          must reach step 2 point the preflight at the `true` builtin. The preflight has
