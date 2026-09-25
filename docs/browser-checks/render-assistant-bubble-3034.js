@@ -59,7 +59,7 @@ const bubble = (page) => page.evaluate(() => {
 const waitFor = (page, fn, ms = 6000) => page.waitForFunction(fn, null, { timeout: ms }).then(() => true, () => false);
 
 (async () => {
-  fleet.install([fleet.agent('Josh', { state: 'idle', displayName: 'Josh', role: 'Setup guide' }),
+  fleet.install([fleet.agent('josh', { state: 'idle', displayName: 'Josh', role: 'Setup guide' }),
     fleet.agent('beatrix', { state: 'idle', displayName: 'Beatrix', role: 'Collections Coordinator' })]);
   /* Tips quiet: they are their own feature with their own check, and a tip must not cover the corner. */
   fs.writeFileSync(tipsStore.FILE(), JSON.stringify({ seen: [], off: true }));
@@ -73,10 +73,10 @@ const waitFor = (page, fn, ms = 6000) => page.waitForFunction(fn, null, { timeou
     const errs = [];
     page.on('pageerror', (e) => errs.push(e.message));
     /* The guide's thread, answered here. */
-    let thread = [{ from: 'Josh', text: 'Hi, I built Kosmos. Want me to set up your first agent with you?', at: new Date().toISOString() }];
+    let thread = [{ from: 'josh', text: 'Hi, I built Kosmos. Want me to set up your first agent with you?', at: new Date().toISOString() }];
     const sent = [];
     let verdict = { delivery: { state: 'placed' }, recorded: true };
-    await page.route('**/api/agent/Josh/thread', async (route) => {
+    await page.route('**/api/agent/josh/thread', async (route) => {
       const r = route.request();
       if (r.method() === 'POST') {
         const body = JSON.parse(r.postData() || '{}');
@@ -102,14 +102,14 @@ const waitFor = (page, fn, ms = 6000) => page.waitForFunction(fn, null, { timeou
 
     // B1b: the guide is created AFTER the page loaded (a new install: end of first run, or the first
     // model connecting). The page keeps looking and the bubble arrives without a reload.
-    seedGuide('Josh');
+    seedGuide('josh');   // the slug, as createAgent records it (production shape, per Renet #3670)
     chk(await waitFor(page, () => { const b = document.getElementById('asb'); return b && !b.hidden; }, 15000), 'B1b a guide created after the page loaded shows up without a reload');
 
     // B2: a guide exists and the setting is on (the default): the bubble with the guide's picture, and the nudge.
     await boot();
     chk(await waitFor(page, () => { const b = document.getElementById('asb'); return b && !b.hidden; }, 8000), 'B2 with a guide, the bubble shows');
     const two = await bubble(page);
-    chk(/\/api\/agent\/Josh\/avatar\?v=/.test(two.src), 'B2 it shows the guide\'s picture', two.src);
+    chk(/\/api\/agent\/josh\/avatar\?v=/.test(two.src), 'B2 it shows the guide\'s picture', two.src);
     chk(two.nudge, 'B2 the nudge shows before the person has written to the guide');
     chk(await waitFor(page, () => ASB.heard !== null && ASB.readOnce === true), 'B2 precondition: the first thread read has landed');
     chk(!(await bubble(page)).dot, 'B2 a reply already in the thread does not light the dot on load (control: B6 lights it for a new one)');
@@ -174,7 +174,7 @@ const waitFor = (page, fn, ms = 6000) => page.waitForFunction(fn, null, { timeou
     const folded = await bubble(page);
     chk(!folded.panel && folded.bubble && !folded.nudge, 'B6 the minus folds it to the bubble, and the nudge is gone for good after writing', JSON.stringify(folded));
     chk(!folded.dot, 'B6 CONTROL: no dot before a reply');
-    thread = thread.concat([{ from: 'Josh', text: 'Click New agent, top left.', at: new Date().toISOString() }]);
+    thread = thread.concat([{ from: 'josh', text: 'Click New agent, top left.', at: new Date().toISOString() }]);
     await page.evaluate(() => asbPoll(true));
     chk((await bubble(page)).dot, 'B6 a reply while folded lights the gold dot');
     await page.click('#asb');
@@ -229,7 +229,7 @@ const waitFor = (page, fn, ms = 6000) => page.waitForFunction(fn, null, { timeou
     await page.click('#asb');
     await page.waitForTimeout(2500);
     const b12 = await bubble(page);
-    chk(b12.panel && await page.evaluate(() => ASB.guide === 'Josh'), 'B12 a refused page report (409) keeps the guide and the open chat', JSON.stringify(b12));
+    chk(b12.panel && await page.evaluate(() => ASB.guide === 'josh'), 'B12 a refused page report (409) keeps the guide and the open chat', JSON.stringify(b12));
     await page.unroute('**/api/setup-guide/page');
     await page.click('#asp-fold');
 

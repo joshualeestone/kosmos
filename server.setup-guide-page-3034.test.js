@@ -214,3 +214,11 @@ test('#3034 bubble: the New agent form is a screen the guide is told about', asy
   assert.equal(r.status, 200, await r.clone().text());
   assert.match(fs.readFileSync(path.join(guideDir, roles.PAGE_FILE), 'utf8'), /Screen: the New agent form/);
 });
+
+test('#3034 read: the guide is named by the slug the seed records (production shape, e.g. "josh-ai")', async () => {
+  folderFor('josh-ai', { guide: true });
+  setupAssistant.markSetupAssistantSeeded({ name: 'josh-ai', via: 'test' });
+  const r = await getGuide();
+  assert.equal(r.status, 200, await r.clone().text());
+  assert.deepEqual(await r.json(), { ok: true, name: 'josh-ai' });
+});

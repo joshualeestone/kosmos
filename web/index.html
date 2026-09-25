@@ -53904,7 +53904,11 @@ document.getElementById('asb-toggle')?.addEventListener('click', async (e) => {
   const m = document.getElementById('asb-row-msg');
   if (m) { m.textContent = ok ? '' : 'We could not save that just now. Try again in a moment.'; m.hidden = ok; }
   asbPaintSetting();
+  /* Switched back on: ask the board who the guide is before drawing it, so a name the guide lost while the
+     assistant was off is not painted from the page's memory. */
+  if (ok && ASB.setting && ASB.setting.on === true && !(await asbConfirmGuide())) return;
   asbPaint();
+  if (asbShows()) asbPoll(true);
 });
 
 function asbTick() {
