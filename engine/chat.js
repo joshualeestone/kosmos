@@ -352,8 +352,9 @@ function cleanMessage(raw) {
  *   - CRLF and lone CR → LF
  *   - a tab → four spaces (a tab is a control character `CONTROL` refuses)
  *   - #3679: indentation is kept, and inside a ``` fence each line is kept as
- *     written except its trailing spaces, so code and nested lists arrive as
- *     written. Outside a fence, a run of spaces INSIDE a line becomes one space
+ *     written except its trailing spaces (the tab, leading non-breaking space and
+ *     shared-indent rules below apply there too), so code and nested lists arrive
+ *     as written. Outside a fence, a run of spaces INSIDE a line becomes one space
  *     and trailing spaces go.
  *   - outside a fence, three or more newlines → a single blank line
  *   - the indentation every line shares comes off, then the ends are trimmed.
@@ -397,7 +398,8 @@ function storeText(raw) {
     const lead = /^ */.exec(line)[0];
     const rest = trimSpacesEnd(line.slice(lead.length).replace(/ +/g, ' '));
     // Blank means no visible character, whatever the whitespace (a full-width space line too).
-    if (!/\S/.test(rest)) { blanks += 1; if (blanks > 1) continue; out.push(''); continue; }
+    // (A form feed or vertical tab is not blank: it stays, so CONTROL refuses it.)
+    if (!/\S/.test(rest) && !/[\v\f]/.test(rest)) { blanks += 1; if (blanks > 1) continue; out.push(''); continue; }
     blanks = 0;
     out.push(lead + rest);
   }

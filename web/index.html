@@ -44005,11 +44005,12 @@ function pjRichSpans(seg, names, agentNames) {
 }
 /* #3679: a list item's depth, relative to the items above it: deeper than the enclosing item
    is one level in, whatever the width (two spaces, four, a tab). `stack` holds the widths of
-   the open levels for one list; the renderers reset it on a non-list line. LIST_DEPTH_MAX must
-   match the `.mdli-d1`..`.mdli-d3` rules in the stylesheet (web.list-depth-3679.test.js
-   checks both). */
-const LIST_DEPTH_MAX = 3;
+   the open levels for one list; the renderers reset it on a non-list line that is not indented
+   under the list. Self-contained (its constant is inside), so a test that lifts a renderer
+   needs only this function beside it. LIST_DEPTH_MAX must match the `.mdli-d1`..`.mdli-d3`
+   rules in the stylesheet (web.list-depth-3679.test.js checks both). */
 function pjListDepth(stack, lead) {
+  const LIST_DEPTH_MAX = 3;
   const w = String(lead).replace(/\t/g, '    ').length;
   while (stack.length && w <= stack[stack.length - 1]) stack.pop();
   const d = Math.min(LIST_DEPTH_MAX, stack.length);

@@ -164,3 +164,16 @@ always a stray keystroke, and trimming it keeps "  hello" stored as "hello".
   next sibling. It now resets only on a non-list line that is not indented under the list.
   Tested for all three in both renderers; the old reset reds them.
 - NITs fixed: why STORE_GROWTH is four; why the browser check's indent threshold is 8px.
+
+## Review pass 11 (opus)
+- WARNING fixed: a line of only `\f` or `\v` counted as blank and was dropped, so a message
+  main refused was accepted. Blank excludes those two, so CONTROL still refuses them. Tested.
+- WARNING fixed: three existing test files lift the renderers without `pjListDepth`, and passed
+  only because none of their fixtures had a list line. `pjListDepth` now holds its own constant,
+  every lift list that has `pjRichSpans` also lifts `pjListDepth`, and a test checks those
+  lists so the next one cannot drift.
+- NITs fixed: the depth helper and test headers describe the relative rule and the indented
+  reset; the fence bullet names the rules that apply inside a fence too; a DM test pins that
+  deep indentation under the one-line limit is still accepted up to the ceiling.
+- Recorded: `.mdli` is an inline span, so a long nested item's wrapped lines return to the left
+  edge. A real list structure is the fix.

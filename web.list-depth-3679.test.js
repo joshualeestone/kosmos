@@ -1,7 +1,7 @@
 'use strict';
 /**
  * #3679: now that the store keeps indentation, both message renderers draw a nested
- * list item at its depth (two spaces a level, up to three) instead of flat.
+ * list item at its depth (relative to the item above, up to three) instead of flat.
  * pjProse is the project room thread; pjRich is the DM/talk dialog and the project
  * message list. Depth is relative to the item above, so it does not depend on how wide a level
  * is, and it reads raw text on surfaces the store never touched (a task's detail, an
@@ -18,15 +18,10 @@ const page = require('./test-support/page');
 const PAGE = fs.readFileSync(path.join(__dirname, 'web', 'index.html'), 'utf8');
 const SCRIPT = page.scriptOf(PAGE);
 const lift = (names) => names.map((n) => page.lift(SCRIPT, n)).join('\n');
-const CONSTS = ['LIST_DEPTH_MAX'].map((c) => {
-  const m = new RegExp('^const ' + c + ' = .*;$', 'm').exec(SCRIPT);
-  if (!m) throw new Error('no ' + c + ' in the page');
-  return m[0];
-}).join('\n');
 const DEPS = ['esc', 'pjRichSpans', 'pjTableCells', 'pjTableAligns', 'pjTableHtml', 'pjListDepth'];
 const RENDERERS = [
-  ['pjProse', () => new Function(CONSTS + '\n' + lift(DEPS.concat(['pjProse'])) + '\nreturn pjProse;')()],
-  ['pjRich', () => new Function(CONSTS + '\n' + lift(DEPS.concat(['pjRich'])) + '\nreturn pjRich;')()],
+  ['pjProse', () => new Function(lift(DEPS.concat(['pjProse'])) + '\nreturn pjProse;')()],
+  ['pjRich', () => new Function(lift(DEPS.concat(['pjRich'])) + '\nreturn pjRich;')()],
 ];
 
 for (const [name, make] of RENDERERS) {
@@ -78,8 +73,17 @@ test('#3679: pjRich reads a fence as the store does: an inline ```span``` line i
   assert.match(fn('````md\n```js\nx\n```\n````'), /<span class="mdcb">```js\nx\n```<\/span>/, 'a four-backtick fence holds a three-backtick example');
 });
 
+test('#3679: every test that lifts a renderer also lifts pjListDepth, so a list fixture cannot throw', () => {
+  for (const f of ['web.dialog-md-2701.test.js', 'web.links-everywhere.test.js', 'web.agent-answers.test.js']) {
+    const src = fs.readFileSync(path.join(__dirname, f), 'utf8');
+    const lists = src.match(/\[[^\]]*'pjRichSpans'[^\]]*\]/g) || [];
+    assert.ok(lists.length > 0, 'CONTROL: found no lift list in ' + f);
+    for (const l of lists) assert.ok(l.includes("'pjListDepth'"), f + ': a lift list without pjListDepth: ' + l.slice(0, 80));
+  }
+});
+
 test('#3679: the page styles each depth on every surface that shows these items', () => {
-  const max = Number(/const LIST_DEPTH_MAX = (\d+);/.exec(SCRIPT)[1]);
+  const max = Number(/const LIST_DEPTH_MAX = (\d+);/.exec(page.lift(SCRIPT, 'pjListDepth'))[1]);
   assert.equal(PAGE.includes('.mdli-d' + (max + 1)), false, 'a style for a depth the renderer never emits');
   for (let d = 1; d <= max; d += 1) {
     for (const host of ['.dm-b', '.pj-msg-text', '.msg-b', '.tkdetail']) {

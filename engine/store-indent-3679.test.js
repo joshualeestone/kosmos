@@ -113,6 +113,18 @@ test('#3679: a line of only Unicode whitespace is a blank line', () => {
   assert.equal(chat.storeText('    - a\n\u3000\n    - b'), '- a\n\n- b');
 });
 
+test('#3679: a line of only a form feed or vertical tab is still refused, not dropped as blank', () => {
+  for (const c of ['\f', '\v']) {
+    assert.notEqual(chat.messageProblem('a\n' + c + '\nb'), null, JSON.stringify(c));
+  }
+});
+
+test('#3679: a DM of deep indentation under the one-line limit, which main accepted, is accepted up to the ceiling', () => {
+  const text = '{\n' + '        "k": 1,\n'.repeat(700) + '}';
+  assert.ok(chat.storeText(text).length > chat.MAX_TEXT, 'CONTROL: the stored form is past the one-line limit');
+  assert.equal(chat.messageProblem(text), null);
+});
+
 test('#3679: whitespace the old trim removed is still removed', () => {
   for (const ws of ['\u00a0', '\ufeff', '\u3000', ' \n\u00a0 ']) {
     assert.equal(chat.messageProblem(ws), 'write something to send', JSON.stringify(ws));
