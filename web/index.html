@@ -9226,6 +9226,84 @@ body.plus-active #plus-state2 { max-width: 26rem; padding: 2rem; }
 @media (max-width: 640px) { .plus-val { grid-template-columns: 1fr; } }
 /* The canvases honour prefers-reduced-motion in JS (a single static frame, no
    rAF loop); this makes that intent visible to a source reader too. */
+/* #718 CHAT FIRST ON A PHONE (Josh 2026-09-24: "make sure the designs fit well on mobile"; Liu Kang
+   decided the build 2026-09-24 22:30 CDT). Below 40rem, with Direct Message the shown section, the
+   agent page used to stack the whole identity column (88px avatar, name, state, five big nav tiles,
+   Files) above the conversation, so a phone opened a chat and saw the conversation two screens down
+   and the composer two and a half. Here, on a phone and on Talk only:
+     - the identity block is one compact row (small avatar beside the name and state);
+     - the section tiles become one row of small tabs that scrolls sideways, so Profile and the rest
+       stay one tap away through the same buttons and the same click handler;
+     - Files is not shown (its one action opens Finder on the Mac, which a phone cannot use);
+     - the page is exactly the visible screen and the thread scrolls inside it, so the composer sits
+       at the bottom. The height is --kosmos-visible-height when the script below has set it (the
+       visual viewport, which shrinks when the on-screen keyboard opens), else 100dvh.
+   Other sections, tablets (40rem to 56rem) and desktop keep their layout.
+   Stated weakest part: verified in Playwright Chromium and WebKit with a simulated smaller visual
+   viewport, not on a device; WebKit is an engine approximation, not Safari or WKWebView. */
+@media (max-width: 40rem) {
+  body:has(> #panel-detail:not([hidden]) #d-sec-talk:not([hidden])) {
+    display: flex; flex-direction: column; padding-bottom: 0;
+    height: 100vh; height: var(--kosmos-visible-height, 100dvh); overflow: hidden; }
+  body:has(> #panel-detail:not([hidden]) #d-sec-talk:not([hidden])) > :not(#panel-detail) { flex: none; }
+  body:has(> #panel-detail:not([hidden]) #d-sec-talk:not([hidden])) > .apphead { margin-bottom: 0; }
+  body > #panel-detail:has(#d-sec-talk:not([hidden])) {
+    flex: 1 1 auto; min-height: 0; height: auto; display: flex; flex-direction: column; }
+  #panel-detail:has(#d-sec-talk:not([hidden])) > .back { min-height: 44px; }
+  #panel-detail:has(#d-sec-talk:not([hidden])) .dbody {
+    flex: 1 1 auto; min-height: 0; display: flex; flex-direction: column; gap: 8px; }
+  #panel-detail:has(#d-sec-talk:not([hidden])) .dleft { flex: none; overflow: visible; min-height: 0; padding-top: 0; }
+  #panel-detail:has(#d-sec-talk:not([hidden])) .dhead {
+    flex-direction: row; align-items: center; text-align: left; gap: 10px; margin: 0 0 8px; }
+  #panel-detail:has(#d-sec-talk:not([hidden])) .dav-wrap,
+  #panel-detail:has(#d-sec-talk:not([hidden])) .dav-wrap .detail-av { width: 40px; height: 40px; flex-basis: 40px; }
+  #panel-detail:has(#d-sec-talk:not([hidden])) .dtext { align-items: flex-start; gap: 4px; }
+  #panel-detail:has(#d-sec-talk:not([hidden])) .dnamerow {
+    flex-direction: row; flex-wrap: wrap; align-items: baseline; column-gap: 8px; row-gap: 2px; }
+  /* font-size, not --dname-size: the fit-to-width script writes --dname-size inline on #d-name. */
+  #panel-detail:has(#d-sec-talk:not([hidden])) #d-name.dname { font-size: 1.125rem; }
+  /* One compact identity row: the "no name was chosen" note and the full-size state badge are
+     Profile's to explain; here the state stays, smaller. */
+  #panel-detail:has(#d-sec-talk:not([hidden])) .detail-meta .dmeta-note { display: none; }
+  #panel-detail:has(#d-sec-talk:not([hidden])) .detail-state { font-size: .8125rem; margin: 0; }
+  #panel-detail:has(#d-sec-talk:not([hidden])) #d-nav.dnav-boxed {
+    flex-direction: row; flex-wrap: nowrap; gap: 6px; overflow-x: auto; scrollbar-width: none;
+    margin: 0 -2px; padding: 0 2px 2px; }
+  #panel-detail:has(#d-sec-talk:not([hidden])) #d-nav.dnav-boxed::-webkit-scrollbar { display: none; }
+  #panel-detail:has(#d-sec-talk:not([hidden])) #d-nav .dnav-pack { display: contents; }
+  #panel-detail:has(#d-sec-talk:not([hidden])) #d-nav.dnav-boxed button,
+  #panel-detail:has(#d-sec-talk:not([hidden])) #d-nav.dnav-boxed button.dnav-dm {
+    flex: none; width: auto; min-height: 44px; flex-direction: row; gap: 6px;
+    padding: 0 14px; border-radius: 22px; font-size: .875rem; }
+  #panel-detail:has(#d-sec-talk:not([hidden])) #d-nav .dnav-lab,
+  #panel-detail:has(#d-sec-talk:not([hidden])) #d-nav .dnav-pack .dnav-lab { font-size: .875rem; }
+  #panel-detail:has(#d-sec-talk:not([hidden])) #d-nav .dnav-ico svg { width: 18px; height: 18px; }
+  #panel-detail:has(#d-sec-talk:not([hidden])) #d-nav.dnav-boxed button .dot { top: 6px; right: 6px; }
+  #panel-detail:has(#d-sec-talk:not([hidden])) #d-files { display: none; }
+  #panel-detail:has(#d-sec-talk:not([hidden])) .dsecs { flex: 1 1 auto; min-height: 0; padding-top: 0; }
+  #panel-detail:has(#d-sec-talk:not([hidden])) #d-talk-box {
+    height: auto; min-height: 0; flex: 1 1 auto; overflow: hidden;
+    margin: 0 calc(-1 * var(--page-gutter, 24px)); padding: 10px 12px max(8px, env(safe-area-inset-bottom, 0px)); }
+  #panel-detail:has(#d-sec-talk:not([hidden])) #d-dmthread { flex: 1 1 auto; min-height: 0; overflow-y: auto; overscroll-behavior: contain; }
+  /* While the person is typing, the keyboard takes about half a phone screen, and the header,
+     tabs and search above the thread would leave the thread no room (an iPhone SE had the
+     composer pushed below the keyboard). They step aside while the composer has focus and come
+     back when it loses it: the same trade chat apps make. */
+  body:has(#d-say:focus) #panel-detail:has(#d-sec-talk:not([hidden])) > .back,
+  body:has(#d-say:focus) #panel-detail:has(#d-sec-talk:not([hidden])) .dleft,
+  body:has(#d-say:focus) #d-talk-box .d-talk-caprow,
+  body:has(#d-say:focus) #d-talk-box #d-talk-older { display: none; }
+  /* Thumb reach: the composer's controls meet the 44px minimum on a phone. */
+  #d-talk-box .composerbox .attachbtn { width: 44px; height: 44px; }
+  #d-talk-box .composerbox .cpost { min-height: 44px; min-width: 64px; }
+  #d-talk-box .composerbox .cinput { font-size: 16px; }
+  /* The compact header above already names the agent, so the "Direct Message to <name>"
+     caption would say it twice; the search takes the row. */
+  #d-talk-box .d-talk-caprow { margin-bottom: 6px; }
+  #d-talk-box #d-talk-label { display: none; }
+  #d-talk-box .d-talk-caprow #d-talk-search-wrap { flex: 1 1 auto; min-height: 36px; }
+  #panel-detail:has(#d-sec-talk:not([hidden])) > .back { margin: 4px 0 0; }
+}
 </style>
 <!-- ⚠️ THE id HERE IS LOAD-BEARING, NOT DECORATION. Every page test in this
      repo lifts the app's source with a regex for an ATTRIBUTE-LESS script tag,
@@ -29961,6 +30039,21 @@ function detailGo(section, opts) {
     detailPaintWindow(LAST.find((x) => x.sessionName === CURRENT.sessionName));
   }
 }
+/* #718: the height a phone can actually see, for the chat-first layout (the 40rem
+   CHAT FIRST ON A PHONE block reads it). 100dvh does not shrink when the on-screen
+   keyboard opens, so a composer pinned to the bottom of 100dvh ends up under the
+   keyboard; the visual viewport does shrink. Written as --kosmos-visible-height on
+   <html> on every visual-viewport resize; the CSS falls back to 100dvh wherever
+   visualViewport is missing. Only the phone block reads it, so desktop is unaffected. */
+(function trackVisibleViewportHeight() {
+  const viewport = window.visualViewport;
+  if (!viewport) return;
+  const write = () => {
+    document.documentElement.style.setProperty('--kosmos-visible-height', Math.round(viewport.height) + 'px');
+  };
+  viewport.addEventListener('resize', write);
+  write();
+})();
 document.getElementById('d-nav').addEventListener('click', (e) => {
   const b = e.target.closest('button[data-go]');
   if (!b) return;
