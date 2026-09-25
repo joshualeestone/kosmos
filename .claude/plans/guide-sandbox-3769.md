@@ -60,6 +60,16 @@ then close two gaps before 0.6.95. This branch is those gaps.
   quadratically (37 s on a 200,000-character token, caught by the existing CPU test); it is anchored at the
   start of a run now (18 to 43 ms on the hostile inputs; a 40KB table with 2000 held values, 74 ms).
 
+## Review round 3 (opus)
+- BLOCKER, mine from round 2: the gate on the line join (digits or -/_ on a side, three characters each
+  side) left split keys readable: a held all-letters value, an all-letters AWS key, a split one or two
+  characters from either end. The gate is gone: every line break between key characters is joined (up to
+  two blank lines). The cost is paid down instead: held forms are indexed by their first 8 characters and
+  the text is scanned once, and the key shapes are searched in the joined copy only when it holds one of
+  their openings. Measured: 0 of 820 split probes leak; a 40KB table with 2000 held values, 19 ms.
+- Both are now permanent tests (every offset, five separators; a cost bound with a control).
+- Left as a NIT: a split with three or more blank lines, or with a list dash after the break.
+
 ## Weakest premises
 - The sandbox is measured on this Mac with this Claude Code version; a version that changes its sandbox
   settings would silently stop enforcing. The unit test pins the settings written, not the enforcement.

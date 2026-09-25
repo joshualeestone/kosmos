@@ -66,6 +66,26 @@ function setKnownSecrets(values) {
   }
   /* Longest first, so a value inside a longer one's encoding is not half-replaced. */
   knownForms = [...forms].sort((a, b) => b.length - a.length);
+  /* Indexed by their first 8 characters, so a reply is scanned once rather than once per form (every form
+     is 12 characters or more). */
+  knownByPrefix = new Map();
+  for (const f of knownForms) {
+    const k = f.slice(0, 8);
+    if (!knownByPrefix.has(k)) knownByPrefix.set(k, []);
+    knownByPrefix.get(k).push(f);
+  }
+}
+let knownByPrefix = new Map();
+/* The held forms that occur in `str`, longest first. */
+function knownFormsIn(str) {
+  if (!knownByPrefix.size || typeof str !== 'string') return [];
+  const found = new Set();
+  for (let i = 0; i + 8 <= str.length; i += 1) {
+    const cands = knownByPrefix.get(str.slice(i, i + 8));
+    if (!cands) continue;
+    for (const f of cands) if (str.startsWith(f, i)) found.add(f);
+  }
+  return [...found].sort((a, b) => b.length - a.length);
 }
 function knownSecretCount() { return knownForms.length; }
 
@@ -104,16 +124,12 @@ function deleting(str, map, re, pick) {
    blank line allowed) between key characters, and closes up a spaced-out run of single characters. */
 function normalisedCopy(text) {
   let cur = { str: text, map: Array.from(text, (_, i) => i) };
-  /* Only where the join could be inside a key: three or more key characters on each side, and a digit,
-     "-" or "_" in them. Two plain words across a line break (every list and table has them) are left
-     alone, so an ordinary answer pays for no second scan (review round 2 measured four times the cost).
-     Anchored at the start of a run of key characters, so a long run is tried once, not from every
-     position in it (unanchored, a 200,000-character token took 37 seconds). */
-  cur = deleting(cur.str, cur.map, /(?<![A-Za-z0-9_+/=-])([A-Za-z0-9_+/=-]{3,})((?:[ \t]*\r?\n){1,2}[ \t>|*`]*)(?=([A-Za-z0-9_+/=-]{3,}))/g, (m) => {
-    if (!/[0-9_-]/.test(m[1] + m[3])) return null;
-    const from = m.index + m[1].length;
-    return [from, from + m[2].length];
-  });
+  /* Every line break between key characters is joined (up to two blank lines), with any quote or list
+     marker after it. No gate on what surrounds it: review round 3 measured that gating the join (plain
+     letters on both sides, or fewer than three characters on one side) left split keys readable. The
+     cost of ordinary lists is paid down below instead, by searching the copy only for what could match. */
+  cur = deleting(cur.str, cur.map, /[A-Za-z0-9_+/=-]((?:[ \t]*\r?\n){1,3}[ \t>|*`]*)(?=[A-Za-z0-9_+/=-])/g,
+    (m) => [m.index + 1, m.index + m[0].length]);
   /* A run of nine or more single characters, each followed by one space ("s k - a n t ..."), and not
      "I am a person": every space inside the run goes. */
   cur = deleting(cur.str, cur.map, /(?<!\S)(?:\S ){8,}\S(?!\S)/g, (m) => {
@@ -196,12 +212,16 @@ function mask(text) {
        either way), while a split key's first line matches only its first half. */
     const bare = (x) => x.replace(/\s+/g, '');
     const spans = [];
-    for (const f of knownForms) {
-      if (original.includes(f)) continue;
+    const inOriginal = new Set(knownFormsIn(original));
+    for (const f of knownFormsIn(norm)) {
+      if (inOriginal.has(f)) continue;
       let at = norm.indexOf(f);
       while (at !== -1) { spans.push([map[at], map[at + f.length - 1] + 1]); at = norm.indexOf(f, at + f.length); }
     }
-    for (const { re } of PATTERNS) {
+    /* The key shapes are searched in the copy only when it holds one of their openings: an ordinary list
+       or table joins lines but holds none, and pays nothing more (review round 2's cost finding). */
+    const shapeHint = /sk-|sk_|rk_|xai-|AIza|gh[pousr]_|github_pat_|AKIA|ASIA|xox[abprs]-|glpat-|eyJ|-----BEGIN/.test(norm);
+    for (const { re } of (shapeHint ? PATTERNS : [])) {
       re.lastIndex = 0;
       const inText = new Set([...original.matchAll(re)].map((m) => bare(m[0])));
       re.lastIndex = 0;
@@ -224,8 +244,8 @@ function mask(text) {
     }
   }
   let out = original;
-  for (const f of knownForms) {
-    if (!out.includes(f)) continue;
+  for (const f of knownFormsIn(out)) {
+    if (!out.includes(f)) continue;   // a longer form masked first may have taken it
     out = out.split(f).join(MASK);
     hit('known_secret');
   }
