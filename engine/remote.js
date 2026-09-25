@@ -1221,6 +1221,8 @@ async function signinRegister(name) {
   if (enrolled()) {
     const have = address();
     if (have && have.split('.')[0] === name) {
+      /* #3827: signing in IS asking to be reachable; ensure() only starts the tunnel when switched on. */
+      write({ on: true });
       ensure(localPort);
       signinSession = null;
       // standing is '' on this path, not omitted: the engine cannot know it
@@ -1235,6 +1237,10 @@ async function signinRegister(name) {
     '--name', name, '--state-dir', STATE_DIR()], signinSession.token));
   if (!r.ok) return r;
   signinSession = null;   // the token is spent; it must not linger in this process
+  /* #3827 (Josh's live test: registered, then the relay never heard from this Mac): ensure() starts the
+     tunnel only when switched ON, and nothing set it, so the pane showed "Turn on" and the wizard's
+     "connecting" was false. Signing in IS asking to be reachable; turning off stays one press away. */
+  write({ on: true });
   ensure(localPort);
   const d = r.data && typeof r.data === 'object' ? r.data : {};
   fedSetStanding(d.standing);   // fed gate: SET (or clear) standing from this fresh register

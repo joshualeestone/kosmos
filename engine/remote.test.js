@@ -857,6 +857,21 @@ test('signin second requires a challenge waiting, then finishes with a held sess
     'the held challenge id did not reach the binary');
 });
 
+/* #3827: a successful in-app sign-in switches Kosmos+ ON, so the tunnel actually starts. Starts from OFF
+   (the full sign-in test below switches on first, which is exactly what hid this). */
+test('#3827 an in-app sign-in from a switched-off computer turns Kosmos+ on and brings the tunnel up', async () => {
+  process.env.AGENT_WORKFORCE_TUNNEL_RELAY = '127.0.0.1:9444';
+  remote.setOn(false);
+  assert.equal(remote.read().on, false, 'CONTROL: starts switched off');
+  await remote.signinStart('her@example.com');
+  await remote.signinVerify('her@example.com', '111111');
+  const reg = await remote.signinRegister('offmac');
+  assert.equal(reg.ok, true, reg.because);
+  assert.equal(remote.read().on, true, 'signing in left Kosmos+ switched off, so nothing connects');
+  await until(() => remote.status().state === 'up', 'the tunnel to come up after sign-in from off');
+  remote.setOn(false);
+});
+
 test('the full sign-in registers this computer, pipes the token off argv, and brings the tunnel up', async () => {
   process.env.AGENT_WORKFORCE_TUNNEL_RELAY = '127.0.0.1:9444';
   remote.setOn(true);
