@@ -40,19 +40,21 @@ function chk(ok, label, extra) {
   if (!ok) fail.push(label);
 }
 
-/* The fixed elements: [label, markup placed in the sheet]. Each marked data-nlb. */
+/* The fixed elements: [label, markup placed in the sheet, the marker that replaced its bar].
+   line: an even hairline border. warn: an even border and a tint. tint: a background only (the
+   unsure room message, which carries no stroke by #2660). Each marked data-nlb. */
 const SAMPLES = [
-  ['.detail-said', '<div class="detail-said" data-nlb>what the agent said, in the detail view</div>'],
-  ['.svc-door', '<div class="svc-door" data-nlb><b>Service door</b> a note about a connection</div>'],
-  ['.dmoff', '<div class="dmoff" data-nlb>Direct messages are off for this agent.</div>'],
-  ['.msg-valve', '<div class="msg-valve" data-nlb>A valve note in a message row.</div>'],
-  ['.pj-warn', '<div class="pj-warn" data-nlb>A project warning.</div>'],
-  ['.rst-list li', '<ul class="rst-list"><li data-nlb>A restore list item.</li></ul>'],
-  ['.pj-folder-state.bad', '<p class="pj-folder-state bad" data-nlb>This folder cannot be read.</p>'],
-  ['.pj-question', '<div class="pj-question" data-nlb>A question for you from the project.</div>'],
-  ['.pj-msg.unsure', '<div class="pj-msg unsure" data-nlb>A message Kosmos is unsure was delivered.</div>'],
-  ['.rolelimit', '<span class="rolelimit" data-nlb>What this role cannot do.</span>'],
-  ['.note', '<div class="note" data-nlb>A note.</div>'],
+  ['.detail-said', '<div class="detail-said" data-nlb>what the agent said, in the detail view</div>', 'line'],
+  ['.svc-door', '<div class="svc-door" data-nlb><b>Service door</b> a note about a connection</div>', 'line'],
+  ['.dmoff', '<div class="dmoff" data-nlb>Direct messages are off for this agent.</div>', 'line'],
+  ['.msg-valve', '<div class="msg-valve" data-nlb>A valve note in a message row.</div>', 'line'],
+  ['.pj-warn', '<div class="pj-warn" data-nlb>A project warning.</div>', 'warn'],
+  ['.rst-list li', '<ul class="rst-list"><li data-nlb>A restore list item.</li></ul>', 'line'],
+  ['.pj-folder-state.bad', '<p class="pj-folder-state bad" data-nlb>This folder cannot be read.</p>', 'warn'],
+  ['.pj-question', '<div class="pj-question" data-nlb>A question for you from the project.</div>', 'warn'],
+  ['.pj-msg.unsure', '<div class="pj-msg unsure" data-nlb>A message Kosmos is unsure was delivered.</div>', 'tint'],
+  ['.rolelimit', '<span class="rolelimit" data-nlb>What this role cannot do.</span>', 'line'],
+  ['.note', '<div class="note" data-nlb>A note.</div>', 'line'],
 ];
 
 (async () => {
@@ -89,7 +91,7 @@ const SAMPLES = [
           const tinted = !!alpha && (alpha[1].split(',').length < 4 || parseFloat(alpha[1].split(',')[3]) > 0);
           const ring = shadow.split(/,(?![^(]*\))/).some((s) => /inset/.test(s) && /\b0px 0px 0px [1-9]/.test(s.replace(/rgba?\([^)]*\)/, '')));
           const sidesEqual = w.every((x) => x === w[0]);
-          return { widths: w, sidesEqual, insetX, shadow, bg, marked: (sidesEqual && w[0] > 0) || tinted || ring };
+          return { widths: w, sidesEqual, insetX, shadow, bg, tinted, ring };
         }
         document.body.classList.remove('consolidated');
         const sheet = document.createElement('div');
@@ -103,11 +105,11 @@ const SAMPLES = [
         const ctlEl = (k) => sheet.querySelector('[data-nlb-ctl="' + k + '"]');
         const out = { controls: { quote: bar(ctlEl('quote')), shadow: bar(ctlEl('shadow')), plainmsg: bar(ctlEl('plainmsg')) }, samples: [] };
         const els = [...sheet.querySelectorAll('[data-nlb]')];
-        els.forEach((el, i) => out.samples.push({ label: samples[i][0], ...bar(el) }));
+        els.forEach((el, i) => out.samples.push({ label: samples[i][0], kind: samples[i][2], ...bar(el) }));
         /* Elements the page already has, measured in place (hidden is fine for computed style). */
         for (const id of ['d-untied', 'd-withdrawn']) {
           const el = document.getElementById(id);
-          out.samples.push({ label: '#' + id, missing: !el, ...(el ? bar(el) : {}) });
+          out.samples.push({ label: '#' + id, kind: 'warn', missing: !el, ...(el ? bar(el) : {}) });
         }
         /* The roadmap needs-you row: roadmap body class, and #pj-list in its list form (the
            roadmap rules exclude .asgrid, the grid view). `roadmap` proves those rules applied:
@@ -118,7 +120,7 @@ const SAMPLES = [
         row.className = 'pj-row attn';
         if (list) { list.classList.remove('asgrid'); list.appendChild(row); }
         const rb = list ? bar(row) : {};
-        out.samples.push({ label: 'roadmap .pj-row.attn', missing: !list, ...rb });
+        out.samples.push({ label: 'roadmap .pj-row.attn', kind: 'ring', missing: !list, ...rb });
         out.roadmap = list ? { widths: rb.widths, ringed: /inset/.test(rb.shadow) } : null;
         return out;
       }, SAMPLES);
@@ -131,7 +133,11 @@ const SAMPLES = [
         `[${theme}] the roadmap rules applied to the needs-you row (no border, an inset ring)`, JSON.stringify(res.roadmap));
       for (const s of res.samples) {
         chk(!s.missing && s.sidesEqual && !s.insetX, `[${theme}] ${s.label} has no left bar`, JSON.stringify({ widths: s.widths, shadow: s.shadow }));
-        chk(!s.missing && s.marked, `[${theme}] ${s.label} is still marked (an even border, a tint or a ring)`, JSON.stringify({ widths: s.widths, bg: s.bg, shadow: s.shadow }));
+        /* The expected marker for this element, not any marker: .note keeps its sunken background,
+           so "any background" would pass it with its border gone. */
+        const hair = s.sidesEqual && s.widths && s.widths[0] > 0;
+        const want = { line: hair, warn: hair && s.tinted, tint: s.tinted, ring: s.ring }[s.kind];
+        chk(!s.missing && want === true, `[${theme}] ${s.label} carries its replacement (${s.kind})`, JSON.stringify({ widths: s.widths, bg: s.bg, shadow: s.shadow }));
       }
       const unsure = res.samples.find((s) => s.label === '.pj-msg.unsure');
       chk(unsure && unsure.bg !== res.controls.plainmsg.bg, `[${theme}] the unsure room message is tinted differently from a plain one`, JSON.stringify({ unsure: unsure && unsure.bg, plain: res.controls.plainmsg.bg }));

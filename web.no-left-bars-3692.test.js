@@ -10,6 +10,9 @@
  * Each one found must belong to a selector in ALLOWED, which lists the few places where a
  * left rule is not a card bar. Hairline separators (under 2px) and transparent borders
  * (CSS triangles) are not bars and are not counted.
+ * It reads only those two shorthand forms with px widths. A bar written another way (a
+ * border-left-width longhand, border-inline-start, rem units, a bar set in a JS style string)
+ * is not seen; none exists in the page today.
  *
  *   node --test web.no-left-bars-3692.test.js
  */
@@ -24,7 +27,6 @@ const ALLOWED = new Map([
   ['.msg .quoteb', 'a quote inside a message (#3692 scope, Josh can overrule)'],
   ['body:not(.consolidated) #pj-list:not(.asgrid) .pj-row.child', 'the project tree indent guide, not a card'],
   ['body:not(.consolidated).pj-roadmap #pj-list:not(.asgrid) .pj-row.child::before', 'the roadmap tree connector line, not a card'],
-  ['.lpv', 'the link card; Kano fixes it on mobile-rooms-718 (#3692: do not double-fix)'],
 ]);
 
 function styleText(html) {
