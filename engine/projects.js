@@ -1134,9 +1134,10 @@ function describe(project, roster, all) {
       /* #3726: the board's Issue rule, status.needsPerson ("needs the person": needs_you, a trust
          wait, a connection Kosmos gave up on), so the project cannot say nothing needs the person
          while a red member row sits inside it. A needs_you still counts only for the project its
-         question named (#763). A trust wait or a given-up connection is the AGENT's own condition,
-         about no project: it counts on every project the agent is a member of, where its member row
-         is red too. */
+         question named (#763). A given-up connection is the AGENT's own condition, about no project:
+         it counts on every project the agent is a member of, where its member row is red too. A trust
+         wait is counted by the same rule, but today it never reaches this roster (the route builds
+         those rows offline, so such a member is not `present`); the rule covers it when it does. */
       needsYou: members.filter((m) => m.present && m.tied && (m.state === 'needs_you'
         ? m.stateProject === project.id
         : require('./status').needsPerson(m))).length,

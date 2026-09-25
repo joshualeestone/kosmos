@@ -30,3 +30,16 @@
   condition lights every project it is on, an untied pane counts nothing. Red with the old count.
 - server.connlost-reconnect-3410.test.js: /api/projects member carries the board's reconnect; waiting
   counts 0, gave_up counts 1, from the same CONNLOST_BOOK. Red without safeRoster's attach.
+
+## Review pass 1 (opus): 1 blocker, 1 warning, 4 nits
+- BLOCKER the new unit test failed in the whole-file run (an earlier test leaves a self-report on
+  claudebot) -> fresh names, 141/141 (79b822bc7).
+- W1 pjMember always replaced the member's reconnect with LAST's, so right after load (LAST empty) or
+  across an escalation the pill said Issue with no red row -> the row reads m.reconnect first (the same
+  answer the pill counts from) and LAST only as a fallback; unit arm, red with the old line.
+- N1 the comment claimed a trust wait counts today -> it says the rule covers it once it reaches the
+  roster. N2 the control used 'retrying', not a real phase -> 'waiting' and 'retried'. N3 the tied gate
+  on reconnect had no arm -> asserted, red without the gate.
+- N4 (pre-existing): the pill counts a deliberate agent question that pjMember draws calm (#2808 class
+  2), and a question naming another project is not counted here (#763). Not this card; the count split
+  is #2808's deferred decision.

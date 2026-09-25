@@ -41145,10 +41145,12 @@ function pjToldGroupLine(told) {
  * never as something healthy, and never as nothing at all.
  */
 function pjMember(m, suppressTold, withMinus, hideState) {
-  /* #3410: the member projection carries `state` but not the board's `reconnect`, so take it
-     from the same agent in the latest /api/status (LAST), keyed by sessionName. Without this
-     the members list says "Connection lost" while the agent's own card says "Reconnecting…". */
-  const liveM = (m && m.state === 'connection_lost' && typeof LAST !== 'undefined' && Array.isArray(LAST))
+  /* #3410: where the automatic reconnect stands. #3726: the member projection now carries it
+     (m.reconnect, from the same /api/projects answer the project's Issue pill counts from), so the
+     row reads that FIRST and the pill and the row agree by construction; the latest /api/status
+     (LAST) is only the fallback for an answer that carries none. Without either the members list
+     says "Connection lost" while the agent's own card says "Reconnecting…". */
+  const liveM = (m && m.state === 'connection_lost' && !m.reconnect && typeof LAST !== 'undefined' && Array.isArray(LAST))
     ? Object.assign({}, m, { reconnect: ((LAST.find((a) => a && a.sessionName === m.sessionName)) || {}).reconnect || null })
     : m;
   // suppressTold: the roster's identical verdicts are being said ONCE below

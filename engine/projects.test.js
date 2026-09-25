@@ -2555,16 +2555,23 @@ test('#3726: the project Issue count is the board\'s "needs the person" rule, no
   const other = projects.create({ name: 'Also', folder: folder('also-3726'), agents: ['nika'] });
   const base = cards([fleet.agent('nika', { state: 'connection_lost' }), fleet.agent('tove', { state: 'idle' }), fleet.agent('ines', { state: 'connection_lost' })]);
   const withPhase = (name, phase) => Object.assign({}, base.find((c) => c.sessionName === name), { reconnect: phase ? { phase } : null });
-  const roster = [withPhase('nika', 'gave_up'), Object.assign({}, base.find((c) => c.sessionName === 'tove'), { state: 'needs_trust' }), withPhase('ines', 'retrying')];
+  const roster = [withPhase('nika', 'gave_up'), Object.assign({}, base.find((c) => c.sessionName === 'tove'), { state: 'needs_trust' }), withPhase('ines', 'retried')];
   const row = projects.list(roster).find((p) => p.id === pj.id);
   assert.equal(row.agents.find((m) => m.sessionName === 'nika').reconnect.phase, 'gave_up', 'the member does not carry where the reconnect stands');
   assert.equal(row.summary.needsYou, 2, 'a given-up connection and a trust wait are not counted as needing the person');
-  // Control: a reconnect still being tried does not need the person yet.
-  const retrying = projects.list([withPhase('ines', 'retrying')]).find((p) => p.id === pj.id);
+  // Control: a reconnect still being tried ('retried' and 'waiting', the real phases before
+  // 'gave_up') does not need the person yet.
+  for (const phase of ['waiting', 'retried']) {
+    const r = projects.list([withPhase('ines', phase)]).find((p) => p.id === pj.id);
+    assert.equal(r.summary.needsYou, 0, 'a connection in phase ' + phase + ' was counted as needing the person');
+  }
+  const retrying = projects.list([withPhase('ines', 'retried')]).find((p) => p.id === pj.id);
   assert.equal(retrying.summary.needsYou, 0, 'a connection still being retried was counted as needing the person');
   // The agent's own condition is about no project: it lights every project it is a member of.
   assert.equal(projects.list(roster).find((p) => p.id === other.id).summary.needsYou, 1, 'a given-up connection did not light the other project it belongs to');
   // Untied: a stranger's pane holding the name lends no state, so nothing is counted.
   const untied = Object.assign({}, withPhase('nika', 'gave_up'), { isNamedOurs: false });
-  assert.equal(projects.list([untied]).find((p) => p.id === other.id).summary.needsYou, 0, 'an untied pane\'s given-up connection was counted');
+  const untiedRow = projects.list([untied]).find((p) => p.id === other.id);
+  assert.equal(untiedRow.summary.needsYou, 0, 'an untied pane\'s given-up connection was counted');
+  assert.equal(untiedRow.agents.find((m) => m.sessionName === 'nika').reconnect, null, 'an untied pane lent the member its reconnect');
 });
