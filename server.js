@@ -14017,7 +14017,7 @@ const server = http.createServer((req, res) => {
     /* `hostedWhy` says why not (own_model, no_connector, unchecked): the bubble keeps its state on 'unchecked', and
        tells an open chat the right reason when it is withdrawn. These are the no-guide answers; a guide that
        cannot answer is handled below. */
-    const hostedAnswer = () => { const w = require('./engine/setup-assistant').hostedWhy(); return { hosted: w.ok, hostedWhy: w.why }; };
+    const hostedAnswer = () => { const w = setupAssistant.hostedWhy(); return { hosted: w.ok, hostedWhy: w.why }; };
     const found = setupGuideNow();
     /* "No guide" is an ordinary answer here, not an error: the page asks on every install, and a 404 is
        logged by the browser as a failed resource on every page load (it failed every "no page errors"
@@ -14033,7 +14033,7 @@ const server = http.createServer((req, res) => {
        the bubble may answer this chat on the hosted assistant instead. It asks again before each message. */
     const failing = guideCardFailing(found.name);
     if (failing) {
-      const w = require('./engine/setup-assistant').hostedWhy({ failing: () => failing });
+      const w = setupAssistant.hostedWhy({ failing: () => failing });
       sendJson(res, 200, { ok: true, name: found.name, hosted: w.ok, hostedWhy: w.why, problem: failing.problem, runner: failing.runner });
       return;
     }
@@ -14053,7 +14053,7 @@ const server = http.createServer((req, res) => {
    */
   if (pathname === '/api/setup-guide/hosted' && req.method === 'POST') {
     /* The same test the bubble is shown by, so the route cannot be used past it (a model connected, a checkout). */
-    const offer = require('./engine/setup-assistant').hostedWhy({ failing: setupGuideFailing });
+    const offer = setupAssistant.hostedWhy({ failing: setupGuideFailing });
     if (!offer.ok) {
       req.resume();
       if (offer.why === 'unchecked') sendJson(res, 503, { error: 'we could not check which AI is connected just now; try again in a moment', code: 'unchecked' });

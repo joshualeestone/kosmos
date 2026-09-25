@@ -312,9 +312,9 @@ function listedModels({ listFor = (mod) => require(mod).list() } = {}) {
    surfaces (a usage limit or no credits, a rejected login, the provider unreachable after its retries).
    { problem, runner } or null. Josh, 2026-09-25 07:22: then the bubble falls back to the hosted assistant
    for that chat, and goes back to their model once it answers. */
-const GUIDE_FAILING = new Set(['rate_limited', 'auth_failed', 'connection_lost']);
 function guideFailure(card) {
-  if (!card || !GUIDE_FAILING.has(card.state)) return null;
+  const { STATE } = require('./status');   // lazy: status requires create, which the seed uses
+  if (!card || ![STATE.RATE_LIMITED, STATE.AUTH_FAILED, STATE.CONNECTION_LOST].includes(card.state)) return null;
   return { problem: card.state, runner: typeof card.runner === 'string' && card.runner ? card.runner : null };
 }
 

@@ -107,18 +107,24 @@ test('#3660 a failing guide with no connector says what is wrong, and hosted is 
 test('#3660 a board that cannot be read is not a failing guide, and does not throw', () => {
   resetGuideCardMemoForTests();
   assert.equal(guideCardFailing(GUIDE, () => null), null, 'an unreadable board read as their model failing, or threw');
-  assert.deepEqual(guideCardFailing(GUIDE, () => [{ sessionName: GUIDE, state: 'auth_failed', runner: 'claude' }]),
-    { problem: 'auth_failed', runner: 'claude' }, 'CONTROL: a readable failing card is read');
+  const board = fleet.install([fleet.agent(GUIDE, { state: 'auth_failed' })]);
+  try {
+    assert.deepEqual(guideCardFailing(GUIDE, () => board.agents), { problem: 'auth_failed', runner: 'claude' },
+      'CONTROL: a readable failing card is read');
+  } finally { board.restore(); }
 });
 
 test('#3660 the guide card reading is kept for a few seconds, so a poll does not read the whole board each time', () => {
   resetGuideCardMemoForTests();
-  let reads = 0;
-  const roster = () => { reads += 1; return [{ sessionName: GUIDE, state: 'rate_limited', runner: 'codex' }]; };
-  guideCardFailing(GUIDE, roster);
-  guideCardFailing(GUIDE, roster);
-  assert.equal(reads, 1, 'the board was read again within the memo window');
-  resetGuideCardMemoForTests();
-  guideCardFailing(GUIDE, roster);
-  assert.equal(reads, 2, 'CONTROL: after a reset it reads again');
+  const board = fleet.install([fleet.agent(GUIDE, { state: 'rate_limited' })]);
+  try {
+    let reads = 0;
+    const roster = () => { reads += 1; return board.agents; };
+    assert.deepEqual(guideCardFailing(GUIDE, roster), { problem: 'rate_limited', runner: 'claude' });
+    guideCardFailing(GUIDE, roster);
+    assert.equal(reads, 1, 'the board was read again within the memo window');
+    resetGuideCardMemoForTests();
+    guideCardFailing(GUIDE, roster);
+    assert.equal(reads, 2, 'CONTROL: after a reset it reads again');
+  } finally { board.restore(); }
 });
