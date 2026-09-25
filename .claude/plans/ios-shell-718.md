@@ -42,13 +42,13 @@ the separate kosmos-relay PR (signin-mobile-718).
 - **Raised, not decided here:** if the Kosmos+ subscription is bought through Stripe inside the iOS
   app, App Store guideline 3.1.1 (digital goods must use in-app purchase) likely applies. Sent to Liu
   Kang for Josh. The shell keeps a checkout flow working either way.
-- **Accepted risk, recorded:** a redirect or script step to another https site stays in the app
-  (so sign-in and checkout flows keep their session), and a TAP on such a page stays in the app
-  only when it goes to that same site; a tap to a third site goes to Safari, which bounds the flow
-  to the sites the redirects chose (challenge-loop round 6). A compromised third-party script inside such
-  a flow could therefore steer the WebView to an arbitrary https page in the app rather than Safari.
-  Narrowing it to an allow list (Stripe and known identity hosts) is a follow-up if it matters; with
-  Liu Kang's default (no purchase in the iOS app) the checkout part mostly goes away.
+- **No third-party page ever loads in the app** (challenge-loop round 7 replaced the earlier
+  "redirects stay in the app" exception and its accepted phishing risk). Kosmos+ sign-in is email
+  plus a code with no third-party identity provider, and the iOS app shows no purchase (Liu Kang's
+  default, m556), so no flow needs another site in the app. If in-app purchase or an identity
+  provider is ever added, revisit with an allow list.
+- **"Back to Kosmos"** on the failure page (round 7): Try again alone could trap the person on a
+  dead Mac; Back goes to the previous page or the board home.
 - **Frames inside a page** may load https and about: only; every other scheme is refused
   (`Shell.allowsSubframe`, challenge-loop round 4). Before this PR there was no navigation delegate,
   so frames were unrestricted.

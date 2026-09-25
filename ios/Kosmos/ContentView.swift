@@ -30,11 +30,12 @@ struct ContentView: View {
                         pushManager: pushManager,
                         boardToOpen: pushManager.boardToOpen,
                         shell: shell,
-                        retryCount: shell.retryCount
+                        retryCount: shell.retryCount,
+                        backCount: shell.backCount
                     )
                         .ignoresSafeArea()
                     if let failure = shell.failure {
-                        LoadFailureView(failure: failure, detail: shell.failureDetail, retrying: shell.retrying, onRetry: shell.retry)
+                        LoadFailureView(failure: failure, detail: shell.failureDetail, retrying: shell.retrying, onRetry: shell.retry, onBack: shell.back)
                     }
                 }
             } else {
@@ -152,6 +153,8 @@ struct WebView: UIViewRepresentable {
     let shell: ShellState
     // Passed as a value so a retry is a change SwiftUI sees, and updateUIView runs.
     let retryCount: Int
+    // Same idea, for "Back to Kosmos" on the failure page.
+    let backCount: Int
 
     func makeUIView(context: Context) -> WKWebView {
         let config = WKWebViewConfiguration()
@@ -181,6 +184,7 @@ struct WebView: UIViewRepresentable {
         context.coordinator.shell = shell
         context.coordinator.home = url
         context.coordinator.lastRetry = retryCount
+        context.coordinator.lastBack = backCount
         // A cold launch from a tapped notification opens that board straight away.
         webView.load(URLRequest(url: boardToOpen?.url ?? url))
         if let request = boardToOpen {
@@ -192,6 +196,11 @@ struct WebView: UIViewRepresentable {
 
     func updateUIView(_ webView: WKWebView, context: Context) {
         // A retry from the failure page.
+        if backCount != context.coordinator.lastBack {
+            context.coordinator.lastBack = backCount
+            context.coordinator.failedURL = nil
+            if webView.canGoBack { webView.goBack() } else { webView.load(URLRequest(url: context.coordinator.home)) }
+        }
         if retryCount != context.coordinator.lastRetry {
             context.coordinator.lastRetry = retryCount
             context.coordinator.reloadOrHome()
@@ -224,13 +233,14 @@ struct WebView: UIViewRepresentable {
         weak var shell: ShellState?
         var home: URL = KosmosConfig.boardURL
         var lastRetry = 0
+        var lastBack = 0
         // The page that failed, so Try again retries IT (say, the agent a tapped
         // notification opened) and not whatever page was showing before.
         var failedURL: URL?
 
         func reloadOrHome() {
             // No WebView to act on: say so rather than leave Try again stuck on "Trying".
-            guard let webView = webView else { shell?.retrying = false; return }
+            guard let webView = webView else { shell?.retrying = false; endRefreshing(); return }
             switch Shell.retryAction(failed: failedURL, current: webView.url, home: home) {
             case .load(let url):
                 failedURL = nil

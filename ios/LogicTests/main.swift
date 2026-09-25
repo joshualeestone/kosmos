@@ -172,6 +172,7 @@ check(Shell.loadFailure(domain: NSURLErrorDomain, code: NSURLErrorTimedOut) == .
 check(Shell.loadFailure(domain: NSURLErrorDomain, code: NSURLErrorServerCertificateUntrusted) == .unreachable, "bad certificate: unreachable")
 check(Shell.loadFailure(domain: NSURLErrorDomain, code: NSURLErrorCancelled) == nil, "a cancelled load is not a failure page")
 check(Shell.loadFailure(domain: "WebKitErrorDomain", code: 102) == nil, "a load handed to Safari is not a failure page")
+check(Shell.loadFailure(domain: "WebKitErrorDomain", code: 204) == nil, "media handled by a plug-in is not a failure page")
 check(Shell.loadFailure(domain: NSURLErrorDomain, code: NSURLErrorFileDoesNotExist) == .other, "anything else: other")
 check(Shell.loadFailure(domain: "SomeDomain", code: 1) == .other, "another domain: other")
 
@@ -182,7 +183,7 @@ check(link("https://hers.kosmosplus.com/?tab=detail&agent=leo") == .inApp, "a Ma
 check(link("HTTPS://LOGIN.KOSMOSPLUS.COM/signin") == .inApp, "an uppercase scheme and host: still the coordinator")
 check(link("https://billing.stripe.com/p/session/x") == .external, "tapped: Stripe's billing page goes to Safari")
 check(link("https://billing.stripe.com/p/session/x", .newWindow) == .external, "a new window to Stripe: Safari")
-check(link("https://checkout.stripe.com/c/pay/x", .pageFlow) == .inApp, "a redirect or script to another https site (a flow step): stays in the app")
+check(link("https://checkout.stripe.com/c/pay/x", .pageFlow) == .external, "a redirect or script to another site: Safari (no third-party page inside the app)")
 check(link("https://kosmosplus.com/help") == .external, "tapped: the marketing site goes to Safari (not a Mac, not the coordinator)")
 check(link("https://evil.example.com/") == .external, "tapped: another site goes to Safari, never inside the app")
 check(link("https://login.kosmosplus.com.evil.example/") == .external, "tapped: a lookalike of the coordinator goes to Safari")
@@ -207,7 +208,7 @@ check(link("https://hers.kosmosplus.com:8443/") == .external, "a Mac host with a
 check(link("https://x@login.kosmosplus.com/") == .external, "the coordinator with a user part is not ours: Safari")
 check(link("https://accounts.example-idp.com/other", .tapped) == .external, "tapped on OUR page: another site goes to Safari")
 let idp = URL(string: "https://accounts.example-idp.com/signin")!
-check(Shell.linkDecision(for: URL(string: "https://accounts.example-idp.com/other")!, coordinator: coordinator, origin: .tapped, showing: idp) == .inApp, "tapped mid-flow to the SAME site: stays in the app")
+check(Shell.linkDecision(for: URL(string: "https://accounts.example-idp.com/other")!, coordinator: coordinator, origin: .tapped, showing: idp) == .external, "tapped on another site page: Safari too")
 check(Shell.linkDecision(for: URL(string: "https://terms.example.org/tos")!, coordinator: coordinator, origin: .tapped, showing: idp) == .external, "tapped mid-flow to a THIRD site: Safari (no open-ended browsing)")
 check(Shell.linkDecision(for: URL(string: "https://accounts.example-idp.com/other")!, coordinator: coordinator, origin: .tapped, showing: URL(string: "https://login.kosmosplus.com/")!) == .external, "tapped from our own page to another site: Safari")
 check(Shell.linkDecision(for: URL(string: "http://accounts.example-idp.com/")!, coordinator: coordinator, origin: .tapped, showing: idp) == .external, "plain http is never loaded in the app, even mid-flow")

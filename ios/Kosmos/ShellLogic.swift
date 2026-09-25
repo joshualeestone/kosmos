@@ -44,7 +44,9 @@ enum Shell {
             }
         }
         // WebKitErrorDomain 102: frame load interrupted by a policy change.
-        if domain == "WebKitErrorDomain" && code == 102 { return nil }
+        // 102: frame load interrupted by a policy change; 204: a plug-in (media)
+        // handled the load, which is playing, not failing.
+        if domain == "WebKitErrorDomain" && (code == 102 || code == 204) { return nil }
         return .other
     }
 
@@ -124,25 +126,19 @@ enum Shell {
         return port == nil && PushBridge.isMacHost(host, coordinator: coordinator)
     }
 
-    // `showing`: the page in the main frame now. While a sign-in or checkout flow is
-    // on another site's page (it got there by a redirect), a link the person taps
-    // ON that page to the SAME site is part of the flow ("Use another account",
-    // "Continue"), so it stays in the app; the flow returns by redirect. A tap from
-    // there to a third site ("Terms of Service") goes to Safari, so the app never
-    // becomes an open-ended browser.
+    // Kosmos+ sign-in is email plus a code, with no third-party identity provider,
+    // and the iOS app shows no purchase (Liu Kang's default, m556). So no flow
+    // needs another site inside the app, and any other site, however it is
+    // reached (a tap, a redirect, a script), opens in Safari. That keeps a hostile
+    // page from ever showing a fake Kosmos screen inside the app's own frame.
+    // `showing` is kept for callers; the rule no longer depends on it.
     static func linkDecision(for url: URL, coordinator: URL, origin: Origin, showing: URL? = nil) -> LinkDecision {
         let scheme = url.scheme?.lowercased() ?? ""
-        var sameThirdParty = false
-        if origin == .tapped, let showing = showing, !isOurs(showing, coordinator: coordinator),
-           let a = showing.host?.lowercased(), let b = url.host?.lowercased(), a == b {
-            sameThirdParty = true
-        }
-        let inFlow = origin == .pageFlow || sameThirdParty
         switch scheme {
         case "https":
             if isOurs(url, coordinator: coordinator) { return .inApp }
             guard let host = url.host, !host.isEmpty else { return .block }
-            return inFlow ? .inApp : .external
+            return .external
         case "http":
             guard let host = url.host, !host.isEmpty else { return .block }
             return origin == .pageFlow ? .block : .external

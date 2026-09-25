@@ -103,11 +103,10 @@ turns out dead, it posts `{token: null}` (kosmos-relay `apns-718`).
   (`ShellViews.swift`, `Shell.loadFailure`).
 - **Pull to refresh** reloads the page.
 - **Links** (`Shell.linkDecision`): Kosmos+ and your Macs (plain host, no port or user part)
-  open in the app over https. Another site you TAP, or one a page opens in a new window (the
-  billing button), opens in Safari. Another https site reached by a redirect or script, a step in a
-  sign-in or checkout flow, stays in the app so the flow keeps its session; that is an accepted
-  risk, recorded in the plan. Plain http never loads in the app (tapped, it goes to Safari).
-  Mail, phone and text links open their apps; other schemes are refused.
+  open in the app over https. Any other site, however it is reached (a tap, a redirect, a
+  script), opens in Safari, so no third-party page ever shows inside the app's frame. Plain http
+  never loads in the app. Mail, phone and text links need a tap. Other schemes are refused.
+- **A page that will not load** offers Try again and "Back to Kosmos".
 - **A tapped notification** opens the agent that asked
   (`?tab=detail&agent=<session>`, the session checked against the board's agent-name rule), or
   the board home when the push carries no usable session.

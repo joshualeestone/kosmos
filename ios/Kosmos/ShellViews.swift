@@ -29,6 +29,10 @@ final class ShellState: ObservableObject {
     deinit { monitor.cancel() }
 
     func retry() { retrying = true; retryCount += 1 }
+
+    // Bumped to ask the WebView to leave the failed page.
+    @Published var backCount = 0
+    func back() { failure = nil; retrying = false; backCount += 1 }
 }
 
 // Kosmos navy, the sign-in page's own background (--bg in coordinator signin.html),
@@ -51,6 +55,8 @@ struct LoadFailureView: View {
     let detail: String
     let retrying: Bool
     let onRetry: () -> Void
+    // Leaves a page that will not load: back to the page before it, or the board home.
+    let onBack: () -> Void
 
     private var title: String {
         switch failure {
@@ -97,6 +103,10 @@ struct LoadFailureView: View {
                 .background(KosmosColor.accent)
                 .clipShape(RoundedRectangle(cornerRadius: 12))
                 .padding(.top, 8)
+                Button("Back to Kosmos", action: onBack)
+                    .font(.body)
+                    .foregroundColor(KosmosColor.ink)
+                    .frame(minHeight: 44)
             }
             .padding(.horizontal, 32)
             .frame(maxWidth: 420)
