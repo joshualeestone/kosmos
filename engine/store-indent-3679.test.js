@@ -80,14 +80,32 @@ test('#3679: a long run of spaces is stored in linear time', () => {
   chat.storeText(FENCE + '\n' + '\n'.repeat(200000) + 'x');
   chat.storeText('\n'.repeat(200000) + 'x' + '\n'.repeat(200000));
   const ms = Number(process.hrtime.bigint() - t0) / 1e6;
-  assert.ok(ms < 500, 'storeText took ' + ms.toFixed(0) + 'ms on 200k spaces; a backtracking trim is quadratic');
+  // Generous for a busy shared Mac: the quadratic trim this guards took about 17 s here.
+  assert.ok(ms < 3000, 'storeText took ' + ms.toFixed(0) + 'ms on 200k spaces; a backtracking trim is quadratic');
 });
 
 test('#3679: the stored form has its own ceiling', () => {
   const huge = FENCE + '\n' + ('    a' + ' '.repeat(40) + 'b\n').repeat(1000) + FENCE;
   assert.ok(chat.cleanMessage(huge).length <= chat.MAX_TEXT, 'CONTROL: the one-line form must be under the limit');
   assert.ok(chat.storeText(huge).length > chat.STORE_GROWTH * chat.MAX_TEXT, 'CONTROL: the stored form must be over the ceiling');
-  assert.notEqual(chat.messageProblem(huge), null, 'a stored form past the ceiling must be refused');
+  const why = chat.messageProblem(huge);
+  assert.notEqual(why, null, 'a stored form past the ceiling must be refused');
+  assert.doesNotMatch(why, /characters or fewer/, 'it must not name a limit the message is under');
+  assert.match(why, /indentation/);
+});
+
+test('#3679: a longer fence holds a shorter one, and only a bare run as long closes it', () => {
+  const inner = '````md\n```js\nx   =   1\n```\n````';
+  assert.equal(chat.storeText(inner + '\nafter   words'), inner + '\nafter words');
+  assert.equal(chat.storeText(FENCE + '\na   b\n' + FENCE + 'js\nc   d\n' + FENCE), FENCE + '\na   b\n' + FENCE + 'js\nc   d\n' + FENCE,
+    'a fence line with an info string does not close a fence');
+});
+
+test('#3679: whitespace the old trim removed is still removed', () => {
+  for (const ws of ['\u00a0', '\ufeff', '\u3000', ' \n\u00a0 ']) {
+    assert.equal(chat.messageProblem(ws), 'write something to send', JSON.stringify(ws));
+  }
+  assert.equal(chat.messageProblem('x\f'), null, 'a trailing form feed is trimmed, as before');
 });
 
 test('#3679: an unclosed fence keeps its code as written to the end', () => {

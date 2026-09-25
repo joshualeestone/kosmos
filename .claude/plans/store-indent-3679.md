@@ -89,3 +89,24 @@ always a stray keystroke, and trimming it keeps "  hello" stored as "hello".
 - Recorded, not changed: `quotedSegments` matches an earlier post by its one-line form inside the
   stored text, so a requote of a post with a fence or nested list is not tagged. That is its
   documented fail-safe direction (an unmatched quote is simply not styled).
+
+## Review pass 5 (opus)
+- WARNING fixed: the final trim only took ASCII spaces and newlines, so a DM of only a
+  non-breaking space (or U+FEFF, U+3000) passed as non-empty and typed a bare Enter. The ends
+  are trimmed with the built-in `trim()` again, after the dedent; `\f`/`\v` at the ends go as
+  before. Tested for each character.
+- WARNING fixed: the stored-form ceiling had reused "keep it to 10000 characters", a limit the
+  message is under. It has its own sentence about indentation.
+- WARNING fixed: fences follow CommonMark: three or more backticks, no backtick after them, and
+  a fence closes only on a bare run at least as long, in the store and in pjRich. So ````md can
+  hold a ``` example, and a ```js line inside a fence is content. Four-backtick fences render
+  as code again in pjRich (the pass-3 regex had stopped matching them).
+- NIT fixed: the timing budget is 3 s (the quadratic case took about 17 s), so a busy machine
+  does not flake it.
+- Recorded, not changed: the ROOM's code-block split (`pjBody`) is a third fence reader:
+  column 0 only, exactly three backticks, and it accepts a backtick in the info string. Where it
+  disagrees with the store, stored text is kept (inside a fence by the store's reading) or
+  collapsed (outside), and the room draws it by its own reading. Bringing pjBody onto the same
+  rule is a room-renderer change of its own.
+- Recorded: every tab is four spaces, not the next tab stop; and depth reads raw indentation on
+  surfaces the store never touched (a task's detail, an agent reply).

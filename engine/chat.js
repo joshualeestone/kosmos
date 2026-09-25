@@ -356,15 +356,17 @@ function cleanMessage(raw) {
  *     written. Outside a fence, a run of spaces INSIDE a line becomes one space
  *     and trailing spaces go.
  *   - outside a fence, three or more newlines → a single blank line
- *   - the indentation every line shares comes off, then blank lines at the ends and
- *     any indentation left on the first line alone.
+ *   - the indentation every line shares comes off, then the ends are trimmed.
  * Every other control char (ESC, `\v`, `\f` and the rest) is preserved here so
  * `messageProblem` still sees and refuses it; `\n` is the one `CONTROL` exempts.
  */
+// Every tab is four spaces, not the next tab stop, the same width pjListDepth reads.
 const STORE_TAB = '    ';
-// A fence line: three backticks at the start and none after (so an inline ```span``` is not one).
+// A fence line, as CommonMark reads one: optional leading spaces, three or more backticks, and
+// no backtick after them (so an inline ```span``` is not one). A fence closes only on a bare
+// run at least as long as the one that opened it, so ```` can hold a ``` example.
 // \x60 is a backtick: a literal one here reads as a template string to the #1732 scanner.
-const STORE_FENCE = /^ *\x60{3}[^\x60]*$/;
+const STORE_FENCE = /^ *(\x60{3,})([^\x60]*)$/;
 // The stored form may exceed a one-line limit (kept indentation, a tab as four spaces), but
 // not by more than this factor, so a thread read on every poll stays bounded.
 const STORE_GROWTH = 4;
@@ -377,11 +379,16 @@ function trimSpacesEnd(line) {
 function storeText(raw) {
   const lines = String(raw == null ? '' : raw).replace(/\r\n?/g, '\n').replace(/\t/g, STORE_TAB).split('\n');
   const out = [];
-  let inFence = false;
+  let fenceLen = 0;   // the opening run's length while inside a fence, else 0
   let blanks = 0;
   for (const line of lines) {
-    if (inFence && !STORE_FENCE.test(line)) { out.push(trimSpacesEnd(line)); continue; }
-    if (STORE_FENCE.test(line)) inFence = !inFence;
+    const f = STORE_FENCE.exec(line);
+    if (fenceLen) {
+      if (!(f && f[1].length >= fenceLen && !f[2].trim())) { out.push(trimSpacesEnd(line)); continue; }
+      fenceLen = 0;
+    } else if (f) {
+      fenceLen = f[1].length;
+    }
     const lead = /^ */.exec(line)[0];
     const rest = trimSpacesEnd(line.slice(lead.length).replace(/ +/g, ' '));
     if (!rest) { blanks += 1; if (blanks > 1) continue; out.push(''); continue; }
@@ -393,9 +400,8 @@ function storeText(raw) {
   let common = Infinity;
   for (const l of out) if (l) common = Math.min(common, /^ */.exec(l)[0].length);
   const dedented = common > 0 && common !== Infinity ? out.map((l) => l.slice(common)) : out;
-  // Then the ends: blank lines at both, and any indentation left on the first line alone.
-  while (dedented.length && !dedented[dedented.length - 1]) dedented.pop();
-  return dedented.join('\n').replace(/^[ \n]+/, '');
+  // Then trim the ends, which also takes any indentation left on the first line alone.
+  return dedented.join('\n').trim();
 }
 
 /**
@@ -436,7 +442,8 @@ function messageProblem(raw) {
   if (!text) return 'write something to send';
   // #3679: measured on the one-line form, as the room does, so kept indentation
   // (and a tab's four spaces) cannot push a message over the limit.
-  if (cleanMessage(raw).length > MAX_TEXT || text.length > STORE_GROWTH * MAX_TEXT) return `keep it to ${MAX_TEXT} characters or fewer`;
+  if (cleanMessage(raw).length > MAX_TEXT) return `keep it to ${MAX_TEXT} characters or fewer`;
+  if (text.length > STORE_GROWTH * MAX_TEXT) return 'that has more indentation than we keep in a message; put it in a file and send the path';
   if (CONTROL.test(text)) return 'that message has characters we will not type into a terminal';
   return null;
 }

@@ -3,7 +3,9 @@
  * #3679: now that the store keeps indentation, both message renderers draw a nested
  * list item at its depth (two spaces a level, up to three) instead of flat.
  * pjProse is the project room thread; pjRich is the DM/talk dialog and the project
- * message list. A top-level item's markup is unchanged, which the older richtext
+ * message list. Depth reads raw indentation, so on surfaces the store never touched (a task's
+ * detail, an agent reply) a block indented as a whole draws one level in. A top-level item's
+ * markup is unchanged, which the older richtext
  * checks pin byte for byte. Lifts the REAL renderers from web/index.html.
  */
 const test = require('node:test');
@@ -53,6 +55,7 @@ test('#3679: pjRich reads a fence as the store does: an inline ```span``` line i
   assert.doesNotMatch(inline, /class="mdcb"/, 'an inline span opened a code block');
   assert.match(inline, /<span class="mdli">a<\/span>/, 'the list after it was swallowed');
   assert.match(fn('```js\ncode\n```'), /<span class="mdcb">code<\/span>/, 'CONTROL: a real fence still makes a code block');
+  assert.match(fn('````md\n```js\nx\n```\n````'), /<span class="mdcb">```js\nx\n```<\/span>/, 'a four-backtick fence holds a three-backtick example');
 });
 
 test('#3679: the page styles each depth on every surface that shows these items', () => {
