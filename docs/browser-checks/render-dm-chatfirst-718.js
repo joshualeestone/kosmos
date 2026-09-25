@@ -80,7 +80,7 @@ async function open(browser, w, h, theme, agentName = 'April') {
     window.__fx = f;
     const fr = document.getElementById('firstrun'); if (fr) fr.hidden = true;
     document.querySelectorAll('body > *').forEach((el) => { el.inert = false; });
-    LAST = [{ sessionName: 'april', name: agentName, role: 'Researcher', status: 'working', isNamedOurs: true, nameDerived: true }];
+    LAST = [{ sessionName: 'april', name: agentName, role: 'Researcher', status: 'working', isNamedOurs: true, nameDerived: true, context: { percent: 62 } }];
     openDetail('april', 'talk');
   }, [FX, agentName]);
   await page.evaluate((n) => paintTalk('april', n), agentName);
@@ -125,6 +125,8 @@ function measure() {
         chk(m.send && m.send.bottom <= m.vh && m.send.h >= MIN_TAP_PX, `${t} Post is on screen and at least ${MIN_TAP_PX}px tall`, JSON.stringify(m.send));
         chk(m.attach && m.attach.w >= MIN_TAP_PX && m.attach.h >= MIN_TAP_PX, `${t} the add-a-file button is at least ${MIN_TAP_PX}px`, JSON.stringify(m.attach));
         chk(m.profile && m.profile.shown && m.profile.bottom <= m.vh && m.profile.left >= 0 && m.profile.right <= m.vw && m.profile.h >= MIN_TAP_PX, `${t} the Profile tab is on screen and at least ${MIN_TAP_PX}px`, JSON.stringify(m.profile));
+        const ring = await page.evaluate(() => { const r = document.getElementById('d-ring').getBoundingClientRect(); const h = document.querySelector('.dhead').getBoundingClientRect(); const svg = document.querySelector('#d-ring svg'); return { drawn: !!svg, w: r.width, left: r.left, right: r.right, top: r.top, bottom: r.bottom, hl: h.left, hr: h.right, ht: h.top, hb: h.bottom }; });
+        chk(ring.drawn && ring.w <= 60 && ring.left >= ring.hl - 0.5 && ring.right <= ring.hr + 0.5 && ring.top >= ring.ht - 0.5 && ring.bottom <= ring.hb + 0.5, `${t} the memory ring is sized to the compact avatar and sits inside the header`, JSON.stringify(ring));
         chk(Math.abs(m.boxLeft) <= 0.5, `${t} the conversation box runs edge to edge (its negative margin matches the page gutter)`, `left=${m.boxLeft} bodyPad=${m.bodyPadLeft}`);
         chk(m.tabsRow === 'row', `${t} the section tabs are one row`, m.tabsRow);
         chk(!(m.label && m.label.w > 2 && m.label.h > 2) && m.labelDisplay !== 'none' && m.labelText.length > 0, `${t} the caption that repeats the agent's name is not shown but kept for screen readers`, JSON.stringify({ label: m.label, display: m.labelDisplay, text: m.labelText }));
@@ -164,15 +166,17 @@ function measure() {
 
         // Everything below the thread stays reachable while typing: the folder-trust box, file
         // chips and a send error can outgrow a short talk box, which then scrolls (#2622).
+        await page.evaluate(() => document.activeElement && document.activeElement.blur());
+        await page.focus('#d-say');
         const crowd = await page.evaluate(() => {
           const q = document.getElementById('d-qask'); q.hidden = false; document.getElementById('d-qask-lab').textContent = 'This agent is waiting for you to trust its folder before it can start work again.';
           const chips = document.getElementById('d-attach-chips'); chips.hidden = false; chips.innerHTML = '<span class="chip">IMG_2041.png</span><span class="chip">quarterly-report.pdf</span>';
           document.getElementById('d-say-msg').textContent = 'Could not send just now. Try again in a moment.';
           const box = document.getElementById('d-talk-box'); box.scrollTop = box.scrollHeight;
           const m = document.getElementById('d-say-msg').getBoundingClientRect(); const b = box.getBoundingClientRect();
-          return { overflowY: getComputedStyle(box).overflowY, msgBottom: m.bottom, boxBottom: b.bottom };
+          return { overflowY: getComputedStyle(box).overflowY, msgBottom: m.bottom, boxBottom: b.bottom, composerShown: getComputedStyle(document.querySelector('#d-talk-box .dmbar')).display !== 'none', active: document.activeElement && document.activeElement.id };
         });
-        chk(crowd.overflowY === 'auto' && crowd.msgBottom <= crowd.boxBottom + 1, `${t} with the keyboard up, a send error below the composer can be scrolled into view`, JSON.stringify(crowd));
+        chk(crowd.active === 'd-say' && crowd.composerShown && crowd.overflowY === 'auto' && crowd.msgBottom <= crowd.boxBottom + 1, `${t} with the keyboard up, a send error below the composer can be scrolled into view`, JSON.stringify(crowd));
         // The visualViewport listener follows a real viewport shrink (a keyboard opening shrinks
         // the visual viewport the same way; Playwright can only drive it through the window size).
         await page.evaluate(() => { document.activeElement.blur(); document.documentElement.style.removeProperty('--kosmos-visible-height'); });
@@ -186,6 +190,10 @@ function measure() {
         await page.click('#d-nav [data-go=profile]');
         const prof = await page.evaluate(() => !document.getElementById('d-sec-profile').hidden);
         chk(prof, `${t} one tap on Profile opens the Profile section`);
+        // Opening Profile scrolls the page to it (that section's own behaviour, not changed here),
+        // so the way back is a scroll to the top and one tap on Direct Message.
+        const back = await page.evaluate(() => { window.scrollTo(0, 0); const b = document.querySelector('#d-nav [data-go=talk]').getBoundingClientRect(); return { top: b.top, bottom: b.bottom, h: b.height, vh: window.innerHeight }; });
+        chk(back.h >= MIN_TAP_PX && back.top >= 0 && back.bottom <= back.vh, `${t} from Profile, Direct Message is at the top of the page, one tap back`, JSON.stringify(back));
         // Every optional identity note at once (usage-limit quote, conflict, sign in again, start
         // this agent), on a fresh page: the identity block scrolls on its own and the thread keeps
         // room to read. The floor is lower on an SE, where the 189px top bar (Raiden's frame, a
@@ -195,7 +203,7 @@ function measure() {
           await np.evaluate(() => {
             const show = (id, text) => { const e = document.getElementById(id); e.hidden = false; if (text) e.textContent = text; };
             show('d-said-lab', 'Its last words'); show('d-said', 'You have hit your usage limit. It resets at 5pm. Upgrade your plan to keep going, or wait for the reset and try again then.');
-            show('d-conflict', 'Two windows claim this agent. We are showing the one that answered most recently; the other may be stale.');
+            show('d-instr-stale', 'These instructions changed since the agent last started. Restart it to use them.');
             show('d-reauth'); show('d-start-wrap');
           });
           const mn = await np.evaluate(measure);
