@@ -79,6 +79,8 @@ test('#3769 ordinary text is untouched: prose, links, commit ids, short words af
     // Review round 3: a long name made of words with one number is a flag or a branch, not a token.
     'turn on SuperLongFeatureNameNoHyphensEnabled2026 first', 'branch AddNewSetupGuideSecretMaskingSupport2026',
     'the model is claude-sonnet-5-20260101', 'the secret is out',
+    // Review round 4: brackets, a setting's name, a long name with two numbers in it.
+    'password: (leave blank)', 'token: KOSMOS_AGENT_TOKEN', 'enable AddNewSetupGuide2SecretMasking2026 first',
   ];
   for (const t of plain) {
     const out = mask(t);
@@ -87,6 +89,25 @@ test('#3769 ordinary text is untouched: prose, links, commit ids, short words af
   }
   assert.deepEqual(mask(null), { text: null, fired: [] });
   assert.deepEqual(mask(''), { text: '', fired: [] });
+});
+
+test('#3769 the catch-all masks almost every random token of the lengths keys come in (review round 4)', () => {
+  const sets = [
+    ['ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789', 32],
+    ['ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/', 40],
+    ['abcdefghijklmnopqrstuvwxyz0123456789', 32],
+  ];
+  /* Deterministic pseudo-random, so the rate is the same on every run. */
+  let seed = 3769;
+  const next = () => { seed = (seed * 1103515245 + 12345) % 2147483648; return seed / 2147483648; };
+  for (const [alphabet, n] of sets) {
+    let shown = 0;
+    for (let i = 0; i < 1000; i += 1) {
+      const t = Array.from({ length: n }, () => alphabet[Math.floor(next() * alphabet.length)]).join('');
+      if (mask(`key ${t} end`).text.includes(t)) shown += 1;
+    }
+    assert.ok(shown <= 60, `${shown} of 1000 random ${n}-character tokens were shown (alphabet ${alphabet.length})`);
+  }
 });
 
 test('#3769 a long reply cannot make the mask backtrack (it runs on the board\'s event loop)', () => {

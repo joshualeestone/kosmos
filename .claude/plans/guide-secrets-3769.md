@@ -75,6 +75,14 @@ guard: three layers, each tested to go red without it.
   absolute-path deny rule for Kosmos's data folder, whose path has a space, was not measured: measured
   now, and it holds for Read and cat.
 
+- Round 4 (opus): the catch-all missed 5 to 15% of random tokens and every token with a slash; the room
+  feed served old guide rows; brackets and setting names masked after a key name. Fixed: two digit places
+  plus a words-and-numbers test for names, slashes allowed outside a path shape (1 to 3% of random tokens
+  now pass the catch-all, tested); room feed masked on read; a key-name value needs a digit.
+- Ice Cream Kitty's security review: merge it. Her point 3 was fixed in round 1. Her points 1 and 2
+  (sandboxed Bash, mask by value and on a normalised copy) are the follow-up branch, with sandboxed
+  Bash already measured to stop node -e and grep -r and to need allowLocalBinding for the kosmos CLI.
+
 ## Verification
 - `server.guide-secrets-3769.test.js`, `engine/secretmask.test.js`, `tools/test-supervisor-env.sh`
   (#3769 arm with a control). Mutations, all RED: store, read, question and menu unmasked; case-sensitive

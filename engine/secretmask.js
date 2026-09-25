@@ -58,18 +58,30 @@ const BARE_KEY = /\b(key["']?[ \t]{0,3}[:=][ \t]{0,3}["']?)([^\s"'`,;<>]{8,400})
 const splitTail = (v) => { const t = /[.)\]]+$/.exec(v); return t ? [v.slice(0, t.index), t[0]] : [v, '']; };
 /* The shape of a value worth hiding: letters with a digit or a symbol in them, and not a path. Plain
    words ("Password: required", "Token: Settings") are a form being explained, not a secret. */
-const looksLikeSecretValue = (v) => /[A-Za-z]/.test(v) && (/[0-9]/.test(v) || /[^A-Za-z0-9]/.test(v)) && !/^[~/]/.test(v);
+/* Round 4: a digit is required (a word in brackets, "(leave blank)", and a setting's name,
+   KOSMOS_AGENT_TOKEN, are not secrets). A password of letters and symbols only is the trade-off. */
+const looksLikeSecretValue = (v) => /[A-Za-z]/.test(v) && /[0-9]/.test(v) && !/^[~/(<[]/.test(v);
 const hasDigitOrSymbol = looksLikeSecretValue;
 
 /* A long run with upper case, lower case and a digit in it, and not all hex: the shape of a token
    no named pattern knows. Hex-only runs (git commits, checksums) are left alone. */
 /* No slash in the run, so a file path (/Users/me/Library/Application Support) is never taken for one. */
-const LONG_TOKEN = /[A-Za-z0-9+_-]{32,600}={0,2}/g;
-function looksRandom(s) {
-  if (!(/[A-Z]/.test(s) && /[a-z]/.test(s) && /[0-9]/.test(s)) || /^[0-9a-fA-F]+$/.test(s)) return false;
-  /* Digits in three or more separate places: a random token scatters them, a long name made of words
-     (AddNewSetupGuideSecretMaskingSupport2026, a flag or a branch) carries one number (review round 3). */
-  if ((s.match(/[0-9]+/g) || []).length < 3) return false;
+const LONG_TOKEN = /[A-Za-z0-9+/_-]{32,600}={0,2}/g;
+function looksRandom(run) {
+  /* A slash is part of base64 (an AWS secret access key has them), but a run that starts like a path
+     (/Users/..., ~/..., //host) is a path, and only the letters and digits are judged. */
+  if (/^[/~]/.test(run) || run.includes('//')) return false;
+  const s = run.replace(/[/=]/g, '');
+  if (!(/[A-Za-z]/.test(s) && /[0-9]/.test(s)) || /^[0-9a-fA-F]+$/.test(s)) return false;
+  /* Digits in two or more separate places: a random token scatters them (round 4 measured 10% of random
+     32-character tokens slipping past a stricter rule). */
+  if ((s.match(/[0-9]+/g) || []).length < 2) return false;
+  /* A long name made of words (AddNewSetupGuide2SecretMasking2026, a flag, a branch, a class) is not a
+     token: split at the case changes and digits, every piece reads as a word (three letters with a vowel)
+     or a number. Random text almost never splits that way. */
+  const pieces = s.replace(/[+_-]/g, ' ').match(/[A-Z]?[a-z]+|[A-Z]+(?![a-z])|[0-9]+/g) || [];
+  const wordish = (p) => /^[0-9]+$/.test(p) || (p.length >= 3 && /[aeiouy]/i.test(p));
+  if (pieces.length >= 4 && pieces.every(wordish)) return false;
   /* A link slug or a file name made of words (Getting-Started-With-Your-First-Agent-2026) is not a token:
      four or more short parts joined by - or _. */
   const parts = s.split(/[-_]/);

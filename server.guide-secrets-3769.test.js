@@ -244,4 +244,5 @@ test('#3769 rows served by /api/messages and the project thread are masked when 
   const src = fs.readFileSync(path.join(__dirname, 'server.js'), 'utf8');
   assert.match(src, /messages: withPreviews\(guideMaskedRows\(messages\.list\(who\), null\)\)/, '/api/messages does not mask on read');
   assert.match(src, /messages: withPreviews\(guideMaskedRows\(messages, guideMember\)\)/, 'the project thread does not mask on read');
+  assert.match(src, /const rows = guideMaskedRows\(rec\.rows, null\)/, 'the project room feed does not mask on read');
 });

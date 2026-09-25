@@ -13820,7 +13820,8 @@ const server = http.createServer((req, res) => {
     }
     try {
       const rec = messages.record();
-      const rows = rec.rows
+      /* #3769: the setup guide's room posts stored before the write-side filter are masked as read. */
+      const rows = guideMaskedRows(rec.rows, null)
         /* Refused rows too (#315): the valve notice is deduped per room, so
            without these every agent blocked after the first vanishes silently
            and reads as unresponsive. The refusal contract already records
