@@ -60,6 +60,7 @@
    copying a contrast failure faithfully would be a stupid way to fail.
 --------------------------------------------------------------------------- */
 :root {
+  --tip-dim: rgba(20,22,26,.28);   /* #3737: the tour's dim, one value for the layer and the gutter */
   /* #3132 (Josh, 6.68): the consolidated link size, defined once so the archived
      toggle (#pj-arch-toggle) and the Files/Tasks "View All" doors (.pj-viewall)
      are guaranteed equal by construction, not by two matching literals
@@ -1462,7 +1463,20 @@ button.uprime:hover, .btn.uprime:hover, .utoast .uacts button.uprime:hover,
 .tipcard .tip-go { font: 650 .8125rem var(--font-ui); padding: 6px 14px; border-radius: 9px; background: var(--gold-bright); color: #14161a; border: 0; cursor: pointer; }
 .tipcard .tip-bd:focus-visible, .tipcard .tip-go:focus-visible, .tipcard .tip-off:focus-visible, .tipcard .tip-skip:focus-visible, .tipcard .tip-x:focus-visible { outline: 2px solid var(--k-ink); outline-offset: 2px; }
 .tiphalo { position: fixed; z-index: 45; border-radius: 12px; pointer-events: none;
-  box-shadow: 0 0 0 3px var(--gold-bright), 0 0 0 7px color-mix(in srgb, var(--gold) 35%, transparent), 0 0 0 100vmax rgba(20,22,26,.28); }
+  box-shadow: 0 0 0 3px var(--gold-bright), 0 0 0 7px color-mix(in srgb, var(--gold) 35%, transparent); }
+/* #3737: the tour's dim is its own full-window layer with the ringed place cut out. It was the ring's
+   100vmax shadow, and a shadow that wide takes the ring's rounded corner at its own size, so a place near
+   one corner left the far corner undimmed (Josh's white triangle). */
+.tipdim { position: fixed; inset: 0; z-index: 45; pointer-events: none; background: var(--tip-dim); }
+/* A fixed layer cannot paint the scrollbar gutter the tab layout keeps (scrollbar-gutter: stable, above),
+   so the page's own ground is dimmed there while the tour dims, and the body fills the window so that dimmed
+   canvas shows nowhere but the gutter. The dimmed ground is ONE colour, worked out by tipDimming: a gutter
+   paints the canvas's colour and not its image (Chromium with a mouse attached, measured), so a dim laid on
+   as a gradient left the gutter bright. The gradient is only the fallback when that colour could not be read, and it
+   reads the root's ground, so a look that sets its ground on the body (Kosmos+ navy) would get light's there. */
+html.tip-dimming:not([data-layout="consolidated"]) { background: linear-gradient(var(--tip-dim), var(--tip-dim)), var(--k-bg); }
+html.tip-dimming[data-tip-ground]:not([data-layout="consolidated"]) { background: var(--tip-canvas, var(--k-bg)); }
+html.tip-dimming:not([data-layout="consolidated"]) > body { min-height: 100vh; }
 .tipcard .tip-dots { display: flex; gap: 5px; }
 .tipcard .tip-dots i { width: 6px; height: 6px; border-radius: 50%; background: color-mix(in srgb, var(--k-ink-2) 35%, transparent); }
 .tipcard .tip-dots i.on { background: var(--gold-deep); }
@@ -54831,20 +54845,14 @@ const TIPS = [
       { at: ['#new-agent', '#rail-agents-new'], title: 'Make your first agent',
         body: 'Start here. You give it a name, a picture and a job, and it gets to work.' },
       { at: ['#tabs [data-tab="agents"]', '#rail-agents .railname'], title: 'Your agents',
-        body: 'Agents shows everyone working for you. Click any agent to talk to it.' },
+        body: 'Access all your agents to see what they are working on and talk to them directly.' },
       { at: ['#tabs [data-tab="projects"]', '#rail-projects .railname', '#rail-projects'], title: 'Your projects',
-        body: 'Projects is where agents work together on something.' },
-      { at: ['#userpop-btn'], title: 'Your settings',
-        body: 'Settings live under your name, top right. Tips come back from the ? beside it.' },
+        body: 'Create projects for your agents to work on together.' },
+      { at: ['#userpop-btn'], title: 'Your Profile',
+        body: 'Access all your Kosmos settings here.' },
     ] },
   { id: 'newagent', title: 'Make an agent', show: () => tipVisible('#panel-create'), at: '#panel-create h2', side: true,
     body: '<p>Give it a name and a picture so you can tell it apart, then tell it what the job is in plain words. You can change all of it later.</p>' },
-  { id: 'ring', title: 'The ring is your agent\'s memory', /* Only a card that draws the gauge: a filled band (.gf) or the unknown-memory dashed ring (.gu).
-       An off or needs-trust card has a face and no ring. */
-    show: () => tipVisibleAny('#grid .agauge .gf, #grid .agauge .gu, #alist .lring'), at: '#grid .agauge:has(.gf), #grid .agauge:has(.gu), #alist .lring',
-    body: '<p>It fills up as you work together. The fuller it gets, the more your agent has to hold in mind at once.</p>'
-      + '<div class="tip-bands">' + TIP_BAND('', 'Plenty of room') + TIP_BAND('warn', 'Getting full') + TIP_BAND('high', 'Nearly full') + '</div>'
-      + '<p>When it is nearly full, a Fresh start on the agent\'s page clears its memory. Its files and instructions stay.</p>' },
   { id: 'agents', title: 'See your agents your way', show: () => tipVisible('#boardbar') && !!document.querySelector('#grid [data-agent]'),
     at: '.viewtoggle[data-scope="agents"]',
     body: '<p>Cards, a list, or an org chart that shows who reports to whom. Click any agent to talk to it.</p>' },
@@ -54862,6 +54870,15 @@ const TIPS = [
   { id: 'agentpage', title: 'Your agent\'s page', show: () => tipVisible('#panel-detail #d-sec-talk'), at: '#panel-detail .snav',
     body: '<p>Talk to your agent here. Messages go straight to it. Profile, Instructions, AI Settings and Advanced are in the boxes on the left, and Instructions is where you change what it does.</p>' },
   /* #3574 (Josh 2026-09-25 07:46): no Settings tip ("wonky and pointless"), not on first visit and not from the ?. */
+  /* #3737 (Josh 2026-09-25 08:51): the ring's tip lives on the agent's own page, by its ring, and shows after
+     that page's own tip. The ? still opens it anywhere: it points at this page's ring, else a card's. The body
+     is Josh's words; his first line repeated the head, so it starts at "The ring shows". */
+  { id: 'ring', title: 'Your agent\'s memory',
+    show: () => tipVisible('#panel-detail #d-ring svg') && tipVisible('#panel-detail #d-sec-talk'),   // with the page's own tip, which goes first
+    at: '#panel-detail #d-ring svg, #grid .agauge:has(.gf), #grid .agauge:has(.gu), #alist .lring', side: true,   // beside it: above and below are her name and buttons
+    body: '<p>The ring shows how full your agent\'s memory is.</p>'
+      + '<div class="tip-bands">' + TIP_BAND('', 'Plenty of room') + TIP_BAND('warn', 'Getting full') + TIP_BAND('high', 'Nearly full') + '</div>'
+      + '<p>This is normal and the agent will automatically write themselves a handoff, You can also manage their memory under AI settings.</p>' },
 ];
 let TIPS_STATE = null;          // { ok, seen, off } from the board; null until read
 let TIP_OPEN = null;            // the tip on screen, or null
@@ -55121,20 +55138,68 @@ function tipSuspend(on) {
   card.dataset.suspended = String(on);
   card.hidden = on;
   document.getElementById('tippins').hidden = on;
-  if (!on) tipLayout(TIP_OPEN, card);
+  if (on) tipDimming(false);
+  else tipLayout(TIP_OPEN, card);
+}
+
+/* #3737: the scrollbar gutter dims with the tour (the html.tip-dimming rules), from the body's own ground. Read from
+   the body because a look can set --k-bg there, where the root cannot see it (Kosmos+ navy), and as the token,
+   because navy's body paints a gradient, so its background colour reads transparent. The ground and the dim are
+   mixed here into one colour, because a gutter paints only the canvas's colour. */
+let TIP_GROUND = { key: null, colour: null };   // the last mix, by what it was mixed from: it changes only with the look
+function tipDimmedGround() {
+  const key = getComputedStyle(document.body).getPropertyValue('--k-bg').trim() + '|' + getComputedStyle(document.body).getPropertyValue('--tip-dim').trim();
+  if (TIP_GROUND.key === key) return TIP_GROUND.colour;
+  const probe = document.createElement('i');
+  probe.style.cssText = 'position:absolute;visibility:hidden;width:0;height:0';
+  document.body.appendChild(probe);
+  try {
+    /* rgb() or rgba() only: a look written in another colour space reads back as color(...), which falls back. */
+    const rgba = (v) => { probe.style.backgroundColor = ''; probe.style.backgroundColor = v; const cs = getComputedStyle(probe).backgroundColor; const m = /^rgba?\(/.test(cs) ? cs.match(/[\d.]+/g) : null; return m && m.length >= 3 ? m.map(Number) : null; };
+    const g = rgba(getComputedStyle(document.body).getPropertyValue('--k-bg').trim()), d = rgba('var(--tip-dim)');
+    let colour = null;
+    if (g && d && !(g.length > 3 && g[3] < 1)) {   // a see-through ground cannot be mixed to one colour
+      const a = d.length > 3 ? d[3] : 1;
+      colour = 'rgb(' + [0, 1, 2].map((i) => Math.round(g[i] * (1 - a) + d[i] * a)).join(', ') + ')';
+    }
+    TIP_GROUND = { key, colour };
+    return colour;
+  } finally { probe.remove(); }
+}
+function tipDimming(on) {
+  const root = document.documentElement;
+  if (on) {
+    const c = tipDimmedGround();
+    if (c) { root.style.setProperty('--tip-canvas', c); root.setAttribute('data-tip-ground', ''); } else { root.style.removeProperty('--tip-canvas'); root.removeAttribute('data-tip-ground'); }
+  } else { root.style.removeProperty('--tip-canvas'); root.removeAttribute('data-tip-ground'); }
+  root.classList.toggle('tip-dimming', !!on);
 }
 
 /* Position only; the card's content and focus are left alone, so a resize or scroll does not rebuild it. */
 function tipLayout(t, card) {
   if (t.tour) {
-    /* The step's place stays bright inside a gold ring and the rest of the page dims: one fixed ring
-       whose outer shadow is the dim, so nothing in the app has to be lifted above it. */
+    /* The step's place stays bright inside a gold ring and the rest of the page dims: a fixed shade
+       with a ring-shaped hole cut in it, so nothing in the app has to be lifted above it. */
     const st = TIP_PLACES[TIP_STEP];
     const halo = document.getElementById('tippins');
     const el = st && st.sel ? document.querySelector(st.sel) : null;
     halo.innerHTML = '';
+    let dim = false;
     if (el && tipVisible(st.sel)) {
       const r = el.getBoundingClientRect();
+      /* The dim, with a hole the ring's size and shape (evenodd: the window minus the rounded ring). */
+      const x = Math.round(r.left - 4), y = Math.round(r.top - 4), w = Math.round(r.width + 8), h = Math.round(r.height + 8);
+      const k = Math.min(12, w / 2, h / 2);
+      const shade = document.createElement('span');
+      shade.className = 'tipdim';
+      shade.setAttribute('aria-hidden', 'true');
+      shade.style.clipPath = 'path(evenodd, "M-10 -10H100000V100000H-10Z'
+        + 'M' + (x + k) + ' ' + y + 'H' + (x + w - k) + 'A' + k + ' ' + k + ' 0 0 1 ' + (x + w) + ' ' + (y + k)
+        + 'V' + (y + h - k) + 'A' + k + ' ' + k + ' 0 0 1 ' + (x + w - k) + ' ' + (y + h)
+        + 'H' + (x + k) + 'A' + k + ' ' + k + ' 0 0 1 ' + x + ' ' + (y + h - k)
+        + 'V' + (y + k) + 'A' + k + ' ' + k + ' 0 0 1 ' + (x + k) + ' ' + y + 'Z")';
+      halo.appendChild(shade);
+      dim = true;
       const ring = document.createElement('span');
       ring.className = 'tiphalo';
       ring.setAttribute('aria-hidden', 'true');
@@ -55144,9 +55209,11 @@ function tipLayout(t, card) {
       ring.style.height = Math.round(r.height + 8) + 'px';
       halo.appendChild(ring);
     }
+    tipDimming(dim);
     /* The tour dims the page and any click outside ends it, so it only keeps clear of its ringed place. */
     tipPlace(card, st && st.sel, false, { key: t.id + '#' + TIP_STEP, avoid: false });
   } else {
+    tipDimming(false);
     tipPlace(card, t.at, t.side, { key: t.id, avoid: true });
   }
 }
@@ -55214,6 +55281,18 @@ function tipPlace(card, sel, side = false, { key = '', avoid = true } = {}) {
      The scroll listener places the card again, arrow and all, once the target is in view. */
   const offScreen = r.bottom <= 0 || r.top >= vh || r.right <= 0 || r.left >= pageW;
   if (!offScreen) for (const c of side ? [right, below, above, leftSide] : [below, above, right, leftSide]) if (onScreen(c.left, c.top)) cands.push(c);
+  /* #3737: beside a target, the card may also slide up or down, as far as its arrow can still point at the target's
+     middle (the --ay range below), so a crowded column (an agent's page: her name, then her buttons) keeps an arrow.
+     Tried only after the usual places, so wherever one of those was clear the choice is unchanged. */
+  if (!offScreen) {
+    const mid = r.top + r.height / 2;
+    const lo = Math.max(pad, mid - h + 19), hi = Math.min(vh - h - pad, mid - 19);
+    for (const base of [right, leftSide]) {
+      for (let d = 24; sideTop - d >= lo || sideTop + d <= hi; d += 24) {   // nearest first, up then down
+        for (const top of [sideTop - d, sideTop + d]) if (top >= lo && top <= hi && onScreen(base.left, top)) cands.push({ ...base, top });
+      }
+    }
+  }
   if (!cands.length) cands.push({ ...below, cls: offScreen ? 'flat' : below.cls, top: Math.max(pad, Math.min(r.bottom + 12, vh - h - pad)) });
   /* The target itself is kept clear too (with the ring's margin): the card points at it, never sits on it. */
   const covered = (avoid ? tipCoveredControls(el) : []).concat([{ l: r.left - 6, t: r.top - 6, r: r.right + 6, b: r.bottom + 6 }]);
@@ -55286,6 +55365,7 @@ function tipClose({ record, also = null }) {
   if (card) { card.hidden = true; card.innerHTML = ''; card.className = 'tipcard'; delete card.dataset.covers; delete card.dataset.tipKey; }
   const pins = document.getElementById('tippins');
   if (pins) { pins.innerHTML = ''; pins.hidden = false; }
+  tipDimming(false);
   TIP_OPEN = null;
   const ret = TIP_RETURN;
   TIP_RETURN = null;
