@@ -24,8 +24,11 @@ description of the ring uses the same words.
   100vmax box-shadow; WebKit rounds a spread shadow at radius plus spread, so a ring near one corner left the far
   corner bright (reproduced in WebKit, not in Chromium, which shrinks that corner).
 - The gutter: a fixed layer cannot paint the reserved scrollbar gutter (scrollbar-gutter: stable in the tab layout),
-  so while the tour dims, the page canvas takes the body's colour under the same dim, and the body fills the window so
-  that dimmed canvas shows only in the gutter.
+  so while the tour dims, the page canvas takes the body's ground mixed with the dim as ONE colour (tipDimmedGround,
+  cached by the look), and the body fills the window so that dimmed canvas shows only in the gutter. One colour, not a
+  gradient over the ground: a gutter paints the canvas's colour and not its image. Measured 2026-09-25 11:25, when this
+  Mac began reserving a real 15px gutter in Chromium (classic scrollbars): the gradient version left a bright strip
+  there, T33's corner pixel red, on the code from before this branch's latest commits too.
 - tipPlace: a side card may slide up or down while its arrow can still point at the target's middle, tried only after
   the usual four places, so an agent's crowded page keeps an arrow and other tips are unchanged where a usual place
   was clear.
@@ -33,8 +36,12 @@ description of the ring uses the same words.
   words.
 
 ## Weakest premise
-The gutter fix is reasoned, not reproduced: headless browsers here use overlay scrollbars, so no gutter strip shows.
-T33 reads the colour the gutter is painted from, per look (light, and Kosmos+ navy, whose ground is on the body), rather than a gutter pixel: macOS draws overlay scrollbars in every headless engine, with Playwright's --hide-scrollbars removed and with a styled scrollbar. Control: without the body read, navy's gutter takes light's ground and T33 fails.
+The gutter is reproduced in Chromium only. WebKit here still draws overlay scrollbars (no gutter), so the app's own
+engine with a mouse attached is reasoned: it paints the gutter from the same canvas colour. T33 reads that colour per
+look (light rgb(186, 185, 185), Kosmos+ navy rgb(19, 30, 53)) in both engines, and Chromium's corner pixel reads a real
+gutter. Control: with the one-colour rule removed, T33's Chromium corner pixel and both engines' colour arms fail.
+Whether an engine reserves a gutter depends on the machine (a mouse attached), so on a trackpad-only machine the corner
+pixel arm reads the fixed shade instead; the colour arms still catch the regression.
 
 ## Verification
 render-help-tips-3574: T2 (his words at steps 2 to 4), T3 (board shows the Agents tip, not the ring; her page shows
