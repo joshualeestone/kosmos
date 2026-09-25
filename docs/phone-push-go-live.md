@@ -315,8 +315,8 @@ switch `CAN_BUY_HERE` in kosmos-relay `coordinator/src/signin.html` (kosmos-rela
   details: they change, they differ by country, and a summary written here would go stale unnoticed.
 - **Not live yet:** it takes the next coordinator deploy [Josh, a production change], like the
   assetlinks route above.
-- **Undo (turning it off):** make `CAN_BUY_HERE` true again in `coordinator/src/signin.html` (or
-  revert kosmos-relay #121) and deploy the coordinator [Josh, a production change]. Once an Android
+- **Undo (turning it off):** in kosmos-relay `coordinator/src/signin.html`, drop `!IN_ANDROID_APP`
+  from `CAN_BUY_HERE` (or revert #121), then deploy the coordinator [Josh, a production change]. Once an Android
   build is on any Play track, turning it off puts checkout back inside a Play-distributed app.
 - **Phone checks:** listed in kosmos-relay's plan `.claude/plans/android-no-purchase-718.md`; the
   full tester script is card kosmos #3699, to be corrected against a real phone.
