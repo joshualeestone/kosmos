@@ -865,14 +865,16 @@ const now = () => new Date().toISOString();
         const a = document.createElement('a'); a.href = '#arm-link'; a.textContent = 'a link'; a.id = 'arm-link';
         a.addEventListener('click', (ev) => ev.preventDefault());
         (other.querySelector('.msg-bd') || other).appendChild(a); a.scrollIntoView({ block: 'center' });
-        return { ok: true };
+        // Precondition: a bar IS open (on another row) right before the tap, or this proves nothing.
+        const open = [...document.querySelectorAll('#pj-room .msg.rxn-show')];
+        return { ok: open.length === 1 && open[0] !== other, openBefore: open.length };
       });
       if (!linkClose.error) {
         await phonePage.locator('#arm-link').tap();
         await phonePage.waitForTimeout(200);
       }
       const afterLink = await phonePage.evaluate(() => { const a = document.getElementById('arm-link'); if (a) a.remove(); return { shown: document.querySelectorAll('#pj-room .msg.rxn-show').length }; });
-      chk(!linkClose.error && afterLink.shown === 0, `[phone/touch] a tap on a link in another row closes an open bar`, JSON.stringify(Object.assign({}, linkClose, afterLink)));
+      chk(!linkClose.error && linkClose.ok && afterLink.shown === 0, `[phone/touch] a tap on a link in another row closes an open bar`, JSON.stringify(Object.assign({}, linkClose, afterLink)));
       // Reopen it, so the arms below start from an open bar as before.
       await firstBody.scrollIntoViewIfNeeded(); await firstBody.tap(); await phonePage.waitForTimeout(300);
       await firstBody.tap();
@@ -885,7 +887,7 @@ const now = () => new Date().toISOString();
       const rp = await phonePage.evaluate(() => {
         const room = document.getElementById('pj-room');
         const openPost = room.querySelector('.msg.rxn-show .rxns') && room.querySelector('.msg.rxn-show .rxns').getAttribute('data-post');
-        room.innerHTML = room.innerHTML.replace(/ rxn-show/g, '');   // what paintRoom's rewrite does to the class
+        room.innerHTML = room.innerHTML.replace(/ rxn-(show|below)/g, '');   // what paintRoom's rewrite does to the class
         return new Promise((res) => setTimeout(() => {
           const now = room.querySelector('.msg.rxn-show .rxns');
           res({ openPost, after: now ? now.getAttribute('data-post') : null });
@@ -913,7 +915,7 @@ const now = () => new Date().toISOString();
       await phonePage.waitForTimeout(200);
       const afterGap = await phonePage.evaluate(() => new Promise((res) => {
         const room = document.getElementById('pj-room');
-        room.innerHTML = room.innerHTML.replace(/ rxn-show/g, '');
+        room.innerHTML = room.innerHTML.replace(/ rxn-(show|below)/g, '');
         setTimeout(() => res(room.querySelectorAll('.msg.rxn-show').length), 50);
       }));
       chk(!gap.error && gap.hit === 'thread' && gap.opened === 1 && afterGap === 0, `[phone/touch] a tap between messages closes the bar for good (a repaint does not bring it back)`, JSON.stringify(Object.assign({ afterGap }, gap)));
@@ -1002,12 +1004,20 @@ const now = () => new Date().toISOString();
       // keeps it pinned, rather than closing it under the person's thumb.
       const afterRepaint = await phonePage.evaluate(() => new Promise((res) => {
         const room = document.getElementById('pj-room'); const keep = room.scrollTop;
-        room.innerHTML = room.innerHTML.replace(/ rxn-show/g, '');   // what paintRoom's rewrite does to the class
+        room.innerHTML = room.innerHTML.replace(/ rxn-(show|below)/g, '');   // what paintRoom's rewrite does to the class
         room.scrollTop = keep;
         setTimeout(() => { const q = document.querySelector('#pj-room .msg.rxn-show .rxn-quick');
           res({ shown: document.querySelectorAll('#pj-room .msg.rxn-show').length, pinned: !!(q && q.style.position === 'fixed') }); }, 100);
       }));
       chk(afterRepaint.shown === 1 && afterRepaint.pinned, `[phone/touch] a repaint keeps a pinned bar pinned while its post is on screen`, JSON.stringify(afterRepaint));
+      // Scrolling INSIDE the full emoji picker is not the thread moving: a pinned bar stays.
+      const pickerScroll = await phonePage.evaluate(() => new Promise((res) => {
+        if (typeof rxnPickerEl !== 'function') { res({ error: 'rxnPickerEl missing' }); return; }
+        const pinnedBefore = !!document.querySelector('#pj-room .rxn-quick[style*="fixed"]');
+        const pk = rxnPickerEl(); pk.dispatchEvent(new Event('scroll'));   // a scroll whose target is the picker
+        setTimeout(() => res({ pinnedBefore, pinnedAfter: !!document.querySelector('#pj-room .rxn-quick[style*="fixed"]') }), 50);
+      }));
+      chk(!pickerScroll.error && pickerScroll.pinnedBefore && pickerScroll.pinnedAfter, `[phone/touch] scrolling inside the emoji picker keeps a pinned bar`, JSON.stringify(pickerScroll));
       // A pinned bar does not follow the thread, so scrolling closes it (like the fixed picker).
       const afterScroll = await phonePage.evaluate(() => new Promise((res) => {
         const room = document.getElementById('pj-room'); room.scrollTop += 120;

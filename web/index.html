@@ -5855,7 +5855,8 @@ body:not(.consolidated) .pjmidhead:has(.pjhead) .tsearch:focus-within { flex-bas
      z 2, and the open row must stay under it (pinned by web.room-phone-718.test.js). */
   #pj-room .msg.rxn-show .msg-b { z-index: 1; }
   /* Outside its bubble it lies over another message: its own ground, so the emoji read. */
-  #pj-room .msg.rxn-show .rxn-quick { background: var(--k-surface); border: 1px solid var(--k-rule);
+  #pj-room .msg.rxn-still .rxn-quick { transition: none; }
+  #pj-room .msg.rxn-show .rxn-quick, #pj-room .rxn-quick:focus-within { background: var(--k-surface); border: 1px solid var(--k-rule);
     border-radius: 100px; padding: 2px 4px; box-shadow: 0 2px 8px rgba(0,0,0,.12); }
   #pj-room .msg:not(.you) .rxn-quick { right: auto; left: 0; }
   /* A tap on a message is a gesture now: no grey iOS flash over the whole thread. Links and
@@ -5868,8 +5869,9 @@ body:not(.consolidated) .pjmidhead:has(.pjhead) .tsearch:focus-within { flex-bas
      (pinned equal by web.room-phone-718.test.js). */
   #pj-post { font-size: 16px; }
   .pjmid #pj-post-mirror .pj-mirror-in { font-size: 16px; }
-  /* The same zoom hits every field on these pages: the room's search and its who picker,
-     and the projects list's sort. */
+  /* The same zoom hits the room's other fields, its search and its who picker, and the
+     projects list's sort. (The Tasks column's and add-member's fields are not this change's:
+     raised separately.) */
   #pj-room-search, #pj-thread-who, #pj-list-view .sortctl select { font-size: 16px; }
   #pj-room .rxn-pick, #pj-room .rxn-more { min-width: 36px; min-height: 36px; }
   /* A reaction already on a post is a target too, on any touchscreen (a phone turned
@@ -46483,7 +46485,7 @@ function pjRxnResetRow(m) {
 function pjRxnPlace(row, fromTap) {
   row.classList.remove('rxn-below');
   const q = row.querySelector('.rxn-quick'); const room = document.getElementById('pj-room');
-  if (!q || !room) return;
+  if (!q || !room) { pjRxnClose(); return; }   // nothing to place: do not leave a lifted, empty row
   q.removeAttribute('style');
   const band = pjRxnVisibleBand(room);
   const R = row.getBoundingClientRect();
@@ -46492,9 +46494,9 @@ function pjRxnPlace(row, fromTap) {
   // Also when nothing of the thread is showing (a very short window, header and composer
   // taking the rest): with no place to put the bar, close it, tap or not.
   if (band.bottom <= band.top || R.bottom <= band.top || R.top >= band.bottom) { pjRxnClose(); return; }
-  if (q.getBoundingClientRect().top >= band.top) return;           // above the message: fits
+  if (q.getBoundingClientRect().top >= band.top) { RXN_PINNED = false; return; }           // above the message: fits
   row.classList.add('rxn-below');
-  if (q.getBoundingClientRect().bottom <= band.bottom) return;      // below it: fits
+  if (q.getBoundingClientRect().bottom <= band.bottom) { RXN_PINNED = false; return; }      // below it: fits
   row.classList.remove('rxn-below');
   if (!fromTap) { pjRxnClose(); return; }
   RXN_PINNED = true;
@@ -46555,14 +46557,19 @@ if (window.MutationObserver) {
     const box = room && [...room.querySelectorAll('.rxns[data-post]')].find((b) => b.getAttribute('data-post') === RXN_SHOW_POST);
     const row = box && box.closest('.msg');
     // A bar a tap pinned stays pinned (no scroll has happened, or it would be closed): may re-pin.
-    if (row) { if (!row.classList.contains('rxn-show')) { row.classList.add('rxn-show'); pjRxnPlace(row, RXN_PINNED); } }
+    // rxn-still: no fade-in when a repaint puts the same bar back (it was already showing).
+    if (row) { if (!row.classList.contains('rxn-show')) { row.classList.add('rxn-still', 'rxn-show'); pjRxnPlace(row, RXN_PINNED); requestAnimationFrame(() => requestAnimationFrame(() => row.classList.remove('rxn-still'))); } }
     else { RXN_SHOW_POST = null; RXN_SHOW_PID = null; }   // the post is gone from view
   }).observe(document.getElementById('pj-room'), { childList: true, subtree: true });
 }
 /* A PINNED bar (position fixed) does not follow the thread when anything scrolls, the same as
    the fixed emoji picker (#2834 below): any scroll or resize closes it. */
 function pjRxnPinned() { return !!document.querySelector('#pj-room .rxn-quick[style*="fixed"]'); }
-document.addEventListener('scroll', () => { if (RXN_SHOW_POST && pjRxnPinned()) pjRxnClose(); }, true);
+document.addEventListener('scroll', (e) => {
+  // Scrolling the full emoji picker's own list is not the thread moving (#2834's same guard).
+  if (e.target && e.target.nodeType === 1 && e.target.closest && e.target.closest('.rxn-picker')) return;
+  if (RXN_SHOW_POST && pjRxnPinned()) pjRxnClose();
+}, true);
 window.addEventListener('resize', () => { if (RXN_SHOW_POST && pjRxnPinned()) pjRxnClose(); });
 // iOS reports the keyboard and pinch zoom on the visual viewport, not as a window resize.
 if (window.visualViewport) {

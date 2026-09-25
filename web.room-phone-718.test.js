@@ -17,6 +17,8 @@ test('on a phone the conversation comes first IN THE DOM, never by CSS order (#1
   assert.match(phone, /#pj-room\.thread \{/, 'the phone block was found (an empty block would make the next line vacuous)');
   // No CSS order on either column, in any rule anywhere on the page.
   assert.doesNotMatch(html, /\.pj(mid|split)\b[^{}]*\{[^}]*\border\s*:/);
+  // Grid placement splits reading order the same way; none on either column at phone width.
+  assert.doesNotMatch(phone, /\.pj(mid|split)\b[^{}]*\{[^}]*\bgrid-(row|column|area)\s*:/);
   assert.match(html, /function pjPhoneOrder\(\) \{/);
   // The Members/Files column is what moves. The conversation column holds the composer, and
   // moving it would blur the composer (iOS does not restore the keyboard for a scripted focus).
@@ -63,7 +65,8 @@ test('on a touchscreen only a tap (or focus) opens the room reaction bar, never 
 
 test('the tap listener is registered before the data-open-agent one, which must stay last', () => {
   const tap = html.indexOf("if (e.target.closest('.rxn-pick, .rxn')) { pjRxnClose(); return; }");
-  const last = html.indexOf('Keep this one last among the room\'s click listeners');
+  // The data-open-agent listener itself (its code, not the comment above it).
+  const last = html.indexOf("const t = e.target && e.target.closest ? e.target.closest('[data-open-agent]') : null;");
   assert.ok(tap > 0 && last > 0 && tap < last, 'tap listener at ' + tap + ', last listener at ' + last);
 });
 
