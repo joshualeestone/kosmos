@@ -1,4 +1,4 @@
-// Browser-check-surface: d-dmthread msg msg-b msg-bd msg-av att att-name mdtablewrap mdtable
+// Browser-check-surface: d-dmthread msg-b msg-bd msg-av att-name mdtablewrap mdtable
 'use strict';
 
 /**
@@ -8,10 +8,14 @@
  *     a message carrying attachment cards sat 112px off the left of an iPhone SE: the file
  *     name is one unbreakable line, so it set the bubble's minimum width. The same arm runs at
  *     900 and 1280 with a 120-character file name, because the cause does not depend on width;
- *   - every attachment card sits inside its own bubble, pictures included, and its file name
- *     stays on one line (the clamp that keeps the now-breakable name from wrapping);
+ *   - every attachment card sits inside its own bubble, pictures included (a companion invariant:
+ *     on the old code the bubble grew with the card, so it is the row assertion above that catches
+ *     the defect), and its file name stays on one line (the clamp that keeps the now-breakable
+ *     name from wrapping);
  *   - no table cell is narrower than its longest word (the thread's `overflow-wrap: anywhere`
- *     crushed them to a letter per line), and the table's scroll box stays inside its bubble;
+ *     crushed them to a letter per line), and the table's scroll box stays inside its bubble. The
+ *     "ID" column's body words are wider than its header, so the cell check fails on the
+ *     overflow-wrap rule alone; with short body words the headers' nowrap would mask its removal;
  *   - neither the page nor the thread's own scroll box scrolls sideways;
  *   - on a phone the gutter opposite each avatar equals the avatar plus its gap (#3340), measured;
  *   - the bubble tail's ground mask never reaches the avatar (it paints the thread ground over it);
@@ -42,15 +46,15 @@ const at = (i) => new Date(Date.now() - (60 - i) * 60e3).toISOString();
 const FX = {
   messages: [
     { from: 'april', at: at(0), text: 'ready when you are.' },
-    { from: 'april', at: at(1), text: 'Results by size:\n\n| Device | Width | Height | Composer visible |\n|---|---|---|---|\n| iPhone SE | 375 | 667 | yes |\n| Pro Max | 430 | 932 | yes |' },
+    { from: 'april', at: at(1), text: 'Results by size:\n\n| Device | Width | Height | Composer visible | ID |\n|---|---|---|---|---|\n| iPhone SE | 375 | 667 | yes | STAGINGBUILD20260924A |\n| Pro Max | 430 | 932 | yes | RELEASEBUILD20260924B |' },
     { at: at(2), text: 'here are the screenshots', delivery: { state: 'placed' }, attachments: [
       { url: '/api/f/1', name: 'IMG_2041.png', kind: 'image', type: 'image/png', size: 845000, preview: '/api/f/1/preview' },
       { url: '/api/f/2', name: 'quarterly-board-report-final-v3-really-final.pdf', kind: 'pdf', type: 'application/pdf', size: 2300000, preview: '/api/f/2/preview' } ] },
     { from: 'april', at: at(3), text: 'got them', attachments: [
       { url: '/api/f/3', name: 'annotated.png', kind: 'image', type: 'image/png', size: 120000 } ] },
-    { at: at(5), text: 'my numbers:\n\n| Device | Width | Height | Engine | Theme | Composer | Keyboard |\n|---|---|---|---|---|---|---|\n| iPhone SE | 375 | 667 | WebKit | dark | visible | covered |', delivery: { state: 'placed' } },
     { at: at(4), text: 'and the export', delivery: { state: 'placed' }, attachments: [
       { url: '/api/f/4', name: 'board-export-' + 'x'.repeat(103) + '.csv', kind: 'other', type: 'text/csv', size: 4096 } ] },
+    { at: at(5), text: 'my numbers:\n\n| Device | Width | Height | Engine | Theme | Composer | Keyboard |\n|---|---|---|---|---|---|---|\n| iPhone SE | 375 | 667 | WebKit | dark | visible | covered |', delivery: { state: 'placed' } },
   ],
   olderCount: 0, historyBecause: null, historyUnfilable: false,
   presence: 'on', presenceBecause: null, asking: false, question: null, questionBecause: null, options: null,
