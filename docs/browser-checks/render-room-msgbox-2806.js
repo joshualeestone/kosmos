@@ -43,9 +43,11 @@
  *   NODE_PATH="$HOME/work/pw-runtime/node_modules" node docs/browser-checks/render-room-msgbox-2806.js
  *
  * HEADED by default (like its siblings). HEADED=0 on a machine with no console.
+ * The #2518 surface gate reads the line-leading annotation below.
  * ENGINES=chromium,webkit runs every arm in each (WebKit is Playwright's build, not Safari), the
  * same switch as render-dm-phone-718. Chromium alone by default, which is what the gate runs.
  */
+// Browser-check-surface: pj-room rxn-quick rxn-show rxn-below pj-list-view sortctl viewtoggle nt-modal am-modal pj-post-mirror pjmidhead pj-add-member
 const path = require('node:path');
 const playwright = require('playwright');
 /* ENGINES=chromium,webkit (the render-dm-phone-718 switch). An unknown name is refused rather
@@ -804,15 +806,17 @@ const now = () => new Date().toISOString();
         const settings = document.getElementById('panel-settings'); const projects = document.getElementById('panel-projects');
         if (!settings || !projects) return { error: 'panels missing' };
         const home = { parent: settings.parentElement, next: settings.nextSibling };
+        const fields = [...settings.querySelectorAll('input, select, textarea')].filter((el) => !(el.tagName === 'INPUT' && skipTypes.includes((el.type || '').toLowerCase())));
+        // Each field's size AT HOME, then moved inside the projects panel: they must be EQUAL (our
+        // rule does not reach Settings), whatever Settings' own size is (it may fix its zoom itself).
+        const atHome = fields.map((el) => getComputedStyle(el).fontSize);
         projects.appendChild(settings);
-        const f = [...settings.querySelectorAll('input, select, textarea')].filter((el) => !(el.tagName === 'INPUT' && skipTypes.includes((el.type || '').toLowerCase())));
-        const at16 = f.filter((el) => parseFloat(getComputedStyle(el).fontSize) >= 16).map((el) => el.id || el.className);
-        const tk = settings.querySelector('.tk-inp');
-        const res = { fields: f.length, at16, tkInp: tk ? parseFloat(getComputedStyle(tk).fontSize) : null, inside: projects.contains(settings) };
+        const changed = fields.filter((el, index) => getComputedStyle(el).fontSize !== atHome[index]).map((el) => el.id || el.className);
+        const res = { fields: fields.length, changed, inside: projects.contains(settings) };
         home.parent.insertBefore(settings, home.next);
         return res;
       }, FIELD_SKIP);
-      chk(!settingsIn.error && settingsIn.inside && settingsIn.fields >= 3 && settingsIn.at16.length === 0 && settingsIn.tkInp !== null && settingsIn.tkInp < 16,
+      chk(!settingsIn.error && settingsIn.inside && settingsIn.fields >= 3 && settingsIn.changed.length === 0,
         `[touch, one-screen layout] Settings moved inside the projects panel keeps its own field sizes`, JSON.stringify(settingsIn));
       // And at 16px nothing in those dialogs runs off the side at 375: each dialog shown, its
       // card (.rm-box) and every field and button in it inside the screen.
@@ -1172,6 +1176,17 @@ const now = () => new Date().toISOString();
           res({ shown: document.querySelectorAll('#pj-room .msg.rxn-show').length, pinned: !!(q && q.style.position === 'fixed') }); }, 100);
       }));
       chk(afterRepaint.shown === 1 && afterRepaint.pinned, `[phone/touch] a repaint keeps a pinned bar pinned while its post is on screen`, JSON.stringify(afterRepaint));
+      // A viewport change (the keyboard closing when the pinning tap left the composer, a turn)
+      // RE-PLACES a pinned bar instead of closing it: still open, still pinned, still on screen.
+      const afterResize = await phonePage.evaluate(() => new Promise((res) => {
+        const pinnedBefore = RXN_PINNED && !!document.querySelector('#pj-room .rxn-quick[style*="fixed"]');
+        window.dispatchEvent(new Event('resize'));
+        if (window.visualViewport) window.visualViewport.dispatchEvent(new Event('resize'));
+        setTimeout(() => { const bar = document.querySelector('#pj-room .msg.rxn-show .rxn-quick'); const rect = bar && bar.getBoundingClientRect();
+          res({ pinnedBefore, shown: document.querySelectorAll('#pj-room .msg.rxn-show').length, pinned: !!(bar && bar.style.position === 'fixed'),
+            onScreen: !!(rect && rect.top >= 0 && rect.bottom <= (window.visualViewport ? window.visualViewport.height : innerHeight)) }); }, 100);
+      }));
+      chk(afterResize.pinnedBefore && afterResize.shown === 1 && afterResize.pinned && afterResize.onScreen, `[phone/touch] a viewport change re-places a pinned bar instead of closing it`, JSON.stringify(afterResize));
       // Scrolling INSIDE the full emoji picker is not the thread moving: a pinned bar stays.
       const pickerScroll = await phonePage.evaluate(() => new Promise((res) => {
         if (typeof rxnPickerEl !== 'function') { res({ error: 'rxnPickerEl missing' }); return; }
@@ -1207,7 +1222,7 @@ const now = () => new Date().toISOString();
     // projects list's top row (its empty state: this page has no server, so no project cards), must
     // not run past the screen. The link card's own width is covered by the unit pin (.lpv = .att). Guards what the lifted
     // arms cannot (paddings, the column, the 16px fields in place).
-    for (const [phoneWidth, phoneHeight] of [[375, 667], [393, 852], [430, 932], [412, 915]]) {
+    for (const [phoneWidth, phoneHeight] of [[375, 667], [393, 852], [430, 932], [412, 915], [360, 780]]) {
       for (const theme of ['light', 'dark']) {
         const sizePage = await browser.newPage({ viewport: { width: phoneWidth, height: phoneHeight }, colorScheme: theme, hasTouch: true, isMobile: true });
         try {
@@ -1218,7 +1233,8 @@ const now = () => new Date().toISOString();
           await sizePage.goto(PAGE);
           const fit = await sizePage.evaluate((ts) => {
             const fr = document.getElementById('firstrun'); if (fr) fr.remove();
-            const views = ['#pj-one-view', '#pj-list-view'].map((selector) => document.querySelector(selector));
+            // All six project views (every one the 16px rule reaches), one at a time.
+            const views = ['#pj-one-view', '#pj-list-view', '#pj-task-view', '#pj-docs-view', '#pj-settings-view', '#pj-add-view'].map((selector) => document.querySelector(selector));
             if (views.some((view) => !view)) return { error: 'a view is missing' };
             // An ancestor clips the page, so it never SCROLLS sideways even when content is too
             // wide (a 520px column passed that test: the control showed it). What matters is content

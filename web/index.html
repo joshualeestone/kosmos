@@ -2046,12 +2046,12 @@ body.filter-noproj #orgview .onode:not([data-noproj]) { opacity: .26; }
 }
 /* #718 mobile: at a phone's width the projects row's two cells (Add Project, and the sort
    beside the view toggle) were each their full natural width, a little more than an iPhone SE
-   has (measured with Raiden's harness; numbers in the plan). Now Add Project takes its narrowest width (two lines on
-   every phone) and the sort and toggle may wrap, so nothing leaves
-   the row, nothing overlaps and the sort's label is never cut. Below 375 (a 320 phone or a
-   folded one) the sort at its full width can still overflow; outside the four target sizes.
-   30rem is the room's phone width (PJ_PHONE_MQ); pinned equal by
-   web.room-phone-718.test.js, so "a phone" means one thing across the project pages. */
+   has (measured with Raiden's harness; numbers in the plan). Now Add Project takes its narrowest
+   width (two lines on every phone) and the sort and toggle may wrap, so nothing leaves the row,
+   nothing overlaps and the sort's label is never cut. Measured down to 360 wide; narrower (320,
+   a folded phone) is not. 30rem is the room's phone width (PJ_PHONE_MQ); pinned equal by
+   web.room-phone-718.test.js, so "a phone" means one thing across the PROJECT pages. (The Direct
+   Message's phone rules use 40rem, its owner's; between 480 and 640 the two differ.) */
 @media (max-width: 30rem) {
   /* Add Project at its narrowest on every phone (two lines). */
   #pj-list-view .statsrow { grid-template-columns: min-content minmax(0, 1fr); }
@@ -46597,11 +46597,21 @@ document.addEventListener('scroll', (event) => {
   if (target && target.nodeType === 1 && target.closest && target.closest('.rxn-picker')) return;
   if (RXN_PINNED) pjRxnClose();
 }, true);
-window.addEventListener('resize', () => { if (RXN_SHOW_POST && RXN_PINNED) pjRxnClose(); });
+/* A viewport change (a turn, the keyboard closing when a tap leaves the composer, pinch zoom)
+   re-places a pinned bar rather than closing it: the tap that pinned it often closes the
+   keyboard itself. pjRxnPlace closes it only if its post is no longer on screen. */
+function pjRxnReplacePinned() {
+  if (!RXN_SHOW_POST || !RXN_PINNED) return;
+  const room = document.getElementById('pj-room');
+  const box = room && [...room.querySelectorAll('.rxns[data-post]')].find((rxns) => rxns.getAttribute('data-post') === RXN_SHOW_POST);
+  const row = box && box.closest('.msg');
+  if (row) pjRxnPlace(row, true); else pjRxnClose();
+}
+window.addEventListener('resize', pjRxnReplacePinned);
 // iOS reports the keyboard and pinch zoom on the visual viewport, not as a window resize.
 if (window.visualViewport) {
-  window.visualViewport.addEventListener('resize', () => { if (RXN_SHOW_POST && RXN_PINNED) pjRxnClose(); });
-  window.visualViewport.addEventListener('scroll', () => { if (RXN_SHOW_POST && RXN_PINNED) pjRxnClose(); });
+  window.visualViewport.addEventListener('resize', pjRxnReplacePinned);
+  window.visualViewport.addEventListener('scroll', pjRxnReplacePinned);
 }
 /* A tap anywhere outside the room closes an open bar too, except inside the shared emoji
    picker (it lives in body, outside the room): the bar it was opened from stays with it.
