@@ -72,7 +72,10 @@ if (args[0] === 'signin') {
   if (verb === 'verify') {
     const code = flag('--code');
     if (code === '000000') { process.stderr.write('the coordinator said no (401): that code is not right\\n'); process.exit(1); }
-    if (code === '222222') { console.log(JSON.stringify({ stage: 'second', challenge: 'ch_fake_123' })); process.exit(0); }
+    if (code === '222222') { console.log(JSON.stringify({ stage: 'second', challenge: 'ch_fake_123', second: 'totp', sent_to: null })); process.exit(0); }
+    // #3796: an sms account, and one whose answer carries shapes the page must never render.
+    if (code === '242424') { console.log(JSON.stringify({ stage: 'second', challenge: 'ch_fake_124', second: 'sms', sent_to: '\u2022\u2022\u2022 4321' })); process.exit(0); }
+    if (code === '252525') { console.log(JSON.stringify({ stage: 'second', challenge: 'ch_fake_125', second: 'carrier-pigeon', sent_to: '<b>555-0100</b>' })); process.exit(0); }
     if (code === '333333') { console.log(JSON.stringify({ stage: 'enrol_second_factor', enrol: true, token: 'kst1.enrol-fake', sms_available: true, why_authenticator: 'stronger than sms' })); process.exit(0); }
     if (code === '777777') { console.log(JSON.stringify({ stage: 'enrol_second_factor', enrol: true, sms_available: true })); process.exit(0); }  // enrol stage with NO token -> engine guard
     if (code === '888888') { console.log(JSON.stringify({ stage: 'enrol_second_factor', enrol: true, token: 'kst1.enrol-nomaterial', sms_available: true, why_authenticator: 'why' })); process.exit(0); }  // holds a token whose enrol answer omits the material -> engine fail-closed
@@ -669,6 +672,25 @@ test('signin cancel drops the held session, challenge and enrol token', async ()
   await remote.signinVerify('her@example.com', '111111');
   const ok = await remote.signinRegister('hers');
   assert.equal(ok.ok, true, 'control: ' + ok.because);
+});
+
+/* #3796 addendum 3 (Josh's live test: an authenticator-only account was told to wait for a text): the
+   second stage names the account's ONE factor, passed through only in the shapes the coordinator sends. */
+test('signin verify names the account\'s second factor: totp, sms with its masked tail, and nothing else', async () => {
+  await remote.signinStart('her@example.com');
+  const totp = await remote.signinVerify('her@example.com', '222222');
+  assert.equal(totp.data.second_kind, 'totp');
+  assert.equal(totp.data.sent_to, '', 'a totp account has no phone to name');
+  await remote.signinStart('her@example.com');
+  const sms = await remote.signinVerify('her@example.com', '242424');
+  assert.equal(sms.data.second_kind, 'sms');
+  assert.equal(sms.data.sent_to, '\u2022\u2022\u2022 4321');
+  await remote.signinStart('her@example.com');
+  const odd = await remote.signinVerify('her@example.com', '252525');
+  assert.equal(odd.ok, true, odd.because);
+  assert.equal(odd.data.second_kind, '', 'an unknown kind was passed through to the page');
+  assert.equal(odd.data.sent_to, '', 'an unmasked or marked-up sent_to was passed through to the page');
+  assert.ok(!JSON.stringify(odd.data).includes('ch_fake'), 'the challenge id leaked');
 });
 
 test('signin verify surfaces the phone-challenge and enrol stages without leaking the challenge id', async () => {

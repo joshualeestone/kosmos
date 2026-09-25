@@ -15288,14 +15288,21 @@ window.kosmosMeasureScrollbarWidth();
            second factor. Josh, 2026-08-29: the second step ALWAYS happens; it is
            true two-factor, not a from-a-phone convenience. -->
       <div id="plus-si-second" hidden>
-        <p class="plus-si-lead">Now the code from your authenticator app, or the one we texted you.</p>
+        <!-- #3796 addendum 3 (Josh's live test: authenticator-only, told to wait for a text): the
+             step names the account's ONE factor, from the sign-in answer (plusSiSecondWords). -->
+        <p class="plus-si-lead" id="plus-si-second-lead">Enter the 6-digit code from your second step.</p>
         <div class="field">
-          <label class="flabel plus-si-sr" for="plus-si-second-in">The code from your phone</label>
+          <label class="flabel plus-si-sr" for="plus-si-second-in" id="plus-si-second-label">The code from your second step</label>
           <input class="tk-inp plus-si-otp" id="plus-si-second-in" type="text" inputmode="numeric" autocomplete="one-time-code" maxlength="12" placeholder="000000">
         </div>
         <div class="frow">
           <button class="btn uprime" type="button" id="plus-si-second-go">Verify</button>
         </div>
+        <!-- An account has one second factor, so there is no other one to offer. A lost factor is
+             reset from a computer already connected to Kosmos+ (#733's "I lost my phone"); there is
+             no support path or server unlock by design (docs/second-factor.md in kosmos-relay). -->
+        <p class="plus-si-small"><a id="plus-si-second-help" class="plus-signin-link" href="#" aria-expanded="false" aria-controls="plus-si-second-recover">Can't get a code?</a></p>
+        <p class="plus-si-small" id="plus-si-second-recover" hidden>Open Kosmos on a computer that is already connected to Kosmos+, go to Settings, Kosmos Plus, and choose I lost my phone. That resets this step, and nobody else can.</p>
       </div>
 
       <!-- Set up a second factor (signin-enrol): reached only when the account has
@@ -36015,12 +36022,26 @@ async function plusSiPostRaw(path, body) {
       : 'this computer could not reach the sign-in service' };
   } finally { clearTimeout(timer); }
 }
+/* #3796 addendum 3: the second step's words name the account's ONE factor. The kind comes from
+   the sign-in answer; an unknown or missing kind gets words true of either, never a guess. */
+function plusSiSecondWords(kind, sentTo) {
+  if (kind === 'totp') return { lead: 'Enter the 6-digit code from your authenticator app.', label: 'The code from your authenticator app' };
+  if (kind === 'sms') return { lead: sentTo ? ('Enter the code we texted to ' + sentTo + '.') : 'Enter the code we texted to your phone.', label: 'The code we texted you' };
+  return { lead: 'Enter the 6-digit code from your second step.', label: 'The code from your second step' };
+}
 /* Route the stage the engine returned to the step to show. `session` means signed in
    with the second factor satisfied, so the last thing left is to name the computer. */
 function plusSiStage(stage, data) {
   data = data || {};
   if (stage === 'code_sent') { plusSiShow('plus-si-code'); document.getElementById('plus-si-code-in').focus(); return; }
-  if (stage === 'second') { plusSiShow('plus-si-second'); document.getElementById('plus-si-second-in').focus(); return; }
+  if (stage === 'second') {
+    const w = plusSiSecondWords(data.second_kind, data.sent_to);
+    document.getElementById('plus-si-second-lead').textContent = w.lead;
+    document.getElementById('plus-si-second-label').textContent = w.label;
+    const rec = document.getElementById('plus-si-second-recover'); if (rec) rec.hidden = true;
+    const help = document.getElementById('plus-si-second-help'); if (help) help.setAttribute('aria-expanded', 'false');
+    plusSiShow('plus-si-second'); document.getElementById('plus-si-second-in').focus(); return;
+  }
   if (stage === 'enrol_second_factor') {
     document.getElementById('plus-si-enrol-why').textContent = data.why_authenticator
       || 'Set up a second step so only you can sign in, even if someone else has your email code.';
@@ -36084,6 +36105,13 @@ function plusSiEnter(e) {
 }
 document.getElementById('plus-signin-top').addEventListener('click', plusSiEnter);
 document.getElementById('plus-signin-bottom').addEventListener('click', plusSiEnter);
+document.getElementById('plus-si-second-help').addEventListener('click', (e) => {
+  e.preventDefault();
+  const rec = document.getElementById('plus-si-second-recover');
+  if (!rec) return;
+  rec.hidden = !rec.hidden;
+  e.currentTarget.setAttribute('aria-expanded', rec.hidden ? 'false' : 'true');
+});
 document.getElementById('plus-si-cancel').addEventListener('click', (e) => {
   e.preventDefault();
   PLUS_SIGNIN_ACTIVE = false;

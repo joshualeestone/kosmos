@@ -1,4 +1,4 @@
-// Browser-check-surface: plus-state1 plus-state2 plus-si-cancel plus-si-code-resend plus-si-code-to plus-si-email plus-si-code plus-si-second plus-si-enrol plus-si-enrol-sms plus-si-enrol-why plus-si-enrol-confirm plus-si-secret plus-si-register plus-flow plus-status
+// Browser-check-surface: plus-state1 plus-state2 plus-si-second-lead plus-si-second-help plus-si-cancel plus-si-code-resend plus-si-code-to plus-si-email plus-si-code plus-si-second plus-si-enrol plus-si-enrol-sms plus-si-enrol-why plus-si-enrol-confirm plus-si-secret plus-si-register plus-flow plus-status
 'use strict';
 /**
  * #3478: the Kosmos+ sign-in links open the IN-APP wizard, not the web.
@@ -53,7 +53,7 @@ const SCENARIOS = {
     label: 'account already has a second factor (email code -> phone code -> name)',
     steps: {
       '/api/remote/signin-start': { ok: true, stage: 'code_sent' },
-      '/api/remote/signin-verify': { ok: true, stage: 'second' },
+      '/api/remote/signin-verify': { ok: true, stage: 'second', second_kind: 'totp', sent_to: '' },   // #3796: Josh's account
       '/api/remote/signin-second': { ok: true, stage: 'session' },
       '/api/remote/signin-register': { ok: true, stage: 'registered', address: 'sunny-otter', name: 'sunny-otter', standing: 'active' },
     },
@@ -266,6 +266,14 @@ const visible = (page, sel) => page.evaluate((s) => {
       if (verifyStage === 'second') {
         await page.waitForSelector('#plus-si-second', { state: 'visible', timeout: 5000 });
         chk(true, `[${key}] verify -> the phone-code step is shown`);
+        // #3796 addendum 3: an authenticator-only account is told about its authenticator, never a text,
+        // and "Can't get a code?" opens the recovery line rather than dead-ending.
+        const lead = (await page.textContent('#plus-si-second-lead')).trim();
+        chk(lead === 'Enter the 6-digit code from your authenticator app.' && !/text/i.test(lead), `[${key}] #3796 the second step names the account's authenticator, not a text`, JSON.stringify(lead));
+        chk(!(await visible(page, '#plus-si-second-recover')), `[${key}] #3796 CONTROL: the recovery line starts hidden`);
+        await page.click('#plus-si-second-help');
+        const rec = (await page.textContent('#plus-si-second-recover')).trim();
+        chk((await visible(page, '#plus-si-second-recover')) && /I lost my phone/.test(rec), `[${key}] #3796 "Can't get a code?" opens the recovery path`, JSON.stringify(rec));
         await page.fill('#plus-si-second-in', '654321');
         await page.click('#plus-si-second-go');
       } else if (verifyStage === 'enrol_second_factor') {

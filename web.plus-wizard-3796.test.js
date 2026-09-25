@@ -51,3 +51,21 @@ test('#3796 the resend is a "Send again" link whose click refuses while held', (
   assert.match(SCRIPT, /getElementById\('plus-si-code-resend'\)\.addEventListener\('click', \(e\) => \{\s*e\.preventDefault\(\);\s*if \(e\.currentTarget\.getAttribute\('aria-disabled'\) === 'true'\) return;/);
   assert.match(HTML, /#plus-state2 \.plus-signin-link\[aria-disabled="true"\] \{ opacity: \.55; pointer-events: none; \}/);
 });
+
+/* #3796 addendum 3 (Josh's live test, authenticator-only, told to wait for a text): the second step
+   names the account's ONE factor. Lifted from the shipped page. */
+test('#3796 the second step names the one factor the account has, and never guesses', () => {
+  const start = SCRIPT.indexOf('function plusSiSecondWords');
+  const end = SCRIPT.indexOf('\n}\n', start) + 3;
+  assert.ok(start > 0 && end > start, 'plusSiSecondWords moved');
+  const w = vm.runInNewContext(SCRIPT.slice(start, end) + '\nplusSiSecondWords');
+  const totp = w('totp', '');
+  assert.match(totp.lead, /authenticator app/);
+  assert.doesNotMatch(totp.lead + totp.label, /text/i, 'an authenticator-only account is told about a text');
+  const sms = w('sms', '\u2022\u2022\u2022 1234');
+  assert.equal(sms.lead, 'Enter the code we texted to \u2022\u2022\u2022 1234.');
+  assert.doesNotMatch(sms.lead + sms.label, /authenticator/i, 'a text-message account is told about an authenticator');
+  const none = w('', '');
+  assert.doesNotMatch(none.lead + none.label, /authenticator|text/i, 'an unknown kind guessed a factor');
+  assert.doesNotMatch(HTML, /Open your authenticator app, or check your phone for a text|or the one we texted you/, 'the either-factor copy is back');
+});

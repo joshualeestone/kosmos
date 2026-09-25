@@ -949,7 +949,14 @@ function absorbSession(data) {
     const challenge = data && typeof data.challenge === 'string' ? data.challenge : '';
     if (!challenge) { signinSession = null; return { ok: false, because: 'Kosmos+ sign-in did not return a phone challenge' }; }
     signinSession = { challenge };
-    return { ok: true, because: null, data: { stage: 'second' } };
+    /* #3796 (Josh's live test): the step must name the account's ONE factor. The coordinator
+       says which (open_challenge: "second" is the account's kind, "sent_to" the masked phone
+       tail for sms); pass exactly those through, and only in the shapes it sends, so the page
+       never renders anything else from here. Absent or unknown, the page falls back to
+       generic words rather than guessing. */
+    const kind = data.second === 'totp' || data.second === 'sms' ? data.second : '';
+    const sentTo = kind === 'sms' && typeof data.sent_to === 'string' && /^\u2022{3}( \d{4})?$/.test(data.sent_to) ? data.sent_to : '';
+    return { ok: true, because: null, data: { stage: 'second', second_kind: kind, sent_to: sentTo } };
   }
   if (stage === 'enrol_second_factor') {
     // The account has no second factor yet and the coordinator requires one.

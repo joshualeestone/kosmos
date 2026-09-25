@@ -6985,6 +6985,10 @@ const server = http.createServer((req, res) => {
           stage: got.data.stage,
           sms_available: got.data.sms_available,
           why_authenticator: got.data.why_authenticator,
+          // #3796: on the second stage, which factor the account has (totp | sms) and, for sms,
+          // the masked tail the code went to, so the step names the one factor it can use.
+          second_kind: got.data.second_kind,
+          sent_to: got.data.sent_to,
         });
       })
       .catch(() => sendJson(res, 400, { error: 'we could not check that code' }));
