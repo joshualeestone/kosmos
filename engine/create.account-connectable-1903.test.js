@@ -260,8 +260,11 @@ test('#3391: a lapsed Grok subscription is refused as an expired sign-in; a rene
     assert.equal(bad.ok, false, 'a lapsed sign-in was accepted for a create');
     assert.match(bad.because, /That Grok sign-in has expired/);
     assert.doesNotMatch(bad.because, /rejected/, 'a subscription has no key to blame');
-    assert.doesNotMatch(bad.because, /Sign in again in Settings/, 'it must not send anyone to a sign-in Kosmos does not have yet');
-    assert.match(bad.because, /add a Grok API key in Settings, AI Models, and choose that account for this agent/, 'it names what works today, including that a key cannot become the default (round 20)');
+    /* #3391 part 2: the row's Sign in again now exists (the reauthDir sign-in), so the
+       sentence names it, and no longer says Kosmos cannot. */
+    assert.match(bad.because, /Sign in again on that account in Settings, AI Models/, 'it names the remedy that now exists');
+    assert.doesNotMatch(bad.because, /cannot sign in/, 'the old "not yet" claim is gone');
+    assert.match(bad.because, /or choose another Grok account for this agent/, 'and the other way out stays');
     write({ refresh_token: 'r' });
     const good = await create.accountConnectable({ provider: 'xai', accountDir: dir });
     assert.equal(good.ok, true, 'CONTROL: a renewable sign-in must pass');

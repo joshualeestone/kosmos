@@ -112,10 +112,13 @@ const GROK_SUB_ROW = {
   memoryShared: true, offerable: true,
   connection: { state: 'connected', badge: 'signed_in_unverified', plan: null, checkedLive: true, because: 'signed in with your Grok subscription', observedAt: null, observedAgeMs: null },
 };
+/* #3391 part 2: a Grok API-KEY row, so the Sign in again arm can see a Grok row that must
+   NOT carry one (a key has no sign-in to redo). */
+const GROK_KEY_ROW = { ...GROK_SUB_ROW, email: null, label: 'work2', dir: '/home/.grok-work2', keyTail: 'gk12', authMode: 'apikey' };
 /* #3391 round 18: a LAPSED and an UNKNOWN Grok subscription. Neither is connected, so the server
    adds no badge and the page's legacy fallback puts connection.because in the VISIBLE pill. Those
-   sentences must be pill-sized and must not promise a sign-in Kosmos cannot start yet. The texts
-   are grokaccounts.subscriptionVerdict's own. */
+   sentences must be pill-sized: the remedy is the row's own Sign in again button (#3391 part 2),
+   not words in the pill. The texts are grokaccounts.subscriptionVerdict's own. */
 const grokSubRow = (email, dir, state, because) => ({
   ...GROK_SUB_ROW, email, label: email, dir,
   connection: { state, plan: null, checkedLive: true, because, observedAt: null, observedAgeMs: null },
@@ -132,6 +135,7 @@ const ACCOUNTS = [
   CLAUDE_APIKEY_ROW,
   OPENAI_APIKEY_ROW,
   GROK_SUB_ROW,
+  GROK_KEY_ROW,
   GROK_SUB_LAPSED,
   GROK_SUB_UNKNOWN,
 ];
@@ -172,6 +176,7 @@ const ACCOUNTS = [
         // reauth (data-openai-reauth); they must never both appear on one row.
         claudeReauth: !!b.querySelector('[data-reauth]'),
         openaiReauth: !!b.querySelector('[data-openai-reauth]'),
+        grokReauth: !!b.querySelector('[data-grok-reauth]'),   // #3391 part 2
         // #3136: the "Check now" affordance is CLAUDE-ONLY (the probe is a real
         // claude -p call). It must appear on every Claude row -- including the
         // api-key one -- and never on an OpenAI row.
@@ -221,15 +226,17 @@ const ACCOUNTS = [
     // the OpenAI api-key row does NOT (Check now is Claude-only).
     { email: 'clkey@example.com', claudeReauth: false, openaiReauth: false, checkNow: true },
     { email: 'API key ending cd34', claudeReauth: false, openaiReauth: false, checkNow: false },
+    // #3391 part 2: a Grok KEY row has no sign-in to redo, so no Grok Sign in again.
+    { email: 'API key ending gk12', claudeReauth: false, openaiReauth: false, grokReauth: false, checkNow: false },
     // #3391: the Grok subscription row. Muted (honesty), no Check now button, and a title that
     // does not point at one; Disconnect / Delete say sign-in, never key.
-    { email: 'grok@example.com', cls: 'acct-unknown', text: /Signed in/, honesty: true, checkNow: false,
+    { email: 'grok@example.com', cls: 'acct-unknown', text: /Signed in/, honesty: true, checkNow: false, grokReauth: true,
       titleText: /confirms itself the next time an agent on it runs/, notTitle: /Check now/,
       disconnectTitle: /sign-in/, notDisconnectTitle: /key/, deleteTitle: /sign-in/, notDeleteTitle: /API key/ },
     // #3391 round 18: the lapsed and unknown Grok sign-ins show their short sentence, never green,
-    // and never a promise to sign in again (Kosmos cannot start that from here yet).
-    { email: 'grok-lapsed@example.com', text: /^Grok sign-in expired$/, honesty: true, notText: /sign in again|please/i, checkNow: false },
-    { email: 'grok-unk@example.com', text: /^Could not check the Grok sign-in$/, honesty: true, notText: /sign in again|please/i, checkNow: false },
+    // and keep the pill short (#2568). #3391 part 2: the remedy is the row's Sign in again button.
+    { email: 'grok-lapsed@example.com', text: /^Grok sign-in expired$/, honesty: true, notText: /sign in again|please/i, checkNow: false, grokReauth: true },
+    { email: 'grok-unk@example.com', text: /^Could not check the Grok sign-in$/, honesty: true, notText: /sign in again|please/i, checkNow: false, grokReauth: true },
   ];
   for (const w of want) {
     const got = (r.byEmail || {})[w.email];
@@ -246,6 +253,11 @@ const ACCOUNTS = [
     }
     if (typeof w.openaiReauth === 'boolean' && got.openaiReauth !== w.openaiReauth) {
       problems.push(`${w.email}: OpenAI reauth button ${got.openaiReauth ? 'present' : 'absent'}, expected ${w.openaiReauth ? 'present' : 'absent'}`);
+    }
+    /* #3391 part 2: checked on EVERY row, so it is also a guard that no Claude, OpenAI or
+       key row grows a Grok sign-in again. */
+    if (got.grokReauth !== (w.grokReauth === true)) {
+      problems.push(`${w.email}: Grok sign-in again button ${got.grokReauth ? 'present' : 'absent'}, expected ${w.grokReauth ? 'present' : 'absent'}`);
     }
     if (w.notTitle && w.notTitle.test(got.title || '')) problems.push(`${w.email}: the title points at something this row does not have (${w.notTitle}); got "${got.title}"`);
     if (w.disconnectTitle && !w.disconnectTitle.test(got.disconnectTitle || '')) problems.push(`${w.email}: Disconnect title "${got.disconnectTitle}" does not match ${w.disconnectTitle}`);

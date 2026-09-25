@@ -2,8 +2,9 @@
 /**
  * kosmos#3658 (Josh, 2026-09-24 17:46): on first run's "Choose a model", Gemini and Grok
  * connect right there, with the same gold Connect as Claude and GPT, instead of an
- * "After setup" pill and a pointer to Settings. API key only for now (the subscription
- * paths wait on #3391 and #3568). HERMETIC (file://, fetch stubbed). Asserts:
+ * "After setup" pill and a pointer to Settings. This check covers the API key path; Grok's
+ * subscription sign-in in the same box is render-grok-subscription-3391.js's. HERMETIC
+ * (file://, fetch stubbed). Asserts:
  *   - one uninterrupted list, Claude, GPT, Gemini, Grok first, no tier heading, no
  *     "After setup", no "connect later in Settings" line;
  *   - Connect opens the shared key box for that provider (heading, Get a key link,
@@ -109,9 +110,10 @@ const chk = (ok, label, extra) => {
     await new Promise((r) => setTimeout(r, 120));
     return { open: !document.getElementById('fr-apikey-flow').hidden, head: document.getElementById('fr-apikey-t').textContent,
       href: document.getElementById('fr-apikey-getkey').getAttribute('href'),
-      expanded: document.getElementById('fr-gemini-connect').getAttribute('aria-expanded') };
+      expanded: document.getElementById('fr-gemini-connect').getAttribute('aria-expanded'),
+      sub: !document.getElementById('fr-grok-sub').hidden };   // #3391 part 2: Grok's sign-in is Grok's only
   });
-  chk(g.open && /Google API key for Gemini/.test(g.head) && /aistudio\.google\.com/.test(g.href) && g.expanded === 'true',
+  chk(g.open && /Google API key for Gemini/.test(g.head) && /aistudio\.google\.com/.test(g.href) && g.expanded === 'true' && !g.sub,
     'with the runner present, Gemini\'s Connect opens the key box for Gemini', JSON.stringify(g));
 
   const k = await q(async () => {
@@ -120,9 +122,11 @@ const chk = (ok, label, extra) => {
     await new Promise((r) => setTimeout(r, 120));
     return { head: document.getElementById('fr-apikey-t').textContent, key: document.getElementById('fr-apikey-key').value,
       gem: document.getElementById('fr-gemini-connect').getAttribute('aria-expanded'),
-      grok: document.getElementById('fr-grok-connect').getAttribute('aria-expanded') };
+      grok: document.getElementById('fr-grok-connect').getAttribute('aria-expanded'),
+      sub: !document.getElementById('fr-grok-sub').hidden };
   });
-  chk(/Paste an xAI API key for Grok/.test(k.head) && k.key === '' && k.gem === 'false' && k.grok === 'true',
+  // #3391 part 2: Grok's box also offers its subscription sign-in, so its heading names both.
+  chk(/paste an xAI API key/.test(k.head) && /Grok subscription/.test(k.head) && k.sub && k.key === '' && k.gem === 'false' && k.grok === 'true',
     'switching to Grok re-labels the box and clears the Gemini key', JSON.stringify(k));
 
   const empty = await q(async () => {
