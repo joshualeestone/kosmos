@@ -37,7 +37,7 @@ test('#3756: the tab view\'s Tasks header is the same label | View All | + row',
   assert.match(rule('body:not(.consolidated) .pj3 #pj-tasks-field { grid-template-columns:'), /minmax\(0, 1fr\) auto auto/,
     'the tab view\'s Tasks header tracks are not label(1fr) | View All | +');
   assert.match(rule('body:not(.consolidated) .pj3 #pj-tasks-field > #pj-newtask {'), /grid-column: 3/, 'the tab view\'s + is not on the far-right track');
-  const va = rule('body:not(.consolidated) .pj3 #pj-tasks-field > #pj-alltasks,');
+  const va = rule('body:not(.consolidated) .pj3 #pj-tasks-field > #pj-alltasks, ');
   assert.match(va, /grid-column: 2; grid-row: 1/, 'the tab view\'s View All is not beside the title');
   assert.match(va, /font-size: var\(--consolidated-link-size\)/, 'the tab view\'s View All is not the consolidated small size');
 });
