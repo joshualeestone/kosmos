@@ -250,44 +250,45 @@ test('WIRING GUARD (#3034/#3660): server.js creates the guide only through ensur
 
 const MODELS = (rows) => ({ listFor: (mod) => rows[mod] || [], connectable: async () => ({ ok: true }), liveDefault: async () => true });
 
-test('findModel: the first LISTED model in provider order, a named account by its dir, a default as null', async () => {
-  const model = async (deps) => (await setupAssistant.findModel(deps)).model;
-  assert.deepEqual(await setupAssistant.findModel(MODELS({})), { model: null, refused: false }, 'nothing listed, nothing connected, nothing refused');
-  assert.deepEqual(await model(MODELS({ './grokaccounts': [{ dir: '/h/.grok', isDefault: true }] })), { provider: 'xai', account: null });
-  assert.deepEqual(await model(MODELS({
-    './grokaccounts': [{ dir: '/h/.grok', isDefault: true }],
+test('listedModels: every listed account in provider order, a named one by its dir, a default as null, with a fingerprint', () => {
+  const none = setupAssistant.listedModels({ listFor: () => [] });
+  assert.deepEqual(none, { rows: [], fingerprint: '' });
+  const got = setupAssistant.listedModels({ listFor: (mod) => ({
+    './grokaccounts': [{ dir: '/h/.grok', isDefault: true, authMode: 'subscription' }],
     './openaiaccounts': [{ dir: '/h/.codex-work', isDefault: false }],
-  })), { provider: 'openai', account: '/h/.codex-work' }, 'provider order is Claude, OpenAI, Gemini, Grok');
-  // A listed but positively dead account is skipped, not used, and reported as refused.
-  const dead = { listFor: (mod) => (mod === './accounts' ? [{ dir: '/h/.claude', isDefault: true }] : mod === './geminiaccounts' ? [{ dir: '/h/.gemini-k', isDefault: false }] : []),
-    connectable: async ({ provider }) => ({ ok: provider !== 'anthropic' }) };
-  assert.deepEqual(await setupAssistant.findModel(dead), { model: { provider: 'google', account: '/h/.gemini-k' }, refused: true });
-  const allDead = { listFor: dead.listFor, connectable: async () => ({ ok: false }) };
-  assert.deepEqual(await setupAssistant.findModel(allDead), { model: null, refused: true });
+  }[mod] || []) });
+  assert.deepEqual(got.rows.map((r) => [r.provider, r.account, r.authMode]),
+    [['openai', '/h/.codex-work', null], ['xai', null, 'subscription']], 'provider order is Claude, OpenAI, Gemini, Grok');
+  assert.equal(got.fingerprint, 'openai:/h/.codex-work|xai:/h/.grok');
 });
 
-test('findModel: a DEFAULT Gemini or Grok key that the provider positively rejects is refused (create\'s gate lets it through)', async () => {
+test('usable: create\'s gate decides; a DEFAULT Gemini or Grok KEY is also live-checked, a subscription or a Claude default is not asked twice', async () => {
   const checked = [];
-  const deps = (alive) => ({
-    listFor: (mod) => (mod === './geminiaccounts' ? [{ dir: '/h/.gemini', isDefault: true }] : mod === './grokaccounts' ? [{ dir: '/h/.grok-k', isDefault: false }] : []),
-    connectable: async () => ({ ok: true }),
-    liveDefault: async (mod, dir) => { checked.push([mod, dir]); return alive; },
-  });
-  assert.deepEqual(await setupAssistant.findModel(deps(false)), { model: { provider: 'xai', account: '/h/.grok-k' }, refused: true },
-    'a dead default Gemini key was used; the next (named) account is taken instead');
-  assert.deepEqual(checked, [['./geminiaccounts', '/h/.gemini']], 'only the DEFAULT row is live-checked here (a named one is create\'s gate)');
-  assert.deepEqual((await setupAssistant.findModel(deps(true))).model, { provider: 'google', account: null }, 'CONTROL: a live default key is used');
-  // A default Grok SUBSCRIPTION is already live-checked by create's gate: not asked twice.
+  const live = (alive) => async (mod, dir) => { checked.push([mod, dir]); return alive; };
+  const row = (provider, mod, dir, isDefault, authMode) => ({ provider, mod, dir, account: isDefault ? null : dir, authMode: authMode || null });
+  const open = async () => ({ ok: true });
+  assert.equal(await setupAssistant.usable(row('anthropic', './accounts', '/h/.claude', true), { connectable: async () => ({ ok: false }), liveDefault: live(true) }), false, 'a dead sign-in (the gate) is not usable');
+  assert.equal(await setupAssistant.usable(row('google', './geminiaccounts', '/h/.gemini', true), { connectable: open, liveDefault: live(false) }), false, 'a rejected default Gemini key was usable');
+  assert.deepEqual(checked, [['./geminiaccounts', '/h/.gemini']]);
+  assert.equal(await setupAssistant.usable(row('google', './geminiaccounts', '/h/.gemini', true), { connectable: open, liveDefault: live(true) }), true, 'CONTROL: a live default key is usable');
   checked.length = 0;
-  const sub = await setupAssistant.findModel({ listFor: (mod) => (mod === './grokaccounts' ? [{ dir: '/h/.grok', isDefault: true, authMode: 'subscription' }] : []),
-    connectable: async () => ({ ok: true }), liveDefault: async (mod, dir) => { checked.push([mod, dir]); return true; } });
-  assert.deepEqual(sub.model, { provider: 'xai', account: null });
-  assert.deepEqual(checked, [], 'a default Grok subscription was live-checked twice');
-  // A Claude or OpenAI default is not re-checked here (create's gate already checks those live).
-  checked.length = 0;
-  await setupAssistant.findModel({ listFor: (mod) => (mod === './accounts' ? [{ dir: '/h/.claude', isDefault: true }] : []),
-    connectable: async () => ({ ok: true }), liveDefault: async (mod, dir) => { checked.push([mod, dir]); return true; } });
-  assert.deepEqual(checked, []);
+  assert.equal(await setupAssistant.usable(row('xai', './grokaccounts', '/h/.grok', true, 'subscription'), { connectable: open, liveDefault: live(false) }), true);
+  assert.equal(await setupAssistant.usable(row('anthropic', './accounts', '/h/.claude', true), { connectable: open, liveDefault: live(false) }), true);
+  assert.equal(await setupAssistant.usable(row('google', './geminiaccounts', '/h/.gemini-k', false), { connectable: open, liveDefault: live(false) }), true, 'a NAMED key is create\'s gate to check, not this one');
+  assert.deepEqual(checked, [], 'a subscription, a Claude default or a named key was live-checked again');
+});
+
+test('ensureGuide: picks the first USABLE model in provider order, skipping a dead one ahead of it', async () => {
+  setupAssistant.resetEnsureGuideForTests();
+  armed(true);
+  try {
+    const calls = [];
+    const deps = { listFor: (mod) => ({ './accounts': [{ dir: '/h/.claude', isDefault: true }], './geminiaccounts': [{ dir: '/h/.gemini-k', isDefault: false }], './grokaccounts': [{ dir: '/h/.grok', isDefault: true }] }[mod] || []),
+      connectable: async ({ provider }) => ({ ok: provider !== 'anthropic' }), liveDefault: async () => true };
+    const r = await setupAssistant.ensureGuide({ createAgent: createdOk(calls), deps });
+    assert.equal(r.seeded, true, r.reason || '');
+    assert.deepEqual(calls.map((c) => [c.provider, c.account]), [['google', '/h/.gemini-k']]);
+  } finally { armed(false); setupAssistant.resetEnsureGuideForTests(); }
 });
 
 function armed(on) {

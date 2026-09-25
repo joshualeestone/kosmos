@@ -15,7 +15,7 @@ bubble hands off to it. Josh's direction behind it: 16:05 (his avatar, speaks as
 - `ensureGuide()` creates the guide when: the switch is on, the install is armed, it was never seeded, and a model is
   connected. It is called at Giddy Up and by a one-minute sweep at board start, which catches every later connect
   path (keys, and sign-ins that finish in the background) without a hook in each route.
-- `findModel()`: the first LISTED account in provider order (Claude, OpenAI, Gemini, Grok) that passes
+- `listedModels()` + `usable()`: the first LISTED account in provider order (Claude, OpenAI, Gemini, Grok) that passes
   create's own `accountConnectable` gate. The guide is created **on that model**, so an OpenAI-only person gets a guide
   that can run. A DEFAULT Gemini or Grok key is also live-checked here, because create's gate lets a default row
   through unchecked (it cannot see the launch key door); a positively rejected key is refused (review round 3).
@@ -46,7 +46,7 @@ Splinter's own: people may not mind an agent appearing right after they connect 
 ## Verification
 - `engine.setup-assistant-3034.test.js`: the GATE pins the switch on; the WIRING GUARD pins no direct seed call in
   server.js, both `ensureGuide` calls behind the switch, and arming only in the first-run route (RED with the sweep's
-  guard removed); `findModel` order, named vs default, dead accounts skipped; `ensureGuide`: unarmed never
+  guard removed); `listedModels` order and fingerprint, `usable` (dead skipped, default Gemini/Grok key live-checked, nothing asked twice); `ensureGuide`: unarmed never
   creates, no model creates nothing, the first model creates on THAT model once, single-flight shared result, back-off
   with a control, switch off does nothing. Each RED under its mutation.
 - `server.guide-on-connect-3660.test.js` (real server as a child, every root sealed): Giddy Up with a connected Claude

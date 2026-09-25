@@ -29,7 +29,7 @@
  *   A saved user name is therefore no longer needed to seed.
  * - MODEL/ACCOUNT = the first connected model, on ITS provider (Claude, OpenAI,
  *   Gemini, Grok, in that order; a named account by its dir, a default as none),
- *   found by findModel() through create's own accountConnectable gate. Josh: runs
+ *   found by listedModels() + usable() through create's own accountConnectable gate. Josh: runs
  *   on the user's own model, quota-burn accepted. An OpenAI-only person gets a
  *   guide on OpenAI (the v1 limitation, Claude only, is gone).
  * - CONNECTED-MODEL GATE (the correctness crux). A created agent launches under
@@ -37,7 +37,7 @@
  *   So nothing is created until a model is connected; before that the bubble runs
  *   on the hosted model (#3660). seedSetupAssistant()'s own `hasConnectedAccount`
  *   check (Claude-only by default) is kept for direct callers; ensureGuide bypasses
- *   it because findModel has already answered it, more strictly.
+ *   it because usable() has already answered it, more strictly.
  * - ROLE = the `setup` role (engine/roles.js, menu:false so it is never in the
  *   normal create flow).
  * - The help-BUBBLE Josh floated is explicitly phase 2 and NOT built here.
@@ -315,20 +315,6 @@ async function usable(row, { connectable = (q) => create.accountConnectable(q), 
   return true;
 }
 
-/**
- * The first connected model a guide could run on: { model: { provider, account } | null,
- * refused } (account null for a provider's default; refused = something was listed and
- * none of it could run). A listed account must pass create's own gate, so a positively
- * dead sign-in is skipped, not used. `listFor`, `connectable`, `liveDefault` are for tests.
- */
-async function findModel(deps = {}) {
-  const { rows } = listedModels(deps);
-  for (const row of rows) {
-    if (await usable(row, deps)) return { model: { provider: row.provider, account: row.account }, refused: rows.indexOf(row) > 0 };
-  }
-  return { model: null, refused: rows.length > 0 };
-}
-
 /* After a try that reached a live check and did not create (a dead sign-in, a rejected
    key, a refused create), the next try waits: 10 minutes, doubling each time, at most a
    day. The check can be a live `claude -p` (a real request on their account) and the
@@ -457,7 +443,8 @@ module.exports = {
   SETUP_ROLE_KEY,
   armPath,
   armSetupAssistant,
-  findModel,
+  listedModels,
+  usable,
   RETRY_AFTER_MS,
   RETRY_MAX_MS,
   ensureGuide,
