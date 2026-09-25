@@ -116,7 +116,11 @@ const KNOWN_NATIVE_SLIDERS = ['d-swarm-max', 'd-swarm-cap', 'create-swarm-max', 
    card and body paint gradients, so ground(), which reads only backgroundColor, would find no
    ground at all; and it would recolour the page for every other field.
    So these are skipped, by name and no wider, from the cross-scheme check (fields) and the
-   button-boundary check (the one secondary button). A NEW #plus-state2 field fails here until
+   button-boundary check (the one secondary button), the two that failed. The per-scheme "same
+   fill" check and the boundary check for the wizard's primary (.uprime) buttons still run on
+   the same wrong ground: they pass today by margin (the fixed #16223e fill and #2f57c4 border
+   are far from both bare grounds), so a pass there says little about the real card, and a
+   future failure there is likely this same artifact before it is a defect. A NEW #plus-state2 field fails here until
    it is added. The enrol flow's white fields (#plus-flow) are measured off their ground too;
    they pass only because white is lighter than both bare grounds, so that pass means little.
    ⚠️ WHAT COVERS THE WIZARD INSTEAD IS NARROWER: render-plus-signin-3478 navigates to the tab
@@ -625,7 +629,7 @@ async function measure(engine, scheme) {
          still held to the cross-theme rule, so an UNINTENDED flip elsewhere still fails. The black
          column stays (Josh's #3493); this field keeps its depth cue against it. */
       if (id === '#pj-thread-who') continue;
-      /* The Kosmos+ wizard's fields: measured off their real ground here (see
+      /* The Kosmos+ wizard's fields: NOT measured against their real ground here (see
          PLUS_WIZARD_FIELDS at the top). */
       if (PLUS_WIZARD_FIELDS.has(id)) continue;
       const dl = dir(lightById[id]), dd = dir(darkById[id]);
