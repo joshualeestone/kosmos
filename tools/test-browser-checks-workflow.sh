@@ -212,6 +212,8 @@ if command -v ruby >/dev/null 2>&1; then
   [ "$out" = "ok after 3" ] || fail "ghr did not retry through two failures: $out"
   out=$(GH_RETRY_SECONDS=0 RUN_URL=u bash -c '. "$1"; ghr false issue list; echo "rc=$?"' _ "$BT/ghr.sh" 2>&1) || true
   printf '%s' "$out" | grep -q '::error::false issue list failed 3 times' && printf '%s' "$out" | grep -q 'rc=1' || fail "ghr did not report a final failure: $out"
+  # FAILED-LIST splits on "|", so no FAILED entry may contain one.
+  if grep -nE 'FAILED\+=\([^)]*\|' "$REPO/tools/browser-checks.sh" | grep -v '^\s*#' | grep -q .; then fail "a FAILED+=() entry in browser-checks.sh contains '|', which FAILED-LIST would split into fake checks"; fi
   # A cut-short run: a log that never reached the summary has no FAILED-LIST line.
   mkdir -p "$BT/cut"; printf 'PASS  render-a\nFAIL  render-b (failed twice)\n' > "$BT/cut/browser-checks.log"
   RUNNER_TEMP="$BT/cut" GITHUB_OUTPUT="$BT/o3" bash -eo pipefail -c ': > "$GITHUB_OUTPUT"; . "$1"' _ "$BT/collect.sh" >/dev/null 2>&1 || fail "the collector aborted on a cut-short log"
@@ -230,7 +232,13 @@ if command -v ruby >/dev/null 2>&1; then
     pass "SKIPPED the card script (no jq on this machine)"; HAVE_JQ=""
   else HAVE_JQ=1; fi
   if [ -n "$HAVE_JQ" ]; then
+  # The REAL gh is authenticated on dev machines: the child gets a poisoned gh first on its
+  # PATH, an invalid token and an empty config, so an edit that bypasses the stub (command
+  # gh, a full path) fails loudly here instead of reaching GitHub.
+  mkdir -p "$BT/poison" "$BT/ghcfg"; printf '#!/bin/sh\necho "REAL gh REACHED: $*" >&2; exit 99\n' > "$BT/poison/gh"; chmod +x "$BT/poison/gh"
   card() {
+    PATH="$BT/poison:$PATH" GH_TOKEN=invalid GH_CONFIG_DIR="$BT/ghcfg" GH_RETRY_SECONDS=0 \
+    HEADSHA="${HEADSHA:-abc}" GITHUB_RUN_ATTEMPT="${ATTEMPT:-1}" COMMENTFILE="${COMMENTFILE:-}" \
     VIEWFAIL="${VIEWFAIL:-}" BODYFILE="${BODYFILE:-}" VIEWBODY="${VIEWBODY:-}" LABEL="${LABEL:-}" RESULT="$1" OPEN="$2" RED="${REDV:-render-fields|render-thread|regress-a-night (server did not boot)|render-list-row render-fields (rich board did not boot)}" GITHUB_REPOSITORY=o/r GITHUB_SHA=abc RUN_URL=u bash -eo pipefail -c '
       qarg() { local prevarg="" a; for a in "$@"; do [ "$prevarg" = "-q" ] && { printf "%s" "$a"; return 0; }; prevarg="$a"; done; return 1; }
       gh() { case "$1 $2" in
@@ -247,7 +255,9 @@ if command -v ruby >/dev/null 2>&1; then
           f=$(qarg "$@") || { echo "CALL unexpected issue view without -q"; return 1; }
           if [ -n "$VIEWBODY" ]; then jq -n --arg b "$VIEWBODY" "{body: \$b, comments: []}" | jq -r "$f"; return; fi
           printf "%s" "{\"body\":\"The nightly full page-layer run failed\\n\\nRed checks: an old entry\",\"comments\":[{\"body\":\"Still not green (failure) at old: u\\nNEW since the last red night: none\\nRed checks: render-fields | regress-a-night (server did not boot)\"},{\"body\":\"a person quoting it: Red checks: something else entirely\"}]}" | jq -r "$f" ;;
-        "issue comment") echo "CALL comment $3 :: $*" ;;
+        "issue comment") echo "CALL comment $3 :: $*"
+          [ -n "$COMMENTFILE" ] && { prevarg=""; for a in "$@"; do [ "$prevarg" = "--body" ] && printf "%s" "$a" > "$COMMENTFILE"; prevarg="$a"; done; }; true ;;
+        "api repos/o/r/commits/main") echo "$HEADSHA" ;;
         "issue create") echo "CALL create :: $*"
           # keep the real body, so a later arm can read back what this job wrote
           [ -n "$BODYFILE" ] && { prevarg=""; for a in "$@"; do [ "$prevarg" = "--body" ] && printf "%s" "$a" > "$BODYFILE"; prevarg="$a"; done; }; true ;;
@@ -292,6 +302,21 @@ if command -v ruby >/dev/null 2>&1; then
   out="$(VIEWBODY="$(cat "$BT/created-body")" REDV="render-fields|regress-a-night (server did not boot)|render-thread" card failure 7)" || fail "round trip: comment failed: $out"
   newline="$(printf '%s\n' "$out" | sed -n 's/^NEW since the last red night: //p')"
   [ "$newline" = "render-thread" ] || fail "round trip: reading back the card this job created, NEW should be exactly render-thread, got [$newline]: $out"
+  # Round trip, the COMMENT this job writes (the report every later night reads).
+  : > "$BT/comment-body"
+  out="$(COMMENTFILE="$BT/comment-body" REDV="render-fields|render-thread" card failure 7)" || fail "comment round trip: comment failed: $out"
+  [ -s "$BT/comment-body" ] || fail "comment round trip: the comment body was not captured: $out"
+  out="$(VIEWBODY="$(cat "$BT/comment-body")" REDV="render-fields|render-thread|render-push-718" card failure 7)" || fail "comment round trip: second night failed: $out"
+  newline="$(printf '%s\n' "$out" | sed -n 's/^NEW since the last red night: //p')"
+  [ "$newline" = "render-push-718" ] || fail "comment round trip: reading back this job's own comment, NEW should be exactly render-push-718, got [$newline]: $out"
+  # Green closes only on a first attempt at main's current head, and closes EVERY open card.
+  out="$(card success 7)" || fail "green close failed: $out"
+  case "$out" in *"CALL close 7"*"CALL close 3"*) ;; *) fail "a green night did not close every open card: $out" ;; esac
+  out="$(ATTEMPT=2 card success 7)" || fail "green re-run failed: $out"
+  case "$out" in *"CALL close"*) fail "a RE-RUN of an older night closed the card: $out" ;; esac
+  out="$(HEADSHA=newer card success 7)" || fail "green at an old sha failed: $out"
+  case "$out" in *"CALL close"*) fail "a green run at an old sha closed the card while main moved on: $out" ;; esac
+  case "$out" in *"REAL gh REACHED"*) fail "the card script reached the real gh: $out" ;; esac
   pass "the card script: fresh red creates, open red comments leading with NEW checks, a timeout/cancel files, a null lookup is none, green closes, green with no card is a no-op"
   fi
 elif [ -n "${CI:-}" ]; then

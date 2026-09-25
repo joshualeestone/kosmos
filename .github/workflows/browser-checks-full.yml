@@ -115,17 +115,28 @@ jobs:
           RED: ${{ needs.browser-checks-full.outputs.failed }}
           RESULT: ${{ needs.browser-checks-full.result }}
         run: |
-          # A transient API error must not lose a red night: every gh call retries, and a
-          # final failure is an ::error:: annotation on the run, not a silent step abort.
+          # A transient API error must not lose a red night: the READS and the close (safe to
+          # repeat) retry, and a final failure is an ::error:: annotation on the run. Creating
+          # a card or commenting is NOT retried: a request that failed after GitHub had done
+          # it would be done twice (a duplicate card, a doubled report).
           ghr() { local i; for i in 1 2 3; do "$@" && return 0; [ "$i" -lt 3 ] && sleep $((i * ${GH_RETRY_SECONDS:-10})); done
-                  echo "::error::$1 $2 $3 failed 3 times; this red night was NOT reported to the card. Run: $RUN_URL" >&2; return 1; }
+                  echo "::error::$1 $2 $3 failed 3 times; see the steps above. Run: $RUN_URL" >&2; return 1; }
+          gh1() { "$@" || { echo "::error::$1 $2 $3 failed; the card was NOT updated for this run (not retried, so it cannot be done twice). Run: $RUN_URL" >&2; return 1; }; }
           label=nightly-browser-checks-red
           open=$(ghr gh issue list --repo "$GITHUB_REPOSITORY" --state open --label "$label" --json number -q '.[0].number')
           [ "$open" = null ] && open=""
           if [ "$RESULT" = success ]; then
-            if [ -n "$open" ]; then
-              ghr gh issue close "$open" --repo "$GITHUB_REPOSITORY" --comment "Green again at $GITHUB_SHA: $RUN_URL. Closing; the next red night opens a new card."
+            [ -n "$open" ] || exit 0
+            # Only a first attempt at main's CURRENT head may close: re-running an older
+            # night (same event, old sha) must not close a card a newer red night opened.
+            head=$(ghr gh api "repos/$GITHUB_REPOSITORY/commits/main" -q .sha)
+            if [ "${GITHUB_RUN_ATTEMPT:-1}" != 1 ] || [ "$head" != "$GITHUB_SHA" ]; then
+              echo "green at $GITHUB_SHA (attempt ${GITHUB_RUN_ATTEMPT:-1}), but main is at $head: not closing; the next scheduled run decides"
+              exit 0
             fi
+            for n in $(ghr gh issue list --repo "$GITHUB_REPOSITORY" --state open --label "$label" --json number -q '.[].number'); do
+              ghr gh issue close "$n" --repo "$GITHUB_REPOSITORY" --comment "Green again at $GITHUB_SHA: $RUN_URL. Closing; the next red night opens a new card."
+            done
             exit 0
           fi
           # Entries are separated by "|" (they can contain spaces); shown as " | ".
@@ -150,16 +161,16 @@ jobs:
               [ -n "$seen" ] || new="${new:+$new | }$w"
             done
             IFS=$_ifs; set +f
-            ghr gh issue comment "$open" --repo "$GITHUB_REPOSITORY" --body "Still not green ($RESULT) at $GITHUB_SHA: $RUN_URL
+            gh1 gh issue comment "$open" --repo "$GITHUB_REPOSITORY" --body "Still not green ($RESULT) at $GITHUB_SHA: $RUN_URL
           NEW since the last red night: ${new:-none}$unread
           Red checks: $red"
           else
             have=$(ghr gh label list --repo "$GITHUB_REPOSITORY" --search "$label" --json name -q '.[].name')
             if ! printf '%s\n' "$have" | grep -qx "$label"; then
-              ghr gh label create "$label" --repo "$GITHUB_REPOSITORY" --color B60205 \
-                --description "The nightly full browser-check run on main is not green (#2518)"
+              gh label create "$label" --repo "$GITHUB_REPOSITORY" --color B60205 \
+                --description "The nightly full browser-check run on main is not green (#2518)" || echo "label create failed; issue create below still applies the label if it exists"
             fi
-            ghr gh issue create --repo "$GITHUB_REPOSITORY" --label "$label" \
+            gh1 gh issue create --repo "$GITHUB_REPOSITORY" --label "$label" \
               --title "Nightly full browser-check run is not green on main" \
               --body "The nightly full page-layer run (browser-checks-full.yml, #2518) ended $RESULT on main at $GITHUB_SHA: $RUN_URL
 
