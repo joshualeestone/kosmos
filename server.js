@@ -13112,8 +13112,9 @@ const server = http.createServer((req, res) => {
    * (isViaScreen), the page headers are ADVISORY: a local process that omits its
    * token and sends them passes. This keeps honest agents out; it is not a lock.
    * 🔑 EACH TASK STANDS ALONE. One that cannot close (gone, unreadable) does not
-   * stop the others, and the answer says which failed and why. The note is
-   * written to each task's history FIRST, so it reads note, then closed.
+   * stop the others, and the answer says which failed and why. Each task is
+   * closed FIRST and the note written after it, so a failed close never leaves a note behind to
+   * be written a second time on a retry.
    * Closing tells the assignees exactly as a single close does (their managed
    * block stops listing the task). Closing does not stop an agent (tasks.js).
    */
@@ -13168,16 +13169,16 @@ const server = http.createServer((req, res) => {
           if (!found) throw new Error(p ? 'there is no task by that number on this project' : 'there is no project by that name');
           const here = projectId + '#' + number;
           if (closedHere.has(here) || tasks.progressOf(found).closed) { results.push({ projectId, number, ok: true, already: true }); continue; }
-          /* The note is recorded exactly as tasks.say records it (a 'said' event); say() itself would
-             re-read and re-join the store just to find the task we already hold. Length and
-             emptiness were checked above. */
-          if (note && !taskchat.record(projectId, found.number, { kind: 'said', text: note })) {
-            throw new Error('we could not record the note, so this task was not closed');
-          }
+          /* CLOSE FIRST, then the note: a close that fails leaves no note behind to be written a
+             second time on a retry. The note is recorded exactly as tasks.say records it (a 'said'
+             event); say() itself would re-read and re-join the store just to find the task we
+             already hold. Length and emptiness were checked above. A note that cannot be saved does
+             not undo the close; the result says so. */
           const t = tasks.close(projectId, number);
           closedHere.add(here);
           for (const one of tasks.whoOf(t)) toTell.add(one);
-          results.push({ projectId, number, ok: true });
+          const noteRecorded = note ? !!taskchat.record(projectId, found.number, { kind: 'said', text: note }) : null;
+          results.push({ projectId, number, ok: true, ...(note ? { noteRecorded } : {}) });
         } catch (err) {
           results.push({ projectId, number, ok: false, error: String((err && err.message) || 'we could not close that task') });
         }
@@ -13191,8 +13192,10 @@ const server = http.createServer((req, res) => {
           try { projects.syncAgent(one, roster); } catch { /* the close stands; the next sync catches up */ }
         }
       }
-      const closed = results.filter((r) => r.ok).length;
-      sendJson(res, closed === results.length ? 200 : (closed ? 207 : 400), { results, closed, failed: results.length - closed });
+      /* `closed` counts closes THIS request made; one already closed is ok but not credited here. */
+      const ok = results.filter((r) => r.ok).length;
+      const closed = results.filter((r) => r.ok && !r.already).length;
+      sendJson(res, ok === results.length ? 200 : (ok ? 207 : 400), { results, closed, already: ok - closed, failed: results.length - ok });
     }).catch(() => sendJson(res, 400, { error: 'we could not read that request' }));
     return;
   }

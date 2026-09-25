@@ -34139,11 +34139,12 @@ function placeTasksPanel(consolidated) {
 function openConsolidatedTasks() {
   // Same guard as openConsolidatedSettings: only correct while the consolidated class is on.
   if (!document.body.classList.contains('consolidated')) { showTab('tasks'); return; }
+  const already = !document.getElementById('panel-tasks').hidden && document.getElementById('panel-tasks').parentElement === document.getElementById('panel-projects');
   placeTasksPanel(true);
   takeOverDisplayColumn();
   document.getElementById('panel-tasks').hidden = false;
   syncPlusChrome();   // #3599's rule: leaving consolidated Kosmos+ settings takes the blue down
-  tskLoad(true);
+  tskLoad(!already);   // pressed again while open: a refresh, not an arrival (ticks stay)
 }
 /* #3053: the New Agent create panel gets the SAME consolidated-display treatment #2842 gave
    settings, so clicking New Agent in the consolidated view opens the form in the display column
@@ -42419,6 +42420,11 @@ function tskPaint() {
   if (!TSK.data) { groups.innerHTML = TSK.error ? '' : '<p class="tsk-empty">Reading your tasks…</p>'; tskPaintBulk(); return; }
   const shown = TSK.tile ? scoped.filter((t) => t.state === TSK.tile) : scoped;
   const sorted = tskSort(shown, TSK.sort);
+  /* A tick only ever covers a row on screen: a filter that hides a ticked row drops the tick, so
+     "N selected" and Close them can never reach tasks the person cannot see. BEFORE any early
+     return below (a search that matches nothing hides every row). */
+  const onScreen = new Set(shown.filter((t) => t.state !== 'closed').map(tskKey));
+  TSK.sel.forEach((k) => { if (!onScreen.has(k)) TSK.sel.delete(k); });
   /* Mona's a40bbe1: a search that finds nothing says so, and what to do. */
   if (!shown.length && String(TSK.q).trim()) {
     groups.innerHTML = '<p class="tsk-empty">No tasks match \u201c' + esc(String(TSK.q).trim()) + '\u201d. Try fewer words, or clear the search.</p>';
@@ -42444,10 +42450,6 @@ function tskPaint() {
       return '<section class="tsk-grp">' + head + tskList(ts) + '</section>';
     }).join('');
   }
-  /* A tick only ever covers a row on screen: a filter that hides a ticked row drops the tick, so
-     "N selected" and Close them can never reach tasks the person cannot see. */
-  const onScreen = new Set(shown.filter((t) => t.state !== 'closed').map(tskKey));
-  TSK.sel.forEach((k) => { if (!onScreen.has(k)) TSK.sel.delete(k); });
   tskPaintBulk();
 }
 function tskPaintBulk() {
@@ -42492,14 +42494,19 @@ async function tskBulkClose() {
     const body = await r.json().catch(() => ({}));
     const results = Array.isArray(body.results) ? body.results : [];
     const failed = results.filter((x) => !x.ok);
+    const done = results.filter((x) => x.ok && !x.already).length;
+    const was = results.filter((x) => x.ok && x.already).length;
+    const noteLost = results.filter((x) => x.ok && x.noteRecorded === false).length;
+    const tail = (was ? ' ' + was + (was === 1 ? ' was' : ' were') + ' already closed.' : '')
+      + (noteLost ? ' The note could not be saved on ' + noteLost + (noteLost === 1 ? ' of them.' : ' of them.') : '');
     results.filter((x) => x.ok).forEach((x) => TSK.sel.delete(String(x.projectId) + '#' + Number(x.number)));
     if (!results.length) {
       msg.textContent = asSentence(body.error || 'those tasks were not closed');
     } else if (failed.length) {
-      msg.textContent = 'Closed ' + (results.length - failed.length) + ' of ' + results.length + '. '
+      msg.textContent = 'Closed ' + done + ' of ' + results.length + '.' + tail + ' '
         + failed.map((x) => { const t = (TSK.data || []).find((y) => y.projectId === x.projectId && y.number === x.number); return (t ? t.projectName + ' ' : '') + '#' + x.number + ': ' + x.error; }).join('; ') + '.';
     } else {
-      msg.textContent = 'Closed ' + results.length + (results.length === 1 ? ' task.' : ' tasks.')
+      msg.textContent = 'Closed ' + done + (done === 1 ? ' task.' : ' tasks.') + tail
         + ' Closing a task does not stop an agent that is working on it.';
       document.getElementById('tsk-bnote').value = '';
     }
@@ -42536,10 +42543,15 @@ function tskFocusRestore(mark) {
   const scope = mark.row !== null
     ? document.querySelector('#tsk-groups .tsk-row[data-key="' + CSS.escape(mark.row) + '"]')
     : (mark.box ? document.getElementById(mark.box) : document.getElementById('panel-tasks'));
-  if (!scope) return;
-  const again = [...scope.querySelectorAll(mark.tag + '[' + mark.attr + '="' + CSS.escape(String(mark.value)) + '"]')]
-    .find((x) => x.getClientRects().length > 0);
-  if (again) again.focus();
+  const shown = (x) => x && x.getClientRects().length > 0;
+  const again = scope ? [...scope.querySelectorAll(mark.tag + '[' + mark.attr + '="' + CSS.escape(String(mark.value)) + '"]')].find(shown) : null;
+  if (again) { again.focus(); return; }
+  /* The control is gone with its container (the crumb's "All tasks" empties the crumb): land on
+     what now stands for it, the rail's item for that project, else the dropdown, else the search,
+     never the page body. */
+  const fallback = [...document.querySelectorAll('#tsk-projects [data-proj="' + CSS.escape(String(mark.attr === 'data-proj' ? mark.value : '')) + '"]')].find(shown)
+    || [document.getElementById('tsk-projsel'), document.getElementById('tsk-search')].find(shown);
+  if (fallback) fallback.focus();
 }
 function tskPaintKeepingFocus(el) {
   const mark = tskFocusMark(el);

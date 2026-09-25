@@ -172,7 +172,12 @@ function chk(ok, label, extra) {
         rows = await page.evaluate(() => [...document.querySelectorAll('#tsk-groups .tsk-row .tl')].map((x) => x.textContent));
         chk(JSON.stringify(rows) === JSON.stringify(['Clean up bounced addresses']), `${tag} search combines with the project rail`, JSON.stringify(rows));
         await page.fill('#tsk-search', '');
-        await page.click('#tsk-crumb [data-proj=""]');
+        /* The crumb's "All tasks" empties the crumb: focus lands on the rail's "All tasks", not the body. */
+        await page.focus('#tsk-crumb [data-proj=""]');
+        await page.keyboard.press('Enter');
+        await page.waitForTimeout(200);
+        const crumbFocus = await page.evaluate(() => ({ inRail: !!document.activeElement.closest('#tsk-projects'), proj: document.activeElement.dataset && document.activeElement.dataset.proj }));
+        chk(crumbFocus.inRail && crumbFocus.proj === '', `${tag} the crumb's All tasks keeps focus (on the rail's All tasks)`, JSON.stringify(crumbFocus));
         await page.fill('#tsk-search', 'podcast');
         rows = await page.evaluate(() => [...document.querySelectorAll('#tsk-groups .tsk-row .tl')].map((x) => x.textContent));
         chk(JSON.stringify(rows) === JSON.stringify(['Book the podcast tour']), `${tag} search finds a task by what it says`, JSON.stringify(rows));
@@ -182,8 +187,11 @@ function chk(ok, label, extra) {
         await page.click('#tsk-qclear');
         const cleared = await page.evaluate(() => ({ v: document.getElementById('tsk-search').value, hidden: document.getElementById('tsk-qclear').hidden, rows: document.querySelectorAll('#tsk-groups .tsk-row').length }));
         chk(cleared.v === '' && cleared.hidden && cleared.rows > 1, `${tag} clear empties the search and brings the rows back`, JSON.stringify(cleared));
-        /* No match says so, and what to do (Mona a40bbe1). */
+        /* No match says so, and what to do (Mona a40bbe1); a tick it hides is dropped. */
+        await page.check('#tsk-groups input[data-key="' + launch.id + '#1"]');
         await page.fill('#tsk-search', 'zzz nothing like this');
+        const hid = await page.evaluate(() => ({ sel: TSK.sel.size, bar: document.getElementById('tsk-bulk').hidden }));
+        chk(hid.sel === 0 && hid.bar, `${tag} a search that hides every row drops the ticks (Close them cannot reach them)`, JSON.stringify(hid));
         const none = await page.evaluate(() => document.getElementById('tsk-groups').textContent);
         chk(/No tasks match .zzz nothing like this.\. Try fewer words, or clear the search\./.test(none), `${tag} a search with no match says so`, none);
         await page.fill('#tsk-search', '');
