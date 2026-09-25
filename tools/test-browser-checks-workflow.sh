@@ -378,6 +378,16 @@ if command -v ruby >/dev/null 2>&1; then
     || fail "the NEW line is not exactly the two new entries, whole: [$newline] in: $out"
   case "$out" in *"CALL comment 7"*) ;; *) fail "an open card did not get a comment: $out" ;; esac
   case "$out" in *"could not be read"*) fail "a readable previous report was reported unreadable: $out" ;; esac
+  # NEW compares WHOLE entries: a check named inside last night's combined "did not boot" entry
+  # is still NEW when it goes red on its own tonight (a substring match would hide it), and
+  # the reverse (a longer entry tonight) is NEW too.
+  out="$(VIEWBODY="$(printf 'Still not green (failure) at x: u\nNEW since the last red night: none\nRed checks: render-org-chart render-fields (rich board did not boot)')" REDV="render-fields" card failure 7)" || fail "combined-entry baseline: $out"
+  [ "$(printf '%s\n' "$out" | sed -n 's/^NEW since the last red night: //p')" = "render-fields" ] || fail "a check inside last night's combined entry, red alone tonight, was not NEW: $out"
+  out="$(VIEWBODY="$(printf 'Still not green (failure) at x: u\nNEW since the last red night: none\nRed checks: render-fields')" REDV="render-org-chart render-fields (rich board did not boot)" card failure 7)" || fail "longer-entry tonight: $out"
+  [ "$(printf '%s\n' "$out" | sed -n 's/^NEW since the last red night: //p')" = "render-org-chart render-fields (rich board did not boot)" ] || fail "a longer entry tonight was not NEW: $out"
+  # A readable card with no report of this job on it says so.
+  out="$(VIEWBODY="a card body a person wrote, with no report" card failure 7)" || fail "no-report card: $out"
+  case "$out" in *"(no earlier report of this job was found on the card"*) ;; *) fail "a card holding no report of ours was not called out: $out" ;; esac
   # The previous report cannot be read: say so, and list every entry as new.
   out="$(VIEWFAIL=1 card failure 7)" || fail "card script aborted when the previous report could not be read: $out"
   case "$out" in *"CALL comment 7"*"could not be read"*) ;; *) fail "an unreadable previous report was not stated: $out" ;; esac
