@@ -106,6 +106,9 @@ function selfCheck() {
    a denominator that only prints is not a denominator, and a slider meant to be restyled
    (appearance:none) that lost the cascade would otherwise leave the field checks silently.
    Adding a native slider on purpose means adding its id here. */
+// The Kosmos+ sign-in wizard's fields, dark in both themes on purpose (#3796; see the
+// cross-scheme check below).
+const PLUS_WIZARD_ALWAYS_DARK = new Set(['#plus-signin-email', '#plus-si-code-in', '#plus-si-second-in', '#plus-si-phone', '#plus-si-secret', '#plus-si-enrol-code', '#plus-si-name']);
 const KNOWN_NATIVE_SLIDERS = ['d-swarm-max', 'd-swarm-cap', 'create-swarm-max', 'create-swarm-cap'];
 const FIELDS = 'input:not([type=button]):not([type=file]):not([type=checkbox]):not([type=radio]):not([type=submit]), textarea, select';
 /* ⚠️ BUTTONS TOO, and their absence was a hole shaped exactly like the defect
@@ -606,6 +609,12 @@ async function measure(engine, scheme) {
          still held to the cross-theme rule, so an UNINTENDED flip elsewhere still fails. The black
          column stays (Josh's #3493); this field keeps its depth cue against it. */
       if (id === '#pj-thread-who') continue;
+      /* #3796 (Josh, 2026-09-25): the in-app Kosmos+ sign-in wizard deliberately keeps the
+         website's (login.kosmosplus.com) dark fields in BOTH themes, so against the app's own
+         ground they read recessed in light and raised in dark. Intended; exempted by name and
+         no wider, like the two fields above. The wizard is due a rework (#3796), which should
+         revisit this list. */
+      if (PLUS_WIZARD_ALWAYS_DARK.has(id)) continue;
       const dl = dir(lightById[id]), dd = dir(darkById[id]);
       if (dl !== 'n/a' && dd !== 'n/a' && dl !== dd) {
         flipped += 1;
