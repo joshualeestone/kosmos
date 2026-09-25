@@ -9258,6 +9258,10 @@ body.plus-active #plus-state2 { max-width: 26rem; padding: 2rem; }
      similar; the connection banner itself sits above the panels since #3708) stays above
      it here instead of under the composer. */
   body > #panel-detail:has(#d-sec-talk:not([hidden])) { order: 1; }
+  /* The wide layout's companions to the header's zero bottom margin (the #3497 block), so the
+     connection line and the pairing card keep their gap on Talk as on every other section. */
+  body:has(> #panel-detail:not([hidden]) #d-sec-talk:not([hidden])) > #askcard:not([hidden]) { margin-bottom: var(--space-6); }
+  body:has(> #panel-detail:not([hidden]) #d-sec-talk:not([hidden])) > #conn:not([hidden]) { margin-top: var(--space-6); }
   body:has(> #panel-detail:not([hidden]) #d-sec-talk:not([hidden])) > :not(#panel-detail) { flex: none; }
   body:has(> #panel-detail:not([hidden]) #d-sec-talk:not([hidden])) > .apphead { margin-bottom: 0; }
   body > #panel-detail:has(#d-sec-talk:not([hidden])) {
@@ -9270,9 +9274,13 @@ body.plus-active #plus-state2 { max-width: 26rem; padding: 2rem; }
      0px. Past about a sixth of the visible height the block scrolls on its own, as the wide
      layout's column does (#3385). The tab row below it never shrinks, so Profile stays one tap. */
   #panel-detail:has(#d-sec-talk:not([hidden])) .dhead {
-    flex-direction: row; align-items: center; text-align: left; gap: 10px; margin: 0 0 8px;
+    flex-direction: row; align-items: flex-start; text-align: left; gap: 10px; margin: 0 0 8px;
     padding: 6px 0 6px 6px; max-height: calc(0.18 * var(--kosmos-visible-height, 100dvh));
     overflow: hidden auto; }
+  /* Top-aligned, not centred: a centred row taller than its cap spills above the scroll box, where
+     no scroll can reach (the name and Start this agent were cut off). An action further down the
+     notes (Start this agent, Sign in again) is reached by scrolling this block; a roomier cap for
+     them was tried and left an iPhone SE no conversation at all. */
   #panel-detail:has(#d-sec-talk:not([hidden])) .dav-wrap,
   #panel-detail:has(#d-sec-talk:not([hidden])) .dav-wrap .detail-av { width: 40px; height: 40px; flex-basis: 40px; }
   /* The memory ring (#1915) is drawn 100px around the 88px avatar; sized with the 40px avatar here,
@@ -9313,17 +9321,20 @@ body.plus-active #plus-state2 { max-width: 26rem; padding: 2rem; }
      composer pushed below the keyboard). They step aside while focus is anywhere in the
      composer's text box or on Post (so tapping Post does not flash them back mid-tap; not
      add-a-file, which keeps focus after the file picker closes with no keyboard up) or in the
-     search box, and come back when focus leaves: the same trade chat apps make.
+     search box, AND the on-screen keyboard is up (html.kosmos-keyboard-up, set by the
+     visualViewport listener), and come back when either ends: the same trade chat apps make.
+     Keyed on the keyboard too, so a focus with no keyboard (a script focusing the box after an
+     answer, which on iOS raises no keyboard; a narrow desktop window) leaves the header alone.
      Accepted trade: hidden this way they are also out of the accessibility tree until focus
      leaves the composer. Searching keeps its own row and sets the composer aside instead, since
      the person is reading results, not writing. */
-  /* `html body`, not `body`: a line beginning `body:has(` reads as a stray `prop: value` to the
-     stylesheet guard in server.test.js. Same elements, one type selector more specific. */
-  html body:has(#d-talk-box :is(#d-say, #d-send):focus, #d-talk-search:focus) #panel-detail:has(#d-sec-talk:not([hidden])) > .back,
-  html body:has(#d-talk-box :is(#d-say, #d-send):focus, #d-talk-search:focus) #panel-detail:has(#d-sec-talk:not([hidden])) .dleft,
-  html body:has(#d-talk-box :is(#d-say, #d-send):focus, #d-talk-search:focus) #d-talk-box #d-talk-older,
-  html body:has(#d-talk-box :is(#d-say, #d-send):focus) #d-talk-box .d-talk-caprow,
-  html body:has(#d-talk-search:focus) #d-talk-box .dmbar { display: none; }
+  /* Lines begin `html.kosmos-keyboard-up body`, not `body:has(`: the stylesheet guard in
+     server.test.js reads a line beginning `body:has(` as a stray `prop: value`. */
+  html.kosmos-keyboard-up body:has(#d-talk-box :is(#d-say, #d-send):focus, #d-talk-search:focus) #panel-detail:has(#d-sec-talk:not([hidden])) > .back,
+  html.kosmos-keyboard-up body:has(#d-talk-box :is(#d-say, #d-send):focus, #d-talk-search:focus) #panel-detail:has(#d-sec-talk:not([hidden])) .dleft,
+  html.kosmos-keyboard-up body:has(#d-talk-box :is(#d-say, #d-send):focus, #d-talk-search:focus) #d-talk-box #d-talk-older,
+  html.kosmos-keyboard-up body:has(#d-talk-box :is(#d-say, #d-send):focus) #d-talk-box .d-talk-caprow,
+  html.kosmos-keyboard-up body:has(#d-talk-search:focus) #d-talk-box .dmbar { display: none; }
   /* Thumb reach: the composer's controls meet the 44px minimum on a phone. */
   #d-talk-box .composerbox .attachbtn { width: 44px; height: 44px; }
   #d-talk-box .composerbox .cpost { min-height: 44px; min-width: 64px; }
@@ -30085,8 +30096,13 @@ function detailGo(section, opts) {
   if (!viewport) return;
   /* Height times scale: the keyboard shrinks the visual viewport at scale 1, while a pinch
      zoom shrinks it by the zoom factor, and only the keyboard should shrink the page. */
+  /* The keyboard is "up" when the visible height falls well short of the layout viewport's; the
+     phone chat only moves its header aside then. A pinch zoom does not count (height x scale). */
+  const KEYBOARD_MIN_PX = 150;
   const write = () => {
-    document.documentElement.style.setProperty('--kosmos-visible-height', Math.round(viewport.height * viewport.scale) + 'px');
+    const visible = Math.round(viewport.height * viewport.scale);
+    document.documentElement.style.setProperty('--kosmos-visible-height', visible + 'px');
+    document.documentElement.classList.toggle('kosmos-keyboard-up', document.documentElement.clientHeight - visible > KEYBOARD_MIN_PX);
   };
   /* iOS can pan the page to show a focused text box before this resize arrives; with the page
      already exactly the visible height, that pan only cuts off the header. This undoes a pan

@@ -139,8 +139,12 @@ function measure() {
 
         // Simulated keyboard: focus the composer, shrink the visible height the way the page's
         // visualViewport listener would, and the composer must sit above the keyboard.
+        // Focus with NO keyboard (a script focusing the box, a narrow desktop window): the header stays.
         await page.focus('#d-say');
-        await page.evaluate((k) => document.documentElement.style.setProperty('--kosmos-visible-height', (window.innerHeight - k) + 'px'), SIMULATED_KEYBOARD_PX);
+        const nk = await page.evaluate(measure);
+        chk(nk.head && nk.head.shown && nk.profile && nk.profile.shown, `${t} focus without a keyboard leaves the header and tabs in place`);
+        // Keyboard up: what the page's visualViewport listener does when the visible height drops.
+        await page.evaluate((k) => { document.documentElement.style.setProperty('--kosmos-visible-height', (window.innerHeight - k) + 'px'); document.documentElement.classList.add('kosmos-keyboard-up'); }, SIMULATED_KEYBOARD_PX);
         const k = await page.evaluate(measure);
         const limit = k.vh - SIMULATED_KEYBOARD_PX;
         chk(k.box && k.box.bottom <= limit + 1 && k.box.top >= 0, `${t} with the keyboard up the composer sits above it`, `bottom=${k.box && Math.round(k.box.bottom)} limit=${limit}`);
@@ -179,7 +183,7 @@ function measure() {
         chk(crowd.active === 'd-say' && crowd.composerShown && crowd.overflowY === 'auto' && crowd.msgBottom <= crowd.boxBottom + 1, `${t} with the keyboard up, a send error below the composer can be scrolled into view`, JSON.stringify(crowd));
         // The visualViewport listener follows a real viewport shrink (a keyboard opening shrinks
         // the visual viewport the same way; Playwright can only drive it through the window size).
-        await page.evaluate(() => { document.activeElement.blur(); document.documentElement.style.removeProperty('--kosmos-visible-height'); });
+        await page.evaluate(() => { document.activeElement.blur(); document.documentElement.style.removeProperty('--kosmos-visible-height'); document.documentElement.classList.remove('kosmos-keyboard-up'); });
         await page.setViewportSize({ width: w, height: h - SIMULATED_KEYBOARD_PX });
         await page.waitForFunction((want) => getComputedStyle(document.documentElement).getPropertyValue('--kosmos-visible-height').trim() === want + 'px', h - SIMULATED_KEYBOARD_PX, { timeout: 3000 }).catch(() => {});
         const shrunk = await page.evaluate(() => getComputedStyle(document.documentElement).getPropertyValue('--kosmos-visible-height').trim());
@@ -207,6 +211,16 @@ function measure() {
             show('d-reauth'); show('d-start-wrap');
           });
           const mn = await np.evaluate(measure);
+          // The name must be visible at the top of the capped block, and Start this agent reachable
+          // by scrolling the block (a centred row used to spill above it, out of reach).
+          const reach = await np.evaluate(() => {
+            const head = document.querySelector('.dhead'); head.scrollTop = 0;
+            const hb = head.getBoundingClientRect(); const nm = document.getElementById('d-name').getBoundingClientRect();
+            const btn = document.getElementById('d-start-agent'); btn.scrollIntoView({ block: 'nearest' });
+            const bb = btn.getBoundingClientRect(); const hb2 = head.getBoundingClientRect();
+            return { nameTop: nm.top, headTop: hb.top, btnTop: bb.top, btnBottom: bb.bottom, head2Top: hb2.top, head2Bottom: hb2.bottom, btnH: bb.height };
+          });
+          chk(reach.nameTop >= reach.headTop - 0.5 && reach.btnTop >= reach.head2Top - 0.5 && reach.btnBottom <= reach.head2Bottom + 0.5 && reach.btnH > 0, `${t} with every header note, the name is visible and Start this agent can be scrolled to`, JSON.stringify(reach));
           const floor = h < 700 ? 60 : 120;
           chk(mn.threadH >= floor && mn.box && mn.box.bottom <= mn.vh + 1 && mn.profile && mn.profile.shown && mn.profile.h >= MIN_TAP_PX, `${t} with every header note showing, the thread keeps room, the tabs keep their size and the composer is on screen`, `threadH=${mn.threadH} floor=${floor} box=${mn.box && Math.round(mn.box.bottom)} profileH=${mn.profile && mn.profile.h}`);
           chk(nerrs.length === 0, `${t} no page errors with every header note`, nerrs.join(' | '));
