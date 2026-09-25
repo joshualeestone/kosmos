@@ -9106,8 +9106,10 @@ body.plus-active #plus-state2 { max-width: 26rem; padding: 2rem; }
 #plus-state2 #plus-signin-msg:empty { display: none; }
 /* #3796 addendum 9: the signed-in landing. The address row and the connect tiles follow the website's
    #3794 treatment: a badge per step, each step its own subtle tile. */
-#plus-state2 .plus-si-addrrow { display: flex; gap: .5rem; align-items: center; margin: .5rem 0 0; }
-#plus-state2 .plus-si-addrrow code { flex: 1 1 auto; min-width: 0; padding: .55rem .7rem; border-radius: 8px; background: rgba(47,87,196,.22); border: 1px solid rgba(126,160,240,.45); color: #E6EBF7; font: 600 .95rem ui-monospace, Menlo, monospace; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+/* The whole address, always (#3792's lesson: an address cut short is not an address): the UI face, Copy
+   stacked under it, and a break anywhere only if even that cannot fit. */
+#plus-state2 .plus-si-addrrow { display: flex; flex-direction: column; align-items: flex-start; gap: .5rem; margin: .5rem 0 0; }
+#plus-state2 .plus-si-addrrow code { align-self: stretch; padding: .55rem .7rem; border-radius: 8px; background: rgba(47,87,196,.22); border: 1px solid rgba(126,160,240,.45); color: #E6EBF7; font: 600 1rem var(--font-ui, system-ui, sans-serif); text-align: center; overflow-wrap: anywhere; }
 #plus-state2 .plus-si-sub { color: #E6EBF7; font-weight: 600; margin: 1.2rem 0 .5rem; }
 #plus-state2 .plus-si-steps { list-style: none; margin: 0 0 1rem; padding: 0; }
 #plus-state2 .plus-si-steps li { display: flex; gap: .65rem; align-items: flex-start; padding: .6rem .75rem; margin: 0 0 .5rem; border: 1px solid #2a3f6b; border-radius: 10px; background: rgba(255,255,255,.035); }
