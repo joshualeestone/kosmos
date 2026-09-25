@@ -43,6 +43,7 @@ test.before(async () => {
 test.after(() => { try { server.close(); } catch { /* closed */ } fs.rmSync(SANDBOX, { recursive: true, force: true }); });
 
 const all = async (q) => (await fetch(`${base}/api/tasks${q || ''}`)).json();
+const view = async (q) => all(q ? q + '&view=tasks' : '?view=tasks');
 const bulk = async (body, headers) => {
   const res = await fetch(`${base}/api/tasks/close`, {
     method: 'POST',
@@ -61,7 +62,7 @@ test('GET /api/tasks: every row carries state, claim and lastActivityAt, derived
   tasks.create(p.id, { sentence: 'Finished', who: 'grpagent' });
   tasks.close(p.id, 4);
   commitments.report('grpagent', [{ what: 'on task 3 of Groups' }]);
-  const body = await all(`?project=${encodeURIComponent(p.id)}`);
+  const body = await view(`?project=${encodeURIComponent(p.id)}`);
   const by = Object.fromEntries(body.tasks.map((t) => [t.sentence, t]));
   assert.equal(by['Nobody on it'].state, 'nobody');
   assert.equal(by['Given, not named'].state, 'assigned');
@@ -77,8 +78,14 @@ test('GET /api/tasks: every row carries state, claim and lastActivityAt, derived
   assert.ok(body.tasks.every((t) => t.projectId === p.id && typeof t.isClosed === 'boolean'));
 });
 
-test('GET /api/tasks: the global list carries the same fields across projects', async () => {
+test('GET /api/tasks: without ?view=tasks the list is the cheap one it always was (no snapshot, no transcript reads)', async () => {
   const body = await all();
+  assert.ok(body.tasks.length >= 4);
+  assert.ok(body.tasks.every((t) => !('state' in t) && !('claim' in t) && !('lastActivityAt' in t)), 'the View-all door and the CLI now pay for the Tasks view\'s fields');
+});
+
+test('GET /api/tasks?view=tasks: the global list carries the fields across projects', async () => {
+  const body = await view();
   assert.ok(body.tasks.length >= 4);
   assert.ok(body.tasks.every((t) => ['nobody', 'assigned', 'working', 'closed'].includes(t.state)), 'a state outside the provable four');
 });
@@ -94,9 +101,17 @@ test('POST /api/tasks/close: closes each task, writes the note to each history f
   const stored = projects.readAll().find((x) => x.id === p.id);
   assert.ok(stored.tasks.every((t) => t.closedAt), 'a task was left open');
   for (const n of [1, 2]) {
-    const said = taskchat.read(p.id, n).filter((e) => e.kind === 'said').map((e) => e.text);
+    const events = taskchat.read(p.id, n);
+    const said = events.filter((e) => e.kind === 'said').map((e) => e.text);
     assert.deepEqual(said, ['no longer needed'], `the note is not on task ${n}'s history`);
+    const kinds = events.map((e) => e.kind);
+    assert.ok(kinds.indexOf('said') !== -1 && kinds.indexOf('said') < kinds.lastIndexOf('closed'), `on task ${n} the note is not written before the close: ${kinds}`);
   }
+  // Sent again (a stale page): already closed, left alone, and the note is NOT written twice.
+  const again = await bulk({ tasks: [{ projectId: p.id, number: 1 }], note: 'no longer needed' });
+  assert.equal(again.status, 200);
+  assert.equal(again.json.results[0].already, true);
+  assert.equal(taskchat.read(p.id, 1).filter((e) => e.kind === 'said').length, 1, 'a second close wrote the note again');
 });
 
 test('POST /api/tasks/close: one bad item does not stop the others, and the answer says which failed', async () => {
@@ -127,9 +142,20 @@ test('POST /api/tasks/close: an agent token, or no screen at all, is refused; no
   assert.equal(projects.readAll().find((x) => x.id === p.id).tasks[0].closedAt, null);
 });
 
-test('POST /api/tasks/close: empty, too many, an over-long note and junk are 400s', async () => {
+test('POST /api/tasks/close: empty, too many, an over-long note and junk are refused before anything closes', async () => {
   assert.equal((await bulk({ tasks: [] })).status, 400);
-  assert.equal((await bulk({ tasks: Array.from({ length: 201 }, (_, i) => ({ projectId: 'x', number: i + 1 })) })).status, 400);
-  assert.equal((await bulk({ tasks: [{ projectId: 'x', number: 1 }], note: 'n'.repeat(tasks.MESSAGE_MAX + 1) })).status, 400);
   assert.equal((await bulk({ nope: true })).status, 400);
+  const p = projects.create({ name: 'Caps' });
+  tasks.create(p.id, { sentence: 'Must stay open' });
+  /* 201 copies of ONE REAL task: without the cap the first would close and the rest read as
+     already closed (a 200), so only the cap can make this a 400. */
+  const many = await bulk({ tasks: Array.from({ length: 201 }, () => ({ projectId: p.id, number: 1 })) });
+  assert.equal(many.status, 400);
+  assert.match(many.json.error, /up to 200/);
+  /* A real task and an over-long note: the route refuses the NOTE itself, before any close. */
+  const long = await bulk({ tasks: [{ projectId: p.id, number: 1 }], note: 'n'.repeat(tasks.MESSAGE_MAX + 1) });
+  assert.equal(long.status, 400);
+  assert.match(long.json.error, /note/);
+  assert.equal(long.json.results, undefined, 'the route tried the tasks instead of refusing the note');
+  assert.equal(projects.readAll().find((x) => x.id === p.id).tasks[0].closedAt, null);
 });
