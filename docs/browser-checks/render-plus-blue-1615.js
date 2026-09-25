@@ -88,6 +88,9 @@ const GRADIENT_RE = /gradient/i;      /* the body ground is a radial-gradient on
       /* #3724: the meaning colours, as the navy look paints them (read off body, where plus-active sets them). */
       const meaning = () => ['--pj-mention', '--gold-edge', '--ok', '--danger', '--warn-ink'].map((t) => getComputedStyle(document.body).getPropertyValue(t).trim().toLowerCase()).join(',');
       const enterMeaning = meaning();
+      /* The white sign-in fields keep the light red for their error border (coral fails on white). */
+      const whiteField = document.querySelector('#s-sec-plus .tk-inp:not(select)');
+      const fieldDanger = whiteField ? getComputedStyle(whiteField).getPropertyValue('--danger').trim().toLowerCase() : 'no field';
       const enterBg = bg();
       const enterBgImg = bgImg();
       /* CHROME, not just body: the whole-app blue is a token override that reaches
@@ -125,7 +128,7 @@ const GRADIENT_RE = /gradient/i;      /* the body ground is a radial-gradient on
       const offTabBg = bg();
       const offTabBgImg = bgImg();
 
-      return { enterMeaning, leaveMeaning,
+      return { enterMeaning, leaveMeaning, fieldDanger,
         enterActive, enterBg, enterBgImg, enterNavBg, mounted, starsSized, markSized,
         leaveActive, leaveBg, leaveBgImg, leaveNavBg, leaveMounted,
         reEnterActive, offTabActive, offTabBg, offTabBgImg,
@@ -150,6 +153,7 @@ const GRADIENT_RE = /gradient/i;      /* the body ground is a radial-gradient on
     if (r.leaveActive) problems.push(label + ': plus-active LEAKED to another Settings section');
     /* #3724: navy pins the meaning colours to the dark look's, whatever the Mac's mode. CONTROL: off Plus in light
        mode they are the light ones again, so this read can tell the two apart. */
+    if (r.fieldDanger !== '#b3261e') problems.push(label + ': a white Kosmos+ field did not keep the light red for its error border (got ' + r.fieldDanger + ')');
     if (r.enterMeaning !== MEANING_NAVY) problems.push(label + ': on Plus the meaning colours are not the dark ones (got ' + r.enterMeaning + ', want ' + MEANING_NAVY + ')');
     if (opts.scheme === 'light' && r.leaveMeaning !== MEANING_LIGHT) problems.push(label + ': CONTROL: off Plus in light mode the meaning colours are not the light ones (got ' + r.leaveMeaning + ')');
     if (GRADIENT_RE.test(r.leaveBgImg)) problems.push(label + ': the navy gradient ground LEAKED to another Settings section (backgroundImage still ' + r.leaveBgImg + ')');
