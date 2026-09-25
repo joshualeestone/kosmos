@@ -359,7 +359,7 @@ const waitFor = (page, fn, arg, ms = 6000) => page.waitForFunction(fn, arg, { ti
       && document.querySelector('input[name="d-swarm-active"][value="off"]').checked, null, 15000), 'S8 paused at the limit with an idle lead: says so, shows Paused, Stop now is off');
     // S24: the same pause with the lead still working (its interrupt failed): Stop now stays, the only interrupt.
     crewState = 'working';
-    chk(await waitFor(page, () => !!CURRENT && CURRENT.state === 'working' && !document.getElementById('d-swarm-stop').disabled, null, 15000), 'S24 paused at the limit but the lead still working: Stop now stays');
+    chk(await waitFor(page, () => !!SWARM_ROW && SWARM_ROW.state === 'working' && !document.getElementById('d-swarm-stop').disabled, null, 15000), 'S24 paused at the limit but the lead still working: Stop now stays');
     crewState = null;
     // S23: no helpers and a lead that is neither working nor idle (rate limited): the swarm line claims no "Idle".
     // CONTROL: the same row idle says "Idle, working alone".
