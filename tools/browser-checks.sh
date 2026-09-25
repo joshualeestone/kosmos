@@ -248,6 +248,12 @@ if [ -z "${AGENT_WORKFORCE_HOME:-}" ] || [ "${AGENT_WORKFORCE_HOME%/}" = "${HOME
   export AGENT_WORKFORCE_HOME="$RUN_DIR/home"
   mkdir -p "$AGENT_WORKFORCE_HOME"
 fi
+# #3801: the global skills folder is AGENT_WORKFORCE_SKILLS_DIR || the REAL ~/.claude/skills
+# (not the home above), and a board can add to it and delete from it. Its own empty one.
+if [ -z "${AGENT_WORKFORCE_SKILLS_DIR:-}" ] || [ "${AGENT_WORKFORCE_SKILLS_DIR%/}" = "${HOME%/}/.claude/skills" ]; then
+  export AGENT_WORKFORCE_SKILLS_DIR="$RUN_DIR/skills"
+  mkdir -p "$AGENT_WORKFORCE_SKILLS_DIR"
+fi
 # The OpenAI default resolves AGENT_WORKFORCE_CODEX_HOME || CODEX_HOME before the home seam
 # (codexupdate.js), and the Gemini/Grok/Claude session readers read GEMINI_CLI_HOME, GROK_HOME
 # and CLAUDE_CONFIG_DIR first, so an exported one would still reach the real home. Sealed by
