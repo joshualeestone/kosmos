@@ -2253,6 +2253,15 @@ function nameRefusal(name) {
   }
 }
 
+/* The 404 body for a `nameRefusal` reason, shared by the DM thread's routes so the two
+   sentences are written once. */
+function nameRefusalBody(refusal) {
+  return {
+    error: refusal === 'borrowed' ? 'no agent by that name' : 'we could not check which agents are running',
+    because: refusal,
+  };
+}
+
 /**
  * Is this spelling answered by a card we cannot tie to the name it is filed
  * under? The question for a READ. ONE derivation: the reason above decides,
@@ -9784,22 +9793,20 @@ const server = http.createServer((req, res) => {
           projects.markWelcomeSeeded({ project: welcome.id, via: 'first-run' });
         }
       } catch { /* the welcome project is a nicety; onboarding still completed */ }
-      /* #3034: GATED OFF pending Josh's direction -- the why (and the release
-         timing) lives with FIRSTRUN_AUTOCREATE_ENABLED in engine/setup-assistant.js,
-         not repeated here. WHEN ENABLED, this seeds the one-time setup guide (Josh's
-         AI: his name and picture, on the user's own connected account; see
-         engine/setup-assistant.js), same posture as the welcome seed above: once-ever,
-         best-effort, and it MUST NOT throw or block because onboarding has already
-         succeeded. It skips silently with no connected Claude account or if already
-         seeded, and the flag file is written only on a real create, so a skip leaves
-         nothing behind. */
+      /* #3034/#3660: Giddy Up ARMS the setup guide; it is created the moment a model is
+         connected (Splinter, 19:06), which may already be true here or may come later
+         from Settings (the sweep at board start catches that). Never created without a
+         model: it could not run. An existing install is armed only if someone
+         deliberately re-runs first-run (?first-run=1), so existing boards never get an
+         unasked-for agent. The why lives with FIRSTRUN_AUTOCREATE_ENABLED and
+         ensureGuide in engine/setup-assistant.js.
+         Fire-and-forget and best-effort: onboarding has already succeeded. */
       if (setupAssistant.FIRSTRUN_AUTOCREATE_ENABLED) {
         try {
-          const seed = setupAssistant.seedSetupAssistant({ createAgent: create.createAgent });
-          if (seed && seed.seeded) {
-            setupAssistant.markSetupAssistantSeeded({ name: seed.name, via: 'first-run' });
-          }
-        } catch { /* the setup assistant is a nicety; onboarding still completed */ }
+          setupAssistant.armSetupAssistant();
+          setupAssistant.ensureGuide({ createAgent: create.createAgent, via: 'first-run' })
+            .catch(() => { /* the setup guide is a nicety; onboarding still completed */ });
+        } catch { /* the setup guide is a nicety; onboarding still completed */ }
       }
     }
     /**
@@ -11622,6 +11629,40 @@ const server = http.createServer((req, res) => {
      read it (Josh, 2026-08-23 12:38). It merged every project thread and the
      agent-to-agent record into one tail for the agent page; a room's
      messages are read in that room, and nothing else asked for the merge. */
+  /* #3650: the person TOGGLES an emoji reaction on one of an agent's messages in their
+     Direct Message, the DM twin of the room's react route below (same operator surface,
+     same cross-site posture as every POST here, and the thread GET's name gate). The
+     message is named by its `at`; the engine refuses anything that is not exactly one of
+     this agent's own messages. The response carries the message's fresh pills so the
+     page repaints one row. */
+  const dmReact = pathname.match(/^\/api\/agent\/([^/]+)\/thread\/react$/);
+  if (dmReact && req.method === 'POST') {
+    const name = decodeSegment(dmReact[1]);
+    if (name === null) { sendJson(res, 400, { error: 'that is not a name we can read' }); return; }
+    // The DM thread's own gate (see the thread route below): a pane under this name that is
+    // not tied to it must not write into the real agent's private thread.
+    const refusal = nameRefusal(name);
+    if (refusal) {
+      sendJson(res, 404, nameRefusalBody(refusal));
+      return;
+    }
+    readBody(req)
+      .then((buf) => {
+        let body;
+        try { body = JSON.parse(buf.toString('utf8') || '{}'); } catch {
+          const bad = new Error('that request is not something we can read'); bad.status = 400; throw bad;
+        }
+        if (!body || typeof body !== 'object') {
+          const bad = new Error('that request is not the shape we expect'); bad.status = 400; throw bad;
+        }
+        const out = chat.reactDirect(name, body.at, body.emoji);
+        sendJson(res, out.ok ? 200 : 400, out);
+      })
+      .catch((err) => sendJson(res, (err && err.status) || 400,
+        { error: String((err && err.message) || 'we could not read that request') }));
+    return;
+  }
+
   /**
    * --- the thread between the person and ONE agent -------------------------
    *
@@ -11674,12 +11715,7 @@ const server = http.createServer((req, res) => {
        `nameRefusal`: 'borrowed' is standing and 'unreadable' is a blip. */
     const refusal = nameRefusal(name);
     if (refusal) {
-      sendJson(res, 404, {
-        error: refusal === 'borrowed'
-          ? 'no agent by that name'
-          : 'we could not check which agents are running',
-        because: refusal,
-      });
+      sendJson(res, 404, nameRefusalBody(refusal));
       return;
     }
     /**
@@ -11878,8 +11914,18 @@ const server = http.createServer((req, res) => {
     const servedMessages = Array.isArray(messages)
       ? chat.withQuestionRow(messages, (card && card.sessionName) || name, question)
       : messages;
+    /* #3650: the person's reactions on the agent's messages, in the room's pill shape
+       ({emoji, count, who, mine}) so the page draws them with the room's renderer.
+       `reactionsTold` is the engine's own bookkeeping and is not sent. */
+    const reactedMessages = Array.isArray(servedMessages)
+      ? servedMessages.map((m) => {
+        if (!m || m.from !== name) return m;
+        const { reactionsTold, ...rest } = m;
+        return Array.isArray(m.reactions) ? { ...rest, reactions: chat.dmReactionPills(m) } : rest;
+      })
+      : servedMessages;
     sendJson(res, 200, {
-      messages: withPreviews(servedMessages),
+      messages: withPreviews(reactedMessages),
       olderCount,
       historyBecause,
       historyUnfilable,
@@ -12128,7 +12174,22 @@ const server = http.createServer((req, res) => {
            operator message rather than having to be instructed to know it. No
            timezone set (or an unreadable id) yields the bare prefix, unchanged. */
         const opPrefix = messages.operatorDirect(messages.operatorNowLabel(store.readSettings().timezone));
-        const delivery = chat.deliver(name, body.text, roster, opPrefix, attachments.wireNote(files.recs));
+        /* #3650: reactions the person put on the agent's messages since it was last told
+           ride this message as one `[kosmos]` note after the person's words (a reaction
+           is feedback, so it waits for a message rather than waking the agent). */
+        /* Not on a numbered menu answer (chat.dmNoteMayRide); the note waits for the next
+           ordinary message. */
+        const news = chat.dmNoteMayRide(body.text, chose) ? chat.dmReactionNews(name) : { note: '', named: {} };
+        const reactionNote = news.note;
+        const delivery = chat.deliver(name, body.text, roster, opPrefix,
+          (attachments.wireNote(files.recs) || '') + reactionNote);
+        /* Only PLACED counts as told. The note is the tail of the wire, so an UNCONFIRMED
+           send (a paste that failed part-way, a pane that changed before Enter) is the case
+           most likely to have lost it. Telling twice costs one extra note; not telling is
+           silent. A failed mark (the thread lock busy) also just tells again next time. */
+        if (reactionNote && delivery && delivery.state === chat.DELIVERY.PLACED) {
+          chat.markDmReactionsTold(name, news.named);
+        }
         const kept = chat.appendMessage(chat.DIRECT, name, {
           ...attachments.rowFields(files.recs),
           text: chose || body.text,
@@ -15144,6 +15205,26 @@ function start(port = PORT) {
         try { feedbacksend.sendDailyOnce(feedback.today()); } catch { /* best-effort, like the sweeps above */ }
       }, Number(process.env.AGENT_WORKFORCE_FEEDBACK_SWEEP_MS) > 0 ? Number(process.env.AGENT_WORKFORCE_FEEDBACK_SWEEP_MS) : 60 * 60 * 1000); // the env is the test seam only
       if (feedbackSweep && typeof feedbackSweep.unref === 'function') feedbackSweep.unref();
+      /* #3034/#3660: the setup guide is created the moment the first model is connected,
+         after Giddy Up, from any provider's connect path (keys, sign-ins that finish in the
+         background). One sweep sees them all instead of a hook in every route. Cheap until
+         something is connected (the accounts lists only); ensureGuide backs off after a
+         refusal, is single-flight, and does nothing on an unarmed (pre-existing) install or
+         once seeded. Its own timer, unref'd, best-effort, like the sweeps above. */
+      if (setupAssistant.FIRSTRUN_AUTOCREATE_ENABLED) {
+        let guideSweep = null;
+        const guideTick = () => {
+          try {
+            /* Once a guide exists there is nothing left to do: stop the timer. */
+            if (setupAssistant.setupAssistantSeeded()) { if (guideSweep) clearInterval(guideSweep); return; }
+            setupAssistant.ensureGuide({ createAgent: create.createAgent, via: 'model-connected' })
+              .catch(() => { /* best-effort */ });
+          } catch { /* best-effort */ }
+        };
+        guideTick();
+        guideSweep = setInterval(guideTick, Number(process.env.AGENT_WORKFORCE_GUIDE_SWEEP_MS) > 0 ? Number(process.env.AGENT_WORKFORCE_GUIDE_SWEEP_MS) : 60 * 1000); // the env is the test seam only
+        if (guideSweep && typeof guideSweep.unref === 'function') guideSweep.unref();
+      }
       /* #3038: register this install with installkosmos.com so the homepage
          INSTALL count moves (Josh's #1-frustration regression: it was frozen at
          32 because the app never POSTed /api/created). UNCONDITIONAL -- it

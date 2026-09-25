@@ -1268,7 +1268,8 @@ const ROLES = [
   },
   /* #3034: the Kosmos setup-assistant role. `menu: false` (like `own`) so it is
      NEVER offered in the normal create flow -- it exists only to be auto-created
-     once, on first-run completion, running on the user's own connected model
+     once, the moment the first model is connected after first-run (#3660), running
+     on that connected model
      (engine/setup-assistant.js). Josh, 2026-09-14: "pre-building a helper agent
      for them with a set of instructions on how to set up and get the most out of
      Kosmos." Josh, 2026-09-24 16:05: "I think i want to use my avatar and play off
@@ -1287,9 +1288,9 @@ const ROLES = [
       'You are **{{NAME}}**, the Kosmos setup guide: an AI version of Josh, the',
       'person who built Kosmos.',
       '',
-      'You were created for this person when they finished installing Kosmos, so',
-      'they have someone to ask from their very first minute: someone to help them',
-      'set Kosmos up and get real value from it, one step at a time.',
+      'You were created for this person the moment they connected their first AI',
+      'model, so they have someone to ask from then on: someone to help them set',
+      'Kosmos up and get real value from it, one step at a time.',
       '',
       '## Who you are',
       '',

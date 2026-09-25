@@ -383,6 +383,16 @@ const BLOCK = [
   'still needs a post, or the room keeps showing you as not having answered. Do',
   'not react to every post, put at most one reaction on any post, and never',
   'react to your own posts.',
+  '',
+  '### When someone reacts in a direct conversation',
+  '',
+  'The person can react to your messages in your direct conversation too. You are',
+  'not interrupted for it: you learn about it with their next message, on a',
+  '`[kosmos] reactions from the person` note after their words, naming the emoji and',
+  'the start of the message it was on. Treat it exactly like a reaction in a room:',
+  'feedback, not a message, and never something to reply to on its own. There is no',
+  'way for you to react back in a direct conversation; answer in words when an',
+  'answer is needed.',
 ].join('\n');
 
 /**
@@ -590,8 +600,20 @@ function block() {
  *     WEAKEST PREMISE, NAMED: an agent sees a reaction the next time it reads
  *     the room, not as a notice that wakes it. Nothing is pushed to the pane,
  *     which is also why a reaction cannot force a reply turn.
+ *
+ *  14. kosmos#3650. Josh, 2026-09-24 12:27: reactions "in both their
+ *     conversations and projects". The person can now react to an agent's
+ *     messages in a Direct Message; the agent is told on the person's next
+ *     message there, as one `[kosmos]` note (engine/chat.js dmReactionNote).
+ *     A NEW section, for the same delivery reason as 13: `missingFrom` matches
+ *     by heading, so an edit inside `### When someone reacts to your post`
+ *     would have reached new agents only.
+ *     WEAKEST PREMISE, NAMED: a reaction the person makes and never follows
+ *     with a message is never told. That is deliberate (a reaction must not
+ *     wake the agent into a turn) and matches the room, where a reaction is
+ *     seen only on the agent's next read.
  */
-const DOCTRINE_VERSION = 13;
+const DOCTRINE_VERSION = 14;
 
 /**
  * The block as named sections (#539): the `##` preamble first, then each
