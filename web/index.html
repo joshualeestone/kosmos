@@ -43775,7 +43775,7 @@ function pjProse(text, names, agentNames) {
     /* #2701: emit the heading LEVEL (mdh1..mdh6) so `#`..`######` render at
        different sizes -- a `##` heading (and any emoji in it) is bigger than a
        `####` one, which a single mdh size collapsed. */
-    let m = /^[ \t]*(#{1,6})[ \t]+(.*)$/.exec(line);
+    let m = /^[ \t]*(#{1,6})[ \t]+([^]*)$/.exec(line);
     if (m) { out.push('<span class="mdh mdh' + m[1].length + '">' + pjRichSpans(m[2], names, agentNames) + '</span>'); continue; }
     /* NO markdown blockquote in the room, on purpose. The room already has a
        DISTINCT, server-supplied quote (`m.quotes` -> <blockquote class="quoteb">),
@@ -43783,10 +43783,11 @@ function pjProse(text, names, agentNames) {
        so the two never collide. (The pjRich row surfaces, which have no
        server-quote concept, do style `>` as `.mdq`; this renderer deliberately
        does not.) `>` therefore falls through to inline text below. */
-    // #3679: a nested item keeps its depth, as in pjRich (pjListDepth).
-    m = /^([ \t]*)[-+*][ \t]+(.*)$/.exec(line);
+    // #3679: a nested item keeps its depth, as in pjRich (pjListDepth). The line rules end in
+    // ([^]*)$ rather than (.*)$: `.` stops at U+2028, and (.*)$ then backtracks over a long space run.
+    m = /^([ \t]*)[-+*][ \t]+([^]*)$/.exec(line);
     if (m) { out.push('<span class="mdli' + pjListDepth(listStack, m[1]) + '">' + pjRichSpans(m[2], names, agentNames) + '</span>'); continue; }
-    m = /^([ \t]*)(\d+)\.[ \t]+(.*)$/.exec(line);
+    m = /^([ \t]*)(\d+)\.[ \t]+([^]*)$/.exec(line);
     if (m) { out.push('<span class="mdli mdlin' + pjListDepth(listStack, m[1]) + '" data-n="' + esc(m[2]) + '.">' + pjRichSpans(m[3], names, agentNames) + '</span>'); continue; }
     out.push(pjRichSpans(line, names, agentNames));
   }
@@ -44087,15 +44088,15 @@ function pjRich(text) {
     if (/^[ \t]*(-{3,}|\*{3,}|_{3,})[ \t]*$/.test(line)) { out.push('<span class="mdhr"></span>'); i += 1; continue; }
     /* #2701: emit the heading LEVEL (mdh1..mdh6) so different `#` depths render
        at different sizes (emojis/text in a `##` heading larger than a `####`). */
-    let m = /^[ \t]*(#{1,6})[ \t]+(.*)$/.exec(line);
+    let m = /^[ \t]*(#{1,6})[ \t]+([^]*)$/.exec(line);
     if (m) { out.push('<span class="mdh mdh' + m[1].length + '">' + pjRichSpans(m[2]) + '</span>'); i += 1; continue; }
-    m = /^[ \t]*>[ \t]?(.*)$/.exec(line);
+    m = /^[ \t]*>[ \t]?([^]*)$/.exec(line);
     if (m) { out.push('<span class="mdq">' + pjRichSpans(m[1]) + '</span>'); i += 1; continue; }
     /* #3679: a nested item keeps its depth (pjListDepth), now that the store keeps
        indentation. A top-level item's markup is unchanged. */
-    m = /^([ \t]*)[-+*][ \t]+(.*)$/.exec(line);
+    m = /^([ \t]*)[-+*][ \t]+([^]*)$/.exec(line);
     if (m) { out.push('<span class="mdli' + pjListDepth(listStack, m[1]) + '">' + pjRichSpans(m[2]) + '</span>'); i += 1; continue; }
-    m = /^([ \t]*)(\d+)\.[ \t]+(.*)$/.exec(line);
+    m = /^([ \t]*)(\d+)\.[ \t]+([^]*)$/.exec(line);
     if (m) { out.push('<span class="mdli mdlin' + pjListDepth(listStack, m[1]) + '" data-n="' + esc(m[2]) + '.">' + pjRichSpans(m[3]) + '</span>'); i += 1; continue; }
     out.push(pjRichSpans(line));
     i += 1;

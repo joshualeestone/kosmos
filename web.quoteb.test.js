@@ -123,3 +123,11 @@ test('#3679: the prose around a quote is trimmed in linear time (a long space ru
   const ms = Number(process.hrtime.bigint() - t0) / 1e6;
   assert.ok(ms < 3000, 'rendering took ' + ms.toFixed(0) + 'ms; a backtracking trim is quadratic');
 });
+
+test('#3679: a list line with a long space run and a line separator renders in linear time in the room', () => {
+  const text = 'look:\n```\n- ' + ' '.repeat(200000) + ' x';
+  const t0 = process.hrtime.bigint();
+  api.pjRoomRow(row('leo', text), P);
+  const ms = Number(process.hrtime.bigint() - t0) / 1e6;
+  assert.ok(ms < 3000, 'rendering took ' + ms.toFixed(0) + 'ms; a (.*)$ line rule backtracks');
+});

@@ -107,6 +107,7 @@ test('#3679: a byte-order mark and non-breaking-space indentation do not unbalan
   assert.equal(chat.storeText('\ufeff\ufeff  a\n  b'), 'a\nb', 'more than one leading mark');
   assert.equal(chat.storeText('\u00a0\u00a0- a\n\u00a0\u00a0\u00a0\u00a0- b'), '- a\n  - b');
   assert.equal(chat.storeText('a\u00a0\u00a0b'), 'a\u00a0\u00a0b', 'a non-breaking space inside a line is left alone');
+  assert.equal(chat.storeText('\u3000\u3000- a\n\u3000\u3000\u3000\u3000- b'), '- a\n    - b', 'full-width indentation counts two columns a character');
   assert.equal(chat.storeText('x\n  \u00a0\u00a0- b'), 'x\n    - b', 'spaces then non-breaking spaces count as one run');
 });
 
@@ -145,6 +146,10 @@ test('#3679: the routes\' composed check refuses a huge raw text quickly, as pro
   const ms = Number(process.hrtime.bigint() - t0) / 1e6;
   assert.notEqual(why, null, 'a 5.8MB message was accepted');
   assert.ok(ms < 300, 'the composed check took ' + ms.toFixed(0) + 'ms; storeText walked the raw text before the cap');
+});
+
+test('#3679: the Unicode line and paragraph separators are stored as line breaks', () => {
+  assert.equal(chat.storeText('a\u2028b\u2029c'), 'a\nb\nc');
 });
 
 test('#3679: whitespace the old trim removed is still removed', () => {

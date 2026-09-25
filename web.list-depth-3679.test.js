@@ -106,6 +106,14 @@ test('#3679: pjRich closes a fence in CRLF text (a task detail is stored raw)', 
   assert.match(html, /<strong>done<\/strong>/, 'the text after the fence was drawn as code');
 });
 
+test('#3679: pjRich renders a long space run before a line separator in linear time (raw task details)', () => {
+  const fn = RENDERERS.find(([n]) => n === 'pjRich')[1]();
+  const t0 = process.hrtime.bigint();
+  fn('- ' + ' '.repeat(200000) + '\u2028x\n# ' + ' '.repeat(200000) + '\u2028y\n1. ' + ' '.repeat(200000) + '\u2029z');
+  const ms = Number(process.hrtime.bigint() - t0) / 1e6;
+  assert.ok(ms < 3000, 'took ' + ms.toFixed(0) + 'ms');
+});
+
 test('#3679: the page styles each depth on every surface that shows these items', () => {
   const max = Number(/const LIST_DEPTH_MAX = (\d+);/.exec(page.lift(SCRIPT, 'pjListDepth'))[1]);
   assert.equal(PAGE.includes('.mdli-d' + (max + 1)), false, 'a style for a depth the renderer never emits');

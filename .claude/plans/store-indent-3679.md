@@ -232,3 +232,20 @@ always a stray keystroke, and trimming it keeps "  hello" stored as "hello".
   The new test times the composition production uses; my earlier test timed `storedProblem`
   alone, which is why it could not see this. Removing the bound reds it (708 ms).
 - NIT fixed: pjProse's CRLF comment names what it is for (its `$`-anchored line rules).
+
+## Review pass 17 (opus)
+- Fixed (raised as a BLOCKER; a real denial of service this branch made reachable): the room's
+  list and heading rules end in `(.*)$`, which backtracks quadratically over a long space run
+  when the line holds U+2028/U+2029 (`.` stops there). The store now keeps such runs inside
+  fences the room does not split out, so one post could stall every viewer's tab for seconds.
+  Both renderers' line rules end in `([^]*)$`, and the store turns U+2028/U+2029 into line
+  breaks. Timing tests on the room render and on pjRich; the old rules red them.
+- WARNING fixed: `/api/reply` and the project-thread DM route now have tests pinning their
+  stored-ceiling wiring; removing either reds its test.
+- WARNING fixed: the storedWithin doc says the raw bound also lives in messageProblem, because
+  storeText runs there too.
+- NITs fixed: full-width-space indentation converts like non-breaking spaces (two columns
+  each); the fence doc bullet is split in two.
+- Recorded: a direct message walks storeText three times (validate, stored check, append), each
+  linear and bounded; and pjRich's stricter fence rule also applies to raw task details, where
+  an opener with a backtick in its info string no longer opens a fence.

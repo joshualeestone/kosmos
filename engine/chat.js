@@ -349,13 +349,14 @@ function cleanMessage(raw) {
  * daily). So the store keeps `\n`; only `deliver()` still flattens on the way
  * to a pane. It also normalises CR, since a bare `\r` is a control character
  * `messageProblem` would otherwise refuse:
- *   - CRLF and lone CR → LF
+ *   - CRLF, lone CR and the Unicode line/paragraph separators → LF
  *   - a tab → four spaces (a tab is a control character `CONTROL` refuses)
  *   - #3679: indentation is kept, and inside a ``` fence each line is kept as
- *     written except its trailing spaces (and, in a fence left open, blank lines at
- *     the very end of the message) (the tab rule above, and the leading
- *     non-breaking space and shared-indent rules, apply there too), so code and
- *     nested lists arrive as written. Outside a fence, a run of spaces INSIDE a line becomes one space
+ *     written except its trailing spaces, so code and nested lists arrive as
+ *     written. The tab rule above and the leading-space and shared-indent rules
+ *     apply inside a fence too.
+ *   - In a fence left open, blank lines at the very end of the message go with
+ *     the final trim. Outside a fence, a run of spaces INSIDE a line becomes one space
  *     and trailing spaces go.
  *   - outside a fence, three or more newlines → a single blank line
  *   - the indentation every line shares comes off, then the ends are trimmed.
@@ -383,10 +384,10 @@ function trimSpacesEnd(line) {
 }
 function storeText(raw) {
   // A leading byte-order mark goes, and a line's leading non-breaking spaces (how rich-text
-  // pastes indent) become spaces, so the dedent below and the final trim agree on what
-  // indentation is.
-  const lines = String(raw == null ? '' : raw).replace(/^\ufeff+/, '').replace(/\r\n?/g, '\n').replace(/\t/g, STORE_TAB)
-    .split('\n').map((l) => l.replace(/^[ \u00a0]+/, (run) => ' '.repeat(run.length)));
+  // pastes indent) and full-width spaces (CJK text; two columns each) become spaces, so the
+  // dedent below and the final trim agree on what indentation is.
+  const lines = String(raw == null ? '' : raw).replace(/^\ufeff+/, '').replace(/\r\n?|[\u2028\u2029]/g, '\n').replace(/\t/g, STORE_TAB)
+    .split('\n').map((l) => l.replace(/^[ \u00a0\u3000]+/, (run) => run.replace(/\u3000/g, '  ').replace(/\u00a0/g, ' ')));
   const out = [];
   let fenceLen = 0;   // the opening run's length while inside a fence, else 0
   let blanks = 0;
@@ -468,7 +469,8 @@ function messageProblem(raw) {
  * STORE_GROWTH squared times `limit` (checked first, so a few words and a million blank
  * lines are refused before the store walks them), or the stored form past STORE_GROWTH
  * times `limit`. Only for paths that PERSIST `storeText`; a pane-only path keeps nothing,
- * so these limits do not apply to it (`messageProblem` is the pane's rule).
+ * so the stored ceiling does not apply to it (`messageProblem` is the pane's rule). The raw
+ * bound does: `messageProblem` runs storeText too, so it carries the same raw check.
  */
 function storedWithin(raw, limit) {
   if (raw != null && String(raw).length > STORE_GROWTH * STORE_GROWTH * limit) return null;

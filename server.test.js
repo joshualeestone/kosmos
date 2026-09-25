@@ -14771,3 +14771,31 @@ test('#3679: the DM route refuses a message whose stored form is past the ceilin
     board.restore();
   }
 });
+
+test('#3679: /api/reply and the project-thread DM route refuse a stored form past the ceiling', async () => {
+  const messagesEngine = require('./engine/messages');
+  const chatEngine = require('./engine/chat');
+  const projectsEngine = require('./engine/projects');
+  const board = fleet.install([fleet.agent('leo', { state: 'idle' })]);
+  const text = '```\n' + ('    a' + ' '.repeat(40) + 'b\n').repeat(1000) + '```';
+  assert.ok(chatEngine.cleanMessage(text).length <= chatEngine.MAX_TEXT, 'CONTROL: the one-line form is under the limit');
+  const pr = projectsEngine.create({ name: 'Indent Ceiling 3679' });
+  projectsEngine.writeAll(projectsEngine.readAll().map((x) => (x.id === pr.id ? { ...x, agents: ['leo'] } : x)));
+  try {
+    messagesEngine.setRunner(() => ({ ok: true, session: 'leo-discord' }));
+    const reply = await req('/api/reply', {
+      method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ text }),
+    });
+    assert.match(reply.body, /indentation and spacing/, 'the reply route kept it: ' + reply.body.slice(0, 200));
+    const thread = await req('/api/project/' + pr.id + '/thread/leo', {
+      method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ text }),
+    });
+    assert.equal(thread.status, 400, thread.body.slice(0, 200));
+    assert.match(thread.body, /indentation and spacing/);
+  } finally {
+    try { projectsEngine.writeAll(projectsEngine.readAll().filter((x) => x.id !== pr.id)); } catch { /* sandboxed */ }
+    messagesEngine.setRunner(null);
+    chatEngine.resetForTests();
+    board.restore();
+  }
+});
