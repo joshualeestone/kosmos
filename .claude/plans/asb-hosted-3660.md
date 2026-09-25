@@ -48,3 +48,12 @@ rebuilt one. A board on an old connector sees the 501 path once per session.
 - render-assistant-bubble-3034 still passes (54), including B1's "no bubble without a guide" in a checkout sandbox.
 - server.setup-guide-page-3034: `hosted` is false on a checkout board. hostedAvailable is covered in four arms
   (real file, missing, a bare name, a directory), and the picture route is checked (a JPEG, plus a 404 control).
+
+## Review iteration 2 (fixed)
+- WARNING: not-guide (an agent took the guide's name) left `hosted` stale, and the bubble vanished. The 409 now carries
+  `hosted`, and the page reads it for none and not-guide alike. H14 covers it (H11 allows that one 409, which dates
+  from #3034).
+- NITs taken: an own_model refusal says so and steps aside, with focus returned. "Thinking" is announced in the live
+  region. The refusal's copy is "you've connected your own AI, so the setup assistant is moving over to it".
+- NIT kept as a choice: listedModels() on each no-guide poll. It is local config reads, the poll backs off to a
+  minute, and accounts already pays the same on the 5s tick.

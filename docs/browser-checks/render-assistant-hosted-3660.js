@@ -92,7 +92,8 @@ const waitFor = (page, fn, ms = 6000) => page.waitForFunction(fn, null, { timeou
     const errs = [];
     page.on('pageerror', (e) => errs.push(e.message));
     const badResponses = [];
-    page.on('response', (r) => { if (r.status() >= 400 && !/\/api\/setup-guide\/hosted$/.test(r.url())) badResponses.push(r.status() + ' ' + r.url()); });
+    /* Allowed: the hosted refusals the check asks for, and H14's not-guide, a 409 since #3034 (a refusal, by design). */
+    page.on('response', (r) => { if (r.status() >= 400 && !/\/api\/setup-guide\/hosted$/.test(r.url()) && !(r.status() === 409 && /\/api\/setup-guide$/.test(r.url()))) badResponses.push(r.status() + ' ' + r.url()); });
     /* The hosted route, answered here. `answer` is what the next question gets. */
     const asked = [];
     let answer = { status: 200, body: { reply: 'Click New agent at the top, then pick what it should do.', remaining: 29 } };
@@ -263,6 +264,20 @@ const waitFor = (page, fn, ms = 6000) => page.waitForFunction(fn, null, { timeou
     await boot();
     await page.waitForTimeout(3000);
     chk(!(await state(page)).bubble && await page.evaluate(() => ASB.hosted === false), 'H13 and no bubble is drawn');
+
+    // H14: an unrelated agent took a name the guide seed recorded (409 not-guide): still no guide, so the hosted
+    // assistant stands in rather than the bubble vanishing. CONTROL: H13, where a model of their own keeps it off.
+    fs.rmSync(path.join(HOME, '.claude.json'), { force: true });
+    fs.mkdirSync(path.dirname(instructions.fileFor('josh')), { recursive: true });
+    fs.writeFileSync(instructions.fileFor('josh'), '# josh\n');
+    fs.rmSync(path.join(path.dirname(instructions.fileFor('josh')), setupAssistant.GUIDE_MARKER), { force: true });
+    setupAssistant.markSetupAssistantSeeded({ name: 'josh', via: 'browser-check' });
+    const ng = await fetch(URL + '/api/setup-guide');
+    const ngb = await ng.json();
+    chk(ngb.reason === 'not-guide' && ngb.hosted === true, 'H14 precondition: a name that is not the guide answers not-guide, and says hosted', JSON.stringify({ status: ng.status, ngb }));
+    await boot();
+    chk(await waitFor(page, () => { const b = document.getElementById('asb'); return b && !b.hidden && ASB.hosted === true && ASB.guide === null; }, 8000), 'H14 and the hosted bubble stands in');
+    unseed();
 
     chk(MARK_WORKS && !fs.existsSync(RAN), 'H12 the connector never ran (CONTROL: run by hand at the start, it leaves its mark)', JSON.stringify({ MARK_WORKS }));
     chk(badResponses.length === 0, 'H11 no failed resource other than the refusals the check asked for', badResponses.join(' | '));

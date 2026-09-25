@@ -13726,7 +13726,9 @@ const server = http.createServer((req, res) => {
        shows and talks to /api/setup-guide/hosted. False once they have a model of their own, and in a checkout
        or a sandbox (setupAssistant.hostedOffered). */
     if (!found.ok && found.reason === 'none') { sendJson(res, 200, { ok: false, reason: 'none', error: found.error, hosted: require('./engine/setup-assistant').hostedOffered() }); return; }
-    if (!found.ok) { sendJson(res, found.status, { error: found.error, reason: found.reason }); return; }
+    /* A name that is not the guide's (409 not-guide) is also no guide, so it says hosted too: the bubble
+       stands in rather than vanishing. */
+    if (!found.ok) { sendJson(res, found.status, { error: found.error, reason: found.reason, ...(found.reason === 'not-guide' ? { hosted: require('./engine/setup-assistant').hostedOffered() } : {}) }); return; }
     sendJson(res, 200, { ok: true, name: found.name });
     return;
   }
@@ -13744,7 +13746,7 @@ const server = http.createServer((req, res) => {
     /* The same test the bubble is shown by, so the route cannot be used past it (a model connected, a checkout). */
     if (!require('./engine/setup-assistant').hostedOffered()) {
       req.resume();
-      sendJson(res, 409, { error: 'you have your own AI connected now, so the setup assistant runs on that', code: 'own_model' });
+      sendJson(res, 409, { error: "you've connected your own AI, so the setup assistant is moving over to it", code: 'own_model' });
       return;
     }
     readBody(req)

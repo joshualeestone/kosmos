@@ -54368,7 +54368,7 @@ async function asbConfirmGuide({ forgetLater = false } = {}) {
   if (r.ok && b && b.ok && typeof b.name === 'string') {
     if (ASB.guide && b.name.toLowerCase() === String(ASB.guide).toLowerCase()) return true;
   } else if (!(b && (b.reason === 'none' || b.reason === 'not-guide'))) return !!ASB.guide;
-  if (b && b.reason === 'none') ASB.hosted = b.hosted === true;   // the hosted assistant stands in at once, no blink
+  if (b && (b.reason === 'none' || b.reason === 'not-guide')) ASB.hosted = b.hosted === true;   // the hosted assistant stands in at once, no blink
   if (forgetLater) setTimeout(asbForgetGuide, 4000); else asbForgetGuide();
   return false;
 }
@@ -54545,6 +54545,7 @@ async function asbHostedSend(text) {
   const wait = document.createElement('div');
   wait.className = 'asp-m him asp-wait'; wait.textContent = 'Thinking\u2026';
   th.appendChild(wait); th.scrollTop = th.scrollHeight;
+  document.getElementById('asp-live').textContent = 'Thinking';
   let r = null, b = null;
   try {
     /* The screen only: the route keeps nothing else, and the names of their agents and projects never need
@@ -54566,6 +54567,14 @@ async function asbHostedSend(text) {
   } else {
     hm.pop();   // not asked: the words are still in the box
     msg.textContent = pjSentence((b && b.error) || 'we could not reach the setup assistant just now; try again in a moment');
+    /* They connected their own AI meanwhile: say so, and the bubble goes (the guide follows on its own). */
+    if (r && r.status === 409 && b && b.code === 'own_model') {
+      setTimeout(() => {
+        const hadFocus = !!document.activeElement && !!document.activeElement.closest('#asblayer');
+        ASB.hosted = false; ASB.open = false; asbPaint(); asbPaintSetting();
+        if (hadFocus) asbFocusPage();
+      }, 6000);
+    }
     if (r && r.status === 501) {
       /* Long enough to read, with nothing more to send, then gone for the session. */
       try { sessionStorage.setItem(ASB_HOSTED_OFF_KEY, '1'); } catch { /* this page still knows */ }
@@ -54642,7 +54651,7 @@ async function asbFind() {
        reason: 'none' } here, not a 404, which the browser would log as a failed resource on every page. */
     const b = await r.json().catch(() => null);
     if (r.ok && b && b.ok && typeof b.name === 'string') guide = b.name;
-    else if (r.ok && b && b.reason === 'none') {
+    else if (b && (b.reason === 'none' || b.reason === 'not-guide')) {
       const was = ASB.hosted;
       ASB.hosted = b.hosted === true;
       if (ASB.hosted && !was) { asbLayerEnsure(); if (!ASB.setting) asbReadSetting(); else { asbPaint(); asbPaintSetting(); } }
