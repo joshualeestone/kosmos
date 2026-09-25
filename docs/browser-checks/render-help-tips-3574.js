@@ -624,6 +624,110 @@ const resetStore = (state) => fs.writeFileSync(tipsStore.FILE(), JSON.stringify(
     chk(got31.length === 9 && bad31.length === 0, 'T31 every screen\'s tip opens and covers no visible control', JSON.stringify(bad31.length ? bad31 : got31.map((g) => g.name)));
     await page.keyboard.press('Escape');
 
+    // T32: the whole card stays on screen, whichever side of the fold its target is (#3574, Liu Kang
+    // 2026-09-25: a phone layout puts the project tip's target below the composer). The target is one this
+    // check places itself, below the fold and then above it; the control is a target in view, which must
+    // still get its arrow.
+    const place32 = (where, real = false) => page.evaluate(([wh, useReal]) => {
+      tipLayerEnsure();
+      document.querySelectorAll('[data-t32]').forEach((x) => x.remove());
+      const t = document.createElement('div'); t.setAttribute('data-t32', '');
+      const top = wh === 'below' ? window.innerHeight + 300 : wh === 'above' ? -400 : wh === 'low' ? window.innerHeight - 70 : Math.round(window.innerHeight / 3);
+      const left = wh === 'left' ? -500 : wh === 'right' ? window.innerWidth + 300 : 200;
+      t.style.cssText = 'position:fixed;width:120px;height:30px;left:' + left + 'px;top:' + (wh === 'left' || wh === 'right' ? Math.round(window.innerHeight / 3) : top) + 'px';
+      document.body.appendChild(t);
+      /* On a phone the REAL card is used, so the stylesheet's pinned width and edges apply as they do for a person. */
+      let c = useReal ? document.getElementById('tipcard') : null;
+      if (!c) { c = document.createElement('div'); c.className = 'tipcard'; c.setAttribute('data-t32', ''); c.style.cssText = 'position:fixed;width:300px;height:180px'; document.getElementById('tiplayer').appendChild(c); }
+      const was = document.getElementById('tiplayer').hidden; document.getElementById('tiplayer').hidden = false;
+      tipPlace(c, 'div[data-t32]:not(.tipcard)', false, { key: 't32', avoid: false });
+      const b = c.getBoundingClientRect();
+      const tr = t.getBoundingClientRect();
+      const out = { top: Math.round(b.top), bottom: Math.round(b.bottom), left: Math.round(b.left), right: Math.round(window.innerWidth - b.right), vh: window.innerHeight, flat: c.classList.contains('flat'),
+        onTarget: b.left < tr.right && b.right > tr.left && b.top < tr.bottom && b.bottom > tr.top };
+      document.getElementById('tiplayer').hidden = was;
+      document.querySelectorAll('[data-t32]').forEach((x) => x.remove());
+      return out;
+    }, [where, real]);
+    const inside = (q) => q.top >= 12 && q.vh - q.bottom >= 12 && q.left >= 11 && q.right >= 11;
+    for (const wh of ['below', 'above', 'left', 'right']) {
+      const p32 = await place32(wh);
+      chk(inside(p32) && p32.flat, 'T32 a target ' + (wh === 'left' || wh === 'right' ? 'off to the ' + wh : wh + ' the fold') + ': the card is wholly on screen, with no arrow', JSON.stringify(p32));
+    }
+    const in32 = await place32('in view');
+    chk(inside(in32) && !in32.flat && !in32.onTarget, 'T32 CONTROL: a target in view keeps its arrow', JSON.stringify(in32));
+    // T32b: on a phone with the real card. A target low on the screen (the project tip's Members button under
+    // the composer) is a control: main already handled it. The one below the fold is what main got wrong.
+    await page.setViewportSize({ width: 390, height: 800 });
+    await page.waitForTimeout(300);
+    await page.click('#helpq-btn');
+    await page.click('#helpq-menu [data-help="ring"]');
+    await page.waitForTimeout(200);
+    const low32 = await place32('low', true), fold32 = await place32('below', true);
+    chk(inside(low32) && !low32.onTarget, 'T32b on a phone, a target low on the screen: the real card is wholly on screen and off its target', JSON.stringify(low32));
+    chk(inside(fold32) && fold32.flat, 'T32b on a phone, a target below the fold: the real card is wholly on screen, with no arrow', JSON.stringify(fold32));
+    await page.keyboard.press('Escape');
+    // T32c: a window shorter than the card (a phone on its side). The words scroll inside the card, so the
+    // whole card, its buttons included, still fits on screen.
+    await page.setViewportSize({ width: 844, height: 300 });
+    await page.waitForTimeout(300);
+    await page.click('#helpq-btn');
+    await page.click('#helpq-menu [data-help="ring"]');
+    await page.waitForTimeout(250);
+    const shortRead = () => page.evaluate(() => { const c = document.getElementById('tipcard'); const b = c.getBoundingClientRect(); const go = c.querySelector('.tip-go').getBoundingClientRect(); const bd = c.querySelector('.tip-bd');
+      return { top: Math.round(b.top), bottom: Math.round(b.bottom), vh: window.innerHeight, goIn: go.bottom <= window.innerHeight && go.top >= 0, scrolls: !!bd && bd.scrollHeight > bd.clientHeight, tab: bd ? bd.getAttribute('tabindex') : null }; });
+    const short32 = await shortRead();
+    chk(short32.top >= 12 && short32.vh - short32.bottom >= 12 && short32.goIn && short32.scrolls && short32.tab === '0', 'T32c on a window shorter than the card, it fits with Got it in view, and its words scroll and take the keyboard', JSON.stringify(short32));
+    await page.keyboard.press('Escape');
+    // T32d: narrow AND short (a phone on its side, the title wrapping), where the words' room is smallest.
+    await page.setViewportSize({ width: 360, height: 300 });
+    await page.waitForTimeout(300);
+    await page.click('#helpq-btn');
+    await page.click('#helpq-menu [data-help="ring"]');
+    await page.waitForTimeout(250);
+    const narrow32 = await shortRead();
+    // T32f: words the person scrolled stay scrolled when the card is placed again (it is, on every resize and tick),
+    // and scrolling them places nothing (on WebKit that re-placing looped every frame).
+    const kept32 = await page.evaluate(async () => {
+      const bd = document.querySelector('#tipcard .tip-bd');
+      const real = window.tipPlace; let calls = 0; window.tipPlace = function (...a) { calls++; return real.apply(this, a); };
+      try {
+        bd.scrollTop = 30; const at = bd.scrollTop;
+        await new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)));
+        /* Read synchronously, so the page's own tip tick cannot land in the measurement: a scroll on the words
+           must not queue a placement, and a scroll on the page (the control) must. */
+        const idle = TIP_RELAYOUT === false;
+        bd.dispatchEvent(new Event('scroll')); const byScroll = TIP_RELAYOUT;
+        await new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)));
+        document.dispatchEvent(new Event('scroll')); const byPage = TIP_RELAYOUT;
+        const before = calls;
+        window.dispatchEvent(new Event('resize')); await new Promise((r) => setTimeout(r, 1300));
+        return { at, after: bd.scrollTop, idle, byScroll, byPage, byResize: calls - before };
+      } finally { window.tipPlace = real; }
+    });
+    chk(kept32.at > 0 && kept32.after === kept32.at && kept32.idle && kept32.byScroll === false && kept32.byPage === true && kept32.byResize > 0, 'T32f the words stay where the person scrolled them, and scrolling them places nothing', JSON.stringify(kept32));
+    // T32g: a keyboard user on the scrolling words keeps focus in the card when the window grows and the words stop scrolling.
+    await page.evaluate(() => document.querySelector('#tipcard .tip-bd').focus());
+    await page.setViewportSize({ width: 1280, height: 860 });
+    await page.waitForTimeout(1300);
+    const foc32 = await page.evaluate(() => ({ tag: document.activeElement && (document.activeElement.className || document.activeElement.tagName), inCard: !!(document.activeElement && document.activeElement.closest('#tipcard')), tab: document.querySelector('#tipcard .tip-bd').getAttribute('tabindex') }));
+    chk(foc32.inCard && foc32.tab === null, 'T32g a keyboard user on the words keeps focus in the card when the window grows', JSON.stringify(foc32));
+    await page.setViewportSize({ width: 360, height: 300 });
+    await page.waitForTimeout(400);
+    chk(narrow32.top >= 12 && narrow32.vh - narrow32.bottom >= 12 && narrow32.goIn, 'T32d narrow and short, the card still fits with Got it in view', JSON.stringify(narrow32));
+    await page.keyboard.press('Escape');
+    // T32e CONTROL: a tall window gives the words room, so they neither scroll nor add a tab stop.
+    await page.setViewportSize({ width: 1280, height: 860 });
+    await page.waitForTimeout(300);
+    await page.click('#helpq-btn');
+    await page.click('#helpq-menu [data-help="ring"]');
+    await page.waitForTimeout(250);
+    const tall32 = await shortRead();
+    chk(!tall32.scrolls && tall32.tab === null, 'T32e CONTROL: on a tall window the words do not scroll and add no tab stop', JSON.stringify(tall32));
+    await page.keyboard.press('Escape');
+    await page.setViewportSize({ width: 1280, height: 860 });
+    await page.waitForTimeout(300);
+
     // T7: a board that cannot say what was seen shows nothing. Seen is emptied first, so a guard
     // that let tips through would show the tour here (control: T1 and T6, the same empty state).
     resetStore({ seen: [], off: false });

@@ -1439,6 +1439,13 @@ button.uprime:hover, .btn.uprime:hover, .utoast .uacts button.uprime:hover,
   color: var(--k-ink-2); cursor: pointer; font-size: 16px; line-height: 1; }
 .tipcard .tip-x:hover { background: var(--k-sunk); color: var(--k-ink); }
 .tipcard .tip-eb { font: 700 .625rem var(--font-ui); letter-spacing: .12em; text-transform: uppercase; color: var(--gold-edge); }
+/* On a window too short for the whole card, the words scroll inside it and the title and buttons stay, so the
+   card still fits on screen. The scroll is on the words, not the card, which would clip the arrow. The height is
+   set by tipPlace from the window it is actually placed in (a vh budget overstates a phone with its toolbar up). */
+.tipcard .tip-bd { overflow-y: auto; }
+/* overflow makes the wrapper its own box, so its first child's top margin no longer folds into the title's: zero it,
+   or a list-led tip gains 4px under its title. */
+.tipcard .tip-bd > :first-child { margin-top: 0; }
 .tipcard h2 { margin: 2px 26px 4px 0; font-size: 1rem; letter-spacing: -.005em; }
 .tipcard p { margin: 0 0 6px; font-size: .875rem; color: var(--k-ink-2); line-height: 1.5; }
 .tipcard ol { margin: 4px 0 8px; padding: 0; list-style: none; font-size: .875rem; color: var(--k-ink-2); }
@@ -1453,7 +1460,7 @@ button.uprime:hover, .btn.uprime:hover, .utoast .uacts button.uprime:hover,
 .tipcard .tip-off, .tipcard .tip-skip { border: 0; background: none; padding: 0; cursor: pointer; font: .75rem var(--font-ui);
   color: var(--k-ink-2); text-decoration: underline; text-underline-offset: 2px; }
 .tipcard .tip-go { font: 650 .8125rem var(--font-ui); padding: 6px 14px; border-radius: 9px; background: var(--gold-bright); color: #14161a; border: 0; cursor: pointer; }
-.tipcard .tip-go:focus-visible, .tipcard .tip-off:focus-visible, .tipcard .tip-skip:focus-visible, .tipcard .tip-x:focus-visible { outline: 2px solid var(--k-ink); outline-offset: 2px; }
+.tipcard .tip-bd:focus-visible, .tipcard .tip-go:focus-visible, .tipcard .tip-off:focus-visible, .tipcard .tip-skip:focus-visible, .tipcard .tip-x:focus-visible { outline: 2px solid var(--k-ink); outline-offset: 2px; }
 .tiphalo { position: fixed; z-index: 45; border-radius: 12px; pointer-events: none;
   box-shadow: 0 0 0 3px var(--gold-bright), 0 0 0 7px color-mix(in srgb, var(--gold) 35%, transparent), 0 0 0 100vmax rgba(20,22,26,.28); }
 .tipcard .tip-dots { display: flex; gap: 5px; }
@@ -53822,7 +53829,7 @@ function tipShow(t, { auto = false, returnTo = null } = {}) {
   card.innerHTML = '<span class="tip-arrow" aria-hidden="true"></span>'
     + '<button class="tip-x" type="button" aria-label="Close">&times;</button>'
     + '<div class="tip-eb">' + esc(t.eb || 'Tip') + '</div>'
-    + '<h2 id="tipcard-title">' + esc(t.title) + '</h2>' + t.body
+    + '<h2 id="tipcard-title">' + esc(t.title) + '</h2><div class="tip-bd">' + t.body + '</div>'
     + '<div class="tip-acts">'
     + '<button class="tip-off" type="button">Stop showing tips</button>'
     + '<button class="tip-go" type="button">Got it</button></div>';
@@ -53856,7 +53863,7 @@ function tipTourRender(card, auto) {
   card.innerHTML = '<span class="tip-arrow" aria-hidden="true"></span>'
     + '<button class="tip-x" type="button" aria-label="Close the tour">&times;</button>'
     + '<div class="tip-eb">' + (TIP_STEP + 1) + ' of ' + n + '</div>'
-    + '<h2 id="tipcard-title">' + esc(st.title) + '</h2><p>' + esc(st.body) + '</p>'
+    + '<h2 id="tipcard-title">' + esc(st.title) + '</h2><div class="tip-bd"><p>' + esc(st.body) + '</p></div>'
     + '<div class="tip-acts"><span class="tip-dots" aria-hidden="true">'
     + TIP_PLACES.map((_, i) => '<i' + (i === TIP_STEP ? ' class="on"' : '') + '></i>').join('') + '</span>'
     + '<span class="tip-btns">' + (last ? '' : '<button class="tip-skip" type="button">Skip</button>')
@@ -53925,11 +53932,30 @@ function tipPlace(card, sel, side = false, { key = '', avoid = true } = {}) {
   try {
     el = sel ? [...document.querySelectorAll(sel)].find((x) => { const r = x.getBoundingClientRect(); return r.width > 0 && r.height > 0 && !x.closest('[hidden]'); }) || null : null;
   } catch { el = null; }   // :has() in an older webview
+  /* A card taller than the window gives its words just enough scroll to fit, measured, not budgeted. They are a
+     tab stop only while they scroll, so a keyboard can reach the hidden part and a short tip adds no stop. */
+  const bd = card.querySelector('.tip-bd');
+  if (bd) {
+    /* Worked out from the card as it stands, never by clearing the height first: clearing it would pull the words
+       back to the top on every placement. The style is written only when the value changes. Below a window of
+       about 150px even the title and buttons do not fit, and the card keeps its top on screen. */
+    const natural = card.offsetHeight - bd.clientHeight + bd.scrollHeight;
+    const over = natural - (window.innerHeight - 24);
+    const want = over > 0 ? Math.max(24, bd.scrollHeight - over) + 'px' : '';
+    if (bd.style.maxHeight !== want) bd.style.maxHeight = want;
+    const scrolls = bd.scrollHeight > bd.clientHeight + 1;
+    if (scrolls) { bd.tabIndex = 0; bd.setAttribute('role', 'region'); bd.setAttribute('aria-label', 'Tip text, scrolls'); }
+    else if (bd.hasAttribute('tabindex')) {
+      /* A person on the words keeps their place: focus moves to Got it before the stop goes away. */
+      if (document.activeElement === bd) { const go = card.querySelector('.tip-go'); if (go) go.focus({ preventScroll: true }); }
+      bd.removeAttribute('tabindex'); bd.removeAttribute('role'); bd.removeAttribute('aria-label');
+    }
+  }
   const w = card.offsetWidth, h = card.offsetHeight, pad = 12;
   const pageW = document.documentElement.getBoundingClientRect().width;
   if (!el || !el.getBoundingClientRect().width) {
     card.className = 'tipcard flat';
-    const cl = Math.round((pageW - w) / 2), ct = Math.round(Math.max(80, (window.innerHeight - h) / 2));
+    const cl = Math.round((pageW - w) / 2), ct = Math.round(Math.max(pad, Math.min(Math.max(80, (window.innerHeight - h) / 2), window.innerHeight - h - pad)));
     card.style.left = cl + 'px';
     card.style.top = ct + 'px';
     const all = avoid ? tipCoveredControls(null) : [];
@@ -53946,12 +53972,20 @@ function tipPlace(card, sel, side = false, { key = '', avoid = true } = {}) {
   const sideTop = Math.min(Math.max(pad, r.top - 10), vh - h - pad);
   const midLeft = Math.min(Math.max(pad, r.left + r.width / 2 - 28), pageW - w - pad);
   const cands = [];
-  const right = { cls: 'left', left: r.right + 14, top: sideTop, fits: r.right + 14 + w <= pageW - pad };
-  const below = { cls: 'up', left: midLeft, top: r.bottom + 12, fits: r.bottom + 12 + h <= vh - pad };
-  const above = { cls: 'down', left: midLeft, top: r.top - 12 - h, fits: r.top - 12 - h >= pad };
-  const leftSide = { cls: 'right', left: r.left - 14 - w, top: sideTop, fits: r.left - 14 - w >= pad };
-  for (const c of side ? [right, below, above, leftSide] : [below, above, right, leftSide]) if (c.fits) cands.push(c);
-  if (!cands.length) cands.push({ ...below, top: Math.max(pad, Math.min(r.bottom + 12, vh - h - pad)) });
+  /* The WHOLE card must be on screen, every edge (#3574, Liu Kang 2026-09-25): "above" used to check only its
+     top, so a target below the fold put the card below the fold too, and "below" did the same above it. */
+  /* A pixel of slack across: on a phone the card is the window's width less two pads, and offsetWidth is rounded
+     while pageW can be fractional, so an exact test could refuse every place that fits. */
+  const onScreen = (left, top) => top >= pad && top + h <= vh - pad && left >= pad - 1 && left + w <= pageW - pad + 1;
+  const right = { cls: 'left', left: r.right + 14, top: sideTop };
+  const below = { cls: 'up', left: midLeft, top: r.bottom + 12 };
+  const above = { cls: 'down', left: midLeft, top: r.top - 12 - h };
+  const leftSide = { cls: 'right', left: r.left - 14 - w, top: sideTop };
+  /* A target off screen gets no arrow: a side place clamps onto the screen and would point at nothing.
+     The scroll listener places the card again, arrow and all, once the target is in view. */
+  const offScreen = r.bottom <= 0 || r.top >= vh || r.right <= 0 || r.left >= pageW;
+  if (!offScreen) for (const c of side ? [right, below, above, leftSide] : [below, above, right, leftSide]) if (onScreen(c.left, c.top)) cands.push(c);
+  if (!cands.length) cands.push({ ...below, cls: offScreen ? 'flat' : below.cls, top: Math.max(pad, Math.min(r.bottom + 12, vh - h - pad)) });
   /* The target itself is kept clear too (with the ring's margin): the card points at it, never sits on it. */
   const covered = (avoid ? tipCoveredControls(el) : []).concat([{ l: r.left - 6, t: r.top - 6, r: r.right + 6, b: r.bottom + 6 }]);
   const hitsAt = (left, top) => { let n = 0; for (const q of covered) if (q.l < left + w && q.r > left && q.t < top + h && q.b > top) n++; return n; };
@@ -53973,7 +54007,7 @@ function tipPlace(card, sel, side = false, { key = '', avoid = true } = {}) {
     if (card.classList.contains('flat') && card.dataset.covers === '0' && card.dataset.tipKey === key && !card.hidden) {
       const nowL = parseFloat(card.style.left), nowT = parseFloat(card.style.top);
       const near = Number.isFinite(nowT) && Math.abs(nowT + h / 2 - (r.top + r.height / 2)) <= h + 120;
-      if (near && Number.isFinite(nowL) && nowT >= pad && nowT + h <= vh - pad && nowL >= pad && nowL + w <= pageW - pad && !hitsAt(nowL, nowT)) {
+      if (near && Number.isFinite(nowL) && Number.isFinite(nowT) && onScreen(nowL, nowT) && !hitsAt(nowL, nowT)) {
         best = { cls: 'flat', left: nowL, top: nowT, hits: 0 };
       }
     }
@@ -53982,7 +54016,7 @@ function tipPlace(card, sel, side = false, { key = '', avoid = true } = {}) {
     const cx = r.left + r.width / 2, cy = r.top + r.height / 2;
     let near = null;
     for (let top = pad; top + h <= vh - pad; top += 24) {
-      for (let left = pad; left + w <= pageW - pad; left += 24) {
+      for (let left = pad; left + w <= pageW - pad + 1; left += 24) {
         if (!clearAt(left, top)) continue;
         const d = Math.hypot(left + w / 2 - cx, top + h / 2 - cy);
         if (!near || d < near.d) near = { cls: 'flat', left, top, hits: 0, d };
@@ -54064,7 +54098,9 @@ document.addEventListener('pointerdown', (e) => {
   tipClose({ record: true });
 }, true);
 let TIP_RELAYOUT = false;
-const tipRelayout = () => {
+const tipRelayout = (e) => {
+  /* Scrolling the tip's own words moves nothing else; placing the card for it would loop on WebKit. */
+  if (e && e.type === 'scroll' && e.target instanceof Element && e.target.closest('#tiplayer')) return;
   if (!TIP_OPEN || TIP_RELAYOUT) return;
   TIP_RELAYOUT = true;
   requestAnimationFrame(() => { TIP_RELAYOUT = false; const c = document.getElementById('tipcard'); if (TIP_OPEN && c && !c.hidden) tipLayout(TIP_OPEN, c); });
