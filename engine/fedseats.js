@@ -35,6 +35,8 @@ const INBOUND_WINDOW_MS = 60000;
    longer unterminated run is a broken child, and is dropped rather than held. */
 const MAX_LINE = 64 * 1024;
 const RESTART_MAX_MS = 60000;
+/* A connection that lasted this long resets the restart backoff. */
+const STABLE_MS = 30000;
 const MAC_EDGES = '/v1/mac/federation/edges';
 
 /* projectId -> { child, edge, status, backoff, timer, ended, stopped, starting, inbound } */
@@ -77,7 +79,9 @@ function onEvent(projectId, line) {
   if (!ev || typeof ev !== 'object') return;
   const s = seats.get(projectId);
   if (!s) return;
-  if (ev.event === 'connected') { setStatus(projectId, 'connected'); s.backoff = RESTART_START_MS; return; }
+  // The backoff resets only once a connection has lasted (see the exit handler),
+  // so a seat that connects and drops at once still backs off.
+  if (ev.event === 'connected') { setStatus(projectId, 'connected'); s.connectedAt = Date.now(); return; }
   if (ev.event === 'disconnected') { setStatus(projectId, 'reconnecting'); return; }
   if (ev.event === 'ended') {
     s.ended = clean(ev.because, 200) || 'the connection ended';
@@ -141,7 +145,10 @@ function spawnFor(projectId, edge) {
   // A connector that cannot start (missing, not executable) emits 'error' and
   // may never 'exit': treat it as an exit so it backs off instead of crashing
   // the board on an unhandled event.
-  child.on('error', () => { child.emit('exit', null); });
+  // Only when it never started (no pid): an 'error' from a failed kill or signal
+  // comes from a process that is still running, and a synthetic exit would let a
+  // second seat into the same room.
+  child.on('error', () => { if (child.pid === undefined) child.emit('exit', null); });
   // A write racing the child's death surfaces as an async EPIPE on stdin; with no
   // listener it would crash the board.
   if (child.stdin && typeof child.stdin.on === 'function') child.stdin.on('error', () => {});
@@ -177,9 +184,21 @@ function spawnFor(projectId, edge) {
         setStatus(projectId, 'waiting');
         return;
       }
+      // Kept on the link, so a board restart does not start the seat again only
+      // to be refused and say so in the room once more.
+      if (link) { try { federation.recordLink(projectId, Object.assign({}, link, { ended: cur.ended || 'the connection ended' })); } catch { /* ends again next boot */ } }
       setStatus(projectId, 'ended');
       return;
     }
+    // 2 is a usage error: this computer's connector does not know the verb.
+    // Restarting cannot fix that; updating Kosmos does.
+    if (code === 2) {
+      say(projectId, 'This computer cannot join the external project yet: its Kosmos connector is too old. Update Kosmos, then open this project again.');
+      setStatus(projectId, 'ended');
+      return;
+    }
+    if (cur.connectedAt && Date.now() - cur.connectedAt >= STABLE_MS) cur.backoff = RESTART_START_MS;
+    cur.connectedAt = null;
     setStatus(projectId, 'reconnecting');
     cur.timer = setTimeout(() => { cur.timer = null; ensure(projectId).catch(() => {}); }, cur.backoff);
     cur.backoff = Math.min(cur.backoff * 2, RESTART_MAX_MS);
@@ -204,6 +223,11 @@ async function ensure(projectId, edges) {
     return null;
   }
   let s = seats.get(projectId);
+  if (link.ended) {
+    if (!s) { s = { child: null, edge: null, status: null, backoff: RESTART_START_MS, timer: null, ended: link.ended, stopped: false, starting: false }; seats.set(projectId, s); }
+    if (s.status !== 'ended') setStatus(projectId, 'ended');
+    return 'ended';
+  }
   if (!s) { s = { child: null, edge: null, status: null, backoff: RESTART_START_MS, timer: null, ended: null, stopped: false, starting: false }; seats.set(projectId, s); }
   if (s.child || s.starting || s.timer || s.stopped || s.status === 'ended') return s.status;
   s.starting = true;
@@ -288,4 +312,4 @@ function stopAll() {
   seats.clear();
 }
 
-module.exports = { STOP_KILL_MS, configure, ensure, ensureAll, post, statusOf, stop, stopAll, onEvent, MAC_EDGES, INBOUND_PER_WINDOW, INBOUND_BYTES_PER_WINDOW };
+module.exports = { STOP_KILL_MS, STABLE_MS, configure, ensure, ensureAll, post, statusOf, stop, stopAll, onEvent, MAC_EDGES, INBOUND_PER_WINDOW, INBOUND_BYTES_PER_WINDOW };

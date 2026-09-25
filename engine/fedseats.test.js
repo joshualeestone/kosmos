@@ -310,3 +310,68 @@ test('a stopped seat that does not exit is killed; one that exits is not', async
   t.mock.timers.tick(1);
   assert.deepStrictEqual(killed, ['hung']);
 });
+
+test('a seat that connects and drops at once keeps backing off; one that lasted starts over', async (t) => {
+  t.mock.timers.enable({ apis: ['setTimeout', 'Date'] });
+  federation.recordLink('proj-flap', { role: 'member', edge_id: 'edge-flap' });
+  const h = harness();
+  await fedseats.ensure('proj-flap');
+  const first = h.spawned[0];
+  say(first, { event: 'connected', room: 'r', expires_at: 9 });
+  await tick();
+  first.emit('exit', 1);          // dropped at once: next wait 2 s, then 4 s
+  t.mock.timers.tick(2000);
+  await tick(); await tick();
+  const second = h.spawned[1];
+  assert.ok(second, 'restarted after the first wait');
+  say(second, { event: 'connected', room: 'r', expires_at: 9 });
+  await tick();
+  second.emit('exit', 1);         // dropped at once again: the wait has grown
+  t.mock.timers.tick(2000);
+  await tick(); await tick();
+  assert.strictEqual(h.spawned.length, 2, 'not restarted after only 2 s: the backoff grew');
+  t.mock.timers.tick(2000);
+  await tick(); await tick();
+  const third = h.spawned[2];
+  assert.ok(third, 'restarted after 4 s');
+  say(third, { event: 'connected', room: 'r', expires_at: 9 });
+  await tick();
+  t.mock.timers.tick(fedseats.STABLE_MS);   // this one lasted
+  third.emit('exit', 1);
+  t.mock.timers.tick(2000);
+  await tick(); await tick();
+  assert.strictEqual(h.spawned.length, 4, 'a connection that lasted resets the wait to 2 s');
+});
+
+test('an error from a running seat is not taken as its exit', async () => {
+  federation.recordLink('proj-err', { role: 'member', edge_id: 'edge-err' });
+  const h = harness();
+  await fedseats.ensure('proj-err');
+  const c = h.spawned[0];
+  c.pid = 4242;
+  c.emit('error', new Error('kill EPERM'));
+  assert.strictEqual(fedseats.statusOf('proj-err'), 'connecting', 'still the running seat');
+});
+
+test('a connector that does not know the verb ends the seat with a note to update', async () => {
+  federation.recordLink('proj-old', { role: 'member', edge_id: 'edge-old' });
+  const h = harness();
+  await fedseats.ensure('proj-old');
+  h.spawned[0].emit('exit', 2);
+  assert.strictEqual(fedseats.statusOf('proj-old'), 'ended');
+  assert.ok(h.notes.some((n) => n.projectId === 'proj-old' && /too old/.test(n.text)), JSON.stringify(h.notes));
+});
+
+test('a member seat ended for good stays ended after a restart, with no new seat and no new note', async () => {
+  federation.recordLink('proj-gone', { role: 'member', edge_id: 'edge-gone' });
+  let h = harness();
+  await fedseats.ensure('proj-gone');
+  say(h.spawned[0], { event: 'ended', because: 'that connection has been revoked. Ask to be re-invited.' });
+  await tick();
+  h.spawned[0].emit('exit', 3);
+  assert.match(String(federation.linkFor('proj-gone').ended), /revoked/);
+  h = harness();                                  // a board restart
+  assert.strictEqual(await fedseats.ensure('proj-gone'), 'ended');
+  assert.strictEqual(h.spawned.length, 0, 'no seat started');
+  assert.strictEqual(h.notes.filter((n) => n.projectId === 'proj-gone').length, 0, 'no note repeated');
+});

@@ -13363,7 +13363,21 @@ const server = http.createServer((req, res) => {
            runs BEFORE any member is told, so taking it back leaves nobody told of a
            project that does not exist. */
         let federationLinked;
-        if (typeof body.federation_ref === 'string' && body.federation_ref && body.federation_ref.length <= 200) {
+        // A new project starts with no link, whatever an earlier project of the
+        // same id left behind; if that cannot be made true it is not made.
+        if (!(viaScreen && typeof body.federation_ref === 'string' && body.federation_ref)) {
+          let stale = false;
+          try { stale = !!federation.linkFor(made.id); if (stale) federation.forgetLink(made.id); stale = false; }
+          catch { /* stale stays as read */ }
+          if (stale) {
+            try { projects.remove(made.id); } catch { /* reported below either way */ }
+            sendJson(res, 500, { error: 'We could not make this project cleanly on this computer. Try again.' });
+            return;
+          }
+        }
+        // Only the page sends federation_ref (the create screen that minted the
+        // invites); a process caller's is ignored.
+        if (viaScreen && typeof body.federation_ref === 'string' && body.federation_ref && body.federation_ref.length <= 200) {
           try { federation.recordLink(made.id, { role: 'owner', ref: body.federation_ref }); federationLinked = true; }
           catch (err) {
             try { projects.remove(made.id); } catch { /* reported below either way */ }
@@ -13543,6 +13557,11 @@ const server = http.createServer((req, res) => {
     let gone;
     try {
       gone = projects.remove(id);
+      /* #3311: its seat and its link go with it NOW. Project ids are name slugs
+         and a freed one is reused, so a later local project of the same name
+         would otherwise inherit a room outside this Mac. */
+      try { fedseats.stop(id); } catch { /* best-effort */ }
+      try { federation.forgetLink(id); } catch { /* create clears it too */ }
     } catch (err) {
       // #1994: honour an explicit status (remove now throws a 409 when the
       // project still has sub-projects -- it exists, so a 404 would be wrong).

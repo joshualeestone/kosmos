@@ -58,3 +58,9 @@ test('a message from outside with no words is not stored', () => {
   assert.strictEqual(messages.externalPost('proj-blank', { from: 'Grace', fromKind: 'person', text: '   \n ' }), null);
   assert.strictEqual(messages.record().rows.filter((m) => m.project === 'proj-blank').length, 0);
 });
+
+test('a tab from outside becomes a space, and a name loses direction overrides', () => {
+  const row = messages.externalPost('proj-tab', { from: 'Ada\u202eecalevoL', fromKind: 'person', text: 'one\ttwo' });
+  assert.strictEqual(row.text, 'one two');
+  assert.ok(!/[\u202a-\u202e\u2066-\u2069]/.test(row.from), JSON.stringify(row.from));
+});

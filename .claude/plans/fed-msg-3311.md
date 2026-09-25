@@ -69,6 +69,10 @@ board yet carried messages between a federated project's room and its seat.
 - engine/fedseats.test.js, engine/messages.external-3311.test.js,
   server.fedmsg-3311.test.js, server.federation-3311.test.js,
   engine/federation.test.js: all pass (counts live in the runs, not here).
+- Review round 7 controls, each reds its own test: no forgetLink on delete; no
+  stale-link clear on create; federation_ref accepted from a process; backoff
+  reset on every connect; a synthetic exit for any child error; no exit-2
+  branch; no persisted `ended`; tabs deleted rather than spaced.
 - Review round 6 controls: removing the kill in letGo reds the stopped-seat
   test (the hung seat is never killed); dropping the blank-text check reds the
   no-words test.
@@ -103,6 +107,18 @@ board yet carried messages between a federated project's room and its seat.
   closed. A second local project carrying a real ref only puts this same account's
   own Mac in its own room twice. It grants nothing across accounts, because the room
   ticket is still minted per edge by the coordinator.
+
+## Decided in round 7
+- REVERSES round 4: `federation_ref` on create is accepted only from the screen.
+  An agent that can read federation.json could otherwise put a second local
+  project on an owner's live room and post outside under a name the person
+  never saw. Only the page sends it, so gating costs nothing.
+- A removed project's seat is stopped and its link forgotten in the DELETE
+  route itself, and create clears any link left on the new id (ids are name
+  slugs and are reused).
+- A member seat refused for good records `ended` on its link, so a restart
+  neither starts it again nor repeats the note. A connector that exits 2 (it
+  does not know the verb) ends the seat with an "update Kosmos" note.
 
 ## Decided in round 5
 - A joined project's local name is the owner's name if it can be made here,

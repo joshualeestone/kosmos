@@ -160,3 +160,29 @@ test('a create whose owner link cannot be recorded makes no project and says so'
   assert.match(r.json.error, /not made/);
   assert.ok(!projects.readAll().some((p) => p.name === 'Unlinked Club'), 'no project was left behind');
 });
+
+test('deleting a shared project forgets its link, so a new project of the same name is local', async () => {
+  const r = await post('/api/projects', { name: 'Reused Name', federation_ref: 'ref-reused' }, SCREEN);
+  assert.equal(r.status, 200, JSON.stringify(r.json));
+  assert.ok(federation.linkFor(r.json.id), 'fixture: the first project is linked');
+  const d = await fetch(base + '/api/project/' + encodeURIComponent(r.json.id), { method: 'DELETE', headers: SCREEN });
+  assert.equal(d.status, 200);
+  assert.equal(federation.linkFor(r.json.id), null, 'the link went with the project');
+  const again = await post('/api/projects', { name: 'Reused Name' }, SCREEN);
+  assert.equal(again.json.id, r.json.id, 'fixture: the id is reused');
+  assert.equal(federation.linkFor(again.json.id), null, 'the new project is not federated');
+});
+
+test('a new project clears a link left on its id, even one the delete could not remove', async () => {
+  federation.recordLink('leftbehind', { role: 'owner', ref: 'ref-stale' });
+  const r = await post('/api/projects', { name: 'Left Behind' }, SCREEN);
+  assert.equal(r.json.id, 'leftbehind', 'fixture: the stale link sits on this id');
+  assert.equal(federation.linkFor('leftbehind'), null);
+});
+
+test('a process caller cannot attach a project to a shared room', async () => {
+  const r = await post('/api/projects', { name: 'Sneaky Club', federation_ref: 'ref-owner-1' });
+  assert.equal(r.status, 200, JSON.stringify(r.json));
+  assert.equal(r.json.federationLinked, undefined);
+  assert.equal(federation.linkFor(r.json.id), null);
+});

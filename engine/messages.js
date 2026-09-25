@@ -404,10 +404,11 @@ function externalPost(projectId, { from, fromKind, text }) {
     kind: 'external',
     id: 'x-' + crypto.randomUUID(),
     project: String(projectId),
-    from: String(from || '').replace(EXTERNAL_CONTROL, ' ').replace(/\s+/g, ' ').trim().slice(0, EXTERNAL_FROM_MAX),
+    // Direction overrides and line separators could make a name read reversed.
+    from: String(from || '').replace(EXTERNAL_CONTROL, ' ').replace(/[\u202a-\u202e\u2066-\u2069\u2028\u2029]/g, ' ').replace(/\s+/g, ' ').trim().slice(0, EXTERNAL_FROM_MAX),
     fromKind: fromKind === 'agent' ? 'agent' : 'person',
     external: true,
-    text: String(text == null ? '' : text).replace(EXTERNAL_CONTROL, '').slice(0, EXTERNAL_TEXT_MAX),
+    text: String(text == null ? '' : text).replace(/\t/g, ' ').replace(EXTERNAL_CONTROL, '').slice(0, EXTERNAL_TEXT_MAX),
     at: new Date().toISOString(),
   };
   if (!row.text.trim() || !rowShaped(row)) return null;
