@@ -1116,6 +1116,7 @@ function describe(project, roster, all) {
          read on the Agents page. needsYouElsewhere is the rest that names ANOTHER project, for a
          screen that wants to say "someone on this project needs you about
          something else"; needsYouUnattributed names none. */
+      // Still needs_you only: the board's Issue rule (status.needsPerson) is not applied here yet, #3726.
       needsYou: members.filter((m) => m.present && m.tied && m.state === 'needs_you' && m.stateProject === project.id).length,
       needsYouElsewhere: members.filter((m) => m.present && m.tied && m.state === 'needs_you' && m.stateProject !== null && m.stateProject !== project.id).length,
       /* ...and about no project at all (nothing named, nothing to inherit): read

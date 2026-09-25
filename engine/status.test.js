@@ -4651,6 +4651,43 @@ test('#1898: countAgents tallies needsYouUnattributed = needs_you agents that na
   assert.equal(attributed.needsYouUnattributed, 0, 'all attributed -> zero unattributed');
 });
 
+/* #3410/#3718 (Mona Lisa, 2026-09-25): the Issue tile counts every card that needs the person:
+   needs_you, needs_trust, and a connection Kosmos gave up reconnecting. A connection Kosmos is
+   still reconnecting is not counted (nothing for the person to do yet). */
+test('#3410/#3718: countAgents.needsYou counts needs_trust and a given-up connection, not one still reconnecting', () => {
+  const { countAgents } = require('./status');
+  const A = (state, extra) => Object.assign({ state, stateProject: null, paneless: false, context: { tokens: 100, percent: 50 } }, extra || {});
+  const c = countAgents([
+    A(STATE.NEEDS_YOU),
+    A('needs_trust'),
+    A('connection_lost', { reconnect: { phase: 'gave_up', tries: 3 } }),
+    A('connection_lost', { reconnect: { phase: 'waiting', tries: 0 } }),
+    A('connection_lost', { reconnect: { phase: 'retried', tries: 1 } }),
+    A('connection_lost', { reconnect: null }),
+    A(STATE.WORKING),
+  ], 0);
+  assert.equal(c.needsYou, 3, 'needs_you + needs_trust + given up');
+  assert.equal(c.needsYouUnattributed, 1, 'CONTROL: the no-project tile is still needs_you only');
+});
+
+/* #3718: needs_trust rows are built by the /api/status route AFTER countAgents runs (they are the
+   offline rows), so the route must add them with the same rule. A behavioural route test cannot
+   make one on a Mac (the trust probe is win32-gated, see server.trust-wait-offline-3013.test.js),
+   so this pins the route's source: the offline rows are counted into needsYou with needsPerson. */
+test('#3718: the /api/status route adds offline needs_trust rows to the Issue count with needsPerson', () => {
+  const src = require('fs').readFileSync(require('path').join(__dirname, '..', 'server.js'), 'utf8');
+  const at = src.indexOf('const counts = countAgents(agents,');
+  assert.ok(at > -1, 'the route no longer counts with countAgents');
+  const region = src.slice(at, at + 6000); // the route's count block; the assertion names the exact statement
+  assert.match(region, /counts\.needsYou \+= offline\.filter\(needsPerson\)\.length;/,
+    'the route does not count offline needs_trust rows into the Issue tile, so the filter would show more than the tile says');
+  const { needsPerson } = require('./status');
+  assert.equal(needsPerson({ state: 'needs_trust' }), true);
+  assert.equal(needsPerson({ state: 'stopped' }), false, 'CONTROL: an ordinary offline row is not counted');
+  assert.equal(needsPerson({ state: 'connection_lost', reconnect: { phase: 'waiting' } }), false);
+  assert.equal(needsPerson(null), false);
+});
+
 /* #763: a reported needs_you carries the question's project onto the state,
    so a project tile can light for its own question only. */
 test('#763: reconcile carries the reported project on a needs_you, and null when none was named or the question was scraped', () => {

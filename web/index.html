@@ -1903,18 +1903,17 @@ body.filter-msgs #alist .lrow:not([data-has-msgs]) { display: none; }
 body.filter-msgs #orgview .onode:not([data-has-msgs]) { opacity: .26; }
 /* #3423 (Josh 0.6.88): the Issue + No-project tiles are ALSO clickable filter
    toggles, the same pattern as Messages above. Keyed on data-attn
-   (a.state==='needs_you', matching the Issue tile count c.needsYou) and data-noproj
+   (needs the person, matching the Issue tile count c.needsYou) and data-noproj
    (needs_you && no project, matching c.needsYouUnattributed). Only one board filter
    is active at a time (the JS setBoardFilter enforces it); each hides non-matching
    rows in grid+list and DIMS them in org so the tree stays intact. The gold
    pressed/hover accent signals the active filter regardless of the tile's own red
    alert colour, matching #st-dm-tile.
-   DELIBERATE DIVERGENCE (do not "fix"): a needs_trust card wears the visual .attn
-   class (cardStOf folds needs_trust into attn, so it reads red) but is NOT marked
-   data-attn, because the Issue count c.needsYou keys on state==='needs_you' only.
-   The filter must match its chip count, so needs_trust is excluded from it; adding
-   it here would show more cards than the "Issue" chip claims. render-chip-filters-3423.js
-   pins this with a needs_trust arm, so a future refactor that merges the two sets fails. */
+   #3410/#3718 (Mona Lisa, 2026-09-25): the Issue tile and filter mean "needs the person",
+   so data-attn and c.needsYou (engine/status.js countAgents) both count needs_you,
+   needs_trust, and a connection Kosmos has given up reconnecting. The filter must still
+   match its chip count: change the two together. render-chip-filters-3423.js pins it.
+   data-noproj is unchanged (needs_you with no project). */
 #st-attn-tile, #st-attn-noproj-tile { cursor: pointer; }
 #st-attn-tile:hover, #st-attn-noproj-tile:hover { border-color: var(--gold-deep); background: rgba(198,154,50,.07); }
 #st-attn-tile:focus-visible, #st-attn-noproj-tile:focus-visible { outline: 2px solid var(--k-ink); outline-offset: 2px; }
@@ -15706,7 +15705,8 @@ const STATE_COPY = {
  * the exact distinction this product exists to keep.
  *
  * ⚠️ The CARD treatment follows the pack, not STATE_COPY.attn: red border is
- * needs_you ONLY. Paused, stopped and unknown are attention-worthy in
+ * for the cards that need the person (needs_you, needs_trust, and via cardStOf a
+ * connection Kosmos gave up reconnecting). Paused, stopped and unknown are attention-worthy in
  * STATE_COPY (the detail page and counts still treat them so) but the pack
  * renders them as their own quieter shapes (.off, .unk, dashed pill) so red
  * stays reserved for "somebody is waiting on you".
@@ -15730,8 +15730,8 @@ const CARD_ST = {
      stopped by something the agent cannot get past on its own, but the process
      is still up (pres: 'on'), it just cannot reach the API. It is not alarmed
      red because it is recoverable (the #3410 self-heal, engine/connlost-heal.js,
-     nudges it to retry when the network is back); a louder treatment,
-     if wanted, is a design call for whoever owns the pack, not decided here. */
+     nudges it to retry when the network is back). Once the self-heal has given up,
+     cardStOf gives it needs_you's look instead (Mona Lisa's call on #3410). */
   connection_lost: { st: 'paused', pres: 'on' },
   /* blocked wears paused's quieter shape: waiting is waiting, and red stays
      reserved for "somebody is waiting on YOU". */
@@ -15794,7 +15794,10 @@ const PRESSAY = {
    safe direction. The predicate is INLINED here and in stateCopyOf (kept byte-identical, not a
    shared helper) so each painter stays self-contained -- the node tests eval-extract cardStOf /
    stateCopyOf in isolation, and a shared global would ReferenceError in every one of those slices. */
-function cardStOf(a) { return (a && a.state === 'needs_you' && a.stateReportedBy === 'agent') ? CARD_ST.question : (CARD_ST[a.state] || CARD_ST.unknown); }
+/* #3410 (Mona Lisa's look): a lost connection Kosmos has given up on needs the person, so it wears
+   needs_you's card, not the quiet paused one it keeps while Kosmos is still reconnecting.
+   Kept on ONE line: web.needsyou-dealarm-2808.test.js and server.test.js slice it to the newline. */
+function cardStOf(a) { if (a && a.state === 'connection_lost' && a.reconnect && a.reconnect.phase === 'gave_up') return CARD_ST.needs_you; return (a && a.state === 'needs_you' && a.stateReportedBy === 'agent') ? CARD_ST.question : (CARD_ST[a.state] || CARD_ST.unknown); }
 /* #2019: the state's word. For every state but 'restarting' it is the static
    STATE_COPY entry. For 'restarting' the word names the CAUSE (present-continuous,
    no blame), so the person knows WHY their agent went quiet, and it is computed
@@ -15834,8 +15837,7 @@ function stateCopyOf(a) {
   if (a && a.state === 'needs_you' && a.stateReportedBy === 'agent') return STATE_COPY.question;
   /* #3410: while the self-heal still has retries to give (a.reconnect, from /api/status), the
      person has nothing to do yet, so the label says Kosmos is on it. Only when it has given up,
-     or is not running, does the label go back to "Connection lost" (the card's look is the same
-     paused style either way; only the word changes). */
+     or is not running, does the label go back to "Connection lost" (cardStOf sets the look). */
   if (a && a.state === 'connection_lost' && a.reconnect
     && (a.reconnect.phase === 'waiting' || a.reconnect.phase === 'retried')) return { label: 'Reconnecting…', attn: false };
   return STATE_COPY[a.state] || STATE_COPY.unknown;
@@ -16002,11 +16004,11 @@ function stateReason(a, opts) {
        a give-up usually means the agent is stuck, not the internet; and the retry budget can span
        more than one drop (connlost-heal.js WINDOW_MS/RECOVERED_MS), so it says tries were made,
        not that they were made this time. */
-    if (ph === 'gave_up') return 'Kosmos tried to reconnect it several times and has stopped. If the internet is working, restart the agent. It will start fresh.';
+    if (ph === 'gave_up') return 'Kosmos tried a few times and stopped. If your internet is working, restart the agent. It starts fresh, so anything it was in the middle of is lost.';
     const lost = a.stateConfidence === 'scraped'
       ? 'Looks like it lost its internet connection'
       : 'It lost its internet connection';
-    if (ph === 'waiting') return lost + '. Kosmos will retry it automatically.';
+    if (ph === 'waiting') return lost + '. Kosmos will try again for you.';
     /* "Has asked": an attempt was made, not that it landed (the sweep counts every attempt). */
     if (ph === 'retried') return lost + '. Kosmos has asked it to try again.';
     return lost;
@@ -16798,7 +16800,7 @@ function card(a) {
        the stronger, more specific fact. Its own `needstrust` marker class and the
        attn pill make it read as an agent that wants a person, not one that is off. */
     if (a.needsTrust === true) {
-      return `<div class="acard attn notrunning needstrust" data-agent="${esc(a.sessionName)}"${Number.isFinite(Number(a && a.dmUnread)) && Number(a && a.dmUnread) > 0 ? ' data-has-msgs' : ''}${a && a.state === 'needs_you' ? ' data-attn' : ''}${a && a.state === 'needs_you' && a.stateProject === null ? ' data-noproj' : ''}>
+      return `<div class="acard attn notrunning needstrust" data-agent="${esc(a.sessionName)}"${Number.isFinite(Number(a && a.dmUnread)) && Number(a && a.dmUnread) > 0 ? ' data-has-msgs' : ''}${a && (a.state === 'needs_you' || a.state === 'needs_trust' || (a.state === 'connection_lost' && a.reconnect && a.reconnect.phase === 'gave_up')) ? ' data-attn' : ''}${a && a.state === 'needs_you' && a.stateProject === null ? ' data-noproj' : ''}>
       <div class="agauge"><svg viewBox="0 0 72 72" role="img" aria-label="${esc(a.name)}. Waiting at a workspace-trust prompt.">${face(a)}</svg><span class="pres unsure" aria-hidden="true"></span>${dmBadge(a)}</div>
       <div class="aname"><button class="namego" type="button" aria-label="Open ${esc(a.name)}">${esc(a.name)}</button></div>
       <div class="ameta">${esc(roleLine(a, ROLE_TITLES))}</div>
@@ -16813,7 +16815,7 @@ function card(a) {
        disagreeing facts. Everything else about the card stays the offline
        shape: there is still no pane to act on. */
     const split = a.jobRunningUnseen === true;
-    return `<div class="acard off notrunning" data-agent="${esc(a.sessionName)}"${Number.isFinite(Number(a && a.dmUnread)) && Number(a && a.dmUnread) > 0 ? ' data-has-msgs' : ''}${a && a.state === 'needs_you' ? ' data-attn' : ''}${a && a.state === 'needs_you' && a.stateProject === null ? ' data-noproj' : ''}>
+    return `<div class="acard off notrunning" data-agent="${esc(a.sessionName)}"${Number.isFinite(Number(a && a.dmUnread)) && Number(a && a.dmUnread) > 0 ? ' data-has-msgs' : ''}${a && (a.state === 'needs_you' || a.state === 'needs_trust' || (a.state === 'connection_lost' && a.reconnect && a.reconnect.phase === 'gave_up')) ? ' data-attn' : ''}${a && a.state === 'needs_you' && a.stateProject === null ? ' data-noproj' : ''}>
     <div class="agauge"><svg viewBox="0 0 72 72" role="img" aria-label="${esc(a.name)}. ${split ? 'Could not check.' : 'Not running.'}">${face(a)}</svg>
       <!-- ⚠️ THE DOT IS DECORATIVE HERE, unlike on a running card. Its hidden
            text is PRESSAY.off, which is the same words as the pill two rows
@@ -16859,7 +16861,7 @@ function card(a) {
   const badge = (pct >= NEARLY_FULL ? `<span class="membadge">${memPrint(a.context, pct)}</span>` : '');
   const pres = `<span class="pres ${m.pres}"><span class="vh">${PRESSAY[m.pres]}</span></span>`;
 
-  return `<div class="acard ${boardMods(a, m)}" data-agent="${esc(a.sessionName)}"${Number.isFinite(Number(a && a.dmUnread)) && Number(a && a.dmUnread) > 0 ? ' data-has-msgs' : ''}${a && a.state === 'needs_you' ? ' data-attn' : ''}${a && a.state === 'needs_you' && a.stateProject === null ? ' data-noproj' : ''}>
+  return `<div class="acard ${boardMods(a, m)}" data-agent="${esc(a.sessionName)}"${Number.isFinite(Number(a && a.dmUnread)) && Number(a && a.dmUnread) > 0 ? ' data-has-msgs' : ''}${a && (a.state === 'needs_you' || a.state === 'needs_trust' || (a.state === 'connection_lost' && a.reconnect && a.reconnect.phase === 'gave_up')) ? ' data-attn' : ''}${a && a.state === 'needs_you' && a.stateProject === null ? ' data-noproj' : ''}>
     <div class="agauge">${ring(a)}${pres}${badge}${dmBadge(a)}</div>
     <div class="aname"><button class="namego" type="button" aria-label="Open ${esc(a.name)}">${esc(a.name)}</button>${staleBadge(a)}</div>
     <div class="ameta">${esc(roleLine(a, ROLE_TITLES))}</div>
@@ -16996,7 +16998,7 @@ function lrow(a) {
       const tav = a.hasAvatar
         ? `<img src="/api/agent/${encodeURIComponent(a.sessionName)}/avatar" alt="">`
         : `<span class="lavtint" style="background:${discTint(a.name)};color:${discInk(a.name)}">${esc(initials(a.name))}</span>`;
-      return `<div class="lrow attn notrunning needstrust" data-agent="${esc(a.sessionName)}"${Number.isFinite(Number(a && a.dmUnread)) && Number(a && a.dmUnread) > 0 ? ' data-has-msgs' : ''}${a && a.state === 'needs_you' ? ' data-attn' : ''}${a && a.state === 'needs_you' && a.stateProject === null ? ' data-noproj' : ''}>
+      return `<div class="lrow attn notrunning needstrust" data-agent="${esc(a.sessionName)}"${Number.isFinite(Number(a && a.dmUnread)) && Number(a && a.dmUnread) > 0 ? ' data-has-msgs' : ''}${a && (a.state === 'needs_you' || a.state === 'needs_trust' || (a.state === 'connection_lost' && a.reconnect && a.reconnect.phase === 'gave_up')) ? ' data-attn' : ''}${a && a.state === 'needs_you' && a.stateProject === null ? ' data-noproj' : ''}>
       <div class="lav">${tav}</div>${dmBadge(a)}
       <div class="lname"><b><button class="namego" type="button" aria-label="Open ${esc(a.name)}">${esc(a.name)}</button></b></div>
       <div class="ltitle">${esc(roleLine(a, ROLE_TITLES))}</div>
@@ -17009,7 +17011,7 @@ function lrow(a) {
     const off = a.hasAvatar
       ? `<img src="/api/agent/${encodeURIComponent(a.sessionName)}/avatar" alt="">`
       : `<span class="lavtint" style="background:${discTint(a.name)};color:${discInk(a.name)}">${esc(initials(a.name))}</span>`;
-    return `<div class="lrow off notrunning" data-agent="${esc(a.sessionName)}"${Number.isFinite(Number(a && a.dmUnread)) && Number(a && a.dmUnread) > 0 ? ' data-has-msgs' : ''}${a && a.state === 'needs_you' ? ' data-attn' : ''}${a && a.state === 'needs_you' && a.stateProject === null ? ' data-noproj' : ''}>
+    return `<div class="lrow off notrunning" data-agent="${esc(a.sessionName)}"${Number.isFinite(Number(a && a.dmUnread)) && Number(a && a.dmUnread) > 0 ? ' data-has-msgs' : ''}${a && (a.state === 'needs_you' || a.state === 'needs_trust' || (a.state === 'connection_lost' && a.reconnect && a.reconnect.phase === 'gave_up')) ? ' data-attn' : ''}${a && a.state === 'needs_you' && a.stateProject === null ? ' data-noproj' : ''}>
       <div class="lav">${off}</div>${dmBadge(a)}
       <div class="lname"><b><button class="namego" type="button" aria-label="Open ${esc(a.name)}">${esc(a.name)}</button></b></div>
       <div class="ltitle">${esc(roleLine(a, ROLE_TITLES))}</div>
@@ -17068,7 +17070,7 @@ function lrow(a) {
   const mem = pct === null
     ? `<span class="bar unknown"></span><span class="pct"><span aria-hidden="true">${memu.word}</span><span class="vh">${memu.aria}</span></span>`
     : `<span class="bar"><i class="${band}" style="width:${pct}%"></i></span><span class="pct">${memPrint(a.context, pct)}</span>`;
-  return `<div class="lrow ${boardMods(a, m)}" data-agent="${esc(a.sessionName)}"${Number.isFinite(Number(a && a.dmUnread)) && Number(a && a.dmUnread) > 0 ? ' data-has-msgs' : ''}${a && a.state === 'needs_you' ? ' data-attn' : ''}${a && a.state === 'needs_you' && a.stateProject === null ? ' data-noproj' : ''}>
+  return `<div class="lrow ${boardMods(a, m)}" data-agent="${esc(a.sessionName)}"${Number.isFinite(Number(a && a.dmUnread)) && Number(a && a.dmUnread) > 0 ? ' data-has-msgs' : ''}${a && (a.state === 'needs_you' || a.state === 'needs_trust' || (a.state === 'connection_lost' && a.reconnect && a.reconnect.phase === 'gave_up')) ? ' data-attn' : ''}${a && a.state === 'needs_you' && a.stateProject === null ? ' data-noproj' : ''}>
     <div class="lav">${av}${lrowRing(a)}${m.st === 'attn' ? LROW_WARN : ''}</div>${dmBadge(a)}
     <div class="lname"><b><button class="namego" type="button" aria-label="Open ${esc(a.name)}">${esc(a.name)}</button>${staleBadge(a)}</b></div>
     <div class="ltitle">${esc(roleLine(a, ROLE_TITLES))}</div>
@@ -19810,6 +19812,8 @@ function prompterCheckinQuestion(n) {
     const live = (typeof LAST !== 'undefined' && Array.isArray(LAST)) ? LAST.find((a) => a && a.sessionName === n.session) : null;
     const ph = live && live.reconnect && live.reconnect.phase;
     if (ph === 'waiting' || ph === 'retried') return 'lost its connection, and Kosmos is reconnecting it. Is it done, or still mid-something?';
+    // Given up: the card tells the person to restart it, so the question does too.
+    if (ph === 'gave_up') return 'lost its connection, and Kosmos stopped trying. Restart it, or is it done?';
     return 'lost its connection. Reconnect it, or is it done?';
   }
   // The catch-all covers stopped/idle/unknown (all in heartbeat's ASK_ON_EXIT_TO),
@@ -25287,9 +25291,9 @@ function paintOrg() {
       /* #3423: the chip-filter markers, keyed on the SERVER state to match the
          "Issue" (c.needsYou) and "No project" (c.needsYouUnattributed) tile counts
          exactly -- NOT the local `needsYou` above (cardStOf.st==='attn', which folds
-         in needs_trust and splits off agent questions, so it would not match the
+         in the same cases data-attn does but splits off agent questions, so it would not match the
          count). Kept inline/self-contained like data-has-msgs. */
-      + (a && a.state === 'needs_you' ? ' data-attn' : '')
+      + (a && (a.state === 'needs_you' || a.state === 'needs_trust' || (a.state === 'connection_lost' && a.reconnect && a.reconnect.phase === 'gave_up')) ? ' data-attn' : '')
       + (a && a.state === 'needs_you' && a.stateProject === null ? ' data-noproj' : '')
       + ' style="left:' + x.toFixed(1) + 'px;top:' + y.toFixed(1) + 'px"'
       /* #2577: the badge's own aria-label is inert inside a button that has its
@@ -40961,11 +40965,12 @@ function pjMember(m, suppressTold, withMinus, hideState) {
      which is why this keys on CARD_ST instead of a count that goes stale),
      so keying on it would paint every paused/unreadable/stopped member as urgent too and
      defeat the card. CARD_ST maps only needs_you and needs_trust to st:'attn' (the two
-     states that genuinely need a person now) - close to the org-node badge (#2576/#2577)
+     states that genuinely need a person now), and cardStOf adds a connection Kosmos gave up
+     on (#3410, via liveM) - close to the org-node badge (#2576/#2577)
      mapping for "needs-you gets a mark". Gated on m.present
      because a member we cannot see says why instead of a state. LROW_WARN is the agents
      list's warning glyph; it is display:none inside a .lav until the CSS below shows it. */
-  const needsYou = m.present === true && cardStOf(m).st === 'attn';
+  const needsYou = m.present === true && cardStOf(liveM).st === 'attn'; // liveM: a given-up connection is red here too (#3410)
   const warn = needsYou ? LROW_WARN : '';
   /* #2711 item 16: the member box takes a ground by state, the same read the
      agent homepage cards make (.acard.working/.acard.attn) so the two surfaces
@@ -40977,7 +40982,7 @@ function pjMember(m, suppressTold, withMinus, hideState) {
      reason line), not a state colour. The CSS scopes these to #pj-one-agents. */
   const present = m.present || m.state === 'restarting';
   const stClass = present
-    ? ({ working: ' pjm-working', attn: ' pjm-attn', idle: ' pjm-idle' }[cardStOf(m).st] || '')
+    ? ({ working: ' pjm-working', attn: ' pjm-attn', idle: ' pjm-idle' }[cardStOf(liveM).st] || '')
     : '';
   /* #3212 (Josh 6.72): a member the board cannot see (`!present`) is one a room post could
      not reach, so mark the avatar with the question-mark badge instead of a status sentence.
