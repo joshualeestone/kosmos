@@ -19,8 +19,8 @@ outside a short, justified allow-list, and a browser check proves the computed s
 - **Already fixed on main:** `.askcard` (full hairline border).
 - **Left alone on purpose:** hairline separators under 2px (`.themeopt`, `.layopt`, `.pj-mode-opt`,
   `.swmini`, `.vt`, `.tsk-seg`, `.acct-actions`), corner marks (1px), the `.pcombo-chev` triangle
-  (transparent), the quotes `.mdq` and `.msg .quoteb` (card scope), and `.lpv`, which Kano fixes on
-  `mobile-rooms-718` (the card says do not double-fix).
+  (transparent), and the quotes `.mdq` and `.msg .quoteb` (card scope). `.lpv` (the link card)
+  was fixed on main by Kano's branch before this rebased, so it is no longer listed.
 
 ## Replacements
 - Neutral notes: `border: 0.5px solid var(--separator); border-radius: var(--radius-control)`, with
@@ -66,9 +66,13 @@ outside a short, justified allow-list, and a browser check proves the computed s
 - `.detail-said` quotes the agent's own words, and quotes are out of scope. It stays in scope
   because the card lists it separately from the quote exclusions, so it is raised for Josh along
   with the tree lines.
-- The check's `Browser-check-surface:` line names every class it builds, `msg-valve` and `rst-list`
-  included, even though those also appear in JS render code. The surface gate should ask about
-  this check when those classes change.
+- The check's `Browser-check-surface:` line lists the specific classes it changes, `msg-valve` and
+  `rst-list` included. It leaves out the generic ones it also builds (`note`, `pj-msg`, `unsure`,
+  `attn`, `pj-row`, `pj-roadmap`), which appear all over the page and would make the surface gate ask
+  about this check on unrelated edits.
+- Each fixed element must carry its own replacement (a hairline, a hairline plus tint, a tint, or
+  the ring), not just any marker: `.note` keeps its sunken background, so "any background" would
+  pass it even with its border gone.
 
 ## Weakest part
 The browser check builds the elements in a sheet instead of reaching each real screen, so it proves
