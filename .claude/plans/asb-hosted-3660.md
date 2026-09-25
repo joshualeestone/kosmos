@@ -92,3 +92,22 @@ rebuilt one. A board on an old connector sees the 501 path once per session.
 - BLOCKER: a folded hosted refusal still waiting (asideOnOpen, and its dot) survived the move to a guide. Opening
   the guide's chat then locked Send for six seconds. It is now cleared on adoption and in asbForgetGuide, and asbOpen
   never steps aside for a guide's chat. H19 covers that exact order.
+
+## Review iteration 7 (redesigned, not patched)
+The last rounds' findings mostly came from one design: timers that flipped state later while other code flipped
+the same state sooner. Replaced:
+- A 501 or 409 flips the hosted state at once.
+- Only what is SHOWN is held, by asbStepping(): the open chat stays readable with Send off until asideUntil (six
+  seconds), and a refusal while folded (asideOnOpen) keeps the bubble and its dot until it is opened and read.
+- No timer changes state, openGen and asbStepAside are gone, and a guide takes the corner at once.
+- Guide adoption waits for the row while hosted or stepping.
+- WARNING (the own_model sentence was cut short by the board flipping): fixed by design. H20 flips the board for real.
+- WARNING (Send locked on an adopted guide's chat): gone, since no lock outlives hosted and a guide never steps.
+- WARNING (unchecked was unreachable): listedModels now reports `failed` when a provider list throws, and hostedWhy
+  answers unchecked. There is a unit arm through the real listing.
+- WARNING (stale after first run): the end of first run resets the find backoff.
+- NITs taken: H19 reads before the click; switching on after the guide went shows the hosted bubble, not "not on this
+  computer"; deferEvery resets.
+- NITs left: the hosted answer after a mid-answer adoption is kept, not shown (H17's intended behaviour); hostedOff
+  survives an in-window update (the connector ships with the page, so an update brings a new window); a11y of a
+  folded answer is as for guide replies.

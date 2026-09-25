@@ -289,9 +289,10 @@ const defaultLive = async (mod, dir) => {
    list() calls read config, never the network. */
 function listedModels({ listFor = (mod) => require(mod).list() } = {}) {
   const rows = [];
+  let failed = false;   // a provider that could not be read: nothing is known about it (#3660 reads this)
   for (const [provider, mod] of MODEL_PROVIDERS) {
     let got;
-    try { got = listFor(mod); } catch { got = []; }
+    try { got = listFor(mod); } catch { got = []; failed = true; }
     if (!Array.isArray(got)) continue;
     for (const row of got) {
       if (!row || typeof row.dir !== 'string') continue;
@@ -304,7 +305,7 @@ function listedModels({ listFor = (mod) => require(mod).list() } = {}) {
      one-hour cap below bounds both: re-signing in to the SAME account in place, and a new
      key pasted over a Claude API-key account (Claude rows carry no key suffix, and the
      listing should not start exposing one for this). */
-  return { rows, fingerprint: rows.map((r) => `${r.provider}:${r.dir}:${r.authMode || ''}:${r.who}`).join('|') };
+  return { rows, failed, fingerprint: rows.map((r) => `${r.provider}:${r.dir}:${r.authMode || ''}:${r.who}`).join('|') };
 }
 
 /* #3660: whether the bubble may use the hosted assistant (Kosmos's own model) here. Only BEFORE the person
@@ -316,8 +317,11 @@ function hostedWhy({ available = () => require('./remote').hostedAvailable(), li
   let there = false;
   try { there = available() === true; } catch { there = false; }
   if (!there) return { ok: false, why: 'no_connector' };
-  let rows;
-  try { rows = listed().rows; } catch { return { ok: false, why: 'unchecked' }; }   // not known, so not offered, and not said to be theirs
+  let got;
+  try { got = listed(); } catch { return { ok: false, why: 'unchecked' }; }
+  /* A provider that could not be read may be the one they connected: not known, so not offered, and not said to be theirs. */
+  if (!got || got.failed === true) return { ok: false, why: 'unchecked' };
+  const rows = got.rows;
   return rows.length === 0 ? { ok: true, why: null } : { ok: false, why: 'own_model' };
 }
 function hostedOffered(deps) { return hostedWhy(deps).ok; }

@@ -282,4 +282,7 @@ test('#3660: the reason the hosted assistant is not offered is told apart, and a
   assert.deepEqual(setupAssistant.hostedWhy({ available: () => true, listed: () => ({ rows: [{}] }) }), { ok: false, why: 'own_model' });
   assert.deepEqual(setupAssistant.hostedWhy({ available: () => true, listed: () => { throw new Error('x'); } }), { ok: false, why: 'unchecked' });
   assert.deepEqual(setupAssistant.hostedWhy({ available: () => true, listed: () => ({ rows: [] }) }), { ok: true, why: null });
+  // Through the REAL listing: one provider that cannot be read must not offer Kosmos's key (it may be theirs).
+  const realBroken = () => setupAssistant.listedModels({ listFor: (mod) => { if (mod === './accounts') throw new Error('unreadable'); return []; } });
+  assert.deepEqual(setupAssistant.hostedWhy({ available: () => true, listed: realBroken }), { ok: false, why: 'unchecked' });
 });
