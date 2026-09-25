@@ -22,7 +22,7 @@ function liftSettle(env) {
 // The golden board card the browser checks use (never a hand-built one): the link names it.
 const CARD = require('./docs/browser-checks/fixtures/agent-card.json');
 function board({ present }) {
-  const env = { WANT_AGENT: CARD.sessionName, CURRENT: null, WANT_AGENT_DONE: false, WANT_AGENT_FIRST_MISS: 0, URL_TAB: 'detail',
+  const env = { WANT_AGENT_GRACE_MS: 4000, WANT_AGENT: CARD.sessionName, CURRENT: null, WANT_AGENT_DONE: false, WANT_AGENT_FIRST_MISS: 0, URL_TAB: 'detail',
     now: 1000, opens: 0, reveals: 0, tabs: [] };
   env.Date = { now: () => env.now };
   env.openDetail = (who) => { env.opens += 1; if (present() && who === CARD.sessionName) env.CURRENT = CARD; };
@@ -30,6 +30,12 @@ function board({ present }) {
   env.showTab = (t) => { env.tabs.push(t); env.URL_TAB = t; };
   return env;
 }
+
+test('the grace and hold windows are the named constants, at the values the tests drive', () => {
+  assert.match(html, /const WANT_AGENT_GRACE_MS = 4000;/);
+  assert.match(html, /const REVEAL_HOLD_MS = 4000;/);
+  assert.match(html, /const REVEAL_HOLD_TICK_MS = 150;/);
+});
 
 test('the poll calls settleWantAgent, and it is the only boot open of the link', () => {
   assert.match(html, /\n    settleWantAgent\(\);\n/);
@@ -75,7 +81,8 @@ test('the Answer button arrival reveals it too, right after opening the agent', 
   const i = html.indexOf('async function pjAnswerFrom(');
   assert.ok(i > 0, 'pjAnswerFrom exists');
   const body = html.slice(i, i + 6000);
-  assert.match(body, /openDetail\(sessionName\);\n  detailRevealTalkOnPhone\(\);/);
+  // Only if this agent opened (it can have left the board since the card painted).
+  assert.match(body, /openDetail\(sessionName\);\n  \/\/[^\n]*\n  if \(CURRENT && CURRENT\.sessionName === sessionName\) detailRevealTalkOnPhone\(\);/);
 });
 
 test('it uses the SAME breakpoint that stacks the agent page', () => {
@@ -89,7 +96,7 @@ function lift(matches, talk, env = {}) {
   const src = html.slice(i, html.indexOf('\n}\n', i) + 2);
   const listeners = {};
   const e = Object.assign({
-    REVEAL_HOLD: null,
+    REVEAL_HOLD: null, REVEAL_HOLD_MS: 4000, REVEAL_HOLD_TICK_MS: 150,
     detailSection: () => talk,
     window: { matchMedia: () => ({ matches }),
       addEventListener: (ev, fn) => { (listeners[ev] = listeners[ev] || []).push(fn); },
