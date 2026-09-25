@@ -144,7 +144,11 @@ jobs:
           # repeat) retry, and a final failure is an ::error:: annotation on the run. Creating
           # a card or commenting is NOT retried: a request that failed after GitHub had done
           # it would be done twice (a duplicate card, a doubled report).
-          ghr() { local i; for i in 1 2 3; do "$@" && return 0; [ "$i" -lt 3 ] && sleep $((i * ${GH_RETRY_SECONDS:-10})); done
+          # Each attempt's output is buffered and only a SUCCESSFUL attempt's is emitted: a paged
+          # read that fails part-way would otherwise print its first pages twice (a card listed
+          # twice is a card closed or commented twice).
+          ghr() { local i o; for i in 1 2 3; do if o=$("$@"); then [ -n "$o" ] && printf '%s\n' "$o"; return 0; fi
+                    [ "$i" -lt 3 ] && sleep $((i * ${GH_RETRY_SECONDS:-10})); done
                   echo "::error::$1 $2 $3 failed 3 times; see the steps above. Run: $RUN_URL" >&2; return 1; }
           gh1() { "$@" || { echo "::error::$1 $2 $3 failed; the card was NOT updated for this run (not retried, so it cannot be done twice). Run: $RUN_URL" >&2; return 1; }; }
           label=nightly-browser-checks-red
@@ -195,8 +199,9 @@ jobs:
             fi
             new=""
             # No real baseline on one side: list everything as NEW (as for an unreadable report),
-            # never "none", which would hide a first-time regression.
-            case "$red$prev" in *"(none captured"*) unread="${unread:- (no labels were captured on one side, so every entry is listed)}"; prev="" ;; esac
+            # never "none", which would hide a first-time regression. When it is THIS run that
+            # captured nothing, there are no entries at all: say so, never list the placeholder.
+            case "$prev" in *"(none captured"*) unread="${unread:- (the previous report had no labels, so every entry is listed)}"; prev="" ;; esac
             set -f; _ifs=$IFS; IFS='|'
             for w in $red; do
               w="${w# }"; w="${w% }"; [ -n "$w" ] || continue
@@ -205,6 +210,7 @@ jobs:
               [ -n "$seen" ] || new="${new:+$new | }$w"
             done
             IFS=$_ifs; set +f
+            case "$red" in *"(none captured"*) new="(not computed: no labels were captured this run)" ;; esac
             # A red RE-RUN still reports (the first attempt's comment may be what failed), tagged
             # so it reads as the same night again, not a new one.
             rerun=""; [ "${GITHUB_RUN_ATTEMPT:-1}" != 1 ] && rerun=" (a re-run, attempt ${GITHUB_RUN_ATTEMPT}, of an earlier night)"
@@ -242,6 +248,8 @@ jobs:
               if [ "${#labelled[@]}" -gt 0 ]; then again=$(cards_by_label) || again=""
               else again=$(cards_by_title) || again=""; fi
               again_all=$again; again=${again%%$'\n'*}
+              # If this re-lookup ALSO fails, $again is empty and a second create is tried: after
+              # two failures in a row a possible duplicate card is accepted over no report.
               if [ -z "$again" ]; then
                 gh1 create_card
               elif [ -n "$lookup_failed" ]; then

@@ -173,6 +173,11 @@ if command -v ruby >/dev/null 2>&1; then
     abort "browser-checks-full.yml must never cancel a nightly run in progress (concurrency cancel-in-progress false), got #{(f["concurrency"] || {}).inspect}" unless (f["concurrency"] || {})["cancel-in-progress"] == false
     # The red-check list crosses jobs: collector step (id failed) -> job output "failed" ->
     # RED in the card step. A break anywhere turns every card into "(none captured)".
+    di = fsteps.index { |st| st["run"].to_s.strip == "git checkout --detach" }
+    ci = fsteps.index(cs)
+    fi = fsteps.index { |st| st["id"] == "failed" }
+    abort "the detach step must come BEFORE the checks step (else the checks run on a branch)" unless di && ci && di < ci
+    abort "the label collector must come AFTER the checks step (else it reads no log)" unless fi && ci && fi > ci
     abort "browser-checks-full must detach HEAD before the checks (the cut runs from a detached, frozen tree; on a branch browser-checks.sh takes a re-exec path the cut never does)" unless fsteps.any? { |st| st["run"].to_s.strip == "git checkout --detach" }
     abort "no collector step with id failed" unless (fj["steps"] || []).any? { |st| st["id"] == "failed" && st["run"].to_s.include?("labels=") }
     abort "browser-checks-full must export steps.failed.outputs.labels as outputs.failed, got #{fj["outputs"].inspect}" unless (fj["outputs"] || {})["failed"].to_s.gsub(/\s+/, "") == "${{steps.failed.outputs.labels}}"
@@ -214,8 +219,15 @@ if command -v ruby >/dev/null 2>&1; then
   # success must go through; three failures must raise ::error:: and return non-zero.
   sed -n '/^ghr() {/,/return 1; }$/p' "$BT/card.sh" > "$BT/ghr.sh"
   grep -q 'ghr()' "$BT/ghr.sh" || fail "could not extract ghr from the card script"
-  out=$(GH_RETRY_SECONDS=0 RUN_URL=u bash -c '. "$1"; n=0; flaky() { n=$((n+1)); [ "$n" -ge 3 ]; }; ghr flaky a b && echo "ok after $n"' _ "$BT/ghr.sh" 2>&1) || true
+  # The attempts run in a subshell (ghr buffers each one), so the counter lives in a file.
+  rm -f "$BT/flaky.n"
+  out=$(GH_RETRY_SECONDS=0 RUN_URL=u F="$BT/flaky.n" bash -c '. "$1"; flaky() { n=$(( $(cat "$F" 2>/dev/null || echo 0) + 1 )); echo "$n" > "$F"; [ "$n" -ge 3 ]; }; ghr flaky a b && echo "ok after $(cat "$F")"' _ "$BT/ghr.sh" 2>&1) || true
   [ "$out" = "ok after 3" ] || fail "ghr did not retry through two failures: $out"
+  # A failed attempt that printed part of its output first: only the successful attempt's
+  # output is emitted, so a paged read cannot list a card twice.
+  rm -f "$BT/flaky.n"
+  out=$(GH_RETRY_SECONDS=0 RUN_URL=u F="$BT/flaky.n" bash -c '. "$1"; paged() { n=$(( $(cat "$F" 2>/dev/null || echo 0) + 1 )); echo "$n" > "$F"; echo 42; [ "$n" -ge 2 ] && echo 43; [ "$n" -ge 2 ]; }; ghr paged' _ "$BT/ghr.sh" 2>&1) || true
+  [ "$out" = "$(printf '42\n43')" ] || fail "ghr emitted a failed attempt's partial output: [$out]"
   out=$(GH_RETRY_SECONDS=0 RUN_URL=u bash -c '. "$1"; ghr false issue list; echo "rc=$?"' _ "$BT/ghr.sh" 2>&1) || true
   printf '%s' "$out" | grep -q '::error::false issue list failed 3 times' && printf '%s' "$out" | grep -q 'rc=1' || fail "ghr did not report a final failure: $out"
   # FAILED-LIST splits on "|", so no FAILED entry may contain one.
@@ -245,7 +257,7 @@ if command -v ruby >/dev/null 2>&1; then
   card() {
     PATH="$BT/poison:$PATH" GH_TOKEN=invalid GH_CONFIG_DIR="$BT/ghcfg" GH_RETRY_SECONDS=0 \
     LISTFAIL="${LISTFAIL:-}" LABELFAIL="${LABELFAIL:-}" LCFAIL="${LCFAIL:-}" CREATEFAIL="${CREATEFAIL:-}" FLAGDIR="$BT/flags" GITHUB_RUN_ATTEMPT="${ATTEMPT:-1}" COMMENTFILE="${COMMENTFILE:-}" \
-    VIEWFAIL="${VIEWFAIL:-}" BODYFILE="${BODYFILE:-}" VIEWBODY="${VIEWBODY:-}" LABEL="${LABEL:-}" RESULT="$1" OPEN="$2" RED="${REDV:-render-fields|render-thread|regress-a-night (server did not boot)|render-list-row render-fields (rich board did not boot)}" GITHUB_REPOSITORY=o/r GITHUB_SHA=abc RUN_URL=https://example.test/actions/runs/4242 bash -eo pipefail -c '
+    VIEWFAIL="${VIEWFAIL:-}" BODYFILE="${BODYFILE:-}" VIEWBODY="${VIEWBODY:-}" LABEL="${LABEL:-}" RESULT="$1" OPEN="$2" RED="${REDV-render-fields|render-thread|regress-a-night (server did not boot)|render-list-row render-fields (rich board did not boot)}" GITHUB_REPOSITORY=o/r GITHUB_SHA=abc RUN_URL=https://example.test/actions/runs/4242 bash -eo pipefail -c '
       qarg() { local prevarg="" a; for a in "$@"; do [ "$prevarg" = "-q" ] && { printf "%s" "$a"; return 0; }; prevarg="$a"; done; return 1; }
       gh() { case "$1 $2" in
         "label list") [ -n "$LABELFAIL" ] && { echo "HTTP 502" >&2; return 1; }
@@ -380,6 +392,12 @@ if command -v ruby >/dev/null 2>&1; then
   case "$out" in *"CALL comment 9"*) fail "the report went on the card this run had just made: $out" ;; esac
   case "$out" in *"CALL comment 7"*) ;; *) fail "lookup failure + ghost create left no report on the already-open card: $out" ;; esac
   rm -f "$BT/flags/"*
+  # THIS run captured no labels: the placeholder is never listed as a NEW check.
+  out="$(REDV="" card failure 7)" || fail "a run with no captured labels: $out"
+  case "$(printf '%s\n' "$out" | sed -n 's/^NEW since the last red night: //p')" in
+    "(not computed"*) ;;
+    *) fail "a run with no captured labels listed the placeholder as a NEW check: $out" ;;
+  esac
   # CRLF from a web edit must not make every check NEW.
   out="$(VIEWBODY="$(printf 'Still not green (failure) at x: u\r\nNEW since the last red night: none\r\nRed checks: render-fields | render-thread\r')" REDV="render-fields|render-thread" card failure 7)" || fail "CRLF report: $out"
   [ "$(printf '%s\n' "$out" | sed -n 's/^NEW since the last red night: //p')" = "none" ] || fail "a CRLF previous report made entries NEW: $out"
