@@ -93,13 +93,14 @@ function selfCheck() {
 /* Everything a person types into. ⚠️ ASKED, NOT LISTED: an earlier version
    named `input[type=text], textarea, select` and was silently blind to
    `type=search`. Name what it is NOT rather than enumerating what it is.
-   A SLIDER (`type=range`) is not typed into, and a native one never PAINTS its computed
-   fill: measured 2026-09-25 on chromium and webkit, a slider computing rgb(255,255,255) on a
-   dark card drew the card's colour at its edges, even with an explicit white background,
-   while an appearance:none control drew white. So "the same fill as its box" measured a
-   colour nobody sees, exactly as for a checkbox. #3690's swarm sliders failed here at the
-   0.6.95 cut for that reason (two of its four). */
-const FIELDS = 'input:not([type=button]):not([type=file]):not([type=checkbox]):not([type=radio]):not([type=submit]):not([type=range]), textarea, select';
+   A NATIVE SLIDER (`type=range`, appearance not none) never PAINTS its computed fill:
+   measured 2026-09-25 on chromium and webkit, a slider computing rgb(255,255,255) on a dark
+   card drew the card's colour at its edges, even with an explicit white background, while an
+   appearance:none control drew white. So "the same fill as its box" measured a colour nobody
+   sees; #3690's swarm sliders failed here at the 0.6.95 cut for that reason (two of its four).
+   Native sliders are skipped where the fields are collected (and counted); a slider styled
+   with appearance:none DOES paint its fill, so it stays a field, like a select. */
+const FIELDS = 'input:not([type=button]):not([type=file]):not([type=checkbox]):not([type=radio]):not([type=submit]), textarea, select';
 /* ⚠️ BUTTONS TOO, and their absence was a hole shaped exactly like the defect
    this branch shipped: `#cstep-made`'s buttons sat at 1.05:1 against their own
    card and this script reported OK, because it measured FIELDS and a button is
@@ -299,7 +300,10 @@ async function measure(engine, scheme) {
       }
       return false;
     };
-    const fields = [...document.querySelectorAll(sel)].map((el) => {
+    const found = [...document.querySelectorAll(sel)];
+    const isNativeSlider = (el) => el.tagName.toLowerCase() === 'input' && el.type === 'range' && getComputedStyle(el).appearance !== 'none';
+    const nativeSliders = found.filter(isNativeSlider).length;
+    const fields = found.filter((el) => !isNativeSlider(el)).map((el) => {
       const c = getComputedStyle(el);
       const g = ground(el);
       return { id: el.id || el.tagName.toLowerCase(), tag: el.tagName.toLowerCase(),
@@ -342,7 +346,7 @@ async function measure(engine, scheme) {
           fill: c.backgroundColor, border: c.borderTopColor, borderW: c.borderTopWidth,
           box: g.bg, boxName: g.name };
       });
-    return { fields, buttons, listCell, seenContainers: [...seenContainers], containers: CONTAINERS, bare: [...BARE] };
+    return { fields, nativeSliders, buttons, listCell, seenContainers: [...seenContainers], containers: CONTAINERS, bare: [...BARE] };
   }, FIELDS);
   } finally {
     // ⚠️ Without this a throw inside the evaluate leaks the browser and the
@@ -364,6 +368,7 @@ async function measure(engine, scheme) {
       const r = await measure(engine, scheme);
       seen[scheme] = r;
       console.log(`\n== ${engine} / ${scheme} ==  fields ${r.fields.length}, page errors ${r.errs.length}`);
+      console.log(`  native sliders not measured (they paint no field fill): ${r.nativeSliders}`);
       for (const e of r.errs) fail(`${engine}/${scheme} ${e}`);
 
       /* ⚠️ A DENOMINATOR THAT ONLY PRINTS IS NOT A DENOMINATOR. Containers,

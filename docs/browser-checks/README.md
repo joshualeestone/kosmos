@@ -707,7 +707,7 @@ paint or geometry result from it is weaker evidence than a headed one.
 
 **`render-fields.js`** measures the field and control invariants in **both
 engines and both schemes**: that every select renders our own control rather than
-the browser's, that no field (checkboxes, radios and sliders excepted: they paint no field fill) is the same fill as the box it sits in, that a
+the browser's, that no field is the same fill as the box it sits in (checkboxes, radios and native sliders are exempt: they paint no field fill), that a
 field's relationship to its container does not FLIP between light and dark, that
 the unknown-memory caption does not paint over the presence dot, and that the
 list row's unknown cell carries a word rather than a blank (a blank number cell
