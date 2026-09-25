@@ -19243,7 +19243,7 @@ function showTab(tab) {
   // that stopped being true (the app can be moved, sleep settings change).
   if (tab === 'settings') paintSettings();
   // #3559: the Tasks view re-reads on every arrival, same rule as Settings and Projects.
-  if (tab === 'tasks') tskLoad();
+  if (tab === 'tasks') tskLoad(true);
   if (tab !== 'projects') {
     pjCloseConfirm();
     // A note about what a removal could not reach describes a moment, not a
@@ -34106,11 +34106,6 @@ function openConsolidatedSettings() {
   settingsOpen(SETTINGS_SEC);
   syncPlusChrome();
 }
-/* #3053: the New Agent create panel gets the SAME consolidated-display treatment #2842 gave
-   settings, so clicking New Agent in the consolidated view opens the form in the display column
-   instead of kicking back to the tab view. placeCreatePanel mirrors placeAppSettings (relocate
-   #panel-create into #panel-projects, restore it in the tab view); openConsolidatedCreate mirrors
-   openConsolidatedSettings (show it in place). */
 /* #3559: the Tasks view in the consolidated display column, the same relocation as app settings
    (#2842) and create (#3053): the consolidated view is one screen, so its Tasks button must not
    kick the person out to the tab view. In the column the view's own project rail folds to its
@@ -34137,8 +34132,14 @@ function openConsolidatedTasks() {
   placeTasksPanel(true);
   takeOverDisplayColumn();
   document.getElementById('panel-tasks').hidden = false;
-  tskLoad();
+  syncPlusChrome();   // #3599's rule: leaving consolidated Kosmos+ settings takes the blue down
+  tskLoad(true);
 }
+/* #3053: the New Agent create panel gets the SAME consolidated-display treatment #2842 gave
+   settings, so clicking New Agent in the consolidated view opens the form in the display column
+   instead of kicking back to the tab view. placeCreatePanel mirrors placeAppSettings (relocate
+   #panel-create into #panel-projects, restore it in the tab view); openConsolidatedCreate mirrors
+   openConsolidatedSettings (show it in place). */
 let CREATE_PANEL_HOME = null;
 function placeCreatePanel(consolidated) {
   const panel = document.getElementById('panel-create');
@@ -42301,8 +42302,11 @@ function tskScoped(all, st, now) {
   return (all || []).filter((t) => (!st.proj || t.projectId === st.proj)
     && tskInWindow(t, st.win, now) && tskMatches(t, st.q));
 }
-async function tskLoad() {
+/* `arrival`: the person just came to the view (a tab or the consolidated button), so ticks from an
+   earlier visit are dropped, and a first visit says it is reading rather than showing zeros. */
+async function tskLoad(arrival) {
   const mine = ++TSK.gen;
+  if (arrival) { TSK.sel.clear(); if (!TSK.data) tskPaint(); }
   const msg = document.getElementById('tsk-msg');
   try {
     const r = await fetch('/api/tasks?view=tasks', { cache: 'no-store' });
@@ -42396,7 +42400,7 @@ function tskPaint() {
   document.getElementById('tsk-by').innerHTML = TSK_BYS.map(([k, l]) => '<button type="button" data-by="' + k + '" aria-pressed="' + (TSK.by === k) + '">' + esc(l) + '</button>').join('');
   document.getElementById('tsk-sort').value = TSK.sort;
   /* Tiles: the proven groups only, counted before the tile filter so every tile keeps its number. */
-  document.getElementById('tsk-tiles').innerHTML = TSK_GROUPS.map((g) => {
+  document.getElementById('tsk-tiles').innerHTML = !TSK.data ? '' : TSK_GROUPS.map((g) => {
     const n = scoped.filter((t) => t.state === g.k).length;
     return '<button type="button" class="tsk-tile" data-tile="' + g.k + '" aria-pressed="' + (TSK.tile === g.k) + '" style="--tsk-c:' + g.c + '">'
       + '<span class="num">' + n + '</span><span class="lab"><span class="tsk-dot"></span>' + esc(g.l) + '</span><span class="ts">' + esc(g.s) + '</span></button>';
@@ -42489,32 +42493,54 @@ async function tskBulkClose() {
     TSK.busy = false;
     document.getElementById('tsk-bclose').disabled = false;
   }
+  /* The bar hides once its rows are gone, taking the focused button with it: move focus to the
+     status line, so a keyboard or screen-reader user lands on what happened. */
+  msg.tabIndex = -1;
+  msg.focus();
   tskLoad();
 }
-/* A repaint replaces the control just pressed, so focus goes back to its replacement (the same
-   data attribute and value): a keyboard or screen-reader user keeps their place. */
-function tskPaintKeepingFocus(attr, value) {
-  tskPaint();
-  const again = document.querySelector('#panel-tasks [' + attr + '="' + CSS.escape(String(value)) + '"]');
+/* A repaint replaces the control that had focus, so focus goes to its REPLACEMENT: the same kind
+   of control (tag + data attribute + value) inside the same container (its row by task key, the
+   crumb, the rail, the tiles, a segmented control), and only one that is on screen. Scoping to the
+   container is what makes it the same control: an agent's button repeats on every row it holds,
+   a row and its checkbox share a key, and the crumb's "All tasks" shares data-proj="" with a rail
+   item that is hidden in the consolidated view. */
+const TSK_FOCUS_KEYS = ['data-open-task', 'data-open-project', 'data-agent', 'data-tile', 'data-proj', 'data-win', 'data-by', 'data-key'];
+function tskFocusMark(el) {
+  const panel = document.getElementById('panel-tasks');
+  if (!el || !panel || !panel.contains(el)) return null;
+  const attr = TSK_FOCUS_KEYS.find((k) => el.hasAttribute(k));
+  if (!attr) return null;
+  const row = el.closest('.tsk-row');
+  const box = row ? null : el.closest('#tsk-crumb, #tsk-projects, #tsk-tiles, #tsk-win, #tsk-by');
+  return { tag: el.tagName.toLowerCase(), attr, value: el.getAttribute(attr), row: row ? row.dataset.key : null, box: box ? box.id : null };
+}
+function tskFocusRestore(mark) {
+  if (!mark) return;
+  const scope = mark.row !== null
+    ? document.querySelector('#tsk-groups .tsk-row[data-key="' + CSS.escape(mark.row) + '"]')
+    : (mark.box ? document.getElementById(mark.box) : document.getElementById('panel-tasks'));
+  if (!scope) return;
+  const again = [...scope.querySelectorAll(mark.tag + '[' + mark.attr + '="' + CSS.escape(String(mark.value)) + '"]')]
+    .find((x) => x.getClientRects().length > 0);
   if (again) again.focus();
 }
-/* The same for a repaint nobody pressed for (a load finishing, the roster renaming an agent): if
-   focus is on a control inside the view, it follows that control's replacement. */
-const TSK_FOCUS_KEYS = ['data-key', 'data-open-task', 'data-open-project', 'data-agent', 'data-tile', 'data-proj', 'data-win', 'data-by'];
+function tskPaintKeepingFocus(el) {
+  const mark = tskFocusMark(el);
+  tskPaint();
+  tskFocusRestore(mark);
+}
+/* The same for a repaint nobody pressed for (a load finishing, the roster renaming an agent). */
 function tskPaintKeepingCurrentFocus() {
-  const active = document.activeElement;
-  const panel = document.getElementById('panel-tasks');
-  const attr = active && panel && panel.contains(active) ? TSK_FOCUS_KEYS.find((k) => active.hasAttribute(k)) : null;
-  if (!attr) { tskPaint(); return; }
-  tskPaintKeepingFocus(attr, active.getAttribute(attr));
+  tskPaintKeepingFocus(document.activeElement);
 }
 document.getElementById('panel-tasks').addEventListener('click', (e) => {
   const el = (sel) => e.target.closest(sel);
   let b;
-  if ((b = el('[data-proj]'))) { TSK.proj = b.dataset.proj || null; TSK.tile = null; tskPaintKeepingFocus('data-proj', b.dataset.proj); return; }
-  if ((b = el('[data-win]'))) { TSK.win = Number(b.dataset.win) || 0; tskPaintKeepingFocus('data-win', b.dataset.win); return; }
-  if ((b = el('[data-by]'))) { TSK.by = b.dataset.by; tskPaintKeepingFocus('data-by', b.dataset.by); return; }
-  if ((b = el('[data-tile]'))) { TSK.tile = TSK.tile === b.dataset.tile ? null : b.dataset.tile; tskPaintKeepingFocus('data-tile', b.dataset.tile); return; }
+  if ((b = el('[data-proj]'))) { TSK.proj = b.dataset.proj || null; TSK.tile = null; tskPaintKeepingFocus(b); return; }
+  if ((b = el('[data-win]'))) { TSK.win = Number(b.dataset.win) || 0; tskPaintKeepingFocus(b); return; }
+  if ((b = el('[data-by]'))) { TSK.by = b.dataset.by; tskPaintKeepingFocus(b); return; }
+  if ((b = el('[data-tile]'))) { TSK.tile = TSK.tile === b.dataset.tile ? null : b.dataset.tile; tskPaintKeepingFocus(b); return; }
   if ((b = el('[data-open-task]'))) { tskOpenTask(b.dataset.openTask); return; }
   if ((b = el('[data-open-project]'))) { tskOpenProject(b.dataset.openProject); return; }
   if ((b = el('[data-agent]'))) { openDetail(b.dataset.agent); return; }

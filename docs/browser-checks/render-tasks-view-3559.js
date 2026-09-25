@@ -143,6 +143,13 @@ function chk(ok, label, extra) {
         const pressed = await page.evaluate(() => ({ tile: document.activeElement && document.activeElement.dataset && document.activeElement.dataset.tile, on: TSK.tile }));
         chk(pressed.tile === 'working' && pressed.on === 'working', `${tag} Enter on a tile filters and keeps focus there`, JSON.stringify(pressed));
         await page.keyboard.press('Enter'); // back to everything
+        /* A focused CHECKBOX keeps focus through a reload (its row shares its key, so a first-match
+           restore would land on the row, which cannot take focus). */
+        await page.focus('#tsk-groups input[data-key="' + launch.id + '#2"]');
+        await page.evaluate(() => tskLoad());
+        await page.waitForTimeout(300);
+        const box = await page.evaluate(() => ({ tag: document.activeElement.tagName, key: document.activeElement.dataset && document.activeElement.dataset.key }));
+        chk(box.tag === 'INPUT' && box.key === launch.id + '#2', `${tag} a focused checkbox keeps focus through a reload`, JSON.stringify(box));
         /* Search: by agent name, then by number, combined with the rail. */
         await page.fill('#tsk-search', 'rex');
         let rows = await page.evaluate(() => [...document.querySelectorAll('#tsk-groups .tsk-row .tl')].map((x) => x.textContent));
@@ -171,6 +178,8 @@ function chk(ok, label, extra) {
         await page.waitForFunction(() => /Closed 2 tasks/.test(document.getElementById('tsk-msg').textContent), null, { timeout: 8000 }).catch(() => {});
         const msg = await page.evaluate(() => document.getElementById('tsk-msg').textContent);
         chk(/Closed 2 tasks/.test(msg), `${tag} Close them closes both and says so`, msg);
+        const landed = await page.evaluate(() => document.activeElement && document.activeElement.id);
+        chk(landed === 'tsk-msg', `${tag} after Close them, focus lands on what happened (not the page body)`, landed);
         const stored = projects.readAll();
         const closedBoth = stored.find((p) => p.id === news.id).tasks.find((t) => t.number === 2).closedAt
           && stored.find((p) => p.id === launch.id).tasks.find((t) => t.number === 1).closedAt;
@@ -214,6 +223,16 @@ function chk(ok, label, extra) {
       chk(got.stillCons && got.inColumn, '[consolidated] it stays in the consolidated view, in the display column (#2842)', JSON.stringify(got));
       chk(got.ownRailHidden && got.dropdown, '[consolidated] its own project rail folds to the dropdown beside the projects rail', JSON.stringify(got));
       if (SHOTS) await page.screenshot({ path: path.join(SHOTS, 'tasks-from-consolidated.png'), fullPage: false });
+      /* From consolidated Kosmos+ settings, Tasks takes the Plus chrome down (#3599's rule). */
+      const plus = await page.evaluate(() => {
+        if (typeof openConsolidatedSettings !== 'function') return { skipped: true };
+        SETTINGS_SEC = 'plus';
+        openConsolidatedSettings();
+        const up = document.body.classList.contains('plus-active');
+        openConsolidatedTasks();
+        return { up, after: document.body.classList.contains('plus-active') };
+      });
+      chk(!plus.skipped && plus.after === false, '[consolidated] Tasks from Kosmos+ settings takes the blue down', JSON.stringify(plus));
       /* Opening a project from the consolidated rail replaces the Tasks view. */
       await page.click('#pj-list [data-project="' + launch.id + '"]', { timeout: 5000 }).catch(() => {});
       await page.waitForTimeout(600);
