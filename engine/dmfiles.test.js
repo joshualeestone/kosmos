@@ -48,7 +48,7 @@ test('#3614: the block names the REAL path, and says to create it and to keep pr
 test('#3759: the block names BOTH destinations and when each applies, says where it put the file, and what to do when unsure', () => {
   const flat = dmfiles.blockBody('/Users/someone/work/workers/writer/Files').replace(/\s+/g, ' ');
   // A direct ask: the agent's own Files folder (with the real path).
-  assert.match(flat, /or they ask you for one there, save it in your Files folder, unless it belongs to one of your projects \(below\): `\/Users\/someone\/work\/workers\/writer\/Files`/);
+  assert.match(flat, /or they ask you for one there, save it in your Files folder, unless it belongs to one of your projects \(see the next paragraphs\): `\/Users\/someone\/work\/workers\/writer\/Files`/);
   // About a project: that project's folder instead, even when asked in the direct conversation.
   assert.match(flat, /When the conversation is about one of your projects \(the person names it, or the file is plainly part of that project's work\), save it in that project's folder instead/);
   assert.match(flat, /even though they asked you here/);

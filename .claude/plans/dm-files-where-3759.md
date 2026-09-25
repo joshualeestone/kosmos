@@ -32,6 +32,9 @@ conversation, and be context-aware enough to put a project's file in that projec
   it went" still holds: the fallback is saying where it went.
 - The trigger covers a file the agent makes in a direct conversation as well as one asked for, as the
   #3614 block did, so an unprompted file is still told the exact path.
+- The project rule names the "Your projects" section by name, never by position: for an agent that had
+  projects before #3614, the board appended this block after that section, so "below" would be wrong
+  (review round 3).
 - Running agents read the new words on their next start (they read instructions at start). The board
   rewrites every agent's block at its own start (an update restarts the board), and the PR says so for
   the release notes, which are generated from what lands.
