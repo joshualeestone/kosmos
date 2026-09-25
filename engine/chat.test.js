@@ -283,6 +283,16 @@ test('#3568: a dead Antigravity agent (shell pane) is refused naming Antigravity
   });
 });
 
+/* #3568 round 19: an agy pane read before its runner tag lands still has runner 'antigravity' on its
+   card, so chat gives it the non-Claude Enter gap and names Antigravity, not Claude. */
+test('#3568: an untagged agy pane carries runner antigravity on its card', () => {
+  withFleet([fleet.agent('agyuntagged', { state: 'unknown', command: 'agy' })], (board) => {
+    const card = board.agents.find((a) => a.sessionName === 'agyuntagged' || a.name === 'agyuntagged');
+    assert.ok(card, 'the fixture agent is not on the board');
+    assert.equal(card.runner, 'antigravity');
+  });
+});
+
 test('#3391: a dead grok agent (shell pane) is refused with "no Grok running", NOT "no Claude running"', () => {
   // The grok analog of the gemini/#2100 case: a grok agent whose runner never came up
   // holds a shell pane, so it hits the not-addressable branch. Its owner must not be

@@ -154,6 +154,22 @@ test('a settings link whose target is gone is left alone, not replaced by a plai
   assert.equal(fs.lstatSync(settingsPath(h)).isSymbolicLink(), true, 'the dangling link was replaced');
 });
 
+test('a lock is released only by its owner: a lock someone else holds now is left alone', () => {
+  const { _lock } = require('./agytrust');
+  const h = home();
+  fs.mkdirSync(nodePath.dirname(settingsPath(h)), { recursive: true });
+  const held = _lock(settingsPath(h));
+  assert.equal(typeof held.release, 'function');
+  const lockFile = settingsPath(h) + '.kosmos-lock';
+  fs.writeFileSync(lockFile, 'someone-else'); // another start took the path meanwhile
+  held.release();
+  assert.equal(fs.readFileSync(lockFile, 'utf8'), 'someone-else', 'a release deleted a lock it did not own');
+  fs.unlinkSync(lockFile);
+  const mine = _lock(settingsPath(h));
+  mine.release();
+  assert.equal(fs.existsSync(lockFile), false, 'CONTROL: the owner\'s own release removes it');
+});
+
 test('as a script it says why on stderr when it could not add the folder, and still exits 0', () => {
   const h = home();
   fs.mkdirSync(nodePath.dirname(settingsPath(h)), { recursive: true });

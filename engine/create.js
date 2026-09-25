@@ -3270,7 +3270,7 @@ function installJob(name, opts) {
   const wantRunner = (opts && opts.runner) || recordedRunner(clean);
   // #3568: the flag holds on this route too (connect, repair and backfill all reach installJob).
   if (wantRunner === 'antigravity' && !antigravityEnabled()) {
-    return { ok: false, because: `${spokenName(clean)} runs on Antigravity, and setting up Antigravity agents is switched off in this Kosmos, so it cannot be set up here while that is off` };
+    return { ok: false, because: `${spokenName(clean)} runs on Antigravity, and setting up Antigravity agents is switched off on this computer, so it cannot be set up here while that is off` };
   }
   if (wantRunner === 'antigravity' && jobPlatform === 'win32') {
     return { ok: false, because: REFUSE_ANTIGRAVITY_WIN32 };

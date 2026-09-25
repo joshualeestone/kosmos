@@ -34,26 +34,45 @@ function settingsPath(home) {
 
 function sleepMs(ms) { Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms); }
 
-/* An exclusive-create lock beside the settings file. A lock older than LOCK_STALE_MS belongs to a
-   run that died, so it is taken over: it is renamed aside first (only one waiter's rename can
-   succeed), so two waiters cannot both take it. Every path counts against the deadline, so an
-   odd lock (a folder, a dangling link, a folder that cannot be written) ends the wait instead of
-   spinning. Returns { release } or { because }. */
+/* An exclusive-create lock beside the settings file, holding a token only its owner knows. A lock
+   older than LOCK_STALE_MS belongs to a run that died, so it is taken over: the stale lock is
+   renamed aside, and if what was renamed turns out to be a DIFFERENT lock (a fresh one another
+   waiter took in between), it is put back with an exclusive link and the wait goes on. Release
+   removes the lock only if it still holds this owner's token. Every path counts against the
+   deadline, so an odd lock (a folder, a dangling link, a folder that cannot be written) ends the
+   wait instead of spinning. Returns { release } or { because }. */
 function lock(file) {
   const lockFile = file + '.kosmos-lock';
+  const token = `${process.pid}-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+  const readToken = (p) => { try { return fs.readFileSync(p, 'utf8'); } catch { return null; } };
   const deadline = Date.now() + LOCK_WAIT_MS;
   for (;;) {
     try {
-      fs.closeSync(fs.openSync(lockFile, 'wx'));
-      return { release: () => { try { fs.unlinkSync(lockFile); } catch { /* already gone */ } } };
+      const fd = fs.openSync(lockFile, 'wx');
+      try { fs.writeSync(fd, token); } finally { fs.closeSync(fd); }
+      return { release: () => { if (readToken(lockFile) === token) { try { fs.unlinkSync(lockFile); } catch { /* gone */ } } } };
     } catch (err) {
       if (!err || err.code !== 'EEXIST') return { because: `agy settings could not be locked (${err && err.code})` };
     }
-    let stale = false;
-    try { stale = Date.now() - fs.lstatSync(lockFile).mtimeMs > LOCK_STALE_MS; } catch { /* gone meanwhile: try again */ }
-    if (stale) {
-      const aside = `${lockFile}.stale-${process.pid}-${Date.now()}`;
-      try { fs.renameSync(lockFile, aside); fs.rmSync(aside, { force: true }); } catch { /* another waiter took it */ }
+    let seen = null;
+    try {
+      const st = fs.lstatSync(lockFile);
+      if (Date.now() - st.mtimeMs > LOCK_STALE_MS) seen = { token: readToken(lockFile), mtimeMs: st.mtimeMs };
+    } catch { /* gone meanwhile: try again */ }
+    if (seen) {
+      const aside = `${lockFile}.stale-${token}`;
+      let moved = false;
+      try { fs.renameSync(lockFile, aside); moved = true; } catch { /* another waiter took it */ }
+      if (moved) {
+        let same = false;
+        try { same = readToken(aside) === seen.token && fs.lstatSync(aside).mtimeMs === seen.mtimeMs; } catch { /* a folder: not ours to judge */ }
+        if (same) { try { fs.rmSync(aside, { force: true, recursive: true }); } catch { /* best effort */ } }
+        else {
+          // Not the lock we judged stale: give it back (only if nobody has taken the path since).
+          try { fs.linkSync(aside, lockFile); } catch { /* the path is taken again, or it is a folder */ }
+          try { fs.rmSync(aside, { force: true, recursive: true }); } catch { /* best effort */ }
+        }
+      }
     }
     if (Date.now() > deadline) return { because: 'agy settings are locked by another start that did not finish' };
     sleepMs(25);
@@ -103,7 +122,6 @@ function trustAgyFolder(dir, opts) {
   let real;
   try { real = fs.realpathSync(dir); } catch { return { ok: false, because: 'the agent folder does not exist yet' }; }
   const file = settingsPath(home);
-  fs.mkdirSync(path.dirname(file), { recursive: true });
   // A symlinked settings file is written through to its target, so the link stays a link. A link
   // whose target is gone is left alone rather than replaced by a plain file.
   let target = file;
@@ -112,6 +130,7 @@ function trustAgyFolder(dir, opts) {
   if (isLink) {
     try { target = fs.realpathSync(file); } catch { return { ok: false, because: 'agy settings are a link to a file that is gone, so they were left alone' }; }
   }
+  fs.mkdirSync(path.dirname(target), { recursive: true });
   const held = lock(target);
   if (!held.release) return { ok: false, because: held.because };
   try {
@@ -132,7 +151,7 @@ function trustAgyFolder(dir, opts) {
   }
 }
 
-module.exports = { trustAgyFolder, settingsPath };
+module.exports = { trustAgyFolder, settingsPath, _lock: lock }; // _lock: for its test only
 
 // The supervisor calls this as a script: node agytrust.js <folder>. It always exits 0 (the launch
 // goes ahead either way), and says on stderr why it could not add the folder, for the agent's log.
