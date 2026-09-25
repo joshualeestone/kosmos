@@ -78,7 +78,7 @@ function ok(name, cond, detail) { if (cond) pass += 1; else problems.push(name +
     ok(t + ' #3386/#3658 a Grok / xAI row is in the model step and connects right here', res.hasGrok === true && /^xAI\b/.test(res.grokCompany || '') && res.grokOn === true && res.grokSoon === false && res.grokConnect === 'fr-grok-connect', JSON.stringify(res));
     ok(t + ' #3708 Grok wears its real vendor mark (an inlined SVG), not the old "X" letter chip', res.markPmark === true && res.markPaths === 2 && res.markChip === false && res.markText === '', JSON.stringify(res));
     ok(t + ' #3708 the Settings pickers get the same Grok mark, not a letter chip', res.pickerSvg === true && res.pickerChip === false, JSON.stringify(res));
-    ok(t + ' #3708 Grok says what works today, like Claude and GPT', res.grokCompany === 'xAI · works today', JSON.stringify(res));
+    ok(t + ' #3708 Grok names how it connects (not "works today": its tool is not installed by Kosmos yet)', res.grokCompany === 'xAI \u00b7 subscription or API key today', JSON.stringify(res));
     ok(t + ' #3386/#3658 Grok sits right under Gemini, in one list with no tier divider', res.geminiIdx >= 0 && res.grokIdx === res.geminiIdx + 1 && res.dividerIdx === -1, JSON.stringify(res));
     ok(t + ' #3658 seven not-yet-available tiles in the model step', res.offCount === 7, JSON.stringify(res));
     // Visual: only meaningful if the pane actually laid out (file:// nav can bail). This is a flat
