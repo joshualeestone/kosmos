@@ -28,6 +28,12 @@ surface as buildable stubs (#718) are both here now. Full context on the cards
   before). `NSFaceIDUsageDescription` is set as a build setting so the generated
   Info.plist carries it.
 - No hand-written Info.plist: `GENERATE_INFOPLIST_FILE = YES`.
+- Permission strings (`INFOPLIST_KEY_NS*UsageDescription`) for the camera, the microphone and
+  adding to Photos, as well as Face ID. No Swift code asks for these, but the board's photo pickers
+  offer Take Photo or Video inside the WebView and a long-pressed image offers Add to Photos, and
+  iOS closes an app that uses one without its sentence. iOS CI checks all four in the built app
+  (`tools/check-usage-strings.sh`).
+- iPhone only (`TARGETED_DEVICE_FAMILY = 1`): iPad layouts are not designed or tested.
 
 ## Build (the verifiable deliverable)
 
@@ -61,7 +67,8 @@ that one step:
    per-device *thinning*, which queries the (absent) platform runtimes and
    fails (`No available simulator runtimes for platform iphonesimulator`). So
    this skeleton ships with no wired app icon. Once the platform is installed,
-   add an `AppIcon` asset catalog and set `ASSETCATALOG_COMPILER_APPICON_NAME`.
+   add an `AppIcon` asset catalog and set `ASSETCATALOG_COMPILER_APPICON_NAME`. The artwork is
+   `assets/Kosmos-1024.png` (1024 px, full bleed, no transparency, as iOS wants).
 
 Neither blocks the build deliverable, which is compile+link against the SDK.
 

@@ -59,3 +59,12 @@ jobs:
         run: |
           xcodebuild -project Kosmos.xcodeproj -target Kosmos -sdk iphonesimulator \
             -configuration Debug CODE_SIGNING_ALLOWED=NO build
+
+      # iOS closes the app when a feature is used without its permission string;
+      # check the strings in the app just built, not the project file.
+      - name: Permission strings are in the built app
+        working-directory: ios
+        run: |
+          set -o pipefail
+          tools/check-usage-strings.sh build/Debug-iphonesimulator/Kosmos.app/Info.plist | tee "$RUNNER_TEMP/usage.log"
+          grep -q '^VERDICT: PASS' "$RUNNER_TEMP/usage.log"
