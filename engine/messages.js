@@ -1263,11 +1263,34 @@ function sendPost({ fromPane, sender: resolvedSender, project, projectName, text
   const arrivals = log.filter((m) => m && m.kind === 'post' && !m.operator
     && m.project === projectId && Date.parse(m.at) >= countFrom)
     .reduce((n, m) => n + (Array.isArray(m.to) ? m.to.length : 0), 0);
-  /* #3564: a swarm switched OFF in this project is not sent the room's posts, so it is not
-     charged for them (one that is @-named into this post goes uncharged for it). */
+  const cleaned = chat.cleanMessage(text);
+  /* Addressed is an @mention naming a member. Names match exactly, and
+     the TOKENIZER carries two boundary rules the charset alone gets
+     wrong: a left boundary, because "admin@mara" is an email-shaped
+     string, and promoting it to a request manufactures an ask nobody
+     made (the dangerous direction); and a trailing-punctuation retry,
+     because "have a look @mara." captures "mara." and would silently
+     demote an addressed mention to background. Demotion still arrives
+     marked, promotion is the one to be strict about -- so the left
+     boundary is absolute and the retry only STRIPS, never fuzzes.
+     Everyone else in the room receives the same words marked as
+     background -- the one thing that must not happen is background
+     arriving unmarked. */
+  const mentioned = new Set();
+  for (const m of cleaned.matchAll(/(^|[^A-Za-z0-9._-])@([A-Za-z0-9._-]+)/g)) {
+    const token = m[2];
+    if (recipients.includes(token)) { mentioned.add(token); continue; }
+    const stripped = token.replace(/[._-]+$/, '');
+    if (stripped && recipients.includes(stripped)) mentioned.add(stripped);
+  }
   const projectsMod = require('./projects');   // lazy: projects requires this module
   const offInProject = projectsMod.swarmOffSet(projectId);
-  const charged = recipients.filter((n) => !offInProject.has(String(n))).length;
+  /* #3564: a swarm switched OFF in this project is not woken by the room, unless the
+     post @-names it. It stays a member, but a post it was not sent is not logged as
+     sent to it, so an @-name later tells it what it missed. */
+  const offHere = new Set(recipients.filter((n) => !mentioned.has(n) && offInProject.has(String(n))));
+  /* #3564: the post is charged for the members it is sent to. */
+  const charged = recipients.length - offHere.size;
   if (operator !== true && arrivals + charged > lim.roomArrivalsPerWindow) {
     const because = lim.on
       ? 'This conversation went back and forth for a while without landing, '
@@ -1315,7 +1338,6 @@ function sendPost({ fromPane, sender: resolvedSender, project, projectName, text
 
   const id = 'm' + (rec.parsed.reduce((n, m) => Math.max(n, m && m.id ? Number(String(m.id).slice(1)) || 0 : 0), 0) + 1);
 
-  const cleaned = chat.cleanMessage(text);
   /* #2239: the STORED text keeps paragraph breaks (storeText keeps newlines, and
      since #3679 also indentation and fenced code), so the room
      thread can render an agent's headings, lists and paragraph structure
@@ -1336,32 +1358,8 @@ function sendPost({ fromPane, sender: resolvedSender, project, projectName, text
     body = cleaned.slice(0, 200) + '\u2026 (long message; the full text is at ' + spillFile + ')';
   }
 
-  /* Addressed is an @mention naming a member. Names match exactly, and
-     the TOKENIZER carries two boundary rules the charset alone gets
-     wrong: a left boundary, because "admin@mara" is an email-shaped
-     string, and promoting it to a request manufactures an ask nobody
-     made (the dangerous direction); and a trailing-punctuation retry,
-     because "have a look @mara." captures "mara." and would silently
-     demote an addressed mention to background. Demotion still arrives
-     marked, promotion is the one to be strict about -- so the left
-     boundary is absolute and the retry only STRIPS, never fuzzes.
-     Everyone else in the room receives the same words marked as
-     background -- the one thing that must not happen is background
-     arriving unmarked. */
-  const mentioned = new Set();
-  for (const m of cleaned.matchAll(/(^|[^A-Za-z0-9._-])@([A-Za-z0-9._-]+)/g)) {
-    const token = m[2];
-    if (recipients.includes(token)) { mentioned.add(token); continue; }
-    const stripped = token.replace(/[._-]+$/, '');
-    if (stripped && recipients.includes(stripped)) mentioned.add(stripped);
-  }
-
   const outcomes = {};
   let reached = 0;
-  /* #3564: a swarm switched OFF in this project is not woken by the room, unless the
-     post @-names it. It stays a member, but a post it was not sent is not logged as
-     sent to it, so an @-name later tells it what it missed. */
-  const offHere = new Set(recipients.filter((n) => !mentioned.has(n) && offInProject.has(String(n))));
   for (const name of recipients) {
     if (offHere.has(name)) continue;
     /* The operator's arrivals carry their OWN markers: an @-mentioned

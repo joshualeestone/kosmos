@@ -2184,7 +2184,7 @@ test('#670: unread is every post after the person last opened the room, agent ch
   });
 });
 
-test('#3564: the room valve does not charge a swarm switched off in the project; switched on, the same post trips it', () => {
+test('#3564: the room valve charges only the members a post is sent to: an Off swarm is charged when @-named, not otherwise', () => {
   const projects = require('./projects');
   const made = projects.create({ name: 'Swarm Valve Room' });
   const pid = made.id || (made.project && made.project.id);
@@ -2204,6 +2204,10 @@ test('#3564: the room valve does not charge a swarm switched off in the project;
       armSender('leo-discord'); arm([]);
       const off = messages.sendPost({ fromPane: '%7', project: pid, text: 'one more' }, board.agents, MEMBERS);
       assert.notEqual(off.state, chat.DELIVERY.COULD_NOT, 'the valve charged an Off swarm that is never sent the post: ' + (off.because || ''));
+      seed();
+      armSender('leo-discord'); arm([]);
+      const named = messages.sendPost({ fromPane: '%7', project: pid, text: '@april one more' }, board.agents, MEMBERS);
+      assert.equal(named.state, chat.DELIVERY.COULD_NOT, 'an Off swarm @-named into the post is sent it, so the valve must charge it');
       projects.setSwarmOn(pid, 'april', true);
       seed();
       armSender('leo-discord'); arm([]);
