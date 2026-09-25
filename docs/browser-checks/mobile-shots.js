@@ -120,8 +120,14 @@ const SCREENS = [
     await page.evaluate(() => document.querySelector('.acard[data-agent="cleo"]').scrollIntoView({ block: 'start' }));
   } },
   // Sonya: settings.
-  { name: 'settings', owner: 'Sonya', go: async (page) => at(page, '?tab=settings') },
-  { name: 'settings-accounts', owner: 'Sonya', go: async (page) => at(page, '?tab=settings&sec=accounts') },
+  { name: 'settings', owner: 'Sonya', go: async (page) => {
+    await at(page, '?tab=settings');
+    await page.waitForSelector('#panel-settings', { state: 'visible', timeout: 5000 });
+  } },
+  { name: 'settings-accounts', owner: 'Sonya', go: async (page) => {
+    await at(page, '?tab=settings&sec=accounts');
+    await page.waitForSelector('#s-sec-accounts', { state: 'visible', timeout: 5000 });
+  } },
 ];
 
 /* ------------------------------------------------------------------ args */
@@ -237,6 +243,9 @@ async function startBoard() {
     AGENT_WORKFORCE_GEMINI_HOME: path.join(home, '.gemini'), GEMINI_CLI_HOME: home,
     AGENT_WORKFORCE_GROK_HOME: path.join(home, '.grok'), GROK_HOME: path.join(home, '.grok'),
     AGENT_WORKFORCE_SCAN_ROOTS: path.join(home, 'scan'),
+    /* The board installs its agent browser (a ~100MB download) on start unless
+       it is told it is a sandbox; every other self-booting check sets this. */
+    AGENT_WORKFORCE_DRY_RUN: '1', AGENT_WORKFORCE_RUNNERS_DIR: path.join(home, 'runners'),
   };
   const early = Object.keys(require.cache).filter((f) => f.startsWith(path.join(REPO, 'engine') + path.sep));
   if (early.length) throw new Error('an engine module was loaded before the sandbox was set: ' + early[0]);
