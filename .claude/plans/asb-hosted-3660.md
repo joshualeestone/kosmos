@@ -140,3 +140,18 @@ the same state sooner. Replaced:
   news to keep.
 - NITs taken: one sentence per reason (ASB_WHY_OWN / ASB_WHY_NONE, matching the server's words), and while stepping the
   note reads "This chat has ended. Josh isn't typing live." instead of offering the service.
+
+## Review iteration 11 (fixed)
+- WARNING: "so the setup assistant will use that" can be false, since a guide is not always made. It now says "You've
+  connected your own AI, so this chat has ended." (page and server).
+- WARNING: "You can turn it back on in Settings" could be false with no assistant showing. The row also shows while it
+  is switched off, and the setting is read with no guide (H10b).
+- WARNING: a folded reason opened was never announced. It is written again once the panel shows, and the box is
+  read-only with aria-describedby pointing at why (H18).
+- NITs taken:
+  - "the guide went, hosted stands in" really asks the hosted assistant, and the chat stays open (H25);
+  - a question asked just before a withdrawal keeps its answer behind the dot;
+  - Send repaints after a guide send;
+  - a waiting reason survives a reload (H26);
+  - arms for 503 unchecked (H23) and no_connector (H24);
+  - the note reads "your questions go online to Kosmos's AI".

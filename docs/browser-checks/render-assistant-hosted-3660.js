@@ -137,7 +137,7 @@ const waitFor = (page, fn, ms = 6000) => page.waitForFunction(fn, null, { timeou
     await page.click('#asb');
     chk(await waitFor(page, () => !document.getElementById('asp').hidden), 'H2 the chat opens');
     const h2 = await state(page);
-    chk(h2.note === 'An AI in Josh\'s voice. Until you connect your own AI, your questions go to ours, online. Josh isn\'t typing live.', 'H2 it says their questions go to Kosmos\'s AI, online, until they connect theirs', h2.note);
+    chk(h2.note === 'An AI in Josh\'s voice. Until you connect your own AI, your questions go online to Kosmos\'s AI. Josh isn\'t typing live.', 'H2 it says their questions go online to Kosmos\'s AI until they connect theirs', h2.note);
     chk(await page.evaluate(() => /I built Kosmos/.test(document.querySelector('#asp-th .asp-empty')?.textContent || '')), 'H2 and greets as the guide does');
     await page.waitForTimeout(1800);
     chk(pageReports.length === 0, 'H2 no screen report goes to a guide that does not exist (its 404 would reset the bubble)', JSON.stringify(pageReports));
@@ -273,6 +273,8 @@ const waitFor = (page, fn, ms = 6000) => page.waitForFunction(fn, null, { timeou
     await page.waitForTimeout(7000);
     const h18b = await page.evaluate(() => ({ panel: !document.getElementById('asp').hidden, msg: document.getElementById('asp-msg').textContent, focusIn: !!document.activeElement && !!document.activeElement.closest('#asblayer') }));
     chk(h18b.panel && /next Kosmos update/.test(h18b.msg) && h18b.focusIn, 'H18 it stays open, with the sentence and the keyboard, seven seconds after opening', JSON.stringify(h18b));
+    const h18ro = await page.evaluate(() => { const b = document.getElementById('asp-say'); return { ro: b.readOnly, desc: b.getAttribute('aria-describedby') }; });
+    chk(h18ro.ro && h18ro.desc === 'asp-msg', 'H18 the box takes no words and points a screen reader at why', JSON.stringify(h18ro));
     await page.keyboard.press('Escape');
     chk(await waitFor(page, () => document.getElementById('asb').hidden && document.getElementById('asp').hidden, 3000), 'H18 folding it (Escape) ends it: read, it steps aside');
 
@@ -283,6 +285,15 @@ const waitFor = (page, fn, ms = 6000) => page.waitForFunction(fn, null, { timeou
     await boot();
     await page.waitForTimeout(3000);
     chk(!(await state(page)).bubble && await page.evaluate(() => ASB.hosted === true), 'H10 switched off, the hosted assistant shows no bubble (it is still hosted)');
+    // H10b: switched off, with neither a guide nor hosted (they connected their own AI later): the Settings switch is
+    // still there to turn it back on, as "Don't show this again" promises.
+    fs.writeFileSync(path.join(HOME, '.claude.json'), JSON.stringify({ oauthAccount: { emailAddress: 'person@example.com' } }));
+    fs.mkdirSync(path.join(HOME, '.claude'), { recursive: true });
+    await boot();
+    await page.evaluate(() => showTab('settings'));
+    chk(await waitFor(page, () => ASB.hosted === false && ASB.guide === null && !!document.getElementById('asb-row') && !document.getElementById('asb-row').hidden, 8000), 'H10b switched off with no assistant at all, the Settings switch is still there');
+    await page.evaluate(() => showTab('agents'));
+    fs.rmSync(path.join(HOME, '.claude.json'), { force: true });
     await fetch(URL + '/api/settings', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ setupAssistant: { on: true } }) });
 
     // H20: they connect their own AI while the hosted chat is open, so the board flips to not hosted at the same
@@ -291,7 +302,7 @@ const waitFor = (page, fn, ms = 6000) => page.waitForFunction(fn, null, { timeou
     await boot();
     chk(await waitFor(page, () => { const b = document.getElementById('asb'); return b && !b.hidden && ASB.hosted === true; }, 8000), 'H20 precondition: hosted');
     await page.click('#asb');
-    answer = { status: 409, body: { error: "you've connected your own AI, so the setup assistant will use that", code: 'own_model' } };
+    answer = { status: 409, body: { error: "you've connected your own AI, so this chat has ended", code: 'own_model' } };
     fs.writeFileSync(path.join(HOME, '.claude.json'), JSON.stringify({ oauthAccount: { emailAddress: 'person@example.com' } }));
     fs.mkdirSync(path.join(HOME, '.claude'), { recursive: true });
     await page.fill('#asp-say', 'Still you?');
@@ -339,6 +350,7 @@ const waitFor = (page, fn, ms = 6000) => page.waitForFunction(fn, null, { timeou
     const h22 = await page.evaluate(() => ({ bubble: !document.getElementById('asb').hidden, dot: !document.querySelector('#asb .asb-dot').hidden }));
     chk(h22.bubble && h22.dot, 'H22 withdrawn while folded, the bubble waits with the dot', JSON.stringify(h22));
     await page.click('#asb');
+    await waitFor(page, () => /connected your own AI/.test(document.getElementById('asp-msg').textContent), 2000);
     const h22o = await page.evaluate(() => ({ msg: document.getElementById('asp-msg').textContent, note: document.querySelector('#asp .asp-note').textContent }));
     chk(/connected your own AI/.test(h22o.msg) && /^This chat has ended/.test(h22o.note), 'H22 opened, it says why, and the note no longer offers the service', JSON.stringify(h22o));
     await page.click('#asp-x');
@@ -351,6 +363,44 @@ const waitFor = (page, fn, ms = 6000) => page.waitForFunction(fn, null, { timeou
     await page.evaluate(() => { ASB.nextFind = 0; });
     chk(await waitFor(page, () => ASB.hosted === false && document.getElementById('asb').hidden, 8000), 'H22b CONTROL: never asked anything, it simply goes');
     fs.rmSync(path.join(HOME, '.claude.json'), { force: true });
+
+    // H23: the board could not check which AI is connected (503 unchecked): nothing ends, the words stay, and a
+    // later question goes through. H24: 409 no_connector: the board's sentence, and the chat has ended.
+    await page.evaluate(() => { try { sessionStorage.clear(); } catch { /* */ } });
+    await boot();
+    chk(await waitFor(page, () => { const b = document.getElementById('asb'); return b && !b.hidden && ASB.hosted === true; }, 8000), 'H23 precondition: hosted');
+    await page.click('#asb');
+    answer = { status: 503, body: { error: 'we could not check which AI is connected just now; try again in a moment', code: 'unchecked' } };
+    await page.fill('#asp-say', 'Check?');
+    await page.keyboard.press('Enter');
+    chk(await waitFor(page, () => /could not check which AI/.test(document.getElementById('asp-msg').textContent)), 'H23 unchecked says so');
+    const h23 = await page.evaluate(() => ({ box: document.getElementById('asp-say').value, hosted: ASB.hosted, ro: document.getElementById('asp-say').readOnly, send: document.getElementById('asp-send').disabled }));
+    chk(h23.box === 'Check?' && h23.hosted === true && !h23.ro && !h23.send, 'H23 and nothing ends: the words stay and it can be asked again', JSON.stringify(h23));
+    answer = { status: 409, body: { error: 'the setup assistant is not available on this computer right now', code: 'no_connector' } };
+    await page.keyboard.press('Enter');
+    chk(await waitFor(page, () => /not available on this computer right now/.test(document.getElementById('asp-msg').textContent) && document.getElementById('asp-say').readOnly), 'H24 no_connector: the board\'s sentence, and the chat has ended');
+    await page.click('#asp-x');
+    chk(await waitFor(page, () => document.getElementById('asb').hidden, 3000), 'H24 closed, it goes');
+
+    // H26: a reason waiting behind the dot survives a reload in the same window, and is read after it.
+    await page.evaluate(() => { try { sessionStorage.clear(); } catch { /* */ } });
+    await boot();
+    chk(await waitFor(page, () => { const b = document.getElementById('asb'); return b && !b.hidden && ASB.hosted === true; }, 8000), 'H26 precondition: hosted');
+    answer = { status: 501, body: { error: 'the setup assistant arrives with the next Kosmos update', unsupported: true } };
+    slow = 1500;
+    await page.click('#asb');
+    await page.fill('#asp-say', 'Reload me?');
+    await page.keyboard.press('Enter');
+    await page.waitForTimeout(200);
+    await page.click('#asp-fold');
+    chk(await waitFor(page, () => ASB.asideOnOpen === true, 4000), 'H26 precondition: a reason is waiting');
+    slow = 0;
+    await boot();
+    chk(await waitFor(page, () => { const b = document.getElementById('asb'); return b && !b.hidden && !b.querySelector('.asb-dot').hidden; }, 8000), 'H26 after a reload the bubble is back with its dot');
+    await page.click('#asb');
+    chk(await waitFor(page, () => /next Kosmos update/.test(document.getElementById('asp-msg').textContent), 2000), 'H26 and opening it reads the reason');
+    await page.click('#asp-x');
+    chk(await waitFor(page, () => document.getElementById('asb').hidden, 3000), 'H26 closed, it goes');
 
     // H13: a model of their own is connected (an install from before the guide, or a guide removed): the hosted
     // assistant is not offered and the route refuses, so Kosmos's key is never spent for them. CONTROL: H1.
@@ -422,7 +472,7 @@ const waitFor = (page, fn, ms = 6000) => page.waitForFunction(fn, null, { timeou
     await page.evaluate(() => { try { sessionStorage.clear(); } catch { /* */ } });
     await boot();
     chk(await waitFor(page, () => { const b = document.getElementById('asb'); return b && !b.hidden && ASB.hosted === true && ASB.guide === null; }, 8000), 'H19 precondition: hosted, no guide');
-    answer = { status: 409, body: { error: "you've connected your own AI, so the setup assistant will use that", code: 'own_model' } };
+    answer = { status: 409, body: { error: "you've connected your own AI, so this chat has ended", code: 'own_model' } };
     slow = 1500;
     await page.click('#asb');
     await page.fill('#asp-say', 'Still there?');
@@ -443,8 +493,17 @@ const waitFor = (page, fn, ms = 6000) => page.waitForFunction(fn, null, { timeou
     await page.waitForTimeout(500);
     const h19 = await page.evaluate(() => ({ sending: ASB.sending, send: document.getElementById('asp-send').disabled, msg: document.getElementById('asp-msg').textContent, pending: ASB.asideOnOpen }));
     chk(!h19.sending && !h19.send && h19.msg === '' && h19.pending === false, 'H19 the guide\'s chat opens clean: Send works and no hosted refusal runs against it', JSON.stringify(h19));
-    await page.click('#asp-fold');
+    // H25: the guide goes while its chat is open, and the hosted assistant stands in: the next question is asked of
+    // the hosted assistant, not refused as "not on this computer".
     unseed();
+    answer = { status: 200, body: { reply: 'Hosted here.', remaining: 20 } };
+    const before25 = asked.length;
+    await page.fill('#asp-say', 'Who answers?');
+    await page.keyboard.press('Enter');
+    chk(await waitFor(page, () => [...document.querySelectorAll('#asp-th .asp-m.him')].some((m) => m.textContent === 'Hosted here.'), 8000) && asked.length === before25 + 1,
+      'H25 the guide gone, the question goes to the hosted assistant that stands in', JSON.stringify({ asked: asked.length - before25, msg: (await state(page)).msg }));
+    chk(await page.evaluate(() => !document.getElementById('asp').hidden && ASB.hosted === true && ASB.guide === null), 'H25 and the chat stays open for the answer, now the hosted assistant\'s');
+    await page.click('#asp-fold');
     fleet.install([fleet.agent('beatrix', { state: 'idle', displayName: 'Beatrix', role: 'Collections Coordinator' })]);
 
     chk(MARK_WORKS && !fs.existsSync(RAN), 'H12 the connector never ran (CONTROL: run by hand at the start, it leaves its mark)', JSON.stringify({ MARK_WORKS }));

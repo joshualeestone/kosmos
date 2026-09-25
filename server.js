@@ -13752,7 +13752,7 @@ const server = http.createServer((req, res) => {
       req.resume();
       if (offer.why === 'unchecked') sendJson(res, 503, { error: 'we could not check which AI is connected just now; try again in a moment', code: 'unchecked' });
       else if (offer.why === 'no_connector') sendJson(res, 409, { error: 'the setup assistant is not available on this computer right now', code: 'no_connector' });
-      else sendJson(res, 409, { error: "you've connected your own AI, so the setup assistant will use that", code: 'own_model' });
+      else sendJson(res, 409, { error: "you've connected your own AI, so this chat has ended", code: 'own_model' });
       return;
     }
     readBody(req)
