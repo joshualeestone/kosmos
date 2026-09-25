@@ -269,3 +269,19 @@ test('#3564 sweepRows: only OUR swarms, as { name, tokensToday }; a plain agent 
     assert.ok(Number.isFinite(rows[0].tokensToday));
   });
 });
+
+test('#3564 stopHelpers: the measured agent-manager keys (Down, then Down+x per helper, then Escape), same gate as deliver', () => {
+  try {
+    withFleet([fleet.agent('lead3', { state: 'idle' }), fleet.stranger('other3', { state: 'idle' })], (board) => {
+      const tmux = armTmux();
+      assert.deepEqual(chat.stopHelpers('lead3', board.agents, 2), { ok: true, sent: 2 });
+      const keys = tmux.calls.filter((a) => a[0] === 'send-keys').map((a) => a[a.length - 1]);
+      assert.deepEqual(keys, ['Down', 'Down', 'x', 'Down', 'x', 'Escape']);
+      const before = tmux.calls.length;
+      assert.deepEqual(chat.stopHelpers('lead3', board.agents, 0), { ok: true, sent: 0 });
+      assert.equal(tmux.calls.length, before, 'CONTROL: no helpers, no keys');
+      assert.equal(chat.stopHelpers('other3', board.agents, 2).ok, false);
+      assert.equal(tmux.calls.length, before, 'a stranger\'s pane was sent keys');
+    });
+  } finally { chat.setRunner(null); }
+});

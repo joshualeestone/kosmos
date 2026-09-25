@@ -1022,6 +1022,33 @@ function waitingNote(state, outcome, runner, backgroundWait) {
 }
 
 /**
+ * #3564 Stop now, the half Escape cannot do: stop a swarm lead's BACKGROUND helpers.
+ * Measured on Claude Code 2.1.282 (a throwaway pane, 2026-09-24): one Escape to an idle lead
+ * does NOT stop a background subagent (its transcript kept growing). Its agent manager does:
+ * `Down` opens the list with the lead's own row first, each further `Down` selects the next
+ * helper ("Enter to view · x to stop"), and `x` stops the selected one. `Escape` leaves the list.
+ * ⚠️ This drives Claude Code's own screen, so a change to that screen can break it; the
+ * card's activeHelpers (read from the helpers' own files) is how anyone sees whether it held.
+ * `count` is how many helpers to stop (the card's activeHelpers); 0 sends nothing. Same gate
+ * as deliver. Never throws.  { ok: true, sent } | { ok: false, because }
+ */
+function stopHelpers(sessionName, roster, count) {
+  const n = Number.isInteger(count) && count > 0 ? Math.min(count, 10) : 0;
+  if (!n) return { ok: true, sent: 0 };
+  const allowed = addressable(sessionName, roster);
+  if (!allowed.ok) return { ok: false, because: allowed.because };
+  const t = paneTarget(allowed.card);
+  const keys = ['Down'];
+  for (let i = 0; i < n; i += 1) keys.push('Down', 'x');
+  keys.push('Escape');
+  for (const k of keys) {
+    const got = tmux(['send-keys', '-t', t, k]);
+    if (got.spawnFailed || !got.ran || got.status !== 0) return { ok: false, because: 'we could not finish stopping its helpers; look at its window' };
+  }
+  return { ok: true, sent: n };
+}
+
+/**
  * #3564 Stop now: interrupt the agent's current turn (Escape, as a person would press
  * it), which ends a swarm lead's work and its helpers. Through the SAME gate as
  * deliver (`addressable`: exact name, ours, an agent pane), so it can only ever
@@ -2907,7 +2934,7 @@ module.exports = {
   cleanMessage, storeText, messageProblem, addressable, resolveCard, paneTarget, wireText,
   dmReactions, dmReactionPills, reactDirect, dmReactionNews, dmReactionNote, markDmReactionsTold, dmNoteMayRide,
   chunkUtf8, pasteToEnterMs, PASTE_CHUNK_BYTES,
-  deliver, interrupt, viewport, questionIn, optionsIn, questionAbove, waitingNote, spawnFailure, verifyAtSend,
+  deliver, interrupt, stopHelpers, viewport, questionIn, optionsIn, questionAbove, waitingNote, spawnFailure, verifyAtSend,
   withQuestionRow,
   threadFile, readThread, appendMessage, supersede, withThreadLock,
   defaultAgentFor, looksLikeManager,

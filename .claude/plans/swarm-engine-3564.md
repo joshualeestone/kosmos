@@ -32,7 +32,11 @@ split (22:26): engine is Renet's, UI is Mona's. Claude-only v1. The engine/UI co
 - **The count is reported, not enforced**: the lead is told N; the card shows activeHelpers > maxHelpers if it runs over.
 
 ## Weakest premises (not yet measured)
-1. That Escape to the lead also ends BACKGROUND subagents. If not, Stop now must end them explicitly.
+1. ~~That Escape ends BACKGROUND subagents.~~ MEASURED FALSE (2026-09-24, a throwaway Claude Code 2.1.282 pane): one
+   Escape to an idle lead leaves a background helper running. Its agent manager stops it (`Down` opens the list, `Down`
+   selects a helper, `x` stops it), so Stop now also sends that sequence for each working helper (`chat.stopHelpers`).
+   The residual: it drives Claude Code's own screen and can break when that screen changes; the card's activeHelpers
+   (from the helpers' files) is how anyone sees whether it held.
 2. That the lead keeps to N when told.
 
 ## Verification

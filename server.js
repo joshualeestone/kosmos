@@ -4854,8 +4854,16 @@ const server = http.createServer((req, res) => {
     if (!s) { sendJson(res, 404, { ok: false, because: 'that agent is not a swarm' }); return; }
     const next = swarm.pausedFor(s, 'stopped');
     store.writeProfile(name, { swarm: next });
-    const stopped = chat.interrupt(name, safeRoster());
-    sendJson(res, 200, { ok: true, stopped: stopped.ok === true, because: stopped.ok ? null : stopped.because, swarm: next });
+    const roster = safeRoster();
+    const stopped = chat.interrupt(name, roster);
+    /* Escape does not reach BACKGROUND helpers (measured): stop each through the agent
+       manager, as many as the card says are working. */
+    const card = chat.resolveCard(Array.isArray(roster) ? roster : [], name);
+    const helpers = card && card.swarm ? card.swarm.activeHelpers : 0;
+    const helped = helpers > 0 ? chat.stopHelpers(name, roster, helpers) : { ok: true, sent: 0 };
+    const ok = stopped.ok === true && helped.ok === true;
+    sendJson(res, 200, { ok: true, stopped: ok, helpersStopped: helped.ok ? helped.sent : 0,
+      because: ok ? null : (stopped.ok ? helped.because : stopped.because), swarm: next });
     return;
   }
   /* #3564: a swarm's settings (the contract on #3564): { maxHelpers?, dailyTokenLimit?, active? }.
