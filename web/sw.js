@@ -107,7 +107,7 @@ self.addEventListener('fetch', (event) => {
 });
 
 /* The coordinator's sender (kosmos-relay VapidSender) posts who/what/where and
-   never content, so the payload is {kind, agent, project, id, address} -- NOT
+   never content, so the payload is {kind, agent, project, id, address, session} -- NOT
    {title, body}. `kind` is one of posted|replied|needs_you; `address` is the
    person's own Mac host ("<mac>.<domain>", no scheme) so a tap opens her board.
    We render a plain-language line from those fields, still preferring an
@@ -125,12 +125,24 @@ const KIND_HEADLINE = {
    clients.openWindow()/navigate(). No `url` field is honored: the coordinator
    never sends one, and passing an arbitrary string straight through would be
    exactly that gap. A future producer that wants a full URL must add its own
-   validated branch, not a passthrough. Falls back to the board on this origin. */
+   validated branch, not a passthrough. Falls back to the board on this origin.
+
+   #718: when the push names the agent (`session`, a plain id the coordinator
+   has already checked), the tap opens that agent: the board's own link
+   `?tab=detail&agent=<session>`, which it reads at boot. Checked again here
+   with the same rule, and put in with URLSearchParams, so it can only ever be
+   a query value, never a path, a scheme or another host. Anything else opens
+   the board's home, as before. The iOS app builds the same link. */
+const TAP_SESSION = /^[a-z0-9][a-z0-9_-]{0,63}$/;
 function boardUrlFor(data) {
+  let url = '/';
   if (typeof data.address === 'string' && /^[a-z0-9-]+(\.[a-z0-9-]+)+$/i.test(data.address)) {
-    return 'https://' + data.address + '/';
+    url = 'https://' + data.address + '/';
   }
-  return '/';
+  if (typeof data.session === 'string' && TAP_SESSION.test(data.session)) {
+    url += '?' + new URLSearchParams({ tab: 'detail', agent: data.session }).toString();
+  }
+  return url;
 }
 
 /* Turn a push payload into a notification. Factored out so the shape is in one
