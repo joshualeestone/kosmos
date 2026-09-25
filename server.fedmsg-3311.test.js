@@ -54,6 +54,8 @@ fedseats.configure({
   macRequest: async () => ({ ok: false, because: 'not used' }),
   recordExternal: (projectId, msg) => messages.externalPost(projectId, msg),
   enrolled: () => true,
+  // As server.js wires it, so the seat's notes land in the room here too.
+  note: (projectId, text) => messages.roomNote(projectId, text),
 });
 
 let base;
@@ -180,7 +182,8 @@ test('a post in a room that is not federated sends nothing and says nothing', as
 
 test('a post too long for the connector stays here and says so, before anything is sent', async () => {
   const before = children[0].written.length;
-  federateOut(pid, { id: 'p-long', from: 'you', text: 'x'.repeat(20 * 1024) }, true);
+  // Under 16 KiB as text, over it once every quote is escaped on the line.
+  federateOut(pid, { id: 'p-long', from: 'you', text: '"'.repeat(9 * 1024) }, true);
   assert.equal(children[0].written.length, before, 'nothing was sent');
   const notes = messages.record().rows.filter((m) => m.kind === 'note' && m.project === pid);
   assert.match(notes[notes.length - 1].text, /too long to send/);

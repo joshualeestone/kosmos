@@ -202,6 +202,6 @@ function forgetSnapshot(edgeId) {
 
 module.exports = {
   FILE, MAC_INVITE, MAC_VERIFY,
-  invite, verify, joinSnapshot, forgetSnapshot, linkFor, recordLink, forgetLink, readLinks, reasonFor,
+  invite, verify, joinSnapshot, forgetSnapshot, linkFor, recordLink, forgetLink, readLinks, reasonFor, refOk,
   SNAPSHOT_TTL_MS, SNAPSHOT_MAX,
 };

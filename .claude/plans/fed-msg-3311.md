@@ -69,6 +69,8 @@ board yet carried messages between a federated project's room and its seat.
 - engine/fedseats.test.js, engine/messages.external-3311.test.js,
   server.fedmsg-3311.test.js, server.federation-3311.test.js,
   engine/federation.test.js: all pass (counts live in the runs, not here).
+- Review round 12 control: measuring the raw text instead of the JSON line lets a
+  9 KiB post of quotes (18 KiB once escaped) through, and the too-long test reds.
 - Review round 11 controls: no day budget, ending on an unreadable link record,
   keeping overrides in outside text, and sending an over-long post each red their
   own test.
@@ -118,6 +120,12 @@ board yet carried messages between a federated project's room and its seat.
   closed. A second local project carrying a real ref only puts this same account's
   own Mac in its own room twice. It grants nothing across accounts, because the room
   ticket is still minted per edge by the coordinator.
+
+## Decided in round 12
+- The too-long check lives in fedseats.post and measures the line the connector
+  receives (JSON, escapes included) against 16 KiB, not the raw text. The test
+  harness now wires `note` as server.js does, so the seat's notes are visible.
+- The 200-character ref bound is federation.refOk in both places.
 
 ## Decided in round 11
 - Two findings said a lapsed Kosmos+ account ends a seat for good, because the

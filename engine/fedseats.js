@@ -34,6 +34,9 @@ const INBOUND_WINDOW_MS = 60000;
    minute's limit all day must not be able to grow them without end. 2 MiB of
    words a day is far above any conversation. Counted per board run. */
 const INBOUND_BYTES_PER_DAY = 2 * 1024 * 1024;
+/* The connector's limit on one stdin line (kosmos-relay fedroom MAX_POST, the
+   relay's frame bound). */
+const MAX_POST_LINE = 16 * 1024;
 /* The longest stdout line kept while waiting for its newline. The connector
    prints one event per line, each under its 16 KiB post bound plus framing; a
    longer unterminated run is a broken child, and is dropped rather than held. */
@@ -321,6 +324,13 @@ function post(projectId, { from, kind, text }) {
     return false;
   }
   const line = JSON.stringify({ from: clean(from, 80) || 'someone', kind: kind === 'agent' ? 'agent' : 'person', text: String(text || '') });
+  // The connector refuses a stdin line over its post limit (16 KiB, the relay's
+  // frame). Measured on the line itself, escapes included, and said here before
+  // sending rather than as a refusal after.
+  if (Buffer.byteLength(line) > MAX_POST_LINE) {
+    say(projectId, 'That post stayed on this computer: it is too long to send to the external project. Shorter posts go out.');
+    return false;
+  }
   try { s.child.stdin.write(line + '\n'); return true; } catch { return false; }
 }
 
@@ -335,4 +345,4 @@ function stopAll() {
   seats.clear();
 }
 
-module.exports = { STOP_KILL_MS, STABLE_MS, INBOUND_BYTES_PER_DAY, configure, ensure, ensureAll, post, statusOf, stop, stopAll, onEvent, MAC_EDGES, INBOUND_PER_WINDOW, INBOUND_BYTES_PER_WINDOW };
+module.exports = { STOP_KILL_MS, STABLE_MS, INBOUND_BYTES_PER_DAY, MAX_POST_LINE, configure, ensure, ensureAll, post, statusOf, stop, stopAll, onEvent, MAC_EDGES, INBOUND_PER_WINDOW, INBOUND_BYTES_PER_WINDOW };
