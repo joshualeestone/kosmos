@@ -9254,7 +9254,8 @@ body.plus-active #plus-state2 { max-width: 26rem; padding: 2rem; }
      sets (padding-bottom, #d-talk-box height/min-height) with identical specificity and win only
      by coming later in the sheet, the same restatement the #770 note describes. Keep this block
      after that one. */
-  /* In-flow notices that follow the panel in the markup (the connection-lost banner) sit above
+  /* Any in-flow body child that follows the panel in the markup (the removed-agent note and
+     similar; the connection banner itself sits above the panels since #3708) stays above
      it here instead of under the composer. */
   body > #panel-detail:has(#d-sec-talk:not([hidden])) { order: 1; }
   body:has(> #panel-detail:not([hidden]) #d-sec-talk:not([hidden])) > :not(#panel-detail) { flex: none; }
@@ -9264,17 +9265,20 @@ body.plus-active #plus-state2 { max-width: 26rem; padding: 2rem; }
   #panel-detail:has(#d-sec-talk:not([hidden])) .dbody {
     flex: 1 1 auto; min-height: 0; display: flex; flex-direction: column; gap: 8px; }
   #panel-detail:has(#d-sec-talk:not([hidden])) .dleft { flex: none; overflow: visible; min-height: 0; padding-top: 0; }
-  /* Capped: the identity block's notes (a usage-limit quote, a conflict, sign in again, start this
+  /* Capped: the identity block's notes (a usage-limit quote, a stale-instructions note, sign in again, start this
      agent) can run to several lines, and uncapped they took the whole screen and left the thread at
      0px. Past about a sixth of the visible height the block scrolls on its own, as the wide
      layout's column does (#3385). The tab row below it never shrinks, so Profile stays one tap. */
   #panel-detail:has(#d-sec-talk:not([hidden])) .dhead {
-    max-height: calc(0.18 * var(--kosmos-visible-height, 100dvh)); overflow-y: auto; }
-  #panel-detail:has(#d-sec-talk:not([hidden])) #d-nav.dnav-boxed { flex: none; }
-  #panel-detail:has(#d-sec-talk:not([hidden])) .dhead {
-    flex-direction: row; align-items: center; text-align: left; gap: 10px; margin: 0 0 8px; }
+    flex-direction: row; align-items: center; text-align: left; gap: 10px; margin: 0 0 8px;
+    padding: 6px 0 6px 6px; max-height: calc(0.18 * var(--kosmos-visible-height, 100dvh));
+    overflow: hidden auto; }
   #panel-detail:has(#d-sec-talk:not([hidden])) .dav-wrap,
   #panel-detail:has(#d-sec-talk:not([hidden])) .dav-wrap .detail-av { width: 40px; height: 40px; flex-basis: 40px; }
+  /* The memory ring (#1915) is drawn 100px around the 88px avatar; sized with the 40px avatar here,
+     and the .dhead padding above makes room for the ring's 6px overhang instead of clipping it. */
+  #panel-detail:has(#d-sec-talk:not([hidden])) .dhead .dring,
+  #panel-detail:has(#d-sec-talk:not([hidden])) .dhead .dring svg { width: 52px; height: 52px; }
   #panel-detail:has(#d-sec-talk:not([hidden])) .dtext { align-items: flex-start; gap: 4px; }
   #panel-detail:has(#d-sec-talk:not([hidden])) .dnamerow {
     flex-direction: row; flex-wrap: wrap; align-items: baseline; column-gap: 8px; row-gap: 2px; }
@@ -9285,6 +9289,7 @@ body.plus-active #plus-state2 { max-width: 26rem; padding: 2rem; }
   #panel-detail:has(#d-sec-talk:not([hidden])) .detail-meta .dmeta-note { display: none; }
   #panel-detail:has(#d-sec-talk:not([hidden])) .detail-state { font-size: .8125rem; margin: 0; }
   #panel-detail:has(#d-sec-talk:not([hidden])) #d-nav.dnav-boxed {
+    flex: none;
     flex-direction: row; flex-wrap: nowrap; gap: 6px; overflow-x: auto; scrollbar-width: none;
     margin: 0 -2px; padding: 4px 2px 4px; }
   #panel-detail:has(#d-sec-talk:not([hidden])) #d-nav.dnav-boxed::-webkit-scrollbar { display: none; }
