@@ -2,18 +2,18 @@
 pre_challenge: true
 method: challenge-loop
 branch: help-tips-3574
-diff_hash: e53e729eb2d6c0536450ddf671c43a2787675a4581ee4dd9a4d22c8152a1fdbf
+diff_hash: 0f47b5ec4f3f34efa0ea40097ca24630e9f03e25d2f79cee749ede59b32f4a3a
 validation: passed
 subdir_audit: passed
-timestamp: 2026-09-24T22:34:50Z
-iterations: 14
+timestamp: 2026-09-25T01:26:13Z
+iterations: 31
 converged: true
 ---
 
 ## [CHALLENGE-LOOP] Summary
 
-**Iterations:** 14
-**Converged:** Yes (iteration 14's one WARNING duplicated a deferred iteration-10 entry; one NIT)
+**Iterations:** 31 (converged at 14, reopened by the 18:10 change of who sees tips, converged again at 31)
+**Converged:** Yes (iteration 31: nothing at WARNING or above; two NITs)
 **Total findings:** 4 BLOCKERs, 43 WARNINGs, 6 CONVENTIONs, plus NITs (and validation reds found at 6g)
 **Fixed:** 50 | **Deferred:** 3 | **Asked (awaiting user):** 0
 
@@ -92,10 +92,37 @@ after the #3634 syspolicyd fix lifted the full-suite hold).
 1 WARNING (store race) = duplicate of the iteration-10 DEFERRED entry; 1 NIT.
 **Converged** — no new actionable findings.
 
+### Reopened: who sees tips by themselves (Josh's decision recorded 18:10, PR #3656 CI red)
+PR #3656's browser-checks job failed on render-url-state: the tour showed by itself in every check's
+sandbox and covered the agent card the check clicks. Decided: tips show by themselves only for someone new
+(c82c05c9). origin/main merged in twice more (cf33a2e4, 432e7615; runner-list conflicts only). Final 6j
+PASSED on 432e7615's content (hash 0f47b5ec4f3f, clean tree, 758s suite).
+
+#### Iteration 15 - opus: 1 WARNING (a tour gone without a click stranded a new user) --> FIXED 456ec8e5 (T24)
+#### Iteration 16 - sonnet: 1 WARNING (optimistic tour save, no retry) --> FIXED 3872db0a (backoff; T24 fails first save)
+#### Iteration 17 - opus: 2 WARNINGs (ordinary close with failed save not mended; T24 route race) --> FIXED 87f6106d (TIP_TOUR_SAVED; T25)
+#### Iteration 18 - sonnet: 1 WARNING (T23 asserted absence only indirectly) --> FIXED 7d90cd3e
+#### Iteration 19 - opus: 2 WARNINGs. Plan out of date --> FIXED bd8a2b04. Empty first sample --> DECLINED with evidence (a board that cannot read agents answers an error; the page keeps its last list)
+#### Iteration 20 - sonnet: 1 BLOCKER (removing your last agent brought the tour back) --> FIXED b05e2bb2 (latch; T26)
+#### Iteration 21 - opus: 2 WARNINGs (latch set late behind tips gates; T26 race) --> FIXED a70374c0 (latch in the status handler; T27)
+#### Iteration 22 - sonnet: 1 WARNING (TDZ by position) --> FIXED f8e0f070 (var). Store write race --> DECLINED (synchronous set())
+#### Iteration 23 - opus: 1 BLOCKER (create-ending new user got nothing) --> FIXED f6b1c131 (catch-up keyed on TIP_NEW_BOARD; newagent exception)
+#### Iteration 24 - sonnet: 1 BLOCKER: 23's premise stale (#3575 made every ending land on the board) --> rationale and T28 CORRECTED 11c7b9f3/83c7736f (reachable path: New agent before the tour's first tick, forced by a held read)
+#### Iteration 25 - opus: 1 WARNING (T27 swallowed a timeout) --> FIXED 0d804397
+#### Iteration 26 - sonnet: 1 WARNING (slow first read could turn tips back on) --> FIXED 732e5475
+#### Iteration 27 - opus: 2 WARNINGs (failed read made off stick; T27 early) --> FIXED c1b2d4ce (T29)
+#### Iteration 28 - sonnet: 2 WARNINGs (failed read never retried; T27 regex) --> FIXED de5a9131 (T30)
+#### Iteration 29 - opus: 1 WARNING (plan/docblock stale) --> FIXED e91983f2
+#### Iteration 30 - sonnet: 1 BLOCKER (reload before the tour-seen save lands) --> DECLINED 617af25c, written into the weakest premise (about a 1s window to the local board; the ? recovers; a stored flag would close it)
+#### Iteration 31 - opus: nothing at WARNING or above; 2 NITs. **Converged.**
+
+Every fix from 15 on has a browser-check arm that was run against the code with the fix removed and failed.
+
 ### Deferred (with reasons)
 - Store race (iterations 10, 14): synchronous set(); no interleaving in Node.
 - aria-modal on #tipcard (iteration 6): the modal sweep counts it; non-modal is the default.
 - Plan filename timestamp (NIT): many plans in the tree omit it.
+- Empty first status sample (19), reload before the tour-seen save (30), unparseable tips file never repaired (29): in the plan's weakest premise.
 
 ### Outstanding questions (ASKED, still unresolved when the run ended)
 None.
