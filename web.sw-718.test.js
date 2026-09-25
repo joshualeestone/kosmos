@@ -148,6 +148,11 @@ test('#718: a tap focuses the tab navigate() landed on, and opens a window when 
   const refused = await run({ url: 'https://board.example/', navigate: async () => { throw new TypeError('not controlled'); }, focus: () => 'old-focused' });
   assert.deepEqual(refused.opened, ['https://board.example/?tab=detail&agent=april'], 'an uncontrolled tab: open the link instead');
   assert.equal(refused.result, 'window');
+  // navigate() resolved null: the tab moved to another origin (a sign-in redirect). Focus it,
+  // never open a second window.
+  const redirected = await run({ url: 'https://board.example/', navigate: async () => null, focus: () => 'moved-focused' });
+  assert.equal(redirected.result, 'moved-focused');
+  assert.deepEqual(redirected.opened, []);
   // An engine with no navigate(): the link still lands, in a window of its own.
   const noNav = await run({ url: 'https://board.example/', focus: () => 'old-focused' });
   assert.deepEqual(noNav.opened, ['https://board.example/?tab=detail&agent=april'], 'no navigate(): open the link, never focus the old page');
@@ -183,4 +188,23 @@ test('#718: every name an agent can have passes the tap rule (engine/create.js N
   }
   for (const s of ['a'.repeat(32), '0' + 'z'.repeat(31), 'a-' + '_'.repeat(30)]) if (NAME_RE.test(s)) { names += 1; assert.ok(tapOk(s), s); }
   assert.ok(names > 100, 'the sample reached real names (' + names + ')');
+});
+
+test('#718: the iOS app keeps the same session rule (ios/Kosmos/PushBridgeLogic.swift)', () => {
+  // Same fact, same repo: pin it. The Swift rule is written as character ranges; read them.
+  const swift = fs.readFileSync(path.join(__dirname, 'ios', 'Kosmos', 'PushBridgeLogic.swift'), 'utf8');
+  const i = swift.indexOf('static func isAgentSession(');
+  assert.ok(i > 0, 'isAgentSession moved; re-anchor');
+  const body = swift.slice(i, swift.indexOf('\n    }\n', i));
+  assert.match(swift, /static let agentSessionMaxLength = 64\b/);
+  assert.match(body, /\("a"\.\.\."z"\)\.contains\(first\) \|\| \("0"\.\.\."9"\)\.contains\(first\)\n\s*else/, 'first: a letter or digit, and nothing more');
+  assert.match(body, /\("a"\.\.\."z"\)\.contains\(\$0\) \|\| \("0"\.\.\."9"\)\.contains\(\$0\) \|\| \$0 == "-" \|\| \$0 == "_"\n\s*\}/, 'rest: letters, digits, - and _, and nothing more');
+  assert.match(src, /const TAP_SESSION = \/\^\[a-z0-9\]\[a-z0-9_-\]\{0,63\}\$\/;/, 'and the worker says the same');
+});
+
+test('#718: the link\'s names are the ones the board reads (agent=, tab=detail)', () => {
+  const page = fs.readFileSync(path.join(__dirname, 'web', 'index.html'), 'utf8');
+  assert.match(page, /const WANT_AGENT = PARAMS\.get\('agent'\);/);
+  assert.match(page, /const KNOWN_TABS = \[[^\]]*'detail'/);
+  assert.equal(new URL('https://x' + boardUrlFor({ session: 'april' })).searchParams.get('agent'), 'april');
 });

@@ -132,7 +132,11 @@ const KIND_HEADLINE = {
    `?tab=detail&agent=<session>`, which it reads at boot. Checked again here
    with the same rule, and put in with URLSearchParams, so it can only ever be
    a query value, never a path, a scheme or another host. Anything else opens
-   the board's home, as before. The iOS app builds the same link, but only the
+   the board's home, as before. NOTE: a phone's web push is subscribed on the
+   coordinator's origin, so the COORDINATOR's worker (kosmos-relay
+   coordinator/src/sw.js) handles that tap, with the same link and rule. This
+   worker sees a push only from a subscription made on the board's own origin,
+   of which there is none today (#3510). The iOS app builds the same link, but only the
    link's SHAPE is shared: iOS also checks which host it opens (one name under
    the relay domain), and this worker does not yet (kosmos#3689). */
 const TAP_SESSION = /^[a-z0-9][a-z0-9_-]{0,63}$/;
@@ -218,9 +222,12 @@ self.addEventListener('notificationclick', (event) => {
         // move the tab at all; focusing it anyway would show the old page, not the agent. So
         // try the next open tab at this origin, and if none can be moved, the link opens in a
         // window of its own (the old page stays where it was).
-        let landed = null;
-        if ('navigate' in c) { try { landed = await c.navigate(target); } catch (_e) {} }
-        if (landed && 'focus' in landed) return landed.focus();
+        // navigate() RESOLVES null when the tab moved but landed on another origin (a sign-in
+        // redirect in front of the Mac): it did move, so focus it rather than open a second.
+        let landed; let moved = false;
+        if ('navigate' in c) { try { landed = await c.navigate(target); moved = true; } catch (_e) {} }
+        if (moved && landed && 'focus' in landed) return landed.focus();
+        if (moved) return c.focus();
       }
     }
     if (self.clients.openWindow) return self.clients.openWindow(target);
