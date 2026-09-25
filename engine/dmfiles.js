@@ -21,7 +21,9 @@
  * The folder itself (creating it, listing it on the agent page) is the agent page's
  * Files list (server.js /api/agent/:name/files and web/index.html paintAgentFiles).
  * This block tells the agent where the folder is, to create it if it is missing,
- * and that the person sees its files on its page.
+ * and that the person sees its files on its page; and (#3759) that a file for one of
+ * its projects goes in that project instead, that it tells the person where each file
+ * went, and that when it cannot tell, it saves here and asks which project.
  *
  * Same guards as reports.js / connections.js, deliberately: an ambiguous file is
  * refused rather than spliced into, an unreadable one is reported, nothing is ever
@@ -71,21 +73,57 @@ function filesDir(sessionName) {
  */
 function blockBody(dir) {
   const where = projects.neutralise(String(dir == null ? '' : dir));
+  /* #3759 (Josh, 2026-09-25 11:07): the folder follows what the conversation is ABOUT, not only
+     where it happens. A file asked for in a direct conversation goes in the agent's Files; one that
+     belongs to a project's work goes in that project, even when asked for here, and the agent says
+     which project; and when it is unclear it saves it here, says so and asks which project in the same
+     line: no project is guessed (the doctrine's "one short question, not a licence to guess") and no
+     file waits unsaved on an answer that may never come (a turn ends when it asks). */
   return [
     '## Where to save files you make for the person',
     '',
-    'When you make a file for the person in a direct conversation with them, not',
-    'inside a project, save it in your Files folder:',
+    'When you make a file for the person in a direct conversation with them, or they',
+    'ask you for one there, save it in your Files folder. Two things come first: if',
+    'they tell you where to put it, put it there, and if it is an existing file you',
+    'are changing, leave it where it is. A file that belongs to one of your projects',
+    'goes in the project instead (see the next paragraphs); if you are on no',
+    'projects, that never applies. Your Files folder is:',
     '',
     '`' + where + '`',
     '',
-    /* The Files list on the agent page (April's half of #3614) ships in the same change as
-       this sentence, so the promise and the page land together. */
-    'Create the folder if it is not there yet. Keeping everything you make for the',
-    'person in one place means they always know where to find it: Kosmos lists what',
-    'is in it on your page, where they can open it. Save files directly in it, not in',
-    'subfolders: the page lists only what sits at the top of the folder. Inside a',
-    'project, keep using the project\'s own folder.',
+    /* "Kosmos lists what is in it on your page": the Files list on the agent page (April's
+       half of #3614) shipped in the same change as that sentence, so promise and page agree. */
+    'Tell them in one line where you saved it, in words that mean something to them:',
+    'the file\'s name, and that it is under Files on your page in Kosmos (to them it',
+    'is not "your Files folder"). This Files folder is inside your own folder, and it',
+    'is only for files made for the person: your running summaries and other working',
+    'files stay where your instructions put them. Create the folder if it is not',
+    'there yet. Keeping what you make in a direct conversation in one place means',
+    'they always know where to find it: Kosmos lists what is in it on your page,',
+    'where they can open it. Save files directly in it, not in subfolders: the page',
+    'lists only what sits at the top of the folder.',
+    '',
+    'When the conversation is about one of your projects (the person names it, or the',
+    'file is unmistakably that project\'s work, not only the same kind of thing), save',
+    'it in that project\'s folder instead. That folder is the one listed for it under',
+    '"Your projects" in your instructions (a section you have only while you are on a',
+    'project). This holds even when they asked for it, or you made it, in a direct',
+    'conversation. Then tell them in one line where you put it: which project, the',
+    'file\'s name, and the folder inside the project if it is not at the top (Kosmos',
+    'lists only the top of a project\'s folder). If they name a project you are not',
+    'on, do not guess another: save it in your Files folder, say you are not on that',
+    'project, and say it can move there once you are added to it.',
+    '',
+    'When you cannot tell whether the file belongs to a project, or to which one, do',
+    'not guess a project. Save it in your Files folder. In the same line where you',
+    'tell them it is under Files on your page, ask which project it belongs to, so',
+    'they can have you move it. That is not guessing: your Files folder is where it',
+    'goes by default. Never wait with the file unsaved. If your instructions also say',
+    'to ask one short question rather than guess, this is how that applies to a file',
+    'made for the person in a direct conversation: save here and ask.',
+    '',
+    'When the conversation itself happens inside a project, not in a direct',
+    'conversation, keep using that project\'s own folder, as you already do there.',
   ].join('\n');
 }
 
