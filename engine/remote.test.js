@@ -837,6 +837,42 @@ test('the full sign-in registers this computer, pipes the token off argv, and br
   remote.setOn(false);
 });
 
+test('#3827: signing in turns the switch on and brings the tunnel up WITHOUT anyone pressing Turn on', async () => {
+  process.env.AGENT_WORKFORCE_TUNNEL_RELAY = '127.0.0.1:9444';
+  remote.ensure(4600);
+  assert.equal(remote.read().on, false, 'fixture: the switch starts off, as on a fresh Mac');
+  await remote.signinStart('her@example.com');
+  await remote.signinVerify('her@example.com', '111111');
+  const done = await remote.signinRegister('hers');
+  assert.equal(done.ok, true, done.because);
+  assert.equal(remote.read().on, true, 'a successful sign-in left the switch off, so no tunnel starts');
+  await until(() => remote.status().state === 'up', 'the tunnel to come up after sign-in with the switch never pressed');
+  remote.setOn(false);
+});
+
+test('#3827: a sign-in recognised as this same Mac (#1010) also turns the switch on', async () => {
+  process.env.AGENT_WORKFORCE_TUNNEL_RELAY = '127.0.0.1:9444';
+  await remote.signinStart('her@example.com');
+  await remote.signinVerify('her@example.com', '111111');
+  await remote.signinRegister('hers');
+  // Someone turned it off afterwards, then signs in again at the same name.
+  remote.setOn(false);
+  await remote.signinStart('her@example.com');
+  await remote.signinVerify('her@example.com', '111111');
+  const again = await remote.signinRegister('hers');
+  assert.equal(again.data.alreadySetUp, true, 'fixture: the recognised path ran');
+  assert.equal(remote.read().on, true, 'the recognised path left the switch off');
+  remote.setOn(false);
+});
+
+test('#3827: a FAILED register does not turn the switch on', async () => {
+  await remote.signinStart('her@example.com');
+  await remote.signinVerify('her@example.com', '111111');
+  const taken = await remote.signinRegister('taken');
+  assert.equal(taken.ok, false, 'fixture: the register failed');
+  assert.equal(remote.read().on, false, 'a failed sign-in turned the switch on');
+});
+
 test('a session-only account (no phone) registers straight from verify', async () => {
   await remote.signinStart('her@example.com');
   const v = await remote.signinVerify('her@example.com', '111111');   // stage session directly

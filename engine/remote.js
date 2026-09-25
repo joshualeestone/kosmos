@@ -1179,6 +1179,17 @@ async function signinConfirmEnrol(code) {
     if the switch is on, exactly as `setup complete` does. A failed register
     keeps the session so the person can pick another name without redoing the
     code steps. */
+/* #3827: signing in IS asking to be reachable. The sign-in wizard never passes
+   the switch (the older Settings flow shows its steps only once it is on), so
+   without this a successful sign-in left `on` false, ensure() never started the
+   tunnel, and the pane said "Connecting" over a "Turn on" button nobody had
+   pressed. Turning it off stays one press away. A failed write is not fatal:
+   the Mac is registered either way, and the switch still says off. */
+function turnOnAfterSignin() {
+  const wrote = write({ on: true });
+  if (!wrote.ok) process.stderr.write('remote: could not turn on after sign-in: ' + wrote.because + '\n');
+}
+
 async function signinRegister(name) {
   if (!signinSession || typeof signinSession.token !== 'string') {
     return { ok: false, because: 'finish the code steps first' };
@@ -1202,6 +1213,7 @@ async function signinRegister(name) {
   if (enrolled()) {
     const have = address();
     if (have && have.split('.')[0] === name) {
+      turnOnAfterSignin();
       ensure(localPort);
       signinSession = null;
       // standing is '' on this path, not omitted: the engine cannot know it
@@ -1216,6 +1228,7 @@ async function signinRegister(name) {
     '--name', name, '--state-dir', STATE_DIR()], signinSession.token));
   if (!r.ok) return r;
   signinSession = null;   // the token is spent; it must not linger in this process
+  turnOnAfterSignin();
   ensure(localPort);
   const d = r.data && typeof r.data === 'object' ? r.data : {};
   fedSetStanding(d.standing);   // fed gate: SET (or clear) standing from this fresh register
