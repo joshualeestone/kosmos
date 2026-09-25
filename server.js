@@ -2461,12 +2461,59 @@ function swarmSweepDeps(roster) {
   };
 }
 
+/* #3769 (Josh, 2026-09-25 11:54: the guide must never give out passwords or keys): is `name` the setup
+   guide? Either its folder carries the guide marker (create.js writes it for EVERY setup-role agent
+   before it starts, so this holds even when the seed's name record was never written), or it is the
+   seeded name in its marked folder. The name compared WITHOUT case: a route can be asked for "Josh"
+   or "josh" and reach the same thread, and a case-sensitive miss would skip the mask. */
+function isSetupGuide(name) {
+  if (typeof name !== 'string' || !name) return false;
+  try { if (setupAssistant.isGuideFolder(name)) return true; } catch { /* then the recorded name decides */ }
+  try {
+    const guide = setupAssistant.guideName();
+    if (!guide || create.cleanName(guide).toLowerCase() !== create.cleanName(name).toLowerCase()) return false;
+    return setupAssistant.isGuideFolder(guide);
+  } catch { return false; }
+}
+/* The setup guide's words with anything shaped like a secret masked (engine/secretmask.js), for every
+   agent-written text that reaches the person: stored replies (keepAgentReply) and the thread as read.
+   Logs that a mask fired and which kinds, never the value. Any other agent's text passes unchanged. */
+function guideMasked(who, text) {
+  if (typeof text !== 'string' || !isSetupGuide(who)) return text;
+  const out = require('./engine/secretmask').mask(text);
+  if (out.fired.length) console.error(`#3769: masked ${require('./engine/secretmask').describeFired(out.fired)} in the setup guide's words`);
+  return out.text;
+}
+
+/* #3769: rows as read, for a route that serves stored rows: any row the setup guide wrote is masked
+   (rows stored before the write-side filter existed). `wholeThread` masks every row, for a thread
+   whose other party is the guide. Rows from anyone else pass unchanged. */
+function guideMaskedRows(rows, wholeThread) {
+  if (!Array.isArray(rows)) return rows;
+  const guideBy = new Map();   // one look per sender, not per row: a long list repeats a few names
+  const isGuide = (from) => {
+    if (!guideBy.has(from)) guideBy.set(from, isSetupGuide(from));
+    return guideBy.get(from);
+  };
+  return rows.map((m) => {
+    if (!m || typeof m.text !== 'string') return m;
+    if (!wholeThread && !isGuide(m.from)) return m;
+    const out = require('./engine/secretmask').mask(m.text);
+    if (out.fired.length) console.error(`#3769: masked ${require('./engine/secretmask').describeFired(out.fired)} in the setup guide's words`);
+    return { ...m, text: out.text };
+  });
+}
+
+/* #3769: the guide's posts into a project room and its messages to other agents go through
+   engine/messages.js; the same mask applies there, keyed on the resolved sender. */
+messages.setSenderTextFilter(guideMasked);
+
 /* Record an agent's reply in its thread with the person: the one write both
    /api/reply and the outbox drain make, so a drained reply is exactly a reply.
    `at` is the original send time for a drained reply, now for the route. */
 function keepAgentReply(who, text, at) {
   return chat.appendMessage(chat.DIRECT, who, {
-    text,
+    text: guideMasked(who, text),
     at: at || new Date().toISOString(),
     from: who,
   });
@@ -12202,13 +12249,22 @@ const server = http.createServer((req, res) => {
     /* #3650: the person's reactions on the agent's messages, in the room's pill shape
        ({emoji, count, who, mine}) so the page draws them with the room's renderer.
        `reactionsTold` is the engine's own bookkeeping and is not sent. */
-    const reactedMessages = Array.isArray(servedMessages)
-      ? servedMessages.map((m) => {
+    /* #3769: in the setup guide's thread EVERY row is masked as read: its own rows stored before the
+       write-side mask, the question row taken off its screen, and a key the person pasted to it, which
+       is not shown back either. Decided once per request, on the name asked for AND the card's own
+       name, so a differently-cased URL cannot skip it. */
+    const guideThread = isSetupGuide(name) || Boolean(card && isSetupGuide(card.sessionName));
+    const guideName = guideThread ? ((card && card.sessionName) || name) : null;
+    const maskedMessages = guideThread && Array.isArray(servedMessages)
+      ? servedMessages.map((m) => (m && typeof m.text === 'string' ? { ...m, text: guideMasked(guideName, m.text) } : m))
+      : servedMessages;
+    const reactedMessages = Array.isArray(maskedMessages)
+      ? maskedMessages.map((m) => {
         if (!m || m.from !== name) return m;
         const { reactionsTold, ...rest } = m;
         return Array.isArray(m.reactions) ? { ...rest, reactions: chat.dmReactionPills(m) } : rest;
       })
-      : servedMessages;
+      : maskedMessages;
     sendJson(res, 200, {
       messages: withPreviews(reactedMessages),
       olderCount,
@@ -12227,7 +12283,8 @@ const server = http.createServer((req, res) => {
       presence,
       presenceBecause,
       asking,
-      question,
+      /* #3769: a question read off the guide's screen is its words too. */
+      question: guideThread && question && typeof question.text === 'string' ? { ...question, text: guideMasked(guideName, question.text) } : question,
       questionBecause,
       /* #1629: the page draws a composer under a question, and for the trust
          dialog that invites the one keystroke that ends the session. The
@@ -12235,7 +12292,8 @@ const server = http.createServer((req, res) => {
          so the person reads it before typing rather than after a 409. Null
          for every other question. */
       answerNote: (question && view && view.text && trustPrompt(view.text) !== null) ? TRUST_DIALOG_SENTENCE : null,
-      options,
+      /* #3769: a menu's labels come from the same screen text, so they are masked too. */
+      options: guideThread && Array.isArray(options) ? options.map((o) => (o && typeof o.label === 'string' ? { ...o, label: guideMasked(guideName, o.label) } : o)) : options,
     });
     return;
   }
@@ -12520,7 +12578,7 @@ const server = http.createServer((req, res) => {
     try {
       let who = null;
       try { who = new URL(req.url, ROUTING_BASE).searchParams.get('agent') || null; } catch { who = null; }
-      sendJson(res, 200, { messages: withPreviews(messages.list(who)) });
+      sendJson(res, 200, { messages: withPreviews(guideMaskedRows(messages.list(who), null)) });
     } catch (err) {
       sendJson(res, 500, { error: String((err && err.message) || 'we could not read the record') });
     }
@@ -13880,7 +13938,8 @@ const server = http.createServer((req, res) => {
     }
     try {
       const rec = messages.record();
-      const rows = rec.rows
+      /* #3769: the setup guide's room posts stored before the write-side filter are masked as read. */
+      const rows = guideMaskedRows(rec.rows, null)
         /* Refused rows too (#315): the valve notice is deduped per room, so
            without these every agent blocked after the first vanishes silently
            and reads as unresponsive. The refusal contract already records
@@ -15011,10 +15070,12 @@ const server = http.createServer((req, res) => {
     const olderCount = Array.isArray(messages) && messages.length > TAIL
       ? messages.length - TAIL : 0;
     if (olderCount) messages = messages.slice(-TAIL);
+    /* #3769: a project thread with the setup guide is its words throughout, as in its direct thread. */
+    const guideMember = member && isSetupGuide(member.sessionName) ? member.sessionName : null;
     sendJson(res, 200, {
       project: { id: project.id, name: project.name },
       agent: member,
-      messages: withPreviews(messages),
+      messages: withPreviews(guideMaskedRows(messages, guideMember)),
       olderCount,
       historyBecause,
       // See the block above: withheld is not unreadable, and the page says a
@@ -15032,7 +15093,7 @@ const server = http.createServer((req, res) => {
       viewport: engmode.read().on ? view
         : { text: null, because: 'engineering mode is off, so the window is not shown' },
       asking,
-      question,
+      question: guideMember && question && typeof question.text === 'string' ? { ...question, text: guideMasked(guideMember, question.text) } : question,
       questionBecause,
       /* #1629: same note as the agent thread, same sentence, same reason. */
       answerNote: (question && view && view.text && trustPrompt(view.text) !== null) ? TRUST_DIALOG_SENTENCE : null,
@@ -15807,6 +15868,8 @@ function start(port = PORT) {
       /* #3734: an existing guide's instructions still say it never creates agents; say what it may do now.
          Once, at start; a no-op when the paragraph is not there. */
       try { setupAssistant.refreshGuideRole(); } catch { /* best-effort */ }
+      /* #3769: an existing guide gets the secrets section and its folder's deny rules, once, at start. */
+      try { setupAssistant.refreshGuideGuards(); } catch { /* best-effort */ }
       /* #3034/#3660: the setup guide is created the moment the first model is connected,
          after Giddy Up, from any provider's connect path (keys, sign-ins that finish in the
          background). One sweep sees them all instead of a hook in every route. Cheap until
@@ -16329,6 +16392,7 @@ module.exports = {
   swarmSweepDeps, // #3564: the limit sweep's wiring, exported so it is tested
   markGuide, // #3739: the guide row's mark and title, for its tests
   guideCardFailing, resetGuideCardMemoForTests, // #3660: the fallback's reading of the guide card, for its tests
+  keepAgentReply, guideMasked, guideMaskedRows, // #3769: the setup guide's words masked where they are stored, for its tests
   creatorRunsOn, // #3734: where an agent-made team member runs by default, for its tests
   /* #2036: the boot diagnostic's condition (pure truth table) AND its real call-site
      composition, exported together so BOTH are pinned. stagingRevertWarningNow wires the raw

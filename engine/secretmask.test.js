@@ -1,0 +1,125 @@
+'use strict';
+/**
+ * #3769 (Josh, 2026-09-25 11:54: the helper agent must never give out passwords or keys): the output
+ * mask. Every shape it exists for is masked, ordinary text is not, the value never reaches the report,
+ * and a long reply cannot make it backtrack.
+ */
+const test = require('node:test');
+const assert = require('node:assert/strict');
+const { MASK, mask, describeFired } = require('./secretmask');
+const { cpuMillisecondsOf } = require('../test-support/cpu-time');
+
+/* Fake values in the real shapes. Built by joining so this file does not itself look like a leak to a
+   secret scanner. */
+const j = (...p) => p.join('');
+const SECRETS = [
+  ['anthropic_key', j('sk-ant-', 'api03-', 'AbCdEf0123456789_xyzXYZ-abcdEFGH')],
+  ['openai_key', j('sk-', 'proj-', 'ABCDEFGHijklmnop1234567890qrst')],
+  ['xai_key', j('xai-', 'ABCDEFGHIJKLMNOP1234abcdefgh')],
+  ['google_key', j('AIza', 'SyA1234567890abcdefghijklmnopqrstu')],
+  ['github_token', j('ghp_', 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789')],
+  ['github_token', j('github_', 'pat_', '11ABCDEFG0123456789_abcdefghijklmnopqrstuvwxyz')],
+  ['aws_key', j('AKIA', 'IOSFODNN7EXAMPLE')],
+  ['slack_token', j('xoxb-', '1234567890-abcdefghijKLMNOP')],
+  ['stripe_key', j('sk_', 'live_', 'ABCDEFGHIJ1234567890abcd')],
+  ['private_key', j('-----BEGIN OPENSSH ', 'PRIVATE KEY-----\nb3BlbnNzaC1rZXktdjEAAAAABG5vbmU=\nAAAAB3NzaC1yc2E\n-----END OPENSSH ', 'PRIVATE KEY-----')],
+  ['long_token', 'Zx9QpL2mN8vB4cR7tY1uI6oP3aS5dF0gH2jK'],
+];
+
+test('#3769 every secret shape is masked, inside a sentence, and the report names the kind, never the value', () => {
+  for (const [kind, value] of SECRETS) {
+    const out = mask(`Here it is: ${value} and that is all.`);
+    assert.ok(!out.text.includes(value), `${kind} was shown: ${out.text}`);
+    assert.ok(out.text.includes(MASK), `${kind}: no mask in ${out.text}`);
+    assert.ok(out.text.startsWith('Here it is: ') && out.text.endsWith(' and that is all.'), `${kind}: the sentence around it was damaged: ${out.text}`);
+    assert.deepEqual(out.fired.map((f) => f.kind), [kind], `${kind} was reported as ${JSON.stringify(out.fired)}`);
+    assert.ok(!describeFired(out.fired).includes(value.slice(4, 12)), 'the report carries part of the value');
+  }
+});
+
+test('#3769 a password or key given as name = value keeps the name and masks the value', () => {
+  const out = mask('Set PASSWORD=hunter2hunter and api_key: "abcdefgh12" in the file.');
+  assert.equal(out.text, `Set PASSWORD=${MASK} and api_key: "${MASK}" in the file.`);
+  assert.deepEqual(out.fired, [{ kind: 'assigned_secret', count: 2 }]);
+});
+
+test('#3769 the forms a model writes in words, sign-ins in links, GitLab tokens and a hex key are masked (review round 1)', () => {
+  const cases = [
+    ['Your password is hunter2hunter.', `Your password is ${MASK}.`],
+    ['The API key is: AbCdEf123456', `The API key is: ${MASK}`],
+    ['my access key was AKzz12345678x', `my access key was ${MASK}`],
+    ['https://user:pa55word@host.example/x', `https://user:${MASK}@host.example/x`],
+    ['postgres://admin:pw9abc@db:5432/app', `postgres://admin:${MASK}@db:5432/app`],
+    [j('glpat-', 'ABCDEFGHIJKLMNOPQRSTuv'), MASK],
+    ['key: 3f2a9c1d8e7b6a5f4e3d2c1b0a9f8e7d6c5b4a3f99', `key: ${MASK}`],
+    // A last "!" or "?" is part of many passwords, so only a full stop or bracket is left outside.
+    ['password=MyP@ssw0rd!', `password=${MASK}`],
+    // Review round 3: compound names a framework uses.
+    ['SECRET_KEY=abc123XYZdef456', `SECRET_KEY=${MASK}`],
+    ['SECRET_KEY_BASE=9f8e7d6c5b4a3f2e1d', `SECRET_KEY_BASE=${MASK}`],
+    ['DJANGO_SECRET_KEY: "k3yV4lue99xx"', `DJANGO_SECRET_KEY: "${MASK}"`],
+    ['the secret key is xY7abcd9efgh', `the secret key is ${MASK}`],
+  ];
+  for (const [input, want] of cases) assert.equal(mask(input).text, want, input);
+});
+
+test('#3769 ordinary text is untouched: prose, links, commit ids, short words after a key name', () => {
+  const plain = [
+    'Open Settings, AI Models, then choose Add a provider.',
+    'See https://installkosmos.com/docs/setup-your-first-agent for the steps.',
+    'commit 3f2a9c1d8e7b6a5f4e3d2c1b0a9f8e7d6c5b4a3f fixed it',
+    'token: none, password: ask',
+    'The ring is your agent\'s memory.',
+    'Your key starts with sk- and is pasted in Settings.',
+    'the password is required, and the key: Enter moves on',
+    'Your files are in /Users/agent1/Library/Application Support/Kosmos/agents/Researcher1Folder/notes.md',
+    // Review round 2: a settings form being explained, a path, and a link slug made of words.
+    'Password: required', 'Token: Settings, AI Models', 'secret: Kosmos keeps it', 'the pwd is /Users/me/work',
+    'https://installkosmos.com/docs/Getting-Started-With-Your-First-Agent-2026',
+    // Review round 3: a long name made of words with one number is a flag or a branch, not a token.
+    'turn on SuperLongFeatureNameNoHyphensEnabled2026 first', 'branch AddNewSetupGuideSecretMaskingSupport2026',
+    'the model is claude-sonnet-5-20260101', 'the secret is out',
+    // Review round 4: brackets, a setting's name, a long name with two numbers in it.
+    'password: (leave blank)', 'token: KOSMOS_AGENT_TOKEN', 'enable AddNewSetupGuide2SecretMasking2026 first',
+  ];
+  for (const t of plain) {
+    const out = mask(t);
+    assert.equal(out.text, t, `ordinary text was masked: ${t} -> ${out.text}`);
+    assert.deepEqual(out.fired, []);
+  }
+  assert.deepEqual(mask(null), { text: null, fired: [] });
+  assert.deepEqual(mask(''), { text: '', fired: [] });
+});
+
+test('#3769 the catch-all masks almost every random token of the lengths keys come in (review round 4)', () => {
+  const sets = [
+    ['ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789', 32],
+    ['ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/', 40],
+    ['abcdefghijklmnopqrstuvwxyz0123456789', 32],
+  ];
+  /* Deterministic pseudo-random, so the rate is the same on every run. */
+  let seed = 3769;
+  const next = () => { seed = (seed * 1103515245 + 12345) % 2147483648; return seed / 2147483648; };
+  for (const [alphabet, n] of sets) {
+    let shown = 0;
+    for (let i = 0; i < 1000; i += 1) {
+      const t = Array.from({ length: n }, () => alphabet[Math.floor(next() * alphabet.length)]).join('');
+      if (mask(`key ${t} end`).text.includes(t)) shown += 1;
+    }
+    assert.ok(shown <= 60, `${shown} of 1000 random ${n}-character tokens were shown (alphabet ${alphabet.length})`);
+  }
+});
+
+test('#3769 a long reply cannot make the mask backtrack (it runs on the board\'s event loop)', () => {
+  const inputs = [
+    'sk-ant-' + 'a'.repeat(200000),
+    'password=' + 'x'.repeat(200000),
+    '-----BEGIN RSA PRIVATE KEY-----' + 'A'.repeat(200000),
+    'aB3'.repeat(100000),
+    'word '.repeat(100000),
+  ];
+  for (const big of inputs) {
+    const ms = cpuMillisecondsOf(() => mask(big));
+    assert.ok(ms < 3000, `mask used ${Math.round(ms)}ms of CPU on a ${big.length}-char input`);
+  }
+});

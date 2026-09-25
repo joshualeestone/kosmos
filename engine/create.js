@@ -4851,6 +4851,15 @@ function createAgentInner(opts) {
     fs.writeFileSync(instructionFile(name, runner), text, 'utf8');
   });
 
+  /* #3769: the setup guide's folder is guarded BEFORE anything can start it: its marker (which the
+     supervisor reads to launch it with none of the tokens Kosmos holds) and its deny rules on
+     credential files. Written after the start, the first session would run unguarded. Gating: a
+     guide whose guards could not be written is not made. Every other role skips this. */
+  const guardedGuide = roleKey !== 'setup' || DRY_RUN || step('kept it away from passwords and keys', () => {
+    const guarded = require('./setup-assistant').guardGuideFolder(workerDir(name), name);
+    if (!guarded.ok) throw new Error(guarded.because || 'the guards could not be written');
+  });
+
   /**
    * The display name, written where the board reads it.
    *
@@ -4967,7 +4976,7 @@ function createAgentInner(opts) {
    * your computer either way" — a sentence that is false in exactly the case
    * that produced it.
    */
-  if (!wroteInstructions || !installedSupervisor || !wroteJob) {
+  if (!wroteInstructions || !guardedGuide || !installedSupervisor || !wroteJob) {
     rollBack();
     // ⚠️ A missing supervisor gets its OWN sentence. It is not "try again":
     // `bin/agent-supervisor.sh` is missing from the installation, so retrying

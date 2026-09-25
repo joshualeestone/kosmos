@@ -372,18 +372,26 @@ if [ -z "$adopt" ]; then
       PANE_ENV+=(-e "KOSMOS_AGENT_TOKEN=$KOSMOS_AGENT_TOKEN")
     fi
 
+  # #3769 (Josh, 2026-09-25 11:54: the helper agent must never give out passwords
+  # or keys): the setup guide gets NONE of the tokens Kosmos holds for the person
+  # (Cloudflare, GitHub, the token doors below). It helps someone set Kosmos up and
+  # needs none of them, and a key it was never given is one it cannot repeat. Known
+  # by the marker the guide's folder carries from before its first start
+  # (engine/setup-assistant.js guardGuideFolder, called by create.js).
+  IS_SETUP_GUIDE=0
+  [ -f "$WORKDIR/.kosmos-setup-guide" ] && IS_SETUP_GUIDE=1
   # A token Kosmos holds for the person (#529, Cloudflare) lives in the store
   # beside this script, mode 600, never in the plist. Read here, handed into
   # the pane, so an agent's wrangler or curl finds CLOUDFLARE_API_TOKEN set.
   _cf="$(cd "$(dirname "$0")/.." && pwd)/secrets/cloudflare.token"
-  if [ -s "$_cf" ]; then
+  if [ "$IS_SETUP_GUIDE" = 0 ] && [ -s "$_cf" ]; then
     CLOUDFLARE_API_TOKEN="$(head -1 "$_cf")"; export CLOUDFLARE_API_TOKEN
   fi
   # GitHub's token rides the same way when the no-install door holds one
   # (#620): gh and the GitHub API read GH_TOKEN, so an agent on a Mac with
   # no keyring can still read a private repo.
   _gh="$(cd "$(dirname "$0")/.." && pwd)/secrets/github.token"
-  if [ -s "$_gh" ]; then
+  if [ "$IS_SETUP_GUIDE" = 0 ] && [ -s "$_gh" ]; then
     GH_TOKEN="$(head -1 "$_gh")"; export GH_TOKEN
   fi
   # 🛑 THE RENDERER QUESTION, AND IT HAS TO BE SET HERE RATHER THAN IN THE JOB
@@ -448,6 +456,10 @@ if [ -z "$adopt" ]; then
   # #3568: CLAUDE_CONFIG_DIR is not forwarded from this supervisor's env into an Antigravity pane.
   for _var in HOME KOSMOS_PORT CLAUDE_CONFIG_DIR CODEX_HOME GEMINI_CLI_HOME GROK_HOME CLOUDFLARE_API_TOKEN GH_TOKEN; do
     [ "$RUNNER" = antigravity ] && [ "$_var" = CLAUDE_CONFIG_DIR ] && continue
+    # #3769: not even one this supervisor inherited from its own environment.
+    if [ "$IS_SETUP_GUIDE" = 1 ]; then
+      case "$_var" in CLOUDFLARE_API_TOKEN|GH_TOKEN) continue ;; esac
+    fi
     if [ -n "$(eval "printf '%s' \"\${$_var:-}\"")" ]; then
       PANE_ENV+=(-e "$_var=$(eval "printf '%s' \"\$$_var\"")")
     fi
@@ -459,6 +471,11 @@ if [ -z "$adopt" ]; then
   # here. Only names that are variable names are taken; anything else in the
   # directory is left alone rather than typed into a pane.
   _envdir="$(cd "$(dirname "$0")/.." && pwd)/secrets/env"
+  # #3769: the setup guide takes ONE door only, the key its own runner signs in with on a default
+  # account (a default Gemini or Grok key arrives only this way). Everything else stays out.
+  _guide_key=""
+  [ "$RUNNER" = gemini ] && _guide_key=GEMINI_API_KEY
+  [ "$RUNNER" = grok ] && _guide_key=XAI_API_KEY
   if [ -d "$_envdir" ]; then
     for _f in "$_envdir"/*; do
       [ -s "$_f" ] || continue
@@ -466,6 +483,7 @@ if [ -z "$adopt" ]; then
       case "$_name" in
         *[!A-Z0-9_]*|[0-9]*) continue ;;
       esac
+      if [ "$IS_SETUP_GUIDE" = 1 ] && [ "$_name" != "$_guide_key" ]; then continue; fi
       PANE_ENV+=(-e "$_name=$(head -1 "$_f")")
     done
   fi
