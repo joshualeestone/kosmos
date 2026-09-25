@@ -6,12 +6,17 @@ after #3808 (the in-app Kosmos+ sign-in wizard matching login.kosmosplus.com) me
 - seven wizard fields `recessed in light and raised in dark`;
 - `#plus-si-enrol-sms` claims a boundary that does not separate it (border 1.01:1 in light).
 
-## Call (Splinter 17:15, owner ICK busy on #3837)
-- The always-dark fields are INTENDED (#3796: Josh wants the Kosmos+ look in both themes):
-  exempt them by name from the cross-scheme check, like #pj-say and #pj-thread-who, no wider.
-- The button outline is a real defect: the wizard's secondary-button border becomes a mid
-  blue-grey (the Kosmos+ pill's colour family) that separates on light and navy grounds.
-Minimal on purpose: #3796's rework (Pete) revisits both.
+## Call (final, after review)
+The first version (per Splinter and the owner) exempted the fields as intended always-dark
+design and changed the button's border as a real defect. The blind review found the premise
+wrong: render-fields unhides the wizard in place and never sets body.plus-active, the class
+that gives the wizard its navy card and navy --k-bg in BOTH themes. So both failures were the
+check measuring against the bare page ground; on the real navy card the old border is about
+2.2:1 (already past the check's 1.1 bar). Final: web/index.html is UNCHANGED; the seven fields
+and #plus-si-enrol-sms are skipped by id from the cross-scheme and button-boundary checks, with
+a comment giving that reason; render-plus-signin-3478 (which navigates to the tab for real)
+covers the wizard on its real ground. Setting plus-active in render-fields would recolour the
+whole page and falsify every other field.
 
 ## Weakest premise
 That the flip is exactly the intended design and nothing else: the exemption is per id, so a
@@ -20,5 +25,4 @@ on these seven.
 
 ## Proof
 - Red: render-fields on main 0da7100a4 (Mortals): the 7 flips + the button.
-- Green: render-fields on this branch (Mortals): 0 flips, PASS. render-plus-signin-3478 (the
-  surface-map owner of the changed CSS lines): PASS on this branch.
+- Green: render-fields on this branch (Mortals): PASS (re-run on the final version).

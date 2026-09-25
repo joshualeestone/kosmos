@@ -106,10 +106,18 @@ function selfCheck() {
    a denominator that only prints is not a denominator, and a slider meant to be restyled
    (appearance:none) that lost the cascade would otherwise leave the field checks silently.
    Adding a native slider on purpose means adding its id here. */
-// The Kosmos+ sign-in wizard's fields, dark in both themes on purpose (#3796; see the
-// cross-scheme check below).
-const PLUS_WIZARD_ALWAYS_DARK = new Set(['#plus-signin-email', '#plus-si-code-in', '#plus-si-second-in', '#plus-si-phone', '#plus-si-secret', '#plus-si-enrol-code', '#plus-si-name']);
 const KNOWN_NATIVE_SLIDERS = ['d-swarm-max', 'd-swarm-cap', 'create-swarm-max', 'create-swarm-cap'];
+/* The Kosmos+ sign-in wizard (#plus-state2, #3808/#3796) is NOT measured on its real ground
+   here: its navy card and the navy --k-bg it sits on are scoped to body.plus-active, which the
+   Kosmos+ tab sets (syncPlusChrome) and this check, which unhides panels in place, never does.
+   So the wizard reads against the bare page ground instead: its always-dark fields as "recessed
+   in light, raised in dark", and #plus-si-enrol-sms's outline (about 2.2:1 on the real navy
+   card) as invisible in light. Found at the 0.6.95 cut. These ids are skipped from the
+   cross-scheme check and the button-boundary check, by name and no wider; the wizard on its
+   real ground is covered by render-plus-signin-3478, which navigates to the tab for real.
+   Setting plus-active here would recolour the whole page's --k-bg and falsify every other
+   field, so it is not done in place. */
+const PLUS_WIZARD_OFF_GROUND = new Set(['#plus-signin-email', '#plus-si-code-in', '#plus-si-second-in', '#plus-si-phone', '#plus-si-secret', '#plus-si-enrol-code', '#plus-si-name', 'plus-si-enrol-sms']);
 const FIELDS = 'input:not([type=button]):not([type=file]):not([type=checkbox]):not([type=radio]):not([type=submit]), textarea, select';
 /* ⚠️ BUTTONS TOO, and their absence was a hole shaped exactly like the defect
    this branch shipped: `#cstep-made`'s buttons sat at 1.05:1 against their own
@@ -493,6 +501,7 @@ async function measure(engine, scheme) {
       let faint = 0;
       for (const b of (r.buttons || [])) {
         if (!b.box) continue;
+        if (PLUS_WIZARD_OFF_GROUND.has(b.id)) continue;   // off its real ground here (see the top)
         /* ⚠️ READ OFF THE COMPUTED VALUE, NOT OFF THE RATIO. `declaresFill` was
            `f !== 1`, which conflates "declares no fill" with "declares a fill
            IDENTICAL to its container" — and the second is precisely the
@@ -609,12 +618,9 @@ async function measure(engine, scheme) {
          still held to the cross-theme rule, so an UNINTENDED flip elsewhere still fails. The black
          column stays (Josh's #3493); this field keeps its depth cue against it. */
       if (id === '#pj-thread-who') continue;
-      /* #3796 (Josh, 2026-09-25): the in-app Kosmos+ sign-in wizard deliberately keeps the
-         website's (login.kosmosplus.com) dark fields in BOTH themes, so against the app's own
-         ground they read recessed in light and raised in dark. Intended; exempted by name and
-         no wider, like the two fields above. The wizard is due a rework (#3796), which should
-         revisit this list. */
-      if (PLUS_WIZARD_ALWAYS_DARK.has(id)) continue;
+      /* The Kosmos+ wizard's fields: measured off their real ground here (see
+         PLUS_WIZARD_OFF_GROUND at the top). */
+      if (PLUS_WIZARD_OFF_GROUND.has(id)) continue;
       const dl = dir(lightById[id]), dd = dir(darkById[id]);
       if (dl !== 'n/a' && dd !== 'n/a' && dl !== dd) {
         flipped += 1;
