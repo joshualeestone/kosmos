@@ -61,6 +61,7 @@
 --------------------------------------------------------------------------- */
 :root {
   --tip-dim: rgba(20,22,26,.28);   /* #3737: the tour's dim, one value for the layer and the gutter */
+  --unread-edge: #f5e4bc;   /* #3743: the unread agent message's edge (Josh's pick, 09:14/09:15); dark and navy below */
   /* #3132 (Josh, 6.68): the consolidated link size, defined once so the archived
      toggle (#pj-arch-toggle) and the Files/Tasks "View All" doors (.pj-viewall)
      are guaranteed equal by construction in the consolidated view (#3756 also
@@ -328,6 +329,7 @@
        darker-than-black panel is not a thing anybody can see. */
     --k-sunk:    rgba(245,245,244,.06);
     --agent-msg: #252529;  /* #3340 (Josh 6.83): night-mode agent bubble, a cooler dark gray (was #221f1a warm cream). #2947 history: the dark-mode cream, a touch above the surface. */
+    --unread-edge: rgba(227,179,65,.5);   /* #3743: the unread edge on the dark bubble, the gold at half strength */
     /* #2660: 15% in dark, up from 10% light, so the wash stays legible. */
     --usermsg-tint: #1b1f65; /* #3340 (Josh 6.83): night-mode user bubble, a deeper indigo (was #141c2f). #2660 history: 15% in dark, up from 10% light, so the wash stays legible. */
     /* #980: the consolidated side tones' dark twins, the mock's line 25. */
@@ -5540,6 +5542,12 @@ body:not(.consolidated) .pjmidhead:has(.pjhead) .tsearch:focus-within { flex-bas
    .msg-bd -- composites on top of the cream instead of being cleared by a
    shorthand. */
 .msg:not(.you) .msg-bd { background-color: var(--agent-msg); }
+/* #3743 (Josh 2026-09-25 09:15): "the stroke would be cool for an unread message and then as you read it it fades
+   away". An agent message not yet read carries a thin gold edge; once it has been on screen a moment, the edge fades.
+   An inset shadow, so the bubble keeps its size and the edge follows its rounded corners. */
+.msg:not(.you) .msg-bd { transition: box-shadow 1.2s ease; }
+.msg:not(.you) .msg-bd[data-unread] { box-shadow: inset 0 0 0 1px var(--unread-edge); transition: none; }
+@media (prefers-reduced-motion: reduce) { .msg:not(.you) .msg-bd { transition: none; } }
 /* #3134-followup (Josh 6.72) -> #3267: the bubble TAIL is a clean iMessage-style Option A
    WING at the bottom corner, pointing toward the avatar -- bottom-LEFT on an agent bubble,
    bottom-RIGHT on the person's.
@@ -8633,6 +8641,7 @@ html:not([data-fed-ui="show"]) #pj-add-ext-person,html:not([data-fed-ui="show"])
        darker-than-black panel is not a thing anybody can see. */
     --k-sunk:    rgba(245,245,244,.06);
     --agent-msg: #252529;  /* #3340 (Josh 6.83): night-mode agent bubble, a cooler dark gray (was #221f1a warm cream). #2947 history: the dark-mode cream, a touch above the surface. */
+    --unread-edge: rgba(227,179,65,.5);   /* #3743: the unread edge on the dark bubble, the gold at half strength */
     /* #2660: 15% in dark, up from 10% light, so the wash stays legible. */
     --usermsg-tint: #1b1f65; /* #3340 (Josh 6.83): night-mode user bubble, a deeper indigo (was #141c2f). #2660 history: 15% in dark, up from 10% light, so the wash stays legible. */
     /* #980: the consolidated side tones' dark twins, the mock's line 25. */
@@ -8815,6 +8824,7 @@ body.plus-active {
   --k-rule: #22345a; --k-track: rgba(120,150,200,.24); --k-knob: #cdd8ef;
   --k-sunk: rgba(120,150,200,.08); --k-side: #0b1428; --k-side-2: #0a1120;
   --agent-msg: #1b2a4b;  /* #3267: was var(--k-sunk) = rgba(120,150,200,.08), TRANSLUCENT. The Option A wing (::before, background-color:inherit) OVERLAPS the bubble box, and a translucent fill double-composites in the overlap into the #3130 dark triangle -- the same defect this change fixed for --usermsg-tint. Made SOLID here too: .08 of rgb(120,150,200) pre-composited over navy --k-bg #132140 (mirrors --usermsg-tint navy). #2947 history: navy keeps its bluish inset, cream is out of scope for this world. */
+  --unread-edge: rgba(227,179,65,.5);   /* #3743: the unread edge on the navy bubble */
   --usermsg-tint: #1a2d58; /* #3267: solid navy (pre-composited from rgba .15 over --k-bg #132140); was #2660 15% */
   --k-optline: #5f7099;
   /* --label/--bg system */
@@ -27042,6 +27052,59 @@ function restoreThreadAnchor(el, a) {
   }
   return false;
 }
+/* #3743 (Josh 2026-09-25 09:15): an unread agent message carries a gold edge that fades once it has been read.
+   "Unread" is the app's own count (a DM's dmUnread, a project's unread) read as the thread opens, plus any agent
+   message that lands while it is open. "Read" is on screen, half of it at least, for a moment while this window is
+   in front. Per thread: `known` is every agent message this page has shown there, `fresh` those still unread,
+   `backlog` the count the thread opened with, taken from the newest. The rows are marked after they are painted, by
+   their data-mid, so no renderer changes and a repaint puts the edge back until it has been read. */
+const UNREAD_EDGE = new Map();
+const UNREAD_EDGE_DWELL = 1200;
+let UNREAD_IO = null;
+function unreadEdgeBacklog(key, n) {
+  const st = UNREAD_EDGE.get(key) || { known: null, fresh: new Set(), backlog: 0 };
+  st.backlog = Math.max(st.backlog, Number(n) || 0);
+  UNREAD_EDGE.set(key, st);
+}
+function unreadEdgeApply(root, key) {
+  if (!root) return;
+  const rows = [...root.querySelectorAll('.msg:not(.you)[data-mid]')].filter((r) => r.dataset.mid);
+  const ids = rows.map((r) => r.dataset.mid);
+  const st = UNREAD_EDGE.get(key) || { known: null, fresh: new Set(), backlog: 0 };
+  UNREAD_EDGE.set(key, st);
+  if (!st.known) st.known = new Set(ids);   // the first look: what is here is history, bar the backlog
+  else for (const id of ids) if (!st.known.has(id)) { st.known.add(id); st.fresh.add(id); }
+  if (st.backlog > 0) { for (const id of ids.slice(-st.backlog)) st.fresh.add(id); st.backlog = 0; }
+  for (const r of rows) {
+    const bd = r.querySelector('.msg-bd');
+    if (!bd || !st.fresh.has(r.dataset.mid) || bd.hasAttribute('data-unread')) continue;
+    bd.setAttribute('data-unread', '');
+    bd.__unread = { st, id: r.dataset.mid };
+    unreadEdgeWatch(bd);
+  }
+}
+function unreadEdgeWatch(bd) {
+  if (typeof IntersectionObserver !== 'function') { bd.__inView = true; unreadEdgeTry(bd); return; }
+  if (!UNREAD_IO) UNREAD_IO = new IntersectionObserver((es) => {
+    for (const e of es) { e.target.__inView = e.isIntersecting && e.intersectionRatio >= 0.5; unreadEdgeTry(e.target); }
+  }, { threshold: [0, 0.5, 1] });
+  UNREAD_IO.observe(bd);
+}
+function unreadEdgeTry(bd) {
+  if (!bd.__inView || bd.__unreadTimer || !bd.isConnected || !bd.hasAttribute('data-unread')) return;
+  if (document.visibilityState !== 'visible' || !document.hasFocus()) return;
+  bd.__unreadTimer = setTimeout(() => {
+    bd.__unreadTimer = null;
+    if (!bd.isConnected || !bd.__inView || document.visibilityState !== 'visible' || !document.hasFocus()) return;
+    if (bd.__unread) bd.__unread.st.fresh.delete(bd.__unread.id);
+    bd.removeAttribute('data-unread');   // the transition fades the edge
+    if (UNREAD_IO) UNREAD_IO.unobserve(bd);
+  }, UNREAD_EDGE_DWELL);
+}
+/* Coming back to the window starts the clock on what is already in view. */
+const unreadEdgeRecheck = () => document.querySelectorAll('.msg-bd[data-unread]').forEach(unreadEdgeTry);
+window.addEventListener('focus', unreadEdgeRecheck);
+document.addEventListener('visibilitychange', unreadEdgeRecheck);
 function setThread(el, html, key) {
   /* ⚠️ THE AGENT THREAD GETS THIS TOO, and not for symmetry: `#d-say` sits
      under it in the same column, and a thread that never resizes today is one
@@ -27553,6 +27616,7 @@ function paintTalkThread(body, name) {
       + '\u0000' + (tailRow ? String(tailRow.id || tailRow.at || '') : '');
     const dmHtml = rows.map((m) => dmRow(m, name)).join('') + (filtering ? '' : dmOwesLine(body.owes, rows));
     setThread(thread, dmHtml, threadKey);
+    if (!filtering && CURRENT && CURRENT.sessionName) unreadEdgeApply(thread, 'dm:' + CURRENT.sessionName);   // #3743
   }
 }
 async function paintTalk(sessionName, agentName) {
@@ -27572,6 +27636,7 @@ async function paintTalk(sessionName, agentName) {
      follow. A 404/borrowed-name agent never reaches here (its rec has no unread). */
   const dmRec = Array.isArray(LAST) ? LAST.find((x) => x && x.sessionName === sessionName) : null;
   if (dmRec && dmRec.dmUnread > 0) {
+    unreadEdgeBacklog('dm:' + sessionName, dmRec.dmUnread);   // #3743: these arrive with the edge
     dmRec.dmUnread = 0;
     fetch('/api/agent/' + encodeURIComponent(sessionName) + '/seen', { method: 'POST' })
       .then((r) => r.text())
@@ -46997,7 +47062,8 @@ function pjRoomRow(m, p) {
   const nameEl = (!isOp && name) ? '<b class="msg-nm" data-open-agent="' + esc(m.from) + '">' + esc(name) + '</b>' : '';
   const timeEl = whenStr ? '<span class="msg-t">' + whenStr + '</span>' : '';
   const hasBubble = bd;
-  return '<div class="msg' + (isOp ? ' you' : '') + '">' + av
+  /* #3743: data-mid, as a DM row has, so an unread post can be found after the paint and given its edge. */
+  return '<div class="msg' + (isOp ? ' you' : '') + '" data-mid="' + esc(String(m.id || m.at || '')) + '">' + av
     + '<div class="msg-b">'
     + (hasBubble ? '<div class="msg-bd">' + nameEl + bd + timeEl + '</div>' : '')
     + pjReactions(m) + '</div></div>';
@@ -47055,7 +47121,7 @@ function pjUnansweredLine(m, p, silent) {
 function pjMarkSeen(id) {
   if (!id) return;
   const p = pjById(id);
-  if (p && p.unread) { p.unread = 0; try { paintProjects(); } catch { /* the poll repaints */ } }
+  if (p && p.unread) { unreadEdgeBacklog('pj:' + id, p.unread); p.unread = 0; try { paintProjects(); } catch { /* the poll repaints */ } }   // #3743: the backlog arrives with the edge
   /* The body is read and dropped (#39's rule, the whats-new fetch has the
      same line): a Response nobody consumes stays "in flight" to Chromium
      until garbage collection, and networkidle never comes. Ice Cream Kitty
@@ -47355,6 +47421,7 @@ function paintRoom(body) {
     box.__lastRoomQuery = PJ_ROOM_QUERY;
     paintThreadInto(box, html, rows !== '', queryChanged, filtering);
   }
+  if (!filtering) unreadEdgeApply(box, 'pj:' + PJ_CURRENT);   // #3743: after the paint, and on every poll
 }
 /* The search input repaints from the cached body (loadRoom keeps it on
    the box) so typing filters instantly between polls; the query resets
