@@ -3159,8 +3159,10 @@ button.boardname[aria-expanded="true"] { opacity: 1; color: var(--k-ink); border
 .tsk-seg button { border: 0; background: none; cursor: pointer; padding: 0 11px; height: 30px; color: var(--k-ink-2); font: 600 .8125rem var(--font-ui); white-space: nowrap; }
 .tsk-seg button + button { border-left: 1px solid var(--k-rule); }
 .tsk-seg button[aria-pressed="true"] { color: #231b06; background: linear-gradient(150deg, var(--gold-bright), var(--gold-deep)); }
-select.tsk-sel { font: 600 .8125rem var(--font-ui); height: 32px; padding: 0 8px; border-radius: 9px; border: 1px solid var(--k-rule);
-  background: var(--k-surface); color: var(--k-ink); }
+/* The arrow, its room on the right and the radius come from the global `select`
+   rule; `background-color` (not the `background` shorthand) keeps its arrow. */
+select.tsk-sel { font: 600 .8125rem var(--font-ui); height: 32px; padding: 0 2rem 0 8px; border: 1px solid var(--k-rule);
+  background-color: var(--k-surface); color: var(--k-ink); }
 .tsk-mobsel { display: none; }
 .tsk-tiles { display: grid; grid-template-columns: repeat(auto-fit, minmax(138px, 1fr)); gap: 10px; margin: 16px 0 4px; }
 .tsk-tile { background: var(--k-surface); border: 1px solid var(--k-rule); border-radius: 12px; padding: 11px 13px 10px; cursor: pointer;

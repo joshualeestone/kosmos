@@ -8,7 +8,7 @@
 /*
  * kosmos#3051 (Josh, 0.6.63 review, for 6.65): the upper-right nav is a user AVATAR + NAME that
  * opens a dropdown. The Settings LINK lives in the dropdown (Settings is GONE from the top nav,
- * which is now just Agents + Projects), together with the light/dark control, the view toggle,
+ * which is now Agents + Projects, plus Tasks since #3559), together with the light/dark control, the view toggle,
  * and the agent-status line. Removing the Settings tab is safe because 'settings' is in the
  * BUTTONLESS array, so showTab('settings') still shows #panel-settings with no tab lit.
  *
@@ -69,12 +69,12 @@ function ok(name, cond, detail) { if (cond) pass += 1; else problems.push(name +
     await page.goto(PAGE);
     if (await page.$('#firstrun:not([hidden])')) { await page.keyboard.press('Escape'); await page.waitForTimeout(300); }
 
-    // ── The top nav is Agents + Projects only; Settings is gone from it. ──
+    // ── The top nav is Agents + Projects + Tasks (#3559); Settings is gone from it. ──
     const nav = await page.evaluate(() => {
       const tabs = [...document.querySelectorAll('#tabs .tab')].map((b) => b.dataset.tab);
       return { tabs, hasSettingsTab: !!document.querySelector('#tabs .tab[data-tab="settings"]') };
     });
-    ok(t + ' the top nav is exactly Agents + Projects', nav.tabs.length === 2 && nav.tabs.join(',') === 'agents,projects', JSON.stringify(nav.tabs));
+    ok(t + ' the top nav is exactly Agents + Projects + Tasks', nav.tabs.join(',') === 'agents,projects,tasks', JSON.stringify(nav.tabs));
     ok(t + ' the Settings tab is gone from the top nav', nav.hasSettingsTab === false);
 
     // ── The user menu button shows an avatar slot + a name, closed by default. ──
