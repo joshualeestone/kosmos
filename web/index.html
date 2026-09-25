@@ -35940,7 +35940,7 @@ async function paintPlus() {
   const pill = document.getElementById('plus-pill');
   if (pill) {
     const ps = !r.on ? 'off' : (stat.state === 'up' ? 'up' : 'connecting');
-    pill.setAttribute('data-state', ps);
+    if (typeof pill.setAttribute === 'function') pill.setAttribute('data-state', ps);   // page-test harness elements have none
     pill.textContent = ps === 'up' ? 'Connected' : (ps === 'off' ? 'Off' : 'Connecting');
   }
   const acct = document.getElementById('plus-account'); if (acct && typeof PLUS_ACCOUNT_URL !== 'undefined') acct.href = PLUS_ACCOUNT_URL;
