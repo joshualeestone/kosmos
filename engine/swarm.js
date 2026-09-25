@@ -31,6 +31,9 @@ const DEFAULT_HELPERS = 3;
 /* A helper whose file has not moved for this long is not counted as working even if
    it never finished (a killed session leaves a file that never ends). */
 const ACTIVE_WINDOW_MS = 10 * 60 * 1000;
+const READ_CHUNK_BYTES = 4 * 1024 * 1024;
+const READ_PER_CALL_BYTES = 64 * 1024 * 1024;
+const DAY_MS = 24 * 60 * 60 * 1000;
 /* The reasons a swarm can be paused. */
 const PAUSED_BECAUSE = Object.freeze(['person', 'limit', 'stopped']);
 
@@ -110,14 +113,16 @@ function patchProblem(patch) {
 function dayKey(now) { return new Date(startOfDay(now)).toISOString(); }
 
 /** The swarm block of a profile after a valid patch. Switching it back on clears the reason;
- *  switching it on after a LIMIT pause also holds for the rest of that day. */
+ *  switching it on after a LIMIT pause from today also holds for the rest of today. */
 function applyPatch(profile, patch, now = Date.now()) {
   const cur = settingsOf(profile);
   const next = { ...cur };
   if ('maxHelpers' in patch) next.maxHelpers = patch.maxHelpers;
   if ('dailyTokenLimit' in patch) next.dailyTokenLimit = patch.dailyTokenLimit;
   if ('active' in patch) {
-    if (patch.active && cur.pausedBecause === 'limit') next.limitOverrideDay = dayKey(now);
+    /* Only TODAY's limit pause earns the override; one left over from yesterday is simply lifted. */
+    const pausedToday = cur.pausedAt && Date.parse(cur.pausedAt) >= startOfDay(now);
+    if (patch.active && cur.pausedBecause === 'limit' && pausedToday) next.limitOverrideDay = dayKey(now);
     next.active = patch.active;
     next.pausedBecause = patch.active ? null : 'person';
     next.pausedAt = patch.active ? null : new Date(now).toISOString();
@@ -211,7 +216,7 @@ const fileCache = new Map();
 const CACHE_TTL_MS = 24 * 60 * 60 * 1000;
 
 function freshEntry(since) {
-  return { since, offset: 0, tokens: 0, seen: new Set(), finished: false, tail: '', mtimeMs: 0, touched: 0 };
+  return { since, offset: 0, tokens: 0, seen: new Set(), finished: false, tail: Buffer.alloc(0), mtimeMs: 0, touched: 0 };
 }
 
 /* A stopped helper's file ends with this user line (measured, Claude Code 2.1.282,
@@ -236,32 +241,40 @@ function readFile(file, since, now = Date.now()) {
   let e = fileCache.get(file);
   if (!e || e.since !== since || st.size < e.offset) e = freshEntry(since);
   if (st.size > e.offset) {
-    let chunk = '';
+    const take = (text) => {
+      for (const line of text.split('\n')) {
+        if (!line) continue;
+        let j;
+        try { j = JSON.parse(line); } catch { continue; }
+        if (isInterruptedLine(j)) { e.finished = true; continue; }
+        if (j.type !== 'assistant' || !j.message || typeof j.message !== 'object') continue;
+        e.finished = j.message.stop_reason === 'end_turn';
+        const id = typeof j.message.id === 'string' && j.message.id ? j.message.id : null;
+        if (id && e.seen.has(id)) continue;
+        if (id) e.seen.add(id);
+        const at = Date.parse(j.timestamp || '');
+        if (Number.isFinite(at) && at >= since) e.tokens += tokensOf(j.message.usage);
+      }
+    };
+    /* Bounded reads: READ_CHUNK_BYTES at a time, at most READ_PER_CALL_BYTES per call (a larger
+       file catches up over the next polls). Lines are cut at the byte 0x0A, so a character is
+       never split, and the offset moves only past bytes actually read. */
+    let fd = null;
     try {
-      const fd = fs.openSync(file, 'r');
-      try {
-        const buf = Buffer.alloc(st.size - e.offset);
-        fs.readSync(fd, buf, 0, buf.length, e.offset);
-        chunk = buf.toString('utf8');
-      } finally { fs.closeSync(fd); }
-    } catch { chunk = ''; }
-    const text = e.tail + chunk;
-    const lines = text.split('\n');
-    e.tail = lines.pop();   // an unfinished last line waits for the rest of it
-    for (const line of lines) {
-      if (!line) continue;
-      let j;
-      try { j = JSON.parse(line); } catch { continue; }
-      if (isInterruptedLine(j)) { e.finished = true; continue; }
-      if (j.type !== 'assistant' || !j.message || typeof j.message !== 'object') continue;
-      e.finished = j.message.stop_reason === 'end_turn';
-      const id = typeof j.message.id === 'string' && j.message.id ? j.message.id : null;
-      if (id && e.seen.has(id)) continue;
-      if (id) e.seen.add(id);
-      const at = Date.parse(j.timestamp || '');
-      if (Number.isFinite(at) && at >= since) e.tokens += tokensOf(j.message.usage);
-    }
-    e.offset = st.size;
+      fd = fs.openSync(file, 'r');
+      const stop = Math.min(st.size, e.offset + READ_PER_CALL_BYTES);
+      while (e.offset < stop) {
+        const buf = Buffer.alloc(Math.min(READ_CHUNK_BYTES, stop - e.offset));
+        const n = fs.readSync(fd, buf, 0, buf.length, e.offset);
+        if (n <= 0) break;
+        const data = e.tail.length ? Buffer.concat([e.tail, buf.subarray(0, n)]) : buf.subarray(0, n);
+        const cut = data.lastIndexOf(0x0a);
+        if (cut >= 0) take(data.subarray(0, cut).toString('utf8'));
+        e.tail = Buffer.from(cut >= 0 ? data.subarray(cut + 1) : data);
+        e.offset += n;
+      }
+    } catch { /* the offset stays after the last chunk read, so the next poll resumes there */ }
+    finally { if (fd !== null) { try { fs.closeSync(fd); } catch { /* already closed */ } } }
   }
   e.mtimeMs = st.mtimeMs;
   e.touched = now;
@@ -294,6 +307,8 @@ function meter(transcriptPath, now = Date.now()) {
     try { st = fs.statSync(file); } catch { continue; }
     const subDir = path.join(dir, n.slice(0, -'.jsonl'.length), 'subagents');
     if (st.mtimeMs >= since) out.leadTokens += readFile(file, since, now).tokens;
+    /* A session untouched for a day before today cannot have helpers writing today. */
+    if (st.mtimeMs < since - DAY_MS) continue;
     let subs;
     try { subs = fs.readdirSync(subDir); } catch { subs = []; }
     for (const s of subs) {
@@ -366,8 +381,8 @@ function sweepOnce(rows, deps, now = Date.now()) {
       if (!s) continue;
       if (s.active && s.dailyTokenLimit && c.tokensToday >= s.dailyTokenLimit && s.limitOverrideDay !== dayKey(now)) {
         deps.writeProfile(name, { swarm: pausedFor(s, 'limit', now) });
+        const helpers = deps.stopHelpers(name);   // before the Escape: see the Stop now route
         const stopped = deps.interrupt(name);
-        const helpers = deps.stopHelpers(name);
         deps.say(name, `I paused myself at today's token limit (${s.dailyTokenLimit} tokens). I'll start again tomorrow, or switch me back on.`);
         did.push({ name, action: 'paused', stopped: Boolean(stopped && stopped.ok && helpers && helpers.ok) });
       } else if (!s.active && s.pausedBecause === 'limit' && s.pausedAt && Date.parse(s.pausedAt) < startOfDay(now)) {
@@ -384,7 +399,7 @@ function sweepOnce(rows, deps, now = Date.now()) {
 function resetForTests() { fileCache.clear(); }
 
 module.exports = {
-  MIN_HELPERS, MAX_HELPERS, DEFAULT_HELPERS, ACTIVE_WINDOW_MS, PAUSED_BECAUSE, START, END,
+  MIN_HELPERS, MAX_HELPERS, DEFAULT_HELPERS, ACTIVE_WINDOW_MS, READ_CHUNK_BYTES, READ_PER_CALL_BYTES, PAUSED_BECAUSE, START, END,
   createProblem, birthProfile, settingsOf, patchProblem, applyPatch, pausedSentence,
   blockBody, tellLead, tokensOf, meter, cardField, pausedFor, sweepRows, sweepOnce, startOfDay, resetForTests,
 };

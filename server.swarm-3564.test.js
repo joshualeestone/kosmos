@@ -181,15 +181,33 @@ test('#3564 the limit sweep\'s wiring: interrupt and the stop chord reach the le
   try {
     const d = swarmSweepDeps(board.agents);
     const own = board.agents.find((c) => c.sessionName === 'hive7');
-    assert.equal(d.interrupt('hive7').ok, true);
     assert.equal(d.stopHelpers('hive7').ok, true);
+    assert.equal(d.interrupt('hive7').ok, true);
     const keys = calls.filter((a) => a[0] === 'send-keys');
-    assert.deepEqual(keys.map((a) => a[a.length - 1]), ['Escape', 'C-x', 'C-k', 'C-x', 'C-k']);
+    assert.deepEqual(keys.map((a) => a[a.length - 1]), ['C-x', 'C-k', 'C-x', 'C-k', 'Escape']);
     for (const a of keys) assert.ok(a.join(' ').includes(own.target), 'a sweep key went to a pane that is not the lead\'s: ' + a.join(' '));
     d.say('hive7', 'paused at the limit (wiring test)');
     const thread = chat.readThread(chat.DIRECT, 'hive7');
     const rows = Array.isArray(thread) ? thread : (thread && thread.messages) || [];
     assert.ok(rows.some((m) => m && m.text === 'paused at the limit (wiring test)' && m.from === 'hive7'), 'the sweep\'s message did not land in the lead\'s own DM thread');
     assert.equal(swarm.settingsOf(d.readProfile('hive7')).dailyTokenLimit, 1000, 'readProfile does not read the lead\'s profile');
+  } finally { chat.setRunner(null); chat.setDryRun(true); board.restore(); }
+});
+
+test('#3564 Stop now sends the stop-all chord BEFORE the Escape (an Escape just before it swallowed it, measured)', async () => {
+  const fleetMod = require('./test-support/fleet');
+  const chat = require('./engine/chat');
+  lead('hive8', swarm.birthProfile({ dailyTokenLimit: 1000 }));
+  const board = fleetMod.install([fleetMod.agent('hive8', { state: 'idle' })]);
+  const calls = [];
+  chat.setRunner((args) => { calls.push(args); return { ran: true, spawnFailed: false, status: 0, out: '', err: '' }; });
+  chat.setDryRun(false);
+  try {
+    const r = await post('/api/agent/hive8/swarm/stop');
+    const b = await r.json();
+    assert.equal(r.status, 200, JSON.stringify(b));
+    const keys = calls.filter((a) => a[0] === 'send-keys').map((a) => a[a.length - 1]);
+    assert.deepEqual(keys, ['C-x', 'C-k', 'C-x', 'C-k', 'Escape'], 'Stop now sent its keys in the order that fails');
+    assert.equal(b.stopped, true, 'both keys went and the answer says otherwise: ' + JSON.stringify(b));
   } finally { chat.setRunner(null); chat.setDryRun(true); board.restore(); }
 });

@@ -63,6 +63,18 @@ test('#3564 the lead\'s block names its own N, isolation, claims and one voice',
   assert.ok(projects.ALL_MARKERS().includes(swarm.START) && projects.ALL_MARKERS().includes(swarm.END), 'the markers are not registered');
 });
 
+test('#3564 switching a swarm back on overrides the limit only for a pause from TODAY; yesterday\'s leftover pause gives no free day', () => {
+  const base = swarm.settingsOf(swarm.birthProfile({ dailyTokenLimit: 1000 }));
+  const NOW9 = new Date(2026, 8, 25, 0, 5, 0).getTime();              // 00:05, before the sweep lifted it
+  const yesterdayPause = { ...swarm.birthProfile({ dailyTokenLimit: 1000 }), swarm: swarm.pausedFor(base, 'limit', new Date(2026, 8, 24, 22, 0, 0).getTime()) };
+  const on1 = swarm.applyPatch(yesterdayPause, { active: true }, NOW9);
+  assert.equal(on1.active, true);
+  assert.equal(on1.limitOverrideDay, null, 'a pause from yesterday gave today a limit override');
+  const todayPause = { ...swarm.birthProfile({ dailyTokenLimit: 1000 }), swarm: swarm.pausedFor(base, 'limit', new Date(2026, 8, 25, 0, 1, 0).getTime()) };
+  const on2 = swarm.applyPatch(todayPause, { active: true }, NOW9);
+  assert.ok(on2.limitOverrideDay, 'CONTROL: switching on after today\'s limit pause holds for today');
+});
+
 /* ---- the meter ----------------------------------------------------------------- */
 
 const NOW = new Date(2026, 8, 24, 15, 0, 0).getTime();   // 15:00 local
@@ -115,6 +127,34 @@ test('#3564 meter: a helper stopped by "stop all agents" is not working, though 
   assert.equal(m.helperTokens, 20, 'CONTROL: the stopped helper\'s spend still counts toward today');
 });
 
+test('#3564 meter: a transcript several read-chunks long, full of multi-byte text, is counted exactly', () => {
+  swarm.resetForTests();
+  // Each line carries 3-byte characters, so chunk edges fall inside characters as well as inside lines.
+  const pad = '\u2603'.repeat(2000);
+  const line = (i) => JSON.stringify({ type: 'assistant', timestamp: today(9), message: { id: 'msg_' + i, role: 'assistant', stop_reason: 'tool_use', usage: U(1, 0), content: [{ type: 'text', text: pad }] } });
+  const n = Math.ceil((2.5 * swarm.READ_CHUNK_BYTES) / line(0).length);
+  const lines = [];
+  for (let i = 0; i < n; i += 1) lines.push(line(i));
+  const dir = transcripts('big', [['s.jsonl', lines, NOW - 60000]]);
+  assert.ok(fs.statSync(path.join(dir, 's.jsonl')).size > 2 * swarm.READ_CHUNK_BYTES, 'CONTROL: the file spans more than two chunks');
+  assert.equal(swarm.meter(path.join(dir, 's.jsonl'), NOW).leadTokens, n, 'a line was lost or double-counted across a chunk edge');
+});
+
+test('#3564 meter: helpers of a session untouched for over a day before today are not listed; one written today still counts', () => {
+  swarm.resetForTests();
+  const old = new Date(2026, 8, 22, 12, 0, 0).getTime();
+  const dir = transcripts('aged', [
+    ['cur.jsonl', [asst(today(9), U(1, 1), 'end_turn')], NOW - 60000],
+    ['ancient.jsonl', [asst(new Date(old).toISOString(), U(1, 1), 'end_turn')], old],
+    // Written today under a day-old session: skipped anyway. That is the cost of not listing old sessions.
+    ['ancient/subagents/agent-x.jsonl', [asst(today(14, 59), U(7, 0), 'tool_use')], NOW - 30000],
+    ['cur/subagents/agent-y.jsonl', [asst(today(14, 59), U(5, 0), 'tool_use')], NOW - 30000],
+  ]);
+  const m = swarm.meter(path.join(dir, 'cur.jsonl'), NOW);
+  assert.equal(m.helperTokens, 5, 'a day-old session\'s helpers were read');
+  assert.equal(m.activeHelpers, 1, 'CONTROL: today\'s session\'s working helper is counted');
+});
+
 test('#3564 meter: one message counts ONCE, however many content-block lines carry its usage (measured 2.23x overcount)', () => {
   swarm.resetForTests();
   const line = (id, stop) => JSON.stringify({ type: 'assistant', timestamp: today(9), message: { id, role: 'assistant', stop_reason: stop || null, usage: U(100, 0) } });
@@ -153,13 +193,13 @@ test('#3564 cardField: null for an ordinary agent; for a swarm, settings + meter
 /* ---- the daily limit --------------------------------------------------------------- */
 
 function deps(profiles) {
-  const calls = { writes: [], interrupts: [], stops: [], says: [] };
+  const calls = { writes: [], interrupts: [], stops: [], says: [], order: [] };
   return {
     calls,
     readProfile: (n) => profiles[n],
     writeProfile: (n, patch) => { calls.writes.push([n, patch]); profiles[n] = { ...profiles[n], ...patch }; },
-    interrupt: (n) => { calls.interrupts.push(n); return { ok: true }; },
-    stopHelpers: (n) => { calls.stops.push(n); return { ok: true }; },
+    interrupt: (n) => { calls.interrupts.push(n); calls.order.push('escape'); return { ok: true }; },
+    stopHelpers: (n) => { calls.stops.push(n); calls.order.push('chord'); return { ok: true }; },
     say: (n, text) => { calls.says.push([n, text]); },
   };
 }
@@ -170,6 +210,7 @@ test('#3564 sweep: a swarm paused at its limit has all its helpers stopped too (
   const d = deps(profiles);
   const did = swarm.sweepOnce([card('over', 1000), card('under', 999)], d, NOW);
   assert.deepEqual(d.calls.stops, ['over'], 'the helpers of a swarm paused at its limit were left running');
+  assert.deepEqual(d.calls.order, ['chord', 'escape'], 'an Escape just before the stop chord swallows it (measured): the chord goes first');
   assert.deepEqual(did.map((x) => [x.name, x.stopped]), [['over', true]]);
 });
 

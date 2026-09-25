@@ -4873,9 +4873,11 @@ const server = http.createServer((req, res) => {
     const next = swarm.pausedFor(s, 'stopped');
     store.writeProfile(name, { swarm: next });
     const roster = safeRoster();
-    const stopped = chat.interrupt(name, roster);
-    /* Escape does not reach BACKGROUND helpers (measured); Claude Code's stop-all does. */
+    /* The stop-all chord FIRST, then Escape: Escape does not reach background helpers, and an
+       Escape just before the chord swallowed it (measured 2026-09-25, Claude Code 2.1.282);
+       chord-then-Escape stopped them with the lead idle and with it busy. */
     const helped = chat.stopHelpers(name, roster);
+    const stopped = chat.interrupt(name, roster);
     const ok = stopped.ok === true && helped.ok === true;
     sendJson(res, 200, { ok: true, stopped: ok,
       because: ok ? null : (stopped.ok ? helped.because : stopped.because), swarm: next });

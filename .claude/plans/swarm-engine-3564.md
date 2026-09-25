@@ -38,8 +38,13 @@ split (22:26): engine is Renet's, UI is Mona's. Claude-only v1. The engine/UI co
    "stop all agents" chord, ctrl+x ctrl+k pressed twice (the second press confirms), stops every background helper
    from the plain prompt (their processes went from 2 to 0), with no list navigation; with no helper running it leaves
    the prompt untouched. So Stop now and the limit sweep send that chord every time (`chat.stopHelpers`), with no
-   count and no reading of the screen. A stopped helper's file then ends with a "[Request interrupted by user" line,
-   and the meter counts it as finished, so the card's activeHelpers shows the stop at once.
+   count and no reading of the screen.
+   ORDER, measured in fresh sessions the same night (helpers' processes before and after): chord alone 2 to 0;
+   Escape then chord with no gap 2 to 2 (NOT stopped); Escape, 1s, chord 2 to 0 twice; Escape, 3s, chord 2 to 1;
+   chord then Escape 2 to 0, and with the lead itself busy 3 to 0. So the chord goes FIRST, then the Escape.
+   A stopped helper's file often ends with a "[Request interrupted by user" line, and the meter then counts it as
+   finished at once. The line was not seen in every arm, so without it the card falls back to ACTIVE_WINDOW_MS,
+   which errs toward "still working".
    Also measured the same night: ONE Escape on Claude Code's folder-trust question ENDS the session. Both keys
    therefore go through `keysAllowed` (deliver's trust-dialog floor, and no keys to a Windows agent).
    The residual: these are Claude Code's own keys and can change with it; the card's activeHelpers, read from the
@@ -48,10 +53,13 @@ split (22:26): engine is Renet's, UI is Mona's. Claude-only v1. The engine/UI co
 3. A helper that parked its work in a background shell and ended its turn counts as finished while that shell runs
    (seen in the same measurement). The stop chord is sent regardless of the count, so this only affects the card.
 
+4. The meter reads at most READ_PER_CALL_BYTES (64 MiB) of a transcript per call, so a larger one catches up
+   over the next polls rather than stalling the board; until it does, today's tokens read low.
+
 ## Settings behaviour worth knowing
 - Raising `dailyTokenLimit` on a swarm paused at its limit does not switch it back on; `active: true` does.
-- Once the person switches a limit-paused swarm back on, the limit is not enforced again that day
-  (`limitOverrideDay`), even if they lower it.
+- Once the person switches a swarm paused at its limit TODAY back on, the limit is not enforced again that day
+  (`limitOverrideDay`), even if they lower it. A limit pause left over from yesterday gives no such override.
 - A paused swarm accepts only /compact, /clear, /cost, /context and /status; any other slash command is work.
 
 ## Verification
