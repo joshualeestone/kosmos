@@ -85,7 +85,7 @@ test('#3564 per project: On/Off only for a swarm that is a member; stored per pr
   lead('solo3', { role: 'pm' });
   const made = projects.create({ name: 'Swarm Route Room' });
   const id = made.id || (made.project && made.project.id);
-  projects.mutate(id, (p) => ({ ...p, agents: [{ sessionName: 'hive3', name: 'hive3' }, { sessionName: 'solo3', name: 'solo3' }] }));
+  projects.mutate(id, (p) => ({ ...p, agents: ['hive3', 'solo3'] }));
   const r = await put(`/api/project/${encodeURIComponent(id)}/swarm/hive3`, { on: false });
   assert.equal(r.status, 200, await r.clone().text());
   assert.equal(projects.swarmOffIn(id, 'hive3'), true);
@@ -94,4 +94,25 @@ test('#3564 per project: On/Off only for a swarm that is a member; stored per pr
   assert.equal((await put(`/api/project/${encodeURIComponent(id)}/swarm/hive3`, { on: 'no' })).status, 400);
   await put(`/api/project/${encodeURIComponent(id)}/swarm/hive3`, { on: true });
   assert.equal(projects.swarmOffIn(id, 'hive3'), false);
+});
+
+test('#3564 per project: a message to a swarm switched off in that project is refused with the sentence, before anything is typed', async () => {
+  lead('hive4', swarm.birthProfile({ dailyTokenLimit: 1000 }));
+  const made = projects.create({ name: 'Swarm Thread Room' });
+  const id = made.id || (made.project && made.project.id);
+  projects.mutate(id, (p) => ({ ...p, agents: ['hive4'] }));
+  projects.setSwarmOn(id, 'hive4', false);
+  // The thread route builds members from the LIVE roster (projects.get(id, roster)), so hive4 is put on the board.
+  const board = require('./test-support/fleet').install([require('./test-support/fleet').agent('hive4', { state: 'idle' })]);
+  try {
+  const r = await post(`/api/project/${encodeURIComponent(id)}/thread/hive4`, { text: 'please do this' });
+  const b = await r.json();
+  assert.equal(r.status, 409, JSON.stringify(b));
+  assert.match(b.error || b.because || '', /switched off in this project/);
+  // CONTROL: switched back on, it is no longer this refusal (whatever the sandbox board says next).
+  projects.setSwarmOn(id, 'hive4', true);
+  const r2 = await post(`/api/project/${encodeURIComponent(id)}/thread/hive4`, { text: 'please do this' });
+  const b2 = await r2.json();
+  assert.doesNotMatch(JSON.stringify(b2), /switched off in this project/);
+  } finally { board.restore(); }
 });

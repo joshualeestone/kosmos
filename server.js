@@ -13388,10 +13388,11 @@ const server = http.createServer((req, res) => {
         if (!body || typeof body.on !== 'boolean') { sendJson(res, 400, { ok: false, because: 'on has to be true or false' }); return; }
         const project = projects.readAll().find((p) => p && p.id === id);
         if (!project) { sendJson(res, 404, { ok: false, because: 'there is no project by that name' }); return; }
-        const member = chat.resolveCard(project.agents || [], name);
+        /* A project stores its members as NAMES (projects.addAgent), not cards. */
+        const member = (project.agents || []).find((a) => typeof a === 'string' && a === name) || null;
         if (!member) { sendJson(res, 404, { ok: false, because: 'that agent is not on this project' }); return; }
-        if (!require('./engine/swarm').settingsOf(store.readProfile(member.sessionName))) { sendJson(res, 404, { ok: false, because: 'that agent is not a swarm' }); return; }
-        projects.setSwarmOn(id, member.sessionName, body.on);
+        if (!require('./engine/swarm').settingsOf(store.readProfile(member))) { sendJson(res, 404, { ok: false, because: 'that agent is not a swarm' }); return; }
+        projects.setSwarmOn(id, member, body.on);
         sendJson(res, 200, { ok: true, on: body.on });
       })
       .catch((err) => sendJson(res, 400, { ok: false, because: String((err && err.message) || 'we could not read that request') }));
