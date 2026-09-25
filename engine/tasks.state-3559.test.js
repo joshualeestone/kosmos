@@ -95,8 +95,17 @@ test('lastActivityOf: a CLOSED task is last active when it closed; its transcrip
   } finally { taskchat.read = orig; }
 });
 
+test('lastActivityOf: a task closed because every PART closed is last active when its last part closed', () => {
+  const t = { number: 9, createdAt: '2026-09-01T00:00:00Z', closedAt: null,
+    parts: [{ id: 1, who: 'a', closedAt: '2026-09-10T00:00:00Z' }, { id: 2, who: 'b', closedAt: '2026-09-20T00:00:00Z' }] };
+  assert.equal(tasks.taskState(t), 'closed');
+  assert.equal(tasks.lastActivityOf('nowhere', t), '2026-09-20T00:00:00Z', 'it read as untouched since it was made');
+});
+
 test('allTasks(snapshot) reads the snapshot it is handed, not the store again', () => {
   const fake = [{ id: 'zz', name: 'Snapshot only', tasks: [{ number: 1, sentence: 'from the snapshot', createdAt: '2026-09-01T00:00:00Z', closedAt: null }] }];
   const rows = tasks.allTasks(fake);
   assert.deepEqual(rows.map((r) => [r.projectId, r.sentence]), [['zz', 'from the snapshot']]);
+  assert.equal(rows[0].projectArchived, false);
+  assert.equal(tasks.allTasks([{ id: 'ar', name: 'Set aside', archived: true, tasks: [{ number: 1, sentence: 'x' }] }])[0].projectArchived, true);
 });

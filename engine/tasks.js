@@ -646,6 +646,8 @@ function allTasks(everyProject) {
       out.push(Object.assign({}, t, {
         projectId: p.id,
         projectName: p.name,
+        /* #3559: the Tasks view leaves archived projects' tasks out, as the rails tuck them away. */
+        projectArchived: p.archived === true,
         whoNames: whoOf(t),
         /* Named on the row rather than inferred by the screen: `progressOf`
            lives here, and a caller re-deriving "is it finished" from another
@@ -712,6 +714,9 @@ function lastActivityOf(projectId, task) {
   if (task) {
     consider(task.createdAt);
     consider(task.closedAt);
+    /* A task closed because every PART closed has no closedAt of its own: its parts' closes are
+       when it closed (and a part closing is activity on an open task too). */
+    for (const part of partsOf(task)) consider(part.closedAt);
     /* A CLOSED task's last activity is its close (anything said after it is not work moving):
        the transcript is read only for open tasks, so the view's cost follows open work, not the
        whole history of finished tasks and their transcripts. */
