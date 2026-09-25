@@ -28,7 +28,7 @@ test.after(() => { try { BOARD.restore(); } catch { /* restored */ } fs.rmSync(S
 const PAGE = fs.readFileSync(path.join(__dirname, 'web', 'index.html'), 'utf8');
 const SCRIPT = page.scriptOf(PAGE);
 const GROUPS = SCRIPT.match(/const TSK_GROUPS = \[[\s\S]*?\n\];/)[0];
-const FNS = page.liftAll(SCRIPT, ['tskAgentName', 'tskRow']);
+const FNS = page.liftAll(SCRIPT, ['claimNotReported', 'tskAgentName', 'tskRow']);
 const rowOf = (t, by) => new Function('TSK', 'LAST', 'esc', 'agoWords', 'tskKey',
   GROUPS + '\n' + FNS + '\nreturn tskRow;')(
   { sel: new Set(), by }, [REX], (s) => String(s), () => '1 hour ago',
@@ -56,6 +56,19 @@ test('an agent that never reported: the row says so in the agent\'s name, briefl
   // Only what the field knows: no record. Not "has not said", since it may have spoken in the room.
   assert.doesNotMatch(html, /has not said/);
   assert.doesNotMatch(html, /holding/, 'our word is back on the row');
+});
+
+test('one fact, one wording: the project card and the task page say "never reported" the same way', () => {
+  const helper = page.liftAll(SCRIPT, ['claimNotReported', 'taskClaimHtml']);
+  const { claimNotReported, taskClaimHtml } = new Function('esc', helper + '\nreturn { claimNotReported, taskClaimHtml };')((x) => String(x));
+  const never = { claimed: null, neverReported: true, because: 'this agent has never reported what it is holding' };
+  assert.equal(claimNotReported(never), 'has not reported what it is working on yet');
+  assert.match(taskClaimHtml(never), />has not reported what it is working on yet</);
+  assert.doesNotMatch(taskClaimHtml(never), /holding/, 'the project card still shows our prose for the same fact');
+  // CONTROL: another could-not-tell case keeps its own reason on the card.
+  assert.match(taskClaimHtml({ claimed: null, neverReported: false, because: 'its record could not be read' }), />its record could not be read</);
+  // The task page's line uses the same helper.
+  assert.match(SCRIPT, /const notReported = claimNotReported\(t\.claim\);[\s\S]{0,300}why\.textContent = notReported \? \(who \|\| 'It'\) \+ ' ' \+ notReported \+ '\.'/);
 });
 
 test('could not tell for another reason: the row keeps the reason, never "has not said"', () => {
