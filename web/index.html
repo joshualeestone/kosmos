@@ -2865,14 +2865,16 @@ body.filter-noproj #orgview .onode:not([data-noproj]) { opacity: .26; }
    The nav becomes ONE row that scrolls sideways inside itself (the page never does) and the
    current pill is brought into view by settingsGo. The right-edge fade says there is more;
    the end padding lets the last pill clear the fade. A switch keeps its drawn 42x24 size and
-   gains an invisible 44px-tall hit area instead. */
+   gains an invisible 44px-tall hit area instead. The 10px group labels (.con-group) go up to
+   12px, which is legible at arm's length. */
 @media (max-width: 40rem) {
   #s-nav { width: 100%; flex-wrap: nowrap; overflow-x: auto; overscroll-behavior-x: contain;
-           scroll-snap-type: x proximity; scrollbar-width: none; padding: 2px 32px 2px 2px;
+           scroll-snap-type: x proximity; scrollbar-width: none; padding: 4px 32px 4px 4px;
            -webkit-mask-image: linear-gradient(to right, #000 calc(100% - 32px), transparent);
            mask-image: linear-gradient(to right, #000 calc(100% - 32px), transparent); }
   #s-nav::-webkit-scrollbar { display: none; }
-  #s-nav button { flex: 0 0 auto; min-height: 44px; padding: 8px 18px; white-space: nowrap; scroll-snap-align: start; }
+  #s-nav button { flex: 0 0 auto; min-height: 44px; padding: 8px 18px; white-space: nowrap; scroll-snap-align: center; }
+  #s-nav button[data-dot] { padding-right: 28px; }
   #panel-settings input:not([type="checkbox"]):not([type="radio"]):not([type="range"]):not([type="file"]),
   #panel-settings textarea, #panel-settings select { font-size: 16px; }
   #panel-settings .dsec button:not(.toggle), #panel-settings .dsec select,
@@ -2881,7 +2883,7 @@ body.filter-noproj #orgview .onode:not([data-noproj]) { opacity: .26; }
   #panel-settings .toggle::after { content: ""; position: absolute; inset: -10px -1px; }
   #panel-settings .con-group { font-size: .75rem; }
   #panel-settings #plus-signin-bottom { display: inline-block; padding: 10px 0; }
-  #panel-settings #plus-signin-top { min-height: 44px; }
+  #panel-settings #plus-signin-top { display: inline-flex; align-items: center; min-height: 44px; }
   /* The account actions wrap at this width, so a wrapped line began with a divider and an
      indent. Spaced links with no dividers wrap cleanly. */
   #panel-settings .acct-actions { gap: 0 22px; }

@@ -305,15 +305,77 @@ function chk(ok, label, extra) {
       });
       chk(last.pillL >= last.navL - 1 && last.pillR <= last.navR + 1, `[${theme}] at 375px the chosen last pill is scrolled into view`, JSON.stringify(last));
 
+      /* A MIDDLE pill is centred, not merely in view: the last pill sits at the clamped end of
+         the scroll, where centring and snapping cannot disagree, so only a middle one tests it. */
+      const mid = await page.evaluate(async () => {
+        const pills = [...document.querySelectorAll('#s-nav button[data-go]')];
+        const b = pills[Math.floor(pills.length / 2)];
+        b.click();
+        await new Promise((r) => setTimeout(r, 600));
+        const nav = document.getElementById('s-nav');
+        const n = nav.getBoundingClientRect(), c = b.getBoundingClientRect();
+        const cs = getComputedStyle(nav);
+        const boxL = n.left + parseFloat(cs.borderLeftWidth), boxR = boxL + nav.clientWidth;
+        return { go: b.dataset.go, off: Math.round((c.left + c.width / 2) - (boxL + boxR) / 2), scrollLeft: nav.scrollLeft };
+      });
+      chk(mid.scrollLeft > 0 && Math.abs(mid.off) <= 3, `[${theme}] at 375px a middle pill (${mid.go}) is centred in the row`, JSON.stringify(mid));
+
+      // The needs-you dot on a pill clears its label (the phone padding is narrower than desktop).
+      const dot = await page.evaluate(() => {
+        const b = document.querySelector('#s-nav button[data-go="plus"]');
+        const had = b.hasAttribute('data-dot');
+        b.setAttribute('data-dot', '');
+        const d = b.querySelector('.dot');
+        // The visible label is the first span; the button also holds a visually hidden
+        // "(needs you)" span, whose off-screen box must not count as the label.
+        const range = document.createRange();
+        range.selectNodeContents(b.querySelector('span:not(.dot):not(.vh)') || b);
+        const out = { hasDot: !!d, textR: range.getBoundingClientRect().right, dotL: d ? d.getBoundingClientRect().left : null };
+        if (!had) b.removeAttribute('data-dot');
+        return out;
+      });
+      chk(dot.hasDot && dot.dotL >= dot.textR + 2, `[${theme}] at 375px the needs-you dot on a pill clears its label`, JSON.stringify(dot));
+
+      // The Kosmos Plus sign-in pill is 44px tall with its label centred in it.
+      await page.evaluate(() => document.querySelector('#s-nav button[data-go="plus"]').click());
+      await page.waitForTimeout(400);
+      const signin = await page.evaluate(() => {
+        const a = document.getElementById('plus-signin-top');
+        if (!a || !a.getClientRects().length) return null;
+        const r = a.getBoundingClientRect();
+        const range = document.createRange(); range.selectNodeContents(a);
+        const t = range.getBoundingClientRect();
+        return { h: r.height, off: Math.round((t.top + t.height / 2) - (r.top + r.height / 2)) };
+      });
+      chk(signin && signin.h >= 44 && Math.abs(signin.off) <= 2, `[${theme}] at 375px the Kosmos Plus sign-in pill is 44px with its label centred`, JSON.stringify(signin));
+
       // A switch keeps its drawn size; a point just above it, inside the 44px band, still hits it.
+      // tips-toggle is always shown (eng-toggle ships hidden), in the This Mac section, so open
+      // that section first: the step above left Kosmos Plus on screen.
+      await page.evaluate(() => document.querySelector('#s-nav button[data-go="mac"]').click());
+      await page.waitForTimeout(400);
       const hit = await page.evaluate(() => {
-        const t = document.getElementById('eng-toggle');
+        const t = document.getElementById('tips-toggle');
+        t.scrollIntoView({ block: 'center' });
         const r = t.getBoundingClientRect();
         const at = document.elementFromPoint(r.left + r.width / 2, r.top - 8);
         return { h: r.height, hits: !!at && (at === t || t.contains(at)) };
       });
       chk(hit.h < 44 && hit.hits, `[${theme}] at 375px a switch keeps its drawn size and a tap 8px above it lands on it`, JSON.stringify(hit));
       await page.screenshot({ path: path.join(OUT, `settings-${theme}-phone.png`), fullPage: false });
+
+      // The widest #718 phone (430) is still one row and still does not scroll sideways.
+      await page.setViewportSize({ width: 430, height: 932 });
+      await page.waitForTimeout(300);
+      const wide = await page.evaluate(() => {
+        const pills = [...document.querySelectorAll('#s-nav button[data-go]')];
+        return {
+          pills: pills.length,
+          rows: new Set(pills.map((b) => Math.round(b.getBoundingClientRect().top))).size,
+          pageOverflow: document.documentElement.scrollWidth > document.documentElement.clientWidth,
+        };
+      });
+      chk(wide.pills >= 9 && wide.rows === 1 && !wide.pageOverflow, `[${theme}] at 430px the pills are one row and the page does not scroll sideways`, JSON.stringify(wide));
 
       chk(errs.length === 0, `[${theme}] no page errors`, errs.join(' | '));
       await page.close();
