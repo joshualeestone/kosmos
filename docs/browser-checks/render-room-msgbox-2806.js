@@ -75,6 +75,19 @@ const chk = (ok, label, extra) => {
   console.log((ok ? 'PASS  ' : 'FAIL  ') + named + (extra ? '  ' + extra : ''));
   if (!ok) fail.push(named);
 };
+/* A thrown handler (tap, observer, re-place) can leave the state an arm reads intact and pass it:
+   collect every page error, and each page asserts none before it closes. The file:// filter is the
+   theme loop's: that is this harness having no server, not a page defect. */
+function watchErrors(page) {
+  const errors = [];
+  page.on('pageerror', (e) => errors.push('pageerror ' + e.message));
+  page.on('console', (m) => {
+    if (m.type() !== 'error') return;
+    if (/ERR_FILE_NOT_FOUND|URL scheme "file" is not supported|Not allowed to load local resource: file:/.test(m.text())) return;
+    errors.push('console ' + m.text());
+  });
+  return errors;
+}
 
 /* rgb/rgba string -> [r,g,b,a]. "transparent" and rgba(...,0) both give a=0. */
 function parse(c) {
@@ -669,6 +682,7 @@ const now = () => new Date().toISOString();
        reach, so they cannot see this; this arm renders the REAL rows inside the REAL #pj-room at
        375px wide. */
     const phonePage = await browser.newPage({ viewport: { width: 375, height: 800 }, colorScheme: 'light', hasTouch: true, isMobile: true });
+    const phonePageErrors = watchErrors(phonePage);
     try {
       await phonePage.addInitScript(() => {
         window.setInterval = () => 0;
@@ -685,7 +699,7 @@ const now = () => new Date().toISOString();
       // must never leave the page: re-inserting it blurs the composer, and iOS does not bring the
       // keyboard back for a scripted focus, so a focus check alone would pass on a lost keyboard.
       const focusedBefore = await phonePage.evaluate(() => {
-        const fr = document.getElementById('firstrun'); if (fr) fr.remove();
+        const fr = document.getElementById('firstrun'); if (fr) fr.hidden = true;   // hidden, not removed: the app reads it
         // The static page shows no project (and the first-run overlay left the app inert): un-hide
         // and un-inert the room column's ancestors so the composer can take focus, as it does on a
         // real open project.
@@ -936,7 +950,7 @@ const now = () => new Date().toISOString();
         // the one that measures the room in its real column.
         document.body.appendChild(room);
         // Real taps: the first-run overlay (not part of the room) would intercept them.
-        const fr = document.getElementById('firstrun'); if (fr) fr.remove();
+        const fr = document.getElementById('firstrun'); if (fr) fr.hidden = true;   // hidden, not removed: the app reads it
         // The thread's real max-height and overflow stay (only width is set): the reaction bar's
         // clipping against that scroll box is part of what is measured.
         room.style.cssText = 'position:absolute;left:0;top:0;width:297px;z-index:50;';
@@ -1397,6 +1411,7 @@ const now = () => new Date().toISOString();
       const afterNav = await barState();
       chk(openBeforeNav === 1 && closedClean(afterNav), `[phone/touch] navigating away (pjView) closes an open bar`, JSON.stringify({ openBeforeNav, afterNav }));
     } finally {
+      chk(phonePageErrors.length === 0, '[phone] no script errors on the page', phonePageErrors.join(' | '));
       await phonePage.close();
     }
     // THE WHOLE PAGE at five phone sizes (the four targets and 360) and both themes, touch, in its
@@ -1407,6 +1422,7 @@ const now = () => new Date().toISOString();
     for (const [phoneWidth, phoneHeight] of [[375, 667], [393, 852], [430, 932], [412, 915], [360, 780]]) {
       for (const theme of ['light', 'dark']) {
         const sizePage = await browser.newPage({ viewport: { width: phoneWidth, height: phoneHeight }, colorScheme: theme, hasTouch: true, isMobile: true });
+        const sizePageErrors = watchErrors(sizePage);
         try {
           await sizePage.addInitScript(() => {
             window.setInterval = () => 0;
@@ -1414,7 +1430,7 @@ const now = () => new Date().toISOString();
           });
           await sizePage.goto(PAGE);
           const fit = await sizePage.evaluate(([ts, viewSelectors]) => {
-            const fr = document.getElementById('firstrun'); if (fr) fr.remove();
+            const fr = document.getElementById('firstrun'); if (fr) fr.hidden = true;   // hidden, not removed: the app reads it
             // All six project views, read from the 16px rule's scope (FIELD_VIEWS), one at a time.
             const views = viewSelectors.map((selector) => document.querySelector(selector));
             if (views.some((view) => !view)) return { error: 'a view is missing' };
@@ -1457,6 +1473,7 @@ const now = () => new Date().toISOString();
             && Object.values(fit.result).every((r) => !r.pageScrolls && r.rendered >= 3);
           chk(fits, `[${phoneWidth}x${phoneHeight} ${theme}/touch] nothing on the project page or the projects list runs past the screen`, JSON.stringify(fit));
         } finally {
+          chk(sizePageErrors.length === 0, `[size ${phoneWidth}x${phoneHeight} ${theme}] no script errors on the page`, sizePageErrors.join(' | '));
           await sizePage.close();
         }
       }
@@ -1465,6 +1482,7 @@ const now = () => new Date().toISOString();
     // none). Every field in all six project views and both dialogs (FIELD_ROOTS) must stay inside
     // its own column or dialog card, so the larger text never pushes a field out of a narrow one.
     const tabletPage = await browser.newPage({ viewport: { width: 1180, height: 820 }, colorScheme: 'light', hasTouch: true, isMobile: true });
+    const tabletPageErrors = watchErrors(tabletPage);
     try {
       await tabletPage.addInitScript(() => {
         window.setInterval = () => 0;
@@ -1472,7 +1490,7 @@ const now = () => new Date().toISOString();
       });
       await tabletPage.goto(PAGE);
       const tablet = await tabletPage.evaluate(({ rootSelectors, skipTypes }) => {
-        const fr = document.getElementById('firstrun'); if (fr) fr.remove();
+        const fr = document.getElementById('firstrun'); if (fr) fr.hidden = true;   // hidden, not removed: the app reads it
         const places = rootSelectors.map((selector) => document.querySelector(selector));
         if (places.some((place) => !place)) return { error: 'a place is missing' };
         // ONE place shown at a time (as the app shows them), each field bounded by its nearest real
@@ -1500,6 +1518,7 @@ const now = () => new Date().toISOString();
       chk(!tablet.error && tablet.hoverNone && tablet.fields >= 12 && tablet.at16 === tablet.fields && tablet.outside.length === 0,
         `[tablet 1180/touch] at 16px every field stays inside its nearest container, one view at a time`, JSON.stringify(tablet));
     } finally {
+      chk(tabletPageErrors.length === 0, '[tablet] no script errors on the page', tabletPageErrors.join(' | '));
       await tabletPage.close();
     }
     // DARK, phone, touch: the open bar has its own ground against the dark room ground, so its
@@ -1507,6 +1526,7 @@ const now = () => new Date().toISOString();
     // room's ground here is --k-bg; in its column it is black. The bar's --k-surface differs from
     // both.)
     const darkPage = await browser.newPage({ viewport: { width: 375, height: 800 }, colorScheme: 'dark', hasTouch: true, isMobile: true });
+    const darkPageErrors = watchErrors(darkPage);
     try {
       await darkPage.addInitScript(() => {
         window.setInterval = () => 0;
@@ -1515,7 +1535,7 @@ const now = () => new Date().toISOString();
       await darkPage.goto(PAGE);
       await darkPage.evaluate((ts) => {
         const room = document.getElementById('pj-room'); document.body.appendChild(room);
-        const fr = document.getElementById('firstrun'); if (fr) fr.remove();
+        const fr = document.getElementById('firstrun'); if (fr) fr.hidden = true;   // hidden, not removed: the app reads it
         document.querySelectorAll('[inert]').forEach((el) => el.removeAttribute('inert'));
         room.style.cssText = 'position:absolute;left:0;top:200px;width:297px;z-index:50;'; room.hidden = false;
         const people = { agents: [{ sessionName: 'april', name: 'April' }] };
@@ -1535,6 +1555,7 @@ const now = () => new Date().toISOString();
       chk(!dark.error && dark.dark && dark.opaque && dark.differs && parseFloat(dark.border) >= 1 && dark.hits.length === 4 && dark.hits.every(Boolean),
         `[dark/phone/touch] the open bar has its own ground and edge on the dark thread and takes its taps`, JSON.stringify(dark));
     } finally {
+      chk(darkPageErrors.length === 0, '[phone dark] no script errors on the page', darkPageErrors.join(' | '));
       await darkPage.close();
     }
     // DESKTOP, a mouse (hover available), 1280 wide: the touch-only 16px rule must change nothing.
@@ -1542,6 +1563,7 @@ const now = () => new Date().toISOString();
     // would show. The same sweep as the phone arm; every field keeps its desktop size, and the
     // named ones are pinned to what they are without the rule (13px, the body text).
     const deskPage = await browser.newPage({ viewport: { width: 1280, height: 800 }, colorScheme: 'light' });
+    const deskPageErrors = watchErrors(deskPage);
     try {
       await deskPage.addInitScript(() => {
         window.setInterval = () => 0;
@@ -1560,9 +1582,11 @@ const now = () => new Date().toISOString();
       chk(desk.roots === FIELD_ROOTS.length && desk.hoverNone === false && desk.count >= 20 && desk.at16.length === 0 && named.length === 5 && named.every((size) => size !== null && size < 16),   /* not a value pin: a desktop typography change is not this check's business; the zero-at-16 sweep is the leak test */
         `[desktop/mouse] the touch-only 16px rule changes no field's size with a mouse`, JSON.stringify(desk));
     } finally {
+      chk(deskPageErrors.length === 0, '[desktop] no script errors on the page', deskPageErrors.join(' | '));
       await deskPage.close();
     }
     const hoverPage = await browser.newPage({ viewport: { width: 375, height: 800 }, colorScheme: 'light' });
+    const hoverPageErrors = watchErrors(hoverPage);
     try {
       await hoverPage.addInitScript(() => {
         window.setInterval = () => 0;
@@ -1571,7 +1595,7 @@ const now = () => new Date().toISOString();
       await hoverPage.goto(PAGE);
       await hoverPage.evaluate((ts) => {
         const room = document.getElementById('pj-room'); document.body.appendChild(room);
-        const fr = document.getElementById('firstrun'); if (fr) fr.remove();
+        const fr = document.getElementById('firstrun'); if (fr) fr.hidden = true;   // hidden, not removed: the app reads it
         room.style.cssText = 'position:absolute;left:0;top:0;width:297px;max-height:none;z-index:50;'; room.hidden = false;
         room.innerHTML = pjRoomRow({ from: 'april', at: ts, text: 'hello there', id: 'h1' }, { agents: [{ sessionName: 'april', name: 'April' }] });
       }, now());
@@ -1581,6 +1605,7 @@ const now = () => new Date().toISOString();
       const hoverResult = await hoverPage.evaluate(() => ({ hoverNone: matchMedia('(hover: none)').matches, rowClicks: window.__rowClicks, shown: document.querySelectorAll('#pj-room .msg.rxn-show').length }));
       chk(!hoverResult.hoverNone && hoverResult.rowClicks === 1 && hoverResult.shown === 0, `[hover] with a mouse a click toggles nothing (hover reveals the bar there)`, JSON.stringify(hoverResult));
     } finally {
+      chk(hoverPageErrors.length === 0, '[phone hover] no script errors on the page', hoverPageErrors.join(' | '));
       await hoverPage.close();
     }
 
