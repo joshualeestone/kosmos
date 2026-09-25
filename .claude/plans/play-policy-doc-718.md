@@ -9,7 +9,10 @@ things:
 1. A person (Josh) reads the current Google Play Payments policy and its exceptions before the first
    upload to any Play track, and again before the production release. No policy details are stated
    as fact.
-2. It is not live until the coordinator deploy, which must be live before the first Play upload.
+2. Whether it is live: it is (production build eac39e6, read 2026-09-25 via /v1/meta), with the
+   check to repeat before the first Play upload, and the warning that a coordinator rollback to a
+   build before 3558f2e brings checkout back. (Written as "not live yet" until #121 was found
+   already deployed; Liu Kang m754.)
 3. The undo: revert all five commits of #121 and deploy (changing only the switch line would leave
    #121's Android tests failing).
 4. One line saying the phone checks are in kosmos-relay's android-no-purchase-718 plan, with the

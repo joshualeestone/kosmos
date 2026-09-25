@@ -305,11 +305,11 @@ eval "$(secrets-map.sh env kosmos-android-upload-signing)"
   and (optionally) `KOSMOS_UPLOAD_KEY_ALIAS` exist. None are set. Setting them is a repo-admin
   call for Josh.
 
-**No purchase inside the Android app** [code merged; Josh for the policy read and the deploy]
+**No purchase inside the Android app** [live; Josh for the policy read]
 (kosmos #718, Liu Kang's decision of 2026-09-25, matching iOS; Josh can overrule it). Inside the
-app the sign-in page is built to show no checkout, price or billing portal, and to tell an unpaid
-account only "This account does not include Kosmos+ yet."; this has not yet been seen on a phone
-(see Phone checks). It is the switch `CAN_BUY_HERE` in kosmos-relay `coordinator/src/signin.html`,
+app the sign-in page is built to show no checkout, price or billing portal; an unpaid account sees
+"This account does not include Kosmos+ yet." where the pay step would be. This has not yet been seen
+on a phone (see Phone checks). It is the switch `CAN_BUY_HERE` in kosmos-relay `coordinator/src/signin.html`,
 which came with kosmos-relay #117 for iOS and was extended to the Android app by kosmos-relay #121
 (five commits).
 - **Policy read** (Josh's call): before the first upload to any Play track, and again before the
@@ -317,11 +317,16 @@ which came with kosmos-relay #117 for iOS and was extended to the Android app by
   exceptions, against what the app does as described above. This doc deliberately states none of
   the policy's details: they change, they differ by country, and a summary written here would go
   stale unnoticed.
-- **Not live yet:** it takes the next coordinator deploy [Josh, a production change], like the
-  assetlinks route above, and that deploy must be live before the first upload to any Play track;
-  otherwise the Play app shows checkout.
+- **Live on the production coordinator** since the deploy of build `eac39e6` (read on 2026-09-25
+  from `curl -s https://coordinator.kosmosplus.com/v1/meta`). Before the first upload to any Play
+  track, confirm it is still live: take the `build` from that URL and run
+  `git -C ~/work/kosmos-relay fetch -q origin` then
+  `git -C ~/work/kosmos-relay merge-base --is-ancestor 3558f2e <build>` (exit 0 means live). A
+  coordinator rollback to a build before `3558f2e` brings checkout back inside the app, the same as
+  the undo below.
 - **Undo (to show purchase in the Android app again):** revert all five commits of kosmos-relay
-  #121 (iOS is unaffected), then deploy the coordinator [Josh, a production change]. Changing only
+  #121, `eb06c19` to `3558f2e` (iOS is unaffected) [fleet for the revert PR], then deploy the
+  coordinator [Josh, a production change]. Changing only
   the switch line back to `var CAN_BUY_HERE = !IN_IOS_APP;` is not enough: #121's Android tests in
   `coordinator/tests/page/signin.test.js` would then fail. Once an Android build is on any Play
   track, this puts checkout back inside a Play-distributed app.
