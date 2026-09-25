@@ -13692,6 +13692,9 @@ window.kosmosMeasureScrollbarWidth();
       <div class="tsk-tiles" id="tsk-tiles"></div>
       <p class="tsk-hint" id="tsk-hint">Tap a tile to see only that group, tap it again to see everything.</p>
       <p class="fmsg" id="tsk-msg" role="status" aria-live="polite"></p>
+      <!-- What a search found, said to a screen reader while focus stays in the search box (the
+           rows themselves change silently). Visually hidden: the page already shows it. -->
+      <p class="vh" id="tsk-found" role="status" aria-live="polite"></p>
       <div id="tsk-groups"></div>
       <div class="tsk-bulk" id="tsk-bulk" hidden>
         <span class="tsk-bc" id="tsk-bc"></span>
@@ -42425,6 +42428,15 @@ function tskPaint() {
      return below (a search that matches nothing hides every row). */
   const onScreen = new Set(shown.filter((t) => t.state !== 'closed').map(tskKey));
   TSK.sel.forEach((k) => { if (!onScreen.has(k)) TSK.sel.delete(k); });
+  /* The search's result, announced (only while a search is active, and only when it changes). */
+  {
+    const live = document.getElementById('tsk-found');
+    const q = String(TSK.q).trim();
+    const said = !q ? '' : (shown.length
+      ? shown.length + (shown.length === 1 ? ' task matches.' : ' tasks match.')
+      : 'No tasks match \u201c' + q + '\u201d. Try fewer words, or clear the search.');
+    if (live && live.textContent !== said) live.textContent = said;
+  }
   /* Mona's a40bbe1: a search that finds nothing says so, and what to do. */
   if (!shown.length && String(TSK.q).trim()) {
     groups.innerHTML = '<p class="tsk-empty">No tasks match \u201c' + esc(String(TSK.q).trim()) + '\u201d. Try fewer words, or clear the search.</p>';
@@ -42498,7 +42510,7 @@ async function tskBulkClose() {
     const was = results.filter((x) => x.ok && x.already).length;
     const noteLost = results.filter((x) => x.ok && x.noteRecorded === false).length;
     const tail = (was ? ' ' + was + (was === 1 ? ' was' : ' were') + ' already closed.' : '')
-      + (noteLost ? ' The note could not be saved on ' + noteLost + (noteLost === 1 ? ' of them.' : ' of them.') : '');
+      + (noteLost ? ' The note could not be saved on ' + noteLost + ' of them.' : '');
     results.filter((x) => x.ok).forEach((x) => TSK.sel.delete(String(x.projectId) + '#' + Number(x.number)));
     if (!results.length) {
       msg.textContent = asSentence(body.error || 'those tasks were not closed');

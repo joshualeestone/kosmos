@@ -194,6 +194,14 @@ function chk(ok, label, extra) {
         chk(hid.sel === 0 && hid.bar, `${tag} a search that hides every row drops the ticks (Close them cannot reach them)`, JSON.stringify(hid));
         const none = await page.evaluate(() => document.getElementById('tsk-groups').textContent);
         chk(/No tasks match .zzz nothing like this.\. Try fewer words, or clear the search\./.test(none), `${tag} a search with no match says so`, none);
+        const liveNone = await page.evaluate(() => document.getElementById('tsk-found').textContent);
+        chk(/^No tasks match/.test(liveNone), `${tag} the no-match result is announced to a screen reader`, liveNone);
+        await page.fill('#tsk-search', 'podcast');
+        const liveSome = await page.evaluate(() => document.getElementById('tsk-found').textContent);
+        chk(liveSome === '1 task matches.', `${tag} a search's match count is announced`, liveSome);
+        await page.fill('#tsk-search', '');
+        const liveOff = await page.evaluate(() => document.getElementById('tsk-found').textContent);
+        chk(liveOff === '', `${tag} with no search, nothing is announced`, JSON.stringify(liveOff));
         await page.fill('#tsk-search', '');
         /* Group by Project regroups the same rows. */
         await page.click('#tsk-by [data-by="project"]');
