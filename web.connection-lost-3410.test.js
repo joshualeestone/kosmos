@@ -204,9 +204,12 @@ test('#3726: a project member row takes the reconnect its own answer carries, LA
   assert.ok(m, 'the liveM statement moved; update this test');
   // eslint-disable-next-line no-new-func
   const live = (mm, LAST) => new Function('m', 'LAST', m[0] + '\nreturn liveM;')(mm, LAST);
-  const member = (reconnect) => ({ sessionName: 'nika', state: 'connection_lost', present: true, reconnect });
+  // Both the member (the fields liveM reads: state, sessionName, reconnect) and the LAST rows are
+  // built from the real fleet card (connLostAgent), keyed by its own sessionName.
+  const member = (reconnect) => Object.assign({}, connLostAgent({ reconnect }), { present: true });
+  const board = (phase) => [connLostAgent({ reconnect: { phase, tries: 1 } })];
   assert.equal(live(member({ phase: 'gave_up' }), []).reconnect.phase, 'gave_up', 'an empty LAST erased the member\'s own reconnect');
-  assert.equal(live(member({ phase: 'gave_up' }), [{ sessionName: 'nika', reconnect: { phase: 'waiting' } }]).reconnect.phase, 'gave_up', 'LAST overrode the answer the pill counts from');
+  assert.equal(live(member({ phase: 'gave_up' }), board('waiting')).reconnect.phase, 'gave_up', 'LAST overrode the answer the pill counts from');
   // Fallback: an answer with no reconnect borrows the board's.
-  assert.equal(live(member(null), [{ sessionName: 'nika', reconnect: { phase: 'retried' } }]).reconnect.phase, 'retried', 'the fallback to LAST is gone');
+  assert.equal(live(member(null), board('retried')).reconnect.phase, 'retried', 'the fallback to LAST is gone');
 });
