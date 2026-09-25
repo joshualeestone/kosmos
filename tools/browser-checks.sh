@@ -259,7 +259,7 @@ if [ -z "${AGENT_WORKFORCE_HOME:-}" ] || [ "${AGENT_WORKFORCE_HOME%/}" = "${HOME
   # not-live case the create checks already allow for) instead of running the
   # host's real Claude Code against a real account. A caller's override is kept.
   if [ -z "${AGENT_WORKFORCE_CLAUDE_BIN:-}" ]; then
-    printf '#!/bin/sh\nexit 1\n' > "$RUN_DIR/fake-claude-home"
+    printf '#!/bin/sh\n[ "$1" = --version ] && { echo "2.1.282 (Claude Code)"; exit 0; }\nexit 1\n' > "$RUN_DIR/fake-claude-home"
     chmod +x "$RUN_DIR/fake-claude-home"
     export AGENT_WORKFORCE_CLAUDE_BIN="$RUN_DIR/fake-claude-home"
   fi
