@@ -1422,6 +1422,7 @@ button.uprime:hover, .btn.uprime:hover, .utoast .uacts button.uprime:hover,
 .tipcard.up .tip-arrow { top: -8px; left: var(--ax, 28px); transform: rotate(45deg); }
 .tipcard.down .tip-arrow { bottom: -8px; left: var(--ax, 28px); transform: rotate(225deg); }
 .tipcard.left .tip-arrow { left: -8px; top: var(--ay, 22px); transform: rotate(-45deg); }
+.tipcard.right .tip-arrow { right: -8px; top: var(--ay, 22px); transform: rotate(135deg); }   /* the card beside its target, on its left */
 .tipcard.flat .tip-arrow { display: none; }
 .tipcard .tip-x { position: absolute; top: 8px; right: 8px; width: 26px; height: 26px; border: 0; background: none; border-radius: 7px;
   color: var(--k-ink-2); cursor: pointer; font-size: 16px; line-height: 1; }
@@ -53368,12 +53369,14 @@ function tipPlace(card, sel, side = false, { key = '', avoid = true } = {}) {
   const right = { cls: 'left', left: r.right + 14, top: sideTop, fits: r.right + 14 + w <= pageW - pad };
   const below = { cls: 'up', left: midLeft, top: r.bottom + 12, fits: r.bottom + 12 + h <= vh - pad };
   const above = { cls: 'down', left: midLeft, top: r.top - 12 - h, fits: r.top - 12 - h >= pad };
-  const leftSide = { cls: 'flat', left: r.left - 14 - w, top: sideTop, fits: r.left - 14 - w >= pad };
+  const leftSide = { cls: 'right', left: r.left - 14 - w, top: sideTop, fits: r.left - 14 - w >= pad };
   for (const c of side ? [right, below, above, leftSide] : [below, above, right, leftSide]) if (c.fits) cands.push(c);
   if (!cands.length) cands.push({ ...below, top: Math.max(pad, Math.min(r.bottom + 12, vh - h - pad)) });
   /* The target itself is kept clear too (with the ring's margin): the card points at it, never sits on it. */
   const covered = (avoid ? tipCoveredControls(el) : []).concat([{ l: r.left - 6, t: r.top - 6, r: r.right + 6, b: r.bottom + 6 }]);
   const hitsAt = (left, top) => { let n = 0; for (const q of covered) if (q.l < left + w && q.r > left && q.t < top + h && q.b > top) n++; return n; };
+  /* The clear-place search only needs yes or no, so it stops at the first control it meets. */
+  const clearAt = (left, top) => { for (const q of covered) if (q.l < left + w && q.r > left && q.t < top + h && q.b > top) return false; return true; };
   let best = null;
   for (const c of cands) {
     c.hits = hitsAt(c.left, c.top);
@@ -53400,7 +53403,7 @@ function tipPlace(card, sel, side = false, { key = '', avoid = true } = {}) {
     let near = null;
     for (let top = pad; top + h <= vh - pad; top += 24) {
       for (let left = pad; left + w <= pageW - pad; left += 24) {
-        if (hitsAt(left, top)) continue;
+        if (!clearAt(left, top)) continue;
         const d = Math.hypot(left + w / 2 - cx, top + h / 2 - cy);
         if (!near || d < near.d) near = { cls: 'flat', left, top, hits: 0, d };
       }
@@ -53412,7 +53415,7 @@ function tipPlace(card, sel, side = false, { key = '', avoid = true } = {}) {
   card.style.top = Math.round(best.top) + 'px';
   card.dataset.covers = String(best.hits);   // read by the browser check
   card.dataset.tipKey = key;
-  if (best.cls === 'left') card.style.setProperty('--ay', Math.round(Math.min(Math.max(12, r.top + r.height / 2 - best.top - 7), h - 26)) + 'px');
+  if (best.cls === 'left' || best.cls === 'right') card.style.setProperty('--ay', Math.round(Math.min(Math.max(12, r.top + r.height / 2 - best.top - 7), h - 26)) + 'px');
   else card.style.setProperty('--ax', Math.round(Math.min(Math.max(14, r.left + r.width / 2 - best.left - 7), w - 28)) + 'px');
 }
 

@@ -98,7 +98,7 @@ const resetStore = (state) => fs.writeFileSync(tipsStore.FILE(), JSON.stringify(
     const tourPlace = () => page.evaluate(() => {
       const c = document.getElementById('tipcard'), h = document.querySelector('#tippins .tiphalo');
       const a = c.getBoundingClientRect(), b = h ? h.getBoundingClientRect() : null;
-      return { cls: ['up', 'down', 'left', 'flat'].find((k) => c.classList.contains(k)), overRing: !!b && a.left < b.right && a.right > b.left && a.top < b.bottom && a.bottom > b.top };
+      return { cls: ['up', 'down', 'left', 'right', 'flat'].find((k) => c.classList.contains(k)), overRing: !!b && a.left < b.right && a.right > b.left && a.top < b.bottom && a.bottom > b.top };
     });
     placed.push(await tourPlace());
     for (let i = 0; i < 3; i++) {
@@ -361,11 +361,11 @@ const resetStore = (state) => fs.writeFileSync(tipsStore.FILE(), JSON.stringify(
       const c = document.getElementById('tipcard');
       const t = [...document.querySelectorAll('#panel-settings .dsec:not([hidden]) .dlab')].find((x) => x.getBoundingClientRect().height > 0);
       const cr = c.getBoundingClientRect(), tr = t.getBoundingClientRect();
-      const cls = ['up', 'down', 'left', 'flat'].find((k) => c.classList.contains(k));
-      return { cls, covers: c.dataset.covers, gap: cls === 'up' ? Math.round(cr.top - tr.bottom) : cls === 'down' ? Math.round(tr.top - cr.bottom) : cls === 'left' ? Math.round(cr.left - tr.right) : null,
+      const cls = ['up', 'down', 'left', 'right', 'flat'].find((k) => c.classList.contains(k));
+      return { cls, covers: c.dataset.covers, gap: cls === 'up' ? Math.round(cr.top - tr.bottom) : cls === 'down' ? Math.round(tr.top - cr.bottom) : cls === 'left' ? Math.round(cr.left - tr.right) : cls === 'right' ? Math.round(tr.left - cr.right) : null,
         onScreen: cr.top >= 0 && cr.bottom <= innerHeight };
     });
-    const want14 = { up: 12, down: 12, left: 14 }[after14.cls];
+    const want14 = { up: 12, down: 12, left: 14, right: 14 }[after14.cls];
     chk(scrolled > 0 && after14.onScreen && after14.covers === '0' && (after14.cls === 'flat' || after14.gap === want14),
       'T14 after a scroll the card still points at its target from its gap, or sits clear of every control', JSON.stringify({ top0, scrolled, after14 }));
     await page.keyboard.press('Escape');
