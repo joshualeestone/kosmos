@@ -13,17 +13,60 @@ const path = require('node:path');
 
 const html = fs.readFileSync(path.join(__dirname, 'web', 'index.html'), 'utf8');
 
-test('a push link arrival settles ONCE: reveal if the agent opened, else the board home and stop', () => {
-  const i = html.indexOf('if (WANT_AGENT && !CURRENT && !WANT_AGENT_GONE) {');
-  assert.ok(i > 0, 'the boot open is gated on WANT_AGENT_GONE');
-  const block = html.slice(i, i + 900);
-  // The poll runs every few seconds: the reveal must not (it pulled the page back each time).
-  assert.match(block, /if \(CURRENT && CURRENT\.sessionName === WANT_AGENT\) \{ WANT_AGENT_SETTLED = true; detailRevealTalkOnPhone\(\); \}/);
-  // Gone only after two statuses without it (an agent a moment late on the first still opens).
-  assert.match(block, /else if \(\+\+WANT_AGENT_MISSES >= 2\) \{\n\s*WANT_AGENT_SETTLED = true; WANT_AGENT_GONE = true;\n\s*if \(URL_TAB === 'detail'\) \{ showTab\('agents'\); syncUrl\(\); \}/);
-  assert.match(html, /let WANT_AGENT_MISSES = 0;/);
-  assert.match(html, /let WANT_AGENT_SETTLED = false;/);
-  assert.match(html, /let WANT_AGENT_GONE = false;/);
+function liftSettle(env) {
+  const i = html.indexOf('function settleWantAgent()');
+  const src = html.slice(i, html.indexOf('\n}\n', i) + 2);
+  // Sloppy-mode `with` so the function's globals read and write this env object.
+  return new Function('env', 'with (env) { ' + src + ' return settleWantAgent; }')(env);
+}
+function board({ present }) {
+  const env = { WANT_AGENT: 'april', CURRENT: null, WANT_AGENT_DONE: false, WANT_AGENT_FIRST_MISS: 0, URL_TAB: 'detail',
+    now: 1000, opens: 0, reveals: 0, tabs: [] };
+  env.Date = { now: () => env.now };
+  env.openDetail = (who) => { env.opens += 1; if (present()) env.CURRENT = { sessionName: who }; };
+  env.detailRevealTalkOnPhone = () => { env.reveals += 1; };
+  env.showTab = (t) => { env.tabs.push(t); env.URL_TAB = t; };
+  return env;
+}
+
+test('the poll calls settleWantAgent, and it is the only boot open of the link', () => {
+  assert.match(html, /\n    settleWantAgent\(\);\n/);
+  assert.doesNotMatch(html, /if \(WANT_AGENT && !CURRENT\)/, 'the old every-poll open is gone');
+});
+
+test('an agent on the board opens once, reveals once, and is never reopened', () => {
+  let here = true;
+  const env = board({ present: () => here });
+  const settle = liftSettle(env);
+  settle();
+  assert.equal(env.opens, 1); assert.equal(env.reveals, 1); assert.equal(env.WANT_AGENT_DONE, true);
+  env.CURRENT = null;           // e.g. the person removed a different agent
+  settle(); settle();
+  assert.equal(env.opens, 1, 'a landed link is never reopened');
+  assert.equal(env.reveals, 1);
+});
+
+test('two quick misses at boot are not "gone": an agent 100ms late still opens', () => {
+  let here = false;
+  const env = board({ present: () => here });
+  const settle = liftSettle(env);
+  settle(); env.now += 100; settle();          // the two boot ticks, ~100ms apart
+  assert.equal(env.WANT_AGENT_DONE, false); assert.deepEqual(env.tabs, []);
+  here = true; env.now += 5000; settle();
+  assert.equal(env.reveals, 1, 'it opened when it appeared');
+  assert.deepEqual(env.tabs, []);
+});
+
+test('an agent still missing 4s after the first miss sends the link to the board home, once', () => {
+  const env = board({ present: () => false });
+  const settle = liftSettle(env);
+  settle(); env.now += 3900; settle();
+  assert.deepEqual(env.tabs, [], 'not before 4s');
+  env.now += 200; settle();
+  assert.deepEqual(env.tabs, ['agents']);
+  assert.equal(env.WANT_AGENT_DONE, true);
+  env.now += 10000; settle();
+  assert.deepEqual(env.tabs, ['agents'], 'and it stops');
 });
 
 test('the Answer button arrival reveals it too, right after opening the agent', () => {
@@ -39,23 +82,49 @@ test('it uses the SAME breakpoint that stacks the agent page', () => {
   assert.match(fn, /matchMedia\('\(max-width: 56rem\)'\)/);
 });
 
-function lift(matches, talk) {
+function lift(matches, talk, env = {}) {
   const i = html.indexOf('function detailRevealTalkOnPhone()');
   const src = html.slice(i, html.indexOf('\n}\n', i) + 2);
-  const window = { matchMedia: () => ({ matches }) };
-  const detailSection = () => talk;
-  return new Function('window', 'detailSection', src + '\nreturn detailRevealTalkOnPhone;')(window, detailSection);
+  const listeners = {};
+  const e = Object.assign({
+    REVEAL_HOLD: null,
+    detailSection: () => talk,
+    window: { matchMedia: () => ({ matches }),
+      addEventListener: (ev, fn) => { (listeners[ev] = listeners[ev] || []).push(fn); },
+      removeEventListener: (ev, fn) => { listeners[ev] = (listeners[ev] || []).filter((f) => f !== fn); } },
+    Date: { now: () => e.now }, now: 0,
+    timers: [],
+    setInterval: (fn) => { e.timers.push(fn); return e.timers.length; },
+    clearInterval: (id) => { e.timers[id - 1] = null; },
+    listeners,
+  }, env);
+  return { run: new Function('env', 'with (env) { ' + src + ' return detailRevealTalkOnPhone; }')(e), env: e };
 }
 
 test('on a phone it scrolls the Direct Message section to the top; on a computer it does nothing', () => {
   let calls = [];
-  const talk = { hidden: false, scrollIntoView: (o) => calls.push(o) };
-  lift(true, talk)();
+  const talk = { hidden: false, scrollIntoView: (o) => calls.push(o), getBoundingClientRect: () => ({ top: 0 }) };
+  lift(true, talk).run();
   assert.deepEqual(calls, [{ block: 'start' }]);
   calls = [];
-  lift(false, talk)();
-  assert.deepEqual(calls, [], 'a computer is left where it is');
-  lift(true, { hidden: true, scrollIntoView: () => calls.push('hidden') })();
-  lift(true, null)();
+  lift(false, talk).run();
+  assert.deepEqual(calls, [], 'a wide window is left where it is');
+  lift(true, { hidden: true, scrollIntoView: () => calls.push('hidden') }).run();
+  lift(true, null).run();
   assert.deepEqual(calls, [], 'a hidden or missing section is left alone');
+});
+
+test('it holds the conversation in place while content above settles, until the person touches', () => {
+  let top = 0; let scrolls = 0;
+  const talk = { hidden: false, scrollIntoView: () => { scrolls += 1; top = 0; }, getBoundingClientRect: () => ({ top }) };
+  const { run, env } = lift(true, talk);
+  run();
+  assert.equal(scrolls, 1);
+  top = 180; env.now = 500; env.timers[0]();          // the Files list painted above it (WebKit: no anchoring)
+  assert.equal(scrolls, 2, 'put back where it was');
+  env.listeners.touchstart.forEach((f) => f());         // the person takes over
+  assert.equal(env.timers[0], null, 'the watch stopped');
+  const { run: run2, env: env2 } = lift(true, talk);
+  run2(); env2.now = 4100; top = 300; env2.timers[0]();
+  assert.equal(env2.timers[0], null, 'and it stops on its own after 4 seconds');
 });

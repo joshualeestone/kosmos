@@ -18272,21 +18272,7 @@ async function tick() {
     // picker for the whole flow and created the project with no agents on it.
     const addView = document.getElementById('pj-add-view');
     if (addView && !addView.hidden) paintAddAgents();
-    if (WANT_AGENT && !CURRENT && !WANT_AGENT_GONE) {
-      openDetail(WANT_AGENT);
-      /* #718: settled ONCE (this runs on every poll). A link that opened its agent scrolls
-         to the conversation on a phone. A link to an agent that is not on the board (a push
-         for an agent removed since) goes to the board home instead of leaving an empty agent
-         page, and stops trying, but only after TWO statuses without it, so an agent that is
-         a moment late to appear on the first one still opens. */
-      if (!WANT_AGENT_SETTLED) {
-        if (CURRENT && CURRENT.sessionName === WANT_AGENT) { WANT_AGENT_SETTLED = true; detailRevealTalkOnPhone(); }
-        else if (++WANT_AGENT_MISSES >= 2) {
-          WANT_AGENT_SETTLED = true; WANT_AGENT_GONE = true;
-          if (URL_TAB === 'detail') { showTab('agents'); syncUrl(); }
-        }
-      }
-    }
+    settleWantAgent();
 
     // ⚠️ Keep the OPEN PANEL's staleness in step with the card's.
     //
@@ -28124,12 +28110,56 @@ function detailSection(key) {
    .dbody and #d-nav rules): the identity block, five full-width section boxes and Files
    come first, so the question sat about two screens down on an iPhone SE (measured).
    Only arrivals call this, never an ordinary open, and only when the stacked layout is
-   on; on a computer the Direct Message is already beside the menu. */
+   on (any window up to 56rem wide, a phone or a narrow window); wider, the Direct Message
+   is already beside the menu. */
+/* #718: a ?tab=detail&agent= link (a push tap) is settled ONCE, from the poll (which runs
+   every few seconds, and twice in quick succession at boot).
+   - The agent is on the board: open it, scroll to the conversation on a phone, and never
+     reopen it (a later CURRENT = null, say after removing a different agent, used to pull
+     the person back to the link's agent on the next poll).
+   - It is not: keep trying for at least 4 seconds from the first miss (an agent a moment
+     late to appear still opens; counting statuses was not enough, two arrive ~100ms apart
+     at boot), then go to the board home instead of an empty agent page, and stop. */
+function settleWantAgent() {
+  if (!WANT_AGENT || CURRENT || WANT_AGENT_DONE) return;
+  openDetail(WANT_AGENT);
+  if (CURRENT && CURRENT.sessionName === WANT_AGENT) {
+    WANT_AGENT_DONE = true;
+    detailRevealTalkOnPhone();
+    return;
+  }
+  const now = Date.now();
+  if (!WANT_AGENT_FIRST_MISS) { WANT_AGENT_FIRST_MISS = now; return; }
+  if (now - WANT_AGENT_FIRST_MISS < 4000) return;
+  WANT_AGENT_DONE = true;
+  if (URL_TAB === 'detail') showTab('agents');
+}
+let REVEAL_HOLD = null;
 function detailRevealTalkOnPhone() {
   if (!(window.matchMedia && window.matchMedia('(max-width: 56rem)').matches)) return;
   const talk = detailSection('talk');
   if (!talk || talk.hidden) return;
   try { talk.scrollIntoView({ block: 'start' }); } catch (_e) { /* old engines: stay put */ }
+  /* Content above the conversation (the Files list, painted from its own fetch) can still
+     grow and push it down, and an engine without scroll anchoring (WebKit, Safari) does not
+     compensate. For 4 seconds, put it back if it moves, and stop at the person's first
+     touch, wheel or key: never fight their own scroll. */
+  if (REVEAL_HOLD) REVEAL_HOLD();
+  const top0 = talk.getBoundingClientRect().top;
+  const until = Date.now() + 4000;
+  const stop = () => {
+    clearInterval(timer);
+    for (const ev of ['touchstart', 'wheel', 'keydown', 'mousedown']) window.removeEventListener(ev, stop, true);
+    if (REVEAL_HOLD === stop) REVEAL_HOLD = null;
+  };
+  const timer = setInterval(() => {
+    if (Date.now() > until || talk.hidden) return stop();
+    if (Math.abs(talk.getBoundingClientRect().top - top0) > 2) {
+      try { talk.scrollIntoView({ block: 'start' }); } catch (_e) { stop(); }
+    }
+  }, 150);
+  for (const ev of ['touchstart', 'wheel', 'keydown', 'mousedown']) window.addEventListener(ev, stop, true);
+  REVEAL_HOLD = stop;
 }
 function detailPaintWindow(a) {
   /* No record at all (the agent left the board mid-open): say nothing here.
@@ -54507,9 +54537,8 @@ async function firstRunBoot(force, step) {
 // Deep-link straight to one agent, so a page can be shared or bookmarked.
 const PARAMS = new URLSearchParams(location.search);
 const WANT_AGENT = PARAMS.get('agent');
-let WANT_AGENT_SETTLED = false;   // #718: the first status has decided the link (see the poll)
-let WANT_AGENT_GONE = false;      // #718: the linked agent is not on the board; stop reopening it
-let WANT_AGENT_MISSES = 0;       // #718: statuses so far without the linked agent
+let WANT_AGENT_DONE = false;      // #718: the ?agent= link has landed or given up; never reopen it
+let WANT_AGENT_FIRST_MISS = 0;    // #718: when a status first came back without the linked agent (ms)
 const WANT_PROJECT = PARAMS.get('project');
 const WANT_TASK = PARAMS.get('task');
 let WANT_PROJECT_DONE = false;
