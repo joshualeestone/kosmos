@@ -9280,6 +9280,15 @@ body.plus-active #plus-state2 { max-width: 26rem; padding: 2rem; }
      them was tried and left an iPhone SE no conversation at all. */
   #panel-detail:has(#d-sec-talk:not([hidden])) .dav-wrap,
   #panel-detail:has(#d-sec-talk:not([hidden])) .dav-wrap .detail-av { width: 40px; height: 40px; flex-basis: 40px; }
+  /* A swarm agent (#3564) on the phone chat keeps only Active/Paused and Stop now in the header,
+     uncapped so Stop now is always on screen; the helper and daily-limit sliders stay on Profile. */
+  #panel-detail:has(#d-sec-talk:not([hidden])) .dhead:has(#d-swarm-panel:not([hidden])) { max-height: none; overflow: visible; }
+  #panel-detail:has(#d-sec-talk:not([hidden])) #d-swarm-panel .swbox ~ .swbox,
+  #panel-detail:has(#d-sec-talk:not([hidden])) #d-swarm-panel #d-swarm-stop-hint { display: none; }
+  #panel-detail:has(#d-sec-talk:not([hidden])) #d-swarm-panel { gap: 0; margin-top: 4px; }
+  #panel-detail:has(#d-sec-talk:not([hidden])) #d-swarm-panel .swbox { padding: 4px 8px; }
+  #panel-detail:has(#d-sec-talk:not([hidden])) #d-swarm-panel .swbox .swlab { position: absolute; width: 1px; height: 1px;
+    overflow: hidden; clip: rect(0 0 0 0); clip-path: inset(50%); white-space: nowrap; margin: 0; }
   /* The memory-full badge is placed for the 88px avatar; on the 40px one it would cover the face. */
   #panel-detail:has(#d-sec-talk:not([hidden])) .dhead .membadge { top: -6px; right: -12px; transform: scale(.7); transform-origin: top right; }
   /* The memory ring (#1915) is drawn 100px around the 88px avatar; sized with the 40px avatar here,
@@ -30092,6 +30101,10 @@ function detailGo(section, opts) {
   if (section === 'term' && CURRENT && arriving) {
     detailPaintWindow(LAST.find((x) => x.sessionName === CURRENT.sessionName));
   }
+  /* #718: the swarm cluster is sized from its avatar slot, which is 0px wide until the panel is
+     shown and differs between the phone Talk header and the other sections; re-size it once laid out. */
+  const shownFor = CURRENT;
+  if (typeof requestAnimationFrame === 'function') requestAnimationFrame(() => { if (CURRENT && CURRENT === shownFor) renderAvatarSwarmOnly(CURRENT); });
 }
 /* #718: the height a phone can actually see, for the chat-first layout (the 40rem
    CHAT FIRST ON A PHONE block reads it). 100dvh does not shrink when the on-screen
