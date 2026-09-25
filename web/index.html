@@ -42905,10 +42905,6 @@ async function tskOpenTask(key) {
 async function tskOpenProject(id) {
   await tskGoToProject(id);
 }
-/* #3703: the project page's View-all door. ONE list screen: it opens this view scoped to the project
-   rather than a second list of its own. A door is a fresh look at that project, so the window goes
-   back to All (the door has always meant every task, closed included), and the search and tile go;
-   Group by and Sort are the person's own and stay. The way back is the crumb's "Open project". */
 /* #3559, Josh's ruling: the top-level ways into Tasks (the tab, and the consolidated projects
    rail's button, which stands in for the tab there) appear once the person has 25 tasks ever,
    from the status poll's `tasksTab` (the engine counts and saves the flag, so once shown they stay).
@@ -42922,6 +42918,10 @@ function tskTabGate(show) {
   try { localStorage.setItem('kosmos.tasksTab', show ? '1' : '0'); } catch { /* private window or blocked */ }
 }
 try { if (localStorage.getItem('kosmos.tasksTab') === '1') tskTabGate(true); } catch { /* no storage: the tick decides */ }
+/* #3703: the project page's View-all door. ONE list screen: it opens this view scoped to the project
+   rather than a second list of its own. A door is a fresh look at that project, so the window goes
+   back to All (the door has always meant every task, closed included), and the search and tile go;
+   Group by and Sort are the person's own and stay. The way back is the crumb's "Open project". */
 function openProjectTasks(id) {
   const p = id ? pjById(id) : null;
   TSK.proj = id || null;
