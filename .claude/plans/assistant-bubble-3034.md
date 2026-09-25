@@ -4,8 +4,8 @@ Josh, 2026-09-24 (#chaoskosmos-design): 16:05 "bottom-right app-wide", "context 
 were on", his avatar labelled as AI; 18:02 on the mock "I love it", plus: the first x offers close-for-now
 or close forever, and a Settings switch they are told about to bring it back. Design: chaoskosmos-site
 design/setup-assistant.html (91e604b), sections 1-4 and 6. Renet's half is on main (#3666): the setup
-role, POST /api/setup-guide/page, /api/settings setupAssistant { on, asked }. Ice Cream Kitty's #3660
-(guide-on-connect) creates the guide; until it merges no install has one.
+role, POST /api/setup-guide/page, /api/settings setupAssistant { on, asked }. Renet's #3670
+(guide-on-connect-3660, merged 2026-09-24 21:34) creates the guide when the first model connects.
 
 ## Finished looks like
 On a board whose setup guide exists (and is not removed) and whose Setup assistant setting is on:
@@ -43,8 +43,9 @@ No guide, or the setting off: nothing shows and nothing is fetched beyond the on
 - Hidden during first run (its own full-screen flow) and when no guide exists.
 
 ## Weakest premise
-That the guide's session name can be found in /api/status by the name the seed recorded. If #3660 names
-sessions differently, the bubble shows for nobody (safe, visible in its check).
+That the guide's session name can be found in /api/status by the name the seed recorded. Renet confirmed
+2026-09-24 21:47: the seed records createAgent's name, which IS the board's session name (e.g. "josh", or
+"josh-ai" when taken); the bubble matches name or sessionName, case-insensitive.
 
 ## Verification
 A browser check with a fixture guide: bubble shows only with a guide and the setting on; nudge only

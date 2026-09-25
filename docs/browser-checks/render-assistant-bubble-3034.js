@@ -235,7 +235,13 @@ const waitFor = (page, fn, ms = 6000) => page.waitForFunction(fn, null, { timeou
 
     // B13: the settings read fails once at load; it is read again and the bubble arrives without a reload.
     let settingsFailed = 0;
-    await page.route('**/api/settings', (route) => { if (route.request().method() === 'GET' && settingsFailed === 0) { settingsFailed++; return route.abort(); } return route.continue(); });
+    /* Only the assistant's own read fails: the first settings GET once the page knows the guide (other
+       parts of the app read /api/settings too, and failing one of theirs would test nothing here). */
+    await page.route('**/api/settings', async (route) => {
+      const knowsGuide = await page.evaluate(() => typeof ASB !== 'undefined' && !!ASB.guide && !ASB.setting).catch(() => false);
+      if (route.request().method() === 'GET' && settingsFailed === 0 && knowsGuide) { settingsFailed++; return route.abort(); }
+      return route.continue();
+    });
     await boot();
     chk(await waitFor(page, () => { const b = document.getElementById('asb'); return b && !b.hidden; }, 15000) && settingsFailed === 1, 'B13 a settings read that failed at load is retried and the bubble arrives', 'failed=' + settingsFailed);
     await page.unroute('**/api/settings');
