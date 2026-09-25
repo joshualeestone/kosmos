@@ -296,7 +296,7 @@ const waitFor = (page, fn, ms = 6000) => page.waitForFunction(fn, null, { timeou
     // conversation and nothing of it is written over the guide's chat (its allowance line, its reply).
     await page.click('#asb');
     answer = { status: 200, body: { reply: 'Late hosted answer.', remaining: 2 } };
-    slow = 4000;
+    slow = 14000;
     await page.fill('#asp-say', 'Race?');
     await page.keyboard.press('Enter');
     await page.waitForTimeout(400);
@@ -304,8 +304,10 @@ const waitFor = (page, fn, ms = 6000) => page.waitForFunction(fn, null, { timeou
       fleet.agent('beatrix', { state: 'idle', displayName: 'Beatrix', role: 'Collections Coordinator' })]);
     seedGuide('josh');
     await page.evaluate(() => { ASB.nextFind = 0; });
-    chk(await waitFor(page, () => ASB.guide === 'josh', 12000), 'H17 precondition: the guide is adopted while the answer is on its way');
-    await page.waitForTimeout(4500);
+    chk(await waitFor(page, () => ASB.guide === 'josh', 12000) && await page.evaluate(() => ASB.sending === true && !!document.querySelector('.asp-wait, #asp-send[disabled]')),
+      'H17 precondition: the guide is adopted while the answer is still on its way');
+    await waitFor(page, () => ASB.sending === false, 16000);
+    await page.waitForTimeout(300);
     const h17 = await page.evaluate(() => ({ msg: document.getElementById('asp-msg').textContent, th: document.getElementById('asp-th').textContent,
       sending: ASB.sending, send: document.getElementById('asp-send').disabled, kept: (sessionStorage.getItem('kosmos.asb.hosted.v1') || '').includes('Late hosted answer.') }));
     chk(!/left today/.test(h17.msg) && !/Late hosted answer/.test(h17.th), 'H17 the late hosted answer writes nothing over the guide\'s chat', JSON.stringify(h17));
