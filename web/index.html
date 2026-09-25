@@ -5275,7 +5275,8 @@ body:not(.consolidated) .pjmidhead:has(.pjhead) .tsearch:focus-within { flex-bas
    3. On a phone the side gutters (34px avatar + 14px gap, mirrored opposite) left an iPhone
       SE a ~155px text column; the 40rem block shrinks the avatar for the DM, still mirrored. */
 #d-dmthread .mdtablewrap { overflow-wrap: normal; }
-#d-dmthread .mdtable th { white-space: nowrap; }
+/* The rule above applies at every width: on desktop a cell holding a long unbroken token now
+   scrolls with its table instead of breaking mid-token. */
 #d-dmthread .att-name { white-space: normal; overflow-wrap: anywhere;
   display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 1; line-clamp: 1; }
 /* The person's own bubble is sized to its content inside a right-aligned column, so a wide
