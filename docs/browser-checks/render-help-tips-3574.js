@@ -656,8 +656,8 @@ const resetStore = (state) => fs.writeFileSync(tipsStore.FILE(), JSON.stringify(
     }
     const in32 = await place32('in view');
     chk(inside(in32) && !in32.flat && !in32.onTarget, 'T32 CONTROL: a target in view keeps its arrow', JSON.stringify(in32));
-    // T32b: the reported case, on a phone with the real card: a target low on the screen (the project tip's
-    // Members button under the composer), and one below the fold.
+    // T32b: on a phone with the real card. A target low on the screen (the project tip's Members button under
+    // the composer) is a control: main already handled it. The one below the fold is what main got wrong.
     await page.setViewportSize({ width: 390, height: 800 });
     await page.waitForTimeout(300);
     await page.click('#helpq-btn');
@@ -666,6 +666,17 @@ const resetStore = (state) => fs.writeFileSync(tipsStore.FILE(), JSON.stringify(
     const low32 = await place32('low', true), fold32 = await place32('below', true);
     chk(inside(low32) && !low32.onTarget, 'T32b on a phone, a target low on the screen: the real card is wholly on screen and off its target', JSON.stringify(low32));
     chk(inside(fold32) && fold32.flat, 'T32b on a phone, a target below the fold: the real card is wholly on screen, with no arrow', JSON.stringify(fold32));
+    await page.keyboard.press('Escape');
+    // T32c: a window shorter than the card (a phone on its side). The words scroll inside the card, so the
+    // whole card, its buttons included, still fits on screen.
+    await page.setViewportSize({ width: 844, height: 300 });
+    await page.waitForTimeout(300);
+    await page.click('#helpq-btn');
+    await page.click('#helpq-menu [data-help="ring"]');
+    await page.waitForTimeout(250);
+    const short32 = await page.evaluate(() => { const c = document.getElementById('tipcard'); const b = c.getBoundingClientRect(); const go = c.querySelector('.tip-go').getBoundingClientRect(); const bd = c.querySelector('.tip-bd');
+      return { top: Math.round(b.top), bottom: Math.round(b.bottom), vh: window.innerHeight, goIn: go.bottom <= window.innerHeight && go.top >= 0, scrolls: !!bd && bd.scrollHeight > bd.clientHeight }; });
+    chk(short32.top >= 0 && short32.bottom <= short32.vh && short32.goIn && short32.scrolls, 'T32c on a window shorter than the card, it fits with Got it in view and its words scroll', JSON.stringify(short32));
     await page.keyboard.press('Escape');
     await page.setViewportSize({ width: 1280, height: 860 });
     await page.waitForTimeout(300);

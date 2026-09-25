@@ -1434,6 +1434,9 @@ button.uprime:hover, .btn.uprime:hover, .utoast .uacts button.uprime:hover,
   color: var(--k-ink-2); cursor: pointer; font-size: 16px; line-height: 1; }
 .tipcard .tip-x:hover { background: var(--k-sunk); color: var(--k-ink); }
 .tipcard .tip-eb { font: 700 .625rem var(--font-ui); letter-spacing: .12em; text-transform: uppercase; color: var(--gold-edge); }
+/* On a window too short for the whole card, the words scroll inside it and the title and buttons stay, so the
+   card still fits on screen. The scroll is on the words, not the card, which would clip the arrow. */
+.tipcard .tip-bd { max-height: calc(100vh - 150px); overflow-y: auto; }
 .tipcard h2 { margin: 2px 26px 4px 0; font-size: 1rem; letter-spacing: -.005em; }
 .tipcard p { margin: 0 0 6px; font-size: .875rem; color: var(--k-ink-2); line-height: 1.5; }
 .tipcard ol { margin: 4px 0 8px; padding: 0; list-style: none; font-size: .875rem; color: var(--k-ink-2); }
@@ -53685,7 +53688,7 @@ function tipShow(t, { auto = false, returnTo = null } = {}) {
   card.innerHTML = '<span class="tip-arrow" aria-hidden="true"></span>'
     + '<button class="tip-x" type="button" aria-label="Close">&times;</button>'
     + '<div class="tip-eb">' + esc(t.eb || 'Tip') + '</div>'
-    + '<h2 id="tipcard-title">' + esc(t.title) + '</h2>' + t.body
+    + '<h2 id="tipcard-title">' + esc(t.title) + '</h2><div class="tip-bd">' + t.body + '</div>'
     + '<div class="tip-acts">'
     + '<button class="tip-off" type="button">Stop showing tips</button>'
     + '<button class="tip-go" type="button">Got it</button></div>';
@@ -53719,7 +53722,7 @@ function tipTourRender(card, auto) {
   card.innerHTML = '<span class="tip-arrow" aria-hidden="true"></span>'
     + '<button class="tip-x" type="button" aria-label="Close the tour">&times;</button>'
     + '<div class="tip-eb">' + (TIP_STEP + 1) + ' of ' + n + '</div>'
-    + '<h2 id="tipcard-title">' + esc(st.title) + '</h2><p>' + esc(st.body) + '</p>'
+    + '<h2 id="tipcard-title">' + esc(st.title) + '</h2><div class="tip-bd"><p>' + esc(st.body) + '</p></div>'
     + '<div class="tip-acts"><span class="tip-dots" aria-hidden="true">'
     + TIP_PLACES.map((_, i) => '<i' + (i === TIP_STEP ? ' class="on"' : '') + '></i>').join('') + '</span>'
     + '<span class="tip-btns">' + (last ? '' : '<button class="tip-skip" type="button">Skip</button>')
@@ -53792,7 +53795,7 @@ function tipPlace(card, sel, side = false, { key = '', avoid = true } = {}) {
   const pageW = document.documentElement.getBoundingClientRect().width;
   if (!el || !el.getBoundingClientRect().width) {
     card.className = 'tipcard flat';
-    const cl = Math.round((pageW - w) / 2), ct = Math.round(Math.max(80, (window.innerHeight - h) / 2));
+    const cl = Math.round((pageW - w) / 2), ct = Math.round(Math.max(pad, Math.min(Math.max(80, (window.innerHeight - h) / 2), window.innerHeight - h - pad)));
     card.style.left = cl + 'px';
     card.style.top = ct + 'px';
     const all = avoid ? tipCoveredControls(null) : [];
