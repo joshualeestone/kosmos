@@ -400,7 +400,7 @@ if command -v ruby >/dev/null 2>&1; then
   esac
   # No card open, the first lookup fails, and the create is a ghost: the card exists and holds
   # the report, so the job ends GREEN with no extra comment (it used to end with status 1).
-  rm -f "$BT/flags/"*; out="$(LISTFAIL=first CREATEFAIL=ghost LABEL=1 card failure "")"; rc=$?
+  rm -f "$BT/flags/"*; out="$(LISTFAIL=first CREATEFAIL=ghost LABEL=1 card failure "")" && rc=0 || rc=$?   # (a bare rc=$? would abort under -e)
   [ "$rc" -eq 0 ] || fail "a correctly filed ghost card ended the card job non-zero: $out"
   case "$out" in *"CALL comment"*) fail "a ghost card got an extra comment: $out" ;; esac
   rm -f "$BT/flags/"*
