@@ -51,7 +51,7 @@ test('#3759: the block names BOTH destinations and when each applies, says where
   assert.match(flat, /save it in your Files folder, unless it belongs to one of your projects \(see the next paragraphs; if you are on no projects, it always goes here\): `\/Users\/someone\/work\/workers\/writer\/Files`/);
   // About a project: that project's folder instead, even when asked in the direct conversation.
   assert.match(flat, /When the conversation is about one of your projects \(the person names it, or the file is plainly part of that project's work\), save it in that project's folder instead/);
-  assert.match(flat, /even though they asked in a direct conversation/);
+  assert.match(flat, /even though it came up in a direct conversation \(asked for or made by you\)/);
   assert.match(flat, /tell them in one line where you put it: which project, and the file's name/);
   // Unsure: ask first (the doctrine's "one short question, not a licence to guess"); save here and say
   // so only when nobody is there to answer.
