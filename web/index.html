@@ -46949,8 +46949,9 @@ function emojiPlace() {
   const above = box.top - GAP - ceiling;
   const below = floor - box.bottom - GAP;
   const up = above >= natural || above >= below;
-  // Never taller than the space between the header and the window's edge, so the clamp below
-  // always has somewhere to put it (a fixed minimum here once pushed it off the window).
+  /* Never taller than the room it is given. (A fixed minimum here once pushed it off the window.)
+     The `floor - ceiling` term is belt and braces: the close above already keeps `above` and
+     `below` within it, so today it never decides; it keeps the clamp below safe if that changes. */
   const h = Math.min(natural, Math.max(56, up ? above : below), floor - ceiling);
   if (h < natural) panel.style.maxHeight = h + 'px';
   const want = up ? box.top - GAP - h : box.bottom + GAP;
@@ -46959,9 +46960,16 @@ function emojiPlace() {
   panel.style.left = Math.round(Math.max(EDGE, Math.min(box.right - 12 - w, innerWidth - EDGE - w))) + 'px';
 }
 window.addEventListener('resize', emojiPlace);
-/* Any scroll that moves the box: the page's, or an ancestor's. Capture phase, because scroll events
-   do not bubble; emojiPlace returns at once while the panel is closed. */
-document.addEventListener('scroll', emojiPlace, { capture: true, passive: true });
+/* Any scroll that moves the box: the page's (it scrolls at mid widths, where .apphead is not
+   sticky), or an ancestor's. Capture phase, because scroll events do not bubble; emojiPlace returns
+   at once while the panel is closed. NOT the panel's own grid scrolling (review pass 3): re-placing
+   then clears its height cap for a measure, the browser pulls scrollTop back to fit, and the last
+   rows of the list could never be reached in a short window. */
+document.addEventListener('scroll', (e) => {
+  const t = e.target;
+  if (t && t.nodeType === 1 && t.closest('#d-emoji')) return;
+  emojiPlace();
+}, { capture: true, passive: true });
 
 function pjEmojiClose(where = 'room') {
   const panel = document.getElementById(EMOJI_AT[where].panel);

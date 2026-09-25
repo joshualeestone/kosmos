@@ -270,12 +270,34 @@ const FX = {
         if (h === 160) chk(closed, `${t} at 1200x160 there is no room for it, so it is closed, not hidden under the header`, JSON.stringify(tiny));
         await page.evaluate(() => pjEmojiClose('agent'));
       }
+      // Review pass 3: in a window short enough to cap the panel, its grid scrolls to the very end
+      // and stays there, so the last emoji can be reached (re-placing on its own scroll once pulled
+      // it back to about the middle).
+      await page.setViewportSize({ width: 1200, height: 300 });
+      await page.waitForTimeout(100);
+      const endOf = await page.evaluate(async () => {
+        const wait = (ms) => new Promise((r) => setTimeout(r, ms));
+        document.getElementById('d-say').scrollIntoView({ block: 'end' });
+        pjEmojiOpen('agent');
+        await wait(60);
+        const panel = document.getElementById('d-emoji');
+        const max = panel.scrollHeight - panel.clientHeight;
+        panel.scrollTop = max;
+        await wait(120);
+        const last = panel.querySelector('button[data-emoji]:last-child').getBoundingClientRect();
+        const r = panel.getBoundingClientRect();
+        const out = { open: !panel.hidden, capped: max > 20, max, at: Math.round(panel.scrollTop), lastInside: last.bottom <= r.bottom + 1 && last.top >= r.top - 1 };
+        pjEmojiClose('agent');
+        return out;
+      });
+      chk(endOf.open && endOf.capped && endOf.at >= endOf.max - 2 && endOf.lastInside, `${t} at 1200x300 the list scrolls to its last emoji and stays there`, JSON.stringify(endOf));
       await page.setViewportSize({ width: 1200, height: 700 });
       await page.waitForTimeout(100);
       /* Its box carried out of sight: the panel closes rather than staying open where nobody can see
-         or reach it. Measured: in this page's real layout the thread scrolls inside the box and the
-         composer stays put, so nothing here scrolls it away; the guard is defence, and is driven
-         directly (the box moved off screen, then a scroll event, which is what would announce it). */
+         or reach it. At wide widths the thread scrolls inside the box and the composer stays put; at
+         mid widths (about 480 to 520) the page itself scrolls and does carry it away (review pass 3).
+         Driven directly here, the same at any width: the box moved off screen, then a scroll event,
+         which is what announces it. */
       const away = await page.evaluate(async () => {
         const wait = (ms) => new Promise((r) => setTimeout(r, ms));
         const cbox = document.getElementById('d-say').closest('.composerbox');

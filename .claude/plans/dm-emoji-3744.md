@@ -63,3 +63,15 @@ Josh, 2026-09-25 09:29 in #admin: "We need emoji support in the agent DM." Filed
   scroll listener (any scroller). The arm moves the box off screen and fires a scroll event; red without
   the guard and red without the listener.
 - NIT resize is not throttled: returns at once while closed, same as the #2834 reaction picker. Not taken.
+
+## Review pass 3 (opus): 1 blocker, 1 warning, 4 nits
+- BLOCKER in a short window the list could not be scrolled to its end: the capture scroll listener
+  also fired for the panel's own grid, emojiPlace cleared its height cap to measure, and the browser
+  pulled scrollTop back (stuck at 116 of 232 at 1200x300) -> the listener ignores scrolls inside
+  #d-emoji. Arm at 1200x300 scrolls to the end and stays; red without the fix at exactly 116.
+- WARNING (plan accuracy) the page does scroll the composer away at mid widths -> plan and the check's
+  comment corrected; the guard is live behaviour, and the reviewer saw it follow a 30px page scroll.
+- NIT the floor - ceiling term never decides -> kept, comment now says belt and braces.
+- Not taken: a toggle that closes at once when there is under 56px of room (windows under about 178px;
+  disabling the button would need a resize-driven state); a panel closed while tiny stays closed when
+  the window grows (aria-expanded is correct); layout cost while open (fine at this size).
