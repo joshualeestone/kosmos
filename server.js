@@ -3219,13 +3219,26 @@ function setupGuideNow() {
   return { ok: true, name: guide };
 }
 
-/* #3660: the setup guide's card read as failing (setupAssistant.guideFailure), or null when there is no
-   guide, it is answering, or the board could not be read. */
+/* #3660: the guide `name`'s card read as failing (setupAssistant.guideFailure), or null when it is
+   answering or the board could not be read. The bubble asks before every message and a board read captures
+   every pane, so a reading is kept for GUIDE_CARD_TTL_MS (a flip back waits at most that long). `roster` is
+   injectable for the test. */
+const GUIDE_CARD_TTL_MS = 5000;
+let guideCardMemo = null;
+function guideCardFailing(name, roster = safeRoster) {
+  const now = Date.now();
+  if (guideCardMemo && guideCardMemo.name === name && now - guideCardMemo.at < GUIDE_CARD_TTL_MS) return guideCardMemo.failing;
+  const cards = roster();
+  if (!Array.isArray(cards)) return null;
+  const failing = setupAssistant.guideFailure(cards.find((c) => c && c.sessionName === name));
+  guideCardMemo = { name, at: now, failing };
+  return failing;
+}
+function resetGuideCardMemoForTests() { guideCardMemo = null; }
+/* The same, for a caller that has not looked up the guide itself. */
 function setupGuideFailing() {
   const found = setupGuideNow();
-  if (!found.ok) return null;
-  const card = safeRoster().find((c) => c && c.sessionName === found.name);
-  return setupAssistant.guideFailure(card);
+  return found.ok ? guideCardFailing(found.name) : null;
 }
 
 const server = http.createServer((req, res) => {
@@ -14002,22 +14015,23 @@ const server = http.createServer((req, res) => {
    */
   if (pathname === '/api/setup-guide' && (req.method === 'GET' || req.method === 'HEAD')) {
     /* `hostedWhy` says why not (own_model, no_connector, unchecked): the bubble keeps its state on 'unchecked', and
-       tells an open chat the right reason when it is withdrawn. */
-    const hostedAnswer = () => { const w = require('./engine/setup-assistant').hostedWhy({ failing: setupGuideFailing }); return { hosted: w.ok, hostedWhy: w.why }; };
+       tells an open chat the right reason when it is withdrawn. These are the no-guide answers; a guide that
+       cannot answer is handled below. */
+    const hostedAnswer = () => { const w = require('./engine/setup-assistant').hostedWhy(); return { hosted: w.ok, hostedWhy: w.why }; };
     const found = setupGuideNow();
     /* "No guide" is an ordinary answer here, not an error: the page asks on every install, and a 404 is
        logged by the browser as a failed resource on every page load (it failed every "no page errors"
        check). So it is 200 { ok: false, reason: 'none' }; only a refusal (409) keeps its status. */
     /* `hosted`: no guide, but the setup assistant can run on Kosmos's own model here (#3660), so the bubble
-       shows and talks to /api/setup-guide/hosted. False once they have a model of their own, and in a checkout
-       or a sandbox (setupAssistant.hostedOffered). */
+       shows and talks to /api/setup-guide/hosted. False once they have a model of their own (unless their guide
+       cannot answer, below), and in a checkout or a sandbox (setupAssistant.hostedOffered). */
     if (!found.ok && found.reason === 'none') { sendJson(res, 200, { ok: false, reason: 'none', error: found.error, ...hostedAnswer() }); return; }
     /* A name that is not the guide's (409 not-guide) is also no guide, so it says hosted too: the bubble
        stands in rather than vanishing. */
     if (!found.ok) { sendJson(res, found.status, { error: found.error, reason: found.reason, ...(found.reason === 'not-guide' ? hostedAnswer() : {}) }); return; }
     /* The guide exists but cannot answer (#3660 fallback): say which problem and on which runner, and whether
        the bubble may answer this chat on the hosted assistant instead. It asks again before each message. */
-    const failing = setupGuideFailing();
+    const failing = guideCardFailing(found.name);
     if (failing) {
       const w = require('./engine/setup-assistant').hostedWhy({ failing: () => failing });
       sendJson(res, 200, { ok: true, name: found.name, hosted: w.ok, hostedWhy: w.why, problem: failing.problem, runner: failing.runner });
@@ -14029,12 +14043,13 @@ const server = http.createServer((req, res) => {
 
   /**
    * #3660: the setup assistant on Kosmos's own model, for a person who has not
-   * connected a model yet. The bubble posts `{ messages, page? }` and gets back
+   * connected a model yet, or whose guide cannot answer right now (Josh 2026-09-25 07:22:
+   * the fallback; `own_model` refuses once it answers again). The bubble posts `{ messages, page? }` and gets back
    * `{ reply, remaining }`, or a refusal `{ error, code, retryAfterSecs }` whose
    * `error` is a sentence to show as-is (the coordinator's own, or ours for "could
    * not reach it" and "arrives with the next update"). engine/hostedguide.js does
-   * the shaping and the one retry; the tunnel signs (no crypto on the board). Once
-   * a guide agent exists on their own model, the bubble talks to that instead.
+   * the shaping and the one retry; the tunnel signs (no crypto on the board). While
+   * a guide agent answers on their own model, the bubble talks to that instead.
    */
   if (pathname === '/api/setup-guide/hosted' && req.method === 'POST') {
     /* The same test the bubble is shown by, so the route cannot be used past it (a model connected, a checkout). */
@@ -16098,6 +16113,7 @@ module.exports = {
   CONNLOST_BOOK, connlostHealEnabled, // #3410: exported so a test can pin the route's reconnect field to the sweep's own book
   givePart, // #3595: the assign-and-tell path, exported so the Assigner's real write path is tested
   swarmSweepDeps, // #3564: the limit sweep's wiring, exported so it is tested
+  guideCardFailing, resetGuideCardMemoForTests, // #3660: the fallback's reading of the guide card, for its tests
   /* #2036: the boot diagnostic's condition (pure truth table) AND its real call-site
      composition, exported together so BOTH are pinned. stagingRevertWarningNow wires the raw
      install stamp rather than the #2934 badge; sourceChannelNow is exported alongside so the

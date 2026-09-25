@@ -327,7 +327,8 @@ function hostedWhy({ available = () => require('./remote').hostedAvailable(), li
   let there = false;
   try { there = available() === true; } catch { there = false; }
   if (!there) return { ok: false, why: 'no_connector' };
-  /* A guide that cannot answer is on a model they connected, so the listing is not needed to know it. */
+  /* A guide that cannot answer is on a model they connected (the seed creates a guide only once a model is
+     connected, and setupGuideNow checks its marker), so the listing is not needed to know it. */
   let f = null;
   try { f = failing(); } catch { f = null; }
   if (f) return { ok: true, why: 'own_model_failing' };

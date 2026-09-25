@@ -28,7 +28,7 @@ fs.writeFileSync(path.join(process.env.AGENT_WORKFORCE_HOME, '.codex', 'auth.jso
 
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const { start, server } = require('./server');
+const { start, server, guideCardFailing, resetGuideCardMemoForTests } = require('./server');
 const fleet = require('./test-support/fleet');
 const setupAssistant = require('./engine/setup-assistant');
 const remote = require('./engine/remote');
@@ -61,6 +61,7 @@ const ask = () => fetch(base + '/api/setup-guide/hosted', { method: 'POST', head
 
 for (const state of ['rate_limited', 'auth_failed', 'connection_lost']) {
   test(`#3660 a guide that is ${state} falls back: GET says so with the problem and runner, and the hosted route answers`, async () => {
+    resetGuideCardMemoForTests();
     const board = fleet.install([fleet.agent(GUIDE, { state })]);
     try {
       const g = await status();
@@ -79,6 +80,7 @@ for (const state of ['rate_limited', 'auth_failed', 'connection_lost']) {
 
 test('#3660 a guide that answers keeps the old shape, and the hosted route refuses with own_model (it flips back)', async () => {
   assert.equal(setupAssistant.listedModels().rows.length, 1, 'CONTROL: the sandbox lists one model of their own');
+  resetGuideCardMemoForTests();
   const board = fleet.install([fleet.agent(GUIDE, { state: 'idle' })]);
   try {
     assert.deepEqual(await status(), { ok: true, name: GUIDE }, 'a working guide was offered the hosted fallback');
@@ -89,7 +91,9 @@ test('#3660 a guide that answers keeps the old shape, and the hosted route refus
 });
 
 test('#3660 a failing guide with no connector says what is wrong, and hosted is false', async () => {
-  stub(remote, 'hostedAvailable', () => false);
+  const was = remote.hostedAvailable;
+  remote.hostedAvailable = () => false;
+  resetGuideCardMemoForTests();
   const board = fleet.install([fleet.agent(GUIDE, { state: 'auth_failed' })]);
   try {
     const g = await status();
@@ -97,5 +101,24 @@ test('#3660 a failing guide with no connector says what is wrong, and hosted is 
     assert.equal(g.hostedWhy, 'no_connector');
     assert.equal(g.problem, 'auth_failed');
     assert.equal(g.runner, 'claude', 'an agent with no recorded runner is claude, as its card says');
-  } finally { board.restore(); remote.hostedAvailable = () => true; }
+  } finally { board.restore(); remote.hostedAvailable = was; }
+});
+
+test('#3660 a board that cannot be read is not a failing guide, and does not throw', () => {
+  resetGuideCardMemoForTests();
+  assert.equal(guideCardFailing(GUIDE, () => null), null, 'an unreadable board read as their model failing, or threw');
+  assert.deepEqual(guideCardFailing(GUIDE, () => [{ sessionName: GUIDE, state: 'auth_failed', runner: 'claude' }]),
+    { problem: 'auth_failed', runner: 'claude' }, 'CONTROL: a readable failing card is read');
+});
+
+test('#3660 the guide card reading is kept for a few seconds, so a poll does not read the whole board each time', () => {
+  resetGuideCardMemoForTests();
+  let reads = 0;
+  const roster = () => { reads += 1; return [{ sessionName: GUIDE, state: 'rate_limited', runner: 'codex' }]; };
+  guideCardFailing(GUIDE, roster);
+  guideCardFailing(GUIDE, roster);
+  assert.equal(reads, 1, 'the board was read again within the memo window');
+  resetGuideCardMemoForTests();
+  guideCardFailing(GUIDE, roster);
+  assert.equal(reads, 2, 'CONTROL: after a reset it reads again');
 });

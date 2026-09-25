@@ -26,7 +26,10 @@ Mona's. The contract was posted on #3660 before building.
   one that just recovered keeps the fallback until its card changes. It is checked per message, as asked.
 - An install with a model but no guide (the guide was never created) still gets no assistant; this change is
   about a guide that exists and cannot answer.
-- `GET /api/setup-guide` now reads the board (safeRoster) when a guide exists, once per request.
+- `GET /api/setup-guide` reads the board (safeRoster, which captures every pane) when a guide exists. The reading
+  is kept for 5 seconds (the bubble's own poll while open), so a flip back can wait that long.
+- **Server half only.** The bubble does not read `hosted` on a guide yet (Mona's half), so the fallback is not
+  reachable from the product until that lands; the route already accepts a hosted chat while the guide fails.
 
 ## Verification
 - `engine/setup-assistant.fallback-3660.test.js` (guideFailure, hostedWhy) and
