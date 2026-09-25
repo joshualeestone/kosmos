@@ -6,12 +6,13 @@
  * The single-agent DM at real phone widths, on the REAL rendered thread:
  *   - no bubble starts off the left edge or ends past the right edge of its row. Before this,
  *     a message carrying attachment cards sat 112px off the left of an iPhone SE: the file
- *     name is one unbreakable line, so it set the bubble's minimum width. The same arm runs at
- *     900 and 1280 with a 120-character file name, because the cause does not depend on width;
+ *     name is one line, the person's bubble is sized to its content, so the name set the
+ *     bubble's width. The same arm runs at 900 and 1280 with a 120-character file name,
+ *     because the cause does not depend on width. The fix under test is the cap on the
+ *     person's bubble (removing only that cap fails this arm);
  *   - every attachment card sits inside its own bubble, pictures included (a companion invariant:
  *     on the old code the bubble grew with the card, so it is the row assertion above that catches
- *     the defect), and its file name stays on one line (the clamp that keeps the now-breakable
- *     name from wrapping);
+ *     the defect), and its file name stays on one line;
  *   - no table cell is narrower than its longest word (the thread's `overflow-wrap: anywhere`
  *     crushed them to a letter per line), and the table's scroll box stays inside its bubble. The
  *     "ID" column's body words are wider than its header, so the cell check fails on the
@@ -113,9 +114,9 @@ function measure() {
     const gap = row.classList.contains('you') ? R(av).left - R(bd).right : R(bd).left - R(av).right;
     return gap + 0.5 < mask;
   }).length;
-  /* The file name may break anywhere so it stops setting a minimum width; the one-line clamp is
-     what keeps it reading as one line. Without the clamp the long name wraps to ~8 lines and every
-     containment assertion stays green, so the line count is checked on its own. */
+  /* A file name reads as one line (ellipsized when it does not fit). Containment alone would
+     stay green if a later change let the name wrap to many lines, so the line count is its own
+     assertion. */
   const namesOverOneLine = [...document.querySelectorAll('#d-dmthread .att-name')].filter((n) =>
     R(n).height > parseFloat(getComputedStyle(n).fontSize) * 1.5).length;
   const wraps = [...document.querySelectorAll('#d-dmthread .mdtablewrap')];
@@ -167,7 +168,7 @@ async function open(browser, w, h, theme) {
         const t = `[${eng} ${w}x${h} ${theme}]`;
         chk(m.bubbles >= 6 && m.offscreen === 0, `${t} every bubble stays inside its row`, `bubbles=${m.bubbles} offscreen=${m.offscreen}`);
         chk(m.cards === 4 && m.escaped === 0, `${t} every attachment card sits inside its bubble`, `cards=${m.cards} escaped=${m.escaped}`);
-        chk(m.namesOverOneLine === 0, `${t} every file name stays on one line (the clamp holds)`, `over=${m.namesOverOneLine}`);
+        chk(m.namesOverOneLine === 0, `${t} every file name stays on one line`, `over=${m.namesOverOneLine}`);
         chk(m.pics === 2, `${t} the preview slots are laid out in their cards (the images themselves cannot load over file://)`, `pics=${m.pics}`);
         chk(m.cells > 0 && m.crushed.length === 0, `${t} no table cell is narrower than its longest word`, m.crushed.join(' | '));
         chk(m.tablesOnYou === 1 && m.tableInBubble, `${t} both tables' scroll boxes (the agent's and the person's own) stay inside their bubbles`);
