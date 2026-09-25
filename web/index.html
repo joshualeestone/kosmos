@@ -38344,7 +38344,8 @@ document.addEventListener('change', async (e) => {
   if (t.id === 'd-swarm-max') await swarmSend(base, 'PUT', { maxHelpers: Number(t.value) });
   if (t.id === 'd-swarm-cap') await swarmSend(base, 'PUT', { dailyTokenLimit: Number(t.value) * 1000000 });
 });
-document.addEventListener('input', (e) => {
+/* On body, not document: web.found-scale.test.js reads the FIRST document input listener as the found-list filter. */
+document.body.addEventListener('input', (e) => {
   if (e.target && e.target.id === 'd-swarm-cap') {
     const t = (Number(e.target.value) * 1000000).toLocaleString('en-US');
     document.getElementById('d-swarm-cap-v').textContent = t;
@@ -38434,7 +38435,7 @@ function swarmCreatePaint() {
   if (go) go.textContent = swarm ? 'Make this swarm' : go.dataset.swarmWas;
 }
 document.addEventListener('change', (e) => { if (e.target && e.target.name === 'create-kind') swarmCreatePaint(); });
-document.addEventListener('input', (e) => {
+document.body.addEventListener('input', (e) => {
   if (e.target && (e.target.id === 'create-swarm-max' || e.target.id === 'create-swarm-cap' || e.target.id === 'create-name')) swarmCreatePaint();
 });
 
