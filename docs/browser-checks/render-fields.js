@@ -93,13 +93,15 @@ function selfCheck() {
 /* Everything a person types into. ⚠️ ASKED, NOT LISTED: an earlier version
    named `input[type=text], textarea, select` and was silently blind to
    `type=search`. Name what it is NOT rather than enumerating what it is.
-   A NATIVE SLIDER (`type=range`, appearance not none) never PAINTS its computed fill:
-   measured 2026-09-25 on chromium and webkit, a slider computing rgb(255,255,255) on a dark
-   card drew the card's colour at its edges, even with an explicit white background, while an
+   A NATIVE SLIDER (`type=range`, appearance not none) does not PAINT its computed fill in
+   the two engines this check runs: measured 2026-09-25 on a test page (not the board's own
+   sliders), chromium and webkit, a slider computing rgb(255,255,255) on a dark card drew the
+   card's colour at its edges, even with an explicit white background, while an
    appearance:none control drew white. So "the same fill as its box" measured a colour nobody
    sees; #3690's swarm sliders failed here at the 0.6.95 cut for that reason (two of its four).
-   Native sliders are skipped where the fields are collected (and counted); a slider styled
-   with appearance:none DOES paint its fill, so it stays a field, like a select. */
+   Native sliders are therefore skipped from every field check where the fields are collected
+   in measure() (see isNativeSlider), and listed by id; a slider styled appearance:none DOES
+   paint its fill, so it stays a field, like a select. */
 const FIELDS = 'input:not([type=button]):not([type=file]):not([type=checkbox]):not([type=radio]):not([type=submit]), textarea, select';
 /* ⚠️ BUTTONS TOO, and their absence was a hole shaped exactly like the defect
    this branch shipped: `#cstep-made`'s buttons sat at 1.05:1 against their own
@@ -300,10 +302,20 @@ async function measure(engine, scheme) {
       }
       return false;
     };
-    const found = [...document.querySelectorAll(sel)];
-    const isNativeSlider = (el) => el.tagName.toLowerCase() === 'input' && el.type === 'range' && getComputedStyle(el).appearance !== 'none';
-    const nativeSliders = found.filter(isNativeSlider).length;
-    const fields = found.filter((el) => !isNativeSlider(el)).map((el) => {
+    // Native sliders paint no field fill (see the note above FIELDS): skipped from every field
+    // check, and listed by id so the skip cannot grow unnoticed. An engine that does not report
+    // `appearance` (undefined) gets the slider MEASURED, the safe side.
+    const isNativeSlider = (el) => {
+      if (el.tagName.toLowerCase() !== 'input' || el.type !== 'range') return false;
+      const a = getComputedStyle(el).appearance;
+      return a !== undefined && a !== 'none';
+    };
+    // One pass: each element is judged once, so the count and the filter cannot disagree.
+    const nativeSliders = [], keptEls = [];
+    for (const el of document.querySelectorAll(sel)) {
+      if (isNativeSlider(el)) nativeSliders.push(el.id || 'input[type=range]'); else keptEls.push(el);
+    }
+    const fields = keptEls.map((el) => {
       const c = getComputedStyle(el);
       const g = ground(el);
       return { id: el.id || el.tagName.toLowerCase(), tag: el.tagName.toLowerCase(),
@@ -368,7 +380,7 @@ async function measure(engine, scheme) {
       const r = await measure(engine, scheme);
       seen[scheme] = r;
       console.log(`\n== ${engine} / ${scheme} ==  fields ${r.fields.length}, page errors ${r.errs.length}`);
-      console.log(`  native sliders not measured (they paint no field fill): ${r.nativeSliders}`);
+      console.log(`  native sliders not measured (they paint no field fill): ${r.nativeSliders.length}${r.nativeSliders.length ? ' - ' + r.nativeSliders.join(', ') : ''}`);
       for (const e of r.errs) fail(`${engine}/${scheme} ${e}`);
 
       /* ⚠️ A DENOMINATOR THAT ONLY PRINTS IS NOT A DENOMINATOR. Containers,
