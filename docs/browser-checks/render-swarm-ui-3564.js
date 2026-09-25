@@ -58,7 +58,8 @@ const waitFor = (page, fn, arg, ms = 6000) => page.waitForFunction(fn, arg, { ti
 
     /* The engine, as the contract says. `engineOn` flips the flag; `crewSwarm` is the crew's card field. */
     let engineOn = false;
-    let holdStatus = false;   // S11: no poll may land while it checks the merge
+    let holdStatus = false;
+    let crewState = null;   // S23: the crew's board state (null = as the fleet says)   // S11: no poll may land while it checks the merge
     let crewSwarm = { maxHelpers: 5, activeHelpers: 3, tokensToday: 2461380, dailyTokenLimit: 6000000, active: true, pausedBecause: null, helperTokenRatio: null, metered: true };
     await page.route('**/api/status', async (route) => {
       while (holdStatus) await new Promise((res) => setTimeout(res, 100));
@@ -66,6 +67,7 @@ const waitFor = (page, fn, arg, ms = 6000) => page.waitForFunction(fn, arg, { ti
       const j = await r.json();
       if (engineOn) {
         j.swarms = true;
+        for (const a of j.agents || []) { if (a.sessionName === 'crew' && crewState) a.state = crewState; }
         for (const a of j.agents || []) a.swarm = a.sessionName === 'crew' ? { ...crewSwarm }
           : a.sessionName === 'crew2' ? { maxHelpers: 4, activeHelpers: 1, tokensToday: 1000, dailyTokenLimit: 2000000, active: true, pausedBecause: null, helperTokenRatio: null, metered: true } : null;
       } else {
@@ -308,13 +310,26 @@ const waitFor = (page, fn, arg, ms = 6000) => page.waitForFunction(fn, arg, { ti
     crewSwarm = { ...crewSwarm, active: false, pausedBecause: 'limit', activeHelpers: 0 };   // the engine interrupts the lead at the limit, ending its helpers
     chk(await waitFor(page, () => /today's limit/.test(document.getElementById('d-swarm-why').textContent) && document.getElementById('d-swarm-stop').disabled
       && document.querySelector('input[name="d-swarm-active"][value="off"]').checked, null, 8000), 'S8 paused at the limit: says so, shows Paused, Stop now is off');
+    // S23: no helpers and a lead that is neither working nor idle (rate limited): the swarm line claims no "Idle".
+    // CONTROL: the same row idle says "Idle, working alone".
+    crewSwarm = { ...crewSwarm, active: true, pausedBecause: null, activeHelpers: 0, metered: true };
+    crewState = 'rate_limited';
+    await page.evaluate(() => showTab('agents'));
+    chk(await waitFor(page, () => { const c = document.querySelector('#grid [data-agent="crew"]'); return !!c && /Swarm · No helpers working/.test(c.textContent); }, null, 15000),
+      'S23 a rate-limited lead with no helpers: "No helpers working", never "Idle"', await page.evaluate(() => (document.querySelector('#grid [data-agent="crew"]') || {}).textContent));
+    crewState = 'idle';
+    chk(await waitFor(page, () => { const c = document.querySelector('#grid [data-agent="crew"]'); return !!c && /Swarm · Idle, working alone/.test(c.textContent); }, null, 15000), 'S23 CONTROL: idle, it says "Idle, working alone"');
+    crewState = null;
+    crewSwarm = { ...crewSwarm, activeHelpers: 3 };
+    await page.evaluate(() => document.querySelector('#grid [data-agent="crew"]').click());
+    await waitFor(page, () => !document.getElementById('d-swarm-panel').hidden && CURRENT.sessionName === 'crew');
     // S21: paused by the person with no helper counted, the lead's turn still runs: Stop now (its only interrupt) stays.
     crewSwarm = { ...crewSwarm, active: false, pausedBecause: 'person', activeHelpers: 0 };
     chk(await waitFor(page, () => !!SWARM_ROW && SWARM_ROW.swarm.pausedBecause === 'person' && Number(SWARM_ROW.swarm.activeHelpers) === 0, null, 15000), 'S21 precondition: the person-paused, no-helper row');
     chk(await page.evaluate(() => !document.getElementById('d-swarm-stop').disabled), 'S21 paused by the person, Stop now stays (the lead\'s turn still runs); CONTROL: S8 greys it at the limit');
     // S22: switched back on over today's limit: the engine will not pause it again today, so the page does not promise to.
     crewSwarm = { ...crewSwarm, active: true, pausedBecause: null, activeHelpers: 1, tokensToday: 6100000 };
-    chk(await waitFor(page, () => /Over today's limit\. You switched it back on/.test(document.getElementById('d-swarm-hint').textContent), null, 15000), 'S22 over the limit and switched back on: the hint says it keeps going until midnight',
+    chk(await waitFor(page, () => document.getElementById('d-swarm-hint').textContent === 'Over today\'s limit.', null, 15000), 'S22 over the limit while Active: the hint says so, and promises no pause it may not make',
       await page.evaluate(() => document.getElementById('d-swarm-hint').textContent));
     crewSwarm = { ...crewSwarm, tokensToday: 2461380 };
     chk(await waitFor(page, () => /^Pauses itself at the limit/.test(document.getElementById('d-swarm-hint').textContent), null, 15000), 'S22 CONTROL: under the limit, the usual promise');

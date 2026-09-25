@@ -38601,7 +38601,10 @@ function swarmStatusWords(a) {
   /* Not read in full (metered false): the helper count is not a measurement, so claim none. */
   if (sw.metered === false) return `Up to ${max} helpers`;
   if (live > 0) return `${live} of ${max} helpers working`;
-  return a && a.state === 'working' ? 'Working alone' : 'Idle, working alone';
+  /* "Idle" only when the board says idle: a lead that is paused, stuck or unreadable is not idle, and the card's own
+     state pill already says which. */
+  const st = a && a.state;
+  return st === 'working' ? 'Working alone' : st === 'idle' ? 'Idle, working alone' : 'No helpers working';
 }
 /* The swarm's page (the mock, section 3): Active / Paused, Stop now, Most helpers, and Today. Painted from the
    status row every poll; a control the person is using is not repainted under them. */
@@ -38652,7 +38655,9 @@ function swarmPagePaint(a) {
   const hint = document.getElementById('d-swarm-hint');
   hint.hidden = unmeasured;
   /* Switched back on over the limit: the engine will not pause it again today, so the page does not promise to. */
-  hint.textContent = on && !unmeasured && cap && used >= cap ? 'Over today\'s limit. You switched it back on, so it keeps going until midnight.' : 'Pauses itself at the limit and tells you. Resets at midnight.';
+  /* Over the limit while Active: either the person switched it back on (it then runs to midnight) or the limit sweep
+     has yet to notice (up to a minute). The page cannot tell which, so it says only what is true of both. */
+  hint.textContent = on && !unmeasured && cap && used >= cap ? 'Over today\'s limit.' : 'Pauses itself at the limit and tells you. Resets at midnight.';
   /* The slider follows the REAL limit: widened past 20 million when the limit is higher, and its label shows the
      exact number until the person moves it (a 2,500,000 limit is not shown as 3,000,000). No limit: no slider. */
   const capR = document.getElementById('d-swarm-cap');
