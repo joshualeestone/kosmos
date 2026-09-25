@@ -26,6 +26,9 @@ const RESTART_START_MS = 2000;
    room says so once per window. */
 const INBOUND_PER_WINDOW = 60;
 const INBOUND_WINDOW_MS = 60000;
+/* The longest stdout line kept while waiting for its newline. The connector
+   prints one event per line, each under its 16 KiB post bound plus framing; a
+   longer unterminated run is a broken child, and is dropped rather than held. */
 const MAX_LINE = 64 * 1024;
 const RESTART_MAX_MS = 60000;
 const MAC_EDGES = '/v1/mac/federation/edges';
@@ -168,7 +171,11 @@ async function ensure(projectId) {
   const link = federation.linkFor(projectId);
   if (!link) return null;
   if (typeof deps.enrolled === 'function' && !deps.enrolled()) return null;
-  if (typeof deps.projectExists === 'function' && !deps.projectExists(projectId)) { stop(projectId); return null; }
+  if (typeof deps.projectExists === 'function' && !deps.projectExists(projectId)) {
+    stop(projectId);
+    try { federation.forgetLink(projectId); } catch { /* retried on the next check */ }
+    return null;
+  }
   let s = seats.get(projectId);
   if (!s) { s = { child: null, edge: null, status: null, backoff: RESTART_START_MS, timer: null, ended: null, stopped: false, starting: false }; seats.set(projectId, s); }
   if (s.child || s.starting || s.timer || s.stopped || s.status === 'ended') return s.status;

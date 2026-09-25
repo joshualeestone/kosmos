@@ -169,6 +169,7 @@ test('a removed project has its seat stopped and gets no new one', async () => {
   assert.strictEqual(fedseats.statusOf('proj-del'), null);
   await fedseats.ensure('proj-del');
   assert.strictEqual(h.spawned.length, 1);
+  assert.strictEqual(federation.linkFor('proj-del'), null, 'its link is forgotten too');
 });
 
 test('a post that cannot go out, or is refused, is said in the room', async () => {

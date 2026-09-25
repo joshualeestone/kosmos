@@ -15382,7 +15382,8 @@ function federateOut(projectId, delivery, text, operator) {
   if (!delivery || !delivery.id) return;
   let from = delivery.from;
   if (operator) {
-    try { from = (you.read() || {}).name || 'the project owner'; } catch { from = 'the project owner'; }
+    // you.read() answers { state, you: { name, ... } }; the name is one level in.
+    try { const r = you.read(); from = (r && r.you && r.you.name) || 'the project owner'; } catch { from = 'the project owner'; }
   }
   try { fedseats.post(projectId, { from, kind: operator ? 'person' : 'agent', text }); } catch { /* a seat is best-effort */ }
 }

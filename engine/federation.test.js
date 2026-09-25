@@ -71,6 +71,45 @@ test('a verify refusal carries its reason and the coordinator sentence', async (
   assert.deepStrictEqual(out, { status: 409, body: { reason: 'expired', error: 'that code has expired. Ask for a new one.' } });
 });
 
+test('a linkFor answer is served from memory until the file changes on disk', () => {
+  federation.recordLink('proj-c', { role: 'owner', ref: 'ref-c' });
+  federation.linkFor('proj-c');
+  const real = fs.readFileSync;
+  let reads = 0;
+  fs.readFileSync = function (...args) { reads += 1; return real.apply(this, args); };
+  try {
+    for (let i = 0; i < 5; i++) assert.deepStrictEqual(federation.linkFor('proj-c'), { role: 'owner', ref: 'ref-c' });
+    assert.strictEqual(reads, 0, 'an unchanged file is not read again');
+    federation.recordLink('proj-d', { role: 'owner', ref: 'ref-d' });
+    reads = 0;
+    assert.deepStrictEqual(federation.linkFor('proj-d'), { role: 'owner', ref: 'ref-d' });
+    assert.ok(reads >= 1, 'a write makes the next answer come from the file');
+  } finally {
+    fs.readFileSync = real;
+  }
+});
+
+test('forgetLink drops one link and leaves the rest', () => {
+  federation.recordLink('proj-f1', { role: 'owner', ref: 'r1' });
+  federation.recordLink('proj-f2', { role: 'owner', ref: 'r2' });
+  assert.strictEqual(federation.forgetLink('proj-f1'), true);
+  assert.strictEqual(federation.linkFor('proj-f1'), null);
+  assert.deepStrictEqual(federation.linkFor('proj-f2'), { role: 'owner', ref: 'r2' });
+  assert.strictEqual(federation.forgetLink('proj-f1'), false, 'already gone');
+});
+
+test('a verified snapshot expires, and at most SNAPSHOT_MAX are held', async (t) => {
+  const answer = (edge) => ({ ok: true, data: { edge_id: edge, project_name: 'P ' + edge } });
+  let n = 0;
+  const remote = { macRequest: async () => answer('edge-cap-' + (n++)) };
+  for (let i = 0; i < federation.SNAPSHOT_MAX + 3; i++) await federation.verify(remote, { code: 'C' + i });
+  assert.strictEqual(federation.joinSnapshot('edge-cap-0'), null, 'the oldest was dropped');
+  assert.ok(federation.joinSnapshot('edge-cap-' + (federation.SNAPSHOT_MAX + 2)), 'the newest is held');
+  assert.strictEqual(federation.joinSnapshot('edge-cap-3').at, undefined, 'the held time is not handed out');
+  t.mock.timers.enable({ apis: ['Date'], now: Date.now() + federation.SNAPSHOT_TTL_MS + 1000 });
+  assert.strictEqual(federation.joinSnapshot('edge-cap-' + (federation.SNAPSHOT_MAX + 2)), null, 'an old verify cannot be joined');
+});
+
 test('the link record round-trips and refuses to overwrite a file it cannot read', () => {
   federation.recordLink('proj-a', { role: 'owner', ref: 'ref-1' });
   assert.deepStrictEqual(federation.linkFor('proj-a'), { role: 'owner', ref: 'ref-1' });

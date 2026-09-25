@@ -66,16 +66,51 @@ function writeLinks(links) {
   fs.renameSync(tmp, file());
 }
 
+/* The last good read, so `linkFor` costs a stat rather than a read and parse.
+   Every room post asks it (fedseats.post: is this room federated?), and almost
+   none are. The copy is used only while the file's mtime and size are what
+   they were when it was read: any change on disk, a damaged file included, is
+   read again, so a damaged record is still reported and never hidden behind
+   the copy. A failed read is never cached. */
+let cached = null;
+let cachedKey = null;
+function diskKey() {
+  try {
+    const st = fs.statSync(file());
+    return st.mtimeMs + ':' + st.size;
+  } catch (err) {
+    return (err && err.code === 'ENOENT') ? 'absent' : null;
+  }
+}
+function links() {
+  const key = diskKey();
+  if (cached && key !== null && key === cachedKey) return cached;
+  const read = readLinks();
+  cached = read;
+  cachedKey = key;
+  return read;
+}
+
 function linkFor(projectId) {
-  const links = readLinks();
-  return Object.prototype.hasOwnProperty.call(links, projectId) ? links[projectId] : null;
+  const all = links();
+  return Object.prototype.hasOwnProperty.call(all, projectId) ? all[projectId] : null;
 }
 
 function recordLink(projectId, link) {
-  const links = readLinks();
-  links[projectId] = link;
-  writeLinks(links);
+  const next = Object.assign({}, readLinks(), { [projectId]: link });
+  writeLinks(next);
+  cached = null;
   return link;
+}
+
+/** Drop a removed project's link, so nothing keeps looking for its seat. */
+function forgetLink(projectId) {
+  const all = readLinks();
+  if (!Object.prototype.hasOwnProperty.call(all, projectId)) return false;
+  delete all[projectId];
+  writeLinks(all);
+  cached = null;
+  return true;
 }
 
 /* The snapshot the coordinator returned on verify, per edge, so `join` names the
@@ -83,6 +118,11 @@ function recordLink(projectId, link) {
    in memory: a restart between verify and join means verifying again, which is
    refused (the code is single-use) -- see joinSnapshot's caller for the answer. */
 const verified = new Map();
+/* A verify that is never followed by a join (the person walked away, or typed
+   the code again) must not stay forever: a snapshot lasts this long, and at
+   most this many are held, oldest dropped first. */
+const SNAPSHOT_TTL_MS = 30 * 60 * 1000;
+const SNAPSHOT_MAX = 32;
 
 /* The page (pjFedMessage) turns a fixed `reason` into its own sentence and shows a
    generic line for anything else, so the coordinator's refusals are mapped to those
@@ -134,13 +174,19 @@ async function verify(remote, body) {
     return { status: 502, body: { error: 'the connection service answered in a shape we could not read' } };
   }
   const snap = { edge_id: d.edge_id, project_name: d.project_name, project_desc: d.project_desc || null, owner_handle: d.owner_handle || null };
-  verified.set(d.edge_id, snap);
+  verified.delete(d.edge_id);
+  verified.set(d.edge_id, Object.assign({ at: Date.now() }, snap));
+  while (verified.size > SNAPSHOT_MAX) verified.delete(verified.keys().next().value);
   return { status: 200, body: snap };
 }
 
 /** The verified snapshot for an edge, or null if this board did not verify it. */
 function joinSnapshot(edgeId) {
-  return typeof edgeId === 'string' && verified.has(edgeId) ? verified.get(edgeId) : null;
+  if (typeof edgeId !== 'string' || !verified.has(edgeId)) return null;
+  const held = verified.get(edgeId);
+  if (Date.now() - held.at > SNAPSHOT_TTL_MS) { verified.delete(edgeId); return null; }
+  const { at, ...snap } = held;
+  return snap;
 }
 
 function forgetSnapshot(edgeId) {
@@ -149,5 +195,6 @@ function forgetSnapshot(edgeId) {
 
 module.exports = {
   FILE, MAC_INVITE, MAC_VERIFY,
-  invite, verify, joinSnapshot, forgetSnapshot, linkFor, recordLink, readLinks, reasonFor,
+  invite, verify, joinSnapshot, forgetSnapshot, linkFor, recordLink, forgetLink, readLinks, reasonFor,
+  SNAPSHOT_TTL_MS, SNAPSHOT_MAX,
 };

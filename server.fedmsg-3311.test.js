@@ -82,7 +82,8 @@ test('a delivered message shows in the room as external, in JSON and in the text
   assert.match(text, /\[external agent\] Ada: hello from outside/);
 });
 
-test('an operator post that lands in a federated room goes out through its seat', async () => {
+test('an operator post that lands in a federated room goes out through its seat, under their name', async () => {
+  require('./engine/you').save({ name: 'Josh Stone', does: 'runs this computer' });
   const before = children[0].written.length;
   const res = await fetch(`${base}/api/project/${encodeURIComponent(pid)}/room`, {
     method: 'POST',
@@ -96,4 +97,5 @@ test('an operator post that lands in a federated room goes out through its seat'
   const out = JSON.parse(children[0].written.slice(before).join('').trim());
   assert.equal(out.kind, 'person');
   assert.equal(out.text, 'welcome in');
+  assert.equal(out.from, 'Josh Stone', 'the name from the About you screen, not the fallback');
 });

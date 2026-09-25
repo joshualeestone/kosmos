@@ -42,11 +42,23 @@ board yet carried messages between a federated project's room and its seat.
 - An owner seat refused for good goes back to waiting and picks up another active
   edge; a member seat ends. A removed project's seat is stopped on the next check.
 - A join whose link cannot be recorded removes the project it just made.
+- Every room post asks whether its room is federated. `federation.linkFor`
+  answers from memory while the record's mtime and size are unchanged (a stat,
+  not a read and parse), so ordinary rooms pay almost nothing; a damaged file
+  is still read and reported, never hidden behind the copy.
+- A verified snapshot lasts 30 minutes and at most 32 are held.
+- A removed project's link is forgotten along with its seat.
+- `from` and `kind` arriving from outside are the other Mac's claim (the relay
+  does not attest the poster); the room shows them as an external speaker.
 
 ## Verified
-- engine/fedseats.test.js (11), engine/messages.external-3311.test.js (5),
+- engine/fedseats.test.js (12), engine/messages.external-3311.test.js (5),
   server.fedmsg-3311.test.js (2), server.federation-3311.test.js (7),
-  engine/federation.test.js (7): 32 pass.
+  engine/federation.test.js (10): 36 pass.
+- Review round 2 controls: the old `(you.read() || {}).name` lookup reds the
+  forwarding test (the operator's name never went out; every post said "the
+  project owner"); no cache reds the read-count test; no TTL reds the snapshot
+  test; not forgetting the link reds the removed-project test.
 - Review round 1 controls: removing the `starting` guard reds the race test (two
   edge lookups); letting an owner's exit 3 end the seat reds the re-pick test;
   lifting the inbound bound reds the flood test; dropping the join rollback reds
