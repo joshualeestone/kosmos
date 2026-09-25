@@ -261,6 +261,17 @@ test('an agent that never reported is said ONCE on the page, beside its name, ne
   assert.doesNotMatch(done.doc.els['tk-why'].textContent, /^It /);
 });
 
+test('any other could-not-tell reason on a task kept as parts names its agent, never "it"', () => {
+  const parted = runPaint({
+    project: { ...PROJECT, tasks: [] },
+    task: { number: 10, sentence: 's', createdAt: new Date().toISOString(), addedBy: 'operator', closedAt: null,
+      claim: { claimed: null, neverReported: false, because: 'this agent is no longer on the project, so what it reports cannot be checked against this task' },
+      parts: [{ id: 1, sentence: 'first half', who: 'april', closedAt: null }] },
+  });
+  assert.match(parted.doc.els['tk-why'].textContent, /^We could not check whether April is on this: this agent is no longer on the project/);
+  assert.doesNotMatch(parted.doc.els['tk-why'].textContent, /whether it is on this/);
+});
+
 test('a task that disappears under the open page sends you to its project', () => {
   const doc = stubDoc(TK_IDS);
   const views = [];
