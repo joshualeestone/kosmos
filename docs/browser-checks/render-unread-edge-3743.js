@@ -1,4 +1,4 @@
-// Browser-check-surface: msg msg-bd data-unread data-mid unread-edge d-dmthread pj-room asp-th asp-m
+// Browser-check-surface: msg msg-bd data-unread data-mid d-dmthread pj-room asp-th asp-m
 'use strict';
 
 /**
