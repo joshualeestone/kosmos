@@ -20,40 +20,45 @@ nothing identifying was printed.)
   the Kosmos seam, never HOME, so Playwright still finds its browsers.
 - All 56 checks that boot or spawn the board (in-process `require('../../server[.js]')`, a spawned
   `server.js`, and thread-server.js) require it at top level, before the board.
-- `tools/browser-checks.sh` exports AGENT_WORKFORCE_HOME inside RUN_DIR (removed by cleanup) for
-  every board it starts and every check it runs, unless the caller set a sandbox.
+- `tools/browser-checks.sh` exports an empty AGENT_WORKFORCE_HOME inside RUN_DIR (removed by
+  cleanup) and AGENT_WORKFORCE_CODEX_HOME under it, for every board it starts and every check it
+  runs, unless the caller set a sandbox.
 - `tools.browser-checks-home-3675.test.js`: every board-booting check requires the lib before the
   board (red control: removing it from render-settings-nav.js, and from thread-server.js, fails);
   a fixture with the lib lists none of a planted "real" home's accounts, and without it lists the
   planted one (the control, so the test works on CI's account-free runner); the lib keeps a
   caller's sandbox, replaces the real home and removes only its own folder; the runner exports it.
 
-## Found while verifying: two checks were quietly using the host's real account
-The first full browser-check run with the sandbox home failed two checks that pass on main
-(re-run on a quiet box, main vs branch):
-- **render-create-made** makes an agent on a runner-started board. It needed a Claude account and a
-  Claude Code binary, both of which it had been taking from the host (`<home>/.local/bin/claude` and the
-  real `~/.claude`). The runner now plants a fixture default account (`fixture@example.invalid`,
-  claude_max) in its sandbox home and points `AGENT_WORKFORCE_CLAUDE_BIN` at a stand-in that answers
-  `--version` and otherwise exits non-zero, so the create liveness probe fails open instead of running
-  the host's real Claude Code against a real account. A caller's override is kept.
-- **render-talk-fill-2622** measures the Talk box with a connected subscription. In a sandbox home the
-  board's "Kosmos cannot reach a Claude subscription" bar took 45px under the box. On a developer Mac
-  the "connected" verdict came from the host's real secondary accounts. The lib gains an opt-in
-  `plantSubscribedClaude()` (a secondary `~/.claude-fixture`, claude_max, since the default account's
-  verdict is read from the fixture's own CLAUDE_CONFIG file) and this check calls it. Opt-in, because
-  first-run checks want no account.
+## Found while verifying: checks that quietly used the host's real account
+- **render-create-made** makes an agent on a runner-started board (sb8). It needed a Claude account
+  and a Claude Code binary, both taken from the host (`<home>/.local/bin/claude`, the real
+  `~/.claude`). sb8 now has its own home with a fixture default account (`fixture@example.invalid`)
+  and its own stand-in Claude Code (answers `--version`, exits non-zero otherwise), inline, the way
+  sb4 already does it, so the create liveness probe fails open instead of running the host's real
+  Claude Code against a real account.
+- **render-talk-fill-2622** measures the Talk box with a connected subscription, which it borrowed
+  from the host's secondary accounts; in a sandbox the "cannot reach a Claude subscription" bar took
+  45px. It calls the lib's opt-in `plantSubscribedClaude()`, which gives it its OWN home (never the
+  shared one) holding a secondary `~/.claude-fixture` account (claude_max). Secondary, because the
+  default account's verdict is read from AGENT_WORKFORCE_CLAUDE_CONFIG.
+- **The subscription check** (`subscription.js`) reads `AGENT_WORKFORCE_CLAUDE_CONFIG || ~/.claude.json`,
+  not the home seam, and 20 wired checks never set it. The lib defaults it into the sandbox too, and
+  `AGENT_WORKFORCE_CODEX_HOME`, which the OpenAI default reads before the home seam.
+- The runner's shared home stays EMPTY, so no check's premise depends on which check ran first.
 
-Full browser-check run on the branch after both: all page checks passed (one retry,
-render-update-win32-manual, which then passed twice alone).
+Full browser-check run on f138ef26: all page checks passed (one retry, render-type-to-focus-3283,
+the focus area tracked as #3557).
 
 Rejected: changing the account modules to refuse the real home under a fixture. The seam already
 exists and every module honours it; the defect was fixtures not using it.
 
-Not built here: the card's screenshot tripwire (page text with a real email or key fragment exits
+Not built here: signal-time cleanup of the lib's temp folders (only on normal exit; a killed check
+leaves one behind), and the card's screenshot tripwire (page text with a real email or key fragment exits
 before any screenshot). With the source closed it is defence in depth; the mobile harness has one.
 
 ## Weakest premise
 That the scan's definition of "boots a board" (requires server, spawns server.js) catches every way
 a check can reach the account routes. A check that talks to a board started some third way would
-be missed; the runner's export covers the boards it starts itself.
+be missed; the runner's export covers the boards it starts itself. A check that loads engine
+modules directly without booting a board (live-connect.js loads engine/connect.js) is outside the
+scan; it sets its own home.
