@@ -58,3 +58,10 @@ signing a lapsed subscription back in from the app.
 - Arms added: switch provider mid-sign-in, a start answered after close, leaving first
   run's step, the two lines, focus both ways, emailless row, watchdog and failed-rename on
   the engine, symlink, capitals. Each new fix perturbed red.
+
+## Review pass 2 (sonnet): no blockers, 1 warning, fixed
+- [WARNING] engine/create.js still said Kosmos cannot sign in to Grok again and that a default
+  ~/.grok has no way back, three lines above the sentence this branch changed: rewritten. A
+  sweep of engine/, web/, server.js and the browser checks found no other copy.
+- [NIT] the expired sentence would be wrong for a Gemini sign-in if one ever existed: noted in
+  the same comment (only authMode 'subscription' reaches it, which only Grok has).

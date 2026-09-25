@@ -3593,8 +3593,10 @@ async function accountConnectable({ provider, accountDir } = {}) {
       return { ok: true };
     };
     // #3391: one sentence for a lapsed subscription, default or named.
-    /* Says what works TODAY: Kosmos cannot sign in to Grok again yet (the sign-in button is #3391
-       part 2, and a default ~/.grok has no in-product path back at all), so it points at the key. */
+    /* It points at the account row's Sign in again (#3391 part 2), which works for a named
+       account and for the default ~/.grok alike. Only reached for authMode 'subscription',
+       which today only a Grok account has: if Gemini ever gains a sign-in, check that its
+       rows offer Sign in again before this sentence is said about one. */
     const expiredSignIn = (w) => `That ${w} sign-in has expired, so an agent created on it could not run. Sign in again on that account in Settings, AI Models, or choose another ${w} account for this agent.`;
     /* #3391: a DEFAULT grok account that is a subscription sign-in is the one default the
        board CAN see (it is listed), so a lapsed one is refused here as the named one is. */
