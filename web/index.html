@@ -1512,6 +1512,38 @@ button.uprime:hover, .btn.uprime:hover, .utoast .uacts button.uprime:hover,
 .asb button:focus-visible, .asp button:focus-visible, .asb-nudge button:focus-visible { outline: 2px solid var(--k-ink); outline-offset: 2px; }
 .asp-ask button.pri:focus-visible, .asp-in button:focus-visible { outline-color: #14161a; }
 @media (max-width: 40rem) { .asp { right: 12px; left: 12px; width: auto; max-width: none; } .asb-nudge { display: none; } }
+/* #3564 (Josh, 2026-09-24, mock approved 12:13): Agent Swarms. Built as chaoskosmos-site
+   design/agent-swarms.html (c8284df). A swarm is one agent to the person; the cluster is its avatar. */
+.swc { position: relative; display: inline-block; flex: none; vertical-align: middle; }
+.swc .swd { position: absolute; border-radius: 50%; overflow: hidden; display: grid; place-items: center;
+  font: 700 var(--swd-font, 10px) var(--font-ui); box-shadow: 0 0 0 var(--swd-edge, 1px) var(--k-bg); background-size: cover; background-position: center; }
+.swc .swd.rest { opacity: .72; filter: saturate(.7); }
+.swc .swd.on { opacity: 1; box-shadow: 0 0 0 var(--swd-edge, 1px) var(--k-bg), 0 0 0 calc(var(--swd-edge, 1px) + 1.5px) var(--gold-bright); }
+.swc .swb { position: absolute; right: -4px; bottom: -3px; padding: 0 5px; border-radius: 999px; background: var(--k-ink); color: var(--k-bg);
+  font: 700 .625rem/15px var(--font-ui); letter-spacing: .02em; box-shadow: 0 0 0 2px var(--k-bg); }
+.swc .swring { position: absolute; inset: 0; border-radius: 50%; box-shadow: 0 0 0 2.5px var(--ok); pointer-events: none; }
+/* The Agent / Swarm choice at the top of New agent (the mock's two cards). */
+.ctype { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin: 0 0 var(--space-6); border: 0; padding: 0; min-width: 0; }
+.ctype-opt { display: flex; gap: 12px; align-items: center; padding: 12px 14px; border: 1px solid var(--k-rule); border-radius: 12px;
+  background: var(--k-surface); cursor: pointer; position: relative; }
+.ctype-opt input { position: absolute; width: 1px; height: 1px; margin: 0; opacity: 0; pointer-events: none; }
+.ctype-opt:has(input:checked) { border-color: var(--gold-edge); box-shadow: 0 0 0 1px var(--gold-edge); background: color-mix(in srgb, var(--gold-bright) 8%, var(--k-surface)); }
+.ctype-opt:has(input:focus-visible) { outline: 2px solid var(--k-ink); outline-offset: 2px; }
+.ctype-opt b { display: block; }
+.ctype-opt .d { display: block; font-size: .8125rem; color: var(--k-ink-2); line-height: 1.35; }
+.ctype-dot { width: 44px; height: 44px; border-radius: 50%; flex: none; display: grid; place-items: center; background: var(--k-side); font: 700 1rem var(--font-ui); color: var(--k-ink-2); }
+@media (max-width: 40rem) { .ctype { grid-template-columns: 1fr; } }
+/* Sliders: the mock's value beside the track, gold. */
+.swrow, .swticks { max-width: 26rem; }
+.swrow { display: flex; align-items: center; gap: 12px; }
+.swrow input[type="range"] { flex: 1; accent-color: var(--gold-deep); min-width: 0; }
+.swval { font: 700 .9375rem var(--font-ui); font-variant-numeric: tabular-nums; min-width: 3ch; text-align: right; color: var(--k-ink); }
+.swticks { display: flex; justify-content: space-between; font-size: .75rem; color: var(--k-ink-2); margin-top: 2px; padding-right: calc(3ch + 12px); }
+.swwarn { max-width: 34rem; display: flex; gap: 10px; align-items: flex-start; margin: 10px 0 0; padding: 10px 12px; border: 1px solid color-mix(in srgb, var(--gold-edge) 55%, transparent);
+  border-radius: 10px; background: color-mix(in srgb, var(--gold-bright) 9%, transparent); font-size: .875rem; line-height: 1.45; color: var(--k-ink); }
+.swwarn .i { flex: none; width: 20px; height: 20px; border-radius: 50%; background: var(--gold-bright); color: #14161a; display: grid; place-items: center; font: 800 .75rem var(--font-ui); }
+.swfixed { font-size: .9375rem; }
+.swfixed span { color: var(--k-ink-2); font-size: .8125rem; margin-left: 6px; }
 .userpop-plus { font-weight: 600; }
 /* --gold-deep, not --gold: --gold (#d6a62e) is only 2.25:1 on the light menu bg (#ffffff),
    under the 3:1 non-text-contrast floor (WCAG SC 1.4.11) this file measures every accent
@@ -11933,6 +11965,13 @@ window.kosmosMeasureScrollbarWidth();
   <div id="cstep-name" hidden>
     <h2 id="create-meet">Set up your agent</h2>
     <p id="create-blurb"></p>
+    <!-- #3564: Agent / Swarm, shown only when the board's engine can make a swarm (SWARMS_ON). Native radios in
+         a fieldset, as the other choices here; the card is the label. -->
+    <fieldset class="ctype" id="create-kind" hidden>
+      <legend class="vh">What kind of agent</legend>
+      <label class="ctype-opt"><input type="radio" name="create-kind" value="agent" checked><span class="ctype-dot" id="create-kind-agent-face" aria-hidden="true"></span><span><b>Agent</b><span class="d">One agent, works on one thing at a time.</span></span></label>
+      <label class="ctype-opt"><input type="radio" name="create-kind" value="swarm"><span id="create-kind-swarm-face" aria-hidden="true"></span><span><b>Swarm</b><span class="d">A team that answers as one. Faster on big jobs, uses more tokens.</span></span></label>
+    </fieldset>
 
 
     <!-- ⚠️ NO BOX around this form (pack): each step is its own pane now,
@@ -12053,6 +12092,25 @@ window.kosmosMeasureScrollbarWidth();
          what the engine can read. Whoever wires a second provider into the create
          path enables its option in the same change, because the failure direction
          is understating the product on the screen where somebody is choosing. -->
+    <!-- #3564: the swarm's two settings and the warning beside them (the mock, section 1). -->
+    <section class="sform-sec" id="create-swarm" hidden>
+      <div class="field">
+        <span class="flabel">Runs on</span>
+        <p class="swfixed"><b>Claude</b><span>Swarms use Claude for now. More choices later.</span></p>
+      </div>
+      <div class="field">
+        <label class="flabel" for="create-swarm-max">Most helpers at once</label>
+        <div class="swrow"><input type="range" id="create-swarm-max" min="2" max="10" step="1" value="3"><span class="swval" id="create-swarm-max-v">3</span></div>
+        <div class="swticks" aria-hidden="true"><span>2</span><span>10</span></div>
+        <p class="dhint">The swarm adds helpers when there is a lot to split and lets them go when there is not. With nothing to split, it works alone.</p>
+        <p class="swwarn" id="create-swarm-warn" role="note"><span class="i" aria-hidden="true">!</span><span></span></p>
+      </div>
+      <div class="field">
+        <label class="flabel" for="create-swarm-cap">Daily limit</label>
+        <div class="swrow"><input type="range" id="create-swarm-cap" min="1" max="20" step="1" value="6"><span class="swval" id="create-swarm-cap-v"></span></div>
+        <p class="dhint">When it reaches this, the swarm pauses itself until tomorrow and tells you. You can raise it any time.</p>
+      </div>
+    </section>
     <div class="field" id="create-model-field">
       <span class="flabel" id="create-model-lab">Model <span class="flabel-soft">(you can change this later)</span></span>
       <div class="msteps" role="group" aria-labelledby="create-model-lab">
@@ -18158,6 +18216,9 @@ async function tick() {
     // #3574: whether this is someone new is decided by the board's FIRST answer, whatever the
     // tips are doing then (off, a dialog, first run); see tipAutoOk.
     if (TIP_NEW_BOARD === null && Array.isArray(data.agents)) TIP_NEW_BOARD = data.agents.length === 0;
+    // #3564: whether the board's engine can make and run a swarm (the flag asked of the engine on #3564).
+    SWARMS_ON = data.swarms === true;
+    swarmCreatePaint();
     /**
      * 🛑 THE ROOM'S WORKING LINE PAINTS HERE, ON THE CLOCK ITS DATA ARRIVES ON.
      *
@@ -38046,8 +38107,89 @@ document.getElementById('orgchart-create').addEventListener('click', async () =>
    ARIA role PROMISED this behaviour, so the code had to keep the promise. A
    native radio makes the promise and keeps it in the same breath. */
 
+/* ---- #3564: Agent Swarms (the UI; the engine is Renet's, contract on #3564) ------------------------
+   Built as the approved mock (chaoskosmos-site design/agent-swarms.html, c8284df). Nothing here shows,
+   and no swarm route is called, until the board says its engine can run a swarm (/api/status swarms). */
+var SWARMS_ON = false;   // var, not let: the status handler far above writes it (no dead zone)
+
+/* Circle places as fractions of the box, the mock's own: 2-4 in a small group, 5-7 as a centre circle with
+   the rest evenly round it, so every count reads as round. */
+function swarmLayout(n) {
+  if (n <= 2) return { r: 0.21, p: [[0.3, 0.5], [0.7, 0.5]] };
+  if (n === 3) return { r: 0.2, p: [[0.5, 0.29], [0.3, 0.65], [0.7, 0.65]] };
+  if (n === 4) return { r: 0.19, p: [[0.31, 0.31], [0.69, 0.31], [0.31, 0.69], [0.69, 0.69]] };
+  const k = n - 1, d = n === 5 ? 0.28 : 0.31, r = n === 5 ? 0.17 : (n === 6 ? 0.155 : 0.145), pts = [[0.5, 0.5]];
+  for (let i = 0; i < k; i += 1) { const t = -Math.PI / 2 + i * 2 * Math.PI / k; pts.push([0.5 + d * Math.cos(t), 0.5 + d * Math.sin(t)]); }
+  return { r, p: pts };
+}
+/* The cluster avatar: the agent's own picture (or its initials on its tint), repeated in a round cluster.
+   The number of circles is the most helpers it can use (seven drawn at most; the badge carries the count),
+   each lit while a helper works; the badge says working/most at 32px and up; the memory ring goes round
+   the whole cluster when asked (it is the lead's memory). `a` is a status row with a swarm field, or a
+   stand-in { name, sessionName, hasAvatar, avatarVer, swarm: { maxHelpers, activeHelpers } }. */
+function swarmCluster(a, size, { ring = false } = {}) {
+  const sw = (a && a.swarm) || {};
+  const max = Math.max(2, Math.min(10, Number(sw.maxHelpers) || 3));
+  const live = Math.max(0, Math.min(max, Number(sw.activeHelpers) || 0));
+  const n = Math.min(max, 7), L = swarmLayout(n), r = L.r * size;
+  const pic = a && a.hasAvatar && a.sessionName ? `url('/api/agent/${encodeURIComponent(a.sessionName)}/avatar?v=${a.avatarVer || 0}')` : '';
+  const tint = discTint(a && a.name), ink = discInk(a && a.name), ini = esc(initials(a && a.name));
+  let h = `<span class="swc" role="img" aria-label="${esc('Swarm, ' + live + ' of ' + max + ' helpers working')}" style="width:${size}px;height:${size}px;--swd-font:${Math.max(7, Math.round(r * 0.95))}px;--swd-edge:${Math.max(1, size / 44).toFixed(1)}px">`;
+  for (let i = 0; i < n; i += 1) {
+    const x = L.p[i][0] * size - r, y = L.p[i][1] * size - r;
+    const look = pic ? `background-image:${pic}` : `background:${tint};color:${ink}`;
+    h += `<span class="swd ${i < live ? 'on' : 'rest'}" style="left:${x.toFixed(1)}px;top:${y.toFixed(1)}px;width:${(2 * r).toFixed(1)}px;height:${(2 * r).toFixed(1)}px;${look}">${pic || size < 56 ? '' : ini}</span>`;
+  }
+  if (ring) h += '<span class="swring" aria-hidden="true"></span>';
+  if (size >= 32) h += `<span class="swb" aria-hidden="true">${live}/${max}</span>`;
+  return h + '</span>';
+}
+
+function createKind() {
+  const on = document.querySelector('input[name="create-kind"]:checked');
+  return SWARMS_ON && on && on.value === 'swarm' ? 'swarm' : 'agent';
+}
+/* The warning moves with the slider (the mock): helpers plus the lead, as a multiple of one agent. */
+function swarmWarnWords(max, ratio) {
+  const times = Number.isFinite(ratio) && ratio > 1 ? Math.round(ratio * 10) / 10 : max + 1;
+  return `While it is busy, it can use up to about <b>${times} times</b> the tokens of one agent: ${max} helpers plus the lead. It only adds helpers when there is enough work to split.`;
+}
+function swarmCreatePaint() {
+  const box = document.getElementById('create-kind');
+  if (!box) return;
+  box.hidden = !SWARMS_ON;
+  const swarm = createKind() === 'swarm';
+  document.getElementById('create-swarm').hidden = !swarm;
+  const max = Number(document.getElementById('create-swarm-max').value) || 3;
+  document.getElementById('create-swarm-max-v').textContent = String(max);
+  document.getElementById('create-swarm-cap-v').textContent = (Number(document.getElementById('create-swarm-cap').value) * 1000000).toLocaleString('en-US');
+  document.querySelector('#create-swarm-warn span:last-child').innerHTML = swarmWarnWords(max, null);
+  const name = document.getElementById('create-name').value.trim() || 'Swarm';
+  const stand = { name, swarm: { maxHelpers: max, activeHelpers: 0 } };
+  const f = document.getElementById('create-kind-swarm-face');
+  const html = swarmCluster(stand, 44);
+  if (f.innerHTML !== html) f.innerHTML = html;
+  document.getElementById('create-kind-agent-face').textContent = initials(name);
+  /* Claude only for now: the provider picker is set to Claude and held there while Swarm is chosen. */
+  const prov = document.getElementById('create-provider');
+  if (prov) {
+    if (swarm && prov.value !== 'anthropic' && [...prov.options].some((o) => o.value === 'anthropic' && !o.disabled)) { prov.value = 'anthropic'; prov.dispatchEvent(new Event('change')); }
+    prov.disabled = swarm;
+  }
+  const go = document.getElementById('create-go');
+  if (go && go.dataset.swarmWas === undefined) go.dataset.swarmWas = go.textContent;
+  if (go) go.textContent = swarm ? 'Make this swarm' : go.dataset.swarmWas;
+}
+document.addEventListener('change', (e) => { if (e.target && e.target.name === 'create-kind') swarmCreatePaint(); });
+document.addEventListener('input', (e) => {
+  if (e.target && (e.target.id === 'create-swarm-max' || e.target.id === 'create-swarm-cap' || e.target.id === 'create-name')) swarmCreatePaint();
+});
+
 function openCreate(initialMode) {
   PICKED = null;
+  /* #3564: each visit starts as a plain Agent. */
+  { const ag = document.querySelector('input[name="create-kind"][value="agent"]'); if (ag) ag.checked = true; }
+  swarmCreatePaint();
   /* 🛑 THE RADIOS ARE CLEARED, WHICH THE OLD PICKER NEVER DID. A form control
      keeps its state across a hidden panel, so reopening this form used to show
      the previous visit's option still marked while `PICKED` was null and
@@ -39335,6 +39477,14 @@ document.getElementById('create-go').addEventListener('click', async () => {
            sending them would turn every OpenAI creation into a refusal. */
         const prov = document.getElementById('create-provider').value;
         if (prov && prov !== 'anthropic') b.provider = prov;
+        /* #3564: a swarm travels as kind + its two settings (the contract on #3564); it is Claude-only, so no
+           provider is sent (anthropic is the default). */
+        if (createKind() === 'swarm') {
+          b.kind = 'swarm';
+          b.maxHelpers = Number(document.getElementById('create-swarm-max').value);
+          b.dailyTokenLimit = Number(document.getElementById('create-swarm-cap').value) * 1000000;
+          delete b.provider;
+        }
         const model = document.getElementById('create-model').value;
         /* #2140: send the chosen model for EITHER provider. For OpenAI the picker's
            empty value is "Let OpenAI choose" (auto), which is falsy and so is not
