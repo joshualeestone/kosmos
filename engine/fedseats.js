@@ -25,6 +25,10 @@ const RESTART_START_MS = 2000;
    log (the relay allows bursts of 128). Past it, messages are dropped and the
    room says so once per window. */
 const INBOUND_PER_WINDOW = 60;
+/* And a byte budget in the same window, so the count bound cannot be spent on
+   max-size messages: 64 KiB a minute is far above any conversation and keeps a
+   flooding peer to under 100 MiB a day in the append-only message log. */
+const INBOUND_BYTES_PER_WINDOW = 64 * 1024;
 const INBOUND_WINDOW_MS = 60000;
 /* The longest stdout line kept while waiting for its newline. The connector
    prints one event per line, each under its 16 KiB post bound plus framing; a
@@ -79,9 +83,10 @@ function onEvent(projectId, line) {
   if (ev.event === 'refused_post') { say(projectId, 'A message was not sent to the external project: ' + clean(ev.because, 200) + '.'); return; }
   if (ev.event === 'message' && ev.data && typeof ev.data === 'object' && typeof ev.data.text === 'string' && ev.data.text.trim()) {
     const now = Date.now();
-    if (!s.inbound || now - s.inbound.since >= INBOUND_WINDOW_MS) s.inbound = { since: now, count: 0, noted: false };
+    if (!s.inbound || now - s.inbound.since >= INBOUND_WINDOW_MS) s.inbound = { since: now, count: 0, bytes: 0, noted: false };
     s.inbound.count += 1;
-    if (s.inbound.count > INBOUND_PER_WINDOW) {
+    s.inbound.bytes += ev.data.text.length + String(ev.data.from || '').length;
+    if (s.inbound.count > INBOUND_PER_WINDOW || s.inbound.bytes > INBOUND_BYTES_PER_WINDOW) {
       if (!s.inbound.noted) { s.inbound.noted = true; say(projectId, 'The external project sent more messages than Kosmos keeps in a minute; some were not kept.'); }
       return;
     }
@@ -107,10 +112,15 @@ function setStatus(projectId, status) {
 }
 
 /* The owner's seat needs an edge of the project; any active one names the room. */
-async function ownerEdge(link) {
+/* An active edge of the owner's project, skipping any edge whose seat was
+   already refused for good: the coordinator can still list an edge as active
+   while refusing its ticket (the owner's own account lapsed), and without the
+   skip the owner's seat would spawn, be refused, and spawn again every minute. */
+async function ownerEdge(link, refused) {
   const r = await deps.macRequest('POST', MAC_EDGES, {});
   if (!r.ok || !r.data || !Array.isArray(r.data.as_owner)) return null;
-  const edge = r.data.as_owner.find((e) => e && e.project_ref === link.ref && e.status === 'active');
+  const edge = r.data.as_owner.find((e) => e && e.project_ref === link.ref && e.status === 'active'
+    && !(refused && refused.has(e.id)));
   return edge ? edge.id : null;
 }
 
@@ -149,7 +159,12 @@ function spawnFor(projectId, edge) {
     // edge on the next check and ends only when none is left.
     if (code === 3) {
       const link = safeLink(projectId);
-      if (link && link.role === 'owner') { setStatus(projectId, 'waiting'); return; }
+      if (link && link.role === 'owner') {
+        if (!cur.refused) cur.refused = new Set();
+        if (cur.edge) cur.refused.add(cur.edge);
+        setStatus(projectId, 'waiting');
+        return;
+      }
       setStatus(projectId, 'ended');
       return;
     }
@@ -181,7 +196,7 @@ async function ensure(projectId) {
   if (s.child || s.starting || s.timer || s.stopped || s.status === 'ended') return s.status;
   s.starting = true;
   try {
-    const edge = link.role === 'member' ? link.edge_id : await ownerEdge(link);
+    const edge = link.role === 'member' ? link.edge_id : await ownerEdge(link, s.refused);
     if (!edge) { setStatus(projectId, 'waiting'); return 'waiting'; }
     if (s.stopped || s.child) return s.status;
     spawnFor(projectId, edge);
@@ -220,6 +235,10 @@ function post(projectId, { from, kind, text }) {
     // Every room post passes through here; only a federated project's room has
     // anywhere else for it to go, so only there is staying local worth a line.
     if (!safeLink(projectId)) return false;
+    if (s && s.status === 'waiting') {
+      say(projectId, 'That message stayed on this computer: nobody outside has joined this shared project yet.');
+      return false;
+    }
     say(projectId, 'That message stayed on this computer: the connection to the external project is not up right now.');
     return false;
   }
@@ -227,7 +246,8 @@ function post(projectId, { from, kind, text }) {
   try { s.child.stdin.write(line + '\n'); return true; } catch { return false; }
 }
 
-/** Stop every seat (board shutdown, tests). */
+/** Stop every seat. Only tests call it: on a board shutdown each connector
+    sees its stdin close when the board exits, and ends on that. */
 function stopAll() {
   for (const s of seats.values()) {
     s.stopped = true;
@@ -237,4 +257,4 @@ function stopAll() {
   seats.clear();
 }
 
-module.exports = { configure, ensure, ensureAll, post, statusOf, stop, stopAll, onEvent, MAC_EDGES, INBOUND_PER_WINDOW };
+module.exports = { configure, ensure, ensureAll, post, statusOf, stop, stopAll, onEvent, MAC_EDGES, INBOUND_PER_WINDOW, INBOUND_BYTES_PER_WINDOW };

@@ -213,3 +213,33 @@ test('a post in a project that is not federated says nothing in its room', async
   assert.strictEqual(fedseats.post('proj-local-only', { from: 'Josh', kind: 'person', text: 'hi team' }), false);
   assert.strictEqual(h.notes.length, 0);
 });
+
+test('inbound past the byte budget is dropped too, with one note', async () => {
+  federation.recordLink('proj-bytes', { role: 'member', edge_id: 'edge-bytes' });
+  const h = harness();
+  await fedseats.ensure('proj-bytes');
+  const big = 'x'.repeat(16000);
+  for (let i = 0; i < 10; i++) say(h.spawned[0], { event: 'message', data: { from: 'Ada', kind: 'person', text: big } });
+  await tick();
+  assert.strictEqual(h.recorded.length, Math.floor(fedseats.INBOUND_BYTES_PER_WINDOW / (big.length + 3)));
+  assert.ok(h.recorded.length < 10);
+  assert.strictEqual(h.notes.length, 1);
+});
+
+test('an owner edge refused for good is not tried again', async () => {
+  federation.recordLink('proj-ref', { role: 'owner', ref: 'ref-ref' });
+  const h = harness({ edges: [{ id: 'edge-bad', project_ref: 'ref-ref', status: 'active' }] });
+  await fedseats.ensure('proj-ref');
+  assert.strictEqual(h.spawned.length, 1);
+  h.spawned[0].emit('exit', 3);
+  assert.strictEqual(await fedseats.ensure('proj-ref'), 'waiting', 'the coordinator still lists it, but it was refused');
+  assert.strictEqual(h.spawned.length, 1, 'no second spawn on the refused edge');
+});
+
+test('while an owner waits for someone to join, a post says exactly that', async () => {
+  federation.recordLink('proj-wait', { role: 'owner', ref: 'ref-wait' });
+  const h = harness({ edges: [] });
+  assert.strictEqual(await fedseats.ensure('proj-wait'), 'waiting');
+  assert.strictEqual(fedseats.post('proj-wait', { from: 'Josh', kind: 'person', text: 'anyone?' }), false);
+  assert.match(h.notes[0].text, /nobody outside has joined/);
+});

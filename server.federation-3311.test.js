@@ -133,3 +133,14 @@ test('a join whose link cannot be recorded leaves no project behind', async () =
   assert.notEqual(j.status, 200, JSON.stringify(j.json));
   assert.ok(!projects.readAll().some((p) => p.name === 'Rollback Club'), 'the half-made project was taken back out');
 });
+
+test('a create whose owner link cannot be recorded makes no project and says so', async () => {
+  const real = federation.recordLink;
+  federation.recordLink = () => { throw new Error('disk full'); };
+  let r;
+  try { r = await post('/api/projects', { name: 'Unlinked Club', federation_ref: 'ref-unlinked' }, SCREEN); }
+  finally { federation.recordLink = real; }
+  assert.equal(r.status, 500, JSON.stringify(r.json));
+  assert.match(r.json.error, /not made/);
+  assert.ok(!projects.readAll().some((p) => p.name === 'Unlinked Club'), 'no project was left behind');
+});

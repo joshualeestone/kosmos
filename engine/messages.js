@@ -389,12 +389,6 @@ function resolveSender(fromPane, roster) {
   return { ok: true, card };
 }
 
-/**
- * The record, with its own unreadability SURFACED: ENOENT is the true
- * empty (no one has messaged yet), any other read failure is could-not-
- * look -- a screen whose rule is no-state-as-silence needs the
- * difference, and the old swallow-everything read predates that screen.
- */
 /* #3311: record a message that arrived from outside, through a federated
    project's seat. The sender's words are data: bounded, never parsed for
    commands, and stored under their own kind so no reader can take them for a
@@ -423,6 +417,12 @@ function externalPost(projectId, { from, fromKind, text }) {
   return row;
 }
 
+/**
+ * The record, with its own unreadability SURFACED: ENOENT is the true
+ * empty (no one has messaged yet), any other read failure is could-not-
+ * look -- a screen whose rule is no-state-as-silence needs the
+ * difference, and the old swallow-everything read predates that screen.
+ */
 /* Kosmos speaking in a room, in its own voice (#167). Only the product may
    write these; the shape validator refuses any other author, so a note can
    never dress an agent in words it did not say. Best-effort like every
@@ -1539,7 +1539,9 @@ function sendPost({ fromPane, sender: resolvedSender, project, projectName, text
   const states = Object.values(outcomes);
   const state = states.every((v) => v === chat.DELIVERY.PLACED)
     ? chat.DELIVERY.PLACED : chat.DELIVERY.UNCONFIRMED;
-  return { state, because: null, id, at, outcomes, from };
+  // `text` is the form the room stored, so a federated room can send out
+  // exactly what this room shows (#3311).
+  return { state, because: null, id, at, outcomes, from, text: stored };
 }
 
 /** Messages involving one agent (or all, unfiltered), oldest first. */

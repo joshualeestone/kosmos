@@ -2504,7 +2504,7 @@ function sendRoomPostAsAgent({ fromPane, sender, project, text, replyExpected, i
     text,
     replyExpected,
   }, roster, members);
-  federateOut(found.id, delivery, text, false);
+  federateOut(found.id, delivery, false);
   return delivery;
 }
 
@@ -13355,6 +13355,23 @@ const server = http.createServer((req, res) => {
           // a 400 like any other bad field rather than a silent ungroup.
           parent: body.parent,
           made: { via: viaScreen ? 'screen' : 'process', by: paneCard ? paneCard.sessionName : null } });
+        /* #3311: an owner who minted invites on the create screen sends the
+           project_ref they were minted with, so this board can find the project's
+           room later (the coordinator derives it from owner + ref). Without that
+           record the invites point at a room this board will never sit in, so a
+           failed record takes the project back out and says so, the same as join. It
+           runs BEFORE any member is told, so taking it back leaves nobody told of a
+           project that does not exist. */
+        let federationLinked;
+        if (typeof body.federation_ref === 'string' && body.federation_ref && body.federation_ref.length <= 200) {
+          try { federation.recordLink(made.id, { role: 'owner', ref: body.federation_ref }); federationLinked = true; }
+          catch (err) {
+            try { projects.remove(made.id); } catch { /* reported below either way */ }
+            sendJson(res, 500, { error: 'We could not record this shared project on this computer, so it was not made. Try again. ('
+              + String((err && err.message) || 'unknown') + ')' });
+            return;
+          }
+        }
         // ⚠️ Told AFTER the record is written, never before. If announcing it
         // failed first, a membership the person asked for would not exist at
         // all -- and the whole point of the three-valued verdict is that a
@@ -13394,17 +13411,8 @@ const server = http.createServer((req, res) => {
             messages.roomNote(made.id, projects.BRIEF_PENDING_NOTE);
           }
         } catch { /* the note is furniture; the project exists regardless */ }
-        /* #3311: an owner who minted invites on the create screen sends the
-           project_ref they were minted with, so this board can find the project's
-           room later (the coordinator derives it from owner + ref). The project
-           exists either way; a failed record is reported, not thrown. */
-        let federationLinked;
-        if (typeof body.federation_ref === 'string' && body.federation_ref && body.federation_ref.length <= 200) {
-          try { federation.recordLink(made.id, { role: 'owner', ref: body.federation_ref }); federationLinked = true; }
-          catch { federationLinked = false; }
-          // The owner's seat waits for a first edge (someone has joined); try now.
-          if (federationLinked) fedseats.ensure(made.id).catch(() => {});
-        }
+        // The owner's seat waits for a first edge (someone has joined); try now.
+        if (federationLinked) fedseats.ensure(made.id).catch(() => {});
         let project = null;
         try { project = projects.get(made.id, roster); } catch { project = null; }
         sendJson(res, 200, { project, told, id: made.id, agentsUnreadable: roster === null, federationLinked });
@@ -13867,7 +13875,7 @@ const server = http.createServer((req, res) => {
           operator: true, project: found.id, projectName: found.name, text: body.text, federated,
           attachment: fields.attachment || null, attachments: fields.attachments || null, trailer: attachments.wireNote(files.recs),
         }, roster, members);
-        federateOut(found.id, delivery, body.text, true);
+        federateOut(found.id, delivery, true);
         sendJson(res, 200, { delivery });
       })
       .catch((err) => sendJson(res, (err && err.status) || 400,
@@ -15375,12 +15383,30 @@ fedseats.configure({
 
 /* #3311: send a post that landed in a federated project's room out through its
    seat. Only the words and who said them leave this Mac; a post that did not
-   land (no id) is never sent. The operator speaks as a person under their own
-   name; an agent as an agent under its name. A room with no live seat keeps the
+   land (no id) is never sent, and what is sent is the text the room STORED, so
+   both rooms show the same message. The operator speaks as a person under their
+   own name; an agent as an agent under the name its project shows (never the
+   internal session name). Attachments stay on this computer: a post that is
+   only an attachment says so in the room. A room with no live seat keeps the
    post local, and the seat manager says so in the room with a Kosmos note. */
-function federateOut(projectId, delivery, text, operator) {
+function federateOut(projectId, delivery, operator) {
   if (!delivery || !delivery.id) return;
+  let linked = false;
+  try { linked = !!federation.linkFor(projectId); } catch { linked = false; }
+  if (!linked) return;
+  const text = typeof delivery.text === 'string' ? delivery.text : '';
+  if (!text.trim()) {
+    messages.roomNote(projectId, 'That post stayed on this computer: attachments are not sent to the external project, only words.');
+    return;
+  }
   let from = delivery.from;
+  if (!operator) {
+    try {
+      const p = projects.get(projectId, safeRoster());
+      const m = p && (p.agents || []).find((a) => a && a.sessionName === delivery.from);
+      if (m && m.name) from = m.name;
+    } catch { /* the session name is the fallback */ }
+  }
   if (operator) {
     // you.read() answers { state, you: { name, ... } }; the name is one level in.
     try { const r = you.read(); from = (r && r.you && r.you.name) || 'the project owner'; } catch { from = 'the project owner'; }
@@ -16201,6 +16227,7 @@ module.exports = {
   server, start, pathOf, decodeSegment, resetHeardBudgetForTests,
   CONNLOST_BOOK, connlostHealEnabled, // #3410: exported so a test can pin the route's reconnect field to the sweep's own book
   givePart, // #3595: the assign-and-tell path, exported so the Assigner's real write path is tested
+  federateOut, // #3311: what leaves this Mac for a federated room, exported so the agent arm is tested
   swarmSweepDeps, // #3564: the limit sweep's wiring, exported so it is tested
   /* #2036: the boot diagnostic's condition (pure truth table) AND its real call-site
      composition, exported together so BOTH are pinned. stagingRevertWarningNow wires the raw

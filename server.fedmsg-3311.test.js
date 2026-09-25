@@ -32,7 +32,7 @@ process.env.AGENT_WORKFORCE_DRY_RUN = '1';
 
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const { start, server } = require('./server');
+const { start, server, federateOut } = require('./server');
 const projects = require('./engine/projects');
 const messages = require('./engine/messages');
 const federation = require('./engine/federation');
@@ -98,4 +98,53 @@ test('an operator post that lands in a federated room goes out through its seat,
   assert.equal(out.kind, 'person');
   assert.equal(out.text, 'welcome in');
   assert.equal(out.from, 'Josh Stone', 'the name from the About you screen, not the fallback');
+});
+
+test('what goes out is the text the room stored, not the raw request', async () => {
+  const before = children[0].written.length;
+  const res = await fetch(`${base}/api/project/${encodeURIComponent(pid)}/room`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json', 'sec-fetch-site': 'same-origin' },
+    body: JSON.stringify({ text: '   spaced out   ' }),
+  });
+  const body = await res.json();
+  assert.equal(res.status, 200, JSON.stringify(body));
+  await new Promise((r) => setImmediate(r));
+  const out = JSON.parse(children[0].written.slice(before).join('').trim());
+  const row = messages.record().rows.find((m) => m.id === body.delivery.id);
+  assert.ok(row, 'the post is in the record');
+  assert.equal(out.text, row.text, 'both rooms show the same message');
+  assert.notEqual(out.text, '   spaced out   ', 'the raw request was not what went out');
+});
+
+test('an agent speaks to the other side under the name its project shows', async () => {
+  const before = children[0].written.length;
+  const real = projects.get;
+  projects.get = (id, roster) => (id === pid
+    ? { id: pid, agents: [{ sessionName: 'ada-7f3c', name: 'Ada' }] }
+    : real(id, roster));
+  try {
+    federateOut(pid, { id: 'p-1', from: 'ada-7f3c', text: 'hello out there' }, false);
+  } finally {
+    projects.get = real;
+  }
+  const out = JSON.parse(children[0].written.slice(before).join('').trim());
+  assert.equal(out.from, 'Ada', 'the display name, never the session name');
+  assert.equal(out.kind, 'agent');
+});
+
+test('a post with no words sends nothing and says attachments stay here', async () => {
+  const before = children[0].written.length;
+  federateOut(pid, { id: 'p-2', from: 'you', text: '' }, true);
+  assert.equal(children[0].written.length, before, 'nothing was sent');
+  const notes = messages.record().rows.filter((m) => m.kind === 'note' && m.project === pid);
+  assert.match(notes[notes.length - 1].text, /attachments are not sent/);
+});
+
+test('a post in a room that is not federated sends nothing and says nothing', async () => {
+  const other = projects.create({ name: 'Local Only' }).id;
+  const before = children.map((c) => c.written.length);
+  federateOut(other, { id: 'p-3', from: 'you', text: 'hi' }, true);
+  assert.deepEqual(children.map((c) => c.written.length), before);
+  assert.equal(messages.record().rows.filter((m) => m.kind === 'note' && m.project === other).length, 0);
 });

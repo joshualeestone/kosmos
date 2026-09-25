@@ -28,19 +28,33 @@ board yet carried messages between a federated project's room and its seat.
 - Agents are NOT typed into when an external message arrives. They read it in
   the room, tagged external, as someone else's words (Josh's guardrail: a
   connected peer can never command our computer or agents).
-- Only the words and the display name leave the Mac; attachments do not.
+- Only the words and the display name leave the Mac; attachments do not. The
+  words are the text the room STORED (so both rooms show one message), an
+  agent's name is the one its project shows (never the tmux session name), and
+  a post with no words says in the room that attachments stay here.
+- The relay does not echo a post to its poster (kosmos-relay fed-room e2e pins
+  it), so a room never shows our own words back as an outside speaker.
 - Messages are TLS-protected to the relay, not sealed end to end: #3728.
 - `federation_ref` on /api/projects is not screen-gated. It only names a ref this
   board already minted invites under; it grants nothing a process caller could not
   already do by creating a project. The act that admits someone (invite, verify,
   join) is screen-only.
-- Bounds on what a peer can make this Mac do: at most 60 kept inbound messages per
-  project per minute (then dropped, one room note per minute); control characters
-  removed before storage; 16 KiB per message, matching the connector's post limit.
+- Bounds on what a peer can make this Mac do: at most 60 kept inbound messages and
+  64 KiB per project per minute (then dropped, one room note per minute), which
+  keeps a flooding peer under 100 MiB a day in the append-only log; control
+  characters removed before storage; 16 KiB per message, matching the
+  connector's post limit.
 - Anything that stays local says so in the room (a Kosmos note): a post when the
   seat is not up, and a post the relay refused.
 - An owner seat refused for good goes back to waiting and picks up another active
-  edge; a member seat ends. A removed project's seat is stopped on the next check.
+  edge, never the refused one again (the coordinator can list an edge as active
+  while refusing its ticket, e.g. the owner's own account lapsed); a member seat
+  ends. An owner still waiting for a first join asks the coordinator once a
+  minute: that is the latency of the first message, kept on purpose.
+- While an owner waits for a first join, a post says so ("nobody outside has
+  joined this shared project yet"), not "the connection is not up".
+- A create with a federation_ref whose owner link cannot be recorded makes no
+  project and says so; the link is recorded before any member is told. A removed project's seat is stopped on the next check.
 - A join whose link cannot be recorded removes the project it just made.
 - Every room post asks whether its room is federated. `federation.linkFor`
   answers from memory while the record's mtime and size are unchanged (a stat,
@@ -52,9 +66,12 @@ board yet carried messages between a federated project's room and its seat.
   does not attest the poster); the room shows them as an external speaker.
 
 ## Verified
-- engine/fedseats.test.js (12), engine/messages.external-3311.test.js (5),
-  server.fedmsg-3311.test.js (2), server.federation-3311.test.js (7),
-  engine/federation.test.js (10): 36 pass.
+- engine/fedseats.test.js (15), engine/messages.external-3311.test.js (5),
+  server.fedmsg-3311.test.js (6), server.federation-3311.test.js (8),
+  engine/federation.test.js (10): 44 pass.
+- Review round 3 controls: removing the display-name lookup, the create
+  rollback, the refused-edge memory, the byte budget, or the waiting note each
+  reds its own test by name.
 - Review round 2 controls: the old `(you.read() || {}).name` lookup reds the
   forwarding test (the operator's name never went out; every post said "the
   project owner"); no cache reds the read-count test; no TTL reds the snapshot
