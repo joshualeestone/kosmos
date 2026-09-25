@@ -15,9 +15,12 @@ borrowed name's missing Files folder.
 - CI never saw it: the CI allowlist skips render-thread, so only local and cut-time 3b runs fail.
 
 ## Change
-`docs/browser-checks/render-thread.js`: exempt that 404 the same way the check already exempts the
-untied agent's `/thread` 404: only while the untied agent is open, and only for its `/files`. Then
-assert the page's sentence, so the exemption holds only while the 404 is actually handled.
+`docs/browser-checks/render-thread.js`: a predicate `exempt404Files` tolerates a 404 only on the
+untied name's own `/files` URL. It is keyed on that URL, not on the window while the untied agent is
+open, like the existing removal-400 exemption: the Files list re-polls every 5 s, so a 404 can land
+after the window closes. Four two-way controls pin its scope (covers rook's /files; not a tied
+agent's, not a route under it, not another status). Then the page's sentence is asserted on screen
+(innerText plus a height guard), so the 404 is tolerated only while the page actually handles it.
 
 Rejected: changing the route to answer 200 with an empty list. That changes the product's
 contract (the page tells a missing folder apart from an empty one by the 404), and it reaches
@@ -26,6 +29,8 @@ further than a check.
 ## Verified
 - render-thread alone on the branch: all checks pass.
 - Red control: with the exemption removed (committed, run, reset), render-thread fails on the 404.
+- Red control: with the page's sentence changed to the route's "No agent by that name." (committed,
+  run, reset), the new assertion fails.
 
 ## Weakest premise
 That the 404 is the only thing left between render-thread and green on every box. Measured on

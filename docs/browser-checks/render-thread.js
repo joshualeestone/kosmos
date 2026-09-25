@@ -356,8 +356,8 @@ async function main() {
      from the page: a browser logs any 4xx response as a failed resource.
      The thread one is armed only around that block; the removal and Files
      ones are keyed on the untied name's URL instead (see below). Either way
-     a probe failing for a TIED agent, where no refusal is by design, still
-     fails the run. The exemption is why the block below also ASSERTS
+     a refusal for any other agent still fails the run (a TIED agent's Files
+     404 would mean a real agent missing its own folder). The exemption is why the block below also ASSERTS
      what the refusal draws: a tolerated request that draws nothing is
      how a check turns into permission. */
   /* 🛑 THE 400 EXEMPTION IS KEYED ON SCOPE, NOT ON TIMING, and it had to be.
@@ -391,7 +391,8 @@ async function main() {
     if (exempt400(m.text(), url)) return;
     if (expectUntiedRefusals && /Failed to load resource.*404/.test(m.text()) && /\/thread$/.test(url)) return;
     /* #3542: the agent page's Files list (#3614) asks the same route family, and it too answers 404
-       for a borrowed name that has no folder here. By design, like /thread: the page turns it into
+       for a name with no folder of its own here (rook, the borrowed name, has
+       none). By design, like /thread: the page turns it into
        its own sentence, asserted below, so it is exempted only for the untied agent's /files. */
     // Keyed on scope (the untied name's URL), not on the armed window, like exempt400: the Files
     // list re-polls every 5 s, so a 404 can land just after the window closes.
