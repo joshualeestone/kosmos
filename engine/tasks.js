@@ -760,10 +760,13 @@ function claimFor(task, reading, opts) {
     return {
       claimed: null,
       because: (reading && reading.because) || 'we could not read what it reports holding',
-      /* #3559 (Mona's look review): the one could-not-tell case the page may put in the agent's
-         own terms ("Rex has not said yet whether it started") is an agent that has never
-         reported at all. Carried as a field so the page never matches our prose. */
-      neverReported: !!(reading && reading.neverReported === true),
+      /* #3559 (Mona's look review): the one could-not-tell case the page puts in plain words
+         and NAMES the agent for ("Rex has not reported what it is working on yet.") is an agent
+         that has never written its report AND still holds open work on this task. The reading is
+         for whoOf(task)[0], which can be the agent of a finished part; naming them would blame
+         the one who is done, so that case keeps the unnamed reason. A field, never our prose. */
+      neverReported: !!(reading && reading.neverReported === true)
+        && partsOf(task).some((x) => x && x.who === whoOf(task)[0] && !x.closedAt),
     };
   }
   // Server-issued numbers are integers; a hand-edited store can hold

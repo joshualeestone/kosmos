@@ -302,6 +302,12 @@ function chk(ok, label, extra) {
       chk(got.shown && got.tiles === 3, '[consolidated] it opens the Tasks view', JSON.stringify(got));
       chk(got.stillCons && got.inColumn, '[consolidated] it stays in the consolidated view, in the display column (#2842)', JSON.stringify(got));
       chk(got.ownRailHidden && got.dropdown, '[consolidated] its own project rail folds to the dropdown beside the projects rail', JSON.stringify(got));
+      /* Mona's look review of #3701, in the column too: the gap above the title is about halved. */
+      const consGap = await page.evaluate(() => {
+        const pt = document.getElementById('panel-tasks').getBoundingClientRect();
+        return { aboveTitle: Math.round(document.getElementById('tsk-title').getBoundingClientRect().top - pt.top), crumbEmpty: document.getElementById('tsk-crumb').textContent === '' };
+      });
+      chk(consGap.crumbEmpty && consGap.aboveTitle >= 16 && consGap.aboveTitle <= 32, '[consolidated] the gap above the title is about half, not the stacked 49px', JSON.stringify(consGap));
       if (SHOTS) await page.screenshot({ path: path.join(SHOTS, 'tasks-from-consolidated.png'), fullPage: false });
       /* From consolidated Kosmos+ settings, Tasks takes the Plus chrome down (#3599's rule). */
       const plus = await page.evaluate(() => {
