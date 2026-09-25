@@ -93,3 +93,12 @@ asking to sign in again. "Match the exact design and styling and flow of how GPT
   another Connect is pressed; the button still says Key saved); N5 (a failed runners read on Windows says
   it cannot connect: the read failing is itself not connectable); N6 double focus (harmless); N7
   "Download complete." with nothing downloaded (GPT's copy, clone-faithful).
+
+## Review pass 4 (sonnet, confirming): 0 blockers, 2 warnings
+- W1 the sign in again's Stop branch had no arm -> arm added: Stop stays on its own step, says
+  "Sign-in stopped.", gives the Sign-in button back; red when the branch is collapsed.
+- W2 (informational, not taken): a Grok sign-in poll still running when a paint finds Grok connected
+  can write its waiting line over the gold box until its own next check sees connected (1.2 to 2.4 s,
+  self-healing). GPT's frOpenaiSubWatch behaves identically and documents it as accepted (#2621).
+  Ending the sign-in from the paint was rejected: that paint may be the very sign-in that just
+  finished, and leaving it would cancel it on the engine.

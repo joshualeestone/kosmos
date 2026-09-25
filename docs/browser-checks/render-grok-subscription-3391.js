@@ -297,6 +297,17 @@ const chk = (ok, label, extra) => {
   chk(again.title === 'Sign in again' && !again.provider && !again.pick && again.sub && again.focus === 'acct-grok-sub-go',
     'it opens straight onto the sign-in, in sign-in-again chrome', JSON.stringify(again));
   chk(again.starts.length === 1 && again.starts[0].reauthDir === '/h/.grok-gl', 'its start carries that account as reauthDir', JSON.stringify(again.starts));
+  // #3731 (review pass 4): a sign in again has no choice to go back to, so its Stop stays on its own
+  // step, says so, and gives the Sign-in button back (a new sign-in's Stop goes back to the choice).
+  const againStop = await q(async () => {
+    document.getElementById('acct-grok-sub-cancel').click();
+    await new Promise((r) => setTimeout(r, 30));
+    return { msg: document.getElementById('acct-grok-msg').textContent, step: !document.getElementById('acct-grok-sub-step').hidden,
+      pick: !document.getElementById('acct-grok-pick').hidden, go: !document.getElementById('acct-grok-sub-go').hidden,
+      focus: document.activeElement && document.activeElement.id };
+  });
+  chk(againStop.msg === 'Sign-in stopped.' && againStop.step && !againStop.pick && againStop.go && againStop.focus === 'acct-grok-sub-go',
+    '#3731 a sign in again\'s Stop stays on its own step, says so, and gives the Sign-in button back', JSON.stringify(againStop));
 
   /* Reopened WITHOUT a close in between, so openAcctAdd's own clear is what is tested (a
      close does not clear the account; nothing but a sign-in again sets it). */
