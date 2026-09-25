@@ -236,7 +236,8 @@ const waitFor = (page, fn, arg, ms = 6000) => page.waitForFunction(fn, arg, { ti
     chk(await page.evaluate(() => !/Today it has used/.test(document.getElementById('d-swarm-warn').textContent)), 'S17 moving the slider (its own path) claims no measured ratio either',
       await page.evaluate(() => document.getElementById('d-swarm-warn').textContent));
     crewSwarm = { ...crewSwarm, active: false, pausedBecause: 'person', activeHelpers: 0 };
-    chk(await waitFor(page, () => !document.getElementById('d-swarm-stop').disabled, null, 8000), 'S17 paused with no helper counted, Stop now stays (the count was not read in full)');
+    chk(await waitFor(page, () => !!SWARM_ROW && SWARM_ROW.swarm.active === false && Number(SWARM_ROW.swarm.activeHelpers) === 0, null, 15000), 'S17 precondition: the page has the paused, no-helper, unmeasured row');
+    chk(await page.evaluate(() => !document.getElementById('d-swarm-stop').disabled), 'S17 paused with no helper counted, Stop now stays (the count was not read in full)');
     crewSwarm = { ...crewSwarm, active: true, pausedBecause: null, activeHelpers: 3 };
     crewSwarm = { ...crewSwarm, metered: true, tokensToday: 2461380 };
     chk(await waitFor(page, () => document.getElementById('d-swarm-today').textContent === '2,461,380 tokens' && !document.getElementById('d-swarm-bar').parentElement.hidden, null, 8000),
