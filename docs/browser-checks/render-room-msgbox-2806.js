@@ -831,10 +831,10 @@ const now = () => new Date().toISOString();
         const shown = [...m.querySelectorAll('input, select, textarea')].filter((el) => el.getBoundingClientRect().width > 0).length;   // rendered fields only
         const card = m.querySelector('.rm-box'); const cardRect = card ? card.getBoundingClientRect() : null;
         const cardFits = !!(cardRect && cardRect.width > 0 && cardRect.left >= -0.5 && cardRect.right <= screenWidth + 0.5);
-        const res = { id, fields: shown, over, cardFits, card: cardRect ? [Math.round(cardRect.left), Math.round(cardRect.right)] : null };
+        const res = { id, screenWidth: Math.round(screenWidth), fields: shown, over, cardFits, card: cardRect ? [Math.round(cardRect.left), Math.round(cardRect.right)] : null };
         m.hidden = was; return res;
       }); });
-      chk(dlgFit.every((d) => !d.error && d.fields >= 1 && d.over.length === 0 && d.cardFits), `[phone/touch] at 16px the Tasks and add-member dialogs fit a 375 screen`, JSON.stringify(dlgFit));
+      chk(dlgFit.every((d) => !d.error && d.screenWidth === 375 && d.fields >= 1 && d.over.length === 0 && d.cardFits), `[phone/touch] at 16px the Tasks and add-member dialogs fit a 375 screen`, JSON.stringify(dlgFit));
       // 24 fields measured; the floor catches a sweep that stopped finding them.
       chk(!fonts.error && fonts.hoverNone && fonts.count >= 20 && fonts.small.length === 0, `[phone/touch] every field on the project page is at least 16px (no iOS zoom)`, JSON.stringify(fonts));
       // The first-visit project tip (#3574) must land ON SCREEN on a phone: its old anchor, Add
@@ -859,16 +859,16 @@ const now = () => new Date().toISOString();
           return aboveOrBelow || leftOrRight; };
         const screen = window.visualViewport || { width: innerWidth, height: innerHeight };
         return { inView: cardRect.top >= 0 && cardRect.bottom <= screen.height && cardRect.left >= 0 && cardRect.right <= screen.width,
-          pointing: !/\bflat\b/.test(cardClass), cardClass, card: [Math.round(cardRect.top), Math.round(cardRect.bottom)], vh: innerHeight,
+          pointing: !/\bflat\b/.test(cardClass), cardClass, card: [Math.round(cardRect.top), Math.round(cardRect.bottom)], vh: innerHeight, screenWidth: Math.round(screen.width),
           nearConversation: near(document.querySelector('.pj3 > .pjmid .pjmidhead')), nearAddMember: near(document.getElementById('pj-add-member')) };
       });
       await phonePage.evaluate(() => window.scrollTo(0, 0));
       const tip375 = await tipAt();
-      chk(!tip375.error && tip375.inView && tip375.pointing && tip375.nearConversation, `[phone] the first-visit project tip is a pointing card beside the conversation, on screen`, JSON.stringify(tip375));
+      chk(!tip375.error && tip375.screenWidth === 375 && tip375.inView && tip375.pointing && tip375.nearConversation, `[phone] the first-visit project tip is a pointing card beside the conversation, on screen`, JSON.stringify(tip375));
       await phonePage.setViewportSize({ width: 800, height: 800 });
       await phonePage.waitForTimeout(100);
       const tip800 = await tipAt();
-      chk(!tip800.error && tip800.pointing && tip800.nearAddMember, `[wide] the project tip still points at Add member wider than a phone`, JSON.stringify(tip800));
+      chk(!tip800.error && tip800.screenWidth === 800 && tip800.pointing && tip800.nearAddMember, `[wide] the project tip still points at Add member wider than a phone`, JSON.stringify(tip800));
       await phonePage.setViewportSize({ width: 375, height: 800 });
       await phonePage.waitForTimeout(100);
       await phonePage.setViewportSize({ width: 800, height: 800 });
@@ -1195,32 +1195,107 @@ const now = () => new Date().toISOString();
         setTimeout(() => res({ pinnedBefore, pinnedAfter: !!document.querySelector('#pj-room .rxn-quick[style*="fixed"]') }), 50);
       }));
       chk(!pickerScroll.error && pickerScroll.pinnedBefore && pickerScroll.pinnedAfter, `[phone/touch] scrolling inside the emoji picker keeps a pinned bar`, JSON.stringify(pickerScroll));
-      // A pinned bar does not follow the thread, so scrolling closes it (like the fixed picker).
+      // A scroll RE-PLACES a pinned bar: while its post still fills what is showing it stays pinned
+      // over it; the iOS keyboard closing fires a resize AND a window scroll together; once the post
+      // has left the screen the bar closes.
       const afterScroll = await phonePage.evaluate(() => new Promise((res) => {
         const room = document.getElementById('pj-room'); room.scrollTop += 120;
-        setTimeout(() => res({ shown: document.querySelectorAll('#pj-room .msg.rxn-show').length,
-          pinnedLeft: !!document.querySelector('#pj-room .rxn-quick[style]') }), 150);
+        window.dispatchEvent(new Event('resize')); window.dispatchEvent(new Event('scroll'));
+        setTimeout(() => {
+          const bar = document.querySelector('#pj-room .msg.rxn-show .rxn-quick'); const rect = bar && bar.getBoundingClientRect();
+          const room2 = room.getBoundingClientRect();
+          const kept = { shown: document.querySelectorAll('#pj-room .msg.rxn-show').length, pinned: !!(bar && bar.style.position === 'fixed'),
+            overItsRoom: !!(rect && rect.top >= room2.top - 1 && rect.bottom <= room2.bottom + 1) };
+          room.style.top = '-3000px'; document.dispatchEvent(new Event('scroll'));   // the post leaves the screen
+          setTimeout(() => {
+            res({ kept, afterLeaving: { shown: document.querySelectorAll('#pj-room .msg.rxn-show').length, pinnedLeft: !!document.querySelector('#pj-room .rxn-quick[style]') } });
+            room.style.top = '0px';
+          }, 100);
+        }, 150);
       }));
-      chk(afterScroll.shown === 0 && !afterScroll.pinnedLeft, `[phone/touch] scrolling the thread closes a pinned bar (it would float over other posts)`, JSON.stringify(afterScroll));
+      chk(afterScroll.kept.shown === 1 && afterScroll.kept.pinned && afterScroll.kept.overItsRoom && afterScroll.afterLeaving.shown === 0 && !afterScroll.afterLeaving.pinnedLeft,
+        `[phone/touch] a scroll keeps a pinned bar over its own post, and closes it once the post leaves the screen`, JSON.stringify(afterScroll));
       // Nothing of the thread showing (header and composer take the whole screen): a tapped bar
       // has nowhere to go and closes, rather than sit open at an unplaced default.
       const emptyBand = await phonePage.evaluate(() => {
         const row = document.querySelector('#pj-room .msg'); if (!row || typeof pjRxnPlace !== 'function') return { error: 'no row or pjRxnPlace' };
         let stubCalled = false;
         const real = window.pjRxnVisibleBand; window.pjRxnVisibleBand = () => { stubCalled = true; return { top: 300, bottom: 200 }; };
+        // (A thin band, thinner than the bar, is checked just below with its own stub.)
         row.classList.add('rxn-show'); RXN_SHOW_POST = 'x';
         try { pjRxnPlace(row, true); } finally { window.pjRxnVisibleBand = real; }
         const res = { stubCalled, shownAfter: row.classList.contains('rxn-show'), post: RXN_SHOW_POST };
         return res;
       });
       chk(!emptyBand.error && emptyBand.stubCalled && emptyBand.shownAfter === false && emptyBand.post === null, `[phone/touch] with no thread showing a tapped bar closes`, JSON.stringify(emptyBand));
+      // A visible band THINNER than the bar (landscape with the keyboard up): pinning would put it
+      // under the sticky composer or header, so a tapped tall post's bar closes instead.
+      const thinBand = await phonePage.evaluate(() => {
+        const row = document.querySelector('#pj-room .msg'); if (!row || typeof pjRxnPlace !== 'function') return { error: 'no row or pjRxnPlace' };
+        const rowRect = row.getBoundingClientRect(); const bandTop = Math.round(rowRect.top + rowRect.height / 2);
+        let stubCalled = false;
+        const real = window.pjRxnVisibleBand; window.pjRxnVisibleBand = () => { stubCalled = true; return { top: bandTop, bottom: bandTop + 20 }; };
+        row.classList.add('rxn-show'); RXN_SHOW_POST = 'x';
+        try { pjRxnPlace(row, true); } finally { window.pjRxnVisibleBand = real; }
+        return { stubCalled, band: [bandTop, bandTop + 20], shownAfter: row.classList.contains('rxn-show'), pinned: RXN_PINNED };
+      });
+      chk(!thinBand.error && thinBand.stubCalled && thinBand.shownAfter === false && thinBand.pinned === false, `[phone/touch] a visible band thinner than the bar closes a tapped bar instead of pinning it under the composer`, JSON.stringify(thinBand));
+      // FOUR MORE WAYS A BAR CLOSES, each measured: Escape, a pick from the full picker (closed
+      // BEFORE the reaction's round trip), a tap outside the room, and navigating away (pjView).
+      const freshBar = async () => {
+        await phonePage.evaluate((ts) => {
+          const room = document.getElementById('pj-room'); room.style.top = '0px'; room.scrollTop = 0;
+          if (typeof pjRxnClose === 'function') pjRxnClose();
+          room.innerHTML = pjRoomRow({ from: 'april', at: ts, text: 'A post to react to, two or three words long.', id: 'c1' }, { agents: [{ sessionName: 'april', name: 'April' }] })
+            + pjRoomRow({ from: 'april', at: ts, text: 'And one more below it so the bar has room.', id: 'c2' }, { agents: [{ sessionName: 'april', name: 'April' }] });
+        }, now());
+        await phonePage.locator('#pj-room .msg .msg-bd p').last().tap();
+        await phonePage.waitForTimeout(250);
+        return phonePage.evaluate(() => document.querySelectorAll('#pj-room .msg.rxn-show').length);
+      };
+      const barState = () => phonePage.evaluate(() => ({ shown: document.querySelectorAll('#pj-room .msg.rxn-show').length, post: RXN_SHOW_POST, pinned: RXN_PINNED }));
+      const closedClean = (state) => state.shown === 0 && state.post === null && state.pinned === false;
+      // Escape
+      const openBeforeEscape = await freshBar();
+      await phonePage.keyboard.press('Escape');
+      const afterEscape = await barState();
+      chk(openBeforeEscape === 1 && closedClean(afterEscape), `[phone/touch] Escape closes an open bar`, JSON.stringify({ openBeforeEscape, afterEscape }));
+      // A pick from the FULL picker: the bar is closed before the reaction's request resolves.
+      const openBeforePick = await freshBar();
+      const pick = await phonePage.evaluate(() => new Promise((res) => {
+        let resolveToggle; window.__fullPicks = 0;
+        window.rxnToggle = () => { window.__fullPicks += 1; return new Promise((done) => { resolveToggle = done; }); };   // held open: the request is in flight
+        const more = document.querySelector('#pj-room .msg.rxn-show .rxn-more'); if (!more) { res({ error: 'no smiley in the open bar' }); return; }
+        more.click();
+        setTimeout(() => {
+          const picker = document.getElementById('rxn-picker'); const choice = picker && !picker.hidden && picker.querySelector('.rxn-pick');
+          if (!choice) { res({ error: 'the full picker did not open' }); return; }
+          choice.click();
+          setTimeout(() => { const whileInFlight = { shown: document.querySelectorAll('#pj-room .msg.rxn-show').length, post: RXN_SHOW_POST, pinned: RXN_PINNED };
+            if (resolveToggle) resolveToggle(); res({ picks: window.__fullPicks, whileInFlight }); }, 50);
+        }, 100);
+      }));
+      chk(openBeforePick === 1 && !pick.error && pick.picks === 1 && closedClean(pick.whileInFlight), `[phone/touch] a pick from the full picker closes the bar before the reaction's request resolves`, JSON.stringify({ openBeforePick, pick }));
+      // A tap outside the room (pointerdown on the page, not the room)
+      const openBeforeOutside = await freshBar();
+      const outsidePoint = await phonePage.evaluate(() => { const room = document.getElementById('pj-room').getBoundingClientRect(); return { x: Math.round(Math.min(innerWidth - 8, room.right + 30)), y: Math.round(room.top + 40) }; });
+      const outsideTarget = await phonePage.evaluate(({ x, y }) => { const t = document.elementFromPoint(x, y); return t ? !t.closest('#pj-room') : false; }, outsidePoint);
+      await phonePage.touchscreen.tap(outsidePoint.x, outsidePoint.y);
+      await phonePage.waitForTimeout(150);
+      const afterOutside = await barState();
+      chk(openBeforeOutside === 1 && outsideTarget && closedClean(afterOutside), `[phone/touch] a tap outside the room closes an open bar`, JSON.stringify({ openBeforeOutside, outsidePoint, outsideTarget, afterOutside }));
+      // Navigating away (pjView, the one navigation path)
+      const openBeforeNav = await freshBar();
+      await phonePage.evaluate(() => pjView('list'));
+      const afterNav = await barState();
+      chk(openBeforeNav === 1 && closedClean(afterNav), `[phone/touch] navigating away (pjView) closes an open bar`, JSON.stringify({ openBeforeNav, afterNav }));
     } finally {
       await phonePage.close();
     }
-    // THE WHOLE PAGE at all four phone sizes and both themes, touch, in its REAL layout (not a
-    // lifted room): the project page with a long post and a long file name in the room, and the
-    // projects list's top row (its empty state: this page has no server, so no project cards), must
-    // not run past the screen. The link card's own width is covered by the unit pin (.lpv = .att). Guards what the lifted
+    // THE WHOLE PAGE at five phone sizes (the four targets and 360) and both themes, touch, in its
+    // REAL layout (not a lifted room): each of the six project views in turn (the room with a long
+    // post and a long file name; the projects list's top row and empty state, as this page has no
+    // server so no project cards), must not run past the screen. The link card's own width is covered by the unit pin (.lpv = .att). Guards what the lifted
     // arms cannot (paddings, the column, the 16px fields in place).
     for (const [phoneWidth, phoneHeight] of [[375, 667], [393, 852], [430, 932], [412, 915], [360, 780]]) {
       for (const theme of ['light', 'dark']) {
@@ -1264,11 +1339,15 @@ const now = () => new Date().toISOString();
                 room.innerHTML = pjRoomRow({ from: 'april', at: ts, text: 'A long post that should read as lines on a phone and never push the page wider than the screen, whatever its words. '.repeat(3), id: 's1' }, people)
                   + pjRoomRow({ operator: true, at: ts, text: 'Here is the file.', id: 's2', attachments: [{ id: 'a1', name: 'Henderson-Lease-Review-2026-signed-countersigned-final-FINAL-v7-with-exhibits.pdf', type: 'application/pdf', size: 912345, kind: 'pdf', url: '/api/attachment/a1' }] }, people);
               }
-              result[view.id] = { pageScrolls: pageScrolls(view), scrollWidth: document.documentElement.scrollWidth, outside: offenders(view) };
+              const rendered = [...view.querySelectorAll('*')].filter((el) => { const rect = el.getBoundingClientRect(); return rect.width > 0 && rect.height > 0; }).length;
+              result[view.id] = { pageScrolls: pageScrolls(view), scrollWidth: document.documentElement.scrollWidth, outside: offenders(view), rendered };
             }
             return { screenWidth, innerWidth, result };
           }, now());
-          const fits = !fit.error && Object.values(fit.result).every((r) => !r.pageScrolls);
+          // The reference IS this phone's width (an engine that zoomed out to fit would widen it and
+          // pass everything), and every view really rendered something to measure.
+          const fits = !fit.error && Math.round(fit.screenWidth) === phoneWidth
+            && Object.values(fit.result).every((r) => !r.pageScrolls && r.rendered >= 3);
           chk(fits, `[${phoneWidth}x${phoneHeight} ${theme}/touch] nothing on the project page or the projects list runs past the screen`, JSON.stringify(fit));
         } finally {
           await sizePage.close();

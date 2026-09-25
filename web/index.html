@@ -46525,6 +46525,9 @@ function pjRxnPlace(row, fromTap) {
   if (quickBar.getBoundingClientRect().bottom <= band.bottom) { RXN_PINNED = false; return; }      // below it: fits
   row.classList.remove('rxn-below');
   if (!fromTap) { pjRxnClose(); return; }
+  // A visible band thinner than the bar (landscape with the keyboard up) would pin it under the
+  // sticky composer or header, its emoji untappable: close it instead.
+  if (band.bottom - band.top < quickBar.offsetHeight + 2 * RXN_BAR_GAP_PX) { pjRxnClose(); return; }
   RXN_PINNED = true;
   // A post taller than what is showing, just tapped: pin the bar to the top of the visible
   // thread, where the post is, at the same left edge. Any scroll closes a pinned bar (below).
@@ -46588,14 +46591,17 @@ if (window.MutationObserver) {
     else { RXN_SHOW_POST = null; RXN_SHOW_PID = null; }   // the post is gone from view
   }).observe(document.getElementById('pj-room'), { childList: true, subtree: true });
 }
-/* A PINNED bar (position fixed) does not follow the thread when anything scrolls, the same as
-   the fixed emoji picker (#2834 below): any scroll or resize closes it. */
+/* A PINNED bar (position fixed) does not follow the thread by itself, so any scroll (or a
+   viewport change, below) RE-PLACES it: it stays over its own post while the post fills what
+   is showing, becomes an ordinary above/below bar when it fits, and closes once the post has
+   left the screen (pjRxnPlace decides). On iOS the keyboard closing both resizes the visual
+   viewport and scrolls the window, so closing on scroll would undo the re-place. */
 document.addEventListener('scroll', (event) => {
   if (!RXN_SHOW_POST) return;   // nothing open: every scroll in the app costs nothing here
   // Scrolling the full emoji picker's own list is not the thread moving (#2834's same guard).
   const target = event.target;
   if (target && target.nodeType === 1 && target.closest && target.closest('.rxn-picker')) return;
-  if (RXN_PINNED) pjRxnClose();
+  if (RXN_PINNED) pjRxnReplacePinned();
 }, true);
 /* A viewport change (a turn, the keyboard closing when a tap leaves the composer, pinch zoom)
    re-places a pinned bar rather than closing it: the tap that pinned it often closes the
