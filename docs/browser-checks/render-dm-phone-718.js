@@ -49,7 +49,7 @@ const FX = {
       { url: '/api/f/3', name: 'annotated.png', kind: 'image', type: 'image/png', size: 120000 } ] },
     { at: at(5), text: 'my numbers:\n\n| Device | Width | Height | Engine | Theme | Composer | Keyboard |\n|---|---|---|---|---|---|---|\n| iPhone SE | 375 | 667 | WebKit | dark | visible | covered |', delivery: { state: 'placed' } },
     { at: at(4), text: 'and the export', delivery: { state: 'placed' }, attachments: [
-      { url: '/api/f/4', name: 'board-export-' + 'x'.repeat(100) + '.csv', kind: 'other', type: 'text/csv', size: 4096 } ] },
+      { url: '/api/f/4', name: 'board-export-' + 'x'.repeat(103) + '.csv', kind: 'other', type: 'text/csv', size: 4096 } ] },
   ],
   olderCount: 0, historyBecause: null, historyUnfilable: false,
   presence: 'on', presenceBecause: null, asking: false, question: null, questionBecause: null, options: null,
