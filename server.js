@@ -14039,6 +14039,12 @@ const server = http.createServer((req, res) => {
         let body;
         try { body = JSON.parse(buf.toString('utf8') || '{}'); } catch { body = null; }
         if (!body || typeof body !== 'object' || Array.isArray(body)) { sendJson(res, 400, { error: 'we could not read that request' }); return; }
+        /* A local process can reach the coordinator's federation routes through
+           this Mac's signature (kosmos-relay attack-surface.md, #3311), so the
+           board acts on them only for a person at its screen, the #3595 line.
+           ADVISORY: a process can present the browser header; this stops the
+           default path an agent would take. */
+        if (!isViaScreen(req, body)) { sendJson(res, 403, { error: 'Only a person at the Kosmos screen can invite or join an external project.' }); return; }
         const out = pathname === '/api/federation/invite'
           ? await federation.invite(remote, body)
           : await federation.verify(remote, body);
@@ -14053,6 +14059,7 @@ const server = http.createServer((req, res) => {
         let body;
         try { body = JSON.parse(buf.toString('utf8') || '{}'); } catch { body = null; }
         if (!body || typeof body !== 'object' || Array.isArray(body)) { sendJson(res, 400, { error: 'we could not read that request' }); return; }
+        if (!isViaScreen(req, body)) { sendJson(res, 403, { error: 'Only a person at the Kosmos screen can invite or join an external project.' }); return; }
         const snap = federation.joinSnapshot(body.edge_id);
         if (!snap) { sendJson(res, 409, { error: 'Verify the code again before joining. Each code works once, so if it says it was already used, ask for a new one.' }); return; }
         const roster = safeRoster();

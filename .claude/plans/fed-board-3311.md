@@ -42,3 +42,18 @@ connector's own refusal as the error, which the page shows.
 The message path (connector `fed-room` role, board forwarding, rendering) is the
 next change. End-to-end sealing of messages has no key scheme yet; tracked
 separately.
+
+## Screen-only (from the kosmos-relay fed-mac-3311 review)
+The connector's `mac-request` now signs invite and verify, so a local process
+(an agent included) could reach them in one command. The board's
+`/api/federation/{invite,verify,join}` therefore act only for a person at the
+screen (`isViaScreen`, the #3595 line); a process gets 403 before anything is
+signed. Advisory, as #3595 records: a process can present the browser header.
+
+`server.federation-3311.test.js` (6, sandboxed, connector stubbed): the 403 for a
+process with nothing signed; invite from the screen; verify then join names the
+project from the coordinator snapshot (a stray page `name` is ignored) and the
+snapshot is spent; an unverified edge is refused; a verify refusal arrives as its
+reason; create with `federation_ref` records the owner link, and without it
+records none and claims none. Control: removing the gate from invite/verify reds
+the first test.
