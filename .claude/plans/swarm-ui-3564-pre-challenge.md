@@ -2,20 +2,23 @@
 pre_challenge: true
 method: challenge-loop
 branch: swarm-ui-3564
-diff_hash: 996aa55bd8814044b266a7850c7fc392af97ddb4273d6d575a723c299eafa2ef
+diff_hash: 180a7575bc2b60abcf5ddc36642696b925b8e62d69948fe681dde122631f23d1
 validation: passed
 subdir_audit: passed
-timestamp: 2026-09-25T05:51:53Z
-iterations: 5
+timestamp: 2026-09-25T18:03:55Z
+iterations: 8
 converged: true
 ---
 
 ## [CHALLENGE-LOOP] Summary
 
-**Iterations:** 5
-**Converged:** Yes (iterations 4 and 5 had nothing at WARNING or above)
+**Iterations:** 8
+**Converged:** Yes (iteration 8 had nothing at WARNING or above)
 
 ## Challenge loop (blind reviewers, alternating models)
+
+Iterations 1 to 6 ran on the previous account (handoff monalisa-night-1102); 7 and 8 in this session, after main
+was merged in again (b9f0033df: the three check registries, EXPECTED_SITES measured at 155 by the reason-grep test).
 
 #### Iteration 1 (opus)
 - [WARNING] The engine never sent the `swarms` flag. Fixed: the UI also turns on from a `swarm` key on rows; Renet then added `"swarms": true` (3285c928).
@@ -45,3 +48,32 @@ No BLOCKER or WARNING. Every swarm read checks `typeof SWARMS_ON` and `hasOwnPro
 
 ## Validation
 render-swarm-ui-3564: 29/29. The negative controls are listed in the PR body.
+
+#### Iteration 6 (opus, after main was merged in, 18847b1a2)
+- [WARNING] Stop now had no aria-describedby to its hint and sat tight against the radios. Fixed (cd4213145): described
+  by its hint, set 16px apart.
+- [WARNING] Its done message did not say unfinished work was dropped. Fixed: "Stopped. Every helper has been told to
+  stop, and work not handed back was dropped." S7 asserts the message and the hint.
+- [WARNING] It greyed whenever the lead was "not working" (so a starting or unknown lead lost the only interrupt).
+  Fixed: it greys only when the lead is known idle.
+- [WARNING] S12 used pausedBecause 'person', where the greying rule never applies, so it could not fail. Rewritten:
+  stopped, idle lead, full count, two helpers => enabled; CONTROL, none => greyed.
+- [WARNING] ENGINE (Renet's): a stopped swarm's offline row carries no `swarm` field. Built by Renet on
+  swarm-offline-3564, not yet merged; the page follows the field when it arrives (S28 covers the field coming and
+  going). Not a UI change.
+- NITs: slider saves per arrow step (a debounce was tried and reverted: S18 and S27 read each change's own answer,
+  and the saves are idempotent); the Daily limit label is not orphaned (it labels #d-swarm-cap).
+
+#### Iteration 7 (sonnet)
+- [WARNING] S24 read CURRENT.state, which the status poll never reassigns (the page paints from SWARM_ROW), so it
+  could pass with a broken disable rule. Fixed (e9c37233d): S24 reads SWARM_ROW.state, as S12 now does.
+- NIT not taken: no arm for starting / rate_limited / unknown with Stop now (the rule is equality with 'idle').
+
+#### Iteration 8 (sonnet)
+No BLOCKER or WARNING. Verified SWARM_ROW is set by swarmPagePaint from the poll's row, the fixture's crewState
+reaches it, S24 can fail, and no arm still reads CURRENT.state. NIT not taken: S24 relies on S8's state without its
+own precondition line.
+
+## Validation (this session)
+6j on HEAD e9c37233d: full suite clean (hash 180a7575bc2b), subdir audit clean. render-swarm-ui-3564: 60 pass, 0 fail.
+
