@@ -99,6 +99,12 @@ test('it uses the SAME breakpoint that stacks the agent page', () => {
   const fn = html.slice(html.indexOf('function detailRevealTalkOnPhone()'), html.indexOf('function detailRevealTalkOnPhone()') + 600);
   assert.match(fn, /matchMedia\(DETAIL_STACK_MQ\)/);
   assert.match(html, /const DETAIL_STACK_MQ = '\(max-width: 56rem\)';/);
+  // The page's other side of that edge (older code) is written as 56.01rem; every min-width
+  // there must be the stack width plus .01, so moving one edge without the other fails here.
+  const stack = parseFloat(html.match(/const DETAIL_STACK_MQ = '\(max-width: ([\d.]+)rem\)';/)[1]);
+  const wides = [...html.matchAll(/min-width: (5[5-7](?:\.\d+)?)rem/g)].map((m) => parseFloat(m[1]));
+  assert.ok(wides.length >= 2, 'found the wide-side rules (' + wides.length + ')');
+  for (const w of wides) assert.equal(Math.round((w - stack) * 100), 1, 'min-width ' + w + 'rem against the ' + stack + 'rem stack');
 });
 
 function lift(matches, talk, env = {}) {
