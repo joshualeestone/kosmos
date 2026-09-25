@@ -20,7 +20,9 @@ multi-line messages (#3678), so this is newly reachable.
   one space, trailing spaces go, three or more newlines become one blank line; the ends trimmed.
 - RENDER: a list item gets a depth class (`mdli-d1..3`) relative to the items above it (a
   stack of open indent widths per list, reset by a non-list line), styled as a left margin on
-  all four surfaces. So two-space, four-space and tab nesting all step one level. A top-level item's markup
+  all four surfaces. So two-space, four-space and tab nesting all step one level. A non-list
+  line ends the list only when it is not indented under it, so a fence, table or heading
+  nested in an item keeps the depth of what follows. A top-level item's markup
   is byte-identical, which the older richtext checks pin.
 
 ## Rejected
@@ -155,3 +157,10 @@ always a stray keystroke, and trimming it keeps "  hello" stored as "hello".
 - Recorded: the first-line trim also applies when the first line is a fence opener, so an
   indented opener over a column-0 closer loses its spaces while its code keeps theirs. It
   renders the same.
+
+## Review pass 10 (sonnet)
+- Fixed (raised as a BLOCKER; a rendering defect in the card's headline case): the depth stack
+  reset on any non-list line, so a fence, table or heading nested under an item flattened the
+  next sibling. It now resets only on a non-list line that is not indented under the list.
+  Tested for all three in both renderers; the old reset reds them.
+- NITs fixed: why STORE_GROWTH is four; why the browser check's indent threshold is 8px.

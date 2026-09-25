@@ -224,6 +224,8 @@ const bad = (n, why) => { ran++; failures++; console.log('FAIL  ' + n + '  --  '
       if (dom.hasHeading) ok(t + ' DOM: heading rendered in room'); else bad(t + ' DOM: heading rendered', dom.html);
       if (dom.hasStrong) ok(t + ' DOM: bold rendered in room'); else bad(t + ' DOM: bold rendered', dom.html);
       if (dom.hasEm) ok(t + ' DOM: italic rendered in room'); else bad(t + ' DOM: italic rendered', dom.html);
+      // A depth-1 item is indented 1.25em (about 20px here); 8px is well above rounding and
+      // well below one level, so it tells nested from flat without pinning the exact margin.
       if (dom.nestedIndent !== null && dom.nestedIndent > 8) ok(t + ' DOM: a nested list item is drawn indented (#3679)'); else bad(t + ' DOM: nested list indented', 'offset ' + dom.nestedIndent + ' ' + dom.html);
       if (dom.codeKeptIndent) ok(t + ' DOM: fenced code keeps its indentation through the store (#3679)'); else bad(t + ' DOM: fenced code indentation', dom.html);
       if (dom.hasLi) ok(t + ' DOM: list rendered in room'); else bad(t + ' DOM: list rendered', dom.html);

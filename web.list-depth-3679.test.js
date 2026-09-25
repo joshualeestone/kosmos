@@ -54,6 +54,14 @@ for (const [name, make] of RENDERERS) {
     assert.match(four, /<span class="mdli">e<\/span>/, `${name}: back to the top`);
   });
 
+  test(`#3679: ${name} keeps the depth across a fence, table or heading nested in an item`, () => {
+    for (const inner of ['    ```\n    code\n    ```', '    | A | B |\n    | --- | --- |\n    | 1 | 2 |', '    ## note']) {
+      const html = make()('- a\n  - nested\n' + inner + '\n  - nested sibling\n- top');
+      assert.match(html, /<span class="mdli mdli-d1">nested sibling<\/span>/, `${name}: depth lost after ${JSON.stringify(inner)}`);
+      assert.match(html, /<span class="mdli">top<\/span>/, `${name}: back to the top after ${JSON.stringify(inner)}`);
+    }
+  });
+
   test(`#3679: ${name} starts a new list's depth after a non-list line, not after a blank one`, () => {
     const html = make()('- a\n  - b\n\n  - c\ntext\n  - d');
     assert.match(html, /<span class="mdli mdli-d1">c<\/span>/, `${name}: a blank line keeps the list`);

@@ -43752,10 +43752,13 @@ function pjProse(text, names, agentNames) {
   while (src.length && src[0] === '') src.shift();
   while (src.length && src[src.length - 1] === '') src.pop();
   const out = [];
-  const listStack = [];   // #3679: pjListDepth's open levels; a non-list line ends the list
+  const listStack = [];   // #3679: pjListDepth's open levels for the current list
   for (let i = 0; i < src.length; i += 1) {
     const line = src[i];
-    if (/\S/.test(line) && !/^[ \t]*([-+*]|\d+\.)[ \t]+/.test(line)) listStack.length = 0;
+    // A non-list line ends the list only when it is not indented under it (a fence, table or
+    // heading nested in an item keeps the list open).
+    if (listStack.length && /\S/.test(line) && !/^[ \t]*([-+*]|\d+\.)[ \t]+/.test(line)
+        && /^[ \t]*/.exec(line)[0].replace(/\t/g, '    ').length <= listStack[0]) listStack.length = 0;
     /* #2701: a GFM table -- this line is the header ONLY when the next line is a
        valid separator, so a stray `|` in prose never starts one. */
     if (line.indexOf('|') !== -1 && i + 1 < src.length) {
@@ -44045,11 +44048,14 @@ function pjRich(text) {
   }
   const src = raw.split('\n');
   const out = [];
-  const listStack = [];   // #3679: pjListDepth's open levels; a non-list line ends the list
+  const listStack = [];   // #3679: pjListDepth's open levels for the current list
   let i = 0;
   while (i < src.length) {
     const line = src[i];
-    if (/\S/.test(line) && !/^[ \t]*([-+*]|\d+\.)[ \t]+/.test(line)) listStack.length = 0;
+    // A non-list line ends the list only when it is not indented under it (a fence, table or
+    // heading nested in an item keeps the list open).
+    if (listStack.length && /\S/.test(line) && !/^[ \t]*([-+*]|\d+\.)[ \t]+/.test(line)
+        && /^[ \t]*/.exec(line)[0].replace(/\t/g, '    ').length <= listStack[0]) listStack.length = 0;
     /* Fenced code block: from a ``` line to the next ``` (or end of message --
        an unclosed fence still renders as code so no raw ``` ever leaks).
        Nothing inside is markdown-parsed or linkified; CSS gives `.mdcb` its
