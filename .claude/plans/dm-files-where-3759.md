@@ -55,19 +55,19 @@ conversation, and be context-aware enough to put a project's file in that projec
   a board run from a checkout, as on the fleet Mac, waits for its next restart), and the PR says so for
   the release notes, which are generated from what lands.
 
-## Measured (real agent runs, `claude -p` in a sandboxed agent folder holding this block, 2026-09-25 ~14:05 CDT, on the wording committed with "review round 14")
+## Measured (real agent runs, `claude -p` in a sandboxed agent folder holding this block, 2026-09-25 ~14:15 CDT, on the wording committed with "review round 15"; the control row is main's wording, run at ~14:05)
 One run per case, each in a fresh sandbox: a check of the wording, not a rate. "Where it said" quotes the
-sentence of the reply that tells the person where the file went.
+sentences of the reply that tell the person where the file went.
 
 | Case | Projects the agent is on | Saved to | Where it said |
 |---|---|---|---|
-| "a short packing list for a weekend camping trip as a file" | Henderson lease | `workers/writer/Files/weekend-camping-packing-list.md` | It's saved as **weekend-camping-packing-list.md** under Files on my page in Kosmos |
-| "For the Henderson lease, a one-paragraph summary ... as a file" | Henderson lease | `projects/Henderson lease/Renewal notice summary.md` | I saved the summary as **Renewal notice summary.md** in the Henderson lease project |
-| "draft a short email to my landlord asking about renewing, as a file" | Henderson lease | `workers/writer/Files/Lease renewal email to landlord.md` | I saved it as **Lease renewal email to landlord** under Files on my page in Kosmos |
-| same landlord email | Henderson lease, Maple Street lease | `workers/writer/Files/lease-renewal-email.md` | I drafted the email and saved it as **lease-renewal-email.md** under Files on my page in Kosmos |
-| same landlord email | none | `workers/writer/Files/landlord-lease-renewal-email.txt` | I saved the email as **landlord-lease-renewal-email.txt** under Files on my page in Kosmos |
-| "For the Oak Avenue lease, a one-paragraph summary ... as a file" (a project it is not on) | Henderson lease | `workers/writer/Files/Oak Avenue lease - renewal notice summary.md` | I wrote the summary and saved it as **"Oak Avenue lease - renewal notice summary.md"** under Files on my page in Kosmos |
-| "time for your four-hourly running summary" (the role's running-record section added) | Henderson lease | `workers/writer/summaries/2026-09-25-13.md` | I saved this summary to `summaries/2026-09-25-13.md` in my folder |
+| "a short packing list for a weekend camping trip as a file" | Henderson lease | `workers/writer/Files/weekend-camping-packing-list.md` | I made the list and saved it as **weekend-camping-packing-list.md**, under Files on my page in Kosmos. |
+| "For the Henderson lease, a one-paragraph summary ... as a file" | Henderson lease | `projects/Henderson lease/Renewal notice summary.md` | I saved it as **Renewal notice summary.md** in the Henderson lease project. The paragraph lists what a renewal notice should cover: The project folder was empty, so I didn't have the lease itself. |
+| "draft a short email to my landlord asking about renewing, as a file" | Henderson lease | `workers/writer/Files/Lease renewal email to landlord.md` | I saved it as **Lease renewal email to landlord** under Files on my page. Is this for the Henderson lease? If so, I'll move it into that project. |
+| same landlord email | Henderson lease, Maple Street lease | `workers/writer/Files/Lease renewal email to landlord.md` | I drafted the email and saved it as "Lease renewal email to landlord" under Files on my page. Is it for the Henderson lease or the Maple Street lease? Tell me which and I'll move it into that project. |
+| same landlord email | none | `workers/writer/Files/landlord-lease-renewal-email.txt` | I drafted the email and saved it as **landlord-lease-renewal-email.txt**, under Files on my page in Kosmos. |
+| "For the Oak Avenue lease, a one-paragraph summary ... as a file" (a project it is not on) | Henderson lease | `workers/writer/Files/Oak Avenue lease - renewal notice summary.md` | It's under Files on my page in Kosmos. Oak Avenue isn't one of my projects; the only one I'm on is the Henderson lease. Which project does this belong to, so I can move it? |
+| "time for your four-hourly running summary" (the role's running-record section added) | Henderson lease | `workers/writer/summaries/2026-09-25-14.md` | I wrote the summary to `summaries/2026-09-25-14.md` in my folder. |
 | CONTROL, main's old wording: same landlord email | Henderson lease | `workers/writer/Files/lease-renewal-email.md` | I drafted the email and saved it as `lease-renewal-email.md` in your Files folder |
 
 What the change measurably does, honestly: main's old wording already put a named project's file in the
