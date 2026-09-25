@@ -144,6 +144,9 @@ final class PushNotificationManager: NSObject, ObservableObject {
 
     // The name the coordinator sign-in page posts to
     // (window.webkit.messageHandlers.kosmosSession, kosmos-relay d3c411e).
+    // ⚠️ The sign-in page ALSO reads this handler's presence as "inside the iOS app"
+    // and then hides every purchase screen (kosmos-relay ios-no-purchase-718, App
+    // Review). Renaming or dropping it brings Stripe checkout back into the app.
     static let sessionHandlerName = "kosmosSession"
 
     // Called by the WebView bridge on the main thread with what WebKit knows about

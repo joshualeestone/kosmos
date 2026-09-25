@@ -228,11 +228,17 @@ function check(name, pass, detail) {
      that threw before showNotification, or that ignored the coordinator shape,
      reds here in both modes. */
   const call = (calls || [])[0] || null;
+  /* #3689: this board runs on 127.0.0.1, which has no relay domain, so the tap
+     opens this board ('/') rather than the payload's address: only a sibling
+     Mac under the board's own domain is opened. The Mac click-through itself is
+     pinned in web.sw-718.test.js. The title and body still tell the mapped
+     notification apart from the old {title,body,url} reader. */
+  const TAP_URL = '/';
   check('the push handler called showNotification with the mapped notification (observed in the worker)',
     !!call && (calls || []).length === 1 &&
       call.title === 'Scorpion needs you' &&
       call.body === 'In Kosmos Inside Out' &&
-      call.url === 'https://study.kosmos.example/',
+      call.url === TAP_URL,
     captureErr || JSON.stringify(calls).slice(0, 240));
   /* How that call settled. Headed it must RESOLVE. Headless Chromium keeps
      notification permission at 'denied' even after grantPermissions (measured
@@ -263,12 +269,12 @@ function check(name, pass, detail) {
      above reds headless when the handler throws or ignores the coordinator shape.
      When HEADED, assert the DERIVED notification (not an echoed one): a worker
      that ignored the coordinator shape (the old {title,body,url} reader) would
-     show "Kosmos" / generic and open "/", and fail all three. */
+     show "Kosmos" / generic, and fail the title and body. */
   if (HEADED) {
     const hit = shown.find((n) =>
       n.title === 'Scorpion needs you' &&
       n.body === 'In Kosmos Inside Out' &&
-      n.url === 'https://study.kosmos.example/');
+      n.url === TAP_URL);
     check('the delivered coordinator push produced the mapped notification', !!hit,
       JSON.stringify(shown).slice(0, 240));
   } else {

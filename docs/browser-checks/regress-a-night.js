@@ -126,23 +126,12 @@ function seed() {
 
     await pg.click('.tab:has-text("Projects")'); await pg.waitForTimeout(500);
     await pg.click('text=Regression Sweep'); await pg.waitForTimeout(700);
-    const door = await pg.$('#pj-alltasks:not([hidden])');
-    if (door) { await door.click(); await pg.waitForTimeout(300); }
-    /* 🛑 ROOTED, BECAUSE `.tkcard` IS NO LONGER A DOCUMENT-WIDE ANSWER. The door
-       above opens the all-tasks screen (#1382), which renders its own task cards
-       into #alltasks-list, so the page now holds TWO sets of `.tkcard`: this
-       project's column and the all-tasks list. An unrooted click resolved to two
-       elements, took the first in document order, and that one belongs to the
-       view the door just navigated AWAY from -- so it waited 30s on an element
-       that is present and hidden, and the check timed out rather than failing an
-       assertion. `element is not visible` is what it printed; nothing about it
-       said "your query matched another screen".
-       ⇒ The root is keyed on the SAME condition that creates the ambiguity, so
-       the check states which screen it believes it is on. If that belief is ever
-       wrong it fails loudly here, which `:visible` would not do -- that would
-       quietly click whatever happens to be showing, which is how a check ends up
-       testing a screen nobody meant to test. */
-    await pg.click(door ? '#alltasks-list .tkcard' : '.tkcard');
+    /* 🛑 ROOTED to the project's own column. The View-all door leaves the page (#1382; since
+       #3703 it opens the Tasks view), and `.tkcard` is only drawn by the project column now, so
+       this clicks the column's card on the project page it is standing on. An unrooted `.tkcard`
+       once resolved to a card on a screen the door had navigated AWAY from and timed out on an
+       element that was present and hidden; rooting it states which screen the check is on. */
+    await pg.click('#pj-tasklist .tkcard');
     await pg.waitForTimeout(700);
     const tk = await pg.evaluate(() => ({
       parts: document.querySelectorAll('.tkpart').length,

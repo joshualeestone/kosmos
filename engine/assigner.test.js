@@ -108,6 +108,38 @@ test('a working agent, or one outside the project, is not assigned', () => {
   } finally { w.restore(); }
 });
 
+test('#3564: a swarm switched off in the project is neither assigned a task nor asked about its goal; switched on, it is', () => {
+  const w = world([{ name: 'wkoff' }]);
+  try {
+    addTask(w.pid, 'task one');
+    projects.setSwarmOn(w.pid, w.key.wkoff, false);
+    assert.deepEqual(afterIdle(w).toAssign, [], 'an Off swarm was handed a task in the project it is off in');
+    const rec = projects.readAll().find((p) => p.id === w.pid);
+    assert.equal(a.goalProject(w.key.wkoff, [{ ...rec, tasks: [] }], new Map([[w.pid, 'ship it']]), new Map(), T0), null,
+      'an Off swarm was asked about the goal of a project it is off in');
+    projects.setSwarmOn(w.pid, w.key.wkoff, true);
+    assert.deepEqual(afterIdle(w).toAssign.map((x) => x.session), [w.key.wkoff], 'control: switched on, it is assigned');
+    const rec2 = projects.readAll().find((p) => p.id === w.pid);
+    assert.ok(a.goalProject(w.key.wkoff, [{ ...rec2, tasks: [] }], new Map([[w.pid, 'ship it']]), new Map(), T0),
+      'control: switched on, it is asked');
+  } finally { w.restore(); }
+});
+
+test('#3564: a PAUSED swarm is not given a task, so an idle agent after it in the roster gets it; switched on, it is', () => {
+  const w = world([{ name: 'wkfirst' }, { name: 'wksecond' }]);
+  try {
+    addTask(w.pid, 'task one');
+    // The swarm is whichever of the two the roster lists first, so without the fix it takes the task.
+    const ours = new Set(Object.values(w.key));
+    const [lead, other] = w.cards.filter((c) => ours.has(c.sessionName));
+    assert.ok(lead && other, 'fixture: both agents are on the roster');
+    lead.swarm = { active: false, pausedBecause: 'stopped' };
+    assert.deepEqual(afterIdle(w).toAssign.map((x) => x.session), [other.sessionName], 'a paused swarm was handed the task, or held it from the idle agent');
+    lead.swarm = { active: true, pausedBecause: null };
+    assert.deepEqual(afterIdle(w).toAssign.map((x) => x.session), [lead.sessionName], 'control: switched on, the first idle agent gets it');
+  } finally { w.restore(); }
+});
+
 test('an agent with an open part assigned to it is not idle for assignment; a closed one does not count', () => {
   const w = world([{ name: 'hasw' }]);
   try {

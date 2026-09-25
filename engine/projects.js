@@ -212,6 +212,9 @@ const CONNECTIONS_END = '<!-- kosmos:connections:end -->';
 // the neutralisers derive from the list and the registry test reads it.
 const DMFILES_START = '<!-- kosmos:dmfiles:start -->';
 const DMFILES_END = '<!-- kosmos:dmfiles:end -->';
+/* #3564: a swarm lead's own block (how many helpers, isolation, one voice). */
+const SWARM_START = '<!-- kosmos:swarm:start -->';
+const SWARM_END = '<!-- kosmos:swarm:end -->';
 // The AI-policy pair (#479), defined beside the others for the same reason:
 // the neutralisers derive from the list and the registry test reads it.
 const POLICY_START = '<!-- kosmos:policy:start -->';
@@ -249,7 +252,7 @@ const POLICY_END = '<!-- kosmos:policy:end -->';
  */
 function ALL_MARKERS() {
   const mm = require('./messages');
-  return [BLOCK_START, BLOCK_END, YOU_START, YOU_END, REPORTS_START, REPORTS_END, CONNECTIONS_START, CONNECTIONS_END, DMFILES_START, DMFILES_END, POLICY_START, POLICY_END, DOCTRINE_START, DOCTRINE_END, mm.START, mm.END];
+  return [BLOCK_START, BLOCK_END, YOU_START, YOU_END, REPORTS_START, REPORTS_END, CONNECTIONS_START, CONNECTIONS_END, DMFILES_START, DMFILES_END, SWARM_START, SWARM_END, POLICY_START, POLICY_END, DOCTRINE_START, DOCTRINE_END, mm.START, mm.END];
 }
 
 /**
@@ -2121,6 +2124,38 @@ function cleanArchivedAt(value) {
 }
 
 /**
+ * #3564: swarms switched OFF in a project. An Off swarm stays a member, but work in
+ * that project does not reach it: room posts skip it unless it is @-named, and a
+ * message or task line to it there is refused with a sentence. Stored on the project
+ * as `swarmOff: [sessionName]`.
+ */
+/* The one reading of the stored fact, for a caller that already holds the project record. */
+function isSwarmOff(record, name) {
+  return Boolean(record && Array.isArray(record.swarmOff) && record.swarmOff.includes(String(name)));
+}
+function swarmOffIn(projectId, name) {
+  try {
+    return isSwarmOff(readAll().find((x) => x && x.id === projectId), name);
+  } catch { return false; }
+}
+/* The same fact for every member at once: one read of the store, for a caller that checks many. */
+function swarmOffSet(projectId) {
+  try {
+    const p = readAll().find((x) => x && x.id === projectId);
+    return new Set(p && Array.isArray(p.swarmOff) ? p.swarmOff.map(String) : []);
+  } catch { return new Set(); }
+}
+function setSwarmOn(projectId, name, on) {
+  return mutate(projectId, (p) => {
+    const off = new Set(Array.isArray(p.swarmOff) ? p.swarmOff : []);
+    if (on) off.delete(String(name)); else off.add(String(name));
+    p.swarmOff = [...off];
+    return p;
+  });
+}
+const SWARM_OFF_SENTENCE = (who) => `${who} is switched off in this project. Switch it on in the project's members to send it work here.`;
+
+/**
  * Archive or restore a project.
  *
  * ⚠️ A display state, not a removal. The record stays in the store, the folder
@@ -2211,6 +2246,8 @@ function removeAgent(id, sessionName, made) {
     const told = { ...(p.told || {}) };
     const everSeen = { ...(p.everSeen || {}) };
     delete everSeen[key];
+    /* #3564: leaving the project clears its On/Off, so an agent re-added later starts On. */
+    if (Array.isArray(p.swarmOff)) p = { ...p, swarmOff: p.swarmOff.filter((n) => n !== key) };
     // The record of having told it goes with the membership. Keeping it would
     // leave a stale "we told this agent" beside an agent that is no longer on
     // the project, which is a sentence about a thing that is not true any more.
@@ -2722,8 +2759,9 @@ function toldOverride(verdict, sessionName, known) {
   } catch { return verdict; }
 }
 
-module.exports = { memberValve, processMemberChanges, ageMemberChangesForTests, MEMBERS_PER_HOUR, toldOverride,
-  FILE, FOLDER, TOLD, BLOCK_START, BLOCK_END, YOU_START, YOU_END, REPORTS_START, REPORTS_END, CONNECTIONS_START, CONNECTIONS_END, DMFILES_START, DMFILES_END, POLICY_START, POLICY_END, DOCTRINE_START, DOCTRINE_END, ALL_MARKERS, neutralise,
+module.exports = {
+  joinTaskClaims, swarmOffIn, swarmOffSet, isSwarmOff, setSwarmOn, SWARM_OFF_SENTENCE, memberValve, processMemberChanges, ageMemberChangesForTests, MEMBERS_PER_HOUR, toldOverride,
+  FILE, FOLDER, TOLD, BLOCK_START, BLOCK_END, YOU_START, YOU_END, REPORTS_START, REPORTS_END, CONNECTIONS_START, CONNECTIONS_END, DMFILES_START, DMFILES_END, SWARM_START, SWARM_END, POLICY_START, POLICY_END, DOCTRINE_START, DOCTRINE_END, ALL_MARKERS, neutralise,
   file, readAll, writeAll, idFor, folderState, describe, andList,
   list, get, projectsFor, namesFor, create, edit, rename, setDescription, setArchived, addAgent, removeAgent, remove, mutate,
   WELCOME_NAME, WELCOME_DESCRIPTION, WELCOME_ROOM_NOTE, welcomeSeeded, markWelcomeSeeded, seedWelcomeHome, homeForFirstAgent,

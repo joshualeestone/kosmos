@@ -347,23 +347,79 @@ function cleanMessage(raw) {
  * the store was the #1927 defect: every destination lost paragraphs, including
  * the operator's HTML view (which never had a pane's limit and which Josh reads
  * daily). So the store keeps `\n`; only `deliver()` still flattens on the way
- * to a pane. Mirrors `engine/you.js` `clean(v, {multiline:true})` and also
- * normalises CR, since a bare `\r` is a control character `messageProblem`
- * would otherwise refuse:
- *   - CRLF and lone CR → LF
- *   - runs of spaces/tabs → one space (a tab cannot survive to a pane either)
- *   - three or more newlines → a single blank line (one paragraph break)
- *   - trim the ends.
- * After this the ONLY whitespace/control character left in range is `\n`, which
- * is exactly the one `CONTROL` now exempts -- every other control char (ESC and
- * the rest) is preserved here so `messageProblem` still sees and refuses it.
+ * to a pane. It also normalises CR, since a bare `\r` is a control character
+ * `messageProblem` would otherwise refuse:
+ *   - CRLF, lone CR and the Unicode line/paragraph separators → LF
+ *   - a tab → four spaces (a tab is a control character `CONTROL` refuses)
+ *   - #3679: indentation is kept, and inside a ``` fence each line is kept as
+ *     written except its trailing spaces, so code and nested lists arrive as
+ *     written. The tab and leading-space rules apply inside a fence too, and a
+ *     fence body loses at most the message's shared indent (see the dedent below).
+ *   - In a fence left open, blank lines at the very end of the message go with
+ *     the final trim. Outside a fence, a run of spaces INSIDE a line becomes one space
+ *     and trailing spaces go.
+ *   - outside a fence, three or more newlines → a single blank line
+ *   - the indentation every line shares comes off, then the ends are trimmed.
+ * Every other control char (ESC, `\v`, `\f` and the rest) is preserved, except where the
+ * final trim takes one off an end, so `messageProblem` still sees and refuses it; `\n` is
+ * the one `CONTROL` exempts.
  */
+// Every tab is four spaces, not the next tab stop, the same width pjListDepth reads.
+const STORE_TAB = '    ';
+// A fence line, CommonMark-like (its run-length and info-string rules; any indent, backticks only): three or more backticks, and
+// no backtick after them (so an inline ```span``` is not one). A fence closes only on a bare
+// run at least as long as the one that opened it, so ```` can hold a ``` example.
+// \x60 is a backtick: a literal one here reads as a template string to the #1732 scanner.
+const STORE_FENCE = /^ *(\x60{3,})([^\x60]*)$/;
+// The stored form may exceed a one-line limit (kept indentation, a tab as four spaces), but
+// not by more than this factor, so a thread read on every poll stays bounded. Four is a chosen
+// bound (a tab's width), not a measured ratio: deep indentation can grow further and is refused.
+const STORE_GROWTH = 4;
+const STORE_TOO_SPACED = 'that has more indentation and spacing than we keep in a message; put it in a file and send the path';
+// Trailing spaces off, in linear time: `/ +$/` backtracks on a long run that ends in text.
+function trimSpacesEnd(line) {
+  let e = line.length;
+  while (e > 0 && line.charCodeAt(e - 1) === 32) e -= 1;
+  return line.slice(0, e);
+}
 function storeText(raw) {
-  return String(raw == null ? '' : raw)
-    .replace(/\r\n?/g, '\n')
-    .replace(/[ \t]+/g, ' ')
-    .replace(/\n{3,}/g, '\n\n')
-    .trim();
+  // A leading byte-order mark goes, and a line's leading non-breaking spaces (how rich-text
+  // pastes indent) and full-width spaces (CJK text; two columns each) become spaces, so the
+  // dedent below and the final trim agree on what indentation is.
+  const lines = String(raw == null ? '' : raw).replace(/^\ufeff+/, '').replace(/\r\n?|[\u2028\u2029]/g, '\n').replace(/\t/g, STORE_TAB)
+    .split('\n').map((l) => l.replace(/^[ \u00a0\u3000]+/, (run) => run.replace(/\u3000/g, '  ').replace(/\u00a0/g, ' ')));
+  const out = [];
+  const inBody = [];   // parallel to out: true for a line inside a fence body
+  let fenceLen = 0;   // the opening run's length while inside a fence, else 0
+  let blanks = 0;
+  for (const line of lines) {
+    const f = STORE_FENCE.exec(line);
+    if (fenceLen) {
+      if (!(f && f[1].length >= fenceLen && /^ *$/.test(f[2]))) { out.push(trimSpacesEnd(line)); inBody.push(true); continue; }
+      fenceLen = 0;
+    } else if (f) {
+      fenceLen = f[1].length;
+    }
+    const lead = /^ */.exec(line)[0];
+    const rest = trimSpacesEnd(line.slice(lead.length).replace(/ +/g, ' '));
+    // Blank means no visible character, whatever the whitespace (a full-width space line too).
+    // (A form feed or vertical tab is not blank: it stays, so CONTROL refuses it.)
+    if (!/\S/.test(rest) && !/[\v\f]/.test(rest)) { blanks += 1; if (blanks > 1) continue; out.push(''); inBody.push(false); continue; }
+    blanks = 0;
+    out.push(lead + rest);
+    inBody.push(false);
+  }
+  // The indentation every non-blank line OUTSIDE a fence body shares comes off, so a block
+  // indented as a whole keeps its relative depths instead of losing only its first line's. A
+  // fence body loses at most that much from each line (CommonMark removes the opener's
+  // indentation from its content), so a column-0 line of code cannot cancel the dedent.
+  let common = Infinity;
+  out.forEach((l, k) => { if (l && !inBody[k]) common = Math.min(common, /^ */.exec(l)[0].length); });
+  const dedented = common > 0 && common !== Infinity
+    ? out.map((l, k) => (inBody[k] ? l.slice(Math.min(common, /^ */.exec(l)[0].length)) : l.slice(common)))
+    : out;
+  // Then trim the ends, which also takes any indentation left on the first line alone.
+  return dedented.join('\n').trim();
 }
 
 /**
@@ -374,7 +430,7 @@ function storeText(raw) {
  * arriving in a TUI: in Claude Code that cancels what is on screen. A message
  * that quietly cancels the agent's current prompt and then types the rest of
  * itself is not the message anybody wrote. `storeText` has already dealt with
- * the ordinary ones (tab → space, CR → LF), so anything left in this range got
+ * the ordinary ones (tab → four spaces, CR → LF), so anything left in this range got
  * there on purpose or by paste accident, and refusing names it.
  *
  * 🛑 ONE EXEMPTION, AND ONLY ONE: `\n` (U+000A). The store keeps paragraph
@@ -400,11 +456,36 @@ function messageProblem(raw) {
   // stored shape is what lets a legitimate newline reach `CONTROL` (which now
   // exempts it) while ESC and every other control char are still seen and
   // refused -- `storeText` leaves those untouched.
+  // #3679: measured on the one-line form, as the room does, so kept indentation
+  // (and a tab's four spaces) cannot push a message over the limit. Checked first, so
+  // the stored form is not built for a message that is refused anyway.
+  if (cleanMessage(raw).length > MAX_TEXT) return `keep it to ${MAX_TEXT} characters or fewer`;
+  // #3679: the raw text is bounded before storeText walks it line by line, so a few words and
+  // millions of blank lines (a tiny one-line form) cannot cost every caller that walk. Same
+  // bound as storedWithin's raw check.
+  if (raw != null && raw.length > STORE_GROWTH * STORE_GROWTH * MAX_TEXT) return 'that message is too long to send';
   const text = storeText(raw);
   if (!text) return 'write something to send';
-  if (text.length > MAX_TEXT) return `keep it to ${MAX_TEXT} characters or fewer`;
   if (CONTROL.test(text)) return 'that message has characters we will not type into a terminal';
   return null;
+}
+
+/**
+ * #3679: the stored form, or null when it is too large to keep: the raw text past
+ * STORE_GROWTH squared times `limit` (checked first, so a few words and a million blank
+ * lines are refused before the store walks them), or the stored form past STORE_GROWTH
+ * times `limit`. Only for paths that PERSIST `storeText`; a pane-only path keeps nothing,
+ * so the stored ceiling does not apply to it (`messageProblem` is the pane's rule). The raw
+ * bound does: `messageProblem` runs storeText too, so it carries the same raw check.
+ */
+function storedWithin(raw, limit) {
+  if (raw != null && String(raw).length > STORE_GROWTH * STORE_GROWTH * limit) return null;
+  const text = storeText(raw);
+  return text.length > STORE_GROWTH * limit ? null : text;
+}
+/** The refusal for a direct message whose stored form is too large to keep, or null. */
+function storedProblem(raw) {
+  return storedWithin(raw, MAX_TEXT) === null ? STORE_TOO_SPACED : null;
 }
 
 /**
@@ -1022,6 +1103,64 @@ function waitingNote(state, outcome, runner, backgroundWait) {
 }
 
 /**
+ * #3564: the gate for Stop now's keystrokes. deliver's own checks for a key that is not a
+ * message: exact name, ours, an agent pane (`addressable`); NOT on Claude Code's trust
+ * dialog, where one Escape ends the session (measured, Claude Code 2.1.282, 2026-09-25);
+ * and not a Windows agent, whose input is a supervisor channel with no keys to send.
+ */
+function keysAllowed(sessionName, roster) {
+  const allowed = addressable(sessionName, roster);
+  if (!allowed.ok) return { ok: false, because: allowed.because };
+  if (allowed.card.state === status.STATE.NEEDS_YOU && status.isTrustDialogEvidence(allowed.card.stateEvidence)) {
+    return { ok: false, because: status.TRUST_DIALOG_SENTENCE };
+  }
+  if (allowed.card.reachedByChannel === true) {
+    return { ok: false, because: 'Kosmos cannot send keys to an agent on Windows yet, so it was not stopped; stop it from its own window' };
+  }
+  return { ok: true, card: allowed.card };
+}
+
+/* #3564: Claude Code's "stop all agents" chord, pressed twice (the second press confirms).
+   Measured on 2.1.282 (2026-09-25): from the plain prompt it stops every background helper,
+   and with none running it leaves the prompt untouched. */
+const STOP_ALL_HELPERS_KEYS = ['C-x', 'C-k', 'C-x', 'C-k'];
+
+/**
+ * #3564 Stop now, the half Escape cannot do: stop ALL of a swarm lead's background helpers
+ * (one Escape does not reach them, measured). Sends STOP_ALL_HELPERS_KEYS through
+ * keysAllowed. It drives Claude Code's own keys, so a change there can break it; the card's
+ * activeHelpers, read from the helpers' own files, is how anyone sees whether it held.
+ * Never throws.  { ok: true } | { ok: false, because }
+ */
+function stopHelpers(sessionName, roster) {
+  const allowed = keysAllowed(sessionName, roster);
+  if (!allowed.ok) return { ok: false, because: allowed.because };
+  const t = paneTarget(allowed.card);
+  for (const k of STOP_ALL_HELPERS_KEYS) {
+    const got = tmux(['send-keys', '-t', t, k]);
+    if (got.spawnFailed || !got.ran || got.status !== 0) return { ok: false, because: 'we could not finish stopping its helpers; look at its window' };
+  }
+  return { ok: true };
+}
+
+/**
+ * #3564 Stop now: interrupt the agent's current turn (Escape, as a person would press
+ * it). Through keysAllowed. Never throws.
+ *   { ok: true } | { ok: false, because }
+ */
+function interrupt(sessionName, roster) {
+  const allowed = keysAllowed(sessionName, roster);
+  if (!allowed.ok) return { ok: false, because: allowed.because };
+  const got = tmux(['send-keys', '-t', paneTarget(allowed.card), 'Escape']);
+  if (got.spawnFailed) return { ok: false, because: got.err || 'we could not reach its window, so nothing was stopped' };
+  if (!got.ran || got.status !== 0) return { ok: false, because: 'we could not tell whether it stopped; look at its window' };
+  return { ok: true };
+}
+
+/* #3564: what a paused swarm still accepts. */
+const PAUSED_SWARM_COMMANDS = /^\/(compact|clear|cost|context|status)([ \t][^\r\n]*)?$/i;
+
+/**
  * Put one message into one agent's session.
  *
  * ⚠️ NEVER THROWS, and never claims more than a keystroke. The return is a
@@ -1058,6 +1197,20 @@ function deliver(sessionName, raw, roster, envelope, trailer) {
     return {
       state: DELIVERY.COULD_NOT,
       because: status.TRUST_DIALOG_SENTENCE,
+      at, paneState: null, paneNote: null,
+    };
+  }
+  /* #3564: a PAUSED swarm is not typed at. Every caller comes through here (DMs, rooms,
+     tasks, the sweeps), so this is the one place that makes "paused" true. Only the
+     commands that look after an agent without setting it to work go in
+     (PAUSED_SWARM_COMMANDS); a skill such as /pplan is work. The card's `swarm` field is
+     the snapshot this request already holds. */
+  if (allowed.card && allowed.card.swarm && allowed.card.swarm.active === false
+      && !PAUSED_SWARM_COMMANDS.test(String(raw).trim())) {
+    return {
+      state: DELIVERY.COULD_NOT,
+      // Lazy: swarm requires projects, which requires this module at its top.
+      because: require('./swarm').pausedSentence(allowed.card.name || sessionName, allowed.card.swarm.pausedBecause),
       at, paneState: null, paneNote: null,
     };
   }
@@ -2874,11 +3027,11 @@ function markDmReactionsTold(agent, named) {
 }
 
 module.exports = {
-  DELIVERY, DIRECT, MAX_TEXT, MAX_MESSAGES, VIEWPORT_LINES,
+  DELIVERY, DIRECT, MAX_TEXT, MAX_MESSAGES, VIEWPORT_LINES, STORE_GROWTH, storedWithin, storedProblem,
   cleanMessage, storeText, messageProblem, addressable, resolveCard, paneTarget, wireText,
   dmReactions, dmReactionPills, reactDirect, dmReactionNews, dmReactionNote, markDmReactionsTold, dmNoteMayRide,
   chunkUtf8, pasteToEnterMs, PASTE_CHUNK_BYTES,
-  deliver, viewport, questionIn, optionsIn, questionAbove, waitingNote, spawnFailure, verifyAtSend,
+  deliver, interrupt, stopHelpers, viewport, questionIn, optionsIn, questionAbove, waitingNote, spawnFailure, verifyAtSend,
   withQuestionRow,
   threadFile, readThread, appendMessage, supersede, withThreadLock,
   defaultAgentFor, looksLikeManager,

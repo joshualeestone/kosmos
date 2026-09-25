@@ -1,0 +1,257 @@
+'use strict';
+
+/**
+ * #3564 swarm routes through the real server (in-process, every root sandboxed, dry run):
+ * the settings PUT (checked, only for a swarm, rewrites the lead's block on a new count),
+ * Stop now (paused "stopped" even when the interrupt cannot be confirmed, and says so),
+ * and On/Off per project (only a swarm that is a member).
+ */
+
+const fs = require('node:fs');
+const os = require('node:os');
+const path = require('node:path');
+
+const SANDBOX = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'kosmos-swarm-route-')));
+const mk = (n) => { const d = path.join(SANDBOX, n); fs.mkdirSync(d, { recursive: true }); return d; };
+process.env.AGENT_WORKFORCE_HOME = mk('home');
+process.env.AGENT_WORKFORCE_DATA = mk('data');
+process.env.AGENT_WORKFORCE_WORKERS = mk('workers');
+process.env.AGENT_WORKFORCE_PROJECTS = mk('projects');
+process.env.AGENT_WORKFORCE_LAUNCH = mk('launch');
+process.env.AGENT_WORKFORCE_CLAUDE_CONFIG = path.join(SANDBOX, 'claude.json');
+process.env.AGENT_WORKFORCE_TMUX_BIN = path.join(__dirname, 'test-support', 'fake-tmux.sh');
+process.env.AGENT_WORKFORCE_DRY_RUN = '1';
+
+const test = require('node:test');
+const assert = require('node:assert/strict');
+const store = require('./engine/store');
+const create = require('./engine/create');
+const swarm = require('./engine/swarm');
+const projects = require('./engine/projects');
+const { start, server } = require('./server');
+
+function lead(name, profile) {
+  const dir = create.workerDir(name);
+  fs.mkdirSync(dir, { recursive: true });
+  fs.writeFileSync(path.join(dir, 'CLAUDE.md'), `# ${name}\n\n${swarm.START}\n${swarm.blockBody(3)}\n${swarm.END}\n`);
+  store.writeProfile(name, profile);
+}
+
+let base;
+test.before(async () => { await start(0); base = `http://127.0.0.1:${server.address().port}`; });
+test.after(() => {
+  try { server.close(); } catch { /* best effort */ }
+  fs.rmSync(SANDBOX, { recursive: true, force: true });
+});
+
+const put = (p, body) => fetch(base + p, { method: 'PUT', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) });
+const post = (p, body) => fetch(base + p, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body || {}) });
+
+test('#3564 settings: checked, only for a swarm, and a new count is written into the lead\'s own instructions', async () => {
+  lead('hive', swarm.birthProfile({ maxHelpers: 3, dailyTokenLimit: 1000 }));
+  lead('solo', { role: 'pm' });
+  const r = await put('/api/agent/hive/swarm', { maxHelpers: 7, dailyTokenLimit: 5000 });
+  assert.equal(r.status, 200);
+  const b = await r.json();
+  assert.equal(b.swarm.maxHelpers, 7);
+  assert.equal(b.told.state, projects.TOLD.TOLD);
+  assert.match(fs.readFileSync(path.join(create.workerDir('hive'), 'CLAUDE.md'), 'utf8').replace(/\s+/g, ' '), /at most 7 at once/);
+  assert.deepEqual(swarm.settingsOf(store.readProfile('hive')).dailyTokenLimit, 5000);
+  assert.equal((await put('/api/agent/hive/swarm', { maxHelpers: 11 })).status, 400);
+  assert.equal((await put('/api/agent/solo/swarm', { maxHelpers: 4 })).status, 404, 'an ordinary agent took swarm settings');
+  assert.equal((await put('/api/agent/nobody/swarm', { maxHelpers: 4 })).status, 404);
+  // Paused by the person, and back on.
+  await put('/api/agent/hive/swarm', { active: false });
+  assert.equal(swarm.settingsOf(store.readProfile('hive')).pausedBecause, 'person');
+  await put('/api/agent/hive/swarm', { active: true });
+  assert.equal(swarm.settingsOf(store.readProfile('hive')).active, true);
+});
+
+test('#3564 Stop now: the swarm is paused "stopped" even when the interrupt cannot be confirmed, and the answer says so', async () => {
+  lead('hive2', swarm.birthProfile({ dailyTokenLimit: 1000 }));
+  const r = await post('/api/agent/hive2/swarm/stop');
+  assert.equal(r.status, 200);
+  const b = await r.json();
+  assert.equal(b.ok, true);
+  assert.equal(b.stopped, false, 'no pane on this sandbox board, so the interrupt cannot have happened');
+  assert.ok(b.because, 'an unconfirmed stop must say why');
+  const s = swarm.settingsOf(store.readProfile('hive2'));
+  assert.deepEqual([s.active, s.pausedBecause], [false, 'stopped']);
+  assert.equal((await post('/api/agent/nobody/swarm/stop')).status, 404);
+  lead('solo2', { role: 'pm' });
+  assert.equal((await post('/api/agent/solo2/swarm/stop')).status, 404, 'an ordinary agent was paused as a swarm');
+  assert.equal(swarm.settingsOf(store.readProfile('solo2')), null, 'an ordinary agent was given swarm settings by Stop now');
+});
+
+test('#3564 per project: On/Off only for a swarm that is a member; stored per project', async () => {
+  lead('hive3', swarm.birthProfile({ dailyTokenLimit: 1000 }));
+  lead('solo3', { role: 'pm' });
+  const made = projects.create({ name: 'Swarm Route Room' });
+  const id = made.id || (made.project && made.project.id);
+  projects.mutate(id, (p) => ({ ...p, agents: ['hive3', 'solo3'] }));
+  const r = await put(`/api/project/${encodeURIComponent(id)}/swarm/hive3`, { on: false });
+  assert.equal(r.status, 200, await r.clone().text());
+  assert.equal(projects.swarmOffIn(id, 'hive3'), true);
+  assert.equal((await put(`/api/project/${encodeURIComponent(id)}/swarm/solo3`, { on: false })).status, 404, 'an ordinary agent was switched off as a swarm');
+  assert.equal((await put(`/api/project/${encodeURIComponent(id)}/swarm/stranger`, { on: false })).status, 404);
+  assert.equal((await put(`/api/project/${encodeURIComponent(id)}/swarm/hive3`, { on: 'no' })).status, 400);
+  await put(`/api/project/${encodeURIComponent(id)}/swarm/hive3`, { on: true });
+  assert.equal(projects.swarmOffIn(id, 'hive3'), false);
+});
+
+test('#3564 per project: a message to a swarm switched off in that project is refused with the sentence, before anything is typed', async () => {
+  lead('hive4', swarm.birthProfile({ dailyTokenLimit: 1000 }));
+  const made = projects.create({ name: 'Swarm Thread Room' });
+  const id = made.id || (made.project && made.project.id);
+  projects.mutate(id, (p) => ({ ...p, agents: ['hive4'] }));
+  projects.setSwarmOn(id, 'hive4', false);
+  // The thread route builds members from the LIVE roster (projects.get(id, roster)), so hive4 is put on the board.
+  const board = require('./test-support/fleet').install([require('./test-support/fleet').agent('hive4', { state: 'idle' })]);
+  try {
+  const r = await post(`/api/project/${encodeURIComponent(id)}/thread/hive4`, { text: 'please do this' });
+  const b = await r.json();
+  assert.equal(r.status, 409, JSON.stringify(b));
+  assert.match(b.error || b.because || '', /switched off in this project/);
+  // CONTROL: switched back on, it is no longer this refusal (whatever the sandbox board says next).
+  projects.setSwarmOn(id, 'hive4', true);
+  const r2 = await post(`/api/project/${encodeURIComponent(id)}/thread/hive4`, { text: 'please do this' });
+  const b2 = await r2.json();
+  assert.doesNotMatch(JSON.stringify(b2), /switched off in this project/);
+  } finally { board.restore(); }
+});
+
+test('#3564 per project: a task line is not sent to a swarm switched off in that project; switched on, it is', async () => {
+  const fleetMod = require('./test-support/fleet');
+  const tasks = require('./engine/tasks');
+  lead('hive5', swarm.birthProfile({ dailyTokenLimit: 1000 }));
+  const board = fleetMod.install([fleetMod.agent('hive5', { state: 'idle' })]);
+  try {
+    const p = projects.create({ name: 'Swarm Task Room' });
+    projects.addAgent(p.id, 'hive5', board.agents);
+    const t = tasks.create(p.id, { sentence: 'Split this up', who: 'hive5' }, board.agents);
+    const say = () => fetch(`${base}/api/project/${encodeURIComponent(p.id)}/task/${t.number}/message`, {
+      method: 'POST', headers: { 'content-type': 'application/json', 'sec-fetch-site': 'same-origin' }, body: JSON.stringify({ text: 'how is it going' }),
+    });
+    projects.setSwarmOn(p.id, 'hive5', false);
+    const off = await (await say()).json();
+    assert.equal((off.delivered || []).length, 1, JSON.stringify(off));
+    assert.equal(off.delivered[0].agent, 'hive5');
+    assert.equal(off.delivered[0].state, require('./engine/chat').DELIVERY.COULD_NOT, 'a switched-off swarm was told about its task');
+    assert.match(String(off.delivered[0].because), /switched off in this project/, 'the Off swarm was left out without a reason');
+    projects.setSwarmOn(p.id, 'hive5', true);
+    const on = await (await say()).json();
+    assert.deepEqual((on.delivered || []).map((d) => d.agent), ['hive5'], 'CONTROL: switched on, the assignee is told');
+  } finally { board.restore(); }
+});
+
+test('#3564 per project: a task given to a swarm switched off in that project does not page it; switched on, it does', async () => {
+  const fleetMod = require('./test-support/fleet');
+  lead('hive6', swarm.birthProfile({ dailyTokenLimit: 1000 }));
+  const board = fleetMod.install([fleetMod.agent('hive6', { state: 'idle' })]);
+  try {
+    const p = projects.create({ name: 'Swarm Given Room' });
+    projects.addAgent(p.id, 'hive6', board.agents);
+    const give = async (sentence) => (await fetch(`${base}/api/project/${encodeURIComponent(p.id)}/tasks`, {
+      method: 'POST', headers: { 'content-type': 'application/json', 'sec-fetch-site': 'same-origin' }, body: JSON.stringify({ sentence, who: 'hive6' }),
+    })).json();
+    projects.setSwarmOn(p.id, 'hive6', false);
+    const off = await give('Split this up');
+    assert.ok(off.task, JSON.stringify(off));
+    assert.match((off.heard && off.heard.because) || '', /switched off in this project/, 'a switched-off swarm was paged about a task: ' + JSON.stringify(off.heard));
+    projects.setSwarmOn(p.id, 'hive6', true);
+    const on = await give('And this');
+    assert.ok(on.heard, JSON.stringify(on));
+    assert.doesNotMatch(on.heard.because || '', /switched off in this project/, 'CONTROL: switched on, it is not this refusal');
+  } finally { board.restore(); }
+});
+
+test('#3564 /api/status says the board can run swarms, even with no agents on it (the first agent a person makes)', async () => {
+  const r = await fetch(base + '/api/status');
+  assert.equal(r.status, 200);
+  const b = await r.json();
+  assert.equal(b.swarms, true);
+});
+
+test('#3564 the limit sweep\'s wiring: interrupt and the stop chord reach the lead\'s own pane, and say lands in its DM thread', () => {
+  const fleetMod = require('./test-support/fleet');
+  const chat = require('./engine/chat');
+  const { swarmSweepDeps } = require('./server');
+  lead('hive7', swarm.birthProfile({ dailyTokenLimit: 1000 }));
+  const board = fleetMod.install([fleetMod.agent('hive7', { state: 'idle' }), fleetMod.agent('bystander7', { state: 'idle' })]);
+  const calls = [];
+  chat.setRunner((args) => { calls.push(args); return { ran: true, spawnFailed: false, status: 0, out: '', err: '' }; });
+  chat.setDryRun(false);
+  try {
+    const d = swarmSweepDeps(board.agents);
+    const own = board.agents.find((c) => c.sessionName === 'hive7');
+    assert.equal(d.stopHelpers('hive7').ok, true);
+    assert.equal(d.interrupt('hive7').ok, true);
+    const keys = calls.filter((a) => a[0] === 'send-keys');
+    assert.deepEqual(keys.map((a) => a[a.length - 1]), ['C-x', 'C-k', 'C-x', 'C-k', 'Escape']);
+    for (const a of keys) assert.ok(a.join(' ').includes(own.target), 'a sweep key went to a pane that is not the lead\'s: ' + a.join(' '));
+    d.say('hive7', 'paused at the limit (wiring test)');
+    const thread = chat.readThread(chat.DIRECT, 'hive7');
+    const rows = Array.isArray(thread) ? thread : (thread && thread.messages) || [];
+    assert.ok(rows.some((m) => m && m.text === 'paused at the limit (wiring test)' && m.from === 'hive7'), 'the sweep\'s message did not land in the lead\'s own DM thread');
+    assert.equal(swarm.settingsOf(d.readProfile('hive7')).dailyTokenLimit, 1000, 'readProfile does not read the lead\'s profile');
+  } finally { chat.setRunner(null); chat.setDryRun(true); board.restore(); }
+});
+
+test('#3564 Stop now sends the stop-all chord BEFORE the Escape (an Escape just before it swallowed it, measured)', async () => {
+  const fleetMod = require('./test-support/fleet');
+  const chat = require('./engine/chat');
+  lead('hive8', swarm.birthProfile({ dailyTokenLimit: 1000 }));
+  const board = fleetMod.install([fleetMod.agent('hive8', { state: 'idle' })]);
+  const calls = [];
+  chat.setRunner((args) => { calls.push(args); return { ran: true, spawnFailed: false, status: 0, out: '', err: '' }; });
+  chat.setDryRun(false);
+  try {
+    const r = await post('/api/agent/hive8/swarm/stop');
+    const b = await r.json();
+    assert.equal(r.status, 200, JSON.stringify(b));
+    const keys = calls.filter((a) => a[0] === 'send-keys').map((a) => a[a.length - 1]);
+    assert.deepEqual(keys, ['C-x', 'C-k', 'C-x', 'C-k', 'Escape'], 'Stop now sent its keys in the order that fails');
+    assert.equal(b.stopped, true, 'both keys went and the answer says otherwise: ' + JSON.stringify(b));
+  } finally { chat.setRunner(null); chat.setDryRun(true); board.restore(); }
+});
+
+test('#3564 a second Stop now within a few seconds sends the chord again but NO second Escape (the double-Escape key)', async () => {
+  const fleetMod = require('./test-support/fleet');
+  const chat = require('./engine/chat');
+  lead('hive9', swarm.birthProfile({ dailyTokenLimit: 1000 }));
+  const board = fleetMod.install([fleetMod.agent('hive9', { state: 'idle' })]);
+  const calls = [];
+  chat.setRunner((args) => { calls.push(args); return { ran: true, spawnFailed: false, status: 0, out: '', err: '' }; });
+  chat.setDryRun(false);
+  const keys = () => calls.filter((a) => a[0] === 'send-keys').map((a) => a[a.length - 1]);
+  try {
+    await post('/api/agent/hive9/swarm/stop');
+    assert.deepEqual(keys(), ['C-x', 'C-k', 'C-x', 'C-k', 'Escape'], 'CONTROL: the first press sends chord then Escape');
+    calls.length = 0;
+    const r = await post('/api/agent/hive9/swarm/stop');
+    const b = await r.json();
+    assert.equal(r.status, 200, JSON.stringify(b));
+    assert.deepEqual(keys(), ['C-x', 'C-k', 'C-x', 'C-k'], 'a quick second press sent a second Escape');
+    calls.length = 0;
+    const prof = store.readProfile('hive9');
+    store.writeProfile('hive9', { swarm: { ...prof.swarm, pausedAt: new Date(Date.now() - 10000).toISOString() } });
+    await post('/api/agent/hive9/swarm/stop');
+    assert.deepEqual(keys(), ['C-x', 'C-k', 'C-x', 'C-k', 'Escape'], 'CONTROL: a press after the gap sends the Escape again');
+  } finally { chat.setRunner(null); chat.setDryRun(true); board.restore(); }
+});
+
+test('#3564 Stop now within a few seconds of the LIMIT sweep\'s pause sends no second Escape either', async () => {
+  const fleetMod = require('./test-support/fleet');
+  const chat = require('./engine/chat');
+  const base0 = swarm.birthProfile({ dailyTokenLimit: 1000 });
+  lead('hive10', { ...base0, swarm: swarm.pausedFor(swarm.settingsOf(base0), 'limit') });
+  const board = fleetMod.install([fleetMod.agent('hive10', { state: 'idle' })]);
+  const calls = [];
+  chat.setRunner((args) => { calls.push(args); return { ran: true, spawnFailed: false, status: 0, out: '', err: '' }; });
+  chat.setDryRun(false);
+  try {
+    await post('/api/agent/hive10/swarm/stop');
+    const keys = calls.filter((a) => a[0] === 'send-keys').map((a) => a[a.length - 1]);
+    assert.deepEqual(keys, ['C-x', 'C-k', 'C-x', 'C-k'], 'Stop now right after the sweep\'s pause sent a second Escape');
+  } finally { chat.setRunner(null); chat.setDryRun(true); board.restore(); }
+});

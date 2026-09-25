@@ -1,15 +1,15 @@
 'use strict';
-// Browser-check-surface: docs-back alltasks-back pj-settings-back docs-finder pj-docs-view pj-settings-view
+// Browser-check-surface: docs-back pj-settings-back docs-finder pj-docs-view pj-settings-view
 // (#2518) the distinctive web/index.html tokens this check asserts: the three consolidated
 // project sub-view "Back to ..." buttons that #3502 hides, the Documents/Settings sub-view
 // containers whose consolidated insets #3502/#3503 set, and the Finder button #3504 restyles.
 // A change to any of them must update this check at PR time.
 /* #3502/#3503/#3504 (Josh, 2026-09-23, consolidated project sub-views):
- *  - #3502: the redundant "Back to <project>" buttons (#docs-back, #alltasks-back,
- *    #pj-settings-back) are hidden in the CONSOLIDATED view (kept in the tab view), and
+ *  - #3502: the redundant "Back to <project>" buttons (#docs-back, #pj-settings-back; the
+ *    all-tasks screen's #alltasks-back went with that screen in #3703) are hidden in the CONSOLIDATED view (kept in the tab view), and
  *    with the back button gone the headings must keep a top inset so they do not jump
  *    against the top rule (Josh flagged Settings by name).
- *  - #3503: Documents and Tasks get a LEFT inset matching the right one (content was
+ *  - #3503: Documents (and the all-tasks screen, retired in #3703) get a LEFT inset matching the right one (content was
  *    flush against the left rule). Settings is centered, so it is excluded.
  *  - #3504: "Open this folder in Finder" (#docs-finder) is the gold primary button, not a
  *    plain text link.
@@ -70,7 +70,7 @@ const say = (n, cond, note) => { ran++; if (cond) console.log('PASS  ' + n); els
     await page.waitForTimeout(1200);
     const probe = (viewId) => page.evaluate((vId) => {
       const fr = document.getElementById('firstrun'); if (fr) fr.hidden = true;
-      ['pj-one-view', 'pj-docs-view', 'pj-alltasks-view', 'pj-settings-view', 'pj-add-view']
+      ['pj-one-view', 'pj-docs-view', 'pj-settings-view', 'pj-add-view']
         .forEach((v) => { const el = document.getElementById(v); if (el) el.hidden = (v !== vId); });
       const view = document.getElementById(vId);
       if (!view) return { missing: true };
@@ -114,7 +114,7 @@ const say = (n, cond, note) => { ran++; if (cond) console.log('PASS  ' + n); els
         activeIsBody: ae === document.body,
       };
     });
-    for (const v of ['pj-docs-view', 'pj-alltasks-view', 'pj-settings-view']) out[v] = await probe(v);
+    for (const v of ['pj-docs-view', 'pj-settings-view']) out[v] = await probe(v);
     out.errs = errs;
     await ctx.close();
     return out;
@@ -123,9 +123,9 @@ const say = (n, cond, note) => { ran++; if (cond) console.log('PASS  ' + n); els
   const cons = await boot('consolidated');
   const tabs = await boot('tabs');
 
-  // #3502: back buttons hidden in consolidated, for all three sub-views.
+  // #3502: back buttons hidden in consolidated, for both remaining sub-views (the all-tasks
+  // screen went in #3703: its door opens the Tasks view, which has no back button of its own).
   say('#3502 consolidated Documents back button is hidden', cons['pj-docs-view'].backDisplay === 'none', JSON.stringify(cons['pj-docs-view']));
-  say('#3502 consolidated Tasks back button is hidden', cons['pj-alltasks-view'].backDisplay === 'none', JSON.stringify(cons['pj-alltasks-view']));
   say('#3502 consolidated Settings back button is hidden', cons['pj-settings-view'].backDisplay === 'none', JSON.stringify(cons['pj-settings-view']));
   // CONTROL: the back buttons still render in the TAB view (the rule is consolidated-scoped, not a blanket removal).
   say('#3502 CONTROL: Documents back button still shows in the tab view', tabs['pj-docs-view'].backDisplay !== 'none', JSON.stringify(tabs['pj-docs-view']));
@@ -135,9 +135,8 @@ const say = (n, cond, note) => { ran++; if (cond) console.log('PASS  ' + n); els
   say('#3502 Documents heading keeps a top inset (>=16px, not jumped to the rule)', cons['pj-docs-view'].headingGap >= 16, JSON.stringify(cons['pj-docs-view']));
   say('#3502 Settings heading keeps a top inset (>=16px, Josh flagged Settings by name)', cons['pj-settings-view'].headingGap >= 16, JSON.stringify(cons['pj-settings-view']));
 
-  // #3503: Documents and Tasks get a left inset in consolidated; Settings (centered) does not.
+  // #3503: Documents gets a left inset in consolidated; Settings (centered) does not.
   say('#3503 consolidated Documents has a left inset (>0)', cons['pj-docs-view'].padLeft > 0, JSON.stringify(cons['pj-docs-view']));
-  say('#3503 consolidated Tasks has a left inset (>0)', cons['pj-alltasks-view'].padLeft > 0, JSON.stringify(cons['pj-alltasks-view']));
   say('#3503 consolidated Settings has NO left inset (it is centered, correctly excluded)', cons['pj-settings-view'].padLeft === 0, JSON.stringify(cons['pj-settings-view']));
 
   // #3504: the Finder button is the gold primary button, not a plain text link.

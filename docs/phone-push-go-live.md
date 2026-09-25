@@ -206,6 +206,36 @@ No deploy step copies a key file, and the template only holds its path.
   (`aps-environment = development`). Xcode switches it to production when the build is
   exported for distribution.
 
+**What to have settled before the first upload (decisions are named where they are someone's; the facts are checked):**
+- **Version.** The code says `0.1.0`, build `1` (`MARKETING_VERSION`, `CURRENT_PROJECT_VERSION`).
+  The version the store shows at submission is Josh's call. The build number must go up on every
+  upload.
+- **Export compliance (encryption).** Not set in the code on purpose: it is a declaration to Apple
+  that Josh makes, in App Store Connect on upload (or later as `ITSAppUsesNonExemptEncryption` in
+  the build settings). The facts, read from `ios/Kosmos/` on 2026-09-25: the app talks to the
+  network only over HTTPS through Apple's own `URLSession` and `WKWebView`, keeps the session in the
+  iOS Keychain, and contains no encryption code of its own.
+- **Push entitlement.** `ios/Kosmos.entitlements` says `aps-environment = development`, and the
+  export for distribution is expected to set `production`. Check it on the exported app before
+  upload: unzip the exported `.ipa` and run `codesign -d --entitlements - Payload/Kosmos.app`; it
+  must show `production`.
+- **iPhone only.** The app targets iPhone only (`TARGETED_DEVICE_FAMILY = 1`, Liu Kang,
+  2026-09-25): iPad layouts are not designed or tested, and no iPad screenshots are needed. iPad is
+  not ruled out, though: an iPhone-only app still installs on an iPad in a scaled iPhone window, App
+  Review can test it there, and it is offered on Apple silicon Macs unless that is turned off in App
+  Store Connect. Widening to iPad later is one setting.
+- **Permission strings.** Camera, microphone, adding to Photos and Face ID each have a sentence in
+  the build settings, and iOS CI checks them in the built app (`ios/tools/check-usage-strings.sh`).
+  Without one, iOS closes the app when a photo picker, a long-pressed image or the Face ID unlock
+  uses it.
+- **No purchase inside the app.** The sign-in page hides checkout, prices and the billing portal
+  inside the iOS app (kosmos-relay #117). Anything said to App Review about where Kosmos+ is sold
+  is Josh's.
+- **Waiting on the iOS simulator runtime** (`xcodebuild -downloadPlatform iOS`): the app icon (the
+  artwork is ready: `assets/Kosmos-1024.png`, 1024 px, full bleed, no transparency) and a navy
+  launch screen. Both need an asset catalog, which does not compile on a Mac without the runtime.
+  The store rejects an upload with no app icon, so this must land before the first TestFlight build.
+
 **Build and upload:**
 - Archive, then upload to TestFlight [Josh, or an agent holding upload access he grants].
 - **The app's own choice of server:**

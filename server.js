@@ -266,6 +266,10 @@ function resetHeardBudgetForTests() {
 function heardBy(projectId, t, who, sentence, roster) {
   const name = typeof who === 'string' && who.trim() ? who.trim() : null;
   if (!name || !t || typeof t.number !== 'number') return undefined;
+  /* #3564: a swarm switched off in this project is not told it was given work here. */
+  if (projects.swarmOffIn(projectId, name)) {
+    return { who: name, state: chat.DELIVERY.COULD_NOT, because: projects.SWARM_OFF_SENTENCE(name) };
+  }
   let title = projectId;
   try { const rec = projects.readAll().find((x) => x && x.id === projectId); if (rec && rec.name) title = rec.name; } catch { /* the id will do */ }
   const line = '[Kosmos: you were given task ' + t.number + ' in "' + String(title).replace(/[\r\n"]/g, ' ') + '": '
@@ -276,6 +280,11 @@ function heardBy(projectId, t, who, sentence, roster) {
   catch (err2) { sent = { state: chat.DELIVERY.COULD_NOT, because: String((err2 && err2.message) || 'we could not reach that agent') }; }
   return { who: name, state: sent.state, because: sent.because || null };
 }
+/* #3559: the most tasks one bulk close will take. The Tasks view ticks rows by
+   hand, so a real selection is far below this; the cap bounds one request's
+   writes so a malformed or hostile body cannot close a whole store in one go. */
+const BULK_CLOSE_MAX = 200;
+
 // `roster`: optional, so taskAct (close/reopen, below) keeps fetching its
 // own exactly as before -- only #761's routes, which already have one in
 // scope for `heardBy`, pass it through instead of paying for a second
@@ -706,6 +715,14 @@ const prompternudge = require('./engine/prompternudge'); // #3508: the Prompter'
 const class1autohandle = require('./engine/class1-autohandle'); // #2808 class-1 (c): invisible auto-handle
 const connlostHeal = require('./engine/connlost-heal'); // #3410 PR 2b: nudge a network-wedged agent when the network is back
 const liveExecution = require('./engine/live-execution'); // #2808 class-1 (c): gate the auto-handle sweep on the board's live-execution opt-in
+/* #3410: the self-heal's per-agent record, at module scope so /api/status can say where a
+   connection_lost agent's recovery stands (connlostHeal.reconnectPhase). In memory: a board
+   restart clears it, and so clears an escalation. */
+const CONNLOST_BOOK = new Map();
+/* Whether the self-heal sweep actually runs, so the page never promises a retry nobody will send. */
+function connlostHealEnabled() {
+  return connlostHeal.healEnabled(liveExecution.liveExecutionAllowed(), process.env); // the sweep's own rule
+}
 const heartbeatSetting = require('./engine/heartbeat-setting');
 const recommenderSetting = require('./engine/recommender-setting'); // #2619
 const recommender = require('./engine/recommender'); // #3595: the Recommender's behaviour (pure step; the runner is below)
@@ -2391,7 +2408,19 @@ function wrongWorldRefusal(req, pathname) {
    then the delivery-marker impersonation refusal. One function, so /api/reply and
    the outbox drain refuse exactly the same replies. */
 function agentReplyProblem(text) {
-  return chat.messageProblem(text) || messages.markerProblem(text) || null;
+  return chat.messageProblem(text) || chat.storedProblem(text) || messages.markerProblem(text) || null;
+}
+
+/* #3564: what the daily-limit sweep acts through, for one roster. Named so its wiring is
+   tested (server.swarm-3564.test.js), not only the sweep's decisions. */
+function swarmSweepDeps(roster) {
+  return {
+    readProfile: (n) => store.readProfile(n),
+    writeProfile: (n, patch) => store.writeProfile(n, patch),
+    interrupt: (n) => chat.interrupt(n, roster),
+    stopHelpers: (n) => chat.stopHelpers(n, roster),
+    say: (n, text) => keepAgentReply(n, text),
+  };
 }
 
 /* Record an agent's reply in its thread with the person: the one write both
@@ -3521,6 +3550,9 @@ const server = http.createServer((req, res) => {
            Found by wrapping this route's output in the fixture's strict proxy,
            which threw the moment a renderer touched it. */
         running: true,
+        /* #3410: where the automatic reconnect stands, only for a connection_lost agent (null
+           otherwise, and null when the self-heal is not running, so the page promises nothing). */
+        reconnect: a.state === 'connection_lost' ? connlostHeal.reconnectPhase(CONNLOST_BOOK.get(a.sessionName), connlostHealEnabled()) : null,
         // The name only. `plannedModelArg` returns null for "we do not know",
         // and null travels as null: the screen must not be able to tell a
         // missing job from a default.
@@ -3967,6 +3999,8 @@ const server = http.createServer((req, res) => {
            the fed routes enforce membership server-side regardless. */
         kosmos_plus: fedKosmosPlusNow(),
         federationLive: federationLiveNow(),
+        /* #3564: this board can make and run swarms; the New agent screen offers one only then. */
+        swarms: true,
         /* 🛑 NO OFFER FROM A BOARD THAT CANNOT TAKE ONE. A Kosmos running from
            its source (this Mac's, under the hand plist) cannot install: the
            install route answers "it updates from git, not from here". But the
@@ -4860,6 +4894,60 @@ const server = http.createServer((req, res) => {
     return;
   }
 
+  /* #3564 Stop now: interrupt the lead's current turn, stop all its background helpers, and
+     pause it with the reason "stopped", so nothing new is typed at it until the person
+     switches it back on. Paused even if the interrupt could not be confirmed: the answer
+     says which. */
+  const swarmStop = pathname.match(/^\/api\/agent\/([^/]+)\/swarm\/stop$/);
+  if (swarmStop && req.method === 'POST') {
+    const name = decodeSegment(swarmStop[1]);
+    if (name === null) { sendJson(res, 400, { ok: false, because: 'that is not a name we can read' }); return; }
+    const swarm = require('./engine/swarm');
+    if (!fs.existsSync(create.workerDir(name))) { sendJson(res, 404, { ok: false, because: 'there is no agent by that name on this computer' }); return; }
+    const s = swarm.settingsOf(store.readProfile(name));
+    if (!s) { sendJson(res, 404, { ok: false, because: 'that agent is not a swarm' }); return; }
+    /* A press within STOP_REPEAT_MS of any pause (Stop now's, or the limit sweep's, which also
+       sends Escape) sends no second Escape: Claude Code's double-Escape shortcut opens its rewind
+       list at the prompt (its documented key; not measured here). The chord is sent again. */
+    const repeat = s.active === false
+      && Date.now() - Date.parse(s.pausedAt || '') < swarm.STOP_REPEAT_MS;
+    const next = swarm.pausedFor(s, 'stopped');
+    store.writeProfile(name, { swarm: next });
+    const roster = safeRoster();
+    /* The stop-all chord FIRST, then Escape: Escape does not reach background helpers, and an
+       Escape just before the chord swallowed it (measured 2026-09-25, Claude Code 2.1.282);
+       chord-then-Escape stopped them with the lead idle and with it busy. */
+    const helped = chat.stopHelpers(name, roster);
+    const stopped = repeat ? { ok: true } : chat.interrupt(name, roster);
+    const ok = stopped.ok === true && helped.ok === true;
+    sendJson(res, 200, { ok: true, stopped: ok,
+      because: ok ? null : (stopped.ok ? helped.because : stopped.because), swarm: next });
+    return;
+  }
+  /* #3564: a swarm's settings (the contract on #3564): { maxHelpers?, dailyTokenLimit?, active? }.
+     Only a swarm has them. A new helper count is written into the lead's instructions. */
+  const swarmSet = pathname.match(/^\/api\/agent\/([^/]+)\/swarm$/);
+  if (swarmSet && req.method === 'PUT') {
+    const name = decodeSegment(swarmSet[1]);
+    if (name === null) { sendJson(res, 400, { ok: false, because: 'that is not a name we can read' }); return; }
+    readBody(req)
+      .then((buf) => {
+        let body;
+        try { body = JSON.parse(buf.toString('utf8') || '{}'); } catch { body = null; }
+        const swarm = require('./engine/swarm');
+        if (!fs.existsSync(create.workerDir(name))) { sendJson(res, 404, { ok: false, because: 'there is no agent by that name on this computer' }); return; }
+        const profile = store.readProfile(name);
+        if (!swarm.settingsOf(profile)) { sendJson(res, 404, { ok: false, because: 'that agent is not a swarm' }); return; }
+        const problem = swarm.patchProblem(body);
+        if (problem) { sendJson(res, 400, { ok: false, because: problem }); return; }
+        const next = swarm.applyPatch(profile, body);
+        store.writeProfile(name, { swarm: next });
+        const told = 'maxHelpers' in body ? swarm.tellLead(name, next.maxHelpers) : null;
+        sendJson(res, 200, { ok: true, swarm: next, told });
+      })
+      .catch((err) => sendJson(res, 400, { ok: false, because: String((err && err.message) || 'we could not read that request') }));
+    return;
+  }
   /* ── the working rules, consented (#539) ─────────────────────────────────
      GET answers the banner and the dialog (which sections are missing, the
      exact span a click would write, and the hash that click must present);
@@ -5164,6 +5252,10 @@ const server = http.createServer((req, res) => {
           // which is what every agent already made on this machine has.
           account: body.account,
           reportsTo: body.reportsTo,
+          // #3564: Agent or Swarm, and a swarm's settings; validated in the engine.
+          kind: body.kind,
+          maxHelpers: body.maxHelpers,
+          dailyTokenLimit: body.dailyTokenLimit,
           // Validated above; composed into the file BEFORE the session starts
           // (#323), so the addAgent below finds the block already there.
           projects: projectsToJoin,
@@ -11973,7 +12065,8 @@ const server = http.createServer((req, res) => {
         }
         // Refused before anything is looked up, so a message we would never
         // send does not cost a tmux fan-out.
-        const problem = chat.messageProblem(body.text);
+        // #3679: storedProblem too, because this route keeps the stored form.
+        const problem = chat.messageProblem(body.text) || chat.storedProblem(body.text);
         if (problem) throw new Error(problem);
         /**
          * ⚠️ `chose` IS THE OPTION'S OWN WORDS, and it is bounded like any
@@ -13017,10 +13110,10 @@ const server = http.createServer((req, res) => {
 
   /**
    * Tasks, open and finished (#1382). Global by default; scoped to one project
-   * when `?project=<id>` is given (#2498 - the per-project "view all tasks"
-   * door). No UI screen fetches the global set today (a test consumer,
-   * getDue in server.task-duedate-768.test.js, still relies on it), but it
-   * stays for a future global-home view.
+   * when `?project=<id>` is given (#2498, first for the per-project "view all
+   * tasks" door; `kosmos tasks` and tests read it now). The Tasks view (#3559)
+   * reads the global set with `?view=tasks`, and since #3703 the project door
+   * opens that view scoped to its project.
    *
    * 🛑 AN UNREADABLE STORE IS AN ERROR, NEVER AN EMPTY LIST. Same rule as
    * `/api/projects` above, and for the same reason: "No tasks yet" is a CLAIM
@@ -13033,8 +13126,9 @@ const server = http.createServer((req, res) => {
    * six, because one number came from the data and the other from the DOM.
    */
   if (pathname === '/api/tasks' && (req.method === 'GET' || req.method === 'HEAD')) {
+    let everyProject;
     try {
-      projects.readAll();
+      everyProject = projects.readAll();
     } catch (err) {
       sendJson(res, 500, {
         error: String((err && err.message) || 'we cannot read your tasks right now'),
@@ -13042,17 +13136,171 @@ const server = http.createServer((req, res) => {
       });
       return;
     }
-    /* #2498: the project view's "view all tasks" door scopes to the project it
-       was opened from. `?project=<id>` filters allTasks() (which tags each task
-       with projectId and keeps CLOSED ones) to that project - open AND finished,
-       so the #1382 finished-work purpose is preserved per project. No param =
-       the global set, unchanged: nothing serves a global all-tasks view today,
-       but the route stays backward-compatible for one if it is ever added. */
+    /* #2498: `?project=<id>` filters allTasks() (which tags each task with
+       projectId and keeps CLOSED ones) to that project, open AND finished, so the
+       #1382 finished-work purpose holds per project. No param = the global set,
+       which the Tasks view reads (with ?view=tasks). */
     let projectScope = null;
-    try { projectScope = new URL(req.url, ROUTING_BASE).searchParams.get('project') || null; } catch { projectScope = null; }
-    const all = tasks.allTasks();
-    const rows = projectScope ? all.filter((t) => t.projectId === projectScope) : all;
+    let forTasksView = false;
+    /* #3703: the project View-all door opens this view scoped to its project, and an archived
+       project's door still has to show its tasks. `withArchived=<id>` keeps THAT archived project
+       (only that one) in the Tasks view's read; every other archived project stays out. */
+    let withArchived = null;
+    try {
+      const q = new URL(req.url, ROUTING_BASE).searchParams;
+      projectScope = q.get('project') || null;
+      forTasksView = q.get('view') === 'tasks';
+      withArchived = q.get('withArchived') || null;
+    } catch { projectScope = null; }
+    const all = tasks.allTasks(everyProject);
+    const scoped = projectScope ? all.filter((t) => t.projectId === projectScope) : all;
+    /* The fields below cost a board snapshot plus a transcript read per task, so only the
+       Tasks view (?view=tasks, which the project View-all door also opens since #3703) pays for
+       them: the agents' `kosmos tasks` reads the list exactly as cheaply as before. */
+    if (!forTasksView) {
+      sendJson(res, 200, { tasks: scoped, count: scoped.length, project: projectScope });
+      return;
+    }
+    /* #3559: the Tasks view groups by WHERE THE WORK IS, and the engine derives
+       that, never the page. Each row gains:
+         claim          the same join the project card uses ("says it is on
+                        this" / has not said / could not tell, with why), one
+                        roster read and one commitments reading per agent for
+                        the whole request
+         state          tasks.taskState: closed / nobody / working / assigned
+         lastActivityAt the newest transcript event, else created/closed
+       Added fields only, and only on ?view=tasks, which also leaves out archived
+       projects' tasks (the view does not list them) except the one `withArchived` names. */
+    const roster = safeRoster();
+    const claims = new Map();
+    /* A project whose claims could not be read: its tasks say so (claimed: null, with why),
+       so the page shows "cannot tell" on the row rather than "not started" as a fact. */
+    const unreadable = new Set();
+    for (const p of everyProject || []) {
+      if (projectScope && p.id !== projectScope) continue;
+      // An archived project is set aside and the view does not list it, so it costs nothing.
+      if (p.archived === true && p.id !== withArchived) continue;
+      let joined = [];
+      try {
+        joined = projects.joinTaskClaims(Array.isArray(p.tasks) ? p.tasks : [], everyProject, p.agents || [], roster, { name: p.name, id: p.id });
+      } catch (err) {
+        console.error('[tasks view] could not read claims for project ' + p.id + ': ' + String((err && err.message) || err));
+        unreadable.add(p.id);
+        joined = [];
+      }
+      for (const j of joined) if (j && j.claim) claims.set(p.id + '\u0000' + j.number, j.claim);
+    }
+    const rows = scoped.filter((t) => !t.projectArchived || t.projectId === withArchived).map((t) => {
+      let claim = claims.get(t.projectId + '\u0000' + t.number) || null;
+      if (!claim && unreadable.has(t.projectId) && tasks.taskState(t) === 'assigned') {
+        claim = { claimed: null, because: 'we could not read what its agent reports' };
+      }
+      return Object.assign({}, t, {
+        claim,
+        state: tasks.taskState(Object.assign({}, t, { claim })),
+        lastActivityAt: tasks.lastActivityOf(t.projectId, t),
+      });
+    });
     sendJson(res, 200, { tasks: rows, count: rows.length, project: projectScope });
+    return;
+  }
+
+  /**
+   * Close many tasks at once, with one optional note (#3559, the Tasks view's
+   * bulk bar). Body { tasks: [{ projectId, number }], note }.
+   *
+   * 🔑 A PERSON'S ACTION. A request that presents an agent token, or that does not
+   * come from a page at all, is refused: closing a pile of tasks in one call is what
+   * a looping agent must not do. ⚠️ Like every screen-or-process split here
+   * (isViaScreen), the page headers are ADVISORY: a local process that omits its
+   * token and sends them passes. This keeps honest agents out; it is not a lock.
+   * 🔑 EACH TASK STANDS ALONE. One that cannot close (gone, unreadable) does not
+   * stop the others, and the answer says which failed and why. Each task is
+   * closed FIRST and the note written after it, so a failed close never leaves a note behind to
+   * be written a second time on a retry.
+   * Closing tells the assignees exactly as a single close does (their managed
+   * block stops listing the task). Closing does not stop an agent (tasks.js).
+   */
+  if (pathname === '/api/tasks/close' && req.method === 'POST') {
+    readBody(req).then((raw) => {
+      let body = null;
+      try { body = JSON.parse(raw || 'null'); } catch { body = null; }
+      /* Who is asking comes first, so an agent sending anything, well-formed or not, is told 403. */
+      if (!isViaScreen(req, body && typeof body === 'object' ? body : null)) {
+        sendJson(res, 403, { error: 'closing several tasks at once is done from the Tasks screen' });
+        return;
+      }
+      if (!body || typeof body !== 'object' || !Array.isArray(body.tasks)) {
+        sendJson(res, 400, { error: 'we could not read which tasks to close' });
+        return;
+      }
+      if (!body.tasks.length) { sendJson(res, 400, { error: 'pick at least one task to close' }); return; }
+      if (body.tasks.length > BULK_CLOSE_MAX) {
+        sendJson(res, 400, { error: `close up to ${BULK_CLOSE_MAX} tasks at a time` });
+        return;
+      }
+      const note = typeof body.note === 'string' ? body.note.trim() : '';
+      if (note.length > tasks.MESSAGE_MAX) {
+        sendJson(res, 400, { error: `keep the note to ${tasks.MESSAGE_MAX} characters or fewer` });
+        return;
+      }
+      const results = [];
+      const toTell = new Set();
+      /* ONE store read for every lookup. projects.get() would run the whole claim join (every
+         project's tasks, a commitments read per assignee) once per item, and tasks.say() would run
+         it again: ~400 joins for a 200-task close. Closes made earlier in THIS request are not in
+         the snapshot, so they are remembered here (a task sent twice gets one note, one close). */
+      let everyProject;
+      try { everyProject = projects.readAll(); } catch (err) {
+        sendJson(res, 500, { error: String((err && err.message) || 'we cannot read your tasks right now') });
+        return;
+      }
+      const closedHere = new Set();
+      const taskchat = require('./engine/taskchat');
+      for (const item of body.tasks) {
+        const projectId = item && typeof item.projectId === 'string' ? item.projectId : null;
+        const number = item && Number.isSafeInteger(item.number) ? item.number : null;
+        if (!projectId || number === null) {
+          results.push({ projectId, number, ok: false, error: 'that is not a task we can find' });
+          continue;
+        }
+        try {
+          /* Looked up FIRST, so a missing task never gets the note, and one already closed
+             (a stale page, or sent twice) is left alone rather than re-stamped with the note
+             written a second time. */
+          const p = (everyProject || []).find((x) => x && x.id === projectId);
+          const found = p ? tasks.byNumber(p, number) : null;
+          if (!found) throw new Error(p ? 'there is no task by that number on this project' : 'there is no project by that name');
+          const here = projectId + '#' + number;
+          if (closedHere.has(here) || tasks.progressOf(found).closed) { results.push({ projectId, number, ok: true, already: true }); continue; }
+          /* CLOSE FIRST, then the note: a close that fails leaves no note behind to be written a
+             second time on a retry. The note is recorded exactly as tasks.say records it (a 'said'
+             event); say() itself would re-read and re-join the store just to find the task we
+             already hold. Length and emptiness were checked above. A note that cannot be saved does
+             not undo the close; the result says so. */
+          const t = tasks.close(projectId, number);
+          closedHere.add(here);
+          for (const one of tasks.whoOf(t)) toTell.add(one);
+          const noteRecorded = note ? !!taskchat.record(projectId, found.number, { kind: 'said', text: note }) : null;
+          results.push({ projectId, number, ok: true, ...(note ? { noteRecorded } : {}) });
+        } catch (err) {
+          results.push({ projectId, number, ok: false, error: String((err && err.message) || 'we could not close that task') });
+        }
+      }
+      /* Tell each assignee ONCE, after every close, from ONE roster read: a board
+         snapshot is synchronous tmux work, and one per task froze the board on a big
+         close. Their managed block then stops listing every task closed here. */
+      if (toTell.size) {
+        const roster = safeRoster();
+        for (const one of toTell) {
+          try { projects.syncAgent(one, roster); } catch { /* the close stands; the next sync catches up */ }
+        }
+      }
+      /* `closed` counts closes THIS request made; one already closed is ok but not credited here. */
+      const ok = results.filter((r) => r.ok).length;
+      const closed = results.filter((r) => r.ok && !r.already).length;
+      sendJson(res, ok === results.length ? 200 : (ok ? 207 : 400), { results, closed, already: ok - closed, failed: results.length - ok });
+    }).catch(() => sendJson(res, 400, { error: 'we could not read that request' }));
     return;
   }
 
@@ -13329,6 +13577,32 @@ const server = http.createServer((req, res) => {
       }
       sendJson(res, 409, { error: String((err && err.message) || 'we could not show it') });
     }
+    return;
+  }
+
+  /* #3564: switch a swarm on or off in one project: { on: boolean }. Only a swarm that is
+     a member of the project. Off means work in this project does not reach it
+     (projects.swarmOffIn); it stays a member. */
+  const projSwarm = pathname.match(/^\/api\/project\/([^/]+)\/swarm\/([^/]+)$/);
+  if (projSwarm && req.method === 'PUT') {
+    const id = decodeSegment(projSwarm[1]);
+    const name = decodeSegment(projSwarm[2]);
+    if (id === null || name === null) { sendJson(res, 400, { ok: false, because: 'that is not a name we can read' }); return; }
+    readBody(req)
+      .then((buf) => {
+        let body;
+        try { body = JSON.parse(buf.toString('utf8') || '{}'); } catch { body = null; }
+        if (!body || typeof body.on !== 'boolean') { sendJson(res, 400, { ok: false, because: 'on has to be true or false' }); return; }
+        const project = projects.readAll().find((p) => p && p.id === id);
+        if (!project) { sendJson(res, 404, { ok: false, because: 'there is no project by that name' }); return; }
+        /* A project stores its members as NAMES (projects.addAgent), not cards. */
+        const member = (project.agents || []).find((a) => typeof a === 'string' && a === name) || null;
+        if (!member) { sendJson(res, 404, { ok: false, because: 'that agent is not on this project' }); return; }
+        if (!require('./engine/swarm').settingsOf(store.readProfile(member))) { sendJson(res, 404, { ok: false, because: 'that agent is not a swarm' }); return; }
+        projects.setSwarmOn(id, member, body.on);
+        sendJson(res, 200, { ok: true, on: body.on });
+      })
+      .catch((err) => sendJson(res, 400, { ok: false, because: String((err && err.message) || 'we could not read that request') }));
     return;
   }
 
@@ -14131,7 +14405,10 @@ const server = http.createServer((req, res) => {
         const fromPane = typeof body.from_pane === 'string' ? body.from_pane : '';
         const senderCard = tokenSender ? tokenSender.card : (fromPane ? roster.find((c) => c && c.target === fromPane) : null);
         const senderName = clean(senderCard && senderCard.sessionName);
-        const recipients = senderName ? named.filter((m) => m !== senderName) : named;
+        /* #3564: a swarm switched off in this project is not told about its tasks. */
+        const offHere = projects.swarmOffSet(id);
+        const others = senderName ? named.filter((m) => m !== senderName) : named;
+        const recipients = others.filter((m) => !offHere.has(String(m)));
         const who = viaScreen ? 'The person' : (senderName || 'An agent');
         /* Built once: nothing in the line depends on the recipient. `id` is cleaned
            for consistency with the other interpolated values, though a stored project
@@ -14142,7 +14419,10 @@ const server = http.createServer((req, res) => {
            `told` as a SINGLE instruction-sync verdict; this is a per-assignee list of
            chat.deliver outcomes, a different shape, so it takes a different name rather
            than overloading `told` with two meanings (convention #5). */
-        const delivered = [];
+        /* An Off swarm is answered as not sent, with the reason heardBy gives. */
+        const delivered = others.filter((m) => offHere.has(String(m))).map((m) => ({
+          agent: m, state: (chat.DELIVERY && chat.DELIVERY.COULD_NOT) || 'could_not', because: projects.SWARM_OFF_SENTENCE(m),
+        }));
         for (const one of recipients) {
           let outcome;
           try { outcome = chat.deliver(one, line, roster); }
@@ -14552,7 +14832,8 @@ const server = http.createServer((req, res) => {
         }
         // Refused before anything is looked up, so a message we would never
         // send does not cost a tmux fan-out.
-        const problem = chat.messageProblem(body.text);
+        // #3679: storedProblem too, because this route keeps the stored form.
+        const problem = chat.messageProblem(body.text) || chat.storedProblem(body.text);
         if (problem) throw new Error(problem);
 
         const roster = safeRoster();
@@ -14581,6 +14862,12 @@ const server = http.createServer((req, res) => {
           const notOn = new Error('that agent is not on this project');
           notOn.status = 404;
           throw notOn;
+        }
+        /* #3564: a swarm switched off in this project takes no work here. */
+        if (projects.swarmOffIn(id, member.sessionName)) {
+          const off = new Error(projects.SWARM_OFF_SENTENCE(member.sessionName));
+          off.status = 409;
+          throw off;
         }
         /* #1629: this route has no button guards at all, so the trust hold is
            the only thing between a typed reply and a dialog whose default
@@ -15159,11 +15446,10 @@ function start(port = PORT) {
          stays red for a person. Same gating as the class-1 sweep: inert under
          `node --test` and before the live-execution opt-in, operator brake
          AGENT_WORKFORCE_CONNLOST_HEAL_OFF=1, own ~1-min timer, unref'd, best-effort. */
-      const connlostBook = new Map(); // in memory: a board restart (or the outage ending) clears an escalation
       const connlostTick = connlostHeal.makeTick({
         allowed: () => liveExecution.liveExecutionAllowed(),
         roster: () => safeRoster(),
-        book: connlostBook,
+        book: CONNLOST_BOOK,
         probe: () => connlostHeal.probeApi(),
         deliver: (session, text, r) => chat.deliver(session, text, r, undefined, undefined),
         DELIVERY: chat.DELIVERY,
@@ -15234,6 +15520,20 @@ function start(port = PORT) {
          sweeps above: its own timer, unref'd so it never holds the process open,
          best-effort. It sends nothing when the person has opted out, and nothing
          under test (feedbacksend's underTest guard). */
+      /* #3564: the swarms' daily token limit. At the limit a swarm pauses itself,
+         its current turn is interrupted and it says so in its own DM; a limit pause
+         lifts at local midnight. Its own ~1-minute timer, unref'd, best-effort, like
+         the sweeps above (engine/swarm.js sweepOnce does the deciding). It types into
+         panes, so it is gated on the live-execution opt-in like them: inert under test. */
+      const swarmSweep = setInterval(() => {
+        if (!liveExecution.liveExecutionAllowed()) return; // inert under test / before opt-in
+        try {
+          const roster = safeRoster();
+          const swarmMod = require('./engine/swarm');
+          swarmMod.sweepOnce(swarmMod.sweepRows(roster), swarmSweepDeps(roster));
+        } catch { /* best-effort; the card still shows today's tokens against the limit */ }
+      }, 60 * 1000);
+      if (swarmSweep && typeof swarmSweep.unref === 'function') swarmSweep.unref();
       const feedbackSweep = setInterval(() => {
         try { feedbacksend.sendDailyOnce(feedback.today()); } catch { /* best-effort, like the sweeps above */ }
       }, Number(process.env.AGENT_WORKFORCE_FEEDBACK_SWEEP_MS) > 0 ? Number(process.env.AGENT_WORKFORCE_FEEDBACK_SWEEP_MS) : 60 * 60 * 1000); // the env is the test seam only
@@ -15750,7 +16050,9 @@ if (require.main === module) {
 // routes reading `req.url` around it were.
 module.exports = {
   server, start, pathOf, decodeSegment, resetHeardBudgetForTests,
+  CONNLOST_BOOK, connlostHealEnabled, // #3410: exported so a test can pin the route's reconnect field to the sweep's own book
   givePart, // #3595: the assign-and-tell path, exported so the Assigner's real write path is tested
+  swarmSweepDeps, // #3564: the limit sweep's wiring, exported so it is tested
   /* #2036: the boot diagnostic's condition (pure truth table) AND its real call-site
      composition, exported together so BOTH are pinned. stagingRevertWarningNow wires the raw
      install stamp rather than the #2934 badge; sourceChannelNow is exported alongside so the

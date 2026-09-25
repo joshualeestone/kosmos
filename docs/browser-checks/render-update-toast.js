@@ -3,6 +3,7 @@
    confirm with the exact frozen copy, used to surface the route's from-source
    refusal, and Later remembers per version. Sandboxed server + local release
    host. */
+require('./lib-sandbox-home.js'); // #3675: never read the host Mac's real accounts
 const { spawn } = require('node:child_process');
 const http = require('node:http');
 const fs = require('node:fs');

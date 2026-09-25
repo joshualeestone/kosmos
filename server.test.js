@@ -494,7 +494,21 @@ test('#1938: /api/scan-agents caches the disk walk, and a mutating route invalid
  * a field arriving that no line of the page has ever heard of. Being crude is
  * why it is cheap enough to run every time.
  */
+const SWARM_CARD_UNREAD = '#3564: a card\'s swarm settings, helpers and tokens today. The '
+  + 'page reads them in Mona Lisa\'s UI half, which lands after the engine; that change '
+  + 'takes them off this list';
 const UNREAD_ON_PURPOSE = {
+  swarms: '#3564: the engine says this board can run swarms. The page reads it when the '
+    + 'New agent screen offers a swarm (Mona Lisa\'s UI half, which lands after the '
+    + 'engine); that change takes it off this list',
+  swarm: SWARM_CARD_UNREAD,
+  maxHelpers: SWARM_CARD_UNREAD,
+  activeHelpers: SWARM_CARD_UNREAD,
+  tokensToday: SWARM_CARD_UNREAD,
+  dailyTokenLimit: SWARM_CARD_UNREAD,
+  pausedBecause: SWARM_CARD_UNREAD,
+  helperTokenRatio: SWARM_CARD_UNREAD,
+  metered: SWARM_CARD_UNREAD,
   isAgentPane: 'a classification the board uses to decide what IS an agent; it '
     + 'is an input to the list, never a thing to draw',
   reportedAt: 'the commitments timestamp. The restart dialog shows the age '
@@ -9557,7 +9571,7 @@ function bodyFn() {
   // in turn calls pjRichSpans; both are lifted in so the extracted pjBody runs.
   return pageFunction('pjBody', pageFnSource('esc') + '\n'
     + pageFnSource('pjInline') + '\n' + pageFnSource('pjLinkPaths') + '\n'
-    + pageFnSource('pjRichSpans') + '\n' + pageFnSource('pjProse') + '\n');
+    + pageFnSource('pjRichSpans') + '\n' + pageFnSource('pjListDepth') + '\n' + pageFnSource('pjProse') + '\n');
 }
 
 test('a closed fence becomes a block and its contents are escaped, not linked', () => {
@@ -14750,6 +14764,51 @@ test('#3650: a DM reaction is stored, shown, and told to the agent once with the
     assert.equal(lostState, chatEngine.DELIVERY.UNCONFIRMED, 'CONTROL: the send was not unconfirmed, so this arm tests nothing: ' + lost.body);
     assert.ok(chatEngine.dmReactionNote('lena').includes('🎉'), 'an unconfirmed send marked the reaction told');
   } finally {
+    chatEngine.resetForTests();
+    board.restore();
+  }
+});
+
+test('#3679: the DM route refuses a message whose stored form is past the ceiling, and says why', async () => {
+  const chatEngine = require('./engine/chat');
+  const board = fleet.install([fleet.agent('indenta', { state: 'idle' })]);
+  try {
+    const text = '```\n' + ('    a' + ' '.repeat(40) + 'b\n').repeat(1000) + '```';
+    assert.ok(chatEngine.cleanMessage(text).length <= chatEngine.MAX_TEXT, 'CONTROL: the one-line form is under the limit');
+    const res = await req('/api/agent/indenta/thread', {
+      method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ text }),
+    });
+    assert.equal(res.status, 400, res.body);
+    assert.match(res.body, /indentation and spacing/);
+  } finally {
+    chatEngine.resetForTests();
+    board.restore();
+  }
+});
+
+test('#3679: /api/reply and the project-thread DM route refuse a stored form past the ceiling', async () => {
+  const messagesEngine = require('./engine/messages');
+  const chatEngine = require('./engine/chat');
+  const projectsEngine = require('./engine/projects');
+  const board = fleet.install([fleet.agent('leo', { state: 'idle' })]);
+  const text = '```\n' + ('    a' + ' '.repeat(40) + 'b\n').repeat(1000) + '```';
+  assert.ok(chatEngine.cleanMessage(text).length <= chatEngine.MAX_TEXT, 'CONTROL: the one-line form is under the limit');
+  const pr = projectsEngine.create({ name: 'Indent Ceiling 3679' });
+  projectsEngine.writeAll(projectsEngine.readAll().map((x) => (x.id === pr.id ? { ...x, agents: ['leo'] } : x)));
+  try {
+    messagesEngine.setRunner(() => ({ ok: true, session: 'leo-discord' }));
+    const reply = await req('/api/reply', {
+      method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ text }),
+    });
+    assert.match(reply.body, /indentation and spacing/, 'the reply route kept it: ' + reply.body.slice(0, 200));
+    const thread = await req('/api/project/' + pr.id + '/thread/leo', {
+      method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ text }),
+    });
+    assert.equal(thread.status, 400, thread.body.slice(0, 200));
+    assert.match(thread.body, /indentation and spacing/);
+  } finally {
+    try { projectsEngine.writeAll(projectsEngine.readAll().filter((x) => x.id !== pr.id)); } catch { /* sandboxed */ }
+    messagesEngine.setRunner(null);
     chatEngine.resetForTests();
     board.restore();
   }

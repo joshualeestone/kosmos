@@ -2434,6 +2434,58 @@ test('every agent is born knowing who it reports to, identically on both paths, 
   }
 });
 
+test('#3564: a swarm is born with its settings and its block; an ordinary agent gets neither', () => {
+  recorder();
+  create.setDryRun(false);
+  const swarmMod = require('./swarm');
+  const projects = require('./projects');
+  const made = create.createAgent({ ...BINS, name: 'hive', role: 'pm', kind: 'swarm', maxHelpers: 5, dailyTokenLimit: 250000 });
+  assert.equal(made.outcome, create.OUTCOME.CREATED, made.because);
+  const settings = swarmMod.settingsOf(store.readProfile('hive'));
+  assert.deepEqual(settings, { maxHelpers: 5, dailyTokenLimit: 250000, active: true, pausedBecause: null, pausedAt: null, pausedAtLimit: null, limitOverrideDay: null });
+  const text = fs.readFileSync(create.instructionFile('hive'), 'utf8');
+  const block = projects.findBlock(text, swarmMod.START, swarmMod.END);
+  assert.ok(block, 'the swarm block is not in its instructions at birth');
+  assert.match(text.replace(/\s+/g, ' '), /at most 5 at once/);
+  const plain = create.createAgent({ ...BINS, name: 'solo', role: 'pm' });
+  assert.equal(plain.outcome, create.OUTCOME.CREATED, plain.because);
+  assert.equal(swarmMod.settingsOf(store.readProfile('solo')), null, 'an ordinary agent was made a swarm');
+  assert.equal(projects.findBlock(fs.readFileSync(create.instructionFile('solo'), 'utf8'), swarmMod.START, swarmMod.END), null);
+});
+
+test('#3564: a swarm on another provider, without a limit, or with a bad count is refused before anything is written', () => {
+  recorder();
+  create.setDryRun(false);
+  for (const [opts, re] of [
+    [{ provider: 'openai', dailyTokenLimit: 1000 }, /Claude/],
+    [{}, /daily token limit/],
+    [{ maxHelpers: 11, dailyTokenLimit: 1000 }, /2 to 10/],
+  ]) {
+    const name = 'nohive' + Math.random().toString(36).slice(2, 7);
+    const r = create.createAgent({ ...BINS, name, role: 'pm', kind: 'swarm', ...opts });
+    assert.equal(r.outcome, create.OUTCOME.REFUSED, JSON.stringify(opts));
+    assert.match(r.because, re);
+    assert.equal(fs.existsSync(create.workerDir(name)), false, 'a refused swarm left a folder behind');
+  }
+  assert.equal(create.createAgent({ ...BINS, name: 'oddkind', role: 'pm', kind: 'crowd' }).outcome, create.OUTCOME.REFUSED);
+});
+
+test('#3564: an existing swarm cannot be switched off Claude; an ordinary agent is not refused for being one', () => {
+  recorder();
+  create.setDryRun(false);
+  const made = create.createAgent({ ...BINS, name: 'hiveswitch', role: 'pm', kind: 'swarm', dailyTokenLimit: 1000 });
+  assert.equal(made.outcome, create.OUTCOME.CREATED, made.because);
+  for (const provider of ['openai', 'google', 'xai']) {
+    const r = create.setProvider('hiveswitch', provider, BINS);
+    assert.equal(r.outcome, create.OUTCOME.REFUSED, provider);
+    assert.match(r.because, /swarm/, provider + ': ' + r.because);
+  }
+  assert.equal(store.readProfile('hiveswitch').provider || 'anthropic', 'anthropic', 'the refused switch changed the provider');
+  const plain = create.createAgent({ ...BINS, name: 'soloswitch', role: 'pm' });
+  assert.equal(plain.outcome, create.OUTCOME.CREATED, plain.because);
+  assert.doesNotMatch(String(create.setProvider('soloswitch', 'openai', BINS).because || ''), /swarm/, 'CONTROL: an ordinary agent was refused as a swarm');
+});
+
 test('#3614: every agent is born knowing where to save the files it makes, with its OWN folder written in', () => {
   /* The card's point: the path is written in, never left for the agent to guess. Both
      creation paths (a menu role and the person's own words) carry the block, it names

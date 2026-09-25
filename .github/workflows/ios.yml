@@ -7,7 +7,8 @@
 # protection on this repo, by a deliberate repo-admin decision; see test.yml).
 #
 # WHAT GREEN CERTIFIES: the Foundation-only push logic passes its suite on macOS,
-# and the app compiles and links for the simulator with signing off. It does NOT
+# the app compiles and links for the simulator with signing off (Debug and
+# Release), and both built apps carry the four permission strings. It does NOT
 # certify running on a simulator or device, a signed build, or APNs delivery.
 
 name: ios
@@ -59,3 +60,18 @@ jobs:
         run: |
           xcodebuild -project Kosmos.xcodeproj -target Kosmos -sdk iphonesimulator \
             -configuration Debug CODE_SIGNING_ALLOWED=NO build
+
+      # iOS closes the app when a feature is used without its permission string;
+      # check the strings in the apps just built, not the project file. Release is
+      # built too because the store build is Release and the strings are set per
+      # configuration, so a key dropped from Release alone would pass a Debug-only check.
+      - name: Permission strings are in the built app (Debug and Release)
+        working-directory: ios
+        run: |
+          set -o pipefail
+          xcodebuild -project Kosmos.xcodeproj -target Kosmos -sdk iphonesimulator \
+            -configuration Release CODE_SIGNING_ALLOWED=NO build
+          for config in Debug Release; do
+            tools/check-usage-strings.sh "build/$config-iphonesimulator/Kosmos.app/Info.plist" | tee "$RUNNER_TEMP/usage-$config.log"
+            grep -q '^VERDICT: PASS' "$RUNNER_TEMP/usage-$config.log"
+          done

@@ -116,3 +116,56 @@ test('card: a connection_lost agent shows a human sentence, not the raw API-Erro
   assert.doesNotMatch(html, /ENOTFOUND/,
     'the raw terminal evidence leaked onto the card face instead of a human sentence');
 });
+
+/* #3410 copy: what Kosmos is doing about it, from the route's `reconnect` field. Each phase is
+   rendered through the REAL card/lrow, and the no-field case is the control that keeps the
+   original "Connection lost" (the self-heal is not running, so nothing may promise a retry). */
+for (const which of ['card', 'lrow']) {
+  test(`${which}: while Kosmos still has retries to give, the label is "Reconnecting…", not "Connection lost"`, () => {
+    for (const phase of ['waiting', 'retried']) {
+      const html = api[which](connLostAgent({ reconnect: { phase, tries: phase === 'retried' ? 1 : 0 } }));
+      assert.match(html, /Reconnecting…/, `${which} (${phase}) did not say Kosmos is reconnecting`);
+      assert.doesNotMatch(html, /Connection lost/, `${which} (${phase}) still says Connection lost while Kosmos is on it`);
+    }
+  });
+  test(`${which}: once Kosmos has given up, or is not retrying at all, it is "Connection lost" again`, () => {
+    for (const extra of [{ reconnect: { phase: 'gave_up', tries: 3 } }, { reconnect: null }, {}]) {
+      const html = api[which](connLostAgent(extra));
+      assert.match(html, /Connection lost/, `${which} ${JSON.stringify(extra)} lost the Connection lost label`);
+      assert.doesNotMatch(html, /Reconnecting…/, `${which} ${JSON.stringify(extra)} claimed a reconnect`);
+    }
+  });
+}
+
+test('card: the sentence says what Kosmos is doing, and promises nothing when it is not retrying', () => {
+  const says = (extra) => api.card(connLostAgent(extra));
+  assert.match(says({ reconnect: { phase: 'waiting', tries: 0 } }), /Kosmos will retry it automatically/);
+  assert.match(says({ reconnect: { phase: 'retried', tries: 2 } }), /Kosmos has asked it to try again/);
+  const gaveUp = says({ reconnect: { phase: 'gave_up', tries: 3 } });
+  assert.match(gaveUp, /Kosmos tried to reconnect it several times and has stopped/);
+  assert.match(gaveUp, /If the internet is working, restart the agent\. It will start fresh/);
+  const off = says({});
+  assert.match(off, /lost its internet connection/);
+  assert.doesNotMatch(off, /Kosmos (will retry|has asked)/, 'promised a retry with no self-heal running');
+});
+
+/* #3410: the 15-minute check-in does not ask the person to reconnect an agent Kosmos is already
+   reconnecting. The shipped prompterCheckinQuestion, evaluated with a LAST it can read. */
+test('check-in: while Kosmos is reconnecting it, the question does not ask the person to reconnect it', () => {
+  const at = SCRIPT.indexOf('function prompterCheckinQuestion(n)');
+  assert.ok(at > -1, 'prompterCheckinQuestion is gone from the page; this test is stale, not the code');
+  const body = SCRIPT.slice(at, SCRIPT.indexOf('\n}\n', at) + 3);
+  // eslint-disable-next-line no-new-func
+  const ask = (LAST, n) => new Function('LAST', body + '\n; return prompterCheckinQuestion;')(LAST)(n);
+  // The LAST rows are the real fleet card (connLostAgent), keyed by its own sessionName.
+  const n = { session: BASE.sessionName, to: 'connection_lost' };
+  for (const phase of ['waiting', 'retried']) {
+    const q = ask([connLostAgent({ reconnect: { phase, tries: 0 } })], n);
+    assert.match(q, /Kosmos is reconnecting it/);
+    assert.doesNotMatch(q, /Reconnect it/, `(${phase}) asked the person to reconnect it`);
+  }
+  // Control: given up, or not running, or no board read yet: the original question.
+  for (const LAST of [[connLostAgent({ reconnect: { phase: 'gave_up', tries: 3 } })], [connLostAgent({ reconnect: null })], []]) {
+    assert.match(ask(LAST, n), /Reconnect it, or is it done\?/);
+  }
+});
