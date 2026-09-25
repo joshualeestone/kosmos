@@ -13087,7 +13087,11 @@ const server = http.createServer((req, res) => {
       let joined = [];
       try {
         joined = projects.joinTaskClaims(Array.isArray(p.tasks) ? p.tasks : [], everyProject, p.agents || [], roster, { name: p.name, id: p.id });
-      } catch { joined = []; }
+      } catch (err) {
+        // Said, not swallowed: this project's assigned tasks will read "assigned" without a claim.
+        console.error('[tasks view] could not read claims for project ' + p.id + ': ' + String((err && err.message) || err));
+        joined = [];
+      }
       for (const j of joined) if (j && j.claim) claims.set(p.id + '\u0000' + j.number, j.claim);
     }
     const rows = scoped.map((t) => {
