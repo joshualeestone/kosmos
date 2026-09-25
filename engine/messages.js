@@ -2164,10 +2164,7 @@ function reopenRoom(project, at) {
  *   and nothing is asked.
  * An unreadable record returns null (post as before): this is a question to the
  * agent, not a gate, and sendPost's own writes meet the same record. */
-let WHICH_ROOM_WINDOW_MS = 60 * 60 * 1000;
-function setWhichRoomWindowForTests(ms) {
-  WHICH_ROOM_WINDOW_MS = Number.isFinite(ms) ? ms : 60 * 60 * 1000;
-}
+const WHICH_ROOM_WINDOW_MS = 60 * 60 * 1000;
 function owedElsewhere(agent, targetProject, now, opts) {
   const who = String(agent == null ? '' : agent);
   const target = String(targetProject == null ? '' : targetProject);
@@ -2250,7 +2247,7 @@ function projectOfPost(id) {
 module.exports = {
   setSenderTextFilter, filteredText, // #3769
   quotedSegments, quoteWorthy, QUOTE_MIN_CHARS, QUOTE_MIN_WORDS,
-  projectOfPost, owedElsewhere, setWhichRoomWindowForTests,
+  projectOfPost, owedElsewhere,
   react, reactionsFor, normalizeReactionEmoji,
   operatorDirect, operatorNowLabel, validTimeZone, roomClock,
   START, END, blockBody,

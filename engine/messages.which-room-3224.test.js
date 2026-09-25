@@ -47,7 +47,6 @@ function seed(rows) {
 }
 
 test.after(() => {
-  messages.setWhichRoomWindowForTests(undefined);
   try { fs.rmSync(SANDBOX, { recursive: true, force: true }); } catch { /* best effort */ }
 });
 
