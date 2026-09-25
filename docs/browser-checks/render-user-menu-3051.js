@@ -75,7 +75,10 @@ function ok(name, cond, detail) { if (cond) pass += 1; else problems.push(name +
       const tabs = [...document.querySelectorAll('#tabs .tab')].map((b) => b.dataset.tab);
       return { tabs, hasSettingsTab: !!document.querySelector('#tabs .tab[data-tab="settings"]') };
     });
-    ok(t + ' the top nav is exactly Agents + Projects + Tasks', nav.tabs.join(',') === 'agents,projects,tasks', JSON.stringify(nav.tabs));
+    /* MARKUP, hidden tabs included: since #3559's 25-task ruling the Tasks tab is in the nav but
+       hidden until the person has 25 tasks ever. Whether it SHOWS is render-tasks-view-3559's
+       [gate] arms; this only says the nav holds exactly these three and no Settings. */
+    ok(t + ' the top nav markup is exactly Agents + Projects + Tasks (Tasks shows from 25 tasks)', nav.tabs.join(',') === 'agents,projects,tasks', JSON.stringify(nav.tabs));
     ok(t + ' the Settings tab is gone from the top nav', nav.hasSettingsTab === false);
 
     // ── The user menu button shows an avatar slot + a name, closed by default. ──
