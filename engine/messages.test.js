@@ -2184,6 +2184,67 @@ test('#670: unread is every post after the person last opened the room, agent ch
   });
 });
 
+test('#3564: the room valve charges only the members a post is sent to: an Off swarm is charged when @-named, not otherwise', () => {
+  const projects = require('./projects');
+  const made = projects.create({ name: 'Swarm Valve Room' });
+  const pid = made.id || (made.project && made.project.id);
+  const seed = () => {
+    fs.mkdirSync(path.dirname(messages.LOG), { recursive: true });
+    fs.writeFileSync(messages.LOG, '');
+    const at = new Date(Date.now() - 60000).toISOString();
+    // One arrival short of the budget: a post that charges 2 trips it, one that charges 1 does not.
+    for (let i = 0; i < ROOM_BUDGET - 1; i += 1) {
+      fs.appendFileSync(messages.LOG, JSON.stringify({ kind: 'post', id: 'v' + (i + 1), project: pid, from: 'mara', to: ['leo'], text: 'r' + i, at, outcomes: {} }) + '\n');
+    }
+  };
+  projects.setSwarmOn(pid, 'april', false);
+  try {
+    withFleet(room3(), (board) => {
+      seed();
+      armSender('leo-discord'); arm([]);
+      const off = messages.sendPost({ fromPane: '%7', project: pid, text: 'one more' }, board.agents, MEMBERS);
+      assert.notEqual(off.state, chat.DELIVERY.COULD_NOT, 'the valve charged an Off swarm that is never sent the post: ' + (off.because || ''));
+      seed();
+      armSender('leo-discord'); arm([]);
+      const named = messages.sendPost({ fromPane: '%7', project: pid, text: '@april one more' }, board.agents, MEMBERS);
+      assert.equal(named.state, chat.DELIVERY.COULD_NOT, 'an Off swarm @-named into the post is sent it, so the valve must charge it');
+      projects.setSwarmOn(pid, 'april', true);
+      seed();
+      armSender('leo-discord'); arm([]);
+      const on = messages.sendPost({ fromPane: '%7', project: pid, text: 'one more' }, board.agents, MEMBERS);
+      assert.equal(on.state, chat.DELIVERY.COULD_NOT, 'CONTROL: the same post with april on should trip the valve');
+    });
+  } finally { projects.setSwarmOn(pid, 'april', true); }
+});
+
+test('#3564: a swarm switched OFF in a project is not woken by the room, unless the post @-names it', () => {
+  const projects = require('./projects');
+  const made = projects.create({ name: 'Swarm Off Room' });
+  const pid = made.id || (made.project && made.project.id);
+  projects.setSwarmOn(pid, 'april', false);
+  try {
+    withFleet(room3(), (board) => {
+      armSender('mara-discord');
+      arm([]);
+      const plain = messages.sendPost({ fromPane: '%7', project: pid, text: 'status check for everyone' }, board.agents, MEMBERS);
+      assert.equal(plain.state, chat.DELIVERY.PLACED, plain.because || '');
+      const row1 = messages.record().rows.filter((m) => m.kind === 'post').pop();
+      assert.ok('leo' in row1.outcomes, 'CONTROL: the other member was woken');
+      assert.equal('april' in row1.outcomes, false, 'a swarm switched off in this project was woken by the room');
+      assert.ok(row1.to.includes('leo'), 'CONTROL: the woken member is logged as sent to');
+      assert.equal(row1.to.includes('april'), false, 'a post the Off swarm was never sent is logged as sent to it');
+      armSender('mara-discord');
+      const tmux = arm([]);
+      messages.sendPost({ fromPane: '%7', project: pid, text: '@april can you take this one' }, board.agents, MEMBERS);
+      const row2 = messages.record().rows.filter((m) => m.kind === 'post').pop();
+      assert.ok('april' in row2.outcomes, 'an @-named swarm that is switched off was not reached');
+      const toApril = tmux.pastedMessages().find((t) => typeof t === 'string' && t.includes('message from your colleague'));
+      assert.match(toApril || '', /talking without you: 1 earlier post this hour did not reach you/,
+        'an Off swarm brought in by name was not told the post it was skipped for');
+    });
+  } finally { projects.setSwarmOn(pid, 'april', true); }
+});
+
 /* ── #3679: the stored post keeps indentation, bounded on its own ────────── */
 
 test('#3679: a room post keeps its code indentation in the record', () => {

@@ -217,3 +217,57 @@ test('#3410: a retry cycle longer than RECOVERED_MS does not reset the nudge bud
   assert.equal(h.sent.length, heal.MAX_NUDGES, `nudged ${h.sent.length} times across long retry cycles`);
   assert.equal(h.book.get(lost()[0].sessionName).escalated, true);
 });
+
+/* #3410 copy: reconnectPhase names where the self-heal stands, for the board to say in words. */
+test('reconnectPhase: null when the self-heal is not running, so the page promises no retry', () => {
+  const heal = require('./connlost-heal');
+  assert.equal(heal.reconnectPhase({ evidence: 'x', sweeps: 5, nudges: [] }, false), null);
+  assert.equal(heal.reconnectPhase(undefined, undefined), null);
+});
+test('reconnectPhase: waiting before any retry, retried under the cap, gave_up at the cap or escalated', () => {
+  const heal = require('./connlost-heal');
+  assert.deepEqual(heal.reconnectPhase(undefined, true), { phase: 'waiting', tries: 0 });
+  assert.deepEqual(heal.reconnectPhase({ evidence: 'x', sweeps: 1, nudges: [] }, true), { phase: 'waiting', tries: 0 });
+  assert.deepEqual(heal.reconnectPhase({ evidence: 'x', sweeps: 3, nudges: [1] }, true), { phase: 'retried', tries: 1 });
+  assert.deepEqual(heal.reconnectPhase({ evidence: 'x', sweeps: 3, nudges: [1, 2, 3] }, true), { phase: 'gave_up', tries: heal.MAX_NUDGES });
+  assert.equal(heal.reconnectPhase({ evidence: 'x', sweeps: 3, nudges: [1], escalated: true }, true).phase, 'gave_up');
+  // Corrupt history counts as used up, the same way planHeal treats it.
+  assert.equal(heal.reconnectPhase({ evidence: 'x', sweeps: 3, nudges: 'bad' }, true).phase, 'gave_up');
+});
+
+test('healEnabled: the one rule the sweep and the route share (live execution AND no operator brake)', () => {
+  const heal = require('./connlost-heal');
+  assert.equal(heal.healEnabled(true, {}), true);
+  assert.equal(heal.healEnabled(false, {}), false);
+  assert.equal(heal.healEnabled(true, { AGENT_WORKFORCE_CONNLOST_HEAL_OFF: '1' }), false);
+  assert.equal(heal.healEnabled(undefined, {}), false);
+});
+
+test('reconnectPhase: a retry kept from an EARLIER drop is not reported as a retry in this one', () => {
+  const heal = require('./connlost-heal');
+  // A new drop that began at t=100, with one retry sent at t=50 in the earlier drop: waiting.
+  assert.equal(heal.reconnectPhase({ evidence: 'x', sweeps: 1, nudges: [50], lostSince: 100 }, true).phase, 'waiting');
+  // A retry sent in this drop: retried.
+  assert.equal(heal.reconnectPhase({ evidence: 'x', sweeps: 3, nudges: [50, 120], lostSince: 100 }, true).phase, 'retried');
+  // The planner's cap still spans drops: three retries in the window is gave_up whatever the drop.
+  assert.equal(heal.reconnectPhase({ evidence: 'x', sweeps: 1, nudges: [10, 20, 30], lostSince: 100 }, true).phase, 'gave_up');
+});
+test('reconnectPhase: a new drop the sweep has not seen yet is waiting, not retried (#3410 review)', () => {
+  const heal = require('./connlost-heal');
+  // The entry the sweep keeps after a recovery: evidence cleared, the earlier drop's retry and start kept.
+  const recovered = { evidence: null, sweeps: 0, nudges: [50], lostSince: 40, okSince: 80 };
+  assert.deepEqual(heal.reconnectPhase(recovered, true), { phase: 'waiting', tries: 1 });
+  // Once the sweep sees the new drop, observe starts a fresh lostSince and it stays waiting.
+  assert.equal(heal.reconnectPhase(heal.observe(recovered, 'e1', 100), true).phase, 'waiting');
+  // Still escalated from an earlier drop: the card says it gave up, even before the sweep sees the new drop.
+  assert.equal(heal.reconnectPhase({ ...recovered, escalated: true }, true).phase, 'gave_up');
+});
+test('observe: lostSince is set when a drop begins and kept while it lasts', () => {
+  const heal = require('./connlost-heal');
+  const first = heal.observe(undefined, 'e1', 1000);
+  assert.equal(first.lostSince, 1000);
+  assert.equal(heal.observe(first, 'e1', 2000).lostSince, 1000, 'a continuing drop keeps its start');
+  assert.equal(heal.observe(first, 'e2', 3000).lostSince, 1000, 'a changed error line in the same drop keeps its start');
+  const recovered = { ...first, evidence: null, sweeps: 0 };
+  assert.equal(heal.observe(recovered, 'e1', 5000).lostSince, 5000, 'a new drop after a recovery starts fresh');
+});
