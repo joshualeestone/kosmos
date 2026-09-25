@@ -5237,7 +5237,8 @@ body:not(.consolidated) .pjmidhead:has(.pjhead) .tsearch:focus-within { flex-bas
    narrow side of that threshold and DO get capped; that is correct, not a regression. No media
    query, no magic breakpoint. The tail wing/mask live on the NEAR side (toward the avatar), so the
    far gutter never touches them. Since #3414 the agent-detail Talk view (dmRow) renders the same
-   .msg rows, so this applies there too; #718 narrows both gutters for the DM on phones, still mirrored. */
+   .msg rows, so this applies there too. (#718 then shrinks the DM avatar on phones in a media
+   query of its own, mirrored the same way and guarded by render-dm-phone-718.js.) */
 .msg:not(.you) .msg-b { margin-right: calc(34px + 14px); }
 .msg.you .msg-b { margin-left: calc(34px + 14px); }
 /* #2806 (Josh, 2026-09-11): the room message BODY box. The person's own post
@@ -5268,17 +5269,26 @@ body:not(.consolidated) .pjmidhead:has(.pjhead) .tsearch:focus-within { flex-bas
       name may break anywhere when the bubble is squeezed (so it no longer sets a minimum)
       and is clamped to its one line with the ellipsis, so it still reads as one line. The
       widest the bubble wants to be is unchanged, so a wide window looks as it did.
+      With spaces in a name the clamp now ends at a word, so the ellipsis can land short of
+      the line's end; accepted, because `nowrap` (the only way to fill the line) blocks every
+      break and brings the minimum width back.
    3. On a phone the side gutters (34px avatar + 14px gap, mirrored opposite) left an iPhone
-      SE a ~155px text column; the 40rem block narrows them for the DM, still mirrored. */
+      SE a ~155px text column; the 40rem block shrinks the avatar for the DM, still mirrored. */
 #d-dmthread .mdtablewrap { overflow-wrap: normal; }
 #d-dmthread .mdtable th { white-space: nowrap; }
 #d-dmthread .att-name { white-space: normal; overflow-wrap: anywhere;
   display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 1; line-clamp: 1; }
+/* The person's own bubble is sized to its content inside a right-aligned column, so a wide
+   table (or anything with a large minimum width) could make it wider than its row and push it
+   off the left edge. Capped at the row; the table's own scroll box then does the scrolling. */
+#d-dmthread .msg.you .msg-bd { max-width: min(78ch, 100%); }
 @media (max-width: 40rem) {
-  #d-dmthread .msg { gap: 8px; }
+  /* The avatar shrinks; the 14px gap does NOT, because the bubble tail's ground mask
+     (.msg-bd::after, 14px wide beside the bubble) would paint over a closer avatar. The far
+     side mirrors avatar + gap; render-dm-phone-718.js measures the two sides equal. */
   #d-dmthread .msg-av { width: 28px; height: 28px; flex-basis: 28px; font-size: .8125rem; }
-  #d-dmthread .msg:not(.you) .msg-b { margin-right: calc(28px + 8px); }
-  #d-dmthread .msg.you .msg-b { margin-left: calc(28px + 8px); }
+  #d-dmthread .msg:not(.you) .msg-b { margin-right: calc(28px + 14px); }
+  #d-dmthread .msg.you .msg-b { margin-left: calc(28px + 14px); }
 }
 .msg.you .msg-bd { background: var(--usermsg-tint); }
 /* #2947 / #3260: the one flat cream fill (background-COLOR, not the `background`

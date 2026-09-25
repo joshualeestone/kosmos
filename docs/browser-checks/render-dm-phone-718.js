@@ -11,8 +11,11 @@
  *   - every attachment card sits inside its own bubble, pictures included;
  *   - no table cell is narrower than its longest word (the thread's `overflow-wrap: anywhere`
  *     crushed them to a letter per line), and the table's scroll box stays inside its bubble;
- *   - the page itself never scrolls sideways;
+ *   - neither the page nor the thread's own scroll box scrolls sideways;
  *   - on a phone the gutter opposite each avatar equals the avatar plus its gap (#3340), measured;
+ *   - the bubble tail's ground mask never reaches the avatar (it paints the thread ground over it);
+ *   - a wide table on the PERSON's own row stays inside its bubble too (their bubble is sized to
+ *     its content in a right-aligned column, the same shape that sent attachments off screen);
  *   - at 1280 a short-named attachment bubble still fits its content, not the whole row.
  *
  * Harness posture mirrors render-agentdm-3414.js: file://, the thread poll answered from a
@@ -44,6 +47,7 @@ const FX = {
       { url: '/api/f/2', name: 'quarterly-board-report-final-v3-really-final.pdf', kind: 'pdf', type: 'application/pdf', size: 2300000, preview: '/api/f/2/preview' } ] },
     { from: 'april', at: at(3), text: 'got them', attachments: [
       { url: '/api/f/3', name: 'annotated.png', kind: 'image', type: 'image/png', size: 120000 } ] },
+    { at: at(5), text: 'my numbers:\n\n| Device | Width | Height | Engine | Theme | Composer | Keyboard |\n|---|---|---|---|---|---|---|\n| iPhone SE | 375 | 667 | WebKit | dark | visible | covered |', delivery: { state: 'placed' } },
     { at: at(4), text: 'and the export', delivery: { state: 'placed' }, attachments: [
       { url: '/api/f/4', name: 'board-export-' + 'x'.repeat(100) + '.csv', kind: 'other', type: 'text/csv', size: 4096 } ] },
   ],
@@ -77,7 +81,7 @@ function measure() {
     probe.style.font = cs.font;
     c.appendChild(probe);
     let widest = 0;
-    for (const word of c.textContent.replace(probe.textContent, '').split(/\s+/).filter(Boolean)) {
+    for (const word of c.textContent.split(/\s+/).filter(Boolean)) {
       probe.textContent = word; widest = Math.max(widest, probe.getBoundingClientRect().width);
     }
     probe.textContent = '';
@@ -93,16 +97,27 @@ function measure() {
     const far = parseFloat(row.classList.contains('you') ? cs.marginLeft : cs.marginRight);
     return Math.abs(near - far) > 0.5;
   }).length;
-  const tw = document.querySelector('#d-dmthread .mdtablewrap');
-  const twb = tw && R(tw.closest('.msg-bd'));
+  /* The bubble tail's ground mask (.msg-bd::after) sits beside the bubble on the avatar side and
+     is painted in the thread's ground colour; if it reaches the avatar it paints over it. */
+  const maskOverAvatar = [...document.querySelectorAll('#d-dmthread .msg')].filter((row) => {
+    const av = row.querySelector('.msg-av'); const bd = row.querySelector('.msg-bd');
+    if (!av || !bd) return false;
+    const mask = parseFloat(getComputedStyle(bd, '::after').width) || 0;
+    const gap = row.classList.contains('you') ? R(av).left - R(bd).right : R(bd).left - R(av).right;
+    return gap + 0.5 < mask;
+  }).length;
+  const wraps = [...document.querySelectorAll('#d-dmthread .mdtablewrap')];
   const short = document.querySelector('#d-dmthread .msg:not(.you) .att');
   return {
     bubbles: bubbles.length, offscreen, cards: cards.length, escaped,
     pics: document.querySelectorAll('#d-dmthread .att .att-pic').length,
     cells: cellsList.length, crushed,
-    tableInBubble: !!tw && R(tw).left >= twb.left - 0.5 && R(tw).right <= twb.right + 0.5,
+    tableInBubble: wraps.length === 2 && wraps.every((tw) => {
+      const b = R(tw.closest('.msg-bd')); return R(tw).left >= b.left - 0.5 && R(tw).right <= b.right + 0.5; }),
     pageHScroll: document.documentElement.scrollWidth > vw,
-    gutterMismatch,
+    threadHScroll: (() => { const t = document.getElementById('d-dmthread'); return t.scrollWidth > t.clientWidth + 1; })(),
+    tablesOnYou: document.querySelectorAll('#d-dmthread .msg.you .mdtablewrap').length,
+    gutterMismatch, maskOverAvatar,
     shortCardBubble: short ? Math.round(R(short.closest('.msg-bd')).width) : null,
     row: short ? Math.round(R(short.closest('.msg')).width) : null,
   };
@@ -126,7 +141,7 @@ async function open(browser, w, h, theme) {
     openDetail('april', 'talk');
   }, FX);
   await page.evaluate(() => paintTalk('april', 'April'));
-  await page.waitForTimeout(200);
+  await page.waitForSelector('#d-dmthread .msg');
   return { page, errs };
 }
 
@@ -138,13 +153,14 @@ async function open(browser, w, h, theme) {
         const { page, errs } = await open(browser, w, h, theme);
         const m = await page.evaluate(measure);
         const t = `[${eng} ${w}x${h} ${theme}]`;
-        chk(m.bubbles >= 5 && m.offscreen === 0, `${t} every bubble stays inside its row`, `bubbles=${m.bubbles} offscreen=${m.offscreen}`);
+        chk(m.bubbles >= 6 && m.offscreen === 0, `${t} every bubble stays inside its row`, `bubbles=${m.bubbles} offscreen=${m.offscreen}`);
         chk(m.cards === 4 && m.escaped === 0, `${t} every attachment card sits inside its bubble`, `cards=${m.cards} escaped=${m.escaped}`);
-        chk(m.pics === 2, `${t} the picture previews render as cards`, `pics=${m.pics}`);
+        chk(m.pics === 2, `${t} the preview slots are laid out in their cards (the images themselves cannot load over file://)`, `pics=${m.pics}`);
         chk(m.cells > 0 && m.crushed.length === 0, `${t} no table cell is narrower than its longest word`, m.crushed.join(' | '));
-        chk(m.tableInBubble, `${t} the table's scroll box stays inside its bubble`);
-        chk(!m.pageHScroll, `${t} the page does not scroll sideways`);
+        chk(m.tablesOnYou === 1 && m.tableInBubble, `${t} both tables' scroll boxes (the agent's and the person's own) stay inside their bubbles`);
+        chk(!m.pageHScroll && !m.threadHScroll, `${t} neither the page nor the thread scrolls sideways`, `page=${m.pageHScroll} thread=${m.threadHScroll}`);
         chk(m.gutterMismatch === 0, `${t} the gutter opposite the avatar equals avatar + gap (#3340)`, `mismatched rows=${m.gutterMismatch}`);
+        chk(m.maskOverAvatar === 0, `${t} the bubble tail's ground mask does not reach the avatar`, `rows=${m.maskOverAvatar}`);
         chk(errs.length === 0, `${t} no page errors`, errs.join(' | '));
         await page.close();
       }
@@ -155,7 +171,7 @@ async function open(browser, w, h, theme) {
         const { page, errs } = await open(browser, w, h, 'light');
         const m = await page.evaluate(measure);
         const t = `[${eng} ${w}x${h}]`;
-        chk(m.offscreen === 0 && m.escaped === 0, `${t} every bubble and card stays inside its row`, `offscreen=${m.offscreen} escaped=${m.escaped}`);
+        chk(m.bubbles >= 6 && m.cards === 4 && m.offscreen === 0 && m.escaped === 0, `${t} every bubble and card stays inside its row`, `bubbles=${m.bubbles} cards=${m.cards} offscreen=${m.offscreen} escaped=${m.escaped}`);
         chk(m.shortCardBubble < m.row * 0.8, `${t} a short-named attachment bubble fits its content, not the whole row`, `bubble=${m.shortCardBubble} row=${m.row}`);
         chk(errs.length === 0, `${t} no page errors`, errs.join(' | '));
         await page.close();
