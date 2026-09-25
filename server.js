@@ -4895,10 +4895,10 @@ const server = http.createServer((req, res) => {
     if (!fs.existsSync(create.workerDir(name))) { sendJson(res, 404, { ok: false, because: 'there is no agent by that name on this computer' }); return; }
     const s = swarm.settingsOf(store.readProfile(name));
     if (!s) { sendJson(res, 404, { ok: false, because: 'that agent is not a swarm' }); return; }
-    /* A second press within STOP_REPEAT_MS sends no second Escape: Claude Code's double-Escape
-       shortcut opens its rewind list at the prompt (its documented key; not measured here). The
-       chord is sent again. */
-    const repeat = s.pausedBecause === 'stopped' && s.active === false
+    /* A press within STOP_REPEAT_MS of any pause (Stop now's, or the limit sweep's, which also
+       sends Escape) sends no second Escape: Claude Code's double-Escape shortcut opens its rewind
+       list at the prompt (its documented key; not measured here). The chord is sent again. */
+    const repeat = s.active === false
       && Date.now() - Date.parse(s.pausedAt || '') < swarm.STOP_REPEAT_MS;
     const next = swarm.pausedFor(s, 'stopped');
     store.writeProfile(name, { swarm: next });
@@ -14393,8 +14393,8 @@ const server = http.createServer((req, res) => {
         const senderName = clean(senderCard && senderCard.sessionName);
         /* #3564: a swarm switched off in this project is not told about its tasks. */
         const offHere = projects.swarmOffSet(id);
-        const recipients = (senderName ? named.filter((m) => m !== senderName) : named)
-          .filter((m) => !offHere.has(String(m)));
+        const others = senderName ? named.filter((m) => m !== senderName) : named;
+        const recipients = others.filter((m) => !offHere.has(String(m)));
         const who = viaScreen ? 'The person' : (senderName || 'An agent');
         /* Built once: nothing in the line depends on the recipient. `id` is cleaned
            for consistency with the other interpolated values, though a stored project
@@ -14405,7 +14405,10 @@ const server = http.createServer((req, res) => {
            `told` as a SINGLE instruction-sync verdict; this is a per-assignee list of
            chat.deliver outcomes, a different shape, so it takes a different name rather
            than overloading `told` with two meanings (convention #5). */
-        const delivered = [];
+        /* An Off swarm is answered as not sent, with the reason heardBy gives. */
+        const delivered = others.filter((m) => offHere.has(String(m))).map((m) => ({
+          agent: m, state: (chat.DELIVERY && chat.DELIVERY.COULD_NOT) || 'could_not', because: projects.SWARM_OFF_SENTENCE(m),
+        }));
         for (const one of recipients) {
           let outcome;
           try { outcome = chat.deliver(one, line, roster); }

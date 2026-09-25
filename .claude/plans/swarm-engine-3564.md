@@ -73,9 +73,16 @@ split (22:26): engine is Renet's, UI is Mona's. Claude-only v1. The engine/UI co
 6. The stop keys were measured on an idle lead and a busy one, NOT on a lead showing a permission or question
    prompt. keysAllowed refuses only the folder-trust dialog; on another prompt the chord's effect is unmeasured,
    and Escape there declines the prompt (which is what a stop means).
+7. On Windows, keysAllowed refuses every key, so Stop now and the limit sweep pause new deliveries but cannot
+   stop the lead's turn or its running helpers: work already in flight can run past the limit. Swarms are not
+   refused on Windows in v1; the answer to Stop now says the keys were not sent.
+8. Per project Off stops messages, pages and the Assigner, but the project block in the swarm's instructions
+   still lists its tasks there, so if something else wakes it (a DM), it can see them.
 
 ## Settings behaviour worth knowing
 - Raising `dailyTokenLimit` on a swarm paused at its limit does not switch it back on; `active: true` does.
+- The override for the day is granted only while the limit is still the one it paused at (`pausedAtLimit`), in
+  one request or two.
 - Once the person switches a swarm paused at its limit TODAY back on, with the limit unchanged, the limit is not
   enforced again that day (`limitOverrideDay`). Setting a different limit (in the same change or later) re-arms it,
   so the new number holds. A limit pause left over from yesterday gives no override.

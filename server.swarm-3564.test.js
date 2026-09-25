@@ -134,7 +134,10 @@ test('#3564 per project: a task line is not sent to a swarm switched off in that
     });
     projects.setSwarmOn(p.id, 'hive5', false);
     const off = await (await say()).json();
-    assert.deepEqual((off.delivered || []).map((d) => d.agent), [], 'a switched-off swarm was told about its task');
+    assert.equal((off.delivered || []).length, 1, JSON.stringify(off));
+    assert.equal(off.delivered[0].agent, 'hive5');
+    assert.equal(off.delivered[0].state, require('./engine/chat').DELIVERY.COULD_NOT, 'a switched-off swarm was told about its task');
+    assert.match(String(off.delivered[0].because), /switched off in this project/, 'the Off swarm was left out without a reason');
     projects.setSwarmOn(p.id, 'hive5', true);
     const on = await (await say()).json();
     assert.deepEqual((on.delivered || []).map((d) => d.agent), ['hive5'], 'CONTROL: switched on, the assignee is told');
@@ -234,5 +237,21 @@ test('#3564 a second Stop now within a few seconds sends the chord again but NO 
     store.writeProfile('hive9', { swarm: { ...prof.swarm, pausedAt: new Date(Date.now() - 10000).toISOString() } });
     await post('/api/agent/hive9/swarm/stop');
     assert.deepEqual(keys(), ['C-x', 'C-k', 'C-x', 'C-k', 'Escape'], 'CONTROL: a press after the gap sends the Escape again');
+  } finally { chat.setRunner(null); chat.setDryRun(true); board.restore(); }
+});
+
+test('#3564 Stop now within a few seconds of the LIMIT sweep\'s pause sends no second Escape either', async () => {
+  const fleetMod = require('./test-support/fleet');
+  const chat = require('./engine/chat');
+  const base0 = swarm.birthProfile({ dailyTokenLimit: 1000 });
+  lead('hive10', { ...base0, swarm: swarm.pausedFor(swarm.settingsOf(base0), 'limit') });
+  const board = fleetMod.install([fleetMod.agent('hive10', { state: 'idle' })]);
+  const calls = [];
+  chat.setRunner((args) => { calls.push(args); return { ran: true, spawnFailed: false, status: 0, out: '', err: '' }; });
+  chat.setDryRun(false);
+  try {
+    await post('/api/agent/hive10/swarm/stop');
+    const keys = calls.filter((a) => a[0] === 'send-keys').map((a) => a[a.length - 1]);
+    assert.deepEqual(keys, ['C-x', 'C-k', 'C-x', 'C-k'], 'Stop now right after the sweep\'s pause sent a second Escape');
   } finally { chat.setRunner(null); chat.setDryRun(true); board.restore(); }
 });

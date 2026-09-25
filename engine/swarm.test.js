@@ -39,7 +39,7 @@ test('#3564 createProblem: Claude only, 2-10 helpers, a daily limit required', (
 test('#3564 settings: born active with the default count; a patch is checked key by key; switching on clears the reason', () => {
   const born = swarm.birthProfile({ dailyTokenLimit: 5000 });
   assert.equal(born.kind, 'swarm');
-  assert.deepEqual(swarm.settingsOf(born), { maxHelpers: swarm.DEFAULT_HELPERS, dailyTokenLimit: 5000, active: true, pausedBecause: null, pausedAt: null, limitOverrideDay: null });
+  assert.deepEqual(swarm.settingsOf(born), { maxHelpers: swarm.DEFAULT_HELPERS, dailyTokenLimit: 5000, active: true, pausedBecause: null, pausedAt: null, pausedAtLimit: null, limitOverrideDay: null });
   assert.equal(swarm.settingsOf({ role: 'pm' }), null, 'an ordinary agent has no swarm settings');
   for (const bad of [null, [], {}, { maxHelpers: 11 }, { dailyTokenLimit: 0 }, { active: 'no' }, { other: 1 }]) {
     assert.ok(swarm.patchProblem(bad), JSON.stringify(bad) + ' was accepted');
@@ -86,6 +86,12 @@ test('#3564 a NEW limit holds as soon as it is set: switching on with a new limi
   assert.equal(raised.limitOverrideDay, null, 'switching on with a new limit turned the limit off for today');
   const later = swarm.applyPatch({ ...pausedNow, swarm: same }, { dailyTokenLimit: 800 }, NOW9);
   assert.equal(later.limitOverrideDay, null, 'lowering the limit after an override left it off for today');
+  // The same raise in two requests, the natural order in a screen: limit first, then on.
+  const raisedFirst = swarm.applyPatch(pausedNow, { dailyTokenLimit: 5000 }, NOW9);
+  assert.equal(raisedFirst.active, false, 'CONTROL: raising the limit alone does not switch it on');
+  const thenOn = swarm.applyPatch({ ...pausedNow, swarm: raisedFirst }, { active: true }, NOW9);
+  assert.equal(thenOn.active, true);
+  assert.equal(thenOn.limitOverrideDay, null, 'a limit raised in one request and switched on in the next was not enforced today');
 });
 
 /* ---- the meter ----------------------------------------------------------------- */
@@ -280,6 +286,25 @@ test('#3564 meter: one call reads at most its budget ACROSS all files, not per f
   let m = first;
   for (let i = 0; i < 50 && !m.complete; i += 1) m = swarm.meter(path.join(dir, 's.jsonl'), NOW);
   assert.equal(m.tokensToday, 12, 'CONTROL: it catches up to every message');
+  swarm.resetForTests();
+});
+
+test('#3564 meter: on a new day the read goes on from where it got to, not from the start', () => {
+  swarm.resetForTests({ perCallBytes: 500 });
+  const at = (d, h) => new Date(2026, 8, d, h, 0, 0).toISOString();
+  const line = (id, when) => JSON.stringify({ type: 'assistant', timestamp: when, message: { id, role: 'assistant', stop_reason: 'end_turn', usage: U(1, 0), content: [{ type: 'text', text: 'z'.repeat(100) }] } });
+  const lines = [];
+  for (let i = 0; i < 6; i += 1) lines.push(line('d' + i, at(24, 9)));
+  const f = path.join(transcripts('newday', [['s.jsonl', lines, NOW - 60000]]), 's.jsonl');
+  let m = swarm.meter(f, NOW);
+  for (let i = 0; i < 50 && !m.complete; i += 1) m = swarm.meter(f, NOW);
+  assert.equal(m.tokensToday, 6, 'CONTROL: day one read to the end');
+  const DAY2 = new Date(2026, 8, 25, 10, 0, 0).getTime();
+  fs.appendFileSync(f, line('n1', at(25, 9)) + '\n');
+  fs.utimesSync(f, new Date(DAY2 - 60000), new Date(DAY2 - 60000));
+  const next = swarm.meter(f, DAY2);
+  assert.equal(next.complete, true, 'the new day read the file again from the start');
+  assert.equal(next.tokensToday, 1, 'only the new day\'s line counts');
   swarm.resetForTests();
 });
 

@@ -70,6 +70,7 @@ function birthProfile({ maxHelpers, dailyTokenLimit }) {
       active: true,
       pausedBecause: null,
       pausedAt: null,
+      pausedAtLimit: null,
       limitOverrideDay: null,
     },
   };
@@ -85,6 +86,8 @@ function settingsOf(profile) {
     active: s.active !== false,
     pausedBecause: s.active === false && PAUSED_BECAUSE.includes(s.pausedBecause) ? s.pausedBecause : null,
     pausedAt: s.active === false && typeof s.pausedAt === 'string' ? s.pausedAt : null,
+    /* The limit in force when a LIMIT pause happened: switching back on overrides only that. */
+    pausedAtLimit: s.active === false && Number.isInteger(s.pausedAtLimit) ? s.pausedAtLimit : null,
     /* The local day on which the person switched it back on over its limit: the sweep leaves
        it running for the rest of that day (it would otherwise re-pause within a minute). */
     limitOverrideDay: typeof s.limitOverrideDay === 'string' ? s.limitOverrideDay : null,
@@ -116,8 +119,8 @@ function patchProblem(patch) {
 function dayKey(now) { return new Date(startOfDay(now)).toISOString(); }
 
 /** The swarm block of a profile after a valid patch. Switching it back on clears the reason;
- *  switching it on after a LIMIT pause from today, with the same limit, also holds for the
- *  rest of today. A new limit is enforced as soon as it is set. */
+ *  switching it on after a LIMIT pause from today, with the limit still the one it paused at,
+ *  also holds for the rest of today. Any other limit is enforced as soon as it is set. */
 function applyPatch(profile, patch, now = Date.now()) {
   const cur = settingsOf(profile);
   const next = { ...cur };
@@ -128,10 +131,12 @@ function applyPatch(profile, patch, now = Date.now()) {
   if ('active' in patch) {
     /* Only TODAY's limit pause earns the override; one left over from yesterday is simply lifted. */
     const pausedToday = cur.pausedAt && Date.parse(cur.pausedAt) >= startOfDay(now);
-    if (patch.active && !newLimit && cur.pausedBecause === 'limit' && pausedToday) next.limitOverrideDay = dayKey(now);
+    if (patch.active && cur.pausedBecause === 'limit' && pausedToday
+      && next.dailyTokenLimit === cur.pausedAtLimit) next.limitOverrideDay = dayKey(now);
     next.active = patch.active;
     next.pausedBecause = patch.active ? null : 'person';
     next.pausedAt = patch.active ? null : new Date(now).toISOString();
+    if (patch.active) next.pausedAtLimit = null;
   }
   return next;
 }
@@ -216,7 +221,8 @@ function tokensOf(usage) {
    board poll must not re-parse tens of megabytes to count the last few lines. Each entry keeps
    the byte offset read to, the running tokens, the message ids already counted, whether the
    last assistant message ended the turn, and the unfinished tail of a line cut at the offset.
-   A file that shrank, or a new day (a different `since`), is read again from the start.
+   A file that shrank is read again from the start; on a new day (a different `since`) the count starts
+   again at zero from where the read had got to, since every line before it is from an earlier day.
    Bounded: entries not touched for a day are dropped. */
 const fileCache = new Map();
 const CACHE_TTL_MS = 24 * 60 * 60 * 1000;
@@ -245,7 +251,8 @@ function readFile(file, since, now = Date.now(), budget = { left: readPerCallByt
   let st;
   try { st = fs.statSync(file); } catch { return { tokens: 0, finished: true, mtimeMs: 0, caughtUp: false }; }
   let e = fileCache.get(file);
-  if (!e || e.since !== since || st.size < e.offset) e = freshEntry(since);
+  if (!e || st.size < e.offset) e = freshEntry(since);
+  else if (e.since !== since) { e.since = since; e.tokens = 0; }   // a new day: earlier lines add nothing, so keep the position
   if (st.size > e.offset) {
     const take = (text) => {
       for (const line of text.split('\n')) {
@@ -387,7 +394,8 @@ function cardField(profile, transcriptFor, now = Date.now(), owns = null) {
 
 /** The settings after a pause for `because` ("limit" or "stopped") at `now`. */
 function pausedFor(settings, because, now = Date.now()) {
-  return { ...settings, active: false, pausedBecause: because, pausedAt: new Date(now).toISOString() };
+  return { ...settings, active: false, pausedBecause: because, pausedAt: new Date(now).toISOString(),
+    pausedAtLimit: because === 'limit' ? settings.dailyTokenLimit : null };
 }
 
 /** The sweep's input, from the board's cards: our swarms only, as { name, tokensToday }. */
