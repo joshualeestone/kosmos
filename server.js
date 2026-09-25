@@ -13126,12 +13126,13 @@ const server = http.createServer((req, res) => {
     readBody(req).then((raw) => {
       let body = null;
       try { body = JSON.parse(raw || 'null'); } catch { body = null; }
-      if (!body || typeof body !== 'object' || !Array.isArray(body.tasks)) {
-        sendJson(res, 400, { error: 'we could not read which tasks to close' });
+      /* Who is asking comes first, so an agent sending anything, well-formed or not, is told 403. */
+      if (!isViaScreen(req, body && typeof body === 'object' ? body : null)) {
+        sendJson(res, 403, { error: 'closing several tasks at once is done from the Tasks screen' });
         return;
       }
-      if (!isViaScreen(req, body)) {
-        sendJson(res, 403, { error: 'closing several tasks at once is done from the Tasks screen' });
+      if (!body || typeof body !== 'object' || !Array.isArray(body.tasks)) {
+        sendJson(res, 400, { error: 'we could not read which tasks to close' });
         return;
       }
       if (!body.tasks.length) { sendJson(res, 400, { error: 'pick at least one task to close' }); return; }

@@ -69,6 +69,10 @@ function chk(ok, label, extra) {
   tasks.create(news.id, { sentence: 'Clean up bounced addresses', who: 'rex' });  // 1 assigned
   tasks.create(news.id, { sentence: 'Welcome email for new subscribers' });       // 2 nobody
   commitments.report('ada', [{ what: 'working on task 3 of Spring launch' }]);
+  // An ARCHIVED project's task must not appear anywhere in the view.
+  const old = projects.create({ name: 'Old catalog' });
+  tasks.create(old.id, { sentence: 'Archived away task' });
+  projects.setArchived(old.id, true);
   const EXPECT = { nobody: 2, assigned: 2, working: 1, closed: 1 };
 
   const server = await srv.start(0);
@@ -129,6 +133,7 @@ function chk(ok, label, extra) {
       chk(JSON.stringify(a.tiles.map((t) => t.k)) === JSON.stringify(['nobody', 'assigned', 'working', 'closed']), `${tag} the tiles are exactly the four provable groups`, JSON.stringify(a.tiles));
       chk(a.tiles.every((t) => t.n === EXPECT[t.k]), `${tag} each tile counts its group`, JSON.stringify(a.tiles));
       chk(!/Waiting on you|Done, check it|Categor/i.test(a.text), `${tag} no unprovable group or category is drawn`);
+      chk(!/Archived away task|Old catalog/.test(a.text), `${tag} an archived project's tasks are left out`);
       const date = a.rows.find((r) => r.text === 'Pick the launch date');
       chk(date && /In progress/.test(date.state), `${tag} the task its agent named is In progress`, JSON.stringify(date));
       const proof = a.rows.find((r) => r.text === 'Order proof copies');
@@ -213,6 +218,12 @@ function chk(ok, label, extra) {
         await page.check('#tsk-groups input[data-key="' + launch.id + '#1"]');
         const barShown = await page.evaluate(() => !document.getElementById('tsk-bulk').hidden);
         chk(barShown, `${tag} ticking rows brings up the Close bar`);
+        /* Clear hides the bar with its own button in it: focus lands on the search, not the body. */
+        await page.click('#tsk-bclear');
+        const afterClear = await page.evaluate(() => ({ id: document.activeElement.id, sel: TSK.sel.size }));
+        chk(afterClear.id === 'tsk-search' && afterClear.sel === 0, `${tag} Clear empties the ticks and keeps focus (on the search)`, JSON.stringify(afterClear));
+        await page.check('#tsk-groups input[data-key="' + news.id + '#2"]');
+        await page.check('#tsk-groups input[data-key="' + launch.id + '#1"]');
         await page.fill('#tsk-bnote', 'not doing these this season');
         await page.click('#tsk-bclose');
         await page.waitForFunction(() => /Closed 2 tasks/.test(document.getElementById('tsk-msg').textContent), null, { timeout: 8000 }).catch(() => {});

@@ -18374,7 +18374,8 @@ async function tick() {
     LAST = data.agents;
     /* #3559: the Tasks view prints agents by the board's names; repaint it once when the roster
        brings a name it did not have (never on an unchanged poll, so the list does not churn). */
-    tskRosterChanged();
+    /* Isolated: a Tasks repaint failing must never read as the board's own read failing. */
+    try { tskRosterChanged(); } catch (err) { console.error('[tasks view] repaint after a roster change failed', err); }
     LAST_AT = Date.now();  // #1150: the moment this sample reached the page
     // #3574: whether this is someone new is decided by the board's FIRST answer, whatever the
     // tips are doing then (off, a dialog, first run); see tipAutoOk.
@@ -42320,8 +42321,13 @@ function tskScoped(all, st, now) {
    earlier visit are dropped, and a first visit says it is reading rather than showing zeros. */
 async function tskLoad(arrival) {
   const mine = ++TSK.gen;
-  if (arrival) { TSK.sel.clear(); tskPaint(); }   // the cleared ticks leave the screen too, not just the model
   const msg = document.getElementById('tsk-msg');
+  if (arrival) {
+    TSK.sel.clear();
+    /* A line from an earlier visit ("Closed 3 tasks.") would read as news; an arrival starts clean. */
+    if (msg) msg.textContent = '';
+    tskPaint();   // the cleared ticks leave the screen too, not just the model
+  }
   try {
     const r = await fetch('/api/tasks?view=tasks', { cache: 'no-store' });
     const body = await r.json().catch(() => ({}));
@@ -42334,7 +42340,9 @@ async function tskLoad(arrival) {
       /* A good read clears the error a failed one left, and only that (a "Closed N" line stays). */
       if (TSK.error && msg) msg.textContent = '';
       TSK.error = null;
-      TSK.data = body.tasks;
+      /* Archived projects are set aside: their tasks are not in this view (the rails tuck archived
+         projects away too). Unarchiving brings them back on the next read. */
+      TSK.data = body.tasks.filter((t) => !t.projectArchived);
       /* A ticked task that has since closed or gone cannot stay ticked. */
       const open = new Set(TSK.data.filter((t) => t.state !== 'closed').map(tskKey));
       TSK.sel.forEach((k) => { if (!open.has(k)) TSK.sel.delete(k); });
@@ -42348,7 +42356,8 @@ async function tskLoad(arrival) {
 }
 function tskRow(t) {
   const on = TSK.sel.has(tskKey(t));
-  const g = TSK_GROUPS.find((x) => x.k === t.state) || TSK_GROUPS[0];
+  /* A state this view does not know gets no label at all, never a group the engine did not name. */
+  const g = TSK_GROUPS.find((x) => x.k === t.state) || null;
   const now = Date.now();
   const added = agoWords(now - Date.parse(t.createdAt));
   const moved = t.lastActivityAt ? agoWords(now - Date.parse(t.lastActivityAt)) : '';
@@ -42371,7 +42380,7 @@ function tskRow(t) {
     + (t.dueDate ? '<span>due ' + esc(t.dueDate) + '</span>' : '')
     + '</div>' + cannot + '</div>'
     + '<div class="tsk-side">' + whoHtml
-    + '<span class="tsk-state" style="--tsk-c:' + g.c + '"><span class="tsk-dot"></span>' + esc(g.l) + '</span></div>'
+    + (g ? '<span class="tsk-state" style="--tsk-c:' + g.c + '"><span class="tsk-dot"></span>' + esc(g.l) + '</span>' : '') + '</div>'
     + '</div>';
 }
 function tskList(rows) {
@@ -42615,7 +42624,12 @@ document.getElementById('tsk-qclear').addEventListener('click', () => {
   tskPaint();
 });
 document.getElementById('tsk-bclose').addEventListener('click', tskBulkClose);
-document.getElementById('tsk-bclear').addEventListener('click', () => { TSK.sel.clear(); tskPaint(); });
+document.getElementById('tsk-bclear').addEventListener('click', () => {
+  TSK.sel.clear();
+  tskPaint();
+  // The bar hides with the ticks, taking this button with it: land on the search, not the body.
+  document.getElementById('tsk-search').focus();
+});
 document.getElementById('rail-projects-tasks').addEventListener('click', openConsolidatedTasks);
 
 /**
