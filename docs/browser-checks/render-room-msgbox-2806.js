@@ -733,6 +733,55 @@ const now = () => new Date().toISOString();
       chk(o800.startsWith('members-files,room'), `[wide] wider than a phone, it goes back after Members/Files`, o800);
       await phonePage.setViewportSize({ width: 375, height: 800 });
       await phonePage.waitForTimeout(100);
+      // IN PLACE: the room left in its real column, beside the real sticky composer (the arms below
+      // lift it to body, which cannot see ancestors or the composer). A short screen makes the
+      // sticky composer sit OVER the thread; a post that runs under it is tapped where it shows.
+      // Precondition asserted (the post really runs under the composer), or the composer half
+      // could not fail. Then: every emoji takes its tap, and the composer stays on top.
+      await phonePage.setViewportSize({ width: 375, height: 560 });
+      await phonePage.waitForTimeout(100);
+      const inPlace = await phonePage.evaluate((ts) => {
+        const room = document.getElementById('pj-room'); const comp = document.querySelector('.pjmid .composer');
+        if (!room || !comp || !room.closest('.pjmid')) return { error: 'room or composer not in its column' };
+        const p = { agents: [{ sessionName: 'april', name: 'April' }] };
+        room.hidden = false;
+        room.innerHTML = ['m21', 'm22', 'm23', 'm24', 'm25', 'm26', 'm27', 'm28'].map((id, i) => pjRoomRow({ from: 'april', at: ts, text: 'In-place post ' + i + ', a line or two of text so the thread has some height to it.', id }, p)).join('');
+        room.scrollTop = 0;
+        const R = room.getBoundingClientRect();
+        // Put the thread's top at 60% of the screen so its lower part runs past the bottom, where
+        // the sticky composer sits over it.
+        window.scrollTo(0, window.scrollY + R.top - Math.round(innerHeight * 0.6));
+        const C = comp.getBoundingClientRect();
+        // Scroll the thread so one post starts 40px above the composer and runs on under it.
+        const rows = [...room.querySelectorAll('.msg')];
+        const pick = rows.find((m) => m.getBoundingClientRect().top > C.top - 40) || rows[rows.length - 1];
+        room.scrollTop += Math.round(pick.getBoundingClientRect().top - (C.top - 40));
+        const under = rows.find((m) => { const r = m.getBoundingClientRect(); return r.top < C.top - 20 && r.bottom > C.top + 10; });
+        if (!under) { const R2 = room.getBoundingClientRect(); return { error: 'no post runs under the composer', comp: [Math.round(C.top), Math.round(C.bottom)], room: [Math.round(R2.top), Math.round(R2.bottom)], vh: innerHeight, scrollY: Math.round(scrollY), docH: document.documentElement.scrollHeight, rows: [...room.querySelectorAll('.msg')].map((m) => Math.round(m.getBoundingClientRect().top)).join(','), compPos: getComputedStyle(comp).position, roomOverflow: getComputedStyle(room).overflowY }; }
+        const r = under.getBoundingClientRect();
+        const bd = under.querySelector('.msg-bd').getBoundingClientRect();
+        return { x: Math.round(bd.left + Math.min(40, bd.width / 2)), y: Math.round(Math.max(bd.top + 6, Math.min(C.top - 10, bd.bottom - 6))), post: under.querySelector('.rxns') && under.querySelector('.rxns').getAttribute('data-post') };
+      }, now());
+      if (!inPlace.error) {
+        await phonePage.touchscreen.tap(inPlace.x, inPlace.y);
+        await phonePage.waitForTimeout(300);
+      }
+      const inPlaceHits = inPlace.error ? inPlace : await phonePage.evaluate(() => {
+        const row = document.querySelector('#pj-room .msg.rxn-show'); const comp = document.querySelector('.pjmid .composer');
+        if (!row) return { error: 'no open bar in place' };
+        const q = row.querySelector('.rxn-quick');
+        const at = (x, y) => document.elementFromPoint(x, y);
+        const hits = [...q.querySelectorAll('button')].map((b) => { const r = b.getBoundingClientRect(); const t = at(r.left + r.width / 2, r.top + r.height / 2); return t === b || b.contains(t); });
+        const C = comp.getBoundingClientRect(), Rw = row.getBoundingClientRect();
+        const overlap = Rw.bottom > C.top + 4;
+        const t = at(C.left + C.width / 2, Math.min(C.bottom - 4, Math.max(C.top + 4, (C.top + Math.min(C.bottom, Rw.bottom)) / 2)));
+        return { hits, overlap, composerOnTop: !!(t && comp.contains(t)), row: [Math.round(Rw.top), Math.round(Rw.bottom)], comp: [Math.round(C.top), Math.round(C.bottom)] };
+      });
+      await phonePage.evaluate(() => { if (typeof pjRxnClose === 'function') pjRxnClose(); window.scrollTo(0, 0); });
+      await phonePage.setViewportSize({ width: 375, height: 800 });
+      await phonePage.waitForTimeout(100);
+      chk(!inPlaceHits.error && inPlaceHits.overlap && inPlaceHits.hits.length === 4 && inPlaceHits.hits.every(Boolean) && inPlaceHits.composerOnTop,
+        `[phone/touch, in place] the open bar takes its taps and the sticky composer stays on top of the open row`, JSON.stringify(inPlaceHits));
       const ph = await phonePage.evaluate((ts) => {
         const p = { agents: [{ sessionName: 'april', name: 'April' }] };
         const long = 'this is a deliberately long message so the bubble fills the whole available width on a phone and would reach the far edge if it were not capped short of the opposite avatar column.';
@@ -949,6 +998,16 @@ const now = () => new Date().toISOString();
         return { inView: Q.top >= R.top && Q.bottom <= R.bottom && Q.left >= R.left && Q.right <= R.right + 1, bar: [Math.round(Q.top), Math.round(Q.bottom)], room: [Math.round(R.top), Math.round(R.bottom)], hits, pinned: q.style.position === 'fixed' };
       });
       chk(tallAt.tall && !tall.error && tall.pinned && tall.inView && tall.hits.length === 4 && tall.hits.every(Boolean), `[phone/touch] on a post taller than the thread the bar is pinned in view and takes its taps`, JSON.stringify(Object.assign({ tall: tallAt.tall }, tall)));
+      // A repaint (a new post arriving) while the pinned bar is up and its post still on screen
+      // keeps it pinned, rather than closing it under the person's thumb.
+      const afterRepaint = await phonePage.evaluate(() => new Promise((res) => {
+        const room = document.getElementById('pj-room'); const keep = room.scrollTop;
+        room.innerHTML = room.innerHTML.replace(/ rxn-show/g, '');   // what paintRoom's rewrite does to the class
+        room.scrollTop = keep;
+        setTimeout(() => { const q = document.querySelector('#pj-room .msg.rxn-show .rxn-quick');
+          res({ shown: document.querySelectorAll('#pj-room .msg.rxn-show').length, pinned: !!(q && q.style.position === 'fixed') }); }, 100);
+      }));
+      chk(afterRepaint.shown === 1 && afterRepaint.pinned, `[phone/touch] a repaint keeps a pinned bar pinned while its post is on screen`, JSON.stringify(afterRepaint));
       // A pinned bar does not follow the thread, so scrolling closes it (like the fixed picker).
       const afterScroll = await phonePage.evaluate(() => new Promise((res) => {
         const room = document.getElementById('pj-room'); room.scrollTop += 120;

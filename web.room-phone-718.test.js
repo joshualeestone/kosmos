@@ -55,6 +55,7 @@ test('on a touchscreen only a tap (or focus) opens the room reaction bar, never 
   assert.ok(Number(lift[1]) >= 1 && Number(lift[1]) < Number(comp[1]), 'the open row is above its neighbours (z auto) but under the sticky composer: ' + lift[1] + ' vs ' + comp[1]);
   assert.match(t, /#pj-post \{ font-size: 16px; \}/, 'no iOS focus zoom on the room composer');
   assert.match(t, /\.pjmid #pj-post-mirror \.pj-mirror-in \{ font-size: 16px; \}/, 'and its @mention mirror matches it');
+  assert.match(t, /#pj-room-search, #pj-thread-who, #pj-list-view \.sortctl select \{ font-size: 16px; \}/, 'and every other field on these pages (iOS zooms any field under 16px)');
   assert.match(t, /#pj-room \.msg\.rxn-below \.rxn-quick \{ bottom: auto; top: calc\(100% \+ 4px\); \}/, 'and below it where the thread top would cut it');
   assert.match(html, /document\.addEventListener\('pointerdown', \(e\) => \{\n  if \(!RXN_SHOW_POST\) return;[^\n]*\n  const room = document\.getElementById\('pj-room'\);/, 'outside taps close on pointerdown (iOS sends no click to a document listener for plain content)');
   assert.match(t, /#pj-room \.msg:not\(\.you\) \.rxn-quick \{ right: auto; left: 0; \}/, 'an agent bar starts at its bubble, not past the thread edge');
