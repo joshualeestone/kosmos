@@ -548,6 +548,12 @@ function writeSettingsIfReadable(patch) {
   } catch (err) {
     if (!err || err.code !== 'ENOENT') return null;   // unreadable or unparseable: leave it alone
   }
+  return mergeSettingsInto(had, patch);
+}
+
+/* The one merge-and-write both settings writers share (write-then-rename, stamped updatedAt); they
+   differ only in what they merge OVER. */
+function mergeSettingsInto(had, patch) {
   ensure(root());
   const next = { ...had, ...patch, updatedAt: new Date().toISOString() };
   const tmp = settingsPath() + '.tmp';
@@ -557,13 +563,7 @@ function writeSettingsIfReadable(patch) {
 }
 
 function writeSettings(patch) {
-  ensure(root());
-  const had = readSettings();
-  const next = { ...had, ...patch, updatedAt: new Date().toISOString() };
-  const tmp = settingsPath() + '.tmp';
-  fs.writeFileSync(tmp, JSON.stringify(next, null, 2));
-  fs.renameSync(tmp, settingsPath());
-  return next;
+  return mergeSettingsInto(readSettings(), patch);
 }
 
 /**

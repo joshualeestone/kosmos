@@ -43182,7 +43182,10 @@ function paintTaskPage() {
      report naming "task 15" is a claim about the task; agents have not been
      taught a per-part spelling, so pretending otherwise would put a fact
      nobody computed under somebody's name. */
-  const sayHtml = taskClaimHtml(t.claim);
+  /* Said ONCE on this page: a could-not-tell REASON is given in full by the why line below (it has
+     the room), so the part's claim line leaves it out; "not reported" and a definite claim stay on
+     the part's line, where the why line stays quiet for them. */
+  const sayHtml = t.claim && t.claim.claimed === null && !claimNotReported(t.claim) ? '' : taskClaimHtml(t.claim);
   const firstWho = parts.map((x) => x.who).filter(Boolean)[0] || null;
   /* ONE part carries the claim line (tkSayPart, the same rule as the project card); the why line
      below reads the same value. */
