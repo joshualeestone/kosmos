@@ -859,7 +859,7 @@ run_one "render-member-modal" node docs/browser-checks/render-member-modal.js
 # board above is needed. The slice is the frame and the accounts page at the
 # smallest phone, both engines; nav-menu and agents-list fail if their control
 # is gone, and --strict makes horizontal overflow on these screens red. The
-# full sweep (160 shots) is a by-hand tool, not a gate.
+# full sweep (16 shots per screen) is a by-hand tool, not a gate.
 run_one "mobile-shots" node docs/browser-checks/mobile-shots.js --out "$RUN_DIR/mobile-shots" \
   --screens home,nav-menu,agents-list,settings-accounts --sizes se --themes light --strict
 # The leak guard's two arms, each of which MUST stop the run with exit 3 AND
