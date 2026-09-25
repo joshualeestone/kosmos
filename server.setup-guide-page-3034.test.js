@@ -189,6 +189,7 @@ test('#3034 read: no guide on this computer is 200 { ok: false, reason: none }, 
   /* #3660: and not hosted, since this board runs from a checkout with no connector at a real path. A source
      checkout must never offer a chat that goes to the production coordinator. */
   assert.equal(nb.hosted, false, 'a checkout board offered the hosted assistant');
+  assert.equal(nb.hostedWhy, 'no_connector', 'the reason it is not offered is not said');
   // CONTROL: the same computer with a seeded, marked guide names it.
   folderFor('Josh', { guide: true });
   setupAssistant.markSetupAssistantSeeded({ name: 'Josh', via: 'test' });

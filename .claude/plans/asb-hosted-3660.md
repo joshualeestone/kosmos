@@ -117,3 +117,18 @@ the same state sooner. Replaced:
   closed within milliseconds. asbPoll now reads a thread only with a guide. H18 asserts the chat is still open with
   the sentence and focus three seconds after opening (the old arm only checked "at some point" and "eventually").
 - WARNING: folding during the six seconds lost the sentence. It is now kept behind the dot (H18b).
+
+## Review iteration 9 (fixed, and the timer removed)
+- WARNING W2: a six-second timer was the only way out, closing it restarted it, and it closed the chat under "Close
+  the assistant?". The timer is gone. An open chat keeps the sentence until the person closes it, and closing it by
+  any route (fold, x, Escape) is reading it. The x never asks while it steps aside. H9 (still open at 8s, x closes)
+  and H18 (still open at 7s, Escape ends it) cover it.
+- WARNING W1: the board withdrawing hosted mid-chat made it vanish silently. GET now carries `hostedWhy`. An open
+  chat is told why and goes when closed (H21). 'unchecked' changes nothing. An answer arriving for a chat with no
+  guide is still shown.
+- WARNING W3: H19's precondition could not fail (`!== null` on a boolean). It is now `=== true`.
+- NITs taken:
+  - the hosted thread is cleared on adoption;
+  - an old refusal is cleared when hosted comes back;
+  - a send after the guide went is asked of the hosted assistant when it stands in;
+  - the bubble's label says "there is something new to read" while the dot is lit (H18).

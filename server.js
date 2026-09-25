@@ -13718,6 +13718,9 @@ const server = http.createServer((req, res) => {
    * #3660 creates one is every install, and the bubble then shows nothing.
    */
   if (pathname === '/api/setup-guide' && (req.method === 'GET' || req.method === 'HEAD')) {
+    /* `hostedWhy` says why not (own_model, no_connector, unchecked): the bubble keeps its state on 'unchecked', and
+       tells an open chat the right reason when it is withdrawn. */
+    const hostedAnswer = () => { const w = require('./engine/setup-assistant').hostedWhy(); return { hosted: w.ok, hostedWhy: w.why }; };
     const found = setupGuideNow();
     /* "No guide" is an ordinary answer here, not an error: the page asks on every install, and a 404 is
        logged by the browser as a failed resource on every page load (it failed every "no page errors"
@@ -13725,10 +13728,10 @@ const server = http.createServer((req, res) => {
     /* `hosted`: no guide, but the setup assistant can run on Kosmos's own model here (#3660), so the bubble
        shows and talks to /api/setup-guide/hosted. False once they have a model of their own, and in a checkout
        or a sandbox (setupAssistant.hostedOffered). */
-    if (!found.ok && found.reason === 'none') { sendJson(res, 200, { ok: false, reason: 'none', error: found.error, hosted: require('./engine/setup-assistant').hostedOffered() }); return; }
+    if (!found.ok && found.reason === 'none') { sendJson(res, 200, { ok: false, reason: 'none', error: found.error, ...hostedAnswer() }); return; }
     /* A name that is not the guide's (409 not-guide) is also no guide, so it says hosted too: the bubble
        stands in rather than vanishing. */
-    if (!found.ok) { sendJson(res, found.status, { error: found.error, reason: found.reason, ...(found.reason === 'not-guide' ? { hosted: require('./engine/setup-assistant').hostedOffered() } : {}) }); return; }
+    if (!found.ok) { sendJson(res, found.status, { error: found.error, reason: found.reason, ...(found.reason === 'not-guide' ? hostedAnswer() : {}) }); return; }
     sendJson(res, 200, { ok: true, name: found.name });
     return;
   }
