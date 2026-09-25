@@ -67,6 +67,11 @@ const waitFor = (page, fn, arg, ms = 6000) => page.waitForFunction(fn, arg, { ti
         j.swarms = true;
         for (const a of j.agents || []) a.swarm = a.sessionName === 'crew' ? { ...crewSwarm }
           : a.sessionName === 'crew2' ? { maxHelpers: 4, activeHelpers: 1, tokensToday: 1000, dailyTokenLimit: 2000000, active: true, pausedBecause: null, helperTokenRatio: null } : null;
+      } else {
+        /* The engine is on main now and always answers; "without the engine" is a board from before it, which
+           sends neither the flag nor the field. */
+        delete j.swarms;
+        for (const a of j.agents || []) delete a.swarm;
       }
       route.fulfill({ response: r, json: j });
     });
@@ -214,6 +219,14 @@ const waitFor = (page, fn, arg, ms = 6000) => page.waitForFunction(fn, arg, { ti
       && await page.evaluate(() => document.getElementById('d-swarm-cap').getAttribute('aria-valuetext') === '2,500,000 tokens a day'),
       'S13b a 2,500,000 limit shows as 2,500,000, and the slider is spoken in tokens', await page.evaluate(() => document.getElementById('d-swarm-cap-v').textContent));
     crewSwarm = { ...crewSwarm, dailyTokenLimit: 6000000 };
+    // S17: today's tokens could not be read in full (metered false): the page says so, with no bar, rather than a
+    // low number that reads as plenty left. CONTROL: metered true shows the number again.
+    crewSwarm = { ...crewSwarm, metered: false, tokensToday: 1200 };
+    chk(await waitFor(page, () => /Could not measure/.test(document.getElementById('d-swarm-today').textContent) && document.getElementById('d-swarm-bar').parentElement.hidden, null, 8000),
+      'S17 tokens not read in full: it says it could not measure, and hides the bar', await page.evaluate(() => document.getElementById('d-swarm-today').textContent));
+    crewSwarm = { ...crewSwarm, metered: true, tokensToday: 2461380 };
+    chk(await waitFor(page, () => document.getElementById('d-swarm-today').textContent === '2,461,380 tokens' && !document.getElementById('d-swarm-bar').parentElement.hidden, null, 8000),
+      'S17 CONTROL: measured again, the number and the bar are back', await page.evaluate(() => document.getElementById('d-swarm-today').textContent));
     await page.click('#d-swarm-stop');
     for (let i = 0; i < 20 && !find((q) => q.method === 'POST'); i++) await page.waitForTimeout(100);
     chk(!!find((q) => q.method === 'POST' && q.url === '/api/agent/crew/swarm/stop'), 'S7 Stop now sends POST /api/agent/crew/swarm/stop', JSON.stringify(sent));

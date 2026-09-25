@@ -494,21 +494,7 @@ test('#1938: /api/scan-agents caches the disk walk, and a mutating route invalid
  * a field arriving that no line of the page has ever heard of. Being crude is
  * why it is cheap enough to run every time.
  */
-const SWARM_CARD_UNREAD = '#3564: a card\'s swarm settings, helpers and tokens today. The '
-  + 'page reads them in Mona Lisa\'s UI half, which lands after the engine; that change '
-  + 'takes them off this list';
 const UNREAD_ON_PURPOSE = {
-  swarms: '#3564: the engine says this board can run swarms. The page reads it when the '
-    + 'New agent screen offers a swarm (Mona Lisa\'s UI half, which lands after the '
-    + 'engine); that change takes it off this list',
-  swarm: SWARM_CARD_UNREAD,
-  maxHelpers: SWARM_CARD_UNREAD,
-  activeHelpers: SWARM_CARD_UNREAD,
-  tokensToday: SWARM_CARD_UNREAD,
-  dailyTokenLimit: SWARM_CARD_UNREAD,
-  pausedBecause: SWARM_CARD_UNREAD,
-  helperTokenRatio: SWARM_CARD_UNREAD,
-  metered: SWARM_CARD_UNREAD,
   isAgentPane: 'a classification the board uses to decide what IS an agent; it '
     + 'is an input to the list, never a thing to draw',
   reportedAt: 'the commitments timestamp. The restart dialog shows the age '

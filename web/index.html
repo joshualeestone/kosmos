@@ -38630,8 +38630,12 @@ function swarmPagePaint(a) {
   range.setAttribute('aria-valuetext', shown + ' helpers at most');
   document.getElementById('d-swarm-warn').innerHTML = swarmWarnWords(shown, Number(sw.helperTokenRatio));
   const used = Math.max(0, Number(sw.tokensToday) || 0), cap = Math.max(0, Number(sw.dailyTokenLimit) || 0);
-  document.getElementById('d-swarm-bar').style.width = (cap ? Math.min(100, used / cap * 100) : 0).toFixed(1) + '%';
-  document.getElementById('d-swarm-today').textContent = used.toLocaleString('en-US') + ' tokens';
+  /* metered false: today's tokens could not be read in full, so the number is a floor, not the day. Say so rather
+     than show a low number and a short bar that read as "plenty left" (Renet, #3564). */
+  const unmeasured = sw.metered === false;
+  document.getElementById('d-swarm-bar').style.width = (cap && !unmeasured ? Math.min(100, used / cap * 100) : 0).toFixed(1) + '%';
+  document.getElementById('d-swarm-bar').parentElement.hidden = unmeasured;
+  document.getElementById('d-swarm-today').textContent = unmeasured ? 'Could not measure today\'s tokens' : used.toLocaleString('en-US') + ' tokens';
   document.getElementById('d-swarm-limit').textContent = cap ? 'of ' + cap.toLocaleString('en-US') + ' limit' : 'no limit set';
   /* The slider follows the REAL limit: widened past 20 million when the limit is higher, and its label shows the
      exact number until the person moves it (a 2,500,000 limit is not shown as 3,000,000). No limit: no slider. */
