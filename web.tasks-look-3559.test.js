@@ -113,7 +113,7 @@ test('Closed is not a tile; it stays the folded list', () => {
   assert.match(SCRIPT, /<details class="tsk-fold"/, 'the Closed fold is gone');
 });
 
-test('the two big gaps: less top padding, and an empty crumb or status line takes no room', () => {
+test('the two big gaps: less top padding, an empty crumb takes no room, and the status line keeps one reserved line', () => {
   assert.match(PAGE, /\.tsk-main \{ padding: 25px 26px 110px;/);
   assert.match(PAGE, /\.tsk-crumb:empty \{ min-height: 0; margin: 0; \}/);
   // The status line keeps its reserved line (a message must not push the list down); its margins go.

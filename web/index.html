@@ -42537,10 +42537,8 @@ function paintProjectTasks(p) {
          and not just for the whole task, the pack's own "+" row -- and an
          honest "N of M assigned" summary: t.progress.assigned/total,
          engine-computed (progressOf, #206/#803), never counted client-side.
-         The claim line still lands on the FIRST assigned part, the same
-         convention the task detail page's own per-part rows use (the claim
-         is the TASK's, asked of one report, not a per-part fact nobody
-         computed). */
+         The claim is the TASK's (asked of one report, not a per-part fact
+         nobody computed); where it lands is below. */
       /* Once, beside the agent the claim is ABOUT (claim.about, which the engine only sets to an
          agent still holding open work), on that agent's first open part (tkSayPart). */
       const sayPart = tkSayPart(parts, t.claim && t.claim.about);
@@ -43237,6 +43235,8 @@ function paintTaskPage() {
      somebody is on it and it is open. */
   const note = document.getElementById('tk-note');
   if (who && !t.closedAt) {
+    /* Kept on purpose although the part line says it too (THE JOIN, pinned by render-tasks): here
+       it is the premise of the warning that follows, that closing does not stop an agent on it. */
     const says = (t.claim && t.claim.claimed === true) ? who + ' says it is on this. ' : '';
     note.textContent = says + 'Marking it done closes it here. It does not stop ' + who
       + ' or change what ' + who + ' is doing.';

@@ -13263,8 +13263,10 @@ const server = http.createServer((req, res) => {
     }
     const rows = scoped.filter((t) => !t.projectArchived || t.projectId === withArchived).map((t) => {
       let claim = claims.get(t.projectId + '\u0000' + t.number) || null;
-      if (!claim && unreadable.has(t.projectId) && tasks.taskState(t) === 'assigned') {
-        claim = { claimed: null, because: 'we could not read what its agent reports' };
+      /* The same rule as the join: a claim is about the agent still holding open work (claimWho),
+         and carries it as `about`; nobody holding open work, no claim. */
+      if (!claim && unreadable.has(t.projectId) && tasks.claimWho(t)) {
+        claim = { claimed: null, because: 'we could not read what its agent reports', about: tasks.claimWho(t), neverReported: false };
       }
       return Object.assign({}, t, {
         claim,

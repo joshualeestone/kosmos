@@ -758,7 +758,8 @@ function claimFor(task, reading, opts) {
      returned null for every assigned multi-part task and the card lost its
      says-it-is-on-this line with nothing saying why. The claim is still asked
      of the task as a whole (one report naming "task 15" is a claim about the
-     task); per-part claims need a spelling agents have not been taught. */
+     task); per-part claims need a spelling agents have not been taught. The
+     caller reads `reading` for claimWho(task), the agent holding open work. */
   if (!task || whoOf(task).length === 0 || progressOf(task).closed) return null;
   // ⚠️ The DEFINITE branch is allowlisted, never the unknown one: a state
   // this module does not recognize (a future vocabulary word, a hand-edited

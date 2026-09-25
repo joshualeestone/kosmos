@@ -754,7 +754,8 @@ function joinTaskClaims(tasks, all, memberOf, roster, project) {
        here: no claim computed, `claim: undefined`, and the card silently short
        one line. Found only because a mutation of the OTHER gate went unnoticed
        and the missing test exposed this one.
-       📌 `who` is the first agent named on the task. The claim is asked of the
+       📌 `who` is the agent the claim is ABOUT: the first holding an OPEN part
+       (claimWho, #3559), not the first ever named. The claim is asked of the
        task as a whole, because "task 15" in a report is a claim about the task;
        per-part claims would need a spelling agents have not been taught. */
     if (!t || t.closedAt) return withParts(t);
@@ -806,7 +807,7 @@ function joinTaskClaims(tasks, all, memberOf, roster, project) {
     if (ambiguous(t, who)) {
       return { ...withParts(t), claim: tasksMod.claimFor(t, readFor(who), { project: project || null, ambiguous: true }) };
     }
-    /* One reading, for the first agent named on the task. The claim is asked of
+    /* One reading, for the agent the claim is about (claimWho). The claim is asked of
        the task as a whole, because "task 15" in a report is a claim about the
        task; per-part claims would need a spelling agents have not been taught
        and would be a fact nobody computed. */
