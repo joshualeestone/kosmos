@@ -1178,8 +1178,14 @@ function sendPost({ fromPane, sender: resolvedSender, project, projectName, text
   }
   const bodyProblem = chat.messageProblem(chat.cleanMessage(text).slice(0, chat.MAX_TEXT));
   if (bodyProblem) return refuse(bodyProblem);
-  if (chat.cleanMessage(text).length > MAX_BODY || chat.storeText(text).length > chat.STORE_GROWTH * MAX_BODY) {
+  if (chat.cleanMessage(text).length > MAX_BODY) {
     return refuse('that is a document, not a message; put it in the project folder and post your colleagues the path');
+  }
+  /* #3679: the stored form keeps indentation, so it is bounded on its own, at MAX_BODY: the
+     size one post's record could reach before indentation was kept. */
+  const stored = chat.storeText(text);
+  if (stored.length > MAX_BODY) {
+    return refuse('that has more indentation than we keep in a post; put it in the project folder and post your colleagues the path');
   }
   const markerBad = markerProblem(text);
   if (markerBad) return refuse(markerBad);
@@ -1313,7 +1319,6 @@ function sendPost({ fromPane, sender: resolvedSender, project, projectName, text
      room does NOT render: the delivered pane envelope (an agent reads a line),
      @mention detection, the spill-length decision and validation. The two are
      allowed to differ -- the pane gets a line, the UI record keeps the shape. */
-  const stored = chat.storeText(text);
   let body = cleaned;
   if (cleaned.length > SPILL_AT) {
     const spillFile = path.join(SPILL_DIR, id + '.txt');

@@ -384,7 +384,7 @@ function storeText(raw) {
   for (const line of lines) {
     const f = STORE_FENCE.exec(line);
     if (fenceLen) {
-      if (!(f && f[1].length >= fenceLen && !f[2].trim())) { out.push(trimSpacesEnd(line)); continue; }
+      if (!(f && f[1].length >= fenceLen && /^ *$/.test(f[2]))) { out.push(trimSpacesEnd(line)); continue; }
       fenceLen = 0;
     } else if (f) {
       fenceLen = f[1].length;

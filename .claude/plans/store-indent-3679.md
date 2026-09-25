@@ -110,3 +110,13 @@ always a stray keystroke, and trimming it keeps "  hello" stored as "hello".
   rule is a room-renderer change of its own.
 - Recorded: every tab is four spaces, not the next tab stop; and depth reads raw indentation on
   surfaces the store never touched (a task's detail, an agent reply).
+
+## Review pass 6 (sonnet)
+- WARNING fixed: the room's stored-form bound reused "that is a document", which is false for a
+  short post with deep indentation. It has its own sentence, and the bound is MAX_BODY itself on
+  the stored form: the size one post's record could reach before indentation was kept, so the
+  room log (which keeps every post in full, spilled or not) grows no larger per post than it
+  could before. `storeText` now runs once per post. Room tests: indentation kept in the record,
+  and the refusal names indentation; the old wording reds it.
+- NIT fixed: the store's closing fence allows only spaces after the run, as pjRich does.
+- Duplicate: pjBody's fence rule, already recorded above; filed as a follow-up card.
