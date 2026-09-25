@@ -53585,6 +53585,7 @@ function asbTellScreen(force) {
   if (!force && key === ASB.screenKey) return;
   ASB.screenKey = key;
   fetch('/api/setup-guide/page', { method: 'POST', headers: { 'content-type': 'application/json' }, body: key })
+    .then((r) => r.text())   // read on every answer (see asbStart)
     .catch(() => { /* the guide answers without it; it is a courtesy, not a dependency */ });
 }
 
@@ -53662,8 +53663,8 @@ async function asbReadThread() {
   if (!row) return null;
   try {
     const r = await fetch('/api/agent/' + encodeURIComponent(row.sessionName) + '/thread', { cache: 'no-store' });
+    const body = await r.json().catch(() => null);   // read on every answer (see asbStart)
     if (!r.ok) return null;
-    const body = await r.json();
     /* The route answers 200 with messages: null when the thread read FAILED; that is not an empty thread. */
     return body && Array.isArray(body.messages) ? { rows: body.messages, session: row.sessionName } : null;
   } catch { return null; }
@@ -53799,7 +53800,10 @@ async function asbStart() {
   let guide = null;
   try {
     const r = await fetch('/api/setup-guide', { cache: 'no-store' });
-    if (r.ok) { const b = await r.json(); if (b && b.ok && typeof b.name === 'string') guide = b.name; }
+    /* Read the body on every answer, the 404 included: a response whose body is never read stays
+       open, which holds the page's network busy for good (it broke every browser check's page load). */
+    const b = await r.json().catch(() => null);
+    if (r.ok && b && b.ok && typeof b.name === 'string') guide = b.name;
   } catch { /* no guide read, no bubble */ }
   if (!guide) return;   // every install until #3660: nothing more is fetched or drawn
   ASB.guide = guide;
