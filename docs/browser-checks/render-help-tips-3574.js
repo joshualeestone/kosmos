@@ -649,7 +649,7 @@ const resetStore = (state) => fs.writeFileSync(tipsStore.FILE(), JSON.stringify(
       document.querySelectorAll('[data-t32]').forEach((x) => x.remove());
       return out;
     }, [where, real]);
-    const inside = (q) => q.top >= 11 && q.vh - q.bottom >= 11 && q.left >= 11 && q.right >= 11;
+    const inside = (q) => q.top >= 12 && q.vh - q.bottom >= 12 && q.left >= 11 && q.right >= 11;
     for (const wh of ['below', 'above', 'left', 'right']) {
       const p32 = await place32(wh);
       chk(inside(p32) && p32.flat, 'T32 a target ' + (wh === 'left' || wh === 'right' ? 'off to the ' + wh : wh + ' the fold') + ': the card is wholly on screen, with no arrow', JSON.stringify(p32));
@@ -674,9 +674,31 @@ const resetStore = (state) => fs.writeFileSync(tipsStore.FILE(), JSON.stringify(
     await page.click('#helpq-btn');
     await page.click('#helpq-menu [data-help="ring"]');
     await page.waitForTimeout(250);
-    const short32 = await page.evaluate(() => { const c = document.getElementById('tipcard'); const b = c.getBoundingClientRect(); const go = c.querySelector('.tip-go').getBoundingClientRect(); const bd = c.querySelector('.tip-bd');
-      return { top: Math.round(b.top), bottom: Math.round(b.bottom), vh: window.innerHeight, goIn: go.bottom <= window.innerHeight && go.top >= 0, scrolls: !!bd && bd.scrollHeight > bd.clientHeight }; });
-    chk(short32.top >= 0 && short32.bottom <= short32.vh && short32.goIn && short32.scrolls, 'T32c on a window shorter than the card, it fits with Got it in view and its words scroll', JSON.stringify(short32));
+    const shortRead = () => page.evaluate(() => { const c = document.getElementById('tipcard'); const b = c.getBoundingClientRect(); const go = c.querySelector('.tip-go').getBoundingClientRect(); const bd = c.querySelector('.tip-bd');
+      return { top: Math.round(b.top), bottom: Math.round(b.bottom), vh: window.innerHeight, goIn: go.bottom <= window.innerHeight && go.top >= 0, scrolls: !!bd && bd.scrollHeight > bd.clientHeight, tab: bd ? bd.getAttribute('tabindex') : null }; });
+    const short32 = await shortRead();
+    chk(short32.top >= 12 && short32.vh - short32.bottom >= 12 && short32.goIn && short32.scrolls && short32.tab === '0', 'T32c on a window shorter than the card, it fits with Got it in view, and its words scroll and take the keyboard', JSON.stringify(short32));
+    await page.keyboard.press('Escape');
+    // T32d: narrow AND short (a phone on its side, the title wrapping), where the words' room is smallest.
+    await page.setViewportSize({ width: 360, height: 300 });
+    await page.waitForTimeout(300);
+    await page.click('#helpq-btn');
+    await page.click('#helpq-menu [data-help="ring"]');
+    await page.waitForTimeout(250);
+    const narrow32 = await shortRead();
+    // T32d: words the person scrolled stay scrolled when the card is placed again (it is, on every scroll and tick).
+    const kept32 = await page.evaluate(async () => { const bd = document.querySelector('#tipcard .tip-bd'); bd.scrollTop = 30; const at = bd.scrollTop; window.dispatchEvent(new Event('resize')); await new Promise((r) => setTimeout(r, 1300)); return { at, after: bd.scrollTop }; });
+    chk(kept32.at > 0 && kept32.after === kept32.at, 'T32d the words stay where the person scrolled them when the card is placed again', JSON.stringify(kept32));
+    chk(narrow32.top >= 12 && narrow32.vh - narrow32.bottom >= 12 && narrow32.goIn, 'T32d narrow and short, the card still fits with Got it in view', JSON.stringify(narrow32));
+    await page.keyboard.press('Escape');
+    // T32e CONTROL: a tall window gives the words room, so they neither scroll nor add a tab stop.
+    await page.setViewportSize({ width: 1280, height: 860 });
+    await page.waitForTimeout(300);
+    await page.click('#helpq-btn');
+    await page.click('#helpq-menu [data-help="ring"]');
+    await page.waitForTimeout(250);
+    const tall32 = await shortRead();
+    chk(!tall32.scrolls && tall32.tab === null, 'T32e CONTROL: on a tall window the words do not scroll and add no tab stop', JSON.stringify(tall32));
     await page.keyboard.press('Escape');
     await page.setViewportSize({ width: 1280, height: 860 });
     await page.waitForTimeout(300);

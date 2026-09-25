@@ -1435,8 +1435,9 @@ button.uprime:hover, .btn.uprime:hover, .utoast .uacts button.uprime:hover,
 .tipcard .tip-x:hover { background: var(--k-sunk); color: var(--k-ink); }
 .tipcard .tip-eb { font: 700 .625rem var(--font-ui); letter-spacing: .12em; text-transform: uppercase; color: var(--gold-edge); }
 /* On a window too short for the whole card, the words scroll inside it and the title and buttons stay, so the
-   card still fits on screen. The scroll is on the words, not the card, which would clip the arrow. */
-.tipcard .tip-bd { max-height: calc(100vh - 150px); overflow-y: auto; }
+   card still fits on screen. The scroll is on the words, not the card, which would clip the arrow. The height is
+   set by tipPlace from the window it is actually placed in (a vh budget overstates a phone with its toolbar up). */
+.tipcard .tip-bd { overflow-y: auto; }
 .tipcard h2 { margin: 2px 26px 4px 0; font-size: 1rem; letter-spacing: -.005em; }
 .tipcard p { margin: 0 0 6px; font-size: .875rem; color: var(--k-ink-2); line-height: 1.5; }
 .tipcard ol { margin: 4px 0 8px; padding: 0; list-style: none; font-size: .875rem; color: var(--k-ink-2); }
@@ -53791,6 +53792,20 @@ function tipPlace(card, sel, side = false, { key = '', avoid = true } = {}) {
   try {
     el = sel ? [...document.querySelectorAll(sel)].find((x) => { const r = x.getBoundingClientRect(); return r.width > 0 && r.height > 0 && !x.closest('[hidden]'); }) || null : null;
   } catch { el = null; }   // :has() in an older webview
+  /* A card taller than the window gives its words just enough scroll to fit, measured, not budgeted. They are a
+     tab stop only while they scroll, so a keyboard can reach the hidden part and a short tip adds no stop. */
+  const bd = card.querySelector('.tip-bd');
+  if (bd) {
+    /* The card is placed again on every scroll and tick: keep where the person had scrolled the words to. */
+    const was = bd.scrollTop;
+    bd.style.maxHeight = '';
+    const over = card.offsetHeight - (window.innerHeight - 24);
+    if (over > 0) bd.style.maxHeight = Math.max(48, bd.clientHeight - over) + 'px';
+    bd.scrollTop = was;
+    const scrolls = bd.scrollHeight > bd.clientHeight + 1;
+    if (scrolls) { bd.tabIndex = 0; bd.setAttribute('role', 'region'); bd.setAttribute('aria-label', 'Tip text, scrolls'); }
+    else { bd.removeAttribute('tabindex'); bd.removeAttribute('role'); bd.removeAttribute('aria-label'); }
+  }
   const w = card.offsetWidth, h = card.offsetHeight, pad = 12;
   const pageW = document.documentElement.getBoundingClientRect().width;
   if (!el || !el.getBoundingClientRect().width) {
