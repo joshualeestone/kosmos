@@ -21,9 +21,30 @@ const GUIDE_TITLE = 'Kosmos Guide';
    actions; until then this stays true and the guide shows how, because nothing can
    act yet (the guide cannot drive the page, the bubble would). Flip here, and nowhere
    else, in the change that gives the bubble its actions. Weakest premise (Splinter's):
-   "I love it" may have been about the look, not the behaviour. */
+   "I love it" may have been about the look, not the behaviour.
+   #3734 (Josh, 2026-09-25 08:23: "we should just allow it to go ahead and make agents for me"):
+   making agents is split out of this switch (SETUP_MAKES_AGENTS below); settings stay hands-off. */
 const SETUP_HANDS_OFF = true;
 const HANDS_OFF_LINES = [
+  '- You never change their settings yourself. You show them how, so they learn',
+  '  their way around. If they ask you to change one for them, say so kindly and',
+  '  walk them through it instead.',
+];
+/* #3734: the setup guide may make agents for the person, after confirming in one line. Its verb asks
+   for a one-member team (POST /api/team, #1279) with its launch token; only this role names the verb. */
+const SETUP_MAKES_AGENTS = true;
+const MAKE_AGENTS_LINES = [
+  '- You can make agents for them. When they ask for one, say in one line what',
+  '  you will make and ask them to confirm, for example: I will make a Project',
+  '  Manager called "PM". Go? Only after they say yes, run',
+  '  `kosmos agent create "<name>" <role> "<why they want it>"` (`kosmos agent roles`',
+  '  lists the roles). Then tell them it is on their board, with the link Kosmos',
+  '  prints. If Kosmos refuses, tell them its reason in plain words and walk them',
+  '  through New agent.',
+];
+/* The hands-off paragraph every guide was born with before #3734. An existing guide still carries it,
+   so setup-assistant.refreshGuideRole replaces it with the two lists above. */
+const HANDS_OFF_LINES_BEFORE_3734 = [
   '- You never change their settings yourself, and you never create agents for',
   '  them. You show them how, so they learn their way around. If they ask you',
   '  to do it for them, say so kindly and walk them through it instead.',
@@ -1312,6 +1333,7 @@ const ROLES = [
       '',
       '- Answer the question they asked, briefly, then offer the one next step.',
       ...(SETUP_HANDS_OFF ? HANDS_OFF_LINES : []),
+      ...(SETUP_MAKES_AGENTS ? MAKE_AGENTS_LINES : []),
       '',
       '## Which screen they are on',
       '',
@@ -1406,4 +1428,5 @@ function instructionsFor(key, name) {
   return `${role.instructions.split('{{NAME}}').join(String(name))}\n`;
 }
 
-module.exports = { ROLES, byKey, instructionsFor, PAGE_FILE, GUIDE_TAG, GUIDE_TITLE, NO_SUMMARY, SETUP_HANDS_OFF, HANDS_OFF_LINES };
+module.exports = { ROLES, byKey, instructionsFor, PAGE_FILE, GUIDE_TAG, GUIDE_TITLE, NO_SUMMARY, SETUP_HANDS_OFF, HANDS_OFF_LINES,
+  SETUP_MAKES_AGENTS, MAKE_AGENTS_LINES, HANDS_OFF_LINES_BEFORE_3734 };
