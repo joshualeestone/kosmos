@@ -117,3 +117,14 @@ test('#3734 agent roles lists the role keys, and a bad call is named before the 
     assert.match(bad.out, /Usage: kosmos agent create/);
     assert.equal(seen.length, 0, 'a malformed call reached the board');
   }));
+
+test('#3734 kosmos agent --help and -h show the agent usage, not the top-level banner', () => withStub(
+  () => [500, {}],
+  async (port, seen) => {
+    for (const flag of ['--help', '-h']) {
+      const r = await cli(port, ['agent', flag]);
+      assert.match(r.out, /Usage: kosmos agent <create\|roles>/, flag + ' showed: ' + r.out);
+      assert.doesNotMatch(r.out, /kosmos start \| stop/, flag + ' fell through to the top-level banner');
+    }
+    assert.equal(seen.length, 0, 'asking for help reached the board');
+  }));
