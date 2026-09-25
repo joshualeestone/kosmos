@@ -7730,7 +7730,8 @@ body.consolidated .tkcard:hover { border-color: transparent; }
    whole #panel-projects: the one-screen layout (960px and up, so an iPad) appends Settings, Tasks
    and Create agent inside #panel-projects, and those are other screens, unchanged here. The
    composer's @mention mirror must match the composer and is set beside the room's touch rules.
-   The phone check sweeps the same places. */
+   The phone check sweeps the whole projects panel and both dialogs; the tablet and desktop checks
+   sweep exactly these places (read from this rule). */
 @media (hover: none) {
   :is(#pj-list-view, #pj-one-view, #pj-task-view, #pj-docs-view, #pj-settings-view, #pj-add-view) :is(input:not([type=checkbox]):not([type=radio]), select, textarea),
   #nt-modal :is(input:not([type=checkbox]):not([type=radio]), select, textarea), #am-modal :is(input:not([type=checkbox]):not([type=radio]), select, textarea) { font-size: 16px; }   /* text fields only: iOS does not zoom a checkbox or a radio */
@@ -46668,7 +46669,7 @@ document.addEventListener('click', (e) => {
   if (!inside) rxnCloseAllPickers();
 }, true);
 /* Escape closes any open picker. */
-document.addEventListener('keydown', (e) => { if (e.key === 'Escape') rxnCloseAllPickers(); });
+document.addEventListener('keydown', (e) => { if (e.key === 'Escape') { rxnCloseAllPickers(); if (RXN_SHOW_POST) pjRxnClose(); } });   // #718: the touch bar too (an iPad keyboard)
 /* The picker is `fixed`, so it does not follow the thread scroll -- close it on a
    scroll of anything OUTSIDE it (capture phase, since scroll does not bubble) so it
    never floats detached from the smiley. A scroll INSIDE the picker's own emoji grid

@@ -821,18 +821,29 @@ const now = () => new Date().toISOString();
         const card = document.createElement('div'); card.className = 'tipcard';
         card.innerHTML = '<h4>' + t.title + '</h4>' + t.body; document.body.appendChild(card);
         tipPlace(card, t.at, t.side, { key: t.id, avoid: true });
-        const C = card.getBoundingClientRect(); card.remove();
-        const anchor = [...document.querySelectorAll(t.at)].find((x) => { const r = x.getBoundingClientRect(); return r.width > 0 && r.height > 0 && !x.closest('[hidden]'); });
-        return { inView: C.top >= 0 && C.bottom <= innerHeight && C.left >= 0 && C.right <= innerWidth, card: [Math.round(C.top), Math.round(C.bottom)], vh: innerHeight,
-          anchor: anchor ? (anchor.id || anchor.className) : null };
+        // What tipPlace ACTUALLY did (since #3700 it keeps any card on screen, so "in view" alone
+        // cannot fail): a pointing card (not the arrowless "flat" fallback), and where it sits
+        // relative to the conversation header and to Add member.
+        const cardRect = card.getBoundingClientRect(); const cardClass = card.className; card.remove();
+        const near = (el) => { if (!el) return false; const r = el.getBoundingClientRect(); if (!r.width) return false;
+          // Above or below it (overlapping it horizontally), or to its left or right (overlapping
+          // it vertically), within 40px: tipPlace's four places.
+          const aboveOrBelow = ((cardRect.top >= r.bottom - 2 && cardRect.top <= r.bottom + 40) || (cardRect.bottom <= r.top + 2 && cardRect.bottom >= r.top - 40))
+            && cardRect.left < r.right && cardRect.right > r.left;
+          const leftOrRight = ((cardRect.left >= r.right - 2 && cardRect.left <= r.right + 40) || (cardRect.right <= r.left + 2 && cardRect.right >= r.left - 40))
+            && cardRect.top < r.bottom && cardRect.bottom > r.top;
+          return aboveOrBelow || leftOrRight; };
+        return { inView: cardRect.top >= 0 && cardRect.bottom <= innerHeight && cardRect.left >= 0 && cardRect.right <= innerWidth,
+          pointing: !/\bflat\b/.test(cardClass), cardClass, card: [Math.round(cardRect.top), Math.round(cardRect.bottom)], vh: innerHeight,
+          nearConversation: near(document.querySelector('.pj3 > .pjmid .pjmidhead')), nearAddMember: near(document.getElementById('pj-add-member')) };
       });
       await phonePage.evaluate(() => window.scrollTo(0, 0));
       const tip375 = await tipAt();
-      chk(!tip375.error && tip375.inView && tip375.anchor === 'pjmidhead', `[phone] the first-visit project tip sits inside the screen, at the conversation`, JSON.stringify(tip375));
+      chk(!tip375.error && tip375.inView && tip375.pointing && tip375.nearConversation, `[phone] the first-visit project tip is a pointing card beside the conversation, on screen`, JSON.stringify(tip375));
       await phonePage.setViewportSize({ width: 800, height: 800 });
       await phonePage.waitForTimeout(100);
       const tip800 = await tipAt();
-      chk(!tip800.error && tip800.anchor === 'pj-add-member', `[wide] the project tip still anchors at Add member wider than a phone`, JSON.stringify(tip800));
+      chk(!tip800.error && tip800.pointing && tip800.nearAddMember, `[wide] the project tip still points at Add member wider than a phone`, JSON.stringify(tip800));
       await phonePage.setViewportSize({ width: 375, height: 800 });
       await phonePage.waitForTimeout(100);
       await phonePage.setViewportSize({ width: 800, height: 800 });
@@ -1255,7 +1266,7 @@ const now = () => new Date().toISOString();
           named: { 'nt-what': px('nt-what'), 'nt-who': px('nt-who'), 'pj-one-add': px('pj-one-add'), 'tk-due': px('tk-due'), 'pj-name': px('pj-name') } };
       }, { rootSelectors: FIELD_ROOTS, skipTypes: FIELD_SKIP });
       const named = Object.values(desk.named || {});
-      chk(desk.roots === FIELD_ROOTS.length && desk.hoverNone === false && desk.count >= 20 && desk.at16.length === 0 && named.length === 5 && named.every((v) => v === 13),
+      chk(desk.roots === FIELD_ROOTS.length && desk.hoverNone === false && desk.count >= 20 && desk.at16.length === 0 && named.length === 5 && named.every((size) => size !== null && size < 16),   /* not a value pin: a desktop typography change is not this check's business; the zero-at-16 sweep is the leak test */
         `[desktop/mouse] the touch-only 16px rule changes no field's size with a mouse`, JSON.stringify(desk));
     } finally {
       await deskPage.close();

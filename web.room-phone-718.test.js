@@ -13,24 +13,30 @@ const html = fs.readFileSync(path.join(__dirname, 'web', 'index.html'), 'utf8');
    the page), so a rule moved out of its block still read as inside it. */
 function mediaBlocks() {
   // Where CSS comments are, so an "@media" MENTIONED in a comment is not read as a block.
-  const comments = []; for (let c = html.indexOf('/*'); c !== -1; c = html.indexOf('/*', c + 2)) { const e = html.indexOf('*/', c + 2); comments.push([c, e < 0 ? html.length : e + 2]); if (e < 0) break; c = e; }
-  const inComment = (i) => comments.some(([a, b]) => i >= a && i < b);
-  const out = []; const re = /@media ([^{]+) \{/g; let m;
-  while ((m = re.exec(html))) {
-    if (inComment(m.index)) continue;
-    let j = re.lastIndex, d = 1;
-    // Count braces in CSS only: skip comments and quoted strings (both hold braces on this page).
-    while (d && j < html.length) {
-      const c = html[j];
-      if (c === '/' && html[j + 1] === '*') { const e = html.indexOf('*/', j + 2); j = e < 0 ? html.length : e + 2; continue; }
-      if (c === '"' || c === "'") { j += 1; while (j < html.length && html[j] !== c) { if (html[j] === '\\') j += 1; j += 1; } j += 1; continue; }
-      if (c === '{') d += 1; else if (c === '}') d -= 1;
-      j += 1;
-    }
-    out.push({ query: m[1].trim(), start: m.index, end: j, body: html.slice(re.lastIndex, j - 1) });
-    re.lastIndex = j;
+  const comments = [];
+  for (let open = html.indexOf('/*'); open !== -1; open = html.indexOf('/*', open + 2)) {
+    const close = html.indexOf('*/', open + 2);
+    comments.push([open, close < 0 ? html.length : close + 2]);
+    if (close < 0) break;
+    open = close;
   }
-  return out;
+  const inComment = (index) => comments.some(([from, to]) => index >= from && index < to);
+  const found = []; const mediaStart = /@media ([^{]+) \{/g; let match;
+  while ((match = mediaStart.exec(html))) {
+    if (inComment(match.index)) continue;
+    let cursor = mediaStart.lastIndex, depth = 1;
+    // Count braces in CSS only: skip comments and quoted strings (both hold braces on this page).
+    while (depth && cursor < html.length) {
+      const char = html[cursor];
+      if (char === '/' && html[cursor + 1] === '*') { const close = html.indexOf('*/', cursor + 2); cursor = close < 0 ? html.length : close + 2; continue; }
+      if (char === '"' || char === "'") { cursor += 1; while (cursor < html.length && html[cursor] !== char) { if (html[cursor] === '\\') cursor += 1; cursor += 1; } cursor += 1; continue; }
+      if (char === '{') depth += 1; else if (char === '}') depth -= 1;
+      cursor += 1;
+    }
+    found.push({ query: match[1].trim(), start: match.index, end: cursor, body: html.slice(mediaStart.lastIndex, cursor - 1) });
+    mediaStart.lastIndex = cursor;
+  }
+  return found;
 }
 const MEDIA = mediaBlocks();
 const blocks = (q) => MEDIA.filter((b) => b.query === '(' + q + ')').map((b) => b.body).join('\n');
