@@ -114,6 +114,22 @@ test('POST /api/tasks/close: closes each task and writes the note to each histor
   assert.equal(taskchat.read(p.id, 1).filter((e) => e.kind === 'said').length, 1, 'a second close wrote the note again');
 });
 
+test('POST /api/tasks/close: one store read, not a claim join per item; a task sent twice in ONE request gets one note', async () => {
+  const p = projects.create({ name: 'Once' });
+  tasks.create(p.id, { sentence: 'Only once' });
+  const realGet = projects.get;
+  let gets = 0;
+  projects.get = (...a) => { gets += 1; return realGet(...a); };
+  let r;
+  try {
+    r = await bulk({ tasks: [{ projectId: p.id, number: 1 }, { projectId: p.id, number: 1 }], note: 'done twice?' });
+  } finally { projects.get = realGet; }
+  assert.equal(gets, 0, 'bulk close ran the claim join (projects.get) per item');
+  assert.equal(r.status, 200);
+  assert.deepEqual(r.json.results.map((x) => !!x.already), [false, true]);
+  assert.equal(taskchat.read(p.id, 1).filter((e) => e.kind === 'said').length, 1, 'the note was written twice');
+});
+
 test('POST /api/tasks/close: one bad item does not stop the others, and the answer says which failed', async () => {
   const p = projects.create({ name: 'Partial' });
   tasks.create(p.id, { sentence: 'Real' });

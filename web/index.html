@@ -42316,7 +42316,7 @@ function tskScoped(all, st, now) {
    earlier visit are dropped, and a first visit says it is reading rather than showing zeros. */
 async function tskLoad(arrival) {
   const mine = ++TSK.gen;
-  if (arrival) { TSK.sel.clear(); if (!TSK.data) tskPaint(); }
+  if (arrival) { TSK.sel.clear(); tskPaint(); }   // the cleared ticks leave the screen too, not just the model
   const msg = document.getElementById('tsk-msg');
   try {
     const r = await fetch('/api/tasks?view=tasks', { cache: 'no-store' });
