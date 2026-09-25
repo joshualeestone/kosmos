@@ -6,7 +6,18 @@ const assert = require('node:assert/strict');
 const { cpuMillisecondsOf } = require('./test-support/cpu-time');
 
 test('#3715 cpuMillisecondsOf reads milliseconds: a ~40ms busy loop reads between 1 and 3000', () => {
-  const ms = cpuMillisecondsOf(() => { const end = Date.now() + 40; while (Date.now() < end) { /* spin */ } });
+  /* The spin is bounded by CPU time (process.cpuUsage, in microseconds), not wall time: a
+     40ms WALL spin on a starved machine (two full suites at once) read 0.87ms of CPU and
+     failed, which says nothing about the helper's units. The 5s wall cap only stops a
+     broken clock from hanging the suite. */
+  const ms = cpuMillisecondsOf(() => {
+    const start = process.cpuUsage();
+    const stop = Date.now() + 5000;
+    for (;;) {
+      const d = process.cpuUsage(start);
+      if (d.user + d.system >= 40000 || Date.now() > stop) break;
+    }
+  });
   // A seconds result would be a fraction of 1; a microseconds one tens of thousands.
   assert.ok(ms >= 1 && ms < 3000, 'a 40ms spin read ' + ms + 'ms of CPU');
 });
