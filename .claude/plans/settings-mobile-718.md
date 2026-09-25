@@ -56,3 +56,7 @@ it too; that is intended, but a dense future section may look taller than its de
 - The 44px rule on `.dsec` buttons was measured over all 11 sections at 375px: every visible
   button is block-level (none sit inside a sentence), and the dense lists (Global Skills,
   Connections) read cleanly. Deferred as not an issue.
+- A checkbox is tapped through the label that wraps it, so at phone width such a label in a
+  Settings section is at least 44px tall. The three Automation guard checkboxes (shown while the
+  recommender is on) measured 23, 47 and 47px; the check shows their row, counts the labels, and
+  fails at 23px with the rule removed. Wrapped account actions keep a 6px gap between rows.

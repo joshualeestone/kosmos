@@ -2875,12 +2875,15 @@ body.filter-noproj #orgview .onode:not([data-noproj]) { opacity: .26; }
   #panel-settings .dsec input:not([type="checkbox"]):not([type="radio"]):not([type="range"]):not([type="file"]) { min-height: 44px; }
   #panel-settings .skillrm { padding: 0 10px; }
   #panel-settings .toggle::after { content: ""; position: absolute; inset: -10px -1px; }
+  /* A checkbox or radio is tapped through the label that wraps it, so that label is the target. */
+  #panel-settings .dsec label:has(> input[type="checkbox"]),
+  #panel-settings .dsec label:has(> input[type="radio"]) { min-height: 44px; align-items: center; }
   #panel-settings .con-group { font-size: .75rem; }
   #panel-settings #plus-signin-bottom { display: inline-block; padding: 10px 0; }
   #panel-settings #plus-signin-top { display: inline-flex; align-items: center; min-height: 44px; }
   /* The account actions wrap at this width, so a wrapped line began with a divider and an
      indent. Spaced links with no dividers wrap cleanly. */
-  #panel-settings .acct-actions { gap: 0 22px; }
+  #panel-settings .acct-actions { gap: 6px 22px; }
   #panel-settings .acct-actions > button:not(:first-child) { border-left: 0; margin-left: 0; padding-left: 0; }
 }
 .chk { display: flex; gap: 14px; align-items: flex-start; padding: 14px 0; }
