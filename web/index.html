@@ -27069,7 +27069,8 @@ function unreadEdgeBacklog(key, n) {
 }
 function unreadEdgeApply(root, key) {
   if (!root) return;
-  const rows = [...root.querySelectorAll('.msg:not(.you)[data-mid]')].filter((r) => r.dataset.mid);
+  /* Rows with a bubble only: a bodyless post has nothing to edge, and would sit unread forever. */
+  const rows = [...root.querySelectorAll('.msg:not(.you)[data-mid]')].filter((r) => r.dataset.mid && r.querySelector('.msg-bd'));
   const ids = rows.map((r) => r.dataset.mid);
   const st = UNREAD_EDGE.get(key) || { known: null, fresh: new Set(), read: new Set(), backlog: 0 };
   UNREAD_EDGE.set(key, st);
@@ -27077,6 +27078,11 @@ function unreadEdgeApply(root, key) {
   else for (const id of ids) if (!st.known.has(id)) { st.known.add(id); if (!st.read.has(id)) st.fresh.add(id); }
   /* A count read before its /seen landed can name messages this page has already watched being read: those stay read. */
   if (st.backlog > 0) { for (const id of ids.slice(-st.backlog)) if (!st.read.has(id)) st.fresh.add(id); st.backlog = 0; }
+  /* Bounded by what is on screen: a message that has left the thread cannot come back as new (threads only grow at the
+     end), so the sets keep only the rows painted now and do not grow for the life of the page. */
+  const here = new Set(ids);
+  st.known = here;
+  for (const set of [st.fresh, st.read]) for (const id of set) if (!here.has(id)) set.delete(id);
   /* A bubble a repaint replaced is let go, so the observer holds only what is on the page. */
   for (const el of UNREAD_WATCHED) if (!el.isConnected) { if (UNREAD_IO) UNREAD_IO.unobserve(el); UNREAD_WATCHED.delete(el); }
   for (const r of rows) {

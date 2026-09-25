@@ -161,6 +161,14 @@ const EDGE_LIGHT = 'rgb(245, 228, 188)';
     chk(read10.length === 5 && read10.every((x) => !x), 'U10 precondition: the room\'s unread posts were read', JSON.stringify(read10));
     chk(u10.length === 5 && u10.every((x) => !x), 'U10 a stale count does not bring the edge back to a post already read', JSON.stringify(u10));
 
+    // U11: what a thread remembers is bounded by what it shows: a post that leaves the thread leaves its sets.
+    const u11 = await page.evaluate((body) => {
+      paintRoom({ ...body, rows: body.rows.slice(1) });
+      const st = UNREAD_EDGE.get('pj:p1');
+      return { known: st.known.size, read: st.read.size, shown: document.querySelectorAll('#pj-room .msg:not(.you) .msg-bd').length, hasR1: st.known.has('r1') || st.read.has('r1') };
+    }, room);
+    chk(u11.shown === 4 && u11.known === 4 && !u11.hasR1, 'U11 the thread\'s sets hold only the posts it shows', JSON.stringify(u11));
+
     chk(errs.length === 0, 'U7 no page errors', errs.join(' | '));
   } finally {
     await browser.close();
