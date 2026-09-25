@@ -223,11 +223,13 @@ const waitFor = (page, fn, ms = 6000) => page.waitForFunction(fn, null, { timeou
     await page.evaluate(() => { const fr = document.getElementById('firstrun'); if (fr) fr.hidden = true; });
     chk(await waitFor(page, () => !document.getElementById('asb').hidden), 'B9 CONTROL: it comes back when first run is gone');
 
-    // B10: the guide goes while the page is open: the next page report is refused and the page stops using
-    // the name (a new agent that took it must never get the guide's chat).
+    // B10: the guide goes while the chat is FOLDED: the next thread read asks the board first, is told
+    // there is no guide, and the page stops using the name (a new agent that took it must never get the
+    // guide's chat or light its dot). CONTROL: the bubble is showing just before.
+    chk(!(await bubble(page)).panel && (await bubble(page)).bubble, 'B10 precondition: folded, bubble showing');
     unseed();
-    await page.click('#asb');
-    chk(await waitFor(page, () => document.getElementById('asb').hidden && document.getElementById('asp').hidden, 6000), 'B10 a guide gone while the page is open: the bubble and chat go');
+    await page.evaluate(() => asbPoll(true));
+    chk(await waitFor(page, () => document.getElementById('asb').hidden && document.getElementById('asp').hidden, 6000), 'B10 a guide gone while folded: the next read notices and the bubble goes');
     chk(await page.evaluate(() => ASB.guide === null), 'B10 and the page no longer holds the name');
     // B10b: and a fresh page with no guide shows none.
     await boot();

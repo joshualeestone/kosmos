@@ -53606,7 +53606,7 @@ function asbLayerEnsure() {
     +   '<div class="asp-h"><img alt=""><div class="asp-who"><b>Josh</b><span class="asp-tag">JOSH\'S AI</span></div>'
     +   '<div class="asp-ctl"><button type="button" id="asp-fold" aria-label="Fold the assistant away">&minus;</button>'
     +   '<button type="button" id="asp-x" aria-label="Close the assistant">&times;</button></div></div>'
-    +   '<div class="asp-th" id="asp-th" aria-live="polite"></div>'
+    +   '<div class="asp-th" id="asp-th"></div><span class="vh" id="asp-live" aria-live="polite"></span>'
     +   '<div class="asp-note">An AI that knows Kosmos, in Josh\'s voice. Josh isn\'t typing live.</div>'
     +   '<div class="asp-msg" id="asp-msg" role="status"></div>'
     +   '<div class="asp-ask" id="asp-ask" hidden><b>Close the assistant?</b>'
@@ -53662,6 +53662,21 @@ function asbPaint() {
   document.getElementById('asp-in').hidden = ASB.asking;
 }
 
+/* The board's answer NOW to "which agent is the guide". Asked before every thread read and every send,
+   so a guide removed (or a new agent that took its name) is never read or written as the guide, open
+   or folded. Local and cheap: at most every 5s while open, every minute while folded. */
+async function asbConfirmGuide() {
+  let name = null;
+  try {
+    const r = await fetch('/api/setup-guide', { cache: 'no-store' });
+    const b = await r.json().catch(() => null);   // read on every answer (see asbFind)
+    if (r.ok && b && b.ok && typeof b.name === 'string') name = b.name;
+  } catch { return true; }   // the board did not answer: keep what we have rather than blink the bubble
+  if (name && ASB.guide && name.toLowerCase() === String(ASB.guide).toLowerCase()) return true;
+  asbForgetGuide();
+  return false;
+}
+
 async function asbReadThread() {
   const row = asbGuideRow();
   if (!row) return null;
@@ -53680,13 +53695,21 @@ async function asbPoll(force) {
   const every = ASB.open ? ASB_OPEN_POLL_MS : ASB_FOLDED_POLL_MS;
   if (!force && now - ASB.lastPoll < every) return;
   ASB.lastPoll = now;
+  if (!(await asbConfirmGuide())) return;
   const t = await asbReadThread();
   if (!t) { if (ASB.open) document.getElementById('asp-msg').textContent = 'We could not load the conversation just now.'; return; }
   const speech = asbSpeech(t.rows);
   ASB.wroteOnce = speech.some((m) => m.from !== t.session);
   const heard = speech.filter((m) => m.from === t.session).length;
   /* The first read is the baseline: replies already in the thread are not new, so they light nothing. */
-  if (ASB.open) { ASB.heard = heard; ASB.dot = false; asbPaintThread(speech, t.session); }
+  if (ASB.open) {
+    /* Only the newest reply is announced, not the whole rebuilt thread. */
+    if (ASB.heard !== null && heard > ASB.heard) {
+      const last = speech.filter((m) => m.from === t.session).pop();
+      document.getElementById('asp-live').textContent = last ? String(last.text || '') : '';
+    }
+    ASB.heard = heard; ASB.dot = false; asbPaintThread(speech, t.session);
+  }
   else if (ASB.heard === null) ASB.heard = heard;
   else if (heard > ASB.heard) ASB.dot = true;
   asbPaint();
@@ -53759,6 +53782,7 @@ async function asbSend() {
   ASB.sending = true;
   document.getElementById('asp-send').disabled = true;
   msg.textContent = '';
+  if (!(await asbConfirmGuide())) { ASB.sending = false; document.getElementById('asp-send').disabled = false; return; }
   /* sendTalk's rules (#402, #3419): clear only the text THIS send took, and only when the box is not its
      only copy: placed, or unconfirmed but kept in the thread. could_not, or anything unrecognised, keeps it. */
   const clearSent = () => { if (say.value.trim() === text) say.value = ''; ASB.wroteOnce = true; };
