@@ -644,7 +644,7 @@ const now = () => new Date().toISOString();
        The arms above render into a detached .thread, which the #pj-room-scoped phone rules never
        reach, so they cannot see this; this arm renders the REAL rows inside the REAL #pj-room at
        375px wide. */
-    const phonePage = await browser.newPage({ viewport: { width: 375, height: 800 }, colorScheme: 'light' });
+    const phonePage = await browser.newPage({ viewport: { width: 375, height: 800 }, colorScheme: 'light', hasTouch: true, isMobile: true });
     try {
       await phonePage.addInitScript(() => {
         window.setInterval = () => 0;
@@ -657,9 +657,14 @@ const now = () => new Date().toISOString();
         const long = 'this is a deliberately long message so the bubble fills the whole available width on a phone and would reach the far edge if it were not capped short of the opposite avatar column.';
         const room = document.getElementById('pj-room');
         document.body.appendChild(room);
-        room.style.cssText = 'position:absolute;left:0;top:0;width:297px;max-height:none;';
+        // Real taps: the first-run overlay (not part of the room) would intercept them.
+        const fr = document.getElementById('firstrun'); if (fr) fr.remove();
+        room.style.cssText = 'position:absolute;left:0;top:0;width:297px;max-height:none;z-index:50;';
         room.hidden = false;
-        room.innerHTML = pjRoomRow({ from: 'april', at: ts, text: long }, p) + pjRoomRow({ operator: true, at: ts, text: long }, p);
+        const longName = 'Henderson-Lease-Review-2026-signed-countersigned-final-FINAL-v7-with-exhibits-A-through-F-and-landlord-comments-inline.pdf';
+        room.innerHTML = pjRoomRow({ from: 'april', at: ts, text: long, id: 'm1' }, p) + pjRoomRow({ operator: true, at: ts, text: long, id: 'm2' }, p)
+          + pjRoomRow({ operator: true, at: ts, text: 'Here is the signed copy.', id: 'm3',
+            attachments: [{ id: 'a1', name: longName, type: 'application/pdf', size: 912345, kind: 'pdf', url: '/api/attachment/a1' }] }, p);
         const rows = Array.from(room.querySelectorAll('.msg'));
         const a = rows.find((r) => !r.classList.contains('you') && r.querySelector('.msg-bd'));
         const o = rows.find((r) => r.classList.contains('you') && r.querySelector('.msg-bd'));
@@ -668,6 +673,14 @@ const now = () => new Date().toISOString();
         return { aFar: Math.round(aR.right - aB.right), aNear: Math.round(aB.left - aR.left), aW: Math.round(aB.width),
           oFar: Math.round(oB.left - oR.left), oNear: Math.round(oR.right - oB.right), oW: Math.round(oB.width),
           av: Math.round(rr(a.querySelector('.msg-av')).width),
+          // a 120-character file name on the person's OWN post stays inside the ROOM. Measured
+          // against the room, not the bubble: without the fix the bubble grows WITH the card, so
+          // "card inside bubble" stays true while both hang off the left edge.
+          attIn: (() => { const row = room.querySelectorAll('.msg')[2]; const att = row && row.querySelector('.att'); const bd = row && row.querySelector('.msg-bd');
+            if (!att || !bd) return 'no card'; const A = rr(att), B = rr(bd), R = rr(room);
+            return (A.left >= R.left && B.left >= R.left && A.right <= R.right + 1) ? 'inside' : ('card left=' + Math.round(A.left) + ' bubble left=' + Math.round(B.left) + ' room left=' + Math.round(R.left)); })(),
+          opMaskClear: (() => { const bd = o.querySelector('.msg-bd'); const cs = getComputedStyle(bd, '::after');
+            const maskRight = rr(bd).right - parseFloat(cs.right); return Math.round(rr(o.querySelector('.msg-av')).left - maskRight); })(),
           // the tail's ground mask (::after) must stop short of the avatar: mask left edge vs avatar right edge
           maskClear: (() => { const bd = a.querySelector('.msg-bd'); const cs = getComputedStyle(bd, '::after');
             const maskLeft = rr(bd).left + parseFloat(cs.left); return Math.round(maskLeft - rr(a.querySelector('.msg-av')).right); })() };
@@ -678,9 +691,49 @@ const now = () => new Date().toISOString();
       chk(ph.maskClear >= 0, `[phone] the bubble tail's ground mask stops short of the avatar (it would paint over it)`, `clearance=${ph.maskClear}px`);
       // 190: in this 297px room the desktop row (34px avatar, 16px thread padding, 48px far
       // gutter) leaves about 169px, which fails this; the phone row leaves 199px.
+      chk(ph.attIn === 'inside', `[phone] a 120-character file name on your own post stays inside the room`, ph.attIn);
+      chk(ph.opMaskClear >= 0, `[phone] the operator tail mask stops short of its avatar`, `clearance=${ph.opMaskClear}px`);
       chk(ph.aW >= 190 && ph.oW >= 190, `[phone] both bubbles are wide on a phone`, `agent=${ph.aW}px operator=${ph.oW}px`);
+      // Tap to react (a touchscreen has no hover). Real taps, in a touch context.
+      const bar = () => phonePage.evaluate(() => {
+        const r = document.querySelector('#pj-room .msg.rxn-show'); const q = document.querySelector('#pj-room .msg .rxn-quick');
+        return { shown: document.querySelectorAll('#pj-room .msg.rxn-show').length, op: r ? getComputedStyle(r.querySelector('.rxn-quick')).opacity : (q ? getComputedStyle(q).opacity : null),
+          hoverNone: matchMedia('(hover: none)').matches };
+      });
+      const firstBody = phonePage.locator('#pj-room .msg .msg-bd p').first();
+      await firstBody.tap();
+      await phonePage.waitForTimeout(300);   // the bar fades in over .12s
+      const t1 = await bar();
+      chk(t1.hoverNone && t1.shown === 1 && t1.op === '1', `[phone/touch] a tap on a message shows its add-reaction bar`, JSON.stringify(t1));
+      await firstBody.tap();
+      await phonePage.waitForTimeout(300);
+      const t2 = await bar();
+      chk(t2.shown === 0 && t2.op === '0', `[phone/touch] a second tap closes it (no sticky-hover reveal)`, JSON.stringify(t2));
+      await phonePage.locator('#pj-room .att').first().tap().catch(() => {});
+      await phonePage.waitForTimeout(300);
+      const t3 = await bar();
+      chk(t3.shown === 0, `[phone/touch] a tap on a file card does not toggle the bar`, JSON.stringify(t3));
     } finally {
       await phonePage.close();
+    }
+    const hoverPage = await browser.newPage({ viewport: { width: 375, height: 800 }, colorScheme: 'light' });
+    try {
+      await hoverPage.addInitScript(() => {
+        window.setInterval = () => 0;
+        window.fetch = async () => new Response('{}', { status: 200, headers: { 'content-type': 'application/json' } });
+      });
+      await hoverPage.goto(PAGE);
+      await hoverPage.evaluate((ts) => {
+        const room = document.getElementById('pj-room'); document.body.appendChild(room);
+        const fr = document.getElementById('firstrun'); if (fr) fr.remove();
+        room.style.cssText = 'position:absolute;left:0;top:0;width:297px;max-height:none;z-index:50;'; room.hidden = false;
+        room.innerHTML = pjRoomRow({ from: 'april', at: ts, text: 'hello there', id: 'h1' }, { agents: [{ sessionName: 'april', name: 'April' }] });
+      }, now());
+      await hoverPage.locator('#pj-room .msg .msg-bd p').first().click();
+      const hv = await hoverPage.evaluate(() => ({ hoverNone: matchMedia('(hover: none)').matches, shown: document.querySelectorAll('#pj-room .msg.rxn-show').length }));
+      chk(!hv.hoverNone && hv.shown === 0, `[hover] with a mouse a click toggles nothing (hover reveals the bar there)`, JSON.stringify(hv));
+    } finally {
+      await hoverPage.close();
     }
 
     /* #3361 (WARNING 2 from iter-1 review): the fix's claim is that at GENUINELY WIDE widths the

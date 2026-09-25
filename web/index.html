@@ -5802,8 +5802,9 @@ body:not(.consolidated) .pjmidhead:has(.pjhead) .tsearch:focus-within { flex-bas
 /* A file's name is one unbreakable line (.att-name is nowrap), so a long name became the
    bubble's MINIMUM width: on the person's own right-aligned post a 120-character name made
    a 544px card that hung 330px off the left edge at 375 (measured; the thread box clipped
-   it, so the page did not scroll). Same fix Scorpion made on the Direct Message: the name
-   wraps like text but still shows one line with an ellipsis. Every width, not only phones. */
+   it, so the page did not scroll). The same fix Scorpion is making for the Direct Message
+   on his own branch: the name wraps like text but still shows one line with an ellipsis.
+   Every width, not only phones. */
 #pj-room .att-name { white-space: normal; overflow-wrap: anywhere;
   display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 1; line-clamp: 1; }
 @media (max-width: 30rem) {
@@ -5821,7 +5822,15 @@ body:not(.consolidated) .pjmidhead:has(.pjhead) .tsearch:focus-within { flex-bas
    click handler sets .rxn-show on that one row), at thumb size. */
 @media (hover: none) {
   #pj-room .msg.rxn-show .rxn-quick { opacity: 1; pointer-events: auto; }
-  #pj-room .rxn-quick { gap: 4px; top: -18px; }
+  /* Phones keep :hover on the element last tapped ("sticky hover"), so the base
+     .msg:hover reveal would open the bar on any tap and never let it close. In the room
+     on a touchscreen only .rxn-show (or keyboard focus) opens it. */
+  #pj-room .msg:hover:not(.rxn-show) .rxn-quick:not(:focus-within) { opacity: 0; pointer-events: none; }
+  /* The bar is about 156px wide: pinned right on a short agent bubble it would cross the
+     thread's left edge and be clipped, so an agent's bar starts at the bubble's left.
+     -12px, not -18px: the thread's top padding is 12px, so the first post's bar is not cut. */
+  #pj-room .rxn-quick { gap: 4px; top: -12px; }
+  #pj-room .msg:not(.you) .rxn-quick { right: auto; left: 0; }
   #pj-room .rxn-pick, #pj-room .rxn-more { min-width: 36px; min-height: 36px; }
 }
 .rxn-pick { border: 0; background: transparent; cursor: pointer; font-size: 1.15rem; line-height: 1;
@@ -46355,6 +46364,26 @@ document.getElementById('d-dmthread').addEventListener('click', async (e) => {
   await dmRxnToggle(CURRENT.sessionName, box, btn.getAttribute('data-emoji'));
 });
 
+/* #718 mobile: on a touchscreen, a tap on a message shows its add-reaction bar (hover
+   does it on a computer). One row at a time. A tap on a link, a button or the reaction row
+   is left to its own handler, except that picking a reaction closes the bar. Registered
+   BEFORE the data-open-agent listener below, which asks to stay last. */
+document.getElementById('pj-room').addEventListener('click', (e) => {
+  if (!(window.matchMedia && window.matchMedia('(hover: none)').matches)) return;
+  if (!e.target || !e.target.closest) return;
+  const room = document.getElementById('pj-room');
+  if (e.target.closest('.rxn-pick')) { room.querySelectorAll('.msg.rxn-show').forEach((m) => m.classList.remove('rxn-show')); return; }
+  if (e.target.closest('a, button, .rxns, [data-open-agent]')) return;
+  const row = e.target.closest('.msg');
+  room.querySelectorAll('.msg.rxn-show').forEach((m) => { if (m !== row) m.classList.remove('rxn-show'); });
+  if (row) row.classList.toggle('rxn-show');
+});
+/* A tap anywhere outside the room closes an open bar too. */
+document.addEventListener('click', (e) => {
+  const room = document.getElementById('pj-room');
+  if (!room || (e.target && room.contains(e.target))) return;
+  room.querySelectorAll('.msg.rxn-show').forEach((m) => m.classList.remove('rxn-show'));
+});
 /* #3134-followup (Josh 6.72): clicking an agent's NAME or AVATAR in a room bubble opens
    that agent directly, the same openDetail path the members list uses (#2574), passing
    PJ_CURRENT so detail-back returns to this project. Delegated on the thread (every poll
@@ -46367,17 +46396,6 @@ document.getElementById('d-dmthread').addEventListener('click', async (e) => {
 document.getElementById('pj-room').addEventListener('click', (e) => {
   const t = e.target && e.target.closest ? e.target.closest('[data-open-agent]') : null;
   if (t && t.dataset.openAgent) openDetail(t.dataset.openAgent, undefined, PJ_CURRENT);
-});
-/* #718 mobile: on a touchscreen, a tap on a message shows its add-reaction bar (hover
-   does it on a computer). One row at a time; a tap on a link, a button or the reaction
-   row itself is left to its own handler. */
-document.getElementById('pj-room').addEventListener('click', (e) => {
-  if (!(window.matchMedia && window.matchMedia('(hover: none)').matches)) return;
-  if (!e.target || !e.target.closest || e.target.closest('a, button, .rxns, [data-open-agent]')) return;
-  const row = e.target.closest('.msg');
-  const room = document.getElementById('pj-room');
-  room.querySelectorAll('.msg.rxn-show').forEach((m) => { if (m !== row) m.classList.remove('rxn-show'); });
-  if (row) row.classList.toggle('rxn-show');
 });
 
 /* #2806/#2834: close the shared reaction picker and reset every opener's aria-expanded.
