@@ -42427,7 +42427,12 @@ function paintProjectTasks(p) {
          is the TASK's, asked of one report, not a per-part fact nobody
          computed). */
       const firstWho = assigned.length ? assigned[0].who : null;
-      const sayPart = tkSayPart(parts, firstWho);   // once, on its first open part
+      /* Once, on its first open part (tkSayPart). If that agent has finished all its parts, the
+         card has no other place for the claim (the task page has its why line), so it keeps the
+         claim's old spot, the agent's first part: any reason or definite claim still shows. The
+         "has not reported" words cannot land there, because the engine sets them only while the
+         agent holds open work. */
+      const sayPart = tkSayPart(parts, firstWho) || (firstWho ? parts.find((x) => x && x.who === firstWho) || null : null);
       const rows = parts.map((part) => '<span class="tkcard-part' + (part.who ? '' : ' none') + '">'
         + tkFace(p, part.who)
         + '<span class="tkcard-who-b"><b>' + esc(part.who ? tkMemberName(p, part.who) : 'Nobody yet') + '</b>'
