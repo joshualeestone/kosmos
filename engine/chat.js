@@ -347,23 +347,36 @@ function cleanMessage(raw) {
  * the store was the #1927 defect: every destination lost paragraphs, including
  * the operator's HTML view (which never had a pane's limit and which Josh reads
  * daily). So the store keeps `\n`; only `deliver()` still flattens on the way
- * to a pane. Mirrors `engine/you.js` `clean(v, {multiline:true})` and also
- * normalises CR, since a bare `\r` is a control character `messageProblem`
- * would otherwise refuse:
+ * to a pane. It also normalises CR, since a bare `\r` is a control character
+ * `messageProblem` would otherwise refuse:
  *   - CRLF and lone CR → LF
- *   - runs of spaces/tabs → one space (a tab cannot survive to a pane either)
- *   - three or more newlines → a single blank line (one paragraph break)
+ *   - a tab → four spaces (a tab is a control character `CONTROL` refuses)
+ *   - #3679: indentation is kept, and so is every line inside a ``` fence, so
+ *     code and nested lists arrive as written. Outside a fence, a run of spaces
+ *     INSIDE a line becomes one space and trailing spaces go.
+ *   - outside a fence, three or more newlines → a single blank line
  *   - trim the ends.
  * After this the ONLY whitespace/control character left in range is `\n`, which
  * is exactly the one `CONTROL` now exempts -- every other control char (ESC and
  * the rest) is preserved here so `messageProblem` still sees and refuses it.
  */
+const STORE_TAB = '    ';
+const STORE_FENCE = /^ *```/;
 function storeText(raw) {
-  return String(raw == null ? '' : raw)
-    .replace(/\r\n?/g, '\n')
-    .replace(/[ \t]+/g, ' ')
-    .replace(/\n{3,}/g, '\n\n')
-    .trim();
+  const lines = String(raw == null ? '' : raw).replace(/\r\n?/g, '\n').replace(/\t/g, STORE_TAB).split('\n');
+  const out = [];
+  let inFence = false;
+  let blanks = 0;
+  for (const line of lines) {
+    if (inFence && !STORE_FENCE.test(line)) { out.push(line.replace(/ +$/, '')); continue; }
+    if (STORE_FENCE.test(line)) inFence = !inFence;
+    const lead = /^ */.exec(line)[0];
+    const rest = line.slice(lead.length).replace(/ +/g, ' ').replace(/ +$/, '');
+    if (!rest) { blanks += 1; if (blanks > 1) continue; out.push(''); continue; }
+    blanks = 0;
+    out.push(lead + rest);
+  }
+  return out.join('\n').trim();
 }
 
 /**

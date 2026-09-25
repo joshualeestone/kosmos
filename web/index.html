@@ -5653,6 +5653,9 @@ body:not(.consolidated) .pjmidhead:has(.pjhead) .tsearch:focus-within { flex-bas
 .dm-b .mdq, .pj-msg-text .mdq, .msg-b .mdq, .tkdetail .mdq { border-left: 2px solid var(--k-rule); padding-left: 8px; color: var(--k-ink-2); }
 .dm-b .mdli::before, .pj-msg-text .mdli::before, .msg-b .mdli::before, .tkdetail .mdli::before { content: "\2022\00a0\00a0"; }
 .dm-b .mdli.mdlin::before, .pj-msg-text .mdli.mdlin::before, .msg-b .mdli.mdlin::before, .tkdetail .mdli.mdlin::before { content: attr(data-n) "\00a0\00a0"; }
+.dm-b .mdli-d1, .pj-msg-text .mdli-d1, .msg-b .mdli-d1, .tkdetail .mdli-d1 { margin-left: 1.25em; }
+.dm-b .mdli-d2, .pj-msg-text .mdli-d2, .msg-b .mdli-d2, .tkdetail .mdli-d2 { margin-left: 2.5em; }
+.dm-b .mdli-d3, .pj-msg-text .mdli-d3, .msg-b .mdli-d3, .tkdetail .mdli-d3 { margin-left: 3.75em; }
 .dm-b .mdhr, .pj-msg-text .mdhr, .msg-b .mdhr, .tkdetail .mdhr { display: inline-block; width: 100%; margin: 4px 0;
   border-top: 1px solid var(--k-rule); vertical-align: middle; }
 /* 🛑 A `.theirs` FILL IS RIGHT AS OF #2805 -- BUT ONLY WITH THE RIGHT TOKEN,
@@ -43776,10 +43779,11 @@ function pjProse(text, names, agentNames) {
        so the two never collide. (The pjRich row surfaces, which have no
        server-quote concept, do style `>` as `.mdq`; this renderer deliberately
        does not.) `>` therefore falls through to inline text below. */
-    m = /^[ \t]*[-+*][ \t]+(.*)$/.exec(line);
-    if (m) { out.push('<span class="mdli">' + pjRichSpans(m[1], names, agentNames) + '</span>'); continue; }
-    m = /^[ \t]*(\d+)\.[ \t]+(.*)$/.exec(line);
-    if (m) { out.push('<span class="mdli mdlin" data-n="' + esc(m[1]) + '.">' + pjRichSpans(m[2], names, agentNames) + '</span>'); continue; }
+    // #3679: a nested item keeps its depth, as in pjRich (pjListDepth).
+    m = /^([ \t]*)[-+*][ \t]+(.*)$/.exec(line);
+    if (m) { out.push('<span class="mdli' + pjListDepth(m[1]) + '">' + pjRichSpans(m[2], names, agentNames) + '</span>'); continue; }
+    m = /^([ \t]*)(\d+)\.[ \t]+(.*)$/.exec(line);
+    if (m) { out.push('<span class="mdli mdlin' + pjListDepth(m[1]) + '" data-n="' + esc(m[2]) + '.">' + pjRichSpans(m[3], names, agentNames) + '</span>'); continue; }
     out.push(pjRichSpans(line, names, agentNames));
   }
   return out.join('<br>');
@@ -43995,6 +43999,10 @@ function pjRichSpans(seg, names, agentNames) {
   s = s.replace(/(^|[^_\w])_([^\n_]+?)_(?![_\w])/g, '$1<em>$2</em>');
   return s.replace(/￼(\d+)￼/g, (mm, i) => (Number(i) < HOLD.length ? HOLD[Number(i)] : mm));
 }
+function pjListDepth(lead) {
+  const d = Math.min(3, Math.floor(String(lead).replace(/\t/g, '    ').length / 2));
+  return d ? ' mdli-d' + d : '';
+}
 function pjRich(text) {
   const raw = String(text == null ? '' : text);
   /* Fast path: no inline marker, no block-marker line, no URL, no `[text](url)`
@@ -44060,10 +44068,12 @@ function pjRich(text) {
     if (m) { out.push('<span class="mdh mdh' + m[1].length + '">' + pjRichSpans(m[2]) + '</span>'); i += 1; continue; }
     m = /^[ \t]*>[ \t]?(.*)$/.exec(line);
     if (m) { out.push('<span class="mdq">' + pjRichSpans(m[1]) + '</span>'); i += 1; continue; }
-    m = /^[ \t]*[-+*][ \t]+(.*)$/.exec(line);
-    if (m) { out.push('<span class="mdli">' + pjRichSpans(m[1]) + '</span>'); i += 1; continue; }
-    m = /^[ \t]*(\d+)\.[ \t]+(.*)$/.exec(line);
-    if (m) { out.push('<span class="mdli mdlin" data-n="' + esc(m[1]) + '.">' + pjRichSpans(m[2]) + '</span>'); i += 1; continue; }
+    /* #3679: a nested item keeps its depth (two spaces a level, up to three), now that
+       the store keeps indentation. A top-level item's markup is unchanged. */
+    m = /^([ \t]*)[-+*][ \t]+(.*)$/.exec(line);
+    if (m) { out.push('<span class="mdli' + pjListDepth(m[1]) + '">' + pjRichSpans(m[2]) + '</span>'); i += 1; continue; }
+    m = /^([ \t]*)(\d+)\.[ \t]+(.*)$/.exec(line);
+    if (m) { out.push('<span class="mdli mdlin' + pjListDepth(m[1]) + '" data-n="' + esc(m[2]) + '.">' + pjRichSpans(m[3]) + '</span>'); i += 1; continue; }
     out.push(pjRichSpans(line));
     i += 1;
   }
