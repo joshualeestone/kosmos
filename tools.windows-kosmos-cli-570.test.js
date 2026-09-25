@@ -203,6 +203,28 @@ test('#3224: post --in-reply-to binds the reply; parity with install/kosmos (fla
   assert.match(trailing.calls[0].body.text, /--in-reply-to m5/, 'the trailing flag+id land verbatim in the message text, unbound');
 });
 
+test('#3224: post --new sends new_post:true (not held to ask which room); without it no field; combines with the other leading flags; non-leading is text', async () => {
+  const ok = () => ({ body: { delivery: { state: 'placed' } } });
+  const a = await run(['post', '--new', 'proj-1', 'a new post'], ok);
+  assert.equal(a.code, 0);
+  assert.deepEqual(a.calls[0].body, { project: 'proj-1', text: 'a new post', from_pane: '', new_post: true },
+    '--new must consume the flag and put new_post:true on the body (parity with install/kosmos)');
+  const none = await run(['post', 'proj-1', 'a plain post'], ok);
+  assert.equal(Object.prototype.hasOwnProperty.call(none.calls[0].body, 'new_post'), false, 'an ordinary post must omit new_post');
+  const both = await run(['post', '--no-reply', '--new', 'proj-1', 'ack'], ok);
+  assert.equal(both.calls[0].body.new_post, true);
+  assert.equal(both.calls[0].body.reply_expected, false);
+  const mid = await run(['post', 'proj-1', 'this is --new stuff'], ok);
+  assert.equal(Object.prototype.hasOwnProperty.call(mid.calls[0].body, 'new_post'), false, 'a non-leading --new is message text');
+  const held = await run(['post', 'proj-1', 'meant for beta'], () => ({ body: { delivery: { state: 'could_not', code: 'which_room', because: 'you have an unanswered question from the person in Beta (m45)' } } }));
+  assert.equal(held.code, 1);
+  assert.match(held.err + held.out, /here it is to send again/, 'a which-room hold hands the text back (parity with install/kosmos)');
+  assert.match(held.err + held.out, /meant for beta/);
+  const combo = await run(['post', '--in-reply-to', 'm5', '--new', 'proj-1', 'x'], ok);
+  assert.equal(combo.code, 2, '--new with --in-reply-to is refused (parity with install/kosmos)');
+  assert.equal(combo.calls.length, 0);
+});
+
 test('#2909: post --stdin sends the piped text verbatim (backticks, $, newlines), either flag order; refusals send nothing', async () => {
   const placed = () => ({ body: { delivery: { state: 'placed' } } });
   const msg = 'Run `kosmos room p` then check $HOME\n\n- one\n- two';

@@ -158,6 +158,18 @@ function defaultMisrouteCountForDay(dayStr) {
   } catch { return null; }
 }
 
+/* #3224: the default per-day count of posts sent with --new (confirmed new after the
+   which-room question), the companion to the misroute count. Same read-only, null-on-failure
+   contract. Injectable via compileAll's `confirmedNewCountForDay`. */
+function defaultConfirmedNewCountForDay(dayStr) {
+  const win = dayWindowLocal(dayStr);
+  if (!win) return null;
+  try {
+    const n = require('./messages').confirmedNewPostCount(win.start, win.end);
+    return (Number.isInteger(n) && n >= 0) ? n : null;
+  } catch { return null; }
+}
+
 /**
  * Flatten parsed conversations into per-message rows. Pure: no IO.
  * `conversations` is an array of `{ desc, parsed }`. A message with no usable
@@ -216,7 +228,7 @@ function groupByDay(rows) {
  * so the existing 3-arg callers are unchanged and a null/unavailable count never
  * renders as a false zero.
  */
-function renderDay(dayStr, rows, timeOf = localTimeOf, misrouteCount) {
+function renderDay(dayStr, rows, timeOf = localTimeOf, misrouteCount, confirmedNewCount) {
   const sorted = [...rows].sort((a, b) => String(a.at).localeCompare(String(b.at)));
   const order = [];
   const groups = new Map();
@@ -238,6 +250,13 @@ function renderDay(dayStr, rows, timeOf = localTimeOf, misrouteCount) {
   if (Number.isInteger(misrouteCount) && misrouteCount >= 0) {
     lines.push('');
     lines.push(`_Suspected cross-project misroutes today: ${misrouteCount} (heuristic, see kosmos#3224)._`);
+  }
+  /* #3224: posts an agent confirmed as new after Kosmos asked which room it meant. They are
+     left out of the misroute count above, so this line keeps them visible (how often the
+     question cost an agent a rerun). Counts only; omitted when zero or unavailable. */
+  if (Number.isInteger(confirmedNewCount) && confirmedNewCount > 0) {
+    lines.push('');
+    lines.push(`_Posts confirmed as new after Kosmos asked which room they were for: ${confirmedNewCount}._`);
   }
   lines.push('');
   for (const label of order) {
@@ -321,6 +340,7 @@ function compileAll(opts = {}) {
   /* #3224: injectable for deterministic tests, same pattern as dayOf/timeOf.
      Default derives a read-only count from the already-kept message record. */
   const misrouteCountForDay = opts.misrouteCountForDay || defaultMisrouteCountForDay;
+  const confirmedNewCountForDay = opts.confirmedNewCountForDay || defaultConfirmedNewCountForDay;
 
   const { conversations, readable, readErrors } = readConversations(chatsDir);
   const { rows, undated } = flattenMessages(conversations, dayOf);
@@ -332,7 +352,7 @@ function compileAll(opts = {}) {
   }
   for (const [day, dayRows] of byDay) {
     if (onlyDay && day !== onlyDay) continue;
-    const md = renderDay(day, dayRows, timeOf, misrouteCountForDay(day));
+    const md = renderDay(day, dayRows, timeOf, misrouteCountForDay(day), confirmedNewCountForDay(day));
     fs.writeFileSync(path.join(outDir, dayFileName(day)), md);
     written.push(day);
   }

@@ -190,7 +190,7 @@ function guideDenyRules({ home = kosmosHome(), dataRoot = store.ROOT } = {}) {
        Grok analogs), with a pasted Claude key in .kosmos-claude-apikey (review round 2). Measured: a
        wildcard in the folder name holds for the Read tool and for cat. */
     'Read(~/.claude-*/**)', 'Read(~/.codex-*/**)', 'Read(~/.gemini-*/**)', 'Read(~/.grok-*/**)',
-    'Read(**/.kosmos-claude-apikey)',
+    'Read(**/.kosmos-claude-apikey)', 'Read(**/.kosmos-gemini-apikey)', 'Read(**/.kosmos-grok-apikey)',
     'Read(**/.env)', 'Read(**/.env.*)', 'Read(**/*.pem)', 'Read(**/*.key)',
     'Bash(security find-generic-password:*)', 'Bash(security find-internet-password:*)',
     'Bash(security dump-keychain:*)', 'Bash(printenv:*)', 'Bash(printenv)', 'Bash(env)', 'Bash(history:*)',
@@ -233,6 +233,24 @@ function guardGuideFolder(dir, agentName, deps = {}) {
     const had = Array.isArray(perms.deny) ? perms.deny.filter((r) => typeof r === 'string') : [];
     const deny = [...new Set([...had, ...guideDenyRules(deps)])];
     const next = { ...cur, permissions: { ...perms, deny } };
+    /* Sandboxed Bash (Ice Cream Kitty's review): the deny rules above bind Claude Code's own tools, and
+       a shell command such as `node -e readFileSync('.env')` or `grep -r` is a subprocess they do not
+       reach. The sandbox applies the same deny paths to EVERY subprocess at the operating system.
+       Measured with real runs on this Mac: node read a denied file with EPERM and grep found nothing,
+       where the unsandboxed control printed both. allowLocalBinding lets the shell reach the board on
+       localhost, which the `kosmos` command needs (measured: without it curl to 127.0.0.1 fails); the
+       guide's `kosmos reply` then reaches the board on its agent token, since the sandbox also keeps
+       it from reading the board token (install/kosmos presents the agent token for that reason).
+       macOS only: that is where it is measured, and where Claude Code's sandbox is Seatbelt. */
+    if ((deps.platform || process.platform) === 'darwin') {
+      const sb = cur.sandbox && typeof cur.sandbox === 'object' && !Array.isArray(cur.sandbox) ? cur.sandbox : {};
+      const net = sb.network && typeof sb.network === 'object' && !Array.isArray(sb.network) ? sb.network : {};
+      /* allowUnsandboxedCommands false: without it a refused command can simply be re-run with
+         dangerouslyDisableSandbox, and every Kosmos agent runs with --dangerously-skip-permissions, so the
+         retry is approved and the file is read. Measured: the retry printed the canary; with this set it
+         did not (round 1 of this branch's review). */
+      next.sandbox = { ...sb, enabled: true, autoAllowBashIfSandboxed: true, allowUnsandboxedCommands: false, network: { ...net, allowLocalBinding: true } };
+    }
     const tmp = `${file}.${process.pid}.new`;
     fs.writeFileSync(tmp, JSON.stringify(next, null, 2) + '\n', 'utf8');
     fs.renameSync(tmp, file);

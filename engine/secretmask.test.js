@@ -123,3 +123,121 @@ test('#3769 a long reply cannot make the mask backtrack (it runs on the board\'s
     assert.ok(ms < 3000, `mask used ${Math.round(ms)}ms of CPU on a ${big.length}-char input`);
   }
 });
+
+/* ---- follow-up: Ice Cream Kitty's review ----------------------------------------------------------- */
+
+const { WITHHELD, setKnownSecrets } = require('./secretmask');
+
+test('#3769 a key the board holds is masked however it is written: raw, hex, base64 (padded or not), base64url', () => {
+  const held = j('sk-ant-', 'api03-', 'HeldByTheBoard0123456789abcdefXYZ');
+  const tok = '9f8e7d6c5b4a39f8e7d6c5b4a3aa11bb22cc33dd';
+  setKnownSecrets([held, tok, 'shortvalue']);
+  try {
+    const b = Buffer.from(held);
+    for (const form of [held, b.toString('hex'), b.toString('base64'), b.toString('base64').replace(/=+$/, ''), b.toString('base64url'), tok, Buffer.from(tok).toString('base64')]) {
+      const out = mask(`here: ${form} ok`);
+      assert.equal(out.text, `here: ${MASK} ok`, `a held key written as ${form.slice(0, 12)}... was shown: ${out.text}`);
+    }
+    assert.equal(mask('a shortvalue stays').text, 'a shortvalue stays', 'a value under 12 characters was treated as a key');
+  } finally { setKnownSecrets([]); }
+  assert.equal(mask(`here: ${tok} ok`).text, `here: ${tok} ok`, 'CONTROL: once the board holds nothing, a lowercase hex token is ordinary text again');
+});
+
+test('#3769 a key split across lines, spaced out, or hidden with zero-width characters is masked where its pieces are', () => {
+  const held = j('sk-ant-', 'api03-', 'HeldByTheBoard0123456789abcdefXYZ');
+  const shaped = j('sk-ant-', 'api03-', 'NeverHeldButShaped0123456789abcXYZ');
+  setKnownSecrets([held]);
+  try {
+    /* No piece of the key survives, and the sentence around it does (review round 1: withholding the whole
+       message damaged ordinary answers that explain what a key looks like). */
+    const cases = [
+      [`part one:\n${held.slice(0, 20)}\n${held.slice(20)} done`, held, 'part one:\n', ' done'],
+      [`part one:\n${held.slice(0, 10)}\n\n${held.slice(10)} done`, held, 'part one:\n', ' done'],
+      [`part one:\n${shaped.slice(0, 25)}\n${shaped.slice(25)} done`, shaped, 'part one:\n', ' done'],
+      [`spaced: ${held.split('').join(' ')} ok`, held, 'spaced: ', ' ok'],
+    ];
+    for (const [input, key, head, tail] of cases) {
+      const out = mask(input).text;
+      for (const piece of [key.slice(0, 10), key.slice(14, 26), key.slice(-12)]) assert.ok(!out.includes(piece), `a piece of the key survived: ${out}`);
+      assert.ok(out.startsWith(head) && out.endsWith(tail) && out.includes(MASK), `the text around the key was lost: ${JSON.stringify(out)}`);
+    }
+    assert.equal(mask(`zw: ${held.slice(0, 10)}​${held.slice(10)}`).text, `zw: ${MASK}`, 'a zero-width character hid a key');
+    const hex = Buffer.from(held).toString('hex');
+    assert.equal(mask(`HEX ${hex.toUpperCase()}`).text, `HEX ${MASK}`, 'upper-case hex of a held key was shown');
+    assert.equal(mask(`pairs ${hex.match(/../g).join(' ')}`).text, `pairs ${MASK}`, 'hex written as spaced byte pairs was shown');
+  } finally { setKnownSecrets([]); }
+});
+
+test('#3769 an answer that explains what a key looks like is not withheld (review round 1)', () => {
+  for (const [input, keep] of [
+    ['Paste a key like sk-ant-api03-XXXXXXXXXXXX\nthen press Save.', 'press Save.'],
+    ['Tokens look like ghp_\nABCDEFGHIJKLMNOPQRSTUV and you paste them in Settings.', 'and you paste them in Settings.'],
+    ['I am a person who likes a b c things', 'I am a person who likes a b c things'],
+  ]) {
+    const out = mask(input).text;
+    assert.notEqual(out, WITHHELD, 'a whole answer was withheld: ' + input);
+    assert.ok(out.includes(keep), `the rest of the answer was lost: ${JSON.stringify(out)}`);
+  }
+});
+
+test('#3769 a JSON Web Token is masked whole, its short middle part included', () => {
+  const jwt = j('eyJhbGciOiJIUzI1NiJ9', '.eyJzdWIiOiIxMjM0NTY3ODkwIn0', '.SflKxwRJSMeKKF2QT4fwpMeJf36POk6yJV_adQssw5c');
+  assert.equal(mask(`Bearer ${jwt}`).text, `Bearer ${MASK}`);
+});
+
+test('#3769 ordinary answers over several lines pass untouched by the split check', () => {
+  for (const t of [
+    'Step 1: open Settings\nStep 2: choose AI Models\nThen click Add a provider and paste your key there.',
+    'The model is claude-sonnet-5.\nIt runs in the background\nand you can stop it any time.',
+    'Use sk-ant keys\nfrom Settings, AI Models.',
+    'Your files are in\n/Users/me/Library/Application Support/Kosmos\nunder agents.',
+  ]) assert.equal(mask(t).text, t, t);
+});
+
+test('#3769 the split check cannot make a long reply backtrack either', () => {
+  for (const big of ['a '.repeat(150000), 'x\n'.repeat(150000), 'sk-ant-' + 'a\n'.repeat(100000)]) {
+    const ms = cpuMillisecondsOf(() => mask(big));
+    assert.ok(ms < 3000, `mask used ${Math.round(ms)}ms of CPU on a ${big.length}-character input`);
+  }
+});
+
+test('#3769 the number of held values is bounded, so every reply pays a bounded cost (review round 1)', () => {
+  const { knownSecretCount } = require('./secretmask');
+  setKnownSecrets(Array.from({ length: 5000 }, (_, i) => `value-${String(i).padStart(8, '0')}-held`));
+  try {
+    assert.ok(knownSecretCount() <= 2000 * 8, `${knownSecretCount()} forms were loaded`);
+    assert.ok(knownSecretCount() > 0, 'CONTROL: values were loaded at all');
+  } finally { setKnownSecrets([]); }
+});
+
+test('#3769 a key split at ANY offset, by any line break, leaves no piece readable (review round 3)', () => {
+  const held = ['correcthorsebatterystaple', 'Zq9xLm2Pw7Rt4Kv8Nb3Hj6Yc'];
+  const shaped = [j('ghp_', 'aBcDeFgHiJkLmNoPqRsTuVwXyZ012345'), j('xai-', 'QwErTyUiOpAsDfGhJkLzXcVb'), j('AKIA', 'QWERTYUIOPASDFGZ'),
+    j('AIza', 'SyQwErTyUiOpAsDfGhJkLzXcVbNmQwErT')];
+  setKnownSecrets(held);
+  try {
+    const leaks = [];
+    for (const k of [...held, ...shaped]) {
+      for (let i = 1; i < k.length; i += 1) {
+        for (const sep of ['\n', '\n\n', '\r\n', '\n  ', '\n> ']) {
+          const out = mask(`lead ${k.slice(0, i)}${sep}${k.slice(i)} tail`).text;
+          const pieces = [k.slice(0, Math.min(i, 6)), k.slice(Math.max(i, k.length - 6))].filter((p) => p.length >= 4);
+          if (pieces.some((p) => out.includes(p)) || !out.endsWith(' tail') || !out.startsWith('lead ')) leaks.push(JSON.stringify(out));
+        }
+      }
+    }
+    assert.deepEqual(leaks.slice(0, 3), [], `${leaks.length} split positions left a piece readable or lost the text around it`);
+  } finally { setKnownSecrets([]); }
+});
+
+test('#3769 an ordinary 40KB table or list with 2000 held values costs little (review rounds 2 and 3)', () => {
+  setKnownSecrets(Array.from({ length: 2000 }, (_, i) => `held-value-${String(i).padStart(8, '0')}-xyz`));
+  try {
+    const table = Array.from({ length: 800 }, (_, i) => `| Setting number ${i} | Choose AI Models |\n- item text here\n* another bullet`).join('\n').slice(0, 40000);
+    assert.equal(mask(table).text, table, 'an ordinary table was changed');
+    const ms = cpuMillisecondsOf(() => mask(table));
+    assert.ok(ms < 400, `an ordinary table cost ${Math.round(ms)}ms of CPU`);
+    const withKey = `${table.slice(0, 20000)} held-value-00001234-xyz ${table.slice(20000)}`;
+    assert.ok(!mask(withKey).text.includes('held-value-00001234'), 'CONTROL: a held value inside the same table was not masked');
+  } finally { setKnownSecrets([]); }
+});

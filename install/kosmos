@@ -1174,8 +1174,16 @@ cmd_reply() {
   # refuses on an enforcing board (a bare pane is the cross-account spoof path).
   # Inert (omitted) when empty -- a non-enforcing board writes no token file.
   local _bt; _bt="$(board_token || true)"
+  # #3769: the agent's own token too, as `whoami` and `report` present it (hex only). The setup guide
+  # runs sandboxed with Kosmos's data folder denied, so it cannot read the board token; its agent
+  # token is what keeps its reply on an enforcing board. Omitted when empty, as before.
+  local _tok=""
+  case "${KOSMOS_AGENT_TOKEN:-}" in
+    ''|*[!0-9a-f]*) ;;
+    *) _tok="$KOSMOS_AGENT_TOKEN" ;;
+  esac
   local _data="{\"text\":\"$esc_text\",\"from_pane\":\"$esc_pane\"}"
-  body=$(kosmos_curl "$_bt" "" -sS -m 15 -X POST "$URL/api/reply" \
+  body=$(kosmos_curl "$_bt" "$_tok" -sS -m 15 -X POST "$URL/api/reply" \
     -H 'content-type: application/json' \
     --data "$_data" 2>/dev/null) || {
     say "We could not reach Kosmos to keep that. Is it running at $URL?"
@@ -1339,16 +1347,24 @@ cmd_post() {
   # BEFORE Kosmos ever sees the text).
   # Unlike the Windows CLI there is no quiet-pipe time limit here (same as `feedback write`): an
   # open pipe nobody writes to blocks until the caller closes it.
-  local no_reply=0 in_reply_to="" from_stdin=0 _trimmed _keep _orig=""
+  # #3224: --new says this post is deliberately new for this room, so the board does not hold it
+  # back to ask about a question the agent owes the person in another room.
+  local no_reply=0 in_reply_to="" from_stdin=0 new_post=0 _trimmed _keep _orig=""
   while :; do
     case "${1:-}" in
       --no-reply) no_reply=1; shift ;;
       --stdin)    from_stdin=1; shift ;;
+      --new)      new_post=1; shift ;;
       --in-reply-to) in_reply_to="${2:-}"; shift 2 2>/dev/null || { say "Usage: --in-reply-to needs a message id, like m12"; exit 2; }; case "$in_reply_to" in ''|--*) say "Usage: --in-reply-to needs a message id, like m12"; exit 2 ;; esac ;;
       --in-reply-to=*) in_reply_to="${1#--in-reply-to=}"; [ -n "$in_reply_to" ] || { say "Usage: --in-reply-to needs a message id, like m12"; exit 2; }; shift ;;
       *) break ;;
     esac
   done
+  # #3224: a reply is already bound to its room, so --new has nothing to say about it.
+  if [ "$new_post" = 1 ] && [ -n "$in_reply_to" ]; then
+    say "Use --new or --in-reply-to, not both: a reply is already bound to the room its message came from."
+    exit 2
+  fi
   project="${1:-}"
   shift 2>/dev/null || true
   if [ "$from_stdin" = 1 ]; then
@@ -1371,7 +1387,7 @@ cmd_post() {
     text="$*"
   fi
   if [ -z "$project" ] || [ -z "$text" ]; then
-    say "Usage: kosmos post [--no-reply] [--in-reply-to <id>] [--stdin] <project-id> <what you want to tell the room>  (--stdin: read the message from stdin, so backticks and \$ arrive as written; text only, file attachments are not supported yet, kosmos#1955)"
+    say "Usage: kosmos post [--no-reply] [--in-reply-to <id>] [--new] [--stdin] <project-id> <what you want to tell the room>  (--stdin: read the message from stdin, so backticks and \$ arrive as written; text only, file attachments are not supported yet, kosmos#1955)"
     exit 2
   fi
   # With --stdin the pipe is read BEFORE this check on purpose: a live pipe (gh ... | kosmos post
@@ -1423,7 +1439,9 @@ cmd_post() {
     esc_irt=$(printf '%s' "$in_reply_to" | tr '\n\t\r' '   ' | sed 's/\\/\\\\/g; s/"/\\"/g')
     _irt_field=",\"in_reply_to\":\"$esc_irt\""
   fi
-  local _data="{\"project\":\"$esc_project\",\"text\":\"$esc_text\",\"from_pane\":\"$esc_pane\"$_reply_field$_irt_field}"
+  local _new_field=""
+  [ "$new_post" -eq 1 ] && _new_field=',"new_post":true'
+  local _data="{\"project\":\"$esc_project\",\"text\":\"$esc_text\",\"from_pane\":\"$esc_pane\"$_reply_field$_irt_field$_new_field}"
   # #2909: the board drops a request body over its limit, which would read below as "could not
   # reach Kosmos". Measured on the escaped body, since escaping grows quotes, newlines and tabs.
   if [ "$(printf '%s' "$_data" | LC_ALL=C wc -c | LC_ALL=C tr -d ' ')" -gt "$POST_BODY_MAX_BYTES" ]; then
@@ -1485,7 +1503,11 @@ cmd_post() {
       if [ "$from_stdin" = 1 ]; then
         _keep_piped
       else
-        say "Your message was not sent, so here it is to keep and re-post when the room is ready:"
+        # #3224: a which-room hold is a question, not a closed room, so say "send again".
+        case "$body" in
+          *'"code":"which_room"'*) say "Your message was not sent, so here it is to send again:" ;;
+          *) say "Your message was not sent, so here it is to keep and re-post when the room is ready:" ;;
+        esac
         printf '%s\n' "$text"
       fi
       exit 1
