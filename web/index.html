@@ -7987,6 +7987,10 @@ html:not([data-fed-ui="show"]) #pj-add-ext-person,html:not([data-fed-ui="show"])
 .fr-cmd-row { display: flex; align-items: flex-start; gap: var(--space-4); }
 .fr-cmd-row .fr-cmd { flex: 1 1 auto; min-width: 0; }
 .fr-copy { margin: var(--space-4) 0; flex: none; }
+/* #3436: the OpenAI one-time code on Windows. It is read and typed by a person, so it
+   is large and spaced, sized to itself rather than stretched, with Copy beside it. */
+.fr-cmd-row.oa-devrow { align-items: center; }
+.fr-cmd-row .fr-cmd.oa-devcode { flex: 0 1 auto; font-size: 1.25rem; font-weight: 600; letter-spacing: .08em; }
 /* The manual update offer's numbered steps (W-25). */
 .upd-manual-steps { margin: 8px 0 0; padding-left: 1.4em; }
 .upd-manual-steps li { margin: 2px 0; }
@@ -10743,7 +10747,7 @@ window.kosmosMeasureScrollbarWidth();
            types on OpenAI's OWN page. So the shape is start -> open the page ->
            wait, with no code field in Kosmos. Kosmos never sees the password. -->
       <div id="acct-openai-sub-step" hidden>
-        <p class="dwarn" style="margin:0 0 8px;"><span class="dwarn-ok" aria-hidden="true">&#10003;</span><b>Sign in with your ChatGPT subscription.</b> Kosmos opens OpenAI's sign-in in your browser and never sees your password. Your agents then run on your own subscription, on this computer.</p>
+        <p class="dwarn" style="margin:0 0 8px;"><span class="dwarn-ok" aria-hidden="true">&#10003;</span><b>Sign in with your ChatGPT subscription.</b> <span data-win-copy="openaiSubHow">Kosmos opens OpenAI's sign-in in your browser and never sees your password. Your agents then run on your own subscription, on this computer.</span></p>
         <!-- #2913: no name field here. The subscription sign-in pulls in the account's
              email automatically, and that is what tells one subscription account apart
              from another -- so asking for a name is extra work for nothing. (The API-key
@@ -10753,7 +10757,9 @@ window.kosmosMeasureScrollbarWidth();
         </div>
         <!-- The sign-in page opens on its own once you start; this link opens it
              again if the browser did not, or on a remote Mac where there is no
-             browser to open. Device mode shows a code to type on that page. -->
+             browser to open. Device mode shows a code to type on that page.
+             #3436: on Windows the sign-in is always device mode, and this button is
+             how the page opens (codex's own browser pop landed behind Kosmos). -->
         <div class="frow" id="acct-openai-sub-open-row" hidden style="margin-top:8px;">
           <a class="btn" id="acct-openai-sub-open" href="#" target="_blank" rel="noopener">Open the sign-in page</a>
         </div>
@@ -11572,7 +11578,7 @@ window.kosmosMeasureScrollbarWidth();
                   </div>
                 </div>
                 <div id="fr-openai-sub-step" hidden class="fr-confirm" role="group" aria-labelledby="fr-openai-sub-t">
-                  <p class="fr-confirm-t" id="fr-openai-sub-t"><b>Sign in with your ChatGPT subscription.</b> Kosmos opens OpenAI's sign-in in your browser and never sees your password. Your agents then run on your own subscription, on this computer.</p>
+                  <p class="fr-confirm-t" id="fr-openai-sub-t"><b>Sign in with your ChatGPT subscription.</b> <span data-win-copy="openaiSubHow">Kosmos opens OpenAI's sign-in in your browser and never sees your password. Your agents then run on your own subscription, on this computer.</span></p>
                   <!-- #2913: no name field -- the subscription sign-in pulls the account's
                        email automatically, and that distinguishes accounts (mirror of the
                        Settings acct-openai-sub-step). -->
@@ -15500,6 +15506,13 @@ function windowsCopyTable() {
     copyLabel: 'Copy',
     copyDone: 'Copied',
     copyFallback: 'Select it and copy',
+    /* #3436: the ChatGPT subscription sign-in runs by device code on Windows, because
+       codex's own browser window opened behind Kosmos. The explainer on both sign-in
+       steps, the line above the code, and the line above codex's own words when the
+       code could not be picked out. */
+    openaiSubHow: 'Kosmos shows you a link and a short code. Open the link, sign in to OpenAI, and type the code there. Kosmos never sees your password. Your agents then run on your own subscription, on this computer.',
+    openaiSubCodeLead: 'On that page, enter this code:',
+    openaiSubRawLead: 'We could not pick out the code, so here is what OpenAI&rsquo;s sign-in says to do:',
     /* The manual update offer's folder button (W-25). */
     updateOpenFolder: 'Open my Kosmos folder',
     openKosmosFolderFailure: 'We could not open your Kosmos folder just now.',
@@ -21769,6 +21782,9 @@ let ACCT_OPENAI_POLL = null;
    connect, cancel, and dialog close so a reopen never resumes a dead session. */
 let ACCT_OPENAI_SUB_SESSION = null;
 let ACCT_OPENAI_SUB_POLL = null;
+/* #3436: the mode the engine chose for this sign-in (its start answer): 'device' on
+   Windows, where the poll paints the link and code (openaiSubPaintDevice). */
+let ACCT_OPENAI_SUB_MODE = null;
 /* #2338: with the runner present (or its state unknown, which must NOT force an
    install per #979) the person meets the PICKER, not a flow -- the choice of a
    ChatGPT subscription vs an API key comes before either flow's controls. Both
@@ -21824,6 +21840,40 @@ function acctOpenaiSubView(state) {
     case 'cancelled':        return { done: true,  ok: false, say: 'Sign-in stopped.' };
     default:                 return { done: false, ok: false, say: 'Signing in…' };
   }
+}
+/* #3436: what a DEVICE-code sign-in shows while it waits. The engine runs device code on
+   Windows (openaiaccounts.chatgptLoginMode), because codex's own browser pop opens BEHIND
+   Kosmos there. So the page shows the one-time code with a Copy button, and the
+   open-page button beside it opens the link from this page, which is in front. When the
+   engine could not read a code it sends codex's own words (`instructions`); those are
+   shown rather than a link with nothing to type. Pure: returns the markup and a key, so
+   the painter repaints only when something changed (a rebuild every poll would undo a
+   "Copied" under the person's click). A Mac runs browser mode and never reaches this. */
+function openaiSubDeviceMarkup(out) {
+  if (out && out.userCode) {
+    return { key: 'code:' + out.userCode, html: windowsCopy('openaiSubCodeLead')
+      + '<span class="fr-cmd-row oa-devrow"><code class="fr-cmd oa-devcode">' + esc(out.userCode) + '</code>'
+      + '<button class="btn-quiet fr-copy" type="button" data-copy-command>' + windowsCopy('copyLabel') + '</button></span>' };
+  }
+  if (out && out.instructions) {
+    return { key: 'said:' + out.instructions, html: windowsCopy('openaiSubRawLead')
+      + '<span class="fr-cmd-row"><code class="fr-cmd">' + esc(out.instructions) + '</code></span>' };
+  }
+  return { key: '', html: '' };
+}
+/* Settings and first run both paint through this; `ids` names that screen's open link,
+   its row, and the code line. */
+function openaiSubPaintDevice(ids, out) {
+  const openA = document.getElementById(ids.open);
+  const openRow = document.getElementById(ids.openRow);
+  if (openA && out && out.authUrl) { openA.href = out.authUrl; if (openRow) openRow.hidden = false; }
+  const code = document.getElementById(ids.code);
+  if (!code) return;
+  const view = openaiSubDeviceMarkup(out);
+  if (code.__osKey === view.key && (code.textContent || !view.key)) return;
+  code.__osKey = view.key;
+  code.innerHTML = view.html;
+  code.hidden = !view.key;
 }
 /* The sentence for a refused POST /api/runners/<p>/install. The reason lives at
    `job.because` (and, since the Windows fix, at top-level `error` too); the old
@@ -24217,6 +24267,8 @@ function acctOpenaiSubWatch() {
     if (!r.ok) return;    // a 5xx or other non-404 error is transient: keep polling
     const out = await r.json().catch(() => null);
     if (!out) return;
+    // #3436: a device sign-in's link and code arrive by this poll, not by the start answer.
+    if (ACCT_OPENAI_SUB_MODE === 'device') openaiSubPaintDevice({ open: 'acct-openai-sub-open', openRow: 'acct-openai-sub-open-row', code: 'acct-openai-sub-code' }, out);
     const view = acctOpenaiSubView(out.state);
     if (msg && view.say) msg.textContent = view.say;
     if (!view.done) return;
@@ -24281,6 +24333,7 @@ document.getElementById('acct-openai-sub-go').addEventListener('click', async (e
       throw new Error((out && (out.error || out.because)) || 'We could not start that sign-in.');
     }
     ACCT_OPENAI_SUB_SESSION = out.sessionId;
+    ACCT_OPENAI_SUB_MODE = out.mode;
     acctOpenaiSubShowStart(out);
     acctOpenaiSubWatch();
   } catch (err) {
@@ -52370,6 +52423,8 @@ function frOpenaiSubWatch() {
     if (!r.ok) return;
     const out = await r.json().catch(() => null);
     if (!out) return;
+    // #3436: a device sign-in's link and code arrive by this poll, not by the start answer.
+    if (ACCT_OPENAI_SUB_MODE === 'device') openaiSubPaintDevice({ open: 'fr-openai-sub-open', openRow: 'fr-openai-sub-open-row', code: 'fr-openai-sub-code' }, out);
     const view = acctOpenaiSubView(out.state);
     if (msg && view.say) { msg.className = 'dhint'; msg.textContent = view.say; }
     if (!view.done) return;
@@ -52427,6 +52482,7 @@ async function frOpenaiSubStart() {
       throw new Error((out && (out.error || out.because)) || 'We could not start that sign-in.');
     }
     ACCT_OPENAI_SUB_SESSION = out.sessionId;
+    ACCT_OPENAI_SUB_MODE = out.mode;
     frOpenaiSubShowStart(out);
     frOpenaiSubWatch();
   } catch (err) {
