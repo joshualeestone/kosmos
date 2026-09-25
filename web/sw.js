@@ -213,8 +213,13 @@ self.addEventListener('notificationclick', (event) => {
       let cOrigin = null;
       try { cOrigin = new URL(c.url).origin; } catch (_e) {}
       if (cOrigin && cOrigin === targetOrigin && 'focus' in c) {
-        if ('navigate' in c) { try { await c.navigate(target); } catch (_e) {} }
-        return c.focus();
+        // #718: focus the page navigate() LANDED on. A tab this worker does not control (a
+        // hard reload bypasses it) rejects navigate(); focusing it anyway would show the old
+        // page, not the agent. Then the link opens in a window of its own instead.
+        let landed = null;
+        if ('navigate' in c) { try { landed = await c.navigate(target); } catch (_e) {} }
+        if (landed && 'focus' in landed) return landed.focus();
+        break;
       }
     }
     if (self.clients.openWindow) return self.clients.openWindow(target);

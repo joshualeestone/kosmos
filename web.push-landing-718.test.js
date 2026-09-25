@@ -35,10 +35,15 @@ test('the grace and hold windows are the named constants, at the values the test
   assert.match(html, /const WANT_AGENT_GRACE_MS = 4000;/);
   assert.match(html, /const REVEAL_HOLD_MS = 4000;/);
   assert.match(html, /const REVEAL_HOLD_TICK_MS = 150;/);
+  assert.match(html, /const REVEAL_HOLD_DRIFT_PX = 2;/, 'the lifted tests below pass 2 for it');
 });
 
 test('the poll calls settleWantAgent, and it is the only boot open of the link', () => {
-  assert.match(html, /\n    settleWantAgent\(\);\n/);
+  // Inside tick() itself, not merely somewhere in the page.
+  const t0 = html.indexOf('async function tick() {');
+  assert.ok(t0 > 0, 'tick() moved; re-anchor');
+  const tickSrc = html.slice(t0, html.indexOf('\n}\n', t0));
+  assert.match(tickSrc, /\n    settleWantAgent\(\);\n/);
   assert.doesNotMatch(html, /if \(WANT_AGENT && !CURRENT\)/, 'the old every-poll open is gone');
   const opens = html.match(/openDetail\(WANT_AGENT\)/g) || [];
   assert.equal(opens.length, 1, 'exactly one openDetail(WANT_AGENT), and it is in settleWantAgent');
@@ -154,9 +159,9 @@ test('any focus change ends the hold at once (the keyboard scrolls a focused com
   const { run, env } = lift(true, talk);
   run();
   env.listeners.focusin.forEach((l) => l.fn());       // e.g. the Answer path focuses the composer
-  top = 250; env.now = 300;
+  // The cleared timer IS the guarantee: nothing can call the re-scroll once it is gone.
   assert.equal(env.timers[0], null, 'stopped by the focus');
-  assert.equal(scrolls, 1, 'and it did not scroll back');
+  assert.equal(scrolls, 1, 'only the arrival scroll happened');
 });
 
 test('the hold stops when the section is no longer rendered (its panel was hidden)', () => {
