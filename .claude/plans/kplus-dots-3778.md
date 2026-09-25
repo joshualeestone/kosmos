@@ -26,3 +26,16 @@
 ## Tests
 - docs/browser-checks/render-plus-stars-3778.js: 12 arms (two sizes). RED on main (6 arms).
 - Shots: ~/.cache/claude-handoffs/shots-3778/{before,after}/3778-{1400x900,900x700}.png.
+
+# #3780 (same PR): the Kosmos+ page no longer says sign-up is not open (Josh, 13:12: "Join works")
+- The paragraph "Sign-up is not open yet. When it opens it happens on the Kosmos website ..." is now
+  Splinter's copy (reversible): "Joining takes a minute on the Kosmos website: your email, a code to
+  confirm it, and your card. Then sign in here, and this computer gets an address of its own. Nothing
+  to configure on your router." It carries id="plus-join-line".
+- Grep: the only other "not open yet" hits are comments (engine/remote.js:111, server.js:6653, and the
+  new comment recording the old sentence). svcDoorText's "Coming soon" is about service connections,
+  not sign-up. No help tip or guide text says sign-up is not open.
+- web.plus-signup.test.js anchors on the paragraph's id and its control on the new sentence;
+  web.plus-tab.test.js asserts the new sentence and the absence of "not open yet" (comments stripped,
+  so a comment quoting the old sentence cannot satisfy or trip it); red with the old sentence back.
+- Shots: ~/.cache/claude-handoffs/shots-3780 -> the #3778 before/after (same page, both changes visible).
