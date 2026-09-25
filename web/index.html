@@ -5942,7 +5942,7 @@ body:not(.consolidated) .pjmidhead:has(.pjhead) .tsearch:focus-within { flex-bas
   /* The room's touch target, said once (#3811): 36px, under the 44px guidance, for these small
      controls repeated on every post; the Allow card's primary buttons are 44. */
   #pj-room { --room-tap: 36px; }
-  #pj-room .rxn-pick, #pj-room .rxn-more { min-width: var(--room-tap); min-height: var(--room-tap); }
+  #pj-room .rxn-pick, #pj-room .rxn-more, #pj-room .rxn-reply { min-width: var(--room-tap); min-height: var(--room-tap); }   /* #3745: Reply is a target in the same bar */
   /* A reaction already on a post is a target too, on any touchscreen (a phone turned
      sideways is wider than the phone block but still a thumb). */
   #pj-room .rxn { min-height: var(--room-tap); padding: 2px 10px; }

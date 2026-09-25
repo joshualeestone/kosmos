@@ -93,10 +93,10 @@ could reference a message in a project to reply to it". Splinter filed #3745 wit
 
 ## Not in this PR
 - Agent Direct Messages (the card says: a follow-up card).
-- Touch screens: Reply lives in the hover bar, which a tap does not open, the same limit the reactions
-  already have. Kosmos runs on Mac and Windows desktops; making the bar reachable by touch is one change
-  for reactions and Reply together, not this card's.
-
+- Touch screens: no longer deferred. Main gained a tap-to-open reaction bar on touchscreens while this
+  was in review, and Reply lives in that bar, so a tap reaches it; it gets the same 36px touch target as
+  the other bar buttons, and render-room-msgbox-2806 now counts five buttons (three emoji, the picker,
+  Reply).
 ## Tests
 engine/messages.test.js (stored, envelope, other-room and missing ids, the clause's cleaning);
 server.projects.test.js (route: reply stored and returned, `kosmos room` shows it, bad and orphan ids

@@ -947,7 +947,7 @@ const now = () => new Date().toISOString();
       await phonePage.evaluate(() => { if (typeof pjRxnClose === 'function') pjRxnClose(); window.scrollTo(0, 0); });
       await phonePage.setViewportSize({ width: 375, height: 800 });
       await phonePage.waitForTimeout(100);
-      chk(!inPlaceHits.error && inPlaceHits.overlap && inPlaceHits.hits.length === 4 && inPlaceHits.hits.every(Boolean) && inPlaceHits.composerOnTop,
+      chk(!inPlaceHits.error && inPlaceHits.overlap && inPlaceHits.hits.length === 5 && inPlaceHits.hits.every(Boolean) && inPlaceHits.composerOnTop,
         `[phone/touch, in place] the open bar takes its taps and the sticky composer stays on top of the open row`, JSON.stringify(inPlaceHits));
       const phoneGeometry = await phonePage.evaluate((ts) => {
         const p = { agents: [{ sessionName: 'april', name: 'April' }] };
@@ -1028,7 +1028,7 @@ const now = () => new Date().toISOString();
           const r = b.getBoundingClientRect(); const top = document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2);
           return top === b || b.contains(top); }) };
       });
-      chk(!hits.error && hits.below && hits.hits.length === 4 && hits.hits.every(Boolean), `[phone/touch] a bar that opens below its post is on top: every emoji takes its own tap`, JSON.stringify(hits));
+      chk(!hits.error && hits.below && hits.hits.length === 5 && hits.hits.every(Boolean), `[phone/touch] a bar that opens below its post is on top: every emoji takes its own tap`, JSON.stringify(hits));
       // One bar at a time: a tap on a link in ANOTHER row closes it (the link keeps its own job).
       const linkClose = await phonePage.evaluate(() => {
         const rows = [...document.querySelectorAll('#pj-room .msg')]; const other = rows[1];
@@ -1123,7 +1123,8 @@ const now = () => new Date().toISOString();
       chk(rowsLeft === 4 && cardClicks === 1 && barAfterCardTap.shown === 0 && barAfterCardTap.op === '0', `[phone/touch] a tap on a file card does not toggle the bar`, JSON.stringify(Object.assign({ rowsLeft, cardClicks }, barAfterCardTap)));
       // The person's own SHORT post: its bar (right anchor) stays inside the thread, and every
       // touch target in it, and the reaction pill, is at least the room's --room-tap (#3811), which
-      // is itself at least 36px (the size decided for these small repeated targets).
+      // is itself at least 36px (the size decided for these small repeated targets). Five buttons since
+      // #3745: the three quick emoji, the picker, and Reply.
       const own = phonePage.locator('#pj-room .msg.you .msg-bd p').last();
       await own.tap();
       await phonePage.waitForTimeout(300);
@@ -1137,7 +1138,7 @@ const now = () => new Date().toISOString();
           buttons: [...q.querySelectorAll('button')].map(size), pill: row.querySelector('.rxn') ? Math.round(row.querySelector('.rxn').getBoundingClientRect().height) : null };
       });
       chk(!ownBar.error && ownBar.inside, `[phone/touch] the bar on a short post of your own stays inside the thread`, JSON.stringify(ownBar));
-      chk(!ownBar.error && ownBar.tapPx >= 36 && ownBar.buttons.length === 4 && ownBar.buttons.every((n) => n >= ownBar.tapPx) && ownBar.pill >= ownBar.tapPx, `[phone/touch] every reaction target is at least --room-tap, and --room-tap is at least 36px (the bar's buttons and a reaction pill)`, JSON.stringify(ownBar));
+      chk(!ownBar.error && ownBar.tapPx >= 36 && ownBar.buttons.length === 5 && ownBar.buttons.every((n) => n >= ownBar.tapPx) && ownBar.pill >= ownBar.tapPx, `[phone/touch] every reaction target is at least --room-tap, and --room-tap is at least 36px (the bar's buttons and a reaction pill)`, JSON.stringify(ownBar));
       // The open bar is CLEAR of its one-line bubble, so tapping the bubble again closes the bar
       // and reacts with nothing (at thumb size an overlapping bar covered the whole bubble).
       const clear = await phonePage.evaluate(() => {
@@ -1159,7 +1160,7 @@ const now = () => new Date().toISOString();
         const hits = [...quickBar.querySelectorAll('button')].map((b) => { const r = b.getBoundingClientRect(); const top = document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2); return top === b || b.contains(top); });
         return { overlapsPrevious, hits };
       });
-      chk(!hitsAbove.error && hitsAbove.overlapsPrevious && hitsAbove.hits.length === 4 && hitsAbove.hits.every(Boolean), `[phone/touch] a bar above its post is on top of the message before it`, JSON.stringify(hitsAbove));
+      chk(!hitsAbove.error && hitsAbove.overlapsPrevious && hitsAbove.hits.length === 5 && hitsAbove.hits.every(Boolean), `[phone/touch] a bar above its post is on top of the message before it`, JSON.stringify(hitsAbove));
       await own.tap();
       await phonePage.waitForTimeout(300);
       const again = await phonePage.evaluate(() => ({ shown: document.querySelectorAll('#pj-room .msg.rxn-show').length, reacts: window.__reacts }));
@@ -1191,7 +1192,7 @@ const now = () => new Date().toISOString();
         const hits = [...q.querySelectorAll('button')].map((b) => { const r = b.getBoundingClientRect(); const t = document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2); return t === b || b.contains(t); });
         return { inView: Q.top >= R.top && Q.bottom <= R.bottom && Q.left >= R.left && Q.right <= R.right + 1, bar: [Math.round(Q.top), Math.round(Q.bottom)], room: [Math.round(R.top), Math.round(R.bottom)], hits, pinned: q.style.position === 'fixed' };
       });
-      chk(tallAt.tall && !tall.error && tall.pinned && tall.inView && tall.hits.length === 4 && tall.hits.every(Boolean), `[phone/touch] on a post taller than the thread the bar is pinned in view and takes its taps`, JSON.stringify(Object.assign({ tall: tallAt.tall }, tall)));
+      chk(tallAt.tall && !tall.error && tall.pinned && tall.inView && tall.hits.length === 5 && tall.hits.every(Boolean), `[phone/touch] on a post taller than the thread the bar is pinned in view and takes its taps`, JSON.stringify(Object.assign({ tall: tallAt.tall }, tall)));
       // A repaint (a new post arriving) while the pinned bar is up and its post still on screen
       // keeps it pinned, rather than closing it under the person's thumb.
       const afterRepaint = await phonePage.evaluate(() => new Promise((res) => {
@@ -1590,7 +1591,7 @@ const now = () => new Date().toISOString();
         const hits = [...quickBar.querySelectorAll('button')].map((b) => { const r = b.getBoundingClientRect(); const t = document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2); return t === b || b.contains(t); });
         return { dark: matchMedia('(prefers-color-scheme: dark)').matches, barBg: getComputedStyle(quickBar).backgroundColor, threadBg, opaque: (barBg[3] === undefined ? 1 : barBg[3]) > 0.9, differs: getComputedStyle(quickBar).backgroundColor !== threadBg, border: getComputedStyle(quickBar).borderTopWidth, hits };
       });
-      chk(!dark.error && dark.dark && dark.opaque && dark.differs && parseFloat(dark.border) >= 1 && dark.hits.length === 4 && dark.hits.every(Boolean),
+      chk(!dark.error && dark.dark && dark.opaque && dark.differs && parseFloat(dark.border) >= 1 && dark.hits.length === 5 && dark.hits.every(Boolean),
         `[dark/phone/touch] the open bar has its own ground and edge on the dark thread and takes its taps`, JSON.stringify(dark));
     } finally {
       chk(darkPageErrors.length === 0, '[phone dark] no script errors on the page', darkPageErrors.join(' | '));
