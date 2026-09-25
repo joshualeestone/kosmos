@@ -111,5 +111,58 @@ with zipfile.ZipFile(sys.argv[1], 'w') as z:
 PYEOF
 refuses "a zip with another launcher refused" "is not the committed launcher" -Zip "$TMP/wrongexe.zip" -CredentialFile "$TMP/cred.env"
 
+# 5. THE GATES AND THE ORDER, through the script's test transport (KOSMOS_PUBLISH_R2_FAKE_DIR: a
+# local directory is the bucket; every request is logged to <dir>/.calls). Each refusal must
+# leave ZERO writes; the happy paths must write in the order the header promises.
+FAKE="$TMP/bucket"; mkdir -p "$FAKE"; VDIR="$TMP/vdir"; mkdir -p "$VDIR"; ALOG="$TMP/approvals.log"
+EXE="$HERE/windows/Kosmos.exe"
+mkzip() { python3 - "$1" "$2" "$EXE" "$3" <<'PYEOF'
+import sys, zipfile
+out, ver, exe, tag = sys.argv[1:5]
+with zipfile.ZipFile(out, 'w') as z:
+    z.writestr('app/package.json', '{"version":"%s"}' % ver); z.writestr('Kosmos.exe', open(exe, 'rb').read()); z.writestr('tag.txt', tag)
+PYEOF
+}
+mkzip "$TMP/a.zip" 9.9.1 A; mkzip "$TMP/b.zip" 9.9.1 B
+SHA_A=$(shasum -a 256 "$TMP/a.zip" | cut -d' ' -f1)
+fake() { : > "$FAKE/.calls"; KOSMOS_PUBLISH_R2_FAKE_DIR="$FAKE" KOSMOS_WIN_VERIFY_DIR="$VDIR" KOSMOS_WIN_PROMOTE_LOG="$ALOG" "$PWSH" -NoProfile -File "$PS1" -CredentialFile "$TMP/cred.env" "$@" > "$TMP/out" 2>&1; }
+writes() { grep -c '^PUT ' "$FAKE/.calls" || true; }
+record() { node -e 'const s=require(process.argv[1]);const [v,sha,res,out]=process.argv.slice(2);const c={};for(const r of s.REQUIRED_CHECKS)c[r.id]={result:"pass"};if(res==="fail")c.msg={result:"fail"};require("fs").writeFileSync(out,JSON.stringify(s.buildRecord({version:v,sha256:sha,sourceSha:"a".repeat(40),checkResults:c,at:"2026-09-25T12:00:00Z"})))' "$HERE/lib/win-staging-record.js" 9.9.1 "$SHA_A" "$1" "$VDIR/win-staging-$SHA_A.json"; }
+promote() { fake -Promote -ApprovedVersion 9.9.1 -ApprovedSha "$SHA_A" -ApprovalRef 1789228393.821399 "$@"; }
+refuses_clean() { # <label> <expected substring>   (after a fake run): refused, said why, wrote nothing
+  if [ "$rc" -eq 1 ] && grep -qF -- "$2" "$TMP/out" && [ "$(writes)" -eq 0 ]; then pass "$1"; else fail "$1: rc=$rc writes=$(writes) out=$(tail -2 "$TMP/out")"; fi
+}
+
+fake -Zip "$TMP/a.zip"; rc=$?
+order=$(grep '^PUT ' "$FAKE/.calls" | awk '{print $2}' | tr '\n' ' ')
+if [ "$rc" -eq 0 ] && [ "$order" = "kosmos-9.9.1-win-x64.zip kosmos-9.9.1-win-x64.zip.sha256 latest-win-staging.json " ]; then pass "staging writes zip, sidecar, then the pointer LAST"
+else fail "staging order: rc=$rc order=[$order] $(tail -2 "$TMP/out")"; fi
+fake -Zip "$TMP/b.zip"; rc=$?; refuses_clean "different bytes under a published version are refused, nothing written" "DIFFERENT bytes"
+fake -Zip "$TMP/a.zip" -Version 9.9.2; rc=$?; refuses_clean "a -Version the zip was not built as is refused" "not the version this zip was built as"
+
+promote; rc=$?; refuses_clean "promote with no verification record: refused, nothing written" "HOLD no verification record"
+record fail; promote; rc=$?; refuses_clean "promote with a FAILING record: refused, nothing written" "does not pass (FAIL"
+record pass
+cp "$FAKE/latest-win-staging.json" "$TMP/ptr.good"
+printf '{"version":"9.9.1","sha256":"%s","artifact":"kosmos-9.9.1-win-x64.zip","versioned":"kosmos-9.9.1-win-x64.zip","arch":"x64"}\n' "$SHA_A" > "$FAKE/latest-win-staging.json"
+promote; rc=$?; refuses_clean "promote of a non-canonical staging pointer: refused, nothing written" "canonical pointer shape"
+cp "$TMP/ptr.good" "$FAKE/latest-win-staging.json"
+cp "$FAKE/kosmos-9.9.1-win-x64.zip.sha256" "$TMP/side.good"; printf '%s  wrong-name.zip\n' "$SHA_A" > "$FAKE/kosmos-9.9.1-win-x64.zip.sha256"
+promote; rc=$?; refuses_clean "promote with a wrong versioned sidecar: refused, nothing written" "kosmos-9.9.1-win-x64.zip.sha256 as"
+cp "$TMP/side.good" "$FAKE/kosmos-9.9.1-win-x64.zip.sha256"
+: > "$ALOG"
+promote; rc=$?
+order=$(grep '^PUT ' "$FAKE/.calls" | awk '{print $2 ($3 == "COPY" ? "(copy)" : "")}' | tr '\n' ' ')
+if [ "$rc" -eq 0 ] && [ "$order" = "kosmos-win-x64.zip(copy) kosmos-win-x64.zip.sha256 latest-win.json " ] \
+   && cmp -s "$FAKE/latest-win.json" "$FAKE/latest-win-staging.json" && cmp -s "$FAKE/kosmos-win-x64.zip" "$TMP/a.zip"; then
+  pass "promote writes the alias copy, its sidecar, then latest-win.json LAST (the staging bytes verbatim)"
+else fail "promote order: rc=$rc order=[$order] $(tail -2 "$TMP/out")"; fi
+if [ "$(grep -c 'approval=given.*transport=test' "$ALOG")" -eq 1 ] && [ "$(grep -c 'promoted=yes.*transport=test' "$ALOG")" -eq 1 ]; then pass "both approval-log lines name where the promote wrote"
+else fail "approval log: $(cat "$ALOG")"; fi
+# A failure after prod-facing writes began says so.
+: > "$FAKE/.calls"; KOSMOS_PUBLISH_R2_FAKE_FAIL=latest-win.json promote; rc=$?
+if [ "$rc" -eq 1 ] && grep -qF "prod-facing writes had begun" "$TMP/out"; then pass "a failure after the first prod-facing write says what may have changed"
+else fail "partial-state note: rc=$rc $(tail -2 "$TMP/out")"; fi
+
 [ "$fails" -eq 0 ] && { echo "test-publish-r2-3725: all passed"; exit 0; }
 echo "test-publish-r2-3725: $fails failed"; exit 1

@@ -11,16 +11,21 @@ independently.
 
 ## Decision
 tools/windows/publish-r2.ps1, PowerShell 5.1 and 7, SigV4 over R2's S3 API with no AWS tooling.
-- Staging: the versioned zip, its sidecar, then latest-win-staging.json last. The versioned name is
-  immutable, and the launcher's Authenticode signature is checked.
-- Promote: the gates of promote-channel.sh --family win. The approved version and sha must equal
-  the served staging pointer, the approval ref is logged before any write, and a passing
-  verification record is validated through win-staging-record.js. Then a server-side copy to the
-  alias, the alias sidecar, and latest-win.json last as the staging pointer's bytes verbatim.
-- Every write is read back through installkosmos.com.
+- Every read that decides a write is a SIGNED read of the bucket (only a 404 means absent); the
+  public URL is read only after writing, to confirm what users get.
+- Staging: the versioned zip (created with If-None-Match: *), its sidecar, then
+  latest-win-staging.json last. Versioned names are immutable; the zip's Kosmos.exe must equal
+  the committed launcher byte for byte; -Version must match the version baked into the zip.
+- Promote: the gates of promote-channel.sh --family win, case-sensitive. The staging pointer must
+  name the approved version and sha in canonical bytes; the staged zip and its sidecar are
+  checked; a passing verification record is validated through win-staging-record.js; the staging
+  snapshot is re-checked; the go is logged before any write. Then the alias copy (pinned by
+  ETag), the alias sidecar (both read back), latest-win.json last as the staging bytes verbatim,
+  and a re-check of the versioned zip and sidecar.
 - tools/windows/RELEASING.md is the runbook.
-- tools/test-publish-r2-3725.sh covers parse, pointer byte parity with write-latest-win-pointer.js,
-  and the offline refusals. It is wired into test:shell.
+- tools/test-publish-r2-3725.sh: parse, the signer against AWS's published SigV4 example,
+  pointer byte parity, offline refusals, and the gates and write order through the script's
+  test transport (a local directory as the bucket). Wired into test:shell.
 
 ## Rejected
 - Porting the whole build to PowerShell: the build already runs from Git Bash on the PC (Homer
