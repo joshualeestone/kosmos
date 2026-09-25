@@ -356,7 +356,9 @@ const resetStore = (state) => fs.writeFileSync(tipsStore.FILE(), JSON.stringify(
     await page.click('#helpq-btn');
     await page.click('#helpq-menu [data-help="screen"]');
     const top0 = await page.evaluate(() => document.getElementById('tipcard').getBoundingClientRect().top);
-    const scrolled = await page.evaluate(async () => { const y = window.scrollY; window.scrollBy(0, 120); await new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r))); return window.scrollY - y; });
+    const title14 = (await cardState(page)).title;
+    /* A 60px scroll keeps the heading on screen, so the card still has a target to follow (a flat card cannot answer). */
+    const scrolled = await page.evaluate(async () => { const y = window.scrollY; window.scrollBy(0, 60); await new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r))); return window.scrollY - y; });
     /* Since the 0.6.93 fix a card never sits on a control, so after a scroll it either still points at its
        target from exactly its gap (arrow up / down / beside), or, when that place would cover a control, sits
        in a clear place with no arrow. Both are strict: which one is read from the card, not allowed either way. */
@@ -366,10 +368,12 @@ const resetStore = (state) => fs.writeFileSync(tipsStore.FILE(), JSON.stringify(
       const cr = c.getBoundingClientRect(), tr = t.getBoundingClientRect();
       const cls = ['up', 'down', 'left', 'right', 'flat'].find((k) => c.classList.contains(k));
       return { cls, covers: c.dataset.covers, gap: cls === 'up' ? Math.round(cr.top - tr.bottom) : cls === 'down' ? Math.round(tr.top - cr.bottom) : cls === 'left' ? Math.round(cr.left - tr.right) : cls === 'right' ? Math.round(tr.left - cr.right) : null,
-        onScreen: cr.top >= 0 && cr.bottom <= innerHeight };
+        onScreen: cr.top >= 0 && cr.bottom <= innerHeight, top: Math.round(cr.top), headOn: tr.top >= 0 && tr.bottom <= innerHeight };
     });
     const want14 = { up: 12, down: 12, left: 14, right: 14 }[after14.cls];
-    chk(scrolled > 0 && after14.onScreen && after14.covers === '0' && (after14.cls === 'flat' || after14.gap === want14),
+    /* It FOLLOWED: the card moved up by the scroll (a card that stayed put while its heading moved fails here). */
+    const moved = top0 - after14.top;
+    chk(title14 === 'Make an agent' && scrolled > 0 && after14.headOn && after14.cls !== 'flat' && Math.abs(moved - scrolled) <= 1 && after14.onScreen && after14.covers === '0' && after14.gap === want14,
       'T14 after a scroll the card still points at its target from its gap, or sits clear of every control', JSON.stringify({ top0, scrolled, after14 }));
     await page.keyboard.press('Escape');
     await page.evaluate(() => window.scrollTo(0, 0));
@@ -432,6 +436,8 @@ const resetStore = (state) => fs.writeFileSync(tipsStore.FILE(), JSON.stringify(
     if (onSettings.card) { await page.keyboard.press('Escape'); await page.waitForTimeout(150); }
     await page.click('#helpq-btn');
     chk(await page.evaluate(() => document.querySelector('#helpq-menu [data-help="screen"]').hidden), 'T19 on Settings the ? offers no "tips for this screen" (Settings has none)');
+    chk(await page.evaluate(() => !!document.activeElement && document.activeElement.closest('#helpq-menu') && !document.activeElement.hidden), 'T19 and the keyboard lands on the first item that shows',
+      await page.evaluate(() => document.activeElement && (document.activeElement.dataset.help || document.activeElement.id)));
     await page.keyboard.press('Escape');
     await page.evaluate(() => showTab('agents'));
     await page.waitForTimeout(300);

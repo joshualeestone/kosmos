@@ -55040,7 +55040,7 @@ function wireHelpq() {
     if (open && screenItem) screenItem.hidden = tipVisible('#panel-settings');
     menu.hidden = !open;
     btn.setAttribute('aria-expanded', String(open));
-    if (open) menu.querySelector('.userpop-item')?.focus();
+    if (open) menu.querySelector('.userpop-item:not([hidden])')?.focus();   // the first item that shows (not the screen item on Settings)
   });
   menu.addEventListener('click', (e) => {
     const b = e.target.closest('[data-help]');
@@ -55052,6 +55052,7 @@ function wireHelpq() {
     let t = null;
     /* This screen's own tip: the ring has its own item, and its rail rings show on every
        consolidated screen, so it is not a screen's answer. */
+    if (want === 'screen' && tipVisible('#panel-settings')) return;   // Settings has none, even if the menu was open when the screen changed
     if (want === 'screen') t = TIPS.find((x) => !x.tour && x.id !== 'ring' && x.show()) || TIPS.find((x) => x.tour);
     else t = TIPS.find((x) => x.id === want);
     if (t) tipShow(t, { returnTo: btn });
