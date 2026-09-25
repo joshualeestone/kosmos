@@ -163,7 +163,7 @@ if command -v ruby >/dev/null 2>&1; then
     # always(): it must run after a failed, timed-out or cancelled checks job too (a
     # cancelled job makes failure() false), and on success to close the card.
     abort "file-red-card must run on every scheduled run and nothing else, got if: #{cj["if"].inspect}" unless cj["if"].to_s.gsub(/\s+/, " ").strip == "always() && github.event_name == \x27schedule\x27"
-    abort "file-red-card must hold exactly contents: read + issues: write (it reads the head of main before closing), got #{cj["permissions"].inspect}" unless cj["permissions"] == { "contents" => "read", "issues" => "write" }
+    abort "file-red-card must hold exactly issues: write (it makes issue and label calls only), got #{cj["permissions"].inspect}" unless cj["permissions"] == { "issues" => "write" }
     fsteps = fj["steps"] || []
     col = fsteps.find { |st| st["id"] == "failed" }
     abort "the label collector must run after a failed, timed-out or cancelled checks step (if: always())" unless col && col["if"].to_s.strip == "always()"
@@ -217,7 +217,7 @@ if command -v ruby >/dev/null 2>&1; then
   out=$(GH_RETRY_SECONDS=0 RUN_URL=u bash -c '. "$1"; ghr false issue list; echo "rc=$?"' _ "$BT/ghr.sh" 2>&1) || true
   printf '%s' "$out" | grep -q '::error::false issue list failed 3 times' && printf '%s' "$out" | grep -q 'rc=1' || fail "ghr did not report a final failure: $out"
   # FAILED-LIST splits on "|", so no FAILED entry may contain one.
-  if grep -nE 'FAILED\+=\([^)]*\|' "$REPO/tools/browser-checks.sh" | grep -v '^\s*#' | grep -q .; then fail "a FAILED+=() entry in browser-checks.sh contains '|', which FAILED-LIST would split into fake checks"; fi
+  if grep -vE '^[[:space:]]*#' "$REPO/tools/browser-checks.sh" | grep -E 'FAILED\+=\(' | grep -qF '|'; then fail "a FAILED+=() entry in browser-checks.sh contains '|', which FAILED-LIST would split into fake checks"; fi
   # A cut-short run: a log that never reached the summary has no FAILED-LIST line.
   mkdir -p "$BT/cut"; printf 'PASS  render-a\nFAIL  render-b (failed twice)\n' > "$BT/cut/browser-checks.log"
   RUNNER_TEMP="$BT/cut" GITHUB_OUTPUT="$BT/o3" bash -eo pipefail -c ': > "$GITHUB_OUTPUT"; . "$1"' _ "$BT/collect.sh" >/dev/null 2>&1 || fail "the collector aborted on a cut-short log"
@@ -242,14 +242,17 @@ if command -v ruby >/dev/null 2>&1; then
   mkdir -p "$BT/poison" "$BT/ghcfg"; printf '#!/bin/sh\necho "REAL gh REACHED: $*" >&2; exit 99\n' > "$BT/poison/gh"; chmod +x "$BT/poison/gh"
   card() {
     PATH="$BT/poison:$PATH" GH_TOKEN=invalid GH_CONFIG_DIR="$BT/ghcfg" GH_RETRY_SECONDS=0 \
-    LISTFAIL="${LISTFAIL:-}" HEADSHA="${HEADSHA:-abc}" GITHUB_RUN_ATTEMPT="${ATTEMPT:-1}" COMMENTFILE="${COMMENTFILE:-}" \
+    LISTFAIL="${LISTFAIL:-}" LABELFAIL="${LABELFAIL:-}" LCFAIL="${LCFAIL:-}" CREATEFAIL="${CREATEFAIL:-}" FLAGDIR="$BT/flags" HEADSHA="${HEADSHA:-abc}" GITHUB_RUN_ATTEMPT="${ATTEMPT:-1}" COMMENTFILE="${COMMENTFILE:-}" \
     VIEWFAIL="${VIEWFAIL:-}" BODYFILE="${BODYFILE:-}" VIEWBODY="${VIEWBODY:-}" LABEL="${LABEL:-}" RESULT="$1" OPEN="$2" RED="${REDV:-render-fields|render-thread|regress-a-night (server did not boot)|render-list-row render-fields (rich board did not boot)}" GITHUB_REPOSITORY=o/r GITHUB_SHA=abc RUN_URL=u bash -eo pipefail -c '
       qarg() { local prevarg="" a; for a in "$@"; do [ "$prevarg" = "-q" ] && { printf "%s" "$a"; return 0; }; prevarg="$a"; done; return 1; }
       gh() { case "$1 $2" in
-        "label list") f=$(qarg "$@") || { echo "CALL unexpected label list without -q"; return 1; }
+        "label list") [ -n "$LABELFAIL" ] && { echo "HTTP 502" >&2; return 1; }
+          f=$(qarg "$@") || { echo "CALL unexpected label list without -q"; return 1; }
           if [ -n "$LABEL" ]; then printf "%s" "[{\"name\":\"nightly-browser-checks-red\"}]"; else printf "%s" "[]"; fi | jq -r "$f" ;;
-        "label create") echo "CALL label-create" ;;
+        "label create") [ -n "$LCFAIL" ] && { echo "HTTP 502" >&2; return 1; }; echo "CALL label-create" ;;
         "issue list") [ -n "$LISTFAIL" ] && { echo "HTTP 502" >&2; return 1; }
+          # A create that failed AFTER GitHub made the card: the card is now listed.
+          [ -f "$FLAGDIR/ghost" ] && { echo 9; return 0; }
           f=$(qarg "$@") || { echo "CALL unexpected issue list without -q"; return 1; }
           # Real gh prints an EMPTY line for a null -q result (jq -r would print "null");
           # OPEN=null forces a literal "null" to exercise the guard in the script.
@@ -263,13 +266,20 @@ if command -v ruby >/dev/null 2>&1; then
         "issue comment") echo "CALL comment $3 :: $*"
           [ -n "$COMMENTFILE" ] && { prevarg=""; for a in "$@"; do [ "$prevarg" = "--body" ] && printf "%s" "$a" > "$COMMENTFILE"; prevarg="$a"; done; }; true ;;
         "api repos/o/r/commits/main") echo "$HEADSHA" ;;
-        "issue create") echo "CALL create :: $*"
+        "issue create")
+          # CREATEFAIL=ghost: fails but GitHub made it. CREATEFAIL=once: fails the first time only.
+          if [ "$CREATEFAIL" = ghost ] && [ ! -f "$FLAGDIR/ghost" ]; then : > "$FLAGDIR/ghost"; echo "HTTP 502" >&2; return 1; fi
+          if [ "$CREATEFAIL" = once ] && [ ! -f "$FLAGDIR/once" ]; then : > "$FLAGDIR/once"; echo "HTTP 502" >&2; return 1; fi
+          echo "CALL create :: $*"
           # keep the real body, so a later arm can read back what this job wrote
           [ -n "$BODYFILE" ] && { prevarg=""; for a in "$@"; do [ "$prevarg" = "--body" ] && printf "%s" "$a" > "$BODYFILE"; prevarg="$a"; done; }; true ;;
         "issue close") echo "CALL close $3 :: $*" ;;
         *) echo "CALL unexpected $*"; return 1 ;;
       esac; }
-      . "$1"' _ "$BT/card.sh" 2>&1
+      . "$1"' _ "$BT/card.sh" > "$BT/arm.out" 2>&1
+    local rc=$?
+    # Every arm's output is kept, so "never reached the real gh" is checked across all of them.
+    cat "$BT/arm.out" >> "$BT/all-arms.out"; cat "$BT/arm.out"; return "$rc"
   }
   out="$(card failure "")" || fail "card script failed on a fresh streak: $out"
   case "$out" in *"CALL label-create"*"CALL create"*"Red checks: render-fields | render-thread | regress-a-night (server did not boot) | render-list-row render-fields (rich board did not boot)"*) ;; *) fail "a fresh red streak did not create the label and a card naming the red checks: $out" ;; esac
@@ -319,14 +329,29 @@ if command -v ruby >/dev/null 2>&1; then
   case "$out" in *"CALL close 7"*"CALL close 3"*) ;; *) fail "a green night did not close every open card: $out" ;; esac
   out="$(ATTEMPT=2 card success 7)" || fail "green re-run failed: $out"
   case "$out" in *"CALL close"*) fail "a RE-RUN of an older night closed the card: $out" ;; esac
-  out="$(HEADSHA=newer card success 7)" || fail "green at an old sha failed: $out"
-  case "$out" in *"CALL close"*) fail "a green run at an old sha closed the card while main moved on: $out" ;; esac
-  case "$out" in *"REAL gh REACHED"*) fail "the card script reached the real gh: $out" ;; esac
+  case "$out" in *"CALL comment 7"*"re-run"*) ;; *) fail "a green re-run did not say on the card why it did not close: $out" ;; esac
+  # Every way a red night with no open card could end with NO card.
+  mkdir -p "$BT/flags"
+  out="$(LABELFAIL=1 card failure "")" || fail "a failed label lookup aborted the red report: $out"
+  case "$out" in *"CALL create"*) ;; *) fail "a failed label lookup filed no card: $out" ;; esac
+  out="$(LCFAIL=1 card failure "")" || fail "a label that could not be created aborted the red report: $out"
+  case "$out" in *"CALL create"*"Filed without"*) ;; *) fail "a missing label filed no card, or did not say so: $out" ;; esac
+  case "$out" in *"--label"*) fail "a card was created with a label that does not exist: $out" ;; esac
+  rm -f "$BT/flags/"*; out="$(LABEL=1 CREATEFAIL=once card failure "")" || fail "a create that failed once was not retried: $out"
+  [ "$(printf '%s\n' "$out" | grep -c 'CALL create')" -eq 1 ] || fail "a truly failed create did not end with exactly one card: $out"
+  rm -f "$BT/flags/"*; out="$(LABEL=1 CREATEFAIL=ghost card failure "")" || fail "a create that GitHub did despite the error aborted: $out"
+  case "$out" in *"CALL create"*) fail "a create that GitHub had done was repeated (a duplicate card): $out" ;; esac
+  rm -f "$BT/flags/"*
+  # CRLF from a web edit must not make every check NEW.
+  out="$(VIEWBODY="$(printf 'Still not green (failure) at x: u\r\nNEW since the last red night: none\r\nRed checks: render-fields | render-thread\r')" REDV="render-fields|render-thread" card failure 7)" || fail "CRLF report: $out"
+  [ "$(printf '%s\n' "$out" | sed -n 's/^NEW since the last red night: //p')" = "none" ] || fail "a CRLF previous report made entries NEW: $out"
   # The open-card lookup itself fails (3 tries): a red night still files a card, a green does nothing.
   out="$(LISTFAIL=1 LABEL=1 card failure 7)" || fail "a failed lookup aborted the red report: $out"
   case "$out" in *"CALL create"*) ;; *) fail "a red night with a failed card lookup filed nothing: $out" ;; esac
   out="$(LISTFAIL=1 card success 7)" || fail "a failed lookup aborted a green night: $out"
   case "$out" in *"CALL "*) fail "a green night with a failed lookup acted: $out" ;; esac
+  [ -s "$BT/all-arms.out" ] || fail "no card arm output was collected, so the real-gh check below would see nothing"
+  grep -q "REAL gh REACHED" "$BT/all-arms.out" && fail "the card script reached the real gh in some arm: $(grep -m1 'REAL gh REACHED' "$BT/all-arms.out")"
   pass "the card script: fresh red creates, open red comments leading with NEW checks, a timeout/cancel files, a null lookup is none, green closes, green with no card is a no-op"
   fi
 elif [ -n "${CI:-}" ]; then

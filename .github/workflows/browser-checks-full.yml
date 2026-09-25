@@ -15,8 +15,14 @@
 # on main moves first detection from "the next cut" to "the next morning", with no
 # merge friction, and every night on an unchanged tree adds to the runner baseline.
 #
-# workflow_dispatch runs it on demand, on any branch: `gh workflow run
-# browser-checks-full.yml --ref <branch>` before a cut, or on a risky web PR.
+# workflow_dispatch runs it on demand: `gh workflow run browser-checks-full.yml --ref main`
+# before a cut. Dispatching on a PR's own branch attaches the run to that PR's head commit,
+# so a runner false-red there can stop /merge-on-green, the very thing this design avoids:
+# dispatch on a throwaway branch pointing at the same commit instead.
+# The nightly checks out main as a BRANCH (not the detached merge commit a PR run gets), so
+# browser-checks.sh takes its freeze-and-re-exec path here, which no PR run has exercised: a
+# first-night red may be that harness path, not a regression. Dispatch once before relying
+# on the first card.
 #
 # Same script and pin as the cut's 3b: tools/browser-checks.sh with no
 # KOSMOS_BC_CI_ALLOWLIST runs every check, headless (run_one sets HEADED=0).
@@ -29,9 +35,8 @@ on:
   workflow_dispatch:
 
 # Least privilege per job: the checks job (third-party npm installs, every browser
-# check) holds only contents: read. Only the separate card job holds issues: write, plus
-# contents: read, which it needs to read main's head before closing (job permissions
-# REPLACE the workflow's, they do not add to them).
+# check) holds only contents: read. Only the separate card job holds issues: write, and
+# nothing else (job permissions REPLACE the workflow's; it makes issue and label calls only).
 permissions:
   contents: read
 
@@ -108,7 +113,6 @@ jobs:
     if: always() && github.event_name == 'schedule'
     runs-on: ubuntu-latest
     permissions:
-      contents: read
       issues: write
     steps:
       - name: 'report a scheduled run to the card (#2518)'
@@ -134,11 +138,13 @@ jobs:
           [ "$open" = null ] && open=""
           if [ "$RESULT" = success ]; then
             [ -n "$open" ] || exit 0
-            # Only a first attempt at main's CURRENT head may close: re-running an older
-            # night (same event, old sha) must not close a card a newer red night opened.
-            head=$(ghr gh api "repos/$GITHUB_REPOSITORY/commits/main" -q .sha)
-            if [ "${GITHUB_RUN_ATTEMPT:-1}" != 1 ] || [ "$head" != "$GITHUB_SHA" ]; then
-              echo "green at $GITHUB_SHA (attempt ${GITHUB_RUN_ATTEMPT:-1}), but main is at $head: not closing; the next scheduled run decides"
+            # Only a FIRST attempt may close: a re-run of an older night (same event, old sha)
+            # must not close a card a newer red night opened. First attempts of the schedule
+            # lane cannot finish out of order (one lane, never cancelled, 24h apart, capped at
+            # 170 minutes), so the attempt alone decides; comparing with main's head would
+            # refuse most green nights, since merges land overnight.
+            if [ "${GITHUB_RUN_ATTEMPT:-1}" != 1 ]; then
+              gh1 gh issue comment "$open" --repo "$GITHUB_REPOSITORY" --body "A re-run (attempt ${GITHUB_RUN_ATTEMPT}) of the night at $GITHUB_SHA was green: $RUN_URL. Not closing on a re-run; the next scheduled night decides." || true
               exit 0
             fi
             for n in $(ghr gh issue list --repo "$GITHUB_REPOSITORY" --state open --label "$label" --json number -q '.[].number'); do
@@ -156,7 +162,7 @@ jobs:
             unread=""
             if ! prev=$(ghr gh issue view "$open" --repo "$GITHUB_REPOSITORY" --json body,comments \
                 -q '[.body] + [.comments[].body] | map(select(startswith("The nightly full") or startswith("Still not green"))) | last // ""' \
-                | sed -n 's/^.*Red checks: //p' | tail -n 1); then
+                | tr -d '\r' | sed -n 's/^.*Red checks: //p' | tail -n 1); then
               prev=""; unread=" (the previous report could not be read, so every entry is listed)"
             fi
             new=""
@@ -168,20 +174,39 @@ jobs:
               [ -n "$seen" ] || new="${new:+$new | }$w"
             done
             IFS=$_ifs; set +f
-            gh1 gh issue comment "$open" --repo "$GITHUB_REPOSITORY" --body "Still not green ($RESULT) at $GITHUB_SHA: $RUN_URL
+            rerun=""; [ "${GITHUB_RUN_ATTEMPT:-1}" != 1 ] && rerun=" (a re-run, attempt ${GITHUB_RUN_ATTEMPT}, of an earlier night)"
+            gh1 gh issue comment "$open" --repo "$GITHUB_REPOSITORY" --body "Still not green ($RESULT) at $GITHUB_SHA$rerun: $RUN_URL
           NEW since the last red night: ${new:-none}$unread
           Red checks: $red"
           else
-            have=$(ghr gh label list --repo "$GITHUB_REPOSITORY" --search "$label" --json name -q '.[].name')
+            # A red night with no open card MUST end with a card. A failed label lookup counts as
+            # "not known"; a label that cannot be created means the card is filed without it.
+            have=$(ghr gh label list --repo "$GITHUB_REPOSITORY" --search "$label" --json name -q '.[].name') || have=""
             if ! printf '%s\n' "$have" | grep -qx "$label"; then
-              gh label create "$label" --repo "$GITHUB_REPOSITORY" --color B60205 \
-                --description "The nightly full browser-check run on main is not green (#2518)" || echo "label create failed; issue create below still applies the label if it exists"
+              if gh label create "$label" --repo "$GITHUB_REPOSITORY" --color B60205 \
+                   --description "The nightly full browser-check run on main is not green (#2518)"; then have="$label"
+              else echo "::warning::could not create the $label label; filing the card without it"; fi
             fi
-            gh1 gh issue create --repo "$GITHUB_REPOSITORY" --label "$label" \
-              --title "Nightly full browser-check run is not green on main" \
-              --body "The nightly full page-layer run (browser-checks-full.yml, #2518) ended $RESULT on main at $GITHUB_SHA: $RUN_URL
+            labelled=(); printf '%s\n' "$have" | grep -qx "$label" && labelled=(--label "$label")
+            card_body="The nightly full page-layer run (browser-checks-full.yml, #2518) ended $RESULT on main at $GITHUB_SHA: $RUN_URL
 
           Red checks: $red
 
           Decide per check: a product regression (fix it before the next cut), or runner noise (record it here, with its output, as part of the runner baseline). Each further night that is not green comments here and leads with the checks NEW since the last one. The first green scheduled night closes this card."
+            [ "${#labelled[@]}" -eq 0 ] && card_body="$card_body
+
+          (Filed without the $label label, which could not be created: add it, or the next red night will not find this card.)"
+            create_card() { gh issue create --repo "$GITHUB_REPOSITORY" ${labelled[@]+"${labelled[@]}"} \
+              --title "Nightly full browser-check run is not green on main" --body "$card_body"; }
+            # Not blindly retried (a create that failed after GitHub did it would duplicate):
+            # wait, look for the card, and create again only if there is none.
+            if ! create_card; then
+              sleep "${GH_RETRY_SECONDS:-10}"
+              again=""
+              [ "${#labelled[@]}" -gt 0 ] && again=$(ghr gh issue list --repo "$GITHUB_REPOSITORY" --state open --label "$label" --json number -q '.[0].number') || again=""
+              [ "$again" = null ] && again=""
+              if [ -z "$again" ]; then
+                gh1 create_card
+              fi
+            fi
           fi
