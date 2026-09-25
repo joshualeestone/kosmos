@@ -168,7 +168,9 @@ $Http.Timeout = [TimeSpan]::FromMinutes(30)
 
 function Invoke-R2 {
   param([string] $Method, [string] $Key, [byte[]] $Body = $null, [string] $BodyFile = $null,
-        [string] $PayloadSha = $null, [string] $ContentType = $null, [hashtable] $Extra = @{})
+        [string] $PayloadSha = $null, [string] $ContentType = $null, [hashtable] $Extra = @{}, [switch] $Soft)
+  # -Soft: a network error comes back as Status -1 instead of exiting, for the undo path, which
+  # must attempt every step and report each one rather than die after the first.
   if ($FakeDir) { return (Invoke-FakeR2 $Method $Key $Body $BodyFile $Extra $PayloadSha) }
   $hostName = "$($Cred.R2_ACCOUNT_ID).r2.cloudflarestorage.com"
   $uriPath = "/$Bucket/$Key"   # keys are [0-9A-Za-z._/-] only, all unreserved, so none need encoding
@@ -195,17 +197,22 @@ function Invoke-R2 {
     [pscustomobject]@{ Status = [int]$resp.StatusCode; CacheControl = $cc; Bytes = $bytes; Body = $(if ($bytes.Length -le 1MB) { $Utf8.GetString($bytes) } else { '' }); ETag = $etag }
   } catch {
     $why = "network error on $Method $Key ($($_.Exception.GetBaseException().Message))"
+    if ($Soft) { return [pscustomobject]@{ Status = -1; CacheControl = ''; Bytes = [byte[]]@(); Body = $why; ETag = '' } }
     if ($Method -ceq 'GET') { Refuse $why }
     Refuse "$why. Writes before this one may have landed: re-run with -DryRun to see the bucket's state before re-running for real."
   } finally { if ($stream) { $stream.Dispose() }; $req.Dispose() }
 }
 
 # The test stand-in: a directory with S3's semantics for the four requests this script makes.
-# Test seams, each one environment variable (all under the test transport only):
+# Test seams, each one environment variable (all under the test transport only). There are five:
 #   KOSMOS_PUBLISH_R2_FAKE_GET_STATUS=<key suffix>:<status>   a GET of that key answers <status>
 #   KOSMOS_PUBLISH_R2_FAKE_AFTER=<METHOD> <key suffix>|<key>|<file>
-#     once a matching request is answered, <key> is overwritten with <file>'s bytes (a
-#     concurrent writer landing between two of this script's steps)
+#     EVERY time a matching request is answered (not only the first), <key> is overwritten with
+#     <file>'s bytes (a concurrent writer landing between two of this script's steps). Several
+#     entries may be given, one per line; each is applied in order.
+#   KOSMOS_PUBLISH_R2_FAKE_FAIL=<key suffix>        every write (PUT, COPY, DELETE) to it answers 500
+#   KOSMOS_PUBLISH_R2_FAKE_NO_ETAG=<key suffix>     a GET of it answers with no ETag
+#   KOSMOS_PUBLISH_R2_FAKE_RESTAGE_BEFORE_COPY=<file>   the copy's SOURCE becomes <file> first
 function Invoke-FakeR2([string] $Method, [string] $Key, [byte[]] $Body, [string] $BodyFile, [hashtable] $Extra, [string] $PayloadSha) {
   $gs = [Environment]::GetEnvironmentVariable('KOSMOS_PUBLISH_R2_FAKE_GET_STATUS')
   if ($Method -ceq 'GET' -and $gs -and $Key.EndsWith($gs.Split(':')[0])) {
@@ -215,8 +222,11 @@ function Invoke-FakeR2([string] $Method, [string] $Key, [byte[]] $Body, [string]
   $r = Invoke-FakeR2Core $Method $Key $Body $BodyFile $Extra $PayloadSha
   $after = [Environment]::GetEnvironmentVariable('KOSMOS_PUBLISH_R2_FAKE_AFTER')
   if ($after) {
-    $parts = $after.Split('|'); $trig = $parts[0].Split(' ')
-    if ($Method -ceq $trig[0] -and $Key.EndsWith($trig[1])) { [IO.File]::Copy($parts[2], (Join-Path $FakeDir $parts[1]), $true) }
+    foreach ($entry in ($after -split "`n")) {
+      if (-not $entry) { continue }
+      $parts = $entry.Split('|'); $trig = $parts[0].Split(' ')
+      if ($Method -ceq $trig[0] -and $Key.EndsWith($trig[1])) { [IO.File]::Copy($parts[2], (Join-Path $FakeDir $parts[1]), $true) }
+    }
   }
   $r
 }
@@ -233,16 +243,22 @@ function Invoke-FakeR2Core([string] $Method, [string] $Key, [byte[]] $Body, [str
     if ($actual -cne $PayloadSha) { return [pscustomobject]@{ Status = 400; Bytes = [byte[]]@(); Body = 'XAmzContentSHA256Mismatch'; ETag = '' } }
   }
   $tag = { param($p) '"' + (Sha256-File $p) + '"' }
-  if ($Method -ceq 'GET') {
+  if ($Method -ceq 'GET' -or $Method -ceq 'HEAD') {
     if (-not (Test-Path -LiteralPath $path -PathType Leaf)) { return [pscustomobject]@{ Status = 404; Bytes = [byte[]]@(); Body = ''; ETag = '' } }
     $b = [IO.File]::ReadAllBytes($path)
     $cc = if (Test-Path -LiteralPath "$path.cc") { [IO.File]::ReadAllText("$path.cc") } else { '' }
     $noEtag = [Environment]::GetEnvironmentVariable('KOSMOS_PUBLISH_R2_FAKE_NO_ETAG')
     $et = if ($noEtag -and $Key.EndsWith($noEtag)) { '' } else { (& $tag $path) }
+    if ($Method -ceq 'HEAD') { $b = [byte[]]@() }
     return [pscustomobject]@{ Status = 200; CacheControl = $cc; Bytes = $b; Body = $Utf8.GetString($b); ETag = $et }
   }
   $fail = [Environment]::GetEnvironmentVariable('KOSMOS_PUBLISH_R2_FAKE_FAIL')
   if ($fail -and $Key.EndsWith($fail)) { return [pscustomobject]@{ Status = 500; Bytes = [byte[]]@(); Body = 'injected failure'; ETag = '' } }
+  # Like R2 (measured 2026-09-25): a DELETE ignores If-Match, and so does a COPY's destination.
+  if ($Method -ceq 'DELETE') {
+    Remove-Item -LiteralPath $path, "$path.cc" -Force -ErrorAction SilentlyContinue
+    return [pscustomobject]@{ Status = 204; Bytes = [byte[]]@(); Body = ''; ETag = '' }
+  }
   $exists = Test-Path -LiteralPath $path -PathType Leaf
   if ($Extra.ContainsKey('if-none-match') -and $exists) { return [pscustomobject]@{ Status = 412; Bytes = [byte[]]@(); Body = 'PreconditionFailed'; ETag = '' } }
   if ($Extra.ContainsKey('if-match') -and -not $copy -and (-not $exists -or $Extra['if-match'] -cne (& $tag $path))) { return [pscustomobject]@{ Status = 412; Bytes = [byte[]]@(); Body = 'PreconditionFailed'; ETag = '' } }
@@ -391,7 +407,9 @@ if ($PSCmdlet.ParameterSetName -ceq 'Staging') {
     # anyone else, or an older launcher, is not the one we ship.
     # A zip with two entries of one name: the check below would read the first while Explorer
     # extracts the last, so a different launcher could pass. Refuse it.
-    $dups = @($archive.Entries | Group-Object -Property FullName -CaseSensitive | Where-Object { $_.Count -gt 1 })
+    # Windows paths are case-insensitive and take either slash, so 'Kosmos.exe', 'KOSMOS.EXE' and
+    # a backslash spelling of one path all land on the same file when extracted.
+    $dups = @($archive.Entries | Group-Object -Property { $_.FullName.Replace('\', '/').ToLowerInvariant() } | Where-Object { $_.Count -gt 1 })
     if ($dups.Count -gt 0) { Refuse "$ZipPath has duplicate entries ($(($dups | ForEach-Object { $_.Name }) -join ', '))" }
     $exe = $archive.GetEntry('Kosmos.exe')
     if (-not $exe) { Refuse "$ZipPath carries no Kosmos.exe at its root" }
@@ -530,8 +548,8 @@ if (-not $staged.ETag) { Refuse "the bucket gave no ETag for $Versioned, so the 
 
 # The verification record for this sha on this PC, validated by the one spec the writer uses.
 $spec = Join-Path (Split-Path -Parent $PSScriptRoot) 'lib/win-staging-record.js'
-# An executable node, not a node.cmd shim (cmd.exe would mangle the script), and the script is
-# passed as a file rather than on the command line.
+# An executable node, not a node.cmd shim (cmd.exe would mangle the script). The script goes to
+# node on STDIN, never on the command line or in a temp file.
 $nodeExe = Get-Command node -CommandType Application -ErrorAction SilentlyContinue | Where-Object { $_.Source -notmatch '\.(cmd|bat)\z' } | Select-Object -First 1
 if (-not $nodeExe) { Refuse "node (an executable, not a .cmd shim) is required to validate the verification record. Nothing was written." }
 if (-not (Test-Path -LiteralPath $spec)) { Refuse "the record spec $spec is missing. Nothing was written." }
@@ -580,30 +598,49 @@ function Test-StagedIntact {
   return [bool]($z -and $zs -and (Sha256-Bytes $z.Bytes) -ceq $ApprovedSha -and (Sha256-Bytes $zs.Bytes) -ceq (Sha256-Bytes (New-SidecarBytes $ApprovedSha $Versioned)))
 }
 # Undo this promote's prod writes (a -ReplaceVersioned changed the versioned zip under it).
-function Undo-Promote([string] $pointerEtag) {
+# Every step is pinned to the ETag of what THIS run wrote, so an undo does not overwrite a newer
+# write by someone else (PUTs by If-Match; the DELETE and COPY check first, see below); every step is -Soft, so one failure does not hide the rest; and the
+# report says what the undo did, step by step, and what it left.
+function Undo-Promote([switch] $PointerWritten, [string] $PointerEtag, [string] $AliasEtag, [string] $SideEtag) {
   $done = @()
-  # latest-win.json is put back only if THIS run wrote it (an empty ETag means it did not).
-  if (-not $pointerEtag) { }
-  elseif ($prodBefore) {
-    $r = Invoke-R2 -Method PUT -Key "${KeyPrefix}latest-win.json" -Body $prodBefore.Bytes -PayloadSha (Sha256-Bytes $prodBefore.Bytes) -ContentType 'application/json' -Extra @{ 'cache-control' = 'no-cache'; 'if-match' = $pointerEtag }
-    $done += $(if ($r.Status -eq 200) { 'latest-win.json put back' } else { "PUTTING latest-win.json BACK FAILED ($($r.Status))" })
-    $pf = Read-PointerFields $prodBefore.Bytes
-    if ($pf) {
-      $c = Invoke-R2 -Method PUT -Key "$KeyPrefix$Alias" -ContentType 'application/zip' -Extra @{ 'x-amz-copy-source' = "/$Bucket/$KeyPrefix$($pf.versioned)"; 'x-amz-metadata-directive' = 'REPLACE'; 'cache-control' = 'no-cache' }
-      $done += $(if ($c.Status -eq 200 -and $c.Body -cnotmatch '<Error>') { "the alias restored from $($pf.versioned)" } else { "RESTORING THE ALIAS FAILED ($($c.Status))" })
+  if ($PointerWritten -and -not $PointerEtag) { return 'NOTHING was undone: the pointer write answered no ETag to pin an undo to, SO PROD STILL NAMES ' + $Versioned }
+  if ($PointerWritten) {
+    if ($prodBefore) {
+      $r = Invoke-R2 -Soft -Method PUT -Key "${KeyPrefix}latest-win.json" -Body $prodBefore.Bytes -PayloadSha (Sha256-Bytes $prodBefore.Bytes) -ContentType 'application/json' -Extra @{ 'cache-control' = 'no-cache'; 'if-match' = $PointerEtag }
+      $pointerOk = $r.Status -eq 200
+      $done += $(if ($pointerOk) { 'latest-win.json put back' } else { "PUTTING latest-win.json BACK FAILED ($($r.Status)), SO PROD STILL NAMES $Versioned" })
+    } else {
+      # The first promote ever: there is no previous pointer to put back, so the undo removes this
+      # one. R2 ignores If-Match on a DELETE (measured), so this checks the ETag and then deletes:
+      # a pointer written by someone else in the moment between the two would be removed too.
+      $h = Invoke-R2 -Soft -Method HEAD -Key "${KeyPrefix}latest-win.json"
+      if ($h.Status -ne 200 -or $h.ETag -cne $PointerEtag) { $r = [pscustomobject]@{ Status = "not ours any more: HEAD answered $($h.Status) $($h.ETag)" } }
+      else { $r = Invoke-R2 -Soft -Method DELETE -Key "${KeyPrefix}latest-win.json" }
+      $pointerOk = $r.Status -eq 200 -or $r.Status -eq 204
+      $done += $(if ($pointerOk) { 'latest-win.json removed (there was no previous one)' } else { "REMOVING latest-win.json FAILED ($($r.Status)), SO PROD STILL NAMES $Versioned" })
     }
-  } else { $done += 'there was no previous latest-win.json to put back' }
-  if (-not $pointerEtag -and $prodBefore) {
-    $pf = Read-PointerFields $prodBefore.Bytes
-    if ($pf) {
-      $c = Invoke-R2 -Method PUT -Key "$KeyPrefix$Alias" -ContentType 'application/zip' -Extra @{ 'x-amz-copy-source' = "/$Bucket/$KeyPrefix$($pf.versioned)"; 'x-amz-metadata-directive' = 'REPLACE'; 'cache-control' = 'no-cache' }
-      $done += $(if ($c.Status -eq 200 -and $c.Body -cnotmatch '<Error>') { "the alias restored from $($pf.versioned)" } else { "RESTORING THE ALIAS FAILED ($($c.Status))" })
-    }
+    # The alias follows the pointer. If the pointer could not be undone, the alias stays as it
+    # is, matching the pointer that is still live.
+    if (-not $pointerOk) { $done += 'the alias and its sidecar left as written, to match'; return ($done -join '; ') }
   }
+  $pf = if ($prodBefore) { Read-PointerFields $prodBefore.Bytes } else { $null }
+  if (-not $pf) { $done += 'the alias and its sidecar still hold this build (no previous release to restore them from)'; return ($done -join '; ') }
+  # Sidecar first, pinned: if someone else has written it since, the alias is theirs too, and
+  # both are left alone.
+  if (-not $AliasEtag -or ($aliasSideBefore -and -not $SideEtag)) { $done += 'the alias and its sidecar left as written (no ETag to pin an undo to)'; return ($done -join '; ') }
+  $sideOk = $false
   if ($aliasSideBefore) {
-    $r2 = Invoke-R2 -Method PUT -Key "$KeyPrefix$Alias.sha256" -Body $aliasSideBefore.Bytes -PayloadSha (Sha256-Bytes $aliasSideBefore.Bytes) -ContentType 'text/plain; charset=utf-8' -Extra @{ 'cache-control' = 'no-cache' }
-    $done += $(if ($r2.Status -eq 200) { 'the alias sidecar put back' } else { "PUTTING THE ALIAS SIDECAR BACK FAILED ($($r2.Status))" })
-  }
+    $r2 = Invoke-R2 -Soft -Method PUT -Key "$KeyPrefix$Alias.sha256" -Body $aliasSideBefore.Bytes -PayloadSha (Sha256-Bytes $aliasSideBefore.Bytes) -ContentType 'text/plain; charset=utf-8' -Extra @{ 'cache-control' = 'no-cache'; 'if-match' = $SideEtag }
+    $sideOk = $r2.Status -eq 200
+    $done += $(if ($sideOk) { 'the alias sidecar put back' } else { "PUTTING THE ALIAS SIDECAR BACK FAILED ($($r2.Status))" })
+  } else { $done += 'the alias sidecar left as written (there was no previous one)'; $sideOk = $true }
+  if (-not $sideOk) { $done += "the alias left as written ($Versioned)"; return ($done -join '; ') }
+  # R2 ignores a COPY's destination If-Match (measured), so this checks the alias's ETag and then
+  # copies, with the same small window as the DELETE above.
+  $h = Invoke-R2 -Soft -Method HEAD -Key "$KeyPrefix$Alias"
+  if ($h.Status -ne 200 -or $h.ETag -cne $AliasEtag) { $done += "the alias left as it is (not ours any more: HEAD answered $($h.Status) $($h.ETag))"; return ($done -join '; ') }
+  $c = Invoke-R2 -Soft -Method PUT -Key "$KeyPrefix$Alias" -ContentType 'application/zip' -Extra @{ 'x-amz-copy-source' = "/$Bucket/$KeyPrefix$($pf.versioned)"; 'x-amz-metadata-directive' = 'REPLACE'; 'cache-control' = 'no-cache' }
+  $done += $(if ($c.Status -eq 200 -and $c.Body -cnotmatch '<Error>') { "the alias restored from $($pf.versioned)" } else { "RESTORING THE ALIAS FAILED ($($c.Status))" })
   $done -join '; '
 }
 
@@ -619,11 +656,14 @@ Copy-Object $Versioned $Alias $staged.ETag
 if (-not $DryRun) { $script:AfterNote = " (prod-facing writes had begun: the alias, its sidecar or latest-win.json may already have changed. Re-run the same -Promote command to finish; it re-checks everything first.)" }
 $aliasSide = New-SidecarBytes $ApprovedSha $Alias
 Put-Object "$Alias.sha256" $aliasSide $null (Sha256-Bytes $aliasSide) 'text/plain; charset=utf-8' $NoCache
+$aliasEtag = ''; $sideEtag = ''
 if (-not $DryRun) {
-  [void](Assert-Object $Alias $ApprovedSha)
-  [void](Assert-Object "$Alias.sha256" (Sha256-Bytes $aliasSide))
+  # Their ETags as read back are what an undo pins to (a COPY answers its ETag in the XML body,
+  # not a header, so the read-back is the reliable source).
+  $aliasEtag = (Assert-Object $Alias $ApprovedSha).ETag
+  $sideEtag = (Assert-Object "$Alias.sha256" (Sha256-Bytes $aliasSide)).ETag
   # A -ReplaceVersioned may have landed since the checks: never let the pointer name it.
-  if (-not (Test-StagedIntact)) { $how = Undo-Promote ''; $script:AfterNote = ''; Refuse "$Versioned or its sidecar changed while this promote ran (a -ReplaceVersioned landed); latest-win.json was NOT written; $how." }
+  if (-not (Test-StagedIntact)) { $how = Undo-Promote -AliasEtag $aliasEtag -SideEtag $sideEtag; $script:AfterNote = ''; Refuse "$Versioned or its sidecar changed while this promote ran (a -ReplaceVersioned landed); latest-win.json was NOT written; $how." }
 }
 Put-Object 'latest-win.json' $staging.Bytes $null (Sha256-Bytes $staging.Bytes) 'application/json' $NoCache
 if ($DryRun) { Say "DRY RUN complete: nothing was written."; exit 0 }
@@ -633,7 +673,7 @@ $script:AfterNote = " (latest-win.json was written: prod points at $ApprovedVers
 # writes its key and then reads the other's (the replace re-reads prod after its upload), so at
 # least one of them sees the other: if this one does, it puts prod back.
 if (-not (Test-StagedIntact)) {
-  $how = Undo-Promote $pointerPut.ETag
+  $how = Undo-Promote -PointerWritten -PointerEtag $pointerPut.ETag -AliasEtag $aliasEtag -SideEtag $sideEtag
   $script:AfterNote = ''
   Refuse "$Versioned or its sidecar changed right after latest-win.json named it (a -ReplaceVersioned landed); $how. Prod was not left naming bytes it does not hold."
 }

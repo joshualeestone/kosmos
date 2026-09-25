@@ -285,6 +285,77 @@ KOSMOS_PUBLISH_R2_FAKE_RESTAGE_BEFORE_COPY="$TMP/b.zip" promote; rc=$?
 if [ "$rc" -eq 1 ] && grep -qF "COPY kosmos-9.9.1-win-x64.zip -> kosmos-win-x64.zip answered 412" "$TMP/out" && [ ! -e "$FAKE/latest-win.json" ] && [ ! -e "$FAKE/kosmos-win-x64.zip" ]; then pass "a re-stage between the checks and the copy stops the promote before prod moves"
 else fail "ETag pin: rc=$rc latest-win.json=$([ -e "$FAKE/latest-win.json" ] && echo WRITTEN || echo absent) $(tail -2 "$TMP/out")"; fi
 cp "$TMP/a.zip" "$FAKE/kosmos-9.9.1-win-x64.zip"
+# The undo, with a previous release whose bytes DIFFER from this one (so a restore that copies
+# the wrong thing, or nothing, cannot pass): pointer, alias and alias sidecar all come back
+# byte for byte, each PUT is pinned to what this run wrote, and the alias copy is checked first.
+mkzip "$TMP/old.zip" 9.9.0 OLD; SHA_OLD=$(shasum -a 256 "$TMP/old.zip" | cut -d' ' -f1)
+undo_setup() {
+  printf '{"version":"9.9.0","sha256":"%s","artifact":"kosmos-win-x64.zip","versioned":"kosmos-9.9.0-win-x64.zip","arch":"x64"}\n' "$SHA_OLD" > "$FAKE/latest-win.json"
+  cp "$TMP/old.zip" "$FAKE/kosmos-9.9.0-win-x64.zip"; cp "$TMP/old.zip" "$FAKE/kosmos-win-x64.zip"
+  printf '%s  kosmos-win-x64.zip\n' "$SHA_OLD" > "$FAKE/kosmos-win-x64.zip.sha256"
+  cp "$FAKE/latest-win.json" "$TMP/u.ptr"; cp "$FAKE/kosmos-win-x64.zip.sha256" "$TMP/u.side"
+  cp "$TMP/a.zip" "$FAKE/kosmos-9.9.1-win-x64.zip"
+}
+undo_restored() { cmp -s "$FAKE/latest-win.json" "$TMP/u.ptr" && cmp -s "$FAKE/kosmos-win-x64.zip" "$TMP/old.zip" && cmp -s "$FAKE/kosmos-win-x64.zip.sha256" "$TMP/u.side"; }
+undo_state() { printf 'ptr=%s alias=%s side=%s' "$(cmp -s "$FAKE/latest-win.json" "$TMP/u.ptr" && echo old || echo NEW)" "$(cmp -s "$FAKE/kosmos-win-x64.zip" "$TMP/old.zip" && echo old || echo NEW)" "$(cmp -s "$FAKE/kosmos-win-x64.zip.sha256" "$TMP/u.side" && echo old || echo NEW)"; }
+# pinned: the restore PUTs carry if-match, and a HEAD of the alias comes before the undo's COPY.
+undo_pinned() { # <pointer-too: yes|no>
+  if [ "$1" = yes ]; then grep -qE '^PUT latest-win\.json \| cache-control=no-cache;if-match="[0-9a-f]{64}"$' "$FAKE/.calls" || return 1; fi
+  grep -qE '^PUT kosmos-win-x64\.zip\.sha256 \| cache-control=no-cache;if-match="[0-9a-f]{64}"$' "$FAKE/.calls" || return 1
+  awk '/^HEAD kosmos-win-x64\.zip /{h=NR} /^PUT kosmos-win-x64\.zip COPY \/[^ ]*kosmos-9\.9\.0-win-x64\.zip /{c=NR} END{exit !(h && c && h < c)}' "$FAKE/.calls"
+}
+undo_setup
+KOSMOS_PUBLISH_R2_FAKE_AFTER="PUT latest-win.json|kosmos-9.9.1-win-x64.zip|$TMP/b.zip" promote; rc=$?
+if [ "$rc" -eq 1 ] && undo_restored && undo_pinned yes && ! grep -qF "FAILED" "$TMP/out"; then pass "undo after the pointer write: pointer, alias and sidecar restored to the DIFFERENT previous bytes, each pinned"
+else fail "post-pointer undo: rc=$rc $(undo_state) pinned=$(undo_pinned yes && echo yes || echo no) $(tail -1 "$TMP/out")"; fi
+undo_setup
+KOSMOS_PUBLISH_R2_FAKE_AFTER="PUT kosmos-win-x64.zip.sha256|kosmos-9.9.1-win-x64.zip|$TMP/b.zip" promote; rc=$?
+if [ "$rc" -eq 1 ] && undo_restored && undo_pinned no && ! grep -q '^PUT latest-win\.json ' "$FAKE/.calls"; then pass "undo before the pointer write: alias and sidecar restored to the DIFFERENT previous bytes, pinned; the pointer never written"
+else fail "pre-pointer undo: rc=$rc $(undo_state) pinned=$(undo_pinned no && echo yes || echo no) $(tail -1 "$TMP/out")"; fi
+# The pointer cannot be put back (someone else wrote it after this run): the alias and its
+# sidecar are left matching the live pointer, and the report says the pointer is still live.
+undo_setup; printf '{"someone":"else"}\n' > "$TMP/other.json"
+KOSMOS_PUBLISH_R2_FAKE_AFTER="PUT latest-win.json|kosmos-9.9.1-win-x64.zip|$TMP/b.zip
+PUT latest-win.json|latest-win.json|$TMP/other.json" promote; rc=$?
+if [ "$rc" -eq 1 ] && grep -qF "PUTTING latest-win.json BACK FAILED (412), SO PROD STILL NAMES" "$TMP/out" && grep -qF "left as written, to match" "$TMP/out" && cmp -s "$FAKE/kosmos-win-x64.zip" "$TMP/a.zip" && ! grep -qE '^PUT kosmos-win-x64\.zip(\.sha256)? .*(\| |;)if-match=' "$FAKE/.calls"; then pass "a pointer that cannot be put back leaves the alias matching it, and says prod still names the build"
+else fail "undo with a lost pointer: rc=$rc alias=$(cmp -s "$FAKE/kosmos-win-x64.zip" "$TMP/a.zip" && echo new || echo CHANGED) $(tail -1 "$TMP/out")"; fi
+# Someone else rewrote the alias after this run read it back: the undo leaves THEIR alias alone
+# (R2 ignores a COPY's destination If-Match, so the HEAD check is all that protects it).
+undo_setup; mkzip "$TMP/theirs.zip" 9.9.8 THEIRS
+KOSMOS_PUBLISH_R2_FAKE_AFTER="PUT latest-win.json|kosmos-9.9.1-win-x64.zip|$TMP/b.zip
+PUT latest-win.json|kosmos-win-x64.zip|$TMP/theirs.zip" promote; rc=$?
+if [ "$rc" -eq 1 ] && cmp -s "$FAKE/kosmos-win-x64.zip" "$TMP/theirs.zip" && grep -qF "the alias left as it is (not ours any more" "$TMP/out" && cmp -s "$FAKE/latest-win.json" "$TMP/u.ptr"; then pass "the undo does not overwrite an alias someone else wrote since"
+else fail "undo vs a newer alias: rc=$rc alias=$(cmp -s "$FAKE/kosmos-win-x64.zip" "$TMP/theirs.zip" && echo theirs || echo OVERWRITTEN) $(tail -1 "$TMP/out")"; fi
+# The first promote ever (no previous pointer): the undo removes the pointer it wrote, and says
+# the alias still holds this build rather than claiming a restore.
+undo_setup; rm -f "$FAKE/latest-win.json" "$FAKE/kosmos-win-x64.zip" "$FAKE/kosmos-win-x64.zip.sha256"
+KOSMOS_PUBLISH_R2_FAKE_AFTER="PUT latest-win.json|kosmos-9.9.1-win-x64.zip|$TMP/b.zip" promote; rc=$?
+if [ "$rc" -eq 1 ] && [ ! -e "$FAKE/latest-win.json" ] && grep -qF "latest-win.json removed (there was no previous one)" "$TMP/out" && grep -qF "no previous release to restore them from" "$TMP/out" && awk '/^HEAD latest-win\.json /{h=NR} /^DELETE latest-win\.json /{d=NR} END{exit !(h && d && h < d)}' "$FAKE/.calls"; then pass "undo of a first-ever promote removes the pointer (checked first) and claims no restore"
+else fail "first-promote undo: rc=$rc latest-win.json=$([ -e "$FAKE/latest-win.json" ] && echo PRESENT || echo absent) $(tail -1 "$TMP/out")"; fi
+# ...and if someone else's pointer is there by then, it is NOT removed (R2 ignores If-Match on
+# DELETE, so the check is all that protects it).
+undo_setup; rm -f "$FAKE/latest-win.json" "$FAKE/kosmos-win-x64.zip" "$FAKE/kosmos-win-x64.zip.sha256"
+KOSMOS_PUBLISH_R2_FAKE_AFTER="PUT latest-win.json|kosmos-9.9.1-win-x64.zip|$TMP/b.zip
+PUT latest-win.json|latest-win.json|$TMP/other.json" promote; rc=$?
+if [ "$rc" -eq 1 ] && cmp -s "$FAKE/latest-win.json" "$TMP/other.json" && ! grep -q '^DELETE ' "$FAKE/.calls" && grep -qF "SO PROD STILL NAMES" "$TMP/out"; then pass "a first-ever undo does not delete a pointer someone else wrote since"
+else fail "first-promote undo vs a newer pointer: rc=$rc $(grep '^DELETE' "$FAKE/.calls") $(tail -1 "$TMP/out")"; fi
+cp "$TMP/a.zip" "$FAKE/kosmos-9.9.1-win-x64.zip"; undo_setup
+# A zip whose duplicate differs only by case or slash is refused too (Windows extracts both to one file).
+python3 - "$TMP/dupcase.zip" "$EXE" <<'PYEOF'
+import sys, zipfile, warnings
+warnings.simplefilter('ignore')
+with zipfile.ZipFile(sys.argv[1], 'w') as z:
+    z.writestr('app/package.json', '{"version":"9.9.5"}'); z.writestr('Kosmos.exe', open(sys.argv[2], 'rb').read()); z.writestr('KOSMOS.EXE', 'MZ other')
+PYEOF
+fake -Zip "$TMP/dupcase.zip"; rc=$?; refuses_clean "a zip with a case-only duplicate is refused" "duplicate entries"
+python3 - "$TMP/dupslash.zip" "$EXE" <<'PYEOF'
+import sys, zipfile, warnings
+warnings.simplefilter('ignore')
+with zipfile.ZipFile(sys.argv[1], 'w') as z:
+    z.writestr('app/package.json', '{"version":"9.9.5"}'); z.writestr('Kosmos.exe', open(sys.argv[2], 'rb').read())
+    z.writestr('app/x.js', 'a'); z.writestr('app\\x.js', 'b')
+PYEOF
+fake -Zip "$TMP/dupslash.zip"; rc=$?; refuses_clean "a zip with a slash-only duplicate is refused" "duplicate entries"
 # The approval line keeps record= LAST, since a Windows record path can hold spaces.
 _given=$(grep 'approval=given' "$ALOG" | tail -1)
 if [ -n "$_given" ] && printf '%s' "$_given" | grep -qE ' record=[^ ]+$'; then pass "record= is the last field of the approval line"
