@@ -33,14 +33,14 @@ test('the column is still capped at five', () => {
   assert.match(PAGE, /column\.slice\(0, TK_COLUMN_MAX\)/, 'the column is no longer capped');
 });
 
-test('#1382: the door is offered unconditionally, so the all-tasks screen is always reachable', () => {
+test('#1382: the door is offered unconditionally, so every task of this project is always reachable (#3703: in the Tasks view)', () => {
   /* CONTROL: the assertion below is about a specific line, so prove the line is
      there at all before reading anything into its shape. */
   assert.match(PAGE, /door\.hidden = false;/, 'the door is never shown at all');
   assert.doesNotMatch(PAGE, /if \(!TK_SHOW_ALL && \(behind \+ hiddenByCap\) > 0\)/,
-    'the door is conditional again, so a project that hides nothing cannot reach the all-tasks screen');
+    'the door is conditional again, so a project that hides nothing cannot reach its tasks in the Tasks view');
   assert.doesNotMatch(PAGE, /TK_SHOW_ALL/,
-    'the reveal-in-place state is back; the screen supersedes it and two ways to see hidden tasks will drift');
+    'the reveal-in-place state is back; the Tasks view supersedes it and two ways to see hidden tasks will drift');
 });
 
 test('#1382: the door carries NO count, because its destination spans every project', () => {

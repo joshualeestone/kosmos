@@ -58,6 +58,7 @@ test('a project picked in the Tasks view: the dialog is for that project, no pic
   assert.equal(w.els['nt-in'].hidden, false);
   assert.match(w.els['nt-who'].innerHTML, /value="ada"/, 'the members offered are not that project\'s');
   assert.equal(w.els['nt-modal'].hidden, false);
+  assert.equal(w.focusLog[w.focusLog.length - 1], 'nt-what');
 });
 
 test('All tasks: the dialog asks which project, lists only live projects by name, and aims at the first', () => {
@@ -68,6 +69,7 @@ test('All tasks: the dialog asks which project, lists only live projects by name
   const opts = [...w.els['nt-proj'].innerHTML.matchAll(/value="([^"]+)"/g)].map((m) => m[1]);
   assert.deepEqual(opts, ['b', 'a'], 'the picker is not the live projects by name (archived set aside)');
   assert.equal(w.api.NT_PROJECT, 'b');
+  assert.equal(w.focusLog[w.focusLog.length - 1], 'nt-proj', 'focus skips the picker, so its chosen project is never heard');
   assert.match(w.els['nt-who'].innerHTML, /value="rex"/);
   assert.doesNotMatch(w.els['nt-who'].innerHTML, /value="ada"/, 'another project\'s members are offered');
 });
