@@ -7,7 +7,8 @@
 # protection on this repo, by a deliberate repo-admin decision; see test.yml).
 #
 # WHAT GREEN CERTIFIES: the Foundation-only push logic passes its suite on macOS,
-# and the app compiles and links for the simulator with signing off. It does NOT
+# the app compiles and links for the simulator with signing off (Debug and
+# Release), and both built apps carry the four permission strings. It does NOT
 # certify running on a simulator or device, a signed build, or APNs delivery.
 
 name: ios
