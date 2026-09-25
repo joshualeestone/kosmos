@@ -1973,7 +1973,7 @@ for _a in "$@"; do
 done
 if [ "$_kosmos_help" = 1 ]; then
   case "${1:-}" in
-    msg|reply|post|react|report|room|feedback|task|project)
+    msg|reply|post|react|report|room|feedback|task|project|agent)
       # kosmos#3036: these verbs, run bare, print their own usage and exit 2 --
       # the missing-required-argument error. A --help re-dispatched here to GET
       # that usage SUCCEEDED, so it must exit 0, not inherit the bare-usage 2 (a
@@ -1997,7 +1997,7 @@ if [ "$_kosmos_help" = 1 ]; then
       # Keep the bare re-dispatch and let their status stand.
       set -- "$1" ;;
     *)
-      printf '\n  kosmos start | stop | restart | status | open | agents | version | msg | post | reply | react | report | room | feedback | task | project | adopt | whoami\n\n'
+      printf '\n  kosmos start | stop | restart | status | open | agents | version | msg | post | reply | react | report | room | feedback | task | project | agent | adopt | whoami\n\n'
       printf '  Add --help to any command; it never acts, except adopt and whoami, which show their read-only output.\n'
       printf '  (stop and restart ACT when run bare; --help never does.)\n'
       printf '  The dashboard lives at %s once started.\n\n' "$URL"
@@ -2348,6 +2348,81 @@ cmd_project() {
   esac
 }
 
+# kosmos#3734: make an agent for the person, after they confirm (the setup guide's verb; its
+# instructions are the only ones that name it). It asks for a one-member team (POST /api/team,
+# #1279) with the agent's launch token, so the board records who asked and why, bounds how many
+# one agent makes, and runs the new agent where the asker runs. `roles` lists the role keys.
+cmd_agent() {
+  local sub; sub="${1:-}"; shift 2>/dev/null || true
+  case "$sub" in
+    ''|help|-h|--help)
+      say "Usage: kosmos agent <create|roles>"
+      say "  kosmos agent create \"<name>\" <role> [\"<why>\"]   make an agent for the person, after they confirm"
+      say "  kosmos agent roles                              list the roles an agent can be made with"
+      exit 2 ;;
+    create)
+      { [ -n "${1:-}" ] && [ -n "${2:-}" ]; } || { say "Usage: kosmos agent create \"<name>\" <role> [\"<why>\"]   (quote the name; kosmos agent roles lists roles)"; exit 2; } ;;
+    roles) : ;;
+    *)
+      say "Unknown: kosmos agent $sub. Try: create, roles"
+      exit 2 ;;
+  esac
+  if ! healthy; then
+    say "Kosmos is not running, so an agent cannot be made. Start it with: kosmos start"
+    exit 1
+  fi
+  # The answer is read as JSON by the engine's own node (an agent's PATH may have none, #1911).
+  local _node; _node="$(kosmos_engine_node)" || { say "Kosmos could not find its own runtime to read the board's answer."; exit 1; }
+  local _bt; _bt="$(board_token || true)"   # #1946: board token for an enforcing board; inert when empty
+  local body rc=0
+  case "$sub" in
+    roles)
+      body=$(kosmos_curl "$_bt" "" -sS -m 15 "$URL/api/roles" 2>/dev/null) || rc=$?
+      if [ "$rc" -ne 0 ] || [ -z "$body" ]; then say "We could not reach Kosmos to list the roles. Is it running at $URL?"; exit 1; fi
+      printf '%s' "$body" | "$_node" -e 'let s="";process.stdin.on("data",(d)=>s+=d).on("end",()=>{let j;try{j=JSON.parse(s)}catch{process.exit(1)}for(const r of (j.roles||[]))if(r&&r.key)console.log(r.key+"  "+(r.label||""))})' \
+        || { say "Kosmos gave an answer we could not read when listing the roles."; exit 1; }
+      ;;
+    create)
+      local name role why esc_name esc_role esc_why _tok="" parsed outcome made because
+      name="$1"; role="$2"; why="${3:-the person asked for it}"
+      case "${KOSMOS_AGENT_TOKEN:-}" in
+        ''|*[!0-9a-f]*) ;;
+        *) _tok="$KOSMOS_AGENT_TOKEN" ;;
+      esac
+      if [ -z "$_tok" ]; then
+        say "kosmos agent create is for an agent acting for the person, and this one has no launch token; make the agent from New agent instead."
+        exit 1
+      fi
+      esc_name=$(printf '%s' "$name" | tr '\n\t\r' '   ' | sed 's/\\/\\\\/g; s/"/\\"/g')
+      esc_role=$(printf '%s' "$role" | tr '\n\t\r' '   ' | sed 's/\\/\\\\/g; s/"/\\"/g')
+      esc_why=$(printf '%s' "$why" | tr '\n\t\r' '   ' | sed 's/\\/\\\\/g; s/"/\\"/g')
+      body=$(kosmos_curl "$_bt" "$_tok" -sS -m 60 -X POST "$URL/api/team" \
+        -H 'content-type: application/json' \
+        --data "{\"purpose\":\"$esc_why\",\"members\":[{\"name\":\"$esc_name\",\"role\":\"$esc_role\"}]}" 2>/dev/null) || rc=$?
+      # 28 is curl's timeout: the request left, so the agent may have been made.
+      if [ "$rc" -eq 28 ]; then
+        say "Kosmos was slow to answer and we stopped waiting. The agent may have been made; look at the board before trying again: $URL/"
+        exit 3
+      fi
+      if [ "$rc" -ne 0 ]; then
+        say "We could not reach Kosmos to make that agent. Is it running at $URL?"
+        exit 1
+      fi
+      # Top-level fields only, never grepped: made (created[0]), or the reason (error, refused[0], because).
+      parsed=$(printf '%s' "$body" | "$_node" -e 'let s="";process.stdin.on("data",(d)=>s+=d).on("end",()=>{let j;try{j=JSON.parse(s)}catch{process.exit(1)}const one=(v)=>String(v==null?"":v).replace(/[\t\r\n]+/g," ");const made=Array.isArray(j.created)&&j.created[0]?j.created[0]:null;const ref=Array.isArray(j.refused)&&j.refused[0]?j.refused[0]:null;const kind=j.error?"error":made?"created":(ref||j.outcome==="refused")?"refused":"unread";console.log([kind,one(made&&(made.shownAs||made.name)),one(j.error||(ref&&ref.because)||j.because)].join("\t"))})') \
+        || { say "Kosmos gave an answer we could not read when making that agent."; exit 1; }
+      outcome=$(printf '%s' "$parsed" | cut -f1)
+      made=$(printf '%s' "$parsed" | cut -f2)
+      because=$(printf '%s' "$parsed" | cut -f3)
+      case "$outcome" in
+        created) say "Made \"${made:-$name}\". It's on your board now: $URL/" ;;
+        error|refused) say "Kosmos did not make that agent: ${because:-it did not say why}."; exit 1 ;;
+        *) say "Kosmos gave an answer we could not read when making that agent."; exit 1 ;;
+      esac
+      ;;
+  esac
+}
+
 # #3079: let a test `source` this file to reach the pure helpers
 # (_kosmos_reclaim_decision et al.) without running a verb. Executed directly,
 # BASH_SOURCE[0] == $0 and we fall through to the dispatch; sourced, they differ and
@@ -2375,8 +2450,9 @@ case "${1:-}" in
   feedback) shift; cmd_feedback "$@" ;;
   task)    shift; cmd_task "$@" ;;
   project) shift; cmd_project "$@" ;;
+  agent) shift; cmd_agent "$@" ;;
   *)
-    printf '\n  kosmos start | stop | restart | status | open | agents | version | msg | post | reply | react | report | room | feedback | task | project | adopt | whoami\n\n'
+    printf '\n  kosmos start | stop | restart | status | open | agents | version | msg | post | reply | react | report | room | feedback | task | project | agent | adopt | whoami\n\n'
     printf '  The dashboard lives at %s once started.\n\n' "$URL"
     exit 2
     ;;
