@@ -26,7 +26,7 @@ after the #3634 syspolicyd fix lifted the full-suite hold).
 
 ### Per-Iteration Breakdown
 
-#### Iteration 1 — opus
+#### Iteration 1 - opus
 1 BLOCKER, 8 WARNINGs, 5 NITs. Self-generated: 0.
 - [BLOCKER] ring tip pointed at a class nothing has --> FIXED 2cb7dfff (reads .agauge; T3)
 - [WARNING] modal guard matched nothing (.rm-back/.fr-back) --> FIXED
@@ -38,59 +38,59 @@ after the #3634 syspolicyd fix lifted the full-suite hold).
 - [WARNING] coverage gaps (ring, New agent, inside a project, narrow, dark) --> FIXED (T3-T12)
 - [WARNING] Stop showing tips raced two PUTs --> FIXED (one write)
 
-#### Iteration 2 — sonnet
+#### Iteration 2 - sonnet
 1 WARNING, 2 CONVENTIONs. Self: 1.
 - ring tip on cards with no ring --> FIXED a2296c96; TIP_IDS/TIPS parity test --> FIXED (control reds); surface annotation completed --> FIXED
 
-#### Iteration 3 — opus
+#### Iteration 3 - opus
 7 WARNINGs. Self: 3.
 - tip over a dialog --> FIXED (steps aside; T13); ring arrow at a ringless card --> FIXED; card did not follow scroll --> FIXED (T14); ? stopPropagation broke other popovers --> FIXED; focus dropped on auto-tip close --> FIXED (T15); New agent tip covered the form --> FIXED (beside the heading); plan said fresh-install-only --> FIXED (plan states upgrades see it once)
 
-#### Iteration 4 — sonnet
+#### Iteration 4 - sonnet
 2 WARNINGs. Self: 0.
 - update takeover (.upd-back) not in the dialog guard --> FIXED; 3s boot fallback never started tips --> FIXED
 
-#### Iteration 5 — opus
+#### Iteration 5 - opus
 3 WARNINGs. Self: 1.
 - a dialog's Escape also closed the hidden tip --> FIXED (capture phase; T17 with control); auto tip outlived its screen --> FIXED (T16); no route tests --> FIXED (server.test.js)
 - 6g reds (mine): bare-handler guard matched my `close`; the modal sweep counted aria-modal=false; the consolidated body grid counts static children --> FIXED (closeHelpMenu; aria-modal dropped; tip layer built at runtime)
 
-#### Iteration 6 — sonnet
+#### Iteration 6 - sonnet
 1 WARNING fixed (tip layer above dialog backdrops -> below every backdrop; T13 checks at once), 1 WARNING DEFERRED (re-add aria-modal=false: it is what broke the modal sweep; non-modal is the ARIA default; explained at the code), 1 CONVENTION fixed (plan listed no Settings tip).
 
-#### Iteration 7 — opus (first on Tour B)
+#### Iteration 7 - opus (first on Tour B)
 2 BLOCKERs, 4 WARNINGs, 1 CONVENTION. Self: 3.
 - [BLOCKER] tour A's full-screen dim came back a tick later, dimmed the ringed place and took its click --> FIXED a0c0bdd5 (dim removed; the ring's shadow is the dim)
 - [BLOCKER] T1 read the dim too early to see it --> FIXED (checks past a tick with elementFromPoint)
 - tour never auto-showed in the consolidated layout --> FIXED (T12 reloads into it); auto tour unreachable by keyboard --> FIXED (takes focus); Stop showing tips let a tip slip in --> FIXED; Escape with focus on the ? did not close its menu --> FIXED; plan piece 3 described A --> FIXED
 
-#### Iteration 8 — sonnet
+#### Iteration 8 - sonnet
 1 BLOCKER, 1 WARNING. Self: 1.
 - [BLOCKER] a click meant for a dialog over the tour ended the tour --> FIXED 8e1a5ca3 (T18)
 - Skip, the x and click-outside unexercised --> FIXED (T18)
 
-#### Iteration 9 — opus
+#### Iteration 9 - opus
 5 WARNINGs. Self: 3.
 - "this screen" answered with the ring on consolidated screens --> FIXED (T19); tour over Settings in consolidated --> FIXED; empty-places tour a dead control, focus stolen from a field --> FIXED; project/projects tips hidden targets in consolidated --> FIXED (rail fallback; project tip tab-layout only); Escape meant for a picker closed a tip --> FIXED (T20)
 
-#### Iteration 10 — sonnet
+#### Iteration 10 - sonnet
 1 WARNING fixed (surface line missing tip-eb, tip-x), 1 WARNING DEFERRED (store read-modify-write race: set() is synchronous read->rename and Node never interleaves one request's sync code; same pattern as engine/styles.js).
 
-#### Iteration 11 — opus
+#### Iteration 11 - opus
 1 BLOCKER, 3 WARNINGs. Self: 2.
 - [BLOCKER] surface gate: three existing checks declare tokens the branch names --> FIXED e512c39a (all three run green on the branch; per-check trailers)
 - burger/Kosmos switcher Escape --> FIXED; failed Stop showing tips save not rolled back --> FIXED; Settings tip did not say where the switch is --> FIXED
 
-#### Iteration 12 — sonnet
+#### Iteration 12 - sonnet
 1 WARNING fixed (the live-region announcement untested; T3 asserts it).
 
-#### Iteration 13 — opus
+#### Iteration 13 - opus
 2 WARNINGs. Self: 1.
 - a header menu drew under a tip (the header is its own stacking layer) --> FIXED c409837f (T21); tour replaced from the ? came back --> FIXED (T22)
 
-#### Iteration 14 — sonnet
+#### Iteration 14 - sonnet
 1 WARNING (store race) = duplicate of the iteration-10 DEFERRED entry; 1 NIT.
-**Converged** — no new actionable findings.
+**Converged** - no new actionable findings.
 
 ### Reopened: who sees tips by themselves (Josh's decision recorded 18:10, PR #3656 CI red)
 PR #3656's browser-checks job failed on render-url-state: the tour showed by itself in every check's
