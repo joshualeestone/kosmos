@@ -206,7 +206,7 @@ No deploy step copies a key file, and the template only holds its path.
   (`aps-environment = development`). Xcode switches it to production when the build is
   exported for distribution.
 
-**Before the first upload (App Store Connect asks these; each is Josh's, the facts are checked):**
+**What to have settled before the first upload (who decides is named on each; the facts are checked):**
 - **Version.** The code says `0.1.0`, build `1` (`MARKETING_VERSION`, `CURRENT_PROJECT_VERSION`).
   The version the store shows at submission is Josh's call. The build number must go up on every
   upload.
@@ -219,8 +219,10 @@ No deploy step copies a key file, and the template only holds its path.
   export for distribution is expected to set `production`. Check it on the exported app before
   upload: `codesign -d --entitlements - Kosmos.app` must show `production`.
 - **iPhone only.** The app targets iPhone only (`TARGETED_DEVICE_FAMILY = 1`, Liu Kang,
-  2026-09-25): iPad layouts are not designed or tested, and an iPad build would be reviewed on iPad
-  and need iPad screenshots. Widening it later is one setting.
+  2026-09-25): iPad layouts are not designed or tested, and no iPad screenshots are needed. iPad is
+  not ruled out, though: an iPhone-only app still installs on an iPad in a scaled iPhone window, App
+  Review can test it there, and it is offered on Apple silicon Macs unless that is turned off in App
+  Store Connect. Widening to iPad later is one setting.
 - **Permission strings.** Camera, microphone, adding to Photos and Face ID each have a sentence in
   the build settings, and iOS CI checks them in the built app (`ios/tools/check-usage-strings.sh`).
   Without one, iOS closes the app when the board's photo pickers or a long-pressed image use it.

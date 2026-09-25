@@ -31,9 +31,10 @@ surface as buildable stubs (#718) are both here now. Full context on the cards
 - Permission strings (`INFOPLIST_KEY_NS*UsageDescription`) for the camera, the microphone and
   adding to Photos, as well as Face ID. No Swift code asks for these, but the board's photo pickers
   offer Take Photo or Video inside the WebView and a long-pressed image offers Add to Photos, and
-  iOS closes an app that uses one without its sentence. iOS CI checks all four in the built app
-  (`tools/check-usage-strings.sh`).
-- iPhone only (`TARGETED_DEVICE_FAMILY = 1`): iPad layouts are not designed or tested.
+  iOS closes an app that uses one without its sentence. iOS CI checks all four in the built app,
+  Debug and Release (`tools/check-usage-strings.sh`).
+- iPhone only (`TARGETED_DEVICE_FAMILY = 1`): iPad layouts are not designed or tested. An iPad
+  can still run it in a scaled iPhone window, so the board must stay usable there.
 
 ## Build (the verifiable deliverable)
 

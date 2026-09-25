@@ -6,7 +6,8 @@ Liu Kang (m634).
 ## Finished means
 - The app carries a permission sentence for the camera, the microphone and adding to Photos, as
   well as Face ID, so iOS does not close it when the board's photo pickers or a long-pressed image
-  use them. iOS CI fails if any of the four is missing from the built app.
+  use them. iOS CI fails if any of the four is missing from the built app, Debug or Release (the
+  store build is Release and the strings are set per configuration).
 - The app targets iPhone only.
 - docs/phone-push-go-live.md lists what App Store Connect will ask before the first upload
   (version, export compliance, push entitlement), whose call each is, and what waits on the runtime
@@ -25,8 +26,9 @@ Liu Kang (m634).
 - **Wording** is Liu Kang's, adjusted to what the pages do: plain, says what it is used for.
 - **Checked in the built app, not the project file**, because the strings are build settings; the
   check script is usable by hand.
-- **iPhone only** (Liu Kang, decided): iPad is not designed or tested, and an iPad build is reviewed
-  on iPad. One setting to undo.
+- **iPhone only** (Liu Kang, decided): iPad is not designed or tested, so no iPad layouts or
+  screenshots. An iPad still runs it in a scaled iPhone window. The iPad orientation setting is
+  removed with it. One setting to undo.
 - **Not in code, on purpose:** the store version (Josh's at submission) and export compliance (a
   declaration Josh makes to Apple). Both are in the doc.
 
