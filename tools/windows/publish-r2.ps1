@@ -80,6 +80,8 @@ $Invariant = [Globalization.CultureInfo]::InvariantCulture
 # Anything that goes wrong after latest-win.json is written must say so (set just before it).
 $script:AfterNote = ''
 function Say([string] $m) { [Console]::Out.WriteLine("publish-r2: $m") }
+# Anything unexpected still ends in the same clear shape, with the partial-state note.
+trap { [Console]::Error.WriteLine("publish-r2: UNEXPECTED - $($_.Exception.Message)$script:AfterNote"); exit 1 }
 function Refuse([string] $m) { [Console]::Error.WriteLine("publish-r2: REFUSING - $m$script:AfterNote"); exit 1 }
 
 # ---------- names -------------------------------------------------------------------------------
@@ -144,6 +146,7 @@ function Read-Credentials {
     }
     $from = $CredentialFile
   } else {
+    if ($CredentialFile) { Say "no credential file at $CredentialFile; reading the environment instead" }
     foreach ($n in 'R2_ACCOUNT_ID', 'R2_ACCESS_KEY_ID', 'R2_SECRET_ACCESS_KEY') { $v = [Environment]::GetEnvironmentVariable($n); if ($v) { $c[$n] = $v } }
     $from = 'the environment'
   }
@@ -395,7 +398,7 @@ if ($PSCmdlet.ParameterSetName -ceq 'Staging') {
 
   # Zip, then sidecar, then pointer LAST, so the pointer never names bytes that are not up.
   # A replace of an existing versioned name is not immutable any more, so it is no-cache too.
-  if ($existing) { $putExtra = $NoCache }
+  if ($existing -and (Sha256-Bytes $existing.Bytes) -cne $Sha) { $putExtra = $NoCache }   # a same-bytes re-run stays cacheable
   if (-not $DryRun) { $script:AfterNote = " (staging writes had begun: $Versioned may be up; latest-win-staging.json still names the previous build unless the run said it was written. Re-run the same command to finish.)" }
   Put-Object $Versioned $null $ZipPath $Sha 'application/zip' $putExtra
   $side = New-SidecarBytes $Sha $Versioned
@@ -482,6 +485,9 @@ Write-ApprovalLine "$(Stamp) family=win path=promote-r2 version=$ApprovedVersion
 # the bucket BEFORE prod's pointer moves; then latest-win.json LAST, the staging bytes verbatim.
 # From the first prod-facing write on, a failure says what may already have changed.
 if (-not $DryRun) { $script:AfterNote = " (prod-facing writes had begun: the alias, its sidecar or latest-win.json may already have changed. Re-run the same -Promote command to finish; it re-checks everything first.)" }
+# For a moment the alias holds the new zip while its sidecar still names the old one. Safe
+# because no client reads the alias except after reading latest-win.json (written LAST): the
+# updater's generic-name fallback pins the sha from that pointer (engine/win32update.js).
 Copy-Object $Versioned $Alias $staged.ETag
 $aliasSide = New-SidecarBytes $ApprovedSha $Alias
 Put-Object "$Alias.sha256" $aliasSide $null (Sha256-Bytes $aliasSide) 'text/plain; charset=utf-8' $NoCache

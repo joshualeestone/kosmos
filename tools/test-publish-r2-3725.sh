@@ -149,6 +149,10 @@ else fail "staging headers: $(cat "$FAKE/.calls")"; fi
 # The next step is printed with the sha left for Josh's message to supply.
 if grep -qF -- "-ApprovedSha <sha from his go>" "$TMP/out" && ! grep -F -- "-ApprovedSha $SHA_A" "$TMP/out" >/dev/null; then pass "staging does not hand out the sha to paste into the approval"
 else fail "staging next-step line: $(grep -F -- '-Promote' "$TMP/out")"; fi
+# A same-bytes re-run (the advice after an interrupted run) keeps the versioned zip cacheable.
+fake -Zip "$TMP/a.zip"; rc=$?
+if [ "$rc" -eq 0 ] && grep -qE '^PUT kosmos-9\.9\.1-win-x64\.zip \| $' "$FAKE/.calls"; then pass "a same-bytes re-stage uploads the zip with no no-cache and no create-only header"
+else fail "same-bytes re-stage headers: rc=$rc $(grep '^PUT kosmos-9.9.1-win-x64.zip ' "$FAKE/.calls")"; fi
 fake -Zip "$TMP/b.zip"; rc=$?; refuses_clean "different bytes under a published version are refused, nothing written" "DIFFERENT bytes"
 fake -Zip "$TMP/a.zip" -Version 9.9.2; rc=$?; refuses_clean "a -Version the zip was not built as is refused" "not the version this zip was built as"
 

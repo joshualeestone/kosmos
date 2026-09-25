@@ -94,6 +94,7 @@ case "$FAMILY" in
   mac)
     [ -z "$APPROVED_VERSION$APPROVED_SHA$APPROVAL_REF" ] || { echo "promote-channel: --approved-version/--approved-sha/--approval-ref are for --family win only (the Mac promote is gated by its experience and agent-spawn gates)" >&2; exit 1; } ;;
   win)
+    echo "promote-channel: NOTE the served Windows files live in the R2 bucket kosmos-dist-win, which this script does not write; a Windows release from the Windows PC uses tools/windows/publish-r2.ps1 (tools/windows/RELEASING.md, #3725)." >&2
     [ "$FORCE" = 0 ] || { echo "promote-channel: --force is refused for --family win - neither Josh's go nor the Windows verification record can be forced." >&2; exit 1; }
     [ -z "$PORT" ] || { echo "promote-channel: --family win takes no [port] (its gate reads the verification record, not a board)" >&2; exit 1; } ;;
   *) echo "promote-channel: --family must be 'mac' or 'win' (got '$FAMILY')" >&2; exit 1 ;;
