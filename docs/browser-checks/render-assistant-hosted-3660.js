@@ -147,9 +147,9 @@ const waitFor = (page, fn, ms = 6000) => page.waitForFunction(fn, null, { timeou
     slow = 1500;
     await page.fill('#asp-say', 'How do I make an agent?');
     await page.keyboard.press('Enter');
-    chk(await waitFor(page, () => !!document.querySelector('#asp-th .asp-wait') && /Thinking/.test(document.querySelector('#asp-th .asp-wait').textContent), 2000), 'H3 while the answer comes, the chat says it is thinking');
+    chk(await waitFor(page, () => { const b = document.getElementById('asp-busy'); return !!b && !b.hidden && b.querySelectorAll('.act i').length === 3 && /Josh is working/.test(b.textContent); }, 2000), 'H3 while the answer comes, the chat shows the app\'s working row (#3733)');
     chk(await waitFor(page, () => [...document.querySelectorAll('#asp-th .asp-m.him')].some((m) => /New agent/.test(m.textContent))), 'H3 the answer shows in the chat');
-    chk(!(await page.$('#asp-th .asp-wait')), 'H3 and the thinking line is gone');
+    chk(await page.evaluate(() => document.getElementById('asp-busy').hidden), 'H3 and the working row is gone once it answers');
     slow = 0;
     const h3 = await state(page);
     chk(asked.length === 1 && JSON.stringify(asked[0].messages) === JSON.stringify([{ role: 'user', content: 'How do I make an agent?' }]) && JSON.stringify(asked[0].page) === JSON.stringify({ screen: 'board' }),
@@ -456,7 +456,7 @@ const waitFor = (page, fn, ms = 6000) => page.waitForFunction(fn, null, { timeou
       fleet.agent('beatrix', { state: 'idle', displayName: 'Beatrix', role: 'Collections Coordinator' })]);
     seedGuide('josh');
     await page.evaluate(() => { ASB.nextFind = 0; });
-    chk(await waitFor(page, () => ASB.guide === 'josh', 12000) && await page.evaluate(() => ASB.sending === true && !!document.querySelector('.asp-wait, #asp-send[disabled]')),
+    chk(await waitFor(page, () => ASB.guide === 'josh', 12000) && await page.evaluate(() => ASB.sending === true && !!document.querySelector('#asp-send[disabled]')),
       'H17 precondition: the guide is adopted while the answer is still on its way');
     await waitFor(page, () => ASB.sending === false, 16000);
     await page.waitForTimeout(300);

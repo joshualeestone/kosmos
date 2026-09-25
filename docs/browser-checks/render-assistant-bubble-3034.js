@@ -240,6 +240,26 @@ const waitFor = (page, fn, ms = 6000) => page.waitForFunction(fn, null, { timeou
     await page.waitForTimeout(300);
     chk(!(await bubble(page)).dot && await page.evaluate(() => [...document.querySelectorAll('#asp-th .asp-m.him')].length === 2), 'B6 opening it shows the reply and clears the dot');
 
+    // B20 (#3733, Josh 08:23): while the guide is working on a reply, the chat shows the app's working row (the same
+    // .act dots and "is working" the agent page uses) and the folded bubble shows the dots, so a message does not
+    // feel lost. CONTROL: idle, neither shows.
+    const guideState = (st) => fleet.install([fleet.agent('josh-2', { state: 'idle', displayName: 'Josh', role: 'Personal assistant' }),
+      fleet.agent('josh', { state: st, displayName: 'Josh', role: 'Setup guide' }),
+      fleet.agent('beatrix', { state: 'idle', displayName: 'Beatrix', role: 'Collections Coordinator' })]);
+    guideState('working');
+    chk(await waitFor(page, () => { const b = document.getElementById('asp-busy'); return !!b && !b.hidden && b.querySelectorAll('.act i').length === 3 && /Josh is working/.test(b.textContent); }, 12000),
+      'B20 the guide working: the open chat shows the working row', await page.evaluate(() => document.getElementById('asp-busy').outerHTML.slice(0, 200)));
+    if (SHOTS) { fs.mkdirSync(SHOTS, { recursive: true }); await page.screenshot({ path: path.join(SHOTS, 'asb-working-open.png') }); }
+    await page.click('#asp-fold');
+    chk(await waitFor(page, () => { const a = document.querySelector('#asb .asb-act'); return !!a && !a.hidden && getComputedStyle(a).display !== 'none'; }, 4000)
+      && await page.evaluate(() => /working on a reply/.test(document.getElementById('asb').getAttribute('aria-label'))),
+      'B20 folded, the bubble shows the working dots and says so to a screen reader');
+    if (SHOTS) await page.screenshot({ path: path.join(SHOTS, 'asb-working-folded.png'), clip: { x: 1100, y: 700, width: 180, height: 160 } });
+    guideState('idle');
+    chk(await waitFor(page, () => { const a = document.querySelector('#asb .asb-act'); return !!a && a.hidden; }, 12000), 'B20 CONTROL: idle, the dots go');
+    await page.click('#asb');
+    chk(await page.evaluate(() => document.getElementById('asp-busy').hidden), 'B20 CONTROL: and no working row in the chat');
+
     // B7: the first x asks once; Close for now keeps it and records the ask; a later x just closes.
     await page.click('#asp-x');
     const ask = await bubble(page);

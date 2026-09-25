@@ -1481,6 +1481,12 @@ button.uprime:hover, .btn.uprime:hover, .utoast .uacts button.uprime:hover,
 .asb[hidden], .asb-nudge[hidden], .asp[hidden], .asp-ask[hidden], .asb-dot[hidden] { display: none; }
 .asb img { width: 100%; height: 100%; border-radius: 50%; object-fit: cover; display: block; }
 .asb:focus-visible { outline: 2px solid var(--k-ink); outline-offset: 4px; }
+/* #3733 (Josh 08:23: "It seems like my message just went off into space"): the app's working glyph (.act, the
+   board's and the agent page's) while the assistant is working on a reply: on the folded bubble, and in the chat. */
+.asb-act { position: absolute; left: -3px; bottom: -3px; height: auto; padding: 5px 6px; border-radius: 999px;
+  background: var(--k-surface); box-shadow: 0 0 0 2px var(--gold-bright); }
+.asb-act[hidden], .asp-busy[hidden] { display: none; }
+.asp .asp-busy { margin: 0; padding: 4px 12px 6px; }
 /* A reply that came while the chat was folded. */
 .asb-dot { position: absolute; right: 1px; top: 1px; width: 12px; height: 12px; border-radius: 50%; background: var(--gold-bright); box-shadow: 0 0 0 2px var(--k-surface); }
 .asb-nudge { position: fixed; right: 78px; bottom: 24px; z-index: 44; display: flex; align-items: center; gap: 10px; max-width: calc(100vw - 100px);
@@ -55284,12 +55290,12 @@ function asbLayerEnsure() {
      and the modal sweep (web.modal-way-out-1316) counts anything carrying aria-modal. */
   layer.innerHTML = '<div class="asb-nudge" id="asb-nudge" hidden><button type="button" id="asb-nudge-go">Want help setting up Kosmos?</button>'
     + '<button type="button" class="asb-nudge-x" id="asb-nudge-x" aria-label="Hide this for now">&times;</button></div>'
-    + '<button type="button" class="asb" id="asb" aria-label="Open the setup assistant" hidden><img alt=""><span class="asb-dot" hidden></span></button>'
+    + '<button type="button" class="asb" id="asb" aria-label="Open the setup assistant" hidden><img alt=""><span class="asb-dot" hidden></span><span class="act asb-act" aria-hidden="true" hidden><i></i><i></i><i></i></span></button>'
     + '<div class="asp" id="asp" role="dialog" aria-label="Setup assistant" hidden>'
     +   '<div class="asp-h"><img alt=""><div class="asp-who"><b>Josh</b><span class="asp-tag">JOSH\'S AI</span></div>'
     +   '<div class="asp-ctl"><button type="button" id="asp-fold" aria-label="Fold the assistant away">&minus;</button>'
     +   '<button type="button" id="asp-x" aria-label="Close the assistant">&times;</button></div></div>'
-    +   '<div class="asp-th" id="asp-th"></div><span class="vh" id="asp-live" aria-live="polite"></span>'
+    +   '<div class="asp-th" id="asp-th"></div><p class="dmbusy asp-busy" id="asp-busy" hidden></p><span class="vh" id="asp-live" aria-live="polite"></span>'
     +   '<div class="asp-note">An AI that knows Kosmos, in Josh\'s voice. Josh isn\'t typing live.</div>'
     +   '<div class="asp-msg" id="asp-msg" role="status"></div>'
     +   '<div class="asp-ask" id="asp-ask" hidden><b>Close the assistant?</b>'
@@ -55387,8 +55393,25 @@ function asbPaint() {
   asbLift(panel, true);
   const nudge = document.getElementById('asb-nudge');
   nudge.style.bottom = (parseFloat(bub.style.bottom) || 16) + 8 + 'px';
+  /* #3733: working on a reply. A guide is working when the board says so (its card state), the hosted assistant while
+     a question is out. The same signal draws the dots on the folded bubble and the row in the chat. */
+  const working = row ? row.state === 'working' : (asbIsHosted() && ASB.sending);
+  const act = bub.querySelector('.asb-act');
+  if (act) act.hidden = !working || ASB.open;
+  const busy = document.getElementById('asp-busy');
+  if (busy) {
+    const who = row ? (row.name || 'Josh') : 'Josh';
+    const html = !working ? '' : row ? busyRow(row, who)
+      : '<div class="msg-av" aria-hidden="true"><img src="' + ASB_HOSTED_AVATAR + '" alt=""></div><span class="act" aria-hidden="true"><i></i><i></i><i></i></span><span>' + esc(who) + ' is ' + WORKING_VERB + '&hellip;</span>';
+    if (busy.innerHTML !== html) busy.innerHTML = html;   // only on a change, so the dots keep their rhythm
+    busy.hidden = !working;
+    /* Said once as it starts, for a screen reader in the open chat. */
+    if (working && !ASB.wasWorking && ASB.open) document.getElementById('asp-live').textContent = who + ' is ' + WORKING_VERB;
+  }
+  ASB.wasWorking = working;
   bub.querySelector('.asb-dot').hidden = !ASB.dot || ASB.open;
-  const lab = ASB.dot && !ASB.open ? 'Open the setup assistant, there is something new to read' : 'Open the setup assistant';
+  const lab = working && !ASB.open ? 'Open the setup assistant, it is working on a reply'
+    : ASB.dot && !ASB.open ? 'Open the setup assistant, there is something new to read' : 'Open the setup assistant';
   if (bub.getAttribute('aria-label') !== lab) bub.setAttribute('aria-label', lab);   // the dot, for a screen reader
   document.getElementById('asb-nudge').hidden = ASB.open || ASB.nudgeGone || ASB.wroteOnce || !ASB.readOnce;   // not before the thread says whether they wrote
   document.getElementById('asp-ask').hidden = !ASB.asking;
@@ -55602,12 +55625,8 @@ async function asbHostedSend(text) {
   msg.textContent = '';
   hm.push({ role: 'user', content: text });
   paint();
-  /* An answer can take a while (a model, and a retry): say so in the chat, where they are looking. */
-  const th = document.getElementById('asp-th');
-  const wait = document.createElement('div');
-  wait.className = 'asp-m him asp-wait'; wait.textContent = 'Thinking\u2026';
-  th.appendChild(wait); th.scrollTop = th.scrollHeight;
-  document.getElementById('asp-live').textContent = 'Thinking';
+  /* An answer can take a while (a model, and a retry): the working row says so (#3733), in the chat and on the bubble. */
+  asbPaint();
   let r = null, b = null;
   try {
     /* The screen only: the route keeps nothing else, and the names of their agents and projects never need
@@ -55618,7 +55637,6 @@ async function asbHostedSend(text) {
       body: JSON.stringify({ messages: hm.slice(-7).map((m) => ({ role: m.role, content: m.content.slice(0, 2000) })), page: { screen: asbScreen().screen } }) });
     b = await r.json().catch(() => null);
   } catch { r = null; }
-  wait.remove();
   ASB.sending = false;
   document.getElementById('asp-send').disabled = false;
   const ok = !!(r && r.ok && b && typeof b.reply === 'string' && b.reply);
