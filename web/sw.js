@@ -136,15 +136,52 @@ const KIND_HEADLINE = {
    coordinator's origin, so the COORDINATOR's worker (kosmos-relay
    coordinator/src/sw.js) handles that tap, with the same link and rule. This
    worker sees a push only from a subscription made on the board's own origin,
-   of which there is none today (#3510). The iOS app builds the same link, but only the
-   link's SHAPE is shared: iOS also checks which host it opens (one name under
-   the relay domain), and this worker does not yet (kosmos#3689). */
+   of which there is none today (#3510). The iOS app builds the same link.
+
+   #3689: a domain SHAPE is not enough for the host. `address` must be exactly one
+   host label under this board's own relay domain (this worker runs on
+   "<mac>.<domain>", so "<other-mac>.<domain>" is accepted and "evil.example" is
+   not). On the Kosmos relay domain that keeps a tap on Kosmos-owned hosts; it
+   does NOT prove the host is one of THIS person's Macs (another person's Mac, or
+   a service host such as login.<domain>, has the same shape), which only the
+   coordinator knows. KNOWN LIMIT: the domain is whatever this board is served
+   under, which the worker cannot check against the coordinator; a board served on
+   a shared domain (a tunnel service such as *.trycloudflare.com, or a public
+   suffix such as example.co.uk) would accept any other name there. The label
+   rule is the iOS app's (PushBridge.isHostLabel: RFC 1123, no punycode, since xn--
+   is how a lookalike Unicode name arrives in ASCII). Two differences from iOS: the
+   domain here comes from this worker's own host, not the coordinator's, and the
+   coordinator host is not excluded (the board does not know it). A board on
+   localhost, an IP address, a two-label host, or a name written with a trailing
+   dot has no relay domain, so every tap opens the board on this origin. Non-ASCII
+   is refused before lowercasing, as iOS does (JS lowercases some non-ASCII
+   letters, such as the Kelvin sign, into ASCII ones). The host is decided FIRST; the session query is
+   added after, to whichever base that leaves. */
 const TAP_SESSION = /^[a-z0-9][a-z0-9_-]{0,63}$/;
+
+function relayDomainOf(host) {
+  const labels = String(host || '').toLowerCase().split('.');
+  if (labels.length < 3 || labels.some((l) => !l)) return '';
+  if (labels.every((l) => /^[0-9]+$/.test(l))) return ''; // an IPv4 address
+  return labels.slice(1).join('.');
+}
+
+function isHostLabel(label) {
+  return /^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?$/.test(label) && label.slice(0, 4) !== 'xn--';
+}
+
+// The Mac host a tap may open, lowercased, or '' when `address` is not one.
+function macHostFor(address) {
+  if (typeof address !== 'string' || !/^[\x00-\x7f]*$/.test(address)) return '';
+  const host = address.toLowerCase();
+  const domain = relayDomainOf(self.location && self.location.hostname);
+  if (!domain || !host.endsWith('.' + domain)) return '';
+  return isHostLabel(host.slice(0, host.length - domain.length - 1)) ? host : '';
+}
+
 function boardUrlFor(data) {
-  let url = '/';
-  if (typeof data.address === 'string' && /^[a-z0-9-]+(\.[a-z0-9-]+)+$/i.test(data.address)) {
-    url = 'https://' + data.address + '/';
-  }
+  const host = macHostFor(data.address);
+  let url = host ? 'https://' + host + '/' : '/';
   if (typeof data.session === 'string' && TAP_SESSION.test(data.session)) {
     url += '?' + new URLSearchParams({ tab: 'detail', agent: data.session }).toString();
   }

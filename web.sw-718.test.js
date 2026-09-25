@@ -30,16 +30,65 @@ const path = require('node:path');
 const src = fs.readFileSync(path.join(__dirname, 'web', 'sw.js'), 'utf8');
 // eslint-disable-next-line no-new-func
 const factory = new Function('self', 'caches', src + '\nreturn { boardUrlFor, notificationFor };');
-const selfStub = { addEventListener() {}, location: { origin: 'https://board.example' } };
-const { boardUrlFor, notificationFor } = factory(selfStub, {});
+// The worker as it runs on a board served at `hostname` (#3689: the tap rule
+// depends on the worker's own host).
+function workerOn(hostname) {
+  return factory({ addEventListener() {}, location: { origin: 'https://' + hostname, hostname } }, {});
+}
+const { boardUrlFor, notificationFor } = workerOn('hers.kosmosplus.com');
 
-test('boardUrlFor builds an https URL only from a valid hostname address', () => {
-  assert.equal(boardUrlFor({ address: 'study.kosmos.io' }), 'https://study.kosmos.io/');
-  assert.equal(boardUrlFor({ address: 'a.b.example.com' }), 'https://a.b.example.com/');
-  assert.equal(boardUrlFor({ address: 'mac-1.nonprod.example.com' }), 'https://mac-1.nonprod.example.com/');
+test('boardUrlFor opens a sibling Mac under the board\'s own domain', () => {
+  assert.equal(boardUrlFor({ address: 'study.kosmosplus.com' }), 'https://study.kosmosplus.com/');
+  assert.equal(boardUrlFor({ address: 'hers.kosmosplus.com' }), 'https://hers.kosmosplus.com/', 'this Mac itself');
+  assert.equal(boardUrlFor({ address: 'Mac-1.KosmosPlus.com' }), 'https://mac-1.kosmosplus.com/', 'case is not significant in a host');
+  // A board on a longer domain (a nonprod relay) takes its siblings there.
+  assert.equal(workerOn('mac-1.nonprod.example.com').boardUrlFor({ address: 'mac-2.nonprod.example.com' }),
+    'https://mac-2.nonprod.example.com/');
+});
+
+test('#3689: a domain-SHAPED address that is not a sibling Mac opens this board instead', () => {
+  for (const bad of [
+    'evil.example',                   // the card's case: any domain passed the old shape check
+    'evil.kosmosplus.com.attacker.io', // our domain as a prefix, not the suffix
+    'kosmosplus.com',                 // the domain itself, no Mac label
+    'a.b.kosmosplus.com',             // two labels deep, not one
+    'evilkosmosplus.com',             // suffix without the dot boundary
+    'xn--80ak6aa92e.kosmosplus.com',  // punycode: how a lookalike name arrives in ASCII
+    '-bad.kosmosplus.com',            // a label may not start with a hyphen
+    'bad-.kosmosplus.com',            // or end with one
+    'a'.repeat(64) + '.kosmosplus.com', // a label is at most 63 characters
+    'st\u00fcdy.kosmosplus.com',      // non-ASCII
+    'wor\u212a.kosmosplus.com',       // the Kelvin sign lowercases to an ASCII k; refused before that
+    // The navigation-boundary characters, now carrying our domain so they reach
+    // the label check rather than failing on the suffix.
+    'javascript:x.kosmosplus.com',
+    'user@x.kosmosplus.com',
+    'evil.com/x.kosmosplus.com',
+    'a b.kosmosplus.com',
+    'x_y.kosmosplus.com',
+  ]) {
+    assert.equal(boardUrlFor({ address: bad }), '/', 'must reject: ' + JSON.stringify(bad));
+  }
+  // The longest legal label is still a Mac.
+  assert.equal(boardUrlFor({ address: 'a'.repeat(63) + '.kosmosplus.com' }), 'https://' + 'a'.repeat(63) + '.kosmosplus.com/');
+});
+
+test('#3689: a board with no relay domain (localhost, an IP, a two-label host) opens itself on every tap', () => {
+  for (const host of ['localhost', '127.0.0.1', 'kosmosplus.com', '']) {
+    assert.equal(workerOn(host).boardUrlFor({ address: 'study.kosmosplus.com' }), '/', 'board on ' + JSON.stringify(host));
+  }
+  // Each needs its own check, or a sibling of a non-domain would pass:
+  // a board on 127.0.0.1 would open 1.0.0.1 (a real public address), and a board
+  // on a two-label host would treat every .com site as a sibling.
+  assert.equal(workerOn('127.0.0.1').boardUrlFor({ address: '1.0.0.1' }), '/', 'an IP board took an IP sibling');
+  assert.equal(workerOn('kosmosplus.com').boardUrlFor({ address: 'evil.com' }), '/', 'a two-label board took a .com sibling');
+  // A board host with an empty label (a trailing dot) has no relay domain either.
+  assert.equal(workerOn('hers.kosmosplus.com.').boardUrlFor({ address: 'study.kosmosplus.com.' }), '/', 'a trailing-dot board took a sibling');
 });
 
 test('boardUrlFor REJECTS hostile or malformed addresses (the arbitrary-navigation boundary)', () => {
+  // Since #3689 none of these end in the board's domain, so this now proves the
+  // suffix gate; the same characters carrying the domain are in the #3689 test.
   // A colon (scheme), a slash (path), an @ (userinfo), or whitespace must never
   // survive -- each is how a value could become a `javascript:` URI, a foreign
   // path, or a spoofed origin once it reaches openWindow()/navigate().
@@ -64,7 +113,7 @@ test('boardUrlFor does NOT honor a `url` field (removed passthrough)', () => {
   // alongside a valid `address` still resolves to the address, never the url.
   assert.equal(boardUrlFor({ url: 'https://evil.com' }), '/');
   assert.equal(boardUrlFor({ url: 'javascript:alert(1)' }), '/');
-  assert.equal(boardUrlFor({ url: 'javascript:alert(1)', address: 'ok.example.com' }), 'https://ok.example.com/');
+  assert.equal(boardUrlFor({ url: 'javascript:alert(1)', address: 'ok.kosmosplus.com' }), 'https://ok.kosmosplus.com/');
 });
 
 function ev(payload) { return { data: { json: () => payload } }; }
@@ -72,11 +121,11 @@ function ev(payload) { return { data: { json: () => payload } }; }
 test('notificationFor maps the coordinator payload to who/what + a Mac click-through', () => {
   const { title, options } = notificationFor(ev({
     kind: 'needs_you', agent: 'Scorpion', project: 'Kosmos Inside Out',
-    id: 'evt-1', address: 'study.kosmos.io',
+    id: 'evt-1', address: 'study.kosmosplus.com',
   }));
   assert.equal(title, 'Scorpion needs you');
   assert.equal(options.body, 'In Kosmos Inside Out');
-  assert.equal(options.data.url, 'https://study.kosmos.io/');
+  assert.equal(options.data.url, 'https://study.kosmosplus.com/');
   assert.equal(options.tag, 'kosmos-evt-1');
 });
 
@@ -109,26 +158,37 @@ test('notificationFor honors an explicit title/body and survives a payload-less 
 });
 
 test('#718: a tap opens the agent the push names, as the board\'s own link', () => {
-  assert.equal(boardUrlFor({ address: 'study.kosmos.io', session: 'april' }), 'https://study.kosmos.io/?tab=detail&agent=april');
-  assert.equal(boardUrlFor({ address: 'study.kosmos.io', session: 'leo-2_x' }), 'https://study.kosmos.io/?tab=detail&agent=leo-2_x');
+  assert.equal(boardUrlFor({ address: 'study.kosmosplus.com', session: 'april' }), 'https://study.kosmosplus.com/?tab=detail&agent=april');
+  assert.equal(boardUrlFor({ address: 'study.kosmosplus.com', session: 'leo-2_x' }), 'https://study.kosmosplus.com/?tab=detail&agent=leo-2_x');
   // The longest accepted id is 64, the same bound as the coordinator's.
   assert.equal(boardUrlFor({ session: 'a'.repeat(64) }), '/?tab=detail&agent=' + 'a'.repeat(64));
   // No address: the agent on this origin.
   assert.equal(boardUrlFor({ session: 'april' }), '/?tab=detail&agent=april');
   // The shown notification carries it.
-  const { options } = notificationFor({ data: { json: () => ({ kind: 'needs_you', agent: 'April', address: 'study.kosmos.io', session: 'april' }) } });
-  assert.equal(options.data.url, 'https://study.kosmos.io/?tab=detail&agent=april');
+  const { options } = notificationFor({ data: { json: () => ({ kind: 'needs_you', agent: 'April', address: 'study.kosmosplus.com', session: 'april' }) } });
+  assert.equal(options.data.url, 'https://study.kosmosplus.com/?tab=detail&agent=april');
 });
 
 test('#718: a session that is not a plain id is dropped, never put in the URL', () => {
   for (const bad of ['', '-april', '_april', 'April', 'apr.il', '../x', 'a/b', '/a', 'a:1', 'https://evil.com',
     '//evil.com', 'a%2fb', 'a?x=1', 'a#x', 'a&agent=b', 'a b', 'a\n', 'a\u0000', '\u00e9', 'a'.repeat(65),
     'javascript:alert(1)', null, 7, {}, ['a']]) {
-    assert.equal(boardUrlFor({ address: 'study.kosmos.io', session: bad }), 'https://study.kosmos.io/', 'must drop: ' + JSON.stringify(bad));
+    assert.equal(boardUrlFor({ address: 'study.kosmosplus.com', session: bad }), 'https://study.kosmosplus.com/', 'must drop: ' + JSON.stringify(bad));
     assert.equal(boardUrlFor({ session: bad }), '/', 'must drop: ' + JSON.stringify(bad));
   }
   // A hostile address still falls back to this origin even with a good session.
   assert.equal(boardUrlFor({ address: 'javascript:alert(1)', session: 'april' }), '/?tab=detail&agent=april');
+});
+
+test('#3689 + #718: the host is decided first, then the session query goes on whichever base that leaves', () => {
+  // An allowed host plus a session: that Mac, on the agent.
+  assert.equal(boardUrlFor({ address: 'study.kosmosplus.com', session: 'april' }), 'https://study.kosmosplus.com/?tab=detail&agent=april');
+  // A domain-shaped host that is not one label under the board's domain, plus a
+  // session: the board on this origin, still on the agent.
+  assert.equal(boardUrlFor({ address: 'evil.example', session: 'april' }), '/?tab=detail&agent=april');
+  assert.equal(boardUrlFor({ address: 'a.b.kosmosplus.com', session: 'april' }), '/?tab=detail&agent=april');
+  // A board with no relay domain keeps the query on its own origin.
+  assert.equal(workerOn('127.0.0.1').boardUrlFor({ address: 'study.kosmosplus.com', session: 'april' }), '/?tab=detail&agent=april');
 });
 
 test('#718: a tap focuses the tab navigate() landed on, and opens a window when navigate() fails', async () => {
