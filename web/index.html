@@ -1249,8 +1249,9 @@ button.uprime:hover, .btn.uprime:hover, .utoast .uacts button.uprime:hover,
    pack's rule that the bar must track the stage exactly. */
 /* #3837 F (Josh 2026-09-25 17:21-17:22): viewed remotely through a Kosmos+ address, a thin Kosmos+ bar sits above the
    board, visually its own: "a tiny KOSMOS+ logo on the left, and a Log Out on the far right with a blue background".
-   The first row of the sticky header (so it stays with it), pulled to the page edges as the header is. Kosmos+ navy
-   and blue (the gate's own values), never gold (the 09-16 ruling). */
+   The first row of the sticky header (so it stays with it), pulled to the page edges as the header is (its side
+   margins are set from the header's own padding by kplusBarFit, which follows the scrollbar gutter). The bar's fills
+   are Kosmos+ navy and blue (the gate's own values), never gold (the 09-16 ruling); the mark keeps its own colours. */
 .kplus-bar { display: flex; align-items: center; justify-content: space-between; gap: 12px; min-height: 34px;
   margin: calc(-1 * var(--space-8)) calc(-1 * var(--space-8)) var(--space-6); padding: 4px var(--space-8);
   background: #17233d; border-bottom: 1px solid #2a3f6b; color: #e6ebf7; }
@@ -16102,26 +16103,48 @@ function kplusBarDrawMark(cv) {
   ctx.setTransform(PLUS_DPR, 0, 0, PLUS_DPR, 0, 0);
   for (const d of md.DOTS) { ctx.beginPath(); ctx.arc(d[0] * s, d[1] * s, Math.max(0.35, d[2] * s), 0, 7); ctx.fillStyle = d[3]; ctx.fill(); }
 }
+/* The bar runs edge to edge: its side margins cancel the header's own padding, read from the header, since the tab
+   layout computes the right one from the scrollbar gutter. */
+function kplusBarFit() {
+  const bar = document.getElementById('kplus-bar'), head = document.querySelector('.apphead');
+  if (!bar || !head) return;
+  const cs = getComputedStyle(head);
+  const l = '-' + (parseFloat(cs.paddingLeft) || 0) + 'px', r = '-' + (parseFloat(cs.paddingRight) || 0) + 'px';
+  if (bar.style.marginLeft !== l) bar.style.marginLeft = l;
+  if (bar.style.marginRight !== r) bar.style.marginRight = r;
+}
 function kplusBar() {
   if (!kplusRemote() || document.getElementById('kplus-bar')) return;
   const head = document.querySelector('.apphead');
   if (!head) return;
   const bar = document.createElement('div');
   bar.id = 'kplus-bar'; bar.className = 'kplus-bar';
-  bar.setAttribute('role', 'region'); bar.setAttribute('aria-label', 'Kosmos+');
+  bar.setAttribute('role', 'region'); bar.setAttribute('aria-label', 'Kosmos+ remote session');
   bar.innerHTML = '<canvas class="kplus-bar-mark" role="img" aria-label="Kosmos+"></canvas>'
     + '<span class="kplus-bar-end"><span class="kplus-bar-msg" id="kplus-bar-msg" role="status"></span>'
     + '<button type="button" class="kplus-bar-out" id="kplus-logout">Log out</button></span>';
   head.insertBefore(bar, head.firstChild);
   try { kplusBarDrawMark(bar.querySelector('canvas')); } catch { /* the words still say Kosmos+ to a screen reader */ }
+  kplusBarFit();
+  window.addEventListener('resize', kplusBarFit);
+  if (typeof ResizeObserver === 'function') new ResizeObserver(kplusBarFit).observe(head);
   const out = bar.querySelector('#kplus-logout'), msg = bar.querySelector('#kplus-bar-msg');
   out.addEventListener('click', async () => {
     out.disabled = true; msg.textContent = '';
-    let ok = false;
-    try { ok = (await fetch('/_kosmos/logout', { method: 'POST', credentials: 'same-origin', signal: AbortSignal.timeout(10000) })).ok; } catch { ok = false; }
-    if (ok) { location.replace('/'); return; }
+    let status = 0;
+    const ac = new AbortController(), cut = setTimeout(() => ac.abort(), 10000);   // not AbortSignal.timeout: Safari before 16 lacks it
+    try { status = (await fetch('/_kosmos/logout', { method: 'POST', credentials: 'same-origin', signal: ac.signal })).status; } catch { status = 0; }
+    clearTimeout(cut);
+    if (status >= 200 && status < 300) {
+      /* The board's page is kept by the offline worker; logged out, it must not come back from there without the
+         network, so this browser's copies go with the session. */
+      try { if (typeof caches !== 'undefined') for (const k of await caches.keys()) await caches.delete(k); } catch { /* the session is gone either way */ }
+      location.replace('/');
+      return;
+    }
     out.disabled = false;
-    msg.textContent = 'Could not log out just now. Try again.';
+    /* A 404 or 405 is a tunnel without the log out route (or a proxy the owner set up): trying again will not help. */
+    msg.textContent = status === 404 || status === 405 ? 'Log out is not available on this Kosmos yet.' : 'Could not log out just now. Try again.';
   });
 }
 function plusEaseOut(t) { return 1 - Math.pow(1 - t, 3); }

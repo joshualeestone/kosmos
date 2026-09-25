@@ -77,7 +77,7 @@ const bar = (page) => page.evaluate(() => {
     chk(b2.present && b2.first && b2.top === 0 && b2.left === 0 && b2.right === 0, 'P2 through a Kosmos+ address the bar is the header\'s first row, edge to edge at the top', JSON.stringify(b2));
     chk(b2.inked > 200 && b2.markLeft > 0 && b2.markLeft < 48 && b2.markH === 14, 'P2 the tiny KOSMOS+ mark is drawn on its left (the real dots)', JSON.stringify({ inked: b2.inked, markLeft: b2.markLeft, markH: b2.markH }));
     chk(b2.outText === 'Log out' && /gradient/.test(b2.outBg) && b2.outRightGap > 0 && b2.outRightGap < 48 && b2.h <= 44, 'P2 a blue Log out on the far right, and the bar is thin', JSON.stringify({ outText: b2.outText, outBg: b2.outBg.slice(0, 40), outRightGap: b2.outRightGap, h: b2.h }));
-    chk(b2.bg === 'rgb(23, 35, 61)' && b2.label === 'Kosmos+', 'P2 on the Kosmos+ navy, named Kosmos+ for a screen reader', JSON.stringify({ bg: b2.bg, label: b2.label }));
+    chk(b2.bg === 'rgb(23, 35, 61)' && b2.label === 'Kosmos+ remote session', 'P2 on the Kosmos+ navy, named for a screen reader as the Kosmos+ remote session', JSON.stringify({ bg: b2.bg, label: b2.label }));
     if (SHOTS) { fs.mkdirSync(SHOTS, { recursive: true }); await page.screenshot({ path: path.join(SHOTS, 'plus-bar-tabs.png'), clip: { x: 0, y: 0, width: 1280, height: 200 } }); }
     // The sticky header keeps it: scrolled, the bar is still at the top.
     await page.evaluate(() => window.scrollTo(0, 400));
@@ -115,6 +115,21 @@ const bar = (page) => page.evaluate(() => {
     chk(b5.present && b5.first && b5.top === 0 && b5.left === 0 && b5.right === 0, 'P5 under the consolidated layout the bar is still the first row, edge to edge', JSON.stringify(b5));
     if (SHOTS) await page.screenshot({ path: path.join(SHOTS, 'plus-bar-consolidated.png'), clip: { x: 0, y: 0, width: 1280, height: 200 } });
     await page.evaluate(() => applyLayout('tabs', true));
+
+    // P7 (review): edge to edge of the header wherever the tab layout sets its right padding from the scrollbar gutter:
+    // the board (it scrolls) and an agent's talk view (its own gutter rule). Read against the header's own box, not
+    // clientWidth, which hides a gutter.
+    const edges = () => page.evaluate(() => { const b = document.getElementById('kplus-bar').getBoundingClientRect(), h = document.querySelector('.apphead').getBoundingClientRect();
+      return { dl: Math.round(b.left - h.left), dr: Math.round(h.right - b.right), vw: Math.round(innerWidth - b.right) }; });
+    await page.evaluate(() => showTab('agents'));
+    await page.waitForTimeout(300);
+    const e7a = await edges();
+    await page.evaluate(() => { const a = document.querySelector('#grid [data-agent="beatrix"]'); if (a) a.click(); });
+    await page.waitForFunction(() => { const s = document.getElementById('d-sec-talk'); return !!s && !s.hidden; }, null, { timeout: 8000 }).catch(() => {});
+    await page.waitForTimeout(400);
+    const e7b = await edges();
+    chk(e7a.dl === 0 && e7a.dr === 0 && e7b.dl === 0 && e7b.dr === 0, 'P7 the bar spans the header edge to edge on the board and in an agent\'s talk view', JSON.stringify({ board: e7a, talk: e7b }));
+    if (SHOTS) await page.screenshot({ path: path.join(SHOTS, 'plus-bar-talk.png'), clip: { x: 0, y: 0, width: 1280, height: 160 } });
 
     chk(errs.length === 0, 'P6 no page errors', errs.join(' | '));
   } finally {
