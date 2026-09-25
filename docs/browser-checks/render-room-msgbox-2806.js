@@ -56,6 +56,16 @@ if (BAD_ENGINES.length || !ENGINES.length) { console.error('ENGINES must be chro
 let ENGINE = ENGINES[0];
 
 const PAGE = 'file://' + path.join(path.resolve(__dirname, '..', '..'), 'web', 'index.html');
+/* The places the page's 16px touch rule covers, read FROM THAT RULE (one list, not four copies),
+   and the input types it skips; every field sweep below uses these. */
+const PAGE_SOURCE = require('node:fs').readFileSync(path.join(path.resolve(__dirname, '..', '..'), 'web', 'index.html'), 'utf8');
+const FIELD_VIEWS = (PAGE_SOURCE.match(/:is\((#pj-list-view[^)]*)\) :is\(input:not/) || [, ''])[1].split(',').map((sel) => sel.trim()).filter(Boolean);
+const FIELD_DIALOGS = [...PAGE_SOURCE.matchAll(/(#[\w-]+) :is\(input:not\(\[type=checkbox\]\)/g)].map((match) => match[1]);
+const FIELD_ROOTS = [...FIELD_VIEWS, ...FIELD_DIALOGS];
+if (FIELD_VIEWS.length !== 6 || FIELD_DIALOGS.length !== 2) { console.error('the 16px rule\'s scope could not be read from the page: ' + JSON.stringify(FIELD_ROOTS)); process.exit(2); }
+/* Input types the sweeps skip: the rule's own :not(checkbox, radio), plus types that are not text
+   fields (iOS zooms text entry only). */
+const FIELD_SKIP = ['checkbox', 'radio', 'range', 'color', 'file', 'hidden', 'button', 'submit', 'reset', 'image'];
 
 const fail = [];
 const chk = (ok, label, extra) => {
@@ -756,30 +766,30 @@ const now = () => new Date().toISOString();
       // A SWEEP, not a hand list (Liu Kang m705): every field on the project page, its Tasks and
       // members dialogs included, computes at 16px or more on a touchscreen, or iOS zooms in and
       // the page pans sideways.
-      const fonts = await phonePage.evaluate(() => {
-        // The project page's own six views and its two dialogs (the rule's exact scope).
-        const roots = ['#pj-list-view', '#pj-one-view', '#pj-task-view', '#pj-docs-view', '#pj-settings-view', '#pj-add-view', '#nt-modal', '#am-modal'].map((q) => document.querySelector(q)).filter(Boolean);
-        if (roots.length !== 8) return { error: 'a root is missing', found: roots.length };
-        const skip = new Set(['checkbox', 'radio', 'range', 'color', 'file', 'hidden', 'button', 'submit', 'reset', 'image']);
+      const fonts = await phonePage.evaluate(({ rootSelectors, skipTypes }) => {
+        // The project page's own six views and its two dialogs (the rule's exact scope, read from it).
+        const roots = rootSelectors.map((selector) => document.querySelector(selector)).filter(Boolean);
+        if (roots.length !== rootSelectors.length) return { error: 'a root is missing', found: roots.length };
+        const skip = new Set(skipTypes);
         const fields = roots.flatMap((r) => [...r.querySelectorAll('input, select, textarea')]).filter((el) => !(el.tagName === 'INPUT' && skip.has((el.type || '').toLowerCase())));
         const small = fields.map((el) => ({ id: el.id || el.className || el.tagName, px: parseFloat(getComputedStyle(el).fontSize) })).filter((f) => f.px < 16);
         return { count: fields.length, small, hoverNone: matchMedia('(hover: none)').matches };
-      });
+      }, { rootSelectors: FIELD_ROOTS, skipTypes: FIELD_SKIP });
       // The one-screen layout (960px and up) appends Settings inside #panel-projects
       // (placeAppSettings). Its fields are another screen's and must keep their own size on a
       // touchscreen: moved exactly the way that function moves it, then measured.
-      const settingsIn = await phonePage.evaluate(() => {
+      const settingsIn = await phonePage.evaluate((skipTypes) => {
         const settings = document.getElementById('panel-settings'); const projects = document.getElementById('panel-projects');
         if (!settings || !projects) return { error: 'panels missing' };
         const home = { parent: settings.parentElement, next: settings.nextSibling };
         projects.appendChild(settings);
-        const f = [...settings.querySelectorAll('input, select, textarea')].filter((el) => !['checkbox', 'radio', 'range', 'hidden', 'button', 'submit'].includes((el.type || '').toLowerCase()));
+        const f = [...settings.querySelectorAll('input, select, textarea')].filter((el) => !(el.tagName === 'INPUT' && skipTypes.includes((el.type || '').toLowerCase())));
         const at16 = f.filter((el) => parseFloat(getComputedStyle(el).fontSize) >= 16).map((el) => el.id || el.className);
         const tk = settings.querySelector('.tk-inp');
         const res = { fields: f.length, at16, tkInp: tk ? parseFloat(getComputedStyle(tk).fontSize) : null, inside: projects.contains(settings) };
         home.parent.insertBefore(settings, home.next);
         return res;
-      });
+      }, FIELD_SKIP);
       chk(!settingsIn.error && settingsIn.inside && settingsIn.fields >= 3 && settingsIn.at16.length === 0 && settingsIn.tkInp !== null && settingsIn.tkInp < 16,
         `[touch, one-screen layout] Settings moved inside the projects panel keeps its own field sizes`, JSON.stringify(settingsIn));
       // And at 16px nothing in those dialogs runs off the side at 375: each dialog shown, its
@@ -1034,12 +1044,15 @@ const now = () => new Date().toISOString();
       chk(!picked.error && picked.shown === 0 && !picked.focusInBar && picked.op === '0', `[phone/touch] picking a reaction closes the bar and lets go of focus`, JSON.stringify(picked));
       // A file card is a download link: stop the navigation (the check must stay on this page),
       // then tap it for real and require the room to still be here before reading anything.
-      await phonePage.evaluate(() => document.querySelectorAll('#pj-room .att').forEach((a) => a.addEventListener('click', (e) => e.preventDefault())));
+      await phonePage.evaluate(() => { window.__cardClicks = 0; document.querySelectorAll('#pj-room .att').forEach((card) => card.addEventListener('click', (event) => { event.preventDefault(); window.__cardClicks += 1; })); });
       await phonePage.locator('#pj-room .att').first().tap();
       await phonePage.waitForTimeout(300);
       const t3 = await bar();
+      // Precondition: the tap really reached the card (the bar was already closed, so "shown 0"
+      // alone would hold whatever the tap hit).
       const rowsLeft = await phonePage.evaluate(() => document.querySelectorAll('#pj-room .msg').length);
-      chk(rowsLeft === 4 && t3.shown === 0 && t3.op === '0', `[phone/touch] a tap on a file card does not toggle the bar`, JSON.stringify(Object.assign({ rowsLeft }, t3)));
+      const cardClicks = await phonePage.evaluate(() => window.__cardClicks);
+      chk(rowsLeft === 4 && cardClicks === 1 && t3.shown === 0 && t3.op === '0', `[phone/touch] a tap on a file card does not toggle the bar`, JSON.stringify(Object.assign({ rowsLeft, cardClicks }, t3)));
       // The person's own SHORT post: its bar (right anchor) stays inside the thread, and every
       // touch target in it, and the reaction pill, is at least 36px.
       const own = phonePage.locator('#pj-room .msg.you .msg-bd p').last();
@@ -1142,8 +1155,39 @@ const now = () => new Date().toISOString();
     } finally {
       await phonePage.close();
     }
-    // DARK, phone, touch: the open bar has its own ground against the dark thread (black), so its
-    // emoji read over the message it covers, and it still takes its taps.
+    // TABLET, touch, 1180 wide (an iPad in landscape): the 16px rule applies there too (hover:
+    // none). Every field in the project view and its two dialogs must stay inside its own column
+    // or dialog card, so the larger text never pushes a field out of a narrow side column.
+    const tabletPage = await browser.newPage({ viewport: { width: 1180, height: 820 }, colorScheme: 'light', hasTouch: true, isMobile: true });
+    try {
+      await tabletPage.addInitScript(() => {
+        window.setInterval = () => 0;
+        window.fetch = async () => new Response('{}', { status: 200, headers: { 'content-type': 'application/json' } });
+      });
+      await tabletPage.goto(PAGE);
+      const tablet = await tabletPage.evaluate(({ skipTypes }) => {
+        const fr = document.getElementById('firstrun'); if (fr) fr.remove();
+        const places = ['#pj-one-view', '#nt-modal', '#am-modal'].map((selector) => document.querySelector(selector));
+        if (places.some((place) => !place)) return { error: 'a place is missing' };
+        places.forEach((place) => { for (let el = place; el && el !== document.body; el = el.parentElement) { el.hidden = false; el.removeAttribute('inert'); if (getComputedStyle(el).display === 'none') el.style.display = 'block'; } });
+        const fields = places.flatMap((place) => [...place.querySelectorAll('input, select, textarea')])
+          .filter((el) => !(el.tagName === 'INPUT' && skipTypes.includes((el.type || '').toLowerCase())))
+          .filter((el) => el.getBoundingClientRect().width > 0);
+        const outside = fields.filter((el) => {
+          const box = el.closest('.pjcol, .rm-box, .pj3') || document.body; const fieldRect = el.getBoundingClientRect(); const boxRect = box.getBoundingClientRect();
+          return fieldRect.left < boxRect.left - 0.5 || fieldRect.right > boxRect.right + 0.5;
+        }).map((el) => el.id || el.className);
+        return { hoverNone: matchMedia('(hover: none)').matches, fields: fields.length, at16: fields.filter((el) => parseFloat(getComputedStyle(el).fontSize) >= 16).length, outside };
+      }, { skipTypes: FIELD_SKIP });
+      chk(!tablet.error && tablet.hoverNone && tablet.fields >= 4 && tablet.at16 === tablet.fields && tablet.outside.length === 0,
+        `[tablet 1180/touch] at 16px every field stays inside its column or dialog`, JSON.stringify(tablet));
+    } finally {
+      await tabletPage.close();
+    }
+    // DARK, phone, touch: the open bar has its own ground against the dark room ground, so its
+    // emoji read over the message it covers, and it still takes its taps. (Lifted to body, the
+    // room's ground here is --k-bg; in its column it is black. The bar's --k-surface differs from
+    // both.)
     const darkPage = await browser.newPage({ viewport: { width: 375, height: 800 }, colorScheme: 'dark', hasTouch: true, isMobile: true });
     try {
       await darkPage.addInitScript(() => {
@@ -1186,16 +1230,16 @@ const now = () => new Date().toISOString();
         window.fetch = async () => new Response('{}', { status: 200, headers: { 'content-type': 'application/json' } });
       });
       await deskPage.goto(PAGE);
-      const desk = await deskPage.evaluate(() => {
-        const roots = ['#pj-list-view', '#pj-one-view', '#pj-task-view', '#pj-docs-view', '#pj-settings-view', '#pj-add-view', '#nt-modal', '#am-modal'].map((q) => document.querySelector(q)).filter(Boolean);
-        const skip = new Set(['checkbox', 'radio', 'range', 'color', 'file', 'hidden', 'button', 'submit', 'reset', 'image']);
+      const desk = await deskPage.evaluate(({ rootSelectors, skipTypes }) => {
+        const roots = rootSelectors.map((selector) => document.querySelector(selector)).filter(Boolean);
+        const skip = new Set(skipTypes);
         const fields = roots.flatMap((r) => [...r.querySelectorAll('input, select, textarea')]).filter((el) => !(el.tagName === 'INPUT' && skip.has((el.type || '').toLowerCase())));
         const px = (id) => { const el = document.getElementById(id); return el ? parseFloat(getComputedStyle(el).fontSize) : null; };
         return { roots: roots.length, hoverNone: matchMedia('(hover: none)').matches, count: fields.length, at16: fields.filter((el) => parseFloat(getComputedStyle(el).fontSize) >= 16).map((el) => el.id || el.className),
           named: { 'nt-what': px('nt-what'), 'nt-who': px('nt-who'), 'pj-one-add': px('pj-one-add'), 'tk-due': px('tk-due'), 'pj-name': px('pj-name') } };
-      });
+      }, { rootSelectors: FIELD_ROOTS, skipTypes: FIELD_SKIP });
       const named = Object.values(desk.named || {});
-      chk(desk.roots === 8 && desk.hoverNone === false && desk.count >= 20 && desk.at16.length === 0 && named.length === 5 && named.every((v) => v === 13),
+      chk(desk.roots === FIELD_ROOTS.length && desk.hoverNone === false && desk.count >= 20 && desk.at16.length === 0 && named.length === 5 && named.every((v) => v === 13),
         `[desktop/mouse] the touch-only 16px rule changes no field's size with a mouse`, JSON.stringify(desk));
     } finally {
       await deskPage.close();

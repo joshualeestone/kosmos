@@ -2047,7 +2047,7 @@ body.filter-noproj #orgview .onode:not([data-noproj]) { opacity: .26; }
 /* #718 mobile: at a phone's width the projects row's two cells (Add Project, and the sort
    beside the view toggle) were each their full natural width, 3px more than an iPhone SE has
    (Raiden's harness, .panel 330 > 327). Now Add Project takes its narrowest width (two lines on
-   every phone; on main it did only on an SE) and the sort and toggle may wrap, so nothing leaves
+   every phone) and the sort and toggle may wrap, so nothing leaves
    the row, nothing overlaps and the sort's label is never cut. Below 375 (a 320 phone or a
    folded one) the sort at its full width can still overflow; outside the four target sizes.
    30rem is the room's phone width (PJ_PHONE_MQ); pinned equal by
@@ -46545,7 +46545,7 @@ document.getElementById('pj-room').addEventListener('click', (e) => {
   const box = row.querySelector('.rxns[data-post]');
   if (!box) { pjRxnClose(); return; }   // nothing to react to (a system row, an unsaved post)
   const open = !row.classList.contains('rxn-show');
-  if (!open) { pjRxnResetRow(row); RXN_SHOW_POST = null; RXN_SHOW_PID = null; RXN_PINNED = false; return; }
+  if (!open) { pjRxnClose(); return; }   // the one close path (state, pin, focus)
   RXN_PINNED = false;
   row.classList.add('rxn-show');
   RXN_SHOW_POST = box.getAttribute('data-post');
@@ -46580,19 +46580,18 @@ if (window.MutationObserver) {
 }
 /* A PINNED bar (position fixed) does not follow the thread when anything scrolls, the same as
    the fixed emoji picker (#2834 below): any scroll or resize closes it. */
-function pjRxnPinned() { return RXN_PINNED; }   // one record of "pinned": the flag pjRxnPlace sets
 document.addEventListener('scroll', (event) => {
   if (!RXN_SHOW_POST) return;   // nothing open: every scroll in the app costs nothing here
   // Scrolling the full emoji picker's own list is not the thread moving (#2834's same guard).
   const target = event.target;
   if (target && target.nodeType === 1 && target.closest && target.closest('.rxn-picker')) return;
-  if (pjRxnPinned()) pjRxnClose();
+  if (RXN_PINNED) pjRxnClose();
 }, true);
-window.addEventListener('resize', () => { if (RXN_SHOW_POST && pjRxnPinned()) pjRxnClose(); });
+window.addEventListener('resize', () => { if (RXN_SHOW_POST && RXN_PINNED) pjRxnClose(); });
 // iOS reports the keyboard and pinch zoom on the visual viewport, not as a window resize.
 if (window.visualViewport) {
-  window.visualViewport.addEventListener('resize', () => { if (RXN_SHOW_POST && pjRxnPinned()) pjRxnClose(); });
-  window.visualViewport.addEventListener('scroll', () => { if (RXN_SHOW_POST && pjRxnPinned()) pjRxnClose(); });
+  window.visualViewport.addEventListener('resize', () => { if (RXN_SHOW_POST && RXN_PINNED) pjRxnClose(); });
+  window.visualViewport.addEventListener('scroll', () => { if (RXN_SHOW_POST && RXN_PINNED) pjRxnClose(); });
 }
 /* A tap anywhere outside the room closes an open bar too, except inside the shared emoji
    picker (it lives in body, outside the room): the bar it was opened from stays with it.
