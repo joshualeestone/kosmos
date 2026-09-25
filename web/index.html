@@ -9104,6 +9104,17 @@ body.plus-active #plus-state2 { max-width: 26rem; padding: 2rem; }
 #plus-state2 .plus-si-foot { margin-top: 1.4rem; }
 #plus-state2 .plus-signin-link[aria-disabled="true"] { opacity: .55; pointer-events: none; }
 #plus-state2 #plus-signin-msg:empty { display: none; }
+/* #3796 addendum 9: the signed-in landing. The address row and the connect tiles follow the website's
+   #3794 treatment: a badge per step, each step its own subtle tile. */
+#plus-state2 .plus-si-addrrow { display: flex; gap: .5rem; align-items: center; margin: .5rem 0 0; }
+#plus-state2 .plus-si-addrrow code { flex: 1 1 auto; min-width: 0; padding: .55rem .7rem; border-radius: 8px; background: rgba(47,87,196,.22); border: 1px solid rgba(126,160,240,.45); color: #E6EBF7; font: 600 .95rem ui-monospace, Menlo, monospace; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+#plus-state2 .plus-si-sub { color: #E6EBF7; font-weight: 600; margin: 1.2rem 0 .5rem; }
+#plus-state2 .plus-si-steps { list-style: none; margin: 0 0 1rem; padding: 0; }
+#plus-state2 .plus-si-steps li { display: flex; gap: .65rem; align-items: flex-start; padding: .6rem .75rem; margin: 0 0 .5rem; border: 1px solid #2a3f6b; border-radius: 10px; background: rgba(255,255,255,.035); }
+#plus-state2 .plus-si-steps .num { flex: 0 0 1.6rem; height: 1.6rem; border-radius: 50%; display: grid; place-items: center; background: #2f57c4; color: #fff; font-weight: 700; font-size: .85rem; }
+#plus-state2 .plus-si-steps strong { display: block; color: #E6EBF7; font-size: .95rem; }
+#plus-state2 .plus-si-steps span { display: block; color: var(--k-ink-2); font-size: .9rem; line-height: 1.4; }
+#plus-state2 .plus-si-steps b { color: #E6EBF7; overflow-wrap: anywhere; }
 @media (max-width: 640px) { .plus-val { grid-template-columns: 1fr; } }
 /* The canvases honour prefers-reduced-motion in JS (a single static frame, no
    rAF loop); this makes that intent visible to a source reader too. */
@@ -15231,7 +15242,7 @@ window.kosmosMeasureScrollbarWidth();
          state is reachable by the design's intent and not yet by a signal. That is the
          requested state rather than an omission. -->
     <div id="plus-state2" hidden>
-      <h3>Sign in to activate Kosmos+</h3>
+      <h3 id="plus-si-title">Sign in to activate Kosmos+</h3>
       <!-- #3478: state 2 is now WIRED. #1115 (Josh, 2026-08-27) settled the split
            and the state-1 copy states it: sign-UP (email, code, card) is done on
            the website; signing IN to that paid account is done in this pane,
@@ -15353,7 +15364,7 @@ window.kosmosMeasureScrollbarWidth();
              name (the coordinator refuses any other), so the step just says so. The address comes from
              the service (the sign-in answer's account_address, or the coordinator's "already owns the
              name" refusal on an older coordinator), never composed here. -->
-        <p class="plus-si-lead" id="plus-si-owned" hidden>This computer will connect as <b id="plus-si-owned-addr"></b>.</p>
+        <p class="plus-si-lead" id="plus-si-owned" hidden>Connecting this computer as <b id="plus-si-owned-addr"></b>...</p>
         <div class="field" id="plus-si-name-field">
           <label class="flabel" for="plus-si-name">Choose your Kosmos+ address</label>
           <p class="fhint">3 to 32 letters, numbers or hyphens. <span id="plus-si-name-count" aria-live="polite">0/32</span></p>
@@ -15374,6 +15385,22 @@ window.kosmosMeasureScrollbarWidth();
       <!-- #3796 addendum 4 (Josh, 16:34, an expired sign-in showed the raw 401 beside a Verify that could
            no longer work): a sign-in the coordinator has ended gets this panel instead, with its own
            Start over; the step and its Verify are hidden (plusSiFail). -->
+      <!-- #3796 addendum 9 (Josh's ruling, 16:46): an account that already has an address skips the address
+           step entirely. The wizard registers this computer to that address itself and lands HERE: the
+           address read-only (with Copy) and how to connect from other devices (the #3794 tiles' shape).
+           Done hands over to the connected flow. -->
+      <div id="plus-si-done" hidden>
+        <p class="plus-si-lead">This computer is connected as:</p>
+        <div class="plus-si-addrrow"><code id="plus-si-done-addr"></code><button class="btn" type="button" id="plus-si-done-copy">Copy</button></div>
+        <p class="plus-si-sub">Connect from your other devices</p>
+        <ol class="plus-si-steps">
+          <li><span class="num" aria-hidden="true">1</span><div><strong>Open your address</strong><span>On your phone or another computer, open <b id="plus-si-done-addr2"></b> in a browser.</span></div></li>
+          <li><span class="num" aria-hidden="true">2</span><div><strong>Sign in</strong><span>Use your Kosmos+ email and your codes.</span></div></li>
+          <li><span class="num" aria-hidden="true">3</span><div><strong>Allow it here</strong><span>The first time, this computer asks you to allow the new device.</span></div></li>
+        </ol>
+        <div class="frow"><button class="btn uprime" type="button" id="plus-si-done-go">Done</button></div>
+      </div>
+
       <div id="plus-si-expired" hidden>
         <p class="plus-si-lead" id="plus-si-expired-words">That sign-in timed out. Start over and we'll send a new code.</p>
         <div class="frow">
@@ -35710,6 +35737,9 @@ let PLUS_EPOCH = 0;
 /* #3478: true while the in-app sign-in wizard (state 2) is open, so paintPlus's 5s
    repaint shows the wizard in place of the marketing state instead of clobbering it. */
 let PLUS_SIGNIN_ACTIVE = false;
+/* #3796 addendum 9: while the signed-in landing is up, the wizard keeps the pane (paintPlus would
+   otherwise hand straight to the connected flow the moment this computer reads enrolled). Done clears it. */
+let PLUS_SI_LANDED = false;
 /* The computer-name format, shared by the enrol flow's plus-confirm and the sign-in
    wizard's register step so the two cannot drift (CLAUDE.md #5). It mirrors the engine's
    own NAME_RULE; the engine validates too, so this is a fast local echo, not the source
@@ -35748,7 +35778,7 @@ function plusSiRegisterMode(address, nameOnly) {
   if (m) document.getElementById('plus-si-owned-addr').textContent = m[0];
   if (owned) owned.hidden = !m;
   if (field) field.hidden = !!m;
-  if (btn) btn.textContent = m ? 'Connect this computer' : 'Finish signing in';
+  if (btn) { btn.textContent = 'Finish signing in'; btn.hidden = !!m; }   // addendum 9: an owned address registers itself
   plusNameCount();
 }
 /**
@@ -35842,6 +35872,10 @@ async function paintPlus() {
       state1.hidden = true;
       state2.hidden = false;
     }
+    return;
+  }
+  if (typeof PLUS_SI_LANDED !== 'undefined' && PLUS_SI_LANDED) {
+    state1.hidden = true; state2.hidden = false; flow.hidden = true;
     return;
   }
   state1.hidden = true;
@@ -36034,12 +36068,13 @@ document.getElementById('plus-second-reset').addEventListener('click', async () 
    input. Stages: signin-start -> code_sent; signin-verify -> session | second |
    enrol_second_factor; signin-second -> session; signin-enrol -> enrolment_started;
    signin-confirm-enrol -> session; signin-register -> registered (with the address). */
-const PLUS_SI_STEPS = ['plus-si-email', 'plus-si-code', 'plus-si-second', 'plus-si-enrol', 'plus-si-enrol-confirm', 'plus-si-register', 'plus-si-expired'];
+const PLUS_SI_STEPS = ['plus-si-email', 'plus-si-code', 'plus-si-second', 'plus-si-enrol', 'plus-si-enrol-confirm', 'plus-si-register', 'plus-si-expired', 'plus-si-done'];
 /* #3796 addendum 4: what the way out is called, and so what it does, on each step. */
 function plusSiWayOut(step) {
   if (step === 'plus-si-email') return 'Cancel';
   if (step === 'plus-si-register') return 'Sign out';
   if (step === 'plus-si-expired') return '';   // the panel has its own Start over
+  if (step === 'plus-si-done') return '';      // signed in and connected: Done is the way on
   return 'Start over';
 }
 function plusSiShow(step) {
@@ -36047,6 +36082,8 @@ function plusSiShow(step) {
     const el = document.getElementById(id);
     if (el) el.hidden = (id !== step);
   }
+  const title = document.getElementById('plus-si-title');
+  if (title) title.textContent = step === 'plus-si-done' ? "You're signed in to Kosmos+" : 'Sign in to activate Kosmos+';
   const out = document.getElementById('plus-si-cancel');
   if (out) {
     const label = plusSiWayOut(step);
@@ -36172,7 +36209,9 @@ function plusSiStage(stage, data) {
   if (stage === 'session') {
     plusSiRegisterMode(data.account_address);
     plusSiShow('plus-si-register');
-    (PLUS_SI_OWNED ? document.getElementById('plus-si-register-go') : document.getElementById('plus-si-name')).focus();
+    /* #3796 addendum 9: an account that already has an address skips this step: register to it now. */
+    if (PLUS_SI_OWNED) { plusSiDoRegister(PLUS_SI_OWNED, data.account_address); return; }
+    document.getElementById('plus-si-name').focus();
     return;
   }
   if (stage === 'registered') return;  // handled by the register button itself
@@ -36206,6 +36245,7 @@ function plusSiClear() {
   }
   const phoneField = document.getElementById('plus-si-phone-field'); if (phoneField) phoneField.hidden = true;
   if (document.getElementById('plus-si-register-go')) plusSiRegisterMode('');   // addendum 8: no owned name carried over
+  if (typeof PLUS_SI_LANDED !== 'undefined') PLUS_SI_LANDED = false;
 }
 function plusSiEnter(e) {
   if (e) e.preventDefault();
@@ -36372,26 +36412,30 @@ document.getElementById('plus-si-enrol-confirm-go').addEventListener('click', as
    be drawn and then immediately replaced by that same paint, so it could flash for
    well under a round trip or not be seen at all. This mirrors the enrol flow's own
    plus-confirm, which likewise ends by handing off to paintPlus(). */
-document.getElementById('plus-si-register-go').addEventListener('click', async () => {
-  const name = PLUS_SI_OWNED || plusNameClean(document.getElementById('plus-si-name').value.trim());
+/* #3796 addendum 9: register THIS computer to `name`. Called by the button for a chosen name, and
+   automatically for an account that already owns one (`owned` is then its full address, when known). */
+async function plusSiDoRegister(name, owned) {
   const btn = document.getElementById('plus-si-register-go');
-  /* signin-register requires a name server-side (server.js 400s on empty), so reject an
-     empty one here for instant feedback rather than a round trip. Then the format rule. */
-  if (!name) { plusSiMsg('pick a name for this computer'); return; }
-  if (!PLUS_NAME_RULE.test(name)) {
-    plusSiMsg('the name is 3 to 32 letters, digits or hyphens');
-    return;
-  }
   plusSiMsg('');
   btn.disabled = true;
   const r = await plusSiPost('/api/remote/signin-register', { name });
   if (r.stale) return;
   btn.disabled = false;
-  /* #3796 addendum 8 on a coordinator that does not yet send account_address: its refusal names the
-     account's one name ("your account already owns the name X"). Switch to the no-field step for it. */
-  const owns = !r.ok && !r.stale ? /already owns the name ([a-z0-9-]{3,32})\b/.exec(String(r.because || '')) : null;
-  if (owns) { plusSiRegisterMode('', owns[1]); plusSiMsg(''); btn.disabled = false; document.getElementById('plus-si-register-go').focus(); return; }
+  /* A coordinator that does not yet send account_address: its refusal names the account's one name
+     ("your account already owns the name X"). Register to that one instead, once. */
+  const owns = !r.ok && !owned ? /already owns the name ([a-z0-9-]{3,32})\b/.exec(String(r.because || '')) : null;
+  if (owns) { plusSiRegisterMode('', owns[1]); plusSiDoRegister(owns[1], owns[1]); return; }
   if (!r.ok) { plusSiFail(r.because); return; }
+  if (owned) {
+    /* The landing, not the connected flow: PLUS_SI_LANDED keeps paintPlus from taking the pane. */
+    const addr = /\./.test(owned) ? owned : String((r.data && r.data.address) || owned);
+    document.getElementById('plus-si-done-addr').textContent = addr;
+    document.getElementById('plus-si-done-addr2').textContent = addr;
+    PLUS_SI_LANDED = true;
+    plusSiShow('plus-si-done');
+    document.getElementById('plus-si-done-go').focus();
+    return;
+  }
   /* Do NOT clear PLUS_SIGNIN_ACTIVE here. The engine writes the state dir synchronously
      before answering, so the paintPlus() below almost always reads enrolled, and its
      enrolled branch both shows the connected flow AND clears the flag. Clearing it here
@@ -36402,6 +36446,28 @@ document.getElementById('plus-si-register-go').addEventListener('click', async (
      recurring 5s tick completes the handoff once enrolled reads true. */
   plusSiMsg('Signed in. Connecting this computer to Kosmos+.');
   paintPlus();
+}
+document.getElementById('plus-si-register-go').addEventListener('click', () => {
+  const name = plusNameClean(document.getElementById('plus-si-name').value.trim());
+  /* signin-register requires a name server-side (server.js 400s on empty), so reject an
+     empty one here for instant feedback rather than a round trip. Then the format rule. */
+  if (!name) { plusSiMsg('pick a name for this computer'); return; }
+  if (!PLUS_NAME_RULE.test(name)) {
+    plusSiMsg('the name is 3 to 32 letters, digits or hyphens');
+    return;
+  }
+  plusSiDoRegister(name, '');
+});
+document.getElementById('plus-si-done-go').addEventListener('click', () => {
+  PLUS_SI_LANDED = false;
+  PLUS_SIGNIN_ACTIVE = false;
+  paintPlus();
+});
+document.getElementById('plus-si-done-copy').addEventListener('click', (e) => {
+  const b = e.currentTarget;
+  const text = document.getElementById('plus-si-done-addr').textContent;
+  const said = () => { b.textContent = 'Copied'; setTimeout(() => { b.textContent = 'Copy'; }, 1500); };
+  try { navigator.clipboard.writeText(text).then(said, () => {}); } catch (err) { /* no clipboard: the address is on screen to copy by hand */ }
 });
 
 function paintModelWhy(selId, whyId) {

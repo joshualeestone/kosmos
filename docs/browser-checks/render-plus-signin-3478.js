@@ -148,6 +148,8 @@ const visible = (page, sel) => page.evaluate((s) => {
       page.__url = URL;
       const errs = [];
       page.on('pageerror', (e) => errs.push(e.message));
+      const regBodies = [];   // #3796 addendum 9: every register the wizard sends, including the automatic one
+      page.on('request', (r) => { if (r.method() === 'POST' && /\/api\/remote\/signin-register$/.test(r.url())) regBodies.push(r.postDataJSON()); });
       await openPlusState1(page);
       await routeScenario(page, sc.steps, sc.ownedRefusalFirst);
 
@@ -313,9 +315,20 @@ const visible = (page, sel) => page.evaluate((s) => {
       }
 
       // Step: session -> name -> hand off to the connected flow.
-      await page.waitForSelector('#plus-si-register', { state: 'visible', timeout: 5000 });
-      chk(true, `[${key}] the flow reaches the name step (a session)`);
-      chk((await page.textContent('#plus-si-cancel')).trim() === 'Sign out', `[${key}] #3796 addendum 4: once the sign-in has finished (a held session) the way out reads "Sign out"`, await page.textContent('#plus-si-cancel'));
+      /* #3796 addendum 9 (Josh's ruling): the landing, shared by the two owned-address paths. */
+      const landed = async (addr, why) => {
+        await page.waitForSelector('#plus-si-done', { state: 'visible', timeout: 5000 });
+        const d = await page.evaluate(() => ({ title: document.getElementById('plus-si-title').textContent.trim(), addr: document.getElementById('plus-si-done-addr').textContent.trim(), tiles: document.querySelectorAll('#plus-si-done .plus-si-steps li').length, sub: document.querySelector('#plus-si-done .plus-si-sub').textContent.trim(), nameShown: !!(document.getElementById('plus-si-register') && !document.getElementById('plus-si-register').hidden), msg: document.getElementById('plus-signin-msg').textContent.trim() }));
+        chk(d.title === "You're signed in to Kosmos+" && d.addr === addr && d.tiles === 3 && d.sub === 'Connect from your other devices' && !d.nameShown && !/409|said no/.test(d.msg), `[${key}] #3796 addendum 9: ${why} lands on "You're signed in to Kosmos+" with the address and the connect tiles`, JSON.stringify(d));
+      };
+      if (key === 'straight-session') {
+        await landed('quiet-heron.kosmosplus.com', 'an account with an address skips the address step and');
+        chk(regBodies.length === 1 && regBodies[0].name === 'quiet-heron', `[${key}] #3796 addendum 9: it registers the account's own name by itself, once`, JSON.stringify(regBodies));
+      } else {
+        await page.waitForSelector('#plus-si-register', { state: 'visible', timeout: 5000 });
+        chk(true, `[${key}] the flow reaches the name step (a session)`);
+        chk((await page.textContent('#plus-si-cancel')).trim() === 'Sign out', `[${key}] #3796 addendum 4: once the sign-in has finished (a held session) the way out reads "Sign out"`, await page.textContent('#plus-si-cancel'));
+      }
       // The engine writes this computer's state dir SYNCHRONOUSLY before answering register,
       // so the machine reads enrolled immediately after. Flip /api/remote to enrolled BEFORE
       // the register click, so the post-register paintPlus() exercises the REAL end state:
@@ -346,24 +359,25 @@ const visible = (page, sel) => page.evaluate((s) => {
         chk(body && body.name === 'sunny-otter', `[${key}] #3796 addenda 5 and 6: register sends the cleaned name`, JSON.stringify(body));
         chk((await page.textContent('label[for="plus-si-name"]')).trim() === 'Choose your Kosmos+ address', `[${key}] #3796 addendum 8: with no address yet, the step reads "Choose your Kosmos+ address"`);
       } else if (key === 'straight-session') {
-        // #3796 addendum 8: the account owns an address, so NO input: the step names it and connects to it.
-        const o = await page.evaluate(() => ({ owned: document.getElementById('plus-si-owned').textContent.trim(), fieldShown: !document.getElementById('plus-si-name-field').hidden, btn: document.getElementById('plus-si-register-go').textContent.trim() }));
-        chk(o.owned === 'This computer will connect as quiet-heron.kosmosplus.com.' && !o.fieldShown && o.btn === 'Connect this computer', `[${key}] #3796 addendum 8: an account with an address gets no input, just "This computer will connect as ..."`, JSON.stringify(o));
-        const regReq = page.waitForRequest((r) => r.method() === 'POST' && /\/api\/remote\/signin-register$/.test(r.url()), { timeout: 5000 }).then((r) => r.postDataJSON(), () => null);
-        await page.click('#plus-si-register-go');
-        const body = await regReq;
-        chk(body && body.name === 'quiet-heron', `[${key}] #3796 addendum 8: Connect this computer registers the account's own name`, JSON.stringify(body));
+        // Landed above; nothing to type.
       } else if (sc.ownedRefusalFirst) {
-        // #3796 addendum 8 on a coordinator that does not send account_address yet: its refusal names the owned name.
+        // #3796 addendum 9 on a coordinator that does not send account_address yet: its refusal names the owned
+        // name, and the wizard registers to that one by itself.
         await page.fill('#plus-si-name', 'something-else');
         await page.click('#plus-si-register-go');
-        await page.waitForSelector('#plus-si-owned', { state: 'visible', timeout: 5000 });
-        const o = await page.evaluate(() => ({ owned: document.getElementById('plus-si-owned').textContent.trim(), fieldShown: !document.getElementById('plus-si-name-field').hidden, btn: document.getElementById('plus-si-register-go').textContent.trim(), msg: document.getElementById('plus-signin-msg').textContent.trim() }));
-        chk(/calm-otter/.test(o.owned) && !o.fieldShown && o.btn === 'Connect this computer' && !/409|said no/.test(o.msg), `[${key}] #3796 addendum 8: "already owns the name" switches to the no-input step, with no raw error`, JSON.stringify(o));
-        await page.click('#plus-si-register-go');
+        await landed(sc.ownedRefusalFirst, '"already owns the name"');
+        chk(regBodies.length === 2 && regBodies[1].name === sc.ownedRefusalFirst, `[${key}] #3796 addendum 9: after the refusal it registers the owned name by itself`, JSON.stringify(regBodies));
       } else {
         await page.fill('#plus-si-name', sc.steps['/api/remote/signin-register'].name);
         await page.click('#plus-si-register-go');
+      }
+      if (await visible(page, '#plus-si-done')) {
+        // #3796 addendum 9: the landing holds the pane (the 5s tick must not take it), until Done.
+        /* Force the repaint the 5s tick would do (with /api/remote now reading enrolled): it must not take the pane. */
+        await page.evaluate(() => paintPlus());
+        await page.waitForTimeout(400);
+        chk(await visible(page, '#plus-si-done') && !(await visible(page, '#plus-flow')), `[${key}] #3796 addendum 9: the landing stays up through a repaint until Done`);
+        await page.click('#plus-si-done-go');
       }
       // The wizard hands off to the connected flow: state 2 gone, flow shown, address in
       // its status line -- the same success screen the enrol flow ends on.
