@@ -482,13 +482,15 @@ async function run() {
     ...rows.map((r) => `| ${r.screen} | ${r.owner} | ${SIZES[r.size].label} ${SIZES[r.size].width}x${SIZES[r.size].height} | ${r.theme} | ${r.engine} | ${r.file} | ${r.note.replace(/\|/g, '/')} |`)];
   fs.writeFileSync(path.join(out, 'report.md'), md.join('\n') + '\n');
   console.log(`\n${rows.length} shots, ${overflowCount} with overflow, ${errors} errors -> ${out}`);
-  if (errors) return 2;
-  return args.strict && overflowCount ? 1 : 0;
+  /* tools/browser-checks.sh quotes a red's reason from lines starting FAIL. */
+  if (errors) { console.error(`FAIL  mobile-shots: ${errors} shot(s) could not be taken; see the ERROR lines above`); return 2; }
+  if (args.strict && overflowCount) { console.error(`FAIL  mobile-shots: ${overflowCount} shot(s) overflow sideways; see the FLAG lines above`); return 1; }
+  return 0;
 }
 
 if (require.main === module) {
   run().then((code) => process.exit(code), (e) => {
-    console.error('mobile-shots: ' + (e.leak ? e.message : (e.stack || e)));
+    console.error('FAIL  mobile-shots: ' + (e.leak ? e.message : (e.stack || e)));
     process.exit(e.leak ? 3 : 2);
   });
 }
