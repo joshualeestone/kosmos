@@ -248,9 +248,12 @@ if [ -z "${AGENT_WORKFORCE_HOME:-}" ] || [ "${AGENT_WORKFORCE_HOME%/}" = "${HOME
   export AGENT_WORKFORCE_HOME="$RUN_DIR/home"
   mkdir -p "$AGENT_WORKFORCE_HOME"
 fi
-# The OpenAI default account resolves AGENT_WORKFORCE_CODEX_HOME || CODEX_HOME before the
-# home seam (codexupdate.js), so an exported CODEX_HOME would still reach the real one.
-[ -n "${AGENT_WORKFORCE_CODEX_HOME:-}" ] || export AGENT_WORKFORCE_CODEX_HOME="$AGENT_WORKFORCE_HOME/.codex"
+# The OpenAI default resolves AGENT_WORKFORCE_CODEX_HOME || CODEX_HOME before the home seam
+# (codexupdate.js), and the Gemini/Grok/Claude session readers read GEMINI_CLI_HOME, GROK_HOME
+# and CLAUDE_CONFIG_DIR first, so an exported one would still reach the real home. Sealed by
+# REMOVAL, as tools/run-tests.sh does (#2858): naming a codex home instead would put every
+# board into the #1488 "operator named a codex home" mode, which is not the ordinary product.
+unset CODEX_HOME AGENT_WORKFORCE_CODEX_HOME GEMINI_CLI_HOME GROK_HOME CLAUDE_CONFIG_DIR
 # This home stays EMPTY: a check that needs an account plants its own, in its own board
 # (sb8 below) or through lib-sandbox-home.js plantSubscribedClaude(), so no check's
 # premise depends on which other check ran first.

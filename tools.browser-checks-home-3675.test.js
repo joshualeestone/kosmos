@@ -101,13 +101,18 @@ test('#3675: the lib keeps a caller\'s sandbox, replaces the real home, and remo
 
 test('#3675: tools/browser-checks.sh exports a sandbox home for every board and check it runs', () => {
   const sh = fs.readFileSync(path.join(__dirname, 'tools', 'browser-checks.sh'), 'utf8');
-  const at = sh.search(/^\s+export AGENT_WORKFORCE_HOME="\$RUN_DIR\/home"$/m);
-  assert.ok(at > 0, 'the runner exports a sandbox home');
-  assert.ok(at < sh.indexOf('node ./server.js'), 'before it boots its first board');
+  // The guarded block: unset or the real home becomes RUN_DIR/home (an inverted test would not match).
+  const at = sh.search(/^if \[ -z "\$\{AGENT_WORKFORCE_HOME:-\}" \] \|\| \[ "\$\{AGENT_WORKFORCE_HOME%\/\}" = "\$\{HOME%\/\}" \]; then\n\s+export AGENT_WORKFORCE_HOME="\$RUN_DIR\/home"$/m);
+  assert.ok(at > 0, 'the runner exports a sandbox home when none, or the real one, is set');
+  const unset = sh.search(/^unset CODEX_HOME AGENT_WORKFORCE_CODEX_HOME GEMINI_CLI_HOME GROK_HOME CLAUDE_CONFIG_DIR$/m);
+  assert.ok(unset > 0, 'and removes the ambient homes read before the seam');
+  const firstBoard = sh.indexOf('node ./server.js');
+  assert.ok(at < firstBoard && unset < firstBoard, 'both before it boots its first board');
 });
 
-test('#3675: plantSubscribedClaude gives the check its OWN home, never the shared one it was given', () => {
+test('#3675: plantSubscribedClaude gives the check its OWN home, never the shared one it was given', (t) => {
   const shared = fs.mkdtempSync(path.join(os.tmpdir(), 'kosmos-3675-shared-'));
+  t.after(() => fs.rmSync(shared, { recursive: true, force: true }));
   const code = `const lib = require(${JSON.stringify(LIB)}); const own = lib.plantSubscribedClaude();
     const sub = require(${JSON.stringify(path.join(__dirname, 'engine', 'subscription.js'))});
     const acc = require(${JSON.stringify(path.join(__dirname, 'engine', 'accounts.js'))});
@@ -119,5 +124,11 @@ test('#3675: plantSubscribedClaude gives the check its OWN home, never the share
   assert.equal(got.machine, 'connected', 'where the fixture subscription reads connected');
   assert.deepEqual(fs.readdirSync(shared), [], 'and wrote nothing into the shared one');
   assert.equal(fs.existsSync(got.own), false, 'its own home is removed on exit');
-  fs.rmSync(shared, { recursive: true, force: true });
+});
+
+test('#3675: the lib removes the ambient homes read before the seam, and names no codex home', () => {
+  const r = spawnSync(process.execPath, ['-e', `require(${JSON.stringify(LIB)}); process.stdout.write(JSON.stringify(['CODEX_HOME','AGENT_WORKFORCE_CODEX_HOME','GEMINI_CLI_HOME','GROK_HOME','CLAUDE_CONFIG_DIR'].map((v) => process.env[v] === undefined)));`],
+    { env: { ...process.env, CODEX_HOME: '/x', AGENT_WORKFORCE_CODEX_HOME: '/x', GEMINI_CLI_HOME: '/x', GROK_HOME: '/x', CLAUDE_CONFIG_DIR: '/x' }, encoding: 'utf8' });
+  assert.equal(r.status, 0, r.stderr);
+  assert.deepEqual(JSON.parse(r.stdout), [true, true, true, true, true]);
 });

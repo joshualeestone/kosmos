@@ -650,7 +650,13 @@ When the next step is inserted, discovery follows the pane; a hard-coded number 
 ```sh
 # 1. a server, with every root it writes to pointed somewhere disposable
 SB=$(mktemp -d)
+mkdir -p "$SB/home"
+# #3675: the home and the Claude config too, or Settings (and any screenshot) shows this
+# Mac's real accounts; and no ambient home read before the seam.
+env -u CODEX_HOME -u AGENT_WORKFORCE_CODEX_HOME -u GEMINI_CLI_HOME -u GROK_HOME -u CLAUDE_CONFIG_DIR \
 PORT=4399 \
+  AGENT_WORKFORCE_HOME="$SB/home" \
+  AGENT_WORKFORCE_CLAUDE_CONFIG="$SB/config/.claude.json" \
   AGENT_WORKFORCE_DATA="$SB/data" \
   AGENT_WORKFORCE_WORKERS="$SB/workers" \
   AGENT_WORKFORCE_LAUNCH="$SB/launch" \

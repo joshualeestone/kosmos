@@ -13,8 +13,9 @@
  * Measured on Agent1s: a render-settings-nav-shaped fixture listed 5 real Claude
  * accounts and 1 real OpenAI account; with this required, none.
  *
- * Requiring this file points each of those at a sandbox, unless the caller already
- * set it (to somewhere other than the real home, for AGENT_WORKFORCE_HOME). A check
+ * Requiring this file points the home and the Claude config at a sandbox unless the
+ * caller already set them (the home to somewhere other than the real one), and removes
+ * the ambient overrides that are read before the home (CODEX_HOME and friends). A check
  * that sets its own after requiring this wins. Every check that boots or spawns the
  * board requires it; tools.browser-checks-home-3675.test.js fails if one does not. It
  * never touches HOME itself, so Playwright still finds its browsers.
@@ -38,7 +39,13 @@ const cur = process.env.AGENT_WORKFORCE_HOME;
 if (!cur || path.resolve(cur) === path.resolve(os.homedir())) process.env.AGENT_WORKFORCE_HOME = freshHome();
 const home = process.env.AGENT_WORKFORCE_HOME;
 if (!process.env.AGENT_WORKFORCE_CLAUDE_CONFIG) process.env.AGENT_WORKFORCE_CLAUDE_CONFIG = path.join(home, '.claude.json');
-if (!process.env.AGENT_WORKFORCE_CODEX_HOME) process.env.AGENT_WORKFORCE_CODEX_HOME = path.join(home, '.codex');
+/* Sealed by REMOVAL, not by naming a sandbox: setting AGENT_WORKFORCE_CODEX_HOME puts the
+   board into the #1488 "operator named a codex home" mode (other OpenAI rows unofferable),
+   which is not the ordinary product. Removed, the OpenAI default falls through to
+   <sandbox home>/.codex. The same for the session readers that look at an ambient home
+   before the seam (Gemini, Grok, and Claude Code's CLAUDE_CONFIG_DIR, which every fleet
+   agent session on a dev Mac carries). A check that needs one sets it after this. */
+for (const v of ['CODEX_HOME', 'AGENT_WORKFORCE_CODEX_HOME', 'GEMINI_CLI_HOME', 'GROK_HOME', 'CLAUDE_CONFIG_DIR']) delete process.env[v];
 
 /* The fixture Claude account, for a check whose screen assumes a connected
    subscription (without one the board shows "Kosmos cannot reach a Claude subscription"
@@ -55,7 +62,6 @@ function plantSubscribedClaude() {
      secondary is judged by its own .claude.json. */
   const own = freshHome();
   process.env.AGENT_WORKFORCE_HOME = own;
-  process.env.AGENT_WORKFORCE_CODEX_HOME = path.join(own, '.codex');
   const dir = path.join(own, '.claude-fixture');
   fs.mkdirSync(dir, { recursive: true });
   fs.writeFileSync(path.join(dir, '.claude.json'), JSON.stringify(FIXTURE_CLAUDE) + '\n');

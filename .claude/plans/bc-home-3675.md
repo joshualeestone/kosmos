@@ -2,7 +2,8 @@
 
 ## Finished looks like
 No browser-check fixture board can list the real Claude, OpenAI, Gemini or Grok accounts of the Mac
-it runs on, whether the check runs through tools/browser-checks.sh or on its own, and a test fails
+it runs on, whether the check runs through tools/browser-checks.sh, boots its own board, or is run
+by hand from the README recipes, and a test fails
 if a check that boots a board is added without the protection.
 
 ## Cause (measured)
@@ -21,8 +22,9 @@ nothing identifying was printed.)
 - All 56 checks that boot or spawn the board (in-process `require('../../server[.js]')`, a spawned
   `server.js`, and thread-server.js) require it at top level, before the board.
 - `tools/browser-checks.sh` exports an empty AGENT_WORKFORCE_HOME inside RUN_DIR (removed by
-  cleanup) and AGENT_WORKFORCE_CODEX_HOME under it, for every board it starts and every check it
-  runs, unless the caller set a sandbox.
+  cleanup) and unsets the ambient homes, for every board it starts and every check it runs.
+- The README's hand-run recipes (the main "Running them" one and render-create-made's) sandbox the
+  home and the Claude config too.
 - `tools.browser-checks-home-3675.test.js`: every board-booting check requires the lib before the
   board (red control: removing it from render-settings-nav.js, and from thread-server.js, fails);
   a fixture with the lib lists none of a planted "real" home's accounts, and without it lists the
@@ -42,8 +44,11 @@ nothing identifying was printed.)
   shared one) holding a secondary `~/.claude-fixture` account (claude_max). Secondary, because the
   default account's verdict is read from AGENT_WORKFORCE_CLAUDE_CONFIG.
 - **The subscription check** (`subscription.js`) reads `AGENT_WORKFORCE_CLAUDE_CONFIG || ~/.claude.json`,
-  not the home seam, and 20 wired checks never set it. The lib defaults it into the sandbox too, and
-  `AGENT_WORKFORCE_CODEX_HOME`, which the OpenAI default reads before the home seam.
+  not the home seam, and 20 wired checks never set it. The lib defaults it into the sandbox too.
+- **Ambient homes read before the seam** (`CODEX_HOME`, `AGENT_WORKFORCE_CODEX_HOME`,
+  `GEMINI_CLI_HOME`, `GROK_HOME`, `CLAUDE_CONFIG_DIR`) are REMOVED by the lib and the runner, as
+  tools/run-tests.sh does (#2858). Not set to a sandbox: naming a codex home puts the board into the
+  #1488 "operator named a codex home" mode, which is not the ordinary product.
 - The runner's shared home stays EMPTY, so no check's premise depends on which check ran first.
 
 Full browser-check run on f138ef26: all page checks passed (one retry, render-type-to-focus-3283,
