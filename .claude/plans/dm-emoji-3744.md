@@ -75,3 +75,13 @@ Josh, 2026-09-25 09:29 in #admin: "We need emoji support in the agent DM." Filed
 - Not taken: a toggle that closes at once when there is under 56px of room (windows under about 178px;
   disabling the button would need a resize-driven state); a panel closed while tiny stays closed when
   the window grows (aria-expanded is correct); layout cost while open (fine at this size).
+
+## Review pass 4 (sonnet): 2 blockers, same root cause as pass 3's
+- BLOCKER a pick (its refocus scrolls #d-talk-box) and BLOCKER a resize both re-placed the panel,
+  and emojiPlace cleared the height cap to measure, so the list's scroll snapped back to 116 of 232.
+  Pass 3's fix filtered one trigger; the fault was the measure. -> emojiPlace no longer touches the
+  cap to measure: natural = min(the stylesheet's max-height, read once, scrollHeight + borders), and
+  the cap is written only when it changes. The own-scroll filter stays (it is now belt and braces).
+  Arms: a real click on the last emoji (with the refocus's scroll fired, since in this harness the
+  input is already in view) and a 3px resize, both red with the old measure at exactly 116.
+- Lesson recorded here: fix the mechanism a reviewer names, not the trigger they happened to use.

@@ -286,11 +286,25 @@ const FX = {
         await wait(120);
         const last = panel.querySelector('button[data-emoji]:last-child').getBoundingClientRect();
         const r = panel.getBoundingClientRect();
-        const out = { open: !panel.hidden, capped: max > 20, max, at: Math.round(panel.scrollTop), lastInside: last.bottom <= r.bottom + 1 && last.top >= r.top - 1 };
-        pjEmojiClose('agent');
-        return out;
+        return { open: !panel.hidden, capped: max > 20, max, at: Math.round(panel.scrollTop), lastInside: last.bottom <= r.bottom + 1 && last.top >= r.top - 1 };
       });
       chk(endOf.open && endOf.capped && endOf.at >= endOf.max - 2 && endOf.lastInside, `${t} at 1200x300 the list scrolls to its last emoji and stays there`, JSON.stringify(endOf));
+      // Review pass 4: and stays there through a pick (which refocuses the input and scrolls its box)
+      // and a resize, the two other things that re-place the panel.
+      const endAt = () => page.evaluate(() => { const p = document.getElementById('d-emoji'); return { open: !p.hidden, max: p.scrollHeight - p.clientHeight, at: Math.round(p.scrollTop) }; });
+      await page.click('#d-emoji button[data-emoji]:last-child');
+      /* The pick's refocus of the input scrolls its box when the input is not already in view (the
+         reviewer measured that scroll at 1200x300); here the input is in view, so that scroll is
+         fired as the refocus would fire it, which is what re-places the panel. */
+      await page.evaluate(() => document.getElementById('d-talk-box').dispatchEvent(new Event('scroll')));
+      await page.waitForTimeout(120);
+      const afterPick = await endAt();
+      chk(afterPick.open && afterPick.at >= afterPick.max - 2, `${t} picking the last emoji leaves the list at its end`, JSON.stringify(afterPick));
+      await page.setViewportSize({ width: 1200, height: 303 });
+      await page.waitForTimeout(120);
+      const afterResize = await endAt();
+      chk(afterResize.open && afterResize.at >= afterResize.max - 2, `${t} a resize leaves the list at its end`, JSON.stringify(afterResize));
+      await page.evaluate(() => { pjEmojiClose('agent'); document.getElementById('d-say').value = ''; });
       await page.setViewportSize({ width: 1200, height: 700 });
       await page.waitForTimeout(100);
       /* Its box carried out of sight: the panel closes rather than staying open where nobody can see

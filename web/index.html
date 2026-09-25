@@ -46932,6 +46932,7 @@ function pjEmojiOpen(where = 'room') {
    box, right-aligned with it as the room's is; below it when there is more room there; its height
    capped to the room it has; and kept inside the window and below the sticky app header, which
    would otherwise cover its top rows in a short window. */
+let EMOJI_CSS_MAX = 0;   // the stylesheet's max-height for .emojipanel, read once (see emojiPlace)
 function emojiPlace() {
   const panel = document.getElementById('d-emoji');
   const btn = document.getElementById('d-emoji-btn');
@@ -46944,8 +46945,11 @@ function emojiPlace() {
   /* Review pass 2: its box scrolled out of sight, or a window with no room for even a row or two,
      closes the panel rather than leaving it open somewhere nobody can see or reach. */
   if (box.bottom < ceiling || box.top > floor || floor - ceiling < 56) { pjEmojiClose('agent'); return; }
-  panel.style.maxHeight = '';
-  const natural = panel.offsetHeight;
+  /* Its full height, measured WITHOUT touching its cap (review pass 4): clearing the cap to measure
+     made the browser pull the list's scroll back to the middle on every re-place, after a pick, a
+     resize or any scroll. Content height plus borders, capped at the stylesheet's own max-height. */
+  if (!EMOJI_CSS_MAX) { const saved = panel.style.maxHeight; panel.style.maxHeight = ''; EMOJI_CSS_MAX = parseFloat(getComputedStyle(panel).maxHeight) || 240; panel.style.maxHeight = saved; }
+  const natural = Math.min(EMOJI_CSS_MAX, panel.scrollHeight + (panel.offsetHeight - panel.clientHeight));
   const above = box.top - GAP - ceiling;
   const below = floor - box.bottom - GAP;
   const up = above >= natural || above >= below;
@@ -46953,7 +46957,8 @@ function emojiPlace() {
      The `floor - ceiling` term is belt and braces: the close above already keeps `above` and
      `below` within it, so today it never decides; it keeps the clamp below safe if that changes. */
   const h = Math.min(natural, Math.max(56, up ? above : below), floor - ceiling);
-  if (h < natural) panel.style.maxHeight = h + 'px';
+  const cap = h < natural ? h + 'px' : '';
+  if (panel.style.maxHeight !== cap) panel.style.maxHeight = cap;
   const want = up ? box.top - GAP - h : box.bottom + GAP;
   panel.style.top = Math.round(Math.min(Math.max(want, ceiling), floor - h)) + 'px';
   const w = panel.offsetWidth;
