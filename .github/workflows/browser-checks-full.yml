@@ -148,7 +148,9 @@ jobs:
               exit 0
             fi
             for n in $(ghr gh issue list --repo "$GITHUB_REPOSITORY" --state open --label "$label" --json number -q '.[].number'); do
-              ghr gh issue close "$n" --repo "$GITHUB_REPOSITORY" --comment "Green again at $GITHUB_SHA: $RUN_URL. Closing; the next red night opens a new card."
+              # The note once (a retried comment would post twice), then the close (safe to repeat).
+              gh1 gh issue comment "$n" --repo "$GITHUB_REPOSITORY" --body "Green again at $GITHUB_SHA: $RUN_URL. Closing; the next red night opens a new card." || true
+              ghr gh issue close "$n" --repo "$GITHUB_REPOSITORY"
             done
             exit 0
           fi
@@ -202,8 +204,12 @@ jobs:
             # wait, look for the card, and create again only if there is none.
             if ! create_card; then
               sleep "${GH_RETRY_SECONDS:-10}"
-              again=""
-              [ "${#labelled[@]}" -gt 0 ] && again=$(ghr gh issue list --repo "$GITHUB_REPOSITORY" --state open --label "$label" --json number -q '.[0].number') || again=""
+              # Look by label, or by title when the card had to be filed without one.
+              if [ "${#labelled[@]}" -gt 0 ]; then
+                again=$(ghr gh issue list --repo "$GITHUB_REPOSITORY" --state open --label "$label" --json number -q '.[0].number') || again=""
+              else
+                again=$(ghr gh issue list --repo "$GITHUB_REPOSITORY" --state open --search "in:title \"Nightly full browser-check run is not green on main\"" --json number -q '.[0].number') || again=""
+              fi
               [ "$again" = null ] && again=""
               if [ -z "$again" ]; then
                 gh1 create_card

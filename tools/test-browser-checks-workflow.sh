@@ -169,6 +169,7 @@ if command -v ruby >/dev/null 2>&1; then
     abort "the label collector must run after a failed, timed-out or cancelled checks step (if: always())" unless col && col["if"].to_s.strip == "always()"
     abort "browser-checks-full or one of its steps is continue-on-error; a red full run must not report success" if fj["continue-on-error"] || fsteps.any? { |st| st["continue-on-error"] }
     abort "browser-checks-full.yml must run steps as bash -eo pipefail (defaults.run.shell: bash); without it a pipeline reports its last command, got #{f["defaults"].inspect}" unless ((f["defaults"] || {})["run"] || {})["shell"] == "bash"
+    abort "the concurrency group must separate triggers (github.ref AND github.event_name), or a dispatch can supersede a pending nightly, got #{(f["concurrency"] || {})["group"].inspect}" unless (f["concurrency"] || {})["group"].to_s.gsub(/\s+/, "") == "browser-checks-full-${{github.ref}}-${{github.event_name}}"
     abort "browser-checks-full.yml must never cancel a nightly run in progress (concurrency cancel-in-progress false), got #{(f["concurrency"] || {}).inspect}" unless (f["concurrency"] || {})["cancel-in-progress"] == false
     # The red-check list crosses jobs: collector step (id failed) -> job output "failed" ->
     # RED in the card step. A break anywhere turns every card into "(none captured)".
@@ -242,7 +243,7 @@ if command -v ruby >/dev/null 2>&1; then
   mkdir -p "$BT/poison" "$BT/ghcfg"; printf '#!/bin/sh\necho "REAL gh REACHED: $*" >&2; exit 99\n' > "$BT/poison/gh"; chmod +x "$BT/poison/gh"
   card() {
     PATH="$BT/poison:$PATH" GH_TOKEN=invalid GH_CONFIG_DIR="$BT/ghcfg" GH_RETRY_SECONDS=0 \
-    LISTFAIL="${LISTFAIL:-}" LABELFAIL="${LABELFAIL:-}" LCFAIL="${LCFAIL:-}" CREATEFAIL="${CREATEFAIL:-}" FLAGDIR="$BT/flags" HEADSHA="${HEADSHA:-abc}" GITHUB_RUN_ATTEMPT="${ATTEMPT:-1}" COMMENTFILE="${COMMENTFILE:-}" \
+    LISTFAIL="${LISTFAIL:-}" LABELFAIL="${LABELFAIL:-}" LCFAIL="${LCFAIL:-}" CREATEFAIL="${CREATEFAIL:-}" FLAGDIR="$BT/flags" GITHUB_RUN_ATTEMPT="${ATTEMPT:-1}" COMMENTFILE="${COMMENTFILE:-}" \
     VIEWFAIL="${VIEWFAIL:-}" BODYFILE="${BODYFILE:-}" VIEWBODY="${VIEWBODY:-}" LABEL="${LABEL:-}" RESULT="$1" OPEN="$2" RED="${REDV:-render-fields|render-thread|regress-a-night (server did not boot)|render-list-row render-fields (rich board did not boot)}" GITHUB_REPOSITORY=o/r GITHUB_SHA=abc RUN_URL=u bash -eo pipefail -c '
       qarg() { local prevarg="" a; for a in "$@"; do [ "$prevarg" = "-q" ] && { printf "%s" "$a"; return 0; }; prevarg="$a"; done; return 1; }
       gh() { case "$1 $2" in
@@ -265,7 +266,6 @@ if command -v ruby >/dev/null 2>&1; then
           printf "%s" "{\"body\":\"The nightly full page-layer run failed\\n\\nRed checks: an old entry\",\"comments\":[{\"body\":\"Still not green (failure) at old: u\\nNEW since the last red night: none\\nRed checks: render-fields | regress-a-night (server did not boot)\"},{\"body\":\"a person quoting it: Red checks: something else entirely\"}]}" | jq -r "$f" ;;
         "issue comment") echo "CALL comment $3 :: $*"
           [ -n "$COMMENTFILE" ] && { prevarg=""; for a in "$@"; do [ "$prevarg" = "--body" ] && printf "%s" "$a" > "$COMMENTFILE"; prevarg="$a"; done; }; true ;;
-        "api repos/o/r/commits/main") echo "$HEADSHA" ;;
         "issue create")
           # CREATEFAIL=ghost: fails but GitHub made it. CREATEFAIL=once: fails the first time only.
           if [ "$CREATEFAIL" = ghost ] && [ ! -f "$FLAGDIR/ghost" ]; then : > "$FLAGDIR/ghost"; echo "HTTP 502" >&2; return 1; fi
@@ -305,7 +305,8 @@ if command -v ruby >/dev/null 2>&1; then
   case "$out" in *"CALL comment null"*) fail "commented on issue 'null': $out" ;; esac
   out="$(card success 7)" || fail "card script failed on a green night with an open card: $out"
   case "$out" in *"CALL close 7"*) ;; *) fail "the first green night did not close the open card: $out" ;; esac
-  case "$out" in *"CALL comment"*|*"CALL create"*) fail "a green night commented or created: $out" ;; esac
+  case "$out" in *"CALL create"*) fail "a green night created a card: $out" ;; esac
+  printf '%s\n' "$out" | grep 'CALL comment' | grep -qv 'Green again' && fail "a green night posted a comment other than the closing note: $out"
   out="$(card success "")" || fail "card script failed on a green night with no card: $out"
   case "$out" in *"CALL "*) fail "a green night with no open card did anything: $out" ;; esac
   # Round trip: the card this job CREATES is what the next night reads back. Feed the real
@@ -327,6 +328,7 @@ if command -v ruby >/dev/null 2>&1; then
   # Green closes only on a first attempt at main's current head, and closes EVERY open card.
   out="$(card success 7)" || fail "green close failed: $out"
   case "$out" in *"CALL close 7"*"CALL close 3"*) ;; *) fail "a green night did not close every open card: $out" ;; esac
+  [ "$(printf '%s\n' "$out" | grep -c 'CALL comment 7')" -eq 1 ] || fail "the closing note was not posted exactly once on card 7: $out"
   out="$(ATTEMPT=2 card success 7)" || fail "green re-run failed: $out"
   case "$out" in *"CALL close"*) fail "a RE-RUN of an older night closed the card: $out" ;; esac
   case "$out" in *"CALL comment 7"*"re-run"*) ;; *) fail "a green re-run did not say on the card why it did not close: $out" ;; esac
@@ -341,6 +343,8 @@ if command -v ruby >/dev/null 2>&1; then
   [ "$(printf '%s\n' "$out" | grep -c 'CALL create')" -eq 1 ] || fail "a truly failed create did not end with exactly one card: $out"
   rm -f "$BT/flags/"*; out="$(LABEL=1 CREATEFAIL=ghost card failure "")" || fail "a create that GitHub did despite the error aborted: $out"
   case "$out" in *"CALL create"*) fail "a create that GitHub had done was repeated (a duplicate card): $out" ;; esac
+  rm -f "$BT/flags/"*; out="$(LCFAIL=1 CREATEFAIL=ghost card failure "")" || fail "no label + a create GitHub did despite an error aborted: $out"
+  case "$out" in *"CALL create"*) fail "with no label, a create GitHub had done was repeated (a duplicate card): $out" ;; esac
   rm -f "$BT/flags/"*
   # CRLF from a web edit must not make every check NEW.
   out="$(VIEWBODY="$(printf 'Still not green (failure) at x: u\r\nNEW since the last red night: none\r\nRed checks: render-fields | render-thread\r')" REDV="render-fields|render-thread" card failure 7)" || fail "CRLF report: $out"
