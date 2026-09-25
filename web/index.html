@@ -53557,7 +53557,8 @@ const ASB_FIND_FIRST_MS = 5000;    // looking for the guide again: 5s, doubling 
 const ASB_FIND_MAX_MS = 60000;
 let ASB = { started: false, guide: null, setting: null, open: false, asking: false, nudgeGone: false,
   wroteOnce: false, heard: null, lastPoll: 0, screenKey: '', sending: false, dot: false,
-  nextFind: 0, findEvery: ASB_FIND_FIRST_MS, finding: false, shown: '' };
+  nextFind: 0, findEvery: ASB_FIND_FIRST_MS, finding: false, shown: '', readOnce: false,
+  nextSetting: 0, settingEvery: ASB_FIND_FIRST_MS, settingReading: false };
 
 function asbGuideRow() {
   if (!ASB.guide || !Array.isArray(LAST)) return null;
@@ -53589,7 +53590,7 @@ function asbTellScreen(force) {
   if (!force && key === ASB.screenKey) return;
   ASB.screenKey = key;
   fetch('/api/setup-guide/page', { method: 'POST', headers: { 'content-type': 'application/json' }, body: key })
-    .then((r) => { r.text().catch(() => {}); if (r.status === 404 || r.status === 409) asbForgetGuide(); })   // read on every answer (see asbFind)
+    .then((r) => { r.text().catch(() => {}); if (r.status === 404) asbForgetGuide(); })   // read on every answer (see asbFind). A 409 is a failed write or check, not a missing guide: keep it
     .catch(() => { /* the guide answers without it; it is a courtesy, not a dependency */ });
 }
 
@@ -53657,7 +53658,7 @@ function asbPaint() {
   panel.hidden = !ASB.open;
   bub.hidden = ASB.open;
   bub.querySelector('.asb-dot').hidden = !ASB.dot || ASB.open;
-  document.getElementById('asb-nudge').hidden = ASB.open || ASB.nudgeGone || ASB.wroteOnce;
+  document.getElementById('asb-nudge').hidden = ASB.open || ASB.nudgeGone || ASB.wroteOnce || !ASB.readOnce;   // not before the thread says whether they wrote
   document.getElementById('asp-ask').hidden = !ASB.asking;
   document.getElementById('asp-in').hidden = ASB.asking;
 }
@@ -53666,13 +53667,16 @@ function asbPaint() {
    so a guide removed (or a new agent that took its name) is never read or written as the guide, open
    or folded. Local and cheap: at most every 5s while open, every minute while folded. */
 async function asbConfirmGuide() {
-  let name = null;
+  let r = null, b = null;
   try {
-    const r = await fetch('/api/setup-guide', { cache: 'no-store' });
-    const b = await r.json().catch(() => null);   // read on every answer (see asbFind)
-    if (r.ok && b && b.ok && typeof b.name === 'string') name = b.name;
-  } catch { return true; }   // the board did not answer: keep what we have rather than blink the bubble
-  if (name && ASB.guide && name.toLowerCase() === String(ASB.guide).toLowerCase()) return true;
+    r = await fetch('/api/setup-guide', { cache: 'no-store' });
+    b = await r.json().catch(() => null);   // read on every answer (see asbFind)
+  } catch { return !!ASB.guide; }   // the board did not answer: keep what we have rather than blink the bubble
+  /* Only "no guide" (404) or a DIFFERENT guide means this one is gone. A 409 is the board unable to check
+     just now (an unreadable removed list, a marker it cannot read): keep it, and the next read decides. */
+  if (r.ok && b && b.ok && typeof b.name === 'string') {
+    if (ASB.guide && b.name.toLowerCase() === String(ASB.guide).toLowerCase()) return true;
+  } else if (r.status !== 404) return !!ASB.guide;
   asbForgetGuide();
   return false;
 }
@@ -53700,6 +53704,7 @@ async function asbPoll(force) {
   if (!t) { if (ASB.open) document.getElementById('asp-msg').textContent = 'We could not load the conversation just now.'; return; }
   const speech = asbSpeech(t.rows);
   ASB.wroteOnce = speech.some((m) => m.from !== t.session);
+  ASB.readOnce = true;
   const heard = speech.filter((m) => m.from === t.session).length;
   /* The first read is the baseline: replies already in the thread are not new, so they light nothing. */
   if (ASB.open) {
@@ -53771,6 +53776,12 @@ async function asbCloseChoice(forGood) {
   ASB.asking = false;
   asbFold();
   asbPaintSetting();
+  /* Closed for good the bubble is gone too, so the keyboard goes back to the page, not nowhere. */
+  if (forGood) asbFocusPage();
+}
+function asbFocusPage() {
+  const to = document.querySelector('#tabs .tab.on, #tabs [data-tab="agents"], #new-agent, #rail-agents-new');
+  if (to) to.focus(); else document.body.focus();
 }
 
 async function asbSend() {
@@ -53830,6 +53841,7 @@ document.getElementById('asb-toggle')?.addEventListener('click', async (e) => {
 
 function asbTick() {
   if (!ASB.guide) { if (Date.now() >= ASB.nextFind) asbFind(); return; }
+  if (!ASB.setting) { if (Date.now() >= ASB.nextSetting) asbReadSetting(); return; }
   asbPaint();
   if (!asbShows()) return;
   if (ASB.open) asbTellScreen(false);
@@ -53856,23 +53868,36 @@ async function asbFind() {
     return;
   }
   ASB.guide = guide;
-  if (!ASB.setting) {
-    try {
-      const r = await fetch('/api/settings', { cache: 'no-store' });
-      const b = await r.json().catch(() => null);
-      if (b && b.setupAssistant && typeof b.setupAssistant.on === 'boolean') ASB.setting = b.setupAssistant;
-    } catch { /* an unread setting shows no bubble rather than guess */ }
-  }
   ASB.finding = false;
-  asbPaintSetting();
   asbLayerEnsure();
-  asbPoll(true);
+  await asbReadSetting();
+}
+/* The on/off setting. An unread setting shows no bubble rather than guess, and is read again (the same
+   backoff as the guide), so one bad read at startup does not hide the assistant until a reload. */
+async function asbReadSetting() {
+  if (ASB.settingReading) return;
+  ASB.settingReading = true;
+  try {
+    const r = await fetch('/api/settings', { cache: 'no-store' });
+    const b = await r.json().catch(() => null);
+    if (r.ok && b && b.setupAssistant && typeof b.setupAssistant.on === 'boolean') ASB.setting = b.setupAssistant;
+  } catch { /* retried below */ }
+  ASB.settingReading = false;
+  if (!ASB.setting) {
+    ASB.nextSetting = Date.now() + ASB.settingEvery;
+    ASB.settingEvery = Math.min(ASB.settingEvery * 2, ASB_FIND_MAX_MS);
+  }
+  asbPaintSetting();
+  if (asbShows()) asbPoll(true);   // nothing is read from the thread while the assistant is off
   asbPaint();
 }
 /* The board says the guide is gone (removed, or its folder no longer the seed's): stop using the name,
    hide everything, and look again from the start. */
 function asbForgetGuide() {
+  const hadFocus = !!document.activeElement && !!document.activeElement.closest('#asblayer');
   ASB.guide = null; ASB.open = false; ASB.asking = false; ASB.heard = null; ASB.shown = ''; ASB.dot = false;
+  ASB.wroteOnce = false; ASB.readOnce = false; ASB.lastPoll = 0; ASB.nudgeGone = false;
+  if (hadFocus) setTimeout(asbFocusPage, 0);
   ASB.findEvery = ASB_FIND_FIRST_MS; ASB.nextFind = Date.now() + ASB_FIND_FIRST_MS;
   asbPaint();
   asbPaintSetting();

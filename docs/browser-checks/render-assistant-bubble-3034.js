@@ -111,7 +111,7 @@ const waitFor = (page, fn, ms = 6000) => page.waitForFunction(fn, null, { timeou
     const two = await bubble(page);
     chk(/\/api\/agent\/Josh\/avatar\?v=/.test(two.src), 'B2 it shows the guide\'s picture', two.src);
     chk(two.nudge, 'B2 the nudge shows before the person has written to the guide');
-    await page.waitForTimeout(1600);   // past a tick: the first read of the thread has landed
+    chk(await waitFor(page, () => ASB.heard !== null && ASB.readOnce === true), 'B2 precondition: the first thread read has landed');
     chk(!(await bubble(page)).dot, 'B2 a reply already in the thread does not light the dot on load (control: B6 lights it for a new one)');
     /* Measured from the page's content edge (body.clientWidth). The root reserves a stable scrollbar
        gutter (scrollbar-gutter: stable), and a fixed element sits inside it, as the tip card does. */
@@ -157,13 +157,13 @@ const waitFor = (page, fn, ms = 6000) => page.waitForFunction(fn, null, { timeou
     verdict = { delivery: { state: 'unconfirmed' }, recorded: false };
     await page.fill('#asp-say', 'Is it working?');
     await page.keyboard.press('Enter');
-    await page.waitForTimeout(600);
+    await waitFor(page, () => /still in the box/.test(document.getElementById('asp-msg').textContent));
     const b5b = await page.evaluate(() => ({ box: document.getElementById('asp-say').value, msg: document.getElementById('asp-msg').textContent }));
     chk(b5b.box === 'Is it working?' && /still in the box/.test(b5b.msg), 'B5b an unconfirmed send that was not kept leaves the words in the box and says so', JSON.stringify(b5b));
     // B5c: could_not keeps them too, with the reason as a sentence.
     verdict = { delivery: { state: 'could_not', because: 'the assistant is not running' }, recorded: false };
     await page.keyboard.press('Enter');
-    await page.waitForTimeout(600);
+    await waitFor(page, () => /could not get that/.test(document.getElementById('asp-msg').textContent));
     const b5c = await page.evaluate(() => ({ box: document.getElementById('asp-say').value, msg: document.getElementById('asp-msg').textContent }));
     chk(b5c.box === 'Is it working?' && /The assistant is not running/.test(b5c.msg), 'B5c a send that could not go keeps the words and gives the reason', JSON.stringify(b5c));
     verdict = { delivery: { state: 'placed' }, recorded: true };
@@ -222,6 +222,23 @@ const waitFor = (page, fn, ms = 6000) => page.waitForFunction(fn, null, { timeou
     chk(await waitFor(page, () => document.getElementById('asb').hidden), 'B9 during first run the bubble is hidden');
     await page.evaluate(() => { const fr = document.getElementById('firstrun'); if (fr) fr.hidden = true; });
     chk(await waitFor(page, () => !document.getElementById('asb').hidden), 'B9 CONTROL: it comes back when first run is gone');
+
+    // B12: the board refuses a page report with 409 (it could not write the report, or could not check
+    // just now). That is not "no guide": the chat stays open and the bubble does not blink away.
+    await page.route('**/api/setup-guide/page', (route) => route.fulfill({ status: 409, contentType: 'application/json', body: '{"error":"we could not tell the setup guide which screen you are on"}' }));
+    await page.click('#asb');
+    await page.waitForTimeout(2500);
+    const b12 = await bubble(page);
+    chk(b12.panel && await page.evaluate(() => ASB.guide === 'Josh'), 'B12 a refused page report (409) keeps the guide and the open chat', JSON.stringify(b12));
+    await page.unroute('**/api/setup-guide/page');
+    await page.click('#asp-fold');
+
+    // B13: the settings read fails once at load; it is read again and the bubble arrives without a reload.
+    let settingsFailed = 0;
+    await page.route('**/api/settings', (route) => { if (route.request().method() === 'GET' && settingsFailed === 0) { settingsFailed++; return route.abort(); } return route.continue(); });
+    await boot();
+    chk(await waitFor(page, () => { const b = document.getElementById('asb'); return b && !b.hidden; }, 15000) && settingsFailed === 1, 'B13 a settings read that failed at load is retried and the bubble arrives', 'failed=' + settingsFailed);
+    await page.unroute('**/api/settings');
 
     // B10: the guide goes while the chat is FOLDED: the next thread read asks the board first, is told
     // there is no guide, and the page stops using the name (a new agent that took it must never get the
