@@ -263,15 +263,22 @@ echo "==> the launcher will open http://127.0.0.1:$PORT_DEFAULT"
 # anything on, and a .cmd CANNOT CARRY ONE -- measured, not assumed:
 # Get-AuthenticodeSignature on a .cmd returns UnknownError, because a batch file
 # has nowhere to put a signature. So the entry point had to become a PE binary
-# before the certificate Josh is buying could sign anything a user ever sees.
+# before the certificate Josh was buying could sign anything a user ever sees.
 # The launcher does exactly what the .cmd did and nothing more; its source and
 # the reasoning are in tools/windows/.
+# 🔏 THE COMMITTED EXE IS NOW AUTHENTICODE-SIGNED (Kosmos Agent Manager, Inc.,
+# Azure Artifact Signing, RFC 3161 timestamped), and this script copies it
+# UNCHANGED. Signing happens on the Windows box, to the committed file, never
+# here: the Mac cannot sign it, and re-signing during the cut would make the
+# release depend on that box after all. A launcher source change therefore
+# means rebuild + re-sign + commit, together (tools/windows/README.md).
 # ⚠️ COMMITTED, NOT COMPILED HERE, and that is the whole of the ruling. Building
 # it during the cut would make a Windows machine a dependency of every release,
 # and the release lane runs on a Mac. A committed binary is acceptable ONLY
 # because its provenance is checkable: tools/windows/verify-launcher.ps1
 # rebuilds it from the committed source and compares, which a reviewer runs on
-# Windows. See tools/windows/README.md for why the compare is masked.
+# Windows. See tools/windows/README.md for why the compare is masked, and how a
+# signed exe is compared as the unsigned image it was made from.
 LAUNCHER="$REPO/tools/windows/Kosmos.exe"
 [ -f "$LAUNCHER" ] || { echo "the committed launcher is missing: tools/windows/Kosmos.exe" >&2; exit 1; }
 
