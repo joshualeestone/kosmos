@@ -98,10 +98,24 @@ test('the step is a real slice of the model pane', () => {
      tile (grouped with Gemini), taking the slice to 36511 -- 489 chars under the old
      37000 ceiling, too tight to leave. `id="create-model"` now sits 98767 chars from
      the slice start, so 40000 is 58767 chars short of swallowing the create form; the
-     tripwire still trips long before it stops meaning anything. */
-  assert.ok(STEP.length > 200 && STEP.length < 40000, 'the slice is ' + STEP.length + ' chars, so it is not this step');
+     tripwire still trips long before it stops meaning anything.
+     ⚠️ RAISED 40000 -> 44000 (#3708): Grok's letter chip became the real inlined Grok
+     mark, and main had already grown to 39949 (51 under the old ceiling). The slice
+     measures 41109; `id="create-model"` sits 103294 chars from the slice start, so
+     44000 is ~59k short of swallowing the create form. */
+  assert.ok(STEP.length > 200 && STEP.length < 44000, 'the slice is ' + STEP.length + ' chars, so it is not this step');
   assert.match(STEP, /Your agents run on your own subscription/, 'the slice does not contain the model step');
   assert.ok(!STEP.includes('id="create-model"'), 'the slice ran past this step into the create form');
+});
+
+test('#3708: Grok wears its real mark and Gemini and Grok say what works today', () => {
+  // Grok's row is a full-weight vendor mark like the others, not the old "X" letter chip.
+  assert.match(STEP, /<span class="llm-m pmark live" data-pmark="xai" role="img" aria-label="Grok"><svg viewBox="0 0 34 33"[^>]*><path /,
+    'Grok is not wearing its inlined vendor mark');
+  assert.doesNotMatch(STEP, /llm-chip/, 'a letter chip is back on the model step');
+  // Each subtitle says what is true: Grok signs in or takes a key; Gemini takes a key only.
+  assert.match(STEP, /<b>Grok<\/b><small>xAI · works today<\/small>/);
+  assert.match(STEP, /<b>Gemini<\/b><small>Google · API key today<\/small>/);
 });
 
 test('Claude stays at full weight, the one with an OAuth connect', () => {
