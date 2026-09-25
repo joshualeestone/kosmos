@@ -308,7 +308,7 @@ async function measure(engine, scheme) {
       return false;
     };
     // Native sliders paint no field fill (see the note above FIELDS): skipped from every field
-    // check, and listed by id so the skip cannot grow unnoticed. An engine that does not report
+    // check and listed by id; one not in KNOWN_NATIVE_SLIDERS FAILS (the guard on growth). An engine that does not report
     // `appearance` (undefined) gets the slider MEASURED, the safe side.
     const isNativeSlider = (el) => {
       if (el.tagName.toLowerCase() !== 'input' || el.type !== 'range') return false;
@@ -387,7 +387,7 @@ async function measure(engine, scheme) {
       seen[scheme] = r;
       console.log(`\n== ${engine} / ${scheme} ==  fields ${r.fields.length}, page errors ${r.errs.length}`);
       console.log(`  native sliders not measured (they paint no field fill): ${r.nativeSliders.length}${r.nativeSliders.length ? ' - ' + r.nativeSliders.join(', ') : ''}`);
-      for (const id of r.nativeSliders) if (!KNOWN_NATIVE_SLIDERS.includes(id)) fail(`${engine}/${scheme} slider ${id} is skipped as native but is not in KNOWN_NATIVE_SLIDERS: add it there if it is meant to be a native slider, or restyle it (appearance:none) to be measured as a field`);
+      for (const id of r.nativeSliders) if (!KNOWN_NATIVE_SLIDERS.includes(id)) fail(`${engine}/${scheme} slider ${id} is skipped as native but is not in KNOWN_NATIVE_SLIDERS: ${id.startsWith('input[type=range][') ? 'give it an id and add the id there' : 'add it there'} if it is meant to be a native slider, or restyle it (appearance:none) to be measured as a field`);
       for (const e of r.errs) fail(`${engine}/${scheme} ${e}`);
 
       /* ⚠️ A DENOMINATOR THAT ONLY PRINTS IS NOT A DENOMINATOR. Containers,

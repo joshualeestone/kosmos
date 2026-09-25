@@ -709,7 +709,8 @@ paint or geometry result from it is weaker evidence than a headed one.
 engines and both schemes**: that every select renders our own control rather than
 the browser's, that no field is the same fill as the box it sits in
 (checkboxes and radios are outside the field set by its selector; native sliders are skipped
-from every field check, listed by id, because they were measured not to paint their fill), that a
+from every field check because they were measured not to paint their fill; a skipped slider not
+in KNOWN_NATIVE_SLIDERS fails, so adding a native slider on purpose means adding its id there), that a
 field's relationship to its container does not FLIP between light and dark, that
 the unknown-memory caption does not paint over the presence dot, and that the
 list row's unknown cell carries a word rather than a blank (a blank number cell

@@ -11,7 +11,8 @@ The 0.6.95 staging cut (2026-09-25 14:41 CDT, frozen at da343bae1) stopped at st
 ## Call (final)
 Skip NATIVE sliders from every field check, where render-fields collects its fields: an
 `<input type="range">` whose computed `appearance` is not `none`. They are listed by id in the
-output, so the skip cannot grow unnoticed. A slider styled `appearance:none` paints its fill
+output, and one NOT in `KNOWN_NATIVE_SLIDERS` (the four swarm sliders) FAILS the check, so the
+skip cannot grow unnoticed (review 5); adding a native slider on purpose means adding its id. A slider styled `appearance:none` paints its fill
 and stays a measured field, as the select check conditions on appearance. An engine that does
 not report `appearance` gets the slider measured (the safe side).
 
@@ -40,7 +41,14 @@ A design ruling that sliders must look like fields, or a slider whose track is u
 
 ## Proof
 - Red: render-fields alone on da343bae1 (Mortals): 8 FAIL, all the swarm sliders.
-- Green: the same, on this branch (Mortals), twice.
+- Green: the same, on this branch (Mortals): twice at 43bb7abfc (selector version), then at
+  ca011a408 and 1adf3a545 (appearance skip), then at e350916f0 (allowlist): 85 fields, the four
+  sliders listed by id, PASS.
+- Allowlist red arm (e350916f0, Mortals, scratch edit reverted): `create-swarm-cap` removed from
+  the list gives `FAIL ... slider create-swarm-cap is skipped as native but is not in
+  KNOWN_NATIVE_SLIDERS` in every engine and scheme, rc=1.
+- Full yarn test (at 2f4b34f80; later commits touch only render-fields.js, its README row and
+  this plan): 9525 tests, 0 fail. A comment edit landed while that run was in progress.
 - Coverage kept: fields measured per engine and scheme went 89 to 85, exactly the four swarm
   sliders (`#d-swarm-max`, `#d-swarm-cap`, which failed; `#create-swarm-max`,
   `#create-swarm-cap`, which passed only because their container's fill differs). They are the
