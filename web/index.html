@@ -2295,7 +2295,10 @@ body.filter-noproj #orgview .onode:not([data-noproj]) { opacity: .26; }
 .ansgo:focus-visible { outline: 2px solid var(--k-ink); outline-offset: 3px; }
 /* #718 mobile: on a touchscreen "Answer" is the thumb's main target on a card that needs you,
    and its box is one short line of text. A larger invisible hit area around it (the layout of
-   the pill does not change): about 40px tall, kept small enough not to reach the next row. */
+   the pill does not change): about 40px tall, kept small enough not to reach the next row.
+   Not 44px like the Allow buttons: those grow the button itself in a card with room to spare,
+   while this area floats over its neighbours (a positioned box paints above them) in a list
+   row with 12px padding, so 44px would start taking taps meant for the row around it. */
 @media (hover: none) {
   .ansgo { position: relative; }
   .ansgo::after { content: ""; position: absolute; inset: -8px -6px; }

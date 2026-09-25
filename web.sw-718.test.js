@@ -130,3 +130,40 @@ test('#718: a session that is not a plain id is dropped, never put in the URL', 
   // A hostile address still falls back to this origin even with a good session.
   assert.equal(boardUrlFor({ address: 'javascript:alert(1)', session: 'april' }), '/?tab=detail&agent=april');
 });
+
+test('#718: a tap focuses the tab navigate() landed on, and opens a window when navigate() fails', async () => {
+  const run = async (client) => {
+    const handlers = {}; const opened = [];
+    const self2 = { addEventListener(k, f) { handlers[k] = f; }, location: { origin: 'https://board.example' },
+      clients: { matchAll: async () => [client], openWindow: async (u) => { opened.push(u); return 'window'; } } };
+    factory(self2, {});
+    let done;
+    handlers.notificationclick({ notification: { close() {}, data: { url: 'https://board.example/?tab=detail&agent=april' } }, waitUntil(p) { done = p; } });
+    return { result: await done, opened };
+  };
+  const landedTab = { focus: () => 'landed-focused' };
+  const ok = await run({ url: 'https://board.example/', navigate: async () => landedTab, focus: () => 'old-focused' });
+  assert.equal(ok.result, 'landed-focused', 'focus the page it landed on');
+  assert.deepEqual(ok.opened, []);
+  const refused = await run({ url: 'https://board.example/', navigate: async () => { throw new TypeError('not controlled'); }, focus: () => 'old-focused' });
+  assert.deepEqual(refused.opened, ['https://board.example/?tab=detail&agent=april'], 'an uncontrolled tab: open the link instead');
+  assert.equal(refused.result, 'window');
+});
+
+test('#718: every name an agent can have passes the tap rule (engine/create.js NAME_RE)', () => {
+  // Two copies of one fact: if agent names ever widen, a real agent would silently lose its
+  // deep link. Read the engine's rule and check every short name over a hostile alphabet.
+  const create = fs.readFileSync(path.join(__dirname, 'engine', 'create.js'), 'utf8');
+  const m = create.match(/const NAME_RE = \/(.+)\/;/);
+  assert.ok(m, 'NAME_RE moved; re-anchor');
+  const NAME_RE = new RegExp(m[1]);
+  const tapOk = (s) => boardUrlFor({ session: s }) !== '/';
+  const alpha = 'az09_-A.+ ';
+  let names = 0;
+  for (const a of alpha) for (const b of alpha) for (const c of ['', ...alpha]) {
+    const s = a + b + c;
+    if (NAME_RE.test(s)) { names += 1; assert.ok(tapOk(s), 'an agent named ' + JSON.stringify(s) + ' would lose its deep link'); }
+  }
+  for (const s of ['a'.repeat(32), '0' + 'z'.repeat(31), 'a-' + '_'.repeat(30)]) if (NAME_RE.test(s)) { names += 1; assert.ok(tapOk(s), s); }
+  assert.ok(names > 100, 'the sample reached real names (' + names + ')');
+});
