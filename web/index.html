@@ -5263,25 +5263,17 @@ body:not(.consolidated) .pjmidhead:has(.pjhead) .tsearch:focus-within { flex-bas
    1. A TABLE inherited `overflow-wrap: anywhere` from the rule above, which makes every
       cell's min-content one character, so the table crushed to a letter per line instead
       of scrolling inside .mdtablewrap. Cells wrap at words again; the wrapper scrolls.
-   2. An ATTACHMENT's file name is one unbreakable line (`nowrap` + ellipsis), so the whole
-      name set the bubble's MINIMUM width. A name wider than the row pushed the bubble out of
-      it: 112px off the left edge of an iPhone SE for the person's right-aligned row. Here the
-      name may break anywhere when the bubble is squeezed (so it no longer sets a minimum)
-      and is clamped to its one line with the ellipsis, so it still reads as one line. The
-      widest the bubble wants to be is unchanged, so a wide window looks as it did.
-      With spaces in a name the clamp now ends at a word, so the ellipsis can land short of
-      the line's end; accepted, because `nowrap` (the only way to fill the line) blocks every
-      break and brings the minimum width back.
+   2. The PERSON's own bubble is sized to its content inside a right-aligned column, so
+      anything with a large minimum width made it wider than its row and pushed it off the
+      left edge: an attachment's one-line file name (112px off an iPhone SE) or a wide table.
+      Capped at the row below; the file name then ellipsizes and the table scrolls, as they
+      already do inside a bubble that fits. (A breakable, line-clamped file name was tried
+      first and dropped: the cap alone does the job and keeps the ellipsis at the line's end.)
    3. On a phone the side gutters (34px avatar + 14px gap, mirrored opposite) left an iPhone
       SE a ~155px text column; the 40rem block shrinks the avatar for the DM, still mirrored. */
 #d-dmthread .mdtablewrap { overflow-wrap: normal; }
 /* The rule above applies at every width: on desktop a cell holding a long unbroken token now
    scrolls with its table instead of breaking mid-token. */
-#d-dmthread .att-name { white-space: normal; overflow-wrap: anywhere;
-  display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 1; line-clamp: 1; }
-/* The person's own bubble is sized to its content inside a right-aligned column, so a wide
-   table (or anything with a large minimum width) could make it wider than its row and push it
-   off the left edge. Capped at the row; the table's own scroll box then does the scrolling. */
 #d-dmthread .msg.you .msg-bd { max-width: min(78ch, 100%); }
 /* The phone gutters follow the VIEWPORT width (40rem), not the thread's own width: a narrow
    thread inside a wider window keeps the 34px avatar. Nothing overflows either way (the check's
