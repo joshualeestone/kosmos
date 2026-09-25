@@ -10,7 +10,7 @@
  *     the real progress; then Gemini's key step (its subscription is #3568's, not live) and
  *     Grok's choice; Grok's "Sign in with Subscription" starts xAI's sign-in AT ONCE;
  *   - the key: empty Add, a switch mid-request, an unconfirmed key, away and back, Enter,
- *     the accessible name, a slow read, step entry; Windows says it plainly.
+ *     the accessible name, a slow read, step entry; Windows offers the same install.
  * Screenshots to SHOTS (argv[2]) for Josh's before/after.
  *
  *   NODE_PATH="$HOME/work/pw-runtime/node_modules" HEADED=0 node docs/browser-checks/render-firstrun-keyed-connect-3658.js
@@ -465,7 +465,7 @@ const chk = (ok, label, extra) => {
   });
   chk(retry.step && retry.go && !retry.disabled && /did not answer/.test(retry.msg), '#3731 a Grok sign-in that fails to start shows why and gives the Sign-in button back', JSON.stringify(retry));
 
-  // Windows: Kosmos does not install these there (#3713), so it says so and offers nothing.
+  // Windows: Kosmos installs these there too now, so a missing tool offers the same install.
   const win = await q(async () => {
     window.__accounts = window.__accounts.filter((a) => a.provider !== 'xai');
     await frPaintKeyed();
@@ -473,11 +473,13 @@ const chk = (ok, label, extra) => {
     const m = document.querySelector('meta[name="kosmos-platform"]'); const was = m.content; m.content = 'win32';
     document.getElementById('fr-grok-connect').click();
     await new Promise((r) => setTimeout(r, 250));
-    const out = { confirm: !document.getElementById('fr-grok-confirm').hidden, msg: document.getElementById('fr-grok-msg').textContent };
+    const out = { confirm: !document.getElementById('fr-grok-confirm').hidden, msg: document.getElementById('fr-grok-msg').textContent,
+      ask: document.getElementById('fr-grok-confirm-t').textContent };
+    document.getElementById('fr-grok-confirm-no').click();
     m.content = was;
     return out;
   });
-  chk(!win.confirm && /cannot connect xAI Grok on Windows yet/.test(win.msg) && !/command/i.test(win.msg), 'on Windows, a missing tool is said plainly and no install is offered', JSON.stringify(win));
+  chk(win.confirm && /download the installer/.test(win.ask) && !/Windows|command/i.test(win.msg + win.ask), 'on Windows, a missing tool offers the same install as the Mac', JSON.stringify(win));
 
   // Entering the step paints a row whose account already connected.
   const entry = await q(async () => {
