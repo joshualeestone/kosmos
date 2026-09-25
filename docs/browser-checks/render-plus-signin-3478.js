@@ -329,6 +329,71 @@ const visible = (page, sel) => page.evaluate((s) => {
       chk(errs.length === 0, `[${key}] no page errors`, errs.join(' | '));
       await page.close();
     }
+    /* #3796 (review): Sign out while work is still in flight. The engine side is engine/remote.test.js; this
+       is what the person SEES. (1) A verify that answers AFTER Sign out must not move the next sign-in to a
+       step. (2) A resend cooldown running at Sign out must not keep writing into the next sign-in's status
+       line. (3) A secondary button on navy carries a visible stroke. */
+    {
+      const k = 'sign-out-in-flight';
+      const page = await browser.newPage({ viewport: { width: 1400, height: 950 }, colorScheme: 'light' });
+      page.__url = URL;
+      const errs = [];
+      page.on('pageerror', (e) => errs.push(e.message));
+      await openPlusState1(page);
+      let startAnswer = { status: 200, body: { ok: true, stage: 'code_sent' } };
+      await page.route('**/api/remote/signin-**', async (route, req) => {
+        const p = req.url().replace(/^.*\/api\/remote\//, '');
+        if (p === 'signin-verify') { await new Promise((r) => setTimeout(r, 1500)); route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ ok: true, stage: 'second' }) }); return; }
+        if (p === 'signin-start') { route.fulfill({ status: startAnswer.status, contentType: 'application/json', body: JSON.stringify(startAnswer.body) }); return; }
+        route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ ok: true, stage: 'enrol_second_factor', sms_available: true }) });
+      });
+      const enter = async () => { await page.click('#plus-signin-top'); await page.waitForSelector('#plus-si-email', { state: 'visible', timeout: 5000 }); };
+      await enter();
+      await page.fill('#plus-signin-email', 'you@example.com');
+      await page.click('#plus-signin-code');
+      await page.waitForSelector('#plus-si-code', { state: 'visible', timeout: 5000 });
+      await page.fill('#plus-si-code-in', '123456');
+      await page.click('#plus-si-code-go');           // verify now in flight for 1.5s
+      await page.click('#plus-si-cancel');
+      await enter();
+      await page.waitForTimeout(2200);                 // past the late answer
+      chk(await visible(page, '#plus-si-email') && !(await visible(page, '#plus-si-second')), `[${k}] #3796 a verify answering after Sign out does not move the next sign-in to a step`);
+      chk(!(await page.isDisabled('#plus-signin-code')), `[${k}] #3796 after Sign out mid-request, the next sign-in's button is live`);
+      // A cooldown running at Sign out.
+      await page.fill('#plus-signin-email', 'you@example.com');
+      await page.click('#plus-signin-code');
+      await page.waitForSelector('#plus-si-code', { state: 'visible', timeout: 5000 });
+      startAnswer = { status: 400, body: { error: 'you can ask for another code in 30 seconds' } };
+      await page.click('#plus-si-code-resend');
+      await page.waitForTimeout(300);
+      const held = await page.getAttribute('#plus-si-code-resend', 'aria-disabled');
+      chk(held === 'true', `[${k}] #3796 CONTROL: the resend link is held during a cooldown`, String(held));
+      await page.click('#plus-si-cancel');
+      await enter();
+      await page.waitForTimeout(1500);                  // a surviving tick would have written by now
+      const msg = (await page.textContent('#plus-signin-msg')).trim();
+      chk(msg === '', `[${k}] #3796 a cooldown running at Sign out does not write into the next sign-in`, JSON.stringify(msg));
+      chk((await page.getAttribute('#plus-si-code-resend', 'aria-disabled')) === null, `[${k}] #3796 the next sign-in's resend link is not left held`);
+      // The stroke on a secondary button (the enrol step's "Text me the codes").
+      startAnswer = { status: 200, body: { ok: true, stage: 'code_sent' } };
+      await page.unroute('**/api/remote/signin-**');
+      await page.route('**/api/remote/signin-**', (route, req) => {
+        const p = req.url().replace(/^.*\/api\/remote\//, '');
+        const body = p === 'signin-start' ? { ok: true, stage: 'code_sent' } : { ok: true, stage: 'enrol_second_factor', sms_available: true, why_authenticator: 'x' };
+        route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(body) });
+      });
+      await page.fill('#plus-signin-email', 'you@example.com');
+      await page.click('#plus-signin-code');
+      await page.waitForSelector('#plus-si-code', { state: 'visible', timeout: 5000 });
+      await page.fill('#plus-si-code-in', '123456');
+      await page.click('#plus-si-code-go');
+      await page.waitForSelector('#plus-si-enrol-sms', { state: 'visible', timeout: 5000 });
+      const stroke = await page.evaluate(() => { const c = getComputedStyle(document.getElementById('plus-si-enrol-sms')); return { w: c.borderTopWidth, col: c.borderTopColor, style: c.borderTopStyle }; });
+      const alpha = /rgba\([^)]*,\s*([\d.]+)\)/.exec(stroke.col);
+      chk(stroke.style === 'solid' && parseFloat(stroke.w) >= 1 && (!alpha || parseFloat(alpha[1]) >= 0.2), `[${k}] #3796 a secondary button on navy has a visible stroke`, JSON.stringify(stroke));
+      chk(errs.length === 0, `[${k}] no page errors`, errs.join(' | '));
+      await page.close();
+    }
   } finally {
     await browser.close();
     server.close();

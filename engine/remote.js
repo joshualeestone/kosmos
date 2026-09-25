@@ -985,9 +985,16 @@ function pushDeviceName(args, deviceName) {
     leaves no bearer material behind. Nothing is sent to the coordinator: an unspent
     token lapses there on its own, and the next signinStart starts clean either way. */
 function signinCancel() {
+  signinEpoch += 1;
   signinSession = null;
   return { ok: true, because: null, data: { stage: 'cancelled' } };
 }
+/* #3796 (review): a step still waiting on the tunnel program when Sign out lands must not
+   write its answer back afterwards, or a verify in flight resurrects a live session token the
+   person believes they signed out of. Every step records the epoch before it awaits and, if a
+   cancel moved it meanwhile, returns this instead of absorbing anything. */
+let signinEpoch = 0;
+const SIGNIN_CANCELLED = { ok: false, because: 'the sign-in was cancelled' };
 
 /** Step one: ask the coordinator to email the six-digit code. Safe to repeat;
     reveals nothing about whether the account exists. A fresh start abandons any
@@ -1023,7 +1030,9 @@ async function signinVerify(email, code, deviceName) {
   const args = ['signin', 'verify', '--coordinator', COORDINATOR(),
     '--email', email, '--device-id', signinDeviceId(), '--code', String(code)];
   pushDeviceName(args, deviceName);
+  const epoch = signinEpoch;
   const r = parseSaid(await setupRun(args));
+  if (epoch !== signinEpoch) return SIGNIN_CANCELLED;
   // A CLI error (wrong code, coordinator down) is a TRANSIENT "try again" and
   // deliberately leaves any prior held session intact for a retry -- same as
   // signinSecond keeping the challenge on a wrong phone code. Only an untrusted
@@ -1043,8 +1052,10 @@ async function signinSecond(code) {
   if (!CODE_RULE.test(String(code || ''))) {
     return { ok: false, because: 'the code is six digits' };
   }
+  const epoch = signinEpoch;
   const r = parseSaid(await setupRun(['signin', 'second', '--coordinator', COORDINATOR(),
     '--challenge', signinSession.challenge, '--code', String(code)]));
+  if (epoch !== signinEpoch) return SIGNIN_CANCELLED;
   if (!r.ok) return r;
   return absorbSession(r.data);
 }
@@ -1096,7 +1107,9 @@ async function signinEnrol(kind, phone) {
     // way. The #874 boundary is about credentials, and no credential is on argv here.
     args.push('--phone', trimmedPhone);
   }
+  const epoch = signinEpoch;
   const r = parseSaid(await setupRun(args, signinSession.enrolToken));
+  if (epoch !== signinEpoch) return SIGNIN_CANCELLED;
   if (!r.ok) return r;
   const d = r.data && typeof r.data === 'object' ? r.data : {};
   // Fail closed if the coordinator's 200 did not carry the material this kind needs
@@ -1150,8 +1163,10 @@ async function signinConfirmEnrol(code) {
   if (!CODE_RULE.test(String(code || ''))) {
     return { ok: false, because: 'the code is six digits' };
   }
+  const epoch = signinEpoch;
   const r = parseSaid(await setupRun(['signin', 'confirm-enrol', '--coordinator', COORDINATOR(),
     '--code', String(code)], signinSession.enrolToken));
+  if (epoch !== signinEpoch) return SIGNIN_CANCELLED;
   if (!r.ok) return r;
   // The confirm answer is a session; absorbSession swaps the held enrol token for
   // the session token (fail-closed on a malformed shape), so register spends it.

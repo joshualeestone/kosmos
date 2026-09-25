@@ -35675,7 +35675,16 @@ function plusSiMsg(text) {
   const m = document.getElementById('plus-signin-msg');
   if (m) m.textContent = text || '';
 }
+/* #3796 (review): Sign out bumps this. A request that answers after it is STALE: its handler
+   returns without touching the wizard, so an abandoned sign-in can never repaint the next one
+   (a late verify moving it to a step, a late refusal writing into its status line). */
+let PLUS_SI_EPOCH = 0;
 async function plusSiPost(path, body) {
+  const epoch = PLUS_SI_EPOCH;
+  const r = await plusSiPostRaw(path, body);
+  return epoch === PLUS_SI_EPOCH ? r : { ok: false, stale: true, because: '' };
+}
+async function plusSiPostRaw(path, body) {
   /* A timeout, like the enrol send's own (plus-send-code): a hung request must be
      able to say it is waiting and can fail, not leave a disabled button forever.
      PLUS_ASK_TIMEOUT_MS is the same 15s the enrol flow uses. */
@@ -35740,6 +35749,13 @@ function plusSiClear() {
     if (el) el.value = '';
   }
   const to = document.getElementById('plus-si-code-to'); if (to) to.textContent = '';
+  /* A request abandoned by Sign out returns without re-enabling its button, and a cooldown is
+     stopped mid-count; start the next sign-in with every control live. */
+  if (typeof PLUS_COUNTDOWN !== 'undefined' && PLUS_COUNTDOWN) { clearInterval(PLUS_COUNTDOWN); PLUS_COUNTDOWN = null; }
+  if (typeof document.querySelectorAll === 'function') {
+    document.querySelectorAll('#plus-state2 button').forEach((b) => { b.disabled = false; });
+    document.querySelectorAll('#plus-state2 [aria-disabled]').forEach((a) => a.removeAttribute('aria-disabled'));
+  }
   const phoneField = document.getElementById('plus-si-phone-field'); if (phoneField) phoneField.hidden = true;
 }
 function plusSiEnter(e) {
@@ -35762,7 +35778,8 @@ document.getElementById('plus-si-cancel').addEventListener('click', (e) => {
      half-finished sign-in it holds (a session token, a phone challenge or an enrol-only
      token), and the fields are cleared. Not awaited: leaving must stay instant, and a
      sign-in the engine never hears about is abandoned anyway by the next signin-start. */
-  plusSiPost('/api/remote/signin-cancel', {});
+  PLUS_SI_EPOCH += 1;
+  plusSiPostRaw('/api/remote/signin-cancel', {});
   plusSiClear();
   /* Hide the wizard and show the marketing state SYNCHRONOUSLY -- the mirror of
      plusSiEnter -- so "Sign out" is instant even if the /api/remote read paintPlus makes
@@ -35794,6 +35811,7 @@ async function plusSiRequestCode(btn) {
   plusSiMsg(PLUS_CODE_WORDS.asking(email));
   plusSetBusy(btn, true);
   const r = await plusSiPost('/api/remote/signin-start', { email });
+  if (r.stale) return;
   if (!r.ok) {
     const m = /in (\d+) seconds?/.exec(r.because);
     if (m) { plusCountdown(document.getElementById('plus-signin-msg'), btn, r.because, Number(m[1])); return; }
@@ -35823,6 +35841,7 @@ document.getElementById('plus-si-code-go').addEventListener('click', async () =>
   plusSiMsg('');
   btn.disabled = true;
   const r = await plusSiPost('/api/remote/signin-verify', { email, code });
+  if (r.stale) return;
   btn.disabled = false;
   if (!r.ok) { plusSiMsg(r.because); return; }
   plusSiStage(r.data.stage, r.data);
@@ -35835,6 +35854,7 @@ document.getElementById('plus-si-second-go').addEventListener('click', async () 
   plusSiMsg('');
   btn.disabled = true;
   const r = await plusSiPost('/api/remote/signin-second', { code });
+  if (r.stale) return;
   btn.disabled = false;
   if (!r.ok) { plusSiMsg(r.because); return; }
   plusSiStage(r.data.stage, r.data);
@@ -35846,6 +35866,7 @@ document.getElementById('plus-si-enrol-totp').addEventListener('click', async ()
   plusSiMsg('');
   btn.disabled = true;
   const r = await plusSiPost('/api/remote/signin-enrol', { kind: 'totp' });
+  if (r.stale) return;
   btn.disabled = false;
   if (!r.ok) { plusSiMsg(r.because); return; }
   plusSiStage(r.data.stage, r.data);
@@ -35861,6 +35882,7 @@ document.getElementById('plus-si-phone-go').addEventListener('click', async () =
   plusSiMsg('');
   btn.disabled = true;
   const r = await plusSiPost('/api/remote/signin-enrol', { kind: 'sms', phone });
+  if (r.stale) return;
   btn.disabled = false;
   if (!r.ok) { plusSiMsg(r.because); return; }
   plusSiStage(r.data.stage, r.data);
@@ -35873,6 +35895,7 @@ document.getElementById('plus-si-enrol-confirm-go').addEventListener('click', as
   plusSiMsg('');
   btn.disabled = true;
   const r = await plusSiPost('/api/remote/signin-confirm-enrol', { code });
+  if (r.stale) return;
   btn.disabled = false;
   if (!r.ok) { plusSiMsg(r.because); return; }
   plusSiStage(r.data.stage, r.data);
@@ -35904,6 +35927,7 @@ document.getElementById('plus-si-register-go').addEventListener('click', async (
   plusSiMsg('');
   btn.disabled = true;
   const r = await plusSiPost('/api/remote/signin-register', { name });
+  if (r.stale) return;
   btn.disabled = false;
   if (!r.ok) { plusSiMsg(r.because); return; }
   /* Do NOT clear PLUS_SIGNIN_ACTIVE here. The engine writes the state dir synchronously
