@@ -308,15 +308,29 @@ function listedModels({ listFor = (mod) => require(mod).list() } = {}) {
   return { rows, failed, fingerprint: rows.map((r) => `${r.provider}:${r.dir}:${r.authMode || ''}:${r.who}`).join('|') };
 }
 
-/* #3660: whether the bubble may use the hosted assistant (Kosmos's own model) here. Only BEFORE the person
-   has any model of their own: rule 7 on #3660 is that once they connect theirs the hosted path is not used,
-   and an install that already has a model but no guide (one from before the guide, a guide removed, both
-   names taken) must not spend the shared allowance on Kosmos's key. And only where a connector is at a
-   real path (remote.hostedAvailable), so a source checkout or a check sandbox never offers it. */
-function hostedWhy({ available = () => require('./remote').hostedAvailable(), listed = () => listedModels() } = {}) {
+/* #3660: the guide agent's card, read as "their model cannot answer right now": the three states #3723
+   surfaces (a usage limit or no credits, a rejected login, the provider unreachable after its retries).
+   { problem, runner } or null. Josh, 2026-09-25 07:22: then the bubble falls back to the hosted assistant
+   for that chat, and goes back to their model once it answers. */
+const GUIDE_FAILING = new Set(['rate_limited', 'auth_failed', 'connection_lost']);
+function guideFailure(card) {
+  if (!card || !GUIDE_FAILING.has(card.state)) return null;
+  return { problem: card.state, runner: typeof card.runner === 'string' && card.runner ? card.runner : null };
+}
+
+/* #3660: whether the bubble may use the hosted assistant (Kosmos's own model) here. Before the person has any
+   model of their own; and, once they have one, only while their guide cannot answer (`failing`, from
+   guideFailure; Josh 2026-09-25 07:22). An install that has a working model, or a model and no guide, does not
+   spend the shared allowance on Kosmos's key. And only where a connector is at a real path
+   (remote.hostedAvailable), so a source checkout or a check sandbox never offers it. */
+function hostedWhy({ available = () => require('./remote').hostedAvailable(), listed = () => listedModels(), failing = () => null } = {}) {
   let there = false;
   try { there = available() === true; } catch { there = false; }
   if (!there) return { ok: false, why: 'no_connector' };
+  /* A guide that cannot answer is on a model they connected, so the listing is not needed to know it. */
+  let f = null;
+  try { f = failing(); } catch { f = null; }
+  if (f) return { ok: true, why: 'own_model_failing' };
   let got;
   try { got = listed(); } catch { return { ok: false, why: 'unchecked' }; }
   /* A provider that could not be read may be the one they connected: not known, so not offered, and not said to be theirs. */
@@ -493,6 +507,7 @@ module.exports = {
   listedModels,
   hostedOffered,
   hostedWhy,
+  guideFailure,
   usable,
   RETRY_AFTER_MS,
   RETRY_MAX_MS,
