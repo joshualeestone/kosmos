@@ -206,7 +206,7 @@ No deploy step copies a key file, and the template only holds its path.
   (`aps-environment = development`). Xcode switches it to production when the build is
   exported for distribution.
 
-**What to have settled before the first upload (who decides is named on each; the facts are checked):**
+**What to have settled before the first upload (decisions are named where they are someone's; the facts are checked):**
 - **Version.** The code says `0.1.0`, build `1` (`MARKETING_VERSION`, `CURRENT_PROJECT_VERSION`).
   The version the store shows at submission is Josh's call. The build number must go up on every
   upload.
@@ -217,7 +217,8 @@ No deploy step copies a key file, and the template only holds its path.
   iOS Keychain, and contains no encryption code of its own.
 - **Push entitlement.** `ios/Kosmos.entitlements` says `aps-environment = development`, and the
   export for distribution is expected to set `production`. Check it on the exported app before
-  upload: `codesign -d --entitlements - Kosmos.app` must show `production`.
+  upload: unzip the exported `.ipa` and run `codesign -d --entitlements - Payload/Kosmos.app`; it
+  must show `production`.
 - **iPhone only.** The app targets iPhone only (`TARGETED_DEVICE_FAMILY = 1`, Liu Kang,
   2026-09-25): iPad layouts are not designed or tested, and no iPad screenshots are needed. iPad is
   not ruled out, though: an iPhone-only app still installs on an iPad in a scaled iPhone window, App
@@ -225,7 +226,8 @@ No deploy step copies a key file, and the template only holds its path.
   Store Connect. Widening to iPad later is one setting.
 - **Permission strings.** Camera, microphone, adding to Photos and Face ID each have a sentence in
   the build settings, and iOS CI checks them in the built app (`ios/tools/check-usage-strings.sh`).
-  Without one, iOS closes the app when the board's photo pickers or a long-pressed image use it.
+  Without one, iOS closes the app when a photo picker, a long-pressed image or the Face ID unlock
+  uses it.
 - **No purchase inside the app.** The sign-in page hides checkout, prices and the billing portal
   inside the iOS app (kosmos-relay #117). Anything said to App Review about where Kosmos+ is sold
   is Josh's.

@@ -34,10 +34,12 @@ Liu Kang (m634).
 
 - **CI time.** The Release build roughly doubles the build part of the iOS job; the whole job took
   34 s on its last run (kosmos #3688), against a 20-minute timeout, so the timeout is left alone.
-- **Build paths.** `xcodebuild -target` without a scheme writes to `ios/build/<Config>-<sdk>/`. The
-  README records this for `iphoneos`; the simulator paths the CI step reads are confirmed by
-  building both configurations on this Mac before the PR. A wrong path fails loud (the script exits
-  2 on a missing Info.plist), never green.
+- **Build paths, measured** (this Mac, 2026-09-25 00:55 CDT, commit 05697ba2 plus these doc edits):
+  Debug and Release simulator builds both succeeded and wrote
+  `ios/build/<Config>-iphonesimulator/Kosmos.app`, the paths CI reads; the check passed on both
+  (four strings each). The Release app's `UIDeviceFamily` is `[1]` and it has no iPad orientation
+  key. Negative controls on a copy of the Release Info.plist: camera key removed, exit 1; microphone
+  value emptied, exit 1; no file, exit 2.
 
 ## Weakest part
 None of this has run on a device: whether iOS offers exactly these options in a WKWebView file
