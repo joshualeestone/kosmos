@@ -255,8 +255,13 @@ const waitFor = (page, fn, ms = 6000) => page.waitForFunction(fn, null, { timeou
     thread = thread.concat([{ from: 'josh', text: 'Click New agent, top left.', at: new Date().toISOString() }]);
     await page.evaluate(() => asbPoll(true));
     chk((await bubble(page)).dot, 'B6 a reply while folded lights the gold dot');
+    /* The reply was timed when the dot lit; opening the chat later keeps that time (a fresh stamp would hide a real
+       "working" until the next board snapshot). */
+    const litAt = await page.evaluate(() => ASB.heardAt);
+    await page.waitForTimeout(60);
     await page.click('#asb');
     await page.waitForTimeout(300);
+    chk(litAt > 0 && await page.evaluate((t) => ASB.heardAt === t, litAt), 'B6 opening keeps the time the reply landed, not the time it was opened', String(litAt));
     chk(!(await bubble(page)).dot && await page.evaluate(() => [...document.querySelectorAll('#asp-th .asp-m.him:not(.asp-open)')].length === 2), 'B6 opening it shows the reply and clears the dot');
 
     // B20 (#3733, Josh 08:23): while the guide is working on a reply, the chat shows the app's working row (the same

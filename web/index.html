@@ -55208,7 +55208,7 @@ let ASB = { started: false, guide: null, setting: null, open: false, asking: fal
      is opened. Closing it, by any route, is reading it. */
   asideShowing: false, asideOnOpen: false, asideText: '', frWas: false,
   /* #3733: when a reply last landed (a board "working" older than it is stale), and whether "working" was last seen open. */
-  heardAt: 0, wasWorking: false };
+  heardAt: 0, wasWorking: false, dotTimed: false, saidSignIn: '' };
 const ASB_HOSTED_KEY = 'kosmos.asb.hosted.v1';
 /* The two reasons the hosted assistant ends, in the same words as the board's refusals (server.js). */
 const ASB_WHY_OWN = 'You\'ve connected your own AI, so this chat has ended.';
@@ -55518,14 +55518,15 @@ async function asbPoll(force) {
     if (ASB.heard !== null && heard > ASB.heard) {
       /* A reply landed: a "working" from an older board snapshot is stale. One that landed while folded was
          timed when its dot lit, so opening the chat later does not restart that clock. */
-      if (!ASB.dot) ASB.heardAt = Date.now();
+      if (!ASB.dotTimed) ASB.heardAt = Date.now();   // dotTimed, not dot: opening the chat clears the dot first
+      ASB.dotTimed = false;
       const last = speech.filter((m) => m.from === t.session).pop();
       document.getElementById('asp-live').textContent = last ? String(last.text || '') : '';
     }
     ASB.heard = heard; ASB.dot = false; asbPaintThread(speech, t.session);
   }
   else if (ASB.heard === null) ASB.heard = heard;
-  else if (heard > ASB.heard && !ASB.dot) { ASB.dot = true; ASB.heardAt = Date.now(); }   // timed once, when the dot lights
+  else if (heard > ASB.heard && !ASB.dot) { ASB.dot = true; ASB.dotTimed = true; ASB.heardAt = Date.now(); }   // timed once, when the dot lights
   asbPaint();
 }
 /* #3738 (Josh 08:51, verbatim): one opening message, always the first guide bubble. */
@@ -55817,7 +55818,7 @@ async function asbFind() {
   asbAsideDone(); ASB.asideShowing = false; ASB.dot = false;   // a hosted refusal waiting to be read belongs to the hosted assistant, not the guide
   { const th = document.getElementById('asp-th'); if (th) th.replaceChildren(); }   // the hosted conversation is not the guide's
   /* A guide now exists: the bubble talks to it. The hosted conversation stays behind; it was another assistant. */
-  if (ASB.hosted) { ASB.hosted = false; ASB.heard = null; ASB.heardAt = 0; ASB.shown = ''; ASB.readOnce = false; ASB.lastPoll = 0; ASB.remaining = null; }
+  if (ASB.hosted) { ASB.hosted = false; ASB.heard = null; ASB.heardAt = 0; ASB.dotTimed = false; ASB.shown = ''; ASB.readOnce = false; ASB.lastPoll = 0; ASB.remaining = null; }
   ASB.finding = false;
   asbLayerEnsure();
   await asbReadSetting();
@@ -55848,7 +55849,7 @@ function asbForgetGuide() {
   const standIn = asbIsHostedAfterForget();
   const hadFocus = !standIn && !!document.activeElement && !!document.activeElement.closest('#asblayer');
   const keepOpen = standIn && ASB.open;
-  ASB.guide = null; ASB.open = keepOpen; ASB.asking = false; ASB.heard = null; ASB.heardAt = 0; ASB.wasWorking = false; ASB.shown = ''; ASB.dot = false;
+  ASB.guide = null; ASB.open = keepOpen; ASB.asking = false; ASB.heard = null; ASB.heardAt = 0; ASB.wasWorking = false; ASB.dotTimed = false; ASB.shown = ''; ASB.dot = false;
   ASB.wroteOnce = false; ASB.readOnce = false; ASB.lastPoll = 0; ASB.nudgeGone = false; ASB.asideShowing = false; asbAsideDone();
   const pm = document.getElementById('asp-msg'); if (pm) pm.textContent = '';   // nothing stale when it comes back
   if (keepOpen) { const th = document.getElementById('asp-th'); if (th) th.replaceChildren(); }   // the guide's thread is not the hosted one's
