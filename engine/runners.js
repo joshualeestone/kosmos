@@ -44,6 +44,7 @@ const os = require('os');
 const path = require('path');
 const https = require('https');
 const crypto = require('crypto');
+const zlib = require('zlib');
 const { execFile } = require('child_process');
 const platformGate = require('./platform');
 
@@ -107,6 +108,45 @@ const MANIFEST = Object.assign(Object.create(null), {
     binInPackage: 'vendor/aarch64-apple-darwin/bin/codex',
     binName: 'codex',
     downloadBytes: 114152335,
+  },
+  /* #3713: Google's Gemini CLI, which Kosmos's Gemini runner (#3296) drives. Same trust
+     anchor as the codex entry: the npm registry's own sha512 for this exact tarball, fetched
+     with no npm client. 0.61.0 is the version #3296 was built and measured against on the
+     fleet Mac, and npm's latest on 2026-09-25.
+     ⚠️ IT IS A NODE PROGRAM, NOT A BINARY. The tarball is a self-contained `bundle/` (449
+     files, no node_modules; listed 2026-09-25) whose entry starts `#!/usr/bin/env node`, and a
+     fresh Mac has no `node` on its PATH. So the one stable path is not a symlink to the bundle
+     but a small launcher (`launcher: 'node'`) that runs it with the node this board runs on,
+     which on an installed Kosmos is its own shipped runtime. The tarball is the same for every
+     CPU, so there is no `arch`. */
+  gemini: {
+    name: "Google's Gemini CLI",
+    version: '0.61.0',
+    url: 'https://registry.npmjs.org/@google/gemini-cli/-/gemini-cli-0.61.0.tgz',
+    integrity: 'sha512-dbQ9A0qBtFJNi6XBkHvfZ6Azpn6PNgH/P8h2MZ67RLlX8hSAVjup39CRWqdRxZv7YXIuhrFaytr8y0jKnkoxnQ==',
+    binInPackage: 'bundle/gemini.js',
+    binName: 'gemini',
+    launcher: 'node',
+    downloadBytes: 20772697,
+  },
+  /* #3713: xAI's Grok CLI (Grok Build), which Kosmos's Grok runner (#3391) drives. The
+     npm package @xai-official/grok is a wrapper; the program is a per-CPU package
+     (@xai-official/grok-darwin-arm64, -darwin-x64) holding ONE brotli-compressed native
+     binary, `bin/grok.br`, which the vendor's postinstall decompresses (read 2026-09-25:
+     brotli-decompress, chmod 755, nothing else). Kosmos runs no npm scripts, so the install
+     does that step itself (`brotliFrom`) after the tarball's checksum has passed. 1.0.41 is
+     npm's latest and the version this Mac ran #3391 on. The Intel build is GROK_DARWIN.x64
+     below. */
+  grok: {
+    name: "xAI's Grok CLI",
+    version: '1.0.41',
+    arch: 'arm64',
+    url: 'https://registry.npmjs.org/@xai-official/grok-darwin-arm64/-/grok-darwin-arm64-1.0.41.tgz',
+    integrity: 'sha512-EVyCWTOe1ZDdURiK8EvRUw9Q8BPU2Upnc6o+ECwXYXSCtRmlR9/MxqNt6beZtOujjyAsAWE7VRBvjZrtyCTFWw==',
+    brotliFrom: 'bin/grok.br',
+    binInPackage: 'bin/grok-native',
+    binName: 'grok',
+    downloadBytes: 42511097,
   },
   claude: {
     name: 'Claude Code',
@@ -195,6 +235,20 @@ const CODEX_WIN32 = Object.freeze(Object.assign(Object.create(null), {
 }));
 
 /**
+ * #3713: the Intel Mac build of the same pinned Grok CLI. Same source and trust anchor as
+ * the arm64 entry (its own registry sha512; the tarball downloaded, matched it, and was
+ * measured at this size, 2026-09-25) and the same layout, one `bin/grok.br`.
+ */
+const GROK_DARWIN = Object.freeze(Object.assign(Object.create(null), {
+  x64: Object.freeze({
+    arch: 'x64',
+    url: 'https://registry.npmjs.org/@xai-official/grok-darwin-x64/-/grok-darwin-x64-1.0.41.tgz',
+    integrity: 'sha512-f7BK6JwObPuDwkV6T5H7HuH46Txa522k1F+mKIxdcgu9C+mPGTiSZSzcGXFShifJ4IZuh4Tq7vqOQacQNEEWWA==',
+    downloadBytes: 49619881,
+  }),
+}));
+
+/**
  * The manifest entry for `provider` ON A GIVEN PLATFORM AND CPU. Everything that
  * installs or resolves a runner asks this rather than reading MANIFEST directly,
  * so the Mac and Windows answers can never drift into two resolvers again.
@@ -213,6 +267,9 @@ function manifestFor(provider, platform = process.platform, arch = process.arch)
   if (provider === 'openai' && platform === 'win32') {
     const build = CODEX_WIN32[arch] || CODEX_WIN32.x64;
     return Object.freeze({ ...base, ...build, binName: 'codex.exe' });
+  }
+  if (provider === 'grok' && platform === 'darwin' && GROK_DARWIN[arch]) {
+    return Object.freeze({ ...base, ...GROK_DARWIN[arch] });
   }
   return base;
 }
@@ -238,9 +295,12 @@ function isVerified(m, platform = process.platform) {
   try { return fs.readFileSync(verifiedMarker(platform), 'utf8').trim() === verifiedStamp(m); } catch { return false; }
 }
 
-function managedBin(m, platform = process.platform) {
+function managedBin(m, platform = process.platform, provider = 'openai') {
   const flavour = platform === 'win32' ? path.win32 : path;
-  const dest = flavour.join(managedRoot(), 'openai');
+  /* #3713: each managed runner has its own folder under managedRoot(), named for its
+     provider, which is where install() stages it (`destDir`). This defaulted to 'openai'
+     when that was the only one; the default keeps every existing caller's answer. */
+  const dest = flavour.join(managedRoot(), provider);
   if (platform === 'win32') return flavour.join(dest, 'pkg', ...m.binInPackage.split('/'));
   return flavour.join(dest, m.binName);
 }
@@ -478,8 +538,15 @@ function resolveBin(provider, opts) {
   if (provider === 'gemini') {
     const envGemini = process.env.AGENT_WORKFORCE_GEMINI_BIN;
     if (envGemini) return { bin: envGemini, present: isRunnable(envGemini), managed: false, overridden: true, envName: 'AGENT_WORKFORCE_GEMINI_BIN' };
+    /* #3713: the copy Kosmos installed comes first, then the vendor's npm-global one this
+       Mac already had. Absent both, the answer names the managed path, so an install is
+       seen the moment it lands and a refusal names where it would go (as openai's does). */
+    const plat = (opts && opts.platform) || process.platform;
+    const managed = managedBin(manifestFor('gemini', plat, (opts && opts.arch) || process.arch), plat, 'gemini');
+    if (isRunnable(managed)) return { bin: managed, present: true, managed: true, overridden: false };
     const legacy = (opts && opts.legacyBin) || '/opt/homebrew/bin/gemini';
-    return { bin: legacy, present: isRunnable(legacy), managed: false, overridden: false };
+    if (isRunnable(legacy)) return { bin: legacy, present: true, managed: false, overridden: false };
+    return { bin: managed, present: false, managed: true, overridden: false };
   }
   /* #3391: the Grok runner. Same LEGACY-rung shape as gemini, and for the same
      reason it is not a managed tarball install yet: the grok CLI is the
@@ -498,8 +565,15 @@ function resolveBin(provider, opts) {
   if (provider === 'grok') {
     const envGrok = process.env.AGENT_WORKFORCE_GROK_BIN;
     if (envGrok) return { bin: envGrok, present: isRunnable(envGrok), managed: false, overridden: true, envName: 'AGENT_WORKFORCE_GROK_BIN' };
+    /* #3713: the copy Kosmos installed comes first, then the vendor's npm-global one this
+       Mac already had. Absent both, the answer names the managed path, so an install is
+       seen the moment it lands and a refusal names where it would go (as openai's does). */
+    const plat = (opts && opts.platform) || process.platform;
+    const managed = managedBin(manifestFor('grok', plat, (opts && opts.arch) || process.arch), plat, 'grok');
+    if (isRunnable(managed)) return { bin: managed, present: true, managed: true, overridden: false };
     const legacy = (opts && opts.legacyBin) || '/opt/homebrew/bin/grok';
-    return { bin: legacy, present: isRunnable(legacy), managed: false, overridden: false };
+    if (isRunnable(legacy)) return { bin: legacy, present: true, managed: false, overridden: false };
+    return { bin: managed, present: false, managed: true, overridden: false };
   }
   if (provider !== 'openai') return { bin: null, present: false, managed: false, overridden: false };
   // An operator-set override is AUTHORITATIVE, not a candidate: when the
@@ -845,6 +919,19 @@ function plainFailure(err, m, stage) {
  * prove(bin) replaces the real --version child. Production callers pass
  * nothing.
  */
+/**
+ * #3713: the shell launcher for a node-program runner. Both paths are absolute and single-
+ * quoted (a quote inside a path is closed, escaped and reopened), so a home folder with a
+ * space or a quote in it cannot split or run anything. `exec` hands the process over, so
+ * signals and the exit status are the program's own.
+ */
+function nodeLauncher(nodeBin, script) {
+  const q = (p) => "'" + String(p).replace(/'/g, "'\\''") + "'";
+  return '#!/bin/sh\n'
+    + '# Written by Kosmos (#3713): runs this runner with the node Kosmos runs on.\n'
+    + 'exec ' + q(nodeBin) + ' ' + q(script) + ' "$@"\n';
+}
+
 function install(provider, opts) {
   const o = opts || {};
   // hasOwn, not truthiness: with a URL-supplied provider, a prototype-chain
@@ -1065,6 +1152,22 @@ function install(provider, opts) {
         execFile(tarBin(plat), ['-xzf', staging, '-C', pkgNew, '--strip-components', '1'], { timeout: 120000 },
           (err, _stdout, stderr) => err ? reject(new Error(String(stderr || err.message).trim())) : resolve());
       });
+      /* #3713: a compressed vendor binary (Grok's bin/grok.br) is expanded here, after the
+         checksum passed and before the layout check, the one step its own postinstall does. */
+      if (m.brotliFrom) {
+        const from = path.join(pkgNew, m.brotliFrom);
+        if (fs.existsSync(from)) {
+          await new Promise((resolve, reject) => {
+            const out = fs.createWriteStream(path.join(pkgNew, binInPackage));
+            out.on('error', reject);
+            out.on('finish', resolve);
+            fs.createReadStream(from).on('error', reject)
+              .pipe(zlib.createBrotliDecompress()).on('error', reject)
+              .pipe(out);
+          });
+          fs.rmSync(from, { force: true });
+        }
+      }
       if (!fs.existsSync(path.join(pkgNew, binInPackage))) {
         console.warn(`[runners] ${provider} archive has no ${binInPackage}`);
         fail(`the download of ${m.name || 'the runner'} was not laid out the way we expected, so nothing was installed. Try again later`);
@@ -1102,6 +1205,16 @@ function install(provider, opts) {
         // on win32 (managedBin), and codex.exe finds its vendored siblings
         // relative to itself there without any link.
         finalBin = unpacked;
+      } else if (m.launcher === 'node') {
+        /* #3713: a node program (Gemini's bundle) cannot be reached through a symlink on a
+           Mac with no `node` on its PATH, so the stable path is a launcher that runs it with
+           the node this board runs on: on an installed Kosmos, its own shipped runtime. The
+           prove step below runs this very launcher, so a launcher that cannot start is never
+           left installed. */
+        finalBin = path.join(destDir, m.binName);
+        fs.rmSync(finalBin, { force: true });
+        fs.writeFileSync(finalBin, nodeLauncher(o.nodeBin || process.execPath, unpacked), { mode: 0o755 });
+        fs.chmodSync(finalBin, 0o755);
       } else {
         // ONE stable path for every caller, whatever the package layout is:
         // a symlink beside the tree, RELATIVE so a moved or renamed
@@ -1439,4 +1552,4 @@ function resetForTests() { for (const k of Object.keys(jobs)) delete jobs[k]; }
 /* pathextCandidates is exported for the SAME reason create.unusablePath is: its
    win32 branch cannot be asserted from the Mac the suite runs on unless the
    platform is injectable from a test. */
-module.exports = { MANIFEST, CODEX_WIN32, manifestFor, managedBin, verifiedMarker, tarBin, fileIntegrity, plainFailure, managedRoot, resolveBin, homeDir, status, install, download, isRunnable, runnableCandidate, pathextCandidates, runnableExactly, resetForTests };
+module.exports = { MANIFEST, CODEX_WIN32, GROK_DARWIN, nodeLauncher, manifestFor, managedBin, verifiedMarker, tarBin, fileIntegrity, plainFailure, managedRoot, resolveBin, homeDir, status, install, download, isRunnable, runnableCandidate, pathextCandidates, runnableExactly, resetForTests };
