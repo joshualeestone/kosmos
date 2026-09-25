@@ -78,7 +78,8 @@ const waitFor = (page, fn, arg, ms = 6000) => page.waitForFunction(fn, arg, { ti
     });
     const sent = [];
     let stopAnswer = null;
-    let slowPut = 0;   // ms: an answer that arrives after the person has moved to another swarm (S16)   // null = the engine stops it; an object = the engine's answer as given
+    let slowPut = 0;
+    let putTold = null;   // S18: the engine's `told` on a PUT (null = omitted)   // ms: an answer that arrives after the person has moved to another swarm (S16)   // null = the engine stops it; an object = the engine's answer as given
     /* The engine's REAL answer shapes (origin/swarm-engine-3564): PUT and stop return { ok, swarm: settings }
        where settings carry maxHelpers / dailyTokenLimit / active / pausedBecause but NOT activeHelpers,
        tokensToday or helperTokenRatio; stop adds { stopped, because }. */
@@ -94,7 +95,7 @@ const waitFor = (page, fn, arg, ms = 6000) => page.waitForFunction(fn, arg, { ti
         crewSwarm = { ...crewSwarm, active: false, pausedBecause: 'stopped' };
         return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ ok: true, stopped: true, because: null, swarm: settingsOf(crewSwarm) }) });
       }
-      route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ ok: true, swarm: settingsOf(crewSwarm) }) });
+      route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ ok: true, swarm: settingsOf(crewSwarm), ...(putTold ? { told: putTold } : {}) }) });
     });
     let createBody = null;
     await page.route('**/api/agents', async (route) => {
@@ -176,10 +177,12 @@ const waitFor = (page, fn, arg, ms = 6000) => page.waitForFunction(fn, arg, { ti
     await page.evaluate(() => document.querySelector('#grid [data-agent="rex"]').click());
     await page.waitForTimeout(600);
     chk(await page.evaluate(() => document.getElementById('d-swarm-panel').hidden === true && document.getElementById('d-swarm').hidden === true), 'S6 CONTROL: an ordinary agent\'s page has no swarm panel');
+    chk(await page.evaluate(() => !document.getElementById('d-provider').closest('.frow').hidden), 'S19 CONTROL: an ordinary agent\'s page offers the provider switch');
     await page.evaluate(() => showTab('agents'));
     await page.waitForTimeout(300);
     await page.evaluate(() => document.querySelector('#grid [data-agent="crew"]').click());
     chk(await waitFor(page, () => !document.getElementById('d-swarm-panel').hidden), 'S6 the swarm\'s page shows its controls');
+    chk(await page.evaluate(() => document.getElementById('d-provider').closest('.frow').hidden), 'S19 a swarm\'s page offers no provider switch (it runs on Claude only)');
     const s6 = await page.evaluate(() => ({ active: document.querySelector('input[name="d-swarm-active"][value="on"]').checked, today: document.getElementById('d-swarm-today').textContent,
       limit: document.getElementById('d-swarm-limit').textContent, bar: document.getElementById('d-swarm-bar').style.width, max: document.getElementById('d-swarm-max').value,
       stop: !document.getElementById('d-swarm-stop').disabled, head: document.querySelectorAll('#d-swarm .swd').length }));
@@ -227,11 +230,29 @@ const waitFor = (page, fn, arg, ms = 6000) => page.waitForFunction(fn, arg, { ti
       'S17 tokens not read in full: it says it could not measure, and hides the bar', await page.evaluate(() => document.getElementById('d-swarm-today').textContent));
     chk(await page.evaluate(() => !/Today it has used/.test(document.getElementById('d-swarm-warn').textContent)),
       'S17 and the warning claims no measured ratio from the same partial read', await page.evaluate(() => document.getElementById('d-swarm-warn').textContent));
+    const s17 = await page.evaluate(() => ({ limit: document.getElementById('d-swarm-limit').textContent, hint: document.getElementById('d-swarm-hint').hidden }));
+    chk(s17.limit === 'Limit 6,000,000 a day' && s17.hint, 'S17 the limit stands alone and the page does not promise to pause at it', JSON.stringify(s17));
+    await page.evaluate(() => { const r = document.getElementById('d-swarm-max'); r.value = '6'; r.dispatchEvent(new Event('input', { bubbles: true })); });
+    chk(await page.evaluate(() => !/Today it has used/.test(document.getElementById('d-swarm-warn').textContent)), 'S17 moving the slider (its own path) claims no measured ratio either',
+      await page.evaluate(() => document.getElementById('d-swarm-warn').textContent));
+    crewSwarm = { ...crewSwarm, active: false, pausedBecause: 'person', activeHelpers: 0 };
+    chk(await waitFor(page, () => !document.getElementById('d-swarm-stop').disabled, null, 8000), 'S17 paused with no helper counted, Stop now stays (the count was not read in full)');
+    crewSwarm = { ...crewSwarm, active: true, pausedBecause: null, activeHelpers: 3 };
     crewSwarm = { ...crewSwarm, metered: true, tokensToday: 2461380 };
     chk(await waitFor(page, () => document.getElementById('d-swarm-today').textContent === '2,461,380 tokens' && !document.getElementById('d-swarm-bar').parentElement.hidden, null, 8000),
       'S17 CONTROL: measured again, the number and the bar are back', await page.evaluate(() => document.getElementById('d-swarm-today').textContent));
     chk(await waitFor(page, () => /Today it has used about <b>2\.3 times/.test(document.getElementById('d-swarm-warn').innerHTML), null, 8000),
       'S17 CONTROL: and measured, the warning gives the ratio', await page.evaluate(() => document.getElementById('d-swarm-warn').textContent));
+    chk(await page.evaluate(() => document.getElementById('d-swarm-limit').textContent === 'of 6,000,000 limit' && !document.getElementById('d-swarm-hint').hidden), 'S17 CONTROL: measured, the limit line and the promise are back');
+    // S18: the new number is saved but the lead could not be told: the page says so rather than show it as running.
+    putTold = { state: 'could_not', because: 'its instructions could not be updated' };
+    await page.fill('#d-swarm-max', '7');
+    chk(await waitFor(page, () => /Saved, but we could not tell it yet: its instructions could not be updated/.test(document.getElementById('d-swarm-msg').textContent), null, 6000),
+      'S18 saved but not told: it says so', await page.evaluate(() => document.getElementById('d-swarm-msg').textContent));
+    putTold = { state: 'told' };
+    await page.fill('#d-swarm-max', '5');
+    chk(await waitFor(page, () => document.getElementById('d-swarm-msg').textContent === '', null, 6000), 'S18 CONTROL: told, no message', await page.evaluate(() => document.getElementById('d-swarm-msg').textContent));
+    putTold = null;
     crewSwarm = { ...crewSwarm, helperTokenRatio: null };
     await page.click('#d-swarm-stop');
     for (let i = 0; i < 20 && !find((q) => q.method === 'POST'); i++) await page.waitForTimeout(100);

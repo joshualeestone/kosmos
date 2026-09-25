@@ -9312,7 +9312,7 @@ window.kosmosMeasureScrollbarWidth();
           <h3 class="swlab">Today</h3>
           <div class="swbar" aria-hidden="true"><i id="d-swarm-bar"></i></div>
           <div class="swnums"><span id="d-swarm-today"></span><span id="d-swarm-limit"></span></div>
-          <p class="dhint">Pauses itself at the limit and tells you. Resets at midnight.</p>
+          <p class="dhint" id="d-swarm-hint">Pauses itself at the limit and tells you. Resets at midnight.</p>
           <label class="swlab" for="d-swarm-cap" style="margin-top:8px">Daily limit</label>
           <div class="swrow"><input type="range" id="d-swarm-cap" min="1" max="20" step="1"><span class="swval" id="d-swarm-cap-v"></span></div>
         </div>
@@ -38610,6 +38610,8 @@ function swarmPagePaint(a) {
   const who = a && a.sessionName;
   if (who !== SWARM_PAINTED) { SWARM_PAINTED = who; document.getElementById('d-swarm-msg').textContent = ''; }
   panel.hidden = !sw;
+  /* A swarm runs on Claude only (the engine refuses a move off it), so it is not offered a switch that cannot work. */
+  { const pv = document.getElementById('d-provider'); const prow = pv && pv.closest('.frow'); if (prow) prow.hidden = !!sw; }
   if (!sw) return;
   renderAvatarSwarmOnly(a);
   const on = sw.active !== false;
@@ -38618,10 +38620,11 @@ function swarmPagePaint(a) {
   const why = document.getElementById('d-swarm-why');
   const words = on ? '' : sw.pausedBecause === 'limit' ? `Paused at today's limit. It starts again at midnight, or switch it back to Active.`
     : sw.pausedBecause === 'stopped' ? 'Stopped. Switch it back to Active when you want it working again.'
-    : 'Paused. It starts no new helpers until you switch it back to Active.';
+    : 'Paused. It takes no new work until you switch it back to Active.';
   why.textContent = words; why.hidden = !words;
-  /* Paused stops NEW helpers, not running ones (the contract), so Stop now stays while any helper works. */
-  document.getElementById('d-swarm-stop').disabled = !on && !(Number(sw.activeHelpers) > 0);
+  /* Paused stops NEW helpers, not running ones (the contract), so Stop now stays while any helper works, and while
+     the count itself could not be read in full (metered false), since it may be missing one that is. */
+  document.getElementById('d-swarm-stop').disabled = !on && !(Number(sw.activeHelpers) > 0) && sw.metered !== false;
   const max = Math.max(2, Math.min(10, Number(sw.maxHelpers) || 3));
   const range = document.getElementById('d-swarm-max');
   if (document.activeElement !== range && SWARM_BUSY !== who) range.value = String(max);
@@ -38637,7 +38640,9 @@ function swarmPagePaint(a) {
   document.getElementById('d-swarm-bar').style.width = (cap && !unmeasured ? Math.min(100, used / cap * 100) : 0).toFixed(1) + '%';
   document.getElementById('d-swarm-bar').parentElement.hidden = unmeasured;
   document.getElementById('d-swarm-today').textContent = unmeasured ? 'Could not measure today\'s tokens' : used.toLocaleString('en-US') + ' tokens';
-  document.getElementById('d-swarm-limit').textContent = cap ? 'of ' + cap.toLocaleString('en-US') + ' limit' : 'no limit set';
+  document.getElementById('d-swarm-limit').textContent = !cap ? 'no limit set' : unmeasured ? 'Limit ' + cap.toLocaleString('en-US') + ' a day' : 'of ' + cap.toLocaleString('en-US') + ' limit';
+  /* Unmeasured, the limit cannot be watched for either, so the page does not promise to pause at it. */
+  document.getElementById('d-swarm-hint').hidden = unmeasured;
   /* The slider follows the REAL limit: widened past 20 million when the limit is higher, and its label shows the
      exact number until the person moves it (a 2,500,000 limit is not shown as 3,000,000). No limit: no slider. */
   const capR = document.getElementById('d-swarm-cap');
@@ -38684,7 +38689,9 @@ document.addEventListener('change', async (e) => {
   if (!t || !CURRENT) return;
   const base = '/api/agent/' + encodeURIComponent(CURRENT.sessionName) + '/swarm';
   if (t.name === 'd-swarm-active') await swarmSend(base, 'PUT', { active: t.value === 'on' });
-  if (t.id === 'd-swarm-max') await swarmSend(base, 'PUT', { maxHelpers: Number(t.value) });
+  /* Saved but the lead could not be told (told.could_not): the page must not show the new number as if it runs. */
+  if (t.id === 'd-swarm-max') await swarmSend(base, 'PUT', { maxHelpers: Number(t.value) },
+    (b) => (b && b.told && b.told.state === 'could_not' ? pjSentence('saved, but we could not tell it yet: ' + (b.told.because || 'it did not answer')) : ''));
   if (t.id === 'd-swarm-cap') await swarmSend(base, 'PUT', { dailyTokenLimit: Number(t.value) * 1000000 });
 });
 /* On body, not document: web.found-scale.test.js reads the FIRST document input listener as the found-list filter. */
