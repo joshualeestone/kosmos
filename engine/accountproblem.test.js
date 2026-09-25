@@ -68,3 +68,8 @@ test('Codex\'s error mark (■) is not quoted', () => {
   const p = accountProblemOf({ state: 'rate_limited', runner: 'codex', name: 'Cy', stateEvidence: "■ You've hit your usage limit." });
   assert.match(p.text, /says: "You've hit/);
 });
+
+test('every runner Kosmos can start is named, and a missing runner is Claude', () => {
+  const name = (runner) => accountProblemOf({ state: 'auth_failed', runner, name: 'Di' }).provider;
+  assert.deepEqual(['codex', 'gemini', 'grok', 'antigravity', undefined].map(name), ['OpenAI', 'Gemini', 'Grok', 'Antigravity', 'Claude']);
+});

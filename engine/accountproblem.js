@@ -15,7 +15,7 @@
  * carries the vendor's own remedy and link and stays true when their wording changes.
  */
 
-const PROVIDER_NAME = Object.freeze({ codex: 'OpenAI', gemini: 'Gemini', grok: 'Grok' });
+const PROVIDER_NAME = Object.freeze({ codex: 'OpenAI', gemini: 'Gemini', grok: 'Grok', antigravity: 'Antigravity' });
 
 function providerOf(card) {
   return PROVIDER_NAME[card && card.runner] || 'Claude';
