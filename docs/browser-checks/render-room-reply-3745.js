@@ -339,21 +339,39 @@ function chk(ok, label, extra) {
     });
     chk(hiddenJump.said === 'That message is hidden by your search.', 'a jump to a post the search hides says so on screen', JSON.stringify(hiddenJump));
     // Desktop: on an agent's one-word post the wider bar (with Reply) stays inside the thread; every button
-    // takes its own click (round 29: it ran 48px off the left edge and the first emoji could not be clicked).
-    await p.evaluate(() => {
+    // takes its own click (round 29: it ran 48px off the left edge). It holds through a repaint too, with the
+    // mouse still (round 30: a repaint rebuilt the row without its measurement). The post is added to the
+    // room's own data so a repaint draws it again.
+    const measureShort = () => p.evaluate(() => {
       const room = document.getElementById('pj-room');
-      room.insertAdjacentHTML('beforeend', pjRoomRow({ kind: 'post', id: 'm999900', from: 'roomer', to: [], text: 'ok', at: new Date().toISOString(), outcomes: {} }, pjById(PJ_CURRENT)));
-    });
-    await p.locator('#pj-room .msg').last().hover();
-    await p.waitForTimeout(300);
-    const shortBar = await p.evaluate(() => {
-      const room = document.getElementById('pj-room'); const row = room.lastElementChild; const q = row.querySelector('.rxn-quick');
-      const R = room.getBoundingClientRect(), Q = q.getBoundingClientRect();
+      const row = [...room.querySelectorAll('.msg')].find((r) => r.querySelector('.rxns[data-post="m999900"]'));
+      if (!row) return { error: 'no short agent row' };
+      const q = row.querySelector('.rxn-quick'); const R = room.getBoundingClientRect(), Q = q.getBoundingClientRect();
       const hits = [...q.querySelectorAll('button')].map((b) => { const r = b.getBoundingClientRect(); const h = document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2); return !!(h && (h === b || b.contains(h))); });
-      row.remove();
       return { inside: Q.left >= R.left && Q.right <= R.right + 1, bar: [Math.round(Q.left), Math.round(Q.right)], room: [Math.round(R.left), Math.round(R.right)], hits };
     });
+    await p.fill('#pj-room-search', '');   // an earlier arm leaves a search in the box
+    await p.evaluate(() => {
+      const box = document.getElementById('pj-room');
+      box.__lastBody.rows.push({ kind: 'post', id: 'm999900', from: 'roomer', to: [], text: 'ok', at: new Date().toISOString(), outcomes: {} });
+      box.__lastRoom = undefined; paintRoom(box.__lastBody);
+    });
+    const shortBox = await p.evaluate(() => {
+      const b = document.querySelector('#pj-room .rxns[data-post="m999900"]'); const row = b && b.closest('.msg');
+      const bd = row && row.querySelector('.msg-bd'); if (!bd) return null;
+      bd.scrollIntoView({ block: 'center' }); const r = bd.getBoundingClientRect(); return { x: r.left + r.width / 2, y: r.top + r.height / 2 };
+    });
+    if (!shortBox) throw new Error('the short agent post did not render');
+    await p.mouse.move(shortBox.x, shortBox.y);
+    await p.waitForTimeout(300);
+    const shortBar = await measureShort();
     chk(shortBar.inside && shortBar.hits.length === 5 && shortBar.hits.every(Boolean), 'on a one-word agent post the bar (with Reply) stays inside the thread and every button takes its click', JSON.stringify(shortBar));
+    await p.evaluate(() => { const box = document.getElementById('pj-room'); box.__lastRoom = undefined; paintRoom(box.__lastBody); });
+    await p.waitForTimeout(200);
+    const afterRepaint = await measureShort();
+    chk(afterRepaint.inside && afterRepaint.hits.every(Boolean), 'after a repaint with the mouse still, the bar is still inside the thread', JSON.stringify(afterRepaint));
+    await p.evaluate(() => { const box = document.getElementById('pj-room'); box.__lastBody.rows = box.__lastBody.rows.filter((r) => r.id !== 'm999900'); box.__lastRoom = undefined; paintRoom(box.__lastBody); });
+    await p.mouse.move(5, 5);
 
     // Phone: tapping Reply in the tapped-open bar starts the reply and closes the bar (round 29).
     // A touch page: opened wide (the project list is a click away there), then narrowed to a phone.
@@ -370,6 +388,8 @@ function chk(ok, label, extra) {
     await phoneRow.locator('.msg-bd p').first().tap();
     await phone.waitForTimeout(300);
     const opened = await phone.evaluate(() => document.querySelectorAll('#pj-room .msg.rxn-show').length);
+    const replyTouch = await phone.evaluate(() => { const b = document.querySelector('#pj-room .msg.rxn-show .rxn-reply'); if (!b) return null; const r = b.getBoundingClientRect(); return Math.round(Math.min(r.width, r.height)); });
+    chk(replyTouch !== null && replyTouch >= 36, 'on a touchscreen, Reply is a 36px target like the other bar buttons', String(replyTouch));
     await phoneRow.locator('.rxn-reply').tap();
     await phone.waitForTimeout(300);
     const afterTap = await phone.evaluate(() => ({ strip: !document.getElementById('pj-reply').hidden, text: document.getElementById('pj-reply').textContent.replace(/\s+/g, ' ').trim().slice(0, 60),

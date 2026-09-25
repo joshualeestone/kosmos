@@ -46965,8 +46965,7 @@ document.getElementById('pj-room').addEventListener('click', async (e) => {
     return;
   }
   if (e.target.closest('.rxn-reply')) {
-    rxnCloseAllPickers();
-    if (typeof pjRxnClose === 'function') pjRxnClose();   // the tapped-open bar (touch) closes, as a reaction does
+    rxnCloseAllPickers();   // the tapped-open bar (touch) is closed by the room's tap handler, as a reaction's is
     pjReplyStart(box.getAttribute('data-post'));
     return;
   }
@@ -47179,7 +47178,7 @@ document.getElementById('pj-room').addEventListener('click', (e) => {
   if (!(window.matchMedia && window.matchMedia(PJ_TOUCH_MQ).matches)) return;
   if (!e.target || !e.target.closest) return;
   const room = document.getElementById('pj-room');
-  if (e.target.closest('.rxn-pick, .rxn')) { pjRxnClose(); return; }   // any reaction taken closes it
+  if (e.target.closest('.rxn-pick, .rxn, .rxn-reply')) { pjRxnClose(); return; }   // any reaction taken, or Reply (#3745), closes it
   if (e.target.closest('a, button, .rxns, [data-open-agent]')) {
     // Left to its own handler, but one bar at a time: a tap on another row's link closes an open bar.
     const tappedRow = e.target.closest('.msg');
@@ -48388,6 +48387,10 @@ function paintRoom(body) {
     box.__lastRoom = html;
     box.__lastRoomQuery = PJ_ROOM_QUERY;
     paintThreadInto(box, html, rows !== '', queryChanged, filtering);
+    /* #3745: a repaint rebuilds every row without its measured .rxn-left, and a still mouse sends no new
+       mouseover; so the row under the pointer, and the one holding focus, are measured again here. */
+    pjRxnKeepInside(box.querySelector('.msg:hover'));
+    pjRxnKeepInside(document.activeElement && document.activeElement.closest ? document.activeElement.closest('#pj-room .msg') : null);
     /* #3745: a repaint replaces the row a jump focused; put focus back so a keyboard or screen-reader
        user keeps their place (only if focus fell to the page, never taken from somewhere else). */
     if (PJ_JUMP_FOCUS && (!document.activeElement || document.activeElement === document.body)) {
