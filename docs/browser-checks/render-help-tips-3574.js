@@ -166,13 +166,15 @@ const resetStore = (state) => fs.writeFileSync(tipsStore.FILE(), JSON.stringify(
     const ring = await page.evaluate(() => {
       const c = document.getElementById('tipcard'), r = document.querySelector('#panel-detail #d-ring svg');
       const a = c.getBoundingClientRect(), b = r.getBoundingClientRect();
-      return { dim: !!document.querySelector('#tippins .tiphalo'), cls: ['up', 'down', 'left', 'right', 'flat'].find((k) => c.classList.contains(k)),
+      const ay = parseFloat(c.style.getPropertyValue('--ay')) || 22, tip = a.top + ay + 7;
+      return { dim: !!document.querySelector('#tippins .tiphalo, #tippins .tipdim') || document.documentElement.classList.contains('tip-dimming'),
+        cls: ['up', 'down', 'left', 'right', 'flat'].find((k) => c.classList.contains(k)), arrowOnRing: tip >= b.top && tip <= b.bottom,
         gap: Math.round(Math.max(b.left - a.right, a.left - b.right, b.top - a.bottom, a.top - b.bottom)),
         body: c.querySelector('.tip-bd').innerText.replace(/\s+/g, ' ').trim(),
         strokes: [...c.querySelectorAll('.tip-bands .gf')].map((x) => getComputedStyle(x).stroke) };
     });
     chk(!ring.dim && ring.strokes.length === 3 && new Set(ring.strokes).size === 3, 'T3 it is a screen tip, with no dim, and three distinct gauge colours', JSON.stringify(ring));
-    chk(ring.cls !== 'flat' && ring.gap >= 0 && ring.gap <= 40, 'T3 it points at the ring on her page, from beside it', JSON.stringify(ring));
+    chk(['left', 'right'].includes(ring.cls) && ring.arrowOnRing && ring.gap >= 0 && ring.gap <= 40, 'T3 it points at the ring on her page, from beside it, its arrow on the ring', JSON.stringify(ring));
     chk(ring.body === 'The ring shows how full your agent\'s memory is. Plenty of room Getting full Nearly full This is normal and the agent will automatically write themselves a handoff, You can also manage their memory under AI settings.',
       'T3 in Josh\'s words (#3737)', JSON.stringify(ring.body));
     if (SHOTS) await page.screenshot({ path: path.join(SHOTS, 'ring-light.png') });
@@ -200,6 +202,7 @@ const resetStore = (state) => fs.writeFileSync(tipsStore.FILE(), JSON.stringify(
     await page.reload({ waitUntil: 'networkidle' });
     await page.click('#grid [data-agent]');
     await page.waitForTimeout(3000);
+    chk(await page.evaluate(() => tipVisible('#panel-detail #d-sec-talk')), 'T3c precondition: her page is open');
     const t3c = await page.evaluate(() => ({ ring: !!document.querySelector('#panel-detail #d-ring svg'), card: (() => { const c = document.getElementById('tipcard'); return c && !c.hidden ? c.querySelector('h2').textContent : null; })() }));
     chk(!t3c.ring && t3c.card === null, 'T3c unknown memory: no ring on her page, and no ring tip', JSON.stringify(t3c));
     resetStore({ seen: seen3c, off: false });
@@ -518,6 +521,27 @@ const resetStore = (state) => fs.writeFileSync(tipsStore.FILE(), JSON.stringify(
     await page.keyboard.press('Escape');
     const gone = !(await cardState(page)).shown;
     chk(kept && gone, 'T20 Escape with a picker open leaves a screen tip; with none open it closes it', JSON.stringify({ kept, gone }));
+    // T3d (#3737): the ring tip in the consolidated layout, where her ring sits at the left of the middle column (the
+    // agent rail to its left, her name and buttons below): still beside it, its arrow on the ring.
+    resetStore({ seen: ['tour', 'agents', 'agentpage', 'newagent', 'projects', 'project'], off: false });
+    withAgent();
+    await page.evaluate(() => localStorage.setItem('aw-check-ctx', '62'));
+    await page.reload({ waitUntil: 'networkidle' });
+    await page.waitForFunction(() => Array.isArray(LAST) && LAST.some((a) => a.sessionName === 'beatrix'), null, { timeout: 8000 }).catch(() => {});
+    await page.evaluate(() => openDetail('beatrix', 'talk'));
+    chk(await waitTitle(page, 'Your agent\'s memory', 6000), 'T3d under the consolidated layout the ring tip shows on her page', JSON.stringify(await cardState(page)));
+    const t3d = await page.evaluate(() => {
+      const c = document.getElementById('tipcard'), r = document.querySelector('#panel-detail #d-ring svg');
+      if (!r) return { ring: false };
+      const a = c.getBoundingClientRect(), b = r.getBoundingClientRect();
+      const ay = parseFloat(c.style.getPropertyValue('--ay')) || 22, tip = a.top + ay + 7;
+      return { layout: document.documentElement.dataset.layout, cls: ['up', 'down', 'left', 'right', 'flat'].find((k) => c.classList.contains(k)),
+        arrowOnRing: tip >= b.top && tip <= b.bottom, covers: c.dataset.covers };
+    });
+    chk(t3d.layout === 'consolidated' && ['left', 'right'].includes(t3d.cls) && t3d.arrowOnRing && t3d.covers === '0', 'T3d beside her ring, its arrow on it, covering nothing', JSON.stringify(t3d));
+    if (SHOTS) await page.screenshot({ path: path.join(SHOTS, 'ring-consolidated.png') });
+    await page.keyboard.press('Escape');
+    await page.evaluate(() => localStorage.removeItem('aw-check-ctx'));
     await page.evaluate(() => fetch('/api/style', { method: 'PUT', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ layout: 'tabs' }) }));
     await page.evaluate(() => applyLayout('tabs', true));
     withAgent();
@@ -840,6 +864,7 @@ const resetStore = (state) => fs.writeFileSync(tipsStore.FILE(), JSON.stringify(
       const b33 = await launcher.launch({ headless: process.env.HEADED === '0', ...(eng === 'chromium' ? { ignoreDefaultArgs: ['--hide-scrollbars'] } : {}) });
       try {
         const p33 = await b33.newPage({ viewport: { width: 1280, height: 860 } });
+        p33.on('pageerror', (e) => errs.push('[T33 ' + eng + '] ' + e.message));   // counted by T8
         await p33.goto(URL, { waitUntil: 'networkidle' });
         if (await p33.$('#firstrun:not([hidden])')) { await p33.keyboard.press('Escape'); await p33.waitForTimeout(400); }
         await waitTitle(p33, TOUR, 8000);
@@ -860,9 +885,11 @@ const resetStore = (state) => fs.writeFileSync(tipsStore.FILE(), JSON.stringify(
            for; without it navy's gutter would take light's ground). */
         const canvas = async () => p33.evaluate(() => getComputedStyle(document.documentElement).backgroundColor);
         const lightCanvas = await canvas();
-        await p33.evaluate(() => { document.body.classList.add('plus-active'); tipLayout(TIP_OPEN, document.getElementById('tipcard')); });
+        await p33.evaluate(() => document.body.classList.add('plus-active'));
+        await p33.waitForTimeout(1500);   // one tips tick: the app follows the look by itself
         const navyCanvas = await canvas();
-        await p33.evaluate(() => { document.body.classList.remove('plus-active'); tipLayout(TIP_OPEN, document.getElementById('tipcard')); });
+        await p33.evaluate(() => document.body.classList.remove('plus-active'));
+        await p33.waitForTimeout(1500);
         chk(lightCanvas === 'rgb(250, 249, 247)' && navyCanvas === 'rgb(19, 33, 64)', 'T33 [' + eng + '] the gutter is painted from the look\'s own ground: light, and Kosmos+ navy', JSON.stringify({ lightCanvas, navyCanvas }));
         await p33.click('#tipcard .tip-go');
         await p33.waitForTimeout(300);
