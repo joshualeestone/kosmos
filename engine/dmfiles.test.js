@@ -55,7 +55,8 @@ test('#3759: the block names BOTH destinations and when each applies, says where
   // About a project: that project's folder instead, even when asked in the direct conversation.
   assert.match(flat, /When the conversation is about one of your projects \(the person names it, or the file is unmistakably that project's work, not only the same kind of thing\), save it in that project's folder instead/);
   assert.match(flat, /even when they asked for it, or you made it, in a direct conversation/);
-  assert.match(flat, /If no folder is listed for that project, treat it as unclear, as below/);
+  assert.match(flat, /If they name a project you are not on, or no folder is listed for it, treat it as unclear, as below/);
+  assert.match(flat, /That is not guessing: your Files folder is where it goes by default/);
   assert.match(flat, /tell them in one line where you put it: which project, and the file's name/);
   // Unsure: no project is guessed (the doctrine's "not a licence to guess") and nothing waits unsaved:
   // save it here, say so, and ask which project in the same line.
