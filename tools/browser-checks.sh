@@ -896,7 +896,7 @@ for _arm in account page; do
   run_one "mobile-shots-leak-$_arm" bash -c 'MSHOTS_LEAK_CONTROL="$1" node docs/browser-checks/mobile-shots.js --out "$2" \
       --screens home --sizes se --themes light --engines chromium; rc=$?
     [ "$rc" -eq 3 ] && { echo "leak control $1: stopped with exit 3, as it must"; exit 0; }
-    echo "leak control $1: exit $rc, expected 3: the guard did not fire"; exit 1' _ "$_arm" "$RUN_DIR/mobile-shots-leak-$_arm"
+    echo "FAIL  leak control $1: exit $rc, expected 3: the guard did not fire"; exit 1' _ "$_arm" "$RUN_DIR/mobile-shots-leak-$_arm"
 done
 
 # --- 3. render-thread: the send-capable thread, on the fixture server --------
