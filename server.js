@@ -3236,6 +3236,33 @@ function setupGuideNow() {
   return { ok: true, name: guide };
 }
 
+/* #3660: the guide `name`'s card read as failing (setupAssistant.guideFailure), or null when it is
+   answering or the board could not be read. The bubble asks before every message and a board read captures
+   every pane, so a reading is kept for GUIDE_CARD_TTL_MS (a flip back waits at most that long). The TTL is
+   longer than the bubble's poll (about 6 seconds apart while open), or the memo would save nothing, and it is
+   stamped AFTER the read, so a slow capture does not shorten it. A board that cannot be read THROWS rather than
+   answering null, because null means "answering" and would end a fallback chat (setupAssistant.hostedWhy turns
+   the throw into 'unchecked'); an unreadable read is not kept. `roster` and `clock` are injectable for the test. */
+const GUIDE_CARD_TTL_MS = 15000;
+let guideCardMemo = null;
+function guideCardFailing(name, roster = safeRoster, clock = Date.now) {
+  if (guideCardMemo && guideCardMemo.name === name && clock() - guideCardMemo.at < GUIDE_CARD_TTL_MS) return guideCardMemo.failing;
+  const cards = roster();
+  if (!Array.isArray(cards)) throw new Error('we could not read the board just now');
+  const failing = setupAssistant.guideFailure(cards.find((c) => c && c.sessionName === name));
+  guideCardMemo = { name, at: clock(), failing };
+  return failing;
+}
+function resetGuideCardMemoForTests() { guideCardMemo = null; }
+/* The same, for the hosted route, which has not looked up the guide itself. No guide is null (nothing is
+   failing); a guide whose removal could not be checked throws, like an unreadable board. */
+function setupGuideFailing() {
+  const found = setupGuideNow();
+  if (found.ok) return guideCardFailing(found.name);
+  if (found.reason === 'unchecked') throw new Error(found.error);
+  return null;
+}
+
 const server = http.createServer((req, res) => {
   gateLog(req);
   const pathname = pathOf(req);
@@ -4022,6 +4049,10 @@ const server = http.createServer((req, res) => {
         federationLive: federationLiveNow(),
         /* #3564: this board can make and run swarms; the New agent screen offers one only then. */
         swarms: true,
+        /* #3559 (Josh): the top-level Tasks tab appears once the person has 25 tasks ever, and
+           stays. Cheap on this poll: a saved flag, else a count redone only when the projects
+           file changed (tasks.tasksTabShown). */
+        tasksTab: (() => { try { return tasks.tasksTabShown(); } catch { return false; } })(),
         /* 🛑 NO OFFER FROM A BOARD THAT CANNOT TAKE ONE. A Kosmos running from
            its source (this Mac's, under the hand plist) cannot install: the
            install route answers "it updates from git, not from here". But the
@@ -9930,10 +9961,9 @@ const server = http.createServer((req, res) => {
       /* #3034/#3660: Giddy Up ARMS the setup guide; it is created the moment a model is
          connected (Splinter, 19:06), which may already be true here or may come later
          from Settings (the sweep at board start catches that). Never created without a
-         model: it could not run. An existing install is armed only if someone
-         deliberately re-runs first-run (?first-run=1), so existing boards never get an
-         unasked-for agent. The why lives with FIRSTRUN_AUTOCREATE_ENABLED and
-         ensureGuide in engine/setup-assistant.js.
+         model: it could not run. An install whose first run finished before the guide existed
+         is armed once at board start instead (#3760, armExistingInstall). The why lives with
+         FIRSTRUN_AUTOCREATE_ENABLED and ensureGuide in engine/setup-assistant.js.
          Fire-and-forget and best-effort: onboarding has already succeeded. */
       if (setupAssistant.FIRSTRUN_AUTOCREATE_ENABLED) {
         try {
@@ -13232,8 +13262,11 @@ const server = http.createServer((req, res) => {
     }
     const rows = scoped.filter((t) => !t.projectArchived || t.projectId === withArchived).map((t) => {
       let claim = claims.get(t.projectId + '\u0000' + t.number) || null;
-      if (!claim && unreadable.has(t.projectId) && tasks.taskState(t) === 'assigned') {
-        claim = { claimed: null, because: 'we could not read what its agent reports' };
+      /* The same rule as the join: a claim is about the agent still holding open work (claimWho),
+         and carries it as `about`; nobody holding open work, no claim. */
+      const about = !claim && unreadable.has(t.projectId) ? tasks.claimWho(t) : null;
+      if (about) {
+        claim = { claimed: null, because: 'we could not read what its agent reports', about, neverReported: false };
       }
       return Object.assign({}, t, {
         claim,
@@ -14027,40 +14060,59 @@ const server = http.createServer((req, res) => {
   /**
    * #3034: which agent is the setup guide, for the help bubble. The page has no other
    * way to know: /api/status carries no guide marker, and the name alone is not
-   * enough (see setupGuideNow). { ok: false, reason: 'none' } means no guide, which until
-   * #3660 creates one is every install, and the bubble then shows nothing.
+   * enough (see setupGuideNow). The answers:
+   * - no guide: 200 { ok: false, reason: 'none', hosted, hostedWhy } (hosted: the bubble may stand in on
+   *   Kosmos's own model, #3660); a name that is not the guide's is the same with 409 and 'not-guide'.
+   * - a guide that answers, or any guide where no connector is installed: { ok: true, name }.
+   * - a guide that cannot answer (#3660 fallback): { ok: true, name, hosted, hostedWhy: 'own_model_failing',
+   *   problem, runner }, problem being the card's #3723 state.
+   * - a guide whose card could not be read: { ok: true, name, hosted: false, hostedWhy: 'unchecked' }.
    */
   if (pathname === '/api/setup-guide' && (req.method === 'GET' || req.method === 'HEAD')) {
     /* `hostedWhy` says why not (own_model, no_connector, unchecked): the bubble keeps its state on 'unchecked', and
-       tells an open chat the right reason when it is withdrawn. */
-    const hostedAnswer = () => { const w = require('./engine/setup-assistant').hostedWhy(); return { hosted: w.ok, hostedWhy: w.why }; };
+       tells an open chat the right reason when it is withdrawn. These are the no-guide answers; a guide that
+       cannot answer is handled below. */
+    const hostedAnswer = () => { const w = setupAssistant.hostedWhy(); return { hosted: w.ok, hostedWhy: w.why }; };
     const found = setupGuideNow();
     /* "No guide" is an ordinary answer here, not an error: the page asks on every install, and a 404 is
        logged by the browser as a failed resource on every page load (it failed every "no page errors"
        check). So it is 200 { ok: false, reason: 'none' }; only a refusal (409) keeps its status. */
     /* `hosted`: no guide, but the setup assistant can run on Kosmos's own model here (#3660), so the bubble
-       shows and talks to /api/setup-guide/hosted. False once they have a model of their own, and in a checkout
-       or a sandbox (setupAssistant.hostedOffered). */
+       shows and talks to /api/setup-guide/hosted. False once they have a model of their own (unless their guide
+       cannot answer, below), and in a checkout or a sandbox (setupAssistant.hostedOffered). */
     if (!found.ok && found.reason === 'none') { sendJson(res, 200, { ok: false, reason: 'none', error: found.error, ...hostedAnswer() }); return; }
     /* A name that is not the guide's (409 not-guide) is also no guide, so it says hosted too: the bubble
        stands in rather than vanishing. */
     if (!found.ok) { sendJson(res, found.status, { error: found.error, reason: found.reason, ...(found.reason === 'not-guide' ? hostedAnswer() : {}) }); return; }
+    /* The guide exists but cannot answer (#3660 fallback): say which problem and on which runner, and whether
+       the bubble may answer this chat on the hosted assistant instead. It asks again before each message.
+       With no connector there is nothing to fall back to, so the board is not read at all and the answer is
+       the plain one. A board that cannot be read says hostedWhy 'unchecked' (the bubble keeps its state). */
+    if (!setupAssistant.hostedConnector()) { sendJson(res, 200, { ok: true, name: found.name }); return; }
+    let failing;
+    try { failing = guideCardFailing(found.name); } catch { sendJson(res, 200, { ok: true, name: found.name, hosted: false, hostedWhy: 'unchecked' }); return; }
+    if (failing) {
+      const w = setupAssistant.hostedWhy({ failing: () => failing });
+      sendJson(res, 200, { ok: true, name: found.name, hosted: w.ok, hostedWhy: w.why, problem: failing.problem, runner: failing.runner });
+      return;
+    }
     sendJson(res, 200, { ok: true, name: found.name });
     return;
   }
 
   /**
    * #3660: the setup assistant on Kosmos's own model, for a person who has not
-   * connected a model yet. The bubble posts `{ messages, page? }` and gets back
+   * connected a model yet, or whose guide cannot answer right now (Josh 2026-09-25 07:22:
+   * the fallback; `own_model` refuses once it answers again). The bubble posts `{ messages, page? }` and gets back
    * `{ reply, remaining }`, or a refusal `{ error, code, retryAfterSecs }` whose
    * `error` is a sentence to show as-is (the coordinator's own, or ours for "could
    * not reach it" and "arrives with the next update"). engine/hostedguide.js does
-   * the shaping and the one retry; the tunnel signs (no crypto on the board). Once
-   * a guide agent exists on their own model, the bubble talks to that instead.
+   * the shaping and the one retry; the tunnel signs (no crypto on the board). While
+   * a guide agent answers on their own model, the bubble talks to that instead.
    */
   if (pathname === '/api/setup-guide/hosted' && req.method === 'POST') {
     /* The same test the bubble is shown by, so the route cannot be used past it (a model connected, a checkout). */
-    const offer = require('./engine/setup-assistant').hostedWhy();
+    const offer = setupAssistant.hostedWhy({ failing: setupGuideFailing });
     if (!offer.ok) {
       req.resume();
       if (offer.why === 'unchecked') sendJson(res, 503, { error: 'we could not check which AI is connected just now; try again in a moment', code: 'unchecked' });
@@ -15644,6 +15696,11 @@ function start(port = PORT) {
          refusal, is single-flight, and does nothing on an unarmed (pre-existing) install or
          once seeded. Its own timer, unref'd, best-effort, like the sweeps above. */
       if (setupAssistant.FIRSTRUN_AUTOCREATE_ENABLED) {
+        /* #3760: arm, once, an install whose first run finished before the guide existed (see
+           armExistingInstall). Not under the test dry run, like ensureGuide. */
+        if (process.env.AGENT_WORKFORCE_DRY_RUN !== '1' || process.env.AGENT_WORKFORCE_SETUP_GUIDE === 'on') {
+          try { setupAssistant.armExistingInstall({ firstRunSeen: firstrun.seen }); } catch { /* best-effort */ }
+        }
         let guideSweep = null;
         const guideTick = () => {
           try {
@@ -16152,6 +16209,7 @@ module.exports = {
   CONNLOST_BOOK, connlostHealEnabled, // #3410: exported so a test can pin the route's reconnect field to the sweep's own book
   givePart, // #3595: the assign-and-tell path, exported so the Assigner's real write path is tested
   swarmSweepDeps, // #3564: the limit sweep's wiring, exported so it is tested
+  guideCardFailing, resetGuideCardMemoForTests, // #3660: the fallback's reading of the guide card, for its tests
   creatorRunsOn, // #3734: where an agent-made team member runs by default, for its tests
   /* #2036: the boot diagnostic's condition (pure truth table) AND its real call-site
      composition, exported together so BOTH are pinned. stagingRevertWarningNow wires the raw

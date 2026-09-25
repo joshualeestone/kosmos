@@ -557,6 +557,19 @@ function progressOf(task) {
   };
 }
 
+/**
+ * #3559 (look review, iteration 15): the agent a task's claim is ABOUT. The claim asks "is this
+ * agent on this task?", which has a subject only while some agent still holds open work here, so
+ * it is the first agent holding an OPEN part, or null. Reading the first agent ever named instead
+ * let a finished part's agent decide "In progress" and get named for work it had handed on.
+ */
+function claimWho(task) {
+  // A closed task has nobody to ask about, whatever its parts say (closing leaves parts open).
+  if (!task || task.closedAt || progressOf(task).closed) return null;
+  const p = partsOf(task).find((x) => x && x.who && !x.closedAt);
+  return p ? p.who : null;
+}
+
 /** Whoever is on this task at all, for the join and the card's face. */
 function whoOf(task) {
   const named = partsOf(task).map((x) => x.who).filter(Boolean);
@@ -748,7 +761,8 @@ function claimFor(task, reading, opts) {
      returned null for every assigned multi-part task and the card lost its
      says-it-is-on-this line with nothing saying why. The claim is still asked
      of the task as a whole (one report naming "task 15" is a claim about the
-     task); per-part claims need a spelling agents have not been taught. */
+     task); per-part claims need a spelling agents have not been taught. The
+     caller reads `reading` for claimWho(task), the agent holding open work. */
   if (!task || whoOf(task).length === 0 || progressOf(task).closed) return null;
   // ⚠️ The DEFINITE branch is allowlisted, never the unknown one: a state
   // this module does not recognize (a future vocabulary word, a hand-edited
@@ -760,6 +774,11 @@ function claimFor(task, reading, opts) {
     return {
       claimed: null,
       because: (reading && reading.because) || 'we could not read what it reports holding',
+      /* #3559 (Mona's look review): the one could-not-tell case the page puts in plain words
+         and NAMES the agent for ("Rex has not reported what it is working on yet.") is an agent
+         that has never written its report. The claim is read for claimWho(task), an agent that
+         still holds open work here, so a finished agent is never named. A field, never our prose. */
+      neverReported: !!(reading && reading.neverReported === true) && !!claimWho(task),
     };
   }
   // Server-issued numbers are integers; a hand-edited store can hold
@@ -767,7 +786,7 @@ function claimFor(task, reading, opts) {
   // (1.5 matches "task 175"). Same way-out validation commitments.js does.
   const n = task.number;
   if (typeof n !== 'number' || !Number.isSafeInteger(n)) {
-    return { claimed: null, because: 'this task\'s number is not a whole number, so a report cannot name it' };
+    return { claimed: null, because: 'this task\'s number is not a whole number, so a report cannot name it', neverReported: false };
   }
   // The trailing guard is two lookaheads, not \b: \b sits happily between
   // "1" and ".", so "task 1.5" in a report would join task 1. Not-a-digit
@@ -781,15 +800,71 @@ function claimFor(task, reading, opts) {
     if (saysQualified) return { claimed: true, because: null };
     if (saysBare) {
       return { claimed: null, because: '"task ' + n + '" names more than one of this agent\'s open tasks: it has a task '
-        + n + ' in two projects and has not said which' + (project && project.name ? ' (say "task ' + n + ' of ' + String(project.name).trim() + '")' : '') };
+        + n + ' in two projects and has not said which' + (project && project.name ? ' (say "task ' + n + ' of ' + String(project.name).trim() + '")' : ''), neverReported: false };
     }
     return { claimed: false, because: null };
   }
   return { claimed: saysBare || saysQualified, because: null };
 }
 
+/**
+ * #3559, Josh's ruling (relayed by Splinter, 2026-09-25): the top-level Tasks tab appears only
+ * once the person has TASKS_TAB_MIN tasks. Splinter's calls: count every task ever created, open
+ * and closed; once shown it stays shown (a saved flag); one constant.
+ *
+ * "Ever created" is each project's `taskCounter` (the next-number counter, never reused; tasks
+ * are never deleted), with the task list as a floor for a project written before the counter.
+ * Archived projects count: they were created. A DELETED project's tasks are gone from the
+ * store, so they do not count; that is the one gap, and the saved flag makes it matter only
+ * before the tab first appears.
+ */
+const TASKS_TAB_MIN = 25;
+function tasksEverCreated(everyProject) {
+  return (Array.isArray(everyProject) ? everyProject : []).reduce((n, p) => {
+    if (!p) return n;
+    const counter = Number.isSafeInteger(p.taskCounter) && p.taskCounter > 0 ? p.taskCounter : 0;
+    return n + Math.max(counter, Array.isArray(p.tasks) ? p.tasks.length : 0);
+  }, 0);
+}
+/* Rides the 5s status poll, so it must be cheap: once the flag is saved it is one settings read.
+   Before that, the projects file is re-counted only when it changed (path, mtime, size), and the
+   first time the count reaches the constant the flag is written, once. */
+let TASKS_TAB_SEEN = { file: null, mtimeMs: null, size: null, shown: false };
+/* Write the once-shown flag WITHOUT risking the person's other settings: through the store's own
+   writeSettingsIfReadable, which refuses a settings file it cannot read (a hand-edit typo, EACCES,
+   EMFILE) instead of merging over {}. A refused or failed write is retried on a later poll (see
+   tasksTabShown). Returns whether it was written. */
+function saveTasksTabFlag(store) {
+  try { return !!store.writeSettingsIfReadable({ tasksTabShown: true, tasksTabShownAt: new Date().toISOString() }); }
+  catch { return false; }
+}
+function tasksTabShown() {
+  const store = require('./store');
+  let flagged = false;
+  try { flagged = store.readSettings().tasksTabShown === true; } catch { /* fall to the count */ }
+  if (flagged) return true;
+  const f = projects.file();
+  let st;
+  try { st = require('node:fs').statSync(f); } catch { return false; }   // no projects yet: no tasks
+  let shown;
+  if (TASKS_TAB_SEEN.file === f && TASKS_TAB_SEEN.mtimeMs === st.mtimeMs && TASKS_TAB_SEEN.size === st.size) {
+    shown = TASKS_TAB_SEEN.shown;
+  } else {
+    let counted = true;
+    try { shown = tasksEverCreated(projects.readAll()) >= TASKS_TAB_MIN; } catch { shown = false; counted = false; }
+    /* A read that failed (EACCES, EMFILE, a mid-write parse) is not an answer: not cached, so the
+       next poll counts again instead of pinning "hidden" until the file next changes. */
+    if (counted) TASKS_TAB_SEEN = { file: f, mtimeMs: st.mtimeMs, size: st.size, shown };
+  }
+  /* Shown and not yet saved (the first time, or an earlier write was skipped or failed): save it
+     now. Every poll retries until it lands, so "once shown, stays shown" holds even if the count
+     later falls. */
+  if (shown) saveTasksTabFlag(store);
+  return shown;
+}
+
 module.exports = { create, close, reopen, byNumber, columnTasks, allTasks, claimFor, claimPatterns, taskProblem,
-  taskState, lastActivityOf,
+  taskState, lastActivityOf, TASKS_TAB_MIN, tasksEverCreated, tasksTabShown, claimWho,
   partsOf, progressOf, whoOf, addPart, assignPart, setPartClosed, setDue, dueProblem, say,
   partValve, processPartWrites, agePartWritesForTests, PARTS_PER_HOUR,
   SENTENCE_MAX, DETAIL_MAX, MESSAGE_MAX, WHO_MAX };

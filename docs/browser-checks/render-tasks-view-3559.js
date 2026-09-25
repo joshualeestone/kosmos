@@ -5,10 +5,12 @@
  * grouped by where the work is.
  *
  * What this pins, and why each line can fail:
- *  - the Tasks tab is in the top nav and opens #panel-tasks; in the consolidated view (tab bar
- *    hidden) the projects rail's Tasks button opens it,
- *  - the tiles are exactly the four groups the engine can prove, with the right counts, and
- *    NO "Waiting on you" / "Done, check it" / category appears anywhere (they are not guessed),
+ *  - the Tasks tab and the consolidated rail's Tasks button are hidden below 25 tasks ever and
+ *    shown once the saved flag is set (Josh's ruling); then the tab opens #panel-tasks, and in
+ *    the consolidated view (tab bar hidden) the rail button opens it,
+ *  - the tiles are exactly the three OPEN groups the engine can prove, with the right counts;
+ *    Closed is the folded list, not a tile (Mona's look review of #3701); NO "Waiting on you" /
+ *    "Done, check it" / category appears anywhere (they are not guessed),
  *  - a row sits in the group its evidence says (the agent that named its task is In progress),
  *  - the search filters as you type (sentence, number, project, agent), and combines with the
  *    project rail,
@@ -86,6 +88,9 @@ function chk(ok, label, extra) {
     const rows = [...document.querySelectorAll('#tsk-groups .tsk-row')].map((r) => ({
       text: r.querySelector('.tl').textContent,
       state: (r.querySelector('.tsk-state') || {}).textContent || '',
+      /* The group a row sits in, by its heading: in a status group the heading IS the state, and
+         the row no longer repeats it (Mona's look review of #3701). */
+      group: (() => { const g = r.closest('.tsk-grp'); const h = g && (g.querySelector('h3') || g.querySelector('summary')); return h ? h.textContent : ''; })(),
     }));
     /* Any coloured left edge: a left border at least 2px wide that is not transparent. */
     const bars = [...panel.querySelectorAll('*')].filter((el) => {
@@ -97,6 +102,8 @@ function chk(ok, label, extra) {
       text: panel.innerText,
       tiles,
       rows,
+      fold: !!document.querySelector('#tsk-groups .tsk-fold'),
+      foldCount: (() => { const sm = document.querySelector('#tsk-groups .tsk-fold summary'); const m = sm && sm.textContent.match(/\((\d+)\)/); return m ? Number(m[1]) : null; })(),
       bars,
       railShown: getComputedStyle(document.querySelector('.tsk-rail')).display !== 'none',
       /* On-screen boxes, not computed display: the dropdown's WRAPPER is what hides. */
@@ -111,6 +118,32 @@ function chk(ok, label, extra) {
     };
   };
   try {
+    /* #3559, Josh's ruling: the Tasks tab (and the consolidated rail's button) appear only once the
+       person has 25 tasks ever. This fixture has fewer, so first they must be hidden after a real
+       status tick; then the saved flag (what "shown once, stays shown" writes) brings them in. */
+    {
+      chk(tasks.tasksEverCreated(projects.readAll()) < tasks.TASKS_TAB_MIN, '[gate] the fixture has fewer than 25 tasks, so the hidden arm below can mean something');
+      const page = await browser.newPage({ viewport: { width: 1400, height: 900 } });
+      // A real status tick must land before "hidden" means anything: the markup starts hidden.
+      const ticked = page.waitForResponse((r) => r.url().endsWith('/api/status') && r.ok(), { timeout: 10000 });
+      await page.goto(URL, { waitUntil: 'networkidle' });
+      await clearFirstRun(page);
+      const tick = await ticked.then((r) => r.json()).catch(() => null);
+      chk(!!tick && tick.tasksTab === false, '[gate] a status tick landed and says tasksTab is false', JSON.stringify(tick && tick.tasksTab));
+      await page.waitForTimeout(300);
+      const before = await page.evaluate(() => ({
+        tab: document.querySelector('#tabs .tab[data-tab="tasks"]').getClientRects().length > 0,
+        rail: document.getElementById('rail-projects-tasks').hidden === false,
+      }));
+      chk(!before.tab && !before.rail, '[gate] below 25 tasks the Tasks tab and the rail button are hidden', JSON.stringify(before));
+      require('../../engine/store').writeSettings({ tasksTabShown: true });
+      await page.reload({ waitUntil: 'networkidle' });
+      await clearFirstRun(page);
+      await page.waitForFunction(() => document.querySelector('#tabs .tab[data-tab="tasks"]').getClientRects().length > 0, null, { timeout: 8000 }).catch(() => {});
+      const after = await page.evaluate(() => document.querySelector('#tabs .tab[data-tab="tasks"]').getClientRects().length > 0);
+      chk(after, '[gate] once shown (the saved flag), the Tasks tab is there', String(after));
+      await page.close();
+    }
     for (const [theme, width] of [['light', 1400], ['dark', 1400], ['light', 760], ['dark', 390]]) {
       const tag = `[${theme} ${width}]`;
       const page = await browser.newPage({ viewport: { width, height: 1000 }, colorScheme: theme });
@@ -131,14 +164,32 @@ function chk(ok, label, extra) {
       await page.waitForFunction(() => document.querySelectorAll('#tsk-tiles .tsk-tile').length > 0 && document.querySelectorAll('#tsk-groups .tsk-row').length > 0, null, { timeout: 8000 });
       const a = await page.evaluate(read);
       chk(a.visible, `${tag} the Tasks page is on screen`);
-      chk(JSON.stringify(a.tiles.map((t) => t.k)) === JSON.stringify(['nobody', 'assigned', 'working', 'closed']), `${tag} the tiles are exactly the four provable groups`, JSON.stringify(a.tiles));
+      /* Closed is not a tile (Mona's look review of #3701): tiles are the open work; Closed stays the fold. */
+      chk(JSON.stringify(a.tiles.map((t) => t.k)) === JSON.stringify(['nobody', 'assigned', 'working']), `${tag} the tiles are exactly the three provable open groups`, JSON.stringify(a.tiles));
+      chk(a.fold, `${tag} Closed stays the folded list`);
+      // Closed has no tile now, so its count is checked on the fold's own "Closed (N)".
+      chk(a.foldCount === EXPECT.closed, `${tag} the Closed fold counts the closed tasks`, JSON.stringify({ fold: a.foldCount, expect: EXPECT.closed }));
+      /* Mona's look review of #3701: the two big gaps, measured 51px above the title and 49px from
+         the tile hint to the first group, are about halved. Bounded both ways so neither creeps
+         back and neither collapses into crowding. */
+      const gaps = await page.evaluate(() => {
+        const box = (id) => document.getElementById(id).getBoundingClientRect();
+        const main = document.querySelector('#panel-tasks .tsk-main').getBoundingClientRect();
+        const h3 = document.querySelector('#tsk-groups .tsk-grp h3, #tsk-groups .tsk-grp summary').getBoundingClientRect();
+        return { aboveTitle: Math.round(box('tsk-title').top - main.top), hintToGroup: Math.round(h3.top - box('tsk-hint').bottom),
+          crumbEmpty: document.getElementById('tsk-crumb').textContent === '' };
+      });
+      chk(gaps.crumbEmpty, `${tag} measured with no project picked (the crumb is empty), so the title gap below means something`, JSON.stringify(gaps));
+      chk(gaps.aboveTitle >= 16 && gaps.aboveTitle <= 32, `${tag} the gap above the title is about half the old 51px`, JSON.stringify(gaps));
+      chk(gaps.hintToGroup >= 16 && gaps.hintToGroup <= 32, `${tag} the gap from the tile hint to the first group is about half the old 49px`, JSON.stringify(gaps));
       chk(a.tiles.every((t) => t.n === EXPECT[t.k]), `${tag} each tile counts its group`, JSON.stringify(a.tiles));
       chk(!/Waiting on you|Done, check it|Categor/i.test(a.text), `${tag} no unprovable group or category is drawn`);
       chk(!/Archived away task|Old catalog/.test(a.text), `${tag} an archived project's tasks are left out`);
       const date = a.rows.find((r) => r.text === 'Pick the launch date');
-      chk(date && /In progress/.test(date.state), `${tag} the task its agent named is In progress`, JSON.stringify(date));
+      chk(date && /In progress/.test(date.group), `${tag} the task its agent named is In progress`, JSON.stringify(date));
       const proof = a.rows.find((r) => r.text === 'Order proof copies');
-      chk(proof && /Assigned, not started/.test(proof.state), `${tag} an assigned task its agent has not named is Assigned`, JSON.stringify(proof));
+      chk(proof && /Assigned, not started/.test(proof.group), `${tag} an assigned task its agent has not named is Assigned`, JSON.stringify(proof));
+      chk(a.rows.every((r) => r.state === ''), `${tag} grouped by status, no row repeats its group's name`, JSON.stringify(a.rows.filter((r) => r.state).slice(0, 3)));
       chk(a.bars.length === 0, `${tag} no element carries a coloured left border`, JSON.stringify(a.bars.slice(0, 5)));
       const sideways = await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth);
       chk(sideways <= 0, `${tag} no sideways scroll`, String(sideways));
@@ -213,6 +264,9 @@ function chk(ok, label, extra) {
         await page.click('#tsk-by [data-by="project"]');
         const heads = await page.evaluate(() => [...document.querySelectorAll('#tsk-groups .tsk-grp h3')].map((h) => h.firstChild.textContent));
         chk(JSON.stringify(heads) === JSON.stringify(['Newsletter', 'Spring launch']), `${tag} Group by Project shows one group per project`, JSON.stringify(heads));
+        const byProj = await page.evaluate(() => [...document.querySelectorAll('#tsk-groups .tsk-row')].map((r) => ({ t: r.querySelector('.tl').textContent, s: (r.querySelector('.tsk-state') || {}).textContent || '' })));
+        const dateP = byProj.find((r) => r.t === 'Pick the launch date');
+        chk(dateP && /In progress/.test(dateP.s), `${tag} grouped by project, each row carries its state`, JSON.stringify(dateP));
         await page.click('#tsk-by [data-by="status"]');
         /* Bulk close two tasks with a note. */
         await page.check('#tsk-groups input[data-key="' + news.id + '#2"]');
@@ -226,10 +280,15 @@ function chk(ok, label, extra) {
         await page.check('#tsk-groups input[data-key="' + news.id + '#2"]');
         await page.check('#tsk-groups input[data-key="' + launch.id + '#1"]');
         await page.fill('#tsk-bnote', 'not doing these this season');
+        const groupsTopBefore = await page.evaluate(() => Math.round(document.getElementById('tsk-groups').getBoundingClientRect().top + window.scrollY));
         await page.click('#tsk-bclose');
         await page.waitForFunction(() => /Closed 2 tasks/.test(document.getElementById('tsk-msg').textContent), null, { timeout: 8000 }).catch(() => {});
         const msg = await page.evaluate(() => document.getElementById('tsk-msg').textContent);
         chk(/Closed 2 tasks/.test(msg), `${tag} Close them closes both and says so`, msg);
+        /* The status line keeps its reserved line (Mona's gap fix must not bring back a jump): the
+           list does not move down under the pointer when the message appears. */
+        const groupsTopAfter = await page.evaluate(() => Math.round(document.getElementById('tsk-groups').getBoundingClientRect().top + window.scrollY));
+        chk(groupsTopAfter === groupsTopBefore, `${tag} the message appearing does not shift the list`, JSON.stringify({ groupsTopBefore, groupsTopAfter }));
         const landed = await page.evaluate(() => document.activeElement && document.activeElement.id);
         chk(landed === 'tsk-msg', `${tag} after Close them, focus lands on what happened (not the page body)`, landed);
         const stored = projects.readAll();
@@ -259,7 +318,7 @@ function chk(ok, label, extra) {
     chk(inCons.cons && inCons.btn, '[consolidated] the projects rail shows a Tasks button', JSON.stringify(inCons));
     if (inCons.btn) {
       await page.click('#rail-projects-tasks');
-      await page.waitForFunction(() => !document.getElementById('panel-tasks').hidden && document.querySelectorAll('#tsk-tiles .tsk-tile').length === 4, null, { timeout: 8000 }).catch(() => {});
+      await page.waitForFunction(() => !document.getElementById('panel-tasks').hidden && document.querySelectorAll('#tsk-tiles .tsk-tile').length === 3, null, { timeout: 8000 }).catch(() => {});
       const got = await page.evaluate(() => {
         const pt = document.getElementById('panel-tasks');
         return {
@@ -271,9 +330,15 @@ function chk(ok, label, extra) {
           dropdown: document.getElementById('tsk-projsel').getClientRects().length > 0,
         };
       });
-      chk(got.shown && got.tiles === 4, '[consolidated] it opens the Tasks view', JSON.stringify(got));
+      chk(got.shown && got.tiles === 3, '[consolidated] it opens the Tasks view', JSON.stringify(got));
       chk(got.stillCons && got.inColumn, '[consolidated] it stays in the consolidated view, in the display column (#2842)', JSON.stringify(got));
       chk(got.ownRailHidden && got.dropdown, '[consolidated] its own project rail folds to the dropdown beside the projects rail', JSON.stringify(got));
+      /* Mona's look review of #3701, in the column too: the gap above the title is about halved. */
+      const consGap = await page.evaluate(() => {
+        const pt = document.getElementById('panel-tasks').getBoundingClientRect();
+        return { aboveTitle: Math.round(document.getElementById('tsk-title').getBoundingClientRect().top - pt.top), crumbEmpty: document.getElementById('tsk-crumb').textContent === '' };
+      });
+      chk(consGap.crumbEmpty && consGap.aboveTitle >= 16 && consGap.aboveTitle <= 32, '[consolidated] the gap above the title is about half, not the stacked 49px', JSON.stringify(consGap));
       if (SHOTS) await page.screenshot({ path: path.join(SHOTS, 'tasks-from-consolidated.png'), fullPage: false });
       /* From consolidated Kosmos+ settings, Tasks takes the Plus chrome down (#3599's rule). */
       const plus = await page.evaluate(() => {
