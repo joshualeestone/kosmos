@@ -8311,8 +8311,8 @@ html:not([data-fed-ui="show"]) #pj-add-ext-person,html:not([data-fed-ui="show"])
 /* #2241: the plain-hint spacing (was an inline margin on the div, which beat the
    .fr-connbox rule and left the connected box's top margin 2px off Claude's #fr-sub;
    moved here so the .fr-connbox rule below matches #fr-sub exactly for the box). */
-#firstrun #fr-openai-msg { margin: -4px 0 10px; }
-#firstrun #fr-openai-msg.fr-connbox { margin: -2px 0 10px; padding: 10px 12px; border-radius: 10px;
+#firstrun #fr-openai-msg, #firstrun #fr-gemini-msg, #firstrun #fr-grok-msg { margin: -4px 0 10px; }   /* #3731: Gemini and Grok clone GPT */
+#firstrun #fr-openai-msg.fr-connbox, #firstrun #fr-gemini-msg.fr-connbox, #firstrun #fr-grok-msg.fr-connbox { margin: -2px 0 10px; padding: 10px 12px; border-radius: 10px;
   background: rgba(184,137,32,.08); border: 1px solid rgba(184,137,32,.28); }
 /* #2241 sibling for the SETTINGS add-provider success (#acct-success-box): the same
    gold-wash check-row box as first-run's .fr-connbox, but scoped here because .fr-connbox
@@ -8341,6 +8341,14 @@ html:not([data-fed-ui="show"]) #pj-add-ext-person,html:not([data-fed-ui="show"])
    nobody asked about. */
 /* Same revert as the app-wide primary above (Josh, 22:05): no edge. */
 #firstrun .fr-confirm .btn.uprime { background: var(--gold-bright); color: var(--k-ink); border-color: var(--gold-bright); }
+/* #3731 (Josh, 0.6.94: "is there really a blue stroke around the buttons?"). When a download
+   finishes, focus moves to "Sign in with Subscription" so a keyboard user lands on the choice,
+   and the browser drew that focus in its own blue. The ring is Kosmos's now, the same ink ring as
+   the step's other buttons. Measured, Chromium and WebKit: after a real mouse press the browser
+   draws no ring there at all; the stroke in the screenshot came from a check that pressed the
+   buttons by script, which sends no mouse event (render-firstrun-keyed-connect-3658.js now
+   presses them with the mouse and asserts both cases). */
+#firstrun .fr-confirm .btn:focus-visible { outline: 2px solid var(--k-ink); outline-offset: 3px; }
 #firstrun .fr-confirm .btn.uprime:hover { background: var(--gold); }
 #firstrun .fr-msg { color: var(--k-ink); }
 /* When a permission step's action FAILS, its message must read as an error, not
@@ -8366,7 +8374,8 @@ html:not([data-fed-ui="show"]) #pj-add-ext-person,html:not([data-fed-ui="show"])
    match the size of the line above it"). Measured: `.fr-confirm-t` is
    `--text-body` = 13px, `.dhint` is .9375rem = 15px, so the status sat 15%
    LARGER than the sentence it reports on. */
-#firstrun #fr-openai-confirm-msg, #acct-openai-install-msg {
+#firstrun #fr-openai-confirm-msg, #acct-openai-install-msg,
+#firstrun #fr-gemini-confirm-msg, #firstrun #fr-grok-confirm-msg, #acct-keyed-install-msg {   /* #3731 */
   font: var(--text-body) var(--font-ui); }
 
 /* 🛑 INDETERMINATE, AND THAT IS THE HONEST SHAPE (#1205 items 4 and 5).
@@ -21905,12 +21914,10 @@ function acctPick(which, opts) {
   if (sel.value !== which) sel.value = which;
   document.getElementById('acct-claude-flow').hidden = which !== 'claude';
   document.getElementById('acct-openai-flow').hidden = which !== 'openai';
+  /* Same as the Claude and OpenAI picks: focus lands on the first thing to fill in. #3731: that
+     thing now shows only once the software is known to be here, so acctKeyedReveal places it. */
+  ACCT_KEYED_FOCUS = !(opts && opts.focus === false);
   acctApikeyShow(ACCT_APIKEY_PROVIDERS[which] ? which : null);
-  if (ACCT_APIKEY_PROVIDERS[which]) {
-    // Same as the Claude and OpenAI picks: focus lands on the first thing to fill in.
-    const first = which === 'xai' ? 'acct-grok-pick-sub' : 'acct-apikey-key';
-    if (!(opts && opts.focus === false)) { const k = document.getElementById(first); if (k) k.focus(); }
-  }
   if (which !== 'openai') {
     acctOpenaiStop(); acctOpenaiSubStop(); ACCT_OPENAI_SUB_SESSION = null;
     if (which === 'claude') {
@@ -23382,6 +23389,30 @@ function acctKeyedInstallHide() {
   if (box) box.hidden = true;
   const m = document.getElementById('acct-keyed-install-msg'); if (m) m.textContent = '';
 }
+/* The step that follows the install: Grok's choice, or Gemini's key. */
+let ACCT_KEYED_FOCUS = true;
+function acctKeyedReveal(which, afterInstall) {
+  acctKeyedInstallHide();
+  if (which === 'xai') acctGrokShow('xai');
+  else document.getElementById('acct-apikey-flow').hidden = false;
+  // After a download the focused button is gone, so focus always moves to what is showing.
+  if (!ACCT_KEYED_FOCUS && !afterInstall) return;
+  const again = which === 'xai' && !!ACCT_GROK_REAUTH_DIR;
+  const k = document.getElementById(which === 'xai' ? (again ? 'acct-grok-sub-go' : 'acct-grok-pick-sub') : 'acct-apikey-key');
+  if (k) k.focus();
+}
+/* On Windows Kosmos does not install these yet: the sentence, and nothing to press. */
+function acctKeyedWindows(which) {
+  const box = document.getElementById('acct-keyed-install');
+  if (!box) return;
+  ACCT_KEYED_WHICH = which;
+  document.getElementById('acct-apikey-flow').hidden = true;
+  document.getElementById('acct-grok-flow').hidden = true;
+  document.getElementById('acct-keyed-install-t').textContent = keyedMissingOnWindows(which);
+  document.getElementById('acct-keyed-install-msg').textContent = '';
+  document.getElementById('acct-keyed-install-go').hidden = true;
+  box.hidden = false;
+}
 function acctKeyedInstallShow(which, info) {
   const box = document.getElementById('acct-keyed-install');
   if (!box) return;
@@ -23396,6 +23427,7 @@ function acctKeyedInstallShow(which, info) {
   document.getElementById('acct-keyed-install-t').textContent = keyedInstallAsk(which, info);
   document.getElementById('acct-keyed-install-msg').textContent = '';
   const go = document.getElementById('acct-keyed-install-go');
+  go.hidden = false;
   go.disabled = false;
   box.hidden = false;
   go.focus();   // what had focus (Add, or the provider picker) may now be hidden
@@ -23418,15 +23450,23 @@ function acctApikeyShow(which) {
   }
   ACCT_APIKEY_WHICH = p ? which : null;
   acctKeyedInstallHide();
-  flow.hidden = !p;
-  acctGrokShow(which);   // #3391 part 2: Grok shows its choice first, and hides the key step until it is chosen
+  /* #3731 (card item 5): never a key box, or Grok's choice, before the software is known to be
+     here. Both stay hidden until /api/runners answers; an answer that does not say "present"
+     (missing, or a read that failed) shows GPT's install step, whose Confirm is safe either way. */
+  flow.hidden = true;
+  acctGrokShow(null);
   if (!p) return;
-  /* #3713: if the command-line tool this provider runs on is not here, offer to download it
-     before the key or sign-in step. An answer from an earlier visit changes nothing. */
+  /* A sign in again is for an account this computer already runs, so it opens straight onto the
+     sign-in as before (no key box is involved); the probe below still swaps in the download if
+     the software has since gone. */
+  const again = which === 'xai' && !!ACCT_GROK_REAUTH_DIR;
+  if (again) acctKeyedReveal(which);
   const visit = ACCT_APIKEY_GEN;
   keyedRunnerInfo(which).then((info) => {
     if (visit !== ACCT_APIKEY_GEN || ACCT_APIKEY_WHICH !== which) return;
-    if (info && info.present === false && !onWindows()) acctKeyedInstallShow(which, info);
+    if (info && info.present) { if (!again) acctKeyedReveal(which); return; }
+    if (onWindows()) { acctKeyedWindows(which); return; }
+    acctKeyedInstallShow(which, info);
   });
   document.getElementById('acct-apikey-head').textContent = 'Paste a ' + p.vendor + ' API key for ' + p.name + '.';
   const key = document.getElementById('acct-apikey-key');
@@ -23445,7 +23485,7 @@ document.getElementById('acct-keyed-install-go').addEventListener('click', async
   const ok = await keyedRunnerInstall(which, (t) => { if (alive()) msg.textContent = t; }, alive);
   if (!alive()) return;
   if (!ok) { go.disabled = false; return; }
-  acctApikeyShow(which);   // the tool is here now: the key step (or Grok's choice) shows
+  acctKeyedReveal(which, true);   // the tool is here now: the key step (or Grok's choice) shows
   // Grok's choice is hidden in a sign-in again (it goes straight to the sign-in step), so focus the
   // control that is actually showing (review pass 3).
   const grokPickShown = !document.getElementById('acct-grok-pick').hidden;
@@ -23770,7 +23810,7 @@ async function keyedRunnerInstall(which, say, alive) {
       say(KEYED_PHASE_SAY[job.phase]);
     }
     if (Date.now() - started > 600000) {
-      say('This is taking longer than expected. It may still be working. Press Download to check again.');
+      say('This is taking longer than expected. It may still be working, or it may be stuck. Press Confirm to check again.');
       return false;
     }
   }
@@ -23781,10 +23821,15 @@ async function keyedRunnerInstall(which, say, alive) {
    provider ('google' | 'xai'). Grok's subscription starts xAI's sign-in at once, #3335's rule for
    GPT: no screen whose only job is a second press. Gemini's subscription is Angel's Antigravity
    sign-in (#3568); until its route exists Gemini goes from the install straight to the key, and
-   KEYED_SUB_READY.google turns the choice on. It replaces #3658's one shared box and #3713's
+   filling in KEYED_SUB_START.google turns the choice on. It replaces #3658's one shared box and #3713's
    download box (both sat below Grok, whichever row was pressed). */
 const FR_KEYED = { google: { pre: 'gemini' }, xai: { pre: 'grok' } };
-const KEYED_SUB_READY = { google: false, xai: true };
+/* The subscription sign-in each provider can start. Grok's is the shared driver; Gemini's is
+   Angel's Antigravity sign-in (#3568) and does not exist yet. The choice (Sign in with
+   Subscription / Use an API key) is offered only where a start exists, so wiring Gemini is one
+   function here and nothing else: no flag that could show a button with nothing behind it. */
+const KEYED_SUB_START = { google: null, xai: () => FR_GROK_SUB.start() };
+const keyedSubReady = (which) => typeof KEYED_SUB_START[which] === 'function';
 let FR_KEYED_GEN = 0;   // an answer, a finished download or an Add from an earlier opening changes nothing
 const frK = (which, part) => document.getElementById('fr-' + FR_KEYED[which].pre + '-' + part);
 const frKeyedPanels = (which) => ['confirm', 'pick', 'sub-step', 'flow'].map((part) => frK(which, part)).filter(Boolean);
@@ -23795,15 +23840,18 @@ function frKeyedCollapse(which, keepSignIn) {
   for (const el of frKeyedPanels(which)) el.hidden = true;
   const bar = frK(which, 'confirm-bar'); if (bar) bar.hidden = true;
   // A closed panel keeps no "Checking..." behind (#3658); a finished sign-in writes its result next.
-  const msg = frK(which, 'msg'); if (msg && !keepSignIn) msg.textContent = '';
+  const msg = frK(which, 'msg'); if (msg && !keepSignIn && !msg.classList.contains('fr-connbox')) msg.textContent = '';
   if (which === 'xai' && !keepSignIn) FR_GROK_SUB.leave();
+  /* A read, install or Add started for this panel no longer owns it (review pass 1: a late
+     /api/runners answer reopened a panel another provider's Connect had just closed). */
+  if (!keepSignIn) FR_KEYED_GEN += 1;
   const btn = frK(which, 'connect'); if (btn && btn.setAttribute) btn.setAttribute('aria-expanded', 'false');
 }
 /* Leaving first run or its model step closes both and retires any watcher. */
 function frKeyedHideAll() { FR_KEYED_GEN += 1; frKeyedCollapse('google'); frKeyedCollapse('xai'); }
 function frKeyedShowPick(which) {
   for (const el of frKeyedPanels(which)) el.hidden = true;
-  if (!KEYED_SUB_READY[which]) { frKeyedChoose(which, 'key'); return; }
+  if (!keyedSubReady(which)) { frKeyedChoose(which, 'key'); return; }
   frK(which, 'pick').hidden = false;
   frK(which, 'pick-sub').focus();
 }
@@ -23820,7 +23868,7 @@ function frKeyedChoose(which, how) {
   const step = frK(which, 'sub-step');
   if (!step.hasAttribute('tabindex')) step.setAttribute('tabindex', '-1');
   step.focus();
-  if (which === 'xai') FR_GROK_SUB.start();
+  if (keyedSubReady(which)) KEYED_SUB_START[which]();
 }
 async function frKeyedConnect(which) {
   const btn = frK(which, 'connect');
@@ -23829,7 +23877,9 @@ async function frKeyedConnect(which) {
   FR_KEYED_GEN += 1;
   const mine = FR_KEYED_GEN;
   btn.setAttribute('aria-expanded', 'true');
-  msg.textContent = '';
+  if (!msg.classList.contains('fr-connbox')) msg.textContent = '';
+  // A fresh opening: no bar or progress left from an install that was being watched before.
+  { const bar = frK(which, 'confirm-bar'); if (bar) bar.hidden = true; const cm = frK(which, 'confirm-msg'); if (cm) cm.textContent = ''; }
   const info = await keyedRunnerInfo(which);
   if (mine !== FR_KEYED_GEN) return;
   if (info && info.present) { frKeyedShowPick(which); return; }
@@ -23898,10 +23948,11 @@ async function frKeyedAdd(which) {
     msg.setAttribute('tabindex', '-1');
     msg.focus();   // the box that held focus is hidden now; the result is where it lands
     const unknown = !!(out && out.account && out.account.connection && out.account.connection.state === 'unknown');
+    msg.className = 'dhint';
     msg.textContent = unknown
       ? 'The ' + p.name + ' key is saved. ' + p.vendor + ' did not answer just now, so it will be checked again when an agent uses it.'
       : p.name + ' is connected.';
-    await frPaintKeyed();
+    await frPaintKeyed();   // a connected account repaints this line as GPT's gold box
   } catch (err) {
     if (mine === FR_KEYED_GEN) msg.textContent = String((err && err.message) || 'We could not add that key.');
   } finally {
@@ -23939,7 +23990,29 @@ async function frPaintKeyed(known) {
     b.classList.toggle('is-connected', connected);
     b.setAttribute('aria-disabled', String(connected || saved));
     b.setAttribute('aria-label', connected ? name + ' is connected' : saved ? name + ' key saved' : 'Connect ' + name);
+    /* #3731: GPT's connected state, cloned (frPaintOpenai, #2241): the gold check box on the
+       provider's own line, not a plain sentence. */
+    const which = provider;
+    const line = frK(which, 'msg');
+    if (line && connected) {
+      const acct = mine.find((x) => x.connection && x.connection.state === 'connected') || {};
+      line.className = 'fr-connbox';
+      line.innerHTML = frCheckRow({
+        state: 'ok',
+        title: KEYED_FULL_NAME[which] + ' is connected',
+        detail: 'This computer is signed in' + (acct.email ? ' as ' + acct.email : '') + '.' + (acct.keyTail ? ' (API key ending ' + acct.keyTail + ')' : ''),
+      });
+    } else if (line && line.classList.contains('fr-connbox')) {
+      line.className = 'dhint';
+      line.textContent = '';
+    }
   }
+  /* #3731: and GPT's Continue (#2134): a connected Gemini or Grok is a usable model provider, so
+     the step offers Next rather than leaving "Skip connecting a model" as the only way on, unless
+     Claude has already offered its own. */
+  const anyKeyed = list.some((x) => (acctProvider(x) === 'google' || acctProvider(x) === 'xai') && x.connection && x.connection.state === 'connected');
+  const claudeConnected = FR && FR.subscription && FR.subscription.state === 'connected';
+  if (anyKeyed && !claudeConnected && FR_STEP === 5) frActions({ label: 'Next', go: () => frGo(frStepAfter(5)) }, null);
 }
 for (const which of ['google', 'xai']) {
   frK(which, 'connect').addEventListener('click', () => frKeyedConnect(which));
@@ -23983,14 +24056,15 @@ const FR_GROK_SUB = grokSubDriver({
     catch { msg.textContent += ' ' + FR_GROK_REPAINT_FAILED; }
   },
 });
-document.getElementById('fr-grok-sub-go').addEventListener('click', () => FR_GROK_SUB.start());
 document.getElementById('fr-grok-sub-cancel').addEventListener('click', () => {
+  // Like GPT's Stop (frOpenaiShowPick): back to the choice, so the key is one press away.
   FR_GROK_SUB.leave();
-  frK('xai', 'msg').textContent = 'Sign-in stopped.';
-  const go = document.getElementById('fr-grok-sub-go');
-  go.hidden = false;
-  go.focus();
+  frKeyedShowPick('xai');
 });
+for (const which of ['google', 'xai']) {
+  // The step's own Sign-in button: the retry after a failed or stopped start.
+  frK(which, 'sub-go').addEventListener('click', () => { if (keyedSubReady(which)) KEYED_SUB_START[which](); });
+}
 document.getElementById('acct-openai-pick-sub').addEventListener('click', () => acctOpenaiChoose('sub'));
 document.getElementById('acct-openai-pick-key').addEventListener('click', () => acctOpenaiChoose('key'));
 /* #2433: the Claude picker's two choices. */

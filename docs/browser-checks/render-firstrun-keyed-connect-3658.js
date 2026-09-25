@@ -71,6 +71,7 @@ const chk = (ok, label, extra) => {
         return enc({ job: window.__job });
       }
       if (/\/api\/runners(\?|$)/.test(u)) {
+        if (window.__runnersDelay) await new Promise((r) => setTimeout(r, window.__runnersDelay));
         const out = {};
         for (const r of ['gemini', 'grok']) {
           let job = null;
@@ -197,24 +198,48 @@ const chk = (ok, label, extra) => {
   await shot('3731-2-gemini-key-step');
 
   // Grok: the install, then GPT's choice, under Grok's row; Gemini's panels close.
-  const k = await q(async () => {
-    document.getElementById('fr-gemini-key').value = 'AIza-typed-for-gemini';
-    document.getElementById('fr-grok-connect').click();
-    await new Promise((r) => setTimeout(r, 250));
-    const confirm = !document.getElementById('fr-grok-confirm').hidden;
-    const ask = document.getElementById('fr-grok-confirm-t').textContent;
-    document.getElementById('fr-grok-confirm-go').click();
-    await new Promise((r) => setTimeout(r, 3500));
+  /* Pressed with the real mouse (page.click), as Josh did: that is what decides whether the focus
+     moved to the choice draws a ring (#3731, "is there really a blue stroke around the buttons?"). */
+  await q(() => { document.getElementById('fr-gemini-key').value = 'AIza-typed-for-gemini'; });
+  await page.click('#fr-grok-connect');
+  await page.waitForTimeout(250);
+  const kc = await q(() => ({ confirm: !document.getElementById('fr-grok-confirm').hidden, ask: document.getElementById('fr-grok-confirm-t').textContent }));
+  await page.click('#fr-grok-confirm-go');
+  await page.waitForTimeout(3500);
+  const k = await q(async ({ confirm, ask }) => {
     return { confirm, ask, pick: !document.getElementById('fr-grok-pick').hidden, pickT: document.getElementById('fr-grok-pick-t').textContent,
       sub: document.getElementById('fr-grok-pick-sub').textContent, key: document.getElementById('fr-grok-pick-key').textContent,
       gemOpen: !document.getElementById('fr-gemini-flow').hidden, gem: document.getElementById('fr-gemini-connect').getAttribute('aria-expanded'),
       grok: document.getElementById('fr-grok-connect').getAttribute('aria-expanded'), focus: document.activeElement && document.activeElement.id };
-  });
+  }, kc);
   chk(k.confirm && k.ask === 'In order to connect to xAI Grok we need to download the installer.', '#3731 Grok\'s install confirm, in GPT\'s words', JSON.stringify(k));
   chk(k.pick && k.pickT === 'Download complete. Choose how to connect xAI Grok.' && k.sub === 'Sign in with Subscription' && k.key === 'Use an API key'
       && !k.gemOpen && k.gem === 'false' && k.grok === 'true' && k.focus === 'fr-grok-pick-sub',
     '#3731 then GPT\'s choice for Grok, and Gemini\'s panels closed', JSON.stringify(k));
   await shot('3731-3-grok-choice');
+
+  /* The focus ring on the choice (#3731): none after a mouse press (the browser's own rule, pinned
+     here because a regression would put Josh's blue stroke back); Kosmos's ink ring, not the
+     browser's blue, for someone on the keyboard. The ring colour is compared with --k-ink resolved
+     by the page itself, so a theme change cannot make this pass or fail on its own. */
+  const ring = () => q(() => {
+    const b = document.getElementById('fr-grok-pick-sub');
+    const cs = getComputedStyle(b);
+    const probe = document.createElement('i'); probe.style.color = 'var(--k-ink)'; document.body.appendChild(probe);
+    const ink = getComputedStyle(probe).color; probe.remove();
+    return { focused: document.activeElement === b, visible: b.matches(':focus-visible'), style: cs.outlineStyle, color: cs.outlineColor, ink };
+  });
+  const mouseRing = await ring();
+  chk(mouseRing.focused && !mouseRing.visible && mouseRing.style === 'none',
+    '#3731 after a mouse-driven download, the choice has focus and draws no ring', JSON.stringify(mouseRing));
+  await page.keyboard.press('Tab');         // to "Use an API key"
+  await page.keyboard.press('Shift+Tab');   // and back, as a keyboard user would arrive
+  const keyRing = await ring();
+  chk(keyRing.focused && keyRing.visible && keyRing.style === 'solid' && keyRing.color === keyRing.ink,
+    '#3731 on the keyboard the ring is Kosmos\'s ink, not the browser\'s blue', JSON.stringify(keyRing));
+  await shot('3731-3b-grok-choice-keyboard');
+  await page.mouse.move(5, 5); await page.mouse.down(); await page.mouse.up();   // back to the mouse, as Josh would be
+  await q(() => document.getElementById('fr-grok-pick-sub').focus());
 
   // "Sign in with Subscription" goes STRAIGHT to xAI's sign-in: no screen asking to sign in again.
   const sub = await q(async () => {
@@ -230,10 +255,14 @@ const chk = (ok, label, extra) => {
   await shot('3731-4-grok-signing-in');
 
   // Back to the key: the choice again, then "Use an API key".
-  const toKey = await q(async () => {
+  const stop = await q(async () => {
     document.getElementById('fr-grok-sub-cancel').click();
-    document.getElementById('fr-grok-connect').click();
-    await new Promise((r) => setTimeout(r, 250));
+    await new Promise((r) => setTimeout(r, 50));
+    return { pick: !document.getElementById('fr-grok-pick').hidden, step: !document.getElementById('fr-grok-sub-step').hidden,
+      focus: document.activeElement && document.activeElement.id };
+  });
+  chk(stop.pick && !stop.step && stop.focus === 'fr-grok-pick-sub', '#3731 Stop returns to the choice, as GPT\'s does, with focus on it', JSON.stringify(stop));
+  const toKey = await q(async () => {
     document.getElementById('fr-grok-pick-key').click();
     await new Promise((r) => setTimeout(r, 50));
     return { key: !document.getElementById('fr-grok-flow').hidden, head: document.getElementById('fr-grok-key-t').textContent,
@@ -301,10 +330,13 @@ const chk = (ok, label, extra) => {
     release(); window.__hold = null; await wait(200);
     const b = document.getElementById('fr-gemini-connect');
     return { reopened, flowHidden: document.getElementById('fr-gemini-flow').hidden, btn: b.textContent.trim(),
-      msg: document.getElementById('fr-gemini-msg').textContent };
+      msg: document.getElementById('fr-gemini-msg').textContent, box: document.getElementById('fr-gemini-msg').className,
+      next: document.getElementById('fr-next').hidden ? null : document.getElementById('fr-next').textContent.trim() };
   });
-  chk(back.reopened && back.flowHidden && /Connected/.test(back.btn) && back.msg === 'Gemini is connected.',
+  // #3731: the connected line is GPT's gold check box, not a plain sentence.
+  chk(back.reopened && back.flowHidden && /Connected/.test(back.btn) && back.box === 'fr-connbox' && /Google Gemini is connected/.test(back.msg),
     'an Add that lands after going away and back closes the reopened step and shows Connected', JSON.stringify(back));
+  chk(back.next === 'Next', '#3731 a connected Gemini offers Next, as a connected GPT does (Claude not connected here)', JSON.stringify(back));
 
   // Enter adds the key and does not bubble; the accessible name follows the state; going away mid-Add clears the message.
   const more = await q(async () => {
@@ -352,6 +384,49 @@ const chk = (ok, label, extra) => {
     return { afterAdd, afterOldRead: document.getElementById('fr-gemini-connect').textContent.trim() };
   });
   chk(/Connected/.test(slow.afterAdd) && /Connected/.test(slow.afterOldRead), 'a slow read from before an Add does not repaint the row back to Connect', JSON.stringify(slow));
+
+  // #3731 review pass 1: the lines under Gemini's and Grok's rows are styled as GPT's are.
+  const css = await q(async () => {
+    // All three in the same state (nothing connected, a plain line), so the rules compared are the same rules.
+    window.__accounts = window.__accounts.filter((a) => a.provider !== 'google' && a.provider !== 'xai');
+    await frPaintKeyed();
+    for (const id of ['fr-openai-msg', 'fr-gemini-msg', 'fr-grok-msg']) document.getElementById(id).textContent = 'a line';
+    const g = (id) => { const e = document.getElementById(id); const c = getComputedStyle(e); return { mt: c.marginTop, font: c.font }; };
+    return { openai: g('fr-openai-msg'), gemini: g('fr-gemini-msg'), grok: g('fr-grok-msg'),
+      oc: g('fr-openai-confirm-msg').font, gc: g('fr-gemini-confirm-msg').font, kc: g('fr-grok-confirm-msg').font };
+  });
+  await q(() => { for (const id of ['fr-openai-msg', 'fr-gemini-msg', 'fr-grok-msg']) document.getElementById(id).textContent = ''; });
+  chk(css.gemini.mt === css.openai.mt && css.grok.mt === css.openai.mt && css.openai.mt === '-4px'
+      && css.gemini.font === css.openai.font && css.grok.font === css.openai.font && css.gc === css.oc && css.kc === css.oc,
+    '#3731 the result and progress lines match GPT\'s spacing and type', JSON.stringify(css));
+
+  // A slow read for one row must not reopen it after another row's Connect closed it.
+  const stale = await q(async () => {
+    await frPaintKeyed();
+    const grokOpen = !document.getElementById('fr-openai-connect').disabled;   // precondition: GPT's Connect can be pressed
+    window.__runnerMissing.gemini = true; window.__runnersDelay = 400;
+    document.getElementById('fr-gemini-connect').click();   // only Gemini's read is slow
+    await new Promise((r) => setTimeout(r, 50));
+    window.__runnersDelay = 0;   // GPT's own read answers at once, so no later close of its can hide a reopen
+    document.getElementById('fr-openai-connect').click();   // GPT's Connect closes Gemini's panel (frCollapseProviders), bumping nothing of its own
+    await new Promise((r) => setTimeout(r, 900));
+    const out = { grokOpen, gemConfirm: !document.getElementById('fr-gemini-confirm').hidden, gem: document.getElementById('fr-gemini-connect').getAttribute('aria-expanded') };
+    frCollapseProviders(null);   // tidy up only AFTER reading: a close before the read would hide the very reopen this looks for
+    return out;
+  });
+  chk(stale.grokOpen && !stale.gemConfirm && stale.gem === 'false', '#3731 a late read for Gemini does not reopen it after GPT\'s Connect closed it', JSON.stringify(stale));
+
+  // A reopened install starts clean: no progress bar or message left from the last time.
+  const fresh = await q(async () => {
+    document.getElementById('fr-gemini-confirm-bar').hidden = false;
+    document.getElementById('fr-gemini-confirm-msg').textContent = 'left over';
+    document.getElementById('fr-gemini-connect').click();
+    await new Promise((r) => setTimeout(r, 250));
+    return { confirm: !document.getElementById('fr-gemini-confirm').hidden, bar: !document.getElementById('fr-gemini-confirm-bar').hidden,
+      msg: document.getElementById('fr-gemini-confirm-msg').textContent };
+  });
+  chk(fresh.confirm && !fresh.bar && fresh.msg === '', '#3731 opening the install again shows no leftover bar or message', JSON.stringify(fresh));
+  await q(() => { frKeyedHideAll(); window.__runnerMissing.gemini = false; });
 
   // Windows: Kosmos does not install these there (#3713), so it says so and offers nothing.
   const win = await q(async () => {

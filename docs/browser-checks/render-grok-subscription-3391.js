@@ -63,6 +63,9 @@ const chk = (ok, label, extra) => {
       for (const fn of [...window.__polls.values()]) await fn();
       await new Promise((r) => setTimeout(r, 30));
     };
+    /* #3731: Settings shows Grok's choice, or Gemini's key, only once /api/runners says the
+       software is here, so a pick settles before anything on it is pressed. */
+    window.__pick = async (w) => { acctPick(w); for (let i = 0; i < 5; i++) await new Promise((r) => setTimeout(r, 10)); };
     window.fetch = async (url, opts) => {
       const u = String(url);
       if (/\/api\/accounts\/grok\/subscription\/start$/.test(u)) {
@@ -97,7 +100,7 @@ const chk = (ok, label, extra) => {
   const G = (id) => q((i) => { const e = document.getElementById(i); return e ? { hidden: e.hidden, text: e.textContent, disabled: e.disabled, href: e.getAttribute('href') } : null; }, id);
 
   /* ---------------- Settings, AI Models ---------------- */
-  await q(() => { frClose(); openAcctAdd(); acctPick('xai'); });
+  await q(async () => { frClose(); openAcctAdd(); await window.__pick('xai'); });
   const pick = await q(() => ({
     flow: !document.getElementById('acct-grok-flow').hidden,
     pick: !document.getElementById('acct-grok-pick').hidden,
@@ -115,10 +118,10 @@ const chk = (ok, label, extra) => {
   });
   chk(key.key && !key.grok && key.focus === 'acct-apikey-key', '"Use an API key" opens the key step', JSON.stringify(key));
 
-  const gemini = await q(() => { acctPick('google'); return { grok: !document.getElementById('acct-grok-flow').hidden, key: !document.getElementById('acct-apikey-flow').hidden }; });
+  const gemini = await q(async () => { await window.__pick('google'); return { grok: !document.getElementById('acct-grok-flow').hidden, key: !document.getElementById('acct-apikey-flow').hidden }; });
   chk(!gemini.grok && gemini.key, 'Gemini has no subscription choice: straight to its key step', JSON.stringify(gemini));
 
-  await q(() => { acctPick('xai'); document.getElementById('acct-grok-pick-sub').click(); window.__status = { state: 'starting' }; document.getElementById('acct-grok-sub-go').click(); });
+  await q(async () => { await window.__pick('xai'); document.getElementById('acct-grok-pick-sub').click(); window.__status = { state: 'starting' }; document.getElementById('acct-grok-sub-go').click(); });
   await q(() => new Promise((r) => setTimeout(r, 50)));
   await q(() => { window.__status = { state: 'awaiting-code', authUrl: 'https://accounts.x.ai/oauth2/device?user_code=QWER-TYUI', userCode: 'QWER-TYUI' }; });
   await tick();
@@ -150,7 +153,7 @@ const chk = (ok, label, extra) => {
 
   // A repaint that throws after connected says so rather than sitting on "Checking...".
   const thrown = await q(async () => {
-    closeAcctAdd(); openAcctAdd(); acctPick('xai'); document.getElementById('acct-grok-pick-sub').click();
+    closeAcctAdd(); openAcctAdd(); await window.__pick('xai'); document.getElementById('acct-grok-pick-sub').click();
     document.getElementById('acct-grok-sub-go').click();
     await new Promise((r) => setTimeout(r, 50));
     const real = window.paintAccounts;
@@ -170,7 +173,7 @@ const chk = (ok, label, extra) => {
     'a repaint that throws after connected is said in Settings\' own words, not left on Checking', JSON.stringify(thrown));
 
   // An engine error is said in words; the button re-arms.
-  await q(() => { closeAcctAdd(); openAcctAdd(); acctPick('xai'); document.getElementById('acct-grok-pick-sub').click(); document.getElementById('acct-grok-sub-go').click(); });
+  await q(async () => { closeAcctAdd(); openAcctAdd(); await window.__pick('xai'); document.getElementById('acct-grok-pick-sub').click(); document.getElementById('acct-grok-sub-go').click(); });
   await q(() => new Promise((r) => setTimeout(r, 50)));
   await q(() => { window.__status = { state: 'error', error: 'that sign-in was for a different account, so this account was left unchanged' }; });
   await tick();
@@ -192,10 +195,10 @@ const chk = (ok, label, extra) => {
     '#3713 a sign-in that finds no grok opens the download box in its place', JSON.stringify(miss));
   // #3713 review pass 2: on Windows Kosmos does not install grok, so the same answer must not promise a download.
   // (#3731: "Sign in with Grok" starts the sign-in itself, so the answer is staged before it.)
-  await q(() => {
+  await q(async () => {
     document.querySelector('meta[name="kosmos-platform"]').content = 'win32';
     window.__startAnswer = [400, { needsRunner: true, error: 'we could not find the Grok runner' }];
-    acctPick('xai');
+    await window.__pick('xai');
     document.getElementById('acct-grok-pick-sub').click();
   });
   await q(() => new Promise((r) => setTimeout(r, 50)));
@@ -227,19 +230,19 @@ const chk = (ok, label, extra) => {
 
   // Switching provider mid-sign-in ends it on the engine.
   const sw = await q(async () => {
-    openAcctAdd(); acctPick('xai'); document.getElementById('acct-grok-pick-sub').click();
+    openAcctAdd(); await window.__pick('xai'); document.getElementById('acct-grok-pick-sub').click();
     window.__cancels.length = 0;
     document.getElementById('acct-grok-sub-go').click();
     await new Promise((r) => setTimeout(r, 50));
     const id = 'sess' + window.__starts.length;
-    acctPick('google');
+    await window.__pick('google');
     return { id, cancels: window.__cancels.slice(), polls: window.__polls.size };
   });
   chk(sw.cancels.length === 1 && sw.cancels[0] === sw.id && sw.polls === 0, 'switching provider mid-sign-in ends it on the engine', JSON.stringify(sw));
 
   // A start that answers after the dialog closed is cancelled, not polled.
   const held = await q(async () => {
-    acctPick('xai'); document.getElementById('acct-grok-pick-sub').click();
+    await window.__pick('xai'); document.getElementById('acct-grok-pick-sub').click();
     window.__cancels.length = 0;
     let release; window.__holdStart = new Promise((r) => { release = r; });
     document.getElementById('acct-grok-sub-go').click();
@@ -286,7 +289,7 @@ const chk = (ok, label, extra) => {
      close does not clear the account; nothing but a sign-in again sets it). */
   const fresh = await q(async () => {
     window.__starts.length = 0;
-    openAcctAdd(); acctPick('xai');
+    openAcctAdd(); await window.__pick('xai');
     const pickShown = !document.getElementById('acct-grok-pick').hidden;
     document.getElementById('acct-grok-pick-sub').click();
     document.getElementById('acct-grok-sub-go').click();
@@ -403,13 +406,15 @@ const chk = (ok, label, extra) => {
     return {
       step: !document.getElementById('fr-grok-sub-step').hidden,
       msg: document.getElementById('fr-grok-msg').textContent,
+      box: document.getElementById('fr-grok-msg').className,
       grok: document.getElementById('fr-grok-connect').textContent.trim(),
       grokDisabled: document.getElementById('fr-grok-connect').disabled,
       gemini: document.getElementById('fr-gemini-connect').textContent.trim(),
       cancels: window.__cancels.slice(),
     };
   });
-  chk(!frDone.step && frDone.msg === 'Grok is connected (me@example.com).' && /Connected/.test(frDone.grok) && frDone.grokDisabled && frDone.cancels.length === 0,
+  // #3731: GPT's connected state, cloned: the gold check box naming the provider and the account.
+  chk(!frDone.step && frDone.box === 'fr-connbox' && /xAI Grok is connected/.test(frDone.msg) && /signed in as me@example\.com\./.test(frDone.msg) && /Connected/.test(frDone.grok) && frDone.grokDisabled && frDone.cancels.length === 0,
     'first run: connected closes the panel, names the account, marks Grok Connected, and cancels nothing', JSON.stringify(frDone));
   chk(/Connected/.test(frDone.gemini), 'first run: Gemini\'s row is left as it was', JSON.stringify(frDone));
 

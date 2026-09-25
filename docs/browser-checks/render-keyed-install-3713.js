@@ -215,13 +215,12 @@ const chk = (ok, label, extra) => {
   const r5 = await q(async () => {
     frClose(); openAcctAdd(); window.__missing.gemini = true; acctPick('google');
     await new Promise((r) => setTimeout(r, 300));
-    const before = { install: !document.getElementById('acct-keyed-install').hidden, key: !document.getElementById('acct-apikey-flow').hidden };
-    document.getElementById('acct-apikey-key').value = 'AIza-typed';
-    document.getElementById('acct-apikey-go').click();
-    await new Promise((r) => setTimeout(r, 300));
-    return { before, install: !document.getElementById('acct-keyed-install').hidden, msg: document.getElementById('acct-apikey-msg').textContent };
+    return { box: !document.getElementById('acct-keyed-install').hidden, key: !document.getElementById('acct-apikey-flow').hidden,
+      said: document.getElementById('acct-keyed-install-t').textContent, go: !document.getElementById('acct-keyed-install-go').hidden };
   });
-  chk(!r5.before.install && r5.before.key && !r5.install && /cannot connect Google Gemini on Windows yet/.test(r5.msg), 'on Windows, Settings shows no install step, and Add says plainly it cannot', JSON.stringify(r5));
+  // #3731 (review pass 1, W5): Windows gets the plain sentence and nothing to press or type, not
+  // a key box whose Add can only fail.
+  chk(r5.box && !r5.go && !r5.key && /cannot connect Google Gemini on Windows yet/.test(r5.said), 'on Windows, Settings says plainly it cannot, with no download button and no key box', JSON.stringify(r5));
   await setWin(false);
   const r6 = await q(async () => {
     closeAcctAdd(); openAcctAdd(); acctPick('google');
