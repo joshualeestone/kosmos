@@ -14,6 +14,7 @@
 const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
+require('./lib-sandbox-home.js'); // #3675: never read the host Mac's real accounts
 
 const ROOTS = [];
 const mkroot = (tag) => { const d = fs.mkdtempSync(path.join(os.tmpdir(), 'aw-swui-' + tag)); ROOTS.push(d); return d; };
