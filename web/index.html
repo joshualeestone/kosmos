@@ -25786,7 +25786,7 @@ const ROOM_SPOKE_SEEDED = new Set();
    skips it. Listed anyway, because the test above requires every emitted kind
    to be classified, and "unreachable today" is a property of the other file. */
 const ROOM_SPEECH_KINDS = new Set(['message', 'post']);
-const ROOM_NOT_SPEECH = new Set(['refused', 'valve', 'note', 'nudge', 'reaction', 'reopen']);
+const ROOM_NOT_SPEECH = new Set(['refused', 'valve', 'note', 'nudge', 'reaction', 'reopen', 'kosmos']); // kosmos: #3723's account line, Kosmos speaking
 // Whether a status tick has ever ANSWERED. [] before the first answer means
 // "not heard yet", not "empty board", and the two must never be conflated
 // (the Recommended pill reads this).
@@ -26948,6 +26948,24 @@ function dmRow(m, name) {
      `at`, the anchor matches the FIRST -- a drift of at most one adjacent row,
      no worse than the pixel offset it replaces. */
   const midOf = (r) => esc(String((r && (r.id || r.at)) || ''));
+  /* #3723: Kosmos's own line (an account problem), in the room's quiet Kosmos band: no avatar and no
+     name, so nobody takes it for the agent speaking or for something they sent. */
+  if (m && m.kind === 'kosmos') {
+    /* The vendor's link (e.g. where to add credits) is made clickable: the text is escaped FIRST,
+       then only https:// addresses ON A KNOWN VENDOR HOST become links. The sentence is read from
+       the agent's screen, so any other address stays plain text: Kosmos's band must not lend its
+       authority to a link something else printed. */
+    const VENDOR = /^(?:[a-z0-9-]+\.)*(?:chatgpt\.com|openai\.com|claude\.ai|anthropic\.com)$/i;
+    const linked = esc(m.text || '').replace(/https:\/\/[^\s"'<>&]+[^\s"'<>&.,;:!?)]/g, (u) => {
+      // The host the BROWSER will open (URL parsing, so "https://chatgpt.com:x@evil.example" is
+      // evil.example), and never a link that carries a user name or password.
+      let parsed = null;
+      try { parsed = new URL(u); } catch { parsed = null; }
+      const ok = parsed && parsed.protocol === 'https:' && !parsed.username && !parsed.password && VENDOR.test(parsed.hostname);
+      return ok ? '<a href="' + u + '" target="_blank" rel="noopener">' + u + '</a>' : u;
+    });
+    return '<div class="msg-valve dm-kosmos" data-mid="' + midOf(m) + '">' + linked + '</div>';
+  }
   const whenStr = esc(pjWhen(m.at) || '');
   if (m && m.from) {
     /* #3414: the agent's row now IS the room's `.msg` bubble -- gray ground, avatar to

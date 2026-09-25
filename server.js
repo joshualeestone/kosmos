@@ -805,6 +805,7 @@ const readConnectionsShelf = inflight.collapse(() => {
 const autoupdate = require('./engine/autoupdate');
 const instructions = require('./engine/instructions');
 const projects = require('./engine/projects');
+const { accountProblemOf } = require('./engine/accountproblem'); // #3723
 const tasks = require('./engine/tasks');
 const chat = require('./engine/chat');
 const messages = require('./engine/messages');
@@ -2924,6 +2925,9 @@ function withPreviews(rows) {
   if (!Array.isArray(rows)) return rows;
   for (const r of rows) {
     if (!r || typeof r !== 'object' || typeof r.text !== 'string') continue;
+    // #3723: Kosmos's account line quotes text read off an agent's screen, so the board does not go
+    // and fetch whatever address that text contains.
+    if (r.kind === 'kosmos') continue;
     const link = unfurl.firstLink(r.text);
     if (!link) continue;
     const hit = unfurl.peek(link);
@@ -12012,8 +12016,11 @@ const server = http.createServer((req, res) => {
        empty `[]` (the name simply cannot be filed, but the agent works), and a live
        question on such an agent SHOULD still show -- that is the intended behaviour
        the integration test below pins. */
+    /* #3723: and Kosmos's own line while the agent is stopped by its account (out of usage or
+       credits, a sign-in that stopped working), derived from the same card, so it clears itself. */
     const servedMessages = Array.isArray(messages)
-      ? chat.withQuestionRow(messages, (card && card.sessionName) || name, question)
+      ? chat.withAccountRow(chat.withQuestionRow(messages, (card && card.sessionName) || name, question),
+        (card && card.sessionName) || name, accountProblemOf(card))
       : messages;
     /* #3650: the person's reactions on the agent's messages, in the room's pill shape
        ({emoji, count, who, mine}) so the page draws them with the room's renderer.
@@ -15488,6 +15495,35 @@ function start(port = PORT) {
       });
       const connlostSweep = setInterval(connlostTick, Number(process.env.AGENT_WORKFORCE_CONNLOST_HEAL_MS) > 0 ? Number(process.env.AGENT_WORKFORCE_CONNLOST_HEAL_MS) : 60 * 1000); // the env is the test seam only
       if (connlostSweep && typeof connlostSweep.unref === 'function') connlostSweep.unref();
+      /* #3723: tell the person's project manager, once per incident, that an agent is stopped by its
+         account (engine/accountnotify.js). Same gating as the sweeps above: inert under `node --test`
+         and before the live-execution opt-in, operator brake AGENT_WORKFORCE_ACCOUNT_NOTIFY_OFF=1,
+         own ~1-min timer, unref'd, best-effort. */
+      const accountNotify = require('./engine/accountnotify');
+      let accountBusy = false;
+      const accountTick = () => {
+        if (accountBusy) return;
+        if (!liveExecution.liveExecutionAllowed() || process.env.AGENT_WORKFORCE_ACCOUNT_NOTIFY_OFF === '1') return;
+        accountBusy = true;
+        try {
+          const cards = safeRoster();
+          if (!Array.isArray(cards) || !cards.length) return;
+          const profile = (s) => { try { return store.readProfile(s) || {}; } catch { return {}; } };
+          accountNotify.sweepOnce({
+            cards,
+            lookups: {
+              reportsTo: (s) => profile(s).reportsTo,
+              roleOf: (s) => profile(s).role,
+              projectsOf: (s) => projects.readAll().filter((p) => p && p.archived !== true && (p.agents || []).includes(s)).map((p) => p.agents || []),
+            },
+            deliver: (session, text) => chat.deliver(session, text, cards, undefined, undefined),
+            DELIVERY: chat.DELIVERY,
+            log: (r) => process.stdout.write(`account-notify: ${r.session} ${r.act}${r.manager ? ' manager=' + r.manager : ''}${r.delivery ? ' delivery=' + r.delivery : ''}\n`),
+          });
+        } catch { /* best-effort, like the sweeps above */ } finally { accountBusy = false; }
+      };
+      const accountSweep = setInterval(accountTick, Number(process.env.AGENT_WORKFORCE_ACCOUNT_NOTIFY_MS) > 0 ? Number(process.env.AGENT_WORKFORCE_ACCOUNT_NOTIFY_MS) : 60 * 1000); // the env is the test seam only
+      if (accountSweep && typeof accountSweep.unref === 'function') accountSweep.unref();
       /* #3595 phase 1: the Recommender runner. Reads recommender-setting every tick (default OFF
          until tool-level guards land; Splinter 2026-09-24), and for an agent that REPORTED itself
          stuck on a project past the grace period it convenes help ONCE: a room note, an ask
