@@ -239,7 +239,10 @@ function answeredParts(row) {
      envelope already names a sender, so an agent named "your operator" cannot pass as the person. */
   const who = row.operator === true ? 'your operator'
     : (name.length ? 'your colleague ' + (name.length > 40 ? name.slice(0, 40).join('') + '…' : name.join('')) : 'a colleague');
-  let words = String(row.text || '').split('\n').map((l) => l.trim()).find(Boolean) || '';
+  /* #3769: the words as a reader sees them. A setup-guide post stored before the write-side mask
+     still holds its raw text, and every read path masks it on the way out, so this one does too
+     (the whole post, before its first line is taken, so a secret split over lines is still caught). */
+  let words = String(filteredText(row.from, row.text) || '').split('\n').map((l) => l.trim()).find(Boolean) || '';
   if (!words) {   // a post with only a file is quoted by the file, as the page does
     const f = Array.isArray(row.attachments) && row.attachments[0] ? row.attachments[0] : row.attachment;
     words = f && typeof f.name === 'string' ? f.name : '';

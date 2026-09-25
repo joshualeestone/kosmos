@@ -2379,6 +2379,25 @@ test('#3745: the agent a reply @-mentions is told what it answers too, from the 
   });
 });
 
+test('#3745: the quoted words are masked like every read of the post (#3769: a guide post stored raw)', () => {
+  withFleet(room3(), (board) => {
+    armSender('mara-discord');
+    arm([]);
+    // Stored with no filter installed: the record holds the raw words, as a pre-#3769 guide post does.
+    const first = messages.sendPost({ fromPane: '%7', project: 'henderson-lease', text: 'key is SEKRIT-1234 keep it' }, board.agents, MEMBERS);
+    assert.equal(first.state, chat.DELIVERY.PLACED, first.because || '');
+    assert.match(messages.record().rows.find((r) => r.id === first.id).text, /SEKRIT-1234/, 'CONTROL: the record holds the raw words');
+    messages.setSenderTextFilter((from, text) => (from === 'mara' ? text.replace(/SEKRIT-\d+/g, '[hidden]') : text));
+    try {
+      const tmux = arm([]);
+      messages.sendPost({ operator: true, project: 'henderson-lease', text: '@mara is that right', replyTo: first.id }, board.agents, MEMBERS);
+      const m = quotedCopy(tmux);
+      assert.ok(m.includes('(answering: "key is hidden keep it") '), m.slice(0, 220));
+      assert.doesNotMatch(m, /SEKRIT/, 'the raw words reached an agent');
+    } finally { messages.setSenderTextFilter(null); }
+  });
+});
+
 test('#3745: the quoted words keep vowel signs, accents and a curly apostrophe', () => {
   withFleet(room3(), (board) => {
     armSender('mara-discord');

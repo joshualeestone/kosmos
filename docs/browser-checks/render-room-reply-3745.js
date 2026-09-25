@@ -378,9 +378,10 @@ function chk(ok, label, extra) {
       const same = row === before;
       if (!row) return { error: 'no short agent row' };
       const R = box.getBoundingClientRect(), Q = row.querySelector('.rxn-quick').getBoundingClientRect();
-      return { same, hadLeft, hasLeft: row.classList.contains('rxn-left'), inside: Q.left >= R.left && Q.right <= R.right + 1, bar: [Math.round(Q.left), Math.round(Q.right)], room: [Math.round(R.left), Math.round(R.right)], hits: [true] };
+      return { same, hadLeft, hasLeft: row.classList.contains('rxn-left'), inside: Q.left >= R.left && Q.right <= R.right + 1, bar: [Math.round(Q.left), Math.round(Q.right)], room: [Math.round(R.left), Math.round(R.right)] };
     });
-    chk(afterRepaint.same === false && afterRepaint.inside && afterRepaint.hits.every(Boolean), 'after a repaint that redraws the hovered row, with the mouse still, the bar is still inside the thread', JSON.stringify(afterRepaint));
+    // hadLeft: the first hover needed the left-anchored bar, so this arm is testing that case and not a bar that fits anyway.
+    chk(afterRepaint.hadLeft === true && afterRepaint.same === false && afterRepaint.inside, 'after a repaint that redraws the hovered row, with the mouse still, the bar is still inside the thread', JSON.stringify(afterRepaint));
     await p.evaluate(() => { const box = document.getElementById('pj-room'); box.__lastBody.rows = box.__lastBody.rows.filter((r) => r.id !== 'm999900'); box.__lastRoom = undefined; paintRoom(box.__lastBody); });
     await p.mouse.move(5, 5);
 
