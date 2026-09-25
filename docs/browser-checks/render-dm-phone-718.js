@@ -12,6 +12,7 @@
  *   - no table cell is narrower than its longest word (the thread's `overflow-wrap: anywhere`
  *     crushed them to a letter per line), and the table's scroll box stays inside its bubble;
  *   - the page itself never scrolls sideways;
+ *   - on a phone the gutter opposite each avatar equals the avatar plus its gap (#3340), measured;
  *   - at 1280 a short-named attachment bubble still fits its content, not the whole row.
  *
  * Harness posture mirrors render-agentdm-3414.js: file://, the thread poll answered from a
@@ -84,6 +85,14 @@ function measure() {
     const inner = c.clientWidth - parseFloat(cs.paddingLeft) - parseFloat(cs.paddingRight);
     if (inner + 1 < widest) crushed.push(`"${c.textContent.trim()}" ${Math.round(inner)}<${Math.round(widest)}`);
   });
+  /* Josh's #3340 rule on the narrowed phone gutters: the space reserved OPPOSITE the avatar
+     equals the near side (avatar + gap), measured, so editing one literal without the other reds. */
+  const gutterMismatch = [...document.querySelectorAll('#d-dmthread .msg')].filter((row) => {
+    const b = row.querySelector('.msg-b'); const r = R(row); const rb = R(b); const cs = getComputedStyle(b);
+    const near = row.classList.contains('you') ? r.right - rb.right : rb.left - r.left;
+    const far = parseFloat(row.classList.contains('you') ? cs.marginLeft : cs.marginRight);
+    return Math.abs(near - far) > 0.5;
+  }).length;
   const tw = document.querySelector('#d-dmthread .mdtablewrap');
   const twb = tw && R(tw.closest('.msg-bd'));
   const short = document.querySelector('#d-dmthread .msg:not(.you) .att');
@@ -93,6 +102,7 @@ function measure() {
     cells: cellsList.length, crushed,
     tableInBubble: !!tw && R(tw).left >= twb.left - 0.5 && R(tw).right <= twb.right + 0.5,
     pageHScroll: document.documentElement.scrollWidth > vw,
+    gutterMismatch,
     shortCardBubble: short ? Math.round(R(short.closest('.msg-bd')).width) : null,
     row: short ? Math.round(R(short.closest('.msg')).width) : null,
   };
@@ -134,6 +144,7 @@ async function open(browser, w, h, theme) {
         chk(m.cells > 0 && m.crushed.length === 0, `${t} no table cell is narrower than its longest word`, m.crushed.join(' | '));
         chk(m.tableInBubble, `${t} the table's scroll box stays inside its bubble`);
         chk(!m.pageHScroll, `${t} the page does not scroll sideways`);
+        chk(m.gutterMismatch === 0, `${t} the gutter opposite the avatar equals avatar + gap (#3340)`, `mismatched rows=${m.gutterMismatch}`);
         chk(errs.length === 0, `${t} no page errors`, errs.join(' | '));
         await page.close();
       }
