@@ -758,8 +758,13 @@ function joinTaskClaims(tasks, all, memberOf, roster, project) {
        task as a whole, because "task 15" in a report is a claim about the task;
        per-part claims would need a spelling agents have not been taught. */
     if (!t || t.closedAt) return withParts(t);
-    const who = tasksMod.whoOf(t)[0];
+    /* #3559: the claim is about the agent still holding open work (claimWho), not the first agent
+       ever named: a finished part's agent must not decide "In progress" or be named for work it
+       handed on. Nobody holding open work: no claim (there is no one to ask about). Every claim
+       carries `about`, so every surface names and places it by the same agent. */
+    const who = tasksMod.claimWho(t);
     if (!who || tasksMod.progressOf(t).closed) return withParts(t);
+    return aboutWho(who, (() => {
     // ⚠️ A departed assignee: removal does not unassign (the given-to record
     // is the person's, and history should not vanish because membership
     // changed), but the taught convention and the managed block both derive
@@ -806,7 +811,12 @@ function joinTaskClaims(tasks, all, memberOf, roster, project) {
        task; per-part claims would need a spelling agents have not been taught
        and would be a fact nobody computed. */
     return { ...withParts(t), claim: tasksMod.claimFor(t, readFor(who)) };
+    })());
   });
+}
+/* Stamp the agent a claim is about on the claim itself (see joinTaskClaims). */
+function aboutWho(who, row) {
+  return row && row.claim ? { ...row, claim: { ...row.claim, about: who } } : row;
 }
 
 function describe(project, roster, all) {

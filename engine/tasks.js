@@ -558,6 +558,16 @@ function progressOf(task) {
 }
 
 /** Whoever is on this task at all, for the join and the card's face. */
+/**
+ * #3559 (look review, iteration 15): the agent a task's claim is ABOUT. The claim asks "is this
+ * agent on this task?", which has a subject only while some agent still holds open work here, so
+ * it is the first agent holding an OPEN part, or null. Reading the first agent ever named instead
+ * let a finished part's agent decide "In progress" and get named for work it had handed on.
+ */
+function claimWho(task) {
+  const p = partsOf(task).find((x) => x && x.who && !x.closedAt);
+  return p ? p.who : null;
+}
 function whoOf(task) {
   const named = partsOf(task).map((x) => x.who).filter(Boolean);
   return [...new Set(named)];
@@ -762,11 +772,9 @@ function claimFor(task, reading, opts) {
       because: (reading && reading.because) || 'we could not read what it reports holding',
       /* #3559 (Mona's look review): the one could-not-tell case the page puts in plain words
          and NAMES the agent for ("Rex has not reported what it is working on yet.") is an agent
-         that has never written its report AND still holds open work on this task. The reading is
-         for whoOf(task)[0], which can be the agent of a finished part; naming them would blame
-         the one who is done, so that case keeps the unnamed reason. A field, never our prose. */
-      neverReported: !!(reading && reading.neverReported === true)
-        && partsOf(task).some((x) => x && x.who === whoOf(task)[0] && !x.closedAt),
+         that has never written its report. The claim is read for claimWho(task), an agent that
+         still holds open work here, so a finished agent is never named. A field, never our prose. */
+      neverReported: !!(reading && reading.neverReported === true) && !!claimWho(task),
     };
   }
   // Server-issued numbers are integers; a hand-edited store can hold
@@ -852,7 +860,7 @@ function tasksTabShown() {
 }
 
 module.exports = { create, close, reopen, byNumber, columnTasks, allTasks, claimFor, claimPatterns, taskProblem,
-  taskState, lastActivityOf, TASKS_TAB_MIN, tasksEverCreated, tasksTabShown,
+  taskState, lastActivityOf, TASKS_TAB_MIN, tasksEverCreated, tasksTabShown, claimWho,
   partsOf, progressOf, whoOf, addPart, assignPart, setPartClosed, setDue, dueProblem, say,
   partValve, processPartWrites, agePartWritesForTests, PARTS_PER_HOUR,
   SENTENCE_MAX, DETAIL_MAX, MESSAGE_MAX, WHO_MAX };

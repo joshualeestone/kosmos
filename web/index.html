@@ -42541,13 +42541,9 @@ function paintProjectTasks(p) {
          convention the task detail page's own per-part rows use (the claim
          is the TASK's, asked of one report, not a per-part fact nobody
          computed). */
-      const firstWho = assigned.length ? assigned[0].who : null;
-      /* Once, on its first open part (tkSayPart). If that agent has finished all its parts, the
-         card has no other place for the claim (the task page has its why line), so it keeps the
-         claim's old spot, the agent's first part: any reason or definite claim still shows. The
-         "has not reported" words cannot land there, because the engine sets them only while the
-         agent holds open work. */
-      const sayPart = tkSayPart(parts, firstWho) || (firstWho ? parts.find((x) => x && x.who === firstWho) || null : null);
+      /* Once, beside the agent the claim is ABOUT (claim.about, which the engine only sets to an
+         agent still holding open work), on that agent's first open part (tkSayPart). */
+      const sayPart = tkSayPart(parts, t.claim && t.claim.about);
       const rows = parts.map((part) => '<span class="tkcard-part' + (part.who ? '' : ' none') + '">'
         + tkFace(p, part.who)
         + '<span class="tkcard-who-b"><b>' + esc(part.who ? tkMemberName(p, part.who) : 'Nobody yet') + '</b>'
@@ -42753,8 +42749,8 @@ function tskRow(t) {
      trust, that would be false too, so those rows keep the reason. */
   const notReported = claimNotReported(t.claim);
   const cannot = t.state !== 'assigned' || !t.claim || t.claim.claimed !== null ? ''
-    : notReported && who.length
-      ? '<div class="why">' + esc(tskAgentName(who[0])) + ' ' + notReported + '.</div>'
+    : notReported && t.claim.about
+      ? '<div class="why">' + esc(tskAgentName(t.claim.about)) + ' ' + notReported + '.</div>'
       : t.claim.because ? '<div class="why">We cannot tell whether it started: ' + esc(t.claim.because) + '.</div>' : '';
   return '<div class="tsk-row' + (on ? ' sel' : '') + '" data-key="' + esc(tskKey(t)) + '">'
     + '<input type="checkbox" data-key="' + esc(tskKey(t)) + '"' + (on ? ' checked' : '')
@@ -43186,10 +43182,10 @@ function paintTaskPage() {
      the room), so the part's claim line leaves it out; "not reported" and a definite claim stay on
      the part's line, where the why line stays quiet for them. */
   const sayHtml = t.claim && t.claim.claimed === null && !claimNotReported(t.claim) ? '' : taskClaimHtml(t.claim);
-  const firstWho = parts.map((x) => x.who).filter(Boolean)[0] || null;
-  /* ONE part carries the claim line (tkSayPart, the same rule as the project card); the why line
-     below reads the same value. */
-  const sayPart = tkSayPart(parts, firstWho);
+  /* ONE part carries the claim line: the open part of the agent the claim is ABOUT (claim.about,
+     the engine's claimWho; tkSayPart, the same rule as the project card). The why line below reads
+     the same value. */
+  const sayPart = tkSayPart(parts, t.claim && t.claim.about);
   document.getElementById('tk-who').innerHTML = parts.map((part) => {
     const shown = nameOf(part.who);
     const line = part.sentence && part.sentence !== t.sentence ? part.sentence : '';
@@ -43225,18 +43221,15 @@ function paintTaskPage() {
 
   const why = document.getElementById('tk-why');
   const notReported = claimNotReported(t.claim);
-  /* The claim is read for the task's first agent (whoOf(t)[0]); a task kept as parts has no t.who,
-     so name the first part's agent rather than an "It" that reads as the task. Said ONCE: when
-     that agent's open part is on screen, its claim line already says it beside the name, so this
-     line stays quiet for "not reported" (it still explains any other could-not-tell reason). */
-  /* Named only while that agent holds open work here (the engine's own rule for "never reported"):
-     naming the agent of a finished part would point at the one who is done. */
-  const firstOpen = !!sayPart;
-  const claimWho = who || (firstOpen ? tkMemberName(p, firstWho) : null);
-  const sayShown = firstOpen;   // the same fact: that agent's open part (and its claim line) is on screen
+  /* The agent the claim is ABOUT, by name (claim.about: an agent still holding open work here, so a
+     finished agent is never named). Said ONCE: when its part's claim line is on screen, that line
+     already says "not reported" beside the name and this line stays quiet for it; a could-not-tell
+     reason is given here in full (the part line leaves it out). */
+  const aboutName = t.claim && t.claim.about ? tkMemberName(p, t.claim.about) : null;
+  const sayShown = !!sayPart;
   const unknownBecause = (t.claim && t.claim.claimed === null && t.claim.because) ? t.claim.because : '';
-  why.textContent = notReported ? (sayShown || !claimWho ? '' : claimWho + ' ' + notReported + '.')
-    : unknownBecause ? 'We could not check whether ' + (claimWho || 'its agent') + ' is on this: ' + unknownBecause + '.' : '';
+  why.textContent = notReported ? (sayShown || !aboutName ? '' : aboutName + ' ' + notReported + '.')
+    : unknownBecause ? 'We could not check whether ' + (aboutName || 'its agent') + ' is on this: ' + unknownBecause + '.' : '';
   why.hidden = !why.textContent;
 
   /* The close-note: both clauses are about what KOSMOS does not do. Needed
