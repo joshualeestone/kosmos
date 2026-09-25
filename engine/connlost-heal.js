@@ -200,8 +200,10 @@ function reconnectPhase(entry, enabled) {
   const tries = Array.isArray(entry.nudges) ? entry.nudges.length : MAX_NUDGES;
   if (entry.escalated || tries >= MAX_NUDGES) return { phase: 'gave_up', tries };
   // "retried" only for a retry sent in THIS drop (lostSince), not one kept from an earlier drop.
+  // evidence null: the sweep last saw this agent recovered and has not yet seen this drop.
+  if (entry.evidence == null) return { phase: 'waiting', tries };
   const since = Number.isFinite(entry.lostSince) ? entry.lostSince : -Infinity;
-  const thisDrop = entry.nudges.filter((t) => Number.isFinite(t) && t >= since).length;
+  const thisDrop = (Array.isArray(entry.nudges) ? entry.nudges : []).filter((t) => Number.isFinite(t) && t >= since).length;
   return thisDrop > 0 ? { phase: 'retried', tries } : { phase: 'waiting', tries };
 }
 

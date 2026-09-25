@@ -252,6 +252,16 @@ test('reconnectPhase: a retry kept from an EARLIER drop is not reported as a ret
   // The planner's cap still spans drops: three retries in the window is gave_up whatever the drop.
   assert.equal(heal.reconnectPhase({ evidence: 'x', sweeps: 1, nudges: [10, 20, 30], lostSince: 100 }, true).phase, 'gave_up');
 });
+test('reconnectPhase: a new drop the sweep has not seen yet is waiting, not retried (#3410 review)', () => {
+  const heal = require('./connlost-heal');
+  // The entry the sweep keeps after a recovery: evidence cleared, the earlier drop's retry and start kept.
+  const recovered = { evidence: null, sweeps: 0, nudges: [50], lostSince: 40, okSince: 80 };
+  assert.deepEqual(heal.reconnectPhase(recovered, true), { phase: 'waiting', tries: 1 });
+  // Once the sweep sees the new drop, observe starts a fresh lostSince and it stays waiting.
+  assert.equal(heal.reconnectPhase(heal.observe(recovered, 'e1', 100), true).phase, 'waiting');
+  // Still escalated from an earlier drop: the card says it gave up, even before the sweep sees the new drop.
+  assert.equal(heal.reconnectPhase({ ...recovered, escalated: true }, true).phase, 'gave_up');
+});
 test('observe: lostSince is set when a drop begins and kept while it lasts', () => {
   const heal = require('./connlost-heal');
   const first = heal.observe(undefined, 'e1', 1000);

@@ -36,7 +36,7 @@ the person to act when they need not.
   API, so a give-up usually means the agent is stuck, not the internet; the give-up can outlast
   one outage (the retry budget spans drops until the agent has been fine for 10 minutes and the last retry is 30 minutes old), so the sentence says tries were
   made, not that they were made this time. "Several", not "3", so it stays true if the cap
-  changes. Names the agent (not the computer) and says a restart loses its in-progress work.
+  changes. Names the agent (not the computer); "It will start fresh." tells the person a restart does not pick up where it left off.
 
 ## Rejected
 - A copy-only change ("Kosmos will retry...") with no engine field: false after the heal gives up
@@ -50,6 +50,8 @@ page.
 - "Retried" counts only retries sent in this drop (connlost-heal.js lostSince); the planner's cap
   still spans drops, as designed.
 - The 15-minute check-in no longer asks the person to reconnect an agent Kosmos is reconnecting.
+
+- A drop the sweep has not seen yet (the entry still reads recovered) says Reconnecting with no retry this drop, even if an earlier drop was retried.
 
 ## Known and left
 - "waiting" has no time limit: if the network never comes back the card says Reconnecting until
