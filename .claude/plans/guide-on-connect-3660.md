@@ -20,8 +20,11 @@ bubble hands off to it. Josh's direction behind it: 16:05 (his avatar, speaks as
   that can run. A DEFAULT Gemini or Grok key is also live-checked here, because create's gate lets a default row
   through unchecked (it cannot see the launch key door); a positively rejected key is refused (review round 3).
 - After a try that reached a live check and did not create (a listed but dead sign-in, a rejected key, a refused
-  create), the next try waits 10 minutes, doubling each time, capped at a day: the Claude gate is a live `claude -p`,
-  a real request on their account. Single-flight.
+  create), the next try waits 10 minutes, doubling each time, capped at an HOUR: the Claude gate is a live `claude -p`,
+  a real request on their account. A change in what is listed or WHO is signed in (email, key suffix, sign-in type)
+  skips and resets the wait, and Giddy Up never waits (review round 6). Signing in again to the same account in the
+  same place is the one change invisible here; the hour bounds it. Both guide names taken stops at the first model.
+  Single-flight.
 - "Don't show this again" (`setupAssistant.on` false) also means no guide agent is created later.
 - Review round 4: a change in what is listed (they just connected something) skips the back-off, so the guide still
   comes the moment a model is connected; a create refused on one model tries the next connected one; a guide created in

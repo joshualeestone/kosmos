@@ -259,7 +259,11 @@ test('listedModels: every listed account in provider order, a named one by its d
   }[mod] || []) });
   assert.deepEqual(got.rows.map((r) => [r.provider, r.account, r.authMode]),
     [['openai', '/h/.codex-work', null], ['xai', null, 'subscription']], 'provider order is Claude, OpenAI, Gemini, Grok');
-  assert.equal(got.fingerprint, 'openai:/h/.codex-work|xai:/h/.grok');
+  assert.equal(got.fingerprint, 'openai:/h/.codex-work::/|xai:/h/.grok:subscription:/');
+  // WHO is in it: a new key (keyTail) or a different sign-in (email) in the same folder changes it.
+  const fp = (row) => setupAssistant.listedModels({ listFor: (mod) => (mod === './geminiaccounts' ? [row] : []) }).fingerprint;
+  assert.notEqual(fp({ dir: '/h/.gemini', isDefault: true, keyTail: 'aaaa' }), fp({ dir: '/h/.gemini', isDefault: true, keyTail: 'bbbb' }));
+  assert.notEqual(fp({ dir: '/h/.claude', isDefault: true, email: 'a@x' }), fp({ dir: '/h/.claude', isDefault: true, email: 'b@x' }));
 });
 
 test('usable: create\'s gate decides; a DEFAULT Gemini or Grok KEY is also live-checked, a subscription or a Claude default is not asked twice', async () => {
@@ -398,6 +402,42 @@ test('ensureGuide: connecting a NEW account skips the back-off (the guide comes 
     const r = await setupAssistant.ensureGuide({ createAgent: createdOk(calls), now: t0 + setupAssistant.RETRY_AFTER_MS + 180 * 1000, deps });
     assert.equal(r.seeded, true, 'a newly connected model waited out an old back-off: ' + r.reason);
     assert.equal(calls[0].provider, 'openai');
+  } finally { armed(false); setupAssistant.resetEnsureGuideForTests(); }
+});
+
+test('ensureGuide: a NEW key in the SAME folder skips the back-off and resets it; Giddy Up never waits', async () => {
+  setupAssistant.resetEnsureGuideForTests();
+  armed(true);
+  try {
+    let key = 'dead';
+    const deps = { listFor: (mod) => (mod === './geminiaccounts' ? [{ dir: '/h/.gemini', isDefault: true, keyTail: key }] : []),
+      connectable: async () => ({ ok: true }), liveDefault: async () => key !== 'dead' };
+    const calls = [];
+    const t0 = 20_000_000;
+    await setupAssistant.ensureGuide({ createAgent: createdOk(calls), now: t0, deps });
+    const held = await setupAssistant.ensureGuide({ createAgent: createdOk(calls), now: t0 + 60 * 1000, deps });
+    assert.match(held.reason, /waiting/, 'CONTROL: the same dead key waits');
+    // Giddy Up during the wait still tries (still dead, so still no guide, but it did not wait).
+    const giddy = await setupAssistant.ensureGuide({ createAgent: createdOk(calls), now: t0 + 90 * 1000, via: 'first-run', deps });
+    assert.doesNotMatch(giddy.reason, /waiting/, 'Giddy Up was made to wait');
+    key = 'good';   // they paste a working key in the same place
+    const r = await setupAssistant.ensureGuide({ createAgent: createdOk(calls), now: t0 + 120 * 1000, deps });
+    assert.equal(r.seeded, true, 'a new key in the same folder waited out the old back-off: ' + r.reason);
+    assert.ok(setupAssistant.RETRY_MAX_MS <= 60 * 60 * 1000, 'the wait is capped at an hour');
+  } finally { armed(false); setupAssistant.resetEnsureGuideForTests(); }
+});
+
+test('ensureGuide: both names taken stops at the first model (no live check paid on the next)', async () => {
+  setupAssistant.resetEnsureGuideForTests();
+  armed(true);
+  try {
+    let checks = 0;
+    const deps = { listFor: (mod) => ({ './accounts': [{ dir: '/h/.claude', isDefault: true }], './openaiaccounts': [{ dir: '/h/.codex-work', isDefault: false }] }[mod] || []),
+      connectable: async () => { checks += 1; return { ok: true }; }, liveDefault: async () => true };
+    const taken = [];
+    const r = await setupAssistant.ensureGuide({ createAgent: refused(taken, 'there is already an agent called josh-ai.'), deps });
+    assert.equal(r.seeded, false);
+    assert.equal(checks, 1, 'a name refusal went on to live-check the next model');
   } finally { armed(false); setupAssistant.resetEnsureGuideForTests(); }
 });
 

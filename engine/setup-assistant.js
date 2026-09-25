@@ -295,10 +295,14 @@ function listedModels({ listFor = (mod) => require(mod).list() } = {}) {
     if (!Array.isArray(got)) continue;
     for (const row of got) {
       if (!row || typeof row.dir !== 'string') continue;
-      rows.push({ provider, mod, dir: row.dir, account: row.isDefault ? null : row.dir, authMode: row.authMode || null });
+      rows.push({ provider, mod, dir: row.dir, account: row.isDefault ? null : row.dir, authMode: row.authMode || null,
+        who: [row.email || '', row.keyTail || ''].join('/') });
     }
   }
-  return { rows, fingerprint: rows.map((r) => `${r.provider}:${r.dir}`).join('|') };
+  /* WHO is in the fingerprint, not just WHERE: a new key or a different sign-in in the same
+     folder is a new connection (review round 6). Re-signing in to the SAME account in place
+     is invisible here; the one-hour cap below bounds that wait. */
+  return { rows, fingerprint: rows.map((r) => `${r.provider}:${r.dir}:${r.authMode || ''}:${r.who}`).join('|') };
 }
 
 /* Could a guide run on this listed account? create's own gate, plus the default-key check
@@ -317,12 +321,14 @@ async function usable(row, { connectable = (q) => create.accountConnectable(q), 
 
 /* After a try that reached a live check and did not create (a dead sign-in, a rejected
    key, a refused create), the next try waits: 10 minutes, doubling each time, at most a
-   day. The check can be a live `claude -p` (a real request on their account) and the
-   sweep runs every minute, so a failure that never clears costs one check a day. BUT a
-   change in what is listed (they just connected something) skips the wait: the guide is
-   created the moment a model is connected, not a day later (review round 4). */
+   HOUR. The check can be a live `claude -p` (a real request on their account) and the
+   sweep runs every minute, so a failure that never clears costs one check an hour. A
+   change in what is listed or who is signed in (they just connected something) skips the
+   wait and resets it, and Giddy Up never waits: the guide is created the moment a model is
+   connected (reviews 4 and 6). The hour, not a day, bounds the one change nobody can see
+   from here: signing in again to the same account in the same place. */
 const RETRY_AFTER_MS = 10 * 60 * 1000;
-const RETRY_MAX_MS = 24 * 60 * 60 * 1000;
+const RETRY_MAX_MS = 60 * 60 * 1000;
 let inFlight = null;
 let lastFailedAt = 0;
 let failures = 0;
@@ -340,7 +346,9 @@ function retryWaitMs() {
  * it has never been seeded, and a model is connected. Tries each connected model in
  * order until one creates (a refused create on the first does not strand a working
  * second). Idempotent and single-flight: a Giddy Up and a sweep tick arriving together
- * create at most one. Never throws. Resolves { seeded, name?, reason? }. `deps` is for tests.
+ * create at most one. Never throws. Resolves { seeded, name?, reason? }.
+ * `deps` is TESTS ONLY: listFor / connectable / liveDefault (the account seams),
+ * enabled / settings (the switches) and avatarDir. Production passes none.
  */
 function ensureGuide({ createAgent, via = 'model-connected', now = Date.now(), deps = {} } = {}) {
   if (inFlight) return inFlight;
@@ -358,8 +366,9 @@ function ensureGuide({ createAgent, via = 'model-connected', now = Date.now(), d
   if (createdHere || setupAssistantSeeded()) return Promise.resolve({ seeded: false, reason: 'already seeded' });
   const listed = listedModels(deps);
   if (!listed.rows.length) return Promise.resolve({ seeded: false, reason: 'no model connected yet' });
-  const changed = listed.fingerprint !== failedFingerprint;
-  if (lastFailedAt && !changed && now - lastFailedAt < retryWaitMs()) return Promise.resolve({ seeded: false, reason: 'waiting before trying again' });
+  const changed = failedFingerprint !== null && listed.fingerprint !== failedFingerprint;
+  if (changed) { lastFailedAt = 0; failures = 0; }
+  if (via !== 'first-run' && lastFailedAt && now - lastFailedAt < retryWaitMs()) return Promise.resolve({ seeded: false, reason: 'waiting before trying again' });
   inFlight = (async () => {
     const fail = (reason) => { lastFailedAt = now; failures += 1; failedFingerprint = listed.fingerprint; return { seeded: false, reason }; };
     try {
@@ -380,6 +389,9 @@ function ensureGuide({ createAgent, via = 'model-connected', now = Date.now(), d
           return seed;
         }
         last = seed;
+        /* Both names taken: that is about the NAME, not the model, so the next model would
+           be refused the same way after paying for its live check. Stop here. */
+        if (/already an agent called/.test(String((seed && seed.reason) || ''))) break;
         /* Refused on this model (its runner missing, say): try the next one. */
       }
       return fail(last ? ('not created: ' + (last.reason || 'refused')) : 'a model is listed but none could run yet');

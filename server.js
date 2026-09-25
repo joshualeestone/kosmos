@@ -9747,9 +9747,10 @@ const server = http.createServer((req, res) => {
       /* #3034/#3660: Giddy Up ARMS the setup guide; it is created the moment a model is
          connected (Splinter, 19:06), which may already be true here or may come later
          from Settings (the sweep at board start catches that). Never created without a
-         model: it could not run. An existing install is armed only if someone deliberately
-         re-runs first-run (?first-run=1), so existing boards never get an unasked-for agent. The why lives with
-         FIRSTRUN_AUTOCREATE_ENABLED and ensureGuide in engine/setup-assistant.js.
+         model: it could not run. An existing install is armed only if someone
+         deliberately re-runs first-run (?first-run=1), so existing boards never get an
+         unasked-for agent. The why lives with FIRSTRUN_AUTOCREATE_ENABLED and
+         ensureGuide in engine/setup-assistant.js.
          Fire-and-forget and best-effort: onboarding has already succeeded. */
       if (setupAssistant.FIRSTRUN_AUTOCREATE_ENABLED) {
         try {
