@@ -3144,10 +3144,12 @@ button.boardname[aria-expanded="true"] { opacity: 1; color: var(--k-ink); border
 /* Mona's look review of #3701: halve the two big vertical gaps (measured 51px above the title,
    49px from the tile hint to the first group). An empty crumb takes no room (it appears when the
    person picks a project, a navigation they made). The status line KEEPS its one reserved line,
-   so a message ("Closed 2 tasks.") never pushes the list down under the pointer; its margins go
-   and the first group sits closer instead. It stays a live region. */
+   so a one-line message ("Closed 2 tasks.") never pushes the list down under the pointer; its
+   margins go and the first group sits closer instead. A rare message long enough to wrap (a
+   long project name plus "Could not confirm Rex saw it: ...") does push it one line: accepted,
+   because truncating would hide the part the person needs. It stays a live region. */
 .tsk-crumb:empty { min-height: 0; margin: 0; }
-#tsk-msg { margin: 0; min-height: 1.6em; min-height: 1lh; }   /* exactly one message line, reserved */
+#tsk-msg { margin: 0; min-height: 1.6em; min-height: 1lh; }   /* one message line, reserved */
 #panel-tasks #tsk-hint { margin-bottom: 0; }
 #tsk-groups > .tsk-grp:first-child { margin-top: 3px; }
 .tsk-crumb button { border: 0; background: none; padding: 0; font: inherit; font-weight: 600; color: var(--k-ink); cursor: pointer;
@@ -42616,9 +42618,10 @@ function tskRow(t) {
      anywhere (it may have in the room), so the sentence claims exactly that: "Rex has not
      reported what it is working on yet." When we could not read the report, or it is too old to
      trust, that would be false too, so those rows keep the reason. */
+  const notReported = claimNotReported(t.claim);
   const cannot = t.state !== 'assigned' || !t.claim || t.claim.claimed !== null ? ''
-    : claimNotReported(t.claim) && who.length
-      ? '<div class="why">' + esc(tskAgentName(who[0])) + ' ' + claimNotReported(t.claim) + '.</div>'
+    : notReported && who.length
+      ? '<div class="why">' + esc(tskAgentName(who[0])) + ' ' + notReported + '.</div>'
       : t.claim.because ? '<div class="why">We cannot tell whether it started: ' + esc(t.claim.because) + '.</div>' : '';
   return '<div class="tsk-row' + (on ? ' sel' : '') + '" data-key="' + esc(tskKey(t)) + '">'
     + '<input type="checkbox" data-key="' + esc(tskKey(t)) + '"' + (on ? ' checked' : '')
