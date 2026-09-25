@@ -12,8 +12,11 @@ no-purchase change (kosmos-relay android-no-purchase-718).
 ## Decisions
 - No policy summary in the doc: policies change and differ by country, and a stale summary would
   read as settled. Liu Kang asked for exactly this.
-- The phone check covers both arms (no pay step in the app, pay step in plain Chrome), because the
-  in-app signal (the TWA referrer) is reasoned, not yet observed on a device.
+- The phone check covers both arms (no pay step in the app, pay step in plain Chrome), and both ways
+  the app runs today (a sideloaded upload-key build, verified; a Play install, which falls back to a
+  browser-bar Custom Tab until Play's signing key is in assetlinks.json), because the in-app signal
+  (the TWA referrer) is reasoned, not yet observed on a device. It names who can run it, since
+  Mortals has no phone.
 
 ## Weakest part
 The item names kosmos-relay's `CAN_BUY_HERE` and the Android change, which merge separately. If

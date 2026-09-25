@@ -304,7 +304,8 @@ eval "$(secrets-map.sh env kosmos-android-upload-signing)"
   and (optionally) `KOSMOS_UPLOAD_KEY_ALIAS` exist. None are set. Setting them is a repo-admin
   call for Josh.
 
-**Before the first Play submission:**
+**Before the first upload to any Play track** (the Internal testing upload below; it holds for
+the production release in Step 10 too):
 - **A person reads the current Google Play Payments policy and its exceptions** [Josh]. This doc
   deliberately states none of the policy's details: they change, they differ by country, and a
   summary written here would go stale unnoticed. What the app does, so the reader can check it
@@ -314,8 +315,12 @@ eval "$(secrets-map.sh env kosmos-android-upload-signing)"
   `CAN_BUY_HERE` in kosmos-relay `coordinator/src/signin.html`, which recognises the app by the
   referrer Chrome sends when it opens the app (`android-app://io.kosmos.app/`). This is reasoned
   from Chrome's documented behaviour, not yet seen on a phone.
-- **On a phone with the testing build:** open sign-in with an unpaid account and confirm no pay step
-  or price appears; then open the same page in plain Chrome and confirm it does.
+- **On a phone** [a tester with an Android phone; Mortals has none, see Check below]: open sign-in
+  with an unpaid account and confirm no pay step or price appears; then open the same page in plain
+  Chrome and confirm it does. Do it on a sideloaded build signed with the upload key AND on a Play
+  install: until Play's app-signing key is in assetlinks.json, a Play install opens with a browser
+  bar, and whether Chrome sends the same referrer that way is not confirmed. A sideload passing does
+  not prove the Play install.
 
 **Upload:** to Play's Internal testing track [Josh, or whoever he gives Console access].
 
