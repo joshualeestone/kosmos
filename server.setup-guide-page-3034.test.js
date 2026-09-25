@@ -170,3 +170,39 @@ test('#3034: a REMOVED guide (removal deletes nothing, so its marker survives) i
     assert.equal((await post({ screen: 'board' })).status, 200);
   } finally { fs.rmSync(removedFile, { force: true }); }
 });
+
+/* GET /api/setup-guide (#3034, the bubble half): the page learns WHICH agent is the guide here,
+   behind the same gates as the page report (setupGuideNow). The dangerous answers: naming an
+   agent that is not the seeded guide (a new agent that took a deleted guide's name, or a removed
+   guide), and a 200 when there is no guide at all. */
+const getGuide = () => fetch(board.base + '/api/setup-guide');
+
+test('#3034 read: no guide on this computer is a 404, and a marked guide answers its name', async () => {
+  fs.rmSync(setupAssistant.flagPath(), { force: true });
+  const none = await getGuide();
+  assert.equal(none.status, 404);
+  assert.match((await none.json()).error, /no setup guide/);
+  // CONTROL: the same computer with a seeded, marked guide names it.
+  folderFor('Josh', { guide: true });
+  setupAssistant.markSetupAssistantSeeded({ name: 'Josh', via: 'test' });
+  const r = await getGuide();
+  assert.equal(r.status, 200, await r.clone().text());
+  assert.deepEqual(await r.json(), { ok: true, name: 'Josh' });
+});
+
+test('#3034 read: an agent that took a deleted guide\'s name is not the guide (409), and a removed guide is none (404)', async () => {
+  const create = require('./engine/create');
+  folderFor('Josh');                                   // same name, no marker
+  setupAssistant.markSetupAssistantSeeded({ name: 'Josh', via: 'test' });
+  assert.equal((await getGuide()).status, 409, 'an unmarked agent with the guide\'s name was named as the guide');
+  folderFor('Josh', { guide: true });
+  const removedFile = path.join(path.dirname(setupAssistant.flagPath()), 'removed.json');
+  try {
+    fs.writeFileSync(removedFile, JSON.stringify([{ name: create.cleanName('Josh') }]));
+    assert.equal((await getGuide()).status, 404, 'a removed guide was named');
+    fs.writeFileSync(removedFile, '{not a list');
+    assert.equal((await getGuide()).status, 409, 'an unreadable removed list must refuse');
+    fs.writeFileSync(removedFile, '[]');
+    assert.equal((await getGuide()).status, 200, 'CONTROL: restored, the guide is named again');
+  } finally { fs.rmSync(removedFile, { force: true }); }
+});
