@@ -8,7 +8,29 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
 const html = fs.readFileSync(path.join(__dirname, 'web', 'index.html'), 'utf8');
-const blocks = (q) => [...html.matchAll(new RegExp('@media \\(' + q + '\\) \\{([\\s\\S]*?)\\n\\}', 'g'))].map((m) => m[1]).join('\n');
+/* Every @media block, found by COUNTING BRACES. A lazy match up to the first "\n}" ran on for
+   hundreds of lines past a one-line block (main's `@media (hover: none) { ... }` at the top of
+   the page), so a rule moved out of its block still read as inside it. */
+function mediaBlocks() {
+  const out = []; const re = /@media ([^{]+) \{/g; let m;
+  while ((m = re.exec(html))) {
+    let j = re.lastIndex, d = 1;
+    // Count braces in CSS only: skip comments and quoted strings (both hold braces on this page).
+    while (d && j < html.length) {
+      const c = html[j];
+      if (c === '/' && html[j + 1] === '*') { const e = html.indexOf('*/', j + 2); j = e < 0 ? html.length : e + 2; continue; }
+      if (c === '"' || c === "'") { j += 1; while (j < html.length && html[j] !== c) { if (html[j] === '\\') j += 1; j += 1; } j += 1; continue; }
+      if (c === '{') d += 1; else if (c === '}') d -= 1;
+      j += 1;
+    }
+    out.push({ query: m[1].trim(), start: m.index, end: j, body: html.slice(re.lastIndex, j - 1) });
+    re.lastIndex = j;
+  }
+  return out;
+}
+const MEDIA = mediaBlocks();
+const blocks = (q) => MEDIA.filter((b) => b.query === '(' + q + ')').map((b) => b.body).join('\n');
+const outsideMedia = (q) => { let t = html; MEDIA.filter((b) => b.query === '(' + q + ')').sort((a, b) => b.start - a.start).forEach((b) => { t = t.slice(0, b.start) + t.slice(b.end); }); return t; };
 
 test('on a phone the conversation comes first IN THE DOM, never by CSS order (#1017)', () => {
   // A visual-only reorder splits reading order from tab order; the browser check measures the
@@ -31,7 +53,7 @@ test('on a phone the conversation comes first IN THE DOM, never by CSS order (#1
 test("the script's phone and touch queries are the CSS blocks' exact queries", () => {
   // Duplicated by value (CLAUDE.md #5): if the CSS moves to another width, the DOM move must too.
   const q = (name) => { const m = html.match(new RegExp('const ' + name + " = '([^']+)';")); assert.ok(m, name + ' is declared'); return m[1]; };
-  const block = (query) => [...html.matchAll(/@media ([^{]+) \{([\s\S]*?)\n\}/g)].filter((m) => m[1] === query).map((m) => m[2]).join('\n');
+  const block = (query) => MEDIA.filter((b) => b.query === query).map((b) => b.body).join('\n');
   assert.match(block(q('PJ_PHONE_MQ')), /#pj-room\.thread \{ padding: 12px 6px;/, 'the room phone rules live under PJ_PHONE_MQ');
   assert.match(block(q('PJ_TOUCH_MQ')), /#pj-room \.msg\.rxn-show \.rxn-quick \{/, 'the room touch rules live under PJ_TOUCH_MQ');
 });
@@ -104,8 +126,18 @@ test('every field on the project page and its Tasks and members dialogs is 16px 
   // The behaviour is swept in the browser (render-room-msgbox-2806, phone arm); this pins that
   // the rule stays inside the touch query, so a mouse layout is unchanged.
   const t = blocks('hover: none');
-  assert.match(t, /#panel-projects :is\(input, select, textarea\), #nt-modal :is\(input, select, textarea\),\n  #am-modal :is\(input, select, textarea\) \{ font-size: 16px; \}/);
-  assert.doesNotMatch(html.replace(/@media \(hover: none\) \{[\s\S]*?\n\}/g, ''), /#panel-projects :is\(input, select, textarea\)/, 'never outside the touch query');
+  const rule = /:is\(#pj-list-view, #pj-one-view, #pj-task-view, #pj-docs-view, #pj-settings-view, #pj-add-view\) :is\(input, select, textarea\),\n  #nt-modal :is\(input, select, textarea\), #am-modal :is\(input, select, textarea\) \{ font-size: 16px; \}/;
+  assert.match(t, rule, 'the project page\'s own views (not all of #panel-projects: the one-screen layout puts Settings and Tasks inside it)');
+  assert.doesNotMatch(outsideMedia('hover: none'), /#pj-add-view\) :is\(input, select, textarea\)/, 'never outside the touch query');
   // One rule, scoped: no unscoped class that reaches other screens (Settings uses .tk-inp).
   assert.doesNotMatch(t, /(^|[\s,])\.tk-inp\s*[,{]/m, '.tk-inp is not raised app-wide');
+});
+
+test('the media-block reader is sound: blocks do not overlap, and no block holds another @media', () => {
+  for (let i = 1; i < MEDIA.length; i += 1) assert.ok(MEDIA[i].start >= MEDIA[i - 1].end, 'blocks overlap at ' + MEDIA[i].start);
+  // Every block closes, and closes inside its own <style> element (a reader that ran past the
+  // block's end would cross the </style>). Nested @media (dark mode inside a block) is valid CSS.
+  const bad = MEDIA.filter((b) => { const close = html.indexOf('</style>', b.start); return close < 0 || b.end > close; }).map((b) => b.query);
+  assert.deepEqual(bad, [], 'a block ran past its own </style>');
+  assert.ok(MEDIA.some((b) => b.query === '(hover: none)' && !b.body.includes('\n')), 'the one-line touch block (the case that fooled the old reader) is read as its own block');
 });

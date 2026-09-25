@@ -740,13 +740,31 @@ const now = () => new Date().toISOString();
       // members dialogs included, computes at 16px or more on a touchscreen, or iOS zooms in and
       // the page pans sideways.
       const fonts = await phonePage.evaluate(() => {
-        const roots = ['#panel-projects', '#nt-modal', '#am-modal'].map((q) => document.querySelector(q)).filter(Boolean);
-        if (roots.length !== 3) return { error: 'a root is missing', found: roots.length };
+        // The project page's own six views and its two dialogs (the rule's exact scope).
+        const roots = ['#pj-list-view', '#pj-one-view', '#pj-task-view', '#pj-docs-view', '#pj-settings-view', '#pj-add-view', '#nt-modal', '#am-modal'].map((q) => document.querySelector(q)).filter(Boolean);
+        if (roots.length !== 8) return { error: 'a root is missing', found: roots.length };
         const skip = new Set(['checkbox', 'radio', 'range', 'color', 'file', 'hidden', 'button', 'submit', 'reset', 'image']);
         const fields = roots.flatMap((r) => [...r.querySelectorAll('input, select, textarea')]).filter((el) => !(el.tagName === 'INPUT' && skip.has((el.type || '').toLowerCase())));
         const small = fields.map((el) => ({ id: el.id || el.className || el.tagName, px: parseFloat(getComputedStyle(el).fontSize) })).filter((f) => f.px < 16);
         return { count: fields.length, small, hoverNone: matchMedia('(hover: none)').matches };
       });
+      // The one-screen layout (960px and up) appends Settings inside #panel-projects
+      // (placeAppSettings). Its fields are another screen's and must keep their own size on a
+      // touchscreen: moved exactly the way that function moves it, then measured.
+      const settingsIn = await phonePage.evaluate(() => {
+        const settings = document.getElementById('panel-settings'); const projects = document.getElementById('panel-projects');
+        if (!settings || !projects) return { error: 'panels missing' };
+        const home = { parent: settings.parentElement, next: settings.nextSibling };
+        projects.appendChild(settings);
+        const f = [...settings.querySelectorAll('input, select, textarea')].filter((el) => !['checkbox', 'radio', 'range', 'hidden', 'button', 'submit'].includes((el.type || '').toLowerCase()));
+        const at16 = f.filter((el) => parseFloat(getComputedStyle(el).fontSize) >= 16).map((el) => el.id || el.className);
+        const tk = settings.querySelector('.tk-inp');
+        const res = { fields: f.length, at16, tkInp: tk ? parseFloat(getComputedStyle(tk).fontSize) : null, inside: projects.contains(settings) };
+        home.parent.insertBefore(settings, home.next);
+        return res;
+      });
+      chk(!settingsIn.error && settingsIn.inside && settingsIn.fields >= 3 && settingsIn.at16.length === 0 && settingsIn.tkInp !== null && settingsIn.tkInp < 16,
+        `[touch, one-screen layout] Settings moved inside the projects panel keeps its own field sizes`, JSON.stringify(settingsIn));
       // And at 16px nothing in those dialogs runs off the side at 375: each dialog shown, its
       // fields and its own box must fit the screen, and the page must not scroll sideways.
       const dlgFit = await phonePage.evaluate(() => ['nt-modal', 'am-modal'].map((id) => {
@@ -754,7 +772,8 @@ const now = () => new Date().toISOString();
         const was = m.hidden; m.hidden = false; m.removeAttribute('inert');
         const over = [...m.querySelectorAll('input, select, textarea, button')].filter((el) => el.getBoundingClientRect().width > 0)
           .filter((el) => { const r = el.getBoundingClientRect(); return r.left < -0.5 || r.right > innerWidth + 0.5; }).map((el) => el.id || el.className);
-        const res = { id, fields: m.querySelectorAll('input, select, textarea').length, over, pageScrolls: document.documentElement.scrollWidth > innerWidth + 1 };
+        const shown = [...m.querySelectorAll('input, select, textarea')].filter((el) => el.getBoundingClientRect().width > 0).length;
+        const res = { id, fields: shown, over, pageScrolls: document.documentElement.scrollWidth > innerWidth + 1 };   // rendered fields only, or a dialog that failed to show would pass
         m.hidden = was; return res;
       }));
       chk(dlgFit.every((d) => !d.error && d.fields >= 1 && d.over.length === 0 && !d.pageScrolls), `[phone/touch] at 16px the Tasks and add-member dialogs fit a 375 screen`, JSON.stringify(dlgFit));
@@ -1106,15 +1125,15 @@ const now = () => new Date().toISOString();
       });
       await deskPage.goto(PAGE);
       const desk = await deskPage.evaluate(() => {
-        const roots = ['#panel-projects', '#nt-modal', '#am-modal'].map((q) => document.querySelector(q)).filter(Boolean);
+        const roots = ['#pj-list-view', '#pj-one-view', '#pj-task-view', '#pj-docs-view', '#pj-settings-view', '#pj-add-view', '#nt-modal', '#am-modal'].map((q) => document.querySelector(q)).filter(Boolean);
         const skip = new Set(['checkbox', 'radio', 'range', 'color', 'file', 'hidden', 'button', 'submit', 'reset', 'image']);
         const fields = roots.flatMap((r) => [...r.querySelectorAll('input, select, textarea')]).filter((el) => !(el.tagName === 'INPUT' && skip.has((el.type || '').toLowerCase())));
         const px = (id) => { const el = document.getElementById(id); return el ? parseFloat(getComputedStyle(el).fontSize) : null; };
-        return { hoverNone: matchMedia('(hover: none)').matches, count: fields.length, at16: fields.filter((el) => parseFloat(getComputedStyle(el).fontSize) >= 16).map((el) => el.id || el.className),
+        return { roots: roots.length, hoverNone: matchMedia('(hover: none)').matches, count: fields.length, at16: fields.filter((el) => parseFloat(getComputedStyle(el).fontSize) >= 16).map((el) => el.id || el.className),
           named: { 'nt-what': px('nt-what'), 'nt-who': px('nt-who'), 'pj-one-add': px('pj-one-add'), 'tk-due': px('tk-due'), 'pj-name': px('pj-name') } };
       });
       const named = Object.values(desk.named || {});
-      chk(desk.hoverNone === false && desk.count >= 6 && desk.at16.length === 0 && named.length === 5 && named.every((v) => v !== null && v < 16),
+      chk(desk.roots === 8 && desk.hoverNone === false && desk.count >= 6 && desk.at16.length === 0 && named.length === 5 && named.every((v) => v !== null && v < 16),
         `[desktop/mouse] the touch-only 16px rule changes no field's size with a mouse`, JSON.stringify(desk));
     } finally {
       await deskPage.close();

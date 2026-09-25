@@ -2046,12 +2046,13 @@ body.filter-noproj #orgview .onode:not([data-noproj]) { opacity: .26; }
 }
 /* #718 mobile: at a phone's width the projects row's two cells (Add Project, and the sort
    beside the view toggle) were each their full natural width, 3px more than an iPhone SE has
-   (Raiden's harness, .panel 330 > 327). Now Add Project takes its narrowest width (two lines,
-   as on main) and the sort and toggle may wrap, so nothing leaves the row, nothing overlaps and
-   the sort's label is never cut. 30rem is the room's phone width (PJ_PHONE_MQ); pinned equal by
+   (Raiden's harness, .panel 330 > 327). Now Add Project takes its narrowest width (two lines on
+   every phone; on main it did only on an SE) and the sort and toggle may wrap, so nothing leaves
+   the row, nothing overlaps and the sort's label is never cut. Below 375 (a 320 phone or a
+   folded one) the sort at its full width can still overflow; outside the four target sizes. 30rem is the room's phone width (PJ_PHONE_MQ); pinned equal by
    web.room-phone-718.test.js, so "a phone" means one thing across the project pages. */
 @media (max-width: 30rem) {
-  #pj-list-view .statsrow { grid-template-columns: min-content minmax(0, 1fr); }   /* Add Project wraps to two lines, as on main */
+  #pj-list-view .statsrow { grid-template-columns: min-content minmax(0, 1fr); }   /* Add Project at its narrowest on every phone (two lines) */
   /* The sort and the view toggle may wrap: at 16px (touch) the sort's whole label and the toggle
      at its full width do not both fit beside Add Project on an iPhone SE, so the toggle drops to
      a second line rather than the label being cut, the toggle squeezed, or the sort drawn over
@@ -7723,13 +7724,14 @@ body.consolidated .tkcard:hover { border-color: transparent; }
           border: 0.5px solid var(--border-strong); background: var(--field-fill); }
 /* #718 mobile (Liu Kang m705): iOS zooms into any field under 16px and does not zoom back, so
    the page pans sideways. Every field on the project page and its Tasks and members dialogs, on
-   a touchscreen only: the ONE rule for them (the room's composer, search and who picker, the
-   projects sort, the Tasks and add-member fields are all inside these three). Scoped, so other
-   screens' .tk-inp fields (Settings) are unchanged. The composer's @mention mirror must match it
-   and is set beside the room's touch rules. The phone check sweeps the same three places. */
+   a touchscreen only: the ONE rule for them. Scoped to the project page's OWN six views, not the
+   whole #panel-projects: the one-screen layout (960px and up, so an iPad) appends Settings, Tasks
+   and Create agent inside #panel-projects, and those are other screens, unchanged here. The
+   composer's @mention mirror must match the composer and is set beside the room's touch rules.
+   The phone check sweeps the same places. */
 @media (hover: none) {
-  #panel-projects :is(input, select, textarea), #nt-modal :is(input, select, textarea),
-  #am-modal :is(input, select, textarea) { font-size: 16px; }
+  :is(#pj-list-view, #pj-one-view, #pj-task-view, #pj-docs-view, #pj-settings-view, #pj-add-view) :is(input, select, textarea),
+  #nt-modal :is(input, select, textarea), #am-modal :is(input, select, textarea) { font-size: 16px; }
 }
 .rm-back { position: fixed; inset: 0; background: rgba(17, 20, 24, 0.72);
            display: flex; align-items: center; justify-content: center;
@@ -46532,7 +46534,7 @@ document.getElementById('pj-room').addEventListener('click', (e) => {
     // Left to its own handler, but one bar at a time: a tap on another row's link closes an open bar.
     const at = e.target.closest('.msg');
     room.querySelectorAll('.msg.rxn-show').forEach((m) => { if (m !== at) pjRxnResetRow(m); });
-    if (RXN_SHOW_POST && !room.querySelector('.msg.rxn-show')) { RXN_SHOW_POST = null; RXN_SHOW_PID = null; }
+    if (!room.querySelector('.msg.rxn-show')) pjRxnClose();   // the one close path (state, pin, focus)
     return;
   }
   const row = e.target.closest('.msg');
