@@ -37,8 +37,10 @@ function freshHome() {
 
 const cur = process.env.AGENT_WORKFORCE_HOME;
 if (!cur || path.resolve(cur) === path.resolve(os.homedir())) process.env.AGENT_WORKFORCE_HOME = freshHome();
-const home = process.env.AGENT_WORKFORCE_HOME;
-if (!process.env.AGENT_WORKFORCE_CLAUDE_CONFIG) process.env.AGENT_WORKFORCE_CLAUDE_CONFIG = path.join(home, '.claude.json');
+/* The Claude config in a folder THIS file made, never inside a home it was given: under the
+   runner that home is shared by every check, and trust.js writes onboarding keys into this
+   file, so a shared one would carry one check's writes into the next. */
+if (!process.env.AGENT_WORKFORCE_CLAUDE_CONFIG) process.env.AGENT_WORKFORCE_CLAUDE_CONFIG = path.join(freshHome(), '.claude.json');
 /* Sealed by REMOVAL, not by naming a sandbox: setting AGENT_WORKFORCE_CODEX_HOME puts the
    board into the #1488 "operator named a codex home" mode (other OpenAI rows unofferable),
    which is not the ordinary product. Removed, the OpenAI default falls through to
@@ -68,4 +70,4 @@ function plantSubscribedClaude() {
   return own;
 }
 
-module.exports = { sandboxHome: () => process.env.AGENT_WORKFORCE_HOME, plantSubscribedClaude, FIXTURE_CLAUDE };
+module.exports = { plantSubscribedClaude };

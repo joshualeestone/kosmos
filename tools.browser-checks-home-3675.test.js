@@ -14,13 +14,22 @@ const path = require('node:path');
 const { spawnSync } = require('node:child_process');
 
 const DIR = path.join(__dirname, 'docs', 'browser-checks');
+/* The env a child starts from: the developer's, minus anything that would decide the answer
+   before the lib does (an exported Claude config, or an ambient home read before the seam). */
+const AMBIENT = ['AGENT_WORKFORCE_HOME', 'AGENT_WORKFORCE_CLAUDE_CONFIG', 'CODEX_HOME', 'AGENT_WORKFORCE_CODEX_HOME',
+  'GEMINI_CLI_HOME', 'GROK_HOME', 'CLAUDE_CONFIG_DIR'];
+function cleanEnv(over) {
+  const env = { ...process.env };
+  for (const v of AMBIENT) delete env[v];
+  return { ...env, ...over };
+}
 const LIB = path.join(DIR, 'lib-sandbox-home.js');
 
 /* A check boots a board if it requires server.js or spawns it. */
 function bootsBoard(src) {
   // With or without .js: thread-server.js loads the board as require('../../server').
   if (/require\((['"])\.\.\/\.\.\/server(\.js)?\1\)|require\(path\.join\([^)]*server/.test(src)) return true;
-  return /server\.js'/.test(src) && /\b(spawn|fork|execFile)\b/.test(src);
+  return /server\.js['"`]/.test(src) && /\b(spawn|fork|execFile)\b/.test(src);
 }
 
 test('#3675: every browser check that boots or spawns the board requires lib-sandbox-home at top level, before the board', () => {
@@ -56,9 +65,7 @@ function listedAccounts({ withLib, home }) {
     for (const d of [S, process.env.AGENT_WORKFORCE_WORKERS, process.env.AGENT_WORKFORCE_PROJECTS,
       process.env.AGENT_WORKFORCE_LAUNCH, process.env.AGENT_WORKFORCE_CONFIG_ROOT]) fs.rmSync(d, { recursive: true, force: true });
     process.stdout.write(JSON.stringify({ n, sub }));`;
-  const env = { ...process.env, HOME: home };
-  delete env.AGENT_WORKFORCE_HOME;
-  const r = spawnSync(process.execPath, ['-e', code], { env, encoding: 'utf8' });
+  const r = spawnSync(process.execPath, ['-e', code], { env: cleanEnv({ HOME: home }), encoding: 'utf8' });
   assert.equal(r.status, 0, r.stderr);
   return JSON.parse(r.stdout);
 }
@@ -82,8 +89,7 @@ test('#3675: a fixture requiring lib-sandbox-home lists none of the real home\'s
 
 test('#3675: the lib keeps a caller\'s sandbox, replaces the real home, and removes only the folder it made', () => {
   const run = (envHome) => {
-    const env = { ...process.env };
-    if (envHome === undefined) delete env.AGENT_WORKFORCE_HOME; else env.AGENT_WORKFORCE_HOME = envHome;
+    const env = cleanEnv(envHome === undefined ? {} : { AGENT_WORKFORCE_HOME: envHome });
     const r = spawnSync(process.execPath, ['-e', `require(${JSON.stringify(LIB)}); process.stdout.write(process.env.AGENT_WORKFORCE_HOME);`], { env, encoding: 'utf8' });
     assert.equal(r.status, 0, r.stderr);
     return r.stdout;
@@ -117,7 +123,7 @@ test('#3675: plantSubscribedClaude gives the check its OWN home, never the share
     const sub = require(${JSON.stringify(path.join(__dirname, 'engine', 'subscription.js'))});
     const acc = require(${JSON.stringify(path.join(__dirname, 'engine', 'accounts.js'))});
     process.stdout.write(JSON.stringify({ own, home: process.env.AGENT_WORKFORCE_HOME, machine: sub.checkMachine(acc.list()).state }));`;
-  const r = spawnSync(process.execPath, ['-e', code], { env: { ...process.env, AGENT_WORKFORCE_HOME: shared }, encoding: 'utf8' });
+  const r = spawnSync(process.execPath, ['-e', code], { env: cleanEnv({ AGENT_WORKFORCE_HOME: shared }), encoding: 'utf8' });
   assert.equal(r.status, 0, r.stderr);
   const got = JSON.parse(r.stdout);
   assert.notEqual(got.home, shared, 'it moved to its own home');

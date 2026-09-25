@@ -254,9 +254,10 @@ fi
 # REMOVAL, as tools/run-tests.sh does (#2858): naming a codex home instead would put every
 # board into the #1488 "operator named a codex home" mode, which is not the ordinary product.
 unset CODEX_HOME AGENT_WORKFORCE_CODEX_HOME GEMINI_CLI_HOME GROK_HOME CLAUDE_CONFIG_DIR
-# This home stays EMPTY: a check that needs an account plants its own, in its own board
-# (sb8 below) or through lib-sandbox-home.js plantSubscribedClaude(), so no check's
-# premise depends on which other check ran first.
+# No check plants an ACCOUNT in this shared home: one that needs an account gets its own, in
+# its own board (sb8 below) or through lib-sandbox-home.js plantSubscribedClaude(), so no
+# check's premise depends on which other check ran first. (Boards may still write their own
+# state under it, as they would under a real home.)
 # #1818: a run that dies AFTER the checks begin but BEFORE the summary (a kill, an
 # OOM, or -- pre-fix -- a mid-run edit) otherwise leaves no FAILED line and no
 # run-log entry, so a reader grepping for FAIL reads the dead run as green (the

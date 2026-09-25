@@ -19,7 +19,7 @@ nothing identifying was printed.)
   it as one): requiring it points AGENT_WORKFORCE_HOME at a fresh temp folder unless it is already
   set to somewhere other than the real home; the folder it made is removed on exit. It sets only
   the Kosmos seam, never HOME, so Playwright still finds its browsers.
-- All 56 checks that boot or spawn the board (in-process `require('../../server[.js]')`, a spawned
+- All 57 checks that boot or spawn the board (56, plus render-assistant-bubble-3034 from main after the rebase) (in-process `require('../../server[.js]')`, a spawned
   `server.js`, and thread-server.js) require it at top level, before the board.
 - `tools/browser-checks.sh` exports an empty AGENT_WORKFORCE_HOME inside RUN_DIR (removed by
   cleanup) and unsets the ambient homes, for every board it starts and every check it runs.
@@ -58,7 +58,8 @@ checks passed with no retries. The only commits after 3ab9d1f3 touch this plan.
 Rejected: changing the account modules to refuse the real home under a fixture. The seam already
 exists and every module honours it; the defect was fixtures not using it.
 
-Not built here: signal-time cleanup of the lib's temp folders (only on normal exit; a killed check
+Not built here: the global skills list (engine/skills.js reads the real ~/.claude/skills unless
+AGENT_WORKFORCE_SKILLS_DIR is set; skill names, not accounts); signal-time cleanup of the lib's temp folders (only on normal exit; a killed check
 leaves one behind), and the card's screenshot tripwire (page text with a real email or key fragment exits
 before any screenshot). With the source closed it is defence in depth; the mobile harness has one.
 
