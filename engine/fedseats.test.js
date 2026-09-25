@@ -463,7 +463,7 @@ test('a refusal about this Mac (not the edge) keeps nothing on the link and says
   member.emit('exit', 3);
   assert.strictEqual(federation.linkFor('proj-macl').refused, undefined, 'the edge was refused for a Mac-level reason');
   assert.strictEqual(federation.linkFor('proj-macm').ended, undefined, 'the membership was ended for a Mac-level reason');
-  assert.strictEqual(fedseats.statusOf('proj-macm'), 'ended');
+  assert.strictEqual(fedseats.statusOf('proj-macm'), 'reconnecting', 'a Mac-level refusal is a slow retry, not an ending');
   const notes = h.notes.filter((n) => n.projectId === 'proj-macm');
   assert.ok(notes.some((n) => /Sign in to Kosmos\+ again/.test(n.text)), JSON.stringify(notes));
   assert.ok(!notes.some((n) => /ask the owner/.test(n.text)), 'told to ask for a new code when signing in fixes it');
@@ -480,10 +480,29 @@ test('a real child is handled on close, after its last line, not on exit', async
   await fedseats.ensure('proj-close');
   const c = h.spawned[0];
   c.emit('exit', 3);                                         // exit first, the reason not read yet
-  assert.notStrictEqual(fedseats.statusOf('proj-close'), 'ended', 'handled on exit, before the last line');
+  assert.strictEqual(fedseats.statusOf('proj-close'), 'connecting', 'handled on exit, before the last line');
   say(c, { event: 'ended', because: 'Kosmos+ refused this Mac: unknown mac' });
   await tick();
   c.emit('close', 3);
-  assert.strictEqual(fedseats.statusOf('proj-close'), 'ended');
+  assert.strictEqual(fedseats.statusOf('proj-close'), 'reconnecting', 'the late Mac-level reason was not seen');
   assert.strictEqual(federation.linkFor('proj-close').ended, undefined, 'the late reason (Mac-level) was not seen');
+});
+
+test('after a Mac-level refusal the seat tries again on its own, and the room is told once, not every retry', async (t) => {
+  t.mock.timers.enable({ apis: ['setTimeout'] });
+  federation.recordLink('proj-back', { role: 'member', edge_id: 'edge-back' });
+  const h = harness();
+  await fedseats.ensure('proj-back');
+  for (let round = 0; round < 2; round++) {
+    const c = h.spawned[h.spawned.length - 1];
+    say(c, { event: 'ended', because: 'Kosmos+ refused this Mac: unknown mac' });
+    await tick();
+    c.emit('exit', 3);
+    t.mock.timers.tick(fedseats.MAC_RETRY_MS);
+    await tick(); await tick();
+  }
+  assert.strictEqual(h.spawned.length, 3, 'the seat did not come back by itself after a Mac-level refusal');
+  const notes = h.notes.filter((n) => n.projectId === 'proj-back' && /Sign in to Kosmos\+ again/.test(n.text));
+  assert.strictEqual(notes.length, 1, 'the sign-in note repeated on every retry');
+  assert.strictEqual(federation.linkFor('proj-back').ended, undefined);
 });

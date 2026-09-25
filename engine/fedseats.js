@@ -41,6 +41,8 @@ const MAX_POST_LINE = 16 * 1024;
 /* The connector's final refusals that are about this Mac or its account, not
    the connection (kosmos-relay fedroom.rs FINAL_REFUSALS). */
 const MAC_LEVEL_REFUSAL = /unknown mac|this mac was retired|account gone/i;
+/* How long a seat refused for a Mac-level reason waits before trying again. */
+const MAC_RETRY_MS = 5 * 60 * 1000;
 /* The longest stdout line kept while waiting for its newline. The connector
    prints one event per line, each under its 16 KiB post bound plus framing; a
    longer unterminated run is a broken child, and is dropped rather than held. */
@@ -93,7 +95,7 @@ function onEvent(projectId, line) {
   if (!s) return;
   // The backoff resets only once a connection has lasted (see the exit handler),
   // so a seat that connects and drops at once still backs off.
-  if (ev.event === 'connected') { setStatus(projectId, 'connected'); s.connectedAt = Date.now(); return; }
+  if (ev.event === 'connected') { setStatus(projectId, 'connected'); s.connectedAt = Date.now(); s.macNoted = false; return; }
   if (ev.event === 'disconnected') { setStatus(projectId, 'reconnecting'); return; }
   if (ev.event === 'ended') {
     s.ended = clean(ev.because, 200) || 'the connection ended';
@@ -102,7 +104,11 @@ function onEvent(projectId, line) {
     // the edge is kept and the person is told the real fix.
     s.macLevel = MAC_LEVEL_REFUSAL.test(s.ended);
     if (s.macLevel) {
-      say(projectId, 'This computer is not connected to Kosmos+ right now (' + s.ended + '). Sign in to Kosmos+ again in Settings, Kosmos Plus, and this shared project comes back.');
+      // Said once until the seat connects again, not on every slow retry.
+      if (!s.macNoted) {
+        s.macNoted = true;
+        say(projectId, 'This computer is not connected to Kosmos+ right now (' + s.ended + '). Sign in to Kosmos+ again in Settings, Kosmos Plus, and this shared project comes back.');
+      }
       return;
     }
     // An owner's seat is pinned to one member's edge: that edge ending is not
@@ -209,9 +215,16 @@ function spawnFor(projectId, edge) {
     if (!cur || cur.child !== child) return;
     cur.child = null;
     if (cur.stopped) return;
-    // About this Mac, not the edge: stop, keep nothing, and let the next sign-in
-    // (a board restart re-checks) bring the room back.
-    if (code === 3 && cur.macLevel) { setStatus(projectId, 'ended'); return; }
+    // About this Mac, not the edge: keep nothing, and try again slowly, so signing
+    // in again brings the room back without a restart (a Mac that is not signed in
+    // does not even try: ensure() waits for enrolled()).
+    if (code === 3 && cur.macLevel) {
+      cur.macLevel = false;
+      setStatus(projectId, 'reconnecting');
+      cur.timer = setTimeout(() => { cur.timer = null; ensure(projectId).catch(() => {}); }, MAC_RETRY_MS);
+      if (typeof cur.timer.unref === 'function') cur.timer.unref();
+      return;
+    }
     // 3 = a refusal retrying cannot fix: the connector exits 3 only on the
     // coordinator's final sentences (revoked, no such connection, account gone,
     // unknown or retired Mac). A lapsed account is NOT 3: the connector waits and
@@ -374,4 +387,4 @@ function stopAll() {
   seats.clear();
 }
 
-module.exports = { logUnreadable, STOP_KILL_MS, STABLE_MS, INBOUND_BYTES_PER_DAY, MAX_POST_LINE, configure, ensure, ensureAll, post, statusOf, stop, stopAll, onEvent, MAC_EDGES, INBOUND_PER_WINDOW, INBOUND_BYTES_PER_WINDOW };
+module.exports = { MAC_RETRY_MS, logUnreadable, STOP_KILL_MS, STABLE_MS, INBOUND_BYTES_PER_DAY, MAX_POST_LINE, configure, ensure, ensureAll, post, statusOf, stop, stopAll, onEvent, MAC_EDGES, INBOUND_PER_WINDOW, INBOUND_BYTES_PER_WINDOW };

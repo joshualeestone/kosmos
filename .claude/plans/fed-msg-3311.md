@@ -69,6 +69,8 @@ board yet carried messages between a federated project's room and its seat.
 - engine/fedseats.test.js, engine/messages.external-3311.test.js,
   server.fedmsg-3311.test.js, server.federation-3311.test.js,
   engine/federation.test.js: all pass (counts live in the runs, not here).
+- Review round 14 controls: no retry after a Mac-level refusal reds the status and
+  retry tests; saying the sign-in note every retry reds the note-once test.
 - Review round 13 controls, each reds its own test: counting dropped bytes toward
   the day; ignoring the Mac-level reason; handling a real child on exit instead of
   close; no shared-room line in the room view; no log for an unreadable record.
@@ -129,8 +131,10 @@ board yet carried messages between a federated project's room and its seat.
   and only KEPT bytes count, so a flood the minute bound drops cannot silence the
   room for the rest of the day.
 - A final refusal about this Mac or account (unknown mac, this Mac was retired,
-  account gone) is not a verdict on the edge: nothing is kept on the link, and the
-  room says to sign in to Kosmos+ again. Edge refusals (revoked, no such
+  account gone) is not a verdict on the edge: nothing is kept on the link, the
+  room says (once) to sign in to Kosmos+ again, and the seat retries every 5
+  minutes, so signing in brings the room back with no restart (round 14: it was
+  'ended' in memory, which only a board restart cleared). Edge refusals (revoked, no such
   connection) are kept as before. Real children are handled on 'close', so the
   connector's last line (its reason) is read first.
 - The room view agents read (`kosmos room`) starts with a line saying the room is
