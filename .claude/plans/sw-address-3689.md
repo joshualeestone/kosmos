@@ -10,7 +10,8 @@ Card: kosmos #3689, the BOARD half (`web/sw.js`). The coordinator half (kosmos-r
   open.
 - A board with no relay domain (localhost, an IP address, a two-label host) opens itself on every tap.
 - The label rule is the iOS app's (`PushBridge.isHostLabel`: RFC 1123, no `xn--`), with a domain of
-  at least two labels. This keeps a tap on Kosmos-owned hosts; it does not prove the host is one of
+  at least two labels. On the Kosmos relay domain this keeps a tap on Kosmos-owned hosts (see Known
+  limit for a board served elsewhere); it does not prove the host is one of
   this person's Macs (another person's Mac or a service host like `login.<domain>` has the same
   shape). Two differences from iOS's `isMacHost`: the domain comes from the worker's own host, and
   the coordinator host is not excluded, since the board does not know it.
@@ -18,12 +19,14 @@ Card: kosmos #3689, the BOARD half (`web/sw.js`). The coordinator half (kosmos-r
 - docs/browser-checks/render-push-718.js, whose board runs on 127.0.0.1, now expects the tap to open
   the board itself.
 
-- Rebased onto Kano's #3696 (main b852201c), which added the agent query to the same function
+## Decisions
+- **Rebased onto Kano's #3696** (main b852201c), which added the agent query to the same function
   (Liu Kang m679): the host is decided first, then `?tab=detail&agent=<session>` goes on whichever
   base that leaves. An allowed host plus a session opens `https://<host>/?tab=detail&agent=<s>`; a
   disallowed host plus a session opens `/?tab=detail&agent=<s>` on this board. Both are tested.
-
-## Decisions
+- **Known limit:** the domain is whatever the board is served under. On a shared domain (a tunnel
+  service, a public suffix like example.co.uk) any other name there would pass. The worker cannot
+  check the coordinator's domain, and the handler is dormant, so this is named, not fixed.
 - **Sibling of the worker's own host, not a pinned address.** The card offered two fixes: a suffix
   allowlist for the Kosmos domain, or pinning the address the subscription was made for. The board
   does not know "the Kosmos domain" as a setting, but the worker runs on `<mac>.<domain>`, so its own

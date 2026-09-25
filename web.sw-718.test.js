@@ -58,6 +58,7 @@ test('#3689: a domain-SHAPED address that is not a sibling Mac opens this board 
     'bad-.kosmosplus.com',            // or end with one
     'a'.repeat(64) + '.kosmosplus.com', // a label is at most 63 characters
     'st\u00fcdy.kosmosplus.com',      // non-ASCII
+    'wor\u212a.kosmosplus.com',       // the Kelvin sign lowercases to an ASCII k; refused before that
     // The navigation-boundary characters, now carrying our domain so they reach
     // the label check rather than failing on the suffix.
     'javascript:x.kosmosplus.com',
@@ -86,6 +87,8 @@ test('#3689: a board with no relay domain (localhost, an IP, a two-label host) o
 });
 
 test('boardUrlFor REJECTS hostile or malformed addresses (the arbitrary-navigation boundary)', () => {
+  // Since #3689 none of these end in the board's domain, so this now proves the
+  // suffix gate; the same characters carrying the domain are in the #3689 test.
   // A colon (scheme), a slash (path), an @ (userinfo), or whitespace must never
   // survive -- each is how a value could become a `javascript:` URI, a foreign
   // path, or a spoofed origin once it reaches openWindow()/navigate().

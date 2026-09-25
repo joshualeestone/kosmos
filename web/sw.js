@@ -141,15 +141,21 @@ const KIND_HEADLINE = {
    #3689: a domain SHAPE is not enough for the host. `address` must be exactly one
    host label under this board's own relay domain (this worker runs on
    "<mac>.<domain>", so "<other-mac>.<domain>" is accepted and "evil.example" is
-   not). That keeps a tap on Kosmos-owned hosts; it does NOT prove the host is one
-   of THIS person's Macs (another person's Mac, or a service host such as
-   login.<domain>, has the same shape), which only the coordinator knows. The label
+   not). On the Kosmos relay domain that keeps a tap on Kosmos-owned hosts; it
+   does NOT prove the host is one of THIS person's Macs (another person's Mac, or
+   a service host such as login.<domain>, has the same shape), which only the
+   coordinator knows. KNOWN LIMIT: the domain is whatever this board is served
+   under, which the worker cannot check against the coordinator; a board served on
+   a shared domain (a tunnel service such as *.trycloudflare.com, or a public
+   suffix such as example.co.uk) would accept any other name there. The label
    rule is the iOS app's (PushBridge.isHostLabel: RFC 1123, no punycode, since xn--
    is how a lookalike Unicode name arrives in ASCII). Two differences from iOS: the
    domain here comes from this worker's own host, not the coordinator's, and the
    coordinator host is not excluded (the board does not know it). A board on
-   localhost, an IP address or a two-label host has no relay domain, so every tap
-   opens the board on this origin. The host is decided FIRST; the session query is
+   localhost, an IP address, a two-label host, or a name written with a trailing
+   dot has no relay domain, so every tap opens the board on this origin. Non-ASCII
+   is refused before lowercasing, as iOS does (JS lowercases some non-ASCII
+   letters, such as the Kelvin sign, into ASCII ones). The host is decided FIRST; the session query is
    added after, to whichever base that leaves. */
 const TAP_SESSION = /^[a-z0-9][a-z0-9_-]{0,63}$/;
 
@@ -166,7 +172,7 @@ function isHostLabel(label) {
 
 // The Mac host a tap may open, lowercased, or '' when `address` is not one.
 function macHostFor(address) {
-  if (typeof address !== 'string') return '';
+  if (typeof address !== 'string' || !/^[\x00-\x7f]*$/.test(address)) return '';
   const host = address.toLowerCase();
   const domain = relayDomainOf(self.location && self.location.hostname);
   if (!domain || !host.endsWith('.' + domain)) return '';
