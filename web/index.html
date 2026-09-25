@@ -1352,12 +1352,14 @@ button.uprime:hover, .btn.uprime:hover, .utoast .uacts button.uprime:hover,
            background: var(--bg-elevated); padding: 0; min-width: 0; }
 .pj-mode-opt { flex: 1 1 0; display: flex; align-items: center; justify-content: center; font: inherit;
                font-weight: 600; font-size: 14px; line-height: 1.2; min-height: 36px;
-               padding: 0 var(--space-5); text-align: center; background: none; color: var(--label-2); cursor: pointer; }
+               padding: 0 var(--space-5); text-align: center; background: none; color: var(--label-2); cursor: pointer;
+               position: relative; }   /* the hidden radio positions against its own segment */
 .pj-mode-opt + .pj-mode-opt { border-left: 0.5px solid var(--separator); }
 /* The tab IS the control; the radio is visually hidden but stays focusable + keyboard-navigable. */
 .pj-mode-opt input { position: absolute; width: 1px; height: 1px; margin: 0; opacity: 0; pointer-events: none; }
 .pj-mode-opt:hover:not(:has(input:checked)) { color: var(--label); }
 .pj-mode-opt:has(input:checked) { background: var(--gold-bright); color: #14161a; }
+/* Inset, as .vt's is, because the bar clips (overflow: hidden); 3px so the 2px ring clears the hairline. */
 .pj-mode-opt:has(input:focus-visible) { outline: 2px solid var(--label); outline-offset: -3px; }
 .pj-mode-opt:has(input:checked:focus-visible) { outline-color: #14161a; }
 /* #3495: the fields below it match Project settings (#750, "just like the new agent"): no bounding
