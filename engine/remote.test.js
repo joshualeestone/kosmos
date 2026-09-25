@@ -72,7 +72,13 @@ if (args[0] === 'signin') {
   if (verb === 'verify') {
     const code = flag('--code');
     if (code === '000000') { process.stderr.write('the coordinator said no (401): that code is not right\\n'); process.exit(1); }
-    if (code === '222222') { console.log(JSON.stringify({ stage: 'second', challenge: 'ch_fake_123' })); process.exit(0); }
+    if (code === '222222') { console.log(JSON.stringify({ stage: 'second', challenge: 'ch_fake_123', second: 'totp', sent_to: null })); process.exit(0); }
+    // #3796: an sms account, and one whose answer carries shapes the page must never render.
+    if (code === '242424') { console.log(JSON.stringify({ stage: 'second', challenge: 'ch_fake_124', second: 'sms', sent_to: '\u2022\u2022\u2022 4321' })); process.exit(0); }
+    if (code === '252525') { console.log(JSON.stringify({ stage: 'second', challenge: 'ch_fake_125', second: 'carrier-pigeon', sent_to: '<b>555-0100</b>' })); process.exit(0); }
+    // #3796 addendum 8: a session for an account that already owns an address, and one with a bad address shape.
+    if (code === '262626') { console.log(JSON.stringify({ stage: 'session', token: 'kst1.session-owned', account_address: 'josh0925-150pm.kosmosplus.com' })); process.exit(0); }
+    if (code === '272727') { console.log(JSON.stringify({ stage: 'session', token: 'kst1.session-odd', account_address: 'javascript:alert(1)' })); process.exit(0); }
     if (code === '333333') { console.log(JSON.stringify({ stage: 'enrol_second_factor', enrol: true, token: 'kst1.enrol-fake', sms_available: true, why_authenticator: 'stronger than sms' })); process.exit(0); }
     if (code === '777777') { console.log(JSON.stringify({ stage: 'enrol_second_factor', enrol: true, sms_available: true })); process.exit(0); }  // enrol stage with NO token -> engine guard
     if (code === '888888') { console.log(JSON.stringify({ stage: 'enrol_second_factor', enrol: true, token: 'kst1.enrol-nomaterial', sms_available: true, why_authenticator: 'why' })); process.exit(0); }  // holds a token whose enrol answer omits the material -> engine fail-closed
@@ -274,14 +280,15 @@ test('the code step validates in words, enrolls through the binary, and brings t
   remote.ensure(4100);
   await remote.setupStart('her@example.com');
   assert.match((await remote.setupComplete('12345', 'hers')).because, /six digits/);
-  assert.match((await remote.setupComplete('123456', 'NO CAPS')).because, /lowercase/);
+  // #3796 addendum 6: capitals are accepted (lowercased); a space is still not a name.
+  assert.match((await remote.setupComplete('123456', 'NO CAPS')).because, /3 to 32 letters/);
   const refused = await remote.setupComplete('000000', 'hers');
   assert.equal(refused.ok, false);
   assert.match(refused.because, /not right/);
-  const done = await remote.setupComplete('123456', 'hers');
+  const done = await remote.setupComplete('123456', 'Hers');   // #3796 addendum 6: typed with a capital
   assert.equal(done.ok, true, done.because);
   assert.equal(remote.enrolled(), true);
-  assert.equal(remote.address(), 'hers.kosmos.invalid');
+  assert.equal(remote.address(), 'hers.kosmos.invalid', 'the name did not reach the connector lowercased');
   await until(() => remote.status().state === 'up', 'the tunnel to come up');
   const s = remote.status();
   assert.equal(s.address, 'hers.kosmos.invalid');
@@ -306,9 +313,10 @@ test('#1010: a reinstall whose state survived is recognised, not re-enrolled, an
   // mint a new identity key and hit the coordinator's 409 about "a Mac on this
   // account". Clear the record so we count only the second attempt's calls.
   fs.rmSync(RECORD, { force: true });
-  const again = await remote.setupComplete('123456', 'hers');
+  // #3796 review: typed with a capital, it is still THIS Mac (lowercased before the recognition).
+  const again = await remote.setupComplete('123456', 'Hers');
   assert.equal(again.ok, true, again.because);
-  assert.equal(again.alreadySetUp, true, 'a reinstall was re-enrolled instead of recognised');
+  assert.equal(again.alreadySetUp, true, 'a reinstall was re-enrolled instead of recognised (a capital broke the #1010 check)');
   assert.equal(again.address, 'hers.kosmos.invalid');
   assert.ok(
     !recorded().some((c) => c[0] === 'setup' && c[1] === 'complete'),
@@ -671,6 +679,41 @@ test('signin cancel drops the held session, challenge and enrol token', async ()
   assert.equal(ok.ok, true, 'control: ' + ok.because);
 });
 
+/* #3796 addendum 3 (Josh's live test: an authenticator-only account was told to wait for a text): the
+   second stage names the account's ONE factor, passed through only in the shapes the coordinator sends. */
+test('signin verify names the account\'s second factor: totp, sms with its masked tail, and nothing else', async () => {
+  await remote.signinStart('her@example.com');
+  const totp = await remote.signinVerify('her@example.com', '222222');
+  assert.equal(totp.data.second_kind, 'totp');
+  assert.equal(totp.data.sent_to, '', 'a totp account has no phone to name');
+  await remote.signinStart('her@example.com');
+  const sms = await remote.signinVerify('her@example.com', '242424');
+  assert.equal(sms.data.second_kind, 'sms');
+  assert.equal(sms.data.sent_to, '\u2022\u2022\u2022 4321');
+  await remote.signinStart('her@example.com');
+  const odd = await remote.signinVerify('her@example.com', '252525');
+  assert.equal(odd.ok, true, odd.because);
+  assert.equal(odd.data.second_kind, '', 'an unknown kind was passed through to the page');
+  assert.equal(odd.data.sent_to, '', 'an unmasked or marked-up sent_to was passed through to the page');
+  assert.ok(!JSON.stringify(odd.data).includes('ch_fake'), 'the challenge id leaked');
+});
+
+/* #3796 addendum 8: an account that already owns an address signs in to it; the session stage carries
+   the address so the name step can ask for nothing. Only the coordinator's own shape passes. */
+test('signin verify passes the account\'s existing address through, and only in its own shape', async () => {
+  await remote.signinStart('her@example.com');
+  const owned = await remote.signinVerify('her@example.com', '262626');
+  assert.equal(owned.data.stage, 'session');
+  assert.equal(owned.data.account_address, 'josh0925-150pm.kosmosplus.com');
+  assert.ok(!JSON.stringify(owned.data).includes('kst1.'), 'the session token leaked');
+  await remote.signinStart('her@example.com');
+  const odd = await remote.signinVerify('her@example.com', '272727');
+  assert.equal(odd.data.account_address, '', 'an address in the wrong shape was passed to the page');
+  await remote.signinStart('her@example.com');
+  const plain = await remote.signinVerify('her@example.com', '111111');
+  assert.equal(plain.data.account_address, '', 'an account with no address got one');
+});
+
 test('signin verify surfaces the phone-challenge and enrol stages without leaking the challenge id', async () => {
   await remote.signinStart('her@example.com');
   const second = await remote.signinVerify('her@example.com', '222222');
@@ -708,8 +751,10 @@ test('signin enrol and confirm-enrol drive an in-app second-factor setup, token 
   assert.ok(!('token' in done.data), 'the session token leaked through confirm-enrol');
   assert.ok(!JSON.stringify(done.data).includes('kst1.'), 'the session token value leaked under some key: ' + JSON.stringify(done.data));
   // The session is now held, so register can spend it.
-  const reg = await remote.signinRegister('hers');
+  const reg = await remote.signinRegister(' Hers ');   // #3796 addendum 6: capitals and stray spaces are fine
   assert.equal(reg.ok, true, reg.because);
+  const regCall = recorded().find((c) => c[0] === 'signin' && c[1] === 'register');
+  assert.ok(regCall && regCall[regCall.indexOf('--name') + 1] === 'hers', 'register did not pass the name lowercased: ' + JSON.stringify(regCall));
   assert.equal(reg.data.stage, 'registered');
 });
 
@@ -812,6 +857,21 @@ test('signin second requires a challenge waiting, then finishes with a held sess
     'the held challenge id did not reach the binary');
 });
 
+/* #3827: a successful in-app sign-in switches Kosmos+ ON, so the tunnel actually starts. Starts from OFF
+   (the full sign-in test below switches on first, which is exactly what hid this). */
+test('#3827 an in-app sign-in from a switched-off computer turns Kosmos+ on and brings the tunnel up', async () => {
+  process.env.AGENT_WORKFORCE_TUNNEL_RELAY = '127.0.0.1:9444';
+  remote.setOn(false);
+  assert.equal(remote.read().on, false, 'CONTROL: starts switched off');
+  await remote.signinStart('her@example.com');
+  await remote.signinVerify('her@example.com', '111111');
+  const reg = await remote.signinRegister('offmac');
+  assert.equal(reg.ok, true, reg.because);
+  assert.equal(remote.read().on, true, 'signing in left Kosmos+ switched off, so nothing connects');
+  await until(() => remote.status().state === 'up', 'the tunnel to come up after sign-in from off');
+  remote.setOn(false);
+});
+
 test('the full sign-in registers this computer, pipes the token off argv, and brings the tunnel up', async () => {
   process.env.AGENT_WORKFORCE_TUNNEL_RELAY = '127.0.0.1:9444';
   remote.setOn(true);
@@ -820,7 +880,8 @@ test('the full sign-in registers this computer, pipes the token off argv, and br
   await remote.signinVerify('her@example.com', '222222');   // phone path
   await remote.signinSecond('123456');
   // Register needs no token argument: the engine holds it.
-  assert.match((await remote.signinRegister('NO CAPS')).because, /lowercase/);
+  // #3796 addendum 6: capitals are accepted now; the space is what refuses this one.
+  assert.match((await remote.signinRegister('NO CAPS')).because, /3 to 32 letters/);
   const done = await remote.signinRegister('hers');
   assert.equal(done.ok, true, done.because);
   assert.equal(done.data.stage, 'registered');
