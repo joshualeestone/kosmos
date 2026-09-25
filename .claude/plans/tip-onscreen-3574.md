@@ -44,3 +44,9 @@ T31 and every other arm still pass.
   stop). Controls: without the measured height, T32c and T32d fail; without the scroll restore, T32d fails.
 - The no-target card's 80px floor is clamped onto the screen.
 - The "stay put" check uses the same on-screen test, slack included, so a phone card does not jump on scroll.
+- Review 5:
+  - Scrolling the words no longer queues a placement. On WebKit the clear-and-restore looped every frame.
+  - The words' height is computed from the card as it stands, and written only on change.
+  - A focused word region hands focus to Got it before its tab stop goes.
+  - T32f and T32g cover it. Controls: without the scroll ignore, T32f fails; without the hand-off, T32g fails.
+  - All T32 arms also passed once under Playwright WebKit. There, T24 and T25 (failed-save interception, untouched here) fail for a WebKit route reason. CI is Chromium.
