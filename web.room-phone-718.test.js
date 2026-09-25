@@ -55,9 +55,7 @@ test('on a touchscreen only a tap (or focus) opens the room reaction bar, never 
   const comp = html.match(/\n\.pjmid \.composer \{ position: sticky; bottom: 0; z-index: (\d+);/);
   assert.ok(lift && comp, 'the open-row lift and the sticky composer rule are both found');
   assert.ok(Number(lift[1]) >= 1 && Number(lift[1]) < Number(comp[1]), 'the open row is above its neighbours (z auto) but under the sticky composer: ' + lift[1] + ' vs ' + comp[1]);
-  assert.match(t, /#pj-post \{ font-size: 16px; \}/, 'no iOS focus zoom on the room composer');
-  assert.match(t, /\.pjmid #pj-post-mirror \.pj-mirror-in \{ font-size: 16px; \}/, 'and its @mention mirror matches it');
-  assert.match(t, /#pj-room-search, #pj-thread-who, #pj-list-view \.sortctl select \{ font-size: 16px; \}/, 'and every other field on these pages (iOS zooms any field under 16px)');
+  assert.match(t, /\.pjmid #pj-post-mirror \.pj-mirror-in \{ font-size: 16px; \}/, 'the composer\'s @mention mirror matches the composer (16px through the project page\'s one field rule)');
   assert.match(t, /#pj-room \.msg\.rxn-below \.rxn-quick \{ bottom: auto; top: calc\(100% \+ 4px\); \}/, 'and below it where the thread top would cut it');
   assert.match(html, /document\.addEventListener\('pointerdown', \(e\) => \{\n  if \(!RXN_SHOW_POST\) return;[^\n]*\n  const room = document\.getElementById\('pj-room'\);/, 'outside taps close on pointerdown (iOS sends no click to a document listener for plain content)');
   assert.match(t, /#pj-room \.msg:not\(\.you\) \.rxn-quick \{ right: auto; left: 0; \}/, 'an agent bar starts at its bubble, not past the thread edge');
@@ -108,4 +106,6 @@ test('every field on the project page and its Tasks and members dialogs is 16px 
   const t = blocks('hover: none');
   assert.match(t, /#panel-projects :is\(input, select, textarea\), #nt-modal :is\(input, select, textarea\),\n  #am-modal :is\(input, select, textarea\) \{ font-size: 16px; \}/);
   assert.doesNotMatch(html.replace(/@media \(hover: none\) \{[\s\S]*?\n\}/g, ''), /#panel-projects :is\(input, select, textarea\)/, 'never outside the touch query');
+  // One rule, scoped: no unscoped class that reaches other screens (Settings uses .tk-inp).
+  assert.doesNotMatch(t, /(^|[\s,])\.tk-inp\s*[,{]/m, '.tk-inp is not raised app-wide');
 });

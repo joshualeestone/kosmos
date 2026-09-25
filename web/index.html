@@ -5871,11 +5871,8 @@ body:not(.consolidated) .pjmidhead:has(.pjhead) .tsearch:focus-within { flex-bas
   /* iOS zooms into a focused field under 16px and does not zoom back, leaving the page to pan
      sideways. The mirror draws the same text for the @mention colour, so it moves with it
      (pinned equal by web.room-phone-718.test.js). */
-  #pj-post { font-size: 16px; }
+  /* The composer itself is 16px through the project page's one field rule (after .tk-inp). */
   .pjmid #pj-post-mirror .pj-mirror-in { font-size: 16px; }
-  /* The same zoom hits the room's other fields, its search and its who picker, and the
-     projects list's sort. (The Tasks and members fields: the touch rule after .tk-inp.) */
-  #pj-room-search, #pj-thread-who, #pj-list-view .sortctl select { font-size: 16px; }
   #pj-room .rxn-pick, #pj-room .rxn-more { min-width: 36px; min-height: 36px; }
   /* A reaction already on a post is a target too, on any touchscreen (a phone turned
      sideways is wider than the phone block but still a thumb). */
@@ -7726,11 +7723,11 @@ body.consolidated .tkcard:hover { border-color: transparent; }
           border: 0.5px solid var(--border-strong); background: var(--field-fill); }
 /* #718 mobile (Liu Kang m705): iOS zooms into any field under 16px and does not zoom back, so
    the page pans sideways. Every field on the project page and its Tasks and members dialogs, on
-   a touchscreen only, plus the Tasks fields by name wherever they appear. After .tk-inp's rule
-   above, so it wins. The phone check sweeps the same three places, so a new field cannot slip
-   under 16px unnoticed. */
+   a touchscreen only: the ONE rule for them (the room's composer, search and who picker, the
+   projects sort, the Tasks and add-member fields are all inside these three). Scoped, so other
+   screens' .tk-inp fields (Settings) are unchanged. The composer's @mention mirror must match it
+   and is set beside the room's touch rules. The phone check sweeps the same three places. */
 @media (hover: none) {
-  #nt-what, #nt-who, .tk-inp, .tkwho-sel, #pj-one-add,
   #panel-projects :is(input, select, textarea), #nt-modal :is(input, select, textarea),
   #am-modal :is(input, select, textarea) { font-size: 16px; }
 }
@@ -41669,7 +41666,7 @@ function pjView(which) {
      navigation-only (room polls never pass through here), so a picker in use stays
      open; only a navigation closes it. */
   rxnCloseAllPickers();
-  try { pjRxnClose(); } catch (_e) { /* before the room script's state exists (load order) */ }   // #718: a touchscreen reaction bar too
+  pjRxnClose();   // #718: a touchscreen reaction bar too (its state is var, so safe at any load point)
   // Arriving at a project resets the member picker to its resting state (the
   // "+ Add Member" button), so an open picker does not leak from the last
   // project into this one. Navigation-only: repaints while the view is open
@@ -46455,7 +46452,7 @@ function pjPhoneOrder() {
   } else if (mid.previousElementSibling !== split) {
     grid.insertBefore(split, mid);
   }
-  if (focused && document.activeElement !== focused && focused.isConnected) { try { focused.focus({ preventScroll: true }); } catch (_e) { /* gone */ } }
+  if (focused && document.activeElement !== focused && focused.isConnected) focused.focus({ preventScroll: true });
   // Members/Files going above the room pushes the composer down the page; a person mid-post
   // keeps it in view (WebKit has no scroll anchoring to do it).
   const post = document.getElementById('pj-post');
@@ -46469,9 +46466,11 @@ if (window.matchMedia) {
 }
 /* The post whose touchscreen reaction bar is open, and its project (post ids are per project),
    so a repaint can put it back (below) and another project's same id never inherits it. */
-let RXN_SHOW_POST = null;
-let RXN_SHOW_PID = null;
-let RXN_PINNED = false;   // the open bar was pinned by a tap (a scroll closes it; a repaint keeps it)
+/* var, not let: pjView (much earlier in this script) closes an open bar on navigation, and a var
+   has no temporal dead zone, so that call is safe whatever order the script's code runs in. */
+var RXN_SHOW_POST = null;
+var RXN_SHOW_PID = null;
+var RXN_PINNED = false;   // the open bar was pinned by a tap (a scroll closes it; a repaint keeps it)
 /* Above the message unless the thread's top edge, or the top of the screen (the page itself
    scrolls on a phone), would cut it; then below (CSS .rxn-below). */
 function pjRxnVisibleBand(room) {

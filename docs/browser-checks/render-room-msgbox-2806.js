@@ -738,16 +738,13 @@ const now = () => new Date().toISOString();
       chk(!pjRow.error && pjRow.fontPx >= 16 && pjRow.clear && pjRow.inside && pjRow.sortWhole && pjRow.toggleWhole, `[phone/touch] the projects row's Add Project, sort and toggle do not overlap at 375, and neither the sort's label nor the toggle is cut or squeezed`, JSON.stringify(pjRow));
       // A SWEEP, not a hand list (Liu Kang m705): every field on the project page, its Tasks and
       // members dialogs included, computes at 16px or more on a touchscreen, or iOS zooms in and
-      // the page pans sideways. A dynamically made part-assignee select is added so its class
-      // rule is covered too.
+      // the page pans sideways.
       const fonts = await phonePage.evaluate(() => {
         const roots = ['#panel-projects', '#nt-modal', '#am-modal'].map((q) => document.querySelector(q)).filter(Boolean);
         if (roots.length !== 3) return { error: 'a root is missing', found: roots.length };
-        const probe = document.createElement('select'); probe.className = 'tkwho-sel'; roots[0].appendChild(probe);
         const skip = new Set(['checkbox', 'radio', 'range', 'color', 'file', 'hidden', 'button', 'submit', 'reset', 'image']);
         const fields = roots.flatMap((r) => [...r.querySelectorAll('input, select, textarea')]).filter((el) => !(el.tagName === 'INPUT' && skip.has((el.type || '').toLowerCase())));
         const small = fields.map((el) => ({ id: el.id || el.className || el.tagName, px: parseFloat(getComputedStyle(el).fontSize) })).filter((f) => f.px < 16);
-        probe.remove();
         return { count: fields.length, small, hoverNone: matchMedia('(hover: none)').matches };
       });
       chk(!fonts.error && fonts.hoverNone && fonts.count >= 6 && fonts.small.length === 0, `[phone/touch] every field on the project page is at least 16px (no iOS zoom)`, JSON.stringify(fonts));
@@ -1075,13 +1072,14 @@ const now = () => new Date().toISOString();
       // has nowhere to go and closes, rather than sit open at an unplaced default.
       const emptyBand = await phonePage.evaluate(() => {
         const row = document.querySelector('#pj-room .msg'); if (!row || typeof pjRxnPlace !== 'function') return { error: 'no row or pjRxnPlace' };
-        const real = window.pjRxnVisibleBand; window.pjRxnVisibleBand = () => ({ top: 300, bottom: 200 });
+        let stubCalled = false;
+        const real = window.pjRxnVisibleBand; window.pjRxnVisibleBand = () => { stubCalled = true; return { top: 300, bottom: 200 }; };
         row.classList.add('rxn-show'); RXN_SHOW_POST = 'x';
         try { pjRxnPlace(row, true); } finally { window.pjRxnVisibleBand = real; }
-        const res = { shownAfter: row.classList.contains('rxn-show'), post: RXN_SHOW_POST };
+        const res = { stubCalled, shownAfter: row.classList.contains('rxn-show'), post: RXN_SHOW_POST };
         return res;
       });
-      chk(!emptyBand.error && emptyBand.shownAfter === false && emptyBand.post === null, `[phone/touch] with no thread showing a tapped bar closes`, JSON.stringify(emptyBand));
+      chk(!emptyBand.error && emptyBand.stubCalled && emptyBand.shownAfter === false && emptyBand.post === null, `[phone/touch] with no thread showing a tapped bar closes`, JSON.stringify(emptyBand));
     } finally {
       await phonePage.close();
     }
@@ -1105,7 +1103,7 @@ const now = () => new Date().toISOString();
           named: { 'nt-what': px('nt-what'), 'nt-who': px('nt-who'), 'pj-one-add': px('pj-one-add'), 'tk-due': px('tk-due'), 'pj-name': px('pj-name') } };
       });
       const named = Object.values(desk.named || {});
-      chk(desk.hoverNone === false && desk.count >= 6 && named.length === 5 && named.every((v) => v !== null && v < 16),
+      chk(desk.hoverNone === false && desk.count >= 6 && desk.at16.length === 0 && named.length === 5 && named.every((v) => v !== null && v < 16),
         `[desktop/mouse] the touch-only 16px rule changes no field's size with a mouse`, JSON.stringify(desk));
     } finally {
       await deskPage.close();
