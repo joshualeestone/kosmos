@@ -77,7 +77,7 @@ test('below 25 the tab stays hidden; the 25th task shows it; it stays shown afte
 
 test('the flag never clobbers an unreadable settings file; it lands on a later poll once the file reads', async () => {
   const fsx = require('node:fs');
-  const settingsFile = path.join(store.ROOT, 'settings.json');
+  const settingsFile = store.settingsPath();   // the store's own path, not a second derivation of it
   // A board past 25 whose settings file does not parse (the earlier test saved the flag; this one
   // breaks the file, which also drops that flag as far as any reader can tell).
   const p = projects.create({ name: 'Gate C' });
@@ -92,4 +92,25 @@ test('the flag never clobbers an unreadable settings file; it lands on a later p
   const after = JSON.parse(fsx.readFileSync(settingsFile, 'utf8'));
   assert.equal(after.tasksTabShown, true, 'the skipped write was never retried');
   assert.equal(after.timezone, 'America/Chicago', 'the retry lost the person\'s other settings');
+});
+
+test('the store\'s guarded write: absent file written, object merged, anything unreadable left alone', () => {
+  const fsx = require('node:fs');
+  const f = store.settingsPath();
+  fsx.rmSync(f, { force: true });
+  assert.ok(store.writeSettingsIfReadable({ a: 1 }), 'an absent file was not written');
+  assert.equal(JSON.parse(fsx.readFileSync(f, 'utf8')).a, 1);
+  assert.ok(store.writeSettingsIfReadable({ b: 2 }));
+  const merged = JSON.parse(fsx.readFileSync(f, 'utf8'));
+  assert.equal(merged.a, 1, 'the merge dropped an existing setting');
+  assert.equal(merged.b, 2);
+  for (const bad of ['{ "a": 1, oops', '[1,2]', '"text"']) {
+    fsx.writeFileSync(f, bad);
+    assert.equal(store.writeSettingsIfReadable({ c: 3 }), null, 'wrote over an unreadable settings file: ' + bad);
+    assert.equal(fsx.readFileSync(f, 'utf8'), bad);
+  }
+  // CONTROL: the ordinary writeSettings DOES merge over {} there, which is why the guarded one exists.
+  fsx.writeFileSync(f, '{ "timezone": "x", oops');
+  store.writeSettings({ c: 3 });
+  assert.equal(JSON.parse(fsx.readFileSync(f, 'utf8')).timezone, undefined);
 });
