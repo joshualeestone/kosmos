@@ -102,6 +102,11 @@ function selfCheck() {
    Native sliders are therefore skipped from every field check where the fields are collected
    in measure() (see isNativeSlider), and listed by id; a slider styled appearance:none DOES
    paint its fill, so it stays a field, like a select. */
+/* The native sliders the skip is known to drop. Any OTHER slider it would drop FAILS the check:
+   a denominator that only prints is not a denominator, and a slider meant to be restyled
+   (appearance:none) that lost the cascade would otherwise leave the field checks silently.
+   Adding a native slider on purpose means adding its id here. */
+const KNOWN_NATIVE_SLIDERS = ['d-swarm-max', 'd-swarm-cap', 'create-swarm-max', 'create-swarm-cap'];
 const FIELDS = 'input:not([type=button]):not([type=file]):not([type=checkbox]):not([type=radio]):not([type=submit]), textarea, select';
 /* ⚠️ BUTTONS TOO, and their absence was a hole shaped exactly like the defect
    this branch shipped: `#cstep-made`'s buttons sat at 1.05:1 against their own
@@ -312,8 +317,9 @@ async function measure(engine, scheme) {
     };
     // One pass: each element is judged once, so the count and the filter cannot disagree.
     const nativeSliders = [], keptEls = [];
+    let unnamed = 0;
     for (const el of document.querySelectorAll(sel)) {
-      if (isNativeSlider(el)) nativeSliders.push(el.id || 'input[type=range]'); else keptEls.push(el);
+      if (isNativeSlider(el)) nativeSliders.push(el.id || `input[type=range][${unnamed++}]`); else keptEls.push(el);
     }
     const fields = keptEls.map((el) => {
       const c = getComputedStyle(el);
@@ -381,6 +387,7 @@ async function measure(engine, scheme) {
       seen[scheme] = r;
       console.log(`\n== ${engine} / ${scheme} ==  fields ${r.fields.length}, page errors ${r.errs.length}`);
       console.log(`  native sliders not measured (they paint no field fill): ${r.nativeSliders.length}${r.nativeSliders.length ? ' - ' + r.nativeSliders.join(', ') : ''}`);
+      for (const id of r.nativeSliders) if (!KNOWN_NATIVE_SLIDERS.includes(id)) fail(`${engine}/${scheme} slider ${id} is skipped as native but is not in KNOWN_NATIVE_SLIDERS: add it there if it is meant to be a native slider, or restyle it (appearance:none) to be measured as a field`);
       for (const e of r.errs) fail(`${engine}/${scheme} ${e}`);
 
       /* ⚠️ A DENOMINATOR THAT ONLY PRINTS IS NOT A DENOMINATOR. Containers,
