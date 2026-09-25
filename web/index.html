@@ -25292,7 +25292,7 @@ function paintOrg() {
       /* #3423: the chip-filter markers, keyed on the SERVER state to match the
          "Issue" (c.needsYou) and "No project" (c.needsYouUnattributed) tile counts
          exactly -- NOT the local `needsYou` above (cardStOf.st==='attn', which folds
-         in needs_trust and a given-up connection (#3410) and splits off agent questions, so it would not match the
+         in the same cases data-attn does but splits off agent questions, so it would not match the
          count). Kept inline/self-contained like data-has-msgs. */
       + (a && (a.state === 'needs_you' || a.state === 'needs_trust' || (a.state === 'connection_lost' && a.reconnect && a.reconnect.phase === 'gave_up')) ? ' data-attn' : '')
       + (a && a.state === 'needs_you' && a.stateProject === null ? ' data-noproj' : '')

@@ -7291,6 +7291,13 @@ function snapshot() {
  * `unreadableLines` is passed in rather than derived: it is a fact about what
  * tmux returned, not about the cards, and it survives filtering unchanged.
  */
+/* #3410/#3718 (Mona Lisa, 2026-09-25): the Issue tile and filter mean "needs the person":
+   needs_you, needs_trust, and a connection Kosmos has given up reconnecting. The page's data-attn
+   inlines the same rule (its painters stay self-contained), and the route counts with this. */
+function needsPerson(a) {
+  return Boolean(a) && (a.state === STATE.NEEDS_YOU || a.state === 'needs_trust'
+    || (a.state === 'connection_lost' && Boolean(a.reconnect) && a.reconnect.phase === 'gave_up'));
+}
 function countAgents(agents, unreadableLines, unreadableSamples) {
   return {
     total: agents.length,
@@ -7303,11 +7310,10 @@ function countAgents(agents, unreadableLines, unreadableSamples) {
        to a follow-up with Josh's call + Mona (design) + PigeonPete (#1253 owner) rather than
        reshaped unilaterally here. The card is the surface a QA tester reads as "app broken";
        calming it is the confident, low-blast-radius half. */
-    /* #3410/#3718 (Mona Lisa, 2026-09-25): the Issue tile means "needs the person": needs_you,
-       needs_trust, and a connection Kosmos gave up reconnecting (reconnect is set by the
-       /api/status route before it counts). The page's data-attn uses the same rule. */
-    needsYou: agents.filter((a) => a.state === STATE.NEEDS_YOU || a.state === 'needs_trust'
-      || (a.state === 'connection_lost' && a.reconnect && a.reconnect.phase === 'gave_up')).length,
+    /* #3410/#3718: needsPerson, the Issue tile's rule. A given-up connection only counts where
+       `reconnect` is set (the /api/status route; snapshot()'s own counts never see one), and
+       needs_trust rows are built by the route after this, so it adds those itself. */
+    needsYou: agents.filter(needsPerson).length,
     /* #1898: of those needs_you, how many named NO project (`stateProject`
        null). A needs_you without `--project` lights no project tile, so it is
        the easy-to-miss case a person scanning the Projects board never sees; the
@@ -7461,7 +7467,7 @@ module.exports = {
   sessionStartedAtFromTmux, transcriptForSession, setSessionSource,
   identityFromText, configRoots, transcriptCwd,
   swarmField,   // #3564: exported so the meter's owner test is tested through the real folder search
-  countAgents, projectsUnreadTotal, snapshot, paneRoster, readPanes, isParseable, classify, isNamedOurs,
+  countAgents, needsPerson, projectsUnreadTotal, snapshot, paneRoster, readPanes, isParseable, classify, isNamedOurs,
   /* #3532: exported so the pane-filter + advisory wiring is testable with injected deps. */
   computeLoginAdvisories,
   rank, paneOrder, modelDisplayName, readIdentity, transcriptFor, readCodexContext,

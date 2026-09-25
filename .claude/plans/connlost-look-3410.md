@@ -26,7 +26,11 @@ up needs the person, so it should look like it. Angel makes the edit (agreed in 
   April had it by rotation) and a connection Kosmos gave up reconnecting. The count and the filter
   change together, so the filter still shows exactly what the tile says. data-noproj and
   needsYouUnattributed stay needs_you only. render-chip-filters-3423.js's needs_trust arm now
-  expects data-attn. Not changed: the per-project pill counts (engine/projects.js).
+  expects data-attn. The rule is engine/status.js needsPerson: countAgents counts the running rows
+  with it, and the route adds the offline needs_trust rows with it (they are built after the count).
+  Not changed: the per-project pill counts (engine/projects.js). A project's members come from a
+  projection without `reconnect` and without offline trust rows, so it cannot apply the rule
+  without the same borrow pjMember does; that is a separate change, recorded here, not built.
 - web/index.html prompterCheckinQuestion: given up asks "Restart it, or is it done?", the card's verb.
 - Tests: web.connection-lost-3410.test.js pins the sentences and the look per phase (control: no
   self-heal stays paused). The browser check asserts the card class and the computed border colour
