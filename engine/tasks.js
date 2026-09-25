@@ -760,6 +760,10 @@ function claimFor(task, reading, opts) {
     return {
       claimed: null,
       because: (reading && reading.because) || 'we could not read what it reports holding',
+      /* #3559 (Mona's look review): the one could-not-tell case the page may put in the agent's
+         own terms ("Rex has not said yet whether it started") is an agent that has never
+         reported at all. Carried as a field so the page never matches our prose. */
+      neverReported: !!(reading && reading.neverReported === true),
     };
   }
   // Server-issued numbers are integers; a hand-edited store can hold

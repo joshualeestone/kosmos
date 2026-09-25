@@ -86,6 +86,9 @@ function chk(ok, label, extra) {
     const rows = [...document.querySelectorAll('#tsk-groups .tsk-row')].map((r) => ({
       text: r.querySelector('.tl').textContent,
       state: (r.querySelector('.tsk-state') || {}).textContent || '',
+      /* The group a row sits in, by its heading: in a status group the heading IS the state, and
+         the row no longer repeats it (Mona's look review of #3701). */
+      group: (() => { const g = r.closest('.tsk-grp'); const h = g && (g.querySelector('h3') || g.querySelector('summary')); return h ? h.textContent : ''; })(),
     }));
     /* Any coloured left edge: a left border at least 2px wide that is not transparent. */
     const bars = [...panel.querySelectorAll('*')].filter((el) => {
@@ -97,6 +100,7 @@ function chk(ok, label, extra) {
       text: panel.innerText,
       tiles,
       rows,
+      fold: !!document.querySelector('#tsk-groups .tsk-fold'),
       bars,
       railShown: getComputedStyle(document.querySelector('.tsk-rail')).display !== 'none',
       /* On-screen boxes, not computed display: the dropdown's WRAPPER is what hides. */
@@ -131,14 +135,29 @@ function chk(ok, label, extra) {
       await page.waitForFunction(() => document.querySelectorAll('#tsk-tiles .tsk-tile').length > 0 && document.querySelectorAll('#tsk-groups .tsk-row').length > 0, null, { timeout: 8000 });
       const a = await page.evaluate(read);
       chk(a.visible, `${tag} the Tasks page is on screen`);
-      chk(JSON.stringify(a.tiles.map((t) => t.k)) === JSON.stringify(['nobody', 'assigned', 'working', 'closed']), `${tag} the tiles are exactly the four provable groups`, JSON.stringify(a.tiles));
+      /* Closed is not a tile (Mona's look review of #3701): tiles are the open work; Closed stays the fold. */
+      chk(JSON.stringify(a.tiles.map((t) => t.k)) === JSON.stringify(['nobody', 'assigned', 'working']), `${tag} the tiles are exactly the three provable open groups`, JSON.stringify(a.tiles));
+      chk(a.fold, `${tag} Closed stays the folded list`);
+      /* Mona's look review of #3701: the two big gaps, measured 51px above the title and 49px from
+         the tile hint to the first group, are about halved. Bounded both ways so neither creeps
+         back and neither collapses into crowding. */
+      const gaps = await page.evaluate(() => {
+        const box = (id) => document.getElementById(id).getBoundingClientRect();
+        const main = document.querySelector('#panel-tasks .tsk-main').getBoundingClientRect();
+        const h3 = document.querySelector('#tsk-groups .tsk-grp h3, #tsk-groups .tsk-grp summary').getBoundingClientRect();
+        return { aboveTitle: Math.round(box('tsk-title').top - main.top), hintToGroup: Math.round(h3.top - box('tsk-hint').bottom),
+          crumbEmpty: document.getElementById('tsk-crumb').textContent === '' };
+      });
+      chk(!gaps.crumbEmpty || (gaps.aboveTitle >= 16 && gaps.aboveTitle <= 32), `${tag} the gap above the title is about half the old 51px`, JSON.stringify(gaps));
+      chk(gaps.hintToGroup >= 16 && gaps.hintToGroup <= 32, `${tag} the gap from the tile hint to the first group is about half the old 49px`, JSON.stringify(gaps));
       chk(a.tiles.every((t) => t.n === EXPECT[t.k]), `${tag} each tile counts its group`, JSON.stringify(a.tiles));
       chk(!/Waiting on you|Done, check it|Categor/i.test(a.text), `${tag} no unprovable group or category is drawn`);
       chk(!/Archived away task|Old catalog/.test(a.text), `${tag} an archived project's tasks are left out`);
       const date = a.rows.find((r) => r.text === 'Pick the launch date');
-      chk(date && /In progress/.test(date.state), `${tag} the task its agent named is In progress`, JSON.stringify(date));
+      chk(date && /In progress/.test(date.group), `${tag} the task its agent named is In progress`, JSON.stringify(date));
       const proof = a.rows.find((r) => r.text === 'Order proof copies');
-      chk(proof && /Assigned, not started/.test(proof.state), `${tag} an assigned task its agent has not named is Assigned`, JSON.stringify(proof));
+      chk(proof && /Assigned, not started/.test(proof.group), `${tag} an assigned task its agent has not named is Assigned`, JSON.stringify(proof));
+      chk(a.rows.every((r) => r.state === ''), `${tag} grouped by status, no row repeats its group's name`, JSON.stringify(a.rows.filter((r) => r.state).slice(0, 3)));
       chk(a.bars.length === 0, `${tag} no element carries a coloured left border`, JSON.stringify(a.bars.slice(0, 5)));
       const sideways = await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth);
       chk(sideways <= 0, `${tag} no sideways scroll`, String(sideways));
@@ -213,6 +232,9 @@ function chk(ok, label, extra) {
         await page.click('#tsk-by [data-by="project"]');
         const heads = await page.evaluate(() => [...document.querySelectorAll('#tsk-groups .tsk-grp h3')].map((h) => h.firstChild.textContent));
         chk(JSON.stringify(heads) === JSON.stringify(['Newsletter', 'Spring launch']), `${tag} Group by Project shows one group per project`, JSON.stringify(heads));
+        const byProj = await page.evaluate(() => [...document.querySelectorAll('#tsk-groups .tsk-row')].map((r) => ({ t: r.querySelector('.tl').textContent, s: (r.querySelector('.tsk-state') || {}).textContent || '' })));
+        const dateP = byProj.find((r) => r.t === 'Pick the launch date');
+        chk(dateP && /In progress/.test(dateP.s), `${tag} grouped by project, each row carries its state`, JSON.stringify(dateP));
         await page.click('#tsk-by [data-by="status"]');
         /* Bulk close two tasks with a note. */
         await page.check('#tsk-groups input[data-key="' + news.id + '#2"]');
@@ -259,7 +281,7 @@ function chk(ok, label, extra) {
     chk(inCons.cons && inCons.btn, '[consolidated] the projects rail shows a Tasks button', JSON.stringify(inCons));
     if (inCons.btn) {
       await page.click('#rail-projects-tasks');
-      await page.waitForFunction(() => !document.getElementById('panel-tasks').hidden && document.querySelectorAll('#tsk-tiles .tsk-tile').length === 4, null, { timeout: 8000 }).catch(() => {});
+      await page.waitForFunction(() => !document.getElementById('panel-tasks').hidden && document.querySelectorAll('#tsk-tiles .tsk-tile').length === 3, null, { timeout: 8000 }).catch(() => {});
       const got = await page.evaluate(() => {
         const pt = document.getElementById('panel-tasks');
         return {
@@ -271,7 +293,7 @@ function chk(ok, label, extra) {
           dropdown: document.getElementById('tsk-projsel').getClientRects().length > 0,
         };
       });
-      chk(got.shown && got.tiles === 4, '[consolidated] it opens the Tasks view', JSON.stringify(got));
+      chk(got.shown && got.tiles === 3, '[consolidated] it opens the Tasks view', JSON.stringify(got));
       chk(got.stillCons && got.inColumn, '[consolidated] it stays in the consolidated view, in the display column (#2842)', JSON.stringify(got));
       chk(got.ownRailHidden && got.dropdown, '[consolidated] its own project rail folds to the dropdown beside the projects rail', JSON.stringify(got));
       if (SHOTS) await page.screenshot({ path: path.join(SHOTS, 'tasks-from-consolidated.png'), fullPage: false });

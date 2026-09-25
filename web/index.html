@@ -3139,8 +3139,13 @@ button.boardname[aria-expanded="true"] { opacity: 1; color: var(--k-ink); border
 .tsk-ritem.on { background: var(--k-surface); border-color: var(--gold-edge); font-weight: 650; }
 .tsk-ritem .nm { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .tsk-ritem .ct { font: 500 .75rem var(--font-mono); color: var(--k-ink-2); font-variant-numeric: tabular-nums; }
-.tsk-main { padding: 22px 26px 110px; min-width: 0; position: relative; }
+.tsk-main { padding: 25px 26px 110px; min-width: 0; position: relative; }
 .tsk-crumb { font-size: .8125rem; color: var(--k-ink-2); margin: 0 0 2px; min-height: 1.3em; }
+/* Mona's look review of #3701: halve the two big vertical gaps (measured 51px above the title,
+   49px from the tile hint to the first group). An empty crumb and an empty status line take no
+   room; the status line keeps display so it stays a live region that can announce. */
+.tsk-crumb:empty { min-height: 0; margin: 0; }
+#tsk-msg:empty { min-height: 0; margin: 0; }
 .tsk-crumb button { border: 0; background: none; padding: 0; font: inherit; font-weight: 600; color: var(--k-ink); cursor: pointer;
   text-decoration: underline; text-decoration-color: var(--gold); text-underline-offset: 3px; }
 #panel-tasks .tsk-head h2 { font-size: 1.5rem; letter-spacing: -.015em; margin: 0; font-weight: 700; }
@@ -3234,7 +3239,7 @@ html[data-layout="consolidated"] body.consolidated #panel-projects > #panel-task
   .tsk-search { max-width: none; }
   .tsk-ctl { flex-wrap: wrap; row-gap: 4px; }
   .tsk-seg button { padding: 0 8px; }
-  .tsk-main { padding: 16px 14px 120px; }
+  .tsk-main { padding: 22px 14px 120px; }
   .tsk-row { grid-template-columns: 22px minmax(0, 1fr); }
   .tsk-side { grid-column: 2; flex-direction: row; align-items: center; justify-content: flex-start; min-width: 0; flex-wrap: wrap; }
 }
@@ -42594,8 +42599,14 @@ function tskRow(t) {
     : '<span class="tsk-who nobody">Nobody yet</span>';
   /* The claim could not be read: say WHY on the row, so "Assigned, not started" is never read
      as a fact about a task we simply could not check. */
-  const cannot = t.state === 'assigned' && t.claim && t.claim.claimed === null && t.claim.because
-    ? '<div class="why">We cannot tell whether it has started: ' + esc(t.claim.because) + '.</div>' : '';
+  /* Mona's look review of #3701: in Josh's words, and short. "Rex has not said yet whether it
+     started." is TRUE only for an agent that has never reported (the engine's `neverReported`
+     field); when we could not read what it said, or it is too old to trust, saying "has not said"
+     would be false, so those rows keep the reason. */
+  const cannot = t.state !== 'assigned' || !t.claim || t.claim.claimed !== null ? ''
+    : t.claim.neverReported && who.length
+      ? '<div class="why">' + esc(tskAgentName(who[0])) + ' has not said yet whether it started.</div>'
+      : t.claim.because ? '<div class="why">We cannot tell whether it started: ' + esc(t.claim.because) + '.</div>' : '';
   return '<div class="tsk-row' + (on ? ' sel' : '') + '" data-key="' + esc(tskKey(t)) + '">'
     + '<input type="checkbox" data-key="' + esc(tskKey(t)) + '"' + (on ? ' checked' : '')
     + (t.state === 'closed' ? ' disabled' : '') + ' aria-label="Select task ' + Number(t.number) + ' of ' + esc(t.projectName) + '">'
@@ -42607,7 +42618,9 @@ function tskRow(t) {
     + (t.dueDate ? '<span>due ' + esc(t.dueDate) + '</span>' : '')
     + '</div>' + cannot + '</div>'
     + '<div class="tsk-side">' + whoHtml
-    + (g ? '<span class="tsk-state" style="--tsk-c:' + g.c + '"><span class="tsk-dot"></span>' + esc(g.l) + '</span>' : '') + '</div>'
+    /* Said once per row (Mona): inside a status group the heading already names the state, so the
+       row's state line shows only when grouping by project, where it is information. */
+    + (g && TSK.by === 'project' ? '<span class="tsk-state" style="--tsk-c:' + g.c + '"><span class="tsk-dot"></span>' + esc(g.l) + '</span>' : '') + '</div>'
     + '</div>';
 }
 function tskList(rows) {
@@ -42665,7 +42678,9 @@ function tskPaint() {
   document.getElementById('tsk-by').innerHTML = TSK_BYS.map(([k, l]) => '<button type="button" data-by="' + k + '" aria-pressed="' + (TSK.by === k) + '">' + esc(l) + '</button>').join('');
   document.getElementById('tsk-sort').value = TSK.sort;
   /* Tiles: the proven groups only, counted before the tile filter so every tile keeps its number. */
-  document.getElementById('tsk-tiles').innerHTML = !TSK.data ? '' : TSK_GROUPS.map((g) => {
+  /* Closed is not a tile (Mona, as the mock draws it): tiles are where the open work is, and the
+     sub-line counts open tasks, so a Closed tile read as one more. Closed stays the folded list. */
+  document.getElementById('tsk-tiles').innerHTML = !TSK.data ? '' : TSK_GROUPS.filter((g) => g.k !== 'closed').map((g) => {
     const n = scoped.filter((t) => t.state === g.k).length;
     return '<button type="button" class="tsk-tile" data-tile="' + g.k + '" aria-pressed="' + (TSK.tile === g.k) + '" style="--tsk-c:' + g.c + '">'
       + '<span class="num">' + n + '</span><span class="lab"><span class="tsk-dot"></span>' + esc(g.l) + '</span><span class="ts">' + esc(g.s) + '</span></button>';

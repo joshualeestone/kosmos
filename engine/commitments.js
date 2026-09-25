@@ -319,7 +319,10 @@ function parseRecord(agent) {
  */
 function read(agent) {
   const rec = parseRecord(agent);
-  if (!rec.ok) return unknown(rec.because);
+  /* `neverReported` is a FIELD, for the same reason `absent` is one (see parseRecord): a caller
+     that wants to say "has not said yet" must not match this module's prose to decide it. Only a
+     record that does not exist at all is "never reported"; an unreadable one is not. */
+  if (!rec.ok) return { ...unknown(rec.because), neverReported: rec.absent === true };
 
   if (rec.ageMs < -FUTURE_TOLERANCE_MS) {
     return {
