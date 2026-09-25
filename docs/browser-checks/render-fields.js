@@ -92,8 +92,11 @@ function selfCheck() {
 
 /* Everything a person types into. ⚠️ ASKED, NOT LISTED: an earlier version
    named `input[type=text], textarea, select` and was silently blind to
-   `type=search`. Name what it is NOT rather than enumerating what it is. */
-const FIELDS = 'input:not([type=button]):not([type=file]):not([type=checkbox]):not([type=radio]):not([type=submit]), textarea, select';
+   `type=search`. Name what it is NOT rather than enumerating what it is.
+   A SLIDER (`type=range`) is not typed into: it draws a track and a thumb, not a field fill,
+   so "the same fill as its box" does not apply, exactly as for a checkbox. The swarm sliders
+   (#3690, `#d-swarm-max`, `#d-swarm-cap`) failed here at the 0.6.95 cut for that reason. */
+const FIELDS = 'input:not([type=button]):not([type=file]):not([type=checkbox]):not([type=radio]):not([type=submit]):not([type=range]), textarea, select';
 /* ⚠️ BUTTONS TOO, and their absence was a hole shaped exactly like the defect
    this branch shipped: `#cstep-made`'s buttons sat at 1.05:1 against their own
    card and this script reported OK, because it measured FIELDS and a button is
