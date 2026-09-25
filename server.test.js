@@ -8803,15 +8803,11 @@ test('the detail badge reads the card’s own derivations, and the task is a sep
      header no longer shows the frozen pane title in any state.) */
   const tables = script.slice(tablesFrom, script.indexOf('\n', cardStAt) + 1)
     + '\n' + pageFnSource('stateReason') + '\n' + pageFnSource('taskLine')
-    /* #569: the painter fills the provenance and conflict slots beside the
-       badge, through the same shared derivations the card reads. They join
-       the prelude for the rule stated above: a stub would let this pass
-       while the shipped helpers said something else. */
-    /* ⚠️ `asSentence` JOINS THEM for the same reason (#1199): `conflictNote`
-       now delegates its casing to the one shared dresser, so the prelude
-       without it evaluates a body calling an undefined function. */
+    /* #569: the painter fills the provenance slot beside the badge, through
+       the same shared derivation the card reads. It joins the prelude for the
+       rule stated above: a stub would let this pass while the shipped helper
+       said something else. (#3729 removed the conflict slot and conflictNote.) */
     + '\n' + pageFnSource('saidLine') + '\n' + pageFnSource('asSentence')
-    + '\n' + pageFnSource('conflictNote')
     /* #2019: the badge's `copy` now comes from `stateCopyOf` (the shared state-copy
        derivation), which for 'restarting' names the cause via `restartingLabel`.
        Its GLYPH now comes from `glyphOf` (the shared glyph derivation, which for a

@@ -6302,9 +6302,11 @@ function reconcileReport(reported, scraped, nowMs, liveAuth, disruptionRec, code
          this shared field -- ever shows it, and no empty placeholder is left
          (conflictNote returns '' and both slots hide). The verdict is unchanged
          (still reported:false, working); only the display sentence is dropped.
-         The other stateConflict messages (the sign-in rejection loop, "reported
-         stopping but still running") are genuine actionable conflicts Josh did
-         not name, and they stay.
+         #3729 (Josh, 2026-09-25): the other stateConflict sentences went too ("it
+         reported stopping, but it is still running", "its screen shows a question
+         its reports do not mention", the sign-in variants). The engine still
+         computes `conflict`, but the board payload always carries stateConflict:
+         null, and the page has no slot for it.
          🔑 This collapses the #1889 background-wait branch documented above. That
          branch existed ONLY to withhold this one accusation on a wait a healthy
          reporter cannot heartbeat through; with the accusation gone for every
@@ -6551,7 +6553,11 @@ function panelessCard(key, nowMs, defaultStatus) {
        checked when nothing here checks it. Same sentence, same reason, applied to
        my own line after somebody pointed at it. */
     stateBackgroundWait: status.backgroundWait === true,
-    stateConflict: status.conflict || null,
+    /* #3729 (Josh, 2026-09-25 07:32): no agent-status diagnostic sentence reaches a person, ever.
+       `status.conflict` is still computed (the engine's own record of two witnesses disagreeing)
+       but the board is always sent null, so no surface on Mac or Windows, including an older page
+       still open, has anything to show. */
+    stateConflict: null,
     context: {
       tokens: null, percent: null, confidence: CONFIDENCE.NONE, notYet: false,
       because: 'it is not running on this computer, so there is no transcript here to measure',
@@ -7182,7 +7188,7 @@ function snapshot() {
       /* A sentence when the agent's report and the pane reader materially
          disagree, null otherwise. Surfaced rather than silently resolved:
          the two witnesses disagreeing is a fact the operator gets to see. */
-      stateConflict: status.conflict || null,
+      stateConflict: null,   // #3729: never sent to a person (see the other card builder)
       context,
       model,
       modelName: modelDisplayName(model),
