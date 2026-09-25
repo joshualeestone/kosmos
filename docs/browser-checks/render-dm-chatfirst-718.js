@@ -336,7 +336,7 @@ function measure() {
         chk(up.h > 0 && up.top >= 0 && up.bottom <= 370 + 0.5, `${t} the emoji panel opens above the keyboard`, JSON.stringify(up));
         await page.evaluate(() => window.__vv(700));
         const down = await page.evaluate(() => { const p = document.getElementById('d-emoji'); if (p.hidden) return { hidden: true }; const r = p.getBoundingClientRect(); const c = document.querySelector('#d-talk-box .dmbar').getBoundingClientRect(); return { top: r.top, bottom: r.bottom, cTop: c.top, cBottom: c.bottom }; });
-        chk(down.hidden || down.bottom <= down.cTop + 0.5 || down.top >= down.cBottom - 0.5, `${t} when the keyboard closes the panel follows the composer`, JSON.stringify(down));
+        chk(!down.hidden && (down.bottom <= down.cTop + 0.5 || down.top >= down.cBottom - 0.5), `${t} when the keyboard closes the panel stays open and follows the composer`, JSON.stringify(down));
         chk(perrs.length === 0, `${t} no page errors`, perrs.join(' | '));
         await page.close();
       }
@@ -379,11 +379,40 @@ function measure() {
         await page.evaluate(() => window.__vv(367, 1));
         await page.setViewportSize({ width: 667, height: 375 });
         await page.evaluate(() => window.__vv(175, 1));
-        chk(await kb(), `${t} rotating to landscape with the keyboard up: still keyboard up`);
+        chk(await kb(), `${t} rotating to an already-seen landscape width with the keyboard up: still keyboard up`);
         await page.setViewportSize({ width: 375, height: 667 });
         await page.evaluate(() => window.__vv(367, 1));
         chk(await kb(), `${t} rotating back with the keyboard up: still keyboard up`);
         chk(vvErrs.length === 0, `${t} no page errors`, vvErrs.join(' | '));
+        await page.close();
+      }
+      // A swarm agent (#3564) on the phone chat: the cluster fits the 40px slot, and Stop now is on
+      // screen without scrolling the header.
+      {
+        const page = await browser.newPage({ viewport: { width: 375, height: 667 } });
+        const serrs = []; page.on('pageerror', (e) => serrs.push(e.message));
+        await page.addInitScript(() => {
+          const enc = (o) => new Response(JSON.stringify(o), { status: 200, headers: { 'content-type': 'application/json' } });
+          window.setInterval = () => 0;
+          window.fetch = async (url) => { const u = String(url); if (u.includes('/thread')) return enc(window.__fx); if (u.includes('avatar')) return new Response('', { status: 404 }); return enc({}); };
+        });
+        await page.goto(PAGE);
+        await page.evaluate((f) => { window.__fx = f; const fr = document.getElementById('firstrun'); if (fr) fr.hidden = true; document.querySelectorAll('body > *').forEach((el) => { el.inert = false; }); SWARMS_ON = true; LAST = [{ sessionName: 'april', name: 'April', status: 'working', isNamedOurs: true, nameDerived: true, swarm: { maxHelpers: 4, activeHelpers: 2, metered: true } }]; openDetail('april', 'talk'); if (typeof swarmPagePaint === 'function') swarmPagePaint(LAST[0], { force: true }); }, FX);
+        await page.evaluate(() => paintTalk('april', 'April'));
+        await page.waitForSelector('#d-dmthread .msg');
+        await page.waitForTimeout(100);
+        const t = `[${eng} 375x667 swarm]`;
+        const sw = await page.evaluate(() => {
+          const R = (e) => e && e.getBoundingClientRect();
+          const c = R(document.querySelector('#d-swarm .swc')); const slot = R(document.querySelector('.dhead .detail-av'));
+          const stop = R(document.getElementById('d-swarm-stop')); const head = R(document.querySelector('.dhead'));
+          const th = document.getElementById('d-dmthread');
+          return { panelShown: !document.getElementById('d-swarm-panel').hidden, cw: c && c.width, slotW: slot && slot.width, stopTop: stop && stop.top, stopBottom: stop && stop.bottom, headBottom: head && head.bottom, vh: innerHeight, threadH: th.clientHeight };
+        });
+        chk(sw.panelShown && sw.cw && sw.cw <= sw.slotW + 0.5, `${t} the swarm cluster fits the compact avatar slot`, JSON.stringify(sw));
+        chk(sw.stopTop >= 0 && sw.stopBottom <= sw.headBottom + 0.5 && sw.stopBottom <= sw.vh, `${t} Stop now is on screen in the header, not inside a scroll`, JSON.stringify(sw));
+        chk(sw.threadH >= 60, `${t} the thread keeps room to read`, `threadH=${sw.threadH}`);
+        chk(serrs.length === 0, `${t} no page errors`, serrs.join(' | '));
         await page.close();
       }
       // A long agent name in the compact phone header: it must stay inside the screen.
