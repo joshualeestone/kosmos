@@ -308,8 +308,10 @@ eval "$(secrets-map.sh env kosmos-android-upload-signing)"
 **No purchase inside the Android app** [live; Josh for the policy read]
 (kosmos #718, Liu Kang's decision of 2026-09-25, matching iOS; Josh can overrule it). Inside the
 app the sign-in page is built to show no checkout, price or billing portal; an unpaid account sees
-"This account does not include Kosmos+ yet." where the pay step would be. This has not yet been
-seen on a phone (see Phone checks). It is the switch `CAN_BUY_HERE` in kosmos-relay
+"This account does not include Kosmos+ yet." where the pay step would be. On 2026-09-25 Sonya checked this on an
+Android 15 emulator with the upload-key-signed app (kosmos #3699): purchase stays hidden inside the
+app, including after a force-stop, and shows in plain Chrome. A signed-in unpaid account has not
+been checked yet; that waits for Josh's first phone test. It is the switch `CAN_BUY_HERE` in kosmos-relay
 `coordinator/src/signin.html`, which came with kosmos-relay #117 for iOS and was extended to the
 Android app by kosmos-relay #121 (five commits).
 - **Policy read** (Josh's call): before the first upload to any Play track, and again before the
@@ -317,8 +319,8 @@ Android app by kosmos-relay #121 (five commits).
   exceptions, against what the app does as described above. This doc deliberately states none of
   the policy's details: they change, they differ by country, and a summary written here would go
   stale unnoticed.
-- **Live on the production coordinator** (build `eac39e6`, read on 2026-09-25 from
-  `curl -s https://coordinator.kosmosplus.com/v1/meta`; other parts of this doc predate that
+- **Live on the production coordinator** (confirmed on 2026-09-25 by the ancestry check below,
+  against the `build` that `curl -s https://coordinator.kosmosplus.com/v1/meta` reports; other parts of this doc predate that
   deploy, kosmos #3764). On a Play install it likely also needs Play's app-signing key in
   assetlinks.json (the asset-links bullet above): without it the app opens as a browser tab, and
   whether the switch's signal arrives then is not confirmed. Before the first upload to any Play
@@ -349,7 +351,8 @@ Android app by kosmos-relay #121 (five commits).
   `https://digitalassetlinks.googleapis.com/v1/statements:list?source.web.site=https://login.kosmosplus.com&relation=delegate_permission/common.handle_all_urls`.
 - On a phone: install, sign in, allow notifications (the prompt should be the app's, not
   Chrome's). A push shows the Kosmos name and icon.
-- Mortals has no emulator or phone for this today.
+- Mortals has an Android emulator (used for #3699) but no phone; install, notification and push
+  checks need a phone.
 
 **Undo:**
 - Remove the testing release in Play Console.
