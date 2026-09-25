@@ -4002,6 +4002,10 @@ const server = http.createServer((req, res) => {
         federationLive: federationLiveNow(),
         /* #3564: this board can make and run swarms; the New agent screen offers one only then. */
         swarms: true,
+        /* #3559 (Josh): the top-level Tasks tab appears once the person has 25 tasks ever, and
+           stays. Cheap on this poll: a saved flag, else a count redone only when the projects
+           file changed (tasks.tasksTabShown). */
+        tasksTab: (() => { try { return tasks.tasksTabShown(); } catch { return false; } })(),
         /* 🛑 NO OFFER FROM A BOARD THAT CANNOT TAKE ONE. A Kosmos running from
            its source (this Mac's, under the hand plist) cannot install: the
            install route answers "it updates from git, not from here". But the

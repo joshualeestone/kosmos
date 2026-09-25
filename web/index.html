@@ -8980,7 +8980,8 @@ window.kosmosMeasureScrollbarWidth();
     <button class="tab"     data-tab="projects" role="tab" aria-selected="false">Projects<span class="navbadge" id="nav-badge-projects" aria-hidden="true" hidden></span></button>
     <!-- #3559: Tasks, the third top-level view (Josh, 2026-09-24 06:42). No badge yet: the
          mock's badge counts tasks waiting on you, which no task can prove today. -->
-    <button class="tab"     data-tab="tasks"    role="tab" aria-selected="false">Tasks</button>
+    <!-- #3559 (Josh): shown once the person has 25 tasks ever (the status poll's tasksTab), and it stays. -->
+    <button class="tab"     data-tab="tasks"    role="tab" aria-selected="false" hidden>Tasks</button>
     <!-- #3051 (Josh, 6.63 for 6.65): Settings left the top nav; it is reached from
          the user menu (avatar + name) in the upper-right .headright below. The
          #panel-settings panel and every showTab('settings') caller are unchanged;
@@ -12519,7 +12520,7 @@ window.kosmosMeasureScrollbarWidth();
            Tasks lives here, beside the "Projects" name it lists tasks from (the + stays alone at
            the far right). It opens Tasks INSIDE the display column (openConsolidatedTasks), the
            way the user menu opens Settings there (#2842), never out to the tab view. -->
-      <span class="lead"><span class="railname">Projects</span><button class="rail-tasks" type="button" id="rail-projects-tasks" title="Every task across your projects">Tasks</button></span>
+      <span class="lead"><span class="railname">Projects</span><button class="rail-tasks" type="button" id="rail-projects-tasks" title="Every task across your projects" hidden>Tasks</button></span>
       <span class="railacts">
         <button class="fold plus" type="button" id="rail-projects-new" aria-label="Add Project" title="Add Project">+</button>
       </span>
@@ -18924,6 +18925,8 @@ async function tick() {
     // from sourceChannel + the federation-live flip + this viewer's Plus entitlement,
     // and stamp it on <html> for the CSS gate. Fail-safe (see fedGateMode).
     fedGateStamp(data);
+    // #3559 (Josh): the Tasks tab and the consolidated rail's Tasks button, once 25 tasks ever.
+    tskTabGate(data.tasksTab === true);
 
     // The freshness stamp is load-bearing. An ambient board gets trusted
     // passively, and silence reads as "all fine". If this stops updating, the
@@ -42784,6 +42787,15 @@ async function tskOpenProject(id) {
    rather than a second list of its own. A door is a fresh look at that project, so the window goes
    back to All (the door has always meant every task, closed included), and the search and tile go;
    Group by and Sort are the person's own and stay. The way back is the crumb's "Open project". */
+/* #3559, Josh's ruling: the top-level ways into Tasks (the tab, and the consolidated projects
+   rail's button, which stands in for the tab there) appear once the person has 25 tasks ever,
+   from the status poll's `tasksTab` (the engine counts and saves the flag, so once shown they stay).
+   A project's View All still opens this view below 25: it is that project's only full list. */
+function tskTabGate(show) {
+  for (const el of [document.querySelector('.tab[data-tab="tasks"]'), document.getElementById('rail-projects-tasks')]) {
+    if (el && el.hidden === show) el.hidden = !show;
+  }
+}
 function openProjectTasks(id) {
   const p = id ? pjById(id) : null;
   TSK.proj = id || null;

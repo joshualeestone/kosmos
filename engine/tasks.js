@@ -795,8 +795,50 @@ function claimFor(task, reading, opts) {
   return { claimed: saysBare || saysQualified, because: null };
 }
 
+/**
+ * #3559, Josh's ruling (relayed by Splinter, 2026-09-25): the top-level Tasks tab appears only
+ * once the person has TASKS_TAB_MIN tasks. Splinter's calls: count every task ever created, open
+ * and closed; once shown it stays shown (a saved flag); one constant.
+ *
+ * "Ever created" is each project's `taskCounter` (the next-number counter, never reused; tasks
+ * are never deleted), with the task list as a floor for a project written before the counter.
+ * Archived projects count: they were created. A DELETED project's tasks are gone from the
+ * store, so they do not count; that is the one gap, and the saved flag makes it matter only
+ * before the tab first appears.
+ */
+const TASKS_TAB_MIN = 25;
+function tasksEverCreated(everyProject) {
+  return (Array.isArray(everyProject) ? everyProject : []).reduce((n, p) => {
+    if (!p) return n;
+    const counter = Number.isSafeInteger(p.taskCounter) && p.taskCounter > 0 ? p.taskCounter : 0;
+    return n + Math.max(counter, Array.isArray(p.tasks) ? p.tasks.length : 0);
+  }, 0);
+}
+/* Rides the 5s status poll, so it must be cheap: once the flag is saved it is one settings read.
+   Before that, the projects file is re-counted only when it changed (path, mtime, size), and the
+   first time the count reaches the constant the flag is written, once. */
+let TASKS_TAB_SEEN = { file: null, mtimeMs: null, size: null, shown: false };
+function tasksTabShown() {
+  const store = require('./store');
+  try { if (store.readSettings().tasksTabShown === true) return true; } catch { /* fall to the count */ }
+  const f = projects.file();
+  let st;
+  try { st = require('node:fs').statSync(f); } catch { return false; }   // no projects yet: no tasks
+  if (TASKS_TAB_SEEN.file === f && TASKS_TAB_SEEN.mtimeMs === st.mtimeMs && TASKS_TAB_SEEN.size === st.size) {
+    return TASKS_TAB_SEEN.shown;
+  }
+  let shown = false;
+  try { shown = tasksEverCreated(projects.readAll()) >= TASKS_TAB_MIN; } catch { shown = false; }
+  TASKS_TAB_SEEN = { file: f, mtimeMs: st.mtimeMs, size: st.size, shown };
+  if (shown) {
+    try { store.writeSettings({ tasksTabShown: true, tasksTabShownAt: new Date().toISOString() }); }
+    catch { /* the count still says so on the next read; the flag is written then */ }
+  }
+  return shown;
+}
+
 module.exports = { create, close, reopen, byNumber, columnTasks, allTasks, claimFor, claimPatterns, taskProblem,
-  taskState, lastActivityOf,
+  taskState, lastActivityOf, TASKS_TAB_MIN, tasksEverCreated, tasksTabShown,
   partsOf, progressOf, whoOf, addPart, assignPart, setPartClosed, setDue, dueProblem, say,
   partValve, processPartWrites, agePartWritesForTests, PARTS_PER_HOUR,
   SENTENCE_MAX, DETAIL_MAX, MESSAGE_MAX, WHO_MAX };
