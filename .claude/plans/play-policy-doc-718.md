@@ -24,6 +24,13 @@ no-purchase change (kosmos-relay android-no-purchase-718).
   gates the production release. The web arm is checked in a new Chrome tab, since "Open in Chrome"
   carries the app's memory along.
 
+- **Three phone checks, not two** (round 4): the Play install tested after the first upload still
+  opens with a browser bar, because Play's signing key is not yet in assetlinks.json; the
+  configuration real users get (a verified full-screen Play install) only exists after that key is
+  added and deployed, so a release check on it gates production. The policy is read twice (before
+  the first upload and before production), since it changes. The background-return check has a pass
+  condition and a route for a failure (a ruling on #718 before production). The item has an undo.
+
 ## Weakest part
 The item names kosmos-relay's `CAN_BUY_HERE` and the Android change, which merge separately. If
 the relay PR changes shape in review, this paragraph must follow it.
