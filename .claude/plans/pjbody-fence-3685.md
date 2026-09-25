@@ -42,7 +42,17 @@ it cannot prove identity on inputs outside that vocabulary.
   stack or the reset reds it.
 - NITs fixed: the `open` comment names its real fields; the header no longer claims every
   surface reads fences identically (pjRich draws an unclosed fence as code, pjBody keeps it
-  prose); the opener's indent is stripped by characters, tabs included; the CRLF test pins the
+  prose); the opener's indent is stripped (see pass 2 for how a tab counts); the CRLF test pins the
   text after the fence.
 - Recorded: on CRLF input a `\r` can remain at the ends of code lines, as it did on main. Room
   text is normalised by the store before it gets here.
+
+## Review pass 2 (sonnet)
+- No blockers. Mutation-tested five arms (shared list stack, dedent, backtick in info string,
+  closer length, CRLF closer), each red; XSS probes escaped; column-0 output identical to main.
+- WARNING fixed: the dedent cut the opener's indent by characters, so a tab opener took one
+  character off a four-space code line, while openWidths (two lines above) counts a tab as 4.
+  The cut is now in columns, a tab as 4 (the store's STORE_TAB), and a tab wider than what is
+  left of the cut keeps its remainder as spaces. Low reach on the room path, since the store
+  turns tabs into four spaces before a message is kept. Tested (four arms); cutting by
+  characters again, or counting a tab as 1, each reds it.

@@ -44023,16 +44023,28 @@ function pjBody(text, names, agentNames) {
       if (fo) {
         parts.push(raw.slice(proseFrom, at), fo[3]);
         openWidths.push(fo[1].replace(/\t/g, '    ').length);
-        open = { lead: fo[1].length, len: fo[2].length, codeFrom: end };
+        open = { lead: openWidths[openWidths.length - 1], len: fo[2].length, codeFrom: end };
       }
     } else {
       const fc = /^[ \t]*(`{3,})([ \t]*)\r?$/.exec(line);
       if (fc && fc[1].length >= open.len) {
         let code = raw.slice(open.codeFrom, at);
-        // CommonMark: the opener's indentation comes off each code line, up to that much.
+        // The opener's indentation comes off each code line, up to that much, measured in
+        // columns with a tab as 4 (the store's STORE_TAB and openWidths above). A tab that
+        // would cut past the opener's width leaves its remainder as spaces.
         if (open.lead) {
           const cut = open.lead;
-          code = code.split('\n').map((l) => l.slice(Math.min(cut, /^[ \t]*/.exec(l)[0].length))).join('\n');
+          code = code.split('\n').map((l) => {
+            let col = 0;
+            let i = 0;
+            while (i < l.length && col < cut && (l[i] === ' ' || l[i] === '\t')) {
+              const w = l[i] === '\t' ? 4 : 1;
+              if (col + w > cut) return ' '.repeat(col + w - cut) + l.slice(i + 1);
+              col += w;
+              i += 1;
+            }
+            return l.slice(i);
+          }).join('\n');
         }
         parts.push(code, fc[2]);
         proseFrom = end;

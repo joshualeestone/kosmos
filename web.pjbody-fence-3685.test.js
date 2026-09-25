@@ -56,3 +56,13 @@ test('#3685: a CRLF fence closes, and a path-shaped infostring is still labelled
   assert.match(html, /<figure class="codeb"><pre>/);
   assert.match(html, /<\/figure>after$/, 'the text after the fence was not drawn after it');
 });
+
+test('#3685: the opener\'s indent is cut in columns, a tab counting as 4', () => {
+  // A tab-indented opener cuts four spaces from the code, as a four-space opener does.
+  assert.match(draw('\t```\n    code\n\t```'), /<pre>code<\/pre>/);
+  assert.match(draw('    ```\n\tcode\n    ```'), /<pre>code<\/pre>/);
+  // A tab wider than what is left of the cut keeps its remainder as spaces.
+  assert.match(draw('  ```\n\tcode\n  ```'), /<pre>  code<\/pre>/);
+  // Deeper code keeps what is past the cut.
+  assert.match(draw('\t```\n\t\tcode\n\t```'), /<pre>\tcode<\/pre>/);
+});
