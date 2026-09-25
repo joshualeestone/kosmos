@@ -56,6 +56,7 @@ const chk = (ok, label, extra) => {
       }
       if (/\/api\/runners(\?|$)/.test(u)) {
         window.__gets = (window.__gets || 0) + 1;
+        if (window.__runnersDelay) await new Promise((r) => setTimeout(r, window.__runnersDelay));
         const out = {};
         for (const r of ['gemini', 'grok']) {
           const job = window.__jobs[r];
@@ -225,6 +226,25 @@ const chk = (ok, label, extra) => {
     return { install: !document.getElementById('acct-keyed-install').hidden, focus: document.activeElement && document.activeElement.id };
   });
   chk(r6.install && r6.focus === 'acct-keyed-install-go', 'Settings: the download step takes focus (what had it may be hidden)', JSON.stringify(r6));
+
+  // Review pass 2: a slow presence probe landing after Add opened the box and Download was
+  // pressed must not re-arm Download and click it again (a second install request and watcher).
+  const r7 = await q(async () => {
+    closeAcctAdd(); openAcctAdd();
+    window.__missing.gemini = true; window.__jobs = {}; window.__runnersDelay = 900;
+    const before = window.__installs.length;
+    acctPick('google');   // its probe of /api/runners is now slow
+    await new Promise((r) => setTimeout(r, 60));
+    document.getElementById('acct-apikey-key').value = 'AIza-typed';
+    document.getElementById('acct-apikey-go').click();   // answers needsRunner at once
+    await new Promise((r) => setTimeout(r, 120));
+    const opened = !document.getElementById('acct-keyed-install').hidden;
+    document.getElementById('acct-keyed-install-go').click();
+    await new Promise((r) => setTimeout(r, 3200));   // the slow probe lands in here
+    window.__runnersDelay = 0;
+    return { opened, installPosts: window.__installs.length - before };
+  });
+  chk(r7.opened && r7.installPosts === 1, 'Settings: a slow probe landing after Download was pressed does not start the install a second time', JSON.stringify(r7));
 
   chk(errs.length === 0, 'no page errors', errs.join(' | '));
   await browser.close();

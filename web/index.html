@@ -23296,7 +23296,13 @@ let ACCT_APIKEY_WHICH = null;
    provider change, a close, a close-and-reopen onto the same provider) is ignored. */
 let ACCT_APIKEY_GEN = 0;
 /* #3713: Settings' download step for the tool Gemini or Grok runs on (see keyedRunnerInstall). */
+/* Which provider Settings' download box is showing for. A second call for the same one (the
+   background probe landing after Add already opened it) only refreshes the words: it never
+   re-arms Download or clicks it again, which started a second watcher and a second install
+   request (review pass 2). */
+let ACCT_KEYED_WHICH = null;
 function acctKeyedInstallHide() {
+  ACCT_KEYED_WHICH = null;
   const box = document.getElementById('acct-keyed-install');
   if (box) box.hidden = true;
   const m = document.getElementById('acct-keyed-install-msg'); if (m) m.textContent = '';
@@ -23304,6 +23310,11 @@ function acctKeyedInstallHide() {
 function acctKeyedInstallShow(which, info) {
   const box = document.getElementById('acct-keyed-install');
   if (!box) return;
+  if (!box.hidden && ACCT_KEYED_WHICH === which) {
+    if (info) document.getElementById('acct-keyed-install-t').textContent = keyedInstallAsk(which, info);
+    return;
+  }
+  ACCT_KEYED_WHICH = which;
   ACCT_GROK_SUB.leave();
   document.getElementById('acct-apikey-flow').hidden = true;
   document.getElementById('acct-grok-flow').hidden = true;
@@ -23444,7 +23455,13 @@ document.getElementById('acct-apikey-go').addEventListener('click', async () => 
    close, a provider switch, a Stop) changes nothing; leaving also ends the sign-in on the
    engine, which otherwise holds its slot until its five-minute watchdog. */
 const GROK_SUB_SAY = { starting: 'Starting the sign-in…', 'awaiting-code': 'Confirm the code on xAI’s page to finish.' };
-const GROK_MISSING_TOOL = 'Grok runs on its own command-line tool, "grok", and it is not on this computer yet. Choose Grok again and Kosmos will offer to download it.';
+/* #3713: the sentence when a Grok sign-in finds no grok. On a Mac, Kosmos offers the download when
+   Grok is chosen again; on Windows it does not install it yet, so it says that instead (review
+   pass 2: this path kept the Mac promise on Windows). */
+function grokMissingTool() {
+  return onWindows() ? keyedMissingOnWindows('xai')
+    : 'Grok runs on its own command-line tool, "grok", and it is not on this computer yet. Choose Grok again and Kosmos will offer to download it.';
+}
 function grokSubDriver(o) {
   let session = null;
   let poll = null;
@@ -23532,7 +23549,7 @@ function grokSubDriver(o) {
     if (mine !== gen) { if (res.ok && out && out.sessionId) cancelOnEngine(out.sessionId); return; }
     if (!res.ok || !out || !out.sessionId) {
       if (go) go.disabled = false;
-      say(out && out.needsRunner ? GROK_MISSING_TOOL : (pjSentence(out && (out.error || out.because)) || 'We could not start that sign-in.'));
+      say(out && out.needsRunner ? grokMissingTool() : (pjSentence(out && (out.error || out.because)) || 'We could not start that sign-in.'));
       return;
     }
     session = out.sessionId;

@@ -186,6 +186,17 @@ const chk = (ok, label, extra) => {
   chk(/"grok"/.test(miss.msg) && /not on this computer/.test(miss.msg) && /offer to download it/.test(miss.msg) && !/cannot install/.test(miss.msg) && !miss.go,
     'a missing grok names its tool, says Kosmos will offer to download it, and re-arms', JSON.stringify(miss));
   await q(() => { window.__startAnswer = null; });
+  // #3713 review pass 2: on Windows Kosmos does not install grok, so the same answer must not promise a download.
+  await q(() => {
+    document.querySelector('meta[name="kosmos-platform"]').content = 'win32';
+    window.__startAnswer = [400, { needsRunner: true, error: 'we could not find the Grok runner' }];
+    document.getElementById('acct-grok-sub-go').click();
+  });
+  await q(() => new Promise((r) => setTimeout(r, 50)));
+  const winMiss = await q(() => ({ msg: document.getElementById('acct-grok-msg').textContent, go: document.getElementById('acct-grok-sub-go').disabled }));
+  chk(/cannot install it on Windows yet/.test(winMiss.msg) && !/offer to download/.test(winMiss.msg) && !winMiss.go,
+    '#3713 on Windows, a missing grok is said plainly, with no promise of a download', JSON.stringify(winMiss));
+  await q(() => { window.__startAnswer = null; document.querySelector('meta[name="kosmos-platform"]').content = '__KOSMOS_PLATFORM__'; });
 
   // Stop cancels on the engine.
   await q(() => { window.__cancels.length = 0; window.__status = { state: 'awaiting-code', userCode: 'AAAA-BBBB' }; document.getElementById('acct-grok-sub-go').click(); });

@@ -48,7 +48,12 @@ directly and make it work exactly like GPT does.
   is the only grok this Mac has had, but Renet's 09-23 note called 1.0.41 API-key-only. Asked her
   at 05:30. Later evidence in her own #3661 code: engine/grokaccounts.js records "What `grok login`
   writes into GROK_HOME (measured, grok 1.0.41)", so the sign-in was run on 1.0.41 when #3661 was
-  built. Her direct answer, if it comes, goes on the card.
+  built. **Renet's answer (06:23):** MEASURED on 1.0.41 (her #3391 plan, 09-24): `grok login
+  --device-auth --leader-socket` starts, prints the device URL and code, honours GROK_HOME and leaves
+  the live ~/.grok alone; her 09-23 "API-key only" is superseded. NOT RUN on any version: a person
+  confirming the code through Kosmos so that auth.json lands and an agent runs on it (needs-operator
+  on #3391). So 1.0.41 is the right pin, and the subscription half on a fresh install is started but
+  unconfirmed to completion. `--leader-socket` is for the login only.
 - The Gemini launcher prefers Kosmos's runtime beside the runners folder, then the node recorded at
   install; if neither is there it reads missing and Connect reinstalls it (review pass 1).
 
@@ -84,3 +89,22 @@ directly and make it work exactly like GPT does.
 - NIT 3 a bad Grok archive says "could not be unpacked", not "check disk space" (tested).
 - NIT 4 the expand uses stream pipeline, which closes both ends on error.
 - NIT 5 the helper moved out of the slice web.runner-install-refusal.test.js lifts.
+
+## Review pass 2 (sonnet): 0 blockers, 2 warnings, both fixed
+- W the Grok sign-in's missing-tool sentence (shared by first run and Settings) still promised a
+  download on Windows: the one missing-tool path pass 1's Windows fix did not reach. It is now
+  grokMissingTool(), which says it plainly on Windows. Arm in render-grok-subscription-3391.js;
+  perturbed red.
+- W Settings' download box could start twice: the background presence probe landing after Add had
+  opened the box and Download was pressed re-armed Download and clicked it. The engine joins the
+  running job, so no second download, but a second request and watcher. The box now remembers
+  which provider it shows, and a repeat for the same one only refreshes the words. Arm with a
+  slowed /api/runners in render-keyed-install-3713.js; perturbed red.
+- Measured clean: the launcher script against managedRoot for an installed and a from-source board,
+  launcherHasNode, installing() in both routes, the API-key-path Windows coverage, frGo/frClose.
+
+## Suite
+Both full runs (4c86126b..86ab7d68 and 5bb22c04): every node test passed (9212 and 9215, 0 failed).
+The one red both times was tools/test-kosmos-addr-reclaim-3079.sh, which listens on a FIXED port
+(17629) while three other agents' suites were running here; alone it passes 12/12. Pre-existing, not
+this branch's; filed as #3716.
