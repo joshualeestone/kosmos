@@ -5236,8 +5236,8 @@ body:not(.consolidated) .pjmidhead:has(.pjhead) .tsearch:focus-within { flex-bas
    gutter caps the bubble and keeps the avatar column clear. So the 640/760px fixtures are on the
    narrow side of that threshold and DO get capped; that is correct, not a regression. No media
    query, no magic breakpoint. The tail wing/mask live on the NEAR side (toward the avatar), so the
-   far gutter never touches them. Applies only to the room's .msg rows (pjRoomRow); the agent-detail
-   Talk view renders .dm bubbles (dmRow), which this never selects. */
+   far gutter never touches them. Since #3414 the agent-detail Talk view (dmRow) renders the same
+   .msg rows, so this applies there too; #718 narrows both gutters for the DM on phones, still mirrored. */
 .msg:not(.you) .msg-b { margin-right: calc(34px + 14px); }
 .msg.you .msg-b { margin-left: calc(34px + 14px); }
 /* #2806 (Josh, 2026-09-11): the room message BODY box. The person's own post
@@ -5262,25 +5262,23 @@ body:not(.consolidated) .pjmidhead:has(.pjhead) .tsearch:focus-within { flex-bas
    1. A TABLE inherited `overflow-wrap: anywhere` from the rule above, which makes every
       cell's min-content one character, so the table crushed to a letter per line instead
       of scrolling inside .mdtablewrap. Cells wrap at words again; the wrapper scrolls.
-   2. An ATTACHMENT card is `width: min(100%, 34rem)`, but the bubble shrink-wraps its
-      text, so 100% resolved against a caption-wide bubble and the card spilled out of it
-      (off the left edge on the person's own right-aligned rows). A bubble holding a card
-      takes the whole row, so the percentage has a real width to resolve.
-   3. On a phone the side gutters (avatar, gap, the 48px reserved opposite) left an iPhone
-      SE a ~155px text column; the 40rem block below tightens them for the DM only. */
+   2. An ATTACHMENT's file name is one unbreakable line (`nowrap` + ellipsis), so the whole
+      name set the bubble's MINIMUM width. A name wider than the row pushed the bubble out of
+      it: 112px off the left edge of an iPhone SE for the person's right-aligned row. Here the
+      name may break anywhere when the bubble is squeezed (so it no longer sets a minimum)
+      and is clamped to its one line with the ellipsis, so it still reads as one line. The
+      widest the bubble wants to be is unchanged, so a wide window looks as it did.
+   3. On a phone the side gutters (34px avatar + 14px gap, mirrored opposite) left an iPhone
+      SE a ~155px text column; the 40rem block narrows them for the DM, still mirrored. */
 #d-dmthread .mdtablewrap { overflow-wrap: normal; }
 #d-dmthread .mdtable th { white-space: nowrap; }
-/* Narrow only (the board's 56rem stacking breakpoint): on a wide window the caption-wide
-   bubble still has room for the card, and widening it there would change the desktop look. */
-@media (max-width: 56rem) {
-  #d-dmthread .msg-b:has(.att) { flex: 1 1 auto; }
-  #d-dmthread .msg.you .msg-bd:has(.att) { align-self: stretch; }
-}
+#d-dmthread .att-name { white-space: normal; overflow-wrap: anywhere;
+  display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 1; line-clamp: 1; }
 @media (max-width: 40rem) {
   #d-dmthread .msg { gap: 8px; }
   #d-dmthread .msg-av { width: 28px; height: 28px; flex-basis: 28px; font-size: .8125rem; }
-  #d-dmthread .msg:not(.you) .msg-b { margin-right: 20px; }
-  #d-dmthread .msg.you .msg-b { margin-left: 20px; }
+  #d-dmthread .msg:not(.you) .msg-b { margin-right: calc(28px + 8px); }
+  #d-dmthread .msg.you .msg-b { margin-left: calc(28px + 8px); }
 }
 .msg.you .msg-bd { background: var(--usermsg-tint); }
 /* #2947 / #3260: the one flat cream fill (background-COLOR, not the `background`
