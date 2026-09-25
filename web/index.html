@@ -46370,6 +46370,7 @@ document.getElementById('d-dmthread').addEventListener('click', async (e) => {
    (WCAG 2.4.3 / 1.3.2), the exact #1017 defect this page already fixed once, by a DOM change.
    Wider than a phone it goes back after the Members/Files column, the desktop order. The room
    keeps its scroll position across the move. */
+const PJ_PHONE_MQ = '(max-width: 30rem)';   // the same width as the room's phone CSS block
 function pjPhoneOrder() {
   const grid = document.querySelector('.pj3');
   const mid = grid && grid.querySelector(':scope > .pjmid');
@@ -46377,16 +46378,22 @@ function pjPhoneOrder() {
   if (!grid || !mid || !split || !window.matchMedia) return;
   const th = document.getElementById('pj-room');
   const kept = th ? th.scrollTop : 0;
-  if (window.matchMedia('(max-width: 30rem)').matches) {
-    if (grid.firstElementChild !== mid) grid.insertBefore(mid, grid.firstElementChild);
+  // Moving a subtree blurs whatever is focused in it: a phone turned mid-post would lose the
+  // composer and its keyboard. Put the focus back where it was.
+  const focused = document.activeElement && mid.contains(document.activeElement) ? document.activeElement : null;
+  let moved = false;
+  if (window.matchMedia(PJ_PHONE_MQ).matches) {
+    if (grid.firstElementChild !== mid) { grid.insertBefore(mid, grid.firstElementChild); moved = true; }
   } else if (mid.previousElementSibling !== split) {
-    split.after(mid);
+    split.after(mid); moved = true;
   }
+  if (!moved) return;
   if (th && th.scrollTop !== kept) th.scrollTop = kept;
+  if (focused && document.activeElement !== focused) { try { focused.focus({ preventScroll: true }); } catch (_e) { /* gone */ } }
 }
 pjPhoneOrder();
 if (window.matchMedia) {
-  const pjPhoneMq = window.matchMedia('(max-width: 30rem)');
+  const pjPhoneMq = window.matchMedia(PJ_PHONE_MQ);
   if (pjPhoneMq.addEventListener) pjPhoneMq.addEventListener('change', pjPhoneOrder);
   else if (pjPhoneMq.addListener) pjPhoneMq.addListener(pjPhoneOrder);
 }
@@ -46398,17 +46405,37 @@ document.getElementById('pj-room').addEventListener('click', (e) => {
   if (!(window.matchMedia && window.matchMedia('(hover: none)').matches)) return;
   if (!e.target || !e.target.closest) return;
   const room = document.getElementById('pj-room');
-  if (e.target.closest('.rxn-pick')) { room.querySelectorAll('.msg.rxn-show').forEach((m) => m.classList.remove('rxn-show')); return; }
+  if (e.target.closest('.rxn-pick')) { pjRxnClose(); return; }
   if (e.target.closest('a, button, .rxns, [data-open-agent]')) return;
   const row = e.target.closest('.msg');
   room.querySelectorAll('.msg.rxn-show').forEach((m) => { if (m !== row) m.classList.remove('rxn-show'); });
-  if (row) row.classList.toggle('rxn-show');
+  if (!row) return;
+  const box = row.querySelector('.rxns[data-post]');
+  RXN_SHOW_POST = row.classList.toggle('rxn-show') && box ? box.getAttribute('data-post') : null;
 });
+/* A repaint of the room (a new post, a timestamp re-worded) rewrites its rows and would drop an
+   open bar between the tap that opened it and the tap on an emoji: put it back on the same post. */
+let RXN_SHOW_POST = null;
+function pjRxnClose() {
+  RXN_SHOW_POST = null;
+  const room = document.getElementById('pj-room');
+  if (room) room.querySelectorAll('.msg.rxn-show').forEach((m) => m.classList.remove('rxn-show'));
+}
+if (window.MutationObserver) {
+  new MutationObserver(() => {
+    if (!RXN_SHOW_POST) return;
+    const room = document.getElementById('pj-room');
+    const box = room && [...room.querySelectorAll('.rxns[data-post]')].find((b) => b.getAttribute('data-post') === RXN_SHOW_POST);
+    const row = box && box.closest('.msg');
+    if (row) { if (!row.classList.contains('rxn-show')) row.classList.add('rxn-show'); }
+    else RXN_SHOW_POST = null;   // the post is gone from view
+  }).observe(document.getElementById('pj-room'), { childList: true, subtree: true });
+}
 /* A tap anywhere outside the room closes an open bar too. */
 document.addEventListener('click', (e) => {
   const room = document.getElementById('pj-room');
   if (!room || (e.target && room.contains(e.target))) return;
-  room.querySelectorAll('.msg.rxn-show').forEach((m) => m.classList.remove('rxn-show'));
+  pjRxnClose();
 });
 /* #3134-followup (Josh 6.72): clicking an agent's NAME or AVATAR in a room bubble opens
    that agent directly, the same openDetail path the members list uses (#2574), passing

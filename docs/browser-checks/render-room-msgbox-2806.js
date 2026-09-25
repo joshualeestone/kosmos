@@ -657,6 +657,25 @@ const now = () => new Date().toISOString();
       const order = () => phonePage.evaluate(() => [...document.querySelector('.pj3').children].map((c) => c.classList.contains('pjmid') ? 'room' : (c.classList.contains('pjsplit') ? 'members-files' : 'other')).join(','));
       const o375 = await order();
       chk(o375.startsWith('room,'), `[phone] the conversation is first in the DOM at 375px`, o375);
+      // Turning a phone mid-post moves the column; the composer must keep focus (and its keyboard).
+      const focusedBefore = await phonePage.evaluate(() => {
+        const fr = document.getElementById('firstrun'); if (fr) fr.remove();
+        // The static page shows no project (and the first-run overlay left the app inert): un-hide
+        // and un-inert the room column's ancestors so the composer can take focus, as it does on a
+        // real open project.
+        for (let el = document.querySelector('.pj3 > .pjmid'); el && el !== document.body; el = el.parentElement) {
+          el.hidden = false; el.removeAttribute('inert'); if (getComputedStyle(el).display === 'none') el.style.display = 'block';
+        }
+        const t = document.getElementById('pj-post'); if (!t) return 'no #pj-post'; t.focus(); return document.activeElement === t ? 'pj-post' : 'not focusable';
+      });
+      await phonePage.setViewportSize({ width: 800, height: 800 });
+      await phonePage.waitForTimeout(100);
+      const focusedWide = await phonePage.evaluate(() => (document.activeElement && document.activeElement.id) || '(none)');
+      await phonePage.setViewportSize({ width: 375, height: 800 });
+      await phonePage.waitForTimeout(100);
+      const focusedBack = await phonePage.evaluate(() => (document.activeElement && document.activeElement.id) || '(none)');
+      chk(focusedBefore === 'pj-post' && focusedWide === 'pj-post' && focusedBack === 'pj-post', `[phone] turning the phone keeps the composer focused across the move`, `${focusedBefore} -> ${focusedWide} -> ${focusedBack}`);
+      await phonePage.evaluate(() => { const t = document.getElementById('pj-post'); if (t) t.blur(); });
       await phonePage.setViewportSize({ width: 800, height: 800 });
       await phonePage.waitForTimeout(100);
       const o800 = await order();
@@ -702,10 +721,10 @@ const now = () => new Date().toISOString();
       chk(Math.abs(ph.aFar - ph.aNear) <= 1 && ph.aNear <= 43, `[phone] the agent far gutter equals the near avatar+gap (#3361 on a phone)`, `far=${ph.aFar} near=${ph.aNear}`);
       chk(Math.abs(ph.oFar - ph.oNear) <= 1 && ph.oNear <= 43, `[phone] the operator far gutter equals the near avatar+gap`, `far=${ph.oFar} near=${ph.oNear}`);
       chk(ph.maskClear >= 0, `[phone] the bubble tail's ground mask stops short of the avatar (it would paint over it)`, `clearance=${ph.maskClear}px`);
-      // 190: in this 297px room the desktop row (34px avatar, 16px thread padding, 48px far
-      // gutter) leaves about 169px, which fails this; the phone row leaves 199px.
       chk(ph.attIn === 'inside', `[phone] a 120-character file name on your own post stays inside the room`, ph.attIn);
       chk(ph.opMaskClear >= 0, `[phone] the operator tail mask stops short of its avatar`, `clearance=${ph.opMaskClear}px`);
+      // 190: in this 297px room the desktop row (34px avatar, 16px thread padding, 48px far
+      // gutter) leaves about 169px, which fails this; the phone row leaves 199px.
       chk(ph.aW >= 190 && ph.oW >= 190, `[phone] both bubbles are wide on a phone`, `agent=${ph.aW}px operator=${ph.oW}px`);
       // Tap to react (a touchscreen has no hover). Real taps, in a touch context.
       const bar = () => phonePage.evaluate(() => {
@@ -730,10 +749,29 @@ const now = () => new Date().toISOString();
       await phonePage.waitForTimeout(300);
       const t2 = await bar();
       chk(t2.shown === 0 && t2.op === '0', `[phone/touch] a second tap closes it (no sticky-hover reveal)`, JSON.stringify(t2));
-      await phonePage.locator('#pj-room .att').first().tap().catch(() => {});
+      // A repaint (new post, re-worded time) rewrites the rows: an open bar comes back on its post.
+      await firstBody.tap();
+      await phonePage.waitForTimeout(300);
+      const rp = await phonePage.evaluate(() => {
+        const room = document.getElementById('pj-room');
+        const openPost = room.querySelector('.msg.rxn-show .rxns') && room.querySelector('.msg.rxn-show .rxns').getAttribute('data-post');
+        room.innerHTML = room.innerHTML.replace(/ rxn-show/g, '');   // what paintRoom's rewrite does to the class
+        return new Promise((res) => setTimeout(() => {
+          const now = room.querySelector('.msg.rxn-show .rxns');
+          res({ openPost, after: now ? now.getAttribute('data-post') : null });
+        }, 50));
+      });
+      chk(rp.openPost && rp.after === rp.openPost, `[phone/touch] a repaint keeps the open bar on the same post`, JSON.stringify(rp));
+      await firstBody.tap();   // close it
+      await phonePage.waitForTimeout(300);
+      // A file card is a download link: stop the navigation (the check must stay on this page),
+      // then tap it for real and require the room to still be here before reading anything.
+      await phonePage.evaluate(() => document.querySelectorAll('#pj-room .att').forEach((a) => a.addEventListener('click', (e) => e.preventDefault())));
+      await phonePage.locator('#pj-room .att').first().tap();
       await phonePage.waitForTimeout(300);
       const t3 = await bar();
-      chk(t3.shown === 0, `[phone/touch] a tap on a file card does not toggle the bar`, JSON.stringify(t3));
+      const rowsLeft = await phonePage.evaluate(() => document.querySelectorAll('#pj-room .msg').length);
+      chk(rowsLeft === 3 && t3.shown === 0 && t3.op === '0', `[phone/touch] a tap on a file card does not toggle the bar`, JSON.stringify(Object.assign({ rowsLeft }, t3)));
     } finally {
       await phonePage.close();
     }
