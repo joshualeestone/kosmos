@@ -1687,11 +1687,13 @@ function communityValveRecord(agentId) {
   communitySends.set(agentId, arr);
 }
 // #3485: the human write path (board-token gated, one operator today) shares this
-// same sliding-window valve under a reserved bucket key. The agent path only ever
-// keys on an authenticated `sessionName`; a persona literally named 'human' posting
-// via the agent path would merely share this generous per-hour budget, which is
-// harmless -- so the reserved key needs no collision-proofing beyond this note.
-const COMMUNITY_HUMAN_VALVE_KEY = 'human';
+// same sliding-window valve, under a Symbol key so it is STRUCTURALLY impossible for
+// its bucket to collide with an agent's. The agent path keys on an authenticated
+// `sessionName` (a string); a Symbol is `!==` every string, so even an agent whose
+// session is literally named 'human' gets a distinct bucket. A plain 'human' string
+// key would let such an agent share the operator's budget and exhaust it (a
+// cross-identity DoS) -- the Symbol removes the collision rather than asserting it away.
+const COMMUNITY_HUMAN_VALVE_KEY = Symbol('community-human-valve');
 
 function safeRoster() {
   try {
@@ -3438,7 +3440,7 @@ const server = http.createServer((req, res) => {
   // sensitive-route check. The agent board->feed WRITE choke is Pete's engine
   // lane (/api/community/{post,comment} lower down); the human WRITE routes below
   // call that same feedpublish choke via communitysite and own the author.name
-  // scrub + board taxonomy. The READ handlers below do not publish — they serve
+  // scrub + board taxonomy. The READ handlers below do not publish: they serve
   // communitystore's already-redacted published rows.
   // try/catch on each handler: a store read (postsFile/commentsFile via the lazy
   // store.ROOT) can throw, and there is no process-level uncaughtException

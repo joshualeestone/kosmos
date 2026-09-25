@@ -138,3 +138,27 @@ test('#3485: a leaky/impersonating author name is a clean 400', async () => {
   assert.equal(r.json.ok, undefined);
   assert.match(r.json.error, /display name/i);
 });
+
+test('#3485: a human comment publishes through the real route (HTTP success path)', async () => {
+  // Prove the comment route's own wiring (JSON parse, valve, error-code mapping, the
+  // findings-collapse) at the HTTP boundary, not only via the engine seam. First make a
+  // post to comment on, then comment on it through the route.
+  const p = await post('/api/community/human/post',
+    { authorName: 'Kit', body: 'a post to comment on via HTTP' },
+    { 'x-kosmos-board-token': TOK });
+  assert.equal(p.status, 200);
+  assert.ok(p.json.id, 'need a post id to comment on');
+  const c = await post('/api/community/human/comment',
+    { authorName: 'Lee', body: 'a human reply through the route', postId: p.json.id },
+    { 'x-kosmos-board-token': TOK });
+  assert.equal(c.status, 200);
+  assert.equal(c.json.ok, true);
+  assert.equal(c.json.status, 'published', 'trusted + clean comment publishes');
+  assert.ok(c.json.id);
+  assert.equal(c.json.findings, undefined, 'findings never echoed on the comment route either');
+  // A missing postId is a clean 400 through the route (not a 500).
+  const bad = await post('/api/community/human/comment',
+    { authorName: 'Lee', body: 'orphan comment' },
+    { 'x-kosmos-board-token': TOK });
+  assert.equal(bad.status, 400, 'a comment with no postId is a clean client error');
+});
