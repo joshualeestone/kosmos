@@ -586,12 +586,30 @@ test('#1760 scrub stops the value at , and ; (no cross-separator over-redaction)
 
 // #1760 iter-8: bounded quantifiers -> a multi-MB degenerate run cannot stack-overflow
 // (scrub runs synchronously on the board event loop). It must return, not throw.
+// #3710: the bound is CPU time, not wall time. Backtracking is CPU work, so a
+// real regression still burns past it; a busy Mac handing the CPU to other
+// agents' suites stretches wall time only (it failed at 3.4 to 4.4s under
+// load 16 to 31 and ran in ~270ms alone).
+function cpuMsOf(fn) {
+  const before = process.cpuUsage();
+  fn();
+  const d = process.cpuUsage(before);
+  return (d.user + d.system) / 1000;
+}
+
 test('#1760 scrub survives a multi-MB degenerate assignment run without throwing', () => {
   const big = 'token:' + 'a'.repeat(3_000_000); // no digit/symbol, no separator
-  const t = Date.now();
   let out, threw = null;
-  try { out = feedbacksend.scrub(big); } catch (e) { threw = e.message; }
-  const ms = Date.now() - t;
+  const ms = cpuMsOf(() => { try { out = feedbacksend.scrub(big); } catch (e) { threw = e.message; } });
   assert.equal(threw, null, 'scrub threw on a large run: ' + threw);
-  assert.ok(ms < 3000, `scrub took ${ms}ms on a large run - possible unbounded backtracking`);
+  assert.ok(ms < 3000, `scrub used ${Math.round(ms)}ms of CPU on a large run - possible unbounded backtracking`);
+});
+
+// #3710 CONTROL: the CPU measure must still see catastrophic backtracking, or
+// the bound above could never fail. (a+)+$ on a run of a's ending in a non-match
+// is exponential; 24 characters is about a second of CPU with nothing else running.
+test('#3710 control: cpuMsOf sees a catastrophically backtracking regex', () => {
+  const evil = /^(a+)+$/;
+  const ms = cpuMsOf(() => evil.test('a'.repeat(24) + '!'));
+  assert.ok(ms >= 500, `a known-catastrophic regex measured only ${Math.round(ms)}ms of CPU; the measure cannot see backtracking`);
 });
