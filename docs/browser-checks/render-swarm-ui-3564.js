@@ -222,12 +222,17 @@ const waitFor = (page, fn, arg, ms = 6000) => page.waitForFunction(fn, arg, { ti
     crewSwarm = { ...crewSwarm, dailyTokenLimit: 6000000 };
     // S17: today's tokens could not be read in full (metered false): the page says so, with no bar, rather than a
     // low number that reads as plenty left. CONTROL: metered true shows the number again.
-    crewSwarm = { ...crewSwarm, metered: false, tokensToday: 1200 };
+    crewSwarm = { ...crewSwarm, metered: false, tokensToday: 1200, helperTokenRatio: 2.3 };
     chk(await waitFor(page, () => /Could not measure/.test(document.getElementById('d-swarm-today').textContent) && document.getElementById('d-swarm-bar').parentElement.hidden, null, 8000),
       'S17 tokens not read in full: it says it could not measure, and hides the bar', await page.evaluate(() => document.getElementById('d-swarm-today').textContent));
+    chk(await page.evaluate(() => !/Today it has used/.test(document.getElementById('d-swarm-warn').textContent)),
+      'S17 and the warning claims no measured ratio from the same partial read', await page.evaluate(() => document.getElementById('d-swarm-warn').textContent));
     crewSwarm = { ...crewSwarm, metered: true, tokensToday: 2461380 };
     chk(await waitFor(page, () => document.getElementById('d-swarm-today').textContent === '2,461,380 tokens' && !document.getElementById('d-swarm-bar').parentElement.hidden, null, 8000),
       'S17 CONTROL: measured again, the number and the bar are back', await page.evaluate(() => document.getElementById('d-swarm-today').textContent));
+    chk(await waitFor(page, () => /Today it has used about <b>2\.3 times/.test(document.getElementById('d-swarm-warn').innerHTML), null, 8000),
+      'S17 CONTROL: and measured, the warning gives the ratio', await page.evaluate(() => document.getElementById('d-swarm-warn').textContent));
+    crewSwarm = { ...crewSwarm, helperTokenRatio: null };
     await page.click('#d-swarm-stop');
     for (let i = 0; i < 20 && !find((q) => q.method === 'POST'); i++) await page.waitForTimeout(100);
     chk(!!find((q) => q.method === 'POST' && q.url === '/api/agent/crew/swarm/stop'), 'S7 Stop now sends POST /api/agent/crew/swarm/stop', JSON.stringify(sent));

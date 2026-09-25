@@ -38628,7 +38628,8 @@ function swarmPagePaint(a) {
   const shown = Number(range.value) || max;
   document.getElementById('d-swarm-max-v').textContent = String(shown);
   range.setAttribute('aria-valuetext', shown + ' helpers at most');
-  document.getElementById('d-swarm-warn').innerHTML = swarmWarnWords(shown, Number(sw.helperTokenRatio));
+  /* The ratio comes from the same read as tokensToday: not read in full, it is not a measurement either. */
+  document.getElementById('d-swarm-warn').innerHTML = swarmWarnWords(shown, sw.metered === false ? null : Number(sw.helperTokenRatio));
   const used = Math.max(0, Number(sw.tokensToday) || 0), cap = Math.max(0, Number(sw.dailyTokenLimit) || 0);
   /* metered false: today's tokens could not be read in full, so the number is a floor, not the day. Say so rather
      than show a low number and a short bar that read as "plenty left" (Renet, #3564). */
@@ -38696,7 +38697,7 @@ document.body.addEventListener('input', (e) => {
   if (e.target && e.target.id === 'd-swarm-max' && CURRENT) {
     document.getElementById('d-swarm-max-v').textContent = e.target.value;
     e.target.setAttribute('aria-valuetext', e.target.value + ' helpers at most');
-    document.getElementById('d-swarm-warn').innerHTML = swarmWarnWords(Number(e.target.value), SWARM_ROW && SWARM_ROW.swarm ? Number(SWARM_ROW.swarm.helperTokenRatio) : null);
+    document.getElementById('d-swarm-warn').innerHTML = swarmWarnWords(Number(e.target.value), SWARM_ROW && SWARM_ROW.swarm && SWARM_ROW.swarm.metered !== false ? Number(SWARM_ROW.swarm.helperTokenRatio) : null);
   }
 });
 document.addEventListener('click', async (e) => {
