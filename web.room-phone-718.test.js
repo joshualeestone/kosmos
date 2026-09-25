@@ -28,7 +28,7 @@ test('on a touchscreen only a tap (or focus) opens the room reaction bar, never 
 });
 
 test('the tap listener is registered before the data-open-agent one, which must stay last', () => {
-  const tap = html.indexOf("if (e.target.closest('.rxn-pick')) { room.querySelectorAll('.msg.rxn-show')");
+  const tap = html.indexOf("if (e.target.closest('.rxn-pick')) { pjRxnClose(); return; }");
   const last = html.indexOf('Keep this one last among the room\'s click listeners');
   assert.ok(tap > 0 && last > 0 && tap < last, 'tap listener at ' + tap + ', last listener at ' + last);
 });
