@@ -8,7 +8,8 @@
  *     a message carrying attachment cards sat 112px off the left of an iPhone SE: the file
  *     name is one unbreakable line, so it set the bubble's minimum width. The same arm runs at
  *     900 and 1280 with a 120-character file name, because the cause does not depend on width;
- *   - every attachment card sits inside its own bubble, pictures included;
+ *   - every attachment card sits inside its own bubble, pictures included, and its file name
+ *     stays on one line (the clamp that keeps the now-breakable name from wrapping);
  *   - no table cell is narrower than its longest word (the thread's `overflow-wrap: anywhere`
  *     crushed them to a letter per line), and the table's scroll box stays inside its bubble;
  *   - neither the page nor the thread's own scroll box scrolls sideways;
@@ -92,7 +93,9 @@ function measure() {
   /* Josh's #3340 rule on the narrowed phone gutters: the space reserved OPPOSITE the avatar
      equals the near side (avatar + gap), measured, so editing one literal without the other reds. */
   const gutterMismatch = [...document.querySelectorAll('#d-dmthread .msg')].filter((row) => {
-    const b = row.querySelector('.msg-b'); const r = R(row); const rb = R(b); const cs = getComputedStyle(b);
+    const b = row.querySelector('.msg-b');
+    if (!b) return true; // a row with no body is a shape this check does not understand: fail loudly
+    const r = R(row); const rb = R(b); const cs = getComputedStyle(b);
     const near = row.classList.contains('you') ? r.right - rb.right : rb.left - r.left;
     const far = parseFloat(row.classList.contains('you') ? cs.marginLeft : cs.marginRight);
     return Math.abs(near - far) > 0.5;
@@ -106,6 +109,11 @@ function measure() {
     const gap = row.classList.contains('you') ? R(av).left - R(bd).right : R(bd).left - R(av).right;
     return gap + 0.5 < mask;
   }).length;
+  /* The file name may break anywhere so it stops setting a minimum width; the one-line clamp is
+     what keeps it reading as one line. Without the clamp the long name wraps to ~8 lines and every
+     containment assertion stays green, so the line count is checked on its own. */
+  const namesOverOneLine = [...document.querySelectorAll('#d-dmthread .att-name')].filter((n) =>
+    R(n).height > parseFloat(getComputedStyle(n).fontSize) * 1.5).length;
   const wraps = [...document.querySelectorAll('#d-dmthread .mdtablewrap')];
   const short = document.querySelector('#d-dmthread .msg:not(.you) .att');
   return {
@@ -117,7 +125,7 @@ function measure() {
     pageHScroll: document.documentElement.scrollWidth > vw,
     threadHScroll: (() => { const t = document.getElementById('d-dmthread'); return t.scrollWidth > t.clientWidth + 1; })(),
     tablesOnYou: document.querySelectorAll('#d-dmthread .msg.you .mdtablewrap').length,
-    gutterMismatch, maskOverAvatar,
+    gutterMismatch, maskOverAvatar, namesOverOneLine,
     shortCardBubble: short ? Math.round(R(short.closest('.msg-bd')).width) : null,
     row: short ? Math.round(R(short.closest('.msg')).width) : null,
   };
@@ -155,6 +163,7 @@ async function open(browser, w, h, theme) {
         const t = `[${eng} ${w}x${h} ${theme}]`;
         chk(m.bubbles >= 6 && m.offscreen === 0, `${t} every bubble stays inside its row`, `bubbles=${m.bubbles} offscreen=${m.offscreen}`);
         chk(m.cards === 4 && m.escaped === 0, `${t} every attachment card sits inside its bubble`, `cards=${m.cards} escaped=${m.escaped}`);
+        chk(m.namesOverOneLine === 0, `${t} every file name stays on one line (the clamp holds)`, `over=${m.namesOverOneLine}`);
         chk(m.pics === 2, `${t} the preview slots are laid out in their cards (the images themselves cannot load over file://)`, `pics=${m.pics}`);
         chk(m.cells > 0 && m.crushed.length === 0, `${t} no table cell is narrower than its longest word`, m.crushed.join(' | '));
         chk(m.tablesOnYou === 1 && m.tableInBubble, `${t} both tables' scroll boxes (the agent's and the person's own) stay inside their bubbles`);
@@ -172,6 +181,7 @@ async function open(browser, w, h, theme) {
         const m = await page.evaluate(measure);
         const t = `[${eng} ${w}x${h}]`;
         chk(m.bubbles >= 6 && m.cards === 4 && m.offscreen === 0 && m.escaped === 0, `${t} every bubble and card stays inside its row`, `bubbles=${m.bubbles} cards=${m.cards} offscreen=${m.offscreen} escaped=${m.escaped}`);
+        chk(m.namesOverOneLine === 0, `${t} every file name stays on one line`, `over=${m.namesOverOneLine}`);
         chk(m.shortCardBubble < m.row * 0.8, `${t} a short-named attachment bubble fits its content, not the whole row`, `bubble=${m.shortCardBubble} row=${m.row}`);
         chk(errs.length === 0, `${t} no page errors`, errs.join(' | '));
         await page.close();

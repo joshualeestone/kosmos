@@ -5282,6 +5282,10 @@ body:not(.consolidated) .pjmidhead:has(.pjhead) .tsearch:focus-within { flex-bas
    table (or anything with a large minimum width) could make it wider than its row and push it
    off the left edge. Capped at the row; the table's own scroll box then does the scrolling. */
 #d-dmthread .msg.you .msg-bd { max-width: min(78ch, 100%); }
+/* The phone gutters follow the VIEWPORT width (40rem), not the thread's own width: a narrow
+   thread inside a wider window keeps the 34px avatar. Nothing overflows either way (the check's
+   900 and 1280 arms); a later slice that wants the gutters to track the column needs a container
+   query instead. */
 @media (max-width: 40rem) {
   /* The avatar shrinks; the 14px gap does NOT, because the bubble tail's ground mask
      (.msg-bd::after, 14px wide beside the bubble) would paint over a closer avatar. The far
