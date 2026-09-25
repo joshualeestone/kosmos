@@ -1,4 +1,4 @@
-// Browser-check-surface: asblayer asb asb-nudge asb-dot asp asp-ask asp-in asp-say asp-x asp-fold asb-row asb-toggle setup-guide
+// Browser-check-surface: asblayer asb asb-nudge asb-dot asp asp-ask asp-in asp-say asp-x asp-fold asb-row asb-toggle setup-guide asp-busy asb-act asp-open
 'use strict';
 
 /**
@@ -79,7 +79,7 @@ const waitFor = (page, fn, ms = 6000) => page.waitForFunction(fn, null, { timeou
     const consoleErrs = [];
     page.on('console', (m) => { if (m.type() === 'error') consoleErrs.push(m.text()); });
     /* The guide's thread, answered here. */
-    let thread = [{ from: 'josh', text: 'Hi, I built Kosmos. Want me to set up your first agent with you?', at: new Date().toISOString() }];
+    let thread = [{ from: 'josh', text: 'Want me to set up your first agent with you?', at: new Date().toISOString() }];
     const sent = [];
     let verdict = { delivery: { state: 'placed' }, recorded: true };
     await page.route('**/api/agent/josh/thread', async (route) => {
@@ -181,11 +181,28 @@ const waitFor = (page, fn, ms = 6000) => page.waitForFunction(fn, null, { timeou
     await page.click('#asb');
     chk(await waitFor(page, () => !document.getElementById('asp').hidden), 'B3 the chat opens');
     await waitFor(page, () => document.querySelectorAll('#asp-th .asp-m.him').length > 0);   // the thread's first read
-    const head = await page.evaluate(() => ({ who: document.querySelector('.asp-who b').textContent, tag: document.querySelector('.asp-tag').textContent,
-      note: document.querySelector('.asp-note').textContent, him: [...document.querySelectorAll('#asp-th .asp-m.him')].map((m) => m.textContent),
-      focus: document.activeElement && document.activeElement.id }));
-    chk(head.who === 'Josh' && head.tag === 'JOSH\'S AI' && head.note === 'An AI that knows Kosmos, in Josh\'s voice. Josh isn\'t typing live.', 'B3 headed Josh, tagged JOSH\'S AI, and says Josh isn\'t typing live', JSON.stringify(head));
-    chk(head.him.length === 1 && head.focus === 'asp-say', 'B3 it shows the guide\'s thread and puts the cursor in the box', JSON.stringify(head));
+    const head = await page.evaluate(() => {
+      const note = document.querySelector('.asp-note');
+      const him = [...document.querySelectorAll('#asp-th .asp-m.him')], you = document.querySelector('#asp-th .asp-m.you');
+      const rs = getComputedStyle(document.documentElement);
+      return { who: document.querySelector('.asp-who b').textContent, tag: !!document.querySelector('#asp .asp-tag'),
+        note: note ? note.textContent : '', noteShown: !!note && getComputedStyle(note).display !== 'none',
+        him: him.map((m) => m.textContent), place: document.getElementById('asp-say').placeholder,
+        himBg: him[0] ? getComputedStyle(him[0]).backgroundColor : null, agentMsg: rs.getPropertyValue('--agent-msg').trim(),
+        focus: document.activeElement && document.activeElement.id };
+    });
+    /* #3738 (Josh 08:51): "Josh, Kosmos Guide", no pill, no footer, one opening message, the new placeholder. */
+    chk(head.who === 'Josh, Kosmos Guide' && !head.tag && !head.noteShown, 'B3 headed "Josh, Kosmos Guide", with no pill and no footer line (#3738)', JSON.stringify(head));
+    chk(head.him[0] === 'Hi, I\'m Josh\'s AI guide. Ask me anything about setting up Kosmos.' && head.him.length === 2 && head.place === 'Ask about Kosmos\u2026',
+      'B3 the opening message is the first guide bubble, then the thread; the box says "Ask about Kosmos..."', JSON.stringify(head));
+    chk(head.focus === 'asp-say', 'B3 and puts the cursor in the box', JSON.stringify(head));
+    /* The two lines Josh cut are gone from the page, its scripts included, so no template or fallback can bring
+       one back (a starting note in the panel's markup carried one after the paint had dropped it). */
+    const cut = await page.evaluate(() => { const h = document.documentElement.innerHTML; return ['Hi, I built Kosmos', 'An AI that knows Kosmos'].filter((w) => h.includes(w)); });
+    chk(cut.length === 0, 'B3 neither cut line is anywhere in the page (#3738)', JSON.stringify(cut));
+    /* The guide's bubble is the DM's agent cream (the same token, read, not a copy of its value). */
+    chk(await page.evaluate(() => { const t = document.createElement('div'); t.style.background = 'var(--agent-msg)'; document.body.appendChild(t); const v = getComputedStyle(t).backgroundColor; t.remove();
+      return v === getComputedStyle(document.querySelector('#asp-th .asp-m.him')).backgroundColor; }), 'B3 the guide\'s bubbles are the DM agent cream (--agent-msg)', JSON.stringify(head));
     for (let i = 0; i < 8 && !pageReports.some((p) => p.screen === 'board'); i++) await page.waitForTimeout(250);
     chk(pageReports.some((p) => p.screen === 'board'), 'B3 the guide is told the person is on the board', JSON.stringify(pageReports));
     const usable = await page.evaluate(() => { const b = document.getElementById('new-agent') || document.getElementById('rail-agents-new'); const r = b.getBoundingClientRect(); const hit = document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2); return !!hit && !!hit.closest('#new-agent, #rail-agents-new'); });
@@ -208,6 +225,8 @@ const waitFor = (page, fn, ms = 6000) => page.waitForFunction(fn, null, { timeou
     await page.fill('#asp-say', 'How do I make an agent?');
     await page.keyboard.press('Enter');
     chk(await waitFor(page, () => [...document.querySelectorAll('#asp-th .asp-m.you')].some((m) => m.textContent === 'How do I make an agent?')), 'B5 the message shows in the chat');
+    chk(await page.evaluate(() => { const t = document.createElement('div'); t.style.background = 'var(--usermsg-tint)'; document.body.appendChild(t); const v = getComputedStyle(t).backgroundColor; t.remove();
+      return v === getComputedStyle(document.querySelector('#asp-th .asp-m.you')).backgroundColor; }), 'B5 the person\'s bubble is the DM blue (--usermsg-tint, #3738)');
     chk(sent.length === 1 && sent[0] === 'How do I make an agent?' && await page.evaluate(() => document.getElementById('asp-say').value === ''), 'B5 it went to the guide\'s thread once and the box emptied', JSON.stringify(sent));
 
     // B5b: unconfirmed and NOT kept in the thread: the box is the only copy, so the words stay, and it says so.
@@ -236,9 +255,76 @@ const waitFor = (page, fn, ms = 6000) => page.waitForFunction(fn, null, { timeou
     thread = thread.concat([{ from: 'josh', text: 'Click New agent, top left.', at: new Date().toISOString() }]);
     await page.evaluate(() => asbPoll(true));
     chk((await bubble(page)).dot, 'B6 a reply while folded lights the gold dot');
+    /* The reply was timed when the dot lit; opening the chat later keeps that time (a fresh stamp would hide a real
+       "working" until the next board snapshot). */
+    const litAt = await page.evaluate(() => ASB.heardAt);
+    await page.waitForTimeout(60);
     await page.click('#asb');
     await page.waitForTimeout(300);
-    chk(!(await bubble(page)).dot && await page.evaluate(() => [...document.querySelectorAll('#asp-th .asp-m.him')].length === 2), 'B6 opening it shows the reply and clears the dot');
+    chk(litAt > 0 && await page.evaluate((t) => ASB.heardAt === t, litAt), 'B6 opening keeps the time the reply landed, not the time it was opened', String(litAt));
+    chk(!(await bubble(page)).dot && await page.evaluate(() => [...document.querySelectorAll('#asp-th .asp-m.him:not(.asp-open)')].length === 2), 'B6 opening it shows the reply and clears the dot');
+
+    // B20 (#3733, Josh 08:23): while the guide is working on a reply, the chat shows the app's working row (the same
+    // .act dots and "is working" the agent page uses) and the folded bubble shows the dots, so a message does not
+    // feel lost. CONTROL: idle, neither shows.
+    const guideState = (st) => fleet.install([fleet.agent('josh-2', { state: 'idle', displayName: 'Josh', role: 'Personal assistant' }),
+      fleet.agent('josh', { state: st, displayName: 'Josh', role: 'Setup guide' }),
+      fleet.agent('beatrix', { state: 'idle', displayName: 'Beatrix', role: 'Collections Coordinator' })]);
+    /* A thread long enough to scroll, read to its end, so the arms below can see whether the row pushes a reply out of view. */
+    for (let i = 0; i < 12; i++) thread = thread.concat([{ from: i % 2 ? 'josh' : 'you', text: 'Line ' + i + ' of an earlier conversation.', at: new Date().toISOString() }]);
+    await page.evaluate(() => asbPoll(true));
+    await page.evaluate(() => { const th = document.getElementById('asp-th'); th.scrollTop = th.scrollHeight; });
+    chk(await page.evaluate(() => { const th = document.getElementById('asp-th'); return th.scrollHeight > th.clientHeight + 40; }), 'B20 precondition: the thread scrolls');
+    guideState('working');
+    chk(await waitFor(page, () => { const b = document.getElementById('asp-busy'); return !!b && !b.hidden && b.querySelectorAll('.act i').length === 3 && /Josh is working/.test(b.textContent); }, 12000),
+      'B20 the guide working: the open chat shows the working row', await page.evaluate(() => document.getElementById('asp-busy').outerHTML.slice(0, 200)));
+    /* The row took the thread's height as it showed: the thread, at its end before, is still at its end. */
+    const atEnd20 = await page.evaluate(() => { const th = document.getElementById('asp-th'); return Math.round(th.scrollHeight - th.scrollTop - th.clientHeight); });
+    chk(atEnd20 <= 2, 'B20 as the working row shows, the thread stays at its end (its last message is not under the row)', 'from end: ' + atEnd20);
+    if (SHOTS) { fs.mkdirSync(SHOTS, { recursive: true }); await page.screenshot({ path: path.join(SHOTS, 'asb-working-open.png') }); }
+    // B20: the dots keep ONE node across paints (#3421): a rebuilt node restarts their loop every tick.
+    await page.evaluate(() => { document.querySelector('#asp-busy .act').__kept = true; });
+    await page.waitForTimeout(3500);
+    chk(await page.evaluate(() => !!document.querySelector('#asp-busy .act') && document.querySelector('#asp-busy .act').__kept === true), 'B20 the working dots are not rebuilt across ticks (one continuous animation)');
+    // B20: a reply that lands while the board still says working: the row steps aside for it.
+    thread = thread.concat([{ from: 'josh', text: 'Here you go.', at: new Date().toISOString() }]);
+    await page.evaluate(() => asbPoll(true));
+    chk(await page.evaluate(() => document.getElementById('asp-busy').hidden), 'B20 a reply that has landed outranks the stale "working" from the last board snapshot');
+    /* The row took the thread's height while it showed; the thread stayed at its end, so the reply is in view. */
+    const inView = await page.evaluate(() => { const th = document.getElementById('asp-th'), last = th.lastElementChild;
+      const a = th.getBoundingClientRect(), b = last.getBoundingClientRect(); return { text: last.textContent, bottom: Math.round(b.bottom), thBottom: Math.round(a.bottom) }; });
+    chk(inView.text === 'Here you go.' && inView.bottom <= inView.thBottom + 1, 'B20 the reply that lands under the working row is in view, not scrolled under it', JSON.stringify(inView));
+    /* The next snapshot still says working: its announcement goes to its own region and leaves the reply's alone. */
+    await page.evaluate(() => tick());
+    await waitFor(page, () => !document.getElementById('asp-busy').hidden, 6000);
+    const lives = await page.evaluate(() => ({ reply: document.getElementById('asp-live').textContent, busy: document.getElementById('asp-live-busy').textContent }));
+    chk(lives.reply === 'Here you go.' && lives.busy === 'Josh is working', 'B20 "working" again does not replace the reply a screen reader has yet to read', JSON.stringify(lives));
+    await page.click('#asp-fold');
+    await page.evaluate(() => tick());   // the next board snapshot, forced: it is newer than the reply, so "working" counts again
+    chk(await waitFor(page, () => { const a = document.querySelector('#asb .asb-act'); return !!a && !a.hidden && getComputedStyle(a).display !== 'none'; }, 6000)
+      && await page.evaluate(() => /Josh is working/.test(document.getElementById('asb').getAttribute('aria-label'))),
+      'B20 folded, the bubble shows the working dots and says so to a screen reader');
+    if (SHOTS) await page.screenshot({ path: path.join(SHOTS, 'asb-working-folded.png'), clip: { x: 1100, y: 700, width: 180, height: 160 } });
+    guideState('idle');
+    chk(await waitFor(page, () => { const a = document.querySelector('#asb .asb-act'); return !!a && a.hidden; }, 12000), 'B20 CONTROL: idle, the dots go');
+    await page.click('#asb');
+    chk(await page.evaluate(() => document.getElementById('asp-busy').hidden), 'B20 CONTROL: and no working row in the chat');
+    // B20: the guide's sign-in broken: the chat says so (busyRow's line), and the folded bubble shows no working dots.
+    guideState('auth_failed');
+    chk(await waitFor(page, () => { const b = document.getElementById('asp-busy'); return !!b && !b.hidden && /sign-in isn.t working/.test(b.textContent) && !b.querySelector('.act'); }, 12000), 'B20 a broken sign-in says so in the chat, not silence');
+    /* Said once, in words only (the row's face and "!" are hidden from a screen reader), and not again when only its
+       evidence changes, which it does from poll to poll. */
+    const said20 = await page.evaluate(() => document.getElementById('asp-live-busy').textContent);
+    chk(/^Josh\u2019s Claude sign-in isn\u2019t working/.test(said20), 'B20 the broken sign-in is said once, in words only', JSON.stringify(said20));
+    const again20 = await page.evaluate(() => { const l = document.getElementById('asp-live-busy'); l.textContent = '';
+      const r = asbGuideRow(); r.stateEvidence = 'evidence that moved on'; asbPaint(); return l.textContent; });
+    chk(again20 === '', 'B20 and is not said again when only its evidence changes', JSON.stringify(again20));
+    await page.click('#asp-fold');
+    await page.waitForTimeout(400);
+    chk(await page.evaluate(() => document.querySelector('#asb .asb-act').hidden), 'B20 and the folded bubble shows no working dots for it');
+    guideState('idle');
+    await page.click('#asb');
+    await waitFor(page, () => document.getElementById('asp-busy').hidden, 12000);
 
     // B7: the first x asks once; Close for now keeps it and records the ask; a later x just closes.
     await page.click('#asp-x');
@@ -307,11 +393,13 @@ const waitFor = (page, fn, ms = 6000) => page.waitForFunction(fn, null, { timeou
 
     // B16: the tips cannot be read. The Setup assistant switch lives in the same Help box and must still be
     // there ("Don't show this again" promises it is), while the tips row hides (CONTROL: B1, no guide, no row).
-    await page.evaluate(() => { TIPS_STATE = { ok: false, seen: [], off: true }; paintTipsToggle(); showTab('settings'); document.querySelector('#s-nav button[data-go="mac"]').click(); });
+    /* The page retries a failed tips read every second (tipsCheck), and a retry that succeeds repaints the
+       row before this arm reads it: hold the retry off for the arm, then let it run again. */
+    await page.evaluate(() => { TIPS_LOAD_NEXT = Date.now() + 1e9; TIPS_STATE = { ok: false, seen: [], off: true }; paintTipsToggle(); showTab('settings'); document.querySelector('#s-nav button[data-go="mac"]').click(); });
     await page.waitForTimeout(300);
     const b16 = await page.evaluate(() => ({ box: document.getElementById('tips-box').hidden, tipsRow: document.getElementById('tips-row').hidden, asbRow: document.getElementById('asb-row').hidden }));
     chk(b16.box === false && b16.asbRow === false && b16.tipsRow === true, 'B16 with the tips unreadable, the Help box still offers the Setup assistant switch', JSON.stringify(b16));
-    await page.evaluate(() => showTab('agents'));
+    await page.evaluate(() => { TIPS_LOAD_NEXT = 0; showTab('agents'); });
 
     // B14: a new agent takes the guide's name (its folder has no guide marker). The board answers 409
     // "not-guide"; unlike a check it could not make (B12), that means the guide is gone.

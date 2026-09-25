@@ -172,6 +172,8 @@ const FX = {
 
       if (m.theirsCount >= 1 && m.mineCount >= 1) {
         const theirs = parse(m.theirsBg);
+        // Josh 2026-09-25 09:14: light agent messages are exactly #fbf4e4, fill only.
+        if (theme === 'light') chk(m.theirsBg === 'rgb(251, 244, 228)', `${t} the agent bubble is Josh's cream #fbf4e4`, m.theirsBg);
         // (a) filled at all -- not the transparent #2660 state.
         chk(theirs[3] > 0, `${t} the agent bubble carries a fill (not transparent)`, m.theirsBg);
         // (b) not the person's blue. Threshold 4, not 8: at today's exact tokens
@@ -201,7 +203,9 @@ const FX = {
         // it from the person's blue by delta.
         const agentToneOk = theme === 'dark'
           ? (spread(cream) <= 20 && (cream[2] - Math.max(cream[0], cream[1])) < 20 && (cream[2] - Math.max(cream[0], cream[1])) >= -2 && Math.max(cream[0], cream[1], cream[2]) <= 80)
-          : (cream[0] >= cream[1] && cream[1] >= cream[2] && (cream[0] - cream[2]) >= 2 && spread(cream) <= 20);
+          /* Josh 2026-09-25 09:14 chose #fbf4e4 (spread 23 over the white panel) for light agent messages; the
+             bound follows his exact pick and still reds a louder tint. It was 20 for #f4f1ea. */
+          : (cream[0] >= cream[1] && cream[1] >= cream[2] && (cream[0] - cream[2]) >= 2 && spread(cream) <= 24);
         chk(agentToneOk,
           `${t} the agent bubble is its own tone (warm cream in light, cool dark gray in dark), not the blue`,
           `composited=[${cream.map((x) => x.toFixed(1)).join(', ')}]`);
