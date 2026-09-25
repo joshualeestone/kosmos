@@ -14176,7 +14176,11 @@ const server = http.createServer((req, res) => {
              nothing inside can read as another row, a [kosmos] line or the operator. */
           if (m.kind === 'external') {
             const who = String(m.from || '').replace(/[\[\]«»]/g, '');
-            const said = String(m.text || '').replace(/[\u0000-\u001f\u007f-\u009f]/g, ' ').replace(/[«»]/g, '"').replace(/\s+/g, ' ');
+            // Its square brackets become round ones: every marker local agents act
+            // on (the operator's, a colleague's, [kosmos]) starts with `[`, and local
+            // posts are refused for carrying them (messages.js MARKERS); outside
+            // words cannot be refused, so here they cannot spell one.
+            const said = String(m.text || '').replace(/[\u0000-\u001f\u007f-\u009f]/g, ' ').replace(/[«»]/g, '"').replace(/\[/g, '(').replace(/\]/g, ')').replace(/\s+/g, ' ');
             return [when + '  [external ' + (m.fromKind === 'agent' ? 'agent' : 'person') + '] ' + who + ' wrote: «' + said + '»'];
           }
           const who = m.operator ? 'operator' : m.from;
@@ -15824,7 +15828,10 @@ fedseats.configure({
    quotes it is shown in and go on as Kosmos's own words. */
 const JOIN_NAME_QUOTES = /["'`\\\u00ab\u00bb\u2018-\u201f\u2039\u203a\u300c-\u300f\uff02\uff07]/g;
 function joinedProjectName(ownerName) {
-  const base = externalName(String(ownerName || '').replace(JOIN_NAME_QUOTES, ' '), 200).slice(0, 48).trim();
+  // Cleaned FIRST (NFKC folds fullwidth backticks and backslashes into real
+  // ones), then the quotes go, then the length (by code point, so no lone
+  // surrogate is left in a name or folder).
+  const base = Array.from(externalName(String(ownerName || ''), 200).replace(JOIN_NAME_QUOTES, ' ').replace(/\s+/g, ' ').trim()).slice(0, 48).join('').trim();
   let taken;
   try { taken = new Set(projects.readAll().map((p) => String(p.name || '').toLowerCase())); } catch { taken = new Set(); }
   const free = (n) => !projects.folderNameProblem(n) && !taken.has(n.toLowerCase())

@@ -199,7 +199,9 @@ async function verify(remote, body) {
     project_desc: bound(typeof d.project_desc === 'string'
       ? d.project_desc.replace(/\p{Cf}/gu, '').replace(/[\u0000-\u0009\u000b-\u001f\u007f-\u009f\u2028\u2029]/g, ' ')
       : d.project_desc, DESC_MAX),
-    owner_handle: bound(d.owner_handle, HANDLE_MAX),
+    // Shown as the trusted "Shared by": cleaned like every outside name, not
+    // only bounded, so it does not rest on the coordinator's handle rules alone.
+    owner_handle: typeof d.owner_handle === 'string' && d.owner_handle ? externalName(d.owner_handle, HANDLE_MAX) || null : null,
   };
   verified.delete(d.edge_id);
   verified.set(d.edge_id, Object.assign({ at: Date.now() }, snap));
