@@ -312,21 +312,22 @@ account only "This account does not include Kosmos+ yet."; this has not yet been
 (see Phone checks). It is the switch `CAN_BUY_HERE` in kosmos-relay `coordinator/src/signin.html`,
 which came with kosmos-relay #117 for iOS and was extended to the Android app by kosmos-relay #121
 (five commits).
-- **Policy read** [Josh]: before the first upload to any Play track, and again before the
-  production release in Step 10, a person reads the current Google Play Payments policy and its
+- **Policy read** (Josh's call): before the first upload to any Play track, and again before the
+  production release in Step 10, Josh reads the current Google Play Payments policy and its
   exceptions, against what the app does as described above. This doc deliberately states none of
   the policy's details: they change, they differ by country, and a summary written here would go
   stale unnoticed.
 - **Not live yet:** it takes the next coordinator deploy [Josh, a production change], like the
-  assetlinks route above.
-- **Undo (turning it off):** revert all five commits of kosmos-relay #121 (iOS is unaffected), then
-  deploy the coordinator [Josh, a production change]. Changing only the switch line back to
-  `var CAN_BUY_HERE = !IN_IOS_APP;` is not enough: #121's Android tests in
-  `coordinator/tests/page/signin.test.js` would then fail.
-  Once an Android build is on any Play track, turning it off puts checkout back inside a
-  Play-distributed app.
-- **Phone checks:** listed in kosmos-relay's plan `.claude/plans/android-no-purchase-718.md`; the
-  full tester script is card kosmos #3699, to be corrected against a real phone.
+  assetlinks route above, and that deploy must be live before the first upload to any Play track;
+  otherwise the Play app shows checkout.
+- **Undo (to show purchase in the Android app again):** revert all five commits of kosmos-relay
+  #121 (iOS is unaffected), then deploy the coordinator [Josh, a production change]. Changing only
+  the switch line back to `var CAN_BUY_HERE = !IN_IOS_APP;` is not enough: #121's Android tests in
+  `coordinator/tests/page/signin.test.js` would then fail. Once an Android build is on any Play
+  track, this puts checkout back inside a Play-distributed app.
+- **Phone checks:** listed in kosmos-relay's plan `.claude/plans/android-no-purchase-718.md`
+  ("Weakest part"; after an undo, read it from history); the full tester script is card kosmos
+  #3699, to be corrected against a real phone.
 
 **Upload:** to Play's Internal testing track [Josh, or whoever he gives Console access].
 
