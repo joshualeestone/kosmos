@@ -40,6 +40,7 @@ test('#3614: the block names the REAL path, and says to create it and to keep pr
   const flat = body.replace(/\s+/g, ' ');
   assert.match(flat, /When you make a file for the person in a direct conversation with them, or they ask you for one in a direct conversation, save it in your Files folder, unless it belongs to one of your projects/);
   assert.match(flat, /Create the folder if it is not there yet/);
+  assert.match(flat, /Tell them in one line where you saved it\./, 'the plain Files case does not say to tell the person where it went');
   // #3759: the doctrine says "your own folder"; the block says which folder that is for these files.
   assert.match(flat, /This Files folder is inside your own folder, and it is where "your own folder" points for a file made for the person, wherever else these instructions use that phrase/);
   assert.match(flat, /Kosmos lists what is in it on your page, where they can open it/, 'the block does not tell the agent the person sees its Files on its page (#3614 item 2 ships with it)');
@@ -52,7 +53,7 @@ test('#3759: the block names BOTH destinations and when each applies, says where
   // A direct ask: the agent's own Files folder (with the real path).
   assert.match(flat, /save it in your Files folder, unless it belongs to one of your projects \(see the next paragraphs; if you are on no projects, it always goes here\): `\/Users\/someone\/work\/workers\/writer\/Files`/);
   // About a project: that project's folder instead, even when asked in the direct conversation.
-  assert.match(flat, /When the conversation is about one of your projects \(the person names it, or the file is plainly part of that project's work\), save it in that project's folder instead/);
+  assert.match(flat, /When the conversation is about one of your projects \(the person names it, or the file is unmistakably that project's work, not only the same kind of thing\), save it in that project's folder instead/);
   assert.match(flat, /even when they asked for it, or you made it, in a direct conversation/);
   assert.match(flat, /If no folder is listed for that project, treat it as unclear, as below/);
   assert.match(flat, /tell them in one line where you put it: which project, and the file's name/);
@@ -85,7 +86,8 @@ test('#3614: the block lands in an agent file with that agent\'s own path, and i
 });
 
 test('#3759: the section the block sends the agent to is the one the projects block really writes', () => {
-  const said = (dmfiles.blockBody('/x').match(/under "([^"]+)" in your instructions/) || [])[1];
+  // Line breaks around the name are just wrapping; inside the quotes the name must be whole (no break).
+  const said = (dmfiles.blockBody('/x').match(/under\s+"([^"]+)"\s+in your instructions/) || [])[1];
   assert.ok(said, 'CONTROL: the block names a section');
   const heading = projects.blockBody([{ id: 'p1', name: 'Henderson lease', folder: '/tmp/henderson', agents: ['writer'] }], 'writer').split('\n')[0];
   assert.equal(heading, '## ' + said, 'the files block names a section the projects block does not write');
