@@ -609,6 +609,25 @@ The temp-root test mirrors `engine/status.js` and carries its two corrections: `
 is not `os.tmpdir()` on macOS, and both sides need resolving because `/var` is a symlink
 to `/private/var`.
 
+### `lib-sandbox-home.js` is a library, not a check
+
+**Every check that boots or spawns a board requires it first (#3675).** The account
+modules look under `AGENT_WORKFORCE_HOME || the real home`, and a fixture that sandboxed
+everything else still showed the host Mac's real Claude emails and the end of a real
+OpenAI key in Settings, where a local screenshot could carry them into a PR or a chat.
+Requiring it points `AGENT_WORKFORCE_HOME` and `AGENT_WORKFORCE_CLAUDE_CONFIG` at a sandbox
+unless the caller already set them, REMOVES the ambient homes read before that seam
+(`CODEX_HOME`, `AGENT_WORKFORCE_CODEX_HOME`, `GEMINI_CLI_HOME`, `GROK_HOME`,
+`CLAUDE_CONFIG_DIR`), and removes the folders it made when the check exits. Do not set
+`AGENT_WORKFORCE_CODEX_HOME` in a fixture: naming one puts the board into the #1488
+"operator named a codex home" mode. `tools/browser-checks.sh` exports an empty
+sandbox home for the whole run as well.
+
+A check whose screen needs a connected subscription calls `plantSubscribedClaude()`,
+which gives it its own home with a fixture account (`fixture@example.invalid`). It is
+opt-in because first-run checks want no account, and its own home so no later check sees
+it. `tools.browser-checks-home-3675.test.js` fails if a board-booting check skips the lib.
+
 ### `lib-firstrun-steps.js` is a library, not a check
 
 The other non-browser `.js` in here. The first-run wizard numbers its steps (`fr-pane-N`,
@@ -635,7 +654,13 @@ When the next step is inserted, discovery follows the pane; a hard-coded number 
 ```sh
 # 1. a server, with every root it writes to pointed somewhere disposable
 SB=$(mktemp -d)
+mkdir -p "$SB/home"
+# #3675: the home and the Claude config too, or Settings (and any screenshot) shows this
+# Mac's real accounts; and no ambient home read before the seam.
+env -u CODEX_HOME -u AGENT_WORKFORCE_CODEX_HOME -u GEMINI_CLI_HOME -u GROK_HOME -u CLAUDE_CONFIG_DIR \
 PORT=4399 \
+  AGENT_WORKFORCE_HOME="$SB/home" \
+  AGENT_WORKFORCE_CLAUDE_CONFIG="$SB/config/.claude.json" \
   AGENT_WORKFORCE_DATA="$SB/data" \
   AGENT_WORKFORCE_WORKERS="$SB/workers" \
   AGENT_WORKFORCE_LAUNCH="$SB/launch" \
@@ -996,7 +1021,17 @@ the server with `AGENT_WORKFORCE_DRY_RUN=1` on top of the sandboxed roots, and
 pass `--yes-dry-run` as the second argument or it refuses to run:
 
 ```sh
+# #3675: its own home (a fixture account) and a stand-in Claude Code, as sb8 in
+# tools/browser-checks.sh has, or Create runs against your real account and binary.
+# Its own home, not the one the step-1 board uses, so that board gains no account.
+mkdir -p "$SB/create-home/.claude"
+printf '%s\n' '{"oauthAccount":{"emailAddress":"fixture@example.invalid"}}' > "$SB/create-home/.claude.json"
+printf '#!/bin/sh\n[ "$1" = --version ] && { echo "2.1.282 (Claude Code)"; exit 0; }\nexit 1\n' > "$SB/fake-claude"
+chmod +x "$SB/fake-claude"
+env -u CODEX_HOME -u AGENT_WORKFORCE_CODEX_HOME -u GEMINI_CLI_HOME -u GROK_HOME -u CLAUDE_CONFIG_DIR \
 PORT=4561 AGENT_WORKFORCE_DRY_RUN=1 \
+  AGENT_WORKFORCE_HOME="$SB/create-home" AGENT_WORKFORCE_CLAUDE_BIN="$SB/fake-claude" \
+  AGENT_WORKFORCE_CLAUDE_CONFIG="$SB/config/.claude.json" \
   AGENT_WORKFORCE_DATA="$SB/data" AGENT_WORKFORCE_WORKERS="$SB/workers" \
   AGENT_WORKFORCE_LAUNCH="$SB/launch" AGENT_WORKFORCE_PROJECTS="$SB/projects" \
   node server.js &

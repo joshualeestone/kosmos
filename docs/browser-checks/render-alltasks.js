@@ -24,6 +24,7 @@
 // Measured. Keep the token, do not read it as covering the body.
 // (#2518) the distinctive web/index.html tokens this check asserts, so a change to the
 // all-tasks door/view/count is required to update this check at PR time, not stale it to a cut.
+require('./lib-sandbox-home.js'); // #3675: never read the host Mac's real accounts
 const { spawn } = require('node:child_process');
 const fs = require('node:fs');
 const os = require('node:os');

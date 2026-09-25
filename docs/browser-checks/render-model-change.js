@@ -4,6 +4,7 @@
  * change that is confirmed with its cost and reports its outcome in the dialog.
  *   NODE_PATH=~/work/pw-runtime/node_modules node docs/browser-checks/render-model-change.js
  */
+require('./lib-sandbox-home.js'); // #3675: never read the host Mac's real accounts
 const fs = require('node:fs'); const os = require('node:os'); const path = require('node:path');
 const SANDBOX = fs.mkdtempSync(path.join(os.tmpdir(), 'aw-model-'));
 process.env.AGENT_WORKFORCE_DATA = SANDBOX;

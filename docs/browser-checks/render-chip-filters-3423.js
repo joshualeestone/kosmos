@@ -33,6 +33,7 @@
  *   HEADED=0 node docs/browser-checks/render-chip-filters-3423.js
  *   NODE_PATH=~/work/pw-runtime/node_modules HEADED=0 node docs/browser-checks/render-chip-filters-3423.js
  */
+require('./lib-sandbox-home.js'); // #3675: never read the host Mac's real accounts
 const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');

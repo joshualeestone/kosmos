@@ -18,6 +18,7 @@
  *   node docs/browser-checks/render-assigner-live-3595.js            # headed
  *   HEADED=0 node docs/browser-checks/render-assigner-live-3595.js   # headless
  */
+require('./lib-sandbox-home.js'); // #3675: never read the host Mac's real accounts
 const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');

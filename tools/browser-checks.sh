@@ -238,6 +238,26 @@ fi
 # Servers were never affected: boot_board appends to SERVER_PIDS directly.
 RUN_DIR="$(mktemp -d "${TMPDIR:-/tmp}/kosmos-bc.XXXXXX")"
 SERVER_PIDS=()
+# #3675: no fixture board in this run may read the host Mac's real accounts. The
+# account modules look under AGENT_WORKFORCE_HOME || the real home, so every board
+# this script starts, and every check it runs, inherits a sandbox home inside
+# RUN_DIR (removed by cleanup). A caller that already pointed it somewhere other
+# than the real home keeps theirs. The checks also require
+# docs/browser-checks/lib-sandbox-home.js, which covers a check run on its own.
+if [ -z "${AGENT_WORKFORCE_HOME:-}" ] || [ "${AGENT_WORKFORCE_HOME%/}" = "${HOME%/}" ]; then
+  export AGENT_WORKFORCE_HOME="$RUN_DIR/home"
+  mkdir -p "$AGENT_WORKFORCE_HOME"
+fi
+# The OpenAI default resolves AGENT_WORKFORCE_CODEX_HOME || CODEX_HOME before the home seam
+# (codexupdate.js), and the Gemini/Grok/Claude session readers read GEMINI_CLI_HOME, GROK_HOME
+# and CLAUDE_CONFIG_DIR first, so an exported one would still reach the real home. Sealed by
+# REMOVAL, as tools/run-tests.sh does (#2858): naming a codex home instead would put every
+# board into the #1488 "operator named a codex home" mode, which is not the ordinary product.
+unset CODEX_HOME AGENT_WORKFORCE_CODEX_HOME GEMINI_CLI_HOME GROK_HOME CLAUDE_CONFIG_DIR
+# No check plants an ACCOUNT in this shared home: one that needs an account gets its own, in
+# its own board (sb8 below) or through lib-sandbox-home.js plantSubscribedClaude(), so no
+# check's premise depends on which other check ran first. (Boards may still write their own
+# state under it, as they would under a real home.)
 # #1818: a run that dies AFTER the checks begin but BEFORE the summary (a kill, an
 # OOM, or -- pre-fix -- a mid-run edit) otherwise leaves no FAILED line and no
 # run-log entry, so a reader grepping for FAIL reads the dead run as green (the
@@ -1036,7 +1056,20 @@ fi
 # socket behind them, so a lone free_port() here could collide with either
 # and strand an unrelated check's boot later in the run (#633's own class).
 sb8="$(new_sandbox)"
-AGENT_WORKFORCE_DATA="$sb8/data" AGENT_WORKFORCE_WORKERS="$sb8/workers" \
+# #3675: render-create-made makes an agent, so this board needs a Claude account and a
+# Claude Code binary. Before #3675 it silently used the host Mac's real ones (measured:
+# with an empty sandbox home it fails). Its own home carries a FIXTURE default account
+# (the address is .invalid on purpose: nothing real can answer to it), and a stand-in
+# Claude Code that answers --version and exits non-zero otherwise, as sb4's fake-claude
+# does, so the create liveness probe fails open instead of running the host's real
+# Claude Code against a real account.
+mkdir -p "$sb8/home/.claude"
+printf '%s\n' '{"oauthAccount":{"emailAddress":"fixture@example.invalid","organizationName":"Kosmos browser checks"}}' \
+  > "$sb8/home/.claude.json"
+printf '#!/bin/sh\n[ "$1" = --version ] && { echo "2.1.282 (Claude Code)"; exit 0; }\nexit 1\n' > "$sb8/fake-claude"
+chmod +x "$sb8/fake-claude"
+AGENT_WORKFORCE_HOME="$sb8/home" AGENT_WORKFORCE_CLAUDE_BIN="$sb8/fake-claude" \
+  AGENT_WORKFORCE_DATA="$sb8/data" AGENT_WORKFORCE_WORKERS="$sb8/workers" \
   AGENT_WORKFORCE_LAUNCH="$sb8/launch" AGENT_WORKFORCE_PROJECTS="$sb8/projects" \
   AGENT_WORKFORCE_RELEASE_BASE="http://127.0.0.1:9/dist" AGENT_WORKFORCE_DRY_RUN=1 \
   AGENT_WORKFORCE_TMUX_BIN="$FAKE_TMUX" \
