@@ -30,3 +30,10 @@ render-unread-edge-3743 (new; runner, README): U1 the two unread have the edge a
 a moment on screen, with a 1.2s fade; U3 a repaint does not bring it back and a new arrival has it; U4 not while the
 window is behind another, and coming back starts the clock; U5 reduced motion; U6 the room through pjMarkSeen and
 paintRoom. Controls: without the backlog and the focus test U1, U4 and U6 fail; without the removal U2 fails.
+
+## After review
+- Read also counts 120px on screen, so a very tall message can be read (U8).
+- A room read that did not answer is not a first look (U9); a per-thread read set keeps a stale count from re-edging
+  what was read (U10); the sets are bounded by the rows shown (U11).
+- Known and accepted: while a search filter is active the matching unread messages show no edge (clearing it brings
+  it back), and a repaint inside the 1.2s fade ends it at once rather than finishing the animation.
