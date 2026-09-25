@@ -980,6 +980,15 @@ function pushDeviceName(args, deviceName) {
   if (DEVICE_NAME.test(trimmed)) args.push('--device-name', trimmed);
 }
 
+/** #3796: the wizard's "Sign out". Drop whatever half-finished sign-in this process holds
+    (a session token, a phone challenge, or an enrol-only token), so leaving the wizard
+    leaves no bearer material behind. Nothing is sent to the coordinator: an unspent
+    token lapses there on its own, and the next signinStart starts clean either way. */
+function signinCancel() {
+  signinSession = null;
+  return { ok: true, because: null, data: { stage: 'cancelled' } };
+}
+
 /** Step one: ask the coordinator to email the six-digit code. Safe to repeat;
     reveals nothing about whether the account exists. A fresh start abandons any
     half-finished flow. */
@@ -1225,6 +1234,7 @@ module.exports = { secondReset, forget, macRequest, assistantChat, hostedAvailab
   signinEnrol,
   signinConfirmEnrol,
   signinRegister,
+  signinCancel,
   pendingDevices,
   devicesList,
   deviceAllow,

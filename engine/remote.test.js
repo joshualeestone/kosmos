@@ -634,6 +634,31 @@ test('signin verify returns ONLY the stage: the session token never leaves the e
   assert.ok(!('challenge' in got.data), 'a challenge leaked to the caller');
 });
 
+/* #3796: the wizard's "Sign out" drops the held sign-in. Each kind of bearer material the engine
+   can hold is spent after a cancel and refused; the control (the same flow without the cancel)
+   succeeds, so the refusal is the cancel's doing. */
+test('signin cancel drops the held session, challenge and enrol token', async () => {
+  await remote.signinStart('her@example.com');
+  assert.equal((await remote.signinVerify('her@example.com', '111111')).data.stage, 'session');
+  const c = remote.signinCancel();
+  assert.equal(c.ok, true);
+  const reg = await remote.signinRegister('hers');
+  assert.equal(reg.ok, false, 'register spent a session that Sign out should have dropped');
+  await remote.signinStart('her@example.com');
+  assert.equal((await remote.signinVerify('her@example.com', '222222')).data.stage, 'second');
+  remote.signinCancel();
+  assert.equal((await remote.signinSecond('123456')).ok, false, 'a phone challenge outlived Sign out');
+  await remote.signinStart('her@example.com');
+  assert.equal((await remote.signinVerify('her@example.com', '333333')).data.stage, 'enrol_second_factor');
+  remote.signinCancel();
+  assert.equal((await remote.signinEnrol('totp')).ok, false, 'an enrol token outlived Sign out');
+  // CONTROL: without the cancel the held session is spendable.
+  await remote.signinStart('her@example.com');
+  await remote.signinVerify('her@example.com', '111111');
+  const ok = await remote.signinRegister('hers');
+  assert.equal(ok.ok, true, 'control: ' + ok.because);
+});
+
 test('signin verify surfaces the phone-challenge and enrol stages without leaking the challenge id', async () => {
   await remote.signinStart('her@example.com');
   const second = await remote.signinVerify('her@example.com', '222222');

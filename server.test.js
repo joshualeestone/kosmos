@@ -11335,6 +11335,14 @@ test('the in-app sign-in runs end to end through the routes, and the session tok
     assert.ok(!('token' in vbody), 'the session token crossed the HTTP boundary: ' + verified.body);
     assert.ok(!('challenge' in vbody), 'a challenge crossed the HTTP boundary: ' + verified.body);
 
+    // #3796: "Sign out" drops the held session, so register is refused until a fresh verify.
+    const cancelled = await postJson('/api/remote/signin-cancel', {});
+    assert.equal(cancelled.status, 200, cancelled.body);
+    const orphan = await postJson('/api/remote/signin-register', { name: 'srv-mac' });
+    assert.equal(orphan.status, 400, 'register spent a session after Sign out: ' + orphan.body);
+    const again = await postJson('/api/remote/signin-verify', { email: 'person@example.com', code: '123456' });
+    assert.equal(JSON.parse(again.body).stage, 'session', again.body);
+
     const done = await postJson('/api/remote/signin-register', { name: 'srv-mac' });
     assert.equal(done.status, 200, done.body);
     const dbody = JSON.parse(done.body);

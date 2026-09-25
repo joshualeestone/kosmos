@@ -7028,6 +7028,13 @@ const server = http.createServer((req, res) => {
       .catch(() => sendJson(res, 400, { error: 'we could not check that code' }));
     return;
   }
+  /* #3796: the wizard's "Sign out" drops the half-finished sign-in the engine holds.
+     No body is read: there is nothing to say but "stop". */
+  if (pathname === '/api/remote/signin-cancel' && req.method === 'POST') {
+    const got = remote.signinCancel();
+    sendJson(res, 200, { ok: true, stage: got.data.stage });
+    return;
+  }
   if (pathname === '/api/remote/signin-register' && req.method === 'POST') {
     readBody(req)
       .then(async (buf) => {
