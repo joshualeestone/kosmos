@@ -818,22 +818,43 @@ function tasksEverCreated(everyProject) {
    Before that, the projects file is re-counted only when it changed (path, mtime, size), and the
    first time the count reaches the constant the flag is written, once. */
 let TASKS_TAB_SEEN = { file: null, mtimeMs: null, size: null, shown: false };
+/* Write the once-shown flag WITHOUT risking the person's other settings. writeSettings merges
+   over readSettings(), which answers {} for an unreadable file (a hand-edit typo, EACCES, EMFILE),
+   so a blind write there would replace their timezone and every other choice with this one flag.
+   The flag is written only into a settings file that is absent or reads as an object; otherwise
+   it is skipped, and retried on a later poll (see tasksTabShown). Returns whether it was written. */
+function saveTasksTabFlag(store) {
+  const fs = require('node:fs');
+  const f = require('node:path').join(store.ROOT, 'settings.json');   // the same file readSettings/writeSettings use
+  let raw = null;
+  try { raw = fs.readFileSync(f, 'utf8'); } catch (err) { if (!err || err.code !== 'ENOENT') return false; }
+  if (raw !== null) {
+    let parsed;
+    try { parsed = JSON.parse(raw); } catch { return false; }
+    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return false;
+  }
+  try { store.writeSettings({ tasksTabShown: true, tasksTabShownAt: new Date().toISOString() }); return true; }
+  catch { return false; }
+}
 function tasksTabShown() {
   const store = require('./store');
-  try { if (store.readSettings().tasksTabShown === true) return true; } catch { /* fall to the count */ }
+  let flagged = false;
+  try { flagged = store.readSettings().tasksTabShown === true; } catch { /* fall to the count */ }
+  if (flagged) return true;
   const f = projects.file();
   let st;
   try { st = require('node:fs').statSync(f); } catch { return false; }   // no projects yet: no tasks
+  let shown;
   if (TASKS_TAB_SEEN.file === f && TASKS_TAB_SEEN.mtimeMs === st.mtimeMs && TASKS_TAB_SEEN.size === st.size) {
-    return TASKS_TAB_SEEN.shown;
+    shown = TASKS_TAB_SEEN.shown;
+  } else {
+    try { shown = tasksEverCreated(projects.readAll()) >= TASKS_TAB_MIN; } catch { shown = false; }
+    TASKS_TAB_SEEN = { file: f, mtimeMs: st.mtimeMs, size: st.size, shown };
   }
-  let shown = false;
-  try { shown = tasksEverCreated(projects.readAll()) >= TASKS_TAB_MIN; } catch { shown = false; }
-  TASKS_TAB_SEEN = { file: f, mtimeMs: st.mtimeMs, size: st.size, shown };
-  if (shown) {
-    try { store.writeSettings({ tasksTabShown: true, tasksTabShownAt: new Date().toISOString() }); }
-    catch { /* the count still says so on the next read; the flag is written then */ }
-  }
+  /* Shown and not yet saved (the first time, or an earlier write was skipped or failed): save it
+     now. Every poll retries until it lands, so "once shown, stays shown" holds even if the count
+     later falls. */
+  if (shown) saveTasksTabFlag(store);
   return shown;
 }
 

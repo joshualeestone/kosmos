@@ -251,14 +251,16 @@ test('an agent that never reported is said ONCE on the page, beside its name, ne
       parts: [{ id: 1, sentence: 'first half', who: 'april', closedAt: null }, { id: 2, sentence: 'second half', who: null, closedAt: null }] },
   });
   assert.equal(said(parted.doc), 1);
-  // Defensive: if the named agent's part is not on screen, the why line carries it, by name.
+  // The engine's real case when the first agent's part is done: neverReported is false (it names
+  // nobody who is finished), so the page gives the reason without pointing at the finished agent.
   const done = runPaint({
     project: { ...PROJECT, tasks: [] },
-    task: { number: 9, sentence: 's', createdAt: new Date().toISOString(), addedBy: 'operator', closedAt: null, claim,
+    task: { number: 9, sentence: 's', createdAt: new Date().toISOString(), addedBy: 'operator', closedAt: null,
+      claim: { claimed: null, neverReported: false, because: 'this agent has never reported what it is holding' },
       parts: [{ id: 1, sentence: 'first half', who: 'april', closedAt: '2026-09-25T00:00:00Z' }, { id: 2, sentence: 'second half', who: null, closedAt: null }] },
   });
-  assert.match(done.doc.els['tk-why'].textContent, /^April has not reported what it is working on yet\.$/);
-  assert.doesNotMatch(done.doc.els['tk-why'].textContent, /^It /);
+  assert.match(done.doc.els['tk-why'].textContent, /^We could not check whether its agent is on this: /);
+  assert.doesNotMatch(done.doc.els['tk-why'].textContent, /April/, 'the finished agent is named');
 });
 
 test('any other could-not-tell reason on a task kept as parts names its agent, never "it"', () => {

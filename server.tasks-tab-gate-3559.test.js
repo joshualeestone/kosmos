@@ -74,3 +74,22 @@ test('below 25 the tab stays hidden; the 25th task shows it; it stays shown afte
   assert.ok(tasks.tasksEverCreated(projects.readAll()) < 25, 'the fixture did not drop the count (control)');
   assert.equal(await statusTab(), true, 'the tab went away again after it had been shown');
 });
+
+test('the flag never clobbers an unreadable settings file; it lands on a later poll once the file reads', async () => {
+  const fsx = require('node:fs');
+  const settingsFile = path.join(store.ROOT, 'settings.json');
+  // A board past 25 whose settings file does not parse (the earlier test saved the flag; this one
+  // breaks the file, which also drops that flag as far as any reader can tell).
+  const p = projects.create({ name: 'Gate C' });
+  for (let i = 0; i < 26; i++) tasks.create(p.id, { sentence: 'c ' + i });
+  const broken = '{ "timezone": "America/Chicago", oops';
+  fsx.writeFileSync(settingsFile, broken);
+  assert.equal(await statusTab(), true, 'the count says shown, so the tab shows');
+  assert.equal(fsx.readFileSync(settingsFile, 'utf8'), broken, 'the flag write replaced an unreadable settings file (the timezone would be lost)');
+  // The person fixes the file; the next poll saves the flag, keeping what they had.
+  fsx.writeFileSync(settingsFile, JSON.stringify({ timezone: 'America/Chicago' }));
+  assert.equal(await statusTab(), true);
+  const after = JSON.parse(fsx.readFileSync(settingsFile, 'utf8'));
+  assert.equal(after.tasksTabShown, true, 'the skipped write was never retried');
+  assert.equal(after.timezone, 'America/Chicago', 'the retry lost the person\'s other settings');
+});

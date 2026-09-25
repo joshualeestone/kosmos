@@ -42796,7 +42796,11 @@ function tskTabGate(show) {
   for (const el of [document.querySelector('.tab[data-tab="tasks"]'), document.getElementById('rail-projects-tasks')]) {
     if (el && el.hidden === show) el.hidden = !show;
   }
+  /* This viewer's last answer, so a board past 25 does not pop the tab into the bar a moment after
+     every load. A convenience only: the status tick stays the authority and corrects it. */
+  try { localStorage.setItem('kosmos.tasksTab', show ? '1' : '0'); } catch { /* private window or blocked */ }
 }
+try { if (localStorage.getItem('kosmos.tasksTab') === '1') tskTabGate(true); } catch { /* no storage: the tick decides */ }
 function openProjectTasks(id) {
   const p = id ? pjById(id) : null;
   TSK.proj = id || null;
@@ -43092,11 +43096,14 @@ function paintTaskPage() {
      so name the first part's agent rather than an "It" that reads as the task. Said ONCE: when
      that agent's open part is on screen, its claim line already says it beside the name, so this
      line stays quiet for "not reported" (it still explains any other could-not-tell reason). */
-  const claimWho = who || (firstWho ? tkMemberName(p, firstWho) : null);
+  /* Named only while that agent holds open work here (the engine's own rule for "never reported"):
+     naming the agent of a finished part would point at the one who is done. */
+  const firstOpen = !!firstWho && parts.some((x) => x.who === firstWho && !x.closedAt);
+  const claimWho = who || (firstOpen ? tkMemberName(p, firstWho) : null);
   const sayShown = parts.some((x) => x.who && x.who === firstWho && !x.closedAt);
   const unknownBecause = (t.claim && t.claim.claimed === null && t.claim.because) ? t.claim.because : '';
   why.textContent = notReported ? (sayShown || !claimWho ? '' : claimWho + ' ' + notReported + '.')
-    : unknownBecause ? 'We could not check whether ' + (claimWho || 'the agent on it') + ' is on this: ' + unknownBecause + '.' : '';
+    : unknownBecause ? 'We could not check whether ' + (claimWho || 'its agent') + ' is on this: ' + unknownBecause + '.' : '';
   why.hidden = !why.textContent;
 
   /* The close-note: both clauses are about what KOSMOS does not do. Needed
