@@ -13,8 +13,9 @@
  *     download box is open drops it, and a finished download from the old visit paints nothing;
  *   - a tool that went missing after the key step opened: Add leads to the download step.
  *   - review pass 1: leaving first run stops the watcher; coming back joins a download still
- *     under way; Not now returns focus to Connect, and the download step takes focus; on
- *     Windows nothing offers a download (it would be refused), the screen says so instead.
+ *     under way; Not now returns focus to Connect, and the download step takes focus.
+ *   - Windows: Kosmos installs both there too now (pinned Windows builds), so Windows offers
+ *     the same download as the Mac, and no "cannot connect on Windows" sentence is left.
  *
  *   NODE_PATH="$HOME/work/pw-runtime/node_modules" HEADED=0 node docs/browser-checks/render-keyed-install-3713.js
  */
@@ -209,18 +210,19 @@ const chk = (ok, label, extra) => {
   const r4 = await q(async () => {
     document.getElementById('fr-grok-connect').click();
     await new Promise((r) => setTimeout(r, 300));
-    return { confirm: !document.getElementById('fr-grok-confirm').hidden, msg: document.getElementById('fr-grok-msg').textContent };
+    return { confirm: !document.getElementById('fr-grok-confirm').hidden, msg: document.getElementById('fr-grok-msg').textContent,
+      ask: document.getElementById('fr-grok-confirm-t').textContent };
   });
-  chk(!r4.confirm && /cannot connect xAI Grok on Windows yet/.test(r4.msg), 'on Windows, first run says it plainly and offers no install that would be refused', JSON.stringify(r4));
+  chk(r4.confirm && /download the installer/.test(r4.ask) && !/Windows/.test(r4.msg), 'on Windows, first run offers the same install as the Mac', JSON.stringify(r4));
   const r5 = await q(async () => {
     frClose(); openAcctAdd(); window.__missing.gemini = true; acctPick('google');
     await new Promise((r) => setTimeout(r, 300));
     return { box: !document.getElementById('acct-keyed-install').hidden, key: !document.getElementById('acct-apikey-flow').hidden,
       said: document.getElementById('acct-keyed-install-t').textContent, go: !document.getElementById('acct-keyed-install-go').hidden };
   });
-  // #3731 (review pass 1, W5): Windows gets the plain sentence and nothing to press or type, not
-  // a key box whose Add can only fail.
-  chk(r5.box && !r5.go && !r5.key && /cannot connect Google Gemini on Windows yet/.test(r5.said), 'on Windows, Settings says plainly it cannot, with no download button and no key box', JSON.stringify(r5));
+  // Windows installs Gemini and Grok now: the same download step as the Mac, and still no key
+  // box before the tool is there (#3731 W5: nothing whose Add can only fail).
+  chk(r5.box && r5.go && !r5.key && /download the installer/.test(r5.said) && !/Windows/.test(r5.said), 'on Windows, Settings offers the same download step as the Mac, and no key box yet', JSON.stringify(r5));
   await setWin(false);
   const r6 = await q(async () => {
     closeAcctAdd(); openAcctAdd(); acctPick('google');
@@ -274,7 +276,7 @@ const chk = (ok, label, extra) => {
     await new Promise((r) => setTimeout(r, 300));
     return { confirm: !document.getElementById('fr-gemini-confirm').hidden, msg: document.getElementById('fr-gemini-msg').textContent };
   });
-  chk(!r9.confirm && /cannot connect Google Gemini on Windows yet/.test(r9.msg), 'on Windows, first run\'s Add says it plainly when the tool is gone, and offers no install', JSON.stringify(r9));
+  chk(r9.confirm && !/Windows/.test(r9.msg), 'on Windows, first run\'s Add offers the install again when the tool is gone, as on the Mac', JSON.stringify(r9));
   await setWin(false);
   // #3731 (review pass 3): Settings shows no key box and no Grok choice while /api/runners has not
   // answered, and a late answer for a provider the person has left changes nothing.

@@ -23550,19 +23550,6 @@ function acctKeyedReveal(which, afterInstall) {
   const k = document.getElementById(which === 'xai' ? (again ? 'acct-grok-sub-go' : 'acct-grok-pick-sub') : 'acct-apikey-key');
   if (k) k.focus();
 }
-/* On Windows Kosmos does not install these yet: the sentence, and nothing to press. */
-function acctKeyedWindows(which) {
-  const box = document.getElementById('acct-keyed-install');
-  if (!box) return;
-  ACCT_KEYED_WHICH = which;
-  ACCT_GROK_SUB.leave();
-  document.getElementById('acct-apikey-flow').hidden = true;
-  document.getElementById('acct-grok-flow').hidden = true;
-  document.getElementById('acct-keyed-install-t').textContent = keyedMissingOnWindows(which);
-  document.getElementById('acct-keyed-install-msg').textContent = '';
-  document.getElementById('acct-keyed-install-go').hidden = true;
-  box.hidden = false;
-}
 function acctKeyedInstallShow(which, info) {
   const box = document.getElementById('acct-keyed-install');
   if (!box) return;
@@ -23615,8 +23602,7 @@ function acctApikeyShow(which) {
   keyedRunnerInfo(which).then((info) => {
     if (visit !== ACCT_APIKEY_GEN || ACCT_APIKEY_WHICH !== which) return;
     if (info && info.present) { if (!again) acctKeyedReveal(which); return; }
-    if (onWindows()) { acctKeyedWindows(which); return; }
-    acctKeyedInstallShow(which, info);
+    acctKeyedInstallShow(which, info);   // Mac and Windows alike: Kosmos installs both on each
   });
   document.getElementById('acct-apikey-head').textContent = 'Paste a ' + p.vendor + ' API key for ' + p.name + '.';
   const key = document.getElementById('acct-apikey-key');
@@ -23680,8 +23666,7 @@ document.getElementById('acct-apikey-go').addEventListener('click', async () => 
     if (!stillHere()) { if (res.ok) paintAccounts(); return; }
     if (!res.ok) {
       /* needsRunner: the tool it runs on is not here, so offer to download it (#3713). */
-      if (out && out.needsRunner) {   // #3713: offer the download (on Windows, say plainly it cannot)
-        if (onWindows()) throw new Error(keyedMissingOnWindows(which));
+      if (out && out.needsRunner) {   // #3713: offer the download
         msg.textContent = '';
         acctKeyedInstallShow(which, null);
         return;
@@ -23723,12 +23708,10 @@ document.getElementById('acct-apikey-go').addEventListener('click', async () => 
    close, a provider switch, a Stop) changes nothing; leaving also ends the sign-in on the
    engine, which otherwise holds its slot until its five-minute watchdog. */
 const GROK_SUB_SAY = { starting: 'Starting the sign-in…', 'awaiting-code': 'Confirm the code on xAI’s page to finish.' };
-/* #3713: the sentence when a Grok sign-in finds no grok. On a Mac, Kosmos offers the download when
-   Grok is chosen again; on Windows it does not install it yet, so it says that instead (review
-   pass 2: this path kept the Mac promise on Windows). */
+/* #3713: the sentence when a Grok sign-in finds no grok and the caller has no download box to
+   open: Kosmos offers the download when Grok is chosen again, on a Mac and on Windows alike. */
 function grokMissingTool() {
-  return onWindows() ? keyedMissingOnWindows('xai')
-    : 'xAI Grok is not on this computer yet. Choose it again and Kosmos will offer to install it.';
+  return 'xAI Grok is not on this computer yet. Choose it again and Kosmos will offer to install it.';
 }
 function grokSubDriver(o) {
   let session = null;
@@ -23819,8 +23802,8 @@ function grokSubDriver(o) {
       if (go) { go.disabled = false; go.hidden = false; }   // #3731: first run hides it while starting; a failed start needs its retry back
       /* #3713 (review pass 3): a missing grok on a Mac opens the caller's own download box, as
          Settings' Add does, rather than telling the person to choose Grok again (re-choosing the
-         provider already chosen fires nothing). Windows, or a caller with no box, is told plainly. */
-      if (out && out.needsRunner && o.onMissing && !onWindows()) { say(''); o.onMissing(); return; }
+         provider already chosen fires nothing). A caller with no box is told plainly. */
+      if (out && out.needsRunner && o.onMissing) { say(''); o.onMissing(); return; }
       say(out && out.needsRunner ? grokMissingTool() : (pjSentence(out && (out.error || out.because)) || 'We could not start that sign-in.'));
       return;
     }
@@ -23927,11 +23910,6 @@ async function keyedRunnerInfo(which) {
 const KEYED_FULL_NAME = { google: 'Google Gemini', xai: 'xAI Grok' };
 function keyedInstallAsk(which, info) {   // eslint-disable-line no-unused-vars
   return 'In order to connect to ' + (KEYED_FULL_NAME[which] || 'it') + ' we need to download the installer.';
-}
-/* On Windows Kosmos does not install these yet (no Gemini or Grok agent can start there), so a
-   missing tool is said plainly there instead of offering a download that would be refused. */
-function keyedMissingOnWindows(which) {
-  return 'Kosmos cannot connect ' + (KEYED_FULL_NAME[which] || 'it') + ' on Windows yet.';   // #3731: no tool talk
 }
 /* A job that is still going, so a return to the box joins it rather than asking again. */
 const keyedJobLive = (info) => !!(info && info.job && info.job.phase !== 'failed' && info.job.phase !== 'installed');
@@ -24041,8 +24019,6 @@ async function frKeyedConnect(which) {
   const info = await keyedRunnerInfo(which);
   if (mine !== FR_KEYED_GEN) return;
   if (info && info.present) { frKeyedShowPick(which); return; }
-  // On Windows Kosmos does not install these yet (#3713), so it says so instead of offering it.
-  if (onWindows()) { btn.setAttribute('aria-expanded', 'false'); msg.textContent = keyedMissingOnWindows(which); return; }
   frK(which, 'confirm').hidden = false;
   const go = frK(which, 'confirm-go');
   go.disabled = false;
@@ -24093,7 +24069,6 @@ async function frKeyedAdd(which) {
     }
     if (!res.ok) {
       if (out && out.needsRunner) {   // the tool went missing after the box opened
-        if (onWindows()) throw new Error(keyedMissingOnWindows(which));
         msg.textContent = '';
         frKeyedCollapse(which);
         frKeyedConnect(which);   // offers the install again, in place

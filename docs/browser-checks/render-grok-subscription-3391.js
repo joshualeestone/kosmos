@@ -204,7 +204,7 @@ const chk = (ok, label, extra) => {
   // #3713: Kosmos installs grok now, so a sign-in that finds none opens the download box in its place.
   chk(miss.install && miss.ask === 'In order to connect to xAI Grok we need to download the installer.' && !miss.grok && !/cannot install/.test(miss.msg),
     '#3713 a sign-in that finds no grok opens the download box in its place', JSON.stringify(miss));
-  // #3713 review pass 2: on Windows Kosmos does not install grok, so the same answer must not promise a download.
+  // Windows installs grok now too, so the same answer opens the same download box there.
   // (#3731: "Sign in with Grok" starts the sign-in itself, so the answer is staged before it.)
   await q(async () => {
     document.querySelector('meta[name="kosmos-platform"]').content = 'win32';
@@ -213,9 +213,10 @@ const chk = (ok, label, extra) => {
     document.getElementById('acct-grok-pick-sub').click();
   });
   await q(() => new Promise((r) => setTimeout(r, 50)));
-  const winMiss = await q(() => ({ msg: document.getElementById('acct-grok-msg').textContent, go: document.getElementById('acct-grok-sub-go').disabled }));
-  chk(/cannot connect xAI Grok on Windows yet/.test(winMiss.msg) && !/offer to/.test(winMiss.msg) && !winMiss.go,
-    '#3713 on Windows, a missing grok is said plainly, with no promise of a download', JSON.stringify(winMiss));
+  const winMiss = await q(() => ({ msg: document.getElementById('acct-grok-msg').textContent,
+    install: !document.getElementById('acct-keyed-install').hidden, ask: document.getElementById('acct-keyed-install-t').textContent }));
+  chk(winMiss.install && winMiss.ask === 'In order to connect to xAI Grok we need to download the installer.' && !/Windows/.test(winMiss.msg),
+    'on Windows, a sign-in that finds no grok opens the same download box as the Mac', JSON.stringify(winMiss));
   await q(() => { window.__startAnswer = null; document.querySelector('meta[name="kosmos-platform"]').content = '__KOSMOS_PLATFORM__'; });
 
   // Stop cancels on the engine.

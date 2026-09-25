@@ -7,10 +7,10 @@
  * runner is read from the agent's own profile (recordedRunner), so it is never silently
  * re-installed as a claude job -- the mis-launch the old root refusal guarded against.
  *
- * WIN32 still refuses: engine/win32launch.js has no gemini/grok substrate and it LAUNCHES
- * rather than just registering, so the refusal is preserved there (the Windows backfill is
- * carded). The Mac-success behavior itself is pinned in engine/create.test.js; this file
- * pins the win32 refusal and the caller (register.repair) wiring.
+ * WIN32 runs them too now (engine/win32keyed.js, driven per turn like codex), so the win32
+ * arm launches a gemini/grok agent with its own runner. The Mac-success behavior itself is
+ * pinned in engine/create.test.js; this file pins the win32 launch and the caller
+ * (register.repair) wiring.
  *
  *   node --test engine/create.installjob-gemini-grok-3296.test.js
  */
@@ -74,32 +74,43 @@ function bornMissingJob(name, provider) {
 test.beforeEach(() => { create.setRunner(okRun); create.setDryRun(false); });
 test.afterEach(() => { create.setDryRun(true); create.setRunner(null); });
 
-test('#3296: installJob still REFUSES a gemini agent on win32 (no win32launch substrate), writing no job', () => {
-  const name = bornMissingJob('ij-win-gemini', 'google');
-  // Force jobPresence to report a registered-check of "no" on win32 so MY gemini/grok
-  // guard is what fires, not the earlier "could not check" (unknown) guard.
+/* Windows now RUNS gemini/grok (engine/win32keyed.js through the per-turn supervisor), so a
+   win32 backfill reaches the win32 launch arm with the agent's OWN runner and binary, never
+   claude's. win32job.install is stubbed to record the spec and refuse, so nothing is
+   registered and no schtasks call is made. The runner files carry a .cmd name so they read
+   runnable on the Windows box as well as on a Mac (mode 755). */
+function win32Backfill(name, provider, bins) {
   const win32job = require('./win32job');
   const realPresence = win32job.presence;
+  const realInstall = win32job.install;
+  let spec = null;
   win32job.presence = () => ({ known: true, registered: false });
+  win32job.install = (s) => { spec = s; return { ok: false, because: 'stubbed: not registered in a test' }; };
   let r;
-  try { r = create.installJob(name, { ...BINS, platform: 'win32' }); }
-  finally { win32job.presence = realPresence; }
-  assert.equal(r.ok, false, 'win32 must refuse a gemini backfill (no substrate)');
-  assert.match(String(r.because), /Windows/, 'the win32 refusal must name Windows: ' + r.because);
-  assert.match(String(r.because), /Gemini/, 'the win32 refusal must name the runner: ' + r.because);
+  try { r = create.installJob(name, { ...BINS, ...bins, platform: 'win32' }); }
+  finally { win32job.presence = realPresence; win32job.install = realInstall; }
+  return { r, spec };
+}
+const GEMINI_CMD = nodePath.join(BIN, 'gemini.cmd');
+const GROK_EXE = nodePath.join(BIN, 'grok.exe');
+for (const b of [GEMINI_CMD, GROK_EXE]) fs.writeFileSync(b, '#!/bin/sh\nexit 0\n', { mode: 0o755 });
+
+test('#3296: installJob on win32 starts a gemini agent through the win32 launch arm, as gemini', () => {
+  const name = bornMissingJob('ij-win-gemini', 'google');
+  const { r, spec } = win32Backfill(name, 'google', { geminiBin: GEMINI_CMD });
+  assert.ok(spec, 'the win32 launch arm was reached (no Windows refusal): ' + r.because);
+  assert.equal(spec.runner, 'gemini', 'launched as gemini, never as claude');
+  assert.equal(spec.claudeBin, GEMINI_CMD, "with the Gemini runner's own binary");
+  assert.equal(r.ok, false);
+  assert.match(String(r.because), /stubbed/, 'the only refusal is the stub standing in for schtasks');
 });
 
-test('#3391: installJob still REFUSES a grok agent on win32', () => {
+test('#3391: installJob on win32 starts a grok agent through the win32 launch arm, as grok', () => {
   const name = bornMissingJob('ij-win-grok', 'xai');
-  const win32job = require('./win32job');
-  const realPresence = win32job.presence;
-  win32job.presence = () => ({ known: true, registered: false });
-  let r;
-  try { r = create.installJob(name, { ...BINS, platform: 'win32' }); }
-  finally { win32job.presence = realPresence; }
-  assert.equal(r.ok, false, 'win32 must refuse a grok backfill');
-  assert.match(String(r.because), /Windows/, r.because);
-  assert.match(String(r.because), /Grok/, r.because);
+  const { r, spec } = win32Backfill(name, 'xai', { grokBin: GROK_EXE });
+  assert.ok(spec, 'the win32 launch arm was reached (no Windows refusal): ' + r.because);
+  assert.equal(spec.runner, 'grok');
+  assert.equal(spec.claudeBin, GROK_EXE);
 });
 
 /* #3568 round 10: a backfill tells the person it will run on their main Claude account only
