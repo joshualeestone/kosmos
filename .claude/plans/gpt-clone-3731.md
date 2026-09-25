@@ -67,5 +67,6 @@ asking to sign in again. "Match the exact design and styling and flow of how GPT
   engine; it was removed rather than shipped as decoration. The check now presses Connect and Confirm
   with the real mouse and asserts: no ring after the mouse; the ink ring (resolved --k-ink, not
   rgb(0,95,204)) after Tab / Shift+Tab. Screenshots redone.
-- Weakest premise: other engines than Chromium and WebKit were not measured (Firefox is installed but
-  Kosmos's app window is WebKit on the Mac and the board opens in Chromium-family browsers most often).
+- Weakest premise: only Chromium and WebKit were measured. Firefox was not, and which engine each
+  person's board opens in was not measured either; an engine that did draw a ring after a mouse press
+  would now draw Kosmos's ink ring rather than blue, not none.
