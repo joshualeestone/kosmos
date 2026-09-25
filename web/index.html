@@ -54185,7 +54185,23 @@ const ASB_FIND_MAX_MS = 60000;
 let ASB = { started: false, guide: null, setting: null, open: false, asking: false, nudgeGone: false,
   wroteOnce: false, heard: null, lastPoll: 0, screenKey: '', sending: false, dot: false,
   nextFind: 0, findEvery: ASB_FIND_FIRST_MS, finding: false, shown: '', readOnce: false,
-  nextSetting: 0, settingEvery: ASB_FIND_FIRST_MS, settingReading: false };
+  nextSetting: 0, settingEvery: ASB_FIND_FIRST_MS, settingReading: false,
+  /* #3660: no guide yet, but the board can ask Kosmos's own model (GET /api/setup-guide says hosted). The
+     conversation lives on this page for the session: there is no agent thread to hold it. */
+  hosted: false, hostedOff: false, hmsgs: null, remaining: null };
+const ASB_HOSTED_KEY = 'kosmos.asb.hosted.v1';
+const ASB_HOSTED_AVATAR = '/icons/setup-guide-avatar.jpg';
+function asbHostedMsgs() {
+  if (!ASB.hmsgs) {
+    let got = [];
+    try { const v = JSON.parse(sessionStorage.getItem(ASB_HOSTED_KEY) || '[]'); if (Array.isArray(v)) got = v.filter((m) => m && (m.role === 'user' || m.role === 'assistant') && typeof m.content === 'string'); } catch { got = []; }
+    ASB.hmsgs = got.slice(-40);
+  }
+  return ASB.hmsgs;
+}
+function asbHostedKeep() { try { sessionStorage.setItem(ASB_HOSTED_KEY, JSON.stringify(ASB.hmsgs.slice(-40))); } catch { /* the page still holds it */ } }
+/* Talking to the hosted assistant rather than a guide agent. */
+function asbIsHosted() { return !ASB.guide && ASB.hosted && !ASB.hostedOff; }
 
 function asbGuideRow() {
   if (!ASB.guide || !Array.isArray(LAST)) return null;
@@ -54214,6 +54230,7 @@ function asbScreen() {
   return { screen: 'board' };
 }
 function asbTellScreen(force) {
+  if (!ASB.guide) return;   // a guide agent's courtesy; the hosted assistant is told the screen with each question
   const page = asbScreen();
   const key = JSON.stringify(page);
   if (!force && key === ASB.screenKey) return;
@@ -54302,7 +54319,7 @@ function asbShows() {
   if (!ASB.setting || ASB.setting.on !== true || ASB.holding) return false;
   const fr = document.getElementById('firstrun');
   if (fr && !fr.hidden) return false;
-  return !!asbGuideRow();
+  return !!asbGuideRow() || asbIsHosted();
 }
 
 function asbPaint() {
@@ -54316,7 +54333,11 @@ function asbPaint() {
     ASB.open = false;
     return;
   }
-  const src = asbAvatar(row);
+  const src = row ? asbAvatar(row) : ASB_HOSTED_AVATAR;
+  const note = document.querySelector('#asp .asp-note');
+  const words = row ? 'An AI that knows Kosmos, in Josh\'s voice. Josh isn\'t typing live.'
+    : 'An AI in Josh\'s voice, on Kosmos\'s own AI until you connect yours. Josh isn\'t typing live.';
+  if (note && note.textContent !== words) note.textContent = words;
   for (const img of [bub.querySelector('img'), panel.querySelector('.asp-h img')]) if (img.getAttribute('src') !== src) img.setAttribute('src', src);
   panel.hidden = !ASB.open;
   bub.hidden = ASB.open;
@@ -54367,6 +54388,14 @@ async function asbPoll(force) {
   const every = ASB.open ? ASB_OPEN_POLL_MS : ASB_FOLDED_POLL_MS;
   if (!force && now - ASB.lastPoll < every) return;
   ASB.lastPoll = now;
+  if (asbIsHosted()) {
+    const hm = asbHostedMsgs();
+    ASB.readOnce = true;
+    ASB.wroteOnce = hm.some((m) => m.role === 'user');
+    if (ASB.open) asbPaintThread(hm.map((m) => ({ from: m.role === 'user' ? 'you' : 'hosted', text: m.content })), 'hosted');
+    asbPaint();
+    return;
+  }
   if (!(await asbConfirmGuide())) return;
   const t = await asbReadThread();
   if (!t) { if (ASB.open) document.getElementById('asp-msg').textContent = 'We could not load the conversation just now.'; return; }
@@ -54456,6 +54485,7 @@ async function asbSend() {
   const say = document.getElementById('asp-say');
   const msg = document.getElementById('asp-msg');
   const text = say.value.trim();
+  if (asbIsHosted()) { if (text && !ASB.sending) await asbHostedSend(text); return; }
   const row = asbGuideRow();
   if (!text || ASB.sending || !row) return;
   ASB.sending = true;
@@ -54494,11 +54524,54 @@ async function asbSend() {
   }
 }
 
-/* Settings > This computer > Help: the switch shows only when a guide exists. */
+/* #3660: a question to Kosmos's own model (POST /api/setup-guide/hosted). The words leave the box only
+   once there is an answer; a refusal keeps them there and shows the sentence the board gave. An answer of
+   501 means this app's connector predates the assistant: say so once, then the bubble steps aside for the
+   session rather than offer a chat that cannot answer. */
+async function asbHostedSend(text) {
+  const say = document.getElementById('asp-say');
+  const msg = document.getElementById('asp-msg');
+  const hm = asbHostedMsgs();
+  ASB.sending = true;
+  document.getElementById('asp-send').disabled = true;
+  msg.textContent = '';
+  hm.push({ role: 'user', content: text });
+  asbPaintThread(hm.map((m) => ({ from: m.role === 'user' ? 'you' : 'hosted', text: m.content })), 'hosted');
+  let r = null, b = null;
+  try {
+    r = await fetch('/api/setup-guide/hosted', { method: 'POST', headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ messages: hm.slice(-8), page: asbScreen() }) });
+    b = await r.json().catch(() => null);
+  } catch { r = null; }
+  if (r && r.ok && b && typeof b.reply === 'string' && b.reply) {
+    hm.push({ role: 'assistant', content: b.reply });
+    asbHostedKeep();
+    if (say.value.trim() === text) say.value = '';
+    ASB.wroteOnce = true;
+    ASB.remaining = Number.isInteger(b.remaining) ? b.remaining : null;
+    document.getElementById('asp-live').textContent = b.reply;
+    if (ASB.remaining !== null && ASB.remaining <= 5) msg.textContent = ASB.remaining === 0 ? 'That was your last question for today.' : ASB.remaining === 1 ? '1 question left today.' : ASB.remaining + ' questions left today.';
+  } else {
+    hm.pop();   // not asked: the words are still in the box
+    msg.textContent = pjSentence((b && b.error) || 'we could not reach the setup assistant just now; try again in a moment');
+    if (r && r.status === 501) {
+      /* Long enough to read, with nothing more to send, then gone for the session. */
+      setTimeout(() => { ASB.hostedOff = true; ASB.open = false; ASB.sending = false; document.getElementById('asp-send').disabled = false; asbPaint(); asbPaintSetting(); }, 6000);
+      asbPaintThread(hm.map((m) => ({ from: m.role === 'user' ? 'you' : 'hosted', text: m.content })), 'hosted');
+      return;
+    }
+  }
+  asbPaintThread(hm.map((m) => ({ from: m.role === 'user' ? 'you' : 'hosted', text: m.content })), 'hosted');
+  document.getElementById('asp-send').disabled = false;
+  ASB.sending = false;
+  asbPaint();
+}
+
+/* Settings > This computer > Help: the switch shows only when a guide exists (or the hosted assistant). */
 function asbPaintSetting() {
   const row = document.getElementById('asb-row');
   if (!row) return;
-  row.hidden = !ASB.guide || !ASB.setting;
+  row.hidden = !(ASB.guide || asbIsHosted()) || !ASB.setting;
   if (!row.hidden) paintSwitch('asb-toggle', ASB.setting.on === true);
   paintTipsToggle();   // the Help box shows while either of its rows does
 }
@@ -54514,7 +54587,7 @@ document.getElementById('asb-toggle')?.addEventListener('click', async (e) => {
   asbPaintSetting();
   /* Switched back on: ask the board who the guide is before drawing it, so a name the guide lost while the
      assistant was off is not painted from the page's memory. */
-  const confirmed = !(ok && ASB.setting && ASB.setting.on === true) || await asbConfirmGuide();
+  const confirmed = !(ok && ASB.setting && ASB.setting.on === true) || asbIsHosted() || await asbConfirmGuide();
   ASB.holding = false;
   sw.disabled = false;   // only now: a second click mid-check would start a second hold
   if (!confirmed) {
@@ -54528,7 +54601,9 @@ document.getElementById('asb-toggle')?.addEventListener('click', async (e) => {
 });
 
 function asbTick() {
-  if (!ASB.guide) { if (Date.now() >= ASB.nextFind) asbFind(); return; }
+  /* Still looking for a guide while the hosted assistant stands in: once one is made, the bubble moves to it. */
+  if (!ASB.guide && Date.now() >= ASB.nextFind) asbFind();
+  if (!ASB.guide && !asbIsHosted()) return;
   if (!ASB.setting) { if (Date.now() >= ASB.nextSetting) asbReadSetting(); return; }
   asbPaint();
   if (!asbShows()) return;
@@ -54549,6 +54624,12 @@ async function asbFind() {
        reason: 'none' } here, not a 404, which the browser would log as a failed resource on every page. */
     const b = await r.json().catch(() => null);
     if (r.ok && b && b.ok && typeof b.name === 'string') guide = b.name;
+    else if (r.ok && b && b.reason === 'none') {
+      const was = ASB.hosted;
+      ASB.hosted = b.hosted === true;
+      if (ASB.hosted && !was) { asbLayerEnsure(); if (!ASB.setting) asbReadSetting(); else { asbPaint(); asbPaintSetting(); } }
+      if (!ASB.hosted && was) { ASB.open = false; asbPaint(); asbPaintSetting(); }
+    }
   } catch { /* no guide read, no bubble */ }
   if (!guide) {
     ASB.nextFind = Date.now() + ASB.findEvery;
@@ -54557,6 +54638,8 @@ async function asbFind() {
     return;
   }
   ASB.guide = guide;
+  /* A guide now exists: the bubble talks to it. The hosted conversation stays behind; it was another assistant. */
+  if (ASB.hosted) { ASB.hosted = false; ASB.heard = null; ASB.shown = ''; ASB.readOnce = false; ASB.lastPoll = 0; }
   ASB.finding = false;
   asbLayerEnsure();
   await asbReadSetting();

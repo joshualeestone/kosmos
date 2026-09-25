@@ -13722,7 +13722,9 @@ const server = http.createServer((req, res) => {
     /* "No guide" is an ordinary answer here, not an error: the page asks on every install, and a 404 is
        logged by the browser as a failed resource on every page load (it failed every "no page errors"
        check). So it is 200 { ok: false, reason: 'none' }; only a refusal (409) keeps its status. */
-    if (!found.ok && found.reason === 'none') { sendJson(res, 200, { ok: false, reason: 'none', error: found.error }); return; }
+    /* `hosted`: no guide, but the setup assistant can run on Kosmos's own model here (#3660), so the bubble
+       shows and talks to /api/setup-guide/hosted. False in a checkout or a sandbox (remote.hostedAvailable). */
+    if (!found.ok && found.reason === 'none') { sendJson(res, 200, { ok: false, reason: 'none', error: found.error, hosted: require('./engine/remote').hostedAvailable() }); return; }
     if (!found.ok) { sendJson(res, found.status, { error: found.error, reason: found.reason }); return; }
     sendJson(res, 200, { ok: true, name: found.name });
     return;
@@ -14844,6 +14846,16 @@ const server = http.createServer((req, res) => {
       // A day of cache is a choice: a redesigned icon may serve stale for
       // up to 24h after an update, accepted for favicon-class assets.
       res.writeHead(200, { 'content-type': 'image/png', 'cache-control': 'public, max-age=86400' });
+      res.end(req.method === 'HEAD' ? undefined : buf);
+    });
+    return;
+  }
+  /* The bundled picture of Josh (#3660): the hosted setup assistant's face in the bubble while no guide agent
+     exists to carry it (a guide's own picture comes from /api/agent/<name>/avatar). */
+  if (pathname === '/icons/setup-guide-avatar.jpg' && (req.method === 'GET' || req.method === 'HEAD')) {
+    fs.readFile(path.join(__dirname, 'web', 'icons', 'setup-guide-avatar.jpg'), (err, buf) => {
+      if (err) { sendJson(res, 404, { error: 'no such icon' }); return; }
+      res.writeHead(200, { 'content-type': 'image/jpeg', 'cache-control': 'public, max-age=86400' });
       res.end(req.method === 'HEAD' ? undefined : buf);
     });
     return;
