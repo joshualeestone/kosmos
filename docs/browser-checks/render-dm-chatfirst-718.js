@@ -9,7 +9,7 @@
  *     (before this, an iPhone SE put the conversation 1,114px down and the composer at 1,541px);
  *   - the composer and its Post button are on screen, and stay above a simulated keyboard while
  *     the composer has focus (the visible height written the way the page's own script writes it);
- *   - the composer's controls and the section tabs meet the 44px tap minimum;
+ *   - Post, add-a-file, the emoji button and the Profile / Direct Message tabs meet the 44px minimum;
  *   - Profile is one tap away: its tab is on screen and opens the Profile section;
  *   - no sideways page scroll, and the page is not scroll-locked (a tall header menu such as the
  *     world switcher must still reach its last row);
@@ -191,6 +191,19 @@ function measure() {
         const shrunk = await page.evaluate(() => getComputedStyle(document.documentElement).getPropertyValue('--kosmos-visible-height').trim());
         chk(shrunk === (h - SIMULATED_KEYBOARD_PX) + 'px', `${t} the visible height follows a viewport shrink`, `var=${shrunk}`);
         await page.setViewportSize({ width: w, height: h });
+        // Let the page's own listener settle on the restored height before simulating again, or
+        // its late resize overwrites the simulation below.
+        await page.waitForFunction((want) => getComputedStyle(document.documentElement).getPropertyValue('--kosmos-visible-height').trim() === want + 'px', h, { timeout: 3000 }).catch(() => {});
+        await page.waitForTimeout(100);
+        // The connection banner above the panel with the keyboard up: the composer must still sit
+        // above the keyboard (it is sticky at the bottom of the talk box).
+        {
+          await page.focus('#d-say');
+          await page.evaluate((k) => { document.documentElement.style.setProperty('--kosmos-visible-height', (window.innerHeight - k) + 'px'); document.documentElement.classList.add('kosmos-keyboard-up'); const c = document.getElementById('conn'); c.hidden = false; c.textContent = 'Kosmos cannot reach this computer right now. Trying again.'; }, SIMULATED_KEYBOARD_PX);
+          const kc = await page.evaluate(measure);
+          chk(kc.box && kc.box.bottom <= limit + 1 && kc.box.top >= 0, `${t} with the connection banner and the keyboard up, the composer sits above the keyboard`, `bottom=${kc.box && Math.round(kc.box.bottom)} limit=${limit}`);
+          await page.evaluate(() => { document.getElementById('conn').hidden = true; });
+        }
         // Leave the composer (a person dismisses the keyboard), then Profile is one tap.
         await page.evaluate(() => { document.activeElement.blur(); document.documentElement.style.removeProperty('--kosmos-visible-height'); });
         await page.click('#d-nav [data-go=profile]');
@@ -248,6 +261,30 @@ function measure() {
         chk(sf === '16px', `${t} the search box is 16px (iOS does not zoom on focus)`, sf);
         chk(errs.length === 0, `${t} no page errors`, errs.join(' | '));
         await page.close();
+      }
+      // A TOUCH tap on Post while typing (touch emulation; iOS itself is on the simulator list):
+      // focus stays in the text box. The send goes to the stubbed fetch.
+      {
+        const ctx = await browser.newContext({ viewport: { width: 375, height: 667 }, hasTouch: true, isMobile: eng === 'chromium' });
+        const page = await ctx.newPage();
+        const errs = []; page.on('pageerror', (e) => errs.push(e.message));
+        await page.addInitScript(() => {
+          const enc = (o) => new Response(JSON.stringify(o), { status: 200, headers: { 'content-type': 'application/json' } });
+          window.setInterval = () => 0;
+          window.fetch = async (url) => { const u = String(url); if (u.includes('/thread')) return enc(window.__fx); if (u.includes('avatar')) return new Response('', { status: 404 }); return enc({}); };
+        });
+        await page.goto(PAGE);
+        await page.evaluate((f) => { window.__fx = f; const fr = document.getElementById('firstrun'); if (fr) fr.hidden = true; document.querySelectorAll('body > *').forEach((el) => { el.inert = false; }); LAST = [{ sessionName: 'april', name: 'April', status: 'working', isNamedOurs: true, nameDerived: true }]; openDetail('april', 'talk'); }, FX);
+        await page.evaluate(() => paintTalk('april', 'April'));
+        await page.waitForSelector('#d-dmthread .msg');
+        await page.focus('#d-say');
+        await page.fill('#d-say', 'sent by a tap');
+        const sb = await page.evaluate(() => { const r = document.getElementById('d-send').getBoundingClientRect(); return { x: r.x + r.width / 2, y: r.y + r.height / 2 }; });
+        await page.touchscreen.tap(sb.x, sb.y);
+        await page.waitForTimeout(200);
+        const active = await page.evaluate(() => document.activeElement && document.activeElement.id);
+        chk(active === 'd-say', `[${eng} 375x667 touch] a tap on Post while typing keeps focus in the text box (touch emulation, not iOS)`, `active=${active}`);
+        await ctx.close();
       }
       // The visualViewport listener, driven through a stub (a real keyboard or pinch cannot be
       // driven here). The stub is installed before the page's script reads window.visualViewport.

@@ -9283,10 +9283,10 @@ body.plus-active #plus-state2 { max-width: 26rem; padding: 2rem; }
      them was tried and left an iPhone SE no conversation at all. */
   #panel-detail:has(#d-sec-talk:not([hidden])) .dav-wrap,
   #panel-detail:has(#d-sec-talk:not([hidden])) .dav-wrap .detail-av { width: 40px; height: 40px; flex-basis: 40px; }
-  /* The memory ring (#1915) is drawn 100px around the 88px avatar; sized with the 40px avatar here,
-     and the .dhead padding above makes room for the ring's 6px overhang instead of clipping it. */
   /* The memory-full badge is placed for the 88px avatar; on the 40px one it would cover the face. */
   #panel-detail:has(#d-sec-talk:not([hidden])) .dhead .membadge { top: -6px; right: -12px; transform: scale(.7); transform-origin: top right; }
+  /* The memory ring (#1915) is drawn 100px around the 88px avatar; sized with the 40px avatar here,
+     and the .dhead padding above makes room for the ring's 6px overhang instead of clipping it. */
   #panel-detail:has(#d-sec-talk:not([hidden])) .dhead .dring,
   #panel-detail:has(#d-sec-talk:not([hidden])) .dhead .dring svg { width: 52px; height: 52px; }
   #panel-detail:has(#d-sec-talk:not([hidden])) .dtext { align-items: flex-start; gap: 4px; }
@@ -9318,6 +9318,11 @@ body.plus-active #plus-state2 { max-width: 26rem; padding: 2rem; }
     height: auto; min-height: 0; flex: 1 1 auto; overflow-x: hidden;
     margin: 0 calc(-1 * var(--space-8)); padding: 10px 12px calc(8px + var(--safe-bottom, 0px)); }
   #panel-detail:has(#d-sec-talk:not([hidden])) #d-dmthread { flex: 1 1 auto; min-height: 0; overflow-y: auto; overscroll-behavior: contain; }
+  /* The composer sticks to the bottom of the talk box. The box scrolls when what sits around the
+     thread (the folder-trust box, file chips, a send error) outgrows it; without this the composer
+     itself could scroll out under the keyboard when notices stack above the panel. At the end of
+     the scroll it sits in its natural place, so the chips and error below it stay reachable. */
+  #panel-detail:has(#d-sec-talk:not([hidden])) #d-talk-box .dmbar { position: sticky; bottom: 0; z-index: 1; }
   /* While the person is typing, the keyboard takes about half a phone screen, and the header,
      tabs and search above the thread would leave the thread no room (an iPhone SE had the
      composer pushed below the keyboard). They step aside while focus is anywhere in the
