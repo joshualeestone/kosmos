@@ -9744,22 +9744,19 @@ const server = http.createServer((req, res) => {
           projects.markWelcomeSeeded({ project: welcome.id, via: 'first-run' });
         }
       } catch { /* the welcome project is a nicety; onboarding still completed */ }
-      /* #3034: GATED OFF pending Josh's direction -- the why (and the release
-         timing) lives with FIRSTRUN_AUTOCREATE_ENABLED in engine/setup-assistant.js,
-         not repeated here. WHEN ENABLED, this seeds the one-time setup guide (Josh's
-         AI: his name and picture, on the user's own connected account; see
-         engine/setup-assistant.js), same posture as the welcome seed above: once-ever,
-         best-effort, and it MUST NOT throw or block because onboarding has already
-         succeeded. It skips silently with no connected Claude account or if already
-         seeded, and the flag file is written only on a real create, so a skip leaves
-         nothing behind. */
+      /* #3034/#3660: Giddy Up ARMS the setup guide; it is created the moment a model is
+         connected (Splinter, 19:06), which may already be true here or may come later
+         from Settings (the sweep at board start catches that). Never created without a
+         model: it could not run. Existing installs never pass through here again, so
+         they are never armed and never get an unasked-for agent. The why lives with
+         FIRSTRUN_AUTOCREATE_ENABLED and ensureGuide in engine/setup-assistant.js.
+         Fire-and-forget and best-effort: onboarding has already succeeded. */
       if (setupAssistant.FIRSTRUN_AUTOCREATE_ENABLED) {
         try {
-          const seed = setupAssistant.seedSetupAssistant({ createAgent: create.createAgent });
-          if (seed && seed.seeded) {
-            setupAssistant.markSetupAssistantSeeded({ name: seed.name, via: 'first-run' });
-          }
-        } catch { /* the setup assistant is a nicety; onboarding still completed */ }
+          setupAssistant.armSetupAssistant();
+          setupAssistant.ensureGuide({ createAgent: create.createAgent, via: 'first-run' })
+            .catch(() => { /* the setup guide is a nicety; onboarding still completed */ });
+        } catch { /* the setup guide is a nicety; onboarding still completed */ }
       }
     }
     /**
@@ -15075,6 +15072,23 @@ function start(port = PORT) {
          sweeps above: its own timer, unref'd so it never holds the process open,
          best-effort. It sends nothing when the person has opted out, and nothing
          under test (feedbacksend's underTest guard). */
+      /* #3034/#3660: the setup guide is created the moment the first model is connected,
+         after Giddy Up, from any provider's connect path (keys, sign-ins that finish in the
+         background). One sweep sees them all instead of a hook in every route. Cheap until
+         something is connected (the accounts lists only); ensureGuide backs off after a
+         refusal, is single-flight, and does nothing on an unarmed (pre-existing) install or
+         once seeded. Its own timer, unref'd, best-effort, like the sweeps above. */
+      if (setupAssistant.FIRSTRUN_AUTOCREATE_ENABLED) {
+        const guideTick = () => {
+          try {
+            setupAssistant.ensureGuide({ createAgent: create.createAgent, via: 'model-connected' })
+              .catch(() => { /* best-effort */ });
+          } catch { /* best-effort */ }
+        };
+        guideTick();
+        const guideSweep = setInterval(guideTick, Number(process.env.AGENT_WORKFORCE_GUIDE_SWEEP_MS) > 0 ? Number(process.env.AGENT_WORKFORCE_GUIDE_SWEEP_MS) : 60 * 1000); // the env is the test seam only
+        if (guideSweep && typeof guideSweep.unref === 'function') guideSweep.unref();
+      }
       const feedbackSweep = setInterval(() => {
         try { feedbacksend.sendDailyOnce(feedback.today()); } catch { /* best-effort, like the sweeps above */ }
       }, Number(process.env.AGENT_WORKFORCE_FEEDBACK_SWEEP_MS) > 0 ? Number(process.env.AGENT_WORKFORCE_FEEDBACK_SWEEP_MS) : 60 * 60 * 1000); // the env is the test seam only

@@ -220,31 +220,121 @@ test('guideName: null until seeded, then the name the seed recorded', () => {
   assert.equal(setupAssistant.guideName(), null, 'an unreadable flag names no guide');
 });
 
-test('GATE (#3034, Josh 2026-09-16): first-run auto-create is OFF pending Josh direction', () => {
-  // Josh flagged the assistant as prematurely indicated-complete and undirected.
-  // server.js only wires the seed into first-run completion when this flag is true,
-  // so it MUST default false: a flip to true ships the undirected behavior on the
-  // next cut. The seed LOGIC above stays fully tested (design intact); this guards
-  // only the shipping switch. Flip deliberately when Josh directs the design.
-  assert.equal(setupAssistant.FIRSTRUN_AUTOCREATE_ENABLED, false,
-    'the setup-assistant first-run auto-create must stay OFF until Josh directs it (#3034)');
+test('GATE (#3034/#3660): the automatic guide is ON, created when a model is connected (Splinter 19:06 on Josh\'s direction)', () => {
+  // Gated off 2026-09-16 pending Josh; direction since (16:05, 18:07) and Splinter's call on
+  // #3660 (19:06): create it the moment the first model connects, never at Giddy Up without one.
+  // Pinned so a flip either way is a deliberate edit to this line and the comment it names.
+  assert.equal(setupAssistant.FIRSTRUN_AUTOCREATE_ENABLED, true);
 });
 
-test('WIRING GUARD (#3034): server.js seeds the assistant ONLY behind the flag', () => {
-  // The GATE test above guards the flag's DEFAULT value. This guards the WIRING:
-  // the real gate is server.js wrapping the seed call in the flag check, and if
-  // someone removed/inverted that wrapper (restoring the old unconditional seed)
-  // while the constant stayed false, the value test would still pass but the
-  // undirected behavior would return. This reds on exactly that regression.
-  // Structural rather than behavioral because seedSetupAssistant's real createAgent
-  // dependency makes a server-level "no seed on first-run" test vacuous in a bare
-  // sandbox (the seed skips for want of an account/runner regardless of the gate).
+test('WIRING GUARD (#3034/#3660): server.js creates the guide only through ensureGuide, only behind the switch, and arms only at Giddy Up', () => {
+  // Structural, because a real first-run in a bare sandbox skips for want of an account
+  // regardless of the wiring. Reds if a direct seed call comes back, if any ensureGuide call
+  // loses its switch, or if arming moves off first-run completion (which would arm existing
+  // installs and put an agent on every board).
   const src = fs.readFileSync(path.join(__dirname, 'server.js'), 'utf8');
-  const calls = src.match(/seedSetupAssistant\s*\(/g) || [];
-  assert.equal(calls.length, 1,
-    'expected exactly one seedSetupAssistant() call site in server.js, found ' + calls.length);
-  assert.match(src, /if\s*\(\s*setupAssistant\.FIRSTRUN_AUTOCREATE_ENABLED\s*\)[\s\S]{0,600}?seedSetupAssistant\s*\(/,
-    'the seedSetupAssistant() call in server.js is not guarded by FIRSTRUN_AUTOCREATE_ENABLED -- the gate wiring was removed or bypassed');
+  assert.equal((src.match(/seedSetupAssistant\s*\(/g) || []).length, 0, 'server.js seeds directly, bypassing ensureGuide');
+  const calls = [...src.matchAll(/setupAssistant\.ensureGuide\s*\(/g)];
+  assert.equal(calls.length, 2, 'expected the Giddy Up call and the sweep, found ' + calls.length);
+  for (const c of calls) {
+    const before = src.slice(Math.max(0, c.index - 900), c.index);
+    assert.match(before, /if\s*\(\s*setupAssistant\.FIRSTRUN_AUTOCREATE_ENABLED\s*\)/, 'an ensureGuide call is not behind FIRSTRUN_AUTOCREATE_ENABLED');
+  }
+  const arms = [...src.matchAll(/setupAssistant\.armSetupAssistant\s*\(/g)];
+  assert.equal(arms.length, 1, 'arming must happen in exactly one place');
+  const route = src.lastIndexOf("pathname === '/api/first-run/complete'", arms[0].index);
+  assert.ok(route > 0 && arms[0].index - route < 4000, 'arming is not in the first-run completion route');
+});
+
+/* ---- #3660: created the moment the first model is connected ---------------- */
+
+const MODELS = (rows) => ({ listFor: (mod) => rows[mod] || [], connectable: async () => ({ ok: true }) });
+
+test('firstConnectedModel: the first LISTED model in provider order, a named account by its dir, a default as null', async () => {
+  assert.equal(await setupAssistant.firstConnectedModel(MODELS({})), null, 'nothing listed, nothing connected');
+  assert.deepEqual(await setupAssistant.firstConnectedModel(MODELS({ './grokaccounts': [{ dir: '/h/.grok', isDefault: true }] })),
+    { provider: 'xai', account: null });
+  assert.deepEqual(await setupAssistant.firstConnectedModel(MODELS({
+    './grokaccounts': [{ dir: '/h/.grok', isDefault: true }],
+    './openaiaccounts': [{ dir: '/h/.codex-work', isDefault: false }],
+  })), { provider: 'openai', account: '/h/.codex-work' }, 'provider order is Claude, OpenAI, Gemini, Grok');
+  // A listed but positively dead account is skipped, not used.
+  const dead = { listFor: (mod) => (mod === './accounts' ? [{ dir: '/h/.claude', isDefault: true }] : mod === './geminiaccounts' ? [{ dir: '/h/.gemini-k', isDefault: false }] : []),
+    connectable: async ({ provider }) => ({ ok: provider !== 'anthropic' }) };
+  assert.deepEqual(await setupAssistant.firstConnectedModel(dead), { provider: 'google', account: '/h/.gemini-k' });
+});
+
+function armed(on) {
+  if (on) setupAssistant.armSetupAssistant(); else fs.rmSync(setupAssistant.armPath(), { force: true });
+}
+
+test('ensureGuide: an UNARMED install (set up before this shipped) never gets a guide, even with a model connected', async () => {
+  setupAssistant.resetEnsureGuideForTests();
+  armed(false);
+  const calls = [];
+  const r = await setupAssistant.ensureGuide({ createAgent: createdOk(calls), deps: MODELS({ './accounts': [{ dir: '/h/.claude', isDefault: true }] }) });
+  assert.equal(r.seeded, false);
+  assert.match(r.reason, /not armed/);
+  assert.equal(calls.length, 0, 'an agent was put on an existing board');
+});
+
+test('ensureGuide: armed but no model yet creates nothing; the first connected model creates it ON that model, once', async () => {
+  setupAssistant.resetEnsureGuideForTests();
+  armed(true);
+  try {
+    const calls = [];
+    const none = await setupAssistant.ensureGuide({ createAgent: createdOk(calls), deps: MODELS({}) });
+    assert.equal(none.seeded, false);
+    assert.match(none.reason, /no model/);
+    assert.equal(calls.length, 0, 'created without a model (it could not run)');
+    const conn = MODELS({ './openaiaccounts': [{ dir: '/h/.codex-work', isDefault: false }] });
+    const r = await setupAssistant.ensureGuide({ createAgent: createdOk(calls), via: 'model-connected', deps: conn });
+    assert.equal(r.seeded, true, r.reason || '');
+    assert.equal(calls.length, 1);
+    assert.equal(calls[0].provider, 'openai', 'the guide was not created on the model that was connected');
+    assert.equal(calls[0].account, '/h/.codex-work');
+    assert.equal(setupAssistant.setupAssistantSeeded(), true, 'the once-ever flag was not written');
+    const again = await setupAssistant.ensureGuide({ createAgent: createdOk(calls), deps: conn });
+    assert.match(again.reason, /already seeded/);
+    assert.equal(calls.length, 1, 'a second guide was created');
+  } finally { armed(false); }
+});
+
+test('ensureGuide: single-flight (Giddy Up and a sweep together make one guide) and a refusal backs off', async () => {
+  setupAssistant.resetEnsureGuideForTests();
+  armed(true);
+  try {
+    const calls = [];
+    const conn = MODELS({ './accounts': [{ dir: '/h/.claude', isDefault: true }] });
+    const [a, b] = await Promise.all([
+      setupAssistant.ensureGuide({ createAgent: createdOk(calls), deps: conn }),
+      setupAssistant.ensureGuide({ createAgent: createdOk(calls), deps: conn }),
+    ]);
+    assert.equal(calls.length, 1, 'two guides from two concurrent triggers');
+    assert.equal(a.seeded && b.seeded, true, 'both callers see the one result');
+    // A refusal: the next try waits RETRY_AFTER_MS, then tries again.
+    reset(); armed(true); setupAssistant.resetEnsureGuideForTests();
+    const tries = [];
+    const t0 = 1_000_000;
+    const r1 = await setupAssistant.ensureGuide({ createAgent: refused(tries, 'we could not find Claude Code on this computer'), now: t0, deps: conn });
+    assert.equal(r1.seeded, false);
+    const r2 = await setupAssistant.ensureGuide({ createAgent: refused(tries, 'x'), now: t0 + 60 * 1000, deps: conn });
+    assert.match(r2.reason, /waiting/);
+    assert.equal(tries.length, 1, 'retried inside the back-off');
+    await setupAssistant.ensureGuide({ createAgent: refused(tries, 'x'), now: t0 + setupAssistant.RETRY_AFTER_MS + 1, deps: conn });
+    assert.equal(tries.length, 2, 'CONTROL: it does try again after the back-off');
+  } finally { armed(false); setupAssistant.resetEnsureGuideForTests(); }
+});
+
+test('ensureGuide: the switch off means nothing automatic at all', async () => {
+  setupAssistant.resetEnsureGuideForTests();
+  armed(true);
+  try {
+    const calls = [];
+    const r = await setupAssistant.ensureGuide({ createAgent: createdOk(calls), deps: { ...MODELS({ './accounts': [{ dir: '/h/.claude', isDefault: true }] }), enabled: false } });
+    assert.match(r.reason, /switched off/);
+    assert.equal(calls.length, 0);
+  } finally { armed(false); }
 });
 
 test('SETTING: defaults to on and not yet asked; anything malformed reads as the default', () => {

@@ -77,19 +77,16 @@ const GUIDE_MARKER = '.kosmos-setup-guide';
 const GUIDE_AVATAR_DIR = path.join(__dirname, '..', 'web', 'icons');
 const GUIDE_AVATAR_BASE = 'setup-guide-avatar';
 
-/* #3034 (Josh, 2026-09-16): the first-run auto-create is GATED OFF. Josh's words:
- * "I don't know why this was set up as complete or indicated it was complete
- * because we haven't gone through this yet and I haven't given direction on it."
- * The auto-create shipped undirected (PR #3153) and is running in prod; this flag
- * removes it from the next build until Josh directs the design. The DESIGN below is
- * his to direct and is left fully intact -- this flag only controls whether
- * server.js WIRES the seed into first-run completion. Flip to true when he directs
- * it; nothing else changes, and seedSetupAssistant() still works when called
- * directly (its tests cover the design). Reversible in a commit, per Josh's
- * make-your-best-call ruling. The release-timing specifics (which cut shipped it,
- * which removes it) live in the plan and commit, not pinned here where a version
- * number would go stale. */
-const FIRSTRUN_AUTOCREATE_ENABLED = false;
+/* #3034/#3660: the setup guide is created automatically, but WHEN is the point.
+ * History: gated off 2026-09-16 (Josh: "I haven't given direction on it"). Direction
+ * since: Josh 2026-09-24 16:05 (his avatar, speaks as the builder) and 18:07 (the
+ * hosted assistant until they connect a model, #3660); Splinter's call 19:06 on #3660:
+ * create the guide THE MOMENT THE FIRST MODEL IS CONNECTED, during setup or later,
+ * never at Giddy Up without a model (it could not run and would sit broken on the
+ * board). So this switch arms ensureGuide(), below, rather than creating at Giddy Up.
+ * Reversible: false turns every automatic path off again; seedSetupAssistant() still
+ * works when called directly. */
+const FIRSTRUN_AUTOCREATE_ENABLED = true;
 
 /* Once-ever flag, same shape/rationale as projects.js welcome-seed: an empty
  * store cannot tell "never seeded" from "the user deleted the assistant", so the
@@ -191,7 +188,7 @@ function guideName() {
  * succeeded, and a helper is a nicety that must not turn a done onboarding into
  * an error. The caller writes the once-ever flag on `seeded: true`.
  */
-function seedSetupAssistant({ createAgent, hasConnectedAccount = defaultHasConnectedAccount, avatarDir } = {}) {
+function seedSetupAssistant({ createAgent, hasConnectedAccount = defaultHasConnectedAccount, avatarDir, model } = {}) {
   if (typeof createAgent !== 'function') return { seeded: false, reason: 'no createAgent provided' };
   if (setupAssistantSeeded()) return { seeded: false, reason: 'already seeded' };
 
@@ -211,7 +208,11 @@ function seedSetupAssistant({ createAgent, hasConnectedAccount = defaultHasConne
         name,
         role: SETUP_ROLE_KEY,
         createdBy: 'kosmos',
-        purpose: `default Kosmos setup guide, ${GUIDE_TAG} (auto-created on first-run, #3034)`,
+        purpose: `default Kosmos setup guide, ${GUIDE_TAG} (auto-created when a model was connected, #3034/#3660)`,
+        /* The model that was connected, so an OpenAI-only (or Gemini, Grok) person gets a
+           guide that can run; absent, createAgent's own default (Claude) applies. */
+        ...(model && model.provider ? { provider: model.provider } : {}),
+        ...(model && model.account ? { account: model.account } : {}),
       });
     } catch (err) {
       // createAgent is not expected to throw (it returns a refusal outcome), but
@@ -234,6 +235,110 @@ function seedSetupAssistant({ createAgent, hasConnectedAccount = defaultHasConne
   const marked = markGuideFolder(out.name || name);
   return { seeded: true, name: out.name || name, avatarCopied, marked };
 }
+
+/*
+ * WHEN the guide is created (#3660, Splinter 19:06): the first time a model is connected
+ * on an install that has been through setup since this shipped.
+ *
+ * 🔑 ARMED, NOT MERELY "A MODEL IS CONNECTED". Every install that predates this has
+ * models connected and no seed flag, so a bare "connected and not seeded" check would
+ * put an agent called Josh on every existing board the moment this ships. First-run
+ * completion (Giddy Up) ARMS it, so only an install set up from now on gets a guide:
+ * at Giddy Up if a model is already connected, or later, the first time one is.
+ */
+function armPath() { return path.join(store.ROOT, 'setup-assistant-armed.json'); }
+
+function isArmed() {
+  try { return fs.existsSync(armPath()); } catch { return false; }
+}
+
+/* Written at first-run completion. Best-effort: an unarmed install simply never gets
+   an automatic guide, which is the safe direction. */
+function armSetupAssistant() {
+  try {
+    if (!fs.existsSync(armPath())) fs.writeFileSync(armPath(), JSON.stringify({ at: new Date().toISOString() }) + '\n', 'utf8');
+    return true;
+  } catch { return false; }
+}
+
+/* The providers, in the order the person sees them (Josh 17:05, #3651), each with the
+   module that lists its accounts. Only a LISTED account counts as connected. */
+const MODEL_PROVIDERS = Object.freeze([
+  ['anthropic', './accounts'],
+  ['openai', './openaiaccounts'],
+  ['google', './geminiaccounts'],
+  ['xai', './grokaccounts'],
+]);
+
+/**
+ * The first connected model a guide could run on: { provider, account } (account null
+ * for a provider's default), or null. A listed account must also pass create's own
+ * gate (accountConnectable), so a positively dead sign-in is skipped, not used.
+ * `listFor` and `connectable` are injectable for tests.
+ */
+async function firstConnectedModel({
+  listFor = (mod) => require(mod).list(),
+  connectable = (q) => create.accountConnectable(q),
+} = {}) {
+  for (const [provider, mod] of MODEL_PROVIDERS) {
+    let rows;
+    try { rows = listFor(mod); } catch { rows = []; }
+    if (!Array.isArray(rows)) continue;
+    for (const row of rows) {
+      if (!row || typeof row.dir !== 'string') continue;
+      const account = row.isDefault ? null : row.dir;
+      let gate;
+      try { gate = await connectable({ provider, accountDir: account }); } catch { gate = { ok: false }; }
+      if (gate && gate.ok) return { provider, account };
+    }
+  }
+  return null;
+}
+
+/* After a try that found a model but could not create (a refused or dead account), the
+   next try waits this long: the check can run a live `claude -p`, and the sweep runs
+   every minute. */
+const RETRY_AFTER_MS = 10 * 60 * 1000;
+let inFlight = null;
+let lastFailedAt = 0;
+
+/**
+ * Create the guide if, and only if: the automatic path is on, this install is armed,
+ * it has never been seeded, and a model is connected. Idempotent and single-flight:
+ * a Giddy Up and a sweep tick arriving together create at most one. Never throws.
+ * Resolves { seeded, name?, reason? }. `deps` is for tests.
+ */
+function ensureGuide({ createAgent, via = 'model-connected', now = Date.now(), deps = {} } = {}) {
+  if (inFlight) return inFlight;
+  const enabled = deps.enabled !== undefined ? deps.enabled : FIRSTRUN_AUTOCREATE_ENABLED;
+  if (!enabled) return Promise.resolve({ seeded: false, reason: 'the automatic setup guide is switched off' });
+  if (!isArmed()) return Promise.resolve({ seeded: false, reason: 'not armed (this install was set up before the guide existed)' });
+  if (setupAssistantSeeded()) return Promise.resolve({ seeded: false, reason: 'already seeded' });
+  if (lastFailedAt && now - lastFailedAt < RETRY_AFTER_MS) return Promise.resolve({ seeded: false, reason: 'waiting before trying again' });
+  inFlight = (async () => {
+    try {
+      const model = await firstConnectedModel(deps);
+      if (!model) return { seeded: false, reason: 'no model connected yet' };
+      const seed = seedSetupAssistant({ createAgent, hasConnectedAccount: () => true, avatarDir: deps.avatarDir, model });
+      if (seed && seed.seeded) {
+        markSetupAssistantSeeded({ name: seed.name, via, provider: model.provider });
+        lastFailedAt = 0;
+        return seed;
+      }
+      lastFailedAt = now;
+      return seed || { seeded: false, reason: 'not created' };
+    } catch (err) {
+      lastFailedAt = now;
+      return { seeded: false, reason: 'ensureGuide failed: ' + String((err && err.message) || err) };
+    } finally {
+      inFlight = null;
+    }
+  })();
+  return inFlight;
+}
+
+/* Test seam: forget the backoff between cases. */
+function resetEnsureGuideForTests() { inFlight = null; lastFailedAt = 0; }
 
 /*
  * The person's switch for the setup assistant bubble (#3034; Josh, 2026-09-24 18:02:
@@ -281,6 +386,14 @@ function mergeSetting(stored, patch) {
 
 module.exports = {
   SETUP_ROLE_KEY,
+  armPath,
+  isArmed,
+  armSetupAssistant,
+  MODEL_PROVIDERS,
+  firstConnectedModel,
+  RETRY_AFTER_MS,
+  ensureGuide,
+  resetEnsureGuideForTests,
   SETTING_DEFAULT,
   settingFrom,
   settingPatchProblem,
