@@ -216,6 +216,8 @@ test('#3626: the announce goes out SIGNED -- one `mac-request` call with the bod
   assert.deepEqual(wire.dialled, [], 'no direct http/https request: that is the unsigned path the coordinator refuses');
   assert.equal(calls.length, 1, 'exactly one tunnel call, so a module that sends nothing is red here too');
   const c = calls[0];
+  /* The per-flag asserts are covered by the exact argv below; kept on purpose, because
+     their messages say WHICH part is wrong. */
   assert.equal(c.args[0], 'mac-request', 'the signing verb');
   assert.equal(FAKE.flag(c, '--method'), 'POST');
   assert.equal(FAKE.flag(c, '--path'), '/v1/mac/updating');
@@ -229,7 +231,7 @@ test('#3626: the announce goes out SIGNED -- one `mac-request` call with the bod
      (kosmos#3812). A new flag must be added here on purpose. */
   assert.deepEqual(c.args, ['mac-request', '--coordinator', 'https://host.example:8443/kosmos',
     '--state-dir', STATE, '--method', 'POST', '--path', '/v1/mac/updating'],
-  'and the body is not on argv: argv is exactly the verb, the two places and the route');
+  'and the body is not on argv: argv is exactly the verb, coordinator, state dir, method and path');
 });
 
 test('#3626: a hung tunnel does not hold announce(), which returns before the child starts', async () => {
