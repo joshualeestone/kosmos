@@ -178,11 +178,13 @@ const chk = (ok, label, extra) => {
   chk(/^That sign-in was for a different account, so this account was left unchanged\. You can try again\.$/.test(bad.msg) && !bad.go && !bad.link && bad.polls === 0,
     'an engine error is said in its own words and the button re-arms', JSON.stringify(bad));
 
-  // A missing grok names the tool.
+  // A missing grok names the tool (reachable only if it went missing after the box opened).
   await q(() => { window.__startAnswer = [400, { needsRunner: true, error: 'we could not find the Grok runner' }]; document.getElementById('acct-grok-sub-go').click(); });
   await q(() => new Promise((r) => setTimeout(r, 50)));
   const miss = await q(() => ({ msg: document.getElementById('acct-grok-msg').textContent, go: document.getElementById('acct-grok-sub-go').disabled }));
-  chk(/"grok"/.test(miss.msg) && /not installed/.test(miss.msg) && !miss.go, 'a missing grok names its tool and re-arms', JSON.stringify(miss));
+  // #3713: Kosmos installs grok now, so the sentence points at the download instead of saying it cannot.
+  chk(/"grok"/.test(miss.msg) && /not on this computer/.test(miss.msg) && /offer to download it/.test(miss.msg) && !/cannot install/.test(miss.msg) && !miss.go,
+    'a missing grok names its tool, says Kosmos will offer to download it, and re-arms', JSON.stringify(miss));
   await q(() => { window.__startAnswer = null; });
 
   // Stop cancels on the engine.

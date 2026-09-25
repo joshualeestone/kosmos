@@ -521,20 +521,14 @@ function resolveBin(provider, opts) {
     const canonical = path.join(homeDir(), '.local', 'bin', MANIFEST.claude.binName);
     return { bin: canonical, present: isRunnable(canonical), managed: false, overridden: false };
   }
-  /* #3296: the Gemini runner. Like the claude branch, this is a LEGACY-rung
-     resolution today, not a managed tarball install: the gemini CLI is a
-     node-script package whose `gemini` bin is a `#!/usr/bin/env node` shebang
-     script (with the exec bit, so it clears isRunnable's X_OK exactly like
-     codex's symlink). A managed MANIFEST.gemini install is a later hardening;
-     until then the runner is the vendor's npm-global `gemini`, resolved the same
-     way codex resolves its legacy `/opt/homebrew/bin/codex` rung on this box.
+  /* #3296: the Gemini runner; #3713 gave it a managed install (MANIFEST.gemini, a
+     launcher that runs the vendor's bundle with the board's node).
 
-     Rungs: the env override (the harness/self-host contract every bin path
-     honours), then the legacy npm-global path. `managed` is always false (no
-     Kosmos-managed location yet), matching the vendor-external shape of the
-     claude branch. `envName` travels with the answer for the same reason it does
-     on the other branches: a refusal that names a variable must name the RIGHT
-     one. */
+     Rungs: the env override (the harness/self-host contract every bin path honours),
+     then the copy Kosmos installed, then the vendor's npm-global `gemini` this Mac may
+     already have (resolved the way codex resolves its legacy /opt/homebrew/bin/codex
+     rung). `envName` travels with the answer for the same reason it does on the other
+     branches: a refusal that names a variable must name the RIGHT one. */
   if (provider === 'gemini') {
     const envGemini = process.env.AGENT_WORKFORCE_GEMINI_BIN;
     if (envGemini) return { bin: envGemini, present: isRunnable(envGemini), managed: false, overridden: true, envName: 'AGENT_WORKFORCE_GEMINI_BIN' };
@@ -548,20 +542,13 @@ function resolveBin(provider, opts) {
     if (isRunnable(legacy)) return { bin: legacy, present: true, managed: false, overridden: false };
     return { bin: managed, present: false, managed: true, overridden: false };
   }
-  /* #3391: the Grok runner. Same LEGACY-rung shape as gemini, and for the same
-     reason it is not a managed tarball install yet: the grok CLI is the
-     @xai-official/grok npm package whose `grok` bin is a NATIVE binary
-     (/opt/homebrew/bin/grok -> node_modules/@xai-official/grok/bin/grok-native,
-     with the exec bit, so it clears isRunnable's X_OK exactly like codex's
-     symlink). A managed MANIFEST.grok install is a later hardening; until then the
-     runner is the vendor's npm-global `grok`, resolved the same way codex resolves
-     its legacy /opt/homebrew/bin/codex rung on this box.
+  /* #3391: the Grok runner; #3713 gave it a managed install (MANIFEST.grok, the
+     vendor's native binary expanded from its per-CPU package).
 
-     Rungs: the env override (the harness/self-host contract every bin path
-     honours), then the legacy npm-global path. `managed` is always false (no
-     Kosmos-managed location yet), matching the vendor-external shape of the claude
-     and gemini branches. `envName` travels with the answer so a refusal names the
-     RIGHT variable. */
+     Rungs: the env override, then the copy Kosmos installed, then the vendor's
+     npm-global `grok` (/opt/homebrew/bin/grok -> node_modules/@xai-official/grok/bin/
+     grok-native) this Mac may already have. `envName` travels with the answer so a
+     refusal names the RIGHT variable. */
   if (provider === 'grok') {
     const envGrok = process.env.AGENT_WORKFORCE_GROK_BIN;
     if (envGrok) return { bin: envGrok, present: isRunnable(envGrok), managed: false, overridden: true, envName: 'AGENT_WORKFORCE_GROK_BIN' };

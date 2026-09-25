@@ -47,7 +47,11 @@ test('#1034/#3566: it names the providers that can be connected today and says t
   /* #3566: Gemini and Grok are connectable with a key, and must not be in the
      coming-soon list. Read as one line, because the block wraps sentences. */
   const flat = body.replace(/\s+/g, ' ');
-  assert.match(flat, /Google Gemini and xAI Grok can be connected too, each with an API key/);
+  assert.match(flat, /Google Gemini and xAI Grok can be\s+connected too: Gemini with an API key, Grok with an API key or an xAI\s+subscription/);
+  /* #3713: Kosmos installs Gemini's and Grok's terminal agents on a Mac, so the guide must not
+     tell an agent they have to be there already, which would send a person off to install one. */
+  assert.doesNotMatch(flat, /does not install their terminal/);
+  assert.match(flat, /on a Mac Kosmos installs\s+them the same way/);
   const soon = flat.match(/[^.]*marked coming soon[^.]*\./);
   assert.ok(soon, 'CONTROL: the coming-soon sentence must be found, or the next check proves nothing');
   assert.doesNotMatch(soon[0], /Gemini|Grok/, 'Gemini or Grok is still listed as coming soon: ' + soon[0]);
