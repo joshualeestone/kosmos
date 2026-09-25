@@ -191,7 +191,7 @@ else fail "approval log: $(cat "$ALOG")"; fi
 if grep -qE '^PUT kosmos-win-x64\.zip COPY /kosmos-dist-win/kosmos-9\.9\.1-win-x64\.zip \| cache-control=no-cache;x-amz-copy-source=[^;]+;x-amz-copy-source-if-match="[0-9a-f]{64}";x-amz-metadata-directive=REPLACE$' "$FAKE/.calls"; then pass "the alias copy is pinned and replaces its metadata with no-cache"
 else fail "copy headers: $(grep COPY "$FAKE/.calls")"; fi
 # -ReplaceVersioned never replaces what prod names.
-fake -Zip "$TMP/b.zip" -ReplaceVersioned; rc=$?; refuses_clean "-ReplaceVersioned refuses the version prod names" "what PROD's latest-win.json names"
+fake -Zip "$TMP/b.zip" -ReplaceVersioned; rc=$?; refuses_clean "-ReplaceVersioned refuses the version prod names" "PROD's latest-win.json names"
 # A staging failure after its writes began says what may be up.
 : > "$FAKE/.calls"; mkzip "$TMP/c.zip" 9.9.2 C
 KOSMOS_PUBLISH_R2_FAKE_FAIL=latest-win-staging.json fake -Zip "$TMP/c.zip"; rc=$?
@@ -232,15 +232,22 @@ with zipfile.ZipFile(sys.argv[1], 'w') as z:
 PYEOF
 fake -Zip "$TMP/dup.zip"; rc=$?; refuses_clean "a zip with duplicate entries is refused" "duplicate entries"
 # A garbage prod pointer means -ReplaceVersioned cannot rule out that prod names the version.
-cp "$FAKE/latest-win.json" "$TMP/prod.keep2"; printf 'garbage' > "$FAKE/latest-win.json"
 cp "$FAKE/latest-win-staging.json" "$TMP/staging.keep2"; mkzip "$TMP/g1.zip" 9.9.6 G1; mkzip "$TMP/g2.zip" 9.9.6 G2; fake -Zip "$TMP/g1.zip" >/dev/null
+cp "$FAKE/latest-win.json" "$TMP/prod.keep2"; printf 'garbage' > "$FAKE/latest-win.json"
 fake -Zip "$TMP/g2.zip" -ReplaceVersioned; rc=$?; refuses_clean "-ReplaceVersioned with an unreadable prod pointer refuses" "cannot be read"
 cp "$TMP/prod.keep2" "$FAKE/latest-win.json"
 # A re-run of an interrupted replace (same bytes now) keeps the replaced zip no-cache.
-fake -Zip "$TMP/g2.zip" -ReplaceVersioned >/dev/null; fake -Zip "$TMP/g2.zip"; rc=$?
+fake -Zip "$TMP/g2.zip" -ReplaceVersioned; cp "$TMP/out" "$TMP/replace.out"; fake -Zip "$TMP/g2.zip"; rc=$?
 if [ "$rc" -eq 0 ] && grep -qE '^PUT kosmos-9\.9\.6-win-x64\.zip \| cache-control=no-cache;if-match=' "$FAKE/.calls"; then pass "re-staging a replaced zip's same bytes keeps it no-cache"
-else fail "replace re-run cache-control: rc=$rc $(grep '^PUT kosmos-9.9.6-win-x64.zip ' "$FAKE/.calls")"; fi
+else fail "replace re-run cache-control: rc=$rc $(grep '^PUT kosmos-9.9.6-win-x64.zip ' "$FAKE/.calls") [the replace said: $(tail -1 "$TMP/replace.out")]"; fi
 cp "$TMP/staging.keep2" "$FAKE/latest-win-staging.json"
+# Prod names 9.9.7 at another sha and the versioned zip is ABSENT: a plain stage of different
+# 9.9.7 bytes must refuse (it would pin a sidecar every prod updater then refuses).
+cp "$FAKE/latest-win.json" "$TMP/prod.keep3" 2>/dev/null || : > "$TMP/prod.keep3"
+printf '{"version":"9.9.7","sha256":"%s","artifact":"kosmos-win-x64.zip","versioned":"kosmos-9.9.7-win-x64.zip","arch":"x64"}\n' "$(printf 'c%.0s' $(seq 64))" > "$FAKE/latest-win.json"
+mkzip "$TMP/p97.zip" 9.9.7 P; fake -Zip "$TMP/p97.zip"; rc=$?
+refuses_clean "a stage of different bytes under the version PROD names refuses, even with no zip there" "PROD's latest-win.json names"
+if [ -s "$TMP/prod.keep3" ]; then cp "$TMP/prod.keep3" "$FAKE/latest-win.json"; else rm -f "$FAKE/latest-win.json"; fi
 # A rounded ts (what PowerShell makes of an unquoted one) is refused, not logged.
 fake -Promote -ApprovedVersion 9.9.1 -ApprovedSha "$SHA_A" -ApprovalRef 1789228393.8214; rc=$?
 refuses_clean "a rounded (unquoted) Slack ts is refused" "10 digits . 6 digits"

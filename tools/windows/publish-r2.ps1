@@ -415,6 +415,14 @@ if ($PSCmdlet.ParameterSetName -ceq 'Staging') {
   # keeps): republishing different bytes under it hands two builds one name, which is how 0.6.94
   # staging was served with bytes nobody had announced (2026-09-25). Read from the bucket itself,
   # and keyed on the ZIP, so an earlier run cut off before its sidecar still counts.
+  # WHATEVER the path (create, same bytes, replace): prod must not be naming this version at a
+  # different sha, or the sidecar written below would pin bytes prod's updaters then refuse.
+  $prodNamed = Get-Object 'latest-win.json'
+  if ($prodNamed) {
+    $pn = Read-PointerFields $prodNamed.Bytes
+    if (-not $pn) { Refuse "prod's latest-win.json cannot be read, so it cannot be ruled out that prod names $Versioned. Nothing was written." }
+    if ($pn.versioned -ceq $Versioned -and $pn.sha256 -cne $Sha) { Refuse "PROD's latest-win.json names $Versioned at $($pn.sha256); these bytes are $Sha. Staging different bytes under prod's version would break every updater. Bump the version. Nothing was written." }
+  }
   $existing = Get-Object $Versioned
   $putExtra = @{}
   if ($existing) {
@@ -422,7 +430,7 @@ if ($PSCmdlet.ParameterSetName -ceq 'Staging') {
     if ($existingSha -ceq $Sha) { Say "$Versioned is already in the bucket with these bytes; it is uploaded again unchanged" }
     elseif (-not $ReplaceVersioned) { Refuse "$Versioned is already in the bucket with DIFFERENT bytes ($existingSha). Versioned names are immutable: bump the version, or pass -ReplaceVersioned if the published one was never announced." }
     else {
-      $prod = Get-Object 'latest-win.json'
+      $prod = $prodNamed   # read once, above: the upload's race re-read compares against it
       if ($prod) {
         $pf = Read-PointerFields $prod.Bytes
         if (-not $pf) { Refuse "prod's latest-win.json cannot be read, so it cannot be ruled out that prod names $Versioned; -ReplaceVersioned needs to know" }
