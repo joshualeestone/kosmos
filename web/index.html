@@ -30106,19 +30106,19 @@ function detailGo(section, opts) {
   /* The height written is height x scale: a keyboard shrinks the visual viewport at scale 1, a
      pinch zoom shrinks it by the zoom factor, and only the keyboard should shrink the page.
      The keyboard counts as "up" (the phone chat moves its header aside only then) when that height
-     falls 150px+ below the tallest seen at this width. Measured against the tallest, not the layout
+     falls 150px+ below the tallest seen at this width (remembered per width, first seeded from innerHeight). Measured against the tallest, not the layout
      viewport, so it also works where the keyboard shrinks the layout viewport too (Firefox Android,
-     Chrome with resizes-content, some Android web views). A width change (rotation) starts over; the layout width, not innerWidth, which Safari has
-     tracked through a pinch zoom. */
+     Chrome with resizes-content, some Android web views). Widths are keyed on
+     documentElement.clientWidth, not innerWidth, because Safari changes innerWidth during a pinch zoom. */
   const KEYBOARD_MIN_PX = 150;
-  let tallest = { width: 0, height: 0 };
+  const tallestByWidth = new Map();
   const write = () => {
     const visible = Math.round(viewport.height * viewport.scale);
     const width = document.documentElement.clientWidth;
-    if (width !== tallest.width) tallest = { width, height: 0 };
-    tallest.height = Math.max(tallest.height, visible);
+    const tallest = Math.max(tallestByWidth.get(width) || window.innerHeight, visible);
+    tallestByWidth.set(width, tallest);
     document.documentElement.style.setProperty('--kosmos-visible-height', visible + 'px');
-    document.documentElement.classList.toggle('kosmos-keyboard-up', tallest.height - visible > KEYBOARD_MIN_PX);
+    document.documentElement.classList.toggle('kosmos-keyboard-up', tallest - visible > KEYBOARD_MIN_PX);
   };
 
   /* iOS can pan the page to show a focused text box before this resize arrives; with the page
