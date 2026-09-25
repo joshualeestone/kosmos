@@ -1,4 +1,4 @@
-// Browser-check-surface: plus-state1 plus-state2 plus-si-cancel plus-si-code-resend plus-si-code-to plus-si-email plus-si-code plus-si-second plus-si-enrol plus-si-enrol-sms plus-si-enrol-why plus-si-enrol-confirm plus-si-secret plus-si-register plus-flow plus-status
+// Browser-check-surface: plus-msg plus-switch plus-state1 plus-state2 plus-si-cancel plus-si-code-resend plus-si-code-to plus-si-email plus-si-code plus-si-second plus-si-enrol plus-si-enrol-sms plus-si-enrol-why plus-si-enrol-confirm plus-si-secret plus-si-register plus-flow plus-status
 'use strict';
 /**
  * #3478: the Kosmos+ sign-in links open the IN-APP wizard, not the web.
@@ -74,6 +74,16 @@ const SCENARIOS = {
       '/api/remote/signin-start': { ok: true, stage: 'code_sent' },
       '/api/remote/signin-verify': { ok: true, stage: 'session' },
       '/api/remote/signin-register': { ok: true, stage: 'registered', address: 'quiet-heron', name: 'quiet-heron', standing: 'active' },
+    },
+  },
+  'switch-off': {
+    label: '#3827: registered, but the switch could not be saved on (the note sits beside Turn on)',
+    switchOff: true,
+    steps: {
+      '/api/remote/signin-start': { ok: true, stage: 'code_sent' },
+      '/api/remote/signin-verify': { ok: true, stage: 'session' },
+      '/api/remote/signin-register': { ok: true, stage: 'registered', address: 'still-lake', name: 'still-lake', standing: 'active',
+        switchOff: true, note: 'You are signed in, but Kosmos+ could not be switched on here. Press Turn on.' },
     },
   },
   'enrol-2fa-sms': {
@@ -311,9 +321,10 @@ const visible = (page, sel) => page.evaluate((s) => {
       await page.route('**/api/remote', (route, req) => {
         const m = req.method();
         if (m === 'GET' || m === 'HEAD') {
-          route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({
-            configured: true, on: true, ok: true, enrolled: true, email: 'you@example.com',
-            status: { state: 'up', address: wantAddr } }) });
+          route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(sc.switchOff
+            ? { configured: true, on: false, ok: true, enrolled: true, email: 'you@example.com', status: {} }
+            : { configured: true, on: true, ok: true, enrolled: true, email: 'you@example.com',
+              status: { state: 'up', address: wantAddr } }) });
         } else { route.fulfill({ status: 200, contentType: 'application/json', body: '{"ok":true}' }); }
       });
       await page.fill('#plus-si-name', sc.steps['/api/remote/signin-register'].name);
@@ -321,8 +332,18 @@ const visible = (page, sel) => page.evaluate((s) => {
       // The wizard hands off to the connected flow: state 2 gone, flow shown, address in
       // its status line -- the same success screen the enrol flow ends on.
       await page.waitForSelector('#plus-flow', { state: 'visible', timeout: 5000 });
+      if (sc.switchOff) {
+        // #3827: the Mac IS registered but the switch stayed off. The page must say so
+        // beside the Turn on button, not "Connecting".
+        const msg = (await page.textContent('#plus-msg')) || '';
+        const sw = ((await page.textContent('#plus-switch')) || '').trim();
+        chk(/Press Turn on/.test(msg), `[${key}] the switch-off note is in the connected pane's message line`, JSON.stringify(msg));
+        chk(sw === 'Turn on', `[${key}] the Turn on button the note points at is there`, JSON.stringify(sw));
+        chk(!/Connecting/.test(msg), `[${key}] nothing says "Connecting" over a switch that is off`, JSON.stringify(msg));
+      } else {
       const flowStatus = await page.textContent('#plus-status');
       chk(!!(flowStatus && flowStatus.includes(wantAddr)), `[${key}] done: the connected flow shows the new address`, JSON.stringify(flowStatus));
+      }
       chk(!(await visible(page, '#plus-state2')), `[${key}] the wizard hands off to the connected flow after register`);
       await page.screenshot({ path: path.join(OUT, `plus-signin-${key}.png`), fullPage: false });
 

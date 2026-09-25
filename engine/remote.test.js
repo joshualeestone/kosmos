@@ -143,6 +143,8 @@ if (args[0] === 'signin') {
     const name = flag('--name');
     if (name === 'taken') { process.stderr.write('the coordinator said no (409): a Mac on this account already has that name\\n'); process.exit(1); }
     const dir = flag('--state-dir');
+    // #3827: a register that is still out when Forget is pressed.
+    if (mode === 'slow-register') { const until = Date.now() + 600; while (Date.now() < until) { /* busy wait: no timers in this script */ } }
     fs.mkdirSync(dir, { recursive: true });
     for (const f of ['mac_id', 'mac_key', 'coordinator_pubkey', 'tls.crt', 'tls.key']) {
       fs.writeFileSync(path.join(dir, f), 'fake');
@@ -928,6 +930,27 @@ test('#3827 review: the same-Mac (#1010) path also says so when the switch canno
     assert.equal(again.data.switchOff, true, 'the recognised path hid a switch that stayed off');
   } finally {
     fs.rmSync(remote.FILE + '.tmp', { recursive: true, force: true });
+  }
+});
+
+test('#3827 review: Forget does not hang on a register that is still out, and the late register undoes itself', async () => {
+  process.env.AGENT_WORKFORCE_TUNNEL_RELAY = '127.0.0.1:9444';
+  process.env.FAKE_TUNNEL_MODE = 'slow-register';
+  remote._setForgetWaitMs(50);
+  try {
+    await remote.signinStart('her@example.com');
+    await remote.signinVerify('her@example.com', '111111');
+    const racing = remote.signinRegister('hers');   // the fake takes ~600ms to answer
+    const t0 = Date.now();
+    await remote.forget();
+    assert.ok(Date.now() - t0 < 500, 'Forget waited on a register that had not finished (' + (Date.now() - t0) + 'ms)');
+    const late = await racing;
+    assert.equal(late.ok, false, 'a register that finished after Forget reported success');
+    assert.equal(remote.enrolled(), false, 'a register that finished after Forget left the Mac registered');
+    assert.equal(remote.read().on, false);
+  } finally {
+    delete process.env.FAKE_TUNNEL_MODE;
+    remote._setForgetWaitMs(null);
   }
 });
 

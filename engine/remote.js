@@ -664,7 +664,12 @@ async function forget() {
   // the switch back on for the state this is about to wipe (#3827 review).
   signinEpoch += 1;
   signinSession = null;
-  if (registerInFlight) { try { await registerInFlight; } catch { /* its outcome is wiped below either way */ } }
+  forgetGen += 1;
+  if (registerInFlight) {
+    let timer;
+    await Promise.race([registerInFlight, new Promise((r) => { timer = setTimeout(r, FORGET_WAIT_MS_OVERRIDE ?? FORGET_WAIT_MS); })]);
+    clearTimeout(timer);
+  }
   const was = { enrolled: enrolled(), address: address() };
   stopChild();
   let retired = false;
@@ -1202,11 +1207,16 @@ function turnOnAfterSignin() {
   return false;
 }
 function switchOffNote(on) { return on ? {} : { switchOff: true, note: SIGNED_IN_SWITCH_OFF }; }
-/* #3827 review: forget() waits for a register already on its way, so the state it
-   retires and wipes includes that registration; otherwise the register child writes
-   a fresh identity into the directory forget just emptied, and the Mac comes back
-   as signed in to an account the person just forgot. */
+/* #3827 review: forget() waits (bounded) for a register already on its way, so the
+   state it retires and wipes includes that registration; otherwise the register
+   child writes a fresh identity into the directory forget just emptied, and the Mac
+   comes back as signed in to an account the person just forgot. The wait is bounded
+   (FORGET_WAIT_MS) so a hung register cannot hang Forget; a register that finishes
+   after a forget undoes itself (forgetGen), so the Mac still ends up forgotten. */
 let registerInFlight = null;
+let forgetGen = 0;
+const FORGET_WAIT_MS = 20000;
+let FORGET_WAIT_MS_OVERRIDE = null;   // tests only
 
 async function signinRegister(name) {
   if (!signinSession || typeof signinSession.token !== 'string') {
@@ -1245,6 +1255,7 @@ async function signinRegister(name) {
   // Like every other step: a Sign out (or a forget) that lands while register is
   // waiting on the tunnel program must not be followed by this turning Kosmos+ on.
   const epoch = signinEpoch;
+  const gen = forgetGen;
   const running = setupRun(['signin', 'register', '--coordinator', COORDINATOR(),
     '--name', name, '--state-dir', STATE_DIR()], signinSession.token);
   registerInFlight = running;
@@ -1254,6 +1265,15 @@ async function signinRegister(name) {
   // it: the Mac is registered, the page has already dropped this answer, and the
   // next paint shows the connected pane with the switch OFF, which is the truth.
   // What a cancel must never do is let this turn Kosmos+ on.
+  if (gen !== forgetGen && r.ok) {
+    // A forget landed while this was out and stopped waiting (FORGET_WAIT_MS): the
+    // Mac was forgotten, so what this register wrote is undone the same way.
+    stopChild();
+    await setupRun(['retire', '--coordinator', COORDINATOR(), '--state-dir', STATE_DIR()]);
+    try { fs.rmSync(STATE_DIR(), { recursive: true, force: true }); } catch { /* enrolled() re-reads */ }
+    write({ on: false, standing: '' });
+    return SIGNIN_CANCELLED;
+  }
   if (epoch !== signinEpoch) return SIGNIN_CANCELLED;
   if (!r.ok) return r;
   signinSession = null;   // the token is spent; it must not linger in this process
@@ -1270,7 +1290,7 @@ async function signinRegister(name) {
   } };
 }
 
-module.exports = { secondReset, forget, macRequest, assistantChat, hostedAvailable, DEFAULT_RELAY, DEFAULT_COORDINATOR, configured,
+module.exports = { _setForgetWaitMs: (ms) => { FORGET_WAIT_MS_OVERRIDE = ms; }, secondReset, forget, macRequest, assistantChat, hostedAvailable, DEFAULT_RELAY, DEFAULT_COORDINATOR, configured,
   FILE,
   read,
   kosmosPlus,

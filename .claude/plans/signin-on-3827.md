@@ -31,3 +31,9 @@ Controls: removing each fix reds exactly its test (epoch -> both race tests; for
 - WARNING (documented, not changed): a Sign out that lands after the coordinator accepted the register cannot undo it; the page drops the late answer and the next paint shows the connected pane with the switch OFF, which is true.
 - WARNING: a failed switch save now returns ok with switchOff + note (the Mac IS registered); server passes them; the wizard puts the note in the connected pane's message line and repaints, so "Press Turn on" sits beside the Turn on button. Recognised-path test added.
 - NIT: fedSetStanding now runs before the switch write.
+
+## Round 3 review (sonnet) fixes, and the validation gate
+- BLOCKER: forget() awaited a register in flight with no bound (setupRun has no timeout), so a hung register hung Forget and /api/remote/forget. Now bounded by FORGET_WAIT_MS (20s); a register that finishes after a forget stopped waiting sees forgetGen moved and undoes itself (retire + wipe + switch off), so the Mac still ends up forgotten. Test with a slow fake register and a 50ms wait: Forget returns fast, the late register reports cancelled and leaves nothing enrolled. Controls: unbounded await fails "Forget waited"; no self-undo fails "left the Mac registered".
+- WARNING (accepted): a brand-new sign-in STARTED after forget began is a new, deliberate sign-in; it is not cancelled.
+- NIT: the dead catch around the await is gone.
+- Validation gate (#1720): web/ changed with no browser-check assertion. render-plus-signin-3478.js gains a 'switch-off' scenario: registered with switchOff, board enrolled and off; asserts the note is in #plus-msg, the Turn on button is there, and no "Connecting".
