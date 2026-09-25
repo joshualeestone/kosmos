@@ -8942,6 +8942,37 @@ body.plus-active #plus-state2, body.plus-active #plus-flow {
   background: linear-gradient(160deg,#1b2c50,#0f1d38); border: 1px solid #2a3f6b;
   border-radius: 16px; padding: 22px 24px; max-width: 620px;
   box-shadow: 0 20px 60px rgba(0,0,0,.4); }
+/* #3796 (Josh, 2026-09-25 13:57 and 14:00): the in-app sign-in wizard matches login.kosmosplus.com's
+   code screens. The site's card (16px radius, 2rem padding, 24rem wide), its dark field (#16223e,
+   a #5c78a6 edge that clears 3:1), a compact centred code field sized for six digits, a Kosmos+ blue
+   primary (gold is regular Kosmos only, the 09-16 ruling), a visible stroke on any secondary button so
+   it never sinks into the navy, and small text links. #3596's white field stays for the enrol flow
+   below (#plus-flow); the wizard's dark field keeps typed text light on dark, which is what #3596
+   fixed (white-on-white), just the other way up. */
+#s-sec-plus:has(> #plus-state2:not([hidden])) { min-height: var(--plus-avail, auto); justify-content: center; }
+body.plus-active #plus-state2 { max-width: 26rem; padding: 2rem; }
+#plus-state2 h3 { font-size: 1.3rem; margin: 0 0 .25rem; }
+#plus-state2 .plus-si-lead { color: var(--k-ink-2); margin: .5rem 0 0; }
+#plus-state2 .flabel { color: var(--k-ink-2); font-weight: 500; margin-top: 1rem; }
+#plus-state2 .plus-si-lead b { color: #E6EBF7; font-weight: 600; overflow-wrap: anywhere; }
+#plus-state2 .tk-inp:not(select) { --danger: #E8705E; background: #16223e; color: #E6EBF7; -webkit-text-fill-color: #E6EBF7;
+  caret-color: #E6EBF7; border: 1px solid #5c78a6; border-radius: 10px; }
+#plus-state2 .tk-inp::placeholder { color: #8fa0c4; -webkit-text-fill-color: #8fa0c4; opacity: 1; }
+#plus-state2 .tk-inp:-webkit-autofill { -webkit-box-shadow: 0 0 0 1000px #16223e inset; }
+#plus-state2 .tk-inp:focus { outline: 2px solid #7ea0f0; outline-offset: 1px; border-color: #7ea0f0; }
+#plus-state2 .plus-si-wide { width: 75%; min-width: min(100%, 15rem); }
+#plus-state2 .plus-si-otp { width: 12ch; font: 600 1.3rem ui-monospace, Menlo, monospace; letter-spacing: .3em; text-indent: .3em; text-align: center; font-variant-numeric: tabular-nums; }
+#plus-state2 .plus-si-otp::placeholder { letter-spacing: .3em; color: #4d5f86; -webkit-text-fill-color: #4d5f86; }
+#plus-state2 .plus-si-sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+#plus-state2 .btn.uprime { background: linear-gradient(150deg,#3a68d8,#2f57c4); border: 1px solid #2f57c4; color: #fff; border-radius: 10px; font-weight: 650; padding: .6rem 1.4rem; }
+#plus-state2 .btn.uprime:hover { filter: brightness(1.08); background: linear-gradient(150deg,#3a68d8,#2f57c4); border-color: #2f57c4; color: #fff; }
+#plus-state2 .btn.uprime:disabled { opacity: .55; filter: none; }
+#plus-state2 .btn:not(.uprime) { background: transparent; color: #E6EBF7; border: 1px solid rgba(255,255,255,.25); border-radius: 10px; }
+#plus-state2 .btn:not(.uprime):hover { border-color: rgba(255,255,255,.5); background: rgba(255,255,255,.04); }
+#plus-state2 .plus-si-small { color: var(--k-ink-2); font-size: .9rem; margin: .9rem 0 0; }
+#plus-state2 .plus-si-foot { margin-top: 1.4rem; }
+#plus-state2 .plus-signin-link[aria-disabled="true"] { opacity: .55; pointer-events: none; }
+#plus-state2 #plus-signin-msg:empty { display: none; }
 @media (max-width: 640px) { .plus-val { grid-template-columns: 1fr; } }
 /* The canvases honour prefers-reduced-motion in JS (a single static frame, no
    rAF loop); this makes that intent visible to a source reader too. */
@@ -15069,7 +15100,7 @@ window.kosmosMeasureScrollbarWidth();
          state is reachable by the design's intent and not yet by a signal. That is the
          requested state rather than an omission. -->
     <div id="plus-state2" hidden>
-      <h3>Sign in to give this computer its address</h3>
+      <h3>Sign in to activate Kosmos+</h3>
       <!-- #3478: state 2 is now WIRED. #1115 (Josh, 2026-08-27) settled the split
            and the state-1 copy states it: sign-UP (email, code, card) is done on
            the website; signing IN to that paid account is done in this pane,
@@ -15083,8 +15114,10 @@ window.kosmosMeasureScrollbarWidth();
            proxies + engine/remote.js's stage machine, which holds the session
            token and the phone challenge engine-side and never returns them here,
            #874). This wizard is only the client the marketing links now open
-           instead of bouncing to the web. -->
-      <p>You have Kosmos+. Signing in here is what connects this computer.</p>
+           instead of bouncing to the web.
+           #3796 (Josh, 2026-09-25 13:57 and 14:00): the wizard matches login.kosmosplus.com's
+           code screens: a heading, one short line, a compact field, one blue button, small links.
+           The "You have Kosmos+..." line is gone at his word. -->
 
       <!-- The wizard drives the engine's stages; plusSiShow() reveals exactly one
            step at a time. `plus-si-*` ids so nothing collides with the enrol pair
@@ -15097,9 +15130,9 @@ window.kosmosMeasureScrollbarWidth();
      `.composerbox` ancestor this has none of), so it would render borderless and
      transparent here. `tk-inp` in a `.field` is this pane's own convention below. -->
         <div class="field">
-          <label class="flabel" for="plus-signin-email">The email on your Kosmos+ account</label>
-          <input type="email" id="plus-signin-email" class="tk-inp" maxlength="120" autocomplete="email"
-            placeholder="you@example.com" aria-label="The email on your Kosmos+ account">
+          <label class="flabel" for="plus-signin-email">Enter your Kosmos+ account email address</label>
+          <input type="email" id="plus-signin-email" class="tk-inp plus-si-wide" maxlength="120" autocomplete="email"
+            placeholder="you@example.com">
         </div>
         <div class="frow">
           <button class="btn uprime" type="button" id="plus-signin-code">Email me a code</button>
@@ -15108,24 +15141,26 @@ window.kosmosMeasureScrollbarWidth();
 
       <!-- The code from the email (signin-verify). -->
       <div id="plus-si-code" hidden>
+        <p class="plus-si-lead">We sent a code to <b id="plus-si-code-to"></b>.</p>
         <div class="field">
-          <label class="flabel" for="plus-si-code-in">The code from the email</label>
-          <input class="tk-inp" id="plus-si-code-in" type="text" inputmode="numeric" maxlength="12">
+          <!-- The label stays for a screen reader; on screen the line above says it (#3796). -->
+          <label class="flabel plus-si-sr" for="plus-si-code-in">The code from the email</label>
+          <input class="tk-inp plus-si-otp" id="plus-si-code-in" type="text" inputmode="numeric" autocomplete="one-time-code" maxlength="12" placeholder="000000">
         </div>
         <div class="frow">
           <button class="btn uprime" type="button" id="plus-si-code-go">Verify</button>
-          <button class="btn" type="button" id="plus-si-code-resend">Email me a code again</button>
         </div>
+        <p class="plus-si-small">Didn't get it? <a id="plus-si-code-resend" class="plus-signin-link" href="#">Send again</a></p>
       </div>
 
       <!-- The phone code (signin-second): reached when the account already has a
            second factor. Josh, 2026-08-29: the second step ALWAYS happens; it is
            true two-factor, not a from-a-phone convenience. -->
       <div id="plus-si-second" hidden>
-        <p class="fhint">Signing in always asks for a second code after the email code. Open your authenticator app, or check your phone for a text.</p>
+        <p class="plus-si-lead">Now the code from your authenticator app, or the one we texted you.</p>
         <div class="field">
-          <label class="flabel" for="plus-si-second-in">The code from your phone</label>
-          <input class="tk-inp" id="plus-si-second-in" type="text" inputmode="numeric" maxlength="12">
+          <label class="flabel plus-si-sr" for="plus-si-second-in">The code from your phone</label>
+          <input class="tk-inp plus-si-otp" id="plus-si-second-in" type="text" inputmode="numeric" autocomplete="one-time-code" maxlength="12" placeholder="000000">
         </div>
         <div class="frow">
           <button class="btn uprime" type="button" id="plus-si-second-go">Verify</button>
@@ -15145,7 +15180,7 @@ window.kosmosMeasureScrollbarWidth();
         </div>
         <div class="field" id="plus-si-phone-field" hidden>
           <label class="flabel" for="plus-si-phone">Your phone number</label>
-          <input class="tk-inp" id="plus-si-phone" type="tel" maxlength="20" autocomplete="tel">
+          <input class="tk-inp plus-si-wide" id="plus-si-phone" type="tel" maxlength="20" autocomplete="tel">
           <div class="frow" style="margin-top:8px;">
             <button class="btn uprime" type="button" id="plus-si-phone-go">Text me a code</button>
           </div>
@@ -15160,11 +15195,11 @@ window.kosmosMeasureScrollbarWidth();
         <p class="fhint" id="plus-si-enrol-lead"></p>
         <div class="field" id="plus-si-secret-field" hidden>
           <label class="flabel" for="plus-si-secret">Add this key to your authenticator app</label>
-          <input class="tk-inp" id="plus-si-secret" type="text" readonly>
+          <input class="tk-inp plus-si-wide" id="plus-si-secret" type="text" readonly>
         </div>
         <div class="field">
           <label class="flabel" for="plus-si-enrol-code">The code your second step shows</label>
-          <input class="tk-inp" id="plus-si-enrol-code" type="text" inputmode="numeric" maxlength="12">
+          <input class="tk-inp plus-si-otp" id="plus-si-enrol-code" type="text" inputmode="numeric" autocomplete="one-time-code" maxlength="12" placeholder="000000">
         </div>
         <div class="frow">
           <button class="btn uprime" type="button" id="plus-si-enrol-confirm-go">Confirm</button>
@@ -15178,7 +15213,7 @@ window.kosmosMeasureScrollbarWidth();
         <div class="field">
           <label class="flabel" for="plus-si-name">A name for this computer's address</label>
           <p class="fhint">3 to 32 characters: lowercase letters, digits and hyphens.</p>
-          <input class="tk-inp" id="plus-si-name" type="text" maxlength="32" autocomplete="off" autocapitalize="none">
+          <input class="tk-inp plus-si-wide" id="plus-si-name" type="text" maxlength="32" autocomplete="off" autocapitalize="none">
         </div>
         <div class="frow">
           <button class="btn uprime" type="button" id="plus-si-register-go">Finish signing in</button>
@@ -15191,7 +15226,8 @@ window.kosmosMeasureScrollbarWidth();
            the plus-si-register-go handler. -->
 
       <p class="fhint" id="plus-signin-msg" role="status" aria-live="polite"></p>
-      <p class="plus-topbar" style="margin-top:12px;"><a id="plus-si-cancel" class="plus-signin-link" href="#">Not now</a></p>
+      <!-- #3796 (Josh): "Sign out", and it does: it drops the half-finished sign-in the engine holds. -->
+      <p class="plus-si-small plus-si-foot"><a id="plus-si-cancel" class="plus-signin-link" href="#">Sign out</a></p>
     </div>
 
     <div id="plus-flow" hidden>
@@ -35591,15 +35627,23 @@ const PLUS_CODE_WORDS = {
 };
 const PLUS_ASK_TIMEOUT_MS = 15000;
 let PLUS_COUNTDOWN = null;
+/* #3796: the wizard's resend is a small LINK, not a button, so "busy" is aria-disabled on it
+   (styled dim and unclickable) and the click handler checks it. A button keeps .disabled
+   (an <a> has no `disabled` property, so its presence is what tells the two apart). */
+function plusSetBusy(el, on) {
+  if (!el) return;
+  if ('disabled' in el) { el.disabled = on; return; }
+  if (on) el.setAttribute('aria-disabled', 'true'); else el.removeAttribute('aria-disabled');
+}
 function plusCountdown(line, btn, why, secs) {
   if (PLUS_COUNTDOWN) clearInterval(PLUS_COUNTDOWN);
   let left = secs;
   const paint = () => { line.textContent = 'No code was sent: ' + why.replace(/in \d+ seconds?/, 'in ' + left + (left === 1 ? ' second' : ' seconds')) + '.'; };
   paint();
-  btn.disabled = true;
+  plusSetBusy(btn, true);
   PLUS_COUNTDOWN = setInterval(() => {
     left -= 1;
-    if (left <= 0) { clearInterval(PLUS_COUNTDOWN); PLUS_COUNTDOWN = null; btn.disabled = false; line.textContent = 'You can ask for a code again now.'; return; }
+    if (left <= 0) { clearInterval(PLUS_COUNTDOWN); PLUS_COUNTDOWN = null; plusSetBusy(btn, false); line.textContent = 'You can ask for a code again now.'; return; }
     paint();
   }, 1000);
 }
@@ -35703,12 +35747,34 @@ function plusSiShow(step) {
     const el = document.getElementById(id);
     if (el) el.hidden = (id !== step);
   }
+  plusSiMeasure();
 }
+/* #3796 (Josh, 14:00): the wizard card is centred VERTICALLY in the settings content area on
+   every step. That area is only as tall as its content, so CSS alone has nothing to centre in:
+   this measures the room from the section's top to the bottom of the window into --plus-avail,
+   and the CSS applies it (as a min-height, centred) ONLY while state 2 is on screen (:has), so
+   whichever code hides the wizard, the centring goes with it. */
+function plusSiMeasure() {
+  const sec = document.getElementById('s-sec-plus');
+  if (!sec || sec.hidden) return;
+  const top = sec.getBoundingClientRect().top + window.scrollY;
+  sec.style.setProperty('--plus-avail', Math.max(0, Math.round(window.innerHeight - top - 32)) + 'px');
+}
+if (typeof window !== 'undefined' && typeof window.addEventListener === 'function') window.addEventListener('resize', plusSiMeasure);
 function plusSiMsg(text) {
   const m = document.getElementById('plus-signin-msg');
   if (m) m.textContent = text || '';
 }
+/* #3796 (review): Sign out bumps this. A request that answers after it is STALE: its handler
+   returns without touching the wizard, so an abandoned sign-in can never repaint the next one
+   (a late verify moving it to a step, a late refusal writing into its status line). */
+let PLUS_SI_EPOCH = 0;
 async function plusSiPost(path, body) {
+  const epoch = PLUS_SI_EPOCH;
+  const r = await plusSiPostRaw(path, body);
+  return epoch === PLUS_SI_EPOCH ? r : { ok: false, stale: true, because: '' };
+}
+async function plusSiPostRaw(path, body) {
   /* A timeout, like the enrol send's own (plus-send-code): a hung request must be
      able to say it is waiting and can fail, not leave a disabled button forever.
      PLUS_ASK_TIMEOUT_MS is the same 15s the enrol flow uses. */
@@ -35763,19 +35829,30 @@ function plusSiStage(stage, data) {
    marketing plus a link, guarded), but the click reveals state 2 in place of the
    marketing copy rather than navigating; PLUS_SIGNIN_ACTIVE keeps it there across the
    5s repaint. */
-function plusSiEnter(e) {
-  if (e) e.preventDefault();
-  PLUS_SIGNIN_ACTIVE = true;
-  plusSiMsg('');
-  /* Start every sign-in from a clean slate: clear the inputs and reset the sub-field
-     that plusSiStage reveals conditionally, so a cancel-then-restart cannot leave a stale
-     code or a previously-typed name sitting in a later step for a returning person to
-     submit without noticing. */
+/* Start every sign-in from a clean slate: clear the inputs and reset the sub-field
+   that plusSiStage reveals conditionally, so a cancel-then-restart cannot leave a stale
+   code or a previously-typed name sitting in a later step for a returning person to
+   submit without noticing. Sign out clears too (#3796), so nothing typed outlives it. */
+function plusSiClear() {
   for (const id of ['plus-signin-email', 'plus-si-code-in', 'plus-si-second-in', 'plus-si-phone', 'plus-si-enrol-code', 'plus-si-name', 'plus-si-secret']) {
     const el = document.getElementById(id);
     if (el) el.value = '';
   }
+  const to = document.getElementById('plus-si-code-to'); if (to) to.textContent = '';
+  /* A request abandoned by Sign out returns without re-enabling its button, and a cooldown is
+     stopped mid-count; start the next sign-in with every control live. */
+  if (typeof PLUS_COUNTDOWN !== 'undefined' && PLUS_COUNTDOWN) { clearInterval(PLUS_COUNTDOWN); PLUS_COUNTDOWN = null; }
+  if (typeof document.querySelectorAll === 'function') {
+    document.querySelectorAll('#plus-state2 button').forEach((b) => { b.disabled = false; });
+    document.querySelectorAll('#plus-state2 [aria-disabled]').forEach((a) => a.removeAttribute('aria-disabled'));
+  }
   const phoneField = document.getElementById('plus-si-phone-field'); if (phoneField) phoneField.hidden = true;
+}
+function plusSiEnter(e) {
+  if (e) e.preventDefault();
+  PLUS_SIGNIN_ACTIVE = true;
+  plusSiMsg('');
+  plusSiClear();
   plusSiShow('plus-si-email');
   const s1 = document.getElementById('plus-state1'); if (s1) s1.hidden = true;
   const s2 = document.getElementById('plus-state2'); if (s2) s2.hidden = false;
@@ -35787,8 +35864,15 @@ document.getElementById('plus-si-cancel').addEventListener('click', (e) => {
   e.preventDefault();
   PLUS_SIGNIN_ACTIVE = false;
   plusSiMsg('');
+  /* #3796 (Josh): this link says "Sign out", so it signs out: the engine drops the
+     half-finished sign-in it holds (a session token, a phone challenge or an enrol-only
+     token), and the fields are cleared. Not awaited: leaving must stay instant, and a
+     sign-in the engine never hears about is abandoned anyway by the next signin-start. */
+  PLUS_SI_EPOCH += 1;
+  plusSiPostRaw('/api/remote/signin-cancel', {});
+  plusSiClear();
   /* Hide the wizard and show the marketing state SYNCHRONOUSLY -- the mirror of
-     plusSiEnter -- so "Not now" is instant even if the /api/remote read paintPlus makes
+     plusSiEnter -- so "Sign out" is instant even if the /api/remote read paintPlus makes
      is slow or hung (that fetch carries no timeout). paintPlus then confirms the real
      state on top of this. */
   const s2 = document.getElementById('plus-state2'); if (s2) s2.hidden = true;
@@ -35815,21 +35899,29 @@ async function plusSiRequestCode(btn) {
   const email = document.getElementById('plus-signin-email').value.trim();
   if (!email) { plusSiMsg(PLUS_CODE_WORDS.noEmail); return; }
   plusSiMsg(PLUS_CODE_WORDS.asking(email));
-  btn.disabled = true;
+  plusSetBusy(btn, true);
   const r = await plusSiPost('/api/remote/signin-start', { email });
+  if (r.stale) return;
   if (!r.ok) {
     const m = /in (\d+) seconds?/.exec(r.because);
     if (m) { plusCountdown(document.getElementById('plus-signin-msg'), btn, r.because, Number(m[1])); return; }
-    btn.disabled = false;
+    plusSetBusy(btn, false);
     plusSiMsg(PLUS_CODE_WORDS.refused(r.because));
     return;
   }
-  btn.disabled = false;
-  plusSiMsg(PLUS_CODE_WORDS.sent(email));
+  plusSetBusy(btn, false);
+  /* #3796: one short line on the code step ("We sent a code to <email>.") replaces the
+     paragraph; the status line below only says something when a resend went out. */
+  document.getElementById('plus-si-code-to').textContent = email;
+  plusSiMsg(btn.id === 'plus-si-code-resend' ? 'We sent another code.' : '');
   plusSiStage(r.data.stage, r.data);
 }
 document.getElementById('plus-signin-code').addEventListener('click', () => plusSiRequestCode(document.getElementById('plus-signin-code')));
-document.getElementById('plus-si-code-resend').addEventListener('click', () => plusSiRequestCode(document.getElementById('plus-si-code-resend')));
+document.getElementById('plus-si-code-resend').addEventListener('click', (e) => {
+  e.preventDefault();
+  if (e.currentTarget.getAttribute('aria-disabled') === 'true') return;
+  plusSiRequestCode(e.currentTarget);
+});
 /* Step 2: the email code -> signin-verify. */
 document.getElementById('plus-si-code-go').addEventListener('click', async () => {
   const email = document.getElementById('plus-signin-email').value.trim();
@@ -35839,6 +35931,7 @@ document.getElementById('plus-si-code-go').addEventListener('click', async () =>
   plusSiMsg('');
   btn.disabled = true;
   const r = await plusSiPost('/api/remote/signin-verify', { email, code });
+  if (r.stale) return;
   btn.disabled = false;
   if (!r.ok) { plusSiMsg(r.because); return; }
   plusSiStage(r.data.stage, r.data);
@@ -35851,6 +35944,7 @@ document.getElementById('plus-si-second-go').addEventListener('click', async () 
   plusSiMsg('');
   btn.disabled = true;
   const r = await plusSiPost('/api/remote/signin-second', { code });
+  if (r.stale) return;
   btn.disabled = false;
   if (!r.ok) { plusSiMsg(r.because); return; }
   plusSiStage(r.data.stage, r.data);
@@ -35862,6 +35956,7 @@ document.getElementById('plus-si-enrol-totp').addEventListener('click', async ()
   plusSiMsg('');
   btn.disabled = true;
   const r = await plusSiPost('/api/remote/signin-enrol', { kind: 'totp' });
+  if (r.stale) return;
   btn.disabled = false;
   if (!r.ok) { plusSiMsg(r.because); return; }
   plusSiStage(r.data.stage, r.data);
@@ -35877,6 +35972,7 @@ document.getElementById('plus-si-phone-go').addEventListener('click', async () =
   plusSiMsg('');
   btn.disabled = true;
   const r = await plusSiPost('/api/remote/signin-enrol', { kind: 'sms', phone });
+  if (r.stale) return;
   btn.disabled = false;
   if (!r.ok) { plusSiMsg(r.because); return; }
   plusSiStage(r.data.stage, r.data);
@@ -35889,6 +35985,7 @@ document.getElementById('plus-si-enrol-confirm-go').addEventListener('click', as
   plusSiMsg('');
   btn.disabled = true;
   const r = await plusSiPost('/api/remote/signin-confirm-enrol', { code });
+  if (r.stale) return;
   btn.disabled = false;
   if (!r.ok) { plusSiMsg(r.because); return; }
   plusSiStage(r.data.stage, r.data);
@@ -35920,6 +36017,7 @@ document.getElementById('plus-si-register-go').addEventListener('click', async (
   plusSiMsg('');
   btn.disabled = true;
   const r = await plusSiPost('/api/remote/signin-register', { name });
+  if (r.stale) return;
   btn.disabled = false;
   if (!r.ok) { plusSiMsg(r.because); return; }
   /* Do NOT clear PLUS_SIGNIN_ACTIVE here. The engine writes the state dir synchronously
