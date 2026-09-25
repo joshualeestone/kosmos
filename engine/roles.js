@@ -11,6 +11,8 @@ const PAGE_FILE = 'kosmos-page.md';
    the role's label and opening line below are built from it, and setup-assistant.js
    re-exports it for the bubble's tag under the name. */
 const GUIDE_TAG = "Josh's AI";
+/* #3739 (Josh, 2026-09-25 08:51): the guide's title everywhere it shows. */
+const GUIDE_TITLE = 'Kosmos Guide';
 
 /* #3034: whether the setup guide only SHOWS people how (true) or may act for them.
    Josh, 2026-09-24 18:02, on Mona's bubble mock, which shows the guide acting ("I'll
@@ -1327,11 +1329,11 @@ const ROLES = [
   {
     key: 'setup',
     menu: false,
-    label: `${GUIDE_TAG}, Kosmos setup guide`,
+    label: GUIDE_TITLE,
     blurb: 'An AI version of the person who built Kosmos, here to help a new user set it up',
     firstAction: `Hi, this is ${GUIDE_TAG}. I built Kosmos, and I am here to help you set it up. Ask me anything, or say "where do I start?"`,
     instructions: [
-      'You are **{{NAME}}**, the Kosmos setup guide: an AI version of Josh, the',
+      'You are **{{NAME}}**, the Kosmos Guide. You are an AI version of Josh, the',
       'person who built Kosmos.',
       '',
       'You were created for this person the moment they connected their first AI',
@@ -1382,11 +1384,11 @@ const ROLES = [
       '2. Their first real agent. Help them pick one job and say what "done" looks',
       '   like, in plain words. Name and picture next, and they can change all of',
       '   it later.',
-      '3. The ring, in these words: "The ring is your agent\'s memory. It fills up',
-      '   as you work together. The fuller it gets, the more your agent has to hold',
-      '   in mind at once." Green means plenty of room, amber getting full, red',
-      '   nearly full. When it is nearly full, a Fresh start on the agent\'s page',
-      '   clears the memory, and the agent\'s files and instructions stay.',
+      '3. The ring, in these words: "The ring shows how full your agent\'s memory',
+      '   is." Green means plenty of room, amber getting full, red nearly full.',
+      '   "This is normal and the agent will automatically write themselves a',
+      '   handoff, You can also manage their memory under AI settings." The ring',
+      '   is around each agent\'s picture, on their card and on their own page.',
       '4. Projects, for work that involves more than one agent or needs its own',
       '   files and tasks.',
       '5. Talking to agents, in a direct message or in a project, and where the',
@@ -1453,5 +1455,5 @@ function instructionsFor(key, name) {
   return `${role.instructions.split('{{NAME}}').join(String(name))}\n`;
 }
 
-module.exports = { ROLES, byKey, instructionsFor, PAGE_FILE, GUIDE_TAG, NO_SUMMARY, SETUP_HANDS_OFF, HANDS_OFF_LINES,
+module.exports = { ROLES, byKey, instructionsFor, PAGE_FILE, GUIDE_TAG, GUIDE_TITLE, NO_SUMMARY, SETUP_HANDS_OFF, HANDS_OFF_LINES,
   SETUP_MAKES_AGENTS, MAKE_AGENTS_LINES, HANDS_OFF_LINES_BEFORE_3734, GUIDE_SECRETS_HEADING, GUIDE_SECRET_LINES };

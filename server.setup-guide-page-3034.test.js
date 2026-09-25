@@ -135,7 +135,7 @@ test('#3034: the setup assistant switch round-trips through /api/settings and ke
   const set = (body) => fetch(board.base + '/api/settings', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) });
   assert.deepEqual((await get()).setupAssistant, { on: true, asked: false }, 'the default is on, not yet asked');
   assert.equal((await set({ timezone: 'America/Chicago' })).status, 200);
-  // The first X: "Don't show this again" = asked and off, in one write.
+  // The first X: "Close forever" = asked and off, in one write.
   const r = await set({ setupAssistant: { asked: true, on: false } });
   assert.equal(r.status, 200);
   assert.deepEqual((await r.json()).setupAssistant, { on: false, asked: true });
