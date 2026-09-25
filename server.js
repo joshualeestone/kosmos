@@ -805,6 +805,7 @@ const readConnectionsShelf = inflight.collapse(() => {
 const autoupdate = require('./engine/autoupdate');
 const instructions = require('./engine/instructions');
 const projects = require('./engine/projects');
+const federation = require('./engine/federation');
 const tasks = require('./engine/tasks');
 const chat = require('./engine/chat');
 const messages = require('./engine/messages');
@@ -13387,9 +13388,18 @@ const server = http.createServer((req, res) => {
             messages.roomNote(made.id, projects.BRIEF_PENDING_NOTE);
           }
         } catch { /* the note is furniture; the project exists regardless */ }
+        /* #3311: an owner who minted invites on the create screen sends the
+           project_ref they were minted with, so this board can find the project's
+           room later (the coordinator derives it from owner + ref). The project
+           exists either way; a failed record is reported, not thrown. */
+        let federationLinked;
+        if (typeof body.federation_ref === 'string' && body.federation_ref && body.federation_ref.length <= 200) {
+          try { federation.recordLink(made.id, { role: 'owner', ref: body.federation_ref }); federationLinked = true; }
+          catch { federationLinked = false; }
+        }
         let project = null;
         try { project = projects.get(made.id, roster); } catch { project = null; }
-        sendJson(res, 200, { project, told, id: made.id, agentsUnreadable: roster === null });
+        sendJson(res, 200, { project, told, id: made.id, agentsUnreadable: roster === null, federationLinked });
       })
       .catch((err) => sendJson(res, (err && err.code === 'UNREADABLE') ? 500 : 400,
         { error: String((err && err.message) || 'we could not read that request') }));
@@ -14018,6 +14028,54 @@ const server = http.createServer((req, res) => {
    * the shaping and the one retry; the tunnel signs (no crypto on the board). Once
    * a guide agent exists on their own model, the bubble talks to that instead.
    */
+  /* #3311: the Add Project screen's federation calls (#3312). invite and verify go
+     to the coordinator signed by this Mac (engine/federation.js; the board holds
+     no account session, #874). join is local: it makes the joined project from
+     the snapshot the coordinator returned on verify, never from the page's
+     words, and records which connection it belongs to. */
+  if ((pathname === '/api/federation/invite' || pathname === '/api/federation/verify') && req.method === 'POST') {
+    readBody(req)
+      .then(async (buf) => {
+        let body;
+        try { body = JSON.parse(buf.toString('utf8') || '{}'); } catch { body = null; }
+        if (!body || typeof body !== 'object' || Array.isArray(body)) { sendJson(res, 400, { error: 'we could not read that request' }); return; }
+        const out = pathname === '/api/federation/invite'
+          ? await federation.invite(remote, body)
+          : await federation.verify(remote, body);
+        sendJson(res, out.status, out.body);
+      })
+      .catch((err) => sendJson(res, 400, { error: (err && err.message) || 'we could not read that request' }));
+    return;
+  }
+  if (pathname === '/api/federation/join' && req.method === 'POST') {
+    readBody(req)
+      .then((buf) => {
+        let body;
+        try { body = JSON.parse(buf.toString('utf8') || '{}'); } catch { body = null; }
+        if (!body || typeof body !== 'object' || Array.isArray(body)) { sendJson(res, 400, { error: 'we could not read that request' }); return; }
+        const snap = federation.joinSnapshot(body.edge_id);
+        if (!snap) { sendJson(res, 409, { error: 'Verify the code again before joining. Each code works once, so if it says it was already used, ask for a new one.' }); return; }
+        const roster = safeRoster();
+        const agents = Array.isArray(body.agents) ? body.agents.filter((a) => typeof a === 'string') : [];
+        const made = projects.create({ name: snap.project_name, description: snap.project_desc || undefined, agents, roster,
+          made: { via: 'screen', by: null } });
+        federation.recordLink(made.id, { role: 'member', edge_id: snap.edge_id, owner_handle: snap.owner_handle,
+          project_name: snap.project_name, project_desc: snap.project_desc });
+        federation.forgetSnapshot(snap.edge_id);
+        // The receiver's own agents, told the same way the create route tells them.
+        for (const a of made.agents || []) {
+          try { projects.syncAgent(a, roster); projects.speakOfMembership(a, made, 'joined', roster); }
+          catch { /* membership is recorded; telling the agent is best-effort here */ }
+        }
+        let project = null;
+        try { project = projects.get(made.id, roster); } catch { project = null; }
+        sendJson(res, 200, { project, id: made.id });
+      })
+      .catch((err) => sendJson(res, (err && err.code === 'UNREADABLE') ? 500 : 400,
+        { error: String((err && err.message) || 'we could not read that request') }));
+    return;
+  }
+
   if (pathname === '/api/setup-guide/hosted' && req.method === 'POST') {
     /* The same test the bubble is shown by, so the route cannot be used past it (a model connected, a checkout). */
     const offer = require('./engine/setup-assistant').hostedWhy();

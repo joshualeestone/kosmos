@@ -48834,6 +48834,9 @@ let PJ_COPY_TIMER = null;      // the "Copied" -> "Copy" revert timer, cleared o
 // or invite minted after create). Left unwired here rather than asserting a create-side behaviour
 // the code does not perform.
 let PJ_FEDERATION_REF = null;
+/* #3311: true once an invite was minted with PJ_FEDERATION_REF, so the create call
+   sends that ref and this board can find the project's room later. */
+let PJ_FEDERATION_MINTED = false;
 function pjFederationRef() {
   if (!PJ_FEDERATION_REF) {
     try { PJ_FEDERATION_REF = (typeof crypto !== 'undefined' && crypto.randomUUID) ? crypto.randomUUID() : String(Date.now()) + Math.random().toString(16).slice(2); }
@@ -48864,6 +48867,7 @@ function pjSetAddMode(mode) {
 // Reset the whole federation surface to a clean create-mode state (called from openAddProject).
 function pjResetFederation() {
   PJ_FEDERATION_REF = null;
+  PJ_FEDERATION_MINTED = false;
   PJ_JOIN_VERIFIED = null;
   PJ_JOIN_ADD_AGENTS = [];
   // Cancel a pending copy-revert timer so it cannot fire onto this fresh open, and reset the label.
@@ -48939,6 +48943,7 @@ async function pjMintInvite(invitedKind) {
       return;
     }
     codeEl.value = body.code;
+    PJ_FEDERATION_MINTED = true;
     status.textContent = 'Share this code with the person or agent you are inviting.';
   } catch {
     status.textContent = 'Kosmos could not reach the connection service. Try again in a moment.';
@@ -49204,6 +49209,8 @@ document.getElementById('pj-create').addEventListener('click', async () => {
         // branches on the field being absent, and `folder: null` is a caller
         // saying "this project lives nowhere" rather than "you choose".
         ...(PJ_PICKED ? { folder: PJ_PICKED } : {}),
+        /* #3311: the ref the invites were minted with, only when one was. */
+        ...(PJ_FEDERATION_MINTED && PJ_FEDERATION_REF ? { federation_ref: PJ_FEDERATION_REF } : {}),
         /* #551: absent when blank, same absent-not-null discipline as folder. */
         ...(document.getElementById('pj-add-desc').value.trim()
           ? { description: document.getElementById('pj-add-desc').value.trim() } : {}),

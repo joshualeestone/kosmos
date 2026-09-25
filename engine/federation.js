@@ -1,0 +1,153 @@
+'use strict';
+/**
+ * Federation on the board (#3311): the three calls the Add Project screen makes
+ * (#3312), and the record of which local project is linked to which connection.
+ *
+ * 🔑 THE BOARD HOLDS NO ACCOUNT SESSION (#874), so it reaches the coordinator's
+ * federation control plane only through this Mac's signature: remote.macRequest,
+ * which runs the connector's `mac-request` verb against /v1/mac/federation/*.
+ * The Mac acts for its own account; the coordinator applies the Kosmos+ gate.
+ *
+ * The link record lives in federation.json beside projects.json, keyed by the
+ * local project id, so the projects schema is untouched:
+ *   owner:  { role: 'owner',  ref }          ref = the project_ref invites were minted with
+ *   member: { role: 'member', edge_id, owner_handle, project_name, project_desc }
+ * The owner's ref is what lets the owner's board find the project's room later
+ * (the coordinator derives the room from owner account + ref).
+ */
+const fs = require('fs');
+const path = require('path');
+const store = require('./store');
+
+const FILE = 'federation.json';
+const MAC_INVITE = '/v1/mac/federation/invite';
+const MAC_VERIFY = '/v1/mac/federation/verify';
+
+function file() {
+  return path.join(store.ROOT, FILE);
+}
+
+/* ENOENT alone means "no links yet"; any other failure is refused, never read as
+   empty, so a damaged file is not silently replaced by the next write (the
+   projects.json rule). */
+let lastReadOk = true;
+function readLinks() {
+  let raw;
+  try {
+    raw = fs.readFileSync(file(), 'utf8');
+  } catch (err) {
+    lastReadOk = !!(err && err.code === 'ENOENT');
+    if (lastReadOk) return {};
+    const e = new Error('we cannot read the connected-projects record on this computer right now');
+    e.code = 'UNREADABLE';
+    throw e;
+  }
+  try {
+    const parsed = JSON.parse(raw);
+    lastReadOk = !!parsed && typeof parsed === 'object' && !Array.isArray(parsed);
+    if (lastReadOk) return parsed;
+  } catch {
+    lastReadOk = false;
+  }
+  const e = new Error('the connected-projects record is there but we cannot make sense of it');
+  e.code = 'UNREADABLE';
+  throw e;
+}
+
+function writeLinks(links) {
+  if (!lastReadOk && fs.existsSync(file())) {
+    const e = new Error('we will not overwrite the connected-projects record while we cannot read it');
+    e.code = 'UNREADABLE';
+    throw e;
+  }
+  fs.mkdirSync(store.ROOT, { recursive: true });
+  const tmp = file() + '.tmp';
+  fs.writeFileSync(tmp, JSON.stringify(links, null, 2));
+  fs.renameSync(tmp, file());
+}
+
+function linkFor(projectId) {
+  const links = readLinks();
+  return Object.prototype.hasOwnProperty.call(links, projectId) ? links[projectId] : null;
+}
+
+function recordLink(projectId, link) {
+  const links = readLinks();
+  links[projectId] = link;
+  writeLinks(links);
+  return link;
+}
+
+/* The snapshot the coordinator returned on verify, per edge, so `join` names the
+   joined project from what the coordinator said rather than from the page. Held
+   in memory: a restart between verify and join means verifying again, which is
+   refused (the code is single-use) -- see joinSnapshot's caller for the answer. */
+const verified = new Map();
+
+/* The page (pjFedMessage) turns a fixed `reason` into its own sentence and shows a
+   generic line for anything else, so the coordinator's refusals are mapped to those
+   reasons here. The patterns are the coordinator's own sentences
+   (kosmos-relay coordinator/src/fed.rs verify_for); federation.test.js pins each
+   one, and an unrecognised sentence keeps the page's safe fallback. */
+const REASONS = [
+  [/code is not valid/i, 'not-found'],
+  [/code has expired/i, 'expired'],
+  [/code has already been used/i, 'already-used'],
+  [/already joined that project/i, 'double-join'],
+  [/your own project/i, 'self-join'],
+];
+function reasonFor(sentence) {
+  if (typeof sentence !== 'string') return null;
+  for (const [re, reason] of REASONS) if (re.test(sentence)) return reason;
+  return null;
+}
+
+function refOk(v) {
+  return typeof v === 'string' && v.length > 0 && v.length <= 200;
+}
+
+/** Mint an invite for a project the person is creating or owns. */
+async function invite(remote, body) {
+  const kind = body && body.invited_kind;
+  if (!refOk(body && body.project_ref) || !refOk(body && body.project_name) || (kind !== 'person' && kind !== 'agent')) {
+    return { status: 400, body: { error: 'we could not read that request' } };
+  }
+  const req = { project_ref: body.project_ref, project_name: body.project_name, invited_kind: kind };
+  if (typeof body.project_desc === 'string' && body.project_desc.trim()) req.project_desc = body.project_desc;
+  const r = await remote.macRequest('POST', MAC_INVITE, req);
+  if (!r.ok) return { status: 502, body: { error: r.because } };
+  if (!r.data || typeof r.data.code !== 'string') return { status: 502, body: { error: 'the connection service answered in a shape we could not read' } };
+  return { status: 200, body: { code: r.data.code, expires_at: r.data.expires_at } };
+}
+
+/** Redeem a code into a connection and show the owner's read-only snapshot. */
+async function verify(remote, body) {
+  const code = body && typeof body.code === 'string' ? body.code.trim() : '';
+  if (!code || code.length > 200) return { status: 400, body: { error: 'Paste the code you were given first.' } };
+  const r = await remote.macRequest('POST', MAC_VERIFY, { code });
+  if (!r.ok) {
+    const reason = reasonFor(r.because);
+    return { status: reason ? 409 : 502, body: reason ? { reason, error: r.because } : { error: r.because } };
+  }
+  const d = r.data || {};
+  if (typeof d.edge_id !== 'string' || typeof d.project_name !== 'string') {
+    return { status: 502, body: { error: 'the connection service answered in a shape we could not read' } };
+  }
+  const snap = { edge_id: d.edge_id, project_name: d.project_name, project_desc: d.project_desc || null, owner_handle: d.owner_handle || null };
+  verified.set(d.edge_id, snap);
+  return { status: 200, body: snap };
+}
+
+/** The verified snapshot for an edge, or null if this board did not verify it. */
+function joinSnapshot(edgeId) {
+  return typeof edgeId === 'string' && verified.has(edgeId) ? verified.get(edgeId) : null;
+}
+
+function forgetSnapshot(edgeId) {
+  verified.delete(edgeId);
+}
+
+module.exports = {
+  FILE, MAC_INVITE, MAC_VERIFY,
+  invite, verify, joinSnapshot, forgetSnapshot, linkFor, recordLink, readLinks, reasonFor,
+};
