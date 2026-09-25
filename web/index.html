@@ -16456,6 +16456,9 @@ function discInk(name) { return DISC_INKS[discIndex(name)]; }
  * the defect this codebase names as its worst habit.
  */
 function face(a) {
+  /* #3564: a swarm's face is its cluster, drawn in this same 72-unit box so every card, the not-running card
+     and the memory ring (which then goes round the whole cluster, the lead's memory) get it from one place. */
+  if (a && a.swarm && SWARMS_ON) return swarmFaceSvg(a);
   /* The clip id lands in id="…" AND url(#…) -- an attribute and a CSS
      reference -- so esc() is the wrong tool (entities decode in one context
      and not the other). A slug restricted to id-safe characters is correct
@@ -16629,7 +16632,7 @@ function card(a) {
       return `<div class="acard attn notrunning needstrust" data-agent="${esc(a.sessionName)}"${Number.isFinite(Number(a && a.dmUnread)) && Number(a && a.dmUnread) > 0 ? ' data-has-msgs' : ''}${a && a.state === 'needs_you' ? ' data-attn' : ''}${a && a.state === 'needs_you' && a.stateProject === null ? ' data-noproj' : ''}>
       <div class="agauge"><svg viewBox="0 0 72 72" role="img" aria-label="${esc(a.name)}. Waiting at a workspace-trust prompt.">${face(a)}</svg><span class="pres unsure" aria-hidden="true"></span>${dmBadge(a)}</div>
       <div class="aname"><button class="namego" type="button" aria-label="Open ${esc(a.name)}">${esc(a.name)}</button></div>
-      <div class="ameta">${esc(roleLine(a, ROLE_TITLES))}</div>
+      <div class="ameta">${esc(a.swarm && SWARMS_ON ? 'Swarm · ' + swarmStatusWords(a) : roleLine(a, ROLE_TITLES))}</div>
       <div class="astate st-attn"><span class="haz" aria-hidden="true">!</span><b>${esc(STATE_COPY.needs_trust.label)}</b></div>
       <div class="note">${esc(a.because || 'It started but has not registered -- most likely waiting at a workspace-trust prompt no one can see.')}</div>
     </div>`;
@@ -16649,7 +16652,7 @@ function card(a) {
            pill is the one that carries it. -->
       <span class="pres off" aria-hidden="true"></span>${dmBadge(a)}</div>
     <div class="aname"><button class="namego" type="button" aria-label="Open ${esc(a.name)}">${esc(a.name)}</button></div>
-    <div class="ameta">${esc(roleLine(a, ROLE_TITLES))}</div>
+    <div class="ameta">${esc(a.swarm && SWARMS_ON ? 'Swarm · ' + swarmStatusWords(a) : roleLine(a, ROLE_TITLES))}</div>
     <div class="astate ${split ? 'st-unknown' : 'st-stopped'}">${split ? GLYPH.unknown : GLYPH.stopped}<b>${split ? STATE_COPY.unknown.label : 'Not running'}</b></div>
   </div>`;
   }
@@ -16693,7 +16696,7 @@ function card(a) {
   return `<div class="acard ${boardMods(a, m)}" data-agent="${esc(a.sessionName)}"${Number.isFinite(Number(a && a.dmUnread)) && Number(a && a.dmUnread) > 0 ? ' data-has-msgs' : ''}${a && a.state === 'needs_you' ? ' data-attn' : ''}${a && a.state === 'needs_you' && a.stateProject === null ? ' data-noproj' : ''}>
     <div class="agauge">${ring(a)}${pres}${badge}${dmBadge(a)}</div>
     <div class="aname"><button class="namego" type="button" aria-label="Open ${esc(a.name)}">${esc(a.name)}</button>${staleBadge(a)}</div>
-    <div class="ameta">${esc(roleLine(a, ROLE_TITLES))}</div>
+    <div class="ameta">${esc(a.swarm && SWARMS_ON ? 'Swarm · ' + swarmStatusWords(a) : roleLine(a, ROLE_TITLES))}</div>
     <div class="astate st-${m.st}">${glyphOf(a)}<b>${esc(copy.label)}</b>${answer}</div>
     ${a.activeWhileWaiting ? '<div class="alsowork"><span class="act" aria-hidden="true"><i></i><i></i><i></i></span><span>Working now</span></div>' : ''}
     <div class="amodel">${esc(modelLine(a))}</div>
@@ -38145,6 +38148,40 @@ function swarmCluster(a, size, { ring = false } = {}) {
   return h + '</span>';
 }
 
+/* The cluster inside face()'s 72-unit box (the avatar disc is r 23 at 36,36): the same layout as
+   swarmCluster, in SVG, with the badge as a small pill at the bottom right. */
+function swarmFaceSvg(a) {
+  const sw = a.swarm || {};
+  const max = Math.max(2, Math.min(10, Number(sw.maxHelpers) || 3));
+  const live = Math.max(0, Math.min(max, Number(sw.activeHelpers) || 0));
+  const n = Math.min(max, 7), L = swarmLayout(n), size = 46, off = 13, r = L.r * size;
+  const id = 'swc-' + String(a.sessionName || a.name || 'x').replace(/[^A-Za-z0-9_-]/g, '_');
+  const href = a.hasAvatar ? `/api/agent/${encodeURIComponent(a.sessionName)}/avatar?v=${a.avatarVer || 0}` : '';
+  let h = '<defs>';
+  for (let i = 0; i < n; i += 1) h += `<clipPath id="${id}-${i}"><circle cx="${(off + L.p[i][0] * size).toFixed(1)}" cy="${(off + L.p[i][1] * size).toFixed(1)}" r="${r.toFixed(1)}"/></clipPath>`;
+  h += '</defs>';
+  for (let i = 0; i < n; i += 1) {
+    const cx = off + L.p[i][0] * size, cy = off + L.p[i][1] * size, on = i < live;
+    h += `<g style="opacity:${on ? 1 : 0.72}">`;
+    h += href
+      ? `<image href="${href}" x="${(cx - r).toFixed(1)}" y="${(cy - r).toFixed(1)}" width="${(2 * r).toFixed(1)}" height="${(2 * r).toFixed(1)}" preserveAspectRatio="xMidYMid slice" clip-path="url(#${id}-${i})"/>`
+      : `<circle cx="${cx.toFixed(1)}" cy="${cy.toFixed(1)}" r="${r.toFixed(1)}" style="fill:${discTint(a.name)}"/>`;
+    h += `<circle cx="${cx.toFixed(1)}" cy="${cy.toFixed(1)}" r="${r.toFixed(1)}" fill="none" style="stroke:var(--k-bg)" stroke-width="1"/>`;
+    if (on) h += `<circle cx="${cx.toFixed(1)}" cy="${cy.toFixed(1)}" r="${(r + 1.3).toFixed(1)}" fill="none" style="stroke:var(--gold-bright)" stroke-width="1.3"/>`;
+    h += '</g>';
+  }
+  const label = live + '/' + max, bw = 7 + label.length * 5.2;
+  /* Bottom LEFT: the card's presence dot owns the bottom right. */
+  h += `<rect x="12" y="52" width="${bw.toFixed(1)}" height="12" rx="6" style="fill:var(--k-ink)"/><text x="${(12 + bw / 2).toFixed(1)}" y="58.3" text-anchor="middle" dominant-baseline="central" style="fill:var(--k-bg);font:700 8px var(--font-ui)">${label}</text>`;
+  return h;
+}
+/* The mock's status words for a swarm: "3 of 5 helpers working", "Idle, working alone", or why it is paused. */
+function swarmStatusWords(a) {
+  const sw = (a && a.swarm) || {};
+  if (sw.active === false) return sw.pausedBecause === 'limit' ? 'Paused at today\'s limit' : sw.pausedBecause === 'stopped' ? 'Stopped' : 'Paused';
+  const max = Number(sw.maxHelpers) || 0, live = Number(sw.activeHelpers) || 0;
+  return live > 0 ? `${live} of ${max} helpers working` : 'Idle, working alone';
+}
 function createKind() {
   const on = document.querySelector('input[name="create-kind"]:checked');
   return SWARMS_ON && on && on.value === 'swarm' ? 'swarm' : 'agent';
