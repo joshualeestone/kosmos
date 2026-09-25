@@ -594,6 +594,47 @@ async function macRequest(method, routePath, body) {
   catch { return { ok: false, because: 'the tunnel program answered in a shape we could not read' }; }
 }
 
+/**
+ * One message to the hosted setup assistant (#3660), through the tunnel's
+ * `assistant-chat` verb. NO CRYPTO HERE, as above: the verb picks the key (this
+ * Mac's own when enrolled, else the install key it registers on first use), signs
+ * afresh on every run, and prints `{"status": <http status>, "body": <json>}` for
+ * ANY answer from the coordinator, refusals included. A non-zero exit means the
+ * coordinator could not be reached or the request could not be signed.
+ * Resolves to one of:
+ *   { ok: true, status, body }                       the coordinator answered
+ *   { ok: false, unsupported: true, because }        this tunnel predates the verb
+ *   { ok: false, because }                           no answer (network, signing)
+ * The body goes on stdin, never argv. Never throws.
+ */
+async function assistantChat(body) {
+  /* 🛑 SUITE GUARD, the one engine/mac-standing.js uses: under the test runner never
+     run the real bundled tunnel, which would send a sandbox's message to the
+     production coordinator on our key. A test that supplies a fake tunnel still runs. */
+  if (process.env.NODE_TEST_CONTEXT && !process.env.AGENT_WORKFORCE_TUNNEL_BIN) {
+    return { ok: false, because: 'the tunnel is not available under test' };
+  }
+  const args = ['assistant-chat', '--coordinator', COORDINATOR(), '--state-dir', STATE_DIR()];
+  const timeout = Number(process.env.AGENT_WORKFORCE_MAC_REQUEST_TIMEOUT_MS) || ASSISTANT_TIMEOUT_MS;
+  let r;
+  try { r = await setupRun(args, JSON.stringify(body || {}), timeout); }
+  catch (err) { return { ok: false, because: String((err && err.message) || err) }; }
+  if (!r.ok) {
+    const because = String(r.because || 'the tunnel program failed');
+    return /unrecognized subcommand|invalid subcommand/i.test(because)
+      ? { ok: false, unsupported: true, because }
+      : { ok: false, because };
+  }
+  let said;
+  try { said = JSON.parse(r.said); } catch { return { ok: false, because: 'the tunnel program answered in a shape we could not read' }; }
+  if (!said || typeof said !== 'object' || !Number.isInteger(said.status) || !said.body || typeof said.body !== 'object') {
+    return { ok: false, because: 'the tunnel program answered in a shape we could not read' };
+  }
+  return { ok: true, status: said.status, body: said.body };
+}
+/* A model answer, not a single signed round trip: capped output, but a slow provider. */
+const ASSISTANT_TIMEOUT_MS = 45 * 1000;
+
 /** Forget this Mac (#793): retire it at the coordinator while its key still
  * exists, THEN destroy the key. Order is the whole point: after the state
  * dir is gone the Mac cannot speak for itself and only a signed-in phone
@@ -1145,7 +1186,7 @@ async function signinRegister(name) {
   } };
 }
 
-module.exports = { secondReset, forget, macRequest, DEFAULT_RELAY, DEFAULT_COORDINATOR, configured,
+module.exports = { secondReset, forget, macRequest, assistantChat, DEFAULT_RELAY, DEFAULT_COORDINATOR, configured,
   FILE,
   read,
   kosmosPlus,

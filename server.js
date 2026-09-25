@@ -13625,6 +13625,30 @@ const server = http.createServer((req, res) => {
   }
 
   /**
+   * #3660: the setup assistant on Kosmos's own model, for a person who has not
+   * connected a model yet. The bubble posts `{ messages, page? }` and gets back
+   * `{ reply, remaining }`, or a refusal `{ error, code, retryAfterSecs }` whose
+   * `error` is a sentence to show as-is (the coordinator's own, or ours for "could
+   * not reach it" and "arrives with the next update"). engine/hostedguide.js does
+   * the shaping and the one retry; the tunnel signs (no crypto on the board). Once
+   * a guide agent exists on their own model, the bubble talks to that instead.
+   */
+  if (pathname === '/api/setup-guide/hosted' && req.method === 'POST') {
+    readBody(req)
+      .then(async (buf) => {
+        let body;
+        try { body = JSON.parse(buf.toString('utf8') || '{}'); } catch { body = null; }
+        if (!body || typeof body !== 'object' || Array.isArray(body)) { sendJson(res, 400, { error: 'we could not read that request' }); return; }
+        const hosted = require('./engine/hostedguide');
+        const out = await hosted.ask({ messages: body.messages, page: body.page });
+        if (out.ok) { sendJson(res, 200, { reply: out.reply, remaining: out.remaining }); return; }
+        sendJson(res, out.status, { error: out.because, code: out.code, retryAfterSecs: out.retryAfterSecs, unsupported: !!out.unsupported });
+      })
+      .catch((err) => sendJson(res, err && err.status ? err.status : 400, { error: (err && err.message) || 'we could not read that request' }));
+    return;
+  }
+
+  /**
    * #3034: tell the setup guide which screen the person is on (Josh, 2026-09-24
    * 16:05: "if it was like context aware for what page you were on that would be
    * dope"). The help bubble posts here when it opens and as the person moves;
