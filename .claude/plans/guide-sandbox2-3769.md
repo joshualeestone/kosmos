@@ -1,4 +1,7 @@
-# guide-sandbox-3769: close the gaps in Ice Cream Kitty's security review of #3769
+# guide-sandbox2-3769: close the gaps in Ice Cream Kitty's security review of #3769
+
+(Built as branch guide-sandbox-3769 on top of the pre-merge #3769 branch; replayed onto main after #3777
+merged, as guide-sandbox2-3769. Same changes: the two new modules are byte-identical.)
 
 Card: kosmos#3769 (Josh 2026-09-25 11:54: the helper agent must never give out passwords or keys). Built on
 branch guide-secrets-3769 (the three layers). Ice Cream Kitty's review (card comment, 12:20): merge that,
