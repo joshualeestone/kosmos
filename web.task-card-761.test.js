@@ -171,6 +171,18 @@ test('the card puts the claim beside the agent\'s OPEN part, never a part it has
   assert.match(partsHtml[1], /has not reported what it is working on yet/, 'the open part lost the note');
 });
 
+test('when the named agent has finished all its parts, the card still shows the claim\'s reason', () => {
+  const t = {
+    number: 5, sentence: 'Rex done, Mona on it', closedAt: null,
+    parts: [{ id: 1, who: 'april', sentence: 'done half', closedAt: '2026-09-24T00:00:00Z' }, { id: 2, who: 'mikey', sentence: 'open half', closedAt: null }],
+    progress: { done: 1, total: 2, closed: false, assigned: 2 },
+    claim: { claimed: null, neverReported: false, because: 'its record could not be read' },
+  };
+  const doc = runPaintProjectTasks({ ...PROJECT, tasks: [t] });
+  assert.match(doc.els['pj-tasklist'].innerHTML, /its record could not be read/, 'the card became the one surface where the reason vanishes');
+  assert.doesNotMatch(doc.els['pj-tasklist'].innerHTML, /has not reported/);
+});
+
 test('multiple assignees, as the pack drew: one face+name row per part, including an unassigned one, and an honest N of M count', () => {
   const t = {
     number: 4, sentence: 'Two-person task', who: 'april', closedAt: null,

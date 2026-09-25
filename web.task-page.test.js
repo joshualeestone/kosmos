@@ -274,7 +274,7 @@ test('whether the agent is named and whether its claim line is on screen are ONE
   const src = fnSource('paintTaskPage');
   assert.match(src, /const sayPart = tkSayPart\(parts, firstWho\);/, 'the page picks its claim part by its own rule');
   // The project card uses the SAME helper, so the two surfaces cannot disagree about which part.
-  assert.match(fnSource('paintProjectTasks'), /const sayPart = tkSayPart\(parts, firstWho\);/, 'the card picks its claim part by its own rule');
+  assert.match(fnSource('paintProjectTasks'), /const sayPart = tkSayPart\(parts, firstWho\) \|\|/, 'the card picks its claim part by its own rule');
   assert.match(src, /\+ \(part === sayPart \? sayHtml : ''\)/, 'the part list decides the claim line on its own');
   assert.match(src, /const firstOpen = !!sayPart;/);
   assert.match(src, /const sayShown = firstOpen;/, 'two expressions for one fact can drift, and the page then says it twice or never');
