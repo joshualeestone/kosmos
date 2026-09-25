@@ -222,13 +222,14 @@ test('#3626: the announce goes out SIGNED -- one `mac-request` call with the bod
   assert.equal(FAKE.flag(c, '--state-dir'), STATE, 'signed with THIS Mac\'s key directory');
   assert.equal(FAKE.flag(c, '--coordinator'), 'https://host.example:8443/kosmos');
   assert.deepEqual(JSON.parse(c.stdin), { seconds: 900 }, 'the body reaches the tunnel on stdin, never argv');
-  /* The flag VALUES asserted above are left out before looking for the body: they are
-     paths and URLs, and a path can hold "900" by chance. The full suite's TMPDIR is
-     kt<pid> (tools/run-tests.sh), and pid 62900 put "900" in --state-dir, which read as
-     "the body is on argv" (kosmos#3812). What is left must carry no part of the body. */
-  const asserted = new Set(['--state-dir', '--coordinator'].map((f) => FAKE.flag(c, f)));
-  const rest = c.args.filter((a) => !asserted.has(a));
-  assert.ok(!rest.some((a) => a.includes('900') || a.includes('seconds')), 'and the body is not on argv');
+  /* The WHOLE argv, exactly: the body cannot be on it in any spelling (JSON, a --seconds
+     flag, base64), and nothing on it can be mistaken for the body. The old check looked
+     for "900" in every argument, and --state-dir is a path under TMPDIR, which the full
+     suite names kt<pid> (tools/run-tests.sh): pid 62900 read as "the body is on argv"
+     (kosmos#3812). A new flag must be added here on purpose. */
+  assert.deepEqual(c.args, ['mac-request', '--coordinator', 'https://host.example:8443/kosmos',
+    '--state-dir', STATE, '--method', 'POST', '--path', '/v1/mac/updating'],
+  'and the body is not on argv: argv is exactly the verb, the two places and the route');
 });
 
 test('#3626: a hung tunnel does not hold announce(), which returns before the child starts', async () => {
