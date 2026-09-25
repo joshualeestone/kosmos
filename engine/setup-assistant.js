@@ -272,8 +272,8 @@ const MODEL_PROVIDERS = Object.freeze([
 ]);
 
 /**
- * The first connected model a guide could run on: { provider, account } (account null
- * for a provider's default), or null. A listed account must also pass create's own
+ * The first connected model a guide could run on: { model: { provider, account } | null,
+ * refused } (account null for a provider's default). A listed account must also pass create's own
  * gate (accountConnectable), so a positively dead sign-in is skipped, not used.
  * `listFor` and `connectable` are injectable for tests.
  */
@@ -300,9 +300,6 @@ async function findModel({
   return { model: null, refused };
 }
 
-async function firstConnectedModel(deps) {
-  return (await findModel(deps)).model;
-}
 
 /* After a try that reached a live check and did not create (a dead sign-in, a rejected
    key, a refused create), the next try waits: 10 minutes, doubling each time, at most a
@@ -424,7 +421,7 @@ module.exports = {
   isArmed,
   armSetupAssistant,
   MODEL_PROVIDERS,
-  firstConnectedModel,
+  findModel,
   RETRY_AFTER_MS,
   RETRY_MAX_MS,
   ensureGuide,

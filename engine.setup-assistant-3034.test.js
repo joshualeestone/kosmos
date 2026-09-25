@@ -250,18 +250,20 @@ test('WIRING GUARD (#3034/#3660): server.js creates the guide only through ensur
 
 const MODELS = (rows) => ({ listFor: (mod) => rows[mod] || [], connectable: async () => ({ ok: true }) });
 
-test('firstConnectedModel: the first LISTED model in provider order, a named account by its dir, a default as null', async () => {
-  assert.equal(await setupAssistant.firstConnectedModel(MODELS({})), null, 'nothing listed, nothing connected');
-  assert.deepEqual(await setupAssistant.firstConnectedModel(MODELS({ './grokaccounts': [{ dir: '/h/.grok', isDefault: true }] })),
-    { provider: 'xai', account: null });
-  assert.deepEqual(await setupAssistant.firstConnectedModel(MODELS({
+test('findModel: the first LISTED model in provider order, a named account by its dir, a default as null', async () => {
+  const model = async (deps) => (await setupAssistant.findModel(deps)).model;
+  assert.deepEqual(await setupAssistant.findModel(MODELS({})), { model: null, refused: false }, 'nothing listed, nothing connected, nothing refused');
+  assert.deepEqual(await model(MODELS({ './grokaccounts': [{ dir: '/h/.grok', isDefault: true }] })), { provider: 'xai', account: null });
+  assert.deepEqual(await model(MODELS({
     './grokaccounts': [{ dir: '/h/.grok', isDefault: true }],
     './openaiaccounts': [{ dir: '/h/.codex-work', isDefault: false }],
   })), { provider: 'openai', account: '/h/.codex-work' }, 'provider order is Claude, OpenAI, Gemini, Grok');
-  // A listed but positively dead account is skipped, not used.
+  // A listed but positively dead account is skipped, not used, and reported as refused.
   const dead = { listFor: (mod) => (mod === './accounts' ? [{ dir: '/h/.claude', isDefault: true }] : mod === './geminiaccounts' ? [{ dir: '/h/.gemini-k', isDefault: false }] : []),
     connectable: async ({ provider }) => ({ ok: provider !== 'anthropic' }) };
-  assert.deepEqual(await setupAssistant.firstConnectedModel(dead), { provider: 'google', account: '/h/.gemini-k' });
+  assert.deepEqual(await setupAssistant.findModel(dead), { model: { provider: 'google', account: '/h/.gemini-k' }, refused: true });
+  const allDead = { listFor: dead.listFor, connectable: async () => ({ ok: false }) };
+  assert.deepEqual(await setupAssistant.findModel(allDead), { model: null, refused: true });
 });
 
 function armed(on) {
