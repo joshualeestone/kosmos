@@ -2,10 +2,10 @@
 pre_challenge: true
 method: challenge-loop
 branch: room-reply-3745
-diff_hash: 67b8b343d4d183138039dc726a55c9299a1ae7de88850ed61ff3becd22f8f5f2
+diff_hash: 91d1fbc779ef7e0ee5554cec3637dcded4a55dae8c9ff30e9fb183f7eab21afb
 validation: passed
 subdir_audit: passed
-timestamp: 2026-09-25T22:48:39Z
+timestamp: 2026-09-25T23:10:31Z
 iterations: 32
 converged: true
 ---
@@ -17,8 +17,9 @@ converged: true
 **Total findings:** 1 BLOCKER, ~55 WARNINGs, 3 CONVENTIONs, many NITs
 **Fixed:** the BLOCKER, all warnings that changed behaviour or claims, the conventions | **Deferred:** agent DMs (recorded in the plan); touch screens are no longer deferred (rounds 29-30) | **Asked:** 0
 
-Validation: full run on HEAD after round 31's fixes (rebased onto main; pre-squash history on local branch
-room-reply-3745-presquash), 9620 tests, 9468 pass, 0 failures, hash 67b8b343d4d1; the five surface-mapped checks re-run on the rebased
+Validation: full run on HEAD after round 31's fixes and a second rebase onto main (#3839 named the room's
+touch target --room-tap; Reply now uses it, and the msgbox check keeps its five-button count), 0 failures,
+hash 91d1fbc779ef; pre-squash history on local branch room-reply-3745-presquash; the five surface-mapped checks re-run on the rebased
 tree and noted in the commit. Browser check render-room-reply-3745: 39 assertions, red controls for each
 guard it names (each fix perturbed by hand and seen to go red).
 
