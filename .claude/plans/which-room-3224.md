@@ -3,7 +3,7 @@
 Card: kosmos#3224 (Josh 2026-09-17: an agent on several projects sometimes posts into the wrong project's
 room). The reply half shipped in #3567: a post with `--in-reply-to` is bound to the room of the message it
 answers. This branch is the proactive half, a post with no citation. Decision recorded on the card
-(14:35 CDT 2026-09-25, Splinter's routing, Josh can override).
+(14:20 CDT 2026-09-25, Splinter's routing, Josh can override).
 
 ## The rule
 A live `POST /api/post` with no `in_reply_to` and no `new_post: true` is held once, with a question, when the
