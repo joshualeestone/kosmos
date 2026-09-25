@@ -1542,6 +1542,23 @@ button.uprime:hover, .btn.uprime:hover, .utoast .uacts button.uprime:hover,
 .swwarn { max-width: 34rem; display: flex; gap: 10px; align-items: flex-start; margin: 10px 0 0; padding: 10px 12px; border: 1px solid color-mix(in srgb, var(--gold-edge) 55%, transparent);
   border-radius: 10px; background: color-mix(in srgb, var(--gold-bright) 9%, transparent); font-size: .875rem; line-height: 1.45; color: var(--k-ink); }
 .swwarn .i { flex: none; width: 20px; height: 20px; border-radius: 50%; background: var(--gold-bright); color: #14161a; display: grid; place-items: center; font: 800 .75rem var(--font-ui); }
+.swpanel { display: grid; gap: 10px; margin: var(--space-5) 0 0; text-align: left; }
+/* The page's cluster needs its badge: the circle frame does not clip while a swarm shows. */
+.detail-av:has(#d-swarm:not([hidden])) { overflow: visible; background: transparent !important; }
+.swpanel[hidden] { display: none; }
+.swbox { border: 1px solid var(--k-rule); border-radius: 12px; padding: 10px 12px; background: var(--k-surface); }
+.swlab { display: block; margin: 0 0 6px; font: 650 .75rem var(--font-ui); letter-spacing: .02em; color: var(--k-ink-2); text-transform: uppercase; }
+.swctl { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+.swmode { margin: 0; flex: 1 1 auto; }
+.swmode .pj-mode-opt { font-size: 13px; min-height: 30px; }
+.swstop { border: 1.5px solid var(--danger); color: var(--danger); background: transparent; font-weight: 650; }
+.swstop:hover { background: color-mix(in srgb, var(--danger) 10%, transparent); }
+.swstop:disabled { opacity: .5; }
+.swwhy { margin: 6px 0 0; font-size: .8125rem; color: var(--k-ink); }
+.swbar { height: 8px; border-radius: 999px; background: var(--k-side); overflow: hidden; margin: 2px 0 6px; }
+.swbar i { display: block; height: 100%; background: var(--gold-deep); border-radius: 999px; }
+.swnums { display: flex; justify-content: space-between; flex-wrap: wrap; gap: 6px; font-size: .8125rem; font-variant-numeric: tabular-nums; }
+.swnums span + span { color: var(--k-ink-2); }
 .swfixed { font-size: .9375rem; }
 .swfixed span { color: var(--k-ink-2); font-size: .8125rem; margin-left: 6px; }
 .userpop-plus { font-weight: 600; }
@@ -9056,6 +9073,7 @@ window.kosmosMeasureScrollbarWidth();
       <div class="detail-av">
         <img id="d-img" alt="" hidden>
         <div id="d-initials" class="detail-initials"></div>
+        <span id="d-swarm" hidden></span>
       </div>
       <span class="membadge" id="d-membadge" hidden></span>
     </div>
@@ -9110,6 +9128,34 @@ window.kosmosMeasureScrollbarWidth();
         <button type="button" class="btn" id="d-start-agent">Start this agent</button>
         <p class="fmsg" id="d-start-msg" role="status" aria-live="polite"></p>
       </div>
+      <!-- #3564: a swarm's controls, under its name on every section (the mock, section 3). Shown only for a swarm
+           when the engine is in (swarmPagePaint). Stop now is outlined red and never inside a menu. -->
+      <section class="swpanel" id="d-swarm-panel" hidden aria-label="Swarm controls">
+        <div class="swbox">
+          <h3 class="swlab">Swarm</h3>
+          <div class="swctl">
+            <fieldset class="pj-mode swmode"><legend class="vh">Active or paused</legend>
+              <label class="pj-mode-opt"><input type="radio" name="d-swarm-active" value="on"> Active</label>
+              <label class="pj-mode-opt"><input type="radio" name="d-swarm-active" value="off"> Paused</label>
+            </fieldset>
+            <button type="button" class="btn swstop" id="d-swarm-stop">Stop now</button>
+          </div>
+          <p class="dhint">Stop now ends every helper straight away. Work they have not handed back is dropped; the swarm keeps everything already done.</p>
+          <p class="swwhy" id="d-swarm-why" hidden></p>
+        </div>
+        <div class="swbox">
+          <label class="swlab" for="d-swarm-max">Most helpers at once</label>
+          <div class="swrow"><input type="range" id="d-swarm-max" min="2" max="10" step="1"><span class="swval" id="d-swarm-max-v"></span></div>
+          <p class="dhint" id="d-swarm-warn"></p>
+        </div>
+        <div class="swbox">
+          <h3 class="swlab">Today</h3>
+          <div class="swbar" aria-hidden="true"><i id="d-swarm-bar"></i></div>
+          <div class="swnums"><span id="d-swarm-today"></span><span id="d-swarm-limit"></span></div>
+          <p class="dhint">Pauses itself at the limit and tells you. Resets at midnight.</p>
+        </div>
+        <p class="fmsg" id="d-swarm-msg" role="status" aria-live="polite"></p>
+      </section>
       <!-- #569: where the state came from, under the badge, in Mona Lisa's
            words ("Said so itself" / "Read from its screen"); and the two
            witnesses disagreeing, as the engine's own sentence in a note.
@@ -16829,26 +16875,26 @@ function lrow(a) {
        leaves them. The state word carries the diagnosis; the full because rides
        the card and the detail panel, which have the room the row does not. */
     if (a.needsTrust === true) {
-      const tav = a.hasAvatar
+      const tav = a.swarm && SWARMS_ON ? swarmCluster(a, 34) : a.hasAvatar
         ? `<img src="/api/agent/${encodeURIComponent(a.sessionName)}/avatar" alt="">`
         : `<span class="lavtint" style="background:${discTint(a.name)};color:${discInk(a.name)}">${esc(initials(a.name))}</span>`;
       return `<div class="lrow attn notrunning needstrust" data-agent="${esc(a.sessionName)}"${Number.isFinite(Number(a && a.dmUnread)) && Number(a && a.dmUnread) > 0 ? ' data-has-msgs' : ''}${a && a.state === 'needs_you' ? ' data-attn' : ''}${a && a.state === 'needs_you' && a.stateProject === null ? ' data-noproj' : ''}>
       <div class="lav">${tav}</div>${dmBadge(a)}
       <div class="lname"><b><button class="namego" type="button" aria-label="Open ${esc(a.name)}">${esc(a.name)}</button></b></div>
-      <div class="ltitle">${esc(roleLine(a, ROLE_TITLES))}</div>
+      <div class="ltitle">${esc(a.swarm && SWARMS_ON ? 'Swarm · ' + swarmStatusWords(a) : roleLine(a, ROLE_TITLES))}</div>
       <div class="lstate st-attn"><span class="haz" aria-hidden="true">!</span>${esc(STATE_COPY.needs_trust.label)}</div>
       <div class="ltask"></div>
       <div class="lmodel"></div>
       <div class="lmem"></div>
     </div>`;
     }
-    const off = a.hasAvatar
+    const off = a.swarm && SWARMS_ON ? swarmCluster(a, 34) : a.hasAvatar
       ? `<img src="/api/agent/${encodeURIComponent(a.sessionName)}/avatar" alt="">`
       : `<span class="lavtint" style="background:${discTint(a.name)};color:${discInk(a.name)}">${esc(initials(a.name))}</span>`;
     return `<div class="lrow off notrunning" data-agent="${esc(a.sessionName)}"${Number.isFinite(Number(a && a.dmUnread)) && Number(a && a.dmUnread) > 0 ? ' data-has-msgs' : ''}${a && a.state === 'needs_you' ? ' data-attn' : ''}${a && a.state === 'needs_you' && a.stateProject === null ? ' data-noproj' : ''}>
       <div class="lav">${off}</div>${dmBadge(a)}
       <div class="lname"><b><button class="namego" type="button" aria-label="Open ${esc(a.name)}">${esc(a.name)}</button></b></div>
-      <div class="ltitle">${esc(roleLine(a, ROLE_TITLES))}</div>
+      <div class="ltitle">${esc(a.swarm && SWARMS_ON ? 'Swarm · ' + swarmStatusWords(a) : roleLine(a, ROLE_TITLES))}</div>
       <div class="lstate ${a.jobRunningUnseen === true ? 'st-unknown' : 'st-stopped'}">${a.jobRunningUnseen === true ? GLYPH.unknown + STATE_COPY.unknown.label : GLYPH.stopped + 'Not running'}</div>
       <div class="ltask"></div>
       <div class="lmodel"></div>
@@ -16859,7 +16905,7 @@ function lrow(a) {
   const copy = stateCopyOf(a);
   const pct = pctOf(a.context);
   const band = memBand(pct);
-  const av = a.hasAvatar
+  const av = a.swarm && SWARMS_ON ? swarmCluster(a, 34) : a.hasAvatar
     ? `<img src="/api/agent/${encodeURIComponent(a.sessionName)}/avatar" alt="">`
     : `<span class="lavtint" style="background:${discTint(a.name)};color:${discInk(a.name)}">${esc(initials(a.name))}</span>`;
   /* ⚠️ A VISIBLE WORD, NOT AN EMPTY SLOT. This rendered a dashed track beside a
@@ -16907,7 +16953,7 @@ function lrow(a) {
   return `<div class="lrow ${boardMods(a, m)}" data-agent="${esc(a.sessionName)}"${Number.isFinite(Number(a && a.dmUnread)) && Number(a && a.dmUnread) > 0 ? ' data-has-msgs' : ''}${a && a.state === 'needs_you' ? ' data-attn' : ''}${a && a.state === 'needs_you' && a.stateProject === null ? ' data-noproj' : ''}>
     <div class="lav">${av}${lrowRing(a)}${m.st === 'attn' ? LROW_WARN : ''}</div>${dmBadge(a)}
     <div class="lname"><b><button class="namego" type="button" aria-label="Open ${esc(a.name)}">${esc(a.name)}</button>${staleBadge(a)}</b></div>
-    <div class="ltitle">${esc(roleLine(a, ROLE_TITLES))}</div>
+    <div class="ltitle">${esc(a.swarm && SWARMS_ON ? 'Swarm · ' + swarmStatusWords(a) : roleLine(a, ROLE_TITLES))}</div>
     <!-- #569: the said line stacks INSIDE the state cell -- the seven-slot
          rule above forbids an eighth child, and .lstate already stacks a
          second line within its own cell, so this is the sanctioned shape.
@@ -18309,6 +18355,7 @@ async function tick() {
     // one call. Same fact, one source: the shape this whole branch is about.
     if (CURRENT) {
       const fresh = data.agents.find((a) => a.sessionName === CURRENT.sessionName);
+      if (fresh) swarmPagePaint(fresh);   // #3564: the swarm panel and cluster follow every poll
 
       /* The window box rides the SAME fresh-card lookup as the write
          controls below (one fact, one derivation -- a second find() for
@@ -25720,6 +25767,20 @@ let DETAIL_FROM_PROJECT = null;
 function renderAvatar(a) {
   const img = document.getElementById('d-img');
   const ini = document.getElementById('d-initials');
+  /* #3564: a swarm's page shows its cluster in place of the picture (and it is repainted every poll, see tick). */
+  const swEl = document.getElementById('d-swarm');
+  if (swEl) {
+    const isSwarm = !!(a && a.swarm && SWARMS_ON);
+    swEl.hidden = !isSwarm;
+    if (isSwarm) {
+      const size = Math.round((swEl.parentElement && swEl.parentElement.getBoundingClientRect().width) || 88);
+      const html = swarmCluster(a, size);
+      if (swEl.innerHTML !== html) swEl.innerHTML = html;
+      img.hidden = true; ini.hidden = true;
+      ini.parentElement.style.background = 'transparent';
+      return;
+    }
+  }
   if (a && a.hasAvatar) {
     img.src = '/api/agent/' + encodeURIComponent(a.sessionName) + '/avatar?t=' + Date.now();
     img.hidden = false;
@@ -28050,6 +28111,7 @@ function openDetail(sessionName, section, fromProject) {
   document.getElementById('d-initials').textContent = initials(a.name);
 
   renderAvatar(a);
+  swarmPagePaint(a);   // #3564
   document.getElementById('d-msg').textContent = '';
   document.getElementById('d-role-msg').textContent = '';
   /* #149/#150: the Terminal-tab action receipts clear on switch for the same reason as
@@ -38182,14 +38244,87 @@ function swarmStatusWords(a) {
   const max = Number(sw.maxHelpers) || 0, live = Number(sw.activeHelpers) || 0;
   return live > 0 ? `${live} of ${max} helpers working` : 'Idle, working alone';
 }
+/* The swarm's page (the mock, section 3): Active / Paused, Stop now, Most helpers, and Today. Painted from the
+   status row every poll; a control the person is using is not repainted under them. */
+function swarmPagePaint(a) {
+  const panel = document.getElementById('d-swarm-panel');
+  if (!panel) return;
+  const sw = a && a.swarm && SWARMS_ON ? a.swarm : null;
+  panel.hidden = !sw;
+  if (!sw) return;
+  renderAvatarSwarmOnly(a);
+  const on = sw.active !== false;
+  const want = document.querySelector(`input[name="d-swarm-active"][value="${on ? 'on' : 'off'}"]`);
+  if (want && !want.checked && !SWARM_BUSY) want.checked = true;
+  const why = document.getElementById('d-swarm-why');
+  const words = on ? '' : sw.pausedBecause === 'limit' ? `Paused at today's limit. It starts again at midnight, or switch it back to Active.`
+    : sw.pausedBecause === 'stopped' ? 'Stopped. Switch it back to Active when you want it working again.'
+    : 'Paused. It starts no new helpers until you switch it back to Active.';
+  why.textContent = words; why.hidden = !words;
+  document.getElementById('d-swarm-stop').disabled = !on;
+  const max = Math.max(2, Math.min(10, Number(sw.maxHelpers) || 3));
+  const range = document.getElementById('d-swarm-max');
+  if (document.activeElement !== range && !SWARM_BUSY) range.value = String(max);
+  const shown = Number(range.value) || max;
+  document.getElementById('d-swarm-max-v').textContent = String(shown);
+  document.getElementById('d-swarm-warn').innerHTML = swarmWarnWords(shown, Number(sw.helperTokenRatio));
+  const used = Math.max(0, Number(sw.tokensToday) || 0), cap = Math.max(0, Number(sw.dailyTokenLimit) || 0);
+  document.getElementById('d-swarm-bar').style.width = (cap ? Math.min(100, used / cap * 100) : 0).toFixed(1) + '%';
+  document.getElementById('d-swarm-today').textContent = used.toLocaleString('en-US') + ' tokens';
+  document.getElementById('d-swarm-limit').textContent = cap ? 'of ' + cap.toLocaleString('en-US') + ' limit' : 'no limit set';
+}
+/* The page's cluster, repainted with the panel so the lit circles follow the helpers. */
+function renderAvatarSwarmOnly(a) {
+  const swEl = document.getElementById('d-swarm');
+  if (!swEl || swEl.hidden) return;
+  const size = Math.round((swEl.parentElement && swEl.parentElement.getBoundingClientRect().width) || 88);
+  const html = swarmCluster(a, size);
+  if (swEl.innerHTML !== html) swEl.innerHTML = html;
+}
+var SWARM_BUSY = false;
+async function swarmSend(url, method, body, doneWords) {
+  const msg = document.getElementById('d-swarm-msg');
+  SWARM_BUSY = true;
+  msg.textContent = '';
+  try {
+    const r = await fetch(url, { method, headers: { 'content-type': 'application/json' }, body: JSON.stringify(body || {}) });
+    const b = await r.json().catch(() => null);
+    if (!r.ok || (b && b.ok === false)) { msg.textContent = pjSentence((b && (b.because || b.error)) || 'we could not change that just now'); return false; }
+    if (b && b.swarm && CURRENT) { CURRENT.swarm = b.swarm; }
+    msg.textContent = doneWords || '';
+    return true;
+  } catch { msg.textContent = pjSentence('we could not reach Kosmos just now'); return false; }
+  finally { SWARM_BUSY = false; if (CURRENT) swarmPagePaint(CURRENT); }
+}
+document.addEventListener('change', async (e) => {
+  const t = e.target;
+  if (!t || !CURRENT) return;
+  const base = '/api/agent/' + encodeURIComponent(CURRENT.sessionName) + '/swarm';
+  if (t.name === 'd-swarm-active') await swarmSend(base, 'PUT', { active: t.value === 'on' });
+  if (t.id === 'd-swarm-max') await swarmSend(base, 'PUT', { maxHelpers: Number(t.value) });
+});
+document.addEventListener('input', (e) => {
+  if (e.target && e.target.id === 'd-swarm-max' && CURRENT) {
+    document.getElementById('d-swarm-max-v').textContent = e.target.value;
+    document.getElementById('d-swarm-warn').innerHTML = swarmWarnWords(Number(e.target.value), CURRENT.swarm ? Number(CURRENT.swarm.helperTokenRatio) : null);
+  }
+});
+document.addEventListener('click', async (e) => {
+  if (!e.target || !e.target.closest || !e.target.closest('#d-swarm-stop') || !CURRENT) return;
+  await swarmSend('/api/agent/' + encodeURIComponent(CURRENT.sessionName) + '/swarm/stop', 'POST', {}, 'Stopped. Every helper has been told to stop.');
+});
 function createKind() {
   const on = document.querySelector('input[name="create-kind"]:checked');
   return SWARMS_ON && on && on.value === 'swarm' ? 'swarm' : 'agent';
 }
 /* The warning moves with the slider (the mock): helpers plus the lead, as a multiple of one agent. */
 function swarmWarnWords(max, ratio) {
-  const times = Number.isFinite(ratio) && ratio > 1 ? Math.round(ratio * 10) / 10 : max + 1;
-  return `While it is busy, it can use up to about <b>${times} times</b> the tokens of one agent: ${max} helpers plus the lead. It only adds helpers when there is enough work to split.`;
+  /* Measured (the engine's helperTokenRatio, today's lead + helpers over the lead alone) when there is data;
+     otherwise the mock's estimate, helpers plus the lead, which assumes a helper costs about one agent. */
+  if (Number.isFinite(ratio) && ratio > 1) {
+    return `Today it has used about <b>${Math.round(ratio * 10) / 10} times</b> the tokens of one agent. With up to ${max} helpers it can use up to about ${max + 1} times while it is busy.`;
+  }
+  return `While it is busy, it can use up to about <b>${max + 1} times</b> the tokens of one agent: ${max} helpers plus the lead. It only adds helpers when there is enough work to split.`;
 }
 function swarmCreatePaint() {
   const box = document.getElementById('create-kind');
