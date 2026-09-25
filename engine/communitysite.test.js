@@ -165,3 +165,77 @@ test('board filter matches a >cap slug (pins read cap == store write cap)', () =
   assert.ok(rows.some((r) => r.id === p.id),
     'a >cap board filter still matches its stored (truncated) post — read cap and store write cap are equal');
 });
+
+// ── Human WRITE path ─────────────────────────────────────────────────────────
+
+test('scrubAuthorName normalizes, caps, and defaults a blank name', () => {
+  assert.equal(site.scrubAuthorName('  Casey  ').name, 'Casey', 'trimmed + collapsed');
+  assert.equal(site.scrubAuthorName('a​b\tc').name, 'ab c', 'zero-width removed (a+b -> ab), control(tab) -> space');
+  assert.equal(site.scrubAuthorName('').name, 'Anonymous', 'blank -> neutral default');
+  assert.equal(site.scrubAuthorName(null).name, 'Anonymous', 'null -> neutral default');
+  assert.equal(site.scrubAuthorName('x'.repeat(200)).name.length, 80, 'capped at MAX_AUTHOR_LEN (80)');
+});
+
+test('scrubAuthorName rejects PII and impersonation (no oracle in the message)', () => {
+  const email = site.scrubAuthorName('me@example.com');
+  assert.equal(email.ok, false, 'an email in a name is rejected');
+  assert.match(email.error, /email|phone|secret/i, 'message names categories, not the pattern');
+  assert.equal(site.scrubAuthorName('call 214-555-1212').ok, false, 'a phone number is rejected');
+  assert.equal(site.scrubAuthorName('github_pat_' + 'a'.repeat(30)).ok, false, 'a secret token is rejected');
+  assert.equal(site.scrubAuthorName('Josh Stone').ok, false, 'the operator name is rejected (impersonation)');
+  assert.equal(site.scrubAuthorName('joshualeestone').ok, false, 'an operator handle is rejected');
+  assert.match(site.scrubAuthorName('Josh Stone').error, /another person/i, 'impersonation message');
+});
+
+test('publishHumanPost publishes a trusted, site-identified user post', () => {
+  // Filter by a UNIQUE board (not a count delta): the shared store already exceeds
+  // FEED_LIMIT_MAX (100), so a global feed length is pinned at the cap and a delta
+  // is invisible. A unique board matches exactly this one post.
+  const r = site.publishHumanPost({ authorName: 'Dana', topic: 'intro', body: 'hello from a human', board: 'human-post-uniq' });
+  assert.equal(r.ok, true);
+  assert.equal(r.status, 'published', 'a trusted, clean human post publishes immediately');
+  assert.ok(r.id);
+  assert.equal(r.findings.length, 0, 'a published post carries no findings');
+  const rows = site.feedView({ board: 'human-post-uniq', limit: 100000 });
+  assert.equal(rows.length, 1, 'the post is now in the public feed under its board');
+  const row = rows[0];
+  assert.equal(row.id, r.id);
+  assert.equal(row.author.type, 'user', 'served as a user author');
+  assert.equal(row.author.name, 'Dana', 'the scrubbed name is served');
+  assert.equal(row.board, 'human-post-uniq', 'the site-assigned board is served');
+});
+
+test('publishHumanPost holds a post whose BODY leaks, and rejects a leaky NAME up front', () => {
+  // A leak in the body is caught by feedguard even on the trusted path. A detected
+  // leak is QUARANTINED (held = untrusted-but-clean; quarantined = a real leak); the
+  // route later collapses quarantined -> held in the SUBMITTER response, but the seam
+  // returns the true store status.
+  const leak = site.publishHumanPost({ authorName: 'Eve', body: 'my key is sk-' + 'a'.repeat(30) });
+  assert.equal(leak.ok, true);
+  assert.equal(leak.status, 'quarantined', 'a trusted post with a body leak is QUARANTINED, not published');
+  // A leaky/impersonating name is a clean input rejection (never reaches the store).
+  const badName = site.publishHumanPost({ authorName: 'reach me at a@b.co', body: 'clean body' });
+  assert.equal(badName.ok, false);
+  assert.equal(badName.reason, 'input');
+  assert.equal(badName.status, 'rejected');
+});
+
+test('publishHumanPost rejects a non-slug board (format-validated by the choke)', () => {
+  const r = site.publishHumanPost({ authorName: 'Finn', body: 'body', board: 'Not A Slug!' });
+  assert.equal(r.ok, false, 'a free-text board is rejected (would be an un-scrubbed public field)');
+  assert.equal(r.reason, 'input');
+});
+
+test('publishHumanComment publishes on a published post and enforces routing keys', () => {
+  const post = site.publishHumanPost({ authorName: 'Gail', body: 'a post to comment on' });
+  const c = site.publishHumanComment({ authorName: 'Hugo', body: 'a human reply', postId: post.id });
+  assert.equal(c.ok, true);
+  assert.equal(c.status, 'published');
+  const comments = site.commentsView(post.id);
+  const mine = comments.find((x) => x.id === c.id);
+  assert.ok(mine, 'the comment is served on the post');
+  assert.equal(mine.author.name, 'Hugo', 'the scrubbed user name is served on the comment');
+  // postId is required; a bad parentId shape is rejected.
+  assert.equal(site.publishHumanComment({ authorName: 'x', body: 'orphan' }).ok, false, 'missing postId rejected');
+  assert.equal(site.publishHumanComment({ authorName: 'x', body: 'b', postId: post.id, parentId: 'not-a-uuid' }).ok, false, 'non-UUID parentId rejected');
+});

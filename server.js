@@ -1686,6 +1686,12 @@ function communityValveRecord(agentId) {
   arr.push(Date.now());
   communitySends.set(agentId, arr);
 }
+// #3485: the human write path (board-token gated, one operator today) shares this
+// same sliding-window valve under a reserved bucket key. The agent path only ever
+// keys on an authenticated `sessionName`; a persona literally named 'human' posting
+// via the agent path would merely share this generous per-hour budget, which is
+// harmless -- so the reserved key needs no collision-proofing beyond this note.
+const COMMUNITY_HUMAN_VALVE_KEY = 'human';
 
 function safeRoster() {
   try {
@@ -3479,11 +3485,12 @@ const server = http.createServer((req, res) => {
 
   // ── #3485 Kosmos Community SITE (Mikey's slice A) ──────────────────────────
   // READ routes are PUBLIC (exempt from the board-token gate above). MODERATION
-  // routes are board-token gated by the sensitive-route check. The agent
-  // board->feed WRITE choke is Pete's engine lane; the human-post/comment WRITE
-  // routes (which call Pete's choke primitive and own the author.name scrub) are
-  // a follow-up here once feedguard (#3496) lands. Nothing in THIS block
-  // publishes — reads serve communitystore's already-redacted published rows.
+  // and the HUMAN post/comment WRITE routes are board-token gated by the
+  // sensitive-route check. The agent board->feed WRITE choke is Pete's engine
+  // lane (/api/community/{post,comment} lower down); the human WRITE routes below
+  // call that same feedpublish choke via communitysite and own the author.name
+  // scrub + board taxonomy. The READ handlers below do not publish — they serve
+  // communitystore's already-redacted published rows.
   // try/catch on each handler: a store read (postsFile/commentsFile via the lazy
   // store.ROOT) can throw, and there is no process-level uncaughtException
   // handler, so an unguarded throw would kill the board for EVERY user — and two
@@ -3539,6 +3546,58 @@ const server = http.createServer((req, res) => {
         }
       })
       .catch(() => sendJson(res, 400, { error: 'we could not read that request' }));
+    return;
+  }
+
+  /* #3485: the HUMAN post/comment WRITE path. Board-token gated by the
+     sensitive-route check above (NOT in PUBLIC_COMMUNITY_ROUTES), so only the
+     account that started the board reaches it -- that authenticated operator is
+     the SITE's human identity, and communitysite passes feedpublish `trusted:true`
+     accordingly. (The AGENT write path is /api/community/{post,comment} lower down,
+     token-authenticated per-agent and held-by-default; the human path is trusted
+     because the board token already proved the operator.) communitysite owns the
+     author.name scrub (feedguard does not scan `author`) and the board taxonomy.
+     🛑 findings are moderator-only -- NEVER echoed to the submitter (evasion
+     oracle); the response collapses quarantined -> held, exactly like the agent
+     routes. */
+  if (pathname === '/api/community/human/post' && req.method === 'POST') {
+    readBody(req)
+      .then((buf) => {
+        let body;
+        try { body = JSON.parse(buf.toString('utf8') || '{}') || {}; }
+        catch { sendJson(res, 400, { error: 'we could not read that request' }); return; }
+        if (typeof body !== 'object') { sendJson(res, 400, { error: 'we could not read that request' }); return; }
+        if (communityValveTripped(COMMUNITY_HUMAN_VALVE_KEY)) {
+          sendJson(res, 429, { error: 'the community feed has taken many posts in the last hour, so Kosmos is pausing posts and comments' }); return;
+        }
+        let r;
+        try { r = communitysite.publishHumanPost({ authorName: body.authorName, author: body.author, topic: body.topic, body: body.body, links: body.links, board: body.board }); }
+        catch (e) { console.error('FAIL /api/community/human/post: ' + (e && e.message || e)); sendJson(res, 500, { error: 'we could not submit that post' }); return; }
+        if (!r.ok) { sendJson(res, r.reason === 'store' ? 500 : 400, { error: r.error }); return; }
+        communityValveRecord(COMMUNITY_HUMAN_VALVE_KEY);
+        sendJson(res, 200, { ok: true, status: r.status === 'published' ? 'published' : 'held', id: r.id });
+      })
+      .catch((e) => { console.error('FAIL /api/community/human/post (body): ' + (e && e.message || e)); sendJson(res, 500, { error: 'we could not submit that post' }); });
+    return;
+  }
+  if (pathname === '/api/community/human/comment' && req.method === 'POST') {
+    readBody(req)
+      .then((buf) => {
+        let body;
+        try { body = JSON.parse(buf.toString('utf8') || '{}') || {}; }
+        catch { sendJson(res, 400, { error: 'we could not read that request' }); return; }
+        if (typeof body !== 'object') { sendJson(res, 400, { error: 'we could not read that request' }); return; }
+        if (communityValveTripped(COMMUNITY_HUMAN_VALVE_KEY)) {
+          sendJson(res, 429, { error: 'the community feed has taken many posts in the last hour, so Kosmos is pausing posts and comments' }); return;
+        }
+        let r;
+        try { r = communitysite.publishHumanComment({ authorName: body.authorName, author: body.author, body: body.body, links: body.links, postId: body.postId, parentId: body.parentId }); }
+        catch (e) { console.error('FAIL /api/community/human/comment: ' + (e && e.message || e)); sendJson(res, 500, { error: 'we could not submit that comment' }); return; }
+        if (!r.ok) { sendJson(res, r.reason === 'store' ? 500 : 400, { error: r.error }); return; }
+        communityValveRecord(COMMUNITY_HUMAN_VALVE_KEY);
+        sendJson(res, 200, { ok: true, status: r.status === 'published' ? 'published' : 'held', id: r.id });
+      })
+      .catch((e) => { console.error('FAIL /api/community/human/comment (body): ' + (e && e.message || e)); sendJson(res, 500, { error: 'we could not submit that comment' }); });
     return;
   }
 
