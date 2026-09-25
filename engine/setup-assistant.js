@@ -164,6 +164,123 @@ function markGuideFolder(agentName) {
   catch { return false; }
 }
 
+/*
+ * #3769 (Josh, 2026-09-25 11:54): the guide is kept away from passwords and keys by three layers, and
+ * this is the second: what Kosmos lets it open. Deny rules in the guide's OWN project settings
+ * (<its folder>/.claude/settings.json), which Claude Code applies even to a session started with
+ * --dangerously-skip-permissions, as every Kosmos agent is. Its own folder, not the account's
+ * settings.json, because an account is shared by every agent on it.
+ * - Read covers Claude Code's file tools; the Bash rules stop the commands that print secrets by name.
+ *   A shell can still reach a file some other way, which is why the first layer (its instructions,
+ *   roles.GUIDE_SECRET_LINES) and the third (engine/secretmask.js on everything it says) exist.
+ * - Claude only: a Codex, Gemini or Grok guide has no such file, and relies on the other two layers.
+ * - Kosmos's own data folder is denied whole: the guide's instructions and page file live in its
+ *   worker folder, and the `kosmos` command it runs reads the board token as its own process.
+ */
+/* The same home accounts.js and create.js use (a named world or a test sets it). */
+function kosmosHome() { return process.env.AGENT_WORKFORCE_HOME || require('os').homedir(); }
+function guideDenyRules({ home = kosmosHome(), dataRoot = store.ROOT } = {}) {
+  const abs = (p) => '//' + String(p).replace(/^\/+/, '');
+  const rules = [
+    'Read(~/.ssh/**)', 'Read(~/.aws/**)', 'Read(~/.config/**)', 'Read(~/.gnupg/**)', 'Read(~/.kube/**)',
+    'Read(~/.docker/**)', 'Read(~/.azure/**)', 'Read(~/.netrc)', 'Read(~/.npmrc)', 'Read(~/.pypirc)',
+    'Read(~/.git-credentials)', 'Read(~/.zsh_history)', 'Read(~/.bash_history)', 'Read(~/.claude.json)',
+    'Read(~/.claude/**)', 'Read(~/.codex/**)', 'Read(~/.gemini/**)', 'Read(~/.grok/**)',
+    /* Every account after the first lives in ~/.claude-<label>, ~/.codex-<label> (and the Gemini and
+       Grok analogs), with a pasted Claude key in .kosmos-claude-apikey (review round 2). Measured: a
+       wildcard in the folder name holds for the Read tool and for cat. */
+    'Read(~/.claude-*/**)', 'Read(~/.codex-*/**)', 'Read(~/.gemini-*/**)', 'Read(~/.grok-*/**)',
+    'Read(**/.kosmos-claude-apikey)', 'Read(**/.kosmos-gemini-apikey)', 'Read(**/.kosmos-grok-apikey)',
+    'Read(**/.env)', 'Read(**/.env.*)', 'Read(**/*.pem)', 'Read(**/*.key)',
+    'Bash(security find-generic-password:*)', 'Bash(security find-internet-password:*)',
+    'Bash(security dump-keychain:*)', 'Bash(printenv:*)', 'Bash(printenv)', 'Bash(env)', 'Bash(history:*)',
+    'Bash(set)', 'Bash(export)', 'Bash(export -p)',
+    /* Its own guards and instructions (relative to its folder, where it runs). Measured: an Edit rule
+       stops the Edit and Write tools AND a shell redirect into the path; a Write(...) rule is not a
+       file rule at all, Claude Code says so and ignores it. Deleting the marker would hand the next
+       session the tokens; removing the rule from CLAUDE.md is undone at the next board start. */
+    'Edit(.claude/**)', 'Edit(.kosmos-setup-guide)', 'Edit(CLAUDE.md)',
+  ];
+  if (home && path.resolve(home) !== path.resolve(require('os').homedir())) {
+    /* A Kosmos home that is not the login home (a named world, a test): its credential folders too. */
+    for (const d of ['.ssh', '.aws', '.config', '.claude', '.codex', '.gemini', '.grok', '.claude-*', '.codex-*', '.gemini-*', '.grok-*']) rules.push(`Read(${abs(path.join(home, d))}/**)`);
+    rules.push(`Read(${abs(path.join(home, '.claude.json'))})`);
+  }
+  if (dataRoot) rules.push(`Read(${abs(dataRoot)}/**)`);
+  return rules;
+}
+
+/*
+ * Write the guide's guards into its folder: the marker (bin/agent-supervisor.sh reads it to launch the
+ * guide with none of the tokens Kosmos holds for the person) and the deny rules, merged into any
+ * settings already there. create.js calls this BEFORE the guide can start; refreshGuideGuards calls it
+ * again at board start, so a guide made before #3769 is guarded from its next session.
+ * { ok: true } | { ok: false, because }. Never throws.
+ */
+function guardGuideFolder(dir, agentName, deps = {}) {
+  try {
+    if (!dir || !agentName) return { ok: false, because: 'no folder' };
+    fs.writeFileSync(path.join(dir, GUIDE_MARKER), `${agentName}\n`, { flag: 'w' });
+    const settingsDir = path.join(dir, '.claude');
+    fs.mkdirSync(settingsDir, { recursive: true });
+    const file = path.join(settingsDir, 'settings.json');
+    let cur = {};
+    try {
+      const parsed = JSON.parse(fs.readFileSync(file, 'utf8'));
+      if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) cur = parsed;
+    } catch { cur = {}; }
+    const perms = cur.permissions && typeof cur.permissions === 'object' && !Array.isArray(cur.permissions) ? cur.permissions : {};
+    const had = Array.isArray(perms.deny) ? perms.deny.filter((r) => typeof r === 'string') : [];
+    const deny = [...new Set([...had, ...guideDenyRules(deps)])];
+    const next = { ...cur, permissions: { ...perms, deny } };
+    /* Sandboxed Bash (Ice Cream Kitty's review): the deny rules above bind Claude Code's own tools, and
+       a shell command such as `node -e readFileSync('.env')` or `grep -r` is a subprocess they do not
+       reach. The sandbox applies the same deny paths to EVERY subprocess at the operating system.
+       Measured with real runs on this Mac: node read a denied file with EPERM and grep found nothing,
+       where the unsandboxed control printed both. allowLocalBinding lets the shell reach the board on
+       localhost, which the `kosmos` command needs (measured: without it curl to 127.0.0.1 fails); the
+       guide's `kosmos reply` then reaches the board on its agent token, since the sandbox also keeps
+       it from reading the board token (install/kosmos presents the agent token for that reason).
+       macOS only: that is where it is measured, and where Claude Code's sandbox is Seatbelt. */
+    if ((deps.platform || process.platform) === 'darwin') {
+      const sb = cur.sandbox && typeof cur.sandbox === 'object' && !Array.isArray(cur.sandbox) ? cur.sandbox : {};
+      const net = sb.network && typeof sb.network === 'object' && !Array.isArray(sb.network) ? sb.network : {};
+      /* allowUnsandboxedCommands false: without it a refused command can simply be re-run with
+         dangerouslyDisableSandbox, and every Kosmos agent runs with --dangerously-skip-permissions, so the
+         retry is approved and the file is read. Measured: the retry printed the canary; with this set it
+         did not (round 1 of this branch's review). */
+      next.sandbox = { ...sb, enabled: true, autoAllowBashIfSandboxed: true, allowUnsandboxedCommands: false, network: { ...net, allowLocalBinding: true } };
+    }
+    const tmp = `${file}.${process.pid}.new`;
+    fs.writeFileSync(tmp, JSON.stringify(next, null, 2) + '\n', 'utf8');
+    fs.renameSync(tmp, file);
+    return { ok: true };
+  } catch (err) {
+    return { ok: false, because: String((err && err.message) || err) };
+  }
+}
+
+/* #3769, for a guide made before it: add the secrets section to its instructions if it has none (its
+   heading is the marker), and write its folder's guards. Once at board start; the running guide reads
+   its instructions and settings from its next session. { rule: boolean, guarded: boolean } */
+function refreshGuideGuards({ name = guideName(), isGuide = isGuideFolder } = {}) {
+  const out = { rule: false, guarded: false };
+  if (!name || !isGuide(name)) return out;
+  const dir = guideFolder(name);
+  if (dir) out.guarded = guardGuideFolder(dir, name).ok;
+  const roles = require('./roles');
+  const instructions = require('./instructions');
+  let cur;
+  try { cur = instructions.read(name); } catch { return out; }
+  if (!cur || !cur.exists || typeof cur.text !== 'string' || cur.text.includes(roles.GUIDE_SECRETS_HEADING)) return out;
+  try {
+    const text = cur.text.replace(/\n*$/, '\n\n') + roles.GUIDE_SECRET_LINES.join('\n') + '\n';
+    instructions.write(name, text, cur.version, undefined, { who: 'kosmos', because: 'Kosmos told the setup guide never to share passwords or keys' });
+    out.rule = true;
+  } catch { /* the other two layers still stand */ }
+  return out;
+}
+
 /* Is this agent's folder the one the seed made for the guide? */
 function isGuideFolder(agentName) {
   const dir = guideFolder(agentName);
@@ -246,8 +363,10 @@ function seedSetupAssistant({ createAgent, hasConnectedAccount = defaultHasConne
  * 🔑 ARMED, NOT MERELY "A MODEL IS CONNECTED". Every install that predates this has
  * models connected and no seed flag, so a bare "connected and not seeded" check would
  * put an agent called Josh on every existing board the moment this ships. First-run
- * completion (Giddy Up) ARMS it, so only an install set up from now on gets a guide:
- * at Giddy Up if a model is already connected, or later, the first time one is.
+ * completion (Giddy Up) ARMS it: at Giddy Up if a model is already connected, or later,
+ * the first time one is. Since #3760 (Josh, 2026-09-25) an install that finished first run
+ * before the guide existed is ALSO armed, once, at board start (armExistingInstall below),
+ * so existing installs get the guide too, under the same off switch as a new user.
  */
 function armPath() { return path.join(store.ROOT, 'setup-assistant-armed.json'); }
 
@@ -262,6 +381,33 @@ function armSetupAssistant() {
     if (!fs.existsSync(armPath())) fs.writeFileSync(armPath(), JSON.stringify({ at: new Date().toISOString() }) + '\n', 'utf8');
     return true;
   } catch { return false; }
+}
+
+/*
+ * #3760, Josh 2026-09-25 11:07 (0.6.94): "anybody that has a current install won't have the helper agent. Is
+ * there a way to activate that for existing users and then allow them the ability to turn it off, like we
+ * normally would let new users turn it off". So an install that finished first run BEFORE the guide existed
+ * is armed once, at board start after the update, exactly as Giddy Up arms a new one. Everything after
+ * arming is the new-user path unchanged: ensureGuide still creates at most one guide ever (the seeded flag),
+ * never while the person has turned setup assistance off, and never without a model.
+ * - Only a FINISHED first run arms here. A fresh install still in onboarding is left to Giddy Up, so it is
+ *   unchanged. `firstRunSeen` is firstrun.seen(); a flag we could not read (known: false) does NOT arm:
+ *   first run treats it as done so onboarding is not shown over a working board, but creating an agent
+ *   on a guess is the other direction.
+ * - Already armed is a no-op, so this runs once per install, and a guide someone removed is not re-created
+ *   (the seeded flag is once-ever; the arm file never grants a second).
+ * Returns { armed: true } when it armed now, else { armed: false, reason }. Never throws.
+ */
+function armExistingInstall({ firstRunSeen } = {}) {
+  try {
+    if (isArmed()) return { armed: false, reason: 'already armed' };
+    const seen = typeof firstRunSeen === 'function' ? firstRunSeen() : null;
+    if (!seen || seen.known !== true || seen.done !== true) return { armed: false, reason: 'first run not finished' };
+    fs.writeFileSync(armPath(), JSON.stringify({ at: new Date().toISOString(), via: 'update' }) + '\n', 'utf8');
+    return { armed: true };
+  } catch (err) {
+    return { armed: false, reason: 'could not arm: ' + String((err && err.message) || err) };
+  }
 }
 
 /* The providers, in the order the person sees them (Josh 17:05, #3651), each with the
@@ -308,15 +454,33 @@ function listedModels({ listFor = (mod) => require(mod).list() } = {}) {
   return { rows, failed, fingerprint: rows.map((r) => `${r.provider}:${r.dir}:${r.authMode || ''}:${r.who}`).join('|') };
 }
 
-/* #3660: whether the bubble may use the hosted assistant (Kosmos's own model) here. Only BEFORE the person
-   has any model of their own: rule 7 on #3660 is that once they connect theirs the hosted path is not used,
-   and an install that already has a model but no guide (one from before the guide, a guide removed, both
-   names taken) must not spend the shared allowance on Kosmos's key. And only where a connector is at a
-   real path (remote.hostedAvailable), so a source checkout or a check sandbox never offers it. */
-function hostedWhy({ available = () => require('./remote').hostedAvailable(), listed = () => listedModels() } = {}) {
-  let there = false;
-  try { there = available() === true; } catch { there = false; }
-  if (!there) return { ok: false, why: 'no_connector' };
+/* #3660: the guide agent's card, read as "their model cannot answer right now": the three states #3723
+   surfaces (a usage limit or no credits, a rejected login, the provider unreachable after its retries).
+   { problem, runner } or null. Josh, 2026-09-25 07:22: then the bubble falls back to the hosted assistant
+   for that chat, and goes back to their model once it answers. */
+function guideFailure(card) {
+  const { STATE } = require('./status');   // lazy: status requires create, which the seed uses
+  if (!card || ![STATE.RATE_LIMITED, STATE.AUTH_FAILED, STATE.CONNECTION_LOST].includes(card.state)) return null;
+  return { problem: card.state, runner: typeof card.runner === 'string' && card.runner ? card.runner : null };
+}
+
+/* #3660: whether the bubble may use the hosted assistant (Kosmos's own model) here. Before the person has any
+   model of their own; and, once they have one, only while their guide cannot answer (`failing`, from
+   guideFailure; Josh 2026-09-25 07:22). An install that has a working model, or a model and no guide, does not
+   spend the shared allowance on Kosmos's key. And only where a connector is at a real path
+   (remote.hostedAvailable), so a source checkout or a check sandbox never offers it. */
+function hostedConnector(available = () => require('./remote').hostedAvailable()) {
+  try { return available() === true; } catch { return false; }
+}
+function hostedWhy({ available = undefined, listed = () => listedModels(), failing = () => null } = {}) {
+  if (!hostedConnector(available)) return { ok: false, why: 'no_connector' };
+  /* A guide that cannot answer is on a model they connected (the seed creates a guide only once a model is
+     connected, and setupGuideNow checks its marker), so the listing is not needed to know it. `failing`
+     THROWS when the guide's card could not be read: that is not known, so 'unchecked' (a retryable 503 on
+     the hosted route), never 'own_model', which would end a fallback chat over a board hiccup. */
+  let f = null;
+  try { f = failing(); } catch { return { ok: false, why: 'unchecked' }; }
+  if (f) return { ok: true, why: 'own_model_failing' };
   let got;
   try { got = listed(); } catch { return { ok: false, why: 'unchecked' }; }
   /* A provider that could not be read may be the one they connected: not known, so not offered, and not said to be theirs. */
@@ -325,6 +489,24 @@ function hostedWhy({ available = () => require('./remote').hostedAvailable(), li
   return rows.length === 0 ? { ok: true, why: null } : { ok: false, why: 'own_model' };
 }
 function hostedOffered(deps) { return hostedWhy(deps).ok; }
+
+/* #3734: an existing guide was born told it never creates agents. Replace that paragraph, once, with the
+   current hands-off and make-agents lines, in the marked guide folder only. The running guide reads its
+   new instructions from its next session. { changed: boolean } */
+function refreshGuideRole({ name = guideName(), isGuide = isGuideFolder } = {}) {
+  if (!name || !isGuide(name)) return { changed: false };
+  const roles = require('./roles');
+  const instructions = require('./instructions');
+  let cur;
+  try { cur = instructions.read(name); } catch { return { changed: false }; }
+  const old = roles.HANDS_OFF_LINES_BEFORE_3734.join('\n');
+  if (!cur || !cur.exists || typeof cur.text !== 'string' || !cur.text.includes(old)) return { changed: false };
+  const now = [...(roles.SETUP_HANDS_OFF ? roles.HANDS_OFF_LINES : []), ...(roles.SETUP_MAKES_AGENTS ? roles.MAKE_AGENTS_LINES : [])].join('\n');
+  try {
+    instructions.write(name, cur.text.replace(old, () => now), cur.version, undefined, { who: 'kosmos', because: 'Kosmos let the setup guide make agents for you' });
+    return { changed: true };
+  } catch { return { changed: false }; }
+}
 
 /* Could a guide run on this listed account? create's own gate, plus the default-key check
    above. A live check that errors is uncertainty, not a refusal (create's own rule). */
@@ -392,10 +574,10 @@ function ensureGuide({ createAgent, via = 'model-connected', now = Date.now(), d
   if (!enabled) return Promise.resolve({ seeded: false, reason: 'the automatic setup guide is switched off' });
   /* The cheap, permanent answers first: on an existing (unarmed) or already-seeded install
      the sweep then costs one stat a minute. */
-  if (!isArmed()) return Promise.resolve({ seeded: false, reason: 'not armed (this install was set up before the guide existed)' });
+  if (!isArmed()) return Promise.resolve({ seeded: false, reason: 'not armed (first run is not finished)' });
   if (createdHere || setupAssistantSeeded()) return Promise.resolve({ seeded: false, reason: 'already seeded' });
   if (namesTaken) return Promise.resolve({ seeded: false, reason: 'both guide names are taken by other agents' });
-  /* "Don't show this again" (the bubble's switch) also means: no guide agent later. */
+  /* "Close forever" (the bubble's switch) also means: no guide agent later. */
   let wanted = true;
   try { wanted = settingFrom(deps.settings !== undefined ? deps.settings : store.readSettings()).on; } catch { wanted = true; }
   if (!wanted) return Promise.resolve({ seeded: false, reason: 'the person turned setup assistance off' });
@@ -451,8 +633,8 @@ function resetEnsureGuideForTests() { inFlight = null; lastFailedAt = 0; failure
  * Stored in the board's settings (/api/settings), not the page's storage, for the
  * reason the tips switch (#3574) gives: page storage can come back empty, and then a
  * bubble somebody closed forever would come back.
- *   on     the Settings switch. false = "Don't show this again": no bubble at all.
- *   asked  the first-X choice (Close for now / Don't show this again) has been offered,
+ *   on     the Settings switch. false = "Close forever": no bubble at all.
+ *   asked  the first-X choice (Close for now / Close forever) has been offered,
  *          so later closes just close.
  * The bubble, the X dialog and the Settings row are Mona's; this is only the state.
  */
@@ -490,9 +672,16 @@ module.exports = {
   SETUP_ROLE_KEY,
   armPath,
   armSetupAssistant,
+  guideDenyRules,
+  guardGuideFolder,
+  refreshGuideGuards,
+  armExistingInstall,
   listedModels,
   hostedOffered,
   hostedWhy,
+  guideFailure,
+  hostedConnector,
+  refreshGuideRole,
   usable,
   RETRY_AFTER_MS,
   RETRY_MAX_MS,

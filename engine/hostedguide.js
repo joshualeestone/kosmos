@@ -23,6 +23,7 @@
 
 const remote = require('./remote');
 const pagecontext = require('./pagecontext');
+const secretmask = require('./secretmask');
 
 const MAX_TURNS = 8;
 const MAX_CHARS = 2000;
@@ -118,7 +119,11 @@ async function ask({ messages, page } = {}, deps = {}) {
   }
   const b = r.body || {};
   if (r.status === 200 && typeof b.reply === 'string') {
-    return { ok: true, reply: b.reply, remaining: Number.isInteger(b.remaining) ? b.remaining : null };
+    /* #3769: the hosted assistant is the setup guide too, so its reply is masked here, on the board,
+       whatever the coordinator did (engine/secretmask.js). Logs which kinds fired, never the value. */
+    const masked = secretmask.mask(b.reply);
+    if (masked.fired.length) console.error(`#3769: masked ${secretmask.describeFired(masked.fired)} in the hosted setup assistant's reply`);
+    return { ok: true, reply: masked.text, remaining: Number.isInteger(b.remaining) ? b.remaining : null };
   }
   return {
     ok: false,

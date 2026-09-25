@@ -1,4 +1,4 @@
-// Browser-check-surface: plus-state1 plus-state2 plus-si-email plus-si-code plus-si-second plus-si-enrol plus-si-enrol-sms plus-si-enrol-why plus-si-enrol-confirm plus-si-secret plus-si-register plus-flow plus-status
+// Browser-check-surface: plus-state1 plus-state2 plus-si-cancel plus-si-code-resend plus-si-code-to plus-si-email plus-si-code plus-si-second plus-si-enrol plus-si-enrol-sms plus-si-enrol-why plus-si-enrol-confirm plus-si-secret plus-si-register plus-flow plus-status
 'use strict';
 /**
  * #3478: the Kosmos+ sign-in links open the IN-APP wizard, not the web.
@@ -157,18 +157,45 @@ const visible = (page, sel) => page.evaluate((s) => {
       await page.waitForSelector('#plus-si-email', { state: 'visible', timeout: 5000 });
       chk(!(await visible(page, '#plus-state1')), `[${key}] state 1 gives way to the wizard on the sign-in click`);
 
-      // #12/#13 (once, on the first scenario): "Not now" hides the wizard synchronously and
-      // returns to the marketing state, and re-entering starts from a cleared field rather
-      // than a stale one. Scenario-independent behavior, so exercise it just here.
+      // #12/#13 (once, on the first scenario): "Sign out" (#3796, was "Not now") hides the wizard
+      // synchronously and returns to the marketing state, re-entering starts from a cleared field
+      // rather than a stale one, and (#3796) it tells the engine to drop the held sign-in.
       if (key === 'existing-2fa') {
         await page.fill('#plus-signin-email', 'stale@example.com');
+        chk((await page.textContent('#plus-si-cancel')).trim() === 'Sign out', `[${key}] #3796 the wizard's way out reads "Sign out"`, await page.textContent('#plus-si-cancel'));
+        const cancelPost = page.waitForRequest((r) => r.method() === 'POST' && /\/api\/remote\/signin-cancel$/.test(r.url()), { timeout: 3000 }).then(() => true, () => false);
         await page.click('#plus-si-cancel');
-        chk(await visible(page, '#plus-state1'), `[${key}] "Not now" returns to the marketing state`);
-        chk(!(await visible(page, '#plus-si-email')), `[${key}] "Not now" hides the wizard`);
+        chk(await cancelPost, `[${key}] #3796 "Sign out" asks the engine to drop the held sign-in (POST signin-cancel)`);
+        chk(await visible(page, '#plus-state1'), `[${key}] "Sign out" returns to the marketing state`);
+        chk(!(await visible(page, '#plus-si-email')), `[${key}] "Sign out" hides the wizard`);
         await page.click('#' + entry);
         await page.waitForSelector('#plus-si-email', { state: 'visible', timeout: 5000 });
         const stale = await page.inputValue('#plus-signin-email');
         chk(stale === '', `[${key}] re-entering the wizard clears the stale field`, JSON.stringify(stale));
+      }
+
+      // #3796 (Josh, 14:00): the email step's copy, a 75% field, and the card centred vertically.
+      // The card is centred in the room between the section's top and the window's bottom
+      // (less the 32px foot margin plusSiMeasure leaves), so the gap above equals the gap below.
+      const centred = () => page.evaluate(() => {
+        const sec = document.getElementById('s-sec-plus').getBoundingClientRect();
+        const c = document.getElementById('plus-state2').getBoundingClientRect();
+        return { above: Math.round(c.top - sec.top), below: Math.round(innerHeight - 32 - c.bottom) };
+      });
+      if (key === 'existing-2fa') {
+        const e = await page.evaluate(() => {
+          const card = document.getElementById('plus-state2'); const cs = getComputedStyle(card);
+          const inner = card.clientWidth - parseFloat(cs.paddingLeft) - parseFloat(cs.paddingRight);
+          return { h: card.querySelector('h3').textContent.trim(), label: document.querySelector('label[for="plus-signin-email"]').textContent.trim(),
+            ratio: document.getElementById('plus-signin-email').getBoundingClientRect().width / inner,
+            gone: !card.textContent.includes('You have Kosmos+') };
+        });
+        chk(e.h === 'Sign in to activate Kosmos+', `[${key}] #3796 the heading is "Sign in to activate Kosmos+"`, e.h);
+        chk(e.label === 'Enter your Kosmos+ account email address', `[${key}] #3796 the email label`, e.label);
+        chk(e.gone, `[${key}] #3796 the "You have Kosmos+..." line is gone`);
+        chk(e.ratio > 0.7 && e.ratio < 0.8, `[${key}] #3796 the email field is about 75% of the card`, e.ratio.toFixed(3));
+        const g = await centred();
+        chk(g.above > 40 && Math.abs(g.above - g.below) <= 4, `[${key}] #3796 the email step's card is centred vertically`, JSON.stringify(g));
       }
 
       // Step: email -> code.
@@ -179,9 +206,13 @@ const visible = (page, sel) => page.evaluate((s) => {
       // Scenario-independent, so once (like "Not now" above).
       const themeBefore = key === 'existing-2fa' ? await page.evaluate(() => document.documentElement.getAttribute('data-theme')) : null;
       for (const theme of key === 'existing-2fa' ? ['light', 'dark'] : []) {
+        /* #3796 (Josh, 13:57): the WIZARD's fields are now the site's dark field ("not a white slab on
+           navy"), light ink on #16223e; the enrol flow's (#plus-flow) stay #3596's white. Either way the
+           typed text is readable in both themes, which is what #3596 guarded. */
         const r = await page.evaluate((t) => {
           document.documentElement.setAttribute('data-theme', t);
           const inputs = [...document.querySelectorAll('#s-sec-plus input.tk-inp')];
+          const WANT = (i) => i.closest('#plus-state2') ? 'rgb(230, 235, 247) on rgb(22, 34, 62)' : 'rgb(20, 22, 26) on rgb(255, 255, 255)';
           const f = document.getElementById('plus-signin-email').getBoundingClientRect();
           const btn = document.getElementById('plus-signin-code').getBoundingClientRect();
           const probe = document.getElementById('plus-signin-email');
@@ -190,12 +221,14 @@ const visible = (page, sel) => page.evaluate((s) => {
           probe.classList.remove('bad');
           const okBorder = getComputedStyle(probe).borderTopColor;
           return { gap: btn.top - f.bottom, n: inputs.length, badBorder, okBorder,
-            bad: inputs.map((i) => { const c = getComputedStyle(i); return { id: i.id, raw: c.color + ' on ' + c.backgroundColor }; })
-              .filter((x) => x.raw !== 'rgb(20, 22, 26) on rgb(255, 255, 255)').map((x) => x.id + ': ' + x.raw) };
+            wiz: inputs.filter((i) => i.closest('#plus-state2')).length,
+            bad: inputs.map((i) => { const c = getComputedStyle(i); return { id: i.id, raw: c.color + ' on ' + c.backgroundColor, want: WANT(i) }; })
+              .filter((x) => x.raw !== x.want).map((x) => x.id + ': ' + x.raw) };
         }, theme);
         chk(r.n === 10, `[${key}] #3596 CONTROL: the Kosmos+ pane's 10 inputs were found (${theme})`, String(r.n));
         chk(r.badBorder !== r.okBorder, `[${key}] #3596 a field marked .bad still shows the error border (${theme})`, r.badBorder + ' vs ' + r.okBorder);
-        chk(r.bad.length === 0, `[${key}] #3596 every Kosmos+ input is #14161a on #ffffff (${theme})`, r.bad.join(' | '));
+        chk(r.wiz === 7 && r.n - r.wiz === 3, `[${key}] #3796 CONTROL: 7 wizard inputs and 3 enrol-flow inputs (${theme})`, r.wiz + '/' + (r.n - r.wiz));
+        chk(r.bad.length === 0, `[${key}] #3596/#3796 wizard inputs are light on #16223e, enrol-flow inputs #14161a on #ffffff (${theme})`, r.bad.join(' | '));
         chk(r.gap >= 8, `[${key}] #3596 a gap separates the email field from "Email me a code" (${theme})`, String(r.gap));
       }
       if (key === 'existing-2fa') {
@@ -204,6 +237,26 @@ const visible = (page, sel) => page.evaluate((s) => {
       await page.click('#plus-signin-code');
       await page.waitForSelector('#plus-si-code', { state: 'visible', timeout: 5000 });
       chk(true, `[${key}] email step advances to the code step`);
+      if (key === 'existing-2fa') {
+        // #3796 (Josh, 13:57): one short line, a compact six-digit field, a blue Verify, resend as a link.
+        const c = await page.evaluate(() => {
+          const inp = document.getElementById('plus-si-code-in'); const cs = getComputedStyle(inp);
+          const go = getComputedStyle(document.getElementById('plus-si-code-go'));
+          const rs = document.getElementById('plus-si-code-resend');
+          return { lead: document.querySelector('#plus-si-code .plus-si-lead').textContent.trim(), w: inp.getBoundingClientRect().width,
+            align: cs.textAlign, mono: /mono|menlo/i.test(cs.fontFamily), otp: inp.getAttribute('autocomplete'), mode: inp.getAttribute('inputmode'),
+            goBg: go.backgroundImage + ' ' + go.backgroundColor, rsTag: rs.tagName, rsText: rs.textContent.trim(),
+            labelShown: document.querySelector('label[for="plus-si-code-in"]').getBoundingClientRect().width > 1 };
+        });
+        chk(c.lead === 'We sent a code to you@example.com.', `[${key}] #3796 the code step's one line names the email`, c.lead);
+        chk(c.w > 90 && c.w < 200 && c.align === 'center' && c.mono, `[${key}] #3796 the code field is compact, centred and monospace`, JSON.stringify(c));
+        chk(c.otp === 'one-time-code' && c.mode === 'numeric', `[${key}] #3796 the code field offers one-time-code autofill and a number pad`);
+        chk(/58, 104, 216|47, 87, 196/.test(c.goBg) && !/227, 179, 65|245, 197/.test(c.goBg), `[${key}] #3796 Verify is Kosmos+ blue, not gold`, c.goBg);
+        chk(c.rsTag === 'A' && c.rsText === 'Send again', `[${key}] #3796 resend is a small "Send again" link`, c.rsTag + ' ' + c.rsText);
+        chk(!c.labelShown, `[${key}] #3796 the "code from the email" label is for screen readers only`);
+        const g = await centred();
+        chk(g.above > 40 && Math.abs(g.above - g.below) <= 4, `[${key}] #3796 the code step's card is centred vertically`, JSON.stringify(g));
+      }
 
       // Step: email code -> the branch signin-verify chose.
       await page.fill('#plus-si-code-in', '123456');
@@ -274,6 +327,71 @@ const visible = (page, sel) => page.evaluate((s) => {
       await page.screenshot({ path: path.join(OUT, `plus-signin-${key}.png`), fullPage: false });
 
       chk(errs.length === 0, `[${key}] no page errors`, errs.join(' | '));
+      await page.close();
+    }
+    /* #3796 (review): Sign out while work is still in flight. The engine side is engine/remote.test.js; this
+       is what the person SEES. (1) A verify that answers AFTER Sign out must not move the next sign-in to a
+       step. (2) A resend cooldown running at Sign out must not keep writing into the next sign-in's status
+       line. (3) A secondary button on navy carries a visible stroke. */
+    {
+      const k = 'sign-out-in-flight';
+      const page = await browser.newPage({ viewport: { width: 1400, height: 950 }, colorScheme: 'light' });
+      page.__url = URL;
+      const errs = [];
+      page.on('pageerror', (e) => errs.push(e.message));
+      await openPlusState1(page);
+      let startAnswer = { status: 200, body: { ok: true, stage: 'code_sent' } };
+      await page.route('**/api/remote/signin-**', async (route, req) => {
+        const p = req.url().replace(/^.*\/api\/remote\//, '');
+        if (p === 'signin-verify') { await new Promise((r) => setTimeout(r, 1500)); route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ ok: true, stage: 'second' }) }); return; }
+        if (p === 'signin-start') { route.fulfill({ status: startAnswer.status, contentType: 'application/json', body: JSON.stringify(startAnswer.body) }); return; }
+        route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ ok: true, stage: 'enrol_second_factor', sms_available: true }) });
+      });
+      const enter = async () => { await page.click('#plus-signin-top'); await page.waitForSelector('#plus-si-email', { state: 'visible', timeout: 5000 }); };
+      await enter();
+      await page.fill('#plus-signin-email', 'you@example.com');
+      await page.click('#plus-signin-code');
+      await page.waitForSelector('#plus-si-code', { state: 'visible', timeout: 5000 });
+      await page.fill('#plus-si-code-in', '123456');
+      await page.click('#plus-si-code-go');           // verify now in flight for 1.5s
+      await page.click('#plus-si-cancel');
+      await enter();
+      await page.waitForTimeout(2200);                 // past the late answer
+      chk(await visible(page, '#plus-si-email') && !(await visible(page, '#plus-si-second')), `[${k}] #3796 a verify answering after Sign out does not move the next sign-in to a step`);
+      chk(!(await page.isDisabled('#plus-signin-code')), `[${k}] #3796 after Sign out mid-request, the next sign-in's button is live`);
+      // A cooldown running at Sign out.
+      await page.fill('#plus-signin-email', 'you@example.com');
+      await page.click('#plus-signin-code');
+      await page.waitForSelector('#plus-si-code', { state: 'visible', timeout: 5000 });
+      startAnswer = { status: 400, body: { error: 'you can ask for another code in 30 seconds' } };
+      await page.click('#plus-si-code-resend');
+      await page.waitForTimeout(300);
+      const held = await page.getAttribute('#plus-si-code-resend', 'aria-disabled');
+      chk(held === 'true', `[${k}] #3796 CONTROL: the resend link is held during a cooldown`, String(held));
+      await page.click('#plus-si-cancel');
+      await enter();
+      await page.waitForTimeout(1500);                  // a surviving tick would have written by now
+      const msg = (await page.textContent('#plus-signin-msg')).trim();
+      chk(msg === '', `[${k}] #3796 a cooldown running at Sign out does not write into the next sign-in`, JSON.stringify(msg));
+      chk((await page.getAttribute('#plus-si-code-resend', 'aria-disabled')) === null, `[${k}] #3796 the next sign-in's resend link is not left held`);
+      // The stroke on a secondary button (the enrol step's "Text me the codes").
+      startAnswer = { status: 200, body: { ok: true, stage: 'code_sent' } };
+      await page.unroute('**/api/remote/signin-**');
+      await page.route('**/api/remote/signin-**', (route, req) => {
+        const p = req.url().replace(/^.*\/api\/remote\//, '');
+        const body = p === 'signin-start' ? { ok: true, stage: 'code_sent' } : { ok: true, stage: 'enrol_second_factor', sms_available: true, why_authenticator: 'x' };
+        route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(body) });
+      });
+      await page.fill('#plus-signin-email', 'you@example.com');
+      await page.click('#plus-signin-code');
+      await page.waitForSelector('#plus-si-code', { state: 'visible', timeout: 5000 });
+      await page.fill('#plus-si-code-in', '123456');
+      await page.click('#plus-si-code-go');
+      await page.waitForSelector('#plus-si-enrol-sms', { state: 'visible', timeout: 5000 });
+      const stroke = await page.evaluate(() => { const c = getComputedStyle(document.getElementById('plus-si-enrol-sms')); return { w: c.borderTopWidth, col: c.borderTopColor, style: c.borderTopStyle }; });
+      const alpha = /rgba\([^)]*,\s*([\d.]+)\)/.exec(stroke.col);
+      chk(stroke.style === 'solid' && parseFloat(stroke.w) >= 1 && (!alpha || parseFloat(alpha[1]) >= 0.2), `[${k}] #3796 a secondary button on navy has a visible stroke`, JSON.stringify(stroke));
+      chk(errs.length === 0, `[${k}] no page errors`, errs.join(' | '));
       await page.close();
     }
   } finally {

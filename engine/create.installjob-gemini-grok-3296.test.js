@@ -7,10 +7,10 @@
  * runner is read from the agent's own profile (recordedRunner), so it is never silently
  * re-installed as a claude job -- the mis-launch the old root refusal guarded against.
  *
- * WIN32 still refuses: engine/win32launch.js has no gemini/grok substrate and it LAUNCHES
- * rather than just registering, so the refusal is preserved there (the Windows backfill is
- * carded). The Mac-success behavior itself is pinned in engine/create.test.js; this file
- * pins the win32 refusal and the caller (register.repair) wiring.
+ * WIN32 runs them too now (engine/win32keyed.js, driven per turn like codex), so the win32
+ * arm launches a gemini/grok agent with its own runner. The Mac-success behavior itself is
+ * pinned in engine/create.test.js; this file pins the win32 launch and the caller
+ * (register.repair) wiring.
  *
  *   node --test engine/create.installjob-gemini-grok-3296.test.js
  */
@@ -38,7 +38,8 @@ const CLAUDE_BIN = nodePath.join(BIN, 'claude');
 const GEMINI_BIN = nodePath.join(BIN, 'gemini');
 const GROK_BIN = nodePath.join(BIN, 'grok');
 const TMUX_BIN = nodePath.join(BIN, 'tmux');
-for (const b of [CLAUDE_BIN, GEMINI_BIN, GROK_BIN, TMUX_BIN]) fs.writeFileSync(b, '#!/bin/sh\nexit 0\n', { mode: 0o755 });
+const AGY_BIN = nodePath.join(BIN, 'agy'); // #3568: the override must keep the basename agy
+for (const b of [CLAUDE_BIN, GEMINI_BIN, GROK_BIN, TMUX_BIN, AGY_BIN]) fs.writeFileSync(b, '#!/bin/sh\nexit 0\n', { mode: 0o755 });
 const BINS = { claudeBin: CLAUDE_BIN, tmuxBin: TMUX_BIN, geminiBin: GEMINI_BIN, grokBin: GROK_BIN };
 /* register.repair does NOT forward bin paths to installJob (it passes only model/platform/
    runner), so installJob resolves them via runners.resolveBin, which honours these env
@@ -65,7 +66,7 @@ function bornMissingJob(name, provider) {
   fs.mkdirSync(create.AGENTS_DIR, { recursive: true });
   fs.mkdirSync(create.workerDir(name), { recursive: true });
   store.writeProfile(name, { provider });
-  const brief = provider === 'google' ? 'GEMINI.md' : provider === 'xai' ? 'AGENTS.md' : 'CLAUDE.md';
+  const brief = create.briefFilename(create.providerRunner(provider));
   fs.writeFileSync(nodePath.join(create.workerDir(name), brief), '# brief\n', 'utf8');
   return name;
 }
@@ -73,34 +74,53 @@ function bornMissingJob(name, provider) {
 test.beforeEach(() => { create.setRunner(okRun); create.setDryRun(false); });
 test.afterEach(() => { create.setDryRun(true); create.setRunner(null); });
 
-test('#3296: installJob still REFUSES a gemini agent on win32 (no win32launch substrate), writing no job', () => {
+/* Windows now RUNS gemini/grok (engine/win32keyed.js through the per-turn supervisor), so a
+   win32 backfill reaches the win32 launch arm with the agent's OWN runner and binary, never
+   claude's. win32job.install is stubbed to record the spec and refuse, so nothing is
+   registered and no schtasks call is made. The runner files carry a .cmd name so they read
+   runnable on the Windows box as well as on a Mac (mode 755). */
+function win32Backfill(name, provider, bins) {
+  const win32job = require('./win32job');
+  const realPresence = win32job.presence;
+  const realInstall = win32job.install;
+  let spec = null;
+  win32job.presence = () => ({ known: true, registered: false });
+  win32job.install = (s) => { spec = s; return { ok: false, because: 'stubbed: not registered in a test' }; };
+  let r;
+  try { r = create.installJob(name, { ...BINS, ...bins, platform: 'win32' }); }
+  finally { win32job.presence = realPresence; win32job.install = realInstall; }
+  return { r, spec };
+}
+const GEMINI_CMD = nodePath.join(BIN, 'gemini.cmd');
+const GROK_EXE = nodePath.join(BIN, 'grok.exe');
+for (const b of [GEMINI_CMD, GROK_EXE]) fs.writeFileSync(b, '#!/bin/sh\nexit 0\n', { mode: 0o755 });
+
+test('#3296: installJob on win32 starts a gemini agent through the win32 launch arm, as gemini', () => {
   const name = bornMissingJob('ij-win-gemini', 'google');
-  // Force jobPresence to report a registered-check of "no" on win32 so MY gemini/grok
-  // guard is what fires, not the earlier "could not check" (unknown) guard.
-  const win32job = require('./win32job');
-  const realPresence = win32job.presence;
-  win32job.presence = () => ({ known: true, registered: false });
-  let r;
-  try { r = create.installJob(name, { ...BINS, platform: 'win32' }); }
-  finally { win32job.presence = realPresence; }
-  assert.equal(r.ok, false, 'win32 must refuse a gemini backfill (no substrate)');
-  assert.match(String(r.because), /Windows/, 'the win32 refusal must name Windows: ' + r.because);
-  assert.match(String(r.because), /Gemini/, 'the win32 refusal must name the runner: ' + r.because);
+  const { r, spec } = win32Backfill(name, 'google', { geminiBin: GEMINI_CMD });
+  assert.ok(spec, 'the win32 launch arm was reached (no Windows refusal): ' + r.because);
+  assert.equal(spec.runner, 'gemini', 'launched as gemini, never as claude');
+  assert.equal(spec.claudeBin, GEMINI_CMD, "with the Gemini runner's own binary");
+  assert.equal(r.ok, false);
+  assert.match(String(r.because), /stubbed/, 'the only refusal is the stub standing in for schtasks');
 });
 
-test('#3391: installJob still REFUSES a grok agent on win32', () => {
+test('#3391: installJob on win32 starts a grok agent through the win32 launch arm, as grok', () => {
   const name = bornMissingJob('ij-win-grok', 'xai');
-  const win32job = require('./win32job');
-  const realPresence = win32job.presence;
-  win32job.presence = () => ({ known: true, registered: false });
-  let r;
-  try { r = create.installJob(name, { ...BINS, platform: 'win32' }); }
-  finally { win32job.presence = realPresence; }
-  assert.equal(r.ok, false, 'win32 must refuse a grok backfill');
-  assert.match(String(r.because), /Windows/, r.because);
-  assert.match(String(r.because), /Grok/, r.because);
+  const { r, spec } = win32Backfill(name, 'xai', { grokBin: GROK_EXE });
+  assert.ok(spec, 'the win32 launch arm was reached (no Windows refusal): ' + r.because);
+  assert.equal(spec.runner, 'grok');
+  assert.equal(spec.claudeBin, GROK_EXE);
 });
 
+/* #3568 round 10: a backfill tells the person it will run on their main Claude account only
+   when it is a Claude agent. A Gemini agent with no account runs on its own default, not Claude's. */
+test('#3568: a Gemini backfill does not say it will run on the main Claude account', () => {
+  const name = bornMissingJob('ij-gem-acct', 'google');
+  const r = create.installJob(name, { ...BINS, platform: process.platform });
+  assert.equal(r.ok, true, String(r.because));
+  assert.equal(r.guessed.account, null, 'a Gemini agent was told it runs on a Claude account');
+});
 test('#3296: installJob refuses a gemini backfill when the Gemini runner is not installed, naming it', () => {
   const name = bornMissingJob('ij-no-gemini-runner', 'google');
   const r = create.installJob(name, { ...BINS, geminiBin: nodePath.join(BIN, 'gemini-not-here') });
@@ -142,3 +162,58 @@ test('#3296/#3391: register.repair backfills a google agent as GEMINI and an xai
   assert.equal(create.readJob('rep-grok').runner, 'grok', 'repair backfilled the xai agent as the wrong runner');
   assert.equal(create.readJob('rep-claude').runner, 'claude', 'control: the claude agent should repair as claude');
 });
+
+/* #3568: the Antigravity runner in the backfill/repair path, with its flag on (off is tested below). */
+function withAgyOn(fn) {
+  const was = process.env.AGENT_WORKFORCE_ANTIGRAVITY;
+  process.env.AGENT_WORKFORCE_ANTIGRAVITY = '1';
+  try { return fn(); } finally {
+    if (was === undefined) delete process.env.AGENT_WORKFORCE_ANTIGRAVITY; else process.env.AGENT_WORKFORCE_ANTIGRAVITY = was;
+  }
+}
+test('#3568: with the flag off, installJob refuses an Antigravity agent and writes no job', () => {
+  const was = process.env.AGENT_WORKFORCE_ANTIGRAVITY;
+  delete process.env.AGENT_WORKFORCE_ANTIGRAVITY;
+  try {
+    const name = bornMissingJob('ij-agy-off', 'antigravity');
+    const r = create.installJob(name, { ...BINS, antigravityBin: AGY_BIN, platform: process.platform });
+    assert.equal(r.ok, false, 'the flag is off, so nothing may start an Antigravity agent');
+    assert.match(String(r.because), /switched off/);
+    assert.equal(create.readJob(name), null, 'a refused backfill must write no job');
+  } finally {
+    if (was === undefined) delete process.env.AGENT_WORKFORCE_ANTIGRAVITY; else process.env.AGENT_WORKFORCE_ANTIGRAVITY = was;
+  }
+});
+test('#3568: installJob refuses an Antigravity agent on win32 and refuses an account dir for one', () => withAgyOn(() => {
+  const name = bornMissingJob('ij-agy', 'antigravity');
+  const win32job = require('./win32job');
+  const realPresence = win32job.presence;
+  win32job.presence = () => ({ known: true, registered: false });
+  let r;
+  try { r = create.installJob(name, { ...BINS, antigravityBin: AGY_BIN, platform: 'win32' }); }
+  finally { win32job.presence = realPresence; }
+  assert.equal(r.ok, false);
+  assert.match(String(r.because), /Windows/);
+  assert.match(String(r.because), /Antigravity/);
+  assert.doesNotMatch(String(r.because), /created fresh/, 'create refuses Antigravity on Windows too, so do not offer it');
+  const acct = create.installJob(name, { ...BINS, antigravityBin: AGY_BIN, configDir: nodePath.join(SANDBOX, '.claude-other') });
+  assert.equal(acct.ok, false, 'an account dir would be written into the agy job as CLAUDE_CONFIG_DIR');
+  assert.match(String(acct.because), /Antigravity/);
+  assert.equal(create.readJob(name), null, 'a refused backfill must write no job');
+  // A backfill that goes through does not tell the person it will run on their Claude account.
+  const ok = create.installJob(name, { ...BINS, antigravityBin: AGY_BIN, platform: process.platform });
+  assert.equal(ok.ok, true, String(ok.because));
+  assert.equal(ok.guessed.account, null, 'an Antigravity agent has no Claude account to guess');
+}));
+test('#3568: register.repair backfills an Antigravity agent on the antigravity runner, not as Claude', () => withAgyOn(() => {
+  bornMissingJob('rep-agy', 'antigravity');
+  const was = process.env.AGENT_WORKFORCE_ANTIGRAVITY_BIN;
+  process.env.AGENT_WORKFORCE_ANTIGRAVITY_BIN = AGY_BIN;
+  try {
+    const out = register.repair({ ...BINS, platform: process.platform });
+    assert.equal(out.ok, true, 'repair failed: ' + out.because);
+    assert.equal((create.readJob('rep-agy') || {}).runner, 'antigravity', 'repair reinstalled an Antigravity agent as another runner');
+  } finally {
+    if (was === undefined) delete process.env.AGENT_WORKFORCE_ANTIGRAVITY_BIN; else process.env.AGENT_WORKFORCE_ANTIGRAVITY_BIN = was;
+  }
+}));

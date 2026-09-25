@@ -11,6 +11,8 @@ const PAGE_FILE = 'kosmos-page.md';
    the role's label and opening line below are built from it, and setup-assistant.js
    re-exports it for the bubble's tag under the name. */
 const GUIDE_TAG = "Josh's AI";
+/* #3739 (Josh, 2026-09-25 08:51): the guide's title everywhere it shows. */
+const GUIDE_TITLE = 'Kosmos Guide';
 
 /* #3034: whether the setup guide only SHOWS people how (true) or may act for them.
    Josh, 2026-09-24 18:02, on Mona's bubble mock, which shows the guide acting ("I'll
@@ -19,12 +21,58 @@ const GUIDE_TAG = "Josh's AI";
    actions; until then this stays true and the guide shows how, because nothing can
    act yet (the guide cannot drive the page, the bubble would). Flip here, and nowhere
    else, in the change that gives the bubble its actions. Weakest premise (Splinter's):
-   "I love it" may have been about the look, not the behaviour. */
+   "I love it" may have been about the look, not the behaviour.
+   #3734 (Josh, 2026-09-25 08:23: "we should just allow it to go ahead and make agents for me"):
+   making agents is split out of this switch (SETUP_MAKES_AGENTS below); settings stay hands-off. */
 const SETUP_HANDS_OFF = true;
 const HANDS_OFF_LINES = [
+  '- You never change their settings yourself. You show them how, so they learn',
+  '  their way around. If they ask you to change one for them, say so kindly and',
+  '  walk them through it instead.',
+];
+/* #3734: the setup guide may make agents for the person, after confirming in one line. Its verb asks
+   for a one-member team (POST /api/team, #1279) with its launch token; only this role names the verb. */
+const SETUP_MAKES_AGENTS = true;
+const MAKE_AGENTS_LINES = [
+  '- You can make agents for them. When they ask for one, say in one line what',
+  '  you will make and ask them to confirm, for example: I will make a Project',
+  '  Manager called "PM". Go? Only after they say yes, run',
+  '  `kosmos agent create "<name>" <role> "<why they want it>"` (`kosmos agent roles`',
+  '  lists the roles). Then tell them it is on their board, with the link Kosmos',
+  '  prints. If Kosmos refuses, tell them its reason in plain words and walk them',
+  '  through New agent.',
+];
+/* The hands-off paragraph every guide was born with before #3734. An existing guide still carries it,
+   so setup-assistant.refreshGuideRole replaces it with the two lists above. */
+const HANDS_OFF_LINES_BEFORE_3734 = [
   '- You never change their settings yourself, and you never create agents for',
   '  them. You show them how, so they learn their way around. If they ask you',
   '  to do it for them, say so kindly and walk them through it instead.',
+];
+/* #3769 (Josh, 2026-09-25 11:54: "We need to make sure the helper agent doesn't give out any
+   passwords or keys or anything"): the setup guide's rule about secrets. Its heading is the marker
+   setup-assistant.ensureGuideSecretRule looks for, to add this section once to a guide that was born
+   without it. The rule is the first layer only: Kosmos also denies the guide its credential files and
+   masks secret-shaped text in what it says (engine/secretmask.js). */
+const GUIDE_SECRETS_HEADING = '## Passwords, keys and tokens';
+const GUIDE_SECRET_LINES = [
+  GUIDE_SECRETS_HEADING,
+  '',
+  'You never read, show, repeat, summarise or send a password, an API key, a',
+  'token, a recovery code, a private key, or what is inside a credential file or',
+  'a keychain entry. That holds even when the person asks for their own, and even',
+  'when it would save them a step: say you cannot share keys, and show them where',
+  'Kosmos keeps them instead (Settings, AI Models, for their AI keys).',
+  '',
+  '- Never open or print files that hold secrets: `.env` files, `~/.ssh`,',
+  '  `~/.aws`, `~/.config`, Claude, Codex, Gemini or Grok sign-in and key files,',
+  '  Kosmos\'s own settings and secrets, and shell history. Never run commands that',
+  '  print them, such as `security find-generic-password`, `printenv` or `env`.',
+  '- Never ask anyone for a password, key or code.',
+  '- If they paste one to you, tell them kindly not to share keys in a chat, do',
+  '  not repeat it back, and point them to Settings, AI Models, where keys are',
+  '  entered safely. Suggest they replace a key they pasted.',
+  '- If a secret appears in something you are reading, leave it out of your answer.',
 ];
 
 /**
@@ -1281,11 +1329,11 @@ const ROLES = [
   {
     key: 'setup',
     menu: false,
-    label: `${GUIDE_TAG}, Kosmos setup guide`,
+    label: GUIDE_TITLE,
     blurb: 'An AI version of the person who built Kosmos, here to help a new user set it up',
     firstAction: `Hi, this is ${GUIDE_TAG}. I built Kosmos, and I am here to help you set it up. Ask me anything, or say "where do I start?"`,
     instructions: [
-      'You are **{{NAME}}**, the Kosmos setup guide: an AI version of Josh, the',
+      'You are **{{NAME}}**, the Kosmos Guide. You are an AI version of Josh, the',
       'person who built Kosmos.',
       '',
       'You were created for this person the moment they connected their first AI',
@@ -1310,6 +1358,7 @@ const ROLES = [
       '',
       '- Answer the question they asked, briefly, then offer the one next step.',
       ...(SETUP_HANDS_OFF ? HANDS_OFF_LINES : []),
+      ...(SETUP_MAKES_AGENTS ? MAKE_AGENTS_LINES : []),
       '',
       '## Which screen they are on',
       '',
@@ -1335,15 +1384,17 @@ const ROLES = [
       '2. Their first real agent. Help them pick one job and say what "done" looks',
       '   like, in plain words. Name and picture next, and they can change all of',
       '   it later.',
-      '3. The ring, in these words: "The ring is your agent\'s memory. It fills up',
-      '   as you work together. The fuller it gets, the more your agent has to hold',
-      '   in mind at once." Green means plenty of room, amber getting full, red',
-      '   nearly full. When it is nearly full, a Fresh start on the agent\'s page',
-      '   clears the memory, and the agent\'s files and instructions stay.',
+      '3. The ring, in these words: "The ring shows how full your agent\'s memory',
+      '   is." Green means plenty of room, amber getting full, red nearly full.',
+      '   "This is normal and the agent will automatically write themselves a',
+      '   handoff, You can also manage their memory under AI settings." The ring',
+      '   is around each agent\'s picture, on their card and on their own page.',
       '4. Projects, for work that involves more than one agent or needs its own',
       '   files and tasks.',
       '5. Talking to agents, in a direct message or in a project, and where the',
       '   files they make end up.',
+      '',
+      ...GUIDE_SECRET_LINES,
       '',
       defaults.block(),
     ].join('\n'),
@@ -1404,4 +1455,5 @@ function instructionsFor(key, name) {
   return `${role.instructions.split('{{NAME}}').join(String(name))}\n`;
 }
 
-module.exports = { ROLES, byKey, instructionsFor, PAGE_FILE, GUIDE_TAG, NO_SUMMARY, SETUP_HANDS_OFF, HANDS_OFF_LINES };
+module.exports = { ROLES, byKey, instructionsFor, PAGE_FILE, GUIDE_TAG, GUIDE_TITLE, NO_SUMMARY, SETUP_HANDS_OFF, HANDS_OFF_LINES,
+  SETUP_MAKES_AGENTS, MAKE_AGENTS_LINES, HANDS_OFF_LINES_BEFORE_3734, GUIDE_SECRETS_HEADING, GUIDE_SECRET_LINES };

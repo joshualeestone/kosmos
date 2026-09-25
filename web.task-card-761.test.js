@@ -76,7 +76,7 @@ function runPaintProjectTasks(project, showAll) {
   const doc = stubDoc();
   const src = [
     'let TK_SHOW_ALL = ' + (showAll ? 'true' : 'false') + ';',
-    fnSource('tkFace'), fnSource('taskClaimHtml'), fnSource('tkMemberName'),
+    fnSource('tkFace'), fnSource('tkSayPart'), fnSource('claimNotReported'), fnSource('taskClaimHtml'), fnSource('tkMemberName'),
     'let TK_LIST_HTML = null;',
     fnSource('paintProjectTasks'),
   ].join('\n');
@@ -92,7 +92,7 @@ test('a single-assignee task shows a face and a status underneath the name, not 
     number: 1, sentence: 'Write the brief', who: 'april', closedAt: null,
     parts: [{ id: 1, who: 'april', sentence: 'Write the brief', closedAt: null }],
     progress: { done: 0, total: 1, closed: false, assigned: 1 },
-    claim: { claimed: true },
+    claim: { claimed: true, about: 'april' },
   };
   const doc = runPaintProjectTasks({ ...PROJECT, tasks: [t] });
   const html = doc.els['pj-tasklist'].innerHTML;
@@ -109,7 +109,7 @@ test('the unknown claim shows the ENGINE\'S REAL REASON, never the generic "we c
     number: 2, sentence: 'Ship it', who: 'april', closedAt: null,
     parts: [{ id: 1, who: 'april', sentence: 'Ship it', closedAt: null }],
     progress: { done: 0, total: 1, closed: false, assigned: 1 },
-    claim: { claimed: null, because: 'it last reported 42 minutes ago, too long to still be true' },
+    claim: { claimed: null, about: 'april', because: 'it last reported 42 minutes ago, too long to still be true' },
   };
   const doc = runPaintProjectTasks({ ...PROJECT, tasks: [t] });
   const html = doc.els['pj-tasklist'].innerHTML;
@@ -137,11 +137,51 @@ test('a task assigned only through parts, with no legacy top-level who, is not s
       { id: 2, who: null, sentence: 'Half two', closedAt: null },
     ],
     progress: { done: 0, total: 2, closed: false, assigned: 1 },
-    claim: { claimed: true },
+    claim: { claimed: true, about: 'april' },
   };
   const doc = runPaintProjectTasks({ ...PROJECT, tasks: [t] });
   assert.match(doc.els['pj-tasklist'].innerHTML, /Task 3/,
     'a parts-only-assigned task (no t.who) fell out of the column, the old t.who-only filter\'s bug');
+});
+
+test('an agent holding two parts gets its claim line once on the card, not once per part', () => {
+  const t = {
+    number: 3, sentence: 'Two halves', closedAt: null,
+    parts: [{ id: 1, who: 'april', sentence: 'one', closedAt: null }, { id: 2, who: 'april', sentence: 'two', closedAt: null }],
+    progress: { done: 0, total: 2, closed: false, assigned: 2 },
+    claim: { claimed: null, neverReported: true, about: 'april', because: 'this agent has never reported what it is holding' },
+  };
+  const doc = runPaintProjectTasks({ ...PROJECT, tasks: [t] });
+  const text = doc.els['pj-tasklist'].innerHTML.replace(/<[^>]*>/g, ' ');
+  assert.equal((text.match(/has not reported what it is working on yet/g) || []).length, 1, 'the card does not say it exactly once (it repeated it per part, or dropped it)');
+});
+
+test('the card puts the claim beside the agent\'s OPEN part, never a part it has finished', () => {
+  const t = {
+    number: 4, sentence: 'Done then not', closedAt: null,
+    parts: [{ id: 1, who: 'april', sentence: 'finished half', closedAt: '2026-09-24T00:00:00Z' }, { id: 2, who: 'april', sentence: 'open half', closedAt: null }],
+    progress: { done: 1, total: 2, closed: false, assigned: 2 },
+    claim: { claimed: null, neverReported: true, about: 'april', because: 'this agent has never reported what it is holding' },
+  };
+  const doc = runPaintProjectTasks({ ...PROJECT, tasks: [t] });
+  // One chunk per part span (not the tkcard-parts container around them).
+  const partsHtml = doc.els['pj-tasklist'].innerHTML.split(/<span class="tkcard-part(?: none)?">/).slice(1);
+  assert.equal(partsHtml.length, 2, 'the card did not draw both parts (control)');
+  assert.doesNotMatch(partsHtml[0], /has not reported/, 'the note sits beside the finished part');
+  assert.match(partsHtml[1], /has not reported what it is working on yet/, 'the open part lost the note');
+});
+
+test('when the first agent has finished its part, the claim is about the agent still on it, beside that agent', () => {
+  const t = {
+    number: 5, sentence: 'Rex done, Mona on it', closedAt: null,
+    parts: [{ id: 1, who: 'april', sentence: 'done half', closedAt: '2026-09-24T00:00:00Z' }, { id: 2, who: 'mikey', sentence: 'open half', closedAt: null }],
+    progress: { done: 1, total: 2, closed: false, assigned: 2 },
+    claim: { claimed: null, neverReported: false, about: 'mikey', because: 'its record could not be read' },
+  };
+  const doc = runPaintProjectTasks({ ...PROJECT, tasks: [t] });
+  const partsHtml = doc.els['pj-tasklist'].innerHTML.split(/<span class="tkcard-part(?: none)?">/).slice(1);
+  assert.doesNotMatch(partsHtml[0], /its record could not be read/, 'the reason sits beside the agent who finished');
+  assert.match(partsHtml[1], /its record could not be read/, 'the reason is not beside the agent still on it');
 });
 
 test('multiple assignees, as the pack drew: one face+name row per part, including an unassigned one, and an honest N of M count', () => {
@@ -153,7 +193,7 @@ test('multiple assignees, as the pack drew: one face+name row per part, includin
       { id: 3, who: null, sentence: 'Check it against the live flow', closedAt: null },
     ],
     progress: { done: 0, total: 3, closed: false, assigned: 2 },
-    claim: { claimed: true },
+    claim: { claimed: true, about: 'april' },
   };
   const doc = runPaintProjectTasks({ ...PROJECT, tasks: [t] });
   const html = doc.els['pj-tasklist'].innerHTML;
@@ -232,7 +272,7 @@ const TASK = {
   number: 1, sentence: 'Write the brief', who: 'april', closedAt: null,
   parts: [{ id: 1, who: 'april', sentence: 'Write the brief', closedAt: null }],
   progress: { done: 0, total: 1, closed: false, assigned: 1 },
-  claim: { claimed: true },
+  claim: { claimed: true, about: 'april' },
 };
 
 /**

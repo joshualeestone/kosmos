@@ -138,8 +138,8 @@ const waitFor = (page, fn, ms = 6000) => page.waitForFunction(fn, null, { timeou
     await page.click('#asb');
     chk(await waitFor(page, () => !document.getElementById('asp').hidden), 'H2 the chat opens');
     const h2 = await state(page);
-    chk(h2.note === 'An AI in Josh\'s voice. Until you connect your own AI, your questions go online to Kosmos\'s AI. Josh isn\'t typing live.', 'H2 it says their questions go online to Kosmos\'s AI until they connect theirs', h2.note);
-    chk(await page.evaluate(() => /I built Kosmos/.test(document.querySelector('#asp-th .asp-empty')?.textContent || '')), 'H2 and greets as the guide does');
+    chk(h2.note === 'Until you connect your own AI, your questions go online to Kosmos\'s AI.', 'H2 it says their questions go online to Kosmos\'s AI until they connect theirs', h2.note);
+    chk(await page.evaluate(() => (document.querySelector('#asp-th .asp-m.him.asp-open') || {}).textContent === 'Hi, I\'m Josh\'s AI guide. Ask me anything about setting up Kosmos.'), 'H2 and opens with the guide\'s own first message (#3738)');
     await page.waitForTimeout(1800);
     chk(pageReports.length === 0, 'H2 no screen report goes to a guide that does not exist (its 404 would reset the bubble)', JSON.stringify(pageReports));
 
@@ -147,9 +147,9 @@ const waitFor = (page, fn, ms = 6000) => page.waitForFunction(fn, null, { timeou
     slow = 1500;
     await page.fill('#asp-say', 'How do I make an agent?');
     await page.keyboard.press('Enter');
-    chk(await waitFor(page, () => !!document.querySelector('#asp-th .asp-wait') && /Thinking/.test(document.querySelector('#asp-th .asp-wait').textContent), 2000), 'H3 while the answer comes, the chat says it is thinking');
+    chk(await waitFor(page, () => { const b = document.getElementById('asp-busy'); return !!b && !b.hidden && b.querySelectorAll('.act i').length === 3 && /Josh is working/.test(b.textContent); }, 2000), 'H3 while the answer comes, the chat shows the app\'s working row (#3733)');
     chk(await waitFor(page, () => [...document.querySelectorAll('#asp-th .asp-m.him')].some((m) => /New agent/.test(m.textContent))), 'H3 the answer shows in the chat');
-    chk(!(await page.$('#asp-th .asp-wait')), 'H3 and the thinking line is gone');
+    chk(await page.evaluate(() => document.getElementById('asp-busy').hidden), 'H3 and the working row is gone once it answers');
     slow = 0;
     const h3 = await state(page);
     chk(asked.length === 1 && JSON.stringify(asked[0].messages) === JSON.stringify([{ role: 'user', content: 'How do I make an agent?' }]) && JSON.stringify(asked[0].page) === JSON.stringify({ screen: 'board' }),
@@ -187,7 +187,7 @@ const waitFor = (page, fn, ms = 6000) => page.waitForFunction(fn, null, { timeou
     await page.waitForTimeout(2500);
     chk(await page.evaluate(() => ASB.readOnce === true && document.getElementById('asb-nudge').hidden), 'H6 and no nudge once the person has asked (after the conversation was read)');
     await page.click('#asb');
-    chk(await waitFor(page, () => document.querySelectorAll('#asp-th .asp-m').length === 6), 'H6 the earlier conversation is still there', JSON.stringify((await state(page)).you));
+    chk(await waitFor(page, () => document.querySelectorAll('#asp-th .asp-m:not(.asp-open)').length === 6), 'H6 the earlier conversation is still there', JSON.stringify((await state(page)).you));
     await page.click('#asp-fold');
 
     // H7: Settings shows the switch while the hosted assistant stands in.
@@ -223,7 +223,7 @@ const waitFor = (page, fn, ms = 6000) => page.waitForFunction(fn, null, { timeou
     await page.keyboard.press('Enter');
     chk(await waitFor(page, () => document.getElementById('asp-say').value === ''), 'H8 precondition: the question was sent');
     chk(asked.length === before8 && threadPosts.some((u) => /\/api\/agent\/josh\/thread$/.test(u)), 'H8 and it went to the guide\'s thread, not the hosted route', JSON.stringify({ asked: asked.length - before8, threadPosts }));
-    chk((await state(page)).note === 'An AI that knows Kosmos, in Josh\'s voice. Josh isn\'t typing live.', 'H8 the note is the guide\'s own again');
+    chk((await state(page)).note === '', 'H8 the guide has no footer line (#3738), the hosted one is gone');
     await page.click('#asp-fold');
 
     // H9: an app whose connector predates the assistant (501), asked with the chat open: it says so, and the chat
@@ -287,7 +287,7 @@ const waitFor = (page, fn, ms = 6000) => page.waitForFunction(fn, null, { timeou
     await page.waitForTimeout(3000);
     chk(!(await state(page)).bubble && await page.evaluate(() => ASB.hosted === true), 'H10 switched off, the hosted assistant shows no bubble (it is still hosted)');
     // H10b: switched off, with neither a guide nor hosted (they connected their own AI later): the Settings switch is
-    // still there to turn it back on, as "Don't show this again" promises.
+    // still there to turn it back on, as "Close forever" promises.
     fs.writeFileSync(path.join(HOME, '.claude.json'), JSON.stringify({ oauthAccount: { emailAddress: 'person@example.com' } }));
     fs.mkdirSync(path.join(HOME, '.claude'), { recursive: true });
     await boot();
@@ -456,7 +456,7 @@ const waitFor = (page, fn, ms = 6000) => page.waitForFunction(fn, null, { timeou
       fleet.agent('beatrix', { state: 'idle', displayName: 'Beatrix', role: 'Collections Coordinator' })]);
     seedGuide('josh');
     await page.evaluate(() => { ASB.nextFind = 0; });
-    chk(await waitFor(page, () => ASB.guide === 'josh', 12000) && await page.evaluate(() => ASB.sending === true && !!document.querySelector('.asp-wait, #asp-send[disabled]')),
+    chk(await waitFor(page, () => ASB.guide === 'josh', 12000) && await page.evaluate(() => ASB.sending === true && !!document.querySelector('#asp-send[disabled]')),
       'H17 precondition: the guide is adopted while the answer is still on its way');
     await waitFor(page, () => ASB.sending === false, 16000);
     await page.waitForTimeout(300);
@@ -505,6 +505,59 @@ const waitFor = (page, fn, ms = 6000) => page.waitForFunction(fn, null, { timeou
       'H25 the guide gone, the question goes to the hosted assistant that stands in', JSON.stringify({ asked: asked.length - before25, msg: (await state(page)).msg }));
     chk(await page.evaluate(() => !document.getElementById('asp').hidden && ASB.hosted === true && ASB.guide === null), 'H25 and the chat stays open for the answer, now the hosted assistant\'s');
     await page.click('#asp-fold');
+    fleet.install([fleet.agent('beatrix', { state: 'idle', displayName: 'Beatrix', role: 'Collections Coordinator' })]);
+
+    // H27 (#3660 fallback, Josh 2026-09-25 07:22): the guide is there but its OpenAI account is out of credits, so the
+    // board says own_model_failing. The chat says so in one line with the fix, and questions go to the backup (the
+    // hosted route), not the guide's thread. CONTROL: H8, the same guide answering, goes to its thread with no line.
+    // The fleet fixture cannot make a card read out of credits, so the board's answer for that state (#3762's shape,
+    // tested on the board side) is given here; the guide, its thread and everything else are the real board's.
+    fleet.install([fleet.agent('josh', { state: 'idle', displayName: 'Josh', role: 'Setup guide' }),
+      fleet.agent('beatrix', { state: 'idle', displayName: 'Beatrix', role: 'Collections Coordinator' })]);
+    seedGuide('josh');
+    let failing27 = { ok: true, name: 'josh', hosted: true, hostedWhy: 'own_model_failing', problem: 'rate_limited', runner: 'codex' };
+    await page.route(/\/api\/setup-guide$/, (route) => (failing27 && route.request().method() === 'GET'
+      ? route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(failing27) }) : route.continue()));
+    await page.evaluate(() => { ASB.nextFind = 0; });
+    chk(await waitFor(page, () => ASB.guide === 'josh' && !!ASB.fallback, 20000), 'H27 the bubble takes the guide, and knows it cannot answer');
+    await page.click('#asb');
+    chk(await waitFor(page, () => document.querySelector('#asp .asp-note').textContent === "Your OpenAI account isn't answering right now, so I'm helping on Kosmos's backup. Add credits with OpenAI, or wait until the limit resets.", 6000),
+      'H27 the chat says so in one line, with the fix', JSON.stringify((await state(page)).note));
+    if (SHOTS) await page.screenshot({ path: path.join(SHOTS, 'fallback-light.png') });
+    answer = { status: 200, body: { reply: 'Your OpenAI account needs credits. Here is how.', remaining: 25 } };
+    const before27 = asked.length, posts27 = threadPosts.length;
+    await page.fill('#asp-say', 'Why is nothing working?');
+    await page.keyboard.press('Enter');
+    chk(await waitFor(page, () => [...document.querySelectorAll('#asp-th .asp-m.him')].some((m) => m.textContent === 'Your OpenAI account needs credits. Here is how.'), 8000)
+      && asked.length === before27 + 1 && threadPosts.length === posts27, 'H27 the question goes to the backup, not the guide\'s thread, and the answer shows',
+      JSON.stringify({ asked: asked.length - before27, posts: threadPosts.length - posts27 }));
+    chk(await page.evaluate(() => document.getElementById('asp-say').value === '' && !document.getElementById('asp').hidden && document.querySelector('#asp .asp-note').textContent !== 'This chat has ended.'),
+      'H27 the words left the box, and the chat carries on');
+    // H28: the backup refuses with own_model (their AI answers again before the board's 15-second memo says so): back to
+    // the guide, "answering again", the words kept in the box, and nothing ends.
+    answer = { status: 409, body: { error: 'you\'ve connected your own AI, so this chat has ended', code: 'own_model' } };
+    await page.fill('#asp-say', 'Still there?');
+    await page.keyboard.press('Enter');
+    chk(await waitFor(page, () => document.getElementById('asp-msg').textContent === 'Your own AI is answering again.', 8000), 'H28 a refusal in the fallback says their own AI is answering again', (await state(page)).msg);
+    const h28 = await page.evaluate(() => ({ box: document.getElementById('asp-say').value, open: !document.getElementById('asp').hidden, note: document.querySelector('#asp .asp-note').textContent, fb: ASB.fallback, aside: ASB.asideShowing }));
+    chk(h28.box === 'Still there?' && h28.open && h28.note === '' && h28.fb === null && !h28.aside, 'H28 the words stay in the box for the guide, and the chat does not end', JSON.stringify(h28));
+    // H29: the board then says the guide answers (the real board: its card is idle): the next question goes to the
+    // guide's thread. First the fallback again, so this reads the board's word, not H28's.
+    failing27 = { ok: true, name: 'josh', hosted: true, hostedWhy: 'own_model_failing', problem: 'auth_failed', runner: null };
+    chk(await waitFor(page, () => !!ASB.fallback && document.querySelector('#asp .asp-note').textContent === "Your Claude account isn't answering right now, so I'm helping on Kosmos's backup. Its Claude sign-in has stopped working: open the guide's page and choose Sign in again.", 15000),
+      'H29 precondition: back in the fallback from the board\'s answer (a sign-in problem, no runner reads as Claude)', (await state(page)).note);
+    failing27 = null;
+    const g29 = await (await fetch(URL + '/api/setup-guide')).json();
+    const back29 = g29.ok === true && g29.name === 'josh' && g29.hosted !== true;
+    const before29 = asked.length, posts29 = threadPosts.length;
+    await page.keyboard.press('Enter');
+    chk(back29 && await waitFor(page, () => document.getElementById('asp-say').value === '', 8000) && asked.length === before29 && threadPosts.length === posts29 + 1,
+      'H29 once the board says it answers, the question goes to the guide\'s thread', JSON.stringify({ back29, asked: asked.length - before29, posts: threadPosts.length - posts29 }));
+    chk(await page.evaluate(() => ASB.fallback === null && document.querySelector('#asp .asp-note').textContent === ''), 'H29 and the backup line is gone');
+    chk((await state(page)).msg === 'Your own AI is answering again.', 'H29 and the chat says their own AI is answering again', (await state(page)).msg);
+    await page.unroute(/\/api\/setup-guide$/);
+    await page.click('#asp-fold');
+    unseed();
     fleet.install([fleet.agent('beatrix', { state: 'idle', displayName: 'Beatrix', role: 'Collections Coordinator' })]);
 
     chk(MARK_WORKS && !fs.existsSync(RAN), 'H12 the connector never ran (CONTROL: run by hand at the start, it leaves its mark)', JSON.stringify({ MARK_WORKS }));

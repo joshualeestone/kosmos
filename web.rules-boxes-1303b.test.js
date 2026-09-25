@@ -24,7 +24,7 @@ test('item 3: the Files label is the column tone, not a white box (#3218: header
      made Files a header grid, so the label is a fixed header cell now (no card-as-scroller, no
      sticky). `background: none` keeps the ground showing through, which is the same outcome by
      transparency; the label must never paint its own (white) background. */
-  const r = rule('.pjcard-files > .dlab { grid-column: 1');
+  const r = rule('.pjsplit > .pjcard-files > .dlab { grid-column: 1');
   assert.match(r, /background: none/, 'the Files label paints its own background again (a box), instead of showing the column ground through');
   assert.doesNotMatch(r, /background: var\(--k-surface/, 'the Files label is white again');
 });

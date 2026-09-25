@@ -494,21 +494,7 @@ test('#1938: /api/scan-agents caches the disk walk, and a mutating route invalid
  * a field arriving that no line of the page has ever heard of. Being crude is
  * why it is cheap enough to run every time.
  */
-const SWARM_CARD_UNREAD = '#3564: a card\'s swarm settings, helpers and tokens today. The '
-  + 'page reads them in Mona Lisa\'s UI half, which lands after the engine; that change '
-  + 'takes them off this list';
 const UNREAD_ON_PURPOSE = {
-  swarms: '#3564: the engine says this board can run swarms. The page reads it when the '
-    + 'New agent screen offers a swarm (Mona Lisa\'s UI half, which lands after the '
-    + 'engine); that change takes it off this list',
-  swarm: SWARM_CARD_UNREAD,
-  maxHelpers: SWARM_CARD_UNREAD,
-  activeHelpers: SWARM_CARD_UNREAD,
-  tokensToday: SWARM_CARD_UNREAD,
-  dailyTokenLimit: SWARM_CARD_UNREAD,
-  pausedBecause: SWARM_CARD_UNREAD,
-  helperTokenRatio: SWARM_CARD_UNREAD,
-  metered: SWARM_CARD_UNREAD,
   isAgentPane: 'a classification the board uses to decide what IS an agent; it '
     + 'is an input to the list, never a thing to draw',
   reportedAt: 'the commitments timestamp. The restart dialog shows the age '
@@ -3479,7 +3465,11 @@ test('the runs-on box says model and account in one line, and the Signed-in-as s
 
   /* The branch's two safety additions, pinned the way the sibling
      d-model-msg clear is pinned, so neither can quietly revert. */
-  const od = script.slice(script.indexOf('function openDetail('), script.indexOf('function openDetail(') + 4200);
+  // To the end of openDetail, not a fixed length: #3757's Files resets grew the function and a
+  // fixed 4200-character window stopped reaching this clear although it was still there.
+  const odAt = script.indexOf('function openDetail(');
+  const od = script.slice(odAt, script.indexOf('\nfunction ', odAt + 1));
+  assert.ok(od.length > 4200, 'openDetail moved or shrank; the slice covers ' + od.length + ' characters');
   assert.ok(/getElementById\('d-account-msg'\)[\s\S]{0,60}?\.textContent = ''/.test(od),
     'openDetail no longer clears the account message on a switch');
   /* 📌 ASK THE SOURCE WHERE THE FUNCTION ENDS, rather than guessing a byte count.
@@ -3834,11 +3824,14 @@ test('the board renderers hold the pack grammar: thresholds, states, parity, esc
     assert.match(api.lrow(spoofed), /bar unknown/,
       'CONTROL: the spoofed percent did not degrade to the unknown bar');
 
-    // An UNRECOGNISED server state gets the unknown treatment's WHOLE
-    // honesty payload, note included: the gate reads the treatment
-    // (cardStOf's fallback), not the state's spelling.
-    assert.match(api.card(as(vex, { state: 'martian' })), /not telling you it is fine/,
-      'a future server state renders as Can’t-tell without the note that makes it honest');
+    // An UNRECOGNISED server state gets the unknown treatment (cardStOf's
+    // fallback reads the treatment, not the state's spelling). #3729: with no
+    // note any more; the "Can't tell" badge carries it, and no diagnostic
+    // sentence rides on the card.
+    const martian = api.card(as(vex, { state: 'martian' }));
+    assert.match(martian, /acard unk/, 'a future server state no longer renders as Can’t-tell');
+    assert.match(martian, /st-unknown/, 'a future server state lost the Can’t-tell pill');
+    assert.doesNotMatch(martian, /not telling you it is fine|class="note"/, 'the unknown card has a diagnostic note again (#3729 removed it)');
     const attn88 = api.card(withPct(mara, 88));
     assert.match(attn88, /acard attn/, 'needs_you lost its red card treatment');
     assert.doesNotMatch(attn88, /\bhot\b/,
@@ -3871,7 +3864,8 @@ test('the board renderers hold the pack grammar: thresholds, states, parity, esc
     assert.match(unk, /pres unsure/, 'unknown presence collapsed into on/off');
     assert.match(unk, /st-unknown/, 'unknown lost its own pill');
     assert.match(unk, /could not check/, 'the unknown pill lost its screen-reader words');
-    assert.match(unk, /not telling you it is fine/, 'the unknown card lost its note');
+    // #3729: the unknown card keeps its dashed card, pill and screen-reader words above, and has no note.
+    assert.doesNotMatch(unk, /not telling you it is fine|class="note"/, 'the unknown card has a diagnostic note again (#3729 removed it)');
     const off = api.card(nils);
     assert.match(off, /acard off/, 'stopped lost its off treatment');
     assert.match(off, /pres off/, 'a stopped agent shows a live presence dot');
@@ -8732,7 +8726,7 @@ test('a card names a planned model plainly, while the detail panel keeps its ten
  * now is the nav's order and the sections' order against it, which is what the
  * test pins; membership box by box is in web.agent-nav.test.js.
  */
-test('the agent detail page is eight sections behind a nav, in the ruled order', () => {
+test('the agent detail page is nine sections behind a nav, in the ruled order', () => {
   /* ⚠️ THIS TEST USED TO PIN SOURCE ORDER OF A TWO-COLUMN GRID (Runs on | Memory,
      then Conversation | Instructions). The grid is gone: since agent-page-nav
      (2026-08-23, Mona Lisa's mock, Josh's ask) the page is one section at a
@@ -8763,7 +8757,8 @@ test('the agent detail page is eight sections behind a nav, in the ruled order',
   const secs = [...panel.matchAll(/<section class="dsec" id="d-sec-[a-z]+" data-sec="([a-z]+)"/g)].map((m) => m[1]);
   // The eight sections are unchanged and still in reading order; the folded pair sits right after
   // the section it folds under (memory after model, skills after instr).
-  assert.deepEqual(secs, ['talk', 'model', 'memory', 'instr', 'skills', 'profile', 'term', 'remove'],
+  // #3757: the Files screen, reached from View All beside the sidebar's list, comes last.
+  assert.deepEqual(secs, ['talk', 'model', 'memory', 'instr', 'skills', 'profile', 'term', 'remove', 'files'],
     'the section order moved');
   // #3500: the pills follow Josh's four-pack order (Direct Message, then Profile, Instructions,
   // AI Settings, Advanced), which deliberately does NOT track section order, so the exact pill
@@ -8803,15 +8798,11 @@ test('the detail badge reads the card’s own derivations, and the task is a sep
      header no longer shows the frozen pane title in any state.) */
   const tables = script.slice(tablesFrom, script.indexOf('\n', cardStAt) + 1)
     + '\n' + pageFnSource('stateReason') + '\n' + pageFnSource('taskLine')
-    /* #569: the painter fills the provenance and conflict slots beside the
-       badge, through the same shared derivations the card reads. They join
-       the prelude for the rule stated above: a stub would let this pass
-       while the shipped helpers said something else. */
-    /* ⚠️ `asSentence` JOINS THEM for the same reason (#1199): `conflictNote`
-       now delegates its casing to the one shared dresser, so the prelude
-       without it evaluates a body calling an undefined function. */
+    /* #569: the painter fills the provenance slot beside the badge, through
+       the same shared derivation the card reads. It joins the prelude for the
+       rule stated above: a stub would let this pass while the shipped helper
+       said something else. (#3729 removed the conflict slot and conflictNote.) */
     + '\n' + pageFnSource('saidLine') + '\n' + pageFnSource('asSentence')
-    + '\n' + pageFnSource('conflictNote')
     /* #2019: the badge's `copy` now comes from `stateCopyOf` (the shared state-copy
        derivation), which for 'restarting' names the cause via `restartingLabel`.
        Its GLYPH now comes from `glyphOf` (the shared glyph derivation, which for a
@@ -9671,6 +9662,56 @@ test('the reply route writes as the pane’s agent, whatever the body claims', a
       'a caller wrote into another agent’s private conversation by naming it');
   } finally {
     messagesEngine.setRunner(null);
+    fleet.restore();
+    void board;
+  }
+});
+
+test('#3723 an agent stopped by its account gets one Kosmos line in its thread, and an idle one gets none', async () => {
+  const board = fleet.install([
+    fleet.agent('rae', { state: 'rate_limited' }),
+    fleet.agent('sid', { state: 'auth_failed' }),
+    fleet.agent('ida', { state: 'idle' }),
+  ]);
+  try {
+    const rae = JSON.parse((await req('/api/agent/rae/thread')).body);
+    const rows = rae.messages.filter((m) => m.kind === 'kosmos');
+    assert.equal(rows.length, 1, 'exactly one Kosmos line');
+    assert.match(rows[0].text, /^It looks like rae has hit a Claude usage limit, so it has stopped\./, 'a Claude reading is said as "looks like"');
+    assert.equal(rows[0].from, null, 'Kosmos speaking: not the agent, not the person');
+    assert.equal(rows[0].at, null, 'derived each read, not stored');
+    assert.equal(rows[0].id, 'kosmos-account:rae');
+    const sid = JSON.parse((await req('/api/agent/sid/thread')).body);
+    const signin = sid.messages.find((m) => m.kind === 'kosmos');
+    assert.ok(signin, 'a sign-in that stopped working gets the line too');
+    assert.match(signin.text, /sign-in has stopped working.*Sign in again/);
+    // CONTROL: an idle agent's thread has no Kosmos line, so the line is caused by the state.
+    const ida = JSON.parse((await req('/api/agent/ida/thread')).body);
+    assert.ok(!ida.messages.some((m) => m.kind === 'kosmos'), 'an idle agent got an account line');
+  } finally {
+    fleet.restore();
+    void board;
+  }
+});
+
+test('#3723 no link preview is fetched for Kosmos\'s account line (it quotes screen text)', async () => {
+  const unfurl = require('./engine/unfurl');
+  const fetched = [];
+  unfurl.resetForTests();
+  unfurl.setResolver(async () => ['93.184.216.34']);
+  unfurl.setFetcher(async (url) => { fetched.push(String(url)); return { status: 200, headers: { 'content-type': 'text/html' }, body: Buffer.from('<title>x</title>') }; });
+  const board = fleet.install([
+    fleet.agent('cod', { state: 'rate_limited', runner: 'codex', command: 'node',
+      screen: "• You've hit your usage limit. Visit https://chatgpt.com/codex/settings/usage to purchase more credits\n\n› Ask Codex to do anything" }),
+  ]);
+  try {
+    const body = JSON.parse((await req('/api/agent/cod/thread')).body);
+    const row = body.messages.find((m) => m.kind === 'kosmos');
+    assert.ok(row && /chatgpt\.com\/codex\/settings\/usage/.test(row.text), 'CONTROL: the line carries the link');
+    await new Promise((r) => setTimeout(r, 200));
+    assert.deepEqual(fetched, [], 'the board fetched an address read off an agent\'s screen');
+  } finally {
+    unfurl.resetForTests();
     fleet.restore();
     void board;
   }
@@ -11293,6 +11334,14 @@ test('the in-app sign-in runs end to end through the routes, and the session tok
     // The whole #874 point, asserted at the HTTP boundary: no credential crosses it.
     assert.ok(!('token' in vbody), 'the session token crossed the HTTP boundary: ' + verified.body);
     assert.ok(!('challenge' in vbody), 'a challenge crossed the HTTP boundary: ' + verified.body);
+
+    // #3796: "Sign out" drops the held session, so register is refused until a fresh verify.
+    const cancelled = await postJson('/api/remote/signin-cancel', {});
+    assert.equal(cancelled.status, 200, cancelled.body);
+    const orphan = await postJson('/api/remote/signin-register', { name: 'srv-mac' });
+    assert.equal(orphan.status, 400, 'register spent a session after Sign out: ' + orphan.body);
+    const again = await postJson('/api/remote/signin-verify', { email: 'person@example.com', code: '123456' });
+    assert.equal(JSON.parse(again.body).stage, 'session', again.body);
 
     const done = await postJson('/api/remote/signin-register', { name: 'srv-mac' });
     assert.equal(done.status, 200, done.body);
@@ -13719,7 +13768,7 @@ test('#734: the status route carries the lines it could not read, beside the cou
   assert.equal(c.unreadableSamples.length <= 3, true);
   // The route rebuilds counts with its own countAgents call; the samples must survive that (they did not, once).
   const src = require('node:fs').readFileSync(require('node:path').join(__dirname, 'server.js'), 'utf8');
-  assert.match(src, /countAgents\(agents, snap\.counts && snap\.counts\.unreadableLines, snap\.counts && snap\.counts\.unreadableSamples\)/);
+  assert.match(src, /countAgents\(agents\.filter\(\(a\) => !a\.isGuide\), snap\.counts && snap\.counts\.unreadableLines, snap\.counts && snap\.counts\.unreadableSamples\)/);
 });
 
 /* #761: an assignee is TOLD (its instructions, for its next start) and HEARD

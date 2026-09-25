@@ -754,59 +754,70 @@ function joinTaskClaims(tasks, all, memberOf, roster, project) {
        here: no claim computed, `claim: undefined`, and the card silently short
        one line. Found only because a mutation of the OTHER gate went unnoticed
        and the missing test exposed this one.
-       📌 `who` is the first agent named on the task. The claim is asked of the
+       📌 `who` is the agent the claim is ABOUT: the first holding an OPEN part
+       (claimWho, #3559), not the first ever named. The claim is asked of the
        task as a whole, because "task 15" in a report is a claim about the task;
        per-part claims would need a spelling agents have not been taught. */
     if (!t || t.closedAt) return withParts(t);
-    const who = tasksMod.whoOf(t)[0];
+    /* #3559: the claim is about the agent still holding open work (claimWho), not the first agent
+       ever named: a finished part's agent must not decide "In progress" or be named for work it
+       handed on. Nobody holding open work: no claim (there is no one to ask about). Every claim
+       carries `about`, so every surface names and places it by the same agent. */
+    const who = tasksMod.claimWho(t);
     if (!who || tasksMod.progressOf(t).closed) return withParts(t);
-    // ⚠️ A departed assignee: removal does not unassign (the given-to record
-    // is the person's, and history should not vanish because membership
-    // changed), but the taught convention and the managed block both derive
-    // from membership, so a non-member's report cannot be checked against
-    // this task. Could-not-tell with the real reason -- rendering a
-    // still-fresh "task N" report as a definite claim here would be the
-    // told-when-not shape back through the removal door.
-    if (!members.includes(who)) {
-      return {
-        ...withParts(t),
-        claim: {
-          claimed: null,
-          because: 'this agent is no longer on the project, so what it reports cannot be checked against this task',
-        },
-      };
-    }
-    if (rosterUnreadable) {
-      return {
-        ...withParts(t),
-        claim: {
-          claimed: null,
-          because: 'we could not check which agents are running, so we cannot say who holds this task',
-        },
-      };
-    }
-    if (borrowed(who)) {
-      return {
-        ...withParts(t),
-        claim: {
-          claimed: null,
-          because: 'we cannot tell whether this is the same agent, so we cannot say whether it holds this task',
-        },
-      };
-    }
-    /* #779: an ambiguous number is not refused outright any more; the
-       matcher is asked for the qualified spelling ("task N of <project>"),
-       which alone is a claim here, and a bare "task N" is could-not-tell
-       with the reason and the spelling that would settle it. */
-    if (ambiguous(t, who)) {
-      return { ...withParts(t), claim: tasksMod.claimFor(t, readFor(who), { project: project || null, ambiguous: true }) };
-    }
-    /* One reading, for the first agent named on the task. The claim is asked of
-       the task as a whole, because "task 15" in a report is a claim about the
-       task; per-part claims would need a spelling agents have not been taught
-       and would be a fact nobody computed. */
-    return { ...withParts(t), claim: tasksMod.claimFor(t, readFor(who)) };
+    return aboutWho(who, (() => {
+      // ⚠️ A departed assignee: removal does not unassign (the given-to record
+      // is the person's, and history should not vanish because membership
+      // changed), but the taught convention and the managed block both derive
+      // from membership, so a non-member's report cannot be checked against
+      // this task. Could-not-tell with the real reason -- rendering a
+      // still-fresh "task N" report as a definite claim here would be the
+      // told-when-not shape back through the removal door.
+      if (!members.includes(who)) {
+        return {
+          ...withParts(t),
+          claim: {
+            claimed: null,
+            because: 'this agent is no longer on the project, so what it reports cannot be checked against this task',
+          },
+        };
+      }
+      if (rosterUnreadable) {
+        return {
+          ...withParts(t),
+          claim: {
+            claimed: null,
+            because: 'we could not check which agents are running, so we cannot say who holds this task',
+          },
+        };
+      }
+      if (borrowed(who)) {
+        return {
+          ...withParts(t),
+          claim: {
+            claimed: null,
+            because: 'we cannot tell whether this is the same agent, so we cannot say whether it holds this task',
+          },
+        };
+      }
+      /* #779: an ambiguous number is not refused outright any more; the
+         matcher is asked for the qualified spelling ("task N of <project>"),
+         which alone is a claim here, and a bare "task N" is could-not-tell
+         with the reason and the spelling that would settle it. */
+      if (ambiguous(t, who)) {
+        return { ...withParts(t), claim: tasksMod.claimFor(t, readFor(who), { project: project || null, ambiguous: true }) };
+      }
+      /* One reading, for the agent the claim is about (claimWho). The claim is asked of
+         the task as a whole, because "task 15" in a report is a claim about the
+         task; per-part claims would need a spelling agents have not been taught
+         and would be a fact nobody computed. */
+      return { ...withParts(t), claim: tasksMod.claimFor(t, readFor(who)) };
+    })());
   });
+}
+/* Stamp the agent a claim is about on the claim itself (see joinTaskClaims). */
+function aboutWho(who, row) {
+  return row && row.claim ? { ...row, claim: { ...row.claim, about: who } } : row;
 }
 
 function describe(project, roster, all) {
@@ -888,6 +899,10 @@ function describe(project, roster, all) {
          needs_you question (#763) or a working state (#2837). */
       stateProject: (card && card.isNamedOurs && typeof card.stateProject === 'string' && card.stateProject && (knownIds === null || knownIds.has(card.stateProject))) ? card.stateProject : null,
       stateProjectInferred: Boolean(card && card.isNamedOurs && card.stateProjectInferred === true),
+      /* #3726: where the board's automatic reconnect stands (the /api/status field, carried onto the
+         roster by the server's safeRoster), so a connection Kosmos has given up on counts as needing
+         the person here as it does on the board. Same tied gate as `state`. */
+      reconnect: (card && card.isNamedOurs && 'reconnect' in card && card.reconnect) ? card.reconnect : null,   // `in`: a raw snapshot() roster has no reconnect field
       /* #2808 class 2: carry the card's `stateReportedBy` onto the member (same isNamedOurs gate
          as `state`), so pjMember's shared `cardStOf(m).st==='attn'` render de-alarms a deliberate
          agent question here just as it does on the home card / list row / org node. WITHOUT this,
@@ -1116,7 +1131,16 @@ function describe(project, roster, all) {
          read on the Agents page. needsYouElsewhere is the rest that names ANOTHER project, for a
          screen that wants to say "someone on this project needs you about
          something else"; needsYouUnattributed names none. */
-      needsYou: members.filter((m) => m.present && m.tied && m.state === 'needs_you' && m.stateProject === project.id).length,
+      /* #3726: the board's Issue rule, status.needsPerson ("needs the person": needs_you, a trust
+         wait, a connection Kosmos gave up on), so the project cannot say nothing needs the person
+         while a red member row sits inside it. A needs_you still counts only for the project its
+         question named (#763). A given-up connection is the AGENT's own condition, about no project:
+         it counts on every project the agent is a member of, where its member row is red too. A trust
+         wait is counted by the same rule, but today it never reaches this roster (the route builds
+         those rows offline, so such a member is not `present`); the rule covers it when it does. */
+      needsYou: members.filter((m) => m.present && m.tied && (m.state === 'needs_you'
+        ? m.stateProject === project.id
+        : require('./status').needsPerson(m))).length,
       needsYouElsewhere: members.filter((m) => m.present && m.tied && m.state === 'needs_you' && m.stateProject !== null && m.stateProject !== project.id).length,
       /* ...and about no project at all (nothing named, nothing to inherit): read
          on the Agents page. Kept apart from "elsewhere" so a screen sentence

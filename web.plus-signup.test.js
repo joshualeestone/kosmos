@@ -41,7 +41,7 @@ const PAGE = fs.readFileSync(nodePath.join(__dirname, 'web', 'index.html'), 'utf
  * still covers the exact paragraph the regression appeared in; it just no longer
  * reaches into the sign-IN flow, which is a different concern. */
 function plusPane() {
-  const start = PAGE.indexOf('<b>Sign-up is not open yet.</b>');
+  const start = PAGE.indexOf('id="plus-join-line"');   // #3780: the paragraph's own id, not its words
   assert.notEqual(start, -1, 'the Plus sign-up paragraph has moved or been renamed');
   const end = PAGE.indexOf('id="plus-state2"', start);
   assert.notEqual(end, -1, 'the Plus state-2 block that bounds the sign-up region has moved');
@@ -57,7 +57,7 @@ test('CONTROL: the pane is found and is the right block', () => {
      renamed. Prove we are reading the Plus pane before reading anything into it. */
   const pane = plusPane();
   assert.ok(pane.length > 100 && pane.length < 4000, `implausible pane slice: ${pane.length} chars`);
-  assert.match(pane, /sign-?up/i, 'slice does not discuss sign-up');
+  assert.match(pane, /Joining takes a minute on the Kosmos website/, 'slice is not the joining paragraph (#3780)');
 });
 
 test('CONTROL: the phrasing this forbids would be caught if it came back', () => {

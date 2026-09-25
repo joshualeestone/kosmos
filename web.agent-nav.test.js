@@ -56,8 +56,8 @@ test('each shipped box lives in the section the mock puts it in', () => {
 test('only Talk is on screen before a click, and every section can be reached from the nav', () => {
   const secs = [...PANEL.matchAll(/<section class="dsec" id="d-sec-[a-z]+" data-sec="([a-z]+)"[^>]*?( hidden)?>/g)]
     .map((m) => ({ key: m[1], hidden: !!m[2] }));
-  // Eight since Skills joined (#477).
-  assert.equal(secs.length, 8, 'the page has ' + secs.length + ' sections, not eight');
+  // Eight since Skills joined (#477); nine since the Files screen (#3757).
+  assert.equal(secs.length, 9, 'the page has ' + secs.length + ' sections, not nine');
   assert.deepEqual(secs.filter((s) => !s.hidden).map((s) => s.key), ['talk'], 'the landing is not Talk alone');
   const gos = [...PANEL.matchAll(/data-go="([a-z]+)"/g)].map((m) => m[1]);
   // #2916: pills are now a SUBSET of sections -- memory folds under the 'model' pill (Model and
@@ -67,12 +67,20 @@ test('only Talk is on screen before a click, and every section can be reached fr
   // #3500: Remove now folds under the Advanced (term) pill too, alongside #2916's memory->model
   // and skills->instr. A folded section -> the pill that reveals it:
   const FOLD = { memory: 'model', skills: 'instr', remove: 'term' };
+  /* #3757: the Files screen has no pill; it is reached from View All beside the sidebar's Files
+     list, whose handler opens it. That door is checked here so "reachable" still means reachable. */
+  const DOOR = { files: 'd-files-all' };
   for (const s of secs) {
+    if (DOOR[s.key]) {
+      assert.ok(PANEL.includes('id="' + DOOR[s.key] + '"'), s.key + ' has lost its door ' + DOOR[s.key]);
+      assert.match(PAGE, new RegExp("getElementById\\('" + DOOR[s.key] + "'\\)\\.addEventListener\\('click', \\(\\) => \\{\\s*if \\(!CURRENT\\) return;\\s*detailGo\\('" + s.key + "'\\)"), DOOR[s.key] + ' no longer opens ' + s.key);
+      continue;
+    }
     const pill = FOLD[s.key] || s.key;
     assert.ok(gos.includes(pill), s.key + ' is not reachable from any pill (expected pill: ' + pill + ')');
   }
   assert.ok(gos.every((g) => secs.some((s) => s.key === g)), 'a pill points at no section');
-  assert.deepEqual(secs.map((s) => s.key).filter((k) => !gos.includes(k)).sort(), ['memory', 'remove', 'skills'],
+  assert.deepEqual(secs.map((s) => s.key).filter((k) => !gos.includes(k) && !DOOR[k]).sort(), ['memory', 'remove', 'skills'],
     'the folded set changed; folds exactly memory + skills (#2916) and remove (#3500, under Advanced)');
   for (const s of secs) {
     assert.match(PANEL, new RegExp('id="d-sec-' + s.key + '" data-sec="' + s.key + '" tabindex="-1"'), s.key + ' cannot take focus, so a click strands the keyboard on the nav');

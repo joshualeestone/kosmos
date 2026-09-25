@@ -156,8 +156,11 @@ function childEnv(baseEnv, token, configDir, cliDir, runner) {
      full-autonomy posture the `--dangerously-bypass-approvals-and-sandbox` launch
      already takes. CODEX ONLY: the claude path runs its `kosmos` through Git Bash's
      extensionless shim, which never consults an execution policy, so it is left
-     byte-identical and this variable is not added to a claude child. */
-  if (runner === 'codex') env.PSExecutionPolicyPreference = 'Bypass';
+     byte-identical and this variable is not added to a claude child.
+     GEMINI AND GROK TOO: both run their shell tool through PowerShell on Windows
+     (gemini 0.61.0's getShellConfiguration picks powershell.exe; grok 1.0.41 ships a
+     PowerShell shell), so their `kosmos reply` meets the same policy. */
+  if (runner === 'codex' || runner === 'gemini' || runner === 'grok') env.PSExecutionPolicyPreference = 'Bypass';
   return env;
 }
 
@@ -259,8 +262,11 @@ function mcpConfigFor(s) {
  * falling back to `claude` for a codex agent would spawn the wrong program on the
  * one path where the hint is gone.
  */
+/* The bare name per runner. gemini/grok are here so a stale hint never falls back to
+   `claude` for them; their per-turn supervisor asks the resolver again before using it. */
+const BARE = Object.freeze({ codex: 'codex', gemini: 'gemini', grok: 'grok' });
 function binFor(s) {
-  const bare = String((s && s.runner) === 'codex' ? 'codex' : 'claude');
+  const bare = String(BARE[(s && s.runner) || ''] || 'claude');
   const given = s && s.claudeBin;
   if (!given) return bare;
   /* Only a path can go stale; a bare name handed in is already the PATH lookup. */

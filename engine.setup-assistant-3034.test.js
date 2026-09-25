@@ -68,7 +68,7 @@ test('the setup role exists, is menu:false, and is NOT offered in the normal cre
   const inMenu = roles.ROLES.filter((r) => r.menu !== false).some((r) => r.key === 'setup');
   assert.equal(inMenu, false, 'the setup role leaked into the create menu');
   const brief = roles.instructionsFor('setup', 'Dana');
-  assert.match(brief, /You are \*\*Dana\*\*, the Kosmos setup guide: an AI version of Josh/);
+  assert.match(brief, /You are \*\*Dana\*\*, the Kosmos Guide\. You are an AI version of Josh/);
 });
 
 test('POSITIVE: connected account -> seeds as Josh (not the user), role setup, labelled as his AI', () => {
@@ -244,6 +244,82 @@ test('WIRING GUARD (#3034/#3660): server.js creates the guide only through ensur
   assert.equal(arms.length, 1, 'arming must happen in exactly one place');
   const route = src.lastIndexOf("pathname === '/api/first-run/complete'", arms[0].index);
   assert.ok(route > 0 && arms[0].index - route < 4000, 'arming is not in the first-run completion route');
+  /* #3760 (Josh 2026-09-25 11:07): existing installs are armed too, but ONLY through armExistingInstall, which
+     arms an install whose first run is FINISHED. Once, behind the same switch, fed the real first-run reader. */
+  const existing = [...src.matchAll(/setupAssistant\.armExistingInstall\s*\(/g)];
+  assert.equal(existing.length, 1, 'the existing-install arm must happen in exactly one place');
+  assert.match(src.slice(existing[0].index, existing[0].index + 120), /firstRunSeen:\s*firstrun\.seen\b/, 'the existing-install arm is not given the real first-run reader');
+  assert.match(src.slice(Math.max(0, existing[0].index - 900), existing[0].index), /if\s*\(\s*setupAssistant\.FIRSTRUN_AUTOCREATE_ENABLED\s*\)/, 'the existing-install arm is not behind FIRSTRUN_AUTOCREATE_ENABLED');
+});
+
+/* ---- #3760: existing installs get the guide once, and can turn it off ------ */
+
+const DONE = () => ({ known: true, done: true, at: '2026-09-01T00:00:00Z' });
+const CLAUDE = MODELS_3760({ './accounts': [{ dir: '/h/.claude', isDefault: true }] });
+function MODELS_3760(rows) { return { listFor: (mod) => rows[mod] || [], connectable: async () => ({ ok: true }), liveDefault: async () => true }; }
+function withSettings(value, fn) {
+  const was = store.readSettings();
+  store.writeSettings({ setupAssistant: value });
+  return Promise.resolve().then(fn).finally(() => store.writeSettings({ setupAssistant: was.setupAssistant }));
+}
+
+test('#3760 an existing install (first run finished, never armed) is armed once on update and gets exactly one guide', async () => {
+  setupAssistant.resetEnsureGuideForTests();
+  armed(false);
+  try {
+    const calls = [];
+    const before = await setupAssistant.ensureGuide({ createAgent: createdOk(calls), deps: CLAUDE });
+    assert.match(before.reason, /not armed/, 'CONTROL: before the update arm, an existing install gets no guide');
+    assert.deepEqual(setupAssistant.armExistingInstall({ firstRunSeen: DONE }), { armed: true });
+    assert.equal(JSON.parse(fs.readFileSync(setupAssistant.armPath(), 'utf8')).via, 'update');
+    const r = await setupAssistant.ensureGuide({ createAgent: createdOk(calls), deps: CLAUDE });
+    assert.equal(r.seeded, true, r.reason || '');
+    assert.equal(calls.length, 1);
+    // The next start (a restart, the next update): no second arm, and no second guide.
+    setupAssistant.resetEnsureGuideForTests();
+    assert.equal(setupAssistant.armExistingInstall({ firstRunSeen: DONE }).armed, false);
+    const again = await setupAssistant.ensureGuide({ createAgent: createdOk(calls), deps: CLAUDE });
+    assert.equal(again.seeded, false);
+    assert.equal(calls.length, 1, 'a second guide was created on a later start');
+  } finally { armed(false); setupAssistant.resetEnsureGuideForTests(); }
+});
+
+test('#3760 a fresh install still in first run is NOT armed by the update path (Giddy Up does that), nor one whose flag is unreadable', async () => {
+  setupAssistant.resetEnsureGuideForTests();
+  armed(false);
+  try {
+    assert.equal(setupAssistant.armExistingInstall({ firstRunSeen: () => ({ known: true, done: false }) }).armed, false);
+    assert.equal(setupAssistant.armExistingInstall({ firstRunSeen: () => ({ known: false, done: true }) }).armed, false,
+      'an unreadable first-run flag armed an agent on a guess');
+    assert.equal(setupAssistant.armExistingInstall({}).armed, false, 'no reader armed');
+    assert.equal(fs.existsSync(setupAssistant.armPath()), false);
+    const calls = [];
+    const r = await setupAssistant.ensureGuide({ createAgent: createdOk(calls), deps: CLAUDE });
+    assert.match(r.reason, /not armed/);
+    assert.equal(calls.length, 0, 'a fresh install got a guide before Giddy Up');
+  } finally { armed(false); setupAssistant.resetEnsureGuideForTests(); }
+});
+
+test('#3760 an existing install that turned setup assistance off gets no guide, and it stays off across a restart', async () => {
+  setupAssistant.resetEnsureGuideForTests();
+  armed(false);
+  try {
+    await withSettings({ on: false, asked: true }, async () => {
+      assert.equal(setupAssistant.armExistingInstall({ firstRunSeen: DONE }).armed, true);
+      const calls = [];
+      const r = await setupAssistant.ensureGuide({ createAgent: createdOk(calls), deps: CLAUDE });
+      assert.match(r.reason, /turned setup assistance off/);
+      setupAssistant.resetEnsureGuideForTests();   // a restart
+      setupAssistant.armExistingInstall({ firstRunSeen: DONE });
+      const later = await setupAssistant.ensureGuide({ createAgent: createdOk(calls), deps: CLAUDE });
+      assert.match(later.reason, /turned setup assistance off/);
+      assert.equal(calls.length, 0, 'a guide was created for someone who turned it off');
+    });
+    setupAssistant.resetEnsureGuideForTests();
+    const calls = [];
+    const on = await setupAssistant.ensureGuide({ createAgent: createdOk(calls), deps: CLAUDE });
+    assert.equal(on.seeded, true, 'CONTROL: with the setting back on, the same armed install gets it: ' + (on.reason || ''));
+  } finally { armed(false); setupAssistant.resetEnsureGuideForTests(); }
 });
 
 /* ---- #3660: created the moment the first model is connected ---------------- */

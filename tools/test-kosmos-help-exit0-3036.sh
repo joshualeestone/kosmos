@@ -72,7 +72,7 @@ fi
 # They show read-only output on --help; their own status must stand. Pin that
 # they are a SEPARATE case from the message verbs (which get `exit 0`), so a
 # future edit cannot fold them into the exit-0 rule unnoticed.
-if grep -Eq '^[[:space:]]*msg\|reply\|post\|react\|report\|room\|feedback\|task\|project\)' "$K" \
+if grep -Eq '^[[:space:]]*msg\|reply\|post\|react\|report\|room\|feedback\|task\|project\|agent\)' "$K" \
    && grep -Eq '^[[:space:]]*adopt\|whoami\)' "$K"; then
   ok "source: message verbs and adopt|whoami are separate --help cases"
 else

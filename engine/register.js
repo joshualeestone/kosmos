@@ -404,7 +404,8 @@ function repair(opts) {
     const runnerOpt = provider === 'openai' ? { runner: 'codex' }
       : provider === 'google' ? { runner: 'gemini' }
         : provider === 'xai' ? { runner: 'grok' }
-          : {};
+          : provider === 'antigravity' ? { runner: 'antigravity' } // #3568
+            : {};
     const r = create.installJob(name, { model, platform, ...runnerOpt });
     return { name, shownAs: shownName(name), ...r };
   });

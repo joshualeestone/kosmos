@@ -1,4 +1,4 @@
-// Browser-check-surface: acct-grok-flow acct-grok-pick acct-grok-sub-go fr-grok-sub data-grok-reauth
+// Browser-check-surface: acct-grok-flow acct-grok-pick acct-grok-sub-go fr-grok-sub-step data-grok-reauth
 'use strict';
 /**
  * kosmos#3391 part 2: a Grok SUBSCRIPTION sign-in, started from Settings > AI Models and from
@@ -12,8 +12,9 @@
  *     Stop and closing the dialog both cancel on the engine, and a late answer paints nothing;
  *   - a row's Sign in again opens straight onto the sign-in with that account's reauthDir, and
  *     a fresh "+ Add a provider" afterwards is not a sign-in again;
- *   - first run: Grok's box offers the sign-in; closing the box cancels it; connected closes
- *     the box, names the account and leaves Gemini's row as it was.
+ *   - first run (#3731, GPT's flow in Grok's own panel): the choice, then the sign-in starts at
+ *     once; the key, another provider or leaving the step cancels it; connected closes the panel,
+ *     names the account and leaves Gemini's row as it was.
  *
  *   NODE_PATH="$HOME/work/pw-runtime/node_modules" HEADED=0 node docs/browser-checks/render-grok-subscription-3391.js
  */
@@ -62,6 +63,9 @@ const chk = (ok, label, extra) => {
       for (const fn of [...window.__polls.values()]) await fn();
       await new Promise((r) => setTimeout(r, 30));
     };
+    /* #3731: Settings shows Grok's choice, or Gemini's key, only once /api/runners says the
+       software is here, so a pick settles before anything on it is pressed. */
+    window.__pick = async (w) => { acctPick(w); for (let i = 0; i < 5; i++) await new Promise((r) => setTimeout(r, 10)); };
     window.fetch = async (url, opts) => {
       const u = String(url);
       if (/\/api\/accounts\/grok\/subscription\/start$/.test(u)) {
@@ -80,6 +84,8 @@ const chk = (ok, label, extra) => {
         return enc(window.__status);
       }
       if (/\/api\/accounts\/(gemini|grok)\/apikey$/.test(u)) return enc({ error: 'that does not look like a key' }, 400);
+      // #3731: both tools are installed here; the install itself is render-firstrun-keyed-connect-3658.js's.
+      if (/\/api\/runners(\?|$)/.test(u)) return enc({ runners: { gemini: { present: true }, grok: { present: true } } });
       if (/\/api\/accounts(\?|$)/.test(u)) return enc({ accounts: window.__accounts.slice() });
       return enc({});
     };
@@ -94,7 +100,7 @@ const chk = (ok, label, extra) => {
   const G = (id) => q((i) => { const e = document.getElementById(i); return e ? { hidden: e.hidden, text: e.textContent, disabled: e.disabled, href: e.getAttribute('href') } : null; }, id);
 
   /* ---------------- Settings, AI Models ---------------- */
-  await q(() => { frClose(); openAcctAdd(); acctPick('xai'); });
+  await q(async () => { frClose(); openAcctAdd(); await window.__pick('xai'); });
   const pick = await q(() => ({
     flow: !document.getElementById('acct-grok-flow').hidden,
     pick: !document.getElementById('acct-grok-pick').hidden,
@@ -104,6 +110,17 @@ const chk = (ok, label, extra) => {
   }));
   chk(pick.flow && pick.pick && !pick.sub && !pick.key && pick.focus === 'acct-grok-pick-sub',
     'picking Grok shows the choice, with the key step hidden until it is chosen', JSON.stringify(pick));
+  // #3731 (review pass 2): Settings' buttons draw Kosmos's ink ring on the keyboard, not the browser's blue.
+  await page.keyboard.press('Tab'); await page.keyboard.press('Shift+Tab');
+  const sring = await q(() => {
+    const b = document.getElementById('acct-grok-pick-sub');
+    const probe = document.createElement('i'); probe.style.color = 'var(--k-ink)'; document.getElementById('acct-add-dialog').appendChild(probe);
+    const ink = getComputedStyle(probe).color; probe.remove();
+    const cs = getComputedStyle(b);
+    return { focused: document.activeElement === b, visible: b.matches(':focus-visible'), style: cs.outlineStyle, color: cs.outlineColor, ink };
+  });
+  chk(sring.focused && sring.visible && sring.style === 'solid' && sring.color === sring.ink,
+    '#3731 Settings: on the keyboard the ring is Kosmos\'s ink, not the browser\'s blue', JSON.stringify(sring));
 
   const key = await q(() => {
     document.getElementById('acct-grok-pick-key').click();
@@ -112,10 +129,10 @@ const chk = (ok, label, extra) => {
   });
   chk(key.key && !key.grok && key.focus === 'acct-apikey-key', '"Use an API key" opens the key step', JSON.stringify(key));
 
-  const gemini = await q(() => { acctPick('google'); return { grok: !document.getElementById('acct-grok-flow').hidden, key: !document.getElementById('acct-apikey-flow').hidden }; });
+  const gemini = await q(async () => { await window.__pick('google'); return { grok: !document.getElementById('acct-grok-flow').hidden, key: !document.getElementById('acct-apikey-flow').hidden }; });
   chk(!gemini.grok && gemini.key, 'Gemini has no subscription choice: straight to its key step', JSON.stringify(gemini));
 
-  await q(() => { acctPick('xai'); document.getElementById('acct-grok-pick-sub').click(); window.__status = { state: 'starting' }; document.getElementById('acct-grok-sub-go').click(); });
+  await q(async () => { await window.__pick('xai'); document.getElementById('acct-grok-pick-sub').click(); window.__status = { state: 'starting' }; document.getElementById('acct-grok-sub-go').click(); });
   await q(() => new Promise((r) => setTimeout(r, 50)));
   await q(() => { window.__status = { state: 'awaiting-code', authUrl: 'https://accounts.x.ai/oauth2/device?user_code=QWER-TYUI', userCode: 'QWER-TYUI' }; });
   await tick();
@@ -147,7 +164,7 @@ const chk = (ok, label, extra) => {
 
   // A repaint that throws after connected says so rather than sitting on "Checking...".
   const thrown = await q(async () => {
-    closeAcctAdd(); openAcctAdd(); acctPick('xai'); document.getElementById('acct-grok-pick-sub').click();
+    closeAcctAdd(); openAcctAdd(); await window.__pick('xai'); document.getElementById('acct-grok-pick-sub').click();
     document.getElementById('acct-grok-sub-go').click();
     await new Promise((r) => setTimeout(r, 50));
     const real = window.paintAccounts;
@@ -167,7 +184,7 @@ const chk = (ok, label, extra) => {
     'a repaint that throws after connected is said in Settings\' own words, not left on Checking', JSON.stringify(thrown));
 
   // An engine error is said in words; the button re-arms.
-  await q(() => { closeAcctAdd(); openAcctAdd(); acctPick('xai'); document.getElementById('acct-grok-pick-sub').click(); document.getElementById('acct-grok-sub-go').click(); });
+  await q(async () => { closeAcctAdd(); openAcctAdd(); await window.__pick('xai'); document.getElementById('acct-grok-pick-sub').click(); document.getElementById('acct-grok-sub-go').click(); });
   await q(() => new Promise((r) => setTimeout(r, 50)));
   await q(() => { window.__status = { state: 'error', error: 'that sign-in was for a different account, so this account was left unchanged' }; });
   await tick();
@@ -178,22 +195,41 @@ const chk = (ok, label, extra) => {
   chk(/^That sign-in was for a different account, so this account was left unchanged\. You can try again\.$/.test(bad.msg) && !bad.go && !bad.link && bad.polls === 0,
     'an engine error is said in its own words and the button re-arms', JSON.stringify(bad));
 
-  // A missing grok names the tool.
+  // A missing grok names the tool (reachable only if it went missing after the box opened).
   await q(() => { window.__startAnswer = [400, { needsRunner: true, error: 'we could not find the Grok runner' }]; document.getElementById('acct-grok-sub-go').click(); });
   await q(() => new Promise((r) => setTimeout(r, 50)));
-  const miss = await q(() => ({ msg: document.getElementById('acct-grok-msg').textContent, go: document.getElementById('acct-grok-sub-go').disabled }));
-  chk(/"grok"/.test(miss.msg) && /not installed/.test(miss.msg) && !miss.go, 'a missing grok names its tool and re-arms', JSON.stringify(miss));
-  await q(() => { window.__startAnswer = null; });
+  const miss = await q(() => ({ msg: document.getElementById('acct-grok-msg').textContent, go: document.getElementById('acct-grok-sub-go').disabled,
+    install: !document.getElementById('acct-keyed-install').hidden, ask: document.getElementById('acct-keyed-install-t').textContent,
+    grok: !document.getElementById('acct-grok-flow').hidden }));
+  // #3713: Kosmos installs grok now, so a sign-in that finds none opens the download box in its place.
+  chk(miss.install && miss.ask === 'In order to connect to xAI Grok we need to download the installer.' && !miss.grok && !/cannot install/.test(miss.msg),
+    '#3713 a sign-in that finds no grok opens the download box in its place', JSON.stringify(miss));
+  // Windows installs grok now too, so the same answer opens the same download box there.
+  // (#3731: "Sign in with Grok" starts the sign-in itself, so the answer is staged before it.)
+  await q(async () => {
+    document.querySelector('meta[name="kosmos-platform"]').content = 'win32';
+    window.__startAnswer = [400, { needsRunner: true, error: 'we could not find the Grok runner' }];
+    await window.__pick('xai');
+    document.getElementById('acct-grok-pick-sub').click();
+  });
+  await q(() => new Promise((r) => setTimeout(r, 50)));
+  const winMiss = await q(() => ({ msg: document.getElementById('acct-grok-msg').textContent,
+    install: !document.getElementById('acct-keyed-install').hidden, ask: document.getElementById('acct-keyed-install-t').textContent }));
+  chk(winMiss.install && winMiss.ask === 'In order to connect to xAI Grok we need to download the installer.' && !/Windows/.test(winMiss.msg),
+    'on Windows, a sign-in that finds no grok opens the same download box as the Mac', JSON.stringify(winMiss));
+  await q(() => { window.__startAnswer = null; document.querySelector('meta[name="kosmos-platform"]').content = '__KOSMOS_PLATFORM__'; });
 
   // Stop cancels on the engine.
   await q(() => { window.__cancels.length = 0; window.__status = { state: 'awaiting-code', userCode: 'AAAA-BBBB' }; document.getElementById('acct-grok-sub-go').click(); });
   await q(() => new Promise((r) => setTimeout(r, 50)));
   const sid = await q(() => 'sess' + window.__starts.length);
   await q(() => document.getElementById('acct-grok-sub-cancel').click());
-  const stop = await q(() => ({ cancels: window.__cancels.slice(), msg: document.getElementById('acct-grok-msg').textContent, polls: window.__polls.size,
-    code: !document.getElementById('acct-grok-sub-code').hidden }));
-  chk(stop.cancels.length === 1 && stop.cancels[0] === sid && stop.msg === 'Sign-in stopped.' && stop.polls === 0 && !stop.code,
-    'Stop cancels this sign-in on the engine and says so', JSON.stringify({ ...stop, sid }));
+  const stop = await q(() => ({ cancels: window.__cancels.slice(), polls: window.__polls.size,
+    code: !document.getElementById('acct-grok-sub-code').hidden, pick: !document.getElementById('acct-grok-pick').hidden,
+    step: !document.getElementById('acct-grok-sub-step').hidden, focus: document.activeElement && document.activeElement.id }));
+  // #3731 (review pass 3): as GPT's Settings Stop does, back to the choice, with "Use an API key" one press away.
+  chk(stop.cancels.length === 1 && stop.cancels[0] === sid && stop.polls === 0 && !stop.code && stop.pick && !stop.step && stop.focus === 'acct-grok-pick-sub',
+    'Stop cancels this sign-in on the engine and goes back to the choice', JSON.stringify({ ...stop, sid }));
 
   // Closing the dialog mid-sign-in cancels it, and a late connected paints nothing.
   await q(() => { window.__cancels.length = 0; document.getElementById('acct-grok-sub-go').click(); });
@@ -208,19 +244,19 @@ const chk = (ok, label, extra) => {
 
   // Switching provider mid-sign-in ends it on the engine.
   const sw = await q(async () => {
-    openAcctAdd(); acctPick('xai'); document.getElementById('acct-grok-pick-sub').click();
+    openAcctAdd(); await window.__pick('xai'); document.getElementById('acct-grok-pick-sub').click();
     window.__cancels.length = 0;
     document.getElementById('acct-grok-sub-go').click();
     await new Promise((r) => setTimeout(r, 50));
     const id = 'sess' + window.__starts.length;
-    acctPick('google');
+    await window.__pick('google');
     return { id, cancels: window.__cancels.slice(), polls: window.__polls.size };
   });
   chk(sw.cancels.length === 1 && sw.cancels[0] === sw.id && sw.polls === 0, 'switching provider mid-sign-in ends it on the engine', JSON.stringify(sw));
 
   // A start that answers after the dialog closed is cancelled, not polled.
   const held = await q(async () => {
-    acctPick('xai'); document.getElementById('acct-grok-pick-sub').click();
+    await window.__pick('xai'); document.getElementById('acct-grok-pick-sub').click();
     window.__cancels.length = 0;
     let release; window.__holdStart = new Promise((r) => { release = r; });
     document.getElementById('acct-grok-sub-go').click();
@@ -262,12 +298,23 @@ const chk = (ok, label, extra) => {
   chk(again.title === 'Sign in again' && !again.provider && !again.pick && again.sub && again.focus === 'acct-grok-sub-go',
     'it opens straight onto the sign-in, in sign-in-again chrome', JSON.stringify(again));
   chk(again.starts.length === 1 && again.starts[0].reauthDir === '/h/.grok-gl', 'its start carries that account as reauthDir', JSON.stringify(again.starts));
+  // #3731 (review pass 4): a sign in again has no choice to go back to, so its Stop stays on its own
+  // step, says so, and gives the Sign-in button back (a new sign-in's Stop goes back to the choice).
+  const againStop = await q(async () => {
+    document.getElementById('acct-grok-sub-cancel').click();
+    await new Promise((r) => setTimeout(r, 30));
+    return { msg: document.getElementById('acct-grok-msg').textContent, step: !document.getElementById('acct-grok-sub-step').hidden,
+      pick: !document.getElementById('acct-grok-pick').hidden, go: !document.getElementById('acct-grok-sub-go').hidden,
+      focus: document.activeElement && document.activeElement.id };
+  });
+  chk(againStop.msg === 'Sign-in stopped.' && againStop.step && !againStop.pick && againStop.go && againStop.focus === 'acct-grok-sub-go',
+    '#3731 a sign in again\'s Stop stays on its own step, says so, and gives the Sign-in button back', JSON.stringify(againStop));
 
   /* Reopened WITHOUT a close in between, so openAcctAdd's own clear is what is tested (a
      close does not clear the account; nothing but a sign-in again sets it). */
   const fresh = await q(async () => {
     window.__starts.length = 0;
-    openAcctAdd(); acctPick('xai');
+    openAcctAdd(); await window.__pick('xai');
     const pickShown = !document.getElementById('acct-grok-pick').hidden;
     document.getElementById('acct-grok-pick-sub').click();
     document.getElementById('acct-grok-sub-go').click();
@@ -279,7 +326,7 @@ const chk = (ok, label, extra) => {
   chk(fresh.pickShown && fresh.starts.length === 1 && !('reauthDir' in fresh.starts[0]) && fresh.title !== 'Sign in again',
     'a fresh "+ Add a provider" afterwards is a new sign-in, not a sign-in again', JSON.stringify(fresh));
 
-  /* ---------------- first run ---------------- */
+  /* ---------------- first run (#3731: Grok's own panel, GPT's flow) ---------------- */
   await q(async () => {
     window.__accounts = [{ provider: 'google', providerName: 'Gemini', dir: '/h/.gemini-work1', keyTail: 'ab12', authMode: 'apikey', connection: { state: 'connected' } }];
     const fr = document.getElementById('firstrun'); if (fr) fr.hidden = false;
@@ -288,58 +335,60 @@ const chk = (ok, label, extra) => {
   });
   const fr1 = await q(async () => {
     document.getElementById('fr-grok-connect').click();
-    await new Promise((r) => setTimeout(r, 120));
-    return { box: !document.getElementById('fr-apikey-flow').hidden, sub: !document.getElementById('fr-grok-sub').hidden,
-      head: document.getElementById('fr-apikey-t').textContent, gemini: document.getElementById('fr-gemini-connect').textContent.trim(),
+    await new Promise((r) => setTimeout(r, 200));
+    return { pick: !document.getElementById('fr-grok-pick').hidden, gemini: document.getElementById('fr-gemini-connect').textContent.trim(),
       focus: document.activeElement && document.activeElement.id };
   });
-  chk(fr1.focus === 'fr-grok-sub-go', 'first run: Grok\'s box puts focus on its sign-in, the first thing in it', JSON.stringify({ focus: fr1.focus }));
-  chk(fr1.box && fr1.sub && /Sign in with your Grok subscription, or paste an xAI API key/.test(fr1.head),
-    'first run: Grok\'s box offers the subscription sign-in beside the key', JSON.stringify(fr1));
+  chk(fr1.pick && fr1.focus === 'fr-grok-pick-sub', 'first run: with grok installed, Grok\'s Connect shows the choice, focus on Sign in with Subscription', JSON.stringify(fr1));
   chk(/Connected/.test(fr1.gemini), 'CONTROL: Gemini is connected before the Grok sign-in', JSON.stringify(fr1));
 
   const frSwitch = await q(async () => {
     window.__cancels.length = 0;
     window.__starts.length = 0;
     window.__status = { state: 'awaiting-code', userCode: 'CCCC-DDDD' };
-    document.getElementById('fr-grok-sub-go').click();
+    document.getElementById('fr-grok-pick-sub').click();
     await new Promise((r) => setTimeout(r, 50));
     await window.__tick();
-    const code = document.getElementById('fr-grok-sub-code').textContent;
-    return { code, starts: window.__starts.slice() };
+    return { code: document.getElementById('fr-grok-sub-code').textContent, starts: window.__starts.slice(),
+      msg: document.getElementById('fr-grok-msg').textContent };
   });
-  chk(frSwitch.starts.length === 1 && !('reauthDir' in frSwitch.starts[0]) && /CCCC-DDDD/.test(frSwitch.code),
-    'first run\'s sign-in starts as a new account and shows its code', JSON.stringify(frSwitch));
+  chk(frSwitch.starts.length === 1 && !('reauthDir' in frSwitch.starts[0]) && /CCCC-DDDD/.test(frSwitch.code) && /Confirm the code/.test(frSwitch.msg),
+    'first run\'s sign-in starts at once as a new account and shows its code', JSON.stringify(frSwitch));
 
-  // The key's own answer survives the sign-in's poll: the two write different lines.
-  const lines = await q(async () => {
-    document.getElementById('fr-apikey-key').value = '';
-    document.getElementById('fr-apikey-go').click();
-    await new Promise((r) => setTimeout(r, 50));
-    const keySaid = document.getElementById('fr-apikey-msg').textContent;
-    await window.__tick();
-    return { keySaid, keyAfter: document.getElementById('fr-apikey-msg').textContent, subSaid: document.getElementById('fr-grok-sub-msg').textContent };
-  });
-  chk(lines.keySaid === 'Paste the key first.' && lines.keyAfter === lines.keySaid && /Confirm the code/.test(lines.subSaid),
-    'first run: the sign-in\'s progress has its own line and does not wipe the key\'s answer', JSON.stringify(lines));
-
-  // Close and reopen Grok's box: the sign-in in flight is cancelled on the engine.
-  const frClose = await q(async () => {
+  // Choosing the key instead ends the sign-in on the engine (the two cannot both be open).
+  const toKey = await q(async () => {
     window.__cancels.length = 0;
-    document.getElementById('fr-grok-connect').click();   // a second press closes the box
-    await new Promise((r) => setTimeout(r, 120));
-    return { cancels: window.__cancels.slice(), box: !document.getElementById('fr-apikey-flow').hidden, polls: window.__polls.size };
+    document.getElementById('fr-grok-connect').click();
+    await new Promise((r) => setTimeout(r, 200));
+    document.getElementById('fr-grok-pick-key').click();
+    await new Promise((r) => setTimeout(r, 50));
+    return { cancels: window.__cancels.slice(), polls: window.__polls.size, key: !document.getElementById('fr-grok-flow').hidden,
+      step: !document.getElementById('fr-grok-sub-step').hidden };
   });
-  chk(frClose.cancels.length === 1 && !frClose.box && frClose.polls === 0,
-    'first run: closing Grok\'s box ends its sign-in on the engine', JSON.stringify(frClose));
+  chk(toKey.cancels.length === 1 && toKey.polls === 0 && toKey.key && !toKey.step, 'first run: choosing the key ends a sign-in in flight on the engine', JSON.stringify(toKey));
 
-  // Leaving the step (no close) ends the sign-in at the next poll.
+  // Opening another provider collapses Grok's panel and ends its sign-in on the engine.
+  const frClose = await q(async () => {
+    window.__status = { state: 'awaiting-code', userCode: 'CCCC-DDDD' };
+    document.getElementById('fr-grok-connect').click();
+    await new Promise((r) => setTimeout(r, 200));
+    document.getElementById('fr-grok-pick-sub').click();
+    await new Promise((r) => setTimeout(r, 50));
+    window.__cancels.length = 0;
+    document.getElementById('fr-openai-connect').click();
+    await new Promise((r) => setTimeout(r, 200));
+    return { cancels: window.__cancels.slice(), step: !document.getElementById('fr-grok-sub-step').hidden, polls: window.__polls.size };
+  });
+  chk(frClose.cancels.length === 1 && !frClose.step && frClose.polls === 0,
+    'first run: opening another provider closes Grok\'s panel and ends its sign-in on the engine', JSON.stringify(frClose));
+
+  // Leaving the step ends the sign-in (the panel closes with it).
   const frLeave = await q(async () => {
     document.getElementById('fr-grok-connect').click();
-    await new Promise((r) => setTimeout(r, 120));
+    await new Promise((r) => setTimeout(r, 200));
     window.__cancels.length = 0;
     window.__status = { state: 'awaiting-code', userCode: 'EEEE-FFFF' };
-    document.getElementById('fr-grok-sub-go').click();
+    document.getElementById('fr-grok-pick-sub').click();
     await new Promise((r) => setTimeout(r, 50));
     const id = 'sess' + window.__starts.length;
     frGo(6);
@@ -351,11 +400,11 @@ const chk = (ok, label, extra) => {
   });
   chk(frLeave.cancels.includes(frLeave.id) && frLeave.polls === 0, 'first run: leaving the model step ends a sign-in in flight', JSON.stringify(frLeave));
 
-  // First run's own words when its repaint throws (review pass 6: the texts are per caller).
+  // First run's own words when its repaint throws (the texts are per caller).
   const frThrown = await q(async () => {
     document.getElementById('fr-grok-connect').click();
-    await new Promise((r) => setTimeout(r, 120));
-    document.getElementById('fr-grok-sub-go').click();
+    await new Promise((r) => setTimeout(r, 200));
+    document.getElementById('fr-grok-pick-sub').click();
     await new Promise((r) => setTimeout(r, 50));
     const real = window.frPaintKeyed;
     window.frPaintKeyed = async () => { throw new Error('repaint failed'); };
@@ -363,34 +412,35 @@ const chk = (ok, label, extra) => {
     await window.__tick();
     await new Promise((r) => setTimeout(r, 50));
     window.frPaintKeyed = real;
-    // What the person can SEE: the box is closed by now, so its own line would be invisible.
-    const line = document.getElementById('fr-apikey-msg');
-    const out = { msg: line.textContent, visible: line.getClientRects().length > 0 };
-    document.getElementById('fr-apikey-flow').hidden = true; FR_APIKEY_WHICH = null; frApikeyExpanded(null);
-    return out;
+    const line = document.getElementById('fr-grok-msg');
+    return { msg: line.textContent, visible: line.getClientRects().length > 0, step: !document.getElementById('fr-grok-sub-step').hidden };
   });
-  chk(frThrown.visible && frThrown.msg === 'Grok is connected (me@example.com). This screen could not update the Grok row; Grok will show as connected in Settings, AI Models.',
+  chk(frThrown.visible && !frThrown.step && frThrown.msg === 'Grok is connected (me@example.com). This screen could not update the Grok row; Grok will show as connected in Settings, AI Models.',
     'first run: a repaint that throws after connected is said on the line that stays on screen', JSON.stringify(frThrown));
 
   const frDone = await q(async () => {
     document.getElementById('fr-grok-connect').click();
-    await new Promise((r) => setTimeout(r, 120));
-    document.getElementById('fr-grok-sub-go').click();
+    await new Promise((r) => setTimeout(r, 200));
+    window.__cancels.length = 0;
+    document.getElementById('fr-grok-pick-sub').click();
     await new Promise((r) => setTimeout(r, 50));
     window.__accounts.push({ provider: 'xai', providerName: 'Grok', email: 'me@example.com', dir: '/h/.grok-work1', authMode: 'subscription', connection: { state: 'connected', badge: 'signed_in_unverified' } });
     window.__status = { state: 'connected', account: { provider: 'xai', email: 'me@example.com', authMode: 'subscription', dir: '/h/.grok-work1', connection: { state: 'connected' } } };
     await window.__tick();
     await new Promise((r) => setTimeout(r, 120));
     return {
-      box: !document.getElementById('fr-apikey-flow').hidden,
-      msg: document.getElementById('fr-apikey-msg').textContent,
+      step: !document.getElementById('fr-grok-sub-step').hidden,
+      msg: document.getElementById('fr-grok-msg').textContent,
+      box: document.getElementById('fr-grok-msg').className,
       grok: document.getElementById('fr-grok-connect').textContent.trim(),
       grokDisabled: document.getElementById('fr-grok-connect').disabled,
       gemini: document.getElementById('fr-gemini-connect').textContent.trim(),
+      cancels: window.__cancels.slice(),
     };
   });
-  chk(!frDone.box && frDone.msg === 'Grok is connected (me@example.com).' && /Connected/.test(frDone.grok) && frDone.grokDisabled,
-    'first run: connected closes the box, names the account and marks Grok Connected', JSON.stringify(frDone));
+  // #3731: GPT's connected state, cloned: the gold check box naming the provider and the account.
+  chk(!frDone.step && frDone.box === 'fr-connbox' && /xAI Grok is connected/.test(frDone.msg) && /signed in as me@example\.com\./.test(frDone.msg) && /Connected/.test(frDone.grok) && frDone.grokDisabled && frDone.cancels.length === 0,
+    'first run: connected closes the panel, names the account, marks Grok Connected, and cancels nothing', JSON.stringify(frDone));
   chk(/Connected/.test(frDone.gemini), 'first run: Gemini\'s row is left as it was', JSON.stringify(frDone));
 
   chk(errs.length === 0, 'no page errors', errs.join(' | '));

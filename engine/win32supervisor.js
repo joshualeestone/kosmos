@@ -269,11 +269,14 @@ function main(argv, deps) {
      launch, so no suite that drives the loops directly grows a flag. A function,
      asked at every (re)launch, so an install that finishes while this agent runs
      reaches it on its next restart. Claude only for now; codex is a follow-up. */
-  if (spec.runner !== 'codex') {
+  const perTurn = spec.runner === 'codex' || spec.runner === 'gemini' || spec.runner === 'grok';
+  if (!perTurn) {
     const browser = d.agentBrowser || (() => require('./agentbrowser').launchConfig());
     spec.mcpConfig = () => browser();
   }
-  const superviseFor = spec.runner === 'codex'
+  /* Gemini and Grok are per-turn on Windows too (engine/win32keyed.js), so they take the
+     codex loop, which picks their turn by `spec.runner`. */
+  const superviseFor = perTurn
     ? (sp, op) => require('./win32codexsup').superviseCodexStreaming(sp, op)
     : superviseStreaming;
   const handle = superviseFor(spec, {

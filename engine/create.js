@@ -167,6 +167,7 @@ const MODELS = [
    2026-08-27. */
 const REFUSE_NAME = 'that is not a name we can act on';
 const REFUSE_PROVIDER = 'pick a provider from the list';
+const REFUSE_ANTIGRAVITY_WIN32 = 'Kosmos cannot start an Antigravity agent on Windows yet'; // #3568
 const REFUSE_ACCOUNT = 'we do not know that account on this computer';
 
 function modelsFor(provider) {
@@ -768,7 +769,8 @@ function briefFilename(runner) {
   // #3391: Grok Build reads AGENTS.md as its native project-instructions file
   // (measured: grok's user-guide "Project Rules (AGENTS.md)"), the SAME file codex
   // boots from, so a grok agent shares the codex arm here.
-  if (runner === 'codex' || runner === 'grok') return 'AGENTS.md';
+  // #3568: Antigravity (agy) reads AGENTS.md too (its docs: project and global AGENTS.md or GEMINI.md).
+  if (runner === 'codex' || runner === 'grok' || runner === 'antigravity') return 'AGENTS.md';
   // #3296: gemini-cli reads GEMINI.md as its context/brief file, the codex-AGENTS.md
   // / claude-CLAUDE.md analog. instructions.fileFor and the birth write both go
   // through this ONE mapping, so a gemini agent's brief lands in the file it boots
@@ -812,6 +814,7 @@ function providerRunner(provider) {
   if (provider === 'openai') return 'codex';
   if (provider === 'google') return 'gemini';
   if (provider === 'xai') return 'grok';
+  if (provider === 'antigravity') return 'antigravity'; // #3568
   return 'claude';
 }
 /* #3519: the INVERSE of providerRunner -- the ONE runner -> provider map. The
@@ -829,10 +832,11 @@ function runnerProvider(runner) {
   if (runner === 'codex') return 'openai';
   if (runner === 'gemini') return 'google';
   if (runner === 'grok') return 'xai';
+  if (runner === 'antigravity') return 'antigravity'; // #3568
   return 'anthropic';
 }
 /* #3296/#3391: the ONE "is this a non-claude runner" predicate -- the recognized set
-   {codex, gemini, grok}. plistFor (which slots run only for a non-claude runner),
+   {codex, gemini, grok, antigravity}. plistFor (which slots run only for a non-claude runner),
    installJob (which runners it will back-fill a job for) and worldstarts (which imported
    runners it passes through) each hand-enumerated this set; a copy in each drifts when a
    fifth runner lands (Repo Convention #5). Claude and any unknown value are false. Pure.
@@ -840,7 +844,7 @@ function runnerProvider(runner) {
    folded in here: it also lives in setProvider and createAgentInner, so collapsing it is a
    cross-cutting follow-up rather than this backfill card's scope.) */
 function isNonClaudeRunner(runner) {
-  return runner === 'codex' || runner === 'gemini' || runner === 'grok';
+  return runner === 'codex' || runner === 'gemini' || runner === 'grok' || runner === 'antigravity';
 }
 /* #3296/#3391: the ONE provider -> vendor label. The switch's "already runs on X"
    refusal and the /provider route's "X it is" sentence both name the vendor, and a
@@ -852,7 +856,17 @@ function providerLabel(provider) {
   if (provider === 'openai') return 'OpenAI';
   if (provider === 'google') return 'Gemini';
   if (provider === 'xai') return 'Grok';
+  if (provider === 'antigravity') return 'Antigravity'; // #3568
   return 'Anthropic';
+}
+/* #3568: the Antigravity runner (Google's agy) is built but OFF until an operator opts in with
+   AGENT_WORKFORCE_ANTIGRAVITY=1: its launch was measured signed in once (2026-09-25), but Kosmos
+   cannot read what it is doing yet and the board does not name it. Read at call time so a test
+   can flip it. Checked by every route that sets one up: createAgentInner, setProvider, installJob
+   (which backfill, repair, connect and an import's first start all reach) and connect's provider
+   hint in engine/discover.js. Recognising a running agy pane does not depend on it. */
+function antigravityEnabled() {
+  return process.env.AGENT_WORKFORCE_ANTIGRAVITY === '1';
 }
 /* #3296/#3391: the ONE provider-named "unknown account" refusal, shared by the switch
    path and createAgentInner's per-provider create arms, so a new provider does not add
@@ -1182,6 +1196,8 @@ function trustAgentFolder(name, opts) {
      gemini arm directly above. Without this a grok agent whose home is ~/.grok would
      get a claude trust entry written into the wrong tool's config. */
   if (job.runner === 'grok') return { wrote: false, runner: 'grok' };
+  /* #3568: an Antigravity agent is not a Claude Code agent either; never write it a claude trust entry. */
+  if (job.runner === 'antigravity') return { wrote: false, runner: 'antigravity' };
   /* trustFolder soft-fails ({ok:false, because}) rather than throwing, so read ok.
      createIfAbsent matches the create path: on a fresh user the file may not exist. */
   let t = null;
@@ -1271,6 +1287,12 @@ function setAccount(name, dir, opts) {
   /* #3391 accounts slice: grok accounts now exist (engine/grokaccounts.js); a grok
      agent's swap resolves in ~/.grok* dirs. Same split as gemini/codex above. */
   if (job.runner === 'grok') return setGrokAccount(clean, spoken, dir, job, platform);
+  /* #3568: an Antigravity agent signs in with its own Google account inside its pane; Kosmos keeps
+     no Antigravity accounts yet, so it has none to switch to. Refused rather than falling into the
+     Claude accounts path below, which would write a CLAUDE_CONFIG_DIR into an agy job. */
+  if (job.runner === 'antigravity') {
+    return { outcome: OUTCOME.REFUSED, because: `${spoken} signs in to Antigravity in its own window, so there is no other account to move it to yet` };
+  }
 
   const accounts = require('./accounts');
   const all = accounts.list();
@@ -1581,7 +1603,8 @@ function setProvider(name, provider, opts) {
   /* #3296/#3391: the four-way guard createAgentInner already uses. google launches
      the gemini runner, xai the grok runner; the switch path was the last post-birth
      setter still refusing both (setAccount/setModel already handle them). */
-  if (provider !== 'anthropic' && provider !== 'openai' && provider !== 'google' && provider !== 'xai') {
+  if (provider !== 'anthropic' && provider !== 'openai' && provider !== 'google' && provider !== 'xai'
+    && !(provider === 'antigravity' && antigravityEnabled())) { // #3568: behind its flag
     return { outcome: OUTCOME.REFUSED, because: REFUSE_PROVIDER };
   }
   /* #3564: a swarm's meter and stop keys are Claude Code's, so it stays on Claude, as at birth. */
@@ -1593,6 +1616,10 @@ function setProvider(name, provider, opts) {
     }
   }
   const platform = opts && opts.platform;
+  // #3568: Windows has no Antigravity launch path, the same refusal create and installJob take.
+  if (provider === 'antigravity' && (platform || process.platform) === 'win32') {
+    return { outcome: OUTCOME.REFUSED, because: REFUSE_ANTIGRAVITY_WIN32 };
+  }
   const verdict = readJobVerdict(clean, undefined, platform);
   const job = verdict.job;
   if (!job) {
@@ -1609,15 +1636,19 @@ function setProvider(name, provider, opts) {
       because: `${spoken} already runs on ${already}`,
     };
   }
-  const { claudeBin, codexBin, geminiBin, grokBin } = binPaths(opts);
-  const runnerBin = runner === 'codex' ? codexBin : runner === 'gemini' ? geminiBin : runner === 'grok' ? grokBin : claudeBin;
+  const { claudeBin, codexBin, geminiBin, grokBin, antigravityBin } = binPaths(opts);
+  const runnerBin = runner === 'codex' ? codexBin : runner === 'gemini' ? geminiBin : runner === 'grok' ? grokBin : runner === 'antigravity' ? antigravityBin : claudeBin;
+  if (!DRY_RUN && runner === 'antigravity' && !agyNameOk(runnerBin)) {
+    return { outcome: OUTCOME.REFUSED, because: AGY_NAME_REFUSAL };
+  }
   if (!DRY_RUN && !runnerRunnable(runnerBin)) {
     /* The existing OpenAI/Claude wording is kept verbatim (create.runner-dir-1616
        asserts `/could not find the OpenAI runner/`); gemini/grok get the same shape. */
     const missing = runner === 'codex' ? 'the OpenAI runner'
       : runner === 'gemini' ? 'the Gemini runner'
         : runner === 'grok' ? 'the Grok runner'
-          : 'Claude';
+          : runner === 'antigravity' ? 'Antigravity'
+            : 'Claude';
     return {
       outcome: OUTCOME.REFUSED,
       because: `we could not find ${missing} on this computer, so nothing was changed`,
@@ -1867,6 +1898,10 @@ function setProvider(name, provider, opts) {
      need not reflect, so a naive check would false-refuse switches that would work;
      and gemini/grok's default is a real env-key door an agent usually CAN start on,
      which is exactly why they never grew codex's saga. */
+  // #3568: the same refusal create, setAccount and installJob give, rather than dropping the account.
+  if (runner === 'antigravity' && opts && typeof opts.accountDir === 'string' && opts.accountDir !== '') {
+    return { outcome: OUTCOME.REFUSED, because: 'an Antigravity agent signs in to Antigravity in its own window, so it cannot be given an account here yet' };
+  }
   let switchAccount = null;
   if ((runner === 'gemini' || runner === 'grok') && !DRY_RUN) {
     const mod = runner === 'gemini' ? require('./geminiaccounts') : require('./grokaccounts');
@@ -1969,9 +2004,9 @@ function setProvider(name, provider, opts) {
      which the brief is left under the old runner's filename. Do NOT read the
      swallow as "a refresh will recreate it": nothing on the switch path
      re-creates the brief, so the guarantee is that the failure is
-     near-impossible, not that it self-heals. `job.runner === runner` was
-     refused above, so the two filenames always differ here; the guard stays for
-     when the runner set grows.
+     near-impossible, not that it self-heals. Switching between codex,
+     grok and antigravity keeps the same file (all read AGENTS.md), which the
+     `oldBrief !== newBrief` guard below leaves alone.
      🛑 NEVER CLOBBER AN EXISTING DESTINATION. `renameSync` overwrites, and a
      CONNECTED agent lives in the person's OWN folder, which can legitimately
      hold BOTH CLAUDE.md and AGENTS.md (discover.js `connect()` handles "a
@@ -2030,9 +2065,9 @@ function setModel(name, modelKey, opts) {
   /* The agent's PROVIDER, from the runner its job actually launches. One
      derivation, the same direction `createAgent` goes in reverse (#3296 adds the
      gemini arm). */
-  const agentProvider = job.runner === 'codex' ? 'openai' : job.runner === 'gemini' ? 'google' : job.runner === 'grok' ? 'xai' : 'anthropic';
+  const agentProvider = job.runner === 'codex' ? 'openai' : job.runner === 'gemini' ? 'google' : job.runner === 'grok' ? 'xai' : job.runner === 'antigravity' ? 'antigravity' : 'anthropic';
   let m;
-  if (agentProvider === 'openai' || agentProvider === 'google' || agentProvider === 'xai') {
+  if (agentProvider === 'openai' || agentProvider === 'google' || agentProvider === 'xai' || agentProvider === 'antigravity') {
     /* #2140/#3296/#3391: OpenAI, Gemini and Grok models are FREE-FORM ids, not
        entries in the static MODELS list, so key===arg===the model id. An EMPTY key is
        the provider's own default -- codex/gemini/grok pick their own (the gemini
@@ -2040,7 +2075,7 @@ function setModel(name, modelKey, opts) {
        slot is empty) -- and writes an empty model slot. A non-empty id is
        sanity-bounded here; where a live "this account can run it" check exists (OpenAI)
        it is async at the server route. */
-    const vendorLabel = agentProvider === 'openai' ? 'OpenAI' : agentProvider === 'google' ? 'Gemini' : 'Grok';
+    const vendorLabel = agentProvider === 'openai' ? 'OpenAI' : agentProvider === 'google' ? 'Gemini' : agentProvider === 'antigravity' ? 'Antigravity' : 'Grok';
     const id = String(modelKey == null ? '' : modelKey).trim();
     if (id !== '') {
       if (!/^[A-Za-z0-9][A-Za-z0-9._:-]{0,79}$/.test(id)) {
@@ -2887,6 +2922,10 @@ function unusablePath(bin, platform = process.platform) {
  * sweeps for an existsSync aimed at a runner path as well as for X_OK.
  */
 function runnerRunnable(p) { return runners.isRunnable(p); }
+/* #3568: the board and the supervisor recognise an Antigravity pane by the command name `agy`, so
+   a binary under any other name would start an agent nobody can see. Refused with this sentence. */
+const AGY_NAME_REFUSAL = 'the Antigravity program must be named agy, or Kosmos cannot see the agent running';
+function agyNameOk(bin) { return runners.agyRealName(bin) === 'agy'; }
 
 /**
  * Where the two things an agent needs actually live on this computer.
@@ -2940,6 +2979,9 @@ function binPaths(opts) {
     // by the RUNNER name here ('grok'), as it is for 'claude' and 'gemini'.
     grokBin: (opts && opts.grokBin)
       || runners.resolveBin('grok').bin,
+    // #3568: the Antigravity runner (agy), same contract.
+    antigravityBin: (opts && opts.antigravityBin)
+      || runners.resolveBin('antigravity').bin,
   };
 }
 
@@ -3218,19 +3260,28 @@ function installJob(name, opts) {
      the plist is then written with THAT runner and its own binary, so a gemini agent is
      no longer silently (re)installed as a CLAUDE job with claudeBin (the mis-launch the
      old root refusal existed to prevent). `wantRunner` is computed ONCE here and drives
-     both the win32 refusal below and the plist write.
-     🛑 WIN32 STILL REFUSES gemini/grok. `engine/win32launch.js` (win32StartViaJob) has no
-     gemini/grok substrate, and it LAUNCHES rather than just registering, so proceeding
-     there would spawn an agent the substrate cannot actually run. The Windows backfill is
-     carded, not built here. The refusal sits before the win32 launch arm, so win32 never
-     reaches win32StartViaJob with gemini/grok. Create is unaffected: it never calls
-     installJob. */
+     both the win32 launch arm and the plist write.
+     📌 WIN32 RUNS gemini/grok NOW. The Windows supervisor drives them one turn at a time,
+     as it does codex (engine/win32keyed.js), so the win32 launch arm below starts one with
+     its own runner and binary; there is no longer a refusal here. */
   const wantRunner = (opts && opts.runner) || recordedRunner(clean);
-  if ((wantRunner === 'gemini' || wantRunner === 'grok') && jobPlatform === 'win32') {
-    const label = wantRunner === 'gemini' ? 'Gemini' : 'Grok';
-    return { ok: false, because: `${spokenName(clean)} runs on ${label}, which Kosmos cannot set up a Windows launch job for it yet -- it can be created fresh, but not backfilled, repaired, or imported on Windows` };
+  // #3568: the flag holds on this route too (connect, repair and backfill all reach installJob).
+  if (wantRunner === 'antigravity' && !antigravityEnabled()) {
+    return { ok: false, because: `${spokenName(clean)} runs on Antigravity, and setting up Antigravity agents is switched off on this computer, so it cannot be set up here while that is off` };
   }
-  const { claudeBin, tmuxBin, codexBin, geminiBin, grokBin } = binPaths(opts);
+  if (wantRunner === 'antigravity' && jobPlatform === 'win32') {
+    return { ok: false, because: REFUSE_ANTIGRAVITY_WIN32 };
+  }
+  /* 📌 gemini/grok are no longer refused on win32: the Windows per-turn supervisor runs them
+     (engine/win32keyed.js through win32codexsup), so win32StartViaJob below starts one the
+     same way it starts a codex agent. */
+  /* #3568: Kosmos keeps no Antigravity accounts, and accountEnvVar would write any account dir
+     into an agy job as CLAUDE_CONFIG_DIR (its default). Refuse one here, the same line create and
+     setAccount take, so no path (backfill, repair, an import's first start) can do it. */
+  if (wantRunner === 'antigravity' && opts && typeof opts.configDir === 'string' && opts.configDir) {
+    return { ok: false, because: `${spokenName(clean)} runs on Antigravity, which signs in to Antigravity in its own window, so it cannot be set up on another account here` };
+  }
+  const { claudeBin, tmuxBin, codexBin, geminiBin, grokBin, antigravityBin } = binPaths(opts);
   /* 🛑 THE RUNNER IS DECIDED BEFORE THE BINARY IS CHECKED (#1159). This checked
      `claudeBin` unconditionally, so ADOPTING A CODEX AGENT WAS REFUSED ON A
      MACHINE WITH NO CLAUDE -- which is exactly the 'OpenAI, pre-existing agents'
@@ -3242,7 +3293,9 @@ function installJob(name, opts) {
   const runnerBin = runner === 'codex' ? codexBin
     : runner === 'gemini' ? geminiBin
       : runner === 'grok' ? grokBin
-        : claudeBin;
+        : runner === 'antigravity' ? antigravityBin
+          : claudeBin;
+  if (!DRY_RUN && runner === 'antigravity' && !agyNameOk(runnerBin)) return { ok: false, because: AGY_NAME_REFUSAL };
   if (unusablePath(runnerBin) || unusablePath(tmuxBin)) {
     return { ok: false, /* ⚠️ NEITHER BINARY IS NAMED, and `tmux` least of all (Mona Lisa). A person
        who installed Kosmos has no reason to have heard the word, and it cost a
@@ -3261,7 +3314,8 @@ function installJob(name, opts) {
     const missing = runner === 'codex' ? 'Codex'
       : runner === 'gemini' ? 'the Gemini runner'
         : runner === 'grok' ? 'the Grok runner'
-          : 'Claude';
+          : runner === 'antigravity' ? 'Antigravity'
+            : 'Claude';
     return { ok: false, because: `we could not find ${missing} on this computer, so a job made now would never start` };
   }
   const modelArgWin = (opts && typeof opts.model === 'string' && opts.model.trim()) ? opts.model.trim() : null;
@@ -3299,7 +3353,7 @@ function installJob(name, opts) {
     if (DRY_RUN) {
       return { ok: true, started: true, model: modelArgWin,
         guessed: { model: modelArgWin ? null : 'we do not know which model it was set to run on, so it will start on the default',
-          account: configDirWin ? null : 'it will run on your main Claude account' },
+          account: (configDirWin || isNonClaudeRunner(wantRunner)) ? null : 'it will run on your main Claude account' },
         because: 'set up and started now' };
     }
     /* 🔑 ONE ACT NOW, AND THE PROMISE IS NO LONGER SEPARABLE FROM THE FACT (7c-2).
@@ -3319,7 +3373,7 @@ function installJob(name, opts) {
       atLogin: true,
       guessed: {
         model: modelArgWin ? null : 'we do not know which model it was set to run on, so it will start on the default',
-        account: configDirWin ? null : 'it will run on your main Claude account',
+        account: (configDirWin || isNonClaudeRunner(wantRunner)) ? null : 'it will run on your main Claude account',
       },
       because: 'set up and started now, and it will start again at every login',
     };
@@ -3399,7 +3453,7 @@ function installJob(name, opts) {
     /* What we had to assume rather than read, for the caller to say out loud. */
     guessed: {
       model: modelArg ? null : 'we do not know which model it was set to run on, so it will start on the default',
-      account: configDir ? null : 'it will run on your main Claude account',
+      account: (configDir || isNonClaudeRunner(wantRunner)) ? null : 'it will run on your main Claude account', // #3568: only a Claude agent runs on a Claude account
     },
     because: started
       ? 'set up to start at every login, and started now'
@@ -3839,7 +3893,7 @@ function createAgentInner(opts) {
      person can actually create by picking their own name from a list. */
   const wantReportsTo = (opts && typeof opts.reportsTo === 'string' && opts.reportsTo.trim())
     ? opts.reportsTo.trim().slice(0, 80) : null;
-  const { claudeBin, tmuxBin, codexBin, geminiBin, grokBin } = binPaths(opts);
+  const { claudeBin, tmuxBin, codexBin, geminiBin, grokBin, antigravityBin } = binPaths(opts);
 
   /**
    * Which provider this agent runs on (#245, #3296, #3391). 'anthropic' is the
@@ -3854,10 +3908,11 @@ function createAgentInner(opts) {
   // The ONE provider->runner map (providerRunner), shared with setProvider and
   // recordedRunner so a new provider reaches every path at once.
   const runner = providerRunner(provider);
-  const runnerBin = runner === 'codex' ? codexBin : runner === 'gemini' ? geminiBin : runner === 'grok' ? grokBin : claudeBin;
+  const runnerBin = runner === 'codex' ? codexBin : runner === 'gemini' ? geminiBin : runner === 'grok' ? grokBin : runner === 'antigravity' ? antigravityBin : claudeBin;
 
   const steps = [];
-  if (provider !== 'anthropic' && provider !== 'openai' && provider !== 'google' && provider !== 'xai') {
+  if (provider !== 'anthropic' && provider !== 'openai' && provider !== 'google' && provider !== 'xai'
+    && !(provider === 'antigravity' && antigravityEnabled())) { // #3568: behind its flag
     return { outcome: OUTCOME.REFUSED, because: REFUSE_PROVIDER, steps };
   }
   /* #3564: an Agent or a Swarm. A swarm is refused here, before anything is written,
@@ -3867,6 +3922,19 @@ function createAgentInner(opts) {
   if (kind === 'swarm') {
     const swarmProblem = require('./swarm').createProblem({ provider, maxHelpers: opts.maxHelpers, dailyTokenLimit: opts.dailyTokenLimit });
     if (swarmProblem) return { outcome: OUTCOME.REFUSED, because: swarmProblem, field: 'swarm', steps };
+  }
+  if (provider === 'antigravity') {
+    // Windows first, as setProvider and installJob do: there the binary check would name the wrong cause.
+    if ((opts && opts.platform ? opts.platform : process.platform) === 'win32') {
+      return { outcome: OUTCOME.REFUSED, because: REFUSE_ANTIGRAVITY_WIN32, steps };
+    }
+    // #3568: the same "could this machine ever start it" preflight as the other runners.
+    if (!DRY_RUN && !agyNameOk(antigravityBin)) {
+      return { outcome: OUTCOME.REFUSED, because: AGY_NAME_REFUSAL, steps };
+    }
+    if (!DRY_RUN && !runnerRunnable(antigravityBin)) {
+      return { outcome: OUTCOME.REFUSED, because: 'we could not find Antigravity on this computer, so an agent made now would never start', steps };
+    }
   }
   if (provider === 'google') {
     // #3296: refuse a Gemini create the machine could never start, the same
@@ -3998,7 +4066,7 @@ function createAgentInner(opts) {
   }
   let modelArg = null;
   if (wantModelKey !== undefined) {
-    if (provider === 'openai' || provider === 'google' || provider === 'xai') {
+    if (provider === 'openai' || provider === 'google' || provider === 'xai' || provider === 'antigravity') {
       /* #2140/#3296/#3391: OpenAI, Gemini and Grok models are FREE-FORM ids, not
          entries in the static MODELS list `modelFor` reads (OpenAI's are per-account
          and dynamic; Gemini's and Grok's are the vendor's own catalogues and this
@@ -4009,7 +4077,7 @@ function createAgentInner(opts) {
          -- so it leaves modelArg null. A non-empty id is written as the `-m` arg, only
          sanity-bounded here (a bad caller must not write an arbitrary string into the
          launchd job's argv). */
-      const vendorLabel = provider === 'openai' ? 'OpenAI' : provider === 'google' ? 'Gemini' : 'Grok';
+      const vendorLabel = provider === 'openai' ? 'OpenAI' : provider === 'google' ? 'Gemini' : provider === 'antigravity' ? 'Antigravity' : 'Grok';
       const id = String(wantModelKey).trim();
       if (id !== '') {
         if (!/^[A-Za-z0-9][A-Za-z0-9._:-]{0,79}$/.test(id)) {
@@ -4109,6 +4177,10 @@ function createAgentInner(opts) {
       .find((a) => a.dir === path.resolve(String(wantAccountDir)));
     if (!acct) return { outcome: OUTCOME.REFUSED, because: unknownAccountRefusal('Grok'), steps };
     configDir = acct.isDefault ? null : acct.dir;
+  } else if (provider === 'antigravity' && wantAccountDir !== undefined && wantAccountDir !== null && String(wantAccountDir) !== '') {
+    // #3568: no Antigravity accounts in Kosmos yet; the person signs in inside the agent's own
+    // pane. Refused rather than falling into the Claude accounts branch below.
+    return { outcome: OUTCOME.REFUSED, because: 'an Antigravity agent signs in to Antigravity in its own window, so it cannot be given an account here yet', steps };
   } else if (wantAccountDir !== undefined && wantAccountDir !== null && String(wantAccountDir) !== '') {
     const accountsMod = require('./accounts');
     /* Resolved for the same reason as the OpenAI arm above (#1486):
@@ -4348,7 +4420,7 @@ function createAgentInner(opts) {
    * is a dead click in words. Which condition suppressed it rides the
    * engine-side `alternative`, never the person's sentence.
    */
-  const runnerLabel = runner === 'codex' ? 'the OpenAI runner' : runner === 'gemini' ? 'the Gemini runner' : runner === 'grok' ? 'the Grok runner' : 'Claude Code';
+  const runnerLabel = runner === 'codex' ? 'the OpenAI runner' : runner === 'gemini' ? 'the Gemini runner' : runner === 'grok' ? 'the Grok runner' : runner === 'antigravity' ? 'Antigravity' : 'Claude Code';
   /**
    * 🛑 tmux IS NOT A REQUIRED PROGRAM ON win32, AND REQUIRING IT HERE REFUSED
    * EVERY WINDOWS CREATE (#570). Measured, not reasoned: the first real
@@ -4779,6 +4851,15 @@ function createAgentInner(opts) {
     fs.writeFileSync(instructionFile(name, runner), text, 'utf8');
   });
 
+  /* #3769: the setup guide's folder is guarded BEFORE anything can start it: its marker (which the
+     supervisor reads to launch it with none of the tokens Kosmos holds) and its deny rules on
+     credential files. Written after the start, the first session would run unguarded. Gating: a
+     guide whose guards could not be written is not made. Every other role skips this. */
+  const guardedGuide = roleKey !== 'setup' || DRY_RUN || step('kept it away from passwords and keys', () => {
+    const guarded = require('./setup-assistant').guardGuideFolder(workerDir(name), name);
+    if (!guarded.ok) throw new Error(guarded.because || 'the guards could not be written');
+  });
+
   /**
    * The display name, written where the board reads it.
    *
@@ -4895,7 +4976,7 @@ function createAgentInner(opts) {
    * your computer either way" — a sentence that is false in exactly the case
    * that produced it.
    */
-  if (!wroteInstructions || !installedSupervisor || !wroteJob) {
+  if (!wroteInstructions || !guardedGuide || !installedSupervisor || !wroteJob) {
     rollBack();
     // ⚠️ A missing supervisor gets its OWN sentence. It is not "try again":
     // `bin/agent-supervisor.sh` is missing from the installation, so retrying
@@ -4990,7 +5071,7 @@ function createAgentInner(opts) {
        agent with `--trust` at launch (agent-supervisor.sh), and their birth writes go
        to their own config branches below, so running a claude trust write for a
        gemini/grok worker folder would write into the wrong tool's config. */
-    if (provider !== 'google' && provider !== 'xai') {
+    if (provider !== 'google' && provider !== 'xai' && provider !== 'antigravity') { // #3568: not a Claude Code folder either
       try { trusted = require('./trust').trustFolder(workerDir(name), { configDir: provider === 'openai' ? null : configDir, createIfAbsent: provider !== 'openai', agentDefaultAccount: provider !== 'openai' && !configDir }); }
       catch { /* another tool's file; an agent that asks once is not a failed creation */ }
     }
@@ -5365,6 +5446,7 @@ module.exports = {
   runnerProvider,
   providerLabel,
   isNonClaudeRunner,
+  antigravityEnabled,
   recordedRunner,
   plistPath,
   refuseRealLaunchWriteUnderTest,

@@ -1,4 +1,4 @@
-// Browser-check-surface: tipcard tippins tiphalo tip-live tips-row tip-eb tip-x tip-go tip-off tip-skip tip-dots tip-arrow tip-bands helpq helpq-btn helpq-menu data-help tips-toggle tips-box
+// Browser-check-surface: tipcard tippins tiphalo tip-live tips-row tip-eb tip-x tip-go tip-off tip-skip tip-dots tip-arrow tip-bands tipdim tip-dimming tips-toggle tips-box
 'use strict';
 
 /**
@@ -26,7 +26,8 @@ process.env.AGENT_WORKFORCE_LAUNCH = mkroot('launch-');
 process.env.AGENT_WORKFORCE_PROJECTS = mkroot('projects-');
 process.env.AGENT_WORKFORCE_TMUX_BIN = '/bin/echo';
 
-const { chromium } = require('playwright');
+const { chromium, webkit } = require('playwright');
+const zlib = require('node:zlib');
 const fleet = require('../../test-support/fleet');
 const srv = require('../../server.js');
 const tipsStore = require('../../engine/tips');
@@ -44,13 +45,35 @@ const cardState = (page) => page.evaluate(() => {
   const c = document.getElementById('tipcard');
   const h = c && c.querySelector('h2');
   return { shown: !!c && !c.hidden, title: h ? h.textContent : null,
-    dim: !!document.querySelector('#tippins:not([hidden]) .tiphalo'),
+    dim: !!document.querySelector('#tippins:not([hidden]) .tiphalo, #tippins:not([hidden]) .tipdim') || document.documentElement.classList.contains('tip-dimming'),
     halo: document.querySelectorAll('#tippins .tiphalo').length,
     step: c ? (c.querySelector('.tip-eb')?.textContent || '') : '', dots: c ? c.querySelectorAll('.tip-dots i').length : 0 };
 });
+/* #3755: there is no "?" any more, so an arm that needs a tip on demand opens it the way the page does. */
+const openTip = (page, id) => page.evaluate((i) => tipShow(TIPS.find((t) => t.id === i), { returnTo: document.activeElement }), id);
+/* The ring's explainer is a step of an agent page's tips now (#3755), but the arms that test how a SCREEN tip is laid
+   out, steps aside, scrolls and closes used it as their card, because its words are the longest there are. This opens
+   those words as a screen tip, pointing at a ring wherever one shows, and records as the Agents tip. */
+const RING = 'Your agent\'s memory';
+const openRingTip = (page) => page.evaluate(() => {
+  const st = TIPS.find((t) => t.id === 'agentpage').steps[0];
+  tipShow({ id: 'agents', title: st.title, body: st.body, side: true, show: () => true,
+    at: '#panel-detail #d-ring svg, #grid .agauge:has(.gf), #grid .agauge:has(.gu), #alist .lring' }, { returnTo: document.activeElement });
+});
+const cardCls = (page) => page.evaluate(() => ['up', 'down', 'left', 'right', 'flat'].find((k) => document.getElementById('tipcard').classList.contains(k)));
 const waitTitle = (page, title, ms) => page.waitForFunction((t) => { const c = document.getElementById('tipcard'); return c && !c.hidden && c.querySelector('h2')?.textContent === t; }, title, { timeout: ms }).then(() => true, () => false);
 /* An absence claim needs the tips code to have run: loaded, ticking, and the board's first answer in. */
 const tipsRunning = (page) => page.waitForFunction(() => TIPS_STATE !== null && TIPS_TIMER !== null && TIP_NEW_BOARD !== null, null, { timeout: 8000 }).then(() => true, () => false);
+/* One screen pixel, as the engine composited it. A 1x1 PNG row is its filter byte then the pixel, and every PNG
+   filter decodes a lone pixel to its raw bytes (no left or upper neighbour), so no decoder is needed. */
+const pixel = async (page, x, y) => {
+  const buf = await page.screenshot({ clip: { x, y, width: 1, height: 1 } });
+  if (buf[24] !== 8 || (buf[25] !== 2 && buf[25] !== 6) || buf[28] !== 0) throw new Error('pixel: not an 8-bit, non-interlaced RGB(A) PNG (depth ' + buf[24] + ', type ' + buf[25] + ', interlace ' + buf[28] + ')');
+  const idat = [];
+  for (let o = 8; o < buf.length;) { const len = buf.readUInt32BE(o), type = buf.toString('ascii', o + 4, o + 8); if (type === 'IDAT') idat.push(buf.subarray(o + 8, o + 8 + len)); o += 12 + len; }
+  const raw = zlib.inflateSync(Buffer.concat(idat));
+  return [raw[1], raw[2], raw[3]];
+};
 /* The store, written directly: the API only ever adds to seen, which is the product rule. */
 const resetStore = (state) => fs.writeFileSync(tipsStore.FILE(), JSON.stringify(state));
 
@@ -106,13 +129,16 @@ const resetStore = (state) => fs.writeFileSync(tipsStore.FILE(), JSON.stringify(
       await page.click('#tipcard .tip-go');
       await page.waitForTimeout(150);
       const st = await cardState(page);
-      walked.push(st.step + ' ' + st.title);
+      walked.push(st.step + ' ' + st.title + ' | ' + await page.evaluate(() => document.querySelector('#tipcard .tip-bd').textContent.trim()));
       placed.push(await tourPlace());
     }
     /* Every step's card points at its own ringed place and never sits on it (a card's last place must
        not carry over from the step before). */
     chk(placed.length === 4 && placed.every((p) => p.cls !== 'flat' && !p.overRing), 'T2 every tour step\'s card points at its ring and does not cover it', JSON.stringify(placed));
-    chk(JSON.stringify(walked) === JSON.stringify(['2 of 4 Your agents', '3 of 4 Your projects', '4 of 4 Your settings']), 'T2 Next walks Agents, Projects, then your name', JSON.stringify(walked));
+    /* #3737 (Josh 08:51): his words for steps 2 to 4, verbatim. */
+    chk(JSON.stringify(walked) === JSON.stringify(['2 of 4 Your agents | Access all your agents to see what they are working on and talk to them directly.',
+      '3 of 4 Your projects | Create projects for your agents to work on together.',
+      '4 of 4 Your Profile | Access all your Kosmos settings here.']), 'T2 Next walks Agents, Projects, then your name, in Josh\'s words (#3737)', JSON.stringify(walked));
     const lastBtn = await page.evaluate(() => ({ go: document.querySelector('#tipcard .tip-go').textContent, skip: !!document.querySelector('#tipcard .tip-skip') }));
     chk(lastBtn.go === 'Got it' && !lastBtn.skip, 'T2 the last step says Got it and offers no Skip', JSON.stringify(lastBtn));
     await page.click('#tipcard .tip-go');
@@ -121,45 +147,130 @@ const resetStore = (state) => fs.writeFileSync(tipsStore.FILE(), JSON.stringify(
     // The next first-visit tip may already be up (the timer runs), so the claim is about the tour.
     chk(!closed.dim && !/ of /.test(closed.step), 'T2 Got it closes the tour and its dim', JSON.stringify(closed));
     chk((await api('GET')).seen.includes('tour'), 'T2 the board records the tour as seen');
-    // Her first agent arrives: the screen tips follow the tour.
+    // Her first agent arrives: the screen tips follow the tour. Her memory reads 62% (the fixture has no transcript, so
+    // the board would report it unknown and her page would draw no ring for the tip to point at).
+    /* Only while the check asks for it (localStorage survives the reloads), so later arms see the board's real answer. */
+    await page.addInitScript(() => {
+      const f = window.fetch;
+      window.fetch = async (...a) => {
+        const r = await f(...a);
+        if (!String(a[0]).startsWith('/api/status') || localStorage.getItem('aw-check-ctx') !== '62') return r;
+        const j = await r.clone().json();
+        (j.agents || []).forEach((x) => { x.context = { tokens: 124000, percent: 62, confidence: 'exact', notYet: false }; });
+        return new Response(JSON.stringify(j), { status: r.status, headers: { 'content-type': 'application/json' } });
+      };
+    });
+    await page.evaluate(() => localStorage.setItem('aw-check-ctx', '62'));
     withAgent();
     await page.reload({ waitUntil: 'networkidle' });
 
-    // T3: the ring tip then shows by itself on the board (a card has a ring), as a screen tip.
-    chk(await waitTitle(page, 'The ring is your agent\'s memory', 4000), 'T3 the ring tip shows by itself on the board');
-    const ring = await page.evaluate(() => ({ dim: !!document.querySelector('#tippins .tiphalo'),
-      strokes: [...document.querySelectorAll('#tipcard .tip-bands .gf')].map((c) => getComputedStyle(c).stroke) }));
-    chk(!ring.dim && ring.strokes.length === 3 && new Set(ring.strokes).size === 3, 'T3 it is a screen tip, with no dim, and three distinct gauge colours', JSON.stringify(ring));
-    if (SHOTS) await page.screenshot({ path: path.join(SHOTS, 'ring-light.png') });
-    // A tip that shows by itself does not take focus, so the live region is how a screen reader hears it.
-    const live = await page.evaluate(() => { const l = document.getElementById('tip-live'); return l ? { text: l.textContent, polite: l.getAttribute('aria-live') } : null; });
-    chk(!!live && live.polite === 'polite' && live.text === 'Tip: The ring is your agent\'s memory', 'T3 the tip is announced politely by its title', JSON.stringify(live));
-    // T16: leaving the screen closes a tip that showed by itself, without recording it, and the next
-    // screen's tip can show; coming back shows it again.
-    await page.click('#tabs [data-tab="projects"]');
-    chk(await waitTitle(page, 'A project is shared work', 4000), 'T16 leaving the board closes the ring tip and the Projects tip shows');
-    chk(!(await api('GET')).seen.includes('ring'), 'T16 the ring tip was not recorded as seen when its screen went away');
-    await page.click('#tipcard .tip-go');
-    await page.click('#tabs [data-tab="agents"]');
-    chk(await waitTitle(page, 'The ring is your agent\'s memory', 4000), 'T16 coming back to the board shows the ring tip again');
-    await page.keyboard.press('Escape');
-    await page.waitForTimeout(300);
-    chk(!(await cardState(page)).shown && (await api('GET')).seen.includes('ring'), 'T3 Escape closes it and counts as seen');
-
-    // T3b: the Agents tip follows it, pointing at the view switch.
-    chk(await waitTitle(page, 'See your agents your way', 4000), 'T3b the Agents tip follows on the board');
+    // T3 (#3737, Josh 08:51; #3755, Josh 11:07): the ring's explainer lives on the agent's own page, as the first of its
+    // steps. On the board it does not show (CONTROL for the arms below: the board's own tip does).
+    chk(await waitTitle(page, 'See your agents your way', 4000), 'T3 on the board the Agents tip shows, not the ring tip (#3737)', JSON.stringify(await cardState(page)));
     if (SHOTS) await page.screenshot({ path: path.join(SHOTS, 'screen-tip-light.png') });
     await page.click('#tipcard .tip-go');
     await page.waitForTimeout(300);
+    // Her page: the ring first (1 of 6), beside it with an arrow, then one tip on each of her five buttons.
+    await page.click('#grid [data-agent]');
+    chk(await waitTitle(page, RING, 4000), 'T3 on her page the ring shows first (#3755)', JSON.stringify(await cardState(page)));
+    const ring = await page.evaluate(() => {
+      const c = document.getElementById('tipcard'), r = document.querySelector('#panel-detail #d-ring svg');
+      const a = c.getBoundingClientRect(), b = r.getBoundingClientRect();
+      const ay = parseFloat(c.style.getPropertyValue('--ay')) || 22, tip = a.top + ay + 7;
+      return { dim: !!document.querySelector('#tippins .tiphalo, #tippins .tipdim') || document.documentElement.classList.contains('tip-dimming'),
+        step: c.querySelector('.tip-eb').textContent,
+        cls: ['up', 'down', 'left', 'right', 'flat'].find((k) => c.classList.contains(k)), arrowOnRing: tip >= b.top && tip <= b.bottom,
+        gap: Math.round(Math.max(b.left - a.right, a.left - b.right, b.top - a.bottom, a.top - b.bottom)),
+        body: c.querySelector('.tip-bd').innerText.replace(/\s+/g, ' ').trim(),
+        strokes: [...c.querySelectorAll('.tip-bands .gf')].map((x) => getComputedStyle(x).stroke) };
+    });
+    chk(ring.dim && ring.step === '1 of 6' && ring.strokes.length === 3 && new Set(ring.strokes).size === 3, 'T3 step 1 of 6, the page dimmed, and three distinct gauge colours', JSON.stringify(ring));
+    chk(['left', 'right'].includes(ring.cls) && ring.arrowOnRing && ring.gap >= 0 && ring.gap <= 40, 'T3 it points at the ring on her page, from beside it, its arrow on the ring', JSON.stringify(ring));
+    chk(ring.body === 'The ring shows how full your agent\'s memory is. Plenty of room Getting full Nearly full This is normal and the agent will automatically write themselves a handoff, You can also manage their memory under AI settings.',
+      'T3 in Josh\'s words (#3737)', JSON.stringify(ring.body));
+    if (SHOTS) await page.screenshot({ path: path.join(SHOTS, 'ring-light.png') });
+    // A tip that shows by itself is announced in the live region, which is how a screen reader hears it.
+    const live = await page.evaluate(() => { const l = document.getElementById('tip-live'); return l ? { text: l.textContent, polite: l.getAttribute('aria-live') } : null; });
+    chk(!!live && live.polite === 'polite' && live.text === 'Tip: ' + RING, 'T3 the tip is announced politely by its title', JSON.stringify(live));
+    // T16: leaving the screen without a click (the keyboard, Back, a link) closes tips that showed by themselves, without
+    // recording them; coming back shows them again. (A click outside a stepped tip ends it and counts, as for the tour: T18.)
+    await page.evaluate(() => document.querySelector('#tabs [data-tab="agents"]').click());   // no pointerdown
+    await page.waitForTimeout(2800);
+    const left16 = await cardState(page);
+    chk(!left16.shown, 'T16 leaving her page closes her page\'s tips, and they do not follow to the board', JSON.stringify(left16));
+    chk(!(await api('GET')).seen.includes('agentpage'), 'T16 they were not recorded as seen when their screen went away');
+    await page.click('#grid [data-agent]');
+    chk(await waitTitle(page, RING, 4000), 'T16 coming back to her page shows them again, from the ring');
+    // T34 (#3755): Next walks her five buttons in Josh's words, each ringed, each card pointing at its button and
+    // off it; Got it on the last records the page's tips.
+    const want34 = [
+      ['talk', 'Direct Message', 'Talk to your agent directly, ask questions, and give it work to do.'],
+      ['profile', 'Profile', 'Give your agent a name, photo, and description.'],
+      ['instr', 'Instructions', 'Tell your agent what to do and how you want it to work.'],
+      ['model', 'AI Settings', 'Choose the AI model your agent uses and manage its memory.'],
+      ['term', 'Advanced', 'Fine-tune your agent\'s technical settings.'],
+    ];
+    const got34 = [];
+    for (let i = 0; i < want34.length; i++) {
+      await page.click('#tipcard .tip-go');
+      await page.waitForTimeout(150);
+      got34.push(await page.evaluate((go) => {
+        const c = document.getElementById('tipcard'), h = document.querySelector('#tippins .tiphalo'), b = document.querySelector('#d-nav [data-go="' + go + '"]');
+        const a = c.getBoundingClientRect(), hr = h ? h.getBoundingClientRect() : null, br = b.getBoundingClientRect();
+        return { step: c.querySelector('.tip-eb').textContent, title: c.querySelector('h2').textContent, body: c.querySelector('.tip-bd').innerText.trim(),
+          ringed: !!hr && Math.abs(hr.left + 4 - br.left) <= 1 && Math.abs(hr.top + 4 - br.top) <= 1,
+          cls: ['up', 'down', 'left', 'right', 'flat'].find((k) => c.classList.contains(k)),
+          overButton: a.left < br.right && a.right > br.left && a.top < br.bottom && a.bottom > br.top };
+      }, want34[i][0]));
+    }
+    const bad34 = got34.filter((g, i) => g.step !== (i + 2) + ' of 6' || g.title !== want34[i][1] || g.body !== want34[i][2] || !g.ringed || g.cls === 'flat' || g.overButton);
+    chk(got34.length === 5 && bad34.length === 0, 'T34 her page walks her five buttons in Josh\'s words, each ringed and pointed at, none covered', JSON.stringify(bad34.length ? bad34 : got34.map((g) => g.title)));
+    chk(await page.evaluate(() => document.querySelector('#tipcard .tip-go').textContent) === 'Got it', 'T34 the last step closes with Got it');
+    await page.click('#tipcard .tip-go');
+    await page.waitForTimeout(300);
+    const seen34 = (await api('GET')).seen;
+    chk(!(await cardState(page)).shown && seen34.includes('agentpage') && seen34.includes('ring'), 'T34 Got it closes her page\'s tips and counts them, and the ring\'s, as seen', JSON.stringify(seen34));
+    await page.click('#tabs [data-tab="agents"]');
+    await page.waitForTimeout(300);
+    // T3c: an agent whose memory is unknown has no ring on her page, so the ring step is left out and her page's
+    // tips start at Direct Message, 1 of 5 (CONTROL: the same page with a reading starts at the ring, T3 above).
+    const seen3c = (await api('GET')).seen;
+    resetStore({ seen: seen3c.filter((id) => id !== 'agentpage' && id !== 'ring'), off: false });
+    await page.evaluate(() => localStorage.removeItem('aw-check-ctx'));
+    await page.reload({ waitUntil: 'networkidle' });
+    await page.click('#grid [data-agent]');
+    chk(await waitTitle(page, 'Direct Message', 4000), 'T3c unknown memory: her page\'s tips start at Direct Message');
+    const t3c = await page.evaluate(() => ({ ring: !!document.querySelector('#panel-detail #d-ring svg'), step: document.querySelector('#tipcard .tip-eb').textContent }));
+    chk(!t3c.ring && t3c.step === '1 of 5', 'T3c no ring on her page, and no ring step: 1 of 5', JSON.stringify(t3c));
+    await page.keyboard.press('Escape');
+    await page.waitForTimeout(300);
+    const seen3c2 = (await api('GET')).seen;
+    chk(seen3c2.includes('agentpage') && !seen3c2.includes('ring'), 'T3c closing them records her page\'s tips, not the ring\'s it never showed', JSON.stringify(seen3c2));
+    // T3e: the first time her page draws a ring after that, the ring's explainer shows by itself, beside it, once.
+    // (A new agent has no reading on its first visit, so this is how someone new meets it.)
+    await page.click('#tabs [data-tab="agents"]');
+    await page.evaluate(() => localStorage.setItem('aw-check-ctx', '62'));
+    await page.reload({ waitUntil: 'networkidle' });
+    await page.click('#grid [data-agent]');
+    chk(await waitTitle(page, RING, 5000), 'T3e with a reading now, the ring\'s explainer shows by itself on her page');
+    const t3e = await page.evaluate(() => { const c = document.getElementById('tipcard'); return { eb: c.querySelector('.tip-eb').textContent, cls: ['up', 'down', 'left', 'right', 'flat'].find((k) => c.classList.contains(k)), bands: c.querySelectorAll('.tip-bands .gf').length }; });
+    chk(t3e.eb === 'Tip' && ['left', 'right'].includes(t3e.cls) && t3e.bands === 3, 'T3e on its own (not a step), beside the ring, with its three colours', JSON.stringify(t3e));
+    await page.keyboard.press('Escape');
+    await page.waitForTimeout(300);
+    chk((await api('GET')).seen.includes('ring'), 'T3e closing it records it');
+    await page.evaluate(() => localStorage.removeItem('aw-check-ctx'));
+    resetStore({ seen: seen3c, off: false });
+    await page.click('#tabs [data-tab="agents"]');
+    await page.reload({ waitUntil: 'networkidle' });
 
-    // T4: a reload does not bring back what was closed (control: T1-T3b each showed before closing).
+    // T4: a reload does not bring back what was closed (control: T1-T3 each showed before closing).
     await page.reload({ waitUntil: 'networkidle' });
     chk(await tipsRunning(page), 'T4 precondition: the tips code is running');
     await page.waitForTimeout(2800);
     chk(!(await cardState(page)).shown, 'T4 after a reload nothing closed returns on the board');
 
     // T23: a board that already has agents (an upgrade) shows nothing by itself, even with nothing
-    // seen: not the tour, and not the screen tips that follow it (control: T1 and T22, the same
+    // seen: not the tour, and not the screen tips that follow it (control: T1 and T24, the same
     // empty state with no agents, show the tour).
     resetStore({ seen: [], off: false });
     await page.reload({ waitUntil: 'networkidle' });
@@ -192,29 +303,20 @@ const resetStore = (state) => fs.writeFileSync(tipsStore.FILE(), JSON.stringify(
     const t27 = await cardState(page);
     chk(emptied27 && onNow && !t27.shown, 'T27 tips turned on after the last agent went: still no tour', JSON.stringify({ emptied27, onNow, t27 }));
     withAgent();
-    resetStore({ seen: ['tour', 'ring', 'agents'], off: false });
+    resetStore({ seen: ['tour', 'agents'], off: false });
     await page.reload({ waitUntil: 'networkidle' });
 
-    // T5: the ? menu brings any of it back, closes the user menu, and returns focus to the ?.
-    await page.click('#userpop-btn');
-    await page.click('#helpq-btn');
-    const menus = await page.evaluate(() => ({ help: !document.getElementById('helpq-menu').hidden, user: !document.getElementById('userpop-menu').hidden }));
-    chk(menus.help && !menus.user, 'T5 opening the ? closes the user menu', JSON.stringify(menus));
-    // And the other way: the name button closes an open ? menu.
-    await page.click('#userpop-btn');
-    const menus2 = await page.evaluate(() => ({ help: !document.getElementById('helpq-menu').hidden, user: !document.getElementById('userpop-menu').hidden }));
-    chk(!menus2.help && menus2.user, 'T5 opening the user menu closes the ?', JSON.stringify(menus2));
-    await page.click('#helpq-btn');
-    await page.click('#helpq-menu [data-help="tour"]');
-    const again = await cardState(page);
-    chk(again.shown && again.title === TOUR, 'T5 Take the welcome tour again shows the tour', JSON.stringify(again));
-    await page.keyboard.press('Escape');
-    await page.waitForTimeout(200);
-    const focusAfter = await page.evaluate(() => document.activeElement && document.activeElement.id);
-    chk(focusAfter === 'helpq-btn', 'T5 closing it returns focus to the ?', 'focus=' + focusAfter);
-    await page.click('#helpq-btn');
-    await page.click('#helpq-menu [data-help="ring"]');
-    chk((await cardState(page)).title === 'The ring is your agent\'s memory', 'T5 What does the ring mean shows the ring explainer');
+    // T5 (#3755, Josh 11:07: "let's remove this circle? and tooltip controller"): no "?" in the header and nothing that
+    // names it, and the Settings switch no longer sends anyone to it. CONTROL: the header next to it is on screen.
+    const t5 = await page.evaluate(() => ({ header: tipVisible('#userpop-btn'),
+      gone: !document.getElementById('helpq') && !document.getElementById('helpq-btn') && !document.getElementById('helpq-menu') && !document.querySelector('[data-help], button[aria-label="Help"]'),
+      qBtn: [...document.querySelectorAll('button')].some((b) => b.textContent.trim() === '?' && b.getBoundingClientRect().width > 0),
+      hint: document.querySelector('#tips-row .dhint')?.textContent || null }));
+    chk(t5.header && t5.gone && !t5.qBtn, 'T5 no "?" beside the name, and no help menu (#3755)', JSON.stringify(t5));
+    chk(t5.hint === 'A short note the first time you open each screen.', 'T5 the Settings tips line no longer points at the ?', JSON.stringify(t5.hint));
+    chk(await page.evaluate(() => !TIPS.some((t) => /\?/.test(t.body || '') || (t.steps || []).some((st) => /\?/.test(st.body)))), 'T5 no tip\'s words point at the ?');
+    await openRingTip(page);
+    chk((await cardState(page)).title === RING && ['left', 'right', 'up', 'down'].includes(await cardCls(page)), 'T5 a screen tip on the board points at a card\'s ring (the arms below use it)', 'cls=' + await cardCls(page));
 
     // T6: Stop showing tips turns them off in one write, and the Settings switch reads it. With tips
     // off and nothing seen, nothing shows; turning the switch on shows the tour from that same state
@@ -239,55 +341,78 @@ const resetStore = (state) => fs.writeFileSync(tipsStore.FILE(), JSON.stringify(
     chk((await api('GET')).off === false, 'T6 the Settings switch turns tips back on');
     await page.keyboard.press('Escape');
     await page.waitForTimeout(250);
-    resetStore({ seen: ['tour', 'ring', 'agents'], off: false });
+    resetStore({ seen: ['tour', 'agents'], off: false });
     withAgent();
     await page.reload({ waitUntil: 'networkidle' });
     await page.waitForTimeout(600);
 
     // T9: each screen shows its own tip, once.
-    const visit = async (label, go, title) => {
-      await go();
-      const shown = await waitTitle(page, title, 5000);
-      const st = await cardState(page);
-      chk(shown && !st.dim, 'T9 ' + label + ' shows its tip: ' + title, JSON.stringify(st));
-      if (st.shown) { await page.click('#tipcard .tip-go'); await page.waitForTimeout(250); }
-    };
+    // No tip on Create Agent (#3755, Josh: "let's kill this tooltip from the Create the Agent page"). CONTROL: the
+    // Projects tip, next, shows from the same state.
     await page.click('#new-agent');
-    chk(await waitTitle(page, 'Make an agent', 5000), 'T9 New agent shows its tip: Make an agent');
-    const na = await page.evaluate(() => {
-      const c = document.getElementById('tipcard').getBoundingClientRect();
-      const over = [...document.querySelectorAll('#panel-create h2, #panel-create input')].filter((e) => { const r = e.getBoundingClientRect(); return r.width > 0 && c.left < r.right && c.right > r.left && c.top < r.bottom && c.bottom > r.top; }).length;
-      return { cls: document.getElementById('tipcard').className, over };
-    });
-    chk(na.cls.includes('left') && na.over === 0, 'T9 it sits beside the form\'s heading, over none of its fields', JSON.stringify(na));
-    // T15: a tip that opened by itself, closed from the keyboard, hands focus to the ? rather than dropping it.
+    chk(await tipsRunning(page), 'T9 precondition: the tips code is running');
+    await page.waitForTimeout(2800);
+    chk(await page.evaluate(() => tipVisible('#panel-create')) && !(await cardState(page)).shown, 'T9 Create Agent shows no tip (#3755)', JSON.stringify(await cardState(page)));
+    await page.click('#tabs [data-tab="projects"]');
+    chk(await waitTitle(page, 'Setup a Project', 5000), 'T9 Projects shows its tip: Setup a Project');
+    chk(await page.evaluate(() => document.querySelector('#tipcard .tip-bd').innerText.trim()) === 'Add multiple agents to work together in one conversation with shared files and tasks.', 'T9 in Josh\'s words (#3755)');
+    // T15: a tip that opened by itself, closed from the keyboard, leaves focus on the page, not on a card that is gone
+    // (nor on some other control). The engine may do this by itself as the card hides; the arm is about the outcome.
     await page.evaluate(() => document.querySelector('#tipcard .tip-go').focus());
     await page.keyboard.press('Enter');
     await page.waitForTimeout(250);
-    const fAuto = await page.evaluate(() => document.activeElement && document.activeElement.id);
-    chk(fAuto === 'helpq-btn', 'T15 closing an auto tip from the keyboard moves focus to the ?', 'focus=' + fAuto);
-    await visit('Projects', () => page.click('#tabs [data-tab="projects"]'), 'A project is shared work');
+    const fAuto = await page.evaluate(() => ({ body: document.activeElement === document.body, inCard: !!document.activeElement?.closest('#tipcard') }));
+    chk(fAuto.body && !fAuto.inCard, 'T15 closing an auto tip from the keyboard leaves focus on the page', JSON.stringify(fAuto));
     await page.evaluate(async () => {
       const r = await fetch('/api/projects', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ name: 'Tips Room' }) });
       if (!r.ok) throw new Error('project create failed: ' + r.status);
     });
     await page.reload({ waitUntil: 'networkidle' });
-    await visit('inside a project', async () => {
-      await page.click('#tabs [data-tab="projects"]');
-      await page.locator('#pj-list').getByText('Tips Room').first().click();
-    }, 'Everything about this project, in one place');
-    await visit('Settings', async () => { await page.click('#userpop-btn'); await page.click('#userpop-settings'); }, 'Settings for this computer');
-    await visit('an agent\'s page', async () => { await page.click('#tabs [data-tab="agents"]'); await page.waitForTimeout(300); await page.click('[data-agent="beatrix"]'); }, 'Your agent\'s page');
+    // T35 (#3755, Josh: "four separate things that highlighted each of the areas"): inside a project, four steps, each
+    // ringing its own area, the card pointing at it and off it.
+    await page.click('#tabs [data-tab="projects"]');
+    await page.locator('#pj-list').getByText('Tips Room').first().click();
+    chk(await waitTitle(page, 'Members', 5000), 'T35 inside a project the first step is Members');
+    const want35 = [
+      ['.pjcard-members', 'Members', 'Members are the agents on it. Add more any time.'],
+      ['> .pjmid', 'Conversation', 'Conversation is where you talk to all of them at once.'],
+      ['.pjcard-files', 'Files', 'Files collects everything they make.'],
+      ['> aside.pjcol:not(.pjsplit)', 'Tasks', 'Tasks is the to-do list, and who is on each one.'],
+    ];
+    const got35 = [];
+    for (let i = 0; i < want35.length; i++) {
+      if (i) { await page.click('#tipcard .tip-go'); await page.waitForTimeout(150); }
+      got35.push(await page.evaluate((sel) => {
+        const c = document.getElementById('tipcard'), h = document.querySelector('#tippins .tiphalo'), b = document.querySelector('#panel-projects .pj3 ' + sel);
+        const a = c.getBoundingClientRect(), hr = h ? h.getBoundingClientRect() : null, br = b.getBoundingClientRect();
+        return { step: c.querySelector('.tip-eb').textContent, title: c.querySelector('h2').textContent, body: c.querySelector('.tip-bd').innerText.trim(),
+          ringed: !!hr && Math.abs(hr.left + 4 - br.left) <= 1 && Math.abs(hr.top + 4 - br.top) <= 1,
+          dim: document.documentElement.classList.contains('tip-dimming'),
+          cls: ['up', 'down', 'left', 'right', 'flat'].find((k) => c.classList.contains(k)),
+          overArea: a.left < br.right && a.right > br.left && a.top < br.bottom && a.bottom > br.top };
+      }, want35[i][0]));
+    }
+    const bad35 = got35.filter((g, i) => g.step !== (i + 1) + ' of 4' || g.title !== want35[i][1] || g.body !== want35[i][2] || !g.ringed || !g.dim || g.cls === 'flat' || g.overArea);
+    chk(got35.length === 4 && bad35.length === 0, 'T35 a project\'s tips walk its four areas, each ringed and pointed at, none covered', JSON.stringify(bad35.length ? bad35 : got35.map((g) => g.title)));
+    await page.click('#tipcard .tip-go');
+    await page.waitForTimeout(300);
+    // Settings has no tip (Josh 2026-09-25 07:46): opening it shows none.
+    await page.click('#userpop-btn'); await page.click('#userpop-settings');
+    await page.waitForTimeout(2800);
+    chk(!(await cardState(page)).shown, 'T9 Settings shows no tip (it has none)', JSON.stringify(await cardState(page)));
+    await page.click('#tabs [data-tab="agents"]'); await page.waitForTimeout(300); await page.click('[data-agent="beatrix"]');
+    chk(await waitTitle(page, 'Direct Message', 5000), 'T9 an agent\'s page shows its tips (no memory reading here, so from Direct Message)');
+    await page.keyboard.press('Escape');
+    await page.waitForTimeout(250);
     const seenNow = (await api('GET')).seen;
-    chk(['newagent', 'projects', 'project', 'settings', 'agentpage'].every((id) => seenNow.includes(id)), 'T9 each closed screen tip is recorded', JSON.stringify(seenNow));
+    chk(['projects', 'project', 'agentpage'].every((id) => seenNow.includes(id)) && !seenNow.includes('settings') && !seenNow.includes('newagent'), 'T9 each closed screen tip is recorded, and no Settings or Create Agent one', JSON.stringify(seenNow));
     await page.click('#tabs [data-tab="projects"]');
     await page.waitForTimeout(2800);
     const again2 = await cardState(page);
-    chk(!(again2.shown && again2.title === 'A project is shared work'), 'T9 the Projects tip does not return (control: it showed above)', JSON.stringify(again2));
+    chk(!(again2.shown && again2.title === 'Setup a Project'), 'T9 the Projects tip does not return (control: it showed above)', JSON.stringify(again2));
 
     // T13: a dialog opened while a tip is up makes the tip step aside, and it comes back after.
-    await page.click('#helpq-btn');
-    await page.click('#helpq-menu [data-help="ring"]');
+    await openRingTip(page);
     // A stand-in dialog: the app's dialogs are .rm-back overlays. Held by reference, not by an id.
     await page.evaluate(() => { const d = document.createElement('div'); d.className = 'rm-back'; document.body.appendChild(d); window.__tipsStandIn = d; });
     // At once, before any poll: the dialog covers the card (the card is layered below every backdrop).
@@ -298,14 +423,13 @@ const resetStore = (state) => fs.writeFileSync(tipsStore.FILE(), JSON.stringify(
     await page.evaluate(() => { window.__tipsStandIn.remove(); delete window.__tipsStandIn; });
     await page.waitForTimeout(1600);
     const afterDialog = await cardState(page);
-    chk(underDialog === false && afterDialog.shown && afterDialog.title === 'The ring is your agent\'s memory',
+    chk(underDialog === false && afterDialog.shown && afterDialog.title === RING,
       'T13 a tip steps aside while a dialog is open and returns when it closes', JSON.stringify({ underDialog, afterDialog }));
     await page.keyboard.press('Escape');
 
     // T17: an Escape meant for a dialog closes the dialog, not the tip behind it. The stand-in closes
     // on Escape from a bubble-phase listener, the way the app's dialogs do.
-    await page.click('#helpq-btn');
-    await page.click('#helpq-menu [data-help="ring"]');
+    await openRingTip(page);
     await page.evaluate(() => {
       const d = document.createElement('div'); d.className = 'rm-back'; document.body.appendChild(d); window.__tipsStandIn = d;
       document.addEventListener('keydown', function esc(e) { if (e.key === 'Escape' && window.__tipsStandIn) { window.__tipsStandIn.remove(); delete window.__tipsStandIn; document.removeEventListener('keydown', esc); } });
@@ -313,7 +437,7 @@ const resetStore = (state) => fs.writeFileSync(tipsStore.FILE(), JSON.stringify(
     await page.keyboard.press('Escape');
     await page.waitForTimeout(1600);
     const esc17 = await page.evaluate(() => ({ dialogGone: !window.__tipsStandIn, card: !document.getElementById('tipcard').hidden, title: document.querySelector('#tipcard h2')?.textContent }));
-    chk(esc17.dialogGone && esc17.card && esc17.title === 'The ring is your agent\'s memory', 'T17 one Escape closes the dialog and leaves the tip', JSON.stringify(esc17));
+    chk(esc17.dialogGone && esc17.card && esc17.title === RING, 'T17 one Escape closes the dialog and leaves the tip', JSON.stringify(esc17));
     await page.keyboard.press('Escape');
     await page.waitForTimeout(200);
     chk(!(await cardState(page)).shown, 'T17 control: with no dialog, the same Escape closes the tip');
@@ -324,12 +448,11 @@ const resetStore = (state) => fs.writeFileSync(tipsStore.FILE(), JSON.stringify(
     // On the board, so the tour starts at its first step (a step whose place is off screen is left out).
     await page.click('#tabs [data-tab="agents"]');
     await page.waitForTimeout(300);
-    const openTour = async () => { await page.click('#helpq-btn'); await page.click('#helpq-menu [data-help="tour"]'); await page.waitForTimeout(150); };
+    const openTour = async () => { await openTip(page, 'tour'); await page.waitForTimeout(150); };
     await openTour();
     await page.click('#tipcard .tip-skip');
     chk(!(await cardState(page)).shown, 'T18 Skip ends the tour');
-    await page.click('#helpq-btn');
-    await page.click('#helpq-menu [data-help="ring"]');
+    await openRingTip(page);
     await page.click('#tipcard .tip-x');
     chk(!(await cardState(page)).shown, 'T18 the x closes a screen tip');
     await openTour();
@@ -346,28 +469,35 @@ const resetStore = (state) => fs.writeFileSync(tipsStore.FILE(), JSON.stringify(
     await page.keyboard.press('Escape');
     await page.waitForTimeout(150);
 
-    // T14: the card follows its target when the page scrolls.
+    // T14: the card follows its target when the page scrolls. No screen with a tip scrolls at this size since Create
+    // Agent lost its tip (#3755), so this opens a screen tip on the create form's heading, as its tip was.
     await page.setViewportSize({ width: 1280, height: 480 });
-    await page.click('#userpop-btn');
-    await page.click('#userpop-settings');
-    await page.waitForTimeout(300);
-    await page.click('#helpq-btn');
-    await page.click('#helpq-menu [data-help="screen"]');
+    await page.evaluate(() => openCreate());
+    await page.waitForTimeout(400);
+    await page.evaluate(() => tipShow({ id: 'agents', title: 'Make an agent', at: '#panel-create h2', side: true, show: () => true,
+      body: '<p>Give it a name and a picture so you can tell it apart, then tell it what the job is in plain words. You can change all of it later.</p>' }));
     const top0 = await page.evaluate(() => document.getElementById('tipcard').getBoundingClientRect().top);
-    const scrolled = await page.evaluate(async () => { const y = window.scrollY; window.scrollBy(0, 120); await new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r))); return window.scrollY - y; });
+    const title14 = (await cardState(page)).title;
+    /* A 60px scroll keeps the heading on screen, so the card still has a target to follow (a flat card cannot answer). */
+    const scrolled = await page.evaluate(async () => { const y = window.scrollY; window.scrollBy(0, 60); await new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r))); return window.scrollY - y; });
     /* Since the 0.6.93 fix a card never sits on a control, so after a scroll it either still points at its
        target from exactly its gap (arrow up / down / beside), or, when that place would cover a control, sits
        in a clear place with no arrow. Both are strict: which one is read from the card, not allowed either way. */
     const after14 = await page.evaluate(() => {
       const c = document.getElementById('tipcard');
-      const t = [...document.querySelectorAll('#panel-settings .dsec:not([hidden]) .dlab')].find((x) => x.getBoundingClientRect().height > 0);
+      const t = [...document.querySelectorAll('#panel-create h2')].find((x) => x.getBoundingClientRect().height > 0);
       const cr = c.getBoundingClientRect(), tr = t.getBoundingClientRect();
       const cls = ['up', 'down', 'left', 'right', 'flat'].find((k) => c.classList.contains(k));
       return { cls, covers: c.dataset.covers, gap: cls === 'up' ? Math.round(cr.top - tr.bottom) : cls === 'down' ? Math.round(tr.top - cr.bottom) : cls === 'left' ? Math.round(cr.left - tr.right) : cls === 'right' ? Math.round(tr.left - cr.right) : null,
-        onScreen: cr.top >= 0 && cr.bottom <= innerHeight };
+        onScreen: cr.top >= 0 && cr.bottom <= innerHeight, top: Math.round(cr.top), headOn: tr.top >= 0 && tr.bottom <= innerHeight };
     });
     const want14 = { up: 12, down: 12, left: 14, right: 14 }[after14.cls];
-    chk(scrolled > 0 && after14.onScreen && after14.covers === '0' && (after14.cls === 'flat' || after14.gap === want14),
+    /* It FOLLOWED: the card moved up by the scroll (a card that stayed put while its heading moved fails here). */
+    const moved = top0 - after14.top;
+    /* A side card within a pixel: its place is rounded to a whole pixel, and with a scrollbar gutter reserved (a Mac
+       with a mouse) the page's centre, and so the heading's edge, falls on a half pixel. Above or below, exact. */
+    const gapOk14 = ['left', 'right'].includes(after14.cls) ? Math.abs(after14.gap - want14) <= 1 : after14.gap === want14;
+    chk(title14 === 'Make an agent' && scrolled > 0 && after14.headOn && after14.cls !== 'flat' && Math.abs(moved - scrolled) <= 1 && after14.onScreen && after14.covers === '0' && gapOk14,
       'T14 after a scroll the card still points at its target from its gap, or sits clear of every control', JSON.stringify({ top0, scrolled, after14 }));
     await page.keyboard.press('Escape');
     await page.evaluate(() => window.scrollTo(0, 0));
@@ -378,8 +508,7 @@ const resetStore = (state) => fs.writeFileSync(tipsStore.FILE(), JSON.stringify(
     await page.click('#tabs [data-tab="agents"]');
     await page.setViewportSize({ width: 390, height: 800 });
     await page.waitForTimeout(300);
-    await page.click('#helpq-btn');
-    await page.click('#helpq-menu [data-help="ring"]');
+    await openRingTip(page);
     const narrow = await page.evaluate(() => { const c = document.getElementById('tipcard'); const r = c.getBoundingClientRect(); return { left: Math.round(r.left), right: Math.round(window.innerWidth - r.right), arrow: getComputedStyle(c.querySelector('.tip-arrow')).display }; });
     chk(narrow.left === 12 && narrow.right >= 12 && narrow.arrow === 'none', 'T10 at 390 wide the card sits 12px in from the edges with no arrow', JSON.stringify(narrow));
     await page.keyboard.press('Escape');
@@ -388,7 +517,7 @@ const resetStore = (state) => fs.writeFileSync(tipsStore.FILE(), JSON.stringify(
 
     // T11: the card takes each scheme's elevated ground (control: the two differ).
     const ground = async () => {
-      await page.click('#helpq-btn'); await page.click('#helpq-menu [data-help="ring"]');
+      await openRingTip(page);
       const bg = await page.evaluate(() => getComputedStyle(document.getElementById('tipcard')).backgroundColor);
       await page.keyboard.press('Escape'); await page.waitForTimeout(150);
       return bg;
@@ -403,10 +532,6 @@ const resetStore = (state) => fs.writeFileSync(tipsStore.FILE(), JSON.stringify(
     // the card's list and its pins still match.
     await page.evaluate(() => applyLayout('consolidated', true));
     await page.waitForTimeout(400);
-    await page.click('#helpq-btn');
-    // Escape with focus still on the ? (a mouse opened it) closes the menu.
-    await page.keyboard.press('Escape');
-    chk(await page.evaluate(() => document.getElementById('helpq-menu').hidden), 'T12 Escape closes the ? menu with focus on the button');
     // The tour shows by itself under the consolidated layout too (the board's rail, not its stats bar).
     resetStore({ seen: [], off: false });
     noAgents();
@@ -420,17 +545,18 @@ const resetStore = (state) => fs.writeFileSync(tipsStore.FILE(), JSON.stringify(
       'T12 under the consolidated layout the tour still finds all four places (the rail heads)', JSON.stringify(cons));
     await page.keyboard.press('Escape');
     // T19: under the consolidated layout the rail (with its rings) shows on every screen. On Settings
-    // the tour does not start by itself (it belongs to the board), and "this screen" is the Settings
-    // tip, not the ring explainer.
-    resetStore({ seen: ['ring', 'agents', 'settings'], off: false });
+    // the tour does not start by itself (it belongs to the board).
+    resetStore({ seen: ['agents', 'settings'], off: false });
     await page.goto(URL + '/?tab=settings', { waitUntil: 'load' });
     await page.waitForTimeout(2800);
     const onSettings = await page.evaluate(() => ({ settings: !document.getElementById('panel-settings').hidden, card: !document.getElementById('tipcard')?.hidden, title: document.querySelector('#tipcard h2')?.textContent || null }));
     chk(onSettings.settings && !(onSettings.card && onSettings.title === TOUR_TITLE_IN_PAGE), 'T19 under the consolidated layout the tour does not start by itself over Settings', JSON.stringify(onSettings));
     if (onSettings.card) { await page.keyboard.press('Escape'); await page.waitForTimeout(150); }
-    await page.click('#helpq-btn');
-    await page.click('#helpq-menu [data-help="screen"]');
-    chk((await cardState(page)).title === 'Settings for this computer', 'T19 "Show tips for this screen" on Settings is the Settings tip, not the ring', JSON.stringify(await cardState(page)));
+    await page.evaluate(() => showTab('agents'));
+    await page.waitForTimeout(300);
+    /* T20 needs a SCREEN tip open: the ring's words, as a screen tip. */
+    await openRingTip(page);
+    chk(await waitTitle(page, RING, 4000), 'T20 precondition: a screen tip is open');
     // T20: a screen tip leaves an Escape meant for an open picker alone (the picker closes on any
     // Escape), and takes it when nothing else is open (the control).
     // The reaction picker is built on first use; stand it up under its own id if it is not there yet.
@@ -445,14 +571,34 @@ const resetStore = (state) => fs.writeFileSync(tipsStore.FILE(), JSON.stringify(
     await page.keyboard.press('Escape');
     const gone = !(await cardState(page)).shown;
     chk(kept && gone, 'T20 Escape with a picker open leaves a screen tip; with none open it closes it', JSON.stringify({ kept, gone }));
+    // T3d (#3737): the ring step in the consolidated layout, where her ring sits at the left of the middle column (the
+    // agent rail to its left, her name and buttons below): still beside it, its arrow on the ring.
+    resetStore({ seen: ['tour', 'agents', 'projects', 'project'], off: false });
+    withAgent();
+    await page.evaluate(() => localStorage.setItem('aw-check-ctx', '62'));
+    await page.reload({ waitUntil: 'networkidle' });
+    await page.waitForFunction(() => Array.isArray(LAST) && LAST.some((a) => a.sessionName === 'beatrix'), null, { timeout: 8000 }).catch(() => {});
+    await page.evaluate(() => openDetail('beatrix', 'talk'));
+    chk(await waitTitle(page, RING, 6000), 'T3d under the consolidated layout her page\'s tips start at the ring', JSON.stringify(await cardState(page)));
+    const t3d = await page.evaluate(() => {
+      const c = document.getElementById('tipcard'), r = document.querySelector('#panel-detail #d-ring svg');
+      if (!r) return { ring: false };
+      const a = c.getBoundingClientRect(), b = r.getBoundingClientRect();
+      const ay = parseFloat(c.style.getPropertyValue('--ay')) || 22, tip = a.top + ay + 7;
+      return { layout: document.documentElement.dataset.layout, cls: ['up', 'down', 'left', 'right', 'flat'].find((k) => c.classList.contains(k)),
+        arrowOnRing: tip >= b.top && tip <= b.bottom, covers: c.dataset.covers };
+    });
+    chk(t3d.layout === 'consolidated' && ['left', 'right'].includes(t3d.cls) && t3d.arrowOnRing && t3d.covers === '0', 'T3d beside her ring, its arrow on it, covering nothing', JSON.stringify(t3d));
+    if (SHOTS) await page.screenshot({ path: path.join(SHOTS, 'ring-consolidated.png') });
+    await page.keyboard.press('Escape');
+    await page.evaluate(() => localStorage.removeItem('aw-check-ctx'));
     await page.evaluate(() => fetch('/api/style', { method: 'PUT', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ layout: 'tabs' }) }));
     await page.evaluate(() => applyLayout('tabs', true));
     withAgent();
 
     // T21: a header menu opened over a tip makes the tip step aside at once, and closing it brings the
     // tip back (the header is its own stacking layer, so the tip would otherwise draw over the menu).
-    await page.click('#helpq-btn');
-    await page.click('#helpq-menu [data-help="ring"]');
+    await openRingTip(page);
     await page.click('#userpop-btn');
     await page.waitForTimeout(80);
     const underMenu = await page.evaluate(() => ({ menu: !document.getElementById('userpop-menu').hidden, card: !document.getElementById('tipcard').hidden }));
@@ -462,20 +608,6 @@ const resetStore = (state) => fs.writeFileSync(tipsStore.FILE(), JSON.stringify(
     chk(underMenu.menu && !underMenu.card && !afterMenu.menu && afterMenu.card, 'T21 a tip steps aside at once while a header menu is open and returns when it closes', JSON.stringify({ underMenu, afterMenu }));
     await page.keyboard.press('Escape');
     await page.waitForTimeout(150);
-
-    // T22: choosing something else from the ? while the tour that opened by itself is up counts as
-    // closing the tour: it is recorded and does not come back (control: T1, the same empty state
-    // shows it).
-    resetStore({ seen: [], off: false });
-    noAgents();
-    await page.goto(URL, { waitUntil: 'networkidle' });   // the board (the page may be on a Settings address)
-    chk(await waitTitle(page, TOUR, 4000), 'T22 precondition: the tour shows by itself');
-    await page.click('#helpq-btn');
-    await page.click('#helpq-menu [data-help="ring"]');
-    await page.click('#tipcard .tip-go');
-    await page.waitForTimeout(2800);
-    const tourBack = await cardState(page);
-    chk((await api('GET')).seen.includes('tour') && !/ of /.test(tourBack.step), 'T22 the tour replaced from the ? is recorded and does not come back', JSON.stringify(tourBack));
 
     // T24: the tour showed by itself, then its screen went without a pointer (keyboard, Back, a link:
     // unrecorded), then the first agent arrived. The tour's job is done, so it counts as seen and the
@@ -502,7 +634,7 @@ const resetStore = (state) => fs.writeFileSync(tipsStore.FILE(), JSON.stringify(
     // on its next status answer, before the person comes back.
     chk(await page.waitForFunction(() => Array.isArray(LAST) && LAST.length > 0, null, { timeout: 8000 }).then(() => true, () => false), 'T24 precondition: the board has heard of the first agent');
     await page.evaluate(() => document.querySelector('#tabs [data-tab="agents"]').click());
-    chk(await waitTitle(page, 'The ring is your agent\'s memory', 8000), 'T24 after the first agent, the screen tips follow a tour that went unrecorded');
+    chk(await waitTitle(page, 'See your agents your way', 8000), 'T24 after the first agent, the screen tips follow a tour that went unrecorded');
     let saved = false;
     for (let i = 0; i < 20 && !saved; i++) { saved = (await api('GET')).seen.includes('tour'); if (!saved) await page.waitForTimeout(500); }
     chk(failedOnce === 1 && saved, 'T24 and the tour is recorded as seen, after a first save that failed', JSON.stringify({ failedOnce, saved }));
@@ -538,9 +670,8 @@ const resetStore = (state) => fs.writeFileSync(tipsStore.FILE(), JSON.stringify(
     await page.waitForTimeout(150);
 
     // T28: someone new clicks New agent before the tour's first tick (a busy machine: the tips read is
-    // slow), so they are on the create form, where the tour never shows. The create form's own tip
-    // shows there anyway, and once they have made the agent the tour counts as seen and the screen
-    // tips follow. Before, they got nothing, ever. The slow read is what makes the window real; on a
+    // slow), so they are on the create form, where the tour never shows (and which has no tip of its own since
+    // #3755). Once they have made the agent the tour counts as seen and the screen tips follow. Before, they got nothing, ever. The slow read is what makes the window real; on a
     // fast board the tour is already up and clicking through it records it (T1's path).
     resetStore({ seen: [], off: false });
     noAgents();
@@ -556,27 +687,27 @@ const resetStore = (state) => fs.writeFileSync(tipsStore.FILE(), JSON.stringify(
     await page.waitForFunction(() => TIPS_STATE !== null, null, { timeout: 10000 }).catch(() => {});   // the held read has finished
     await page.unroute('**/api/tips');
     chk(await page.evaluate(() => tipVisible('#panel-create')), 'T28 precondition: New agent opened the create form');
-    chk(await waitTitle(page, 'Make an agent', 8000), 'T28 on the create form, before any tour, the Make an agent tip shows by itself');
-    const tourShown28 = await page.evaluate(() => !!document.querySelector('#tipcard .tip-dots'));
-    await page.keyboard.press('Escape');
+    await page.waitForTimeout(2800);
+    const tourShown28 = await page.evaluate(() => !!document.querySelector('#tipcard:not([hidden]) .tip-dots'));
+    chk(!(await cardState(page)).shown, 'T28 on the create form, before any tour, no tip shows (#3755)', JSON.stringify(await cardState(page)));
     withAgent();
     await page.waitForFunction(() => Array.isArray(LAST) && LAST.length > 0, null, { timeout: 8000 }).catch(() => {});
     await page.evaluate(() => showTab('agents'));
-    chk(await waitTitle(page, 'The ring is your agent\'s memory', 8000), 'T28 after the first agent, the screen tips follow although the tour never showed');
+    chk(await waitTitle(page, 'See your agents your way', 8000), 'T28 after the first agent, the screen tips follow although the tour never showed');
     chk(!tourShown28 && (await api('GET')).seen.includes('tour'), 'T28 and the tour is recorded as seen', JSON.stringify({ tourShown28 }));
     await page.keyboard.press('Escape');
     await page.waitForTimeout(150);
 
     // T31: a tip never sits on a real control (0.6.93 cut: the Settings tip took Check for Update's
-    // click). Every screen's tip is opened from the ? and must cover no visible control; on Settings >
-    // Updates, Check for Update is still the thing under the pointer.
-    resetStore({ seen: ['tour', 'ring', 'agents', 'projects', 'project', 'newagent', 'agentpage', 'settings'], off: false });
+    // click; Settings has no tip since 2026-09-25). Every screen tip must cover no visible control. (The stepped tips,
+    // a project's and an agent page's, dim the page and end on any click outside, so they only keep off their
+    // ringed place: T34 and T35.)
+    resetStore({ seen: ['tour', 'agents', 'projects', 'project', 'agentpage', 'settings'], off: false });
     withAgent();
     await page.goto(URL, { waitUntil: 'networkidle' });
     await page.evaluate(() => applyLayout('tabs', true));
-    const openHere = async () => {
-      await page.click('#helpq-btn');
-      await page.click('#helpq-menu [data-help="screen"]');
+    const openHere = async (id) => {
+      await openTip(page, id);
       await page.waitForTimeout(250);
       /* Coverage computed HERE, with its own wider list (anything clickable or focusable), not read back
          from what tipPlace reported about itself. */
@@ -596,33 +727,21 @@ const resetStore = (state) => fs.writeFileSync(tipsStore.FILE(), JSON.stringify(
       });
     };
     const screens31 = [
-      ['board', async () => { await page.evaluate(() => showTab('agents')); }],
-      ['projects', async () => { await page.evaluate(() => showTab('projects')); }],
-      ['create', async () => { await page.evaluate(() => openCreate()); }],
-      ['agent page', async () => { await page.evaluate(() => { const a = document.querySelector('#grid [data-agent="beatrix"]'); if (a) a.click(); }); }],
-      ['settings (you)', async () => { await page.evaluate(() => showTab('settings')); }],
-      ...['mac', 'updates', 'accounts', 'advanced'].map((sec) => ['settings (' + sec + ')', async () => {
-        await page.evaluate(() => showTab('settings'));
-        await page.click('#s-nav button[data-go="' + sec + '"]');
-        chk(await page.evaluate((g) => document.querySelector('#s-nav button[data-go="' + g + '"]').getAttribute('aria-current') === 'true', sec), 'T31 precondition: Settings > ' + sec + ' is the section showing');
-      }]),
-    ];
+      ['board', 'agents', async () => { await page.evaluate(() => showTab('agents')); }],
+      ['projects', 'projects', async () => { await page.evaluate(() => showTab('projects')); }],
+    ];   // Settings and Create Agent have no tip (Josh 07:46, and #3755); T9 covers their absence
     const got31 = [];
-    for (const [name, go] of screens31) {
+    for (const [name, id, go] of screens31) {
       await page.keyboard.press('Escape');
       await go();
       await page.waitForTimeout(300);
-      const t = await openHere();
+      const t = await openHere(id);
       got31.push({ name, shown: t.shown, covers: t.covers, title: t.title });
-      if (name === 'settings (updates)') {
-        const upd = await page.evaluate(() => { const b = document.getElementById('upd-btn'); if (!b || b.hidden) return 'no button'; const r = b.getBoundingClientRect(); const hit = document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2); return !!hit && !!hit.closest('#upd-btn'); });
-        chk(t.shown && upd === true, 'T31 on Settings > Updates, with its tip open, Check for Update is still under the pointer', JSON.stringify({ t, upd }));
-      }
     }
-    /* Each screen's own tip, so a missed click that leaves the page on another screen cannot pass. */
-    const want31 = { board: 'See your agents your way', projects: 'A project is shared work', create: 'Make an agent', 'agent page': 'Your agent\'s page' };
-    const bad31 = got31.filter((g) => !g.shown || g.covers !== '0' || g.title !== (want31[g.name] || 'Settings for this computer'));
-    chk(got31.length === 9 && bad31.length === 0, 'T31 every screen\'s tip opens and covers no visible control', JSON.stringify(bad31.length ? bad31 : got31.map((g) => g.name)));
+    /* Each screen's own tip, and it points at something on that screen, so a page left on another screen cannot pass. */
+    const want31 = { board: 'See your agents your way', projects: 'Setup a Project' };
+    const bad31 = got31.filter((g) => !g.shown || g.covers !== '0' || g.title !== want31[g.name]);
+    chk(got31.length === 2 && bad31.length === 0, 'T31 every screen\'s tip opens and covers no visible control', JSON.stringify(bad31.length ? bad31 : got31.map((g) => g.name)));
     await page.keyboard.press('Escape');
 
     // T32: the whole card stays on screen, whichever side of the fold its target is (#3574, Liu Kang
@@ -661,8 +780,7 @@ const resetStore = (state) => fs.writeFileSync(tipsStore.FILE(), JSON.stringify(
     // the composer) is a control: main already handled it. The one below the fold is what main got wrong.
     await page.setViewportSize({ width: 390, height: 800 });
     await page.waitForTimeout(300);
-    await page.click('#helpq-btn');
-    await page.click('#helpq-menu [data-help="ring"]');
+    await openRingTip(page);
     await page.waitForTimeout(200);
     const low32 = await place32('low', true), fold32 = await place32('below', true);
     chk(inside(low32) && !low32.onTarget, 'T32b on a phone, a target low on the screen: the real card is wholly on screen and off its target', JSON.stringify(low32));
@@ -672,8 +790,7 @@ const resetStore = (state) => fs.writeFileSync(tipsStore.FILE(), JSON.stringify(
     // whole card, its buttons included, still fits on screen.
     await page.setViewportSize({ width: 844, height: 300 });
     await page.waitForTimeout(300);
-    await page.click('#helpq-btn');
-    await page.click('#helpq-menu [data-help="ring"]');
+    await openRingTip(page);
     await page.waitForTimeout(250);
     const shortRead = () => page.evaluate(() => { const c = document.getElementById('tipcard'); const b = c.getBoundingClientRect(); const go = c.querySelector('.tip-go').getBoundingClientRect(); const bd = c.querySelector('.tip-bd');
       return { top: Math.round(b.top), bottom: Math.round(b.bottom), vh: window.innerHeight, goIn: go.bottom <= window.innerHeight && go.top >= 0, scrolls: !!bd && bd.scrollHeight > bd.clientHeight, tab: bd ? bd.getAttribute('tabindex') : null }; });
@@ -683,8 +800,7 @@ const resetStore = (state) => fs.writeFileSync(tipsStore.FILE(), JSON.stringify(
     // T32d: narrow AND short (a phone on its side, the title wrapping), where the words' room is smallest.
     await page.setViewportSize({ width: 360, height: 300 });
     await page.waitForTimeout(300);
-    await page.click('#helpq-btn');
-    await page.click('#helpq-menu [data-help="ring"]');
+    await openRingTip(page);
     await page.waitForTimeout(250);
     const narrow32 = await shortRead();
     // T32f: words the person scrolled stay scrolled when the card is placed again (it is, on every resize and tick),
@@ -720,8 +836,7 @@ const resetStore = (state) => fs.writeFileSync(tipsStore.FILE(), JSON.stringify(
     // T32e CONTROL: a tall window gives the words room, so they neither scroll nor add a tab stop.
     await page.setViewportSize({ width: 1280, height: 860 });
     await page.waitForTimeout(300);
-    await page.click('#helpq-btn');
-    await page.click('#helpq-menu [data-help="ring"]');
+    await openRingTip(page);
     await page.waitForTimeout(250);
     const tall32 = await shortRead();
     chk(!tall32.scrolls && tall32.tab === null, 'T32e CONTROL: on a tall window the words do not scroll and add no tab stop', JSON.stringify(tall32));
@@ -740,16 +855,14 @@ const resetStore = (state) => fs.writeFileSync(tipsStore.FILE(), JSON.stringify(
     chk(!(await cardState(page)).shown, 'T7 an unreadable tips store shows no tips rather than all of them');
     const row = await page.evaluate(() => document.getElementById('tips-box')?.hidden);
     chk(row === true, 'T7 and the Settings Tips box is hidden rather than showing a state it did not read');
-    // T29: the store is mended while the page still holds the failed read, and the person opens a tip
-    // from the ? and closes it. That save is the first real answer, so tips are on again and the
+    // T29: the store is mended while the page still holds the failed read, and the person closes a tip. That save is the first real answer, so tips are on again and the
     // Settings box comes back (before, the failed read's stand-in "off" stuck for the session).
     // The read retry (T30) held off, so this arm is about the save: wait out any read in flight first,
     // or its answer would reset the hold.
     await page.waitForFunction(() => !TIPS_LOADING, null, { timeout: 12000 }).catch(() => {});
     await page.evaluate(() => { TIPS_LOAD_NEXT = Infinity; });
     resetStore({ seen: [], off: false });
-    await page.click('#helpq-btn');
-    await page.click('#helpq-menu [data-help="ring"]');
+    await openRingTip(page);
     await page.click('#tipcard .tip-go');
     const mended = await page.waitForFunction(() => TIPS_STATE && TIPS_STATE.ok && TIPS_STATE.off === false, null, { timeout: 6000 }).then(() => true, () => false);
     const box29 = await page.evaluate(() => document.getElementById('tips-box')?.hidden);
@@ -760,10 +873,62 @@ const resetStore = (state) => fs.writeFileSync(tipsStore.FILE(), JSON.stringify(
     fs.writeFileSync(tipsStore.FILE(), '{ not json');
     await page.reload({ waitUntil: 'networkidle' });
     chk(await page.waitForFunction(() => TIPS_STATE !== null && TIPS_STATE.ok === false, null, { timeout: 8000 }).then(() => true, () => false), 'T30 precondition: the first read failed');
-    resetStore({ seen: ['tour', 'ring', 'agents'], off: false });
+    resetStore({ seen: ['tour', 'agents'], off: false });
     const retried = await page.waitForFunction(() => TIPS_STATE && TIPS_STATE.ok === true, null, { timeout: 12000 }).then(() => true, () => false);
     const box30 = await page.evaluate(() => document.getElementById('tips-box')?.hidden);
     chk(retried && box30 === false, 'T30 a failed read is retried and the tips come back without the person doing anything', JSON.stringify({ retried, box30 }));
+
+    // T33 (#3737, Josh 08:51): the tour's dim covers the whole window at every step. The old dim was the ring's 100vmax
+    // shadow; WebKit (the app's engine) rounds a shadow that wide at its own size, so a ring in the top right left the
+    // bottom-left corner bright (his white triangle). Chromium shrinks that corner, so the corners are read in WebKit
+    // too. CONTROL: the same pixels with the tour closed are the page's own bright ground.
+    for (const [eng, launcher] of [['chromium', chromium], ['webkit', webkit]]) {
+      noAgents();
+      resetStore({ seen: [], off: false });
+      /* Its own browser, and for Chromium without Playwright's --hide-scrollbars, so the page has a real scrollbar and
+         the tab layout's gutter is on screen to be read. */
+      const b33 = await launcher.launch({ headless: process.env.HEADED === '0', ...(eng === 'chromium' ? { ignoreDefaultArgs: ['--hide-scrollbars'] } : {}) });
+      try {
+        const p33 = await b33.newPage({ viewport: { width: 1280, height: 860 } });
+        p33.on('pageerror', (e) => errs.push('[T33 ' + eng + '] ' + e.message));   // counted by T8
+        await p33.goto(URL, { waitUntil: 'networkidle' });
+        if (await p33.$('#firstrun:not([hidden])')) { await p33.keyboard.press('Escape'); await p33.waitForTimeout(400); }
+        await waitTitle(p33, TOUR, 8000);
+        const corners = async () => [await pixel(p33, 1, 858), await pixel(p33, 1278, 858), await pixel(p33, 1278, 120)];
+        const steps33 = [];
+        for (let i = 1; i <= 4; i++) {
+          const st = await cardState(p33);
+          const gutter = await p33.evaluate(() => ({ cls: document.documentElement.classList.contains('tip-dimming'), bg: getComputedStyle(document.documentElement).backgroundColor,
+            img: getComputedStyle(document.documentElement).backgroundImage, gw: Math.round(innerWidth - document.documentElement.getBoundingClientRect().width) }));
+          steps33.push({ step: st.step, px: await corners(), gutter });
+          if (i < 4) { await p33.click('#tipcard .tip-go'); await p33.waitForTimeout(200); }
+        }
+        const dimmed = (px) => px[0] < 225 && px[1] < 225 && px[2] < 225;
+        chk(steps33.length === 4 && steps33.every((x) => x.px.every(dimmed)), 'T33 [' + eng + '] every tour step dims all the way to the window\'s corners', JSON.stringify(steps33));
+        /* A gutter paints the canvas's COLOUR, not its image (Chromium with a mouse attached reserves a real 15px gutter
+           and left it bright under a gradient dim), so the dimmed ground must be the colour itself. */
+        chk(steps33.every((x) => x.gutter.cls && x.gutter.img === 'none' && x.gutter.bg === 'rgb(186, 185, 185)'), 'T33 [' + eng + '] the page ground under the scrollbar gutter is itself the dimmed colour', JSON.stringify(steps33.map((x) => x.gutter)));
+        /* The ground the gutter shows while dimmed, per look: light's own ground under the dim, then Kosmos+ navy's,
+           which is set on the body where the root cannot see it (the case the body read exists for; without it navy's
+           gutter would take light's ground). Where the engine draws overlay scrollbars there is no gutter to read a
+           pixel from, so the colour it is painted from is read instead; the corner pixels above cover a real one. */
+        const canvas = async () => p33.evaluate(() => getComputedStyle(document.documentElement).backgroundColor);
+        const lightCanvas = await canvas();
+        await p33.evaluate(() => document.body.classList.add('plus-active'));
+        await p33.waitForTimeout(1500);   // one tips tick: the app follows the look by itself
+        const navyCanvas = await canvas();
+        await p33.evaluate(() => document.body.classList.remove('plus-active'));
+        await p33.waitForTimeout(1500);
+        /* Each is the look's ground (light rgb(250, 249, 247), navy rgb(19, 33, 64)) under the dim, rgba(20, 22, 26, .28). */
+        chk(lightCanvas === 'rgb(186, 185, 185)' && navyCanvas === 'rgb(19, 30, 53)', 'T33 [' + eng + '] the gutter is the look\'s own ground, dimmed: light, and Kosmos+ navy', JSON.stringify({ lightCanvas, navyCanvas }));
+        await p33.click('#tipcard .tip-go');
+        await p33.waitForTimeout(300);
+        const after = await corners();
+        const cls33 = await p33.evaluate(() => document.documentElement.classList.contains('tip-dimming') || document.documentElement.hasAttribute('data-tip-ground') || getComputedStyle(document.documentElement).backgroundImage !== 'none');
+        chk(after.every((px) => px[0] > 240) && !cls33, 'T33 [' + eng + '] CONTROL: closed, the same pixels are the bright page and the gutter dim is gone', JSON.stringify({ after, cls33 }));
+        await p33.close();
+      } finally { await b33.close(); }
+    }
 
     chk(errs.length === 0, 'T8 no page errors', errs.join(' | '));
   } finally {
