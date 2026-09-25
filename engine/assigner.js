@@ -50,10 +50,16 @@ const MAX_ASKS_PER_AGENT_PER_HOUR = 1;
 /* Sorts after every real YYYY-MM-DD, so a task with no due date comes after every dated one. */
 const NO_DUE_DATE = '9999-99-99';
 
-/* A card the Assigner may consider at all: ours, and idle by the board's own reading. */
+/* A card the Assigner may consider at all: ours, idle by the board's own reading, and not a
+   paused swarm (#3564: deliver refuses a paused swarm, so a part given to it is taken back). */
 function idleCard(a) {
-  return Boolean(a && a.sessionName && a.isNamedOurs === true && a.state === 'idle');
+  return Boolean(a && a.sessionName && a.isNamedOurs === true && a.state === 'idle'
+    && !(a.swarm && a.swarm.active === false));
 }
+
+/* #3564: the projects module's own reading of "switched off here". Lazy: requiring it at the top
+   closes a require cycle and hands back a half-built module. */
+const isSwarmOff = (p, session) => require('./projects').isSwarmOff(p, session);
 
 /* Live (non-archived) project records only. */
 function liveProjects(records) {
@@ -87,7 +93,7 @@ function ageKey(t) {
 function pick(session, projects, taken) {
   const candidates = [];
   for (const p of projects) {
-    if (!(Array.isArray(p.agents) && p.agents.includes(session))) continue;
+    if (!(Array.isArray(p.agents) && p.agents.includes(session)) || isSwarmOff(p, session)) continue;
     for (const t of Array.isArray(p.tasks) ? p.tasks : []) {
       if (typeof t.number !== 'number') continue;
       if (taken.has(p.id + '#' + t.number)) continue;
@@ -112,7 +118,7 @@ function emptyMemory() {
    the same step is already in `asked`, so a second agent in it is not asked.) */
 function goalProject(session, projects, goals, asked, now) {
   for (const p of projects) {
-    if (!(Array.isArray(p.agents) && p.agents.includes(session))) continue;
+    if (!(Array.isArray(p.agents) && p.agents.includes(session)) || isSwarmOff(p, session)) continue;
     const at = asked.get(p.id);
     if (typeof at === 'number' && now - at < GOAL_ASK_MS) continue;
     const goal = goals instanceof Map ? goals.get(p.id) : null;

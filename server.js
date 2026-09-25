@@ -266,6 +266,10 @@ function resetHeardBudgetForTests() {
 function heardBy(projectId, t, who, sentence, roster) {
   const name = typeof who === 'string' && who.trim() ? who.trim() : null;
   if (!name || !t || typeof t.number !== 'number') return undefined;
+  /* #3564: a swarm switched off in this project is not told it was given work here. */
+  if (projects.swarmOffIn(projectId, name)) {
+    return { who: name, state: chat.DELIVERY.COULD_NOT, because: projects.SWARM_OFF_SENTENCE(name) };
+  }
   let title = projectId;
   try { const rec = projects.readAll().find((x) => x && x.id === projectId); if (rec && rec.name) title = rec.name; } catch { /* the id will do */ }
   const line = '[Kosmos: you were given task ' + t.number + ' in "' + String(title).replace(/[\r\n"]/g, ' ') + '": '
@@ -2407,6 +2411,18 @@ function agentReplyProblem(text) {
   return chat.messageProblem(text) || chat.storedProblem(text) || messages.markerProblem(text) || null;
 }
 
+/* #3564: what the daily-limit sweep acts through, for one roster. Named so its wiring is
+   tested (server.swarm-3564.test.js), not only the sweep's decisions. */
+function swarmSweepDeps(roster) {
+  return {
+    readProfile: (n) => store.readProfile(n),
+    writeProfile: (n, patch) => store.writeProfile(n, patch),
+    interrupt: (n) => chat.interrupt(n, roster),
+    stopHelpers: (n) => chat.stopHelpers(n, roster),
+    say: (n, text) => keepAgentReply(n, text),
+  };
+}
+
 /* Record an agent's reply in its thread with the person: the one write both
    /api/reply and the outbox drain make, so a drained reply is exactly a reply.
    `at` is the original send time for a drained reply, now for the route. */
@@ -3983,6 +3999,8 @@ const server = http.createServer((req, res) => {
            the fed routes enforce membership server-side regardless. */
         kosmos_plus: fedKosmosPlusNow(),
         federationLive: federationLiveNow(),
+        /* #3564: this board can make and run swarms; the New agent screen offers one only then. */
+        swarms: true,
         /* 🛑 NO OFFER FROM A BOARD THAT CANNOT TAKE ONE. A Kosmos running from
            its source (this Mac's, under the hand plist) cannot install: the
            install route answers "it updates from git, not from here". But the
@@ -4876,6 +4894,60 @@ const server = http.createServer((req, res) => {
     return;
   }
 
+  /* #3564 Stop now: interrupt the lead's current turn, stop all its background helpers, and
+     pause it with the reason "stopped", so nothing new is typed at it until the person
+     switches it back on. Paused even if the interrupt could not be confirmed: the answer
+     says which. */
+  const swarmStop = pathname.match(/^\/api\/agent\/([^/]+)\/swarm\/stop$/);
+  if (swarmStop && req.method === 'POST') {
+    const name = decodeSegment(swarmStop[1]);
+    if (name === null) { sendJson(res, 400, { ok: false, because: 'that is not a name we can read' }); return; }
+    const swarm = require('./engine/swarm');
+    if (!fs.existsSync(create.workerDir(name))) { sendJson(res, 404, { ok: false, because: 'there is no agent by that name on this computer' }); return; }
+    const s = swarm.settingsOf(store.readProfile(name));
+    if (!s) { sendJson(res, 404, { ok: false, because: 'that agent is not a swarm' }); return; }
+    /* A press within STOP_REPEAT_MS of any pause (Stop now's, or the limit sweep's, which also
+       sends Escape) sends no second Escape: Claude Code's double-Escape shortcut opens its rewind
+       list at the prompt (its documented key; not measured here). The chord is sent again. */
+    const repeat = s.active === false
+      && Date.now() - Date.parse(s.pausedAt || '') < swarm.STOP_REPEAT_MS;
+    const next = swarm.pausedFor(s, 'stopped');
+    store.writeProfile(name, { swarm: next });
+    const roster = safeRoster();
+    /* The stop-all chord FIRST, then Escape: Escape does not reach background helpers, and an
+       Escape just before the chord swallowed it (measured 2026-09-25, Claude Code 2.1.282);
+       chord-then-Escape stopped them with the lead idle and with it busy. */
+    const helped = chat.stopHelpers(name, roster);
+    const stopped = repeat ? { ok: true } : chat.interrupt(name, roster);
+    const ok = stopped.ok === true && helped.ok === true;
+    sendJson(res, 200, { ok: true, stopped: ok,
+      because: ok ? null : (stopped.ok ? helped.because : stopped.because), swarm: next });
+    return;
+  }
+  /* #3564: a swarm's settings (the contract on #3564): { maxHelpers?, dailyTokenLimit?, active? }.
+     Only a swarm has them. A new helper count is written into the lead's instructions. */
+  const swarmSet = pathname.match(/^\/api\/agent\/([^/]+)\/swarm$/);
+  if (swarmSet && req.method === 'PUT') {
+    const name = decodeSegment(swarmSet[1]);
+    if (name === null) { sendJson(res, 400, { ok: false, because: 'that is not a name we can read' }); return; }
+    readBody(req)
+      .then((buf) => {
+        let body;
+        try { body = JSON.parse(buf.toString('utf8') || '{}'); } catch { body = null; }
+        const swarm = require('./engine/swarm');
+        if (!fs.existsSync(create.workerDir(name))) { sendJson(res, 404, { ok: false, because: 'there is no agent by that name on this computer' }); return; }
+        const profile = store.readProfile(name);
+        if (!swarm.settingsOf(profile)) { sendJson(res, 404, { ok: false, because: 'that agent is not a swarm' }); return; }
+        const problem = swarm.patchProblem(body);
+        if (problem) { sendJson(res, 400, { ok: false, because: problem }); return; }
+        const next = swarm.applyPatch(profile, body);
+        store.writeProfile(name, { swarm: next });
+        const told = 'maxHelpers' in body ? swarm.tellLead(name, next.maxHelpers) : null;
+        sendJson(res, 200, { ok: true, swarm: next, told });
+      })
+      .catch((err) => sendJson(res, 400, { ok: false, because: String((err && err.message) || 'we could not read that request') }));
+    return;
+  }
   /* ── the working rules, consented (#539) ─────────────────────────────────
      GET answers the banner and the dialog (which sections are missing, the
      exact span a click would write, and the hash that click must present);
@@ -5180,6 +5252,10 @@ const server = http.createServer((req, res) => {
           // which is what every agent already made on this machine has.
           account: body.account,
           reportsTo: body.reportsTo,
+          // #3564: Agent or Swarm, and a swarm's settings; validated in the engine.
+          kind: body.kind,
+          maxHelpers: body.maxHelpers,
+          dailyTokenLimit: body.dailyTokenLimit,
           // Validated above; composed into the file BEFORE the session starts
           // (#323), so the addAgent below finds the block already there.
           projects: projectsToJoin,
@@ -13504,6 +13580,32 @@ const server = http.createServer((req, res) => {
     return;
   }
 
+  /* #3564: switch a swarm on or off in one project: { on: boolean }. Only a swarm that is
+     a member of the project. Off means work in this project does not reach it
+     (projects.swarmOffIn); it stays a member. */
+  const projSwarm = pathname.match(/^\/api\/project\/([^/]+)\/swarm\/([^/]+)$/);
+  if (projSwarm && req.method === 'PUT') {
+    const id = decodeSegment(projSwarm[1]);
+    const name = decodeSegment(projSwarm[2]);
+    if (id === null || name === null) { sendJson(res, 400, { ok: false, because: 'that is not a name we can read' }); return; }
+    readBody(req)
+      .then((buf) => {
+        let body;
+        try { body = JSON.parse(buf.toString('utf8') || '{}'); } catch { body = null; }
+        if (!body || typeof body.on !== 'boolean') { sendJson(res, 400, { ok: false, because: 'on has to be true or false' }); return; }
+        const project = projects.readAll().find((p) => p && p.id === id);
+        if (!project) { sendJson(res, 404, { ok: false, because: 'there is no project by that name' }); return; }
+        /* A project stores its members as NAMES (projects.addAgent), not cards. */
+        const member = (project.agents || []).find((a) => typeof a === 'string' && a === name) || null;
+        if (!member) { sendJson(res, 404, { ok: false, because: 'that agent is not on this project' }); return; }
+        if (!require('./engine/swarm').settingsOf(store.readProfile(member))) { sendJson(res, 404, { ok: false, because: 'that agent is not a swarm' }); return; }
+        projects.setSwarmOn(id, member, body.on);
+        sendJson(res, 200, { ok: true, on: body.on });
+      })
+      .catch((err) => sendJson(res, 400, { ok: false, because: String((err && err.message) || 'we could not read that request') }));
+    return;
+  }
+
   /**
    * Reveal the project's folder in Finder. POST, guard-inherited (it opens
    * an app). The path is ALWAYS the stored record's, never the request's,
@@ -14303,7 +14405,10 @@ const server = http.createServer((req, res) => {
         const fromPane = typeof body.from_pane === 'string' ? body.from_pane : '';
         const senderCard = tokenSender ? tokenSender.card : (fromPane ? roster.find((c) => c && c.target === fromPane) : null);
         const senderName = clean(senderCard && senderCard.sessionName);
-        const recipients = senderName ? named.filter((m) => m !== senderName) : named;
+        /* #3564: a swarm switched off in this project is not told about its tasks. */
+        const offHere = projects.swarmOffSet(id);
+        const others = senderName ? named.filter((m) => m !== senderName) : named;
+        const recipients = others.filter((m) => !offHere.has(String(m)));
         const who = viaScreen ? 'The person' : (senderName || 'An agent');
         /* Built once: nothing in the line depends on the recipient. `id` is cleaned
            for consistency with the other interpolated values, though a stored project
@@ -14314,7 +14419,10 @@ const server = http.createServer((req, res) => {
            `told` as a SINGLE instruction-sync verdict; this is a per-assignee list of
            chat.deliver outcomes, a different shape, so it takes a different name rather
            than overloading `told` with two meanings (convention #5). */
-        const delivered = [];
+        /* An Off swarm is answered as not sent, with the reason heardBy gives. */
+        const delivered = others.filter((m) => offHere.has(String(m))).map((m) => ({
+          agent: m, state: (chat.DELIVERY && chat.DELIVERY.COULD_NOT) || 'could_not', because: projects.SWARM_OFF_SENTENCE(m),
+        }));
         for (const one of recipients) {
           let outcome;
           try { outcome = chat.deliver(one, line, roster); }
@@ -14754,6 +14862,12 @@ const server = http.createServer((req, res) => {
           const notOn = new Error('that agent is not on this project');
           notOn.status = 404;
           throw notOn;
+        }
+        /* #3564: a swarm switched off in this project takes no work here. */
+        if (projects.swarmOffIn(id, member.sessionName)) {
+          const off = new Error(projects.SWARM_OFF_SENTENCE(member.sessionName));
+          off.status = 409;
+          throw off;
         }
         /* #1629: this route has no button guards at all, so the trust hold is
            the only thing between a typed reply and a dialog whose default
@@ -15406,6 +15520,20 @@ function start(port = PORT) {
          sweeps above: its own timer, unref'd so it never holds the process open,
          best-effort. It sends nothing when the person has opted out, and nothing
          under test (feedbacksend's underTest guard). */
+      /* #3564: the swarms' daily token limit. At the limit a swarm pauses itself,
+         its current turn is interrupted and it says so in its own DM; a limit pause
+         lifts at local midnight. Its own ~1-minute timer, unref'd, best-effort, like
+         the sweeps above (engine/swarm.js sweepOnce does the deciding). It types into
+         panes, so it is gated on the live-execution opt-in like them: inert under test. */
+      const swarmSweep = setInterval(() => {
+        if (!liveExecution.liveExecutionAllowed()) return; // inert under test / before opt-in
+        try {
+          const roster = safeRoster();
+          const swarmMod = require('./engine/swarm');
+          swarmMod.sweepOnce(swarmMod.sweepRows(roster), swarmSweepDeps(roster));
+        } catch { /* best-effort; the card still shows today's tokens against the limit */ }
+      }, 60 * 1000);
+      if (swarmSweep && typeof swarmSweep.unref === 'function') swarmSweep.unref();
       const feedbackSweep = setInterval(() => {
         try { feedbacksend.sendDailyOnce(feedback.today()); } catch { /* best-effort, like the sweeps above */ }
       }, Number(process.env.AGENT_WORKFORCE_FEEDBACK_SWEEP_MS) > 0 ? Number(process.env.AGENT_WORKFORCE_FEEDBACK_SWEEP_MS) : 60 * 60 * 1000); // the env is the test seam only
@@ -15924,6 +16052,7 @@ module.exports = {
   server, start, pathOf, decodeSegment, resetHeardBudgetForTests,
   CONNLOST_BOOK, connlostHealEnabled, // #3410: exported so a test can pin the route's reconnect field to the sweep's own book
   givePart, // #3595: the assign-and-tell path, exported so the Assigner's real write path is tested
+  swarmSweepDeps, // #3564: the limit sweep's wiring, exported so it is tested
   /* #2036: the boot diagnostic's condition (pure truth table) AND its real call-site
      composition, exported together so BOTH are pinned. stagingRevertWarningNow wires the raw
      install stamp rather than the #2934 badge; sourceChannelNow is exported alongside so the
