@@ -64,6 +64,10 @@
 # Exit status: 0 iff every selected check passed (after at most one retry).
 #
 set -uo pipefail
+# #3633: no board this script boots may download the agents' browser into the real
+# runners folder (engine/agentbrowser.js); the #1573 pair below does not set
+# AGENT_WORKFORCE_DRY_RUN, so this covers every boot site.
+export KOSMOS_AGENT_BROWSER=off
 
 log()  { printf '%s\n' "$*"; }
 sec()  { printf '\n=== %s ===\n' "$*"; }

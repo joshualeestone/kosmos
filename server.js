@@ -15299,6 +15299,13 @@ if (require.main === module) {
        an agent launched before it lands simply starts without a browser. */
     try { require('./engine/agentbrowser').kickInstall(); } catch { /* agents start without a browser */ }
   } else {
+    /* #3633: the Mac half of the agents' own browser. On a Mac the install also
+       fetches the pinned browser (about 100 MB, once), so a failure is logged and
+       retried with backoff rather than left until the next board start; when it
+       stops is listed on installWithRetry. Never fatal and never awaited. */
+    if (process.platform === 'darwin') {
+      try { require('./engine/agentbrowser').installWithRetry(); } catch { /* agents start without a browser */ }
+    }
     /* #1078: on the non-win32 (Mac, and any other launchd-shaped) path, wire the
        created-never-run roster source. An agent Kosmos created but has never run
        has a launchd job + worker dir but no tmux pane and no live beat, so the
