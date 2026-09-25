@@ -52,14 +52,16 @@ test('the engine says "never reported" as a field, only for a record that does n
 test('an agent that never reported: the row says so in the agent\'s name, briefly', () => {
   const html = rowOf(T({ claim: { claimed: null, neverReported: true, because: 'this agent has never reported what it is holding' } }), 'status');
   assert.ok(REX && REX.name, 'the fleet card has no name to speak');
-  assert.ok(html.includes('<div class="why">' + REX.name + ' has not said yet whether it started.</div>'), html);
+  assert.ok(html.includes('<div class="why">' + REX.name + ' has not reported what it is working on yet.</div>'), html);
+  // Only what the field knows: no record. Not "has not said", since it may have spoken in the room.
+  assert.doesNotMatch(html, /has not said/);
   assert.doesNotMatch(html, /holding/, 'our word is back on the row');
 });
 
 test('could not tell for another reason: the row keeps the reason, never "has not said"', () => {
   const html = rowOf(T({ claim: { claimed: null, neverReported: false, because: 'its record could not be read' } }), 'status');
   assert.match(html, /We cannot tell whether it started: its record could not be read\./);
-  assert.doesNotMatch(html, /has not said/, 'an unreadable record is reported as silence');
+  assert.doesNotMatch(html, /has not reported/, 'an unreadable record is reported as never written');
   assert.doesNotMatch(rowOf(T({ claim: { claimed: false } }), 'status'), /class="why"/, 'a definite answer carries a sentence');
 });
 

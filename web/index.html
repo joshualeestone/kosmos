@@ -42714,13 +42714,14 @@ function tskRow(t) {
     : '<span class="tsk-who nobody">Nobody yet</span>';
   /* The claim could not be read: say WHY on the row, so "Assigned, not started" is never read
      as a fact about a task we simply could not check. */
-  /* Mona's look review of #3701: in Josh's words, and short. "Rex has not said yet whether it
-     started." is TRUE only for an agent that has never reported (the engine's `neverReported`
-     field); when we could not read what it said, or it is too old to trust, saying "has not said"
-     would be false, so those rows keep the reason. */
+  /* Mona's look review of #3701: in Josh's words, and short. The field says only that the agent
+     has never written its report (the engine's `neverReported`), not that it has said nothing
+     anywhere (it may have in the room), so the sentence claims exactly that: "Rex has not
+     reported what it is working on yet." When we could not read the report, or it is too old to
+     trust, that would be false too, so those rows keep the reason. */
   const cannot = t.state !== 'assigned' || !t.claim || t.claim.claimed !== null ? ''
     : t.claim.neverReported && who.length
-      ? '<div class="why">' + esc(tskAgentName(who[0])) + ' has not said yet whether it started.</div>'
+      ? '<div class="why">' + esc(tskAgentName(who[0])) + ' has not reported what it is working on yet.</div>'
       : t.claim.because ? '<div class="why">We cannot tell whether it started: ' + esc(t.claim.because) + '.</div>' : '';
   return '<div class="tsk-row' + (on ? ' sel' : '') + '" data-key="' + esc(tskKey(t)) + '">'
     + '<input type="checkbox" data-key="' + esc(tskKey(t)) + '"' + (on ? ' checked' : '')
@@ -42836,8 +42837,8 @@ function tskPaint() {
     groups.innerHTML = TSK_GROUPS.filter((g) => !TSK.tile || TSK.tile === g.k).map((g) => {
       const ts = sorted.filter((t) => t.state === g.k);
       const head = '<h3><span class="tsk-dot" style="--tsk-c:' + g.c + '"></span>' + esc(g.l) + '<span class="count">' + ts.length + '</span></h3><p class="why">' + esc(g.why) + '</p>';
-      /* Closed is folded unless its tile was picked: finished work is reachable, not in the way. */
-      if (g.k === 'closed' && TSK.tile !== 'closed') {
+      /* Closed is always the fold (it has no tile): finished work is reachable, not in the way. */
+      if (g.k === 'closed') {
         return '<section class="tsk-grp" style="--tsk-c:' + g.c + '"><details class="tsk-fold"' + (TSK.closedOpen ? ' open' : '') + '><summary>' + esc(g.l) + ' (' + ts.length + ')</summary>' + tskList(ts) + '</details></section>';
       }
       return '<section class="tsk-grp">' + head + tskList(ts) + '</section>';

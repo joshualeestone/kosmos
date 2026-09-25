@@ -148,7 +148,8 @@ function chk(ok, label, extra) {
         return { aboveTitle: Math.round(box('tsk-title').top - main.top), hintToGroup: Math.round(h3.top - box('tsk-hint').bottom),
           crumbEmpty: document.getElementById('tsk-crumb').textContent === '' };
       });
-      chk(!gaps.crumbEmpty || (gaps.aboveTitle >= 16 && gaps.aboveTitle <= 32), `${tag} the gap above the title is about half the old 51px`, JSON.stringify(gaps));
+      chk(gaps.crumbEmpty, `${tag} measured with no project picked (the crumb is empty), so the title gap below means something`, JSON.stringify(gaps));
+      chk(gaps.aboveTitle >= 16 && gaps.aboveTitle <= 32, `${tag} the gap above the title is about half the old 51px`, JSON.stringify(gaps));
       chk(gaps.hintToGroup >= 16 && gaps.hintToGroup <= 32, `${tag} the gap from the tile hint to the first group is about half the old 49px`, JSON.stringify(gaps));
       chk(a.tiles.every((t) => t.n === EXPECT[t.k]), `${tag} each tile counts its group`, JSON.stringify(a.tiles));
       chk(!/Waiting on you|Done, check it|Categor/i.test(a.text), `${tag} no unprovable group or category is drawn`);
