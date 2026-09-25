@@ -352,7 +352,8 @@ function cleanMessage(raw) {
  *   - CRLF and lone CR → LF
  *   - a tab → four spaces (a tab is a control character `CONTROL` refuses)
  *   - #3679: indentation is kept, and inside a ``` fence each line is kept as
- *     written except its trailing spaces (the tab rule above, and the leading
+ *     written except its trailing spaces (and, in a fence left open, blank lines at
+ *     the very end of the message) (the tab rule above, and the leading
  *     non-breaking space and shared-indent rules, apply there too), so code and
  *     nested lists arrive as written. Outside a fence, a run of spaces INSIDE a line becomes one space
  *     and trailing spaces go.
@@ -373,6 +374,7 @@ const STORE_FENCE = /^ *(\x60{3,})([^\x60]*)$/;
 // not by more than this factor, so a thread read on every poll stays bounded. Four is a chosen
 // bound (a tab's width), not a measured ratio: deep indentation can grow further and is refused.
 const STORE_GROWTH = 4;
+const STORE_TOO_SPACED = 'that has more indentation and spacing than we keep in a message; put it in a file and send the path';
 // Trailing spaces off, in linear time: `/ +$/` backtracks on a long run that ends in text.
 function trimSpacesEnd(line) {
   let e = line.length;
@@ -451,9 +453,12 @@ function messageProblem(raw) {
   // (and a tab's four spaces) cannot push a message over the limit. Checked first, so
   // the stored form is not built for a message that is refused anyway.
   if (cleanMessage(raw).length > MAX_TEXT) return `keep it to ${MAX_TEXT} characters or fewer`;
+  // The raw text is bounded too, before the store walks it line by line: a few words and a
+  // million blank lines pass the one-line check and would still cost the store real time.
+  if (raw != null && raw.length > STORE_GROWTH * STORE_GROWTH * MAX_TEXT) return STORE_TOO_SPACED;
   const text = storeText(raw);
   if (!text) return 'write something to send';
-  if (text.length > STORE_GROWTH * MAX_TEXT) return 'that has more indentation and spacing than we keep in a message; put it in a file and send the path';
+  if (text.length > STORE_GROWTH * MAX_TEXT) return STORE_TOO_SPACED;
   if (CONTROL.test(text)) return 'that message has characters we will not type into a terminal';
   return null;
 }

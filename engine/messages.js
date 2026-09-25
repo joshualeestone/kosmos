@@ -1183,8 +1183,9 @@ function sendPost({ fromPane, sender: resolvedSender, project, projectName, text
   }
   /* #3679: the stored form keeps indentation and blank lines, so it is bounded on its own, at
      STORE_GROWTH times the one-line limit, as a direct message is. */
-  const stored = chat.storeText(text);
-  if (stored.length > chat.STORE_GROWTH * MAX_BODY) {
+  // The raw text too, before the store walks it (see chat.messageProblem).
+  const stored = String(text).length > 4 * chat.STORE_GROWTH * MAX_BODY ? null : chat.storeText(text);
+  if (stored === null || stored.length > chat.STORE_GROWTH * MAX_BODY) {
     return refuse('that has more indentation and spacing than we keep in a post; put it in the project folder and post your colleagues the path');
   }
   const markerBad = markerProblem(text);

@@ -114,3 +114,12 @@ test('the rule exists once, on the message, and nothing a person reads carries a
   assert.doesNotMatch(fn, /—/);
   assert.doesNotMatch(fn, /\/\^>|\/\^\\s\*>|indexOf\('>'\)|startsWith\('>'\)|charAt\(0\) === '>'/, 'the renderer reads the text for a quote mark');
 });
+
+test('#3679: the prose around a quote is trimmed in linear time (a long space run the store now keeps)', () => {
+  const text = 'Mara said: ' + QUOTE + ' then' + ' '.repeat(200000) + 'more';
+  const start = text.indexOf(QUOTE);
+  const t0 = process.hrtime.bigint();
+  api.pjRoomRow(row('leo', text, { quotes: [{ of: 'rmara', from: 'mara', start, end: start + QUOTE.length }] }), P);
+  const ms = Number(process.hrtime.bigint() - t0) / 1e6;
+  assert.ok(ms < 3000, 'rendering took ' + ms.toFixed(0) + 'ms; a backtracking trim is quadratic');
+});

@@ -200,3 +200,13 @@ always a stray keystroke, and trimming it keeps "  hello" stored as "hello".
   agree; adding tildes is a separate change to both.
 - Recorded, not changed: the stored-form ceiling can refuse a heavily tab-indented message main
   accepted. The refusal names the reason, and the bound keeps a thread read on every poll small.
+
+## Review pass 14 (sonnet)
+- Deferred, with reasoning: blank lines at the very end of an unclosed fence are trimmed with
+  the message's ends. They carry nothing at the end of a message; the doc now says so.
+- WARNING fixed: a few words plus millions of blank lines passed every one-line gate and then
+  cost the store's line walk about half a second. The raw text is capped before the store runs
+  (STORE_GROWTH squared times MAX_TEXT on the DM path, four times the stored ceiling in the
+  room). DM and room tests; removing either cap reds its test.
+- WARNING fixed: the linear quote-path trim now has a timing test in web.quoteb.test.js; the old
+  regex reds it.

@@ -125,6 +125,16 @@ test('#3679: a DM of deep indentation under the one-line limit, which main accep
   assert.equal(chat.messageProblem(text), null);
 });
 
+test('#3679: a huge raw text of blank lines is refused before the store walks it', () => {
+  const text = 'hi' + '\n\n'.repeat(200000) + 'bye';
+  assert.ok(chat.cleanMessage(text).length < 20, 'CONTROL: the one-line form is tiny');
+  const t0 = process.hrtime.bigint();
+  const why = chat.messageProblem(text);
+  const ms = Number(process.hrtime.bigint() - t0) / 1e6;
+  assert.match(String(why), /indentation and spacing/);
+  assert.ok(ms < 1000, 'took ' + ms.toFixed(0) + 'ms');
+});
+
 test('#3679: whitespace the old trim removed is still removed', () => {
   for (const ws of ['\u00a0', '\ufeff', '\u3000', ' \n\u00a0 ']) {
     assert.equal(chat.messageProblem(ws), 'write something to send', JSON.stringify(ws));

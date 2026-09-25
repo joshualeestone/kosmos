@@ -2220,3 +2220,14 @@ test('#3679: a post whose kept indentation passes the room limit is refused with
     assert.match(String(sent.because), /indentation/, 'it must name indentation, not call it a document: ' + sent.because);
   });
 });
+
+test('#3679: a room post whose raw text is huge is refused before the store walks it', () => {
+  withFleet(room3(), (board) => {
+    armSender('mara-discord');
+    const text = 'hi' + '\n\n'.repeat(600000) + 'bye';
+    assert.ok(chat.cleanMessage(text).length < 20, 'CONTROL: the one-line form is tiny');
+    const sent = messages.sendPost({ fromPane: '%7', project: 'henderson-lease', text }, board.agents, MEMBERS);
+    assert.notEqual(sent.state, chat.DELIVERY.PLACED);
+    assert.match(String(sent.because), /indentation and spacing/);
+  });
+});
