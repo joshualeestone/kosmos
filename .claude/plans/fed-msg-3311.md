@@ -69,6 +69,8 @@ board yet carried messages between a federated project's room and its seat.
 - engine/fedseats.test.js, engine/messages.external-3311.test.js,
   server.fedmsg-3311.test.js, server.federation-3311.test.js,
   engine/federation.test.js: all pass (counts live in the runs, not here).
+- Review round 10 control: dropping the description bound in invite() reds the
+  1001-character test (it would have been signed and sent).
 - Review round 9 controls: sending the ended note on an owner seat, or not
   loading refused edges from the link on restart, reds the owner test; letting an
   over-long ref through reds the long-ref test.
@@ -113,6 +115,13 @@ board yet carried messages between a federated project's room and its seat.
   closed. A second local project carrying a real ref only puts this same account's
   own Mac in its own room twice. It grants nothing across accounts, because the room
   ticket is still minted per edge by the coordinator.
+
+## Decided in round 10
+- This branch sits on the two local fed-board-3311 commits (invite, verify,
+  join routes). That is deliberate: the board half of #3311 ships as ONE PR,
+  and fed-board-3311.md's "next change" is this branch.
+- An invite's description is bounded at 1000 characters, the same bound a
+  project's own description has, before anything is signed.
 
 ## Decided in round 9
 - The "no longer connected" note is a member's: an owner seat's edge ending is

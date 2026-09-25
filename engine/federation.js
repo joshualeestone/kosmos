@@ -142,6 +142,8 @@ function reasonFor(sentence) {
   return null;
 }
 
+const DESC_MAX = 1000;
+
 function refOk(v) {
   return typeof v === 'string' && v.length > 0 && v.length <= 200;
 }
@@ -151,6 +153,11 @@ async function invite(remote, body) {
   const kind = body && body.invited_kind;
   if (!refOk(body && body.project_ref) || !refOk(body && body.project_name) || (kind !== 'person' && kind !== 'agent')) {
     return { status: 400, body: { error: 'we could not read that request' } };
+  }
+  // The same bound a project's own description has here (projects.js), so nothing
+  // longer than this Mac would keep leaves it.
+  if (typeof body.project_desc === 'string' && body.project_desc.length > DESC_MAX) {
+    return { status: 400, body: { error: 'that description is longer than ' + DESC_MAX + ' characters' } };
   }
   const req = { project_ref: body.project_ref, project_name: body.project_name, invited_kind: kind };
   if (typeof body.project_desc === 'string' && body.project_desc.trim()) req.project_desc = body.project_desc;

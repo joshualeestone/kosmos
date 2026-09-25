@@ -119,3 +119,12 @@ test('the link record round-trips and refuses to overwrite a file it cannot read
   assert.throws(() => federation.recordLink('proj-b', { role: 'owner', ref: 'r' }), (e) => e.code === 'UNREADABLE');
   assert.strictEqual(fs.readFileSync(path.join(store.ROOT, federation.FILE), 'utf8'), '{ not json', 'the damaged file was left alone');
 });
+
+test('an invite description longer than a project may have is refused before anything is signed', async () => {
+  const remote = stubRemote({ ok: true, data: { code: 'x', expires_at: 1 } });
+  const long = await federation.invite(remote, { project_ref: 'r', project_name: 'n', project_desc: 'x'.repeat(1001), invited_kind: 'person' });
+  assert.strictEqual(long.status, 400);
+  assert.strictEqual(remote.calls.length, 0, 'nothing was signed');
+  const atLimit = await federation.invite(remote, { project_ref: 'r', project_name: 'n', project_desc: 'x'.repeat(1000), invited_kind: 'person' });
+  assert.strictEqual(atLimit.status, 200, 'the limit itself is allowed');
+});
