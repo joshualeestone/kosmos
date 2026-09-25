@@ -19,11 +19,13 @@ function liftSettle(env) {
   // Sloppy-mode `with` so the function's globals read and write this env object.
   return new Function('env', 'with (env) { ' + src + ' return settleWantAgent; }')(env);
 }
+// The golden board card the browser checks use (never a hand-built one): the link names it.
+const CARD = require('./docs/browser-checks/fixtures/agent-card.json');
 function board({ present }) {
-  const env = { WANT_AGENT: 'april', CURRENT: null, WANT_AGENT_DONE: false, WANT_AGENT_FIRST_MISS: 0, URL_TAB: 'detail',
+  const env = { WANT_AGENT: CARD.sessionName, CURRENT: null, WANT_AGENT_DONE: false, WANT_AGENT_FIRST_MISS: 0, URL_TAB: 'detail',
     now: 1000, opens: 0, reveals: 0, tabs: [] };
   env.Date = { now: () => env.now };
-  env.openDetail = (who) => { env.opens += 1; if (present()) env.CURRENT = { sessionName: who }; };
+  env.openDetail = (who) => { env.opens += 1; if (present() && who === CARD.sessionName) env.CURRENT = CARD; };
   env.detailRevealTalkOnPhone = () => { env.reveals += 1; };
   env.showTab = (t) => { env.tabs.push(t); env.URL_TAB = t; };
   return env;
