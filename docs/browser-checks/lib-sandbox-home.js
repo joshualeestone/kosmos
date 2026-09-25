@@ -31,4 +31,23 @@ if (!cur || path.resolve(cur) === path.resolve(os.homedir())) {
   process.on('exit', () => { try { fs.rmSync(made, { recursive: true, force: true }); } catch { /* best effort */ } });
 }
 
-module.exports = { sandboxHome: () => process.env.AGENT_WORKFORCE_HOME };
+/* The fixture default Claude account, for a check whose screen assumes a connected
+   subscription (without one the board shows "Kosmos cannot reach a Claude subscription"
+   and takes the space). Opt-in, never automatic: first-run checks want no account.
+   The address is .invalid on purpose; tools/browser-checks.sh plants the same one. */
+const FIXTURE_CLAUDE = { oauthAccount: { emailAddress: 'fixture@example.invalid',
+  organizationName: 'Kosmos browser checks', organizationType: 'claude_max' } };
+function plantSubscribedClaude() {
+  const home = process.env.AGENT_WORKFORCE_HOME;
+  if (!home || path.resolve(home) === path.resolve(os.homedir())) throw new Error('plantSubscribedClaude: no sandbox home');
+  /* A SECONDARY account (~/.claude-fixture), not the default: the default's subscription
+     verdict is read from AGENT_WORKFORCE_CLAUDE_CONFIG, which a fixture points at its own
+     (empty) sandbox file, while a secondary is judged by its own .claude.json. On a
+     developer Mac the "connected" verdict came from the host's real secondary accounts. */
+  const dir = path.join(home, '.claude-fixture');
+  fs.mkdirSync(dir, { recursive: true });
+  const cfg = path.join(dir, '.claude.json');
+  if (!fs.existsSync(cfg)) fs.writeFileSync(cfg, JSON.stringify(FIXTURE_CLAUDE) + '\n');
+}
+
+module.exports = { sandboxHome: () => process.env.AGENT_WORKFORCE_HOME, plantSubscribedClaude, FIXTURE_CLAUDE };

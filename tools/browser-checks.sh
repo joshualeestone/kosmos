@@ -250,8 +250,11 @@ if [ -z "${AGENT_WORKFORCE_HOME:-}" ] || [ "${AGENT_WORKFORCE_HOME%/}" = "${HOME
   # A FIXTURE default Claude account, so the create checks (render-create-made,
   # render-talk-fill-2622) still have one to make agents on. Before #3675 they
   # silently used the host Mac's real account; measured, with an empty sandbox home
-  # both fail. The address is .invalid on purpose: nothing real can answer to it.
-  printf '%s\n' '{"oauthAccount":{"emailAddress":"fixture@example.invalid","organizationName":"Kosmos browser checks"}}' \
+  # both fail. A SUBSCRIBED one (claude_max), as the host's was, so no check's layout
+  # grows the "cannot reach a Claude subscription" bar it never had before. The same
+  # account as lib-sandbox-home.js FIXTURE_CLAUDE. The address is .invalid on purpose:
+  # nothing real can answer to it.
+  printf '%s\n' '{"oauthAccount":{"emailAddress":"fixture@example.invalid","organizationName":"Kosmos browser checks","organizationType":"claude_max"}}' \
     > "$AGENT_WORKFORCE_HOME/.claude.json"
   # Claude Code's canonical path is <home>/.local/bin/claude, so a sandbox home has
   # none and creation refuses. A stand-in that exits at once, as the sb4 board's

@@ -35,7 +35,10 @@
  *   HEADED=0 node docs/browser-checks/render-talk-fill-2622.js   # headless
  *   NODE_PATH=~/work/pw-runtime/node_modules HEADED=0 node docs/browser-checks/render-talk-fill-2622.js
  */
-require('./lib-sandbox-home.js'); // #3675: never read the host Mac's real accounts
+// #3675: never read the host Mac's real accounts. This screen is measured with a connected
+// subscription (without one the "cannot reach a Claude subscription" bar takes 45px under the
+// Talk box), which it used to borrow from the host; it now plants the fixture one.
+require('./lib-sandbox-home.js').plantSubscribedClaude();
 const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
