@@ -37,6 +37,7 @@ const projects = require('./engine/projects');
 const messages = require('./engine/messages');
 const federation = require('./engine/federation');
 const fedseats = require('./engine/fedseats');
+const fleet = require('./test-support/fleet');
 
 const children = [];
 fedseats.configure({
@@ -118,19 +119,26 @@ test('what goes out is the text the room stored, not the raw request', async () 
 });
 
 test('an agent speaks to the other side under the name its project shows', async () => {
-  const before = children[0].written.length;
-  const real = projects.get;
-  projects.get = (id, roster) => (id === pid
-    ? { id: pid, agents: [{ sessionName: 'ada-7f3c', name: 'Ada' }] }
-    : real(id, roster));
+  const board = fleet.install([fleet.agent('adafed', { state: 'idle', displayName: 'Ada Lovelace' })]);
   try {
-    federateOut(pid, { id: 'p-1', from: 'ada-7f3c', text: 'hello out there' }, false);
+    const p2 = projects.create({ name: 'Named Club' }).id;
+    projects.addAgent(p2, 'adafed', board.agents);
+    federation.recordLink(p2, { role: 'member', edge_id: 'edge-named', project_name: 'Named Club' });
+    await fedseats.ensure(p2);
+    const seat = children[children.length - 1];
+    assert.equal(seat.edge, 'edge-named', 'fixture: the new project has its own seat');
+    seat.stdout.write(JSON.stringify({ event: 'connected', room: 'r2', expires_at: 9 }) + '\n');
+    await new Promise((r) => setImmediate(r));
+    const member = projects.get(p2, board.agents).agents[0];
+    assert.equal(member.name, 'Ada Lovelace', 'fixture: the project shows the display name');
+    assert.notEqual(member.sessionName, member.name, 'fixture: the two names differ, or this proves nothing');
+    federateOut(p2, { id: 'p-1', from: member.sessionName, text: 'hello out there' }, false);
+    const out = JSON.parse(seat.written.join('').trim());
+    assert.equal(out.from, 'Ada Lovelace', 'the display name, never the session name');
+    assert.equal(out.kind, 'agent');
   } finally {
-    projects.get = real;
+    board.restore();
   }
-  const out = JSON.parse(children[0].written.slice(before).join('').trim());
-  assert.equal(out.from, 'Ada', 'the display name, never the session name');
-  assert.equal(out.kind, 'agent');
 });
 
 test('a post with no words sends nothing and says attachments stay here', async () => {

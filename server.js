@@ -16227,7 +16227,7 @@ module.exports = {
   server, start, pathOf, decodeSegment, resetHeardBudgetForTests,
   CONNLOST_BOOK, connlostHealEnabled, // #3410: exported so a test can pin the route's reconnect field to the sweep's own book
   givePart, // #3595: the assign-and-tell path, exported so the Assigner's real write path is tested
-  federateOut, // #3311: what leaves this Mac for a federated room, exported so the agent arm is tested
+  federateOut, // #3311: what leaves this computer for a federated room, exported so the agent arm is tested
   swarmSweepDeps, // #3564: the limit sweep's wiring, exported so it is tested
   /* #2036: the boot diagnostic's condition (pure truth table) AND its real call-site
      composition, exported together so BOTH are pinned. stagingRevertWarningNow wires the raw
