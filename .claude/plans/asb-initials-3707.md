@@ -8,7 +8,8 @@ A guide with no picture shows its initial on its disc (the board card's tint and
 bubble and the chat's header; a guide with a picture still shows it.
 
 ## How
-asbAvatar returns a data: SVG of the disc when the row says hasAvatar is false, so the two <img>s keep one src each
+asbAvatar returns a data: SVG wrapping the board card's own face() (review: one renderer of the disc) when the row says
+hasAvatar is false, so the two <img>s keep one src each
 and their size rules. The disc's colours come from discTint / discInk on the guide's name, as the card's do.
 
 ## Decided
