@@ -61,7 +61,8 @@ test('#3660: a refusal keeps its status, and carries the coordinator\'s sentence
 });
 
 test('#3660: a tunnel without the verb is a 501 that says it arrives with an update', async () => {
-  tunnel(`echo "error: unrecognized subcommand 'assistant-chat'" >&2; exit 2`);
+  // The shipped tunnel's exact clap output: the key line first, the usage after it.
+  tunnel(`printf "error: unrecognized subcommand 'assistant-chat'\n\nUsage: kosmos-tunnel <COMMAND>\n\nFor more information, try '--help'.\n" >&2; exit 2`);
   const r = await ask({ messages: [{ role: 'user', content: 'hi' }] });
   assert.equal(r.status, 501);
   const b = await r.json();

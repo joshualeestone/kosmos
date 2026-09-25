@@ -24,6 +24,11 @@ retry and re-sign); the coordinator side is Ice Cream Kitty's (kosmos-relay `ass
   Node with `node:crypto`, a second implementation of the signature string nothing tests against the verifier.
 - **Retry by code, never by sentence.** The coordinator's refusals are sentences for the person; asked ICK to add the
   fixed `code` to the body. Until it does, no refusal is retried (the safe direction), and only "no answer" is.
+- **Review round 1:** a missing verb is recognised from the tunnel's WHOLE stderr (clap prints the
+  "unrecognized subcommand" line first and usage after, measured on the shipped tunnel; `setupRun` now also returns
+  `stderr`); a timeout is never retried (the message may be counted); only 429 and 503 pass through, anything else
+  from upstream is 502 (401/403 mean "sign in to the board" here), with the reason in `code`; two person turns in a
+  row keep the newest; `page` carries the SCREEN LINE ONLY, so agent, project and tab names never leave the Mac.
 - **The route is a pure proxy.** Whether to ask the hosted assistant or the person's own guide is the bubble's call
   (Mona's `GET /api/setup-guide` says whether a guide exists).
 

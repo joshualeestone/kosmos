@@ -569,7 +569,9 @@ function setupRun(args, stdin = null, timeoutMs = 0) {
       if (timer) clearTimeout(timer);
       if (code === 0) { resolve({ ok: true, because: null, said: out.trim() }); return; }
       const lines = (errOut.trim() || out.trim()).split('\n').filter(Boolean);
-      resolve({ ok: false, because: lines[lines.length - 1] || ('setup failed (exit ' + code + ')') });
+      /* `stderr` is the WHOLE of it: a caller that must recognise a message clap prints
+         across several lines (an unknown subcommand, #3660) cannot use the last line. */
+      resolve({ ok: false, because: lines[lines.length - 1] || ('setup failed (exit ' + code + ')'), stderr: errOut, code });
     });
   });
 }
@@ -594,6 +596,10 @@ async function macRequest(method, routePath, body) {
   catch { return { ok: false, because: 'the tunnel program answered in a shape we could not read' }; }
 }
 
+/* A model answer, not a single signed round trip: capped output, but a slow provider.
+   AGENT_WORKFORCE_ASSISTANT_TIMEOUT_MS is its own test seam, apart from mac-request's. */
+const ASSISTANT_TIMEOUT_MS = 45 * 1000;
+
 /**
  * One message to the hosted setup assistant (#3660), through the tunnel's
  * `assistant-chat` verb. NO CRYPTO HERE, as above: the verb picks the key (this
@@ -615,15 +621,18 @@ async function assistantChat(body) {
     return { ok: false, because: 'the tunnel is not available under test' };
   }
   const args = ['assistant-chat', '--coordinator', COORDINATOR(), '--state-dir', STATE_DIR()];
-  const timeout = Number(process.env.AGENT_WORKFORCE_MAC_REQUEST_TIMEOUT_MS) || ASSISTANT_TIMEOUT_MS;
+  const timeout = Number(process.env.AGENT_WORKFORCE_ASSISTANT_TIMEOUT_MS) || ASSISTANT_TIMEOUT_MS;
   let r;
   try { r = await setupRun(args, JSON.stringify(body || {}), timeout); }
   catch (err) { return { ok: false, because: String((err && err.message) || err) }; }
   if (!r.ok) {
     const because = String(r.because || 'the tunnel program failed');
-    return /unrecognized subcommand|invalid subcommand/i.test(because)
-      ? { ok: false, unsupported: true, because }
-      : { ok: false, because };
+    /* clap prints "error: unrecognized subcommand 'assistant-chat'" FIRST and the usage
+       after it, so the last line alone never says so (measured on the shipped tunnel). */
+    if (/unrecognized subcommand|invalid subcommand/i.test(String(r.stderr || '') + '\n' + because)) {
+      return { ok: false, unsupported: true, because };
+    }
+    return r.timedOut ? { ok: false, timedOut: true, because } : { ok: false, because };
   }
   let said;
   try { said = JSON.parse(r.said); } catch { return { ok: false, because: 'the tunnel program answered in a shape we could not read' }; }
@@ -632,8 +641,6 @@ async function assistantChat(body) {
   }
   return { ok: true, status: said.status, body: said.body };
 }
-/* A model answer, not a single signed round trip: capped output, but a slow provider. */
-const ASSISTANT_TIMEOUT_MS = 45 * 1000;
 
 /** Forget this Mac (#793): retire it at the coordinator while its key still
  * exists, THEN destroy the key. Order is the whole point: after the state

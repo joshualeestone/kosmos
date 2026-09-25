@@ -52,23 +52,32 @@ function shapeMessages(raw) {
     if (content.length > MAX_CHARS) return { ok: false, because: `keep each message to ${MAX_CHARS} characters or fewer` };
     turns.push({ role: m.role, content });
   }
-  for (let i = 1; i < turns.length; i += 1) {
-    if (turns[i].role === turns[i - 1].role) return { ok: false, because: 'we could not read that conversation' };
+  /* Two turns in a row from the same side keep the NEWEST: a person who asks again after
+     an error (no answer came) would otherwise be refused for the rest of the thread. */
+  const merged = [];
+  for (const t of turns) {
+    if (merged.length && merged[merged.length - 1].role === t.role) merged[merged.length - 1] = t;
+    else merged.push(t);
   }
+  turns.length = 0;
+  turns.push(...merged);
   if (!turns.length || turns[turns.length - 1].role !== 'user') return { ok: false, because: 'write something to ask the setup assistant' };
   let kept = turns.slice(-MAX_TURNS);
   if (kept[0].role !== 'user') kept = kept.slice(1);
   return { ok: true, messages: kept };
 }
 
-/* The screen, in the same words the in-app guide reads (pagecontext.describe), or
-   nothing. A page Kosmos does not know is left out, not refused: the question still
-   stands without it. */
+/* The screen ONLY, in the in-app guide's own words (pagecontext.describe's "Screen:"
+   line), or nothing. The names that ride with a page (an agent, a project, a tab) are
+   the person's and stay on this Mac: this goes to our coordinator and its model
+   provider before the person has connected anything of their own. A page Kosmos does
+   not know is left out, not refused: the question still stands without it. */
 function pageText(page) {
   if (page === undefined || page === null) return null;
   const d = pagecontext.describe(page);
   if (!d.ok) return null;
-  return d.text.length > PAGE_MAX ? d.text.slice(0, PAGE_MAX) : d.text;
+  const line = d.text.split('\n').find((l) => l.startsWith('Screen: '));
+  return line ? line.slice(0, PAGE_MAX) : null;
 }
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
@@ -92,7 +101,10 @@ async function ask({ messages, page } = {}, deps = {}) {
   let r;
   for (let attempt = 0; attempt < 2; attempt += 1) {
     try { r = await run(body); } catch (err) { r = { ok: false, because: String((err && err.message) || err) }; }
-    const retryable = r && ((r.ok === false && !r.unsupported)
+    /* A TIMEOUT is not retried: the coordinator may have counted the message and be
+       answering slowly, and a second try would spend another of today's messages and
+       hold the bubble for twice the wait. Only "no answer at all" is retried. */
+    const retryable = r && ((r.ok === false && !r.unsupported && !r.timedOut)
       || (r.ok === true && RETRY_CODES.has(r.body && r.body.code)));
     if (!retryable || attempt === 1) break;
     await wait(RETRY_WAIT_MS);
@@ -110,7 +122,11 @@ async function ask({ messages, page } = {}, deps = {}) {
   }
   return {
     ok: false,
-    status: Number.isInteger(r.status) && r.status >= 400 ? r.status : 502,
+    /* Only the statuses the bubble acts on pass through: 429 (a limit, with its wait)
+       and 503 (resting or busy). Anything else from upstream is 502, because on this
+       board 401 and 403 already mean "sign in to the board" (#2023) and must never be
+       read as that. The coordinator's reason still rides in `code`. */
+    status: r.status === 429 || r.status === 503 ? r.status : 502,
     /* The coordinator's own sentence, already written for the person. */
     because: typeof b.error === 'string' && b.error ? b.error : 'the setup assistant could not answer that',
     code: typeof b.code === 'string' ? b.code : null,
