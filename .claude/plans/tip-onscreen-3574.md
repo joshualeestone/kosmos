@@ -36,7 +36,11 @@ Measured controls:
 T31 and every other arm still pass.
 
 ## Also fixed, found in review
-- A card taller than the window: its words scroll inside it (.tip-bd). Scrolling the whole card was rejected
-  because it clips the arrow.
+- A card taller than the window: its words scroll inside it (.tip-bd), with the height measured by tipPlace from
+  the real window. A CSS 100vh budget was rejected because it overstates a phone with its toolbar showing, and
+  scrolling the whole card was rejected because it clips the arrow. The words are a tab stop, a labelled
+  region, only while they scroll. They keep their scroll position when the card is placed again.
+- T32c (844x300), T32d (360x300, plus scroll kept across a re-place) and T32e (a tall window: no scroll, no tab
+  stop). Controls: without the measured height, T32c and T32d fail; without the scroll restore, T32d fails.
 - The no-target card's 80px floor is clamped onto the screen.
 - The "stay put" check uses the same on-screen test, slack included, so a phone card does not jump on scroll.
