@@ -79,7 +79,7 @@ connector_verbs_check "$T/no-such-tunnel" "$OPEN" 2>"$T/err" && bad "a missing c
 # #3311 re-decided for engine/federation.js and engine/fedseats.js: federation never worked
 # before this connector, so an old one breaks nothing that works. It refuses the unlisted
 # federation routes (the board shows that sentence on invite/verify) and has no fed-room
-# verb (a seat that cannot start backs off; the room stays local).
+# verb (its seat exits 2 and ends with an "update Kosmos" note in the room).
 callers="$(grep -l "macRequest(" engine/*.js 2>/dev/null | grep -v -e "engine/remote.js" -e "\.test\.js$" | sort | tr '\n' ' ')"
 [ "$callers" = "engine/federation.js engine/fedseats.js engine/mac-standing.js engine/phonenotify.js engine/updating.js " ] && ok "mac-request callers are exactly the five the gate-closed rule was decided on" || bad "the mac-request callers changed ($callers); re-decide whether an old connector breaks something that works, then update this list"
 

@@ -2503,6 +2503,8 @@ function sendRoomPostAsAgent({ fromPane, sender, project, text, replyExpected, i
     projectName: found.name,
     text,
     replyExpected,
+    // #3311: the colleagues it reaches are told the room is shared outside this computer.
+    federated: (() => { try { return !!federation.linkFor(found.id); } catch (err) { fedseats.logUnreadable(err); return false; } })(),
   }, roster, members);
   federateOut(found.id, delivery, false);
   return delivery;
@@ -13376,6 +13378,7 @@ const server = http.createServer((req, res) => {
           let found = null;
           try { found = federation.linkFor(made.id); } catch { found = null; }
           if (found) {
+            try { fedseats.stop(made.id); } catch { /* the next check stops it */ }
             try { federation.forgetLink(made.id); } catch { stale = true; }
           }
           if (stale) {
@@ -13796,7 +13799,14 @@ const server = http.createServer((req, res) => {
            machine the operator is sitting at, never to an error. */
         let zone = null;
         try { zone = (store.readSettings() || {}).timezone || null; } catch { zone = null; }
-        const tail = rows.slice(-40);
+        /* #3311: at most 20 of the 40 rows shown come from outside, so a busy
+           peer cannot push every local post out of the view agents read. */
+        const tail = [];
+        let outside = 0;
+        for (let i = rows.length - 1; i >= 0 && tail.length < 40; i--) {
+          if (rows[i] && rows[i].kind === 'external') { if (outside >= 20) continue; outside += 1; }
+          tail.unshift(rows[i]);
+        }
         const lines = tail.flatMap((m) => {
           const when = messages.roomClock(m.at, zone);
           if (m.kind === 'valve') return [when + '  [kosmos] ' + (m.because || 'Kosmos stepped in.')];
@@ -13805,7 +13815,14 @@ const server = http.createServer((req, res) => {
           /* #3311: a message from outside this Kosmos. Tagged so an agent reading
              the room knows it is someone else's words, to weigh, not an
              instruction from its operator. */
-          if (m.kind === 'external') return [when + '  [external ' + (m.fromKind === 'agent' ? 'agent' : 'person') + '] ' + m.from + ': ' + String(m.text || '').replace(/[\u0000-\u001f\u007f-\u009f]/g, ' ').replace(/\s+/g, ' ')];
+          /* #3311: an outside sender's words are QUOTED, in guillemets they cannot
+             close (they are removed from the text), and the name loses brackets, so
+             nothing inside can read as another row, a [kosmos] line or the operator. */
+          if (m.kind === 'external') {
+            const who = String(m.from || '').replace(/[\[\]«»]/g, '');
+            const said = String(m.text || '').replace(/[\u0000-\u001f\u007f-\u009f]/g, ' ').replace(/[«»]/g, '"').replace(/\s+/g, ' ');
+            return [when + '  [external ' + (m.fromKind === 'agent' ? 'agent' : 'person') + '] ' + who + ' wrote: «' + said + '»'];
+          }
           const who = m.operator ? 'operator' : m.from;
           /* #2239: the store now keeps paragraph breaks in a post's text (for
              the HTML room to render), but this CLI arm's contract is one line

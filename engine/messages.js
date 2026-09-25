@@ -1456,15 +1456,18 @@ function sendPost({ fromPane, sender: resolvedSender, project, projectName, text
     const answer = operator === true
       ? answerClause
       : (mentioned.has(name) ? answerClause : '');
+    /* #3311: in a shared project the agent is told, on the post it would answer,
+       that its answer leaves this computer. */
+    const shownProjectAs = shownProject + (federated ? ' \u00b7 shared outside this computer, what you post here leaves it' : '');
     const envelope = (operator === true
       ? (mentioned.has(name)
-        ? '[message from your operator \u00b7 ' + id + ' \u00b7 project ' + shownProject + answer + ']'
-        : '[from your operator in project ' + shownProject + ' \u00b7 ' + id + ' \u00b7 for the whole room' + answer + ']')
+        ? '[message from your operator \u00b7 ' + id + ' \u00b7 project ' + shownProjectAs + answer + ']'
+        : '[from your operator in project ' + shownProjectAs + ' \u00b7 ' + id + ' \u00b7 for the whole room' + answer + ']')
       : (mentioned.has(name)
-        ? '[message from your colleague ' + from + ' \u00b7 ' + id + ' \u00b7 project ' + shownProject + answer + ']'
+        ? '[message from your colleague ' + from + ' \u00b7 ' + id + ' \u00b7 project ' + shownProjectAs + answer + ']'
         /* No answer line on background: it is explicitly not addressed to you,
            and inviting a reply is the unaddressed-steering the room prevents. */
-        : '[background from your colleague ' + from + ' \u00b7 ' + id + ' \u00b7 project ' + shownProject + ' \u00b7 not addressed to you]'))
+        : '[background from your colleague ' + from + ' \u00b7 ' + id + ' \u00b7 project ' + shownProjectAs + ' \u00b7 not addressed to you]'))
       + ' ' + body;
     /* `trailer` (#358) is the attached file's path, typed after the envelope
        and body and outside the checks, the same way the direct thread does it. */

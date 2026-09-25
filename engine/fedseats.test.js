@@ -506,3 +506,59 @@ test('after a Mac-level refusal the seat tries again on its own, and the room is
   assert.strictEqual(notes.length, 1, 'the sign-in note repeated on every retry');
   assert.strictEqual(federation.linkFor('proj-back').ended, undefined);
 });
+
+test('an owner whose edges request fails is not told nobody joined, and an old connector gets the update note', async () => {
+  federation.recordLink('proj-askfail', { role: 'owner', ref: 'ref-askfail' });
+  const h = harness();
+  fedseats.configure({
+    spawnSeat: (edge) => { const c = fakeChild(); c.edge = edge; h.spawned.push(c); return c; },
+    macRequest: async () => ({ ok: false, because: 'mac-request does not sign POST "/v1/mac/federation/edges"' }),
+    recordExternal: () => {}, onStatus: () => {}, enrolled: () => true, projectExists: () => true,
+    note: (projectId, text) => h.notes.push({ projectId, text }),
+  });
+  assert.strictEqual(await fedseats.ensure('proj-askfail'), 'reconnecting');
+  fedseats.post('proj-askfail', { from: 'you', kind: 'person', text: 'hi' });
+  const notes = h.notes.filter((n) => n.projectId === 'proj-askfail').map((n) => n.text);
+  assert.ok(!notes.some((t) => /nobody outside has joined/.test(t)), JSON.stringify(notes));
+  assert.ok(notes.some((t) => /too old/.test(t)), JSON.stringify(notes));
+});
+
+test('the connector\'s own "not set up for Kosmos+" ending is about this Mac: nothing kept, retried', async () => {
+  federation.recordLink('proj-notset', { role: 'member', edge_id: 'edge-notset' });
+  const h = harness();
+  await fedseats.ensure('proj-notset');
+  say(h.spawned[0], { event: 'ended', because: 'this Mac is not set up for Kosmos+: no such file' });
+  await tick();
+  h.spawned[0].emit('exit', 3);
+  assert.strictEqual(federation.linkFor('proj-notset').ended, undefined);
+  assert.strictEqual(fedseats.statusOf('proj-notset'), 'reconnecting');
+});
+
+test('a seat never outlives its link: ensure and ensureAll both stop it', async () => {
+  federation.recordLink('proj-orphan', { role: 'member', edge_id: 'edge-orphan' });
+  federation.recordLink('proj-orphan2', { role: 'member', edge_id: 'edge-orphan2' });
+  const h = harness();
+  await fedseats.ensure('proj-orphan');
+  await fedseats.ensure('proj-orphan2');
+  federation.forgetLink('proj-orphan');
+  federation.forgetLink('proj-orphan2');
+  await fedseats.ensure('proj-orphan');
+  assert.strictEqual(fedseats.statusOf('proj-orphan'), null, 'ensure left a seat running with no link');
+  await fedseats.ensureAll();
+  assert.strictEqual(fedseats.statusOf('proj-orphan2'), null, 'ensureAll left a seat running with no link');
+  const orphans = h.spawned.filter((c) => c.edge === 'edge-orphan' || c.edge === 'edge-orphan2');
+  assert.strictEqual(orphans.length, 2, 'fixture: both orphan seats were spawned');
+  assert.ok(orphans.every((c) => c.stdin.writableEnded), 'a seat with no link was not let go');
+});
+
+test('tiny messages at the minute limit stop at the day row cap', async (t) => {
+  t.mock.timers.enable({ apis: ['Date'], now: Date.parse('2026-09-25T00:00:00Z') });
+  federation.recordLink('proj-rows', { role: 'member', edge_id: 'edge-rows' });
+  const h = harness();
+  await fedseats.ensure('proj-rows');
+  for (let i = 0; i < fedseats.INBOUND_ROWS_PER_DAY + 50; i++) {
+    fedseats.onEvent('proj-rows', JSON.stringify({ event: 'message', data: { from: 'Tiny', text: 'x' } }));
+    if (i % 50 === 49) t.mock.timers.tick(61 * 1000);
+  }
+  assert.strictEqual(h.recorded.filter((r) => r.projectId === 'proj-rows').length, fedseats.INBOUND_ROWS_PER_DAY);
+});

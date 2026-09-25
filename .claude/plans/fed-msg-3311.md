@@ -204,8 +204,31 @@ board yet carried messages between a federated project's room and its seat.
   until the next check even when other members are in, so for up to a minute a
   post can say nobody has joined. Cosmetic and self-correcting.
 
-## Not yet
-- The live two-Mac proof. (The browser check exists: render-fed-external-3311.)
+## Proven live
+- The two-Mac proof, 2026-09-25: Agent1 (owner, one Kosmos+ account) and Mortals
+  (member, another account), sandboxed boards on this branch. A person on each side
+  posted and the other room showed it tagged External, both ways (10:16 CDT), and
+  again after the coordinator moved to d641bba (12:42 CDT). Screenshots on #3311.
+  The relay keys a seat by (room, member account), so the owner's seat and a
+  member's seat on the same edge do not displace each other.
+
+## Decided in round 15
+- A failed edges request is not "nobody joined": the seat reconnects, and a
+  connector too old for the route gets the update note (the member path already
+  did, on exit 2).
+- The connector's own "not set up for Kosmos+" ending is Mac-level too.
+- A seat never outlives its link: ensure stops it when the link is gone,
+  ensureAll stops any seat whose link is missing, and create's stale-link clear
+  stops the seat as well.
+- The room view agents read quotes outside words in guillemets they cannot close
+  and strips brackets from the name, so they cannot pass for another row, the
+  operator or a [kosmos] line; at most 20 of its 40 rows come from outside.
+- Every envelope typed to an agent in a shared room says it is shared outside
+  this computer (operator and colleague posts alike).
+- A day cap of 2000 rows per room beside the byte cap.
+- Not changed: fake children in the seat tests run the synthetic 'exit' path; a
+  dedicated test covers 'close' for real children.
+- Review round 15 controls: each of the above reds its own test.
 
 ## Surface gate (#2518)
 The external row reuses the room's `.msg` / `.msg-b` / `.msg-bd` classes, which

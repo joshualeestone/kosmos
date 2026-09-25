@@ -2293,3 +2293,21 @@ test('#3679: a room post whose raw text is huge is refused before the store walk
     assert.match(String(sent.because), /indentation and spacing/);
   });
 });
+
+test('#3311: in a shared project every envelope says the room is shared outside this computer; in a local one none does', () => {
+  withFleet(room3(), (board) => {
+    let tmux = arm([]);
+    messages.sendPost({ operator: true, project: 'henderson-lease', text: '@leo status?', federated: true }, board.agents, MEMBERS);
+    const shared = tmux.pastedSends().filter((s) => s.text.startsWith('['));
+    assert.ok(shared.length > 0, 'fixture: envelopes were typed');
+    assert.ok(shared.every((s) => /shared outside this computer, what you post here leaves it/.test(s.text)), JSON.stringify(shared.map((s) => s.text.slice(0, 160))));
+    tmux = arm([]);
+    armSender('leo-discord');
+    messages.sendPost({ fromPane: '%7', project: 'henderson-lease', text: '@mara look', federated: true }, board.agents, MEMBERS);
+    const colleague = tmux.pastedSends().filter((s) => s.text.startsWith('['));
+    assert.ok(colleague.length > 0 && colleague.every((s) => /shared outside this computer/.test(s.text)), 'a colleague post in a shared room was not marked');
+    tmux = arm([]);
+    messages.sendPost({ operator: true, project: 'henderson-lease', text: '@leo status?' }, board.agents, MEMBERS);
+    assert.ok(tmux.pastedSends().every((s) => !/shared outside this computer/.test(s.text)), 'a local room was marked shared');
+  });
+});

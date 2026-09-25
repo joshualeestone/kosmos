@@ -35,12 +35,15 @@ const INBOUND_WINDOW_MS = 60000;
    minute's limit all day must not be able to grow them without end. 2 MiB of
    words a day is far above any conversation. Counted per board run. */
 const INBOUND_BYTES_PER_DAY = 2 * 1024 * 1024;
+/* And rows a day per room: every row is held in memory and scanned on every
+   read, so tiny messages at the minute's limit must not grow it without end. */
+const INBOUND_ROWS_PER_DAY = 2000;
 /* The connector's limit on one stdin line (kosmos-relay fedroom MAX_POST, the
    relay's frame bound). */
 const MAX_POST_LINE = 16 * 1024;
 /* The connector's final refusals that are about this Mac or its account, not
    the connection (kosmos-relay fedroom.rs FINAL_REFUSALS). */
-const MAC_LEVEL_REFUSAL = /unknown mac|this mac was retired|account gone/i;
+const MAC_LEVEL_REFUSAL = /unknown mac|this mac was retired|account gone|not set up for kosmos\+/i;
 /* How long a seat refused for a Mac-level reason waits before trying again. */
 const MAC_RETRY_MS = 5 * 60 * 1000;
 /* The longest stdout line kept while waiting for its newline. The connector
@@ -123,7 +126,7 @@ function onEvent(projectId, line) {
     const now = Date.now();
     if (!s.inbound || now - s.inbound.since >= INBOUND_WINDOW_MS) s.inbound = { since: now, count: 0, bytes: 0, noted: false };
     const day = new Date(now).toISOString().slice(0, 10);
-    if (!s.inday || s.inday.day !== day) s.inday = { day, bytes: 0, noted: false };
+    if (!s.inday || s.inday.day !== day) s.inday = { day, bytes: 0, rows: 0, noted: false };
     const size = Buffer.byteLength(ev.data.text) + Buffer.byteLength(String(ev.data.from || ''));
     s.inbound.count += 1;
     s.inbound.bytes += size;
@@ -133,11 +136,12 @@ function onEvent(projectId, line) {
     }
     // Only what is KEPT counts toward the day: a flood the minute bound drops
     // must not spend the room's day for everyone else in it.
-    if (s.inday.bytes + size > INBOUND_BYTES_PER_DAY) {
-      if (!s.inday.noted) { s.inday.noted = true; say(projectId, 'The external project sent more than Kosmos keeps in a day; its messages are not kept until tomorrow.'); }
+    if (s.inday.bytes + size > INBOUND_BYTES_PER_DAY || s.inday.rows + 1 > INBOUND_ROWS_PER_DAY) {
+      if (!s.inday.noted) { s.inday.noted = true; say(projectId, 'The external project sent more than Kosmos keeps in a day; its messages are not kept until the day resets (midnight UTC).'); }
       return;
     }
     s.inday.bytes += size;
+    s.inday.rows += 1;
     // Runs inside the child's stdout 'data' handler, where a throw (a full disk)
     // has nothing above it to catch it and would take the board down.
     try {
@@ -168,12 +172,17 @@ function setStatus(projectId, status) {
 /* An active edge of the owner's project, skipping any edge whose seat was
    already refused for good (the seat exited 3), so the owner's seat does not
    spawn, be refused, and spawn again every minute. */
+/* { edge } for an active edge, { none: true } when Kosmos+ answered and nobody
+   has joined, { failed: why } when the question could not be asked or answered:
+   that is NOT "nobody joined", and the room must not say it is. */
 async function ownerEdge(link, refused, edges) {
-  const r = await (edges ? edges() : deps.macRequest('POST', MAC_EDGES, {}));
-  if (!r.ok || !r.data || !Array.isArray(r.data.as_owner)) return null;
+  let r;
+  try { r = await (edges ? edges() : deps.macRequest('POST', MAC_EDGES, {})); }
+  catch (err) { return { failed: String((err && err.message) || err) }; }
+  if (!r || !r.ok || !r.data || !Array.isArray(r.data.as_owner)) return { failed: String((r && r.because) || 'no answer') };
   const edge = r.data.as_owner.find((e) => e && e.project_ref === link.ref && e.status === 'active'
     && !(refused && refused.has(e.id)));
-  return edge ? edge.id : null;
+  return edge ? { edge: edge.id } : { none: true };
 }
 
 function spawnFor(projectId, edge) {
@@ -225,11 +234,10 @@ function spawnFor(projectId, edge) {
       if (typeof cur.timer.unref === 'function') cur.timer.unref();
       return;
     }
-    // 3 = a refusal retrying cannot fix: the connector exits 3 only on the
-    // coordinator's final sentences (revoked, no such connection, account gone,
-    // unknown or retired Mac). A lapsed account is NOT 3: the connector waits and
-    // retries itself. A member's seat ends here. An owner's seat was pinned to one
-    // member's edge; it looks for another active edge on the next check.
+    // 3 = a refusal retrying cannot fix. The Mac-level ones were handled just
+    // above; what reaches here is about the edge (revoked, no such connection).
+    // A lapsed account is never 3: the connector waits and retries itself. A
+    // member's seat ends here; an owner's looks for another active edge.
     const link = code === 3 ? safeLink(projectId) : null;
     // An unreadable link record is not an ending: restart like any other exit.
     if (code === 3 && link) {
@@ -282,7 +290,8 @@ function safeLink(projectId) {
 async function ensure(projectId, edges) {
   if (!deps) return null;
   const link = federation.linkFor(projectId);
-  if (!link) return null;
+  // No link, no seat: one still running would carry another project's room.
+  if (!link) { if (seats.has(projectId)) stop(projectId); return null; }
   if (typeof deps.enrolled === 'function' && !deps.enrolled()) return null;
   if (typeof deps.projectExists === 'function' && !deps.projectExists(projectId)) {
     stop(projectId);
@@ -300,8 +309,22 @@ async function ensure(projectId, edges) {
   s.starting = true;
   try {
     if (link.role === 'owner' && !s.refused && Array.isArray(link.refused)) s.refused = new Set(link.refused);
-    const edge = link.role === 'member' ? link.edge_id : await ownerEdge(link, s.refused, edges);
-    if (!edge) { setStatus(projectId, 'waiting'); return 'waiting'; }
+    let edge;
+    if (link.role === 'member') edge = link.edge_id;
+    else {
+      const got = await ownerEdge(link, s.refused, edges);
+      if (got.failed) {
+        // An old connector that does not know the route can never answer it.
+        if (/does not sign/.test(got.failed) && !s.oldNoted) {
+          s.oldNoted = true;
+          say(projectId, 'This computer cannot run the shared project yet: its Kosmos connector is too old. Update Kosmos and it will connect.');
+        }
+        setStatus(projectId, 'reconnecting');
+        return 'reconnecting';
+      }
+      if (got.none) { setStatus(projectId, 'waiting'); return 'waiting'; }
+      edge = got.edge;
+    }
     if (s.stopped || s.child) return s.status;
     spawnFor(projectId, edge);
     return statusOf(projectId);
@@ -339,6 +362,8 @@ async function ensureAll() {
   // linked projects must not set how often this Mac calls Kosmos+.
   let pending = null;
   const edges = () => pending || (pending = deps.macRequest('POST', MAC_EDGES, {}));
+  // A seat whose link is gone (its project removed some other way) stops.
+  for (const id of [...seats.keys()]) if (!Object.prototype.hasOwnProperty.call(links, id)) stop(id);
   for (const id of Object.keys(links)) {
     try { await ensure(id, edges); } catch { /* one project's seat never blocks another's */ }
   }
@@ -387,4 +412,4 @@ function stopAll() {
   seats.clear();
 }
 
-module.exports = { MAC_RETRY_MS, logUnreadable, STOP_KILL_MS, STABLE_MS, INBOUND_BYTES_PER_DAY, MAX_POST_LINE, configure, ensure, ensureAll, post, statusOf, stop, stopAll, onEvent, MAC_EDGES, INBOUND_PER_WINDOW, INBOUND_BYTES_PER_WINDOW };
+module.exports = { INBOUND_ROWS_PER_DAY, MAC_RETRY_MS, logUnreadable, STOP_KILL_MS, STABLE_MS, INBOUND_BYTES_PER_DAY, MAX_POST_LINE, configure, ensure, ensureAll, post, statusOf, stop, stopAll, onEvent, MAC_EDGES, INBOUND_PER_WINDOW, INBOUND_BYTES_PER_WINDOW };
