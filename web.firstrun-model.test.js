@@ -108,14 +108,15 @@ test('the step is a real slice of the model pane', () => {
   assert.ok(!STEP.includes('id="create-model"'), 'the slice ran past this step into the create form');
 });
 
-test('#3708: Grok wears its real mark and Gemini and Grok say what works today', () => {
+test('#3708: Grok wears its real mark and Gemini and Grok name how they connect', () => {
   // Grok's row is a full-weight vendor mark like the others, not the old "X" letter chip.
   assert.match(STEP, /<span class="llm-m pmark live" data-pmark="xai" role="img" aria-label="Grok"><svg viewBox="0 0 34 33"[^>]*><path /,
     'Grok is not wearing its inlined vendor mark');
   assert.doesNotMatch(STEP, /llm-chip/, 'a letter chip is back on the model step');
-  // Each subtitle says what is true: Grok signs in or takes a key; Gemini takes a key only.
-  assert.match(STEP, /<b>Grok<\/b><small>xAI · works today<\/small>/);
-  assert.match(STEP, /<b>Gemini<\/b><small>Google · API key today<\/small>/);
+  // Each subtitle names how it connects, not 'works today': Kosmos does not install either one's
+  // command line tool yet, so Connect can stop at 'not installed' on a fresh computer.
+  assert.match(STEP, /<b>Grok<\/b><small>xAI &middot; subscription or API key today<\/small>/);
+  assert.match(STEP, /<b>Gemini<\/b><small>Google &middot; API key today<\/small>/);
 });
 
 test('Claude stays at full weight, the one with an OAuth connect', () => {

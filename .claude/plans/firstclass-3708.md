@@ -9,8 +9,9 @@ From PigeonPete's 0.6.94 staging QA. Josh asked (09-24) for Gemini and Grok to s
    paths unmodified and the wordmark dropped, viewBox measured in Chromium. It is inlined on the
    first-run row as `.pmark live` like the others, and `PROVIDER_MARK_KEY.xai` now points at it, so
    every provider picker shows it too. Recorded in docs/provider-marks/manifest.md (section 11).
-2. **Truthful subtitles.** Grok: "xAI · works today" (subscription sign-in, #3391, and API key are
-   both live). Gemini: "Google · API key today" (its subscription path, #3568, is not live).
+2. **Truthful subtitles.** Grok: "xAI · subscription or API key today". Gemini: "Google · API key
+   today" (its subscription path, #3568, is not live). Neither says "works today" the way Claude and
+   GPT do, because Kosmos installs Claude's and GPT's tools and not these two yet (review pass 1).
 3. **The Claude-unreachable line (#conn) moved above every panel**, beside #askcard, so it is at the
    top of every view. It used to sit after the panels, which put it at the top of Agents only. On an
    agent's Talk page (#3497, whose header loses its bottom gap) it takes that gap back.
@@ -45,3 +46,20 @@ From PigeonPete's 0.6.94 staging QA. Josh asked (09-24) for Gemini and Grok to s
 grok.com's two mark paths each carry `id="mark"` (a hook for its own CSS), a duplicate id in the page
 and again in every providerMarkNode clone. Stripped from the inline copy; the path data is unchanged.
 web.unique-ids.test.js was the guard that caught it.
+
+## Review pass 1 (opus)
+- BLOCKER, the duplicate `id="mark"` (the same defect the suite found): already fixed at 3449dc0d;
+  also removed from docs/provider-marks/xai-grok-mark.svg.
+- WARNING fixed: "xAI · works today" was untrue on a fresh computer. Grok's Connect first checks for
+  its tool and, with none, says it is not installed and opens neither the sign-in nor the key box.
+  The subtitle now names how it connects, the same shape as Gemini's.
+- WARNING fixed: five stale descriptions of the chip or the old banner position (two comments, the
+  placeAppSettings sibling comment, the combobox check's success line, its README row).
+- NIT fixed: the subtitles use `&middot;` like Claude's and GPT's.
+- NIT left: the "#541 ship-day" comment has had no element under it since before this branch;
+  moving it means guessing where that line lives now.
+- Measured clean by the reviewer: the #conn move on every view and agent-page section at three sizes,
+  and the consolidated layout pixel-identical to main.
+- My own slip, caught by an exit code: rewording the combobox check's success line put an apostrophe
+  inside a single-quoted string, a syntax error that printed no FAIL line. Reworded; `node --check`
+  run on every edited check.

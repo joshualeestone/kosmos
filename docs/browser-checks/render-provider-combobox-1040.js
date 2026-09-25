@@ -318,5 +318,5 @@ const SELECTS = [
     for (const p of problems) console.error('  FAIL  ' + p);
     process.exit(1);
   }
-  console.log('render-provider-combobox-1040: the #d-provider, #acct-provider-pick and #create-provider logo comboboxes keep the native select as source of truth, open/navigate/select/close by keyboard, sync + fire change, disable coming-soon rows, fall back to a chip for Grok, and re-render on a programmatic change; and the reauth screen hides the whole #acct-provider-pick chooser (widget included). Screenshots: ' + shots.join(', '));
+  console.log('render-provider-combobox-1040: the #d-provider, #acct-provider-pick and #create-provider logo comboboxes keep the native select as source of truth, open/navigate/select/close by keyboard, sync + fire change, disable coming-soon rows, show the real Grok mark (#3708), and re-render on a programmatic change; and the reauth screen hides the whole #acct-provider-pick chooser (widget included). Screenshots: ' + shots.join(', '));
 })();

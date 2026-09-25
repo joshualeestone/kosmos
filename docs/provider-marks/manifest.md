@@ -255,12 +255,13 @@ asked for them:
 ### `xai-grok-mark.svg`
 - **Added:** 2026-09-25 by PigeonPete (kosmos#3708), replacing the "X" letter chip Grok had
   on the first-run model list and in every provider picker.
-- **viewBox:** `0 0 34 33` (992 bytes)
+- **viewBox:** `0 0 34 33` (972 bytes)
 - **What:** The Grok mark, the ring cut by a diagonal stroke, on its own. The product mark,
   like the Claude spark, not the xAI company wordmark.
 - **Source URL:** https://grok.com/ (inline SVG in page markup, the home-link logo in the
   header, `viewBox="0 0 88 33"`). That SVG is the mark plus the "Grok" wordmark; the two
-  mark paths were kept unmodified and the four wordmark paths (x from 37) dropped. (Inlined in
+  mark paths' drawing data was kept unmodified (their `id="mark"`, a hook for grok.com's own
+  CSS, was removed: two in one page is a duplicate id) and the four wordmark paths (x from 37) dropped. (Inlined in
   `web/index.html`, the two paths are written self-closing, `<path .../>`, as the page's other marks are, and
   without grok.com's `id="mark"` on each, a hook for grok.com's own CSS that would be a duplicate id
   in the page and in every picker clone; the path data is byte-identical.) The
