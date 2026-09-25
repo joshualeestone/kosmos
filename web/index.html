@@ -14999,10 +14999,13 @@ window.kosmosMeasureScrollbarWidth();
            it, and a number kept in two places goes wrong in the one nobody
            is looking at. The old sentence ("the price is not set yet") had
            already gone false that way. -->
-      <p><b>Sign-up is not open yet.</b> When it opens it happens on the
-      Kosmos website, not in here: your email, a code to confirm it, and
-      your card. Then you sign in to that account here, and this computer gets
-      an address of its own. Nothing to configure on your router.</p>
+      <!-- #3780 (Josh, 2026-09-25 13:12: "Join works so we need to also fix that"): sign-up is
+           open, so the old "Sign-up is not open yet" was false. Splinter's copy, reversible; Josh
+           can swap it. Still says sign-up happens on the website (web.plus-signup.test.js), and
+           names no hostname or price (web.plus-tab.test.js). -->
+      <p id="plus-join-line">Joining takes a minute on the Kosmos website: your email, a code to
+      confirm it, and your card. Then sign in here, and this computer gets an address of its own.
+      Nothing to configure on your router.</p>
       <!-- #1129, the other half of #1115. The pane described a flow and gave no
            way into it, so a person was correctly informed and still stuck.
            🛑 THE HREF IS SET FROM JS, AND THAT IS NOT STYLE. `web.plus-tab.test.js`
@@ -15770,12 +15773,22 @@ function plusMarkDraw(t) { var ctx = plusMarkCv.getContext('2d'); ctx.setTransfo
   ctx.globalAlpha = 1; }
 function plusMarkRun() { cancelAnimationFrame(plusMarkRaf); plusMarkBuild(); var t0 = performance.now(), D = 1.5;
   (function f(now) { var t = (now - t0) / 1000; plusMarkDraw(t / D >= 1 ? null : t / D); if (t / D < 1) plusMarkRaf = requestAnimationFrame(f); })(performance.now()); }
-function plusStarsInit() { var p = plusStarsCv.parentElement; plusSW = p.clientWidth; plusSH = p.clientHeight;
-  plusStarsCv.width = plusSW * PLUS_DPR; plusStarsCv.height = plusSH * PLUS_DPR; plusStarsCtx.setTransform(PLUS_DPR, 0, 0, PLUS_DPR, 0, 0);
-  var rnd = function (a, b) { return a + Math.random() * (b - a); }, N = Math.min(150, Math.round(plusSW * plusSH / 7000));
-  plusParts = []; for (var i = 0; i < N; i++) plusParts.push({ x: rnd(0, plusSW), y: rnd(0, plusSH), r: rnd(0.8, 2.5),
+/* #3778 (Josh, 0.6.94: "the background circles are stretched out into really long elliptical
+   ovals"): the buffer is sized from the CANVAS'S OWN layout box (clientWidth/Height), and kept
+   there by plusStarsWatch; the parent's client box read once at mount is what went stale. The canvas is stretched by CSS (inset: 0) over #s-sec-plus, whose height
+   moves after mount as the section's content paints in, so a buffer measured once was scaled
+   unevenly onto a different box and every dot became an oval. plusStarsWatch below re-sizes it
+   whenever that box changes, not only on a window resize. */
+function plusStarsSize() { return [Math.max(1, plusStarsCv.clientWidth), Math.max(1, plusStarsCv.clientHeight)]; }   // the layout box (a transform does not change it)
+function plusStarNew() { var rnd = function (a, b) { return a + Math.random() * (b - a); };
+  return { x: rnd(0, plusSW), y: rnd(0, plusSH), r: rnd(0.8, 2.5),
     vx: rnd(-0.14, 0.14), vy: rnd(-0.11, 0.11), a: rnd(0.12, 0.34), ph: rnd(0, 6.28),
-    c: Math.random() < 0.32 ? '#41C2E3' : '#4171E3' }); }
+    c: Math.random() < 0.32 ? '#41C2E3' : '#4171E3' }; }
+function plusStarsBuffer() { var sz = plusStarsSize(); plusSW = sz[0]; plusSH = sz[1];
+  plusStarsCv.width = plusSW * PLUS_DPR; plusStarsCv.height = plusSH * PLUS_DPR; plusStarsCtx.setTransform(PLUS_DPR, 0, 0, PLUS_DPR, 0, 0); }
+function plusStarsCount() { return Math.min(150, Math.round(plusSW * plusSH / 7000)); }
+function plusStarsInit() { plusStarsBuffer();
+  plusParts = []; for (var i = 0, N = plusStarsCount(); i < N; i++) plusParts.push(plusStarNew()); }
 function plusStarsDraw(t) { plusStarsCtx.clearRect(0, 0, plusSW, plusSH);
   for (var i = 0; i < plusParts.length; i++) { var q = plusParts[i]; q.x += q.vx; q.y += q.vy;
     if (q.x < -4) q.x = plusSW + 4; else if (q.x > plusSW + 4) q.x = -4;
@@ -15784,7 +15797,42 @@ function plusStarsDraw(t) { plusStarsCtx.clearRect(0, 0, plusSW, plusSH);
     plusStarsCtx.globalAlpha = q.a * tw; plusStarsCtx.beginPath(); plusStarsCtx.arc(q.x, q.y, q.r, 0, 7); plusStarsCtx.fillStyle = q.c; plusStarsCtx.fill(); }
   plusStarsCtx.globalAlpha = 1; }
 function plusStarsLoop(now) { plusStarsDraw(now); plusStarsRaf = requestAnimationFrame(plusStarsLoop); }
-function plusStarsStart() { cancelAnimationFrame(plusStarsRaf); plusStarsInit(); if (plusReduce) plusStarsDraw(0); else plusStarsRaf = requestAnimationFrame(plusStarsLoop); }
+/* #3778 (review pass 1): one frame is drawn AT ONCE after sizing. Setting the canvas's width clears
+   it, and a ResizeObserver callback runs after that frame's requestAnimationFrame callbacks, so
+   waiting for the loop's next frame painted an empty field for a frame on every re-size (a blink
+   each time the section's content changed height). */
+function plusStarsStart() { cancelAnimationFrame(plusStarsRaf); plusStarsInit();
+  plusStarsDraw(plusReduce ? 0 : ((typeof performance !== 'undefined' && performance.now) ? performance.now() : 0));
+  if (!plusReduce) plusStarsRaf = requestAnimationFrame(plusStarsLoop); }
+/* #3778 (review pass 2): a re-size KEEPS the field. Re-seeding on every change in the section's
+   height (a status line appearing is enough) made every dot jump to a new place each time. Each
+   dot keeps its place in proportion to the new box; the count follows the area (trimmed, or new
+   dots added), and one frame is drawn at once, as plusStarsStart does. */
+function plusStarsResize() {
+  var ow = plusSW, oh = plusSH;
+  if (!plusParts || !plusParts.length || !ow || !oh) { plusStarsStart(); return; }
+  plusStarsBuffer();
+  var fx = plusSW / ow, fy = plusSH / oh;
+  for (var i = 0; i < plusParts.length; i++) { plusParts[i].x *= fx; plusParts[i].y *= fy; }
+  var N = plusStarsCount();
+  if (plusParts.length > N) plusParts.length = N;
+  while (plusParts.length < N) plusParts.push(plusStarNew());
+  plusStarsDraw(plusReduce ? 0 : ((typeof performance !== 'undefined' && performance.now) ? performance.now() : 0));
+}
+/* #3778: the star field follows its canvas's displayed size. A change in the rounded box (the
+   section's content arriving, a sidebar folding, a window resize) re-sizes the buffer so the dots
+   stay round; an unchanged box does nothing. */
+var plusStarsObs = null;
+function plusStarsWatch() {
+  if (plusStarsObs || typeof ResizeObserver !== 'function' || !plusStarsCv) return;
+  plusStarsObs = new ResizeObserver(function () {
+    if (!plusMounted || !plusStarsCv) return;
+    var sz = plusStarsSize();
+    if (sz[0] === plusSW && sz[1] === plusSH) return;
+    plusStarsResize();
+  });
+  plusStarsObs.observe(plusStarsCv);
+}
 function plusPaintStatic() { plusStarsStart(); plusMarkBuild(); plusMarkDraw(null); }
 function plusMount() {
   plusMarkCv = document.getElementById('plus-mark');
@@ -15797,9 +15845,10 @@ function plusMount() {
      a rapid enter->leave->enter could let an orphaned callback fire and start a
      redundant loop (the plusMounted guard covers enter->leave, not this race). */
   plusMountRaf = requestAnimationFrame(function () { plusMountRaf = null; if (!plusMounted) return;
-    if (plusReduce) plusPaintStatic(); else { plusStarsStart(); plusMarkRun(); } });
+    if (plusReduce) plusPaintStatic(); else { plusStarsStart(); plusMarkRun(); }
+    plusStarsWatch(); });
 }
-function plusTeardown() { plusMounted = false; cancelAnimationFrame(plusMountRaf); cancelAnimationFrame(plusMarkRaf); cancelAnimationFrame(plusStarsRaf); plusMountRaf = null; plusMarkRaf = null; plusStarsRaf = null; }
+function plusTeardown() { if (plusStarsObs) { plusStarsObs.disconnect(); plusStarsObs = null; } plusMounted = false; cancelAnimationFrame(plusMountRaf); cancelAnimationFrame(plusMarkRaf); cancelAnimationFrame(plusStarsRaf); plusMountRaf = null; plusMarkRaf = null; plusStarsRaf = null; }
 /* Whether the Kosmos Plus section is the one on screen. ONE predicate, read by the blue skin
    (syncPlusChrome) and by the #743 status tick, so the two cannot disagree about it.
    #3599 (Josh, 0.6.91 QA): two ways to be there. The Settings TAB on Plus, or, in the
@@ -15820,7 +15869,7 @@ function syncPlusChrome() {
   if (active) { if (!plusMounted) plusMount(); }
   else if (plusMounted) plusTeardown();
 }
-if (typeof window !== 'undefined') window.addEventListener('resize', function () { if (plusMounted) { if (plusReduce) plusPaintStatic(); else { plusStarsStart(); plusMarkBuild(); plusMarkDraw(null); } } });
+if (typeof window !== 'undefined') window.addEventListener('resize', function () { if (plusMounted) { plusStarsResize(); plusMarkBuild(); plusMarkDraw(null); } });   // #3778: the field keeps its dots on a window resize too
 /* ================= end #1615 Plus canvases ================= */
 
 
