@@ -49,6 +49,16 @@ test('the engine says "never reported" as a field, only for a record that does n
   assert.equal(tasks.claimFor({ number: 1, who: 'x' }, null).neverReported, false);
 });
 
+test('the engine names an agent only while it holds open work on the task (never the one who finished)', () => {
+  const never = commitments.read('nobody-has-ever-reported');
+  // Parts: the first agent's part is done, another agent's is open. The reading is for the first.
+  const donePart = { number: 2, parts: [{ id: 1, who: 'nobody-has-ever-reported', closedAt: '2026-09-25T00:00:00Z' }, { id: 2, who: 'someone-else', closedAt: null }] };
+  assert.equal(tasks.claimFor(donePart, never).neverReported, false, 'the agent who finished is blamed for not reporting');
+  const openPart = { number: 3, parts: [{ id: 1, who: 'nobody-has-ever-reported', closedAt: null }, { id: 2, who: 'someone-else', closedAt: null }] };
+  assert.equal(tasks.claimFor(openPart, never).neverReported, true);
+  assert.equal(tasks.claimFor({ number: 4, who: 'nobody-has-ever-reported' }, never).neverReported, true, 'a plain task lost it');
+});
+
 test('an agent that never reported: the row says so in the agent\'s name, briefly', () => {
   const html = rowOf(T({ claim: { claimed: null, neverReported: true, because: 'this agent has never reported what it is holding' } }), 'status');
   assert.ok(REX && REX.name, 'the fleet card has no name to speak');
@@ -68,7 +78,7 @@ test('one fact, one wording: the project card and the task page say "never repor
   // CONTROL: another could-not-tell case keeps its own reason on the card.
   assert.match(taskClaimHtml({ claimed: null, neverReported: false, because: 'its record could not be read' }), />its record could not be read</);
   // The task page's line uses the same helper.
-  assert.match(SCRIPT, /const notReported = claimNotReported\(t\.claim\);[\s\S]{0,500}why\.textContent = notReported && claimWho \? claimWho \+ ' ' \+ notReported \+ '\.'/);
+  assert.match(SCRIPT, /why\.textContent = notReported \? \(sayShown \|\| !claimWho \? '' : claimWho \+ ' ' \+ notReported \+ '\.'\)/);
 });
 
 test('could not tell for another reason: the row keeps the reason, never "has not said"', () => {
@@ -85,6 +95,8 @@ test('the state line shows only when grouping by project; the agent pill shows i
   assert.doesNotMatch(byStatus, /class="tsk-state"/, 'the row repeats its own group heading');
   assert.match(byProject, /class="tsk-state"[^>]*><span class="tsk-dot"><\/span>Assigned, not started<\/span>/);
   for (const html of [byStatus, byProject]) assert.match(html, /class="tsk-who" data-agent="rex">/);
+  // A screen reader moving between checkboxes still hears the state the row no longer shows.
+  assert.match(byStatus, /aria-label="Select task 3 of Launch, Assigned, not started"/);
 });
 
 test('Closed is not a tile; it stays the folded list', () => {

@@ -3235,6 +3235,9 @@ details.tsk-fold summary { cursor: pointer; color: var(--k-ink-2); font-size: .8
 html[data-layout="consolidated"] body.consolidated #panel-projects > #panel-tasks { grid-column: 2; grid-row: 1; margin: 0; width: 100%;
   padding: var(--space-8) var(--space-8) 0 var(--space-8); min-height: 0; overflow-y: auto; }
 html[data-layout="consolidated"] body.consolidated #panel-projects > #panel-tasks .tsk-view { grid-template-columns: 1fr; }
+/* Mona's look review of #3701: in the column the panel's own top inset already spaces the title,
+   so the view's does not stack on it (was about 49px, like the tab view's 51px before halving). */
+html[data-layout="consolidated"] body.consolidated #panel-projects > #panel-tasks .tsk-main { padding-top: 0; }
 html[data-layout="consolidated"] body.consolidated #panel-projects > #panel-tasks .tsk-rail { display: none; }
 html[data-layout="consolidated"] body.consolidated #panel-projects > #panel-tasks .tsk-mobsel { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 12px; }
 /* The consolidated projects rail's way into Tasks (the tab bar is hidden there). */
@@ -42740,7 +42743,10 @@ function tskRow(t) {
       : t.claim.because ? '<div class="why">We cannot tell whether it started: ' + esc(t.claim.because) + '.</div>' : '';
   return '<div class="tsk-row' + (on ? ' sel' : '') + '" data-key="' + esc(tskKey(t)) + '">'
     + '<input type="checkbox" data-key="' + esc(tskKey(t)) + '"' + (on ? ' checked' : '')
-    + (t.state === 'closed' ? ' disabled' : '') + ' aria-label="Select task ' + Number(t.number) + ' of ' + esc(t.projectName) + '">'
+    /* The row no longer repeats its state in a status group (the heading says it), so the label
+       carries it: a screen reader moving between checkboxes still hears where each task is. */
+    + (t.state === 'closed' ? ' disabled' : '') + ' aria-label="Select task ' + Number(t.number) + ' of ' + esc(t.projectName)
+    + (g ? ', ' + esc(g.l) : '') + '">'
     + '<div class="t"><span class="n">#' + Number(t.number) + '</span>'
     + '<button type="button" class="tl" data-open-task="' + esc(tskKey(t)) + '">' + esc(t.sentence) + '</button>'
     + '<div class="meta"><button type="button" data-open-project="' + esc(t.projectId) + '">' + esc(t.projectName) + '</button>'
@@ -43185,12 +43191,15 @@ function paintTaskPage() {
   const why = document.getElementById('tk-why');
   const notReported = claimNotReported(t.claim);
   /* The claim is read for the task's first agent (whoOf(t)[0]); a task kept as parts has no t.who,
-     so name the first part's agent rather than an "It" that reads as the task. */
+     so name the first part's agent rather than an "It" that reads as the task. Said ONCE: when
+     that agent's open part is on screen, its claim line already says it beside the name, so this
+     line stays quiet for "not reported" (it still explains any other could-not-tell reason). */
   const claimWho = who || (firstWho ? tkMemberName(p, firstWho) : null);
+  const sayShown = parts.some((x) => x.who && x.who === firstWho && !x.closedAt);
   const unknownBecause = (t.claim && t.claim.claimed === null && t.claim.because) ? t.claim.because : '';
-  why.textContent = notReported && claimWho ? claimWho + ' ' + notReported + '.'
+  why.textContent = notReported ? (sayShown || !claimWho ? '' : claimWho + ' ' + notReported + '.')
     : unknownBecause ? 'We could not check whether ' + (who || 'it') + ' is on this: ' + unknownBecause + '.' : '';
-  why.hidden = !notReported && !unknownBecause;
+  why.hidden = !why.textContent;
 
   /* The close-note: both clauses are about what KOSMOS does not do. Needed
      most by somebody who assumes closing a task stops the agent. Only when

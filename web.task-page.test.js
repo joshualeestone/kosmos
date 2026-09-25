@@ -232,22 +232,33 @@ test('the unknown claim gets its reason on the page, where there is room for it'
   assert.equal(settled.doc.els['tk-why'].hidden, true);
 });
 
-test('an agent that never reported is named, on a plain task and on one kept as parts (never "It")', () => {
+test('an agent that never reported is said ONCE on the page, beside its name, never "It"', () => {
   const claim = { claimed: null, neverReported: true, because: 'this agent has never reported what it is holding' };
   const plain = runPaint({
     project: { ...PROJECT, tasks: [] },
     task: { number: 7, sentence: 's', who: 'april', createdAt: new Date().toISOString(), addedBy: 'operator', closedAt: null, claim },
   });
-  assert.equal(plain.doc.els['tk-why'].hidden, false);
-  assert.match(plain.doc.els['tk-why'].textContent, /^April has not reported what it is working on yet\.$/);
-  // A task kept as parts has no `who`; the claim is about its first part's agent, so name that one.
+  // Visible text only: the claim line also carries the words as its hover title, which is not a second saying.
+  const said = (doc) => (doc.els['tk-who'].innerHTML.replace(/<[^>]*>/g, ' ').match(/has not reported what it is working on yet/g) || []).length
+    + (doc.els['tk-why'].hidden ? 0 : (doc.els['tk-why'].textContent.match(/has not reported what it is working on yet/g) || []).length);
+  assert.equal(said(plain.doc), 1, 'the page says it twice, or not at all');
+  assert.equal(plain.doc.els['tk-why'].hidden, true, 'the why line repeats the claim line');
+  assert.doesNotMatch(plain.doc.els['tk-why'].textContent, /holding/);
+  // Kept as parts, the first agent's part open: the same, once, beside that agent.
   const parted = runPaint({
     project: { ...PROJECT, tasks: [] },
     task: { number: 8, sentence: 's', createdAt: new Date().toISOString(), addedBy: 'operator', closedAt: null, claim,
       parts: [{ id: 1, sentence: 'first half', who: 'april', closedAt: null }, { id: 2, sentence: 'second half', who: null, closedAt: null }] },
   });
-  assert.doesNotMatch(parted.doc.els['tk-why'].textContent, /^It /, 'the page says "It" about an agent it can name');
-  assert.match(parted.doc.els['tk-why'].textContent, /^April has not reported what it is working on yet\.$/);
+  assert.equal(said(parted.doc), 1);
+  // Defensive: if the named agent's part is not on screen, the why line carries it, by name.
+  const done = runPaint({
+    project: { ...PROJECT, tasks: [] },
+    task: { number: 9, sentence: 's', createdAt: new Date().toISOString(), addedBy: 'operator', closedAt: null, claim,
+      parts: [{ id: 1, sentence: 'first half', who: 'april', closedAt: '2026-09-25T00:00:00Z' }, { id: 2, sentence: 'second half', who: null, closedAt: null }] },
+  });
+  assert.match(done.doc.els['tk-why'].textContent, /^April has not reported what it is working on yet\.$/);
+  assert.doesNotMatch(done.doc.els['tk-why'].textContent, /^It /);
 });
 
 test('a task that disappears under the open page sends you to its project', () => {
