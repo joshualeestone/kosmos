@@ -1,4 +1,4 @@
-// Browser-check-surface: msg msg-bd data-unread data-mid unread-edge d-dmthread pj-room
+// Browser-check-surface: msg msg-bd data-unread data-mid unread-edge d-dmthread pj-room asp-th asp-m
 'use strict';
 
 /**
@@ -214,6 +214,37 @@ const EDGE_LIGHT = 'rgb(245, 228, 188)';
       return { known: st.known.size, read: st.read.size, shown: document.querySelectorAll('#pj-room .msg:not(.you) .msg-bd').length, hasR1: st.known.has('r1') || st.read.has('r1') };
     }, room);
     chk(u11.shown === 4 && u11.known === 4 && !u11.hasR1, 'U11 the thread\'s sets hold only the posts it shows', JSON.stringify(u11));
+
+    // U15: the setup assistant's chat. Replies that came while it was folded arrive with the edge (the backlog the poll
+    // counts from its dot), history does not, a reply landing while it is open gets it, each goes once read, and the
+    // hosted assistant's words (typed back in this page) never do. Painted through the real asbPaintThread.
+    const asbState = () => page.evaluate(() => [...document.querySelectorAll('#asp-th .asp-m.him[data-mid]')].map((d) => ({ id: d.dataset.mid, unread: d.hasAttribute('data-unread'), edge: getComputedStyle(d).boxShadow })));
+    const gRows = [{ id: 'g1', from: 'guide', text: 'Hello, I can help.' }, { id: 'y1', from: 'you', text: 'Make me an agent' }, { id: 'g2', from: 'guide', text: 'Done, meet April.' }];
+    await page.evaluate((rows) => {
+      document.getElementById('panel-projects').hidden = true;
+      asbLayerEnsure();
+      document.getElementById('asp').hidden = false;
+      unreadEdgeBacklog('asb:guide', 1);   // what asbPoll records for one reply that came while folded
+      ASB.shown = '';
+      asbPaintThread(rows, 'guide');
+    }, gRows);
+    const u15a = await asbState();
+    chk(u15a.length === 2 && !u15a[0].unread && u15a[1].unread && u15a[1].edge.includes(EDGE_LIGHT), 'U15 the assistant\'s reply that came while folded has the edge; its history does not', JSON.stringify(u15a));
+    await page.waitForTimeout(2600);
+    const u15b = await asbState();
+    chk(u15b.length === 2 && u15b.every((r) => !r.unread), 'U15 once on screen a moment, it goes', JSON.stringify(u15b));
+    await page.evaluate((rows) => asbPaintThread(rows.concat([{ id: 'g3', from: 'guide', text: 'Anything else?' }]), 'guide'), gRows);
+    const u15c = await asbState();
+    chk(u15c.length === 3 && !u15c[0].unread && !u15c[1].unread && u15c[2].unread, 'U15 a reply landing while it is open gets the edge, and the read ones keep theirs off', JSON.stringify(u15c));
+    await page.waitForTimeout(2600);
+    chk((await asbState()).every((r) => !r.unread), 'U15 and it goes once read');
+    const u15h = await page.evaluate(() => {
+      unreadEdgeBacklog('asb:hosted', 2); ASB.shown = '';
+      asbPaintThread([{ id: 'h1', from: 'hosted', text: 'Hi' }, { id: 'h2', from: 'hosted', text: 'Ask me anything' }], 'hosted');
+      return document.querySelectorAll('#asp-th [data-unread]').length;
+    });
+    chk(u15h === 0, 'U15 the hosted assistant\'s words never carry it (CONTROL for the arms above: the same backlog, no edge)', 'edged=' + u15h);
+    if (SHOTS) await page.screenshot({ path: path.join(SHOTS, 'unread-asb.png') });
 
     chk(errs.length === 0, 'U7 no page errors', errs.join(' | '));
   } finally {

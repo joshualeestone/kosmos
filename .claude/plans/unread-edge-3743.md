@@ -37,6 +37,12 @@ paintRoom. Controls: without the backlog and the focus test U1, U4 and U6 fail; 
   what was read (U10); the sets are bounded by the rows shown (U11).
 - Known and accepted: while a search filter is active the matching unread messages show no edge (clearing it brings
   it back), and a repaint inside the 1.2s fade ends it at once rather than finishing the animation.
-- U13 (a message over twenty thread-heights tall, read down gradually) passes, but its negative control is not yet
-  conclusive: without the scroll pass a plain run still passes, while an instrumented run fails. Not claimed as a
-  guard until explained.
+- U13 (a message over twenty thread-heights tall, read down gradually) is a guard. Control, 2026-09-25 11:33: the
+  scroll pass disabled from outside the page (a capture listener on window stopping scroll before it reaches the
+  document) turns U13 red with the bubble unchanged (same element, no repaint, the observer's last word "near, not in
+  view"); the unmodified run is green. The earlier "plain run stays green without the scroll pass" did not reproduce
+  with this method; the earlier method edited the page, and is not trusted over one that leaves it untouched.
+- The setup assistant's chat (#3753's panel) gets the same edge: the guide's replies carry their thread id, replies
+  that came while it was folded are the backlog (the poll's dot count), and the hosted assistant's words never do
+  (U15, with that as its control). The poll's backlog line is read, not run: U15 paints through asbPaintThread with
+  the backlog the poll would record.

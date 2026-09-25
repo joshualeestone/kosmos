@@ -1521,6 +1521,10 @@ html.tip-dimming:not([data-layout="consolidated"]) > body { min-height: 100vh; }
 .asp-m { max-width: 88%; padding: 8px 11px; border-radius: 12px; line-height: 1.45; white-space: pre-wrap; overflow-wrap: anywhere; }
 /* #3738 (Josh 08:51): the same bubbles as a Direct Message, from the same tokens: the person's own blue, the agent's cream. */
 .asp-m.him { background: var(--agent-msg); border-top-left-radius: 4px; }
+/* #3743: the guide's unread replies carry the same fading gold edge as a DM's (Josh: "the setup assistant" too). */
+.asp-m.him { transition: box-shadow 1.2s ease; }
+.asp-m.him[data-unread] { box-shadow: inset 0 0 0 1px var(--unread-edge); transition: none; }
+@media (prefers-reduced-motion: reduce) { .asp-m.him { transition: none; } }
 .asp-m.you { align-self: flex-end; background: var(--usermsg-tint); border-top-right-radius: 4px; }
 .asp-note { padding: 0 12px 6px; font-size: .75rem; color: var(--k-ink-2); }
 .asp-msg { padding: 0 12px 6px; font-size: .75rem; color: var(--k-ink-2); }
@@ -27067,10 +27071,13 @@ function unreadEdgeBacklog(key, n) {
   st.backlog = Math.max(st.backlog, Number(n) || 0);
   UNREAD_EDGE.set(key, st);
 }
-function unreadEdgeApply(root, key) {
+/* `row` picks the agent's rows and `bd` their bubble inside; the setup assistant's chat draws each row as its own
+   bubble, so it passes bd: null and the row is edged. */
+function unreadEdgeApply(root, key, { row = '.msg:not(.you)[data-mid]', bd: bdSel = '.msg-bd' } = {}) {
   if (!root) return;
+  const bubbleOf = (r) => (bdSel ? r.querySelector(bdSel) : r);
   /* Rows with a bubble only: a bodyless post has nothing to edge, and would sit unread forever. */
-  const rows = [...root.querySelectorAll('.msg:not(.you)[data-mid]')].filter((r) => r.dataset.mid && r.querySelector('.msg-bd'));
+  const rows = [...root.querySelectorAll(row)].filter((r) => r.dataset.mid && bubbleOf(r) && (bdSel || r.textContent.trim()));
   const ids = rows.map((r) => r.dataset.mid);
   const st = UNREAD_EDGE.get(key) || { known: null, fresh: new Set(), read: new Set(), backlog: 0 };
   UNREAD_EDGE.set(key, st);
@@ -27086,7 +27093,7 @@ function unreadEdgeApply(root, key) {
   /* A bubble a repaint replaced is let go, so the observer holds only what is on the page. */
   for (const el of UNREAD_WATCHED) if (!el.isConnected) { if (UNREAD_IO) UNREAD_IO.unobserve(el); UNREAD_WATCHED.delete(el); }
   for (const r of rows) {
-    const bd = r.querySelector('.msg-bd');
+    const bd = bubbleOf(r);
     if (!bd || !st.fresh.has(r.dataset.mid) || bd.hasAttribute('data-unread')) continue;
     bd.setAttribute('data-unread', '');
     bd.__unread = { st, id: r.dataset.mid };
@@ -27118,9 +27125,9 @@ function unreadEdgeTry(bd) {
 }
 /* Leaving the window stops every clock; coming back starts it afresh on what is in view. A message far taller than the
    thread crosses no ratio threshold as it is read down, so a scroll measures the ones on screen but not yet counted. */
-const unreadEdgeRecheck = () => document.querySelectorAll('.msg-bd[data-unread]').forEach(unreadEdgeTry);
+const unreadEdgeRecheck = () => document.querySelectorAll('.msg-bd[data-unread], .asp-m[data-unread]').forEach(unreadEdgeTry);
 window.addEventListener('focus', unreadEdgeRecheck);
-window.addEventListener('blur', () => document.querySelectorAll('.msg-bd[data-unread]').forEach(unreadEdgeStop));
+window.addEventListener('blur', () => document.querySelectorAll('.msg-bd[data-unread], .asp-m[data-unread]').forEach(unreadEdgeStop));
 document.addEventListener('visibilitychange', unreadEdgeRecheck);
 document.addEventListener('scroll', (ev) => {
   /* Clipped by what scrolled (a thread scrolls inside its own box, not the page) as well as by the window. */
@@ -56503,6 +56510,8 @@ async function asbPoll(force) {
       document.getElementById('asp-live').textContent = last ? String(last.text || '') : '';
     }
     ASB.dotTimed = false;   // consumed, or outlived (a count that fell): either way the next open reply is timed afresh
+    /* #3743: replies that came while it was folded (the dot) arrive with the edge. */
+    if (ASB.heard !== null && heard > ASB.heard) unreadEdgeBacklog('asb:' + t.session, heard - ASB.heard);
     ASB.heard = heard; ASB.dot = false; asbPaintThread(speech, t.session);
   }
   else if (ASB.heard === null) ASB.heard = heard;
@@ -56528,10 +56537,14 @@ function asbPaintThread(rows, session) {
   for (const m of rows) {
     const d = document.createElement('div');
     d.className = 'asp-m ' + (m.from === session ? 'him' : 'you');
+    if (m.id || m.at) d.dataset.mid = String(m.id || m.at);   // #3743: the guide's replies, by the same id a DM uses
     d.textContent = String(m.text || '');
     th.appendChild(d);
   }
   if (atEnd || ASB.sending) th.scrollTop = th.scrollHeight;
+  /* #3743: the guide's unread replies get the edge. Not the hosted assistant's: its words live only in this page and
+     are read as they are typed back. */
+  if (session !== 'hosted') unreadEdgeApply(th, 'asb:' + session, { row: '.asp-m.him[data-mid]', bd: null });
 }
 
 function asbOpen() {
