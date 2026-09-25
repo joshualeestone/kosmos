@@ -76,8 +76,9 @@ const chk = (ok, label, extra) => {
   if (!ok) fail.push(named);
 };
 /* A thrown handler (tap, observer, re-place) can leave the state an arm reads intact and pass it:
-   collect every page error, and each page asserts none before it closes. The file:// filter is the
-   theme loop's: that is this harness having no server, not a page defect. */
+   collect every page error, and each page asserts none before it closes. Loaded over file://, the
+   page's own /api/* polls cannot resolve: that is this harness having no server, not a page defect
+   (WebKit words it "Not allowed to load local resource: file:///..."). */
 function watchErrors(page) {
   const errors = [];
   page.on('pageerror', (e) => errors.push('pageerror ' + e.message));
@@ -122,16 +123,7 @@ const now = () => new Date().toISOString();
   try {
     for (const theme of ['light', 'dark']) {
       const page = await browser.newPage({ viewport: { width: 1100, height: 900 }, colorScheme: theme });
-      const errs = [];
-      page.on('pageerror', (e) => errs.push('pageerror ' + e.message));
-      page.on('console', (m) => {
-        if (m.type() !== 'error') return;
-        // Loaded over file://, so the page's own /api/* polls cannot resolve.
-        // That is this harness's condition (no server), not a page defect.
-        // WebKit words the same condition "Not allowed to load local resource: file:///...".
-        if (/ERR_FILE_NOT_FOUND|URL scheme "file" is not supported|Not allowed to load local resource: file:/.test(m.text())) return;
-        errs.push('console ' + m.text());
-      });
+      const errs = watchErrors(page);
       // Refuse the app's 5s polls so they neither race the render nor fill the
       // console against file:// (same posture as render-agent-msg-gray-2805.js).
       await page.addInitScript(() => {
@@ -746,6 +738,11 @@ const now = () => new Date().toISOString();
       // The projects list's top row at 375 on a touchscreen (16px sort): Add Project, the sort and
       // the view toggle must not overlap and must stay inside the row. (The harness only flags
       // overflow past the panel; controls drawn over each other inside it pass that.)
+      // At 375 and just above the phone width (30rem) too: the 16px sort applies on every touchscreen,
+      // and above 30rem the row keeps its two-column, no-wrap layout (a folded phone open, a small tablet).
+      for (const rowWidth of [375, 490, 540, 600]) {
+      await phonePage.setViewportSize({ width: rowWidth, height: 800 });
+      await phonePage.waitForTimeout(100);
       const pjRow = await phonePage.evaluate(() => {
         const view = document.getElementById('pj-list-view'); const panel = document.getElementById('panel-projects');
         if (!view || !panel) return { error: 'no projects list' };
@@ -778,7 +775,10 @@ const now = () => new Date().toISOString();
             return free.length > 0 && shown.length === free.length && shown.every((w, i) => w >= free[i] - 0.5); })(),
           toggleW: Math.round(T.width) };
       });
-      chk(!pjRow.error && pjRow.fontPx >= 16 && pjRow.clear && pjRow.inside && pjRow.sortWhole && pjRow.toggleWhole, `[phone/touch] the projects row's Add Project, sort and toggle do not overlap at 375, and neither the sort's label nor the toggle is cut or squeezed`, JSON.stringify(pjRow));
+      chk(!pjRow.error && pjRow.fontPx >= 16 && pjRow.clear && pjRow.inside && pjRow.sortWhole && pjRow.toggleWhole, `[phone/touch] the projects row's Add Project, sort and toggle do not overlap at ${rowWidth}, and neither the sort's label nor the toggle is cut or squeezed`, JSON.stringify(pjRow));
+      }
+      await phonePage.setViewportSize({ width: 375, height: 800 });
+      await phonePage.waitForTimeout(100);
       // The composer and its @mention mirror (which draws the text the person reads once the value
       // is not empty) must match on a touchscreen: same font size, same line height, and after
       // three lines the mirror is not taller than the composer (it is clipped to the composer's
@@ -1376,6 +1376,33 @@ const now = () => new Date().toISOString();
       };
       const barState = () => phonePage.evaluate(() => ({ shown: document.querySelectorAll('#pj-room .msg.rxn-show').length, post: RXN_SHOW_POST, pinned: RXN_PINNED }));
       const closedClean = (state) => state.shown === 0 && state.post === null && state.pinned === false;
+      // A bar opened by KEYBOARD FOCUS (an iPad with a keyboard, VoiceOver) on the thread's first
+      // post: no tap placed it, so it would open above the post and be cut by the thread's top.
+      // The room sits below the sticky header (at top 0 the first post is under the header, which
+      // is a different case: the post itself is not showing).
+      await phonePage.evaluate((ts) => {
+        const room = document.getElementById('pj-room'); room.style.top = '250px'; room.scrollTop = 0;
+        if (typeof pjRxnClose === 'function') pjRxnClose();
+        room.innerHTML = pjRoomRow({ from: 'april', at: ts, text: 'A post to react to, two or three words long.', id: 'f1' }, { agents: [{ sessionName: 'april', name: 'April' }] })
+          + pjRoomRow({ from: 'april', at: ts, text: 'And one more below it so the bar has room.', id: 'f2' }, { agents: [{ sessionName: 'april', name: 'April' }] });
+      }, now());
+      const focusOpen = await phonePage.evaluate(() => new Promise((res) => {
+        const room = document.getElementById('pj-room'); const row = room.querySelector('.msg'); const bar = row && row.querySelector('.rxn-quick');
+        const button = bar && bar.querySelector('button'); if (!button) { res({ error: 'no bar button on the first post' }); return; }
+        // Precondition: unplaced, this bar really is cut by the top of what shows.
+        const wouldClip = bar.getBoundingClientRect().top < pjRxnVisibleBand(room).top;
+        button.focus();
+        setTimeout(() => {
+          const band = pjRxnVisibleBand(room); const B = bar.getBoundingClientRect();
+          const hits = [...bar.querySelectorAll('button')].map((b) => { const r = b.getBoundingClientRect(); const t = document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2); return t === b || b.contains(t); });
+          const placed = { rowTopShowing: row.getBoundingClientRect().top >= band.top - 0.5, below: row.classList.contains('rxn-below'), inView: B.top >= band.top - 0.5 && B.bottom <= band.bottom + 0.5, hits };
+          button.blur();
+          setTimeout(() => { const afterBlur = { below: row.classList.contains('rxn-below'), shown: RXN_SHOW_POST }; room.style.top = '0px'; res({ wouldClip, placed, afterBlur }); }, 50);
+        }, 300);
+      }));
+      chk(!focusOpen.error && focusOpen.wouldClip && focusOpen.placed.rowTopShowing && focusOpen.placed.below && focusOpen.placed.inView && focusOpen.placed.hits.length > 0 && focusOpen.placed.hits.every(Boolean)
+        && !focusOpen.afterBlur.below && focusOpen.afterBlur.shown === null,
+        `[phone/touch] a bar opened by keyboard focus on the first post opens below it, in view, takes its taps, and drops the flip when focus leaves`, JSON.stringify(focusOpen));
       // Escape
       const openBeforeEscape = await freshBar();
       await phonePage.keyboard.press('Escape');

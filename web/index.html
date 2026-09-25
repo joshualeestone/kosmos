@@ -5829,10 +5829,11 @@ body:not(.consolidated) .pjmidhead:has(.pjhead) .tsearch:focus-within { flex-bas
 #pj-room .msg.you .msg-bd { max-width: min(78ch, 100%); }
 @media (max-width: 30rem) {
   .pjcol.pjmid { padding: 12px 8px 8px; }
-  #pj-room.thread { padding: 12px 6px; gap: 12px; }
-  #pj-room .msg-av { width: 28px; height: 28px; flex-basis: 28px; font-size: .8125rem; }
-  #pj-room .msg:not(.you) .msg-b { margin-right: calc(28px + 14px); }
-  #pj-room .msg.you .msg-b { margin-left: calc(28px + 14px); }
+  /* The avatar's size and its gap, said once: the far-side margin mirrors the avatar's side. */
+  #pj-room.thread { padding: 12px 6px; gap: 12px; --room-av: 28px; --room-av-gap: 14px; }
+  #pj-room .msg-av { width: var(--room-av); height: var(--room-av); flex-basis: var(--room-av); font-size: .8125rem; }
+  #pj-room .msg:not(.you) .msg-b { margin-right: calc(var(--room-av) + var(--room-av-gap)); }
+  #pj-room .msg.you .msg-b { margin-left: calc(var(--room-av) + var(--room-av-gap)); }
   #pj-post::placeholder { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 }
 /* #718 mobile: a touchscreen has no hover, so the add-reaction bar (.rxn-quick, shown on
@@ -5860,7 +5861,7 @@ body:not(.consolidated) .pjmidhead:has(.pjhead) .tsearch:focus-within { flex-bas
      opens BELOW its post sat under the next message and lost every tap to it. The open row is
      lifted above its neighbours (they are z auto), and only to 1: the sticky room composer is
      z 2, and the open row must stay under it (pinned by web.room-phone-718.test.js). */
-  #pj-room .msg.rxn-show .msg-b { z-index: 1; }
+  #pj-room .msg.rxn-show .msg-b, #pj-room .msg.rxn-below .msg-b { z-index: 1; }
   #pj-room .msg.rxn-still .rxn-quick { transition: none; }
   /* Outside its bubble it lies over another message: its own ground, so the emoji read. */
   #pj-room .msg.rxn-show .rxn-quick, #pj-room .rxn-quick:focus-within { background: var(--k-surface); border: 1px solid var(--k-rule);
@@ -46634,6 +46635,21 @@ function pjRxnReplaceOpenBar() {
    re-places an open bar rather than closing it: the tap that opened it often closes the keyboard
    itself. pjRxnPlace closes it only if its post is no longer on screen. */
 window.addEventListener('resize', pjRxnReplaceSoon);
+/* A bar opened by keyboard focus (an iPad with a keyboard, VoiceOver) opens without a tap, so
+   pjRxnPlace never runs for it: flip it below its post where the thread's top would cut it, as a
+   tapped bar does, and put it back when focus leaves the bar. */
+document.getElementById('pj-room').addEventListener('focusin', (event) => {
+  const quickBar = event.target && event.target.closest && event.target.closest('#pj-room .rxn-quick');
+  if (!quickBar || !(window.matchMedia && window.matchMedia(PJ_TOUCH_MQ).matches)) return;
+  const row = quickBar.closest('.msg'); if (!row || row.classList.contains('rxn-show')) return;
+  row.classList.remove('rxn-below');
+  if (quickBar.getBoundingClientRect().top < pjRxnVisibleBand(event.currentTarget).top) row.classList.add('rxn-below');
+});
+document.getElementById('pj-room').addEventListener('focusout', (event) => {
+  const quickBar = event.target && event.target.closest && event.target.closest('#pj-room .rxn-quick');
+  if (!quickBar || quickBar.contains(event.relatedTarget)) return;
+  const row = quickBar.closest('.msg'); if (row && !row.classList.contains('rxn-show')) row.classList.remove('rxn-below');
+});
 // iOS reports the keyboard and pinch zoom on the visual viewport, not as a window resize.
 if (window.visualViewport) {
   window.visualViewport.addEventListener('resize', pjRxnReplaceSoon);
