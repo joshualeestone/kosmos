@@ -74,10 +74,21 @@ test('#3679: pjRich reads a fence as the store does: an inline ```span``` line i
 });
 
 test('#3679: every test that lifts a renderer also lifts pjListDepth, so a list fixture cannot throw', () => {
-  for (const f of ['web.dialog-md-2701.test.js', 'web.links-everywhere.test.js', 'web.agent-answers.test.js']) {
-    const src = fs.readFileSync(path.join(__dirname, f), 'utf8');
-    const lists = src.match(/\[[^\]]*'pjRichSpans'[^\]]*\]/g) || [];
-    assert.ok(lists.length > 0, 'CONTROL: found no lift list in ' + f);
+  // Swept, not named: any test file that lifts pjProse or pjRich by name (a lift list, or
+  // pageFnSource / page.lift) must lift pjListDepth too, or a list line throws there.
+  const LIFTS = /'pj(Prose|Rich)'/;
+  const files = fs.readdirSync(__dirname).filter((f) => f.endsWith('.test.js'))
+    .concat(fs.readdirSync(path.join(__dirname, 'engine')).filter((f) => f.endsWith('.test.js')).map((f) => 'engine/' + f));
+  const lifting = files.filter((f) => f !== 'web.list-depth-3679.test.js'
+    && LIFTS.test(fs.readFileSync(path.join(__dirname, f), 'utf8')));
+  assert.ok(lifting.includes('server.test.js') && lifting.includes('web.dialog-md-2701.test.js'),
+    'CONTROL: the sweep did not find the files known to lift a renderer: ' + lifting.join(', '));
+  for (const f of lifting) {
+    assert.ok(fs.readFileSync(path.join(__dirname, f), 'utf8').includes("'pjListDepth'"), f + ' lifts a renderer without pjListDepth');
+  }
+  // Per list, where the lift is an array literal.
+  for (const f of lifting) {
+    const lists = fs.readFileSync(path.join(__dirname, f), 'utf8').match(/\[[^\]]*'pjRichSpans'[^\]]*\]/g) || [];
     for (const l of lists) assert.ok(l.includes("'pjListDepth'"), f + ': a lift list without pjListDepth: ' + l.slice(0, 80));
   }
 });

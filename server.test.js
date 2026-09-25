@@ -9557,7 +9557,7 @@ function bodyFn() {
   // in turn calls pjRichSpans; both are lifted in so the extracted pjBody runs.
   return pageFunction('pjBody', pageFnSource('esc') + '\n'
     + pageFnSource('pjInline') + '\n' + pageFnSource('pjLinkPaths') + '\n'
-    + pageFnSource('pjRichSpans') + '\n' + pageFnSource('pjProse') + '\n');
+    + pageFnSource('pjRichSpans') + '\n' + pageFnSource('pjListDepth') + '\n' + pageFnSource('pjProse') + '\n');
 }
 
 test('a closed fence becomes a block and its contents are escaped, not linked', () => {

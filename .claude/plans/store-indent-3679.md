@@ -177,3 +177,11 @@ always a stray keystroke, and trimming it keeps "  hello" stored as "hello".
   deep indentation under the one-line limit is still accepted up to the ceiling.
 - Recorded: `.mdli` is an inline span, so a long nested item's wrapped lines return to the left
   edge. A real list structure is the fix.
+
+## Review pass 12 (sonnet)
+- WARNING fixed: a fourth file, server.test.js's `bodyFn`, lifted pjProse without pjListDepth.
+  Lifted there too, and the self-check now sweeps every test file that lifts a renderer by name
+  instead of naming three, with a control that it finds the known ones. Removing the new lift
+  reds it.
+- Recorded, not changed: the reset compares a non-list line's indent with the outermost level,
+  so text indented under an outer item but not the inner one keeps the inner levels open.
