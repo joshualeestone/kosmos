@@ -456,6 +456,8 @@ h1 { font: 600 var(--text-title-1) var(--font-ui); letter-spacing: -0.012em; }
              border-radius: 10px;
              background: var(--k-surface); font-size: .875rem; color: var(--k-ink-2); }
   .askcard h3 { font: 600 1rem var(--font-ui); color: var(--k-ink); margin: 0 0 4px; }
+  /* #718: the Allow card is a decision taken with a thumb, often on the phone being allowed. */
+  @media (hover: none) { .askcard button { min-height: 44px; } }
   .askcard p { margin: 0; max-width: 64ch; }
   .askcard p b { color: var(--k-ink); font-weight: 600; }
   .askcard .code { font-family: var(--font-mono, ui-monospace, Menlo, monospace); letter-spacing: .06em;
@@ -2295,8 +2297,6 @@ body.filter-noproj #orgview .onode:not([data-noproj]) { opacity: .26; }
    and its box is one short line of text. A larger invisible hit area around it (the layout of
    the pill does not change): about 40px tall, kept small enough not to reach the next row. */
 @media (hover: none) {
-  /* The Allow card is a decision taken with a thumb, often on the phone being allowed. */
-  .askcard button { min-height: 44px; }
   .ansgo { position: relative; }
   .ansgo::after { content: ""; position: absolute; inset: -8px -6px; }
 }
@@ -28110,9 +28110,9 @@ function detailSection(key) {
    question is and where you answer. On a phone the page stacks (max-width 56rem, the
    .dbody and #d-nav rules): the identity block, five full-width section boxes and Files
    come first, so the question sat about two screens down on an iPhone SE (measured).
-   Only arrivals call this: a page load with ?tab=detail&agent= (a push tap, or a reload of
-   an agent page, which also lands on the conversation) and the Answer button; never an
-   ordinary open from the board. Only when the stacked layout is
+   Only arrivals call this: a page load with ?agent= in its address, whatever the tab (a push
+   tap opens ?tab=detail&agent=; a reload of an agent page also lands on the conversation),
+   and the Answer button; never an ordinary open from the board. Only when the stacked layout is
    on (any window up to 56rem wide, a phone or a narrow window); wider, the Direct Message
    is already beside the menu. */
 /* #718: a ?tab=detail&agent= link (a push tap) is settled ONCE, from the poll (which runs
@@ -28127,6 +28127,8 @@ function detailSection(key) {
    board home. Long enough to cover the two boot ticks and a slow first scan; short enough
    that a push for a removed agent does not leave an empty page for long. */
 const WANT_AGENT_GRACE_MS = 4000;
+/* The width at which the agent page stacks (the .dbody / #d-nav rules at max-width 56rem). */
+const DETAIL_STACK_MQ = '(max-width: 56rem)';
 /* How long the phone landing holds the conversation in place while content above it (the
    Files list, painted from its own fetch) settles, and how often it looks. A person's first
    touch ends it sooner. */
@@ -28137,8 +28139,8 @@ const REVEAL_HOLD_TICK_MS = 150;
 const REVEAL_HOLD_DRIFT_PX = 2;
 function settleWantAgent() {
   if (!WANT_AGENT || WANT_AGENT_DONE) return;
-  // The person already opened some agent themselves: the link is spent, never pull them away.
-  if (CURRENT) { if (CURRENT.sessionName !== WANT_AGENT) WANT_AGENT_DONE = true; return; }
+  // An agent is already open (the person opened one, even this one): the link is spent.
+  if (CURRENT) { WANT_AGENT_DONE = true; return; }
   openDetail(WANT_AGENT);
   if (CURRENT && CURRENT.sessionName === WANT_AGENT) {
     WANT_AGENT_DONE = true;
@@ -28158,14 +28160,16 @@ let REVEAL_HOLD = null;
    hold must never pull it back under. */
 const REVEAL_HOLD_STOPS = ['touchstart', 'wheel', 'keydown', 'mousedown', 'focusin'];
 function detailRevealTalkOnPhone() {
-  if (!(window.matchMedia && window.matchMedia('(max-width: 56rem)').matches)) return;
+  if (!(window.matchMedia && window.matchMedia(DETAIL_STACK_MQ).matches)) return;
   const talk = detailSection('talk');
   if (!talk || talk.hidden) return;
   try { talk.scrollIntoView({ block: 'start' }); } catch (_e) { /* old engines: stay put */ }
   /* Content above the conversation (the Files list, painted from its own fetch) can still
      grow and push it down, and an engine without scroll anchoring (WebKit, Safari) does not
      compensate. For a few seconds, put it back if it moves, and stop at the person's first
-     touch, wheel, key or click, or any focus change: never fight them or the keyboard. */
+     touch, wheel, key or click, or any focus change, so it does not fight them or the
+     keyboard. Known gap: a scroll that fires none of those (dragging a narrow window's
+     scrollbar, iOS's tap on the status bar) can be pulled back once within the window. */
   if (REVEAL_HOLD) REVEAL_HOLD();
   const top0 = talk.getBoundingClientRect().top;
   const until = performance.now() + REVEAL_HOLD_MS;
