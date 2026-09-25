@@ -1240,6 +1240,61 @@ const now = () => new Date().toISOString();
         return { stubCalled, band: [bandTop, bandTop + 20], shownAfter: row.classList.contains('rxn-show'), pinned: RXN_PINNED };
       });
       chk(!thinBand.error && thinBand.stubCalled && thinBand.shownAfter === false && thinBand.pinned === false, `[phone/touch] a visible band thinner than the bar closes a tapped bar instead of pinning it under the composer`, JSON.stringify(thinBand));
+      // An ORDINARY (unpinned) bar follows its post on scroll: scrolled to the thread's top edge it
+      // stays in view (flipped below), and once its post has left the screen it closes.
+      const edge = await phonePage.evaluate((ts) => new Promise((res) => {
+        const room = document.getElementById('pj-room'); room.style.top = '0px';
+        if (typeof pjRxnClose === 'function') pjRxnClose();
+        const people = { agents: [{ sessionName: 'april', name: 'April' }] };
+        room.innerHTML = ['e1', 'e2', 'e3', 'e4', 'e5', 'e6'].map((id, i) => pjRoomRow({ from: 'april', at: ts, text: 'Post ' + i + ' with a line of text in it.', id }, people)).join('');
+        room.scrollTop = 0; res(true);
+      }), now());
+      await phonePage.locator('#pj-room .msg .msg-bd p').nth(3).tap();
+      await phonePage.waitForTimeout(250);
+      const edgeResult = await phonePage.evaluate(() => new Promise((res) => {
+        const room = document.getElementById('pj-room'); const row = document.querySelector('#pj-room .msg.rxn-show');
+        if (!row) { res({ error: 'no bar opened' }); return; }
+        const pinnedAtOpen = RXN_PINNED;
+        // The post's top at the top of what is SHOWING (pjRxnVisibleBand: the page's sticky header
+        // covers the top of this lifted room), so "above" no longer fits there.
+        room.scrollTop += row.getBoundingClientRect().top - pjRxnVisibleBand(room).top - 6;
+        room.dispatchEvent(new Event('scroll'));
+        setTimeout(() => {
+          const bar = row.querySelector('.rxn-quick'); const barRect = bar.getBoundingClientRect(); const band = pjRxnVisibleBand(room);
+          const atEdge = { open: row.classList.contains('rxn-show'), below: row.classList.contains('rxn-below'), inBand: barRect.top >= band.top - 1 && barRect.bottom <= band.bottom + 1 };
+          room.scrollTop += 2000; room.dispatchEvent(new Event('scroll'));   // the post leaves the screen
+          setTimeout(() => res({ pinnedAtOpen, atEdge, afterLeaving: { shown: document.querySelectorAll('#pj-room .msg.rxn-show').length, post: RXN_SHOW_POST } }), 100);
+        }, 100);
+      }));
+      chk(!edgeResult.error && !edgeResult.pinnedAtOpen && edgeResult.atEdge.open && edgeResult.atEdge.inBand && edgeResult.afterLeaving.shown === 0 && edgeResult.afterLeaving.post === null,
+        `[phone/touch] an ordinary bar stays in view as its post reaches the thread's edge, and closes once the post leaves`, JSON.stringify(edgeResult));
+      // A PINNED bar on a tall post whose top is showing sits at the post's own top, not over the
+      // message above it (where a tap meant for that message would react to this post).
+      await phonePage.evaluate((ts) => {
+        // The room placed BELOW the page's sticky header here, so the tall post's top can be showing.
+        const room = document.getElementById('pj-room'); room.style.top = '250px'; room.style.maxHeight = '416px';
+        if (typeof pjRxnClose === 'function') pjRxnClose();
+        const people = { agents: [{ sessionName: 'april', name: 'April' }] };
+        room.innerHTML = pjRoomRow({ from: 'april', at: ts, text: 'A short message above.', id: 'p1' }, people)
+          + pjRoomRow({ from: 'april', at: ts, text: 'a long report line. '.repeat(160), id: 'p2' }, people);
+        const tall = room.querySelectorAll('.msg')[1];
+        // The tall post's top 20px below the top of what is SHOWING (the sticky header covers the top
+        // of this lifted room), so its top is visible and "above" does not fit.
+        room.scrollTop += tall.getBoundingClientRect().top - (pjRxnVisibleBand(room).top + 20);
+      }, now());
+      const tallTop = await phonePage.evaluate(() => { const r = document.querySelectorAll('#pj-room .msg')[1].querySelector('.msg-bd').getBoundingClientRect(); return { x: Math.round(r.left + 40), y: Math.round(r.top + 120) }; });
+      await phonePage.touchscreen.tap(tallTop.x, tallTop.y);
+      await phonePage.waitForTimeout(250);
+      const pinAtTop = await phonePage.evaluate(() => {
+        const rows = document.querySelectorAll('#pj-room .msg'); const row = rows[1]; const bar = row && row.querySelector('.rxn-quick');
+        if (!row || !row.classList.contains('rxn-show')) return { error: 'the tall post did not open a bar' };
+        const barRect = bar.getBoundingClientRect(), rowRect = row.getBoundingClientRect(), aboveRect = rows[0].getBoundingClientRect();
+        const band = pjRxnVisibleBand(document.getElementById('pj-room'));
+        return { pinned: RXN_PINNED, barTop: Math.round(barRect.top), rowTop: Math.round(rowRect.top), bandTop: Math.round(band.top), aboveBottom: Math.round(aboveRect.bottom),
+          rowTopShowing: rowRect.top > band.top + 1, atRowTop: Math.abs(barRect.top - (rowRect.top + 4)) <= 1, clearOfAbove: barRect.top >= aboveRect.bottom - 0.5 };
+      });
+      await phonePage.evaluate(() => { if (typeof pjRxnClose === 'function') pjRxnClose(); const room = document.getElementById('pj-room'); room.style.maxHeight = ''; room.style.top = '0px'; });
+      chk(!pinAtTop.error && pinAtTop.pinned && pinAtTop.rowTopShowing && pinAtTop.atRowTop && pinAtTop.clearOfAbove, `[phone/touch] a pinned bar sits at its post's own top, not over the message above`, JSON.stringify(pinAtTop));
       // FOUR MORE WAYS A BAR CLOSES, each measured: Escape, a pick from the full picker (closed
       // BEFORE the reaction's round trip), a tap outside the room, and navigating away (pjView).
       const freshBar = async () => {

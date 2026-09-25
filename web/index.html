@@ -46484,7 +46484,7 @@ if (window.matchMedia) {
    has no temporal dead zone, so that call is safe whatever order the script's code runs in. */
 var RXN_SHOW_POST = null;
 var RXN_SHOW_PID = null;
-var RXN_PINNED = false;   // the open bar was pinned by a tap (a scroll closes it; a repaint keeps it)
+var RXN_PINNED = false;   // the open bar was pinned by a tap (a scroll, viewport change or repaint re-places it)
 /* Above the message unless the thread's top edge, or the top of the screen (the page itself
    scrolls on a phone), would cut it; then below (CSS .rxn-below). */
 function pjRxnVisibleBand(room) {
@@ -46530,9 +46530,12 @@ function pjRxnPlace(row, fromTap) {
   if (band.bottom - band.top < quickBar.offsetHeight + 2 * RXN_BAR_GAP_PX) { pjRxnClose(); return; }
   RXN_PINNED = true;
   // A post taller than what is showing, just tapped: pin the bar to the top of the visible
-  // thread, where the post is, at the same left edge. Any scroll closes a pinned bar (below).
+  // thread, where the post is, at the same left edge. A scroll or viewport change re-places it (below).
   const barLeft = quickBar.getBoundingClientRect().left;
-  quickBar.style.position = 'fixed'; quickBar.style.top = Math.round(band.top + RXN_BAR_GAP_PX) + 'px';
+  // At the post's own top when that is showing (so it does not cover the message above), else at
+  // the top of what is showing; never past the bottom of what is showing.
+  const pinTop = Math.min(Math.max(band.top, rowRect.top) + RXN_BAR_GAP_PX, band.bottom - quickBar.offsetHeight - RXN_BAR_GAP_PX);
+  quickBar.style.position = 'fixed'; quickBar.style.top = Math.round(pinTop) + 'px';
   quickBar.style.left = Math.round(barLeft) + 'px'; quickBar.style.right = 'auto'; quickBar.style.bottom = 'auto';
 }
 /* #718 mobile: on a touchscreen, a tap on a message shows its add-reaction bar (hover
@@ -46585,33 +46588,35 @@ if (window.MutationObserver) {
     const room = document.getElementById('pj-room');
     const box = room && [...room.querySelectorAll('.rxns[data-post]')].find((b) => b.getAttribute('data-post') === RXN_SHOW_POST);
     const row = box && box.closest('.msg');
-    // A bar a tap pinned stays pinned (no scroll has happened, or it would be closed): may re-pin.
+    // A bar a tap pinned may be pinned again (a scroll would already have re-placed it).
     // rxn-still: no fade-in when a repaint puts the same bar back (it was already showing).
     if (row) { if (!row.classList.contains('rxn-show')) { row.classList.add('rxn-still', 'rxn-show'); pjRxnPlace(row, RXN_PINNED); requestAnimationFrame(() => requestAnimationFrame(() => row.classList.remove('rxn-still'))); } }
     else { RXN_SHOW_POST = null; RXN_SHOW_PID = null; }   // the post is gone from view
   }).observe(document.getElementById('pj-room'), { childList: true, subtree: true });
 }
-/* A PINNED bar (position fixed) does not follow the thread by itself, so any scroll (or a
-   viewport change, below) RE-PLACES it: it stays over its own post while the post fills what
-   is showing, becomes an ordinary above/below bar when it fits, and closes once the post has
-   left the screen (pjRxnPlace decides). On iOS the keyboard closing both resizes the visual
-   viewport and scrolls the window, so closing on scroll would undo the re-place. */
+/* Any scroll (or a viewport change, below) RE-PLACES an open bar (pjRxnReplacePinned): an
+   ordinary bar flips below its post at the thread's edge, a pinned one stays over its post while
+   the post fills what is showing, and any bar closes once its post has left the screen
+   (pjRxnPlace decides). Re-placing, not closing: on iOS the keyboard closing both resizes the
+   visual viewport and scrolls the window, and a new post scrolls the thread. */
 document.addEventListener('scroll', (event) => {
   if (!RXN_SHOW_POST) return;   // nothing open: every scroll in the app costs nothing here
   // Scrolling the full emoji picker's own list is not the thread moving (#2834's same guard).
   const target = event.target;
   if (target && target.nodeType === 1 && target.closest && target.closest('.rxn-picker')) return;
-  if (RXN_PINNED) pjRxnReplacePinned();
+  pjRxnReplacePinned();
 }, true);
 /* A viewport change (a turn, the keyboard closing when a tap leaves the composer, pinch zoom)
    re-places a pinned bar rather than closing it: the tap that pinned it often closes the
    keyboard itself. pjRxnPlace closes it only if its post is no longer on screen. */
 function pjRxnReplacePinned() {
-  if (!RXN_SHOW_POST || !RXN_PINNED) return;
+  // Any open bar, not only a pinned one: an ordinary bar whose post scrolls to the thread's edge
+  // flips below it (or closes when neither side fits), and closes once its post leaves.
+  if (!RXN_SHOW_POST) return;
   const room = document.getElementById('pj-room');
   const box = room && [...room.querySelectorAll('.rxns[data-post]')].find((rxns) => rxns.getAttribute('data-post') === RXN_SHOW_POST);
   const row = box && box.closest('.msg');
-  if (row) pjRxnPlace(row, true); else pjRxnClose();
+  if (row) pjRxnPlace(row, RXN_PINNED); else pjRxnClose();
 }
 window.addEventListener('resize', pjRxnReplacePinned);
 // iOS reports the keyboard and pinch zoom on the visual viewport, not as a window resize.
@@ -46644,7 +46649,7 @@ document.addEventListener('pointerdown', (e) => {
    as the file-open handler. Keep this one last among the room's click listeners. */
 document.getElementById('pj-room').addEventListener('click', (e) => {
   const t = e.target && e.target.closest ? e.target.closest('[data-open-agent]') : null;
-  if (t && t.dataset.openAgent) openDetail(t.dataset.openAgent, undefined, PJ_CURRENT);
+  if (t && t.dataset.openAgent) { pjRxnClose(); openDetail(t.dataset.openAgent, undefined, PJ_CURRENT); }   // navigating to the agent closes a touch bar
 });
 
 /* #2806/#2834: close the shared reaction picker and reset every opener's aria-expanded.
