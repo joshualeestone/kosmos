@@ -54651,7 +54651,7 @@ const TIPS = [
      is Josh's words; his first line repeated the head, so it starts at "The ring shows". */
   { id: 'ring', title: 'Your agent\'s memory',
     show: () => tipVisible('#panel-detail #d-ring svg'),
-    at: '#panel-detail #d-ring svg, #grid .agauge:has(.gf), #grid .agauge:has(.gu), #alist .lring',
+    at: '#panel-detail #d-ring svg, #grid .agauge:has(.gf), #grid .agauge:has(.gu), #alist .lring', side: true,   // beside it: above and below are her name and buttons
     body: '<p>The ring shows how full your agent\'s memory is.</p>'
       + '<div class="tip-bands">' + TIP_BAND('', 'Plenty of room') + TIP_BAND('warn', 'Getting full') + TIP_BAND('high', 'Nearly full') + '</div>'
       + '<p>This is normal and the agent will automatically write themselves a handoff, You can also manage their memory under AI settings.</p>' },
@@ -55031,6 +55031,16 @@ function tipPlace(card, sel, side = false, { key = '', avoid = true } = {}) {
      The scroll listener places the card again, arrow and all, once the target is in view. */
   const offScreen = r.bottom <= 0 || r.top >= vh || r.right <= 0 || r.left >= pageW;
   if (!offScreen) for (const c of side ? [right, below, above, leftSide] : [below, above, right, leftSide]) if (onScreen(c.left, c.top)) cands.push(c);
+  /* #3737: beside a target, the card may also slide up or down, as far as its arrow can still point at the target's
+     middle (the --ay range below), so a crowded column (an agent's page: her name, then her buttons) keeps an arrow.
+     Tried only after the usual places, so wherever one of those was clear the choice is unchanged. */
+  if (!offScreen) {
+    const mid = r.top + r.height / 2;
+    for (const base of [right, leftSide]) {
+      for (let top = sideTop - 24; top >= Math.max(pad, mid - h + 19); top -= 24) if (onScreen(base.left, top)) cands.push({ ...base, top });
+      for (let top = sideTop + 24; top <= Math.min(vh - h - pad, mid - 19); top += 24) if (onScreen(base.left, top)) cands.push({ ...base, top });
+    }
+  }
   if (!cands.length) cands.push({ ...below, cls: offScreen ? 'flat' : below.cls, top: Math.max(pad, Math.min(r.bottom + 12, vh - h - pad)) });
   /* The target itself is kept clear too (with the ring's margin): the card points at it, never sits on it. */
   const covered = (avoid ? tipCoveredControls(el) : []).concat([{ l: r.left - 6, t: r.top - 6, r: r.right + 6, b: r.bottom + 6 }]);
