@@ -246,7 +246,13 @@ SERVER_PIDS=()
 # docs/browser-checks/lib-sandbox-home.js, which covers a check run on its own.
 if [ -z "${AGENT_WORKFORCE_HOME:-}" ] || [ "${AGENT_WORKFORCE_HOME%/}" = "${HOME%/}" ]; then
   export AGENT_WORKFORCE_HOME="$RUN_DIR/home"
-  mkdir -p "$AGENT_WORKFORCE_HOME"
+  mkdir -p "$AGENT_WORKFORCE_HOME/.claude"
+  # A FIXTURE default Claude account, so the create checks (render-create-made,
+  # render-talk-fill-2622) still have one to make agents on. Before #3675 they
+  # silently used the host Mac's real account; measured, with an empty sandbox home
+  # both fail. The address is .invalid on purpose: nothing real can answer to it.
+  printf '%s\n' '{"oauthAccount":{"emailAddress":"fixture@example.invalid","organizationName":"Kosmos browser checks"}}' \
+    > "$AGENT_WORKFORCE_HOME/.claude.json"
 fi
 # #1818: a run that dies AFTER the checks begin but BEFORE the summary (a kill, an
 # OOM, or -- pre-fix -- a mid-run edit) otherwise leaves no FAILED line and no
