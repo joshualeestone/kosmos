@@ -61,7 +61,7 @@ const PHASES = [
     const errs = [];
     page.on('pageerror', (e) => errs.push(e.message));
     let phase = PHASES[0];
-    const bgOf = {};
+    const borderOf = {};
     await page.route('**/api/status', async (route) => {
       const res = await route.fetch();
       const body = await res.json();
@@ -93,7 +93,7 @@ const PHASES = [
         if (p.not) chk(!p.not.test(seen.nettie.text), `${p.key}: no retry is promised`, seen.nettie.text.slice(0, 200));
         /* Mona Lisa's look: quiet (paused) while Kosmos is reconnecting, the needs-you look once it gave up. */
         chk(seen.nettie.cls.split(/\s+/).includes(p.st), `${p.key}: the card wears ${p.st}`, seen.nettie.cls);
-        bgOf[p.key] = seen.nettie.border;
+        borderOf[p.key] = seen.nettie.border;
       }
       chk(seen.ida && !/Reconnecting|Connection lost/.test(seen.ida.text), `${p.key}: the idle agent's card is untouched (control)`);
       /* The project members list renders from a projection without `reconnect`; it must borrow it
@@ -104,12 +104,14 @@ const PHASES = [
         if (!n) return null;
         const html = pjMember({ sessionName: n.sessionName, name: n.name, present: true, tied: true, role: null, state: 'connection_lost' });
         const d = document.createElement('div'); d.innerHTML = html;
-        return d.textContent.replace(/\s+/g, ' ').trim();
+        const row = d.firstElementChild;
+        return { text: d.textContent.replace(/\s+/g, ' ').trim(), attn: !!(row && row.className.split(/\s+/).includes('pjm-attn')) };
       });
-      chk(member && member.includes(p.label), `${p.key}: the project members list agrees with the card ("${p.label}")`, member || 'no member row');
+      chk(member && member.text.includes(p.label), `${p.key}: the project members list agrees with the card ("${p.label}")`, member ? member.text : 'no member row');
+      chk(member && member.attn === (p.st === 'st-attn'), `${p.key}: the members row is ${p.st === 'st-attn' ? '' : 'not '}red, like the card`, member ? String(member.attn) : 'no member row');
       await page.screenshot({ path: path.join(OUT, `connlost-${p.key}.png`) });
     }
-    chk(bgOf.gave_up && bgOf.waiting && bgOf.gave_up !== bgOf.waiting, 'given up has the needs-you border, not the paused one', `${bgOf.gave_up} vs ${bgOf.waiting}`);
+    chk(borderOf.gave_up && borderOf.waiting && borderOf.gave_up !== borderOf.waiting, 'given up has the needs-you border, not the paused one', `${borderOf.gave_up} vs ${borderOf.waiting}`);
     chk(errs.length === 0, 'no page errors', errs.join(' | '));
   } finally {
     await browser.close();

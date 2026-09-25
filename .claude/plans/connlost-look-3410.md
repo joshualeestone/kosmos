@@ -15,6 +15,9 @@ up needs the person, so it should look like it. Angel makes the edit (agreed in 
 - web/index.html stateReason: Mona's two sentences, verbatim.
 - web/index.html cardStOf: connection_lost with reconnect.phase 'gave_up' returns CARD_ST.needs_you.
   cardStOf is the only reader of CARD_ST (19 callers, grep today), so card, row and detail agree.
+- web/index.html pjMember: its red triangle and red row read cardStOf(liveM), the copy that carries
+  the board's reconnect phase, so the project members row turns red with the card.
+- web/index.html prompterCheckinQuestion: given up asks "Restart it, or is it done?", the card's verb.
 - Tests: web.connection-lost-3410.test.js pins the sentences and the look per phase (control: no
   self-heal stays paused). The browser check asserts the card class and the computed border colour
   per phase on the live page.
@@ -29,6 +32,10 @@ up needs the person, so it should look like it. Angel makes the edit (agreed in 
 ## Rejected
 - Giving the heal-off case the needs-you look too: Mona's review left that case as it is, and
   without the self-heal Kosmos cannot tell a drop that will clear from one that will not.
+
+- Counting a given-up card under the "Issue" filter and tile (data-attn, #3423). Left as it is:
+  that filter keys on the needs_you state, needs_trust is already red without being counted there,
+  and widening it changes another card's feature. Flagged to Mona Lisa as her call.
 
 ## Weakest premise
 That "needs you" red is right while the internet is genuinely still down (the give-up can happen

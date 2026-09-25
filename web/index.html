@@ -15717,8 +15717,8 @@ const CARD_ST = {
      stopped by something the agent cannot get past on its own, but the process
      is still up (pres: 'on'), it just cannot reach the API. It is not alarmed
      red because it is recoverable (the #3410 self-heal, engine/connlost-heal.js,
-     nudges it to retry when the network is back); a louder treatment,
-     if wanted, is a design call for whoever owns the pack, not decided here. */
+     nudges it to retry when the network is back). Once the self-heal has given up,
+     cardStOf gives it needs_you's look instead (Mona Lisa's call on #3410). */
   connection_lost: { st: 'paused', pres: 'on' },
   /* blocked wears paused's quieter shape: waiting is waiting, and red stays
      reserved for "somebody is waiting on YOU". */
@@ -15783,7 +15783,9 @@ const PRESSAY = {
    stateCopyOf in isolation, and a shared global would ReferenceError in every one of those slices. */
 /* #3410 (Mona Lisa's look): a lost connection Kosmos has given up on needs the person, so it wears
    needs_you's card, not the quiet paused one it keeps while Kosmos is still reconnecting. */
-function cardStOf(a) { if (a && a.state === 'connection_lost' && a.reconnect && a.reconnect.phase === 'gave_up') return CARD_ST.needs_you; return (a && a.state === 'needs_you' && a.stateReportedBy === 'agent') ? CARD_ST.question : (CARD_ST[a.state] || CARD_ST.unknown); }
+function cardStOf(a) {
+  if (a && a.state === 'connection_lost' && a.reconnect && a.reconnect.phase === 'gave_up') return CARD_ST.needs_you;
+  return (a && a.state === 'needs_you' && a.stateReportedBy === 'agent') ? CARD_ST.question : (CARD_ST[a.state] || CARD_ST.unknown); }
 /* #2019: the state's word. For every state but 'restarting' it is the static
    STATE_COPY entry. For 'restarting' the word names the CAUSE (present-continuous,
    no blame), so the person knows WHY their agent went quiet, and it is computed
@@ -15823,8 +15825,7 @@ function stateCopyOf(a) {
   if (a && a.state === 'needs_you' && a.stateReportedBy === 'agent') return STATE_COPY.question;
   /* #3410: while the self-heal still has retries to give (a.reconnect, from /api/status), the
      person has nothing to do yet, so the label says Kosmos is on it. Only when it has given up,
-     or is not running, does the label go back to "Connection lost" (the card's look is the same
-     paused style either way; only the word changes). */
+     or is not running, does the label go back to "Connection lost" (cardStOf sets the look). */
   if (a && a.state === 'connection_lost' && a.reconnect
     && (a.reconnect.phase === 'waiting' || a.reconnect.phase === 'retried')) return { label: 'Reconnecting…', attn: false };
   return STATE_COPY[a.state] || STATE_COPY.unknown;
@@ -19814,6 +19815,8 @@ function prompterCheckinQuestion(n) {
     const live = (typeof LAST !== 'undefined' && Array.isArray(LAST)) ? LAST.find((a) => a && a.sessionName === n.session) : null;
     const ph = live && live.reconnect && live.reconnect.phase;
     if (ph === 'waiting' || ph === 'retried') return 'lost its connection, and Kosmos is reconnecting it. Is it done, or still mid-something?';
+    // Given up: the card tells the person to restart it, so the question does too.
+    if (ph === 'gave_up') return 'lost its connection, and Kosmos stopped trying. Restart it, or is it done?';
     return 'lost its connection. Reconnect it, or is it done?';
   }
   // The catch-all covers stopped/idle/unknown (all in heartbeat's ASK_ON_EXIT_TO),
@@ -40975,7 +40978,7 @@ function pjMember(m, suppressTold, withMinus, hideState) {
      mapping for "needs-you gets a mark". Gated on m.present
      because a member we cannot see says why instead of a state. LROW_WARN is the agents
      list's warning glyph; it is display:none inside a .lav until the CSS below shows it. */
-  const needsYou = m.present === true && cardStOf(m).st === 'attn';
+  const needsYou = m.present === true && cardStOf(liveM).st === 'attn'; // liveM: a given-up connection is red here too (#3410)
   const warn = needsYou ? LROW_WARN : '';
   /* #2711 item 16: the member box takes a ground by state, the same read the
      agent homepage cards make (.acard.working/.acard.attn) so the two surfaces
@@ -40987,7 +40990,7 @@ function pjMember(m, suppressTold, withMinus, hideState) {
      reason line), not a state colour. The CSS scopes these to #pj-one-agents. */
   const present = m.present || m.state === 'restarting';
   const stClass = present
-    ? ({ working: ' pjm-working', attn: ' pjm-attn', idle: ' pjm-idle' }[cardStOf(m).st] || '')
+    ? ({ working: ' pjm-working', attn: ' pjm-attn', idle: ' pjm-idle' }[cardStOf(liveM).st] || '')
     : '';
   /* #3212 (Josh 6.72): a member the board cannot see (`!present`) is one a room post could
      not reach, so mark the avatar with the question-mark badge instead of a status sentence.

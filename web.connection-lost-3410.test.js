@@ -176,8 +176,10 @@ test('check-in: while Kosmos is reconnecting it, the question does not ask the p
     assert.match(q, /Kosmos is reconnecting it/);
     assert.doesNotMatch(q, /Reconnect it/, `(${phase}) asked the person to reconnect it`);
   }
-  // Control: given up, or not running, or no board read yet: the original question.
-  for (const LAST of [[connLostAgent({ reconnect: { phase: 'gave_up', tries: 3 } })], [connLostAgent({ reconnect: null })], []]) {
+  // Given up: the same verb as the card ("restart the agent").
+  assert.match(ask([connLostAgent({ reconnect: { phase: 'gave_up', tries: 3 } })], n), /Kosmos stopped trying\. Restart it, or is it done\?/);
+  // Control: not running, or no board read yet: the original question.
+  for (const LAST of [[connLostAgent({ reconnect: null })], []]) {
     assert.match(ask(LAST, n), /Reconnect it, or is it done\?/);
   }
 });
