@@ -799,17 +799,20 @@ const now = () => new Date().toISOString();
         `[touch, one-screen layout] Settings moved inside the projects panel keeps its own field sizes`, JSON.stringify(settingsIn));
       // And at 16px nothing in those dialogs runs off the side at 375: each dialog shown, its
       // card (.rm-box) and every field and button in it inside the screen.
-      const dlgFit = await phonePage.evaluate(() => ['nt-modal', 'am-modal'].map((id) => {
+      // The SCREEN's width (visualViewport), not innerWidth: in a mobile context a page wider
+      // than the screen widens the layout viewport to fit, so innerWidth grows with the overflow
+      // and a comparison against it can never fail (measured: innerWidth 545 on a 375 screen).
+      const dlgFit = await phonePage.evaluate(() => { const screenWidth = window.visualViewport ? window.visualViewport.width : innerWidth; return ['nt-modal', 'am-modal'].map((id) => {
         const m = document.getElementById(id); if (!m) return { id, error: 'missing' };
         const was = m.hidden; m.hidden = false; m.removeAttribute('inert');
         const over = [...m.querySelectorAll('input, select, textarea, button')].filter((el) => el.getBoundingClientRect().width > 0)
-          .filter((el) => { const r = el.getBoundingClientRect(); return r.left < -0.5 || r.right > innerWidth + 0.5; }).map((el) => el.id || el.className);
+          .filter((el) => { const r = el.getBoundingClientRect(); return r.left < -0.5 || r.right > screenWidth + 0.5; }).map((el) => el.id || el.className);
         const shown = [...m.querySelectorAll('input, select, textarea')].filter((el) => el.getBoundingClientRect().width > 0).length;   // rendered fields only
         const card = m.querySelector('.rm-box'); const cardRect = card ? card.getBoundingClientRect() : null;
-        const cardFits = !!(cardRect && cardRect.width > 0 && cardRect.left >= -0.5 && cardRect.right <= innerWidth + 0.5);
+        const cardFits = !!(cardRect && cardRect.width > 0 && cardRect.left >= -0.5 && cardRect.right <= screenWidth + 0.5);
         const res = { id, fields: shown, over, cardFits, card: cardRect ? [Math.round(cardRect.left), Math.round(cardRect.right)] : null };
         m.hidden = was; return res;
-      }));
+      }); });
       chk(dlgFit.every((d) => !d.error && d.fields >= 1 && d.over.length === 0 && d.cardFits), `[phone/touch] at 16px the Tasks and add-member dialogs fit a 375 screen`, JSON.stringify(dlgFit));
       // 24 fields measured; the floor catches a sweep that stopped finding them.
       chk(!fonts.error && fonts.hoverNone && fonts.count >= 20 && fonts.small.length === 0, `[phone/touch] every field on the project page is at least 16px (no iOS zoom)`, JSON.stringify(fonts));
@@ -833,7 +836,8 @@ const now = () => new Date().toISOString();
           const leftOrRight = ((cardRect.left >= r.right - 2 && cardRect.left <= r.right + 40) || (cardRect.right <= r.left + 2 && cardRect.right >= r.left - 40))
             && cardRect.top < r.bottom && cardRect.bottom > r.top;
           return aboveOrBelow || leftOrRight; };
-        return { inView: cardRect.top >= 0 && cardRect.bottom <= innerHeight && cardRect.left >= 0 && cardRect.right <= innerWidth,
+        const screen = window.visualViewport || { width: innerWidth, height: innerHeight };
+        return { inView: cardRect.top >= 0 && cardRect.bottom <= screen.height && cardRect.left >= 0 && cardRect.right <= screen.width,
           pointing: !/\bflat\b/.test(cardClass), cardClass, card: [Math.round(cardRect.top), Math.round(cardRect.bottom)], vh: innerHeight,
           nearConversation: near(document.querySelector('.pj3 > .pjmid .pjmidhead')), nearAddMember: near(document.getElementById('pj-add-member')) };
       });
@@ -1181,6 +1185,62 @@ const now = () => new Date().toISOString();
     } finally {
       await phonePage.close();
     }
+    // THE WHOLE PAGE at all four phone sizes and both themes, touch, in its REAL layout (not a
+    // lifted room): the project page with a long post, a long file name and a link card in the
+    // room must not scroll sideways, and neither may the projects list. Guards what the lifted
+    // arms cannot (paddings, the column, the 16px fields in place).
+    for (const [phoneWidth, phoneHeight] of [[375, 667], [393, 852], [430, 932], [412, 915]]) {
+      for (const theme of ['light', 'dark']) {
+        const sizePage = await browser.newPage({ viewport: { width: phoneWidth, height: phoneHeight }, colorScheme: theme, hasTouch: true, isMobile: true });
+        try {
+          await sizePage.addInitScript(() => {
+            window.setInterval = () => 0;
+            window.fetch = async () => new Response('{}', { status: 200, headers: { 'content-type': 'application/json' } });
+          });
+          await sizePage.goto(PAGE);
+          const fit = await sizePage.evaluate((ts) => {
+            const fr = document.getElementById('firstrun'); if (fr) fr.remove();
+            const views = ['#pj-one-view', '#pj-list-view'].map((selector) => document.querySelector(selector));
+            if (views.some((view) => !view)) return { error: 'a view is missing' };
+            // An ancestor clips the page, so it never SCROLLS sideways even when content is too
+            // wide (a 520px column passed that test: the control showed it). What matters is content
+            // cut off at the edge: every rendered element inside the screen, except inside the
+            // boxes made to scroll sideways (a table's .mdtablewrap, a code block). NOT every
+            // overflow:auto box: the thread scrolls vertically, so its overflow-x computes to auto
+            // too, and exempting it would skip the room, where the long-file-name bug lived.
+            // The SCREEN's width: a mobile context widens innerWidth to fit overflowing content.
+            const screenWidth = window.visualViewport ? window.visualViewport.width : innerWidth;
+            const pageScrolls = (view) => document.documentElement.scrollWidth > screenWidth + 1
+              || [...view.querySelectorAll('*')].some((el) => {
+                const rect = el.getBoundingClientRect(); if (!rect.width || !rect.height) return false;
+                if (el.closest('.mdtablewrap, pre')) return false;
+                return rect.left < -1 || rect.right > screenWidth + 1;
+              });
+            const offenders = (view) => [...view.querySelectorAll('*')].filter((el) => {
+                const rect = el.getBoundingClientRect(); if (!rect.width || !rect.height) return false;
+                if (el.closest('.mdtablewrap, pre')) return false;
+                return rect.left < -1 || rect.right > screenWidth + 1;
+              }).slice(0, 4).map((el) => (el.id ? '#' + el.id : el.tagName.toLowerCase() + '.' + String(el.className).split(' ')[0]) + ' ' + Math.round(el.getBoundingClientRect().left) + '..' + Math.round(el.getBoundingClientRect().right));
+            const result = {};
+            for (const view of views) {
+              document.querySelectorAll('#panel-projects > [id$="-view"]').forEach((other) => { other.hidden = other !== view; });
+              for (let el = view; el && el !== document.body; el = el.parentElement) { el.hidden = false; el.removeAttribute('inert'); if (getComputedStyle(el).display === 'none') el.style.display = 'block'; }
+              if (view.id === 'pj-one-view') {
+                const room = document.getElementById('pj-room'); const people = { agents: [{ sessionName: 'april', name: 'April' }] };
+                room.innerHTML = pjRoomRow({ from: 'april', at: ts, text: 'A long post that should read as lines on a phone and never push the page wider than the screen, whatever its words. '.repeat(3), id: 's1' }, people)
+                  + pjRoomRow({ operator: true, at: ts, text: 'Here is the file.', id: 's2', attachments: [{ id: 'a1', name: 'Henderson-Lease-Review-2026-signed-countersigned-final-FINAL-v7-with-exhibits.pdf', type: 'application/pdf', size: 912345, kind: 'pdf', url: '/api/attachment/a1' }] }, people);
+              }
+              result[view.id] = { pageScrolls: pageScrolls(view), scrollWidth: document.documentElement.scrollWidth, outside: offenders(view) };
+            }
+            return { screenWidth, innerWidth, result };
+          }, now());
+          const fits = !fit.error && Object.values(fit.result).every((r) => !r.pageScrolls);
+          chk(fits, `[${phoneWidth}x${phoneHeight} ${theme}/touch] nothing on the project page or the projects list runs past the screen`, JSON.stringify(fit));
+        } finally {
+          await sizePage.close();
+        }
+      }
+    }
     // TABLET, touch, 1180 wide (an iPad in landscape): the 16px rule applies there too (hover:
     // none). Every field in all six project views and both dialogs (FIELD_ROOTS) must stay inside
     // its own column or dialog card, so the larger text never pushes a field out of a narrow one.
@@ -1200,14 +1260,15 @@ const now = () => new Date().toISOString();
           .filter((el) => !(el.tagName === 'INPUT' && skipTypes.includes((el.type || '').toLowerCase())))
           .filter((el) => el.getBoundingClientRect().width > 0);
         const outside = fields.filter((el) => {
-          const box = el.closest('.pjcol, .rm-box, .pj3') || document.body; const fieldRect = el.getBoundingClientRect(); const boxRect = box.getBoundingClientRect();
+          // Its column, dialog card, or (the list, settings and add views) the panel.
+          const box = el.closest('.pjcol, .rm-box, .pj3, .panel') || document.body; const fieldRect = el.getBoundingClientRect(); const boxRect = box.getBoundingClientRect();
           return fieldRect.left < boxRect.left - 0.5 || fieldRect.right > boxRect.right + 0.5;
         }).map((el) => el.id || el.className);
         return { hoverNone: matchMedia('(hover: none)').matches, fields: fields.length, at16: fields.filter((el) => parseFloat(getComputedStyle(el).fontSize) >= 16).length, outside };
       }, { rootSelectors: FIELD_ROOTS, skipTypes: FIELD_SKIP });
       // 15 fields render at 1180 (measured, both engines; others sit in views hidden at that width).
       chk(!tablet.error && tablet.hoverNone && tablet.fields >= 12 && tablet.at16 === tablet.fields && tablet.outside.length === 0,
-        `[tablet 1180/touch] at 16px every field stays inside its column or dialog`, JSON.stringify(tablet));
+        `[tablet 1180/touch] at 16px every field stays inside its column, dialog card or panel`, JSON.stringify(tablet));
     } finally {
       await tabletPage.close();
     }

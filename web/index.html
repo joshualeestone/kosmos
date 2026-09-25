@@ -7728,13 +7728,17 @@ body.consolidated .tkcard:hover { border-color: transparent; }
    the page pans sideways. Every field on the project page and its Tasks and members dialogs, on
    a touchscreen only: the ONE rule for them. Scoped to the project page's OWN six views, not the
    whole #panel-projects: the one-screen layout (960px and up, so an iPad) appends Settings, Tasks
-   and Create agent inside #panel-projects, and those are other screens, unchanged here. The
+   and Create agent inside #panel-projects, and those are other screens, unchanged here. (The New
+   task dialog, #nt-modal, also opens from the top-level Tasks screen, so it is 16px there too.) The
    composer's @mention mirror must match the composer and is set beside the room's touch rules.
    The phone check sweeps the whole projects panel and both dialogs; the tablet and desktop checks
    sweep exactly these places (read from this rule). */
 @media (hover: none) {
   :is(#pj-list-view, #pj-one-view, #pj-task-view, #pj-docs-view, #pj-settings-view, #pj-add-view) :is(input:not([type=checkbox]):not([type=radio]), select, textarea),
   #nt-modal :is(input:not([type=checkbox]):not([type=radio]), select, textarea), #am-modal :is(input:not([type=checkbox]):not([type=radio]), select, textarea) { font-size: 16px; }   /* text fields only: iOS does not zoom a checkbox or a radio */
+  /* .tk-inp's font shorthand carries a 16px line height, too tight for 16px text in a box of
+     several lines; the one-line fields keep their own. */
+  :is(#pj-list-view, #pj-one-view, #pj-task-view, #pj-docs-view, #pj-settings-view, #pj-add-view, #nt-modal, #am-modal) textarea { line-height: 1.35; }
 }
 .rm-back { position: fixed; inset: 0; background: rgba(17, 20, 24, 0.72);
            display: flex; align-items: center; justify-content: center;
@@ -46321,9 +46325,12 @@ function rxnPickerEl() {
     document.querySelectorAll('#pj-room .rxns').forEach((r) => {
       if (r.getAttribute('data-post') === postId) box = r;
     });
+    // Close the touchscreen bar BEFORE the reaction's round trip: a pick from the full list
+    // closes it as a quick pick does, even if the request fails, and a bar the person opens on
+    // another post meanwhile is not closed by this pick finishing late.
+    pjRxnClose();
     if (box) await rxnToggle(PJ_CURRENT, box, b.getAttribute('data-emoji'));
     rxnCloseAllPickers();
-    pjRxnClose();   // a pick from the full list closes the touchscreen bar, as a quick pick does
   });
   document.body.appendChild(el);
   return el;
