@@ -397,6 +397,23 @@ function chk(ok, label, extra) {
       chk(viaResize.on && viaResize.scrollLeft > 0 && Math.abs(viaResize.off) <= 3,
         `[${theme}] a section chosen at desktop width is centred once the window narrows to 375px`, JSON.stringify(viaResize));
 
+      /* A checkbox is tapped through its label, so each label wrapping one in Settings is at
+         least 44px tall. The Automation guards only show while the recommender is on, so the
+         check shows their row itself; it counts them first, so an empty set cannot pass. It runs
+         after the centring checks, which need 'automation' unclicked at this width. */
+      await page.evaluate(() => document.querySelector('#s-nav button[data-go="automation"]').click());
+      await page.waitForTimeout(300);
+      const boxes = await page.evaluate(() => {
+        const row = document.getElementById('rec-guards-row');
+        const was = row.hidden; row.hidden = false;
+        const out = [...document.querySelectorAll('#panel-settings .dsec label')]
+          .filter((l) => l.querySelector(':scope > input[type="checkbox"], :scope > input[type="radio"]') && l.getClientRects().length)
+          .map((l) => Math.round(l.getBoundingClientRect().height));
+        row.hidden = was;
+        return out;
+      });
+      chk(boxes.length >= 3 && boxes.every((h) => h >= 44), `[${theme}] at 375px every checkbox label in Settings is at least 44px tall`, JSON.stringify(boxes));
+
       // The widest #718 phone (430) is still one row and still does not scroll sideways.
       await page.setViewportSize({ width: 430, height: 932 });
       await page.waitForTimeout(300);
