@@ -557,7 +557,10 @@ const resetStore = (state) => fs.writeFileSync(tipsStore.FILE(), JSON.stringify(
     // T29: the store is mended while the page still holds the failed read, and the person opens a tip
     // from the ? and closes it. That save is the first real answer, so tips are on again and the
     // Settings box comes back (before, the failed read's stand-in "off" stuck for the session).
-    await page.evaluate(() => { TIPS_LOAD_NEXT = Infinity; });   // the read retry (T30) held off, so this arm is about the save
+    // The read retry (T30) held off, so this arm is about the save: wait out any read in flight first,
+    // or its answer would reset the hold.
+    await page.waitForFunction(() => !TIPS_LOADING, null, { timeout: 12000 }).catch(() => {});
+    await page.evaluate(() => { TIPS_LOAD_NEXT = Infinity; });
     resetStore({ seen: [], off: false });
     await page.click('#helpq-btn');
     await page.click('#helpq-menu [data-help="ring"]');

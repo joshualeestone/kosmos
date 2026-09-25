@@ -52833,7 +52833,10 @@ function tipsStart() {
   tipLayerEnsure();
   if (TIPS_STARTED) return;
   TIPS_STARTED = true;
-  tipsLoad().then(() => { paintTipsToggle(); tipsCheck(); TIPS_TIMER = setInterval(tipsCheck, TIPS_CHECK_MS); });
+  tipsLoad().then(() => {
+    if (!TIPS_STATE.ok) TIPS_LOAD_NEXT = Date.now() + TIPS_LOAD_RETRY_MS;   // the first retry waits too
+    paintTipsToggle(); tipsCheck(); TIPS_TIMER = setInterval(tipsCheck, TIPS_CHECK_MS);
+  });
 }
 
 function tipsCheck() {

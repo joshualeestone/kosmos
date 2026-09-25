@@ -7,8 +7,11 @@
  * page storage can come back empty (a private window, cleared site data), and
  * then every tip would show again to somebody who already closed them.
  *
- * A read that fails answers ok:false, and the page then shows no tips. Showing
- * a closed tip again is worse than missing one.
+ * A read that fails answers ok:false, and the page then shows no tips while it
+ * cannot read them (showing a closed tip again is worse than missing one). The
+ * page tries the read again, 5s then doubling to a minute, and a save that
+ * answers mends it too. A file that will not parse stays unreadable: set()
+ * refuses rather than overwrite it, so that board shows no tips for good.
  */
 const fs = require('node:fs');
 const path = require('node:path');

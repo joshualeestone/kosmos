@@ -34,7 +34,9 @@ upgraders included": the auto tour covered the agent card render-url-state click
 ## Pieces
 1. Store: `engine/tips.js` (modelled on `engine/styles.js`): a JSON file in the data dir,
    `{ seen: [ids], off: bool }`. `GET /api/tips`, `PUT /api/tips` (merge `seen`, set `off`). A read
-   failure answers `{ ok: false }` and the page shows no tips rather than re-showing seen ones.
+   failure answers `{ ok: false }` and the page shows no tips while it cannot read them, rather than
+   re-showing seen ones. The read is retried, 5s then doubling to a minute, and a save that answers
+   mends it too (the first real answer wins over the failed read's stand-in "off").
 2. The help card: one component (small gold "Tip" label, title, 2-3 sentences, primary button,
    "Stop showing tips", x). Arrow pointing up/down/left at its target; never covers the target; not
    modal (the page stays usable); on narrow windows it sits in the page with no arrow.
@@ -65,7 +67,9 @@ read its agents answers with an error, and the page keeps its last list on an er
 LAST to []), and stopped agents are still listed. So only a genuinely empty roster reads as new.
 If a future status path ever returned an empty list while degraded, an existing user could see the
 tour once and then get the screen tips. Also: an upgrader never sees first-visit tips unless they
-use the ?.
+use the ?. And a tips file that will not parse is never repaired: set() refuses rather than overwrite
+it, so the retry keeps failing and that board shows no tips and no Settings Tips box for good (one read
+a minute). Consistent with never re-showing a seen tip; the retry only mends a read that failed.
 
 ## Verification
 A browser check: fresh sandbox shows the tour once; Got it records it and a reload does not show it;
@@ -75,5 +79,7 @@ T23: a board with agents and nothing seen shows nothing and records nothing. T24
 unrecorded is recorded once the first agent arrives, through a failed first save. T25: an ordinary
 close whose save failed is mended the same way. T26: a board that had agents at its first answer and then removed
 the last one gets no tour; T27 the same with tips off at load. T28: someone new who clicks New agent
-before the tour shows gets the Make an agent tip, then the screen tips once the agent exists. Each was run against the code with its fix removed
+before the tour shows gets the Make an agent tip, then the screen tips once the agent exists. T27
+asserts no tip at all shows. T29: after a failed read, the first save that answers turns tips back on
+and shows the Settings box. T30: a failed read is retried by itself. Each was run against the code with its fix removed
 and failed.
