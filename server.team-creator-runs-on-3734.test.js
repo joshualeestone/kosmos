@@ -80,14 +80,51 @@ test('#3734 a member that names its provider keeps it', async () => {
   } finally { store.writeProfile(GUIDE, { provider: 'anthropic' }); }
 });
 
-test('#3734 creatorRunsOn reads the account folder off the launch job, and needs a recorded provider', () => {
+test('#3734 creatorRunsOn takes provider and account from the one launch job; with no job, the recorded provider', () => {
   const was = create.readJob;
-  create.readJob = () => ({ configDir: '/Users/someone/.codex-work' });
   try {
+    store.writeProfile(GUIDE, { provider: 'anthropic' });
+    create.readJob = () => ({ runner: 'codex', configDir: '/Users/someone/.codex-work' });
+    assert.deepEqual(creatorRunsOn(GUIDE), { provider: 'openai', account: '/Users/someone/.codex-work' },
+      'the provider did not come from the same job as the account');
+    create.readJob = () => ({ runner: 'claude', configDir: null });
+    assert.deepEqual(creatorRunsOn(GUIDE), { provider: 'anthropic', account: null }, 'a default account is named');
+    create.readJob = () => null;
     store.writeProfile(GUIDE, { provider: 'openai' });
-    assert.deepEqual(creatorRunsOn(GUIDE), { provider: 'openai', account: '/Users/someone/.codex-work' });
-    create.readJob = () => ({ configDir: null });
-    assert.deepEqual(creatorRunsOn(GUIDE), { provider: 'openai', account: null }, 'a default account is named');
-    assert.equal(creatorRunsOn('nobody-here'), null, 'an agent with no recorded provider got one');
+    assert.deepEqual(creatorRunsOn(GUIDE), { provider: 'openai', account: null }, 'with no job the recorded provider is not used');
+    assert.equal(creatorRunsOn('nobody-here'), null, 'an agent with nothing recorded got a provider');
   } finally { create.readJob = was; store.writeProfile(GUIDE, { provider: 'anthropic' }); }
+});
+
+/* What the route asks create.accountConnectable is the provider and account the member will be made on. */
+async function asked(members, headers) {
+  const seen = [];
+  const was = create.accountConnectable;
+  create.accountConnectable = async (q) => { seen.push(q); return { ok: false, because: 'stopped here by the test' }; };
+  try {
+    const res = await fetch(base + '/api/team', { method: 'POST', headers: { 'content-type': 'application/json', ...headers },
+      body: JSON.stringify({ purpose: 'the person asked for it', creator: GUIDE, members }) });
+    await res.text();
+  } finally { create.accountConnectable = was; }
+  return seen;
+}
+
+test('#3734 through the route, a member gets the asking agent\'s account folder too', async () => {
+  const was = create.readJob;
+  create.readJob = (n) => (n === GUIDE ? { runner: 'codex', configDir: '/Users/someone/.codex-work' } : was(n));
+  try {
+    const seen = await asked([{ name: fresh(), role: 'pm' }], { 'x-kosmos-agent-token': token() });
+    assert.deepEqual(seen, [{ provider: 'openai', accountDir: '/Users/someone/.codex-work' }]);
+  } finally { create.readJob = was; }
+});
+
+test('#3734 a member that names a model, and a request from the screen, are not given the asker\'s provider', async () => {
+  const was = create.readJob;
+  create.readJob = (n) => (n === GUIDE ? { runner: 'codex', configDir: '/Users/someone/.codex-work' } : was(n));
+  try {
+    const modelOnly = await asked([{ name: fresh(), role: 'pm', model: 'sonnet' }], { 'x-kosmos-agent-token': token() });
+    assert.deepEqual(modelOnly, [{ provider: undefined, accountDir: undefined }], 'a member that named a model was moved to the asker\'s provider');
+    const screen = await asked([{ name: fresh(), role: 'pm' }], {});
+    assert.deepEqual(screen, [{ provider: undefined, accountDir: undefined }], 'an operator request naming the guide as creator inherited its provider');
+  } finally { create.readJob = was; }
 });

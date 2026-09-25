@@ -7,15 +7,18 @@ Renet, ahead of the #3660 fallback.
 ## What
 - **The verb.** `kosmos agent create "<name>" <role> ["<why>"]` asks for a one-member team
   (`POST /api/team`, #1279) with the agent's launch token, and says what the board answered: made (with the
-  board link), or refused with its reason. `kosmos agent roles` lists role keys from `/api/roles`. The answer
-  is read as JSON by the engine's own node (`kosmos_engine_node`), since an agent's PATH may have none. The
-  Windows agent command has the same verb (`tools/windows/kosmos-cli.js`).
+  board link), or refused with its reason. With no launch token it refuses before sending, and a timeout
+  reads as "may have been made; look at the board", never as "not made". `kosmos agent roles` lists role keys
+  from `/api/roles`. On the Mac the answer is read as JSON by the engine's own node (`kosmos_engine_node`),
+  since an agent's PATH may have none. The Windows agent command has the same verb, with the long timeout
+  (`tools/windows/kosmos-cli.js`).
 - **The route, unchanged in its rules.** `/api/team` already takes the creator from the verified token,
   records `createdBy` and `purpose` at birth, caps what one creator keeps alive under a per-creator lock, runs
   the same live account check as New agent, and creates through the same engine `createAgent`. One addition:
-  a member with no provider (and no account) named runs where the asking agent runs (`creatorRunsOn`: the
-  provider recorded at its birth, and the account folder its launch job points at). So the guide makes agents
-  on the model the person connected, not on Claude by default.
+  a member that names no provider, account or model runs where the asking agent runs (`creatorRunsOn`: the
+  runner and account folder of its launch job, read together so they cannot disagree; with no job, the
+  provider recorded at its birth). Only for an agent caller, not the screen. So the guide makes agents on the
+  model the person connected, not on Claude by default. A member that names a model keeps the old default.
 - **The role.** `engine/roles.js`: making agents is split out of `SETUP_HANDS_OFF` into `SETUP_MAKES_AGENTS`.
   Settings stay hands-off. The guide is told to say in one line what it will make and ask the person to
   confirm, only after a yes to run the verb, then give the link, or the refusal's reason.
@@ -49,11 +52,16 @@ Renet, ahead of the #3660 fallback.
 
 ## Verification
 - `server.team-creator-runs-on-3734.test.js`: a member with no provider gets the guide's provider (refused
-  naming OpenAI on an OpenAI guide; made on a Claude one); an explicit provider is kept; `creatorRunsOn`
-  reads the account folder and needs a recorded provider.
+  naming OpenAI on an OpenAI guide; made on a Claude one); an explicit provider is kept; through the route the
+  member also gets the guide's account folder; a member naming a model, and a screen request naming the guide
+  as creator, are not moved; `creatorRunsOn` reads provider and account from the one job.
+- `tools.windows-kosmos-cli-agent-3734.test.js`: the Windows verb's request, link, no-token refusal, timeout
+  and refused-member answers.
 - `cli.agent-create-3734.test.js` (sandboxed `KOSMOS_HOME` whose runtime is the only node): token, name, role
   and why reach `/api/team`; the made agent is named from `created[0]`; a board error and a refused member
   are said with their reason; roles; a bad call never reaches the board; with no runtime and no node it says
   so.
 - `engine/setup-assistant.role-3734.test.js`, `engine/roles.test.js`.
-- Mutations, all red: the rewrite outside the guide, the CLI dropping the token, a bare `node` in the parse.
+- Mutations, all red: the rewrite outside the guide, the CLI dropping the token, a bare `node` in the parse,
+  `agent` missing from the help list, the model check, the agent-caller check, the account line, and the
+  provider read from the profile before the job.

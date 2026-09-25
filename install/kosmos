@@ -2389,12 +2389,21 @@ cmd_agent() {
         ''|*[!0-9a-f]*) ;;
         *) _tok="$KOSMOS_AGENT_TOKEN" ;;
       esac
+      if [ -z "$_tok" ]; then
+        say "kosmos agent create is for an agent acting for the person, and this one has no launch token; make the agent from New agent instead."
+        exit 1
+      fi
       esc_name=$(printf '%s' "$name" | tr '\n\t\r' '   ' | sed 's/\\/\\\\/g; s/"/\\"/g')
       esc_role=$(printf '%s' "$role" | tr '\n\t\r' '   ' | sed 's/\\/\\\\/g; s/"/\\"/g')
       esc_why=$(printf '%s' "$why" | tr '\n\t\r' '   ' | sed 's/\\/\\\\/g; s/"/\\"/g')
       body=$(kosmos_curl "$_bt" "$_tok" -sS -m 60 -X POST "$URL/api/team" \
         -H 'content-type: application/json' \
         --data "{\"purpose\":\"$esc_why\",\"members\":[{\"name\":\"$esc_name\",\"role\":\"$esc_role\"}]}" 2>/dev/null) || rc=$?
+      # 28 is curl's timeout: the request left, so the agent may have been made.
+      if [ "$rc" -eq 28 ]; then
+        say "Kosmos was slow to answer and we stopped waiting. The agent may have been made; look at the board before trying again: $URL/"
+        exit 3
+      fi
       if [ "$rc" -ne 0 ]; then
         say "We could not reach Kosmos to make that agent. Is it running at $URL?"
         exit 1

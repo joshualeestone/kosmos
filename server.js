@@ -2128,16 +2128,17 @@ function withCreatorLock(creator, fn) {
 const AGENT_FILES_DEFAULT_CAP = 20;
 const AGENT_FILES_MAX_CAP = 500;
 
-/* #3734: where an agent runs, as a create spec reads it: the provider recorded at its birth, and the
-   account folder its launch job points at (null for the provider's default account). Null when the
-   provider is not recorded. */
+/* #3734: where an agent runs, as a create spec reads it: its launch job's runner (as a provider) and the
+   account folder the job points at (null for the provider's default account), both from the one job so the
+   pair cannot disagree. With no job to read, the provider recorded at its birth and the default account.
+   Null when neither is known. */
 function creatorRunsOn(name) {
+  let job = null;
+  try { job = create.readJob(name); } catch { job = null; }
+  if (job && job.runner) return { provider: create.runnerProvider(job.runner), account: job.configDir || null };
   let provider = null;
   try { provider = store.readProfile(name).provider || null; } catch { provider = null; }
-  if (!provider) return null;
-  let account = null;
-  try { const job = create.readJob(name); account = job && job.configDir ? job.configDir : null; } catch { account = null; }
-  return { provider, account };
+  return provider ? { provider, account: null } : null;
 }
 
 const CREATOR_AGENT_CAP_DEFAULT = 25;
@@ -5487,14 +5488,15 @@ const server = http.createServer((req, res) => {
           callerKind = 'operator';
         }
 
-        /* #3734: a member with no provider (and no account) named runs where the agent that asked runs:
-           its provider and, on a non-default account, that account. The setup guide making an agent for a
-           new person then uses the model the person connected, not Claude by default. */
+        /* #3734: a member that names no provider, account or model runs where the agent that asked runs: its
+           provider and, on a non-default account, that account. The setup guide making an agent for a new
+           person then uses the model the person connected, not Claude by default. A member that names a model
+           keeps the old default, since the model says which provider it meant. */
         if (callerKind === 'agent' && Array.isArray(members)) {
           const where = creatorRunsOn(effectiveCreator);
           if (where) {
             for (const m of members) {
-              if (m && typeof m === 'object' && !Array.isArray(m) && m.provider === undefined && m.account === undefined) {
+              if (m && typeof m === 'object' && !Array.isArray(m) && m.provider === undefined && m.account === undefined && m.model === undefined) {
                 m.provider = where.provider;
                 if (where.account) m.account = where.account;
               }
@@ -15593,15 +15595,15 @@ function start(port = PORT) {
         try { feedbacksend.sendDailyOnce(feedback.today()); } catch { /* best-effort, like the sweeps above */ }
       }, Number(process.env.AGENT_WORKFORCE_FEEDBACK_SWEEP_MS) > 0 ? Number(process.env.AGENT_WORKFORCE_FEEDBACK_SWEEP_MS) : 60 * 60 * 1000); // the env is the test seam only
       if (feedbackSweep && typeof feedbackSweep.unref === 'function') feedbackSweep.unref();
+      /* #3734: an existing guide's instructions still say it never creates agents; say what it may do now.
+         Once, at start; a no-op when the paragraph is not there. */
+      try { setupAssistant.refreshGuideRole(); } catch { /* best-effort */ }
       /* #3034/#3660: the setup guide is created the moment the first model is connected,
          after Giddy Up, from any provider's connect path (keys, sign-ins that finish in the
          background). One sweep sees them all instead of a hook in every route. Cheap until
          something is connected (the accounts lists only); ensureGuide backs off after a
          refusal, is single-flight, and does nothing on an unarmed (pre-existing) install or
          once seeded. Its own timer, unref'd, best-effort, like the sweeps above. */
-      /* #3734: an existing guide's instructions still say it never creates agents; say what it may do now.
-         Once, at start; a no-op when the paragraph is not there. */
-      try { setupAssistant.refreshGuideRole(); } catch { /* best-effort */ }
       if (setupAssistant.FIRSTRUN_AUTOCREATE_ENABLED) {
         let guideSweep = null;
         const guideTick = () => {

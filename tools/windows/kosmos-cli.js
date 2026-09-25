@@ -585,11 +585,14 @@ async function agentCreate(ctx, args) {
   const role = args[1];
   const why = args[2] || 'the person asked for it';
   if (!name || !role) { ctx.err(USAGE.agent); return 2; }
-  const r = await ctx.call('POST', '/api/team', { purpose: why, members: [{ name, role }] });
-  if (!r.reached) return ctx.unreachable('make that agent');
+  if (!ctx.agentToken()) { ctx.err('kosmos agent create is for an agent acting for the person, and this one has no launch token; make the agent from New agent instead.'); return 1; }
+  // A create waits on a live account check and the create itself, so it gets the long timeout; a timeout
+  // after the request left is "may have been made", never "not made".
+  const r = await ctx.call('POST', '/api/team', { purpose: why, members: [{ name, role }] }, { timeoutMs: POST_TIMEOUT_MS });
+  if (!r.reached) return r.timedOut ? maybe(ctx.err, 'Kosmos was slow to answer and we stopped waiting. The agent may have been made; look at the board before trying again.') : ctx.unreachable('make that agent');
   const j = r.json || {};
   const made = Array.isArray(j.created) && j.created[0] ? j.created[0] : null;
-  if (made && !j.error) { ctx.out('Made "' + (made.shownAs || made.name || name) + '". It\'s on your board now.'); return 0; }
+  if (made && !j.error) { ctx.out('Made "' + (made.shownAs || made.name || name) + '". It\'s on your board now: ' + ctx.url + '/'); return 0; }
   const ref = Array.isArray(j.refused) && j.refused[0] ? j.refused[0] : null;
   const because = j.error || (ref && ref.because) || j.because;
   if (because) { ctx.err('Kosmos did not make that agent: ' + because + '.'); return 1; }
@@ -819,6 +822,8 @@ async function main(argv, io) {
        which this agent's environment points at its own Kosmos, as outbox does. */
     engine: (name) => (o.engine && o.engine[name]) || require(path.join(engineDir(), name + '.js')),
     unreachable: (what) => { err('We could not reach Kosmos to ' + what + '. Is it running at ' + url + '?'); return 1; },
+    url,
+    agentToken: () => hook.agentToken(env),
     refusedBy: (r) => (r.json && typeof r.json.error === 'string') ? clause(r.json.error) : null,
     /* The board is serving another Kosmos than this agent's. */
     wrongWorld: (r) => r.reached && r.status === WRONG_WORLD_STATUS && Boolean(r.json) && r.json.wrongWorld === true,

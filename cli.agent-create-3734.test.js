@@ -90,11 +90,11 @@ test('#3734 with no node on PATH and no runtime, it says so instead of misreadin
   }));
 
 test('#3734 agent create says the board\'s reason when it refuses, and exits non-zero', () => withStub(
-  () => [403, { error: 'only the setup guide can make agents for the person; they can make one from New agent' }],
+  () => [403, { error: 'that token does not belong to any agent Kosmos started' }],
   async (port) => {
     const r = await cli(port, ['agent', 'create', 'PM', 'pm'], 'abc123');
     assert.notEqual(r.code, 0);
-    assert.match(r.out, /Kosmos did not make that agent: only the setup guide/);
+    assert.match(r.out, /Kosmos did not make that agent: that token does not belong to any agent/);
   }));
 
 test('#3734 a member the board refused is said with its reason', () => withStub(
@@ -123,8 +123,18 @@ test('#3734 kosmos agent --help and -h show the agent usage, not the top-level b
   async (port, seen) => {
     for (const flag of ['--help', '-h']) {
       const r = await cli(port, ['agent', flag]);
+      assert.equal(r.code, 0, flag + ' did not exit 0');
       assert.match(r.out, /Usage: kosmos agent <create\|roles>/, flag + ' showed: ' + r.out);
       assert.doesNotMatch(r.out, /kosmos start \| stop/, flag + ' fell through to the top-level banner');
     }
     assert.equal(seen.length, 0, 'asking for help reached the board');
+  }));
+
+test('#3734 agent create with no launch token refuses before sending anything', () => withStub(
+  () => [200, { outcome: 'created', created: [{ name: 'pm' }] }],
+  async (port, seen) => {
+    const r = await cli(port, ['agent', 'create', 'PM', 'pm']);
+    assert.notEqual(r.code, 0);
+    assert.match(r.out, /no launch token; make the agent from New agent/);
+    assert.equal(seen.length, 0, 'a create with no launch token reached the board');
   }));
