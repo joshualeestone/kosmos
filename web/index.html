@@ -27061,8 +27061,9 @@ function restoreThreadAnchor(el, a) {
 const UNREAD_EDGE = new Map();
 const UNREAD_EDGE_DWELL = 1200;
 let UNREAD_IO = null;
+const UNREAD_WATCHED = new Set();
 function unreadEdgeBacklog(key, n) {
-  const st = UNREAD_EDGE.get(key) || { known: null, fresh: new Set(), backlog: 0 };
+  const st = UNREAD_EDGE.get(key) || { known: null, fresh: new Set(), read: new Set(), backlog: 0 };
   st.backlog = Math.max(st.backlog, Number(n) || 0);
   UNREAD_EDGE.set(key, st);
 }
@@ -27070,11 +27071,14 @@ function unreadEdgeApply(root, key) {
   if (!root) return;
   const rows = [...root.querySelectorAll('.msg:not(.you)[data-mid]')].filter((r) => r.dataset.mid);
   const ids = rows.map((r) => r.dataset.mid);
-  const st = UNREAD_EDGE.get(key) || { known: null, fresh: new Set(), backlog: 0 };
+  const st = UNREAD_EDGE.get(key) || { known: null, fresh: new Set(), read: new Set(), backlog: 0 };
   UNREAD_EDGE.set(key, st);
   if (!st.known) st.known = new Set(ids);   // the first look: what is here is history, bar the backlog
-  else for (const id of ids) if (!st.known.has(id)) { st.known.add(id); st.fresh.add(id); }
-  if (st.backlog > 0) { for (const id of ids.slice(-st.backlog)) st.fresh.add(id); st.backlog = 0; }
+  else for (const id of ids) if (!st.known.has(id)) { st.known.add(id); if (!st.read.has(id)) st.fresh.add(id); }
+  /* A count read before its /seen landed can name messages this page has already watched being read: those stay read. */
+  if (st.backlog > 0) { for (const id of ids.slice(-st.backlog)) if (!st.read.has(id)) st.fresh.add(id); st.backlog = 0; }
+  /* A bubble a repaint replaced is let go, so the observer holds only what is on the page. */
+  for (const el of UNREAD_WATCHED) if (!el.isConnected) { if (UNREAD_IO) UNREAD_IO.unobserve(el); UNREAD_WATCHED.delete(el); }
   for (const r of rows) {
     const bd = r.querySelector('.msg-bd');
     if (!bd || !st.fresh.has(r.dataset.mid) || bd.hasAttribute('data-unread')) continue;
@@ -27085,10 +27089,12 @@ function unreadEdgeApply(root, key) {
 }
 function unreadEdgeWatch(bd) {
   if (typeof IntersectionObserver !== 'function') { bd.__inView = true; unreadEdgeTry(bd); return; }
+  /* Half of it on screen, or 120px of it: a message taller than twice the window is read a screenful at a time. */
   if (!UNREAD_IO) UNREAD_IO = new IntersectionObserver((es) => {
-    for (const e of es) { e.target.__inView = e.isIntersecting && e.intersectionRatio >= 0.5; unreadEdgeTry(e.target); }
-  }, { threshold: [0, 0.5, 1] });
+    for (const e of es) { e.target.__inView = e.isIntersecting && (e.intersectionRatio >= 0.5 || e.intersectionRect.height >= 120); unreadEdgeTry(e.target); }
+  }, { threshold: [0, 0.05, 0.1, 0.2, 0.3, 0.4, 0.5, 1] });
   UNREAD_IO.observe(bd);
+  UNREAD_WATCHED.add(bd);
 }
 function unreadEdgeTry(bd) {
   if (!bd.__inView || bd.__unreadTimer || !bd.isConnected || !bd.hasAttribute('data-unread')) return;
@@ -27096,9 +27102,10 @@ function unreadEdgeTry(bd) {
   bd.__unreadTimer = setTimeout(() => {
     bd.__unreadTimer = null;
     if (!bd.isConnected || !bd.__inView || document.visibilityState !== 'visible' || !document.hasFocus()) return;
-    if (bd.__unread) bd.__unread.st.fresh.delete(bd.__unread.id);
+    if (bd.__unread) { bd.__unread.st.fresh.delete(bd.__unread.id); bd.__unread.st.read.add(bd.__unread.id); }
     bd.removeAttribute('data-unread');   // the transition fades the edge
     if (UNREAD_IO) UNREAD_IO.unobserve(bd);
+    UNREAD_WATCHED.delete(bd);
   }, UNREAD_EDGE_DWELL);
 }
 /* Coming back to the window starts the clock on what is already in view. */
@@ -47421,7 +47428,9 @@ function paintRoom(body) {
     box.__lastRoomQuery = PJ_ROOM_QUERY;
     paintThreadInto(box, html, rows !== '', queryChanged, filtering);
   }
-  if (!filtering) unreadEdgeApply(box, 'pj:' + PJ_CURRENT);   // #3743: after the paint, and on every poll
+  /* #3743: after the paint, and on every poll; not on a read that did not answer (ok false, no rows), which would
+     make the room's whole history look new on the next one. */
+  if (!filtering && body.ok !== false) unreadEdgeApply(box, 'pj:' + PJ_CURRENT);
 }
 /* The search input repaints from the cached body (loadRoom keeps it on
    the box) so typing filters instantly between polls; the query resets

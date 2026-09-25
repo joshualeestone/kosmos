@@ -77,7 +77,7 @@ const EDGE_LIGHT = 'rgb(245, 228, 188)';
     chk(/1\.2s/.test(tr), 'U2 a read edge fades (a 1.2s transition), not a snap', tr);
     await page.waitForTimeout(2600);
     const u2 = await dmState();
-    chk(u2.every((r) => !r.unread), 'U2 once on screen a moment, the edge goes', JSON.stringify(u2.map((r) => r.unread)));
+    chk(u2.length === 4 && u2.every((r) => !r.unread), 'U2 once on screen a moment, the edge goes', JSON.stringify(u2.map((r) => r.unread)));
     if (SHOTS) await page.screenshot({ path: path.join(SHOTS, 'unread-dm-after-read.png') });
 
     // U3: a repaint does not bring back what was read, and a message that lands while open arrives with the edge.
@@ -95,7 +95,8 @@ const EDGE_LIGHT = 'rgb(245, 228, 188)';
     chk(u4[u4.length - 1].unread === true, 'U4 with the window behind another, a new message keeps its edge', JSON.stringify(u4.map((r) => r.unread)));
     await page.evaluate(() => { delete document.hasFocus; window.dispatchEvent(new Event('focus')); });
     await page.waitForTimeout(2600);
-    chk((await dmState()).every((r) => !r.unread), 'U4 and coming back to the window starts the clock: it goes');
+    const u4b = await dmState();
+    chk(u4b.length === 6 && u4b.every((r) => !r.unread), 'U4 and coming back to the window starts the clock: it goes');
 
     // U5: reduced motion drops the edge without the fade.
     await page.emulateMedia({ reducedMotion: 'reduce' });
@@ -117,6 +118,48 @@ const EDGE_LIGHT = 'rgb(245, 228, 188)';
       return [...document.querySelectorAll('#pj-room .msg:not(.you)')].map((r) => r.querySelector('.msg-bd').hasAttribute('data-unread'));
     }, room);
     chk(JSON.stringify(u6) === JSON.stringify([false, false, true, true, true]), 'U6 a project room opened with three unread: the newest three agent posts have the edge', JSON.stringify(u6));
+
+    // U8: a message taller than the window is read a screenful at a time: it still loses its edge.
+    await page.evaluate(() => { document.getElementById('panel-detail').hidden = false; const pr = document.getElementById('panel-projects'); if (pr) pr.hidden = true; });
+    await page.evaluate(() => { window.__fx = { messages: window.__fx.messages.concat([{ from: 'april', at: '2026-09-25T09:12:00Z', text: Array.from({ length: 200 }, (_, i) => 'A long report, line ' + (i + 1) + '.').join('\n') }]) }; });
+    await page.evaluate(() => paintTalk('april', 'April'));
+    const tall = await page.evaluate(() => { const b = [...document.querySelectorAll('#d-dmthread .msg:not(.you) .msg-bd')].pop(); return { h: Math.round(b.getBoundingClientRect().height), vh: innerHeight, unread: b.hasAttribute('data-unread') }; });
+    await page.evaluate(() => { const b = [...document.querySelectorAll('#d-dmthread .msg:not(.you) .msg-bd')].pop(); b.scrollIntoView({ block: 'start' }); });
+    await page.waitForTimeout(2600);
+    const tallAfter = await page.evaluate(() => [...document.querySelectorAll('#d-dmthread .msg:not(.you) .msg-bd')].pop().hasAttribute('data-unread'));
+    chk(tall.h > 2 * tall.vh && tall.unread && !tallAfter, 'U8 a message taller than twice the window arrives with the edge and loses it once read', JSON.stringify({ ...tall, after: tallAfter }));
+
+    // U9: a room whose first read did not answer (ok false, no rows) does not make its history look new on the next.
+    const u9 = await page.evaluate((body) => {
+      document.getElementById('panel-detail').hidden = true;
+      const pr = document.getElementById('panel-projects'); if (pr) pr.hidden = false;
+      PROJECTS.push({ id: 'p2', name: 'Other', unread: 0, agents: [{ sessionName: 'april', name: 'April' }] });
+      PJ_CURRENT = 'p2';
+      pjMarkSeen('p2');
+      paintRoom({ ok: false, rows: [] });
+      paintRoom(body);
+      return [...document.querySelectorAll('#pj-room .msg:not(.you)')].map((r) => r.querySelector('.msg-bd').hasAttribute('data-unread'));
+    }, room);
+    chk(u9.length === 5 && u9.every((x) => !x), 'U9 after a room read that did not answer, the next one shows history without the edge', JSON.stringify(u9));
+
+    // U10: a count read before its /seen landed does not bring the edge back to a post already read.
+    await page.evaluate(() => { PJ_CURRENT = 'p1'; });
+    await page.evaluate((body) => paintRoom(body), room);
+    // Read one at a time into view: the room scrolls with its column, not inside #pj-room.
+    for (let i = 0; i < 5; i++) {
+      await page.evaluate((k) => { const b = document.querySelectorAll('#pj-room .msg:not(.you) .msg-bd')[k]; if (b) b.scrollIntoView({ block: 'center' }); }, i);
+      await page.waitForTimeout(1500);
+    }
+    await page.waitForTimeout(1300);
+    const read10 = await page.evaluate(() => [...document.querySelectorAll('#pj-room .msg:not(.you) .msg-bd')].map((b) => b.hasAttribute('data-unread')));
+    const u10 = await page.evaluate((body) => {
+      pjById('p1').unread = 1;   // a poll computed before the /seen landed
+      pjMarkSeen('p1');
+      paintRoom({ ...body, rows: body.rows.concat([{ id: 'r7', kind: 'post', operator: true, at: '2026-09-25T09:20:00Z', text: 'My next post' }]) });
+      return [...document.querySelectorAll('#pj-room .msg:not(.you) .msg-bd')].map((b) => b.hasAttribute('data-unread'));
+    }, room);
+    chk(read10.length === 5 && read10.every((x) => !x), 'U10 precondition: the room\'s unread posts were read', JSON.stringify(read10));
+    chk(u10.length === 5 && u10.every((x) => !x), 'U10 a stale count does not bring the edge back to a post already read', JSON.stringify(u10));
 
     chk(errs.length === 0, 'U7 no page errors', errs.join(' | '));
   } finally {
