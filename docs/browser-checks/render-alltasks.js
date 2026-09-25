@@ -1,29 +1,26 @@
-/* #1382: the all-tasks screen, in a real browser.
+/* #1382 + #3703: the project View-all door, in a real browser.
  *
- * Josh: "for tasks, i want to see a view of them in a list form basically",
- * answering his earlier "where I can see ALL of the tasks".
- *
- * 🔑 WHAT ONLY A BROWSER CAN SAY HERE. The node tests assert the SOURCE builds
- * the count and the rows from one array. That is the guarantee, and it is worth
- * pinning, but it is still a claim about text. This drives the actual door,
- * lands on the actual screen, and COUNTS THE RENDERED ROWS against the rendered
- * heading. #1346 shipped a screen whose heading said six over three rows, and
- * no source assertion caught it because both numbers were correct in isolation.
- *
- * ⚠️ THE ROWS ARE COUNTED INSIDE THE SCREEN, not document-wide. An unscoped
- * querySelectorAll is exactly what produced #1346's second number: rows on this
- * screen and rows in this document are different sets, and the project page
- * behind it also renders .tkcard.
+ * Josh (#1382): "for tasks, i want to see a view of them in a list form basically". Since #3703
+ * the door opens the Tasks view (#3559) scoped to its project: ONE list screen (Mona's mock). The
+ * old all-tasks screen is retired, and what it guaranteed is measured here on the new destination:
+ *   - the door is offered, reads "View All", carries no count (#1346's second number);
+ *   - it lands on Tasks scoped to THIS project: its title, its rail item, only its rows, and its
+ *     finished work reachable (window All, Closed fold) (#2498);
+ *   - #1346: the sub-line's open count equals the open rows ON SCREEN, counted inside the view;
+ *   - "+ New task" there files to the picked project, or asks which project on All tasks;
+ *   - an ARCHIVED project's own door still lists its tasks, and All tasks sets them aside again;
+ *   - the consolidated layout opens it in the display column; 390 wide scrolls nothing sideways.
+ * The #2762 member-face arm stays: it measures the project column, which is unchanged.
  *
  * Run: NODE_PATH=$HOME/work/pw-runtime/node_modules node docs/browser-checks/render-alltasks.js
  */
-// Browser-check-surface: pj-alltasks pj-alltasks-view alltasks-count tkFace tkcard-badge tk-divider
+// Browser-check-surface: pj-alltasks tkFace tsk-crumb tsk-new nt-projrow nt-proj
 // ⚠️ `tkFace` here fires only when a line CONTAINING that literal changes (a
 // signature or a call site). The gate keeps `+`/`-` diff-body lines and not context,
 // so an edit to the function BODY -- which is where #2762 lived -- does not trip it.
 // Measured. Keep the token, do not read it as covering the body.
 // (#2518) the distinctive web/index.html tokens this check asserts, so a change to the
-// all-tasks door/view/count is required to update this check at PR time, not stale it to a cut.
+// View-all door, its Tasks-view landing or the New task picker is required to update this check.
 require('./lib-sandbox-home.js'); // #3675: never read the host Mac's real accounts
 const { spawn } = require('node:child_process');
 const fs = require('node:fs');
@@ -128,88 +125,12 @@ const say = (n, cond, note) => {
     await p.waitForSelector('#pj-one-view', { state: 'visible' });
     await p.waitForTimeout(400);
 
-    /* THE DOOR IS UNCONDITIONAL: the control is offered from every project view.
-       #2498 scoped the screen BEHIND it to the current project (an external tester's 0.6.48
-       finding: 'view all tasks' from a project should show only that project's
-       tasks), so the door is present but the screen is per-project, not global. */
-    const doorVisible = await p.isVisible('#pj-alltasks');
-    say('the door is offered even though this project hides nothing', doorVisible);
+    /* THE DOOR IS UNCONDITIONAL, and it carries no count (#1346). */
+    say('the door is offered on the project page', await p.isVisible('#pj-alltasks'));
     const doorText = (await p.textContent('#pj-alltasks')) || '';
     say('the door carries no count', !/\(\d+\)/.test(doorText), JSON.stringify(doorText));
-    // Josh, 2026-09-10 (#2711 item 12): the door reads exactly "View All"
-    // (capital V and A), no "tasks", no arrow.
+    // Josh, 2026-09-10 (#2711 item 12): the door reads exactly "View All".
     say('the door reads "View All"', doorText.trim() === 'View All', JSON.stringify(doorText));
-
-    await p.click('#pj-alltasks');
-    await p.waitForSelector('#pj-alltasks-view', { state: 'visible' });
-    await p.waitForTimeout(500);
-
-    const seen = await p.evaluate(() => {
-      const screen = document.getElementById('pj-alltasks-view');
-      const rows = [...screen.querySelectorAll('.tkcard')].filter((r) => r.getBoundingClientRect().height > 0);
-      const projectIds = [...new Set(rows.map((r) => r.dataset.project))];
-      /* #3171: the list children are the task cards AND the open/closed divider,
-         in DOM order, so a label per child proves the grouping (opens, then the
-         divider, then closeds) rather than just that a divider exists somewhere. */
-      const list = document.getElementById('alltasks-list');
-      const order = [...list.children].map((k) => k.classList.contains('tk-divider') ? 'divider'
-        : (k.classList.contains('closed') ? 'closed' : 'open'));
-      return {
-        rows: rows.length,
-        heading: (document.getElementById('alltasks-count').innerText || '').trim(),
-        projects: projectIds.length,
-        projectIds,
-        everywhere: document.querySelectorAll('.tkcard').length,
-        badges: rows.map((r) => { const b = r.querySelector('.tkcard-badge'); return b ? b.textContent.trim() : null; }),
-        numbers: rows.map((r) => { const n = r.querySelector('.tkcard-n'); return n ? n.textContent.trim() : null; }),
-        dividers: list.querySelectorAll('.tk-divider').length,
-        order,
-      };
-    });
-
-    say('the screen renders rows', seen.rows > 0, JSON.stringify(seen));
-    /* #2498: the door opened from Alpha shows Alpha's tasks ONLY. The screen is
-       scoped to the CURRENT project, not global - so exactly one project on
-       screen, it is the one we opened, and Beta's tasks are absent. */
-    say('the all-tasks screen is scoped to the current project (#2498), not global',
-      seen.projects === 1 && seen.projectIds[0] === made[0],
-      'projects on screen: ' + JSON.stringify(seen.projectIds) + '  current=' + made[0]);
-    say('the other project\'s tasks are not on this scoped screen',
-      !seen.projectIds.includes(made[1]), 'saw ' + JSON.stringify(seen.projectIds) + '  other=' + made[1]);
-
-    /* 🔑 THE #1346 ASSERTION. The heading's number must equal the rows the
-       person can actually see, counted INSIDE the screen. */
-    const stated = Number((seen.heading.match(/^(\d+)/) || [])[1]);
-    say('the heading states a number', Number.isFinite(stated), JSON.stringify(seen.heading));
-    say('the heading matches the rows on the screen', stated === seen.rows,
-      'heading says ' + stated + ', rows on screen ' + seen.rows);
-
-    /* #3171 (Josh, 2026-09-16): open vs closed at a glance. Every row carries a
-       far-right Open/Closed pill and its task number, and the closed tasks are
-       grouped below the open ones with a single divider between the groups. The
-       fixture closes one task on this project, so both a Closed pill and the
-       divider are actually on screen -- without that, these arms would be
-       vacuous on an all-open list. */
-    say('a closed task is on screen, so the closed pill + divider are exercised (else vacuous)',
-      seen.badges.includes('Closed'), JSON.stringify(seen.badges));
-    /* rows > 0 keeps `.every` from passing vacuously; badges/numbers are per-row
-       (a row missing its pill/number yields a null that fails `.every`). The old
-       `length === rows` prefix was a tautology (both derive from the same array). */
-    say('#3171: every row carries an Open or Closed pill',
-      seen.rows > 0 && seen.badges.every((b) => b === 'Open' || b === 'Closed'),
-      JSON.stringify(seen.badges));
-    say('#3171: every row shows its task number',
-      seen.rows > 0 && seen.numbers.every((n) => /^Task \d+$/.test(n || '')),
-      JSON.stringify(seen.numbers));
-    say('#3171: exactly one divider splits the open and closed groups',
-      seen.dividers === 1, 'dividers: ' + seen.dividers + '  order: ' + JSON.stringify(seen.order));
-    const firstClosed = seen.order.indexOf('closed');
-    const lastOpen = seen.order.lastIndexOf('open');
-    const dividerAt = seen.order.indexOf('divider');
-    say('#3171: open tasks are grouped above the closed ones',
-      firstClosed > -1 && lastOpen > -1 && lastOpen < firstClosed, JSON.stringify(seen.order));
-    say('#3171: the divider sits between the open group and the closed group',
-      dividerAt > lastOpen && dividerAt < firstClosed, JSON.stringify(seen.order));
 
     /* #2762: the member face must carry the avatar VERSION, not a bare URL.
        A bare `/api/agent/<name>/avatar` is byte-identical before and after a
@@ -250,38 +171,155 @@ const say = (n, cond, note) => {
     say('#2762: the member face URL carries a NON-ZERO avatar version, not a bare URL and not v=0',
       typeof face === 'string' && /\/avatar\?v=[1-9]\d*/.test(face), JSON.stringify(face));
 
-    /* A CONTROL ON THE SCOPING ITSELF: if the document holds more .tkcard than
-       this screen does, then an unscoped count would have been wrong, and the
-       assertion above is doing real work rather than agreeing by luck. */
-    say('the document holds more task cards than this screen, so the scoping matters',
-      seen.everywhere >= seen.rows, 'document ' + seen.everywhere + ' vs screen ' + seen.rows);
-
-    /* #3171: the no-closed branch, positively. Beta (made[1]) has two OPEN tasks
-       and nothing closed, so its all-tasks screen must render NO divider and only
-       Open pills. Without this, the "no divider when nothing is closed" path is
-       only read, never executed. Done last so it does not disturb the Alpha-context
-       assertions above (scoping, heading==rows, member face). */
-    await p.click('[data-tab="projects"]');
-    await p.locator('#pj-list').getByText('Beta Project').first().click();
-    await p.waitForSelector('#pj-one-view', { state: 'visible' });
-    await p.waitForTimeout(300);
+    /* ---- the door lands on the Tasks view, scoped to Alpha ---- */
     await p.click('#pj-alltasks');
-    await p.waitForSelector('#pj-alltasks-view', { state: 'visible' });
-    await p.waitForTimeout(400);
-    const beta = await p.evaluate(() => {
-      const list = document.getElementById('alltasks-list');
-      const rows = [...document.getElementById('pj-alltasks-view').querySelectorAll('.tkcard')]
-        .filter((r) => r.getBoundingClientRect().height > 0);
+    await p.waitForFunction(() => !document.getElementById('panel-tasks').hidden
+      && document.querySelectorAll('#tsk-groups .tsk-row').length > 0, null, { timeout: 10000 });
+    const landed = await p.evaluate(() => {
+      const pt = document.getElementById('panel-tasks');
+      const rows = [...pt.querySelectorAll('#tsk-groups .tsk-row')];
+      const seen = (r) => r.getBoundingClientRect().height > 0;
+      const fold = pt.querySelector('.tsk-fold summary');
+      const pressedWin = pt.querySelector('#tsk-win [aria-pressed="true"]');
+      const pressedRail = pt.querySelector('#tsk-projects .tsk-ritem.on');
       return {
-        rows: rows.length,
-        dividers: list.querySelectorAll('.tk-divider').length,
-        badges: rows.map((r) => { const b = r.querySelector('.tkcard-badge'); return b ? b.textContent.trim() : null; }),
+        shown: !pt.hidden && pt.getClientRects().length > 0,
+        projectPageHidden: document.getElementById('pj-one-view').getClientRects().length === 0,
+        title: document.getElementById('tsk-title').textContent.trim(),
+        rail: pressedRail ? pressedRail.dataset.proj : null,
+        win: pressedWin ? pressedWin.dataset.win : null,
+        keys: rows.map((r) => r.dataset.key),
+        openOnScreen: rows.filter((r) => seen(r) && !r.closest('.tsk-fold')).length,
+        sub: document.getElementById('tsk-sub').textContent.trim(),
+        fold: fold ? fold.textContent.trim() : null,
+        crumb: !!document.querySelector('#tsk-crumb [data-open-project]'),
+        search: document.getElementById('tsk-search').value,
       };
     });
-    say('#3171: an all-open project renders NO divider (the no-closed branch)',
-      beta.rows > 0 && beta.dividers === 0, JSON.stringify(beta));
-    say('#3171: an all-open project shows only Open pills',
-      beta.rows > 0 && beta.badges.every((b) => b === 'Open'), JSON.stringify(beta.badges));
+    say('the door opens the Tasks view (not a separate screen)', landed.shown && landed.projectPageHidden, JSON.stringify(landed));
+    say('it is scoped to the project the door was opened from: title and rail', landed.title === 'Alpha Project' && landed.rail === made[0], JSON.stringify(landed));
+    say('every row is this project\'s, all four of them (open and closed)',
+      landed.keys.length === 4 && landed.keys.every((k) => k.startsWith(made[0] + '#')), JSON.stringify(landed.keys));
+    say('the other project\'s tasks are not listed', !landed.keys.some((k) => k.startsWith(made[1] + '#')), JSON.stringify(landed.keys));
+    say('the window opens at All, so finished work is reachable', landed.win === '0', JSON.stringify(landed.win));
+    say('finished work sits in the Closed fold, counted', landed.fold === 'Closed (2)', JSON.stringify(landed.fold));
+    /* 🔑 THE #1346 ASSERTION on the new destination: the stated open count equals the open rows
+       a person can SEE, counted inside the view (the project page behind renders task cards too). */
+    const statedOpen = Number((landed.sub.match(/^(\d+) open/) || [])[1]);
+    say('#1346: the stated open count matches the open rows on screen', statedOpen === 2 && landed.openOnScreen === 2,
+      'says ' + JSON.stringify(landed.sub) + ', open rows on screen ' + landed.openOnScreen);
+    say('the way back is the crumb\'s Open project', landed.crumb);
+
+    /* ---- + New task with a project picked: it files to that project, and answers here ---- */
+    await p.click('#tsk-new');
+    await p.waitForSelector('#nt-modal', { state: 'visible', timeout: 5000 });
+    const dlgA = await p.evaluate(() => ({
+      pickerHidden: document.getElementById('nt-projrow').hidden,
+      project: document.getElementById('nt-project').textContent.trim(),
+    }));
+    say('+ New task on a picked project: its dialog, no picker', dlgA.pickerHidden && dlgA.project === 'Alpha Project', JSON.stringify(dlgA));
+    await p.fill('#nt-what', 'Made from the Tasks view');
+    await p.click('#nt-go');
+    await p.waitForFunction(() => /Added task/.test(document.getElementById('tsk-msg').textContent), null, { timeout: 8000 }).catch(() => {});
+    await p.waitForFunction(() => [...document.querySelectorAll('#tsk-groups .tsk-row .tl')].some((b) => b.textContent === 'Made from the Tasks view'), null, { timeout: 8000 }).catch(() => {});
+    const madeA = await p.evaluate((id) => ({
+      msg: document.getElementById('tsk-msg').textContent.trim(),
+      modalHidden: document.getElementById('nt-modal').hidden,
+      focus: document.activeElement && document.activeElement.id,
+      row: [...document.querySelectorAll('#tsk-groups .tsk-row')].find((r) => r.querySelector('.tl').textContent === 'Made from the Tasks view'),
+      key: (() => { const r = [...document.querySelectorAll('#tsk-groups .tsk-row')].find((x) => x.querySelector('.tl').textContent === 'Made from the Tasks view'); return r ? r.dataset.key : null; })(),
+      stillTasks: !document.getElementById('panel-tasks').hidden,
+      id,
+    }), made[0]);
+    say('it says where the task went', madeA.msg === 'Added task 5 to Alpha Project.' || madeA.msg.startsWith('Added task 5 to Alpha Project. '), JSON.stringify(madeA.msg));
+    say('the new task is listed, on Alpha, without leaving the view', madeA.stillTasks && madeA.key === made[0] + '#5', JSON.stringify(madeA.key));
+    say('focus returns to + New task', madeA.modalHidden && madeA.focus === 'tsk-new', JSON.stringify(madeA.focus));
+
+    /* ---- + New task on All tasks: the dialog asks which project ---- */
+    await p.click('#tsk-projects [data-proj=""]');
+    await p.waitForTimeout(200);
+    await p.click('#tsk-new');
+    await p.waitForSelector('#nt-modal', { state: 'visible', timeout: 5000 });
+    const dlgAll = await p.evaluate(() => ({
+      pickerShown: document.getElementById('nt-projrow').getClientRects().length > 0,
+      inHidden: document.getElementById('nt-in').hidden,
+      options: [...document.querySelectorAll('#nt-proj option')].map((o) => o.textContent),
+    }));
+    say('on All tasks the dialog asks which project', dlgAll.pickerShown && dlgAll.inHidden, JSON.stringify(dlgAll));
+    /* The sandbox seeds its welcome project too, so the list is every live project, by name. */
+    const sortedOpts = dlgAll.options.slice().sort((x, y) => x.localeCompare(y));
+    say('it offers the live projects, by name', dlgAll.options.includes('Alpha Project') && dlgAll.options.includes('Beta Project')
+      && JSON.stringify(dlgAll.options) === JSON.stringify(sortedOpts), JSON.stringify(dlgAll.options));
+    await p.fill('#nt-what', 'Aimed at Beta');
+    await p.selectOption('#nt-proj', made[1]);
+    const kept = await p.inputValue('#nt-what');
+    say('changing the project keeps what was typed', kept === 'Aimed at Beta', JSON.stringify(kept));
+    await p.click('#nt-go');
+    // Wait for THIS create's answer: the Alpha one above already says "Added task".
+    await p.waitForFunction(() => /to Beta Project\./.test(document.getElementById('tsk-msg').textContent), null, { timeout: 8000 }).catch(() => {});
+    const onBeta = await p.evaluate(async (id) => {
+      const r = await fetch('/api/tasks?project=' + encodeURIComponent(id), { cache: 'no-store' });
+      const body = await r.json();
+      return { has: (body.tasks || []).some((t) => t.sentence === 'Aimed at Beta'), msg: document.getElementById('tsk-msg').textContent.trim() };
+    }, made[1]);
+    say('the task lands on the project picked in the dialog', onBeta.has && /to Beta Project\./.test(onBeta.msg), JSON.stringify(onBeta));
+
+    /* ---- an ARCHIVED project's own door still lists its tasks ---- */
+    await p.evaluate(async (id) => {
+      await fetch('/api/project/' + id, { method: 'PUT', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ archived: true }) });
+    }, made[1]);
+    await p.evaluate(async (id) => { await loadProjects(); showTab('projects'); openProject(id); }, made[1]);
+    await p.waitForSelector('#pj-alltasks', { state: 'visible', timeout: 8000 });
+    await p.click('#pj-alltasks');
+    await p.waitForFunction((id) => !document.getElementById('panel-tasks').hidden
+      && [...document.querySelectorAll('#tsk-groups .tsk-row')].some((r) => r.dataset.key.startsWith(id + '#')), made[1], { timeout: 10000 }).catch(() => {});
+    const arch = await p.evaluate((id) => ({
+      title: document.getElementById('tsk-title').textContent.trim(),
+      rows: [...document.querySelectorAll('#tsk-groups .tsk-row')].filter((r) => r.dataset.key.startsWith(id + '#')).length,
+    }), made[1]);
+    say('an archived project\'s door still lists its tasks', arch.title === 'Beta Project' && arch.rows === 3, JSON.stringify(arch));
+    await p.click('#tsk-projects [data-proj=""]');
+    await p.waitForTimeout(200);
+    const setAside = await p.evaluate((id) => [...document.querySelectorAll('#tsk-groups .tsk-row')].filter((r) => r.dataset.key.startsWith(id + '#')).length, made[1]);
+    say('on All tasks the archived project is set aside again', setAside === 0, String(setAside));
+
+    /* ---- the consolidated layout: the door opens Tasks in the display column ---- */
+    await p.evaluate(() => fetch('/api/style', { method: 'PUT', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ layout: 'consolidated' }) }).then((r) => r.text()));
+    await p.setViewportSize({ width: 1400, height: 950 });
+    /* The consolidated layout applies on the two tabs it merges, so land on Projects (a reload
+       would come back on ?tab=tasks, which is its own page). */
+    await p.goto(`http://127.0.0.1:${PORT}/?tab=projects`, { waitUntil: 'networkidle' });
+    if (await p.isVisible('#firstrun')) await p.keyboard.press('Escape');
+    await p.waitForFunction(() => document.body.classList.contains('consolidated'), null, { timeout: 8000 }).catch(() => {});
+    await p.click('#pj-list [data-project="' + made[0] + '"]', { timeout: 5000 }).catch(() => {});
+    await p.waitForSelector('#pj-alltasks', { state: 'visible', timeout: 8000 }).catch(() => {});
+    await p.click('#pj-alltasks', { timeout: 5000 }).catch(() => {});
+    await p.waitForFunction(() => !document.getElementById('panel-tasks').hidden
+      && document.querySelectorAll('#tsk-groups .tsk-row').length > 0, null, { timeout: 8000 }).catch(() => {});
+    const cons = await p.evaluate(() => {
+      const pt = document.getElementById('panel-tasks');
+      return {
+        cons: document.body.classList.contains('consolidated'),
+        shown: !pt.hidden && pt.getClientRects().length > 0,
+        inColumn: pt.parentElement && pt.parentElement.id === 'panel-projects',
+        title: document.getElementById('tsk-title').textContent.trim(),
+      };
+    });
+    say('[consolidated] the door opens Tasks in the display column, scoped', cons.cons && cons.shown && cons.inColumn && cons.title === 'Alpha Project', JSON.stringify(cons));
+
+    /* ---- a phone: the head with its button scrolls nothing sideways ---- */
+    const ph = await b.newPage({ viewport: { width: 390, height: 844 } });
+    ph.on('pageerror', (e) => errs.push(String(e)));
+    await ph.evaluate(() => 0).catch(() => {});
+    await ph.goto(`http://127.0.0.1:${PORT}/?tab=tasks`, { waitUntil: 'networkidle' });
+    if (await ph.isVisible('#firstrun')) await ph.keyboard.press('Escape');
+    await ph.waitForFunction(() => !document.getElementById('panel-tasks').hidden, null, { timeout: 8000 }).catch(() => {});
+    const narrow = await ph.evaluate(() => ({
+      btn: document.getElementById('tsk-new').getClientRects().length > 0,
+      overflow: document.documentElement.scrollWidth - document.documentElement.clientWidth,
+    }));
+    say('390 wide: + New task shows and nothing scrolls sideways', narrow.btn && narrow.overflow <= 0, JSON.stringify(narrow));
+    await ph.close();
 
     say('no page errors', errs.length === 0, errs.join(' | '));
   } catch (e) {

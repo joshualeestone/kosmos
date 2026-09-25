@@ -13057,10 +13057,15 @@ const server = http.createServer((req, res) => {
        but the route stays backward-compatible for one if it is ever added. */
     let projectScope = null;
     let forTasksView = false;
+    /* #3703: the project View-all door opens this view scoped to its project, and an archived
+       project's door still has to show its tasks. `withArchived=<id>` keeps THAT archived project
+       (only that one) in the Tasks view's read; every other archived project stays out. */
+    let withArchived = null;
     try {
       const q = new URL(req.url, ROUTING_BASE).searchParams;
       projectScope = q.get('project') || null;
       forTasksView = q.get('view') === 'tasks';
+      withArchived = q.get('withArchived') || null;
     } catch { projectScope = null; }
     const all = tasks.allTasks(everyProject);
     const scoped = projectScope ? all.filter((t) => t.projectId === projectScope) : all;
@@ -13080,7 +13085,7 @@ const server = http.createServer((req, res) => {
          state          tasks.taskState: closed / nobody / working / assigned
          lastActivityAt the newest transcript event, else created/closed
        Added fields only, and only on ?view=tasks, which also leaves out archived
-       projects' tasks (the view does not list them). */
+       projects' tasks (the view does not list them) except the one `withArchived` names. */
     const roster = safeRoster();
     const claims = new Map();
     /* A project whose claims could not be read: its tasks say so (claimed: null, with why),
@@ -13089,7 +13094,7 @@ const server = http.createServer((req, res) => {
     for (const p of everyProject || []) {
       if (projectScope && p.id !== projectScope) continue;
       // An archived project is set aside and the view does not list it, so it costs nothing.
-      if (p.archived === true) continue;
+      if (p.archived === true && p.id !== withArchived) continue;
       let joined = [];
       try {
         joined = projects.joinTaskClaims(Array.isArray(p.tasks) ? p.tasks : [], everyProject, p.agents || [], roster, { name: p.name, id: p.id });
@@ -13100,7 +13105,7 @@ const server = http.createServer((req, res) => {
       }
       for (const j of joined) if (j && j.claim) claims.set(p.id + '\u0000' + j.number, j.claim);
     }
-    const rows = scoped.filter((t) => !t.projectArchived).map((t) => {
+    const rows = scoped.filter((t) => !t.projectArchived || t.projectId === withArchived).map((t) => {
       let claim = claims.get(t.projectId + '\u0000' + t.number) || null;
       if (!claim && unreadable.has(t.projectId) && tasks.taskState(t) === 'assigned') {
         claim = { claimed: null, because: 'we could not read what its agent reports' };
