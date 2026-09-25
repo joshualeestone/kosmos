@@ -17,8 +17,8 @@ that fails stops the list: undo it, fix the cause, and start that step again.
 Facts here were read from the code on 2026-09-24 (kosmos `main` at 8c4ca1d5, kosmos-relay `main` at
 50a846b). The Android facts were re-read later that day at kosmos `main` 677eacde (the last commit
 of #3644), and the asset-links facts at kosmos-relay `main` 6e2da95. The Android no-purchase
-item was read on 2026-09-25 at kosmos-relay `main` 3558f2e. Both repos move on, so treat
-the file and the name as what to search for, not the commit or the line.
+item was read on 2026-09-25 at kosmos-relay `main` 3558f2e. Both repos move on, so treat the file
+and the name as what to search for, not the commit or the line.
 
 ## Where things stand today
 
@@ -318,16 +318,20 @@ Android app by kosmos-relay #121 (five commits).
   the policy's details: they change, they differ by country, and a summary written here would go
   stale unnoticed.
 - **Live on the production coordinator** since the deploy of build `eac39e6` (read on 2026-09-25
-  from `curl -s https://coordinator.kosmosplus.com/v1/meta`). Before the first upload to any Play
-  track, confirm it is still live: take the `build` from that URL and run
-  `git -C ~/work/kosmos-relay fetch -q origin` then
-  `git -C ~/work/kosmos-relay merge-base --is-ancestor 3558f2e <build>` (exit 0 means live). A
-  coordinator rollback to a build before `3558f2e` brings checkout back inside the app, the same as
-  the undo below.
+  from `curl -s https://coordinator.kosmosplus.com/v1/meta`; other parts of this doc predate that
+  deploy, kosmos #3764). On a Play install it likely also needs Play's app-signing key in
+  assetlinks.json (the asset-links bullet above): without it the app opens as a browser tab, and
+  whether the switch's signal arrives then is not confirmed. Before the first upload to any Play
+  track, confirm it is still live [fleet]: take the `build` from that URL, run
+  `git -C ~/work/kosmos-relay fetch -q origin`, then
+  `git -C ~/work/kosmos-relay merge-base --is-ancestor 3558f2e <build> && echo live`. A coordinator
+  rollback to a build before `3558f2e` brings checkout back inside the app, the same as the undo
+  below.
 - **Undo (to show purchase in the Android app again):** revert all five commits of kosmos-relay
-  #121, `eb06c19` to `3558f2e` (iOS is unaffected) [fleet for the revert PR], then deploy the
-  coordinator [Josh, a production change]. Changing only
-  the switch line back to `var CAN_BUY_HERE = !IN_IOS_APP;` is not enough: #121's Android tests in
+  #121, `eb06c19` through `3558f2e` inclusive (in git: `eb06c19^..3558f2e`; iOS is unaffected)
+  [fleet for the revert PR], then deploy the coordinator [Josh, a production change]. That deploy
+  ships whatever else is on `main` by then, not only the revert. Changing only the switch line back
+  to `var CAN_BUY_HERE = !IN_IOS_APP;` is not enough: #121's Android tests in
   `coordinator/tests/page/signin.test.js` would then fail. Once an Android build is on any Play
   track, this puts checkout back inside a Play-distributed app.
 - **Phone checks:** listed in kosmos-relay's plan `.claude/plans/android-no-purchase-718.md`
