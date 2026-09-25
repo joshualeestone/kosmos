@@ -1033,7 +1033,7 @@ function waitingNote(state, outcome, runner, backgroundWait) {
  * as deliver. Never throws.  { ok: true, sent } | { ok: false, because }
  */
 function stopHelpers(sessionName, roster, count) {
-  const n = Number.isInteger(count) && count > 0 ? Math.min(count, 10) : 0;
+  const n = Number.isInteger(count) && count > 0 ? Math.min(count, require('./swarm').MAX_HELPERS) : 0;
   if (!n) return { ok: true, sent: 0 };
   const allowed = addressable(sessionName, roster);
   if (!allowed.ok) return { ok: false, because: allowed.because };
@@ -1110,7 +1110,7 @@ function deliver(sessionName, raw, roster, envelope, trailer) {
      looked after; a message that merely starts with a path (/Users/...) does not. The
      card's `swarm` field is the snapshot this request already holds. */
   if (allowed.card && allowed.card.swarm && allowed.card.swarm.active === false
-      && !/^\/[a-z][a-z-]*(\s|$)/.test(String(raw).trim())) {
+      && !/^\/[A-Za-z][\w:-]*(\s|$)/.test(String(raw).trim())) {
     return {
       state: DELIVERY.COULD_NOT,
       because: require('./swarm').pausedSentence(allowed.card.name || sessionName, allowed.card.swarm.pausedBecause),

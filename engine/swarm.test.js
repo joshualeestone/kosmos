@@ -218,8 +218,15 @@ test('#3564 a PAUSED swarm is typed at NOT AT ALL; an active one and a slash com
       assert.equal(v.state, chat.DELIVERY.COULD_NOT);
       assert.match(v.because, /paused itself at today's token limit/);
       assert.equal(tmux.calls.length, 0, 'something was sent to a paused swarm');
-      chat.deliver('lead', '/compact', board.agents);
-      assert.ok(tmux.calls.length > 0, 'a slash command to a paused swarm was refused at the gate');
+      // A path is not a command: it stays paused.
+      assert.equal(chat.deliver('lead', '/Users/x/file.txt please fix this', board.agents).state, chat.DELIVERY.COULD_NOT);
+      assert.equal(tmux.calls.length, 0, 'a message starting with a path got past the pause');
+      for (const cmd of ['/compact', '/review_2', '/plugin:tidy now']) {
+        const before = tmux.calls.length;
+        const v = chat.deliver('lead', cmd, board.agents);
+        assert.ok(tmux.calls.length > before || v.because !== require('./swarm').pausedSentence('lead', 'limit'), `${cmd} was refused as paused`);
+        assert.doesNotMatch(String(v.because || ''), /paused/, `${cmd} was refused as paused`);
+      }
     });
     store.writeProfile('lead', { swarm: { ...swarm.settingsOf(store.readProfile('lead')), active: true, pausedBecause: null } });
     withFleet([fleet.agent('lead', { state: 'idle' })], (board) => {

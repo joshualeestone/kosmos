@@ -1350,9 +1350,10 @@ function sendPost({ fromPane, sender: resolvedSender, project, projectName, text
   let reached = 0;
   /* #3564: a swarm switched OFF in this project is not woken by the room, unless the
      post @-names it. It stays a member and the record still lists it. */
+  const projectsMod = require('./projects');   // lazy: projects requires this module
   const offHere = new Set(recipients.filter((n) => {
     if (mentioned.has(n)) return false;
-    try { return require('./projects').swarmOffIn(projectId, n); } catch { return false; }
+    try { return projectsMod.swarmOffIn(projectId, n); } catch { return false; }
   }));
   for (const name of recipients) {
     if (offHere.has(name)) continue;

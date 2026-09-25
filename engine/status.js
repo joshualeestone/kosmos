@@ -4236,9 +4236,7 @@ function sessionIdsFor(sessionName, exactSession) {
 }
 
 /* #3564: the card's `swarm` field. The transcript is resolved only for a swarm. */
-function swarmField(agentName, exactSession) {
-  let profile;
-  try { profile = store.readProfile(agentName); } catch { return null; }
+function swarmField(profile, agentName, exactSession) {
   try {
     return require('./swarm').cardField(profile, () => transcriptFor(agentName, exactSession));
   } catch { return null; }
@@ -7059,6 +7057,8 @@ function snapshot() {
       });
       activeWhileWaiting = activeWhileWaitingFrom(status.state, fresh, waitReport.found === true ? Date.parse(waitReport.at || '') : NaN);
     }
+    /* Read once: the card carries it, and #3564's swarm field is computed from it. */
+    const rowProfile = tied ? store.readProfile(pane.name) : null;
     return {
       name: identity.displayName,
       sessionName: pane.name,
@@ -7188,11 +7188,11 @@ function snapshot() {
       // above -- the same "every read keyed on the name needs the same gate"
       // rule this block already states. Untied -> 0, the no-picture value.
       avatarVer: tied ? store.avatarVersion(pane.name) : 0,
-      profile: tied ? store.readProfile(pane.name) : null,
+      profile: rowProfile,
       /* #3564: null for an ordinary agent; for a swarm, its helpers and today's tokens,
          read from the lead's transcripts (engine/swarm.js). Same `tied` gate as every
          other read keyed on the name. The contract with the UI is on #3564. */
-      swarm: tied ? swarmField(pane.name, pane.session) : null,
+      swarm: tied ? swarmField(rowProfile, pane.name, pane.session) : null,
     };
   });
 
