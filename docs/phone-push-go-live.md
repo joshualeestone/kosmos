@@ -16,8 +16,9 @@ that fails stops the list: undo it, fix the cause, and start that step again.
 
 Facts here were read from the code on 2026-09-24 (kosmos `main` at 8c4ca1d5, kosmos-relay `main` at
 50a846b). The Android facts were re-read later that day at kosmos `main` 677eacde (the last commit
-of #3644), and the asset-links facts at kosmos-relay `main` 6e2da95. Both repos move on, so treat
-the file and the name as what to search for, not the commit or the line.
+of #3644), and the asset-links facts at kosmos-relay `main` 6e2da95. The Android no-purchase
+item in Step 5 was read on 2026-09-25 at kosmos-relay #121 (merged as 3558f2e4). Both repos move
+on, so treat the file and the name as what to search for, not the commit or the line.
 
 ## Where things stand today
 
@@ -315,8 +316,8 @@ Chrome's documented behaviour, not yet seen on a phone.
 - **Not live yet:** it is merged but takes the next coordinator deploy [Josh, a production
   change], like the assetlinks route above. Every phone check below waits for that deploy; to
   confirm it shipped, take the `build` from `curl -s https://coordinator.kosmosplus.com/v1/meta`
-  and run `git -C ~/work/kosmos-relay merge-base --is-ancestor 3558f2e4 <build>` (exit 0 means
-  it is in).
+  and run `git -C ~/work/kosmos-relay fetch -q origin` and then
+  `git -C ~/work/kosmos-relay merge-base --is-ancestor 3558f2e4 <build>` (exit 0 means it is in).
 - **Before the first upload to any Play track** (the Internal testing upload below), and again
   before the production release in Step 10, since the policy changes: **a person reads the current
   Google Play Payments policy and its exceptions** [Josh], against what the app does as described
@@ -344,6 +345,9 @@ Chrome's documented behaviour, not yet seen on a phone.
   opened fresh. There is no reliable way to force that, so a pass here is weak evidence. A failure
   is reported on #718 [fleet] and needs Josh's ruling before the production release. It does not
   stop Internal testing.
+**Upload:** to Play's Internal testing track [Josh, or whoever he gives Console access].
+
+**After the upload** (the rest of the no-purchase checks from above; they need a Play build):
 - **Play-install check, after the Internal testing upload, gates this step** [fleet, with a person
   holding a phone]. Uninstall the sideloaded build first: it is signed with the upload key, and
   Android will not install the Play build, signed with Play's key, over it. Then checks 1 to 3 on
@@ -359,8 +363,6 @@ Chrome's documented behaviour, not yet seen on a phone.
   verified full-screen app, which is what real users get and a different way of opening from the
   check before. Repeat checks 1 to 3 on a Play install at that point. If any fails, the production
   release does not start: report on #718 [fleet]; what happens next is Josh's call.
-
-**Upload:** to Play's Internal testing track [Josh, or whoever he gives Console access].
 
 **Check:**
 - The no-purchase phone checks above: the sideload and Play-install checks gate this step; the
