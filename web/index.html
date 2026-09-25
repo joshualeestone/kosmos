@@ -43146,24 +43146,32 @@ function openNewTask(projectId, origin) {
   const said = document.getElementById('nt-in');
   let p = pjById(projectId === undefined ? PJ_CURRENT : projectId);
   if (NT_ORIGIN === 'tasks' && !p) {
-    /* All tasks: ask which project, in the dialog. A kept draft's project is the one offered first
-       (the person was aiming it there), else the first by name. */
+    /* All tasks: ask which project, in the dialog. A kept draft's project (one with words in it)
+       is the one offered first, since the person was aiming it there; else the first by name. */
     const choices = ntChoices();
     const sel = document.getElementById('nt-proj');
     sel.innerHTML = choices.map((c) => '<option value="' + esc(c.id) + '">' + esc(c.name) + '</option>').join('');
     row.hidden = false;
     said.hidden = true;
     if (!choices.length) {
-      /* Nothing to file it to: say so, rather than an empty picker and a Create that cannot work. */
+      /* Nothing to file it to: say which of three things is true, rather than an empty picker and
+         a Create that cannot work. An unreadable list is said as unreadable, never as "none" (the
+         loadProjects rule), and projects that are all archived are not "no projects". */
       NT_PROJECT = null;
+      document.getElementById('nt-project').textContent = '';   // no stale name for the describedby line
       document.getElementById('nt-who').innerHTML = '<option value="">Nobody yet</option>';
-      document.getElementById('nt-msg').textContent = 'Make a project first. A task belongs to a project.';
+      document.getElementById('nt-msg').textContent = PJ_READ_FAILED
+        ? 'We could not read your projects just now, so there is nothing to file this to yet. Try again in a moment.'
+        : PROJECTS.length
+          ? 'Every project is archived. Unarchive one, or make a new one, to add a task.'
+          : 'Make a project first. A task belongs to a project.';
       document.getElementById('nt-go').disabled = true;
       document.getElementById('nt-modal').hidden = false;
       document.getElementById('nt-back').focus();
       return;
     }
-    sel.value = choices.some((c) => c.id === NT_FOR) ? NT_FOR : choices[0].id;
+    const drafted = NT_FOR && document.getElementById('nt-what').value.trim();
+    sel.value = drafted && choices.some((c) => c.id === NT_FOR) ? NT_FOR : choices[0].id;
     p = pjById(sel.value);
   } else {
     row.hidden = true;
@@ -43222,12 +43230,14 @@ function leaveNewTask() {
 /* Wrapped: a bare listener would hand the click Event to openNewTask as its project id. */
 document.getElementById('pj-newtask').addEventListener('click', () => openNewTask());
 document.getElementById('tsk-new').addEventListener('click', openNewTaskFromTasks);
-/* A different project picked in the dialog: the same draft, aimed at it (the words stay; the
-   members to choose from are that project's). */
+/* A different project picked in the dialog: the same draft, aimed at it. The words stay; who is
+   on it does not, because an agent picked for one project was not picked for another (a member
+   of both would otherwise be carried across without anyone choosing them there). */
 document.getElementById('nt-proj').addEventListener('change', (e) => {
   const p = pjById(e.target.value);
   if (!p) return;
   NT_FOR = p.id;   // the draft follows the pick, so ntAimAt keeps the words instead of clearing them
+  document.getElementById('nt-who').value = '';
   ntAimAt(p);
 });
 document.getElementById('nt-back').addEventListener('click', leaveNewTask);
