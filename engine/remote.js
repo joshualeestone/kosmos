@@ -660,6 +660,10 @@ async function assistantChat(body) {
  * reached still leaves the Mac forgotten HERE, and the answer says the
  * address may still show on the account page until it is removed there. */
 async function forget() {
+  // A sign-in in flight dies with the Mac's identity: its register must not turn
+  // the switch back on for the state this is about to wipe (#3827 review).
+  signinEpoch += 1;
+  signinSession = null;
   const was = { enrolled: enrolled(), address: address() };
   stopChild();
   let retired = false;
@@ -1185,9 +1189,15 @@ async function signinConfirmEnrol(code) {
    tunnel, and the pane said "Connecting" over a "Turn on" button nobody had
    pressed. Turning it off stays one press away. A failed write is not fatal:
    the Mac is registered either way, and the switch still says off. */
+// Returns null when the switch is on, or the sentence to give the person when it
+// could not be saved: the Mac IS registered, so this is not a failed sign-in, but
+// saying "signed in, connecting" over a switch that stayed off is the bug itself.
+const SIGNED_IN_SWITCH_OFF = 'you are signed in, but Kosmos+ could not be switched on here. Press Turn on';
 function turnOnAfterSignin() {
   const wrote = write({ on: true });
-  if (!wrote.ok) process.stderr.write('remote: could not turn on after sign-in: ' + wrote.because + '\n');
+  if (wrote.ok) return null;
+  process.stderr.write('remote: could not turn on after sign-in: ' + wrote.because + '\n');
+  return { ok: false, because: SIGNED_IN_SWITCH_OFF };
 }
 
 async function signinRegister(name) {
@@ -1213,9 +1223,10 @@ async function signinRegister(name) {
   if (enrolled()) {
     const have = address();
     if (have && have.split('.')[0] === name) {
-      turnOnAfterSignin();
-      ensure(localPort);
       signinSession = null;
+      const off = turnOnAfterSignin();
+      if (off) return off;
+      ensure(localPort);
       // standing is '' on this path, not omitted: the engine cannot know it
       // without the coordinator round-trip this short-circuit skips, and a
       // uniform shape (always a standing key) is easier for the wizard than a
@@ -1224,11 +1235,16 @@ async function signinRegister(name) {
     }
   }
   secureStateDir();
+  // Like every other step: a Sign out (or a forget) that lands while register is
+  // waiting on the tunnel program must not be followed by this turning Kosmos+ on.
+  const epoch = signinEpoch;
   const r = parseSaid(await setupRun(['signin', 'register', '--coordinator', COORDINATOR(),
     '--name', name, '--state-dir', STATE_DIR()], signinSession.token));
+  if (epoch !== signinEpoch) return SIGNIN_CANCELLED;
   if (!r.ok) return r;
   signinSession = null;   // the token is spent; it must not linger in this process
-  turnOnAfterSignin();
+  const off = turnOnAfterSignin();
+  if (off) return off;
   ensure(localPort);
   const d = r.data && typeof r.data === 'object' ? r.data : {};
   fedSetStanding(d.standing);   // fed gate: SET (or clear) standing from this fresh register

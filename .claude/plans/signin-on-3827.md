@@ -19,3 +19,9 @@ Control: with turnOnAfterSignin a no-op, the first two fail (41/43).
 Why the suite missed it: the existing "full sign-in ... brings the tunnel up"
 test calls remote.setOn(true) BEFORE signing in, so it proved the tunnel starts
 when someone already pressed the switch.
+
+## Round 1 review (sonnet) fixes
+- BLOCKER: signinRegister had no epoch check, so a Sign out landing mid-register was followed by the switch turning on. It now records the epoch before the await and returns SIGNIN_CANCELLED if it moved, like every other step.
+- WARNING: forget() racing a register could have its on:false overwritten. forget() now bumps the sign-in epoch and drops the held session first.
+- WARNING: a failed switch save was swallowed and the wizard said "connecting". It now returns "you are signed in, but Kosmos+ could not be switched on here. Press Turn on".
+Controls: removing each fix reds exactly its test (epoch -> both race tests; forget bump -> the forget race; swallowed write -> the save test).

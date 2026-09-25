@@ -873,6 +873,44 @@ test('#3827: a FAILED register does not turn the switch on', async () => {
   assert.equal(remote.read().on, false, 'a failed sign-in turned the switch on');
 });
 
+test('#3827 review: a register in flight when Sign out lands does not turn the switch on', async () => {
+  process.env.AGENT_WORKFORCE_TUNNEL_RELAY = '127.0.0.1:9444';
+  await remote.signinStart('her@example.com');
+  await remote.signinVerify('her@example.com', '111111');
+  const racing = remote.signinRegister('hers');   // awaiting the tunnel program
+  remote.signinCancel();
+  const late = await racing;
+  assert.equal(late.ok, false, 'a register cancelled mid-flight still reported success');
+  assert.equal(remote.read().on, false, 'Sign out during register left Kosmos+ switched on');
+});
+
+test('#3827 review: a register in flight when the Mac is forgotten does not turn the switch back on', async () => {
+  process.env.AGENT_WORKFORCE_TUNNEL_RELAY = '127.0.0.1:9444';
+  await remote.signinStart('her@example.com');
+  await remote.signinVerify('her@example.com', '111111');
+  const racing = remote.signinRegister('hers');
+  await remote.forget();
+  await racing;
+  assert.equal(remote.read().on, false, 'a register finishing after forget turned the switch back on');
+});
+
+test('#3827 review: when the switch cannot be saved, sign-in says so instead of reporting success', async () => {
+  process.env.AGENT_WORKFORCE_TUNNEL_RELAY = '127.0.0.1:9444';
+  await remote.signinStart('her@example.com');
+  await remote.signinVerify('her@example.com', '111111');
+  // write() goes through FILE + '.tmp'; a directory there makes the save fail.
+  fs.mkdirSync(nodePath.dirname(remote.FILE), { recursive: true });
+  fs.mkdirSync(remote.FILE + '.tmp', { recursive: true });
+  try {
+    const done = await remote.signinRegister('hers');
+    assert.equal(done.ok, false, 'a sign-in whose switch stayed off reported success');
+    assert.match(done.because, /Press Turn on/);
+    assert.equal(remote.read().on, false, 'fixture: the switch really is off');
+  } finally {
+    fs.rmSync(remote.FILE + '.tmp', { recursive: true, force: true });
+  }
+});
+
 test('a session-only account (no phone) registers straight from verify', async () => {
   await remote.signinStart('her@example.com');
   const v = await remote.signinVerify('her@example.com', '111111');   // stage session directly
