@@ -209,3 +209,35 @@ test('#3769 the number of held values is bounded, so every reply pays a bounded 
     assert.ok(knownSecretCount() > 0, 'CONTROL: values were loaded at all');
   } finally { setKnownSecrets([]); }
 });
+
+test('#3769 a key split at ANY offset, by any line break, leaves no piece readable (review round 3)', () => {
+  const held = ['correcthorsebatterystaple', 'Zq9xLm2Pw7Rt4Kv8Nb3Hj6Yc'];
+  const shaped = [j('ghp_', 'aBcDeFgHiJkLmNoPqRsTuVwXyZ012345'), j('xai-', 'QwErTyUiOpAsDfGhJkLzXcVb'), j('AKIA', 'QWERTYUIOPASDFGZ'),
+    j('AIza', 'SyQwErTyUiOpAsDfGhJkLzXcVbNmQwErT')];
+  setKnownSecrets(held);
+  try {
+    const leaks = [];
+    for (const k of [...held, ...shaped]) {
+      for (let i = 1; i < k.length; i += 1) {
+        for (const sep of ['\n', '\n\n', '\r\n', '\n  ', '\n> ']) {
+          const out = mask(`lead ${k.slice(0, i)}${sep}${k.slice(i)} tail`).text;
+          const pieces = [k.slice(0, Math.min(i, 6)), k.slice(Math.max(i, k.length - 6))].filter((p) => p.length >= 4);
+          if (pieces.some((p) => out.includes(p)) || !out.endsWith(' tail') || !out.startsWith('lead ')) leaks.push(JSON.stringify(out));
+        }
+      }
+    }
+    assert.deepEqual(leaks.slice(0, 3), [], `${leaks.length} split positions left a piece readable or lost the text around it`);
+  } finally { setKnownSecrets([]); }
+});
+
+test('#3769 an ordinary 40KB table or list with 2000 held values costs little (review rounds 2 and 3)', () => {
+  setKnownSecrets(Array.from({ length: 2000 }, (_, i) => `held-value-${String(i).padStart(8, '0')}-xyz`));
+  try {
+    const table = Array.from({ length: 800 }, (_, i) => `| Setting number ${i} | Choose AI Models |\n- item text here\n* another bullet`).join('\n').slice(0, 40000);
+    assert.equal(mask(table).text, table, 'an ordinary table was changed');
+    const ms = cpuMillisecondsOf(() => mask(table));
+    assert.ok(ms < 400, `an ordinary table cost ${Math.round(ms)}ms of CPU`);
+    const withKey = `${table.slice(0, 20000)} held-value-00001234-xyz ${table.slice(20000)}`;
+    assert.ok(!mask(withKey).text.includes('held-value-00001234'), 'CONTROL: a held value inside the same table was not masked');
+  } finally { setKnownSecrets([]); }
+});
