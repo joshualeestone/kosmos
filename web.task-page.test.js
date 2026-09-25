@@ -216,7 +216,7 @@ test('the unknown claim gets its reason on the page, where there is room for it'
     task: {
       number: 5, sentence: 's', who: 'april', createdAt: new Date().toISOString(),
       addedBy: 'operator', closedAt: null,
-      claim: { claimed: null, because: 'we cannot tie the pane holding this name to the agent' },
+      claim: { claimed: null, about: 'april', because: 'we cannot tie the pane holding this name to the agent' },
     },
   });
   assert.equal(doc.els['tk-why'].hidden, false);
@@ -226,14 +226,14 @@ test('the unknown claim gets its reason on the page, where there is room for it'
     project: { ...PROJECT, tasks: [] },
     task: {
       number: 6, sentence: 's', who: 'april', createdAt: new Date().toISOString(),
-      addedBy: 'operator', closedAt: null, claim: { claimed: true },
+      addedBy: 'operator', closedAt: null, claim: { claimed: true, about: 'april' },
     },
   });
   assert.equal(settled.doc.els['tk-why'].hidden, true);
 });
 
 test('an agent that never reported is said ONCE on the page, beside its name, never "It"', () => {
-  const claim = { claimed: null, neverReported: true, because: 'this agent has never reported what it is holding' };
+  const claim = { claimed: null, neverReported: true, about: 'april', because: 'this agent has never reported what it is holding' };
   const plain = runPaint({
     project: { ...PROJECT, tasks: [] },
     task: { number: 7, sentence: 's', who: 'april', createdAt: new Date().toISOString(), addedBy: 'operator', closedAt: null, claim },
@@ -258,33 +258,31 @@ test('an agent that never reported is said ONCE on the page, beside its name, ne
       parts: [{ id: 1, sentence: 'one', who: 'april', closedAt: null }, { id: 2, sentence: 'two', who: 'april', closedAt: null }] },
   });
   assert.equal(said(twice.doc), 1, 'an agent holding two open parts is told off twice');
-  // The engine's real case when the first agent's part is done: neverReported is false (it names
-  // nobody who is finished), so the page gives the reason without pointing at the finished agent.
+  // The engine's real case when the only agent has finished and the open part has nobody: NO claim
+  // (claimWho is null: there is no one to ask about), so the page says nothing about who is on it.
   const done = runPaint({
     project: { ...PROJECT, tasks: [] },
     task: { number: 9, sentence: 's', createdAt: new Date().toISOString(), addedBy: 'operator', closedAt: null,
-      claim: { claimed: null, neverReported: false, because: 'this agent has never reported what it is holding' },
       parts: [{ id: 1, sentence: 'first half', who: 'april', closedAt: '2026-09-25T00:00:00Z' }, { id: 2, sentence: 'second half', who: null, closedAt: null }] },
   });
-  assert.match(done.doc.els['tk-why'].textContent, /^We could not check whether its agent is on this: /);
-  assert.doesNotMatch(done.doc.els['tk-why'].textContent, /April/, 'the finished agent is named');
+  assert.equal(done.doc.els['tk-why'].hidden, true);
+  assert.doesNotMatch(done.doc.els['tk-who'].innerHTML.replace(/<[^>]*>/g, ' '), /has not reported|could not/, 'a claim is drawn about nobody');
 });
 
 test('whether the agent is named and whether its claim line is on screen are ONE derivation', () => {
   const src = fnSource('paintTaskPage');
-  assert.match(src, /const sayPart = tkSayPart\(parts, firstWho\);/, 'the page picks its claim part by its own rule');
-  // The project card uses the SAME helper, so the two surfaces cannot disagree about which part.
-  assert.match(fnSource('paintProjectTasks'), /const sayPart = tkSayPart\(parts, firstWho\) \|\|/, 'the card picks its claim part by its own rule');
+  assert.match(src, /const sayPart = tkSayPart\(parts, t\.claim && t\.claim\.about\);/, 'the page picks its claim part by its own rule');
+  // The project card uses the SAME helper and the SAME agent (the engine's claim.about).
+  assert.match(fnSource('paintProjectTasks'), /const sayPart = tkSayPart\(parts, t\.claim && t\.claim\.about\);/, 'the card picks its claim part by its own rule');
   assert.match(src, /\+ \(part === sayPart \? sayHtml : ''\)/, 'the part list decides the claim line on its own');
-  assert.match(src, /const firstOpen = !!sayPart;/);
-  assert.match(src, /const sayShown = firstOpen;/, 'two expressions for one fact can drift, and the page then says it twice or never');
+  assert.match(src, /const sayShown = !!sayPart;/, 'two expressions for one fact can drift, and the page then says it twice or never');
 });
 
 test('any other could-not-tell reason on a task kept as parts names its agent, never "it"', () => {
   const parted = runPaint({
     project: { ...PROJECT, tasks: [] },
     task: { number: 10, sentence: 's', createdAt: new Date().toISOString(), addedBy: 'operator', closedAt: null,
-      claim: { claimed: null, neverReported: false, because: 'this agent is no longer on the project, so what it reports cannot be checked against this task' },
+      claim: { claimed: null, neverReported: false, about: 'april', because: 'this agent is no longer on the project, so what it reports cannot be checked against this task' },
       parts: [{ id: 1, sentence: 'first half', who: 'april', closedAt: null }] },
   });
   assert.match(parted.doc.els['tk-why'].textContent, /^We could not check whether April is on this: this agent is no longer on the project/);

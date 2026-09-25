@@ -20,6 +20,7 @@ const assert = require('node:assert/strict');
 const page = require('./test-support/page');
 const commitments = require('./engine/commitments');
 const tasks = require('./engine/tasks');
+const projects = require('./engine/projects');
 const fleet = require('./test-support/fleet');
 const BOARD = fleet.install([fleet.agent('rex')]);
 const REX = BOARD.agents.find((c) => c.sessionName === 'rex');
@@ -49,18 +50,24 @@ test('the engine says "never reported" as a field, only for a record that does n
   assert.equal(tasks.claimFor({ number: 1, who: 'x' }, null).neverReported, false);
 });
 
-test('the engine names an agent only while it holds open work on the task (never the one who finished)', () => {
-  const never = commitments.read('nobody-has-ever-reported');
-  // Parts: the first agent's part is done, another agent's is open. The reading is for the first.
-  const donePart = { number: 2, parts: [{ id: 1, who: 'nobody-has-ever-reported', closedAt: '2026-09-25T00:00:00Z' }, { id: 2, who: 'someone-else', closedAt: null }] };
-  assert.equal(tasks.claimFor(donePart, never).neverReported, false, 'the agent who finished is blamed for not reporting');
-  const openPart = { number: 3, parts: [{ id: 1, who: 'nobody-has-ever-reported', closedAt: null }, { id: 2, who: 'someone-else', closedAt: null }] };
-  assert.equal(tasks.claimFor(openPart, never).neverReported, true);
-  assert.equal(tasks.claimFor({ number: 4, who: 'nobody-has-ever-reported' }, never).neverReported, true, 'a plain task lost it');
+test('the claim is about the agent still holding open work, and every claim says so (claim.about)', () => {
+  // claimWho: the first agent holding an OPEN part; nobody holding open work, nobody to ask about.
+  assert.equal(tasks.claimWho({ number: 2, parts: [{ id: 1, who: 'rex', closedAt: '2026-09-25T00:00:00Z' }, { id: 2, who: 'mona', closedAt: null }] }), 'mona',
+    'a finished part\'s agent would decide "In progress" and be named for work it handed on');
+  assert.equal(tasks.claimWho({ number: 3, parts: [{ id: 1, who: 'rex', closedAt: null }, { id: 2, who: 'mona', closedAt: null }] }), 'rex');
+  assert.equal(tasks.claimWho({ number: 4, who: 'rex' }), 'rex', 'a plain task lost its agent');
+  assert.equal(tasks.claimWho({ number: 5, parts: [{ id: 1, who: 'rex', closedAt: '2026-09-25T00:00:00Z' }, { id: 2, who: null, closedAt: null }] }), null);
+  // The join reads the claim for that agent and stamps it on the claim.
+  const p = projects.create({ name: 'Claim about' });
+  projects.addAgent(p.id, 'nobody-has-ever-reported', null);
+  tasks.create(p.id, { sentence: 'Plain', who: 'nobody-has-ever-reported' });
+  const row = projects.joinTaskClaims(projects.readAll().find((x) => x.id === p.id).tasks, projects.readAll(), ['nobody-has-ever-reported'], [], { name: p.name, id: p.id })[0];
+  assert.equal(row.claim.about, 'nobody-has-ever-reported', 'the claim does not say whom it is about');
+  assert.equal(row.claim.neverReported, true);
 });
 
 test('an agent that never reported: the row says so in the agent\'s name, briefly', () => {
-  const html = rowOf(T({ claim: { claimed: null, neverReported: true, because: 'this agent has never reported what it is holding' } }), 'status');
+  const html = rowOf(T({ claim: { claimed: null, neverReported: true, about: 'rex', because: 'this agent has never reported what it is holding' } }), 'status');
   assert.ok(REX && REX.name, 'the fleet card has no name to speak');
   assert.ok(html.includes('<div class="why">' + REX.name + ' has not reported what it is working on yet.</div>'), html);
   // Only what the field knows: no record. Not "has not said", since it may have spoken in the room.
@@ -78,7 +85,7 @@ test('one fact, one wording: the project card and the task page say "never repor
   // CONTROL: another could-not-tell case keeps its own reason on the card.
   assert.match(taskClaimHtml({ claimed: null, neverReported: false, because: 'its record could not be read' }), />its record could not be read</);
   // The task page's line uses the same helper.
-  assert.match(SCRIPT, /why\.textContent = notReported \? \(sayShown \|\| !claimWho \? '' : claimWho \+ ' ' \+ notReported \+ '\.'\)/);
+  assert.match(SCRIPT, /why\.textContent = notReported \? \(sayShown \|\| !aboutName \? '' : aboutName \+ ' ' \+ notReported \+ '\.'\)/);
 });
 
 test('could not tell for another reason: the row keeps the reason, never "has not said"', () => {
