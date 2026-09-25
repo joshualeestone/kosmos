@@ -246,6 +246,54 @@ const FX = {
         if (SHOTS && h === 420) await page.screenshot({ path: path.join(SHOTS, `3744-${platform}-4-short-window.png`) });
         await page.keyboard.press('Escape');
       }
+      /* Review pass 2: shorter still. The panel is either fully between the sticky header and the
+         window's bottom edge, or closed when there is no room for it; never hanging off the window
+         or tucked under the header. 260 is the height a fixed minimum used to push it off. */
+      for (const h of [260, 200, 160]) {
+        await page.setViewportSize({ width: 1200, height: h });
+        await page.waitForTimeout(100);
+        await page.evaluate(() => { document.getElementById('d-say').scrollIntoView({ block: 'end' }); pjEmojiOpen('agent'); });
+        await page.waitForTimeout(80);
+        const tiny = await page.evaluate(() => {
+          const panel = document.getElementById('d-emoji');
+          const head = document.querySelector('.apphead').getBoundingClientRect();
+          const r = panel.getBoundingClientRect();
+          const probe = (x, y) => { const el = document.elementFromPoint(x, y); return !!el && panel.contains(el); };
+          return { open: !panel.hidden, expanded: document.getElementById('d-emoji-btn').getAttribute('aria-expanded'),
+            top: Math.round(r.top), bottom: Math.round(r.bottom), headBottom: Math.round(head.bottom), h: innerHeight,
+            topHit: !panel.hidden && probe(r.left + r.width / 2, r.top + 3), bottomHit: !panel.hidden && probe(r.left + r.width / 2, r.bottom - 3) };
+        });
+        const inside = tiny.open && tiny.top >= tiny.headBottom && tiny.bottom <= tiny.h && tiny.topHit && tiny.bottomHit;
+        const closed = !tiny.open && tiny.expanded === 'false';
+        chk(inside || closed, `${t} at 1200x${h} the panel is wholly between the header and the window's edge, or closed`, JSON.stringify(tiny));
+        if (h === 260) chk(inside, `${t} at 1200x260 there is room, so it is open and whole`, JSON.stringify(tiny));
+        if (h === 160) chk(closed, `${t} at 1200x160 there is no room for it, so it is closed, not hidden under the header`, JSON.stringify(tiny));
+        await page.evaluate(() => pjEmojiClose('agent'));
+      }
+      await page.setViewportSize({ width: 1200, height: 700 });
+      await page.waitForTimeout(100);
+      /* Its box carried out of sight: the panel closes rather than staying open where nobody can see
+         or reach it. Measured: in this page's real layout the thread scrolls inside the box and the
+         composer stays put, so nothing here scrolls it away; the guard is defence, and is driven
+         directly (the box moved off screen, then a scroll event, which is what would announce it). */
+      const away = await page.evaluate(async () => {
+        const wait = (ms) => new Promise((r) => setTimeout(r, ms));
+        const cbox = document.getElementById('d-say').closest('.composerbox');
+        pjEmojiOpen('agent');
+        await wait(60);
+        const openedInView = !document.getElementById('d-emoji').hidden;
+        cbox.style.transform = 'translateY(' + (innerHeight + 400) + 'px)';
+        document.getElementById('d-dmthread').dispatchEvent(new Event('scroll'));
+        await wait(60);
+        const out = { overflowed: cbox.getBoundingClientRect().top > innerHeight, openedInView, open: !document.getElementById('d-emoji').hidden,
+          expanded: document.getElementById('d-emoji-btn').getAttribute('aria-expanded') };
+        cbox.style.transform = '';
+        return out;
+      });
+      chk(away.overflowed && away.openedInView && !away.open && away.expanded === 'false', `${t} its box carried out of sight closes the panel`, JSON.stringify(away));
+      await page.setViewportSize({ width: 1200, height: 900 });
+      await page.waitForTimeout(100);
+
       // A phone: no smiley in the DM (its own keyboard has emoji), so the words keep the width.
       await page.setViewportSize({ width: 390, height: 844 });
       await page.waitForTimeout(150);

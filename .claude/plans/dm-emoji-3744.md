@@ -50,3 +50,16 @@ Josh, 2026-09-25 09:29 in #admin: "We need emoji support in the agent DM." Filed
   DOM order, same as the room).
 - Weakest premise now: hiding the DM smiley on a phone. Josh asked for emoji in the DM; a phone gets
   them from its keyboard. One media rule to undo.
+
+## Review pass 2 (sonnet): 1 blocker, 1 warning, 1 nit
+- BLOCKER emojiPlace's fixed 96px minimum pushed the panel off the window at 260px and under the
+  sticky header at 160px -> the height is capped to the space between the header and the window's
+  edge and the top is clamped into it; with under 56px of room the panel closes. Arms at 260 (open and
+  whole), 200 (whole or closed), 160 (closed); red with the old floor.
+- WARNING the panel stayed open with its box out of sight -> emojiPlace closes it when the box is
+  outside [header, window]. Measured: in the real layout #d-talk-box is a flex column and the thread
+  (#d-dmthread) scrolls inside it, so the composer never scrolls away and the page did not scroll at
+  360px either; the guard is defence. The listener moved from #d-talk-box to a capture-phase document
+  scroll listener (any scroller). The arm moves the box off screen and fires a scroll event; red without
+  the guard and red without the listener.
+- NIT resize is not throttled: returns at once while closed, same as the #2834 reaction picker. Not taken.
