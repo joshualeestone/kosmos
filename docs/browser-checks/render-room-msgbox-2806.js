@@ -1327,6 +1327,15 @@ const now = () => new Date().toISOString();
         setTimeout(() => { const bar = row.querySelector('.rxn-quick'); res({ freshUnpinned, shown: row.classList.contains('rxn-show'), pinned: !!(bar && bar.style.position === 'fixed') }); }, 100);
       }));
       chk(!inPlaceRepaint.error && inPlaceRepaint.freshUnpinned && inPlaceRepaint.shown && inPlaceRepaint.pinned, `[phone/touch] a pinned bar whose reaction row is rewritten in place is pinned again`, JSON.stringify(inPlaceRepaint));
+      // A repaint that drops the pinned bar's post closes it fully (pjRxnClose), pin state included.
+      await tallSetup(20);
+      const postGone = await phonePage.evaluate((ts) => new Promise((res) => {
+        const pinnedBefore = RXN_PINNED && !!document.querySelector('#pj-room .msg.rxn-show');
+        const room = document.getElementById('pj-room');
+        room.innerHTML = pjRoomRow({ from: 'april', at: ts, text: 'A short message above.', id: 'q1' }, { agents: [{ sessionName: 'april', name: 'April' }] });
+        setTimeout(() => res({ pinnedBefore, post: RXN_SHOW_POST, pinned: RXN_PINNED }), 100);
+      }), now());
+      chk(postGone.pinnedBefore && postGone.post === null && postGone.pinned === false, `[phone/touch] a repaint that drops a pinned bar's post clears the bar's state, pin included`, JSON.stringify(postGone));
       // A tall post's bar tapped while the post's TOP showed (so it opened above, unpinned) stays,
       // pinned, once that top scrolls away while the post still fills what shows.
       await tallSetup(90);

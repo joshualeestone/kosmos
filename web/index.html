@@ -46587,7 +46587,7 @@ function pjRxnClose() {
 if (window.MutationObserver) {
   new MutationObserver(() => {
     if (!RXN_SHOW_POST) return;
-    if (RXN_SHOW_PID !== PJ_CURRENT) { RXN_SHOW_POST = null; RXN_SHOW_PID = null; return; }
+    if (RXN_SHOW_PID !== PJ_CURRENT) { pjRxnClose(); return; }
     const room = document.getElementById('pj-room');
     const box = room && [...room.querySelectorAll('.rxns[data-post]')].find((b) => b.getAttribute('data-post') === RXN_SHOW_POST);
     const row = box && box.closest('.msg');
@@ -46598,7 +46598,7 @@ if (window.MutationObserver) {
       // Its reaction row was rewritten in place (a reaction's reply): the new bar has no pin yet.
       else if (RXN_PINNED) { const bar = row.querySelector('.rxn-quick'); if (bar && bar.style.position !== 'fixed') pjRxnPlace(row, true); }
     }
-    else { RXN_SHOW_POST = null; RXN_SHOW_PID = null; }   // the post is gone from view
+    else pjRxnClose();   // the post is gone from view
   }).observe(document.getElementById('pj-room'), { childList: true, subtree: true });
 }
 /* Any scroll (or a viewport change, below) RE-PLACES an open bar (pjRxnReplaceOpenBar): an
