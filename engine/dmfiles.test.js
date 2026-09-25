@@ -100,6 +100,14 @@ test('#3759: the section the block sends the agent to is the one the projects bl
   assert.equal(heading, '## ' + said, 'the files block names a section the projects block does not write');
 });
 
+test('#3759: the running summaries the block keeps out of Files really are written outside it (roles.js)', () => {
+  const src = require('node:fs').readFileSync(require('node:path').join(__dirname, 'roles.js'), 'utf8');
+  const rhythm = src.slice(src.indexOf('const SUMMARY_RHYTHM'), src.indexOf('].join(', src.indexOf('const SUMMARY_RHYTHM')));
+  assert.match(rhythm, /summaries\/YYYY-MM-DD-HH\.md inside your own folder/, 'CONTROL: the role still writes its summaries where this block says they stay');
+  assert.doesNotMatch(rhythm, /Files/, 'a role now writes its summaries into Files, which this block tells agents to keep for the person');
+  assert.match(dmfiles.blockBody('/x').replace(/\s+/g, ' '), /your running summaries and other working files stay where your instructions put them/);
+});
+
 test('#3759: an agent that already carries the #3614 wording gets the new wording on the next sync', () => {
   const OLD = ['## Where to save files you make for the person', '', 'When you make a file for the person in a direct conversation with them, not',
     'inside a project, save it in your Files folder:', '', '`/old/Files`', '', 'Inside a project, keep using the project\'s own folder.'].join('\n');

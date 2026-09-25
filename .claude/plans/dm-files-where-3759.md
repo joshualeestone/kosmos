@@ -61,7 +61,9 @@ conversation, and be context-aware enough to put a project's file in that projec
   the release notes, which are generated from what lands.
 
 ## Measured (real agent runs, `claude -p` in a sandboxed agent folder holding this block, 2026-09-25 ~14:40 CDT, on the wording committed with "review round 18"; the control row is main's wording, run at ~14:05)
-One run per case, each in a fresh sandbox: a check of the wording, not a rate. "Doctrine" is whether the
+One run per case, each in a fresh sandbox: a check of the wording, not a rate. The quotes are copied from
+each run's `claude -p` output (kept in the session scratchpad, not the repo); long replies are trimmed to
+the sentences about where the file went. "Doctrine" is whether the
 agent's file also carried the real doctrine block (engine/defaults.js block(), as a new agent has): rows
 without it are the without-doctrine layout, where every cross-reference in this block is conditional.
 "Where it said" quotes the sentences of the reply that tell the person where the file went.
@@ -79,6 +81,7 @@ without it are the without-doctrine layout, where every cross-reference in this 
 | the packing list | Henderson lease | yes | `workers/writer/Files/Camping Packing List.docx` | It's a Word document called **Camping Packing List.docx**, and you'll find it under Files on my page in Kosmos. |
 | the landlord email | Henderson lease | yes | `projects/Henderson lease/Lease renewal email.docx` | Josh, I've drafted it as a Word document called **Lease renewal email.docx** and saved it in the Henderson lease project folder. Could you let me know the terms you'd offer for a renewal, including the rent, the length of the term, and any changes to the lease? Best regards, Josh Stone [phone number |
 | the landlord email | Henderson lease, Maple Street lease | yes | `workers/writer/Files/Lease renewal email.docx` | Josh, your renewal email is ready as a Word document, **Lease renewal email.docx**, under Files on my page in Kosmos. Is this for the Henderson lease or the Maple Street lease? Tell me which and I'll move it into that project and fill in the address. |
+| "Fix the typos in the lease renewal email you made me." (an existing file in Files, about Henderson Street) | Henderson lease | no | `workers/writer/Files/lease-renewal-email.md`, edited in place; nothing copied or moved | I fixed both typos in the email: "Lease renewl" is now "Lease renewal", "renewl the lease" is now "renew the lease". |
 | CONTROL, main's old wording: same landlord email | Henderson lease | no | `workers/writer/Files/lease-renewal-email.md` | I drafted the email and saved it as `lease-renewal-email.md` in your Files folder |
 
 With the doctrine present and one project, the landlord email went into that project and the agent said
