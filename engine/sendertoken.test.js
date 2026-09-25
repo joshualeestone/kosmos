@@ -977,8 +977,12 @@ test('#1782: N CONCURRENT PROCESSES minting the same agent lose NO token', async
   })));
   const minted = codes.filter((c) => c === 0).length;
   const busy = N - minted;
-  /* At least two must land, or no two writes ever raced and the test proved nothing. */
-  assert.ok(minted >= 2, `only ${minted} of ${N} launches got the lock (${busy} refused busy): the machine was too loaded to race any writes, rerun alone`);
+  /* Fewer than two landing means the run exercised almost nothing. A working lock
+     always lets the first launch in, so ONE mint and N-1 refusals points at a lock
+     that was never released, not at load. */
+  assert.ok(minted >= 2, minted === 1 && busy === N - 1
+    ? `only the first of ${N} launches got the lock and every other one was refused busy: the lock may not be released`
+    : `only ${minted} of ${N} launches got the lock (${busy} refused busy): the machine was too loaded to exercise it, rerun alone`);
   /* 🛑 THE DEFECT: every mint that SAID ok must be in the store. Fewer = a lost token. */
   assert.equal(sendertoken.live(session).length, minted,
     `${minted} launches reported a token (${busy} refused busy) but the store holds ${sendertoken.live(session).length}: a token was lost`);
