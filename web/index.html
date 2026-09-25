@@ -1559,6 +1559,12 @@ button.uprime:hover, .btn.uprime:hover, .utoast .uacts button.uprime:hover,
 .swbar i { display: block; height: 100%; background: var(--gold-deep); border-radius: 999px; }
 .swnums { display: flex; justify-content: space-between; flex-wrap: wrap; gap: 6px; font-size: .8125rem; font-variant-numeric: tabular-nums; }
 .swnums span + span { color: var(--k-ink-2); }
+.pj-swface { background: transparent !important; overflow: visible; }
+.swmini { display: inline-flex; border: 0.5px solid var(--separator); border-radius: var(--radius-control); overflow: hidden; background: var(--bg-elevated); flex: none; margin-left: auto; }
+.swmini button { border: 0; background: none; padding: 3px 9px; font: 600 12px var(--font-ui); color: var(--label-2); cursor: pointer; }
+.swmini button + button { border-left: 0.5px solid var(--separator); }
+.swmini button[aria-pressed="true"] { background: var(--gold-bright); color: #14161a; }
+.swmini button:focus-visible { outline: 2px solid var(--label); outline-offset: -2px; }
 .swfixed { font-size: .9375rem; }
 .swfixed span { color: var(--k-ink-2); font-size: .8125rem; margin-left: 6px; }
 .userpop-plus { font-weight: 600; }
@@ -38313,6 +38319,30 @@ document.addEventListener('click', async (e) => {
   if (!e.target || !e.target.closest || !e.target.closest('#d-swarm-stop') || !CURRENT) return;
   await swarmSend('/api/agent/' + encodeURIComponent(CURRENT.sessionName) + '/swarm/stop', 'POST', {}, 'Stopped. Every helper has been told to stop.');
 });
+/* A project's Members: switch a swarm on or off in this project (the contract's PUT /api/project/<id>/swarm/<name>).
+   Off keeps it a member; that project's messages do not wake it. */
+document.addEventListener('click', async (e) => {
+  const b = e.target && e.target.closest && e.target.closest('.swmini button[data-swarm-on]');
+  if (!b || !PJ_CURRENT) return;
+  const name = b.dataset.agentName, on = b.dataset.swarmOn === '1';
+  const group = b.parentElement;
+  group.querySelectorAll('button').forEach((x) => { x.disabled = true; });
+  try {
+    const r = await fetch('/api/project/' + encodeURIComponent(PJ_CURRENT) + '/swarm/' + encodeURIComponent(name), {
+      method: 'PUT', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ on }) });
+    const body = await r.json().catch(() => null);
+    if (r.ok && !(body && body.ok === false)) {
+      const pj = Array.isArray(PROJECTS) ? PROJECTS.find((x) => x && x.id === PJ_CURRENT) : null;
+      if (pj) {
+        const offs = new Set(Array.isArray(pj.swarmOff) ? pj.swarmOff : []);
+        if (on) offs.delete(name); else offs.add(name);
+        pj.swarmOff = [...offs];
+      }
+      group.querySelectorAll('button').forEach((x) => x.setAttribute('aria-pressed', String((x.dataset.swarmOn === '1') === on)));
+    }
+  } catch { /* the next poll shows the board's own answer */ }
+  finally { group.querySelectorAll('button').forEach((x) => { x.disabled = false; }); }
+});
 function createKind() {
   const on = document.querySelector('input[name="create-kind"]:checked');
   return SWARMS_ON && on && on.value === 'swarm' ? 'swarm' : 'agent';
@@ -40745,8 +40775,19 @@ function pjMember(m, suppressTold, withMinus, hideState) {
      "slot waiting / cannot see this" border the restarting state refuses on every
      other surface (the card pill is deliberately SOLID). Suppress it for
      restarting, matching the present-branch caption below and pres='on' elsewhere. */
+  /* #3564: a swarm member shows its cluster and, in the project's Agents column, a small On / Off (the mock). */
+  const swRow = SWARMS_ON && Array.isArray(LAST) ? LAST.find((x) => x && x.sessionName === m.sessionName && x.swarm) : null;
+  const swFace = swRow ? '<span class="lav pj-face pj-swface" aria-hidden="true">' + swarmCluster(swRow, 32) + warn + reachMark + '</span>' : '';
+  let swToggle = '';
+  if (swRow && hideState && PJ_CURRENT) {
+    const pj = Array.isArray(PROJECTS) ? PROJECTS.find((x) => x && x.id === PJ_CURRENT) : null;
+    const off = !!(pj && Array.isArray(pj.swarmOff) && pj.swarmOff.includes(m.sessionName));
+    swToggle = '<span class="swmini" role="group" aria-label="' + esc(m.name + ' in this project') + '">'
+      + '<button type="button" data-swarm-on="1" data-agent-name="' + esc(m.sessionName) + '" aria-pressed="' + (!off) + '">On</button>'
+      + '<button type="button" data-swarm-on="0" data-agent-name="' + esc(m.sessionName) + '" aria-pressed="' + off + '">Off</button></span>';
+  }
   return '<div class="pj-member' + (present ? '' : ' unseen') + stClass + '" data-agent="' + esc(m.sessionName) + '">'
-    + face
+    + (swFace || face)
     + '<span class="pj-member-b">'
     + '<b>' + esc(m.name) + '</b>'
     /* 🔑 THE ROLE, UNDER THE NAME (Josh, 2026-08-21): *"put the title of the
@@ -40812,6 +40853,7 @@ function pjMember(m, suppressTold, withMinus, hideState) {
       ? '<button class="pj-minus" type="button" data-drop="' + esc(m.sessionName) + '"'
         + ' aria-label="Remove ' + esc(m.name) + ' from this project" title="Remove from this project">\u2212</button>'
       : '')
+    + swToggle
     + '</div>';
 }
 
