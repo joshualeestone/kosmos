@@ -60,40 +60,47 @@ conversation, and be context-aware enough to put a project's file in that projec
   a board run from a checkout, as on the fleet Mac, waits for its next restart), and the PR says so for
   the release notes, which are generated from what lands.
 
-## Measured (real agent runs, `claude -p` in a sandboxed agent folder holding this block, 2026-09-25 ~14:40 CDT, on the wording committed with "review round 18"; the control row is main's wording, run at ~14:05)
-One run per case, each in a fresh sandbox: a check of the wording, not a rate. The quotes are copied from
-each run's `claude -p` output (kept in the session scratchpad, not the repo); long replies are trimmed to
-the sentences about where the file went. "Doctrine" is whether the
-agent's file also carried the real doctrine block (engine/defaults.js block(), as a new agent has): rows
-without it are the without-doctrine layout, where every cross-reference in this block is conditional.
-"Where it said" quotes the sentences of the reply that tell the person where the file went.
+## Measured (real agent runs, 2026-09-25 ~14:55 CDT, on the wording committed with "review round 20")
+Each case is one `claude -p --setting-sources project,local` run in a fresh sandboxed agent folder. That
+flag matters: without it `claude -p` also loads this Mac's own global instructions and memory, and an
+earlier set of runs did (round 20 caught it: a sandbox agent signed an email with the operator's name). A
+probe confirmed the difference: asked who it works for, the default run answered with the operator's
+name, the isolated run answered "unknown". All runs below are isolated, and none of their replies names
+the operator. Earlier, non-isolated runs are superseded and not recorded here.
 
-| Case | Projects the agent is on | Doctrine | Saved to | Where it said |
-|---|---|---|---|---|
-| "a short packing list for a weekend camping trip as a file" | Henderson lease | no | `workers/writer/Files/weekend-camping-packing-list.md` | I saved your packing list as **weekend-camping-packing-list.md** under Files on my page in Kosmos. |
-| "For the Henderson lease, a one-paragraph summary ... as a file" | Henderson lease | no | `projects/Henderson lease/Renewal Notice Summary.md` | I saved **Renewal Notice Summary.md** in the Henderson lease project folder. It's a one-paragraph summary of what a renewal notice should cover: The project folder had no copy of the lease, so this is a general outline and not based on the Henderson lease's actual wording. |
-| "draft a short email to my landlord asking about renewing, as a file" | Henderson lease | no | `workers/writer/Files/Lease renewal email to landlord.md` | I saved it as "Lease renewal email to landlord.md" under Files on my page in Kosmos. Is this for the Henderson lease? If so, I'll move it to that project. |
-| same landlord email | Henderson lease, Maple Street lease | no | `workers/writer/Files/Lease renewal email to landlord.md` | I drafted the email and saved it as **"Lease renewal email to landlord"** under Files on my page in Kosmos. Is this for the Henderson lease or the Maple Street lease? Tell me and I'll move it into that project. |
-| same landlord email | none | no | `workers/writer/Files/lease-renewal-email.md` | I drafted the email and saved it as **lease-renewal-email.md**, under Files on my page in Kosmos. |
-| "For the Oak Avenue lease, a one-paragraph summary ... as a file" (a project it is not on) | Henderson lease | no | `workers/writer/Files/Oak Avenue lease - renewal notice summary.md` | I saved the summary as **"Oak Avenue lease - renewal notice summary.md"** under Files on my page in Kosmos. I'm not on an Oak Avenue lease project. My only project is the Henderson lease, so I couldn't put it in a project folder. |
-| "time for your four-hourly running summary" (the role's running-record section added) | Henderson lease | no | `workers/writer/summaries/2026-09-25-14.md` | I've written the summary to `summaries/2026-09-25-14.md` in my folder. There was nothing to report: I've had no tasks yet, I haven't made any files, and the Henderson lease project folder is empty. |
-| "...a packing list, put it in my outbox folder at <path>" (a place the person names) | Henderson lease | no | `outbox/weekend-camping-packing-list.md` | I saved your packing list as **weekend-camping-packing-list.md** in your outbox folder. |
-| the packing list | Henderson lease | yes | `workers/writer/Files/Camping Packing List.docx` | It's a Word document called **Camping Packing List.docx**, and you'll find it under Files on my page in Kosmos. |
-| the landlord email | Henderson lease | yes | `projects/Henderson lease/Lease renewal email.docx` | Josh, I've drafted it as a Word document called **Lease renewal email.docx** and saved it in the Henderson lease project folder. Could you let me know the terms you'd offer for a renewal, including the rent, the length of the term, and any changes to the lease? Best regards, Josh Stone [phone number |
-| the landlord email | Henderson lease, Maple Street lease | yes | `workers/writer/Files/Lease renewal email.docx` | Josh, your renewal email is ready as a Word document, **Lease renewal email.docx**, under Files on my page in Kosmos. Is this for the Henderson lease or the Maple Street lease? Tell me which and I'll move it into that project and fill in the address. |
-| "Fix the typos in the lease renewal email you made me." (an existing file in Files, about Henderson Street) | Henderson lease | no | `workers/writer/Files/lease-renewal-email.md`, edited in place; nothing copied or moved | I fixed both typos in the email: "Lease renewl" is now "Lease renewal", "renewl the lease" is now "renew the lease". |
-| CONTROL, main's old wording: same landlord email | Henderson lease | no | `workers/writer/Files/lease-renewal-email.md` | I drafted the email and saved it as `lease-renewal-email.md` in your Files folder |
+One run per case: a check of the wording, not a rate. "Doctrine" is whether the agent's file also carried
+the real doctrine block (engine/defaults.js block(), as a new agent has). "Wording" is this branch's block
+or main's (the control). The quotes are copied from each run's output (kept in the session scratchpad, not
+the repo), trimmed to the sentences about where the file went.
 
-With the doctrine present and one project, the landlord email went into that project and the agent said
-so (the doctrine's "work you do for a project goes in that project's folder" pulls a related file toward
-the only project); without the doctrine it saved in Files and asked. Both say where the file went, and
-Josh's card allows either ("put the file in that project ... if that is what makes sense contextually").
-This is the plan's weakest premise, measured: "unmistakably that project's work" is read more loosely
-when the doctrine is also present. With two projects, it saved in Files and asked in both layouts.
+| Case | Projects the agent is on | Doctrine | Wording | Saved to | Where it said |
+|---|---|---|---|---|---|
+| "a short packing list for a weekend camping trip as a file" | Henderson lease | no | new | `workers/writer/Files/weekend-camping-packing-list.md` | I wrote the packing list and saved it as **weekend-camping-packing-list.md** under Files on my page in Kosmos. |
+| "For the Henderson lease, a one-paragraph summary ... as a file" | Henderson lease | no | new | `projects/Henderson lease/Renewal notice summary.md` | I saved it as "Renewal notice summary.md" at the top of the Henderson lease project. |
+| "draft a short email to my landlord asking about renewing, as a file" | Henderson lease | no | new | `workers/writer/Files/Lease renewal email to landlord.md` | I saved it as "Lease renewal email to landlord" under Files on my page in Kosmos. Is this for the Henderson lease project? |
+| same landlord email | Henderson lease, Maple Street lease | no | new | `workers/writer/Files/Lease renewal email.md` | It's saved as "Lease renewal email.md" under Files on my page in Kosmos. Is this for the Henderson lease or the Maple Street lease? Tell me which and I'll move it into that project. |
+| same landlord email | none | no | new | `workers/writer/Files/lease-renewal-email.md` | I drafted a short email to your landlord about renewing, and saved it as **lease-renewal-email.md** under Files on my page in Kosmos. |
+| "For the Oak Avenue lease, a one-paragraph summary ... as a file" (a project it is not on) | Henderson lease | no | new | `workers/writer/Files/Oak Avenue lease - renewal notice summary.md` | I wrote the one-paragraph summary and saved it as **"Oak Avenue lease - renewal notice summary.md"** under Files on my page in Kosmos. I'm not on an Oak Avenue lease project, so it couldn't go into a project folder. Once I'm added to that project, I can move it there. |
+| "time for your four-hourly running summary" (the role's running-record section added) | Henderson lease | no | new | `workers/writer/summaries/2026-09-25-14.md` | I wrote the four-hourly summary to `summaries/2026-09-25-14.md` in my own folder. There was nothing to report this period: I had no tasks or conversations, and the Henderson lease project folder is still empty. |
+| "...a packing list, put it in my outbox folder at <path>" (a place the person names) | Henderson lease | no | new | `outbox/weekend-camping-packing-list.md` | I wrote a weekend camping packing list and saved it as `weekend-camping-packing-list.md` in your outbox folder. |
+| same outbox ask | none | no | new | `outbox/weekend-camping-packing-list.md` | I saved your packing list as `weekend-camping-packing-list.md` in your outbox folder. |
+| "Fix the typos in the lease renewal email you made me." (an existing file in Files, about Henderson Street) | Henderson lease | no | new | `workers/writer/Files/lease-renewal-email.md, edited in place; nothing copied or moved` | I fixed two typos in the email: It's still in the same place: lease-renewal-email.md, under Files on my page in Kosmos. |
+| the packing list | Henderson lease | yes | new | `workers/writer/Files/Weekend Camping Packing List.html` | It's called **Weekend Camping Packing List** and it's under Files on my page in Kosmos. |
+| the landlord email | Henderson lease | yes | new | `projects/Henderson lease/Lease renewal email to landlord.txt (and a working copy, workers/writer/renewal.md)` | I've drafted the email and saved it in the Henderson lease project as **Lease renewal email to landlord.txt**. The project folder was empty, so I didn't have any of those. |
+| the landlord email | Henderson lease, Maple Street lease | yes | new | `workers/writer/Files/Lease renewal email.rtf` | I've drafted your renewal email and saved it as **Lease renewal email** under Files on my page. **One question:** is this for the Henderson lease or the Maple Street lease? Both project folders are empty, so I couldn't tell which one it's for. |
+| CONTROL: the landlord email | Henderson lease | no | main | `workers/writer/Files/Lease renewal email to landlord.md` | I've drafted the email and saved it as **Lease renewal email to landlord.md** in your Files folder, so it's listed on my page. I looked in your Henderson lease project folder for details, but it's empty. |
+| CONTROL: the landlord email | Henderson lease | yes | main | `projects/Henderson lease/Lease renewal email to landlord.txt (and renewal.html beside it)` | I've drafted the email and saved it as **Lease renewal email to landlord.txt** in your Henderson lease project folder. Could you let me know whether a renewal is available, and if so, what terms you have in mind, including the rent and the length of the new lease? The project folder was empty, so I didn't have your lan |
 
-What the change measurably does, honestly: main's old wording already put a named project's file in the
-project (an earlier control) and, in the control above, already saved the one-project landlord email in
-Files and offered to move it. The differences are that the person is now told where to look in their own
-terms ("under Files on my page in Kosmos", not "your Files folder"), an unclear case asks which project
-outright (rows 3, 4, 6), a project it is not on is named as such (row 6), and a running summary is kept
-out of Files (row 7). The block also states the rules outright where main left them to the agent.
+What this shows, honestly:
+- Without the doctrine, the rules hold as written: Files by default, a named project goes to the project,
+  an unclear one is saved in Files with the question asked in the same reply, a project it is not on is
+  said plainly, a named place and an existing file are respected, and a running summary stays out of Files.
+- With the doctrine and one project, the landlord email went into that project and the agent said so. Main's
+  old wording does the same with the doctrine (the md3 control), and without the doctrine main already saved
+  it in Files (m3). So that pull comes from the doctrine's "work you do for a project goes in that project's
+  folder", not from this change, and Josh's card allows it ("put the file in that project ... if that is what
+  makes sense contextually"). This is the plan's weakest premise, measured.
+- What the change measurably adds over main: the person is told where to look in their own terms ("under
+  Files on my page in Kosmos", not "your Files folder"), an unclear case asks which project outright, a
+  project it is not on is named as such, a named place or an existing file is followed, and the rules are
+  stated outright where main left them to the agent.

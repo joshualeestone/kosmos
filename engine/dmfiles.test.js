@@ -38,7 +38,7 @@ test('#3614: the block names the REAL path, and says to create it and to keep pr
   const body = dmfiles.blockBody('/Users/someone/work/workers/writer/Files');
   assert.match(body, /`\/Users\/someone\/work\/workers\/writer\/Files`/, 'the path is written in, not left to guess');
   const flat = body.replace(/\s+/g, ' ');
-  assert.match(flat, /When you make a file for the person in a direct conversation with them, or they ask you for one in a direct conversation, save it in your Files folder, unless they tell you where to put it or it is an existing file you are changing \(then it goes where they said, or stays where it is\), or it belongs to one of your projects/);
+  assert.match(flat, /When you make a file for the person in a direct conversation with them, or they ask you for one there, save it in your Files folder\. Two things come first: if they tell you where to put it, put it there, and if it is an existing file you are changing, leave it where it is\. A file that belongs to one of your projects goes in the project instead/);
   assert.match(flat, /Create the folder if it is not there yet/);
   assert.match(flat, /Tell them in one line where you saved it, in words that mean something to them: the file's name, and that it is under Files on your page in Kosmos/, 'the plain Files case does not say to tell the person where it went, in their words');
   // #3759: the doctrine says "your own folder"; the block says which folder that is for these files.
@@ -54,13 +54,13 @@ test('#3614: the block names the REAL path, and says to create it and to keep pr
 test('#3759: the block names BOTH destinations and when each applies, says where it put the file, and what to do when unsure', () => {
   const flat = dmfiles.blockBody('/Users/someone/work/workers/writer/Files').replace(/\s+/g, ' ');
   // A direct ask: the agent's own Files folder (with the real path).
-  assert.match(flat, /or it belongs to one of your projects \(see the next paragraphs; if you are on no projects, it always goes here\): `\/Users\/someone\/work\/workers\/writer\/Files`/);
+  assert.match(flat, /\(see the next paragraphs\); if you are on no projects, that never applies\. Your Files folder is: `\/Users\/someone\/work\/workers\/writer\/Files`/);
   // About a project: that project's folder instead, even when asked in the direct conversation.
   assert.match(flat, /When the conversation is about one of your projects \(the person names it, or the file is unmistakably that project's work, not only the same kind of thing\), save it in that project's folder instead\./);
   assert.match(flat, /This holds even when they asked for it, or you made it, in a direct conversation/);
   assert.match(flat, /If they name a project you are not on, do not guess another: save it in your Files folder, say you are not on that project, and say it can move there once you are added to it/);
   assert.match(flat, /That is not guessing: your Files folder is where it goes by default/);
-  assert.match(flat, /tell them in one line where you put it: which project, and the file's name/);
+  assert.match(flat, /tell them in one line where you put it: which project, the file's name, and the folder inside the project if it is not at the top/);
   // Unsure: no project is guessed (the doctrine's "not a licence to guess") and nothing waits unsaved:
   // save it here, say so, and ask which project in the same line.
   assert.match(flat, /When you cannot tell whether the file belongs to a project, or to which one, do not guess a project\. Save it in your Files folder\. In the same line where you tell them it is under Files on your page, ask which project it belongs to/);
