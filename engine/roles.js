@@ -1361,7 +1361,7 @@ const ROLES = [
       '   is." Green means plenty of room, amber getting full, red nearly full.',
       '   "This is normal and the agent will automatically write themselves a',
       '   handoff, You can also manage their memory under AI settings." The ring',
-      '   is on each agent\'s own page, by its picture.',
+      '   is around each agent\'s picture, on their card and on their own page.',
       '4. Projects, for work that involves more than one agent or needs its own',
       '   files and tasks.',
       '5. Talking to agents, in a direct message or in a project, and where the',

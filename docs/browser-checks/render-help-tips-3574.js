@@ -56,6 +56,7 @@ const tipsRunning = (page) => page.waitForFunction(() => TIPS_STATE !== null && 
    filter decodes a lone pixel to its raw bytes (no left or upper neighbour), so no decoder is needed. */
 const pixel = async (page, x, y) => {
   const buf = await page.screenshot({ clip: { x, y, width: 1, height: 1 } });
+  if (buf[24] !== 8 || (buf[25] !== 2 && buf[25] !== 6)) throw new Error('pixel: not an 8-bit RGB(A) PNG (depth ' + buf[24] + ', type ' + buf[25] + ')');
   const idat = [];
   for (let o = 8; o < buf.length;) { const len = buf.readUInt32BE(o), type = buf.toString('ascii', o + 4, o + 8); if (type === 'IDAT') idat.push(buf.subarray(o + 8, o + 8 + len)); o += 12 + len; }
   const raw = zlib.inflateSync(Buffer.concat(idat));
@@ -136,16 +137,18 @@ const resetStore = (state) => fs.writeFileSync(tipsStore.FILE(), JSON.stringify(
     chk((await api('GET')).seen.includes('tour'), 'T2 the board records the tour as seen');
     // Her first agent arrives: the screen tips follow the tour. Her memory reads 62% (the fixture has no transcript, so
     // the board would report it unknown and her page would draw no ring for the tip to point at).
+    /* Only while the check asks for it (localStorage survives the reloads), so later arms see the board's real answer. */
     await page.addInitScript(() => {
       const f = window.fetch;
       window.fetch = async (...a) => {
         const r = await f(...a);
-        if (!String(a[0]).startsWith('/api/status')) return r;
+        if (!String(a[0]).startsWith('/api/status') || localStorage.getItem('aw-check-ctx') !== '62') return r;
         const j = await r.clone().json();
         (j.agents || []).forEach((x) => { x.context = { tokens: 124000, percent: 62, confidence: 'exact', notYet: false }; });
         return new Response(JSON.stringify(j), { status: r.status, headers: { 'content-type': 'application/json' } });
       };
     });
+    await page.evaluate(() => localStorage.setItem('aw-check-ctx', '62'));
     withAgent();
     await page.reload({ waitUntil: 'networkidle' });
 
@@ -189,6 +192,19 @@ const resetStore = (state) => fs.writeFileSync(tipsStore.FILE(), JSON.stringify(
     chk(!(await cardState(page)).shown && (await api('GET')).seen.includes('ring'), 'T3 Escape closes it and counts as seen');
     await page.click('#tabs [data-tab="agents"]');
     await page.waitForTimeout(300);
+    // T3c: an agent whose memory is unknown has no ring on her page, so the tip has nothing to point at and does not
+    // show (CONTROL: the same page with a reading shows it, T3 above).
+    const seen3c = (await api('GET')).seen;
+    resetStore({ seen: seen3c.filter((id) => id !== 'ring'), off: false });
+    await page.evaluate(() => localStorage.removeItem('aw-check-ctx'));
+    await page.reload({ waitUntil: 'networkidle' });
+    await page.click('#grid [data-agent]');
+    await page.waitForTimeout(3000);
+    const t3c = await page.evaluate(() => ({ ring: !!document.querySelector('#panel-detail #d-ring svg'), card: (() => { const c = document.getElementById('tipcard'); return c && !c.hidden ? c.querySelector('h2').textContent : null; })() }));
+    chk(!t3c.ring && t3c.card !== 'Your agent\'s memory', 'T3c unknown memory: no ring on her page, and no ring tip', JSON.stringify(t3c));
+    resetStore({ seen: seen3c, off: false });
+    await page.click('#tabs [data-tab="agents"]');
+    await page.reload({ waitUntil: 'networkidle' });
 
     // T4: a reload does not bring back what was closed (control: T1-T3b each showed before closing).
     await page.reload({ waitUntil: 'networkidle' });
@@ -841,7 +857,7 @@ const resetStore = (state) => fs.writeFileSync(tipsStore.FILE(), JSON.stringify(
         const after = await corners();
         const cls33 = await p33.evaluate(() => document.documentElement.classList.contains('tip-dimming') || getComputedStyle(document.documentElement).backgroundImage !== 'none');
         chk(after.every((px) => px[0] > 240) && !cls33, 'T33 [' + eng + '] CONTROL: closed, the same pixels are the bright page and the gutter dim is gone', JSON.stringify({ after, cls33 }));
-        if (eng !== 'chromium') await p33.close();
+        await p33.close();
       } finally { if (eng !== 'chromium') await b33.close(); }
     }
 

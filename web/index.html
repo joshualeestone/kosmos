@@ -54650,7 +54650,7 @@ const TIPS = [
      that page's own tip. The ? still opens it anywhere: it points at this page's ring, else a card's. The body
      is Josh's words; his first line repeated the head, so it starts at "The ring shows". */
   { id: 'ring', title: 'Your agent\'s memory',
-    show: () => tipVisible('#panel-detail #d-ring svg'),
+    show: () => tipVisible('#panel-detail #d-ring svg') && tipVisible('#panel-detail #d-sec-talk'),   // with the page's own tip, which goes first
     at: '#panel-detail #d-ring svg, #grid .agauge:has(.gf), #grid .agauge:has(.gu), #alist .lring', side: true,   // beside it: above and below are her name and buttons
     body: '<p>The ring shows how full your agent\'s memory is.</p>'
       + '<div class="tip-bands">' + TIP_BAND('', 'Plenty of room') + TIP_BAND('warn', 'Getting full') + TIP_BAND('high', 'Nearly full') + '</div>'
@@ -54918,10 +54918,12 @@ function tipSuspend(on) {
   else tipLayout(TIP_OPEN, card);
 }
 
-/* #3737: the scrollbar gutter dims with the tour (the html.tip-dimming rule), from the body's own ground. */
+/* #3737: the scrollbar gutter dims with the tour (the html.tip-dimming rule), from the body's own ground. Read from
+   the body because a look can set --k-bg there, where the root cannot see it (Kosmos+ navy), and as the token,
+   because navy's body paints a gradient, so its background colour reads transparent. */
 function tipDimming(on) {
   const root = document.documentElement;
-  if (on) root.style.setProperty('--tip-canvas', getComputedStyle(document.body).backgroundColor);
+  if (on) { const g = getComputedStyle(document.body).getPropertyValue('--k-bg').trim(); if (g) root.style.setProperty('--tip-canvas', g); }
   root.classList.toggle('tip-dimming', !!on);
 }
 
@@ -55036,9 +55038,11 @@ function tipPlace(card, sel, side = false, { key = '', avoid = true } = {}) {
      Tried only after the usual places, so wherever one of those was clear the choice is unchanged. */
   if (!offScreen) {
     const mid = r.top + r.height / 2;
+    const lo = Math.max(pad, mid - h + 19), hi = Math.min(vh - h - pad, mid - 19);
     for (const base of [right, leftSide]) {
-      for (let top = sideTop - 24; top >= Math.max(pad, mid - h + 19); top -= 24) if (onScreen(base.left, top)) cands.push({ ...base, top });
-      for (let top = sideTop + 24; top <= Math.min(vh - h - pad, mid - 19); top += 24) if (onScreen(base.left, top)) cands.push({ ...base, top });
+      for (let d = 24; sideTop - d >= lo || sideTop + d <= hi; d += 24) {   // nearest first, up then down
+        for (const top of [sideTop - d, sideTop + d]) if (top >= lo && top <= hi && onScreen(base.left, top)) cands.push({ ...base, top });
+      }
     }
   }
   if (!cands.length) cands.push({ ...below, cls: offScreen ? 'flat' : below.cls, top: Math.max(pad, Math.min(r.bottom + 12, vh - h - pad)) });
