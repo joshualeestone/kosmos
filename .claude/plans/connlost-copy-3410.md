@@ -4,7 +4,7 @@
 A card whose agent lost its API connection says, in plain words, what Kosmos is doing about it:
 "Reconnecting…" (calm, not red) with "Kosmos will retry once it is back" or "Kosmos asked it to try
 again" while the self-heal (#3667) still has retries to give; the red "Connection lost" with
-"Still can't connect after several tries. Check this Mac's internet, then restart it." once it has
+"Still can't connect after several tries. Check this computer's internet connection, then restart it." once it has
 given up; and the unchanged "Connection lost / Looks like it lost its internet connection" when
 the self-heal is not running, so the page never promises a retry nobody will send.
 
@@ -27,7 +27,7 @@ the person to act when they need not.
 - "Kosmos will retry once it is back" / "Kosmos asked it to try again": what the heal actually
   does (it types one retry message when the API is reachable; it does not restart).
 - Gave up: "several tries" not "3", so the sentence stays true if the cap changes; "check this
-  Mac's internet, then restart it" is the next step a person can take (the card's restart).
+  computer's internet connection, then restart it" is the next step a person can take (the card's restart).
 
 ## Rejected
 - A copy-only change ("Kosmos will retry...") with no engine field: false after the heal gives up

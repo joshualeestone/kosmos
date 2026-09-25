@@ -15957,7 +15957,7 @@ function stateReason(a, opts) {
     /* #3410: then say what Kosmos is doing about it (a.reconnect, from /api/status). No
        reconnect field means the self-heal is not running, so no retry is promised. */
     const ph = a.reconnect && a.reconnect.phase;
-    if (ph === 'gave_up') return "Still can't connect after several tries. Check this Mac's internet, then restart it.";
+    if (ph === 'gave_up') return "Still can't connect after several tries. Check this computer's internet connection, then restart it.";
     const lost = a.stateConfidence === 'scraped'
       ? 'Looks like it lost its internet connection'
       : 'It lost its internet connection';
