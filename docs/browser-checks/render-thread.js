@@ -340,21 +340,24 @@ async function main() {
      goes unreported, on the renderer this branch wrote from scratch. */
   const pageErrors = [];
   page.on('pageerror', (e) => pageErrors.push(String(e)));
-  /* TWO named exemptions, SCOPED to the same block: opening an UNTIED
+  /* THREE named exemptions, SCOPED to the same block: opening an UNTIED
      agent's panel (the rook check arms this flag around itself) fires
-     two probes whose refusal is by design and logs as a failed-resource
+     three probes whose refusal is by design and logs as a failed-resource
      console error.
 
        - the removal probe, a 400 for untied agents (pre-existing);
        - the agent's own thread, a 404 for a borrowed name -- the
          `borrowedName` gate, which exists so one pane cannot serve the
-         real agent's private conversation beside a stranger's card.
+         real agent's private conversation beside a stranger's card;
+       - the agent's Files list (#3614), a 404 for a name with no folder of
+         its own here (#3542).
 
-     Both are the product refusing correctly, and neither is suppressible
+     All three are the product refusing correctly, and none is suppressible
      from the page: a browser logs any 4xx response as a failed resource.
-     Armed only around that block, so either probe failing anywhere else
-     -- for a TIED agent, where neither refusal is by design -- still
-     fails the run. The exemption is why the block below also ASSERTS
+     The thread one is armed only around that block; the removal and Files
+     ones are keyed on the untied name's URL instead (see below). Either way
+     a refusal for any other agent still fails the run (a TIED agent's Files
+     404 would mean a real agent missing its own folder). The exemption is why the block below also ASSERTS
      what the refusal draws: a tolerated request that draws nothing is
      how a check turns into permission. */
   /* 🛑 THE 400 EXEMPTION IS KEYED ON SCOPE, NOT ON TIMING, and it had to be.
@@ -379,12 +382,21 @@ async function main() {
   const UNTIED_NAME = 'rook';
   const exempt400 = (text, url) => /Failed to load resource.*400/.test(text)
     && new RegExp('/api/agent/' + UNTIED_NAME + '/removal(\\?|$)').test(url);
+  const exempt404Files = (text, url) => /Failed to load resource.*404/.test(text)
+    && new RegExp('/api/agent/' + UNTIED_NAME + '/files(\\?|$)').test(url);
   let expectUntiedRefusals = false;
   page.on('console', (m) => {
     if (m.type() !== 'error') return;
     const url = m.location().url || '';
     if (exempt400(m.text(), url)) return;
     if (expectUntiedRefusals && /Failed to load resource.*404/.test(m.text()) && /\/thread$/.test(url)) return;
+    /* #3542: the agent page's Files list (#3614) asks the same route family, and it too answers 404
+       for a name with no folder of its own here (rook, the borrowed name, has
+       none). By design, like /thread: the page turns it into
+       its own sentence, asserted below, so it is exempted only for the untied agent's /files. */
+    // Keyed on scope (the untied name's URL), not on the armed window, like exempt400: the Files
+    // list re-polls every 5 s, so a 404 can land just after the window closes.
+    if (exempt404Files(m.text(), url)) return;
     /* 🔑 THE OPERATOR'S OWN PICTURE, WHICH A FRESH MACHINE DOES NOT HAVE. The
        route answers 404 for "no picture is set" and the page reads exactly that
        (`YOU_PIC = r.ok`), so this is the fixture's normal state rather than a
@@ -545,6 +557,19 @@ async function main() {
     check(!exempt400('Failed to load resource: the server responded with a status of 500 (Server Error)',
       'http://127.0.0.1/api/agent/' + UNTIED_NAME + '/removal'),
       'CONTROL: the exemption swallows statuses other than 400 on that route');
+    // The same two-way controls for the #3542 /files exemption.
+    check(exempt404Files('Failed to load resource: the server responded with a status of 404 (Not Found)',
+      'http://127.0.0.1/api/agent/' + UNTIED_NAME + '/files'),
+      'CONTROL: the /files exemption covers the untied agent\'s Files 404');
+    check(!exempt404Files('Failed to load resource: the server responded with a status of 404 (Not Found)',
+      'http://127.0.0.1/api/agent/casey/files'),
+      'CONTROL: the /files exemption does not swallow a TIED agent\'s Files 404');
+    check(!exempt404Files('Failed to load resource: the server responded with a status of 404 (Not Found)',
+      'http://127.0.0.1/api/agent/' + UNTIED_NAME + '/files/reveal'),
+      'CONTROL: the /files exemption does not swallow a different route under it');
+    check(!exempt404Files('Failed to load resource: the server responded with a status of 500 (Server Error)',
+      'http://127.0.0.1/api/agent/' + UNTIED_NAME + '/files'),
+      'CONTROL: the /files exemption does not swallow statuses other than 404 on that route');
     expectUntiedRefusals = true;
     await rookCard.click();
     await page.waitForSelector('#panel-detail:not([hidden])', { timeout: 10000 });
@@ -595,6 +620,16 @@ async function main() {
     check(rookTalk.sayDisabled === true && rookTalk.sendDisabled === true,
       'the composer is closed over a conversation we cannot read (a box that accepts text here is the two-state lie)',
       JSON.stringify(rookTalk));
+    /* #3542: the /files 404 tolerated above is only by design if the page says what it means. */
+    await page.waitForFunction(() => /no folder of its own/.test((document.getElementById('d-files-msg') || {}).innerText || ''),
+      null, { timeout: 5000 }).catch(() => {});
+    const rookFiles = await page.evaluate(() => {
+      const el = document.getElementById('d-files-msg');
+      return el ? { text: el.innerText, h: el.getBoundingClientRect().height } : null;
+    });
+    check(!!rookFiles && rookFiles.h > 0 && rookFiles.text.includes('This agent has no folder of its own on this computer'),
+      'the borrowed name\u2019s Files list says, on screen, it has no folder here (the reason its /files 404 is tolerated)',
+      JSON.stringify(rookFiles));
     await page.click('#detail-back');
     await page.waitForTimeout(300);
     expectUntiedRefusals = false;

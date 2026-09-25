@@ -263,11 +263,13 @@ const STATE = {
      working chrome while it retries, so an actively-retrying agent stays
      WORKING (the live-working checks precede this); this state is reached only
      once the retries are exhausted and the pane sits with the error, where it
-     used to read UNKNOWN ("Can't tell"). It is RECOVERABLE by a restart when
-     connectivity returns (the self-heal half, #3410 PR 2), which is why it is
-     its own state and not folded into AUTH_FAILED (an auth failure a restart
-     cannot fix) or UNKNOWN (which must never be auto-restarted). The SSL/cert
-     class is deliberately excluded: it needs a CA-trust fix, not a restart. */
+     used to read UNKNOWN ("Can't tell"). It is RECOVERABLE once connectivity
+     returns: the self-heal (#3410 PR 2b, engine/connlost-heal.js) types a short
+     retry nudge into the pane, which keeps the agent's context (a restart would
+     lose it). That is why it is its own state and not folded into AUTH_FAILED
+     (an auth failure a nudge cannot fix) or UNKNOWN (which nothing may type
+     into automatically). The SSL/cert class is deliberately excluded: it needs
+     a CA-trust fix, which retrying cannot give it. */
   CONNECTION_LOST: 'connection_lost',
   IDLE: 'idle',
   STOPPED: 'stopped',
@@ -2018,8 +2020,8 @@ const AUTH_FRIENDLY_REMEDY = /Please run \/login|Re-authenticate to continue/i;
  *   - StreamSuspended -> "Connection lost while your computer was asleep": rendered
  *     EARLIER (not by this "Connection error." switch), a sleep/wake artifact with
  *     its OWN recovery path (the session resumes when the Mac wakes), not the
- *     DNS/network-down class #3410 targets. Auto-restarting it (PR 2) would abort a
- *     session that resumes on its own.
+ *     DNS/network-down class #3410 targets. The self-heal nudge (PR 2b) would type a
+ *     stray message into a session that resumes on its own.
  *   - StreamNoResponse -> "No response from API": the connection was MADE but no
  *     first byte arrived in the window. The network is not down and the connection
  *     is not lost -- it is a server-side hang, a different symptom from this state,
@@ -2033,8 +2035,8 @@ const AUTH_FRIENDLY_REMEDY = /Please run \/login|Re-authenticate to continue/i;
  * apostrophe in the pattern would silently miss a curly one the bundle might render
  * -- the identical fragility the em-dash avoidance guards against, and one a test
  * using the same author-typed apostrophe could not catch. Matched as a SUBSTRING per
- * row (like AUTH_FRIENDLY_MESSAGE) so the "API Error:" prefix / `●` bullet the TUI
- * wraps around it does not matter.
+ * row. Since #3410 PR 2b the row must be Claude Code's own column-0 "API Error:" row (see
+ * connectionLostAtTail below), so the `●`/`⏺` bullet does not matter but the prefix does.
  *
  * 🛑 THE SSL/CERT CLASS IS DELIBERATELY EXCLUDED. Its lines are
  * `Unable to connect to API: SSL certificate …` (a COLON after "API"), which is
@@ -2042,15 +2044,17 @@ const AUTH_FRIENDLY_REMEDY = /Please run \/login|Re-authenticate to continue/i;
  * remedy, not reconnecting). The two "Unable to connect to API" arms here match
  * only the PERIOD form ("… API. Check your internet connection") and the PAREN
  * form ("… API (CODE)"), never the colon form -- so an SSL error never reads
- * connection_lost and never triggers the self-heal restart (#3410 PR 2).
+ * connection_lost and never triggers the self-heal nudge (#3410 PR 2b).
  *
- * ⚠️ ONE RESIDUAL, the same one AUTH_FRIENDLY_MESSAGE pins and accepts: a card or
- * message quoting one of these lines verbatim reads connection_lost. It is rare,
- * and it is not silent: reconcileReport's connection-lost half (rule 3b, #3410)
- * makes the scraped connection_lost stand over the agent's report WITH a conflict
- * note, so a self-reporting agent shows the state plus "its reports cannot know
- * about" rather than being masked back to working/idle. A missed wedged agent is
- * worse than a rare false pause -- this file's oldest trade.
+ * ⚠️ THE TRADE MOVED IN #3410 PR 2b, knowingly. Before it, any row containing the phrase
+ * counted, so a message quoting it read connection_lost (a rare false pause, accepted as
+ * better than a missed wedged agent). PR 2b's sweep TYPES into panes that read
+ * connection_lost, so a false read now costs a message typed into a healthy agent. So only
+ * Claude Code's own column-0 "API Error:" row counts, and only while nothing newer follows
+ * it. The new residual runs the other way: an error drawn indented (for example under a
+ * tool's `⎿`, which some older Claude Code builds may have done; every 2.1.281 capture
+ * draws it at column 0) reads "Can't tell" instead of connection_lost. That fails safe for
+ * the nudge, and reconcileReport's rule 3b still applies to what does match.
  *
  * 📌 SCOPE: CLAUDE CODE ONLY, DELIBERATELY. These are Claude Code's formatter
  * strings and the classify() rule that uses them lives in the Claude branch, so a
@@ -2061,6 +2065,70 @@ const AUTH_FRIENDLY_REMEDY = /Please run \/login|Re-authenticate to continue/i;
  * separate change with its own captured strings, not a silent omission here.
  */
 const CONNECTION_LOST_MESSAGE = /reach the API server|No internet route|a firewall or proxy may be blocking it|Connection dropped \(|connect through your proxy|Unable to connect to API\. Check your internet connection|Unable to connect to API \(|Request timed out\. Check your internet connection/i;
+
+/* #3410 PR 2b: the connection error only counts while nothing newer follows it. Measured
+   2026-09-24 (2.1.281): an agent nudged after the API came back answered at once ("⏺ PINEAPPLE"),
+   but its old "⏺ API Error: …" line stayed on screen above the new turn, and the pane kept
+   reading connection_lost (this rule sits above the idle footer rule), so a sweep would nudge an
+   agent that had already recovered. So: take the LAST matching row, and if any agent-output row
+   ("⏺ " or "● ", the bullets Claude Code puts on what the agent writes) comes after it, the line
+   is stale and the rule does not fire. Prompt rows, footers and the status bar are not agent
+   output, so a wedged pane (error, footer, empty prompt, status bar) still matches, whatever
+   placeholder its prompt shows. Returns the evidence line, or null. */
+// Column 0 on purpose: Claude Code draws its own error row at column 0 (every capture), while an
+// agent's quoted line or a tool's output is indented. `^\s*` let those read connection_lost.
+const API_ERROR_ROW = /^(?:[⏺●]\s+)?API Error:/u;
+// How many indented continuation rows under an "API Error:" row are read as part of it. Claude Code
+// breaks its own long message text; the longest network message (~140 characters, the proxy
+// tunnel one) can take three rows on a narrow pane, so allow four.
+const API_ERROR_CONTINUATION_ROWS = 4;
+// How Claude Code's network messages END: an error code in parentheses, "Check your internet
+// connection" (optionally "and proxy settings"), or the proxy-tunnel message's "allows this host".
+// The joined error must end there. An agent's own reply that happens to start with "API Error:"
+// is drawn the same way ("⏺ " at column 0) but goes on with prose, so it does not end on one of
+// these. Residual: prose that itself ends on "(CODE)" still counts.
+// The code is printed as the runtime gave it: Node's ECONNREFUSED style and Bun's mixed-case
+// ConnectionRefused / FailedToOpenSocket / ConnectionClosed (read from Claude Code 2.1.282).
+const API_ERROR_MESSAGE_END = /(?:\([A-Za-z][A-Za-z0-9_]*\)|internet connection(?: and proxy settings)?|allows this host)\.?$/;
+function connectionLostAtTail(tail) {
+  const rows = String(tail == null ? '' : tail).split('\n');
+  let at = -1;
+  let atJoined = '';
+  // Only Claude Code's own error row counts ("⏺ API Error: …", or bare "API Error: …", at column 0
+  // and ending the way its messages end), never the agent's prose quoting the same words: that would read connection_lost on a healthy agent,
+  // and PR 2b's sweep types into panes that read connection_lost.
+  // Claude Code breaks its own long error text onto indented continuation rows (not tmux soft
+  // wraps, so capture-pane -J does not rejoin them), so the phrase is looked for on the error row
+  // joined with the continuation rows under it.
+  for (let i = 0; i < rows.length; i += 1) {
+    if (!API_ERROR_ROW.test(rows[i])) continue;
+    let joined = rows[i];
+    for (let k = 1; k <= API_ERROR_CONTINUATION_ROWS && i + k < rows.length && /^\s{2,}\S/.test(rows[i + k]) && !/^\s*[⏺●❯›⎿✻]/.test(rows[i + k]); k += 1) {
+      joined += ' ' + rows[i + k].trim();
+    }
+    if (CONNECTION_LOST_MESSAGE.test(joined) && API_ERROR_MESSAGE_END.test(joined.trim())) { at = i; atJoined = joined; }
+  }
+  if (at === -1) return null;
+  // Newer content supersedes it: agent output, or any later Claude Code error row (bulleted or
+  // bare), which means the current error is a different one.
+  // A retry line after it (any shape, including ones RETRYING_LINES does not match, such as a
+  // minutes countdown) also supersedes it: Claude Code is working on a newer attempt.
+  // A person's input also supersedes it: a submitted prompt, which Claude Code echoes as a
+  // "❯ text" row above the input box. That covers a person pressing Esc on the retry a nudge
+  // started (the nudge's own echo is above the "Interrupted" row), so they are not nudged again.
+  // The input box's own prompt row is the LAST prompt row, and text there is a draft or a
+  // placeholder, not a submission.
+  let lastPrompt = -1;
+  for (let i = rows.length - 1; i > at; i -= 1) if (/^\s*[❯›>]\s/.test(rows[i]) || /^\s*[❯›>]\s*$/.test(rows[i])) { lastPrompt = i; break; }
+  for (let i = at + 1; i < rows.length; i += 1) {
+    if (/^\s*[⏺●]\s/.test(rows[i]) || API_ERROR_ROW.test(rows[i]) || /Retrying in\s+\d/.test(rows[i])) return null;
+    if (i !== lastPrompt && /^\s*[❯›>]\s+\S/.test(rows[i])) return null;
+  }
+  // Evidence without the ⏺/● bullet, so the same error reads the same however it was drawn.
+  // The whole message, continuation rows included, so the evidence shows what the screen says.
+  const line = atJoined.replace(/^[⏺●]\s+/, '').replace(/\s+/g, ' ').trim();
+  return line.length > 240 ? line.slice(0, 240) + '…' : line;
+}
 
 /* #3410: Claude Code's live retry line, anchored at both ends:
    "✻ <error> · Retrying in 5s · attempt 4/10". Measured 2026-09-24 (2.1.281) in all 152
@@ -3855,7 +3923,7 @@ function classify(pane, paneText) {
    * `RETRYING_LINES` rule just above) on purpose: Claude Code retries a network
    * error internally and draws a live "· Retrying in Ns · attempt K/N" line while
    * it does, so an agent that is ACTIVELY RETRYING classifies WORKING and is never
-   * touched by the self-heal restart (#3410 PR 2). Only once the retries are exhausted and the
+   * touched by the self-heal nudge (#3410 PR 2b). Only once the retries are exhausted and the
    * error line is sitting on a pane with no live spinner do we reach here -- the
    * exact "wedged, will not recover on its own" state Josh hit, which used to
    * fall through to the idle footer rule or to UNKNOWN ("Can't tell"). It sits
@@ -3871,27 +3939,15 @@ function classify(pane, paneText) {
    * ellipsis and no "(Ns" timer, so WORKING_LINE missed it and all 152 retrying
    * seconds read connection_lost. RETRYING_LINES now catches it
    * (status.connlost-retry-3410.test.js, built from those frames). A future Claude Code
-   * that draws its retry differently would reopen this, and the self-heal restarts on
+   * that draws its retry differently would reopen this, and the self-heal nudges on
    * this state, so re-measure after a Claude Code UI change.
    *
-   * ⚠️ A SECOND STALE-READ, ALSO COSMETIC FOR PR 1 AND LOAD-BEARING FOR PR 2: this
-   * rule sits ABOVE the idle/finished fallbacks, so an agent that ALREADY RECOVERED
-   * and went idle still reads connection_lost while its old error line remains in the
-   * ~25-row capture window (it scrolls out as the recovered agent produces new
-   * output, so PR 1 self-corrects within a few lines -- and a recently-recovered
-   * agent briefly labelled "Connection lost" is stale, not a false calm). Unlike
-   * auth_failed, this state has NO external freshness signal (auth_failed has the
-   * #1930 liveAuth-healthy guard; there is no "is the network back" probe in
-   * classify). ⇒ PR 2 must NOT restart on connection_lost alone: connectivity
-   * returning is necessary but not sufficient, because a recovered pane can show
-   * connectivity-up AND a stale error line at once. PR 2 needs a "still actually
-   * wedged" bound (no new activity since the error / the error is the live tail),
-   * not just a connectivity probe, or it will restart an agent that already healed.
+   * ✅ THE STALE READ IS BOUNDED (PR 2b, measured 2026-09-24): an agent that recovered kept its
+   * old error line on screen above its new turn and read connection_lost, which the auto-recovery
+   * sweep (engine/connlost-heal.js, a nudge, not a restart) would have acted on. connectionLostAtTail
+   * now takes the LAST Claude Code "API Error:" row and ignores it once an agent-output row follows.
    */
-  /* The shared matchedLine helper (as rate_limited uses it): first row matching
-     CONNECTION_LOST_MESSAGE, leading frame/prompt glyphs stripped, capped at 240 --
-     one derivation of "find the evidence line", not a private copy. */
-  const connLine = matchedLine(tail, [CONNECTION_LOST_MESSAGE]);
+  const connLine = connectionLostAtTail(tail);
   if (connLine !== null) {
     return {
       state: STATE.CONNECTION_LOST,

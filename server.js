@@ -704,6 +704,7 @@ const createdbeacon = require('./engine/createdbeacon'); // #3038: install + age
 const heartbeat = require('./engine/heartbeat');
 const prompternudge = require('./engine/prompternudge'); // #3508: the Prompter's local in-app nudge store (the delivery half #2623 removed)
 const class1autohandle = require('./engine/class1-autohandle'); // #2808 class-1 (c): invisible auto-handle
+const connlostHeal = require('./engine/connlost-heal'); // #3410 PR 2b: nudge a network-wedged agent when the network is back
 const liveExecution = require('./engine/live-execution'); // #2808 class-1 (c): gate the auto-handle sweep on the board's live-execution opt-in
 const heartbeatSetting = require('./engine/heartbeat-setting');
 const recommenderSetting = require('./engine/recommender-setting'); // #2619
@@ -722,6 +723,7 @@ const githubdevice = require('./engine/githubdevice');
 const remote = require('./engine/remote');
 const phonenotify = require('./engine/phonenotify');
 const styles = require('./engine/styles');
+const tips = require('./engine/tips');
 const inflight = require('./engine/inflight');
 
 /**
@@ -2249,6 +2251,15 @@ function nameRefusal(name) {
   } catch {
     return 'unreadable';
   }
+}
+
+/* The 404 body for a `nameRefusal` reason, shared by the DM thread's routes so the two
+   sentences are written once. */
+function nameRefusalBody(refusal) {
+  return {
+    error: refusal === 'borrowed' ? 'no agent by that name' : 'we could not check which agents are running',
+    because: refusal,
+  };
 }
 
 /**
@@ -6732,6 +6743,26 @@ const server = http.createServer((req, res) => {
       .catch(() => sendJson(res, 400, { error: 'we could not save the style' }));
     return;
   }
+  /* ---- First-run help and first-visit tips (#3574): which tips are closed, and the off switch ---- */
+  if (pathname === '/api/tips' && (req.method === 'GET' || req.method === 'HEAD')) {
+    try { const r = tips.read(); sendJson(res, 200, { ok: r.ok, seen: r.seen, off: r.off, because: r.because || null }); }
+    catch { sendJson(res, 500, { error: 'we could not read your tips' }); }
+    return;
+  }
+  if (pathname === '/api/tips' && req.method === 'PUT') {
+    readBody(req)
+      .then((buf) => {
+        let body;
+        try { body = JSON.parse(buf.toString('utf8') || '{}') || {}; }
+        catch { sendJson(res, 400, { error: 'we could not read that request' }); return; }
+        if (typeof body !== 'object' || Array.isArray(body)) { sendJson(res, 400, { error: 'we could not read that request' }); return; }
+        const saved = tips.set({ seen: body.seen, off: body.off });
+        if (!saved.ok) { sendJson(res, 400, { error: saved.because }); return; }
+        sendJson(res, 200, { ok: true, seen: saved.seen, off: saved.off });
+      })
+      .catch(() => sendJson(res, 400, { error: 'we could not save your tips' }));
+    return;
+  }
   /* #2623: the /api/notify-setting route (the "let the Kosmos team know when an
      agent posts or answers you" phone-home on/off) was deleted with the seam. */
   /* #1722: the heartbeat setting (Settings > Automation). GET returns the value
@@ -9297,7 +9328,7 @@ const server = http.createServer((req, res) => {
     /* timezone is null until the operator sets one; the UI then defaults its
        dropdown to the browser's own machine timezone (detected client-side,
        the authoritative source for the operator's machine). */
-    sendJson(res, 200, { timezone: (s && s.timezone) || null, autohandoff: autohandoff.settingFrom(s) });
+    sendJson(res, 200, { timezone: (s && s.timezone) || null, autohandoff: autohandoff.settingFrom(s), setupAssistant: setupAssistant.settingFrom(s) });
     return;
   }
   if (pathname === '/api/settings' && req.method === 'POST') {
@@ -9323,12 +9354,21 @@ const server = http.createServer((req, res) => {
           }
           patch.autohandoff = { enabled: body.autohandoff.enabled, threshold: body.autohandoff.threshold };
         }
+        /* #3034: the setup assistant bubble's switch (on) and whether its first-X
+           choice was offered (asked). A patch may set either key; the other is kept. */
+        if ('setupAssistant' in body) {
+          const problem = setupAssistant.settingPatchProblem(body.setupAssistant);
+          if (problem) { sendJson(res, 400, { ok: false, because: problem }); return; }
+          let had;
+          try { had = store.readSettings(); } catch { had = {}; }
+          patch.setupAssistant = setupAssistant.mergeSetting(had, body.setupAssistant);
+        }
         if (Object.keys(patch).length === 0) {
           sendJson(res, 400, { ok: false, because: 'no known setting to save' });
           return;
         }
         const saved = store.writeSettings(patch);
-        sendJson(res, 200, { ok: true, timezone: saved.timezone || null, autohandoff: autohandoff.settingFrom(saved) });
+        sendJson(res, 200, { ok: true, timezone: saved.timezone || null, autohandoff: autohandoff.settingFrom(saved), setupAssistant: setupAssistant.settingFrom(saved) });
       })
       .catch((err) => sendJson(res, 400, { ok: false, because: String((err && err.message) || 'we could not read that request') }));
     return;
@@ -9738,21 +9778,20 @@ const server = http.createServer((req, res) => {
           projects.markWelcomeSeeded({ project: welcome.id, via: 'first-run' });
         }
       } catch { /* the welcome project is a nicety; onboarding still completed */ }
-      /* #3034: GATED OFF pending Josh's direction -- the why (and the release
-         timing) lives with FIRSTRUN_AUTOCREATE_ENABLED in engine/setup-assistant.js,
-         not repeated here. WHEN ENABLED, this seeds the one-time setup-assistant
-         agent (named after the user, on their own connected account), same posture
-         as the welcome seed above: once-ever, best-effort, and it MUST NOT throw or
-         block because onboarding has already succeeded. It skips silently with no
-         connected Claude account, no saved user name, or if already seeded, and the
-         flag file is written only on a real create, so a skip leaves nothing behind. */
+      /* #3034/#3660: Giddy Up ARMS the setup guide; it is created the moment a model is
+         connected (Splinter, 19:06), which may already be true here or may come later
+         from Settings (the sweep at board start catches that). Never created without a
+         model: it could not run. An existing install is armed only if someone
+         deliberately re-runs first-run (?first-run=1), so existing boards never get an
+         unasked-for agent. The why lives with FIRSTRUN_AUTOCREATE_ENABLED and
+         ensureGuide in engine/setup-assistant.js.
+         Fire-and-forget and best-effort: onboarding has already succeeded. */
       if (setupAssistant.FIRSTRUN_AUTOCREATE_ENABLED) {
         try {
-          const seed = setupAssistant.seedSetupAssistant({ createAgent: create.createAgent });
-          if (seed && seed.seeded) {
-            setupAssistant.markSetupAssistantSeeded({ name: seed.name, via: 'first-run' });
-          }
-        } catch { /* the setup assistant is a nicety; onboarding still completed */ }
+          setupAssistant.armSetupAssistant();
+          setupAssistant.ensureGuide({ createAgent: create.createAgent, via: 'first-run' })
+            .catch(() => { /* the setup guide is a nicety; onboarding still completed */ });
+        } catch { /* the setup guide is a nicety; onboarding still completed */ }
       }
     }
     /**
@@ -11575,6 +11614,40 @@ const server = http.createServer((req, res) => {
      read it (Josh, 2026-08-23 12:38). It merged every project thread and the
      agent-to-agent record into one tail for the agent page; a room's
      messages are read in that room, and nothing else asked for the merge. */
+  /* #3650: the person TOGGLES an emoji reaction on one of an agent's messages in their
+     Direct Message, the DM twin of the room's react route below (same operator surface,
+     same cross-site posture as every POST here, and the thread GET's name gate). The
+     message is named by its `at`; the engine refuses anything that is not exactly one of
+     this agent's own messages. The response carries the message's fresh pills so the
+     page repaints one row. */
+  const dmReact = pathname.match(/^\/api\/agent\/([^/]+)\/thread\/react$/);
+  if (dmReact && req.method === 'POST') {
+    const name = decodeSegment(dmReact[1]);
+    if (name === null) { sendJson(res, 400, { error: 'that is not a name we can read' }); return; }
+    // The DM thread's own gate (see the thread route below): a pane under this name that is
+    // not tied to it must not write into the real agent's private thread.
+    const refusal = nameRefusal(name);
+    if (refusal) {
+      sendJson(res, 404, nameRefusalBody(refusal));
+      return;
+    }
+    readBody(req)
+      .then((buf) => {
+        let body;
+        try { body = JSON.parse(buf.toString('utf8') || '{}'); } catch {
+          const bad = new Error('that request is not something we can read'); bad.status = 400; throw bad;
+        }
+        if (!body || typeof body !== 'object') {
+          const bad = new Error('that request is not the shape we expect'); bad.status = 400; throw bad;
+        }
+        const out = chat.reactDirect(name, body.at, body.emoji);
+        sendJson(res, out.ok ? 200 : 400, out);
+      })
+      .catch((err) => sendJson(res, (err && err.status) || 400,
+        { error: String((err && err.message) || 'we could not read that request') }));
+    return;
+  }
+
   /**
    * --- the thread between the person and ONE agent -------------------------
    *
@@ -11627,12 +11700,7 @@ const server = http.createServer((req, res) => {
        `nameRefusal`: 'borrowed' is standing and 'unreadable' is a blip. */
     const refusal = nameRefusal(name);
     if (refusal) {
-      sendJson(res, 404, {
-        error: refusal === 'borrowed'
-          ? 'no agent by that name'
-          : 'we could not check which agents are running',
-        because: refusal,
-      });
+      sendJson(res, 404, nameRefusalBody(refusal));
       return;
     }
     /**
@@ -11831,8 +11899,18 @@ const server = http.createServer((req, res) => {
     const servedMessages = Array.isArray(messages)
       ? chat.withQuestionRow(messages, (card && card.sessionName) || name, question)
       : messages;
+    /* #3650: the person's reactions on the agent's messages, in the room's pill shape
+       ({emoji, count, who, mine}) so the page draws them with the room's renderer.
+       `reactionsTold` is the engine's own bookkeeping and is not sent. */
+    const reactedMessages = Array.isArray(servedMessages)
+      ? servedMessages.map((m) => {
+        if (!m || m.from !== name) return m;
+        const { reactionsTold, ...rest } = m;
+        return Array.isArray(m.reactions) ? { ...rest, reactions: chat.dmReactionPills(m) } : rest;
+      })
+      : servedMessages;
     sendJson(res, 200, {
-      messages: withPreviews(servedMessages),
+      messages: withPreviews(reactedMessages),
       olderCount,
       historyBecause,
       historyUnfilable,
@@ -12081,7 +12159,22 @@ const server = http.createServer((req, res) => {
            operator message rather than having to be instructed to know it. No
            timezone set (or an unreadable id) yields the bare prefix, unchanged. */
         const opPrefix = messages.operatorDirect(messages.operatorNowLabel(store.readSettings().timezone));
-        const delivery = chat.deliver(name, body.text, roster, opPrefix, attachments.wireNote(files.recs));
+        /* #3650: reactions the person put on the agent's messages since it was last told
+           ride this message as one `[kosmos]` note after the person's words (a reaction
+           is feedback, so it waits for a message rather than waking the agent). */
+        /* Not on a numbered menu answer (chat.dmNoteMayRide); the note waits for the next
+           ordinary message. */
+        const news = chat.dmNoteMayRide(body.text, chose) ? chat.dmReactionNews(name) : { note: '', named: {} };
+        const reactionNote = news.note;
+        const delivery = chat.deliver(name, body.text, roster, opPrefix,
+          (attachments.wireNote(files.recs) || '') + reactionNote);
+        /* Only PLACED counts as told. The note is the tail of the wire, so an UNCONFIRMED
+           send (a paste that failed part-way, a pane that changed before Enter) is the case
+           most likely to have lost it. Telling twice costs one extra note; not telling is
+           silent. A failed mark (the thread lock busy) also just tells again next time. */
+        if (reactionNote && delivery && delivery.state === chat.DELIVERY.PLACED) {
+          chat.markDmReactionsTold(name, news.named);
+        }
         const kept = chat.appendMessage(chat.DIRECT, name, {
           ...attachments.rowFields(files.recs),
           text: chose || body.text,
@@ -13598,6 +13691,50 @@ const server = http.createServer((req, res) => {
   }
 
   /**
+   * #3034: tell the setup guide which screen the person is on (Josh, 2026-09-24
+   * 16:05: "if it was like context aware for what page you were on that would be
+   * dope"). The help bubble posts here when it opens and as the person moves;
+   * engine/pagecontext.js writes the report beside the guide's instructions, and
+   * the guide's role tells it to read that before answering.
+   *
+   * 🔑 A FILE, NOT A LINE ON THE MESSAGE: the chat route records exactly what the
+   * person typed, and a prefix would put words in the thread they never wrote.
+   * Only the seeded guide is ever written to: the name the seed recorded
+   * (setupAssistant.guideName()), and only while that agent's folder still carries
+   * the seed's marker (isGuideFolder), so it cannot drop a file into any other
+   * agent's folder whatever the body says, including a later agent that took the
+   * name of a deleted guide. A REMOVED guide keeps its folder and marker (removal deletes
+   * nothing), so the route also checks the removed list and answers 404 for it.
+   * Until the first-run seed is switched on no install has a guide, so 404 is the
+   * normal answer and the bubble treats it as "no guide", not as an error.
+   */
+  if (pathname === '/api/setup-guide/page' && req.method === 'POST') {
+    readBody(req)
+      .then((buf) => {
+        let body;
+        try { body = JSON.parse(buf.toString('utf8') || '{}'); } catch { body = null; }
+        if (!body || typeof body !== 'object' || Array.isArray(body)) { sendJson(res, 400, { error: 'we could not read that request' }); return; }
+        const guide = setupAssistant.guideName();
+        if (!guide) { sendJson(res, 404, { error: 'there is no setup guide on this computer' }); return; }
+        /* The recorded name is not enough: a guide deleted and a new agent given the same
+           name would otherwise receive the reports. Only the folder the seed marked. */
+        if (!setupAssistant.isGuideFolder(guide)) { sendJson(res, 409, { error: 'the setup guide is not on this computer any more' }); return; }
+        /* Removing an agent deletes nothing on disk (engine/remove.js), so the marker
+           survives a removal: a REMOVED guide is "no guide" until it is restored. An
+           unreadable removed list refuses rather than write to an agent that may be gone. */
+        const removed = removal.removedNames();
+        if (!removed.ok) { sendJson(res, 409, { error: 'we could not check whether the setup guide was removed' }); return; }
+        if (removed.names.includes(create.cleanName(guide))) { sendJson(res, 404, { error: 'there is no setup guide on this computer' }); return; }
+        const pageContext = require('./engine/pagecontext');
+        const out = pageContext.write(guide, body);
+        if (out.ok) { sendJson(res, 200, { ok: true }); return; }
+        sendJson(res, out.bad ? 400 : 409, { error: out.because });
+      })
+      .catch((err) => sendJson(res, err && err.status ? err.status : 400, { error: (err && err.message) || 'we could not read that request' }));
+    return;
+  }
+
+  /**
    * Show a person where their stored dialogue lives (kosmos#969).
    *
    * Josh, 2026-08-26: Project Settings already has "Show me where the work
@@ -14961,6 +15098,26 @@ function start(port = PORT) {
         } catch { /* best-effort, like the sweeps above */ }
       }, Number(process.env.AGENT_WORKFORCE_CLASS1_AUTOHANDLE_MS) > 0 ? Number(process.env.AGENT_WORKFORCE_CLASS1_AUTOHANDLE_MS) : 60 * 1000); // the env is the test seam only
       if (class1Sweep && typeof class1Sweep.unref === 'function') class1Sweep.unref();
+      /* #3410 PR 2b: recover a network-wedged agent by itself. When an agent's pane has read
+         connection_lost with the same error line on consecutive ticks and the API host is
+         reachable again, type one retry message into it (engine/connlost-heal.js: a nudge keeps the
+         agent's context, where a restart would lose it). At most 3 nudges per outage (an outage
+         ends only after a sustained recovery, see connlost-heal.js), then it stops and the card
+         stays red for a person. Same gating as the class-1 sweep: inert under
+         `node --test` and before the live-execution opt-in, operator brake
+         AGENT_WORKFORCE_CONNLOST_HEAL_OFF=1, own ~1-min timer, unref'd, best-effort. */
+      const connlostBook = new Map(); // in memory: a board restart (or the outage ending) clears an escalation
+      const connlostTick = connlostHeal.makeTick({
+        allowed: () => liveExecution.liveExecutionAllowed(),
+        roster: () => safeRoster(),
+        book: connlostBook,
+        probe: () => connlostHeal.probeApi(),
+        deliver: (session, text, r) => chat.deliver(session, text, r, undefined, undefined),
+        DELIVERY: chat.DELIVERY,
+        log: (r) => process.stdout.write(`connlost-heal: ${r.name} (${r.session}) ${r.act}${r.act === 'nudge' ? ' delivery=' + (r.delivery || '?') : ''} - ${r.because}\n`),
+      });
+      const connlostSweep = setInterval(connlostTick, Number(process.env.AGENT_WORKFORCE_CONNLOST_HEAL_MS) > 0 ? Number(process.env.AGENT_WORKFORCE_CONNLOST_HEAL_MS) : 60 * 1000); // the env is the test seam only
+      if (connlostSweep && typeof connlostSweep.unref === 'function') connlostSweep.unref();
       /* #3595 phase 1: the Recommender runner. Reads recommender-setting every tick (default OFF
          until tool-level guards land; Splinter 2026-09-24), and for an agent that REPORTED itself
          stuck on a project past the grace period it convenes help ONCE: a room note, an ask
@@ -15028,6 +15185,26 @@ function start(port = PORT) {
         try { feedbacksend.sendDailyOnce(feedback.today()); } catch { /* best-effort, like the sweeps above */ }
       }, Number(process.env.AGENT_WORKFORCE_FEEDBACK_SWEEP_MS) > 0 ? Number(process.env.AGENT_WORKFORCE_FEEDBACK_SWEEP_MS) : 60 * 60 * 1000); // the env is the test seam only
       if (feedbackSweep && typeof feedbackSweep.unref === 'function') feedbackSweep.unref();
+      /* #3034/#3660: the setup guide is created the moment the first model is connected,
+         after Giddy Up, from any provider's connect path (keys, sign-ins that finish in the
+         background). One sweep sees them all instead of a hook in every route. Cheap until
+         something is connected (the accounts lists only); ensureGuide backs off after a
+         refusal, is single-flight, and does nothing on an unarmed (pre-existing) install or
+         once seeded. Its own timer, unref'd, best-effort, like the sweeps above. */
+      if (setupAssistant.FIRSTRUN_AUTOCREATE_ENABLED) {
+        let guideSweep = null;
+        const guideTick = () => {
+          try {
+            /* Once a guide exists there is nothing left to do: stop the timer. */
+            if (setupAssistant.setupAssistantSeeded()) { if (guideSweep) clearInterval(guideSweep); return; }
+            setupAssistant.ensureGuide({ createAgent: create.createAgent, via: 'model-connected' })
+              .catch(() => { /* best-effort */ });
+          } catch { /* best-effort */ }
+        };
+        guideTick();
+        guideSweep = setInterval(guideTick, Number(process.env.AGENT_WORKFORCE_GUIDE_SWEEP_MS) > 0 ? Number(process.env.AGENT_WORKFORCE_GUIDE_SWEEP_MS) : 60 * 1000); // the env is the test seam only
+        if (guideSweep && typeof guideSweep.unref === 'function') guideSweep.unref();
+      }
       /* #3038: register this install with installkosmos.com so the homepage
          INSTALL count moves (Josh's #1-frustration regression: it was frozen at
          32 because the app never POSTed /api/created). UNCONDITIONAL -- it
@@ -15227,6 +15404,13 @@ if (require.main === module) {
        an agent launched before it lands simply starts without a browser. */
     try { require('./engine/agentbrowser').kickInstall(); } catch { /* agents start without a browser */ }
   } else {
+    /* #3633: the Mac half of the agents' own browser. On a Mac the install also
+       fetches the pinned browser (about 100 MB, once), so a failure is logged and
+       retried with backoff rather than left until the next board start; when it
+       stops is listed on installWithRetry. Never fatal and never awaited. */
+    if (process.platform === 'darwin') {
+      try { require('./engine/agentbrowser').installWithRetry(); } catch { /* agents start without a browser */ }
+    }
     /* #1078: on the non-win32 (Mac, and any other launchd-shaped) path, wire the
        created-never-run roster source. An agent Kosmos created but has never run
        has a launchd job + worker dir but no tmux pane and no live beat, so the
