@@ -48,3 +48,11 @@ it too; that is intended, but a dense future section may look taller than its de
   only the dot padding rule fails the dot check (dot 1px over the label), so that rule is needed.
 - Before/after shots, 4 sizes x 2 themes (375x667, 393x852, 412x915, 430x932): pills 5-6 rows
   before, 1 row after, no page overflow in any. Kept in Sonya's evidence/settings-718.
+- Centring moved into `centreSettingsPill()`, also run by `showTab('settings')` and when the
+  window crosses into the phone width: a section chosen while Settings was hidden, or at desktop
+  width, was never centred. Two checks cover it and fail with the two hooks removed. Their first
+  version passed with the hooks removed too, because Chrome's scroll-snap restores the pill it
+  last snapped to; each now uses a pill nothing at phone width clicked before it.
+- The 44px rule on `.dsec` buttons was measured over all 11 sections at 375px: every visible
+  button is block-level (none sit inside a sentence), and the dense lists (Global Skills,
+  Connections) read cleanly. Deferred as not an issue.

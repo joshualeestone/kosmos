@@ -364,6 +364,39 @@ function chk(ok, label, extra) {
       chk(hit.h < 44 && hit.hits, `[${theme}] at 375px a switch keeps its drawn size and a tap 8px above it lands on it`, JSON.stringify(hit));
       await page.screenshot({ path: path.join(OUT, `settings-${theme}-phone.png`), fullPage: false });
 
+      /* The current pill is centred on the two paths that do not go through a pill click:
+         a section chosen while Settings is hidden (showTab brings it back), and a section chosen
+         at desktop width before the window narrows to a phone. Each starts from scrollLeft 0,
+         so a pass means the page moved the row. Each uses its own middle pill that no step at
+         phone width clicked ('policy', then 'automation'): Chrome's scroll-snap restores the
+         pill it last snapped to, which would centre a previously clicked pill with no help. */
+      const centred = (go) => page.evaluate((key) => {
+        const nav = document.getElementById('s-nav');
+        const b = nav.querySelector('button[data-go="' + key + '"]');
+        const n = nav.getBoundingClientRect(), c = b.getBoundingClientRect();
+        const boxL = n.left + nav.clientLeft, boxR = boxL + nav.clientWidth;
+        return { go: key, on: b.classList.contains('on'), off: Math.round((c.left + c.width / 2) - (boxL + boxR) / 2), scrollLeft: nav.scrollLeft };
+      }, go);
+      await page.evaluate(() => {
+        if (document.activeElement) document.activeElement.blur();
+        showTab('agents');
+        document.getElementById('s-nav').scrollLeft = 0;
+        settingsGo('policy', { focus: false });
+        showTab('settings');
+      });
+      await page.waitForTimeout(400);
+      const viaShow = await centred('policy');
+      chk(viaShow.on && viaShow.scrollLeft > 0 && Math.abs(viaShow.off) <= 3,
+        `[${theme}] at 375px a section chosen while Settings was hidden is centred when Settings shows`, JSON.stringify(viaShow));
+      await page.setViewportSize({ width: 1400, height: 950 });
+      await page.waitForTimeout(300);
+      await page.evaluate(() => { document.getElementById('s-nav').scrollLeft = 0; settingsGo('automation', { focus: false }); });
+      await page.setViewportSize({ width: 375, height: 667 });
+      await page.waitForTimeout(500);
+      const viaResize = await centred('automation');
+      chk(viaResize.on && viaResize.scrollLeft > 0 && Math.abs(viaResize.off) <= 3,
+        `[${theme}] a section chosen at desktop width is centred once the window narrows to 375px`, JSON.stringify(viaResize));
+
       // The widest #718 phone (430) is still one row and still does not scroll sideways.
       await page.setViewportSize({ width: 430, height: 932 });
       await page.waitForTimeout(300);

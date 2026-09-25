@@ -19514,6 +19514,7 @@ function showTab(tab) {
     SURVIVAL_HELD = false;
   } else { paintRemoved(); paintSurvival(); }
   PANELS.forEach((p) => { document.getElementById('panel-' + p).hidden = (p !== tab); });
+  if (tab === 'settings') centreSettingsPill();
   /* #1615: un-blue + tear down the Plus canvases when leaving Settings (or when
      the Settings section is not Plus); re-blue + re-mount on return. The Settings
      section persists across tab switches, so this must run on every tab change,
@@ -29244,6 +29245,23 @@ document.getElementById('d-nav').addEventListener('click', (e) => {
    block moved into 'automation'. A leftover 'talking' here would keep a dead
    section key reachable by URL that no nav pill points at. */
 const SETTINGS_SECTIONS = ['you', 'accounts', 'connect', 'gskills', 'policy', 'mac', 'automation', 'usage', 'updates', 'plus', 'advanced'];
+/* #718 mobile: on a phone the Settings nav is one sideways-scrolling row, so the current pill
+   is centred in it. Horizontal only (scrollLeft), so the page never jumps vertically. A no-op
+   while the nav does not overflow, including while Settings is hidden, so it also runs when
+   Settings is shown (showTab) and when the window crosses into the phone width. */
+function centreSettingsPill() {
+  const nav = document.getElementById('s-nav');
+  const cur = nav && nav.querySelector('button.on');
+  if (!cur || nav.scrollWidth <= nav.clientWidth) return;
+  const n = nav.getBoundingClientRect(), c = cur.getBoundingClientRect();
+  nav.scrollLeft += (c.left - n.left - nav.clientLeft) - (nav.clientWidth - c.width) / 2;
+}
+{
+  const phone = window.matchMedia('(max-width: 40rem)');
+  phone.addEventListener('change', () => {
+    if (!document.getElementById('panel-settings').hidden) centreSettingsPill();
+  });
+}
 function settingsGo(section, opts) {
   if (!SETTINGS_SECTIONS.includes(section)) section = 'you';
   SETTINGS_SEC = section;
@@ -29253,13 +29271,7 @@ function settingsGo(section, opts) {
     b.classList.toggle('on', on);
     if (on) b.setAttribute('aria-current', 'true'); else b.removeAttribute('aria-current');
   });
-  /* #718 mobile: on a phone the nav is one sideways-scrolling row, so centre the current pill
-     in it. Horizontal only (scrollLeft), so the page never jumps vertically. */
-  const cur = nav.querySelector('button.on');
-  if (cur && nav.scrollWidth > nav.clientWidth) {
-    const n = nav.getBoundingClientRect(), c = cur.getBoundingClientRect();
-    nav.scrollLeft += (c.left - n.left) - (nav.clientWidth - c.width) / 2;
-  }
+  centreSettingsPill();
   let target = null;
   document.querySelectorAll('#panel-settings .dsec').forEach((sec) => {
     const on = sec.dataset.sec === section;
