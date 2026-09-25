@@ -5258,6 +5258,30 @@ body:not(.consolidated) .pjmidhead:has(.pjhead) .tsearch:focus-within { flex-bas
    .msg-bd renders paragraphs via pjProse <p> blocks (no literal \n), so it needs none and
    is left untouched. */
 #d-dmthread .msg-bd { white-space: pre-wrap; overflow-wrap: anywhere; }
+/* #718 (agent chat on a phone). Three things the DM bubble got wrong once it was narrow:
+   1. A TABLE inherited `overflow-wrap: anywhere` from the rule above, which makes every
+      cell's min-content one character, so the table crushed to a letter per line instead
+      of scrolling inside .mdtablewrap. Cells wrap at words again; the wrapper scrolls.
+   2. An ATTACHMENT card is `width: min(100%, 34rem)`, but the bubble shrink-wraps its
+      text, so 100% resolved against a caption-wide bubble and the card spilled out of it
+      (off the left edge on the person's own right-aligned rows). A bubble holding a card
+      takes the whole row, so the percentage has a real width to resolve.
+   3. On a phone the side gutters (avatar, gap, the 48px reserved opposite) left an iPhone
+      SE a ~155px text column; the 40rem block below tightens them for the DM only. */
+#d-dmthread .mdtablewrap { overflow-wrap: normal; }
+#d-dmthread .mdtable th { white-space: nowrap; }
+/* Narrow only (the board's 56rem stacking breakpoint): on a wide window the caption-wide
+   bubble still has room for the card, and widening it there would change the desktop look. */
+@media (max-width: 56rem) {
+  #d-dmthread .msg-b:has(.att) { flex: 1 1 auto; }
+  #d-dmthread .msg.you .msg-bd:has(.att) { align-self: stretch; }
+}
+@media (max-width: 40rem) {
+  #d-dmthread .msg { gap: 8px; }
+  #d-dmthread .msg-av { width: 28px; height: 28px; flex-basis: 28px; font-size: .8125rem; }
+  #d-dmthread .msg:not(.you) .msg-b { margin-right: 20px; }
+  #d-dmthread .msg.you .msg-b { margin-left: 20px; }
+}
 .msg.you .msg-bd { background: var(--usermsg-tint); }
 /* #2947 / #3260: the one flat cream fill (background-COLOR, not the `background`
    shorthand, so the #2921 hover overlay -- a background-IMAGE on .msg:hover
