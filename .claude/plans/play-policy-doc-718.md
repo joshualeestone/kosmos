@@ -15,6 +15,9 @@ things:
    full tester script as card kosmos #3699.
 
 ## Decisions
+- **One pointer line in Step 10** (the Android production bullet) for the second policy read, so
+  item 1 is seen at the step where it applies; and a cross-reference in Step 5's Undo block. Both
+  only point at the item, they add no content.
 - **Scope cut after ten review rounds** (Liu Kang, m703). A 60-line tester script for four phone
   checks kept surfacing the next edge each round, because nobody can run it without a phone. It is
   kept on branch `play-policy-doc-718-full` (cd9a8541) and card #3699, to be corrected against a
