@@ -58,10 +58,16 @@ test('#3034: the setup guide speaks as the builder, says it is an AI, follows th
   assert.doesNotMatch(flat, /You cannot see their screen/, 'the old line survived beside the context-aware one');
   assert.match(flat, /The ring shows how full your agent's memory is\./, 'the ring words changed; they are the ring tip\'s text, Josh\'s words from #3737, keep them in step');
   assert.match(flat, /This is normal and the agent will automatically write themselves a handoff, You can also manage their memory under AI settings\./, 'the ring tip\'s second line, #3737, keep it in step');
-  assert.match(role.label, /Josh's AI/, 'the label that renders with the name does not say it is an AI');
-  // One copy of the tag (review round 2): the label and the opening line are built from roles.GUIDE_TAG,
-  // and setup-assistant re-exports that same value for the bubble.
-  assert.ok(role.label.startsWith(roles.GUIDE_TAG) && role.firstAction.includes(roles.GUIDE_TAG));
+  // #3739 (Josh, 2026-09-25 08:51): the title is "Kosmos Guide"; the AI disclosure stays in the opening line
+  // and the instructions (below). The card's role is parsed from the first line, so it reads the same title.
+  assert.equal(role.label, 'Kosmos Guide');
+  assert.equal(role.label, roles.GUIDE_TITLE);
+  assert.equal(require('./status').identityFromText(roles.instructionsFor('setup', 'Josh')).role, roles.GUIDE_TITLE,
+    'the card would parse a different title from the instructions');
+  assert.doesNotMatch(flat, /Kosmos setup guide/, 'the long title survived in the instructions');
+  // One copy of the tag (review round 2): the opening line is built from roles.GUIDE_TAG, and setup-assistant
+  // re-exports that same value for the bubble.
+  assert.ok(role.firstAction.includes(roles.GUIDE_TAG));
   assert.equal(require('./setup-assistant').GUIDE_TAG, roles.GUIDE_TAG, 'two copies of the AI tag drifted');
   assert.match(role.firstAction, /Josh's AI\. I built Kosmos/, 'the opening line does not say it is an AI');
 });
