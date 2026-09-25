@@ -45,6 +45,7 @@ const path = require('path');
 const https = require('https');
 const crypto = require('crypto');
 const zlib = require('zlib');
+const { pipeline } = require('stream/promises');
 const { execFile } = require('child_process');
 const platformGate = require('./platform');
 
@@ -537,7 +538,9 @@ function resolveBin(provider, opts) {
        seen the moment it lands and a refusal names where it would go (as openai's does). */
     const plat = (opts && opts.platform) || process.platform;
     const managed = managedBin(manifestFor('gemini', plat, (opts && opts.arch) || process.arch), plat, 'gemini');
-    if (isRunnable(managed)) return { bin: managed, present: true, managed: true, overridden: false };
+    // A launcher that can no longer find a node is not present: Connect then offers the
+    // download again, which rewrites it (review pass 1).
+    if (isRunnable(managed) && launcherHasNode(managed)) return { bin: managed, present: true, managed: true, overridden: false };
     const legacy = (opts && opts.legacyBin) || '/opt/homebrew/bin/gemini';
     if (isRunnable(legacy)) return { bin: legacy, present: true, managed: false, overridden: false };
     return { bin: managed, present: false, managed: true, overridden: false };
@@ -907,16 +910,52 @@ function plainFailure(err, m, stage) {
  * nothing.
  */
 /**
- * #3713: the shell launcher for a node-program runner. Both paths are absolute and single-
- * quoted (a quote inside a path is closed, escaped and reopened), so a home folder with a
- * space or a quote in it cannot split or run anything. `exec` hands the process over, so
- * signals and the exit status are the program's own.
+ * #3713: the shell launcher for a node-program runner (Gemini). It must not break when a path
+ * moves (review pass 1: a baked Homebrew node deleted by an upgrade left a launcher that read
+ * present and could not start, with no way back in the UI). So:
+ *  - the program is found RELATIVE to the launcher (like the codex symlink, which is relative
+ *    so a moved KOSMOS_HOME carries it intact);
+ *  - node is Kosmos's own runtime, found relative to the runners folder (KOSMOS_HOME/runners/
+ *    <provider>/<bin> -> KOSMOS_HOME/runtime/bin/node), and only then the node the board ran on
+ *    at install time, recorded on the `# kosmos-node:` line so resolveBin can check it is still
+ *    there (launcherHasNode) and read an unrunnable launcher as missing, which a reinstall fixes.
+ * Every path is single-quoted with embedded quotes escaped, so a space or a quote cannot split or
+ * run anything; `exec` hands over the process, so signals and the exit status are the program's.
  */
-function nodeLauncher(nodeBin, script) {
+const LAUNCHER_NODE_MARK = '# kosmos-node: ';
+function nodeLauncher(nodeBin, scriptInPkg) {
   const q = (p) => "'" + String(p).replace(/'/g, "'\\''") + "'";
   return '#!/bin/sh\n'
-    + '# Written by Kosmos (#3713): runs this runner with the node Kosmos runs on.\n'
-    + 'exec ' + q(nodeBin) + ' ' + q(script) + ' "$@"\n';
+    + '# Written by Kosmos (#3713): runs this runner with the node Kosmos ships, or the one it was installed with.\n'
+    + LAUNCHER_NODE_MARK + JSON.stringify(String(nodeBin)) + '\n'
+    + 'd=$(cd "$(dirname "$0")" && pwd -P) || exit 127\n'
+    + 'for n in "$d/../../runtime/bin/node" ' + q(nodeBin) + '; do\n'
+    + '  if [ -x "$n" ]; then exec "$n" "$d/pkg/"' + q(scriptInPkg) + ' "$@"; fi\n'
+    + 'done\n'
+    + 'echo "Kosmos cannot find a node to run this with. Connect it again from Kosmos to reinstall it." >&2\n'
+    + 'exit 127\n';
+}
+/* Whether a launcher written by nodeLauncher can still find a node: Kosmos's runtime beside the
+   runners folder, or the node it recorded. A file that is not one of ours (no mark) is not
+   second-guessed. */
+function launcherHasNode(launcher) {
+  let text;
+  try { text = fs.readFileSync(launcher, 'utf8'); } catch { return false; }
+  const line = text.split('\n').find((l) => l.startsWith(LAUNCHER_NODE_MARK));
+  if (!line) return true;
+  let recorded = null;
+  try { recorded = JSON.parse(line.slice(LAUNCHER_NODE_MARK.length)); } catch { recorded = null; }
+  const runtime = path.join(path.dirname(launcher), '..', '..', 'runtime', 'bin', 'node');
+  return isRunnable(runtime) || (typeof recorded === 'string' && isRunnable(recorded));
+}
+
+/* #3713: whether this provider's runner is in the middle of its own install. A path can exist
+   while the install is still proving it (and may yet remove it), so the routes that take a key or
+   start a sign-in treat a live job as not-there-yet, as status() and the OpenAI route already do.
+   Job state only: the routes still ask resolveBin for presence, the seam their tests stub. */
+function installing(provider) {
+  const job = jobs[provider];
+  return !!job && job.phase !== 'installed' && job.phase !== 'failed';
 }
 
 function install(provider, opts) {
@@ -1144,14 +1183,18 @@ function install(provider, opts) {
       if (m.brotliFrom) {
         const from = path.join(pkgNew, m.brotliFrom);
         if (fs.existsSync(from)) {
-          await new Promise((resolve, reject) => {
-            const out = fs.createWriteStream(path.join(pkgNew, binInPackage));
-            out.on('error', reject);
-            out.on('finish', resolve);
-            fs.createReadStream(from).on('error', reject)
-              .pipe(zlib.createBrotliDecompress()).on('error', reject)
-              .pipe(out);
-          });
+          /* pipeline closes both ends on any error, so a failed expand leaks no handle; the
+             half-written file is inside pkg.new-<pid>, which fail() removes, and nothing links
+             to it before the swap. A verified archive that will not expand is a bad download,
+             said as that, not as a disk problem. */
+          try {
+            await pipeline(fs.createReadStream(from), zlib.createBrotliDecompress(), fs.createWriteStream(path.join(pkgNew, binInPackage)));
+          } catch (err) {
+            console.warn(`[runners] ${provider} expand failed: ${err && (err.code || err.message)}`);
+            if (err && (err.code === 'ENOSPC' || err.code === 'EDQUOT')) throw err;   // plainFailure says disk space
+            fail(`the download of ${m.name || 'the runner'} could not be unpacked, so nothing was installed. Try again later`);
+            return;
+          }
           fs.rmSync(from, { force: true });
         }
       }
@@ -1200,7 +1243,7 @@ function install(provider, opts) {
            left installed. */
         finalBin = path.join(destDir, m.binName);
         fs.rmSync(finalBin, { force: true });
-        fs.writeFileSync(finalBin, nodeLauncher(o.nodeBin || process.execPath, unpacked), { mode: 0o755 });
+        fs.writeFileSync(finalBin, nodeLauncher(o.nodeBin || process.execPath, binInPackage), { mode: 0o755 });
         fs.chmodSync(finalBin, 0o755);
       } else {
         // ONE stable path for every caller, whatever the package layout is:
@@ -1539,4 +1582,4 @@ function resetForTests() { for (const k of Object.keys(jobs)) delete jobs[k]; }
 /* pathextCandidates is exported for the SAME reason create.unusablePath is: its
    win32 branch cannot be asserted from the Mac the suite runs on unless the
    platform is injectable from a test. */
-module.exports = { MANIFEST, CODEX_WIN32, GROK_DARWIN, nodeLauncher, manifestFor, managedBin, verifiedMarker, tarBin, fileIntegrity, plainFailure, managedRoot, resolveBin, homeDir, status, install, download, isRunnable, runnableCandidate, pathextCandidates, runnableExactly, resetForTests };
+module.exports = { MANIFEST, CODEX_WIN32, GROK_DARWIN, nodeLauncher, launcherHasNode, installing, manifestFor, managedBin, verifiedMarker, tarBin, fileIntegrity, plainFailure, managedRoot, resolveBin, homeDir, status, install, download, isRunnable, runnableCandidate, pathextCandidates, runnableExactly, resetForTests };

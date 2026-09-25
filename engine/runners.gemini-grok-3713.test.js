@@ -90,6 +90,8 @@ test('#3713: a Grok download whose compressed binary will not expand is refused,
   await job.settled;
   assert.equal(job.phase, 'failed');
   assert.ok(job.because && !/undefined|\bat \w+ \(/.test(job.because), 'a plain sentence: ' + job.because);
+  assert.match(job.because, /could not be unpacked/, 'a bad archive is said as one, not as a disk problem');
+  assert.doesNotMatch(job.because, /disk space/);
   assert.equal(fs.existsSync(MANAGED_GROK), false, 'nothing is left at the managed path');
   assert.equal(runners.resolveBin('grok', { legacyBin: LEGACY_GROK }).present, false);
   clean();
@@ -109,8 +111,9 @@ test('#3713: Gemini installs as a launcher that runs its bundle with the board\'
   assert.equal(job.proved, 'gemini --version', 'the launcher ran the bundle with node and passed the arguments through');
   const launcher = fs.readFileSync(MANAGED_GEMINI, 'utf8');
   assert.match(launcher, /^#!\/bin\/sh\n/);
-  assert.ok(launcher.includes("exec '" + process.execPath + "' '"), 'it names the node it runs on');
-  assert.ok(launcher.includes(nodePath.join(SANDBOX, 'runners', 'gemini', 'pkg', 'bundle', 'gemini.js')), 'and the unpacked bundle');
+  assert.ok(launcher.includes("'" + process.execPath + "'"), 'it names the node it was installed with');
+  assert.ok(launcher.includes('"$d/pkg/"\'bundle/gemini.js\''), 'and finds the bundle relative to itself, so a moved folder carries it');
+  assert.ok(launcher.includes('"$d/../../runtime/bin/node"'), 'and tries Kosmos\'s own runtime first');
   assert.ok((fs.statSync(MANAGED_GEMINI).mode & 0o111) !== 0, 'the launcher is executable');
   // It runs with NO node on the PATH, which is the fresh-Mac case this launcher exists for.
   const out = execFileSync(MANAGED_GEMINI, ['hello'], { env: { PATH: '/usr/bin:/bin' } }).toString().trim();
@@ -172,6 +175,62 @@ test('#3713: the pins: one Gemini tarball for every Mac, a Grok build per CPU, a
   const st = runners.status();
   assert.equal(st.gemini.pinnedVersion, '0.61.0');
   assert.equal(st.grok.pinnedVersion, '1.0.41');
+});
+
+test('#3713: a launcher whose recorded node is gone reads missing, and Kosmos\'s own runtime node beside the runners folder revives it', async () => {
+  clean();
+  // A node that can move, as a Homebrew upgrade moves a versioned Cellar folder (review pass 1).
+  const cellar = nodePath.join(SANDBOX, 'Cellar', 'node', '26.8.1', 'bin');
+  fs.mkdirSync(cellar, { recursive: true });
+  const moving = nodePath.join(cellar, 'node');
+  fs.symlinkSync(process.execPath, moving);
+  const { tgz, integrity } = tarball([['package/bundle/gemini.js', "console.log('ran ' + process.argv[2]);\n"]]);
+  const job = runners.install('gemini', { platform: 'darwin', legacyBin: LEGACY_GEMINI, download: downloadFrom(tgz), integrity, nodeBin: moving });
+  await job.settled;
+  assert.equal(job.phase, 'installed', job.because || '');
+  assert.equal(runners.resolveBin('gemini', { legacyBin: LEGACY_GEMINI }).present, true);
+  // The upgrade removes that node: the launcher can no longer start, so it must not read present
+  // (else Connect never offers the download that would fix it), and install must download again.
+  fs.rmSync(nodePath.join(SANDBOX, 'Cellar'), { recursive: true, force: true });
+  assert.equal(runners.resolveBin('gemini', { legacyBin: LEGACY_GEMINI }).present, false, 'a launcher with no node is not present');
+  let fetched = false;
+  const again = runners.install('gemini', { platform: 'darwin', legacyBin: LEGACY_GEMINI, integrity, nodeBin: process.execPath,
+    download: (u, f, j) => { fetched = true; return downloadFrom(tgz)(u, f, j); } });
+  await again.settled;
+  assert.ok(fetched && again.phase === 'installed', 'Connect can reinstall it: ' + (again.because || again.phase));
+  // Kosmos's own runtime (KOSMOS_HOME/runtime/bin/node, beside runners/) is used first, whatever was recorded.
+  const runtime = nodePath.join(SANDBOX, 'runtime', 'bin');
+  fs.mkdirSync(runtime, { recursive: true });
+  fs.symlinkSync(process.execPath, nodePath.join(runtime, 'node'));
+  const launcher = MANAGED_GEMINI;
+  fs.writeFileSync(launcher, fs.readFileSync(launcher, 'utf8').replace(JSON.stringify(process.execPath), JSON.stringify('/no/such/node'))
+    .replace("'" + process.execPath + "'", "'/no/such/node'"));
+  assert.equal(runners.launcherHasNode(launcher), true, 'the runtime beside the runners folder counts');
+  assert.equal(execFileSync(launcher, ['x'], { env: { PATH: '/usr/bin:/bin' } }).toString().trim(), 'ran x', 'and is the node it runs with');
+  fs.rmSync(nodePath.join(SANDBOX, 'runtime'), { recursive: true, force: true });
+  assert.equal(runners.launcherHasNode(launcher), false, 'control: with neither node, it is not runnable');
+  clean();
+});
+
+test('#3713: a tool still proving its own install reads as installing, though its path already exists', async () => {
+  clean();
+  const { tgz, integrity } = tarball([['package/bin/grok.br', zlib.brotliCompressSync(Buffer.from('#!/bin/sh\necho grok\n'))]]);
+  let release;
+  const held = new Promise((r) => { release = r; });
+  let seen = null;
+  const job = runners.install('grok', {
+    platform: 'darwin', arch: 'arm64', legacyBin: LEGACY_GROK, download: downloadFrom(tgz), integrity,
+    prove: (bin, done) => {
+      seen = { present: runners.resolveBin('grok', { legacyBin: LEGACY_GROK }).present, installing: runners.installing('grok') };
+      held.then(() => done(null, 'grok 1.0.41'));
+    },
+  });
+  while (!seen) await new Promise((r) => setTimeout(r, 10));
+  assert.deepEqual(seen, { present: true, installing: true }, 'the path exists while it is being proved, and it is still installing');
+  release();
+  await job.settled;
+  assert.equal(runners.installing('grok'), false, 'and is not once installed');
+  clean();
 });
 
 /* The prove seam, run for real on the fixture program: execFile with --version, as the default does. */

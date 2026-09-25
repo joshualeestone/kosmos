@@ -21741,61 +21741,6 @@ function runnerInstallRefusal(out) {
   const said = out && (out.error || out.because || (out.job && out.job.because));
   return said ? pjSentence(said) : 'We could not start that install. Check this computer is online, then try again.';
 }
-/* #3713: Gemini and Grok each run on their own command-line tool, and Kosmos now installs it
-   (pinned, checksum-verified, engine/runners.js) the way it installs OpenAI's Codex. ONE driver
-   for both screens (first run and Settings), so the two cannot drift. It asks the engine for the
-   job's own phase and byte counts, never a guess from elapsed time, and a failed job ends it at
-   once with the engine's own reason. `alive()` says whether the place it was started from is
-   still showing it; once it is not, the driver stops watching (the download carries on in the
-   engine, and the next Connect finds it done or joins it). */
-const KEYED_RUNNER = { google: 'gemini', xai: 'grok' };
-const KEYED_TOOL = { google: "Google's Gemini CLI", xai: "xAI's Grok CLI" };
-async function keyedRunnerInfo(which) {
-  try {
-    const r = (((await (await fetch('/api/runners', { cache: 'no-store' })).json()) || {}).runners || {})[KEYED_RUNNER[which]];
-    return r || null;
-  } catch { return null; }
-}
-function keyedInstallAsk(which, info) {
-  const p = ACCT_APIKEY_PROVIDERS[which];
-  const mb = info && info.downloadBytes ? Math.max(1, Math.round(info.downloadBytes / 1e6)) : null;
-  return 'To connect ' + (p ? p.name : 'it') + ', Kosmos needs ' + KEYED_TOOL[which] + ' on this computer.'
-    + (mb ? ' It is a ' + mb + ' MB download.' : '') + ' Download it now?';
-}
-const KEYED_PHASE_SAY = { verifying: 'Checking the download\u2026', unpacking: 'Unpacking\u2026', proving: 'Making sure it runs on this computer\u2026' };
-async function keyedRunnerInstall(which, say, alive) {
-  try {
-    const res = await fetch('/api/runners/' + KEYED_RUNNER[which] + '/install', { method: 'POST' });
-    const out = await res.json().catch(() => null);
-    if (!res.ok) { say(runnerInstallRefusal(out)); return false; }
-  } catch {
-    say('We could not start that download. Check this computer is online, then try again.');
-    return false;
-  }
-  say('Starting\u2026');
-  const started = Date.now();
-  for (;;) {
-    await new Promise((ok) => setTimeout(ok, 1000));
-    if (!alive()) return false;
-    const o = await keyedRunnerInfo(which);
-    if (!alive()) return false;
-    if (o && o.present) { say(''); return true; }
-    const job = o && o.job;
-    if (job && job.phase === 'failed') {
-      say(job.because ? pjSentence(job.because) : 'That download did not finish. Nothing changed; you can try again.');
-      return false;
-    }
-    if (job && job.phase === 'downloading' && job.totalBytes) {
-      say('Downloading\u2026 ' + Math.round((job.receivedBytes || 0) / 1e6) + ' of ' + Math.max(1, Math.round(job.totalBytes / 1e6)) + ' MB');
-    } else if (job && KEYED_PHASE_SAY[job.phase]) {
-      say(KEYED_PHASE_SAY[job.phase]);
-    }
-    if (Date.now() - started > 600000) {
-      say('This is taking longer than expected. It may still be working. Press Download to check again.');
-      return false;
-    }
-  }
-}
 async function acctOpenaiLook() {
   try {
     const r = await (await fetch('/api/runners', { cache: 'no-store' })).json();
@@ -23364,8 +23309,11 @@ function acctKeyedInstallShow(which, info) {
   document.getElementById('acct-grok-flow').hidden = true;
   document.getElementById('acct-keyed-install-t').textContent = keyedInstallAsk(which, info);
   document.getElementById('acct-keyed-install-msg').textContent = '';
-  document.getElementById('acct-keyed-install-go').disabled = false;
+  const go = document.getElementById('acct-keyed-install-go');
+  go.disabled = false;
   box.hidden = false;
+  go.focus();   // what had focus (Add, or the provider picker) may now be hidden
+  if (keyedJobLive(info)) go.click();   // a download already under way: watch it
 }
 function acctApikeyShow(which) {
   ACCT_APIKEY_GEN += 1;
@@ -23392,7 +23340,7 @@ function acctApikeyShow(which) {
   const visit = ACCT_APIKEY_GEN;
   keyedRunnerInfo(which).then((info) => {
     if (visit !== ACCT_APIKEY_GEN || ACCT_APIKEY_WHICH !== which) return;
-    if (info && info.present === false) acctKeyedInstallShow(which, info);
+    if (info && info.present === false && !onWindows()) acctKeyedInstallShow(which, info);
   });
   document.getElementById('acct-apikey-head').textContent = 'Paste a ' + p.vendor + ' API key for ' + p.name + '.';
   const key = document.getElementById('acct-apikey-key');
@@ -23412,6 +23360,8 @@ document.getElementById('acct-keyed-install-go').addEventListener('click', async
   if (!alive()) return;
   if (!ok) { go.disabled = false; return; }
   acctApikeyShow(which);   // the tool is here now: the key step (or Grok's choice) shows
+  const next = document.getElementById(which === 'xai' ? 'acct-grok-pick-sub' : 'acct-apikey-key');
+  if (next) next.focus();
 });
 document.getElementById('acct-apikey-show').addEventListener('click', () => {
   const key = document.getElementById('acct-apikey-key');
@@ -23451,7 +23401,12 @@ document.getElementById('acct-apikey-go').addEventListener('click', async () => 
     if (!stillHere()) { if (res.ok) paintAccounts(); return; }
     if (!res.ok) {
       /* needsRunner: the tool it runs on is not here, so offer to download it (#3713). */
-      if (out && out.needsRunner) { msg.textContent = ''; acctKeyedInstallShow(which, null); return; }   // #3713: offer the download
+      if (out && out.needsRunner) {   // #3713: offer the download (on Windows, say plainly it cannot)
+        if (onWindows()) throw new Error(keyedMissingOnWindows(which));
+        msg.textContent = '';
+        acctKeyedInstallShow(which, null);
+        return;
+      }
       throw new Error((out && (out.error || out.because)) || 'We could not add that account.');
     }
     keyField.value = '';
@@ -23650,6 +23605,70 @@ function openAcctReauthGrok(dir, email) {
   acctPick('xai', { focus: false });
   document.getElementById('acct-grok-sub-go').focus();
 }
+/* #3713: Gemini and Grok each run on their own command-line tool, and Kosmos now installs it
+   (pinned, checksum-verified, engine/runners.js) the way it installs OpenAI's Codex. ONE driver
+   for both screens (first run and Settings), so the two cannot drift. It asks the engine for the
+   job's own phase and byte counts, never a guess from elapsed time, and a failed job ends it at
+   once with the engine's own reason. `alive()` says whether the place it was started from is
+   still showing it; once it is not, the driver stops watching (the download carries on in the
+   engine, and the next Connect finds it done or joins it). */
+const KEYED_RUNNER = { google: 'gemini', xai: 'grok' };
+const KEYED_TOOL = { google: "Google's Gemini CLI", xai: "xAI's Grok CLI" };
+async function keyedRunnerInfo(which) {
+  try {
+    const r = (((await (await fetch('/api/runners', { cache: 'no-store' })).json()) || {}).runners || {})[KEYED_RUNNER[which]];
+    return r || null;
+  } catch { return null; }
+}
+function keyedInstallAsk(which, info) {
+  const p = ACCT_APIKEY_PROVIDERS[which];
+  const mb = info && info.downloadBytes ? Math.max(1, Math.round(info.downloadBytes / 1e6)) : null;
+  return 'To connect ' + (p ? p.name : 'it') + ', Kosmos needs ' + KEYED_TOOL[which] + ' on this computer.'
+    + (mb ? ' It is a ' + mb + ' MB download.' : '') + ' Download it now?';
+}
+/* On Windows Kosmos does not install these yet (no Gemini or Grok agent can start there), so a
+   missing tool is said plainly there instead of offering a download that would be refused. */
+function keyedMissingOnWindows(which) {
+  const p = ACCT_APIKEY_PROVIDERS[which];
+  return (p ? p.name : 'It') + ' runs on its own command-line tool, "' + KEYED_RUNNER[which]
+    + '", and it is not on this computer. Kosmos cannot install it on Windows yet.';
+}
+/* A job that is still going, so a return to the box joins it rather than asking again. */
+const keyedJobLive = (info) => !!(info && info.job && info.job.phase !== 'failed' && info.job.phase !== 'installed');
+const KEYED_PHASE_SAY = { verifying: 'Checking the download\u2026', unpacking: 'Unpacking\u2026', proving: 'Making sure it runs on this computer\u2026' };
+async function keyedRunnerInstall(which, say, alive) {
+  try {
+    const res = await fetch('/api/runners/' + KEYED_RUNNER[which] + '/install', { method: 'POST' });
+    const out = await res.json().catch(() => null);
+    if (!res.ok) { say(runnerInstallRefusal(out)); return false; }
+  } catch {
+    say('We could not start that download. Check this computer is online, then try again.');
+    return false;
+  }
+  say('Starting\u2026');
+  const started = Date.now();
+  for (;;) {
+    await new Promise((ok) => setTimeout(ok, 1000));
+    if (!alive()) return false;
+    const o = await keyedRunnerInfo(which);
+    if (!alive()) return false;
+    if (o && o.present) { say(''); return true; }
+    const job = o && o.job;
+    if (job && job.phase === 'failed') {
+      say(job.because ? pjSentence(job.because) : 'That download did not finish. Nothing changed; you can try again.');
+      return false;
+    }
+    if (job && job.phase === 'downloading' && job.totalBytes) {
+      say('Downloading\u2026 ' + Math.round((job.receivedBytes || 0) / 1e6) + ' of ' + Math.max(1, Math.round(job.totalBytes / 1e6)) + ' MB');
+    } else if (job && KEYED_PHASE_SAY[job.phase]) {
+      say(KEYED_PHASE_SAY[job.phase]);
+    }
+    if (Date.now() - started > 600000) {
+      say('This is taking longer than expected. It may still be working. Press Download to check again.');
+      return false;
+    }
+  }
+}
 /* #3658: Gemini and Grok connect from first run's model step, by API key (the only path
    that works today for both). The box is shared; FR_APIKEY_WHICH is the provider it is
    open for ('google' | 'xai'), read from ACCT_APIKEY_PROVIDERS so the route, vendor and
@@ -23685,7 +23704,10 @@ async function frKeyedInstallShow(which) {
   frApikeyExpanded(which);
   go.focus();
   const info = await keyedRunnerInfo(which);   // the size, when the engine can say it
-  if (mine === FR_KEYED_GEN && info) document.getElementById('fr-keyed-install-t').textContent = keyedInstallAsk(which, info);
+  if (mine !== FR_KEYED_GEN || !info) return;
+  document.getElementById('fr-keyed-install-t').textContent = keyedInstallAsk(which, info);
+  // A download already under way (started earlier, then left): watch it rather than ask again.
+  if (keyedJobLive(info)) go.click();
 }
 document.getElementById('fr-keyed-install-go').addEventListener('click', async () => {
   const which = FR_KEYED_WHICH;
@@ -23695,7 +23717,10 @@ document.getElementById('fr-keyed-install-go').addEventListener('click', async (
   const go = document.getElementById('fr-keyed-install-go');
   const bar = document.getElementById('fr-keyed-install-bar');
   const msg = document.getElementById('fr-keyed-install-msg');
-  const alive = () => mine === FR_KEYED_GEN && FR_KEYED_WHICH === which && !box.hidden;
+  /* Also gone when first run itself was left or moved to another step (review pass 1: a closed
+     overlay kept the box "shown" and the watcher polled on for minutes). */
+  const alive = () => mine === FR_KEYED_GEN && FR_KEYED_WHICH === which && !box.hidden
+    && !document.getElementById('firstrun').hidden && !document.getElementById('fr-pane-5').hidden;
   go.disabled = true;
   bar.hidden = false;
   const ok = await keyedRunnerInstall(which, (t) => { if (alive()) msg.textContent = t; }, alive);
@@ -23706,8 +23731,12 @@ document.getElementById('fr-keyed-install-go').addEventListener('click', async (
   frApikeyOpen(which);   // the tool is here now, so this opens the key box (or Grok's choice)
 });
 document.getElementById('fr-keyed-install-no').addEventListener('click', () => {
+  const which = FR_KEYED_WHICH;
   frKeyedInstallHide();
   frApikeyExpanded(null);
+  // Focus goes back to the Connect that opened it, not to the page body.
+  const back = document.getElementById(which === 'xai' ? 'fr-grok-connect' : 'fr-gemini-connect');
+  if (back) back.focus();
 });
 function frApikeyExpanded(which) {
   for (const id of ['fr-gemini-connect', 'fr-grok-connect']) {
@@ -23747,6 +23776,7 @@ async function frApikeyOpen(which) {
   if (missing) {
     // #3713: offer to download the tool it runs on; the box opens by itself once it is here.
     FR_APIKEY_WHICH = null;
+    if (onWindows()) { msg.textContent = keyedMissingOnWindows(which); return; }
     msg.textContent = '';
     frKeyedInstallShow(which);
     return;
@@ -50414,6 +50444,11 @@ function frGo(step) {
   // #3/#4 half (a): the grant-flip re-scan poll runs only on the find-agents screen
   // (S9 = FR_STEP_YOU + 1); leaving it retires the poll, same generation contract as above.
   if (step !== FR_STEP_YOU + 1) frRescanStop();
+  /* #3713: leaving the step that holds the download box closes it (and retires its watcher), for
+     the same reason as frClose. Asked of the DOM rather than a step number, so a renumber cannot
+     break it. */
+  { const kb = document.getElementById('fr-keyed-install'); const to = document.getElementById('fr-pane-' + step);
+    if (kb && !(to && to.contains(kb))) frKeyedInstallHide(); }
   FR_STEP = step;
   // The dot field warms from grey toward the golds as the steps advance.
   frDots.progress(frStepProgress(step));
@@ -54234,6 +54269,7 @@ function frClose() {
   // Retire any in-flight About-you settlement on the way out (Skip, Escape, the
   // fork buttons). The Success screen no longer has an async look to retire (#12).
   FR_YOU_GEN += 1;
+  frKeyedInstallHide();   // #3713: a download box left open must not make the next Connect a "second press"
   document.getElementById('firstrun').hidden = true;
   document.querySelectorAll('body > *:not(#firstrun)').forEach((el) => { el.inert = false; });
   if (FR_RETURN && FR_RETURN.focus) FR_RETURN.focus();

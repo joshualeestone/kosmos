@@ -21,7 +21,8 @@ directly and make it work exactly like GPT does.
   - resolveBin: env override, then the managed copy, then the vendor's npm-global copy.
   - managedBin takes the provider (it hard-coded 'openai').
 - **Screens.** First run and Settings: a missing tool opens a download box (the tool named, its
-  size, Download / Not now) instead of the dead-end sentence; progress comes from the engine's own
+  size, and Download; first run also has Not now, while Settings' way out is its own provider
+  picker, the same as for every other step there) instead of the dead-end sentence; progress comes from the engine's own
   job phase and byte counts; once installed, the key box (or Grok's sign-in-or-key choice) opens by
   itself. One driver, keyedRunnerInstall, for both screens. The "Kosmos cannot install it for you
   yet" sentences are gone.
@@ -45,10 +46,11 @@ directly and make it work exactly like GPT does.
 - **Grok 1.0.41 and the subscription sign-in.** #3661 runs `grok login --device-auth
   --leader-socket`. The 1.0.41 binary contains both flag strings (5 and 1 hits, control 0), and it
   is the only grok this Mac has had, but Renet's 09-23 note called 1.0.41 API-key-only. Asked her
-  at 05:30; answer recorded below when it comes.
-- The Gemini launcher bakes the board's node path at install time. If an update moved the runtime,
-  the launcher would fail its next run (Connect's probe still reads present). Updates replace the
-  runtime in place today.
+  at 05:30. Later evidence in her own #3661 code: engine/grokaccounts.js records "What `grok login`
+  writes into GROK_HOME (measured, grok 1.0.41)", so the sign-in was run on 1.0.41 when #3661 was
+  built. Her direct answer, if it comes, goes on the card.
+- The Gemini launcher prefers Kosmos's runtime beside the runners folder, then the node recorded at
+  install; if neither is there it reads missing and Connect reinstalls it (review pass 1).
 
 ## Tests
 - engine/runners.gemini-grok-3713.test.js (6): Grok expanded from .br byte for byte and run from
@@ -60,3 +62,25 @@ directly and make it work exactly like GPT does.
 - docs/browser-checks/render-keyed-install-3713.js (11, new) and render-firstrun-keyed-connect-3658.js
   (download arms); render-grok-subscription-3391.js (the missing-grok wording).
 - engine/connections.test.js: the guide says both connect ways and no "does not install".
+
+## Review pass 1 (opus): 0 blockers, 5 warnings, 5 nits. All fixed except NIT 1 (answered above).
+- W1 the launcher baked absolute paths: a moved Homebrew node left it present and unrunnable with no
+  way back. Now the bundle is found relative to the launcher, Kosmos's runtime node beside the runners
+  folder comes first, and resolveBin reads a launcher that cannot find a node as missing
+  (launcherHasNode), so Connect reinstalls it. Tested with a deleted "Cellar" node; perturbed red.
+- W2 the key and Grok sign-in routes took a tool mid-install. They now also ask runners.installing()
+  (a live job). A first version, runners.ready(), called resolveBin inside the module and so walked
+  past the stub the server tests put on runners.resolveBin (two tests went red); job state is kept
+  separate so presence still comes through that seam.
+- W3 Windows was offered a download the engine always refuses. Now it says plainly that Kosmos cannot
+  install it on Windows yet, on first run and in Settings. Tested with the win32 meta; perturbed red.
+- W4 leaving first run left the download box "open", its watcher polling on, and (found by the new
+  arm, not the reviewer) made the next Connect a "second press" that closed it. frClose and frGo
+  now close the box; the watcher also checks first run is showing. Perturbed red.
+- W5 focus fell to the body after Not now, after Add found the tool missing, and after a finished
+  Settings download. Not now returns to Connect; the download step takes focus; a finished download
+  focuses the next step.
+- NIT 2 a return during a running download now joins it without another click (tested).
+- NIT 3 a bad Grok archive says "could not be unpacked", not "check disk space" (tested).
+- NIT 4 the expand uses stream pipeline, which closes both ends on error.
+- NIT 5 the helper moved out of the slice web.runner-install-refusal.test.js lifts.

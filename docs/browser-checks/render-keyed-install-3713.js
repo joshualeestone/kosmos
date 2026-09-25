@@ -12,6 +12,9 @@
  *   - controls: a tool that is present shows no download step; switching provider while a
  *     download box is open drops it, and a finished download from the old visit paints nothing;
  *   - a tool that went missing after the key step opened: Add leads to the download step.
+ *   - review pass 1: leaving first run stops the watcher; coming back joins a download still
+ *     under way; Not now returns focus to Connect, and the download step takes focus; on
+ *     Windows nothing offers a download (it would be refused), the screen says so instead.
  *
  *   NODE_PATH="$HOME/work/pw-runtime/node_modules" HEADED=0 node docs/browser-checks/render-keyed-install-3713.js
  */
@@ -52,6 +55,7 @@ const chk = (ok, label, extra) => {
         return enc({ job: window.__jobs[inst[1]] });
       }
       if (/\/api\/runners(\?|$)/.test(u)) {
+        window.__gets = (window.__gets || 0) + 1;
         const out = {};
         for (const r of ['gemini', 'grok']) {
           const job = window.__jobs[r];
@@ -162,6 +166,65 @@ const chk = (ok, label, extra) => {
       msg: document.getElementById('acct-apikey-msg').textContent, go: document.getElementById('acct-apikey-go').disabled };
   });
   chk(s6.install && !s6.key && !/not installed/.test(s6.msg), 'Settings: a tool gone missing before Add leads to the download step', JSON.stringify(s6));
+
+  // ---- review pass 1
+  const setWin = (on) => q((w) => { const m = document.querySelector('meta[name="kosmos-platform"]'); m.content = w ? 'win32' : '__KOSMOS_PLATFORM__'; }, on);
+  await q(() => { closeAcctAdd(); window.__missing.gemini = true; window.__jobs = {}; const fr = document.getElementById('firstrun'); fr.hidden = false; frGo(5); });
+  await wait(150);
+  const r1 = await q(async () => {
+    document.getElementById('fr-gemini-connect').click();
+    await new Promise((r) => setTimeout(r, 300));
+    document.getElementById('fr-keyed-install-go').click();
+    await new Promise((r) => setTimeout(r, 150));
+    frClose();
+    const at = window.__gets;
+    await new Promise((r) => setTimeout(r, 2600));
+    return { after: window.__gets - at, firstrun: document.getElementById('firstrun').hidden, live: !!window.__jobs.gemini };
+  });
+  chk(r1.firstrun && r1.after <= 1 && r1.live, 'leaving first run stops the download watcher (the download itself carries on)', JSON.stringify(r1));
+  const r2 = await q(async () => {
+    const fr = document.getElementById('firstrun'); fr.hidden = false; frGo(5);
+    await new Promise((r) => setTimeout(r, 150));
+    const posts = window.__installs.length;
+    document.getElementById('fr-gemini-connect').click();
+    await new Promise((r) => setTimeout(r, 3800));
+    return { joinedWithoutAClick: window.__installs.length === posts + 1, open: !document.getElementById('fr-apikey-flow').hidden,
+      installHidden: document.getElementById('fr-keyed-install').hidden };
+  });
+  chk(r2.joinedWithoutAClick && r2.open && r2.installHidden, 'coming back while it is still downloading joins it, and the key box opens when it is done', JSON.stringify(r2));
+  const r3 = await q(async () => {
+    window.__missing.grok = true; window.__jobs = {};
+    document.getElementById('fr-grok-connect').click();
+    await new Promise((r) => setTimeout(r, 300));
+    const onDownload = document.activeElement && document.activeElement.id;
+    document.getElementById('fr-keyed-install-no').click();
+    return { onDownload, after: document.activeElement && document.activeElement.id };
+  });
+  chk(r3.onDownload === 'fr-keyed-install-go' && r3.after === 'fr-grok-connect', 'Not now returns focus to the Connect that opened it', JSON.stringify(r3));
+  await setWin(true);
+  const r4 = await q(async () => {
+    document.getElementById('fr-grok-connect').click();
+    await new Promise((r) => setTimeout(r, 300));
+    return { install: !document.getElementById('fr-keyed-install').hidden, msg: document.getElementById('fr-apikey-msg').textContent };
+  });
+  chk(!r4.install && /cannot install it on Windows yet/.test(r4.msg) && /"grok"/.test(r4.msg), 'on Windows, first run says it plainly and offers no download that would be refused', JSON.stringify(r4));
+  const r5 = await q(async () => {
+    frClose(); openAcctAdd(); window.__missing.gemini = true; acctPick('google');
+    await new Promise((r) => setTimeout(r, 300));
+    const before = { install: !document.getElementById('acct-keyed-install').hidden, key: !document.getElementById('acct-apikey-flow').hidden };
+    document.getElementById('acct-apikey-key').value = 'AIza-typed';
+    document.getElementById('acct-apikey-go').click();
+    await new Promise((r) => setTimeout(r, 300));
+    return { before, install: !document.getElementById('acct-keyed-install').hidden, msg: document.getElementById('acct-apikey-msg').textContent };
+  });
+  chk(!r5.before.install && r5.before.key && !r5.install && /cannot install it on Windows yet/.test(r5.msg), 'on Windows, Settings shows no download step, and Add says plainly it cannot install', JSON.stringify(r5));
+  await setWin(false);
+  const r6 = await q(async () => {
+    closeAcctAdd(); openAcctAdd(); acctPick('google');
+    await new Promise((r) => setTimeout(r, 300));
+    return { install: !document.getElementById('acct-keyed-install').hidden, focus: document.activeElement && document.activeElement.id };
+  });
+  chk(r6.install && r6.focus === 'acct-keyed-install-go', 'Settings: the download step takes focus (what had it may be hidden)', JSON.stringify(r6));
 
   chk(errs.length === 0, 'no page errors', errs.join(' | '));
   await browser.close();
