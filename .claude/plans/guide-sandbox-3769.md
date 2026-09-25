@@ -38,6 +38,20 @@ then close two gaps before 0.6.95. This branch is those gaps.
 - The purpose the guide gives for an agent it makes (#3734) is masked in the team route before use.
 - The Gemini and Grok key files are denied by name as well as by folder.
 
+## Review round 1 (opus)
+- `allowUnsandboxedCommands: false` was missing. **Measured: a refused command re-run with
+  dangerouslyDisableSandbox read the denied file** (the canary printed); with the setting, the retry got
+  "Operation not permitted" too. Fixed and tested.
+- Withholding a whole message for a shape-only split damaged answers that explain key formats. Now the
+  normalised copy keeps a map to the original characters, and a split key (held or shaped) is masked
+  exactly where its pieces are, line break included; nothing is withheld whole.
+- Held keys are also masked as upper-case hex and as spaced byte pairs, and across one blank line.
+- At most 2000 held values are loaded (the review measured 545ms per reply at 20,000).
+- Deliberately not done: the sandbox blocks the guide's shell from the internet and from writing outside
+  its folder. The guide is hands-off (it shows people how, it does not install things), and `kosmos reply`
+  keeps a reply in the outbox only when the board serves another Kosmos, which a guide never meets.
+  Member names on the team route are not masked: a masked name would not be a usable agent name.
+
 ## Weakest premises
 - The sandbox is measured on this Mac with this Claude Code version; a version that changes its sandbox
   settings would silently stop enforcing. The unit test pins the settings written, not the enforcement.

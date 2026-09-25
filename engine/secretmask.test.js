@@ -143,16 +143,41 @@ test('#3769 a key the board holds is masked however it is written: raw, hex, bas
   assert.equal(mask(`here: ${tok} ok`).text, `here: ${tok} ok`, 'CONTROL: once the board holds nothing, a lowercase hex token is ordinary text again');
 });
 
-test('#3769 a key split across lines, spaced out, or hidden with zero-width characters is withheld or masked', () => {
+test('#3769 a key split across lines, spaced out, or hidden with zero-width characters is masked where its pieces are', () => {
   const held = j('sk-ant-', 'api03-', 'HeldByTheBoard0123456789abcdefXYZ');
   const shaped = j('sk-ant-', 'api03-', 'NeverHeldButShaped0123456789abcXYZ');
   setKnownSecrets([held]);
   try {
-    assert.equal(mask(`part one:\n${held.slice(0, 20)}\n${held.slice(20)}`).text, WITHHELD, 'a held key split across lines was shown');
-    assert.equal(mask(`part one:\n${shaped.slice(0, 25)}\n${shaped.slice(25)}`).text, WITHHELD, 'a key-shaped value split across lines was shown');
-    assert.equal(mask(`spaced: ${held.split('').join(' ')}`).text, WITHHELD, 'a spaced-out key was shown');
+    /* No piece of the key survives, and the sentence around it does (review round 1: withholding the whole
+       message damaged ordinary answers that explain what a key looks like). */
+    const cases = [
+      [`part one:\n${held.slice(0, 20)}\n${held.slice(20)} done`, held, 'part one:\n', ' done'],
+      [`part one:\n${held.slice(0, 10)}\n\n${held.slice(10)} done`, held, 'part one:\n', ' done'],
+      [`part one:\n${shaped.slice(0, 25)}\n${shaped.slice(25)} done`, shaped, 'part one:\n', ' done'],
+      [`spaced: ${held.split('').join(' ')} ok`, held, 'spaced: ', ' ok'],
+    ];
+    for (const [input, key, head, tail] of cases) {
+      const out = mask(input).text;
+      for (const piece of [key.slice(0, 12), key.slice(14, 26), key.slice(-12)]) assert.ok(!out.includes(piece), `a piece of the key survived: ${out}`);
+      assert.ok(out.startsWith(head) && out.endsWith(tail) && out.includes(MASK), `the text around the key was lost: ${JSON.stringify(out)}`);
+    }
     assert.equal(mask(`zw: ${held.slice(0, 10)}​${held.slice(10)}`).text, `zw: ${MASK}`, 'a zero-width character hid a key');
+    const hex = Buffer.from(held).toString('hex');
+    assert.equal(mask(`HEX ${hex.toUpperCase()}`).text, `HEX ${MASK}`, 'upper-case hex of a held key was shown');
+    assert.equal(mask(`pairs ${hex.match(/../g).join(' ')}`).text, `pairs ${MASK}`, 'hex written as spaced byte pairs was shown');
   } finally { setKnownSecrets([]); }
+});
+
+test('#3769 an answer that explains what a key looks like is not withheld (review round 1)', () => {
+  for (const [input, keep] of [
+    ['Paste a key like sk-ant-api03-XXXXXXXXXXXX\nthen press Save.', 'press Save.'],
+    ['Tokens look like ghp_\nABCDEFGHIJKLMNOPQRSTUV and you paste them in Settings.', 'and you paste them in Settings.'],
+    ['I am a person who likes a b c things', 'I am a person who likes a b c things'],
+  ]) {
+    const out = mask(input).text;
+    assert.notEqual(out, WITHHELD, 'a whole answer was withheld: ' + input);
+    assert.ok(out.includes(keep), `the rest of the answer was lost: ${JSON.stringify(out)}`);
+  }
 });
 
 test('#3769 a JSON Web Token is masked whole, its short middle part included', () => {
@@ -174,4 +199,13 @@ test('#3769 the split check cannot make a long reply backtrack either', () => {
     const ms = cpuMillisecondsOf(() => mask(big));
     assert.ok(ms < 3000, `mask used ${Math.round(ms)}ms of CPU on a ${big.length}-character input`);
   }
+});
+
+test('#3769 the number of held values is bounded, so every reply pays a bounded cost (review round 1)', () => {
+  const { knownSecretCount } = require('./secretmask');
+  setKnownSecrets(Array.from({ length: 5000 }, (_, i) => `value-${String(i).padStart(8, '0')}-held`));
+  try {
+    assert.ok(knownSecretCount() <= 2000 * 8, `${knownSecretCount()} forms were loaded`);
+    assert.ok(knownSecretCount() > 0, 'CONTROL: values were loaded at all');
+  } finally { setKnownSecrets([]); }
 });

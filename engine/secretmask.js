@@ -51,12 +51,18 @@ const PATTERNS = [
 let knownForms = [];
 function setKnownSecrets(values) {
   const forms = new Set();
+  let taken = 0;
   for (const v of Array.isArray(values) ? values : []) {
     if (typeof v !== 'string') continue;
     const k = v.trim();
     if (k.length < 12) continue;
+    /* A bound on the work every reply pays (review round 1 measured 545ms per reply at 20,000 values). */
+    if (taken >= MAX_KNOWN_VALUES) break;
+    taken += 1;
     const buf = Buffer.from(k, 'utf8');
-    for (const f of [k, buf.toString('hex'), buf.toString('base64'), buf.toString('base64').replace(/=+$/, ''), buf.toString('base64url')]) forms.add(f);
+    const hex = buf.toString('hex');
+    const spaced = hex.match(/../g).join(' ');
+    for (const f of [k, hex, hex.toUpperCase(), spaced, spaced.toUpperCase(), buf.toString('base64'), buf.toString('base64').replace(/=+$/, ''), buf.toString('base64url')]) forms.add(f);
   }
   /* Longest first, so a value inside a longer one's encoding is not half-replaced. */
   knownForms = [...forms].sort((a, b) => b.length - a.length);
@@ -71,12 +77,46 @@ const ZERO_WIDTH = /[\u200B-\u200D\u2060\uFEFF\u00AD]/g;
    each character. It is only ever SEARCHED, never shown: if a known value or a named key shape is in
    it and was not in the text itself, the key's place in the text cannot be pinned down, so the whole
    message is withheld. */
+/* Delete the characters `re` captures in group `g` from `str`, keeping `map` (each kept character's index
+   in the original text) in step. */
+function deleting(str, map, re, pick) {
+  let outStr = '';
+  const outMap = [];
+  let last = 0;
+  re.lastIndex = 0;
+  for (const m of str.matchAll(re)) {
+    /* `pick` names the spans to drop inside this match: one [from, to], or a list of them. */
+    const drop = pick(m);
+    if (!drop) continue;
+    for (const [from, to] of (Array.isArray(drop[0]) ? drop : [drop])) {
+      if (from < last) continue;
+      outStr += str.slice(last, from);
+      for (let i = last; i < from; i += 1) outMap.push(map[i]);   // a loop: spreading a long slice overflows the stack
+      last = to;
+    }
+  }
+  outStr += str.slice(last);
+  for (let i = last; i < map.length; i += 1) outMap.push(map[i]);
+  return { str: outStr, map: outMap };
+}
+/* The copy and, for each of its characters, where it sits in the text (review round 1: so a split key is
+   masked exactly where its pieces are, rather than the whole message withheld). Joins a line break (one
+   blank line allowed) between key characters, and closes up a spaced-out run of single characters. */
 function normalisedCopy(text) {
-  return text
-    .replace(/([A-Za-z0-9_+/=-])[ \t]*\r?\n[ \t>|*`]*(?=[A-Za-z0-9_+/=-])/g, '$1')
-    .replace(/(?:\S ){8,}\S/g, (run) => (run.split(' ').every((c) => c.length === 1) ? run.replace(/ /g, '') : run));
+  let cur = { str: text, map: Array.from(text, (_, i) => i) };
+  cur = deleting(cur.str, cur.map, /[A-Za-z0-9_+/=-]((?:[ \t]*\r?\n){1,2}[ \t>|*`]*)(?=[A-Za-z0-9_+/=-])/g,
+    (m) => [m.index + 1, m.index + m[0].length]);
+  /* A run of nine or more single characters, each followed by one space ("s k - a n t ..."), and not
+     "I am a person": every space inside the run goes. */
+  cur = deleting(cur.str, cur.map, /(?<!\S)(?:\S ){8,}\S(?!\S)/g, (m) => {
+    const spans = [];
+    for (let i = 1; i < m[0].length; i += 2) spans.push([m.index + i, m.index + i + 1]);
+    return spans;
+  });
+  return cur;
 }
 const WITHHELD = `${'••••'} (Kosmos removed a password or key from this message.)`;
+const MAX_KNOWN_VALUES = 2000;
 
 /* A sign-in inside a link, scheme://user:password@host: the password is masked, the rest kept. */
 const URL_CREDENTIAL = /\b([a-z][a-z0-9+.-]{1,20}:\/\/[^\s:@/]{1,100}:)([^\s@/]{1,200})@/gi;
@@ -136,26 +176,44 @@ function mask(text) {
   const counts = new Map();
   const hit = (kind) => { counts.set(kind, (counts.get(kind) || 0) + 1); };
   const report = () => [...counts].map(([kind, count]) => ({ kind, count }));
-  const original = text.replace(ZERO_WIDTH, '');
+  let original = text.replace(ZERO_WIDTH, '');
   /* The tricks first, on the ORIGINAL text: a known value, or a key shape, that exists only once a split
-     or a spacing is undone withholds the whole message. Checked before masking, because masking the
-     first half of a split key would hide the evidence and leave the second half showing. */
-  const norm = normalisedCopy(original);
+     or a spacing is undone is masked where its pieces sit in the text, line break included. Done before
+     the ordinary masking, because masking the first half of a split key would hide the evidence and
+     leave the second half showing. */
+  const { str: norm, map } = normalisedCopy(original);
   if (norm !== original) {
     /* A match in the copy counts only if no match of the same pattern in the text itself is the same
        characters once whitespace is set aside: a private key block legitimately spans lines (the same key
        either way), while a split key's first line matches only its first half. */
     const bare = (x) => x.replace(/\s+/g, '');
-    let sneaky = knownForms.some((f) => norm.includes(f) && !original.includes(f));
+    const spans = [];
+    for (const f of knownForms) {
+      if (original.includes(f)) continue;
+      let at = norm.indexOf(f);
+      while (at !== -1) { spans.push([map[at], map[at + f.length - 1] + 1]); at = norm.indexOf(f, at + f.length); }
+    }
     for (const { re } of PATTERNS) {
-      if (sneaky) break;
       re.lastIndex = 0;
       const inText = new Set([...original.matchAll(re)].map((m) => bare(m[0])));
       re.lastIndex = 0;
-      for (const m of norm.matchAll(re)) { if (!inText.has(bare(m[0]))) { sneaky = true; break; } }
+      for (const m of norm.matchAll(re)) {
+        if (!inText.has(bare(m[0]))) spans.push([map[m.index], map[m.index + m[0].length - 1] + 1]);
+      }
       re.lastIndex = 0;
     }
-    if (sneaky) { hit('split_secret'); return { text: WITHHELD, fired: report() }; }
+    if (spans.length) {
+      spans.sort((a, b) => a[0] - b[0]);
+      let rebuilt = '';
+      let last = 0;
+      for (const [from, to] of spans) {
+        if (to <= last) continue;
+        rebuilt += original.slice(last, Math.max(from, last)) + MASK;
+        last = to;
+        hit('split_secret');
+      }
+      original = rebuilt + original.slice(last);
+    }
   }
   let out = original;
   for (const f of knownForms) {

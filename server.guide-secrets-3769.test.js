@@ -258,6 +258,7 @@ test('#3769 on a Mac the guide\'s shell is sandboxed and can still reach the boa
   assert.equal(s.sandbox.enabled, true);
   assert.equal(s.sandbox.autoAllowBashIfSandboxed, true);
   assert.equal(s.sandbox.network.allowLocalBinding, true, 'the sandboxed kosmos command could not reach the board');
+  assert.equal(s.sandbox.allowUnsandboxedCommands, false, 'a refused command could be re-run outside the sandbox (measured: that retry read the denied file)');
   assert.deepEqual(s.sandbox.excludedCommands, ['docker'], 'an existing sandbox setting was lost');
   assert.deepEqual(s.sandbox.network.allowUnixSockets, ['/x.sock'], 'an existing network setting was lost');
   const win = mk('guard-win');
