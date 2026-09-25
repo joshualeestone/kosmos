@@ -178,6 +178,7 @@ if command -v ruby >/dev/null 2>&1; then
     fi = fsteps.index { |st| st["id"] == "failed" }
     abort "the detach step must come BEFORE the checks step (else the checks run on a branch)" unless di && ci && di < ci
     abort "the label collector must come AFTER the checks step (else it reads no log)" unless fi && ci && fi > ci
+    abort "the checks step must force KOSMOS_SKIP_BROWSER_CHECKS=0 (a skipped run exits 0 and would close the card)" unless cs["run"].to_s.include?("KOSMOS_SKIP_BROWSER_CHECKS=0")
     abort "browser-checks-full must detach HEAD before the checks (the cut runs from a detached, frozen tree; on a branch browser-checks.sh takes a re-exec path the cut never does)" unless fsteps.any? { |st| st["run"].to_s.strip == "git checkout --detach" }
     abort "no collector step with id failed" unless (fj["steps"] || []).any? { |st| st["id"] == "failed" && st["run"].to_s.include?("labels=") }
     abort "browser-checks-full must export steps.failed.outputs.labels as outputs.failed, got #{fj["outputs"].inspect}" unless (fj["outputs"] || {})["failed"].to_s.gsub(/\s+/, "") == "${{steps.failed.outputs.labels}}"
@@ -241,10 +242,9 @@ if command -v ruby >/dev/null 2>&1; then
   pass "the label collector reads only the FAILED-LIST: summary (entries kept whole), and falls back without aborting when there is no log"
   # Card script. $1 = the checks job RESULT, $2 = the open card the REST list holds (empty
   # or a number); the open card's last report names render-fields and regress-a-night.
-  # Every stubbed gh read (label list, issue list, issue view) answers with fixture JSON run
-  # through the script's OWN -q filter with real jq, so all three filters are exercised,
-  # not bypassed. An empty issue list makes real jq print "null" for .[0].number, which is
-  # the null path. VIEWFAIL=1 makes issue view fail, to check the unreadable-report path.
+  # Every stubbed gh read (the paginated REST issues list, label list, issue view) answers
+  # with fixture JSON run through the script's OWN -q filter with real jq, so the filters are
+  # exercised, not bypassed. VIEWFAIL=1 makes issue view fail (the unreadable-report path).
   if ! command -v jq >/dev/null 2>&1; then
     [ -n "${CI:-}" ] && fail "jq is missing under CI, so the card's filters cannot be run"
     pass "SKIPPED the card script (no jq on this machine)"; HAVE_JQ=""
@@ -398,6 +398,12 @@ if command -v ruby >/dev/null 2>&1; then
     "(not computed"*) ;;
     *) fail "a run with no captured labels listed the placeholder as a NEW check: $out" ;;
   esac
+  # No card open, the first lookup fails, and the create is a ghost: the card exists and holds
+  # the report, so the job ends GREEN with no extra comment (it used to end with status 1).
+  rm -f "$BT/flags/"*; out="$(LISTFAIL=first CREATEFAIL=ghost LABEL=1 card failure "")"; rc=$?
+  [ "$rc" -eq 0 ] || fail "a correctly filed ghost card ended the card job non-zero: $out"
+  case "$out" in *"CALL comment"*) fail "a ghost card got an extra comment: $out" ;; esac
+  rm -f "$BT/flags/"*
   # CRLF from a web edit must not make every check NEW.
   out="$(VIEWBODY="$(printf 'Still not green (failure) at x: u\r\nNEW since the last red night: none\r\nRed checks: render-fields | render-thread\r')" REDV="render-fields|render-thread" card failure 7)" || fail "CRLF report: $out"
   [ "$(printf '%s\n' "$out" | sed -n 's/^NEW since the last red night: //p')" = "none" ] || fail "a CRLF previous report made entries NEW: $out"

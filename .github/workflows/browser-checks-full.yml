@@ -101,7 +101,9 @@ jobs:
         timeout-minutes: 120
         run: |
           set -o pipefail
-          KOSMOS_PW_STRICT_VERSION=1 bash tools/browser-checks.sh 2>&1 | tee "$RUNNER_TEMP/browser-checks.log"
+          # SKIP forced OFF: with it on, a missing Playwright or an engine that cannot launch exits
+          # 0, and a green scheduled run would close the card.
+          KOSMOS_SKIP_BROWSER_CHECKS=0 KOSMOS_PW_STRICT_VERSION=1 bash tools/browser-checks.sh 2>&1 | tee "$RUNNER_TEMP/browser-checks.log"
       # The labels of the checks that went red, for the card. Read from the driver's own
       # summary (`FAILED-LIST:  a|b (why)|c`, one entry per "|", since entries can contain
       # spaces), not from FAIL lines, which the individual checks also print.
@@ -184,6 +186,9 @@ jobs:
             done
             exit 0
           fi
+          # A red RE-RUN still reports (the first attempt's comment may be what failed), tagged
+          # so it reads as the same night again, not a new one.
+          rerun=""; [ "${GITHUB_RUN_ATTEMPT:-1}" != 1 ] && rerun=" (a re-run, attempt ${GITHUB_RUN_ATTEMPT}, of an earlier night)"
           # Entries are separated by "|" (they can contain spaces); shown as " | ".
           red=$(printf '%s' "${RED:-(none captured; see the run log)}" | sed 's/[[:space:]]*|[[:space:]]*/ | /g')
           if [ -n "$open" ]; then
@@ -213,7 +218,7 @@ jobs:
             case "$red" in *"(none captured"*) new="(not computed: no labels were captured this run)" ;; esac
             # A red RE-RUN still reports (the first attempt's comment may be what failed), tagged
             # so it reads as the same night again, not a new one.
-            rerun=""; [ "${GITHUB_RUN_ATTEMPT:-1}" != 1 ] && rerun=" (a re-run, attempt ${GITHUB_RUN_ATTEMPT}, of an earlier night)"
+            :
             gh1 gh issue comment "$open" --repo "$GITHUB_REPOSITORY" --body "Still not green ($RESULT) at $GITHUB_SHA$rerun: $RUN_URL
           NEW since the last red night: ${new:-none}$unread
           Red checks: $red"
@@ -237,7 +242,7 @@ jobs:
           Decide per check: a product regression (fix it before the next cut), or runner noise (record it here, with its output, as part of the runner baseline). Each further night that is not green comments here and leads with the checks NEW since the last one. The first green scheduled night (a first attempt) closes this card. A check that is red EVERY night is never NEW, so a regression inside it adds no signal: fix it or record it as runner noise rather than reading past it."
             [ "${#labelled[@]}" -eq 0 ] && card_body="$card_body
 
-          (Filed without the $label label, which could not be created: add it, or the next red night will not find this card.)"
+          (Filed without the $label label, which could not be created: add it, or later nights will not find, comment on or close this card.)"
             create_card() { gh issue create --repo "$GITHUB_REPOSITORY" ${labelled[@]+"${labelled[@]}"} \
               --title "$title" --body "$card_body"; }
             # Not blindly retried (a create that failed after GitHub did it would duplicate):
@@ -261,7 +266,7 @@ jobs:
                   b=$(ghr gh issue view "$c" --repo "$GITHUB_REPOSITORY" --json body -q .body) || b=""
                   case "$b" in *"$RUN_URL"*) ;; *) older="$c"; break ;; esac
                 done
-                [ -n "$older" ] && gh1 gh issue comment "$older" --repo "$GITHUB_REPOSITORY" --body "Still not green ($RESULT) at $GITHUB_SHA$rerun: $RUN_URL
+                [ -z "$older" ] || gh1 gh issue comment "$older" --repo "$GITHUB_REPOSITORY" --body "Still not green ($RESULT) at $GITHUB_SHA$rerun: $RUN_URL
           NEW since the last red night: (not computed: the card lookup failed this run)
           Red checks: $red"
               else
