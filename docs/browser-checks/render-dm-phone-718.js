@@ -1,4 +1,4 @@
-// Browser-check-surface: d-dmthread msg msg-b msg-bd att mdtablewrap mdtable
+// Browser-check-surface: d-dmthread msg msg-b msg-bd msg-av att att-name mdtablewrap mdtable
 'use strict';
 
 /**
