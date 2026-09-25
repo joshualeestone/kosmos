@@ -89,18 +89,40 @@ turns out dead, it posts `{token: null}` (kosmos-relay `apns-718`).
   provisioning profile, `production` otherwise (read from
   `embedded.mobileprovision` at runtime, not `#if DEBUG`).
 
-- **Tapping a notification** opens `https://<address>/`, where `address` is the
+- **Tapping a notification** opens `https://<address>/` (on the agent that asked, when the
+  push names one; see "The shell on a phone" below), where `address` is the
   Mac's host from the coordinator's payload. Only a single hostname label under
   the coordinator's domain (`kosmosplus.com`, taken from
   `KosmosConfig.coordinatorOrigin`) is accepted (`PushBridge.boardURL`); anything
   else leaves the app where it is.
 
+## The shell on a phone (#718)
+
+- **A page that cannot load** shows a native page (offline, Kosmos+ not answering, or the
+  system's own reason) with Try again, and reloads by itself when an offline phone reconnects
+  (`ShellViews.swift`, `Shell.loadFailure`).
+- **Pull to refresh** reloads the page.
+- **Links** (`Shell.linkDecision`): Kosmos+ and your Macs (plain host, no port or user part)
+  open in the app over https. Any other site, however it is reached (a tap, a redirect, a
+  script), opens in Safari, so no third-party page ever shows inside the app's frame. Plain http
+  never loads in the app. Mail, phone and text links need a tap. Other schemes are refused.
+- **A page that will not load** offers Try again and "Back to Kosmos" (`Shell.backAction`: after a
+  tap that failed before loading it just closes, leaving the page you were on).
+- **A tapped notification** opens the agent that asked
+  (`?tab=detail&agent=<session>`, the session checked against the board's agent-name rule), or
+  the board home when the push carries no usable session.
+- **No white flash:** the WebView is navy until the first page paints. Safe areas behave as in
+  Safari: a page that opts in with `viewport-fit=cover` (sign-in, the gate) pads for the notch and
+  home bar itself, and WebKit keeps any other page (the board today) clear of them.
+- **Not yet:** a navy launch screen needs an asset catalog or a launch storyboard, and both need
+  the iOS platform installed (see "Buildable, not yet runnable" above).
+
 ### Tests that run without a simulator
 
 `LogicTests/run.sh` compiles the Foundation-only files (`PushBridgeLogic.swift`,
-`PushRegistrar.swift`) for macOS with the tests and runs them. It ends with one
+`PushRegistrar.swift`, `ShellLogic.swift`) for macOS with the tests and runs them. It ends with one
 `VERDICT:` line; no verdict line means the run did not finish. Pass a directory
-to run the suite against a modified copy of those two files (how the suite was
+to run the suite against a modified copy of those files (how the suite was
 shown able to fail). CI runs it, plus a simulator-SDK build, in
 `.github/workflows/ios.yml` on any change under `ios/` (advisory, like the
 Android job).

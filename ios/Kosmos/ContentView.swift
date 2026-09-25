@@ -16,16 +16,28 @@ struct ContentView: View {
     // after the app backgrounded can be discarded instead of unlocking stale.
     @State private var unlockGeneration = 0
     @Environment(\.scenePhase) private var scenePhase
+    // The shell's failure page and retry requests (kosmos#718).
+    @StateObject private var shell = ShellState()
 
     var body: some View {
         Group {
             if isUnlocked {
-                WebView(
-                    url: KosmosConfig.boardURL,
-                    pushManager: pushManager,
-                    boardToOpen: pushManager.boardToOpen
-                )
-                    .ignoresSafeArea()
+                ZStack {
+                    // Edge to edge, as before; how each page keeps clear of the notch
+                    // and home bar is set in makeUIView (safe areas).
+                    WebView(
+                        url: KosmosConfig.boardURL,
+                        pushManager: pushManager,
+                        boardToOpen: pushManager.boardToOpen,
+                        shell: shell,
+                        retryCount: shell.retryCount,
+                        backCount: shell.backCount
+                    )
+                        .ignoresSafeArea()
+                    if let failure = shell.failure {
+                        LoadFailureView(failure: failure, detail: shell.failureDetail, retrying: shell.retrying, onRetry: shell.retry, onBack: shell.back)
+                    }
+                }
             } else {
                 LockView(onUnlock: unlock)
             }
@@ -71,6 +83,10 @@ struct ContentView: View {
             guard generation == unlockGeneration else { return }
             switch result {
             case .success:
+                // A failure page from before the lock belongs to a WebView that is
+                // gone; the new one starts clean.
+                shell.failure = nil
+                shell.retrying = false
                 isUnlocked = true
             case .failed(let message):
                 NSLog("[Biometric] unlock failed: \(message)")
@@ -81,6 +97,8 @@ struct ContentView: View {
                 // of their own board - fall open. Whether to hard-gate even that
                 // case is a product decision (#718).
                 NSLog("[Biometric] unlock unavailable, falling open: \(message)")
+                shell.failure = nil
+                shell.retrying = false
                 isUnlocked = true
             }
         }
@@ -131,6 +149,12 @@ struct WebView: UIViewRepresentable {
     let pushManager: PushNotificationManager
     // A board a tapped notification asked for (PushNotificationManager.boardToOpen).
     let boardToOpen: PushNotificationManager.BoardRequest?
+    // Where the WebView reports a failed load (kosmos#718).
+    let shell: ShellState
+    // Passed as a value so a retry is a change SwiftUI sees, and updateUIView runs.
+    let retryCount: Int
+    // Same idea, for "Back to Kosmos" on the failure page.
+    let backCount: Int
 
     func makeUIView(context: Context) -> WKWebView {
         let config = WKWebViewConfiguration()
@@ -142,6 +166,27 @@ struct WebView: UIViewRepresentable {
         )
         let webView = WKWebView(frame: .zero, configuration: config)
         webView.allowsBackForwardNavigationGestures = true
+        webView.navigationDelegate = context.coordinator
+        webView.uiDelegate = context.coordinator
+        // Navy until the first page paints, instead of a white flash.
+        webView.isOpaque = false
+        webView.backgroundColor = .kosmosNavy
+        // Safe areas: the scroll view keeps WebKit's default inset behaviour, as in
+        // Safari. A page that opts in with viewport-fit=cover (sign-in, the gate)
+        // runs under the notch and pads itself with env(safe-area-inset-*); a page
+        // that does not (the board today) is kept clear of the notch by WebKit.
+        // Setting .never here would push the board's top under the status bar.
+        // Dragging the page down dismisses the keyboard, as in Messages.
+        webView.scrollView.keyboardDismissMode = .interactive
+        // Pull to refresh.
+        let refresh = UIRefreshControl()
+        refresh.addTarget(context.coordinator, action: #selector(Coordinator.pulledToRefresh(_:)), for: .valueChanged)
+        webView.scrollView.refreshControl = refresh
+        context.coordinator.webView = webView
+        context.coordinator.shell = shell
+        context.coordinator.home = url
+        context.coordinator.lastRetry = retryCount
+        context.coordinator.lastBack = backCount
         // A cold launch from a tapped notification opens that board straight away.
         webView.load(URLRequest(url: boardToOpen?.url ?? url))
         if let request = boardToOpen {
@@ -152,6 +197,21 @@ struct WebView: UIViewRepresentable {
     }
 
     func updateUIView(_ webView: WKWebView, context: Context) {
+        // "Back to Kosmos" from the failure page.
+        if backCount != context.coordinator.lastBack {
+            context.coordinator.lastBack = backCount
+            context.coordinator.failedURL = nil
+            switch Shell.backAction(provisional: context.coordinator.failedProvisionally, current: webView.url, canGoBack: webView.canGoBack) {
+            case .stay: break
+            case .goBack: webView.goBack()
+            case .home: webView.load(URLRequest(url: context.coordinator.home))
+            }
+        }
+        // Try again from the failure page (or the automatic retry once back online).
+        if retryCount != context.coordinator.lastRetry {
+            context.coordinator.lastRetry = retryCount
+            context.coordinator.reloadOrHome()
+        }
         // Each tap is loaded once, however many times SwiftUI updates before the
         // clear lands.
         guard let request = boardToOpen, context.coordinator.issued != request.id else { return }
@@ -171,9 +231,115 @@ struct WebView: UIViewRepresentable {
 
     func makeCoordinator() -> Coordinator { Coordinator() }
 
-    final class Coordinator {
+    // The WebView's navigation and window delegate. The decisions live in
+    // ShellLogic.swift (tested); this only carries them out.
+    final class Coordinator: NSObject, WKNavigationDelegate, WKUIDelegate {
         // The id of the last tap handed to the WebView.
         var issued: UUID?
+        weak var webView: WKWebView?
+        weak var shell: ShellState?
+        var home: URL = KosmosConfig.boardURL
+        var lastRetry = 0
+        var lastBack = 0
+        // The page that failed, so Try again retries IT (say, the agent a tapped
+        // notification opened) and not whatever page was showing before.
+        var failedURL: URL?
+        // Whether that failure came before the new page committed, which decides
+        // what "Back to Kosmos" does (Shell.backAction).
+        var failedProvisionally = false
+
+        func reloadOrHome() {
+            // No WebView to act on: say so rather than leave Try again stuck on "Trying".
+            guard let webView = webView else { shell?.retrying = false; endRefreshing(); return }
+            switch Shell.retryAction(failed: failedURL, current: webView.url, home: home) {
+            case .load(let url):
+                failedURL = nil
+                webView.load(URLRequest(url: url))
+            case .reload:
+                webView.reload()
+            }
+        }
+
+        @objc func pulledToRefresh(_ sender: UIRefreshControl) {
+            reloadOrHome()
+        }
+
+        private func endRefreshing() {
+            webView?.scrollView.refreshControl?.endRefreshing()
+        }
+
+        // Main-frame navigations: Kosmos+ and the person's Macs stay in the app,
+        // other sites go to Safari, other schemes are refused.
+        func webView(
+            _ webView: WKWebView,
+            decidePolicyFor navigationAction: WKNavigationAction,
+            decisionHandler: @escaping (WKNavigationActionPolicy) -> Void
+        ) {
+            // A new-window request (no target frame) is decided in createWebViewWith.
+            // Allowing it here is safe whatever order WebKit asks in: with no frame to
+            // load into, nothing loads unless createWebViewWith loads it.
+            guard let url = navigationAction.request.url,
+                  let frame = navigationAction.targetFrame
+            else { decisionHandler(.allow); return }
+            // A frame inside the page: https and about: only.
+            guard frame.isMainFrame else {
+                decisionHandler(Shell.allowsSubframe(url) ? .allow : .cancel)
+                return
+            }
+            let origin: Shell.Origin = navigationAction.navigationType == .linkActivated ? .tapped : .pageFlow
+            switch Shell.linkDecision(for: url, coordinator: KosmosConfig.coordinatorOrigin, origin: origin) {
+            case .inApp: decisionHandler(.allow)
+            case .external:
+                UIApplication.shared.open(url)
+                decisionHandler(.cancel)
+            case .block: decisionHandler(.cancel)
+            }
+        }
+
+        // A link that asks for a new window (target=_blank, window.open): WKWebView
+        // drops it unless the app decides. Same rules, and never a second WebView.
+        func webView(
+            _ webView: WKWebView,
+            createWebViewWith configuration: WKWebViewConfiguration,
+            for navigationAction: WKNavigationAction,
+            windowFeatures: WKWindowFeatures
+        ) -> WKWebView? {
+            guard let url = navigationAction.request.url else { return nil }
+            switch Shell.linkDecision(for: url, coordinator: KosmosConfig.coordinatorOrigin, origin: .newWindow) {
+            case .inApp: webView.load(navigationAction.request)
+            case .external: UIApplication.shared.open(url)
+            case .block: break
+            }
+            return nil
+        }
+
+        func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
+            endRefreshing()
+            failedURL = nil
+            shell?.loaded()
+        }
+
+        func webView(_ webView: WKWebView, didFailProvisionalNavigation navigation: WKNavigation!, withError error: Error) {
+            show(error, provisional: true)
+        }
+
+        func webView(_ webView: WKWebView, didFail navigation: WKNavigation!, withError error: Error) {
+            show(error, provisional: false)
+        }
+
+        private func show(_ error: Error, provisional: Bool) {
+            endRefreshing()
+            shell?.retrying = false
+            let e = error as NSError
+            guard let failure = Shell.loadFailure(domain: e.domain, code: e.code) else { return }
+            failedURL = e.userInfo[NSURLErrorFailingURLErrorKey] as? URL
+            failedProvisionally = provisional
+            // The host only: a Mac link carries the person's sign-in token in its
+            // fragment (#kst=), which must never reach a log.
+            NSLog("[Shell] load failed: \(e.domain) \(e.code) host=\(failedURL?.host ?? "?")")
+            shell?.failureDetail = e.localizedDescription
+            shell?.show(failure)
+        }
     }
 
     static func dismantleUIView(_ webView: WKWebView, coordinator: Coordinator) {
