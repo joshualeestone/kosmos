@@ -219,7 +219,10 @@ test('piece five: the consolidated header stays as a top bar (#2282), keeps its 
      head by a CSS inset (asserted below). */
   assert.doesNotMatch(PAGE, /id="rail-projects-fold"/,
     'the projects fold control must be gone - the column is not collapsible (#3126)');
-  assert.match(PAGE, /<span class="lead"><span class="railname">Projects<\/span><\/span>/,
+  /* #3559: the head may also carry the Tasks button beside the name (the consolidated view's
+     only way into Tasks, since it hides the tab bar). Still no fold control, which is what this
+     guards; the + stays alone in .railacts (next assertion). */
+  assert.match(PAGE, /<span class="lead"><span class="railname">Projects<\/span>(?:<button class="rail-tasks" type="button" id="rail-projects-tasks"[^>]*>Tasks<\/button>)?<\/span>/,
     'the projects head should hold only the name after the fold control was removed (#3126)');
   assert.match(PAGE, /#rail-projects \.lead \{ padding-left: 29px; \}/,
     'the projects head keeps the fold-button inset so "Projects" stays aligned with "Agents" (#3126)');
