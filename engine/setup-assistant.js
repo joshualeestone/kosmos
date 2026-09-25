@@ -312,9 +312,15 @@ function listedModels({ listFor = (mod) => require(mod).list() } = {}) {
    and an install that already has a model but no guide (one from before the guide, a guide removed, both
    names taken) must not spend the shared allowance on Kosmos's key. And only where a connector is at a
    real path (remote.hostedAvailable), so a source checkout or a check sandbox never offers it. */
-function hostedOffered({ available = () => require('./remote').hostedAvailable(), listed = () => listedModels() } = {}) {
-  try { return available() === true && listed().rows.length === 0; } catch { return false; }
+function hostedWhy({ available = () => require('./remote').hostedAvailable(), listed = () => listedModels() } = {}) {
+  let there = false;
+  try { there = available() === true; } catch { there = false; }
+  if (!there) return { ok: false, why: 'no_connector' };
+  let rows;
+  try { rows = listed().rows; } catch { return { ok: false, why: 'unchecked' }; }   // not known, so not offered, and not said to be theirs
+  return rows.length === 0 ? { ok: true, why: null } : { ok: false, why: 'own_model' };
 }
+function hostedOffered(deps) { return hostedWhy(deps).ok; }
 
 /* Could a guide run on this listed account? create's own gate, plus the default-key check
    above. A live check that errors is uncertainty, not a refusal (create's own rule). */
@@ -482,6 +488,7 @@ module.exports = {
   armSetupAssistant,
   listedModels,
   hostedOffered,
+  hostedWhy,
   usable,
   RETRY_AFTER_MS,
   RETRY_MAX_MS,

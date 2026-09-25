@@ -74,3 +74,16 @@ rebuilt one. A board on an old connector sees the 501 path once per session.
   it; control: with the old order, H9c fails.
 - NIT: the duplicate asp-msg clear on guide adoption was removed. The double asbFocusPage on "Don't show this again"
   was left alone: it is the same target, and it predates this branch.
+
+## Review iteration 5 (fixed)
+- WARNING: a refusal while folded went unseen and the bubble left anyway. Now the dot lights and the six seconds
+  start when it is opened (asbStepAside). H18 covers it.
+- WARNING: the note did not say the words leave the Mac. It is now "An AI in Josh's voice. Until you connect your own
+  AI, your questions go to ours, online. Josh isn't typing live." (H2).
+- WARNING: H8's "allowance gone" could not fail. It now has a precondition with the line showing, and no reload.
+- NITs taken:
+  - the deferred adoption backs off to a minute;
+  - own_model looks for the guide at once;
+  - an unreadable model list is 503 'unchecked', not "your own AI" (hostedWhy, with unit arms);
+  - each turn is trimmed to 2,000 characters;
+  - the live region is cleared on a refusal.

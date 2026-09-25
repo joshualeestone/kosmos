@@ -276,3 +276,10 @@ test('#3660: the hosted assistant is offered only before the person has a model 
   assert.equal(setupAssistant.hostedOffered({ available: () => false, listed: none }), false, 'offered without a connector');
   assert.equal(setupAssistant.hostedOffered({ available: () => true, listed: () => { throw new Error('unreadable'); } }), false, 'an unreadable model list offered it');
 });
+
+test('#3660: the reason the hosted assistant is not offered is told apart, and an unreadable list is not "your own AI"', () => {
+  assert.deepEqual(setupAssistant.hostedWhy({ available: () => false, listed: () => ({ rows: [] }) }), { ok: false, why: 'no_connector' });
+  assert.deepEqual(setupAssistant.hostedWhy({ available: () => true, listed: () => ({ rows: [{}] }) }), { ok: false, why: 'own_model' });
+  assert.deepEqual(setupAssistant.hostedWhy({ available: () => true, listed: () => { throw new Error('x'); } }), { ok: false, why: 'unchecked' });
+  assert.deepEqual(setupAssistant.hostedWhy({ available: () => true, listed: () => ({ rows: [] }) }), { ok: true, why: null });
+});

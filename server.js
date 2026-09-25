@@ -13744,9 +13744,11 @@ const server = http.createServer((req, res) => {
    */
   if (pathname === '/api/setup-guide/hosted' && req.method === 'POST') {
     /* The same test the bubble is shown by, so the route cannot be used past it (a model connected, a checkout). */
-    if (!require('./engine/setup-assistant').hostedOffered()) {
+    const offer = require('./engine/setup-assistant').hostedWhy();
+    if (!offer.ok) {
       req.resume();
-      if (!require('./engine/remote').hostedAvailable()) sendJson(res, 409, { error: 'the setup assistant is not available on this computer', code: 'no_connector' });
+      if (offer.why === 'unchecked') sendJson(res, 503, { error: 'we could not check which AI is connected just now; try again in a moment', code: 'unchecked' });
+      else if (offer.why === 'no_connector') sendJson(res, 409, { error: 'the setup assistant is not available on this computer', code: 'no_connector' });
       else sendJson(res, 409, { error: "you've connected your own AI, so the setup assistant will use that", code: 'own_model' });
       return;
     }

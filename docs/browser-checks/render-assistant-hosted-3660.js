@@ -137,7 +137,7 @@ const waitFor = (page, fn, ms = 6000) => page.waitForFunction(fn, null, { timeou
     await page.click('#asb');
     chk(await waitFor(page, () => !document.getElementById('asp').hidden), 'H2 the chat opens');
     const h2 = await state(page);
-    chk(h2.note === 'An AI in Josh\'s voice, running on Kosmos until you connect your own AI. Josh isn\'t typing live.', 'H2 it says it runs on Kosmos\'s own AI until they connect theirs', h2.note);
+    chk(h2.note === 'An AI in Josh\'s voice. Until you connect your own AI, your questions go to ours, online. Josh isn\'t typing live.', 'H2 it says their questions go to Kosmos\'s AI, online, until they connect theirs', h2.note);
     chk(await page.evaluate(() => /I built Kosmos/.test(document.querySelector('#asp-th .asp-empty')?.textContent || '')), 'H2 and greets as the guide does');
     await page.waitForTimeout(1800);
     chk(pageReports.length === 0, 'H2 no screen report goes to a guide that does not exist (its 404 would reset the bubble)', JSON.stringify(pageReports));
@@ -196,6 +196,13 @@ const waitFor = (page, fn, ms = 6000) => page.waitForFunction(fn, null, { timeou
 
     if (SHOTS) { fs.mkdirSync(SHOTS, { recursive: true }); await page.click('#asb'); await page.waitForTimeout(300); await page.screenshot({ path: path.join(SHOTS, 'asb-hosted.png') }); await page.click('#asp-fold'); }
 
+    // H8 precondition: a hosted allowance line is showing when the guide arrives (no reload), so H8's "gone" can fail.
+    answer = { status: 200, body: { reply: 'Here.', remaining: 3 } };
+    await page.click('#asb');
+    await page.fill('#asp-say', 'Before the guide?');
+    await page.keyboard.press('Enter');
+    chk(await waitFor(page, () => /3 questions left today/.test(document.getElementById('asp-msg').textContent)), 'H8 precondition: the hosted allowance line is showing');
+    await page.click('#asp-fold');
     // H8: a guide is made (the person connected a model): the bubble moves to it, with its picture, and
     // questions go to its thread, not the hosted route.
     fleet.install([fleet.agent('josh', { state: 'idle', displayName: 'Josh', role: 'Setup guide' }),
@@ -234,6 +241,19 @@ const waitFor = (page, fn, ms = 6000) => page.waitForFunction(fn, null, { timeou
     await page.waitForTimeout(7000);
     const h9c = await page.evaluate(() => ({ panel: !document.getElementById('asp').hidden, focusIn: !!document.activeElement && !!document.activeElement.closest('#asblayer'), send: document.getElementById('asp-send').disabled }));
     chk(h9c.panel && h9c.focusIn && !h9c.send, 'H9c a chat reopened inside the six seconds stays open, keeps focus, and can send again', JSON.stringify(h9c));
+    // H18: a refusal that lands while the chat is folded is not lost: the bubble stays with the gold dot, and the
+    // sentence is there when it is opened (the six seconds start then).
+    slow = 1500;
+    await page.fill('#asp-say', 'Folded refusal?');
+    await page.keyboard.press('Enter');
+    await page.waitForTimeout(200);
+    await page.click('#asp-fold');
+    await page.waitForTimeout(8000);
+    const h18 = await page.evaluate(() => ({ bubble: !document.getElementById('asb').hidden, dot: !document.querySelector('#asb .asb-dot').hidden }));
+    chk(h18.bubble && h18.dot, 'H18 a refusal while folded keeps the bubble, with the gold dot', JSON.stringify(h18));
+    slow = 0;
+    await page.click('#asb');
+    chk(await waitFor(page, () => !document.getElementById('asp').hidden && /arrives with the next Kosmos update/.test(document.getElementById('asp-msg').textContent), 2000), 'H18 and opening it shows the sentence');
     // H9: asked again, it says so, and this time, left alone, it steps aside.
     await page.fill('#asp-say', 'Hello?');
     await page.keyboard.press('Enter');
