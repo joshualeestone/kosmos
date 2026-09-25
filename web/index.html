@@ -53847,7 +53847,7 @@ function tipPlace(card, sel, side = false, { key = '', avoid = true } = {}) {
     if (card.classList.contains('flat') && card.dataset.covers === '0' && card.dataset.tipKey === key && !card.hidden) {
       const nowL = parseFloat(card.style.left), nowT = parseFloat(card.style.top);
       const near = Number.isFinite(nowT) && Math.abs(nowT + h / 2 - (r.top + r.height / 2)) <= h + 120;
-      if (near && Number.isFinite(nowL) && nowT >= pad && nowT + h <= vh - pad && nowL >= pad && nowL + w <= pageW - pad && !hitsAt(nowL, nowT)) {
+      if (near && Number.isFinite(nowL) && Number.isFinite(nowT) && onScreen(nowL, nowT) && !hitsAt(nowL, nowT)) {
         best = { cls: 'flat', left: nowL, top: nowT, hits: 0 };
       }
     }

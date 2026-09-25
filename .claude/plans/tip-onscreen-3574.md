@@ -23,5 +23,20 @@ That a flat card near the edge is better than scrolling the target into view. Sc
 person on first visit, which is worse.
 
 ## Verification
-render-help-tips-3574 T32: target below and above the fold, plus an in-view control. It fails on origin/main's page
-(measured) and passes with the fix. T31 and every other arm still pass.
+render-help-tips-3574:
+- T32: targets below and above the fold, and off to the left and the right, each wholly on screen with no arrow.
+  An in-view control keeps its arrow and stays off its target.
+- T32b: the real card on a 390px phone. The low target is a control (main handled it); the below-the-fold one is the
+  case main got wrong.
+- T32c: an 844x300 window. The card fits, Got it is in view, and its words scroll.
+Measured controls:
+- T32 below and above fail on origin/main's page.
+- Removing the sideways terms fails the left and right arms.
+- Removing .tip-bd's scroll rule fails T32c, and so does the old 80px floor.
+T31 and every other arm still pass.
+
+## Also fixed, found in review
+- A card taller than the window: its words scroll inside it (.tip-bd). Scrolling the whole card was rejected
+  because it clips the arrow.
+- The no-target card's 80px floor is clamped onto the screen.
+- The "stay put" check uses the same on-screen test, slack included, so a phone card does not jump on scroll.
