@@ -246,27 +246,14 @@ SERVER_PIDS=()
 # docs/browser-checks/lib-sandbox-home.js, which covers a check run on its own.
 if [ -z "${AGENT_WORKFORCE_HOME:-}" ] || [ "${AGENT_WORKFORCE_HOME%/}" = "${HOME%/}" ]; then
   export AGENT_WORKFORCE_HOME="$RUN_DIR/home"
-  mkdir -p "$AGENT_WORKFORCE_HOME/.claude"
-  # A FIXTURE default Claude account, so the create checks (render-create-made,
-  # render-talk-fill-2622) still have one to make agents on. Before #3675 they
-  # silently used the host Mac's real account; measured, with an empty sandbox home
-  # both fail. A SUBSCRIBED one (claude_max), as the host's was, so no check's layout
-  # grows the "cannot reach a Claude subscription" bar it never had before. The same
-  # account as lib-sandbox-home.js FIXTURE_CLAUDE. The address is .invalid on purpose:
-  # nothing real can answer to it.
-  printf '%s\n' '{"oauthAccount":{"emailAddress":"fixture@example.invalid","organizationName":"Kosmos browser checks","organizationType":"claude_max"}}' \
-    > "$AGENT_WORKFORCE_HOME/.claude.json"
-  # Claude Code's canonical path is <home>/.local/bin/claude, so a sandbox home has
-  # none and creation refuses. A stand-in that exits at once, as the sb4 board's
-  # fake-claude does: the create path's liveness probe then fails open (the
-  # not-live case the create checks already allow for) instead of running the
-  # host's real Claude Code against a real account. A caller's override is kept.
-  if [ -z "${AGENT_WORKFORCE_CLAUDE_BIN:-}" ]; then
-    printf '#!/bin/sh\n[ "$1" = --version ] && { echo "2.1.282 (Claude Code)"; exit 0; }\nexit 1\n' > "$RUN_DIR/fake-claude-home"
-    chmod +x "$RUN_DIR/fake-claude-home"
-    export AGENT_WORKFORCE_CLAUDE_BIN="$RUN_DIR/fake-claude-home"
-  fi
+  mkdir -p "$AGENT_WORKFORCE_HOME"
 fi
+# The OpenAI default account resolves AGENT_WORKFORCE_CODEX_HOME || CODEX_HOME before the
+# home seam (codexupdate.js), so an exported CODEX_HOME would still reach the real one.
+[ -n "${AGENT_WORKFORCE_CODEX_HOME:-}" ] || export AGENT_WORKFORCE_CODEX_HOME="$AGENT_WORKFORCE_HOME/.codex"
+# This home stays EMPTY: a check that needs an account plants its own, in its own board
+# (sb8 below) or through lib-sandbox-home.js plantSubscribedClaude(), so no check's
+# premise depends on which other check ran first.
 # #1818: a run that dies AFTER the checks begin but BEFORE the summary (a kill, an
 # OOM, or -- pre-fix -- a mid-run edit) otherwise leaves no FAILED line and no
 # run-log entry, so a reader grepping for FAIL reads the dead run as green (the
@@ -1065,7 +1052,20 @@ fi
 # socket behind them, so a lone free_port() here could collide with either
 # and strand an unrelated check's boot later in the run (#633's own class).
 sb8="$(new_sandbox)"
-AGENT_WORKFORCE_DATA="$sb8/data" AGENT_WORKFORCE_WORKERS="$sb8/workers" \
+# #3675: render-create-made makes an agent, so this board needs a Claude account and a
+# Claude Code binary. Before #3675 it silently used the host Mac's real ones (measured:
+# with an empty sandbox home it fails). Its own home carries a FIXTURE default account
+# (the address is .invalid on purpose: nothing real can answer to it), and a stand-in
+# Claude Code that answers --version and exits non-zero otherwise, as sb4's fake-claude
+# does, so the create liveness probe fails open instead of running the host's real
+# Claude Code against a real account.
+mkdir -p "$sb8/home/.claude"
+printf '%s\n' '{"oauthAccount":{"emailAddress":"fixture@example.invalid","organizationName":"Kosmos browser checks"}}' \
+  > "$sb8/home/.claude.json"
+printf '#!/bin/sh\n[ "$1" = --version ] && { echo "2.1.282 (Claude Code)"; exit 0; }\nexit 1\n' > "$sb8/fake-claude"
+chmod +x "$sb8/fake-claude"
+AGENT_WORKFORCE_HOME="$sb8/home" AGENT_WORKFORCE_CLAUDE_BIN="$sb8/fake-claude" \
+  AGENT_WORKFORCE_DATA="$sb8/data" AGENT_WORKFORCE_WORKERS="$sb8/workers" \
   AGENT_WORKFORCE_LAUNCH="$sb8/launch" AGENT_WORKFORCE_PROJECTS="$sb8/projects" \
   AGENT_WORKFORCE_RELEASE_BASE="http://127.0.0.1:9/dist" AGENT_WORKFORCE_DRY_RUN=1 \
   AGENT_WORKFORCE_TMUX_BIN="$FAKE_TMUX" \

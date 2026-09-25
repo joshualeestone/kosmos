@@ -608,6 +608,22 @@ The temp-root test mirrors `engine/status.js` and carries its two corrections: `
 is not `os.tmpdir()` on macOS, and both sides need resolving because `/var` is a symlink
 to `/private/var`.
 
+### `lib-sandbox-home.js` is a library, not a check
+
+**Every check that boots or spawns a board requires it first (#3675).** The account
+modules look under `AGENT_WORKFORCE_HOME || the real home`, and a fixture that sandboxed
+everything else still showed the host Mac's real Claude emails and the end of a real
+OpenAI key in Settings, where a local screenshot could carry them into a PR or a chat.
+Requiring it points `AGENT_WORKFORCE_HOME`, `AGENT_WORKFORCE_CLAUDE_CONFIG` and
+`AGENT_WORKFORCE_CODEX_HOME` at a sandbox unless the caller already set them, and removes
+the folder it made when the check exits. `tools/browser-checks.sh` exports an empty
+sandbox home for the whole run as well.
+
+A check whose screen needs a connected subscription calls `plantSubscribedClaude()`,
+which gives it its own home with a fixture account (`fixture@example.invalid`). It is
+opt-in because first-run checks want no account, and its own home so no later check sees
+it. `tools.browser-checks-home-3675.test.js` fails if a board-booting check skips the lib.
+
 ### `lib-firstrun-steps.js` is a library, not a check
 
 The other non-browser `.js` in here. The first-run wizard numbers its steps (`fr-pane-N`,

@@ -30,7 +30,8 @@ test('#3675: every browser check that boots or spawns the board requires lib-san
   const missing = [];
   for (const f of booting) {
     const lines = fs.readFileSync(path.join(DIR, f), 'utf8').split('\n');
-    const at = lines.findIndex((l) => /^require\('\.\/lib-sandbox-home\.js'\);/.test(l));
+    // Bare, or with an opt-in call chained on (render-talk-fill-2622 plants its account).
+    const at = lines.findIndex((l) => /^require\('\.\/lib-sandbox-home\.js'\)[;.]/.test(l));
     const firstBoard = lines.findIndex((l) => /\.\.\/\.\.\/server|server\.js/.test(l) && !/^\s*(\/\/|\*|\/\*)/.test(l));
     if (at === -1 || (firstBoard !== -1 && at > firstBoard)) missing.push(f);
   }
@@ -46,15 +47,20 @@ function listedAccounts({ withLib, home }) {
     const S = mk('aw-3675-');
     Object.assign(process.env, { AGENT_WORKFORCE_DATA: S, AGENT_WORKFORCE_WORKERS: mk('aw-3675w-'),
       AGENT_WORKFORCE_PROJECTS: mk('aw-3675p-'), AGENT_WORKFORCE_LAUNCH: mk('aw-3675l-'),
-      AGENT_WORKFORCE_CLAUDE_CONFIG: path.join(S, 'claude.json'), AGENT_WORKFORCE_CONFIG_ROOT: mk('aw-3675c-') });
+      AGENT_WORKFORCE_CONFIG_ROOT: mk('aw-3675c-') });
+    // No AGENT_WORKFORCE_CLAUDE_CONFIG: 20 wired checks never set it, so the subscription
+    // check must be sealed by the lib too.
     ${withLib ? `require(${JSON.stringify(LIB)});` : ''}
     const n = require(${JSON.stringify(path.join(__dirname, 'engine', 'accounts.js'))}).list().length;
-    process.stdout.write(String(n));`;
+    const sub = require(${JSON.stringify(path.join(__dirname, 'engine', 'subscription.js'))}).check().state;
+    for (const d of [S, process.env.AGENT_WORKFORCE_WORKERS, process.env.AGENT_WORKFORCE_PROJECTS,
+      process.env.AGENT_WORKFORCE_LAUNCH, process.env.AGENT_WORKFORCE_CONFIG_ROOT]) fs.rmSync(d, { recursive: true, force: true });
+    process.stdout.write(JSON.stringify({ n, sub }));`;
   const env = { ...process.env, HOME: home };
   delete env.AGENT_WORKFORCE_HOME;
   const r = spawnSync(process.execPath, ['-e', code], { env, encoding: 'utf8' });
   assert.equal(r.status, 0, r.stderr);
-  return Number(r.stdout);
+  return JSON.parse(r.stdout);
 }
 
 test('#3675: a fixture requiring lib-sandbox-home lists none of the real home\'s accounts (control: without it, it does)', (t) => {
@@ -63,8 +69,15 @@ test('#3675: a fixture requiring lib-sandbox-home lists none of the real home\'s
   fs.mkdirSync(path.join(home, '.claude-planted'));
   fs.writeFileSync(path.join(home, '.claude-planted', '.claude.json'),
     JSON.stringify({ oauthAccount: { emailAddress: 'planted-3675@example.com' } }));
-  assert.ok(listedAccounts({ withLib: false, home }) >= 1, 'CONTROL: without the lib the planted account is listed (the leak)');
-  assert.equal(listedAccounts({ withLib: true, home }), 0, 'with the lib the real home is never read');
+  // The subscription check reads <home>/.claude.json for the default account.
+  fs.writeFileSync(path.join(home, '.claude.json'),
+    JSON.stringify({ oauthAccount: { emailAddress: 'planted-3675@example.com', organizationType: 'claude_max' } }));
+  const without = listedAccounts({ withLib: false, home });
+  assert.ok(without.n >= 1, 'CONTROL: without the lib the planted account is listed (the leak)');
+  assert.equal(without.sub, 'connected', 'CONTROL: and the planted subscription is read');
+  const withLib = listedAccounts({ withLib: true, home });
+  assert.equal(withLib.n, 0, 'with the lib the real home\'s accounts are never listed');
+  assert.notEqual(withLib.sub, 'connected', 'and the real home\'s subscription is never read');
 });
 
 test('#3675: the lib keeps a caller\'s sandbox, replaces the real home, and removes only the folder it made', () => {
@@ -88,5 +101,23 @@ test('#3675: the lib keeps a caller\'s sandbox, replaces the real home, and remo
 
 test('#3675: tools/browser-checks.sh exports a sandbox home for every board and check it runs', () => {
   const sh = fs.readFileSync(path.join(__dirname, 'tools', 'browser-checks.sh'), 'utf8');
-  assert.match(sh, /^\s+export AGENT_WORKFORCE_HOME="\$RUN_DIR\/home"$/m);
+  const at = sh.search(/^\s+export AGENT_WORKFORCE_HOME="\$RUN_DIR\/home"$/m);
+  assert.ok(at > 0, 'the runner exports a sandbox home');
+  assert.ok(at < sh.indexOf('node ./server.js'), 'before it boots its first board');
+});
+
+test('#3675: plantSubscribedClaude gives the check its OWN home, never the shared one it was given', () => {
+  const shared = fs.mkdtempSync(path.join(os.tmpdir(), 'kosmos-3675-shared-'));
+  const code = `const lib = require(${JSON.stringify(LIB)}); const own = lib.plantSubscribedClaude();
+    const sub = require(${JSON.stringify(path.join(__dirname, 'engine', 'subscription.js'))});
+    const acc = require(${JSON.stringify(path.join(__dirname, 'engine', 'accounts.js'))});
+    process.stdout.write(JSON.stringify({ own, home: process.env.AGENT_WORKFORCE_HOME, machine: sub.checkMachine(acc.list()).state }));`;
+  const r = spawnSync(process.execPath, ['-e', code], { env: { ...process.env, AGENT_WORKFORCE_HOME: shared }, encoding: 'utf8' });
+  assert.equal(r.status, 0, r.stderr);
+  const got = JSON.parse(r.stdout);
+  assert.notEqual(got.home, shared, 'it moved to its own home');
+  assert.equal(got.machine, 'connected', 'where the fixture subscription reads connected');
+  assert.deepEqual(fs.readdirSync(shared), [], 'and wrote nothing into the shared one');
+  assert.equal(fs.existsSync(got.own), false, 'its own home is removed on exit');
+  fs.rmSync(shared, { recursive: true, force: true });
 });
