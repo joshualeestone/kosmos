@@ -13023,10 +13023,10 @@ const server = http.createServer((req, res) => {
 
   /**
    * Tasks, open and finished (#1382). Global by default; scoped to one project
-   * when `?project=<id>` is given (#2498 - the per-project "view all tasks"
-   * door). No UI screen fetches the global set today (a test consumer,
-   * getDue in server.task-duedate-768.test.js, still relies on it), but it
-   * stays for a future global-home view.
+   * when `?project=<id>` is given (#2498, first for the per-project "view all
+   * tasks" door; `kosmos tasks` and tests read it now). The Tasks view (#3559)
+   * reads the global set with `?view=tasks`, and since #3703 the project door
+   * opens that view scoped to its project.
    *
    * 🛑 AN UNREADABLE STORE IS AN ERROR, NEVER AN EMPTY LIST. Same rule as
    * `/api/projects` above, and for the same reason: "No tasks yet" is a CLAIM
@@ -13049,12 +13049,10 @@ const server = http.createServer((req, res) => {
       });
       return;
     }
-    /* #2498: the project view's "view all tasks" door scopes to the project it
-       was opened from. `?project=<id>` filters allTasks() (which tags each task
-       with projectId and keeps CLOSED ones) to that project - open AND finished,
-       so the #1382 finished-work purpose is preserved per project. No param =
-       the global set, unchanged: nothing serves a global all-tasks view today,
-       but the route stays backward-compatible for one if it is ever added. */
+    /* #2498: `?project=<id>` filters allTasks() (which tags each task with
+       projectId and keeps CLOSED ones) to that project, open AND finished, so the
+       #1382 finished-work purpose holds per project. No param = the global set,
+       which the Tasks view reads (with ?view=tasks). */
     let projectScope = null;
     let forTasksView = false;
     /* #3703: the project View-all door opens this view scoped to its project, and an archived
@@ -13070,8 +13068,8 @@ const server = http.createServer((req, res) => {
     const all = tasks.allTasks(everyProject);
     const scoped = projectScope ? all.filter((t) => t.projectId === projectScope) : all;
     /* The fields below cost a board snapshot plus a transcript read per task, so only the
-       Tasks view (?view=tasks) pays for them: the project View-all door and the agents'
-       `kosmos tasks` read the list exactly as cheaply as before. */
+       Tasks view (?view=tasks, which the project View-all door also opens since #3703) pays for
+       them: the agents' `kosmos tasks` reads the list exactly as cheaply as before. */
     if (!forTasksView) {
       sendJson(res, 200, { tasks: scoped, count: scoped.length, project: projectScope });
       return;

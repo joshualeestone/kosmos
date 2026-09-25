@@ -114,6 +114,28 @@ test('the picker offers a kept draft\'s project only when the draft has words in
   assert.equal(w.els['nt-proj'].value, 'a', 'a real draft is not offered its own project');
 });
 
+test('the dialog\'s own default pick never wipes a draft (details alone count; an archived draft\'s words follow)', () => {
+  // Details only, on Spring launch (not first by name): it is still a draft, so it is offered.
+  const w = world(P, { current: 'a' });
+  w.api.openNewTask();
+  w.els['nt-detail'].value = 'Only the details so far';
+  w.api.leaveNewTask();
+  w.api.openNewTask(null, 'tasks');
+  assert.equal(w.els['nt-proj'].value, 'a', 'a details-only draft is not offered its own project');
+  assert.equal(w.els['nt-detail'].value, 'Only the details so far', 'the details were wiped');
+  // A draft on an archived project: the picker cannot offer it, so the words follow the first pick.
+  const z = world(P, { current: 'z' });
+  z.api.openNewTask();
+  z.els['nt-what'].value = 'Words for the old project';
+  z.els['nt-who'].value = 'someone';
+  z.api.leaveNewTask();
+  z.api.openNewTask(null, 'tasks');
+  assert.equal(z.els['nt-proj'].value, 'b');
+  assert.equal(z.els['nt-what'].value, 'Words for the old project', 'the dialog wiped a draft nobody chose to leave');
+  assert.equal(z.api.NT_PROJECT, 'b');
+  assert.doesNotMatch(z.els['nt-who'].innerHTML, /value="someone"/);
+});
+
 test('changing the project in the dialog keeps the words and resets who is on it', () => {
   const at = SCRIPT.indexOf("getElementById('nt-proj').addEventListener('change'");
   const fn = SCRIPT.slice(at, SCRIPT.indexOf('\n});\n', at) + 5);
