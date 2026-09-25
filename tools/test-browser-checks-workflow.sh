@@ -233,6 +233,11 @@ if command -v ruby >/dev/null 2>&1; then
   printf '%s' "$out" | grep -q '::error::false issue list failed 3 times' && printf '%s' "$out" | grep -q 'rc=1' || fail "ghr did not report a final failure: $out"
   # FAILED-LIST splits on "|", so no FAILED entry may contain one.
   if grep -vE '^[[:space:]]*#' "$REPO/tools/browser-checks.sh" | grep -E 'FAILED\+=\(' | grep -qF '|'; then fail "a FAILED+=() entry in browser-checks.sh contains '|', which FAILED-LIST would split into fake checks"; fi
+  # ...and run_one's label reaches FAILED too, so no run_one label may contain one either.
+  # (The count guards against a pattern that matches nothing and so can never fail.)
+  rl=$(grep -E '^[[:space:]]*run_one "' "$REPO/tools/browser-checks.sh" | sed 's/^[[:space:]]*run_one "\([^"]*\)".*/\1/')
+  [ "$(printf '%s\n' "$rl" | grep -c .)" -ge 20 ] || fail "found too few run_one labels to check ($(printf '%s\n' "$rl" | grep -c .)); the pattern no longer matches the driver"
+  if printf '%s\n' "$rl" | grep -qF '|'; then fail "a run_one label contains '|', which FAILED-LIST would split into fake checks: $(printf '%s\n' "$rl" | grep -F '|')"; fi
   # The driver's OWN FAILED-LIST line, run on a fixture with a spaced entry, must split back
   # into the same entries on "|" (a separator change would turn a spaced entry into fake checks).
   fl_line=$(grep -E '^[[:space:]]*log "FAILED-LIST:' "$REPO/tools/browser-checks.sh" | head -1)

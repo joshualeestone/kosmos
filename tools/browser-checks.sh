@@ -217,7 +217,7 @@ else
   # freeze AND the uncommitted-changes warning above. Accepted for now: the
   # false-negative only fires on a deliberately unusual local git state, not
   # on the normal "commit, then run" workflow this fix targets.
-  log "Already on a detached HEAD ($REPO) -- isolated by the caller (release.sh's own freeze, #597/#611); not freezing again."
+  log "Already on a detached HEAD ($REPO) -- isolated by the caller (release.sh's own freeze, #597/#611, or a CI checkout, #2518); not freezing again."
 fi
 
 # --- cleanup, registered THE MOMENT there is anything to clean up -----------
