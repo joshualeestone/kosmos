@@ -94,12 +94,23 @@ const resetStore = (state) => fs.writeFileSync(tipsStore.FILE(), JSON.stringify(
 
     // T2: Next walks the four places in order, and Got it on the last closes it and the board remembers.
     const walked = [];
+    const placed = [];
+    const tourPlace = () => page.evaluate(() => {
+      const c = document.getElementById('tipcard'), h = document.querySelector('#tippins .tiphalo');
+      const a = c.getBoundingClientRect(), b = h ? h.getBoundingClientRect() : null;
+      return { cls: ['up', 'down', 'left', 'right', 'flat'].find((k) => c.classList.contains(k)), overRing: !!b && a.left < b.right && a.right > b.left && a.top < b.bottom && a.bottom > b.top };
+    });
+    placed.push(await tourPlace());
     for (let i = 0; i < 3; i++) {
       await page.click('#tipcard .tip-go');
       await page.waitForTimeout(150);
       const st = await cardState(page);
       walked.push(st.step + ' ' + st.title);
+      placed.push(await tourPlace());
     }
+    /* Every step's card points at its own ringed place and never sits on it (a card's last place must
+       not carry over from the step before). */
+    chk(placed.length === 4 && placed.every((p) => p.cls !== 'flat' && !p.overRing), 'T2 every tour step\'s card points at its ring and does not cover it', JSON.stringify(placed));
     chk(JSON.stringify(walked) === JSON.stringify(['2 of 4 Your agents', '3 of 4 Your projects', '4 of 4 Your settings']), 'T2 Next walks Agents, Projects, then your name', JSON.stringify(walked));
     const lastBtn = await page.evaluate(() => ({ go: document.querySelector('#tipcard .tip-go').textContent, skip: !!document.querySelector('#tipcard .tip-skip') }));
     chk(lastBtn.go === 'Got it' && !lastBtn.skip, 'T2 the last step says Got it and offers no Skip', JSON.stringify(lastBtn));
@@ -343,8 +354,20 @@ const resetStore = (state) => fs.writeFileSync(tipsStore.FILE(), JSON.stringify(
     await page.click('#helpq-menu [data-help="screen"]');
     const top0 = await page.evaluate(() => document.getElementById('tipcard').getBoundingClientRect().top);
     const scrolled = await page.evaluate(async () => { const y = window.scrollY; window.scrollBy(0, 120); await new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r))); return window.scrollY - y; });
-    const top1 = await page.evaluate(() => document.getElementById('tipcard').getBoundingClientRect().top);
-    chk(scrolled > 0 && Math.round(top0 - top1) === Math.round(scrolled), 'T14 scrolling moves the card with its target', JSON.stringify({ top0, top1, scrolled }));
+    /* Since the 0.6.93 fix a card never sits on a control, so after a scroll it either still points at its
+       target from exactly its gap (arrow up / down / beside), or, when that place would cover a control, sits
+       in a clear place with no arrow. Both are strict: which one is read from the card, not allowed either way. */
+    const after14 = await page.evaluate(() => {
+      const c = document.getElementById('tipcard');
+      const t = [...document.querySelectorAll('#panel-settings .dsec:not([hidden]) .dlab')].find((x) => x.getBoundingClientRect().height > 0);
+      const cr = c.getBoundingClientRect(), tr = t.getBoundingClientRect();
+      const cls = ['up', 'down', 'left', 'right', 'flat'].find((k) => c.classList.contains(k));
+      return { cls, covers: c.dataset.covers, gap: cls === 'up' ? Math.round(cr.top - tr.bottom) : cls === 'down' ? Math.round(tr.top - cr.bottom) : cls === 'left' ? Math.round(cr.left - tr.right) : cls === 'right' ? Math.round(tr.left - cr.right) : null,
+        onScreen: cr.top >= 0 && cr.bottom <= innerHeight };
+    });
+    const want14 = { up: 12, down: 12, left: 14, right: 14 }[after14.cls];
+    chk(scrolled > 0 && after14.onScreen && after14.covers === '0' && (after14.cls === 'flat' || after14.gap === want14),
+      'T14 after a scroll the card still points at its target from its gap, or sits clear of every control', JSON.stringify({ top0, scrolled, after14 }));
     await page.keyboard.press('Escape');
     await page.evaluate(() => window.scrollTo(0, 0));
     await page.setViewportSize({ width: 1280, height: 860 });
@@ -542,6 +565,64 @@ const resetStore = (state) => fs.writeFileSync(tipsStore.FILE(), JSON.stringify(
     chk(!tourShown28 && (await api('GET')).seen.includes('tour'), 'T28 and the tour is recorded as seen', JSON.stringify({ tourShown28 }));
     await page.keyboard.press('Escape');
     await page.waitForTimeout(150);
+
+    // T31: a tip never sits on a real control (0.6.93 cut: the Settings tip took Check for Update's
+    // click). Every screen's tip is opened from the ? and must cover no visible control; on Settings >
+    // Updates, Check for Update is still the thing under the pointer.
+    resetStore({ seen: ['tour', 'ring', 'agents', 'projects', 'project', 'newagent', 'agentpage', 'settings'], off: false });
+    withAgent();
+    await page.goto(URL, { waitUntil: 'networkidle' });
+    await page.evaluate(() => applyLayout('tabs', true));
+    const openHere = async () => {
+      await page.click('#helpq-btn');
+      await page.click('#helpq-menu [data-help="screen"]');
+      await page.waitForTimeout(250);
+      /* Coverage computed HERE, with its own wider list (anything clickable or focusable), not read back
+         from what tipPlace reported about itself. */
+      return page.evaluate(() => {
+        const c = document.getElementById('tipcard');
+        if (!c || c.hidden) return { shown: false };
+        const a = c.getBoundingClientRect();
+        const sel = 'button, a[href], input:not([type="hidden"]), select, textarea, summary, [role], [data-agent], [tabindex]:not([tabindex="-1"]), [onclick]';
+        const hit = [...document.querySelectorAll(sel)].filter((q) => {
+          if (q.closest('#tiplayer, [hidden]') || q.contains(c)) return false;
+          const b = q.getBoundingClientRect(); const cs = getComputedStyle(q);
+          if (b.width < 1 || b.height < 1 || cs.visibility === 'hidden' || cs.display === 'none') return false;
+          if (!['button', 'link', 'switch', 'tab', 'checkbox', 'radio', 'textbox', 'combobox', 'menuitem', null].includes(q.getAttribute('role'))) return false;
+          return b.left < a.right && b.right > a.left && b.top < a.bottom && b.bottom > a.top;
+        }).map((q) => q.id || q.className || q.tagName);
+        return { shown: true, title: c.querySelector('h2') ? c.querySelector('h2').textContent : null, covers: String(hit.length), hit };
+      });
+    };
+    const screens31 = [
+      ['board', async () => { await page.evaluate(() => showTab('agents')); }],
+      ['projects', async () => { await page.evaluate(() => showTab('projects')); }],
+      ['create', async () => { await page.evaluate(() => openCreate()); }],
+      ['agent page', async () => { await page.evaluate(() => { const a = document.querySelector('#grid [data-agent="beatrix"]'); if (a) a.click(); }); }],
+      ['settings (you)', async () => { await page.evaluate(() => showTab('settings')); }],
+      ...['mac', 'updates', 'accounts', 'advanced'].map((sec) => ['settings (' + sec + ')', async () => {
+        await page.evaluate(() => showTab('settings'));
+        await page.click('#s-nav button[data-go="' + sec + '"]');
+        chk(await page.evaluate((g) => document.querySelector('#s-nav button[data-go="' + g + '"]').getAttribute('aria-current') === 'true', sec), 'T31 precondition: Settings > ' + sec + ' is the section showing');
+      }]),
+    ];
+    const got31 = [];
+    for (const [name, go] of screens31) {
+      await page.keyboard.press('Escape');
+      await go();
+      await page.waitForTimeout(300);
+      const t = await openHere();
+      got31.push({ name, shown: t.shown, covers: t.covers, title: t.title });
+      if (name === 'settings (updates)') {
+        const upd = await page.evaluate(() => { const b = document.getElementById('upd-btn'); if (!b || b.hidden) return 'no button'; const r = b.getBoundingClientRect(); const hit = document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2); return !!hit && !!hit.closest('#upd-btn'); });
+        chk(t.shown && upd === true, 'T31 on Settings > Updates, with its tip open, Check for Update is still under the pointer', JSON.stringify({ t, upd }));
+      }
+    }
+    /* Each screen's own tip, so a missed click that leaves the page on another screen cannot pass. */
+    const want31 = { board: 'See your agents your way', projects: 'A project is shared work', create: 'Make an agent', 'agent page': 'Your agent\'s page' };
+    const bad31 = got31.filter((g) => !g.shown || g.covers !== '0' || g.title !== (want31[g.name] || 'Settings for this computer'));
+    chk(got31.length === 9 && bad31.length === 0, 'T31 every screen\'s tip opens and covers no visible control', JSON.stringify(bad31.length ? bad31 : got31.map((g) => g.name)));
+    await page.keyboard.press('Escape');
 
     // T7: a board that cannot say what was seen shows nothing. Seen is emptied first, so a guard
     // that let tips through would show the tour here (control: T1 and T6, the same empty state).
