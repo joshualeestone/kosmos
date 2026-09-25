@@ -287,7 +287,7 @@ const waitFor = (page, fn, ms = 6000) => page.waitForFunction(fn, null, { timeou
     await page.waitForTimeout(3000);
     chk(!(await state(page)).bubble && await page.evaluate(() => ASB.hosted === true), 'H10 switched off, the hosted assistant shows no bubble (it is still hosted)');
     // H10b: switched off, with neither a guide nor hosted (they connected their own AI later): the Settings switch is
-    // still there to turn it back on, as "Don't show this again" promises.
+    // still there to turn it back on, as "Close forever" promises.
     fs.writeFileSync(path.join(HOME, '.claude.json'), JSON.stringify({ oauthAccount: { emailAddress: 'person@example.com' } }));
     fs.mkdirSync(path.join(HOME, '.claude'), { recursive: true });
     await boot();
