@@ -42296,8 +42296,9 @@ function tskMatches(t, q) {
   const hay = [t.sentence, '#' + t.number, String(t.number), t.projectName]
     .concat((t.whoNames || []).map((w) => w + ' ' + tskAgentName(w)))
     .join(' \u0001 ').toLowerCase();
-  /* Every word must appear somewhere, so "logo april" finds April's logo task. */
-  return needle.split(/\s+/).every((w) => hay.includes(w));
+  /* Every word must appear somewhere, so "logo april" finds April's logo task. A "#N" word
+     names one task, so it matches that number exactly: "#1" is not #12 or #100. */
+  return needle.split(/\s+/).every((w) => (/^#\d+$/.test(w) ? w === '#' + t.number : hay.includes(w)));
 }
 function tskSort(list, mode) {
   const at = (iso) => { const v = Date.parse(iso); return Number.isFinite(v) ? v : null; };

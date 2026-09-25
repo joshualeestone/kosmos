@@ -13079,23 +13079,32 @@ const server = http.createServer((req, res) => {
                         the whole request
          state          tasks.taskState: closed / nobody / working / assigned
          lastActivityAt the newest transcript event, else created/closed
-       Added fields only, and only on ?view=tasks. */
+       Added fields only, and only on ?view=tasks, which also leaves out archived
+       projects' tasks (the view does not list them). */
     const roster = safeRoster();
     const claims = new Map();
+    /* A project whose claims could not be read: its tasks say so (claimed: null, with why),
+       so the page shows "cannot tell" on the row rather than "not started" as a fact. */
+    const unreadable = new Set();
     for (const p of everyProject || []) {
       if (projectScope && p.id !== projectScope) continue;
+      // An archived project is set aside and the view does not list it, so it costs nothing.
+      if (p.archived === true) continue;
       let joined = [];
       try {
         joined = projects.joinTaskClaims(Array.isArray(p.tasks) ? p.tasks : [], everyProject, p.agents || [], roster, { name: p.name, id: p.id });
       } catch (err) {
-        // Said, not swallowed: this project's assigned tasks will read "assigned" without a claim.
         console.error('[tasks view] could not read claims for project ' + p.id + ': ' + String((err && err.message) || err));
+        unreadable.add(p.id);
         joined = [];
       }
       for (const j of joined) if (j && j.claim) claims.set(p.id + '\u0000' + j.number, j.claim);
     }
-    const rows = scoped.map((t) => {
-      const claim = claims.get(t.projectId + '\u0000' + t.number) || null;
+    const rows = scoped.filter((t) => !t.projectArchived).map((t) => {
+      let claim = claims.get(t.projectId + '\u0000' + t.number) || null;
+      if (!claim && unreadable.has(t.projectId) && tasks.taskState(t) === 'assigned') {
+        claim = { claimed: null, because: 'we could not read what its agent reports' };
+      }
       return Object.assign({}, t, {
         claim,
         state: tasks.taskState(Object.assign({}, t, { claim })),

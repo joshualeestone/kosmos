@@ -59,6 +59,10 @@ test('search: what it says, its number, its project and its agent (by either nam
   assert.deepEqual(find('rex proof'), [2], 'two words narrow, not widen');
   assert.deepEqual(find('   '), [1, 2, 7, 12], 'an empty search is no filter');
   assert.deepEqual(find('nothing-like-this'), []);
+  // "#N" names one task: #1 is not #12 (the fixture has both, so a substring match fails this).
+  assert.deepEqual(find('#1'), [1]);
+  assert.deepEqual(find('#1 podcast'), [1]);
+  assert.deepEqual(find('#12'), [12]);
 });
 
 test('sort: newest, oldest, and quietest first (unknown activity last, never floated up as quiet)', () => {
@@ -111,4 +115,8 @@ test('no Tasks style declares a left border (Josh, 2026-09-24: no coloured bar d
     .flatMap((r) => [...r.matchAll(/border-(?:left|inline-start)[^;}]*/g)].map((m) => m[0]))
     .filter((d) => !/^border-left:\s*1px solid var\(--k-rule\)$/.test(d.trim()));
   assert.deepEqual(plantedBad, ['border-left: 3px solid var(--gold)'], 'the extraction cannot see a planted bar');
+  // A bar can also be an inset shadow offset to the left; none may be, and the check can see one.
+  const SHADOW_BAR = /box-shadow:[^;}]*inset\s+[1-9]\d*px\s+0/g;
+  assert.deepEqual(rules.flatMap((r) => [...r.matchAll(SHADOW_BAR)].map((m) => m[0])), []);
+  assert.equal([...'.tsk-x { box-shadow: inset 3px 0 0 var(--gold); }'.matchAll(SHADOW_BAR)].length, 1, 'the shadow check cannot see a shadow bar');
 });
