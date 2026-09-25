@@ -24,7 +24,8 @@ no-purchase change (kosmos-relay android-no-purchase-718).
   gates the production release. The web arm is checked in a new Chrome tab, since "Open in Chrome"
   carries the app's memory along.
 
-- **Three phone checks, not two** (round 4): the Play install tested after the first upload still
+- **Four phone checks** (round 4, then round 10): sideload (gates Step 5), background-return,
+  Play-install (informational), release (gates Step 10). the Play install tested after the first upload still
   opens with a browser bar, because Play's signing key is not yet in assetlinks.json; the
   configuration real users get (a verified full-screen Play install) only exists after that key is
   added and deployed, so a release check on it gates production. The policy is read twice (before
