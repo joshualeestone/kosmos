@@ -1209,6 +1209,7 @@ function deliver(sessionName, raw, roster, envelope, trailer) {
       && !PAUSED_SWARM_COMMANDS.test(String(raw).trim())) {
     return {
       state: DELIVERY.COULD_NOT,
+      // Lazy: swarm requires projects, which requires this module at its top.
       because: require('./swarm').pausedSentence(allowed.card.name || sessionName, allowed.card.swarm.pausedBecause),
       at, paneState: null, paneNote: null,
     };

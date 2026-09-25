@@ -1460,7 +1460,7 @@ function sendPost({ fromPane, sender: resolvedSender, project, projectName, text
    * were recipients and none took it, and wrong when there were none to try.
    * The person reads the room from the record, and the record is written below.
    */
-  if (!reached && recipients.length - offHere.size > 0) {
+  if (!reached && charged > 0) {
     /* Reaching NOBODY is a failed post, not a quieter success: nothing
        was typed anywhere, so nothing is logged (send()'s typed-only
        rule) and the spill must not wait for the next mint of this id. */

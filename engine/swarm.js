@@ -286,8 +286,9 @@ function readFile(file, since, now = Date.now()) {
   return { tokens: e.tokens, finished: e.finished, mtimeMs: e.mtimeMs, caughtUp: e.offset >= st.size };
 }
 
-/* Session file -> whether it is the lead's, for definite answers only (a session's cwd
-   never changes, and an answer not yet known is asked again next time). */
+/* (lead's current transcript, session file) -> whether that file is the lead's, for definite
+   answers only (a session's cwd never changes, and an answer not yet known is asked again next
+   time). Keyed per lead: two leads can share one folder, and each has its own answer. */
 const ownerCache = new Map();
 
 /**
@@ -316,12 +317,13 @@ function meter(transcriptPath, now = Date.now(), owns = null) {
     let st;
     try { st = fs.statSync(file); } catch { continue; }
     if (typeof owns === 'function' && file !== transcriptPath) {
-      let mine = ownerCache.get(file);
+      const key = transcriptPath + '\0' + file;
+      let mine = ownerCache.get(key);
       if (mine === undefined) {
         try { mine = owns(file); } catch { mine = null; }
         if (typeof mine === 'boolean') {
           if (ownerCache.size > 1024) ownerCache.clear();
-          ownerCache.set(file, mine);
+          ownerCache.set(key, mine);
         }
       }
       if (mine === false) continue;

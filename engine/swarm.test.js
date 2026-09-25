@@ -213,6 +213,23 @@ test('#3564 meter: a session in the lead\'s folder that another agent owns is no
   assert.equal(swarm.meter(cur, NOW).leadTokens, 1013, 'CONTROL: with no owner test, every session counts');
 });
 
+test('#3564 meter: two leads sharing one folder, metered back to back, each count only their own sessions', () => {
+  swarm.resetForTests();
+  // Lead A has an earlier session today (a0); lead B's only session is b. Each lead's CURRENT
+  // file is never asked about, so a0 is the file whose answer differs between the two leads.
+  const dir = transcripts('twolead', [
+    ['a.jsonl', [asst(today(9), U(10, 0), 'end_turn')], NOW - 60000],
+    ['a0.jsonl', [asst(today(8), U(5, 0), 'end_turn')], NOW - 3600000],
+    ['b.jsonl', [asst(today(9), U(700, 0), 'end_turn')], NOW - 60000],
+  ]);
+  const a = path.join(dir, 'a.jsonl');
+  const b = path.join(dir, 'b.jsonl');
+  const ownsFor = (mine) => (f) => mine.includes(path.basename(f));
+  assert.equal(swarm.meter(a, NOW, ownsFor(['a.jsonl', 'a0.jsonl'])).leadTokens, 15, 'CONTROL: lead A counts both its sessions');
+  assert.equal(swarm.meter(b, NOW, ownsFor(['b.jsonl'])).leadTokens, 700, 'lead B was given lead A\'s cached answer about a file');
+  assert.equal(swarm.meter(a, NOW, ownsFor(['a.jsonl', 'a0.jsonl'])).leadTokens, 15, 'lead A was given lead B\'s cached answer about a file');
+});
+
 test('#3564 meter: a file larger than one call reads catches up over polls, and says it is not complete until it has', () => {
   swarm.resetForTests({ perCallBytes: 256 });
   const line = (id) => JSON.stringify({ type: 'assistant', timestamp: today(9), message: { id, role: 'assistant', stop_reason: 'tool_use', usage: U(1, 0), content: [{ type: 'text', text: 'x'.repeat(100) }] } });
