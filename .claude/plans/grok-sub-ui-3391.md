@@ -93,3 +93,15 @@ signing a lapsed subscription back in from the app.
 - [WARNING] a typed name was dropped on merge: a named sign-in is never merged (the person
   asked for a separate account). No UI sends a name today; the engine contract stays honest.
 - Arms for all three, each perturbed red.
+
+## Review pass 5 (opus): no blockers, 2 warnings, 3 nits, all taken
+- [WARNING] no test pinned the default-with-email sentence (passing null stayed green): the
+  default arm now asserts Sign in again is named; the null perturbation goes red.
+- [WARNING] "then choose that Grok account" pointed back at the expired one; a sign-in beside a
+  no-email account always lands as a NEW account, so the sentence says "the new Grok account".
+- [NIT] the named no-email sentence's Disconnect step changed nothing (no merge without an
+  email) and could refuse while agents run on it: both no-email cases now share the one
+  sentence above, and the isDefault parameter is gone.
+- [NIT] the repaint-failed text was Settings-only on a shared driver: each caller passes its own.
+- [NIT] the merge read-back error said "this account" on screens where no account was picked:
+  "your existing Grok account was updated, but we could not read it back".

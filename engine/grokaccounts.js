@@ -855,7 +855,8 @@ function startGrokLogin({ label, grokBin, reauthDir } = {}) {
             reapGrokSession(session);
             return;
           }
-          session.error = 'the sign-in could not be read back after updating this account';
+          // Said for a NEW sign-in, where the person never picked an account: name which one.
+          session.error = 'your existing Grok account was updated, but we could not read it back';
           session.state = 'error';
           freeSlotAndDir();
           reapGrokSession(session);

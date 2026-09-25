@@ -23101,7 +23101,7 @@ function grokSubDriver(o) {
         /* The account exists on the engine now; a screen that fails to repaint must say so,
            never sit on "Checking the connection…". */
         try { await o.onConnected(out.account || null); }
-        catch { say('Signed in, but this screen could not update. Close it and look in Settings, AI Models.'); }
+        catch { say(o.repaintFailed || 'Signed in, but this screen could not update.'); }
         return;
       }
       if (out.state === 'cancelled') { finish('Sign-in stopped.'); return; }
@@ -23149,6 +23149,7 @@ const ACCT_GROK_SUB = grokSubDriver({
   ids: { go: 'acct-grok-sub-go', openRow: 'acct-grok-sub-open-row', open: 'acct-grok-sub-open', code: 'acct-grok-sub-code', cancelRow: 'acct-grok-sub-cancel-row', cancel: 'acct-grok-sub-cancel' },
   msg: () => document.getElementById('acct-grok-msg'),
   reauthDir: () => ACCT_GROK_REAUTH_DIR,
+  repaintFailed: 'Signed in, but this screen could not update. Close it and look in Settings, AI Models.',
   onConnected: async (account) => {
     const email = account && account.email;
     const goldBox = frCheckRow({ state: 'ok', title: 'Grok is connected',
@@ -23319,6 +23320,7 @@ const FR_GROK_SUB = grokSubDriver({
   msg: () => document.getElementById('fr-grok-sub-msg'),
   reauthDir: () => null,
   alive: () => FR_STEP === 5,
+  repaintFailed: 'Signed in, but this screen could not update. Grok will show as connected in Settings, AI Models.',
   onConnected: async (account) => {
     FR_APIKEY_GEN += 1;   // a key Add still in flight is now the stale one
     document.getElementById('fr-apikey-flow').hidden = true;
