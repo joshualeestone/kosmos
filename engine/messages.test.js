@@ -2198,12 +2198,23 @@ test('#3679: a room post keeps its code indentation in the record', () => {
   });
 });
 
+test('#3679: a post of blank lines the room accepted before is still accepted', () => {
+  withFleet(room3(), (board) => {
+    armSender('mara-discord');
+    arm([ok(), ok()]);
+    const text = 'a\n\n'.repeat(25000);
+    assert.ok(chat.storeText(text).length > 64 * 1024, 'CONTROL: the stored form exceeds MAX_BODY itself');
+    const sent = messages.sendPost({ fromPane: '%7', project: 'henderson-lease', text }, board.agents, MEMBERS);
+    assert.doesNotMatch(String(sent.because || ''), /indentation/, 'refused for indentation it does not have');
+  });
+});
+
 test('#3679: a post whose kept indentation passes the room limit is refused with its own reason', () => {
   withFleet(room3(), (board) => {
     armSender('mara-discord');
-    const text = '```\n' + ('x' + ' '.repeat(10) + '\n' + ' '.repeat(120) + 'y\n').repeat(600) + '```';
+    const text = '```\n' + ('x' + ' '.repeat(10) + '\n' + ' '.repeat(120) + 'y\n').repeat(2200) + '```';
     assert.ok(chat.cleanMessage(text).length <= 64 * 1024, 'CONTROL: the one-line form must be under the room limit');
-    assert.ok(chat.storeText(text).length > 64 * 1024, 'CONTROL: the stored form must be over it');
+    assert.ok(chat.storeText(text).length > chat.STORE_GROWTH * 64 * 1024, 'CONTROL: the stored form must be over the ceiling');
     const sent = messages.sendPost({ fromPane: '%7', project: 'henderson-lease', text }, board.agents, MEMBERS);
     assert.notEqual(sent.state, chat.DELIVERY.PLACED);
     assert.match(String(sent.because), /indentation/, 'it must name indentation, not call it a document: ' + sent.because);

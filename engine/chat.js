@@ -362,7 +362,7 @@ function cleanMessage(raw) {
  */
 // Every tab is four spaces, not the next tab stop, the same width pjListDepth reads.
 const STORE_TAB = '    ';
-// A fence line, by CommonMark's run-length and info-string rules: leading spaces, three or more backticks, and
+// A fence line, CommonMark-like (its run-length and info-string rules; any indent, backticks only): three or more backticks, and
 // no backtick after them (so an inline ```span``` is not one). A fence closes only on a bare
 // run at least as long as the one that opened it, so ```` can hold a ``` example.
 // \x60 is a backtick: a literal one here reads as a template string to the #1732 scanner.
@@ -443,11 +443,12 @@ function messageProblem(raw) {
   // stored shape is what lets a legitimate newline reach `CONTROL` (which now
   // exempts it) while ESC and every other control char are still seen and
   // refused -- `storeText` leaves those untouched.
+  // #3679: measured on the one-line form, as the room does, so kept indentation
+  // (and a tab's four spaces) cannot push a message over the limit. Checked first, so
+  // the stored form is not built for a message that is refused anyway.
+  if (cleanMessage(raw).length > MAX_TEXT) return `keep it to ${MAX_TEXT} characters or fewer`;
   const text = storeText(raw);
   if (!text) return 'write something to send';
-  // #3679: measured on the one-line form, as the room does, so kept indentation
-  // (and a tab's four spaces) cannot push a message over the limit.
-  if (cleanMessage(raw).length > MAX_TEXT) return `keep it to ${MAX_TEXT} characters or fewer`;
   if (text.length > STORE_GROWTH * MAX_TEXT) return 'that has more indentation and spacing than we keep in a message; put it in a file and send the path';
   if (CONTROL.test(text)) return 'that message has characters we will not type into a terminal';
   return null;

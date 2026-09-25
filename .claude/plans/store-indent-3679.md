@@ -18,8 +18,9 @@ multi-line messages (#3678), so this is newly reachable.
 - STORE: CRLF/CR to LF; a tab to four spaces; inside a ``` fence every line kept as written
   (trailing spaces dropped); outside, leading indentation kept, a run inside a line becomes
   one space, trailing spaces go, three or more newlines become one blank line; the ends trimmed.
-- RENDER: a list item's leading whitespace gives it a depth class (`mdli-d1..3`, two spaces a
-  level, a tab four), styled as a left margin on all four surfaces. A top-level item's markup
+- RENDER: a list item gets a depth class (`mdli-d1..3`) relative to the items above it (a
+  stack of open indent widths per list, reset by a non-list line), styled as a left margin on
+  all four surfaces. So two-space, four-space and tab nesting all step one level. A top-level item's markup
   is byte-identical, which the older richtext checks pin.
 
 ## Rejected
@@ -138,3 +139,19 @@ always a stray keystroke, and trimming it keeps "  hello" stored as "hello".
   counted as content, splitting a collapsed paragraph break and pulling the shared indent to
   zero. Blank now means no visible character, whatever the whitespace. Tested; the old check
   reds it.
+
+## Review pass 9 (opus)
+- WARNING fixed: the room's stored-form bound at MAX_BODY refused posts of plain blank lines the
+  room accepted before (the old store already kept `\n\n`), and its comment was wrong. It is
+  STORE_GROWTH times MAX_BODY, as the DM path is; a room test pins the old blank-line post.
+- WARNING fixed: depth was absolute (two spaces a level), so tab or four-space nesting skipped
+  a level. It is now relative to the enclosing item, in both renderers; tests for two-space,
+  four-space, tab, stepping back out, and blank lines versus a paragraph. The per-line list
+  check is an inline regex, because other tests lift these renderers without the page's
+  constants.
+- NITs fixed: the fence comment says CommonMark-like and names the differences;
+  `messageProblem` checks the one-line length before building the stored form; the test header
+  names the surfaces that really skip the store.
+- Recorded: the first-line trim also applies when the first line is a fence opener, so an
+  indented opener over a column-0 closer loses its spaces while its code keeps theirs. It
+  renders the same.

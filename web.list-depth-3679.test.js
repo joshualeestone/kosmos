@@ -3,8 +3,9 @@
  * #3679: now that the store keeps indentation, both message renderers draw a nested
  * list item at its depth (two spaces a level, up to three) instead of flat.
  * pjProse is the project room thread; pjRich is the DM/talk dialog and the project
- * message list. Depth reads raw indentation, so on surfaces the store never touched (a task's
- * detail, an agent reply) a block indented as a whole draws one level in. A top-level item's
+ * message list. Depth is relative to the item above, so it does not depend on how wide a level
+ * is, and it reads raw text on surfaces the store never touched (a task's detail, an
+ * agent-to-agent message). A top-level item's
  * markup is unchanged, which the older richtext
  * checks pin byte for byte. Lifts the REAL renderers from web/index.html.
  */
@@ -17,10 +18,10 @@ const page = require('./test-support/page');
 const PAGE = fs.readFileSync(path.join(__dirname, 'web', 'index.html'), 'utf8');
 const SCRIPT = page.scriptOf(PAGE);
 const lift = (names) => names.map((n) => page.lift(SCRIPT, n)).join('\n');
-const CONSTS = ['LIST_DEPTH_SPACES', 'LIST_DEPTH_MAX'].map((c) => {
-  const m = new RegExp('const ' + c + ' = (\\d+);').exec(SCRIPT);
+const CONSTS = ['LIST_DEPTH_MAX'].map((c) => {
+  const m = new RegExp('^const ' + c + ' = .*;$', 'm').exec(SCRIPT);
   if (!m) throw new Error('no ' + c + ' in the page');
-  return 'const ' + c + ' = ' + m[1] + ';';
+  return m[0];
 }).join('\n');
 const DEPS = ['esc', 'pjRichSpans', 'pjTableCells', 'pjTableAligns', 'pjTableHtml', 'pjListDepth'];
 const RENDERERS = [
@@ -44,8 +45,19 @@ for (const [name, make] of RENDERERS) {
     assert.match(html, /<span class="mdli mdlin mdli-d1" data-n="2\.">two<\/span>/, `${name}: nested numbered item`);
   });
 
-  test(`#3679: ${name} reads a tab as a level of indentation`, () => {
-    assert.match(make()('- a\n\t- b'), /<span class="mdli mdli-d2">b<\/span>/, `${name}: a tab is four spaces, two levels`);
+  test(`#3679: ${name} counts a level per step in, whatever its width`, () => {
+    assert.match(make()('- a\n\t- b'), /<span class="mdli mdli-d1">b<\/span>/, `${name}: a tab is one level`);
+    const four = make()('- a\n    - b\n        - c\n    - d\n- e');
+    assert.match(four, /<span class="mdli mdli-d1">b<\/span>/, `${name}: four spaces is one level`);
+    assert.match(four, /<span class="mdli mdli-d2">c<\/span>/, `${name}: eight is two`);
+    assert.match(four, /<span class="mdli mdli-d1">d<\/span>/, `${name}: back out to one`);
+    assert.match(four, /<span class="mdli">e<\/span>/, `${name}: back to the top`);
+  });
+
+  test(`#3679: ${name} starts a new list's depth after a non-list line, not after a blank one`, () => {
+    const html = make()('- a\n  - b\n\n  - c\ntext\n  - d');
+    assert.match(html, /<span class="mdli mdli-d1">c<\/span>/, `${name}: a blank line keeps the list`);
+    assert.match(html, /<span class="mdli">d<\/span>/, `${name}: a paragraph ends it`);
   });
 }
 

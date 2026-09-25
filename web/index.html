@@ -43752,8 +43752,10 @@ function pjProse(text, names, agentNames) {
   while (src.length && src[0] === '') src.shift();
   while (src.length && src[src.length - 1] === '') src.pop();
   const out = [];
+  const listStack = [];   // #3679: pjListDepth's open levels; a non-list line ends the list
   for (let i = 0; i < src.length; i += 1) {
     const line = src[i];
+    if (/\S/.test(line) && !/^[ \t]*([-+*]|\d+\.)[ \t]+/.test(line)) listStack.length = 0;
     /* #2701: a GFM table -- this line is the header ONLY when the next line is a
        valid separator, so a stray `|` in prose never starts one. */
     if (line.indexOf('|') !== -1 && i + 1 < src.length) {
@@ -43780,9 +43782,9 @@ function pjProse(text, names, agentNames) {
        does not.) `>` therefore falls through to inline text below. */
     // #3679: a nested item keeps its depth, as in pjRich (pjListDepth).
     m = /^([ \t]*)[-+*][ \t]+(.*)$/.exec(line);
-    if (m) { out.push('<span class="mdli' + pjListDepth(m[1]) + '">' + pjRichSpans(m[2], names, agentNames) + '</span>'); continue; }
+    if (m) { out.push('<span class="mdli' + pjListDepth(listStack, m[1]) + '">' + pjRichSpans(m[2], names, agentNames) + '</span>'); continue; }
     m = /^([ \t]*)(\d+)\.[ \t]+(.*)$/.exec(line);
-    if (m) { out.push('<span class="mdli mdlin' + pjListDepth(m[1]) + '" data-n="' + esc(m[2]) + '.">' + pjRichSpans(m[3], names, agentNames) + '</span>'); continue; }
+    if (m) { out.push('<span class="mdli mdlin' + pjListDepth(listStack, m[1]) + '" data-n="' + esc(m[2]) + '.">' + pjRichSpans(m[3], names, agentNames) + '</span>'); continue; }
     out.push(pjRichSpans(line, names, agentNames));
   }
   return out.join('<br>');
@@ -43998,12 +44000,17 @@ function pjRichSpans(seg, names, agentNames) {
   s = s.replace(/(^|[^_\w])_([^\n_]+?)_(?![_\w])/g, '$1<em>$2</em>');
   return s.replace(/￼(\d+)￼/g, (mm, i) => (Number(i) < HOLD.length ? HOLD[Number(i)] : mm));
 }
-/* #3679: a list item's depth from its leading whitespace. LIST_DEPTH_MAX must match the
-   `.mdli-d1`..`.mdli-d3` rules in the stylesheet (web.list-depth-3679.test.js checks both). */
-const LIST_DEPTH_SPACES = 2;
+/* #3679: a list item's depth, relative to the items above it: deeper than the enclosing item
+   is one level in, whatever the width (two spaces, four, a tab). `stack` holds the widths of
+   the open levels for one list; the renderers reset it on a non-list line. LIST_DEPTH_MAX must
+   match the `.mdli-d1`..`.mdli-d3` rules in the stylesheet (web.list-depth-3679.test.js
+   checks both). */
 const LIST_DEPTH_MAX = 3;
-function pjListDepth(lead) {
-  const d = Math.min(LIST_DEPTH_MAX, Math.floor(String(lead).replace(/\t/g, '    ').length / LIST_DEPTH_SPACES));
+function pjListDepth(stack, lead) {
+  const w = String(lead).replace(/\t/g, '    ').length;
+  while (stack.length && w <= stack[stack.length - 1]) stack.pop();
+  const d = Math.min(LIST_DEPTH_MAX, stack.length);
+  stack.push(w);
   return d ? ' mdli-d' + d : '';
 }
 function pjRich(text) {
@@ -44038,9 +44045,11 @@ function pjRich(text) {
   }
   const src = raw.split('\n');
   const out = [];
+  const listStack = [];   // #3679: pjListDepth's open levels; a non-list line ends the list
   let i = 0;
   while (i < src.length) {
     const line = src[i];
+    if (/\S/.test(line) && !/^[ \t]*([-+*]|\d+\.)[ \t]+/.test(line)) listStack.length = 0;
     /* Fenced code block: from a ``` line to the next ``` (or end of message --
        an unclosed fence still renders as code so no raw ``` ever leaks).
        Nothing inside is markdown-parsed or linkified; CSS gives `.mdcb` its
@@ -44075,12 +44084,12 @@ function pjRich(text) {
     if (m) { out.push('<span class="mdh mdh' + m[1].length + '">' + pjRichSpans(m[2]) + '</span>'); i += 1; continue; }
     m = /^[ \t]*>[ \t]?(.*)$/.exec(line);
     if (m) { out.push('<span class="mdq">' + pjRichSpans(m[1]) + '</span>'); i += 1; continue; }
-    /* #3679: a nested item keeps its depth (two spaces a level, up to three), now that
-       the store keeps indentation. A top-level item's markup is unchanged. */
+    /* #3679: a nested item keeps its depth (pjListDepth), now that the store keeps
+       indentation. A top-level item's markup is unchanged. */
     m = /^([ \t]*)[-+*][ \t]+(.*)$/.exec(line);
-    if (m) { out.push('<span class="mdli' + pjListDepth(m[1]) + '">' + pjRichSpans(m[2]) + '</span>'); i += 1; continue; }
+    if (m) { out.push('<span class="mdli' + pjListDepth(listStack, m[1]) + '">' + pjRichSpans(m[2]) + '</span>'); i += 1; continue; }
     m = /^([ \t]*)(\d+)\.[ \t]+(.*)$/.exec(line);
-    if (m) { out.push('<span class="mdli mdlin' + pjListDepth(m[1]) + '" data-n="' + esc(m[2]) + '.">' + pjRichSpans(m[3]) + '</span>'); i += 1; continue; }
+    if (m) { out.push('<span class="mdli mdlin' + pjListDepth(listStack, m[1]) + '" data-n="' + esc(m[2]) + '.">' + pjRichSpans(m[3]) + '</span>'); i += 1; continue; }
     out.push(pjRichSpans(line));
     i += 1;
   }

@@ -1181,10 +1181,10 @@ function sendPost({ fromPane, sender: resolvedSender, project, projectName, text
   if (chat.cleanMessage(text).length > MAX_BODY) {
     return refuse('that is a document, not a message; put it in the project folder and post your colleagues the path');
   }
-  /* #3679: the stored form keeps indentation, so it is bounded on its own, at MAX_BODY: the
-     size one post's record could reach before indentation was kept. */
+  /* #3679: the stored form keeps indentation and blank lines, so it is bounded on its own, at
+     STORE_GROWTH times the one-line limit, as a direct message is. */
   const stored = chat.storeText(text);
-  if (stored.length > MAX_BODY) {
+  if (stored.length > chat.STORE_GROWTH * MAX_BODY) {
     return refuse('that has more indentation and spacing than we keep in a post; put it in the project folder and post your colleagues the path');
   }
   const markerBad = markerProblem(text);
