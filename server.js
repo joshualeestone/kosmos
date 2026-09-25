@@ -13713,11 +13713,15 @@ const server = http.createServer((req, res) => {
   /**
    * #3034: which agent is the setup guide, for the help bubble. The page has no other
    * way to know: /api/status carries no guide marker, and the name alone is not
-   * enough (see setupGuideNow). 404 means no guide, which until #3660 creates guides
-   * is every install, and the bubble then shows nothing.
+   * enough (see setupGuideNow). { ok: false, reason: 'none' } means no guide, which until
+   * #3660 creates one is every install, and the bubble then shows nothing.
    */
   if (pathname === '/api/setup-guide' && (req.method === 'GET' || req.method === 'HEAD')) {
     const found = setupGuideNow();
+    /* "No guide" is an ordinary answer here, not an error: the page asks on every install, and a 404 is
+       logged by the browser as a failed resource on every page load (it failed every "no page errors"
+       check). So it is 200 { ok: false, reason: 'none' }; only a refusal (409) keeps its status. */
+    if (!found.ok && found.reason === 'none') { sendJson(res, 200, { ok: false, reason: 'none', error: found.error }); return; }
     if (!found.ok) { sendJson(res, found.status, { error: found.error, reason: found.reason }); return; }
     sendJson(res, 200, { ok: true, name: found.name });
     return;

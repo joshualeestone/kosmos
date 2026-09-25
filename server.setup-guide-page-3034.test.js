@@ -179,9 +179,13 @@ const getGuide = () => fetch(board.base + '/api/setup-guide');
 
 test('#3034 read: no guide on this computer is a 404, and a marked guide answers its name', async () => {
   fs.rmSync(setupAssistant.flagPath(), { force: true });
+  /* An ordinary answer, not a 404: the page asks on every install, and a 404 shows as a failed resource
+     in every page's console (it broke the "no page errors" browser checks). */
   const none = await getGuide();
-  assert.equal(none.status, 404);
-  assert.match((await none.json()).error, /no setup guide/);
+  assert.equal(none.status, 200);
+  const nb = await none.json();
+  assert.equal(nb.ok, false);
+  assert.equal(nb.reason, 'none');
   // CONTROL: the same computer with a seeded, marked guide names it.
   folderFor('Josh', { guide: true });
   setupAssistant.markSetupAssistantSeeded({ name: 'Josh', via: 'test' });
@@ -201,7 +205,9 @@ test('#3034 read: an agent that took a deleted guide\'s name is not the guide (4
   const removedFile = path.join(path.dirname(setupAssistant.flagPath()), 'removed.json');
   try {
     fs.writeFileSync(removedFile, JSON.stringify([{ name: create.cleanName('Josh') }]));
-    assert.equal((await getGuide()).status, 404, 'a removed guide was named');
+    const gone = await getGuide();
+    assert.equal(gone.status, 200);
+    assert.deepEqual([(await gone.json()).reason], ['none'], 'a removed guide was named');
     fs.writeFileSync(removedFile, '{not a list');
     const unchecked = await getGuide();
     assert.equal(unchecked.status, 409, 'an unreadable removed list must refuse');

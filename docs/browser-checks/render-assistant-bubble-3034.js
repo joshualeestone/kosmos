@@ -75,6 +75,8 @@ const waitFor = (page, fn, ms = 6000) => page.waitForFunction(fn, null, { timeou
     const page = await browser.newPage({ viewport: { width: 1280, height: 860 } });
     const errs = [];
     page.on('pageerror', (e) => errs.push(e.message));
+    const consoleErrs = [];
+    page.on('console', (m) => { if (m.type() === 'error') consoleErrs.push(m.text()); });
     /* The guide's thread, answered here. */
     let thread = [{ from: 'josh', text: 'Hi, I built Kosmos. Want me to set up your first agent with you?', at: new Date().toISOString() }];
     const sent = [];
@@ -102,6 +104,9 @@ const waitFor = (page, fn, ms = 6000) => page.waitForFunction(fn, null, { timeou
     const none = await bubble(page);
     chk(!none.layer && !none.bubble, 'B1 with no setup guide, no bubble and no layer', JSON.stringify(none));
     chk(await page.evaluate(() => document.getElementById('asb-row').hidden === true), 'B1 and no Setup assistant row in Settings');
+    /* Asking for the guide on an install without one must not put a failed resource (a 404) in the console:
+       every other browser check counts console errors as page errors (it went red in CI once). */
+    chk(!consoleErrs.some((t) => /404|Failed to load resource/.test(t)), 'B1 asking for a guide that does not exist logs no failed resource', consoleErrs.join(' | '));
 
     // B1b: the guide is created AFTER the page loaded (a new install: end of first run, or the first
     // model connecting). The page keeps looking and the bubble arrives without a reload.

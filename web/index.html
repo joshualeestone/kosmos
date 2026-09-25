@@ -54133,12 +54133,12 @@ async function asbConfirmGuide({ forgetLater = false } = {}) {
     r = await fetch('/api/setup-guide', { cache: 'no-store' });
     b = await r.json().catch(() => null);   // read on every answer (see asbFind)
   } catch { return !!ASB.guide; }   // the board did not answer: keep what we have rather than blink the bubble
-  /* Gone: no guide (404), a folder that is not the guide's (409, reason not-guide: a new agent took the
-     name), or a DIFFERENT guide. Only 'unchecked' (the board could not read its removed list just now)
+  /* Gone: no guide (reason none), a folder that is not the guide's (409, reason not-guide: a new agent
+     took the name), or a DIFFERENT guide. Only 'unchecked' (the board could not read its removed list just now)
      keeps it, and the next read decides. */
   if (r.ok && b && b.ok && typeof b.name === 'string') {
     if (ASB.guide && b.name.toLowerCase() === String(ASB.guide).toLowerCase()) return true;
-  } else if (r.status !== 404 && !(b && b.reason === 'not-guide')) return !!ASB.guide;
+  } else if (!(b && (b.reason === 'none' || b.reason === 'not-guide'))) return !!ASB.guide;
   if (forgetLater) setTimeout(asbForgetGuide, 4000); else asbForgetGuide();
   return false;
 }
