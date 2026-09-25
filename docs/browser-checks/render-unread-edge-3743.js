@@ -215,8 +215,8 @@ const EDGE_LIGHT = 'rgb(245, 228, 188)';
     }, room);
     chk(u11.shown === 4 && u11.known === 4 && !u11.hasR1, 'U11 the thread\'s sets hold only the posts it shows', JSON.stringify(u11));
 
-    // U15: the setup assistant's chat. Replies that came while it was folded arrive with the edge (the backlog the poll
-    // counts from its dot), history does not, a reply landing while it is open gets it, each goes once read, and the
+    // U15: the setup assistant's chat. Replies that came while it was folded arrive with the edge (by id: the poll's
+    // asbNoteReplies records the replies at its first read, folded, and marks any other new when it is open), history does not, a reply landing while it is open gets it, each goes once read, and the
     // hosted assistant's words (typed back in this page) never do. Painted through the real asbPaintThread.
     const asbState = () => page.evaluate(() => [...document.querySelectorAll('#asp-th .asp-m.him[data-mid]')].map((d) => ({ id: d.dataset.mid, unread: d.hasAttribute('data-unread'), edge: getComputedStyle(d).boxShadow })));
     const gRows = [{ id: 'g1', from: 'guide', text: 'Hello, I can help.' }, { id: 'y1', from: 'you', text: 'Make me an agent' }, { id: 'g2', from: 'guide', text: 'Done, meet April.' }];
@@ -224,7 +224,9 @@ const EDGE_LIGHT = 'rgb(245, 228, 188)';
       document.getElementById('panel-projects').hidden = true;
       asbLayerEnsure();
       document.getElementById('asp').hidden = false;
-      unreadEdgeBacklog('asb:guide', 1);   // what asbPoll records for one reply that came while folded
+      ASB.replyIds = null;
+      asbNoteReplies('guide', rows.slice(0, 1), false);   // the folded first read: g1 is history
+      asbNoteReplies('guide', rows, true);                // opened: g2 came while folded
       ASB.shown = '';
       asbPaintThread(rows, 'guide');
     }, gRows);
@@ -245,6 +247,19 @@ const EDGE_LIGHT = 'rgb(245, 228, 188)';
     });
     chk(u15h === 0, 'U15 the hosted assistant\'s words never carry it (CONTROL for the arms above: the same backlog, no edge)', 'edged=' + u15h);
     if (SHOTS) await page.screenshot({ path: path.join(SHOTS, 'unread-asb.png') });
+    // U16: a guide forgotten and a new one made under the same name: the new one's thread is its own history, not new.
+    // CONTROL: without the forget, the same ids painted again under the same name are known, so this reads a real reset.
+    const u16 = await page.evaluate(() => {
+      ASB.guide = { sessionName: 'guide' };
+      asbForgetGuide();
+      document.getElementById('asp').hidden = false;
+      const rows = [{ id: 'n1', from: 'guide', text: 'Hi, I am new.' }, { id: 'n2', from: 'guide', text: 'Shall we start?' }];
+      asbNoteReplies('guide', rows, true);   // the new guide's first read, open: a baseline, nothing new
+      ASB.shown = '';
+      asbPaintThread(rows, 'guide');
+      return { left: [...UNREAD_EDGE.keys()].filter((k) => k.startsWith('asb:') && k !== 'asb:guide').length, edged: document.querySelectorAll('#asp-th [data-unread]').length };
+    });
+    chk(u16.edged === 0 && u16.left === 0, 'U16 a new guide under the same name shows its history without the edge', JSON.stringify(u16));
 
     chk(errs.length === 0, 'U7 no page errors', errs.join(' | '));
   } finally {

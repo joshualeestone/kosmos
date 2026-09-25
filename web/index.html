@@ -27073,6 +27073,12 @@ function unreadEdgeBacklog(key, n) {
 }
 /* `row` picks the agent's rows and `bd` their bubble inside; the setup assistant's chat draws each row as its own
    bubble, so it passes bd: null and the row is edged. */
+/* Named messages known to be new (the setup assistant's replies that came while it was folded), for the next look. */
+function unreadEdgeFresh(key, ids) {
+  const st = UNREAD_EDGE.get(key) || { known: null, fresh: new Set(), read: new Set(), backlog: 0 };
+  for (const id of ids) if (!st.read.has(id)) st.fresh.add(id);
+  UNREAD_EDGE.set(key, st);
+}
 function unreadEdgeApply(root, key, { row = '.msg:not(.you)[data-mid]', bd: bdSel = '.msg-bd' } = {}) {
   if (!root) return;
   const bubbleOf = (r) => (bdSel ? r.querySelector(bdSel) : r);
@@ -56152,7 +56158,7 @@ const ASB_FOLDED_POLL_MS = 60000;  // the thread, while folded, only to light th
 const ASB_FIND_FIRST_MS = 5000;    // looking for the guide again: 5s, doubling to a minute, until one is named
 const ASB_FIND_MAX_MS = 60000;
 let ASB = { started: false, guide: null, setting: null, open: false, asking: false, nudgeGone: false,
-  wroteOnce: false, heard: null, fallback: null, lastPoll: 0, screenKey: '', sending: false, dot: false,
+  wroteOnce: false, heard: null, fallback: null, replyIds: null, lastPoll: 0, screenKey: '', sending: false, dot: false,
   nextFind: 0, findEvery: ASB_FIND_FIRST_MS, finding: false, shown: '', readOnce: false,
   nextSetting: 0, settingEvery: ASB_FIND_FIRST_MS, settingReading: false,
   /* #3660: no guide yet, but the board can ask Kosmos's own model (GET /api/setup-guide says hosted). The
@@ -56470,6 +56476,16 @@ async function asbReadThread() {
     return body && Array.isArray(body.messages) ? { rows: body.messages, session: row.sessionName } : null;
   } catch { return null; }
 }
+/* #3743: the guide's replies the edge can mark (an id to find the row by, and words), as a set of ids. `open`: those not
+   seen before are marked new for the edge, and the set moves on; folded, only the first read is recorded (the baseline). */
+function asbNoteReplies(session, speech, open) {
+  const ids = new Set(speech.filter((m) => m.from === session && (m.id || m.at) && String(m.text || '').trim()).map((m) => String(m.id || m.at)));
+  if (ASB.replyIds === null) { ASB.replyIds = ids; return; }
+  if (!open) return;
+  const fresh = [...ids].filter((id) => !ASB.replyIds.has(id));
+  if (fresh.length) unreadEdgeFresh('asb:' + session, fresh);
+  ASB.replyIds = ids;
+}
 function asbSpeech(rows) { return rows.filter((m) => m && !(m.kind && ROOM_NOT_SPEECH.has(m.kind))); }
 
 async function asbPoll(force) {
@@ -56510,11 +56526,12 @@ async function asbPoll(force) {
       document.getElementById('asp-live').textContent = last ? String(last.text || '') : '';
     }
     ASB.dotTimed = false;   // consumed, or outlived (a count that fell): either way the next open reply is timed afresh
-    /* #3743: replies that came while it was folded (the dot) arrive with the edge. */
-    if (ASB.heard !== null && heard > ASB.heard) unreadEdgeBacklog('asb:' + t.session, heard - ASB.heard);
+    /* #3743: replies that came while it was folded arrive with the edge. By id, not by count: the ids it had when it
+       was last open (or at the first read) are history, and any other is new. */
+    asbNoteReplies(t.session, speech, true);
     ASB.heard = heard; ASB.dot = false; asbPaintThread(speech, t.session);
   }
-  else if (ASB.heard === null) ASB.heard = heard;
+  else if (ASB.heard === null) { ASB.heard = heard; asbNoteReplies(t.session, speech, false); }
   else if (heard > ASB.heard && !ASB.dot) { ASB.dot = true; ASB.dotTimed = true; ASB.heardAt = Date.now(); }   // timed once, when the dot lights
   asbPaint();
 }
@@ -56830,7 +56847,7 @@ async function asbFind() {
   asbAsideDone(); ASB.asideShowing = false; ASB.dot = false;   // a hosted refusal waiting to be read belongs to the hosted assistant, not the guide
   { const th = document.getElementById('asp-th'); if (th) th.replaceChildren(); }   // the hosted conversation is not the guide's
   /* A guide now exists: the bubble talks to it. The hosted conversation stays behind; it was another assistant. */
-  if (ASB.hosted) { ASB.hosted = false; ASB.heard = null; ASB.heardAt = 0; ASB.dotTimed = false; ASB.wasWorking = false; ASB.saidSignIn = ''; ASB.shown = ''; ASB.readOnce = false; ASB.lastPoll = 0; ASB.remaining = null; }
+  if (ASB.hosted) { ASB.hosted = false; ASB.heard = null; ASB.replyIds = null; ASB.heardAt = 0; ASB.dotTimed = false; ASB.wasWorking = false; ASB.saidSignIn = ''; ASB.shown = ''; ASB.readOnce = false; ASB.lastPoll = 0; ASB.remaining = null; }
   ASB.finding = false;
   asbLayerEnsure();
   await asbReadSetting();
@@ -56861,7 +56878,8 @@ function asbForgetGuide() {
   const standIn = asbIsHostedAfterForget();
   const hadFocus = !standIn && !!document.activeElement && !!document.activeElement.closest('#asblayer');
   const keepOpen = standIn && ASB.open;
-  ASB.guide = null; ASB.fallback = null; ASB.open = keepOpen; ASB.asking = false; ASB.heard = null; ASB.heardAt = 0; ASB.wasWorking = false; ASB.saidSignIn = ''; ASB.dotTimed = false; ASB.shown = ''; ASB.dot = false;
+  for (const k of [...UNREAD_EDGE.keys()]) if (k.startsWith('asb:')) UNREAD_EDGE.delete(k);   // #3743: a new guide under the same name starts from its own history
+  ASB.guide = null; ASB.fallback = null; ASB.replyIds = null; ASB.open = keepOpen; ASB.asking = false; ASB.heard = null; ASB.heardAt = 0; ASB.wasWorking = false; ASB.saidSignIn = ''; ASB.dotTimed = false; ASB.shown = ''; ASB.dot = false;
   ASB.wroteOnce = false; ASB.readOnce = false; ASB.lastPoll = 0; ASB.nudgeGone = false; ASB.asideShowing = false; asbAsideDone();
   const pm = document.getElementById('asp-msg'); if (pm) pm.textContent = '';   // nothing stale when it comes back
   if (keepOpen) { const th = document.getElementById('asp-th'); if (th) th.replaceChildren(); }   // the guide's thread is not the hosted one's
