@@ -42,3 +42,10 @@ board yet carried messages between a federated project's room and its seat.
 ## Not yet
 - A browser check for the external row (the repo's web/ gate), and the live
   two-Mac proof.
+
+## Surface gate (#2518)
+The external row reuses the room's `.msg` / `.msg-b` / `.msg-bd` classes, which
+render-dm-phone-718 and render-agentdm-3414 assert on. The new markup renders only
+for `kind: 'external'` rows in a project room and changes no existing rule for
+those classes; both checks pass on this branch (run through tools/browser-checks.sh).
+The commit carries a Browser-check-surface trailer for each.
