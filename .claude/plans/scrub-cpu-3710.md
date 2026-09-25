@@ -10,12 +10,12 @@ to 31 on 10 cores) and passed alone in 267 to 354ms. It blocked every agent's
 validation gate while the Mac was busy.
 
 ## Change
-- A `cpuMsOf(fn)` helper: `process.cpuUsage()` delta, user + system, in ms.
+- A `cpuMillisecondsOf(fn)` helper: `process.cpuUsage()` delta, user + system, in ms.
 - Both scrub timing tests (the degenerate run, and its sibling long non-URL
   run, which had the same wall-time shape) bound CPU ms < 3000 (same number).
   The no-throw assertion is unchanged.
 - A standing control: a fixed 1e8-iteration loop (~170ms CPU on an M4) must
-  measure between 20 and 3000ms, so cpuMsOf provably reports milliseconds.
+  measure between 20 and 3000ms, so cpuMillisecondsOf provably reports milliseconds.
   Review iteration 1 replaced a regex control: its cost depended on V8
   interpreting a regex on first use (86ms once compiled to native), so a V8
   or flag change could red it with the instrument fine.
@@ -44,5 +44,15 @@ threads; the file's tests run sequentially in one process.
 
 ## Controls run
 - Exponential regex planted in `scrub()`: the degenerate-run test fails (11677ms).
-- cpuMsOf with no division (microseconds) and with /1e6 (seconds): the control
+- cpuMillisecondsOf with no division (microseconds) and with /1e6 (seconds): the control
   test fails both ways.
+
+## Review iteration 2
+- CI runner (macos-latest, image macos-26-arm64) ran the degenerate scrub in
+  510ms of WALL time on main (run 36125175797), so its CPU time is at most that:
+  ~6x headroom under 3000 on the runner itself, measured, not assumed. The
+  control's CI duration is checked on this PR's run.
+- The same wall-time shape is in 10 more guards across 4 files; filed as
+  kosmos#3715 with every site. Only #1760's was seen failing, so converting the
+  rest (with per-guard perturbations) is its own reviewable change.
+- `cpuMsOf` renamed `cpuMillisecondsOf`.
