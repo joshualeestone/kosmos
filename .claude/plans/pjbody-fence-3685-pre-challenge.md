@@ -2,10 +2,10 @@
 pre_challenge: true
 method: challenge-loop
 branch: pjbody-fence-3685
-diff_hash: 02db422a8521bb198937dd1ae45d1bae677c1257a9e5fdadeaa9d7b7f22349a2
-validation: passed (full kosmos sequence on 22b4b944: 9157 tests, 9009 pass, 0 failed, 148 skipped)
+diff_hash: 8571fc087136e5c9f2668465019c13089a2d2000225371ebe67518179929a412
+validation: passed (full kosmos sequence on 9a4e4c69: 9189 tests, 9040 pass, 0 failed, 149 skipped)
 subdir_audit: passed
-timestamp: 2026-09-25T08:25:58Z
+timestamp: 2026-09-25T09:01:10Z
 iterations: 3
 converged: true
 ---
@@ -40,6 +40,9 @@ converged: true
 - Fuzz of 1,331 whitespace shapes against a tab-expanding reference: 0 mismatches. Column-0 fences identical to main.
 - [NIT] a message whose FIRST line is an indented fence keeps the indent on its code, because storeText's final trim removes the opener's indent before pjBody sees it --> RECORDED, not fixed (cosmetic: only code indent differs; fixing it means changing the store's trim, out of this card's scope)
 - [NIT] a closer less indented than the opener leaves the list open --> RECORDED, not fixed (pjRich does the same; the two renderers agree, which is the card's point)
+
+### Merge of main
+Main went red at caaf2e90 when #3559 and #3702 crossed (not this branch); Angel's #3705 fixed it. main was merged in (9a4e4c69, no conflicts), which moves the diff's hunk line numbers, so the hash and validation above are from a fresh suite on that head.
 
 ### Process
 Each reviewer ran blind, forbidden to edit the worktree while a suite ran, mutation runs only in its own mktemp copy; orphans after cleanup: 0, 0.
