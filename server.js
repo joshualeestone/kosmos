@@ -2561,8 +2561,8 @@ function sendRoomPostAsAgent({ fromPane, sender, project, text, replyExpected, i
      (projectOfPost null) is treated as absent: never block a legit reply over a stale
      id. A proactive post (no in_reply_to) is unchanged. */
   const citedId = String(inReplyTo == null ? '' : inReplyTo).trim();
+  let answeredProject = null;   // outside the block: the which-room ask below keys on it (round 3)
   if (citedId) {
-    let answeredProject = null;
     try {
       answeredProject = messages.projectOfPost(citedId);
     } catch {
@@ -2594,7 +2594,10 @@ function sendRoomPostAsAgent({ fromPane, sender, project, text, replyExpected, i
     /* #3224, the proactive half: only a post that is not a reply is asked which room
        it meant (a reply is already bound above). The caller decides whether to ask at
        all: the live route does, the outbox drain does not. */
-    askWhichRoom: askWhichRoom === true && !citedId,
+    askWhichRoom: askWhichRoom === true && !answeredProject,
+    /* ^ keyed on the citation RESOLVING, not on one being present (round 3): an id that
+       names no post (a copied "[q12]" with its brackets, a typo) is bound to nothing, so
+       it is asked like any other non-reply rather than slipping past both checks. */
     projectNameOf: (id) => {
       try { const p = projects.get(id, roster); return p ? p.name : null; } catch { return null; }
     },
@@ -2683,8 +2686,8 @@ function drainOutboxNow(pass) {
         // #3224: the kept body carries in_reply_to too, so a replayed answer binds to
         // the same room a live one would (and the mismatch guard applies identically).
         inReplyTo: entry.body.in_reply_to,
-        // #3224: a kept --new post is recorded as one (the drain never asks which room).
-        newPost: entry.body.new_post === true,
+        // #3224: a kept --new post is NOT marked (round 3): written at drain time, the mark
+        // would acknowledge questions that arrived after the agent typed --new.
       }, now));
     },
     onExpired: (entry, because) => {

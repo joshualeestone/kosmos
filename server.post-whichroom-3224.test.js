@@ -240,3 +240,27 @@ test('#3224 round 2: new_post with in_reply_to is not marked --new, so it does n
   assert.equal(r.json.delivery.code, 'which_room', 'the question owed in Beta must still hold this post');
 });
 
+test('#3224 round 3: an in_reply_to that names no post is bound to nothing, so it is held like any other non-reply', async () => {
+  const a = room('Alpha badcite 3224');
+  const b = room('Beta badcite 3224');
+  const q = operatorAsk(b.id);
+  for (const cite of ['[' + q + ']', 'm999999']) {
+    const r = await post({ project: a.id, text: 'misrouted with a bad citation', from_pane: '', in_reply_to: cite }, H());
+    assert.equal(r.json.delivery.code, 'which_room', cite + ': an unresolvable citation must not slip past both checks: ' + JSON.stringify(r.json.delivery));
+  }
+});
+
+test('#3224 round 3: a kept --new post replayed by the drain is not marked (it would acknowledge questions it never saw)', async () => {
+  const a = room('Alpha drainnew 3224');
+  const b = room('Beta drainnew 3224');
+  fs.rmSync(outbox.outboxDir(), { recursive: true, force: true });
+  assert.equal(outbox.keep({ verb: 'post', body: { project: a.id, text: 'kept new for alpha', from_pane: '', new_post: true }, from: 'dana' }).ok, true);
+  operatorAsk(b.id);   // arrives after the agent typed --new, before the drain
+  assert.equal(drainOutboxNow().delivered, 1);
+  const row = messagesEngine.readLog().find((m) => m && m.kind === 'post' && m.text === 'kept new for alpha');
+  assert.ok(row, 'the kept post was delivered');
+  assert.notEqual(row.newPost, true, 'a drained post is not marked --new');
+  const r = await post({ project: a.id, text: 'misrouted after the drain', from_pane: '' }, H());
+  assert.equal(r.json.delivery.code, 'which_room', 'the later question is still owed');
+});
+

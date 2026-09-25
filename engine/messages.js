@@ -1929,6 +1929,25 @@ function sweepUnanswered(roster, now) {
    index) and correctness risk to a function whose exactness is the point. The
    lever if a long backfill ever proves slow is to build the index once in
    compileAll and pass windows to a count-from-index variant. */
+/* #3224: how many room posts in [sinceMs, untilMs) were sent with --new, that is, confirmed
+   as new for their room after (or instead of) the which-room question. Counts only, for the
+   digest beside the suspected-misroute line, because those posts are left out of that count:
+   without this line the digest would read lower while the heuristic's cost went unseen.
+   NULL when the record cannot be read, as suspectedMisrouteCount. */
+function confirmedNewPostCount(sinceMs, untilMs) {
+  const rec = record();
+  if (!rec.ok) return null;
+  const from = Number.isFinite(sinceMs) ? sinceMs : -Infinity;
+  const until = Number.isFinite(untilMs) ? untilMs : Infinity;
+  let n = 0;
+  for (const m of rec.rows) {
+    if (!m || m.kind !== 'post' || m.operator === true || m.newPost !== true) continue;
+    const t = Date.parse(m.at);
+    if (Number.isFinite(t) && t >= from && t < until) n += 1;
+  }
+  return n;
+}
+
 function suspectedMisrouteCount(sinceMs, untilMs) {
   const rec = record();
   if (!rec.ok) return null;   // could-not-read, NOT empty: caller omits the line rather than showing 0
@@ -2183,7 +2202,9 @@ function owedElsewhere(agent, targetProject, now, opts) {
     }
   }
   /* >= as in `unanswered`: an answer in the same millisecond as the ask clears it. An
-     ask at or before the agent's latest --new post was already put to it once. */
+     ask at or before the agent's latest --new post is treated as acknowledged. That is
+     slightly wider than "was put to it": a question landing between the hold and the
+     --new rerun is cleared too. Accepted: the window is one rerun long. */
   const owed = asks.filter((a) => !(lastPostIn.get(a.project) >= a.t) && a.t > lastNewAt);
   const elsewhere = owed.filter((a) => a.project !== target && (() => {
     try { return canPostIn(a.project) === true; } catch { return false; }
@@ -2235,7 +2256,7 @@ module.exports = {
   START, END, blockBody,
   LOG,
   unanswered, sweepUnanswered, setUnansweredAfterForTests,
-  suspectedMisrouteCount,
+  suspectedMisrouteCount, confirmedNewPostCount,
   resolveSender, paneSession, paneClaim, send, logRefusedSend, sendPost, reopenRoom, list, owesReply, pairCount, readLog, record, roomNote, markerProblem,
   unreadAll, unread, markSeen, seenRead, SEEN,
   setRunner, resetForTests,

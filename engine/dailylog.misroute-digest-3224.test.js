@@ -108,3 +108,13 @@ test('compileAll: threads a per-day count into the written day file', () => {
   const md = fs.readFileSync(path.join(outDir, '2026-09-13.md'), 'utf8');
   assert.match(md, /Suspected cross-project misroutes today: 4 /);
 });
+
+test('#3224 round 3: the --new confirmations line renders beside the misroute line, counts only, and is omitted at 0 or null', () => {
+  const md = dl.renderDay('2026-09-13', rows, timeOf, 3, 2);
+  assert.match(md, /Posts confirmed as new after Kosmos asked which room they were for: 2\./);
+  assert.match(md, /Suspected cross-project misroutes today: 3/);
+  assert.doesNotMatch(dl.renderDay('2026-09-13', rows, timeOf, 3, 0), /confirmed as new/, 'zero is omitted');
+  assert.doesNotMatch(dl.renderDay('2026-09-13', rows, timeOf, 3, null), /confirmed as new/, 'unavailable is omitted, never a false zero');
+  assert.doesNotMatch(dl.renderDay('2026-09-13', rows, timeOf, 3), /confirmed as new/, 'the 4-arg callers are unchanged');
+});
+
