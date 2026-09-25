@@ -88,8 +88,8 @@ gates. `publish-r2.ps1` produces the same files with the same gates, directly in
 
    It then copies the staged zip to the alias `kosmos-win-x64.zip` inside R2, pinned to the exact
    object it just checked, rewrites the alias sidecar, and reads both back from the bucket. Only
-   then does it write `latest-win.json`, as the staging pointer's bytes verbatim, and read all
-   three back as users are served them. If anything fails after `latest-win.json` is written, the
+   then does it write `latest-win.json`, as the staging pointer's bytes verbatim, and read the alias, both sidecars, the versioned zip and
+   latest-win.json back as users are served them. If anything fails after `latest-win.json` is written, the
    refusal says so; re-run the same command to finish.
 
    ```

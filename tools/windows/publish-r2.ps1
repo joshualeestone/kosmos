@@ -140,7 +140,7 @@ function Read-Credentials {
   $c = @{}
   if ($CredentialFile -and (Test-Path -LiteralPath $CredentialFile)) {
     foreach ($line in [IO.File]::ReadAllLines((Resolve-Path -LiteralPath $CredentialFile).ProviderPath)) {
-      if ($line -cmatch '^\s*(?:export\s+)?(R2_ACCOUNT_ID|R2_ACCESS_KEY_ID|R2_SECRET_ACCESS_KEY)\s*=\s*"?([^"\s]+)"?\s*\z') { $c[$Matches[1]] = $Matches[2] }
+      if ($line -cmatch '^\s*(?:export\s+)?(R2_ACCOUNT_ID|R2_ACCESS_KEY_ID|R2_SECRET_ACCESS_KEY)\s*=\s*["'']?([^"''\s]+)["'']?\s*\z') { $c[$Matches[1]] = $Matches[2] }
     }
     $from = $CredentialFile
   } else {
@@ -158,11 +158,13 @@ function Read-Credentials {
 # ---------- R2 over the S3 API ------------------------------------------------------------------
 $Http = New-Object Net.Http.HttpClient
 $Http.Timeout = [TimeSpan]::FromMinutes(30)
+# Some edges challenge a client that names itself nothing.
+[void]$Http.DefaultRequestHeaders.TryAddWithoutValidation('User-Agent', 'kosmos-publish-r2/1 (+https://installkosmos.com)')
 
 function Invoke-R2 {
   param([string] $Method, [string] $Key, [byte[]] $Body = $null, [string] $BodyFile = $null,
         [string] $PayloadSha = $null, [string] $ContentType = $null, [hashtable] $Extra = @{})
-  if ($FakeDir) { return (Invoke-FakeR2 $Method $Key $Body $BodyFile $Extra) }
+  if ($FakeDir) { return (Invoke-FakeR2 $Method $Key $Body $BodyFile $Extra $PayloadSha) }
   $hostName = "$($Cred.R2_ACCOUNT_ID).r2.cloudflarestorage.com"
   $uriPath = "/$Bucket/$Key"   # keys are [0-9A-Za-z._/-] only, all unreserved, so none need encoding
   if (-not $PayloadSha) { $PayloadSha = if ($null -ne $Body) { Sha256-Bytes $Body } else { Sha256-Bytes ([byte[]]@()) } }
@@ -193,10 +195,18 @@ function Invoke-R2 {
 }
 
 # The test stand-in: a directory with S3's semantics for the four requests this script makes.
-function Invoke-FakeR2([string] $Method, [string] $Key, [byte[]] $Body, [string] $BodyFile, [hashtable] $Extra) {
+function Invoke-FakeR2([string] $Method, [string] $Key, [byte[]] $Body, [string] $BodyFile, [hashtable] $Extra, [string] $PayloadSha) {
   $path = Join-Path $FakeDir $Key
   $copy = if ($Extra.ContainsKey('x-amz-copy-source')) { $Extra['x-amz-copy-source'] } else { '' }
-  [IO.File]::AppendAllText((Join-Path $FakeDir '.calls'), "$Method $Key$(if ($copy) { " COPY $copy" })`n", $Utf8)
+  # Each request is logged with the extra headers it carried, so a test can see them.
+  [string[]] $hn = @($Extra.Keys); [Array]::Sort($hn, [StringComparer]::Ordinal)
+  $hdrs = ($hn | ForEach-Object { "$_=$($Extra[$_])" }) -join ';'
+  [IO.File]::AppendAllText((Join-Path $FakeDir '.calls'), "$Method $Key$(if ($copy) { " COPY $copy" }) | $hdrs`n", $Utf8)
+  # Like S3: a declared payload sha that is not the body's is refused.
+  if ($Method -ceq 'PUT' -and -not $copy -and $PayloadSha) {
+    $actual = if ($BodyFile) { Sha256-File $BodyFile } elseif ($null -ne $Body) { Sha256-Bytes $Body } else { Sha256-Bytes ([byte[]]@()) }
+    if ($actual -cne $PayloadSha) { return [pscustomobject]@{ Status = 400; Bytes = [byte[]]@(); Body = 'XAmzContentSHA256Mismatch'; ETag = '' } }
+  }
   $tag = { param($p) '"' + (Sha256-File $p) + '"' }
   if ($Method -ceq 'GET') {
     if (-not (Test-Path -LiteralPath $path -PathType Leaf)) { return [pscustomobject]@{ Status = 404; Bytes = [byte[]]@(); Body = ''; ETag = '' } }
@@ -280,7 +290,7 @@ function Assert-Served([string] $Name, [string] $WantSha) {
     $s = Get-Served $Name
     $got = if ($s.Status -eq 200) { Sha256-Bytes $s.Bytes } else { '' }
     if ($got -ceq $WantSha) { Say "served OK: $($s.Url) ($WantSha)"; return }
-    if ($FakeDir) { break }
+    if ($FakeDir -or $i -eq 6) { break }
     Start-Sleep -Seconds 5
   }
   Refuse "$($s.Url) serves status $($s.Status) sha256 '$got', not the $WantSha just written"
@@ -321,7 +331,7 @@ if ($PSCmdlet.ParameterSetName -ceq 'Staging') {
   # ======================================== STAGING ==========================================
   if (-not (Test-Path -LiteralPath $Zip -PathType Leaf)) { Refuse "no such zip: $Zip" }
   $Cred = Read-Credentials
-  $ZipPath = (Resolve-Path -LiteralPath $Zip).Path
+  $ZipPath = (Resolve-Path -LiteralPath $Zip).ProviderPath
   $committedExe = Join-Path $PSScriptRoot 'Kosmos.exe'
   if (-not (Test-Path -LiteralPath $committedExe -PathType Leaf)) { Refuse "the committed launcher $committedExe is missing, so the zip's launcher cannot be checked" }
   $archive = [IO.Compression.ZipFile]::OpenRead($ZipPath)
@@ -352,7 +362,7 @@ if ($PSCmdlet.ParameterSetName -ceq 'Staging') {
         if ($sigStatus -cne 'Valid') { Refuse "the launcher's Authenticode status on this PC is '$sigStatus', not Valid" }
         Say "launcher: the committed Kosmos.exe, Authenticode Valid"
       } else { Say "launcher: the committed Kosmos.exe (Authenticode is checked on Windows only)" }
-    } finally { Remove-Item -LiteralPath $tmp -Force }
+    } finally { Remove-Item -LiteralPath $tmp -Force -ErrorAction SilentlyContinue }   # a scanner may hold it a moment
   } finally { $archive.Dispose() }
   Assert-Version 'version' $Version
   $Versioned = "kosmos-$Version-win-$Arch.zip"
@@ -384,6 +394,9 @@ if ($PSCmdlet.ParameterSetName -ceq 'Staging') {
   }
 
   # Zip, then sidecar, then pointer LAST, so the pointer never names bytes that are not up.
+  # A replace of an existing versioned name is not immutable any more, so it is no-cache too.
+  if ($existing) { $putExtra = $NoCache }
+  if (-not $DryRun) { $script:AfterNote = " (staging writes had begun: $Versioned may be up; latest-win-staging.json still names the previous build unless the run said it was written. Re-run the same command to finish.)" }
   Put-Object $Versioned $null $ZipPath $Sha 'application/zip' $putExtra
   $side = New-SidecarBytes $Sha $Versioned
   Put-Object "$Versioned.sha256" $side $null (Sha256-Bytes $side) 'text/plain; charset=utf-8' $NoCache
@@ -391,11 +404,15 @@ if ($PSCmdlet.ParameterSetName -ceq 'Staging') {
   Put-Object 'latest-win-staging.json' $ptr $null (Sha256-Bytes $ptr) 'application/json' $NoCache
 
   if ($DryRun) { Say "DRY RUN complete: nothing was written."; exit 0 }
+  $script:AfterNote = " (latest-win-staging.json WAS written: staging names $Version. Re-run the same command to finish the checks.)"
   Assert-Served $Versioned $Sha
   Assert-Served "$Versioned.sha256" (Sha256-Bytes $side)
   Assert-Served 'latest-win-staging.json' (Sha256-Bytes $ptr)
-  Say "STAGED $Version ($Sha). Prod is untouched. Next: verify it on this PC with node tools/win-staging-verify.js (it writes the verification record), then, ONLY on Josh's go for this exact sha:"
-  Say "  pwsh tools/windows/publish-r2.ps1 -Promote -ApprovedVersion $Version -ApprovedSha $Sha -ApprovalRef <his message's Slack ts or permalink>"
+  $script:AfterNote = ''
+  Say "STAGED $Version ($Sha). Prod is untouched. Next: verify it on this PC with node tools/win-staging-verify.js (it writes the verification record), then send Josh the version and sha above, and ONLY on his go:"
+  # The sha is deliberately NOT filled in: the one to promote is the one in HIS message
+  # (promote-channel.sh never prints it for the same reason).
+  Say "  pwsh tools/windows/publish-r2.ps1 -Promote -ApprovedVersion <v from his go> -ApprovedSha <sha from his go> -ApprovalRef <his message's Slack ts or permalink>"
   exit 0
 }
 
@@ -411,7 +428,8 @@ if (-not $staging) { Refuse "the bucket has no latest-win-staging.json. Nothing 
 $sp = Read-PointerFields $staging.Bytes
 if (-not $sp) { Refuse "latest-win-staging.json is not a usable pointer. Re-stage with this script. Nothing was written." }
 if ($sp.version -cne $ApprovedVersion -or $sp.sha256 -cne $ApprovedSha) {
-  Refuse "the staging pointer is $($sp.version) ($($sp.sha256)), not the approved $ApprovedVersion ($ApprovedSha). Josh's go covers one exact build. Nothing was written."
+  # The staged sha is not printed: the approved one must come from Josh's message, not from here.
+  Refuse "the staging pointer names version $($sp.version) and a sha other than the approved $ApprovedVersion ($ApprovedSha), or both differ. Josh's go covers one exact build; check his message. Nothing was written."
 }
 # Canonical bytes, not just the right fields: latest-win.json becomes these bytes verbatim.
 if ((Sha256-Bytes $staging.Bytes) -cne (Sha256-Bytes (New-PointerBytes $ApprovedVersion $ApprovedSha $Versioned))) {
@@ -424,10 +442,13 @@ if (-not $staged.ETag) { Refuse "the bucket gave no ETag for $Versioned, so the 
 
 # The verification record for this sha on this PC, validated by the one spec the writer uses.
 $spec = Join-Path (Split-Path -Parent $PSScriptRoot) 'lib/win-staging-record.js'
-if (-not (Get-Command node -ErrorAction SilentlyContinue)) { Refuse "node is required to validate the verification record. Nothing was written." }
+# An executable node, not a node.cmd shim (cmd.exe would mangle the script), and the script is
+# passed as a file rather than on the command line.
+$nodeExe = Get-Command node -CommandType Application -ErrorAction SilentlyContinue | Where-Object { $_.Source -notmatch '\.(cmd|bat)\z' } | Select-Object -First 1
+if (-not $nodeExe) { Refuse "node (an executable, not a .cmd shim) is required to validate the verification record. Nothing was written." }
 if (-not (Test-Path -LiteralPath $spec)) { Refuse "the record spec $spec is missing. Nothing was written." }
 $verdictJs = @'
-const [specFile, wantVersion, wantSha] = process.argv.slice(1);
+const [specFile, wantVersion, wantSha] = process.argv.slice(2);   // run as a file: argv[1] is the script
 const spec = require(specFile); const fs = require('node:fs');
 const file = spec.recordPath(process.env, wantSha);
 let bytes; try { bytes = fs.readFileSync(file); } catch { console.log('HOLD no verification record at ' + file); process.exit(2); }
@@ -437,8 +458,12 @@ const { problems, verdict } = spec.validateRecord(record, { version: wantVersion
 if (problems.length) { console.log('AMBIGUOUS ' + problems.join('; ')); process.exit(3); }
 console.log((verdict === 'pass' ? 'PASS ' : 'FAIL ') + sha + ' ' + file); process.exit(verdict === 'pass' ? 0 : 4);
 '@
-$verdict = (& node -e $verdictJs $spec $ApprovedVersion $ApprovedSha) -join ' '
-$rc = $LASTEXITCODE
+$verdictFile = Join-Path ([IO.Path]::GetTempPath()) ("kosmos-verdict-" + [Guid]::NewGuid().ToString('N') + '.js')
+[IO.File]::WriteAllText($verdictFile, $verdictJs, $Utf8)
+$prevEnc = [Console]::OutputEncoding
+$rc = -1
+try { [Console]::OutputEncoding = $Utf8; $verdict = (& $nodeExe.Source $verdictFile $spec $ApprovedVersion $ApprovedSha) -join ' '; $rc = $LASTEXITCODE }
+finally { [Console]::OutputEncoding = $prevEnc; Remove-Item -LiteralPath $verdictFile -Force -ErrorAction SilentlyContinue }
 if ($rc -ne 0) { Refuse "the verification record does not pass ($verdict). Verify the staged build on this PC first (node tools/win-staging-verify.js). Nothing was written." }
 $recordSha = ($verdict -split ' ')[1]; $recordPath = ($verdict -split ' ', 3)[2]
 Say "verification record: $verdict"

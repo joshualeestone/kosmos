@@ -31,8 +31,9 @@ tools/windows/publish-r2.ps1, PowerShell 5.1 and 7, SigV4 over R2's S3 API with 
 - Porting the whole build to PowerShell: the build already runs from Git Bash on the PC (Homer
   built 0.6.94 there). Out of scope.
 - Reusing aws-cli on the PC: an extra install for three PUTs and a copy.
-- Giving Homer the existing account-wide R2 token: he needs least privilege. A bucket-scoped
-  Object Read & Write token is Josh's to create; the clicks are on #3725.
+- Minting a new key for Homer by default: Josh said at 07:09 that an R2 token named
+  kosmos-windows-deploy already exists. The runbook uses it and asks for a bucket-scoped one
+  only if it turns out to reach more than kosmos-dist-win. Its scope is Homer's to confirm.
 
 ## Weakest premise
 The script was measured on macOS pwsh 7, not on Windows PowerShell 5.1. HttpClient, the

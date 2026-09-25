@@ -88,7 +88,9 @@ else fail "pointer bytes differ: js=$(cat "$TMP/js.json") ps=$(cat "$TMP/ps.json
 refuses() { # <label> <expected substring> <args...>
   local label="$1" want="$2"; shift 2
   local o rc
-  o="$(env -u R2_ACCOUNT_ID -u R2_ACCESS_KEY_ID -u R2_SECRET_ACCESS_KEY LOCALAPPDATA="$TMP/none" "$PWSH" -NoProfile -File "$PS1" "$@" 2>&1)"; rc=$?
+  # The test transport is set so a refusal that regressed can never reach the real network.
+  mkdir -p "$TMP/refuse-fake"
+  o="$(env -u R2_ACCOUNT_ID -u R2_ACCESS_KEY_ID -u R2_SECRET_ACCESS_KEY LOCALAPPDATA="$TMP/none" KOSMOS_PUBLISH_R2_FAKE_DIR="$TMP/refuse-fake" "$PWSH" -NoProfile -File "$PS1" "$@" 2>&1)"; rc=$?
   if [ "$rc" -eq 1 ] && printf '%s' "$o" | grep -qF -- "$want"; then pass "$label"; else fail "$label: rc=$rc out=$o"; fi
 }
 printf 'R2_ACCOUNT_ID=%s\nR2_ACCESS_KEY_ID=AKIDTEST\nR2_SECRET_ACCESS_KEY=secret\n' "$(printf 'a%.0s' $(seq 32))" > "$TMP/cred.env"
@@ -133,16 +135,34 @@ refuses_clean() { # <label> <expected substring>   (after a fake run): refused, 
   if [ "$rc" -eq 1 ] && grep -qF -- "$2" "$TMP/out" && [ "$(writes)" -eq 0 ]; then pass "$1"; else fail "$1: rc=$rc writes=$(writes) out=$(tail -2 "$TMP/out")"; fi
 }
 
+fake -Zip "$TMP/a.zip" -DryRun; rc=$?
+if [ "$rc" -eq 0 ] && [ "$(writes)" -eq 0 ] && [ ! -e "$FAKE/latest-win-staging.json" ]; then pass "a staging -DryRun writes nothing"; else fail "staging dry run: rc=$rc writes=$(writes)"; fi
 fake -Zip "$TMP/a.zip"; rc=$?
 order=$(grep '^PUT ' "$FAKE/.calls" | awk '{print $2}' | tr '\n' ' ')
 if [ "$rc" -eq 0 ] && [ "$order" = "kosmos-9.9.1-win-x64.zip kosmos-9.9.1-win-x64.zip.sha256 latest-win-staging.json " ]; then pass "staging writes zip, sidecar, then the pointer LAST"
 else fail "staging order: rc=$rc order=[$order] $(tail -2 "$TMP/out")"; fi
+# The headers that make it safe were SENT: a create-only zip, no-cache on what gets overwritten.
+if grep -qE '^PUT kosmos-9\.9\.1-win-x64\.zip \| if-none-match=\*$' "$FAKE/.calls" \
+   && grep -qE '^PUT kosmos-9\.9\.1-win-x64\.zip\.sha256 \| cache-control=no-cache$' "$FAKE/.calls" \
+   && grep -qE '^PUT latest-win-staging\.json \| cache-control=no-cache$' "$FAKE/.calls"; then pass "staging sends If-None-Match on the new zip and no-cache on the sidecar and pointer"
+else fail "staging headers: $(cat "$FAKE/.calls")"; fi
+# The next step is printed with the sha left for Josh's message to supply.
+if grep -qF -- "-ApprovedSha <sha from his go>" "$TMP/out" && ! grep -F -- "-ApprovedSha $SHA_A" "$TMP/out" >/dev/null; then pass "staging does not hand out the sha to paste into the approval"
+else fail "staging next-step line: $(grep -F -- '-Promote' "$TMP/out")"; fi
 fake -Zip "$TMP/b.zip"; rc=$?; refuses_clean "different bytes under a published version are refused, nothing written" "DIFFERENT bytes"
 fake -Zip "$TMP/a.zip" -Version 9.9.2; rc=$?; refuses_clean "a -Version the zip was not built as is refused" "not the version this zip was built as"
 
 promote; rc=$?; refuses_clean "promote with no verification record: refused, nothing written" "HOLD no verification record"
 record fail; promote; rc=$?; refuses_clean "promote with a FAILING record: refused, nothing written" "does not pass (FAIL"
 record pass
+fake -Promote -ApprovedVersion 9.9.1 -ApprovedSha "$(printf 'b%.0s' $(seq 64))" -ApprovalRef 1789228393.821399; rc=$?
+refuses_clean "a promote whose sha is not the staged one: refused, nothing written" "check his message"
+if ! grep -qF "$SHA_A" "$TMP/out"; then pass "that refusal does not print the staged sha"; else fail "the mismatch refusal printed the staged sha"; fi
+promote -DryRun; rc=$?
+if [ "$rc" -eq 0 ] && [ "$(writes)" -eq 0 ] && [ ! -e "$ALOG" -o ! -s "$ALOG" ]; then pass "a promote -DryRun writes nothing and logs nothing"; else fail "promote dry run: rc=$rc writes=$(writes) log=$(cat "$ALOG" 2>/dev/null)"; fi
+: > "$FAKE/.calls"; KOSMOS_WIN_PROMOTE_LOG_SAVE="$ALOG"; mkdir -p "$TMP/notafile"
+KOSMOS_PUBLISH_R2_FAKE_DIR="$FAKE" KOSMOS_WIN_VERIFY_DIR="$VDIR" KOSMOS_WIN_PROMOTE_LOG="$TMP/notafile" "$PWSH" -NoProfile -File "$PS1" -CredentialFile "$TMP/cred.env" -Promote -ApprovedVersion 9.9.1 -ApprovedSha "$SHA_A" -ApprovalRef 1789228393.821399 > "$TMP/out" 2>&1; rc=$?
+refuses_clean "a promote whose approval cannot be logged: refused, nothing written" "an approval that is not logged is not given"
 cp "$FAKE/latest-win-staging.json" "$TMP/ptr.good"
 printf '{"version":"9.9.1","sha256":"%s","artifact":"kosmos-9.9.1-win-x64.zip","versioned":"kosmos-9.9.1-win-x64.zip","arch":"x64"}\n' "$SHA_A" > "$FAKE/latest-win-staging.json"
 promote; rc=$?; refuses_clean "promote of a non-canonical staging pointer: refused, nothing written" "canonical pointer shape"
@@ -159,6 +179,16 @@ if [ "$rc" -eq 0 ] && [ "$order" = "kosmos-win-x64.zip(copy) kosmos-win-x64.zip.
 else fail "promote order: rc=$rc order=[$order] $(tail -2 "$TMP/out")"; fi
 if [ "$(grep -c 'approval=given.*transport=test' "$ALOG")" -eq 1 ] && [ "$(grep -c 'promoted=yes.*transport=test' "$ALOG")" -eq 1 ]; then pass "both approval-log lines name where the promote wrote"
 else fail "approval log: $(cat "$ALOG")"; fi
+# The promote's copy carried its pin and its own no-cache metadata.
+if grep -qE '^PUT kosmos-win-x64\.zip COPY /kosmos-dist-win/kosmos-9\.9\.1-win-x64\.zip \| cache-control=no-cache;x-amz-copy-source=[^;]+;x-amz-copy-source-if-match="[0-9a-f]{64}";x-amz-metadata-directive=REPLACE$' "$FAKE/.calls"; then pass "the alias copy is pinned and replaces its metadata with no-cache"
+else fail "copy headers: $(grep COPY "$FAKE/.calls")"; fi
+# -ReplaceVersioned never replaces what prod names.
+fake -Zip "$TMP/b.zip" -ReplaceVersioned; rc=$?; refuses_clean "-ReplaceVersioned refuses the version prod names" "what PROD's latest-win.json names"
+# A staging failure after its writes began says what may be up.
+: > "$FAKE/.calls"; mkzip "$TMP/c.zip" 9.9.2 C
+KOSMOS_PUBLISH_R2_FAKE_FAIL=latest-win-staging.json fake -Zip "$TMP/c.zip"; rc=$?
+if [ "$rc" -eq 1 ] && grep -qF "staging writes had begun" "$TMP/out"; then pass "a staging failure after its first write says what may be up"
+else fail "staging partial-state note: rc=$rc $(tail -2 "$TMP/out")"; fi
 # The alias copy is pinned to the zip the promote checked: a re-stage that lands between the
 # checks and the copy must stop the promote before prod's pointer moves.
 rm -f "$FAKE/kosmos-win-x64.zip" "$FAKE/kosmos-win-x64.zip.sha256" "$FAKE/latest-win.json"
