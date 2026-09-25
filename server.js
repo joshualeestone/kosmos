@@ -9961,10 +9961,9 @@ const server = http.createServer((req, res) => {
       /* #3034/#3660: Giddy Up ARMS the setup guide; it is created the moment a model is
          connected (Splinter, 19:06), which may already be true here or may come later
          from Settings (the sweep at board start catches that). Never created without a
-         model: it could not run. An existing install is armed only if someone
-         deliberately re-runs first-run (?first-run=1), so existing boards never get an
-         unasked-for agent. The why lives with FIRSTRUN_AUTOCREATE_ENABLED and
-         ensureGuide in engine/setup-assistant.js.
+         model: it could not run. An install whose first run finished before the guide existed
+         is armed once at board start instead (#3760, armExistingInstall). The why lives with
+         FIRSTRUN_AUTOCREATE_ENABLED and ensureGuide in engine/setup-assistant.js.
          Fire-and-forget and best-effort: onboarding has already succeeded. */
       if (setupAssistant.FIRSTRUN_AUTOCREATE_ENABLED) {
         try {
@@ -15697,6 +15696,11 @@ function start(port = PORT) {
          refusal, is single-flight, and does nothing on an unarmed (pre-existing) install or
          once seeded. Its own timer, unref'd, best-effort, like the sweeps above. */
       if (setupAssistant.FIRSTRUN_AUTOCREATE_ENABLED) {
+        /* #3760: arm, once, an install whose first run finished before the guide existed (see
+           armExistingInstall). Not under the test dry run, like ensureGuide. */
+        if (process.env.AGENT_WORKFORCE_DRY_RUN !== '1' || process.env.AGENT_WORKFORCE_SETUP_GUIDE === 'on') {
+          try { setupAssistant.armExistingInstall({ firstRunSeen: firstrun.seen }); } catch { /* best-effort */ }
+        }
         let guideSweep = null;
         const guideTick = () => {
           try {
