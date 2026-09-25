@@ -43,9 +43,13 @@
  *   NODE_PATH="$HOME/work/pw-runtime/node_modules" node docs/browser-checks/render-room-msgbox-2806.js
  *
  * HEADED by default (like its siblings). HEADED=0 on a machine with no console.
+ * ENGINE=webkit runs every arm in Playwright's WebKit build (not Safari); Chromium otherwise.
  */
 const path = require('node:path');
-const { chromium } = require('playwright');
+const playwright = require('playwright');
+/* ENGINE=webkit runs every arm in Playwright's WebKit build (an engine approximation of iOS
+   Safari, not Safari). Chromium by default, which is what tools/browser-checks.sh runs. */
+const ENGINE = process.env.ENGINE === 'webkit' ? 'webkit' : 'chromium';
 
 const PAGE = 'file://' + path.join(path.resolve(__dirname, '..', '..'), 'web', 'index.html');
 
@@ -79,10 +83,10 @@ function blueLead(rgb) { return rgb[2] - Math.max(rgb[0], rgb[1]); }
 const now = () => new Date().toISOString();
 
 (async () => {
-  const browser = await chromium.launch({
-    headless: process.env.HEADED === '0',
-    ignoreDefaultArgs: ['--hide-scrollbars'],
-  });
+  const browser = await playwright[ENGINE].launch(ENGINE === 'chromium'
+    ? { headless: process.env.HEADED === '0', ignoreDefaultArgs: ['--hide-scrollbars'] }
+    : { headless: process.env.HEADED === '0' });
+  console.log('engine: ' + ENGINE + (ENGINE === 'webkit' ? ' (Playwright WebKit, not Safari)' : ''));
   try {
     for (const theme of ['light', 'dark']) {
       const page = await browser.newPage({ viewport: { width: 1100, height: 900 }, colorScheme: theme });
@@ -92,7 +96,8 @@ const now = () => new Date().toISOString();
         if (m.type() !== 'error') return;
         // Loaded over file://, so the page's own /api/* polls cannot resolve.
         // That is this harness's condition (no server), not a page defect.
-        if (/ERR_FILE_NOT_FOUND|URL scheme "file" is not supported/.test(m.text())) return;
+        // WebKit words the same condition "Not allowed to load local resource: file:///...".
+        if (/ERR_FILE_NOT_FOUND|URL scheme "file" is not supported|Not allowed to load local resource: file:/.test(m.text())) return;
         errs.push('console ' + m.text());
       });
       // Refuse the app's 5s polls so they neither race the render nor fill the
@@ -732,7 +737,12 @@ const now = () => new Date().toISOString();
           inside: [A, S, T].every((b) => b.left >= R.left - 0.5 && b.right <= R.right + 0.5),
           sortWhole: shownW >= naturalW - 0.5, sortW: [Math.round(shownW), Math.round(naturalW)],
           // The toggle at its full width too: its buttons are not squeezed (each at its own width).
-          toggleWhole: [...tog.querySelectorAll('button')].every((b) => b.getBoundingClientRect().width >= parseFloat(getComputedStyle(b).width) - 0.5 && b.getBoundingClientRect().width >= 36),
+          // Against a copy of the toggle measured OUTSIDE the row (its own width, not the row's
+          // squeeze): comparing a button with its own computed width could never fail.
+          toggleWhole: (() => { const copy = tog.cloneNode(true); copy.style.cssText = 'position:absolute;left:-9999px;top:0;';
+            document.body.appendChild(copy); const free = [...copy.querySelectorAll('button')].map((b) => b.getBoundingClientRect().width); copy.remove();
+            const shown = [...tog.querySelectorAll('button')].map((b) => b.getBoundingClientRect().width);
+            return free.length > 0 && shown.length === free.length && shown.every((w, i) => w >= free[i] - 0.5); })(),
           toggleW: Math.round(T.width) };
       });
       chk(!pjRow.error && pjRow.fontPx >= 16 && pjRow.clear && pjRow.inside && pjRow.sortWhole && pjRow.toggleWhole, `[phone/touch] the projects row's Add Project, sort and toggle do not overlap at 375, and neither the sort's label nor the toggle is cut or squeezed`, JSON.stringify(pjRow));
@@ -777,7 +787,8 @@ const now = () => new Date().toISOString();
         m.hidden = was; return res;
       }));
       chk(dlgFit.every((d) => !d.error && d.fields >= 1 && d.over.length === 0 && !d.pageScrolls), `[phone/touch] at 16px the Tasks and add-member dialogs fit a 375 screen`, JSON.stringify(dlgFit));
-      chk(!fonts.error && fonts.hoverNone && fonts.count >= 6 && fonts.small.length === 0, `[phone/touch] every field on the project page is at least 16px (no iOS zoom)`, JSON.stringify(fonts));
+      // 24 fields measured; the floor catches a sweep that stopped finding them.
+      chk(!fonts.error && fonts.hoverNone && fonts.count >= 20 && fonts.small.length === 0, `[phone/touch] every field on the project page is at least 16px (no iOS zoom)`, JSON.stringify(fonts));
       // The first-visit project tip (#3574) must land ON SCREEN on a phone: its old anchor, Add
       // member, sits below the room there. Placed by the real tipPlace with the real TIPS entry.
       const tipAt = async () => phonePage.evaluate(() => {
@@ -984,7 +995,7 @@ const now = () => new Date().toISOString();
         }
         return { opened, error: 'no point where the thread itself is on top' };
       });
-      await phonePage.touchscreen.tap(gap.x, gap.y);
+      if (!gap.error) await phonePage.touchscreen.tap(gap.x, gap.y);   // a clean FAIL below, not a throw
       await phonePage.waitForTimeout(200);
       const afterGap = await phonePage.evaluate(() => new Promise((res) => {
         const room = document.getElementById('pj-room');

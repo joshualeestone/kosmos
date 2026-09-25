@@ -12,8 +12,12 @@ const html = fs.readFileSync(path.join(__dirname, 'web', 'index.html'), 'utf8');
    hundreds of lines past a one-line block (main's `@media (hover: none) { ... }` at the top of
    the page), so a rule moved out of its block still read as inside it. */
 function mediaBlocks() {
+  // Where CSS comments are, so an "@media" MENTIONED in a comment is not read as a block.
+  const comments = []; for (let c = html.indexOf('/*'); c !== -1; c = html.indexOf('/*', c + 2)) { const e = html.indexOf('*/', c + 2); comments.push([c, e < 0 ? html.length : e + 2]); if (e < 0) break; c = e; }
+  const inComment = (i) => comments.some(([a, b]) => i >= a && i < b);
   const out = []; const re = /@media ([^{]+) \{/g; let m;
   while ((m = re.exec(html))) {
+    if (inComment(m.index)) continue;
     let j = re.lastIndex, d = 1;
     // Count braces in CSS only: skip comments and quoted strings (both hold braces on this page).
     while (d && j < html.length) {
@@ -133,7 +137,9 @@ test('every field on the project page and its Tasks and members dialogs is 16px 
   assert.doesNotMatch(t, /(^|[\s,])\.tk-inp\s*[,{]/m, '.tk-inp is not raised app-wide');
 });
 
-test('the media-block reader is sound: blocks do not overlap, and no block holds another @media', () => {
+test('the media-block reader is sound: real blocks only, none overlapping, each closed inside its own <style>', () => {
+  const junk = MEDIA.filter((b) => /\n|\*\//.test(b.query)).map((b) => b.query.slice(0, 60));
+  assert.deepEqual(junk, [], 'a "query" spanning lines or a comment end is prose, not a block');
   for (let i = 1; i < MEDIA.length; i += 1) assert.ok(MEDIA[i].start >= MEDIA[i - 1].end, 'blocks overlap at ' + MEDIA[i].start);
   // Every block closes, and closes inside its own <style> element (a reader that ran past the
   // block's end would cross the </style>). Nested @media (dark mode inside a block) is valid CSS.

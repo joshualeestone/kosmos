@@ -46478,47 +46478,47 @@ var RXN_PINNED = false;   // the open bar was pinned by a tap (a scroll closes i
 function pjRxnVisibleBand(room) {
   // The part of the thread a person can actually see: inside the thread's box, below the
   // screen's top and the sticky app header, above the screen's bottom and the sticky composer.
-  const R = room.getBoundingClientRect();
-  const vv = window.visualViewport;
-  let top = Math.max(R.top + (parseFloat(getComputedStyle(room).borderTopWidth) || 0), vv ? vv.offsetTop : 0);
-  let bottom = Math.min(R.bottom, vv ? vv.offsetTop + vv.height : window.innerHeight);
-  const head = document.querySelector('.apphead');
-  if (head && getComputedStyle(head).position === 'sticky') top = Math.max(top, head.getBoundingClientRect().bottom);
-  const comp = document.querySelector('.pjmid .composer');
-  if (comp && comp.offsetParent) bottom = Math.min(bottom, comp.getBoundingClientRect().top);
+  const roomRect = room.getBoundingClientRect();
+  const visual = window.visualViewport;
+  let top = Math.max(roomRect.top + (parseFloat(getComputedStyle(room).borderTopWidth) || 0), visual ? visual.offsetTop : 0);
+  let bottom = Math.min(roomRect.bottom, visual ? visual.offsetTop + visual.height : window.innerHeight);
+  const header = document.querySelector('.apphead');
+  if (header && getComputedStyle(header).position === 'sticky') top = Math.max(top, header.getBoundingClientRect().bottom);
+  const composer = document.querySelector('.pjmid .composer');
+  if (composer && composer.offsetParent) bottom = Math.min(bottom, composer.getBoundingClientRect().top);
   return { top, bottom };
 }
 /* The gap between the bar and its message: the touch block's calc(100% + 4px), repeated
    here for the pinned case (pinned equal by web.room-phone-718.test.js). */
 const RXN_BAR_GAP_PX = 4;
 /* Clears everything placement put on a row, so a closed bar keeps no stale position. */
-function pjRxnResetRow(m) {
-  m.classList.remove('rxn-show', 'rxn-below');
-  const q = m.querySelector('.rxn-quick'); if (q) q.removeAttribute('style');
+function pjRxnResetRow(messageRow) {
+  messageRow.classList.remove('rxn-show', 'rxn-below');
+  const quickBar = messageRow.querySelector('.rxn-quick'); if (quickBar) quickBar.removeAttribute('style');
 }
 function pjRxnPlace(row, fromTap) {
   row.classList.remove('rxn-below');
-  const q = row.querySelector('.rxn-quick'); const room = document.getElementById('pj-room');
-  if (!q || !room) { pjRxnClose(); return; }   // nothing to place: do not leave a lifted, empty row
-  q.removeAttribute('style');
+  const quickBar = row.querySelector('.rxn-quick'); const room = document.getElementById('pj-room');
+  if (!quickBar || !room) { pjRxnClose(); return; }   // nothing to place: do not leave a lifted, empty row
+  quickBar.removeAttribute('style');
   const band = pjRxnVisibleBand(room);
-  const R = row.getBoundingClientRect();
+  const rowRect = row.getBoundingClientRect();
   // Only a tap guarantees the post is in view. A repaint of a post that is no longer on
   // screen (or a thread scrolled off the page) closes the bar rather than float it.
   // Also when nothing of the thread is showing (a very short window, header and composer
   // taking the rest): with no place to put the bar, close it, tap or not.
-  if (band.bottom <= band.top || R.bottom <= band.top || R.top >= band.bottom) { pjRxnClose(); return; }
-  if (q.getBoundingClientRect().top >= band.top) { RXN_PINNED = false; return; }           // above the message: fits
+  if (band.bottom <= band.top || rowRect.bottom <= band.top || rowRect.top >= band.bottom) { pjRxnClose(); return; }
+  if (quickBar.getBoundingClientRect().top >= band.top) { RXN_PINNED = false; return; }           // above the message: fits
   row.classList.add('rxn-below');
-  if (q.getBoundingClientRect().bottom <= band.bottom) { RXN_PINNED = false; return; }      // below it: fits
+  if (quickBar.getBoundingClientRect().bottom <= band.bottom) { RXN_PINNED = false; return; }      // below it: fits
   row.classList.remove('rxn-below');
   if (!fromTap) { pjRxnClose(); return; }
   RXN_PINNED = true;
   // A post taller than what is showing, just tapped: pin the bar to the top of the visible
   // thread, where the post is, at the same left edge. Any scroll closes a pinned bar (below).
-  const L = q.getBoundingClientRect().left;
-  q.style.position = 'fixed'; q.style.top = Math.round(band.top + RXN_BAR_GAP_PX) + 'px';
-  q.style.left = Math.round(L) + 'px'; q.style.right = 'auto'; q.style.bottom = 'auto';
+  const barLeft = quickBar.getBoundingClientRect().left;
+  quickBar.style.position = 'fixed'; quickBar.style.top = Math.round(band.top + RXN_BAR_GAP_PX) + 'px';
+  quickBar.style.left = Math.round(barLeft) + 'px'; quickBar.style.right = 'auto'; quickBar.style.bottom = 'auto';
 }
 /* #718 mobile: on a touchscreen, a tap on a message shows its add-reaction bar (hover
    does it on a computer). One row at a time. A tap on a link, a button or the reaction row
@@ -46579,10 +46579,12 @@ if (window.MutationObserver) {
 /* A PINNED bar (position fixed) does not follow the thread when anything scrolls, the same as
    the fixed emoji picker (#2834 below): any scroll or resize closes it. */
 function pjRxnPinned() { return !!document.querySelector('#pj-room .rxn-quick[style*="fixed"]'); }
-document.addEventListener('scroll', (e) => {
+document.addEventListener('scroll', (event) => {
+  if (!RXN_SHOW_POST) return;   // nothing open: every scroll in the app costs nothing here
   // Scrolling the full emoji picker's own list is not the thread moving (#2834's same guard).
-  if (e.target && e.target.nodeType === 1 && e.target.closest && e.target.closest('.rxn-picker')) return;
-  if (RXN_SHOW_POST && pjRxnPinned()) pjRxnClose();
+  const target = event.target;
+  if (target && target.nodeType === 1 && target.closest && target.closest('.rxn-picker')) return;
+  if (pjRxnPinned()) pjRxnClose();
 }, true);
 window.addEventListener('resize', () => { if (RXN_SHOW_POST && pjRxnPinned()) pjRxnClose(); });
 // iOS reports the keyboard and pinch zoom on the visual viewport, not as a window resize.
