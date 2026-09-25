@@ -66,7 +66,8 @@ enum Shell {
     // main frame may not.
     static func allowsSubframe(_ url: URL) -> Bool {
         switch url.scheme?.lowercased() ?? "" {
-        case "https", "about": return true
+        case "https": return true
+        case "about": return url.absoluteString == "about:blank" || url.absoluteString == "about:srcdoc"
         default: return false
         }
     }
@@ -123,13 +124,20 @@ enum Shell {
         return port == nil && PushBridge.isMacHost(host, coordinator: coordinator)
     }
 
-    // `onOurPage`: the page showing in the main frame is ours. While a sign-in or
-    // checkout flow is on another site's page (it got there by a redirect), a link
-    // the person taps ON that page is part of the flow ("Use another account",
-    // "Continue"), so it stays in the app too; the flow returns by redirect.
-    static func linkDecision(for url: URL, coordinator: URL, origin: Origin, onOurPage: Bool = true) -> LinkDecision {
+    // `showing`: the page in the main frame now. While a sign-in or checkout flow is
+    // on another site's page (it got there by a redirect), a link the person taps
+    // ON that page to the SAME site is part of the flow ("Use another account",
+    // "Continue"), so it stays in the app; the flow returns by redirect. A tap from
+    // there to a third site ("Terms of Service") goes to Safari, so the app never
+    // becomes an open-ended browser.
+    static func linkDecision(for url: URL, coordinator: URL, origin: Origin, showing: URL? = nil) -> LinkDecision {
         let scheme = url.scheme?.lowercased() ?? ""
-        let inFlow = origin == .pageFlow || (origin == .tapped && !onOurPage)
+        var sameThirdParty = false
+        if origin == .tapped, let showing = showing, !isOurs(showing, coordinator: coordinator),
+           let a = showing.host?.lowercased(), let b = url.host?.lowercased(), a == b {
+            sameThirdParty = true
+        }
+        let inFlow = origin == .pageFlow || sameThirdParty
         switch scheme {
         case "https":
             if isOurs(url, coordinator: coordinator) { return .inApp }

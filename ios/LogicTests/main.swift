@@ -206,8 +206,11 @@ check(link("http://evil.example.com/", .pageFlow) == .block, "a redirect to a th
 check(link("https://hers.kosmosplus.com:8443/") == .external, "a Mac host with a port is not ours: Safari")
 check(link("https://x@login.kosmosplus.com/") == .external, "the coordinator with a user part is not ours: Safari")
 check(link("https://accounts.example-idp.com/other", .tapped) == .external, "tapped on OUR page: another site goes to Safari")
-check(Shell.linkDecision(for: URL(string: "https://accounts.example-idp.com/other")!, coordinator: coordinator, origin: .tapped, onOurPage: false) == .inApp, "tapped on another site's page mid-flow: stays in the app")
-check(Shell.linkDecision(for: URL(string: "http://accounts.example-idp.com/")!, coordinator: coordinator, origin: .tapped, onOurPage: false) == .external, "plain http is never loaded in the app, even mid-flow")
+let idp = URL(string: "https://accounts.example-idp.com/signin")!
+check(Shell.linkDecision(for: URL(string: "https://accounts.example-idp.com/other")!, coordinator: coordinator, origin: .tapped, showing: idp) == .inApp, "tapped mid-flow to the SAME site: stays in the app")
+check(Shell.linkDecision(for: URL(string: "https://terms.example.org/tos")!, coordinator: coordinator, origin: .tapped, showing: idp) == .external, "tapped mid-flow to a THIRD site: Safari (no open-ended browsing)")
+check(Shell.linkDecision(for: URL(string: "https://accounts.example-idp.com/other")!, coordinator: coordinator, origin: .tapped, showing: URL(string: "https://login.kosmosplus.com/")!) == .external, "tapped from our own page to another site: Safari")
+check(Shell.linkDecision(for: URL(string: "http://accounts.example-idp.com/")!, coordinator: coordinator, origin: .tapped, showing: idp) == .external, "plain http is never loaded in the app, even mid-flow")
 check(link("mailto:x@y.z", .pageFlow) == .block, "a script cannot open Mail")
 check(link("tel:+1", .pageFlow) == .block, "a script cannot open Phone")
 check(link("sms:+1", .pageFlow) == .block, "a script cannot open Messages")
@@ -220,6 +223,7 @@ check(Shell.retryAction(failed: nil, current: nil, home: coordinator) == .load(c
 check(Shell.retryAction(failed: nil, current: URL(string: "https://hers.kosmosplus.com/")!, home: coordinator) == .reload, "otherwise: reload the page showing")
 check(Shell.allowsSubframe(URL(string: "https://js.stripe.com/v3/")!), "a frame over https: allowed")
 check(Shell.allowsSubframe(URL(string: "about:srcdoc")!), "about:srcdoc in a frame: allowed (WebKit uses it)")
+check(!Shell.allowsSubframe(URL(string: "about:config")!), "any other about: page in a frame: refused")
 for bad in ["javascript:alert(1)", "file:///etc/passwd", "data:text/html,hi", "blob:https://x/1", "http://evil.example/", "kosmos://x"] {
     check(!Shell.allowsSubframe(URL(string: bad)!), "a frame to \(bad.prefix(18)): refused")
 }

@@ -267,8 +267,7 @@ struct WebView: UIViewRepresentable {
                 return
             }
             let origin: Shell.Origin = navigationAction.navigationType == .linkActivated ? .tapped : .pageFlow
-            let onOurPage = webView.url.map { Shell.isOurs($0, coordinator: KosmosConfig.coordinatorOrigin) } ?? true
-            switch Shell.linkDecision(for: url, coordinator: KosmosConfig.coordinatorOrigin, origin: origin, onOurPage: onOurPage) {
+            switch Shell.linkDecision(for: url, coordinator: KosmosConfig.coordinatorOrigin, origin: origin, showing: webView.url) {
             case .inApp: decisionHandler(.allow)
             case .external:
                 UIApplication.shared.open(url)

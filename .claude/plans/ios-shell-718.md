@@ -43,7 +43,9 @@ the separate kosmos-relay PR (signin-mobile-718).
   app, App Store guideline 3.1.1 (digital goods must use in-app purchase) likely applies. Sent to Liu
   Kang for Josh. The shell keeps a checkout flow working either way.
 - **Accepted risk, recorded:** a redirect or script step to another https site stays in the app
-  (so sign-in and checkout flows keep their session). A compromised third-party script inside such
+  (so sign-in and checkout flows keep their session), and a TAP on such a page stays in the app
+  only when it goes to that same site; a tap to a third site goes to Safari, which bounds the flow
+  to the sites the redirects chose (challenge-loop round 6). A compromised third-party script inside such
   a flow could therefore steer the WebView to an arbitrary https page in the app rather than Safari.
   Narrowing it to an allow list (Stripe and known identity hosts) is a follow-up if it matters; with
   Liu Kang's default (no purchase in the iOS app) the checkout part mostly goes away.
