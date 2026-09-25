@@ -203,7 +203,8 @@ function measure() {
         await page.setViewportSize({ width: w, height: h });
         // Let the page's own listener settle on the restored height before simulating again, or
         // its late resize overwrites the simulation below.
-        await page.waitForFunction((want) => getComputedStyle(document.documentElement).getPropertyValue('--kosmos-visible-height').trim() === want + 'px' && !document.documentElement.classList.contains('kosmos-keyboard-up'), h, { timeout: 3000 });
+        const settled = await page.waitForFunction((want) => getComputedStyle(document.documentElement).getPropertyValue('--kosmos-visible-height').trim() === want + 'px' && !document.documentElement.classList.contains('kosmos-keyboard-up'), h, { timeout: 3000 }).then(() => true, () => false);
+        chk(settled, `${t} the listener settles on the restored height`);
         // The connection banner above the panel with the keyboard up: the composer must still sit
         // above the keyboard (it is sticky at the bottom of the talk box).
         {
@@ -308,6 +309,36 @@ function measure() {
         chk(active === 'd-say', `[${eng} 375x667 touch] a tap on Post while typing keeps focus in the text box (touch emulation, not iOS)`, `active=${active}`);
         chk(errs.length === 0, `[${eng} 375x667 touch] no page errors`, errs.join(' | '));
         await ctx.close();
+      }
+      // The emoji panel with a real (stubbed) keyboard up at 600x700: it must open inside the
+      // visible screen, above the keyboard, and follow when the keyboard closes.
+      {
+        const page = await browser.newPage({ viewport: { width: 600, height: 700 } });
+        const perrs = []; page.on('pageerror', (e) => perrs.push(e.message));
+        await page.addInitScript(() => {
+          const enc = (o) => new Response(JSON.stringify(o), { status: 200, headers: { 'content-type': 'application/json' } });
+          window.setInterval = () => 0;
+          window.fetch = async (url) => { const u = String(url); if (u.includes('/thread')) return enc(window.__fx); if (u.includes('avatar')) return new Response('', { status: 404 }); return enc({}); };
+          const vv = new EventTarget(); vv.height = 700; vv.scale = 1; vv.width = 600; vv.offsetTop = 0;
+          Object.defineProperty(window, 'visualViewport', { value: vv, configurable: true });
+          window.__vv = (height) => { vv.height = height; vv.dispatchEvent(new Event('resize')); };
+        });
+        await page.goto(PAGE);
+        await page.evaluate((f) => { window.__fx = f; const fr = document.getElementById('firstrun'); if (fr) fr.hidden = true; document.querySelectorAll('body > *').forEach((el) => { el.inert = false; }); LAST = [{ sessionName: 'april', name: 'April', status: 'working', isNamedOurs: true, nameDerived: true }]; openDetail('april', 'talk'); }, FX);
+        await page.evaluate(() => paintTalk('april', 'April'));
+        await page.waitForSelector('#d-dmthread .msg');
+        const t = `[${eng} 600x700 emoji + keyboard]`;
+        await page.focus('#d-say');
+        await page.evaluate(() => window.__vv(370));
+        await page.click('#d-emoji-btn');
+        await page.waitForSelector('#d-emoji:not([hidden])', { timeout: 3000 });
+        const up = await page.evaluate(() => { const r = document.getElementById('d-emoji').getBoundingClientRect(); return { top: r.top, bottom: r.bottom, h: r.height }; });
+        chk(up.h > 0 && up.top >= 0 && up.bottom <= 370 + 0.5, `${t} the emoji panel opens above the keyboard`, JSON.stringify(up));
+        await page.evaluate(() => window.__vv(700));
+        const down = await page.evaluate(() => { const p = document.getElementById('d-emoji'); if (p.hidden) return { hidden: true }; const r = p.getBoundingClientRect(); const c = document.querySelector('#d-talk-box .dmbar').getBoundingClientRect(); return { top: r.top, bottom: r.bottom, cTop: c.top, cBottom: c.bottom }; });
+        chk(down.hidden || down.bottom <= down.cTop + 0.5 || down.top >= down.cBottom - 0.5, `${t} when the keyboard closes the panel follows the composer`, JSON.stringify(down));
+        chk(perrs.length === 0, `${t} no page errors`, perrs.join(' | '));
+        await page.close();
       }
       // The visualViewport listener, driven through a stub (a real keyboard or pinch cannot be
       // driven here). The stub is installed before the page's script reads window.visualViewport.

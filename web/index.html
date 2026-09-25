@@ -9323,10 +9323,9 @@ body.plus-active #plus-state2 { max-width: 26rem; padding: 2rem; }
   /* While the person is typing, the keyboard takes about half a phone screen, and the header,
      tabs and search above the thread would leave the thread no room (an iPhone SE had the
      composer pushed below the keyboard). They step aside while focus is anywhere in the
-     composer's text box, on Post or on the emoji button (shown from 481px; so pressing them does not
-     flash the header back mid-tap; not
-     add-a-file, which keeps focus after the file picker closes with no keyboard up) or in the
-     search box, AND the on-screen keyboard is up (html.kosmos-keyboard-up, set by the
+     composer's text box, on Post or on the emoji button (shown from 481px), so pressing them does
+     not flash the header back mid-tap (not add-a-file, which keeps focus after the file picker
+     closes with no keyboard up), or in the search box, AND the on-screen keyboard is up (html.kosmos-keyboard-up, set by the
      visualViewport listener), and come back when either ends: the same trade chat apps make.
      Keyed on the keyboard too, so a focus with no keyboard (a script focusing the box after an
      answer, which on iOS raises no keyboard; a narrow desktop window) leaves the header alone.
@@ -30112,12 +30111,14 @@ function detailGo(section, opts) {
      documentElement.clientWidth, not innerWidth, because Safari changes innerWidth during a pinch zoom. */
   const KEYBOARD_MIN_PX = 150;
   const tallestByWidth = new Map();
+  let lastVisible = null;
   const write = () => {
     const visible = Math.round(viewport.height * viewport.scale);
     const width = document.documentElement.clientWidth;
     const tallest = Math.max(tallestByWidth.get(width) || window.innerHeight, visible);
     tallestByWidth.set(width, tallest);
-    document.documentElement.style.setProperty('--kosmos-visible-height', visible + 'px');
+    if (visible !== lastVisible) document.documentElement.style.setProperty('--kosmos-visible-height', visible + 'px');
+    lastVisible = visible;
     document.documentElement.classList.toggle('kosmos-keyboard-up', tallest - visible > KEYBOARD_MIN_PX);
   };
 
@@ -49771,7 +49772,8 @@ function emojiPlace() {
   const GAP = 6, EDGE = 8;
   const head = document.querySelector('.apphead');
   const ceiling = Math.max(EDGE, head ? head.getBoundingClientRect().bottom + 4 : EDGE);
-  const floor = innerHeight - EDGE;
+  const vv = window.visualViewport;
+  const floor = (vv ? vv.offsetTop + vv.height : innerHeight) - EDGE;
   /* Review pass 2: its box scrolled out of sight, or a window with no room for even a row or two,
      closes the panel rather than leaving it open somewhere nobody can see or reach. */
   if (box.bottom < ceiling || box.top > floor || floor - ceiling < 56) { pjEmojiClose('agent'); return; }
@@ -49801,6 +49803,7 @@ function emojiPlace() {
   panel.style.left = Math.round(Math.max(EDGE, Math.min(box.right - 12 - w, innerWidth - EDGE - w))) + 'px';
 }
 window.addEventListener('resize', emojiPlace);
+if (window.visualViewport) window.visualViewport.addEventListener('resize', emojiPlace);
 /* Any scroll that moves the box: the page's (it scrolls at mid widths, where .apphead is not
    sticky), or an ancestor's. Capture phase, because scroll events do not bubble; emojiPlace returns
    at once while the panel is closed. The panel's own grid scrolling is skipped: nothing about the
