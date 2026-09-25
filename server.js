@@ -13991,12 +13991,20 @@ const server = http.createServer((req, res) => {
    * #3660 creates one is every install, and the bubble then shows nothing.
    */
   if (pathname === '/api/setup-guide' && (req.method === 'GET' || req.method === 'HEAD')) {
+    /* `hostedWhy` says why not (own_model, no_connector, unchecked): the bubble keeps its state on 'unchecked', and
+       tells an open chat the right reason when it is withdrawn. */
+    const hostedAnswer = () => { const w = require('./engine/setup-assistant').hostedWhy(); return { hosted: w.ok, hostedWhy: w.why }; };
     const found = setupGuideNow();
     /* "No guide" is an ordinary answer here, not an error: the page asks on every install, and a 404 is
        logged by the browser as a failed resource on every page load (it failed every "no page errors"
        check). So it is 200 { ok: false, reason: 'none' }; only a refusal (409) keeps its status. */
-    if (!found.ok && found.reason === 'none') { sendJson(res, 200, { ok: false, reason: 'none', error: found.error }); return; }
-    if (!found.ok) { sendJson(res, found.status, { error: found.error, reason: found.reason }); return; }
+    /* `hosted`: no guide, but the setup assistant can run on Kosmos's own model here (#3660), so the bubble
+       shows and talks to /api/setup-guide/hosted. False once they have a model of their own, and in a checkout
+       or a sandbox (setupAssistant.hostedOffered). */
+    if (!found.ok && found.reason === 'none') { sendJson(res, 200, { ok: false, reason: 'none', error: found.error, ...hostedAnswer() }); return; }
+    /* A name that is not the guide's (409 not-guide) is also no guide, so it says hosted too: the bubble
+       stands in rather than vanishing. */
+    if (!found.ok) { sendJson(res, found.status, { error: found.error, reason: found.reason, ...(found.reason === 'not-guide' ? hostedAnswer() : {}) }); return; }
     sendJson(res, 200, { ok: true, name: found.name });
     return;
   }
@@ -14011,6 +14019,15 @@ const server = http.createServer((req, res) => {
    * a guide agent exists on their own model, the bubble talks to that instead.
    */
   if (pathname === '/api/setup-guide/hosted' && req.method === 'POST') {
+    /* The same test the bubble is shown by, so the route cannot be used past it (a model connected, a checkout). */
+    const offer = require('./engine/setup-assistant').hostedWhy();
+    if (!offer.ok) {
+      req.resume();
+      if (offer.why === 'unchecked') sendJson(res, 503, { error: 'we could not check which AI is connected just now; try again in a moment', code: 'unchecked' });
+      else if (offer.why === 'no_connector') sendJson(res, 409, { error: 'the setup assistant is not available on this computer right now', code: 'no_connector' });
+      else sendJson(res, 409, { error: "you've connected your own AI, so this chat has ended", code: 'own_model' });
+      return;
+    }
     readBody(req)
       .then(async (buf) => {
         let body;
@@ -15129,6 +15146,16 @@ const server = http.createServer((req, res) => {
       // A day of cache is a choice: a redesigned icon may serve stale for
       // up to 24h after an update, accepted for favicon-class assets.
       res.writeHead(200, { 'content-type': 'image/png', 'cache-control': 'public, max-age=86400' });
+      res.end(req.method === 'HEAD' ? undefined : buf);
+    });
+    return;
+  }
+  /* The bundled picture of Josh (#3660): the hosted setup assistant's face in the bubble while no guide agent
+     exists to carry it (a guide's own picture comes from /api/agent/<name>/avatar). */
+  if (pathname === '/icons/setup-guide-avatar.jpg' && (req.method === 'GET' || req.method === 'HEAD')) {
+    fs.readFile(path.join(__dirname, 'web', 'icons', 'setup-guide-avatar.jpg'), (err, buf) => {
+      if (err) { sendJson(res, 404, { error: 'no such icon' }); return; }
+      res.writeHead(200, { 'content-type': 'image/jpeg', 'cache-control': 'public, max-age=86400' });
       res.end(req.method === 'HEAD' ? undefined : buf);
     });
     return;

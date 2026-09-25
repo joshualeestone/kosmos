@@ -252,7 +252,10 @@ const MODELS = (rows) => ({ listFor: (mod) => rows[mod] || [], connectable: asyn
 
 test('listedModels: every listed account in provider order, a named one by its dir, a default as null, with a fingerprint', () => {
   const none = setupAssistant.listedModels({ listFor: () => [] });
-  assert.deepEqual(none, { rows: [], fingerprint: '' });
+  assert.deepEqual(none, { rows: [], failed: false, fingerprint: '' });
+  // #3660: a provider that could not be read is said, not passed off as "no accounts".
+  const broken = setupAssistant.listedModels({ listFor: (mod) => { if (mod === './accounts') throw new Error('unreadable'); return []; } });
+  assert.equal(broken.failed, true, 'a provider list that threw read as nothing connected');
   const got = setupAssistant.listedModels({ listFor: (mod) => ({
     './grokaccounts': [{ dir: '/h/.grok', isDefault: true, authMode: 'subscription' }],
     './openaiaccounts': [{ dir: '/h/.codex-work', isDefault: false }],

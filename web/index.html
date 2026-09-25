@@ -54859,7 +54859,43 @@ const ASB_FIND_MAX_MS = 60000;
 let ASB = { started: false, guide: null, setting: null, open: false, asking: false, nudgeGone: false,
   wroteOnce: false, heard: null, lastPoll: 0, screenKey: '', sending: false, dot: false,
   nextFind: 0, findEvery: ASB_FIND_FIRST_MS, finding: false, shown: '', readOnce: false,
-  nextSetting: 0, settingEvery: ASB_FIND_FIRST_MS, settingReading: false };
+  nextSetting: 0, settingEvery: ASB_FIND_FIRST_MS, settingReading: false,
+  /* #3660: no guide yet, but the board can ask Kosmos's own model (GET /api/setup-guide says hosted). The
+     conversation lives on this page for the session: there is no agent thread to hold it. */
+  hosted: false, hostedOff: false, hmsgs: null, remaining: null, deferEvery: 0,
+  /* When the hosted assistant ends (a 501 or 409, or the board no longer offering it) its state flips at once. Only
+     what is SHOWN is held, and nothing is timed: the open chat keeps the sentence saying why until the person closes
+     it (`asideShowing`), and one that came while folded (`asideOnOpen`) keeps the bubble, with its dot, until it
+     is opened. Closing it, by any route, is reading it. */
+  asideShowing: false, asideOnOpen: false, asideText: '', frWas: false };
+const ASB_HOSTED_KEY = 'kosmos.asb.hosted.v1';
+/* The two reasons the hosted assistant ends, in the same words as the board's refusals (server.js). */
+const ASB_WHY_OWN = 'You\'ve connected your own AI, so this chat has ended.';
+const ASB_WHY_NONE = 'The setup assistant is not available on this computer right now.';
+/* A reason waiting behind the dot survives a reload in the same window, so it is still read. */
+const ASB_ASIDE_KEY = 'kosmos.asb.aside.v1';
+function asbAsideWait(text) {
+  ASB.asideOnOpen = true; ASB.dot = true; ASB.asideText = text;
+  try { sessionStorage.setItem(ASB_ASIDE_KEY, text); } catch { /* this page still knows */ }
+}
+function asbAsideDone() { ASB.asideOnOpen = false; ASB.asideText = ''; try { sessionStorage.removeItem(ASB_ASIDE_KEY); } catch { /* */ } }
+try { const t = sessionStorage.getItem(ASB_ASIDE_KEY); if (t) { ASB.asideOnOpen = true; ASB.dot = true; ASB.asideText = t; } } catch { /* */ }
+const ASB_HOSTED_OFF_KEY = 'kosmos.asb.hosted-off.v1';
+try { if (sessionStorage.getItem(ASB_HOSTED_OFF_KEY) === '1') ASB.hostedOff = true; } catch { /* not remembered: said once more */ }
+const ASB_HOSTED_AVATAR = '/icons/setup-guide-avatar.jpg';
+function asbHostedMsgs() {
+  if (!ASB.hmsgs) {
+    let got = [];
+    try { const v = JSON.parse(sessionStorage.getItem(ASB_HOSTED_KEY) || '[]'); if (Array.isArray(v)) got = v.filter((m) => m && (m.role === 'user' || m.role === 'assistant') && typeof m.content === 'string'); } catch { got = []; }
+    ASB.hmsgs = got.slice(-40);
+  }
+  return ASB.hmsgs;
+}
+function asbHostedKeep() { try { sessionStorage.setItem(ASB_HOSTED_KEY, JSON.stringify(ASB.hmsgs.slice(-40))); } catch { /* the page still holds it */ } }
+/* Would the hosted assistant stand in once the guide is forgotten? (Its flag is set before the guide goes.) */
+function asbIsHostedAfterForget() { return ASB.hosted && !ASB.hostedOff; }
+/* Talking to the hosted assistant rather than a guide agent. */
+function asbIsHosted() { return !ASB.guide && ASB.hosted && !ASB.hostedOff; }
 
 function asbGuideRow() {
   if (!ASB.guide || !Array.isArray(LAST)) return null;
@@ -54890,6 +54926,7 @@ function asbScreen() {
   return { screen: 'board' };
 }
 function asbTellScreen(force) {
+  if (!ASB.guide) return;   // a guide agent's courtesy; the hosted assistant is told the screen with each question
   const page = asbScreen();
   const key = JSON.stringify(page);
   if (!force && key === ASB.screenKey) return;
@@ -54978,7 +55015,13 @@ function asbShows() {
   if (!ASB.setting || ASB.setting.on !== true || ASB.holding) return false;
   const fr = document.getElementById('firstrun');
   if (fr && !fr.hidden) return false;
-  return !!asbGuideRow();
+  return !!asbGuideRow() || asbIsHosted() || asbStepping();
+}
+/* The hosted assistant has just ended, and the person has yet to read why: folded with the dot, or open for the
+   six seconds. Never with a guide, which takes the corner at once. */
+function asbStepping() {
+  if (ASB.guide) return false;
+  return ASB.asideOnOpen || (ASB.open && ASB.asideShowing);
 }
 
 function asbPaint() {
@@ -54988,11 +55031,20 @@ function asbPaint() {
   const shows = asbShows();
   const panel = document.getElementById('asp');
   if (!shows) {
+    /* Whatever hid it (a guide gone, the hosted assistant no longer offered, first run), the keyboard goes back
+       to the page rather than falling to nowhere. */
+    const hadFocus = !!document.activeElement && !!document.activeElement.closest('#asblayer');
     bub.hidden = true; panel.hidden = true; document.getElementById('asb-nudge').hidden = true;
     ASB.open = false;
+    if (hadFocus) setTimeout(asbFocusPage, 0);
     return;
   }
-  const src = asbAvatar(row);
+  const src = row ? asbAvatar(row) : ASB_HOSTED_AVATAR;
+  const note = document.querySelector('#asp .asp-note');
+  const words = row ? 'An AI that knows Kosmos, in Josh\'s voice. Josh isn\'t typing live.'
+    : asbIsHosted() ? 'An AI in Josh\'s voice. Until you connect your own AI, your questions go online to Kosmos\'s AI. Josh isn\'t typing live.'
+    : 'This chat has ended. Josh isn\'t typing live.';   // stepping aside: it no longer takes questions
+  if (note && note.textContent !== words) note.textContent = words;
   for (const img of [bub.querySelector('img'), panel.querySelector('.asp-h img')]) if (img.getAttribute('src') !== src) img.setAttribute('src', src);
   panel.hidden = !ASB.open;
   bub.hidden = ASB.open;
@@ -55001,8 +55053,17 @@ function asbPaint() {
   const nudge = document.getElementById('asb-nudge');
   nudge.style.bottom = (parseFloat(bub.style.bottom) || 16) + 8 + 'px';
   bub.querySelector('.asb-dot').hidden = !ASB.dot || ASB.open;
+  const lab = ASB.dot && !ASB.open ? 'Open the setup assistant, there is something new to read' : 'Open the setup assistant';
+  if (bub.getAttribute('aria-label') !== lab) bub.setAttribute('aria-label', lab);   // the dot, for a screen reader
   document.getElementById('asb-nudge').hidden = ASB.open || ASB.nudgeGone || ASB.wroteOnce || !ASB.readOnce;   // not before the thread says whether they wrote
   document.getElementById('asp-ask').hidden = !ASB.asking;
+  const ended = !row && !asbIsHosted();
+  document.getElementById('asp-send').disabled = ASB.sending || ended;   // nothing to send to while it steps aside
+  const sayBox = document.getElementById('asp-say');
+  if (sayBox.readOnly !== ended) {
+    sayBox.readOnly = ended;   // an ended chat takes no words, and says why to whoever lands in the box
+    if (ended) sayBox.setAttribute('aria-describedby', 'asp-msg'); else sayBox.removeAttribute('aria-describedby');
+  }
   document.getElementById('asp-in').hidden = ASB.asking;
 }
 
@@ -55021,7 +55082,8 @@ async function asbConfirmGuide({ forgetLater = false } = {}) {
   if (r.ok && b && b.ok && typeof b.name === 'string') {
     if (ASB.guide && b.name.toLowerCase() === String(ASB.guide).toLowerCase()) return true;
   } else if (!(b && (b.reason === 'none' || b.reason === 'not-guide'))) return !!ASB.guide;
-  if (forgetLater) setTimeout(asbForgetGuide, 4000); else asbForgetGuide();
+  if (b && (b.reason === 'none' || b.reason === 'not-guide') && !(b.hosted !== true && b.hostedWhy === 'unchecked')) ASB.hosted = b.hosted === true;   // stands in at once, no blink
+  if (forgetLater && !asbIsHostedAfterForget()) setTimeout(asbForgetGuide, 4000); else asbForgetGuide();   // hosted stands in at once
   return false;
 }
 
@@ -55043,6 +55105,17 @@ async function asbPoll(force) {
   const every = ASB.open ? ASB_OPEN_POLL_MS : ASB_FOLDED_POLL_MS;
   if (!force && now - ASB.lastPoll < every) return;
   ASB.lastPoll = now;
+  if (asbIsHosted()) {
+    const hm = asbHostedMsgs();
+    ASB.readOnce = true;
+    ASB.wroteOnce = hm.some((m) => m.role === 'user');
+    if (ASB.open) asbPaintThread(hm.map((m) => ({ from: m.role === 'user' ? 'you' : 'hosted', text: m.content })), 'hosted');
+    asbPaint();
+    return;
+  }
+  /* Only a guide has a thread to confirm and read. Without one (the hosted assistant just ended and is showing
+     why), confirming would "forget" a guide that never was, closing the chat the person just opened. */
+  if (!ASB.guide) return;
   if (!(await asbConfirmGuide())) return;
   const t = await asbReadThread();
   if (!t) { if (ASB.open) document.getElementById('asp-msg').textContent = 'We could not load the conversation just now.'; return; }
@@ -55089,13 +55162,19 @@ function asbPaintThread(rows, session) {
 
 function asbOpen() {
   ASB.open = true; ASB.asking = false; ASB.dot = false;
+  /* A refusal that came while folded is read now, and the six seconds start from here. */
+  const waiting = ASB.asideOnOpen && !ASB.guide ? (ASB.asideText || document.getElementById('asp-msg').textContent) : '';
+  if (ASB.asideOnOpen) { asbAsideDone(); if (!ASB.guide) ASB.asideShowing = true; }
   asbPaint();
   asbTellScreen(true);
   asbPoll(true);
   const say = document.getElementById('asp-say');
   if (say) say.focus();
+  /* Written while the panel was hidden, the reason was never announced: write it again now it shows. */
+  if (waiting) { const pm = document.getElementById('asp-msg'); pm.textContent = ''; setTimeout(() => { pm.textContent = waiting; }, 50); }
 }
 function asbFold() {
+  ASB.asideShowing = false;   // closing the sentence that says why the hosted assistant ended is reading it
   ASB.open = false; ASB.asking = false;
   asbPaint();
   const bub = document.getElementById('asb');
@@ -55103,6 +55182,7 @@ function asbFold() {
 }
 /* The first x asks once (Josh 18:02); after that it just closes. */
 function asbX() {
+  if (asbStepping()) { asbFold(); return; }   // nothing to ask about: it is going anyway
   if (ASB.setting && ASB.setting.asked !== true) { ASB.asking = true; asbPaint(); document.getElementById('asp-close-now').focus(); return; }
   asbFold();
 }
@@ -55132,6 +55212,7 @@ async function asbSend() {
   const say = document.getElementById('asp-say');
   const msg = document.getElementById('asp-msg');
   const text = say.value.trim();
+  if (asbIsHosted()) { if (text && !ASB.sending) await asbHostedSend(text); return; }
   const row = asbGuideRow();
   if (!text || ASB.sending || !row) return;
   ASB.sending = true;
@@ -55139,9 +55220,10 @@ async function asbSend() {
   msg.textContent = '';
   /* The guide went: say so in the open panel (the words stay in the box) before it closes a moment later. */
   if (!(await asbConfirmGuide({ forgetLater: true }))) {
-    msg.textContent = 'The setup assistant is not on this computer any more, so that was not sent.';
     ASB.sending = false;
     document.getElementById('asp-send').disabled = false;
+    if (asbIsHosted()) { await asbHostedSend(text); return; }   // the guide went, and the hosted assistant stands in: ask it
+    msg.textContent = 'The setup assistant is not on this computer any more, so that was not sent.';
     return;
   }
   /* sendTalk's rules (#402, #3419): clear only the text THIS send took, and only when the box is not its
@@ -55167,14 +55249,81 @@ async function asbSend() {
     document.getElementById('asp-send').disabled = false;
     await asbPoll(true);
     ASB.sending = false;
+    asbPaint();   // Send reflects `sending` in asbPaint: paint again now it is done
   }
 }
 
-/* Settings > This computer > Help: the switch shows only when a guide exists. */
+/* #3660: a question to Kosmos's own model (POST /api/setup-guide/hosted). The words leave the box only
+   once there is an answer; a refusal keeps them there and shows the sentence the board gave. An answer of
+   501 means this app's connector predates the assistant: say so once, then the bubble steps aside for the
+   session rather than offer a chat that cannot answer. */
+async function asbHostedSend(text) {
+  const say = document.getElementById('asp-say');
+  const msg = document.getElementById('asp-msg');
+  const hm = asbHostedMsgs();
+  const paint = () => asbPaintThread(hm.map((m) => ({ from: m.role === 'user' ? 'you' : 'hosted', text: m.content })), 'hosted');
+  ASB.sending = true;
+  document.getElementById('asp-send').disabled = true;
+  msg.textContent = '';
+  hm.push({ role: 'user', content: text });
+  paint();
+  /* An answer can take a while (a model, and a retry): say so in the chat, where they are looking. */
+  const th = document.getElementById('asp-th');
+  const wait = document.createElement('div');
+  wait.className = 'asp-m him asp-wait'; wait.textContent = 'Thinking\u2026';
+  th.appendChild(wait); th.scrollTop = th.scrollHeight;
+  document.getElementById('asp-live').textContent = 'Thinking';
+  let r = null, b = null;
+  try {
+    /* The screen only: the route keeps nothing else, and the names of their agents and projects never need
+       to leave the page for it. Seven turns, starting and ending with theirs (the contract's usable window). */
+    r = await fetch('/api/setup-guide/hosted', { method: 'POST', headers: { 'content-type': 'application/json' },
+      /* Each turn within the contract's 2,000 characters: one long reply kept from before must not refuse every
+         question after it. */
+      body: JSON.stringify({ messages: hm.slice(-7).map((m) => ({ role: m.role, content: m.content.slice(0, 2000) })), page: { screen: asbScreen().screen } }) });
+    b = await r.json().catch(() => null);
+  } catch { r = null; }
+  wait.remove();
+  ASB.sending = false;
+  document.getElementById('asp-send').disabled = false;
+  const ok = !!(r && r.ok && b && typeof b.reply === 'string' && b.reply);
+  if (ok) { hm.push({ role: 'assistant', content: b.reply }); asbHostedKeep(); } else hm.pop();   // not asked: the words are still in the box
+  /* The panel may belong to a guide by now (one was made while this was being answered): the answer is kept
+     with the hosted conversation, and nothing of it is written over the guide's chat. */
+  if (ASB.guide) return;
+  ASB.shown = '';   // the thread is painted again from the conversation, whatever it showed while waiting
+  if (ok) {
+    if (say.value.trim() === text) say.value = '';
+    ASB.wroteOnce = true;
+    if (!ASB.open) ASB.dot = true;   // answered while folded: the gold dot, as a guide's reply lights it
+    if (!ASB.open && !asbIsHosted() && !ASB.asideOnOpen) asbAsideWait(document.getElementById('asp-msg').textContent || ASB_WHY_NONE);   // the answer to a question asked just before it ended
+    ASB.remaining = Number.isInteger(b.remaining) ? b.remaining : null;
+    document.getElementById('asp-live').textContent = b.reply;
+    if (asbIsHosted() && ASB.remaining !== null && ASB.remaining <= 5) msg.textContent = ASB.remaining === 0 ? 'That was your last question for today.' : ASB.remaining === 1 ? '1 question left today.' : ASB.remaining + ' questions left today.';
+  } else {
+    msg.textContent = pjSentence((b && b.error) || 'we could not reach the setup assistant just now; try again in a moment');
+    document.getElementById('asp-live').textContent = '';
+    /* Said, then the bubble steps aside: 501, a connector older than the assistant (for the session), or 409, the
+       assistant is not offered here any more (their own AI connected, or the connector gone). If the chat is folded,
+       the gold dot says there is something to read, and the six seconds start when it is opened. */
+    const stepAside = r && (r.status === 501 || (r.status === 409 && b && (b.code === 'own_model' || b.code === 'no_connector')));
+    if (stepAside) {
+      if (r.status === 501) { try { sessionStorage.setItem(ASB_HOSTED_OFF_KEY, '1'); } catch { /* this page still knows */ } }
+      if (b && b.code === 'own_model') { ASB.findEvery = ASB_FIND_FIRST_MS; ASB.nextFind = 0; }   // look for the guide now
+      if (r.status === 501) ASB.hostedOff = true; else ASB.hosted = false;
+      if (ASB.open) ASB.asideShowing = true; else asbAsideWait(msg.textContent);
+    }
+  }
+  paint();
+  asbPaint();
+}
+
+/* Settings > This computer > Help: the switch shows only when a guide exists (or the hosted assistant). */
 function asbPaintSetting() {
   const row = document.getElementById('asb-row');
   if (!row) return;
-  row.hidden = !ASB.guide || !ASB.setting;
+  /* Also whenever it is switched OFF: "You can turn it back on in Settings" must stay true with no assistant showing. */
+  row.hidden = !ASB.setting || !(ASB.guide || asbIsHosted() || ASB.setting.on === false);
   if (!row.hidden) paintSwitch('asb-toggle', ASB.setting.on === true);
   paintTipsToggle();   // the Help box shows while either of its rows does
 }
@@ -55190,9 +55339,10 @@ document.getElementById('asb-toggle')?.addEventListener('click', async (e) => {
   asbPaintSetting();
   /* Switched back on: ask the board who the guide is before drawing it, so a name the guide lost while the
      assistant was off is not painted from the page's memory. */
-  const confirmed = !(ok && ASB.setting && ASB.setting.on === true) || await asbConfirmGuide();
+  const confirmed = !(ok && ASB.setting && ASB.setting.on === true) || asbIsHosted() || await asbConfirmGuide();
   ASB.holding = false;
   sw.disabled = false;   // only now: a second click mid-check would start a second hold
+  if (!confirmed && asbIsHosted()) { asbPaint(); asbPaintSetting(); return; }   // the guide went, and the hosted assistant stands in
   if (!confirmed) {
     /* The row goes with the guide; say why, and keep the keyboard on the page. */
     if (m) { m.textContent = 'The setup assistant is not on this computer right now.'; m.hidden = false; }
@@ -55204,7 +55354,13 @@ document.getElementById('asb-toggle')?.addEventListener('click', async (e) => {
 });
 
 function asbTick() {
-  if (!ASB.guide) { if (Date.now() >= ASB.nextFind) asbFind(); return; }
+  /* Still looking for a guide while the hosted assistant stands in: once one is made, the bubble moves to it. */
+  /* First run just ended (a model may have been connected in it): look again now, not after the backoff. */
+  const frNow = !!document.getElementById('firstrun') && !document.getElementById('firstrun').hidden;
+  if (ASB.frWas && !frNow) { ASB.findEvery = ASB_FIND_FIRST_MS; ASB.nextFind = 0; }
+  ASB.frWas = frNow;
+  if (!ASB.guide && Date.now() >= ASB.nextFind) asbFind();
+  if (!ASB.guide && !asbIsHosted()) { if (document.getElementById('asb')) { asbPaint(); asbPaintSetting(); } return; }   // stepping aside ends on a tick
   if (!ASB.setting) { if (Date.now() >= ASB.nextSetting) asbReadSetting(); return; }
   asbPaint();
   if (!asbShows()) return;
@@ -55225,14 +55381,55 @@ async function asbFind() {
        reason: 'none' } here, not a 404, which the browser would log as a failed resource on every page. */
     const b = await r.json().catch(() => null);
     if (r.ok && b && b.ok && typeof b.name === 'string') guide = b.name;
+    else if (b && (b.reason === 'none' || b.reason === 'not-guide') && !(b.hosted !== true && b.hostedWhy === 'unchecked')) {
+      /* (Unchecked: the board could not read which AI is connected, so nothing changes on its word.) */
+      const was = ASB.hosted;
+      ASB.hosted = b.hosted === true;
+      if (ASB.hosted && !was) {
+        if (!ASB.hostedOff) {   // truly back (not a connector already found too old): an old refusal is not its news
+          asbAsideDone(); ASB.asideShowing = false;
+          const pm = document.getElementById('asp-msg'); if (pm) pm.textContent = '';
+        }
+        asbLayerEnsure(); if (!ASB.setting) asbReadSetting(); else { asbPaint(); asbPaintSetting(); }
+      }
+      if (!ASB.hosted && was) {
+        /* Withdrawn: open, the chat says why and goes when they close it. Folded, it waits behind the dot, but only
+           for someone who was using it; a bubble never asked anything has no news to keep, and simply goes. */
+        const pm = document.getElementById('asp-msg');
+        const why = b.hostedWhy === 'own_model' ? ASB_WHY_OWN : ASB_WHY_NONE;
+        if (ASB.open && !ASB.asideShowing) { if (pm) pm.textContent = why; ASB.asideShowing = true; }
+        else if (!ASB.open && !ASB.asideOnOpen && (ASB.wroteOnce || ASB.sending)) { if (pm) pm.textContent = why; asbAsideWait(why); }
+        asbPaint(); asbPaintSetting();
+      }
+    }
   } catch { /* no guide read, no bubble */ }
+  /* A reason still waiting to be read (kept across a reload) needs its bubble, whatever the board says now. */
+  if (!guide && ASB.asideOnOpen) { asbLayerEnsure(); if (!ASB.setting) asbReadSetting(); }
+  /* The switch itself: switched off, with no assistant showing, it must still be there to turn back on. */
+  else if (!guide && !ASB.setting && Date.now() >= ASB.nextSetting) asbReadSetting();
   if (!guide) {
+    ASB.deferEvery = 0;
     ASB.nextFind = Date.now() + ASB.findEvery;
     ASB.findEvery = Math.min(ASB.findEvery * 2, ASB_FIND_MAX_MS);
     ASB.finding = false;
     return;
   }
+  /* Standing in as the hosted assistant (or still showing why it ended), move to the guide only once the board lists
+     its row: named but not yet listed would hide the bubble for a tick and read a thread that is not there. */
+  if ((asbIsHosted() || asbStepping()) && !(Array.isArray(LAST) && LAST.some((a) => a && String(a.sessionName || '').toLowerCase() === String(guide).toLowerCase()))) {
+    /* Soon, then backing off to the usual minute: a name the board never lists must not be asked every tick. */
+    ASB.deferEvery = Math.min(Math.max(ASB_TICK_MS, ASB.deferEvery * 2), ASB_FIND_MAX_MS);
+    ASB.nextFind = Date.now() + ASB.deferEvery;
+    ASB.finding = false;
+    return;
+  }
+  ASB.deferEvery = 0;
   ASB.guide = guide;
+  { const pm = document.getElementById('asp-msg'); if (pm) pm.textContent = ''; }   // a line from before is not the guide's
+  asbAsideDone(); ASB.asideShowing = false; ASB.dot = false;   // a hosted refusal waiting to be read belongs to the hosted assistant, not the guide
+  { const th = document.getElementById('asp-th'); if (th) th.replaceChildren(); }   // the hosted conversation is not the guide's
+  /* A guide now exists: the bubble talks to it. The hosted conversation stays behind; it was another assistant. */
+  if (ASB.hosted) { ASB.hosted = false; ASB.heard = null; ASB.shown = ''; ASB.readOnce = false; ASB.lastPoll = 0; ASB.remaining = null; }
   ASB.finding = false;
   asbLayerEnsure();
   await asbReadSetting();
@@ -55259,10 +55456,14 @@ async function asbReadSetting() {
 /* The board says the guide is gone (removed, or its folder no longer the seed's): stop using the name,
    hide everything, and look again from the start. */
 function asbForgetGuide() {
-  const hadFocus = !!document.activeElement && !!document.activeElement.closest('#asblayer');
-  ASB.guide = null; ASB.open = false; ASB.asking = false; ASB.heard = null; ASB.shown = ''; ASB.dot = false;
-  ASB.wroteOnce = false; ASB.readOnce = false; ASB.lastPoll = 0; ASB.nudgeGone = false;
+  /* The hosted assistant stands in (#3660): an open chat stays open, as the same bubble with a new voice behind it. */
+  const standIn = asbIsHostedAfterForget();
+  const hadFocus = !standIn && !!document.activeElement && !!document.activeElement.closest('#asblayer');
+  const keepOpen = standIn && ASB.open;
+  ASB.guide = null; ASB.open = keepOpen; ASB.asking = false; ASB.heard = null; ASB.shown = ''; ASB.dot = false;
+  ASB.wroteOnce = false; ASB.readOnce = false; ASB.lastPoll = 0; ASB.nudgeGone = false; ASB.asideShowing = false; asbAsideDone();
   const pm = document.getElementById('asp-msg'); if (pm) pm.textContent = '';   // nothing stale when it comes back
+  if (keepOpen) { const th = document.getElementById('asp-th'); if (th) th.replaceChildren(); }   // the guide's thread is not the hosted one's
   if (hadFocus) setTimeout(asbFocusPage, 0);
   ASB.findEvery = ASB_FIND_FIRST_MS; ASB.nextFind = Date.now() + ASB_FIND_FIRST_MS;
   asbPaint();

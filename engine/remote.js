@@ -600,6 +600,16 @@ async function macRequest(method, routePath, body) {
    AGENT_WORKFORCE_ASSISTANT_TIMEOUT_MS is its own test seam, apart from mac-request's. */
 const ASSISTANT_TIMEOUT_MS = 45 * 1000;
 
+/* Whether the hosted setup assistant can be asked from here at all (#3660, the bubble): a connector at a
+ * real path, the copy this app ships (an installed Kosmos) or an explicit override. A source checkout
+ * falls back to a bare name on PATH, which counts as NO here on purpose: a developer's board, and every
+ * browser-check sandbox, must never offer a chat that goes to the production coordinator unasked. It says
+ * nothing about whether that connector knows the verb; an old one answers 501 and the bubble steps aside. */
+function hostedAvailable() {
+  const b = BIN();
+  try { return path.isAbsolute(b) && fs.statSync(b).isFile(); } catch { return false; }
+}
+
 /**
  * One message to the hosted setup assistant (#3660), through the tunnel's
  * `assistant-chat` verb. NO CRYPTO HERE, as above: the verb picks the key (this
@@ -1193,7 +1203,7 @@ async function signinRegister(name) {
   } };
 }
 
-module.exports = { secondReset, forget, macRequest, assistantChat, DEFAULT_RELAY, DEFAULT_COORDINATOR, configured,
+module.exports = { secondReset, forget, macRequest, assistantChat, hostedAvailable, DEFAULT_RELAY, DEFAULT_COORDINATOR, configured,
   FILE,
   read,
   kosmosPlus,
