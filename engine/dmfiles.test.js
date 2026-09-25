@@ -40,7 +40,7 @@ test('#3614: the block names the REAL path, and says to create it and to keep pr
   const flat = body.replace(/\s+/g, ' ');
   assert.match(flat, /When you make a file for the person in a direct conversation with them, or they ask you for one in a direct conversation, save it in your Files folder, unless it belongs to one of your projects/);
   assert.match(flat, /Create the folder if it is not there yet/);
-  assert.match(flat, /Tell them in one line where you saved it\./, 'the plain Files case does not say to tell the person where it went');
+  assert.match(flat, /Tell them in one line where you saved it, in words that mean something to them: the file's name, and that it is under Files on your page in Kosmos/, 'the plain Files case does not say to tell the person where it went, in their words');
   // #3759: the doctrine says "your own folder"; the block says which folder that is for these files.
   // Only files made for the person: the role's running summaries (roles.js SUMMARY_RHYTHM, "inside your
   // own folder") must not be pulled into the list the person sees (review round 12).
@@ -63,7 +63,7 @@ test('#3759: the block names BOTH destinations and when each applies, says where
   assert.match(flat, /tell them in one line where you put it: which project, and the file's name/);
   // Unsure: no project is guessed (the doctrine's "not a licence to guess") and nothing waits unsaved:
   // save it here, say so, and ask which project in the same line.
-  assert.match(flat, /When you cannot tell whether the file belongs to a project, or to which one, do not guess a project: save it in your Files folder, and in the same line that says so, ask which project it belongs to/);
+  assert.match(flat, /When you cannot tell whether the file belongs to a project, or to which one, do not guess a project: save it in your Files folder, and in the same line that says so \(under Files on your page\), ask which project it belongs to/);
   assert.match(flat, /The file is never left unsaved while you wait for an answer/);
   // The project rule is its own paragraph, not folded into the first one (which an agent may act on
   // alone); the first paragraph points to it instead.
