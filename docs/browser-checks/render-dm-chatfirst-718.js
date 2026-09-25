@@ -18,8 +18,10 @@
  *     header back, and searching keeps the search row while the rest steps aside;
  *   - and at 800 and 1280 the Talk section keeps its stacked or side-by-side layout: the body is
  *     not locked, the 800px page still scrolls, and the tiles keep their box layout.
- *   Not covered: pinch zoom (the listener multiplies by visualViewport.scale; Playwright cannot
- *   drive a pinch), and iOS panning the layout viewport on focus (on the iOS simulator list).
+ *   - the visualViewport listener itself, driven through a stubbed window.visualViewport: the
+ *     keyboard class turns on when the visible height drops, stays off for a pinch zoom (scale),
+ *     turns on where the keyboard shrinks the layout viewport too, and resets on rotation.
+ *   Not covered: iOS panning the layout viewport on focus (on the iOS simulator list).
  *
  * Harness posture mirrors render-dm-phone-718.js: file://, the thread poll answered from a
  * fixture, the agent opened through openDetail. No board and no real conversation are involved.
@@ -227,6 +229,37 @@ function measure() {
           await np.close();
         }
         chk(errs.length === 0, `${t} no page errors`, errs.join(' | '));
+        await page.close();
+      }
+      // The visualViewport listener, driven through a stub (a real keyboard or pinch cannot be
+      // driven here). The stub is installed before the page's script reads window.visualViewport.
+      {
+        const page = await browser.newPage({ viewport: { width: 375, height: 667 } });
+        await page.addInitScript(() => {
+          const vv = new EventTarget(); vv.height = window.innerHeight || 667; vv.scale = 1; vv.width = 375; vv.offsetTop = 0;
+          Object.defineProperty(window, 'visualViewport', { value: vv, configurable: true });
+          window.__vv = (height, scale) => { vv.height = height; vv.scale = scale; vv.dispatchEvent(new Event('resize')); };
+        });
+        await page.goto(PAGE);
+        const kb = () => page.evaluate(() => document.documentElement.classList.contains('kosmos-keyboard-up'));
+        const t = `[${eng} visualViewport listener]`;
+        await page.evaluate(() => window.__vv(667, 1));
+        chk(!(await kb()), `${t} full height: no keyboard`);
+        await page.evaluate(() => window.__vv(367, 1));
+        chk(await kb(), `${t} visible height drops 300px: keyboard up`);
+        await page.evaluate(() => window.__vv(667, 1));
+        chk(!(await kb()), `${t} back to full height: keyboard down`);
+        await page.evaluate(() => window.__vv(333.5, 2));
+        chk(!(await kb()), `${t} a 2x pinch zoom is not a keyboard`);
+        await page.evaluate(() => window.__vv(667, 1));
+        // Where the keyboard shrinks the layout viewport too (Firefox Android, resizes-content).
+        await page.setViewportSize({ width: 375, height: 367 });
+        await page.evaluate(() => window.__vv(367, 1));
+        chk(await kb(), `${t} keyboard that also shrinks the layout viewport: still keyboard up`);
+        // Rotation (a width change) starts the baseline over.
+        await page.setViewportSize({ width: 667, height: 375 });
+        await page.evaluate(() => window.__vv(375, 1));
+        chk(!(await kb()), `${t} after rotation the new height is the baseline`);
         await page.close();
       }
       // A long agent name in the compact phone header: it must stay inside the screen.
