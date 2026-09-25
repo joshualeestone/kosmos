@@ -172,12 +172,12 @@ const resetStore = (state) => fs.writeFileSync(tipsStore.FILE(), JSON.stringify(
     await page.reload({ waitUntil: 'networkidle' });
     chk(await page.waitForFunction(() => TIP_NEW_BOARD === false, null, { timeout: 8000 }).then(() => true, () => false), 'T27 precondition: tips off, and the board still decided it is not new');
     noAgents();
-    await page.waitForFunction(() => Array.isArray(LAST) && LAST.length === 0, null, { timeout: 8000 }).catch(() => {});
+    const emptied27 = await page.waitForFunction(() => Array.isArray(LAST) && LAST.length === 0, null, { timeout: 8000 }).then(() => true, () => false);
     await api('PUT', { off: false });
     await page.evaluate(() => tipsLoad());
     await page.waitForTimeout(2800);
     const t27 = await cardState(page);
-    chk(!/ of /.test(t27.step), 'T27 tips turned on after the last agent went: still no tour', JSON.stringify(t27));
+    chk(emptied27 && !/ of /.test(t27.step), 'T27 tips turned on after the last agent went: still no tour', JSON.stringify({ emptied27, t27 }));
     withAgent();
     resetStore({ seen: ['tour', 'ring', 'agents'], off: false });
     await page.reload({ waitUntil: 'networkidle' });
@@ -548,6 +548,7 @@ const resetStore = (state) => fs.writeFileSync(tipsStore.FILE(), JSON.stringify(
     fs.writeFileSync(tipsStore.FILE(), '{ not json');
     chk((await api('GET')).ok === false, 'T7 precondition: the board now answers that it cannot read the tips');
     await page.reload({ waitUntil: 'networkidle' });
+    chk(await page.waitForFunction(() => TIPS_STATE !== null && TIPS_TIMER !== null, null, { timeout: 8000 }).then(() => true, () => false), 'T7 precondition: the tips read has answered');
     await page.waitForTimeout(2800);
     chk(!(await cardState(page)).shown, 'T7 an unreadable tips store shows no tips rather than all of them');
     const row = await page.evaluate(() => document.getElementById('tips-box')?.hidden);
