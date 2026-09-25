@@ -81,7 +81,7 @@ const same = (m) => m && m.bufW > 0 && m.bufH > 0 && m.cssW > 0 && m.cssH > 0
          the field (every dot jumping) is told apart from one that keeps it. */
       const places = () => page.evaluate(() => plusParts.slice(0, 8).map((q) => [q.x / plusSW, q.y / plusSH]));
       const placesBefore = await places();
-      await page.evaluate(() => { const d = document.createElement('div'); d.id = 'check-3778-grow'; d.style.height = '420px'; document.getElementById('s-sec-plus').appendChild(d); });
+      await page.evaluate(() => { const d = document.createElement('div'); d.dataset.check3778 = 'grow'; d.style.height = '420px'; document.getElementById('s-sec-plus').appendChild(d); });
       await page.waitForTimeout(300);
       const grown = await read();
       chk(same(grown) && grown.cssH > settled.cssH, `${t} after the section grows, the buffer follows (not only on a window resize)`, JSON.stringify({ settled, grown }));
@@ -98,14 +98,14 @@ const same = (m) => m && m.bufW > 0 && m.bufH > 0 && m.cssW > 0 && m.cssH > 0
         let seen = null;
         const ro = new ResizeObserver(() => { if (seen === null && c.width) { seen = { lit: lit(), bufH: c.height, bufBefore }; ro.disconnect(); resolve(seen); } });
         ro.observe(c);
-        requestAnimationFrame(() => { const d = document.createElement('div'); d.id = 'check-3778-grow2'; d.style.height = '37px'; document.getElementById('s-sec-plus').appendChild(d); });
+        requestAnimationFrame(() => { const d = document.createElement('div'); d.dataset.check3778 = 'grow2'; d.style.height = '37px'; document.getElementById('s-sec-plus').appendChild(d); });
         setTimeout(() => resolve(seen || { timeout: true }), 1500);
       }));
       /* Review pass 2: it must have RE-SIZED in that frame, or a buffer that never changed (still holding its last
          frame) passes on lit alone. */
       chk(blink && blink.lit > 0 && blink.bufH !== blink.bufBefore, `${t} the field is drawn in the same frame it re-sizes (no blank frame)`, JSON.stringify(blink));
-      await page.evaluate(() => { const d = document.getElementById('check-3778-grow2'); if (d) d.remove(); });
-      await page.evaluate(() => { const d = document.getElementById('check-3778-grow'); if (d) d.remove(); });
+      // The check's own spacers carry a data marker, not an id, so the page-id guard (#758) never reads them as page ids.
+      await page.evaluate(() => document.querySelectorAll('[data-check3778]').forEach((d) => d.remove()));
       await page.waitForTimeout(300);
 
       // A window resize.
