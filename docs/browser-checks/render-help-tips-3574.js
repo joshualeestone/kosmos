@@ -430,9 +430,11 @@ const resetStore = (state) => fs.writeFileSync(tipsStore.FILE(), JSON.stringify(
         onScreen: cr.top >= 0 && cr.bottom <= innerHeight, top: Math.round(cr.top), headOn: tr.top >= 0 && tr.bottom <= innerHeight };
     });
     const want14 = { up: 12, down: 12, left: 14, right: 14 }[after14.cls];
+    /* Within a pixel: the card's place is rounded to a whole pixel, and with a scrollbar gutter reserved (a Mac with a
+       mouse) the page's centre, and so the heading's edge, falls on a half pixel. */
     /* It FOLLOWED: the card moved up by the scroll (a card that stayed put while its heading moved fails here). */
     const moved = top0 - after14.top;
-    chk(title14 === 'Make an agent' && scrolled > 0 && after14.headOn && after14.cls !== 'flat' && Math.abs(moved - scrolled) <= 1 && after14.onScreen && after14.covers === '0' && after14.gap === want14,
+    chk(title14 === 'Make an agent' && scrolled > 0 && after14.headOn && after14.cls !== 'flat' && Math.abs(moved - scrolled) <= 1 && after14.onScreen && after14.covers === '0' && Math.abs(after14.gap - want14) <= 1,
       'T14 after a scroll the card still points at its target from its gap, or sits clear of every control', JSON.stringify({ top0, scrolled, after14 }));
     await page.keyboard.press('Escape');
     await page.evaluate(() => window.scrollTo(0, 0));
@@ -874,17 +876,20 @@ const resetStore = (state) => fs.writeFileSync(tipsStore.FILE(), JSON.stringify(
         const steps33 = [];
         for (let i = 1; i <= 4; i++) {
           const st = await cardState(p33);
-          const gutter = await p33.evaluate(() => ({ cls: document.documentElement.classList.contains('tip-dimming'), img: getComputedStyle(document.documentElement).backgroundImage }));
+          const gutter = await p33.evaluate(() => ({ cls: document.documentElement.classList.contains('tip-dimming'), bg: getComputedStyle(document.documentElement).backgroundColor,
+            img: getComputedStyle(document.documentElement).backgroundImage, gw: Math.round(innerWidth - document.documentElement.getBoundingClientRect().width) }));
           steps33.push({ step: st.step, px: await corners(), gutter });
           if (i < 4) { await p33.click('#tipcard .tip-go'); await p33.waitForTimeout(200); }
         }
         const dimmed = (px) => px[0] < 225 && px[1] < 225 && px[2] < 225;
         chk(steps33.length === 4 && steps33.every((x) => x.px.every(dimmed)), 'T33 [' + eng + '] every tour step dims all the way to the window\'s corners', JSON.stringify(steps33));
-        chk(steps33.every((x) => x.gutter.cls && /gradient/.test(x.gutter.img)), 'T33 [' + eng + '] the page ground under the scrollbar gutter dims with it', JSON.stringify(steps33.map((x) => x.gutter)));
-        /* The ground the gutter shows while dimmed, per look. A gutter pixel cannot be read here (macOS draws overlay
-           scrollbars in every headless engine), so this reads the canvas colour it is painted from: light's own ground,
-           then Kosmos+ navy's, which is set on the body where the root cannot see it (the case the body read exists
-           for; without it navy's gutter would take light's ground). */
+        /* A gutter paints the canvas's COLOUR, not its image (Chromium with a mouse attached reserves a real 15px gutter
+           and left it bright under a gradient dim), so the dimmed ground must be the colour itself. */
+        chk(steps33.every((x) => x.gutter.cls && x.gutter.img === 'none' && x.gutter.bg === 'rgb(186, 185, 185)'), 'T33 [' + eng + '] the page ground under the scrollbar gutter is itself the dimmed colour', JSON.stringify(steps33.map((x) => x.gutter)));
+        /* The ground the gutter shows while dimmed, per look: light's own ground under the dim, then Kosmos+ navy's,
+           which is set on the body where the root cannot see it (the case the body read exists for; without it navy's
+           gutter would take light's ground). Where the engine draws overlay scrollbars there is no gutter to read a
+           pixel from, so the colour it is painted from is read instead; the corner pixels above cover a real one. */
         const canvas = async () => p33.evaluate(() => getComputedStyle(document.documentElement).backgroundColor);
         const lightCanvas = await canvas();
         await p33.evaluate(() => document.body.classList.add('plus-active'));
@@ -892,11 +897,12 @@ const resetStore = (state) => fs.writeFileSync(tipsStore.FILE(), JSON.stringify(
         const navyCanvas = await canvas();
         await p33.evaluate(() => document.body.classList.remove('plus-active'));
         await p33.waitForTimeout(1500);
-        chk(lightCanvas === 'rgb(250, 249, 247)' && navyCanvas === 'rgb(19, 33, 64)', 'T33 [' + eng + '] the gutter is painted from the look\'s own ground: light, and Kosmos+ navy', JSON.stringify({ lightCanvas, navyCanvas }));
+        /* Each is the look's ground (light rgb(250, 249, 247), navy rgb(19, 33, 64)) under the dim, rgba(20, 22, 26, .28). */
+        chk(lightCanvas === 'rgb(186, 185, 185)' && navyCanvas === 'rgb(19, 30, 53)', 'T33 [' + eng + '] the gutter is the look\'s own ground, dimmed: light, and Kosmos+ navy', JSON.stringify({ lightCanvas, navyCanvas }));
         await p33.click('#tipcard .tip-go');
         await p33.waitForTimeout(300);
         const after = await corners();
-        const cls33 = await p33.evaluate(() => document.documentElement.classList.contains('tip-dimming') || getComputedStyle(document.documentElement).backgroundImage !== 'none');
+        const cls33 = await p33.evaluate(() => document.documentElement.classList.contains('tip-dimming') || document.documentElement.hasAttribute('data-tip-ground') || getComputedStyle(document.documentElement).backgroundImage !== 'none');
         chk(after.every((px) => px[0] > 240) && !cls33, 'T33 [' + eng + '] CONTROL: closed, the same pixels are the bright page and the gutter dim is gone', JSON.stringify({ after, cls33 }));
         await p33.close();
       } finally { await b33.close(); }

@@ -1469,9 +1469,12 @@ button.uprime:hover, .btn.uprime:hover, .utoast .uacts button.uprime:hover,
    one corner left the far corner undimmed (Josh's white triangle). */
 .tipdim { position: fixed; inset: 0; z-index: 45; pointer-events: none; background: var(--tip-dim); }
 /* A fixed layer cannot paint the scrollbar gutter the tab layout keeps (scrollbar-gutter: stable, above),
-   so the page's own ground is dimmed there while the tour dims: the canvas takes the body's colour under
-   the same dim, and the body fills the window so that dimmed canvas shows nowhere but the gutter. */
-html.tip-dimming:not([data-layout="consolidated"]) { background: linear-gradient(var(--tip-dim), var(--tip-dim)), var(--tip-canvas, var(--k-bg)); }
+   so the page's own ground is dimmed there while the tour dims, and the body fills the window so that dimmed
+   canvas shows nowhere but the gutter. The dimmed ground is ONE colour, worked out by tipDimming: a gutter
+   paints the canvas's colour and not its image (Chromium with a mouse attached, measured), so a dim laid on
+   as a gradient left the gutter bright. The gradient is only the fallback when that colour could not be read. */
+html.tip-dimming:not([data-layout="consolidated"]) { background: linear-gradient(var(--tip-dim), var(--tip-dim)), var(--k-bg); }
+html.tip-dimming[data-tip-ground]:not([data-layout="consolidated"]) { background: var(--tip-canvas); }
 html.tip-dimming:not([data-layout="consolidated"]) > body { min-height: 100vh; }
 .tipcard .tip-dots { display: flex; gap: 5px; }
 .tipcard .tip-dots i { width: 6px; height: 6px; border-radius: 50%; background: color-mix(in srgb, var(--k-ink-2) 35%, transparent); }
@@ -54918,12 +54921,28 @@ function tipSuspend(on) {
   else tipLayout(TIP_OPEN, card);
 }
 
-/* #3737: the scrollbar gutter dims with the tour (the html.tip-dimming rule), from the body's own ground. Read from
+/* #3737: the scrollbar gutter dims with the tour (the html.tip-dimming rules), from the body's own ground. Read from
    the body because a look can set --k-bg there, where the root cannot see it (Kosmos+ navy), and as the token,
-   because navy's body paints a gradient, so its background colour reads transparent. */
+   because navy's body paints a gradient, so its background colour reads transparent. The ground and the dim are
+   mixed here into one colour, because a gutter paints only the canvas's colour. */
+function tipDimmedGround() {
+  const probe = document.createElement('i');
+  probe.style.cssText = 'position:absolute;visibility:hidden;width:0;height:0';
+  document.body.appendChild(probe);
+  try {
+    const rgba = (v) => { probe.style.backgroundColor = ''; probe.style.backgroundColor = v; const m = getComputedStyle(probe).backgroundColor.match(/[\d.]+/g); return m && m.length >= 3 ? m.map(Number) : null; };
+    const g = rgba(getComputedStyle(document.body).getPropertyValue('--k-bg').trim()), d = rgba('var(--tip-dim)');
+    if (!g || !d || (g.length > 3 && g[3] < 1)) return null;   // a see-through ground cannot be mixed to one colour
+    const a = d.length > 3 ? d[3] : 1;
+    return 'rgb(' + [0, 1, 2].map((i) => Math.round(g[i] * (1 - a) + d[i] * a)).join(', ') + ')';
+  } finally { probe.remove(); }
+}
 function tipDimming(on) {
   const root = document.documentElement;
-  if (on) { const g = getComputedStyle(document.body).getPropertyValue('--k-bg').trim(); if (g) root.style.setProperty('--tip-canvas', g); }
+  if (on) {
+    const c = tipDimmedGround();
+    if (c) { root.style.setProperty('--tip-canvas', c); root.setAttribute('data-tip-ground', ''); } else root.removeAttribute('data-tip-ground');
+  } else root.removeAttribute('data-tip-ground');
   root.classList.toggle('tip-dimming', !!on);
 }
 
