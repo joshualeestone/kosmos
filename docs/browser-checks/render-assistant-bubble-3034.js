@@ -204,6 +204,19 @@ const waitFor = (page, fn, ms = 6000) => page.waitForFunction(fn, null, { timeou
       await page.screenshot({ path: path.join(SHOTS, 'panel-anchored-1520x858.png') }); await page.click('#asp-fold'); }
     await page.evaluate(() => document.querySelector('[data-check="b31"]').remove());
     await page.setViewportSize({ width: 1280, height: 860 });
+    // B32 (#3821 review): the chat opened on an agent's page (the bubble lifted over Send), then Settings with it still
+    // open: the chat comes down to the bubble's corner there, rather than keeping the agent page's lift.
+    await page.evaluate(() => { showTab('agents'); const a = document.querySelector('#grid [data-agent="beatrix"]'); if (a) a.click(); });
+    await waitFor(page, () => { const s2 = document.getElementById('d-send'); return !!s2 && s2.getClientRects().length > 0; });
+    await page.waitForTimeout(1700);
+    await page.click('#asb');
+    await page.waitForTimeout(300);
+    const up32 = await page.evaluate(() => Math.round(innerHeight - document.getElementById('asp').getBoundingClientRect().bottom));
+    await page.evaluate(() => showTab('settings'));
+    await page.waitForTimeout(1700);   // a tick of the assistant
+    const down32 = await page.evaluate(() => ({ open: !document.getElementById('asp').hidden, bottom: Math.round(innerHeight - document.getElementById('asp').getBoundingClientRect().bottom) }));
+    chk(up32 > 40 && down32.open && down32.bottom === 16, 'B32 an open chat follows the bubble when the page under it changes (lifted over Send, then down on Settings)', JSON.stringify({ up32, down32 }));
+    await page.click('#asp-fold');
     await page.evaluate(() => showTab('agents'));
     await page.waitForTimeout(300);
 

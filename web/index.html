@@ -56818,10 +56818,9 @@ function asbLayerEnsure() {
    above any control it would cover; the open panel only above controls in the page's bottom band (a
    composer), since it is meant to sit over the page. Measured against the page, not the assistant. */
 const ASB_SEL = 'button, a[href], input:not([type="hidden"]), select, textarea, [role="button"], [role="switch"], [role="tab"], [data-agent], [contenteditable="true"]';
-function asbLift(el, bandOnly) {
+function asbLift(el) {
   if (!el || el.hidden) return;
   el.style.bottom = '';
-  if (bandOnly) el.style.maxHeight = '';
   const vh = window.innerHeight;
   for (let pass = 0; pass < 3; pass++) {
     const a = el.getBoundingClientRect();
@@ -56830,16 +56829,13 @@ function asbLift(el, bandOnly) {
       if (q.closest('#asblayer, #tiplayer, [hidden]')) continue;
       const b = q.getBoundingClientRect();
       if (b.width < 1 || b.height < 1 || getComputedStyle(q).visibility === 'hidden') continue;
-      if (bandOnly && b.bottom <= vh - 160) continue;   // anything reaching into the bottom band
       if (b.left < a.right && b.right > a.left && b.top < a.bottom && b.bottom > a.top) lift = Math.max(lift, vh - b.top + 12);
     }
     if (!lift) return;
-    /* Never above the window: a lift is capped so the whole thing stays on screen, and the panel gives up
-       height instead (a short window). */
-    const cap = bandOnly ? vh - 160 : vh - el.offsetHeight - 12;
+    /* Never above the window: a lift is capped so the whole thing stays on screen. */
+    const cap = vh - el.offsetHeight - 12;
     lift = Math.min(lift, Math.max(16, cap));
     el.style.bottom = Math.round(lift) + 'px';
-    if (bandOnly) el.style.maxHeight = Math.max(160, Math.round(vh - lift - 12)) + 'px';
   }
 }
 
@@ -56898,8 +56894,12 @@ function asbPaint() {
   if (note && note.textContent !== words) note.textContent = words;
   for (const img of [bub.querySelector('img'), panel.querySelector('.asp-h img')]) if (img.getAttribute('src') !== src) img.setAttribute('src', src);
   panel.hidden = !ASB.open;
+  /* The bubble's place is measured every paint, shown or not (review #3821): the open chat sits on it, so a page
+     change under an open chat (an agent's Send in the corner, then Settings) moves it too. Measured, then hidden,
+     in one synchronous step, so nothing paints in between. */
+  bub.hidden = false;
+  asbLift(bub);
   bub.hidden = ASB.open;
-  asbLift(bub, false);
   asbAnchorPanel(panel, bub);
   const nudge = document.getElementById('asb-nudge');
   nudge.style.bottom = (parseFloat(bub.style.bottom) || 16) + 8 + 'px';

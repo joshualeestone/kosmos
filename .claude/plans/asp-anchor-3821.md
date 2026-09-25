@@ -18,6 +18,10 @@ over Send (B15), and the chat follows the bubble there.
 - On a window too short for the bubble's own lift, the chat's bottom comes down so at least 160px of chat fits below
   the header (B17).
 
+- Review round 1: the bubble's place is measured every paint, shown or not, so an open chat follows a page change under
+  it (B32: lifted over an agent page's Send, then down at 16px on Settings; with the old measure it stays at 80 and B32
+  fails). asbLift's band branch, used only by the old panel lift, is removed.
+
 ## Weakest premise
 Covering a control in the bottom band while the chat is open is now accepted. B17's tall control in the very corner
 is still clear, because the bubble lifts over it. A wide control just left of the corner is covered while the chat is
