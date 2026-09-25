@@ -176,6 +176,9 @@ if command -v ruby >/dev/null 2>&1; then
     abort "browser-checks-full.yml must never cancel a nightly run in progress (concurrency cancel-in-progress false), got #{(f["concurrency"] || {}).inspect}" unless (f["concurrency"] || {})["cancel-in-progress"] == false
     # The red-check list crosses jobs: collector step (id failed) -> job output "failed" ->
     # RED in the card step. A break anywhere turns every card into "(none captured)".
+    # Including the log path: the checks step writes it and the collector reads it.
+    tp = cs["run"].to_s[/tee "([^"]+)"/, 1]; lp = col["run"].to_s[/log="([^"]+)"/, 1]
+    abort "the checks step writes its log to #{tp.inspect} but the collector reads #{lp.inspect}" unless tp && tp == lp
     di = fsteps.index { |st| st["run"].to_s.strip == "git checkout --detach" }
     ci = fsteps.index(cs)
     fi = fsteps.index { |st| st["id"] == "failed" }
@@ -309,7 +312,7 @@ if command -v ruby >/dev/null 2>&1; then
           if [ -n "$VIEWBODY" ]; then jq -n --arg b "$VIEWBODY" "{author: {login: \"app/github-actions\"}, body: \$b, comments: []}" | jq -r "$f"; return; fi
           # The ghost card (#9) is the one THIS run made: its body names this run.
           if [ "$3" = 9 ]; then jq -n --arg b "The nightly full page-layer run ended failure: $RUN_URL" "{author: {login: \"app/github-actions\"}, body: \$b, comments: []}" | jq -r "$f"; return; fi
-          printf "%s" "{\"author\":{\"login\":\"app/github-actions\"},\"body\":\"The nightly full page-layer run failed\\n\\nRed checks: an old entry\",\"comments\":[{\"author\":{\"login\":\"github-actions\"},\"body\":\"Still not green (failure) at old: u\\nNEW since the last red night: none\\nRed checks: render-fields | regress-a-night (server did not boot)\"},{\"author\":{\"login\":\"someone\"},\"body\":\"a person quoting it: Red checks: something else entirely\"},{\"author\":{\"login\":\"mallory\"},\"body\":\"Still not green (failure) at spoof: u\\nRed checks: render-thread | render-list-row render-fields (rich board did not boot)\"}]}" | jq -r "$f" ;;
+          printf "%s" "{\"author\":{\"login\":\"app/github-actions\"},\"body\":\"The nightly full page-layer run failed\\n\\nRed checks: an old entry\",\"comments\":[{\"author\":{\"login\":\"github-actions\"},\"body\":\"Still not green (failure) at old: u\\nNEW since the last red night: none\\nRed checks: render-fields | regress-a-night (server did not boot)\"},{\"author\":{\"login\":\"github-actions\"},\"body\":\"A re-run (attempt 2) of the night at old was green: u. Not closing on a re-run; the next scheduled night decides.\"},{\"author\":{\"login\":\"someone\"},\"body\":\"a person quoting it: Red checks: something else entirely\"},{\"author\":{\"login\":\"mallory\"},\"body\":\"Still not green (failure) at spoof: u\\nRed checks: render-thread | render-list-row render-fields (rich board did not boot)\"}]}" | jq -r "$f" ;;
         "issue comment") [ -n "$COMMENTFAIL" ] && { echo "HTTP 502" >&2; return 1; }; echo "CALL comment $3 :: $*"
           [ -n "$COMMENTFILE" ] && { prevarg=""; for a in "$@"; do [ "$prevarg" = "--body" ] && printf "%s" "$a" > "$COMMENTFILE"; prevarg="$a"; done; }; true ;;
         "issue create")
@@ -403,6 +406,12 @@ if command -v ruby >/dev/null 2>&1; then
     "render-fields | render-thread"*) ;;
     *) fail "after a no-labels night, the real reds were not all listed as NEW: $out" ;;
   esac
+  case "$out" in *"(the previous report had no labels"*) ;; *) fail "a no-labels previous report was not called out: $out" ;; esac
+  # A red RE-RUN reports tagged as the same night again, not as a new night.
+  out="$(ATTEMPT=2 card failure 7)" || fail "red re-run: $out"
+  case "$out" in *"(a re-run, attempt 2"*) ;; *) fail "a red re-run comment is not tagged as a re-run: $out" ;; esac
+  out="$(ATTEMPT=2 card failure "")" || fail "red re-run, no card: $out"
+  case "$out" in *"filed by a RE-RUN (attempt 2)"*) ;; *) fail "a card filed by a re-run does not say so: $out" ;; esac
   # The first lookup fails AND the create was a ghost (GitHub made #9, whose body names this
   # run): the report goes on the card that was already open (7), not on #9.
   rm -f "$BT/flags/"*; out="$(LISTFAIL=first CREATEFAIL=ghost LABEL=1 card failure 7)" || fail "lookup failure + ghost create aborted: $out"

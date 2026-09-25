@@ -701,8 +701,8 @@ run_one() {
   # (the #2085 gate class: element present / hidden / clickable / labeled) and
   # leaves the timing/animation/paint checks -- which on the slow, headless
   # runner are both fragile (a "within 20s" assertion flakes) and low-confidence
-  # (SwiftShader software rendering) -- to the headed cut-time 3b, where a real
-  # compositor makes them reliable. A green under this env is the DOM-state gate,
+  # (SwiftShader software rendering) -- to the cut-time 3b on a dev Mac (headless
+  # too, but on a faster, quieter machine, where they are measured reliable). A green under this env is the DOM-state gate,
   # NOT full 3b coverage. Unset (the release cut, a dev run) => every check runs,
   # exactly as before. The case pattern is unquoted on purpose so the globs bind;
   # the label is wrapped in literal spaces for a whole-word match.
@@ -1639,7 +1639,7 @@ log "ran:     ${RAN[*]:-none}"
 # -cannot-see-zero). This runs BEFORE the FAILED gate below so a bad allowlist
 # lands in FAILED and reddens the run.
 if [ -n "${KOSMOS_BC_CI_ALLOWLIST:-}" ]; then
-  [ "${#SKIPPED[@]}" -gt 0 ] && log "skipped: ${#SKIPPED[@]} checks not in KOSMOS_BC_CI_ALLOWLIST (CI runs the DOM-state subset; timing/animation/paint stay at the headed cut 3b)"
+  [ "${#SKIPPED[@]}" -gt 0 ] && log "skipped: ${#SKIPPED[@]} checks not in KOSMOS_BC_CI_ALLOWLIST (CI runs the DOM-state subset; timing/animation/paint stay at the cut's 3b)"
   for _want in ${KOSMOS_BC_CI_ALLOWLIST//,/ }; do
     _seen=0
     for _m in ${CI_MATCHED[@]+"${CI_MATCHED[@]}"}; do [ "$_m" = "$_want" ] && { _seen=1; break; }; done

@@ -40,8 +40,8 @@
 # on a night where every check is green. So while any runner false-red remains, EXPECT the card
 # to stay open with a comment a night, and read its NEW line, which is what changes.
 #
-# Same script and pin as the cut's 3b: tools/browser-checks.sh with no
-# KOSMOS_BC_CI_ALLOWLIST runs every check, headless (run_one sets HEADED=0).
+# Same script and pin as the cut's 3b (not the same machine or load): tools/browser-checks.sh
+# with no KOSMOS_BC_CI_ALLOWLIST runs every check, headless (run_one sets HEADED=0).
 name: browser-checks-full
 
 on:
@@ -179,8 +179,9 @@ jobs:
             [ -n "$open" ] || exit 0
             # Only a FIRST attempt may close: a re-run of an older night (same event, old sha)
             # must not close a card a newer red night opened. First attempts of the schedule
-            # lane cannot finish out of order (one lane, never cancelled, 24h apart, capped at
-            # 170 minutes), so the attempt alone decides; comparing with main's head would
+            # lane cannot finish out of order (one concurrency lane that never cancels a running
+            # night, so each night starts only after the previous one ended), so the attempt
+            # alone decides; comparing with main's head would
             # refuse most green nights, since merges land overnight.
             if [ "${GITHUB_RUN_ATTEMPT:-1}" != 1 ]; then
               gh1 gh issue comment "$open" --repo "$GITHUB_REPOSITORY" --body "A re-run (attempt ${GITHUB_RUN_ATTEMPT}) of the night at $GITHUB_SHA was green: $RUN_URL. Not closing on a re-run; the next scheduled night decides." || true
