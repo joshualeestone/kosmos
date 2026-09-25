@@ -203,6 +203,8 @@ jobs:
               prev=""; unread=" (the previous report could not be read, so every entry is listed)"
             fi
             new=""
+            # A readable card whose text holds no report of ours (hand-made or hand-edited): say so.
+            [ -z "$prev" ] && [ -z "$unread" ] && unread=" (no earlier report of this job was found on the card, so every entry is listed)"
             # No real baseline on one side: list everything as NEW (as for an unreadable report),
             # never "none", which would hide a first-time regression. When it is THIS run that
             # captured nothing, there are no entries at all: say so, never list the placeholder.
