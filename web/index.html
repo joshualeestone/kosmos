@@ -9280,9 +9280,9 @@ body.plus-active #plus-state2 { max-width: 26rem; padding: 2rem; }
      them was tried and left an iPhone SE no conversation at all. */
   #panel-detail:has(#d-sec-talk:not([hidden])) .dav-wrap,
   #panel-detail:has(#d-sec-talk:not([hidden])) .dav-wrap .detail-av { width: 40px; height: 40px; flex-basis: 40px; }
-  /* A swarm agent (#3564) on the phone chat keeps only Active/Paused and Stop now in the header,
-     uncapped so Stop now is always on screen; the helper and daily-limit sliders stay on Profile. */
-  #panel-detail:has(#d-sec-talk:not([hidden])) .dhead:has(#d-swarm-panel:not([hidden])) { max-height: none; overflow: visible; }
+  /* A swarm agent (#3564) on the phone chat keeps only Active/Paused and Stop now in the header;
+     they come before the notes, so they sit at the top of the capped block, on screen. The helper
+     and daily-limit sliders stay on Profile. */
   #panel-detail:has(#d-sec-talk:not([hidden])) #d-swarm-panel .swbox ~ .swbox,
   #panel-detail:has(#d-sec-talk:not([hidden])) #d-swarm-panel #d-swarm-stop-hint { display: none; }
   #panel-detail:has(#d-sec-talk:not([hidden])) #d-swarm-panel { gap: 0; margin-top: 4px; }
@@ -9328,7 +9328,7 @@ body.plus-active #plus-state2 { max-width: 26rem; padding: 2rem; }
      thread (the folder-trust box, file chips, a send error) outgrows it; without this the composer
      itself could scroll out under the keyboard when notices stack above the panel. At the end of
      the scroll it sits in its natural place, so the chips and error below it stay reachable. */
-  #panel-detail:has(#d-sec-talk:not([hidden])) #d-talk-box .dmbar { position: sticky; bottom: 0; z-index: 1; }
+  #panel-detail:has(#d-sec-talk:not([hidden])) #d-talk-box .dmbar { position: sticky; bottom: 0; z-index: 4; }
   /* While the person is typing, the keyboard takes about half a phone screen, and the header,
      tabs and search above the thread would leave the thread no room (an iPhone SE had the
      composer pushed below the keyboard). They step aside while focus is anywhere in the
@@ -30104,7 +30104,10 @@ function detailGo(section, opts) {
   /* #718: the swarm cluster is sized from its avatar slot, which is 0px wide until the panel is
      shown and differs between the phone Talk header and the other sections; re-size it once laid out. */
   const shownFor = CURRENT;
-  if (typeof requestAnimationFrame === 'function') requestAnimationFrame(() => { if (CURRENT && CURRENT === shownFor) renderAvatarSwarmOnly(CURRENT); });
+  if (typeof requestAnimationFrame === 'function') requestAnimationFrame(() => {
+    if (!CURRENT || CURRENT !== shownFor) return;
+    renderAvatarSwarmOnly(LAST.find((x) => x && x.sessionName === CURRENT.sessionName) || CURRENT);
+  });
 }
 /* #718: the height a phone can actually see, for the chat-first layout (the 40rem
    CHAT FIRST ON A PHONE block reads it). 100dvh does not shrink when the on-screen
@@ -40606,7 +40609,9 @@ function swarmPagePaint(a, { force = false } = {}) {
 function renderAvatarSwarmOnly(a) {
   const swEl = document.getElementById('d-swarm');
   if (!swEl || swEl.hidden) return;
-  const size = Math.round((swEl.parentElement && swEl.parentElement.getBoundingClientRect().width) || 88);
+  const slot = swEl.parentElement && swEl.parentElement.getBoundingClientRect().width;
+  if (slot === 0) return;   // #718: laid out at 0 (the phone chat hides its header while typing); keep the last size
+  const size = Math.round(slot || 88);
   const html = swarmCluster(a, size);
   if (swEl.innerHTML !== html) swEl.innerHTML = html;
 }
@@ -49784,8 +49789,8 @@ function emojiPlace() {
   const box = (btn.closest('.composerbox') || btn).getBoundingClientRect();
   const GAP = 6, EDGE = 8;
   const head = document.querySelector('.apphead');
-  const ceiling = Math.max(EDGE, head ? head.getBoundingClientRect().bottom + 4 : EDGE);
   const vv = window.visualViewport;
+  const ceiling = Math.max(EDGE, head ? head.getBoundingClientRect().bottom + 4 : EDGE, vv ? vv.offsetTop + EDGE : EDGE);
   const floor = (vv ? vv.offsetTop + vv.height : innerHeight) - EDGE;
   /* Review pass 2: its box scrolled out of sight, or a window with no room for even a row or two,
      closes the panel rather than leaving it open somewhere nobody can see or reach. */
