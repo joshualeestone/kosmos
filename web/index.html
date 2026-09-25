@@ -111,7 +111,7 @@
      theme like --k-sunk beside it so light/dark flip. Navy keeps --k-sunk (its
      bluish inset is that world's own language, out of scope). #3260: this is now
      ONE fixed color per theme -- the earlier per-message variation was removed. */
-  --agent-msg: #f4f1ea;  /* #3267 (Josh 2026-09-18): agent bubble cream re-set to the approved-mockup value so the bubble reads on the new WHITE thread ground (the prior #f9f7f1 dissolved into the white). Matches scratchpad/bubble-mockup.html Option A. #3130 (Josh 6.70) history: the agent message bubble, his "a bit lighter" pick (exact hex). #2947 deliberately made this ONE token for BOTH the room bubble and the agent DM bubble so the two "agent message" surfaces cannot drift; #3414 then rebuilt the DM onto the room's markup, so both are now literally the same selector, .msg:not(.you) .msg-bd. #3260 (Josh 2026-09-18): every agent bubble is this one flat color now -- the per-message [data-am] variation was removed on his ruling that agent-message backgrounds should not vary. */
+  --agent-msg: #fbf4e4;  /* Josh 2026-09-25 09:14: light-mode agent messages everywhere (projects, DMs, the setup assistant) take this warmer cream, fill only ("No stroke outlines though"); the person's own stay --usermsg-tint. Dark and navy unchanged. Was #f4f1ea. #3267 (Josh 2026-09-18): agent bubble cream re-set to the approved-mockup value so the bubble reads on the new WHITE thread ground (the prior #f9f7f1 dissolved into the white). Matches scratchpad/bubble-mockup.html Option A. #3130 (Josh 6.70) history: the agent message bubble, his "a bit lighter" pick (exact hex). #2947 deliberately made this ONE token for BOTH the room bubble and the agent DM bubble so the two "agent message" surfaces cannot drift; #3414 then rebuilt the DM onto the room's markup, so both are now literally the same selector, .msg:not(.you) .msg-bd. #3260 (Josh 2026-09-18): every agent bubble is this one flat color now -- the per-message [data-am] variation was removed on his ruling that agent-message backgrounds should not vary. */
   /* #2660: the wash behind the PERSON'S OWN messages (royal blue #4171E3 =
      rgb 65,113,227). One token, defined per theme like --k-sunk beside it, so
      the two selectors that use it (.msg.you .msg-bd, .pj-msg) stay a single
@@ -1481,6 +1481,12 @@ button.uprime:hover, .btn.uprime:hover, .utoast .uacts button.uprime:hover,
 .asb[hidden], .asb-nudge[hidden], .asp[hidden], .asp-ask[hidden], .asb-dot[hidden] { display: none; }
 .asb img { width: 100%; height: 100%; border-radius: 50%; object-fit: cover; display: block; }
 .asb:focus-visible { outline: 2px solid var(--k-ink); outline-offset: 4px; }
+/* #3733 (Josh 08:23: "It seems like my message just went off into space"): the app's working glyph (.act, the
+   board's and the agent page's) while the assistant is working on a reply: on the folded bubble, and in the chat. */
+.asb-act { position: absolute; left: -3px; bottom: -3px; height: auto; padding: 5px 6px; border-radius: 999px;
+  background: var(--k-surface); box-shadow: 0 0 0 2px var(--k-rule); }   /* not gold: gold is the "new to read" dot's */
+.asb-act[hidden], .asp-busy[hidden] { display: none; }
+.asp .asp-busy { margin: 0; padding: 4px 12px 6px; }
 /* A reply that came while the chat was folded. */
 .asb-dot { position: absolute; right: 1px; top: 1px; width: 12px; height: 12px; border-radius: 50%; background: var(--gold-bright); box-shadow: 0 0 0 2px var(--k-surface); }
 .asb-nudge { position: fixed; right: 78px; bottom: 24px; z-index: 44; display: flex; align-items: center; gap: 10px; max-width: calc(100vw - 100px);
@@ -1496,17 +1502,15 @@ button.uprime:hover, .btn.uprime:hover, .utoast .uacts button.uprime:hover,
 .asp-h img { width: 34px; height: 34px; border-radius: 50%; object-fit: cover; flex: none; }
 .asp-who { flex: 1; min-width: 0; line-height: 1.25; }
 .asp-who b { display: block; }
-.asp-tag { display: inline-block; margin-top: 2px; padding: 1px 8px; border-radius: 999px; font: 700 .6875rem var(--font-ui); letter-spacing: .04em;
-  color: var(--gold-edge); background: color-mix(in srgb, var(--gold-bright) 14%, transparent); }
+.asp-note:empty { display: none; }
 .asp-ctl { display: flex; gap: 2px; }
 .asp-ctl button { width: 28px; height: 28px; border: 0; border-radius: 7px; background: none; cursor: pointer; color: var(--k-ink-2); font: 400 1.125rem/1 var(--font-ui); }
 .asp-ctl button:hover { background: var(--k-sunk); color: var(--k-ink); }
 .asp-th { flex: 1; min-height: 0; overflow-y: auto; padding: 12px; display: flex; flex-direction: column; gap: 8px; }
 .asp-m { max-width: 88%; padding: 8px 11px; border-radius: 12px; line-height: 1.45; white-space: pre-wrap; overflow-wrap: anywhere; }
-.asp-m.him { background: var(--k-sunk); border-top-left-radius: 4px; }
-.asp-m.you { align-self: flex-end; background: color-mix(in srgb, var(--gold-bright) 14%, transparent);
-  border: 1px solid color-mix(in srgb, var(--gold-bright) 35%, transparent); border-top-right-radius: 4px; }
-.asp-empty { color: var(--k-ink-2); }
+/* #3738 (Josh 08:51): the same bubbles as a Direct Message, from the same tokens: the person's own blue, the agent's cream. */
+.asp-m.him { background: var(--agent-msg); border-top-left-radius: 4px; }
+.asp-m.you { align-self: flex-end; background: var(--usermsg-tint); border-top-right-radius: 4px; }
 .asp-note { padding: 0 12px 6px; font-size: .75rem; color: var(--k-ink-2); }
 .asp-msg { padding: 0 12px 6px; font-size: .75rem; color: var(--k-ink-2); }
 .asp-msg:empty { display: none; }
@@ -5993,6 +5997,14 @@ body:not(.consolidated) .pjmidhead:has(.pjhead) .tsearch:focus-within { flex-bas
 /* The out. One line, and it points DOWN at the composer this page already has
    rather than away to another screen. */
 .dmbar { margin-top: 14px; }
+/* #3744: the DM's emoji panel is FIXED and placed by script from its composer box (emojiPlace),
+   the #2834 reaction picker's approach, not absolute: the box sits inside #d-talk-box, an
+   overflow:auto scroll box, and an absolute panel rising above that box's top edge was cut off
+   in any window under about 670px tall (review pass 1, measured at 1200x620). */
+#d-emoji { position: fixed; right: auto; bottom: auto; }
+/* On a phone the DM keeps its whole width for the words: the smiley's 40px cut "Write
+   something..." to "Write" at 390px (review pass 1), and a phone's own keyboard has emoji. */
+@media (max-width: 480px) { #d-emoji-btn { display: none; } }
 #d-say { flex: 1 1 auto; }
 /* Inside the room's box the field is bare: the box carries the border and the
    focus ring. Specific enough to beat `.detail .dbox input[type=text]`. */
@@ -6018,6 +6030,7 @@ body:not(.consolidated) .pjmidhead:has(.pjhead) .tsearch:focus-within { flex-bas
    closed (opacity .5 when the agent is off). Same input-only-selector gap this file
    warns about at the `.composerbox textarea.cinput` note above. */
 .dmbar .btn[disabled], .dmbar input[disabled], .dmbar textarea[disabled] { opacity: .5; cursor: not-allowed; }
+.dmbar .emojibtn[disabled] { opacity: .5; cursor: not-allowed; }   /* #3744: greys with the box it types into */
 /* The room valve's row: reassurance, not an error. */
 .msg-valve { font-size: .8125rem; color: var(--k-ink-2); border-left: 2px solid var(--k-rule);
              padding-left: 10px; }
@@ -9497,7 +9510,12 @@ window.kosmosMeasureScrollbarWidth();
            the same reason. -->
       <textarea class="cinput" id="d-say" rows="1" maxlength="10000"
              aria-label="Type a message for this agent" placeholder="Write something&hellip;"></textarea>
+      <!-- #3744 (Josh, 2026-09-25 09:29: "We need emoji support in the agent DM."): the room's
+           grey smiley and panel, driven by the same code (EMOJI_AT below), so there is one list
+           of emoji and one behaviour. The panel sits inside this box, which is its anchor. -->
+      <button class="emojibtn" id="d-emoji-btn" type="button" aria-label="Add an emoji" title="Add an emoji" aria-expanded="false" aria-controls="d-emoji"><span class="emojibtn-glyph" aria-hidden="true">&#128512;</span></button>
             <button class="btn uprime cpost" id="d-send" type="button">Post</button>
+      <div class="emojipanel" id="d-emoji" role="group" aria-label="Pick an emoji" hidden></div>
     </div>
     <!-- #3403 (Josh: cut off mid-message with no warning): a SOFT near-limit counter that appears
          only in the last stretch before the 10000 cap, so the cap is never a silent cutoff. A block
@@ -27401,6 +27419,8 @@ async function paintTalk(sessionName, agentName) {
        panel saying we cannot resolve this agent. */
     document.getElementById('d-say').disabled = true;
     document.getElementById('d-send').disabled = true;
+    document.getElementById('d-emoji-btn').disabled = true;   // #3744: no emoji into a closed box
+    pjEmojiClose('agent');
     /* The section itself, never the composer this arm just closed: the
        success path's own rule, that a rescue must not hand focus to a
        control the same paint disables. `#d-talk-box` carries tabindex="-1"
@@ -27741,6 +27761,9 @@ async function paintTalk(sessionName, agentName) {
      it either, because that path declines to touch anything once the flight has
      moved. The flag is about a NAME, so it is read against one. */
   say.disabled = body.presence === 'off';
+  // #3744: the emoji button opens and closes with the box it types into.
+  document.getElementById('d-emoji-btn').disabled = say.disabled;
+  if (say.disabled) pjEmojiClose('agent');
   /* 🛑 #991: A CLOSED BOX MUST NOT STILL SAY "Message casey…". The composer is
      correctly disabled here and the reason is on screen above it, but the
      placeholder was set before the fetch and kept inviting a message the box
@@ -28496,6 +28519,7 @@ function openDetail(sessionName, section, fromProject) {
        words are not lost: the input handler parks them under their own agent
        on every keystroke. */
     pjComposerReset(document.getElementById('d-say'));
+    pjEmojiClose('agent');   // #3744: the panel belongs to the composer being left, like its words
     /* #967: the Terminal-tab box belongs to the agent being LEFT exactly as the
        composer above does, so it is cleared on switch and paintTalk restores the
        one being opened from TERM_DRAFTS. Without this a reply typed for one agent
@@ -46969,11 +46993,18 @@ const PJ_EMOJI = [
   '❤️','🧡','💛','💚','💙','💜','🖤','💯','🔥','✨','⭐','🎉','🚀','✅','❌','⚠️',
   '💡','📌','📝','🐛','🔧','🔒','⏳','📈','☕','🎯','🧠','🍕','🐢','🎈','📎','🗂️',
 ];
-let PJ_EMOJI_BUILT = false;
+/* #3744: the same picker in two composers, the project room's and an agent's Direct Message. One
+   list (PJ_EMOJI) and one set of functions, keyed by where; each composer has its own button, panel
+   and input. `where` defaults to the room, so every existing caller is unchanged. */
+const EMOJI_AT = {
+  room: { btn: 'pj-emoji-btn', panel: 'pj-emoji', input: 'pj-post' },
+  agent: { btn: 'd-emoji-btn', panel: 'd-emoji', input: 'd-say' },
+};
+const EMOJI_BUILT = new Set();
 
-function pjEmojiBuild() {
-  if (PJ_EMOJI_BUILT) return;
-  const panel = document.getElementById('pj-emoji');
+function pjEmojiBuild(where = 'room') {
+  if (EMOJI_BUILT.has(where)) return;
+  const panel = document.getElementById(EMOJI_AT[where].panel);
   if (!panel) return;
   const frag = document.createDocumentFragment();
   for (const glyph of PJ_EMOJI) {
@@ -46985,21 +47016,76 @@ function pjEmojiBuild() {
     frag.appendChild(b);
   }
   panel.appendChild(frag);
-  PJ_EMOJI_BUILT = true;
+  EMOJI_BUILT.add(where);
 }
 
-function pjEmojiOpen() {
-  pjEmojiBuild();
-  const panel = document.getElementById('pj-emoji');
-  const btn = document.getElementById('pj-emoji-btn');
+function pjEmojiOpen(where = 'room') {
+  for (const other of Object.keys(EMOJI_AT)) if (other !== where) pjEmojiClose(other);   // one panel open at a time
+  pjEmojiBuild(where);
+  const panel = document.getElementById(EMOJI_AT[where].panel);
+  const btn = document.getElementById(EMOJI_AT[where].btn);
   if (!panel || !btn) return;
   panel.hidden = false;
   btn.setAttribute('aria-expanded', 'true');
+  if (where === 'agent') emojiPlace();
 }
 
-function pjEmojiClose() {
-  const panel = document.getElementById('pj-emoji');
-  const btn = document.getElementById('pj-emoji-btn');
+/* #3744: the DM's panel, placed from its composer box (see #d-emoji in the style block): above the
+   box, right-aligned with it as the room's is; below it when there is more room there; its height
+   capped to the room it has; and kept inside the window and below the sticky app header, which
+   would otherwise cover its top rows in a short window. */
+function emojiPlace() {
+  const panel = document.getElementById('d-emoji');
+  const btn = document.getElementById('d-emoji-btn');
+  if (!panel || panel.hidden || !btn) return;
+  const box = (btn.closest('.composerbox') || btn).getBoundingClientRect();
+  const GAP = 6, EDGE = 8;
+  const head = document.querySelector('.apphead');
+  const ceiling = Math.max(EDGE, head ? head.getBoundingClientRect().bottom + 4 : EDGE);
+  const floor = innerHeight - EDGE;
+  /* Review pass 2: its box scrolled out of sight, or a window with no room for even a row or two,
+     closes the panel rather than leaving it open somewhere nobody can see or reach. */
+  if (box.bottom < ceiling || box.top > floor || floor - ceiling < 56) { pjEmojiClose('agent'); return; }
+  /* Its full height, measured WITHOUT touching its cap (review pass 4): clearing the cap to measure
+     made the browser pull the list's scroll back to the middle on every re-place, after a pick, a
+     resize or any scroll. Content height plus borders, capped at the stylesheet's own max-height,
+     which is read fresh every time (it is 15rem, so a browser font-size change moves it; review pass
+     5). Reading a computed max-height with the inline cap briefly removed forces no layout, so the
+     scroll is untouched. */
+  const saved = panel.style.maxHeight;
+  panel.style.maxHeight = '';
+  const cssMax = parseFloat(getComputedStyle(panel).maxHeight) || 240;
+  panel.style.maxHeight = saved;
+  const natural = Math.min(cssMax, panel.scrollHeight + (panel.offsetHeight - panel.clientHeight));
+  const above = box.top - GAP - ceiling;
+  const below = floor - box.bottom - GAP;
+  const up = above >= natural || above >= below;
+  /* Never taller than the room it is given. (A fixed minimum here once pushed it off the window.)
+     The `floor - ceiling` term is belt and braces: the close above already keeps `above` and
+     `below` within it, so today it never decides; it keeps the clamp below safe if that changes. */
+  const h = Math.min(natural, Math.max(56, up ? above : below), floor - ceiling);
+  const cap = h < natural ? h + 'px' : '';
+  if (panel.style.maxHeight !== cap) panel.style.maxHeight = cap;
+  const want = up ? box.top - GAP - h : box.bottom + GAP;
+  panel.style.top = Math.round(Math.min(Math.max(want, ceiling), floor - h)) + 'px';
+  const w = panel.offsetWidth;
+  panel.style.left = Math.round(Math.max(EDGE, Math.min(box.right - 12 - w, innerWidth - EDGE - w))) + 'px';
+}
+window.addEventListener('resize', emojiPlace);
+/* Any scroll that moves the box: the page's (it scrolls at mid widths, where .apphead is not
+   sticky), or an ancestor's. Capture phase, because scroll events do not bubble; emojiPlace returns
+   at once while the panel is closed. The panel's own grid scrolling is skipped: nothing about the
+   box moved, so there is nothing to re-place (it once also reset the list's scroll, review pass 3;
+   emojiPlace no longer can, review pass 4). */
+document.addEventListener('scroll', (e) => {
+  const t = e.target;
+  if (t && t.nodeType === 1 && t.closest('#d-emoji')) return;
+  emojiPlace();
+}, { capture: true, passive: true });
+
+function pjEmojiClose(where = 'room') {
+  const panel = document.getElementById(EMOJI_AT[where].panel);
+  const btn = document.getElementById(EMOJI_AT[where].btn);
   /* Restore focus to the trigger ONLY when a panel button held it (the keyboard
      Escape flow) -- otherwise the focused emoji button becomes display:none and
      focus falls to <body>. Guarded on activeElement so an OUTSIDE click, whose
@@ -47012,14 +47098,14 @@ function pjEmojiClose() {
   }
 }
 
-function pjEmojiToggle() {
-  const panel = document.getElementById('pj-emoji');
-  if (panel && panel.hidden) pjEmojiOpen(); else pjEmojiClose();
+function pjEmojiToggle(where = 'room') {
+  const panel = document.getElementById(EMOJI_AT[where].panel);
+  if (panel && panel.hidden) pjEmojiOpen(where); else pjEmojiClose(where);
 }
 
-function pjEmojiInsert(glyph) {
-  const input = document.getElementById('pj-post');
-  if (!input) return;
+function pjEmojiInsert(glyph, where = 'room') {
+  const input = document.getElementById(EMOJI_AT[where].input);
+  if (!input || input.disabled) return;
   const start = typeof input.selectionStart === 'number' ? input.selectionStart : input.value.length;
   const end = typeof input.selectionEnd === 'number' ? input.selectionEnd : input.value.length;
   input.value = input.value.slice(0, start) + glyph + input.value.slice(end);
@@ -47029,7 +47115,14 @@ function pjEmojiInsert(glyph) {
   input.focus();
 }
 
-document.getElementById('pj-emoji-btn').addEventListener('click', (e) => { e.preventDefault(); pjEmojiToggle(); });
+for (const where of Object.keys(EMOJI_AT)) {
+  document.getElementById(EMOJI_AT[where].btn).addEventListener('click', (e) => { e.preventDefault(); pjEmojiToggle(where); });
+  document.getElementById(EMOJI_AT[where].panel).addEventListener('click', (e) => {
+    const b = e.target.closest('button[data-emoji]');
+    if (!b) return;
+    pjEmojiInsert(b.dataset.emoji, where);
+  });
+}
 /* CLICK, not mousedown, so the picker is KEYBOARD-OPERABLE: a focused emoji button
    fires 'click' on Enter/Space, whereas a mousedown-only handler left keyboard
    users able to open the panel but unable to pick (an a11y gap the aria markup
@@ -47039,20 +47132,17 @@ document.getElementById('pj-emoji-btn').addEventListener('click', (e) => { e.pre
    document mousedown-outside-close excludes #pj-emoji, so the panel stays open
    either way (several picks in a row, Discord's behaviour). No double-insert: only
    'click' fires the insert, once per mouse-click and once per keyboard activation. */
-document.getElementById('pj-emoji').addEventListener('click', (e) => {
-  const b = e.target.closest('button[data-emoji]');
-  if (!b) return;
-  pjEmojiInsert(b.dataset.emoji);
-});
 /* Close on Escape (fires regardless of panel state; pjEmojiClose is a cheap no-op
    when already hidden) or a mousedown outside the button+panel (that listener
    early-returns while the panel is hidden). */
-document.addEventListener('keydown', (e) => { if (e.key === 'Escape') pjEmojiClose(); });
+document.addEventListener('keydown', (e) => { if (e.key === 'Escape') for (const where of Object.keys(EMOJI_AT)) pjEmojiClose(where); });
 document.addEventListener('mousedown', (e) => {
-  const panel = document.getElementById('pj-emoji');
-  if (!panel || panel.hidden) return;
-  if (e.target.closest('#pj-emoji') || e.target.closest('#pj-emoji-btn')) return;
-  pjEmojiClose();
+  for (const where of Object.keys(EMOJI_AT)) {
+    const panel = document.getElementById(EMOJI_AT[where].panel);
+    if (!panel || panel.hidden) continue;
+    if (e.target.closest('#' + EMOJI_AT[where].panel) || e.target.closest('#' + EMOJI_AT[where].btn)) continue;
+    pjEmojiClose(where);
+  }
 });
 
 /* ---- adding a document (#358) -----------------------------------------------
@@ -55094,7 +55184,7 @@ document.addEventListener('keydown', (e) => {
   const ae = document.activeElement;
   const inField = !!ae && !ae.closest('#tipcard') && ae.matches('input, textarea, select, [contenteditable=""], [contenteditable="true"]');
   const inMenu = !!ae && !!ae.closest('[role="menu"], .userpop-menu:not([hidden])');
-  const pickerOpen = !!document.querySelector('#rxn-picker:not([hidden]), #pj-emoji:not([hidden])');
+  const pickerOpen = !!document.querySelector('#rxn-picker:not([hidden]), #pj-emoji:not([hidden]), #d-emoji:not([hidden])');
   if (!TIP_OPEN.tour && (inField || inMenu || pickerOpen)) return;
   e.preventDefault();
   tipClose({ record: true });
@@ -55206,7 +55296,9 @@ let ASB = { started: false, guide: null, setting: null, open: false, asking: fal
      what is SHOWN is held, and nothing is timed: the open chat keeps the sentence saying why until the person closes
      it (`asideShowing`), and one that came while folded (`asideOnOpen`) keeps the bubble, with its dot, until it
      is opened. Closing it, by any route, is reading it. */
-  asideShowing: false, asideOnOpen: false, asideText: '', frWas: false };
+  asideShowing: false, asideOnOpen: false, asideText: '', frWas: false,
+  /* #3733: when a reply last landed (a board "working" older than it is stale), and whether "working" was last seen open. */
+  heardAt: 0, wasWorking: false, dotTimed: false, saidSignIn: '' };
 const ASB_HOSTED_KEY = 'kosmos.asb.hosted.v1';
 /* The two reasons the hosted assistant ends, in the same words as the board's refusals (server.js). */
 const ASB_WHY_OWN = 'You\'ve connected your own AI, so this chat has ended.';
@@ -55288,19 +55380,19 @@ function asbLayerEnsure() {
      and the modal sweep (web.modal-way-out-1316) counts anything carrying aria-modal. */
   layer.innerHTML = '<div class="asb-nudge" id="asb-nudge" hidden><button type="button" id="asb-nudge-go">Want help setting up Kosmos?</button>'
     + '<button type="button" class="asb-nudge-x" id="asb-nudge-x" aria-label="Hide this for now">&times;</button></div>'
-    + '<button type="button" class="asb" id="asb" aria-label="Open the setup assistant" hidden><img alt=""><span class="asb-dot" hidden></span></button>'
+    + '<button type="button" class="asb" id="asb" aria-label="Open the setup assistant" hidden><img alt=""><span class="asb-dot" hidden></span><span class="act asb-act" aria-hidden="true" hidden><i></i><i></i><i></i></span></button>'
     + '<div class="asp" id="asp" role="dialog" aria-label="Setup assistant" hidden>'
-    +   '<div class="asp-h"><img alt=""><div class="asp-who"><b>Josh</b><span class="asp-tag">JOSH\'S AI</span></div>'
+    +   '<div class="asp-h"><img alt=""><div class="asp-who"><b>Josh, Kosmos Guide</b></div>'
     +   '<div class="asp-ctl"><button type="button" id="asp-fold" aria-label="Fold the assistant away">&minus;</button>'
     +   '<button type="button" id="asp-x" aria-label="Close the assistant">&times;</button></div></div>'
-    +   '<div class="asp-th" id="asp-th"></div><span class="vh" id="asp-live" aria-live="polite"></span>'
-    +   '<div class="asp-note">An AI that knows Kosmos, in Josh\'s voice. Josh isn\'t typing live.</div>'
+    +   '<div class="asp-th" id="asp-th"></div><p class="dmbusy asp-busy" id="asp-busy" hidden></p><span class="vh" id="asp-live" aria-live="polite"></span><span class="vh" id="asp-live-busy" aria-live="polite"></span>'
+    +   '<div class="asp-note"></div>'   /* its words are asbPaint's, one copy (#3738) */
     +   '<div class="asp-msg" id="asp-msg" role="status"></div>'
     +   '<div class="asp-ask" id="asp-ask" hidden><b>Close the assistant?</b>'
     +     '<button type="button" class="pri" id="asp-close-now">Close for now</button>'
     +     '<button type="button" id="asp-close-off">Don\'t show this again</button>'
     +     '<small>You can turn it back on in Settings, under This computer.</small></div>'
-    +   '<form class="asp-in" id="asp-in"><textarea id="asp-say" rows="1" aria-label="Ask about Kosmos" placeholder="Ask me anything about Kosmos"></textarea>'
+    +   '<form class="asp-in" id="asp-in"><textarea id="asp-say" rows="1" aria-label="Ask about Kosmos" placeholder="Ask about Kosmos\u2026"></textarea>'
     +   '<button type="submit" id="asp-send" aria-label="Send">&uarr;</button></form>'
     + '</div>';
   document.body.appendChild(layer);
@@ -55374,15 +55466,17 @@ function asbPaint() {
        to the page rather than falling to nowhere. */
     const hadFocus = !!document.activeElement && !!document.activeElement.closest('#asblayer');
     bub.hidden = true; panel.hidden = true; document.getElementById('asb-nudge').hidden = true;
-    ASB.open = false;
+    ASB.open = false; ASB.wasWorking = false; ASB.saidSignIn = '';   // so a chat that comes back is announced afresh
     if (hadFocus) setTimeout(asbFocusPage, 0);
     return;
   }
   const src = row ? asbAvatar(row) : ASB_HOSTED_AVATAR;
   const note = document.querySelector('#asp .asp-note');
-  const words = row ? 'An AI that knows Kosmos, in Josh\'s voice. Josh isn\'t typing live.'
-    : asbIsHosted() ? 'An AI in Josh\'s voice. Until you connect your own AI, your questions go online to Kosmos\'s AI. Josh isn\'t typing live.'
-    : 'This chat has ended. Josh isn\'t typing live.';   // stepping aside: it no longer takes questions
+  /* #3738: the AI explanation is the opening message now, so the guide has no footer. The hosted assistant keeps only
+     where the words go (they leave this Mac), and an ended chat says it has ended. */
+  const words = row ? ''
+    : asbIsHosted() ? 'Until you connect your own AI, your questions go online to Kosmos\'s AI.'
+    : 'This chat has ended.';   // stepping aside: it no longer takes questions
   if (note && note.textContent !== words) note.textContent = words;
   for (const img of [bub.querySelector('img'), panel.querySelector('.asp-h img')]) if (img.getAttribute('src') !== src) img.setAttribute('src', src);
   panel.hidden = !ASB.open;
@@ -55391,8 +55485,57 @@ function asbPaint() {
   asbLift(panel, true);
   const nudge = document.getElementById('asb-nudge');
   nudge.style.bottom = (parseFloat(bub.style.bottom) || 16) + 8 + 'px';
+  /* #3733: working on a reply. A guide is working when the board says so (its card state), the hosted assistant while
+     a question is out. The same signal draws the dots on the folded bubble and the row in the chat. */
+  /* A reply that landed after the board's last snapshot outranks a "working" the snapshot still carries (#2660's
+     guard, as paintBusy has): the row does not sit under the reply it was waiting for. */
+  const stale = !!(row && ASB.heardAt && typeof LAST_AT !== 'undefined' && ASB.heardAt > LAST_AT);
+  const working = row ? (row.state === 'working' && !stale) : (asbIsHosted() && ASB.sending);
+  /* A broken sign-in says so in the chat (busyRow's own #874 line), so a message is not just met with silence. */
+  const signIn = !!(row && row.state === 'auth_failed');
+  const act = bub.querySelector('.asb-act');
+  if (act) act.hidden = !working || ASB.open;
+  const busy = document.getElementById('asp-busy');
+  const who = row ? (row.name || 'Josh') : 'Josh';
+  if (busy) {
+    /* Written only when its inputs change (#3421): a string compare never matches (&hellip; reads back as the
+       character), and rebuilding the .act dots restarts their loop every paint. Keyed as paintBusy keys. */
+    const key = !(working || signIn) ? '' : [row ? row.sessionName : 'hosted', row ? row.state : 'hosted', who, row && row.hasAvatar ? '1' : '0',
+      signIn ? (row.stateEvidence || '') : ''].join('\u0001');
+    const rekeyed = busy.dataset.busyKey !== key;
+    if (rekeyed) {
+      busy.innerHTML = !key ? '' : row ? busyRow(row, who)
+        : '<div class="msg-av" aria-hidden="true"><img src="' + ASB_HOSTED_AVATAR + '" alt=""></div><span class="act" aria-hidden="true"><i></i><i></i><i></i></span><span>' + esc(who) + ' is ' + WORKING_VERB + '&hellip;</span>';
+      busy.dataset.busyKey = key;
+    }
+    /* The row sits under the thread and takes its height, so a thread that was at its end stays there: a reply that
+       lands while the row shows is then in view, not under it. */
+    const hide = !(working || signIn);
+    if (busy.hidden !== hide || (rekeyed && !hide)) {   // shown, hidden, or its height changed (a sign-in line can wrap)
+      const th = document.getElementById('asp-th');
+      const atEnd = !!th && th.scrollHeight - th.scrollTop - th.clientHeight < 24;
+      busy.hidden = hide;
+      if (atEnd) th.scrollTop = th.scrollHeight;
+    }
+    /* Said once as it starts, or when the chat is opened while it works, for a screen reader. In its own region, so it
+       cannot replace a reply (#asp-live) before that reply has been read out. A broken sign-in is said once too. */
+    const liveBusy = document.getElementById('asp-live-busy');
+    const seen = working && ASB.open;
+    if (seen && !ASB.wasWorking) liveBusy.textContent = who + ' is ' + WORKING_VERB;
+    ASB.wasWorking = seen;
+    /* Keyed on the guide and its state, not the evidence, which changes from poll to poll; spoken from the words
+       alone (the row's face and "!" are aria-hidden, and textContent would read them out). */
+    const said = signIn && ASB.open ? row.sessionName + '\u0001auth_failed' : '';
+    if (said && ASB.saidSignIn !== said) liveBusy.textContent = (busy.lastElementChild ? busy.lastElementChild.textContent : '').trim();
+    ASB.saidSignIn = said;
+  }
+  /* #3738: the opening message is there from the start, before the first read and when a read fails. */
+  const th0 = document.getElementById('asp-th');
+  if (th0 && !th0.childElementCount) th0.appendChild(asbOpening());
   bub.querySelector('.asb-dot').hidden = !ASB.dot || ASB.open;
-  const lab = ASB.dot && !ASB.open ? 'Open the setup assistant, there is something new to read' : 'Open the setup assistant';
+  /* Something new to read outranks working; and "working" is all the board knows, not what it is working on. */
+  const lab = ASB.dot && !ASB.open ? 'Open the setup assistant, there is something new to read'
+    : working && !ASB.open ? 'Open the setup assistant, ' + who + ' is ' + WORKING_VERB : 'Open the setup assistant';
   if (bub.getAttribute('aria-label') !== lab) bub.setAttribute('aria-label', lab);   // the dot, for a screen reader
   document.getElementById('asb-nudge').hidden = ASB.open || ASB.nudgeGone || ASB.wroteOnce || !ASB.readOnce;   // not before the thread says whether they wrote
   document.getElementById('asp-ask').hidden = !ASB.asking;
@@ -55466,14 +55609,25 @@ async function asbPoll(force) {
   if (ASB.open) {
     /* Only the newest reply is announced, not the whole rebuilt thread. */
     if (ASB.heard !== null && heard > ASB.heard) {
+      /* A reply landed: a "working" from an older board snapshot is stale. One that landed while folded was
+         timed when its dot lit, so opening the chat later does not restart that clock. */
+      if (!ASB.dotTimed) ASB.heardAt = Date.now();   // dotTimed, not dot: opening the chat clears the dot first
       const last = speech.filter((m) => m.from === t.session).pop();
       document.getElementById('asp-live').textContent = last ? String(last.text || '') : '';
     }
+    ASB.dotTimed = false;   // consumed, or outlived (a count that fell): either way the next open reply is timed afresh
     ASB.heard = heard; ASB.dot = false; asbPaintThread(speech, t.session);
   }
   else if (ASB.heard === null) ASB.heard = heard;
-  else if (heard > ASB.heard) ASB.dot = true;
+  else if (heard > ASB.heard && !ASB.dot) { ASB.dot = true; ASB.dotTimed = true; ASB.heardAt = Date.now(); }   // timed once, when the dot lights
   asbPaint();
+}
+/* #3738 (Josh 08:51, verbatim): one opening message, always the first guide bubble. */
+function asbOpening() {
+  const open = document.createElement('div');
+  open.className = 'asp-m him asp-open';
+  open.textContent = 'Hi, I\'m Josh\'s AI guide. Ask me anything about setting up Kosmos.';
+  return open;
 }
 function asbPaintThread(rows, session) {
   const th = document.getElementById('asp-th');
@@ -55483,13 +55637,7 @@ function asbPaintThread(rows, session) {
   if (shown === ASB.shown && th.childElementCount) return;
   ASB.shown = shown;
   const atEnd = th.scrollHeight - th.scrollTop - th.clientHeight < 24;
-  th.replaceChildren();
-  if (!rows.length) {
-    const p = document.createElement('p');
-    p.className = 'asp-empty';
-    p.textContent = 'Hi, I built Kosmos. Ask me anything about setting it up, on whatever page you\'re on.';
-    th.appendChild(p);
-  }
+  th.replaceChildren(asbOpening());
   for (const m of rows) {
     const d = document.createElement('div');
     d.className = 'asp-m ' + (m.from === session ? 'him' : 'you');
@@ -55606,12 +55754,8 @@ async function asbHostedSend(text) {
   msg.textContent = '';
   hm.push({ role: 'user', content: text });
   paint();
-  /* An answer can take a while (a model, and a retry): say so in the chat, where they are looking. */
-  const th = document.getElementById('asp-th');
-  const wait = document.createElement('div');
-  wait.className = 'asp-m him asp-wait'; wait.textContent = 'Thinking\u2026';
-  th.appendChild(wait); th.scrollTop = th.scrollHeight;
-  document.getElementById('asp-live').textContent = 'Thinking';
+  /* An answer can take a while (a model, and a retry): the working row says so (#3733), in the chat and on the bubble. */
+  asbPaint();
   let r = null, b = null;
   try {
     /* The screen only: the route keeps nothing else, and the names of their agents and projects never need
@@ -55622,14 +55766,13 @@ async function asbHostedSend(text) {
       body: JSON.stringify({ messages: hm.slice(-7).map((m) => ({ role: m.role, content: m.content.slice(0, 2000) })), page: { screen: asbScreen().screen } }) });
     b = await r.json().catch(() => null);
   } catch { r = null; }
-  wait.remove();
   ASB.sending = false;
   document.getElementById('asp-send').disabled = false;
   const ok = !!(r && r.ok && b && typeof b.reply === 'string' && b.reply);
   if (ok) { hm.push({ role: 'assistant', content: b.reply }); asbHostedKeep(); } else hm.pop();   // not asked: the words are still in the box
   /* The panel may belong to a guide by now (one was made while this was being answered): the answer is kept
      with the hosted conversation, and nothing of it is written over the guide's chat. */
-  if (ASB.guide) return;
+  if (ASB.guide) { asbPaint(); return; }   // the working row clears now, not a tick later
   ASB.shown = '';   // the thread is painted again from the conversation, whatever it showed while waiting
   if (ok) {
     if (say.value.trim() === text) say.value = '';
@@ -55768,7 +55911,7 @@ async function asbFind() {
   asbAsideDone(); ASB.asideShowing = false; ASB.dot = false;   // a hosted refusal waiting to be read belongs to the hosted assistant, not the guide
   { const th = document.getElementById('asp-th'); if (th) th.replaceChildren(); }   // the hosted conversation is not the guide's
   /* A guide now exists: the bubble talks to it. The hosted conversation stays behind; it was another assistant. */
-  if (ASB.hosted) { ASB.hosted = false; ASB.heard = null; ASB.shown = ''; ASB.readOnce = false; ASB.lastPoll = 0; ASB.remaining = null; }
+  if (ASB.hosted) { ASB.hosted = false; ASB.heard = null; ASB.heardAt = 0; ASB.dotTimed = false; ASB.wasWorking = false; ASB.saidSignIn = ''; ASB.shown = ''; ASB.readOnce = false; ASB.lastPoll = 0; ASB.remaining = null; }
   ASB.finding = false;
   asbLayerEnsure();
   await asbReadSetting();
@@ -55799,7 +55942,7 @@ function asbForgetGuide() {
   const standIn = asbIsHostedAfterForget();
   const hadFocus = !standIn && !!document.activeElement && !!document.activeElement.closest('#asblayer');
   const keepOpen = standIn && ASB.open;
-  ASB.guide = null; ASB.open = keepOpen; ASB.asking = false; ASB.heard = null; ASB.shown = ''; ASB.dot = false;
+  ASB.guide = null; ASB.open = keepOpen; ASB.asking = false; ASB.heard = null; ASB.heardAt = 0; ASB.wasWorking = false; ASB.saidSignIn = ''; ASB.dotTimed = false; ASB.shown = ''; ASB.dot = false;
   ASB.wroteOnce = false; ASB.readOnce = false; ASB.lastPoll = 0; ASB.nudgeGone = false; ASB.asideShowing = false; asbAsideDone();
   const pm = document.getElementById('asp-msg'); if (pm) pm.textContent = '';   // nothing stale when it comes back
   if (keepOpen) { const th = document.getElementById('asp-th'); if (th) th.replaceChildren(); }   // the guide's thread is not the hosted one's
