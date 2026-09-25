@@ -177,6 +177,34 @@ test('an agent the project does not show goes out as "an agent", never under its
   }
 });
 
+test('an agent on the project whose card is gone goes out as "an agent", never under its session name', async () => {
+  const board = fleet.install([fleet.agent('nocardfed', { state: 'idle', displayName: 'Card Holder' })]);
+  let p4;
+  try {
+    p4 = projects.create({ name: 'Cardless Club' }).id;
+    projects.addAgent(p4, 'nocardfed', board.agents);
+  } finally {
+    board.restore();
+  }
+  const empty = fleet.install([]);   // the roster no longer has its card
+  try {
+    const member = projects.get(p4, empty.agents).agents[0];
+    assert.equal(member.present, false, 'fixture: the member has no card now');
+    assert.equal(member.name, 'nocardfed', 'fixture: the project falls back to the session name');
+    federation.recordLink(p4, { role: 'member', edge_id: 'edge-cardless', project_name: 'Cardless Club' });
+    await fedseats.ensure(p4);
+    const seat = children[children.length - 1];
+    assert.equal(seat.edge, 'edge-cardless', 'fixture: the new project has its own seat');
+    seat.stdout.write(JSON.stringify({ event: 'connected', room: 'r4', expires_at: 9 }) + '\n');
+    await new Promise((r) => setImmediate(r));
+    federateOut(p4, { id: 'p-4', from: 'nocardfed', text: 'hello' }, false);
+    const out = JSON.parse(seat.written.join('').trim());
+    assert.equal(out.from, 'an agent', 'the session name left this Mac: ' + out.from);
+  } finally {
+    empty.restore();
+  }
+});
+
 test('a post with no words sends nothing and says attachments stay here', async () => {
   const before = children[0].written.length;
   federateOut(pid, { id: 'p-2', from: 'you', text: '' }, true);

@@ -812,6 +812,7 @@ const federation = require('./engine/federation');
    room as an external row (data, never typed into a pane); a post that lands in
    a federated room is sent out through its seat (federateOut below). */
 const fedseats = require('./engine/fedseats');
+const { externalName } = require('./engine/externalname');
 const tasks = require('./engine/tasks');
 const chat = require('./engine/chat');
 const messages = require('./engine/messages');
@@ -15815,8 +15816,15 @@ fedseats.configure({
    match a folder that already exists, and any of those would fail every join
    while the code stays used. So: the owner's name if it fits, else the same with
    "(shared)", then "(shared 2)" and on. */
+/* The owner's project name comes from ANOTHER account, and becomes this project's
+   name here: typed into local agents' panes ("Kosmos put you on the project
+   "<name>".") and written into their instructions. So it is cleaned as every
+   outside name is (externalname: format characters, controls, lookalike forms),
+   and loses every quote-like character and backslash, so it can never close the
+   quotes it is shown in and go on as Kosmos's own words. */
+const JOIN_NAME_QUOTES = /["'`\\\u00ab\u00bb\u2018-\u201f\u2039\u203a\u300c-\u300f\uff02\uff07]/g;
 function joinedProjectName(ownerName) {
-  const base = String(ownerName || '').replace(/\s+/g, ' ').trim().slice(0, 48).trim();
+  const base = externalName(String(ownerName || '').replace(JOIN_NAME_QUOTES, ' '), 200).slice(0, 48).trim();
   let taken;
   try { taken = new Set(projects.readAll().map((p) => String(p.name || '').toLowerCase())); } catch { taken = new Set(); }
   const free = (n) => !projects.folderNameProblem(n) && !taken.has(n.toLowerCase())
@@ -15858,7 +15866,9 @@ function federateOut(projectId, delivery, operator) {
     try {
       const p = projects.get(projectId, safeRoster());
       const m = p && (p.agents || []).find((a) => a && a.sessionName === delivery.from);
-      if (m && m.name) from = m.name;
+      // `present`: only a name read off the agent's own card. Without one the
+      // project shows the session name, which is internal and never leaves.
+      if (m && m.name && m.present) from = m.name;
     } catch { /* keeps 'an agent': the session name is internal and never leaves */ }
   }
   try { fedseats.post(projectId, { from, kind: operator ? 'person' : 'agent', text }); } catch { /* a seat is best-effort */ }

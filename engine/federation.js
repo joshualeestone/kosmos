@@ -142,6 +142,7 @@ function reasonFor(sentence) {
   return null;
 }
 
+const { externalName } = require('./externalname');
 const DESC_MAX = 1000;
 // A project name is a ref (refOk's 200), and an owner handle is a Kosmos+ name
 // (3 to 32 characters at the coordinator), kept with room to spare.
@@ -189,7 +190,9 @@ async function verify(remote, body) {
   const bound = (v, max) => (typeof v === 'string' && v ? v.slice(0, max) : null);
   const snap = {
     edge_id: d.edge_id,
-    project_name: d.project_name.slice(0, NAME_MAX),
+    // Shown on the join screen and made this project's name: cleaned as every
+    // outside name is, so it cannot display reversed or pass for a local one.
+    project_name: externalName(d.project_name, NAME_MAX),
     project_desc: bound(d.project_desc, DESC_MAX),
     owner_handle: bound(d.owner_handle, HANDLE_MAX),
   };
