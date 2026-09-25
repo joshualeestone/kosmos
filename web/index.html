@@ -8029,6 +8029,7 @@ html:not([data-fed-ui="show"]) #pj-add-ext-person,html:not([data-fed-ui="show"])
      subtree unconditionally, exactly like the k-tokens above. Nothing enhances
      --danger under prefers-contrast, so there is no arm this clobbers. */
   --danger: #b3261e;
+  --ok: #1f7a4d;   /* #3724: the same for green (the dark #4ade80 is 1.74:1 on this white card) */
   background: var(--k-bg);
 }
 /* ⚠️ `--label-2` AND `--separator` ARE PINNED IN DARK ONLY, because the root
@@ -8685,6 +8686,12 @@ body.plus-active {
      they fail (2.30 to 3.03:1). On navy the dark values read at 5.70 to 10.48:1. */
   --pj-mention: #5aa2ff; --gold-edge: #d6a62e; --ok: #4ade80; --danger: #ff6b5e; --warn-ink: #ffca55;
 }
+/* #3724: the update toast sets its own red (--utone) on itself, so the navy block above cannot reach it. Restated
+   in the dark look's order: the bare override is (0,2,1), so each severity must be restated to stay above it. */
+body.plus-active .utoast { --utone: #ff8c82; }
+body.plus-active .utoast.stale, body.plus-active .utoast.login-adv.notice { --utone: var(--label-2); }
+body.plus-active .utoast.login-adv.warn { --utone: var(--warn-ink); }
+body.plus-active .utoast.login-adv.urgent { --utone: #ff8c82; }
 /* The section is the positioning context for the ambient star field, which sits
    behind everything else in the pane. Every direct child is lifted above it. */
 #s-sec-plus { position: relative; }
@@ -8743,7 +8750,7 @@ a.plus-btn:focus-visible { outline: 2px solid #fff; outline-offset: 2px; }
    A button row under a field gets the standard gap (it sat flush against the field). */
 /* #3724: these fields stay white on navy, so the navy look's coral --danger (2.79:1 on white) is not theirs: the light
    red keeps their error border readable (6.53:1), as #firstrun's white card does. */
-#s-sec-plus .tk-inp { --danger: #b3261e; }
+#s-sec-plus .tk-inp:not(select) { --danger: #b3261e; }
 #s-sec-plus .tk-inp:not(select) { background: #ffffff; color: #14161a; -webkit-text-fill-color: #14161a;
   caret-color: #14161a; border-color: rgba(20, 22, 26, .28); }
 #s-sec-plus .tk-inp::placeholder { color: #6b7280; -webkit-text-fill-color: #6b7280; opacity: 1; }
