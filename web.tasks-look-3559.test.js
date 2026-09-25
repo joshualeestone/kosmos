@@ -97,6 +97,7 @@ test('the state line shows only when grouping by project; the agent pill shows i
   for (const html of [byStatus, byProject]) assert.match(html, /class="tsk-who" data-agent="rex">/);
   // A screen reader moving between checkboxes still hears the state the row no longer shows.
   assert.match(byStatus, /aria-label="Select task 3 of Launch, Assigned, not started"/);
+  assert.match(byProject, /aria-label="Select task 3 of Launch"/, 'grouped by project the label repeats the state the row shows');
 });
 
 test('Closed is not a tile; it stays the folded list', () => {

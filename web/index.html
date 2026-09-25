@@ -42746,10 +42746,11 @@ function tskRow(t) {
       : t.claim.because ? '<div class="why">We cannot tell whether it started: ' + esc(t.claim.because) + '.</div>' : '';
   return '<div class="tsk-row' + (on ? ' sel' : '') + '" data-key="' + esc(tskKey(t)) + '">'
     + '<input type="checkbox" data-key="' + esc(tskKey(t)) + '"' + (on ? ' checked' : '')
-    /* The row no longer repeats its state in a status group (the heading says it), so the label
-       carries it: a screen reader moving between checkboxes still hears where each task is. */
+    /* The row no longer repeats its state in a status group (the heading says it), so there the
+       label carries it: a screen reader moving between checkboxes still hears where each task is.
+       Grouped by project the row shows its state line, so the label does not say it again. */
     + (t.state === 'closed' ? ' disabled' : '') + ' aria-label="Select task ' + Number(t.number) + ' of ' + esc(t.projectName)
-    + (g ? ', ' + esc(g.l) : '') + '">'
+    + (g && TSK.by !== 'project' ? ', ' + esc(g.l) : '') + '">'
     + '<div class="t"><span class="n">#' + Number(t.number) + '</span>'
     + '<button type="button" class="tl" data-open-task="' + esc(tskKey(t)) + '">' + esc(t.sentence) + '</button>'
     + '<div class="meta"><button type="button" data-open-project="' + esc(t.projectId) + '">' + esc(t.projectName) + '</button>'
@@ -43210,7 +43211,7 @@ function paintTaskPage() {
   const sayShown = parts.some((x) => x.who && x.who === firstWho && !x.closedAt);
   const unknownBecause = (t.claim && t.claim.claimed === null && t.claim.because) ? t.claim.because : '';
   why.textContent = notReported ? (sayShown || !claimWho ? '' : claimWho + ' ' + notReported + '.')
-    : unknownBecause ? 'We could not check whether ' + (who || 'it') + ' is on this: ' + unknownBecause + '.' : '';
+    : unknownBecause ? 'We could not check whether ' + (claimWho || 'the agent on it') + ' is on this: ' + unknownBecause + '.' : '';
   why.hidden = !why.textContent;
 
   /* The close-note: both clauses are about what KOSMOS does not do. Needed
