@@ -250,15 +250,32 @@ const waitFor = (page, fn, ms = 6000) => page.waitForFunction(fn, null, { timeou
     chk(await waitFor(page, () => { const b = document.getElementById('asp-busy'); return !!b && !b.hidden && b.querySelectorAll('.act i').length === 3 && /Josh is working/.test(b.textContent); }, 12000),
       'B20 the guide working: the open chat shows the working row', await page.evaluate(() => document.getElementById('asp-busy').outerHTML.slice(0, 200)));
     if (SHOTS) { fs.mkdirSync(SHOTS, { recursive: true }); await page.screenshot({ path: path.join(SHOTS, 'asb-working-open.png') }); }
+    // B20: the dots keep ONE node across paints (#3421): a rebuilt node restarts their loop every tick.
+    await page.evaluate(() => { document.querySelector('#asp-busy .act').__kept = true; });
+    await page.waitForTimeout(3500);
+    chk(await page.evaluate(() => !!document.querySelector('#asp-busy .act') && document.querySelector('#asp-busy .act').__kept === true), 'B20 the working dots are not rebuilt across ticks (one continuous animation)');
+    // B20: a reply that lands while the board still says working: the row steps aside for it.
+    thread = thread.concat([{ from: 'josh', text: 'Here you go.', at: new Date().toISOString() }]);
+    await page.evaluate(() => asbPoll(true));
+    chk(await page.evaluate(() => document.getElementById('asp-busy').hidden), 'B20 a reply that has landed outranks the stale "working" from the last board snapshot');
     await page.click('#asp-fold');
     chk(await waitFor(page, () => { const a = document.querySelector('#asb .asb-act'); return !!a && !a.hidden && getComputedStyle(a).display !== 'none'; }, 4000)
-      && await page.evaluate(() => /working on a reply/.test(document.getElementById('asb').getAttribute('aria-label'))),
+      && await page.evaluate(() => /Josh is working/.test(document.getElementById('asb').getAttribute('aria-label'))),
       'B20 folded, the bubble shows the working dots and says so to a screen reader');
     if (SHOTS) await page.screenshot({ path: path.join(SHOTS, 'asb-working-folded.png'), clip: { x: 1100, y: 700, width: 180, height: 160 } });
     guideState('idle');
     chk(await waitFor(page, () => { const a = document.querySelector('#asb .asb-act'); return !!a && a.hidden; }, 12000), 'B20 CONTROL: idle, the dots go');
     await page.click('#asb');
     chk(await page.evaluate(() => document.getElementById('asp-busy').hidden), 'B20 CONTROL: and no working row in the chat');
+    // B20: the guide's sign-in broken: the chat says so (busyRow's line), and the folded bubble shows no working dots.
+    guideState('auth_failed');
+    chk(await waitFor(page, () => { const b = document.getElementById('asp-busy'); return !!b && !b.hidden && /sign-in isn.t working/.test(b.textContent) && !b.querySelector('.act'); }, 12000), 'B20 a broken sign-in says so in the chat, not silence');
+    await page.click('#asp-fold');
+    await page.waitForTimeout(400);
+    chk(await page.evaluate(() => document.querySelector('#asb .asb-act').hidden), 'B20 and the folded bubble shows no working dots for it');
+    guideState('idle');
+    await page.click('#asb');
+    await waitFor(page, () => document.getElementById('asp-busy').hidden, 12000);
 
     // B7: the first x asks once; Close for now keeps it and records the ask; a later x just closes.
     await page.click('#asp-x');

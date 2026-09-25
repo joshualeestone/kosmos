@@ -1484,7 +1484,7 @@ button.uprime:hover, .btn.uprime:hover, .utoast .uacts button.uprime:hover,
 /* #3733 (Josh 08:23: "It seems like my message just went off into space"): the app's working glyph (.act, the
    board's and the agent page's) while the assistant is working on a reply: on the folded bubble, and in the chat. */
 .asb-act { position: absolute; left: -3px; bottom: -3px; height: auto; padding: 5px 6px; border-radius: 999px;
-  background: var(--k-surface); box-shadow: 0 0 0 2px var(--gold-bright); }
+  background: var(--k-surface); box-shadow: 0 0 0 2px var(--k-rule); }   /* not gold: gold is the "new to read" dot's */
 .asb-act[hidden], .asp-busy[hidden] { display: none; }
 .asp .asp-busy { margin: 0; padding: 4px 12px 6px; }
 /* A reply that came while the chat was folded. */
@@ -55395,23 +55395,36 @@ function asbPaint() {
   nudge.style.bottom = (parseFloat(bub.style.bottom) || 16) + 8 + 'px';
   /* #3733: working on a reply. A guide is working when the board says so (its card state), the hosted assistant while
      a question is out. The same signal draws the dots on the folded bubble and the row in the chat. */
-  const working = row ? row.state === 'working' : (asbIsHosted() && ASB.sending);
+  /* A reply that landed after the board's last snapshot outranks a "working" the snapshot still carries (#2660's
+     guard, as paintBusy has): the row does not sit under the reply it was waiting for. */
+  const stale = !!(row && ASB.heardAt && typeof LAST_AT !== 'undefined' && ASB.heardAt > LAST_AT);
+  const working = row ? (row.state === 'working' && !stale) : (asbIsHosted() && ASB.sending);
+  /* A broken sign-in says so in the chat (busyRow's own #874 line), so a message is not just met with silence. */
+  const signIn = !!(row && row.state === 'auth_failed');
   const act = bub.querySelector('.asb-act');
   if (act) act.hidden = !working || ASB.open;
   const busy = document.getElementById('asp-busy');
+  const who = row ? (row.name || 'Josh') : 'Josh';
   if (busy) {
-    const who = row ? (row.name || 'Josh') : 'Josh';
-    const html = !working ? '' : row ? busyRow(row, who)
-      : '<div class="msg-av" aria-hidden="true"><img src="' + ASB_HOSTED_AVATAR + '" alt=""></div><span class="act" aria-hidden="true"><i></i><i></i><i></i></span><span>' + esc(who) + ' is ' + WORKING_VERB + '&hellip;</span>';
-    if (busy.innerHTML !== html) busy.innerHTML = html;   // only on a change, so the dots keep their rhythm
-    busy.hidden = !working;
-    /* Said once as it starts, for a screen reader in the open chat. */
-    if (working && !ASB.wasWorking && ASB.open) document.getElementById('asp-live').textContent = who + ' is ' + WORKING_VERB;
+    /* Written only when its inputs change (#3421): a string compare never matches (&hellip; reads back as the
+       character), and rebuilding the .act dots restarts their loop every paint. Keyed as paintBusy keys. */
+    const key = !(working || signIn) ? '' : [row ? row.sessionName : 'hosted', row ? row.state : 'hosted', who, row && row.hasAvatar ? '1' : '0',
+      signIn ? (row.stateEvidence || '') : ''].join('\u0001');
+    if (busy.dataset.busyKey !== key) {
+      busy.innerHTML = !key ? '' : row ? busyRow(row, who)
+        : '<div class="msg-av" aria-hidden="true"><img src="' + ASB_HOSTED_AVATAR + '" alt=""></div><span class="act" aria-hidden="true"><i></i><i></i><i></i></span><span>' + esc(who) + ' is ' + WORKING_VERB + '&hellip;</span>';
+      busy.dataset.busyKey = key;
+    }
+    busy.hidden = !(working || signIn);
+    /* Said once as it starts, or when the chat is opened while it works, for a screen reader. */
+    const seen = working && ASB.open;
+    if (seen && !ASB.wasWorking) document.getElementById('asp-live').textContent = who + ' is ' + WORKING_VERB;
+    ASB.wasWorking = seen;
   }
-  ASB.wasWorking = working;
   bub.querySelector('.asb-dot').hidden = !ASB.dot || ASB.open;
-  const lab = working && !ASB.open ? 'Open the setup assistant, it is working on a reply'
-    : ASB.dot && !ASB.open ? 'Open the setup assistant, there is something new to read' : 'Open the setup assistant';
+  /* Something new to read outranks working; and "working" is all the board knows, not what it is working on. */
+  const lab = ASB.dot && !ASB.open ? 'Open the setup assistant, there is something new to read'
+    : working && !ASB.open ? 'Open the setup assistant, ' + who + ' is ' + WORKING_VERB : 'Open the setup assistant';
   if (bub.getAttribute('aria-label') !== lab) bub.setAttribute('aria-label', lab);   // the dot, for a screen reader
   document.getElementById('asb-nudge').hidden = ASB.open || ASB.nudgeGone || ASB.wroteOnce || !ASB.readOnce;   // not before the thread says whether they wrote
   document.getElementById('asp-ask').hidden = !ASB.asking;
@@ -55485,13 +55498,14 @@ async function asbPoll(force) {
   if (ASB.open) {
     /* Only the newest reply is announced, not the whole rebuilt thread. */
     if (ASB.heard !== null && heard > ASB.heard) {
+      ASB.heardAt = Date.now();   // a reply landed: a "working" from an older board snapshot is stale
       const last = speech.filter((m) => m.from === t.session).pop();
       document.getElementById('asp-live').textContent = last ? String(last.text || '') : '';
     }
     ASB.heard = heard; ASB.dot = false; asbPaintThread(speech, t.session);
   }
   else if (ASB.heard === null) ASB.heard = heard;
-  else if (heard > ASB.heard) ASB.dot = true;
+  else if (heard > ASB.heard) { ASB.dot = true; ASB.heardAt = Date.now(); }
   asbPaint();
 }
 function asbPaintThread(rows, session) {
