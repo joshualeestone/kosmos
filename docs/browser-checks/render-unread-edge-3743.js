@@ -129,6 +129,43 @@ const EDGE_LIGHT = 'rgb(245, 228, 188)';
     const tallAfter = await page.evaluate(() => [...document.querySelectorAll('#d-dmthread .msg:not(.you) .msg-bd')].pop().hasAttribute('data-unread'));
     chk(tall.h > 2 * tall.vh && tall.unread && !tallAfter, 'U8 a message taller than twice the window arrives with the edge and loses it once read', JSON.stringify({ ...tall, after: tallAfter }));
 
+    // U12: the moment on screen is continuous: leaving the window inside it starts it again on the way back.
+    const add = (t, text) => page.evaluate(([at, tx]) => { window.__fx = { messages: window.__fx.messages.concat([{ from: 'april', at, text: tx }]) }; return paintTalk('april', 'April'); }, [t, text]);
+    await add('2026-09-25T09:13:00Z', 'April line 12');
+    await page.evaluate(() => [...document.querySelectorAll('#d-dmthread .msg:not(.you) .msg-bd')].pop().scrollIntoView({ block: 'center' }));
+    await page.waitForTimeout(700);
+    await page.evaluate(() => { Object.defineProperty(document, 'hasFocus', { value: () => false, configurable: true }); window.dispatchEvent(new Event('blur')); });
+    await page.waitForTimeout(200);
+    await page.evaluate(() => { delete document.hasFocus; window.dispatchEvent(new Event('focus')); });
+    await page.waitForTimeout(500);   // 1.4s since it arrived, 0.5s since the window came back
+    const u12a = await page.evaluate(() => [...document.querySelectorAll('#d-dmthread .msg:not(.you) .msg-bd')].pop().hasAttribute('data-unread'));
+    await page.waitForTimeout(1300);
+    const u12b = await page.evaluate(() => [...document.querySelectorAll('#d-dmthread .msg:not(.you) .msg-bd')].pop().hasAttribute('data-unread'));
+    chk(u12a === true && u12b === false, 'U12 leaving the window inside the moment starts it again: still edged 0.5s after coming back, gone after 1.2s', JSON.stringify({ u12a, u12b }));
+
+    // U13: a message far taller than the window, read by scrolling down it a little at a time, still loses its edge.
+    await page.evaluate(() => window.scrollTo(0, 0));
+    await add('2026-09-25T09:14:00Z', Array.from({ length: 1200 }, (_, i) => 'A very long report, line ' + (i + 1) + '.').join('\n'));
+    const huge = await page.evaluate(() => { const b = [...document.querySelectorAll('#d-dmthread .msg:not(.you) .msg-bd')].pop(); const r = b.getBoundingClientRect(); return { h: Math.round(r.height), top: Math.round(r.top + scrollY) }; });
+    await page.evaluate((t) => window.scrollTo(0, t - innerHeight + 10), huge.top);   // its first 10px on screen
+    await page.waitForTimeout(300);
+    for (let i = 0; i < 6; i++) { await page.evaluate(() => window.scrollBy(0, 60)); await page.waitForTimeout(120); }
+    await page.waitForTimeout(1600);
+    const u13 = await page.evaluate(() => [...document.querySelectorAll('#d-dmthread .msg:not(.you) .msg-bd')].pop().hasAttribute('data-unread'));
+    chk(huge.h > 20 * 800 && u13 === false, 'U13 a message over twenty windows tall, scrolled into a little at a time, loses its edge', JSON.stringify({ ...huge, stillUnread: u13 }));
+
+    // U14: the edge in the dark looks: the gold at half strength, forced dark and Kosmos+ navy.
+    const edgeIn = (setup) => page.evaluate((how) => {
+      if (how === 'dark') document.documentElement.setAttribute('data-theme', 'dark'); else document.body.classList.add('plus-active');
+      const b = document.createElement('div'); b.className = 'msg'; b.innerHTML = '<div class="msg-b"><div class="msg-bd" data-unread>x</div></div>';
+      document.getElementById('d-dmthread').appendChild(b);
+      const v = getComputedStyle(b.querySelector('.msg-bd')).boxShadow; b.remove();
+      document.documentElement.removeAttribute('data-theme'); document.body.classList.remove('plus-active');
+      return v;
+    }, setup);
+    const dark14 = await edgeIn('dark'), navy14 = await edgeIn('navy');
+    chk(/rgba\(227, 179, 65, 0\.5\)/.test(dark14) && /rgba\(227, 179, 65, 0\.5\)/.test(navy14), 'U14 in dark and on Kosmos+ navy the edge is the gold at half strength', JSON.stringify({ dark14, navy14 }));
+
     // U9: a room whose first read did not answer (ok false, no rows) does not make its history look new on the next.
     const u9 = await page.evaluate((body) => {
       document.getElementById('panel-detail').hidden = true;

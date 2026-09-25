@@ -27097,14 +27097,16 @@ function unreadEdgeWatch(bd) {
   if (typeof IntersectionObserver !== 'function') { bd.__inView = true; unreadEdgeTry(bd); return; }
   /* Half of it on screen, or 120px of it: a message taller than twice the window is read a screenful at a time. */
   if (!UNREAD_IO) UNREAD_IO = new IntersectionObserver((es) => {
-    for (const e of es) { e.target.__inView = e.isIntersecting && (e.intersectionRatio >= 0.5 || e.intersectionRect.height >= 120); unreadEdgeTry(e.target); }
+    for (const e of es) { e.target.__near = e.isIntersecting; e.target.__inView = e.isIntersecting && (e.intersectionRatio >= 0.5 || e.intersectionRect.height >= 120); unreadEdgeTry(e.target); }
   }, { threshold: [0, 0.05, 0.1, 0.2, 0.3, 0.4, 0.5, 1] });
   UNREAD_IO.observe(bd);
   UNREAD_WATCHED.add(bd);
 }
+/* The 1.2s is continuous: leaving view or the window, even briefly, starts it again. */
+function unreadEdgeStop(bd) { if (bd.__unreadTimer) { clearTimeout(bd.__unreadTimer); bd.__unreadTimer = null; } }
 function unreadEdgeTry(bd) {
-  if (!bd.__inView || bd.__unreadTimer || !bd.isConnected || !bd.hasAttribute('data-unread')) return;
-  if (document.visibilityState !== 'visible' || !document.hasFocus()) return;
+  if (!bd.__inView || document.visibilityState !== 'visible' || !document.hasFocus()) { unreadEdgeStop(bd); return; }
+  if (bd.__unreadTimer || !bd.isConnected || !bd.hasAttribute('data-unread')) return;
   bd.__unreadTimer = setTimeout(() => {
     bd.__unreadTimer = null;
     if (!bd.isConnected || !bd.__inView || document.visibilityState !== 'visible' || !document.hasFocus()) return;
@@ -27114,10 +27116,21 @@ function unreadEdgeTry(bd) {
     UNREAD_WATCHED.delete(bd);
   }, UNREAD_EDGE_DWELL);
 }
-/* Coming back to the window starts the clock on what is already in view. */
+/* Leaving the window stops every clock; coming back starts it afresh on what is in view. A message far taller than the
+   thread crosses no ratio threshold as it is read down, so a scroll measures the ones on screen but not yet counted. */
 const unreadEdgeRecheck = () => document.querySelectorAll('.msg-bd[data-unread]').forEach(unreadEdgeTry);
 window.addEventListener('focus', unreadEdgeRecheck);
+window.addEventListener('blur', () => document.querySelectorAll('.msg-bd[data-unread]').forEach(unreadEdgeStop));
 document.addEventListener('visibilitychange', unreadEdgeRecheck);
+document.addEventListener('scroll', () => {
+  for (const bd of UNREAD_WATCHED) {
+    if (!bd.__near || !bd.isConnected) continue;
+    const r = bd.getBoundingClientRect();
+    const seen = Math.min(r.bottom, innerHeight) - Math.max(r.top, 0);
+    bd.__inView = seen > 0 && (seen >= 120 || seen >= r.height / 2);   // the observer's own rule, measured
+    unreadEdgeTry(bd);
+  }
+}, { capture: true, passive: true });
 function setThread(el, html, key) {
   /* ⚠️ THE AGENT THREAD GETS THIS TOO, and not for symmetry: `#d-say` sits
      under it in the same column, and a thread that never resizes today is one
