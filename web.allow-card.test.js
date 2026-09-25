@@ -4,7 +4,7 @@
  * The Allow moment (#567): the card above the board and the list under Plus.
  * What these pin is the design's falsifiable part: the card starts hidden
  * and never asks about a device this Mac already allowed; the
- * change-your-password sentence lives only on the Not-me branch; Remove
+ * change-your-password sentence lives only on the Deny branch (#3829: was Not me); Remove
  * confirms inline with the sentence the engine makes true; the poll for
  * what is waiting reads a file and never spawns; and the Plus tab carries
  * the needs-you dot in the nav's own grammar.
@@ -57,8 +57,13 @@ test('the change-your-password sentence appears on the Deny branch and the re-as
   const plain = JS.slice(at, JS.indexOf('\n', at));
   assert.ok(at > -1, 'the plain sentence moved; re-anchor');
   assert.doesNotMatch(plain, /password/, 'the plain ask carries the intruder sentence, which the wrong person reads every time');
-  const denied = JS.slice(JS.indexOf("e.state === 'denied'"), JS.indexOf('Got it'));
-  assert.match(denied, /change that email\\?'s password/);
+  const d0 = JS.indexOf("e.state === 'denied'");
+  // Comments stripped: a sentence ABOUT the password line is not the line.
+  const oldBranch = JS.slice(d0, JS.indexOf('Got it', d0)).replace(/\/\*[\s\S]*?\*\//g, '');
+  const freshBranch = JS.slice(JS.indexOf('Got it', d0) + 1, JS.indexOf('Got it', JS.indexOf('Got it', d0) + 1));
+  assert.match(oldBranch, /if \(oldAsk\)/, 'the old-request Deny branch moved; re-anchor');
+  assert.doesNotMatch(oldBranch, /password/, '#3829: denying an OLD request (likely the person\'s own) accuses someone');
+  assert.match(freshBranch, /change that email\\?'s password/, 'a fresh Deny lost the password sentence');
   assert.match(JS, /has asked again\. If it is not yours, change that email\\?'s password; that is what stops it/);
 });
 
@@ -69,6 +74,11 @@ test('Remove confirms inline with the sentence the tunnel makes true; Allow / De
   assert.equal((JS.match(/data-ask="later"/g) || []).length, 0, 'a Not now dismiss is back');
   assert.doesNotMatch(JS, />Not me</, 'a Not me button is back');
   assert.doesNotMatch(JS, /devrow pending/, 'pending requests are painted in the devices list too');
+  // Stronger than the class name: the devices list paints no Allow or Deny at all.
+  const pd = JS.slice(JS.indexOf('async function paintDevices'), JS.indexOf("document.getElementById('plus-devlist').addEventListener"));
+  assert.ok(pd.length > 200, 'paintDevices moved; re-anchor');
+  assert.doesNotMatch(pd, /data-ask="(allow|deny)"/, 'the devices list offers Allow / Deny, so a request shows twice');
+  assert.doesNotMatch(JS, /ASK\.later|getItem\('ask-later'\)/, 'the Not now session flag is read again, which could hide a request with no way back');
   assert.match(JS, /const stale = d\.first_seen && \(Date\.now\(\) \/ 1000 - d\.first_seen\) > 60 \* 60;/);
   assert.doesNotMatch(JS, /confirm\(/, 'a browser confirm dialog crept in; the design has no modal');
 });

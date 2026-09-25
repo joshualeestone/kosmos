@@ -42,6 +42,7 @@ const ADDR = 'josh0925-150pm.kosmosplus.com';
 const now = () => Math.floor(Date.now() / 1000);
 const STATES = {
   off: { remote: { configured: true, on: false, ok: true, enrolled: true, email: 'you@example.com', status: { state: 'off' } }, pending: [] },
+  down: { remote: { configured: true, on: true, ok: true, enrolled: true, email: 'you@example.com', status: { state: 'off', because: 'no relay address is set yet' } }, pending: [] },
   connected: { remote: { configured: true, on: true, ok: true, enrolled: true, email: 'you@example.com', status: { state: 'up', address: ADDR } }, pending: [] },
   one: { remote: { configured: true, on: true, ok: true, enrolled: true, email: 'you@example.com', status: { state: 'up', address: ADDR } },
     pending: [{ device_id: 'd-win', name: 'Windows browser', code: 'VR-D6', first_seen: now() - 120 }] },
@@ -82,13 +83,17 @@ const STATES = {
           status: document.getElementById('plus-status').textContent.trim(), sw: sw.textContent.trim(), swClass: sw.className,
           cardShown: vis('askcard'), cardText: card ? card.innerText.replace(/\s+/g, ' ') : '',
           reqs: document.querySelectorAll('#ask-rows .askreq').length, stale: document.querySelectorAll('#ask-rows .askreq.stale').length,
-          codes: [...document.querySelectorAll('#ask-rows .askcode')].map((e) => ({ t: e.textContent, px: parseFloat(getComputedStyle(e).fontSize) })),
-          listPending: document.querySelectorAll('#plus-devlist .devrow.pending').length, listNames: [...document.querySelectorAll('#plus-devlist .devname')].map((e) => e.textContent.trim()),
+          codes: [...document.querySelectorAll('#ask-rows .askcode')].map((e) => ({ t: e.textContent.replace(/^code /, ''), px: parseFloat(getComputedStyle(e).fontSize) })),
+          listPending: document.querySelectorAll('#plus-devlist [data-ask]').length, listNames: [...document.querySelectorAll('#plus-devlist .devname')].map((e) => e.textContent.trim()),
           leftBar: card ? getComputedStyle(card).borderLeftWidth === getComputedStyle(card).borderTopWidth : true,
         };
       });
       const t = `[${key}]`;
-      if (key === 'off') {
+      if (key === 'down') {
+        // Review: switched on but not running is NOT "Connecting" (the engine's sentence says why).
+        chk(v.pill === 'Not connected' && v.pillState === 'down', `${t} on but not running reads "Not connected", not "Connecting"`, v.pill);
+        chk(/No relay address is set yet/i.test(v.status) && !v.chip, `${t} the engine's reason is the line, and no address chip`, v.status);
+      } else if (key === 'off') {
         chk(v.pill === 'Off' && v.pillState === 'off', `${t} the pill says Off`, JSON.stringify(v));
         chk(v.sw === 'Turn on' && /uprime/.test(v.swClass), `${t} Turn on is the one primary action`, v.sw + ' ' + v.swClass);
         chk(!v.chip, `${t} no address chip while off`);
@@ -99,7 +104,7 @@ const STATES = {
         chk(v.sw === 'Turn off' && v.swClass === 'plus-quiet', `${t} Turn off is quiet, not a headline button`, v.sw + ' ' + v.swClass);
         chk(v.account === 'https://login.kosmosplus.com/', `${t} View my account opens the web account`, v.account);
       }
-      if (key === 'off' || key === 'connected') chk(!v.cardShown, `${t} CONTROL: no request, no card`);
+      if (key === 'off' || key === 'connected' || key === 'down') chk(!v.cardShown, `${t} CONTROL: no request, no card`);
       if (key === 'one') {
         chk(v.cardShown && v.reqs === 1, `${t} one request is one card`, String(v.reqs));
         chk(/Windows browser/.test(v.cardText) && !/phone/i.test(v.cardText), `${t} a Windows browser is never called a phone`, v.cardText);
