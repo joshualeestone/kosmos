@@ -41,7 +41,7 @@ test('#3614: the block names the REAL path, and says to create it and to keep pr
   assert.match(flat, /When you make a file for the person in a direct conversation with them, or they ask you for one in a direct conversation, save it in your Files folder, unless it belongs to one of your projects/);
   assert.match(flat, /Create the folder if it is not there yet/);
   // #3759: the doctrine says "your own folder"; the block says which folder that is for these files.
-  assert.match(flat, /This Files folder is inside your own folder\. When your instructions say to put your own work in your own folder, a file made for the person goes here/);
+  assert.match(flat, /This Files folder is inside your own folder, and it is where "your own folder" points for a file made for the person, wherever else these instructions use that phrase/);
   assert.match(flat, /Kosmos lists what is in it on your page, where they can open it/, 'the block does not tell the agent the person sees its Files on its page (#3614 item 2 ships with it)');
   assert.match(flat, /Save files directly in it, not in subfolders: the page lists only what sits at the top of the folder/, 'the agent is not told the list skips subfolders, so tidied work reads as "Nothing here yet"');
   assert.match(flat, /Inside a project, keep using the project's own folder/);
@@ -54,10 +54,11 @@ test('#3759: the block names BOTH destinations and when each applies, says where
   // About a project: that project's folder instead, even when asked in the direct conversation.
   assert.match(flat, /When the conversation is about one of your projects \(the person names it, or the file is plainly part of that project's work\), save it in that project's folder instead/);
   assert.match(flat, /even when they asked for it, or you made it, in a direct conversation/);
+  assert.match(flat, /If no folder is listed for that project, treat it as unclear, as below/);
   assert.match(flat, /tell them in one line where you put it: which project, and the file's name/);
   // Unsure: no project is guessed (the doctrine's "not a licence to guess") and nothing waits unsaved:
   // save it here, say so, and ask which project in the same line.
-  assert.match(flat, /When you cannot tell whether the file belongs to a project, do not guess a project: save it in your Files folder, and in the same line that says so, ask which project it belongs to/);
+  assert.match(flat, /When you cannot tell whether the file belongs to a project, or to which one, do not guess a project: save it in your Files folder, and in the same line that says so, ask which project it belongs to/);
   assert.match(flat, /The file is never left unsaved while you wait for an answer/);
   // The project rule is its own paragraph, not folded into the first one (which an agent may act on
   // alone); the first paragraph points to it instead.
