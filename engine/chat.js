@@ -453,6 +453,10 @@ function messageProblem(raw) {
   // (and a tab's four spaces) cannot push a message over the limit. Checked first, so
   // the stored form is not built for a message that is refused anyway.
   if (cleanMessage(raw).length > MAX_TEXT) return `keep it to ${MAX_TEXT} characters or fewer`;
+  // #3679: the raw text is bounded before storeText walks it line by line, so a few words and
+  // millions of blank lines (a tiny one-line form) cannot cost every caller that walk. Same
+  // bound as storedWithin's raw check.
+  if (raw != null && raw.length > STORE_GROWTH * STORE_GROWTH * MAX_TEXT) return 'that message is too long to send';
   const text = storeText(raw);
   if (!text) return 'write something to send';
   if (CONTROL.test(text)) return 'that message has characters we will not type into a terminal';

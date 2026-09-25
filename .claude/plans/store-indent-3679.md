@@ -222,3 +222,13 @@ always a stray keystroke, and trimming it keeps "  hello" stored as "hello".
 - NITs fixed: any number of leading byte-order marks is dropped; pjProse's comment and test no
   longer claim a fence behaviour pjProse does not have (pjBody splits fences out first); the
   room blank-line test asserts the post was placed.
+
+## Review pass 16 (sonnet)
+- Fixed (raised as a BLOCKER; a real hole in my pass-14 fix): the routes call
+  `messageProblem(x) || storedProblem(x)`, and `messageProblem` ran storeText on the raw text
+  before the raw cap in `storedProblem` could run, so a few words and millions of blank lines
+  still cost about 0.7 s on the DM routes and `/api/reply`. `messageProblem` now has the same
+  raw bound before it walks anything, with wording true on every path ("too long to send").
+  The new test times the composition production uses; my earlier test timed `storedProblem`
+  alone, which is why it could not see this. Removing the bound reds it (708 ms).
+- NIT fixed: pjProse's CRLF comment names what it is for (its `$`-anchored line rules).

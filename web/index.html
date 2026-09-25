@@ -43743,7 +43743,7 @@ function pjTableHtml(headerLine, aligns, bodyLines, names, agentNames) {
   return h + '</tbody></table></span>';
 }
 function pjProse(text, names, agentNames) {
-  const src = String(text == null ? '' : text).split(/\r?\n/);   // #3679: a CRLF text's fences still close
+  const src = String(text == null ? '' : text).split(/\r?\n/);   // #3679: a CRLF line still matches the `$`-anchored line rules below
   /* Drop empty lines at the two ENDS only (never interior blank lines, which
      are the paragraph breaks this renderer exists to show). This absorbs the
      single boundary `\n` a fence split leaves on the prose either side of a

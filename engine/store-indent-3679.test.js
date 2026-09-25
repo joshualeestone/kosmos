@@ -138,6 +138,15 @@ test('#3679: a huge raw text of blank lines is refused before the store walks it
   assert.ok(ms < 1000, 'took ' + ms.toFixed(0) + 'ms');
 });
 
+test('#3679: the routes\' composed check refuses a huge raw text quickly, as production calls it', () => {
+  const text = 'hi' + '\n\n'.repeat(2900000) + 'bye';   // ~5.8MB, inside the body cap
+  const t0 = process.hrtime.bigint();
+  const why = chat.messageProblem(text) || chat.storedProblem(text);
+  const ms = Number(process.hrtime.bigint() - t0) / 1e6;
+  assert.notEqual(why, null, 'a 5.8MB message was accepted');
+  assert.ok(ms < 300, 'the composed check took ' + ms.toFixed(0) + 'ms; storeText walked the raw text before the cap');
+});
+
 test('#3679: whitespace the old trim removed is still removed', () => {
   for (const ws of ['\u00a0', '\ufeff', '\u3000', ' \n\u00a0 ']) {
     assert.equal(chat.messageProblem(ws), 'write something to send', JSON.stringify(ws));
