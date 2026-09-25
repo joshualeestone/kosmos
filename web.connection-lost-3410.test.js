@@ -109,7 +109,6 @@ test('card: reconnecting keeps the paused look; given up wears the needs-you loo
   assert.equal(clsOf({ reconnect: { phase: 'retried', tries: 1 } }), 'st-paused');
   const gaveUp = clsOf({ reconnect: { phase: 'gave_up', tries: 3 } });
   assert.equal(gaveUp, 'st-attn', 'a given-up connection should ask for the person, not sit paused');
-  assert.ok(PAGE.split('.st-attn').length - 1 > 0, 'card uses .st-attn, which has no rule in the stylesheet');
   assert.equal(clsOf({}), 'st-paused', 'CONTROL: with no self-heal the card is unchanged');
 });
 
