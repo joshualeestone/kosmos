@@ -157,8 +157,6 @@ test('#3564 sweep: at the limit it stops its working helpers too (one Escape doe
   const did = swarm.sweepOnce([card('busy', 1000, 3), card('calm', 1000, 0)], d, NOW);
   assert.deepEqual(d.calls.stops, [['busy', 3]], 'the helpers of a swarm paused at its limit were left running');
   assert.deepEqual(did.map((x) => [x.name, x.helpersStopped]), [['busy', 3], ['calm', 0]]);
-  assert.deepEqual(swarm.sweepRows([{ isNamedOurs: true, sessionName: 'busy', swarm: { tokensToday: 5, activeHelpers: 2 } }]),
-    [{ name: 'busy', tokensToday: 5, activeHelpers: 2 }], 'the board card\'s helper count does not reach the sweep');
 });
 
 test('#3564 sweep: at the limit it pauses itself, interrupts, and says so in its DM; below the limit nothing happens', () => {
@@ -284,13 +282,16 @@ test('#3564 per project: a swarm switched off is off only in that project, and b
   assert.equal(projects.swarmOffIn(id, 'lead'), false);
 });
 
-test('#3564 sweepRows: only OUR swarms, as { name, tokensToday }; a plain agent and a stranger are left out', () => {
+test('#3564 sweepRows: only OUR swarms, as { name, tokensToday, activeHelpers }; a plain agent and a stranger are left out', () => {
   store.writeProfile('rowlead', swarm.birthProfile({ dailyTokenLimit: 1000 }));
   store.writeProfile('rowstranger', swarm.birthProfile({ dailyTokenLimit: 1000 }));
   withFleet([fleet.agent('rowlead', { state: 'idle' }), fleet.agent('rowplain', { state: 'idle' }), fleet.stranger('rowstranger', { state: 'idle' })], (board) => {
     const rows = swarm.sweepRows(board.agents);
     assert.deepEqual(rows.map((r) => r.name), ['rowlead']);
     assert.ok(Number.isFinite(rows[0].tokensToday));
+    const lead = board.agents.find((c) => c.sessionName === 'rowlead');
+    assert.ok(Number.isInteger(rows[0].activeHelpers), 'the board card\'s helper count does not reach the sweep');
+    assert.equal(rows[0].activeHelpers, lead.swarm.activeHelpers);
   });
 });
 

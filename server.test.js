@@ -495,6 +495,9 @@ test('#1938: /api/scan-agents caches the disk walk, and a mutating route invalid
  * why it is cheap enough to run every time.
  */
 const UNREAD_ON_PURPOSE = {
+  swarms: '#3564: the engine says this board can run swarms. The page reads it when the '
+    + 'New agent screen offers a swarm (Mona Lisa\'s UI half, which lands after the '
+    + 'engine); that change takes it off this list',
   isAgentPane: 'a classification the board uses to decide what IS an agent; it '
     + 'is an input to the list, never a thing to draw',
   reportedAt: 'the commitments timestamp. The restart dialog shows the age '
