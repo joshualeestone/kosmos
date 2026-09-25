@@ -46504,7 +46504,13 @@ document.getElementById('pj-room').addEventListener('click', (e) => {
   if (!e.target || !e.target.closest) return;
   const room = document.getElementById('pj-room');
   if (e.target.closest('.rxn-pick, .rxn')) { pjRxnClose(); return; }   // any reaction taken closes it
-  if (e.target.closest('a, button, .rxns, [data-open-agent]')) return;
+  if (e.target.closest('a, button, .rxns, [data-open-agent]')) {
+    // Left to its own handler, but one bar at a time: a tap on another row's link closes an open bar.
+    const at = e.target.closest('.msg');
+    room.querySelectorAll('.msg.rxn-show').forEach((m) => { if (m !== at) pjRxnResetRow(m); });
+    if (RXN_SHOW_POST && !room.querySelector('.msg.rxn-show')) { RXN_SHOW_POST = null; RXN_SHOW_PID = null; }
+    return;
+  }
   const row = e.target.closest('.msg');
   room.querySelectorAll('.msg.rxn-show, .msg.rxn-below').forEach((m) => { if (m !== row) pjRxnResetRow(m); });
   if (!row) { pjRxnClose(); return; }   // a tap between messages closes it for good

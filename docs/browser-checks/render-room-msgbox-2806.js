@@ -809,6 +809,23 @@ const now = () => new Date().toISOString();
           return top === b || b.contains(top); }) };
       });
       chk(!hits.error && hits.below && hits.hits.length === 4 && hits.hits.every(Boolean), `[phone/touch] a bar that opens below its post is on top: every emoji takes its own tap`, JSON.stringify(hits));
+      // One bar at a time: a tap on a link in ANOTHER row closes it (the link keeps its own job).
+      const linkClose = await phonePage.evaluate(() => {
+        const rows = [...document.querySelectorAll('#pj-room .msg')]; const other = rows[1];
+        if (!other) return { error: 'no second row' };
+        const a = document.createElement('a'); a.href = '#arm-link'; a.textContent = 'a link'; a.id = 'arm-link';
+        a.addEventListener('click', (ev) => ev.preventDefault());
+        (other.querySelector('.msg-bd') || other).appendChild(a); a.scrollIntoView({ block: 'center' });
+        return { ok: true };
+      });
+      if (!linkClose.error) {
+        await phonePage.locator('#arm-link').tap();
+        await phonePage.waitForTimeout(200);
+      }
+      const afterLink = await phonePage.evaluate(() => { const a = document.getElementById('arm-link'); if (a) a.remove(); return { shown: document.querySelectorAll('#pj-room .msg.rxn-show').length }; });
+      chk(!linkClose.error && afterLink.shown === 0, `[phone/touch] a tap on a link in another row closes an open bar`, JSON.stringify(Object.assign({}, linkClose, afterLink)));
+      // Reopen it, so the arms below start from an open bar as before.
+      await firstBody.scrollIntoViewIfNeeded(); await firstBody.tap(); await phonePage.waitForTimeout(300);
       await firstBody.tap();
       await phonePage.waitForTimeout(300);
       const t2 = await bar();
