@@ -1054,6 +1054,31 @@ const now = () => new Date().toISOString();
     } finally {
       await phonePage.close();
     }
+    // DESKTOP, a mouse (hover available), 1280 wide: the touch-only 16px rule must change nothing.
+    // #nt-modal and #am-modal also open from outside the project page, so this is where a leak
+    // would show. The same sweep as the phone arm; every field keeps its desktop size, and the
+    // named ones are pinned to what they are without the rule (13px, the body text).
+    const deskPage = await browser.newPage({ viewport: { width: 1280, height: 800 }, colorScheme: 'light' });
+    try {
+      await deskPage.addInitScript(() => {
+        window.setInterval = () => 0;
+        window.fetch = async () => new Response('{}', { status: 200, headers: { 'content-type': 'application/json' } });
+      });
+      await deskPage.goto(PAGE);
+      const desk = await deskPage.evaluate(() => {
+        const roots = ['#panel-projects', '#nt-modal', '#am-modal'].map((q) => document.querySelector(q)).filter(Boolean);
+        const skip = new Set(['checkbox', 'radio', 'range', 'color', 'file', 'hidden', 'button', 'submit', 'reset', 'image']);
+        const fields = roots.flatMap((r) => [...r.querySelectorAll('input, select, textarea')]).filter((el) => !(el.tagName === 'INPUT' && skip.has((el.type || '').toLowerCase())));
+        const px = (id) => { const el = document.getElementById(id); return el ? parseFloat(getComputedStyle(el).fontSize) : null; };
+        return { hoverNone: matchMedia('(hover: none)').matches, count: fields.length, at16: fields.filter((el) => parseFloat(getComputedStyle(el).fontSize) >= 16).map((el) => el.id || el.className),
+          named: { 'nt-what': px('nt-what'), 'nt-who': px('nt-who'), 'pj-one-add': px('pj-one-add'), 'tk-due': px('tk-due'), 'pj-name': px('pj-name') } };
+      });
+      const named = Object.values(desk.named || {});
+      chk(desk.hoverNone === false && desk.count >= 6 && named.length === 5 && named.every((v) => v !== null && v < 16),
+        `[desktop/mouse] the touch-only 16px rule changes no field's size with a mouse`, JSON.stringify(desk));
+    } finally {
+      await deskPage.close();
+    }
     const hoverPage = await browser.newPage({ viewport: { width: 375, height: 800 }, colorScheme: 'light' });
     try {
       await hoverPage.addInitScript(() => {
