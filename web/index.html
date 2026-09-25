@@ -52742,7 +52742,6 @@ const TIPS_CHECK_MS = 1200;
 let TIP_PLACES = [];            // the tour's steps whose place is on screen
 let TIP_STEP = 0;               // the tour step showing
 let TIP_AUTO = false;           // the open tip showed by itself (not from the ?)
-let TIP_TOUR_MET = false;       // the tour showed by itself this session (a new board)
 /* var, not let: the status handler (tick, far above) writes this, and a let would only be safe for as
    long as nothing calls tick before this line runs. var has no dead zone. */
 var TIP_NEW_BOARD = null;       // latched at the board's first answer this session: had no agents
@@ -52789,7 +52788,10 @@ async function tipsSave(patch) {
     if (res.ok && r && r.ok) {
       if (Array.isArray(r.seen) && r.seen.includes('tour')) TIP_TOUR_SAVED = true;
       const local = TIPS_STATE && TIPS_STATE.ok ? TIPS_STATE.seen : [];
-      TIPS_STATE = { ok: true, seen: [...new Set([...local, ...r.seen])], off: r.off === true };
+      /* off comes from the answer only when this save set it: an answer to a seen-only save that lands
+         after "Stop showing tips" was clicked must not turn tips back on here. */
+      const off = patch.off !== undefined ? r.off === true : (TIPS_STATE ? TIPS_STATE.off : r.off === true);
+      TIPS_STATE = { ok: true, seen: [...new Set([...local, ...r.seen])], off };
       return true;
     }
   } catch { /* the tip still closes; it may show once more next time */ }
@@ -52823,12 +52825,13 @@ function tipsStart() {
 }
 
 function tipsCheck() {
-  /* The tour showed by itself and the person has since made an agent: its job is done, so it counts
-     as seen and the screen tips can follow. Without this, a tour that went because its screen went
-     (keyboard, Back, a link: unrecorded, below) left a board with agents and no tour seen, which is
-     the upgrader's state, so no tip would ever show by itself again. Above the open-tip return so a failed save is retried while
-     a screen tip is up; never while the tour itself is on screen. */
-  if (TIP_TOUR_MET && !TIP_TOUR_SAVED && TIPS_STATE && TIPS_STATE.ok && !(TIP_OPEN && TIP_OPEN.tour) && Array.isArray(LAST) && LAST.length > 0 && Date.now() >= TIP_TOUR_NEXT_TRY) {
+  /* A new board (no agents at its first answer) that now has an agent: the tour's job is done
+     whether or not it was ever shown, so it counts as seen and the screen tips can follow. This is
+     what carries someone new through: a tour that went with its screen (keyboard, Back, a link:
+     unrecorded, below), a save that failed, and first run's create ending, which lands on the
+     create form where the tour never shows. Above the open-tip return so a failed save is retried
+     while a screen tip is up; never while the tour itself is on screen. */
+  if (TIP_NEW_BOARD === true && !TIP_TOUR_SAVED && TIPS_STATE && TIPS_STATE.ok && !(TIP_OPEN && TIP_OPEN.tour) && Array.isArray(LAST) && LAST.length > 0 && Date.now() >= TIP_TOUR_NEXT_TRY) {
     /* Keyed on what the board has confirmed, not on the local list: a close that recorded the tour
        locally but whose save failed is caught here too. Counted locally at once so the screen tips can
        follow; a failed save is tried again, less often each time. */
@@ -52867,6 +52870,9 @@ function tipAutoOk(t) {
        has since removed its last one is not someone new, and the tour would be the wrong help. */
     return TIP_NEW_BOARD === true && Array.isArray(LAST) && LAST.length === 0;
   }
+  /* On a new board the create form's own tip does not wait for the tour: first run's create ending
+     lands there, where the tour never shows, and it is exactly where someone new needs help. */
+  if (t.id === 'newagent' && TIP_NEW_BOARD === true) return true;
   return TIPS_STATE.seen.includes('tour');
 }
 
@@ -52882,7 +52888,6 @@ function tipShow(t, { auto = false, returnTo = null } = {}) {
     /* The tour dims the page and ends on a click outside, so it takes focus even when it opened by
        itself, and hands it back when it ends. */
     if (auto) TIP_RETURN = document.activeElement !== document.body ? document.activeElement : null;
-    if (auto) TIP_TOUR_MET = true;
     TIP_PLACES = t.steps.map((st) => ({ ...st, sel: st.at.find((sel) => tipVisible(sel)) })).filter((st) => st.sel);
     /* Asked for from the ? on a screen that shows none of the four places: walk them anyway, centred
        and unringed, rather than a menu item that does nothing. */

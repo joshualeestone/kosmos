@@ -48,6 +48,8 @@ const cardState = (page) => page.evaluate(() => {
     step: c ? (c.querySelector('.tip-eb')?.textContent || '') : '', dots: c ? c.querySelectorAll('.tip-dots i').length : 0 };
 });
 const waitTitle = (page, title, ms) => page.waitForFunction((t) => { const c = document.getElementById('tipcard'); return c && !c.hidden && c.querySelector('h2')?.textContent === t; }, title, { timeout: ms }).then(() => true, () => false);
+/* An absence claim needs the tips code to have run: loaded, ticking, and the board's first answer in. */
+const tipsRunning = (page) => page.waitForFunction(() => TIPS_STATE !== null && TIPS_TIMER !== null && TIP_NEW_BOARD !== null, null, { timeout: 8000 }).then(() => true, () => false);
 /* The store, written directly: the API only ever adds to seen, which is the product rule. */
 const resetStore = (state) => fs.writeFileSync(tipsStore.FILE(), JSON.stringify(state));
 
@@ -140,6 +142,7 @@ const resetStore = (state) => fs.writeFileSync(tipsStore.FILE(), JSON.stringify(
 
     // T4: a reload does not bring back what was closed (control: T1-T3b each showed before closing).
     await page.reload({ waitUntil: 'networkidle' });
+    chk(await tipsRunning(page), 'T4 precondition: the tips code is running');
     await page.waitForTimeout(2800);
     chk(!(await cardState(page)).shown, 'T4 after a reload nothing closed returns on the board');
 
@@ -148,6 +151,7 @@ const resetStore = (state) => fs.writeFileSync(tipsStore.FILE(), JSON.stringify(
     // empty state with no agents, show the tour).
     resetStore({ seen: [], off: false });
     await page.reload({ waitUntil: 'networkidle' });
+    chk(await tipsRunning(page), 'T23 precondition: the tips code is running and the board has answered');
     await page.waitForTimeout(2800);
     const upg = await cardState(page);
     const hasCard = await page.evaluate(() => !!document.querySelector('#grid [data-agent="beatrix"]'));
@@ -505,6 +509,25 @@ const resetStore = (state) => fs.writeFileSync(tipsStore.FILE(), JSON.stringify(
     for (let i = 0; i < 24 && !saved25; i++) { saved25 = (await api('GET')).seen.includes('tour'); if (!saved25) await page.waitForTimeout(500); }
     chk(saved25, 'T25 once the first agent arrives, the tour whose save failed is recorded after all');
     await page.unroute('**/api/tips');
+    await page.keyboard.press('Escape');
+    await page.waitForTimeout(150);
+
+    // T28: first run's create ending ("Giddy Up") lands someone new on the create form, where the tour
+    // never shows. The create form's own tip shows there anyway, and once they have made the agent the
+    // tour counts as seen and the screen tips follow. Before, this person got nothing, ever.
+    resetStore({ seen: [], off: false });
+    noAgents();
+    await page.goto(URL, { waitUntil: 'networkidle' });
+    if (await page.$('#firstrun:not([hidden])')) await page.evaluate(() => frFinish(openCreate));
+    else await page.evaluate(() => openCreate());
+    chk(await waitTitle(page, 'Make an agent', 8000), 'T28 on the create form after first run, the Make an agent tip shows by itself');
+    const tourShown28 = await page.evaluate(() => !!document.querySelector('#tipcard .tip-dots'));
+    await page.keyboard.press('Escape');
+    withAgent();
+    await page.waitForFunction(() => Array.isArray(LAST) && LAST.length > 0, null, { timeout: 8000 }).catch(() => {});
+    await page.evaluate(() => showTab('agents'));
+    chk(await waitTitle(page, 'The ring is your agent\'s memory', 8000), 'T28 after the first agent, the screen tips follow although the tour never showed');
+    chk(!tourShown28 && (await api('GET')).seen.includes('tour'), 'T28 and the tour is recorded as seen', JSON.stringify({ tourShown28 }));
     await page.keyboard.press('Escape');
     await page.waitForTimeout(150);
 
