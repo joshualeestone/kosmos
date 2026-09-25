@@ -94,8 +94,9 @@ function selfCheck() {
    named `input[type=text], textarea, select` and was silently blind to
    `type=search`. Name what it is NOT rather than enumerating what it is.
    A SLIDER (`type=range`) is not typed into: it draws a track and a thumb, not a field fill,
-   so "the same fill as its box" does not apply, exactly as for a checkbox. The swarm sliders
-   (#3690, `#d-swarm-max`, `#d-swarm-cap`) failed here at the 0.6.95 cut for that reason. */
+   so "the same fill as its box" does not apply, exactly as for a checkbox. #3690's swarm
+   sliders failed here at the 0.6.95 cut for that reason (two of its four; the other two passed
+   only because their container's fill differed). */
 const FIELDS = 'input:not([type=button]):not([type=file]):not([type=checkbox]):not([type=radio]):not([type=submit]):not([type=range]), textarea, select';
 /* ⚠️ BUTTONS TOO, and their absence was a hole shaped exactly like the defect
    this branch shipped: `#cstep-made`'s buttons sat at 1.05:1 against their own
