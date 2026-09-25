@@ -2732,9 +2732,10 @@ function dmReactionPills(m) {
 
 /* Toggle the person's `emoji` on the agent's message sent at `at`. The message is
    found by its `at` (a DM row has no id; `at` is the key the page's anchor already
-   uses) and must be the AGENT's (`from` is this agent); any other row is refused. Two agent rows sharing one `at` are refused too, rather
-   than guessing which was meant. Returns {ok, op, emoji, at, reactions} or
-   {ok:false, because}. */
+   uses) and must be the AGENT's (`from` is this agent); any other row is refused.
+   Two agent rows sharing one `at` are refused too, rather than guessing which was
+   meant. An emoji carrying a C1 control or a bidi override is refused (DM_PANE_UNSAFE).
+   Returns {ok, op, emoji, at, reactions} or {ok:false, because}. */
 function reactDirect(agent, at, emoji) {
   const { normalizeReactionEmoji } = require('./messages');
   const name = String(agent == null ? '' : agent).trim();
@@ -2742,7 +2743,7 @@ function reactDirect(agent, at, emoji) {
   const e = normalizeReactionEmoji(emoji);
   if (!name) return { ok: false, because: 'we could not tell which conversation this is' };
   if (!when) return { ok: false, because: 'we could not tell which message to react to' };
-  if (!e) return { ok: false, because: 'that is not an emoji we can react with' };
+  if (!e || new RegExp(DM_PANE_UNSAFE.source).test(e)) return { ok: false, because: 'that is not an emoji we can react with' };
   let file;
   try { file = threadFile(DIRECT, name); }
   catch (err) { return { ok: false, because: String((err && err.message) || 'we could not find that conversation') }; }
@@ -2788,6 +2789,8 @@ function reactDirect(agent, at, emoji) {
    nothing new. One line, no control characters: it is typed into a pane.
    dmReactionNews also returns `named` ({at: emojis}), what the note covers, for
    markDmReactionsTold. */
+// Typed into a pane, so never carried there: C1 controls and bidi overrides/isolates.
+const DM_PANE_UNSAFE = /[\u0080-\u009f\u202a-\u202e\u2066-\u2069]/g;
 const DM_REACTION_SNIPPET = 48;
 const DM_REACTION_NOTE_MESSAGES = 5;
 const DM_REACTIONS_PER_MESSAGE = 20;
@@ -2802,12 +2805,15 @@ function dmReactionNews(agent) {
     const told = new Set(Array.isArray(m.reactionsTold) ? m.reactionsTold : []);
     const fresh = dmReactions(m).filter((e) => !told.has(e));
     if (!fresh.length) continue;
+    // Every message with fresh reactions is recorded as told, the ones only counted below too.
     named[String(m.at)] = (named[String(m.at)] || []).concat(fresh);
-    const words = String(m.text || '').replace(/[\s\u0000-\u001f\u007f-\u009f\u202a-\u202e\u2066-\u2069]+/g, ' ').trim();
+    const shownEmoji = fresh.map((e) => e.replace(DM_PANE_UNSAFE, '')).filter(Boolean);
+    if (!shownEmoji.length) continue;
+    const words = String(m.text || '').replace(DM_PANE_UNSAFE, ' ').replace(/[\s\u0000-\u001f\u007f]+/g, ' ').trim();
     // By code point, so an emoji at the cut is never split into half a surrogate pair.
     const chars = Array.from(words);
     const snippet = chars.length > DM_REACTION_SNIPPET ? chars.slice(0, DM_REACTION_SNIPPET).join('').trimEnd() + '…' : words;
-    parts.push(fresh.join(' ') + ' on your message "' + snippet.replace(/"/g, '\'') + '"');
+    parts.push(shownEmoji.join(' ') + ' on your message "' + snippet.replace(/"/g, '\'') + '"');
   }
   if (!parts.length) return none;
   /* Bounded: at most DM_REACTION_NOTE_MESSAGES messages named, the rest counted, so a

@@ -149,6 +149,22 @@ test('#3650: C1 controls and bidi overrides in the quoted start are not typed in
   assert.ok(note.includes('"ok then evil x"'), note);
 });
 
+test('#3650: an emoji carrying a bidi override or C1 control is refused, and never typed if already stored', () => {
+  const { agent, at } = thread();
+  for (const bad of ['\u202e', '👍\u0085', '\u2066🔥']) {
+    assert.equal(chat.reactDirect(agent, at(2), bad).ok, false, JSON.stringify(bad));
+  }
+  assert.equal(chat.reactDirect(agent, at(2), '👍').ok, true, 'CONTROL: a plain emoji is still accepted');
+  const file = path.join(require('./store').ROOT, 'chats', 'direct..' + agent + '.json');
+  const rec = JSON.parse(fs.readFileSync(file, 'utf8'));
+  const row = rec.messages.find((m) => m.at === at(3));
+  row.reactions = ['🎉\u202e'];
+  fs.writeFileSync(file, JSON.stringify(rec));
+  const note = chat.dmReactionNote(agent);
+  assert.equal(/[\u0080-\u009f\u202a-\u202e\u2066-\u2069]/.test(note), false, note);
+  assert.ok(note.includes('🎉 on your message "Also the tests'), note);
+});
+
 test('#3650: a stray non-array or non-emoji value in the file is skipped, not treated as damage', () => {
   const { agent, at } = thread();
   const file = path.join(require('./store').ROOT, 'chats', 'direct..' + agent + '.json');

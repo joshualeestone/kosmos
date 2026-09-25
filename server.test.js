@@ -14715,7 +14715,7 @@ test('#3650: a DM reaction is stored, shown, and told to the agent once with the
        digit must actually be typed, or "the note did not ride it" proves nothing. */
     const answered = await say('1', { chose: 'Yes, go ahead' });
     assert.ok([200, 202].includes(answered.status), answered.body);
-    assert.ok(pastedChunks(sends).join('').includes('1'), 'the digit was not typed, so this arm tests nothing');
+    assert.match(pastedChunks(sends).join(''), /(^|\D)1\s*$/, 'the digit was not what was typed last, so this arm tests nothing');
     assert.equal(pastedChunks(sends).join('').includes('[kosmos] reactions'), false, 'the note rode a bare digit');
     assert.notEqual(chatEngine.dmReactionNote('lena'), '', 'a bare digit marked the note told');
     sends.length = 0;

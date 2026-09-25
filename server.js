@@ -12168,6 +12168,8 @@ const server = http.createServer((req, res) => {
         const delivery = chat.deliver(name, body.text, roster, opPrefix,
           (attachments.wireNote(files.recs) || '') + reactionNote);
         if (reactionNote && delivery && (delivery.state === chat.DELIVERY.PLACED || delivery.state === chat.DELIVERY.UNCONFIRMED)) {
+          // A failed mark (the thread lock busy) means these are told again next time,
+          // never lost; the send itself already happened.
           chat.markDmReactionsTold(name, news.named);
         }
         const kept = chat.appendMessage(chat.DIRECT, name, {

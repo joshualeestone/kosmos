@@ -95,3 +95,18 @@ start a turn.
   idle agent's route drops `chose`) and no longer accepts a 409 that types nothing.
 - Not done: the hover quick bar can clip on the very first agent message at the top of
   the DM scroll box. Rooms share that layout, and it is a nit, not a defect in this card.
+
+## Review passes 5 and 6
+- The name-refusal 404 body is one helper (`nameRefusalBody`) shared by the thread GET
+  and the react route.
+- Main moved again (#3574); merged it in rather than rebasing. Browser-check counts
+  re-measured on the merged tree: still 133 and 94.
+- The pane-safety strip covered only the quoted start; the emoji itself could carry a
+  bidi override (the shared `normalizeReactionEmoji` accepts any non-ASCII string).
+  The DM react route now refuses such an emoji, and the note strips it from a value
+  already in the file. Both are engine-tested and each reds under its perturbation. The
+  room's shared normaliser is unchanged: the room never types reactions into a pane.
+- Messages only counted in the note ("reactions on N earlier messages") are recorded as
+  told too. That is deliberate: the agent was told they exist and that they need no reply.
+- Deferred: the feature commit's subject predates the `<branch> -- ` form. Kosmos
+  squash-merges, so the PR title is the commit that lands on main, and it follows the form.
