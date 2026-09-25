@@ -224,3 +224,19 @@ test('#3224 THE DRAIN never holds: a kept post replays into A while B is owed', 
   const rows = messagesEngine.readLog().filter((m) => m && m.kind === 'post' && m.project === a.id && m.text === 'kept for alpha');
   assert.equal(rows.length, 1);
 });
+
+test('#3224 round 2: new_post with in_reply_to is not marked --new, so it does not silence a question owed elsewhere', async () => {
+  const a = room('Alpha combo 3224');
+  const b = room('Beta combo 3224');
+  const c = room('Gamma combo 3224');
+  const seed = await post({ project: c.id, text: 'seed in gamma', from_pane: '' }, H());
+  assert.ok(reached(seed.json.delivery));
+  operatorAsk(b.id);
+  const reply = await post({ project: c.id, text: 'a reply in gamma', from_pane: '', in_reply_to: seed.json.delivery.id, new_post: true }, H());
+  assert.ok(reached(reply.json.delivery), reply.json.delivery.because || '');
+  const row = messagesEngine.readLog().find((m) => m && m.kind === 'post' && m.text === 'a reply in gamma');
+  assert.notEqual(row && row.newPost, true, 'a reply is never marked --new');
+  const r = await post({ project: a.id, text: 'misrouted into alpha', from_pane: '' }, H());
+  assert.equal(r.json.delivery.code, 'which_room', 'the question owed in Beta must still hold this post');
+});
+

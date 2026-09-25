@@ -220,6 +220,9 @@ test('#3224: post --new sends new_post:true (not held to ask which room); withou
   assert.equal(held.code, 1);
   assert.match(held.err + held.out, /here it is to send again/, 'a which-room hold hands the text back (parity with install/kosmos)');
   assert.match(held.err + held.out, /meant for beta/);
+  const combo = await run(['post', '--in-reply-to', 'm5', '--new', 'proj-1', 'x'], ok);
+  assert.equal(combo.code, 2, '--new with --in-reply-to is refused (parity with install/kosmos)');
+  assert.equal(combo.calls.length, 0);
 });
 
 test('#2909: post --stdin sends the piped text verbatim (backticks, $, newlines), either flag order; refusals send nothing', async () => {

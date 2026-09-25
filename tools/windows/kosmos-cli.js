@@ -371,6 +371,8 @@ async function verbPost(ctx, args) {
     }
     break;
   }
+  // #3224: a reply is already bound to its room, so --new has nothing to say about it (parity with install/kosmos).
+  if (newPost && inReplyTo) { ctx.err('Use --new or --in-reply-to, not both: a reply is already bound to the room its message came from.'); return 2; }
   const project = args.shift();
   let text = args.join(' ');
   /* #2909: a --stdin after the project would post the literal word and drop the piped message. */

@@ -94,3 +94,13 @@ test('#3224: a held post (which_room) prints the whole question with both comman
     assert.match(said, /here it is to send again/, 'a which-room hold says send again, not wait for the room');
   });
 });
+
+test('#3224: --new with --in-reply-to is refused before anything is sent, in either order', () => withStubBoard(PLACED, async (port, seen) => {
+  for (const args of [['post', '--new', '--in-reply-to', 'm5', 'alpha', 'x'], ['post', '--in-reply-to', 'm5', '--new', 'alpha', 'x']]) {
+    const out = await runCli(args, envFor(port));
+    assert.equal(out.code, 2, out.stdout + out.stderr);
+    assert.match(out.stdout + out.stderr, /not both/);
+  }
+  assert.equal(seen.length, 0, 'nothing reaches the board');
+}));
+

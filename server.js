@@ -2602,7 +2602,9 @@ function sendRoomPostAsAgent({ fromPane, sender, project, text, replyExpected, i
     membersOf: (id) => {
       try { const p = projects.get(id, roster); return p ? (p.agents || []).map((a) => a.sessionName) : null; } catch { return null; }
     },
-    newPost: newPost === true,
+    /* Only a post that could have been asked is marked: a reply carrying --new too must
+       not acknowledge (and so silence) every question owed elsewhere (round 2). */
+    newPost: newPost === true && !citedId,
   }, roster, members);
 }
 

@@ -1352,6 +1352,11 @@ cmd_post() {
       *) break ;;
     esac
   done
+  # #3224: a reply is already bound to its room, so --new has nothing to say about it.
+  if [ "$new_post" = 1 ] && [ -n "$in_reply_to" ]; then
+    say "Use --new or --in-reply-to, not both: a reply is already bound to the room its message came from."
+    exit 2
+  fi
   project="${1:-}"
   shift 2>/dev/null || true
   if [ "$from_stdin" = 1 ]; then
