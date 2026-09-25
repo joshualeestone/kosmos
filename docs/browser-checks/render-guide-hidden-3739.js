@@ -47,7 +47,7 @@ const say = (ok, label, extra) => { console.log((ok ? 'PASS  ' : 'FAIL  ') + lab
     await page.waitForSelector('#grid .acard', { timeout: 10000 });
     const board = await page.evaluate(() => ({
       cards: [...document.querySelectorAll('#grid .acard')].map((c) => c.textContent),
-      listed: (typeof LISTED !== 'undefined' ? LISTED : []).map((a) => a.sessionName),
+      listText: (document.getElementById('alist') || {}).textContent || '',
       all: (typeof LAST !== 'undefined' ? LAST : []).map((a) => a.sessionName),
       total: (document.getElementById('st-agents') || {}).textContent,
       banner: document.body.innerText,
@@ -55,7 +55,9 @@ const say = (ok, label, extra) => { console.log((ok ? 'PASS  ' : 'FAIL  ') + lab
     await page.screenshot({ path: path.join(OUT, 'grid.png') });
     say(board.cards.some((t) => /Ida/.test(t)), 'CONTROL: the ordinary agent is on the grid');
     say(!board.cards.some((t) => /Josh|Kosmos Guide/.test(t)), 'the guide is not on the grid', JSON.stringify(board.cards.map((t) => t.slice(0, 40))));
-    say(board.all.includes('guidebot') && !board.listed.includes('guidebot'), 'the page still holds the guide for lookups, and lists it nowhere');
+    say(board.all.includes('guidebot'), 'the page still holds the guide for lookups by name');
+    say(/Ida/.test(board.listText), 'CONTROL: the Agents list is drawn and names the ordinary agent');
+    say(!/Josh|Kosmos Guide/.test(board.listText), 'the guide is not in the Agents list');
     say(String(board.total).trim() === '1', 'the Agents tile counts one agent, not the guide', 'tile=' + board.total);
     const bannerOn = /agents? (is|are) sitting idle/.test(board.banner);
     say(bannerOn, 'CONTROL: the connection banner is on screen, so the next line can fail');

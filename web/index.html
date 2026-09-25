@@ -36077,7 +36077,7 @@ async function paintAccountPicker(a) {
        (`acctLive` null: an unreadable OpenAI list, or a machine with none), which is
        a could-not-read state -- so it says so without a false absolute.
        🛑 The `!(world.isKeyed && acctLive)` guard is load-bearing: a named codex
-       agent whose only OpenAI home is (LAST || []).filter((a) => !(a && a.isGuide === true)) but SIGNED OUT (`connection.state
+       agent whose only OpenAI home is LISTED but SIGNED OUT (`connection.state
        === 'none'`) has an empty `movable` (the state filter drops it) so `ours` is
        false, but its account IS resolved (`acctLive` set) and `signedOut` is true.
        Without the guard this branch would claim a read failure that did not happen

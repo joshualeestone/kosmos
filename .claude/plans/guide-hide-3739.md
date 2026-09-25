@@ -28,6 +28,11 @@ call to hide it; Josh ruled at 09:22: "I agree.. let's hide it" (grid, list, org
 - **"its default model", not a made-up model name.** A guide started with no `--model` runs on its runner's own
   default, which Kosmos does not know. Naming one would be a guess, so it names the runner and says "default".
 
+- **The isGuide filter is written inline at each listing site, not as one helper.** A shared helper (and a stored
+  LISTED array) broke three web tests that evaluate page snippets without page globals, so they could not see it
+  (measured). The rule is one expression, `!(a && a.isGuide === true)`, repeated; the browser check reads what is
+  drawn (grid, list, tile, banner) rather than trusting the expression.
+
 ## Weakest premises
 - Listing sites were found by searching for `LAST`/`data.agents` uses; a listing built another way would still
   show the guide. The browser check covers the grid, the tile, the banner and the guide's page, not every picker.
