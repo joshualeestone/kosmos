@@ -25293,7 +25293,7 @@ function paintOrg() {
       /* #3423: the chip-filter markers, keyed on the SERVER state to match the
          "Issue" (c.needsYou) and "No project" (c.needsYouUnattributed) tile counts
          exactly -- NOT the local `needsYou` above (cardStOf.st==='attn', which folds
-         in needs_trust and splits off agent questions, so it would not match the
+         in needs_trust and a given-up connection (#3410) and splits off agent questions, so it would not match the
          count). Kept inline/self-contained like data-has-msgs. */
       + (a && a.state === 'needs_you' ? ' data-attn' : '')
       + (a && a.state === 'needs_you' && a.stateProject === null ? ' data-noproj' : '')
@@ -40973,7 +40973,8 @@ function pjMember(m, suppressTold, withMinus, hideState) {
      which is why this keys on CARD_ST instead of a count that goes stale),
      so keying on it would paint every paused/unreadable/stopped member as urgent too and
      defeat the card. CARD_ST maps only needs_you and needs_trust to st:'attn' (the two
-     states that genuinely need a person now) - close to the org-node badge (#2576/#2577)
+     states that genuinely need a person now), and cardStOf adds a connection Kosmos gave up
+     on (#3410, via liveM) - close to the org-node badge (#2576/#2577)
      mapping for "needs-you gets a mark". Gated on m.present
      because a member we cannot see says why instead of a state. LROW_WARN is the agents
      list's warning glyph; it is display:none inside a .lav until the CSS below shows it. */
