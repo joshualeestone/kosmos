@@ -74,8 +74,11 @@ async function waitFor(fn, ms) {
 
 test('#3660: Giddy Up with a connected model creates the setup guide on that model, once', async () => {
   const box = sandbox();
-  const { child, base } = await boot(box, { AGENT_WORKFORCE_SETUP_GUIDE: 'on' });
+  let child;
   try {
+    const booted = await boot(box, { AGENT_WORKFORCE_SETUP_GUIDE: 'on' });
+    child = booted.child;
+    const base = booted.base;
     assert.equal(fs.existsSync(flagFile(box)), false, 'CONTROL: no guide before Giddy Up (boot does not arm)');
     const r = await fetch(base + '/api/first-run/complete', { method: 'POST', headers: { 'content-type': 'application/json' }, body: '{}' });
     assert.equal(r.status, 200);
@@ -86,22 +89,25 @@ test('#3660: Giddy Up with a connected model creates the setup guide on that mod
     assert.equal(flag.via, 'first-run');
     assert.match(String(flag.name), /^josh$/i);
   } finally {
-    await stopBoard(child);
+    if (child) await stopBoard(child);
     fs.rmSync(box.sb, { recursive: true, force: true });
   }
 });
 
 test('#3660: a dry-run board creates no guide unless a test turns it on, even after Giddy Up', async () => {
   const box = sandbox();
-  const { child, base } = await boot(box, {});
+  let child;
   try {
+    const booted = await boot(box, {});
+    child = booted.child;
+    const base = booted.base;
     const r = await fetch(base + '/api/first-run/complete', { method: 'POST', headers: { 'content-type': 'application/json' }, body: '{}' });
     assert.equal(r.status, 200);
     assert.ok(fs.existsSync(armFile(box)), 'CONTROL: the install is armed, so only the dry-run default can be what stops it');
     await new Promise((res) => setTimeout(res, 2500));
     assert.equal(fs.existsSync(flagFile(box)), false, 'a test board created a guide nobody asked for');
   } finally {
-    await stopBoard(child);
+    if (child) await stopBoard(child);
     fs.rmSync(box.sb, { recursive: true, force: true });
   }
 });

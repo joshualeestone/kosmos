@@ -248,7 +248,7 @@ test('WIRING GUARD (#3034/#3660): server.js creates the guide only through ensur
 
 /* ---- #3660: created the moment the first model is connected ---------------- */
 
-const MODELS = (rows) => ({ listFor: (mod) => rows[mod] || [], connectable: async () => ({ ok: true }) });
+const MODELS = (rows) => ({ listFor: (mod) => rows[mod] || [], connectable: async () => ({ ok: true }), liveDefault: async () => true });
 
 test('findModel: the first LISTED model in provider order, a named account by its dir, a default as null', async () => {
   const model = async (deps) => (await setupAssistant.findModel(deps)).model;
@@ -264,6 +264,24 @@ test('findModel: the first LISTED model in provider order, a named account by it
   assert.deepEqual(await setupAssistant.findModel(dead), { model: { provider: 'google', account: '/h/.gemini-k' }, refused: true });
   const allDead = { listFor: dead.listFor, connectable: async () => ({ ok: false }) };
   assert.deepEqual(await setupAssistant.findModel(allDead), { model: null, refused: true });
+});
+
+test('findModel: a DEFAULT Gemini or Grok key that the provider positively rejects is refused (create\'s gate lets it through)', async () => {
+  const checked = [];
+  const deps = (alive) => ({
+    listFor: (mod) => (mod === './geminiaccounts' ? [{ dir: '/h/.gemini', isDefault: true }] : mod === './grokaccounts' ? [{ dir: '/h/.grok-k', isDefault: false }] : []),
+    connectable: async () => ({ ok: true }),
+    liveDefault: async (mod, dir) => { checked.push([mod, dir]); return alive; },
+  });
+  assert.deepEqual(await setupAssistant.findModel(deps(false)), { model: { provider: 'xai', account: '/h/.grok-k' }, refused: true },
+    'a dead default Gemini key was used; the next (named) account is taken instead');
+  assert.deepEqual(checked, [['./geminiaccounts', '/h/.gemini']], 'only the DEFAULT row is live-checked here (a named one is create\'s gate)');
+  assert.deepEqual((await setupAssistant.findModel(deps(true))).model, { provider: 'google', account: null }, 'CONTROL: a live default key is used');
+  // A Claude or OpenAI default is not re-checked here (create's gate already checks those live).
+  checked.length = 0;
+  await setupAssistant.findModel({ listFor: (mod) => (mod === './accounts' ? [{ dir: '/h/.claude', isDefault: true }] : []),
+    connectable: async () => ({ ok: true }), liveDefault: async (mod, dir) => { checked.push([mod, dir]); return true; } });
+  assert.deepEqual(checked, []);
 });
 
 function armed(on) {

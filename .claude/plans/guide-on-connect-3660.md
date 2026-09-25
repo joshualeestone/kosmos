@@ -17,7 +17,8 @@ bubble hands off to it. Josh's direction behind it: 16:05 (his avatar, speaks as
   path (keys, and sign-ins that finish in the background) without a hook in each route.
 - `findModel()`: the first LISTED account in provider order (Claude, OpenAI, Gemini, Grok) that passes
   create's own `accountConnectable` gate. The guide is created **on that model**, so an OpenAI-only person gets a guide
-  that can run.
+  that can run. A DEFAULT Gemini or Grok key is also live-checked here, because create's gate lets a default row
+  through unchecked (it cannot see the launch key door); a positively rejected key is refused (review round 3).
 - After a try that reached a live check and did not create (a listed but dead sign-in, a rejected key, a refused
   create), the next try waits 10 minutes, doubling each time, capped at a day: the Claude gate is a live `claude -p`,
   a real request on their account. Single-flight.

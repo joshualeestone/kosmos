@@ -277,9 +277,21 @@ const MODEL_PROVIDERS = Object.freeze([
  * gate (accountConnectable), so a positively dead sign-in is skipped, not used.
  * `listFor` and `connectable` are injectable for tests.
  */
+/* A DEFAULT Gemini or Grok key is the one account create's gate lets through unchecked
+   (it cannot see the launch environment's key door, so it fails open for a default row).
+   The guide is created only on a model that can run, so for those two it also asks the
+   provider's own live check, and a key the provider positively rejects is refused. */
+const LIVE_CHECK_DEFAULT = new Set(['google', 'xai']);
+const defaultLive = async (mod, dir) => {
+  const m = require(mod);
+  const live = await m.checkLive(dir);
+  return !(live && live.state === m.STATE.NONE);
+};
+
 async function findModel({
   listFor = (mod) => require(mod).list(),
   connectable = (q) => create.accountConnectable(q),
+  liveDefault = defaultLive,
 } = {}) {
   let refused = false;
   for (const [provider, mod] of MODEL_PROVIDERS) {
@@ -291,6 +303,11 @@ async function findModel({
       const account = row.isDefault ? null : row.dir;
       let gate;
       try { gate = await connectable({ provider, accountDir: account }); } catch { gate = { ok: false }; }
+      if (gate && gate.ok && account === null && LIVE_CHECK_DEFAULT.has(provider)) {
+        let alive;
+        try { alive = await liveDefault(mod, row.dir); } catch { alive = true; }
+        if (!alive) gate = { ok: false };
+      }
       if (gate && gate.ok) return { model: { provider, account }, refused };
       refused = true;
     }
@@ -418,9 +435,7 @@ function mergeSetting(stored, patch) {
 module.exports = {
   SETUP_ROLE_KEY,
   armPath,
-  isArmed,
   armSetupAssistant,
-  MODEL_PROVIDERS,
   findModel,
   RETRY_AFTER_MS,
   RETRY_MAX_MS,
