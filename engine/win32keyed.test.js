@@ -65,6 +65,13 @@ test('parseTurn gemini: the pretty-printed object, its response and its session 
   assert.deepEqual(keyed.parseTurn('gemini', '\n' + refused), { response: '', sessionId: 's-3', error: 'API key not valid.' });
 });
 
+test('parseTurn grok: the object a real turn prints (measured with a real key, 2026-09-25)', () => {
+  const real = '{\n  "text": "noted",\n  "stopReason": "end_turn",\n  "sessionId": "22222222-3333-4444-8555-666666666666",\n'
+    + '  "requestId": "r-1",\n  "usage": {\n    "input_tokens": 14747,\n    "output_tokens": 29\n  },\n  "num_turns": 1,\n'
+    + '  "modelUsage": {\n    "grok-4.6": {\n      "inputTokens": 14747\n    }\n  }\n}\n';
+  assert.deepEqual(keyed.parseTurn('grok', real), { response: 'noted', sessionId: '22222222-3333-4444-8555-666666666666', error: null });
+});
+
 test('parseTurn grok: the result line (claude-shaped), and an error line', () => {
   const ok = '{"type":"result","subtype":"success","is_error":false,"result":"hi there","session_id":"g-1"}\n';
   assert.deepEqual(keyed.parseTurn('grok', ok), { response: 'hi there', sessionId: 'g-1', error: null });

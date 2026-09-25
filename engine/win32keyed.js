@@ -19,9 +19,13 @@
  *      exits 42 with "No previous sessions found" on stderr.
  *   grok --single=<msg> --output-format json --permission-mode bypassPermissions
  *        --always-approve --trust -m <model> (--session-id <uuid> | --resume <uuid>)
- *      prints JSON lines: `{"type":"result","is_error":false,"result":..,"session_id":..}`
- *      on success (the shape is in the binary), `{"type":"error","message":..}` on
+ *      prints ONE pretty-printed object `{ text, stopReason, sessionId, usage, .. }` on
+ *      success (measured with a real key) and a `{"type":"error","message":..}` line on
  *      failure. With a bad XAI_API_KEY it probes xAI and answers "Not signed in".
+ *
+ * Both were then run end to end with real keys on the box: a turn answered, a second
+ * turn resumed the same conversation and recalled a word from the first, and the
+ * agent's own `kosmos reply` landed on a throwaway board.
  *
  * The autonomy flags are the Mac's own (agent-supervisor.sh): gemini `--approval-mode
  * yolo --skip-trust`, grok `--permission-mode bypassPermissions --always-approve
@@ -113,6 +117,12 @@ function parseTurn(runner, stdout) {
       if (typeof ev.response === 'string') response = ev.response;
       if (ev.error) error = typeof ev.error.message === 'string' ? ev.error.message : 'the Gemini turn reported an error';
     } else if (runner === 'grok') {
+      /* MEASURED with a real key (grok 1.0.41, Windows, 2026-09-25): a turn prints ONE
+         pretty-printed object `{ text, stopReason, sessionId, usage, ... }`. The claude-shaped
+         `{type:'result', result, session_id}` line found in the binary is read too, in case a
+         build prints that instead. */
+      if (typeof ev.sessionId === 'string' && ev.sessionId) sessionId = ev.sessionId;
+      if (typeof ev.text === 'string' && ev.type === undefined) response = ev.text;
       if (typeof ev.session_id === 'string' && ev.session_id) sessionId = ev.session_id;
       if (ev.type === 'result') {
         if (typeof ev.result === 'string') response = ev.result;
