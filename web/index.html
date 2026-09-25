@@ -56047,7 +56047,7 @@ const ASB_FOLDED_POLL_MS = 60000;  // the thread, while folded, only to light th
 const ASB_FIND_FIRST_MS = 5000;    // looking for the guide again: 5s, doubling to a minute, until one is named
 const ASB_FIND_MAX_MS = 60000;
 let ASB = { started: false, guide: null, setting: null, open: false, asking: false, nudgeGone: false,
-  wroteOnce: false, heard: null, lastPoll: 0, screenKey: '', sending: false, dot: false,
+  wroteOnce: false, heard: null, fallback: null, lastPoll: 0, screenKey: '', sending: false, dot: false,
   nextFind: 0, findEvery: ASB_FIND_FIRST_MS, finding: false, shown: '', readOnce: false,
   nextSetting: 0, settingEvery: ASB_FIND_FIRST_MS, settingReading: false,
   /* #3660: no guide yet, but the board can ask Kosmos's own model (GET /api/setup-guide says hosted). The
@@ -56088,6 +56088,28 @@ function asbHostedKeep() { try { sessionStorage.setItem(ASB_HOSTED_KEY, JSON.str
 function asbIsHostedAfterForget() { return ASB.hosted && !ASB.hostedOff; }
 /* Talking to the hosted assistant rather than a guide agent. */
 function asbIsHosted() { return !ASB.guide && ASB.hosted && !ASB.hostedOff; }
+/* #3660 fallback (Josh 2026-09-25 07:22): the guide is there, but the AI it runs on cannot answer (out of credits or
+   at a limit, a login it rejects, or unreachable), so this chat is answered by Kosmos's own model until it can. */
+function asbInFallback() { return !!(ASB.guide && ASB.fallback && !ASB.hostedOff); }
+const ASB_FALLBACK_PROVIDER = { codex: 'OpenAI', gemini: 'Gemini', grok: 'Grok', antigravity: 'Antigravity' };   // engine/accountproblem.js's names
+/* The one line, the card's words, then what fixes it, in #3723's words where it has them. */
+function asbFallbackWords(f) {
+  const p = ASB_FALLBACK_PROVIDER[f && f.runner] || 'Claude';
+  const fix = f.problem === 'rate_limited' ? ` Add credits with ${p}, or wait until the limit resets.`
+    : f.problem === 'auth_failed' ? ` Its ${p} sign-in has stopped working: open the guide's page and choose Sign in again.`
+    : ` ${p} cannot be reached just now; it picks up again by itself once it can.`;
+  return `Your ${p} account isn't answering right now, so I'm helping on Kosmos's backup.` + fix;
+}
+const ASB_FALLBACK_BACK = 'Your own AI is answering again.';
+/* The board's word on a named guide: failing (answer here), answering (back to the guide), or unchecked (no change). */
+function asbFallbackFrom(b) {
+  if (!b || b.hostedWhy === 'unchecked') return;
+  const failing = b.hosted === true && b.hostedWhy === 'own_model_failing';
+  const was = !!ASB.fallback;
+  ASB.fallback = failing ? { problem: String(b.problem || ''), runner: b.runner || null } : null;
+  if (was && !failing) { const pm = document.getElementById('asp-msg'); if (pm) pm.textContent = ASB_FALLBACK_BACK; ASB.shown = ''; }
+  if (!was && failing) ASB.shown = '';   // the chat is painted again, from the backup's conversation
+}
 
 function asbGuideRow() {
   if (!ASB.guide || !Array.isArray(LAST)) return null;
@@ -56236,7 +56258,7 @@ function asbPaint() {
   const note = document.querySelector('#asp .asp-note');
   /* #3738: the AI explanation is the opening message now, so the guide has no footer. The hosted assistant keeps only
      where the words go (they leave this Mac), and an ended chat says it has ended. */
-  const words = row ? ''
+  const words = row ? (asbInFallback() ? asbFallbackWords(ASB.fallback) : '')
     : asbIsHosted() ? 'Until you connect your own AI, your questions go online to Kosmos\'s AI.'
     : 'This chat has ended.';   // stepping aside: it no longer takes questions
   if (note && note.textContent !== words) note.textContent = words;
@@ -56252,9 +56274,10 @@ function asbPaint() {
   /* A reply that landed after the board's last snapshot outranks a "working" the snapshot still carries (#2660's
      guard, as paintBusy has): the row does not sit under the reply it was waiting for. */
   const stale = !!(row && ASB.heardAt && typeof LAST_AT !== 'undefined' && ASB.heardAt > LAST_AT);
-  const working = row ? (row.state === 'working' && !stale) : (asbIsHosted() && ASB.sending);
+  const working = row && !asbInFallback() ? (row.state === 'working' && !stale) : ((asbIsHosted() || asbInFallback()) && ASB.sending);
   /* A broken sign-in says so in the chat (busyRow's own #874 line), so a message is not just met with silence. */
-  const signIn = !!(row && row.state === 'auth_failed');
+  const signIn = !!(row && row.state === 'auth_failed') && !asbInFallback();   // in the fallback, the backup's line says it
+  const busyRowOf = row && !asbInFallback() ? row : null;   // the backup at work draws the hosted row, not the guide's
   const act = bub.querySelector('.asb-act');
   if (act) act.hidden = !working || ASB.open;
   const busy = document.getElementById('asp-busy');
@@ -56262,11 +56285,11 @@ function asbPaint() {
   if (busy) {
     /* Written only when its inputs change (#3421): a string compare never matches (&hellip; reads back as the
        character), and rebuilding the .act dots restarts their loop every paint. Keyed as paintBusy keys. */
-    const key = !(working || signIn) ? '' : [row ? row.sessionName : 'hosted', row ? row.state : 'hosted', who, row && row.hasAvatar ? '1' : '0',
+    const key = !(working || signIn) ? '' : [busyRowOf ? busyRowOf.sessionName : 'hosted', busyRowOf ? busyRowOf.state : 'hosted', who, busyRowOf && busyRowOf.hasAvatar ? '1' : '0',
       signIn ? (row.stateEvidence || '') : ''].join('\u0001');
     const rekeyed = busy.dataset.busyKey !== key;
     if (rekeyed) {
-      busy.innerHTML = !key ? '' : row ? busyRow(row, who)
+      busy.innerHTML = !key ? '' : busyRowOf ? busyRow(busyRowOf, who)
         : '<div class="msg-av" aria-hidden="true"><img src="' + ASB_HOSTED_AVATAR + '" alt=""></div><span class="act" aria-hidden="true"><i></i><i></i><i></i></span><span>' + esc(who) + ' is ' + WORKING_VERB + '&hellip;</span>';
       busy.dataset.busyKey = key;
     }
@@ -56314,7 +56337,7 @@ function asbPaint() {
 /* The board's answer NOW to "which agent is the guide". Asked before every thread read and every send,
    so a guide removed (or a new agent that took its name) is never read or written as the guide, open
    or folded. Local and cheap: at most every 5s while open, every minute while folded. */
-async function asbConfirmGuide({ forgetLater = false } = {}) {
+async function asbConfirmGuide({ forgetLater = false, keepFallback = false } = {}) {
   let r = null, b = null;
   try {
     r = await fetch('/api/setup-guide', { cache: 'no-store' });
@@ -56324,7 +56347,7 @@ async function asbConfirmGuide({ forgetLater = false } = {}) {
      took the name), or a DIFFERENT guide. Only 'unchecked' (the board could not read its removed list just now)
      keeps it, and the next read decides. */
   if (r.ok && b && b.ok && typeof b.name === 'string') {
-    if (ASB.guide && b.name.toLowerCase() === String(ASB.guide).toLowerCase()) return true;
+    if (ASB.guide && b.name.toLowerCase() === String(ASB.guide).toLowerCase()) { if (!keepFallback) asbFallbackFrom(b); return true; }
   } else if (!(b && (b.reason === 'none' || b.reason === 'not-guide'))) return !!ASB.guide;
   if (b && (b.reason === 'none' || b.reason === 'not-guide') && !(b.hosted !== true && b.hostedWhy === 'unchecked')) ASB.hosted = b.hosted === true;   // stands in at once, no blink
   if (forgetLater && !asbIsHostedAfterForget()) setTimeout(asbForgetGuide, 4000); else asbForgetGuide();   // hosted stands in at once
@@ -56349,7 +56372,10 @@ async function asbPoll(force) {
   const every = ASB.open ? ASB_OPEN_POLL_MS : ASB_FOLDED_POLL_MS;
   if (!force && now - ASB.lastPoll < every) return;
   ASB.lastPoll = now;
-  if (asbIsHosted()) {
+  /* In the fallback the board is still asked whether the guide is there (a guide removed, or its name taken, is acted on
+     at once), but not whether it answers again: that is read on the next message (Josh). */
+  if (asbInFallback() && !(await asbConfirmGuide({ keepFallback: true }))) { asbPaint(); return; }
+  if (asbIsHosted() || asbInFallback()) {
     const hm = asbHostedMsgs();
     ASB.readOnce = true;
     ASB.wroteOnce = hm.some((m) => m.role === 'user');
@@ -56361,6 +56387,7 @@ async function asbPoll(force) {
      why), confirming would "forget" a guide that never was, closing the chat the person just opened. */
   if (!ASB.guide) return;
   if (!(await asbConfirmGuide())) return;
+  if (asbInFallback()) return asbPoll(true);   // it just went into the fallback: paint the backup's chat, not a tick of the guide's
   const t = await asbReadThread();
   if (!t) { if (ASB.open) document.getElementById('asp-msg').textContent = 'We could not load the conversation just now.'; return; }
   const speech = asbSpeech(t.rows);
@@ -56462,11 +56489,24 @@ async function asbSend() {
   const msg = document.getElementById('asp-msg');
   const text = say.value.trim();
   if (asbIsHosted()) { if (text && !ASB.sending) await asbHostedSend(text); return; }
+  /* In the fallback, the board is asked again before each message (Josh: on the next message, not continuously):
+     still failing, the backup answers; answering again, it goes to the guide as usual. */
+  let backNow = false;
+  if (asbInFallback() && text && !ASB.sending) {
+    ASB.sending = true;   // held across the board's answer, so a second Enter cannot ask twice
+    document.getElementById('asp-send').disabled = true;
+    const confirmed = await asbConfirmGuide({ forgetLater: true });
+    ASB.sending = false;
+    document.getElementById('asp-send').disabled = false;
+    if (!confirmed) { if (asbIsHosted()) await asbHostedSend(text); return; }
+    if (asbInFallback()) { await asbHostedSend(text); return; }
+    backNow = msg.textContent === ASB_FALLBACK_BACK;   // it answers again: that line stays while this goes to it
+  }
   const row = asbGuideRow();
   if (!text || ASB.sending || !row) return;
   ASB.sending = true;
   document.getElementById('asp-send').disabled = true;
-  msg.textContent = '';
+  msg.textContent = backNow ? ASB_FALLBACK_BACK : '';
   /* The guide went: say so in the open panel (the words stay in the box) before it closes a moment later. */
   if (!(await asbConfirmGuide({ forgetLater: true }))) {
     ASB.sending = false;
@@ -56534,23 +56574,29 @@ async function asbHostedSend(text) {
   if (ok) { hm.push({ role: 'assistant', content: b.reply }); asbHostedKeep(); } else hm.pop();   // not asked: the words are still in the box
   /* The panel may belong to a guide by now (one was made while this was being answered): the answer is kept
      with the hosted conversation, and nothing of it is written over the guide's chat. */
-  if (ASB.guide) { asbPaint(); return; }   // the working row clears now, not a tick later
+  if (ASB.guide && !asbInFallback()) { asbPaint(); return; }   // the working row clears now, not a tick later
   ASB.shown = '';   // the thread is painted again from the conversation, whatever it showed while waiting
   if (ok) {
     if (say.value.trim() === text) say.value = '';
     ASB.wroteOnce = true;
     if (!ASB.open) ASB.dot = true;   // answered while folded: the gold dot, as a guide's reply lights it
-    if (!ASB.open && !asbIsHosted() && !ASB.asideOnOpen) asbAsideWait(document.getElementById('asp-msg').textContent || ASB_WHY_NONE);   // the answer to a question asked just before it ended
+    if (!ASB.open && !asbIsHosted() && !asbInFallback() && !ASB.asideOnOpen) asbAsideWait(document.getElementById('asp-msg').textContent || ASB_WHY_NONE);   // the answer to a question asked just before it ended
     ASB.remaining = Number.isInteger(b.remaining) ? b.remaining : null;
     document.getElementById('asp-live').textContent = b.reply;
-    if (asbIsHosted() && ASB.remaining !== null && ASB.remaining <= 5) msg.textContent = ASB.remaining === 0 ? 'That was your last question for today.' : ASB.remaining === 1 ? '1 question left today.' : ASB.remaining + ' questions left today.';
+    if ((asbIsHosted() || asbInFallback()) && ASB.remaining !== null && ASB.remaining <= 5) msg.textContent = ASB.remaining === 0 ? 'That was your last question for today.' : ASB.remaining === 1 ? '1 question left today.' : ASB.remaining + ' questions left today.';
   } else {
     msg.textContent = pjSentence((b && b.error) || 'we could not reach the setup assistant just now; try again in a moment');
     document.getElementById('asp-live').textContent = '';
     /* Said, then the bubble steps aside: 501, a connector older than the assistant (for the session), or 409, the
        assistant is not offered here any more (their own AI connected, or the connector gone). If the chat is folded,
        the gold dot says there is something to read, and the six seconds start when it is opened. */
-    const stepAside = r && (r.status === 501 || (r.status === 409 && b && (b.code === 'own_model' || b.code === 'no_connector')));
+    /* In the fallback there is a guide to go back to, so nothing steps aside. own_model: their AI answers again, so
+       back to the guide, the words still in the box to send it. 501 (a connector older than the assistant): no backup
+       this session, so the guide's own chat again. */
+    const inFallback = asbInFallback();
+    if (inFallback && r && r.status === 409 && b && b.code === 'own_model') { ASB.fallback = null; ASB.shown = ''; msg.textContent = ASB_FALLBACK_BACK; asbPaint(); return; }
+    if (inFallback && r && r.status === 501) { try { sessionStorage.setItem(ASB_HOSTED_OFF_KEY, '1'); } catch { /* this page still knows */ } ASB.hostedOff = true; ASB.shown = ''; asbPaint(); return; }
+    const stepAside = !inFallback && r && (r.status === 501 || (r.status === 409 && b && (b.code === 'own_model' || b.code === 'no_connector')));
     if (stepAside) {
       if (r.status === 501) { try { sessionStorage.setItem(ASB_HOSTED_OFF_KEY, '1'); } catch { /* this page still knows */ } }
       if (b && b.code === 'own_model') { ASB.findEvery = ASB_FIND_FIRST_MS; ASB.nextFind = 0; }   // look for the guide now
@@ -56624,7 +56670,7 @@ async function asbFind() {
        network busy for good (it broke every browser check's page load). "No guide" is 200 { ok: false,
        reason: 'none' } here, not a 404, which the browser would log as a failed resource on every page. */
     const b = await r.json().catch(() => null);
-    if (r.ok && b && b.ok && typeof b.name === 'string') guide = b.name;
+    if (r.ok && b && b.ok && typeof b.name === 'string') { guide = b.name; asbFallbackFrom(b); }
     else if (b && (b.reason === 'none' || b.reason === 'not-guide') && !(b.hosted !== true && b.hostedWhy === 'unchecked')) {
       /* (Unchecked: the board could not read which AI is connected, so nothing changes on its word.) */
       const was = ASB.hosted;
@@ -56704,7 +56750,7 @@ function asbForgetGuide() {
   const standIn = asbIsHostedAfterForget();
   const hadFocus = !standIn && !!document.activeElement && !!document.activeElement.closest('#asblayer');
   const keepOpen = standIn && ASB.open;
-  ASB.guide = null; ASB.open = keepOpen; ASB.asking = false; ASB.heard = null; ASB.heardAt = 0; ASB.wasWorking = false; ASB.saidSignIn = ''; ASB.dotTimed = false; ASB.shown = ''; ASB.dot = false;
+  ASB.guide = null; ASB.fallback = null; ASB.open = keepOpen; ASB.asking = false; ASB.heard = null; ASB.heardAt = 0; ASB.wasWorking = false; ASB.saidSignIn = ''; ASB.dotTimed = false; ASB.shown = ''; ASB.dot = false;
   ASB.wroteOnce = false; ASB.readOnce = false; ASB.lastPoll = 0; ASB.nudgeGone = false; ASB.asideShowing = false; asbAsideDone();
   const pm = document.getElementById('asp-msg'); if (pm) pm.textContent = '';   // nothing stale when it comes back
   if (keepOpen) { const th = document.getElementById('asp-th'); if (th) th.replaceChildren(); }   // the guide's thread is not the hosted one's

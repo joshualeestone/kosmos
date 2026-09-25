@@ -507,6 +507,59 @@ const waitFor = (page, fn, ms = 6000) => page.waitForFunction(fn, null, { timeou
     await page.click('#asp-fold');
     fleet.install([fleet.agent('beatrix', { state: 'idle', displayName: 'Beatrix', role: 'Collections Coordinator' })]);
 
+    // H27 (#3660 fallback, Josh 2026-09-25 07:22): the guide is there but its OpenAI account is out of credits, so the
+    // board says own_model_failing. The chat says so in one line with the fix, and questions go to the backup (the
+    // hosted route), not the guide's thread. CONTROL: H8, the same guide answering, goes to its thread with no line.
+    // The fleet fixture cannot make a card read out of credits, so the board's answer for that state (#3762's shape,
+    // tested on the board side) is given here; the guide, its thread and everything else are the real board's.
+    fleet.install([fleet.agent('josh', { state: 'idle', displayName: 'Josh', role: 'Setup guide' }),
+      fleet.agent('beatrix', { state: 'idle', displayName: 'Beatrix', role: 'Collections Coordinator' })]);
+    seedGuide('josh');
+    let failing27 = { ok: true, name: 'josh', hosted: true, hostedWhy: 'own_model_failing', problem: 'rate_limited', runner: 'codex' };
+    await page.route(/\/api\/setup-guide$/, (route) => (failing27 && route.request().method() === 'GET'
+      ? route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(failing27) }) : route.continue()));
+    await page.evaluate(() => { ASB.nextFind = 0; });
+    chk(await waitFor(page, () => ASB.guide === 'josh' && !!ASB.fallback, 20000), 'H27 the bubble takes the guide, and knows it cannot answer');
+    await page.click('#asb');
+    chk(await waitFor(page, () => document.querySelector('#asp .asp-note').textContent === "Your OpenAI account isn't answering right now, so I'm helping on Kosmos's backup. Add credits with OpenAI, or wait until the limit resets.", 6000),
+      'H27 the chat says so in one line, with the fix', JSON.stringify((await state(page)).note));
+    if (SHOTS) await page.screenshot({ path: path.join(SHOTS, 'fallback-light.png') });
+    answer = { status: 200, body: { reply: 'Your OpenAI account needs credits. Here is how.', remaining: 25 } };
+    const before27 = asked.length, posts27 = threadPosts.length;
+    await page.fill('#asp-say', 'Why is nothing working?');
+    await page.keyboard.press('Enter');
+    chk(await waitFor(page, () => [...document.querySelectorAll('#asp-th .asp-m.him')].some((m) => m.textContent === 'Your OpenAI account needs credits. Here is how.'), 8000)
+      && asked.length === before27 + 1 && threadPosts.length === posts27, 'H27 the question goes to the backup, not the guide\'s thread, and the answer shows',
+      JSON.stringify({ asked: asked.length - before27, posts: threadPosts.length - posts27 }));
+    chk(await page.evaluate(() => document.getElementById('asp-say').value === '' && !document.getElementById('asp').hidden && document.querySelector('#asp .asp-note').textContent !== 'This chat has ended.'),
+      'H27 the words left the box, and the chat carries on');
+    // H28: the backup refuses with own_model (their AI answers again before the board's 15-second memo says so): back to
+    // the guide, "answering again", the words kept in the box, and nothing ends.
+    answer = { status: 409, body: { error: 'you\'ve connected your own AI, so this chat has ended', code: 'own_model' } };
+    await page.fill('#asp-say', 'Still there?');
+    await page.keyboard.press('Enter');
+    chk(await waitFor(page, () => document.getElementById('asp-msg').textContent === 'Your own AI is answering again.', 8000), 'H28 a refusal in the fallback says their own AI is answering again', (await state(page)).msg);
+    const h28 = await page.evaluate(() => ({ box: document.getElementById('asp-say').value, open: !document.getElementById('asp').hidden, note: document.querySelector('#asp .asp-note').textContent, fb: ASB.fallback, aside: ASB.asideShowing }));
+    chk(h28.box === 'Still there?' && h28.open && h28.note === '' && h28.fb === null && !h28.aside, 'H28 the words stay in the box for the guide, and the chat does not end', JSON.stringify(h28));
+    // H29: the board then says the guide answers (the real board: its card is idle): the next question goes to the
+    // guide's thread. First the fallback again, so this reads the board's word, not H28's.
+    failing27 = { ok: true, name: 'josh', hosted: true, hostedWhy: 'own_model_failing', problem: 'auth_failed', runner: null };
+    chk(await waitFor(page, () => !!ASB.fallback && document.querySelector('#asp .asp-note').textContent === "Your Claude account isn't answering right now, so I'm helping on Kosmos's backup. Its Claude sign-in has stopped working: open the guide's page and choose Sign in again.", 15000),
+      'H29 precondition: back in the fallback from the board\'s answer (a sign-in problem, no runner reads as Claude)', (await state(page)).note);
+    failing27 = null;
+    const g29 = await (await fetch(URL + '/api/setup-guide')).json();
+    const back29 = g29.ok === true && g29.name === 'josh' && g29.hosted !== true;
+    const before29 = asked.length, posts29 = threadPosts.length;
+    await page.keyboard.press('Enter');
+    chk(back29 && await waitFor(page, () => document.getElementById('asp-say').value === '', 8000) && asked.length === before29 && threadPosts.length === posts29 + 1,
+      'H29 once the board says it answers, the question goes to the guide\'s thread', JSON.stringify({ back29, asked: asked.length - before29, posts: threadPosts.length - posts29 }));
+    chk(await page.evaluate(() => ASB.fallback === null && document.querySelector('#asp .asp-note').textContent === ''), 'H29 and the backup line is gone');
+    chk((await state(page)).msg === 'Your own AI is answering again.', 'H29 and the chat says their own AI is answering again', (await state(page)).msg);
+    await page.unroute(/\/api\/setup-guide$/);
+    await page.click('#asp-fold');
+    unseed();
+    fleet.install([fleet.agent('beatrix', { state: 'idle', displayName: 'Beatrix', role: 'Collections Coordinator' })]);
+
     chk(MARK_WORKS && !fs.existsSync(RAN), 'H12 the connector never ran (CONTROL: run by hand at the start, it leaves its mark)', JSON.stringify({ MARK_WORKS }));
     chk(badResponses.length === 0, 'H11 no failed resource other than the refusals the check asked for', badResponses.join(' | '));
     chk(errs.length === 0, 'H11 no page errors', errs.join(' | '));
