@@ -16138,7 +16138,7 @@ function kplusBar() {
     if (status >= 200 && status < 300) {
       /* The board's page is kept by the offline worker; logged out, it must not come back from there without the
          network, so this browser's copies go with the session. */
-      try { if (typeof caches !== 'undefined') for (const k of await caches.keys()) await caches.delete(k); } catch { /* the session is gone either way */ }
+      try { if (typeof caches !== 'undefined') for (const k of await caches.keys()) if (k.startsWith('kosmos-shell')) await caches.delete(k); } catch { /* the session is gone either way */ }   // sw.js's SHELL_CACHE, any version
       location.replace('/');
       return;
     }

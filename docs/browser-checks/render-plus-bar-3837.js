@@ -127,6 +127,7 @@ const bar = (page) => page.evaluate(() => {
     await page.evaluate(() => { const a = document.querySelector('#grid [data-agent="beatrix"]'); if (a) a.click(); });
     await page.waitForFunction(() => { const s = document.getElementById('d-sec-talk'); return !!s && !s.hidden; }, null, { timeout: 8000 }).catch(() => {});
     await page.waitForTimeout(400);
+    chk(await page.evaluate(() => { const s = document.getElementById('d-sec-talk'); return !!s && !s.hidden && s.getClientRects().length > 0; }), 'P7 precondition: an agent\'s talk view is open');
     const e7b = await edges();
     chk(e7a.dl === 0 && e7a.dr === 0 && e7b.dl === 0 && e7b.dr === 0, 'P7 the bar spans the header edge to edge on the board and in an agent\'s talk view', JSON.stringify({ board: e7a, talk: e7b }));
     if (SHOTS) await page.screenshot({ path: path.join(SHOTS, 'plus-bar-talk.png'), clip: { x: 0, y: 0, width: 1280, height: 160 } });
