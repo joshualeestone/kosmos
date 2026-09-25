@@ -186,6 +186,11 @@ function guideDenyRules({ home = kosmosHome(), dataRoot = store.ROOT } = {}) {
     'Read(~/.docker/**)', 'Read(~/.azure/**)', 'Read(~/.netrc)', 'Read(~/.npmrc)', 'Read(~/.pypirc)',
     'Read(~/.git-credentials)', 'Read(~/.zsh_history)', 'Read(~/.bash_history)', 'Read(~/.claude.json)',
     'Read(~/.claude/**)', 'Read(~/.codex/**)', 'Read(~/.gemini/**)', 'Read(~/.grok/**)',
+    /* Every account after the first lives in ~/.claude-<label>, ~/.codex-<label> (and the Gemini and
+       Grok analogs), with a pasted Claude key in .kosmos-claude-apikey (review round 2). Measured: a
+       wildcard in the folder name holds for the Read tool and for cat. */
+    'Read(~/.claude-*/**)', 'Read(~/.codex-*/**)', 'Read(~/.gemini-*/**)', 'Read(~/.grok-*/**)',
+    'Read(**/.kosmos-claude-apikey)',
     'Read(**/.env)', 'Read(**/.env.*)', 'Read(**/*.pem)', 'Read(**/*.key)',
     'Bash(security find-generic-password:*)', 'Bash(security find-internet-password:*)',
     'Bash(security dump-keychain:*)', 'Bash(printenv:*)', 'Bash(printenv)', 'Bash(env)', 'Bash(history:*)',
@@ -198,7 +203,7 @@ function guideDenyRules({ home = kosmosHome(), dataRoot = store.ROOT } = {}) {
   ];
   if (home && path.resolve(home) !== path.resolve(require('os').homedir())) {
     /* A Kosmos home that is not the login home (a named world, a test): its credential folders too. */
-    for (const d of ['.ssh', '.aws', '.config', '.claude', '.codex', '.gemini', '.grok']) rules.push(`Read(${abs(path.join(home, d))}/**)`);
+    for (const d of ['.ssh', '.aws', '.config', '.claude', '.codex', '.gemini', '.grok', '.claude-*', '.codex-*', '.gemini-*', '.grok-*']) rules.push(`Read(${abs(path.join(home, d))}/**)`);
     rules.push(`Read(${abs(path.join(home, '.claude.json'))})`);
   }
   if (dataRoot) rules.push(`Read(${abs(dataRoot)}/**)`);

@@ -44,7 +44,7 @@ const URL_CREDENTIAL = /\b([a-z][a-z0-9+.-]{1,20}:\/\/[^\s:@/]{1,100}:)([^\s@/]{
 
 /* "password = hunter2", "API_KEY: abc...", "token=..." : the VALUE is masked and the name kept, so
    the sentence still reads. Six characters or more, so "token: none" and prose survive. */
-const SECRET_NAMES = '(?:password|passwd|passphrase|pwd|secret|token|api[_-]?key|access[_-]?key|private[_-]?key|client[_-]?secret)';
+const SECRET_NAMES = '(?:password|passwd|passphrase|secret|token|api[_-]?key|access[_-]?key|private[_-]?key|client[_-]?secret)';
 const ASSIGNMENT = new RegExp(`\\b((?:[A-Za-z0-9]{1,40}[_-])?${SECRET_NAMES}["']?[ \\t]{0,3}[:=][ \\t]{0,3}["']?)([^\\s"'\`,;<>]{6,400})`, 'gi');
 /* The same in words, "your password is hunter2hunter", "the API key is: AbC123...". The value must
    hold a digit or a symbol, so "the password is required" stays readable. */
@@ -52,15 +52,23 @@ const SPOKEN = new RegExp(`\\b(${SECRET_NAMES.replace('api[_-]?key', 'api[_ -]?k
 /* A bare "key" only with = or : and a value holding a digit (a hex key, say): "key: Enter" survives. */
 const BARE_KEY = /\b(key["']?[ \t]{0,3}[:=][ \t]{0,3}["']?)([^\s"'`,;<>]{8,400})/gi;
 /* The sentence's own closing punctuation stays outside the mask ("... is hunter2hunter." keeps its stop). */
-const splitTail = (v) => { const t = /[.!?)\]]+$/.exec(v); return t ? [v.slice(0, t.index), t[0]] : [v, '']; };
-const hasDigitOrSymbol = (v) => /[0-9]/.test(v) || /[^A-Za-z0-9]/.test(v);
+/* Only a full stop or a closing bracket: "!" and "?" are common last characters of a real password. */
+const splitTail = (v) => { const t = /[.)\]]+$/.exec(v); return t ? [v.slice(0, t.index), t[0]] : [v, '']; };
+/* The shape of a value worth hiding: letters with a digit or a symbol in them, and not a path. Plain
+   words ("Password: required", "Token: Settings") are a form being explained, not a secret. */
+const looksLikeSecretValue = (v) => /[A-Za-z]/.test(v) && (/[0-9]/.test(v) || /[^A-Za-z0-9]/.test(v)) && !/^[~/]/.test(v);
+const hasDigitOrSymbol = looksLikeSecretValue;
 
 /* A long run with upper case, lower case and a digit in it, and not all hex: the shape of a token
    no named pattern knows. Hex-only runs (git commits, checksums) are left alone. */
 /* No slash in the run, so a file path (/Users/me/Library/Application Support) is never taken for one. */
 const LONG_TOKEN = /[A-Za-z0-9+_-]{32,600}={0,2}/g;
 function looksRandom(s) {
-  return /[A-Z]/.test(s) && /[a-z]/.test(s) && /[0-9]/.test(s) && !/^[0-9a-fA-F]+$/.test(s);
+  if (!(/[A-Z]/.test(s) && /[a-z]/.test(s) && /[0-9]/.test(s)) || /^[0-9a-fA-F]+$/.test(s)) return false;
+  /* A link slug or a file name made of words (Getting-Started-With-Your-First-Agent-2026) is not a token:
+     four or more short parts joined by - or _. */
+  const parts = s.split(/[-_]/);
+  return !(parts.length >= 4 && parts.every((p) => p.length <= 12));
 }
 
 /**
@@ -82,7 +90,7 @@ function mask(text) {
   });
   out = out.replace(ASSIGNMENT, (whole, name, raw) => {
     const [value, tail] = splitTail(raw);
-    if (value.length < 6 || value.startsWith(MASK)) return whole;
+    if (value.length < 6 || value.startsWith(MASK) || !looksLikeSecretValue(value)) return whole;
     hit('assigned_secret');
     return name + MASK + tail;
   });

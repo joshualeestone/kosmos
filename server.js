@@ -2462,6 +2462,25 @@ function guideMasked(who, text) {
   return out.text;
 }
 
+/* #3769: rows as read, for a route that serves stored rows: any row the setup guide wrote is masked
+   (rows stored before the write-side filter existed). `wholeThread` masks every row, for a thread
+   whose other party is the guide. Rows from anyone else pass unchanged. */
+function guideMaskedRows(rows, wholeThread) {
+  if (!Array.isArray(rows)) return rows;
+  const guideBy = new Map();   // one look per sender, not per row: a long list repeats a few names
+  const isGuide = (from) => {
+    if (!guideBy.has(from)) guideBy.set(from, isSetupGuide(from));
+    return guideBy.get(from);
+  };
+  return rows.map((m) => {
+    if (!m || typeof m.text !== 'string') return m;
+    if (!wholeThread && !isGuide(m.from)) return m;
+    const out = require('./engine/secretmask').mask(m.text);
+    if (out.fired.length) console.error(`#3769: masked ${require('./engine/secretmask').describeFired(out.fired)} in the setup guide's words`);
+    return { ...m, text: out.text };
+  });
+}
+
 /* #3769: the guide's posts into a project room and its messages to other agents go through
    engine/messages.js; the same mask applies there, keyed on the resolved sender. */
 messages.setSenderTextFilter(guideMasked);
@@ -12438,7 +12457,7 @@ const server = http.createServer((req, res) => {
     try {
       let who = null;
       try { who = new URL(req.url, ROUTING_BASE).searchParams.get('agent') || null; } catch { who = null; }
-      sendJson(res, 200, { messages: withPreviews(messages.list(who)) });
+      sendJson(res, 200, { messages: withPreviews(guideMaskedRows(messages.list(who), null)) });
     } catch (err) {
       sendJson(res, 500, { error: String((err && err.message) || 'we could not read the record') });
     }
@@ -14926,10 +14945,12 @@ const server = http.createServer((req, res) => {
     const olderCount = Array.isArray(messages) && messages.length > TAIL
       ? messages.length - TAIL : 0;
     if (olderCount) messages = messages.slice(-TAIL);
+    /* #3769: a project thread with the setup guide is its words throughout, as in its direct thread. */
+    const guideMember = member && isSetupGuide(member.sessionName) ? member.sessionName : null;
     sendJson(res, 200, {
       project: { id: project.id, name: project.name },
       agent: member,
-      messages: withPreviews(messages),
+      messages: withPreviews(guideMaskedRows(messages, guideMember)),
       olderCount,
       historyBecause,
       // See the block above: withheld is not unreadable, and the page says a
@@ -14947,7 +14968,7 @@ const server = http.createServer((req, res) => {
       viewport: engmode.read().on ? view
         : { text: null, because: 'engineering mode is off, so the window is not shown' },
       asking,
-      question,
+      question: guideMember && question && typeof question.text === 'string' ? { ...question, text: guideMasked(guideMember, question.text) } : question,
       questionBecause,
       /* #1629: same note as the agent thread, same sentence, same reason. */
       answerNote: (question && view && view.text && trustPrompt(view.text) !== null) ? TRUST_DIALOG_SENTENCE : null,
@@ -16240,7 +16261,7 @@ module.exports = {
   givePart, // #3595: the assign-and-tell path, exported so the Assigner's real write path is tested
   swarmSweepDeps, // #3564: the limit sweep's wiring, exported so it is tested
   guideCardFailing, resetGuideCardMemoForTests, // #3660: the fallback's reading of the guide card, for its tests
-  keepAgentReply, guideMasked, // #3769: the setup guide's words masked where they are stored, for its tests
+  keepAgentReply, guideMasked, guideMaskedRows, // #3769: the setup guide's words masked where they are stored, for its tests
   creatorRunsOn, // #3734: where an agent-made team member runs by default, for its tests
   /* #2036: the boot diagnostic's condition (pure truth table) AND its real call-site
      composition, exported together so BOTH are pinned. stagingRevertWarningNow wires the raw

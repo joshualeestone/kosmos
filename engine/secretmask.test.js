@@ -52,6 +52,8 @@ test('#3769 the forms a model writes in words, sign-ins in links, GitLab tokens 
     ['postgres://admin:pw9abc@db:5432/app', `postgres://admin:${MASK}@db:5432/app`],
     [j('glpat-', 'ABCDEFGHIJKLMNOPQRSTuv'), MASK],
     ['key: 3f2a9c1d8e7b6a5f4e3d2c1b0a9f8e7d6c5b4a3f99', `key: ${MASK}`],
+    // A last "!" or "?" is part of many passwords, so only a full stop or bracket is left outside.
+    ['password=MyP@ssw0rd!', `password=${MASK}`],
   ];
   for (const [input, want] of cases) assert.equal(mask(input).text, want, input);
 });
@@ -66,6 +68,9 @@ test('#3769 ordinary text is untouched: prose, links, commit ids, short words af
     'Your key starts with sk- and is pasted in Settings.',
     'the password is required, and the key: Enter moves on',
     'Your files are in /Users/agent1/Library/Application Support/Kosmos/agents/Researcher1Folder/notes.md',
+    // Review round 2: a settings form being explained, a path, and a link slug made of words.
+    'Password: required', 'Token: Settings, AI Models', 'secret: Kosmos keeps it', 'the pwd is /Users/me/work',
+    'https://installkosmos.com/docs/Getting-Started-With-Your-First-Agent-2026',
   ];
   for (const t of plain) {
     const out = mask(t);

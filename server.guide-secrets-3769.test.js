@@ -219,3 +219,29 @@ test('#3769 the guide cannot edit its own guards or instructions, and there is n
   for (const r of ['Edit(.claude/**)', 'Edit(.kosmos-setup-guide)', 'Edit(CLAUDE.md)', 'Bash(set)', 'Bash(export -p)']) assert.ok(rules.includes(r), 'missing ' + r);
   assert.ok(!rules.some((r) => r.startsWith('Write(')), 'Write(...) is not a file rule in Claude Code and is ignored');
 });
+
+/* ---- review round 2 ----------------------------------------------------------- */
+
+test('#3769 the deny rules cover every account folder Kosmos makes, not only the first', () => {
+  const rules = setupAssistant.guideDenyRules();
+  for (const r of ['Read(~/.claude-*/**)', 'Read(~/.codex-*/**)', 'Read(~/.gemini-*/**)', 'Read(~/.grok-*/**)', 'Read(**/.kosmos-claude-apikey)']) {
+    assert.ok(rules.includes(r), 'missing ' + r);
+  }
+  const other = setupAssistant.guideDenyRules({ home: '/Volumes/Other/home', dataRoot: '/x' });
+  assert.ok(other.includes('Read(//Volumes/Other/home/.claude-*/**)'), 'a Kosmos home that is not the login home misses its extra accounts');
+  assert.ok(other.includes('Read(//Volumes/Other/home/.codex-*/**)'));
+});
+
+test('#3769 rows served by /api/messages and the project thread are masked when the guide wrote them', () => {
+  const { guideMaskedRows } = require('./server');
+  const rows = [{ from: GUIDE, text: `use ${KEY}` }, { from: OTHER, text: `use ${KEY}` }, { from: 'you', text: `mine ${KEY}` }];
+  const byRow = guideMaskedRows(rows, null);
+  assert.equal(byRow[0].text, `use ${MASK}`);
+  assert.equal(byRow[1].text, `use ${KEY}`, 'CONTROL: another agent\'s row was changed');
+  assert.equal(byRow[2].text, `mine ${KEY}`, 'CONTROL: outside the guide\'s thread the person\'s row is theirs');
+  const whole = guideMaskedRows(rows, GUIDE);
+  assert.ok(whole.every((m) => !m.text.includes(KEY)), 'a thread with the guide left a row unmasked');
+  const src = fs.readFileSync(path.join(__dirname, 'server.js'), 'utf8');
+  assert.match(src, /messages: withPreviews\(guideMaskedRows\(messages\.list\(who\), null\)\)/, '/api/messages does not mask on read');
+  assert.match(src, /messages: withPreviews\(guideMaskedRows\(messages, guideMember\)\)/, 'the project thread does not mask on read');
+});
