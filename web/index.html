@@ -1340,26 +1340,32 @@ button.uprime:hover, .btn.uprime:hover, .utoast .uacts button.uprime:hover,
 .layopt[aria-checked="true"]:focus-visible { outline-color: #14161a; }
 .layopt:focus-visible { outline: 2px solid var(--label); outline-offset: 1px; }
 @media (max-width: 959.98px) { .laypick { display: none; } }
-/* #3312 (Josh 2026-09-19): the Add-Project mode toggle. Bigger than the .laypick segmented
-   control (this is the screen's top-level choice), and it uses ink/surface rather than gold so it
-   never competes with the gold "Create project" / "Join Project" CTA. */
-/* #3495 (Josh, 2026-09-23): the Create/Join toggle is now a SEGMENTED selector - the two tabs are
-   joined (shared border, outer corners rounded) rather than separate pills with an "or". The active
-   tab fills; the radio stays the source of truth. */
-.pj-mode { display: inline-flex; align-items: stretch; flex-wrap: nowrap; margin: 4px 0 24px;
-           border: 0; padding: 0; min-width: 0; }
-.pj-mode-opt { display: inline-flex; align-items: center; font: inherit; font-weight: 700;
-               font-size: 1.0625rem; line-height: 1; padding: .7em 1.4em;
-               border: 1.5px solid var(--label); border-radius: 0;
-               background: none; color: var(--label); cursor: pointer; }
-.pj-mode-opt:first-of-type { border-top-left-radius: 10px; border-bottom-left-radius: 10px; }
-.pj-mode-opt:last-of-type { border-top-right-radius: 10px; border-bottom-right-radius: 10px; }
-.pj-mode-opt:not(:first-of-type) { border-left-width: 0; }
+/* #3312 (Josh 2026-09-19): the Add-Project mode toggle. #3495 (Josh, 2026-09-24 17:50, on the
+   ink-filled version: "hideous. It looks like a wireframe... It should just match our styling"):
+   it now speaks the app's own segmented-control language, the .laypick/.viewtoggle values
+   (0.5px separator, radius-control, elevated ground, GOLD active with #14161a ink, per the
+   2026-08-17 "selected is gold" ruling: ink flips between themes and inverts what selected
+   means). Wider than those two because it carries words and is the screen's top-level choice: it
+   spans the form's width on its own row, two equal halves. The radio stays the source of truth. */
+.pj-mode { display: flex; align-items: stretch; flex-wrap: nowrap; margin: var(--space-4) 0 var(--space-7);
+           border: 0.5px solid var(--separator); border-radius: var(--radius-control); overflow: hidden;
+           background: var(--bg-elevated); padding: 0; min-width: 0; }
+.pj-mode-opt { flex: 1 1 0; display: flex; align-items: center; justify-content: center; font: inherit;
+               font-weight: 600; font-size: 14px; line-height: 1.2; min-height: 36px;
+               padding: 0 var(--space-5); text-align: center; background: none; color: var(--label-2); cursor: pointer;
+               position: relative; }   /* the hidden radio positions against its own segment */
+.pj-mode-opt + .pj-mode-opt { border-left: 0.5px solid var(--separator); }
 /* The tab IS the control; the radio is visually hidden but stays focusable + keyboard-navigable. */
 .pj-mode-opt input { position: absolute; width: 1px; height: 1px; margin: 0; opacity: 0; pointer-events: none; }
-.pj-mode-opt:hover:not(:has(input:checked)) { background: var(--bg-elevated); }
-.pj-mode-opt:has(input:checked) { background: var(--label); color: var(--bg-elevated); border-color: var(--label); }
-.pj-mode-opt:has(input:focus-visible) { outline: 2px solid var(--label); outline-offset: 2px; }
+.pj-mode-opt:hover:not(:has(input:checked)) { color: var(--label); }
+.pj-mode-opt:has(input:checked) { background: var(--gold-bright); color: #14161a; }
+/* Inset, as .vt's is, because the bar clips (overflow: hidden); 3px so the 2px ring clears the hairline. */
+.pj-mode-opt:has(input:focus-visible) { outline: 2px solid var(--label); outline-offset: -3px; }
+.pj-mode-opt:has(input:checked:focus-visible) { outline-color: #14161a; }
+/* #3495: the fields below it match Project settings (#750, "just like the new agent"): no bounding
+   box and no rule between fields, spacing does the separating. */
+#pj-add-view .field { border-top: 0; padding-top: 0; margin-top: var(--space-6); }
+#pj-create-mode > .field:first-child, #pj-join-mode > .field:first-child { margin-top: 0; }   /* both modes start at the same height */
 /* A read-only value line in Join mode (the owner's project name/description, which the receiver
    cannot edit) -- plain text, not a filled field, so it reads clearly as not-an-input. */
 .pj-ro { margin: 2px 0 0; color: var(--label); white-space: pre-wrap; }
@@ -13188,11 +13194,11 @@ window.kosmosMeasureScrollbarWidth();
     <!-- #3312 (Josh 2026-09-19): the Add-Project screen is one of two modes -- create a new
          project of your own, or join an EXTERNAL project someone shared a code for (relay
          federation MVP, messaging only). The h2 is kept for the heading list but visually
-         hidden; the pill toggle is the visible top control (Josh's wireframe). -->
+         hidden; the segmented control is the visible top control (#3495 restyle). -->
     <h2 class="vh">Add a project</h2>
     <!-- #3312: NATIVE RADIOS grouped by name, in a fieldset -- Mona Lisa's #178 ruling (see the
          roles picker: native radios give arrow-key movement from the browser, make `checked` the
-         single source of truth, and retire the aria-checked desync class). The pill styling lives
+         single source of truth, and retire the aria-checked desync class). The segment styling lives
          on the label; the input is visually hidden but focusable. -->
     <fieldset class="pj-mode">
       <legend class="vh">Create a new project or join an external one</legend>
