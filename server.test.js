@@ -3465,7 +3465,11 @@ test('the runs-on box says model and account in one line, and the Signed-in-as s
 
   /* The branch's two safety additions, pinned the way the sibling
      d-model-msg clear is pinned, so neither can quietly revert. */
-  const od = script.slice(script.indexOf('function openDetail('), script.indexOf('function openDetail(') + 4200);
+  // To the end of openDetail, not a fixed length: #3757's Files resets grew the function and a
+  // fixed 4200-character window stopped reaching this clear although it was still there.
+  const odAt = script.indexOf('function openDetail(');
+  const od = script.slice(odAt, script.indexOf('\nfunction ', odAt + 1));
+  assert.ok(od.length > 4200, 'openDetail moved or shrank; the slice covers ' + od.length + ' characters');
   assert.ok(/getElementById\('d-account-msg'\)[\s\S]{0,60}?\.textContent = ''/.test(od),
     'openDetail no longer clears the account message on a switch');
   /* 📌 ASK THE SOURCE WHERE THE FUNCTION ENDS, rather than guessing a byte count.
@@ -8722,7 +8726,7 @@ test('a card names a planned model plainly, while the detail panel keeps its ten
  * now is the nav's order and the sections' order against it, which is what the
  * test pins; membership box by box is in web.agent-nav.test.js.
  */
-test('the agent detail page is eight sections behind a nav, in the ruled order', () => {
+test('the agent detail page is nine sections behind a nav, in the ruled order', () => {
   /* ⚠️ THIS TEST USED TO PIN SOURCE ORDER OF A TWO-COLUMN GRID (Runs on | Memory,
      then Conversation | Instructions). The grid is gone: since agent-page-nav
      (2026-08-23, Mona Lisa's mock, Josh's ask) the page is one section at a
@@ -8753,7 +8757,8 @@ test('the agent detail page is eight sections behind a nav, in the ruled order',
   const secs = [...panel.matchAll(/<section class="dsec" id="d-sec-[a-z]+" data-sec="([a-z]+)"/g)].map((m) => m[1]);
   // The eight sections are unchanged and still in reading order; the folded pair sits right after
   // the section it folds under (memory after model, skills after instr).
-  assert.deepEqual(secs, ['talk', 'model', 'memory', 'instr', 'skills', 'profile', 'term', 'remove'],
+  // #3757: the Files screen, reached from View All beside the sidebar's list, comes last.
+  assert.deepEqual(secs, ['talk', 'model', 'memory', 'instr', 'skills', 'profile', 'term', 'remove', 'files'],
     'the section order moved');
   // #3500: the pills follow Josh's four-pack order (Direct Message, then Profile, Instructions,
   // AI Settings, Advanced), which deliberately does NOT track section order, so the exact pill

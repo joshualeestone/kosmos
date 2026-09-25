@@ -460,7 +460,7 @@ function ensureGuide({ createAgent, via = 'model-connected', now = Date.now(), d
   if (!isArmed()) return Promise.resolve({ seeded: false, reason: 'not armed (first run is not finished)' });
   if (createdHere || setupAssistantSeeded()) return Promise.resolve({ seeded: false, reason: 'already seeded' });
   if (namesTaken) return Promise.resolve({ seeded: false, reason: 'both guide names are taken by other agents' });
-  /* "Don't show this again" (the bubble's switch) also means: no guide agent later. */
+  /* "Close forever" (the bubble's switch) also means: no guide agent later. */
   let wanted = true;
   try { wanted = settingFrom(deps.settings !== undefined ? deps.settings : store.readSettings()).on; } catch { wanted = true; }
   if (!wanted) return Promise.resolve({ seeded: false, reason: 'the person turned setup assistance off' });
@@ -516,8 +516,8 @@ function resetEnsureGuideForTests() { inFlight = null; lastFailedAt = 0; failure
  * Stored in the board's settings (/api/settings), not the page's storage, for the
  * reason the tips switch (#3574) gives: page storage can come back empty, and then a
  * bubble somebody closed forever would come back.
- *   on     the Settings switch. false = "Don't show this again": no bubble at all.
- *   asked  the first-X choice (Close for now / Don't show this again) has been offered,
+ *   on     the Settings switch. false = "Close forever": no bubble at all.
+ *   asked  the first-X choice (Close for now / Close forever) has been offered,
  *          so later closes just close.
  * The bubble, the X dialog and the Settings row are Mona's; this is only the state.
  */

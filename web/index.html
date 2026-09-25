@@ -63,7 +63,8 @@
   --tip-dim: rgba(20,22,26,.28);   /* #3737: the tour's dim, one value for the layer and the gutter */
   /* #3132 (Josh, 6.68): the consolidated link size, defined once so the archived
      toggle (#pj-arch-toggle) and the Files/Tasks "View All" doors (.pj-viewall)
-     are guaranteed equal by construction, not by two matching literals
+     are guaranteed equal by construction in the consolidated view (#3756 also
+     gives the tab view's doors this size), not by two matching literals
      (convention #5 -- two derivations of one fact). Defined on :root, not on the
      consolidated body, because #pj-arch-toggle's consolidated rule applies at all
      widths while the consolidated grid is gated to windows 960px and wider, so a
@@ -2763,7 +2764,7 @@ body.filter-noproj #orgview .onode:not([data-noproj]) { opacity: .26; }
 #d-nav .dnav-ico svg { display: block; }
 #d-nav .dnav-lab { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 /* Direct Message: the largest box and the default landing. */
-#d-nav.dnav-boxed button.dnav-dm { padding: 16px; font-size: 1.0625rem; border-radius: 14px; }
+#d-nav.dnav-boxed button.dnav-dm { padding: 10px 16px; border-radius: 14px; }
 /* The four smaller boxes below the DM box, as a 2x2 grid (Josh, 2026-09-24: the 2x2 is the ideal;
    all four tiles the exact same size; the label must never wrap). Two equal `1fr` columns plus
    `grid-auto-rows: 1fr` keep every tile identical in BOTH width and height (the two rows are forced
@@ -2776,8 +2777,13 @@ body.filter-noproj #orgview .onode:not([data-noproj]) { opacity: .26; }
    column - see the media query below - so a label never wraps rather than being forced into a 2x2
    that no longer fits. The #3045 no-overflow guard still holds in both. */
 #d-nav .dnav-pack { display: grid; grid-template-columns: 1fr 1fr; grid-auto-rows: 1fr; gap: 8px; margin: 0; }
-#d-nav .dnav-pack button { padding: 14px 8px; }
-#d-nav .dnav-pack .dnav-lab { font-size: .875rem; }
+#d-nav .dnav-pack button { padding: 8px 8px; }
+/* #3757 (Josh, 0.6.94: "the text font is just too big ... the same size as the agent's title";
+   "tighten up the buttons so they're not quite so tall"; width, grid and icons unchanged): every
+   label, the Direct Message box's too, takes the title line's font (.detail-meta, --text-callout),
+   and the boxes lose height through padding and the icon-to-label gap only. */
+#d-nav.dnav-boxed .dnav-lab { font: var(--text-callout) var(--font-ui); font-weight: 600; }
+#d-nav.dnav-boxed button { gap: 4px; }
 /* ACTIVE STATE - deliberately NOT the old full-solid-gold fill (`.snav button.on`, which Josh
    said does not make sense here). One reasoned default (he wants to pick from options): a faint gold
    wash + a gold outline + a gold-deep icon, with the label in ink, so "selected" reads without the
@@ -3413,11 +3419,12 @@ html[data-layout="consolidated"] body.consolidated #panel-projects > #panel-task
    `.linkish` (WCAG 2.5.8) is deliberately KEPT -- only the text shrinks. */
 html[data-layout="consolidated"] body.consolidated #pj-arch-toggle { font-size: var(--consolidated-link-size); font-weight: 500; text-decoration: none; }
 /* #3132 (Josh, 6.68): the Files/Tasks "View All" doors should read at the same
-   size as the "Archived (X)" link on Projects. Both are .linkish (.875rem base),
-   so they already match in the tab view; only consolidated shrinks the Archived
-   toggle to .6875rem, so match the doors here. Scoped to consolidated so the tab
-   view keeps its existing (already-equal) .875rem. Both doors share .pj-viewall,
-   so they stay consistent with each other as well as with Archived. */
+   size as the "Archived (X)" link on Projects. Both are .linkish (.875rem base);
+   consolidated shrinks the Archived toggle to .6875rem, so match the doors here.
+   #3756 (Josh, 0.6.94) supersedes this for the TAB view: its doors now take the
+   consolidated link size too (they sit in the header row like the consolidated
+   view's), so there they no longer equal the tab view's .875rem Archived toggle,
+   which is on another screen. */
 html[data-layout="consolidated"] body.consolidated .pj-viewall { font-size: var(--consolidated-link-size); }
 /* ⚠️ `color` is explicit, and it is the fix for a real dark-mode contrast
    failure. A <button> does NOT inherit the page's colour -- it uses the UA's
@@ -5144,6 +5151,25 @@ body:not(.consolidated) .pjcard-members > .pj-addmem, body:not(.consolidated) #p
 body:not(.consolidated) .pjcard-members > .pj-addmem > span, body:not(.consolidated) #pj-tasks-field > #pj-newtask > span { font: 600 15px/1 var(--font-ui); }
 body:not(.consolidated) .pjcard-members > .pj-addmem:hover, body:not(.consolidated) #pj-tasks-field > #pj-newtask:hover { color: var(--k-ink); }
 body:not(.consolidated) .pjcard-members > .pj-members, body:not(.consolidated) #pj-tasks-field > .tkcards { margin-top: 6px; }
+/* #3756 (Josh, 0.6.94: "let's make tasks and files work just like they do on the consolidated
+   view, where we have the header"): in the tab view too, the Tasks and Files headers are the title
+   on the left and, on the same line at the right, a small View All (and Tasks' +), not View All
+   centred on a second line. Same tracks, sizes and order as the consolidated header (#3218, #3304):
+   Tasks is title | View All | +, Files is title | View All, and the doors take the consolidated link
+   size. The consolidated rules are NOT unscoped to serve both: they sit in its 960px media block
+   among higher-specificity catch-alls (`> * { grid-column: 1 / -1 }`) that would override a shared
+   rule the moment its consolidated twin was removed. Instead render-consolidated-layouts.js measures
+   the two headers against each other, so a change to either one that makes them differ goes red.
+   This supersedes #3132 for the tab view: its doors are now the consolidated link size, not .875rem. */
+body:not(.consolidated) .pj3 #pj-tasks-field { grid-template-columns: minmax(0, 1fr) auto auto; }
+body:not(.consolidated) .pj3 #pj-tasks-field > #pj-newtask { grid-column: 3; margin: 0; }
+body:not(.consolidated) .pj3 #pj-tasks-field > #pj-alltasks, body:not(.consolidated) .pj3 .pjcard-files > #pj-docs-all { grid-column: 2; grid-row: 1; margin: 0; width: auto; justify-self: end; align-self: center; font-size: var(--consolidated-link-size); }
+body:not(.consolidated) .pj3 .pjcard-files { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; column-gap: 8px; }
+body:not(.consolidated) .pj3 .pjcard-files > * { grid-column: 1 / -1; }
+body:not(.consolidated) .pj3 .pjcard-files > .dlab { grid-column: 1; grid-row: 1; margin-bottom: 0; }
+body:not(.consolidated) .pj3 .pjcard-files > #pj-docs-msg { grid-row: 2; }
+body:not(.consolidated) .pj3 .pjcard-files > #pj-docs-msg:empty { min-height: 0; margin: 0; }
+body:not(.consolidated) .pj3 .pjcard-files > .pj-docs { grid-row: 3; }
 /* Josh, 2026-09-10 (#2711 item 6): the dialog area is white in the tab view,
    not the super-light gray. The .pjmid column is already --k-surface, so the
    thread joins it as one flat white area. Consolidated keeps its own thread
@@ -6397,6 +6423,13 @@ body:not(.consolidated) .pjmidhead:has(.pjhead) .tsearch:focus-within { flex-bas
 .dfiles-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
 .dfiles-head .dlab { margin: 0; }
 .dfiles .pj-docs { margin-top: 8px; }
+/* #3757: View All sits at the right of the Files header, as on the project page's header. */
+.dfiles-head .pj-viewall { display: inline; width: auto; }
+.dfiles-screen-head { margin-bottom: 4px; }
+#d-sec-files #d-filesall-msg:empty { display: none; }   /* no empty band between the title and the first row */
+#d-files-back { align-self: flex-start; }
+.dfiles-title { margin: 0; font-size: 1.375rem; font-weight: 700; letter-spacing: -.02em; color: var(--k-ink); line-height: 1.2; }   /* as #d-talk-label, the page's other section title */
+#d-sec-files .pj-docs { margin-top: 0; }
 /* #pj-one-add sits in a `.frow`, so the shared `select` rule dresses it and
    the named width rule above widths it. ⚠️ NOT `.frow select` — this comment
    said so and that selector does not exist: it was deliberately replaced by an
@@ -9531,14 +9564,17 @@ window.kosmosMeasureScrollbarWidth();
        four-pack. The folder is the agent's own Files folder (engine/dmfiles.js; the agent is told
        to save there). Rows use the project documents look; a click opens the file. Painted by
        paintAgentFiles on open and on the 5-second poll while this page is on screen. -->
-  <section class="dfiles" id="d-files" aria-labelledby="d-files-h">
+  <!-- #3757 (Josh, 0.6.94): the section is not shown at all while the agent has no files, and it
+       reads like the project page's: "Files", a short list, and View All on the right only when
+       there are more than the list shows. View All opens the Files screen (#d-sec-files), which is
+       where Open in Finder now lives ("it looks crowded and junky" here). -->
+  <section class="dfiles" id="d-files" aria-labelledby="d-files-h" hidden>
     <div class="dfiles-head">
       <h3 class="dlab" id="d-files-h">Files</h3>
-      <button class="btn" id="d-files-finder" type="button" data-win-copy="docsOpenFolder">Open in Finder</button>
+      <button class="linkish pj-viewall" id="d-files-all" type="button" hidden>View All</button>
     </div>
     <p class="dhint" id="d-files-msg" role="status"></p>
     <div class="pj-docs" id="d-files-list"></div>
-    <p class="dhint" id="d-files-more" hidden></p>
   </section>
   </div>
   <div class="dsecs">
@@ -10273,6 +10309,19 @@ window.kosmosMeasureScrollbarWidth();
     </div>
     <div class="fmsg" id="d-delete-msg" role="alert" aria-live="assertive"></div>
   </div>
+  </section>
+  <!-- #3757: every file in the agent's Files folder, reached from View All beside the list. Open
+       in Finder moved here from the sidebar. It has no pill of its own; the nav lights none. -->
+  <section class="dsec" id="d-sec-files" data-sec="files" tabindex="-1" aria-label="Files" hidden>
+    <!-- Back to the conversation, as the project's file screen has its own back (review pass 1). -->
+    <button class="back" id="d-files-back" type="button">&larr; Direct Message</button>
+    <div class="dfiles-head dfiles-screen-head">
+      <h2 class="dfiles-title" id="d-filesall-h">Files</h2>
+      <button class="btn" id="d-files-finder" type="button" data-win-copy="docsOpenFolder">Open in Finder</button>
+    </div>
+    <p class="dhint" id="d-filesall-msg" role="status"></p>
+    <div class="pj-docs" id="d-filesall-list"></div>
+    <p class="dhint" id="d-filesall-more" hidden></p>
   </section>
   </div>
   </div>
@@ -11073,7 +11122,7 @@ window.kosmosMeasureScrollbarWidth();
            SPOKEN, not shown -- the pack's card carries only the segments, and
            the sentence stays for screen readers and for the tests that pin
            whole-step rendering. -->
-      <p class="vh">Press Escape to leave setup at any time. Kosmos will not show it again on its own, but you can open the guided setup from Settings, under This computer.</p>
+      <p class="vh">Press Escape to leave setup at any time. Kosmos will not show it again on its own, but you can open the guided setup from Settings, under Computer.</p>
       <div class="fc-head"><img class="fc-k" src="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAGAAAABgCAIAAABt+uBvAAAABGdBTUEAALGPC/xhBQAAACBjSFJNAAB6JgAAgIQAAPoAAACA6AAAdTAAAOpgAAA6mAAAF3CculE8AAAARGVYSWZNTQAqAAAACAABh2kABAAAAAEAAAAaAAAAAAADoAEAAwAAAAEAAQAAoAIABAAAAAEAAABgoAMABAAAAAEAAABgAAAAAKkzX04AAAJNaVRYdFhNTDpjb20uYWRvYmUueG1wAAAAAAA8eDp4bXBtZXRhIHhtbG5zOng9ImFkb2JlOm5zOm1ldGEvIiB4OnhtcHRrPSJYTVAgQ29yZSA2LjAuMCI+CiAgIDxyZGY6UkRGIHhtbG5zOnJkZj0iaHR0cDovL3d3dy53My5vcmcvMTk5OS8wMi8yMi1yZGYtc3ludGF4LW5zIyI+CiAgICAgIDxyZGY6RGVzY3JpcHRpb24gcmRmOmFib3V0PSIiCiAgICAgICAgICAgIHhtbG5zOmV4aWY9Imh0dHA6Ly9ucy5hZG9iZS5jb20vZXhpZi8xLjAvIgogICAgICAgICAgICB4bWxuczp4bXA9Imh0dHA6Ly9ucy5hZG9iZS5jb20veGFwLzEuMC8iPgogICAgICAgICA8ZXhpZjpQaXhlbFlEaW1lbnNpb24+NTEyPC9leGlmOlBpeGVsWURpbWVuc2lvbj4KICAgICAgICAgPGV4aWY6UGl4ZWxYRGltZW5zaW9uPjUxMjwvZXhpZjpQaXhlbFhEaW1lbnNpb24+CiAgICAgICAgIDxleGlmOkNvbG9yU3BhY2U+MTwvZXhpZjpDb2xvclNwYWNlPgogICAgICAgICA8eG1wOkNyZWF0b3JUb29sPkFkb2JlIFBob3Rvc2hvcCAyNi41IChNYWNpbnRvc2gpPC94bXA6Q3JlYXRvclRvb2w+CiAgICAgIDwvcmRmOkRlc2NyaXB0aW9uPgogICA8L3JkZjpSREY+CjwveDp4bXBtZXRhPgqxv+ulAAAZgUlEQVR4Ae1bB5RU5b2/vU1v23tjl96bCIIoaBQjalDB2DXGHBOfJea8nBg1T5KnieahYI+oiAk2RFBUREVQAZFdyu6ysJUtszt97txe3n8WJcawzC4z6Hnv7D2j3L3fd7/y+/79/79oYL0PGb4GRgAbuGm4JYnAMEAp6GAYoGGAUiCQonmYgoYBSoFAiuZhChoGKAUCKZqHKWgYoBQIpGgepqBhgFIgkKJ5mIKGAUqBQIrmYQr6YQAyU0z7f6c5cxRk6oipJTduKAjgA/+HC56YRvLmdF0wU/9hGKqpi/33pqlLpiFnasIMAWTqGJODW6tMQ2Uqf2k/cyNV8BNYKMaVoJQrCVbyp2Zo0WZy/zAaQI/RCErB4IRrElO0FMUoBMWZwsup7AWZOhgiA4s2DZS022e8hlmKYjuv5ypvRykniltMLWGbtEpPHEnU/Yat+pXcuV7uWJvcQ1qXgeJW28QnFP9mxf+hfcY6ACu++0bb5GcwS0l8p2yainXyU0BKka1z9WgtgpFpzZapiKJumLomGboqJ0J8xyZdicbb3tSpfAAOs5SjrllUzkIyearpyaZ+hjUQCrFWm2SOSbhx5zjcPkozKMG/XYk1S9FmVYobuqyLAU1JICiaJjrwOpqRoL2mabp9jq6rZmibZhIGmYPJHbS91DllZaLtdaH1Ra78Jj34CSHuw/BTPlITt5Qbsl8Vwxo3ATOiBt9EV9zBZE3j9/2nED5ioCxLqqaJqsxI1BBorYWi8PQBwu++wpLmKKahUO5p3rNeZ92j1O7XXeN+Zy9fisR2OkbdweWfh5kSIvd4pv6ZdlYrnW+gKBDRkA8WxBmdt8gxE7i4FF72nrnWUnKZFtnjGPkfbPZM2jXOCO9gnJW45scx1JS7cSNCkUQmCAghAPI0AQI+1ZS4JvZqYjdGZ1urboUBNf98Q02gGIGg2DHtBgxomCaWRGdIMya5Ev7TdIAW03UTtY9GCQ5+GFd2TMTAyPbR9zKFPw69N8EQ2lnmGJGiaTL0MVjQvje9aQOEyIomalbMFClcY6vuIuyV/IEHVDGI2MYiiUOYHlRRH2YmOErF8SGiA6oKJRFTFSVdJcsQtQcnrc7xD+pSb6zud5h9NJt/YaLlBcqST7nG652rcRTMiyFNkWL3oMXSE5zJ8U2SYm2j7yJsZfz++6KNKwyTYrAIzWShFq+pt+Omx1Fxm9q71QhtRZDB600TSMA65kHSPTW2+0aLt5zMvUhsfRHsHeBWUytQbHlM4Tls8SIC4aMHHpJ7t7EcgyTFTvo7+idqGWAxkEGkd4a95rbkqErAaavAaG/ow9n28fcxxUsV/xb+wHLHyNtEzhUPvG8OQe8CPjSZfS5hLcNsE2yj7sFtFYyzQgnuYjxjklPln2ctXYLbKonyZUrLSrBNMZBwmQQnuaHBn2ey94kvlJCiR8S+L0lrYfzoh0y2RnA5miKoUpjSRFWKJHp38pvORsQWGqMGSf1gC8Jcui52bV2GcqV63/uY9yyOdCV6PufbXse9cw0tEWvbJIm8pXRZovl5U5dxIk0L68Sbw+9cwp64ZShPNTnGh45Ejrwqd22inKPYrJkYzoUOrjJwd/zw3yhrvq3yOhwnjPj+wQkIHSXB1GST3JS/iLKX66HP5XgHQrii9SvUaG2sc0eseS2mdEqhunDTWiO+j6JO2XpIsU/CTJ9jdclWusw+aYUmdIW2X+UecztGuQk2SxU6PSNvkJwFKOmgfTOQksV9m7cZUhd4AydbFNjlOOeatR40YOizq7yTHgR/wgx+yJVcxZVejiX2KQG3e9Y6XewOf7rYkAOMiWEYjiR5K9Pc1b9KAklbzRuGgTCF4EOQ1hJQ5PHW9daSS/mOzYmuj5C6v4DstOQvoLzTpOA+VYriUA2QYkbQ5YbMdwKOUry798v7wcsTA3sVDRMlWWx/i/NNxRkvRtqTZrrSh2H9XJtizJOdyMnb0O7X3CfvkbI16TvqHFV0tS4c1brf0DBn0g8QmiyOAg1zq+E9JkoT7pl6bD+LBQlyYF4wddPQUBTVdETjxlKOkbp/g2KwlHsSxn8lJ7plWWEZAiXdtnF/lPzb9a615GnjrOO7BgpKOxxhaIyzis2aEmvcSVuy889ar/KdoS+uy56zlnSO6dtyLkI4bWN/rwZ38bV3gkUzgBiCeEC+fewflNAuofXvOfNeISyFiSPPEdZyOnuO1PVOaMeyrGkrMJKVA7udlVfwFBPtXpOBxR9HYoAbkEGDVCwDDABWBwDkHusou9iM7hKPdpO2Soywoiguhg6Cf6QIvZ6JtzGukfATmh41EkcQ9ASq09RV2jOTKbyE9ExPdLwDQQuYz8BsCOlKTkw44MZSegUY0An/biXepsWbwZNIf/ED7uqbBrRrXf8Kvvn7FP41EWAxmim+Tg99qoZ369xYDGfQ+C5ZIwyUo80AU3CRY9Sdon+72PAgiYMoPcGRwCCqaeOq79Gi+4XmZ4mshWzu2eH9fwFxw+bOl7vfRcUmzHcuSliEjrcMzEqiAseA/DnBUKewhZO8AhSkn6R5ME0QXrCXXuWadK+p8r1bFpK5C+2V14qta+RQrbXq54lDKyItb+m4l6SBrDATGcAVAOWFIpxvPJ4zDaweR/VPmaxZRnSXrkq0o8QIWxHD4qhaBvLODG6BSBMGXilqnBa99a97zoglbZCOaqAaBGdwa4Wz6mrCWoKVXEE4x3K5Z0FQQg59WXDWKvBp+8R6uW8rCmHAf79MBKcY2lGBAgMSFto5kuRyuKwzrKWXgV2uZE/q+/RKa8ECeC+xz2YiEOuB4NJpJx+Y7gTi4N8Xn+IJRgf2rZAUXONb+NaNOpnrqrkldPBx/uhmruAjpXsDpkVD9c/ibJ4QbsC/K4Bgo2Ab6GD1KHxny8bzk94/39C2ZSluHaGFvyzKms3QXrDUpXhn88bzYCWk2EMQJ7WkUix3aM1AQelqMVDMhtAaa/kHlzWFoFmC9SajHLpIcV7GUYHECrRwV1/dwyrfxTEmTmL/OqMJFjPB5mvxQ7S9OHvqCpDuwc+uQ7hClMvSegMt715E2Efq4Z0MTirRPbA5lMnAmgcPUiYsaYhHEEjWlN+yufP80mF3zQ04k+0ZdZMhh9m8c0RnQaJtXfH0pwNf/EJoWW0ioJ6+JTp01TV5BVd8eWjnLYYqcNkzYekgnp2j7sAtxd2J/ShbxBUtCe06gGn814Gerx3Sbw0y+O0OvSfYQZlIbKCY/8v7COd64ehHyP5VtpLFwX2PQxjQhXDRxjWm0pvo3a0mjqLYMTP6mOwASlKAvXSTBm2tI2ysYwPWsBos8uCR9YpBk/ZqMbjPNXIe55sQpzhd+waRr0XP9yGAAE+07RXr0GH97humYYiiqGkmzVrA3tURG47EYAcaYiHRBDhL4CjQhM5yx8Vz0uGi3VOkUG1CkCnfPDO2E1FDqHuuyreiiYMG4QbzktTaYUgdtTBolCS/J0S+szf89ksGtv2/03eAP0HE4kxWzpkvUDSlR/flzHwsa/ydRmSna8TVuTP+gkptJOPIn/M8jqpqZC+IGBjG0ERHzR2eGc8ATKgh5s952l7yYy5ndvbk+1zll8k9m/POfDpnygNqYIfGH4YXCQI8rm8oaIBlnKbHmbCkwZEmHJTvDAg+gIa2gs9N2hjfDEvhIsY9hsmZK4f3cblz1FhDonXNMd8SJLMQPsyEDyUCdWzWDILxIowX54pgk2AZQj5H11TD0MFrJXCANCkEvgej+YQQoy0vp5vVANJXVFUlSlCtl0AEIvtCwlbFH3madIzi8hbwR57T5V7MPgmCQQzOo6YGFAfehmxYEMtoLbyLtOTlzFglhA6Eml7JGnOrFKyNN60CtkJwK2X0MBSgk8yE/FAXTA+WdFo/w5BY75Syha8XzFqFYYSpRhBDwBBFix6w+CZ6am7CEZVzVdhyZ4HDxRVc4Jn6GMHmFc55vuqi9/Km3k9zHsY9gnWUGXwj8BHF+QhMtdi8jtwpJMWAod9v66e1wnQ2CDZFkoDTuUxdp9zjGPcoylqIErbcSb8BPd0R/kQVe1nPKFHtZVzVhXOegjxE22vvWUqvsRQtSnRvpz0TwfhmfFOFnk9pWzHYTazFacubrvEd8TrdN/ZOW+X1nZvnyH070s5Wp7M5BG1ew6U1AEgHU1dMO1v8UzXepPZsIFyTIQWq+d82dUE2nCiqkwTmqLlTTbSKzc+i1hrIUvCtL3N551kLfxRtel4Ofk64phuSH1XaddSJICqNxGAQ0jNTan+BMMGrSPcI09kgUFC6zipMj+oxoWerKfewjgrv5D+I4YZoz3raWUWROUrgM0Q3oq3rCdqO027fxN+StipcD+CWIpxgwUTinKWW0h/JgZ1ydyvJ2VGIJJpgky9PBPYJKm+CL5SJFZ4yRhnwxcDes/hmFJy/XfR/Em16wVZ4Lvz4hoc84++3Fi9uWZcP4dGiCz9CCTZYu9xRfjmsNXvKgxCKBycDUzsJNttecbWpxjremZM3700Up7o+XsZln4HTnlgdpAyVjNQgnDpAmfCJcSnhj3duE3o/CzZvQKyPKfFmiff31P4VP/yWIoYJk5Lj7QTrCx/9BLON5LzjuvY8YsmZac2eFmreYM2ba9VlMdQgJkJCqB5CYvHe2gPrpppqmDIkFAdbH5TYD2MlJpmj6cUMpJNkWTUtYynWrQS2S6ICWQYO0syQkNYQzkIlqz4sEyC2b4htudP+W4l3+ff8HjQ9xuZjSjuCsfbKG6W+L9TQZ9AdnHua1EyMoe1VqFDfT0HgoIAZ9MNIIvy2i9OdGEKurGd8+QVbfKN+hpqip+pyMGeEjtddFUt9o2+Wej6A4E7pwo3W7IkEjuVM/p01ZzLf9IQ9/4yKH72LKD0ExZacvcaaNQ6kVfH8fzAWn+z/GPJFRees5zs2OEbc6hr9a779TUSXfhA6yoAlnazZ4ApBAANBks4JOO2iHJU6wjDZsy35C3t3/9rEWGilrEWx7h1k/UtS5IAmRwyVl+NtkH3VpYjCd0HtE5jjXPYMXewJo0i0/QNZvZ0PHrKUuUzMokNWOcllPwCjoY2r0/XFwLWSVcI76WFIFvbsvpf1jMMIJtGyGmXynRXXaJHPIR/Nld0IaWS+/W3cWk5Zc5H4Lk1VJZWkCBUFIY+4UVMgUBW1VJtKD4VEINpvUrmQrdZMhrLXoOI+HBz+r0NXgNX3hxRQULoBM1M33JVLHYXzIq2bcByrWLDWNLXD6z5yVF6bNfFe2H7HliX5s5ar/NEOqbn0/A8ILrdv9z19tX/iwFE3TVfNzyxFl/i/uF2JNuRMugvsJv/2m/PPeMRZee3Rj64wVLno3PVd266JHlqdc8bjpKWw6+MrwcL63jDKQGYVdIxrxPWcZyTjKOZb1sS7t4NMVcQIRjqSWgCjFFkINq3ThG4EgodcLjzELWXgfYKCMnTTkn+evWB+rGm0Gm1kPaPB6oRYvJwIKEJAkwUp0tB74Fm+dy/MgrFFOFdqIKD7gdm+JyJC659PN76razqTf0nR7CeCTS937fglhL5AQ1Fo3CRdrppfSuGDfPurmmzAhigWt5ZdA9U94YP/Q+hHIU4EAOlkEeEYqwa2QP2VYtgAUhKNKVD2jLlIMwRvyRLCgOuKIZKMQdqHxnm833tNht9OP69lIr4LtEBaQO5wnjGMNTd3+p8hOXF066W0d6a79PyQFpJQM2vsMtpR1Ve7PNTwrAECHDCkksFpFEN1sVWOtdLJJJdZOO1eyjGic+ulnoK5jqobQnXLbYULIYDr3/kr1jPBV3RZuOEpU9Zzpj8CaTT/rruTxeOnmZLAkk53BigEcxTOxymrvWAu6C974bk44wEmclUuteVMoVh7vHGle8R1XPascOMTnAFbgpwW8NnX5h9F4v0Z9iRcpLWYtleYJu4ou9RVdrEc2svlzaftZT077/aMvcdeshjHjFDDM64RN8H7gQMr1Fgj5Nrg/vRd6IHn0mUxQzcQS41n9B1icG+4fiXtnQZnLnRCGcY0V/XNsbY3E21vILQPp7MR8SAEwAbaDBiSksYBaZFmBGHymOy5QucmiJlhOIWpvWzOHMAlULdcidTbKm8G2S+0riZwcCQHHHCgiYb0HLRYus4qHKEcrQ82/V1PtGCoQVu8OKT6cMzU+GjHFr7jHYjsWAoWhZvf0IST5UJBnkAAG5KCGI5CihUhORRRvVVLcNIWaXwS4mq0tcBeuCAY2R9r34hT4NaqQISn+wItlu4UYJ04cqeVX7RZ7P2i+Z3zys95EbzTVrUr/4zHSFtJqGE255vCeMZ6KpccfmN8v4YecEYi6buDlLaWnL0anNXA/jHe0b+A3gSOu6uvo5019twpfNurpQs30a6axr+XqfHW08xhGamTRhEh3Nhd96QU/EoWYx1fPEBw+VF/XZYSx3VFiHUT1jAkw+REr6b310mnOhLQ7p17HgV3P9b+kWvEtSBl4sEms3lj9pjiaPt7Qszf27gWRJUiBCFnmfRkT+eF/3xRujycdCQJu6YTsfa3EYOHWnIEoxI9n/KBemvW9EDjy517H8cob+/+J9XIwcHUSYO4Dnd8Gml/P+Gv1TSZc9WEj7zaU/dUT8M/AvVPkyQGcinQ+BKqhUHdH3P1AanThBJ+y4XpjmxoSP6MhwpnLqdYhxI5WL14h6v4HNSQHPmzHUXzHQVzQAyVznnU6hsVbnwG/JKU8wHPlsx5vGT2X6OH/5Y38S5rzlTOValE9sMgWrzeXXZx+blrbNkTIk0v+cbf4am+ge/eClWuKYc9tQ6ZCJghSLh9K+WZHm7/UJFiUrSFthXC1yVw76xYwvd+JUUOd9etUqKHIJODD0JnAtPE/V/qCAVfEAWPvAm1Ir0NL+O0AwJJJJcrRttVMSRGjhjwVULpEkvWlJ6vHtTleFKbnQb7Gq19+tSQ/edbQOQifLCiIpChIUjEoPJx2gc5QuiBcRW62EHiCsoUqjx8RYGA9ZvySg4oQpwWgf6KTiBUgZFohZFxa43O14MiNHAfqvZRUCfjmgjMq/jfA+mOkVzSbkwyfMoZhtAB/1naLAazkSRbNvcJi7tET7SXznvakTdT8m+BpE3JWSspAncUzB1xwXocyg+6Ph2k0gFCg2pPsCfLzl5dMutPQve72WNuLZn9KDjDQs8Oi7uKtecRBFG+8FVX8YJ4+1tQJFl+/vtQABtr25iRKPtxCDPBYvAVDsk6ihbEMNIiBlwl58PoID7Evr2QclZiTVLkkKYKmgLflA72OkZo4JRAdhVkNrhxjuILKGuevXBhX91fR1z4NuRbm99fynlGw4hgENCusZAjSMakcA5RIYw92IlS9kO/ejJlnxQdYDGqhqioA0rwIAtYeOZKMHM7d9wGn/2pKJTOiShUcJBZKFjDycrMIVxQgC1pFILbUSVgyZ3lrroqcHClGqp1Vd+A4nTvvifc1deTjDdQ9yBkrB0V10rh/WpgG9TiZFD1Z4CCYBuce0T25OVK/Ej3V4+IkSYheFATAow921NwgeDfIYbq4SMNjLIjWmxIZwt0RGKKqQegIMuRO93mGxNjXPBldbh1kyb20RZX/riboezK4OtAM7gKzxJYWyj8mQlFJZm7MgGQjnhH3uKpuBhWRVnyPFUQ0JLqnt9QMONhd9UyKJJv+eDKET/eJgRrD29cALn5IWEExXZQDwIKy1d9BeebKBSdDRntMT9tCTY83/Xlf1mzJkDEg7SWuiqWeKp+giA/Ebs2SqEDg5R0g4ERwh2D6ZaiT6B5o730Uily5OjeZ1E6FwqfJCEBYTLQKWBAS0I8EW4Wwy3g1iaFyxBnhO6GYR764BZL7pzIoecwU+jcuxIS1kK4ff/6xeCjBeuf9dXwztLF8Z7dYqwrWRsBqmwQ6jLFrvqbM0BBSYqAT2mFAFhD0Y4PwSnXxE6QSy3b7g60fZ7wb4OyRPhWR070gMUNlSCDWdZ3+gCsCf9Ovq+W42yaKHbsvB81eAhI8l1bXBWXc84iXYlBZUSs+3NVCLuLZ0NlcqL3i4xY1xkACCJ7pbMfYj1jLe4KTI8Uz35E4Y8efKWG9c0omfcw3/OZEjvsq1oMe060vy727Tn5xz7fgebYn7BVhsaqFm0mWW/HjrtL578gBGqb3lqQN/Hn+dP/CHXYGMERjCN39NXhg4+WLXhDk0OwgGSFW9pXBgCCsGm4/WPGNSrWszsROgzfjingl6oa666mbfkoOvPwwZccZYelaKsQaTmmv09l2aYZansfPnJAcBvBeOCbc5QgQq2bad/svvoXDE0pwO2hw6+J8d6mrbeZmqjr2mCs9pQrQfc8kbJPig5JZQxFchBX5ltMOUzYSg01ShohhLDaSq+UwvWQlUZIK2T+GFI7ycc+J58GZhH67WSCxLnc+WqiHUnUw3dBsowkgyTA0gbkak2GTsawgeJYiOpmwhrKAECwOEgxKyoCJwZKB2wiWBlEUWH1kph8SNEgZZMPkyopjUXDICCwwWwEUGBYur8iFDyS/gBu0jUB8oTY/jG1k85E3z6qDLAYDAdneOwY4R6WfuwCgw0YAq7kWr95+HXbKf3zNXsCCjDaN37p8aL748ybKWiOrTEzAA2038yu9fgsp2nY4+N/+yZD1sK3h/z/dT8MUIrzHAZoGKAUCKRoHqagYYBSIJCieZiChgFKgUCK5mEKGgYoBQIpmocpaBigFAikaB6moGGAUiCQonmYglIA9L95K7fxBm386QAAAABJRU5ErkJggg==" alt="" width="42" height="42"></div>
       <!-- install-flow-9screen: the step indicators (crumb + segments) are GONE
            by Josh's spec, and the persistent shell head is retired -- each pane
@@ -13023,8 +13072,8 @@ window.kosmosMeasureScrollbarWidth();
         <h3 class="dlab">Files</h3>
         <!-- #3218: View-All sits right after the header (before the list) so keyboard focus reaches
              it in reading order. The consolidated view grids it into the header row far-right; being
-             DOM-early keeps tab order matching that visual position (WCAG 2.4.3). The tab view then
-             shows it just under the header rather than at the bottom. -->
+             DOM-early keeps tab order matching that visual position (WCAG 2.4.3). Since #3756 the tab
+             view grids it into the header row at the right too. -->
         <!-- ⚠️ "Show them all in Finder", NOT "see all files". Josh asked for a
              view-all that opens a SCREEN listing everything. That screen is a
              later slice; this control does something real and says exactly what
@@ -13035,8 +13084,8 @@ window.kosmosMeasureScrollbarWidth();
         <button class="linkish pj-viewall" id="pj-docs-all" type="button" hidden>View All</button>
         <!-- #3218: the message sits BEFORE the list in the DOM, matching its visual position (the
              consolidated Files grid places it in the row directly under the header, above the list),
-             so reading/tab order and visual order agree. In the tab view (no grid) it also reads as
-             an empty-state line above the list. -->
+             so reading/tab order and visual order agree. The tab view's Files card is the same header
+             grid since #3756 (message row 2, list row 3). -->
         <p class="fmsg" id="pj-docs-msg" aria-live="polite"></p>
         <div id="pj-docs" class="pj-docs"></div>
       </div>
@@ -13280,23 +13329,17 @@ window.kosmosMeasureScrollbarWidth();
          to scroll to find). -->
     <div class="field" id="pj-tasks-field">
       <h3 class="dlab">Tasks</h3>
-      <button class="btn" id="pj-newtask" type="button"><span aria-hidden="true">+</span> New task</button>
-      <!-- #3218 + #3304: the View-All door sits in the DOM right after the + control (before the
-           list), so keyboard focus reaches it in reading order. #3304 (Josh 2026-09-19) reordered the
-           consolidated header to Tasks(col 1) | View All(col 2) | +(col 3), so View All now sits to
-           the LEFT of the +, no longer top-right. NOTE (was a clean invariant, now a documented
-           tradeoff): the DOM keeps + before View All so the TAB view's vertical order (+ on top of
-           the header, View All just below) stays focus-clean; in the CONSOLIDATED view that same DOM
-           means focus reaches + then View All while the eye reads View All then +. A single DOM order
-           cannot match both views once #3304 flips the consolidated one, and these are two
-           independent header actions (add vs open-all) whose order is meaning-independent, so this
-           does not fail WCAG 2.4.3 (which targets order that changes meaning). In the tab view View
-           All still shows just under the header. -->
+      <!-- #3218 + #3304 + #3756: both views now draw the Tasks header the same way, TASKS | View All
+           | + (#3304 for the consolidated view, #3756 for the tab view), so the DOM puts View All
+           BEFORE the + and keyboard focus follows what the eye reads in both (WCAG 2.4.3). (Until
+           #3756 the tab view stacked + over View All and the DOM kept + first for it, a documented
+           mismatch in the consolidated view; one visual order ended that tradeoff.) -->
       <!-- The door: everything the five-cap column does not show (capped-off and
            finished tasks) is behind it. It opens the Tasks view scoped to this
            project (#3703; it opened its own all-tasks screen from #1382 until
            then, and revealed in place before that). -->
       <button class="linkish pj-viewall" id="pj-alltasks" type="button" hidden></button>
+      <button class="btn" id="pj-newtask" type="button"><span aria-hidden="true">+</span> New task</button>
       <div class="tkcards" id="pj-tasklist"></div>
     </div>
     </aside>
@@ -13980,7 +14023,8 @@ window.kosmosMeasureScrollbarWidth();
     <button type="button" data-go="connect" aria-controls="s-sec-connect">Connections</button>
     <button type="button" data-go="gskills" aria-controls="s-sec-gskills">Global Skills</button>
     <button type="button" data-go="policy" aria-controls="s-sec-policy">AI Policies</button>
-    <button type="button" data-go="mac" aria-controls="s-sec-mac">This computer</button>
+    <!-- #3758 (Josh 2026-09-25 11:07): "i think we should relable "This Computer" in settings to just "Computer"." -->
+    <button type="button" data-go="mac" aria-controls="s-sec-mac">Computer</button>
     <button type="button" data-go="automation" aria-controls="s-sec-automation">Automation</button>
     <button type="button" data-go="usage" aria-controls="s-sec-usage">Token Usage</button>
     <button type="button" data-go="updates" aria-controls="s-sec-updates">Updates</button>
@@ -14324,7 +14368,7 @@ window.kosmosMeasureScrollbarWidth();
   <!-- #2054: the "Agents Talking" top-level tab was deleted here; its one block
        (the conversation limit) moved into Settings > Automation as block 3. See
        the s-sec-automation section above. -->
-  <section class="dsec" id="s-sec-mac" data-sec="mac" tabindex="-1" aria-label="This computer" hidden>
+  <section class="dsec" id="s-sec-mac" data-sec="mac" tabindex="-1" aria-label="Computer" hidden>
     <section class="dbox">
       <h3 class="dlab">Opening Kosmos</h3>
       <div id="set-applocation"><p class="dhint">Checking where the app is…</p></div>
@@ -15612,7 +15656,7 @@ function windowsCopyTable() {
     claudeSigninHatchEnd: 'If PowerShell asks for a code, copy the code your browser shows and paste it into PowerShell. '
       + 'When PowerShell says <b>Login successful</b>, come back here and click <b>Try again</b>.</details>',
     claudeConfirmSentence: 'Connecting to Claude needs Claude Code on this computer. Kosmos cannot install it for you on Windows yet, so if it is not here already, the next screen shows you how to install it yourself.',
-    /* Settings > This computer (W-16, W-22). */
+    /* Settings > Computer (W-16, W-22). */
     settingsRevealButton: 'Open the Kosmos folder',
     settingsOpenKosmos: 'To open Kosmos later, double-click <b>Kosmos.exe</b> in your Kosmos folder. Tip: right-click Kosmos.exe and choose <b>Pin to Start</b>.',
     adminDetailsSummary: 'For IT admins',
@@ -19099,7 +19143,7 @@ async function tick() {
     agTile.classList.toggle('floor', floor);
     if (floor) {
       agTile.setAttribute('role', 'button'); agTile.setAttribute('tabindex', '0');
-      agTile.setAttribute('aria-label', unreadSay + ' Opens This computer, which shows the line.');
+      agTile.setAttribute('aria-label', unreadSay + ' Opens Computer in Settings, which shows the line.');
     } else {
       agTile.removeAttribute('role'); agTile.removeAttribute('tabindex'); agTile.removeAttribute('aria-label');
     }
@@ -28240,19 +28284,43 @@ function fitDetailName() {
 
 /* #3614: the agent page's Files list. The server lists the agent's own Files folder; a folder
    not made yet is the empty state. The stamp skips a repaint when nothing changed, and the epoch
-   and agent re-check stop a late answer painting one agent's files under another's name. */
+   and agent re-check stop a late answer painting one agent's files under another's name.
+   #3757 (Josh, 0.6.94): an agent with no files shows no Files section at all ("let's not show
+   this section"); with files, the list is the first AGENT_FILES_SHOWN and View All appears only
+   when there are more ("a View All if we exceeded the number that we display"). A folder of its
+   own that is missing, or none at all (404), is no files too. A read that FAILED is not "no
+   files", so it keeps the section and says so. */
+const AGENT_FILES_SHOWN = 10;   // as many as the project page's Files list shows
 let AGENT_FILES_EPOCH = 0;
 let AGENT_FILES_STAMP = null;
+function agentFileRow(f) {
+  // A BUTTON: it opens a file, so it must be reachable from the keyboard.
+  const b = document.createElement('button');
+  b.type = 'button';
+  b.className = 'pj-doc';
+  b.dataset.doc = f.name;
+  b.insertAdjacentHTML('afterbegin', fileIcon(f.name));
+  const n = document.createElement('span');
+  n.className = 'pj-doc-n';
+  n.textContent = f.name;
+  const w = document.createElement('span');
+  w.className = 'pj-doc-w';
+  const when = f.modified ? new Date(f.modified) : null;
+  w.textContent = (when && !isNaN(when) ? when.toLocaleDateString() + ' · ' : '') + pjSize(f.size);
+  b.append(n, w);
+  return b;
+}
 async function paintAgentFiles(sessionName) {
+  const section = document.getElementById('d-files');
   const list = document.getElementById('d-files-list');
   const msg = document.getElementById('d-files-msg');
-  const more = document.getElementById('d-files-more');
-  if (!list || !msg) return;
+  const all = document.getElementById('d-files-all');
+  if (!section || !list || !msg) return;
   const epoch = (AGENT_FILES_EPOCH += 1);
   let body;
   let status = 0;
   try {
-    const res = await fetch('/api/agent/' + encodeURIComponent(sessionName) + '/files');
+    const res = await fetch('/api/agent/' + encodeURIComponent(sessionName) + '/files?limit=' + AGENT_FILES_SHOWN);
     status = res.status;
     body = await res.json();
   } catch {
@@ -28261,8 +28329,9 @@ async function paintAgentFiles(sessionName) {
     if (AGENT_FILES_STAMP === 'neterr') return;
     AGENT_FILES_STAMP = 'neterr';
     list.textContent = '';
-    if (more) more.hidden = true;
-    msg.textContent = 'We could not read this agent\u2019s files just now.';
+    if (all) all.hidden = true;
+    msg.textContent = 'We could not read this agent’s files just now.';
+    section.hidden = false;
     return;
   }
   if (epoch !== AGENT_FILES_EPOCH || !CURRENT || CURRENT.sessionName !== sessionName) return;
@@ -28272,49 +28341,71 @@ async function paintAgentFiles(sessionName) {
   const stamp = ok ? String(body.stamp || '') : 'refused:' + status + ':' + String((body && body.because) || '');
   if (stamp && stamp === AGENT_FILES_STAMP) return;
   AGENT_FILES_STAMP = stamp;
+  // The Files screen, when it is the one showing, follows every change, an emptied folder included.
+  { const screen = detailSection('files'); if (screen && !screen.hidden) paintAgentFilesAll(sessionName); }
   list.textContent = '';
-  if (more) more.hidden = true;
-  if (!ok) {
-    // A 404 means this agent has no folder of its own here: say that, not the route's "no agent".
-    msg.textContent = status === 404
-      ? 'This agent has no folder of its own on this computer, so there is no Files list.'
-      : asSentence((body && body.because) || 'We could not read this agent\u2019s files just now.');
+  if (all) all.hidden = true;
+  const files = ok && Array.isArray(body.files) ? body.files : [];
+  // No folder of its own (404), a folder not made yet, or an empty one: no files, no section.
+  if ((ok && !files.length) || status === 404) {
+    msg.textContent = '';
+    section.hidden = true;
     return;
   }
-  const files = Array.isArray(body.files) ? body.files : [];
-  if (!files.length) {
-    msg.textContent = 'Nothing here yet. Files this agent makes for you in a Direct Message show up here.';
+  section.hidden = false;
+  if (!ok) {
+    msg.textContent = asSentence((body && body.because) || 'We could not read this agent’s files just now.');
     return;
   }
   msg.textContent = '';
-  for (const f of files) {
-    // A BUTTON: it opens a file, so it must be reachable from the keyboard.
-    const b = document.createElement('button');
-    b.type = 'button';
-    b.className = 'pj-doc';
-    b.dataset.doc = f.name;
-    b.insertAdjacentHTML('afterbegin', fileIcon(f.name));
-    const n = document.createElement('span');
-    n.className = 'pj-doc-n';
-    n.textContent = f.name;
-    const w = document.createElement('span');
-    w.className = 'pj-doc-w';
-    const when = f.modified ? new Date(f.modified) : null;
-    w.textContent = (when && !isNaN(when) ? when.toLocaleDateString() + ' \u00b7 ' : '') + pjSize(f.size);
-    b.append(n, w);
-    list.append(b);
+  for (const f of files) list.append(agentFileRow(f));
+  if (all) all.hidden = !(Number(body.total) > files.length);
+}
+/* #3757: the Files screen, reached from View All: every file (up to the route's own cap), with
+   Open in Finder, which moved here from the sidebar. */
+let AGENT_FILES_ALL_EPOCH = 0;
+async function paintAgentFilesAll(sessionName) {
+  const list = document.getElementById('d-filesall-list');
+  const msg = document.getElementById('d-filesall-msg');
+  const more = document.getElementById('d-filesall-more');
+  if (!list || !msg) return;
+  const epoch = (AGENT_FILES_ALL_EPOCH += 1);
+  let body;
+  let status = 0;
+  try {
+    const res = await fetch('/api/agent/' + encodeURIComponent(sessionName) + '/files?limit=500');
+    status = res.status;
+    body = await res.json();
+  } catch {
+    if (epoch !== AGENT_FILES_ALL_EPOCH || !CURRENT || CURRENT.sessionName !== sessionName) return;
+    list.textContent = '';
+    if (more) more.hidden = true;
+    msg.textContent = 'We could not read this agent’s files just now.';
+    return;
   }
+  if (epoch !== AGENT_FILES_ALL_EPOCH || !CURRENT || CURRENT.sessionName !== sessionName) return;
+  list.textContent = '';
+  if (more) more.hidden = true;
+  if (!body || body.ok !== true) {
+    msg.textContent = status === 404
+      ? 'This agent has no folder of its own on this computer, so there is no Files list.'
+      : asSentence((body && body.because) || 'We could not read this agent’s files just now.');
+    return;
+  }
+  const files = Array.isArray(body.files) ? body.files : [];
+  msg.textContent = files.length ? '' : 'This agent has no files yet.';
+  for (const f of files) list.append(agentFileRow(f));
   const rest = Number(body.total) - files.length;
   if (more && rest > 0) {
-    more.textContent = 'And ' + rest + ' more in the folder.';
+    more.textContent = 'And ' + rest + ' more in the folder. Open in Finder shows them all.';
     more.hidden = false;
   }
 }
-document.getElementById('d-files-list') && document.getElementById('d-files-list').addEventListener('click', async (e) => {
+for (const [listId, msgId] of [['d-files-list', 'd-files-msg'], ['d-filesall-list', 'd-filesall-msg']]) document.getElementById(listId) && document.getElementById(listId).addEventListener('click', async (e) => {
   const row = e.target.closest('.pj-doc');
   if (!row || !CURRENT) return;
   const who = CURRENT.sessionName;
-  const msg = document.getElementById('d-files-msg');
+  const msg = document.getElementById(msgId);
   let say;
   try {
     const res = await fetch('/api/agent/' + encodeURIComponent(who) + '/files/open', {
@@ -28328,10 +28419,18 @@ document.getElementById('d-files-list') && document.getElementById('d-files-list
   // Only on the agent it was for: the person may have switched agents while this was in flight.
   if (msg && CURRENT && CURRENT.sessionName === who) msg.textContent = say;
 });
+document.getElementById('d-files-all') && document.getElementById('d-files-all').addEventListener('click', () => {
+  if (!CURRENT) return;
+  detailGo('files');
+});
+document.getElementById('d-files-back') && document.getElementById('d-files-back').addEventListener('click', () => {
+  if (!CURRENT) return;
+  detailGo('talk');
+});
 document.getElementById('d-files-finder') && document.getElementById('d-files-finder').addEventListener('click', async () => {
   if (!CURRENT) return;
   const who = CURRENT.sessionName;
-  const msg = document.getElementById('d-files-msg');
+  const msg = document.getElementById('d-filesall-msg');
   let failed = null;
   try {
     const res = await fetch('/api/agent/' + encodeURIComponent(who) + '/files/reveal', { method: 'POST', headers: { 'content-type': 'application/json' }, body: '{}' });
@@ -28346,7 +28445,7 @@ document.getElementById('d-files-finder') && document.getElementById('d-files-fi
   if (!CURRENT || CURRENT.sessionName !== who) return;
   if (failed) { if (msg) msg.textContent = failed; return; } // keep the reason on screen: no repaint over it
   AGENT_FILES_STAMP = null;
-  paintAgentFiles(who);
+  paintAgentFiles(who);   // with the stamp reset this also repaints the Files screen, which is showing
 });
 
 function openDetail(sessionName, section, fromProject) {
@@ -28374,10 +28473,12 @@ function openDetail(sessionName, section, fromProject) {
     // send that agent's filename to this one.
     const fl = document.getElementById('d-files-list');
     const fm = document.getElementById('d-files-msg');
-    const fo = document.getElementById('d-files-more');
+    const fa = document.getElementById('d-files-all');
     if (fl) fl.textContent = '';
     if (fm) fm.textContent = '';
-    if (fo) fo.hidden = true;
+    if (fa) fa.hidden = true;
+    for (const id of ['d-filesall-list', 'd-filesall-msg']) { const el = document.getElementById(id); if (el) el.textContent = ''; }
+    { const el = document.getElementById('d-filesall-more'); if (el) el.hidden = true; }
   }
   paintAgentFiles(a.sessionName);
   URL_TAB = 'detail';
@@ -28976,7 +29077,7 @@ function detailPaintWindow(a) {
    `detailGo` is the only writer of `.dsec[hidden]` ON THIS PANEL (Settings
    has `settingsGo` for its own), and it is called from a nav click and from
    `openDetail`, never from the poll. */
-const DETAIL_SECTIONS = ['talk', 'model', 'memory', 'instr', 'skills', 'profile', 'term', 'remove'];
+const DETAIL_SECTIONS = ['talk', 'model', 'memory', 'instr', 'skills', 'profile', 'term', 'remove', 'files'];   // #3757: files has no pill (View All reaches it)
 /* #2916 (Josh 6.59): two pills now each cover two sections. "AI Settings" (the `model`
    pill, relabelled from "Model and Memory" by #3500) reveals the model AND memory sections
    together; "Instructions" (the `instr` pill)
@@ -29070,6 +29171,7 @@ function detailGo(section, opts) {
      otherwise paint the wrong sentence for a round of the tick. No fallback
      to the open-time record: a missing one means the agent left the board,
      which is the case the helper's first arm exists for. */
+  if (section === 'files' && CURRENT && arriving) paintAgentFilesAll(CURRENT.sessionName);   // #3757
   if (section === 'term' && CURRENT && arriving) {
     detailPaintWindow(LAST.find((x) => x.sessionName === CURRENT.sessionName));
   }
@@ -43125,7 +43227,8 @@ function paintProjectTasks(p) {
      derived from the rows it renders. */
   door.hidden = false;
   // Josh, 2026-09-10 (#2711 item 12): just "View All" (capital V and A),
-  // no "tasks", no arrow, centred and un-underlined via .pj-viewall.
+  // no "tasks", no arrow, un-underlined via .pj-viewall (in the header row at the right in both
+  // views since #3756; it was centred on its own line in the tab view before).
   door.textContent = 'View All';
 }
 
@@ -55933,7 +56036,7 @@ function paintTipsToggle() {
   if (row) row.hidden = !tipsOk;
   if (tipsOk) paintSwitch('tips-toggle', !TIPS_STATE.off);
   /* #3034: the box also holds the Setup assistant switch, which must not vanish because the TIPS could
-     not be read ("Don't show this again" promises it is here). Hidden only when neither row shows. */
+     not be read ("Close forever" promises it is here). Hidden only when neither row shows. */
   const asbRow = document.getElementById('asb-row');
   box.hidden = !tipsOk && (!asbRow || asbRow.hidden);
 }
@@ -56062,8 +56165,9 @@ function asbLayerEnsure() {
     +   '<div class="asp-msg" id="asp-msg" role="status"></div>'
     +   '<div class="asp-ask" id="asp-ask" hidden><b>Close the assistant?</b>'
     +     '<button type="button" class="pri" id="asp-close-now">Close for now</button>'
-    +     '<button type="button" id="asp-close-off">Don\'t show this again</button>'
-    +     '<small>You can turn it back on in Settings, under This computer.</small></div>'
+    /* #3758 (Josh 2026-09-25 11:07): his words, verbatim. */
+    +     '<button type="button" id="asp-close-off">Close forever</button>'
+    +     '<small>You can turn it back on under Settings&nbsp;&gt;&nbsp;Computer</small></div>'   /* held together, so the path does not break */
     +   '<form class="asp-in" id="asp-in"><textarea id="asp-say" rows="1" aria-label="Ask about Kosmos" placeholder="Ask about Kosmos\u2026"></textarea>'
     +   '<button type="submit" id="asp-send" aria-label="Send">&uarr;</button></form>'
     + '</div>';
@@ -56472,7 +56576,7 @@ async function asbHostedSend(text) {
   asbPaint();
 }
 
-/* Settings > This computer > Help: the switch shows only when a guide exists (or the hosted assistant). */
+/* Settings > Computer > Help: the switch shows only when a guide exists (or the hosted assistant). */
 function asbPaintSetting() {
   const row = document.getElementById('asb-row');
   if (!row) return;

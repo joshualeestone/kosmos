@@ -620,15 +620,18 @@ async function main() {
     check(rookTalk.sayDisabled === true && rookTalk.sendDisabled === true,
       'the composer is closed over a conversation we cannot read (a box that accepts text here is the two-state lie)',
       JSON.stringify(rookTalk));
-    /* #3542: the /files 404 tolerated above is only by design if the page says what it means. */
-    await page.waitForFunction(() => /no folder of its own/.test((document.getElementById('d-files-msg') || {}).innerText || ''),
-      null, { timeout: 5000 }).catch(() => {});
+    /* #3542: the /files 404 tolerated above is only by design if the page does the right thing with
+       it. Since #3757 (Josh, 0.6.94: an agent with no files shows no Files section) that is: no
+       Files section, and never the route's "no agent by that name" anywhere. The sentence for a
+       404 now lives on the Files screen, which web.agent-files-3614.test.js pins. */
+    await page.waitForTimeout(800);
     const rookFiles = await page.evaluate(() => {
+      const sec = document.getElementById('d-files');
       const el = document.getElementById('d-files-msg');
-      return el ? { text: el.innerText, h: el.getBoundingClientRect().height } : null;
+      return sec ? { hidden: sec.hidden, h: Math.round(sec.getBoundingClientRect().height), text: el ? el.innerText : null } : null;
     });
-    check(!!rookFiles && rookFiles.h > 0 && rookFiles.text.includes('This agent has no folder of its own on this computer'),
-      'the borrowed name\u2019s Files list says, on screen, it has no folder here (the reason its /files 404 is tolerated)',
+    check(!!rookFiles && rookFiles.hidden && rookFiles.h === 0 && !/no agent by that name/i.test(rookFiles.text || ''),
+      'the borrowed name has no Files section (its /files 404 is no files), and no "no agent by that name"',
       JSON.stringify(rookFiles));
     await page.click('#detail-back');
     await page.waitForTimeout(300);
