@@ -44,6 +44,7 @@ const waitFor = (page, fn, arg, ms = 6000) => page.waitForFunction(fn, arg, { ti
   fleet.install([
     fleet.agent('rex', { state: 'working', displayName: 'Rex', role: 'Writer' }),
     fleet.agent('crew', { state: 'working', displayName: 'Research crew' }),
+    fleet.agent('crew2', { state: 'idle', displayName: 'Second crew' }),
   ]);
   fs.writeFileSync(tipsStore.FILE(), JSON.stringify({ seen: [], off: true }));
   const server = await srv.start(0);
@@ -62,12 +63,14 @@ const waitFor = (page, fn, arg, ms = 6000) => page.waitForFunction(fn, arg, { ti
       const j = await r.json();
       if (engineOn) {
         j.swarms = true;
-        for (const a of j.agents || []) a.swarm = a.sessionName === 'crew' ? { ...crewSwarm } : null;
+        for (const a of j.agents || []) a.swarm = a.sessionName === 'crew' ? { ...crewSwarm }
+          : a.sessionName === 'crew2' ? { maxHelpers: 4, activeHelpers: 1, tokensToday: 1000, dailyTokenLimit: 2000000, active: true, pausedBecause: null, helperTokenRatio: null } : null;
       }
       route.fulfill({ response: r, json: j });
     });
     const sent = [];
-    let stopAnswer = null;   // null = the engine stops it; an object = the engine's answer as given
+    let stopAnswer = null;
+    let slowPut = 0;   // ms: an answer that arrives after the person has moved to another swarm (S16)   // null = the engine stops it; an object = the engine's answer as given
     /* The engine's REAL answer shapes (origin/swarm-engine-3564): PUT and stop return { ok, swarm: settings }
        where settings carry maxHelpers / dailyTokenLimit / active / pausedBecause but NOT activeHelpers,
        tokensToday or helperTokenRatio; stop adds { stopped, because }. */
@@ -76,6 +79,7 @@ const waitFor = (page, fn, arg, ms = 6000) => page.waitForFunction(fn, arg, { ti
       const q = route.request();
       const body = JSON.parse(q.postData() || '{}');
       sent.push({ method: q.method(), url: new URL(q.url()).pathname, body });
+      if (slowPut) await new Promise((res) => setTimeout(res, slowPut));
       if (q.method() === 'PUT') crewSwarm = { ...crewSwarm, ...body };
       if (q.url().endsWith('/stop')) {
         if (stopAnswer) return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(stopAnswer) });
@@ -209,6 +213,26 @@ const waitFor = (page, fn, arg, ms = 6000) => page.waitForFunction(fn, arg, { ti
     chk(await waitFor(page, () => /could not reach the lead/i.test(document.getElementById('d-swarm-msg').textContent)), 'S14 a stop that did not take says why, never Stopped', await page.evaluate(() => document.getElementById('d-swarm-msg').textContent));
     stopAnswer = null;
     crewSwarm = { ...crewSwarm, active: true, pausedBecause: null, activeHelpers: 3 };
+    await waitFor(page, () => document.querySelector('input[name="d-swarm-active"][value="on"]').checked, null, 8000);
+
+    // S16: a change still in flight when the person opens ANOTHER swarm: when its answer lands, the second
+    // swarm's page keeps its own settings and no message from the first appears on it.
+    slowPut = 2000;
+    await page.click('#d-swarm-stop');   // its answer writes a message ("Stopped..."), which must not land on crew2
+    await page.evaluate(() => { showTab('agents'); });
+    await page.waitForTimeout(200);
+    await page.evaluate(() => document.querySelector('#grid [data-agent="crew2"]').click());
+    await page.waitForTimeout(3000);   // past the slow answer
+    const s16 = await page.evaluate(() => ({ who: CURRENT && CURRENT.sessionName, on: document.querySelector('input[name="d-swarm-active"][value="on"]').checked,
+      max: document.getElementById('d-swarm-max').value, msg: document.getElementById('d-swarm-msg').textContent, today: document.getElementById('d-swarm-today').textContent }));
+    chk(s16.who === 'crew2' && s16.on && s16.max === '4' && s16.msg === '' && s16.today === '1,000 tokens',
+      'S16 an answer for one swarm that lands on another\'s page changes nothing there', JSON.stringify(s16));
+    slowPut = 0;
+    crewSwarm = { ...crewSwarm, active: true, pausedBecause: null };
+    await page.evaluate(() => { showTab('agents'); });
+    await page.waitForTimeout(300);
+    await page.evaluate(() => document.querySelector('#grid [data-agent="crew"]').click());
+    await waitFor(page, () => !document.getElementById('d-swarm-panel').hidden && CURRENT.sessionName === 'crew');
 
     // S8: a swarm paused at its limit says why and cannot be stopped again (from the board's own answer).
     crewSwarm = { ...crewSwarm, active: false, pausedBecause: 'limit', activeHelpers: 0 };   // the engine interrupts the lead at the limit, ending its helpers
