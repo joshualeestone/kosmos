@@ -113,6 +113,16 @@ test('card: reconnecting keeps the paused look; given up wears the needs-you loo
   assert.equal(clsOf({}), 'st-paused', 'CONTROL: with no self-heal the card is unchanged');
 });
 
+/* #3410 (Mona Lisa): given up is counted under the Issue filter (data-attn); reconnecting is not. */
+test('card and list row: given up is in the Issue filter, reconnecting is not', () => {
+  for (const which of ['card', 'lrow']) {
+    const attnOf = (extra) => /\bdata-attn\b/.test(api[which](connLostAgent(extra)));
+    assert.equal(attnOf({ reconnect: { phase: 'gave_up', tries: 3 } }), true, `${which}: given up is not in the Issue filter`);
+    assert.equal(attnOf({ reconnect: { phase: 'waiting', tries: 0 } }), false, `${which}: reconnecting is in the Issue filter`);
+    assert.equal(attnOf({}), false, `${which}: CONTROL, no self-heal is not in the Issue filter`);
+  }
+});
+
 test('the page ships the expected connection_lost label copy', () => {
   assert.equal(pageLabel(), 'Connection lost',
     'the shipped STATE_COPY.connection_lost label changed; update this pin deliberately');

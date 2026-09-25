@@ -4651,6 +4651,25 @@ test('#1898: countAgents tallies needsYouUnattributed = needs_you agents that na
   assert.equal(attributed.needsYouUnattributed, 0, 'all attributed -> zero unattributed');
 });
 
+/* #3410/#3718 (Mona Lisa, 2026-09-25): the Issue tile counts every card that needs the person:
+   needs_you, needs_trust, and a connection Kosmos gave up reconnecting. A connection Kosmos is
+   still reconnecting is not counted (nothing for the person to do yet). */
+test('#3410/#3718: countAgents.needsYou counts needs_trust and a given-up connection, not one still reconnecting', () => {
+  const { countAgents } = require('./status');
+  const A = (state, extra) => Object.assign({ state, stateProject: null, paneless: false, context: { tokens: 100, percent: 50 } }, extra || {});
+  const c = countAgents([
+    A(STATE.NEEDS_YOU),
+    A('needs_trust'),
+    A('connection_lost', { reconnect: { phase: 'gave_up', tries: 3 } }),
+    A('connection_lost', { reconnect: { phase: 'waiting', tries: 0 } }),
+    A('connection_lost', { reconnect: { phase: 'retried', tries: 1 } }),
+    A('connection_lost', { reconnect: null }),
+    A(STATE.WORKING),
+  ], 0);
+  assert.equal(c.needsYou, 3, 'needs_you + needs_trust + given up');
+  assert.equal(c.needsYouUnattributed, 1, 'CONTROL: the no-project tile is still needs_you only');
+});
+
 /* #763: a reported needs_you carries the question's project onto the state,
    so a project tile can light for its own question only. */
 test('#763: reconcile carries the reported project on a needs_you, and null when none was named or the question was scraped', () => {

@@ -20,6 +20,13 @@ up needs the person, so it should look like it. Angel makes the edit (agreed in 
   cardStOf stays on one line because two existing tests slice it to the newline.
 - web/index.html pjMember: its red triangle and red row read cardStOf(liveM), the copy that carries
   the board's reconnect phase, so the project members row turns red with the card.
+- The Issue tile and filter (Mona Lisa, 2026-09-25 06:5x: "count it"): they mean "needs the person",
+  so engine/status.js countAgents (c.needsYou, the tile) and the page's data-attn (the filter, all
+  seven render sites) count needs_you, needs_trust (#3718, folded in: same predicate, same sites,
+  April had it by rotation) and a connection Kosmos gave up reconnecting. The count and the filter
+  change together, so the filter still shows exactly what the tile says. data-noproj and
+  needsYouUnattributed stay needs_you only. render-chip-filters-3423.js's needs_trust arm now
+  expects data-attn. Not changed: the per-project pill counts (engine/projects.js).
 - web/index.html prompterCheckinQuestion: given up asks "Restart it, or is it done?", the card's verb.
 - Tests: web.connection-lost-3410.test.js pins the sentences and the look per phase (control: no
   self-heal stays paused). The browser check asserts the card class and the computed border colour
@@ -36,9 +43,6 @@ up needs the person, so it should look like it. Angel makes the edit (agreed in 
 - Giving the heal-off case the needs-you look too: Mona's review left that case as it is, and
   without the self-heal Kosmos cannot tell a drop that will clear from one that will not.
 
-- Counting a given-up card under the "Issue" filter and tile (data-attn, #3423). Left as it is:
-  that filter keys on the needs_you state, needs_trust is already red without being counted there,
-  and widening it changes another card's feature. Flagged to Mona Lisa as her call.
 
 ## Weakest premise
 That "needs you" red is right while the internet is genuinely still down (the give-up can happen

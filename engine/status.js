@@ -7303,7 +7303,11 @@ function countAgents(agents, unreadableLines, unreadableSamples) {
        to a follow-up with Josh's call + Mona (design) + PigeonPete (#1253 owner) rather than
        reshaped unilaterally here. The card is the surface a QA tester reads as "app broken";
        calming it is the confident, low-blast-radius half. */
-    needsYou: agents.filter((a) => a.state === STATE.NEEDS_YOU).length,
+    /* #3410/#3718 (Mona Lisa, 2026-09-25): the Issue tile means "needs the person": needs_you,
+       needs_trust, and a connection Kosmos gave up reconnecting (reconnect is set by the
+       /api/status route before it counts). The page's data-attn uses the same rule. */
+    needsYou: agents.filter((a) => a.state === STATE.NEEDS_YOU || a.state === 'needs_trust'
+      || (a.state === 'connection_lost' && a.reconnect && a.reconnect.phase === 'gave_up')).length,
     /* #1898: of those needs_you, how many named NO project (`stateProject`
        null). A needs_you without `--project` lights no project tile, so it is
        the easy-to-miss case a person scanning the Projects board never sees; the

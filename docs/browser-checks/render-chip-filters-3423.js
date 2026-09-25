@@ -15,9 +15,9 @@
  *      agent's carries neither.
  *   2. the attn-vs-noproj DISTINCTION: card() on a needs_you agent WITH a project
  *      (stateProject set) emits data-attn but NOT data-noproj (real card clone).
- *   2b. the needs_trust DIVERGENCE: a needs_trust card wears the red visual attn
- *      class but carries NEITHER data-attn nor data-noproj, so the Issue filter
- *      excludes it (data-attn matches c.needsYou, which keys on needs_you only).
+ *   2b. needs_trust (#3718, Mona Lisa 2026-09-25): a needs_trust card wears the red
+ *      visual attn class AND carries data-attn (the Issue filter means "needs the
+ *      person", matching c.needsYou), but not data-noproj.
  *   2c/2d. the SAME predicate lives inline in all three render families; lrow()
  *      (#alist) and onode() (#orgview) are pinned too, so a drift in any one copy
  *      fails here rather than shipping a silent list/org count-filter mismatch.
@@ -110,11 +110,9 @@ function chk(ok, label, extra) {
     chk(distinction.noProject_noproj === true,
       'and a needs_you agent with NO project does get data-noproj', JSON.stringify(distinction));
 
-    // 2b. DELIBERATE DIVERGENCE (#3423): a needs_trust card wears the red .attn
-    // visual (class="acard attn ... needstrust") but is NOT marked data-attn,
-    // because the Issue count c.needsYou keys on state==='needs_you' only. The
-    // filter must match its chip count, so needs_trust is excluded. This pins it:
-    // if a future refactor merges the visual attn set into data-attn, it fails.
+    // 2b. #3718 (Mona Lisa, 2026-09-25): a needs_trust card wears the red .attn visual
+    // and IS marked data-attn, because the Issue tile c.needsYou now counts it too
+    // (engine/status.js countAgents). It is not data-noproj (that stays needs_you only).
     const trust = await page.evaluate(() => {
       const html = card({ sessionName: 'trusty', running: false, state: 'needs_trust',
         needsTrust: true, name: 'Trusty', because: 'Waiting at a workspace-trust prompt.' });
@@ -126,8 +124,8 @@ function chk(ok, label, extra) {
     });
     chk(trust.hasVisualAttn === true,
       'a needs_trust card still wears the red visual attn/needstrust class', JSON.stringify(trust));
-    chk(trust.hasDataAttn === false && trust.hasDataNoproj === false,
-      'but a needs_trust card carries NEITHER data-attn nor data-noproj (excluded from the Issue filter to match c.needsYou)', JSON.stringify(trust));
+    chk(trust.hasDataAttn === true && trust.hasDataNoproj === false,
+      'a needs_trust card is in the Issue filter (data-attn, matching c.needsYou) but not data-noproj', JSON.stringify(trust));
 
     // 2c. #alist family: lrow() carries the SAME inline predicate as card(). Pin it
     // directly so a drift in the list-row copy (repo convention #5, two derivations
