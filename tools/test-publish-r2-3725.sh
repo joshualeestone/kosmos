@@ -268,7 +268,7 @@ else fail "post-pointer race: rc=$rc prod-restored=$(cmp -s "$FAKE/latest-win.js
 cp "$TMP/a.zip" "$FAKE/kosmos-9.9.1-win-x64.zip"
 # ...and landing between the alias writes and the pointer write: the pointer is never written.
 KOSMOS_PUBLISH_R2_FAKE_AFTER="PUT kosmos-win-x64.zip.sha256|kosmos-9.9.1-win-x64.zip|$TMP/b.zip" promote; rc=$?
-if [ "$rc" -eq 1 ] && grep -qF "latest-win.json was NOT written" "$TMP/out" && cmp -s "$FAKE/latest-win.json" "$TMP/prod.before"; then pass "a replace landing before the pointer write: the pointer is never written, the alias is put back"
+if [ "$rc" -eq 1 ] && grep -qF "latest-win.json was NOT written" "$TMP/out" && ! grep -qF "BACK FAILED" "$TMP/out" && grep -qF "the alias restored" "$TMP/out" && cmp -s "$FAKE/latest-win.json" "$TMP/prod.before"; then pass "a replace landing before the pointer write: the pointer is never written, the alias is put back, no false restore failure"
 else fail "pre-pointer race: rc=$rc prod-unchanged=$(cmp -s "$FAKE/latest-win.json" "$TMP/prod.before" && echo yes || echo no) $(tail -1 "$TMP/out")"; fi
 cp "$TMP/a.zip" "$FAKE/kosmos-9.9.1-win-x64.zip"
 # The alias copy is pinned to the zip the promote checked: a re-stage that lands between the

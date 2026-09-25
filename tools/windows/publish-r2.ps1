@@ -454,8 +454,8 @@ if ($PSCmdlet.ParameterSetName -ceq 'Staging') {
     if (-not $existing.ETag) { Refuse "the bucket gave no ETag for $Versioned, so the replace cannot be pinned to the object just read. Nothing was written." }
     $putExtra = @{ 'cache-control' = 'no-cache'; 'if-match' = $existing.ETag }
   }
-  if (-not $DryRun) { $script:AfterNote = " (staging writes had begun: $Versioned may be up; latest-win-staging.json still names the previous build unless the run said it was written. Re-run the same command to finish.)" }
   Put-Object $Versioned $null $ZipPath $Sha 'application/zip' $putExtra
+  if (-not $DryRun) { $script:AfterNote = " (staging writes had begun: $Versioned is up; latest-win-staging.json still names the previous build unless the run said it was written. Re-run the same command to finish.)" }
   $zipPut = $script:LastPut
   if ($replacing -and -not $DryRun) {
     # A promote of this version may have landed between the prod read above and this upload
@@ -574,7 +574,9 @@ function Test-StagedIntact {
 # Undo this promote's prod writes (a -ReplaceVersioned changed the versioned zip under it).
 function Undo-Promote([string] $pointerEtag) {
   $done = @()
-  if ($prodBefore) {
+  # latest-win.json is put back only if THIS run wrote it (an empty ETag means it did not).
+  if (-not $pointerEtag) { }
+  elseif ($prodBefore) {
     $r = Invoke-R2 -Method PUT -Key "${KeyPrefix}latest-win.json" -Body $prodBefore.Bytes -PayloadSha (Sha256-Bytes $prodBefore.Bytes) -ContentType 'application/json' -Extra @{ 'cache-control' = 'no-cache'; 'if-match' = $pointerEtag }
     $done += $(if ($r.Status -eq 200) { 'latest-win.json put back' } else { "PUTTING latest-win.json BACK FAILED ($($r.Status))" })
     $pf = Read-PointerFields $prodBefore.Bytes
@@ -583,6 +585,13 @@ function Undo-Promote([string] $pointerEtag) {
       $done += $(if ($c.Status -eq 200 -and $c.Body -cnotmatch '<Error>') { "the alias restored from $($pf.versioned)" } else { "RESTORING THE ALIAS FAILED ($($c.Status))" })
     }
   } else { $done += 'there was no previous latest-win.json to put back' }
+  if (-not $pointerEtag -and $prodBefore) {
+    $pf = Read-PointerFields $prodBefore.Bytes
+    if ($pf) {
+      $c = Invoke-R2 -Method PUT -Key "$KeyPrefix$Alias" -ContentType 'application/zip' -Extra @{ 'x-amz-copy-source' = "/$Bucket/$KeyPrefix$($pf.versioned)"; 'x-amz-metadata-directive' = 'REPLACE'; 'cache-control' = 'no-cache' }
+      $done += $(if ($c.Status -eq 200 -and $c.Body -cnotmatch '<Error>') { "the alias restored from $($pf.versioned)" } else { "RESTORING THE ALIAS FAILED ($($c.Status))" })
+    }
+  }
   if ($aliasSideBefore) {
     $r2 = Invoke-R2 -Method PUT -Key "$KeyPrefix$Alias.sha256" -Body $aliasSideBefore.Bytes -PayloadSha (Sha256-Bytes $aliasSideBefore.Bytes) -ContentType 'text/plain; charset=utf-8' -Extra @{ 'cache-control' = 'no-cache' }
     $done += $(if ($r2.Status -eq 200) { 'the alias sidecar put back' } else { "PUTTING THE ALIAS SIDECAR BACK FAILED ($($r2.Status))" })
@@ -593,12 +602,13 @@ function Undo-Promote([string] $pointerEtag) {
 # The alias (a copy pinned to the exact object checked above) and its sidecar, both read back from
 # the bucket BEFORE prod's pointer moves; then latest-win.json LAST, the staging bytes verbatim.
 # From the first prod-facing write on, a failure says what may already have changed.
-if (-not $DryRun) { $script:AfterNote = " (prod-facing writes had begun: the alias, its sidecar or latest-win.json may already have changed. Re-run the same -Promote command to finish; it re-checks everything first.)" }
+# (The partial-state note is set once the first prod-facing write has succeeded, below.)
 # For a moment the alias holds the new zip while its sidecar still names the old one. The
 # updater never sees that (its alias fallback pins the sha from latest-win.json, written LAST),
 # but the website's download button fetches the alias directly: a run that dies between these
 # two writes leaves web downloads on the new zip with a stale sidecar. Re-run to finish.
 Copy-Object $Versioned $Alias $staged.ETag
+if (-not $DryRun) { $script:AfterNote = " (prod-facing writes had begun: the alias, its sidecar or latest-win.json may already have changed. Re-run the same -Promote command to finish; it re-checks everything first.)" }
 $aliasSide = New-SidecarBytes $ApprovedSha $Alias
 Put-Object "$Alias.sha256" $aliasSide $null (Sha256-Bytes $aliasSide) 'text/plain; charset=utf-8' $NoCache
 if (-not $DryRun) {
