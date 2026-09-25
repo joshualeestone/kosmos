@@ -22,7 +22,8 @@ const FILE = () => path.join(require('./store').ROOT, 'tips.json');
    client cannot grow the file without bound. */
 /* 'settings' left with the Settings tip (#3574, Josh 2026-09-25): read() drops an unknown id, so a store that
    still holds it simply loses it, and nothing on the page sends it any more. */
-const TIP_IDS = ['tour', 'newagent', 'ring', 'agents', 'projects', 'project', 'agentpage'];
+/* 'newagent' left with #3755 (Josh 2026-09-25 11:07): no Create Agent tip. Dropped the same way. */
+const TIP_IDS = ['tour', 'agents', 'projects', 'project', 'agentpage', 'ring'];
 
 function read() {
   try {

@@ -1421,12 +1421,6 @@ button.uprime:hover, .btn.uprime:hover, .utoast .uacts button.uprime:hover,
    header (its own stacking layer, z 20, so the tour can ring a place in it) and below every dialog
    backdrop (.rm-back 50, .fr-back and .upd-back 60), so a dialog covers a tip the moment it opens (T13).
    A header menu opened over a tip makes the tip step aside at once (T21). */
-.helpq { position: relative; display: inline-flex; }
-.helpq-btn { width: 28px; height: 28px; border-radius: 50%; border: 1px solid var(--k-rule); background: var(--k-surface);
-  display: inline-grid; place-items: center; cursor: pointer; font: 700 var(--text-callout) var(--font-ui); color: var(--k-ink-2); padding: 0; }
-.helpq-btn:hover { color: var(--k-ink); border-color: var(--gold-edge); }
-.helpq-btn:focus-visible { outline: 2px solid var(--k-ink); outline-offset: 2px; }
-.helpq .userpop-menu { min-width: 236px; }
 .tipcard { position: fixed; z-index: 46; width: 300px; max-width: calc(100vw - 24px); background: var(--bg-elevated); color: var(--k-ink);
   border: 1px solid var(--gold-edge); border-radius: 14px; padding: 14px 16px 12px; box-shadow: 0 12px 32px rgba(20,22,26,.22); }
 .tipcard[hidden] { display: none; }
@@ -9164,16 +9158,8 @@ window.kosmosMeasureScrollbarWidth();
          (<960px) visibility media gates are class-based, so they travel with the markup.
          The avatar+name is painted by paintRailMe (single-source with the consolidated
          #rail-me), reusing youFaceHtml(). Popover mechanics reuse the world-switcher pattern. -->
-    <!-- #3574: the way back to every tip. Beside the name rather than inside its menu, because a
-         tip you cannot find again did not happen. -->
-    <div class="helpq" id="helpq">
-      <button class="helpq-btn" id="helpq-btn" type="button" aria-label="Help" aria-expanded="false" aria-controls="helpq-menu" aria-haspopup="true">?</button>
-      <div class="userpop-menu" id="helpq-menu" hidden>
-        <button class="userpop-item" type="button" data-help="screen">Show tips for this screen</button>
-        <button class="userpop-item" type="button" data-help="tour">Take the welcome tour again</button>
-        <button class="userpop-item" type="button" data-help="ring">What does the ring mean?</button>
-      </div>
-    </div>
+    <!-- #3755 (Josh 2026-09-25 11:07): no "?" beside the name. The tips show once each, by themselves;
+         "Stop showing tips" and the Settings switch are the controls. -->
     <div class="userpop" id="userpop">
       <!-- #3051: NO aria-label. The accessible name derives from the visible name
            (#userpop-name; the avatar and chevron are aria-hidden), so it satisfies
@@ -14427,7 +14413,7 @@ window.kosmosMeasureScrollbarWidth();
       <h3 class="dlab">Help</h3>
       <div class="setrow" id="tips-row">
         <div><b>Show tips</b>
-          <p class="dhint" style="margin:2px 0 0;">A short note the first time you open each screen. The ? beside your name brings any of them back.</p></div>
+          <p class="dhint" style="margin:2px 0 0;">A short note the first time you open each screen.</p></div>
         <button class="toggle" id="tips-toggle" role="switch" aria-label="Show tips the first time you open each screen"><i></i></button>
       </div>
       <div class="setrow" id="asb-row" hidden>
@@ -55375,11 +55361,15 @@ function revealBoot() {
    showing never paints; one tip at a time; the tour first. */
 /* The gauge's own classes colour the dots (light and dark); one inline width keeps the three the same size. */
 const TIP_BAND = (cls, label) => '<span><svg width="10" height="10" viewBox="0 0 10 10" aria-hidden="true"><circle cx="5" cy="5" r="2.25" fill="none" style="stroke-width:4.5" class="gf' + (cls ? ' ' + cls : '') + '"/></svg>' + label + '</span>';
+/* The ring's explainer, #3737's words (Josh 08:51): the first step of an agent page's tips, or on its own (below). */
+const TIP_RING_BODY = '<p>The ring shows how full your agent\'s memory is.</p>'
+  + '<div class="tip-bands">' + TIP_BAND('', 'Plenty of room') + TIP_BAND('warn', 'Getting full') + TIP_BAND('high', 'Nearly full') + '</div>'
+  + '<p>This is normal and the agent will automatically write themselves a handoff, You can also manage their memory under AI settings.</p>';
 const TIPS = [
   /* Josh, 2026-09-24 15:51: the step-through tour (the mock's B), one place at a time. Each step
      names its tab-layout target first and its consolidated-layout one second; a step whose place is
      not on screen is left out, and the count says how many there are. */
-  { id: 'tour', tour: true,
+  { id: 'tour',
     /* On the board: its stats bar in the tab layout, its rail in the consolidated one (which hides
        the bar at wide widths). */
     /* Not over Settings, the create form or an agent's page. (The consolidated layout keeps a project
@@ -55396,34 +55386,43 @@ const TIPS = [
       { at: ['#userpop-btn'], title: 'Your Profile',
         body: 'Access all your Kosmos settings here.' },
     ] },
-  { id: 'newagent', title: 'Make an agent', show: () => tipVisible('#panel-create'), at: '#panel-create h2', side: true,
-    body: '<p>Give it a name and a picture so you can tell it apart, then tell it what the job is in plain words. You can change all of it later.</p>' },
+  /* #3755 (Josh 2026-09-25 11:07): no tip on Create Agent ("it doesn't really make sense here"). */
   { id: 'agents', title: 'See your agents your way', show: () => tipVisible('#boardbar') && !!document.querySelector('#grid [data-agent]'),
     at: '.viewtoggle[data-scope="agents"]',
     body: '<p>Cards, a list, or an org chart that shows who reports to whom. Click any agent to talk to it.</p>' },
-  { id: 'projects', title: 'A project is shared work', show: () => tipVisible('#panel-projects') && !tipVisible('#panel-projects .pj3'),
+  /* #3755: Josh's copy, verbatim. */
+  { id: 'projects', title: 'Setup a Project', show: () => tipVisible('#panel-projects') && !tipVisible('#panel-projects .pj3'),
     at: '#pj-new, #rail-projects-new',
-    body: '<p>Put a few agents on one project and they work on it together, in one conversation, with one set of files. Show projects as cards or as a roadmap.</p>' },
-  /* Tab layout only: the consolidated project view moves members into the Agents list and member
-     changes into project Settings, so these four lines would describe a page that is not there. */
-  { id: 'project', title: 'Everything about this project, in one place',
-    show: () => tipVisible('#panel-projects .pj3') && !document.body.classList.contains('consolidated'), at: '#pj-add-member',
-    body: '<ol><li><i>1</i><span><b>Members</b> are the agents on it. Add more any time.</span></li>'
-      + '<li><i>2</i><span><b>Conversation</b> is where you talk to all of them at once.</span></li>'
-      + '<li><i>3</i><span><b>Files</b> collects everything they make.</span></li>'
-      + '<li><i>4</i><span><b>Tasks</b> is the to-do list, and who is on each one.</span></li></ol>' },
-  { id: 'agentpage', title: 'Your agent\'s page', show: () => tipVisible('#panel-detail #d-sec-talk'), at: '#panel-detail .snav',
-    body: '<p>Talk to your agent here. Messages go straight to it. Profile, Instructions, AI Settings and Advanced are in the boxes on the left, and Instructions is where you change what it does.</p>' },
-  /* #3574 (Josh 2026-09-25 07:46): no Settings tip ("wonky and pointless"), not on first visit and not from the ?. */
-  /* #3737 (Josh 2026-09-25 08:51): the ring's tip lives on the agent's own page, by its ring, and shows after
-     that page's own tip. The ? still opens it anywhere: it points at this page's ring, else a card's. The body
-     is Josh's words; his first line repeated the head, so it starts at "The ring shows". */
-  { id: 'ring', title: 'Your agent\'s memory',
-    show: () => tipVisible('#panel-detail #d-ring svg') && tipVisible('#panel-detail #d-sec-talk'),   // with the page's own tip, which goes first
-    at: '#panel-detail #d-ring svg, #grid .agauge:has(.gf), #grid .agauge:has(.gu), #alist .lring', side: true,   // beside it: above and below are her name and buttons
-    body: '<p>The ring shows how full your agent\'s memory is.</p>'
-      + '<div class="tip-bands">' + TIP_BAND('', 'Plenty of room') + TIP_BAND('warn', 'Getting full') + TIP_BAND('high', 'Nearly full') + '</div>'
-      + '<p>This is normal and the agent will automatically write themselves a handoff, You can also manage their memory under AI settings.</p>' },
+    body: '<p>Add multiple agents to work together in one conversation with shared files and tasks.</p>' },
+  /* #3755 (Josh: "spread out into four separate things that highlighted each of the areas"): the same four lines,
+     one step each, each ringing its own area. Tab layout only: the consolidated project view moves members into
+     the Agents list and member changes into project Settings, so these would describe a page that is not there. */
+  { id: 'project', steps: [
+      { at: ['#panel-projects .pj3 .pjcard-members'], title: 'Members', body: 'Members are the agents on it. Add more any time.' },
+      { at: ['#panel-projects .pj3 > .pjmid'], title: 'Conversation', body: 'Conversation is where you talk to all of them at once.' },
+      { at: ['#panel-projects .pj3 .pjcard-files'], title: 'Files', body: 'Files collects everything they make.' },
+      { at: ['#panel-projects .pj3 > aside.pjcol:not(.pjsplit)'], title: 'Tasks', body: 'Tasks is the to-do list, and who is on each one.' },
+    ],
+    show: () => tipVisible('#panel-projects .pj3') && !document.body.classList.contains('consolidated') },
+  /* #3755 (Josh 2026-09-25 11:07): an agent's page is the ring first (#3737's words), then five small tips, one on
+     each button. The ring step is left out when her page draws no ring (memory not known), since there is nothing
+     to point at. Josh's words, verbatim; in his paste "Instructions" slipped under Profile, it heads step 3. */
+  { id: 'agentpage', steps: [
+      /* Beside the ring (#3737): above and below it are her name and buttons. Shown here, it counts as the ring's own
+         tip too (alsoSeen), so it does not come back on its own below. */
+      { at: ['#panel-detail #d-ring svg'], side: true, title: 'Your agent\'s memory', html: true, alsoSeen: 'ring', body: TIP_RING_BODY },
+      { at: ['#d-nav [data-go="talk"]'], title: 'Direct Message', body: 'Talk to your agent directly, ask questions, and give it work to do.' },
+      { at: ['#d-nav [data-go="profile"]'], title: 'Profile', body: 'Give your agent a name, photo, and description.' },
+      { at: ['#d-nav [data-go="instr"]'], title: 'Instructions', body: 'Tell your agent what to do and how you want it to work.' },
+      { at: ['#d-nav [data-go="model"]'], title: 'AI Settings', body: 'Choose the AI model your agent uses and manage its memory.' },
+      { at: ['#d-nav [data-go="term"]'], title: 'Advanced', body: 'Fine-tune your agent\'s technical settings.' },
+    ],
+    show: () => tipVisible('#panel-detail #d-sec-talk') },
+  /* A new agent has no memory reading on its first visit, so her page's tips usually run without the ring step. The
+     ring's explainer then shows by itself, beside it, the first time her page draws one. */
+  { id: 'ring', title: 'Your agent\'s memory', at: '#panel-detail #d-ring svg', side: true, body: TIP_RING_BODY,
+    show: () => tipVisible('#panel-detail #d-ring svg') && tipVisible('#panel-detail #d-sec-talk') },
+  /* #3574 (Josh 2026-09-25 07:46): no Settings tip ("wonky and pointless"). */
 ];
 let TIPS_STATE = null;          // { ok, seen, off } from the board; null until read
 let TIP_OPEN = null;            // the tip on screen, or null
@@ -55435,7 +55434,7 @@ let TIPS_STARTED = false;
 const TIPS_CHECK_MS = 1200;
 let TIP_PLACES = [];            // the tour's steps whose place is on screen
 let TIP_STEP = 0;               // the tour step showing
-let TIP_AUTO = false;           // the open tip showed by itself (not from the ?)
+let TIP_AUTO = false;           // the open tip showed by itself
 /* var, not let: the status handler (tick, far above) writes this, and a let would only be safe for as
    long as nothing calls tick before this line runs. var has no dead zone. */
 var TIP_NEW_BOARD = null;       // latched at the board's first answer this session: had no agents
@@ -55448,7 +55447,7 @@ let TIPS_LOADING = false;
 
 /* The app's dialogs are .rm-back / .fr-back overlays, shown and hidden with [hidden], and the update
    takeover (.upd-back) is added while it is up. */
-/* An open header menu: the ? and the user menu (aria-haspopup), the burger and the Kosmos switcher.
+/* An open header menu: the user menu (aria-haspopup), the burger and the Kosmos switcher.
    The header is its own stacking layer, so a tip would draw over a menu the person just opened. */
 function tipMenuOpen() {
   return !!document.querySelector('[aria-haspopup][aria-expanded="true"], #burger[aria-expanded="true"], #worldsw-btn[aria-expanded="true"]');
@@ -55472,7 +55471,7 @@ function tipVisible(sel) {
 async function tipsLoad() {
   try {
     const r = await (await fetch('/api/tips', { cache: 'no-store', signal: AbortSignal.timeout(10000) })).json();
-    /* Merged with anything saved while this read was out (a tip opened from the ? and closed, or "Stop
+    /* Merged with anything saved while this read was out (a tip closed, or "Stop
        showing tips"), so a slow answer cannot drop a newer close or turn tips back on. */
     const had = TIPS_STATE && TIPS_STATE.ok ? TIPS_STATE : null;
     if (r && r.ok === true && Array.isArray(r.seen)) {
@@ -55551,7 +55550,7 @@ function tipsCheck() {
      unrecorded, below), a save that failed, and someone who went to the create form before the
      tour's first tick (the tour never shows over it). Above the open-tip return so a failed save is retried
      while a screen tip is up; never while the tour itself is on screen. */
-  if (TIP_NEW_BOARD === true && !TIP_TOUR_SAVED && TIPS_STATE && TIPS_STATE.ok && !(TIP_OPEN && TIP_OPEN.tour) && (LAST || []).filter((a) => !(a && a.isGuide === true)).length > 0 && Date.now() >= TIP_TOUR_NEXT_TRY) {
+  if (TIP_NEW_BOARD === true && !TIP_TOUR_SAVED && TIPS_STATE && TIPS_STATE.ok && !(TIP_OPEN && TIP_OPEN.id === 'tour') && (LAST || []).filter((a) => !(a && a.isGuide === true)).length > 0 && Date.now() >= TIP_TOUR_NEXT_TRY) {
     /* Keyed on what the board has confirmed, not on the local list: a close that recorded the tour
        locally but whose save failed is caught here too. Counted locally at once so the screen tips can
        follow; a failed save is tried again, less often each time. */
@@ -55583,17 +55582,13 @@ function tipsCheck() {
 /* Tips show by themselves only for someone new. The tour waits for the board's first answer and
    then shows only when there are no agents: its first step is "Make your first agent", and a board
    that already has agents (an upgrade) was set up by someone who knows their way round. Screen tips
-   follow the tour, so they never start on their own on such a board. The ? offers all of it anyway. */
+   follow the tour, so they never start on their own on such a board. */
 function tipAutoOk(t) {
-  if (t.tour) {
+  if (t.id === 'tour') {
     /* Latched by the status handler at the board's first answer: a board that had agents then and
        has since removed its last one is not someone new, and the tour would be the wrong help. */
     return TIP_NEW_BOARD === true && (LAST || []).filter((a) => !(a && a.isGuide === true)).length === 0;
   }
-  /* On a new board the create form's own tip does not wait for the tour: someone new who clicks New
-     agent before the tour's first tick is on a screen the tour never shows over, and it is exactly
-     where they need help. (First run's endings all land on the board since #3575.) */
-  if (t.id === 'newagent' && TIP_NEW_BOARD === true) return true;
   return TIPS_STATE.seen.includes('tour');
 }
 
@@ -55605,13 +55600,12 @@ function tipShow(t, { auto = false, returnTo = null } = {}) {
   TIP_OPEN = t;
   TIP_AUTO = auto;
   TIP_RETURN = auto ? null : (returnTo || document.activeElement);
-  if (t.tour) {
-    /* The tour dims the page and ends on a click outside, so it takes focus even when it opened by
+  if (t.steps) {
+    /* A stepped tip (the tour, a project's, an agent page's) dims the page and ends on a click outside, so it takes focus even when it opened by
        itself, and hands it back when it ends. */
     if (auto) TIP_RETURN = document.activeElement !== document.body ? document.activeElement : null;
     TIP_PLACES = t.steps.map((st) => ({ ...st, sel: st.at.find((sel) => tipVisible(sel)) })).filter((st) => st.sel);
-    /* Asked for from the ? on a screen that shows none of the four places: walk them anyway, centred
-       and unringed, rather than a menu item that does nothing. */
+    /* None of its places on screen (a layout this tip did not name): walk them anyway, centred and unringed. */
     if (!TIP_PLACES.length) TIP_PLACES = t.steps.map((st) => ({ ...st, sel: null }));
     TIP_STEP = 0;
     tipTourRender(card, auto);
@@ -55645,16 +55639,16 @@ function tipAnnounce(card) {
   if (live) { live.textContent = ''; live.textContent = 'Tip: ' + card.querySelector('h2').textContent; }
 }
 
-/* One step of the tour: "N of M", the step's words, progress dots, Skip and Next (Got it on the last).
+/* One step of a stepped tip: "N of M", the step's words, progress dots, Skip and Next (Got it on the last).
    Skip, the x, Escape and a click outside all end it, and ending it any way counts as seen. */
 function tipTourRender(card, auto) {
   const st = TIP_PLACES[TIP_STEP];
   const n = TIP_PLACES.length;
   const last = TIP_STEP === n - 1;
   card.innerHTML = '<span class="tip-arrow" aria-hidden="true"></span>'
-    + '<button class="tip-x" type="button" aria-label="Close the tour">&times;</button>'
+    + '<button class="tip-x" type="button" aria-label="' + (TIP_OPEN && TIP_OPEN.id === 'tour' ? 'Close the tour' : 'Close') + '">&times;</button>'
     + '<div class="tip-eb">' + (TIP_STEP + 1) + ' of ' + n + '</div>'
-    + '<h2 id="tipcard-title">' + esc(st.title) + '</h2><div class="tip-bd"><p>' + esc(st.body) + '</p></div>'
+    + '<h2 id="tipcard-title">' + esc(st.title) + '</h2><div class="tip-bd">' + (st.html ? st.body : '<p>' + esc(st.body) + '</p>') + '</div>'
     + '<div class="tip-acts"><span class="tip-dots" aria-hidden="true">'
     + TIP_PLACES.map((_, i) => '<i' + (i === TIP_STEP ? ' class="on"' : '') + '></i>').join('') + '</span>'
     + '<span class="tip-btns">' + (last ? '' : '<button class="tip-skip" type="button">Skip</button>')
@@ -55668,6 +55662,8 @@ function tipTourRender(card, auto) {
     TIP_STEP += 1;
     tipTourRender(card, false);
   });
+  /* A step whose place is below the fold (a short window) is brought into view once, as the step opens. */
+  if (st && st.sel) { try { document.querySelector(st.sel)?.scrollIntoView({ block: 'nearest' }); } catch { /* an older webview */ } }
   tipAnnounce(card);
   tipLayout(TIP_OPEN, card);
   /* It takes focus, unless it opened by itself while the person is typing somewhere. */
@@ -55722,7 +55718,7 @@ function tipDimming(on) {
 
 /* Position only; the card's content and focus are left alone, so a resize or scroll does not rebuild it. */
 function tipLayout(t, card) {
-  if (t.tour) {
+  if (t.steps) {
     /* The step's place stays bright inside a gold ring and the rest of the page dims: a fixed shade
        with a ring-shaped hole cut in it, so nothing in the app has to be lifted above it. */
     const st = TIP_PLACES[TIP_STEP];
@@ -55756,7 +55752,7 @@ function tipLayout(t, card) {
     }
     tipDimming(dim);
     /* The tour dims the page and any click outside ends it, so it only keeps clear of its ringed place. */
-    tipPlace(card, st && st.sel, false, { key: t.id + '#' + TIP_STEP, avoid: false });
+    tipPlace(card, st && st.sel, !!(st && st.side), { key: t.id + '#' + TIP_STEP, avoid: false });
   } else {
     tipDimming(false);
     tipPlace(card, t.at, t.side, { key: t.id, avoid: true });
@@ -55916,22 +55912,24 @@ function tipClose({ record, also = null }) {
   TIP_RETURN = null;
   if (card) delete card.dataset.suspended;
   if (ret && ret.focus && ret.isConnected) ret.focus();
-  else if (hadFocus) document.getElementById('helpq-btn')?.focus();
+  else if (hadFocus) document.activeElement?.blur();   // the card it was on is gone
   if (t && record) {
-    if (TIPS_STATE && !TIPS_STATE.seen.includes(t.id)) TIPS_STATE.seen.push(t.id);
+    /* A step shown as another tip's stand-in (the ring on an agent's page) records that tip as seen too. */
+    const ids = [t.id].concat(t.steps ? TIP_PLACES.filter((st) => st.sel).map((st) => st.alsoSeen).filter(Boolean) : []);   // only a step that was shown on its place
+    for (const id of ids) if (TIPS_STATE && !TIPS_STATE.seen.includes(id)) TIPS_STATE.seen.push(id);
     /* One write for "closed" and "turn tips off", so two responses cannot race each other. */
-    return tipsSave({ seen: [t.id], ...(also || {}) });
+    return tipsSave({ seen: ids, ...(also || {}) });
   }
   return Promise.resolve();
 }
 
-/* Escape closes any tip; a click outside closes the tour (a screen tip stays while you work).
+/* Escape closes any tip; a click outside closes a stepped tip (a screen tip stays while you work).
    Closing either way counts as seen. */
 /* Capture phase, so this reads the page before an app dialog's own Escape hides it: one Escape
    closes the dialog, not the tip hiding behind it. */
 document.addEventListener('keydown', (e) => {
   if (e.key !== 'Escape' || e.isComposing || e.keyCode === 229 || !TIP_OPEN || tipModalOpen()) return;
-  /* An open menu takes the Escape: the ? and the user menu (aria-haspopup), the narrow-width burger
+  /* An open menu takes the Escape: the user menu (aria-haspopup), the narrow-width burger
      and the Kosmos switcher (aria-expanded without aria-haspopup). */
   if (tipMenuOpen()) return;
   /* A screen tip leaves an Escape meant for something else alone: typing in a field, an open menu,
@@ -55940,15 +55938,15 @@ document.addEventListener('keydown', (e) => {
   const inField = !!ae && !ae.closest('#tipcard') && ae.matches('input, textarea, select, [contenteditable=""], [contenteditable="true"]');
   const inMenu = !!ae && !!ae.closest('[role="menu"], .userpop-menu:not([hidden])');
   const pickerOpen = !!document.querySelector('#rxn-picker:not([hidden]), #pj-emoji:not([hidden]), #d-emoji:not([hidden])');
-  if (!TIP_OPEN.tour && (inField || inMenu || pickerOpen)) return;
+  if (!TIP_OPEN.steps && (inField || inMenu || pickerOpen)) return;
   e.preventDefault();
   tipClose({ record: true });
 }, true);
 document.addEventListener('pointerdown', (e) => {
-  if (!TIP_OPEN || !TIP_OPEN.tour) return;
+  if (!TIP_OPEN || !TIP_OPEN.steps) return;
   /* A click meant for a dialog that opened over the tour is not a click outside the tour. */
   if (tipModalOpen() || document.getElementById('tipcard')?.hidden) return;
-  if (e.target.closest('#tipcard') || e.target.closest('#helpq')) return;
+  if (e.target.closest('#tipcard')) return;
   tipClose({ record: true });
 }, true);
 let TIP_RELAYOUT = false;
@@ -55965,47 +55963,6 @@ document.addEventListener('click', () => { if (TIP_OPEN) setTimeout(() => tipSus
 window.addEventListener('resize', tipRelayout);
 document.addEventListener('scroll', tipRelayout, { capture: true, passive: true });
 
-/* The ? menu: this screen's tip, the tour, the ring explainer. Reopening never needs the tip to be
-   unseen, and works with tips turned off. */
-function wireHelpq() {
-  const btn = document.getElementById('helpq-btn');
-  const menu = document.getElementById('helpq-menu');
-  if (!btn || !menu) return;
-  const closeHelpMenu = () => { menu.hidden = true; btn.setAttribute('aria-expanded', 'false'); };
-  /* The ?'s click is left to bubble, so every other popover's outside-click closes it as usual.
-     The user menu stops its own click, so the ? listens for that one in the capture phase. */
-  document.getElementById('userpop-btn')?.addEventListener('click', () => closeHelpMenu(), true);
-  btn.addEventListener('click', () => {
-    const open = menu.hidden;
-    /* Settings has no tip of its own (Josh 07:46), so the ? does not offer one there: no fallback to the tour either. */
-    const screenItem = menu.querySelector('[data-help="screen"]');
-    if (open && screenItem) screenItem.hidden = tipVisible('#panel-settings');
-    menu.hidden = !open;
-    btn.setAttribute('aria-expanded', String(open));
-    if (open) menu.querySelector('.userpop-item:not([hidden])')?.focus();   // the first item that shows (not the screen item on Settings)
-  });
-  menu.addEventListener('click', (e) => {
-    const b = e.target.closest('[data-help]');
-    if (!b) return;
-    closeHelpMenu();
-    const want = b.dataset.help;
-    /* Choosing something else from the ? while the tour is up is closing the tour: it counts as seen. */
-    if (TIP_OPEN && TIP_OPEN.tour && want !== 'tour') tipClose({ record: true });
-    let t = null;
-    /* This screen's own tip: the ring has its own item, and its rail rings show on every
-       consolidated screen, so it is not a screen's answer. */
-    if (want === 'screen' && tipVisible('#panel-settings')) return;   // Settings has none, even if the menu was open when the screen changed
-    if (want === 'screen') t = TIPS.find((x) => !x.tour && x.id !== 'ring' && x.show()) || TIPS.find((x) => x.tour);
-    else t = TIPS.find((x) => x.id === want);
-    if (t) tipShow(t, { returnTo: btn });
-  });
-  document.addEventListener('click', (e) => { if (!menu.hidden && !e.target.closest('#helpq')) closeHelpMenu(); });
-  /* Escape closes the menu wherever focus is inside the ? (the button after a mouse click, or an item). */
-  document.getElementById('helpq').addEventListener('keydown', (e) => {
-    if (e.key === 'Escape' && !menu.hidden) { e.stopPropagation(); closeHelpMenu(); btn.focus(); }
-  });
-}
-wireHelpq();
 /* The Settings switch paints from the board's answer and writes the off flag. Hidden when the board
    could not say, so it never shows a state it did not read. */
 function paintTipsToggle() {
