@@ -156,6 +156,9 @@ if command -v ruby >/dev/null 2>&1; then
     # separate card job alone holds issues: write, and only for a scheduled failure.
     abort "browser-checks-full.yml top-level permissions must be exactly contents: read, got #{f["permissions"].inspect}" unless f["permissions"] == { "contents" => "read" }
     abort "the checks job must not grant itself permissions" if fj.key?("permissions")
+    # The checks job runs third-party npm installs: its checkout must not leave the token in git config.
+    co = (fj["steps"] || []).find { |st| st["uses"].to_s.start_with?("actions/checkout") } or abort "no checkout step"
+    abort "the full job checkout must set persist-credentials: false" unless (co["with"] || {})["persist-credentials"] == false
     cs = (fj["steps"] || []).find { |st| st["run"].to_s =~ /bash tools\/browser-checks\.sh/ } or abort "no checks step"
     abort "the checks step needs its own timeout below the job timeout" unless cs["timeout-minutes"].to_i > 0 && cs["timeout-minutes"].to_i < fj["timeout-minutes"].to_i
     cj = (f["jobs"] || {})["file-red-card"] or abort "no file-red-card job (nobody would see a nightly red)"
@@ -267,7 +270,7 @@ if command -v ruby >/dev/null 2>&1; then
   mkdir -p "$BT/poison" "$BT/ghcfg"; printf '#!/bin/sh\necho "REAL gh REACHED: $*" >&2; exit 99\n' > "$BT/poison/gh"; chmod +x "$BT/poison/gh"
   card() {
     PATH="$BT/poison:$PATH" GH_TOKEN=invalid GH_CONFIG_DIR="$BT/ghcfg" GH_RETRY_SECONDS=0 \
-    CLOSEFAIL="${CLOSEFAIL:-}" LISTFAIL="${LISTFAIL:-}" LABELFAIL="${LABELFAIL:-}" LCFAIL="${LCFAIL:-}" CREATEFAIL="${CREATEFAIL:-}" FLAGDIR="$BT/flags" GITHUB_RUN_ATTEMPT="${ATTEMPT:-1}" COMMENTFILE="${COMMENTFILE:-}" \
+    CLOSEFAIL="${CLOSEFAIL:-}" LISTFAIL="${LISTFAIL:-}" LABELFAIL="${LABELFAIL:-}" LCFAIL="${LCFAIL:-}" CREATEFAIL="${CREATEFAIL:-}" COMMENTFAIL="${COMMENTFAIL:-}" FLAGDIR="$BT/flags" GITHUB_RUN_ATTEMPT="${ATTEMPT:-1}" COMMENTFILE="${COMMENTFILE:-}" \
     VIEWFAIL="${VIEWFAIL:-}" BODYFILE="${BODYFILE:-}" VIEWBODY="${VIEWBODY:-}" LABEL="${LABEL:-}" RESULT="$1" OPEN="$2" RED="${REDV-render-fields|render-thread|regress-a-night (server did not boot)|render-list-row render-fields (rich board did not boot)}" GITHUB_REPOSITORY=o/r GITHUB_SHA=abc RUN_URL=https://example.test/actions/runs/4242 bash -eo pipefail -c '
       qarg() { local prevarg="" a; for a in "$@"; do [ "$prevarg" = "-q" ] && { printf "%s" "$a"; return 0; }; prevarg="$a"; done; return 1; }
       gh() { case "$1 $2" in
@@ -292,8 +295,9 @@ if command -v ruby >/dev/null 2>&1; then
           T="Nightly full browser-check run is not green on main"
           lab="[{\"name\":\"nightly-browser-checks-red\"}]"
           bot="{\"login\":\"github-actions[bot]\"}"
-          # #8: an OUTSIDER opened an issue with the card title (the repo is public).
-          items="{\"number\":5,\"title\":\"something else\",\"labels\":[],\"user\":$bot},{\"number\":6,\"title\":\"$T\",\"labels\":[],\"pull_request\":{},\"user\":$bot},{\"number\":8,\"title\":\"$T\",\"labels\":[],\"user\":{\"login\":\"mallory\"}}"
+          # #8: an OUTSIDER opened an issue with the card title (the repo is public). #10: an issue
+          # by someone else carrying the card LABEL (a maintainer reusing it): never a card.
+          items="{\"number\":10,\"title\":\"a maintainer tracking issue\",\"labels\":$lab,\"user\":{\"login\":\"somemaintainer\"}},{\"number\":5,\"title\":\"something else\",\"labels\":[],\"user\":$bot},{\"number\":6,\"title\":\"$T\",\"labels\":[],\"pull_request\":{},\"user\":$bot},{\"number\":8,\"title\":\"$T\",\"labels\":[],\"user\":{\"login\":\"mallory\"}}"
           [ -f "$FLAGDIR/ghost" ] && items="{\"number\":9,\"title\":\"$T\",\"labels\":$lab,\"user\":$bot},$items"
           case "$OPEN" in ""|null) ;; *) items="{\"number\":$OPEN,\"title\":\"$T\",\"labels\":$lab,\"user\":$bot},{\"number\":3,\"title\":\"$T\",\"labels\":$lab,\"user\":$bot},$items" ;; esac
           all="[$items]"
@@ -306,7 +310,7 @@ if command -v ruby >/dev/null 2>&1; then
           # The ghost card (#9) is the one THIS run made: its body names this run.
           if [ "$3" = 9 ]; then jq -n --arg b "The nightly full page-layer run ended failure: $RUN_URL" "{author: {login: \"app/github-actions\"}, body: \$b, comments: []}" | jq -r "$f"; return; fi
           printf "%s" "{\"author\":{\"login\":\"app/github-actions\"},\"body\":\"The nightly full page-layer run failed\\n\\nRed checks: an old entry\",\"comments\":[{\"author\":{\"login\":\"github-actions\"},\"body\":\"Still not green (failure) at old: u\\nNEW since the last red night: none\\nRed checks: render-fields | regress-a-night (server did not boot)\"},{\"author\":{\"login\":\"someone\"},\"body\":\"a person quoting it: Red checks: something else entirely\"},{\"author\":{\"login\":\"mallory\"},\"body\":\"Still not green (failure) at spoof: u\\nRed checks: render-thread | render-list-row render-fields (rich board did not boot)\"}]}" | jq -r "$f" ;;
-        "issue comment") echo "CALL comment $3 :: $*"
+        "issue comment") [ -n "$COMMENTFAIL" ] && { echo "HTTP 502" >&2; return 1; }; echo "CALL comment $3 :: $*"
           [ -n "$COMMENTFILE" ] && { prevarg=""; for a in "$@"; do [ "$prevarg" = "--body" ] && printf "%s" "$a" > "$COMMENTFILE"; prevarg="$a"; done; }; true ;;
         "issue create")
           # CREATEFAIL=ghost: fails but GitHub made it. CREATEFAIL=once: fails the first time only.
@@ -422,6 +426,15 @@ if command -v ruby >/dev/null 2>&1; then
   out="$(CLOSEFAIL=1 card success 7)" && rc=0 || rc=$?
   [ "$rc" -ne 0 ] || fail "a failed close ended the card job green: $out"
   case "$out" in *"Green again"*) fail "a closing note was posted for a card that did not close: $out" ;; esac
+  # A red night whose report cannot be posted on the open card ends the job RED with an
+  # ::error::, never green and silent (the one write that must not be swallowed).
+  out="$(COMMENTFAIL=1 card failure 7 2>&1)" && rc=0 || rc=$?
+  [ "$rc" -ne 0 ] || fail "a failed report comment ended the card job green: $out"
+  case "$out" in *"::error::gh issue comment failed"*) ;; *) fail "a failed report comment raised no ::error::: $out" ;; esac
+  # A green night closes only bot-made cards: an issue someone else labelled (#10) stays open.
+  out="$(card success 7)" || fail "green close: $out"
+  case "$out" in *"CALL close 10"*) fail "a green night closed someone else's labelled issue: $out" ;; esac
+  case "$out" in *"CALL close 7"*) ;; *) fail "a green night did not close the card: $out" ;; esac
   # CRLF from a web edit must not make every check NEW.
   out="$(VIEWBODY="$(printf 'Still not green (failure) at x: u\r\nNEW since the last red night: none\r\nRed checks: render-fields | render-thread\r')" REDV="render-fields|render-thread" card failure 7)" || fail "CRLF report: $out"
   [ "$(printf '%s\n' "$out" | sed -n 's/^NEW since the last red night: //p')" = "none" ] || fail "a CRLF previous report made entries NEW: $out"

@@ -163,7 +163,9 @@ jobs:
           # Every lookup is the REST issues LIST, never GitHub search: `gh issue list --label`
           # queries the search index, which lags a just-made issue (a missed card is a duplicate).
           # The list is newest first; pull requests (also returned by it) are dropped.
-          cards_by_label() { ghr gh api --paginate "repos/$GITHUB_REPOSITORY/issues?state=open&labels=$label&per_page=100" -q '[.[] | select(.pull_request == null) | .number] | .[]'; }
+          # Bot-authored only, like cards_by_title: a green night closes EVERY card this returns,
+          # so an issue someone else put the label on must never be one of them.
+          cards_by_label() { ghr gh api --paginate "repos/$GITHUB_REPOSITORY/issues?state=open&labels=$label&per_page=100" -q '[.[] | select(.pull_request == null and ((.user.login // "") | test("^(app/)?github-actions(\\[bot\\])?$"))) | .number] | .[]'; }
           cards_by_title() { ghr gh api --paginate "repos/$GITHUB_REPOSITORY/issues?state=open&per_page=100" -q "[.[] | select(.pull_request == null and .title == \"$title\" and (.user.login // \"\" | test(\"^(app/)?github-actions(\\\\[bot\\\\])?$\"))) | .number] | .[]"; }
           # If even this lookup fails, the report is not dropped: a red night files a NEW card
           # (a possible duplicate is better than silence); a green night does nothing.
