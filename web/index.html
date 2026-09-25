@@ -9300,7 +9300,7 @@ window.kosmosMeasureScrollbarWidth();
             </fieldset>
             <button type="button" class="btn swstop" id="d-swarm-stop">Stop now</button>
           </div>
-          <p class="dhint">Stop now ends every helper straight away. Work they have not handed back is dropped; the swarm keeps everything already done.</p>
+          <p class="dhint">Stop now ends its current work and every helper straight away, and pauses it until you switch it back to Active. Work not handed back is dropped.</p>
           <p class="swwhy" id="d-swarm-why" hidden></p>
         </div>
         <div class="swbox">
@@ -38549,11 +38549,12 @@ function swarmCluster(a, size, { ring = false, decorative = false } = {}) {
   const sw = (a && a.swarm) || {};
   const max = Math.max(2, Math.min(10, Number(sw.maxHelpers) || 3));
   const measured = sw.metered !== false;   // not read in full: no circle lit, no count claimed
-  const live = measured ? Math.max(0, Math.min(max, Number(sw.activeHelpers) || 0)) : 0;
+  const real = measured ? Math.max(0, Number(sw.activeHelpers) || 0) : 0;
+  const live = Math.min(max, real);   // circles lit: at most the circles drawn
   const n = Math.min(max, 7), L = swarmLayout(n), r = L.r * size;
   const pic = a && a.hasAvatar && a.sessionName ? `url('/api/agent/${encodeURIComponent(a.sessionName)}/avatar?v=${a.avatarVer || 0}')` : '';
   const tint = discTint(a && a.name), ink = discInk(a && a.name), ini = esc(initials(a && a.name));
-  const named = decorative ? 'aria-hidden="true"' : `role="img" aria-label="${esc(measured ? 'Swarm, ' + live + ' of ' + max + ' helpers working' : 'Swarm, up to ' + max + ' helpers')}"`;
+  const named = decorative ? 'aria-hidden="true"' : `role="img" aria-label="${esc(measured ? 'Swarm, ' + real + ' of ' + max + ' helpers working' : 'Swarm, up to ' + max + ' helpers')}"`;
   let h = `<span class="swc" ${named} style="width:${size}px;height:${size}px;--swd-font:${Math.max(7, Math.round(r * 0.95))}px;--swd-edge:${Math.max(1, size / 44).toFixed(1)}px">`;
   for (let i = 0; i < n; i += 1) {
     const x = L.p[i][0] * size - r, y = L.p[i][1] * size - r;
@@ -38561,7 +38562,7 @@ function swarmCluster(a, size, { ring = false, decorative = false } = {}) {
     h += `<span class="swd ${i < live ? 'on' : 'rest'}" style="left:${x.toFixed(1)}px;top:${y.toFixed(1)}px;width:${(2 * r).toFixed(1)}px;height:${(2 * r).toFixed(1)}px;${look}">${pic || size < 56 ? '' : ini}</span>`;
   }
   if (ring) h += '<span class="swring" aria-hidden="true"></span>';
-  if (size >= 32 && measured) h += `<span class="swb" aria-hidden="true">${live}/${max}</span>`;
+  if (size >= 32 && measured) h += `<span class="swb" aria-hidden="true">${real}/${max}</span>`;
   return h + '</span>';
 }
 
@@ -38571,7 +38572,8 @@ function swarmFaceSvg(a) {
   const sw = a.swarm || {};
   const max = Math.max(2, Math.min(10, Number(sw.maxHelpers) || 3));
   const measured = sw.metered !== false;
-  const live = measured ? Math.max(0, Math.min(max, Number(sw.activeHelpers) || 0)) : 0;
+  const real = measured ? Math.max(0, Number(sw.activeHelpers) || 0) : 0;
+  const live = Math.min(max, real);
   const n = Math.min(max, 7), L = swarmLayout(n), size = 46, off = 13, r = L.r * size;
   const id = 'swc-' + String(a.sessionName || a.name || 'x').replace(/[^A-Za-z0-9_-]/g, '_');
   const href = a.hasAvatar ? `/api/agent/${encodeURIComponent(a.sessionName)}/avatar?v=${a.avatarVer || 0}` : '';
@@ -38588,7 +38590,7 @@ function swarmFaceSvg(a) {
     if (on) h += `<circle cx="${cx.toFixed(1)}" cy="${cy.toFixed(1)}" r="${(r + 1.3).toFixed(1)}" fill="none" style="stroke:var(--gold-bright)" stroke-width="1.3"/>`;
     h += '</g>';
   }
-  const label = measured ? live + '/' + max : 'up to ' + max, bw = 7 + label.length * 5.2;
+  const label = measured ? real + '/' + max : 'up to ' + max, bw = 7 + label.length * 5.2;
   /* Bottom LEFT: the card's presence dot owns the bottom right. */
   h += `<rect x="12" y="52" width="${bw.toFixed(1)}" height="12" rx="6" style="fill:var(--k-ink)"/><text x="${(12 + bw / 2).toFixed(1)}" y="58.3" text-anchor="middle" dominant-baseline="central" style="fill:var(--k-bg);font:700 8px var(--font-ui)">${label}</text>`;
   return h;
@@ -38597,9 +38599,10 @@ function swarmFaceSvg(a) {
 function swarmStatusWords(a) {
   const sw = (a && a.swarm) || {};
   if (sw.active === false) return sw.pausedBecause === 'limit' ? 'Paused at today\'s limit' : sw.pausedBecause === 'stopped' ? 'Stopped' : 'Paused';
-  const max = Number(sw.maxHelpers) || 0, live = Math.min(max, Number(sw.activeHelpers) || 0);
+  const max = Number(sw.maxHelpers) || 0, live = Math.max(0, Number(sw.activeHelpers) || 0);   // the real count, not capped
   /* Not read in full (metered false): the helper count is not a measurement, so claim none. */
   if (sw.metered === false) return `Up to ${max} helpers`;
+  if (live > max) return `${live} helpers working (most ${max})`;   // the maximum was lowered, or the lead went over it
   if (live > 0) return `${live} of ${max} helpers working`;
   /* "Idle" only when the board says idle: a lead that is paused, stuck or unreadable is not idle, and the card's own
      state pill already says which. */
@@ -38610,7 +38613,7 @@ function swarmStatusWords(a) {
    status row every poll; a control the person is using is not repainted under them. */
 var SWARM_ROW = null;   // the open swarm's latest status row, so a change or a slider reads today's numbers
 var SWARM_PAINTED = null;   // whose panel is on screen: a different agent's page starts with an empty message line
-function swarmPagePaint(a) {
+function swarmPagePaint(a, { force = false } = {}) {
   const panel = document.getElementById('d-swarm-panel');
   if (!panel) return;
   const sw = a && (typeof SWARMS_ON !== 'undefined' && SWARMS_ON && Object.prototype.hasOwnProperty.call(a, 'swarm') && a.swarm) ? a.swarm : null;
@@ -38618,6 +38621,8 @@ function swarmPagePaint(a) {
   const who = a && a.sessionName;
   if (who !== SWARM_PAINTED) { SWARM_PAINTED = who; document.getElementById('d-swarm-msg').textContent = ''; }
   panel.hidden = !sw;
+  /* The page's header face follows the field: it gains or loses the cluster when a poll brings or drops `swarm`. */
+  { const head = document.getElementById('d-swarm'); if (head && a && (!!sw) === head.hidden && typeof renderAvatar === 'function') renderAvatar(a); }
   /* A swarm runs on Claude only (the engine refuses a move off it), so it is not offered a switch that cannot work. */
   { const pv = document.getElementById('d-provider'); const prow = pv && pv.closest('.frow'); if (prow) prow.hidden = !!sw; }
   if (!sw) return;
@@ -38634,10 +38639,12 @@ function swarmPagePaint(a) {
      the count itself could not be read in full (metered false), since it may be missing one that is. */
   /* A person's pause sends nothing to the lead, so its turn runs on: Stop now (the only interrupt) stays. It greys only
      once it has nothing left to stop: stopped, or paused at the limit, with no helper counted in a full read. */
-  document.getElementById('d-swarm-stop').disabled = !on && (sw.pausedBecause === 'stopped' || sw.pausedBecause === 'limit') && !(Number(sw.activeHelpers) > 0) && sw.metered !== false;
+  /* ...and never while the lead itself is working: the meter counts helpers only, and a stop whose interrupt failed
+     still leaves it paused as stopped with its turn running. */
+  document.getElementById('d-swarm-stop').disabled = !on && (sw.pausedBecause === 'stopped' || sw.pausedBecause === 'limit') && !(Number(sw.activeHelpers) > 0) && sw.metered !== false && a.state !== 'working';
   const max = Math.max(2, Math.min(10, Number(sw.maxHelpers) || 3));
   const range = document.getElementById('d-swarm-max');
-  if (document.activeElement !== range && SWARM_BUSY !== who) range.value = String(max);
+  if ((force || document.activeElement !== range) && SWARM_BUSY !== who) range.value = String(max);
   const shown = Number(range.value) || max;
   document.getElementById('d-swarm-max-v').textContent = String(shown);
   range.setAttribute('aria-valuetext', shown + ' helpers at most');
@@ -38653,7 +38660,7 @@ function swarmPagePaint(a) {
   document.getElementById('d-swarm-limit').textContent = !cap ? 'no limit set' : unmeasured ? 'Limit ' + cap.toLocaleString('en-US') + ' a day' : 'of ' + cap.toLocaleString('en-US') + ' limit';
   /* Unmeasured, the limit cannot be watched for either, so the page does not promise to pause at it. */
   const hint = document.getElementById('d-swarm-hint');
-  hint.hidden = unmeasured;
+  hint.hidden = unmeasured || !cap;   // no limit set: nothing to pause at
   /* Switched back on over the limit: the engine will not pause it again today, so the page does not promise to. */
   /* Over the limit while Active: either the person switched it back on (it then runs to midnight) or the limit sweep
      has yet to notice (up to a minute). The page cannot tell which, so it says only what is true of both. */
@@ -38662,7 +38669,7 @@ function swarmPagePaint(a) {
      exact number until the person moves it (a 2,500,000 limit is not shown as 3,000,000). No limit: no slider. */
   const capR = document.getElementById('d-swarm-cap');
   capR.closest('.swrow').hidden = !cap;
-  if (cap && document.activeElement !== capR && SWARM_BUSY !== who) {
+  if (cap && (force || document.activeElement !== capR) && SWARM_BUSY !== who) {
     capR.max = String(Math.max(20, Math.ceil(cap / 1000000)));
     capR.value = String(Math.max(1, Math.round(cap / 1000000)));
     document.getElementById('d-swarm-cap-v').textContent = cap.toLocaleString('en-US');
@@ -38686,6 +38693,7 @@ async function swarmSend(url, method, body, doneWords) {
   const still = () => !!CURRENT && CURRENT.sessionName === who;
   SWARM_BUSY = who;
   msg.textContent = '';
+  let failed = true;   // a refused change puts the sliders back to the saved numbers, even under the person's focus
   try {
     const r = await fetch(url, { method, headers: { 'content-type': 'application/json' }, body: JSON.stringify(body || {}) });
     const b = await r.json().catch(() => null);
@@ -38695,9 +38703,10 @@ async function swarmSend(url, method, body, doneWords) {
        swapped in, or Today and the circles would blank until the next poll. */
     if (b && b.swarm && SWARM_ROW && SWARM_ROW.sessionName === who) SWARM_ROW = { ...SWARM_ROW, swarm: { ...SWARM_ROW.swarm, ...b.swarm } };
     msg.textContent = typeof doneWords === 'function' ? doneWords(b) : (doneWords || '');
+    failed = false;
     return true;
   } catch { if (still()) msg.textContent = pjSentence('we could not reach Kosmos just now'); return false; }
-  finally { if (SWARM_BUSY === who) SWARM_BUSY = null; if (SWARM_ROW && still()) swarmPagePaint(SWARM_ROW); }
+  finally { if (SWARM_BUSY === who) SWARM_BUSY = null; if (SWARM_ROW && still()) swarmPagePaint(SWARM_ROW, { force: failed }); }
 }
 document.addEventListener('change', async (e) => {
   const t = e.target;
@@ -38706,10 +38715,9 @@ document.addEventListener('change', async (e) => {
   if (t.name === 'd-swarm-active') await swarmSend(base, 'PUT', { active: t.value === 'on' });
   /* Saved but the lead could not be told (told.could_not): the page must not show the new number as if it runs. */
   if (t.id === 'd-swarm-max') {
-    const was = SWARM_ROW && SWARM_ROW.swarm ? Number(SWARM_ROW.swarm.maxHelpers) : null;
     await swarmSend(base, 'PUT', { maxHelpers: Number(t.value) },
       (b) => (b && b.told && b.told.state === 'could_not'
-        ? pjSentence('saved, but it is still working to its old number' + (was ? ', ' + was : '') + ': ' + (b.told.because || 'it did not answer') + '. Move the slider to try again')
+        ? pjSentence('saved, but it is still working to its old number: ' + (b.told.because || 'it did not answer') + '. Move the slider to try again')
         : ''));
   }
   if (t.id === 'd-swarm-cap') await swarmSend(base, 'PUT', { dailyTokenLimit: Number(t.value) * 1000000 });
@@ -38773,7 +38781,10 @@ function swarmWarnWords(max, ratio) {
   /* Measured (the engine's helperTokenRatio, today's lead + helpers over the lead alone) when there is data;
      otherwise the mock's estimate, helpers plus the lead, which assumes a helper costs about one agent. */
   if (Number.isFinite(ratio) && ratio > 1) {
-    return `Today it has used about <b>${Math.round(ratio * 10) / 10} times</b> the tokens of one agent. With up to ${max} helpers it can use up to about ${max + 1} times while it is busy.`;
+    const r = Math.round(ratio * 10) / 10;
+    /* The bound assumes a helper costs about one agent; once the measured figure has passed it, the bound is not true. */
+    return r <= max + 1 ? `Today it has used about <b>${r} times</b> the tokens of one agent. With up to ${max} helpers it can use up to about ${max + 1} times while it is busy.`
+      : `Today it has used about <b>${r} times</b> the tokens of one agent, because its helpers are doing the heavy reading.`;
   }
   return `While it is busy, it can use up to about <b>${max + 1} times</b> the tokens of one agent: ${max} helpers plus the lead. It only adds helpers when there is enough work to split.`;
 }
