@@ -199,3 +199,51 @@ test('a rename that fails reports it and leaves the live account as it was', () 
     fs.chmodSync(live, 0o700);
   }
 }));
+
+/* Review pass 3: a NEW sign-in as someone who already has an account here (a lapsed
+   ~/.grok, which first run offers Connect for) refreshes that account, not a second one. */
+test('a new sign-in as an email already here refreshes that account instead of adding one', () => withMode('approve', 'SOLO@example.com', async () => {
+  // Its own email: earlier tests leave several me@example.com accounts, which is the no-guess case.
+  const live = account('.grok', JSON.stringify({ 'https://auth.x.ai::u1': { email: 'solo@example.com', expires_at: '2000-01-01T00:00:00Z' } }));
+  const before = grokDirs();
+  const out = grok.startGrokLogin({ grokBin: FAKE });
+  const s = await settled(out.sessionId);
+  assert.equal(s.state, 'connected', JSON.stringify(s));
+  assert.equal(s.account.dir, live, 'the existing account, not a new slot');
+  assert.equal(s.account.isDefault, true);
+  assert.match(auth(live), /"NEW"/, 'its lapsed sign-in is replaced');
+  await waitFor(() => grokDirs().join() === before.join());
+  assert.equal(grok.list().filter((a) => (a.email || '').toLowerCase() === 'solo@example.com').length, 1, 'one account for that person');
+  fs.rmSync(live, { recursive: true, force: true });
+}));
+
+test('two accounts with that email, or one being signed in, leave the new sign-in as its own account', async () => {
+  await withMode('approve', 'twice@example.com', async () => {
+    const both = JSON.stringify({ 'https://auth.x.ai::u1': { email: 'twice@example.com', refresh_token: 'OLD' } });
+    const a = account('.grok-twa', both);
+    const b = account('.grok-twb', both);
+    const out = grok.startGrokLogin({ grokBin: FAKE });
+    const s = await settled(out.sessionId);
+    assert.equal(s.state, 'connected');
+    assert.ok(s.account.dir !== a && s.account.dir !== b, 'no guess between two');
+    assert.equal(auth(a), both);
+    assert.equal(auth(b), both);
+    fs.rmSync(s.account.dir, { recursive: true, force: true });
+  });
+  grok.setGrokTimers({ forceKill: 200 });
+  // Its own email, so only the hold (not two matches) can stop the merge.
+  const HELD = JSON.stringify({ 'https://auth.x.ai::u1': { email: 'held@example.com', refresh_token: 'OLD' } });
+  const held = account('.grok-held2', HELD);
+  process.env.FAKE_MODE = 'hang';
+  const pending = grok.startGrokLogin({ grokBin: FAKE, reauthDir: held });
+  await waitFor(() => grok.grokLoginStatus(pending.sessionId).userCode);
+  await withMode('approve', 'held@example.com', async () => {
+    const out = grok.startGrokLogin({ grokBin: FAKE });
+    const s = await settled(out.sessionId);
+    assert.equal(s.state, 'connected');
+    assert.notEqual(s.account.dir, held, 'an account mid-sign-in is not written into');
+    assert.equal(auth(held), HELD);
+    fs.rmSync(s.account.dir, { recursive: true, force: true });
+  });
+  grok.cancelGrokLogin(pending.sessionId);
+});

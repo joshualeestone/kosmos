@@ -703,6 +703,21 @@ function promoteReauth(stagingDir, liveDir) {
   catch { return { ok: false, because: 'we signed in but could not update this account on the computer' }; }
 }
 
+/* The one existing subscription account a new sign-in as `email` belongs to, as a
+   reauthTarget, or null: no email, no match, more than one match, or the match is being
+   signed in already. `exceptDir` is the new sign-in's own slot. */
+function sameAccountFor(email, exceptDir) {
+  if (!email) return null;
+  const want = String(email).toLowerCase();
+  const skip = path.resolve(String(exceptDir || ''));
+  const hits = list().filter((a) => a.authMode === 'subscription' && a.email
+    && a.email.toLowerCase() === want && path.resolve(a.dir) !== skip);
+  if (hits.length !== 1) return null;
+  const t = reauthTarget(hits[0].dir);
+  if (t.error || activeGrokDirs.has(t.dir)) return null;
+  return t;
+}
+
 /**
  * Start a Grok subscription sign-in. Non-blocking; poll grokLoginStatus.
  * `reauthDir` signs in again AS that existing subscription account (see above); `label`
@@ -819,6 +834,29 @@ function startGrokLogin({ label, grokBin, reauthDir } = {}) {
     if (code === 0) {
       const who = identityOf(session.dir);
       if (who && who.authMode === 'subscription') {
+        /* The same person signing in as a NEW account while one of theirs is already here
+           (a lapsed ~/.grok is the common case: first run offers Connect for it) refreshes
+           that account instead of adding a second with the same email. Only when exactly
+           one account matches and nothing else is signing it in; otherwise the new slot
+           stands, as before, rather than guessing. */
+        const into = sameAccountFor(who.email, session.dir);
+        if (into) {
+          const moved = promoteReauth(session.dir, into.dir);
+          const row = moved.ok ? rowFor(into.dir, into.isDefault) : null;
+          if (row) {
+            session.reauthDir = into.dir;   // so the new slot is cleaned as staging
+            session.state = 'connected';
+            session.account = row;
+            freeSlotAndDir();
+            reapGrokSession(session);
+            return;
+          }
+          session.error = moved.ok ? 'the sign-in could not be read back after updating this account' : moved.because;
+          session.state = 'error';
+          freeSlotAndDir();
+          reapGrokSession(session);
+          return;
+        }
         if (session.typedLabel != null && String(session.typedLabel).trim()) writeName(session.dir, session.typedLabel);
         const row = rowFor(session.dir, false);
         if (row) {

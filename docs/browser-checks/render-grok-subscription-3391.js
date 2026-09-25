@@ -145,6 +145,25 @@ const chk = (ok, label, extra) => {
   chk(ok.success && /Grok is connected/.test(ok.box) && /me@example\.com/.test(ok.box) && !ok.grokFlow && ok.polls === 0,
     'connected shows the gold success box with the email, hides the sign-in and stops polling', JSON.stringify(ok));
 
+  // A repaint that throws after connected says so rather than sitting on "Checking...".
+  const thrown = await q(async () => {
+    closeAcctAdd(); openAcctAdd(); acctPick('xai'); document.getElementById('acct-grok-pick-sub').click();
+    document.getElementById('acct-grok-sub-go').click();
+    await new Promise((r) => setTimeout(r, 50));
+    const real = window.paintAccounts;
+    window.paintAccounts = async () => { throw new Error('repaint failed'); };
+    window.__status = { state: 'connected', account: { email: 'me@example.com' } };
+    const rejections = [];
+    const onRej = (e) => rejections.push(String(e.reason));
+    window.addEventListener('unhandledrejection', onRej);
+    await window.__tick();
+    await new Promise((r) => setTimeout(r, 50));
+    window.removeEventListener('unhandledrejection', onRej);
+    window.paintAccounts = real;
+    return { msg: document.getElementById('acct-grok-msg').textContent, rejections };
+  });
+  chk(/could not update/.test(thrown.msg) && thrown.rejections.length === 0, 'a repaint that throws after connected is said, not left on Checking', JSON.stringify(thrown));
+
   // An engine error is said in words; the button re-arms.
   await q(() => { closeAcctAdd(); openAcctAdd(); acctPick('xai'); document.getElementById('acct-grok-pick-sub').click(); document.getElementById('acct-grok-sub-go').click(); });
   await q(() => new Promise((r) => setTimeout(r, 50)));
@@ -269,8 +288,10 @@ const chk = (ok, label, extra) => {
     document.getElementById('fr-grok-connect').click();
     await new Promise((r) => setTimeout(r, 120));
     return { box: !document.getElementById('fr-apikey-flow').hidden, sub: !document.getElementById('fr-grok-sub').hidden,
-      head: document.getElementById('fr-apikey-t').textContent, gemini: document.getElementById('fr-gemini-connect').textContent.trim() };
+      head: document.getElementById('fr-apikey-t').textContent, gemini: document.getElementById('fr-gemini-connect').textContent.trim(),
+      focus: document.activeElement && document.activeElement.id };
   });
+  chk(fr1.focus === 'fr-grok-sub-go', 'first run: Grok\'s box puts focus on its sign-in, the first thing in it', JSON.stringify({ focus: fr1.focus }));
   chk(fr1.box && fr1.sub && /Sign in with your Grok subscription, or paste an xAI API key/.test(fr1.head),
     'first run: Grok\'s box offers the subscription sign-in beside the key', JSON.stringify(fr1));
   chk(/Connected/.test(fr1.gemini), 'CONTROL: Gemini is connected before the Grok sign-in', JSON.stringify(fr1));

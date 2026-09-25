@@ -65,3 +65,20 @@ signing a lapsed subscription back in from the app.
   sweep of engine/, web/, server.js and the browser checks found no other copy.
 - [NIT] the expired sentence would be wrong for a Gemini sign-in if one ever existed: noted in
   the same comment (only authMode 'subscription' reaches it, which only Grok has).
+
+## Review pass 3 (opus): no blockers, 1 warning, fixed
+- [WARNING] a NEW sign-in as someone who already has an account here made a second account
+  with the same email; first run leads there (a lapsed ~/.grok shows Connect). Now the engine
+  moves the new sign-in into that account (sameAccountFor + promoteReauth) when exactly one
+  subscription account has the email and nothing else is signing it in; two matches or a held
+  match leave the new slot, rather than guessing. Arms: merge, two matches, held; each perturbed red.
+  OpenAI's new sign-in has the same gap; not changed here (its own flow and tests).
+- [NIT] fixed: the expired sentence names Sign in again only when the account has an email;
+  otherwise it says Disconnect and sign in with Add a provider.
+- [NIT] fixed: onConnected is guarded; a repaint that throws says so instead of "Checking".
+- [NIT] fixed: first run's Grok box focuses its sign-in, the first thing in it.
+- Recorded, not changed: the choice is one-way per visit (after picking the sign-in, the key is
+  reached by picking another provider and Grok again, or reopening), the same as OpenAI's
+  chooser; a Stop followed at once by a new sign-in again can be refused for a moment while
+  grok exits ("already in progress", honest and transient); status 404 and a cancelled state
+  in Settings are handled by the same finish() path the Stop and error arms cover.

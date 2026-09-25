@@ -23096,7 +23096,14 @@ function grokSubDriver(o) {
       const out = await r.json().catch(() => null);
       if (!out || mine !== gen || session !== id) return;
       show(out);
-      if (out.state === 'connected') { finish(''); await o.onConnected(out.account || null); return; }
+      if (out.state === 'connected') {
+        finish('');
+        /* The account exists on the engine now; a screen that fails to repaint must say so,
+           never sit on "Checking the connection…". */
+        try { await o.onConnected(out.account || null); }
+        catch { say('Signed in, but this screen could not update. Close it and look in Settings, AI Models.'); }
+        return;
+      }
       if (out.state === 'cancelled') { finish('Sign-in stopped.'); return; }
       if (out.state === 'error') { finish((pjSentence(out.error) || 'That sign-in did not finish.') + ' You can try again.'); return; }
       say(GROK_SUB_SAY[out.state] || 'Signing in…');
@@ -23262,7 +23269,8 @@ async function frApikeyOpen(which) {
   key.setAttribute('aria-label', p.name + ' API key');
   key.placeholder = p.hint;
   flow.hidden = false;
-  key.focus();
+  // Grok's box leads with its sign-in (the heading says so), so focus starts there.
+  (which === 'xai' ? document.getElementById('fr-grok-sub-go') : key).focus();
 }
 /* Paint one keyed row's Connect as Connected (green check, disabled) or Connect, from a
    known answer or from /api/accounts, the way frPaintOpenai does for GPT. A read that

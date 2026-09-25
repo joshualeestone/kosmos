@@ -265,6 +265,12 @@ test('#3391: a lapsed Grok subscription is refused as an expired sign-in; a rene
     assert.match(bad.because, /Sign in again on that account in Settings, AI Models/, 'it names the remedy that now exists');
     assert.doesNotMatch(bad.because, /cannot sign in/, 'the old "not yet" claim is gone');
     assert.match(bad.because, /or choose another Grok account for this agent/, 'and the other way out stays');
+    /* Without a readable email the row has no Sign in again, so the sentence must not name it. */
+    fs.writeFileSync(nodePath.join(dir, 'auth.json'), JSON.stringify({ 'https://auth.x.ai::u': { expires_at: '2000-01-01T00:00:00.000000Z' } }), { mode: 0o600 });
+    const noEmail = await create.accountConnectable({ provider: 'xai', accountDir: dir });
+    assert.equal(noEmail.ok, false);
+    assert.doesNotMatch(noEmail.because, /Sign in again/, 'a button that row does not have');
+    assert.match(noEmail.because, /Disconnect it in Settings, AI Models and sign in with Add a provider/);
     write({ refresh_token: 'r' });
     const good = await create.accountConnectable({ provider: 'xai', accountDir: dir });
     assert.equal(good.ok, true, 'CONTROL: a renewable sign-in must pass');
