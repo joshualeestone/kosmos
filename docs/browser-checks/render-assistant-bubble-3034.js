@@ -246,6 +246,16 @@ const waitFor = (page, fn, ms = 6000) => page.waitForFunction(fn, null, { timeou
     chk(await waitFor(page, () => { const b = document.getElementById('asb'); return b && !b.hidden; }, 15000) && settingsFailed === 1, 'B13 a settings read that failed at load is retried and the bubble arrives', 'failed=' + settingsFailed);
     await page.unroute('**/api/settings');
 
+    // B14: a new agent takes the guide's name (its folder has no guide marker). The board answers 409
+    // "not-guide"; unlike a check it could not make (B12), that means the guide is gone.
+    const marker14 = path.join(path.dirname(instructions.fileFor('josh')), setupAssistant.GUIDE_MARKER);
+    chk((await bubble(page)).bubble, 'B14 precondition: the bubble is showing');
+    fs.rmSync(marker14, { force: true });
+    await page.evaluate(() => asbPoll(true));
+    chk(await waitFor(page, () => document.getElementById('asb').hidden && ASB.guide === null, 6000), 'B14 a folder that is not the guide\'s (a new agent took the name) is not used as the guide');
+    fs.writeFileSync(marker14, 'josh\n');   // the real guide back, for the arms after
+    chk(await waitFor(page, () => { const b = document.getElementById('asb'); return b && !b.hidden; }, 15000), 'B14 CONTROL: the marked guide is found again');
+
     // B10: the guide goes while the chat is FOLDED: the next thread read asks the board first, is told
     // there is no guide, and the page stops using the name (a new agent that took it must never get the
     // guide's chat or light its dot). CONTROL: the bubble is showing just before.

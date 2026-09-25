@@ -194,14 +194,18 @@ test('#3034 read: an agent that took a deleted guide\'s name is not the guide (4
   const create = require('./engine/create');
   folderFor('Josh');                                   // same name, no marker
   setupAssistant.markSetupAssistantSeeded({ name: 'Josh', via: 'test' });
-  assert.equal((await getGuide()).status, 409, 'an unmarked agent with the guide\'s name was named as the guide');
+  const notGuide = await getGuide();
+  assert.equal(notGuide.status, 409, 'an unmarked agent with the guide\'s name was named as the guide');
+  assert.equal((await notGuide.json()).reason, 'not-guide', 'the page must be able to tell "not the guide" from "could not check"');
   folderFor('Josh', { guide: true });
   const removedFile = path.join(path.dirname(setupAssistant.flagPath()), 'removed.json');
   try {
     fs.writeFileSync(removedFile, JSON.stringify([{ name: create.cleanName('Josh') }]));
     assert.equal((await getGuide()).status, 404, 'a removed guide was named');
     fs.writeFileSync(removedFile, '{not a list');
-    assert.equal((await getGuide()).status, 409, 'an unreadable removed list must refuse');
+    const unchecked = await getGuide();
+    assert.equal(unchecked.status, 409, 'an unreadable removed list must refuse');
+    assert.equal((await unchecked.json()).reason, 'unchecked');
     fs.writeFileSync(removedFile, '[]');
     assert.equal((await getGuide()).status, 200, 'CONTROL: restored, the guide is named again');
   } finally { fs.rmSync(removedFile, { force: true }); }

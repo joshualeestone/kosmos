@@ -53658,7 +53658,12 @@ function asbTellScreen(force) {
   if (!force && key === ASB.screenKey) return;
   ASB.screenKey = key;
   fetch('/api/setup-guide/page', { method: 'POST', headers: { 'content-type': 'application/json' }, body: key })
-    .then((r) => { r.text().catch(() => {}); if (r.status === 404) asbForgetGuide(); })   // read on every answer (see asbFind). A 409 is a failed write or check, not a missing guide: keep it
+    .then(async (r) => {
+      const b = await r.json().catch(() => null);   // read on every answer (see asbFind)
+      /* Gone means no guide, or a folder that is not the guide's (a new agent took its name). A write that
+         failed, or a check the board could not make just now, keeps it. */
+      if (r.status === 404 || (b && b.reason === 'not-guide')) asbForgetGuide();
+    })
     .catch(() => { /* the guide answers without it; it is a courtesy, not a dependency */ });
 }
 
@@ -53740,11 +53745,12 @@ async function asbConfirmGuide() {
     r = await fetch('/api/setup-guide', { cache: 'no-store' });
     b = await r.json().catch(() => null);   // read on every answer (see asbFind)
   } catch { return !!ASB.guide; }   // the board did not answer: keep what we have rather than blink the bubble
-  /* Only "no guide" (404) or a DIFFERENT guide means this one is gone. A 409 is the board unable to check
-     just now (an unreadable removed list, a marker it cannot read): keep it, and the next read decides. */
+  /* Gone: no guide (404), a folder that is not the guide's (409, reason not-guide: a new agent took the
+     name), or a DIFFERENT guide. Only 'unchecked' (the board could not read its removed list just now)
+     keeps it, and the next read decides. */
   if (r.ok && b && b.ok && typeof b.name === 'string') {
     if (ASB.guide && b.name.toLowerCase() === String(ASB.guide).toLowerCase()) return true;
-  } else if (r.status !== 404) return !!ASB.guide;
+  } else if (r.status !== 404 && !(b && b.reason === 'not-guide')) return !!ASB.guide;
   asbForgetGuide();
   return false;
 }
@@ -53861,7 +53867,7 @@ async function asbSend() {
   ASB.sending = true;
   document.getElementById('asp-send').disabled = true;
   msg.textContent = '';
-  if (!(await asbConfirmGuide())) { ASB.sending = false; document.getElementById('asp-send').disabled = false; return; }
+  if (!(await asbConfirmGuide())) { ASB.sending = false; document.getElementById('asp-send').disabled = false; msg.textContent = 'The setup assistant is not on this computer any more, so that was not sent.'; return; }
   /* sendTalk's rules (#402, #3419): clear only the text THIS send took, and only when the box is not its
      only copy: placed, or unconfirmed but kept in the thread. could_not, or anything unrecognised, keeps it. */
   const clearSent = () => { if (say.value.trim() === text) say.value = ''; ASB.wroteOnce = true; };
@@ -53906,7 +53912,12 @@ document.getElementById('asb-toggle')?.addEventListener('click', async (e) => {
   asbPaintSetting();
   /* Switched back on: ask the board who the guide is before drawing it, so a name the guide lost while the
      assistant was off is not painted from the page's memory. */
-  if (ok && ASB.setting && ASB.setting.on === true && !(await asbConfirmGuide())) return;
+  if (ok && ASB.setting && ASB.setting.on === true && !(await asbConfirmGuide())) {
+    /* The row goes with the guide; say why, and keep the keyboard on the page. */
+    if (m) { m.textContent = 'The setup assistant is not on this computer right now.'; m.hidden = false; }
+    document.getElementById('tips-toggle')?.focus();
+    return;
+  }
   asbPaint();
   if (asbShows()) asbPoll(true);
 });

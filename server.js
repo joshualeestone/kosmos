@@ -3179,11 +3179,13 @@ function gateLog(req) {
      removed list refuses (409) rather than act for an agent that may be gone. */
 function setupGuideNow() {
   const guide = setupAssistant.guideName();
-  if (!guide) return { ok: false, status: 404, error: 'there is no setup guide on this computer' };
-  if (!setupAssistant.isGuideFolder(guide)) return { ok: false, status: 409, error: 'the setup guide is not on this computer any more' };
+  /* `reason` tells a caller that has already met the guide which refusals mean it is GONE ('none',
+     'not-guide') and which mean only that the board could not check just now ('unchecked'). */
+  if (!guide) return { ok: false, status: 404, reason: 'none', error: 'there is no setup guide on this computer' };
+  if (!setupAssistant.isGuideFolder(guide)) return { ok: false, status: 409, reason: 'not-guide', error: 'the setup guide is not on this computer any more' };
   const removed = removal.removedNames();
-  if (!removed.ok) return { ok: false, status: 409, error: 'we could not check whether the setup guide was removed' };
-  if (removed.names.includes(create.cleanName(guide))) return { ok: false, status: 404, error: 'there is no setup guide on this computer' };
+  if (!removed.ok) return { ok: false, status: 409, reason: 'unchecked', error: 'we could not check whether the setup guide was removed' };
+  if (removed.names.includes(create.cleanName(guide))) return { ok: false, status: 404, reason: 'none', error: 'there is no setup guide on this computer' };
   return { ok: true, name: guide };
 }
 
@@ -13713,7 +13715,7 @@ const server = http.createServer((req, res) => {
    */
   if (pathname === '/api/setup-guide' && (req.method === 'GET' || req.method === 'HEAD')) {
     const found = setupGuideNow();
-    if (!found.ok) { sendJson(res, found.status, { error: found.error }); return; }
+    if (!found.ok) { sendJson(res, found.status, { error: found.error, reason: found.reason }); return; }
     sendJson(res, 200, { ok: true, name: found.name });
     return;
   }
@@ -13743,7 +13745,7 @@ const server = http.createServer((req, res) => {
         try { body = JSON.parse(buf.toString('utf8') || '{}'); } catch { body = null; }
         if (!body || typeof body !== 'object' || Array.isArray(body)) { sendJson(res, 400, { error: 'we could not read that request' }); return; }
         const found = setupGuideNow();
-        if (!found.ok) { sendJson(res, found.status, { error: found.error }); return; }
+        if (!found.ok) { sendJson(res, found.status, { error: found.error, reason: found.reason }); return; }
         const guide = found.name;
         const pageContext = require('./engine/pagecontext');
         const out = pageContext.write(guide, body);
