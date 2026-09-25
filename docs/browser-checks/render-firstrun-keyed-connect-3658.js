@@ -63,6 +63,28 @@ const chk = (ok, label, extra) => {
         window.__accounts.push(account);   // the server keeps an unconfirmed key too
         return enc({ ok: true, account });
       }
+      /* #3713: the runner install. POST starts a job; each GET /api/runners moves it on,
+         downloading first, then present (or failed, when __installFail names why). */
+      const inst = u.match(/\/api\/runners\/(gemini|grok)\/install$/);
+      if (inst && opts && opts.method === 'POST') {
+        window.__installs = (window.__installs || 0) + 1;
+        window.__job = { runner: inst[1], ticks: 0, phase: 'downloading', receivedBytes: 10e6, totalBytes: 20772697 };
+        return enc({ job: window.__job });
+      }
+      if (/\/api\/runners(\?|$)/.test(u)) {
+        const out = {};
+        for (const r of ['gemini', 'grok']) {
+          let job = null;
+          if (window.__job && window.__job.runner === r) {
+            window.__job.ticks += 1;
+            if (window.__installFail) window.__job = { ...window.__job, phase: 'failed', because: window.__installFail };
+            else if (window.__job.ticks >= 2) { window.__runnerMissing[r] = false; window.__job = null; }
+            job = window.__job;
+          }
+          out[r] = { present: !window.__runnerMissing[r] && !job, downloadBytes: r === 'gemini' ? 20772697 : 42511097, job };
+        }
+        return enc({ runners: out });
+      }
       if (/\/api\/accounts(\?|$)/.test(u)) {
         const snap = window.__accounts.slice();   // the list as it was when the read began
         if (window.__holdRead) await window.__holdRead;
@@ -92,29 +114,61 @@ const chk = (ok, label, extra) => {
   chk(!list.heading && !list.runs, 'one uninterrupted list: no "Runs on this computer" heading', JSON.stringify(list));
   chk(!list.after && !list.later, 'no "After setup" pill and no "connect later in Settings" line', JSON.stringify(list));
 
-  // Missing runner: the probe says so and the box never opens, so nobody is sent for a key.
+  // #3713: a missing tool is found BEFORE the key box, and Kosmos offers to download it:
+  // the download box opens (naming the tool and its size), the key box does not.
   const miss = await q(async () => {
     window.__posts.length = 0;
     window.__runnerMissing = { gemini: true };
     document.getElementById('fr-gemini-connect').click();
-    await new Promise((r) => setTimeout(r, 120));
+    await new Promise((r) => setTimeout(r, 250));
     return { posts: window.__posts.slice(), boxHidden: document.getElementById('fr-apikey-flow').hidden,
+      installShown: !document.getElementById('fr-keyed-install').hidden,
+      ask: document.getElementById('fr-keyed-install-t').textContent,
+      focus: document.activeElement && document.activeElement.id,
       msg: document.getElementById('fr-apikey-msg').textContent, expanded: document.getElementById('fr-gemini-connect').getAttribute('aria-expanded') };
   });
-  chk(miss.posts.length === 1 && !miss.posts[0].body.key && miss.boxHidden && /"gemini"/.test(miss.msg) && /not installed/.test(miss.msg) && miss.expanded === 'false',
-    'a missing runner is found BEFORE the key box: the box stays shut and the tool is named', JSON.stringify(miss));
+  chk(miss.posts.length === 1 && !miss.posts[0].body.key && miss.boxHidden && miss.installShown && /Google's Gemini CLI/.test(miss.ask) && /21 MB/.test(miss.ask)
+      && miss.focus === 'fr-keyed-install-go' && miss.expanded === 'true' && !/cannot install/.test(miss.msg),
+    '#3713 a missing tool is found BEFORE the key box, and Kosmos offers to download it, naming it and its size', JSON.stringify(miss));
+
+  const notNow = await q(async () => {
+    document.getElementById('fr-keyed-install-no').click();
+    await new Promise((r) => setTimeout(r, 50));
+    return { hidden: document.getElementById('fr-keyed-install').hidden, expanded: document.getElementById('fr-gemini-connect').getAttribute('aria-expanded'), installs: window.__installs || 0 };
+  });
+  chk(notNow.hidden && notNow.expanded === 'false' && notNow.installs === 0, '#3713 Not now closes the download box and downloads nothing', JSON.stringify(notNow));
+
+  const failed = await q(async () => {
+    document.getElementById('fr-gemini-connect').click();
+    await new Promise((r) => setTimeout(r, 250));
+    window.__installFail = 'the downloaded runner did not match its published checksum, so it was discarded';
+    document.getElementById('fr-keyed-install-go').click();
+    await new Promise((r) => setTimeout(r, 2600));
+    const out = { msg: document.getElementById('fr-keyed-install-msg').textContent, go: document.getElementById('fr-keyed-install-go').disabled,
+      shown: !document.getElementById('fr-keyed-install').hidden, keyBox: !document.getElementById('fr-apikey-flow').hidden };
+    window.__installFail = null;
+    return out;
+  });
+  chk(/did not match its published checksum/i.test(failed.msg) && failed.go === false && failed.shown && !failed.keyBox,
+    '#3713 a download the engine refuses says why, re-arms Download, and never opens the key box', JSON.stringify(failed));
 
   const g = await q(async () => {
-    window.__runnerMissing = {};
-    document.getElementById('fr-gemini-connect').click();
-    await new Promise((r) => setTimeout(r, 120));
-    return { open: !document.getElementById('fr-apikey-flow').hidden, head: document.getElementById('fr-apikey-t').textContent,
+    const seen = [];
+    const msgEl = document.getElementById('fr-keyed-install-msg');
+    const obs = new MutationObserver(() => seen.push(msgEl.textContent));
+    obs.observe(msgEl, { childList: true, characterData: true, subtree: true });
+    document.getElementById('fr-keyed-install-go').click();
+    await new Promise((r) => setTimeout(r, 3500));
+    obs.disconnect();
+    return { seen, installHidden: document.getElementById('fr-keyed-install').hidden,
+      open: !document.getElementById('fr-apikey-flow').hidden, head: document.getElementById('fr-apikey-t').textContent,
       href: document.getElementById('fr-apikey-getkey').getAttribute('href'),
       expanded: document.getElementById('fr-gemini-connect').getAttribute('aria-expanded'),
       sub: !document.getElementById('fr-grok-sub').hidden };   // #3391 part 2: Grok's sign-in is Grok's only
   });
-  chk(g.open && /Google API key for Gemini/.test(g.head) && /aistudio\.google\.com/.test(g.href) && g.expanded === 'true' && !g.sub,
-    'with the runner present, Gemini\'s Connect opens the key box for Gemini', JSON.stringify(g));
+  chk(g.seen.some((x) => /Downloading… 10 of 21 MB/.test(x)), '#3713 the download shows its real progress, from the engine\'s own byte counts', JSON.stringify(g.seen));
+  chk(g.installHidden && g.open && /Google API key for Gemini/.test(g.head) && /aistudio\.google\.com/.test(g.href) && g.expanded === 'true' && !g.sub,
+    '#3713 once it is installed, the key box for Gemini opens by itself', JSON.stringify(g));
 
   const k = await q(async () => {
     document.getElementById('fr-apikey-key').value = 'AIza-typed-for-gemini';

@@ -1784,10 +1784,11 @@ function handleApikeyAccountStore(req, res, { mod, runner, providerLabel }) {
       try { body = JSON.parse(raw || 'null'); } catch { body = null; }
       if (!body || typeof body !== 'object') { sendJson(res, 400, { error: 'we could not read that request' }); return; }
       // Runner-present first (same ordering as the claude/openai routes): storing a
-      // key for a runner the machine cannot launch answers needsRunner. gemini/grok
-      // have no managed install job, so a plain resolveBin present-check is the whole
-      // check (no midInstall phase to wait out).
-      if (!runners.resolveBin(runner).present) {
+      // key for a runner the machine cannot launch answers needsRunner. #3713: Kosmos
+      // installs gemini/grok now, so a runner still mid-install (downloaded, not yet
+      // proved, and possibly about to be removed) is not ready either, as OpenAI's
+      // route already treats a live job.
+      if (!runners.resolveBin(runner).present || runners.installing(runner)) {
         sendJson(res, 400, { error: `we could not find the ${providerLabel} runner on this computer, so there is nothing to sign in to`, needsRunner: true, provider: runner });
         return;
       }
@@ -7504,7 +7505,7 @@ const server = http.createServer((req, res) => {
         if (body != null && typeof body !== 'object') { sendJson(res, 400, { error: 'we could not read that request' }); return; }
         body = body || {};
         const resolved = runners.resolveBin('grok');
-        if (!resolved.present) {
+        if (!resolved.present || runners.installing('grok')) {   // #3713: not while its own install is still proving it
           sendJson(res, 400, { error: grokAccounts.MISSING_RUNNER_SENTENCE, needsRunner: true, provider: 'grok' });
           return;
         }
