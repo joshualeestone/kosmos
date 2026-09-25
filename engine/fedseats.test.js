@@ -244,6 +244,20 @@ test('while an owner waits for someone to join, a post says exactly that', async
   assert.match(h.notes[0].text, /nobody outside has joined/);
 });
 
+test('a seat that ends says why in the room, once, and a later post says it has ended', async () => {
+  federation.recordLink('proj-end', { role: 'member', edge_id: 'edge-end' });
+  const h = harness();
+  await fedseats.ensure('proj-end');
+  say(h.spawned[0], { event: 'ended', because: 'that connection has been revoked. Ask to be re-invited.' });
+  await tick();
+  h.spawned[0].emit('exit', 3);
+  const ended = h.notes.filter((n) => n.projectId === 'proj-end' && /no longer connected/.test(n.text));
+  assert.equal(ended.length, 1, JSON.stringify(h.notes));
+  assert.match(ended[0].text, /revoked/);
+  assert.strictEqual(fedseats.post('proj-end', { from: 'x', kind: 'person', text: 'still there?' }), false);
+  assert.match(h.notes[h.notes.length - 1].text, /has ended/);
+});
+
 test('an inbound message that cannot be saved is said in the room and does not throw', async () => {
   federation.recordLink('proj-disk', { role: 'member', edge_id: 'edge-disk' });
   const h = harness();

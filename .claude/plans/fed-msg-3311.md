@@ -69,6 +69,10 @@ board yet carried messages between a federated project's room and its seat.
 - engine/fedseats.test.js (15), engine/messages.external-3311.test.js (5),
   server.fedmsg-3311.test.js (6), server.federation-3311.test.js (8),
   engine/federation.test.js (10): 44 pass.
+- Review round 5 controls: passing the owner's name straight through reds the
+  name-clash test; passing the owner's description back into create reds it on
+  "written into this computer's brief"; counting only posts reds the unread test;
+  removing the ended note, or the ended branch in post, reds the ended test.
 - Review round 4 controls: putting back `from = delivery.from` reds the unlisted-agent
   test (the session name went out); rethrowing from the recordExternal catch reds the
   cannot-be-saved test; no stdout error listener reds the stream-error test; an edges
@@ -96,6 +100,16 @@ board yet carried messages between a federated project's room and its seat.
   closed. A second local project carrying a real ref only puts this same account's
   own Mac in its own room twice. It grants nothing across accounts, because the room
   ticket is still minted per edge by the coordinator.
+
+## Decided in round 5
+- A joined project's local name is the owner's name if it can be made here,
+  else "<name> (shared)", "(shared 2)"... The owner's description is kept on
+  the link record only and is NOT written as the local project's description
+  or brief Goal: it is someone else's words and would read as this person's own
+  instructions to their agents.
+- Not fixed: after an owner edge is refused for good the status is `waiting`
+  until the next check even when other members are in, so for up to a minute a
+  post can say nobody has joined. Cosmetic and self-correcting.
 
 ## Not yet
 - The live two-Mac proof. (The browser check exists: render-fed-external-3311.)

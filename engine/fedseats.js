@@ -79,13 +79,17 @@ function onEvent(projectId, line) {
   if (!s) return;
   if (ev.event === 'connected') { setStatus(projectId, 'connected'); s.backoff = RESTART_START_MS; return; }
   if (ev.event === 'disconnected') { setStatus(projectId, 'reconnecting'); return; }
-  if (ev.event === 'ended') { s.ended = String(ev.because || 'the connection ended'); return; }
+  if (ev.event === 'ended') {
+    s.ended = clean(ev.because, 200) || 'the connection ended';
+    say(projectId, 'This computer is no longer connected to the external project: ' + s.ended + '. To take part again, ask the owner for a new code.');
+    return;
+  }
   if (ev.event === 'refused_post') { say(projectId, 'A message was not sent to the external project: ' + clean(ev.because, 200) + '.'); return; }
   if (ev.event === 'message' && ev.data && typeof ev.data === 'object' && typeof ev.data.text === 'string' && ev.data.text.trim()) {
     const now = Date.now();
     if (!s.inbound || now - s.inbound.since >= INBOUND_WINDOW_MS) s.inbound = { since: now, count: 0, bytes: 0, noted: false };
     s.inbound.count += 1;
-    s.inbound.bytes += ev.data.text.length + String(ev.data.from || '').length;
+    s.inbound.bytes += Buffer.byteLength(ev.data.text) + Buffer.byteLength(String(ev.data.from || ''));
     if (s.inbound.count > INBOUND_PER_WINDOW || s.inbound.bytes > INBOUND_BYTES_PER_WINDOW) {
       if (!s.inbound.noted) { s.inbound.noted = true; say(projectId, 'The external project sent more messages than Kosmos keeps in a minute; some were not kept.'); }
       return;
@@ -247,6 +251,10 @@ function post(projectId, { from, kind, text }) {
     // Every room post passes through here; only a federated project's room has
     // anywhere else for it to go, so only there is staying local worth a line.
     if (!safeLink(projectId)) return false;
+    if (s && s.status === 'ended') {
+      say(projectId, 'That message stayed on this computer: the connection to the external project has ended.');
+      return false;
+    }
     if (s && s.status === 'waiting') {
       say(projectId, 'That message stayed on this computer: nobody outside has joined this shared project yet.');
       return false;

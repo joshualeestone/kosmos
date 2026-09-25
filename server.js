@@ -14091,7 +14091,10 @@ const server = http.createServer((req, res) => {
         if (!snap) { sendJson(res, 409, { error: 'Verify the code again before joining. Each code works once, so if it says it was already used, ask for a new one.' }); return; }
         const roster = safeRoster();
         const agents = Array.isArray(body.agents) ? body.agents.filter((a) => typeof a === 'string') : [];
-        const made = projects.create({ name: snap.project_name, description: snap.project_desc || undefined, agents, roster,
+        // The owner's words stay theirs: the name is only a starting point for a
+        // local name that can actually be made here, and the description is never
+        // written into this computer's brief as if the person here wrote it.
+        const made = projects.create({ name: joinedProjectName(snap.project_name), agents, roster,
           made: { via: 'screen', by: null } });
         // Without its link the project is an ordinary local one that says nothing
         // of where it came from; take it back out rather than leave that behind.
@@ -15389,6 +15392,27 @@ fedseats.configure({
    internal session name). Attachments stay on this computer: a post that is
    only an attachment says so in the room. A room with no live seat keeps the
    post local, and the seat manager says so in the room with a Kosmos note. */
+/* #3311: a local name for a project joined from outside. The owner's name can
+   clash with a project already here, break this computer's folder rules, or
+   match a folder that already exists, and any of those would fail every join
+   while the code stays used. So: the owner's name if it fits, else the same with
+   "(shared)", then "(shared 2)" and on. */
+function joinedProjectName(ownerName) {
+  const base = String(ownerName || '').replace(/\s+/g, ' ').trim().slice(0, 48).trim();
+  let taken;
+  try { taken = new Set(projects.readAll().map((p) => String(p.name || '').toLowerCase())); } catch { taken = new Set(); }
+  const free = (n) => !projects.folderNameProblem(n) && !taken.has(n.toLowerCase())
+    && !fs.existsSync(projects.folderPathFor(n));
+  for (const b of [base, 'Shared project']) {
+    if (!b || projects.folderNameProblem(b)) continue;
+    for (let i = 0; i < 50; i++) {
+      const n = i === 0 ? b : (i === 1 ? b + ' (shared)' : b + ' (shared ' + i + ')');
+      if (free(n)) return n;
+    }
+  }
+  return 'Shared project ' + Date.now();
+}
+
 function federateOut(projectId, delivery, operator) {
   if (!delivery || !delivery.id) return;
   let linked = false;
@@ -15399,17 +15423,17 @@ function federateOut(projectId, delivery, operator) {
     messages.roomNote(projectId, 'That post stayed on this computer: attachments are not sent to the external project, only words.');
     return;
   }
-  let from = 'an agent';
-  if (!operator) {
+  let from;
+  if (operator) {
+    // you.read() answers { state, you: { name, ... } }; the name is one level in.
+    try { const r = you.read(); from = (r && r.you && r.you.name) || 'the project owner'; } catch { from = 'the project owner'; }
+  } else {
+    from = 'an agent';
     try {
       const p = projects.get(projectId, safeRoster());
       const m = p && (p.agents || []).find((a) => a && a.sessionName === delivery.from);
       if (m && m.name) from = m.name;
     } catch { /* keeps 'an agent': the session name is internal and never leaves */ }
-  }
-  if (operator) {
-    // you.read() answers { state, you: { name, ... } }; the name is one level in.
-    try { const r = you.read(); from = (r && r.you && r.you.name) || 'the project owner'; } catch { from = 'the project owner'; }
   }
   try { fedseats.post(projectId, { from, kind: operator ? 'person' : 'agent', text }); } catch { /* a seat is best-effort */ }
 }

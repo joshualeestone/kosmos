@@ -108,7 +108,7 @@ function unreadAll() {
   if (seen === null) return null;
   const out = {};
   for (const m of rec.rows) {
-    if (!m || m.kind !== 'post' || !m.project || m.operator === true) continue;
+    if (!m || (m.kind !== 'post' && m.kind !== 'external') || !m.project || m.operator === true) continue;
     const since = seen[m.project] ? Date.parse(seen[m.project]) : -Infinity;
     const at = Date.parse(m.at);
     if (!Number.isFinite(at) || at <= since) continue;
@@ -394,8 +394,6 @@ function resolveSender(fromPane, roster) {
    commands, and stored under their own kind so no reader can take them for a
    local agent. Returns the row, or null if it did not fit the shape. */
 const EXTERNAL_FROM_MAX = 80;
-/* Matches the connector's post limit (fedroom MAX_POST, 16 KiB) so a message
-   that went out is never cut shorter on arrival than the sender could send. */
 const EXTERNAL_TEXT_MAX = 16384;
 /* Control characters from outside (a terminal escape among them) are removed
    before storage, so no reader, including `kosmos room` printing to a terminal,

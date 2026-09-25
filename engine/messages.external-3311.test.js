@@ -47,3 +47,9 @@ test('control characters from outside never reach storage; newlines do', () => {
   assert.strictEqual(row.from, 'Ev [31me');
   assert.strictEqual(row.text, 'a]0;titleb\ncd');
 });
+
+test('a message from outside counts as unread in its project', () => {
+  const before = (messages.unreadAll() || {})['proj-unread'] || 0;
+  messages.externalPost('proj-unread', { from: 'Grace', fromKind: 'person', text: 'anyone here?' });
+  assert.strictEqual((messages.unreadAll() || {})['proj-unread'] || 0, before + 1);
+});
