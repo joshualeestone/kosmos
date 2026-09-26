@@ -266,6 +266,7 @@ function resetHeardBudgetForTests() {
    projects), from the records themselves, so it survives a restart. The screen is
    never counted or refused. */
 const AGENT_RUNAWAY_PER_HOUR = 500;
+const AGENT_RUNAWAY_WINDOW_MS = 3600000;
 let agentRunawayLimit = AGENT_RUNAWAY_PER_HOUR;
 // Test-only: lets a route test trip the breaker without making 500 records.
 // Called with no argument it restores the real limit.
@@ -276,11 +277,11 @@ function setAgentRunawayLimitForTests(n) {
    null to allow, or the refusal sentence: the limit, that it is shared by every agent,
    and when the next one is allowed (when the oldest counted record leaves the hour). */
 function agentRunawayRefusal(times, noun, now = Date.now(), limit = agentRunawayLimit) {
-  const hourAgo = now - 3600000;
+  const hourAgo = now - AGENT_RUNAWAY_WINDOW_MS;
   const recent = times.filter((t) => Number.isFinite(t) && t >= hourAgo).sort((a, b) => a - b);
   if (recent.length < limit) return null;
   // Below the limit again once enough of the oldest have aged out of the hour.
-  const freesAt = recent[recent.length - limit] + 3600000;
+  const freesAt = recent[recent.length - limit] + AGENT_RUNAWAY_WINDOW_MS;
   const mins = Math.max(1, Math.ceil((freesAt - now) / 60000));
   return 'agents have made ' + recent.length + ' ' + noun + ' in the last hour, which reaches the limit of '
     + limit + ' an hour shared by all agents together (a safety stop for an agent stuck in a loop), so Kosmos is pausing agent-made '

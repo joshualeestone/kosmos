@@ -195,7 +195,8 @@ require('./engine/remove').setRunner(null);
 const test = require('node:test');
 const assert = require('node:assert/strict');
 
-const { start, server, pathOf, decodeSegment, resetHeardBudgetForTests } = require('./server');
+const { start, server, pathOf, decodeSegment, resetHeardBudgetForTests,
+  AGENT_RUNAWAY_PER_HOUR, agentRunawayRefusal, setAgentRunawayLimitForTests } = require('./server');
 const fleet = require('./test-support/fleet');
 
 let base;
@@ -11792,7 +11793,6 @@ test('a task records who added it and how; 30 agent-made tasks in an hour all la
   }
   // The runaway breaker still works through this route. It is 500 in production (pinned in
   // its own test); lowered here to 40 so the trip needs 8 more, not 468.
-  const { setAgentRunawayLimitForTests } = require('./server');
   setAgentRunawayLimitForTests(40);
   let refused = null;
   let landed = 0;
@@ -11825,7 +11825,6 @@ test('a task records who added it and how; 30 agent-made tasks in an hour all la
 });
 
 test('the agent runaway breaker: 500 an hour, shared, and it says when it lifts (#3959)', () => {
-  const { AGENT_RUNAWAY_PER_HOUR, agentRunawayRefusal } = require('./server');
   assert.equal(AGENT_RUNAWAY_PER_HOUR, 500, 'the production breaker moved; Josh ruled the limit is a runaway stop only');
   const now = Date.parse('2026-09-26T13:00:00Z');
   const min = 60000;
