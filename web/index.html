@@ -9499,7 +9499,7 @@ body.plus-active #plus-state2 { max-width: 26rem; padding: 2rem; }
   #d-talk-box .composerbox .attachbtn,
   #d-talk-box .composerbox #d-emoji-btn { width: 44px; height: 44px; }
   #d-talk-box .composerbox .cpost { min-height: 44px; min-width: 64px; }
-  #d-talk-box .composerbox .cinput { font-size: 16px; }
+  #d-talk-box .composerbox .cinput { font-size: 16px; min-height: 44px; }   /* a 44px target (Raiden's #718 re-sweep) */
   /* The compact header above already names the agent, so the "Direct Message to <name>"
      caption would say it twice; the search takes the row. Hidden visually only, so the
      conversation keeps its heading for screen-reader heading navigation. */
@@ -9507,7 +9507,7 @@ body.plus-active #plus-state2 { max-width: 26rem; padding: 2rem; }
   #d-talk-box #d-talk-label { position: absolute; width: 1px; height: 1px; overflow: hidden;
     clip: rect(0 0 0 0); clip-path: inset(50%); white-space: nowrap; }
   #d-talk-box .d-talk-caprow #d-talk-search-wrap { flex: 1 1 auto; min-height: 44px; }
-  #d-talk-box #d-talk-search { min-height: 42px; }
+  #d-talk-box #d-talk-search { min-height: 44px; }
   /* 16px or iOS zooms the page when the search box takes focus (as for the composer above). */
   #d-talk-box #d-talk-search { font-size: 16px; }
   #panel-detail:has(#d-sec-talk:not([hidden])) > .back { margin: 4px 0 0; min-height: 44px; }
@@ -9546,7 +9546,7 @@ body.plus-active #plus-state2 { max-width: 26rem; padding: 2rem; }
 @media (hover: none) {
   #d-talk-box .composerbox .cinput, #d-talk-box #d-talk-search { font-size: 16px; }
   #d-talk-box #d-talk-search-wrap { min-height: 44px; }
-  #d-talk-box #d-talk-search { min-height: 42px; }
+  #d-talk-box #d-talk-search { min-height: 44px; }
 }
 /* The canvases honour prefers-reduced-motion in JS (a single static frame, no
    rAF loop); this makes that intent visible to a source reader too. */
