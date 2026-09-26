@@ -110,7 +110,11 @@ test('#718: a chart wider than its box lets a finger scroll the box, and the dra
   // Sideways only, and clip (not hidden) so it is not a scroller and overflow-y stays visible.
   assert.match(PAGE, /\.orgwrap \{ margin-top: 8px; overflow-x: clip; \}/);
   // A finger on a wide chart pans it; it does not also start a drag.
-  assert.match(SCRIPT, /if \(e\.pointerType === 'touch' && map\.classList\.contains\('orgwide'\)\) return;/);
+  assert.match(SCRIPT, /if \(e\.pointerType !== 'mouse' && map\.classList\.contains\('orgwide'\)\) return;/);
+  // A squeezed chart anchors edge callouts inward; a dragged hub keeps its own margin.
+  assert.match(SCRIPT, /orgmapEl\.classList\.toggle\('orgtight', size < natural\);/);
+  assert.match(PAGE, /\.orgmap\.orgtight \.onode\.co-l \.callout \{ left: 0; transform: none; \}/);
+  assert.match(SCRIPT, /const extra = drag\.body === ORG_LIVE\.hub \? Math\.max\(0, ORG_LIVE\.hub\.size - box\.lo\) : 0;/);
 });
 
 test('#718: positions from a canvas of another width are carried across in proportion', () => {

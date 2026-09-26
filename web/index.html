@@ -1984,6 +1984,12 @@ button.worldsw-row:focus-visible { outline: 2px solid var(--k-ink); outline-offs
    exactly when it is visible -- pressable when shown (#284), inert (and unable to
    capture a neighbour's hover) when hidden. */
 .onode:hover .callout, .onode:focus-visible .callout { opacity: 1; pointer-events: auto; }
+/* #718: on a chart squeezed to fit a phone (.orgtight) the box clips sideways, so a
+   callout centred on a node in the outer third would be cut at the edge. Those
+   anchor to the node's outer side and grow inward (orgLiveSync sets .co-l / .co-r
+   as the node moves). A chart at its natural size is unchanged. */
+.orgmap.orgtight .onode.co-l .callout { left: 0; transform: none; }
+.orgmap.orgtight .onode.co-r .callout { left: auto; right: 0; transform: none; }
 @media (prefers-color-scheme: dark) {
   :root:not([data-theme="light"]) .onode .face { background: #3a3d42; }
 }
@@ -26632,6 +26638,7 @@ function paintOrg() {
     return;
   }
   const { placed, maxR } = orgPlace(orgTreeOf(agents));
+  const natural = Math.round((maxR + ORG_PAD) * 2);   // the square before any fit (#718)
   // #718: fit the width it is given (see orgFit); the rings come in, the nodes do not shrink.
   const viewW = wrap.clientWidth;   // one read: the fit and the scroll logic below agree on the width
   /* A box with no width (an ancestor not laid out) has nothing to draw into: a paint
@@ -26672,6 +26679,7 @@ function paintOrg() {
   /* A box that scrolls can be focused and named, so a keyboard can pan it with
      the arrow keys, not only by tabbing from node to node. */
   const orgmapEl = document.getElementById('orgmap');
+  orgmapEl.classList.toggle('orgtight', size < natural);
   if (wide) {
     wrap.tabIndex = 0; wrap.setAttribute('role', 'region'); wrap.setAttribute('aria-label', 'Org chart, scrolls sideways');
     orgmapEl.classList.add('orgwide');
@@ -26936,8 +26944,12 @@ function orgLiveSync() {
   const { nodes, hub } = ORG_LIVE;
   hub.el.style.left = hub.x.toFixed(1) + 'px'; hub.el.style.top = hub.y.toFixed(1) + 'px';
   ORG_POS.set(hub.key, { x: hub.x, y: hub.y });
+  const third = ORG_LIVE.size / 3;
   for (const n of nodes.values()) {
     n.el.style.left = n.x.toFixed(1) + 'px'; n.el.style.top = n.y.toFixed(1) + 'px';
+    // #718: which side its callout grows from on a squeezed chart (see .orgtight).
+    n.el.classList.toggle('co-l', n.x < third);
+    n.el.classList.toggle('co-r', n.x > 2 * third);
     const p = n.parent || hub;
     if (n.wire) {
       n.wire.setAttribute('x1', p.x.toFixed(1)); n.wire.setAttribute('y1', p.y.toFixed(1));
@@ -26973,7 +26985,7 @@ function orgLiveRun() {
     if (!ORG_LIVE || e.button !== 0) return;
     // #718: on a chart wider than its box a finger pans it; starting a drag too would
     // move the node a few pixels before the browser takes the gesture and cancels.
-    if (e.pointerType === 'touch' && map.classList.contains('orgwide')) return;
+    if (e.pointerType !== 'mouse' && map.classList.contains('orgwide')) return;   // touch or pen
     const el = e.target.closest && e.target.closest('.onode, .hub');
     if (!el) return;
     const body = el.classList.contains('hub') ? ORG_LIVE.hub : ORG_LIVE.nodes.get(el.dataset.agent);
@@ -26990,8 +27002,11 @@ function orgLiveRun() {
     if (!drag.moved && Math.abs(dx) + Math.abs(dy) > 4) { drag.moved = true; drag.el.classList.add('dragging'); }
     if (!drag.moved) return;
     const box = ORG_LIVE.box;
-    drag.body.x = Math.min(box.hi, Math.max(box.lo, e.clientX - drag.rect.left));
-    drag.body.y = Math.min(box.hi, Math.max(box.lo, e.clientY - drag.rect.top));
+    // #718: the hub (radius hub.size) is wider than a node, so it keeps its own margin
+    // or a dragged hub hangs past the edge and the box clips it.
+    const extra = drag.body === ORG_LIVE.hub ? Math.max(0, ORG_LIVE.hub.size - box.lo) : 0;
+    drag.body.x = Math.min(box.hi - extra, Math.max(box.lo + extra, e.clientX - drag.rect.left));
+    drag.body.y = Math.min(box.hi - extra, Math.max(box.lo + extra, e.clientY - drag.rect.top));
     ORG_LIVE.alpha = Math.max(ORG_LIVE.alpha, 0.6);
     orgLiveSync();
     orgLiveRun();

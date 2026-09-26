@@ -40,7 +40,9 @@
  * arm reds when the failure path leaves the scrolling box's classes or the
  * emptied map's size behind; the note arm reds when the status note scrolls away;
  * the dragged-to-the-edge arm reds when the drag box leaves less than a glow's
- * reach between a face and the box.
+ * reach between a face and the box; the edge-callout arm reds when a squeezed
+ * chart centres an edge node's callout; the hub arm reds when the hub is
+ * clamped by a node's margin.
  *
  * Chromium at phone size is not an Android phone, and WebKit is an engine
  * approximation, not Safari.
@@ -158,18 +160,25 @@ function measure(page) {
           chk(small.length === 0, `${tag} every face is at least 44x44`, JSON.stringify(small.length ? small : m.nodes.map((n) => n.w + 'x' + n.h)));
           // A chart that fits must not clip: the name callout above a top node reaches past its square.
           chk(!m.clips, `${tag} a chart that fits does not clip its names (the box is not a scroller)`, 'overflow clips=' + m.clips);
-          // A callout is laid out while hidden. A long name and role over the rightmost node
-          // must not make the page wider than the screen (the fixture's short names cannot).
+          // A callout is laid out while hidden. A long name and role over the rightmost and the
+          // leftmost node must neither widen the page nor be cut off: on a squeezed chart an edge
+          // node's callout grows inward (the fixture's short names could not show either).
           const longCo = await page.evaluate(() => {
-            const n = [...document.querySelectorAll('#orgmap .onode')].sort((a, b) => b.getBoundingClientRect().right - a.getBoundingClientRect().right)[0];
-            const c = n && n.querySelector('.callout');
-            const nm = c && c.querySelector('.co-name'); const rl = c && c.querySelector('.co-role');
-            if (!nm || !rl) return { error: 'no callout name/role on the rightmost node (renamed? re-anchor this check)' };
-            nm.textContent = 'Johnny Cage the Second'; rl.textContent = 'Head of partnerships and field operations';
-            return { agent: n.dataset.agent, calloutRight: Math.round(c.getBoundingClientRect().right), pageW: document.documentElement.scrollWidth, vw: document.documentElement.clientWidth };
+            const ns = [...document.querySelectorAll('#orgmap .onode')].sort((a, b) => a.getBoundingClientRect().left - b.getBoundingClientRect().left);
+            const wr = document.getElementById('orgview').getBoundingClientRect();
+            const out = [];
+            for (const n of [ns[0], ns[ns.length - 1]]) {
+              const c = n && n.querySelector('.callout');
+              const nm = c && c.querySelector('.co-name'); const rl = c && c.querySelector('.co-role');
+              if (!nm || !rl) return { error: 'no callout name/role on an edge node (renamed? re-anchor this check)' };
+              nm.textContent = 'Johnny Cage the Second'; rl.textContent = 'Head of partnerships and field operations';
+              const r = c.getBoundingClientRect();
+              out.push({ agent: n.dataset.agent, left: Math.round(r.left - wr.left), right: Math.round(wr.right - r.right), width: Math.round(r.width) });
+            }
+            return { callouts: out, pageW: document.documentElement.scrollWidth, vw: document.documentElement.clientWidth };
           });
-          chk(!longCo.error && longCo.calloutRight > longCo.vw && longCo.pageW <= longCo.vw,
-            `${tag} a long name and role over the rightmost node do not widen the page`, JSON.stringify(longCo));
+          chk(!longCo.error && longCo.pageW <= longCo.vw && longCo.callouts.every((c) => c.left >= -1 && c.right >= -1),
+            `${tag} a long name and role over the leftmost and rightmost node stay inside the box and do not widen the page`, JSON.stringify(longCo));
           // A face's working / needs-you glow reaches about 20px past it (6px spread, 16px blur).
           // The layout keeps faces clear of the edge by itself; a node DRAGGED to the edge stops
           // at the drag box (ORG_PAD_MIN), which must leave room for the glow inside the box.
@@ -192,6 +201,21 @@ function measure(page) {
             await page.mouse.up();
             await page.waitForTimeout(300);
             chk(g.faceLeftInBox >= 20 - 1, `${tag} a node dragged to the edge keeps its glow inside the box`, JSON.stringify(g) + ' (glow reach 20)');
+          }
+          // The hub (104px across) dragged hard left must stay inside the box, not hang past its
+          // edge where the box clips it.
+          if (w === 375) {
+            const h0 = await page.evaluate(() => { const h = document.querySelector('#orgmap .hub'); h.scrollIntoView({ block: 'center' });
+              const r = h.getBoundingClientRect(); return { x: r.left + r.width / 2, y: r.top + r.height / 2 }; });
+            await page.mouse.move(h0.x, h0.y);
+            await page.mouse.down();
+            for (let i = 1; i <= 12; i++) await page.mouse.move(h0.x - i * 20, h0.y);
+            await page.waitForTimeout(100);
+            const hr = await page.evaluate(() => { const r = document.querySelector('#orgmap .hub').getBoundingClientRect();
+              const wr = document.getElementById('orgview').getBoundingClientRect(); return { hubLeftInBox: Math.round(r.left - wr.left), width: Math.round(r.width) }; });
+            await page.mouse.up();
+            await page.waitForTimeout(300);
+            chk(hr.hubLeftInBox >= -1, `${tag} the hub dragged to the edge stays inside the box`, JSON.stringify(hr));
           }
           // A tap on a face opens that agent (the chart's own click handler).
           const target = m.nodes.find((n) => n.agent);
