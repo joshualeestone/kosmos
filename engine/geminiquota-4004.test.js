@@ -76,8 +76,20 @@ test('#4004 CONTROLS: the words in tool output, a quoted dialog, a newer turn, a
   // A grep that prints the phrase is not Gemini's error line.
   const grep = ['✦ Searching', 'engine/status.js:1590: const GEMINI_QUOTA_ERROR = /exhausted your daily quota/', ' *   Type your message or @path/to/file'].join('\n');
   assert.notEqual(status.classify(gem, grep).state, 'rate_limited', 'grep output read as the daily limit');
-  const newer = AFTER_STOP + '\n > thanks, try again tomorrow\n✦ Sure, I will wait.';
-  assert.notEqual(status.classify(gem, newer).state, 'rate_limited', 'a turn after the error still read as the limit');
+  // A turn since the error, drawn where Gemini draws it (above the composer): the person's message alone, and the
+  // agent's answer alone, each end the reading.
+  const composerAt = '                                                   ? for shortcuts';
+  const personSince = AFTER_STOP.replace(composerAt, ' > thanks, try again tomorrow\n' + composerAt);
+  assert.notEqual(status.classify(gem, personSince).state, 'rate_limited', 'a message sent after the error still read as the limit');
+  const agentSince = AFTER_STOP.replace(composerAt, '✦ Sure, I will wait.\n' + composerAt);
+  assert.notEqual(status.classify(gem, agentSince).state, 'rate_limited', 'an answer after the error still read as the limit');
+  // The error with no composer under it (a screen caught mid-redraw) is not the agent sitting at its prompt.
+  const noComposer = AFTER_STOP.split('\n').slice(0, 4).join('\n');
+  assert.notEqual(status.classify(gem, noComposer).state, 'rate_limited', 'the error with no prompt under it read as the limit');
+  // An error scrolled out of the last rows is old: fourteen rows of output since, then the prompt.
+  const filler = Array.from({ length: 14 }, (_, i) => `  line ${i + 1} of the agent's own output`).join('\n');
+  const scrolled = AFTER_STOP.replace(composerAt, filler + '\n' + composerAt);
+  assert.notEqual(status.classify(gem, scrolled).state, 'rate_limited', 'an error scrolled out of the last rows still read as the limit');
   const [claude] = status.parsePanes('cl\t0.0\t2.1.283\t0\tcl\t\t');
   const c = status.classify(claude, DIALOG);
   assert.notEqual(c.quotaDialog, true, 'a Claude pane was read with Gemini\'s quota rule');
@@ -105,6 +117,38 @@ test('#4004: the question on screen stands over a fresh report the agent filed i
   // CONTROL: the same fresh report over the after-Stop screen (no question up) keeps the ordinary rule.
   const after = status.reconcileReport({ found: true, state: 'working', by: 'agent', because: 'writing tests', at: new Date().toISOString() }, status.classify(gem, AFTER_STOP), Date.now());
   assert.notEqual(after.state, 'rate_limited');
+});
+
+test('#4004: an AUTOMATIC report (Gemini\'s bridge ending the failed turn) does not outrank the limit on screen', () => {
+  const scraped = status.classify(gem, AFTER_STOP);
+  for (const state of ['idle', 'working']) {
+    const out = status.reconcileReport({ found: true, state, by: 'auto', auto: true, at: new Date().toISOString() }, scraped, Date.now());
+    assert.equal(out.state, 'rate_limited', `a fresh automatic ${state} report outranked the limit: ` + JSON.stringify(out));
+  }
+  // CONTROL: the same fresh report filed by the agent itself keeps the ordinary rule (it may be working through it).
+  const own = status.reconcileReport({ found: true, state: 'working', by: 'agent', because: 'retrying', at: new Date().toISOString() }, scraped, Date.now());
+  assert.notEqual(own.state, 'rate_limited');
+});
+
+test('#4004 snapshot: the board card carries quotaDialog and limitFrom, so the sweep answers it and the manager is told', () => {
+  const board = fleet.install([fleet.agent('gemsnap', { state: 'rate_limited', runner: 'gemini', command: 'node', screen: DIALOG })]);
+  try {
+    let card = status.snapshot().agents.find((a) => a.sessionName === 'gemsnap');
+    assert.equal(card.state, 'rate_limited', JSON.stringify(card && { state: card.state, because: card.because }));
+    assert.equal(card.quotaDialog, true);
+    assert.equal(card.limitFrom, 'gemini');
+    assert.equal(geminiquota.waitingOnQuestion(card), true, 'the sweep would not answer the board\'s own card');
+    assert.ok(accountProblemOf(card).notify === true, 'the manager would not be told');
+    board.restore();
+    const after = fleet.install([fleet.agent('gemsnap', { state: 'rate_limited', runner: 'gemini', command: 'node', screen: AFTER_STOP })]);
+    try {
+      card = status.snapshot().agents.find((a) => a.sessionName === 'gemsnap');
+      assert.equal(card.quotaDialog, false);
+      assert.equal(card.limitFrom, 'gemini');
+      assert.equal(geminiquota.waitingOnQuestion(card), false, 'CONTROL: no question up, nothing to answer');
+      assert.match(accountProblemOf(card).text, /free daily limit/);
+    } finally { after.restore(); }
+  } finally { board.restore(); }
 });
 
 test('#4004: the card and the manager are told in plain words, with the reset and the two ways out', () => {

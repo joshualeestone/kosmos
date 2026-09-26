@@ -1562,18 +1562,6 @@ const CODEX_NEEDS_YOU_MARKERS = Object.freeze([
   /^\s*›\s*\d+\.\s.*\n\s*\d+\.\s/m,
 ]);
 
-/**
- * #3723: Codex's own "you are out of usage or credits" messages. READ FROM CODEX'S PROGRAM TEXT
- * (the installed codex binary, 2026-09-25), not captured from a live pane: nobody here had an
- * exhausted account to capture. The sentences are Codex's own, so they are what its screen prints;
- * how the TUI wraps or prefixes them is unobserved, so each marker is a short unanchored phrase.
- *   "You've hit your usage limit. Visit https://chatgpt.com/codex/settings/usage to purchase more credits"
- *   "You've hit your usage limit. Upgrade to Plus to continue using Codex (https://chatgpt.com/explore/plus)"
- *   "You've hit your usage limit. To get more access now, send a request to your admin"
- *   "You've hit your usage limit for ..." (then "Try again at ...")
- *   "Your workspace is out of credits. Ask your workspace owner to add more."
- *   "You've reached your workspace credit limit"
- */
 /* #4004: Gemini CLI (0.61.0, measured 2026-09-26 against a fake 429 in a real tmux pane) on a daily quota.
    While it waits, its quota question is on screen ("Usage limit reached for <model>." over numbered options that
    end in "Stop"), and it waits there forever. After Stop, it is back at its prompt under
@@ -1622,6 +1610,19 @@ function geminiQuotaReading(paneText) {
   if (below.some((r) => /esc to cancel|[\u2800-\u28FF]/i.test(r))) return null;
   return { dialog: false, evidence: rows[at].replace(/^✕\s*/, '') };
 }
+
+/**
+ * #3723: Codex's own "you are out of usage or credits" messages. READ FROM CODEX'S PROGRAM TEXT
+ * (the installed codex binary, 2026-09-25), not captured from a live pane: nobody here had an
+ * exhausted account to capture. The sentences are Codex's own, so they are what its screen prints;
+ * how the TUI wraps or prefixes them is unobserved, so each marker is a short unanchored phrase.
+ *   "You've hit your usage limit. Visit https://chatgpt.com/codex/settings/usage to purchase more credits"
+ *   "You've hit your usage limit. Upgrade to Plus to continue using Codex (https://chatgpt.com/explore/plus)"
+ *   "You've hit your usage limit. To get more access now, send a request to your admin"
+ *   "You've hit your usage limit for ..." (then "Try again at ...")
+ *   "Your workspace is out of credits. Ask your workspace owner to add more."
+ *   "You've reached your workspace credit limit"
+ */
 /* ANCHORED to the start of a row (after only Codex's own lead-in mark), so the sentence has to OPEN
    the row the way Codex prints it. An answer or a tool line that merely mentions the phrase (an agent
    working on this very feature, or a search result) does not count. */
