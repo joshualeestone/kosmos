@@ -123,8 +123,8 @@ function measure() {
   {
     const src = fs.readFileSync(path.join(path.resolve(__dirname, '..', '..'), 'web', 'index.html'), 'utf8');
     const block = src.indexOf('#718 CHAT FIRST ON A PHONE');
-    const css = (/@media \(max-width: ([0-9.]+rem)\)/.exec(src.slice(block)) || [])[1];
-    const js = (/Same breakpoint as the CSS block[^\n]*\n\s*const PHONE_WIDTH = window\.matchMedia\('\(max-width: ([0-9.]+rem)\)'\)/.exec(src) || [])[1];
+    const css = (/@media ([^{\n]+) \{/.exec(src.slice(block)) || [])[1];
+    const js = (/Same query as the CSS block[^\n]*\n\s*const PHONE_WIDTH = window\.matchMedia\('([^']+)'\)/.exec(src) || [])[1];
     chk(!!css && css === js, 'the CSS phone breakpoint and the listener\'s matchMedia are the same', `css=${css} js=${js}`);
     const cssTyping = [...src.matchAll(/html\.kosmos-keyboard-up body:has\(#d-talk-box :is\(([^)]*)\):focus/g)].map((m) => m[1].replace(/\s+/g, ' ').trim());
     const jsTyping = (/const KOSMOS_TYPING_SELECTOR = '([^']*)'/.exec(src) || [])[1];
@@ -492,7 +492,10 @@ function measure() {
         });
         if (touch) {
           chk(f.hoverNone && f.search === '16px' && f.say === '16px', `${t} the search box and the text box are 16px on a touchscreen past the phone width (iOS does not zoom)`, JSON.stringify(f));
-          chk(f.row >= MIN_TAP_PX && f.field >= MIN_TAP_PX - 2, `${t} the search row is a ${MIN_TAP_PX}px target and the field fills it`, JSON.stringify(f));
+          // A short sideways phone narrower than 56rem gets the chat-first layout, where the search row steps
+          // aside to leave room for the conversation (#3969); everywhere else it is a 44px target.
+          if (h <= 480 && w < 896) chk(f.row === 0, `${t} on a short sideways phone the search row steps aside for the conversation (#3969)`, JSON.stringify(f));
+          else chk(f.row >= MIN_TAP_PX && f.field >= MIN_TAP_PX - 2, `${t} the search row is a ${MIN_TAP_PX}px target and the field fills it`, JSON.stringify(f));
         } else {
           chk(!f.hoverNone && f.search === '13px' && f.say === '15px', `${t} a mouse keeps the desktop sizes`, JSON.stringify(f));
         }
