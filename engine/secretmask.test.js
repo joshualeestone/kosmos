@@ -665,3 +665,26 @@ test('#3935 an unrelated key between an abandoned try and the retry does not unm
     assert.ok(out.startsWith('First try: ') && out.endsWith(' end'), out);
   } finally { setKnownSecrets([]); }
 });
+
+test('#3935 a partial walk needs real pieces after a PUBLIC prefix: guide prose naming sk-ant-api03 is not masked (review round 11)', () => {
+  const cases = [
+    ['sk-ant-api03-Xy7Qp2Lm9Vb4Rt8Kz1Wn6Hd3Js0Fg5Ya2Ub7Xe9Ko', 'Anthropic keys start with sk-ant-api03 and look like this:\n- go to Settings\n- paste it in'],
+    ['sk-ant-api03-Xy7Qp2Lm9Vb4Rt8Kz1Wn6Hd3Js0Fg5Ya2Ub7Xe9Ko', 'Your key begins sk-ant-api03 - the rest is private.'],
+    ['sk-ant-api03-aXy7Qp2Lm9Vb4Rt8Kz1Wn6Hd3Js0Fg5Ya2Ub7Xe9K', 'Keys start with sk-ant-api03 and are a hundred characters long.'],
+    ['sk-ant-api03-2Xy7Qp2Lm9Vb4Rt8Kz1Wn6Hd3Js0Fg5Ya2Ub7Xe9K', 'Keys start with sk-ant-api03. Step 2: paste it.'],
+    [j('github_', 'pat_', '11ABCDEFG0123456789_abcdefghijklmnopqrstuvwxyz'), 'Fine-grained tokens start with github_pat_ and you make one like this. Step 1: open GitHub settings.'],
+  ];
+  for (const [held, text] of cases) {
+    setKnownSecrets([held]);
+    try {
+      assert.equal(mask(text).text, text, `ordinary guide text was masked: ${text}`);
+    } finally { setKnownSecrets([]); }
+  }
+  /* CONTROL: a real partial try (two 8-character pieces after the opening) is still masked. */
+  const held = 'Qw8eRt2yUi9oPa3sDf6gHj1kLz5xCv0b';
+  setKnownSecrets([held]);
+  try {
+    const out = mask('First try: Qw8eRt2y then Ui9oPa3s then Df6gHj1k. ' + 'Later text here. '.repeat(20)).text;
+    for (const piece of ['Qw8eRt2y', 'Ui9oPa3s', 'Df6gHj1k']) assert.ok(!out.includes(piece), `CONTROL: the piece ${piece} survived: ${out.slice(0, 120)}`);
+  } finally { setKnownSecrets([]); }
+});

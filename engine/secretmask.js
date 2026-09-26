@@ -193,7 +193,9 @@ function normalisedCopy(text) {
  * swallowing a reply. Returns [from, to) spans in the text, first piece to last.
  *
  * Not covered: pieces out of order or reversed; an opening piece shorter than four characters; a held value
- * made only of words and numbers (see madeOfWords); glue other than _ + - or / at either end and a label joined
+ * made only of words and numbers (see madeOfWords); a partial try whose pieces after the opening come to fewer
+ * than 8 characters in runs of OPENING_LEN or more (such a try is left alone, and one that does reach 8 is masked
+ * piece by piece, its public prefix included); glue other than _ + - or / at either end and a label joined
  * with = on either side (glue in the middle of a run, say); a held form over WORD_WALK_MAX_FORM characters; and a key split
  * across two replies (the mask is per message).
  */
@@ -335,16 +337,22 @@ function wordSkippingSpans(text) {
           reached = next;
         }
         /* A walk that got part of the way and then ran out of reach (review round 10): an abandoned first try
-           at a key, cut off from the retry by other text, or a key given only in part. When it matched the
-           opening and at least one more piece, 12 characters or more of the held value (the shortest value
-           held at all), the pieces it matched are masked, each on its own: not the text between them, so
-           nothing but the key's own pieces is hidden. Consecutive exact slices of a held value do not turn
-           up in ordinary text by chance. */
-        if (!finished && best >= 12 && via.has(best)) {
-          spans.push([from, runs[r][1]]);
+           at a key, cut off from the retry by other text, or a key given only in part. Only pieces of
+           OPENING_LEN or more AFTER the opening count, and they must come to 8 characters or more (review
+           round 11): the opening can be a key's PUBLIC prefix (sk-ant-api03 is 12 characters on its own), and
+           a one-character run that happens to be the key's next character (a bullet's "-", the word "a", a
+           step number) is ordinary text. Then the opening and those pieces are masked, each on its own, never
+           the text between them. */
+        if (!finished && via.has(best)) {
+          const found = [];
+          let after = 0;
           for (let at = best; via.has(at); at = via.get(at).prev) {
             const step = via.get(at);
-            spans.push([runs[step.s][0], runs[step.s][1]]);
+            if (at - step.prev >= OPENING_LEN) { found.push(step.s); after += at - step.prev; }
+          }
+          if (after >= 8) {
+            spans.push([from, runs[r][1]]);
+            for (const s2 of found) spans.push([runs[s2][0], runs[s2][1]]);
           }
         }
       }
