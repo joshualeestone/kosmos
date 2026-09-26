@@ -212,7 +212,7 @@ async function seenIsCurrent() {
         seen: (await (await fetch('/api/whats-new', { cache: 'no-store' })).json()).seen,
       }));
       chk(after.gone && after.focus === 'klink', theme + ': Escape closes it and focus goes back where it was', JSON.stringify(after));
-      chk(after.seen === '0.6.98', theme + ': closing records the version as seen, so it does not show again', String(after.seen));
+      // (Seen is recorded by whatsNewCheck as the window opens; web.whatsnew-3955.test.js pins it. This check opens it directly.)
       // Opened again, Got it closes it. (A release with no highlights shows no window at all: web.whatsnew-3955.test.js.)
       await pg.evaluate((hl) => wnOpen('0.6.99', hl.slice(0, 1)), HL);   // eslint-disable-line no-undef
       await pg.waitForTimeout(200);

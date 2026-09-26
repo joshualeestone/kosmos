@@ -5,7 +5,7 @@ Card #3955 (Josh, #admin, 2026-09-26 08:11). Design: Mona Lisa's mock on card-sh
 ## What finished looks like
 - Before an update, the top bar shows one small chip beside the Kosmos switcher: "An update is available" with a gold Update. Nothing else about the update is on screen.
 - When Kosmos updated underneath an open page, the same chip reads "Reload to finish updating" with Reload, and the page reloads itself when the window is in the background and nothing is being typed or sent. Nothing says "Kosmos updated" while the old page is showing.
-- After the new version is on screen (a manual Update or an auto-update), a centred window over a dimmed app says "Kosmos has been updated", a version pill, and 1 to 5 tiles (icon, title, one line) from web/whats-new.json when that file is for this version (otherwise the title only). Got it or Escape closes it; it is not shown again for that version. A fresh install never shows it.
+- After the new version is on screen (a manual Update or an auto-update), a centred window over a dimmed app says "Kosmos has been updated", a version pill, and 1 to 5 tiles (icon, title, one line) from web/whats-new.json when that file is for this version (a release with no highlights shows no window; round 3). Got it or Escape closes it; it is not shown again for that version. A fresh install never shows it.
 - The old "Kosmos updated to 0.6.94 [x]" line and the "Updated. You are on Kosmos X" note are gone.
 - A cut refuses when web/whats-new.json is not for the version being cut, unless KOSMOS_CUT_NO_WHATS_NEW=1.
 
@@ -48,12 +48,18 @@ Card #3955 (Josh, #admin, 2026-09-26 08:11). Design: Mona Lisa's mock on card-sh
 - Mona Lisa: the version pill sits 12px under the title; the window waits while the first-run tour is on screen and opens once it closes.
 - The icon lookup uses own keys only; the pill's and the link's contrast are checked too.
 
+## Review round 6 (decided)
+- The cut checks the highlights twice again (reverses round 5): release.sh itself documents the shared checkout moving mid-cut, so 2b-ii checks the frozen tree; a refusal there leaves the bump pushed, like a step 7 versions-entry refusal. The test counts the calls over the whole file.
+- A contenteditable box counts as a words box (read by its text).
+- A tour still open after an hour: the version is recorded quietly, no window over it.
+- Seen is recorded when the window OPENS (reverses the record-on-close choice): two tabs reloaded by one update must not both show it. Accepted cost: a reload before reading it does not show it again.
+
 ## Tests
 - The chip's two states and its one button; the stale chip never says "Kosmos updated"; engine-stale still first.
 - Safe reload: reloads when hidden and idle; not when visible, sending, drafting, or a dialog is open.
-- The window: shown for a new version on a fresh page, with tiles; title only without highlights; not on a fresh install; not on an old page; Got it and Escape record seen; focus trapped and returned.
+- The window: shown for a new version on a fresh page, with tiles; no window without highlights; not on a fresh install; not on an old page; Got it and Escape record seen; focus trapped and returned.
 - whats-new.json shape (committed file, when present) and the check script's red arms (stale version refused, matching accepted, opt-out accepted, bad icon, too many).
-- release.sh runs the check at 1b-ii before the bump (once; see round 5).
+- release.sh runs the check at 1b-ii before the bump and at 2b-ii on the frozen tree (round 6).
 - Browser check: the three states rendered (shots to the card).
 
 ## Not in this change

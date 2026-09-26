@@ -209,6 +209,8 @@ test('#3955 round 3: only boxes that hold words count as typed (not a dropdown, 
   assert.equal(box({ tagName: 'TEXTAREA' }), true);
   assert.equal(box({ tagName: 'INPUT', type: 'text' }), true);
   assert.equal(box({ tagName: 'INPUT', type: '' }), true, 'an input with no type is a text box');
+  assert.equal(box({ tagName: 'DIV', isContentEditable: true }), true, 'a rich-text composer would lose its words (round 6)');
+  assert.equal(box({ tagName: 'DIV', isContentEditable: false }), false, 'CONTROL: a plain div is not a box');
   for (const type of ['tel', 'password', 'number', 'email', 'search', 'url']) {
     assert.equal(box({ tagName: 'INPUT', type }), true, 'words typed into a ' + type + ' box would be lost (round 5)');
   }

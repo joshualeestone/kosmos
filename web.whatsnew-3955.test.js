@@ -32,7 +32,8 @@ test('#3955: a new version on a fresh page opens the window, with the board\'s h
   const h = [{ icon: 'swarm', title: 'Swarms', line: 'Helpers.' }];
   const r = await check({ highlights: h });
   assert.deepEqual(r.opened, [['0.6.98', h]]);
-  assert.deepEqual(r.posts, [], 'seen was recorded before the person saw the window');
+  // Recorded when it opens (round 6), so a second tab reloaded by the same update does not show it again.
+  assert.deepEqual(r.posts, [['/api/whats-new/seen', JSON.stringify({ version: '0.6.98' })]]);
 });
 
 test('#3955: a fresh install records its version silently (installed, not updated)', async () => {
@@ -54,12 +55,12 @@ test('#3955: the lingering "Kosmos updated to X" line and the "Updated." note ar
   assert.match(PAGE, /\nwhatsNewCheck\(\);\n/, 'nothing runs the check at load');
 });
 
-test('#3955: closing records the version as seen, and the window is the pack\'s dialog shape', () => {
-  const close = page.liftAll(SCRIPT, ['wnClose']);
-  assert.match(close, /fetch\('\/api\/whats-new\/seen'/);
-  assert.match(close, /JSON\.stringify\(\{ version: v \}\)/);
+test('#3955: the window records the version as seen when it opens (not on close), and is the pack\'s dialog shape', () => {
+  const check = page.liftAll(SCRIPT, ['whatsNewCheck']);
+  assert.ok(check.indexOf('record();\n    wnOpen(') !== -1, 'seen is not recorded as the window opens');
+  assert.doesNotMatch(page.liftAll(SCRIPT, ['wnClose']), /whats-new\/seen/, 'closing records seen a second time');
   assert.match(PAGE, /role="dialog" aria-modal="true" aria-labelledby="wn-title"/);
-  assert.match(PAGE, /target="_blank" rel="noreferrer noopener">See everything that changed</);
+  assert.match(PAGE, /target="_blank" rel="noreferrer noopener">See everything that changed/);
 });
 
 test('#3955: a rollback (or a switch to an older version) is recorded quietly, never announced as new', async () => {
@@ -91,4 +92,18 @@ test('#3955 round 5 (Mona Lisa): the window waits while the first-run tour is on
   api.close();
   await done;
   assert.deepEqual(opened, ['0.6.98'], 'the window never opened once the tour closed');
+});
+
+test('#3955 round 6: a tour still open after the wait records the version quietly and opens nothing', async () => {
+  const opened = [];
+  const posts = [];
+  const fetchStub = async (url, opts) => {
+    if (opts && opts.method === 'POST') { posts.push(url); return { ok: true, text: async () => '' }; }
+    return { ok: true, json: async () => ({ current: '0.6.98', seen: '0.6.97', highlights: H1 }) };
+  };
+  const run = new Function('fetch', 'bakedVersion', 'wnOpen', 'setTimeout',
+    'let TIP_OPEN = { step: 1 };\n' + page.liftAll(SCRIPT, ['wnNewer', 'whatsNewCheck']) + '\nreturn whatsNewCheck();');
+  await run(fetchStub, () => '0.6.98', (v) => opened.push(v), (f) => setImmediate(f));
+  assert.deepEqual(opened, [], 'the window opened over a tour that never closed');
+  assert.deepEqual(posts, ['/api/whats-new/seen'], 'the version was not recorded, so it would try again every load');
 });

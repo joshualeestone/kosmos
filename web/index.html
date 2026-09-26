@@ -18692,11 +18692,12 @@ const UPDATE_TYPED = new Set();
 function updateTypedBox(t) {
   if (!t || !t.tagName) return false;
   if (t.tagName === 'TEXTAREA') return true;
+  if (t.isContentEditable) return true;   // a rich-text composer holds words too (round 6), read by textContent below
   // Every input but the kinds that hold no words (round 5: a phone number or a password is words too).
   return t.tagName === 'INPUT' && !/^(checkbox|radio|range|color|file|hidden|button|submit|reset|image)$/.test(String(t.type || '').toLowerCase());
 }
 if (typeof document !== 'undefined' && document.addEventListener) {
-  document.addEventListener('input', (e) => { if (updateTypedBox(e.target)) UPDATE_TYPED.add(e.target); }, true);
+  document.addEventListener('input', (e) => { if (updateTypedBox(e.target)) UPDATE_TYPED.add(e.target); }, true);   // (contenteditable fires input too)
 }
 function updateSafeReload(servedVersion) {
   try {
@@ -18711,7 +18712,7 @@ function updateSafeReload(servedVersion) {
     for (const t of [...UPDATE_TYPED]) if (t.isConnected === false) UPDATE_TYPED.delete(t);   // a removed field holds nothing (and is let go)
     /* Still holding words, shown or not (round 5): a hidden box is not a saved one (New task keeps its
        words when closed, #766), so any typed box with words waits for the person's Reload. */
-    if ([...UPDATE_TYPED].some((t) => String(t.value || '').trim())) return false;
+    if ([...UPDATE_TYPED].some((t) => String(t.isContentEditable ? t.textContent : t.value || '').trim())) return false;
     const attached = typeof ATTACH_PENDING !== 'undefined' && ATTACH_PENDING;
     if (attached && Object.values(attached).some((m) => m && Object.values(m).some((v) => Array.isArray(v) ? v.length : !!v))) return false;
     if (typeof tipModalOpen === 'function' && tipModalOpen()) return false;
@@ -31990,7 +31991,7 @@ function wnOpen(version, highlights) {
   const list = Array.isArray(highlights) ? highlights.slice(0, 5) : [];
   tiles.innerHTML = list.map((h) => '<li class="wn-tile"><span class="wn-ico">' + wnIcon(h.icon) + '</span>'
     + '<span class="wn-words"><b>' + esc(h.title) + '</b><span>' + esc(h.line) + '</span></span></li>').join('');
-  tiles.hidden = list.length === 0;
+  tiles.hidden = list.length === 0;   // defensive: whatsNewCheck opens the window only with highlights
   tiles.classList.toggle('one', list.length === 1);
   document.getElementById('wn-more').href = 'https://installkosmos.com/versions#v' + version.replace(/\./g, '-');
   WN_OPENER = document.activeElement;
@@ -32000,11 +32001,7 @@ function wnClose() {
   const back = document.getElementById('whatsnew');
   if (!back) return;
   back.remove();
-  const v = WN_VERSION;
-  WN_VERSION = null;
-  // Recorded on close, so a reload before it was read shows it again rather than never.
-  if (v) fetch('/api/whats-new/seen', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ version: v }) })
-    .then((r) => r.text()).catch(() => { /* shown again next load, which is the safe direction */ });
+  WN_VERSION = null;   // seen was recorded when it opened (whatsNewCheck)
   const to = WN_OPENER;
   WN_OPENER = null;
   if (to && typeof to.focus === 'function' && document.contains(to)) to.focus();
@@ -32072,6 +32069,11 @@ async function whatsNewCheck() {
     /* Held while the first-run tour is on screen (Mona Lisa's design review): the tour is the
        person's current task, and this can wait for it to close. */
     for (let i = 0; i < 3600 && typeof TIP_OPEN !== 'undefined' && TIP_OPEN; i++) await new Promise((r) => setTimeout(r, 1000));
+    // A tour still open after an hour: recorded quietly rather than opened over it (round 6).
+    if (typeof TIP_OPEN !== 'undefined' && TIP_OPEN) { record(); return; }
+    /* Recorded as seen when it OPENS (round 6): two tabs reloaded by the same update must not both show
+       it. The cost, accepted: a reload before it was read does not show it again. */
+    record();
     wnOpen(got.current, got.highlights);
   } catch { /* news can wait */ }
 }
