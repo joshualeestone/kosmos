@@ -268,10 +268,12 @@ const LONG_REPLY = 'Here is the plan for tomorrow, in order. First I will finish
    buying the app see. Same claims as the sample, so every screen's `go` works
    unchanged; four agents, each in a state a customer should see (two working,
    one needing you, one idle), nothing stopped and nothing overlong. */
+/* Cleo first: the board lists cards in this order, and the agent waiting on
+   you is the one the first store shot must show above the fold. */
 const STORE_AGENTS = [
+  { claim: 'cleo', title: '', name: 'Cleo', role: 'Project manager' },
   { claim: 'ada', title: '⠋ Writing the product copy for the spring catalogue', name: 'Ada', role: 'Writer' },
   { claim: 'basil', title: '⠙ Comparing supplier prices for the linen range', name: 'Basil', role: 'Researcher' },
-  { claim: 'cleo', title: '', name: 'Cleo', role: 'Project manager' },
   { claim: 'dmitri', title: '', name: 'Dmitri', role: 'Bookkeeper' },
 ];
 const DATA_SETS = {
@@ -305,6 +307,12 @@ const DATA_SETS = {
        before Kosmos recorded this", "could not deliver"). */
     setUp: true,
     askInProject: true,
+    /* Made from the screen, as a person makes a project, so the room does not open on
+       "Made by an agent or another program". And Ada's replies already read: the chat
+       screen marks them read on the board, so otherwise whichever theme is shot first
+       shows an unread count and the other does not. */
+    madeOnScreen: true,
+    dmRead: true,
     /* The sandbox has no Claude account on purpose (the leak guard insists),
        so the board truthfully says it cannot reach one. A customer's Mac can.
        In the PAGE only, the status answer's `connection` is set to connected;
@@ -353,7 +361,8 @@ function seedFiles(roots) {
     const create = require(path.join(REPO, 'engine', 'create'));
     for (const a of AGENTS) {
       fs.mkdirSync(path.dirname(create.plistPath(a.claim)), { recursive: true });
-      // The shape readPlistJob reads: ProgramArguments with the agent CLI at 4, tmux at 5, the model at 7.
+      // Only what readPlistJob reads is real: the agent CLI at 4, tmux at 5, the model at 7.
+      // The other slots are placeholders, not a runnable job.
       fs.writeFileSync(create.plistPath(a.claim), '<?xml version="1.0" encoding="UTF-8"?>\n<plist version="1.0"><dict>'
         + '<key>Label</key><string>' + create.serviceLabel(a.claim) + '</string>'
         + '<key>ProgramArguments</key><array>' + ['/bin/bash', '-lc', 'start', a.claim, '/usr/local/bin/claude', '/usr/local/bin/tmux', a.claim, 'sonnet']
@@ -467,7 +476,10 @@ async function startBoard() {
    rowShaped); the agent-side /api/post route needs an agent's token. */
 async function seed(base, roots) {
   const post = async (p, body) => {
-    const r = await fetch(base + p, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body || {}) });
+    /* sec-fetch-site is what a browser sends and what server.js isViaScreen reads to tell
+       the person's screen from another program. */
+    const headers = { 'content-type': 'application/json', ...(DATA.madeOnScreen ? { 'sec-fetch-site': 'same-origin' } : {}) };
+    const r = await fetch(base + p, { method: 'POST', headers, body: JSON.stringify(body || {}) });
     if (!r.ok) throw new Error('seed ' + p + ' answered ' + r.status);
     return r.json().catch(() => ({}));
   };
@@ -494,6 +506,7 @@ async function seed(base, roots) {
   fs.appendFileSync(path.join(storeRoot, 'messages.jsonl'), lines.map((l) => JSON.stringify(l)).join('\n') + '\n');
   /* The store set's question names its project, as an agent on a project would, so it
      lights that project rather than counting as a needs-you with no project. */
+  if (DATA.dmRead) await post('/api/agent/ada/seen');
   if (DATA.askInProject) {
     const r = require(path.join(REPO, 'engine', 'selfreport')).record('cleo', { state: 'needs_you', because: DATA.ask, project: pid });
     if (r && r.recorded === false) throw new Error('the seed could not write Cleo\'s needs-you state: ' + r.because);
@@ -743,7 +756,7 @@ async function run() {
   }
 
   const md = ['# Mobile screenshots', '',
-    'Throwaway board with sample data. WebKit is an engine approximation of iOS Safari, not Safari; Chromium at a phone size is not an Android phone.', '',
+    `Throwaway board with the ${args.data} data set. WebKit is an engine approximation of iOS Safari, not Safari; Chromium at a phone size is not an Android phone.`, '',
     `Shots: ${rows.length}. Flagged: ${rows.filter((r) => r.note).length} (overflow ${overflowCount}, errors ${errors}).`, '',
     `| screen | owner | size | theme | engine | file | flag | taps<${MIN_TAP_PX} | fields<${MIN_FIELD_FONT_PX}px |`, '|---|---|---|---|---|---|---|---|---|',
     ...rows.map((r) => `| ${r.screen} | ${r.owner} | ${SIZES[r.size].label} ${SIZES[r.size].width}x${SIZES[r.size].height} | ${r.theme} | ${r.engine} | ${r.file} | ${r.note.replace(/\|/g, '/')} | ${r.taps.length} | ${r.fields.length} |`)];

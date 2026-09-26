@@ -24,8 +24,9 @@ node "$repo/docs/browser-checks/mobile-shots.js" --out "$raw" --data store --sca
   --sizes appstore --engines webkit --themes light,dark --screens "$screens"
 rc=$?
 if [ "$rc" != 0 ]; then echo "VERDICT: FAIL (mobile-shots exited $rc; nothing filed)"; exit 1; fi
-if grep -q '| ERROR\|OVERFLOW' "$raw/report.md"; then
-  grep 'ERROR\|OVERFLOW' "$raw/report.md"
+# A page that threw while rendering is not a store picture either.
+if grep -q '| ERROR\|OVERFLOW\|page error' "$raw/report.md"; then
+  grep 'ERROR\|OVERFLOW\|page error' "$raw/report.md"
   echo "VERDICT: FAIL (a shot errored or overflowed; nothing filed)"; exit 1
 fi
 
@@ -33,13 +34,18 @@ python3 - "$raw" "$here/screenshots" "${order[@]}" <<'PY'
 import sys, os, glob
 from PIL import Image
 raw, dest, order = sys.argv[1], sys.argv[2], sys.argv[3:]
-for theme in ('light', 'dark'):
+themes = ('light', 'dark')
+srcs = {(t, n): os.path.join(raw, f'{n}--appstore--{t}--webkit.png') for t in themes for n in order}
+missing = [s for s in srcs.values() if not os.path.exists(s)]
+if missing:
+    sys.exit('missing shots, nothing filed: ' + ', '.join(os.path.basename(m) for m in missing))
+for theme in themes:
     d = os.path.join(dest, theme)
     os.makedirs(d, exist_ok=True)
     for old in glob.glob(os.path.join(d, '*.png')):
         os.remove(old)
     for i, name in enumerate(order, 1):
-        src = os.path.join(raw, f'{name}--appstore--{theme}--webkit.png')
+        src = srcs[(theme, name)]
         im = Image.open(src)
         flat = Image.new('RGB', im.size, (255, 255, 255))
         flat.paste(im.convert('RGBA'), mask=im.convert('RGBA').split()[3])

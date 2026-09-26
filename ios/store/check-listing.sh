@@ -39,8 +39,10 @@ for u in support_url privacy_url marketing_url; do
   case "$v" in https://*) echo "ok    $u: $v";; *) echo "FAIL  $u: not an https URL: $v"; fail=1;; esac
 done
 
-# The house rule for anything a person reads: no em dash.
-if grep -q $'\xe2\x80\x94' "$file"; then echo "FAIL  listing.md contains an em dash"; fail=1; fi
+# The house rule for anything a person reads: no em dash, in any of the drafts.
+for md in "$file" "$here"/*.md; do
+  if grep -q $'\xe2\x80\x94' "$md"; then echo "FAIL  $(basename "$md") contains an em dash"; fail=1; fi
+done
 
 # Screenshots: each set is a folder under screenshots/ holding 1 to 10 PNGs,
 # every one 1320x2868 portrait with no alpha channel.
