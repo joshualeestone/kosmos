@@ -55,6 +55,13 @@ logged to board.log only; the card fell to a quiet "not running" for 23 minutes.
 
 - Deferred (harmless): the send route's asking gates do not exclude a failed restart (a stopped pane has no menu).
 
+## Review round 8 (Sonnet)
+- One WARNING, rejected with reasoning: "create clears the record before gates that can still refuse". Every earlier
+  gate in createAgentInner refuses a name that has a launch file, folder, loaded job or running session, so at the
+  clear the record belongs to no card; moving it after success would let a PARTIAL create (launch file left, so a
+  card) inherit the old failure. Said in a comment at the clear. delete-leftover clears after the job and folder are
+  gone, the same shape. No other finding.
+
 ## Decided
 - Reuse the disruption record rather than a new store: it already ties a restart to the card and already clears when
   the agent is back.
