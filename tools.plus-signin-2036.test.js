@@ -129,7 +129,7 @@ function runner(args, env) {
 function env(dir) {
   const root = path.join(dir, 'root'); fs.mkdirSync(root, { recursive: true });
   fs.writeFileSync(path.join(root, 'board.token'), 'tok');
-  return { KOSMOS_STORE_ROOT: root, KOSMOS_PLUS_VERIFY_DIR: path.join(dir, 'records'), KOSMOS_SEED_TOTP: 'GEZDGNBVGY3TQOJQGEZDGNBVGY3TQOJQ', HOME: dir, KOSMOS_PLUS_UP_MS: '300', KOSMOS_PLUS_UP_POLL_MS: '50' };
+  return { KOSMOS_SEED_EMAIL: 'seed+kosmos@example.com', KOSMOS_STORE_ROOT: root, KOSMOS_PLUS_VERIFY_DIR: path.join(dir, 'records'), KOSMOS_SEED_TOTP: 'GEZDGNBVGY3TQOJQGEZDGNBVGY3TQOJQ', HOME: dir, KOSMOS_PLUS_UP_MS: '300', KOSMOS_PLUS_UP_POLL_MS: '50' };
 }
 async function both(b, e, ptr, finishArgs) {
   const s = await runner(['start', '--pointer', ptr, '--port', String(b.port)], e);
@@ -150,7 +150,7 @@ test('#2036: a first sign-in on the staged board records a pass: enrolled, switc
     assert.strictEqual(got.placement, 'SPAM', 'the inbox placement was not recorded');
     assert.strictEqual(got.board, BOARD);
     assert.deepStrictEqual(record.validate(got, { version: VER, sha256: SHA }), { ok: true });
-    assert.deepStrictEqual(b.calls.find((c) => c.url === '/api/remote/signin-start').body, { email: 'josh+kosmos-seed@book.io' });
+    assert.deepStrictEqual(b.calls.find((c) => c.url === '/api/remote/signin-start').body, { email: 'seed+kosmos@example.com' });
     assert.strictEqual(b.calls.find((c) => c.url === '/api/remote/signin-register').body.name, 'kseed-aaaaaaaa');
     assert.strictEqual(b.state.enrolled, false, 'the board was left enrolled');
   } finally { b.server.close(); }
@@ -341,4 +341,15 @@ test('#2036: a signin-start that times out is setup: the earlier record stands a
     assert.strictEqual(rec(e).result, 'pass', 'a slow coordinator replaced the build\'s record with a fail');
     assert.ok(b.calls.some((c) => c.url === '/api/remote/signin-cancel'));
   } finally { b.server.closeAllConnections(); b.server.close(); }
+});
+
+test('#2036: with no seed address given, start is setup and nothing is sent', async () => {
+  const dir = tmp(); const e = Object.assign(env(dir), { KOSMOS_SEED_EMAIL: '' }); const ptr = pointerFile(dir);
+  const b = await fakeBoard();
+  try {
+    const r = await runner(['start', '--pointer', ptr, '--port', String(b.port)], e);
+    assert.strictEqual(r.code, 2, r.out);
+    assert.match(r.out, /no seed address/);
+    assert.ok(!b.calls.some((c) => c.url === '/api/remote/signin-start'));
+  } finally { b.server.close(); }
 });

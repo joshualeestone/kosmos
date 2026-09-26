@@ -12,7 +12,7 @@
  *        identity) and holds no Kosmos+ identity (a FIRST sign-in, the #3827 class), then asks it
  *        to email a code to the seed address.
  *   2. Read the code from the seed inbox with the Gmail connector, scoped to ONE address:
- *        search: to:josh+kosmos-seed@book.io from:kosmosplus.com newer_than:1h
+ *        search: to:<the seed address> from:kosmosplus.com newer_than:1h
  *        and note where Gmail put it (labelIds: INBOX, SPAM, or neither -> OTHER).
  *   3. KOSMOS_SEED_TOTP="$(secrets-map.sh value kosmos-seed-totp)" \
  *      node tools/plus-signin-fresh.js finish --pointer <same> --code <6 digits> --placement INBOX|SPAM|OTHER [--port P]
@@ -29,9 +29,10 @@
  * finish again: the new attempt's record REPLACES this build's record when it finishes. An earlier
  * record is never deleted before then, so an abandoned attempt cannot turn a refusal into a HOLD.
  *
- * THE SEED: josh+kosmos-seed@book.io (#1591's decision): a plus address on the mailbox the Gmail
- * connector already reads, not a new mailbox (#3751). Override with --seed. The Resend key is
- * never used for reading.
+ * THE SEED: the address #1591 decided (a plus address on the mailbox the Gmail connector already
+ * reads, not a new mailbox, #3751), given as --seed or KOSMOS_SEED_EMAIL. It is not written in
+ * this repo (#1881: no other company's names or accounts in the tree); the card names it. The
+ * Resend key is never used for reading.
  *
  * The board is reached like the other staging gates: 127.0.0.1:<port> with its board.token in a
  * header (store.ROOT/board.token; KOSMOS_STORE_ROOT overrides for tests). Exit 0 when the record
@@ -43,7 +44,6 @@ const path = require('node:path');
 const crypto = require('node:crypto');
 const record = require('./lib/plus-signin-record');
 
-const DEFAULT_SEED = 'josh+kosmos-seed@book.io';
 const CALL_MS = Number(process.env.KOSMOS_PLUS_CALL_MS) || 15 * 1000;
 /* The engine bounds a register at five minutes plus up to a minute clearing a half identity. */
 const REGISTER_MS = Number(process.env.KOSMOS_PLUS_REGISTER_MS) || 7 * 60 * 1000;
@@ -137,7 +137,8 @@ function progressPath(sha) { return record.recordPath(sha).replace(/\.json$/, '.
 async function start(a) {
   const ptr = pointerFields(a.pointer || setup('--pointer is required'));
   const { b, identity } = await boardFor(a, ptr);
-  const seed = a.seed || DEFAULT_SEED;
+  const seed = String(a.seed || process.env.KOSMOS_SEED_EMAIL || '').trim();
+  if (!/^[^@\s]+@[^@\s]+$/.test(seed)) setup('no seed address: pass --seed or set KOSMOS_SEED_EMAIL (the address #1591 names)');
   const st = await b.get('/api/remote');
   if (st.status !== 200) setup('the board did not answer /api/remote on port ' + boardPort(a.port));
   if (st.json.enrolled === true) setup('this board already holds a Kosmos+ identity: a FIRST sign-in cannot be tested here (forget it first, or use a fresh board)');
@@ -267,7 +268,7 @@ function finishRecord(ptr, identity, seed, placement, steps) {
   return rec.result === 'pass' ? 0 : 1;
 }
 
-module.exports = { totp, DEFAULT_SEED };
+module.exports = { totp };
 
 if (require.main === module) {
   const a = args(process.argv.slice(2));

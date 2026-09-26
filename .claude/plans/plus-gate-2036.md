@@ -11,7 +11,7 @@ kosmos#3827's parseSaid bug broke the FIRST in-app Kosmos+ sign-in (the first re
 - **tools/promote-channel.sh**: the third Mac gate, after the experience and agent-spawn gates. It runs on the one SNAPSHOT of the staging pointer, and KOSMOS_PROMOTE_PLUS_GATE_CMD overrides it (a test seam, as for the others).
 - **tools/plus-signin-fresh.js**: the agent-run procedure.
   - `start` refuses a board that already holds a Kosmos+ identity, because a first sign-in cannot be tested there. Otherwise it asks the board to email a code to the seed address.
-  - The agent reads the code and its Gmail label with the connector, scoped to `to:josh+kosmos-seed@book.io from:kosmosplus.com`.
+  - The agent reads the code and its Gmail label with the connector, scoped to `to:<seed> from:kosmosplus.com`.
   - `finish` does verify, then the second step (TOTP from `kosmos-seed-totp` in the secrets map), then register `kseed-<sha8>`, then checks the board is enrolled, then ALWAYS forgets what it registered. Then it writes the record.
   - A seed with no second step yet enrols an authenticator on the first run. Its secret goes to a mode-600 file for `/add-secret --migrate`, never to the screen.
 
@@ -65,3 +65,6 @@ Whether a staging pass is MANDATORY before every prod cut (#2036's item 1) is st
 - The reviewer traced every exit of `finish`: setup throws all come before `registerTried`, refused steps are recorded, and the forget runs after any register.
 
 ## Round 6 review (sonnet): NO FINDINGS, converged
+
+## Validation (first run)
+9968 tests, 1 failed: no-brand-refs-1881 flagged the seed address (another company's domain) in the runner and its test. FIXED: the seed is no longer in the repo; it is given as --seed or KOSMOS_SEED_EMAIL (the card names it), and a missing one is setup. Tests use an example.com seed; a test covers the missing seed.
