@@ -23,7 +23,9 @@
  * This block tells the agent where the folder is, to create it if it is missing,
  * and that the person sees its files on its page; and (#3759) that a file for one of
  * its projects goes in that project instead, that it tells the person where each file
- * went, and that when it cannot tell, it saves here and asks which project.
+ * went, and that when it cannot tell, it saves here and asks which project. And (#3965) it
+ * opens by saying a thing made for the person is a FILE, never a Claude artifact or a link
+ * unless the person asks for one.
  *
  * Same guards as reports.js / connections.js, deliberately: an ambiguous file is
  * refused rather than spliced into, an unreadable one is reported, nothing is ever
@@ -81,6 +83,18 @@ function blockBody(dir) {
      file waits unsaved on an answer that may never come (a turn ends when it asks). */
   return [
     '## Where to save files you make for the person',
+    '',
+    /* #3965 (Josh, 2026-09-26 08:57): "Agents keep defaulting to trying to put the document as an
+       artifact ... not keep trying to put stuff out as Claude artifacts". A Claude agent's own
+       tools tell it to publish a finished piece as an artifact by default, so the rule here has to
+       say, in so many words, that this default wins over that one. Every provider reads this block. */
+    'Anything you make for the person to keep (a document, a report, a draft,',
+    'anything longer than a reply) is a FILE on this computer, saved where the next',
+    'paragraphs say, and named in your reply. Do not publish it as a Claude artifact,',
+    'a shared document or any other link unless the person asks for that, in the',
+    'conversation or in the instructions Kosmos keeps for you: they look for your',
+    'work under Files in Kosmos, and a link lives somewhere else. If one of your',
+    'tools offers to publish by default, this instruction wins over that default.',
     '',
     'When you make a file for the person in a direct conversation with them, or they',
     'ask you for one there, save it in your Files folder. Two things come first: if',

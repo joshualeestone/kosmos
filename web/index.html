@@ -1592,10 +1592,8 @@ html.tip-dimming:not([data-layout="consolidated"]) > body { min-height: 100vh; }
 .asp-m { max-width: 88%; padding: 8px 11px; border-radius: 12px; line-height: 1.45; white-space: pre-wrap; overflow-wrap: anywhere; }
 /* #3738 (Josh 08:51): the same bubbles as a Direct Message, from the same tokens: the person's own blue, the agent's cream. */
 .asp-m.him { background: var(--agent-msg); border-top-left-radius: 4px; }
-/* #3743: the guide's unread replies carry the same fading gold edge as a DM's (Josh: "the setup assistant" too). */
-.asp-m.him { transition: box-shadow 1.2s ease; }
-.asp-m.him[data-unread] { box-shadow: inset 0 0 0 1px var(--unread-edge); transition: none; }
-@media (prefers-reduced-motion: reduce) { .asp-m.him { transition: none; } }
+/* #3743 gave the guide's unread replies the same fading gold edge as a DM's; #3967 (Josh 2026-09-26) removed it
+   everywhere for now, with the DM's (see .msg-bd below for why and how it comes back). */
 .asp-m.you { align-self: flex-end; background: var(--usermsg-tint); border-top-right-radius: 4px; }
 .asp-note { padding: 0 12px 6px; font-size: .75rem; color: var(--k-ink-2); }
 .asp-msg { padding: 0 12px 6px; font-size: .75rem; color: var(--k-ink-2); }
@@ -3405,21 +3403,15 @@ button.boardname[aria-expanded="true"] { opacity: 1; color: var(--k-ink); border
    their own. 🛑 NO COLOURED BAR DOWN A LEFT EDGE, ANYWHERE (Josh, 2026-09-24 12:52: "the em-dash
    version of, this was made with Ai"): a status is a round DOT beside its label, and the
    browser check asserts no element here carries a coloured left border.
-   The status colours: grey for nobody on it, gold for assigned, the working green for in
-   progress, a quiet grey for closed -- the app's existing meanings, no new palette. */
+   The status colours: red (--danger) for Needs Your Decision (#3949), grey for unassigned, gold for
+   assigned but not started, the working green for in progress, a quiet grey for completed -- the
+   app's existing meanings, no new palette. */
 #panel-tasks { --tsk-c: var(--k-ink-2); --tsk-nobody: var(--k-ink-2); --tsk-assigned: var(--gold-deep); --tsk-working: var(--ok);
+  --tsk-decision: var(--danger);
   --tsk-closed: color-mix(in srgb, var(--k-ink-2) 55%, var(--k-rule));
   --tsk-wash: color-mix(in srgb, var(--gold) 14%, var(--k-surface)); color: var(--k-ink); }
-.tsk-view { display: grid; grid-template-columns: 232px minmax(0, 1fr); min-height: 70vh;
-  background: var(--k-bg); border: 1px solid var(--k-rule); border-radius: 14px; overflow: hidden; }
-.tsk-rail { background: var(--k-side); border-right: 1px solid var(--k-rule); padding: 18px 12px 24px; }
-.tsk-rcap { font: 650 .6875rem var(--font-ui); letter-spacing: .12em; text-transform: uppercase; color: var(--k-ink-2); margin: 4px 8px 6px; }
-.tsk-ritem { display: flex; align-items: center; gap: 8px; width: 100%; border: 1px solid transparent; background: none;
-  font: 500 .875rem var(--font-ui); color: var(--k-ink); padding: 6px 8px; border-radius: 8px; cursor: pointer; text-align: left; }
-.tsk-ritem:hover:not(.on) { background: var(--tsk-wash); }
-.tsk-ritem.on { background: var(--k-surface); border-color: var(--gold-edge); font-weight: 650; }
-.tsk-ritem .nm { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.tsk-ritem .ct { font: 500 .75rem var(--font-mono); color: var(--k-ink-2); font-variant-numeric: tabular-nums; }
+/* #3949: one column, the full width (the Projects rail is gone; its choice is the dropdown). */
+.tsk-view { min-height: 70vh; background: var(--k-bg); border: 1px solid var(--k-rule); border-radius: 14px; overflow: hidden; }
 .tsk-main { padding: 25px 26px 110px; min-width: 0; position: relative; }
 .tsk-crumb { font-size: .8125rem; color: var(--k-ink-2); margin: 0 0 2px; min-height: 1.3em; }
 /* Mona's look review of #3701: halve the two big vertical gaps (measured 51px above the title,
@@ -3431,17 +3423,20 @@ button.boardname[aria-expanded="true"] { opacity: 1; color: var(--k-ink); border
    because truncating would hide the part the person needs. It stays a live region. */
 .tsk-crumb:empty { min-height: 0; margin: 0; }
 #tsk-msg { margin: 0; min-height: 1.6em; min-height: 1lh; }   /* one message line, reserved */
-#panel-tasks #tsk-hint { margin-bottom: 0; }
 #tsk-groups > .tsk-grp:first-child { margin-top: 3px; }
 .tsk-crumb button { border: 0; background: none; padding: 0; font: inherit; font-weight: 600; color: var(--k-ink); cursor: pointer;
   text-decoration: underline; text-decoration-color: var(--gold); text-underline-offset: 3px; }
 #panel-tasks .tsk-head h2 { font-size: 1.5rem; letter-spacing: -.015em; margin: 0; font-weight: 700; }
 /* #3703: the head carries "+ New task" beside the title, as Mona's mock draws it (.mh / .newbtn). */
 #panel-tasks .tsk-head { display: flex; align-items: baseline; justify-content: space-between; gap: 16px; flex-wrap: wrap; }
-.tsk-sub { color: var(--k-ink-2); font-size: .9375rem; margin: 2px 0 0; }
-.tsk-ctrls { display: flex; flex-wrap: wrap; gap: 10px 22px; align-items: center; margin: 18px 0 4px; }
+/* #3949: the search takes about half the width, with the open-task count to its right. */
+.tsk-toprow { display: flex; align-items: center; flex-wrap: wrap; gap: 8px 18px; margin: 16px 0 0; }
+.tsk-toprow .tsk-search { flex: 0 1 50%; min-width: 240px; margin: 0; max-width: none; }
+.tsk-sub { color: var(--k-ink-2); font-size: .9375rem; margin: 0; }
+.tsk-ctrls { display: flex; flex-wrap: wrap; gap: 10px 22px; align-items: center; margin: 14px 0 4px; }
+#tsk-under { margin: 12px 0 4px; }
 .tsk-ctl { display: flex; align-items: center; }
-.tsk-cl { font: 650 .6875rem var(--font-ui); letter-spacing: .1em; text-transform: uppercase; color: var(--k-ink-2); margin-right: 6px; white-space: nowrap; }
+.tsk-cl { font: 600 .875rem var(--font-ui); color: var(--k-ink-2); margin-right: 6px; white-space: nowrap; }
 .tsk-search { position: relative; margin: 16px 0 0; max-width: 520px; }
 .tsk-search svg { position: absolute; left: 11px; top: 50%; width: 16px; height: 16px; margin-top: -8px; color: var(--k-ink-2); pointer-events: none; }
 .tsk-search input { width: 100%; box-sizing: border-box; font: .9375rem var(--font-ui); height: 38px; padding: 0 34px 0 36px; border-radius: 10px;
@@ -3450,10 +3445,6 @@ button.boardname[aria-expanded="true"] { opacity: 1; color: var(--k-ink); border
 .tsk-search button { position: absolute; right: 6px; top: 50%; transform: translateY(-50%); border: 0; background: none; cursor: pointer;
   color: var(--k-ink-2); font: 600 1rem var(--font-ui); width: 26px; height: 26px; border-radius: 7px; }
 .tsk-search button:hover { background: var(--k-rule); }
-.tsk-seg { display: inline-flex; border: 1px solid var(--k-rule); border-radius: 9px; overflow: hidden; background: var(--k-surface); }
-.tsk-seg button { border: 0; background: none; cursor: pointer; padding: 0 11px; height: 30px; color: var(--k-ink-2); font: 600 .8125rem var(--font-ui); white-space: nowrap; }
-.tsk-seg button + button { border-left: 1px solid var(--k-rule); }
-.tsk-seg button[aria-pressed="true"] { color: #231b06; background: linear-gradient(150deg, var(--gold-bright), var(--gold-deep)); }
 /* The arrow's position and size and the radius come from the global `select`
    rule; `background-color`, not the `background` shorthand, so they survive.
    The 2rem right padding is restated because the `padding` shorthand replaces
@@ -3463,7 +3454,6 @@ select.tsk-sel { font: 600 .8125rem var(--font-ui); height: 32px; padding: 0 2re
   background-color: var(--k-surface); color: var(--k-ink);
   background-image: linear-gradient(45deg, transparent 50%, var(--k-ink-2) 50%),
                     linear-gradient(135deg, var(--k-ink-2) 50%, transparent 50%); }
-.tsk-mobsel { display: none; }
 .tsk-tiles { display: grid; grid-template-columns: repeat(auto-fit, minmax(138px, 1fr)); gap: 10px; margin: 16px 0 4px; }
 .tsk-tile { background: var(--k-surface); border: 1px solid var(--k-rule); border-radius: 12px; padding: 11px 13px 10px; cursor: pointer;
   text-align: left; font: inherit; color: inherit; display: flex; flex-direction: column; gap: 1px; }
@@ -3471,9 +3461,11 @@ select.tsk-sel { font: 600 .8125rem var(--font-ui); height: 32px; padding: 0 2re
 .tsk-tile[aria-pressed="true"] { background: var(--agent-msg); border-color: var(--gold-edge); }
 .tsk-tile .num { font: 650 1.5rem var(--font-ui); font-variant-numeric: tabular-nums; letter-spacing: -.01em; }
 .tsk-tile .lab { font-size: .8125rem; font-weight: 650; }
-.tsk-tile .ts { font-size: .75rem; color: var(--k-ink-2); }
+/* #3949 (Josh): Needs Your Decision is red, the only tile the person acts on; at zero there is nothing to act on,
+   so it is drawn like the others. */
+.tsk-tile[data-tile="decision"]:not([data-n="0"]):not([data-n="unknown"]) { border-color: color-mix(in srgb, var(--danger) 45%, var(--k-rule)); }
+.tsk-tile[data-tile="decision"]:not([data-n="0"]):not([data-n="unknown"]) .num, .tsk-tile[data-tile="decision"]:not([data-n="0"]):not([data-n="unknown"]) .lab { color: var(--danger); }
 .tsk-dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; background: var(--tsk-c); margin-right: 6px; vertical-align: 1px; flex: none; }
-.tsk-hint { font-size: .8125rem; color: var(--k-ink-2); margin: 6px 0 4px; max-width: 80ch; }
 .tsk-grp { margin-top: 24px; }
 .tsk-grp h3 { font-size: 1.0625rem; margin: 0; display: flex; align-items: center; gap: 3px; }
 .tsk-grp h3 .count { font: 500 .8125rem var(--font-mono); color: var(--k-ink-2); margin-left: 6px; }
@@ -3538,24 +3530,18 @@ html[data-layout="consolidated"] body.consolidated #panel-projects > #panel-task
 /* #3880 (Josh, 2026-09-25 22:01): in the column the view has no outer frame of its own; the title, New task, filters,
    tiles and list sit on the column's ground unframed. The tiles and the list keep their own borders. The tab view keeps
    its frame: Josh scoped this to the consolidated view. */
-html[data-layout="consolidated"] body.consolidated #panel-projects > #panel-tasks .tsk-view { grid-template-columns: 1fr;
+html[data-layout="consolidated"] body.consolidated #panel-projects > #panel-tasks .tsk-view {
   border: 0; border-radius: 0; background: none; }
 /* Mona's look review of #3701: in the column the panel's own top inset already spaces the title,
    so the view's does not stack on it (was about 49px, like the tab view's 51px before halving). */
 html[data-layout="consolidated"] body.consolidated #panel-projects > #panel-tasks .tsk-main { padding-top: 0; }
-html[data-layout="consolidated"] body.consolidated #panel-projects > #panel-tasks .tsk-rail { display: none; }
-html[data-layout="consolidated"] body.consolidated #panel-projects > #panel-tasks .tsk-mobsel { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 12px; }
 /* The consolidated projects rail's way into Tasks (the tab bar is hidden there). */
 .rail-tasks { border: 1px solid var(--k-rule); background: var(--k-surface); color: var(--k-ink-2); font: 600 .75rem var(--font-ui);
   padding: 2px 8px; border-radius: 999px; cursor: pointer; margin-left: 8px; }
 .rail-tasks:hover { color: var(--k-ink); border-color: var(--gold-edge); }
 @media (max-width: 760px) {
-  .tsk-view { grid-template-columns: 1fr; }
-  .tsk-rail { display: none; }
-  .tsk-mobsel { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 12px; }
-  .tsk-search { max-width: none; }
+  .tsk-toprow .tsk-search { flex-basis: 100%; }
   .tsk-ctl { flex-wrap: wrap; row-gap: 4px; }
-  .tsk-seg button { padding: 0 8px; }
   .tsk-main { padding: 22px 14px 120px; }
   .tsk-row { grid-template-columns: 22px minmax(0, 1fr); }
   .tsk-side { grid-column: 2; flex-direction: row; align-items: center; justify-content: flex-start; min-width: 0; flex-wrap: wrap; }
@@ -5788,11 +5774,16 @@ body:not(.consolidated) .pjmidhead:has(.pjhead) .tsearch:focus-within { flex-bas
    shorthand. */
 .msg:not(.you) .msg-bd { background-color: var(--agent-msg); }
 /* #3743 (Josh 2026-09-25 09:15): "the stroke would be cool for an unread message and then as you read it it fades
-   away". An agent message not yet read carries a thin gold edge; once it has been on screen a moment, the edge fades.
-   An inset shadow, so the bubble keeps its size and the edge follows its rounded corners. */
-.msg:not(.you) .msg-bd { transition: box-shadow 1.2s ease; }
-.msg:not(.you) .msg-bd[data-unread] { box-shadow: inset 0 0 0 1px var(--unread-edge); transition: none; }
-@media (prefers-reduced-motion: reduce) { .msg:not(.you) .msg-bd { transition: none; } }
+   away". An agent message not yet read was given a thin gold edge that faded once it had been on screen a moment
+   (an inset shadow, so the bubble kept its size). Not drawn at present: see #3967 below. */
+/* #3967 (Josh 2026-09-26 09:01): the edge is REMOVED FOR NOW. It is an inset shadow on the bubble box, so
+   it does not follow the bubble's tail (the ::before wing below): "it looks broken this way". Josh liked
+   the fading gold, so it is meant to come back as an outline that wraps the tail too (the wing would need
+   its own matching stroke). Everything that decides what is unread stays: the data-unread attribute is
+   still set and cleared (UNREAD_EDGE in the script), and --unread-edge keeps its light, dark and navy
+   values, so bringing it back is a matter of drawing it. What it was: on an agent bubble marked data-unread,
+   an inset 1px box-shadow in the --unread-edge colour with no transition, and a 1.2s box-shadow transition
+   otherwise, so it faded when the mark was cleared (none under reduced motion). */
 /* #3134-followup (Josh 6.72) -> #3267: the bubble TAIL is a clean iMessage-style Option A
    WING at the bottom corner, pointing toward the avatar -- bottom-LEFT on an agent bubble,
    bottom-RIGHT on the person's.
@@ -6951,9 +6942,23 @@ body:not(.consolidated) .pjmidhead:has(.pjhead) .tsearch:focus-within { flex-bas
    sharing the class would have hidden it exactly when several members were in
    the same state. */
 .pj-member .pj-notyet { display: block; font: var(--text-caption) var(--font-ui); color: var(--k-ink-2); flex-basis: 100%; }
-/* The one-verdict-for-the-roster line: same voice as .pj-told, but it sits
-   as its own flex child below the member cards, not inside one of them. */
-.pj-members .pj-told-group { display: block; font: var(--text-caption) var(--font-ui); color: var(--label-2); margin: 0; }
+/* #3923: the project notice (Mona Lisa's design, project-notice-mock.html). Appears only while
+   an agent on the project could not be given its folder; one row per agent, each shaped by what
+   the person must do. No bar down the left (Josh has ruled those out). #pj-one-notice is the live
+   region and stays in the page, empty and unstyled, so a notice written into it is announced the
+   first time too; the visible box is the .pnotice drawn inside it. */
+.pnotice { display: flex; gap: 10px; align-items: flex-start; padding: 13px 15px; border-radius: 10px;
+  background: var(--k-sunk, rgba(20,22,26,.05)); border: 1px solid var(--k-rule); margin: 0 0 12px; }
+.pn-b { flex: 1 1 auto; min-width: 0; }
+.pn-b > b { font-size: .9375rem; display: block; color: var(--k-ink); }
+.pnrow { display: flex; gap: 10px; align-items: baseline; flex-wrap: wrap; margin-top: 7px; }
+.pnrow + .pnrow { border-top: 1px solid var(--k-rule); padding-top: 7px; }
+.pnwho { flex: 0 0 auto; min-width: 3.5rem; font-size: .875rem; font-weight: 650; color: var(--k-ink); }
+.pnwhy { flex: 1 1 14rem; min-width: 0; font-size: .875rem; line-height: 1.5; color: var(--k-ink-2); }
+.pnfix { color: var(--k-ink); font-weight: 600; }
+.pnotice .qopt { font: inherit; font-size: .8125rem; font-weight: 600; color: var(--k-ink); background: var(--k-surface);
+  border: 1px solid var(--k-rule); border-radius: 8px; padding: .4em .9em; cursor: pointer; white-space: nowrap; flex: 0 0 auto; }
+.pnotice .qopt:disabled { cursor: default; opacity: .6; }
 .pj-member.unseen { border-style: dashed; }
 /* --- the thread --------------------------------------------------------- */
 /* Same as #pj-one-add above: dressed by the shared `select` rule, widthed by
@@ -10235,7 +10240,11 @@ window.kosmosMeasureScrollbarWidth();
        reads like the project page's: "Files", a short list, and View All on the right only when
        there are more than the list shows. View All opens the Files screen (#d-sec-files), which is
        where Open in Finder now lives ("it looks crowded and junky" here). -->
-  <section class="dfiles" id="d-files" aria-labelledby="d-files-h" hidden>
+  <!-- #3994 (Josh, 2026-09-26): "lets put the files for an agent inside a white container just like we do
+       on projects". It wears the project Files panel's own class, .pjcard, so the two cannot drift: the
+       same surface, radius, padding and (per layout) border. The project page's layout rules for its
+       panel are all scoped under .pj3, so only the look comes across, not that page's grid. -->
+  <section class="dfiles pjcard" id="d-files" aria-labelledby="d-files-h" hidden>
     <div class="dfiles-head">
       <h3 class="dlab" id="d-files-h">Files</h3>
       <button class="linkish pj-viewall" id="d-files-all" type="button" hidden>View All</button>
@@ -13705,6 +13714,11 @@ window.kosmosMeasureScrollbarWidth();
       <!-- Josh, 2026-09-10 (#2711 item 14): the column heading is just
            "Members" now. "Project members" restated the page it sits on. -->
       <h3 class="dlab">Members</h3>
+      <!-- #3923: the project notice, painted by pjNotice() only while something is wrong, under the
+           heading and above the list, in the page's order and on screen (the card's grid pins the
+           heading to row 1). -->
+      <div id="pj-one-notice" role="status" aria-live="polite"></div>
+      <div id="pj-one-notice-said" class="vh" role="status" aria-live="polite"></div>
       <div id="pj-one-agents" class="pj-members"></div>
       <!-- ⚠️ The picker hides behind the button, not the other way round: the
            resting state of the box is the members, and "+ Add Member" (the
@@ -14652,40 +14666,40 @@ window.kosmosMeasureScrollbarWidth();
 <!-- #3559 (Josh, 2026-09-24): Tasks is a top-level view beside Agents and Projects, every
      task across every project. Mona's mock (chaoskosmos-site tasks-view-3559 248c953, the dot
      revision) plus Josh's search box. Groups are WHERE THE WORK IS, derived by the engine
-     (tasks.taskState) and only those it can prove today: Nobody on it, Assigned not started, In
-     progress, Closed. Waiting on you, Done-check-it and categories need evidence no task stores
-     yet, so they are not drawn at all rather than guessed. No coloured left bars anywhere (Josh,
-     12:52): the status mark is a round dot beside the label. -->
+     (tasks.taskState) and only those it can prove (since #3949: Needs Your Decision, In progress,
+     Assigned but not started, Unassigned, Completed). Built-but-waiting and categories need
+     evidence no task stores yet (#3951), so they are not drawn at all rather than guessed. No
+     coloured left bars anywhere (Josh, 12:52): the status mark is a round dot beside the label. -->
+<!-- #3949 (Josh, 2026-09-26): no left Projects column; the body takes the full width. Projects is a
+     dropdown on one line with Created:, the search is about half as wide with the open-task count to its
+     right, five single-label tiles (Needs Your Decision red), and Group by and Sort under the tiles. -->
 <section class="panel panel-wide" id="panel-tasks" hidden>
   <div class="tsk-view">
-    <aside class="tsk-rail" aria-label="Filter tasks by project">
-      <div class="tsk-rcap">Projects</div>
-      <div id="tsk-projects"></div>
-    </aside>
     <div class="tsk-main">
       <p class="tsk-crumb" id="tsk-crumb"></p>
       <div class="tsk-head"><h2 id="tsk-title">All tasks</h2><button class="btn uprime" id="tsk-new" type="button"><span aria-hidden="true">+</span> New task</button></div>
-      <p class="tsk-sub" id="tsk-sub"></p>
-      <!-- Mona's a40bbe1: on a narrow window (and in the consolidated column) the rail becomes this
-           dropdown, and the search sits below it, full width. -->
-      <div class="tsk-mobsel"><select class="tsk-sel" id="tsk-projsel" aria-label="Project"></select></div>
-      <!-- #3559 (Josh, 14:39): search, on its own line above the controls (Mona's a40bbe1). Its own
-           clear button; the browser's native one is hidden. -->
+      <!-- #3559 (Josh, 14:39): search, with its own clear button; the browser's native one is hidden.
+           #3949: about half as wide, with the open-task count to its right. -->
+      <div class="tsk-toprow">
       <div class="tsk-search" role="search">
         <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true"><circle cx="7" cy="7" r="5"/><path d="M11 11l3.5 3.5" stroke-linecap="round"/></svg>
         <input id="tsk-search" type="search" autocomplete="off" spellcheck="false"
                placeholder="Search tasks" aria-label="Search tasks by what they say, number, project or agent">
         <button type="button" id="tsk-qclear" aria-label="Clear search" hidden>&times;</button>
       </div>
-      <div class="tsk-ctrls">
-        <div class="tsk-ctl"><span class="tsk-cl" id="tsk-win-l">Added in</span><span class="tsk-seg" id="tsk-win" role="group" aria-labelledby="tsk-win-l"></span></div>
-        <div class="tsk-ctl"><span class="tsk-cl" id="tsk-by-l">Group by</span><span class="tsk-seg" id="tsk-by" role="group" aria-labelledby="tsk-by-l"></span></div>
-        <div class="tsk-ctl"><label class="tsk-cl" for="tsk-sort">Sort</label><select class="tsk-sel" id="tsk-sort">
+      <p class="tsk-sub" id="tsk-sub"></p>
+      </div>
+      <div class="tsk-ctrls" id="tsk-filters">
+        <div class="tsk-ctl"><label class="tsk-cl" for="tsk-projsel">Project:</label><select class="tsk-sel" id="tsk-projsel"></select></div>
+        <div class="tsk-ctl"><label class="tsk-cl" for="tsk-win">Created:</label><select class="tsk-sel" id="tsk-win"></select></div>
+      </div>
+      <div class="tsk-tiles" id="tsk-tiles"></div>
+      <div class="tsk-ctrls" id="tsk-under">
+        <div class="tsk-ctl"><label class="tsk-cl" for="tsk-by">Group by:</label><select class="tsk-sel" id="tsk-by"></select></div>
+        <div class="tsk-ctl"><label class="tsk-cl" for="tsk-sort">Sort:</label><select class="tsk-sel" id="tsk-sort">
           <option value="new">Newest first</option><option value="stale">Quietest first</option><option value="old">Oldest first</option>
         </select></div>
       </div>
-      <div class="tsk-tiles" id="tsk-tiles"></div>
-      <p class="tsk-hint" id="tsk-hint">Tap a tile to see only that group, tap it again to see everything.</p>
       <p class="fmsg" id="tsk-msg" role="status" aria-live="polite"></p>
       <!-- What a search found, said to a screen reader while focus stays in the search box (the
            rows themselves change silently). Visually hidden: the page already shows it. -->
@@ -28416,7 +28430,8 @@ function restoreThreadAnchor(el, a) {
   }
   return false;
 }
-/* #3743 (Josh 2026-09-25 09:15): an unread agent message carries a gold edge that fades once it has been read.
+/* #3743 (Josh 2026-09-25 09:15): an unread agent message carries a gold edge that fades once it has been read
+   (the edge is not drawn at present, #3967, see the .msg-bd CSS; this mark is still kept).
    "Unread" is the app's own count (a DM's dmUnread, a project's unread) read as the thread opens, plus any agent
    message that lands while it is open. "Read" is on screen, half of it at least, for a moment while this window is
    in front. Per thread: `known` is every agent message this page has shown there, `fresh` those still unread,
@@ -28484,7 +28499,7 @@ function unreadEdgeTry(bd) {
     bd.__unreadTimer = null;
     if (!bd.isConnected || !bd.__inView || document.visibilityState !== 'visible' || !document.hasFocus()) return;
     if (bd.__unread) { bd.__unread.st.fresh.delete(bd.__unread.id); bd.__unread.st.read.add(bd.__unread.id); }
-    bd.removeAttribute('data-unread');   // the transition fades the edge
+    bd.removeAttribute('data-unread');   // the transition faded the edge (not drawn at present, #3967)
     if (UNREAD_IO) UNREAD_IO.unobserve(bd);
     UNREAD_WATCHED.delete(bd);
   }, UNREAD_EDGE_DWELL);
@@ -42211,9 +42226,16 @@ function dotGlyph(cv, letter, color, seedStr) {
   off.width = S; off.height = S;
   const o = off.getContext('2d');
   o.font = '700 215px -apple-system, BlinkMacSystemFont, system-ui, "Helvetica Neue", Arial, sans-serif';
-  o.textAlign = 'center'; o.textBaseline = 'middle';
+  /* #3483: centre the glyph's INK, not its advance box and em-box middle.
+     textAlign/textBaseline centring leaves the letter wherever the font's
+     metrics put it; with Segoe UI (Windows) that was 16px high on every
+     cap and 10px right on K, out of 256. */
+  o.textAlign = 'left'; o.textBaseline = 'alphabetic';
   o.fillStyle = '#000';
-  o.fillText(letter, C, C);
+  const m = o.measureText(letter);
+  o.fillText(letter,
+    C - (m.actualBoundingBoxRight - m.actualBoundingBoxLeft) / 2,
+    C + (m.actualBoundingBoxAscent - m.actualBoundingBoxDescent) / 2);
   const mask = o.getImageData(0, 0, S, S).data;
   g.clearRect(0, 0, cv.width, cv.height);
   g.save();
@@ -43697,8 +43719,8 @@ function pjToldLine(told) {
   // for the expected thing earns no space on a page a person lives on.
   // The told sentence and its conditional hedge retired together; silence
   // claims nothing, which is why it is the honest form of success here.
-  // FAILURE still speaks below -- interim until the project notice is
-  // drawn (exit dependency tracked on Splinter's board).
+  // FAILURE still speaks here, for the Settings members list only: the project page says it in
+  // the project notice (#3923).
   if (told.state === 'could_not') {
     return 'We could not update this agent about this folder: ' + esc(told.because || 'we could not write to its instructions') + '.';
   }
@@ -43706,51 +43728,108 @@ function pjToldLine(told) {
 }
 
 /**
- * The roster's verdicts collapsed to one sentence, when that is honest.
- *
- * The key is RENDERED-LINE equality, not state equality: two could_not
- * members with different becauses render different lines and keep their own
- * rows, so the group claim is exactly as true as each per-member claim it
- * replaces. Two or more members only; a singleton's line stays on its row.
+ * #3923: the project notice (Mona Lisa's design). The variable is what the person must do, not
+ * the kind of failure: WAIT (the reason and Try again), RETRY (the reason, a fix ending "then try
+ * again", and Try again: nothing else re-tells an agent after a fix), EXPLAIN (a sentence saying
+ * nothing can be done yet, no button). Keyed on the engine's EXACT singular becauses (the same keys
+ * as projects.js GROUP_BECAUSE, plus the instruction reader's refusals); an unknown one is treated
+ * as WAIT with the engine's own sentence, because an unknown cause is what one honest retry is for.
+ * `solo` is the agent's name when the notice is about one agent (the sentence names it), null
+ * in a row of several (the name is beside it).
  */
-function pjSharedTold(roster) {
-  if (roster.length < 2) return '';
-  const first = pjToldLine(roster[0].told || {});
-  if (!first) return '';
-  for (const m of roster.slice(1)) {
-    if (pjToldLine(m.told || {}) !== first) return '';
+const PJ_NOTICE = [
+  [/^we could not write to its instructions$|^those instructions could not be saved$/, 'wait', () => 'Saving did not work this time. It may work on another try.'],
+  [/^we could not check which agents are running$/, 'wait', () => 'Kosmos could not check which agents are running.'],
+  // Somebody saved the file mid-write; nothing was lost, and a retry reads it fresh.
+  // (The raw editor sentence is matched too: verdicts saved before tellAgent translated it keep it.)
+  [/^its instructions changed while we were writing to them$|changed since you opened them, reload before saving/, 'wait', (n) => (n ? n + '\u2019s' : 'Its') + ' instructions changed while Kosmos was writing to them, so Kosmos left them as they were.'],
+  [/^it has no instructions file yet, and we will not create one$/, 'retry', (n) => (n ? n + ' has' : 'It has') + ' no instructions file, and Kosmos will not create one.',
+    (name) => 'Give ' + name + ' some instructions, then try again.'],
+  [/^its instructions contain \d+ Kosmos project blocks/, 'retry', (n) => (n ? n + '\u2019s' : 'Its') + ' instructions hold more than one Kosmos project section, so Kosmos cannot tell which is its own.',
+    (name) => 'Leave one Kosmos project section in ' + name + '\u2019s instructions, then try again.'],
+  [/^taking this out would leave its instructions almost empty$/, 'retry', (n) => (n ? n + '\u2019s' : 'Its') + ' instructions are too short for Kosmos to change safely.',
+    (name) => 'Add to ' + name + '\u2019s instructions, then try again.'],
+  [/^its instructions are already at the size limit$/, 'retry', (n) => (n ? n + '\u2019s' : 'Its') + ' instructions are already at the size limit.',
+    (name) => 'Shorten ' + name + '\u2019s instructions, then try again.'],
+  [/^we could not find an agent with exactly this name on this computer$/, 'retry', (n) => 'Kosmos cannot find ' + (n || 'it') + ' running on this computer.',
+    (name) => 'Start ' + name + ', then try again.'],
+  [/^something is running under this name, but we cannot tell that it is this agent$/, 'retry', (n) => 'Something is running under ' + (n ? n + '\u2019s' : 'its') + ' name, but Kosmos cannot tell that it is ' + (n || 'the same agent') + '.',
+    (name) => 'Restart ' + name + ' from Kosmos, then try again.'],
+  [/^it has no folder of its own on this computer yet$|^there is no agent by that name to write to$|^that is not a folder$/, 'explain', (n, name) => 'Kosmos has no folder for ' + name + ' on this computer, so it has nowhere to write.'],
+  [/^it keeps its instructions somewhere we cannot safely change$|^its worker folder |^there is already a file there that this editor cannot safely replace/, 'explain', (n) => (n ? n + '\u2019s' : 'Its') + ' instructions live somewhere Kosmos cannot safely change, so Kosmos has nowhere to write.'],
+  // The reader's own refusals for a file it cannot safely edit (workerfile.js, instructions.js):
+  // pressing again reads the same file the same way, so no button.
+  [/^its instruction file is not UTF-8 text|^its instruction file is not one we can read$|^its instruction file could not be read$|^we cannot get at its instruction file to read it$|^that file is not inside the workers folder$/, 'explain',
+    (n) => (n ? n + '\u2019s' : 'Its') + ' instructions are in a file Kosmos cannot safely change, so Kosmos has nowhere to write.'],
+  // The name itself cannot be turned into a file path (instructions.js): no file was ever found.
+  [/^that is not a name we can look up$/, 'explain', (n, name) => 'Kosmos cannot find instructions for an agent named ' + name + ', so it has nowhere to write.'],
+];
+/* A Try again that came back with the same answer: its row says so on every paint until the
+   answer changes or the row goes. Keyed by project and session name (pjNoticeKey), so browsing
+   another project where the same agent is fine does not forget it here. A mark is pruned only when its
+   project paints again, so marks for projects never reopened stay for the tab's life: one short string
+   per retry, accepted. */
+const PJ_NOTICE_TRIED = new Map();
+const pjNoticeKey = (projectId, sessionName) => String(projectId) + '\n' + String(sessionName);
+/* A Try again that never got an answer (offline, refused, a board error): the row keeps the
+   earlier answer, so it says the retry did not go through rather than looking untouched.
+   Same key and the same lifetime as a PJ_NOTICE_TRIED mark. */
+const PJ_NOTICE_MISSED = new Map();
+
+/** One agent's row, or null when nothing is wrong (success and not_tried say nothing). */
+function pjNoticeRow(m, solo) {
+  const told = (m && m.told) || {};
+  if (told.state !== 'could_not') return null;
+  const because = String(told.because || '');
+  const name = String((m && m.name) || (m && m.sessionName) || 'this agent');
+  const hit = PJ_NOTICE.find(([re]) => re.test(because));
+  if (!hit) {
+    // Unknown cause: its own sentence and one honest retry. Not a system error's own words, though:
+    // one carrying a file path or an error code (EACCES, ENOENT...) is not a sentence for the person.
+    const raw = /(^|\s)E[A-Z]{2,}\b|\/(Users|home|private|var|tmp)\/|[A-Za-z]:\\/.test(because);
+    return { shape: 'wait', why: (!raw && pjSentence(because)) || 'Kosmos does not know why. It may work on another try.', fix: '', name, key: m.sessionName, because };
   }
-  // ⚠️ A collapse may never LOSE a reason. Collapsing suppresses every
-  // per-member line, so it is only allowed when the group line carries
-  // everything those lines carried: now only a could_not whose because
-  // has a plural sibling (the told sentence is retired; success says
-  // nothing and an all-told roster has nothing to collapse). A could_not whose
-  // reason has NO plural form keeps its per-member rows -- three
-  // repeated sentences are weight, but a vanished reason is a lie of
-  // omission (iteration 3: the N-blocks because collapsed to a line
-  // that named no reason at all).
-  const t = roster[0].told || {};
-  if (t.state === 'could_not' && !t.becauseGroup) return '';
-  return pjToldGroupLine(t);
+  const [, shape, why, fix] = hit;
+  return { shape, why: why(solo ? name : null, name), fix: fix ? fix(name) : '', name, key: m.sessionName, because };
+}
+/* The row's sentence after a Try again that did not change the answer. */
+function pjNoticeStill(r, projectId) {
+  const k = pjNoticeKey(projectId, r.key);
+  if (PJ_NOTICE_MISSED.get(k) === r.because) return ' Trying again did not go through, so this is still the earlier answer.';
+  return PJ_NOTICE_TRIED.get(k) === r.because ? ' It still did not work.' : '';
 }
 
-function pjToldGroupLine(told) {
-  // The told (success) arm is GONE with its singular sibling: success
-  // says nothing, so an all-told roster has nothing to collapse.
-
-  // Explicit, not an else: pjSharedTold pre-filters through pjToldLine, but
-  // the honesty guarantee (no sentence for not_tried/empty) must hold here
-  // too, not only in the current caller.
-  if (told.state !== 'could_not') return '';
-  // The engine supplies the plural sibling (becauseGroup, derived at read
-  // time from the verbatim singular). Without one, the line carries NO
-  // reason: an incomplete true sentence beats a complete confusing one
-  // (her ruling), because the singular because is written for a one-agent
-  // context and does not survive being quoted inside a plural frame.
-  if (told.becauseGroup) {
-    return 'We could not update these agents about this folder: ' + esc(told.becauseGroup) + '.';
+/** The whole notice: '' when every agent has the folder. */
+function pjNotice(roster, projectId) {
+  const failing = (roster || []).filter((m) => m && m.told && m.told.state === 'could_not');
+  // A retry mark lasts only while its agent is still failing, so a row that later comes back
+  // does not open with "It still did not work".
+  const mine = pjNoticeKey(projectId, '');
+  for (const marks of [PJ_NOTICE_TRIED, PJ_NOTICE_MISSED]) {
+    for (const k of [...marks.keys()]) {
+      if (!k.startsWith(mine)) continue;
+      const m = failing.find((x) => pjNoticeKey(projectId, x.sessionName) === k);
+      // Gone, or a different answer now: the retry's answer is over, so a later return of the same
+      // reason (from some other re-tell) is not "still".
+      if (!m || String(m.told.because || '') !== marks.get(k)) marks.delete(k);
+    }
   }
-  return 'We could not update these agents about this folder.';
+  if (!failing.length) return '';
+  const solo = failing.length === 1;
+  const rows = failing.map((m) => pjNoticeRow(m, solo));
+  const head = solo
+    // What failed, true in every row's case: the last update did not land (the project may still be
+    // listed from an earlier one), and "folder" is kept for the one row about a missing folder.
+    ? 'Kosmos could not update ' + esc(rows[0].name) + '\u2019s instructions for this project.'
+    // Digits, as the board's other counts are (the first-run "We found N agents" title).
+    : 'Kosmos could not update ' + rows.length + ' agents\u2019 instructions for this project.';
+  const body = rows.map((r) => '<div class="pnrow">'
+    + (solo ? '' : '<span class="pnwho">' + esc(r.name) + '</span>')
+    + '<span class="pnwhy">' + esc(r.why + pjNoticeStill(r, projectId)) + (r.fix ? ' <b class="pnfix">' + esc(r.fix) + '</b>' : '') + '</span>'
+    + (r.shape === 'wait' || r.shape === 'retry'
+      ? '<button class="qopt" type="button" data-pn-retry="' + esc(r.key) + '" aria-label="' + esc('Try again for ' + r.name) + '">Try again</button>' : '')
+    + '</div>').join('');
+  return '<div class="pnotice"><span class="haz" aria-hidden="true">!</span><div class="pn-b"><b>' + head + '</b>' + body + '</div></div>';
 }
 
 /**
@@ -43769,8 +43848,8 @@ function pjMember(m, suppressTold, withMinus, hideState) {
   const liveM = (m && m.state === 'connection_lost' && !m.reconnect && typeof LAST !== 'undefined' && Array.isArray(LAST))
     ? Object.assign({}, m, { reconnect: ((LAST.find((a) => a && a.sessionName === m.sessionName)) || {}).reconnect || null })
     : m;
-  // suppressTold: the roster's identical verdicts are being said ONCE below
-  // the list (pjSharedTold), so the per-member span would triple-state it.
+  // suppressTold: the project page says every verdict once, in the project notice above the
+  // list (#3923), so the per-member span would say it twice. Settings' list keeps it.
   // #3131 (Josh 6.68): hideState drops the per-member STATE LABEL text
   // (Working/Idle/Waiting/Issue...) in the project Agents column, where Josh
   // wants ONLY the red needs-you triangle to speak. The red-you triangle (warn),
@@ -45338,21 +45417,34 @@ document.getElementById('pj-alltasks').addEventListener('click', () => openProje
 /* ---- #3559: the Tasks view ------------------------------------------------------------
    Every task on every project, grouped by WHERE THE WORK IS. The engine derives each task's
    `state` (tasks.taskState, from the same claim the project card shows); this code renders it
-   and never computes it. Only the groups the engine can prove exist here; waiting-on-you,
-   done-check-it and categories wait for evidence no task stores yet (Mona's weakest-premise
-   note on #3559), so they are not drawn at all rather than guessed. */
+   and never computes it. Only the groups the engine can prove exist here (#3949 added Needs Your
+   Decision, from the roster); built-but-waiting and categories wait for evidence no task stores yet
+   (#3951, and Mona's weakest-premise note on #3559), so they are not drawn at all rather than guessed. */
+/* #3949 (Josh, 2026-09-26): one label per group, no byline, in his order. Needs Your Decision is red, the
+   only group the person acts on; the engine's `decision` state (tasks.waitingOnPerson) fills it. "Built but
+   waiting" is not drawn: no task stores it yet (#3951). */
 const TSK_GROUPS = [
-  { k: 'nobody', l: 'Nobody on it', s: 'no agent assigned', c: 'var(--tsk-nobody)',
-    why: 'Open and unassigned. Give these to an agent, or close the ones that no longer matter.' },
-  { k: 'assigned', l: 'Assigned, not started', s: 'agent named, has not said it started', c: 'var(--tsk-assigned)',
-    why: 'An agent has these, and what it reports does not name them yet. Old ones here are worth a nudge.' },
-  { k: 'working', l: 'In progress', s: 'the agent says it is on it', c: 'var(--tsk-working)',
+  { k: 'decision', l: 'Needs Your Decision', c: 'var(--tsk-decision)',
+    /* Not "your go-ahead" (review round 11): a trust wait never reaches the tasks route's roster today (the
+       status route builds those rows offline), the same gap projects.js names; the rule covers it if it does. */
+    why: 'The agent on these needs you: a question about its project, or a connection Kosmos could not restore.' },
+  { k: 'working', l: 'In progress', c: 'var(--tsk-working)',
     why: 'The agent’s own report names these as what it is working on.' },
-  { k: 'closed', l: 'Closed', s: 'finished and closed', c: 'var(--tsk-closed)', why: 'Closed tasks.' },
+  { k: 'assigned', l: 'Assigned but not started', c: 'var(--tsk-assigned)',
+    why: 'An agent has these, and what it reports does not name them yet. Old ones here are worth a nudge.' },
+  { k: 'nobody', l: 'Unassigned', c: 'var(--tsk-nobody)',
+    why: 'Open and unassigned. Give these to an agent, or close the ones that no longer matter.' },
+  { k: 'closed', l: 'Completed', c: 'var(--tsk-closed)', why: 'Finished and closed.' },
 ];
 const TSK_WINDOWS = [['24h', 1], ['48h', 2], ['1 week', 7], ['1 month', 30], ['All', 0]];
 const TSK_BYS = [['status', 'Status'], ['project', 'Project']];
-const TSK = { data: null, error: null, proj: null, projHint: null, q: '', win: 0, by: 'status', sort: 'new', tile: null, sel: new Set(), gen: 0, busy: false, names: '', closedOpen: false, fold: new Set() };
+/* The dot a group wears, on its tile and its heading alike (review round 10: the heading had kept red at zero).
+   Needs Your Decision is red only when there is something to act on and Kosmos could read the agents. */
+const TSK_DECISION_UNKNOWN = 'Kosmos could not read your agents just now, so it cannot tell whether one is waiting on you.';
+function tskDot(g, n) {
+  return g.k === 'decision' && (!n || TSK.rosterUnknown) ? 'var(--tsk-nobody)' : g.c;
+}
+const TSK = { data: null, error: null, proj: null, projHint: null, q: '', win: 0, by: 'status', sort: 'new', tile: null, sel: new Set(), gen: 0, busy: false, names: '', needs: null, rosterUnknown: false, closedOpen: false, fold: new Set() };
 TSK_READY = true;
 const tskKey = (t) => String(t.projectId) + '#' + Number(t.number);
 /* The name the board prints for an agent (its roster card's `name`; a card has no `displayName`
@@ -45367,9 +45459,28 @@ function tskAgentName(sessionName) {
    a function declaration is hoisted, and TSK_READY (a hoisted var) covers the one ordering (a poll
    landing before the script finished) in which TSK would still be uninitialised. */
 var TSK_READY;   // hoisted (undefined) until `const TSK` below has run
+/* A baseline no signature equals: set after a failed read, so the next tick reads again. */
+const TSK_NEEDS_UNREAD = '\u0000unread';
 function tskRosterChanged() {
   if (!TSK_READY) return;   // the Tasks view is not set up yet; its own load paints with the roster it finds
-  if (TSK.data && !document.getElementById('panel-tasks').hidden && tskNamesSig() !== TSK.names) tskPaintKeepingCurrentFocus();
+  /* #3949: Needs Your Decision is live board state, so when WHO needs the person changes (a question asked
+     or answered), the tasks are read again while the view is on screen; any other poll changes nothing. */
+  const needs = tskNeedsSig();
+  const shown = !document.getElementById('panel-tasks').hidden;
+  /* The baseline moves only with a read (tskLoad records it): a change seen while the view is hidden, busy
+     closing tasks or not yet read is still a change on the next tick (review round 5). */
+  if (TSK.needs === null) TSK.needs = needs;
+  else if (needs !== TSK.needs && shown && TSK.data && !TSK.busy) { tskLoad(); return; }
+  if (TSK.data && shown && tskNamesSig() !== TSK.names) tskPaintKeepingCurrentFocus();
+}
+/* The agents needing the person by the board's own rule, with the project a question names: the part of the
+   roster Needs Your Decision is derived from. The rule is engine/status.js needsPerson, which the server
+   applies (tasks.waitingOnPerson); this copy only decides WHEN to re-read, and it is the same inline rule the
+   cards' data-attn uses on this page. A case added to needsPerson belongs here and in data-attn too. */
+function tskNeedsSig() {
+  return (Array.isArray(LAST) ? LAST : []).filter((a) => a && a.isNamedOurs === true && (a.state === 'needs_you' || a.state === 'needs_trust'
+    || (a.state === 'connection_lost' && a.reconnect && a.reconnect.phase === 'gave_up')))
+    .map((a) => a.sessionName + ':' + a.state + ':' + (a.stateProject || '')).sort().join('|');
 }
 function tskNamesSig() {
   return (Array.isArray(LAST) ? LAST : []).map((a) => a && (a.sessionName + '=' + (a.name || ''))).sort().join('|');
@@ -45420,6 +45531,9 @@ function tskScoped(all, st, now) {
    earlier visit are dropped, and a first visit says it is reading rather than showing zeros. */
 async function tskLoad(arrival) {
   const mine = ++TSK.gen;
+  /* #3949: who needs the person as of THIS read, so a question asked after the read and before the next poll
+     still counts as a change (tskRosterChanged). */
+  TSK.needs = tskNeedsSig();
   const msg = document.getElementById('tsk-msg');
   if (arrival) {
     TSK.sel.clear();
@@ -45438,6 +45552,9 @@ async function tskLoad(arrival) {
       /* An unreadable store is an error, never an empty list (the route says so): "No tasks"
          would be a claim about somebody's work that we did not make. */
       TSK.error = String(body.error || 'we could not read your tasks just now');
+      /* Review round 11: a failed read keeps no baseline, so the next roster tick reads again rather than
+         leaving the decision count stale until who needs the person changes once more. */
+      TSK.needs = TSK_NEEDS_UNREAD;
     } else {
       /* A good read clears the error a failed one left, and only that (a "Closed N" line stays). */
       if (TSK.error && msg && msg.textContent === asSentence(TSK.error)) msg.textContent = '';
@@ -45445,6 +45562,7 @@ async function tskLoad(arrival) {
       /* Archived projects are set aside: their tasks are not in this view (the rails tuck archived
          projects away too), except the one a project door scoped us to (#3703; tskVisible). */
       TSK.data = body.tasks;
+      TSK.rosterUnknown = body.rosterUnreadable === true;
       /* A ticked task that has since closed or gone cannot stay ticked. */
       const open = new Set(TSK.data.filter((t) => t.state !== 'closed').map(tskKey));
       TSK.sel.forEach((k) => { if (!open.has(k)) TSK.sel.delete(k); });
@@ -45452,6 +45570,7 @@ async function tskLoad(arrival) {
   } catch {
     if (mine !== TSK.gen) return;
     TSK.error = 'we could not reach Kosmos to read your tasks';
+    TSK.needs = TSK_NEEDS_UNREAD;
   }
   if (msg && TSK.error) msg.textContent = asSentence(TSK.error);
   tskPaintKeepingCurrentFocus();
@@ -45483,8 +45602,10 @@ function tskRow(t, at) {
   const who = (t.whoNames || []);
   const whoHtml = who.length
     ? who.map((w) => '<button type="button" class="tsk-who" data-agent="' + esc(w) + '">' + esc(tskAgentName(w)) + '</button>').join('')
-    : '<span class="tsk-who nobody">Nobody yet</span>';
-  /* The claim could not be read: say WHY on the row, so "Assigned, not started" is never read
+    /* Mona's design review of #3949: inside the Unassigned group the heading already says it; a project
+       grouping mixes states, so the chip stays there. */
+    : TSK.by !== 'project' && t.state === 'nobody' ? '' : '<span class="tsk-who nobody">Nobody yet</span>';
+  /* The claim could not be read: say WHY on the row, so "Assigned but not started" is never read
      as a fact about a task we simply could not check. */
   /* Mona's look review of #3701: in Josh's words, and short. The field says only that the agent
      has never written its report (the engine's `neverReported`), not that it has said nothing
@@ -45558,6 +45679,13 @@ function taskNest(rows, keyOf, parentKeyOf, folded) {
   for (const t of rows) walk(t, 0);
   return out;
 }
+/* #3949: a dropdown's options are rewritten only when they change, so a background repaint that changes
+   nothing (a load, the roster) does not close or reset one the person has open. A read that changes a
+   project's open count does rewrite the project list's options; its value is kept in step either way. */
+function tskOptions(sel, html, value) {
+  if (sel.dataset.opts !== html) { sel.innerHTML = html; sel.dataset.opts = html; }
+  if (sel.value !== value) sel.value = value;
+}
 /* What the view lists: every task except an archived project's, unless that project is the one
    in scope (its own View-all door, #3703). Unarchiving brings them back on the next read. */
 function tskVisible(all, proj) {
@@ -45582,18 +45710,14 @@ function tskPaint() {
      project a door just asked for (#3703). */
   if (TSK.data && TSK.proj && !projMap.has(TSK.proj)) TSK.proj = null;
   const projectsList = [...projMap.values()].sort((a, b) => String(a.name).localeCompare(String(b.name)));
-  /* "All tasks" counts what clicking it shows: every task but an archived project's, even while a
-     door has us scoped to that archived project (#1346: a count agrees with its destination). */
-  const openAll = tskVisible(TSK.data, null).filter((t) => t.state !== 'closed').length;
-  /* The rail, and its narrow-window twin. */
-  const rail = document.getElementById('tsk-projects');
-  if (rail) {
-    rail.innerHTML = '<button type="button" class="tsk-ritem' + (TSK.proj ? '' : ' on') + '" aria-pressed="' + !TSK.proj + '" data-proj=""><span class="nm">All tasks</span><span class="ct">' + openAll + '</span></button>'
-      + projectsList.map((p) => '<button type="button" class="tsk-ritem' + (TSK.proj === p.id ? ' on' : '') + '" aria-pressed="' + (TSK.proj === p.id) + '" data-proj="' + esc(p.id) + '"><span class="nm">' + esc(p.name) + '</span><span class="ct">' + p.open + '</span></button>').join('');
-  }
+  /* #3949: the project picker is this dropdown at every width (the left rail is gone). Each option keeps
+     the rail's open count of that project's tasks, whatever Created: and the search hide (#1346 held it
+     equal to what picking it shows with neither set). */
   const sel = document.getElementById('tsk-projsel');
   if (sel) {
-    sel.innerHTML = '<option value="">All projects</option>' + projectsList.map((p) => '<option value="' + esc(p.id) + '"' + (TSK.proj === p.id ? ' selected' : '') + '>' + esc(p.name) + '</option>').join('');
+    /* Mona's design review: a count here sat under "N open tasks across M projects" and read as a number
+       of projects. The count stays on each project's own option. */
+    tskOptions(sel, '<option value="">All projects</option>' + projectsList.map((p) => '<option value="' + esc(p.id) + '"' + (TSK.proj === p.id ? ' selected' : '') + '>' + esc(p.name) + ' (' + p.open + ')</option>').join(''), TSK.proj || '');
   }
   const picked = TSK.proj ? projMap.get(TSK.proj) : null;
   document.getElementById('tsk-title').textContent = picked ? picked.name : 'All tasks';
@@ -45605,16 +45729,25 @@ function tskPaint() {
   document.getElementById('tsk-sub').textContent = TSK.error && !TSK.data ? ''
     : open.length + (open.length === 1 ? ' open task' : ' open tasks')
       + (picked ? '' : ' across ' + projectsList.length + (projectsList.length === 1 ? ' project' : ' projects'));
-  document.getElementById('tsk-win').innerHTML = TSK_WINDOWS.map(([l, d]) => '<button type="button" data-win="' + d + '" aria-pressed="' + (TSK.win === d) + '">' + esc(l) + '</button>').join('');
-  document.getElementById('tsk-by').innerHTML = TSK_BYS.map(([k, l]) => '<button type="button" data-by="' + k + '" aria-pressed="' + (TSK.by === k) + '">' + esc(l) + '</button>').join('');
+  /* #3949: Created: and Group by are dropdowns (they were button rows). */
+  tskOptions(document.getElementById('tsk-win'), TSK_WINDOWS.map(([l, d]) => '<option value="' + d + '"' + (TSK.win === d ? ' selected' : '') + '>' + esc(l) + '</option>').join(''), String(TSK.win));
+  tskOptions(document.getElementById('tsk-by'), TSK_BYS.map(([k, l]) => '<option value="' + k + '"' + (TSK.by === k ? ' selected' : '') + '>' + esc(l) + '</option>').join(''), TSK.by);
   document.getElementById('tsk-sort').value = TSK.sort;
-  /* Tiles: the proven groups only, counted before the tile filter so every tile keeps its number. */
-  /* Closed is not a tile (Mona, as the mock draws it): tiles are where the open work is, and the
-     sub-line counts open tasks, so a Closed tile read as one more. Closed stays the folded list. */
-  document.getElementById('tsk-tiles').innerHTML = !TSK.data ? '' : TSK_GROUPS.filter((g) => g.k !== 'closed').map((g) => {
+  /* Tiles: the proven groups only, counted before the tile filter so every tile keeps its number.
+     #3949 (Josh): one label each, no byline, and Completed is a tile again (it was only the fold). */
+  document.getElementById('tsk-tiles').innerHTML = !TSK.data ? '' : TSK_GROUPS.map((g) => {
     const n = scoped.filter((t) => t.state === g.k).length;
-    return '<button type="button" class="tsk-tile" data-tile="' + g.k + '" aria-pressed="' + (TSK.tile === g.k) + '" style="--tsk-c:' + g.c + '">'
-      + '<span class="num">' + n + '</span><span class="lab"><span class="tsk-dot"></span>' + esc(g.l) + '</span><span class="ts">' + esc(g.s) + '</span></button>';
+    /* A zero Needs Your Decision takes a neutral dot too: nothing to act on, nothing red (post-rebase review). */
+    const dot = tskDot(g, n);
+    /* Review round 9: when the server could not read the agents, a 0 here would say nobody needs the person
+       when nobody could look. The tile says it cannot tell, and stays neutral. */
+    if (g.k === 'decision' && TSK.rosterUnknown) {
+      const why = TSK_DECISION_UNKNOWN;
+      return '<button type="button" class="tsk-tile" data-tile="decision" data-n="unknown" aria-pressed="' + (TSK.tile === g.k) + '" style="--tsk-c:var(--tsk-nobody)" title="' + esc(why) + '" aria-label="' + esc(g.l + ': cannot tell. ' + why) + '">'
+        + '<span class="num">?</span><span class="lab"><span class="tsk-dot"></span>' + esc(g.l) + '</span></button>';
+    }
+    return '<button type="button" class="tsk-tile" data-tile="' + g.k + '" data-n="' + n + '" aria-pressed="' + (TSK.tile === g.k) + '" style="--tsk-c:' + dot + '">'
+      + '<span class="num">' + n + '</span><span class="lab"><span class="tsk-dot"></span>' + esc(g.l) + '</span></button>';
   }).join('');
   const groups = document.getElementById('tsk-groups');
   if (!TSK.data) { groups.innerHTML = TSK.error ? '' : '<p class="tsk-empty">Reading your tasks…</p>'; tskPaintBulk(); return; }
@@ -45651,10 +45784,15 @@ function tskPaint() {
   } else {
     groups.innerHTML = TSK_GROUPS.filter((g) => !TSK.tile || TSK.tile === g.k).map((g) => {
       const ts = sorted.filter((t) => t.state === g.k);
-      const head = '<h3><span class="tsk-dot" style="--tsk-c:' + g.c + '"></span>' + esc(g.l) + '<span class="count">' + ts.length + '</span></h3><p class="why">' + esc(g.why) + '</p>';
-      /* Closed is always the fold (it has no tile): finished work is reachable, not in the way. */
+      /* Review round 10: the heading says what its tile says. A zero decision group takes the neutral dot, and
+         with the agents unreadable it says it cannot tell, never "0" and never "Nothing here". */
+      const unknown = g.k === 'decision' && TSK.rosterUnknown;
+      const head = '<h3><span class="tsk-dot" style="--tsk-c:' + tskDot(g, ts.length) + '"></span>' + esc(g.l) + '<span class="count">' + (unknown ? '?' : ts.length) + '</span></h3><p class="why">' + esc(unknown ? TSK_DECISION_UNKNOWN : g.why) + '</p>';
+      if (unknown && !ts.length) return '<section class="tsk-grp" data-unknown="1">' + head + '</section>';
+      /* Completed is always the fold: finished work is reachable, not in the way. */
       if (g.k === 'closed') {
-        return '<section class="tsk-grp" style="--tsk-c:' + g.c + '"><details class="tsk-fold"' + (TSK.closedOpen ? ' open' : '') + '><summary>' + esc(g.l) + ' (' + ts.length + ')</summary>' + tskList(ts) + '</details></section>';
+        /* #3949: picked from its tile, Completed opens: the person asked to see exactly these. */
+        return '<section class="tsk-grp" style="--tsk-c:' + g.c + '"><details class="tsk-fold"' + (TSK.closedOpen || TSK.tile === 'closed' ? ' open' : '') + '><summary>' + esc(g.l) + ' (' + ts.length + ')</summary>' + tskList(ts) + '</details></section>';
       }
       return '<section class="tsk-grp">' + head + tskList(ts) + '</section>';
     }).join('');
@@ -45791,18 +45929,18 @@ async function tskBulkClose() {
 }
 /* A repaint replaces the control that had focus, so focus goes to its REPLACEMENT: the same kind
    of control (tag + data attribute + value) inside the same container (its row by task key, the
-   crumb, the rail, the tiles, a segmented control), and only one that is on screen. Scoping to the
-   container is what makes it the same control: an agent's button repeats on every row it holds,
-   a row and its checkbox share a key, and the crumb's "All tasks" shares data-proj="" with a rail
-   item that is hidden in the consolidated view. */
-const TSK_FOCUS_KEYS = ['data-fold', 'data-close-parent', 'data-open-task', 'data-open-project', 'data-agent', 'data-tile', 'data-proj', 'data-win', 'data-by', 'data-key'];
+   crumb, the tiles), and only one that is on screen. Scoping to the container is what makes it the
+   same control: an agent's button repeats on every row it holds, and a row and its checkbox share a
+   key. The dropdowns (#3949: project, Created:, Group by, Sort) keep their own focus, since a repaint
+   replaces only their options. */
+const TSK_FOCUS_KEYS = ['data-fold', 'data-close-parent', 'data-open-task', 'data-open-project', 'data-agent', 'data-tile', 'data-proj', 'data-key'];
 function tskFocusMark(el) {
   const panel = document.getElementById('panel-tasks');
   if (!el || !panel || !panel.contains(el)) return null;
   const attr = TSK_FOCUS_KEYS.find((k) => el.hasAttribute(k));
   if (!attr) return null;
   const row = el.closest('.tsk-row');
-  const box = row ? null : el.closest('#tsk-crumb, #tsk-projects, #tsk-tiles, #tsk-win, #tsk-by');
+  const box = row ? null : el.closest('#tsk-crumb, #tsk-tiles');
   return { tag: el.tagName.toLowerCase(), attr, value: el.getAttribute(attr), row: row ? row.dataset.key : null, box: box ? box.id : null };
 }
 function tskFocusRestore(mark) {
@@ -45814,10 +45952,8 @@ function tskFocusRestore(mark) {
   const again = scope ? [...scope.querySelectorAll(mark.tag + '[' + mark.attr + '="' + CSS.escape(String(mark.value)) + '"]')].find(shown) : null;
   if (again) { again.focus(); return; }
   /* The control is gone with its container (the crumb's "All tasks" empties the crumb): land on
-     what now stands for it, the rail's item for that project, else the dropdown, else the search,
-     never the page body. */
-  const fallback = [...document.querySelectorAll('#tsk-projects [data-proj="' + CSS.escape(String(mark.attr === 'data-proj' ? mark.value : '')) + '"]')].find(shown)
-    || [document.getElementById('tsk-projsel'), document.getElementById('tsk-search')].find(shown);
+     what now stands for it, the project dropdown, else the search, never the page body. */
+  const fallback = [document.getElementById('tsk-projsel'), document.getElementById('tsk-search')].find(shown);
   if (fallback) fallback.focus();
 }
 function tskPaintKeepingFocus(el) {
@@ -45833,8 +45969,6 @@ document.getElementById('panel-tasks').addEventListener('click', (e) => {
   const el = (sel) => e.target.closest(sel);
   let b;
   if ((b = el('[data-proj]'))) { TSK.proj = b.dataset.proj || null; TSK.tile = null; tskPaintKeepingFocus(b); return; }
-  if ((b = el('[data-win]'))) { TSK.win = Number(b.dataset.win) || 0; tskPaintKeepingFocus(b); return; }
-  if ((b = el('[data-by]'))) { TSK.by = b.dataset.by; tskPaintKeepingFocus(b); return; }
   if ((b = el('[data-tile]'))) { TSK.tile = TSK.tile === b.dataset.tile ? null : b.dataset.tile; tskPaintKeepingFocus(b); return; }
   if ((b = el('[data-fold]'))) { const k = b.dataset.fold; if (TSK.fold.has(k)) TSK.fold.delete(k); else TSK.fold.add(k); tskPaintKeepingFocus(b); return; }
   if ((b = el('[data-close-parent]'))) { tskCloseParent(b.dataset.closeParent); return; }
@@ -45852,12 +45986,15 @@ document.getElementById('panel-tasks').addEventListener('change', (e) => {
     return;
   }
   if (e.target.id === 'tsk-sort') { TSK.sort = e.target.value; tskPaint(); return; }
-  if (e.target.id === 'tsk-projsel') { TSK.proj = e.target.value || null; TSK.tile = null; tskPaint(); }
+  if (e.target.id === 'tsk-projsel') { TSK.proj = e.target.value || null; TSK.tile = null; tskPaint(); return; }
+  if (e.target.id === 'tsk-win') { TSK.win = Number(e.target.value) || 0; tskPaint(); return; }
+  if (e.target.id === 'tsk-by') { TSK.by = e.target.value === 'project' ? 'project' : 'status'; tskPaint(); }
 });
 /* `toggle` does not bubble, so the Closed fold's open state is caught in the capture phase and
    kept across repaints. */
 document.getElementById('panel-tasks').addEventListener('toggle', (e) => {
-  if (e.target && e.target.classList && e.target.classList.contains('tsk-fold')) TSK.closedOpen = e.target.open;
+  /* #3949: while the Completed tile is picked the fold is forced open; that is not the person opening it. */
+  if (e.target && e.target.classList && e.target.classList.contains('tsk-fold') && TSK.tile !== 'closed') TSK.closedOpen = e.target.open;
 }, true);
 document.getElementById('tsk-search').addEventListener('input', (e) => {
   TSK.q = e.target.value;
@@ -47356,19 +47493,24 @@ function paintOneProject() {
   // agent's only project even when archived -- is stated THERE now; the
   // pack's pjone rebuild decides whether the detail itself says it too.
 
-  // Identical verdicts across a 2+ roster are said once, below the list,
-  // instead of once per member (the three-identical-sentences weight the
-  // pack comparison surfaced). Mixed or singleton rosters keep per-member.
+  // #3923: every verdict is said once, in the project notice above the list; the rows say none.
   const roster = p.agents || [];
   /* #176's room half, painted from the SAME roster the members column is drawn
      from a line below, so the two cannot disagree about who is on the project.
      #2882: pass this project's id so the room's working signal is scoped to work
      attributable to THIS project (see paintRoomBusy). */
   paintRoomBusy(roster.map((a) => (a && a.sessionName) || a), p.id);
-  const sharedTold = pjSharedTold(roster);
+  /* #3923: an agent that could not be given the folder is said once, in the project notice
+     above the list (Mona's design), not on its row: every member row passes suppressTold. */
+  const notice = pjNotice(roster, p.id);
+  const noticeBox = document.getElementById('pj-one-notice');
+  // The region is never hidden (see the CSS note): only its content comes and goes.
+  setIfChanged(noticeBox, notice);
+  // A success line from another project is not about this one.
+  { const said = document.getElementById('pj-one-notice-said');
+    if (said && said.dataset.pj && said.dataset.pj !== String(p.id)) { said.textContent = ''; said.dataset.pj = ''; } }
   setIfChanged(document.getElementById('pj-one-agents'), roster.length
-    ? roster.map((m) => pjMember(m, !!sharedTold, true, true)).join('')
-      + (sharedTold ? '<p class="pj-told-group">' + sharedTold + '</p>' : '')
+    ? roster.map((m) => pjMember(m, true, true, true)).join('')
     : '<p class="fhint">No agents on this project yet.</p>');
 
   paintFreeAgentPicker(p, document.getElementById('pj-one-add'), document.getElementById('pj-one-add-go'));
@@ -53218,6 +53360,90 @@ async function addMemberToProject(who, msg) {
     return false;
   }
 }
+/* #3923: "Try again" on the project notice re-tells that one agent (`?retell=1`: the route
+   refuses rather than re-adds an agent that has left). Success says nothing: the repaint drops
+   the row. The same answer again says so on the row, and so does a retry that got no answer. Focus returns to the row's new button, or
+   to the Members heading when the row is gone, since the repaint replaces the pressed button. */
+document.getElementById('pj-one-notice').addEventListener('click', async (e) => {
+  const btn = e.target && e.target.closest ? e.target.closest('[data-pn-retry]') : null;
+  if (!btn || !PJ_CURRENT) return;
+  const key = btn.dataset.pnRetry;
+  const project = PJ_CURRENT;   // a switch while this runs must not move focus into another project
+  const box = document.getElementById('pj-one-notice');
+  btn.disabled = true;
+  let before = '';
+  let name = key;   // the display name, for the success line (the row is gone by then)
+  try {
+    const p = (PROJECTS || []).find((x) => x && x.id === project);
+    const m = p ? (p.agents || []).find((a) => a && a.sessionName === key) : null;
+    before = String((m && m.told && m.told.because) || '');
+    if (m && m.name) name = String(m.name);
+  } catch { /* no remembered answer: nothing is marked as "still" */ }
+  let reached = false;
+  let told = false;   // the board's own verdict: this agent was told (a row with no button is NOT this)
+  let left = false;   // 409 (the agent left) or 404 (the project is gone): an answer, not a failure; the row goes.
+  try {
+    const res = await fetch('/api/project/' + encodeURIComponent(project) + '/agent/' + encodeURIComponent(key) + '?retell=1', { method: 'POST' });
+    reached = !!(res && res.ok);
+    left = !!(res && (res.status === 409 || res.status === 404));
+    if (reached) {
+      const body = await res.json().catch(() => null);
+      told = !!(body && body.told && body.told.state === 'told');
+    }
+  } catch { /* the repaint below shows where it stands */ }
+  // "It still did not work" only about a retry that reached the board, marked before the read so
+  // this read's own paint shows it. Cleared again if the read is overtaken (its data is not ours).
+  const mark = pjNoticeKey(project, key);
+  // One mark per retry: an answered one says "still", an unanswered one says it did not go through.
+  PJ_NOTICE_TRIED.delete(mark);
+  PJ_NOTICE_MISSED.delete(mark);
+  // A retry the board answered "told" is not "still": a stale repaint (a read that failed afterwards)
+  // must not say it failed while the status line says it worked.
+  if (!left && !told) (reached ? PJ_NOTICE_TRIED : PJ_NOTICE_MISSED).set(mark, before);
+  box.__lastLive = null;   // repaint even when the answer is word for word the same
+  // A newer read that overtook this one also started after the retry, so its data answers the
+  // retry too: the mark stands. One more read gives this handler a paint of its own to focus on.
+  let landed = await loadProjects();
+  if (!landed) landed = await loadProjects();
+  btn.disabled = false;
+  if (!landed || PJ_CURRENT !== project) return;
+  // A read that landed but FAILED (offline) paints no project view, so the row's mark would wait for
+  // the connection to come back: paint it from the projects already loaded.
+  if (PJ_READ_FAILED) paintOneProject();
+  // Success empties the row, which a screen reader does not announce: say it in words. Only on the
+  // board's own "told" verdict: a retry that came back with a different reason may leave a row with
+  // no button, which is not success. Said whether or not focus is put back below.
+  const said = document.getElementById('pj-one-notice-said');
+  if (said) {
+    // Emptied, then written a frame later, so the same sentence twice (leo fixed again) is announced
+    // again; tagged with its project so a switch clears it (paintOneProject).
+    said.textContent = '';
+    said.dataset.pj = told ? String(project) : '';
+    if (told) {
+      const line = 'Kosmos updated ' + (name || key) + '\u2019s instructions.';
+      requestAnimationFrame(() => { if (said.dataset.pj === String(project)) said.textContent = line; });
+    }
+  }
+  // Only put focus back if it is still where the press left it (the page, or this notice); a
+  // person who has moved on keeps their place.
+  const now = document.activeElement;
+  if (now && now !== document.body && !box.contains(now)) return;
+  // Compared as data, not built into a selector, so no session name can break the lookup.
+  const again = Array.from(box.querySelectorAll('[data-pn-retry]')).find((b) => b.dataset.pnRetry === key) || null;
+  const heading = document.querySelector('.pjcard-members > .dlab');
+  // The row's own button, else the next row's (keyboard users keep their place in the notice), else
+  // the Members heading.
+  const next = again || box.querySelector('[data-pn-retry]');
+  if (next) next.focus();
+  else if (heading) {
+    // Focusable only for this one landing: a heading left in the tab-by-click order is a stray stop.
+    if (!heading.hasAttribute('tabindex')) {
+      heading.setAttribute('tabindex', '-1');
+      heading.addEventListener('blur', () => heading.removeAttribute('tabindex'), { once: true });
+    }
+    heading.focus();
+  }
+});
 document.getElementById('pj-one-add-go').addEventListener('click', async () => {
   // #2429 (Josh, 0.6.45): once the member is added there is nothing more to do in the
   // modal, so CLOSE it on success -- and close BEFORE the board refresh, so the picker's

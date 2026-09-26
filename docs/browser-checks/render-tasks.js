@@ -388,12 +388,12 @@ const MEMBER = 'taskmate';
        when it is merely not there yet. The behaviour changed underneath a check
        that was right about the old one. */
     /* #3703: the door opens the Tasks view scoped to this project (one list screen); finished
-       work is in its Closed fold, folded by default, so open the fold to reach it. */
+       work is in its Completed fold (#3949; it was Closed), folded by default, so open the fold to reach it. */
     await p.click('#pj-alltasks');
     await p.waitForFunction(() => !document.getElementById('panel-tasks').hidden
       && document.querySelectorAll('#tsk-groups .tsk-row').length > 0, null, { timeout: 10000 });
     const fold = p.locator('#tsk-groups .tsk-fold');
-    if (!(await fold.count())) die('the done task is not behind the door (the Tasks view has no Closed fold)');
+    if (!(await fold.count())) die('the done task is not behind the door (the Tasks view has no Completed fold)');
     if (!(await fold.evaluate((d) => d.open))) await p.click('#tsk-groups .tsk-fold summary');
     const doneCard = p.locator('#tsk-groups .tsk-fold .tsk-row .tl').first();
     if (!(await doneCard.count())) die('the done task is not behind the door');

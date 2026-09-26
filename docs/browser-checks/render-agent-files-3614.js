@@ -126,6 +126,22 @@ function chk(ok, label, extra) {
       chk(a.below && a.overlap, `${tag} the Files block sits directly under the four-pack, in its column`, JSON.stringify({ below: a.below, overlap: a.overlap }));
       chk(JSON.stringify(a.rows.map((r) => r.name)) === JSON.stringify(['report.pdf', 'older-notes.md']), `${tag} April's files are listed newest first`, JSON.stringify(a.rows));
       chk(a.rows.length > 0 && /·/.test(a.rows[0].meta) && /\d+(\.\d+)?\s?(B|KB|MB)$/.test(a.rows[0].meta), `${tag} a row shows a date and a size`, JSON.stringify(a.rows[0]));
+      /* #3994 (Josh 2026-09-26): the Files block sits in the same white container as the project page's
+         Files panel (it wears that panel's class): the surface colour, a 12px radius and the panel's
+         padding, and it stands out from the column behind it. The list still fits inside it. */
+      const card = await page.evaluate(() => {
+        const s = document.getElementById('d-files');
+        const cs = getComputedStyle(s);
+        const probe = document.createElement('div'); probe.style.background = 'var(--k-surface)'; document.body.appendChild(probe);
+        const surface = getComputedStyle(probe).backgroundColor; probe.remove();
+        let p = s.parentElement; let behind = 'rgba(0, 0, 0, 0)';
+        while (p && behind === 'rgba(0, 0, 0, 0)') { behind = getComputedStyle(p).backgroundColor; p = p.parentElement; }
+        const list = document.getElementById('d-files-list');
+        return { cls: s.classList.contains('pjcard'), bg: cs.backgroundColor, surface, behind, radius: cs.borderTopLeftRadius, padL: cs.paddingLeft,
+          fits: list.scrollWidth <= list.clientWidth + 1 && s.scrollWidth <= s.clientWidth + 1 };
+      });
+      chk(card.cls && card.bg === card.surface && card.bg !== card.behind && card.radius === '12px' && card.padL === '16px' && card.fits,
+        `${tag} #3994 the Files block is in the project Files panel's white container, and the list fits inside it`, JSON.stringify(card));
       if (theme === 'light' && width === 1400) {
         await shot(page, '3757-2-a-few-files');
         // #3757: the nav's labels are the title line's size; the boxes are shorter; icons unchanged.

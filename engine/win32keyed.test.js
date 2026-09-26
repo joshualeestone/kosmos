@@ -180,16 +180,16 @@ test('turnEnv gemini: the account key file first, then the machine door; CLAUDE_
   fs.writeFileSync(path.join(door, 'GEMINI_API_KEY'), 'DOOR-KEY\n');
   const mod = fakeAccounts(root, {});
   const base = { CLAUDE_CONFIG_DIR: acct, GEMINI_CLI_HOME: acct, KOSMOS_AGENT_TOKEN: 't' };
-  const named = keyed.turnEnv('gemini', base, acct, { geminiAccounts: mod, doorDir: door });
+  const named = keyed.turnEnv('gemini', base, acct, { geminiAccounts: mod, doorDir: door, keyHome: null });
   assert.equal(named.GEMINI_API_KEY, 'ACCOUNT-KEY');
   assert.equal('CLAUDE_CONFIG_DIR' in named, false);
   assert.equal(named.GEMINI_CLI_HOME, acct, 'the account home stays');
   assert.equal(named.KOSMOS_AGENT_TOKEN, 't');
   assert.equal(base.GEMINI_API_KEY, undefined, 'the input is not mutated');
   // The default account with no key file of its own: the door.
-  assert.equal(keyed.turnEnv('gemini', {}, null, { geminiAccounts: mod, doorDir: door }).GEMINI_API_KEY, 'DOOR-KEY');
+  assert.equal(keyed.turnEnv('gemini', {}, null, { geminiAccounts: mod, doorDir: door, keyHome: null }).GEMINI_API_KEY, 'DOOR-KEY');
   // Neither: whatever the environment already had is left alone.
-  assert.equal(keyed.turnEnv('gemini', { GEMINI_API_KEY: 'AMBIENT' }, null, { geminiAccounts: mod, doorDir: null }).GEMINI_API_KEY, 'AMBIENT');
+  assert.equal(keyed.turnEnv('gemini', { GEMINI_API_KEY: 'AMBIENT' }, null, { geminiAccounts: mod, doorDir: null, keyHome: null }).GEMINI_API_KEY, 'AMBIENT');
 });
 
 test('turnEnv grok: GROK_HOME always named, claude hooks off, a key account gets XAI_API_KEY, a SUBSCRIPTION gets none', () => {
@@ -311,4 +311,63 @@ test('a gemini or grok agent whose supervisor is up is live, with its OWN runner
     pidAlive: () => true,
   });
   assert.deepEqual(rows.map((r) => [r.name, r.runner]).sort(), [['gem', 'gemini'], ['grk', 'grok']], 'claude rows still come only from claude agents --json');
+});
+
+/* #4003: a person's own gemini settings that choose a Google login made every headless turn
+   stop at gemini's "[Y/n]" consent prompt forever even with a key (measured). A keyed turn must
+   use the key; the person's own file is never edited; an agent with NO key is left alone, so
+   the person's own Google login in the gemini CLI still works for it. */
+test('#4003 turnEnv gemini: an agent WITH a key never waits on a browser login, and a home that chose Google login is swapped for one that pins the key', () => {
+  const root = path.join(SANDBOX, 'gauth');
+  const acct = path.join(root, 'default');
+  const personal = path.join(root, 'person');       // stands in for the person's home
+  fs.mkdirSync(acct, { recursive: true });
+  fs.mkdirSync(path.join(personal, '.gemini'), { recursive: true });
+  fs.writeFileSync(path.join(acct, '.key'), 'ACCOUNT-KEY\n');
+  const mod = fakeAccounts(root, {});
+  const theirs = path.join(personal, '.gemini', 'settings.json');
+  const keyHome = path.join(root, 'kosmos', 'gemini-key-home', 'default');
+  const deps = { geminiAccounts: mod, doorDir: null, homeDir: personal, keyHome };
+
+  // No settings of their own: their home is used as before, but a login can never be waited on.
+  let env = keyed.turnEnv('gemini', {}, null, deps);
+  assert.equal(env.NO_BROWSER, 'true', 'a turn that would need a login exits instead of waiting');
+  assert.equal('GEMINI_CLI_HOME' in env, false, 'nothing chose a login, so the home is untouched');
+
+  // Their settings already choose the key: still their home.
+  fs.writeFileSync(theirs, JSON.stringify({ security: { auth: { selectedType: 'gemini-api-key' } } }));
+  assert.equal('GEMINI_CLI_HOME' in keyed.turnEnv('gemini', {}, null, deps), false);
+
+  // Their settings choose Google login: the turn runs in a Kosmos home that pins the key.
+  const mine = JSON.stringify({ security: { auth: { selectedType: 'oauth-personal' } }, ui: { theme: 'x' } });
+  fs.writeFileSync(theirs, mine);
+  env = keyed.turnEnv('gemini', {}, null, deps);
+  assert.equal(env.GEMINI_CLI_HOME, keyHome);
+  assert.equal(env.GEMINI_API_KEY, 'ACCOUNT-KEY');
+  assert.deepEqual(JSON.parse(fs.readFileSync(path.join(keyHome, '.gemini', 'settings.json'), 'utf8')),
+    { security: { auth: { selectedType: 'gemini-api-key' } } });
+  assert.equal(fs.readFileSync(theirs, 'utf8'), mine, 'the person\'s own settings are never edited');
+
+  // A named account whose home (GEMINI_CLI_HOME) chose a login is swapped the same way.
+  const named = path.join(root, '.gemini-work');
+  fs.mkdirSync(path.join(named, '.gemini'), { recursive: true });
+  fs.writeFileSync(path.join(named, '.gemini', 'settings.json'), mine);
+  fs.writeFileSync(path.join(named, '.key'), 'WORK-KEY');
+  env = keyed.turnEnv('gemini', { GEMINI_CLI_HOME: named }, named, Object.assign({}, deps, { keyHome: path.join(root, 'k2') }));
+  assert.equal(env.GEMINI_CLI_HOME, path.join(root, 'k2'));
+
+  // No Kosmos home can be made: the turn keeps the account's home and fails loudly (NO_BROWSER).
+  env = keyed.turnEnv('gemini', {}, null, Object.assign({}, deps, { keyHome: path.join(acct, '.key', 'x') }));
+  assert.equal('GEMINI_CLI_HOME' in env, false);
+  assert.equal(env.NO_BROWSER, 'true');
+
+  // NO key: exactly as before. Their Google login is theirs to use; nothing is swapped or set.
+  const bare = fakeAccounts(path.join(root, 'nokey'), {});
+  env = keyed.turnEnv('gemini', {}, null, Object.assign({}, deps, { geminiAccounts: bare }));
+  assert.equal('GEMINI_API_KEY' in env, false);
+  assert.equal('NO_BROWSER' in env, false, 'no key: a browser login is not blocked');
+  assert.equal('GEMINI_CLI_HOME' in env, false, 'no key: their own home and login stay');
+
+  // Grok is not gemini.
+  assert.equal('NO_BROWSER' in keyed.turnEnv('grok', {}, null, { grokAccounts: fakeAccounts(root, {}), doorDir: null }), false);
 });
