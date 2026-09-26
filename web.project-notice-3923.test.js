@@ -178,11 +178,14 @@ test('#3923: every refusal the instruction reader can pass through has a shape (
   const found = [];
   for (const f of ['workerfile.js', 'instructions.js']) {
     const src = fs.readFileSync(nodePath.join(__dirname, 'engine', f), 'utf8');
-    for (const m of src.matchAll(/because:\s*'([^']+)'/g)) {
-      if (/instruction file|workers folder|name we can look up/.test(m[1])) found.push(m[1]);
+    // Single-quoted sentences and template ones alike; a template's `${...}` stands in as "X".
+    for (const m of src.matchAll(/because:\s*(?:'([^']+)'|`([^`]+)`)/g)) {
+      const said = (m[1] || m[2]).replace(/\$\{[^}]*\}/g, 'X');
+      if (/instruction file|workers folder|worker folder|name we can look up/.test(said)) found.push(said);
     }
   }
   assert.ok(found.length >= 5, 'CONTROL: the scan reads the reader refusals (found ' + found.length + ')');
+  assert.ok(found.some((b) => b.startsWith('its worker folder ')), 'CONTROL: the scan reads template sentences too (the worker-folder refusal)');
   // Not tellAgent's path: two staleness verdicts (the file changed since the agent started) and
   // the identity-line rename's own refusal. Everything else here can reach a project verdict.
   const reasons = found.filter((b) => !/edited since this agent started|last edited|that name cannot go in/.test(b));
