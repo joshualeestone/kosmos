@@ -56,7 +56,8 @@ permissions:
   contents: read
 
 # Cancel a superseded run of the SAME event+ref: a successive sync of a PR cancels its
-# in-flight predecessor instead of queuing a redundant run (on main, see #4021 below). With push gated to main (above, #3499), a feature branch no longer
+# in-flight predecessor instead of queuing a redundant run (on main, see #4021 below).
+# With push gated to main (above, #3499), a feature branch no longer
 # runs the suite for BOTH its push and its PR, so there is no push-and-PR pair left to
 # collapse here; this group now only dedupes successive events on the same ref.
 #

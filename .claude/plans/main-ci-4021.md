@@ -45,3 +45,12 @@ but bisecting may need a manual dispatch.
 - WARNING: plan and test overstated the detector --> reworded with it.
 - NITs: older comments above the blocks still said a re-push to main cancels --> reworded; the test's
   header named only test.yml --> names all three; latency cost (up to ~2 x 14m under a burst) stated.
+
+## Iteration 3 (sonnet)
+- WARNING: the glob conversion read `?` as any one character and `+`/`[...]` as literals; GitHub's
+  `?` and `+` quantify the preceding character and `[...]` is a set, and `!` excludes within a list
+  (later wins) --> implemented, with 5 more spellings that push to main and 4 that do not.
+- WARNING: a missing ruby skipped the detector quietly even under CI --> a control fails under CI
+  when ruby is missing (reasoned from source, not measured: stripping ruby off PATH was not
+  permitted on this machine).
+- NIT: a comment line left unwrapped by iteration 2 --> rewrapped.

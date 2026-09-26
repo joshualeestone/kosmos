@@ -66,10 +66,18 @@ test('#4021 control: the reader sees the old setting as cancelling main', () => 
 /* Does this workflow run on a push to main? Read from the PARSED YAML (ruby, as
    tools/test-browser-checks-workflow.sh does), so every spelling counts: a block list, a bare
    `branches: main`, an unquoted flow list, `on: push`, a push with no filter. YAML 1.1 loads the
-   `on` key as `true`, so both are read. GitHub's branch globs: `**` any, `*` no slash, `?` one. */
-const glob = (g) => new RegExp('^' + String(g).replace(/[.+^${}()|[\]\\]/g, '\\$&')
-  .replace(/\*\*/g, '\u0000').replace(/\*/g, '[^/]*').replace(/\u0000/g, '.*').replace(/\?/g, '.') + '$');
-const anyMatch = (list, name) => [].concat(list).some((g) => glob(g).test(name));
+   `on` key as `true`, so both are read.
+   GitHub's filter patterns (workflow syntax, "Filter pattern cheat sheet"): `*` is any run of
+   characters but '/', `**` any run at all, `?` zero or one of the PRECEDING character, `+` one or
+   more of it, `[...]` one character from the set. So `*` and `**` are translated, `?`, `+` and
+   `[...]` already mean that in a regex and are kept, and every other regex character is literal.
+   In a list, a pattern starting with `!` excludes, and a later pattern overrides an earlier one. */
+const glob = (g) => new RegExp('^' + String(g).replace(/[.^${}()|\\]/g, '\\$&')
+  .replace(/\*\*/g, '\u0000').replace(/\*/g, '[^/]*').replace(/\u0000/g, '.*') + '$');
+const anyMatch = (list, name) => [].concat(list).reduce((hit, g) => {
+  const neg = String(g).startsWith('!');
+  return glob(neg ? String(g).slice(1) : g).test(name) ? !neg : hit;
+}, false);
 function pushesMain(wf) {
   const on = wf && (wf.on !== undefined ? wf.on : wf.true);
   let push;
@@ -87,6 +95,12 @@ function parsed(file) {
 }
 let RUBY = true;
 try { execFileSync('ruby', ['-e', '1']); } catch { RUBY = false; }
+/* Quiet only on a dev machine without ruby. Under CI a missing ruby is a broken runner, and a
+   control that silently vanishes there is the guard-gone-quiet this file exists to prevent (the
+   same rule tools/test-browser-checks-workflow.sh applies). */
+test('#4021 control: ruby is present under CI, so the detector below cannot silently skip there', () => {
+  if (process.env.CI) assert.ok(RUBY, 'ruby is missing under CI: the push-to-main detector cannot run');
+});
 
 test('#4021 control: every workflow that runs on a push to main is in the list', { skip: !RUBY && 'ruby is not on this machine (GitHub still runs the pins above)' }, () => {
   const dir = path.join(__dirname, '.github', 'workflows');
@@ -100,10 +114,14 @@ test('#4021 control: the push-to-main detector reads every spelling', () => {
     { on: { push: { branches: ['main'] } } }, { on: { push: { branches: 'main' } } }, { true: { push: { branches: ['main'] } } },
     { on: 'push' }, { on: ['push', 'pull_request'] }, { on: { push: null } }, { on: { push: { branches: ['**'] } } },
     { on: { push: { 'branches-ignore': ['release/*'] } } },
+    { on: { push: { branches: ['mains?'] } } }, { on: { push: { branches: ['mai+n'] } } }, { on: { push: { branches: ['[mn]ain'] } } },
+    { on: { push: { branches: ['*', '!release/*'] } } }, { on: { push: { branches: ['!main', 'main'] } } },
   ];
   const no = [
     { on: { pull_request: { branches: ['main'] } } }, { on: { push: { tags: ['v*'] } } }, { on: { push: { branches: ['release/*'] } } },
     { on: { push: { 'branches-ignore': ['main'] } } }, { on: 'workflow_dispatch' }, { on: { schedule: [{ cron: '0 7 * * *' }] } },
+    { on: { push: { branches: ['*', '!main'] } } }, { on: { push: { branches: ['[xy]ain'] } } }, { on: { push: { branches: ['ma.n'] } } },
+    { on: { push: { branches: ['release/**'] } } },
   ];
   for (const w of yes) assert.equal(pushesMain(w), true, 'missed: ' + JSON.stringify(w));
   for (const w of no) assert.equal(pushesMain(w), false, 'over-matched: ' + JSON.stringify(w));
