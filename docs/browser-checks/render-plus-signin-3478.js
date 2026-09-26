@@ -307,6 +307,16 @@ const visible = (page, sel) => page.evaluate((s) => {
         chk(c.cells === 6 && c.cellW >= 40 && c.cellH >= 48 && c.fontPx >= 26 && c.mono && c.hidden === 'true',
           `[${key}] #3942 the code is six big boxes (drawn for the eye, hidden from a screen reader), with big digits`, JSON.stringify(c));
         chk(c.on === 0, `[${key}] #3942 the first box is outlined while the field has focus`, String(c.on));
+        /* Round 3 review (measured): below 40rem a settings-wide rule set inputs to 16px and pulled
+           the digits off their boxes. At 520px wide the digits must keep the boxes' size. */
+        const wide = page.viewportSize();
+        await page.setViewportSize({ width: 520, height: wide.height });
+        await page.waitForTimeout(200);
+        const narrow = await page.evaluate(() => { const i = document.getElementById('plus-si-code-in'); const b = i.closest('.otp-boxes');
+          return { input: parseFloat(getComputedStyle(i).fontSize), row: parseFloat(getComputedStyle(b).fontSize) }; });
+        await page.setViewportSize(wide);
+        await page.waitForTimeout(200);
+        chk(narrow.input === narrow.row && narrow.input >= 18, `[${key}] #3942 on a narrow window the digits keep the boxes' size (no settings-wide 16px)`, JSON.stringify(narrow));
         chk(c.otp === 'one-time-code' && c.mode === 'numeric', `[${key}] #3796 the code field offers one-time-code autofill and a number pad`);
         chk(/58, 104, 216|47, 87, 196/.test(c.goBg) && !/227, 179, 65|245, 197/.test(c.goBg), `[${key}] #3796 Verify is Kosmos+ blue, not gold`, c.goBg);
         chk(c.rsTag === 'A' && c.rsText === 'Send again', `[${key}] #3796 resend is a small "Send again" link`, c.rsTag + ' ' + c.rsText);
@@ -542,9 +552,10 @@ const visible = (page, sel) => page.evaluate((s) => {
          (also a 401, different words) stays on the step so the person can retype. */
       await page.unroute('**/api/remote/signin-**');
       let verifyAnswer = { status: 400, body: { error: 'the coordinator said no (401): that code is not right' } };
-      await page.route('**/api/remote/signin-**', (route, req) => {
+      let verifyDelay = 0;   // #3942: a slow answer, so a code can be finished while one is in flight
+      await page.route('**/api/remote/signin-**', async (route, req) => {
         const p = req.url().replace(/^.*\/api\/remote\//, '');
-        if (p === 'signin-verify') { route.fulfill({ status: verifyAnswer.status, contentType: 'application/json', body: JSON.stringify(verifyAnswer.body) }); return; }
+        if (p === 'signin-verify') { if (verifyDelay) await new Promise((r) => setTimeout(r, verifyDelay)); route.fulfill({ status: verifyAnswer.status, contentType: 'application/json', body: JSON.stringify(verifyAnswer.body) }); return; }
         route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ ok: true, stage: 'code_sent' }) });
       });
       await page.fill('#plus-signin-email', 'you@example.com');
@@ -561,9 +572,9 @@ const visible = (page, sel) => page.evaluate((s) => {
          the caret at its end would otherwise refuse every keystroke). No blur here, on purpose. */
       const after = await page.evaluate(() => { const i = document.getElementById('plus-si-code-in'); return { focused: document.activeElement === i, s: i.selectionStart, e: i.selectionEnd, n: i.value.length }; });
       chk(after.focused && after.s === 0 && after.e === 6, `[${k}] #3942 after a wrong code, still in the field, the code is selected for replacing`, JSON.stringify(after));
-      await page.keyboard.type('333333');
+      await page.keyboard.type('314159');
       await page.waitForTimeout(400);
-      chk((await page.inputValue('#plus-si-code-in')) === '333333' && wrongSends === 2, `[${k}] #3942 typing a new code over a wrong one replaces it and sends it`, JSON.stringify({ v: await page.inputValue('#plus-si-code-in'), wrongSends }));
+      chk((await page.inputValue('#plus-si-code-in')) === '314159' && wrongSends === 2, `[${k}] #3942 typing a new code over a wrong one replaces it and sends it`, JSON.stringify({ v: await page.inputValue('#plus-si-code-in'), wrongSends }));
       /* #3942: with all six digits in (the step stays, the code was wrong), the digits must still sit
          over their boxes: the spacing after the sixth would scroll the field's text unless reset. */
       await page.evaluate(() => document.getElementById('plus-si-code-in').blur());   // arrive afresh
@@ -585,6 +596,13 @@ const visible = (page, sel) => page.evaluate((s) => {
       await page.mouse.click(third.x, third.y);
       const clicked = await onBox();
       chk(clicked.s === clicked.e && clicked.s === 2 && clicked.on === 2, `[${k}] #3942 a click on the third box of a focused code puts the caret there, outlined, to fix that digit`, JSON.stringify(clicked));
+      /* Round 3 review (measured): typing there must REPLACE that digit, not insert one and push the
+         last off the end (which made a different code and sent it). 314159 with the third digit
+         fixed to 7 is 317159 (inserting would give 317415), sent once. Distinct digits on purpose:
+         with 333333 the two behaviours give the same code and the arm could not tell them apart. */
+      await page.keyboard.type('7');
+      await page.waitForTimeout(400);
+      chk((await page.inputValue('#plus-si-code-in')) === '317159' && wrongSends === 3, `[${k}] #3942 typing on a clicked digit replaces just that digit, and the fixed code is sent`, JSON.stringify({ v: await page.inputValue('#plus-si-code-in'), wrongSends }));
       chk((await visible(page, '#plus-si-code-go')) && !(await visible(page, '#plus-si-expired')), `[${k}] #3796 CONTROL: a wrong code stays on the step to retype`);
       /* #3942 review (round 1, measured): after a wrong code the field is full. Focusing it selects the
          whole code, and pasting the right one replaces it and sends it, once; a paste into a partly
@@ -598,19 +616,30 @@ const visible = (page, sel) => page.evaluate((s) => {
       chk(sel.s === 0 && sel.e === sel.n && sel.n === 6, `[${k}] #3942 focusing a full field selects the whole code, ready to be replaced`, JSON.stringify(sel));
       await pasteCode('222-222');
       await page.waitForTimeout(400);
-      chk((await page.inputValue('#plus-si-code-in')) === '222222' && wrongSends === 3, `[${k}] #3942 pasting a new code over a wrong one replaces it and sends it, once`, JSON.stringify({ v: await page.inputValue('#plus-si-code-in'), wrongSends }));
+      chk((await page.inputValue('#plus-si-code-in')) === '222222' && wrongSends === 4, `[${k}] #3942 pasting a new code over a wrong one replaces it and sends it, once`, JSON.stringify({ v: await page.inputValue('#plus-si-code-in'), wrongSends }));
       await page.evaluate(() => { const i = document.getElementById('plus-si-code-in'); i.value = '123'; i.dispatchEvent(new Event('input', { bubbles: true })); });
       await pasteCode('987654');
       await page.waitForTimeout(400);
-      chk((await page.inputValue('#plus-si-code-in')) === '987654' && wrongSends === 4, `[${k}] #3942 a whole code pasted after a few typed digits replaces them (no spliced 123987)`, JSON.stringify({ v: await page.inputValue('#plus-si-code-in'), wrongSends }));
+      chk((await page.inputValue('#plus-si-code-in')) === '987654' && wrongSends === 5, `[${k}] #3942 a whole code pasted after a few typed digits replaces them (no spliced 123987)`, JSON.stringify({ v: await page.inputValue('#plus-si-code-in'), wrongSends }));
       // Pasting a whole email line takes the code itself, not the first digits of another number.
       await pasteCode('Your Kosmos+ code is 482 913. Ref 20260926.');
       await page.waitForTimeout(400);
-      chk((await page.inputValue('#plus-si-code-in')) === '482913' && wrongSends === 5, `[${k}] #3942 pasting a whole email line picks out the code, not another number`, JSON.stringify({ v: await page.inputValue('#plus-si-code-in'), wrongSends }));
+      chk((await page.inputValue('#plus-si-code-in')) === '482913' && wrongSends === 6, `[${k}] #3942 pasting a whole email line picks out the code, not another number`, JSON.stringify({ v: await page.inputValue('#plus-si-code-in'), wrongSends }));
       // A paste with no one code in it (two numbers, no "code") pastes nothing and sends nothing.
       await pasteCode('Order 482914 and 123457');
       await page.waitForTimeout(300);
-      chk((await page.inputValue('#plus-si-code-in')) === '482913' && wrongSends === 5, `[${k}] #3942 a paste with no single code in it changes nothing and sends nothing`, JSON.stringify({ v: await page.inputValue('#plus-si-code-in'), wrongSends }));
+      chk((await page.inputValue('#plus-si-code-in')) === '482913' && wrongSends === 6, `[${k}] #3942 a paste with no single code in it changes nothing and sends nothing`, JSON.stringify({ v: await page.inputValue('#plus-si-code-in'), wrongSends }));
+      /* A code finished while an answer is still on its way goes when the button is free (the
+         button watch), once. The first code is slow to answer; the second is typed meanwhile. */
+      verifyDelay = 800;
+      await pasteCode('555555');                     // sent, answer in flight for 0.8s
+      await page.waitForTimeout(100);
+      await page.evaluate(() => { const i = document.getElementById('plus-si-code-in'); i.setSelectionRange(0, i.value.length); });
+      await page.keyboard.type('666666');            // finished while the button is busy
+      const mid = wrongSends;
+      await page.waitForTimeout(2000);
+      verifyDelay = 0;
+      chk(mid === 7 && wrongSends === 8 && (await page.inputValue('#plus-si-code-in')) === '666666', `[${k}] #3942 a code finished while an answer is in flight is sent when the button is free, once`, JSON.stringify({ mid, wrongSends, v: await page.inputValue('#plus-si-code-in') }));
       const hint = await page.evaluate(() => { const i = document.getElementById('plus-si-code-in'); const ids = (i.getAttribute('aria-describedby') || '').split(/\s+/); const h = ids.map((x) => document.getElementById(x)).find(Boolean); return h ? h.textContent : null; });
       chk(hint === 'Kosmos checks the code as soon as all six digits are in.', `[${k}] #3942 a screen reader is told the sixth digit checks the code`, JSON.stringify(hint));
       page.off('request', countWrong);

@@ -9290,7 +9290,11 @@ body.plus-active #plus-state2 { max-width: 26rem; padding: 2rem; }
 #plus-state2 .otp-cells { position: absolute; inset: 0; display: flex; gap: var(--gap); pointer-events: none; }
 #plus-state2 .otp-cell { flex: 0 0 var(--cw); box-sizing: border-box; border-radius: 12px; background: #16223e; border: 1px solid #5c78a6; }
 #plus-state2 .otp-cell.on { border-color: #7ea0f0; box-shadow: 0 0 0 2px #7ea0f0 inset; }
-#plus-state2 .otp-boxes .plus-si-otp, #plus-state2 .otp-boxes .plus-si-otp:focus { position: absolute; left: 0; top: 0; height: 100%; width: 100%;
+/* Listed a second time with #panel-settings in front: the narrow-screen rule that sets every settings
+   input to 16px (so an iPhone does not zoom on focus) otherwise outranks this, shrinking the digits
+   off their boxes below 40rem, measured. These digits are 28px, above iOS's zoom threshold anyway. */
+#plus-state2 .otp-boxes .plus-si-otp, #plus-state2 .otp-boxes .plus-si-otp:focus,
+#panel-settings #plus-state2 .otp-boxes input.plus-si-otp, #panel-settings #plus-state2 .otp-boxes input.plus-si-otp:focus { position: absolute; left: 0; top: 0; height: 100%; width: 100%;
   margin: 0; padding: 0 0 0 calc((var(--cw) - 1ch) / 2); border: 0; border-radius: 0; outline: 0; box-shadow: none; background: transparent;
   font: inherit; letter-spacing: calc(var(--cw) + var(--gap) - 1ch); text-indent: 0; text-align: left; caret-color: transparent; }
 #plus-state2 .otp-boxes .plus-si-otp:-webkit-autofill { -webkit-box-shadow: none; transition: background-color 600000s 0s; -webkit-text-fill-color: #E6EBF7; }
@@ -37172,9 +37176,9 @@ function plusSiClear() {
      stopped mid-count; start the next sign-in with every control live. */
   if (typeof PLUS_COUNTDOWN !== 'undefined' && PLUS_COUNTDOWN) { clearInterval(PLUS_COUNTDOWN); PLUS_COUNTDOWN = null; }
   if (typeof document.querySelectorAll === 'function') {
-    /* ⚠️ After the fields above are cleared, never before: the code fields' auto-submit watches
-       these buttons come back (#3942), and a field still holding a code at that moment would be
-       sent into a step the person has left. */
+    /* #3942: the code fields' auto-submit watches these buttons come back. Its watcher runs after
+       this function returns (a MutationObserver), by which time the fields above are cleared, and it
+       also sends only while its step is on screen; so a code cannot be sent into a step left here. */
     document.querySelectorAll('#plus-state2 button').forEach((b) => { b.disabled = false; });
     document.querySelectorAll('#plus-state2 [aria-disabled]').forEach((a) => a.removeAttribute('aria-disabled'));
   }
@@ -37318,6 +37322,22 @@ for (const id of ['plus-si-code-in', 'plus-si-second-in', 'plus-si-enrol-code'])
     }
   };
   if (go && typeof MutationObserver === 'function') new MutationObserver(freed).observe(go, { attributes: true, attributeFilter: ['disabled'] });
+  /* Fixing one digit: in a complete code a typed digit REPLACES the digit after the caret (the box
+     that is outlined), rather than being inserted and pushing the last digit off the end, which made
+     a different six-digit code and sent it. With the caret at the end, it starts the code again. */
+  el.addEventListener('beforeinput', (e) => {
+    if (e.inputType !== 'insertText' || !/^\d$/.test(e.data || '')) return;
+    const a = el.selectionStart; const b = el.selectionEnd;
+    if (typeof a !== 'number' || a !== b || digits() < 6) return;
+    e.preventDefault();
+    const v = el.value.replace(/\D/g, '');
+    el.value = a < v.length ? v.slice(0, a) + e.data + v.slice(a + 1) : e.data;
+    const at = a < v.length ? a + 1 : 1;
+    try { el.setSelectionRange(at, at); } catch { /* not a text input */ }
+    el.dispatchEvent(new Event('input', { bubbles: true }));
+  });
+  // An input method's finished word gets the same cleaning as typing.
+  el.addEventListener('compositionend', () => el.dispatchEvent(new Event('input', { bubbles: true })));
   el.addEventListener('input', (e) => {
     if (e.isComposing) return;   // an input method mid-word: clean up when it commits
     const clean = e.target.value.replace(/\D/g, '').slice(0, 6);
@@ -37359,6 +37379,8 @@ for (const id of ['plus-si-code-in', 'plus-si-second-in', 'plus-si-enrol-code'])
   el.addEventListener('focus', () => { if (digits() < 6) lastSent = ''; place(); paint(); });
   el.addEventListener('click', paint);
   for (const ev of ['blur', 'keyup', 'select', 'scroll']) el.addEventListener(ev, paint);
+  // The outline follows the caret as it moves, a held arrow key included.
+  document.addEventListener('selectionchange', () => { if (document.activeElement === el) paint(); });
 }
 /* Ask signin-start for an email code. ONE place, shared by the initial "Email me a
    code" button and the "again" button on the code step -- two copies of this sequence

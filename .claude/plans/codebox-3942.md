@@ -83,3 +83,15 @@
   8.6cqw rather than 9 (WebKit's monospace runs wider, measured 2px over at 9). The phone check now
   measures the row against its container (.otp-fit), not the screen, so it fails at 375 as well as
   320 without the scaling (measured).
+
+## Review round 3 (app side, measured)
+- Fixing one digit: in a complete code, a typed digit REPLACES the digit after the caret (the
+  outlined box) instead of inserting and pushing the last digit off, which made a different code and
+  sent it. At the end of a full code, a digit starts the code again. Checked with distinct digits
+  (314159 -> 317159; inserting gives 317415), since repeated digits hid the difference.
+- App only: below 40rem, a settings-wide rule set every input to 16px (so iOS does not zoom on
+  focus) and outranked the boxed input, pulling the digits off their boxes. The boxed input is
+  also listed with #panel-settings in front; checked at 520px wide.
+- The outline follows the caret on selectionchange (a held arrow key); an input method's finished
+  word is cleaned on compositionend.
+- App check: a code finished while an answer is in flight is sent when the button frees, once.
