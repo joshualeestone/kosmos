@@ -18684,7 +18684,9 @@ function updateSafeReload(servedVersion) {
     if (!document.hidden || !servedVersion) return false;
     if (sessionStorage.getItem('kosmos-auto-reloaded') === servedVersion) return false;
     const busy = [typeof TALK_SENDING !== 'undefined' && TALK_SENDING, typeof PJ_SENDING !== 'undefined' && PJ_SENDING,
-      typeof PJ_REPLY_SENDING !== 'undefined' && PJ_REPLY_SENDING, typeof TERM_SENDING !== 'undefined' && TERM_SENDING];
+      typeof PJ_REPLY_SENDING !== 'undefined' && PJ_REPLY_SENDING, typeof TERM_SENDING !== 'undefined' && TERM_SENDING,
+      typeof PJ_POSTING !== 'undefined' && PJ_POSTING,   // round 9: a room post in flight
+      typeof ATTACH_UPLOADING !== 'undefined' && ATTACH_UPLOADING > 0];   // round 9: a file still going up
     if (busy.some(Boolean)) return false;
     const drafted = (m) => !!m && Object.values(m).some((v) => (typeof v === 'string' ? v : (v && v.text) || '').trim());
     if ([typeof TALK_DRAFTS !== 'undefined' && TALK_DRAFTS, typeof TERM_DRAFTS !== 'undefined' && TERM_DRAFTS,
@@ -31928,7 +31930,7 @@ function conShelfDoor(api, st) {
    update chip says Reload), a version has been seen before (a fresh install records silently: it
    was not updated, it was installed), and that version is not the one running now. The tiles are
    web/whats-new.json's highlights, which the board serves only when the file is for this version;
-   without them the window is the title and the version alone. */
+   without them no window opens and the version is recorded quietly (round 3). */
 const WN_ICONS = Object.freeze({
   swarm: '<circle cx="12" cy="8" r="3.5"/><circle cx="5.5" cy="16" r="2.5"/><circle cx="18.5" cy="16" r="2.5"/>',
   tasks: '<path d="M4 6l2 2 3-3"/><path d="M12 7h8"/><path d="M4 13l2 2 3-3"/><path d="M12 14h8"/><path d="M12 20h8"/>',
@@ -51419,6 +51421,7 @@ async function attachUpload(file, where) {
   const btn = document.getElementById(where.btnId);
   if (btn) btn.disabled = true;
   msg.textContent = 'Adding ' + file.name + '\u2026';
+  ATTACH_UPLOADING += 1;   // #3955 round 9: a file still going up holds the automatic reload
   try {
     const res = await fetch(where.url(), {
       method: 'PUT',
@@ -51442,6 +51445,7 @@ async function attachUpload(file, where) {
   } catch {
     msg.textContent = 'We could not reach Kosmos to add that file.';
   } finally {
+    ATTACH_UPLOADING = Math.max(0, ATTACH_UPLOADING - 1);
     if (btn) btn.disabled = false;
   }
 }
@@ -51468,6 +51472,8 @@ const ATTACH_AGENT = {
    switch repaints the right chips and a send clears only its own. At most
    ten per message (the route's cap), checked before the upload. */
 const ATTACH_PENDING = { room: {}, agent: {} };
+/* #3955 round 9: files still uploading (ATTACH_PENDING holds a file only once its upload answered). */
+let ATTACH_UPLOADING = 0;
 const ATTACH_MAX = 10;
 function attachTarget(where) {
   return where.key === 'room' ? (PJ_CURRENT || null) : (CURRENT ? CURRENT.sessionName : null);

@@ -226,7 +226,7 @@ test('#3955 round 3: the old-page chip runs the safe reload, and every value the
   /* The reload guards each value with typeof (a missing one is skipped silently), so a rename would
      turn a check off with the tests still green: pin that each is declared under this name. */
   for (const name of ['TALK_SENDING', 'PJ_SENDING', 'PJ_REPLY_SENDING', 'TERM_SENDING', 'TALK_DRAFTS', 'TERM_DRAFTS',
-    'PJ_DRAFTS', 'PJ_ROOM_DRAFTS', 'ATTACH_PENDING', 'UPDATE_TYPED']) {
+    'PJ_DRAFTS', 'PJ_ROOM_DRAFTS', 'ATTACH_PENDING', 'UPDATE_TYPED', 'PJ_POSTING', 'ATTACH_UPLOADING']) {
     assert.match(PAGE, new RegExp('^(let|const) ' + name + '\\b', 'm'), name + ' is not declared on the page: the reload\'s check on it is off');
   }
   assert.match(PAGE, /^function tipModalOpen\(/m, 'tipModalOpen is gone: the reload would ignore open windows');
@@ -253,4 +253,26 @@ test('#3955 round 7: the reload reads a rich-text box by its words (textContent)
     { hidden: true }, { getItem: () => null, setItem() {} }, { location: { reload: () => { reloaded += 1; } } },
     false, false, null, false, {}, {}, {}, {}, () => false, new Set([box]), { room: {}, agent: {} });
   assert.equal(reloaded, 0, 'a rich-text draft was reloaded away');
+});
+
+test('#3955 round 9: a file still uploading, or a room post in flight, holds the automatic reload', () => {
+  const src = page.liftAll(SCRIPT, ['updateSafeReload']);
+  const run = (uploading, posting) => {
+    let reloaded = 0;
+    new Function('document', 'sessionStorage', 'window', 'TALK_SENDING', 'PJ_SENDING', 'PJ_REPLY_SENDING', 'TERM_SENDING',
+      'TALK_DRAFTS', 'TERM_DRAFTS', 'PJ_DRAFTS', 'PJ_ROOM_DRAFTS', 'tipModalOpen', 'UPDATE_TYPED', 'ATTACH_PENDING', 'ATTACH_UPLOADING', 'PJ_POSTING',
+      src + '\nreturn updateSafeReload("0.2.76");')(
+      { hidden: true }, { getItem: () => null, setItem() {} }, { location: { reload: () => { reloaded += 1; } } },
+      false, false, null, false, {}, {}, {}, {}, () => false, new Set(), { room: {}, agent: {} }, uploading, posting);
+    return reloaded;
+  };
+  assert.equal(run(0, false), 1, 'CONTROL: an idle hidden page reloads');
+  assert.equal(run(1, false), 0, 'a reload cut off a file still uploading');
+  assert.equal(run(0, true), 0, 'a reload cut off a room post in flight');
+});
+
+test('#3955 round 9: every upload counts itself up and back down, whatever happens to it', () => {
+  const src = page.liftAll(SCRIPT, ['attachUpload']);
+  assert.match(src, /ATTACH_UPLOADING \+= 1;[\s\S]*try \{[\s\S]*finally \{\s*ATTACH_UPLOADING = Math\.max\(0, ATTACH_UPLOADING - 1\);/,
+    'the upload count is not raised before the try and lowered in its finally');
 });

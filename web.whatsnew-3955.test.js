@@ -78,7 +78,7 @@ test('#3955 round 3: a release with no highlights (a hotfix) shows no window and
   }
 });
 
-test('#3955 round 5 (Mona Lisa): the window waits while the first-run tour is on screen, then opens', async () => {
+test('#3955 round 5 (Mona Lisa): the window waits while the first-run tour is on screen, then opens', { timeout: 5000 }, async () => {
   const opened = [];
   const fetchStub = async (url, opts) => ((opts && opts.method === 'POST') ? { ok: true, text: async () => '' }
     : { ok: true, json: async () => ({ current: '0.6.98', seen: '0.6.97', highlights: H1 }) });
@@ -94,7 +94,7 @@ test('#3955 round 5 (Mona Lisa): the window waits while the first-run tour is on
   assert.deepEqual(opened, ['0.6.98'], 'the window never opened once the tour closed');
 });
 
-test('#3955 round 6: a tour still open after the wait records the version quietly and opens nothing', async () => {
+test('#3955 round 6: a tour still open after the wait records the version quietly and opens nothing', { timeout: 5000 }, async () => {
   const opened = [];
   const posts = [];
   const fetchStub = async (url, opts) => {

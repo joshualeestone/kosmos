@@ -12864,7 +12864,7 @@ const server = http.createServer((req, res) => {
     try { seen = JSON.parse(fs.readFileSync(path.join(store.ROOT, 'seen-version.json'), 'utf8')).version || null; } catch { seen = null; }
     /* #3955: the release's highlights for the "Kosmos has been updated" window, from web/whats-new.json,
        ONLY when that file is for the version running now (engine/whatsnew.read): last release's text
-       can never appear, and a file the window could not draw is served as none (the title alone). */
+       can never appear, and a file the window could not draw is served as none (then no window opens). */
     let highlights = null;
     try { highlights = require('./engine/whatsnew').read(version); } catch { highlights = null; }
     sendJson(res, 200, { current: version, seen, highlights });

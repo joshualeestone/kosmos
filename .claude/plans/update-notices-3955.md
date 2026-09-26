@@ -64,6 +64,12 @@ Card #3955 (Josh, #admin, 2026-09-26 08:11). Design: Mona Lisa's mock on card-sh
 - Clicking outside the window also closes it (the same single wnClose as Got it and Escape, and the app's other dialogs do the same); seen is recorded on open either way.
 - The highlight limits are enforced at 48 and 140 characters; the "about 40" and "about 120" above are the writing guide, with room left over.
 
+## Review round 9 (decided)
+- A file still uploading holds the automatic reload (ATTACH_UPLOADING, counted up before the upload's try and down in its finally; ATTACH_PENDING holds a file only once its upload answered), and so does a room post in flight (PJ_POSTING).
+- Both tour-wait tests carry a 5 s timeout, so a regression fails fast instead of spinning a real hour.
+- Comments that said a release with no highlights shows "the title alone" now say no window (round 3); render-reload-toast's #270 comparison paragraph is gone.
+- The highlights check is driven through the REAL release.sh: a file for another version stops the cut at 1b-ii with nothing bumped, and KOSMOS_CUT_NO_WHATS_NEW=1 lets the same cut through (the harness strips an operator's exported opt-out from every other arm).
+
 ## Tests
 - The chip's two states and its one button; the stale chip never says "Kosmos updated"; engine-stale still first.
 - Safe reload: reloads when hidden and idle; not when visible, sending, drafting, or a dialog is open.

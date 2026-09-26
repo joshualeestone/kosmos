@@ -6,11 +6,6 @@
  * updated" window (tiles, contrast, focus, Tab, Escape). Before #3955 this compared a red offer toast
  * with a neutral reload toast (#270); the chip replaced both.
  *
- * 🔑 THE CLAIM IS A COMPARISON, so both states are captured in one run: the
- * shipped offer toast is red and earns it, and the reload state must read as
- * neutral. A check that only rendered the new one could pass on a toast painted
- * the same alarming red as the thing it is not.
- *
  * The page's own poll decides which state to draw, and neither is reachable
  * against a healthy local board (the baked version and the served version
  * agree, which is the point of a real install). So the states are driven the
