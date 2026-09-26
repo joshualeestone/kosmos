@@ -281,6 +281,23 @@ const ACCOUNTS = [
     await wait(450);
     const rowsAfterFail = document.querySelectorAll('#set-accounts .acct-box').length;
     window.fetch = realFetch2;
+    // Round 10: a Check now that starts WHILE a follow-up is reading: the follow-up must not rebuild the list under it.
+    listAnswer = [row];
+    await paintAccounts();
+    const inflightBtn = document.querySelector('#set-accounts .acct-check');
+    let releaseRead;
+    const realFetch3 = window.fetch;
+    window.fetch = (u) => (String(u).indexOf('/api/accounts') !== -1
+      ? new Promise((r) => { releaseRead = () => r({ ok: true, json: async () => ({ accounts: [row] }) }); })
+      : realFetch3(u));
+    const reading = paintAccounts({ followUp: 1 });
+    await wait(50);
+    inflightBtn.disabled = true;   // the person pressed Check now while the follow-up was reading
+    releaseRead();
+    await reading;
+    const keptInflight = inflightBtn.isConnected;
+    inflightBtn.disabled = false;
+    window.fetch = realFetch3;
     // An expired key's row does not point its title at Check now (the server's structured verdict, round 4).
     listAnswer = [{ ...row, connection: { ...row.connection, liveVerdict: 'expired', because: 'Grok renews this sign-in the next time it runs, so it cannot be checked until then' } }];
     await paintAccounts();
@@ -289,7 +306,7 @@ const ACCOUNTS = [
     listAnswer = [{ ...row, connection: { ...row.connection, liveVerdict: 'pending', liveCheckPending: true, because: 'Checking this sign-in now' } }];
     await paintAccounts();
     const pendTitle = (document.querySelector('#set-accounts .acct-box .acct-unverified') || { title: '' }).title;
-    return { expiredSays, expiredTitle, listsAfterExpired, green, focused, whileBusy, afterBusy: lists, expTitle, pendTitle, msgAfter, rowsBefore, rowsAfterFail };
+    return { expiredSays, expiredTitle, listsAfterExpired, green, focused, whileBusy, afterBusy: lists, expTitle, pendTitle, msgAfter, rowsBefore, rowsAfterFail, keptInflight };
   }, { row: grokRow, sub: ACCOUNTS.find((a) => a.email === 'sub@example.com') });
 
   await browser.close();
@@ -302,6 +319,7 @@ const ACCOUNTS = [
   if (!/^Removed test@example\.com/.test(clicks.msgAfter || '')) problems.push('#3997: a follow-up read wiped the message line: ' + JSON.stringify(clicks.msgAfter));
   if (!(clicks.rowsBefore >= 2 && clicks.rowsAfterFail === clicks.rowsBefore)) problems.push('#3997: a failed follow-up read replaced the list: ' + JSON.stringify({ before: clicks.rowsBefore, after: clicks.rowsAfterFail }));
   if (!/Checking this sign-in now/.test(clicks.pendTitle) || /Check now/.test(clicks.pendTitle)) problems.push('#3997: a Grok check under way points its title at Check now: ' + JSON.stringify(clicks.pendTitle));
+  if (!clicks.keptInflight) problems.push('#3997: a follow-up rebuilt the list over a Check now started while it was reading');
   if (!clicks.green) problems.push('#3997: Check now answering connected did not repaint the row green: ' + JSON.stringify(clicks));
   if (!clicks.focused) problems.push('#3997: the busy arm could not mark a Check now in flight, so it tested nothing: ' + JSON.stringify(clicks));
   if (clicks.whileBusy !== 1) problems.push('#3997: a follow-up rebuilt the list while a Check now was in flight: ' + JSON.stringify(clicks));

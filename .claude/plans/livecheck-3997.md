@@ -107,6 +107,16 @@ Design and measurements are on the card (comment 5849157780).
   base.connection, not driven by a test here for the reason in round 6).
 - The unused codexsigninlive.cachedAt is removed; the Check now button's kind attribute is escaped like the rest.
 
+## Review round 10 (Opus), what changed
+- BLOCKER (mine): server.livecheck-3997.test.js listed an OpenAI API-key account whose check reached the real OpenAI
+  models endpoint (20 requests a run, with a fake key). Its fetcher is now stubbed. Measured with a preload that logs
+  every non-local request: 0 across this file and server.grok-subscription-3391.test.js; 20 with the stub removed.
+- server.grok-subscription-3391.test.js restores its 401 stub after a test instead of clearing it.
+- A follow-up read looks at "busy" again after its fetch (a Check now pressed while it was reading was replaced by a
+  fresh, enabled button). Badge check arm, red without the second look.
+- Deferred NIT: a slow shared Grok list check can replace a newer Check now answer when it finishes; both are real
+  answers for the same key.
+
 ## Decided
 - Pill text stays a short "Signed in" (Josh 6.68, #3136); the reason is in the title.
 - A 401 from Grok is "not confirmed" (amber), never red: grok may renew the key on its next run.

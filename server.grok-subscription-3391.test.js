@@ -145,7 +145,7 @@ test('a key add during a pending sign-in never lands on its slot; a named one is
     assert.ok(fs.existsSync(nodePath.join(keyDir, '.kosmos-grok-apikey')), 'and the key account survived it');
   } finally {
     delete process.env.FAKE_MODE;
-    grokAccounts.setFetcher(null);
+    grokAccounts.setFetcher(async () => ({ status: 401 }));   // #3997: back to answering itself, never the network
   }
 });
 

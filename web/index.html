@@ -22000,6 +22000,9 @@ async function paintAccounts(opts) {
     accountsUnreadable();
     return;
   }
+  /* #3997 round 10: the person may have started something WHILE this follow-up was reading (a Check now, a
+     half-pressed Disconnect): look again before rebuilding, and if so wait a turn instead. */
+  if (followUp && acctListBusy(box)) { acctFollowUp(followUp + 1); return; }
   accountsRead(list);
   /* #3997: a sign-in (ChatGPT or Grok) whose free check is still under way is read again a few seconds on, so it turns green
      (or says what is wrong) without the person doing anything; bounded by ACCT_FOLLOWUP.max, never a loop. */

@@ -45,6 +45,7 @@ function grokSignIn(expiresInMs) {
 }
 
 const codexsigninlive = require('./engine/codexsigninlive');
+const openaiAccounts = require('./engine/openaiaccounts');
 const grokAccounts = require('./engine/grokaccounts');
 const observed = require('./engine/observed');
 const { start, server } = require('./server');
@@ -57,11 +58,13 @@ const DOC = (ws) => JSON.stringify({ checks: {
 let base;
 test.before(async () => { await start(0); base = `http://127.0.0.1:${server.address().port}`; });
 test.after(() => {
-  codexsigninlive.resetForTest(); grokAccounts.setFetcher(null);
+  codexsigninlive.resetForTest(); grokAccounts.setFetcher(null); openaiAccounts.setFetcher(null);
   try { server.close(); } catch { /* best effort */ }
   try { fs.rmSync(SANDBOX, { recursive: true, force: true }); } catch { /* best effort */ }
 });
-test.beforeEach(() => { codexsigninlive.resetForTest(); grokAccounts.setFetcher(null); grokAccounts.resetSubscriptionLiveForTest(); observed._clearForTest(); });
+/* Round 10: the API-key account below is checked against OpenAI's models listing on every read; answer it here, so
+   nothing in this file ever reaches OpenAI (it sent a fake key there before). */
+test.beforeEach(() => { codexsigninlive.resetForTest(); grokAccounts.setFetcher(null); grokAccounts.resetSubscriptionLiveForTest(); observed._clearForTest(); openaiAccounts.setFetcher(async () => ({ status: 200, body: { object: 'list', data: [] } })); });
 
 const accounts = async () => ((await (await fetch(base + '/api/accounts')).json()).accounts || []);
 const post = (p, obj) => fetch(base + p, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(obj) });

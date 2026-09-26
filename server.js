@@ -8079,8 +8079,8 @@ const server = http.createServer((req, res) => {
      spends the person's quota, so it is never fired on a tick (#1921). */
   /* #3997: Check now for a ChatGPT sign-in (codex's own handshake, codexsigninlive) and for a Grok subscription (the
      models listing grok reads, only with a key that has not expired: Kosmos never renews one). Both are FREE, unlike
-     Claude's below. `connected` and `none` are what the next /api/accounts read will show; anything else confirms
-     nothing and changes nothing, and says why. */
+     Claude's below. `connected` and `none` are what the next /api/accounts read will show. Grok also answers `refused`
+     (which forgets an earlier Check now green) and `expired`; anything else confirms nothing and changes nothing. */
   if ((pathname === '/api/accounts/openai/check' || pathname === '/api/accounts/grok/check') && req.method === 'POST') {
     const grok = pathname === '/api/accounts/grok/check';
     readBody(req)
