@@ -100,7 +100,7 @@ function blockBody() {
     'flow, in a browser, and Kosmos never sees the password. A key is a long',
     'string the person creates on the provider\'s website and pastes in. OpenAI,',
     'Grok and Gemini each take a subscription sign-in or a key, all in Settings,',
-    'AI Models, Add a provider.',
+    'AI Models, Add a provider (and each on its row of the guided setup).',
     'Each person uses their own account or their own',
     'key, and the usage is billed to them.',
     '',
