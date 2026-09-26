@@ -80,6 +80,31 @@ const state = (page) => page.evaluate(() => {
     live: (document.getElementById('asp-live') || {}).textContent || '' };
 });
 const waitFor = (page, fn, ms = 6000) => page.waitForFunction(fn, null, { timeout: ms }).then(() => true, () => false);
+/* The bubble shows the guide josh: its /avatar URL (a guide with a picture) or, since #3828 (#3707),
+   its initial drawn on a disc, a data: SVG from face() whose text node is J (this fixture's guide has
+   no picture). Runs in the page. Used by H8 and H19, which both required the URL alone and so either
+   failed (H8, which blocked the 0.6.95 cut) or silently timed out (H19). */
+const BUBBLE_ON_JOSH = () => {
+  const img = document.querySelector('#asb img');
+  const src = img ? img.getAttribute('src') || '' : '';
+  if (ASB.guide !== 'josh') return false;
+  if (/\/api\/agent\/josh\/avatar/.test(src)) return true;
+  if (!src.startsWith('data:image/svg+xml')) return false;
+  let svg = ''; try { svg = decodeURIComponent(src.slice(src.indexOf(',') + 1)); } catch { return false; }
+  return />J<\/text>/.test(svg);
+};
+/* The same, and the bubble is showing. Self-contained on purpose: waitFor hands the function's SOURCE
+   to the page, so it cannot call BUBBLE_ON_JOSH by name. */
+const BUBBLE_SHOWN_ON_JOSH = () => {
+  const b = document.getElementById('asb');
+  if (!b || b.hidden || ASB.guide !== 'josh') return false;
+  const img = b.querySelector('img');
+  const src = img ? img.getAttribute('src') || '' : '';
+  if (/\/api\/agent\/josh\/avatar/.test(src)) return true;
+  if (!src.startsWith('data:image/svg+xml')) return false;
+  let svg = ''; try { svg = decodeURIComponent(src.slice(src.indexOf(',') + 1)); } catch { return false; }
+  return />J<\/text>/.test(svg);
+};
 
 (async () => {
   fleet.install([fleet.agent('beatrix', { state: 'idle', displayName: 'Beatrix', role: 'Collections Coordinator' })]);
@@ -204,8 +229,8 @@ const waitFor = (page, fn, ms = 6000) => page.waitForFunction(fn, null, { timeou
     await page.keyboard.press('Enter');
     chk(await waitFor(page, () => /3 questions left today/.test(document.getElementById('asp-msg').textContent)), 'H8 precondition: the hosted allowance line is showing');
     await page.click('#asp-fold');
-    // H8: a guide is made (the person connected a model): the bubble moves to it, with its picture, and
-    // questions go to its thread, not the hosted route.
+    // H8: a guide is made (the person connected a model): the bubble moves to it (its picture, or its
+    // drawn initial when it has none, #3828), and questions go to its thread, not the hosted route.
     fleet.install([fleet.agent('josh', { state: 'idle', displayName: 'Josh', role: 'Setup guide' }),
       fleet.agent('beatrix', { state: 'idle', displayName: 'Beatrix', role: 'Collections Coordinator' })]);
     seedGuide('josh');
@@ -214,18 +239,7 @@ const waitFor = (page, fn, ms = 6000) => page.waitForFunction(fn, null, { timeou
     const jpg = fs.readFileSync(path.join(__dirname, '..', '..', 'web', 'icons', 'setup-guide-avatar.jpg'));
     await page.route('**/api/agent/josh/avatar*', (route) => route.fulfill({ status: 200, contentType: 'image/jpeg', body: jpg }));
     await page.evaluate(() => { ASB.nextFind = 0; });
-    /* #3828 (#3707): a guide with NO picture (this fixture's) is drawn as its initial on a disc, a
-       data: SVG, not the /avatar URL; a guide WITH one keeps the URL. Either proves the bubble moved to
-       the guide: the URL names josh, the disc carries its initial J. (This arm required the URL alone and
-       blocked the 0.6.95 cut after #3828.) */
-    chk(await waitFor(page, () => {
-      const src = (document.querySelector('#asb img') || {}).getAttribute ? document.querySelector('#asb img').getAttribute('src') || '' : '';
-      if (ASB.guide !== 'josh') return false;
-      if (/\/api\/agent\/josh\/avatar/.test(src)) return true;
-      if (!src.startsWith('data:image/svg+xml')) return false;
-      let svg = ''; try { svg = decodeURIComponent(src.slice(src.indexOf(',') + 1)); } catch { return false; }
-      return />\s*J\s*</.test(svg);
-    }, 20000), 'H8 once a guide exists the bubble moves to it, with its picture or (no picture) its initial');
+    chk(await waitFor(page, BUBBLE_ON_JOSH, 20000), 'H8 once a guide exists the bubble moves to it, with its picture or (no picture) its initial');
     await page.click('#asb');
     /* Read before anything is sent to the guide: a send clears the line on its own, which would hide a missing clear. */
     chk(!/questions? left today/.test((await state(page)).msg), 'H8 the guide\'s chat opens without the hosted allowance line', (await state(page)).msg);
@@ -498,7 +512,7 @@ const waitFor = (page, fn, ms = 6000) => page.waitForFunction(fn, null, { timeou
     seedGuide('josh');
     await page.evaluate(() => { ASB.nextFind = 0; });
     chk(await waitFor(page, () => ASB.guide === 'josh', 15000), 'H19 precondition: the guide is adopted');
-    await waitFor(page, () => { const b = document.getElementById('asb'); return b && !b.hidden && /\/api\/agent\/josh\/avatar/.test(b.querySelector('img').getAttribute('src') || ''); }, 6000);
+    chk(await waitFor(page, BUBBLE_SHOWN_ON_JOSH, 6000), 'H19 precondition: the bubble has repainted to the guide');
     const h19pre = await page.evaluate(() => ({ pending: ASB.asideOnOpen, dot: !document.querySelector('#asb .asb-dot').hidden && !document.getElementById('asb').hidden, bubble: !document.getElementById('asb').hidden }));
     chk(h19pre.bubble && h19pre.pending === false && !h19pre.dot, 'H19 the waiting hosted refusal and its dot are dropped when the guide is adopted', JSON.stringify(h19pre));
     await page.click('#asb');
