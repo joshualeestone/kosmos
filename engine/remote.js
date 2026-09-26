@@ -68,7 +68,8 @@
 const fs = require('node:fs');
 const path = require('node:path');
 const crypto = require('node:crypto');
-const { spawn } = require('node:child_process');
+const { spawn, execFileSync } = require('node:child_process');
+const os = require('node:os');
 const store = require('./store');
 
 // #1848: route through store.ROOT (= store.dataRootFor(platform, home, env)) rather
@@ -1164,14 +1165,35 @@ function absorbSession(data) {
   return { ok: false, because: 'the tunnel program answered in a shape we could not read' };
 }
 
-/** Append --device-name only when the label is present and clean (trimmed once,
-    no newline, 1-60 chars). A malformed label is dropped rather than surfaced --
-    a newline in argv would let it inject a second value. Shared by start/verify
-    so the two carry the label identically. */
+/* kosmos#3831: the app's own sign-in is THIS Mac asking to be let in. With no
+   name it reached the device list as "a device" with a code nobody had seen, next
+   to the person's real browser request, and read as a stranger (Josh, 2026-09-25).
+   So it is named after this computer: the name the person gave it in System
+   Settings (scutil ComputerName), else the host name, plus "(Kosmos app)". Read
+   once; a Mac's name does not change under a running sign-in. */
+let thisComputerNameCache = null;
+function thisComputerDeviceName() {
+  if (thisComputerNameCache !== null) return thisComputerNameCache;
+  let name = typeof process.env.AGENT_WORKFORCE_COMPUTER_NAME === 'string' ? process.env.AGENT_WORKFORCE_COMPUTER_NAME : '';
+  if (!name && process.platform === 'darwin') {
+    try { name = execFileSync('/usr/sbin/scutil', ['--get', 'ComputerName'], { encoding: 'utf8', timeout: 2000, stdio: ['ignore', 'pipe', 'ignore'] }); } catch { name = ''; }
+  }
+  if (!name) { try { name = os.hostname().replace(/\.local$/i, ''); } catch { name = ''; } }
+  // One line, no control characters, and room for the suffix inside DEVICE_NAME's 60.
+  name = Array.from(String(name).replace(/[\u0000-\u001f\u007f]/g, ' ').replace(/\s+/g, ' ').trim()).slice(0, 45).join('').trim();
+  thisComputerNameCache = name ? name + ' (Kosmos app)' : 'This Mac (Kosmos app)';
+  return thisComputerNameCache;
+}
+
+/** Append --device-name: the caller's label when it is present and clean (trimmed
+    once, no newline, 1-60 chars), else this computer's own name (#3831). A
+    malformed label is never passed through -- a newline in argv would let it
+    inject a second value -- and falls back to this computer's name rather than
+    none. Shared by start/verify so the two carry the label identically. */
 function pushDeviceName(args, deviceName) {
-  if (typeof deviceName !== 'string') return;
-  const trimmed = deviceName.trim();
-  if (DEVICE_NAME.test(trimmed)) args.push('--device-name', trimmed);
+  const trimmed = typeof deviceName === 'string' ? deviceName.trim() : '';
+  const label = DEVICE_NAME.test(trimmed) ? trimmed : thisComputerDeviceName();
+  if (DEVICE_NAME.test(label)) args.push('--device-name', label);
 }
 
 /** #3796: the wizard's "Sign out". Drop whatever half-finished sign-in this process holds
@@ -1626,7 +1648,7 @@ async function signinRegister(name) {
   } };
 }
 
-module.exports = { lastJsonLine, secondReset, forget, macRequest, assistantChat, hostedAvailable, DEFAULT_RELAY, DEFAULT_COORDINATOR, configured,
+module.exports = { thisComputerDeviceName, lastJsonLine, secondReset, forget, macRequest, assistantChat, hostedAvailable, DEFAULT_RELAY, DEFAULT_COORDINATOR, configured,
   FILE,
   read,
   kosmosPlus,

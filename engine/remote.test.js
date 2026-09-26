@@ -1054,7 +1054,22 @@ test('a device name reaches the binary when valid, and is dropped (never surface
   fs.rmSync(RECORD, { force: true });
   await remote.signinStart('her@example.com', 'bad\nname');
   const dropped = recorded().find((c) => c[0] === 'signin' && c[1] === 'start');
-  assert.ok(!dropped.includes('--device-name'), 'a malformed device name was passed through: ' + JSON.stringify(dropped));
+  assert.ok(!dropped.some((a) => String(a).includes('bad')), 'a malformed device name was passed through: ' + JSON.stringify(dropped));
+  // #3831: it falls back to this computer's own name rather than none.
+  assert.equal(dropped[dropped.indexOf('--device-name') + 1], remote.thisComputerDeviceName());
+});
+
+test('#3831: the app\'s own sign-in is named after this computer, never left as "a device"', async () => {
+  fs.rmSync(RECORD, { force: true });
+  await remote.signinStart('her@example.com');
+  await remote.signinVerify('her@example.com', '111111');
+  const start = recorded().find((c) => c[0] === 'signin' && c[1] === 'start');
+  const verify = recorded().find((c) => c[0] === 'signin' && c[1] === 'verify');
+  const name = remote.thisComputerDeviceName();
+  assert.match(name, /\(Kosmos app\)$/);
+  assert.ok(name.length <= 60, name);
+  assert.equal(start[start.indexOf('--device-name') + 1], name, 'start carried no name: ' + JSON.stringify(start));
+  assert.equal(verify[verify.indexOf('--device-name') + 1], name, 'verify carried no name: ' + JSON.stringify(verify));
 });
 
 test('a malformed coordinator answer is refused, and no session is held to spend', async () => {
