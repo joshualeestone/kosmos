@@ -72,9 +72,16 @@ mid-week. If the provider ever reset usage mid-week, the recorded figure would
 stay high until the week ends. That errs toward pausing a swarm early, which
 is the safe direction again.
 
+A third: the command names files by absolute path. Installed Kosmos names its
+own bundle, which updates keep in place. A board run from a source worktree
+names that worktree, and once the worktree is removed the status line records
+nothing until an installed setup or prepare repoints it. The report hooks
+have the same exposure. Uninstall names the status line it leaves behind,
+since by then nothing can edit the JSON.
+
 ## Tests
 
-`engine/allowance.test.js` (16). The script runs the way Claude Code runs it,
+`engine/allowance.test.js` (17). The script runs the way Claude Code runs it,
 fed the measured payload shape, and setup.sh's hook block runs for real
 against a sandbox home (extracted from setup.sh). Mutations shown red:
 - always rewriting the reading;
@@ -84,5 +91,6 @@ against a sandbox home (extracted from setup.sh). Mutations shown red:
 - treating a reset stamp seconds apart as a new week;
 - setup not wiring the statusline;
 - setup's guard removed;
+- uninstall not naming our status line, or naming somebody else's;
 - accounts.js requiring allowance at load again (the fixture copies files, because a
   symlinked one resolved the real module and could not fail).

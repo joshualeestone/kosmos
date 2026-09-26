@@ -27,8 +27,8 @@
  * figure is stale, not news, and a reading for an earlier week is ignored.
  * `history` keeps each forward step with the moment it was first seen, which
  * is what the calibration reads (tokens Kosmos measured per point of weekly
- * movement). Concurrent writers can still race; the rename keeps the file
- * whole, and a lost row is a gap in history, never a step backwards.
+ * movement). Concurrent writers can still race: the rename keeps the file
+ * whole, and whichever renames last stands until the next reading.
  *
  * Never throws and always exits 0: a statusline that errors shows its error
  * in the person's pane, and nothing here is worth that.

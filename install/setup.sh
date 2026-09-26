@@ -2160,6 +2160,15 @@ KOSMOS_SWEEP_LIST
     printf '  ~/.claude/settings.json (agents skip per-action permission prompts).\n'
     printf '  Delete that line there if you want the question back.\n\n'
   fi
+  # #3946: the status line Kosmos adds to record weekly usage is ours by its marker,
+  # but the bundled Node that could edit the JSON is gone by now, so it is NAMED, as
+  # the header's rule asks. Left in place it points at files this uninstall removed,
+  # so it now shows nothing and records nothing, and it keeps the one status-line slot.
+  if [ -f "$HOME/.claude/settings.json" ] && grep -q 'kosmos-statusline\.js' "$HOME/.claude/settings.json" 2>/dev/null; then
+    printf '  Kosmos\047s status line was left in ~/.claude/settings.json (the "statusLine"\n'
+    printf '  entry naming kosmos-statusline.js). It does nothing now; delete that entry\n'
+    printf '  if you want to use a status line of your own.\n\n'
+  fi
   # ⚠️ AND THE SECOND THING WE LEFT IN THAT TOOL'S CONFIG, named for exactly the
   # same reason. Creating an agent records that Claude Code trusts the folder
   # Kosmos made for it, and an uninstaller cannot tell those lines from ones the

@@ -269,3 +269,26 @@ test('setup.sh: a statusline that cannot be wired does not change the hooks\' an
   assert.ok(data && data.hooks && Array.isArray(data.hooks.Stop), 'the report hooks were not wired');
   assert.equal(data.statusLine, undefined);
 });
+
+/* Uninstall NAMES the status line it cannot remove (setup.sh's rule: anything not
+   removed is left alone and named). The block is extracted from setup.sh and run
+   under bash, both arms: ours is named, somebody else's is not. */
+test('uninstall names our status line, and only ours', () => {
+  const sh = fs.readFileSync(path.join(__dirname, '..', 'install', 'setup.sh'), 'utf8');
+  const start = sh.indexOf('  # #3946: the status line Kosmos adds to record weekly usage');
+  assert.ok(start > 0, 'the uninstall naming block moved in setup.sh');
+  const ifAt = sh.indexOf('  if [', start);
+  const block = sh.slice(ifAt, sh.indexOf('\n  fi\n', ifAt) + '\n  fi\n'.length);
+  assert.ok(block.includes(allowance.MARKER.replace('.', '\\.')), 'the uninstall grep does not name allowance.MARKER');
+  const run = (statusLine) => {
+    const home = fs.mkdtempSync(path.join(SANDBOX, 'uninst-'));
+    fs.mkdirSync(path.join(home, '.claude'));
+    fs.writeFileSync(path.join(home, '.claude', 'settings.json'), JSON.stringify({ statusLine }));
+    return spawnSync('bash', ['-c', block], { encoding: 'utf8', env: { ...process.env, HOME: home } });
+  };
+  const ours = run({ type: 'command', command: allowance.commandFor(NODE, SCRIPT, '/x') });
+  assert.equal(ours.status, 0, ours.stderr);
+  assert.match(ours.stdout, /Kosmos's status line was left in ~\/\.claude\/settings\.json/);
+  const theirs = run({ type: 'command', command: 'bash ~/.claude/scripts/statusline.sh' });
+  assert.equal(theirs.stdout, '', 'somebody else\'s status line was named as ours');
+});
