@@ -29,3 +29,4 @@ Card #4025 (follow-up to #3996). The Dock badge cannot be turned off today: macO
 - The page test's save answers the opposite of the click, so painting the click instead of the board's answer fails it.
 - "Settings > Computer", the nav's own word, in comments, README and plan.
 - Kept: one settings.json read per /api/status (safe, cannot throw; a cache would need invalidation on every write path for one small file).
+- Validation found web.win32-board-copy.test.js keeps a hand list of every data-win-hide surface; the App icon box is added to it (the reviewers had not searched for data-win-hide tests).
