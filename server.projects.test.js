@@ -3677,6 +3677,26 @@ test('#2707: a brief-less project staffed with agents gets the shared brief-pend
   assert.match(room.body, /BRIEF\.md/, 'the note does not point agents at the shared brief');
 });
 
+// Kano's state 7: the note is written for the agents. The room's JSON view is the person's,
+// so it leaves the note out (and the page shows its own empty state); `kosmos room` keeps it.
+test('the brief-pending note reaches the agents (text) but not the person\'s view (JSON)', async () => {
+  reset();
+  const messages = require('./engine/messages');
+  const made = json(await post('/api/projects', { name: 'Pending for agents', folder: folder('pending-audience'), agents: ['agent-a'] })).project;
+  assert.match((await req(`/api/project/${made.id}/room?as=text`)).body, /not seven/i, 'the agents lost the note');
+  const rows = JSON.parse((await req(`/api/project/${made.id}/room`)).body).rows;
+  assert.ok(!rows.some((r) => r.kind === 'note' && /not seven/i.test(r.text || '')), 'the person\'s view still carries the agents\' note');
+  // A note written before notes carried an audience (same text, untagged) is left out too,
+  // and an ordinary Kosmos note still shows: the filter is not hiding every note.
+  const old = json(await post('/api/projects', { name: 'Older room', folder: folder('older-room'), description: 'A briefed test project.' })).project;
+  messages.roomNote(old.id, projects.BRIEF_PENDING_NOTE);
+  messages.roomNote(old.id, 'Kosmos here: an ordinary note.');
+  assert.match((await req(`/api/project/${old.id}/room?as=text`)).body, /not seven/i, 'an older note no longer reaches the agents');
+  const oldRows = JSON.parse((await req(`/api/project/${old.id}/room`)).body).rows;
+  assert.ok(!oldRows.some((r) => r.kind === 'note' && /not seven/i.test(r.text || '')), 'an older, untagged note still reaches the person');
+  assert.ok(oldRows.some((r) => r.kind === 'note' && r.text === 'Kosmos here: an ordinary note.'), 'CONTROL: an ordinary note vanished from the person\'s view');
+});
+
 test('#2707 CONTROL: a project created WITH a description (goal already set) gets NO brief-pending note', async () => {
   reset();
   const dir = folder('described-staffed');
