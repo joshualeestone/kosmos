@@ -326,6 +326,26 @@ function chk(ok, label, extra) {
         chk(unknown.num === '?' && unknown.n === 'unknown' && !unknown.red && /cannot tell/.test(unknown.label) && unknown.after === '1'
           && unknown.headCount === '?' && unknown.headRedDot === false && /cannot tell/.test(unknown.why),
           `${tag} with the agents unreadable, Needs Your Decision says it cannot tell (not 0, not red)`, JSON.stringify(unknown));
+        /* The same through the wire (review round 11): the route answers rosterUnreadable, and the page's own read
+           (tskLoad) takes it; no flag set by hand. The rows are the route's own, with Max's decision as the route
+           would derive it with no roster (not a decision). */
+        await page.route('**/api/tasks?view=tasks*', async (route) => {
+          const resp = await route.fetch();
+          const json = await resp.json();
+          json.rosterUnreadable = true;
+          json.tasks = json.tasks.map((t) => (t.state === 'decision' ? Object.assign({}, t, { state: 'assigned', waitingOnPerson: false }) : t));
+          await route.fulfill({ response: resp, json });
+        });
+        const wire = await page.evaluate(async () => {
+          await tskLoad();
+          const t = document.querySelector('#tsk-tiles [data-tile="decision"]');
+          const sec = document.querySelector('#tsk-groups .tsk-grp[data-unknown]');
+          return { num: t.querySelector('.num').textContent, flag: TSK.rosterUnknown, group: sec ? sec.textContent : null };
+        });
+        await page.unroute('**/api/tasks?view=tasks*');
+        const wireBack = await page.evaluate(async () => { await tskLoad(); return { num: document.querySelector('#tsk-tiles [data-tile="decision"] .num').textContent, flag: TSK.rosterUnknown }; });
+        chk(wire.num === '?' && wire.flag === true && wire.group && /cannot tell/.test(wire.group) && wireBack.num === '1' && wireBack.flag === false,
+          `${tag} an unreadable roster from the route reaches the tile and its group through the page's own read, and a good read clears it`, JSON.stringify({ wire, wireBack }));
         await page.fill('#tsk-search', 'podcast');
         /* Its own clear button: shown with text, clears and hides again. */
         const clr = await page.evaluate(() => !document.getElementById('tsk-qclear').hidden);

@@ -248,3 +248,15 @@ test('#3949 GET /api/tasks?view=tasks: a task whose agent asks about ITS project
   try { plain = await all(`?view=tasks&project=${encodeURIComponent(p.id)}`); } finally { quiet.restore(); }
   assert.ok(plain.tasks.every((t) => t.state !== 'decision' && t.waitingOnPerson === false), JSON.stringify(plain.tasks.map((t) => t.state)));
 });
+
+test('GET /api/tasks?view=tasks: an unreadable roster is reported (rosterUnreadable), so the page can say it cannot tell (review round 11)', async () => {
+  const status = require('./engine/status');
+  // Force safeRoster() -> null by making snapshot()'s pane source throw (as server.team-agent-token-1279 does).
+  status.setPaneSource(() => { throw new Error('roster unreadable (test)'); });
+  try {
+    const body = await view();
+    assert.equal(body.rosterUnreadable, true);
+    assert.ok(body.tasks.every((t) => t.state !== 'decision'), 'a decision derived from a roster nobody read');
+  } finally { status.setPaneSource(null); }
+  assert.equal((await view()).rosterUnreadable, false, 'CONTROL: a good read reports a readable roster');
+});

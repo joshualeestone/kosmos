@@ -193,4 +193,16 @@ test('#3949 Needs Your Decision stays live: a change in WHO needs the person re-
   assert.deepEqual(busy.tick(asks), { loads: 0, paints: 0 }, 'no read while a bulk close is running');
   busy.TSK.busy = false;
   assert.deepEqual(busy.tick(asks), { loads: 1, paints: 0 }, 'the question that arrived while busy is read on the next tick');
+  /* Review round 11: a read that FAILS keeps no baseline, so the next tick reads again even though who needs the
+     person has not changed. tskLoad's two failure branches set the page's own sentinel; the sentinel is read from it. */
+  const unread = new Function(`${(SCRIPT.match(/const TSK_NEEDS_UNREAD = [^;]+;/) || [''])[0]} return TSK_NEEDS_UNREAD;`)();
+  assert.equal(typeof unread, 'string', 'the page defines TSK_NEEDS_UNREAD');
+  const load = page.liftAll(SCRIPT, ['tskLoad']);
+  assert.equal((load.match(/TSK\.needs = TSK_NEEDS_UNREAD;/g) || []).length, 2, 'both failure branches of tskLoad drop the baseline');
+  const failed = make(Object.assign(env, { LAST: idle }));
+  failed.TSK.names = failed.names();
+  failed.tick(idle);
+  failed.TSK.data = [];
+  failed.TSK.needs = unread;   // what a failed read leaves
+  assert.deepEqual(failed.tick(idle), { loads: 1, paints: 0 }, 'after a failed read, the next tick reads again');
 });

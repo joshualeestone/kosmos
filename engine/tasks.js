@@ -866,6 +866,8 @@ function taskState(task) {
  * Every holder, not only the first (claimWho): the red tile is the one the person acts on, and a
  * second agent's question on a shared task is still a question. A question belongs to the agent and
  * names a project, not a task, so an agent holding two tasks in one project marks both.
+ * A trust wait is counted by the same rule, but today it never reaches the roster this is given (the
+ * status route builds those rows offline, after snapshot), as projects.js says of the project page.
  */
 function waitingOnPerson(task, roster) {
   if (!task || progressOf(task).closed || !Array.isArray(roster)) return false;

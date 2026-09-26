@@ -45175,7 +45175,9 @@ document.getElementById('pj-alltasks').addEventListener('click', () => openProje
    waiting" is not drawn: no task stores it yet (#3951). */
 const TSK_GROUPS = [
   { k: 'decision', l: 'Needs Your Decision', c: 'var(--tsk-decision)',
-    why: 'The agent on these needs you: a question about its project, your go-ahead, or a connection Kosmos could not restore.' },
+    /* Not "your go-ahead" (review round 11): a trust wait never reaches the tasks route's roster today (the
+       status route builds those rows offline), the same gap projects.js names; the rule covers it if it does. */
+    why: 'The agent on these needs you: a question about its project, or a connection Kosmos could not restore.' },
   { k: 'working', l: 'In progress', c: 'var(--tsk-working)',
     why: 'The agent’s own report names these as what it is working on.' },
   { k: 'assigned', l: 'Assigned but not started', c: 'var(--tsk-assigned)',
@@ -45207,6 +45209,8 @@ function tskAgentName(sessionName) {
    a function declaration is hoisted, and TSK_READY (a hoisted var) covers the one ordering (a poll
    landing before the script finished) in which TSK would still be uninitialised. */
 var TSK_READY;   // hoisted (undefined) until `const TSK` below has run
+/* A baseline no signature equals: set after a failed read, so the next tick reads again. */
+const TSK_NEEDS_UNREAD = '\u0000unread';
 function tskRosterChanged() {
   if (!TSK_READY) return;   // the Tasks view is not set up yet; its own load paints with the roster it finds
   /* #3949: Needs Your Decision is live board state, so when WHO needs the person changes (a question asked
@@ -45298,6 +45302,9 @@ async function tskLoad(arrival) {
       /* An unreadable store is an error, never an empty list (the route says so): "No tasks"
          would be a claim about somebody's work that we did not make. */
       TSK.error = String(body.error || 'we could not read your tasks just now');
+      /* Review round 11: a failed read keeps no baseline, so the next roster tick reads again rather than
+         leaving the decision count stale until who needs the person changes once more. */
+      TSK.needs = TSK_NEEDS_UNREAD;
     } else {
       /* A good read clears the error a failed one left, and only that (a "Closed N" line stays). */
       if (TSK.error && msg && msg.textContent === asSentence(TSK.error)) msg.textContent = '';
@@ -45313,6 +45320,7 @@ async function tskLoad(arrival) {
   } catch {
     if (mine !== TSK.gen) return;
     TSK.error = 'we could not reach Kosmos to read your tasks';
+    TSK.needs = TSK_NEEDS_UNREAD;
   }
   if (msg && TSK.error) msg.textContent = asSentence(TSK.error);
   tskPaintKeepingCurrentFocus();

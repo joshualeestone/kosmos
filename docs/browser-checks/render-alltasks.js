@@ -282,6 +282,19 @@ const say = (n, cond, note) => {
     }));
     say('the dropdown\'s All projects option carries no number, and picking it from an archived door shows the open tasks',
       railAllAfter.label === 'All projects' && railAllAfter.openRows > 0, JSON.stringify(railAllAfter));
+    /* The count lives on each project's own option now (review round 11): #1346 on it, "Name (N)" equals what picking
+       it shows, with Created: at All and no search (the count is the project's, not the filters'). */
+    const optCounts = await p.evaluate(() => [...document.querySelectorAll('#tsk-projsel option')].filter((o) => o.value)
+      .map((o) => ({ v: o.value, n: Number((o.textContent.match(/\((\d+)\)$/) || [])[1]) })));
+    const perProject = [];
+    for (const o of optCounts) {
+      await p.selectOption('#tsk-projsel', o.v);
+      await p.waitForTimeout(150);
+      perProject.push({ option: o.n, shown: await p.evaluate(() => Number((document.getElementById('tsk-sub').textContent.match(/^(\d+) open/) || [0, 0])[1])) });
+    }
+    await p.selectOption('#tsk-projsel', '');
+    say('each project option\'s count agrees with what picking it shows (#1346)',
+      perProject.length > 0 && perProject.every((x) => Number.isFinite(x.option) && x.option === x.shown) && perProject.some((x) => x.option > 0), JSON.stringify(perProject));
     const setAside = await p.evaluate((id) => [...document.querySelectorAll('#tsk-groups .tsk-row')].filter((r) => r.dataset.key.startsWith(id + '#')).length, made[1]);
     say('on All tasks the archived project is set aside again', setAside === 0, String(setAside));
     /* And the All-tasks picker leaves it out too (Beta is archived now; Alpha is not). */
