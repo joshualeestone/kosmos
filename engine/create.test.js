@@ -2087,9 +2087,31 @@ test('a role-made boot file is nowhere near the size its reader refuses', () => 
      (262,144 / 32,935), so the fits-check stays unreachable; the canary's job is to flag growth
      before it matters, and it did. Which change grew the file, and whether it is only intended new
      text, is kosmos#4021. */
-  assert.ok(bytes < instructions.MAX_BYTES / 6,
+  /* #4041: THE CANARY MEASURES THE TEXT, NOT THE CHECKOUT. The boot file embeds two absolute
+     paths that belong to the machine running this test: the kosmos CLI (four times, in the
+     msg/post/reply lines; on a source checkout it is <repo>/install/kosmos) and the agent's Files
+     folder (under the sandboxed workers root). Measured raw, the same commit read a few hundred
+     bytes higher in a long scratch checkout than at the cut, so a pass or fail could be about the
+     path and not about growth. Here each is swapped for what a real install on a fixed home
+     writes, so the number is the same on every machine. The raw-bytes assertion above stays on
+     the unaltered file, because the reader refuses raw bytes. */
+  const raw = fs.readFileSync(create.instructionFile('sized-def'), 'utf8');
+  const home = '/Users/person';
+  const cli = require('./clipath').kosmosCli();
+  const workers = process.env.AGENT_WORKFORCE_WORKERS;
+  // A swap that matched nothing would leave the measurement path-dependent while reading as fixed.
+  assert.ok(raw.includes(cli), 'the boot file no longer carries the kosmos CLI path; revisit this swap');
+  assert.ok(raw.includes(workers), 'the boot file no longer carries the Files path; revisit this swap');
+  const text = raw.split(cli).join(home + '/.local/share/kosmos/bin/kosmos')
+    .split(workers).join(store.workersRootFor({}, home, 'darwin'));
+  // A NEW machine path would make the number path-dependent again, silently. Refuse it here.
+  const repo = nodePath.resolve(__dirname, '..');
+  assert.ok(!text.includes(SANDBOX) && !text.includes(repo) && !text.includes(os.homedir()),
+    'the boot file embeds another machine-specific path; add it to the swap above so the canary stays path-independent');
+  const measured = Buffer.byteLength(text, 'utf8');
+  assert.ok(measured < instructions.MAX_BYTES / 6,
     'a role-made boot file has grown toward the cap; the fits-check may now be reachable and testable ('
-    + bytes + ' bytes)');
+    + measured + ' bytes of text, ' + bytes + ' as written on this machine)');
 });
 
 test('appending the defaults twice does not double every rule', () => {
