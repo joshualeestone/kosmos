@@ -7680,7 +7680,9 @@ const server = http.createServer((req, res) => {
           // Only a FRESH observed ok greens the row; a stale ok (or any checkLive-derived
           // fallback) must not overwrite the untouched legacy render (see the note above).
           if (v.badge !== 'working') return base;
-          return { ...base, connection: { ...(a.connection || {}), badge: v.badge, observedAt: v.observedAt, observedAgeMs: v.ageMs } };
+          /* From base.connection, which carries liveCheckPending: a green row whose own check is still running must
+             still be read again, so a newer dead answer can reach it (review round 9). */
+          return { ...base, connection: { ...(base.connection || a.connection || {}), badge: v.badge, observedAt: v.observedAt, observedAgeMs: v.ageMs } };
         });
         /* #3296 observability follow-on: the GOOGLE/Gemini observed-overlay badge, the
            exact sibling of the OpenAI overlay above and positive-only for the same reason
@@ -7791,7 +7793,10 @@ const server = http.createServer((req, res) => {
             freshMs: freshWindow,
           });
           if (v.badge !== 'working') return unverifiedSub(a);
-          return { ...a, connection: { ...(a.connection || {}), badge: v.badge, observedAt: v.observedAt, observedAgeMs: v.ageMs } };
+          /* Still being checked in this read: keep saying so, so the page reads again (review round 9). */
+          const stillChecking = thisCheck && thisCheck.verdict === 'pending';
+          return { ...a, connection: { ...(a.connection || {}), badge: v.badge, observedAt: v.observedAt, observedAgeMs: v.ageMs,
+            ...(stillChecking ? { liveCheckPending: true } : {}) } };
         });
         sendJson(res, 200, { accounts: [...claude, ...openai, ...gemini, ...grok] });
       })

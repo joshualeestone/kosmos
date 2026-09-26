@@ -22284,7 +22284,7 @@ async function paintAccounts(opts) {
       + (isKeyed ? (canCheckSignIn
           /* data-check-dir FIRST: focus restoration finds a control again by its first data-* attribute, and the
              folder is unique where the provider kind is not (review round 7). */
-          ? '<button class="acct-check" type="button" data-check-dir="' + esc(a.dir) + '" data-check-signin="' + signInCheck + '" '
+          ? '<button class="acct-check" type="button" data-check-dir="' + esc(a.dir) + '" data-check-signin="' + esc(signInCheck) + '" '
             + 'aria-label="Check now whether ' + who + (qual ? ' (' + esc(qual) + ')' : '') + ' is connected" '
             + 'title="' + esc('Asks the provider whether this sign-in works right now. It uses no quota.') + '">Check now</button>'
           : '')

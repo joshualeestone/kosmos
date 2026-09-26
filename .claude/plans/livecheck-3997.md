@@ -100,6 +100,13 @@ Design and measurements are on the card (comment 5849157780).
   Grok) for the follow-up reads.
 - Deferred NIT: the Grok answer cache keeps one entry per renewed key (a few a day per account).
 
+## Review round 9 (Sonnet), what changed
+- A row that was green from an observation AND still being checked lost its liveCheckPending in the overlay merge, so
+  the page stopped reading again and a newer dead answer could not reach it. Both overlays now keep the flag (Grok
+  tested with a fresh earlier green plus a slow check, red when reverted; OpenAI's is the same one-line merge from
+  base.connection, not driven by a test here for the reason in round 6).
+- The unused codexsigninlive.cachedAt is removed; the Check now button's kind attribute is escaped like the rest.
+
 ## Decided
 - Pill text stays a short "Signed in" (Josh 6.68, #3136); the reason is in the title.
 - A 401 from Grok is "not confirmed" (amber), never red: grok may renew the key on its next run.

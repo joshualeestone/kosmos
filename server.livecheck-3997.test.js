@@ -215,6 +215,17 @@ test('#3997 round 8: a Grok answer that arrives DURING the wait makes the very f
   }
 });
 
+test('#3997 round 9: a row that is green AND still being checked keeps saying it is checking, so the page reads again', async () => {
+  codexsigninlive.setRunner(async () => ({ ok: false }));
+  grokSignIn(3 * 3600 * 1000);
+  observed.sawDir(observed.PROVIDER.XAI, GROK, observed.OUTCOME.OK);   // an earlier green, still fresh
+  grokAccounts.setFetcher(async () => { await new Promise((r) => setTimeout(r, 700)); return { status: 200 }; });
+  const row = (await accounts()).find((a) => a.provider === 'xai');
+  assert.equal(row.connection.badge, 'working', 'CONTROL: the fresh earlier green shows');
+  assert.equal(row.connection.liveCheckPending, true, 'a green row lost its "still checking" flag, so the page would not read again');
+  await new Promise((r) => setTimeout(r, 800));   // let the slow check land before the next test
+});
+
 test('#3997 round 7: deadIsNewer: a dead answer newer than an agent success wins, an older one or a live one does not', async () => {
   codexsigninlive.setRunner(async () => ({ ok: true, stdout: DOC('warning') }));
   const before = Date.now() - 1000;

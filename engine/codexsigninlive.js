@@ -193,12 +193,6 @@ async function liveness(dir, nowMs) { return (await livenessDetailed(dir, nowMs)
  * /api/accounts read's own: it STARTS a check for a cold home without waiting on it. Contrast liveness()/livenessDetailed(), which DO run a fresh doctor on a cold
  * miss -- create.accountConnectable and codexauthprobe want that real, awaited verdict.
  */
-/* #3997 round 6: when this home's fresh cached answer was learned (epoch ms), or null. */
-function cachedAt(dir, nowMs) {
-  const now = typeof nowMs === 'number' ? nowMs : Date.now();
-  const cur = cache.get(homeKey(dir));
-  return cur && (now - cur.at) < TTL_MS ? cur.at : null;
-}
 /* #3997 round 6/7: true when this home's fresh cached answer is DEAD and was learned after `observedAt` (an agent's
    older success). The OpenAI overlay uses it so a person's newer "not connected" is not painted over. */
 function deadIsNewer(dir, observedAt, nowMs) {
@@ -241,4 +235,4 @@ async function livenessNow(dir) {
   return res.verdict;
 }
 
-module.exports = { liveness, livenessDetailed, livenessCached, cachedAt, deadIsNewer, checkState, livenessNow, classify, classifyDetailed, setRunner, resetForTest, TTL_MS, TIMEOUT_MS };
+module.exports = { liveness, livenessDetailed, livenessCached, deadIsNewer, checkState, livenessNow, classify, classifyDetailed, setRunner, resetForTest, TTL_MS, TIMEOUT_MS };
