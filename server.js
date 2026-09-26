@@ -240,33 +240,83 @@ let engineLook = { at: 0, staleSince: null };
    thing actually being limited -- process-triggered pane notifications --
    directly, in memory. ⚠️ Resets on restart, unlike taskMake's persisted
    count: an acceptable line for a notification valve (the write it guards
-   still lands either way) but NOT one to reuse for anything that gates data. */
-const heardBudgetLog = [];
+   still lands either way) but NOT one to reuse for anything that gates data.
+   #3961: the allowance is PER ASSIGNEE, not one count shared by the whole fleet. It
+   was twelve an hour across every agent, so after one agent handed out twelve tasks
+   nobody else's assignment reached anybody's screen for the rest of the hour, while
+   the tasks themselves (#3959) now land up to a 500-an-hour breaker. What the valve
+   protects is one pane from being flooded, so that is what it counts: how many times
+   agents typed into THIS assignee's screen this hour. A fleet-wide ceiling of
+   HEARD_RUNAWAY_MAX stays behind it: #3959's runaway number, read from engine/runaway.
+   One looping agent is stopped by its assignee's 30 long before this; the ceiling binds
+   only when about seventeen or more screens are each paged thirty times in one hour, and
+   then it holds the pages typed across the fleet to that number. The card's option 1
+   spoke of removing the shared ceiling; this keeps one far above it, for that case. */
+const heardBudgetLog = new Map(); // heardKey(assignee, roster): the pane's session name -> times typed to, oldest first
 const HEARD_BUDGET_WINDOW_MS = 3600000;
-const HEARD_BUDGET_MAX = 12;
-function heardBudgetAllows() {
-  const cutoff = Date.now() - HEARD_BUDGET_WINDOW_MS;
-  while (heardBudgetLog.length && heardBudgetLog[0] < cutoff) heardBudgetLog.shift();
-  return heardBudgetLog.length < HEARD_BUDGET_MAX;
+const HEARD_PER_AGENT_MAX = 30;
+const HEARD_RUNAWAY_MAX = require('./engine/runaway').AGENT_RUNAWAY_PER_HOUR;
+/* The key is the PANE the name reaches, found the way delivery finds it
+   (chat.resolveCard): an exact name first, else a case-insensitive one (#989). So
+   "MARA" spends mara's allowance, while an external "Casey" pane beside our "casey"
+   keeps its own. With no roster, or no pane for the name, the lowercased name
+   stands in: nothing is typed then, so it only has to be consistent. */
+function heardKey(who, roster) {
+  if (typeof who !== 'string' || !who.trim()) return null;
+  const card = Array.isArray(roster) ? chat.resolveCard(roster, who.trim()) : null;
+  return card && typeof card.sessionName === 'string' ? card.sessionName : who.trim().toLowerCase();
 }
-function heardBudgetRecord() {
-  heardBudgetLog.push(Date.now());
+function heardBudgetPrune() {
+  const cutoff = Date.now() - HEARD_BUDGET_WINDOW_MS;
+  let total = 0;
+  for (const [k, times] of heardBudgetLog) {
+    while (times.length && times[0] < cutoff) times.shift();
+    if (times.length) total += times.length; else heardBudgetLog.delete(k);
+  }
+  return total;
+}
+/* Nobody named means nobody is typed to (heardBy answers undefined), so there is
+   nothing to allow or refuse; only a named assignee is counted. */
+function heardBudgetAllows(who, roster) {
+  const total = heardBudgetPrune();
+  const k = heardKey(who, roster);
+  if (!k) return true;
+  return total < HEARD_RUNAWAY_MAX && (heardBudgetLog.get(k) || []).length < HEARD_PER_AGENT_MAX;
+}
+function heardBudgetRecord(who, roster) {
+  const k = heardKey(who, roster);
+  if (!k) return;
+  if (!heardBudgetLog.has(k)) heardBudgetLog.set(k, []);
+  heardBudgetLog.get(k).push(Date.now());
 }
 /* #3959: what an agent-made assignment answers when the allowance above is spent: the
    work landed but its assignee was NOT typed to. Left undefined, `heard` reads as "no
-   assignee". Undefined only when there is genuinely nobody named. */
+   assignee". Undefined only when there is genuinely nobody named. The sentence names
+   which limit it was, since the two call for different readings. */
 function heardBudgetSkipped(who) {
-  const name = typeof who === 'string' && who.trim() ? who.trim() : null;
-  if (!name) return undefined;
+  if (!heardKey(who)) return undefined;
+  const name = who.trim(); // as the caller spelled it, for the sentence
+  // When both limits are spent, the fleet ceiling is named: it is the graver fact.
+  const runaway = heardBudgetPrune() >= HEARD_RUNAWAY_MAX;
   return { who: name, state: chat.DELIVERY.COULD_NOT,
-    because: 'agents have used the hourly allowance for typing into agent screens (' + HEARD_BUDGET_MAX
-      + ' an hour, shared by all agents), so ' + name + ' was not told on screen; the work is on their list' };
+    because: runaway
+      ? 'agents have typed into agent screens ' + HEARD_RUNAWAY_MAX + ' times this hour, so Kosmos has stopped them for now and '
+        + name + ' was not told on screen; the work is on their list'
+      : 'agents have already told ' + name + ' about new work on screen ' + HEARD_PER_AGENT_MAX
+        + ' times this hour, so ' + name + ' was not told again on screen; the work is on their list' };
 }
 // Test-only, same shape as chatEngine.resetForTests()/messagesEngine.resetForTests():
 // heardBudgetLog is in-memory and module-scoped, so without this, one test's
 // spent budget silently carries into the next test in the same file.
 function resetHeardBudgetForTests() {
-  heardBudgetLog.length = 0;
+  heardBudgetLog.clear();
+}
+// Test-only: spend `n` of one assignee's allowance without typing anything, so a test
+// can reach the fleet-wide ceiling without five hundred real deliveries.
+/* Pass the roster for any pane whose name has capitals: without one the key falls back to
+   the lowercased name, which is not that pane's key. */
+function spendHeardBudgetForTests(who, n, roster) {
+  for (let i = 0; i < n; i += 1) heardBudgetRecord(who, roster);
 }
 /* #3959: agent-made TASKS and PROJECTS have no working limit, only a runaway breaker.
    It was twelve an hour (#327, #485), which stopped real work: Josh had agents add a
@@ -275,32 +325,19 @@ function resetHeardBudgetForTests() {
    batch. It counts every agent together (one shared count per kind, across all
    projects), from the records themselves, so it survives a restart. The screen is
    never counted or refused. */
-const AGENT_RUNAWAY_PER_HOUR = 500;
-const AGENT_RUNAWAY_WINDOW_MS = 3600000;
+const { AGENT_RUNAWAY_PER_HOUR, AGENT_RUNAWAY_WINDOW_MS, runawayRefusal } = require('./engine/runaway');
 let agentRunawayLimit = AGENT_RUNAWAY_PER_HOUR;
 // Test-only: lets a route test trip the breaker without making 500 records.
 // Called with no argument it restores the real limit.
 function setAgentRunawayLimitForTests(n) {
   agentRunawayLimit = Number.isInteger(n) && n > 0 ? n : AGENT_RUNAWAY_PER_HOUR;
 }
-/* `times` are the creation times (ms) of the agent-made records of one kind. Returns
-   null to allow, or { because, retryAfterSecs }: the sentence (the limit, that it is shared
-   by every agent, and when the next one is allowed) and the same wait in seconds, which the
-   routes send as retry-after the way the part routes do. */
+/* `times` are the creation times (ms) of the agent-made records of one kind (`noun`: 'tasks' or
+   'projects'). Returns null to allow, or { because, retryAfterSecs } from the shared breaker
+   (engine/runaway.js); the routes send the seconds as retry-after. */
 function agentRunawayRefusal(times, noun, now = Date.now(), limit = agentRunawayLimit) {
-  const hourAgo = now - AGENT_RUNAWAY_WINDOW_MS;
-  const recent = times.filter((t) => Number.isFinite(t) && t >= hourAgo).sort((a, b) => a - b);
-  if (recent.length < limit) return null;
-  // Below the limit again once enough of the oldest have aged out of the hour.
-  const freesAt = recent[recent.length - limit] + AGENT_RUNAWAY_WINDOW_MS;
-  // Capped at the window: a record dated in the future (clock skew) must not quote a longer wait.
-  const retryAfterSecs = Math.min(AGENT_RUNAWAY_WINDOW_MS / 1000, Math.max(1, Math.ceil((freesAt - now) / 1000)));
-  const mins = Math.max(1, Math.ceil(retryAfterSecs / 60));
-  const because = 'agents have made ' + recent.length + ' ' + noun + ' in the last hour, which is at or over the limit of '
-    + limit + ' an hour shared by all agents together (a safety stop for an agent stuck in a loop), so Kosmos is pausing agent-made '
-    + noun + '. Agents can make ' + noun + ' again in about ' + mins + ' minute' + (mins === 1 ? '' : 's')
-    + '; the person can still make them from the screen';
-  return { because, retryAfterSecs };
+  const r = runawayRefusal(times, { noun, did: 'made', pausing: 'agent-made ' + noun, again: 'make ' + noun, screen: 'make them' }, { now, limit });
+  return r && { because: r.because, retryAfterSecs: r.retryAfterSecs };
 }
 // `sentence` is explicit, never read off `t`: a part's own sentence is
 // never the task's top-level one (a task with parts drops `who`/keeps one
@@ -354,13 +391,13 @@ function tellEveryoneOn(t, roster) {
    Assigner runner both call this, so the sequence (valve, assignPart, heardBy, tellEveryoneOn)
    exists once. Three callers:
    - screen: no valve, the pane line always.
-   - process (screen false): the parts valve applies and the pane line is spent from the heard
-     budget, both shared by agents.
-   - assigner: the Kosmos Assigner. Its own provenance ('assigner'), so neither shared agent
-     budget is charged (the Assigner has its own hourly caps); the part must still be free at
-     the moment of the write (onlyIfFree); the pane line is always sent, and if it could not
-     reach the agent at all (COULD_NOT) the assignment is taken back, so nobody is left on a task
-     they were never told about.
+   - process (screen false): the parts valve applies (one count shared by agents), and the
+     pane line spends the assignee's paging allowance (heardBudgetAllows, per assignee).
+   - assigner: the Kosmos Assigner. Its own provenance ('assigner'), so neither the parts
+     valve nor the paging allowance is charged (the Assigner has its own hourly caps);
+     the part must still be free at the moment of the write (onlyIfFree); the pane line is
+     always sent, and if it could not reach the agent at all (COULD_NOT) the assignment is
+     taken back, so nobody is left on a task they were never told about.
    Returns the route's body fields plus `ok`/`status`/`because`; never throws for a refusal. */
 function givePart(projectId, n, partId, who, { screen, roster, assigner } = {}) {
   if (!screen && !assigner) {
@@ -372,10 +409,10 @@ function givePart(projectId, n, partId, who, { screen, roster, assigner } = {}) 
   if (!out.ok) return { ok: false, status: 400, because: out.because };
   const r = roster || safeRoster();
   let heard;
-  if (out.changed && (screen || assigner || heardBudgetAllows())) {
+  if (out.changed && (screen || assigner || heardBudgetAllows(who, r))) {
     const sentence = (((out.task && out.task.parts) || []).find((x) => Number(x.id) === Number(partId)) || {}).sentence;
     heard = heardBy(projectId, out.task, who, sentence, r);
-    if (heard && heard.state === chat.DELIVERY.PLACED && !screen && !assigner) heardBudgetRecord();
+    if (heard && heard.state === chat.DELIVERY.PLACED && !screen && !assigner) heardBudgetRecord(who, r);
   } else if (out.changed) {
     heard = heardBudgetSkipped(who); // only a process reaches here: screen and assigner always pass
   }
@@ -1704,19 +1741,42 @@ function policySummaries(r) {
    never wrongly blocks one) -- unlike the task-CREATION valve, which counts persisted
    tasks because those must survive a restart. CAP process task-messages per hour,
    fleet-wide, matching the task-creation valve's spirit. */
-/* `>= 0`, not `|| 30`: an operator who sets the cap to 0 to silence agent
-   task-messages entirely means 0, and `Number("0") || 30` would give 30 -- the
-   same env-0 footgun this file already guards against elsewhere with a range check. */
-const TASK_MSG_CAP_PER_HOUR = (() => {
-  const n = Number(process.env.AGENT_WORKFORCE_TASK_MSG_CAP);
-  return Number.isFinite(n) && n >= 0 ? n : 30;
-})();
-const TASK_MSG_WINDOW_MS = 3600000;
+/* #3959: the default was 30 an hour; it is now the shared runaway breaker (engine/runaway.js).
+   An operator's AGENT_WORKFORCE_TASK_MSG_CAP still wins. Read by taskMsgCapFrom:
+     - a whole number of 0 or more is the cap, and 0 means agent task messages are switched off
+       (so `>= 0`, never `|| default`, which would turn a deliberate 0 into the default);
+     - a fraction is rounded down (2.5 is 2), since the cap counts whole messages;
+     - unset, empty or blank means NOT SET and gives the default. Before #3959 an empty value read
+       as 0 (Number('') is 0) and switched messages off; blank is now treated like unset, on
+       purpose, so clearing the variable restores the default rather than silencing agents;
+     - anything else (negative, not a number) gives the default. */
+function taskMsgCapFrom(raw) {
+  const s = raw === undefined || raw === null ? '' : String(raw).trim();
+  // Plain decimal only: '0x10' or '1e3' are not a cap an operator means, so they give the default.
+  if (!/^\d+(\.\d+)?$/.test(s)) return AGENT_RUNAWAY_PER_HOUR;
+  return Math.floor(Number(s));
+}
+let TASK_MSG_CAP_PER_HOUR = taskMsgCapFrom(process.env.AGENT_WORKFORCE_TASK_MSG_CAP);
+// Test-only: set the cap for a test and restore it (no argument restores the environment's value).
+function setTaskMsgCapForTests(n) {
+  // Read like an operator's value, so a test cannot reach a cap production could never hold.
+  TASK_MSG_CAP_PER_HOUR = taskMsgCapFrom(n === undefined ? process.env.AGENT_WORKFORCE_TASK_MSG_CAP : n);
+}
+const TASK_MSG_WINDOW_MS = AGENT_RUNAWAY_WINDOW_MS; // the breaker's own window
 let taskMessageSends = [];
-function taskMessageValveTripped() {
-  const cutoff = Date.now() - TASK_MSG_WINDOW_MS;
-  taskMessageSends = taskMessageSends.filter((t) => t >= cutoff);
-  return taskMessageSends.length >= TASK_MSG_CAP_PER_HOUR;
+/* null to allow, or { because, retryAfterSecs }. The sentence names the limit, that it is shared
+   by all agents, and when it lifts; a cap of 0 says the messages are switched off instead. */
+function taskMessageRefusal(now = Date.now()) {
+  taskMessageSends = taskMessageSends.filter((t) => t >= now - TASK_MSG_WINDOW_MS);
+  if (TASK_MSG_CAP_PER_HOUR === 0) {
+    // No retry time: waiting does not help while the cap is 0, so none is offered. It stays a 429,
+    // not a 403, on purpose: both kosmos CLIs print the error text either way, and a 403 reads as
+    // "your token was refused", which would send the agent to fix its sign-in instead.
+    return { because: 'agent task messages are switched off on this computer (AGENT_WORKFORCE_TASK_MSG_CAP is 0); the person can still send from the screen', retryAfterSecs: null };
+  }
+  const r = runawayRefusal(taskMessageSends, { noun: 'task messages', did: 'sent',
+    pausing: 'agent task messages', again: 'send task messages', screen: 'send them' }, { now, limit: TASK_MSG_CAP_PER_HOUR });
+  return r && { because: r.because, retryAfterSecs: r.retryAfterSecs };
 }
 function taskMessageValveRecord() {
   taskMessageSends.push(Date.now());
@@ -2553,7 +2613,7 @@ function isSetupGuide(name) {
 function guideMasked(who, text) {
   if (typeof text !== 'string' || !isSetupGuide(who)) return text;
   const out = require('./engine/secretmask').mask(text);
-  if (out.fired.length) console.error(`#3769: masked ${require('./engine/secretmask').describeFired(out.fired)} in the setup guide's words`);
+  if (out.fired.length) console.error(`#3769: caught ${require('./engine/secretmask').describeFired(out.fired)} in the setup guide's words`);
   return out.text;
 }
 
@@ -2571,7 +2631,7 @@ function guideMaskedRows(rows, wholeThread) {
     if (!m || typeof m.text !== 'string') return m;
     if (!wholeThread && !isGuide(m.from)) return m;
     const out = require('./engine/secretmask').mask(m.text);
-    if (out.fired.length) console.error(`#3769: masked ${require('./engine/secretmask').describeFired(out.fired)} in the setup guide's words`);
+    if (out.fired.length) console.error(`#3769: caught ${require('./engine/secretmask').describeFired(out.fired)} in the setup guide's words`);
     return { ...m, text: out.text };
   });
 }
@@ -12330,7 +12390,8 @@ const server = http.createServer((req, res) => {
     // The board's word, through the engine's own constant. `tied` is implied
     // by the card lookup above (isNamedOurs), which is the same conjunct the
     // project route spells out.
-    const asking = Boolean(card) && card.state === STATE.NEEDS_YOU;
+    // #4006: a restart that did not come back reads needs_you with no question behind it.
+    const asking = Boolean(card) && card.state === STATE.NEEDS_YOU && !(card.disruption && card.disruption.failed === true);
     /**
      * ⚠️ THE CAPTURE RUNS ONLY WHEN THE QUESTION NEEDS IT, and that is a
      * DIFFERENT gate from the one the project thread refused.
@@ -14916,20 +14977,18 @@ const server = http.createServer((req, res) => {
             try { told = projects.syncAgent(made.who, roster); }
             catch (err2) { told = { state: projects.TOLD.COULD_NOT, because: String((err2 && err2.message) || 'we could not reach that agent') }; }
           }
-          // heardBy shares its budget with the part routes' valve (below):
-          // a process at the part routes' 12/hour cap must not ALSO get a
-          // separate 12/hour allowance here -- one shared count of "how many
-          // times a process paged a live pane this hour", not two 12/hour
-          // caps that combine to 24. Task CREATION has its own persisted
-          // refusal above (the runaway breaker, which 429s the whole request); this only
-          // gates whether the creation also gets to page a pane.
+          // The pane line spends the assignee's paging allowance (heardBudgetAllows,
+          // #3961), the same one the part routes spend: one count per assignee of how
+          // often agents typed into their screen this hour, whichever route did it.
+          // Task CREATION has its own persisted refusal above (the runaway breaker,
+          // which 429s the whole request); this only gates whether it also pages a pane.
           let heard;
-          if (viaScreen || heardBudgetAllows()) {
+          if (viaScreen || heardBudgetAllows(made.who, roster)) {
             heard = heardBy(id, made, made.who, made.sentence, roster);
-            // Only a REAL delivery spends the budget -- a run of failed
-            // attempts at an unreachable agent must not exhaust the shared
-            // hour for every other project's legitimate placements.
-            if (heard && heard.state === chat.DELIVERY.PLACED && !viaScreen) heardBudgetRecord();
+            // Only a REAL delivery spends the allowance: a run of failed attempts
+            // while an agent is unreachable must not use up its hour, or it would
+            // not be told once it is back.
+            if (heard && heard.state === chat.DELIVERY.PLACED && !viaScreen) heardBudgetRecord(made.who, roster);
           } else {
             heard = heardBudgetSkipped(made.who);
           }
@@ -15100,8 +15159,14 @@ const server = http.createServer((req, res) => {
          spam a task's people. Counted for PROCESS senders only; the operator is
          never valved (the person driving is the remedy, not the hazard -- the same
          posture as the task-creation and room valves). */
-      if (!viaScreen && taskMessageValveTripped()) {
-        sendJson(res, 429, { error: 'agents have sent many task messages in the last hour, so Kosmos is pausing agent task messages; the person can still send from the screen' });
+      const msgRefusal = viaScreen ? null : taskMessageRefusal();
+      if (msgRefusal) {
+        if (msgRefusal.retryAfterSecs !== null) {
+          res.setHeader('retry-after', String(msgRefusal.retryAfterSecs));
+          sendJson(res, 429, { error: msgRefusal.because, retry_after_secs: msgRefusal.retryAfterSecs });
+        } else {
+          sendJson(res, 429, { error: msgRefusal.because });
+        }
         return;
       }
       try {
@@ -15201,9 +15266,9 @@ const server = http.createServer((req, res) => {
       let body = null;
       try { body = JSON.parse(raw || 'null'); } catch { body = null; }
       const screen = isViaScreen(req, body);
-      /* The parts valve (#803): the WRITE is refused for a process past
-         twelve part changes an hour, counted across projects from the
-         records themselves; the screen is never valved. The sentence says
+      /* The parts valve (#803): the WRITE is refused for a process past the
+         shared runaway limit (engine/runaway.js, #3959), counted across projects
+         from the records themselves; the screen is never valved. The sentence says
          the number and when it lifts, and the header says it too. */
       if (!screen) {
         const v = tasks.partValve();
@@ -15218,9 +15283,9 @@ const server = http.createServer((req, res) => {
         const newPart = (out.task.parts || [])[(out.task.parts || []).length - 1];
         const roster = safeRoster();
         let heard;
-        if (screen || heardBudgetAllows()) {
+        if (screen || heardBudgetAllows(body && body.who, roster)) {
           heard = heardBy(id, out.task, body && body.who, newPart && newPart.sentence, roster);
-          if (heard && heard.state === chat.DELIVERY.PLACED && !screen) heardBudgetRecord();
+          if (heard && heard.state === chat.DELIVERY.PLACED && !screen) heardBudgetRecord(body && body.who, roster);
         } else {
           heard = heardBudgetSkipped(body && body.who);
         }
@@ -15558,7 +15623,7 @@ const server = http.createServer((req, res) => {
     // together with NEEDS_YOU and no test can hold this conjunct (round 14
     // measured its removal green). It stays for the day the upstream gating
     // changes; there is no route-level pin for it, on purpose recorded here.
-    const asking = member.tied && member.state === STATE.NEEDS_YOU;
+    const asking = member.tied && member.state === STATE.NEEDS_YOU && member.restartFailed !== true;   // #4006: no question behind a failed restart
     const paneQuestion = asking && view.text ? chat.questionIn(view.text) : null;
     /* #2456: the same reported-question fallback the agent thread uses. A
        reported needs_you gave us its words in the card's `because` (the header
@@ -16333,8 +16398,10 @@ function start(port = PORT) {
          #3087 (the launch shim re-writes trust+bypass every relaunch); this is the live
          handle for a prompt that surfaces ANYWAY (a relaunch before #3087, a
          create-before-shim race, or a #2173 config divergence). Each tick reads the
-         RECONCILED roster and, for every agent whose reconciled state is needs_you AND was
-         self-reported by:'auto', writes the folder-trust key + restarts it
+         RECONCILED roster and, for every CLAUDE agent (#4006: a card whose runner is another
+         runner, or unknown, is never restarted; only Claude Code has this prompt) whose
+         reconciled state is needs_you AND was self-reported by:'auto', writes the folder-trust
+         key + restarts it
          (class1autohandle.sweepOnce -> the SAME create.trustAgentFolder + remove.restart
          the manual /trust-and-restart button uses; NO send-keys - a mis-fired keystroke
          into a real conversation is the whole hazard), so the relaunch clears it and the
@@ -17055,7 +17122,10 @@ if (require.main === module) {
 // routes reading `req.url` around it were.
 module.exports = {
   server, start, pathOf, decodeSegment, resetHeardBudgetForTests,
+  HEARD_PER_AGENT_MAX, HEARD_RUNAWAY_MAX, spendHeardBudgetForTests, // #3961: the per-assignee paging allowance, for its tests
   AGENT_RUNAWAY_PER_HOUR, agentRunawayRefusal, setAgentRunawayLimitForTests, // #3959: the agent task/project breaker, for its tests
+  get TASK_MSG_CAP_PER_HOUR() { return TASK_MSG_CAP_PER_HOUR; }, // #3959: the task-message limit (default: the shared breaker); read it when needed, a destructured copy goes stale after setTaskMsgCapForTests
+  taskMsgCapFrom, setTaskMsgCapForTests, // #3959: how the operator's value is read, and the test seam
   resetRetellForTests: () => { RETELL_RECENT.length = 0; }, // #3923: the agent-made retry bound, emptied between tests
   CONNLOST_BOOK, connlostHealEnabled, // #3410: exported so a test can pin the route's reconnect field to the sweep's own book
   givePart, // #3595: the assign-and-tell path, exported so the Assigner's real write path is tested

@@ -126,7 +126,7 @@ test('#3769 a long reply cannot make the mask backtrack (it runs on the board\'s
 
 /* ---- follow-up: Ice Cream Kitty's review ----------------------------------------------------------- */
 
-const { WITHHELD, setKnownSecrets } = require('./secretmask');
+const { WITHHELD, UNCHECKED, setKnownSecrets, fragmentIndexStats } = require('./secretmask');
 
 test('#3769 a key the board holds is masked however it is written: raw, hex, base64 (padded or not), base64url', () => {
   const held = j('sk-ant-', 'api03-', 'HeldByTheBoard0123456789abcdefXYZ');
@@ -234,8 +234,10 @@ test('#3769 an ordinary 40KB table or list with 2000 held values costs little (r
   setKnownSecrets(Array.from({ length: 2000 }, (_, i) => `held-value-${String(i).padStart(8, '0')}-xyz`));
   try {
     const table = Array.from({ length: 800 }, (_, i) => `| Setting number ${i} | Choose AI Models |\n- item text here\n* another bullet`).join('\n').slice(0, 40000);
-    assert.equal(mask(table).text, table, 'an ordinary table was changed');
-    const ms = cpuMillisecondsOf(() => mask(table));
+    /* Timed on the first call (review round 25): a second call is a cache hit. */
+    let first = null;
+    const ms = cpuMillisecondsOf(() => { first = mask(table); });
+    assert.equal(first.text, table, 'an ordinary table was changed');
     assert.ok(ms < 400, `an ordinary table cost ${Math.round(ms)}ms of CPU`);
     const withKey = `${table.slice(0, 20000)} held-value-00001234-xyz ${table.slice(20000)}`;
     assert.ok(!mask(withKey).text.includes('held-value-00001234'), 'CONTROL: a held value inside the same table was not masked');
@@ -332,5 +334,977 @@ test('#3769 the separator join stays cheap on a long reply with the held values 
     assert.ok(ms < 1500, `a ${noisy.length}-character reply cost ${Math.round(ms)}ms of CPU`);
     const withSplit = `${noisy.slice(0, 5000)} held-value-0000, 1234-xyz ${noisy.slice(5000)}`;
     assert.ok(!mask(withSplit).text.includes('1234-xyz'), 'CONTROL: a comma-split held value inside the same reply was not masked');
+    /* #3935: masked where it sits, not by withholding the whole reply at the word walk's budget. */
+    assert.ok(!mask(noisy).fired.some((f) => f.kind === 'split_search_limit'), 'an ordinary long reply hit the word walk budget');
   } finally { setKnownSecrets([]); }
+});
+
+test('#3935 a held key with WORDS between its pieces is masked: row labels, another column, bullet text, prose around chunks', () => {
+  const held = j('sk-ant-', 'api03-', 'WordsBetweenThePieces0123456789XYZ');
+  setKnownSecrets([held]);
+  try {
+    const chunks = held.match(/.{1,8}/g);
+    const names = ['Alpha', 'Bravo', 'Charlie', 'Delta', 'Echo', 'Foxtrot'];
+    const cases = [
+      ['word row labels', `Here:\n| Part | Value |\n|---|---|\n${chunks.map((c, i) => `| ${names[i]} | ${c} |`).join('\n')}\nDone.`, 'Here:\n', '\nDone.'],
+      ['another filled column', `Here:\n| Value | Note |\n|---|---|\n${chunks.map((c, i) => `| ${c} | piece number ${i + 1} |`).join('\n')}\nDone.`, 'Here:\n', ' |\nDone.'],
+      ['bullets with a description', `Pieces:\n${chunks.map((c, i) => `- ${c}: the ${names[i]} part of your key`).join('\n')}\nThat is all.`, 'Pieces:\n', ' part of your key\nThat is all.'],
+      ['prose around bold and backticks', `The key starts with **${chunks[0]}**, then comes \`${chunks[1]}\`, followed by ${chunks.slice(2).map((c) => `**${c}**`).join(' and then ')}. Keep it safe.`, 'The key starts with **', '**. Keep it safe.'],
+      ['glued after a name', `KEY=${chunks[0]} | then | ${chunks.slice(1).join(' | then | ')} | end`, 'KEY=', ' | end'],
+    ];
+    for (const [name, input, head, tail] of cases) {
+      const r = mask(input);
+      for (const piece of chunks) assert.ok(!r.text.includes(piece), `${name}: the piece ${piece} survived: ${r.text}`);
+      assert.ok(r.text.startsWith(head) && r.text.endsWith(tail) && r.text.includes(MASK), `${name}: the text around the key was lost: ${JSON.stringify(r.text)}`);
+      assert.ok(r.fired.some((f) => f.kind === 'split_secret'), `${name}: reported as ${JSON.stringify(r.fired)}`);
+    }
+  } finally { setKnownSecrets([]); }
+});
+
+test('#3935 the word-skipping join is for held values only, and naming a held key\'s known opening is not a leak', () => {
+  const held = j('sk-ant-', 'api03-', 'WordsBetweenThePieces0123456789XYZ');
+  setKnownSecrets([held]);
+  try {
+    const ordinary = [
+      '| Name | Role |\n|---|---|\n| Charlie | Builder |\n| Delta | Reviewer |',
+      '- Theme: the colour of the board\n- Model: which AI answers\n- Folder: where the files live',
+      'Anthropic keys start with sk-ant-api03 and are about a hundred characters long. Paste yours in Settings.',
+    ];
+    for (const t of ordinary) assert.equal(mask(t).text, t, `ordinary text was changed: ${t}`);
+    /* CONTROL: the same key in the same table shape IS masked, so the untouched table above is not a mask
+       that never fires. */
+    const chunks = held.match(/.{1,8}/g);
+    const table = chunks.map((c, i) => `| Row${i} name | ${c} |`).join('\n');
+    assert.ok(!mask(table).text.includes(chunks[2]), 'CONTROL: the held key in a word-labelled table survived');
+  } finally { setKnownSecrets([]); }
+});
+
+test('#3935 the word walk is bounded: a reply built to keep thousands of held forms alive is withheld whole, cheaply', () => {
+  /* Random-looking, as keys are: a held value made of words is not walked at all. */
+  setKnownSecrets(Array.from({ length: 2000 }, (_, i) => `hq7x-vzlq-${String(i).padStart(8, '0')}-k9z`));
+  try {
+    /* 1,000 rows already exhaust the budget; a small input keeps the timing far inside the bound. */
+    const bad = Array.from({ length: 1000 }, (_, i) => `| hq7x-vzlq- | 0000 | ${i % 10} | 00 | -k9z |`).join('\n');
+    let r;
+    const ms = cpuMillisecondsOf(() => { r = mask(bad); });   // the budget is WORD_WALK_BUDGET in secretmask.js
+    /* Unbounded, the walk alone cost 9.6 seconds here. Bounded it cost about 18ms at the first budget (250,000; now 1,250,000); most of what remains
+       (about 600ms) is the separator copies' held-value search, which costs the same without this change. */
+    assert.ok(ms < 1500, `a ${bad.length}-character adversarial reply cost ${Math.round(ms)}ms of CPU`);
+    assert.equal(r.text, UNCHECKED, 'a search cut short by the budget must not return the text it could not finish checking');
+    assert.deepEqual(r.fired, [{ kind: 'split_search_limit', count: 1 }]);
+  } finally { setKnownSecrets([]); }
+});
+
+test('#3935 a noise run that equals the next piece cannot derail the walk ("Part 1" before a piece starting with 1)', () => {
+  const pieces = [j('sk-ant-', 'api03-', 'Q'), '1ZyXwVuT', 'sRqPoNmLk98765'];
+  setKnownSecrets([pieces.join('')]);
+  try {
+    const out = mask(`Here:\n${pieces.map((p, i) => `| Part ${i} | ${p} |`).join('\n')}\nDone.`).text;
+    for (const p of pieces) assert.ok(!out.includes(p), `the piece ${p} survived: ${out}`);
+    assert.ok(out.startsWith('Here:\n| Part 0 | ') && out.endsWith(' |\nDone.'), JSON.stringify(out));
+  } finally { setKnownSecrets([]); }
+});
+
+test('#3935 key characters glued to a piece do not hide it: a label with =, italics, a trailing slash (review round 1)', () => {
+  const held = j('sk-ant-', 'api03-', 'WordsBetweenThePieces0123456789XYZ');
+  setKnownSecrets([held]);
+  try {
+    const chunks = held.match(/.{1,8}/g);
+    const cases = [
+      ['labels with =', `${chunks.map((c, i) => `part${i + 1}=${c}`).join(', ')} end`],
+      ['italics on every piece', `${chunks.map((c, i) => `Piece ${i + 1}: _${c}_`).join('\n')}\nend`],
+      ['italics on the first piece only', `_${chunks[0]}_ then ${chunks.slice(1).join(' then ')} end`],
+      ['trailing slash', `${chunks.map((c) => `${c}/`).join(' next ')} end`],
+      ['leading slash (review round 8)', `${chunks[0]} ${chunks.slice(1).map((c) => `/${c}`).join(' next ')} end`],
+    ];
+    for (const [name, input] of cases) {
+      const r = mask(input);
+      for (const piece of chunks) assert.ok(!r.text.includes(piece), `${name}: the piece ${piece} survived: ${r.text}`);
+      assert.ok(r.text.endsWith('end') && r.fired.some((f) => f.kind === 'split_secret'), `${name}: ${JSON.stringify(r)}`);
+    }
+  } finally { setKnownSecrets([]); }
+});
+
+test('#3935 a very long held value (a whole file) cannot make the word walk scan a reply once per mention (review round 1)', () => {
+  const long = Array.from({ length: 1000 }, (_, i) => `Zq${String(i).padStart(4, '0')}Xw9Lp2Mn7Rt4Kv1B`).join('').slice(0, 40000);
+  const held = j('sk-ant-', 'api03-', 'WordsBetweenThePieces0123456789XYZ');
+  setKnownSecrets([long, held]);
+  try {
+    const reply = `${long.slice(0, 6)} x y z `.repeat(10000);
+    let r;
+    const ms = cpuMillisecondsOf(() => { r = mask(reply); });
+    assert.ok(ms < 600, `a ${reply.length}-character reply repeating a long held value's opening cost ${Math.round(ms)}ms of CPU`);
+    assert.equal(r.text, reply, 'a reply holding no key was changed');
+    /* CONTROL: a short held key split by words in the same reply is still masked. */
+    const chunks = held.match(/.{1,8}/g);
+    const withKey = `${reply.slice(0, 2000)} ${chunks.map((c, i) => `| Row${i} name | ${c} |`).join('\n')} ${reply.slice(2000, 4000)}`;
+    assert.ok(!mask(withKey).text.includes(chunks[2]), 'CONTROL: a split held key beside the long value survived');
+  } finally { setKnownSecrets([]); }
+});
+
+test('#3935 the look-ahead is charged per run visited, so repeating a held value\'s opening cannot run unbounded (review round 1)', () => {
+  const atCap = Array.from({ length: 64 }, (_, i) => `Qv${String(i).padStart(3, '0')}Jk8Wd3Hs6Nb`).join('').slice(0, 1024);
+  setKnownSecrets([atCap]);
+  try {
+    const reply = `${atCap.slice(0, 6)} x y z `.repeat(10000);
+    /* The median of three runs (review round 29: two loaded full-suite runs measured 605 and 626ms, and it passed at
+       200 to 250ms alone at load 25). Each run re-holds the value, which clears mask()'s cache, so each is a fresh
+       search (review round 33: long texts are cached by hash, and the second run had been a cache hit). */
+    let r;
+    const runs = [0, 1, 2].map(() => { setKnownSecrets([]); setKnownSecrets([atCap]); return cpuMillisecondsOf(() => { r = mask(reply); }); }).sort((x, y) => x - y);
+    const ms = runs[1];
+    assert.ok(runs[0] > 5, `every run was a cache hit (${runs.map(Math.round).join(', ')}ms), so the bound measured nothing`);
+    assert.ok(ms < 600, `a ${reply.length}-character reply repeating a held value's opening cost ${Math.round(ms)}ms of CPU (median of ${runs.map(Math.round).join(', ')})`);
+    /* The charge is what decides it (raising WORD_WALK_BUDGET in secretmask.js changes this test's answer): 10,000 openings each looking ahead over hundreds of runs spend the budget,
+       and the reply is withheld whole. That is the stated price of the bound on a reply built this way
+       (it holds no key); uncharged, the scan ran to the end instead. */
+    assert.equal(r.text, UNCHECKED);
+    assert.deepEqual(r.fired, [{ kind: 'split_search_limit', count: 1 }]);
+  } finally { setKnownSecrets([]); }
+});
+
+test('#3935 two held keys that share an opening, both split in one reply, are masked separately (review round 2)', () => {
+  const heldA = j('sk-ant-', 'api03-', 'QpLg7fWs2Xo9RbTe4Nk1Yz6Hd3Mv8Cu5Ao0Bi');
+  const heldB = j('sk-ant-', 'api03-', 'Vf4Rt9Kx2Zc7Ln0Sp5Wj8Ho3Mu6Db1Ea9Gy2Cq');
+  setKnownSecrets([heldA, heldB]);
+  try {
+    const rows = (k) => k.match(/.{1,8}/g).map((c, i) => `| Row${i} | ${c} |`).join('\n');
+    const input = `Account one:\n${rows(heldA)}\nAccount two:\n${rows(heldB)}\nDone.`;
+    const r = mask(input);
+    for (const k of [heldA, heldB]) for (const c of k.match(/.{1,8}/g).slice(1)) assert.ok(!r.text.includes(c), `the piece ${c} survived: ${r.text}`);
+    assert.ok(r.text.includes('\nAccount two:\n'), `the text between the two keys was masked: ${JSON.stringify(r.text)}`);
+    assert.ok(r.text.startsWith('Account one:\n') && r.text.endsWith(' |\nDone.'), JSON.stringify(r.text));
+    assert.ok(!r.text.includes(MASK + MASK), `two masks printed side by side: ${JSON.stringify(r.text)}`);
+    /* Masked piece by piece (review round 18), so one split_secret per piece: at least one per key. */
+    assert.ok(r.fired.find((f) => f.kind === 'split_secret').count >= 2, JSON.stringify(r.fired));
+  } finally { setKnownSecrets([]); }
+});
+
+test('#3935 a short mention of a key\'s opening in the prose does not cut a real split walk short', () => {
+  const held = j('sk-ant-', 'api03-', 'WordsBetweenThePieces0123456789XYZ');
+  setKnownSecrets([held]);
+  try {
+    const chunks = held.match(/.{1,8}/g);
+    const input = `${chunks[0]} is the first part. Anthropic keys all start sk-ant so that is expected. Then ${chunks.slice(1).join(' then ')} end`;
+    const out = mask(input).text;
+    for (const c of chunks) assert.ok(!out.includes(c), `the piece ${c} survived: ${out}`);
+  } finally { setKnownSecrets([]); }
+});
+
+test('#3935 a first piece that ends in the key\'s own _ or / is still an opening (review round 3)', () => {
+  for (const held of ['Qx7Lm2V_Rt4Kp1ZsWq9Bn3Hy6Jd0', 'Qx7Lm2V/Rt4Kp1ZsWq9Bn3Hy6Jd0']) {
+    setKnownSecrets([held]);
+    try {
+      const chunks = held.match(/.{1,8}/g);
+      const out = mask(`Here:\n${chunks.map((c, i) => `| Row${i} name | ${c} |`).join('\n')}\nDone.`).text;
+      for (const c of chunks) assert.ok(!out.includes(c), `${held}: the piece ${c} survived: ${out}`);
+    } finally { setKnownSecrets([]); }
+  }
+});
+
+test('#3935 a held password with symbols in it is walked without them (review round 3)', () => {
+  const held = 'Xk9mR#mP2wQ!qL7zN@vT4';
+  setKnownSecrets([held]);
+  try {
+    const out = mask('First: Xk9mR# then mP2wQ! then qL7zN@ and finally vT4. Done.').text;
+    for (const c of ['Xk9mR', 'mP2wQ', 'qL7zN']) assert.ok(!out.includes(c), `the piece ${c} survived: ${out}`);
+    assert.ok(out.startsWith('First: ') && out.endsWith('. Done.'), out);
+  } finally { setKnownSecrets([]); }
+});
+
+test('#3935 a held value made of words is not assembled out of an ordinary sentence (review round 3)', () => {
+  setKnownSecrets(['Administrator1', 'Settings2024']);
+  try {
+    for (const t of ['Log in as Administrator on step 1 of the guide.', 'Open Settings, then in 2024 you will see the new layout.']) {
+      assert.equal(mask(t).text, t, `an ordinary sentence was masked: ${t}`);
+    }
+    /* CONTROL: written whole, the same held values are still masked. */
+    /* No secret-name word in the sentence, so only holding the value can mask it (review round 7). */
+    const whole = mask('use Administrator1 here');
+    assert.equal(whole.text.includes('Administrator1'), false, 'CONTROL: a whole held value survived');
+    assert.ok(whole.fired.some((f) => f.kind === 'known_secret'), JSON.stringify(whole.fired));
+  } finally { setKnownSecrets([]); }
+});
+
+test('#3935 every distinct opening scanned is charged, so many openings sharing one index cost bounded CPU (review round 3)', () => {
+  const rnd = (i) => { let x = (i + 1) * 2654435761 % 4294967296, o = ''; for (let k = 0; k < 40; k += 1) { x = (x * 1103515245 + 12345) % 2147483648; o += 'ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz23456789'[x % 57]; } return o; };
+  setKnownSecrets(Array.from({ length: 2000 }, (_, i) => j('sk-ant-', 'api03-', rnd(i))));
+  try {
+    const reply = Array.from({ length: 10000 }, (_, i) => `sk-an${i}`).join(' ');
+    let r;
+    const ms = cpuMillisecondsOf(() => { r = mask(reply); });
+    assert.ok(ms < 600, `a ${reply.length}-character reply of distinct openings cost ${Math.round(ms)}ms of CPU`);
+    /* 10,000 distinct openings each scanning 2,000 forms spend the budget: withheld whole, the stated price
+       (the budget is WORD_WALK_BUDGET in secretmask.js). Uncharged, the scan ran to the end instead. */
+    assert.equal(r.text, UNCHECKED);
+  } finally { setKnownSecrets([]); }
+});
+
+test('#3935 a sentence naming the key\'s longer prefix between two pieces does not stop the walk (review round 5)', () => {
+  const held = j('sk-ant-', 'api03-', 'WordsBetweenThePieces0123456789XYZ');
+  setKnownSecrets([held]);
+  try {
+    const chunks = held.match(/.{1,8}/g);
+    const input = `${chunks[0]} is the first part (every Anthropic key starts with sk-ant-api03). Then ${chunks.slice(1).join(' then ')} end`;
+    const out = mask(input).text;
+    /* The first chunk is masked where it stands; the sentence's own public prefix (sk-ant-api03, which contains
+       it) stays readable now that pieces are masked one by one (review round 18). */
+    assert.ok(out.startsWith(MASK + ' is the first part (every Anthropic key starts with sk-ant-api03).'), out);
+    for (const c of chunks.slice(1)) assert.ok(!out.includes(c), `the piece ${c} survived: ${out}`);
+    assert.ok(out.endsWith(' end'), out);
+  } finally { setKnownSecrets([]); }
+});
+
+test('#3935 a key whose later chunk repeats its opening is still masked (review round 5)', () => {
+  const held = 'Qz7kQz7kVb2nLp9xWm4c';
+  setKnownSecrets([held]);
+  try {
+    const chunks = held.match(/.{1,4}/g);
+    const out = mask(`Here:\n${chunks.map((c, i) => `| Row${i} name | ${c} |`).join('\n')}\nDone.`).text;
+    for (const c of ['Vb2n', 'Lp9x', 'Wm4c']) assert.ok(!out.includes(c), `the piece ${c} survived: ${out}`);
+    assert.ok(!out.includes('Qz7k'), out);
+  } finally { setKnownSecrets([]); }
+});
+
+test('#3935 a held PEM key does not start a walk at every markdown rule (review round 5)', () => {
+  const pem = j('-----BEGIN EC ', 'PRIVATE KEY-----\nMHcCAQEEIBx7Qz9Lm2Vk4Rt8Wp1Nc6Hd3Js0Fg5Ya2Ub7Xe9Ko\n-----END EC ', 'PRIVATE KEY-----');
+  setKnownSecrets([pem]);
+  try {
+    const reply = Array.from({ length: 3000 }, (_, i) => `Section ${i}\n\n------\n\nsome text`).join('\n');
+    const r = mask(reply);
+    assert.equal(r.text, reply, `an ordinary reply with markdown rules was changed or withheld: ${JSON.stringify(r.fired)}`);
+  } finally { setKnownSecrets([]); }
+});
+
+test('#3935 a comparison is charged by its length: held values sharing a long prefix cannot run long under the budget (review round 6)', () => {
+  let x = 7; const rnd = (n) => { let o = ''; for (let k = 0; k < n; k += 1) { x = (x * 1103515245 + 12345) % 2147483648; o += 'ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz23456789'[x % 57]; } return o; };
+  const prefix = rnd(1000);
+  setKnownSecrets(Array.from({ length: 2000 }, () => prefix + rnd(20)));
+  try {
+    /* Near misses: each run matches the shared prefix for 999 characters, then diverges on a key character, so
+       each is a distinct opening. Most of what this reply still costs is the separator copies' search
+       (knownFormsIn, #3938), the same with or without the word walk, so only the walk's outcome is asserted. */
+    const reply = Array.from({ length: 120 }, (_, i) => `${prefix.slice(0, 999)}Z${i}`).join(' ');
+    let r;
+    const ms = cpuMillisecondsOf(() => { r = mask(reply); });
+    /* Charged by length, two such openings spend the budget (the budget is WORD_WALK_BUDGET in secretmask.js);
+       counted per comparison only, all 120 ran to the end, 1.5 to 2.4 seconds on the reviewer's machine. */
+    assert.equal(r.text, UNCHECKED, `the long comparisons were not charged (${Math.round(ms)}ms)`);
+  } finally { setKnownSecrets([]); }
+});
+
+test('#3935 a key character left out where the reply splits the key does not end the walk (review round 7)', () => {
+  const held = 'sk-ant-api03-Xy7Qp2Lm9Vb4Rt8Kz1Wn6Hd3Js0Fg5Ya2Ub7Xe9Ko';
+  setKnownSecrets([held]);
+  try {
+    const rest = held.slice(13).match(/.{1,8}/g);
+    const out = mask(`Prefix sk-ant-api03, then the rest: ${rest.map((c, i) => `part ${i + 1} ${c}`).join(', ')}.`).text;
+    for (const c of rest) assert.ok(!out.includes(c), `the piece ${c} survived: ${out}`);
+    assert.ok(out.startsWith('Prefix '), out);
+  } finally { setKnownSecrets([]); }
+});
+
+test('#3935 an abandoned first try at a key stays masked when the key is then given in full (review round 7)', () => {
+  const held = 'Qx7Lm2VbRt4Kp1ZsWq9Bn3Hy6Jd0Tc8F';
+  setKnownSecrets([held]);
+  try {
+    const chunks = held.match(/.{1,8}/g);
+    const out = mask(`First try: ${chunks.slice(0, 3).join(' then ')}. Sorry, again: ${chunks.join(' then ')} end`).text;
+    for (const c of chunks) assert.ok(!out.includes(c), `the piece ${c} survived: ${out}`);
+    assert.ok(out.startsWith('First try: ') && out.endsWith(' end'), out);
+  } finally { setKnownSecrets([]); }
+});
+
+test('#3935 deciding which starts to keep is not quadratic: many repeated openings cost little and are not withheld (review round 8)', () => {
+  const reply = Array.from({ length: 20000 }, () => `a1b2 a1b2 c3d4e5f6${'@'.repeat(60)}`).join('');
+  try {
+    /* Measured against the same reply with an unrelated held value, since most of a 1.5MB reply's cost is the
+       mask's ordinary linear passes: 1.3x with the sweep, 4x when every completion was compared with every other. */
+    /* The median of three interleaved runs each (review round 27: one run each failed under a loaded full suite,
+       780ms against 376ms, and passed alone). Every run is fresh because each changes the held set, which clears the cache. */
+    const base = []; const hit = [];
+    let r;
+    for (let i = 0; i < 3; i += 1) {
+      setKnownSecrets(['zz9yx8wv7ut6']);
+      base.push(cpuMillisecondsOf(() => mask(reply)));
+      setKnownSecrets(['a1b2c3d4e5f6']);
+      hit.push(cpuMillisecondsOf(() => { r = mask(reply); }));
+    }
+    const median = (xs) => [...xs].sort((x, y) => x - y)[1];
+    const baseline = median(base); const ms = median(hit);
+    assert.ok(ms < 2 * baseline, `20,000 repeated openings cost ${Math.round(ms)}ms of CPU against ${Math.round(baseline)}ms for the same reply with no match`);
+    assert.ok(!r.text.includes('c3d4e5f6'), 'the held value was not masked');
+  } finally { setKnownSecrets([]); }
+});
+
+test('#3935 glue at the end of a piece: a trailing -, a label after =, pieces wrapped in + (review round 9)', () => {
+  const held = 'sk-ant-api03-Xy7Qp2Lm9Vb4Rt8Kz1Wn6Hd3Js0Fg5Ya2Ub7Xe9Ko';
+  setKnownSecrets([held]);
+  try {
+    const chunks = held.match(/.{1,8}/g);
+    const cases = [
+      ['trailing -', `${chunks.map((c, i) => `step${i}: ${c}-`).join(' ')} end`],
+      ['label after =', `${chunks.map((c, i) => `${c}=part${i}`).join(' ')} end`],
+      ['wrapped in +', `${chunks.map((c) => `+${c}+`).join(' word ')} end`],
+    ];
+    for (const [name, input] of cases) {
+      const out = mask(input).text;
+      for (const c of chunks.slice(1)) assert.ok(!out.includes(c), `${name}: the piece ${c} survived: ${out}`);
+      assert.ok(out.endsWith(' end'), `${name}: ${out}`);
+    }
+  } finally { setKnownSecrets([]); }
+});
+
+test('#3935 a bare mention of the key\'s prefix before the key is not taken for a first try: the explanation stays (review round 9)', () => {
+  const held = 'sk-ant-api03-Xy7Qp2Lm9Vb4Rt8Kz1Wn6Hd3Js0Fg5Ya2Ub7Xe9Ko';
+  setKnownSecrets([held]);
+  try {
+    const rest = held.slice(13).match(/.{1,8}/g);
+    const out = mask(`Every Anthropic key begins sk-ant-api03- like this. Here is yours, split: sk-ant-api03- ${rest.join(' | ')} done`).text;
+    /* The last chunk is one letter, which ordinary words contain: check the pieces a reader could use. */
+    for (const c of rest.filter((x) => x.length >= 4)) assert.ok(!out.includes(c), `the piece ${c} survived: ${out}`);
+    assert.ok(out.includes(' like this. Here is yours, split: '), `the explanation was masked: ${out}`);
+  } finally { setKnownSecrets([]); }
+});
+
+test('#3935 an unrelated key between an abandoned try and the retry does not unmask the try (review round 10)', () => {
+  const C = 'Qw8eRt2yUi9oPa3sDf6gHj1kLz5xCv0b';
+  const B = 'Nm4bVc7xZq1wEr8tYu5iOp2aSd9fGh3j';
+  setKnownSecrets([C, B]);
+  try {
+    const text = [
+      'First try: Qw8eRt2y then Ui9oPa3s then Df6gHj1k.',
+      "Meanwhile, here is another account's key:",
+      '| Row0 | Nm4bVc7x |', '| Row1 | Zq1wEr8t |', '| Row2 | Yu5iOp2a |', '| Row3 | Sd9fGh3j |',
+      'Sorry, retry: Qw8eRt2y then Ui9oPa3s then Df6gHj1k then Lz5xCv0b end',
+    ].join('\n');
+    const out = mask(text).text;
+    for (const piece of [...C.match(/.{8}/g), ...B.match(/.{8}/g)]) assert.ok(!out.includes(piece), `the piece ${piece} survived: ${out}`);
+    assert.ok(out.startsWith('First try: ') && out.endsWith(' end'), out);
+  } finally { setKnownSecrets([]); }
+});
+
+test('#3935 a partial walk needs real pieces after a PUBLIC prefix: guide prose naming sk-ant-api03 is not masked (review round 11)', () => {
+  const cases = [
+    ['sk-ant-api03-Xy7Qp2Lm9Vb4Rt8Kz1Wn6Hd3Js0Fg5Ya2Ub7Xe9Ko', 'Anthropic keys start with sk-ant-api03 and look like this:\n- go to Settings\n- paste it in'],
+    ['sk-ant-api03-Xy7Qp2Lm9Vb4Rt8Kz1Wn6Hd3Js0Fg5Ya2Ub7Xe9Ko', 'Your key begins sk-ant-api03 - the rest is private.'],
+    ['sk-ant-api03-aXy7Qp2Lm9Vb4Rt8Kz1Wn6Hd3Js0Fg5Ya2Ub7Xe9K', 'Keys start with sk-ant-api03 and are a hundred characters long.'],
+    ['sk-ant-api03-2Xy7Qp2Lm9Vb4Rt8Kz1Wn6Hd3Js0Fg5Ya2Ub7Xe9K', 'Keys start with sk-ant-api03. Step 2: paste it.'],
+    [j('github_', 'pat_', '11ABCDEFG0123456789_abcdefghijklmnopqrstuvwxyz'), 'Fine-grained tokens start with github_pat_ and you make one like this. Step 1: open GitHub settings.'],
+  ];
+  for (const [held, text] of cases) {
+    setKnownSecrets([held]);
+    try {
+      assert.equal(mask(text).text, text, `ordinary guide text was masked: ${text}`);
+    } finally { setKnownSecrets([]); }
+  }
+  /* CONTROL: a real partial try (two 8-character pieces after the opening) is still masked. */
+  const held = 'Qw8eRt2yUi9oPa3sDf6gHj1kLz5xCv0b';
+  setKnownSecrets([held]);
+  try {
+    const out = mask('First try: Qw8eRt2y then Ui9oPa3s then Df6gHj1k. ' + 'Later text here. '.repeat(20)).text;
+    for (const piece of ['Qw8eRt2y', 'Ui9oPa3s', 'Df6gHj1k']) assert.ok(!out.includes(piece), `CONTROL: the piece ${piece} survived: ${out.slice(0, 120)}`);
+  } finally { setKnownSecrets([]); }
+});
+
+test('#3935 a run of the key\'s own separators left out at a split does not end the walk (review round 12)', () => {
+  for (const held of ['Qx7pLm2--Vb4Rt8Kz1WnAb3dEf7hJk9mNp2qRs5t', 'Qx7pLm2__Vb4Rt8Kz1WnAb3dEf7hJk9mNp2qRs5t']) {
+    setKnownSecrets([held]);
+    try {
+      const r = mask('Prefix Qx7pLm2, then the rest: part 1 Vb4Rt8Kz, part 2 1WnAb3dE, part 3 f7hJk9mN, part 4 p2qRs5t.');
+      for (const piece of ['Qx7pLm2', 'Vb4Rt8Kz', '1WnAb3dE', 'f7hJk9mN']) assert.ok(!r.text.includes(piece), `${held}: the piece ${piece} survived: ${r.text}`);
+      assert.ok(r.fired.some((f) => f.kind === 'split_secret'), JSON.stringify(r.fired));
+    } finally { setKnownSecrets([]); }
+  }
+});
+
+test('#3935 a URL-shaped held value: naming its public scheme and host is not a partial try (review round 13)', () => {
+  const cases = [
+    /* Joined, like SECRETS at the top, so this file does not itself read as a leak to a secret scanner. */
+    [j('https://discord.com/api/', 'webhooks/', '1234567890123/', 'AbCdEf0123456789GhIjKlMnOpQrStUvWx'), 'For Discord it looks like https://discord.com/api/webhooks/ followed by two ids.'],
+    [j('https://hooks.', 'slack.com/services/', 'T0123ABCD/', 'B0123EFGH/', 'Xy7Qp2Lm9Vb4Rt8Kz1Wn6Hd3'), 'Slack webhook links begin https://hooks.slack.com/services/ and then three ids.'],
+    [j('postgres://kosmos:', 'Xy7Qp2Lm9Vb4', '@localhost:5432/kosmos'), 'Kosmos stores data in postgres://kosmos on localhost:5432 by default.'],
+  ];
+  for (const [held, text] of cases) {
+    setKnownSecrets([held]);
+    try {
+      assert.equal(mask(text).text, text, `ordinary text naming a URL's public part was masked: ${text}`);
+    } finally { setKnownSecrets([]); }
+  }
+});
+
+test('#3935 a key in chunks joined by hyphens, licence-key style, is masked (review round 13)', () => {
+  const held = 'Qw8eRt2yUi9oPa3sDf6gHj1kLz5xCv0b';
+  setKnownSecrets([held]);
+  try {
+    const r = mask(`Here it is: ${held.match(/.{4}/g).join('-')} done`);
+    for (const c of held.match(/.{4}/g)) assert.ok(!r.text.includes(c), `the chunk ${c} survived: ${r.text}`);
+    assert.ok(r.text.startsWith('Here it is: ') && r.text.endsWith(' done'), r.text);
+    const u = mask(`Here it is: ${held.match(/.{4}/g).join('_')} done`).text;
+    assert.ok(!u.includes('Rt2y') && !u.includes('Cv0b'), `joined by underscores: ${u}`);
+  } finally { setKnownSecrets([]); }
+  /* CONTROL: a held value with its OWN hyphens is not searched with them dropped, and is still masked split by words. */
+  const own = 'sk-ant-api03-Xy7Qp2Lm9Vb4Rt8Kz1Wn6Hd3Js0Fg5Ya2Ub7Xe9Ko';
+  setKnownSecrets([own]);
+  try {
+    const chunks = own.match(/.{1,8}/g);
+    const out = mask(`${chunks.map((c, i) => `| Row${i} name | ${c} |`).join('\n')}`).text;
+    assert.ok(!out.includes(chunks[3]), `CONTROL: a key with its own hyphens, split by words, survived: ${out}`);
+  } finally { setKnownSecrets([]); }
+});
+
+test('#3935 licence-key chunks with words between the groups are masked (review round 14)', () => {
+  const held = 'Qw8eRt2yUi9oZa3sLz5xCv0bAb12Cd34';
+  setKnownSecrets([held]);
+  try {
+    for (const text of [
+      'Here it is: Qw8e-Rt2y and then Ui9o-Za3s and more text Lz5x-Cv0b and finally Ab12-Cd34 done',
+      'Piece one: Qw8e-Rt2y. Piece two: Ui9o-Za3s. Piece three: Lz5x-Cv0b. Piece four: Ab12-Cd34. done',
+      'Here it is: Qw8e_Rt2y and then Ui9o_Za3s and more text Lz5x_Cv0b and finally Ab12_Cd34 done',
+    ]) {
+      const r = mask(text);
+      for (const c of held.match(/.{4}/g)) assert.ok(!r.text.includes(c), `the chunk ${c} survived: ${r.text}`);
+      assert.ok(r.text.endsWith(' done'), r.text);
+    }
+  } finally { setKnownSecrets([]); }
+});
+
+test('#3935 a key given without its public prefix, split by words, is masked (review round 15)', () => {
+  const held = 'sk-ant-api03-Qx7vRt2mNp9bKd4sLw8zYh3cFj6gTa1e';
+  setKnownSecrets([held]);
+  try {
+    for (const text of ['After the usual prefix, yours goes Qx7vRt2m then Np9bKd4s then Lw8zYh3cFj6gTa1e end',
+      '| Qx7vRt2m | Np9bKd4s | Lw8zYh3cFj6gTa1e | end']) {
+      const out = mask(text).text;
+      for (const c of ['Qx7vRt2m', 'Np9bKd4s', 'Lw8zYh3c']) assert.ok(!out.includes(c), `the piece ${c} survived: ${out}`);
+    }
+    /* CONTROL: prose naming the public prefix alone is still untouched. */
+    const prose = 'Anthropic keys start with sk-ant-api03 and are about a hundred characters long.';
+    assert.equal(mask(prose).text, prose);
+  } finally { setKnownSecrets([]); }
+});
+
+test('#3935 a label joined to a piece by a hyphen does not hide the piece (review round 15)', () => {
+  const held = 'sk-ant-api03-Qx7vRt2mNp9bKd4sLw8zYh3cFj6gTa1e';
+  setKnownSecrets([held]);
+  try {
+    const out = mask('chunk-1-sk-ant-api03-Qx7v then chunk-2-Rt2mNp9b then chunk-3-Kd4sLw8z then chunk-4-Yh3cFj6gTa1e').text;
+    for (const c of ['Rt2mNp9b', 'Kd4sLw8z', 'Yh3cFj6gTa1e']) assert.ok(!out.includes(c), `the piece ${c} survived: ${out}`);
+  } finally { setKnownSecrets([]); }
+});
+
+test('#3935 a random single-case secret is not taken for words: split by a word it is masked (review round 16)', () => {
+  for (const [held, text] of [['kitgaubjgEFJMLCW', 'kitgaubjg account EFJMLCW'], ['zvqxrpldkinaeout', 'zvqxrpldki account naeout'], ['ZVQXRPLDKINAEOUT', 'ZVQXRPLDKI account NAEOUT']]) {
+    setKnownSecrets([held]);
+    try {
+      const r = mask(text);
+      assert.ok(!r.text.includes(text.split(' ')[0]) && !r.text.includes(text.split(' ')[2]), `${held} split by a word survived: ${r.text}`);
+      assert.ok(r.fired.some((f) => f.kind === 'split_secret'), JSON.stringify(r.fired));
+    } finally { setKnownSecrets([]); }
+  }
+  /* CONTROL: word-made values are still not walked (round 3's sentences stay readable). */
+  setKnownSecrets(['Administrator1', 'Settings2024']);
+  try {
+    for (const t2 of ['Log in as Administrator on step 1 of the guide.', 'Open Settings, then in 2024 you will see the new layout.']) assert.equal(mask(t2).text, t2);
+  } finally { setKnownSecrets([]); }
+});
+
+test('#3935 a retry within reach of an abandoned try: the prose between them stays (review round 16)', () => {
+  const held = 'Qx7Lm2VbRt4Kp1ZsWq9Bn3Hy6Jd0Tc8F';
+  setKnownSecrets([held]);
+  try {
+    const out = mask('First try: Qx7Lm2Vb then Rt4Kp1Zs then Wq9Bn3Hy. Sorry, again: Qx7Lm2Vb then Rt4Kp1Zs then Wq9Bn3Hy then 6Jd0Tc8F end').text;
+    for (const c of held.match(/.{8}/g)) assert.ok(!out.includes(c), `the chunk ${c} survived: ${out}`);
+    assert.ok(out.includes('Sorry, again:'), `the prose between the two tries was masked: ${out}`);
+  } finally { setKnownSecrets([]); }
+});
+
+test('#3935 pieces given without the key\'s own separators at several splits: every piece is masked (review round 17)', () => {
+  const anth = j('sk-ant-', 'api03-', 'Ab3dEf7hIj-Kl9mNo2pQr_St4uVw6xYz-Ab1cDe5fGh8iJk0lMn');
+  const five = 'Qw8eRt2yZm-Ui9oPa3sXc-Df4gHj5kVb-Zx7cVb1nMq-Lk3jHg6fDs';
+  const cases = [
+    [anth, 'Key: sk-ant-api03 then Ab3dEf7hIj then Kl9mNo2pQr then St4uVw6xYz and so on.', ['Ab3dEf7hIj', 'Kl9mNo2pQr', 'St4uVw6xYz']],
+    [five, 'Here: Qw8eRt2yZm then Ui9oPa3sXc then Df4gHj5kVb then Zx7cVb1nMq, and the rest later.', ['Qw8eRt2yZm', 'Ui9oPa3sXc', 'Df4gHj5kVb', 'Zx7cVb1nMq']],
+    [five, 'First Qw8eRt2yZm then Ui9oPa3sXc then Df4gHj5kVb oops. Sorry, again: Qw8eRt2yZm Ui9oPa3sXc Df4gHj5kVb Zx7cVb1nMq Lk3jHg6fDs done.', ['Qw8eRt2yZm', 'Ui9oPa3sXc', 'Df4gHj5kVb', 'Zx7cVb1nMq', 'Lk3jHg6fDs']],
+  ];
+  for (const [held, text, pieces] of cases) {
+    setKnownSecrets([held]);
+    try {
+      const out = mask(text).text;
+      for (const piece of pieces) assert.ok(!out.includes(piece), `the piece ${piece} survived: ${out}`);
+    } finally { setKnownSecrets([]); }
+  }
+});
+
+test('#3935 a label with many hyphens before a piece still offers the piece (review round 17)', () => {
+  const held = j('sk-ant-', 'api03-', 'Qx7vRt2mNp9bKd4sLw8zYh3cFj6gTa1e');
+  setKnownSecrets([held]);
+  try {
+    /* Six hyphens before a piece: more than the four tails, so only tails taken from the end reach it. */
+    const out = mask('first sk-ant-api03-Qx7v then a-very-long-label-name-here-Rt2mNp9b then yet-another-long-label-name-here-Kd4sLw8z then Yh3cFj6gTa1e').text;
+    for (const c of ['Rt2mNp9b', 'Kd4sLw8z', 'Yh3cFj6gTa1e']) assert.ok(!out.includes(c), `the piece ${c} survived: ${out}`);
+  } finally { setKnownSecrets([]); }
+});
+
+test('#3935 a completed walk masks the key\'s pieces, not the rows and bullets between them (review round 18)', () => {
+  const held = j('sk-ant-', 'api03-', 'WordsBetweenThePieces0123456789XYZ');
+  setKnownSecrets([held]);
+  try {
+    const chunks = held.match(/.{1,8}/g);
+    const names = ['Alpha', 'Bravo', 'Charlie', 'Delta', 'Echo', 'Foxtrot'];
+    const out = mask(`Here:\n| Part | Value |\n|---|---|\n${chunks.map((c, i) => `| ${names[i]} | ${c} |`).join('\n')}\nDone.`).text;
+    for (const c of chunks.slice(1)) assert.ok(!out.includes(c), `the piece ${c} survived: ${out}`);
+    for (const n of names) assert.ok(out.includes(`| ${n} | ${MASK} |`), `the row ${n} lost its shape: ${out}`);
+  } finally { setKnownSecrets([]); }
+});
+
+test('#3935 text dense with - _ and = but no held opening costs little (review round 18)', () => {
+  setKnownSecrets(Array.from({ length: 50 }, (_, i) => j('sk-ant-', 'api03-', `Qx7v${String(i).padStart(4, '0')}Rt2mNp9bKd4sLw8zYh3cFj6gTa1e`)));
+  try {
+    const reply = Array.from({ length: 4000 }, (_, i) => `pa-rt${i}_va=lue-${i}_end`).join(' ');
+    const baseline = (() => { setKnownSecrets(['zz9yx8wv7ut6']); return cpuMillisecondsOf(() => mask(reply)); })();
+    setKnownSecrets(Array.from({ length: 50 }, (_, i) => j('sk-ant-', 'api03-', `Qx7v${String(i).padStart(4, '0')}Rt2mNp9bKd4sLw8zYh3cFj6gTa1e`)));
+    let r;
+    const ms = cpuMillisecondsOf(() => { r = mask(reply); });
+    assert.equal(r.text, reply, 'glue-dense text holding no key was changed');
+    /* A ceiling, not a pin: measured 76ms here with variants built lazily against 118ms built for every run. */
+    assert.ok(ms < 4 * baseline + 100, `a ${reply.length}-character glue-dense reply cost ${Math.round(ms)}ms against ${Math.round(baseline)}ms with one unrelated held value`);
+  } finally { setKnownSecrets([]); }
+});
+
+test('#3935 a label glued AFTER a piece with - or _ does not hide it (review round 19)', () => {
+  const held = 'Zq8vLm3pRt6wXy9kHb2nWc4d';
+  setKnownSecrets([held]);
+  try {
+    for (const text of ['Zq8vLm3p-part1 then Rt6wXy9k-part2 then Hb2nWc4d-part3', 'Zq8vLm3p_a then Rt6wXy9k_b then Hb2nWc4d_c']) {
+      const out = mask(text).text;
+      for (const c of held.match(/.{8}/g)) assert.ok(!out.includes(c), `the piece ${c} survived: ${out}`);
+    }
+  } finally { setKnownSecrets([]); }
+});
+
+test('#3935 a first chunk too short to open a walk does not leave the rest readable (review round 19)', () => {
+  setKnownSecrets(['Zq8vLm3pRt6wXy9kHb2nWc4d']);
+  try {
+    const out = mask('Zq then 8vLm3pRt6wXy9kHb2nWc4d').text;
+    assert.ok(!out.includes('8vLm3pRt6wXy') && !out.includes('Hb2nWc4d'), `the remainder survived: ${out}`);
+  } finally { setKnownSecrets([]); }
+  setKnownSecrets(['Zq8vLm3pRt6wXy9kHb2n']);
+  try {
+    const out = mask('Start Zq8 then vLm3pRt6wXy9kHb2n end').text;
+    assert.ok(!out.includes('vLm3pRt6wXy9'), `the remainder survived: ${out}`);
+    assert.ok(out.startsWith('Start ') && out.endsWith(' end'), out);
+  } finally { setKnownSecrets([]); }
+  /* CONTROL: ordinary prose, long words included, is not fragment-matched. */
+  setKnownSecrets(['Zq8vLm3pRt6wXy9kHb2nWc4d']);
+  try {
+    const prose = 'Set this aside; the configuration file and its documentation live in settings.';
+    assert.equal(mask(prose).text, prose);
+  } finally { setKnownSecrets([]); }
+});
+
+test('#3935 wording only: the message a budget-stopped reply is withheld with does not claim a key was found (review round 19; withholding itself is asserted by the budget tests)', () => {
+  assert.notEqual(UNCHECKED, WITHHELD);
+  assert.match(UNCHECKED, /could not finish checking/);
+  assert.doesNotMatch(UNCHECKED, /removed a password/);
+});
+
+test('#3935 a held fragment far into one long run is still found (review round 20)', () => {
+  setKnownSecrets(['Zq8vLm3pRt6wXy9kHb2nWc4d']);
+  try {
+    let x = 3; let junk = ''; for (let i = 0; i < 4200; i += 1) { x = (x * 1103515245 + 12345) % 2147483648; junk += 'abcdefghjkmnpqrstuvwxyzABCDEFGHJKMNPQRSTUVWXYZ23456789'[x % 54]; }
+    const out = mask(`Intro line.\nZq${junk}8vLm3pRt6wXy9kHb2nWc4d\nTail line.`).text;
+    const r = mask(`Intro line.\nZq${junk}8vLm3pRt6wXy9kHb2nWc4d\nTail line.`);
+    assert.ok(!out.includes('8vLm3pRt6wXy9kHb2nWc4d'), 'the fragment past character 4096 survived');
+    /* The fragment search did it, not the long-token catch-all (review round 21). */
+    assert.ok(r.fired.some((f) => f.kind === 'split_secret'), JSON.stringify(r.fired));
+    assert.ok(out.startsWith('Intro line.\n') && out.endsWith('\nTail line.'), out.slice(0, 40));
+  } finally { setKnownSecrets([]); }
+});
+
+test('#3935 a held NAME=value line: a reply naming the variable is not masked, the value still is (review round 21)', () => {
+  const value = 'Zq8vLm3pRt6wXy9kHb2nWc4dPq7sTu5v';
+  setKnownSecrets([`KOSMOS_CF_ACCOUNT_ID_FOR_DEPLOYS=${value}`, value]);
+  try {
+    const t2 = 'To deploy, set KOSMOS_CF_ACCOUNT_ID_FOR_DEPLOYS in the settings page, then press Save.';
+    assert.equal(mask(t2).text, t2);
+    const out = mask('The value is Zq8vLm3p then Rt6wXy9k then Hb2nWc4d then Pq7sTu5v, done.').text;
+    assert.ok(!out.includes('Rt6wXy9k') && !out.includes('Pq7sTu5v'), `the value split by words survived: ${out}`);
+  } finally { setKnownSecrets([]); }
+});
+
+test('#3935 a held NAME=value line: no encoding of it is walked, so its name split in hex is not masked (review round 22)', () => {
+  const value = 'Zq8vLm3pRt6wXy9kHb2nWc4dPq7sTu5v';
+  setKnownSecrets([`KOSMOS_CF_ACCOUNT_ID_FOR_DEPLOYS=${value}`, value]);
+  try {
+    const hexName = Buffer.from('KOSMOS_CF_ACCOUNT_ID_FOR_DEPLOYS=').toString('hex');
+    const t = `name in hex: ${hexName.slice(0, 30)} ${hexName.slice(30)} ok`;
+    assert.equal(mask(t).text, t);
+    /* The whole line, encoded, is still masked. */
+    const b64 = Buffer.from(`KOSMOS_CF_ACCOUNT_ID_FOR_DEPLOYS=${value}`).toString('base64');
+    assert.ok(!mask(`here: ${b64} ok`).text.includes(b64.slice(20)));
+  } finally { setKnownSecrets([]); }
+});
+
+test('#3935 a full fragment index thins every value evenly, so the last value held is still found (review round 22)', () => {
+  /* Distinct random-looking values from a hash (a small LCG repeats: an earlier version shared one slice across
+     187 values, so the test found the last value through the first ones). */
+  const crypto = require('crypto');
+  const values = [];
+  for (let v = 0; v < 2000; v += 1) {
+    let s = '';
+    for (let i = 0; s.length < 1000; i += 1) s += crypto.createHash('sha256').update(`${v}:${i}`).digest('base64').replace(/[^A-Za-z0-9]/g, '');
+    values.push(s.slice(0, 1000));
+  }
+  setKnownSecrets(values);
+  try {
+    const { size, stride } = fragmentIndexStats();
+    assert.ok(size > 390000, `size ${size}: the values share slices, so the index never filled`);
+    assert.ok(stride > 1, `stride ${stride}`);
+    assert.ok(size <= 400000 + values.length, `size ${size}`);
+    /* FRAGMENT_LEN + stride - 1 consecutive characters always hold an indexed slice: take that many from the
+       middle of the first and of the last value, at every offset in a stride. */
+    for (const v of [values[0], values[values.length - 1]]) {
+      for (let off = 0; off < stride; off += 1) {
+        const piece = v.slice(500 + off, 500 + off + 12 + stride - 1);
+        const r = mask(`Before. ${piece} after.`);
+        assert.ok(!r.text.includes(piece), `offset ${off}: ${piece} survived`);
+        /* The fragment search found it, not the long-token catch-all, which masks any such run on its own. */
+        assert.ok(r.fired.some((f) => f.kind === 'split_secret'), `offset ${off}: ${JSON.stringify(r.fired)}`);
+      }
+    }
+  } finally { setKnownSecrets([]); }
+});
+
+test('#3935 padded base64 is a secret, not a NAME=value line: walked and fragment-indexed (review round 23)', () => {
+  const value = 'Zq8vLm3pRt6wXy9kHb2nWc4dQ1==';
+  for (const held of [[value], [`AUTH_SECRET=${value}`, value]]) {
+    setKnownSecrets(held);
+    try {
+      const out = mask('First Zq8vLm3p then Rt6wXy9k then Hb2nWc4dQ1== done').text;
+      assert.ok(!out.includes('Rt6wXy9k') && !out.includes('Hb2nWc4d'), `${held.length}: split survived: ${out}`);
+      const r = mask('Zq then 8vLm3pRt6wXy9kHb2n ok');
+      assert.ok(!r.text.includes('8vLm3pRt6wXy9kHb2n'), `${held.length}: fragment survived: ${r.text}`);
+    } finally { setKnownSecrets([]); }
+  }
+  /* Control: a real NAME=value line still leaves its name readable. */
+  setKnownSecrets([`KOSMOS_CF_ACCOUNT_ID_FOR_DEPLOYS=${value}`, value]);
+  try {
+    const t = 'To deploy, set KOSMOS_CF_ACCOUNT_ID_FOR_DEPLOYS in the settings page, then press Save.';
+    assert.equal(mask(t).text, t);
+  } finally { setKnownSecrets([]); }
+});
+
+test('#3935 a repeated opening that is not public is masked in its earlier copy too (review round 23)', () => {
+  setKnownSecrets(['Qw8eRt2yUi9oPa3sDf6gHj1kLz5xCv0b']);
+  try {
+    const out = mask('Here Qw8eRt2y, I mean Qw8eRt2y then Ui9oPa3s then Df6gHj1k then Lz5xCv0b ok').text;
+    assert.ok(!out.includes('Qw8eRt2y'), out);
+    assert.ok(out.startsWith('Here ') && out.includes(', I mean '), out);
+  } finally { setKnownSecrets([]); }
+  /* Control: a bare mention of a PUBLIC prefix before the key stays readable. */
+  setKnownSecrets(['sk-ant-api03-Zq8vLm3pRt6wXy9kHb2nWc4dQ1abcdEFGH']);
+  try {
+    const out = mask('Every key begins sk-ant-api03- and then, say, sk-ant-api03-Zq8vLm3p then Rt6wXy9k then Hb2nWc4dQ1ab then cdEFGH done').text;
+    assert.ok(out.startsWith('Every key begins sk-ant-api03- and then, say, '), out);
+    assert.ok(!out.includes('Rt6wXy9k'), out);
+  } finally { setKnownSecrets([]); }
+});
+
+test('#3935 a held webhook URL: its public path does not mask a placeholder URL, its token is still found (review round 23)', () => {
+  setKnownSecrets(['https://discord.com/api/webhooks/123456789012345678/Zq8vLm3pRt6wXy9kHb2nWc4dQ1abcdEFGH']);
+  try {
+    const t = 'It looks like https://discord.com/api/webhooks/YOUR_WEBHOOK_ID/YOUR_TOKEN when you paste it.';
+    assert.equal(mask(t).text, t);
+    const r = mask('token part: xx Hb2nWc4dQ1abcdEF yy');
+    assert.ok(!r.text.includes('Hb2nWc4dQ1abcdEF'), r.text);
+    assert.ok(r.fired.some((f) => f.kind === 'split_secret'), JSON.stringify(r.fired));
+  } finally { setKnownSecrets([]); }
+});
+
+test('#3935 a cached result does not outlive the held set it was made under (review round 23)', () => {
+  const t = 'First Zq8vLm3p then Rt6wXy9k then Hb2nWc4dPq7sTu5v done';
+  setKnownSecrets(['Zq8vLm3pRt6wXy9kHb2nWc4dPq7sTu5v']);
+  try {
+    assert.notEqual(mask(t).text, t);
+    assert.notEqual(mask(t).text, t, 'the second (cached) read differs');
+    setKnownSecrets(['Zq8vLm3pRt6wXy9kHb2nWc4dPq7sTu5v']);
+    assert.notEqual(mask(t).text, t, 'an unchanged set lost its masking');
+    setKnownSecrets([]);
+    assert.equal(mask(t).text, t, 'a cleared set still served the cached mask');
+    /* A caller changing a returned result does not change the next one. */
+    setKnownSecrets(['Zq8vLm3pRt6wXy9kHb2nWc4dPq7sTu5v']);
+    mask(t);
+    const a = mask(t); a.fired.push({ kind: 'x', count: 1 }); a.fired[0].count = 99;
+    const b = mask(t);
+    assert.ok(!b.fired.some((f) => f.kind === 'x' || f.count === 99), JSON.stringify(b.fired));
+  } finally { setKnownSecrets([]); }
+});
+
+test('#3935 the same held set in another order keeps its index; a different set rebuilds it (review round 24)', () => {
+  const values = ['Zq8vLm3pRt6wXy9kHb2nWc4dPq7sTu5v', 'Qw8eRt2yUi9oPa3sDf6gHj1kLz5xCv0b', 'Mn4bVc7xZa1sDf3gHj5kLp8oIu2yTr6e'];
+  setKnownSecrets(values);
+  try {
+    const before = fragmentIndexStats().builds;
+    setKnownSecrets([...values].reverse());
+    assert.equal(fragmentIndexStats().builds, before, 'the same set, reordered, was rebuilt');
+    setKnownSecrets(values.slice(1));
+    assert.equal(fragmentIndexStats().builds, before + 1, 'a changed set was not rebuilt');
+    assert.equal(mask('First Zq8vLm3p then Rt6wXy9k then Hb2nWc4dPq7sTu5v done').text, 'First Zq8vLm3p then Rt6wXy9k then Hb2nWc4dPq7sTu5v done');
+  } finally { setKnownSecrets([]); }
+});
+
+test('#3935 a key spaced one character at a time WITH words between its chunks is masked (review round 25)', () => {
+  setKnownSecrets(['Zq8vLm3pRt6wXy9kHb2nWc4dPq7sTu5v']);
+  try {
+    const out = mask('First Z q 8 v L m 3 p R t 6 then w X y 9 k H b 2 n W c then 4 d P q 7 s T u 5 v done').text;
+    assert.ok(out.startsWith('First ') && out.endsWith(' done') && !/w X y 9 k H b 2/.test(out) && !/4 d P q 7 s T/.test(out), out);
+    const frag = mask('Look: 6 w X y 9 k H b 2 n W c ok').text;
+    assert.ok(!/X y 9 k H b/.test(frag), frag);
+    /* Control: ordinary spelled-out letters are not a key. */
+    const t = 'Spell it: I am a person who likes a b c d e f g h i j k tea';
+    assert.equal(mask(t).text, t);
+  } finally { setKnownSecrets([]); }
+});
+
+test('#3935 a whole env file held: its later variable NAMES stay readable, every value is still masked (review round 25)', () => {
+  const knownsecrets = require('./knownsecrets');
+  const fs = require('fs'); const os = require('os'); const path = require('path');
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'km-3935-'));
+  const a = 'Zq8vLm3pRt6wXy9kHb2nWc4dPq7sTu5v'; const b = 'Qw8eRt2yUi9oPa3sDf6gHj1kLz5xCv0b';
+  try {
+    fs.mkdirSync(path.join(root, 'secrets'));
+    fs.writeFileSync(path.join(root, 'secrets', 'cf.env'), `CF_API_TOKEN=${a}\nGH_PAT_TOKEN=${b}\n`);
+    setKnownSecrets(knownsecrets.collect({ dataRoot: root, home: root }));
+    for (const name of ['CF_API_TOKEN', 'GH_PAT_TOKEN']) {
+      const t = `The variable is ${name}, set it in the file.`;
+      assert.equal(mask(t).text, t, name);
+    }
+    const out = mask('First Qw8eRt2y then Ui9oPa3s then Df6gHj1k then Lz5xCv0b done').text;
+    assert.ok(!out.includes('Ui9oPa3s') && !out.includes('Lz5xCv0b'), out);
+    assert.ok(!mask(`here: CF_API_TOKEN=${a}\nGH_PAT_TOKEN=${b}\n`).text.includes(b), 'the whole file showed');
+  } finally { setKnownSecrets([]); fs.rmSync(root, { recursive: true, force: true }); }
+});
+
+test('#3935 past the value cap, a key held on its own survives before lines that stand in for it (review rounds 25 and 29)', () => {
+  /* Lowercase-leading, so plain string order would put it after the filler and drop it (review round 29: the old
+     version of this test could not fail once values were sorted). */
+  const value = 'zq8vLm3pRt6wXy9kHb2nWc4dPq7sTu5v';
+  const filler = Array.from({ length: 2000 }, (_, i) => `API_FILLER_${String(i).padStart(6, '0')}=xyz`);
+  setKnownSecrets([...filler, `API_SECRET=${value}`, value]);
+  try {
+    const out = mask('First zq8vLm3p then Rt6wXy9k then Hb2nWc4d then Pq7sTu5v done').text;
+    assert.ok(!out.includes('zq8vLm3p') && !out.includes('Rt6wXy9k') && !out.includes('Pq7sTu5v'), out);
+  } finally { setKnownSecrets([]); }
+});
+
+test('#3935 keys keep every fragment when long values thin the index: a bare 12-character excerpt of a key is found (review round 26)', () => {
+  const crypto = require('crypto');
+  const files = [];
+  for (let v = 0; v < 1000; v += 1) {
+    let s = '';
+    for (let i = 0; s.length < 1000; i += 1) s += crypto.createHash('sha256').update(`f${v}:${i}`).digest('base64').replace(/[^A-Za-z0-9]/g, '');
+    files.push(s.slice(0, 1000));
+  }
+  const key = 'Zq8vLm3pRt6wXy9kHb2nWc4dPq7sTu5vNa1b';
+  setKnownSecrets([...files, key]);
+  try {
+    const st = fragmentIndexStats();
+    assert.ok(st.stride > 1 && st.keyStride === 1, JSON.stringify(st));
+    for (let at = 2; at + 12 <= key.length; at += 1) {
+      const piece = key.slice(at, at + 12);
+      const r = mask(`Before. ${piece} after.`);
+      assert.ok(!r.text.includes(piece), `offset ${at}: ${piece} survived`);
+    }
+  } finally { setKnownSecrets([]); }
+});
+
+test('#3935 a label glued after a piece stays readable; only the piece is masked (review round 26)', () => {
+  setKnownSecrets(['Zq8vLm3pRt6wXy9kHb2nWc4dPq7sTu5v']);
+  try {
+    const out = mask('Start Zq8vLm3p then Rt6wXy9k=ThisIsPlainEnglishNotASecret then Hb2nWc4dPq7sTu5v end').text;
+    assert.ok(out.includes('=ThisIsPlainEnglishNotASecret'), out);
+    assert.ok(!out.includes('Rt6wXy9k') && !out.includes('Hb2nWc4d'), out);
+    const out2 = mask('Here Zq8vLm3p-part1 then Rt6wXy9k-part2 then Hb2nWc4dPq7sTu5v-part3 end').text;
+    /* -part3 goes with its piece: that run holds 12 characters of the key, and the fragment search masks such a run
+       whole (more of the key may sit on either side of what it matched). */
+    assert.ok(/-part1/.test(out2) && /-part2/.test(out2), out2);
+    assert.ok(!out2.includes('Zq8vLm3p') && !out2.includes('Rt6wXy9k'), out2);
+  } finally { setKnownSecrets([]); }
+});
+
+test('#3935 a hand-placed secrets file: comment lines and export, YAML and JSON names stay readable, every value is masked (review round 27)', () => {
+  const knownsecrets = require('./knownsecrets');
+  const fs = require('fs'); const os = require('os'); const path = require('path');
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'km-3935-27-'));
+  const a = 'Zq8vLm3pRt6wXy9kHb2nWc4dPq7sTu5v'; const b = 'Qw8eRt2yUi9oPa3sDf6gHj1kLz5xCv0b';
+  const c = 'Mn4bVc7xZa1sDf3gHj5kLp8oIu2yTr6e'; const d = 'Pl9oKi8uJy7hGt6fRd5eSw4qAz3xCv2b';
+  try {
+    fs.mkdirSync(path.join(root, 'secrets'));
+    fs.writeFileSync(path.join(root, 'secrets', 'cf.env'), `# Cloudflare API token, DNS edit scope\nexport CF_API_TOKEN=${a}\n`);
+    fs.writeFileSync(path.join(root, 'secrets', 'r2.yaml'), `r2_secret_access_key: ${b}\n`);
+    fs.writeFileSync(path.join(root, 'secrets', 'hook.json'), `{\n  "webhook_url_v2": "${c}",\n  "other": "${d}"\n}\n`);
+    setKnownSecrets(knownsecrets.collect({ dataRoot: root, home: root }));
+    for (const t of [
+      'Create a Cloudflare API token with the DNS edit scope, then paste it.',
+      'Set CF_API_TOKEN in the file.',
+      'Put it under r2_secret_access_key in the YAML.',
+      'The JSON key is webhook_url_v2, then save.',
+    ]) assert.equal(mask(t).text, t, t);
+    for (const v of [a, b, c, d]) {
+      const out = mask(`First ${v.slice(0, 8)} then ${v.slice(8, 16)} then ${v.slice(16, 24)} then ${v.slice(24)} done`).text;
+      assert.ok(!out.includes(v.slice(8, 16)) && !out.includes(v.slice(24)), `${v}: ${out}`);
+    }
+  } finally { setKnownSecrets([]); fs.rmSync(root, { recursive: true, force: true }); }
+});
+
+test('#3935 past the value cap, the same set in another order keeps the same values (review round 27)', () => {
+  const filler = Array.from({ length: 2000 }, (_, i) => `filler-value-${String(i).padStart(6, '0')}-xyz`);
+  const key = 'Zq8vLm3pRt6wXy9kHb2nWc4dPq7sTu5v';
+  const t = 'First Zq8vLm3p then Rt6wXy9k then Hb2nWc4dPq7sTu5v done';
+  const results = [];
+  for (const list of [[key, ...filler], [...filler, key]]) {
+    setKnownSecrets([]);
+    setKnownSecrets(list);
+    try { results.push(mask(t).text !== t); } finally { setKnownSecrets([]); }
+  }
+  assert.equal(results[0], results[1], `the same set held a different subset by order: ${JSON.stringify(results)}`);
+});
+
+test('#3935 a key in a comment line of a secrets file is still masked: commented out, or written bare (review round 28)', () => {
+  const knownsecrets = require('./knownsecrets');
+  const fs = require('fs'); const os = require('os'); const path = require('path');
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'km-3935-28-'));
+  const old = 'Zq8vLm3pRt6wXy9kHb2nWc4d'; const bare = 'Qw8eRt2yUi9oPa3sDf6gHj1k';
+  try {
+    fs.mkdirSync(path.join(root, 'secrets'));
+    fs.writeFileSync(path.join(root, 'secrets', 'cf.env'), `# OLD_API_KEY=${old}\n# rotated: ${bare} (keep until Friday)\nCF_API_TOKEN=Mn4bVc7xZa1sDf3gHj5kLp8o\n`);
+    setKnownSecrets(knownsecrets.collect({ dataRoot: root, home: root }));
+    for (const v of [old, bare]) {
+      const out = mask(`First ${v.slice(0, 8)} then ${v.slice(8, 16)} then ${v.slice(16)} done`).text;
+      assert.ok(!out.includes(v.slice(8, 16)) && !out.includes(v.slice(16)), `${v}: ${out}`);
+    }
+    /* Controls: the comment's words and the variable names stay readable. */
+    for (const t of ['Set OLD_API_KEY and CF_API_TOKEN in the file.', 'It was rotated, keep it until Friday.']) assert.equal(mask(t).text, t);
+  } finally { setKnownSecrets([]); fs.rmSync(root, { recursive: true, force: true }); }
+});
+
+test('#3935 a prose line in a secrets folder ("Note: see the wiki ...") is not read as a YAML value (review round 28)', () => {
+  const { assignedValue } = require('./knownsecrets');
+  assert.equal(assignedValue('Note: see the wiki for full setup details'), null);
+  assert.equal(assignedValue('r2_secret_access_key: Qw8eRt2yUi9oPa3s'), 'Qw8eRt2yUi9oPa3s');
+  assert.equal(assignedValue('  "webhook_url_v2": "Mn4bVc7xZa1sDf3g",'), 'Mn4bVc7xZa1sDf3g');
+  assert.equal(assignedValue('# OLD_API_KEY=Zq8vLm3pRt6wXy9kHb2n'), 'Zq8vLm3pRt6wXy9kHb2n');
+});
+
+test('#3935 lines with spaces are not walked, their key-shaped tokens are; a bare value starting with # is walked (review round 29)', () => {
+  const knownsecrets = require('./knownsecrets');
+  const fs = require('fs'); const os = require('os'); const path = require('path');
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'km-3935-29-'));
+  const glued = 'Zq8vLm3pRt6wXy9kHb2nWc4d'; const pw = '#PqzRtLmWxKvBnHs';
+  try {
+    fs.mkdirSync(path.join(root, 'secrets'));
+    fs.writeFileSync(path.join(root, 'secrets', 'notes.txt'), `# token:${glued}\n# Created 2026-09-25T11:54:00Z for kosmos#3935, see https://github.com/joshualeestone/kosmos/issues/3935\n`);
+    fs.writeFileSync(path.join(root, 'secrets', 'pw'), pw);
+    setKnownSecrets(knownsecrets.collect({ dataRoot: root, home: root }));
+    const a = mask(`First ${glued.slice(0, 8)} then ${glued.slice(8, 16)} then ${glued.slice(16)} done`).text;
+    assert.ok(!a.includes(glued.slice(8, 16)) && !a.includes(glued.slice(16)), a);
+    const b = mask('First PqzRtLmW then xKvBnHs done').text;
+    assert.ok(!b.includes('PqzRtLmW'), b);
+    /* Controls: a timestamp and an issue URL from the same comment stay readable in prose. */
+    for (const t of ['The token was created at 2026-09-25T11:54:00Z.', 'Details are in https://github.com/joshualeestone/kosmos/issues/3935 today.']) assert.equal(mask(t).text, t);
+  } finally { setKnownSecrets([]); fs.rmSync(root, { recursive: true, force: true }); }
+});
+
+test('#3935 past the value cap, a compact JSON line ("name":"value") does not crowd out a real key (review round 30)', () => {
+  const value = 'zq8vLm3pRt6wXy9kHb2nWc4dPq7sTu5v';
+  /* The filler sorts before the key, so exactly one bare value is dropped at the cap: the key, unless the JSON line
+     ranks after it (it sorts first of all by its quote). */
+  const filler = Array.from({ length: 1999 }, (_, i) => `aa-filler-${String(i).padStart(6, '0')}-xyz`);
+  setKnownSecrets([...filler, value, '"name":"AbCdEf123456ZzYy1234"']);
+  try {
+    const out = mask('First zq8vLm3p then Rt6wXy9k then Hb2nWc4d then Pq7sTu5v done').text;
+    assert.ok(!out.includes('Rt6wXy9k') && !out.includes('Pq7sTu5v'), out);
+  } finally { setKnownSecrets([]); }
+});
+
+test('#3935 an env value is one token or a quoted string, not the rest of the line (review round 30)', () => {
+  const { assignedValue } = require('./knownsecrets');
+  assert.equal(assignedValue('CF_API_TOKEN=AbCdEf123456ZzYy is the rotated one'), 'AbCdEf123456ZzYy');
+  assert.equal(assignedValue('CF_API_TOKEN=AbCdEf123456ZzYy # rotated'), 'AbCdEf123456ZzYy');
+  assert.equal(assignedValue('PASS="my long pass phrase 9"'), 'my long pass phrase 9');
+});
+
+test('#3935 a padded base64 key on a line with spaces is held and masked, whole or split (review round 31)', () => {
+  const knownsecrets = require('./knownsecrets');
+  const fs = require('fs'); const os = require('os'); const path = require('path');
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'km-3935-31-'));
+  const key = 'Zq8vLm3pRt6wXy9kHb2nWc4dQ1=';
+  try {
+    fs.mkdirSync(path.join(root, 'secrets'));
+    fs.writeFileSync(path.join(root, 'secrets', 'notes.txt'), `prod key ${key} (rotated monthly)\n`);
+    setKnownSecrets(knownsecrets.collect({ dataRoot: root, home: root }));
+    assert.ok(!mask(`The key is ${key}`).text.includes('Rt6wXy9k'), 'shown whole');
+    const out = mask('First Zq8vLm3p then Rt6wXy9k then Hb2nWc4dQ1= done').text;
+    assert.ok(!out.includes('Rt6wXy9k') && !out.includes('Hb2nWc4d'), out);
+  } finally { setKnownSecrets([]); fs.rmSync(root, { recursive: true, force: true }); }
+});
+
+test('#3935 past the value cap, a bare ==-padded key is ranked as a key, not an assignment line (review round 31)', () => {
+  const value = 'zq8vLm3pRt6wXy9kHb2nWc4dQ1==';
+  /* 1,999 bare values and the key fill the cap exactly; ranked as a line, the key sorts after CF_API_TOKEN=... and is
+     the one dropped. */
+  const filler = Array.from({ length: 1999 }, (_, i) => `aa-filler-${String(i).padStart(6, '0')}-xyz`);
+  setKnownSecrets([...filler, value, 'CF_API_TOKEN=Mn4bVc7xZa1sDf3gHj5kLp8o']);
+  try {
+    const out = mask('First zq8vLm3p then Rt6wXy9k then Hb2nWc4dQ1== done').text;
+    assert.ok(!out.includes('Rt6wXy9k') && !out.includes('Hb2nWc4d'), out);
+  } finally { setKnownSecrets([]); }
+});
+
+test('#3935 a text over the cache limit is cached by its hash, and not past a change in the held set (review round 31)', () => {
+  const t = `${'Some ordinary guide prose here. '.repeat(2500)}First Zq8vLm3p then Rt6wXy9k then Hb2nWc4dPq7sTu5v done`;
+  assert.ok(t.length > 65536, 'fixture: over the text limit');
+  setKnownSecrets(['Zq8vLm3pRt6wXy9kHb2nWc4dPq7sTu5v']);
+  try {
+    const first = mask(t).text;
+    assert.ok(!first.includes('Rt6wXy9k'), 'first read');
+    const again = cpuMillisecondsOf(() => mask(t));
+    const fresh = cpuMillisecondsOf(() => mask(`${t} `));
+    assert.ok(again < fresh, `a repeated long text was searched again (${Math.round(again)}ms against ${Math.round(fresh)}ms fresh)`);
+    setKnownSecrets([]);
+    assert.equal(mask(t).text, t, 'a cleared set still served the cached long result');
+  } finally { setKnownSecrets([]); }
+});
+
+test('#3935 a secret written before its note, or with no digit, on a line with spaces is masked (review round 32)', () => {
+  const knownsecrets = require('./knownsecrets');
+  const fs = require('fs'); const os = require('os'); const path = require('path');
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'km-3935-32-'));
+  try {
+    fs.mkdirSync(path.join(root, 'secrets'));
+    fs.writeFileSync(path.join(root, 'secrets', 'notes.txt'), 'AbCdEfGh12345678: rotated last week, keep until Friday\n# rotated: PqzRtLmWxKvBnHsUvWyZaBcDe (keep until Friday)\n');
+    setKnownSecrets(knownsecrets.collect({ dataRoot: root, home: root }));
+    assert.ok(!mask('The value is AbCdEfGh12345678 ok').text.includes('AbCdEfGh1234'));
+    const out = mask('First PqzRtLmW then xKvBnHsU then vWyZaBcDe done').text;
+    assert.ok(!out.includes('xKvBnHsU') && !out.includes('vWyZaBcDe'), out);
+    assert.equal(mask('It was rotated last week, keep it until Friday.').text, 'It was rotated last week, keep it until Friday.');
+  } finally { setKnownSecrets([]); fs.rmSync(root, { recursive: true, force: true }); }
+});
+
+test('#3935 a key with - before its note, and a key glued with : on a line with no space, are masked split (review round 33)', () => {
+  const knownsecrets = require('./knownsecrets');
+  const fs = require('fs'); const os = require('os'); const path = require('path');
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'km-3935-33-'));
+  try {
+    fs.mkdirSync(path.join(root, 'secrets'));
+    fs.writeFileSync(path.join(root, 'secrets', 'notes.txt'), 'xK9-mP2qR7vT4wZ8nB5c: rotated last week\n');
+    fs.writeFileSync(path.join(root, 'secrets', 'htpasswd'), 'password:Hq7vLm3pRt6wXy9kHb2n\n');
+    setKnownSecrets(knownsecrets.collect({ dataRoot: root, home: root }));
+    assert.ok(!mask('Your key is xK9-mP2qR7vT4wZ8nB5c ok').text.includes('mP2qR7vT'));
+    const out = mask('Part one Hq7vLm3p then part two Rt6wXy9k then Hb2n.').text;
+    assert.ok(!out.includes('Hq7vLm3p') && !out.includes('Rt6wXy9k'), out);
+    const t = 'Set password and r2_secret_access_key before you start.';
+    assert.equal(mask(t).text, t);
+  } finally { setKnownSecrets([]); fs.rmSync(root, { recursive: true, force: true }); }
 });

@@ -2367,6 +2367,11 @@ body.filter-noproj #orgview .onode:not([data-noproj]) { opacity: .26; }
 .spin-sweep i:nth-child(5)::before { animation-delay: -.600s; }  .spin-sweep i:nth-child(6)::before { animation-delay: -.450s; }
 .spin-sweep i:nth-child(7)::before { animation-delay: -.300s; }  .spin-sweep i:nth-child(8)::before { animation-delay: -.150s; }
 @keyframes sweepLite { 0%, 72%, 100% { opacity: .2; transform: scale(.6); } 20% { opacity: 1; transform: scale(1.08); } }
+/* #4008 (Josh 2026-09-26): "Waking them..." after a model switch, a restart or a start carries this
+   Sweep loader in front of the words, so the wait reads as work in progress; the finished line in the
+   change dialog carries a check in the page's own green instead. */
+.wake-spin { margin-right: 8px; }
+.wake-done { display: inline-block; width: 16px; height: 16px; margin-right: 8px; vertical-align: -0.2em; color: var(--ok); }
 /* Accessibility: honour reduced-motion. Keep ONE calm pulse so the "working" signal
    survives, but stop the travel that can bother a motion-sensitive reader. */
 @media (prefers-reduced-motion: reduce) {
@@ -9350,8 +9355,47 @@ body.plus-active #plus-state2 { max-width: 26rem; padding: 2rem; }
 #plus-state2 .tk-inp:-webkit-autofill { -webkit-box-shadow: 0 0 0 1000px #16223e inset; }
 #plus-state2 .tk-inp:focus { outline: 2px solid #7ea0f0; outline-offset: 1px; border-color: #7ea0f0; }
 #plus-state2 .plus-si-wide { width: 75%; min-width: min(100%, 15rem); }
+/* The plain field look below is what a code field shows until the script draws its boxes (#3942,
+   .otp-boxes further down), and what it keeps if the boxes are ever not drawn. Inside the boxes
+   tabular-nums is moot (the boxes' font is monospace), and the placeholder rule has no placeholder
+   to style since the boxes replaced the "000000". */
 #plus-state2 .plus-si-otp { width: 12ch; font: 600 1.3rem ui-monospace, Menlo, monospace; letter-spacing: .3em; text-indent: .3em; text-align: center; font-variant-numeric: tabular-nums; }
 #plus-state2 .plus-si-otp::placeholder { letter-spacing: .3em; color: #4d5f86; -webkit-text-fill-color: #4d5f86; }
+/* #3942 (Josh, 2026-09-26): one big box per digit. The boxes are drawn BEHIND the one real input,
+   whose digits are spaced to land one per box (monospace, letter-spacing in ch), so paste, the
+   phone's one-time-code autofill, Backspace and a screen reader all work on an ordinary input.
+   The cells are decoration (aria-hidden); the box being typed into is outlined. The input is exactly
+   as wide as the boxes; the spacing after the sixth digit would scroll its text to show the
+   (invisible) caret, so the script puts its scroll back to zero. The wrapper CLIPS rather than
+   hides, because a hidden-overflow box still scrolls to show a focused child, which shifted every
+   box left. */
+/* The row scales to the width it is given: six boxes plus gaps are about 10.9em of monospace, so
+   8.6cqw of the .otp-fit wrapper (a margin for WebKit, whose monospace runs wider) keeps all six inside it on a narrow phone (a fixed size clipped the
+   sixth box on narrow phones, measured on the web sign-in). Where container units are missing
+   (Safari before 16), 7.5vw of the screen stands in: rougher, but it never overflows a phone. */
+#plus-state2 .otp-fit { container-type: inline-size; margin-top: .75rem; }
+#plus-state2 .otp-boxes { --cw: 2.6ch; --gap: .5ch; position: relative; display: block; overflow: hidden; overflow: clip;
+  font: 650 1.75rem/1 ui-monospace, Menlo, monospace; font-size: min(1.75rem, 7.5vw); font-size: min(1.75rem, 8.6cqw);
+  width: calc(6 * var(--cw) + 5 * var(--gap)); height: calc(var(--cw) * 1.25); }
+/* Spacing by margin, not flex gap (missing in Safari before 14.5), so the boxes stay under the digits. */
+#plus-state2 .otp-cells { position: absolute; top: 0; right: 0; bottom: 0; left: 0; display: flex; pointer-events: none; }   /* not inset: Safari before 14.1 */
+#plus-state2 .otp-cell + .otp-cell { margin-left: var(--gap); }
+#plus-state2 .otp-cell { flex: 0 0 var(--cw); box-sizing: border-box; border-radius: 12px; background: #16223e; border: 1px solid #5c78a6; }
+/* A focus sign that does not depend on the script's outline: every box brightens while the field has
+   focus (CSS alone), and the script outlines the box being typed into on top of that. */
+#plus-state2 .otp-boxes:focus-within .otp-cell { border-color: #7d95c2; }
+#plus-state2 .otp-cell.on { border-color: #7ea0f0; box-shadow: 0 0 0 2px #7ea0f0 inset; }
+/* Listed a second time with #panel-settings in front: the narrow-screen rule that sets every settings
+   input to 16px (so an iPhone does not zoom on focus) otherwise outranks this, shrinking the digits
+   off their boxes below 40rem, measured. These digits are 28px, above iOS's zoom threshold anyway. */
+#plus-state2 .otp-boxes .plus-si-otp, #plus-state2 .otp-boxes .plus-si-otp:focus,
+#panel-settings #plus-state2 .otp-boxes input.plus-si-otp, #panel-settings #plus-state2 .otp-boxes input.plus-si-otp:focus { position: absolute; left: 0; top: 0; height: 100%; width: 100%;
+  margin: 0; padding: 0 0 0 calc((var(--cw) - 1ch) / 2); border: 0; border-radius: 0; outline: 0; box-shadow: none; background: transparent; min-height: 0;
+  font: inherit; letter-spacing: calc(var(--cw) + var(--gap) - 1ch); text-indent: 0; text-align: left; caret-color: transparent; }
+#plus-state2 .otp-boxes .plus-si-otp:-webkit-autofill { -webkit-box-shadow: none; transition: background-color 600000s 0s; -webkit-text-fill-color: #E6EBF7; }
+/* High-contrast (forced colours) drops the box-shadow and repaints every border alike, which would
+   leave no sign of focus or of the current box: give the current box a thick system-colour edge. */
+@media (forced-colors: active) { #plus-state2 .otp-cell.on { border: 3px solid Highlight; } }
 #plus-state2 .plus-si-sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
 #plus-state2 .btn.uprime { background: linear-gradient(150deg,#3a68d8,#2f57c4); border: 1px solid #2f57c4; color: #fff; border-radius: 10px; font-weight: 650; padding: .6rem 1.4rem; }
 #plus-state2 .btn.uprime:hover { filter: brightness(1.08); background: linear-gradient(150deg,#3a68d8,#2f57c4); border-color: #2f57c4; color: #fff; }
@@ -9491,8 +9535,10 @@ body.plus-active #plus-state2 { max-width: 26rem; padding: 2rem; }
   #panel-detail:has(#d-sec-talk:not([hidden])) .dtext { align-items: flex-start; gap: 4px; }
   #panel-detail:has(#d-sec-talk:not([hidden])) .dnamerow {
     flex-direction: row; flex-wrap: wrap; align-items: baseline; column-gap: 8px; row-gap: 2px; }
-  /* font-size, not --dname-size: the fit-to-width script writes --dname-size inline on #d-name. */
-  #panel-detail:has(#d-sec-talk:not([hidden])) #d-name.dname { font-size: 1.125rem; }
+  /* 1.125rem here, not the 1.5rem base, so a short name is the phone's compact size. But the fit's
+     --dname-size wins when it is SMALLER (#3385 follow-up): a fixed size here overrode the fit, so a
+     long name was cut with an ellipsis at 18px on a phone instead of shrinking to fit. */
+  #panel-detail:has(#d-sec-talk:not([hidden])) #d-name.dname { font-size: min(1.125rem, var(--dname-size, 1.125rem)); }
   /* One compact identity row: the "no name was chosen" note and the full-size state badge are
      Profile's to explain; here the state stays, smaller. */
   #panel-detail:has(#d-sec-talk:not([hidden])) .detail-meta .dmeta-note { display: none; }
@@ -11492,6 +11538,7 @@ window.kosmosMeasureScrollbarWidth();
                aria-label="API key" placeholder="API key">
         <button class="linkish" id="acct-apikey-show" type="button" aria-pressed="false">Show</button>
       </div>
+      <p class="acct-help" style="margin:8px 0 0;"><a class="btn-quiet" id="acct-apikey-getkey" href="#" target="_blank" rel="noreferrer noopener">Get a key<span class="vh"> (opens the key page in your browser)</span></a></p>
       <div class="frow" style="margin-top:8px;">
         <input type="text" id="acct-apikey-name" autocomplete="off" maxlength="40"
                aria-label="A name for this account (optional)" placeholder="A name, if you want one">
@@ -11580,6 +11627,7 @@ window.kosmosMeasureScrollbarWidth();
                  aria-label="Anthropic API key" placeholder="sk-ant-…">
           <button class="linkish" id="acct-claude-show" type="button" aria-pressed="false">Show</button>
         </div>
+        <p class="acct-help" style="margin:8px 0 0;"><a class="btn-quiet" id="acct-claude-getkey" data-keypage="claude" href="#" target="_blank" rel="noreferrer noopener">Get a key<span class="vh"> (opens the key page in your browser)</span></a></p>
         <!-- Add has its own row under both fields (kosmos#978), where it reads as the
              action for the FORM rather than for whichever input it is touching. -->
         <div class="frow" style="margin-top:8px;">
@@ -11677,6 +11725,7 @@ window.kosmosMeasureScrollbarWidth();
                aria-label="OpenAI API key" placeholder="sk-…">
         <button class="linkish" id="acct-openai-show" type="button" aria-pressed="false">Show</button>
       </div>
+      <p class="acct-help" style="margin:8px 0 0;"><a class="btn-quiet" id="acct-openai-getkey" data-keypage="openai" href="#" target="_blank" rel="noreferrer noopener">Get a key<span class="vh"> (opens the key page in your browser)</span></a></p>
       <!-- 🛑 ADD IS NOT ON THE NAME'S ROW ANY MORE (kosmos#978). Josh read this
            form as "Add a name" rather than "activate this key", and the layout
            told him so: the rows were [key][Show] then [name][Add], so the only
@@ -12488,7 +12537,7 @@ window.kosmosMeasureScrollbarWidth();
                 </div>
                 <div id="fr-openai-flow" hidden class="fr-confirm">
                   <p class="fr-confirm-t" id="fr-openai-key-t">Download complete. You will need an OpenAI API key to finish. A key is a bit like a password that OpenAI issues for this computer. Getting one takes about 2 minutes on their site and you paste it here once you are done.</p>
-                  <div class="frow"><a class="btn" id="fr-openai-getkey" href="https://platform.openai.com/api-keys" target="_blank" rel="noopener">Get a key</a></div>
+                  <div class="frow"><a class="btn" id="fr-openai-getkey" data-keypage="openai" href="#" target="_blank" rel="noreferrer noopener">Get a key<span class="vh"> (opens the key page in your browser)</span></a></div>
                   <!-- 🛑 NO PROMISE ABOUT THE KEY ON THIS SCREEN. Josh, 2026-08-27:
                        "We don't need this line at all for the openAI."
                        ⭐ HE REMOVED THE CLAIM RATHER THAN WORDING IT. Ice Cream Kitty
@@ -12566,7 +12615,7 @@ window.kosmosMeasureScrollbarWidth();
                 </div>
                 <div id="fr-gemini-flow" hidden class="fr-confirm">
                   <p class="fr-confirm-t" id="fr-gemini-key-t">Download complete. You will need a Google API key to finish. A key is a bit like a password that Google issues for this computer. Getting one takes about 2 minutes on their site and you paste it here once you are done.</p>
-                  <div class="frow"><a class="btn" id="fr-gemini-getkey" href="https://aistudio.google.com/app/apikey" target="_blank" rel="noopener">Get a key</a></div>
+                  <div class="frow"><a class="btn" id="fr-gemini-getkey" data-keypage="google" href="#" target="_blank" rel="noreferrer noopener">Get a key<span class="vh"> (opens the key page in your browser)</span></a></div>
                   <p class="fr-confirm-t" id="fr-gemini-key-back" style="margin-top:8px;">Then come back and paste it here.</p>
                   <div class="frow">
                     <input type="password" id="fr-gemini-key" autocomplete="new-password" spellcheck="false"
@@ -12614,7 +12663,7 @@ window.kosmosMeasureScrollbarWidth();
                 </div>
                 <div id="fr-grok-flow" hidden class="fr-confirm">
                   <p class="fr-confirm-t" id="fr-grok-key-t">Download complete. You will need an xAI API key to finish. A key is a bit like a password that xAI issues for this computer. Getting one takes about 2 minutes on their site and you paste it here once you are done.</p>
-                  <div class="frow"><a class="btn" id="fr-grok-getkey" href="https://console.x.ai/" target="_blank" rel="noopener">Get a key</a></div>
+                  <div class="frow"><a class="btn" id="fr-grok-getkey" data-keypage="xai" href="#" target="_blank" rel="noreferrer noopener">Get a key<span class="vh"> (opens the key page in your browser)</span></a></div>
                   <p class="fr-confirm-t" id="fr-grok-key-back" style="margin-top:8px;">Then come back and paste it here.</p>
                   <div class="frow">
                     <input type="password" id="fr-grok-key" autocomplete="new-password" spellcheck="false"
@@ -15826,7 +15875,7 @@ window.kosmosMeasureScrollbarWidth();
         <div class="field">
           <!-- The label stays for a screen reader; on screen the line above says it (#3796). -->
           <label class="flabel plus-si-sr" for="plus-si-code-in">The code from the email</label>
-          <input class="tk-inp plus-si-otp" id="plus-si-code-in" type="text" inputmode="numeric" autocomplete="one-time-code" maxlength="12" placeholder="000000">
+          <input class="tk-inp plus-si-otp" id="plus-si-code-in" type="text" inputmode="numeric" autocomplete="one-time-code" maxlength="12">
         </div>
         <div class="frow">
           <button class="btn uprime" type="button" id="plus-si-code-go">Verify</button>
@@ -15843,7 +15892,7 @@ window.kosmosMeasureScrollbarWidth();
         <p class="plus-si-lead" id="plus-si-second-lead">Enter the 6-digit code from your second step.</p>
         <div class="field">
           <label class="flabel plus-si-sr" for="plus-si-second-in" id="plus-si-second-label">The code from your second step</label>
-          <input class="tk-inp plus-si-otp" id="plus-si-second-in" type="text" inputmode="numeric" autocomplete="one-time-code" maxlength="12" placeholder="000000">
+          <input class="tk-inp plus-si-otp" id="plus-si-second-in" type="text" inputmode="numeric" autocomplete="one-time-code" maxlength="12">
         </div>
         <div class="frow">
           <button class="btn uprime" type="button" id="plus-si-second-go">Verify</button>
@@ -15887,7 +15936,7 @@ window.kosmosMeasureScrollbarWidth();
         </div>
         <div class="field">
           <label class="flabel" for="plus-si-enrol-code">The code your second step shows</label>
-          <input class="tk-inp plus-si-otp" id="plus-si-enrol-code" type="text" inputmode="numeric" autocomplete="one-time-code" maxlength="12" placeholder="000000">
+          <input class="tk-inp plus-si-otp" id="plus-si-enrol-code" type="text" inputmode="numeric" autocomplete="one-time-code" maxlength="12">
         </div>
         <div class="frow">
           <button class="btn uprime" type="button" id="plus-si-enrol-confirm-go">Confirm</button>
@@ -16987,7 +17036,10 @@ const PRESSAY = {
 /* #3410 (Mona Lisa's look): a lost connection Kosmos has given up on needs the person, so it wears
    needs_you's card, not the quiet paused one it keeps while Kosmos is still reconnecting.
    Kept on ONE line: web.needsyou-dealarm-2808.test.js and server.test.js slice it to the newline. */
-function cardStOf(a) { if (a && a.state === 'connection_lost' && a.reconnect && a.reconnect.phase === 'gave_up') return CARD_ST.needs_you; return (a && a.state === 'needs_you' && a.stateReportedBy === 'agent') ? CARD_ST.question : (CARD_ST[a.state] || CARD_ST.unknown); }
+/* #4006: a restart that did not come back is red (st attn) but NOT online: nothing is running, so the presence is
+   off, which also keeps "Start this agent" offered (refreshStartAffordance shows it for presence off). */
+const CARD_ST_FAILED_RESTART = Object.freeze({ st: 'attn', pres: 'off' });
+function cardStOf(a) { if (a && a.state === 'needs_you' && a.disruption && a.disruption.failed === true) return CARD_ST_FAILED_RESTART; if (a && a.state === 'connection_lost' && a.reconnect && a.reconnect.phase === 'gave_up') return CARD_ST.needs_you; return (a && a.state === 'needs_you' && a.stateReportedBy === 'agent') ? CARD_ST.question : (CARD_ST[a.state] || CARD_ST.unknown); }
 /* #2019: the state's word. For every state but 'restarting' it is the static
    STATE_COPY entry. For 'restarting' the word names the CAUSE (present-continuous,
    no blame), so the person knows WHY their agent went quiet, and it is computed
@@ -17135,6 +17187,11 @@ function stateReason(a, opts) {
      "This is not the same as having none": it pre-empts the fear the state exists
      to answer. Placed FIRST so it is not swallowed by the rate_limited guard
      below, which returns '' for every other state. */
+  /* #4006: a restart that did not come back (the engine's needs_you with disruption.failed). The card
+     says so and what to do, instead of a bare "Issue": Josh's Grok agent sat dead 23 minutes behind one. */
+  if (a && a.state === 'needs_you' && a.disruption && a.disruption.failed === true && a.because) {
+    return a.because + '.';   // the engine's one sentence (status.js), not a second copy of it
+  }
   if (a && a.state === 'restarting') {
     /* #2019 timedOut: an OVERRUN restart must not still promise "a few seconds"
        -- the label already says "not back yet", and a card that says both reads
@@ -17341,7 +17398,33 @@ function acctParenthetical(a) {
   const acct = a && a.account;
   return (acct && (acct.name || acct.email || acct.label)) || '';
 }
-function runsOnLine(a) {
+/* #4008: the model a switch just restarted each agent on, by session name, set by changeModelNow on the
+   engine's "changed". The live reading (`modelName`) comes from the newest transcript, and until the
+   restarted session writes one, that is the OLD session's, so Runs on said "Right now: <the old model>"
+   behind the dialog that had just changed it. Held until the live reading agrees (the caller clears it). */
+const SWITCHED_MODEL = {};
+/* #4008 (round 2): the ONE place that decides whether a switch's record still speaks for an agent: it
+   exists and the agent is running. Runs on and the model picker both read it, so the two cannot disagree
+   about which model the agent is on. ⚠️ It reads cardStOf, so a test lifting a caller must lift that too. */
+function switchedModelFor(a) {
+  return (a && SWITCHED_MODEL[a.sessionName] && cardStOf(a).pres === 'on') ? SWITCHED_MODEL[a.sessionName] : '';
+}
+/* #4008: say a switch's result on Runs on NOW. Runs on is otherwise painted only when the agent's page
+   opens, so it kept the old model (or provider) behind the dialog that had just changed it. Only the name
+   and its lead change; the account in brackets is untouched. Through the DOM, so a stub element skips it. */
+function repaintRunsOnName(forAgent, name) {
+  if (!name || !CURRENT || CURRENT.sessionName !== forAgent) return;
+  const drun = document.getElementById('d-runson');
+  const bold = drun && typeof drun.querySelector === 'function' ? drun.querySelector('b') : null;
+  if (!bold) return;
+  bold.textContent = name;
+  const lead = bold.previousSibling;
+  if (lead && lead.nodeType === 3) lead.textContent = 'Right now: ';
+  else drun.insertBefore(document.createTextNode('Right now: '), bold);
+}
+/* ⚠️ `switched` IS A PARAMETER, NOT A READ OF SWITCHED_MODEL, so this function stays liftable (the suite
+   runs it on its own). Used only while the agent is running: a stopped agent's line is the job's. */
+function runsOnLine(a, switched) {
   const name = modelLine(a);
   /* ⚠️ THE TENSE COMES FROM `pres`, THE SAME DERIVATION THE PRESENCE DOT DRAWS,
      and that is the fix for a bug this function got wrong three times in one
@@ -17367,6 +17450,7 @@ function runsOnLine(a) {
      attribute under a role has no tense to get wrong. The panel needs one only
      because it is where the model gets changed. */
   const pres = cardStOf(a).pres;
+  if (switched && pres === 'on') return { lead: 'Right now: ', name: switched };
   const known = Boolean(a.modelName || a.plannedModelName);
   if (!known) return { lead: '', name };
   if (pres === 'on') return { lead: a.modelName ? 'Right now: ' : '', name };
@@ -17738,7 +17822,8 @@ function answerBtn(a) {
      forces untied panes to unknown today; the gate is for the day that
      changes). The accessible name CONTAINS the visible word "Answer"
      verbatim (SC 2.5.3). */
-  return a.state === 'needs_you' && a.isNamedOurs
+  /* #4006: a restart that did not come back has no question to answer. */
+  return a.state === 'needs_you' && a.isNamedOurs && !(a.disruption && a.disruption.failed === true)
     ? `<button class="ansgo" type="button" data-answer="${esc(a.sessionName)}"`
       + ` data-answer-name="${esc(a.name)}"`
       + ` aria-label="Answer ${esc(a.name)}'s question"><u>Answer &rarr;</u></button>`
@@ -24635,6 +24720,30 @@ document.getElementById('acct-openai-go').addEventListener('click', async () => 
     go.disabled = false;
   }
 });
+/* #3960 (Josh, 2026-09-26: "put a link to that if people select a Gemini key so they know where
+   to go to generate one"): where each provider issues API keys. ONE table, read by every "Get a key"
+   link (Settings and first run), so a moved page is one edit. Checked live 2026-09-26: Google's
+   sends a signed-out visitor through sign-in and back; Anthropic's old console address now forwards
+   to platform.claude.com, so the final address is used; OpenAI's and xAI's sit behind a bot check
+   and are the addresses their own docs give. */
+const KEY_PAGES = {
+  google: 'https://aistudio.google.com/apikey',
+  xai: 'https://console.x.ai/team/default/api-keys',
+  openai: 'https://platform.openai.com/api-keys',
+  claude: 'https://platform.claude.com/settings/keys',
+};
+/* Who issues each key, for the link's screen-reader text ("opens Google's key page"). */
+const KEY_PAGE_WHO = { google: 'Google', xai: 'xAI', openai: 'OpenAI', claude: 'Anthropic' };
+/** Point one "Get a key" link at a provider's key page, or hide it for a provider with none. */
+function keyPageLink(el, provider) {
+  if (!el) return;
+  const url = KEY_PAGES[provider] || '';
+  el.hidden = !url;
+  el.setAttribute('href', url || '#');
+  const said = el.querySelector && el.querySelector('.vh');
+  if (said) said.textContent = url ? ' (opens ' + KEY_PAGE_WHO[provider] + '\u2019s key page in your browser)' : ' (opens the key page in your browser)';
+}
+document.querySelectorAll('[data-keypage]').forEach((el) => keyPageLink(el, el.dataset.keypage));
 /* #2338: the picker's two choices. */
 /* #3566: Gemini and Grok, connected with a pasted API key. ONE step for both, keyed on
    the picked option, because the two engine routes are one helper parameterised by
@@ -24710,6 +24819,7 @@ function acctApikeyShow(which) {
     const m = document.getElementById('acct-apikey-msg'); if (m) m.textContent = '';
   }
   ACCT_APIKEY_WHICH = p ? which : null;
+  keyPageLink(document.getElementById('acct-apikey-getkey'), ACCT_APIKEY_WHICH);   // #3960
   acctKeyedInstallHide();
   /* #3731 (card item 5): never a key box, or Grok's choice, before the software is known to be
      here. Both stay hidden until /api/runners answers; an answer that does not say "present"
@@ -29764,16 +29874,26 @@ async function sendTalk(text, attachment) {
    the CSS fallback do not drift as three separate literals. */
 const DNAME_BASE_REM = 1.5;
 const DNAME_MIN_REM = 0.55;
+/* #3385 follow-up (Mona Lisa's visual closeout, 2026-09-26): ONE proportional step did not fit. The
+   system font draws small text relatively WIDER (optical sizing), so a 40-letter name scaled by the
+   width ratio still measured 240px in a 220px column and was cut with an ellipsis at 10.7px, well
+   above the floor. So it measures again at the size it set and corrects, a few times, from the size
+   the name is actually DRAWN at (a phone view may draw it smaller than the base, see the Talk rule). */
 function fitDetailName() {
   const el = document.getElementById('d-name');
   if (!el) return;
   el.style.setProperty('--dname-size', DNAME_BASE_REM + 'rem');   // measure at the base size
   const row = el.closest('.dnamerow') || el.parentElement;
   const avail = row ? row.clientWidth : 0;
-  const natural = el.scrollWidth;                     // full nowrap width at the base size
-  if (avail > 0 && natural > avail) {
-    const scaled = Math.max(DNAME_MIN_REM, DNAME_BASE_REM * (avail / natural));   // rem; floor keeps it readable, ellipsis catches the rest
-    el.style.setProperty('--dname-size', scaled.toFixed(3) + 'rem');
+  if (!(avail > 0) || el.scrollWidth <= avail) return;   // no layout yet, or it fits at the base size
+  const rootPx = parseFloat(getComputedStyle(document.documentElement).fontSize) || 16;
+  const floorPx = DNAME_MIN_REM * rootPx;
+  for (let i = 0; i < 6 && el.scrollWidth > avail; i += 1) {
+    const drawn = parseFloat(getComputedStyle(el).fontSize) || (DNAME_BASE_REM * rootPx);
+    if (drawn <= floorPx) break;   // at the floor: the ellipsis catches the rest
+    // A hair under the exact ratio, so rounding cannot leave it a pixel over.
+    const next = Math.max(floorPx, drawn * (avail / el.scrollWidth) * 0.99);
+    el.style.setProperty('--dname-size', (next / rootPx).toFixed(3) + 'rem');
   }
 }
 
@@ -30085,7 +30205,11 @@ function openDetail(sessionName, section, fromProject) {
      no tense, so it reads as THE model, and two elements naming one fact
      differently is precisely what this branch exists to stop. It takes the name
      the box resolved rather than deriving a second one. */
-  const runs = runsOnLine(a);   // read by the Runs-on box below (#3385: the title line no longer reads it)
+  /* #4008: a model switch's result stands until the live reading agrees with it, then the reading
+     takes over again. */
+  const switchedTo = (typeof SWITCHED_MODEL !== 'undefined' && SWITCHED_MODEL[a.sessionName]) || '';
+  if (switchedTo && a.modelName && modelLine({ modelName: a.modelName }) === switchedTo) delete SWITCHED_MODEL[a.sessionName];
+  const runs = runsOnLine(a, typeof switchedModelFor === 'function' ? switchedModelFor(a) : '');   // read by the Runs-on box below (#3385: the title line no longer reads it)
   /* #684: "shown by its machine name" only read as English to someone who had
      read the code (the first-run journey walk hit it in minute two). The fact
      it carries -- nobody chose a name, so the one on screen is the internal
@@ -30441,6 +30565,8 @@ function openDetail(sessionName, section, fromProject) {
      reflow, so the shrink lands before the first paint. Called on the cold
      open path (a board click straight into detail), which the earlier in-line
      call could not serve because the panel was still display:none. */
+  /* Not a duplicate of detailGo's fit (#3385 follow-up): this one fits at once, so the name never shows
+     cut; detailGo's runs a frame later, after the swarm avatar slot has been sized. Keep both. */
   fitDetailName();
 }
 
@@ -30677,6 +30803,9 @@ function detailGo(section, opts) {
     if (!CURRENT || CURRENT !== shownFor) return;
     const fresh = LAST.find((x) => x && x.sessionName === CURRENT.sessionName);
     if (fresh) renderAvatarSwarmOnly(fresh);
+    /* #3385 follow-up: the name's size is measured per section too. On a phone the Talk view draws
+       the name smaller (1.125rem) than Profile does, so a fit measured in one is wrong in the other. */
+    if (typeof fitDetailName === 'function') fitDetailName();
   });
 }
 /* #718: the height a phone can actually see, for the chat-first layout (the 40rem
@@ -32684,6 +32813,8 @@ document.getElementById('doc-go').addEventListener('click', async () => {
              does not land the line in another agent's dialog. */
           msg.textContent = 'Added and restarted. Waking ' + who2 + '…';
           const forAgent = plan.sessionName;
+          // #4008: the Sweep loader in front of the waiting line; the report's textContent write replaces it.
+          if (CURRENT && CURRENT.sessionName === forAgent && msg.isConnected && typeof msg.insertAdjacentHTML === 'function') msg.insertAdjacentHTML('afterbegin', WAKE_SPIN_HTML);
           // The open-agent guard (CURRENT.sessionName === forAgent) AND isConnected,
           // the same pair the rst-go site uses: the first keeps a late resolution
           // from landing in another agent's dialog, the second makes a write to a
@@ -35285,10 +35416,17 @@ document.getElementById('d-start-agent').addEventListener('click', async () => {
        agent (rst-go, trust-and-restart, the stale-instructions notice) landing
        while the hello is in flight; `say` additionally no-ops if the panel was
        switched or reopened (the epoch guard). */
-    say('Started ' + shown + '. Waking them…');
+    // #4008: built once, so the settle check below compares against exactly what was painted.
+    const startWaiting = 'Started ' + shown + '. Waking them…';
+    say(startWaiting);
+    // #4008: the Sweep loader in front of the waiting line; the next `say` replaces the whole line.
+    if (onPanel() && sm && typeof sm.insertAdjacentHTML === 'function') sm.insertAdjacentHTML('afterbegin', WAKE_SPIN_HTML);
     await sendWakeHello(name, token, say,
       'Started ' + shown + ', and said hello to wake them.',
       'Started ' + shown + '. Say ‘hello’ to wake them.');
+    /* #4008: a newer start or restart of this agent supersedes the hello without a report, and the
+       waiting line (now with a moving loader) would then look busy forever. Settle it on what is known. */
+    if (onPanel() && sm && sm.textContent === startWaiting) sm.textContent = 'Started ' + shown + '.';
     /* The agent is running now, so Start no longer applies: hide the BUTTON (the
        common restart keeps the row present -- state 'restarting' then a live state
        -- so the poll's withdrawn->reappear arm does not fire, and there is no
@@ -35428,6 +35566,9 @@ document.getElementById('rst-go').addEventListener('click', async () => {
        site and the synchronous write this replaced: on the detail page the note
        stays connected through tick, so it must not sit blank during that fetch. */
     showNote('Restarted. Waking them…');
+    // #4008: the Sweep loader in front of the waiting line (same guard as showNote); the next showNote
+    // replaces the whole line.
+    if (CURRENT && CURRENT.sessionName === name && note && note.isConnected && typeof note.insertAdjacentHTML === 'function') note.insertAdjacentHTML('afterbegin', WAKE_SPIN_HTML);
     /* #2831: only mutate the shared modal DOM if this handler still owns it. RST_BUSY
        now blocks an Escape/backdrop dismissal during the hold, so in practice RST_FOR
        is still `btn` here -- but the modal (rst-msg/rst-keep/rst-go/rst-modal) is a
@@ -36624,12 +36765,19 @@ window.addEventListener('resize', () => {
   if (document.body.classList.contains('consolidated') !== want && typeof URL_TAB === 'string') showTab(URL_TAB);
   else if (document.body.classList.contains('consolidated')) railFoldsApply();
   /* #3385: re-fit the detail name to the identity column when the window (and so the column)
-     changes width, while the detail panel is open. openDetail and the rename handler fit it once;
-     without this a long name keeps a size measured for the old width -- too small after a widen,
-     and reliant on the ellipsis fallback after a narrow. Guarded to the visible detail panel, so
-     it is a no-op on every other tab. */
-  if (URL_TAB === 'detail' && !document.getElementById('panel-detail').hidden) fitDetailName();
+     changes width, while the detail panel is open. openDetail, the rename handler and a section
+     change (detailGo) fit it too; without this a long name keeps a size measured for the old width --
+     too small after a widen, and reliant on the ellipsis fallback after a narrow. Guarded to the
+     visible detail panel, so it is a no-op on every other tab. The fit measures up to six times, so a
+     dragged window edge is coalesced to one fit per frame (as ORG_RESIZE_RAF does for the org chart). */
+  if (URL_TAB === 'detail' && !document.getElementById('panel-detail').hidden && !DNAME_RESIZE_RAF) {
+    DNAME_RESIZE_RAF = requestAnimationFrame(() => {
+      DNAME_RESIZE_RAF = 0;
+      if (URL_TAB === 'detail' && !document.getElementById('panel-detail').hidden) fitDetailName();
+    });
+  }
 });
+let DNAME_RESIZE_RAF = 0;   // one name fit per frame while a window edge is being dragged
 function applyStyle(tokens) {
   const root = document.documentElement;
   for (const name of STYLE_APPLIED) root.style.removeProperty(name);
@@ -37525,6 +37673,9 @@ function plusSiClear() {
      stopped mid-count; start the next sign-in with every control live. */
   if (typeof PLUS_COUNTDOWN !== 'undefined' && PLUS_COUNTDOWN) { clearInterval(PLUS_COUNTDOWN); PLUS_COUNTDOWN = null; }
   if (typeof document.querySelectorAll === 'function') {
+    /* #3942: the code fields' auto-submit watches these buttons come back. Its watcher runs after
+       this function returns (a MutationObserver), by which time the fields above are cleared, and it
+       also sends only while its step is on screen; so a code cannot be sent into a step left here. */
     document.querySelectorAll('#plus-state2 button').forEach((b) => { b.disabled = false; });
     document.querySelectorAll('#plus-state2 [aria-disabled]').forEach((a) => a.removeAttribute('aria-disabled'));
   }
@@ -37578,13 +37729,314 @@ document.getElementById('plus-si-cancel').addEventListener('click', (e) => {
   paintPlus();
 });
 /* Codes arrive by paste with whitespace riding along; normalize to six digits, as
-   the enrol code field above does. */
+   the enrol code field above does.
+   #3942 (Josh, 2026-09-26: "the code is really big and prominent in individual boxes... whenever I
+   paste it pastes across all of it... As soon as the code enters completely, it automatically
+   submits"): each code field is drawn as six boxes (CSS .otp-boxes: the boxes sit behind the one
+   real input, so paste and one-time-code autofill fill them all at once), and the moment the sixth
+   digit arrives the step's own button is pressed, once. The button stays for anyone who clicks. */
+/* #3942: the code in a pasted text, or '' when there is not exactly one. A code is a run of exactly
+   six digits, which may be split by one separator between groups: a space of any kind (a no-break
+   or thin space too), up to two spaces, a dot, or a hyphen or dash with optional spaces around it
+   ("123 456", "123-456", "123 – 456"). A full stop followed by a space is a sentence end, not a
+   separator, so "482913. 2026" is a code then a year. Longer runs
+   (a date 2026-09-26, a phone number 555-123-4567, an order number 20260926) are not codes. Two
+   six-digit runs: the one just after the word "code" wins, else neither (a guess would be sent as a
+   wrong code, and wrong codes count toward the sign-in's too-many-tries limit). */
+function plusSiCodeFromPaste(text) {
+  const t = String(text || '');
+  // Horizontal spaces only: a line break ends a code, so "482913" then a line starting "10 minutes" is a code.
+  const re = /\d(?:(?:[ \u00a0\u2009]?[\u2010-\u2015-][ \u00a0\u2009]?|[ \t\u00a0\u2009]{1,2}|\.)?\d)*/g;
+  const six = [];
+  let m;
+  while ((m = re.exec(t))) {
+    const d = m[0].replace(/\D/g, '');
+    if (d.length === 6) six.push({ d, before: t.slice(Math.max(0, m.index - 40), m.index) });
+  }
+  if (six.length === 1) return six[0].d;
+  if (six.length > 1 && six.every((x) => x.d === six[0].d)) return six[0].d;   // the same code written twice
+  const named = six.filter((x) => /\bcode\b/i.test(x.before));   // the word, so not "zipcode" or "barcode"
+  return named.length === 1 ? named[0].d : '';
+}
+const PLUS_SI_OTP_BOX = {};   // per code field: { drop } for plusSiRequestCode (Send again)
+const PLUS_SI_OTP_GO = { 'plus-si-code-in': 'plus-si-code-go', 'plus-si-second-in': 'plus-si-second-go', 'plus-si-enrol-code': 'plus-si-enrol-confirm-go' };
 for (const id of ['plus-si-code-in', 'plus-si-second-in', 'plus-si-enrol-code']) {
   const el = document.getElementById(id);
-  if (el) el.addEventListener('input', (e) => {
-    const clean = e.target.value.replace(/\D/g, '').slice(0, 6);
-    if (e.target.value !== clean) e.target.value = clean;
+  if (!el || !el.parentNode) continue;   // a field that is not in the document has nowhere to draw boxes
+  const box = document.createElement('div');
+  box.className = 'otp-boxes';
+  const cells = document.createElement('div');
+  cells.className = 'otp-cells';
+  cells.setAttribute('aria-hidden', 'true');
+  for (let i = 0; i < 6; i += 1) cells.appendChild(document.createElement('span')).className = 'otp-cell';
+  const fit = document.createElement('div');   // the width the row scales to (CSS .otp-fit)
+  fit.className = 'otp-fit';
+  el.parentNode.insertBefore(fit, el);
+  fit.appendChild(box);
+  box.appendChild(cells);
+  box.appendChild(el);
+  // Where overflow: clip is not supported, a focus can still scroll the box; put it straight back.
+  box.addEventListener('scroll', () => { if (box.scrollLeft) box.scrollLeft = 0; });
+  /* Said to a screen reader before it happens (WCAG 3.2.2): the sixth digit moves the sign-in on. */
+  const hint = document.createElement('span');
+  hint.className = 'plus-si-sr';
+  const hintId = id + '-auto';
+  hint.id = hintId;
+  hint.textContent = 'Kosmos checks the code as soon as all six digits are in.';
+  box.appendChild(hint);
+  // Built from strings held here (not read back off the elements), so a page slice run on stub elements
+  // in the unit tests, whose every property is an object, gets through it too.
+  const hadDesc = el.getAttribute('aria-describedby');
+  el.setAttribute('aria-describedby', ((typeof hadDesc === 'string' ? hadDesc : '') + ' ' + hintId).trim());
+  const digits = () => el.value.replace(/\D/g, '').length;
+  /* The outlined box is where the next digit goes: the caret's box (so Home or a click to fix one
+     digit lights THAT box), the first box when the whole code is selected (typing replaces it from
+     the start), and never past the sixth. */
+  const paint = () => {
+    if (el.scrollLeft) el.scrollLeft = 0;   // digits stay over their boxes
+    const on = document.activeElement === el;
+    let at = digits();
+    try { if (typeof el.selectionStart === 'number') at = el.selectionStart; } catch { /* not a text input */ }
+    // At the end of a full code the next digit starts the code again, so that is the box to show.
+    if (digits() >= 6 && at >= 6) at = 0;
+    Array.from(cells.children).forEach((c, i) => c.classList.toggle('on', on && i === Math.min(at, 5)));
+  };
+  /* Auto-submit: six digits that are NOT the code last sent. So a wrong code is not resent by
+     itself, but any different code is, however it arrives (typed, pasted over a selection, or
+     completed while a request was still running: then it waits for the button, see freed). Deleting
+     a digit forgets the last code, so retyping it on purpose sends it again. */
+  let lastSent = '';
+  /* The code the coordinator has JUDGED wrong, remembered when its answer lands (freed), not re-read off
+     the status line at each press: the box's own messages ("We could not find one six-digit code in
+     that.") overwrite that line, and re-reading it then let the refused code go (web review round 12).
+     It holds only while it is still lastSent, so anything that forgets lastSent ends the hold too. */
+  let heldCode = '';
+  let queued = false;   // a code completed while the button was busy, waiting for it
+  let sendingNow = false;   // the sixth digit pressing the button, as opposed to a press by hand
+  const go = document.getElementById(PLUS_SI_OTP_GO[id]);
+  const trySend = () => {
+    const code = el.value.replace(/\D/g, '');
+    // Deleting a digit forgets the last code, but not while it is still being checked: retyping the
+    // same digit then (the usual "did it go?" gesture) queued the same code for a second, wasted try.
+    if (code.length < 6) { if (!go || !go.disabled) lastSent = ''; queued = false; return; }
+    if (code === lastSent) return;
+    if (!go || go.disabled) { queued = true; return; }
+    queued = false;
+    lastSent = code; heldCode = '';
+    sendingNow = true;
+    try { go.click(); } finally { sendingNow = false; }
+  };
+  /* When the button comes back: send a code that was waiting for it, but only while this step is
+     still on screen (a code finished after the answer moved the sign-in on must not go to a step the
+     person has left). And a code the answer left in the field (a wrong one) is selected, so the next
+     keystroke or paste replaces it without the person having to clear it first. */
+  const freed = () => {
+    if (!go || go.disabled) return;
+    // The answer that freed the button has just written the status line: read it now, once.
+    heldCode = lastSent && saysRefused() ? lastSent : '';
+    const shown = el.getClientRects().length > 0;
+    if (queued && shown) trySend(); else queued = false;
+    if (shown && lastSent && document.activeElement === el && el.value.replace(/\D/g, '') === lastSent) {
+      try { el.setSelectionRange(0, el.value.length); } catch { /* not a text input */ }
+      paint();
+    }
+  };
+  if (go && typeof MutationObserver === 'function') new MutationObserver(freed).observe(go, { attributes: true, attributeFilter: ['disabled'] });
+  // Any press of the step's button (by hand, or by the sixth digit) records what it sent, so a code the
+  // person sent themselves is not sent again by itself, and the answer's selection finds it.
+  /* Any press of the step's button records what it sent. And a press BY HAND on the exact code already
+     sent and REFUSED does nothing but put the person back in the field with it selected: it would only
+     spend another try on a code the server has judged wrong (the button stays for a new code). Only the
+     coordinator's own wrong-code words count ("code is not right", "not what the app shows", "not the one
+     we texted"); any other answer (a network failure, "give it a minute", a 500, a cooldown) never judged
+     the code, so it goes. Should those words change, this fails open: a wasted try, never a dead button.
+     Capture phase, so this runs before the step's own click handler. */
+  function saysRefused() {
+    return /\bcode is not (right|what the app shows|the one we texted)/i.test((document.getElementById('plus-signin-msg') || {}).textContent || '');
+  }
+  const judgedWrong = (c) => c === lastSent && c === heldCode;
+  // Holding a refused code back: the person is put in the field with it selected, and the status line
+  // is said again (changed, never blanked), so a screen reader hears why nothing was sent.
+  const holdRefused = () => {
+    el.focus();
+    try { el.setSelectionRange(0, el.value.length); } catch { /* not a text input */ }
+    paint();
+    const msg = document.getElementById('plus-signin-msg');
+    // Said again by a change that never blanks it: blanking, even for a moment, switched off judgedWrong()
+    // (which reads this line), so a second press in that moment sent the refused code (web round 10).
+    // A zero-width space, added or taken off, is a change the live region speaks and nobody sees.
+    if (msg) msg.textContent = /\u200B$/.test(msg.textContent) ? msg.textContent.replace(/\u200B$/, '') : msg.textContent + '\u200B';
+  };
+  if (go) go.addEventListener('click', (e) => {
+    const c = el.value.replace(/\D/g, '');
+    if (c.length !== 6) return;
+    if (!sendingNow && judgedWrong(c)) {
+      e.stopImmediatePropagation(); e.preventDefault();
+      holdRefused();
+      return;
+    }
+    lastSent = c; queued = false; heldCode = '';
+  }, true);
+  // Send again: a code waiting for the button is for the old code, and the check in flight is thrown
+  // away unjudged, so its code is forgotten as sent (a hand press or a retype may send it again).
+  PLUS_SI_OTP_BOX[id] = { drop: () => { queued = false; lastSent = ''; } };
+  /* Fixing one digit: in a complete code a typed digit REPLACES the digit after the caret (the box
+     that is outlined), rather than being inserted and pushing the last digit off the end, which made
+     a different six-digit code and sent it. With the caret at the end, it starts the code again. */
+  el.addEventListener('beforeinput', (e) => {
+    /* A block of text arriving without a paste event (a drop, dictation, a keyboard's clipboard
+       chip, replacement text, autofill) gets the same treatment as a paste (takeText). A paste
+       itself is handled by the paste listener, which runs first. */
+    const block = e.inputType === 'insertText' || e.inputType === 'insertReplacementText' || e.inputType === 'insertFromDrop';
+    const data = e.data != null ? e.data : (e.dataTransfer ? e.dataTransfer.getData('text/plain') : '');
+    // Only an event the browser will really cancel: otherwise the digit would go in twice.
+    if (!e.cancelable) return;
+    if (block && data && data.length > 1) { if (takeText(data)) e.preventDefault(); return; }
+    if (e.inputType !== 'insertText' || !/^\d$/.test(e.data || '')) return;
+    const a = el.selectionStart; const b = el.selectionEnd;
+    if (typeof a !== 'number' || a !== b || digits() < 6) return;
+    e.preventDefault();
+    const v = el.value.replace(/\D/g, '');
+    el.value = a < v.length ? v.slice(0, a) + e.data + v.slice(a + 1) : e.data;
+    const at = a < v.length ? a + 1 : 1;
+    try { el.setSelectionRange(at, at); } catch { /* not a text input */ }
+    el.dispatchEvent(new Event('input', { bubbles: true }));
   });
+  let hadDigits = 0;   // the digits in the field before this input: a seventh counts only after six
+  let prevValue = '';  // the field as this handler last left it (focus re-reads it; the page clears fields quietly)
+  // An input method's finished word gets the same cleaning as typing.
+  el.addEventListener('compositionend', () => el.dispatchEvent(new Event('input', { bubbles: true })));
+  el.addEventListener('input', (e) => {
+    if (e.isComposing) return;   // an input method mid-word: clean up when it commits
+    /* A seventh digit arrived by a way beforeinput does not catch (an input method, a keyboard's
+       replacement text): it went in at the caret, so the digit AFTER the caret goes, keeping the
+       replace-one-digit behaviour, rather than the last digit falling off the end. */
+    const raw = e.target.value;
+    let d = raw.replace(/\D/g, '');
+    /* A block of text that arrived without a cancelable beforeinput (some keyboards, dictation, an
+       engine without beforeinput) is searched like a paste: with no one code in it, the field goes back
+       to what it was and nothing is sent (keeping its first six digits sent a date as the code). */
+    // Only text with words or other characters in it, or more digits than a code: digits with spaces,
+    // dashes or dots ("123 45") are simply cleaned, as typing is.
+    if (raw.length - prevValue.length > 1 && (/[^\d\s\u2010-\u2015.-]/.test(raw) || d.length > 7 || (d.length === 7 && hadDigits !== 6))) {
+      const found = plusSiCodeFromPaste(raw);
+      if (!found) {
+        e.target.value = prevValue;
+        if (typeof plusSiMsg === 'function') plusSiMsg('We could not find one six-digit code in that.');
+        paint();
+        return;
+      }
+      d = found;
+    }
+    // Where the caret is, counted in digits (so it can be put back after the field is cleaned).
+    let k = typeof el.selectionStart === 'number' ? raw.slice(0, el.selectionStart).replace(/\D/g, '').length : d.length;
+    // Inside the code the digit after the caret goes; at the very end, the new digit starts the code
+    // again, as typing does there (beforeinput), rather than being dropped.
+    if (d.length === 7 && hadDigits === 6 && k > 0) d = k < 7 ? d.slice(0, k) + d.slice(k + 1) : d.slice(6);
+    const clean = d.slice(0, 6);
+    if (raw !== clean) {
+      e.target.value = clean;
+      k = Math.min(k, clean.length);
+      try { if (document.activeElement === el) el.setSelectionRange(k, k); } catch { /* not a text input */ }
+    }
+    hadDigits = clean.length;
+    prevValue = clean;
+    // A refusal on the status line stops being true once the person changes the code.
+    const msgEl = document.getElementById('plus-signin-msg');
+    if (msgEl && /one six-digit code|do not fit the code/.test(msgEl.textContent) && typeof plusSiMsg === 'function') plusSiMsg('');
+    paint();
+    trySend();
+  });
+  /* A paste carrying a whole code REPLACES what is there: pasted into a full field, or after a few
+     typed digits, keeping the old digits would drop the paste or splice a wrong code (and each wrong
+     code counts toward the sign-in's too-many-tries limit). A shorter paste inserts as usual. */
+  /* The code is found in the pasted text (plusSiCodeFromPaste), so pasting a whole email takes the
+     code, not another number. When there is no one code in it, nothing is pasted at all: letting the
+     browser paste would keep the first six digits of whatever was there and send them. A short run
+     of digits alone (a few digits typed elsewhere) pastes as usual. A paste is also an intent to
+     send, so the same code pasted again (after a network failure, say) goes again, unless the server
+     has just judged that very code wrong. */
+  /* Returns true when it has dealt with the text (the caller stops the browser's own insert). When
+     there is no one code, the status line says so, so the field does not just look dead. */
+  function takeText(text) {
+    const code = plusSiCodeFromPaste(text);
+    if (code) {
+      // A paste is an intent to send (the same code again after a network failure goes again), but
+      // not while a check is in flight: that would queue the same code for a second, wasted try. And
+      // not the very code the server has just judged wrong (round 12): pasting it again "properly" would
+      // spend another try on it, so it is held back as a press by hand is. Deleting a digit and typing
+      // it back stays the deliberate way to send it again.
+      if (judgedWrong(code) && el.value.replace(/\D/g, '') === code) { holdRefused(); return true; }
+      if (!go || !go.disabled) lastSent = '';
+      el.value = code;
+      el.dispatchEvent(new Event('input', { bubbles: true }));
+      return true;
+    }
+    const few = text.replace(/\D/g, '');
+    if (/^[\d\s\u2010-\u2015.-]*$/.test(text) && few.length < 6) {
+      /* A few digits alone. Where they fit, the browser inserts them as usual; where the field is too
+         full for them, they OVERWRITE from the caret instead, as typing does, rather than being
+         spliced in and cut to a different six-digit code that is then sent. */
+      // A selection is space the paste replaces: digits outside it plus the pasted ones must fit.
+      const a0 = typeof el.selectionStart === 'number' ? el.selectionStart : el.value.length;
+      const b0 = typeof el.selectionEnd === 'number' ? el.selectionEnd : a0;
+      const inSel = el.value.slice(a0, b0).replace(/\D/g, '').length;
+      if (digits() - inSel + few.length <= 6) return false;   // it fits: the browser replaces the selection
+      if (inSel > 0) {                                          // a selection too small for it: nothing goes in
+        if (typeof plusSiMsg === 'function') plusSiMsg('Those digits do not fit the code.');
+        return true;
+      }
+      const v = el.value.replace(/\D/g, '');
+      const at = Math.min(el.value.slice(0, a0).replace(/\D/g, '').length, v.length);
+      el.value = (v.slice(0, at) + few + v.slice(at + few.length)).slice(0, 6);
+      hadDigits = el.value.length;   // not a seventh digit: nothing to remove
+      const end = Math.min(at + few.length, 6);
+      try { el.setSelectionRange(end, end); } catch { /* not a text input */ }
+      el.dispatchEvent(new Event('input', { bubbles: true }));
+      return true;
+    }
+    if (typeof plusSiMsg === 'function') plusSiMsg('We could not find one six-digit code in that.');
+    return true;
+  }
+  el.addEventListener('paste', (e) => {
+    if (takeText((e.clipboardData && e.clipboardData.getData('text')) || '')) e.preventDefault();
+  });
+  /* ARRIVING in the field (Tab, or the page moving focus there) puts the caret at the end, one box
+     after another, or selects a full code so the next keystroke or paste replaces it (after a wrong
+     code, say). A click inside a field that already has focus is left alone, so a mouse or touch
+     user can put the caret on one digit to fix it. */
+  const place = () => {
+    const n = el.value.length;
+    try { if (digits() >= 6) el.setSelectionRange(0, n); else el.setSelectionRange(n, n); } catch { /* not a text input */ }
+  };
+  // The page clears a field without an input event (plusSiClear on Start over), so focus also forgets
+  // the last code when the field is not full: the same code entered again then goes.
+  // A pointer (mouse or finger) arriving is placing the caret where it lands, e.g. on one digit to
+  // fix; only a keyboard or the page arriving selects a full code or goes to the end.
+  let byPointer = false;
+  el.addEventListener('pointerdown', () => { if (document.activeElement !== el) byPointer = true; });
+  // A touch that never focused (a swipe that started here) must not leave the flag set for a later Tab.
+  // Long enough for a real tap, whose focus can follow pointerup, to be seen as a tap.
+  for (const ev of ['pointerup', 'pointercancel', 'blur']) el.addEventListener(ev, () => setTimeout(() => { byPointer = false; }, 400));
+  el.addEventListener('focus', () => { prevValue = el.value; hadDigits = digits(); if (digits() < 6 && (!go || !go.disabled)) lastSent = ''; if (!byPointer) place(); byPointer = false; paint(); });
+  // Wrapped, not bound by name: a check of the page's bindings resolves a bare name to the top-level
+  // paint(st), which is a different function.
+  el.addEventListener('click', () => paint());
+  for (const ev of ['blur', 'keyup', 'select', 'scroll']) el.addEventListener(ev, () => paint());
+  // The outline follows the caret as it moves, a held arrow key included.
+  document.addEventListener('selectionchange', () => { if (document.activeElement === el) paint(); });
+  el.addEventListener('selectionchange', () => paint());   // where the event is sent to the field itself
+  /* After the pointer has placed the caret. In a full code the box is worked out from where the click
+     landed, not from the text caret: a click on the right part of a box put the caret on the NEXT box
+     (and on the last box, at the end, where the next digit starts the code again). */
+  el.addEventListener('mouseup', (ev) => setTimeout(() => {
+    if (digits() >= 6 && el.selectionStart === el.selectionEnd && typeof ev.clientX === 'number') {
+      const rects = Array.from(cells.children).map((c) => c.getBoundingClientRect());
+      const i = rects.findIndex((r) => ev.clientX >= r.left && ev.clientX <= r.right + 1);
+      if (i >= 0) { try { el.setSelectionRange(i, i); } catch { /* not a text input */ } }
+    }
+    paint();
+  }, 0));
 }
 /* Ask signin-start for an email code. ONE place, shared by the initial "Email me a
    code" button and the "again" button on the code step -- two copies of this sequence
@@ -37596,15 +38048,35 @@ for (const id of ['plus-si-code-in', 'plus-si-second-in', 'plus-si-enrol-code'])
 async function plusSiRequestCode(btn) {
   const email = document.getElementById('plus-signin-email').value.trim();
   if (!email) { plusSiMsg(PLUS_CODE_WORDS.noEmail); return; }
+  /* #3942: a code check still on its way when the person asks for a new code (easy now that the sixth
+     digit sends by itself) must not land afterwards: "not right" beside the fresh, empty code step, or
+     the timed-out panel seconds after a new code went out. Its answer is made stale, as Start over
+     does. Verify stays busy until the new code's request answers (a stale answer never frees it, so
+     this does, below): free at once, the old code still in the boxes could be sent while the new code
+     is being made, counting as a wrong guess against it or answering "not right" on the fresh step. */
+  const resend = !!(btn && btn.id === 'plus-si-code-resend');
+  const box = resend && typeof PLUS_SI_OTP_BOX !== 'undefined' ? PLUS_SI_OTP_BOX['plus-si-code-in'] : null;
+  const verify = resend ? document.getElementById('plus-si-code-go') : null;
+  if (resend) {
+    PLUS_SI_EPOCH += 1;
+    // A code typed while that check was running was waiting for the button: it is for the OLD code,
+    // so it is dropped, not sent when the button is freed.
+    if (box) box.drop();
+    if (verify) verify.disabled = true;
+  }
+  // No new code: the old one is back in play (its check was thrown away unjudged, and drop() above forgot
+  // it as sent), so Verify is freed for it; a code typed during the wait goes now.
+  const noNewCode = () => { if (verify) verify.disabled = false; };
   plusSiMsg(PLUS_CODE_WORDS.asking(email));
   plusSetBusy(btn, true);
   const r = await plusSiPost('/api/remote/signin-start', { email });
   if (r.stale) return;
   if (!r.ok) {
     const m = /in (\d+) seconds?/.exec(r.because);
-    if (m) { plusCountdown(document.getElementById('plus-signin-msg'), btn, r.because, Number(m[1])); return; }
+    if (m) { noNewCode(); plusCountdown(document.getElementById('plus-signin-msg'), btn, r.because, Number(m[1])); return; }
     plusSetBusy(btn, false);
     plusSiMsg(PLUS_CODE_WORDS.refused(r.because));
+    noNewCode();
     return;
   }
   plusSetBusy(btn, false);
@@ -37612,6 +38084,13 @@ async function plusSiRequestCode(btn) {
      paragraph; the status line below only says something when a resend went out. */
   document.getElementById('plus-si-code-to').textContent = email;
   plusSiMsg(btn.id === 'plus-si-code-resend' ? 'We sent another code.' : '');
+  /* #3942: a new code is on its way, so the old one (likely a wrong one) leaves the boxes; the input
+     event lets the boxes repaint and forget the last code sent. */
+  if (btn.id === 'plus-si-code-resend') {
+    const inp = document.getElementById('plus-si-code-in');
+    if (inp && inp.value) { inp.value = ''; inp.dispatchEvent(new Event('input', { bubbles: true })); }
+    if (verify) verify.disabled = false;   // the boxes are empty now, for the new code
+  }
   plusSiStage(r.data.stage, r.data);
 }
 document.getElementById('plus-signin-code').addEventListener('click', () => plusSiRequestCode(document.getElementById('plus-signin-code')));
@@ -37979,7 +38458,10 @@ async function paintModelPicker(a) {
      hypothetical one.
      🔑 The durable fix is the engine handing us the model KEY beside the name,
      or the two tables becoming one. Raised, not silently papered over. */
-  const runningName = modelLine(a);
+  /* #4008: the same name Runs on shows: a switch's result until the live reading catches up, or the
+     menu would offer "change to Opus 5.5" to an agent Runs on says is already on it. */
+  const switchedTo = typeof switchedModelFor === 'function' ? switchedModelFor(a) : '';
+  const runningName = switchedTo || modelLine(a);
   const currentModel = CREATE_MODELS.find((m) => m.label === runningName) || null;
   const head = currentModel
     ? ''
@@ -38630,6 +39112,10 @@ async function moveAccountNow(say) {
    hold is SUCCESS-ONLY and bounded by minBusyMs, so it can
    never trap the modal (#1313): a failure shows immediately, and `say` still always fires
    the one exit. */
+/* #4008: the Sweep loader for a "Waking them..." line (decorative: the words are what is announced), and
+   the check for the line that says it is done. Both are fixed app markup, never user input. */
+const WAKE_SPIN_HTML = '<span class="spin spin-sweep wake-spin" aria-hidden="true"><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i></span>';
+const WAKE_DONE_HTML = '<svg class="wake-done" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 6L9 17l-5-5"/></svg>';
 function changeDialog({ title, small, go, run, busyHtml, minBusyMs }) {
   const back = document.getElementById('chg-modal');
   const t = document.getElementById('chg-title');
@@ -38639,6 +39125,9 @@ function changeDialog({ title, small, go, run, busyHtml, minBusyMs }) {
   const msg = document.getElementById('chg-msg');
   t.textContent = title; sm.textContent = small; goBtn.textContent = go; msg.textContent = '';
   keep.textContent = 'Keep it as it is';
+  // #4008: Done turns gold only once a restart has finished waking (autoHelloOnSwitchRestart); each
+  // opening starts it plain again.
+  if (keep.classList) keep.classList.remove('uprime');
   keep.hidden = false; goBtn.hidden = false; goBtn.disabled = false;
   sm.hidden = false;   // reset: a prior interstitial (busyHtml) run may have hidden it
   /* 🔑 ESCAPE GETS YOU OUT (#1316). This is the modal Josh sat in on #1313, and
@@ -38707,7 +39196,9 @@ function changeDialog({ title, small, go, run, busyHtml, minBusyMs }) {
        `run` does, whether it speaks, throws, or quietly returns, there is a way
        out when it ends. A modal with no exit is a trap no copy can rescue. */
     let spoke = false;
-    const say = (sentence, ok) => {
+    /* #4008: `waking` puts the Sweep loader in front of a "Waking them..." line. The loader carries
+       no text, so the line's textContent is exactly `sentence` (the wake helper matches on it). */
+    const say = (sentence, ok, waking) => {
       spoke = true;   // set NOW, even if the render is held, so the finally fallback never double-fires
       const render = () => {
         /* #768-batch: a HELD success render (setTimeout under minBusyMs) must not paint
@@ -38717,6 +39208,7 @@ function changeDialog({ title, small, go, run, busyHtml, minBusyMs }) {
            window this closes; a later backdrop-click-to-close would otherwise expose it. */
         if (back.hidden) return;
         msg.textContent = sentence;
+        if (waking && typeof msg.insertAdjacentHTML === 'function') msg.insertAdjacentHTML('afterbegin', WAKE_SPIN_HTML);
         goBtn.hidden = true;
         keep.textContent = ok ? 'Done' : 'Close';
         keep.hidden = false;
@@ -39660,6 +40152,8 @@ async function changeProviderNow(say) {
     }
   }
   const forAgent = CURRENT.sessionName;
+  // #4008: a provider switch makes any earlier model switch's record stale (another runner's names).
+  if (typeof SWITCHED_MODEL !== 'undefined') delete SWITCHED_MODEL[forAgent];
   go.disabled = true;
   sel.disabled = true;
   /* The picker is part of this row's in-flight state too, and was the one control of three
@@ -39723,9 +40217,9 @@ async function changeProviderNow(say) {
     SWITCH_ACCT_SAID = '';
     /* #2463 follow-up (Mona): on a real restart the dialog reduces to one line naming the
        provider it landed on, exactly as changeModelNow does. #2716: that line is "Restarted
-       on <provider>. Waking them..." while the app sends the wake hello, and resolves to the
-       confirmation or to "Say hello to <agent> to reactivate them on <provider>." (see
-       autoHelloOnSwitchRestart). The engine's fuller sentence still stands on the section line behind the dialog
+       on <provider>. Waking them..." (with the Sweep loader, #4008) while the app sends the wake
+       hello, and resolves to "Ready: <agent> is on <what>." or, when the hello does not land, to
+       "<agent> is on <what>. Send them a message to wake them." (see autoHelloOnSwitchRestart). The engine's fuller sentence still stands on the section line behind the dialog
        (msg.textContent above). `partial` (saved, could not restart) and any failure keep the
        engine's exact words AND render at once (ok=false), because those are different facts
        and must not sit behind the K as though the restart happened. The reduced line is the
@@ -39746,13 +40240,19 @@ async function changeProviderNow(say) {
     // helper's content check compares against exactly what tell() painted (no triplicated
     // string to drift out of byte-identity if the wording is retuned).
     const switchShown = agentShown();
-    const switchManual = 'Say hello to ' + switchShown + ' to reactivate them on ' + provName + '.';
-    // While the wake hello is pending the dialog says so, as the restart and start flows
-    // do; the helper resolves it to the confirmation, or to switchManual if the hello
-    // does not land.
+    // #4008: said plainly when the hello does not land (the old "Say hello to X to reactivate them"
+    // read as though the switch had failed).
+    const switchManual = switchShown + ' is on ' + provName + '. Send them a message to wake them.';
+    // While the wake hello is pending the dialog says so, with the Sweep loader (#4008), as the
+    // restart and start flows do; the helper resolves it to the finished line, or to switchManual if
+    // the hello does not land.
     const switchWaiting = 'Restarted on ' + provName + '. Waking them…';
-    tell(restarted ? switchWaiting : (out.because || 'Switched.'), restarted);
-    if (restarted && say) autoHelloOnSwitchRestart(forAgent, switchShown, provName, switchManual, switchWaiting);
+    tell(restarted ? switchWaiting : (out.because || 'Switched.'), restarted, restarted);
+    if (restarted && say) autoHelloOnSwitchRestart(forAgent, switchShown, provName, switchManual, switchWaiting, provName, 'Switched to ' + provName);
+    /* #4008 (round 3): Runs on names the provider it moved to now, in modelLine's own words for a runner
+       with no transcript yet (the same line the next open would draw once the runner is recorded). */
+    const runsOnWord = { openai: 'OpenAI Codex', google: 'Gemini', xai: 'Grok', antigravity: 'Gemini (Google subscription)', anthropic: 'Claude' }[want];
+    if (restarted && typeof repaintRunsOnName === 'function') repaintRunsOnName(forAgent, runsOnWord);
     sel.value = '';
     /* ⚠️ A PROGRAMMATIC `value =` FIRES NO `change` EVENT, so nothing rebuilt the
        sign-in picker and it sat visible and populated under a now-blank provider
@@ -40475,11 +40975,16 @@ async function changeModelNow(say) {
   const msg = document.getElementById('d-model-msg');
   const want = sel.value;
   if (!want) return;
+  // #4008: the picker's own words for the model ("Claude Opus 5.5"), as the dialog's title uses them,
+  // for the finished line and for Runs on. Read now: the picker is cleared below.
+  const wantLabel = (sel.options && sel.options[sel.selectedIndex] && sel.options[sel.selectedIndex].textContent.trim()) || '';
   let nudge = false;   // set on success; the focus happens after the re-enable in finally
   /* The same capture-and-recheck the instruction save and the avatar upload
      use: switching agents mid-flight must not land this answer on another
      agent's panel. */
   const forAgent = CURRENT.sessionName;
+  // #4008: a new change makes any earlier switch's record stale, whatever this one's outcome.
+  if (typeof SWITCHED_MODEL !== 'undefined') delete SWITCHED_MODEL[forAgent];
   go.disabled = true;
   sel.disabled = true;
   msg.textContent = 'Changing…';
@@ -40519,10 +41024,23 @@ async function changeModelNow(say) {
     // #2716: build the manual line ONCE and share it with the auto-hello helper (see
     // changeProviderNow), so the content check matches exactly what say() painted.
     const switchShown = agentShown();
-    const switchManual = 'Say hello to ' + switchShown + ' to reactivate them on ' + provName + '.';
+    // #4008: what the agent is on now, for the finished line: the model the person picked.
+    const onWhat = wantLabel || provName;
+    const switchManual = switchShown + ' is on ' + onWhat + '. Send them a message to wake them.';
     const switchWaiting = 'Restarted on ' + provName + '. Waking them…';   // see changeProviderNow
-    if (say) say(restarted ? switchWaiting : (out.because || 'Changed.'), restarted);
-    if (restarted && say) autoHelloOnSwitchRestart(forAgent, switchShown, provName, switchManual, switchWaiting);
+    if (say) say(restarted ? switchWaiting : (out.because || 'Changed.'), restarted, restarted);
+    if (restarted && say) autoHelloOnSwitchRestart(forAgent, switchShown, provName, switchManual, switchWaiting, onWhat, 'Changed to ' + onWhat);
+    /* #4008: Runs on read "Right now: <the old model>" behind the dialog: the live reading comes from the
+       newest transcript, and until the restarted session writes one that is the OLD session's. The
+       engine has just said the agent started again on the new model, so the page says so until the
+       transcript catches up (runsOnLine). */
+    /* Claude runners only: for them the picker's label and the live reading's name are the same words
+       (paintModelPicker already matches them), so the record is dropped once they agree. */
+    if (restarted && wantLabel && typeof SWITCHED_MODEL !== 'undefined' && providerOf(CURRENT) === 'anthropic') {
+      SWITCHED_MODEL[forAgent] = wantLabel;
+      // And say it now (round 1), not only on the next open of the agent's page.
+      if (typeof repaintRunsOnName === 'function') repaintRunsOnName(forAgent, wantLabel);
+    }
     sel.value = '';
     await tick();
     /**
@@ -43158,9 +43676,9 @@ async function autoHelloAfterRestart(name, report, saidText, manualText, deliver
 /* #2716: the changeDialog twin of the restart-modal auto-hello. After a model
    (changeModelNow) or provider (changeProviderNow) switch restarts the agent, the dialog
    paints a waiting line ("Restarted on <provider>. Waking them..."), sends the wake
-   'hello' through the same helper, and then resolves the line: to "Reactivated on
-   <provider>, and said hello to wake <agent>." if the hello was placed, or to the manual
-   "Say hello to <agent> to reactivate them on <provider>." if it was not. So the dialog
+   'hello' through the same helper, and then resolves the line (#4008): to "Ready: <agent> is
+   on <what>." if the hello was placed, or to "<agent> is on <what>. Send them a message to
+   wake them." if it was not, and finishes the dialog (see below). So the dialog
    never tells a person to do by hand what the app is already doing, and never claims a
    greeting that did not land. The restart and start flows already work this way.
 
@@ -43185,8 +43703,25 @@ async function autoHelloAfterRestart(name, report, saidText, manualText, deliver
    paint, so a stale report never sees that paint. After this dialog, a reopen resets
    chg-msg, the content no longer matches, and it stands down too. */
 const SWITCH_HELLO_RETRY_MS = 100;
-function autoHelloOnSwitchRestart(forAgent, shown, provName, manualLine, waitingLine) {
-  const saidLine = 'Reactivated on ' + provName + ', and said hello to wake ' + shown + '.';
+/* #4008 (Josh 2026-09-26: "when that process is complete it says Complete or something, so I know when
+   to hit the Done button"): the wait ends in a FINISHED dialog, not just a new line. The title stops being
+   the question ("Change X to Y?" becomes `doneTitle`, "Changed to Y"), Done turns gold and takes the focus,
+   and the line is "Ready: X is on Y." behind a check. When the hello could not be placed the line says
+   what to do, plainly, with no check (the restart worked; waking them is the one step left). */
+function autoHelloOnSwitchRestart(forAgent, shown, provName, manualLine, waitingLine, onWhat, doneTitle) {
+  const saidLine = 'Ready: ' + shown + ' is on ' + (onWhat || provName) + '.';
+  const finish = (m, t) => {
+    m.textContent = t;
+    if (t === saidLine && typeof m.insertAdjacentHTML === 'function') m.insertAdjacentHTML('afterbegin', WAKE_DONE_HTML);
+    const title = document.getElementById('chg-title');
+    if (title && doneTitle) title.textContent = doneTitle;
+    const keep = document.getElementById('chg-keep');
+    if (keep && !keep.hidden) {
+      if (keep.classList) keep.classList.add('uprime');
+      // Only if it is not there already (say's render focused it): a second focus re-announces the button.
+      try { if (document.activeElement !== keep) keep.focus(); } catch { /* the line stands on its own */ }
+    }
+  };
   let mine = null;
   autoHelloAfterRestart(forAgent,
     (t) => {
@@ -43198,7 +43733,7 @@ function autoHelloOnSwitchRestart(forAgent, shown, provName, manualLine, waiting
         const m = document.getElementById('chg-msg');
         const back = document.getElementById('chg-modal');
         if (!m || !back || back.hidden || !CURRENT || CURRENT.sessionName !== forAgent) return;
-        if (m.textContent === waitingLine) { m.textContent = t; return; }
+        if (m.textContent === waitingLine) { finish(m, t); return; }
         if (Date.now() < until) setTimeout(apply, SWITCH_HELLO_RETRY_MS);
       };
       apply();

@@ -243,6 +243,18 @@ test('standing at 0.6.99, staying on the line is refused', () => {
   fs.rmSync(dir, { recursive: true, force: true });
 });
 
+test('standing at 0.6.99, a RE-CUT of 0.6.99 gets through (a cut that aborted after its bump)', () => {
+  /* 2026-09-26: the 0.6.99 cut aborted at step 3 after step 2 had bumped main to 0.6.99, and the
+     retry was refused here as "staying on the line". A re-cut of the same version is the same
+     release, so it must pass this guard (and reach the next thing the script needs). */
+  const dir = sandbox('0.6.99');
+  const r = run(dir, '0.6.99');
+  assert.doesNotMatch(r.said, /last of the 0\.6 line/, 'a re-cut of the bumped version was refused as staying on the line');
+  // Reaching the site check is what proves the version guard let it through.
+  assert.match(r.said, /no site checkout at/, r.said.slice(0, 300));
+  fs.rmSync(dir, { recursive: true, force: true });
+});
+
 test('standing at 0.6.99, 0.7.00 gets through', () => {
   const dir = sandbox('0.6.99');
   const r = run(dir, '0.7.00');

@@ -27,7 +27,7 @@ const BRIDGE = nodePath.join(__dirname, 'bin', 'grok-report-bridge.js');
  * process, so a synchronous spawn that blocks the event loop makes delivery flaky.
  * The child exits only after its fetch settles, and the handler pushes to `seen`
  * before responding, so awaiting the child's close is a sufficient barrier. */
-function drive(eventJson, env = {}) {
+function drive(eventJson, env = {}, bridge = BRIDGE) {
   return new Promise((resolve, reject) => {
     const seen = [];
     const server = http.createServer((req, res) => {
@@ -41,7 +41,7 @@ function drive(eventJson, env = {}) {
     });
     server.listen(0, '127.0.0.1', () => {
       const port = server.address().port;
-      const child = spawn(process.execPath, [BRIDGE], {
+      const child = spawn(process.execPath, [bridge], {
         env: { ...process.env, KOSMOS_PORT: String(port), TMUX_PANE: '%77', ...env },
         stdio: ['pipe', 'ignore', 'ignore'],
       });
@@ -93,15 +93,18 @@ test('#249: an interrupted or API-failed turn reports idle, so an agent never st
   assert.equal(JSON.parse(failed[0].body).state, 'idle');
 });
 
-test('Notification reports needs_you carrying a reason, so the route does not drop it', async () => {
-  const withMsg = await drive(JSON.stringify({ hook_event_name: 'Notification', message: 'Tool X requires execution' }));
-  assert.equal(JSON.parse(withMsg[0].body).state, 'needs_you');
-  assert.equal(JSON.parse(withMsg[0].body).text, 'Tool X requires execution');
-  // A Notification with no message still carries a non-empty reason (selfreport.js
-  // refuses a needs_you with no reason/on/owner, so an empty one would be dropped).
-  const noMsg = await drive(JSON.stringify({ hook_event_name: 'Notification' }));
-  assert.equal(JSON.parse(noMsg[0].body).state, 'needs_you');
-  assert.ok(JSON.parse(noMsg[0].body).text.length > 0, 'a needs_you with no reason would be refused by the route');
+test('#4006: a Notification reports NOTHING, so a quiet grok agent is never painted needs_you (and never auto-restarted)', async () => {
+  // Measured on a real agent 2026-09-26: under --always-approve grok fires Notification about a minute after a
+  // turn ends, message "Waiting for your next prompt". It is not a permission prompt, and reported as needs_you
+  // it got a healthy agent restarted by the class-1 handler.
+  const waiting = await drive(JSON.stringify({ hook_event_name: 'Notification', message: 'Waiting for your next prompt', notification_type: 'idle' }));
+  assert.equal(waiting.length, 0, 'the turn-end Notification was reported: ' + JSON.stringify(waiting));
+  const other = await drive(JSON.stringify({ hook_event_name: 'Notification', message: 'Tool X requires execution' }));
+  assert.equal(other.length, 0, 'a Notification is never a permission prompt under always-approve, so none is reported');
+  // CONTROL: the same harness does report a mapped event, so the empty results above are not a dead harness.
+  const stop = await drive(JSON.stringify({ hook_event_name: 'Stop', reason: 'end_turn', lastAssistantMessage: 'done' }));
+  assert.equal(stop.length, 1);
+  assert.equal(JSON.parse(stop[0].body).state, 'idle');
 });
 
 test('an event we do not map reports nothing, and neither does garbage stdin', async () => {
@@ -195,4 +198,54 @@ test('#3391: a snake_case last_assistant_message is accepted as the idle text to
   // accepts a snake_case spelling in case a future grok build adds one, so pin both.
   const seen = await drive(JSON.stringify({ hook_event_name: 'Stop', reason: 'end_turn', last_assistant_message: 'snake words' }));
   assert.equal(JSON.parse(seen[0].body).text, 'snake words');
+});
+
+/* #4012: the bridge an agent RUNS is the copy installSupervisor puts in <supportDir>/bin, and that
+   folder has no engine/ beside it, so `require('../engine/...')` failed there and neither the
+   board token nor the world header was ever sent (measured on Windows). It now finds the engine
+   through the `engine-path` pointer installSupervisor writes beside it. */
+test('#4012: the supportDir COPY finds the engine through engine-path and presents the board token and world header', async () => {
+  const { WORLD_HEADER } = require('./engine/launchidentity');
+  const sup = fsB.mkdtempSync(nodePath.join(osB.tmpdir(), 'aw-4012-grok-sup-'));
+  try {
+    const bin = nodePath.join(sup, 'bin');
+    fsB.mkdirSync(bin, { recursive: true });
+    const copy = nodePath.join(bin, 'grok-report-bridge.js');
+    fsB.copyFileSync(BRIDGE, copy);
+    const root = nodePath.join(sup, 'data', store.APP);
+    fsB.mkdirSync(root, { recursive: true });
+    fsB.writeFileSync(nodePath.join(root, 'board.token'), 'abc123boardtoken');
+    const env = { AGENT_WORKFORCE_DATA: nodePath.join(sup, 'data'), KOSMOS_WORLD: 'test' };
+
+    // No pointer yet: the report still goes, just without the two headers (the old behaviour).
+    const bare = await drive(TURN, env, copy);
+    assert.equal(bare.length, 1, 'a bridge with no engine still reports');
+    assert.equal(bare[0].headers['x-kosmos-board-token'], undefined);
+
+    fsB.writeFileSync(nodePath.join(bin, 'engine-path'), nodePath.join(__dirname, 'engine') + '\n');
+    const seen = await drive(TURN, env, copy);
+    assert.equal(seen.length, 1);
+    assert.equal(seen[0].headers['x-kosmos-board-token'], 'abc123boardtoken', 'the supportDir copy did not present the board token');
+    assert.equal(seen[0].headers[WORLD_HEADER], 'test', 'the supportDir copy did not name its Kosmos');
+  } finally {
+    fsB.rmSync(sup, { recursive: true, force: true });
+  }
+});
+
+/* #4012: on Windows every grok turn is its own headless session (win32keyed.js), so its
+   SessionStart/SessionEnd are turn edges. Measured: each turn ended on `stopped`, which the
+   board reads as "it reported stopping, but it is still running" and drops. With the per-turn
+   marker those two report nothing; the turn events still do; without it nothing changes. */
+test('#4012: a per-turn agent does not report its session edges as starting and stopping', async () => {
+  const { reportFor, PER_TURN_ENV } = require('./bin/grok-report-bridge');
+  const perTurn = { [PER_TURN_ENV]: '1' };
+  assert.equal(reportFor({ hook_event_name: 'SessionStart' }, perTurn), null);
+  assert.equal(reportFor({ hook_event_name: 'SessionEnd' }, perTurn), null);
+  assert.equal(reportFor({ hook_event_name: 'UserPromptSubmit' }, perTurn).state, 'working');
+  assert.equal(reportFor({ hook_event_name: 'SessionEnd' }, {}).state, 'stopped', 'a pane agent still reports stopping');
+  assert.equal(reportFor({ hook_event_name: 'SessionStart' }).state, 'started');
+  const ended = await drive(JSON.stringify({ hook_event_name: 'SessionEnd' }), perTurn);
+  assert.equal(ended.length, 0, 'a per-turn SessionEnd must not reach the board');
+  const turn = await drive(TURN, perTurn);
+  assert.equal(JSON.parse(turn[0].body).state, 'idle', 'the turn itself still reports');
 });

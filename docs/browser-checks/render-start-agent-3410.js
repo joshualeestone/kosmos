@@ -365,6 +365,29 @@ function chk(ok, label, extra) {
       'success: the confirmed-started + said-hello receipt is shown', success.msg);
     chk(success.btnHidden === true,
       'and the button hides on success, leaving just the receipt', JSON.stringify(success.btnHidden));
+    /* ── Part 9 (#4008): the waiting line carries the Sweep loader, and when a NEWER start or restart of the
+       same agent supersedes the hello (no report comes), the line settles on "Started Nyx." instead of
+       spinning forever. The button is re-armed by hand; the hello is held so the newer restart can land
+       while it is out. */
+    statusPolls = 0;   // the gap again, so the readiness wait sees unready then ready
+    await page.unroute('**/api/agent/*/thread');
+    await page.route('**/api/agent/*/thread', async (r) => {
+      await new Promise((res) => setTimeout(res, 1200));
+      r.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ recorded: true, delivery: { state: 'placed' } }) });
+    });
+    await page.evaluate(() => { const b = document.getElementById('d-start-agent'); b.hidden = false; b.disabled = false; });
+    await page.click('#d-start-agent');
+    await page.waitForFunction(() => { const m = document.getElementById('d-start-msg'); return m && /Waking them/.test(m.textContent); }, { timeout: 8000 }).catch(() => {});
+    const waking = await page.evaluate(() => { const m = document.getElementById('d-start-msg'); const sp = m && m.querySelector('.spin.spin-sweep');
+      return { text: m ? m.textContent : null, sweep: !!sp, dots: sp ? sp.querySelectorAll('i').length : 0 }; });
+    await page.evaluate(() => { RESTART_HELLO_SEQ.nyx = (RESTART_HELLO_SEQ.nyx || 0) + 1; });   // a newer restart of nyx
+    await page.waitForTimeout(2000);   // past the held hello
+    const settled = await page.evaluate(() => { const m = document.getElementById('d-start-msg');
+      return { text: m ? m.textContent.trim() : null, sweep: !!(m && m.querySelector('.spin')) }; });
+    chk(waking.sweep && waking.dots === 8 && /^Started Nyx\. Waking them…$/.test(waking.text || ''),
+      '#4008: Start\'s "Waking them..." carries the Sweep loader', JSON.stringify(waking));
+    chk(settled.text === 'Started Nyx.' && !settled.sweep,
+      '#4008: a hello superseded by a newer restart settles the line ("Started Nyx."), with no loader left spinning', JSON.stringify(settled));
     await page.unroute('**/api/status');
 
     chk(errs.length === 0, 'no page errors', errs.join(' | '));

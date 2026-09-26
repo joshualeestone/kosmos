@@ -51,17 +51,46 @@ const MARKER = 'gemini-report-bridge';
    this is the posix shell form `node "<bridge>"` -- the analog of reporthook.js's
    `bash "<script>"`. `node` rather than an absolute runtime: the gemini CLI is
    itself a `#!/usr/bin/env node` script, so a pane that launched gemini has node
-   on PATH by construction, and the pane inherits that PATH for the hook. */
-function commandFor(bridgePath) {
+   on PATH by construction, and the pane inherits that PATH for the hook (the
+   supervisor also appends Kosmos's own node to the pane PATH, #3971).
+
+   win32 (#4010): gemini-cli 0.61.0 runs every command hook through POWERSHELL on
+   Windows, never bash or cmd (read from the bundle: getShellConfiguration takes
+   ComSpec only when it IS powershell/pwsh, else pwsh.exe from PATH, else
+   powershell.exe, and the hook runner spawns it, shell:false, with `-NoProfile
+   -NonInteractive -Command "<command>; if ($LASTEXITCODE -ne 0) {...}"`). So the
+   win32 form is PowerShell's call operator on two single-quoted literals,
+   `& '<node>' '<bridge>'`: a leading quoted string WITHOUT `&` is an expression in
+   PowerShell (it prints the path and runs nothing), and a single-quoted string is
+   fully literal, so backslashes and spaces in either path ride as they are. The
+   node is ABSOLUTE, the node doing the wiring (the bundled runtime\node.exe on an
+   install, the same source reporthook.js's win32 entry uses): a Windows turn gets
+   no #3971 PATH append and a Windows box usually has no system node, so a bare
+   `node` would find nothing. `platform` and `node` are injectable so both forms
+   are testable on any host. */
+function commandFor(bridgePath, opts) {
+  const o = opts || {};
+  if ((o.platform || process.platform) === 'win32') {
+    return "& '" + (o.node || process.execPath) + "' '" + bridgePath + "'";
+  }
   return 'node "' + bridgePath + '"';
 }
 
-/* Refuse a bridge path carrying a character that would break out of, or execute
-   inside, the double-quoted shell command. LOAD-BEARING: the command is a shell
-   string. Same set and reasoning as reporthook.js's posix arm. A non-string is
-   unsafe rather than throwing. */
-function unsafeForCommand(s) {
+/* Refuse a path carrying a character that would break out of, or execute inside,
+   the quoted shell command. LOAD-BEARING: the command is a shell string.
+   posix: the path rides in a double-quoted sh string, so a quote, backslash,
+   dollar or backtick is refused (reporthook.js's posix set).
+   win32: the path rides in a single-quoted POWERSHELL literal, which only a single
+   quote can end, and PowerShell counts the typographic U+2018..U+201B as single
+   quotes too, so those are refused with it. Double quotes (straight and
+   U+201C..U+201E), dollar, backtick and percent are inert inside '...' but refused
+   anyway: over-refuse, never under-refuse (a refused path degrades to scraping),
+   and it keeps the set a superset of reporthook.js's win32 one. A backslash is
+   ALLOWED on win32, the ordinary separator; refusing it was #4010. CR/LF are
+   refused on both. A non-string is unsafe rather than throwing. */
+function unsafeForCommand(s, plat) {
   if (typeof s !== 'string') return true;
+  if ((plat || process.platform) === 'win32') return /['"`$%\r\n\u2018-\u201E]/.test(s);
   return /["\\$`\r\n]/.test(s);
 }
 
@@ -73,8 +102,8 @@ function entryIsOurs(entry) {
 /* One event's desired definition: a single command hook running the bridge. The
    shape matches gemini's hook schema (`{ hooks: [{ type, command }] }` under an
    event name), identical to Claude Code's. */
-function definitionFor(bridgePath) {
-  return { hooks: [{ type: 'command', command: commandFor(bridgePath) }] };
+function definitionFor(bridgePath, opts) {
+  return { hooks: [{ type: 'command', command: commandFor(bridgePath, opts) }] };
 }
 
 /**
@@ -84,10 +113,18 @@ function definitionFor(bridgePath) {
  * because the caller (create.js at birth) fails soft: a settings file it could
  * not prepare costs the agent a self-report / a first-run picker, not its
  * existence, which is the pre-#3296 world, not a corruption.
+ * `opts` ({ platform, node }) picks the command form, see commandFor; both
+ * default to this process.
  */
-function ensurePrepared(settingsPath, bridgePath) {
+function ensurePrepared(settingsPath, bridgePath, opts) {
+  const o = opts || {};
+  const plat = o.platform || process.platform;
+  /* On win32 the command carries a second path, the absolute node (commandFor), so
+     it is vetted and checked for ephemerality with the bridge. Null elsewhere. */
+  const node = plat === 'win32' ? (o.node || process.execPath) : null;
+  const cmdOpts = { platform: plat, node };
   if (!bridgePath) return { prepared: false, because: 'the gemini report bridge is not on this machine' };
-  if (unsafeForCommand(bridgePath)) {
+  if (unsafeForCommand(bridgePath, plat) || (node !== null && unsafeForCommand(node, plat))) {
     return { prepared: false, because: 'the bridge path contains characters we will not embed in a command' };
   }
   /* #1582 class (from reporthook.js): a durable, SHARED settings file must not be
@@ -103,7 +140,8 @@ function ensurePrepared(settingsPath, bridgePath) {
     let realTmp = rawTmp;
     try { realTmp = fs.realpathSync(rawTmp); } catch { /* keep the raw value */ }
     const underRoot = (p, root) => typeof p === 'string' && (p === root || p.startsWith(root + path.sep));
-    const bridgeEphemeral = underRoot(bridgePath, rawTmp) || underRoot(bridgePath, realTmp);
+    const ephemeral = (p) => underRoot(p, rawTmp) || underRoot(p, realTmp);
+    const bridgeEphemeral = ephemeral(bridgePath) || (node !== null && ephemeral(node));
     const settingsDurable = typeof settingsPath === 'string'
       && !underRoot(settingsPath, rawTmp) && !underRoot(settingsPath, realTmp);
     if (bridgeEphemeral && settingsDurable) {
@@ -163,7 +201,7 @@ function ensurePrepared(settingsPath, bridgePath) {
      entry that is ours but aimed at a DIFFERENT bridge path is repointed (so a
      moved install heals); anything that is not ours is untouched. */
   if (!data.hooks || typeof data.hooks !== 'object' || Array.isArray(data.hooks)) data.hooks = {};
-  const wantCommand = commandFor(bridgePath);
+  const wantCommand = commandFor(bridgePath, cmdOpts);
   const sameHook = (def) => !!(def && Array.isArray(def.hooks)
     && def.hooks.some((h) => h && h.type === 'command' && h.command === wantCommand));
   for (const event of HOOK_EVENTS) {
@@ -171,11 +209,11 @@ function ensurePrepared(settingsPath, bridgePath) {
     const mine = existing.filter(entryIsOurs);
     if (mine.length) {
       if (mine.some(sameHook)) continue; // already ours and already correct
-      data.hooks[event] = existing.map((e) => (entryIsOurs(e) ? definitionFor(bridgePath) : e));
+      data.hooks[event] = existing.map((e) => (entryIsOurs(e) ? definitionFor(bridgePath, cmdOpts) : e));
       changed = true;
       continue;
     }
-    data.hooks[event] = existing.concat([definitionFor(bridgePath)]);
+    data.hooks[event] = existing.concat([definitionFor(bridgePath, cmdOpts)]);
     changed = true;
   }
 

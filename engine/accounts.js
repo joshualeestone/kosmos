@@ -459,7 +459,19 @@ function prepare(label) {
      The field in the return is what lets a screen say which happened.
      Reused spots get this free: the connect route re-runs prepare. */
   const hooks = reporthook.ensureWired(path.join(dir, 'settings.json'), reporthook.hookScriptPath());
-  return { ok: true, dir, label: clean, memoryShared, hooksWired: hooks.wired === true };
+  /* #3946: and with the statusline that records its weekly usage, so a swarm
+     on it can be limited in "% of weekly allowance". Same fail-soft posture:
+     an account that already has its own statusline keeps it and simply has
+     no weekly reading (allowance.js says why). */
+  let weekly = { wired: false, because: 'the weekly reading could not be set up' };
+  /* Required HERE, not at the top: an account must still be born if the
+     allowance module is missing or fails to load, and setup.sh's hook block
+     requires this file, so a top-level require would also take the report
+     hooks down with it. */
+  try { weekly = require('./allowance').ensureStatusLine(path.join(dir, 'settings.json')); }
+  catch { /* fail soft: no weekly reading for this account */ }
+  return { ok: true, dir, label: clean, memoryShared, hooksWired: hooks.wired === true, weeklyWired: weekly.wired === true,
+    weeklyBecause: weekly.wired === true ? null : (weekly.because || null) };
 }
 
 /**

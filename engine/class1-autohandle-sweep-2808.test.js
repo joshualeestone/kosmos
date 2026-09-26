@@ -68,7 +68,7 @@ function fakeDeps() {
 // Install a set of agents, write their self-reports, return the reconciled cards + a
 // session-name lookup by the fleet name. Caller restores.
 function installBoard(specs) {
-  const board = fleet.install(specs.map((s) => fleet.agent(s.name, { state: s.paneState || 'idle', screen: s.screen, displayName: s.displayName })));
+  const board = fleet.install(specs.map((s) => fleet.agent(s.name, { state: s.paneState || 'idle', screen: s.screen, displayName: s.displayName, runner: s.runner, command: s.command })));
   // Map fleet name -> the sessionName the reconciled card actually carries (the selfreport key).
   const keyOf = {};
   for (const s of specs) {
@@ -102,6 +102,28 @@ test('sweepOnce acts on by:auto AND a trust-dialog scrape; never on by:agent / n
     // The executor was called ONLY for the two class-1 agents, keyed on their sessionName.
     const restarted = d.calls.filter((c) => c[0] === 'restart').map((c) => c[1]).sort();
     assert.deepEqual(restarted, [b.keyOf.autoperm, b.keyOf.trustdlg].sort());
+  } finally { b.restore(); }
+});
+
+test('#4006: a quiet Grok agent whose by:auto needs_you reached the card is NEVER restarted; the Claude one beside it still is', () => {
+  // Josh's Elon, 2026-09-26: grok's turn-end "Waiting for your next prompt" arrived as needs_you by:auto (the bridge no
+  // longer sends it, but a report already on file, or another runner's, must still never trigger a restart).
+  const b = installBoard([
+    { name: 'elon', runner: 'grok', command: 'grok-native', report: { state: 'needs_you', because: 'Waiting for your next prompt', auto: true } },
+    { name: 'casey', report: { state: 'needs_you', because: 'asking permission to use Bash', auto: true } },   // CONTROL: Claude
+  ]);
+  try {
+    const elon = b.agents.find((a) => a.sessionName === b.keyOf.elon);
+    assert.equal(elon.runner, 'grok', 'precondition: the real card carries the grok runner');
+    assert.equal(elon.state, 'needs_you', 'precondition: the real card reads the by:auto needs_you');
+    assert.equal(elon.stateReportedBy, 'auto', 'precondition: reported by:auto, the shape that tripped the handler');
+    const d = fakeDeps();
+    const { results } = class1.sweepOnce({ roster: b.agents, attempts: new Map(), now: 1e6, ...d });
+    const act = {};
+    for (const r of results) act[r.session] = r.act;
+    assert.equal(act[b.keyOf.elon], 'none', 'the grok agent was planned for a restart');
+    assert.equal(act[b.keyOf.casey], 'trust-and-restart', 'CONTROL: the Claude agent is still handled');
+    assert.deepEqual(d.calls.filter((c) => c[0] === 'restart').map((c) => c[1]), [b.keyOf.casey]);
   } finally { b.restore(); }
 });
 
