@@ -50,13 +50,17 @@ const PATTERNS = [
  */
 let knownForms = [];
 let knownSignature = null;
+let indexBuilds = 0;   // for tests: how many times the index was rebuilt
 function setKnownSecrets(values) {
   /* The board reloads the held set every few minutes; an unchanged set keeps its index (review round 23: a rebuild
      at the value cap took about 2 seconds of the event loop). */
   const list = Array.isArray(values) ? values.filter((v) => typeof v === 'string') : [];
-  const signature = `${list.length}\u0000${list.join('\u0000')}`;
+  /* Sorted (review round 24): the files are read in directory order, which need not repeat, and the same set in
+     another order is still the same set. The index itself is built from the list as given. */
+  const signature = `${list.length}\u0000${[...list].sort().join('\u0000')}`;
   if (signature === knownSignature) return;
   knownSignature = signature;
+  indexBuilds += 1;
   maskCache.clear();
   const forms = new Set();
   const heldValues = [];   // the values taken, as trimmed: the same set the forms and the fragment index come from
@@ -341,6 +345,10 @@ function normalisedCopy(text) {
    reaching it (review round 13): ten held Anthropic keys and a 36,000-character reply repeating a paragraph that
    names sk-ant-api03- 200 times, withheld; whether it trips depends on the keys' random next characters. */
 const WORD_WALK_BUDGET = 1250000;
+/* How far a split value may spread: its pieces within this many times its length, counted in characters that are
+   not spaces. One constant for the separator copies and the word walk (review round 24), so their reach cannot
+   drift apart. */
+const SPLIT_REACH = 4;
 /* A comparison is charged by the characters it can read, one unit per 16 (review round 6): an opening or a
    piece can be up to WORD_WALK_MAX_FORM long, and counting comparisons alone let 2,000 held values sharing a
    1,000-character prefix cost two seconds under the budget. An ordinary opening or piece is one unit. */
@@ -460,7 +468,7 @@ function wordSkippingSpans(text) {
       const from = runFrom + q;
       /* Only a form whose next character begins some run in reach can ever advance. */
       const live = new Set();
-      for (let s = r + 1; s < runs.length && nonSpaceBefore[runs[s][1]] - nonSpaceBefore[from] <= 4 * maxLen; s += 1) {
+      for (let s = r + 1; s < runs.length && nonSpaceBefore[runs[s][1]] - nonSpaceBefore[from] <= SPLIT_REACH * maxLen; s += 1) {
         /* Every run visited is charged, matching or not (review round 1: charging only matches left the
            scan itself unbounded). */
         if ((budget -= 1) < 0) return null;
@@ -472,7 +480,7 @@ function wordSkippingSpans(text) {
         }
       }
       for (const f of live) {
-        const bound = 4 * f.length;
+        const bound = SPLIT_REACH * f.length;
         let reached = new Set([opening.length]);
         let movedAt = -1;   // where this walk first matched a piece after its opening
         let doneFrom = null;   // the last piece: its run, and the position it started at
@@ -696,7 +704,7 @@ function maskFresh(text) {
              layout, not noise, and measuring raw distance let an ordinary padded table leak the whole key.
              Real splits carry little else (a row number and two pipes per chunk); four times the value is
              generous for them and far below a swallowed table. */
-          if (to - from !== f.length && nonSpaceIn(original, from, to, 4 * f.length) <= 4 * f.length) spans.push([from, to]);
+          if (to - from !== f.length && nonSpaceIn(original, from, to, SPLIT_REACH * f.length) <= SPLIT_REACH * f.length) spans.push([from, to]);
           at = copy.str.indexOf(f, at + f.length);
         }
       }
@@ -790,6 +798,6 @@ function describeFired(fired) {
   return fired.map((f) => `${f.kind} x${f.count}`).join(', ');
 }
 
-/* For tests: the fragment index's size and stride. */
-function fragmentIndexStats() { return { size: knownGrams.size, stride: fragmentStride }; }
+/* For tests: the fragment index's size and stride, and how many times the held set was rebuilt. */
+function fragmentIndexStats() { return { size: knownGrams.size, stride: fragmentStride, builds: indexBuilds }; }
 module.exports = { MASK, WITHHELD, UNCHECKED, mask, describeFired, setKnownSecrets, knownSecretCount, fragmentIndexStats };

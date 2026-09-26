@@ -889,7 +889,7 @@ test('#3935 a first chunk too short to open a walk does not leave the rest reada
   } finally { setKnownSecrets([]); }
 });
 
-test('#3935 the words a budget-stopped reply is withheld with do not claim a key was found (review round 19; the behaviour is asserted by the budget tests)', () => {
+test('#3935 wording only: the message a budget-stopped reply is withheld with does not claim a key was found (review round 19; withholding itself is asserted by the budget tests)', () => {
   assert.notEqual(UNCHECKED, WITHHELD);
   assert.match(UNCHECKED, /could not finish checking/);
   assert.doesNotMatch(UNCHECKED, /removed a password/);
@@ -1024,5 +1024,18 @@ test('#3935 a cached result does not outlive the held set it was made under (rev
     const a = mask(t); a.fired.push({ kind: 'x', count: 1 }); a.fired[0].count = 99;
     const b = mask(t);
     assert.ok(!b.fired.some((f) => f.kind === 'x' || f.count === 99), JSON.stringify(b.fired));
+  } finally { setKnownSecrets([]); }
+});
+
+test('#3935 the same held set in another order keeps its index; a different set rebuilds it (review round 24)', () => {
+  const values = ['Zq8vLm3pRt6wXy9kHb2nWc4dPq7sTu5v', 'Qw8eRt2yUi9oPa3sDf6gHj1kLz5xCv0b', 'Mn4bVc7xZa1sDf3gHj5kLp8oIu2yTr6e'];
+  setKnownSecrets(values);
+  try {
+    const before = fragmentIndexStats().builds;
+    setKnownSecrets([...values].reverse());
+    assert.equal(fragmentIndexStats().builds, before, 'the same set, reordered, was rebuilt');
+    setKnownSecrets(values.slice(1));
+    assert.equal(fragmentIndexStats().builds, before + 1, 'a changed set was not rebuilt');
+    assert.equal(mask('First Zq8vLm3p then Rt6wXy9k then Hb2nWc4dPq7sTu5v done').text, 'First Zq8vLm3p then Rt6wXy9k then Hb2nWc4dPq7sTu5v done');
   } finally { setKnownSecrets([]); }
 });
