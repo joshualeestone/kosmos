@@ -1,7 +1,7 @@
 // Browser-check-surface: acard
 'use strict';
 /**
- * The "haunted" board (#1930, found by Ben, the external tester): an agent whose pane
+ * The "haunted" board (#1930, found by an external tester): an agent whose pane
  * still shows an OLD Claude sign-in rejection must not read as failing once the account
  * sign-in works again.
  *
