@@ -389,10 +389,17 @@ const resetStore = (state) => fs.writeFileSync(tipsStore.FILE(), JSON.stringify(
           ringed: !!hr && Math.abs(hr.left + 4 - br.left) <= 1 && Math.abs(hr.top + 4 - br.top) <= 1,
           dim: document.documentElement.classList.contains('tip-dimming'),
           cls: ['up', 'down', 'left', 'right', 'flat'].find((k) => c.classList.contains(k)),
-          overArea: a.left < br.right && a.right > br.left && a.top < br.bottom && a.bottom > br.top };
+          overArea: a.left < br.right && a.right > br.left && a.top < br.bottom && a.bottom > br.top,
+          // #3920: the engine's 0.6.93 rule, a tip never sits on a real control. The area test alone let the
+          // Conversation card land ON the header tabs at this size and still pass.
+          onControl: [...document.querySelectorAll('button, a[href], [role="tab"], input, select, textarea')].filter((q) => {
+            if (q.closest('#tiplayer, #asblayer, [hidden]')) return false;
+            const qr = q.getBoundingClientRect();
+            return qr.width > 0 && qr.height > 0 && a.left < qr.right && a.right > qr.left && a.top < qr.bottom && a.bottom > qr.top;
+          }).length };
       }, want35[i][0]));
     }
-    const bad35 = got35.filter((g, i) => g.step !== (i + 1) + ' of 4' || g.title !== want35[i][1] || g.body !== want35[i][2] || !g.ringed || !g.dim || g.cls === 'flat' || g.overArea);
+    const bad35 = got35.filter((g, i) => g.step !== (i + 1) + ' of 4' || g.title !== want35[i][1] || g.body !== want35[i][2] || !g.ringed || !g.dim || g.cls === 'flat' || g.overArea || g.onControl);
     chk(got35.length === 4 && bad35.length === 0, 'T35 a project\'s tips walk its four areas, each ringed and pointed at, none covered', JSON.stringify(bad35.length ? bad35 : got35.map((g) => g.title)));
     await page.click('#tipcard .tip-go');
     await page.waitForTimeout(300);
