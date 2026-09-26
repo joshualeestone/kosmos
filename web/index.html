@@ -2007,7 +2007,10 @@ button.worldsw-row:focus-visible { outline: 2px solid var(--k-ink); outline-offs
 /* 📱 #718 row 5: THE FRAME'S CONTROLS ARE THUMB-SIZE ON A PHONE (44x44, the tap floor
    Settings (#3807) and the org chart use). Measured at 375px before: the K mark 34x34,
    the Kosmos switcher and You 32px tall, the menu 40x40, the layout toggles 38x30, the
-   "← All agents" link 70x15. Phone width only, so desktop is untouched.
+   "← All agents" link 70x15 (every .back link: the agent, create and Files pages and the
+   project pages; each grows to a 44px row, which moves what is under it down by ~29px).
+   Portrait phone width only, so desktop is untouched; a phone turned sideways gets the
+   desktop frame (see the plan's Rejected list).
    The mark, the switcher, You and the menu grow their BOX with a matching negative
    margin, so the header row keeps its height and nothing beside them moves; the
    toggles sit inside a bordered group that clips, so they simply grow. */
