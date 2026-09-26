@@ -51,3 +51,18 @@ test('two six-digit numbers: the one after "code", else neither', () => {
 test('nothing that is not exactly one six-digit code', () => {
   for (const t of ['', '12345', '1234567', 'ID 1234567890', 'no digits here', null, undefined]) assert.equal(find(t), '', JSON.stringify(t));
 });
+
+test('other separators a code arrives with: any space, two spaces, a dot, a dash with spaces', () => {
+  for (const t of ['123 456', '123 456', '123\t456', '123  456', '123.456', '123 – 456', '123—456']) {
+    assert.equal(find(t), '123456', JSON.stringify(t));
+  }
+});
+
+test('a full stop and a space end a sentence: a code then a year is a code', () => {
+  assert.equal(find('Your code: 482913. 2026 is almost over.'), '482913');
+});
+
+test('"code" as a word only: a zipcode or barcode number is not picked', () => {
+  assert.equal(find('Ref 111111, zipcode 222222'), '', 'two numbers and no word "code": nothing');
+  assert.equal(find('Ref 111111, your code 222222'), '222222');
+});

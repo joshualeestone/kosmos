@@ -317,6 +317,23 @@ const visible = (page, sel) => page.evaluate((s) => {
         await page.setViewportSize(wide);
         await page.waitForTimeout(200);
         chk(narrow.input === narrow.row && narrow.input >= 18, `[${key}] #3942 on a narrow window the digits keep the boxes' size (no settings-wide 16px)`, JSON.stringify(narrow));
+        /* Round 5 review (measured): at phone width a settings-wide min-height: 44px made the input
+           taller than the boxes, so the digits sat low. And at a 150% text size the 18px floor pushed
+           the row out of its card. The input must be the row's height, and the row inside its card. */
+        const fits = async (w, pct) => {
+          await page.setViewportSize({ width: w, height: wide.height });
+          await page.evaluate((p) => { document.documentElement.style.fontSize = p; }, pct);
+          await page.waitForTimeout(200);
+          return page.evaluate(() => { const i = document.getElementById('plus-si-code-in'); const b = i.closest('.otp-boxes'); const f = b.parentElement.getBoundingClientRect(); const r = b.getBoundingClientRect();
+            return { inH: Math.round(i.getBoundingClientRect().height), rowH: Math.round(r.height), inside: r.left >= f.left - 1 && r.right <= f.right + 1, font: parseFloat(getComputedStyle(b).fontSize) }; });
+        };
+        const at320 = await fits(320, '');
+        const big = await fits(390, '150%');
+        await page.evaluate(() => { document.documentElement.style.fontSize = ''; });
+        await page.setViewportSize(wide);
+        await page.waitForTimeout(200);
+        chk(at320.inH === at320.rowH && at320.inside, `[${key}] #3942 at 320px the input is exactly the boxes' height (digits centred) and the row fits`, JSON.stringify(at320));
+        chk(big.inside && big.inH === big.rowH, `[${key}] #3942 with a 150% text size the row still fits its card`, JSON.stringify(big));
         /* High-contrast (forced colours) strips the box-shadow outline: the current box keeps a thick
            system-colour edge instead, and the other boxes keep their thin one. */
         await page.emulateMedia({ forcedColors: 'active' });
@@ -350,9 +367,9 @@ const visible = (page, sel) => page.evaluate((s) => {
         chk(part.scroll === 0 && part.shift === 0, `[${key}] #3942 typing never scrolls the boxes sideways (the first box stays whole)`, JSON.stringify(part));
         await page.screenshot({ path: path.join(OUT, `${key}-code-boxes-3942.png`) });
         await page.evaluate(() => { const i = document.getElementById('plus-si-code-in'); i.value = ''; i.dispatchEvent(new Event('input')); });
-        await page.keyboard.insertText('123 456');   // one paste, space and all
+        await page.keyboard.insertText('123 456');   // text arriving at once, space and all (no paste event: the beforeinput path)
         await page.waitForTimeout(300);
-        chk(verifies === 1, `[${key}] #3942 one paste of "123 456" fills every box and submits exactly once`, String(verifies));
+        chk(verifies === 1, `[${key}] #3942 "123 456" arriving at once (not a paste event) fills every box and submits exactly once`, String(verifies));
         page.off('request', count);
       } else {
         await page.fill('#plus-si-code-in', '123456');
@@ -610,10 +627,15 @@ const visible = (page, sel) => page.evaluate((s) => {
         return { s: i.selectionStart, e: i.selectionEnd, on: Array.from(document.querySelectorAll('#plus-si-code .otp-cell')).findIndex((x) => x.classList.contains('on')) }; });
       // Arrow keys, not Home/End: on a Mac, End does not move the caret in a text field.
       await page.keyboard.press('ArrowRight');   // collapses the selection to the end
+      // At the end of a FULL code the next digit starts the code again, so the first box is the one shown.
       const atEnd = await onBox();
-      for (let i = 0; i < 6; i += 1) await page.keyboard.press('ArrowLeft');
+      await page.keyboard.press('ArrowLeft');
+      const oneIn = await onBox();
+      for (let i = 0; i < 5; i += 1) await page.keyboard.press('ArrowLeft');
       const atHome = await onBox();
-      chk(atEnd.s === 6 && atEnd.on === 5 && atHome.s === 0 && atHome.e === 0 && atHome.on === 0, `[${k}] #3942 the outlined box follows the caret (at the end: last box; back at the start: first)`, JSON.stringify({ atEnd, atHome }));
+      chk(atEnd.s === 6 && atEnd.on === 0 && oneIn.s === 5 && oneIn.on === 5 && atHome.s === 0 && atHome.e === 0 && atHome.on === 0,
+        `[${k}] #3942 the outlined box follows the caret (at the start: first; on the last digit: last; past a full code: first, where the next digit goes)`, JSON.stringify({ atEnd, oneIn, atHome }));
+      await page.keyboard.press('Home');
       const third = await page.evaluate(() => { const c = document.querySelectorAll('#plus-si-code .otp-cell')[2].getBoundingClientRect(); return { x: c.left + 3, y: c.top + c.height / 2 }; });
       await page.mouse.click(third.x, third.y);
       const clicked = await onBox();
@@ -640,7 +662,9 @@ const visible = (page, sel) => page.evaluate((s) => {
       const pasteCode = (text) => page.evaluate((t) => {
         const i = document.getElementById('plus-si-code-in'); i.focus();
         const dt = new DataTransfer(); dt.setData('text/plain', t);
-        i.dispatchEvent(new ClipboardEvent('paste', { clipboardData: dt, bubbles: true, cancelable: true }));
+        // The result says whether the page CANCELLED the browser's own paste (a synthetic paste never
+        // inserts text by itself, so only this can show the no-code path really stops the insert).
+        return i.dispatchEvent(new ClipboardEvent('paste', { clipboardData: dt, bubbles: true, cancelable: true }));
       }, text);
       const sel = await page.evaluate(() => { const i = document.getElementById('plus-si-code-in'); i.blur(); i.focus(); return { s: i.selectionStart, e: i.selectionEnd, n: i.value.length }; });
       chk(sel.s === 0 && sel.e === sel.n && sel.n === 6, `[${k}] #3942 focusing a full field selects the whole code, ready to be replaced`, JSON.stringify(sel));
@@ -655,10 +679,18 @@ const visible = (page, sel) => page.evaluate((s) => {
       await pasteCode('Your Kosmos+ code is 482 913. Ref 20260926.');
       await page.waitForTimeout(400);
       chk((await page.inputValue('#plus-si-code-in')) === '482913' && wrongSends === 6, `[${k}] #3942 pasting a whole email line picks out the code, not another number`, JSON.stringify({ v: await page.inputValue('#plus-si-code-in'), wrongSends }));
+      /* Round 5 review (measured): text that arrives WITHOUT a paste event (a drop, dictation, a
+         keyboard's clipboard chip) went round the finder and sent the date as the code. */
+      await page.focus('#plus-si-code-in');
+      await page.keyboard.insertText('Sent 2026-09-26. Your code is 482 915.');
+      await page.waitForTimeout(400);
+      chk((await page.inputValue('#plus-si-code-in')) === '482915' && wrongSends === 7, `[${k}] #3942 an email line arriving without a paste event also yields the code, not the date`, JSON.stringify({ v: await page.inputValue('#plus-si-code-in'), wrongSends }));
       // A paste with no one code in it (two numbers, no "code") pastes nothing and sends nothing.
-      await pasteCode('Order 482914 and 123457');
+      const notCancelled = await pasteCode('Order 482914 and 123457');
       await page.waitForTimeout(300);
-      chk((await page.inputValue('#plus-si-code-in')) === '482913' && wrongSends === 6, `[${k}] #3942 a paste with no single code in it changes nothing and sends nothing`, JSON.stringify({ v: await page.inputValue('#plus-si-code-in'), wrongSends }));
+      chk(notCancelled === false, `[${k}] #3942 a paste with no single code is cancelled, so the browser inserts nothing`, String(notCancelled));
+      const refusal = (await page.textContent('#plus-signin-msg')).trim();
+      chk((await page.inputValue('#plus-si-code-in')) === '482915' && wrongSends === 7 && /one 6-digit code/.test(refusal), `[${k}] #3942 a paste with no single code in it changes nothing, sends nothing, and says why`, JSON.stringify({ v: await page.inputValue('#plus-si-code-in'), wrongSends, refusal }));
       /* A code finished while an answer is still on its way goes when the button is free (the
          button watch), once. The first code is slow to answer; the second is typed meanwhile. */
       verifyDelay = 800;
@@ -669,13 +701,21 @@ const visible = (page, sel) => page.evaluate((s) => {
       const mid = wrongSends;
       await page.waitForTimeout(2000);
       verifyDelay = 0;
-      chk(mid === 7 && wrongSends === 8 && (await page.inputValue('#plus-si-code-in')) === '666666', `[${k}] #3942 a code finished while an answer is in flight is sent when the button is free, once`, JSON.stringify({ mid, wrongSends, v: await page.inputValue('#plus-si-code-in') }));
+      chk(mid === 8 && wrongSends === 9 && (await page.inputValue('#plus-si-code-in')) === '666666', `[${k}] #3942 a code finished while an answer is in flight is sent when the button is free, once`, JSON.stringify({ mid, wrongSends, v: await page.inputValue('#plus-si-code-in') }));
       /* A digit that arrives some way other than plain typing (an input method, a keyboard's
          replacement text) lands at the caret as a seventh digit: the digit after the caret goes, so
          it still replaces one digit. 123456 with a 9 put in after the 3 is 123956, not 123945. */
       await page.evaluate(() => { const i = document.getElementById('plus-si-code-in'); i.value = '1239456'; i.setSelectionRange(4, 4); i.dispatchEvent(new Event('input', { bubbles: true })); });
       await page.waitForTimeout(400);
-      chk((await page.inputValue('#plus-si-code-in')) === '123956' && wrongSends === 9, `[${k}] #3942 a seventh digit from an input method replaces the digit after the caret`, JSON.stringify({ v: await page.inputValue('#plus-si-code-in'), wrongSends }));
+      const imeOk = (await page.inputValue('#plus-si-code-in')) === '123956' && wrongSends === 10;
+      /* Round 4 review (web half, measured): a few digits pasted into a FULL code overwrite from the
+         caret, as typing does; spliced in and cut, they made a different code and sent it. 123956
+         with 27 pasted after the 1 is 127956 (splicing would give 127239). */
+      await page.evaluate(() => { const i = document.getElementById('plus-si-code-in'); i.focus(); i.setSelectionRange(1, 1); });
+      await pasteCode('27');
+      await page.waitForTimeout(400);
+      chk((await page.inputValue('#plus-si-code-in')) === '127956' && wrongSends === 11, `[${k}] #3942 a short paste into a full code overwrites from the caret`, JSON.stringify({ v: await page.inputValue('#plus-si-code-in'), wrongSends }));
+      chk(imeOk, `[${k}] #3942 a seventh digit from an input method replaces the digit after the caret`, JSON.stringify({ v: await page.inputValue('#plus-si-code-in'), wrongSends }));
       const hint = await page.evaluate(() => { const i = document.getElementById('plus-si-code-in'); const ids = (i.getAttribute('aria-describedby') || '').split(/\s+/); const h = ids.map((x) => document.getElementById(x)).find(Boolean); return h ? h.textContent : null; });
       chk(hint === 'Kosmos checks the code as soon as all six digits are in.', `[${k}] #3942 a screen reader is told the sixth digit checks the code`, JSON.stringify(hint));
       page.off('request', countWrong);

@@ -9285,9 +9285,11 @@ body.plus-active #plus-state2 { max-width: 26rem; padding: 2rem; }
    (Safari before 16), 7.5vw of the screen stands in: rougher, but it never overflows a phone. */
 #plus-state2 .otp-fit { container-type: inline-size; margin-top: .75rem; }
 #plus-state2 .otp-boxes { --cw: 2.6ch; --gap: .5ch; position: relative; display: block; overflow: hidden; overflow: clip;
-  font: 650 1.75rem/1 ui-monospace, Menlo, monospace; font-size: clamp(1.125rem, 7.5vw, 1.75rem); font-size: clamp(1.125rem, 8.6cqw, 1.75rem);
+  font: 650 1.75rem/1 ui-monospace, Menlo, monospace; font-size: min(1.75rem, 7.5vw); font-size: min(1.75rem, 8.6cqw);
   width: calc(6 * var(--cw) + 5 * var(--gap)); height: calc(var(--cw) * 1.25); }
-#plus-state2 .otp-cells { position: absolute; inset: 0; display: flex; gap: var(--gap); pointer-events: none; }
+/* Spacing by margin, not flex gap (missing in Safari before 14.5), so the boxes stay under the digits. */
+#plus-state2 .otp-cells { position: absolute; inset: 0; display: flex; pointer-events: none; }
+#plus-state2 .otp-cell + .otp-cell { margin-left: var(--gap); }
 #plus-state2 .otp-cell { flex: 0 0 var(--cw); box-sizing: border-box; border-radius: 12px; background: #16223e; border: 1px solid #5c78a6; }
 #plus-state2 .otp-cell.on { border-color: #7ea0f0; box-shadow: 0 0 0 2px #7ea0f0 inset; }
 /* Listed a second time with #panel-settings in front: the narrow-screen rule that sets every settings
@@ -9295,7 +9297,7 @@ body.plus-active #plus-state2 { max-width: 26rem; padding: 2rem; }
    off their boxes below 40rem, measured. These digits are 28px, above iOS's zoom threshold anyway. */
 #plus-state2 .otp-boxes .plus-si-otp, #plus-state2 .otp-boxes .plus-si-otp:focus,
 #panel-settings #plus-state2 .otp-boxes input.plus-si-otp, #panel-settings #plus-state2 .otp-boxes input.plus-si-otp:focus { position: absolute; left: 0; top: 0; height: 100%; width: 100%;
-  margin: 0; padding: 0 0 0 calc((var(--cw) - 1ch) / 2); border: 0; border-radius: 0; outline: 0; box-shadow: none; background: transparent;
+  margin: 0; padding: 0 0 0 calc((var(--cw) - 1ch) / 2); border: 0; border-radius: 0; outline: 0; box-shadow: none; background: transparent; min-height: 0;
   font: inherit; letter-spacing: calc(var(--cw) + var(--gap) - 1ch); text-indent: 0; text-align: left; caret-color: transparent; }
 #plus-state2 .otp-boxes .plus-si-otp:-webkit-autofill { -webkit-box-shadow: none; transition: background-color 600000s 0s; -webkit-text-fill-color: #E6EBF7; }
 /* High-contrast (forced colours) drops the box-shadow and repaints every border alike, which would
@@ -37239,13 +37241,16 @@ document.getElementById('plus-si-cancel').addEventListener('click', (e) => {
    real input, so paste and one-time-code autofill fill them all at once), and the moment the sixth
    digit arrives the step's own button is pressed, once. The button stays for anyone who clicks. */
 /* #3942: the code in a pasted text, or '' when there is not exactly one. A code is a run of exactly
-   six digits, which may be split by single spaces or hyphens ("123 456", "123-456"); longer runs
+   six digits, which may be split by one separator between groups: a space of any kind (a no-break
+   or thin space too), up to two spaces, a dot, or a hyphen or dash with optional spaces around it
+   ("123 456", "123-456", "123 – 456"). A full stop followed by a space is a sentence end, not a
+   separator, so "482913. 2026" is a code then a year. Longer runs
    (a date 2026-09-26, a phone number 555-123-4567, an order number 20260926) are not codes. Two
    six-digit runs: the one just after the word "code" wins, else neither (a guess would be sent as a
    wrong code, and wrong codes count toward the sign-in's too-many-tries limit). */
 function plusSiCodeFromPaste(text) {
   const t = String(text || '');
-  const re = /\d(?:[ -]?\d)*/g;
+  const re = /\d(?:(?:\s?[\u2010-\u2015-]\s?|\s{1,2}|\.)?\d)*/g;
   const six = [];
   let m;
   while ((m = re.exec(t))) {
@@ -37253,7 +37258,7 @@ function plusSiCodeFromPaste(text) {
     if (d.length === 6) six.push({ d, before: t.slice(Math.max(0, m.index - 40), m.index) });
   }
   if (six.length === 1) return six[0].d;
-  const named = six.filter((x) => /code/i.test(x.before));
+  const named = six.filter((x) => /\bcode\b/i.test(x.before));   // the word, so not "zipcode" or "barcode"
   return named.length === 1 ? named[0].d : '';
 }
 const PLUS_SI_OTP_GO = { 'plus-si-code-in': 'plus-si-code-go', 'plus-si-second-in': 'plus-si-second-go', 'plus-si-enrol-code': 'plus-si-enrol-confirm-go' };
@@ -37290,6 +37295,8 @@ for (const id of ['plus-si-code-in', 'plus-si-second-in', 'plus-si-enrol-code'])
     const on = document.activeElement === el;
     let at = digits();
     try { if (typeof el.selectionStart === 'number') at = el.selectionStart; } catch { /* not a text input */ }
+    // At the end of a full code the next digit starts the code again, so that is the box to show.
+    if (digits() >= 6 && at >= 6) at = 0;
     Array.from(cells.children).forEach((c, i) => c.classList.toggle('on', on && i === Math.min(at, 5)));
   };
   /* Auto-submit: six digits that are NOT the code last sent. So a wrong code is not resent by
@@ -37326,6 +37333,14 @@ for (const id of ['plus-si-code-in', 'plus-si-second-in', 'plus-si-enrol-code'])
      that is outlined), rather than being inserted and pushing the last digit off the end, which made
      a different six-digit code and sent it. With the caret at the end, it starts the code again. */
   el.addEventListener('beforeinput', (e) => {
+    /* A block of text arriving without a paste event (a drop, dictation, a keyboard's clipboard
+       chip, replacement text, autofill) gets the same treatment as a paste (takeText). A paste
+       itself is handled by the paste listener, which runs first. */
+    const block = e.inputType === 'insertText' || e.inputType === 'insertReplacementText' || e.inputType === 'insertFromDrop';
+    const data = e.data != null ? e.data : (e.dataTransfer ? e.dataTransfer.getData('text/plain') : '');
+    // Only an event the browser will really cancel: otherwise the digit would go in twice.
+    if (!e.cancelable) return;
+    if (block && data && data.length > 1) { if (takeText(data)) e.preventDefault(); return; }
     if (e.inputType !== 'insertText' || !/^\d$/.test(e.data || '')) return;
     const a = el.selectionStart; const b = el.selectionEnd;
     if (typeof a !== 'number' || a !== b || digits() < 6) return;
@@ -37336,6 +37351,7 @@ for (const id of ['plus-si-code-in', 'plus-si-second-in', 'plus-si-enrol-code'])
     try { el.setSelectionRange(at, at); } catch { /* not a text input */ }
     el.dispatchEvent(new Event('input', { bubbles: true }));
   });
+  let hadDigits = 0;   // the digits in the field before this input: a seventh counts only after six
   // An input method's finished word gets the same cleaning as typing.
   el.addEventListener('compositionend', () => el.dispatchEvent(new Event('input', { bubbles: true })));
   el.addEventListener('input', (e) => {
@@ -37343,13 +37359,18 @@ for (const id of ['plus-si-code-in', 'plus-si-second-in', 'plus-si-enrol-code'])
     /* A seventh digit arrived by a way beforeinput does not catch (an input method, a keyboard's
        replacement text): it went in at the caret, so the digit AFTER the caret goes, keeping the
        replace-one-digit behaviour, rather than the last digit falling off the end. */
-    let d = e.target.value.replace(/\D/g, '');
-    if (d.length === 7 && typeof el.selectionStart === 'number') {
-      const k = e.target.value.slice(0, el.selectionStart).replace(/\D/g, '').length;
-      if (k > 0 && k < 7) d = d.slice(0, k) + d.slice(k + 1);
-    }
+    const raw = e.target.value;
+    let d = raw.replace(/\D/g, '');
+    // Where the caret is, counted in digits (so it can be put back after the field is cleaned).
+    let k = typeof el.selectionStart === 'number' ? raw.slice(0, el.selectionStart).replace(/\D/g, '').length : d.length;
+    if (d.length === 7 && hadDigits === 6 && k > 0 && k < 7) d = d.slice(0, k) + d.slice(k + 1);
     const clean = d.slice(0, 6);
-    if (e.target.value !== clean) e.target.value = clean;
+    if (raw !== clean) {
+      e.target.value = clean;
+      k = Math.min(k, clean.length);
+      try { if (document.activeElement === el) el.setSelectionRange(k, k); } catch { /* not a text input */ }
+    }
+    hadDigits = clean.length;
     paint();
     trySend();
   });
@@ -37361,18 +37382,36 @@ for (const id of ['plus-si-code-in', 'plus-si-second-in', 'plus-si-enrol-code'])
      browser paste would keep the first six digits of whatever was there and send them. A short run
      of digits alone (a few digits typed elsewhere) pastes as usual. A paste is also an intent to
      send, so the same code pasted again (after a network failure, say) goes again. */
-  el.addEventListener('paste', (e) => {
-    const text = (e.clipboardData && e.clipboardData.getData('text')) || '';
+  /* Returns true when it has dealt with the text (the caller stops the browser's own insert). When
+     there is no one code, the status line says so, so the field does not just look dead. */
+  function takeText(text) {
     const code = plusSiCodeFromPaste(text);
-    if (!code) {
-      if (/^[\d\s-]*$/.test(text) && text.replace(/\D/g, '').length < 6) return;
-      e.preventDefault();
-      return;
+    if (code) {
+      lastSent = '';
+      el.value = code;
+      el.dispatchEvent(new Event('input', { bubbles: true }));
+      return true;
     }
-    e.preventDefault();
-    lastSent = '';
-    el.value = code;
-    el.dispatchEvent(new Event('input', { bubbles: true }));
+    const few = text.replace(/\D/g, '');
+    if (/^[\d\s\u2010-\u2015.-]*$/.test(text) && few.length < 6) {
+      /* A few digits alone. Where they fit, the browser inserts them as usual; where the field is too
+         full for them, they OVERWRITE from the caret instead, as typing does, rather than being
+         spliced in and cut to a different six-digit code that is then sent. */
+      if (digits() + few.length <= 6) return false;
+      const v = el.value.replace(/\D/g, '');
+      const at = typeof el.selectionStart === 'number' ? Math.min(el.value.slice(0, el.selectionStart).replace(/\D/g, '').length, v.length) : v.length;
+      el.value = (v.slice(0, at) + few + v.slice(at + few.length)).slice(0, 6);
+      hadDigits = el.value.length;   // not a seventh digit: nothing to remove
+      const end = Math.min(at + few.length, 6);
+      try { el.setSelectionRange(end, end); } catch { /* not a text input */ }
+      el.dispatchEvent(new Event('input', { bubbles: true }));
+      return true;
+    }
+    if (typeof plusSiMsg === 'function') plusSiMsg('We could not find one 6-digit code in that.');
+    return true;
+  }
+  el.addEventListener('paste', (e) => {
+    if (takeText((e.clipboardData && e.clipboardData.getData('text')) || '')) e.preventDefault();
   });
   /* ARRIVING in the field (Tab, or the page moving focus there) puts the caret at the end, one box
      after another, or selects a full code so the next keystroke or paste replaces it (after a wrong
@@ -37388,6 +37427,8 @@ for (const id of ['plus-si-code-in', 'plus-si-second-in', 'plus-si-enrol-code'])
   // fix; only a keyboard or the page arriving selects a full code or goes to the end.
   let byPointer = false;
   el.addEventListener('pointerdown', () => { if (document.activeElement !== el) byPointer = true; });
+  // A touch that never focused (a swipe that started here) must not leave the flag set for a later Tab.
+  for (const ev of ['pointerup', 'pointercancel', 'blur']) el.addEventListener(ev, () => setTimeout(() => { byPointer = false; }, 0));
   el.addEventListener('focus', () => { if (digits() < 6) lastSent = ''; if (!byPointer) place(); byPointer = false; paint(); });
   el.addEventListener('click', paint);
   for (const ev of ['blur', 'keyup', 'select', 'scroll']) el.addEventListener(ev, paint);

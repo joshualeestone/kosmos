@@ -111,3 +111,28 @@
 - Accepted, not changed: typing over a selected RANGE of two or more digits deletes the range and
   inserts one digit (five digits left, nothing sent; recoverable). Real Android monospace is not
   measured (the test browsers are desktop builds); the row has margin (8.6cqw) and a floor.
+
+## Review round 5 (app) and round 4 (web), measured
+- WEB: Enter pressed after the sixth digit sent the code sent it again (a second try for one typo),
+  or, after a right code, landed in the next step's empty field with "The code is six digits.".
+  codeBoxes adds its Enter listener before the page's and stops an Enter on the code just sent, or
+  on an empty field focus has just moved to. (The app has no Enter handler and no form: not
+  affected.) The web error lines are role="alert", since the refusal now comes with focus left in
+  the field.
+- Text arriving at once WITHOUT a paste event (a drop, dictation, a keyboard's clipboard chip,
+  replacement text) goes through the same finder as a paste (beforeinput), so an email line with a
+  date no longer sends the date. A few digits pasted into a full code overwrite from the caret
+  instead of being spliced and cut. A refused paste says so on the status or error line.
+- The finder accepts more separators (any space, two spaces, a dot, a dash with spaces), treats a
+  full stop plus space as a sentence end, and matches "code" as a word only.
+- Sizing is fit-first: font-size min(1.75rem, 8.6cqw) (vw before it for old browsers). A rem floor
+  pushed the row out of its card at larger text sizes (measured at 150% and 200%), and any floor
+  that still fits adds nothing, so the row is as big as its card allows, up to 1.75rem. The app's
+  boxed input also resets the phone-width min-height: 44px that set the digits low.
+- The seventh-digit rule applies only when the field held six; a letter typed mid-code keeps the
+  caret; the pointer flag resets on pointerup/pointercancel/blur; the box spacing is by margin
+  (flex gap is missing in Safari before 14.5); past a full code the first box is outlined (where
+  the next digit goes); beforeinput acts only on cancelable events.
+- Checks: the no-code paste asserts the page cancelled it; the web scroll arm is measured at six
+  digits; Enter after the sixth digit; a short paste into a full code; an email line without a
+  paste; 320px height and 150% text fit (app); a 150% text phone pass (web, EXPECTED updated).
