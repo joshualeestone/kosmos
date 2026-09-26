@@ -18,6 +18,7 @@
 const fs = require('fs');
 const path = require('path');
 const store = require('./store');
+const fedseal = require('./fedseal');
 
 const FILE = 'federation.json';
 const MAC_INVITE = '/v1/mac/federation/invite';
@@ -169,13 +170,30 @@ async function invite(remote, body) {
   const r = await remote.macRequest('POST', MAC_INVITE, req);
   if (!r.ok) return { status: 502, body: { error: r.because } };
   if (!r.data || typeof r.data.code !== 'string') return { status: 502, body: { error: 'the connection service answered in a shape we could not read' } };
-  return { status: 200, body: { code: r.data.code, expires_at: r.data.expires_at } };
+  /* #3728: the code's second half. The coordinator minted (and so has seen) the first
+     half; `s` is made here, kept here, and travels only person to person. It is what
+     lets the two boards pin each other's sealing keys without trusting us. An invite
+     whose half cannot be kept is not handed out: it could never seal. */
+  /* The invite's id ties a member's sealing key to the edge that member redeemed, so
+     a revoke rotates exactly that member out. A coordinator that does not name it is
+     older than this board: no sealing code is handed out rather than one whose
+     member could never be revoked. */
+  if (typeof r.data.invite_id !== 'string' || !r.data.invite_id) {
+    return { status: 502, body: { error: 'The connection service is older than this Kosmos, so a sealed invite cannot be made yet. Try again later.' } };
+  }
+  const s = fedseal.randomSecret();
+  try { fedseal.stashInvite(body.project_ref, { s, code: r.data.code, invite: r.data.invite_id }); } catch (err) {
+    return { status: 500, body: { error: 'We could not keep this invite\'s key on this computer, so no code was made. Try again. (' + String((err && err.message) || 'unknown') + ')' } };
+  }
+  return { status: 200, body: { code: r.data.code + '.' + s, expires_at: r.data.expires_at } };
 }
 
 /** Redeem a code into a connection and show the owner's read-only snapshot. */
 async function verify(remote, body) {
-  const code = body && typeof body.code === 'string' ? body.code.trim() : '';
-  if (!code || code.length > 200) return { status: 400, body: { error: 'Paste the code you were given first.' } };
+  const pasted = body && typeof body.code === 'string' ? body.code.trim() : '';
+  if (!pasted || pasted.length > 200) return { status: 400, body: { error: 'Paste the code you were given first.' } };
+  // #3728: only the coordinator's half goes to the coordinator; `s` stays on this board.
+  const { code, s: sealS } = fedseal.splitInviteCode(pasted);
   const r = await remote.macRequest('POST', MAC_VERIFY, { code });
   if (!r.ok) {
     const reason = reasonFor(r.because);
@@ -205,7 +223,8 @@ async function verify(remote, body) {
     owner_handle: typeof d.owner_handle === 'string' && d.owner_handle ? externalName(d.owner_handle, HANDLE_MAX) || null : null,
   };
   verified.delete(d.edge_id);
-  verified.set(d.edge_id, Object.assign({ at: Date.now() }, snap));
+  // seal_s is held for the join and never returned to the page.
+  verified.set(d.edge_id, Object.assign({ at: Date.now(), seal_s: sealS, seal_code: sealS ? code : null }, snap));
   while (verified.size > SNAPSHOT_MAX) verified.delete(verified.keys().next().value);
   return { status: 200, body: snap };
 }
@@ -216,7 +235,7 @@ function joinSnapshot(edgeId) {
   const held = verified.get(edgeId);
   if (Date.now() - held.at > SNAPSHOT_TTL_MS) { verified.delete(edgeId); return null; }
   const { at, ...snap } = held;
-  return snap;
+  return snap;   // includes seal_s and seal_code (#3728): the join route keeps them, and sends them nowhere
 }
 
 function forgetSnapshot(edgeId) {

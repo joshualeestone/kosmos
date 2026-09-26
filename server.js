@@ -814,6 +814,7 @@ const federation = require('./engine/federation');
    room as an external row (data, never typed into a pane); a post that lands in
    a federated room is sent out through its seat (federateOut below). */
 const fedseats = require('./engine/fedseats');
+const fedseal = require('./engine/fedseal');
 const { externalName } = require('./engine/externalname');
 const tasks = require('./engine/tasks');
 const chat = require('./engine/chat');
@@ -13804,6 +13805,11 @@ const server = http.createServer((req, res) => {
             return;
           }
         }
+        // #3728: a new project starts with no room keys either, whatever an earlier
+        // project of the same id left (an owner's new room must not reuse old keys
+        // or old members). Best effort: an unreadable record already keeps every
+        // post of a room on this computer.
+        try { fedseal.forgetRoom(made.id); } catch { /* see above */ }
         // Only the page sends federation_ref (the create screen that minted the
         // invites); a process caller's is ignored.
         if (fedRef) {
@@ -13991,6 +13997,8 @@ const server = http.createServer((req, res) => {
          would otherwise inherit a room outside this Mac. */
       try { fedseats.stop(id); } catch { /* best-effort */ }
       try { federation.forgetLink(id); } catch { /* create clears it too */ }
+      // #3728: and its room keys, so a later project of the same id starts with none.
+      try { fedseal.forgetRoom(id); } catch { /* create clears it too */ }
     } catch (err) {
       // #1994: honour an explicit status (remove now throws a 409 when the
       // project still has sub-projects -- it exists, so a 404 would be wrong).
@@ -14619,6 +14627,23 @@ const server = http.createServer((req, res) => {
         } catch (err) {
           try { projects.remove(made.id); } catch { /* reported below either way */ }
           throw err;
+        }
+        /* #3728: a code with a second half makes this a SEALED room from the start: its
+           seat says hello with this board's key and posts nothing until the owner's key
+           share arrives. A code without one (an owner on an older Kosmos) joins unsealed,
+           as before, and the room says so when it connects. */
+        if (snap.seal_s) {
+          try { fedseal.setRoomState(made.id, { role: 'member', s: snap.seal_s, code: snap.seal_code, peer: null, epoch: null, keys: {} }); }
+          catch (err) {
+            try { federation.forgetLink(made.id); } catch { /* reported below either way */ }
+            try { projects.remove(made.id); } catch { /* reported below either way */ }
+            throw err;
+          }
+        }
+        if (!snap.seal_s) {
+          try {
+            messages.roomNote(made.id, 'This shared room is not sealed end to end: the owner\'s computer runs an older Kosmos, so its messages travel readable to the relay. To seal it, ask the owner to update Kosmos and send a new code.');
+          } catch { /* the note is furniture; the room exists regardless */ }
         }
         federation.forgetSnapshot(snap.edge_id);
         fedseats.ensure(made.id).catch(() => {});
