@@ -235,6 +235,16 @@ test('--twice takes two reads when the first is clear, and stops at a busy first
   assert.equal((busy.out.match(/^reservation:/gm) || []).length, 1, busy.out);
 });
 
+test('--quiet prints nothing and answers by exit code alone (control: without it, the verdict is printed)', () => {
+  const busy = run([realRun()], { args: ['--quiet'] });
+  assert.equal(busy.code, 1);
+  assert.equal(busy.out, '');
+  const clear = run([], { args: ['--quiet'] });
+  assert.equal(clear.code, 0);
+  assert.equal(clear.out, '');
+  assert.match(run([realRun()]).out, /heavy-gate: BUSY/);
+});
+
 test('smoke: against the live Mac it gives an answer (0 or 1), never a usage error', () => {
   const r = spawnSync('bash', [TOOL], { encoding: 'utf8', env: { ...process.env, KOSMOS_HG_SNAPSHOT: '', KOSMOS_HG_CLAIM: FREE } });
   assert.ok(r.status === 0 || r.status === 1, 'exit ' + r.status + ': ' + r.stdout + r.stderr);

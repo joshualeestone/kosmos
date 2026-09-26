@@ -18,6 +18,7 @@
 #     sandbox; some fixtures there detach from node --test, so the path marks them);
 #   - a process that has already exited;
 #   - with --except-cwd DIR, a run in DIR or below it (your own).
+# --quiet: print nothing on stdout, not even the CLEAR/BUSY verdict; read the exit code.
 # --twice: clear only if two reads, KOSMOS_HG_TWICE_SECONDS apart (default 60), are both clear.
 # Every candidate is printed with the reason it counts or does not.
 #
@@ -72,17 +73,21 @@ claim_line() {
 
 # Live snapshot in the seam's format. Every shell that has a release.sh or browser-checks.sh
 # word in its arguments is a candidate; classify decides whether it is RUNNING the script.
+# How far up the parent chain to look for a node --test runner. A test fixture sits a few hops
+# below it (node, a wrapper shell, the script); a deeper chain stops early and fails toward busy.
+ANCESTOR_DEPTH=10
 live_snapshot() {
-  local p q cwd cmd anc
+  local p q cwd cmd anc depth
   ps -axo pid=,command= | awk '$2 ~ /(^|\/)(bash|sh|zsh)$/ { for (i = 3; i <= NF; i++) if ($i ~ /(^|\/)(release|browser-checks)\.sh$/) { print $1; next } }' |
   while read -r p; do
     cmd="$(ps -o command= -p "$p" 2>/dev/null)"
     # Gone means ps no longer knows the pid; a live pid whose cwd lsof cannot read keeps an
     # EMPTY cwd and still counts (fail toward busy).
     if [ -z "$cmd" ] || ! ps -p "$p" >/dev/null 2>&1; then cwd="<exited>"
-    else cwd="$(lsof -a -p "$p" -d cwd -Fn 2>/dev/null | sed -n 's/^n//p')"; fi
-    anc="" ; q="$p"
-    for _ in 1 2 3 4 5 6 7 8 9 10; do
+    else cwd="$(lsof -a -p "$p" -d cwd -Fn 2>/dev/null | sed -n '/^n/{s/^n//p;q;}')"; fi
+    anc="" ; q="$p"; depth=0
+    while [ "$depth" -lt "$ANCESTOR_DEPTH" ]; do
+      depth=$((depth + 1))
       q="$(ps -o ppid= -p "$q" 2>/dev/null | tr -d ' ')"
       { [ -z "$q" ] || [ "$q" -le 1 ]; } && break
       anc="$anc | $(ps -o command= -p "$q" 2>/dev/null)"
