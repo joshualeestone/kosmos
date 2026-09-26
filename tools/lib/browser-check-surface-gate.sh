@@ -45,7 +45,7 @@
 kosmos_browser_check_surface_gate() {
   # dstat/dpath NOT status/path: zsh ties `path`->PATH and `status`->$?, and this lib
   # is sourced, sometimes into zsh.
-  local base bcdir files msgs webdiff changed tab
+  local base mb bcdir files msgs webdiff changed tab
   local ann ann_list toks tok basename_chk esc_base esc_bcdir viol reason
   base="${KOSMOS_BCG_BASE:-origin/main}"
   bcdir="${KOSMOS_BCSG_DIR:-docs/browser-checks}"
@@ -53,10 +53,19 @@ kosmos_browser_check_surface_gate() {
 
   # 1. The changed web/index.html content (added/removed lines only, NOT context, NOT
   #    the +++/--- file headers). No web change at all -> nothing to guard.
+  # ONE range for the diff, the file list AND the trailers (#3893). `git diff base...HEAD`
+  # and `git log base..HEAD` are NOT the same range: when the PR was already merged into
+  # base by the time CI checked out (base contains HEAD^2), base and HEAD have TWO merge
+  # bases, `...` silently picks one (it can be the PR head), and the "PR diff" becomes
+  # main's intervening changes while `base..HEAD` holds only the synthetic merge, so their
+  # trailers are unseen and a correctly-excused check reads as stale. Measured on #3893
+  # and fed-msg-3311. Anchoring all three on one merge base makes them agree by
+  # construction; with a single merge base (every ordinary PR) nothing changes.
+  mb="$(git merge-base "$base" HEAD 2>/dev/null)" || mb=""
   if [ -n "${KOSMOS_BCSG_WEBDIFF:-}" ]; then
     webdiff="$(cat "$KOSMOS_BCSG_WEBDIFF" 2>/dev/null)"
   else
-    webdiff="$(git diff "$base...HEAD" -- web/index.html 2>/dev/null)" || {
+    webdiff="$([ -n "$mb" ] && git diff "$mb" HEAD -- web/index.html 2>/dev/null)" || {
       echo "browser-check surface gate: could not diff against $base, skipping (not a branch gap)" >&2
       return 0
     }
@@ -70,13 +79,13 @@ kosmos_browser_check_surface_gate() {
   if [ -n "${KOSMOS_BCG_FILES:-}" ]; then
     files="$(cat "$KOSMOS_BCG_FILES" 2>/dev/null)"
   else
-    files="$(git diff --name-status --no-renames "$base...HEAD" 2>/dev/null || true)"
+    files="$([ -n "$mb" ] && git diff --name-status --no-renames "$mb" HEAD 2>/dev/null || true)"
   fi
   # 3. Override trailers + updated-check set are read below per candidate.
   if [ -n "${KOSMOS_BCG_MSGS:-}" ]; then
     msgs="$(cat "$KOSMOS_BCG_MSGS" 2>/dev/null)"
   else
-    msgs="$(git log --format=%B "$base..HEAD" 2>/dev/null || true)"
+    msgs="$([ -n "$mb" ] && git log --format=%B "$mb..HEAD" 2>/dev/null || true)"
   fi
 
   viol=""

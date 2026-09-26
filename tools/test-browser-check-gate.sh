@@ -154,6 +154,40 @@ else
   echo "SKIP  zsh not available -- cannot verify the zsh-safe loop"
 fi
 
+# #3893: a PR already MERGED into base when CI checked out (two merge bases). main's M1
+# changes web/ only and is excused by a blanket `Browser-check:` trailer; the PR touches an
+# unrelated file; HEAD is the synthetic merge of the PR head into M1. `base...HEAD` picked the
+# PR head as merge base (so M1's web change read as the PR's) while `base..HEAD` never showed
+# M1's trailer: a refusal for main's own excused change. Dates make the PR head the newer base.
+cx() {  # <dir> <pr-touches-web: 0|1> -> prints "M1 M2 H"
+  local d="$1" t=1700000000
+  g() { GIT_COMMITTER_DATE="@$t +0000" GIT_AUTHOR_DATE="@$t +0000" \
+          git -C "$d" -c user.email=t@t -c user.name=t -c init.defaultBranch=main "$@"; }
+  mkdir -p "$d/web" && g init -q
+  printf '%s\n' 'a' '' '' '' 'z' > "$d/web/index.html"; g add -A && g commit -qm A; t=$((t + 100))
+  g branch pr
+  sed -i.bak 's/^a$/a2/' "$d/web/index.html" && rm -f "$d/web/index.html.bak"
+  g add -A && g commit -qm M1 -m "Browser-check: copy only"; t=$((t + 100))
+  local m1; m1="$(g rev-parse HEAD)"
+  g checkout -q pr
+  if [ "$2" = 1 ]; then sed -i.bak 's/^z$/z2/' "$d/web/index.html" && rm -f "$d/web/index.html.bak"; else echo e > "$d/engine.txt"; fi
+  g add -A && g commit -qm P; t=$((t + 100))
+  g checkout -q --detach "$m1" && g merge -q --no-ff -m H pr >/dev/null 2>&1
+  local h; h="$(g rev-parse HEAD)"
+  g checkout -q main && g merge -q --no-ff -m M2 pr >/dev/null 2>&1
+  local m2; m2="$(g rev-parse HEAD)"
+  g checkout -q --detach "$h"
+  echo "$m1 $m2 $h"
+}
+read -r C_M1 C_M2 C_H <<< "$(cx "$tmp/cx" 0)"
+cpick="$(git -C "$tmp/cx" merge-base "$C_M2" "$C_H")"; cpr="$(git -C "$tmp/cx" rev-parse "$C_H^2")"
+[ "$cpick" = "$cpr" ]; check "#3893 fixture: git picks the PR head as the merge base (else the arm is vacuous)" 0 "$?"
+( cd "$tmp/cx" && unset KOSMOS_BCG_FILES KOSMOS_BCG_MSGS; KOSMOS_BCG_BASE="$C_M2" kosmos_browser_check_gate ) >/dev/null 2>&1
+check "#3893: an already-merged PR is not refused for main's own excused web change" 0 "$?"
+read -r D_M1 D_M2 D_H <<< "$(cx "$tmp/dx" 1)"
+( cd "$tmp/dx" && unset KOSMOS_BCG_FILES KOSMOS_BCG_MSGS; KOSMOS_BCG_BASE="$D_M1" kosmos_browser_check_gate ) >/dev/null 2>&1
+check "#3893 positive control: a PR's own web change with no check and no trailer is refused" 1 "$?"
+
 echo "---"
 if [ "$fails" -eq 0 ]; then
   echo "browser-check-gate: all checks passed"

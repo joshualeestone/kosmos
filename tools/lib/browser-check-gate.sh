@@ -47,16 +47,20 @@
 kosmos_browser_check_gate() {
   # NB: dstat/dpath, NOT status/path -- zsh ties `path` to PATH (emptying it) and
   # `status` to $?, and this lib is sourced, sometimes into a zsh shell.
-  local base files msgs f dstat dpath tab touched_web touched_bc reason
+  local base files msgs f dstat dpath tab touched_web touched_bc reason mb
   base="${KOSMOS_BCG_BASE:-origin/main}"
 
+  # ONE merge base for the file list AND the trailers (#3893): `base...HEAD` and
+  # `base..HEAD` diverge when base already contains the PR (merged before CI checked out,
+  # so there are two merge bases). See browser-check-surface-gate.sh for the measured case.
+  mb="$(git merge-base "$base" HEAD 2>/dev/null)" || mb=""
   if [ -n "${KOSMOS_BCG_FILES:-}" ]; then
     files="$(cat "$KOSMOS_BCG_FILES" 2>/dev/null)"
   else
     # --name-status --no-renames: a DELETED or renamed-away assertion must NOT count
     # as coverage (a rename is a D of the old name + an A of the new; only the A
     # counts), and --no-renames keeps every line a single `status<TAB>path`.
-    files="$(git diff --name-status --no-renames "$base...HEAD" 2>/dev/null)" || {
+    files="$([ -n "$mb" ] && git diff --name-status --no-renames "$mb" HEAD 2>/dev/null)" || {
       # Fail soft, but SAY SO: a silent skip cannot be told from a clean pass, and a
       # gate that quietly stopped running is the hazard it exists to guard against.
       echo "browser-check gate: could not diff against $base, skipping (not a branch gap)" >&2
@@ -66,7 +70,7 @@ kosmos_browser_check_gate() {
   if [ -n "${KOSMOS_BCG_MSGS:-}" ]; then
     msgs="$(cat "$KOSMOS_BCG_MSGS" 2>/dev/null)"
   else
-    msgs="$(git log --format=%B "$base..HEAD" 2>/dev/null || true)"
+    msgs="$([ -n "$mb" ] && git log --format=%B "$mb..HEAD" 2>/dev/null || true)"
   fi
 
   touched_web=0; touched_bc=0
