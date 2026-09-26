@@ -1083,3 +1083,38 @@ test('#3935 a NAME=value line whose value fell past the cap is searched itself, 
     assert.ok(!r.text.includes('8vLm3pRt6wXy9kHb2n'), r.text);
   } finally { setKnownSecrets([]); }
 });
+
+test('#3935 keys keep every fragment when long values thin the index: a bare 12-character excerpt of a key is found (review round 26)', () => {
+  const crypto = require('crypto');
+  const files = [];
+  for (let v = 0; v < 1000; v += 1) {
+    let s = '';
+    for (let i = 0; s.length < 1000; i += 1) s += crypto.createHash('sha256').update(`f${v}:${i}`).digest('base64').replace(/[^A-Za-z0-9]/g, '');
+    files.push(s.slice(0, 1000));
+  }
+  const key = 'Zq8vLm3pRt6wXy9kHb2nWc4dPq7sTu5vNa1b';
+  setKnownSecrets([...files, key]);
+  try {
+    const st = fragmentIndexStats();
+    assert.ok(st.stride > 1 && st.keyStride === 1, JSON.stringify(st));
+    for (let at = 2; at + 12 <= key.length; at += 1) {
+      const piece = key.slice(at, at + 12);
+      const r = mask(`Before. ${piece} after.`);
+      assert.ok(!r.text.includes(piece), `offset ${at}: ${piece} survived`);
+    }
+  } finally { setKnownSecrets([]); }
+});
+
+test('#3935 a label glued after a piece stays readable; only the piece is masked (review round 26)', () => {
+  setKnownSecrets(['Zq8vLm3pRt6wXy9kHb2nWc4dPq7sTu5v']);
+  try {
+    const out = mask('Start Zq8vLm3p then Rt6wXy9k=ThisIsPlainEnglishNotASecret then Hb2nWc4dPq7sTu5v end').text;
+    assert.ok(out.includes('=ThisIsPlainEnglishNotASecret'), out);
+    assert.ok(!out.includes('Rt6wXy9k') && !out.includes('Hb2nWc4d'), out);
+    const out2 = mask('Here Zq8vLm3p-part1 then Rt6wXy9k-part2 then Hb2nWc4dPq7sTu5v-part3 end').text;
+    /* -part3 goes with its piece: that run holds 12 characters of the key, and the fragment search masks such a run
+       whole (more of the key may sit on either side of what it matched). */
+    assert.ok(/-part1/.test(out2) && /-part2/.test(out2), out2);
+    assert.ok(!out2.includes('Zq8vLm3p') && !out2.includes('Rt6wXy9k'), out2);
+  } finally { setKnownSecrets([]); }
+});

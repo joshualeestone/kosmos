@@ -117,7 +117,6 @@ function setKnownSecrets(values) {
   /* Every FRAGMENT_LEN-character slice of each held value as given (not its encodings, which would multiply the
      index), for fragmentsIn (review round 19). A word-shaped value is left out, as the walk leaves it out. */
   const sliced = [];
-  let slices = 0;
   for (const v of heldValues) {
     if (notWalked.has(v)) continue;
     const w = v.replace(NOT_KEY_CHARS, '');
@@ -130,20 +129,30 @@ function setKnownSecrets(values) {
     if (/^[A-Za-z][A-Za-z0-9+.-]*:\/\//.test(v)) from = Math.max(from, w.lastIndexOf('/') + 1);
     if (w.length - from < FRAGMENT_LEN) continue;
     sliced.push([w, from]);
-    slices += w.length - from - FRAGMENT_LEN + 1;
   }
-  /* Over MAX_GRAMS, every value is indexed at the same stride rather than the first ones in full and the rest
-     not at all (review round 22: a full index skipped later values silently). A slice starts every fragmentStride
-     characters, so any FRAGMENT_LEN + fragmentStride - 1 consecutive characters of a value still hold an indexed
-     slice: coverage thins evenly and by a known amount, for every value. */
-  fragmentStride = Math.max(1, Math.ceil(slices / MAX_GRAMS));
-  for (const [w, from] of sliced) {
-    for (let i = from; i + FRAGMENT_LEN <= w.length; i += fragmentStride) knownGrams.add(w.slice(i, i + FRAGMENT_LEN));
+  /* Over MAX_GRAMS, values are indexed at a stride rather than the first ones in full and the rest not at all
+     (review round 22: a full index skipped later values silently). A slice starts every stride characters, so any
+     FRAGMENT_LEN + stride - 1 consecutive characters of a value still hold an indexed slice: coverage thins by a
+     known amount, for every value. Keys come first (review round 26: a bare 12-character excerpt of a key was
+     missed once long values thinned the index): values up to KEY_LEN_MAX keep every slice while they fit, and
+     only the longer ones (whole files) are thinned, with what is left. */
+  const short = sliced.filter(([w, from]) => w.length - from <= KEY_LEN_MAX);
+  const long = sliced.filter(([w, from]) => w.length - from > KEY_LEN_MAX);
+  const count = (list) => list.reduce((n, [w, from]) => n + w.length - from - FRAGMENT_LEN + 1, 0);
+  const shortSlices = count(short);
+  keyStride = Math.max(1, Math.ceil(shortSlices / MAX_GRAMS));
+  const room = Math.max(MAX_GRAMS - Math.ceil(shortSlices / keyStride), 1);
+  fragmentStride = Math.max(keyStride, Math.ceil(count(long) / room), 1);
+  for (const [list, stride] of [[short, keyStride], [long, fragmentStride]]) {
+    for (const [w, from] of list) {
+      for (let i = from; i + FRAGMENT_LEN <= w.length; i += stride) knownGrams.add(w.slice(i, i + FRAGMENT_LEN));
+    }
   }
 }
 /* #3935 (review round 19): a key whose first chunk is under OPENING_LEN starts no walk, and the rest can sit in
    the reply as one run (Zq then 8vLm3pRt6wXy9kHb2nWc4d: 22 of 24 characters). Any run holding FRAGMENT_LEN
-   consecutive characters of a held value is masked whole, within these limits: FRAGMENT_LEN + fragmentStride - 1
+   consecutive characters of a held value is masked whole, within these limits: FRAGMENT_LEN + fragmentStride - 1 for a value over KEY_LEN_MAX (and keyStride for keys, 1
+   unless keys alone fill it)
    characters once the index is thinned; not a run made of words; not a value over WORD_WALK_MAX_FORM, a
    NAME=value line (its value is held on its own), the public head before the first 16 characters' last - or _,
    or a URL's scheme, host and path. That many consecutive characters of a random value
@@ -153,7 +162,10 @@ const FRAGMENT_LEN = 12;
    index is thinned evenly (fragmentStride), never cut off, so it holds at most MAX_GRAMS plus one slice per value
    (rounding). */
 const MAX_GRAMS = 400000;
-let fragmentStride = 1;
+let fragmentStride = 1;   // the stride of values over KEY_LEN_MAX
+let keyStride = 1;   // the stride of values up to it: 1 unless keys alone fill the index
+/* A value this long or shorter is a key or a password, not a file. */
+const KEY_LEN_MAX = 256;
 /* A held value that is a whole environment line, NAME=value, whose value engine/knownsecrets.js also holds on its
    own (the same NAME=value test, then trimmed and unquoted), long enough to be held here (review round 23). Padded
    base64 (Zq8vLm3pRt6wXy9kHb2nWc4dQ1==) has the same shape, but its "value" is the padding, never held: that is a
@@ -474,6 +486,16 @@ function wordSkippingSpans(text) {
     byOpening.set(opening, g);
     return g;
   };
+  /* Where a matched piece sits in its run (review round 26): a label glued after it (Zq8vLm3p=Some-words,
+     Zq8vLm3p-part1) is not the key, so only the piece is masked. The run's end if the piece ends it, else the
+     piece's first place in the run; a piece that is not a plain substring (the run with its - and _ taken out)
+     masks the whole run. */
+  const pieceSpan = (i, piece) => {
+    const [a, b, t] = runs[i];
+    if (t.endsWith(piece)) return [b - piece.length, b];
+    const at = t.indexOf(piece);
+    return at >= 0 ? [a + at, a + at + piece.length] : [a, b];
+  };
   for (let r = 0; r < runs.length; r += 1) {
     const [runFrom] = runs[r];
     /* The opening is looked for in the run as written and in each variant a piece is tried as (glue taken off),
@@ -545,8 +567,8 @@ function wordSkippingSpans(text) {
             const k = `${sTo} ${f}`;
             if (!completed.has(k)) completed.set(k, { f, to: sTo, starts: [] });
             /* The runs this walk matched, opening first, so an earlier start can be masked piece by piece. */
-            const matched = [[from, runs[r][1]]];
-            for (let step = doneFrom; step; step = via.get(step.prev) || null) matched.push([runs[step.s][0], runs[step.s][1]]);
+            const matched = [pieceSpan(r, opening)];
+            for (let step = doneFrom, end = f.length; step; end = step.prev, step = via.get(step.prev) || null) matched.push(pieceSpan(step.s, f.slice(step.start, end)));
             completed.get(k).starts.push({ from, movedAt: movedAt < 0 ? runs[s][0] : movedAt, matched });
             finished = true;
             break;
@@ -567,11 +589,11 @@ function wordSkippingSpans(text) {
             const step = via.get(at);
             /* Only a piece that is not made of words or numbers counts (review round 13): a URL-shaped held value's
                public scheme and host (https, discord, com) are words, and a reply naming them is not a try. */
-            if (at - step.start >= OPENING_LEN && !madeOfWords(f.slice(step.start, at))) { found.push(step.s); after += at - step.start; }
+            if (at - step.start >= OPENING_LEN && !madeOfWords(f.slice(step.start, at))) { found.push(pieceSpan(step.s, f.slice(step.start, at))); after += at - step.start; }
           }
           if (after >= PARTIAL_MIN) {
-            spans.push([from, runs[r][1]]);
-            for (const s2 of found) spans.push([runs[s2][0], runs[s2][1]]);
+            spans.push(pieceSpan(r, opening));
+            for (const sp of found) spans.push(sp);
           }
         }
       }
@@ -604,7 +626,9 @@ function wordSkippingSpans(text) {
       /* Not the latest start's own run begun earlier (a label glued on, KEY=sk-ant-a): only a separate copy. */
       if (open[1] > latest) continue;
       const piece = text.slice(open[0], open[1]).replace(NOT_KEY_CHARS, '');
-      const own = head && piece.startsWith(head) ? piece.slice(head.length) : piece;
+      /* The piece may be the head itself without its last - or _ (review round 26 masks only the matched piece). */
+      const common = !head ? 0 : piece.startsWith(head) ? head.length : head.startsWith(piece) ? piece.length : 0;
+      const own = piece.slice(common);
       if (own.length >= PARTIAL_MIN && !madeOfWords(own)) spans.push(open);
     }
   }
@@ -850,5 +874,5 @@ function describeFired(fired) {
 }
 
 /* For tests: the fragment index's size and stride, and how many times the held set was rebuilt. */
-function fragmentIndexStats() { return { size: knownGrams.size, stride: fragmentStride, builds: indexBuilds }; }
+function fragmentIndexStats() { return { size: knownGrams.size, stride: fragmentStride, keyStride, builds: indexBuilds }; }
 module.exports = { MASK, WITHHELD, UNCHECKED, mask, describeFired, setKnownSecrets, knownSecretCount, fragmentIndexStats };
