@@ -13,6 +13,9 @@ const geminisettings = require('./geminisettings');
 const bridge = require('../bin/gemini-report-bridge');
 
 const BRIDGE = '/opt/kosmos/app/bin/gemini-report-bridge.js';
+/* The tests that pin the POSIX command text say so, so they hold on a Windows host too
+   (where the default form is the win32 one, #4010). */
+const POSIX = { platform: 'darwin' };
 
 function tmpSettings() {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'gemsettings-'));
@@ -22,7 +25,7 @@ const readJSON = (f) => JSON.parse(fs.readFileSync(f, 'utf8'));
 
 test('a fresh settings.json gets the auth pre-seed and all five report hooks', () => {
   const { file } = tmpSettings();
-  const r = geminisettings.ensurePrepared(file, BRIDGE);
+  const r = geminisettings.ensurePrepared(file, BRIDGE, POSIX);
   assert.equal(r.prepared, true);
   assert.equal(r.changed, true);
   const s = readJSON(file);
@@ -96,7 +99,7 @@ test('an entry of ours aimed at an OLD bridge path is repointed, not doubled', (
   fs.writeFileSync(file, JSON.stringify({
     hooks: { AfterAgent: [{ hooks: [{ type: 'command', command: `node "${old}"` }] }] },
   }, null, 2));
-  const r = geminisettings.ensurePrepared(file, BRIDGE);
+  const r = geminisettings.ensurePrepared(file, BRIDGE, POSIX);
   assert.equal(r.changed, true);
   const s = readJSON(file);
   const cmds = s.hooks.AfterAgent.flatMap((d) => d.hooks.map((h) => h.command));
@@ -132,7 +135,7 @@ test('a bridge path with a shell-hostile character is refused', () => {
   assert.match(r.because, /characters we will not embed/);
 });
 
-test('the file mode is preserved across the merge write', () => {
+test('the file mode is preserved across the merge write', { skip: process.platform === 'win32' && 'Windows has no posix file modes' }, () => {
   const { file } = tmpSettings();
   fs.writeFileSync(file, JSON.stringify({ theme: 'dark' }, null, 2), { mode: 0o600 });
   fs.chmodSync(file, 0o600); // defeat umask so the precondition is exact
@@ -151,6 +154,70 @@ test('a dangling symlink is refused rather than replaced', () => {
   assert.match(r.because, /link pointing at nothing/);
   assert.ok(!fs.existsSync(path.join(dir, 'does-not-exist.json')),
     'a dangling symlink target must not be created (that would sever someone\'s arrangement)');
+});
+
+// ---- #4010: the win32 form (gemini runs a Windows hook through PowerShell) ----
+
+const WIN_NODE = 'C:\\Users\\Jo Smith\\AppData\\Local\\Kosmos\\runtime\\node.exe';
+const WIN_BRIDGE = 'C:\\Users\\Jo Smith\\AppData\\Roaming\\Kosmos\\bin\\gemini-report-bridge.js';
+const WIN32 = { platform: 'win32', node: WIN_NODE };
+
+test('#4010: a real Windows bridge path (backslashes, a space) is written as a PowerShell call on the absolute node', () => {
+  // The pre-#4010 code refused every path with a backslash, so a Windows agent got
+  // no hooks and no auth pre-seed at all.
+  const { file } = tmpSettings();
+  const r = geminisettings.ensurePrepared(file, WIN_BRIDGE, WIN32);
+  assert.equal(r.prepared, true, r.because);
+  const s = readJSON(file);
+  assert.equal(s.security.auth.selectedType, 'gemini-api-key');
+  for (const ev of geminisettings.HOOK_EVENTS) {
+    assert.equal(s.hooks[ev][0].hooks[0].command, `& '${WIN_NODE}' '${WIN_BRIDGE}'`, `${ev} not the win32 form`);
+  }
+  assert.equal(geminisettings.ensurePrepared(file, WIN_BRIDGE, WIN32).changed, false, 'a second run must be a no-op');
+});
+
+test('#4010: the win32 form defaults to the node doing the wiring', () => {
+  assert.equal(geminisettings.commandFor(WIN_BRIDGE, { platform: 'win32' }), `& '${process.execPath}' '${WIN_BRIDGE}'`);
+  assert.equal(geminisettings.commandFor(BRIDGE, POSIX), `node "${BRIDGE}"`, 'the posix form is unchanged');
+});
+
+test('#4010: a posix entry of ours is repointed to the win32 form, and a moved node heals', () => {
+  const { file } = tmpSettings();
+  fs.writeFileSync(file, JSON.stringify({
+    hooks: { AfterAgent: [{ hooks: [{ type: 'command', command: `node "${BRIDGE}"` }] }] },
+  }, null, 2));
+  geminisettings.ensurePrepared(file, WIN_BRIDGE, WIN32);
+  const moved = 'D:\\Kosmos\\runtime\\node.exe';
+  const r = geminisettings.ensurePrepared(file, WIN_BRIDGE, { platform: 'win32', node: moved });
+  assert.equal(r.changed, true);
+  const cmds = readJSON(file).hooks.AfterAgent.flatMap((d) => d.hooks.map((h) => h.command));
+  assert.deepEqual(cmds, [`& '${moved}' '${WIN_BRIDGE}'`], 'our entry was doubled or not repointed');
+});
+
+test('#4010: win32 still refuses a character that could end the PowerShell literal or expand', () => {
+  for (const bad of ["C:\\x\\it's\\gemini-report-bridge.js", 'C:\\x\\it\u2019s\\gemini-report-bridge.js',
+    'C:\\x\\"q"\\gemini-report-bridge.js', 'C:\\x\\$HOME\\gemini-report-bridge.js',
+    'C:\\x\\%APPDATA%\\gemini-report-bridge.js', 'C:\\x\\a`b\\gemini-report-bridge.js',
+    'C:\\x\\a\nb\\gemini-report-bridge.js']) {
+    assert.equal(geminisettings.unsafeForCommand(bad, 'win32'), true, `win32 accepted ${JSON.stringify(bad)}`);
+    const { file } = tmpSettings();
+    assert.equal(geminisettings.ensurePrepared(file, bad, WIN32).prepared, false);
+    assert.equal(geminisettings.ensurePrepared(file, WIN_BRIDGE, { platform: 'win32', node: bad }).prepared, false,
+      'the node path is vetted too');
+  }
+  // A backslash is still refused off Windows, where it rides in a double-quoted sh string.
+  assert.equal(geminisettings.unsafeForCommand(WIN_BRIDGE, 'darwin'), true);
+  assert.equal(geminisettings.unsafeForCommand(WIN_BRIDGE, 'win32'), false);
+});
+
+test('#4010: a win32 node under the temp root is not written into a durable settings file', () => {
+  const durable = path.join(os.homedir(), '.gemini-4010-test-should-not-write', 'settings.json');
+  const tmpNode = path.join(os.tmpdir(), 'cut-sandbox', 'node.exe');
+  const r = geminisettings.ensurePrepared(durable, path.join(os.homedir(), 'gemini-report-bridge.js'),
+    { platform: 'win32', node: tmpNode });
+  assert.equal(r.prepared, false);
+  assert.match(r.because, /ephemeral/);
+  assert.ok(!fs.existsSync(durable), 'nothing should have been written to the durable path');
 });
 
 // ---- bin/gemini-report-bridge.js: the event -> report mapping ----
