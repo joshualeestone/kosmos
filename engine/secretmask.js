@@ -52,6 +52,7 @@ let knownForms = [];
 function setKnownSecrets(values) {
   const forms = new Set();
   const heldValues = [];   // the values taken, as trimmed: the same set the forms and the fragment index come from
+  const walkable = new Set();   // forms of values that are not NAME=value lines
   let taken = 0;
   for (const v of Array.isArray(values) ? values : []) {
     if (typeof v !== 'string') continue;
@@ -64,7 +65,14 @@ function setKnownSecrets(values) {
     const buf = Buffer.from(k, 'utf8');
     const hex = buf.toString('hex');
     const spaced = hex.match(/../g).join(' ');
-    for (const f of [k, hex, hex.toUpperCase(), spaced, spaced.toUpperCase(), buf.toString('base64'), buf.toString('base64').replace(/=+$/, ''), buf.toString('base64url')]) forms.add(f);
+    /* A whole NAME=value line held from a secrets file (review rounds 21 and 22): its NAME is public, and walking
+       it, or any encoding of it, would mask the name in a reply that only mentions it. Its forms are still masked
+       whole; the value is held on its own, and walked from there. */
+    const env = ENV_LINE.test(k);
+    for (const f of [k, hex, hex.toUpperCase(), spaced, spaced.toUpperCase(), buf.toString('base64'), buf.toString('base64').replace(/=+$/, ''), buf.toString('base64url')]) {
+      forms.add(f);
+      if (!env) walkable.add(f);
+    }
   }
   /* Longest first, so a value inside a longer one's encoding is not half-replaced. */
   knownForms = [...forms].sort((a, b) => b.length - a.length);
@@ -81,9 +89,7 @@ function setKnownSecrets(values) {
     /* #3935: the word-skipping join assembles a form from runs of key characters, so it walks the form with
        every other character taken out (a password's ! and #, the spaced hex's spaces): those characters sit
        between runs in the text, not inside them. */
-    /* A whole NAME=value line held from a secrets file (review round 21): its NAME is public, and walking or
-       slicing it would mask the name in a reply that only mentions it. The value is held on its own. */
-    if (ENV_LINE.test(f)) continue;
+    if (!walkable.has(f)) continue;
     const w = f.replace(NOT_KEY_CHARS, '');
     addWalked(w, walked);
     /* A key given WITHOUT its public prefix (review round 15): a reply that leaves out sk-ant-api03- and splits
@@ -94,14 +100,26 @@ function setKnownSecrets(values) {
   }
   /* Every FRAGMENT_LEN-character slice of each held value as given (not its encodings, which would multiply the
      index), for fragmentsIn (review round 19). A word-shaped value is left out, as the walk leaves it out. */
+  const sliced = [];
+  let slices = 0;
   for (const v of heldValues) {
-    if (ENV_LINE.test(v) || knownGrams.size >= MAX_GRAMS) continue;
+    if (ENV_LINE.test(v)) continue;
     const w = v.replace(NOT_KEY_CHARS, '');
     if (w.length < FRAGMENT_LEN || w.length > WORD_WALK_MAX_FORM || madeOfWords(w)) continue;
     /* Not the public prefix (sk-ant-api03 is itself 12 characters, and the whole guide names it): slices start
        after the last - or _ in the first 16 characters, as the prefix-less walk does. */
-    const cut = Math.max(w.lastIndexOf('-', 15), w.lastIndexOf('_', 15));
-    for (let i = cut + 1; i + FRAGMENT_LEN <= w.length && knownGrams.size < MAX_GRAMS; i += 1) knownGrams.add(w.slice(i, i + FRAGMENT_LEN));
+    const from = Math.max(w.lastIndexOf('-', 15), w.lastIndexOf('_', 15)) + 1;
+    if (w.length - from < FRAGMENT_LEN) continue;
+    sliced.push([w, from]);
+    slices += w.length - from - FRAGMENT_LEN + 1;
+  }
+  /* Over MAX_GRAMS, every value is indexed at the same stride rather than the first ones in full and the rest
+     not at all (review round 22: a full index skipped later values silently). A slice starts every fragmentStride
+     characters, so any FRAGMENT_LEN + fragmentStride - 1 consecutive characters of a value still hold an indexed
+     slice: coverage thins evenly and by a known amount, for every value. */
+  fragmentStride = Math.max(1, Math.ceil(slices / MAX_GRAMS));
+  for (const [w, from] of sliced) {
+    for (let i = from; i + FRAGMENT_LEN <= w.length; i += fragmentStride) knownGrams.add(w.slice(i, i + FRAGMENT_LEN));
   }
 }
 /* #3935 (review round 19): a key whose first chunk is under OPENING_LEN starts no walk, and the rest can sit in
@@ -109,8 +127,11 @@ function setKnownSecrets(values) {
    consecutive characters of a held value is masked whole. That many consecutive characters of a random value
    do not turn up in ordinary text by chance, and the shortest value held at all is this long. */
 const FRAGMENT_LEN = 12;
-/* A bound on the fragment index's memory: 2,000 values of a key's length are about 200,000 slices. */
+/* A bound on the fragment index's memory: 2,000 values of a key's length are about 200,000 slices. Past it the
+   index is thinned evenly (fragmentStride), never cut off, so it holds at most MAX_GRAMS plus one slice per value
+   (rounding). */
 const MAX_GRAMS = 400000;
+let fragmentStride = 1;
 /* A held value that is a whole environment line, NAME=value. */
 const ENV_LINE = /^[A-Za-z_][A-Za-z0-9_]*=/;
 let knownGrams = new Set();
@@ -715,4 +736,6 @@ function describeFired(fired) {
   return fired.map((f) => `${f.kind} x${f.count}`).join(', ');
 }
 
-module.exports = { MASK, WITHHELD, UNCHECKED, mask, describeFired, setKnownSecrets, knownSecretCount };
+/* For tests: the fragment index's size and stride. */
+function fragmentIndexStats() { return { size: knownGrams.size, stride: fragmentStride }; }
+module.exports = { MASK, WITHHELD, UNCHECKED, mask, describeFired, setKnownSecrets, knownSecretCount, fragmentIndexStats };

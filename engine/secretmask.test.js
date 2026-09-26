@@ -126,7 +126,7 @@ test('#3769 a long reply cannot make the mask backtrack (it runs on the board\'s
 
 /* ---- follow-up: Ice Cream Kitty's review ----------------------------------------------------------- */
 
-const { WITHHELD, UNCHECKED, setKnownSecrets } = require('./secretmask');
+const { WITHHELD, UNCHECKED, setKnownSecrets, fragmentIndexStats } = require('./secretmask');
 
 test('#3769 a key the board holds is masked however it is written: raw, hex, base64 (padded or not), base64url', () => {
   const held = j('sk-ant-', 'api03-', 'HeldByTheBoard0123456789abcdefXYZ');
@@ -916,5 +916,48 @@ test('#3935 a held NAME=value line: a reply naming the variable is not masked, t
     assert.equal(mask(t2).text, t2);
     const out = mask('The value is Zq8vLm3p then Rt6wXy9k then Hb2nWc4d then Pq7sTu5v, done.').text;
     assert.ok(!out.includes('Rt6wXy9k') && !out.includes('Pq7sTu5v'), `the value split by words survived: ${out}`);
+  } finally { setKnownSecrets([]); }
+});
+
+test('#3935 a held NAME=value line: no encoding of it is walked, so its name split in hex is not masked (review round 22)', () => {
+  const value = 'Zq8vLm3pRt6wXy9kHb2nWc4dPq7sTu5v';
+  setKnownSecrets([`KOSMOS_CF_ACCOUNT_ID_FOR_DEPLOYS=${value}`, value]);
+  try {
+    const hexName = Buffer.from('KOSMOS_CF_ACCOUNT_ID_FOR_DEPLOYS=').toString('hex');
+    const t = `name in hex: ${hexName.slice(0, 30)} ${hexName.slice(30)} ok`;
+    assert.equal(mask(t).text, t);
+    /* The whole line, encoded, is still masked. */
+    const b64 = Buffer.from(`KOSMOS_CF_ACCOUNT_ID_FOR_DEPLOYS=${value}`).toString('base64');
+    assert.ok(!mask(`here: ${b64} ok`).text.includes(b64.slice(20)));
+  } finally { setKnownSecrets([]); }
+});
+
+test('#3935 a full fragment index thins every value evenly, so the last value held is still found (review round 22)', () => {
+  /* Distinct random-looking values from a hash (a small LCG repeats: an earlier version shared one slice across
+     187 values, so the test found the last value through the first ones). */
+  const crypto = require('crypto');
+  const values = [];
+  for (let v = 0; v < 2000; v += 1) {
+    let s = '';
+    for (let i = 0; s.length < 1000; i += 1) s += crypto.createHash('sha256').update(`${v}:${i}`).digest('base64').replace(/[^A-Za-z0-9]/g, '');
+    values.push(s.slice(0, 1000));
+  }
+  setKnownSecrets(values);
+  try {
+    const { size, stride } = fragmentIndexStats();
+    assert.ok(size > 390000, `size ${size}: the values share slices, so the index never filled`);
+    assert.ok(stride > 1, `stride ${stride}`);
+    assert.ok(size <= 400000 + values.length, `size ${size}`);
+    /* FRAGMENT_LEN + stride - 1 consecutive characters always hold an indexed slice: take that many from the
+       middle of the first and of the last value, at every offset in a stride. */
+    for (const v of [values[0], values[values.length - 1]]) {
+      for (let off = 0; off < stride; off += 1) {
+        const piece = v.slice(500 + off, 500 + off + 12 + stride - 1);
+        const r = mask(`Before. ${piece} after.`);
+        assert.ok(!r.text.includes(piece), `offset ${off}: ${piece} survived`);
+        /* The fragment search found it, not the long-token catch-all, which masks any such run on its own. */
+        assert.ok(r.fired.some((f) => f.kind === 'split_secret'), `offset ${off}: ${JSON.stringify(r.fired)}`);
+      }
+    }
   } finally { setKnownSecrets([]); }
 });
