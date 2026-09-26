@@ -268,16 +268,18 @@ async function pull(dir, opts) {
     try { rec = JSON.parse(text); }
     catch { skipped += 1; continue; }
     if (!rec || typeof rec !== 'object' || typeof rec.body !== 'string') { skipped += 1; continue; }
+    let tmp = null;
     try {
       const dest = path.join(target, fileName(rec));
-      const tmp = dest + '.tmp';
-      fs.writeFileSync(tmp, toMarkdown(rec));
+      fs.writeFileSync(dest + '.tmp', toMarkdown(rec));
+      tmp = dest + '.tmp';   // set only once THIS call wrote it
       fs.renameSync(tmp, dest);
       written += 1;
     } catch (e) {
       skipped += 1; unwritten += 1; lastWriteError = String((e && e.message) || e);
-      // Best effort: remove a .tmp the failed write or rename may have left behind.
-      try { fs.rmSync(path.join(target, fileName(rec)) + '.tmp', { force: true }); } catch { /* cleanup only */ }
+      // Best effort: remove only a .tmp this call wrote (a rename failed after it), never
+      // one a concurrent pull may be writing.
+      if (tmp) { try { fs.rmSync(tmp, { force: true }); } catch { /* cleanup only */ } }
     }
   }
   const total = Array.isArray(blobs) ? blobs.length : 0;
@@ -302,7 +304,7 @@ async function pull(dir, opts) {
   if (written === 0 && skipped > 0) {
     return { ok: false, ...counts,
       because: 'the store listed ' + reports(total) + ' and none was pulled: ' + reasonClauses(counts).join('; ')
-        + '.' + (storeNoteApplies(counts) ? ' ' + PUBLIC_STORE_NOTE : '') };
+        + '.' + (fromPublicStore ? ' ' + PUBLIC_STORE_NOTE : '') };
   }
   // A partial pull is still ok, and its summary gives the same reasons for every skip.
   return { ok: true, ...counts };
@@ -314,13 +316,6 @@ async function pull(dir, opts) {
 const PUBLIC_STORE_NOTE = 'These reports were listed from a PUBLIC blob store. That is expected until the site\'s '
   + 'private-store migration (kosmos#3878) has run; after it, refile ' + FEEDBACK_TOKEN_TARGET
   + ' with the private feedback store\'s token.';
-
-/* Whether a result carries the public-store note: the listing came from a PUBLIC store,
-   and the skips (if any) were not ALL local save failures, which say nothing about the
-   token. One decision for the failure message and the summary. */
-function storeNoteApplies(r) {
-  return !!r.fromPublicStore && !(r.skipped > 0 && r.unwritten === r.skipped);
-}
 
 /* A count with its noun: "1 report", "2 reports". */
 function reports(n) { return n + (n === 1 ? ' report' : ' reports'); }
@@ -364,7 +359,7 @@ function summaryLines(r) {
       + ' holds the private feedback store\'s token (kosmos#3878).');
   }
   out.push(...reasonClauses(r));
-  if (storeNoteApplies(r)) out.push('note: ' + PUBLIC_STORE_NOTE);
+  if (r.fromPublicStore) out.push('note: ' + PUBLIC_STORE_NOTE);
   return out;
 }
 
