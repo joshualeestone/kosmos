@@ -240,33 +240,83 @@ let engineLook = { at: 0, staleSince: null };
    thing actually being limited -- process-triggered pane notifications --
    directly, in memory. ⚠️ Resets on restart, unlike taskMake's persisted
    count: an acceptable line for a notification valve (the write it guards
-   still lands either way) but NOT one to reuse for anything that gates data. */
-const heardBudgetLog = [];
+   still lands either way) but NOT one to reuse for anything that gates data.
+   #3961: the allowance is PER ASSIGNEE, not one count shared by the whole fleet. It
+   was twelve an hour across every agent, so after one agent handed out twelve tasks
+   nobody else's assignment reached anybody's screen for the rest of the hour, while
+   the tasks themselves (#3959) now land up to a 500-an-hour breaker. What the valve
+   protects is one pane from being flooded, so that is what it counts: how many times
+   agents typed into THIS assignee's screen this hour. A fleet-wide ceiling of
+   HEARD_RUNAWAY_MAX stays behind it: #3959's runaway number, read from engine/runaway.
+   One looping agent is stopped by its assignee's 30 long before this; the ceiling binds
+   only when about seventeen or more screens are each paged thirty times in one hour, and
+   then it holds the pages typed across the fleet to that number. The card's option 1
+   spoke of removing the shared ceiling; this keeps one far above it, for that case. */
+const heardBudgetLog = new Map(); // heardKey(assignee, roster): the pane's session name -> times typed to, oldest first
 const HEARD_BUDGET_WINDOW_MS = 3600000;
-const HEARD_BUDGET_MAX = 12;
-function heardBudgetAllows() {
-  const cutoff = Date.now() - HEARD_BUDGET_WINDOW_MS;
-  while (heardBudgetLog.length && heardBudgetLog[0] < cutoff) heardBudgetLog.shift();
-  return heardBudgetLog.length < HEARD_BUDGET_MAX;
+const HEARD_PER_AGENT_MAX = 30;
+const HEARD_RUNAWAY_MAX = require('./engine/runaway').AGENT_RUNAWAY_PER_HOUR;
+/* The key is the PANE the name reaches, found the way delivery finds it
+   (chat.resolveCard): an exact name first, else a case-insensitive one (#989). So
+   "MARA" spends mara's allowance, while an external "Casey" pane beside our "casey"
+   keeps its own. With no roster, or no pane for the name, the lowercased name
+   stands in: nothing is typed then, so it only has to be consistent. */
+function heardKey(who, roster) {
+  if (typeof who !== 'string' || !who.trim()) return null;
+  const card = Array.isArray(roster) ? chat.resolveCard(roster, who.trim()) : null;
+  return card && typeof card.sessionName === 'string' ? card.sessionName : who.trim().toLowerCase();
 }
-function heardBudgetRecord() {
-  heardBudgetLog.push(Date.now());
+function heardBudgetPrune() {
+  const cutoff = Date.now() - HEARD_BUDGET_WINDOW_MS;
+  let total = 0;
+  for (const [k, times] of heardBudgetLog) {
+    while (times.length && times[0] < cutoff) times.shift();
+    if (times.length) total += times.length; else heardBudgetLog.delete(k);
+  }
+  return total;
+}
+/* Nobody named means nobody is typed to (heardBy answers undefined), so there is
+   nothing to allow or refuse; only a named assignee is counted. */
+function heardBudgetAllows(who, roster) {
+  const total = heardBudgetPrune();
+  const k = heardKey(who, roster);
+  if (!k) return true;
+  return total < HEARD_RUNAWAY_MAX && (heardBudgetLog.get(k) || []).length < HEARD_PER_AGENT_MAX;
+}
+function heardBudgetRecord(who, roster) {
+  const k = heardKey(who, roster);
+  if (!k) return;
+  if (!heardBudgetLog.has(k)) heardBudgetLog.set(k, []);
+  heardBudgetLog.get(k).push(Date.now());
 }
 /* #3959: what an agent-made assignment answers when the allowance above is spent: the
    work landed but its assignee was NOT typed to. Left undefined, `heard` reads as "no
-   assignee". Undefined only when there is genuinely nobody named. */
+   assignee". Undefined only when there is genuinely nobody named. The sentence names
+   which limit it was, since the two call for different readings. */
 function heardBudgetSkipped(who) {
-  const name = typeof who === 'string' && who.trim() ? who.trim() : null;
-  if (!name) return undefined;
+  if (!heardKey(who)) return undefined;
+  const name = who.trim(); // as the caller spelled it, for the sentence
+  // When both limits are spent, the fleet ceiling is named: it is the graver fact.
+  const runaway = heardBudgetPrune() >= HEARD_RUNAWAY_MAX;
   return { who: name, state: chat.DELIVERY.COULD_NOT,
-    because: 'agents have used the hourly allowance for typing into agent screens (' + HEARD_BUDGET_MAX
-      + ' an hour, shared by all agents), so ' + name + ' was not told on screen; the work is on their list' };
+    because: runaway
+      ? 'agents have typed into agent screens ' + HEARD_RUNAWAY_MAX + ' times this hour, so Kosmos has stopped them for now and '
+        + name + ' was not told on screen; the work is on their list'
+      : 'agents have already told ' + name + ' about new work on screen ' + HEARD_PER_AGENT_MAX
+        + ' times this hour, so ' + name + ' was not told again on screen; the work is on their list' };
 }
 // Test-only, same shape as chatEngine.resetForTests()/messagesEngine.resetForTests():
 // heardBudgetLog is in-memory and module-scoped, so without this, one test's
 // spent budget silently carries into the next test in the same file.
 function resetHeardBudgetForTests() {
-  heardBudgetLog.length = 0;
+  heardBudgetLog.clear();
+}
+// Test-only: spend `n` of one assignee's allowance without typing anything, so a test
+// can reach the fleet-wide ceiling without five hundred real deliveries.
+/* Pass the roster for any pane whose name has capitals: without one the key falls back to
+   the lowercased name, which is not that pane's key. */
+function spendHeardBudgetForTests(who, n, roster) {
+  for (let i = 0; i < n; i += 1) heardBudgetRecord(who, roster);
 }
 /* #3959: agent-made TASKS and PROJECTS have no working limit, only a runaway breaker.
    It was twelve an hour (#327, #485), which stopped real work: Josh had agents add a
@@ -341,13 +391,13 @@ function tellEveryoneOn(t, roster) {
    Assigner runner both call this, so the sequence (valve, assignPart, heardBy, tellEveryoneOn)
    exists once. Three callers:
    - screen: no valve, the pane line always.
-   - process (screen false): the parts valve applies and the pane line is spent from the heard
-     budget, both shared by agents.
-   - assigner: the Kosmos Assigner. Its own provenance ('assigner'), so neither shared agent
-     budget is charged (the Assigner has its own hourly caps); the part must still be free at
-     the moment of the write (onlyIfFree); the pane line is always sent, and if it could not
-     reach the agent at all (COULD_NOT) the assignment is taken back, so nobody is left on a task
-     they were never told about.
+   - process (screen false): the parts valve applies (one count shared by agents), and the
+     pane line spends the assignee's paging allowance (heardBudgetAllows, per assignee).
+   - assigner: the Kosmos Assigner. Its own provenance ('assigner'), so neither the parts
+     valve nor the paging allowance is charged (the Assigner has its own hourly caps);
+     the part must still be free at the moment of the write (onlyIfFree); the pane line is
+     always sent, and if it could not reach the agent at all (COULD_NOT) the assignment is
+     taken back, so nobody is left on a task they were never told about.
    Returns the route's body fields plus `ok`/`status`/`because`; never throws for a refusal. */
 function givePart(projectId, n, partId, who, { screen, roster, assigner } = {}) {
   if (!screen && !assigner) {
@@ -359,10 +409,10 @@ function givePart(projectId, n, partId, who, { screen, roster, assigner } = {}) 
   if (!out.ok) return { ok: false, status: 400, because: out.because };
   const r = roster || safeRoster();
   let heard;
-  if (out.changed && (screen || assigner || heardBudgetAllows())) {
+  if (out.changed && (screen || assigner || heardBudgetAllows(who, r))) {
     const sentence = (((out.task && out.task.parts) || []).find((x) => Number(x.id) === Number(partId)) || {}).sentence;
     heard = heardBy(projectId, out.task, who, sentence, r);
-    if (heard && heard.state === chat.DELIVERY.PLACED && !screen && !assigner) heardBudgetRecord();
+    if (heard && heard.state === chat.DELIVERY.PLACED && !screen && !assigner) heardBudgetRecord(who, r);
   } else if (out.changed) {
     heard = heardBudgetSkipped(who); // only a process reaches here: screen and assigner always pass
   }
@@ -14926,20 +14976,18 @@ const server = http.createServer((req, res) => {
             try { told = projects.syncAgent(made.who, roster); }
             catch (err2) { told = { state: projects.TOLD.COULD_NOT, because: String((err2 && err2.message) || 'we could not reach that agent') }; }
           }
-          // heardBy shares its budget with the part routes' valve (below):
-          // a process at the part routes' 12/hour cap must not ALSO get a
-          // separate 12/hour allowance here -- one shared count of "how many
-          // times a process paged a live pane this hour", not two 12/hour
-          // caps that combine to 24. Task CREATION has its own persisted
-          // refusal above (the runaway breaker, which 429s the whole request); this only
-          // gates whether the creation also gets to page a pane.
+          // The pane line spends the assignee's paging allowance (heardBudgetAllows,
+          // #3961), the same one the part routes spend: one count per assignee of how
+          // often agents typed into their screen this hour, whichever route did it.
+          // Task CREATION has its own persisted refusal above (the runaway breaker,
+          // which 429s the whole request); this only gates whether it also pages a pane.
           let heard;
-          if (viaScreen || heardBudgetAllows()) {
+          if (viaScreen || heardBudgetAllows(made.who, roster)) {
             heard = heardBy(id, made, made.who, made.sentence, roster);
-            // Only a REAL delivery spends the budget -- a run of failed
-            // attempts at an unreachable agent must not exhaust the shared
-            // hour for every other project's legitimate placements.
-            if (heard && heard.state === chat.DELIVERY.PLACED && !viaScreen) heardBudgetRecord();
+            // Only a REAL delivery spends the allowance: a run of failed attempts
+            // while an agent is unreachable must not use up its hour, or it would
+            // not be told once it is back.
+            if (heard && heard.state === chat.DELIVERY.PLACED && !viaScreen) heardBudgetRecord(made.who, roster);
           } else {
             heard = heardBudgetSkipped(made.who);
           }
@@ -15234,9 +15282,9 @@ const server = http.createServer((req, res) => {
         const newPart = (out.task.parts || [])[(out.task.parts || []).length - 1];
         const roster = safeRoster();
         let heard;
-        if (screen || heardBudgetAllows()) {
+        if (screen || heardBudgetAllows(body && body.who, roster)) {
           heard = heardBy(id, out.task, body && body.who, newPart && newPart.sentence, roster);
-          if (heard && heard.state === chat.DELIVERY.PLACED && !screen) heardBudgetRecord();
+          if (heard && heard.state === chat.DELIVERY.PLACED && !screen) heardBudgetRecord(body && body.who, roster);
         } else {
           heard = heardBudgetSkipped(body && body.who);
         }
@@ -17056,6 +17104,7 @@ if (require.main === module) {
 // routes reading `req.url` around it were.
 module.exports = {
   server, start, pathOf, decodeSegment, resetHeardBudgetForTests,
+  HEARD_PER_AGENT_MAX, HEARD_RUNAWAY_MAX, spendHeardBudgetForTests, // #3961: the per-assignee paging allowance, for its tests
   AGENT_RUNAWAY_PER_HOUR, agentRunawayRefusal, setAgentRunawayLimitForTests, // #3959: the agent task/project breaker, for its tests
   get TASK_MSG_CAP_PER_HOUR() { return TASK_MSG_CAP_PER_HOUR; }, // #3959: the task-message limit (default: the shared breaker); read it when needed, a destructured copy goes stale after setTaskMsgCapForTests
   taskMsgCapFrom, setTaskMsgCapForTests, // #3959: how the operator's value is read, and the test seam
