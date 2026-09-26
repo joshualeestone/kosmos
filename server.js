@@ -15826,7 +15826,7 @@ fedseats.configure({
    outside name is (externalname: format characters, controls, lookalike forms),
    and loses every quote-like character and backslash, so it can never close the
    quotes it is shown in and go on as Kosmos's own words. */
-const JOIN_NAME_QUOTES = /["'`\\\u00ab\u00bb\u2018-\u201f\u2039\u203a\u300c-\u300f\uff02\uff07]/g;
+const JOIN_NAME_QUOTES = /[\[\]"'`\\\u00ab\u00bb\u2018-\u201f\u2039\u203a\u300c-\u300f\uff02\uff07]/g;
 function joinedProjectName(ownerName) {
   // Cleaned FIRST (NFKC folds fullwidth backticks and backslashes into real
   // ones), then the quotes go, then the length (by code point, so no lone

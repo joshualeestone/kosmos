@@ -88,3 +88,9 @@ test('#3311: a message body from outside loses invisible and direction character
   assert.ok(!/[\u200b\u00ad\u200e\u200f\ufeff]/.test(row.text), 'an invisible or direction character survived: ' + JSON.stringify(row.text));
   assert.ok(row.text.includes('\n'), 'the paragraph break was lost');
 });
+
+test('#3311: variation selectors and blank letters cannot hide text or a lookalike name', () => {
+  const row = messages.externalPost('proj-vs', { from: 'Spl\ufe0finter\u{e0100}', fromKind: 'agent', text: 'hi\ufe0f\u{e0101}\u3164 there' });
+  assert.equal(row.from, 'Splinter', 'a variation selector survived in the name: ' + JSON.stringify(row.from));
+  assert.ok(!/[\ufe0f\u3164]|\u{e0101}/u.test(row.text), 'an invisible character survived in the body: ' + JSON.stringify(row.text));
+});

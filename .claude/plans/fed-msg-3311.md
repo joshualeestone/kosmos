@@ -285,3 +285,8 @@ not count).
 
 ## Round 22 (sonnet)
 - WARNING: message bodies from outside kept LRM/RLM, zero-widths, soft hyphen and BOM (only overrides/isolates were stripped); names already lost them. Bodies now lose every \p{Cf}, newlines kept (a ZWJ family emoji shows as its parts). Test; control with the old strip fails.
+
+## Round 23 (opus)
+- WARNING: variation selectors (U+FE00-FE0F, U+E0100-E01EF) and blank letters (U+3164 etc.) survived \\p{Cf}+NFKC in names and bodies. Stripped now (externalname.js INVISIBLE, used by both). Test; control fails.
+- WARNING: joinedProjectName now also removes [ and ], so a bracket marker cannot reach membership lines or instruction files. (Not yet pinned by its own test.)
+- NOT YET DONE: federateOut silent when federation.json is unreadable; list(agent) matching external rows by from; NITs (post to a dead stdin between exit and close; shared header while ended; the Shared-by comment).

@@ -53,7 +53,7 @@
 const fs = require('node:fs');
 const path = require('node:path');
 const crypto = require('node:crypto');
-const { externalName } = require('./externalname');
+const { externalName, INVISIBLE } = require('./externalname');
 const { execFileSync } = require('node:child_process');
 const chat = require('./chat');
 const store = require('./store');
@@ -412,7 +412,7 @@ function externalPost(projectId, { from, fromKind, text }) {
     // soft hyphen, BOM), as from names; newlines stay. A family emoji built with
     // zero-width joiners shows as its separate parts, a fair price for words
     // from outside.
-    text: String(text == null ? '' : text).replace(/\t/g, ' ').replace(EXTERNAL_CONTROL, '').replace(/\p{Cf}/gu, '').slice(0, EXTERNAL_TEXT_MAX),
+    text: String(text == null ? '' : text).replace(/\t/g, ' ').replace(EXTERNAL_CONTROL, '').replace(/\p{Cf}/gu, '').replace(INVISIBLE, '').slice(0, EXTERNAL_TEXT_MAX),
     at: new Date().toISOString(),
   };
   if (!row.text.trim() || !rowShaped(row)) return null;

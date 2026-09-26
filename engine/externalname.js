@@ -4,6 +4,7 @@
    store can both use it without pulling each other in. */
 
 const CONTROL = /[\u0000-\u0009\u000b-\u001f\u007f-\u009f]/g;
+const INVISIBLE = /[\uFE00-\uFE0F\u{E0100}-\u{E01EF}\u115F\u1160\u3164\uFFA0\u2800]/gu;
 
 /* A name from outside, made safe to show beside local names. Every Unicode
    format character goes first (\p{Cf}: zero-width space and joiners, soft
@@ -17,7 +18,10 @@ function externalName(v, max) {
   try { s = s.replace(/\p{Cf}/gu, ''); }
   catch { s = s.replace(/[\u00ad\u061c\u200b-\u200f\u2060-\u2064\u202a-\u202e\u2066-\u2069\ufeff]/g, ''); }
   s = s.normalize('NFKC');
+  // Invisible yet not \p{Cf}: variation selectors (text can be smuggled in them)
+  // and the blank letters (Hangul fillers, braille blank) a name can hide behind.
+  s = s.replace(INVISIBLE, '');
   return s.replace(CONTROL, ' ').replace(/[\n\u2028\u2029]/g, ' ').replace(/\s+/g, ' ').trim().slice(0, max);
 }
 
-module.exports = { externalName };
+module.exports = { externalName, INVISIBLE };
