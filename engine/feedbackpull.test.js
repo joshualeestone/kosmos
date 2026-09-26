@@ -269,7 +269,7 @@ test('#3878: a pull that lists reports but can read none is NOT ok, and says why
   const r = await fp.pull(path.join(SB, 'd-unreadable'), { token: 'tok' });
   assert.equal(r.ok, false);
   assert.equal(r.written, 0);
-  assert.match(r.because, /none could be read \(blob GET HTTP 403\)/);
+  assert.match(r.because, /none could be read \(last error: blob GET HTTP 403\)/);
   // Control: one readable report makes it a success again (a partial pull is not a failure).
   let n = 0;
   fp.setTransport({
@@ -279,4 +279,55 @@ test('#3878: a pull that lists reports but can read none is NOT ok, and says why
   const r2 = await fp.pull(path.join(SB, 'd-partial'), { token: 'tok' });
   assert.equal(r2.ok, true);
   assert.equal(r2.written, 1);
+});
+
+test('#3878: the token goes only to https Vercel Blob hosts or the configured API origin', () => {
+  const saved = process.env.AGENT_WORKFORCE_BLOB_API;
+  process.env.AGENT_WORKFORCE_BLOB_API = 'https://blob.vercel-storage.com';
+  try {
+    for (const yes of [
+      'https://x.private.blob.vercel-storage.com/feedback/a.json',
+      'https://abc.public.blob.vercel-storage.com/a',
+      'https://X.Private.BLOB.Vercel-Storage.com/a',
+      'https://blob.vercel-storage.com/?prefix=feedback%2F',
+    ]) assert.equal(fp.tokenMayGoTo(yes), true, yes);
+    for (const no of [
+      'http://x.private.blob.vercel-storage.com/a',
+      'https://evilblob.vercel-storage.com/a',
+      'https://blob.vercel-storage.com.evil.com/a',
+      'https://blob.vercel-storage.com@evil.com/a',
+      'https://x.blob.vercel-storage.com./a',
+      'https://vercel-storage.com/a',
+      'https://example.com/a',
+      'not a url',
+      '',
+    ]) assert.equal(fp.tokenMayGoTo(no), false, no);
+  } finally {
+    if (saved === undefined) delete process.env.AGENT_WORKFORCE_BLOB_API; else process.env.AGENT_WORKFORCE_BLOB_API = saved;
+  }
+});
+
+test('#3878: a partial pull says how many reports could not be read; the wrong-store hint only follows a 401/403', async () => {
+  let n = 0;
+  fp.setTransport({
+    list: async () => [1, 2, 3].map((i) => ({ url: 'https://s.blob.vercel-storage.com/' + i + '.json' })),
+    get: async () => { n += 1; if (n < 3) throw new Error('blob GET HTTP 403'); return JSON.stringify(REC('inst-p', '2026-09-04', 'p')); },
+  });
+  const r = await fp.pull(path.join(SB, 'd-mostly'), { token: 'tok' });
+  assert.equal(r.ok, true);
+  assert.equal(r.written, 1);
+  assert.equal(r.unreadable, 2);
+  assert.match(r.lastGetError, /403/);
+  fp.setTransport({
+    list: async () => [{ url: 'https://s.blob.vercel-storage.com/gone.json' }],
+    get: async () => { throw new Error('blob GET HTTP 404'); },
+  });
+  const r404 = await fp.pull(path.join(SB, 'd-gone'), { token: 'tok' });
+  assert.equal(r404.ok, false);
+  assert.doesNotMatch(r404.because, /wrong store/, 'a 404 (deleted between list and GET) must not blame the token');
+  fp.setTransport({
+    list: async () => [{ url: 'https://s.blob.vercel-storage.com/x.json' }],
+    get: async () => { throw new Error('blob GET HTTP 403'); },
+  });
+  assert.match((await fp.pull(path.join(SB, 'd-denied'), { token: 'tok' })).because, /wrong store/);
 });

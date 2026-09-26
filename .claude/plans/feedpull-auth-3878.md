@@ -17,13 +17,21 @@ migration it would pull nothing, and it would still report `ok: true`.
 3. Run the migration.
 4. Refile secrets target `vercel-blob-feedback` with the FEEDBACK store's token.
 
+## Review iteration 1
+- `tokenMayGoTo` is exported and table-tested.
+  - Accepted: https Vercel Blob hosts in any case, and the API origin.
+  - Refused: plain http, a lookalike prefix (`evilblob.`), a lookalike suffix (`.com.evil.com`), a userinfo trick, a trailing dot, the bare parent domain, a foreign host, a non-URL.
+  - The check is Vercel-host scoped, not store scoped, and the comment says so.
+- A partial pull stays ok but returns `unreadable` and `lastGetError`, and both CLIs print "N of them could not be read (last error: ...)".
+- The wrong-store hint follows only a 401 or 403. A 404 (a blob deleted between the list and the GET) does not blame the token.
+
 ## Tests
 engine/feedbackpull.test.js:
 - the real transport's report GETs carry the token;
 - a foreign-host report URL gets no token;
 - all-unreadable gives ok:false, with a partial-pull control.
 
-Three mutations run red.
+Seven mutations run red: no auth header; token sent to any host; the silent success; the start anchor; the end anchor; https-only; token blamed on every error.
 
 ## Weakest premise
 That the blob host pattern stays `*.blob.vercel-storage.com`. If Vercel changes it, the token is withheld and pull fails loudly (ok:false naming the error), never silently.
