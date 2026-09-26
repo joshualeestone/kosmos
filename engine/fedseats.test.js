@@ -719,3 +719,100 @@ test('#3851: a legacy link is stamped with the createdAt the check was made on, 
   assert.strictEqual(federation.linkFor('proj-once').project_created, '2026-09-21T00:00:00.000Z', 'the stamp came from a second read');
   assert.strictEqual(h.spawned.length, 1);
 });
+
+// ---- #3728: sealed rooms, through a real seat and the fake connector ----
+const fedseal = require('./fedseal');
+const lines = (child) => child.written.join('').split('\n').filter(Boolean).map((l) => JSON.parse(l));
+
+test('#3728: the owner shares the room key with a member who knows the invite half, and a stranger gets nothing', async () => {
+  const s = fedseal.randomSecret();
+  fedseal.stashInviteSecret('ref-seal-o', s);
+  federation.recordLink('proj-seal-o', { role: 'owner', ref: 'ref-seal-o' });
+  const h = harness({ edges: [{ id: 'edge-so', project_ref: 'ref-seal-o', status: 'active' }] });
+  await fedseats.ensure('proj-seal-o');
+  const seat = h.spawned[0];
+  say(seat, { event: 'connected', room: 'room-so', expires_at: 9 });
+  await tick();
+  // Someone without the half (the relay, the coordinator, another member): no share, no word.
+  const stranger = fedseal.newKeyPair();
+  say(seat, { event: 'message', data: fedseal.helloFrame(fedseal.randomSecret(), stranger, 'room-so') });
+  await tick();
+  assert.strictEqual(lines(seat).length, 0, 'a stranger was answered');
+  const member = fedseal.newKeyPair();
+  say(seat, { event: 'message', data: fedseal.helloFrame(s, member, 'room-so') });
+  await tick();
+  const [share] = lines(seat);
+  assert.strictEqual(share && share.t, 'key-share');
+  const got = fedseal.openShare(s, member, share, 'room-so');
+  assert.ok(got, 'the member could not open the owner\'s share');
+  assert.strictEqual(got.ownerPub, fedseal.sealingKey().pub, 'the share did not come from this board\'s key');
+  assert.deepStrictEqual(fedseal.inviteSecretsFor('ref-seal-o'), [], 'the invite half was not spent');
+  assert.strictEqual(h.recorded.length, 0, 'a key frame was recorded as a row');
+  // From here the owner's posts leave sealed, and only the member's key opens them.
+  assert.strictEqual(fedseats.post('proj-seal-o', { from: 'Josh', kind: 'person', text: 'secret words' }), true);
+  const out = lines(seat).pop();
+  assert.ok(fedseal.isSealed(out) && !JSON.stringify(out).includes('secret words'), 'the post left in the clear: ' + JSON.stringify(out));
+  assert.strictEqual(fedseal.open({ [got.epoch]: got.roomKey }, 'room-so', out).text, 'secret words');
+  // The member reconnects and says hello again (its share was lost): answered again from the pin.
+  say(seat, { event: 'message', data: fedseal.helloFrame(s, member, 'room-so') });
+  await tick();
+  const again = lines(seat).pop();
+  assert.strictEqual(again.t, 'key-share');
+  assert.strictEqual(fedseal.openShare(s, member, again, 'room-so').roomKey, got.roomKey, 'a reconnect got a different room key');
+});
+
+test('#3728: a member says hello, holds its posts until the key arrives, then seals out and opens in, and refuses a downgrade', async () => {
+  const s = fedseal.randomSecret();
+  federation.recordLink('proj-seal-m', { role: 'member', edge_id: 'edge-sm' });
+  fedseal.setRoomState('proj-seal-m', { role: 'member', s, peer: null, epoch: null, keys: {} });
+  const h = harness();
+  await fedseats.ensure('proj-seal-m');
+  const seat = h.spawned[0];
+  say(seat, { event: 'connected', room: 'room-sm', expires_at: 9 });
+  await tick();
+  const [hello] = lines(seat);
+  const me = fedseal.sealingKey();
+  assert.strictEqual(fedseal.checkHello(s, hello, 'room-sm'), me.pub, 'the member did not say a genuine hello');
+  // Before the key: nothing leaves, and the room says why.
+  assert.strictEqual(fedseats.post('proj-seal-m', { from: 'Ana', kind: 'person', text: 'too early' }), false);
+  assert.ok(h.notes.some((n) => /has not shared its key yet/.test(n.text)), JSON.stringify(h.notes));
+  assert.strictEqual(lines(seat).length, 1, 'a post went out before the room had a key');
+  // The owner (played here) shares the key.
+  const owner = fedseal.newKeyPair();
+  const roomKey = fedseal.randomSecret();
+  say(seat, { event: 'message', data: fedseal.shareFrame(s, owner, me.pub, roomKey, 0, 'room-sm') });
+  await tick();
+  assert.deepStrictEqual(fedseal.roomState('proj-seal-m').keys, { 0: roomKey });
+  assert.strictEqual(fedseal.roomState('proj-seal-m').peer, owner.pub, 'the owner key was not pinned');
+  assert.ok(h.notes.some((n) => /This shared room is sealed/.test(n.text)));
+  // Posts leave sealed.
+  assert.strictEqual(fedseats.post('proj-seal-m', { from: 'Ana', kind: 'person', text: 'now sealed' }), true);
+  const out = lines(seat).pop();
+  assert.ok(fedseal.isSealed(out) && !JSON.stringify(out).includes('now sealed'));
+  // A sealed message from the owner is opened and recorded like any outside row.
+  say(seat, { event: 'message', data: fedseal.seal(roomKey, 0, 'room-sm', { from: 'Owner', kind: 'person', text: 'hello member' }) });
+  await tick();
+  assert.deepStrictEqual(h.recorded.map((r) => r.text), ['hello member']);
+  // Words in the clear in a sealed room are not shown; nor is a seal this board cannot open.
+  say(seat, { event: 'message', data: { from: 'Mallory', kind: 'person', text: 'downgrade' } });
+  say(seat, { event: 'message', data: fedseal.seal(fedseal.randomSecret(), 0, 'room-sm', { from: 'Mallory', kind: 'person', text: 'wrong key' }) });
+  await tick();
+  assert.deepStrictEqual(h.recorded.map((r) => r.text), ['hello member'], 'a downgraded or unopenable message was shown');
+  assert.ok(h.notes.some((n) => /arrived unsealed/.test(n.text)));
+  assert.ok(h.notes.some((n) => /could not open/.test(n.text)));
+});
+
+test('#3728: a room with no seal state (before sealing, or an older owner) posts and shows in the clear, as before', async () => {
+  federation.recordLink('proj-legacy-clear', { role: 'member', edge_id: 'edge-lc' });
+  const h = harness();
+  await fedseats.ensure('proj-legacy-clear');
+  const seat = h.spawned[0];
+  say(seat, { event: 'connected', room: 'room-lc', expires_at: 9 });
+  await tick();
+  assert.strictEqual(lines(seat).length, 0, 'a room with no seal state said hello');
+  assert.strictEqual(fedseats.post('proj-legacy-clear', { from: 'Ana', kind: 'person', text: 'plain' }), true);
+  assert.strictEqual(lines(seat).pop().text, 'plain');
+  say(seat, { event: 'message', data: { from: 'Owner', kind: 'person', text: 'plain back' } });
+  await tick();
+  assert.deepStrictEqual(h.recorded.map((r) => r.text), ['plain back']);
+});

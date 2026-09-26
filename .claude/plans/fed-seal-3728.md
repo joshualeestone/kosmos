@@ -24,7 +24,28 @@ Tests (engine/fedseal.test.js):
 - join: a code with a half makes a sealed member room ({ role: member, s, no key yet }). A code without one joins unsealed, as before.
 - Tests: invite keeps the half; verify sends only the first half and never returns `s`; join through the board lands the member room; the store's TTL, spending, splitting, mode 600 and damage refusal. Control: sending the whole pasted code fails both verify tests by name.
 
-## Step 2b onward (next): the wiring
+## Step 2b/2c (done): the handshake and sealed messages, in the seat (engine/fedseats.js)
+- **On connect** the seat keeps the shared room id and binds it into every seal. A member holding no key yet sends key-hello.
+- **Owner:**
+  - It checks a hello against the project's live invite halves, or against a peer it has already pinned (a resend after a reconnect).
+  - It pins the member and spends the half.
+  - It creates the room key at epoch 0 on the first member and shares the same key with later ones.
+  - A hello that matches nothing is ignored silently.
+- **Member:** it opens the share, pins the owner key and stores the room key, and the room says it is sealed.
+- **Posts:** a sealed room seals every post. A member without the key keeps posts on this computer and says so. An unreadable seal record keeps posts local, because we cannot tell whether the room is sealed.
+- **Inbound:**
+  - Sealed payloads are opened.
+  - An unsealed payload in a sealed room is refused, so there is no downgrade.
+  - A seal that cannot be opened is refused.
+  - Each refusal gets one note per seat run. Key frames are never rows.
+- **Legacy:** a room with no seal state (made before sealing, or joined with a code from an older owner) behaves exactly as before.
+- **Tests (engine/fedseats.test.js):**
+  - Owner: shares with the half-holder, a stranger gets nothing, the half is spent, a reconnect gets the same key, and posts leave sealed.
+  - Member: hello, holding posts, pinning, sealed out and in, downgrade and unopenable refused.
+  - Legacy: unchanged.
+- **Controls, each failing by name:** no sealing on post; no downgrade refusal; the owner answering any hello.
+
+## Step 2d onward (next)
 - invite: the board makes `s`, stores it beside the invite, and shows `<code>.<s>`.
 - join: the board splits the code, verifies with the first half only, and keeps `s`.
 - seat: on connect the member posts key-hello. The owner checks it, pins the key, and replies key-share. The member opens it and pins the owner.

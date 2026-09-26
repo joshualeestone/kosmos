@@ -19,6 +19,7 @@
  *           them); found through the Mac-signed edges route.
  */
 const federation = require('./federation');
+const fedseal = require('./fedseal');
 const { externalName } = require('./externalname');
 
 const RESTART_START_MS = 2000;
@@ -119,7 +120,13 @@ function onEvent(projectId, line) {
   if (!s) return;
   // The backoff resets only once a connection has lasted (see the exit handler),
   // so a seat that connects and drops at once still backs off.
-  if (ev.event === 'connected') { setStatus(projectId, 'connected'); s.connectedAt = Date.now(); s.macNoted = false; return; }
+  if (ev.event === 'connected') {
+    setStatus(projectId, 'connected'); s.connectedAt = Date.now(); s.macNoted = false;
+    // #3728: the room id both ends share (the coordinator derives it per project); it is bound into every seal.
+    s.room = typeof ev.room === 'string' && ev.room ? ev.room : null;
+    sayHello(projectId, s);
+    return;
+  }
   if (ev.event === 'disconnected') { setStatus(projectId, 'reconnecting'); return; }
   if (ev.event === 'ended') {
     s.ended = clean(ev.because, 200) || 'the connection ended';
@@ -143,6 +150,21 @@ function onEvent(projectId, line) {
     return;
   }
   if (ev.event === 'refused_post') { say(projectId, 'A message was not sent to the external project: ' + clean(ev.because, 200) + '.'); return; }
+  if (ev.event === 'message' && ev.data && typeof ev.data === 'object' && !Array.isArray(ev.data)) {
+    // #3728: key frames are the room's handshake, never a row.
+    if (typeof ev.data.t === 'string' && ev.data.t.startsWith('key-')) { onKeyFrame(projectId, s, ev.data); return; }
+    const sealed = roomSeal(projectId);
+    if (sealed === undefined) { noteOnce(projectId, s, 'sealUnreadable', 'A message from the external project was not shown: this computer cannot read its sealed-rooms record right now.'); return; }
+    if (fedseal.isSealed(ev.data)) {
+      const opened = hasKey(sealed) && s.room ? fedseal.open(sealed.keys, s.room, ev.data) : null;
+      if (!opened) { noteOnce(projectId, s, 'unopened', 'A sealed message arrived that this computer could not open, so it was not shown.'); return; }
+      ev.data = opened;
+    } else if (isSealedRoom(sealed)) {
+      // No downgrade: once a room is sealed, words sent in the clear are not shown.
+      noteOnce(projectId, s, 'unsealed', 'A message arrived unsealed in this sealed room, so it was not shown.');
+      return;
+    }
+  }
   if (ev.event === 'message' && ev.data && typeof ev.data === 'object' && typeof ev.data.text === 'string' && ev.data.text.trim()) {
     const now = Date.now();
     if (!s.inbound || now - s.inbound.since >= INBOUND_WINDOW_MS) s.inbound = { since: now, count: 0, bytes: 0 };
@@ -354,6 +376,94 @@ function linkFor(projectId) {
   return stampOf(projectId, link).state === 'stale' ? null : link;
 }
 
+/* ---- #3728: sealing ---- */
+
+/** This room's seal state, null for a room that does not seal (a project from before
+    sealing, or a join whose code had no second half), undefined when the record
+    cannot be read (then nothing is sent or shown: we cannot tell). */
+function roomSeal(projectId) {
+  try { return fedseal.roomState(projectId); } catch { return undefined; }
+}
+function hasKey(st) {
+  return !!st && !!st.keys && Number.isInteger(st.epoch) && typeof st.keys[st.epoch] === 'string';
+}
+/** A member's room is sealed from the join (it holds s); an owner's once it has a key. */
+function isSealedRoom(st) {
+  return !!st && (st.role === 'member' || hasKey(st));
+}
+function noteOnce(projectId, s, key, text) {
+  s.sealNoted = s.sealNoted || {};
+  if (s.sealNoted[key]) return;
+  s.sealNoted[key] = true;
+  say(projectId, text);
+}
+function sendFrame(s, frame) {
+  if (!s || !s.child || !s.child.stdin || s.status !== 'connected') return false;
+  const line = JSON.stringify(frame);
+  if (Buffer.byteLength(line) > MAX_POST_LINE) return false;
+  try { s.child.stdin.write(line + '\n'); return true; } catch { return false; }
+}
+/** Member, on each connect until it holds the room key: say hello with this board's key. */
+function sayHello(projectId, s) {
+  const st = roomSeal(projectId);
+  if (!st || st.role !== 'member' || hasKey(st) || !s.room) return;
+  try { sendFrame(s, fedseal.helloFrame(st.s, fedseal.sealingKey(), s.room)); } catch (err) {
+    noteOnce(projectId, s, 'noKey', 'This computer could not use its sealing key, so this shared room cannot open yet: ' + String((err && err.message) || err));
+  }
+}
+function onKeyFrame(projectId, s, frame) {
+  const link = safeLink(projectId);
+  if (!link || !s.room) return;
+  let me;
+  try { me = fedseal.sealingKey(); } catch { return; }
+  try {
+    if (frame.t === 'key-hello' && link.role === 'owner') {
+      let st = roomSeal(projectId);
+      if (st === undefined) return;
+      const peers = st && st.peers ? st.peers : {};
+      // A member already pinned (its share was lost to a reconnect): answer again, with its own s.
+      let pub = null;
+      let sUsed = null;
+      if (typeof frame.pub === 'string' && Object.prototype.hasOwnProperty.call(peers, frame.pub)) {
+        sUsed = peers[frame.pub].s;
+        pub = fedseal.checkHello(sUsed, frame, s.room);
+      } else {
+        for (const cand of fedseal.inviteSecretsFor(link.ref)) {
+          pub = fedseal.checkHello(cand, frame, s.room);
+          if (pub) { sUsed = cand; break; }
+        }
+      }
+      if (!pub) return;   // not for any code this board gave out: ignore, say nothing
+      if (!hasKey(st)) st = { role: 'owner', peers: {}, epoch: 0, keys: { 0: fedseal.randomSecret() } };
+      st.peers = Object.assign({}, st.peers, { [pub]: { s: sUsed } });
+      fedseal.setRoomState(projectId, st);
+      fedseal.spendInviteSecret(link.ref, sUsed);
+      sendFrame(s, fedseal.shareFrame(sUsed, me, pub, st.keys[st.epoch], st.epoch, s.room));
+      return;
+    }
+    if (frame.t === 'key-share' && link.role === 'member') {
+      const st = roomSeal(projectId);
+      if (!st || st.role !== 'member' || hasKey(st)) return;
+      const got = fedseal.openShare(st.s, me, frame, s.room);
+      if (!got) return;   // another member's share, or not genuine
+      fedseal.setRoomState(projectId, Object.assign({}, st, { peer: got.ownerPub, epoch: got.epoch, keys: { [got.epoch]: got.roomKey } }));
+      say(projectId, 'This shared room is sealed: only the computers in it can read its messages.');
+      return;
+    }
+    if (frame.t === 'key-rotate' && link.role === 'member') {
+      const st = roomSeal(projectId);
+      if (!hasKey(st) || !st.peer) return;
+      const got = fedseal.openRotate(me, st.peer, frame, s.room);
+      if (!got || Object.prototype.hasOwnProperty.call(st.keys, got.epoch)) return;
+      const keys = Object.assign({}, st.keys, { [got.epoch]: got.roomKey });
+      fedseal.setRoomState(projectId, Object.assign({}, st, { keys, epoch: Math.max(st.epoch, got.epoch) }));
+    }
+  } catch (err) {
+    // A record that cannot be written: the handshake is retried on the next connect.
+    console.error('#3728: a sealing step for ' + JSON.stringify(projectId) + ' did not finish: ' + String((err && err.message) || err));
+  }
+}
+
 function safeLink(projectId) {
   try { return linkFor(projectId); } catch { return null; }
 }
@@ -484,7 +594,24 @@ function post(projectId, { from, kind, text }) {
     say(projectId, 'That message stayed on this computer: the connection to the external project is not up right now.');
     return false;
   }
-  const line = JSON.stringify({ from: clean(from, 80) || 'someone', kind: kind === 'agent' ? 'agent' : 'person', text: String(text || '') });
+  let payload = { from: clean(from, 80) || 'someone', kind: kind === 'agent' ? 'agent' : 'person', text: String(text || '') };
+  // #3728: a sealed room's posts leave this Mac only sealed.
+  const sealed = roomSeal(projectId);
+  if (sealed === undefined) {
+    say(projectId, 'That message stayed on this computer: it cannot read its sealed-rooms record right now, so it cannot tell whether this room is sealed.');
+    return false;
+  }
+  if (isSealedRoom(sealed)) {
+    if (!hasKey(sealed) || !s.room) {
+      say(projectId, 'That message stayed on this computer: this shared room is sealed, and the owner\'s computer has not shared its key yet. Nothing is sent until it has.');
+      return false;
+    }
+    try { payload = fedseal.seal(sealed.keys[sealed.epoch], sealed.epoch, s.room, payload); } catch {
+      say(projectId, 'That message stayed on this computer: it could not be sealed.');
+      return false;
+    }
+  }
+  const line = JSON.stringify(payload);
   // The connector refuses a stdin line over its post limit (16 KiB, the relay's
   // frame). Measured on the line itself, escapes included, and said here before
   // sending rather than as a refusal after.
@@ -506,4 +633,4 @@ function stopAll() {
   seats.clear();
 }
 
-module.exports = { linkFor, wired, letGo, INBOUND_ROWS_PER_DAY, MAC_RETRY_MS, logUnreadable, STOP_KILL_MS, STABLE_MS, INBOUND_BYTES_PER_DAY, MAX_POST_LINE, configure, ensure, ensureAll, post, statusOf, stop, stopAll, onEvent, MAC_EDGES, INBOUND_PER_WINDOW, INBOUND_BYTES_PER_WINDOW };
+module.exports = { roomSeal, isSealedRoom, linkFor, wired, letGo, INBOUND_ROWS_PER_DAY, MAC_RETRY_MS, logUnreadable, STOP_KILL_MS, STABLE_MS, INBOUND_BYTES_PER_DAY, MAX_POST_LINE, configure, ensure, ensureAll, post, statusOf, stop, stopAll, onEvent, MAC_EDGES, INBOUND_PER_WINDOW, INBOUND_BYTES_PER_WINDOW };
