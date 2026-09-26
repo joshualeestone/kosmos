@@ -143,6 +143,15 @@ function resetForTests() { runner = null; DRY_RUN = false; }
  */
 function commandsAreReal() { return !!runner || liveExec.liveExecutionAllowed(); }
 
+/* #4006: the last Mac bootstrap's answer, for ops.diagnose. */
+let lastBootstrap = null;
+/* #4006: how long a restart waits before trying its job's bootstrap a second time. bootout returns
+   before launchd has finished unloading the job, and a bootstrap sent into that gap can answer
+   "already loaded" (5, treated as success) for a job that is then gone. `let`: tests shorten it. */
+let RELAUNCH_RETRY_MS = 2000;
+function setRelaunchRetryMsForTests(ms) { RELAUNCH_RETRY_MS = ms; }
+function sleepMs(ms) { if (ms > 0) Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms); }
+
 function run(file, args) {
   if (runner) return runner(file, args);
   if (DRY_RUN) return { ok: true, stdout: '', dryRun: true };
@@ -161,7 +170,11 @@ function run(file, args) {
     // is not loaded, `kill-session` answers 1 for a session that is not there.
     // A bare failure threw that away, and the caller then treated every outcome
     // as success.
-    return { ok: false, code: err && typeof err.status === 'number' ? err.status : null };
+    /* #4006: and what launchctl SAID. A restart whose job did not load is the #3418 class, and its
+       cause is in this text; dropping it left nothing to find it with. */
+    const text = (v) => (v == null ? '' : String(v)).slice(0, 2000);
+    return { ok: false, code: err && typeof err.status === 'number' ? err.status : null,
+      stdout: text(err && err.stdout), stderr: text(err && err.stderr) };
   }
 }
 
@@ -452,6 +465,7 @@ function jobOps(platform) {
          enable still stands, so a later start by their own tooling works. */
       if (!record.plist || !fs.existsSync(record.plist)) return true;
       const up = run('/bin/launchctl', ['bootstrap', `gui/${process.getuid()}`, record.plist]);
+      lastBootstrap = up ? { ok: up.ok !== false, code: up.code == null ? null : up.code, stderr: up.stderr || '', stdout: up.stdout || '' } : null;   // #4006: for diagnose
       // 5 is launchd for "already loaded", which is the end state we wanted.
       return Boolean(up && (up.ok !== false || up.code === 5));
     },
@@ -467,6 +481,18 @@ function jobOps(platform) {
       return Boolean(out && out.ok !== false);
     },
     startableGone: (name, record) => !record.plist || !fs.existsSync(record.plist),
+    /* #4006: when a restart's job did not load, what launchd said: the last bootstrap's code and
+       output, and `launchctl print` of the job now. Kept in the failed disruption record. */
+    diagnose: (name, record) => {
+      const printed = run('/bin/launchctl', ['print', `gui/${process.getuid()}/${record.label}`]);
+      return {
+        label: record.label || null,
+        plistExists: Boolean(record.plist && fs.existsSync(record.plist)),
+        bootstrap: lastBootstrap,
+        print: printed ? { ok: printed.ok !== false, code: printed.code == null ? null : printed.code,
+          text: String(printed.ok !== false ? (printed.stdout || '') : (printed.stderr || printed.stdout || '')).slice(0, 2000) } : null,
+      };
+    },
   };
 }
 
@@ -1936,7 +1962,16 @@ function restartInner(name, cause, platform, startIfDead) {
      rendered to the person verbatim, so a plain bootstrap failure must not read as two separate
      failures), and the check gets the same try/catch every other op in this function has. The
      verdict gates on `loaded` directly, not on `steps`. */
-  const loaded = relaunched && step('confirmed its job is loaded', () => ops.loaded(clean, job, before));
+  let loaded = relaunched && step('confirmed its job is loaded', () => ops.loaded(clean, job, before));
+  /* #4006: one more try before giving up, after launchd has had a moment to finish the unload.
+     Josh's Grok agent (2026-09-26) was the second #3418-class case: a restart whose job did not
+     reload, while a bootstrap by hand minutes later worked at once. Only when the file is still
+     there (a missing one cannot be bootstrapped at all). */
+  if (!loaded && !ops.startableGone(clean, job)) {
+    sleepMs(RELAUNCH_RETRY_MS);
+    const again = step('asked it to start once more', () => ops.startNow(clean, job));
+    loaded = again && step('confirmed its job is loaded on the second try', () => ops.loaded(clean, job, before));
+  }
 
   if (!loaded) {
     /* The relaunch did not take: bootout already unloaded the job, so nothing will bring the
@@ -1944,7 +1979,12 @@ function restartInner(name, cause, platform, startIfDead) {
        so a down agent is not left marked restarting, and report PARTIAL -- the agent is not
        running. This is what stops the class-1 auto-handler logging a false "handled" and the
        Restart button telling a person an agent is back when it is not. */
-    disruption.clear(clean);
+    /* #4006: mark the record FAILED rather than clearing it, so the card says the restart did not
+       come back (needs_you) until the agent is running again, instead of a quiet "not running";
+       and keep what launchd said, for whoever looks next. */
+    let diagnostics = null;
+    try { diagnostics = ops.diagnose ? ops.diagnose(clean, job) : null; } catch { diagnostics = null; }
+    if (!(DRY_RUN && !runner)) disruption.fail(clean, diagnostics);
     /* A missing launch file cannot be bootstrapped at all (startNow returns true without ever
        trying), so "try again" is not actionable in that sub-case -- say what actually has to
        happen instead of sending the person into an indefinite retry that keeps no-opping. */
@@ -2025,6 +2065,7 @@ function forget(name) {
 module.exports = {
   plan,
   restart,
+  setRelaunchRetryMsForTests,   // #4006: test seam for the second-try wait
   unsafeToActOn,
   isHidden,
   hidesCard,   // #2651: the ONE board-visibility predicate, so server.js stops re-implementing it

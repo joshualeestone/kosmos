@@ -113,7 +113,13 @@ function read(sessionName) {
   const ms = Date.parse(startedAt || '');
   if (!Number.isFinite(ms)) return { found: false, because: 'the disruption record carries no readable time' };
   const cause = CAUSES.includes(rec && rec.cause) ? rec.cause : 'restart';
-  return { found: true, cause, startedAt, ageMs: Date.now() - ms };
+  const out = { found: true, cause, startedAt, ageMs: Date.now() - ms };
+  /* #4006: a restart that did not come back (see fail). */
+  if (rec && typeof rec.failedAt === 'string' && Number.isFinite(Date.parse(rec.failedAt))) {
+    out.failed = true;
+    out.failedAt = rec.failedAt;
+  }
+  return out;
 }
 
 /**
@@ -134,7 +140,8 @@ function active(sessionName, windowMs) {
   if (!r.found) return null;
   const w = Number.isFinite(windowMs) ? windowMs : WINDOW_MS;
   if (r.ageMs > w) return null;
-  return { cause: r.cause, startedAt: r.startedAt, ageMs: r.ageMs };
+  return r.failed ? { cause: r.cause, startedAt: r.startedAt, ageMs: r.ageMs, failed: true }
+    : { cause: r.cause, startedAt: r.startedAt, ageMs: r.ageMs };
 }
 
 /**
@@ -152,4 +159,34 @@ function clear(sessionName) {
   return { ok: true };
 }
 
-module.exports = { DIR, WINDOW_MS, CAUSES, fileFor, begin, read, active, clear };
+/**
+ * #4006: the restart this record was written for did not come back. The record is kept, marked
+ * failed, instead of being cleared, so the agent's card can say so until the agent is running
+ * again (status.js clears it then, as it clears any record) or a new restart begins. Before this,
+ * a failed restart cleared the record, the card fell to a plain "not running", and a Grok agent
+ * sat dead for 23 minutes with the only trace in board.log. `diagnostics` is what launchd said,
+ * kept on disk for whoever looks next (#3418-class failures). Never throws.
+ */
+function fail(sessionName, diagnostics, atISO) {
+  let file;
+  try { file = fileFor(sessionName); } catch {
+    return { ok: false, because: 'that agent name is not one we can keep a record under' };
+  }
+  const had = read(sessionName);
+  const failedAt = typeof atISO === 'string' && atISO ? atISO : new Date().toISOString();
+  const rec = {
+    cause: had.found ? had.cause : 'restart',
+    startedAt: had.found ? had.startedAt : failedAt,
+    failedAt,
+  };
+  if (diagnostics && typeof diagnostics === 'object') rec.diagnostics = diagnostics;
+  try {
+    fs.mkdirSync(DIR, { recursive: true });
+    fs.writeFileSync(file, JSON.stringify(rec) + '\n', { mode: FILE_MODE });
+  } catch (e) {
+    return { ok: false, because: 'we could not write that down (' + (e && e.code || 'unknown') + ')' };
+  }
+  return { ok: true, failedAt };
+}
+
+module.exports = { DIR, WINDOW_MS, CAUSES, fileFor, begin, read, active, clear, fail };
