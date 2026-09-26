@@ -479,3 +479,29 @@ test('#3878: a report GET that redirects to another origin does not carry the to
     await new Promise((r) => a.close(r)); await new Promise((r) => b.close(r));
   }
 });
+
+test('#3906: a pull whose every listed report is malformed is NOT ok, and says so', async () => {
+  fp.setTransport({
+    list: async () => [{ url: 'https://s.private.blob.vercel-storage.com/a.json' }, { url: 'https://s.private.blob.vercel-storage.com/b.json' }],
+    get: async () => '{not json',
+  });
+  const r = await fp.pull(path.join(SB, 'd-all-bad'), { token: 'tok' });
+  assert.equal(r.ok, false);
+  assert.equal(r.written, 0);
+  assert.match(r.because, /the store listed 2 reports and none was pulled: 2 malformed or not written\./);
+  assert.doesNotMatch(r.because, /could not be read/, 'nothing was unreadable here');
+  // A listing entry with no string url is counted the same way.
+  fp.setTransport({ list: async () => [{ pathname: 'feedback/x.json' }], get: async () => { throw new Error('should not GET'); } });
+  const r2 = await fp.pull(path.join(SB, 'd-no-url'), { token: 'tok' });
+  assert.equal(r2.ok, false);
+  assert.match(r2.because, /1 malformed or not written/);
+  // Controls: one good report among bad ones is still a (partial) success; nothing listed is not a failure.
+  let n = 0;
+  fp.setTransport({
+    list: async () => [1, 2].map((i) => ({ url: 'https://s.private.blob.vercel-storage.com/' + i + '.json' })),
+    get: async () => { n += 1; return n === 1 ? '{not json' : JSON.stringify(REC('inst-ok', '2026-09-26', 'ok')); },
+  });
+  assert.equal((await fp.pull(path.join(SB, 'd-one-good'), { token: 'tok' })).ok, true);
+  fp.setTransport({ list: async () => [], get: async () => '' });
+  assert.equal((await fp.pull(path.join(SB, 'd-empty'), { token: 'tok' })).ok, true);
+});
