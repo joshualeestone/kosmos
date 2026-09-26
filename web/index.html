@@ -36122,7 +36122,7 @@ document.getElementById('plus-send-code').addEventListener('click', async () => 
     await res.text().catch(() => '');
     sent.textContent = PLUS_CODE_WORDS.sent(email);
     document.getElementById('plus-code-row').hidden = false;
-    plusNamePrefill('plus-name');   // #3842: the enrol flow's address field starts with a suggestion too
+    if (typeof plusNamePrefill === 'function') plusNamePrefill('plus-name');   // #3842: the enrol flow's field starts with a suggestion too (typeof: page-test slices lack it)
     document.getElementById('plus-code').focus();
   } catch (err) {
     sent.textContent = (err && err.name === 'AbortError') ? PLUS_CODE_WORDS.slow(email) : PLUS_CODE_WORDS.refused('this computer could not reach the sign-in service');
