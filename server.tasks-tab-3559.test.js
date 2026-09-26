@@ -87,7 +87,7 @@ test('GET /api/tasks: without ?view=tasks the rows carry none of the Tasks view\
 test('GET /api/tasks?view=tasks: the global list carries the fields across projects', async () => {
   const body = await view();
   assert.ok(body.tasks.length >= 4);
-  assert.ok(body.tasks.every((t) => ['nobody', 'assigned', 'working', 'closed'].includes(t.state)), 'a state outside the provable four');
+  assert.ok(body.tasks.every((t) => ['nobody', 'assigned', 'working', 'closed', 'decision'].includes(t.state)), 'a state outside the provable five');
 });
 
 test('POST /api/tasks/close: closes each task, then writes the note to its history', async () => {
@@ -219,4 +219,24 @@ test('GET /api/tasks?view=tasks leaves out archived projects (and pays nothing f
   assert.ok(seen.length > 0, 'the spy saw no project at all (control)');
   const plain = await all();
   assert.ok(plain.tasks.some((t) => t.projectId === p.id && t.projectArchived === true), 'the plain list lost the archived task');
+});
+
+test('#3949 GET /api/tasks?view=tasks: a task whose agent needs the person is Needs Your Decision, asked with the roster the route read', async () => {
+  const p = projects.create({ name: 'Decisions' });
+  projects.addAgent(p.id, 'askagent', null);
+  tasks.create(p.id, { sentence: 'Waiting on the person', who: 'askagent' });
+  tasks.create(p.id, { sentence: 'Not waiting', who: 'askagent' });
+  const real = tasks.waitingOnPerson;
+  const asked = [];
+  tasks.waitingOnPerson = (t, roster) => { asked.push([t.sentence, Array.isArray(roster)]); return t.sentence === 'Waiting on the person'; };
+  let body;
+  try { body = await all(`?view=tasks&project=${encodeURIComponent(p.id)}`); } finally { tasks.waitingOnPerson = real; }
+  const by = Object.fromEntries(body.tasks.map((t) => [t.sentence, t]));
+  assert.equal(by['Waiting on the person'].state, 'decision');
+  assert.equal(by['Waiting on the person'].waitingOnPerson, true);
+  assert.equal(by['Not waiting'].state, 'assigned', 'control: the other task is not');
+  assert.deepEqual(asked.map((a) => a[1]), [true, true], 'the engine was asked with a roster for every row');
+  /* And without the stub, a fake board has nobody asking anything: no task is a decision. */
+  const plain = await all(`?view=tasks&project=${encodeURIComponent(p.id)}`);
+  assert.ok(plain.tasks.every((t) => t.state !== 'decision' && t.waitingOnPerson === false), JSON.stringify(plain.tasks.map((t) => t.state)));
 });

@@ -50,7 +50,7 @@ test('taskState: parts decide too (a task whose every part is done is closed; a 
   assert.equal(tasks.taskState(null), 'nobody');
 });
 
-test('taskState never answers a group the engine cannot prove (waiting on you, done-check-it)', () => {
+test('taskState never answers a group the engine cannot prove (done-check-it); decision only with waitingOnPerson', () => {
   const seen = new Set();
   for (const claimed of [true, false, null, undefined]) {
     for (const who of ['a', null]) {
@@ -108,4 +108,30 @@ test('allTasks(snapshot) reads the snapshot it is handed, not the store again', 
   assert.deepEqual(rows.map((r) => [r.projectId, r.sentence]), [['zz', 'from the snapshot']]);
   assert.equal(rows[0].projectArchived, false);
   assert.equal(tasks.allTasks([{ id: 'ar', name: 'Set aside', archived: true, tasks: [{ number: 1, sentence: 'x' }] }])[0].projectArchived, true);
+});
+
+/* #3949 (Josh, 2026-09-26): Needs Your Decision. An open task whose holding agent needs the person, and
+   for a question, a question about THIS task's project (the project page's rule, #763/#3726). */
+test('#3949 waitingOnPerson: the holding agent needs the person, about this task\'s project', () => {
+  const task = { projectId: 'p1', number: 3, who: 'rex', closedAt: null };
+  const card = (over) => Object.assign({ sessionName: 'rex', isNamedOurs: true, state: 'needs_you', stateProject: 'p1' }, over);
+  assert.equal(tasks.waitingOnPerson(task, [card()]), true, 'a question about this project');
+  assert.equal(tasks.waitingOnPerson(task, [card({ stateProject: 'p2' })]), false, 'a question about another project');
+  assert.equal(tasks.waitingOnPerson(task, [card({ stateProject: null })]), false, 'a question about no project');
+  assert.equal(tasks.waitingOnPerson(task, [card({ state: 'needs_trust', stateProject: null })]), true, 'a trust wait is about the agent itself');
+  assert.equal(tasks.waitingOnPerson(task, [card({ state: 'working' })]), false, 'working is not waiting on the person');
+  assert.equal(tasks.waitingOnPerson(task, [card({ isNamedOurs: false })]), false, 'an untied pane is somebody else\'s state');
+  assert.equal(tasks.waitingOnPerson(task, [card({ sessionName: 'other' })]), false, 'another agent asking is not this task\'s agent');
+  assert.equal(tasks.waitingOnPerson(Object.assign({}, task, { closedAt: '2026-09-01T00:00:00Z' }), [card()]), false, 'a closed task waits on nobody');
+  assert.equal(tasks.waitingOnPerson(Object.assign({}, task, { who: null }), [card()]), false, 'an unassigned task has no agent to wait');
+  assert.equal(tasks.waitingOnPerson(task, null), false);
+});
+
+test('#3949 taskState: decision comes from waitingOnPerson, ahead of working and assigned, and closed still wins', () => {
+  assert.equal(tasks.taskState({ number: 1, who: 'a', claim: { claimed: true }, waitingOnPerson: true }), 'decision');
+  assert.equal(tasks.taskState({ number: 1, who: 'a', claim: { claimed: false }, waitingOnPerson: true }), 'decision');
+  assert.equal(tasks.taskState({ number: 1, who: 'a', claim: { claimed: true }, waitingOnPerson: false }), 'working', 'control: not waiting stays working');
+  assert.equal(tasks.taskState({ number: 1, who: 'a', closedAt: '2026-09-01T00:00:00Z', waitingOnPerson: true }), 'closed');
+  assert.equal(tasks.taskState({ number: 1, who: null, waitingOnPerson: true }), 'nobody', 'nobody to wait');
+  assert.equal(tasks.taskState({ number: 1, who: 'a', claim: { claimed: true }, waitingOnPerson: 'yes' }), 'working', 'only a real true counts');
 });
