@@ -20,8 +20,9 @@ Card: kosmos #718 (Liu Kang m1052, step 2).
   The one default change is the room-posts path below, so the browser-checks slice and both leak
   arms were re-run against the changed tool (see Validation).
 - The store fleet is Cleo (project manager, asks the question), Dana (writer), Eli (researcher),
-  Farah (bookkeeper, idle). The board lists agents alphabetically by id (engine/status.js), so the
-  asker's id sorts first and her card leads the home shot (Liu Kang m1064).
+  Farah (bookkeeper, idle). engine/status.js sorts cards by display name (`name` is
+  identity.displayName, then localeCompare), so the asker's name sorts first and her card leads
+  the home shot (Liu Kang m1064). Her id also sorts first, so either reading gives the same order.
 - The store set makes the sandbox look like a Mac that is set up: launch plists and worker
   folders with CLAUDE.md per agent, delivered DMs read up front (the chat screen marks them read
   mid-run, which made light and dark disagree), projects made as the screen makes them (so the
