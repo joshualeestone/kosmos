@@ -10,3 +10,12 @@ Pete's #3843 (6765c145) switches Kosmos+ on after an in-app sign-in, the core of
 Tests (engine/remote.test.js, a slow-register mode in the fake): cancel during register; Forget waits, retires once, nothing left registered; a 15s register bounded at 1.5s cannot hang Forget; a failed switch save still reports the Mac registered. Controls: no epoch check fails "reported success"; no wait fails "did not retire the Mac"; no bound fails "waited out a hung register".
 
 Weakest premise: Forget can now take up to the register bound (60s) when a register is truly hung. Worse than an instant answer, bounded, and only in a case that is already broken.
+
+## Round 1 review (opus)
+- BLOCKER: a 60s register bound killed healthy registers: the certificate step holds the call for the ACME wait (65s measured on production tonight). Now 5 minutes; it exists only so a hung register cannot hang Forget.
+- BLOCKER: Forget retired only when enrolled() (needs the certificate), so a register killed mid-certificate (key and id written, the Mac registered at the coordinator) was never retired. Forget now retires whenever mac_id and mac_key exist. Test with a partial-register fake mode; control with enrolled-only fails.
+- WARNING: two registers at once (the page aborts at 15s; Try again). A second register while one is out is refused, before every path. Test; control fails.
+- WARNING: a sign-in started during Forget's retire. signinStart and signinRegister refuse while forgetting. Test; control fails.
+- WARNING: the page gives up at 15s while a register can take over a minute: handed to Pete (his UI).
+- WARNING: the switch-save test could not fail; it now asserts the log line. Control fails.
+- NIT, left: resetForTests does not kill an outstanding register child (every test awaits its register).

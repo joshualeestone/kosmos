@@ -667,12 +667,25 @@ async function forget() {
   // (registerTimeoutMs).
   signinEpoch += 1;
   signinSession = null;
-  if (registerInFlight) await registerInFlight;
+  forgetting = true;
+  try {
+    if (registerInFlight) await registerInFlight;
+    return await forgetNow();
+  } finally {
+    forgetting = false;
+  }
+}
+
+async function forgetNow() {
   const was = { enrolled: enrolled(), address: address() };
+  // A register killed mid-certificate (or any partial one) has registered the Mac
+  // at the coordinator and left its key and id here, without the certificate
+  // enrolled() needs. It can still sign a retire, so it is retired too.
+  const canRetire = was.enrolled || ['mac_id', 'mac_key'].every((f) => fs.existsSync(path.join(STATE_DIR(), f)));
   stopChild();
   let retired = false;
   let because = null;
-  if (was.enrolled) {
+  if (canRetire) {
     const r = await setupRun(['retire', '--coordinator', COORDINATOR(), '--state-dir', STATE_DIR()], null, registerTimeoutMs());
     retired = r.ok === true;
     because = r.ok ? null : r.because;
@@ -1024,6 +1037,7 @@ const SIGNIN_CANCELLED = { ok: false, because: 'the sign-in was cancelled' };
     reveals nothing about whether the account exists. A fresh start abandons any
     half-finished flow. */
 async function signinStart(email, deviceName) {
+  if (forgetting) return { ok: false, because: 'this computer is being forgotten; try again in a moment' };
   if (typeof email !== 'string' || !email.includes('@')) {
     return { ok: false, because: 'that does not look like an email address' };
   }
@@ -1206,7 +1220,11 @@ async function signinConfirmEnrol(code) {
 /* #3827: a register in flight (forget() waits for it), and the bound on a register
    or a retire, so neither a hung coordinator nor a hung connector can hang Forget. */
 let registerInFlight = null;
-const REGISTER_TIMEOUT_MS = 60000;
+let forgetting = false;
+// A healthy register includes the certificate, which holds the call open for the
+// ACME propagation wait (a minute or two; 65s measured on production 2026-09-25).
+// So the bound is generous: it exists only so a HUNG one cannot hang Forget.
+const REGISTER_TIMEOUT_MS = 5 * 60 * 1000;
 // Env seam for tests, like AGENT_WORKFORCE_TUNNEL_BIN. (0 or unset: the default.)
 const registerTimeoutMs = () => Number(process.env.AGENT_WORKFORCE_REGISTER_TIMEOUT_MS) || REGISTER_TIMEOUT_MS;
 /* #3827: signing in IS asking to be reachable, so a successful register switches
@@ -1227,6 +1245,12 @@ async function signinRegister(name) {
   if (typeof name !== 'string' || !NAME_RULE.test(name)) {
     return { ok: false, because: 'the name is 3 to 32 letters, digits or hyphens' };
   }
+  // Before every path, the #1010 shortcut included: one register at a time (the
+  // page gives up waiting long before a register with a certificate is done, and a
+  // Try again must not start a second into the same directory), and none while
+  // this computer is being forgotten.
+  if (registerInFlight) return { ok: false, because: 'this computer is still signing in; give it a minute' };
+  if (forgetting) return { ok: false, because: 'this computer is being forgotten; try again in a moment' };
   // #1010/#1003: a surviving state dir already at this name IS this Mac. Do not
   // re-register -- it would mint a fresh identity key and spend a scarce
   // certificate for this Mac's own previous life. Recognise it, bring the tunnel
