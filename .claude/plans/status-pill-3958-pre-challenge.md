@@ -2,24 +2,46 @@
 pre_challenge: true
 method: challenge-loop
 branch: status-pill-3958
-diff_hash: 7690ab444ef00e50f88bcca59d00535cbaa21eada4ad45b856a99e9ce61f9ff3
+diff_hash: ee87237643a5b9db0bfebef13c9404f7b0ca2ac79c0e8f09b956a09d675bc6d7
 validation: passed
 subdir_audit: passed
-timestamp: 2026-09-26T15:32:22Z
-iterations: 4
+timestamp: 2026-09-26T22:56:54Z
+iterations: 16
 converged: true
 ---
 
 ## [CHALLENGE-LOOP] Summary
 
-**Iterations:** 4
-**Converged:** Yes
-**Total findings:** 21 (2 BLOCKERs, 8 WARNINGs, 0 CONVENTIONs, 11 NITs), plus 3 synthetic validation findings
-**Fixed:** 11 | **Deferred:** 1 (out of scope, carded #3978) | **Asked (awaiting user):** 0
+**Iterations:** 16
+**Converged:** Yes (iteration 16, sonnet: nothing actionable, with mutations confirming the tests catch
+regressions)
+**Findings:** iterations 1-4 are tallied below as originally recorded (21: 2 BLOCKERs, 8 WARNINGs,
+11 NITs). Iterations 5-16 are recorded per iteration in .claude/plans/status-pill-3958.md and in each
+"address challenge-loop iteration N" commit, not as a per-severity tally, so no invented counts
+are given for them; they include 2 BLOCKERs (a swarm face with no ring or dot, iteration 6; a
+trust-stuck member's green dot, iteration 12), all fixed.
+**Deferred:** 1 (the device-ask rows, carded #3978) | **Asked:** 0
 
-The branch carries #3958 (the agent page's status pill follows the poll) and #3966 (threads are not
-rebuilt when only a relative time ticks over), done together at Splinter's direction: same code path.
-#3966 was added to the branch after iteration 1, so iterations 2 to 4 reviewed both.
+The branch carries #3958 (the agent page's header follows the poll), #3966 (threads are not rebuilt
+when only a relative time ticks) and #3991 (the tab view's members get the memory ring and presence
+dot), done together at Splinter's direction.
+
+Validation: validation_log_run_or_skip PASSED at hash ee87237643a5 (after iteration 16); subdir
+CLAUDE.md audit rc 0. Browser checks run on the final tree: render-agent-pill-3958,
+render-member-ring-3991, render-thread-steady-3966, render-unread-edge-3743 (all pass).
+Reviewer models alternated opus/sonnet.
+
+#### Iterations 5 to 16 (summary; details in the plan)
+- 5-8: the #3991 ring and dot added; the swarm face (BLOCKER, 6); the dot reads boardMods; harness
+  preludes.
+- 9: a climbing reading patches the ring arc in place (no column rebuild).
+- 10: a stale working sample dropped whole; the trust dot reads needsTrust; rings paired by agent.
+- 11: the Start button follows the poll; guarded text writes; unit pins for ring shape/refreshWhens.
+- 12: BLOCKER: a trust-stuck member's green dot --> hollow unsure dot, against the real CARD_ST.
+- 13: the Start receipt; thin rings in warn/high; the rail's needstrust dot hollow too.
+- 14: the receipt clears on a real stop; dot rules by specificity.
+- 15: a quick exit no longer strands Start; a stale Start line is cleared.
+- 16: nothing actionable. Converged.
 
 ### Per-Iteration Breakdown
 
