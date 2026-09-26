@@ -626,24 +626,41 @@ let failed = 0;
      board on a Mac), picking Gemini asks "Sign in with Google / Use an API key" first, before any
      key box. The key step is then one press away. Where it is not offered, Gemini goes straight to
      the key step as before, so the choice is checked only when it is there. */
+  // #3874: expected on this machine, since the check and the board run on the same one: a Mac with
+  // the runner not switched off offers the choice, so its absence there is a failure, not a NOTE.
+  const agyOff = /^(0|false|off|no)$/i.test(String(process.env.AGENT_WORKFORCE_ANTIGRAVITY || '').trim());
+  const choiceExpected = process.platform === 'darwin' && !agyOff;
+  const settled = '#acct-gemini-flow:not([hidden]), #acct-apikey-flow:not([hidden]), #acct-keyed-install:not([hidden])';
   const geminiToKey = async (report) => {
-    // Wait for the page to settle on ONE of its two answers (the runner read and the
-    // Antigravity read both run first), rather than guessing from a fixed pause.
-    await p.waitForSelector('#acct-gemini-flow:not([hidden]), #acct-apikey-flow:not([hidden]), #acct-keyed-install:not([hidden])', { state: 'visible', timeout: 10000 });
-    if (!(await p.isVisible('#acct-gemini-flow'))) {
-      if (report) console.log('NOTE  Gemini on a Google subscription is not offered on this board; the #3874 choice was not exercised');
+    // Wait for the page to settle on ONE of its answers (the runner read and the Antigravity
+    // read both run first), rather than guessing from a fixed pause.
+    await p.waitForSelector(settled, { state: 'visible', timeout: 10000 });
+    const seen = {
+      choice: await p.isVisible('#acct-gemini-flow'),
+      key: await p.isVisible('#acct-apikey-flow'),
+      install: await p.isVisible('#acct-keyed-install'),
+    };
+    if (!seen.choice) {
+      if (report && choiceExpected) {
+        say('#3874 on a Mac with the runner on, picking Gemini shows the subscription-or-key choice', false, JSON.stringify(seen));
+      } else if (report) {
+        console.log('NOTE  the #3874 choice was not exercised (not a Mac, or AGENT_WORKFORCE_ANTIGRAVITY is off); the page settled on ' + JSON.stringify(seen));
+      }
       return;
     }
     if (report) {
       say('#3874 where the subscription is offered, Gemini asks subscription or key first, with no key box yet',
-        (await p.isVisible('#acct-gemini-pick-key')) && (await p.isHidden('#acct-apikey-flow')));
+        (await p.isVisible('#acct-gemini-pick-sub')) && (await p.isVisible('#acct-gemini-pick-key')) && !seen.key && !seen.install,
+        JSON.stringify(seen));
     }
     await p.click('#acct-gemini-pick-key');
-    await p.waitForTimeout(600);
+    // The press reads the Gemini CLI afresh before the key step (or its download) shows.
+    await p.waitForSelector('#acct-apikey-flow:not([hidden]), #acct-keyed-install:not([hidden])', { state: 'visible', timeout: 10000 });
   };
   await geminiToKey(true);
   say('#3566 picking Gemini reveals the API-key step, and only it',
-    (await p.isVisible('#acct-apikey-flow')) && (await p.isHidden('#acct-openai-flow')) && (await p.isHidden('#acct-claude-flow')));
+    (await p.isVisible('#acct-apikey-flow')) && (await p.isHidden('#acct-openai-flow')) && (await p.isHidden('#acct-claude-flow'))
+      && (await p.isHidden('#acct-gemini-flow')) && (await p.isHidden('#acct-keyed-install')));
   const head = (await p.innerText('#acct-apikey-head')).trim();
   say('#3566 the key step names Gemini and Google', /Gemini/.test(head) && /Google/.test(head), head);
   say('#3566 the key field is a password field', (await p.getAttribute('#acct-apikey-key', 'type')) === 'password');
