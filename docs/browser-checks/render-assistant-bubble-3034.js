@@ -452,6 +452,19 @@ const waitFor = (page, fn, ms = 6000) => page.waitForFunction(fn, null, { timeou
     for (let i = 0; i < 2; i++) { await page.click('#asb'); await page.click('#asp-x'); await page.waitForTimeout(250); }
     const after = await bubble(page);
     chk(!after.panel && !after.hide && after.bubble, 'B7c after Keep it, two more idle closes just close', JSON.stringify(after));
+    // Two quick idle closes while the board is slow to save still make two (review: the count must not wait on the save).
+    await fresh({ asked: true, idleCloses: 0, kept: false });
+    await page.route('**/api/settings', async (route) => { if (route.request().method() === 'POST') await new Promise((r) => setTimeout(r, 1500)); return route.continue(); });
+    await page.click('#asb');
+    await page.click('#asp-x');
+    await page.click('#asb');
+    await page.click('#asp-x');
+    await page.waitForTimeout(150);
+    chk((await bubble(page)).hide, 'B7c two idle closes in quick succession offer to hide, even with the save still in flight (#3947)');
+    await page.unroute('**/api/settings');
+    await page.waitForTimeout(1700);   // the delayed save lands before the next arm resets the count
+    await page.click('#asp-hide-no');
+    await page.waitForTimeout(300);
     // A message sent restarts the count: counted once, then a send, then an idle close only counts again (no offer).
     await fresh({ asked: true, idleCloses: 1, kept: false });
     verdict = { delivery: { state: 'placed' }, recorded: true };
