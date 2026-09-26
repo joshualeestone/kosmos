@@ -77,6 +77,9 @@ const chk = (ok, label, extra) => {
         return enc({ error: 'that does not look like a key' }, 400);
       }
       if (/\/api\/accounts(\?|$)/.test(u)) return enc({ accounts: [] });
+      // #3874: Gemini on a Google subscription not offered here: this is the Gemini CLI download, reached
+      // straight from the pick. Where it is offered, "Use an API key" reaches it (render-settings-agy-3874.js).
+      if (/\/api\/antigravity(\?|$)/.test(u)) return enc({ enabled: true, supported: false, installed: false });
       return enc({});
     };
   });

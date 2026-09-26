@@ -7685,7 +7685,10 @@ code.t { font: 13px var(--k-mono); border-radius: 4px; padding: .12em .4em;
    Without this the list was pinned to the trigger's width and every coming-soon row truncated
    to an unreadable "Go..." / "Me..." fragment. */
 .pcombo-list { position: absolute; top: calc(100% + 4px); left: 0; right: auto; min-width: 100%; width: max-content; max-width: min(360px, 90vw); z-index: 40; margin: 0; padding: 4px; list-style: none; max-height: 280px; overflow-y: auto; background: var(--k-surface); border: 1px solid var(--k-rule); border-radius: 8px; box-shadow: 0 8px 24px rgba(0,0,0,.14); }
-.pcombo-opt { display: flex; align-items: center; gap: 8px; padding: 8px 10px; border-radius: 6px; cursor: pointer; }
+/* #3874: a row may wrap. "Google Gemini (Google subscription)" plus its reason pill is wider than the
+   list's cap, so without wrap the NAME was cut ("Google Gemini (Google su..."); wrapped, the pill
+   goes under it and the name stays whole. */
+.pcombo-opt { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 8px; padding: 8px 10px; border-radius: 6px; cursor: pointer; }
 .pcombo-opt .pcombo-name { color: var(--k-ink); }
 .pcombo-active { background: var(--k-rule); }
 .pcombo-off { cursor: default; }
@@ -11224,6 +11227,32 @@ window.kosmosMeasureScrollbarWidth();
         <div class="frow" id="acct-grok-sub-cancel-row" hidden style="margin-top:8px;"><button class="btn" id="acct-grok-sub-cancel" type="button">Stop this sign-in</button></div>
       </div>
       <p class="dhint" id="acct-grok-msg" role="status" aria-live="polite" style="margin:8px 0 0;"></p>
+    </div>
+    <!-- #3874: Gemini connects with a Google SUBSCRIPTION or a key, so where the subscription is
+         offered (a Mac, runner on: keyedSubReady('google')) picking Gemini shows this choice first,
+         as Grok's does. The subscription is Google's Antigravity, run by the same driver as the
+         first-run Gemini row (agySubDriver): check, install from Google, open its sign-in. "Use an
+         API key" opens the shared key step below, through the Gemini CLI download if it is needed. -->
+    <div id="acct-gemini-flow" hidden style="margin-top: var(--space-5);">
+      <div id="acct-gemini-pick">
+        <p class="dhint" style="margin:0 0 8px;">Choose how to connect Google Gemini.</p>
+        <div class="frow">
+          <button class="btn uprime" id="acct-gemini-pick-sub" type="button">Sign in with Google</button>
+          <button class="btn" id="acct-gemini-pick-key" type="button">Use an API key</button>
+        </div>
+        <p class="dhint" style="margin:8px 0 0;">A Google subscription signs in through Google, with nothing to paste. An API key is a string you create on Google's site.</p>
+      </div>
+      <div id="acct-gemini-sub-step" hidden>
+        <p class="dwarn" style="margin:0 0 8px;"><span class="dwarn-ok" aria-hidden="true">&#10003;</span><b>Sign in with your Google subscription.</b> Gemini on a subscription runs on Google's Antigravity, which signs in with Google in your browser; Kosmos never sees your password. Your agents then run on your own subscription, on this computer.</p>
+        <div class="frow" style="margin-top:12px;">
+          <button class="btn uprime" id="acct-gemini-sub-go" type="button">Sign in with Google</button>
+        </div>
+        <div class="frow" id="acct-gemini-sub-open-row" hidden style="margin-top:8px;">
+          <a class="btn" id="acct-gemini-sub-open" href="#" target="_blank" rel="noopener">About Antigravity</a>
+        </div>
+        <p class="dhint" id="acct-gemini-sub-code" role="status" aria-live="polite" hidden style="margin:8px 0 0;"></p>
+        <div class="frow" id="acct-gemini-sub-cancel-row" hidden style="margin-top:8px;"><button class="btn" id="acct-gemini-sub-cancel" type="button">Stop this sign-in</button></div>
+      </div>
     </div>
     <!-- #3566: Gemini and Grok connect with a pasted API key, one shared step for both
          (the provider is whichever option is picked). It POSTs to
@@ -21249,7 +21278,7 @@ function paintAgyOption(sel, current) {
   opt.disabled = !on;
   if (on) delete opt.dataset.off;
   else opt.dataset.off = AGY_OFFERED === false ? 'Not on this computer'
-    : AGY_INSTALLED === false ? 'Set up in Settings: Show the guided setup' : 'Checking Antigravity';
+    : AGY_INSTALLED === false ? 'Set up in Settings: Add a provider' : 'Checking Antigravity';
   if (sel.dataset && sel.dataset.pcombo) sel.value = sel.value;  // eslint-disable-line no-self-assign
 }
 function agyAsk() {
@@ -24377,7 +24406,7 @@ let ACCT_KEYED_FOCUS = true;
 function acctKeyedReveal(which, afterInstall) {
   acctKeyedInstallHide();
   if (which === 'xai') acctGrokShow('xai');
-  else document.getElementById('acct-apikey-flow').hidden = false;
+  else { acctGeminiShow(null); document.getElementById('acct-apikey-flow').hidden = false; }
   // After a download the focused button is gone, so focus always moves to what is showing.
   if (!ACCT_KEYED_FOCUS && !afterInstall) return;
   const again = which === 'xai' && !!ACCT_GROK_REAUTH_DIR;
@@ -24393,6 +24422,7 @@ function acctKeyedInstallShow(which, info) {
   }
   ACCT_KEYED_WHICH = which;
   ACCT_GROK_SUB.leave();
+  acctGeminiShow(null);   // #3874
   document.getElementById('acct-apikey-flow').hidden = true;
   document.getElementById('acct-grok-flow').hidden = true;
   document.getElementById('acct-keyed-install-t').textContent = keyedInstallAsk(which, info);
@@ -24426,6 +24456,7 @@ function acctApikeyShow(which) {
      (missing, or a read that failed) shows GPT's install step, whose Confirm is safe either way. */
   flow.hidden = true;
   acctGrokShow(null);
+  acctGeminiShow(null);   // #3874
   if (!p) return;
   /* A sign in again is for an account this computer already runs, so it opens straight onto the
      sign-in as before (no key box is involved); the probe below still swaps in the download if
@@ -24433,8 +24464,16 @@ function acctApikeyShow(which) {
   const again = which === 'xai' && !!ACCT_GROK_REAUTH_DIR;
   if (again) acctKeyedReveal(which);
   const visit = ACCT_APIKEY_GEN;
-  keyedRunnerInfo(which).then((info) => {
+  keyedRunnerInfo(which).then(async (info) => {
     if (visit !== ACCT_APIKEY_GEN || ACCT_APIKEY_WHICH !== which) return;
+    /* #3874: Gemini's subscription does not need the Gemini CLI, so where it is offered the choice
+       comes first, before any download; "Use an API key" downloads it if it is still missing. */
+    if (which === 'google') {
+      await agyAsk();
+      if (visit !== ACCT_APIKEY_GEN || ACCT_APIKEY_WHICH !== which) return;
+      // AGY_OFFERED stays null when the read failed: today's key path then, not a choice that may be refused.
+      if (AGY_OFFERED === true && keyedSubReady('google')) { acctGeminiShow('google'); return; }
+    }
     if (info && info.present) { if (!again) acctKeyedReveal(which); return; }
     acctKeyedInstallShow(which, info);   // Mac and Windows alike: Kosmos installs both on each
   });
@@ -24714,6 +24753,57 @@ document.getElementById('acct-grok-sub-cancel').addEventListener('click', () => 
   go.hidden = false;   // #3731: hidden while a pick-started sign-in ran; stopping brings the retry back
   go.focus();
 });
+/* #3874: Gemini's choice in Settings, or put it away (which !== 'google'). Called from acctApikeyShow
+   and the install box, so every open, close and switch reaches it. */
+function acctGeminiShow(which) {
+  const flow = document.getElementById('acct-gemini-flow');
+  if (!flow) return;
+  ACCT_AGY_SUB.leave();
+  { const c = document.getElementById('acct-gemini-sub-code'); if (c) { c.textContent = ''; c.hidden = true; } }
+  if (which !== 'google') { flow.hidden = true; return; }
+  flow.hidden = false;
+  document.getElementById('acct-gemini-pick').hidden = false;
+  document.getElementById('acct-gemini-sub-step').hidden = true;
+  { const go = document.getElementById('acct-gemini-sub-go'); go.hidden = false; go.textContent = 'Sign in with Google'; }   // no label left from a stopped step
+  document.getElementById('acct-gemini-sub-open-row').hidden = true;
+  document.getElementById('acct-gemini-sub-cancel-row').hidden = true;
+  document.getElementById('acct-apikey-flow').hidden = true;   // until "Use an API key"
+  if (ACCT_KEYED_FOCUS) document.getElementById('acct-gemini-pick-sub').focus();
+}
+/* The last press on the choice stands: a CLI read still out when Sign in with Google is pressed acts
+   on nothing. */
+let ACCT_GEMINI_PRESS = 0;
+document.getElementById('acct-gemini-pick-sub').addEventListener('click', () => {
+  ACCT_GEMINI_PRESS += 1;
+  // Straight to the check, like Grok's pick: no second screen asking to sign in.
+  document.getElementById('acct-gemini-pick').hidden = true;
+  const step = document.getElementById('acct-gemini-sub-step');
+  step.hidden = false;
+  document.getElementById('acct-gemini-sub-go').hidden = true;
+  if (!step.hasAttribute('tabindex')) step.setAttribute('tabindex', '-1');
+  step.focus();
+  ACCT_AGY_SUB.start();
+});
+/* "Use an API key": read the Gemini CLI now, not when the choice showed (a download may have finished
+   or started since), then the key step, or the download first. */
+async function acctGeminiKeyPath() {
+  const visit = ACCT_APIKEY_GEN;
+  const press = ++ACCT_GEMINI_PRESS;
+  const info = await keyedRunnerInfo('google');
+  if (visit !== ACCT_APIKEY_GEN || ACCT_APIKEY_WHICH !== 'google' || press !== ACCT_GEMINI_PRESS) return;
+  if (info && info.present) { acctKeyedReveal('google', true); return; }
+  acctKeyedInstallShow('google', info);   // the Gemini CLI first; its Confirm reveals the key step
+}
+document.getElementById('acct-gemini-pick-key').addEventListener('click', () => acctGeminiKeyPath());
+document.getElementById('acct-gemini-sub-go').addEventListener('click', () => ACCT_AGY_SUB.start());
+document.getElementById('acct-gemini-sub-cancel').addEventListener('click', () => {
+  // Back to the choice, as Grok's does, so "Use an API key" is one press away.
+  /* A check that found it not offered here (AGY_OFFERED false) leaves nothing to choose between:
+     the key step, the way the step's own words ("Press Stop this sign-in to use an API key") say. */
+  if (!keyedSubReady('google')) { ACCT_AGY_SUB.leave(); return acctGeminiKeyPath(); }
+  acctGeminiShow('google');
+  document.getElementById('acct-gemini-pick-sub').focus();
+});
 /* Sign in again AS an existing Grok subscription account: the dialog in its sign-in-again
    chrome, straight to the sign-in; the engine moves the new sign-in over this account
    only if it is the same email. */
@@ -24785,36 +24875,45 @@ async function keyedRunnerInstall(which, say, alive) {
    under its own row: Connect, then the install (Confirm / Not now), then the choice (Sign in with
    Subscription / Use an API key), then the sign-in or the key. One driver for both, keyed by
    provider ('google' | 'xai'). Grok's subscription starts xAI's sign-in at once, #3335's rule for
-   GPT: no screen whose only job is a second press. Gemini's subscription is Angel's Antigravity
-   sign-in (#3568); until its route exists Gemini goes from the install straight to the key, and
-   filling in KEYED_SUB_START.google turns the choice on. It replaces #3658's one shared box and #3713's
+   GPT: no screen whose only job is a second press. Gemini's subscription is Google's Antigravity
+   (#3568). It replaces #3658's one shared box and #3713's
    download box (both sat below Grok, whichever row was pressed). */
 const FR_KEYED = { google: { pre: 'gemini' }, xai: { pre: 'grok' } };
-/* The subscription sign-in each provider can start. Grok's is the shared driver; Gemini's is
-   Angel's Antigravity sign-in (#3568) and does not exist yet. The choice (Sign in with
-   Subscription / Use an API key) is offered only where a start exists, so wiring Gemini is one
-   function here and nothing else: no flag that could show a button with nothing behind it. */
+/* The subscription sign-in each provider can start. The choice (Sign in with Subscription / Use an
+   API key) is offered only where a start exists (keyedSubReady). */
 /* #3568: Gemini's subscription is Google's Antigravity CLI (agy). It signs in inside its own window
    (Google's docs: started without a saved session it opens the default browser to sign in), so the
    step is: check agy (installed? signed in?), and either say it is ready, show Google's installer, or
    open agy once in Terminal for the sign-in and offer Check again. Nothing is typed into agy. */
 let FR_AGY_READY = false;   // Gemini on a Google subscription confirmed signed in on this computer
 const frCap = (t) => (t ? t.charAt(0).toUpperCase() + t.slice(1) : t);
-const FR_AGY_SUB = {
+/* #3874: one driver, two places. `pre` is the id prefix of the step it paints (first run's Gemini
+   row, or Settings' Add a provider); `onReady` is what that place does once agy is signed in. Each
+   call makes its own state, so a check in one never writes into the other. */
+function agySubDriver(pre, onReady) { return {
   busy: false,
   gen: 0,          // bumped when the row closes: an answer for a closed row writes nothing (review round 1)
   next: 'check',   // what the step's button does next: 'install' Antigravity, 'open' its sign-in, or 'check'
   leave() { this.gen += 1; this.busy = false; this.next = 'check'; },
-  el(part) { return document.getElementById('fr-gemini-sub-' + part); },
+  el(part) { return document.getElementById(pre + part); },
   say(text, button, about, done) {
     const code = this.el('code'); if (code) { code.textContent = text; code.hidden = !text; }
     // Stop is there for the whole step, like Grok's, except once it is ready (review round 2).
     const stop = this.el('cancel-row'); if (stop) stop.hidden = !!done;
-    const go = this.el('go'); if (go) { go.textContent = button || ''; go.hidden = !button; }
+    const go = this.el('go');
+    const hadFocus = !!go && typeof document.activeElement !== 'undefined' && document.activeElement === go;
+    if (go) { go.textContent = button || ''; go.hidden = !button; }
     const row = this.el('open-row'); const a = this.el('open');
     if (row && a) {
       row.hidden = !about;
       if (about) { a.href = 'https://antigravity.google/docs/cli/install/'; a.textContent = 'About Antigravity'; }
+    }
+    /* #3874: the pressed button hiding would drop focus to the page, behind Settings' dialog. It goes
+       to Stop while that shows, else to the step itself (Ready). */
+    if (hadFocus && go.hidden) {
+      const cancel = this.el('cancel');
+      const to = cancel && stop && !stop.hidden ? cancel : this.el('step');
+      if (to) { if (to !== cancel && !to.hasAttribute('tabindex')) to.setAttribute('tabindex', '-1'); to.focus(); }
     }
   },
   async post(path) {
@@ -24869,6 +24968,9 @@ const FR_AGY_SUB = {
       if (!live()) return;
       if (r && typeof r.installed === 'boolean') {
         AGY_INSTALLED = r.installed;
+        /* #3874: an answer the board gave without `offered: false` confirms it is offered. agyAsk stops
+           asking once installed, so a first read that failed would otherwise leave this null for good. */
+        if (r.offered !== false) AGY_OFFERED = true;
         paintAgyOption(document.getElementById('create-provider'), '');
         paintAgyOption(document.getElementById('d-provider'), typeof CURRENT !== 'undefined' && CURRENT ? providerOf(CURRENT) : '');
       }
@@ -24886,14 +24988,7 @@ const FR_AGY_SUB = {
       } else if (r.signedIn === true) {
         this.next = 'check';
         this.say('Ready. Gemini runs on your Google subscription on this computer: pick Google Gemini (Google subscription) when you create an agent.', '', false, true);
-        FR_AGY_READY = true;
-        frPaintKeyed();   // the row reads Connected and the step offers Next (review round 3)
-        /* Not dependent on the accounts read (review round 9: frPaintKeyed returns early if it fails). */
-        { const b = document.getElementById('fr-gemini-connect');
-          if (b) { b.innerHTML = '<span aria-hidden="true">✓</span> Connected'; b.disabled = true; if (b.classList) b.classList.add('is-connected'); if (b.setAttribute) b.setAttribute('aria-label', 'Gemini is connected'); } }
-        if (typeof FR_STEP !== 'undefined' && FR_STEP === 5 && !(typeof FR !== 'undefined' && FR && FR.subscription && FR.subscription.state === 'connected')) {
-          frActions({ label: 'Next', go: () => frGo(frStepAfter(5)) }, null);
-        }
+        onReady();
       } else {
         this.next = 'open';
         this.say("Antigravity is on this computer but we could not confirm it is signed in. Open it once to sign in with your Google account.",
@@ -24901,7 +24996,20 @@ const FR_AGY_SUB = {
       }
     } finally { if (live()) this.busy = false; }   // a superseded press must not free a newer one
   },
-};
+}; }
+const FR_AGY_SUB = agySubDriver('fr-gemini-sub-', () => {
+  FR_AGY_READY = true;
+  frPaintKeyed();   // the row reads Connected and the step offers Next (review round 3)
+  /* Not dependent on the accounts read (review round 9: frPaintKeyed returns early if it fails). */
+  { const b = document.getElementById('fr-gemini-connect');
+    if (b) { b.innerHTML = '<span aria-hidden="true">✓</span> Connected'; b.disabled = true; if (b.classList) b.classList.add('is-connected'); if (b.setAttribute) b.setAttribute('aria-label', 'Gemini is connected'); } }
+  if (typeof FR_STEP !== 'undefined' && FR_STEP === 5 && !(typeof FR !== 'undefined' && FR && FR.subscription && FR.subscription.state === 'connected')) {
+    frActions({ label: 'Next', go: () => frGo(frStepAfter(5)) }, null);
+  }
+});
+/* #3874: Settings, Add a provider. Ready records the signed-in fact every screen reads (the create
+   hint, the guided setup's Gemini row on its next paint), but paints nothing of first run's. */
+const ACCT_AGY_SUB = agySubDriver('acct-gemini-sub-', () => { FR_AGY_READY = true; });
 const KEYED_SUB_START = { google: () => FR_AGY_SUB.start(), xai: () => FR_GROK_SUB.start() };
 /* #3568: Gemini's subscription only where it can run (a Mac, runner on); AGY_OFFERED is read before
    the choice is shown (frKeyedConnect). */
@@ -39088,7 +39196,7 @@ async function changeProviderNow(say) {
     const wantOpt = [...sel.options].find((o) => o.value === want);
     if (vendorPicksModel(want) && wantOpt && wantOpt.disabled) {
       const line = want === 'antigravity'
-        ? 'Gemini (Google subscription) is not set up on this computer, so there is nothing to switch onto. Set it up in Settings: choose Show the guided setup, then Connect on Gemini.'
+        ? 'Gemini (Google subscription) is not set up on this computer, so there is nothing to switch onto. Set it up in Settings, AI Models: Add a provider, then Google Gemini.'
         : 'There is no ' + switchKeyedWord(want) + ' account connected, so there is nothing to switch onto. Add one in Settings, AI Models.';
       if (msg) { msg.textContent = line; SWITCH_ACCT_SAID = line; }
       tell(line, false);
@@ -39405,7 +39513,7 @@ document.getElementById('d-provider-go').addEventListener('click', () => {
              return 'and it runs on this computer’s OpenAI sign-in.';
            })())
         : toAgy
-          ? 'Its ' + fromWord + ' model and account choices do not cross: Gemini picks its own model, and it runs on your Google subscription through Antigravity. If Antigravity is not signed in yet, sign in first: in Settings, choose Show the guided setup, then Connect on Gemini.'
+          ? 'Its ' + fromWord + ' model and account choices do not cross: Gemini picks its own model, and it runs on your Google subscription through Antigravity. If Antigravity is not signed in yet, sign in first: in Settings, AI Models, choose Add a provider, then Google Gemini.'
         : toOther
           ? 'Its ' + fromWord + ' model and account choices do not cross: ' + label + ' picks its own model, '
             + ((() => {
@@ -39827,7 +39935,7 @@ function applyCreateProviderUI() {
     if (why) {
       why.textContent = switchKeyedWord(pv) + ' picks its own model.'
         + (pv === 'antigravity' && !FR_AGY_READY
-          ? ' If Antigravity is not signed in yet, sign in first: in Settings, choose Show the guided setup, then Connect on Gemini.' : '');
+          ? ' If Antigravity is not signed in yet, sign in first: in Settings, AI Models, choose Add a provider, then Google Gemini.' : '');
       why.hidden = false;
     }
   } else if (openai) {
@@ -41877,7 +41985,7 @@ async function loadCreateExtras() {
         const back = pv.value === 'openai' ? 'OpenAI' : 'Claude';
         if (why) {
           why.textContent = cur.value === 'antigravity'
-            ? 'Gemini (Google subscription) is not set up on this computer, so this is back on ' + back + '. Set it up in Settings: choose Show the guided setup, then Connect on Gemini.'
+            ? 'Gemini (Google subscription) is not set up on this computer, so this is back on ' + back + '. Set it up in Settings, AI Models: Add a provider, then Google Gemini.'
             : known
             ? 'There is no ' + gone + ' account connected, so this is back on ' + back + '. Add one in Settings, AI Models.'
             : 'We could not check your ' + gone + ' accounts just now, so this is back on ' + back + '.';

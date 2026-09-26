@@ -58,7 +58,7 @@ test('#3568: the option turns on only when agy is installed, and says why when i
   api.set(false);
   api.paintAgyOption(m, '');
   assert.equal(m.opt('antigravity').disabled, true);
-  assert.equal(m.opt('antigravity').dataset.off, 'Set up in Settings: Show the guided setup');
+  assert.equal(m.opt('antigravity').dataset.off, 'Set up in Settings: Add a provider');
   api.set(true);
   api.paintAgyOption(m, '');
   assert.equal(m.opt('antigravity').disabled, false, 'installed must turn it on');
@@ -111,7 +111,7 @@ test('#3568: creating on Gemini by subscription sends no account: the account ro
 test('#3568: the switch dialog and the "reactivate" sentence name Gemini by subscription, never Anthropic or Claude', () => {
   assert.match(PAGE, /const toAgy = sel\.value === 'antigravity';/);
   assert.match(PAGE, /const label = toOpenai \? 'OpenAI' : \(toOther \|\| toAgy\) \? switchKeyedWord\(sel\.value\) : 'Anthropic';/);
-  assert.match(PAGE, /: toAgy\s*\n\s*\? 'Its ' \+ fromWord \+ ' model and account choices do not cross: Gemini picks its own model, and it runs on your Google subscription through Antigravity\. If Antigravity is not signed in yet, sign in first: in Settings, choose Show the guided setup, then Connect on Gemini\.'/);
+  assert.match(PAGE, /: toAgy\s*\n\s*\? 'Its ' \+ fromWord \+ ' model and account choices do not cross: Gemini picks its own model, and it runs on your Google subscription through Antigravity\. If Antigravity is not signed in yet, sign in first: in Settings, AI Models, choose Add a provider, then Google Gemini\.'/);
 });
 
 test('#3568: after a switch, the dialog says "Restarted on Gemini (Google subscription)", never Anthropic (review round 1)', () => {
