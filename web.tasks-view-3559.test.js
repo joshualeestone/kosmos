@@ -215,10 +215,12 @@ test('#3949 Needs Your Decision stays live: a change in WHO needs the person re-
   assert.deepEqual(failed.tick(idle), { loads: 1, paints: 0 }, 'after a failed read, the next tick reads again');
 });
 
-/* #3949: every declaration that draws a frame on `.tsk-view` itself (the last compound of a selector, not a
-   descendant such as `.tsk-view .tsk-tile`), from every <style> block, at any @-rule depth. */
+/* #3949: every declaration that draws a frame on `.tsk-view` itself (the last compound of a selector, with any state such as
+   `:hover` or `.is-x`, not a descendant such as `.tsk-view .tsk-tile`), from every <style> block, at any @-rule depth. */
 function tsvFrameDecls(html) {
-  const css = [...html.matchAll(/<style[^>]*>([\s\S]*?)<\/style>/gi)].map((m) => m[1]).join('\n').replace(/\/\*[\s\S]*?\*\//g, '');
+  const css = [...html.matchAll(/<style[^>]*>([\s\S]*?)<\/style>/gi)].map((m) => m[1]).join('\n').replace(/\/\*[\s\S]*?\*\//g, '')
+    // A brace inside a CSS string would unbalance the walk: blank string contents, keeping their length.
+    .replace(/"(?:[^"\\]|\\.)*"|'(?:[^'\\]|\\.)*'/g, (m) => m[0] + 'x'.repeat(m.length - 2) + m[0]);
   const hits = []; let checked = 0;
   const walk = (text) => {
     let i = 0;
@@ -229,7 +231,7 @@ function tsvFrameDecls(html) {
       while (k < text.length && depth) { if (text[k] === '{') depth += 1; else if (text[k] === '}') depth -= 1; k += 1; }
       const body = text.slice(open + 1, k - 1);
       if (sel.startsWith('@')) walk(body);
-      else if (sel.split(',').some((part) => /\.tsk-view$/i.test(part.trim().split(/[\s>+~]+/).pop()))) {
+      else if (sel.split(',').some((part) => /\.tsk-view(?![\w-])/i.test(part.trim().split(/[\s>+~]+/).pop()))) {
         checked += 1;
         for (const decl of body.split(';')) {
           const c = decl.indexOf(':'); if (c < 0) continue;
@@ -237,6 +239,8 @@ function tsvFrameDecls(html) {
           const value = decl.slice(c + 1).replace(/!important/i, '').trim().toLowerCase();
           if (!/^(border(-(top|right|bottom|left|block|inline)(-(start|end))?)?(-(width|style|radius))?|outline(-(width|style))?|box-shadow)$/.test(name)) continue;
           if (/^(0(px)?|none)(\s+(0(px)?|none))*$/.test(value)) continue;
+          // A shorthand whose width is 0 or whose style is none draws nothing (`border: 0 solid black`).
+          if (/^(border(-(top|right|bottom|left|block|inline)(-(start|end))?)?|outline)$/.test(name) && /(^|\s)(0(px)?|none)(\s|$)/.test(value.replace(/\([^)]*\)/g, ''))) continue;
           hits.push(sel + ' { ' + name + ': ' + value + ' }');
         }
       }
