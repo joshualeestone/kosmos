@@ -264,3 +264,31 @@ test('past 200 open webhook tasks a project refuses more until some are closed',
     assert.equal((await call(made.json.url, { title: 'after closing one' })).status, 201, 'control: closing one makes room');
   } finally { HOOK_RATE.openMax = old; }
 });
+
+test('the open-task ceiling holds under concurrent calls (counted next to the write, not before the body)', async () => {
+  const http = require('node:http');
+  const p = projects.create({ name: 'Concurrent' });
+  const made = await api(`/api/project/${encodeURIComponent(p.id)}/webhooks`, { method: 'POST', body: {} });
+  const u = new URL(made.json.url);
+  const old = HOOK_RATE.openMax;
+  HOOK_RATE.openMax = 1;
+  try {
+    // Three requests whose bodies are held half-sent, so all three are past their early checks
+    // before any body finishes: exactly the window a count taken before the body would miss.
+    const body = JSON.stringify({ title: 'held' });
+    const reqs = [0, 1, 2].map(() => {
+      let done;
+      const status = new Promise((r) => { done = r; });
+      const req = http.request({ host: u.hostname, port: u.port, path: u.pathname, method: 'POST', agent: false,
+        headers: { 'content-type': 'application/json', 'content-length': Buffer.byteLength(body) } },
+      (res) => { res.resume(); res.on('end', () => done(res.statusCode)); });
+      req.write(body.slice(0, 5));
+      return { req, status };
+    });
+    await new Promise((r) => setTimeout(r, 150));
+    for (const x of reqs) x.req.end(body.slice(5));
+    const codes = await Promise.all(reqs.map((x) => x.status));
+    assert.deepEqual(codes.slice().sort(), [201, 429, 429], JSON.stringify(codes));
+    assert.equal(projects.get(p.id).tasks.filter((t) => t.addedVia === 'webhook').length, 1);
+  } finally { HOOK_RATE.openMax = old; }
+});

@@ -11,7 +11,8 @@
   renaming never changes the link). Timing-safe verify; unknown id and wrong secret answer the
   same 404. At most 20 per project; 30 calls a minute each, and 120 webhook tasks an hour per
   project across all its webhooks, and at most 200 OPEN webhook tasks per project (refused until
-  some are closed). No shared cap in front of verify, on purpose: any local program could pull it
+  some are closed; counted from a fresh read right beside the write, with nothing asynchronous
+  between, so concurrent calls cannot all pass one stale count). No shared cap in front of verify, on purpose: any local program could pull it
   to silence every real webhook. Instead verify reads a cached store (one stat while unchanged),
   so a wrong guess costs about what any not-found does.
 - A webhook belongs to the project MADE at a moment, not to an id (ids are reused): it records the
@@ -37,8 +38,10 @@
   network peers are still refused by remoteWriteGuard (it is not in REMOTE_AGENT_ROUTES). JSON only,
   since a plain-text POST is refused by the board's cross-site guard. The settings routes are
   ordinary board-token /api routes and never return a hash.
-- Tests: server.webhooks-1307.test.js (enforcing board, 16 arms); engine/assigner.test.js (the
-  webhook arm); render-webhooks-1307.js (browser).
+- Tests: server.webhooks-1307.test.js (enforcing board, 17 arms, one with held half-sent bodies
+  for the concurrent open-task ceiling); engine/assigner.test.js (the webhook arm);
+  web.webhooks-1307.test.js (the page's tkAdded and pjsHooksPaint from its real source: escaping,
+  the one-row reveal, a half-typed name kept); render-webhooks-1307.js (browser, whole flow).
 
 ## Calls (on #1307)
 - A call adds a task that WAITS for a person to give it out (rejected: messaging an agent,

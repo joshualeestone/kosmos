@@ -15022,14 +15022,6 @@ const server = http.createServer((req, res) => {
     if (!owner || (owner.createdAt || null) !== hook.projectMade) { nope(); return; }
     const tooOften = hookRateProblem(hook.id, hook.projectId);
     if (tooOften) { sendJson(res, 429, { error: tooOften }); return; }
-    /* A ceiling on what is WAITING, not only on the rate: a leaked link at the hourly limit would
-       still add thousands a day, and every task lives in the one projects file the board rewrites
-       whole. Past HOOK_RATE.openMax open webhook tasks, calls are refused until some are closed. */
-    const waiting = (owner.tasks || []).filter((t) => t && t.addedVia === 'webhook' && !tasks.progressOf(t).closed).length;
-    if (waiting >= HOOK_RATE.openMax) {
-      sendJson(res, 429, { error: 'this project already has ' + HOOK_RATE.openMax + ' open tasks from webhooks; close some first' });
-      return;
-    }
     readBody(req, HOOK_BODY_MAX).then((buf) => {
       const text = buf.toString('utf8');
       let parsed;
@@ -15042,6 +15034,20 @@ const server = http.createServer((req, res) => {
       const title = (typeof t === 'string' ? t : '').trim();
       const detail = typeof parsed.detail === 'string' ? parsed.detail.trim() : '';
       if (!title) { sendJson(res, 400, { error: 'send JSON with a "title" for the task' }); return; }
+      /* A ceiling on what is WAITING, not only on the rate: a leaked link at the hourly limit would
+         still add thousands a day, and every task lives in the one projects file the board rewrites
+         whole. Past HOOK_RATE.openMax open webhook tasks, calls are refused until some are closed.
+         ⚠️ Counted HERE, from a fresh read, with nothing asynchronous between the count and
+         tasks.create (both synchronous): counted before the body arrived, concurrent calls would
+         each see the same count and all pass. */
+      let fresh = null;
+      try { fresh = projects.get(hook.projectId); } catch { fresh = null; }
+      if (!fresh) { nope(); return; }
+      const waiting = (fresh.tasks || []).filter((t) => t && t.addedVia === 'webhook' && !tasks.progressOf(t).closed).length;
+      if (waiting >= HOOK_RATE.openMax) {
+        sendJson(res, 429, { error: 'this project already has ' + HOOK_RATE.openMax + ' open tasks from webhooks; close some first' });
+        return;
+      }
       let made;
       try {
         made = tasks.create(hook.projectId, { sentence: title, detail: detail || undefined, made: { via: 'webhook', by: hook.name } });
