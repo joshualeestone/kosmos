@@ -2609,7 +2609,7 @@ function sendRoomPostAsAgent({ fromPane, sender, project, text, replyExpected, i
     text,
     replyExpected,
     // #3311: the colleagues it reaches are told the room is shared outside this computer.
-    federated: (() => { try { return !!federation.linkFor(found.id); } catch (err) { fedseats.logUnreadable(err); return false; } })(),
+    federated: (() => { try { return !!fedseats.linkFor(found.id); } catch (err) { fedseats.logUnreadable(err); return false; } })(),
     /* #3224, the proactive half: only a post that is not a reply is asked which room
        it meant (a reply is already bound above). The caller decides whether to ask at
        all: the live route does, the outbox drain does not. */
@@ -13805,7 +13805,7 @@ const server = http.createServer((req, res) => {
         // Only the page sends federation_ref (the create screen that minted the
         // invites); a process caller's is ignored.
         if (fedRef) {
-          try { federation.recordLink(made.id, { role: 'owner', ref: fedRef }); federationLinked = true; }
+          try { federation.recordLink(made.id, { role: 'owner', ref: fedRef, project_created: made.createdAt }); federationLinked = true; }
           catch (err) {
             try { projects.remove(made.id); } catch { /* reported below either way */ }
             sendJson(res, 500, { error: 'We could not record this shared project on this computer, so it was not made. Try again. ('
@@ -14292,7 +14292,7 @@ const server = http.createServer((req, res) => {
         /* #3311: agents read this view before they post. In a shared project every
            post here leaves this computer, so it says so first, every time. */
         let shared = '';
-        try { if (federation.linkFor(id)) shared = '[kosmos] This room is shared with people outside this computer: every post here is sent to them. Do not post file paths, keys or anything private.\n'; }
+        try { if (fedseats.linkFor(id)) shared = '[kosmos] This room is shared with people outside this computer: every post here is sent to them. Do not post file paths, keys or anything private.\n'; }
         catch (err) { fedseats.logUnreadable(err); }
         res.writeHead(200, { 'content-type': 'text/plain; charset=utf-8' });
         res.end(shared + head + lines.join('\n') + (lines.length ? '\n' : ''));
@@ -14346,7 +14346,7 @@ const server = http.createServer((req, res) => {
         if (!files.ok) { sendJson(res, 400, { error: files.because }); return; }
         const fields = attachments.rowFields(files.recs);
         let federated = false;
-        try { federated = !!federation.linkFor(found.id); } catch (err) { federated = false; fedseats.logUnreadable(err); }
+        try { federated = !!fedseats.linkFor(found.id); } catch (err) { federated = false; fedseats.logUnreadable(err); }
         /* #3745: a reply names the post it answers. It must be a post in THIS room; the answering
            post is refused otherwise (never posted pointing at another room, or at nothing). */
         let replyTo = null;
@@ -14613,7 +14613,7 @@ const server = http.createServer((req, res) => {
         // of where it came from; take it back out rather than leave that behind.
         try {
           federation.recordLink(made.id, { role: 'member', edge_id: snap.edge_id, owner_handle: snap.owner_handle,
-            project_name: snap.project_name, project_desc: snap.project_desc });
+            project_name: snap.project_name, project_desc: snap.project_desc, project_created: made.createdAt });
         } catch (err) {
           try { projects.remove(made.id); } catch { /* reported below either way */ }
           throw err;
@@ -15928,6 +15928,7 @@ fedseats.configure({
   externalKeptOn: (projectId, day) => messages.externalKeptOn(projectId, day),
   enrolled: () => remote.enrolled(),
   projectExists: (projectId) => { try { return !!projects.get(projectId, []); } catch { return true; } },
+  projectCreatedAt: (projectId) => { try { const p = projects.get(projectId, []); return p ? (p.createdAt || null) : null; } catch { return undefined; } },
   note: (projectId, text) => messages.roomNote(projectId, text),
 });
 
@@ -15973,7 +15974,7 @@ function joinedProjectName(ownerName) {
 function federateOut(projectId, delivery, operator) {
   if (!delivery || !delivery.id) return;
   let link = null;
-  try { link = federation.linkFor(projectId); } catch (err) {
+  try { link = fedseats.linkFor(projectId); } catch (err) {
     fedseats.logUnreadable(err);
     // The record cannot say whether this room is shared, but a seat running for
     // it can: that room is, and its post must not stay here without a word.
