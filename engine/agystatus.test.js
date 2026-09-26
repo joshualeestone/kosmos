@@ -54,6 +54,13 @@ test('installed but no answer (signed out, offline, slow): could not confirm, ne
   // CONTROL: an answer that is not "ok" is not signed in either.
   agystatus.setRunnerForTests((b, done) => done(null, 'Please sign in to continue'));
   assert.equal((await agystatus.check()).signedIn, null);
+  // Only the whole answer "ok" is signed in (review round 7).
+  for (const said of ['Not ok', 'Please sign in. Press OK', 'ok, but first sign in']) {
+    agystatus.setRunnerForTests((b, done) => done(null, said));
+    assert.equal((await agystatus.check()).signedIn, null, JSON.stringify(said) + ' read as signed in');
+  }
+  agystatus.setRunnerForTests((b, done) => done(null, '  OK.\n'));
+  assert.equal((await agystatus.check()).signedIn, true, 'CONTROL: a bare OK is signed in');
 }));
 
 test('two asks at once share one check (it costs a prompt on the person\'s subscription)', () => withFakeAgy(async () => {

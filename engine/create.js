@@ -868,7 +868,8 @@ function providerLabel(provider) {
    (which backfill, repair, connect and an import's first start all reach) and connect's provider
    hint in engine/discover.js. Recognising a running agy pane does not depend on it. */
 function antigravityEnabled() {
-  return process.env.AGENT_WORKFORCE_ANTIGRAVITY !== '0';
+  // Off by 0, false or off (review round 7: an operator writing false meant off); anything else is on.
+  return !/^(0|false|off|no)$/i.test(String(process.env.AGENT_WORKFORCE_ANTIGRAVITY || '').trim());
 }
 /* #3296/#3391: the ONE provider-named "unknown account" refusal, shared by the switch
    path and createAgentInner's per-provider create arms, so a new provider does not add

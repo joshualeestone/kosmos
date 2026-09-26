@@ -58,7 +58,7 @@ test('#3568: the option turns on only when agy is installed, and says why when i
   api.set(false);
   api.paintAgyOption(m, '');
   assert.equal(m.opt('antigravity').disabled, true);
-  assert.equal(m.opt('antigravity').dataset.off, 'Set up in Settings, guided setup');
+  assert.equal(m.opt('antigravity').dataset.off, 'Set up in Settings: Show the guided setup');
   api.set(true);
   api.paintAgyOption(m, '');
   assert.equal(m.opt('antigravity').disabled, false, 'installed must turn it on');
@@ -221,7 +221,7 @@ test('#3568: Stop partway: the late answer writes nothing and a new press starts
 test('#3568: where it is not offered (not a Mac, or switched off) the step says so and offers nothing to press', async () => {
   const f = agyFlow({ '/api/antigravity/check': [{ installed: false, signedIn: false, offered: false }] });
   await f.FR_AGY_SUB.start();
-  assert.match(f.view().text, /not available on this computer\. Use an API key instead/);
+  assert.match(f.view().text, /not available on this computer\. Press Stop this sign-in to use an API key instead/);
   assert.equal(f.view().button, '');
   assert.equal(f.offered(), false);
 });
@@ -262,4 +262,28 @@ test('#3568: agyAsk returns the read it starts, so the Gemini row waits for "off
   release();
   await p;
   assert.equal(f.offered(), false, 'after the wait, "not offered" is known');
+});
+
+test('#3568: an Antigravity agent\'s page says there is no account to move it to, never a key or a Settings path (review round 7)', async () => {
+  const els = { 'd-account': { innerHTML: 'x', disabled: false }, 'd-account-go': { disabled: false }, 'd-account-msg': { textContent: '' } };
+  let fetched = 0;
+  // eslint-disable-next-line no-new-func
+  const paint = new Function('document', 'fetch', 'ACCOUNTS', 'ACCOUNTS_UNREADABLE', `
+    ${grab('async function paintAccountPicker(')}
+    return paintAccountPicker;
+  `)({ getElementById: (id) => els[id] }, () => { fetched += 1; return new Promise(() => {}); }, [], false);
+  await paint({ runner: 'antigravity', account: null, sessionName: 'gem' });
+  assert.equal(els['d-account-msg'].textContent, 'It runs on your Google subscription through Antigravity, so there is no account to move it to.');
+  assert.equal(els['d-account'].disabled, true);
+  assert.equal(els['d-account-go'].disabled, true);
+  assert.equal(fetched, 0, 'it must not read accounts for an agent that has none');
+});
+
+test('#3568: an install whose answer never came says it may still be installing, not that it failed (review round 7)', async () => {
+  const f = agyFlow({ '/api/antigravity/check': [{ installed: false, signedIn: false }], '/api/antigravity/install': ['throw'] });
+  await f.FR_AGY_SUB.start();
+  await f.FR_AGY_SUB.start();   // Install, whose request drops
+  assert.match(f.view().text, /may still be installing/);
+  assert.doesNotMatch(f.view().text, /could not install/);
+  assert.equal(f.view().button, 'Check again');
 });

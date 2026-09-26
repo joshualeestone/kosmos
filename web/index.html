@@ -21035,7 +21035,7 @@ function paintAgyOption(sel, current) {
   opt.disabled = !on;
   if (on) delete opt.dataset.off;
   else opt.dataset.off = AGY_OFFERED === false ? 'Not on this computer'
-    : AGY_INSTALLED === false ? 'Set up in Settings, guided setup' : 'Checking Antigravity';
+    : AGY_INSTALLED === false ? 'Set up in Settings: Show the guided setup' : 'Checking Antigravity';
   if (sel.dataset && sel.dataset.pcombo) sel.value = sel.value;  // eslint-disable-line no-self-assign
 }
 function agyAsk() {
@@ -24617,17 +24617,24 @@ const FR_AGY_SUB = {
         this.say(opened && opened.ok
           ? "Antigravity opened, and it opens Google's sign-in in your browser. Sign in there with your Google account, then press Check again. You can close Antigravity's window afterwards."
           : frCap((opened && opened.error) || "We could not open Antigravity's sign-in just now") + '.',
-          opened && opened.ok ? 'Check again' : 'Open Antigravity to sign in', false);
-        if (!(opened && opened.ok)) this.next = 'open';
+          opened && opened.ok || /not installed|not available|switched off/.test((opened && opened.error) || '') ? 'Check again' : 'Open Antigravity to sign in', false);
+        if (!(opened && opened.ok)) this.next = /not installed|not available|switched off/.test((opened && opened.error) || '') ? 'check' : 'open';
         return;
       }
       if (this.next === 'install') {
         this.say('Installing Antigravity from Google…', '', false);
         const got = await this.post('/api/antigravity/install');
         if (!live()) return;
-        if (!got || !got.ok) {
+        if (!got) {
+          /* No answer is not a failure (review round 7): the install runs on the board and may still be
+             going (a dropped request, a sleeping laptop). Check again finds out. */
+          this.next = 'check';
+          this.say('Antigravity may still be installing. Press Check again in a moment.', 'Check again', false);
+          return;
+        }
+        if (!got.ok) {
           this.next = 'install';
-          this.say(frCap((got && got.error) || 'We could not install Antigravity just now') + '.', 'Try again', false);
+          this.say(frCap(got.error || 'We could not install Antigravity just now') + '.', 'Try again', false);
           return;
         }
         /* Freshly installed means not signed in yet, so go straight to the sign-in step rather than
@@ -24643,7 +24650,7 @@ const FR_AGY_SUB = {
       if (r && r.offered === false) {
         this.next = 'check';
         AGY_OFFERED = false;
-        this.say('Gemini on a Google subscription is not available on this computer. Use an API key instead.', '', false);
+        this.say('Gemini on a Google subscription is not available on this computer. Press Stop this sign-in to use an API key instead.', '', false);
       } else if (!r || typeof r.installed !== 'boolean') {
         this.next = 'check';
         this.say('We could not check Antigravity just now.', 'Check again', false);
@@ -37387,6 +37394,16 @@ async function paintAccountPicker(a) {
      listener, which is unaffected, so the feature degrades rather than dies. Named so the
      coupling is known rather than rediscovered. */
   if (!sel || !go) return;
+  /* #3568 (review round 7): an Antigravity agent signs in with Google inside its own window and has
+     no Kosmos account, so there is nothing to move it to; the keyed branches below would call it a
+     key and point at a Settings path that cannot add one. */
+  if (a && a.runner === 'antigravity') {
+    sel.innerHTML = '<option value="" selected></option>';
+    sel.disabled = true;
+    go.disabled = true;
+    if (msg) msg.textContent = 'It runs on your Google subscription through Antigravity, so there is no account to move it to.';
+    return;
+  }
   /* 🛑 `ACCOUNTS_UNREADABLE` HAS TO BE A RE-FETCH TRIGGER, NOT JUST A FLAG. A failed read
      deliberately does not shrink the list, so the cache can be NON-EMPTY and known-stale at
      the same time. Gating the re-read on emptiness alone meant that state never refreshed:

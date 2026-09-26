@@ -4239,6 +4239,10 @@ test('#3568: Gemini on a Google subscription is ON by default: unset means on, o
     assert.equal(create.antigravityEnabled(), false, 'CONTROL: 0 turns it off');
     process.env.AGENT_WORKFORCE_ANTIGRAVITY = '1';
     assert.equal(create.antigravityEnabled(), true);
+    for (const off of ['false', 'OFF', 'no', ' 0 ']) {   // review round 7: an operator writing false meant off
+      process.env.AGENT_WORKFORCE_ANTIGRAVITY = off;
+      assert.equal(create.antigravityEnabled(), false, JSON.stringify(off) + ' did not turn it off');
+    }
   } finally { if (was === undefined) delete process.env.AGENT_WORKFORCE_ANTIGRAVITY; else process.env.AGENT_WORKFORCE_ANTIGRAVITY = was; }
 });
 test('#3568: with the flag off, an Antigravity create is refused as an unknown provider, exactly as before', () => {

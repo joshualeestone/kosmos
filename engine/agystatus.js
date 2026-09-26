@@ -77,7 +77,8 @@ function checkOnce() {
     runAgy(inst.bin, (err, out) => {
       if (done) return;
       done = true; clearTimeout(cap);
-      resolve(!err && /\bok\b/i.test(out) ? { installed: true, signedIn: true } : unknown);
+      // The whole answer must be "ok" (review round 7): "Not ok" or a banner with OK in it is not signed in.
+      resolve(!err && /^\s*ok[.!]?\s*$/i.test(out) ? { installed: true, signedIn: true } : unknown);
     });
   });
 }
