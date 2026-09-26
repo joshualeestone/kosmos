@@ -26920,18 +26920,19 @@ document.getElementById('orgmap').addEventListener('click', (e) => {
 });
 /* #718: the chart is sized to its width (orgFit), so a new width (a phone turned
    sideways, a window dragged narrower) repaints it. Only when the width really
-   changed: a phone's address bar showing and hiding fires resize on height alone. */
-(() => {
-  let wasW = 0;
-  window.addEventListener('resize', () => {
-    const wrap = document.getElementById('orgview');
-    if (!wrap || wrap.hidden) return;
-    const w = wrap.clientWidth;
-    if (w === wasW) return;
-    wasW = w;
-    paintOrg();
-  });
-})();
+   changed: a phone's address bar showing and hiding fires resize on height alone.
+   Registered by name, not as an arrow: web.consolidated-breakpoint.test.js finds
+   the layout resize handler as the only arrow-form resize listener. */
+let ORG_RESIZE_W = 0;
+function orgResizeRepaint() {
+  const wrap = document.getElementById('orgview');
+  if (!wrap || wrap.hidden) return;
+  const w = wrap.clientWidth;
+  if (w === ORG_RESIZE_W) return;
+  ORG_RESIZE_W = w;
+  paintOrg();
+}
+window.addEventListener('resize', orgResizeRepaint);
 
 let BOARD_LAYOUT = 'grid';
 function boardApplyVisibility(onAgents) {

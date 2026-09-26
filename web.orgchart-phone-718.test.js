@@ -84,6 +84,7 @@ test('#718: paintOrg sizes the chart by orgFit from its own width, and squeezes 
 });
 
 test('#718: a width change repaints the chart, and a too-big chart scrolls in its own box', () => {
-  assert.match(SCRIPT, /addEventListener\('resize', \(\) => \{\s*const wrap = document\.getElementById\('orgview'\);[\s\S]{0,200}paintOrg\(\);/);
+  assert.match(SCRIPT, /function orgResizeRepaint\(\) \{\s*const wrap = document\.getElementById\('orgview'\);[\s\S]{0,200}paintOrg\(\);/);
+  assert.match(SCRIPT, /window\.addEventListener\('resize', orgResizeRepaint\);/);
   assert.match(PAGE, /\.orgwrap \{ overflow-x: auto; \}/);
 });
