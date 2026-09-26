@@ -2537,6 +2537,20 @@ function oneLine(value) {
   return neutralise(collapsed);
 }
 
+/* The part of a project's line that names it by id, shared by the line and by `projectsInBlock`
+   (#3923), so "which projects does this file's block list" reads the same text the block writes. */
+function projectPostKey(id) {
+  return ` post ${oneLine(String(id))} "your message"`;
+}
+/** The project ids from `ids` that the managed block of `text` lists (none when there is no single block). */
+function projectsInBlock(text, ids) {
+  const src = String(text == null ? '' : text);
+  const at = findBlock(src);
+  if (!at || at.ambiguous) return [];
+  const block = src.slice(at.start, at.end);
+  return ids.filter((id) => block.includes(projectPostKey(id) + '`'));
+}
+
 function blockBody(projects, sessionName) {
   // ⚠️ Never reached with an empty list any more -- `tellAgent` REMOVES the
   // block instead of writing a placeholder. Kept as a guard rather than
@@ -2585,7 +2599,7 @@ function blockBody(projects, sessionName) {
       : `\n  - No tasks set for this project yet. Add one with \`${cliShown} task add ${oneLine(String(p.id))} "what needs doing"\` (use this, not a hand-rolled task-board file)`)
       + subtaskLine;
     const head = `- **${oneLine(p.name)}**: \`${oneLine(p.folder)}\`` + (p.id
-      ? `\n  - Post to everyone on it: \`${cliShown} post ${oneLine(String(p.id))} "your message"\``
+      ? `\n  - Post to everyone on it: \`${cliShown}${projectPostKey(p.id)}\``
         + taskLine
       : '');
     const mine = (sessionName && Array.isArray(p.tasks))
@@ -2725,7 +2739,7 @@ function tellAgent(sessionName, projects, roster) {
     // a corrected command (the PATH fix) would otherwise reach only
     // newborn agents. The heal itself is in healColleagues below.
     const next = healColleagues(withProjects);
-    if (next === current.text) return { state: TOLD.TOLD, because: null, changed: false };
+    if (next === current.text) return { state: TOLD.TOLD, because: null, changed: false, added: [] };
     /* Why, in the reader's words, for the stale marker (#323): the projects
        changed, or only the colleagues list was healed. Never the two fused. */
     const why = withProjects !== (current.text || '')
@@ -2737,7 +2751,13 @@ function tellAgent(sessionName, projects, roster) {
     /* `changed` is about the PROJECTS half only: a colleagues heal rewrites the
        file without the agent's project world moving, and speaking to a running
        agent about that would be noise (#304). */
-    return { state: TOLD.TOLD, because: null, changed: withProjects !== (current.text || '') };
+    /* `added`: the projects this write put in the block that were not in it before (#3923). A
+       retry must announce only these: `changed` is true for ANY edit of the block, including one
+       that adds some other project or takes one out. */
+    const ids = projects.map((p) => p.id).filter((id) => id != null);
+    const had = projectsInBlock(current.text, ids);
+    const added = projectsInBlock(next, ids).filter((id) => !had.includes(id));
+    return { state: TOLD.TOLD, because: null, changed: withProjects !== (current.text || ''), added };
   } catch (err) {
     // ⚠️ A length refusal is OUR doing here, not the person's. Taking our block
     // back out can push a file under the editor's minimum, and forwarding that

@@ -6953,10 +6953,11 @@ body:not(.consolidated) .pjmidhead:has(.pjhead) .tsearch:focus-within { flex-bas
 .pj-member .pj-notyet { display: block; font: var(--text-caption) var(--font-ui); color: var(--k-ink-2); flex-basis: 100%; }
 /* #3923: the project notice (Mona Lisa's design, project-notice-mock.html). Appears only while
    an agent on the project could not be given its folder; one row per agent, each shaped by what
-   the person must do. No bar down the left (Josh has ruled those out). */
+   the person must do. No bar down the left (Josh has ruled those out). #pj-one-notice is the live
+   region and stays in the page, empty and unstyled, so a notice written into it is announced the
+   first time too; the visible box is the .pnotice drawn inside it. */
 .pnotice { display: flex; gap: 10px; align-items: flex-start; padding: 13px 15px; border-radius: 10px;
   background: var(--k-sunk, rgba(20,22,26,.05)); border: 1px solid var(--k-rule); margin: 0 0 12px; }
-.pnotice[hidden] { display: none; }
 .pn-b { flex: 1 1 auto; min-width: 0; }
 .pn-b > b { font-size: .9375rem; display: block; color: var(--k-ink); }
 .pnrow { display: flex; gap: 10px; align-items: baseline; flex-wrap: wrap; margin-top: 7px; }
@@ -13721,7 +13722,7 @@ window.kosmosMeasureScrollbarWidth();
       <!-- #3923: the project notice, painted by pjNotice() only while something is wrong, under the
            heading and above the list, in the page's order and on screen (the card's grid pins the
            heading to row 1). -->
-      <div id="pj-one-notice" class="pnotice" role="status" aria-live="polite" hidden></div>
+      <div id="pj-one-notice" role="status" aria-live="polite"></div>
       <div id="pj-one-agents" class="pj-members"></div>
       <!-- ⚠️ The picker hides behind the button, not the other way round: the
            resting state of the box is the members, and "+ Add Member" (the
@@ -43733,10 +43734,11 @@ function pjToldLine(told) {
  * in a row of several (the name is beside it).
  */
 const PJ_NOTICE = [
-  [/^we could not write to its instructions$/, 'wait', (n) => n ? 'We could not write to ' + n + '\u2019s instructions.' : 'We could not write to its instructions.'],
+  [/^we could not write to its instructions$|^those instructions could not be saved$/, 'wait', () => 'The change did not save. It may work on another try.'],
   [/^we could not check which agents are running$/, 'wait', () => 'We could not check which agents are running.'],
   // Somebody saved the file mid-write; nothing was lost, and a retry reads it fresh.
-  [/^its instructions changed while we were writing to them$/, 'wait', (n) => (n ? n + '\u2019s' : 'Its') + ' instructions changed while Kosmos was writing to them, so Kosmos left them as they were.'],
+  // (The raw editor sentence is matched too: verdicts saved before tellAgent translated it keep it.)
+  [/^its instructions changed while we were writing to them$|changed since you opened them, reload before saving/, 'wait', (n) => (n ? n + '\u2019s' : 'Its') + ' instructions changed while Kosmos was writing to them, so Kosmos left them as they were.'],
   [/^it has no instructions file yet, and we will not create one$/, 'retry', (n) => (n ? n + ' has' : 'It has') + ' no instructions file, and Kosmos will not create one.',
     (name) => 'Give ' + name + ' some instructions, then try again.'],
   [/^its instructions contain \d+ Kosmos project blocks/, 'retry', (n) => (n ? n + '\u2019s' : 'Its') + ' instructions hold more than one Kosmos project section, so Kosmos cannot tell which is its own.',
@@ -43745,12 +43747,12 @@ const PJ_NOTICE = [
     (name) => 'Add to ' + name + '\u2019s instructions, then try again.'],
   [/^its instructions are already at the size limit$/, 'retry', (n) => (n ? n + '\u2019s' : 'Its') + ' instructions are already at the size limit.',
     (name) => 'Shorten ' + name + '\u2019s instructions, then try again.'],
-  [/^we could not find an agent with exactly this name on this computer$/, 'retry', (n) => 'Kosmos cannot match ' + (n || 'it') + ' to a session on this computer.',
+  [/^we could not find an agent with exactly this name on this computer$/, 'retry', (n) => 'Kosmos cannot find ' + (n || 'it') + ' running on this computer.',
     (name) => 'Start ' + name + ', then try again.'],
   [/^something is running under this name, but we cannot tell that it is this agent$/, 'retry', (n) => 'Something is running under ' + (n ? n + '\u2019s' : 'its') + ' name, but Kosmos cannot tell that it is ' + (n || 'the same agent') + '.',
     (name) => 'Restart ' + name + ' from Kosmos, then try again.'],
-  [/^it has no folder of its own on this computer yet$/, 'explain', (n, name) => 'Kosmos has no folder for ' + name + ' on this computer, so it has nowhere to write.'],
-  [/^it keeps its instructions somewhere we cannot safely change$|^its worker folder /, 'explain', (n) => (n || 'It') + ' keeps its instructions somewhere Kosmos cannot safely change, so Kosmos has nowhere to write.'],
+  [/^it has no folder of its own on this computer yet$|^there is no agent by that name to write to$|^that is not a folder$/, 'explain', (n, name) => 'Kosmos has no folder for ' + name + ' on this computer, so it has nowhere to write.'],
+  [/^it keeps its instructions somewhere we cannot safely change$|^its worker folder |^there is already a file there that this editor cannot safely replace/, 'explain', (n) => (n || 'It') + ' keeps its instructions somewhere Kosmos cannot safely change, so Kosmos has nowhere to write.'],
   // The reader's own refusals for a file it cannot safely edit (workerfile.js, instructions.js):
   // pressing again reads the same file the same way, so no button.
   [/^its instruction file is not UTF-8 text|^its instruction file is not one we can read$|^its instruction file could not be read$|^we cannot get at its instruction file to read it$|^that file is not inside the workers folder$/, 'explain',
@@ -43769,7 +43771,7 @@ const pjNoticeKey = (projectId, sessionName) => String(projectId) + '\n' + Strin
    earlier answer, so it says the retry did not go through rather than looking untouched.
    Same key and the same lifetime as a PJ_NOTICE_TRIED mark. */
 const PJ_NOTICE_MISSED = new Map();
-const PJ_NOTICE_COUNT = ['', 'One', 'Two', 'Three', 'Four', 'Five', 'Six', 'Seven', 'Eight', 'Nine', 'Ten'];
+const PJ_NOTICE_COUNT = ['', 'one', 'two', 'three', 'four', 'five', 'six', 'seven', 'eight', 'nine', 'ten'];
 
 /** One agent's row, or null when nothing is wrong (success and not_tried say nothing). */
 function pjNoticeRow(m, solo) {
@@ -43811,15 +43813,17 @@ function pjNotice(roster, projectId) {
   const solo = failing.length === 1;
   const rows = failing.map((m) => pjNoticeRow(m, solo));
   const head = solo
-    ? esc(rows[0].name) + ' does not have this project\u2019s folder.'
-    : (PJ_NOTICE_COUNT[rows.length] || String(rows.length)) + ' agents do not have this project\u2019s folder.';
+    // What failed, true in every row's case: the last update did not land (the project may still be
+    // listed from an earlier one), and "folder" is kept for the one row about a missing folder.
+    ? 'Kosmos could not update ' + esc(rows[0].name) + '\u2019s instructions for this project.'
+    : 'Kosmos could not update ' + (PJ_NOTICE_COUNT[rows.length] || String(rows.length)) + ' agents\u2019 instructions for this project.';
   const body = rows.map((r) => '<div class="pnrow">'
     + (solo ? '' : '<span class="pnwho">' + esc(r.name) + '</span>')
     + '<span class="pnwhy">' + esc(r.why + pjNoticeStill(r, projectId)) + (r.fix ? ' <b class="pnfix">' + esc(r.fix) + '</b>' : '') + '</span>'
     + (r.shape === 'wait' || r.shape === 'retry'
       ? '<button class="qopt" type="button" data-pn-retry="' + esc(r.key) + '" aria-label="' + esc('Try again for ' + r.name) + '">Try again</button>' : '')
     + '</div>').join('');
-  return '<span class="haz" aria-hidden="true">!</span><div class="pn-b"><b>' + head + '</b>' + body + '</div>';
+  return '<div class="pnotice"><span class="haz" aria-hidden="true">!</span><div class="pn-b"><b>' + head + '</b>' + body + '</div></div>';
 }
 
 /**
@@ -47436,9 +47440,7 @@ function paintOneProject() {
      above the list (Mona's design), not on its row: every member row passes suppressTold. */
   const notice = pjNotice(roster, p.id);
   const noticeBox = document.getElementById('pj-one-notice');
-  // Shown BEFORE it is written: a live region's change is announced only while it is in the
-  // accessibility tree, so the first appearance (the one that matters) is not missed.
-  noticeBox.hidden = !notice;
+  // The region is never hidden (see the CSS note): only its content comes and goes.
   setIfChanged(noticeBox, notice);
   setIfChanged(document.getElementById('pj-one-agents'), roster.length
     ? roster.map((m) => pjMember(m, true, true, true)).join('')
@@ -53327,6 +53329,9 @@ document.getElementById('pj-one-notice').addEventListener('click', async (e) => 
   if (!landed) landed = await loadProjects();
   btn.disabled = false;
   if (!landed || PJ_CURRENT !== project) return;
+  // A read that landed but FAILED (offline) paints no project view, so the row's mark would wait for
+  // the connection to come back: paint it from the projects already loaded.
+  if (PJ_READ_FAILED) paintOneProject();
   // Only put focus back if it is still where the press left it (the page, or this notice); a
   // person who has moved on keeps their place.
   const now = document.activeElement;

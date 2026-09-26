@@ -2081,6 +2081,24 @@ test('a stale colleagues block heals on syncAgent; a file without one is not gro
     'a file with no colleagues block was grown one by a projects write');
 });
 
+test('#3923: syncAgent reports which projects the write newly put in the block, and only those', () => {
+  reset();
+  agent('mara', '# Mara\n\nHer own words, long enough to be a real instruction file.\n');
+  const R = cards([fleet.agent('mara', { state: 'working' })]);
+  const one = projects.create({ name: 'First', folder: folder('added-one'), agents: ['mara'] });
+  const first = projects.syncAgent('mara', R);
+  assert.equal(first.state, projects.TOLD.TOLD, 'first verdict: ' + first.because);
+  assert.deepEqual(first.added, [one.id], 'the first write did not report its project as added');
+  // A second project: the write changes the block, but only the new one is added.
+  const two = projects.create({ name: 'Second', folder: folder('added-two'), agents: ['mara'] });
+  const second = projects.syncAgent('mara', R);
+  assert.equal(second.changed, true, 'CONTROL: the second write changed the block');
+  assert.deepEqual(second.added, [two.id], 'a project already in the block was reported as added again');
+  // Nothing new: no write, nothing added.
+  const same = projects.syncAgent('mara', R);
+  assert.deepEqual([same.changed, same.added], [false, []]);
+});
+
 test('a colleagues marker pair cannot ride a project field into the block', () => {
   // tellAgent heals the colleagues block now, so a smuggled pair is an
   // injection path into the heal (ambiguate it off, or hand it a span

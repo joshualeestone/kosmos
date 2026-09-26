@@ -7643,10 +7643,11 @@ test('the project notice is wired into paintOneProject, not just extractable', (
   // with a control that the box and its CSS still exist.
   const src = pageFnSource('paintOneProject');
   assert.ok(/const notice = pjNotice\(roster, p\.id\);/.test(src), 'paintOneProject no longer builds the notice for this project');
-  assert.ok(/noticeBox\.hidden = !notice;\s*\n\s*setIfChanged\(noticeBox, notice\);/.test(src), 'the notice is not shown and then written');
+  assert.ok(/setIfChanged\(noticeBox, notice\);/.test(src), 'the notice is not written into its region');
+  assert.ok(!/noticeBox\.hidden/.test(src), 'the live region is hidden again: a notice written into a hidden region is not announced on its first appearance');
   assert.ok(src.includes("getElementById('pj-one-notice')"), 'paintOneProject paints a different box');
   const raw = fs.readFileSync(nodePath.join(__dirname, 'web', 'index.html'), 'utf8');
-  assert.ok(raw.includes('<div id="pj-one-notice" class="pnotice"'), 'CONTROL: the notice box is gone from the page');
+  assert.ok(raw.includes('<div id="pj-one-notice" role="status" aria-live="polite"></div>'), 'CONTROL: the notice region is gone from the page, or is hidden');
   assert.ok(raw.includes('.pnotice {'), 'CONTROL: the .pnotice CSS rule is gone');
 });
 
@@ -14989,6 +14990,7 @@ test('#3923: Try again (?retell=1) re-tells a current member and never re-adds o
   const retell = await req('/api/project/' + encodeURIComponent(id) + '/agent/leo?retell=1', { method: 'POST' });
   assert.equal(retell.status, 200, retell.body);
   assert.deepEqual(agentsOf(), ['leo']);
+  // (leo is not running in the sandbox, so this holds either way; the stubbed arms below are the real check.)
   assert.equal(JSON.parse(retell.body).said, null, 'a retell typed into the agent\'s window');
   assert.ok(at0 && toldAt() > at0, 'the retell recorded no fresh verdict: ' + at0 + ' -> ' + toldAt());
 
@@ -15005,16 +15007,32 @@ test('#3923: Try again (?retell=1) re-tells a current member and never re-adds o
   const spoke = [];
   try {
     eng.speakOfMembership = (who, proj, kind) => { spoke.push([who, proj && proj.id, kind]); return { state: 'told' }; };
-    eng.syncAgent = () => ({ state: eng.TOLD.TOLD, because: null, changed: true });
+    eng.syncAgent = () => ({ state: eng.TOLD.TOLD, because: null, changed: true, added: [id] });
     const wrote = await req('/api/project/' + encodeURIComponent(id) + '/agent/leo?retell=1', { method: 'POST' });
     assert.equal(wrote.status, 200, wrote.body);
     assert.deepEqual(spoke, [['leo', id, 'joined']], 'a retry that wrote the block did not tell the running agent');
     assert.deepEqual(JSON.parse(wrote.body).said, { state: 'told' });
-    eng.syncAgent = () => ({ state: eng.TOLD.TOLD, because: null, changed: false });
+    // The write changed the block, but by adding ANOTHER project: this one is not news to the agent.
+    eng.syncAgent = () => ({ state: eng.TOLD.TOLD, because: null, changed: true, added: ['some-other-project'] });
+    const other = await req('/api/project/' + encodeURIComponent(id) + '/agent/leo?retell=1', { method: 'POST' });
+    assert.equal(other.status, 200, other.body);
+    assert.equal(spoke.length, 1, 'a retry announced this project when the write added a different one');
+    // Left while the retry ran (the sync took the block out): never announced as a join.
+    eng.syncAgent = () => {
+      const all = eng.readAll();
+      for (const p of all) if (p.id === id) p.agents = (p.agents || []).filter((a) => a !== 'leo');
+      eng.writeAll(all);
+      return { state: eng.TOLD.TOLD, because: null, changed: true, added: [id] };
+    };
+    const left = await req('/api/project/' + encodeURIComponent(id) + '/agent/leo?retell=1', { method: 'POST' });
+    assert.equal(left.status, 200, left.body);
+    assert.equal(spoke.length, 1, 'an agent that left mid-retry was told it had been put on the project');
+    { const all = eng.readAll(); for (const p of all) if (p.id === id) p.agents = ['leo']; eng.writeAll(all); }
+    eng.syncAgent = () => ({ state: eng.TOLD.TOLD, because: null, changed: false, added: [] });
     const same = await req('/api/project/' + encodeURIComponent(id) + '/agent/leo?retell=1', { method: 'POST' });
     assert.equal(same.status, 200, same.body);
     assert.equal(spoke.length, 1, 'a retry that changed nothing typed the line again');
-    eng.syncAgent = () => ({ state: eng.TOLD.COULD_NOT, because: 'we could not write to its instructions', changed: false });
+    eng.syncAgent = () => ({ state: eng.TOLD.COULD_NOT, because: 'we could not write to its instructions', changed: false, added: [id] });
     const failed = await req('/api/project/' + encodeURIComponent(id) + '/agent/leo?retell=1', { method: 'POST' });
     assert.equal(failed.status, 200, failed.body);
     assert.equal(spoke.length, 1, 'a retry that could not write typed a line claiming it had');

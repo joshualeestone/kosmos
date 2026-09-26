@@ -15301,12 +15301,15 @@ const server = http.createServer((req, res) => {
       }
       let retold = null;
       try { retold = projects.get(id, roster); } catch { retold = null; }
-      /* ⚠️ A retry that writes the block for the first time is the join this agent never
-         got, and `toldOverride` reads the stored TOLD as "told it on its screen". So the
-         running agent is told on its screen, with the same line an add types. Only when
-         the file actually changed: a no-op retry must not repeat the line (#304). */
+      /* ⚠️ A retry that puts THIS project into the block is the join this agent never got, and
+         `toldOverride` reads the stored TOLD as "told it on its screen". So the running agent is
+         told on its screen, with the same line an add types. Only when this project was newly
+         written (`added`, not `changed`: the same write may add or drop some other project), and
+         only while the agent is still on it: a leave landing mid-request must not be announced
+         as a join. A no-op retry repeats nothing (#304). */
       let said = null;
-      if (retold && told && told.state === projects.TOLD.TOLD && told.changed) {
+      const stillOn = !!(retold && (retold.agents || []).some((a) => a && (a.sessionName || a) === name));
+      if (retold && stillOn && told && told.state === projects.TOLD.TOLD && Array.isArray(told.added) && told.added.includes(id)) {
         said = projects.speakOfMembership(name, retold, 'joined', roster);
       }
       sendJson(res, 200, { project: retold, told, said, agentsUnreadable: roster === null });

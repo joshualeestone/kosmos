@@ -1121,7 +1121,7 @@ async function main() {
     const toldEls = await page.evaluate(() => {
       const bgOf = window.__kbg;
       const out = [];
-      for (const [sel, expected] of [['#pj-one-view .pnotice .pn-b > b', 'this project\u2019s folder'],
+      for (const [sel, expected] of [['#pj-one-view .pnotice .pn-b > b', 'instructions for this project'],
                                      ['#pj-one-view .pnotice .pnwhy', '']]) {
         const el = document.querySelector(sel);
         if (!el || !el.offsetParent) { out.push({ sel, missing: true }); continue; }

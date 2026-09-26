@@ -73,6 +73,26 @@ page. Try again re-tells that agent and the notice updates.
 - The instruction writer's editor-worded refusals ("reload before saving", "open it by hand") are
   translated in tellAgent into Kosmos's own sentences, with notice shapes and a plural row, read from
   write()'s source by a test so a new refusal cannot pass through verbatim.
-- Kept: the headline "X does not have this project's folder." It is about the instructions file, which
-  is what the agent reads at its next start; a line typed into a window is lost on a restart.
+- (Superseded in round 11: the headline changed, see below.)
 - The Members heading drops its temporary tabindex when focus leaves it.
+
+## Review round 10
+- The notice region is announced on first appearance; the reader's missing-file sentence (never a
+  project verdict) is dropped and excluded in the scan with a control.
+
+## Review round 11
+- A retry announces the join only for a project the write newly put in the block (`added`, from
+  `projectsInBlock`, which reads the same post line the block writes), and only while the agent is
+  still on it. `changed` alone also fired for a write that added a different project.
+- Headline is now "Kosmos could not update X's instructions for this project." (plural: "... three
+  agents' instructions ..."). The old one claimed the folder was missing, which is false when an
+  earlier update landed, and used "folder" in two senses beside the no-folder row. Mona's copy; she
+  can override. The generic write row no longer repeats it ("The change did not save. It may work on
+  another try.").
+- Verdicts saved before tellWriteBecause keep the editor's wording; the notice matches those raw
+  sentences to the same rows (tested against write()'s own throws).
+- An offline retry whose re-read also fails paints the "did not go through" mark from the loaded
+  projects instead of waiting for the connection.
+- #pj-one-notice is a permanent, unhidden live region; the visible .pnotice is drawn inside it, so a
+  first appearance is announced (content inserted into an existing region).
+- "cannot match X to a session" is now "cannot find X running on this computer".

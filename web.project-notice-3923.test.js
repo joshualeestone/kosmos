@@ -84,23 +84,23 @@ test('#3923: nothing wrong says nothing (success and not_tried included)', () =>
   assert.equal(pjNotice(rows({ leo: 'told', april: 'not_tried' })), '');
 });
 
-test('#3923: the four shapes, one agent each, as the design draws them', () => {
+test('#3923: each shape as the design draws it (Wait, Act then retry twice, Explain), one agent each', () => {
   const { pjNotice } = notice();
   const wait = pjNotice(rows({ leo: 'we could not write to its instructions' }));
-  assert.equal(text(wait), 'leo does not have this project’s folder. We could not write to leo’s instructions. Try again');
+  assert.equal(text(wait), 'Kosmos could not update leo’s instructions for this project. The change did not save. It may work on another try. Try again');
   assert.match(wait, /data-pn-retry="leo"/);
 
   const act = pjNotice(rows({ april: 'it has no instructions file yet, and we will not create one' }));
-  assert.equal(text(act), 'april does not have this project’s folder. april has no instructions file, and Kosmos will not create one. Give april some instructions, then try again. Try again');
+  assert.equal(text(act), 'Kosmos could not update april’s instructions for this project. april has no instructions file, and Kosmos will not create one. Give april some instructions, then try again. Try again');
   // A fix the person makes, then a retry: nothing else re-tells the agent, so the button is how it is picked up.
   assert.match(act, /data-pn-retry="april"/, 'a change-something row must offer Try again after the fix');
   assert.match(act, /<b class="pnfix">Give april/);
 
   const retry = pjNotice(rows({ mikey: 'we could not find an agent with exactly this name on this computer' }));
-  assert.equal(text(retry), 'mikey does not have this project’s folder. Kosmos cannot match mikey to a session on this computer. Start mikey, then try again. Try again');
+  assert.equal(text(retry), 'Kosmos could not update mikey’s instructions for this project. Kosmos cannot find mikey running on this computer. Start mikey, then try again. Try again');
 
   const explain = pjNotice(rows({ casey: 'it has no folder of its own on this computer yet' }));
-  assert.equal(text(explain), 'casey does not have this project’s folder. Kosmos has no folder for casey on this computer, so it has nowhere to write.');
+  assert.equal(text(explain), 'Kosmos could not update casey’s instructions for this project. Kosmos has no folder for casey on this computer, so it has nowhere to write.');
   assert.doesNotMatch(explain, /Try again|pnfix/, 'Explain prescribes nothing');
 
   // A file the reader refuses is Explain too: pressing again reads the same file the same way.
@@ -117,12 +117,12 @@ test('#3923: several agents: the header counts, each row carries its own why and
     april: 'it has no instructions file yet, and we will not create one',
     casey: 'it has no folder of its own on this computer yet',
   }));
-  assert.match(text(html), /^Three agents do not have this project’s folder\./);
+  assert.match(text(html), /^Kosmos could not update three agents’ instructions for this project\./);
   assert.equal((html.match(/class="pnrow"/g) || []).length, 3, 'one row per failing agent; the told one says nothing');
   assert.equal((html.match(/data-pn-retry=/g) || []).length, 2, 'leo (Wait) and april (fix, then retry) get a button; casey (Explain) does not');
   assert.doesNotMatch(html, /data-pn-retry="casey"/);
   assert.match(html, /aria-label="Try again for leo"/, 'each button names its agent for a screen reader');
-  assert.match(html, /<span class="pnwho">leo<\/span><span class="pnwhy">We could not write to its instructions\./);
+  assert.match(html, /<span class="pnwho">leo<\/span><span class="pnwhy">The change did not save\. It may work on another try\./);
   assert.match(html, /<span class="pnwho">casey<\/span><span class="pnwhy">Kosmos has no folder for casey on this computer, so it has nowhere to write\./);
   assert.doesNotMatch(html, /bob/);
 });
@@ -132,7 +132,7 @@ test('#3923: a Try again that came back with the same answer says so on the row,
   const r = rows({ leo: 'we could not write to its instructions' });
   assert.doesNotMatch(pjNotice(r, 'p1'), /still did not work/, 'CONTROL: not before a retry');
   PJ_NOTICE_TRIED.set('p1\nleo', 'we could not write to its instructions');
-  assert.match(text(pjNotice(r, 'p1')), /We could not write to leo’s instructions\. It still did not work\./);
+  assert.match(text(pjNotice(r, 'p1')), /The change did not save\. It may work on another try\. It still did not work\./);
   // Another project painting (where leo is fine) does not forget it here.
   pjNotice(rows({ leo: 'told' }), 'p2');
   assert.match(text(pjNotice(r, 'p1')), /It still did not work\./, 'browsing another project forgot the retry here');
@@ -148,7 +148,7 @@ test('#3923: a Try again that got no answer says it did not go through, and a la
   const r = rows({ leo: 'we could not write to its instructions' });
   assert.doesNotMatch(pjNotice(r, 'p1'), /did not go through/, 'CONTROL: not before a retry');
   PJ_NOTICE_MISSED.set('p1\nleo', 'we could not write to its instructions');
-  assert.match(text(pjNotice(r, 'p1')), /We could not write to leo’s instructions\. Trying again did not go through, so this is still the earlier answer\./);
+  assert.match(text(pjNotice(r, 'p1')), /The change did not save\. It may work on another try\. Trying again did not go through, so this is still the earlier answer\./);
   assert.doesNotMatch(pjNotice(r, 'p1'), /still did not work/, 'an unanswered retry claimed to have been tried');
   // A changed answer ends the mark, as for an answered retry.
   pjNotice(rows({ leo: 'its instructions are already at the size limit' }), 'p1');
@@ -159,7 +159,7 @@ test('#3923: a Try again that got no answer says it did not go through, and a la
 
 test('#3923: an unknown cause is one honest retry with the engine\'s own sentence', () => {
   const { pjNotice } = notice();
-  assert.equal(text(pjNotice(rows({ leo: 'the disk is full' }))), 'leo does not have this project’s folder. The disk is full. Try again');
+  assert.equal(text(pjNotice(rows({ leo: 'the disk is full' }))), 'Kosmos could not update leo’s instructions for this project. The disk is full. Try again');
 });
 
 test('#3923: every could_not sentence the engine names has a shape (none falls through to the generic retry)', () => {
@@ -204,6 +204,10 @@ test('#3923: the instruction writer\'s editor-worded refusals reach the notice i
     const because = tellWriteBecause(raw);
     assert.doesNotMatch(because, /reload|open it by hand|you opened/, 'editor wording reached a project verdict: ' + because);
     assert.ok(PJ_NOTICE.some(([re]) => re.test(because)), 'no shape for the writer refusal: ' + raw + ' -> ' + because);
+    // A verdict saved before this translation existed still holds the raw sentence: it gets the same row.
+    const rawHit = PJ_NOTICE.find(([re]) => re.test(raw));
+    const newHit = PJ_NOTICE.find(([re]) => re.test(because));
+    assert.ok(rawHit && rawHit === newHit, 'an old saved verdict reads differently from a new one: ' + raw);
   }
   // CONTROL: an unknown message still passes through, to the generic retry.
   assert.equal(tellWriteBecause('the disk is full'), 'the disk is full');
@@ -250,12 +254,12 @@ function retryHandler(state) {
   const sig = "document.getElementById('pj-one-notice').addEventListener('click', ";
   const at = PAGE.indexOf(sig);
   assert.ok(at > 0, 'the Try again listener moved; re-anchor');
-  const body = PAGE.slice(at + sig.length, PAGE.indexOf('\n});', at) + 2).replace(/PJ_CURRENT/g, 'state.PJ_CURRENT');
+  const body = PAGE.slice(at + sig.length, PAGE.indexOf('\n});', at) + 2).replace(/PJ_CURRENT/g, 'state.PJ_CURRENT').replace(/PJ_READ_FAILED/g, 'state.PJ_READ_FAILED');
   // eslint-disable-next-line no-new-func
   return new Function('state', 'document', 'fetch', 'loadProjects', 'paintOneProject', 'PROJECTS', 'PJ_NOTICE_TRIED', 'PJ_NOTICE_MISSED', 'window', 'CSS',
     pageFn('const pjNoticeKey').split('\n')[0] + '\nreturn ' + body + ';')(state, state.document, state.fetch, state.loadProjects, state.paintOneProject, state.PROJECTS, state.tried, state.missed, {}, undefined);
 }
-function standIn(project, { rowAfter = true, switchTo = null, fetchFails = false, refused = false, overtaken = false, focusedElsewhere = false } = {}) {
+function standIn(project, { rowAfter = true, switchTo = null, fetchFails = false, refused = false, overtaken = false, focusedElsewhere = false, readFails = false } = {}) {
   const log = [];
   const btn = { dataset: { pnRetry: project.agents[0].sessionName }, disabled: false, closest() { return this; } };
   const again = { focus() { log.push('focus:again'); } };
@@ -271,7 +275,7 @@ function standIn(project, { rowAfter = true, switchTo = null, fetchFails = false
     PJ_CURRENT: project.id, PROJECTS: [project], tried: new Map(), missed: new Map(), log, btn, attrs, onBlur,
     document: { getElementById: () => box, querySelector: () => heading, body, get activeElement() { return focusedElsewhere ? elsewhere : body; } },
     fetch: async (url, opts) => { log.push('fetch:' + opts.method + ' ' + url + ' disabled=' + btn.disabled); if (switchTo) state.PJ_CURRENT = switchTo; if (fetchFails) throw new Error('offline'); return { ok: !refused }; },
-    loadProjects: async () => { log.push('load live=' + box.__lastLive); return !overtaken; },
+    loadProjects: async () => { log.push('load live=' + box.__lastLive); state.PJ_READ_FAILED = readFails; return !overtaken; },
     paintOneProject: () => { log.push('paint live=' + box.__lastLive); },
   };
   return state;
@@ -315,6 +319,11 @@ test('#3923: when the row is gone focus goes to the Members heading; after a pro
   await retryHandler(refused)({ target: refused.btn });
   assert.equal(refused.tried.has(project.id + '\nleo'), false);
   assert.equal(refused.missed.get(project.id + '\nleo'), 'we could not write to its instructions');
+  // Offline both ways: the re-read fails too, so the handler paints the mark from what is loaded.
+  const dark = standIn(project, { fetchFails: true, readFails: true });
+  await retryHandler(dark)({ target: dark.btn });
+  assert.ok(dark.log.includes('paint live=null'), 'an offline retry left the row unpainted: ' + dark.log);
+  assert.ok(!offline.log.some((l) => l.startsWith('paint')), 'CONTROL: a read that worked paints through loadProjects, not here');
   // CONTROL: an answered retry is marked tried, not missed.
   const answered = standIn(project);
   await retryHandler(answered)({ target: answered.btn });
