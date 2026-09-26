@@ -324,12 +324,14 @@ test('#3878: a partial pull says how many reports could not be read; the wrong-s
   });
   const r404 = await fp.pull(path.join(SB, 'd-gone'), { token: 'tok' });
   assert.equal(r404.ok, false);
-  assert.doesNotMatch(r404.because, /wrong store/, 'a 404 (deleted between list and GET) must not blame the token');
+  assert.doesNotMatch(r404.because, /refused although/, 'a 404 (deleted between list and GET) is not a refusal');
   fp.setTransport({
     list: async () => [{ url: 'https://s.blob.vercel-storage.com/x.json' }],
     get: async () => { throw new Error('blob GET HTTP 403'); },
   });
-  assert.match((await fp.pull(path.join(SB, 'd-denied'), { token: 'tok' })).because, /wrong store/);
+  const denied = await fp.pull(path.join(SB, 'd-denied'), { token: 'tok' });
+  assert.match(denied.because, /1 were refused although the store's own token was sent/);
+  assert.doesNotMatch(denied.because, /wrong store/, 'a token that listed the store cannot be for another store');
 });
 
 test('#3878: one summary for every CLI, including the could-not-be-read line', () => {
@@ -348,7 +350,7 @@ test('#3878: one summary for every CLI, including the could-not-be-read line', (
   assert.equal((self.match(/'pulled ' \+ r\.written/g) || []).length, 1, 'the summary is worded more than once in the engine');
 });
 
-test('#3878: the wrong-store hint survives a later 404 once any read was denied', async () => {
+test('#3878: refusals are counted even when the last failure was a 404', async () => {
   let n = 0;
   fp.setTransport({
     list: async () => [1, 2, 3].map((i) => ({ url: 'https://s.blob.vercel-storage.com/' + i + '.json' })),
@@ -357,7 +359,7 @@ test('#3878: the wrong-store hint survives a later 404 once any read was denied'
   const r = await fp.pull(path.join(SB, 'd-mixed'), { token: 'tok' });
   assert.equal(r.ok, false);
   assert.match(r.because, /last read error: blob GET HTTP 404/);
-  assert.match(r.because, /wrong store/, 'two 403s then a 404 must still point at the token');
+  assert.match(r.because, /2 were refused although/, 'two 403s then a 404 must still be reported as refusals');
 });
 
 test('#3878: the counts are the message: some unreadable and some malformed is said as both', async () => {
@@ -387,9 +389,33 @@ test('#3878: a refusal after the token was withheld names the host, not the toke
     const r = await fp.pull(path.join(SB, 'd-withheld'), { token: 'tok' });
     assert.equal(r.ok, false);
     assert.match(r.because, /token withheld from host localhost/);
-    assert.doesNotMatch(r.because, /wrong store/, 'the token was never sent, so it must not be blamed');
+    assert.doesNotMatch(r.because, /refused although/, 'the token was never sent, so it must not be blamed');
   } finally {
     if (savedApi === undefined) delete process.env.AGENT_WORKFORCE_BLOB_API; else process.env.AGENT_WORKFORCE_BLOB_API = savedApi;
     await new Promise((r) => api.close(r)); await new Promise((r) => other.close(r));
   }
+});
+
+test('#3878: a partial pull keeps its refusal count in the summary', () => {
+  assert.deepEqual(fp.summaryLines({ written: 1, skipped: 3, unreadable: 3, denied: 2, lastGetError: 'blob GET HTTP 404', dir: '/d' }),
+    ['pulled 1 report(s) (3 skipped) to /d', '3 report(s) could not be read, 2 of them refused although the token was sent (last error: blob GET HTTP 404)']);
+});
+
+test('#3878: reports listed from a PUBLIC blob store say the token is the old store\'s (the real wrong-store case)', async () => {
+  fp.setTransport({
+    list: async () => [{ url: 'https://abc.public.blob.vercel-storage.com/feedback/a.json' }],
+    get: async () => JSON.stringify(REC('inst-pub', '2026-09-26', 'old store')),
+  });
+  const r = await fp.pull(path.join(SB, 'd-public'), { token: 'tok' });
+  assert.equal(r.ok, true);
+  assert.equal(r.fromPublicStore, true);
+  assert.match(fp.summaryLines(r).join('\n'), /came from a PUBLIC blob store.*refile vercel-blob-feedback/);
+  // Control: the private store's host carries no such note.
+  fp.setTransport({
+    list: async () => [{ url: 'https://abc.private.blob.vercel-storage.com/feedback/a.json' }],
+    get: async () => JSON.stringify(REC('inst-priv', '2026-09-26', 'new store')),
+  });
+  const r2 = await fp.pull(path.join(SB, 'd-private'), { token: 'tok' });
+  assert.equal(r2.fromPublicStore, false);
+  assert.doesNotMatch(fp.summaryLines(r2).join('\n'), /PUBLIC/);
 });
