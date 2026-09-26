@@ -36639,12 +36639,19 @@ window.addEventListener('resize', () => {
   if (document.body.classList.contains('consolidated') !== want && typeof URL_TAB === 'string') showTab(URL_TAB);
   else if (document.body.classList.contains('consolidated')) railFoldsApply();
   /* #3385: re-fit the detail name to the identity column when the window (and so the column)
-     changes width, while the detail panel is open. openDetail and the rename handler fit it once;
-     without this a long name keeps a size measured for the old width -- too small after a widen,
-     and reliant on the ellipsis fallback after a narrow. Guarded to the visible detail panel, so
-     it is a no-op on every other tab. */
-  if (URL_TAB === 'detail' && !document.getElementById('panel-detail').hidden) fitDetailName();
+     changes width, while the detail panel is open. openDetail, the rename handler and a section
+     change (detailGo) fit it too; without this a long name keeps a size measured for the old width --
+     too small after a widen, and reliant on the ellipsis fallback after a narrow. Guarded to the
+     visible detail panel, so it is a no-op on every other tab. The fit measures up to six times, so a
+     dragged window edge is coalesced to one fit per frame (as ORG_RESIZE_RAF does for the org chart). */
+  if (URL_TAB === 'detail' && !document.getElementById('panel-detail').hidden && !DNAME_RESIZE_RAF) {
+    DNAME_RESIZE_RAF = requestAnimationFrame(() => {
+      DNAME_RESIZE_RAF = 0;
+      if (URL_TAB === 'detail' && !document.getElementById('panel-detail').hidden) fitDetailName();
+    });
+  }
 });
+let DNAME_RESIZE_RAF = 0;   // one name fit per frame while a window edge is being dragged
 function applyStyle(tokens) {
   const root = document.documentElement;
   for (const name of STYLE_APPLIED) root.style.removeProperty(name);

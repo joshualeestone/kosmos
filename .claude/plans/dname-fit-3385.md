@@ -29,3 +29,11 @@ cut with the ellipsis, as designed.
 render-detail-header-1841 Part 5: the 40-letter name fits whole on desktop (above the floor); the
 51-letter one is cut only at the floor; on a 412px phone Talk view a long name shrinks (12.3px, no
 ellipsis) and a short one keeps 18px. Both arms red on origin/main.
+
+## Review round 1 (sonnet)
+- FIXED: the resize handler called the (now up to six-pass) fit on every event; coalesced to one per
+  frame (DNAME_RESIZE_RAF, the ORG_RESIZE_RAF pattern). Comment updated to name all four fit sites.
+- ANSWERED: geometry arms under headless rendering. Every run of the new arms, and their controls, was
+  HEADED=0 (SwiftShader, as CI and the nightly run): the 40-letter name fits at 0.607rem, well clear of
+  the 0.55rem floor, and the phone name lands at 12.3px, well under 18px, so neither sits on a boundary.
+- KEPT: the typeof guard on the detailGo call (harmless; protects a test that lifts detailGo alone).
