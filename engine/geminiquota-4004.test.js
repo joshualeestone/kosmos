@@ -221,6 +221,14 @@ test('#4004 answerGeminiQuotaStop: presses the number beside Stop when the quest
     const sent = tmux.calls.filter((a) => a[0] === 'send-keys');
     assert.equal(sent.length, 1);
     assert.equal(sent[0][sent[0].length - 1], '2', 'it did not press the Stop number');
+    // A WORKING agent whose tool output quotes another pane's question (Stop row and all) is not asking it: the
+    // re-read must refuse on the reading itself, not only because no Stop number is on screen.
+    const quoted = ['✦ Checking the stuck agent', '│ $ tmux capture-pane -p -t other', DIALOG, '⠏ Thinking (esc to cancel, 3s)', ' *   Type your message or @path/to/file'].join('\n');
+    assert.equal(status.geminiStopKey(quoted), '2', 'CONTROL: the quoted copy does carry a Stop number');
+    status.setPaneCapture(() => quoted);
+    const q = chat.answerGeminiQuotaStop('gemq', board.agents);
+    assert.equal(q.ok, false, 'a key was pressed into a pane only quoting the question');
+    assert.equal(tmux.calls.filter((a) => a[0] === 'send-keys').length, 1, 'a key was pressed into a pane only quoting the question');
     // The screen changed (the question was answered, or never there): nothing is pressed.
     status.setPaneCapture(() => AFTER_STOP);
     const none = chat.answerGeminiQuotaStop('gemq', board.agents);

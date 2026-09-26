@@ -64,6 +64,12 @@ message after the reset works (item 4 with no restart). The board read the quest
   55s under the one-minute tick so jitter cannot stretch a retry to two minutes. The sweep's record cleanup has a test.
   Noted, not this card: a message sent in the up-to-a-minute before the answer lands in Gemini's question (existing).
 
+- Review round 7 (Sonnet): a test that the key press re-reads the question itself (a working agent quoting another
+  pane's question, Stop number and all, gets no key). DECIDED, not built: Gemini draws the same numbered question for
+  other conditions ("We are currently experiencing high demand", a model not found). Those are not this card and Stop
+  is the wrong answer to them (high demand clears by itself, so Keep trying is right), so Kosmos keeps reading only
+  the usage-limit header. An agent stuck on one of those is still a freeze: a follow-up card, filed with this merge.
+
 ## Weakest premise
 - Matching Gemini's words on screen: a future CLI can reword them. The reading then falls back to today's behaviour
   (unknown/idle), and the sweep presses nothing, since it needs the question recognised.
