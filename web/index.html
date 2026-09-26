@@ -40355,8 +40355,10 @@ function openCreate(initialMode) {
   // import link (openCreate('import')) lands on the import panel rather than being
   // reset to 'pm'. Every other caller passes nothing and gets 'pm' as before.
   loadRoles(initialMode === 'import' ? 'import' : 'pm');
-  /* #2623: the create-agent telemetry checkbox was deleted, so there is nothing
-     to refresh on open. */
+  /* #3877: the created-agent checkbox (#create-tell, restored by #3038, checked by default)
+     is deliberately NOT reset on open: it carries the person's choice for the session, and
+     the one-click found-agent add reads the same box. (This used to say the box was
+     deleted; #3038 brought it back.) */
 }
 
 /* #1652: wrapped, not bound bare. openCreate now takes an optional initialMode
@@ -40825,8 +40827,15 @@ async function addImportedInPlace(file, btn, row) {
      wrong-provider create). */
   const wanted = String(data.provider || '').toLowerCase();
   if (wanted && wanted !== 'anthropic') bodyObj.provider = wanted;
-  /* #2623: the create-agent telemetry (tellKosmos / ping.agentCreated) was deleted,
-     so this path sends nothing about it. */
+  /* #3877: the created-agent count (#3038, restored by Josh: default ON, never removed)
+     travels unless the request says notifyCreated:false. The create form sends its
+     checkbox; this one-click path used to send nothing, so it always counted with no
+     choice. It now sends the SAME box's state: #create-tell is static page markup,
+     CHECKED by default, so it is there even though this path never opens the form, and
+     it carries the person's choice if they unticked it this session. (This comment used
+     to say the telemetry was deleted and nothing was sent; both were out of date.) */
+  const tellBox = document.getElementById('create-tell');
+  bodyObj.notifyCreated = tellBox ? tellBox.checked === true : true;
   let out, res;
   try {
     res = await fetch('/api/agents', {
