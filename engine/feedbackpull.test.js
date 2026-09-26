@@ -592,3 +592,22 @@ test('#3906: a pull that failed only because nothing could be saved here does no
   fp.setTransport({ list: async () => [{ url: 'https://abc.public.blob.vercel-storage.com/feedback/x.json' }], get: async () => { throw new Error('blob GET HTTP 404'); } });
   assert.match((await fp.pull(path.join(SB, 'd-public-unread'), { token: 'tok' })).because, /PUBLIC blob store/);
 });
+
+test('#3906: the public-store note follows ONE rule on a partial pull and a failed one', async () => {
+  const dir = path.join(SB, 'd-public-partial-unsaved');
+  fs.mkdirSync(dir, { recursive: true });
+  const bad = REC('inst-pb', '2026-09-26', 'pb');
+  fs.mkdirSync(path.join(dir, fp.fileName(bad) + '.tmp'), { recursive: true });
+  const recs = { 'g.json': REC('inst-pg', '2026-09-26', 'pg'), 'b.json': bad };
+  fp.setTransport({
+    list: async () => Object.keys(recs).map((k) => ({ url: 'https://abc.public.blob.vercel-storage.com/feedback/' + k })),
+    get: async (u) => JSON.stringify(recs[u.split('/').pop()]),
+  });
+  const r = await fp.pull(dir, { token: 'tok' });
+  assert.equal(r.ok, true);
+  assert.equal(r.unwritten, r.skipped);
+  assert.doesNotMatch(fp.summaryLines(r).join('\n'), /PUBLIC blob store/, 'only local save failures: the token note does not apply');
+  // A clean public pull (no skips) still carries it.
+  fp.setTransport({ list: async () => [{ url: 'https://abc.public.blob.vercel-storage.com/feedback/c.json' }], get: async () => JSON.stringify(REC('inst-pc', '2026-09-26', 'pc')) });
+  assert.match(fp.summaryLines(await fp.pull(path.join(SB, 'd-public-clean'), { token: 'tok' })).join('\n'), /PUBLIC blob store/);
+});
