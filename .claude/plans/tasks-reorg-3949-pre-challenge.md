@@ -2,20 +2,20 @@
 pre_challenge: true
 method: challenge-loop
 branch: tasks-reorg-3949
-diff_hash: cb009ecffb4787f6e9c3bc49934dfa56be116efc66516a691d6196daf33ab2cd
+diff_hash: ef3d6c02e8bf7acf5b77449bc6fec46dd585fdda2393a1026d8e8b3f26591368
 validation: passed
 subdir_audit: passed
-timestamp: 2026-09-26T14:50:15Z
-iterations: 6
+timestamp: 2026-09-26T15:16:59Z
+iterations: 8
 converged: true
 ---
 
 ## [CHALLENGE-LOOP] Summary
 
-**Iterations:** 6
-**Converged:** Yes (iteration 6 raised NITs only)
-**Total findings:** 26 (3 BLOCKERs, 12 WARNINGs, 2 CONVENTIONs, 17 NITs; counts include the two validation-gate failures after round 1)
-**Fixed:** 20 | **Deferred:** 6 | **Asked (awaiting user):** 0
+**Iterations:** 8 (6 before the rebase onto origin/main a4007bb, 2 after)
+**Converged:** Yes (iteration 8 raised only the already-deferred overcount WARNING and NITs)
+**Total findings:** 33 (3 BLOCKERs, 14 WARNINGs, 3 CONVENTIONs, 21 NITs; counts include the two validation-gate failures after round 1)
+**Fixed:** 25 | **Deferred:** 8 | **Asked (awaiting user):** 0
 
 ### Per-Iteration Breakdown
 
@@ -79,10 +79,28 @@ converged: true
 - [NIT] web/index.html: the tsk-toprow children are not indented one level
 - [NIT] no assertion in the 761-1000px band
 
+#### Iteration 7 (after the rebase onto origin/main a4007bb)
+**Reviewer model:** opus
+**New findings:** 0 BLOCKERs, 2 WARNINGs, 1 CONVENTION, 4 NITs
+**Self-generated:** 1 of the above
+- [WARNING] Needs Your Decision counts tasks, not questions (one question can show as several) --> DEFERRED: the project page's granularity, keeps the tiles summing to the open count; recorded on #3949 for Mona's review
+- [WARNING] a zero decision tile kept a red dot (inline --tsk-c beat the CSS) --> FIXED (d6c646f): neutral dot at zero; the browser check's zero arm reds with the old painter
+- [NIT] tskOptions comment overclaimed --> FIXED (d6c646f)
+- [NIT] tskNeedsSig used isNamedOurs !== false --> FIXED (d6c646f): === true, as the server
+- [NIT] stale "rail item" header and palette comment --> FIXED (d6c646f)
+- [NIT] forced-open Completed fold reopens on a repaint --> DEFERRED: follows from the design
+- [CONVENTION] label casing and punctuation --> DEFERRED (Mona's review)
+
+#### Iteration 8
+**Reviewer model:** sonnet
+**New findings:** 0 BLOCKERs, 0 new WARNINGs, 0 CONVENTIONs, NITs only
+**Converged:** the one WARNING raised was iteration 7's deferred overcount (deduplicated); no new actionable findings.
+
 ### Final validation (6j)
 - First run: one unrelated test (tools.plus-signin-2036, a timeout) failed under load; it passes 18/18 alone.
 - Second and third runs: the browser-check surface gate flagged render-chip-filters-3423.js for a `data-attn` token. The only change is a comment. That check was re-run headless (20 pass) and excused with a per-check trailer (ac5ff2e; the first trailer, ffab89d, omitted `.js`).
-- Final run on ac5ff2e: PASSED (hash cb009ecffb47), subdir audit passed.
+- Pre-rebase final run on ac5ff2e: PASSED (hash cb009ecffb47), subdir audit passed.
+- Post-rebase final run on d6c646f: PASSED (validation rc=0, subdir audit rc=0), 2026-09-26 10:13 CDT. origin/main has since moved 8 commits with no conflict (merge-tree clean), so the three-dot diff and this hash are unchanged.
 
 ### Final Ledger
 
@@ -100,6 +118,8 @@ converged: true
 | 10 | 5 | BLOCKER | render-subtasks-3861.js:95 | BRANCH | /Closed/ match | FIXED | e1c2486 |
 | 11 | 5 | WARNING | web/index.html tskRosterChanged | SELF | busy baseline | FIXED | e1c2486 |
 | 12 | 5 | WARNING | web/index.html tskNeedsSig | SELF | third copy | DEFERRED | #3410 painters inline |
+| 13 | 7 | WARNING | engine/tasks.js waitingOnPerson | SELF | counts tasks not questions | DEFERRED | Mona's review (#3949) |
+| 14 | 7 | WARNING | web/index.html tile painter | SELF | red dot at zero | FIXED | d6c646f |
 
 ### Outstanding questions (ASKED, still unresolved when the run ended)
 - none
