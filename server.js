@@ -7755,8 +7755,8 @@ const server = http.createServer((req, res) => {
           })));
         const unverifiedSub = (a) => {
           if (!(a.authMode === 'subscription' && a.connection && a.connection.state === 'connected')) return a;
-          const r = subChecks.get(a.dir);
-          const because = r && r.verdict !== 'live' ? r.because : a.connection.because;
+          const r = subChecks.get(a.dir);   // a `live` answer never reaches here: it is recorded, so the row is working
+          const because = r ? r.because : a.connection.because;
           return { ...a, connection: { ...a.connection, because, badge: 'signed_in_unverified' } };
         };
         const grok = grokRows.map((a) => {
@@ -8074,7 +8074,7 @@ const server = http.createServer((req, res) => {
         const acct = rows.find((a) => a.dir === resolved && a.authMode === (grok ? 'subscription' : 'chatgpt'));
         if (!acct) { sendJson(res, 404, { error: 'we could not find that sign-in on this computer' }); return; }
         if (grok) {
-          const r = await grokAccounts.subscriptionLive(acct.dir);
+          const r = await grokAccounts.subscriptionLiveOnce(acct.dir);   // its own request, never one already in flight
           if (r.verdict === 'live') observed.sawDir(observed.PROVIDER.XAI, acct.dir, observed.OUTCOME.OK);
           if (r.verdict === 'refused') observed.forgetDir(observed.PROVIDER.XAI, acct.dir);
           /* `refused` and `expired` are their own answers: the page repaints on a refusal (an earlier green is gone)
@@ -8082,8 +8082,8 @@ const server = http.createServer((req, res) => {
           sendJson(res, 200, { state: r.verdict === 'live' ? 'connected' : (r.verdict === 'refused' || r.verdict === 'expired') ? r.verdict : 'unknown', because: r.because });
           return;
         }
-        codexsigninlive.invalidate(acct.dir);   // "right now": never a cached answer from before a new sign-in
-        const v = await codexsigninlive.liveness(acct.dir);
+        /* "Right now": its own run, never a cached answer or one already running from before a new sign-in. */
+        const v = await codexsigninlive.livenessNow(acct.dir);
         sendJson(res, 200, v === 'live' ? { state: 'connected' }
           : v === 'dead' ? { state: 'none' }
             : { state: 'unknown', because: 'we could not reach ChatGPT to check this sign-in' });

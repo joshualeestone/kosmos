@@ -973,7 +973,7 @@ const listLive = inflight.collapse(listLiveNow);
 module.exports = {
   STATE, PROVIDER, PROVIDER_NAME, DIR_PREFIX, KEY_BASENAME, FORGOTTEN_PREFIX,
   homeDir, defaultDir, keyFile, identityOf, list,
-  setFetcher, askModels, validateLive, checkLive, listLive, subscriptionLive,
+  setFetcher, askModels, validateLive, checkLive, listLive, subscriptionLive, subscriptionLiveOnce,
   keyProblem, cleanLabel, dirForLabel, nextWorkDir,
   storeKey, forgetKey, forgetAccount, removeAccount,
   authFile, readAuth, parseGrokLoginOutput, startGrokLogin, reauthTarget, grokLoginStatus, cancelGrokLogin, setGrokTimers,

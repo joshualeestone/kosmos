@@ -35,12 +35,19 @@ Design and measurements are on the card (comment 5849157780).
 - Check now is not offered on a lapsed or unreadable Grok sign-in; an expired key's title does not point at it, and
   its answer says "Not until Grok runs again". A refusal is its own answer: the page repaints, and the refusal
   forgets an earlier Check now green so a later read cannot bring it back (observed.forgetDir).
-- ChatGPT Check now asks afresh (codexsigninlive.invalidate), never a cached answer from before a new sign-in.
+- ChatGPT Check now asks afresh, never a cached answer from before a new sign-in (round 3 made it its own run).
 - Stale comments corrected (grokaccounts, openaiaccounts, codexsigninlive, the page's #2568 and Check now notes, the
   badge check, server.js).
 - Deferred: a Grok row greened by the free check (or Claude's Check now) shows the observed-request title ("an
   observed outcome, not a probe"); the check writes the same dir store as Claude's #3136 Check now, which has the
   same wording. Fixing the title for both needs the store to carry where a result came from: follow-up.
+
+## Review round 3 (Sonnet), what changed
+- WARNING: Check now could join a check that opening the list had started against the sign-in from before the person
+  fixed it, and answer from that (up to 20s stale). Check now now runs its own check (codexsigninlive.livenessNow;
+  grokaccounts.subscriptionLiveOnce), never joined to one in flight. Tested with a gated older run (bounded, so the
+  old behaviour fails rather than hangs); invalidate() removed as unused.
+- NIT: a branch in the Grok overlay that could not fire (a live answer is recorded, so never reaches it) removed.
 
 ## Decided
 - Pill text stays a short "Signed in" (Josh 6.68, #3136); the reason is in the title.

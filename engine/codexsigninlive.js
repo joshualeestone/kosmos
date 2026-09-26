@@ -198,7 +198,16 @@ function checkState(dir, nowMs) {
   if (cur && (now - cur.at) < TTL_MS) return 'fresh';
   return inflight.has(key) ? 'running' : 'cold';
 }
-/* #3997: Check now asks afresh (a cached answer from before a new sign-in could be a false red). */
-function invalidate(dir) { cache.delete(homeKey(dir)); }
+/* #3997 round 3: a NEW run for Check now, never joined to one already in flight (opening the list may have started
+   one against the sign-in from before the person fixed it). Its answer is cached as the freshest. */
+async function livenessNow(dir) {
+  let res;
+  try {
+    const r = await runner(dir);
+    res = r && r.ok ? classifyDetailed(r.stdout) : { verdict: 'unknown', cause: 'indeterminate' };
+  } catch { res = { verdict: 'unknown', cause: 'indeterminate' }; }
+  cache.set(homeKey(dir), { verdict: res.verdict, cause: res.cause, at: Date.now() });
+  return res.verdict;
+}
 
-module.exports = { liveness, livenessDetailed, livenessCached, checkState, invalidate, classify, classifyDetailed, setRunner, resetForTest, TTL_MS, TIMEOUT_MS };
+module.exports = { liveness, livenessDetailed, livenessCached, checkState, livenessNow, classify, classifyDetailed, setRunner, resetForTest, TTL_MS, TIMEOUT_MS };

@@ -94,6 +94,24 @@ test('#3997 ChatGPT: a check that FINISHED without an answer is not "checking" (
   assert.ok(!row.connection.liveCheckPending, 'a finished check still says it is under way');
 });
 
+test('#3997 ChatGPT Check now runs its OWN check, never the one opening the list started (review round 3)', async () => {
+  // Opening the list starts a check against the sign-in as it was (it will answer dead); meanwhile the person signs in
+  // again and presses Check now, which must ask afresh and answer from the new sign-in.
+  let release;
+  const gate = new Promise((r) => { release = r; });
+  let runs = 0;
+  codexsigninlive.setRunner(async () => { runs++; if (runs === 1) { await gate; return { ok: true, stdout: DOC('warning') }; } return { ok: true, stdout: DOC('ok') }; });
+  grokAccounts.setFetcher(async () => ({ status: 200 }));
+  await accounts();
+  assert.equal(runs, 1);
+  // Bounded: joined to the old check, Check now would wait on it (and its gate) forever, so time it out as a failure.
+  const pressed = post('/api/accounts/openai/check', { dir: CODEX }).then((r) => r.json());
+  const j = await Promise.race([pressed, new Promise((r) => setTimeout(() => r({ state: 'waited on the old check' }), 3000))]);
+  release();
+  assert.equal(j.state, 'connected', 'Check now answered from (or waited on) the check already running against the old sign-in');
+  assert.equal(runs, 2);
+});
+
 test('#3997 Grok subscription: a current key checked live on open reads working; an expired one stays unconfirmed with its reason', async () => {
   let calls = 0;
   grokAccounts.setFetcher(async () => { calls++; return { status: 200 }; });
