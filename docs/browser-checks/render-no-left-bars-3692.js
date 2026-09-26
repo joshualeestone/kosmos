@@ -70,6 +70,7 @@ const SAMPLES = [
        colours (#3724), so a warning there must take the pinned dark tint, not the light one. */
     const tintByTheme = {};
     const lineByTheme = {};
+    const samplesByTheme = {};
     for (const [theme, scheme, explicit, plus] of [['light', 'light', null, false], ['dark', 'dark', null, false], ['dark-explicit', 'light', 'dark', false], ['plus-light', 'light', null, true]]) {
       const page = await browser.newPage({ viewport: { width: 1000, height: 1100 }, colorScheme: scheme });
       const errs = [];
@@ -147,6 +148,7 @@ const SAMPLES = [
       }
       const unsure = res.samples.find((s) => s.label === '.pj-msg.unsure');
       tintByTheme[theme] = unsure && unsure.bg;
+      samplesByTheme[theme] = res.samples;
       const door = res.samples.find((s) => s.label === '.svc-door');
       lineByTheme[theme] = door && door.borderColor;
       chk(unsure && unsure.bg !== res.controls.plainmsg.bg, `[${theme}] the unsure room message is tinted differently from a plain one`, JSON.stringify({ unsure: unsure && unsure.bg, plain: res.controls.plainmsg.bg }));
@@ -157,6 +159,18 @@ const SAMPLES = [
     /* On navy the warn tint is the pinned dark one: the light one is near invisible there. */
     chk(tintByTheme['plus-light'] === tintByTheme.dark && tintByTheme['plus-light'] !== tintByTheme.light,
       'the Kosmos+ navy look takes the dark warn tint on a light-mode Mac', JSON.stringify(tintByTheme));
+    /* Every changed element, not one per token: on navy each takes the dark value of what the navy
+       rule pins for it (its border for a hairline or a warning, its background for a warning or a
+       tint), so an element dropped from that rule's list shows up here by name. */
+    const dark = Object.fromEntries((samplesByTheme.dark || []).map((s) => [s.label, s]));
+    const offNavy = (samplesByTheme['plus-light'] || []).filter((s) => s.kind !== 'ring').filter((s) => {
+      const d = dark[s.label];
+      if (!d) return true;
+      const wantBorder = s.kind === 'line' || s.kind === 'warn', wantBg = s.kind === 'warn' || s.kind === 'tint';
+      return (wantBorder && s.borderColor !== d.borderColor) || (wantBg && s.bg !== d.bg);
+    }).map((s) => s.label);
+    chk((samplesByTheme['plus-light'] || []).length > 10 && offNavy.length === 0,
+      'on the Kosmos+ navy look every changed element takes the dark values of its pinned marker', JSON.stringify(offNavy));
     chk(lineByTheme['plus-light'] === lineByTheme.dark && lineByTheme['plus-light'] !== lineByTheme.light,
       'the Kosmos+ navy look takes the dark hairline colour on a light-mode Mac', JSON.stringify(lineByTheme));
     chk(ringByTheme['plus-light'] === ringByTheme.dark && ringByTheme['plus-light'] !== ringByTheme.light,
