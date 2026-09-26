@@ -12854,10 +12854,10 @@ test('#2811: the RECORD account path does not score a codex dir as a non-default
   }
 });
 
-test('#3568: an Antigravity agent reads "an Antigravity agent", not "a Antigravity"', () => {
+test('#3568: an Antigravity agent reads as what the person picked, with the program it runs on', () => {
   const { sentenceForWhoami } = require('./server.js');
   const said = sentenceForWhoami(null, null, 'antigravity');
-  assert.match(said, /^This is an Antigravity agent, and /, said);
+  assert.match(said, /^This is a Gemini \(Google subscription\) agent \(it runs on Antigravity\), and /, said);
   // CONTROL: a consonant keeps "a".
   assert.match(sentenceForWhoami(null, null, 'codex'), /^This is a Codex agent, and /);
 });

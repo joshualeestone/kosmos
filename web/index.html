@@ -21022,23 +21022,30 @@ function switchKeyedSay(text, p) {
    gated on agy being INSTALLED (GET /api/antigravity, cheap), not on an account: null = not asked
    yet, true / false = the answer. Asked once, the first time a provider menu paints. */
 let AGY_INSTALLED = null;
+let AGY_OFFERED = null;   // false where it cannot run (not a Mac) or is switched off (review round 3)
 let AGY_ASKING = null;
 function paintAgyOption(sel, current) {
   const opt = sel && sel.options ? Array.from(sel.options).find((o) => o.value === 'antigravity') : null;
   if (!opt) return;
-  const on = AGY_INSTALLED === true || current === 'antigravity';
+  const on = (AGY_OFFERED !== false && AGY_INSTALLED === true) || current === 'antigravity';
   opt.disabled = !on;
   if (on) delete opt.dataset.off;
-  else opt.dataset.off = AGY_INSTALLED === false ? "Needs Google's Antigravity" : 'Checking Antigravity';
+  else opt.dataset.off = AGY_OFFERED === false ? 'Not on this computer'
+    : AGY_INSTALLED === false ? 'Set up on the Gemini row in setup' : 'Checking Antigravity';
   if (sel.dataset && sel.dataset.pcombo) sel.value = sel.value;  // eslint-disable-line no-self-assign
 }
 function agyAsk() {
   /* Asked again while it reads not installed (review round 1): a person who installs Antigravity with
      the board open should not have to reload to see the option turn on. The GET is cheap. */
-  if (AGY_INSTALLED === true || AGY_ASKING) return;
+  if (AGY_ASKING) return AGY_ASKING;
+  if (AGY_INSTALLED === true) return Promise.resolve();
   AGY_ASKING = fetch('/api/antigravity', { cache: 'no-store' })
     .then((r) => (r.ok ? r.json() : null))
-    .then((b) => { AGY_INSTALLED = !!(b && b.installed === true); })
+    .then((b) => {
+      if (!b) return;
+      AGY_OFFERED = b.enabled !== false && b.supported !== false;
+      AGY_INSTALLED = b.installed === true;
+    })
     .catch(() => { /* stays null: "Checking", never a confident not-installed */ })
     .finally(() => {
       AGY_ASKING = null;
@@ -24567,6 +24574,8 @@ const FR_KEYED = { google: { pre: 'gemini' }, xai: { pre: 'grok' } };
    (Google's docs: started without a saved session it opens the default browser to sign in), so the
    step is: check agy (installed? signed in?), and either say it is ready, show Google's installer, or
    open agy once in Terminal for the sign-in and offer Check again. Nothing is typed into agy. */
+let FR_AGY_READY = false;   // Gemini on a Google subscription confirmed signed in on this computer
+const frCap = (t) => (t ? t.charAt(0).toUpperCase() + t.slice(1) : t);
 const FR_AGY_SUB = {
   busy: false,
   gen: 0,          // bumped when the row closes: an answer for a closed row writes nothing (review round 1)
@@ -24600,8 +24609,8 @@ const FR_AGY_SUB = {
         if (!live()) return;
         this.next = 'check';
         this.say(opened && opened.ok
-          ? "Antigravity opened, and it opens Google's sign-in in your browser. Sign in there with your Google account, then press Check again."
-          : ((opened && opened.error) || "We could not open Antigravity's sign-in just now") + '.',
+          ? "Antigravity opened, and it opens Google's sign-in in your browser. Sign in there with your Google account, then press Check again. You can close Antigravity's window afterwards."
+          : frCap((opened && opened.error) || "We could not open Antigravity's sign-in just now") + '.',
           opened && opened.ok ? 'Check again' : 'Open Antigravity to sign in', false);
         if (!(opened && opened.ok)) this.next = 'open';
         return;
@@ -24612,7 +24621,7 @@ const FR_AGY_SUB = {
         if (!live()) return;
         if (!got || !got.ok) {
           this.next = 'install';
-          this.say(((got && got.error) || 'We could not install Antigravity just now') + '.', 'Try again', true);
+          this.say(frCap((got && got.error) || 'We could not install Antigravity just now') + '.', 'Try again', false);
           return;
         }
         /* Freshly installed means not signed in yet, so go straight to the sign-in step rather than
@@ -24625,26 +24634,34 @@ const FR_AGY_SUB = {
       const r = await this.post('/api/antigravity/check');
       if (!live()) return;
       if (r && typeof r.installed === 'boolean') { AGY_INSTALLED = r.installed; paintAgyOption(document.getElementById('create-provider'), ''); }
-      if (!r || typeof r.installed !== 'boolean') {
+      if (r && r.offered === false) {
+        this.next = 'check';
+        AGY_OFFERED = false;
+        this.say('Gemini on a Google subscription is not available on this computer. Use an API key instead.', '', false);
+      } else if (!r || typeof r.installed !== 'boolean') {
         this.next = 'check';
         this.say('We could not check Antigravity just now.', 'Check again', false);
       } else if (r.installed === false) {
         this.next = 'install';
         this.say("Gemini on your Google subscription runs on Google's Antigravity, which is not on this computer yet. "
-          + 'Kosmos can install it for you: it is a download from Google.', 'Install Antigravity', true);
+          + 'Kosmos can install it for you: it is a download from Google.', 'Install Antigravity', false);
       } else if (r.signedIn === true) {
         this.next = 'check';
         this.say('Ready. Gemini runs on your Google subscription on this computer: pick Google Gemini (Google subscription) when you create an agent.', '', false, true);
+        FR_AGY_READY = true;
+        frPaintKeyed();   // the row reads Connected and the step offers Next (review round 3)
       } else {
         this.next = 'open';
         this.say("Antigravity is on this computer but we could not confirm it is signed in. Open it once to sign in with your Google account.",
           'Open Antigravity to sign in', false);
       }
-    } finally { this.busy = false; }
+    } finally { if (live()) this.busy = false; }   // a superseded press must not free a newer one
   },
 };
 const KEYED_SUB_START = { google: () => FR_AGY_SUB.start(), xai: () => FR_GROK_SUB.start() };
-const keyedSubReady = (which) => typeof KEYED_SUB_START[which] === 'function';
+/* #3568: Gemini's subscription only where it can run (a Mac, runner on); AGY_OFFERED is read before
+   the choice is shown (frKeyedConnect). */
+const keyedSubReady = (which) => typeof KEYED_SUB_START[which] === 'function' && (which !== 'google' || AGY_OFFERED !== false);
 let FR_KEYED_GEN = 0;   // an answer, a finished download or an Add from an earlier opening changes nothing
 const frK = (which, part) => document.getElementById('fr-' + FR_KEYED[which].pre + '-' + part);
 const frKeyedPanels = (which) => ['confirm', 'pick', 'sub-step', 'flow'].map((part) => frK(which, part)).filter(Boolean);
@@ -24711,6 +24728,7 @@ async function frKeyedConnect(which) {
   { const bar = frK(which, 'confirm-bar'); if (bar) bar.hidden = true; const cm = frK(which, 'confirm-msg'); if (cm) cm.textContent = ''; }
   const info = await keyedRunnerInfo(which);
   if (mine !== FR_KEYED_GEN) return;
+  if (which === 'google') { await agyAsk(); if (mine !== FR_KEYED_GEN) return; }   // is the subscription offered here?
   FR_KEYED_KEY_NEEDS_INSTALL[which] = false;
   if (info && info.present) { frKeyedShowPick(which); return; }
   /* #3568 (review round 1): Gemini's subscription runs on Antigravity, not the Gemini CLI, so the
@@ -24825,18 +24843,25 @@ async function frPaintKeyed(known) {
     const connected = mine.some((x) => x.connection && x.connection.state === 'connected');
     /* A key saved but not yet confirmed (the provider did not answer) is not "Connected",
        and must not offer Connect again either: a second paste would make a second account. */
-    const saved = !connected && mine.some((x) => x.connection && x.connection.state === 'unknown');
+    const agyReady = provider === 'google' && FR_AGY_READY;   // #3568: Gemini on a Google subscription
+    const saved = !connected && !agyReady && mine.some((x) => x.connection && x.connection.state === 'unknown');
     const name = provider === 'google' ? 'Gemini' : 'Grok';
-    b.innerHTML = connected ? '<span aria-hidden="true">✓</span> Connected' : saved ? 'Key saved' : 'Connect';
-    b.disabled = connected || saved;
-    b.classList.toggle('is-connected', connected);
-    b.setAttribute('aria-disabled', String(connected || saved));
-    b.setAttribute('aria-label', connected ? name + ' is connected' : saved ? name + ' key saved' : 'Connect ' + name);
+    const on = connected || agyReady;
+    b.innerHTML = on ? '<span aria-hidden="true">✓</span> Connected' : saved ? 'Key saved' : 'Connect';
+    b.disabled = on || saved;
+    b.classList.toggle('is-connected', on);
+    b.setAttribute('aria-disabled', String(on || saved));
+    b.setAttribute('aria-label', on ? name + ' is connected' : saved ? name + ' key saved' : 'Connect ' + name);
     /* #3731: GPT's connected state, cloned (frPaintOpenai, #2241): the gold check box on the
        provider's own line, not a plain sentence. */
     const which = provider;
     const line = frK(which, 'msg');
-    if (line && connected) {
+    if (line && !connected && agyReady) {
+      if (frKeyedOpenNow(which)) frKeyedCollapse(which, true);
+      line.className = 'fr-connbox';
+      line.innerHTML = frCheckRow({ state: 'ok', title: 'Google Gemini (Google subscription) is ready',
+        detail: 'This computer is signed in to Antigravity with your Google account.' });
+    } else if (line && connected) {
       /* As GPT's paint does (#2621): a connected provider shows no key form or choice under its box,
          or a second paste would make a second account. keepSignIn: the box is being drawn now. */
       if (frKeyedOpenNow(which)) frKeyedCollapse(which, true);
@@ -24855,7 +24880,7 @@ async function frPaintKeyed(known) {
   /* #3731: and GPT's Continue (#2134): a connected Gemini or Grok is a usable model provider, so
      the step offers Next rather than leaving "Skip connecting a model" as the only way on, unless
      Claude has already offered its own. */
-  const anyKeyed = list.some((x) => (acctProvider(x) === 'google' || acctProvider(x) === 'xai') && x.connection && x.connection.state === 'connected');
+  const anyKeyed = FR_AGY_READY || list.some((x) => (acctProvider(x) === 'google' || acctProvider(x) === 'xai') && x.connection && x.connection.state === 'connected');
   const claudeConnected = FR && FR.subscription && FR.subscription.state === 'connected';
   if (anyKeyed && !claudeConnected && FR_STEP === 5) frActions({ label: 'Next', go: () => frGo(frStepAfter(5)) }, null);
 }
@@ -39056,7 +39081,7 @@ document.getElementById('d-provider-go').addEventListener('click', () => {
              return 'and it runs on this computer’s OpenAI sign-in.';
            })())
         : toAgy
-          ? 'Its ' + fromWord + ' model and account choices do not cross: Gemini picks its own model, and it signs in with your Google subscription in its own window.'
+          ? 'Its ' + fromWord + ' model and account choices do not cross: Gemini picks its own model, and it runs on your Google subscription through Antigravity. If Antigravity is not signed in yet, sign in on the Gemini row in setup first.'
         : toOther
           ? 'Its ' + fromWord + ' model and account choices do not cross: ' + label + ' picks its own model, '
             + ((() => {

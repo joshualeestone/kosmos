@@ -61,6 +61,14 @@ subscription, only now that it is true.
   browser to sign in, so opening it in Terminal is the documented path; what `agy -p` does signed out
   (it may also open a browser) is still unmeasured here.
 
+- Review round 3: offered only where it can run and is switched on (GET /api/antigravity says
+  enabled/supported; install, open and check refuse otherwise; the Gemini row goes straight to the key
+  path), so Windows and AGENT_WORKFORCE_ANTIGRAVITY=0 never see a path create would refuse. Ready
+  marks the Gemini row connected and offers Next. The installer runs with its input closed, and a
+  sandboxed board refuses to install into the real home. The switch dialog says to sign in on the
+  Gemini row first rather than promising a window the agent's pane would open unseen. The whoami
+  sentence names "Gemini (Google subscription)" with the program it runs on.
+
 ## Not in this card
 - Reading what an Antigravity agent is doing (status) and its auth-failed copy: #3568's PR 2.
 - Windows: agy is refused there today.

@@ -37,10 +37,11 @@ test('#3568: the create and switch menus offer Gemini on a Google subscription, 
 
 // eslint-disable-next-line no-new-func
 const agy = new Function('document', 'fetch', 'CURRENT', `
-  let AGY_INSTALLED = null; let AGY_ASKING = null;
+  let AGY_INSTALLED = null; let AGY_OFFERED = null; let AGY_ASKING = null;
   ${grab('function paintAgyOption(')}
   const set = (v) => { AGY_INSTALLED = v; };
-  return { paintAgyOption, set };
+  const offer = (v) => { AGY_OFFERED = v; };
+  return { paintAgyOption, set, offer };
 `);
 
 function menu() {
@@ -57,7 +58,7 @@ test('#3568: the option turns on only when agy is installed, and says why when i
   api.set(false);
   api.paintAgyOption(m, '');
   assert.equal(m.opt('antigravity').disabled, true);
-  assert.equal(m.opt('antigravity').dataset.off, "Needs Google's Antigravity");
+  assert.equal(m.opt('antigravity').dataset.off, 'Set up on the Gemini row in setup');
   api.set(true);
   api.paintAgyOption(m, '');
   assert.equal(m.opt('antigravity').disabled, false, 'installed must turn it on');
@@ -68,6 +69,11 @@ test('#3568: the option turns on only when agy is installed, and says why when i
   assert.equal(m.opt('antigravity').disabled, false);
   // CONTROL: it touches only its own option.
   assert.equal(m.opt('google').disabled, true);
+  // Not offered here (not a Mac, or switched off): off even when installed, and says so.
+  api.set(true); api.offer(false);
+  api.paintAgyOption(m, '');
+  assert.equal(m.opt('antigravity').disabled, true, 'an unoffered option was enabled');
+  assert.equal(m.opt('antigravity').dataset.off, 'Not on this computer');
 });
 
 test('#3568: an Antigravity agent is on antigravity, and the switch words name Gemini by subscription', () => {
@@ -105,7 +111,7 @@ test('#3568: creating on Gemini by subscription sends no account: the account ro
 test('#3568: the switch dialog and the "reactivate" sentence name Gemini by subscription, never Anthropic or Claude', () => {
   assert.match(PAGE, /const toAgy = sel\.value === 'antigravity';/);
   assert.match(PAGE, /const label = toOpenai \? 'OpenAI' : \(toOther \|\| toAgy\) \? switchKeyedWord\(sel\.value\) : 'Anthropic';/);
-  assert.match(PAGE, /: toAgy\s*\n\s*\? 'Its ' \+ fromWord \+ ' model and account choices do not cross: Gemini picks its own model, and it signs in with your Google subscription in its own window\.'/);
+  assert.match(PAGE, /: toAgy\s*\n\s*\? 'Its ' \+ fromWord \+ ' model and account choices do not cross: Gemini picks its own model, and it runs on your Google subscription through Antigravity\. If Antigravity is not signed in yet, sign in on the Gemini row in setup first\.'/);
 });
 
 test('#3568: after a switch, the dialog says "Restarted on Gemini (Google subscription)", never Anthropic (review round 1)', () => {
@@ -124,4 +130,100 @@ test('#3568: Gemini by subscription sorts beside Gemini (review round 1: it sank
   const at = PAGE.indexOf('const PROVIDER_ORDER = ');
   const order = JSON.parse(PAGE.slice(PAGE.indexOf('[', at), PAGE.indexOf(']', at) + 1).replace(/'/g, '"'));
   assert.equal(order.indexOf('antigravity'), order.indexOf('google') + 1);
+});
+
+/* Review round 3: the headline flow itself, "Sign in with Subscription" on the Gemini row. The page's
+   FR_AGY_SUB runs as written, against a stand-in page and scripted route answers. */
+function agyFlow(answers) {
+  const at = PAGE.indexOf('let FR_AGY_READY = false;');
+  const end = PAGE.indexOf('const KEYED_SUB_START', at);
+  assert.ok(at > 0 && end > at, 'FR_AGY_SUB moved; re-anchor');
+  const els = {};
+  const el = (id) => (els[id] || (els[id] = { id, textContent: '', hidden: true, href: '' }));
+  const posts = [];
+  const doc = { getElementById: (id) => el(id) };
+  const fetchStub = async (path) => {
+    posts.push(path);
+    const queue = answers[path] || [];
+    const a = queue.length > 1 ? queue.shift() : queue[0];
+    if (a === 'throw') throw new Error('offline');
+    return { json: async () => a };
+  };
+  let painted = 0;
+  // eslint-disable-next-line no-new-func
+  const api = new Function('document', 'fetch', 'paintAgyOption', 'frPaintKeyed', `
+    let AGY_INSTALLED = null; let AGY_OFFERED = null;
+    ${PAGE.slice(at, end)}
+    return { FR_AGY_SUB, ready: () => FR_AGY_READY, offered: () => AGY_OFFERED };
+  `)(doc, fetchStub, () => {}, () => { painted += 1; });
+  const view = () => ({ text: el('fr-gemini-sub-code').textContent, button: el('fr-gemini-sub-go').hidden ? '' : el('fr-gemini-sub-go').textContent,
+    stop: !el('fr-gemini-sub-cancel-row').hidden });
+  return { ...api, view, posts, painted: () => painted };
+}
+
+test('#3568: Sign in with Subscription walks not installed -> Install -> Open -> Check again -> Ready', async () => {
+  const f = agyFlow({
+    '/api/antigravity/check': [{ installed: false, signedIn: false }, { installed: true, signedIn: true }],
+    '/api/antigravity/install': [{ ok: true, installed: true }],
+    '/api/antigravity/open': [{ ok: true }],
+  });
+  await f.FR_AGY_SUB.start();
+  assert.match(f.view().text, /not on this computer yet/);
+  assert.equal(f.view().button, 'Install Antigravity');
+  assert.equal(f.view().stop, true, 'Stop is offered during the step');
+  await f.FR_AGY_SUB.start();   // Install
+  assert.match(f.view().text, /Antigravity is installed\. Open it once to sign in/);
+  assert.equal(f.view().button, 'Open Antigravity to sign in');
+  assert.deepEqual(f.posts, ['/api/antigravity/check', '/api/antigravity/install'], 'a fresh install must not spend a check');
+  await f.FR_AGY_SUB.start();   // Open
+  assert.match(f.view().text, /opens Google's sign-in in your browser/);
+  assert.equal(f.view().button, 'Check again');
+  await f.FR_AGY_SUB.start();   // Check again
+  assert.match(f.view().text, /^Ready\./);
+  assert.equal(f.view().button, '');
+  assert.equal(f.view().stop, false, 'no Stop once it is ready');
+  assert.equal(f.ready(), true);
+  assert.equal(f.painted(), 1, 'the row must be repainted as connected');
+  // Opening happened exactly once, and only on its own press.
+  assert.equal(f.posts.filter((p) => p === '/api/antigravity/open').length, 1);
+});
+
+test('#3568: installed but unconfirmed offers Open as its own press; a check never opens a window by itself', async () => {
+  const f = agyFlow({ '/api/antigravity/check': [{ installed: true, signedIn: null }], '/api/antigravity/open': [{ ok: false, error: 'we could not open it' }] });
+  await f.FR_AGY_SUB.start();
+  assert.equal(f.view().button, 'Open Antigravity to sign in');
+  assert.ok(!f.posts.includes('/api/antigravity/open'), 'a check opened a window by itself');
+  await f.FR_AGY_SUB.start();
+  assert.match(f.view().text, /^We could not open it\./, 'the server reason is shown with a capital');
+  assert.equal(f.view().button, 'Open Antigravity to sign in', 'a failed open offers the open again');
+});
+
+test('#3568: Stop partway: the late answer writes nothing and a new press starts clean', async () => {
+  let release;
+  const f = agyFlow({ '/api/antigravity/check': [{ installed: false, signedIn: false }] });
+  const slow = agyFlow({});
+  void slow;
+  const pending = new Promise((r) => { release = r; });
+  const g = agyFlow({ '/api/antigravity/check': [{ installed: true, signedIn: true }] });
+  // Drive g with a check that answers only after Stop.
+  const at = g.FR_AGY_SUB;
+  const origPost = at.post.bind(at);
+  at.post = async (p) => { await pending; return origPost(p); };
+  const run = at.start();
+  at.leave();                     // Stop
+  release();
+  await run;
+  assert.notEqual(g.view().text.slice(0, 6), 'Ready.', 'a stopped check wrote into the closed step');
+  assert.equal(g.ready(), false);
+  // CONTROL: the ordinary flow still reaches its first answer.
+  await f.FR_AGY_SUB.start();
+  assert.match(f.view().text, /not on this computer yet/);
+});
+
+test('#3568: where it is not offered (not a Mac, or switched off) the step says so and offers nothing to press', async () => {
+  const f = agyFlow({ '/api/antigravity/check': [{ installed: false, signedIn: false, offered: false }] });
+  await f.FR_AGY_SUB.start();
+  assert.match(f.view().text, /not available on this computer\. Use an API key instead/);
+  assert.equal(f.view().button, '');
+  assert.equal(f.offered(), false);
 });

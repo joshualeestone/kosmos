@@ -228,6 +228,7 @@ test('#3568: POST /api/antigravity/open and /install answer through the real rou
   process.env.AGENT_WORKFORCE_ANTIGRAVITY_BIN = bin;
   try {
     // Not installed: open refuses with its reason, and install runs the installer.
+    agystatus.allowSandboxInstallForTests(true);   // this test board is a sandbox by design
     let ran = 0;
     agystatus.setInstallerForTests((done) => { ran += 1; fs.writeFileSync(bin, '#!/bin/sh\nexit 0\n', { mode: 0o755 }); done(null); });
     const o1 = await req('/api/antigravity/open', { method: 'POST' });

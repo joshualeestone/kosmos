@@ -98,6 +98,14 @@ test('install: runs Google\'s installer only when agy is missing, and trusts onl
   const was = process.env.AGENT_WORKFORCE_ANTIGRAVITY_BIN;
   process.env.AGENT_WORKFORCE_ANTIGRAVITY_BIN = bin;
   try {
+    // A board pointed at another home refuses, and runs nothing (review round 3).
+    let ran = 0;
+    agystatus.setInstallerForTests((done) => { ran += 1; done(null); });
+    const refused = await agystatus.install();
+    assert.equal(refused.ok, false);
+    assert.match(refused.because, /different home/);
+    assert.equal(ran, 0, 'a sandboxed board ran the installer');
+    agystatus.allowSandboxInstallForTests(true);   // the rest drives the installer in this sandbox
     // The installer "succeeds" but puts nothing there: not installed, and it says so.
     agystatus.setInstallerForTests((done) => done(null));
     const empty = await agystatus.install();
@@ -110,7 +118,25 @@ test('install: runs Google\'s installer only when agy is missing, and trusts onl
     agystatus.setInstallerForTests((done) => { fs.writeFileSync(bin, '#!/bin/sh\nexit 0\n', { mode: 0o755 }); done(null); });
     assert.deepEqual(await agystatus.install(), { ok: true, installed: true });
   } finally {
+    agystatus.allowSandboxInstallForTests(false);
     if (was === undefined) delete process.env.AGENT_WORKFORCE_ANTIGRAVITY_BIN; else process.env.AGENT_WORKFORCE_ANTIGRAVITY_BIN = was;
     fs.rmSync(dir, { recursive: true, force: true });
   }
+});
+
+test('not offered (switched off, or not a Mac): the screen is told so, and the check runs nothing', async () => {
+  const was = process.env.AGENT_WORKFORCE_ANTIGRAVITY;
+  process.env.AGENT_WORKFORCE_ANTIGRAVITY = '0';
+  let ran = 0;
+  agystatus.setRunnerForTests((b, done) => { ran += 1; done(null, 'ok'); });
+  try {
+    const s = agystatus.installedForScreen();
+    assert.equal(s.enabled, false);
+    assert.equal(s.installed, false, 'a switched-off runner must not read as installed');
+    const r = await agystatus.check();
+    assert.equal(r.offered, false);
+    assert.equal(ran, 0);
+    assert.equal((await agystatus.install()).ok, false);
+    assert.equal((await agystatus.openForSignIn()).ok, false);
+  } finally { if (was === undefined) delete process.env.AGENT_WORKFORCE_ANTIGRAVITY; else process.env.AGENT_WORKFORCE_ANTIGRAVITY = was; }
 });

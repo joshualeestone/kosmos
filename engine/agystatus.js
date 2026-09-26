@@ -1,10 +1,10 @@
 'use strict';
 /**
- * #3568: is Gemini on a Google subscription ready on this Mac? Two facts about Google's
+ * #3568: is Gemini on a Google subscription ready on this computer? Two facts about Google's
  * Antigravity CLI (agy), the program an Antigravity agent runs on:
  *
  *  - INSTALLED: runners.resolveBin('antigravity') finds a runnable agy (its own installer puts it
- *    in ~/.local/bin/agy; Kosmos does not install it). Cheap, read on every call.
+ *    in ~/.local/bin/agy; Kosmos runs that installer on a press, see install()). Cheap.
  *  - SIGNED IN: agy keeps its Google sign-in to itself (no file Kosmos can read) and has no status
  *    command, so the only test is to ask it something. A one-line prompt in print mode, run in a
  *    throwaway folder: measured 2026-09-25 on Agent1s, signed in it answered "ok" in 2 to 5 s, from a
@@ -31,8 +31,22 @@ function installed() {
   const r = runners.resolveBin('antigravity');
   return { installed: !!(r && r.present), bin: r ? r.bin : null, because: r && r.because ? r.because : null };
 }
-/* What a screen is told: whether it is installed, never the path (review round 1). */
-function installedForScreen() { const i = installed(); return { installed: i.installed }; }
+/* Offered at all? Only where agy can run (a Mac: the supervisor refuses agy on Windows) and while
+   the runner is switched on (AGENT_WORKFORCE_ANTIGRAVITY=0 turns it off; review round 3: with it off
+   the screen must not offer a path create would refuse). */
+function supported() { return process.platform === 'darwin'; }
+function enabled() { return require('./create').antigravityEnabled(); }
+function offered() { return supported() && enabled(); }
+/* What a screen is told: whether it is offered and installed, never the path (review round 1). */
+function installedForScreen() {
+  return { installed: offered() && installed().installed, enabled: enabled(), supported: supported() };
+}
+/* Kosmos installs into this computer's own home only: a sandboxed board (AGENT_WORKFORCE_HOME) or an
+   agy named elsewhere (AGENT_WORKFORCE_ANTIGRAVITY_BIN) would install where it then does not look
+   (review round 3). */
+let sandboxInstallAllowedForTests = false;
+function sandboxed() { return !sandboxInstallAllowedForTests && !!(process.env.AGENT_WORKFORCE_HOME || process.env.AGENT_WORKFORCE_ANTIGRAVITY_BIN); }
+function allowSandboxInstallForTests(v) { sandboxInstallAllowedForTests = !!v; }
 
 /* The seam a test replaces: run agy once and hand back (err, stdout). */
 let runAgy = (bin, done) => {
@@ -48,6 +62,7 @@ let runAgy = (bin, done) => {
 function checkOnce() {
   return new Promise((resolve) => {
     const inst = installed();
+    if (!offered()) { resolve({ installed: false, signedIn: false, offered: false, because: 'Gemini on a Google subscription is not offered on this computer' }); return; }
     if (!inst.installed) {
       resolve({ installed: false, signedIn: false, because: inst.because || 'Antigravity is not installed on this computer' });
       return;
@@ -79,7 +94,8 @@ function check() { return shared(); }
 let openTerminal = (bin, done) => execFile('/usr/bin/open', ['-a', 'Terminal', bin], { timeout: 15000 }, (err) => done(err));
 function openForSignIn() {
   return new Promise((resolve) => {
-    if (process.platform !== 'darwin') { resolve({ ok: false, because: 'Kosmos can open Antigravity for you on a Mac only' }); return; }
+    if (!supported()) { resolve({ ok: false, because: 'Gemini on a Google subscription works on a Mac only for now' }); return; }
+    if (!enabled()) { resolve({ ok: false, because: 'Gemini on a Google subscription is switched off on this computer' }); return; }
     const inst = installed();
     if (!inst.installed) { resolve({ ok: false, because: 'Antigravity is not installed on this computer' }); return; }
     openTerminal(inst.bin, (err) => resolve(err
@@ -102,13 +118,17 @@ let runInstall = (done) => {
   const clean = () => { try { fs.rmSync(dir, { recursive: true, force: true }); } catch { /* best effort */ } };
   execFile('/usr/bin/curl', ['-fsSL', '--proto', '=https', '-o', script, INSTALL_URL], { timeout: 60000, killSignal: 'SIGKILL' }, (err) => {
     if (err) { clean(); done(err); return; }
-    execFile('/bin/bash', [script], { cwd: dir, timeout: INSTALL_MS, killSignal: 'SIGKILL', env: { ...process.env, HOME: os.homedir() } }, (err2) => { clean(); done(err2); });
+    const child = execFile('/bin/bash', [script], { cwd: dir, timeout: INSTALL_MS, killSignal: 'SIGKILL', env: { ...process.env, HOME: os.homedir() } }, (err2) => { clean(); done(err2); });
+    // Nothing is typed into it (review round 3): a step that prompts reads end-of-input and moves on.
+    if (child && child.stdin) child.stdin.end();
   });
 };
 function installOnce() {
   return new Promise((resolve) => {
-    if (process.platform !== 'darwin') { resolve({ ok: false, because: 'Kosmos can install Antigravity on a Mac only' }); return; }
+    if (!supported()) { resolve({ ok: false, because: 'Gemini on a Google subscription works on a Mac only for now' }); return; }
+    if (!enabled()) { resolve({ ok: false, because: 'Gemini on a Google subscription is switched off on this computer' }); return; }
     if (installed().installed) { resolve({ ok: true, installed: true }); return; }
+    if (sandboxed()) { resolve({ ok: false, installed: false, because: 'this board is set to a different home, so Kosmos will not install Antigravity into this computer\'s own' }); return; }
     /* A hard cap of our own, as check() has (review round 2): an installer child that holds stdout
        would keep execFile's callback from firing, and an unsettled install would hold every later one. */
     let done = false;
@@ -133,9 +153,9 @@ function install() { return sharedInstall(); }
 function setInstallerForTests(fn) { runInstall = fn; }
 /* The real runner, opener and installer, kept so a test file can put them back when it is done. */
 const REAL = {};
-function resetForTests() { runAgy = REAL.runAgy; openTerminal = REAL.openTerminal; runInstall = REAL.runInstall; }
+function resetForTests() { runAgy = REAL.runAgy; openTerminal = REAL.openTerminal; runInstall = REAL.runInstall; sandboxInstallAllowedForTests = false; }
 function setOpenerForTests(fn) { openTerminal = fn; }
 function setRunnerForTests(fn) { runAgy = fn; }
 
 REAL.runAgy = runAgy; REAL.openTerminal = openTerminal; REAL.runInstall = runInstall;
-module.exports = { resetForTests, installed, installedForScreen, check, openForSignIn, install, setRunnerForTests, setOpenerForTests, setInstallerForTests, PROMPT, INSTALL_URL };
+module.exports = { resetForTests, allowSandboxInstallForTests, installed, installedForScreen, offered, check, openForSignIn, install, setRunnerForTests, setOpenerForTests, setInstallerForTests, PROMPT, INSTALL_URL };

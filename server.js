@@ -1462,8 +1462,11 @@ function sentenceForWhoami(account, model, runner) {
      re-read catching it. ⇒ Reasoning that holds for the live reader does not
      transfer to the record reader, which is the third time on this branch. */
   const isForeign = !!(runner && runner !== 'claude');
-  const shown = isForeign ? runnerDisplayName(runner) : '';
-  const named = isForeign ? 'This is ' + (/^[AEIOU]/.test(shown) ? 'an ' : 'a ') + shown + ' agent, and ' : null;   // #3568: "an Antigravity"
+  /* #3568: the name the person picked ("Gemini (Google subscription)"), with the program it runs on,
+     so the whoami sentence and the menus agree (review round 3). */
+  const shown = !isForeign ? '' : runner === 'antigravity' ? 'Gemini (Google subscription)' : runnerDisplayName(runner);
+  const named = !isForeign ? null
+    : 'This is ' + (/^[AEIOU]/.test(shown) ? 'an ' : 'a ') + shown + ' agent' + (runner === 'antigravity' ? ' (it runs on Antigravity)' : '') + ', and ';
   parts.push(acct
     ? (named ? named + 'it runs on ' + acct : 'This agent runs on ' + acct)
     /* 📌 NO REASON GIVEN ON THE FOREIGN ARM, deliberately. The shared `why` blames
@@ -7668,8 +7671,8 @@ const server = http.createServer((req, res) => {
     sendJson(res, 200, { runners: runners.status() });
     return;
   }
-  /* #3568: Gemini on a Google subscription runs on Google's Antigravity CLI (agy), which Kosmos
-     does not install and cannot read the sign-in of. GET says whether agy is installed (cheap, safe
+  /* #3568: Gemini on a Google subscription runs on Google's Antigravity CLI (agy), whose sign-in
+     Kosmos cannot read; Kosmos installs it on a press (/install below). GET says whether agy is installed (cheap, safe
      to poll). POST .../check asks agy one tiny question to learn whether it is signed in: it costs a
      prompt on the person's subscription, so a screen calls it only on a press, and concurrent presses
      share one run. signedIn is true, false (not installed) or null (could not confirm). */
