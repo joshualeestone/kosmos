@@ -23,12 +23,12 @@ test.after(() => { fs.rmSync(SANDBOX, { recursive: true, force: true }); });
 const FLAT = dmfiles.blockBody('/Users/someone/work/workers/writer/Files').replace(/\s+/g, ' ');
 
 test('#3965: the block says a thing made for the person is a FILE, named in the reply', () => {
-  assert.match(FLAT, /is a FILE on this computer, saved where the next paragraphs say, and named in your reply/);
+  assert.match(FLAT, /anything longer than a reply\) is a FILE on this computer, saved where the next paragraphs say, and named in your reply/);
 });
 
 test('#3965: the block rules out an artifact or link unless the person asks, and says it outranks a tool default', () => {
-  assert.match(FLAT, /Do not publish it as a Claude artifact, a shared document or any other link unless the person asks for that, here or in your instructions/);
-  assert.match(FLAT, /If one of your tools offers to publish by default, this instruction comes first\./);
+  assert.match(FLAT, /Do not publish it as a Claude artifact, a shared document or any other link unless the person asks for that, in the conversation or in your instructions/);
+  assert.match(FLAT, /If one of your tools offers to publish by default, this instruction wins over that default\./);
 });
 
 test('#3965: the rule comes FIRST in the block, before where the file goes', () => {
@@ -58,7 +58,7 @@ test('#3965: an app\'s scratch files are not listed; ordinary names that look si
 test('#3965: a swarm lead tells its helpers to hand files back, not publish them (a reinforcement)', () => {
   const swarm = require('./swarm');
   const flat = swarm.blockBody(3).replace(/\s+/g, ' ');
-  assert.match(flat, /A helper that makes something to keep hands it back to you as a file, never as a Claude artifact or a link/);
+  assert.match(flat, /Tell each helper that anything it makes to keep comes back to you as a file, never as a Claude artifact or a link/);
   assert.match(flat, /You save it where your "Where to save files" section says/);
 });
 

@@ -88,12 +88,13 @@ function blockBody(dir) {
        artifact ... not keep trying to put stuff out as Claude artifacts". A Claude agent's own
        tools tell it to publish a finished piece as an artifact by default, so the rule here has to
        say, in so many words, that this default wins over that one. Every provider reads this block. */
-    'Anything you make for the person to keep (a document, a report, notes, a list,',
-    'a draft) is a FILE on this computer, saved where the next paragraphs say, and',
-    'named in your reply. Do not publish it as a Claude artifact, a shared document',
-    'or any other link unless the person asks for that, here or in your instructions:',
-    'they look for your work under Files in Kosmos, and a link lives somewhere else.',
-    'If one of your tools offers to publish by default, this instruction comes first.',
+    'Anything you make for the person to keep (a document, a report, a draft,',
+    'anything longer than a reply) is a FILE on this computer, saved where the next',
+    'paragraphs say, and named in your reply. Do not publish it as a Claude artifact,',
+    'a shared document or any other link unless the person asks for that, in the',
+    'conversation or in your instructions: they look for your work under Files in',
+    'Kosmos, and a link lives somewhere else. If one of your tools offers to publish',
+    'by default, this instruction wins over that default.',
     '',
     'When you make a file for the person in a direct conversation with them, or they',
     'ask you for one there, save it in your Files folder. Two things come first: if',

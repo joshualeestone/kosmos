@@ -36,8 +36,8 @@
   (a helper-count change); their own dmfiles block (the main rule) does sync.
 
 ## Verification
-- engine/dmfiles.artifact-3965.test.js (5): the rule's wording and position, the swarm line, and the
-  scratch filter (hides ~$, Thumbs.db, desktop.ini in any case, keeps ~notes.txt, price$.xlsx,
+- engine/dmfiles.artifact-3965.test.js (6): the rule's wording and position, the swarm line, and the
+  scratch filter (hides ~$, Thumbs.db, DESKTOP.INI (the /i flag is exercised by ~wrd1234.tmp), a scratch-named folder's contents, keeps ~notes.txt, price$.xlsx,
   thumbs.db.txt). Removing the `~$` clause reds the listing test.
 - engine/dmfiles.test.js, engine/projects.test.js, engine/swarm.test.js green.
 
@@ -54,3 +54,14 @@
 ## Challenge-loop iteration 2
 - Folder skipping now has a test (scratch-named folders not walked, an ordinary folder walked as
   the control). The patterns are named constants, as the repo's convention asks.
+
+## Challenge-loop iteration 3
+- The swarm bullet now tells the LEAD to tell each helper (an action, like its siblings).
+- Block wording: "wins over that default" (not a second "comes first"); "in the conversation or in
+  your instructions"; the examples no longer invite a file for every short list.
+- Docstrings (listFiles, its bounds, the agent Files route) now name isScratchName.
+- Left visible ON PURPOSE, recorded: editor backups (`name~`, `#name#`) and partial downloads
+  (`.part`, `.crdownload`, `.download`). They can hold a person's real, recoverable content, unlike
+  an Office owner file, so hiding them could hide work.
+- DEFERRED: the first commit's subject predates the branch-prefix form; history is pushed, and the
+  squash-merge title follows the convention.

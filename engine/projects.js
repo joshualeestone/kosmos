@@ -1379,7 +1379,7 @@ function isScratchName(name) {
  * a place a person and their agents both write into, so an UNBOUNDED walk would
  * turn "the last ten documents" into a crawl of somebody's whole working tree: the
  * walk is capped in depth and in entries read, and skips dependency, cache and build-output trees.
- * Directories, dotfiles and anything that is not a regular file are left out — a
+ * Directories, scratch names (isScratchName: dotfiles, Office ~$ files and the like) and anything that is not a regular file are left out — a
  * symlink (file or folder) is not listed or entered, because the thing it points at
  * is what would open and this list would be naming the wrong file.
  *
@@ -1403,7 +1403,7 @@ function listFiles(folder, limit, opts) {
      `/` as the separator (on Windows too), and openFile accepts exactly that shape.
      Bounded three ways, because this runs on every panel poll:
        - depth: LIST_MAX_DEPTH folders below the project folder;
-       - noise: dot-entries and LIST_SKIP_DIRS (dependency, cache and build-output trees an
+       - noise: scratch names (isScratchName) and LIST_SKIP_DIRS (dependency, cache and build-output trees an
          agent's tooling makes; a thousand node_modules files are not "files in this project");
        - cost: at most LIST_MAX_SCAN entries read BELOW the top level. The top level is
          read in full and does not count, as it always was. Past the budget the walk stops
