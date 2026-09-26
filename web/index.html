@@ -37363,7 +37363,9 @@ for (const id of ['plus-si-code-in', 'plus-si-second-in', 'plus-si-enrol-code'])
     let d = raw.replace(/\D/g, '');
     // Where the caret is, counted in digits (so it can be put back after the field is cleaned).
     let k = typeof el.selectionStart === 'number' ? raw.slice(0, el.selectionStart).replace(/\D/g, '').length : d.length;
-    if (d.length === 7 && hadDigits === 6 && k > 0 && k < 7) d = d.slice(0, k) + d.slice(k + 1);
+    // Inside the code the digit after the caret goes; at the very end, the new digit starts the code
+    // again, as typing does there (beforeinput), rather than being dropped.
+    if (d.length === 7 && hadDigits === 6 && k > 0) d = k < 7 ? d.slice(0, k) + d.slice(k + 1) : d.slice(6);
     const clean = d.slice(0, 6);
     if (raw !== clean) {
       e.target.value = clean;

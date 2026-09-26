@@ -1,4 +1,4 @@
-// Browser-check-surface: plus-state1 plus-state2 plus-si-done plus-si-owned plus-si-name-count plus-si-expired plus-si-second-lead plus-si-second-help plus-si-cancel plus-si-code-resend plus-si-code-to plus-si-email plus-si-code plus-si-second plus-si-enrol plus-si-enrol-sms plus-si-enrol-why plus-si-enrol-confirm plus-si-secret plus-si-register plus-flow plus-status otp-boxes otp-cell otp-cells
+// Browser-check-surface: plus-state1 plus-state2 plus-si-done plus-si-owned plus-si-name-count plus-si-expired plus-si-second-lead plus-si-second-help plus-si-cancel plus-si-code-resend plus-si-code-to plus-si-email plus-si-code plus-si-second plus-si-enrol plus-si-enrol-sms plus-si-enrol-why plus-si-enrol-confirm plus-si-secret plus-si-register plus-flow plus-status otp-boxes otp-cell otp-cells otp-fit
 'use strict';
 /**
  * #3478: the Kosmos+ sign-in links open the IN-APP wizard, not the web.
@@ -715,6 +715,13 @@ const visible = (page, sel) => page.evaluate((s) => {
       await pasteCode('27');
       await page.waitForTimeout(400);
       chk((await page.inputValue('#plus-si-code-in')) === '127956' && wrongSends === 11, `[${k}] #3942 a short paste into a full code overwrites from the caret`, JSON.stringify({ v: await page.inputValue('#plus-si-code-in'), wrongSends }));
+      // The same fallback with the caret at the very END of a full code: the digit starts the code
+      // again (as typing does), rather than being dropped. 127956 then a 4 at the end is 4.
+      await page.evaluate(() => { const i = document.getElementById('plus-si-code-in'); i.value = '1279564'; i.setSelectionRange(7, 7); i.dispatchEvent(new Event('input', { bubbles: true })); });
+      await page.waitForTimeout(200);
+      chk((await page.inputValue('#plus-si-code-in')) === '4' && wrongSends === 11, `[${k}] #3942 a seventh digit at the end of a full code starts the code again`, JSON.stringify({ v: await page.inputValue('#plus-si-code-in'), wrongSends }));
+      // Put a full code back quietly (no input event, so nothing is sent): the scenario after this presses Verify.
+      await page.evaluate(() => { document.getElementById('plus-si-code-in').value = '127956'; });
       chk(imeOk, `[${k}] #3942 a seventh digit from an input method replaces the digit after the caret`, JSON.stringify({ v: await page.inputValue('#plus-si-code-in'), wrongSends }));
       const hint = await page.evaluate(() => { const i = document.getElementById('plus-si-code-in'); const ids = (i.getAttribute('aria-describedby') || '').split(/\s+/); const h = ids.map((x) => document.getElementById(x)).find(Boolean); return h ? h.textContent : null; });
       chk(hint === 'Kosmos checks the code as soon as all six digits are in.', `[${k}] #3942 a screen reader is told the sixth digit checks the code`, JSON.stringify(hint));
