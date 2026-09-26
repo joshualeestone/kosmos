@@ -116,3 +116,15 @@ and route regexes; not the method; two permissive matcher limits, each pinned by
   they guarded nothing (measured: disabling interpolation tracking left them green). They now plant
   inside the largest <script> and assert the lexer's mask; disabling interpolation tracking now reds
   the nested-template control.
+
+## Challenge-loop iterations 12 to 14
+- 12: a split `'/api' + '/x'` URL is read.
+- 13: a template fetch whose base is a variable (`${API}/x`) is counted as unread (0 today). The
+  stray-backtick control from 9 was planted before the FIRST (small) script, where a later markup
+  backtick closed the runaway template before the canaries: with the line-bound rule removed it
+  stayed green. The 9 note above ("measured on a copy") described a measurement the committed
+  control did not reproduce; it is now planted before the largest script and goes red by name.
+  Other wildcard spellings (`[\s\S]*`, `.{1,40}`) are caught by a two-free-segment probe under the
+  literal stem. New controls for `i++ / 2`, string escapes, interpolation depth and HTML comments;
+  a scratch sweep removing each of 7 rules reds its own control by name.
+- 14 (sonnet): nothing actionable. Converged.
