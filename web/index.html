@@ -27950,15 +27950,23 @@ let START_RECEIPT = null;
    reading is the board catching up (one stale poll); after it, a stopped reading is a real stop,
    so the receipt is cleared and Start is offered again. */
 let START_RECEIPT_SAW_RUNNING = false;
+/* Stopped polls in a row since the receipt, while it has NOT been seen running. The start was
+   confirmed ready, so a stopped reading is board lag for a poll at most; two in a row (~10s) is a
+   real stop (it exited right after starting), and Start must come back rather than stay hidden
+   behind a "Started" receipt until reopen. */
+let START_RECEIPT_STOPPED_POLLS = 0;
+const START_RECEIPT_STALE_POLLS = 2;
 
 /* #3410: derive the Start affordance's visibility, enabled state and label from
    the live card, shared by openDetail (on open), the poll's reappear arm (so a
    transient board dropout that disabled the button re-enables it when the agent
    returns, rather than leaving it stuck disabled until reopen), and, since #3958,
    every poll (so the button follows the live pill). A Start of this open, in flight
-   or done, is left alone (START_FLIGHT / START_RECEIPT). Deliberately does
-   NOT clear #d-start-msg -- openDetail owns clearing a stale message, and the poll
-   must not wipe a just-written status line. Shown only when confidently not
+   or done, is left alone (START_FLIGHT / START_RECEIPT) until the agent has stopped
+   again. #d-start-msg is cleared only when its line has gone stale: the agent stopped
+   again after a "Started" receipt, or it is running and the area is being hidden (so
+   an old "could not start" cannot come back when it next stops). A just-written line
+   of THIS Start is never wiped. Shown only when confidently not
    running (cardStOf(a).pres === 'off', 'stopped' alone). connection_lost, now
    that it exists (#3410), deliberately does NOT fall under this gate: it ships
    pres:'on' because the Claude PROCESS is still up (it just cannot reach the
@@ -27973,15 +27981,23 @@ function refreshStartAffordance(a) {
   if (START_FLIGHT !== null && START_FLIGHT === START_EPOCH) return;
   if (START_RECEIPT === START_EPOCH) {
     const offNow = !!a && cardStOf(a).pres === 'off';
-    if (!offNow) { START_RECEIPT_SAW_RUNNING = true; return; }
-    if (!START_RECEIPT_SAW_RUNNING) return; // the board has not caught up with the start yet
-    /* It ran, and has stopped again: the "Started" receipt is stale, and Start applies again. */
+    if (!offNow) { START_RECEIPT_SAW_RUNNING = true; START_RECEIPT_STOPPED_POLLS = 0; return; }
+    START_RECEIPT_STOPPED_POLLS += 1;
+    // One stopped reading right after a confirmed start is the board catching up.
+    if (!START_RECEIPT_SAW_RUNNING && START_RECEIPT_STOPPED_POLLS < START_RECEIPT_STALE_POLLS) return;
+    /* It has stopped again: the "Started" receipt is stale, and Start applies again. */
     START_RECEIPT = null;
     START_RECEIPT_SAW_RUNNING = false;
+    START_RECEIPT_STOPPED_POLLS = 0;
     const msg = document.getElementById('d-start-msg');
     if (msg && msg.textContent) msg.textContent = '';
   }
   const notRunning = !!a && cardStOf(a).pres === 'off';
+  if (!notRunning && !wrap.hidden) {
+    /* Running: the area goes, and so does any line in it, which is stale from here on. */
+    const msg = document.getElementById('d-start-msg');
+    if (msg && msg.textContent) msg.textContent = '';
+  }
   wrap.hidden = !notRunning;
   const btn = document.getElementById('d-start-agent');
   /* Do NOT re-enable while a Start for THIS open is mid-flight: a withdraw+reappear
@@ -29531,9 +29547,9 @@ async function paintTalk(sessionName, agentName) {
       /* #3958: the LATEST card, not CURRENT: CURRENT is the card from when the page opened, and
          the pill now follows the poll, so reading CURRENT would past-mark a live restart. */
       /* When the agent has left LAST entirely (withdrawn from the board) the only card is CURRENT,
-     frozen at open; that fallback can still past-mark a restart seen at open. Narrow, and the
-     least-bad reading available: there is no fresher card. */
-  const latest = CURRENT && ((typeof LAST !== 'undefined' && Array.isArray(LAST) && LAST.find((x) => x.sessionName === CURRENT.sessionName)) || CURRENT);
+         frozen at open; that fallback can still past-mark a restart seen at open. Narrow, and the
+         least-bad reading available: there is no fresher card. */
+      const latest = CURRENT && ((typeof LAST !== 'undefined' && Array.isArray(LAST) && LAST.find((x) => x.sessionName === CURRENT.sessionName)) || CURRENT);
       markStateRemembered(!(latest && latest.state === 'restarting'));
   } else if (body.presence === 'unsure') {
     off.textContent = 'We could not check whether ' + name + ' is running. '
@@ -35396,10 +35412,10 @@ document.getElementById('d-start-agent').addEventListener('click', async () => {
        -- so the poll's withdrawn->reappear arm does not fire; without this the
        disabled button would sit under the "Started" receipt until reopen). Keep the
        wrap + message as the receipt: START_RECEIPT tells the per-tick re-derive
-       (#3958) to leave them, and a later open that finds the agent stopped once
-       more un-hides the button. */
+       (#3958) to leave them until the agent stops again, when the poll offers
+       Start once more. */
     if (onPanel() && sb) sb.hidden = true;
-    if (onPanel()) { START_RECEIPT = epoch; START_RECEIPT_SAW_RUNNING = false; }
+    if (onPanel()) { START_RECEIPT = epoch; START_RECEIPT_SAW_RUNNING = false; START_RECEIPT_STOPPED_POLLS = 0; }
   } finally {
     /* Release the in-flight marker if it is still ours: a later open bumps
        START_EPOCH and may start its own, and clearing unconditionally would wipe

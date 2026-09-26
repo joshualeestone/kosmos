@@ -52,6 +52,13 @@ function pageFnSource(name) {
   throw new Error('unbalanced ' + name);
 }
 
+/* A top-level one-line `const NAME = ...;` from the page, verbatim. */
+function constLine(name) {
+  const m = RAW.match(new RegExp('^const ' + name + ' = [^;\\n]*;', 'm'));
+  assert.ok(m, name + ' vanished from web/index.html');
+  return m[0];
+}
+
 /* A top-level `const NAME = {...};` from the page, brace-matched: the real table, not a copy. */
 function constSource(name) {
   const start = RAW.indexOf('const ' + name + ' = {');
@@ -196,6 +203,8 @@ test('#3958: the per-poll Start re-derive leaves a Start of this open alone, in 
       // eslint-disable-next-line no-new-func
       const fn = new Function('document', 'START_FLIGHT', 'START_RECEIPT', 'START_EPOCH', [
         'let START_RECEIPT_SAW_RUNNING = false;',
+        'let START_RECEIPT_STOPPED_POLLS = 0;',
+        constLine('START_RECEIPT_STALE_POLLS'),
         constSource('CARD_ST'),
         pageFnSource('cardStOf'),
         pageFnSource('refreshStartAffordance'),
@@ -229,6 +238,20 @@ test('#3958: the per-poll Start re-derive leaves a Start of this open alone, in 
     assert.equal(again.els['d-start-wrap'].hidden, false, 'the agent stopped again and the Start area stayed hidden');
     assert.equal(again.els['d-start-agent'].hidden, false, 'the agent stopped again and Start was not offered');
     assert.equal(again.els['d-start-msg'].textContent, '', 'the stale "Started" receipt stayed after the agent stopped again');
+    /* It exited right after a confirmed start, and the board never showed it running: one stopped
+       poll is lag, the second is a real stop, and Start comes back (it used to stay hidden). */
+    const quick = make(null, 3, 3);
+    quick.fn(stopped);
+    assert.equal(quick.els['d-start-agent'].hidden, true, 'control: one stopped poll after a confirmed start is lag');
+    quick.fn(stopped);
+    assert.equal(quick.els['d-start-agent'].hidden, false, 'an agent that exited right after starting stranded Start behind the receipt');
+    /* An old line of a failed Start (no receipt) must not come back after the agent has run. */
+    const failed = make(null, null, 3);
+    failed.els['d-start-msg'].textContent = 'We asked Beatrix to start, but it has not come back yet.';
+    failed.fn(running);
+    failed.fn(stopped);
+    assert.equal(failed.els['d-start-wrap'].hidden, false, 'control: stopped again, the Start area is back');
+    assert.equal(failed.els['d-start-msg'].textContent, '', 'the old "has not come back" line returned after the agent had run');
     /* A receipt from an EARLIER open does not stick. */
     const old = make(null, 2, 3);
     old.fn(running);
