@@ -9153,6 +9153,10 @@ body.plus-active #plus-state2, body.plus-active #plus-flow {
    fixed (white-on-white), just the other way up. */
 #s-sec-plus:has(> #plus-state2:not([hidden])) { min-height: var(--plus-avail, auto); justify-content: center; }
 body.plus-active #plus-state2 { max-width: 26rem; padding: 2rem; }
+/* #3829 addendum: the requests above the connected panel, at the panel's width. */
+#s-sec-plus .plus-asks { max-width: 620px; }
+#s-sec-plus .plus-asks .askreq { max-width: none; }
+#askcard .asknote { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
 #plus-state2 h3 { font-size: 1.3rem; margin: 0 0 .25rem; }
 #plus-state2 .plus-si-lead { color: var(--k-ink-2); margin: .5rem 0 0; }
 #plus-state2 .flabel { color: var(--k-ink-2); font-weight: 500; margin-top: 1rem; }
@@ -15473,6 +15477,12 @@ window.kosmosMeasureScrollbarWidth();
       <p class="plus-si-small plus-si-foot"><a id="plus-si-cancel" class="plus-signin-link" href="#">Cancel</a></p>
     </div>
 
+    <!-- #3829 addendum (Josh, 20:00): on Settings > Kosmos Plus the device requests sit directly ABOVE the
+         panel, at its width, in the settings column. Elsewhere the top card is only a compact notice linking here. -->
+    <div class="plus-asks" id="plus-asks" hidden>
+      <p class="setname" id="plus-asks-title">Asking to use this Kosmos</p>
+      <div id="plus-ask-rows"></div>
+    </div>
     <div id="plus-flow" hidden>
       <!-- #3829 (Josh, 16:54: "terribly worded and designed"; Mona Lisa's sketch on the card): status first,
            View my account top right, the address in ONE chip with Copy and Open and one plain line under it,
@@ -16257,6 +16267,8 @@ function syncPlusChrome() {
   document.body.classList.toggle('plus-active', active);
   if (active) { if (!plusMounted) plusMount(); }
   else if (plusMounted) plusTeardown();
+  /* #3829 addendum: where the requests paint depends on whether Kosmos Plus is on screen. */
+  if (typeof paintAsk === 'function' && typeof ASK !== 'undefined') paintAsk();
 }
 if (typeof window !== 'undefined') window.addEventListener('resize', function () { if (plusMounted) { plusStarsResize(); plusMarkBuild(); plusMarkDraw(null); } });   // #3778: the field keeps its dots on a window resize too
 /* ================= end #1615 Plus canvases ================= */
@@ -35693,22 +35705,29 @@ function paintAsk() {
   const rows = ASK.devices.filter((d) => !ASK.done[d.device_id] || ASK.done[d.device_id].state !== 'gone');
   const doneIds = Object.keys(ASK.done).filter((id) => ASK.done[id].state !== 'gone');
   const anything = live.length || doneIds.length;
-  const hide = !anything;
+  /* #3829 addendum (Josh, 20:00): on Settings > Kosmos Plus the full cards render ABOVE the panel; on any
+     other view the top card is one compact line linking there. */
+  const onPlus = typeof plusOnScreen === 'function' && plusOnScreen();
+  const panel = document.getElementById('plus-asks');
+  if (panel) panel.hidden = !(onPlus && anything);
+  const hide = !anything || onPlus || !live.length;
   card.hidden = hide;
   /* The Plus tab's needs-you dot marks a request waiting, in the nav's own grammar. */
   const dot = document.querySelector('#s-nav button[data-go="plus"]');
   if (dot) { if (live.length) dot.setAttribute('data-dot', '1'); else dot.removeAttribute('data-dot'); }
-  if (hide) return;
   const title = document.getElementById('ask-title');
   const lead = document.getElementById('ask-lead');
-  /* #3829: one title; each request is its own compact card below it. */
-  if (live.length) {
-    title.textContent = 'Asking to use this Kosmos';
-    lead.hidden = true;
-  } else {
+  if (!onPlus) {
+    document.getElementById('ask-rows').innerHTML = '';
+    if (hide) return;
     title.textContent = '';
     lead.hidden = true;
+    const n = live.length;
+    document.getElementById('ask-rows').innerHTML = '<div class="asknote"><span>' + (n === 1 ? askEsc(askKind(live[0])) + ' is asking to use this Kosmos.' : n + ' devices are asking to use this Kosmos.') +
+      '</span><button class="btn uprime" type="button" data-ask="open">Review</button></div>';
+    return;
   }
+  if (!anything) return;
   const out = [];
   const seen = new Set();
   const render = (d, e) => {
@@ -35741,10 +35760,11 @@ function paintAsk() {
   };
   for (const d of rows) { seen.add(d.device_id); out.push(render(d, ASK.done[d.device_id])); }
   for (const id of doneIds) { if (!seen.has(id)) out.push(render(ASK.done[id].device, ASK.done[id])); }
-  document.getElementById('ask-rows').innerHTML = out.join('');
+  document.getElementById('plus-ask-rows').innerHTML = out.join('');
 }
 async function askAct(act, id) {
   const d = ASK.devices.find((x) => x.device_id === id) || (ASK.done[id] && ASK.done[id].device);
+  if (act === 'open') { showTab('settings'); settingsGo('plus'); paintAsk(); return; }   // #3829 addendum: the notice's link
   if (act === 'gotit') { if (ASK.done[id]) ASK.done[id] = { state: 'gone', at: Date.now(), device: d }; paintAsk(); paintDevices(); return; }
   if (!d) return;
   const verb = act === 'allow' ? 'allow' : 'deny';
@@ -35763,6 +35783,10 @@ async function askAct(act, id) {
   paintDevices();
 }
 document.getElementById('askcard').addEventListener('click', (e) => {
+  const b = e.target.closest('[data-ask]');
+  if (b) askAct(b.getAttribute('data-ask'), b.getAttribute('data-id'));
+});
+document.getElementById('plus-asks').addEventListener('click', (e) => {
   const b = e.target.closest('[data-ask]');
   if (b) askAct(b.getAttribute('data-ask'), b.getAttribute('data-id'));
 });
