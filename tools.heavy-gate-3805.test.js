@@ -90,7 +90,11 @@ test('a run that already exited does not count (control: the same run still goin
 });
 
 test('--except-cwd rules out your own run, exact or below, and not a sibling that shares the prefix', () => {
-  const base = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'hg-own-')));
+  /* Made under /tmp, not os.tmpdir(): tools/run-tests.sh points TMPDIR at its $TMPDIR/kt<pid>/
+     sandbox, and the tool rightly ignores a run there as a test fixture, so a sibling in the
+     sandbox would read as ignored for that reason instead of testing the prefix match. */
+  const base = fs.realpathSync(fs.mkdtempSync('/tmp/hg-own-'));
+  assert.doesNotMatch(base, /\/T\/kt[0-9]/, 'the own-run folders must sit outside the kt sandbox pattern');
   const mine = path.join(base, 'kosmos');
   fs.mkdirSync(path.join(mine, 'sub'), { recursive: true });
   const args = ['--except-cwd', mine];
