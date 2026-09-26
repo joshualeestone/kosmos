@@ -46485,8 +46485,10 @@ function tskRow(t, at) {
 }
 function tskList(rows) {
   const parentKey = (t) => (t.parent == null ? null : String(t.projectId) + '#' + Number(t.parent));
-  return rows.length ? '<div class="tsk-list">' + taskNest(rows, tskKey, parentKey, TSK.fold).map((x) => tskRow(x.t, x)).join('') + '</div>'
-    : '<div class="tsk-list"><p class="tsk-empty">Nothing here.</p></div>';
+  /* #3949 (Josh, 09-26 18:16): no "Nothing here." box. Every caller skips an empty group (its tile shows the 0), so
+     an empty list draws nothing rather than bringing the duplicate back through a new caller. */
+  if (!rows.length) return '';
+  return '<div class="tsk-list">' + taskNest(rows, tskKey, parentKey, TSK.fold).map((x) => tskRow(x.t, x)).join('') + '</div>';
 }
 /* #3861 part 2: a list of task rows, nested. Pure (the tests lift it), shared by the Tasks view and
    the project column. A row goes under its parent only when the parent is IN THIS LIST; otherwise

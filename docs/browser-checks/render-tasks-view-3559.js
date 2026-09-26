@@ -481,10 +481,13 @@ function chk(ok, label, extra) {
         chk(barShown, `${tag} ticking rows brings up the Close bar`);
         /* #3949: the Close bar is sticky to the window's bottom (#3559's position: sticky; bottom: 14px). It only
            started to stick when the view stopped clipping (the old frame's overflow: hidden made the view its scroll
-           box). Asserted only when the list is taller than the window, where sticking is observable. */
+           box). Measured in a short window, so the list is always longer than it and sticking is observable. */
+        /* A short window makes the list longer than it whatever the fixture's size, so this cannot quietly skip. */
+        await page.setViewportSize({ width, height: 520 });
         const stick = await page.evaluate(() => { scrollTo(0, 0); const b = document.getElementById('tsk-bulk').getBoundingClientRect();
           return { tall: document.getElementById('tsk-groups').getBoundingClientRect().bottom > innerHeight, top: Math.round(b.top), bottom: Math.round(b.bottom), h: innerHeight }; });
-        if (stick.tall) chk(stick.top >= 0 && stick.bottom <= stick.h, `${tag} with a long list the Close bar stays on screen at the bottom (sticky)`, JSON.stringify(stick));
+        await page.setViewportSize({ width, height: 1000 });
+        chk(stick.tall && stick.top >= 0 && stick.bottom <= stick.h, `${tag} with a list longer than the window the Close bar stays on screen at the bottom (sticky)`, JSON.stringify(stick));
         /* Clear hides the bar with its own button in it: focus lands on the search, not the body. */
         await page.click('#tsk-bclear');
         const afterClear = await page.evaluate(() => ({ id: document.activeElement.id, sel: TSK.sel.size }));
