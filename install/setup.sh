@@ -2166,17 +2166,19 @@ KOSMOS_SWEEP_LIST
   # so it records nothing any more, and it keeps the one status-line slot.
   # Every account Kosmos wires, not only the default: account folders are kept by this
   # uninstall, so their entries would otherwise be left unnamed.
+  # Two passes over the same glob rather than one space-joined list, so a path with a
+  # space in it is printed whole.
   _sl_left=""
   for _sl in "$HOME/.claude/settings.json" "$HOME"/.claude-*/settings.json; do
-    [ -f "$_sl" ] || continue
-    grep -q 'kosmos-statusline\.js' "$_sl" 2>/dev/null || continue
-    _sl_left="$_sl_left $_sl"
+    [ -f "$_sl" ] && grep -q 'kosmos-statusline\.js' "$_sl" 2>/dev/null && _sl_left=yes
   done
   if [ -n "$_sl_left" ]; then
     printf '  Kosmos\047s status line was left in these settings files (the "statusLine"\n'
     printf '  entry naming kosmos-statusline.js). It does nothing now; delete that entry\n'
     printf '  if you want to use a status line of your own:\n'
-    for _sl in $_sl_left; do printf '    %s\n' "$_sl"; done
+    for _sl in "$HOME/.claude/settings.json" "$HOME"/.claude-*/settings.json; do
+      [ -f "$_sl" ] && grep -q 'kosmos-statusline\.js' "$_sl" 2>/dev/null && printf '    %s\n' "$_sl"
+    done
     printf '\n'
   fi
   # ⚠️ AND THE SECOND THING WE LEFT IN THAT TOOL'S CONFIG, named for exactly the
@@ -3583,11 +3585,19 @@ else
   info "some agent settings could not carry the reporting hook (an unreadable settings"
   info "file is left alone on purpose); those agents stay readable the older way"
 fi
-# #3946: said once, whatever happened above, because it describes a standing rule
-# rather than this run's result: the person should know a status line appears.
-info "where a Claude account has no status line of its own, Kosmos adds one, for every"
-info "Claude session on that account: it notes how much of the weekly allowance is used and"
-info "prints nothing, which leaves an empty row under the prompt"
+# #3946: said only when a settings file this block targets now carries our status
+# line (checked by its marker, the same way uninstall names it), so a machine where
+# it could not be wired is not told that it was.
+_sl_home="${AGENT_WORKFORCE_HOME:-$HOME}"
+_sl_added=""
+for _sl in "$_sl_home/.claude/settings.json" "$_sl_home"/.claude-*/settings.json; do
+  [ -f "$_sl" ] && grep -q 'kosmos-statusline\.js' "$_sl" 2>/dev/null && _sl_added=yes
+done
+if [ -n "$_sl_added" ]; then
+  info "Kosmos added a status line to Claude accounts that had none, for every Claude"
+  info "session on them: it notes how much of the weekly allowance is used and prints"
+  info "nothing, which leaves an empty row under the prompt"
+fi
 
 # ---- start ------------------------------------------------------------------
 # 🔑 DERIVED HERE, BEFORE THE BOARD FIRST STARTS, NOT JUST WRITTEN INTO THE

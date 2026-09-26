@@ -84,7 +84,7 @@ since by then nothing can edit the JSON.
 
 ## Tests
 
-`engine/allowance.test.js` (18). The script runs the way Claude Code runs it,
+`engine/allowance.test.js` (19). The script runs the way Claude Code runs it,
 fed the measured payload shape, and setup.sh's hook block runs for real
 against a sandbox home (extracted from setup.sh). Mutations shown red:
 - always rewriting the reading;
@@ -95,6 +95,8 @@ against a sandbox home (extracted from setup.sh). Mutations shown red:
 - setup not wiring the statusline;
 - setup's guard removed;
 - uninstall not naming our status line, or naming somebody else's;
+- uninstall splitting a path that has a space in it;
+- setup telling the person about a status line it did not add;
 - accounts.prepare requiring allowance without its guard (an account must still be born);
 - accounts.js requiring allowance at load again (the fixture copies files, because a
   symlinked one resolved the real module and could not fail).

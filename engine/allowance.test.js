@@ -297,7 +297,7 @@ test('uninstall names our status line, and only ours', () => {
   const block = sh.slice(from, sh.indexOf('\n  fi\n', ifAt) + '\n  fi\n'.length);
   assert.ok(block.includes(allowance.MARKER.replace('.', '\\.')), 'the uninstall grep does not name allowance.MARKER');
   const run = (dirs) => {
-    const home = fs.mkdtempSync(path.join(SANDBOX, 'uninst-'));
+    const home = fs.mkdtempSync(path.join(SANDBOX, 'uninst with space-'));
     for (const [dir, statusLine] of Object.entries(dirs)) {
       fs.mkdirSync(path.join(home, dir));
       fs.writeFileSync(path.join(home, dir, 'settings.json'), JSON.stringify({ statusLine }));
@@ -315,4 +315,25 @@ test('uninstall names our status line, and only ours', () => {
   assert.ok(!both.stdout.includes('.claude-work2'), 'an account with somebody else\'s status line was named as ours');
   const none = run({ '.claude': theirs });
   assert.equal(none.stdout, '', 'somebody else\'s status line was named as ours');
+});
+
+/* Setup says it added a status line only when a settings file really carries ours:
+   the block is extracted from setup.sh and run under sh with a stand-in info(). */
+test('setup tells the person about the status line only when one was really added', () => {
+  const sh = fs.readFileSync(path.join(__dirname, '..', 'install', 'setup.sh'), 'utf8');
+  const from = sh.indexOf('_sl_home="${AGENT_WORKFORCE_HOME:-$HOME}"');
+  const ifAt = sh.indexOf('if [ -n "$_sl_added" ]', from);
+  assert.ok(from > 0 && ifAt > from, 'the setup status-line message block changed shape');
+  const block = 'info() { printf "%s\\n" "$*"; }\n' + sh.slice(from, sh.indexOf('\nfi\n', ifAt) + '\nfi\n'.length);
+  const run = (statusLine) => {
+    const home = fs.mkdtempSync(path.join(SANDBOX, 'setupmsg-'));
+    fs.mkdirSync(path.join(home, '.claude'));
+    fs.writeFileSync(path.join(home, '.claude', 'settings.json'), JSON.stringify(statusLine ? { statusLine } : {}));
+    return spawnSync('sh', ['-c', block], { encoding: 'utf8', env: { ...process.env, AGENT_WORKFORCE_HOME: home } });
+  };
+  const added = run({ type: 'command', command: allowance.commandFor(NODE, SCRIPT, '/x') });
+  assert.equal(added.status, 0, added.stderr);
+  assert.match(added.stdout, /Kosmos added a status line/);
+  assert.equal(run(null).stdout, '', 'setup claimed a status line it did not add');
+  assert.equal(run({ type: 'command', command: 'bash mine.sh' }).stdout, '', 'setup claimed somebody else\'s status line as ours');
 });
