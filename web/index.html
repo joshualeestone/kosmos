@@ -2017,7 +2017,9 @@ button.worldsw-row:focus-visible { outline: 2px solid var(--k-ink); outline-offs
   .vt { width: 44px; height: 44px; }
   /* The agent page's back link is already 44px on a phone (its Talk rule, #panel-detail ... > .back);
      this reaches the rest. */
-  .back { min-height: 44px; display: inline-flex; align-items: center; }
+  /* min-width too: three back links take a project or task name, and a short one would leave a
+     44px tall target narrower than 44. */
+  .back { min-height: 44px; min-width: 44px; display: inline-flex; align-items: center; }
 }
 /* 📱 #718 SAFE AREA: one name for each inset, so the frame and the pinned composer
    (Scorpion's, which already reads var(--safe-bottom, 0px)) use the same number. The
