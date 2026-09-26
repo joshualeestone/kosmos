@@ -22,12 +22,13 @@ const HELD = 'the machine is reserved for a release (release 0.6.95, pid 1 on th
 const WORK = '/Users/someone/work/kosmos';          // a checkout, not a test sandbox
 const KT = '/private/var/folders/ab/cd/T/kt4242/kosmos-gate-x1'; // run-tests.sh sandbox
 
-function run(lines, { claim = FREE, args = [], env = {} } = {}) {
+function run(lines, { claim = FREE, args = [], env = {}, shell = 'bash', cwd } = {}) {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'hg-'));
   const snap = path.join(dir, 'snap.tsv');
   fs.writeFileSync(snap, lines.map((l) => l.join('\x1f')).join('\n') + (lines.length ? '\n' : ''));
-  const r = spawnSync('bash', [TOOL, ...args], {
+  const r = spawnSync(shell, [TOOL, ...args], {
     encoding: 'utf8',
+    cwd,
     env: { ...process.env, KOSMOS_HG_SNAPSHOT: snap, KOSMOS_HG_CLAIM: claim, KOSMOS_HG_TWICE_SECONDS: '0', ...env },
   });
   fs.rmSync(dir, { recursive: true, force: true });
@@ -107,6 +108,59 @@ test('only a real node --test ancestor marks a fixture, not a wrapper shell that
   const r = run([realRun(WORK, wrapper)]);
   assert.equal(r.code, 1, 'a wrapper mentioning node --test is not a test runner: ' + r.out);
   assert.equal(run([realRun(WORK, wrapper + ' | node --test --test-concurrency=0 y.test.js')]).code, 0, 'control: a real node --test ancestor');
+});
+
+test('an app flag that only STARTS with --test is not a test runner (control: a bare --test is)', () => {
+  const app = run([realRun(WORK, 'node server.js --test-endpoint=1 | zsh')]);
+  assert.equal(app.code, 1, app.out);
+  assert.match(app.out, /COUNTS 101/);
+  const runner = run([realRun(WORK, 'node --test-reporter=spec --test x.test.js | zsh')]);
+  assert.equal(runner.code, 0, runner.out);
+  assert.match(runner.out, /ignore 101: a unit-test fixture \(node --test ancestor\)/);
+});
+
+test('a script path with a space still counts (control: the same path in a -c string only mentions it)', () => {
+  const dir = '/Users/someone/My Work/kosmos';
+  const r = run([['105', dir, `bash ${dir}/tools/release.sh 0.6.99`, 'zsh']]);
+  assert.equal(r.code, 1, r.out);
+  assert.match(r.out, /COUNTS 105/);
+  const c = run([['105', dir, `bash -c ${dir}/tools/release.sh 0.6.99`, 'zsh']]);
+  assert.equal(c.code, 0, c.out);
+  assert.match(c.out, /ignore 105: mentions the name/);
+});
+
+test('a * in a command line is not expanded against the tool\'s folder (control: a real bare name counts)', (t) => {
+  // Run the tool from a folder holding a release.sh: if `*` expanded there, `bash *` from a
+  // tools/ cwd would read as the bare `bash release.sh` run and count.
+  const here = fs.mkdtempSync(path.join('/tmp', 'hg-glob-'));
+  t.after(() => fs.rmSync(here, { recursive: true, force: true }));
+  fs.writeFileSync(path.join(here, 'release.sh'), '');
+  const tools = `${WORK}/tools`;
+  const glob = run([['107', tools, 'bash *', 'zsh']], { cwd: here });
+  assert.equal(glob.code, 0, glob.out);
+  assert.match(glob.out, /ignore 107: mentions the name/);
+  const bare = run([['107', tools, 'bash release.sh', 'zsh']], { cwd: here });
+  assert.equal(bare.code, 1, bare.out);
+});
+
+test('sourced in bash or zsh it refuses with 2 and leaves the caller\'s shell alive (control: run, it answers)', () => {
+  for (const sh of ['bash', 'zsh']) {
+    const r = spawnSync(sh, ['-c', `. '${TOOL}'; echo "rc=$? still-alive"`], {
+      encoding: 'utf8',
+      env: { ...process.env, KOSMOS_HG_SNAPSHOT: '/dev/null', KOSMOS_HG_CLAIM: FREE },
+    });
+    const out = r.stdout + r.stderr;
+    assert.match(out, /rc=2 still-alive/, `${sh}: ${out}`);
+    assert.match(out, /run it with bash, do not source it/, `${sh}: ${out}`);
+  }
+  assert.equal(run([]).code, 0);
+});
+
+test('run by zsh it re-runs under bash, so a real run still counts (control: the same under bash)', () => {
+  const z = run([realRun()], { shell: 'zsh' });
+  assert.equal(z.code, 1, z.out);
+  assert.match(z.out, /COUNTS 101/);
+  assert.equal(run([realRun()]).code, 1);
 });
 
 test('live: a real release.sh outside any test ancestry counts, and --except-cwd on its folder rules it out', async (t) => {

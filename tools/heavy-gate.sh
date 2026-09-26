@@ -4,6 +4,9 @@
 #
 #   bash tools/heavy-gate.sh [--except-cwd DIR] [--twice] [--quiet]
 #
+# Run it, never source it: sourced, it refuses with exit 2 (do not start). Run by zsh, it
+# re-runs itself under bash, because zsh does not split words the way the parsing below needs.
+#
 # Exit 0: clear. Exit 1: busy. Exit 2: usage error, which also means do not start.
 # Busy means either of:
 #   - a release reservation holds the machine (tools/who-has-the-box.sh), or
@@ -27,6 +30,15 @@
 #                       the cwd could not be read, and that process still counts)
 #   KOSMOS_HG_CLAIM     set: use this text as the reservation line instead of who-has-the-box;
 #                       it counts as free only if it says "no release holds"
+# Sourced, the exits below would close the caller's shell: refuse, and return 2 (do not start).
+if [ -n "${ZSH_VERSION:-}" ]; then
+  case "${ZSH_EVAL_CONTEXT:-}" in
+    *file*) echo "heavy-gate: run it with bash, do not source it (reading as do-not-start)" >&2; return 2 ;;
+  esac
+  exec bash "$0" "$@"   # zsh as the interpreter would read every real run as a mention
+elif [ -n "${BASH_VERSION:-}" ] && [ "${BASH_SOURCE[0]}" != "$0" ]; then
+  echo "heavy-gate: run it with bash, do not source it (reading as do-not-start)" >&2; return 2
+fi
 set -uo pipefail
 REPO="$(cd "$(dirname "$0")/.." && pwd)"
 
@@ -79,30 +91,41 @@ live_snapshot() {
   done
 }
 
-# The script a shell command runs: the first argument after the shell's own options. A -c
-# command string is not a script run (it only mentions the name). Prints nothing if none.
-script_of() {
-  local w first=1
+# The script a shell command runs. ps loses argument boundaries, so a path with a space arrives
+# split: any word ENDING in a heavy script path counts (fail toward busy); otherwise the first
+# argument after the shell's own options (for a bare release.sh). A -c command string is not a
+# script run (it only mentions the name): prints nothing. Runs in a subshell with globbing off,
+# so a `*` in a command line stays one literal word.
+script_of() (
+  set -f
+  first=1; lead=""
   for w in $1; do
     if [ "$first" = 1 ]; then first=0; continue; fi
-    case "$w" in -c) return ;; -*) continue ;; *) printf '%s' "$w"; return ;; esac
+    if [ -z "$lead" ]; then
+      case "$w" in -c) exit 0 ;; -*) continue ;; esac
+      lead="$w"
+    fi
+    case "$w" in */tools/release.sh|*/tools/browser-checks.sh|tools/release.sh|tools/browser-checks.sh)
+      printf '%s' "$w"; exit 0 ;; esac
   done
-}
+  printf '%s' "$lead"
+)
 
-# True if one ancestor IS a node --test process (node as the program, a --test flag in its
-# arguments), not a wrapper shell whose command line merely mentions it.
-has_test_runner() {
-  local a prog w
-  local IFS=$'\n'
+# True if one ancestor IS a node test-runner process: node as the program, run with a bare
+# --test. Not a wrapper shell whose command line merely mentions it, and not an app flag that
+# only starts with --test (--test-endpoint=1). Subshell with globbing off, as above.
+has_test_runner() (
+  set -f
+  IFS=$'\n'
   for a in $(printf '%s\n' "$1" | sed 's/ | /\n/g'); do
     prog="${a%% *}"; prog="${prog##*/}"
     [ "$prog" = node ] || continue
     IFS=' '
-    for w in $a; do case "$w" in --test|--test=*|--test-*) return 0 ;; esac; done
+    for w in $a; do [ "$w" = --test ] && exit 0; done
     IFS=$'\n'
   done
-  return 1
-}
+  exit 1
+)
 
 # Reads snapshot lines on stdin; prints one verdict line each; prints COUNTED=<n> last.
 classify() {
