@@ -3172,6 +3172,7 @@ test('a project records who asked for it, and a process runaway is paused while 
   } finally { setAgentRunawayLimitForTests(); }
   assert.equal(refused.status, 429, refused.body);
   const why = JSON.parse(refused.body).error;
+  assert.equal(typeof JSON.parse(refused.body).retry_after_secs, 'number', 'the 429 carries no retry_after_secs');
   assert.match(why, /pausing agent-made projects/);
   assert.match(why, /limit of 33 an hour/, 'the refusal does not name the limit');
   assert.match(why, /shared by all agents/, 'the refusal does not say the limit is shared');

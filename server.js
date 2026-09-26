@@ -284,19 +284,23 @@ function setAgentRunawayLimitForTests(n) {
   agentRunawayLimit = Number.isInteger(n) && n > 0 ? n : AGENT_RUNAWAY_PER_HOUR;
 }
 /* `times` are the creation times (ms) of the agent-made records of one kind. Returns
-   null to allow, or the refusal sentence: the limit, that it is shared by every agent,
-   and when the next one is allowed (when the oldest counted record leaves the hour). */
+   null to allow, or { because, retryAfterSecs }: the sentence (the limit, that it is shared
+   by every agent, and when the next one is allowed) and the same wait in seconds, which the
+   routes send as retry-after the way the part routes do. */
 function agentRunawayRefusal(times, noun, now = Date.now(), limit = agentRunawayLimit) {
   const hourAgo = now - AGENT_RUNAWAY_WINDOW_MS;
   const recent = times.filter((t) => Number.isFinite(t) && t >= hourAgo).sort((a, b) => a - b);
   if (recent.length < limit) return null;
   // Below the limit again once enough of the oldest have aged out of the hour.
   const freesAt = recent[recent.length - limit] + AGENT_RUNAWAY_WINDOW_MS;
-  const mins = Math.max(1, Math.ceil((freesAt - now) / 60000));
-  return 'agents have made ' + recent.length + ' ' + noun + ' in the last hour, which reaches the limit of '
+  // Capped at the window: a record dated in the future (clock skew) must not quote a longer wait.
+  const retryAfterSecs = Math.min(AGENT_RUNAWAY_WINDOW_MS / 1000, Math.max(1, Math.ceil((freesAt - now) / 1000)));
+  const mins = Math.max(1, Math.ceil(retryAfterSecs / 60));
+  const because = 'agents have made ' + recent.length + ' ' + noun + ' in the last hour, which is at or over the limit of '
     + limit + ' an hour shared by all agents together (a safety stop for an agent stuck in a loop), so Kosmos is pausing agent-made '
     + noun + '. Agents can make ' + noun + ' again in about ' + mins + ' minute' + (mins === 1 ? '' : 's')
     + '; the person can still make them from the screen';
+  return { because, retryAfterSecs };
 }
 // `sentence` is explicit, never read off `t`: a part's own sentence is
 // never the task's top-level one (a task with parts drops `who`/keeps one
@@ -13802,7 +13806,10 @@ const server = http.createServer((req, res) => {
         if (!viaScreen) {
           const refusal = agentRunawayRefusal(projects.readAll()
             .filter((p) => p && p.made && p.made.via === 'process').map((p) => Date.parse(p.made.at)), 'projects');
-          if (refusal) { sendJson(res, 429, { error: refusal }); return; }
+          if (refusal) {
+            res.setHeader('retry-after', String(refusal.retryAfterSecs));
+            sendJson(res, 429, { error: refusal.because, retry_after_secs: refusal.retryAfterSecs }); return;
+          }
         }
         const made = projects.create({ name: body.name, folder: body.folder, agents: body.agents, roster, description: body.description,
           // #2458: the parent chosen on the create page (blank/absent = top-level).
@@ -14881,7 +14888,10 @@ const server = http.createServer((req, res) => {
             for (const t of ((p && p.tasks) || [])) if (t && t.addedVia === 'process') times.push(Date.parse(t.createdAt));
           }
           const refusal = agentRunawayRefusal(times, 'tasks');
-          if (refusal) { sendJson(res, 429, { error: refusal }); return; }
+          if (refusal) {
+            res.setHeader('retry-after', String(refusal.retryAfterSecs));
+            sendJson(res, 429, { error: refusal.because, retry_after_secs: refusal.retryAfterSecs }); return;
+          }
         }
         try {
           const made = tasks.create(id, { sentence: body.sentence, detail: body.detail, who: body.who,

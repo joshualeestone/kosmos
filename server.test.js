@@ -11809,6 +11809,7 @@ test('a task records who added it and how; 30 agent-made tasks in an hour all la
   assert.ok(refused, 'the breaker never tripped at its limit');
   assert.equal(landed, 8, 'the breaker tripped at the wrong count: 32 were on the books and the limit was 40');
   const why = JSON.parse(refused.body).error;
+  assert.equal(typeof JSON.parse(refused.body).retry_after_secs, 'number', 'the 429 carries no retry_after_secs');
   assert.match(why, /pausing agent-made tasks/);
   assert.match(why, /limit of 40 an hour/, 'the refusal does not name the limit');
   assert.match(why, /shared by all agents/, 'the refusal does not say the limit is shared');
@@ -11831,21 +11832,26 @@ test('the agent runaway breaker: 500 an hour, shared, and it says when it lifts 
   // 499 in the hour: allowed. 500: refused.
   const spread = (n, oldestAgoMin) => Array.from({ length: n }, (_, i) => now - oldestAgoMin * min + i);
   assert.equal(agentRunawayRefusal(spread(499, 50), 'tasks', now, 500), null, '499 were refused');
-  const why = agentRunawayRefusal(spread(500, 50), 'tasks', now, 500);
-  assert.ok(why, '500 in the hour did not trip the breaker');
+  const refused = agentRunawayRefusal(spread(500, 50), 'tasks', now, 500);
+  assert.ok(refused, '500 in the hour did not trip the breaker');
+  const why = refused.because;
+  assert.equal(refused.retryAfterSecs, 600, 'the wait in seconds does not match the sentence');
   assert.match(why, /^agents have made 500 tasks in the last hour/);
-  assert.match(why, /limit of 500 an hour shared by all agents together/);
+  assert.match(why, /at or over the limit of 500 an hour shared by all agents together/);
   // The oldest counted one was made 50 minutes ago, so it leaves the hour in 10.
   assert.match(why, /again in about 10 minutes;/, why);
   // Past the limit, the slot opens when enough of the OLDEST have left: 502 on the books,
   // the third oldest (48 minutes ago) is the one whose leaving brings it under 500.
   const over = [now - 50 * min, now - 49 * min, now - 48 * min, ...spread(499, 10)];
-  assert.match(agentRunawayRefusal(over, 'projects', now, 500), /made 502 projects.*again in about 12 minutes;/);
+  assert.match(agentRunawayRefusal(over, 'projects', now, 500).because, /made 502 projects.*again in about 12 minutes;/);
   // Records older than an hour, or with no readable time, are not counted.
   const stale = [...spread(499, 50), now - 61 * min, NaN, undefined];
   assert.equal(agentRunawayRefusal(stale, 'tasks', now, 500), null, 'an out-of-hour or undated record was counted');
   // Never "0 minutes": the soonest it says is one minute, in the singular.
-  assert.match(agentRunawayRefusal(spread(500, 59.99), 'tasks', now, 500), /about 1 minute;/);
+  assert.match(agentRunawayRefusal(spread(500, 59.99), 'tasks', now, 500).because, /about 1 minute;/);
+  // A record dated in the future never quotes more than the hour.
+  const skew = agentRunawayRefusal([...spread(499, 50), now + 30 * min], 'tasks', now, 500);
+  assert.equal(skew.retryAfterSecs <= 3600, true, 'a future-dated record quoted a wait past the hour');
 });
 
 test('the fence infostring becomes a source line when it is path-shaped (#121)', () => {
@@ -14106,11 +14112,6 @@ test('#761 round 2: a process cannot unboundedly page a live agent through the p
   }
 });
 
-/* #761 challenge-loop round 6: heardBudgetRecord() fired whenever heardBy
-   returned an object at all, including a FAILED delivery (could_not /
-   unconfirmed) to an unreachable agent -- so a run of failed attempts spent
-   the same shared budget a real placement does, and could exhaust it for
-   every other project's legitimate ones. Now only a real 'placed' spends it. */
 /* #3959 review round 4: once the shared paging allowance is spent, EVERY agent-made
    assignment route says the assignee was not told, not only task create. Twelve task
    assignments spend it (tasks are no longer capped at twelve), so the part routes are
@@ -14175,6 +14176,11 @@ test('#3959: with the paging allowance spent by tasks, part add and part reassig
   }
 });
 
+/* #761 challenge-loop round 6: heardBudgetRecord() fired whenever heardBy
+   returned an object at all, including a FAILED delivery (could_not /
+   unconfirmed) to an unreachable agent -- so a run of failed attempts spent
+   the same shared budget a real placement does, and could exhaust it for
+   every other project's legitimate ones. Now only a real 'placed' spends it. */
 test('#761 round 6: failed deliveries do not spend the shared pane-notify budget', async () => {
   const chatEngine = require('./engine/chat');
   const projectsEngine761e = require('./engine/projects');
