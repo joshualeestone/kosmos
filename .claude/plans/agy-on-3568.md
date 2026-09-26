@@ -112,3 +112,4 @@ subscription, only now that it is true.
 ## Not in this card
 - Reading what an Antigravity agent is doing (status) and its auth-failed copy: #3568's PR 2.
 - Windows: agy is refused there today.
+- Surface gate (#2518) also named render-unread-edge-3743 and render-agentdm-3414 (token 'msg', a variable name here): both run and pass unchanged (23:48).
