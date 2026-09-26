@@ -56,3 +56,14 @@ and a phone has no hover: a tap opens the agent. Changing that is a design call 
   (page 420/421px). The other arms stay green on main: the faces sit mid-chart, so they are not the control.
 - Unit + wiring tests (orgchart-phone, browser-checks wired/selectors/reason-grep/home, fixture-discipline,
   every-test-runs): 52 of 52.
+
+## Challenge loop, iteration 2
+- A three-level fleet (maxR 268) does not fit an iPhone SE even at the 0.7 floor (chart 435px in a 327px box),
+  so the in-box scroll is an ordinary case, not an extreme one. The chart's `touch-action: none` (for
+  dragging) blocked a finger from scrolling that box. Now paintOrg marks a chart wider than its box
+  `.orgwide`, which allows touch panning; a touch drag of a node there gives way to the scroll (pointercancel
+  releases it). Mouse drag is unchanged. Weakest part: on an overflowing chart a phone user can no longer
+  drag nodes by touch. Rejected: dropping the floor further (the relaxation's spacing fights the ring pull).
+- The drag box uses ORG_PAD_MIN rather than a second literal 30.
+- Browser check: deep-fleet arms at 375 in both engines, real touch swipe in Chromium. Fixed 61/61; with the
+  touch rule removed, the touch-action and swipe arms fail (scrollLeft 0).
