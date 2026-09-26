@@ -58,18 +58,9 @@ Tests (engine/fedseal.test.js):
 - A join with a code from an older owner (no second half) posts a room note: "This shared room is not sealed end to end ...".
 - Tests and controls fail by name.
 
-## Open questions for review
-- The relay still sees who posts when and how much (metadata). Only content is sealed; this is stated in the card's v1 limits.
-- invite: the board makes `s`, stores it beside the invite, and shows `<code>.<s>`.
-- join: the board splits the code, verifies with the first half only, and keeps `s`.
-- seat: on connect the member posts key-hello. The owner checks it, pins the key, and replies key-share. The member opens it and pins the owner.
-- federateOut seals. The inbound path opens, and refuses unsealed payloads once the room is sealed. The room says "waiting for the owner's Mac" until the member holds a key.
-- revoke: rotate to every remaining member.
-
-## Not claimed in v1 (on the card)
-- No forward secrecy.
-- A member could forge another member's `from`.
-- One seat per member account.
+## Stated limits (v1)
+- The relay still sees metadata: who posts, when and how much. Only content is sealed.
+- A relay that suppresses every newer-epoch frame to one member can keep that member on the old key; once the member sees any newer epoch it holds its posts (round 5).
 
 ## Round 1 review (opus, crypto-focused): 2 BLOCKERs, 3 WARNINGs, 4 NITs, all taken
 - [BLOCKER] an owner's room was unsealed until the first hello, so a relay that drops hellos kept the owner posting and showing plaintext. FIXED: a project is sealed for good from its first sealing invite (`sealedRefs`). The owner holds posts ("no member's computer has joined with its key yet") and refuses plaintext inbound. Control fails by name.
@@ -94,3 +85,9 @@ Tests (engine/fedseal.test.js):
 
 ## Round 4 review (sonnet): 1 BLOCKER, taken
 - [BLOCKER] a member catching up on a rotation set rotatedAt to its own catch-up time, so the old epoch's 10-minute grace reopened on every late member's reconnect, for the room's whole life, letting a revoked member keep posting under the old key into that window. FIXED: the owner seals WHEN it rotated into the key-rotate payload (key plus an 8-byte time, under the pair-rotate AEAD). The member starts the grace from that time, capped at its own now, so a member catching up days later opens no old-epoch message at all. Test (a rotate from two days ago, then an old-key post at catch-up time: not shown, the current one is); control (catch-up time again) fails by name.
+
+## Round 5 review (opus): 1 WARNING, 2 NITs, all taken
+- [WARNING] a member that missed a rotation kept sealing under the old key, readable by the revoked member, with no signal. FIXED: a member that sees a sealed message from a newer epoch than its own marks itself behind, holds its posts ("behind on this shared room's key ... waiting for the owner's computer") and notes it, until the owner's re-send (each pass) arrives. A relay suppressing every newer-epoch frame is now a stated limit. Test and control.
+- [NIT] openRotate's doc omitted rotatedAt. FIXED.
+- [NIT] the plan quoted copy the code does not use, and an "open questions" section asked nothing. FIXED: the quote, and the section is now "Stated limits (v1)".
+- Checked sound by the reviewer: a replayed older rotate is ignored; the owner's rotatedAt persists across restarts; a rotatedAt of 0 means no grace (fails closed); skew in either direction cannot extend the window.

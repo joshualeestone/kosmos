@@ -159,7 +159,16 @@ function onEvent(projectId, line) {
     if (sealedRoom === undefined) { noteOnce(projectId, s, 'sealUnreadable', 'A message from the external project was not shown: this computer cannot read its sealed-rooms record right now.'); return; }
     if (fedseal.isSealed(ev.data)) {
       const now = Date.now();
+      // A member seeing a newer epoch than its own missed a rotation: until the owner's
+      // re-send arrives it holds its posts (a revoked member may still hold its key).
+      if (sealed && sealed.role === 'member' && hasKey(sealed) && ev.data.epoch > sealed.epoch) {
+        s.behindEpoch = Math.max(s.behindEpoch || 0, ev.data.epoch);
+      }
       const opened = hasKey(sealed) && s.room ? fedseal.open(acceptedKeys(sealed, now), s.room, ev.data) : null;
+      if (!opened && s.behindEpoch > (sealed && Number.isInteger(sealed.epoch) ? sealed.epoch : -1)) {
+        noteOnce(projectId, s, 'behind', 'This computer is behind on this shared room\'s key, so a message could not be read yet. It is waiting for the owner\'s computer to send the new key, and holds its own posts until then.');
+        return;
+      }
       if (!opened && !sealed) {
         // This computer joined before the owner sealed the room: it holds no key and never will from that code.
         noteOnce(projectId, s, 'sealedSince', 'The owner has sealed this shared room since this computer joined, so its messages cannot be read here. Ask the owner to remove you from the shared project and send you a new code.');
@@ -743,6 +752,10 @@ function post(projectId, { from, kind, text }) {
     return false;
   }
   if (sealedRoom) {
+    if (hasKey(sealed) && s.behindEpoch > sealed.epoch) {
+      say(projectId, 'That message stayed on this computer: it is behind on this shared room\'s key and is waiting for the owner\'s computer to send the new one.');
+      return false;
+    }
     if (!hasKey(sealed) || !s.room) {
       say(projectId, link && link.role === 'owner'
         ? 'That message stayed on this computer: this shared room is sealed, and no member\'s computer has joined with its key yet. Nothing is sent until one has.'

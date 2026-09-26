@@ -28,7 +28,8 @@
  * NOT CLAIMED (v1, stated on the card): no forward secrecy (the share uses the two
  * boards' long-term keys); members share one room key, so a member could forge
  * another member's `from`, as today; the relay still sees who posts, when and how
- * much. Freshness is judged against each Mac's own clock: a clock off by more than an
+ * much, and a relay that suppresses every newer-epoch frame to a member can keep that
+ * member on the old key (it holds its posts once it sees a newer epoch). Freshness is judged against each Mac's own clock: a clock off by more than an
  * hour refuses genuine messages (the room says to check the clock). Nonces are random 96-bit under one room key, safe to about 2^32 messages per
  * epoch, far past any room's life at the inbound budget (2,000 rows a day).
  */
@@ -209,7 +210,7 @@ function rotateFrame(owner, memberPub, roomKey, epoch, roomId, rotatedAt) {
   const box = aeadSeal(k, aad('rotate', roomId, epoch), Buffer.concat([rk, at]));
   return { t: 'key-rotate', v: V, epoch, nonce: box.nonce, ct: box.ct };
 }
-/** { epoch, roomKey } when the rotate was made by the PINNED owner key for this
+/** { epoch, roomKey, rotatedAt } when the rotate was made by the PINNED owner key for this
     member and room, else null. The AEAD itself is the authentication: only the
     holder of the pinned owner key can derive the pair key. */
 function openRotate(me, pinnedOwnerPub, frame, roomId) {

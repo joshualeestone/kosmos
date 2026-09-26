@@ -1026,3 +1026,30 @@ test('#3728: a member catching up on a rotation late does not reopen the old key
   await settle();
   assert.deepStrictEqual(h.recorded.map((r) => r.text), ['current'], 'a late catch-up reopened the old epoch');
 });
+
+test('#3728: a member that sees a newer epoch than its own holds its posts until the new key arrives', async () => {
+  const s0 = fedseal.randomSecret();
+  const owner = fedseal.newKeyPair();
+  federation.recordLink('proj-behind', { role: 'member', edge_id: 'edge-behind' });
+  const k0 = fedseal.randomSecret();
+  fedseal.setRoomState('proj-behind', { role: 'member', s: s0, code: 'code-b', peer: owner.pub, epoch: 0, keys: { 0: k0 } });
+  const h = harness();
+  await fedseats.ensure('proj-behind');
+  const seat = h.spawned[0];
+  say(seat, { event: 'connected', room: 'room-behind', expires_at: 9 });
+  await settle();
+  // CONTROL: before any sign of a newer epoch, posts go out (sealed under epoch 0).
+  assert.strictEqual(fedseats.post('proj-behind', { from: 'Ana', kind: 'person', text: 'before' }), true);
+  const k1 = fedseal.randomSecret();
+  say(seat, { event: 'message', data: fedseal.seal(k1, 1, 'room-behind', { from: 'Owner', kind: 'person', text: 'new epoch' }) });
+  await settle();
+  assert.ok(h.notes.some((n) => /behind on this shared room's key/.test(n.text)), JSON.stringify(h.notes));
+  const n = lines(seat).length;
+  assert.strictEqual(fedseats.post('proj-behind', { from: 'Ana', kind: 'person', text: 'on the old key' }), false, 'a post went out under a key a revoked member may hold');
+  assert.strictEqual(lines(seat).length, n);
+  // The owner's re-send arrives: posts go out again, under the new epoch.
+  say(seat, { event: 'message', data: fedseal.rotateFrame(owner, fedseal.sealingKey().pub, k1, 1, 'room-behind', Date.now()) });
+  await settle();
+  assert.strictEqual(fedseats.post('proj-behind', { from: 'Ana', kind: 'person', text: 'caught up' }), true);
+  assert.strictEqual(lines(seat).pop().epoch, 1);
+});
