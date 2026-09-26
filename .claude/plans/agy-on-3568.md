@@ -45,9 +45,12 @@ subscription, only now that it is true.
 - Settings' Add a provider still offers Gemini by key only (rejected here: a second driver and screen
   in this branch). The create/switch option works once agy is installed, since agy opens Google's
   sign-in on the agent's first start; its off hint says "Needs Google's Antigravity" and the agents'
-  guide gives Google's installer. The Settings button is #3874.
-- Kosmos shows Google's installer command rather than running a `curl | bash` itself (rejected: the
-  board running a vendor script unasked).
+  guide says how it is installed. The Settings button is #3874.
+- Kosmos installs agy itself with Google's own installer, on the person's press (POST
+  /api/antigravity/install: the fixed https URL, saved to a temp file and run by bash, not piped).
+  Rejected: showing the command to paste into Terminal, which Josh's #996 rule forbids (a person is
+  never told to open a Terminal; web.terminal-hatch-996 guards it). Kosmos already installs every
+  other provider's terminal agent behind a Confirm press.
 
 ## Not in this card
 - Reading what an Antigravity agent is doing (status) and its auth-failed copy: #3568's PR 2.

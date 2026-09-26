@@ -47,13 +47,13 @@ function checkOnce() {
   return new Promise((resolve) => {
     const inst = installed();
     if (!inst.installed) {
-      resolve({ installed: false, signedIn: false, because: inst.because || 'Antigravity is not installed on this Mac' });
+      resolve({ installed: false, signedIn: false, because: inst.because || 'Antigravity is not installed on this computer' });
       return;
     }
     runAgy(inst.bin, (err, out) => {
       if (!err && /\bok\b/i.test(out)) { resolve({ installed: true, signedIn: true }); return; }
       resolve({ installed: true, signedIn: null,
-        because: 'Antigravity did not answer, so it may need signing in (or this Mac is offline)' });
+        because: 'Antigravity did not answer, so it may need signing in (or this computer is offline)' });
     });
   });
 }
@@ -71,13 +71,44 @@ function openForSignIn() {
   return new Promise((resolve) => {
     if (process.platform !== 'darwin') { resolve({ ok: false, because: 'Kosmos can open Antigravity for you on a Mac only' }); return; }
     const inst = installed();
-    if (!inst.installed) { resolve({ ok: false, because: 'Antigravity is not installed on this Mac' }); return; }
+    if (!inst.installed) { resolve({ ok: false, because: 'Antigravity is not installed on this computer' }); return; }
     openTerminal(inst.bin, (err) => resolve(err
-      ? { ok: false, because: 'we could not open Terminal; open Antigravity yourself by typing agy in Terminal' }
+      ? { ok: false, because: 'we could not open Antigravity\'s sign-in just now' }
       : { ok: true }));
   });
 }
+/* Install agy the way Google documents it (antigravity.google/docs/cli/install): its installer
+   script, fetched over https from antigravity.google, puts agy in ~/.local/bin/agy. Kosmos installs
+   every provider's terminal agent itself behind a Confirm press, and a person is never told to open
+   a Terminal (#996), so this runs only on that press. Nothing from the page reaches the command: the
+   URL is fixed and the script is saved to a private temp file and run by bash, not piped, so a failed
+   download fails the install instead of running half a script. */
+const INSTALL_URL = 'https://antigravity.google/cli/install.sh';
+let runInstall = (done) => {
+  let dir;
+  try { dir = fs.mkdtempSync(path.join(os.tmpdir(), 'kosmos-agy-install-')); } catch (e) { done(e); return; }
+  const script = path.join(dir, 'install.sh');
+  const clean = () => { try { fs.rmSync(dir, { recursive: true, force: true }); } catch { /* best effort */ } };
+  execFile('/usr/bin/curl', ['-fsSL', '--proto', '=https', '-o', script, INSTALL_URL], { timeout: 60000 }, (err) => {
+    if (err) { clean(); done(err); return; }
+    execFile('/bin/bash', [script], { cwd: dir, timeout: 300000, env: { ...process.env, HOME: os.homedir() } }, (err2) => { clean(); done(err2); });
+  });
+};
+function installOnce() {
+  return new Promise((resolve) => {
+    if (process.platform !== 'darwin') { resolve({ ok: false, because: 'Kosmos can install Antigravity on a Mac only' }); return; }
+    if (installed().installed) { resolve({ ok: true, installed: true }); return; }
+    runInstall((err) => {
+      const now = installed();
+      resolve(now.installed ? { ok: true, installed: true }
+        : { ok: false, installed: false, because: err ? 'Google\'s Antigravity installer did not finish, so nothing changed' : 'the installer finished but Antigravity was not found where it installs' });
+    });
+  });
+}
+const sharedInstall = inflight.collapse(installOnce);
+function install() { return sharedInstall(); }
+function setInstallerForTests(fn) { runInstall = fn; }
 function setOpenerForTests(fn) { openTerminal = fn; }
 function setRunnerForTests(fn) { runAgy = fn; }
 
-module.exports = { installed, check, openForSignIn, setRunnerForTests, setOpenerForTests, PROMPT };
+module.exports = { installed, check, openForSignIn, install, setRunnerForTests, setOpenerForTests, setInstallerForTests, PROMPT, INSTALL_URL };

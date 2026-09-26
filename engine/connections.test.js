@@ -50,7 +50,8 @@ test('#1034/#3566: it names the providers that can be connected today and says t
   assert.match(flat, /Google Gemini and xAI Grok can be\s+connected too: Gemini with an API key or a Google subscription, Grok with\s+an API key or an xAI subscription/);
   // #3568: how Gemini's subscription is set up is said, with Google's own installer.
   assert.match(flat, /Gemini on a Google subscription runs on Google's Antigravity/);
-  assert.match(flat, /https:\/\/antigravity\.google\/cli\/install\.sh/);
+  assert.match(flat, /Kosmos\s+installs it from Google when the person presses Sign in with Subscription/);
+  assert.doesNotMatch(flat, /into Terminal/, 'a person is never told to open a Terminal (#996)');
   /* #3713: Kosmos installs Gemini's and Grok's terminal agents on a Mac and on Windows, so the
      guide must not tell an agent they have to be there already, which would send a person off
      to install one. */

@@ -7686,6 +7686,15 @@ const server = http.createServer((req, res) => {
       .catch(() => sendJson(res, 500, { ok: false, error: 'we could not open Antigravity just now' }));
     return;
   }
+  /* #3568: install agy with Google's own installer, on a Confirm press (as Kosmos installs every
+     provider's terminal agent); a person is never told to open a Terminal (#996). */
+  if (pathname === '/api/antigravity/install' && req.method === 'POST') {
+    req.resume();
+    require('./engine/agystatus').install()
+      .then((r) => sendJson(res, r.ok ? 200 : 400, r.ok ? r : { ...r, error: r.because }))
+      .catch(() => sendJson(res, 500, { ok: false, error: 'we could not install Antigravity just now' }));
+    return;
+  }
   if (pathname === '/api/antigravity/check' && req.method === 'POST') {
     req.resume();
     require('./engine/agystatus').check()

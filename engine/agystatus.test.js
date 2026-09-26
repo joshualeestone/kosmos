@@ -73,7 +73,7 @@ test('opening agy for sign-in: runs open -a Terminal on the agy found, and refus
   agystatus.setOpenerForTests((b, done) => done(new Error('no Terminal')));
   const r = await agystatus.openForSignIn();
   assert.equal(r.ok, false);
-  assert.match(r.because, /type agy|typing agy/);
+  assert.match(r.because, /could not open Antigravity/);
   // CONTROL: missing agy is refused before anything is opened.
   process.env.AGENT_WORKFORCE_ANTIGRAVITY_BIN = bin + '-gone/agy';
   opened = null;
@@ -81,3 +81,35 @@ test('opening agy for sign-in: runs open -a Terminal on the agy found, and refus
   assert.equal((await agystatus.openForSignIn()).ok, false);
   assert.equal(opened, null);
 }));
+
+test('install: runs Google\'s installer only when agy is missing, and trusts only finding agy afterwards', async () => {
+  if (process.platform !== 'darwin') return;
+  assert.equal(agystatus.INSTALL_URL, 'https://antigravity.google/cli/install.sh', 'the installer URL is fixed to Google\'s own');
+  // Already installed: nothing is run.
+  await withFakeAgy(async () => {
+    let runs = 0;
+    agystatus.setInstallerForTests((done) => { runs += 1; done(null); });
+    assert.deepEqual(await agystatus.install(), { ok: true, installed: true });
+    assert.equal(runs, 0, 'an installed agy was installed again');
+  });
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'agy-install-'));
+  const bin = path.join(dir, 'agy');
+  const was = process.env.AGENT_WORKFORCE_ANTIGRAVITY_BIN;
+  process.env.AGENT_WORKFORCE_ANTIGRAVITY_BIN = bin;
+  try {
+    // The installer "succeeds" but puts nothing there: not installed, and it says so.
+    agystatus.setInstallerForTests((done) => done(null));
+    const empty = await agystatus.install();
+    assert.equal(empty.ok, false);
+    assert.match(empty.because, /not found/);
+    // The installer fails: nothing changed.
+    agystatus.setInstallerForTests((done) => done(new Error('curl: (6)')));
+    assert.match((await agystatus.install()).because, /did not finish/);
+    // The installer puts agy in place: installed.
+    agystatus.setInstallerForTests((done) => { fs.writeFileSync(bin, '#!/bin/sh\nexit 0\n', { mode: 0o755 }); done(null); });
+    assert.deepEqual(await agystatus.install(), { ok: true, installed: true });
+  } finally {
+    if (was === undefined) delete process.env.AGENT_WORKFORCE_ANTIGRAVITY_BIN; else process.env.AGENT_WORKFORCE_ANTIGRAVITY_BIN = was;
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});

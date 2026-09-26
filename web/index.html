@@ -24566,40 +24566,55 @@ const FR_KEYED = { google: { pre: 'gemini' }, xai: { pre: 'grok' } };
    open agy once in Terminal for the sign-in and offer Check again. Nothing is typed into agy. */
 const FR_AGY_SUB = {
   busy: false,
+  next: 'check',   // what the step's button does next: 'install' Antigravity, or 'check' again
   el(part) { return document.getElementById('fr-gemini-sub-' + part); },
-  say(text, button, docs) {
+  say(text, button, about) {
     const code = this.el('code'); if (code) { code.textContent = text; code.hidden = !text; }
     const go = this.el('go'); if (go) { go.textContent = button || ''; go.hidden = !button; }
     const row = this.el('open-row'); const a = this.el('open');
     if (row && a) {
-      row.hidden = !docs;
-      if (docs) { a.href = 'https://antigravity.google/docs/cli/install/'; a.textContent = "Open Google's install page"; }
+      row.hidden = !about;
+      if (about) { a.href = 'https://antigravity.google/docs/cli/install/'; a.textContent = 'About Antigravity'; }
     }
+  },
+  async post(path) {
+    try { return await (await fetch(path, { method: 'POST' })).json(); } catch { return null; }
   },
   async start() {
     if (this.busy) return;
     this.busy = true;
-    this.say('Checking Antigravity on this Mac…', '', false);
-    let r = null;
-    try { r = await (await fetch('/api/antigravity/check', { method: 'POST' })).json(); } catch { r = null; }
-    if (r && typeof r.installed === 'boolean') { AGY_INSTALLED = r.installed; paintAgyOption(document.getElementById('create-provider'), ''); }
-    if (!r || r.installed === null) {
-      this.say('We could not check Antigravity just now.', 'Check again', false);
-    } else if (r.installed === false) {
-      this.say("Gemini on your Google subscription runs on Google's Antigravity, which is not on this Mac yet. "
-        + 'Install it by pasting this into Terminal: curl -fsSL https://antigravity.google/cli/install.sh | bash. Then press Check again.',
-        'Check again', true);
-    } else if (r.signedIn === true) {
-      this.say('Ready. Gemini runs on your Google subscription on this Mac: pick Google Gemini (Google subscription) when you create an agent.', '', false);
-    } else {
-      let opened = null;
-      try { opened = await (await fetch('/api/antigravity/open', { method: 'POST' })).json(); } catch { opened = null; }
-      this.say(opened && opened.ok
-        ? 'Antigravity opened in Terminal and will open Google\'s sign-in in your browser. Sign in there with your Google account, then press Check again.'
-        : ((opened && opened.error) || 'Open Terminal and type agy to sign in to Antigravity') + '. Then press Check again.',
-        'Check again', false);
-    }
-    this.busy = false;
+    try {
+      if (this.next === 'install') {
+        this.say('Installing Antigravity from Google…', '', false);
+        const got = await this.post('/api/antigravity/install');
+        if (!got || !got.ok) {
+          this.next = 'install';
+          this.say(((got && got.error) || 'We could not install Antigravity just now') + '.', 'Try again', true);
+          return;
+        }
+      }
+      this.say('Checking Antigravity on this computer…', '', false);
+      const r = await this.post('/api/antigravity/check');
+      if (r && typeof r.installed === 'boolean') { AGY_INSTALLED = r.installed; paintAgyOption(document.getElementById('create-provider'), ''); }
+      if (!r || typeof r.installed !== 'boolean') {
+        this.next = 'check';
+        this.say('We could not check Antigravity just now.', 'Check again', false);
+      } else if (r.installed === false) {
+        this.next = 'install';
+        this.say("Gemini on your Google subscription runs on Google's Antigravity, which is not on this computer yet. "
+          + 'Kosmos can install it for you: it is a download from Google.', 'Install Antigravity', true);
+      } else if (r.signedIn === true) {
+        this.next = 'check';
+        this.say('Ready. Gemini runs on your Google subscription on this computer: pick Google Gemini (Google subscription) when you create an agent.', '', false);
+      } else {
+        const opened = await this.post('/api/antigravity/open');
+        this.next = 'check';
+        this.say(opened && opened.ok
+          ? "Antigravity opened, and it opens Google's sign-in in your browser. Sign in there with your Google account, then press Check again."
+          : ((opened && opened.error) || "We could not open Antigravity's sign-in just now") + '. Press Check again to retry.',
+          'Check again', false);
+      }
+    } finally { this.busy = false; }
   },
 };
 const KEYED_SUB_START = { google: () => FR_AGY_SUB.start(), xai: () => FR_GROK_SUB.start() };
