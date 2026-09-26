@@ -92,3 +92,13 @@ test('#3966: every thread timestamp is written through pjWhenLive', () => {
   assert.deepEqual(plain, [], 'a thread time written as plain text would change the shape every minute');
   assert.ok((RAW.match(/pjWhenLive\(m\.at\)/g) || []).length >= 7, 'the thread row builders use pjWhenLive');
 });
+
+test('#3966: setLive (the project member panel #pj-msgs, and the room\'s writer) also compares by shape', () => {
+  const setLive = pageFnSource('setLive');
+  assert.match(setLive, /const shape = threadShape\(html\);/);
+  assert.match(setLive, /if \(el\.__lastLive === shape\) \{ refreshWhens\(el\); return; \}/);
+  assert.doesNotMatch(setLive, /el\.__lastLive === html/, 'the raw compare rebuilt #pj-msgs on every minute tick');
+  const verdict = pageFnSource('pjVerdict');
+  assert.match(verdict, /const whenLive = pjWhenLive\(m\.at\);/, 'the member panel\'s time must be a live span');
+  assert.doesNotMatch(verdict, /const when = pjWhenPart\(m\.at\)/);
+});

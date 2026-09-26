@@ -49,7 +49,14 @@ empty or two-message thread nothing on the agent page is rebuilt; the unfurl cac
   source pins on both painters, every thread time written through pjWhenLive.
 - web.thread-scroll.test.js brings the two helpers across (it loads setThread by itself).
 
+## Challenge-loop iteration 2
+- The project member panel (#pj-msgs, via setLive) had the same flash and was missed by the first
+  sweep: setLive now compares by shape too, and pjVerdict's time is a live span. Unit pins only.
+- The remembered marker's switch to the latest card got a source pin (web.pill-remembered-3958).
+- Seven web tests slice these functions and needed the new helpers; one asserted the old literal
+  markup `msg-t">just now` and now allows the live span.
+
 ## Not measured
-The room is covered by the unit pins and shares the helpers; no browser check watches a room.
+The room and the member panel are covered by the unit pins and shares the helpers; no browser check watches a room.
 Josh's own thread was not read (it is his data on his Mac); the mechanism is reproduced, the
 exact trigger in his thread is inferred.

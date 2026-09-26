@@ -32405,8 +32405,12 @@ function setLive(el, html) {
   // made the comparison miss forever -- the node rebuilt every poll,
   // which on the recipient picker closed an open dropdown every five
   // seconds.
-  if (el.__lastLive === html) return;
-  el.__lastLive = html;
+  /* #3966: compared by SHAPE, so a relative time's words ticking over do not rebuild the node
+     (the project member panel #pj-msgs flashed every few seconds the way the agent thread did).
+     Markup with no live time has a shape identical to itself, so every other caller is unchanged. */
+  const shape = threadShape(html);
+  if (el.__lastLive === shape) { refreshWhens(el); return; }
+  el.__lastLive = shape;
   el.innerHTML = html;
 }
 
@@ -50901,7 +50905,9 @@ function pjVerdict(m, name) {
   const consequential = Boolean(note) && d.paneState !== 'idle';
   let said;
   let mark;
-  const when = pjWhenPart(m.at);
+  /* #3966: a live time, so the member panel can refresh it in place (see setLive). */
+  const whenLive = pjWhenLive(m.at);
+  const when = whenLive ? ' ' + whenLive : '';
   if (d.state === 'placed') {
     mark = '';
     /* #3419: a placed message's thread row carries NO delivery-status copy --
