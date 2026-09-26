@@ -37,3 +37,6 @@ page. Try again re-tells that agent and the notice updates.
   that was already true of the old line. Not changed here.
 - pjSharedTold, pjToldGroupLine, their CSS and tests are removed (dead once the notice replaced the
   group line). pjToldLine stays: the Settings members list still uses it.
+
+## Verified checks
+- render-projects and render-project-members-3387 pass through tools/browser-checks.sh with the notice in the Members card (the second is surface-mapped to pjcard-members; the notice adds a sibling and changes nothing it asserts).
