@@ -464,6 +464,8 @@ h1 { font: 600 var(--text-title-1) var(--font-ui); letter-spacing: -0.012em; }
   .askcard h3 { font: 600 1rem var(--font-ui); color: var(--k-ink); margin: 0 0 4px; }
   /* #718: the Allow card is a decision taken with a thumb, often on the phone being allowed. */
   @media (hover: none) { .askcard button { min-height: 44px; } }
+  /* #3829 addendum: the same thumb-size buttons where the cards now live on Kosmos Plus (above the panel). */
+  @media (hover: none) { .plus-asks button { min-height: 44px; } }
   .askcard p { margin: 0; max-width: 64ch; }
   .askcard p b { color: var(--k-ink); font-weight: 600; }
   .askcard .code { font-family: var(--font-mono, ui-monospace, Menlo, monospace); letter-spacing: .06em;
@@ -15479,7 +15481,7 @@ window.kosmosMeasureScrollbarWidth();
 
     <!-- #3829 addendum (Josh, 20:00): on Settings > Kosmos Plus the device requests sit directly ABOVE the
          panel, at its width, in the settings column. Elsewhere the top card is only a compact notice linking here. -->
-    <div class="plus-asks" id="plus-asks" hidden>
+    <div class="plus-asks" id="plus-asks" role="status" aria-live="polite" hidden>
       <p class="setname" id="plus-asks-title">Asking to use this Kosmos</p>
       <div id="plus-ask-rows"></div>
     </div>
@@ -35709,8 +35711,12 @@ function paintAsk() {
      other view the top card is one compact line linking there. */
   const onPlus = typeof plusOnScreen === 'function' && plusOnScreen();
   const panel = document.getElementById('plus-asks');
-  if (panel) panel.hidden = !(onPlus && anything);
-  const hide = !anything || onPlus || !live.length;
+  /* Review (#3829): "above the panel" only exists while the connected panel (#plus-flow) is showing. In the
+     not-enrolled or sign-in states there is no panel to sit above, so the full cards stay in the top card. */
+  const flow = document.getElementById('plus-flow');
+  const inPanel = onPlus && !!panel && !!flow && !flow.hidden;
+  if (panel) panel.hidden = !(inPanel && anything);
+  const hide = !anything || inPanel || (!onPlus && !live.length);
   card.hidden = hide;
   /* The Plus tab's needs-you dot marks a request waiting, in the nav's own grammar. */
   const dot = document.querySelector('#s-nav button[data-go="plus"]');
@@ -35728,6 +35734,7 @@ function paintAsk() {
     return;
   }
   if (!anything) return;
+  if (!inPanel) { title.textContent = 'Asking to use this Kosmos'; lead.hidden = true; }
   const out = [];
   const seen = new Set();
   const render = (d, e) => {
@@ -35760,7 +35767,9 @@ function paintAsk() {
   };
   for (const d of rows) { seen.add(d.device_id); out.push(render(d, ASK.done[d.device_id])); }
   for (const id of doneIds) { if (!seen.has(id)) out.push(render(ASK.done[id].device, ASK.done[id])); }
-  document.getElementById('plus-ask-rows').innerHTML = out.join('');
+  document.getElementById(inPanel ? 'plus-ask-rows' : 'ask-rows').innerHTML = out.join('');
+  if (inPanel) document.getElementById('ask-rows').innerHTML = '';
+  else document.getElementById('plus-ask-rows').innerHTML = '';
 }
 async function askAct(act, id) {
   const d = ASK.devices.find((x) => x.device_id === id) || (ASK.done[id] && ASK.done[id].device);
