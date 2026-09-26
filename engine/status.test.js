@@ -947,6 +947,37 @@ test('#2192: a running native-codex pane wins over a crashed shell sibling', () 
   assert.equal(isAgentPane(roster[0]), true);
 });
 
+test('#3953: a running Grok agent on a Mac is a live agent session, so the board sees it come up', () => {
+  // Josh's first Grok agent (0.6.96) ran and the create screen still said "has not come up": the managed
+  // Mac install is a `grok` symlink to `pkg/bin/grok-native`, tmux names the pane after the target, and
+  // isAgentSession had no Grok arm. Command measured with grok 1.0.41 in a real tmux pane: `grok-native`.
+  for (const command of ['grok-native', 'grok']) {
+    const [grokAgent] = parsePanes(`elon\t0.0\t${command}\t0\telon\tgrok\t`);
+    assert.equal(isFleetSession(grokAgent), true);
+    assert.equal(isAgentSession(grokAgent), true, `a running Grok agent (${command}) was invisible to the board`);
+    assert.equal(isAgentPane(grokAgent), true, `a running Grok agent (${command}) could not be typed into`);
+  }
+});
+
+test('#3953: a crashed Grok agent stays restartable but is NOT a running session, and a stray grok is not ours', () => {
+  const [crashed] = parsePanes('elon\t0.0\tzsh\t0\telon\tgrok\t');
+  assert.equal(crashed.runner, 'grok');
+  assert.equal(isFleetSession(crashed), true, 'a crashed Grok agent lost its Restart button');
+  assert.equal(isAgentSession(crashed), false, 'a crashed shell was reported as a running Grok agent');
+  // A person running grok by hand in their own session: not claimed, so never an agent session.
+  const [stray] = parsePanes('scratch\t0.0\tgrok-native\t0\t\t\t');
+  assert.equal(isAgentSession(stray), false, 'an unclaimed grok pane was claimed as a Kosmos agent');
+});
+
+test('#3953: a running Grok pane wins over a crashed shell sibling', () => {
+  const roster = onePanePerSession(parsePanes([
+    'elon\t0.0\tzsh\t0\telon\tgrok\t',
+    'elon\t0.1\tgrok-native\t0\telon\tgrok\t',
+  ].join('\n')));
+  assert.equal(roster.length, 1);
+  assert.equal(roster[0].target, 'elon:0.1', 'the crashed shell was chosen over the running Grok agent');
+});
+
 /* ─────────────────────────────────────────────────────────────────────────────
  * Two wrong-agent ties introduced by removing the Discord coupling.
  *

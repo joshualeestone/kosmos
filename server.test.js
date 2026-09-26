@@ -2568,6 +2568,32 @@ function confirmModeDeps() {
     + pageFnSource('setUpdConfirmMode') + '\n' + pageFnSource('openUpdConfirm') + '\n';
 }
 
+test('#3953: a freshly created Grok agent comes up on the creation screen', async () => {
+  // Josh's first Grok agent on a Mac: running, and the screen said "has not come up", because the board
+  // did not count a `grok-native` pane (the managed Mac install's symlink target) as a running agent.
+  // A REAL /api/status card, read through the page's own predicate, the way the creation watch reads it.
+  const boardCanSeeIt = pageFunction('boardCanSeeIt');
+  const board = fleet.install([
+    fleet.agent('elon', { state: 'unknown', command: 'grok-native', runner: 'grok' }),
+    fleet.agent('crashed', { state: 'stopped', command: 'zsh', runner: 'grok' }),
+  ]);
+  let agents;
+  try {
+    agents = JSON.parse((await req('/api/status')).body).agents;
+  } finally {
+    board.restore();
+  }
+  const elon = agents.find((a) => a.sessionName === 'elon');
+  assert.ok(elon, 'the fixture really put the Grok agent on the board');
+  assert.equal(elon.runner, 'grok');
+  assert.equal(elon.isAgentSession, true, 'a running Grok agent is not a running agent to the board');
+  assert.equal(boardCanSeeIt(elon), true, 'the creation screen would say a running Grok agent has not come up');
+  // The control: the same agent crashed back to its shell must NOT read as come up.
+  const crashed = agents.find((a) => a.sessionName === 'crashed');
+  assert.ok(crashed, 'the fixture really put the crashed Grok agent on the board');
+  assert.equal(boardCanSeeIt(crashed), false, 'a Grok agent whose shell is all that is left reads as come up');
+});
+
 test('the creation screen only calls an agent made when the board can see it running', async () => {
   const boardCanSeeIt = pageFunction('boardCanSeeIt');
 
