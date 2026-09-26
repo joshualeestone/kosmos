@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Android 13 uses this alpha mask for wallpaper-coloured themed icons. -->
+<bitmap xmlns:android="http://schemas.android.com/apk/res/android"
+    android:src="@drawable/ic_launcher_k"
+    android:gravity="fill"
+    android:filter="true"
+    android:tint="#FFFFFFFF" />
