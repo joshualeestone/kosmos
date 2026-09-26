@@ -1,4 +1,4 @@
-// Browser-check-surface: d-state d-task
+// Browser-check-surface: d-state d-task d-start-wrap
 'use strict';
 /**
  * #3958 (Josh, 2026-09-26): on the agent page the status pill said Idle while the same page's DM
@@ -12,7 +12,10 @@
  *   - the pill and the DM line agree (both working, or neither);
  *   - after a flip to needs-you, the pill says exactly what the agent's grid card says;
  *   - on the second working poll in a row, the pill's dots are the same nodes, so their animation
- *     was not rebuilt and restarted by the poll (asserted to have run, not skipped).
+ *     was not rebuilt and restarted by the poll (asserted to have run, not skipped);
+ *   - after needs-you: auth_failed shows the Sign in again button and the screen evidence, and
+ *     working hides them again; stopped shows "Start this agent", and working hides it again (a
+ *     Start button frozen at open could sit beside Working and restart a running agent).
  * Control: the first reading (idle, before any flip) shows the instrument can read "Idle" and "no
  * dots", so a working reading is not the instrument's default.
  *
@@ -147,6 +150,20 @@ async function read(page) {
         await page.waitForTimeout(6500);
         const ok = await page.evaluate(() => ({ reauth: !document.getElementById('d-reauth').hidden }));
         chk(!ok.reauth, `${engineName} -> working again: the Sign in again button is gone`, JSON.stringify(ok));
+        const startShown = () => page.evaluate(() => {
+          const w = document.getElementById('d-start-wrap');
+          const b = document.getElementById('d-start-agent');
+          return { wrap: !!(w && !w.hidden), btn: !!(b && !b.hidden && !b.disabled) };
+        });
+        chk(!(await startShown()).wrap, `${engineName}: control: no Start button while working`);
+        setState('stopped');
+        await page.waitForTimeout(6500);
+        const st = await startShown();
+        chk(st.wrap && st.btn, `${engineName} -> stopped: "Start this agent" appears without reopening`, JSON.stringify(st));
+        setState('working');
+        await page.waitForTimeout(6500);
+        const wk = await startShown();
+        chk(!wk.wrap, `${engineName} -> working after stopped: the Start button is gone, not left beside Working`, JSON.stringify(wk));
         chk(secondPolls === 1, `${engineName}: precondition: the keep-running arm actually ran once`, String(secondPolls));
         chk(errs.length === 0, `${engineName}: no page errors`, errs.join(' | '));
       } finally {

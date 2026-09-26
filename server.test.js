@@ -8867,7 +8867,7 @@ test('the detail badge reads the card’s own derivations, and the task is a sep
   // own earlier in the file, and a forward search finds that one.
   const from = script.lastIndexOf('  const copy = stateCopyOf(a)', dmAt);
   assert.ok(from > -1 && from < dmAt, 'the state copy lookup moved away from the badge');
-  const TAIL = "dtask.hidden = !dtask.textContent || (a.state === 'needs_you');";
+  const TAIL = "dtask.hidden = !taskText || (a.state === 'needs_you');";
   const end = script.indexOf(TAIL, from);
   assert.ok(end > from, 'the detail task line vanished');
   const body = script.slice(from, end + TAIL.length);

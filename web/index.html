@@ -19725,6 +19725,9 @@ async function tick() {
       /* #3958: the pill follows the poll too, off the same `fresh` card. No card this poll (the
          agent is gone or unread) keeps the last reading rather than guessing. */
       if (fresh) paintDetailState(fresh);
+      /* The Start button follows the same poll: with the pill live, a button frozen at open
+         could sit beside "Working" and restart a running agent (review, iteration 11). */
+      if (fresh) refreshStartAffordance(fresh);
       /* #3614: the Files list, on the same tab-and-panel gate as the Talk poll above. */
       if (!document.hidden && !document.getElementById('panel-detail').hidden) paintAgentFiles(CURRENT.sessionName);
       /* The same tab gate as the poll above, for the same reason: this is a
@@ -27956,7 +27959,10 @@ function refreshStartAffordance(a) {
      would not catch the resulting second restart. Keying on START_EPOCH means a
      later open (which DID bump it) still re-enables normally. */
   const inFlight = START_FLIGHT !== null && START_FLIGHT === START_EPOCH;
-  if (notRunning && btn && !inFlight) { btn.hidden = false; btn.disabled = false; btn.textContent = 'Start this agent'; }
+  if (notRunning && btn && !inFlight) {
+    btn.hidden = false; btn.disabled = false;
+    if (btn.textContent !== 'Start this agent') btn.textContent = 'Start this agent'; // runs every poll
+  }
 }
 
 /* The pack's Memory box: a READING, not a control panel. The same
@@ -29992,7 +29998,10 @@ function paintDetailState(card) {
          called a `dispName()` that DOES NOT EXIST -- it would have thrown the
          moment a rate-limited agent's page opened, and every text-matching test
          passed over it because a regex cannot call a function. */
-      saidLab.textContent = line ? a.name + '\u2019s screen said:' : '';
+      const lab = line ? a.name + '\u2019s screen said:' : '';
+      /* Written only when it changes: this runs every poll, and reassigning identical text
+         replaces the node, which drops a selection somebody is copying from. */
+      if (saidLab.textContent !== lab) saidLab.textContent = lab;
       saidLab.hidden = !line;
     }
   }
@@ -30049,8 +30058,9 @@ function paintDetailState(card) {
      the bubble (one fact, one derivation), and the noQuote behavior is already unit-tested. */
   const dtask = document.getElementById('d-task');
   if (!dtask) return;
-  dtask.textContent = taskLine(a, { noQuote: true });
-  dtask.hidden = !dtask.textContent || (a.state === 'needs_you');
+  const taskText = taskLine(a, { noQuote: true });
+  if (dtask.textContent !== taskText) dtask.textContent = taskText; // every poll: keep a selection
+  dtask.hidden = !taskText || (a.state === 'needs_you');
 }
 
 function openDetail(sessionName, section, fromProject) {
@@ -32589,7 +32599,10 @@ function setLive(el, html) {
   // seconds.
   /* #3966: compared by SHAPE, so a relative time's words ticking over do not rebuild the node
      (the project member panel #pj-msgs flashed every few seconds the way the agent thread did).
-     Markup with no live time has a shape identical to itself, so every other caller is unchanged. */
+     The shape also ignores a memory ring's arc length (#3991), patched in place by refreshRings:
+     markup with neither a live time nor a ring has a shape identical to itself, and every caller
+     whose markup draws a ring (the project members, the settings members list) gets its arc
+     patched rather than a rebuild. */
   const shape = threadShape(html);
   if (el.__lastLive === shape) {
     if (html.indexOf('mwhen') > -1) refreshWhens(el);
@@ -43929,7 +43942,7 @@ function pjMember(m, suppressTold, withMinus, hideState) {
   const face = m.hasAvatar
     /* #2762: `?v=` the avatar version, same as tkFace above and the org chart
        (#2698). This row is painted through `setIfChanged` -> `setLive`, which is
-       an unchanged-markup skip (by shape since #3966, which ignores only live times) exactly like
+       an unchanged-markup skip (by shape since #3966, which ignores live times and ring arc lengths) exactly like
        TK_LIST_HTML and ORG_HTML. So a bare URL here is stale for the same reason
        and by the same mechanism. `m` is the member row from projects.describe,
        which carries avatarVer. */
@@ -51108,14 +51121,16 @@ function threadShape(html) {
     .replace(/(<span class="mwhen" data-at="[^"]*">)[^<]*(<\/span>)/g, '$1$2')
     .replace(/<svg class="lring"[\s\S]*?<\/svg>/g, (ring) => ring.replace(/stroke-dasharray="[^"]*"/g, 'stroke-dasharray=""'));
 }
-/** #3991: bring every memory ring arc under `root` to the one in `html`, pairing the rings in order,
-    and only when both have the same rings (a different set is a shape change and rewrites anyway). */
+/** #3991: bring every memory ring arc under `root` to the one in `html`, pairing each ring with the
+    one for the same agent (a ring with no partner is left alone; a different set of rings is a shape
+    change, and the caller rewrites instead). */
 function refreshRings(root, html) {
   if (!root || typeof root.querySelectorAll !== 'function' || typeof document === 'undefined') return;
   const t = document.createElement('template');
   t.innerHTML = html;
-  /* Paired by the agent each ring belongs to (its [data-agent] row) and its place within that row,
-     never by position alone, so a reorder can never hand one agent's reading to another's face. */
+  /* Paired by the agent each ring belongs to (its [data-agent] row) and its place within that row.
+     Today a reorder always changes the shape and rebuilds before this runs, so position alone would
+     pair the same nodes; the key keeps that true without depending on it. */
   const keyed = (list) => {
     const seen = new Map();
     return Array.from(list, (el) => {

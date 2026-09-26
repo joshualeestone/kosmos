@@ -91,7 +91,8 @@ test('the two views Josh named ask for it without the quote, and #3043 drops it 
      edit that puts the quote back beside the bubble -- or re-derives the "is this the reported
      quote" test inline instead of sharing taskLine's one source -- is caught here. The noQuote
      BEHAVIOR (reported -> '', rate_limited/auth still speak) is asserted directly above. */
-  assert.match(PAGE, /dtask\.textContent = taskLine\(a, \{ noQuote: true \}\);/,
+  /* #3958: computed once, written only when it changes (the header follows every poll). */
+  assert.match(PAGE, /const taskText = taskLine\(a, \{ noQuote: true \}\);\n\s*if \(dtask\.textContent !== taskText\) dtask\.textContent = taskText;/,
     'the detail header no longer shares the cards’ noQuote derivation for the task line (#3043)');
 });
 

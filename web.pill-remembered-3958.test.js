@@ -70,6 +70,7 @@ function pillFor(card, spokeLearnedAt, lastAt) {
   ].join('\n'))(doc, new Map(spokeLearnedAt === null ? [] : [[card.sessionName, { at: 1, learnedAt: spokeLearnedAt }]]), lastAt);
   run(card);
   pillFor.els = els;
+  pillFor.repaint = run;
   return els['d-state'].className;
 }
 
@@ -137,6 +138,29 @@ test('#3991: the dot\'s trust exception reads needsTrust (the board poll\'s own 
     assert.equal(memberDotClass(onBoard({ running: false, needsTrust: false, state: 'needs_trust' })), ' pjd pjd-off',
       'the board has cleared trust (and says not running): the stale member state must not keep it');
     assert.equal(memberDotClass(onBoard({ running: false })), ' pjd pjd-off', 'control: not running, no trust, offline');
+  } finally {
+    fleet.restore();
+  }
+});
+
+test('#3958: the poll does not rewrite an unchanged pill, task or said label (a selection survives)', () => {
+  const board = fleet.install([fleet.agent('beatrix', { state: 'working' })]);
+  try {
+    const card = board.agents.find((x) => x.name === 'beatrix');
+    pillFor(card, null, 1000);
+    const els = pillFor.els;
+    /* Count writes from here on, on the same elements, across a second identical paint. */
+    const counted = {};
+    for (const id of ['d-state', 'd-task', 'd-said-lab']) {
+      const el = els[id];
+      if (!el) continue;
+      for (const k of ['innerHTML', 'textContent']) {
+        let v = el[k];
+        Object.defineProperty(el, k, { get: () => v, set: (x) => { counted[id + '.' + k] = (counted[id + '.' + k] || 0) + 1; v = x; } });
+      }
+    }
+    pillFor.repaint(card);
+    assert.deepEqual(counted, {}, 'an identical poll rewrote: ' + JSON.stringify(counted));
   } finally {
     fleet.restore();
   }

@@ -38,7 +38,8 @@ function load(now) {
     pageFnSource('pjWhen'),
     pageFnSource('pjWhenLive'),
     pageFnSource('threadShape'),
-    'return { pjWhenLive, threadShape };',
+    pageFnSource('refreshWhens'),
+    'return { pjWhenLive, threadShape, refreshWhens };',
   ].join('\n'))(class extends Date {
     constructor(...a) { if (a.length) super(...a); else super(now); }
     static now() { return now; }
@@ -101,4 +102,34 @@ test('#3966: setLive (the project member panel #pj-msgs, and the room\'s writer)
   const verdict = pageFnSource('pjVerdict');
   assert.match(verdict, /const whenLive = pjWhenLive\(m\.at\);/, 'the member panel\'s time must be a live span');
   assert.doesNotMatch(verdict, /const when = pjWhenPart\(m\.at\)/);
+});
+
+/* #3991: a memory ring as lrowRing draws it (its arc is the reading). */
+const ring = (arc) => '<svg class="lring" viewBox="0 0 36 36" aria-hidden="true"><circle class="gt" r="15.5"/>'
+  + '<circle class="gf ok" r="15.5" stroke-dasharray="' + arc + ' 97.4"/></svg>';
+
+test('#3991: a ring\'s arc length is not shape, anything else about it is', () => {
+  const { threadShape } = load(at);
+  const row = (arc, band) => '<div class="pj-member" data-agent="beatrix-discord">' + ring(arc).replace('gf ok', 'gf ' + band) + '</div>';
+  assert.equal(threadShape(row('40.9', 'ok')), threadShape(row('55.5', 'ok')), 'a climbing reading rebuilt the column');
+  assert.notEqual(threadShape(row('40.9', 'ok')), threadShape(row('40.9', 'warn')), 'a band change must still rebuild');
+  /* The blanking is scoped to rings: a dasharray anywhere else is still shape. */
+  const other = (arc) => '<svg class="spark"><path stroke-dasharray="' + arc + '"/></svg>';
+  assert.notEqual(threadShape(other('1 2')), threadShape(other('3 4')), 'a non-ring dasharray was blanked too');
+});
+
+test('#3966: refreshWhens rewrites only the words that changed, in place', () => {
+  const { refreshWhens } = load(at + 52 * 60000);
+  const writes = [];
+  const span = (at, text) => {
+    const el = { _t: text, getAttribute: (k) => (k === 'data-at' ? at : null) };
+    Object.defineProperty(el, 'textContent', { get() { return el._t; }, set(v) { writes.push(v); el._t = v; } });
+    return el;
+  };
+  const stale = span(AT, '51 minutes ago');
+  const fresh = span(AT, '52 minutes ago');
+  const bad = span('not a time', 'kept');
+  refreshWhens({ querySelectorAll: (sel) => (assert.equal(sel, '.mwhen[data-at]'), [stale, fresh, bad]) });
+  assert.equal(stale.textContent, '52 minutes ago', 'a ticked time was not brought up to now');
+  assert.deepEqual(writes, ['52 minutes ago'], 'a time already right, or unreadable, was written anyway');
 });
