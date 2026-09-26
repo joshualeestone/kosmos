@@ -2234,6 +2234,22 @@ body.filter-noproj #orgview .onode:not([data-noproj]) { opacity: .26; }
 @media (prefers-reduced-motion: reduce) {
   .acard.working .astate.st-working { animation: none; background: rgba(47,125,90,.14); }
 }
+/* #3956 (Josh, 2026-09-26): "the green was glowing to a slightly darker green and back ... not
+   fast, very gradual ... a 10% or 15% increase". Every working-green ground (grid card, list row
+   and its one-screen variant, project member box) pulses as ONE animation. It moves only the
+   layer UNDER the static wash, from the surface to the surface with 10% green mixed in, so the
+   deepest point is roughly twice today's wash and never dark, in either theme. background-color
+   only: no JS timer, nothing but a repaint. Off for reduced motion, which keeps the static wash. */
+.acard.working, .lrow.working, #pj-one-agents .pj-member.pjm-working {
+  animation: working-pulse 3.6s ease-in-out infinite;
+}
+@keyframes working-pulse {
+  0%, 100% { background-color: var(--k-surface); }
+  50%      { background-color: color-mix(in srgb, var(--k-surface) 90%, #2f7d5a); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .acard.working, .lrow.working, #pj-one-agents .pj-member.pjm-working { animation: none; }
+}
 /* #2146: coexistence signal. A needs_you/blocked agent that is ALSO actively
    working (the engine's additive `activeWhileWaiting`, #2169) carries the board's
    working glyph alongside its pill, so the board reads "needs you AND working"
