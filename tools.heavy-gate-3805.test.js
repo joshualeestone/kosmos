@@ -83,17 +83,68 @@ test('a node --test child does not count (control: the same run without that anc
 });
 
 test('a run that already exited does not count (control: the same run still going does)', () => {
-  const gone = run([['401', '', 'bash tools/browser-checks.sh', 'zsh']]);
+  const gone = run([['401', '<exited>', 'bash tools/browser-checks.sh', 'zsh']]);
   assert.equal(gone.code, 0, gone.out);
   assert.match(gone.out, /ignore 401: already exited/, 'ignored for the right reason, not a field shift');
   assert.equal(run([['401', WORK, 'bash tools/browser-checks.sh', 'zsh']]).code, 1);
 });
 
-test('--except-cwd rules out your own run, exact or below, and not a sibling that shares the prefix', () => {
+test('a live run whose cwd cannot be read still counts (fail toward busy)', () => {
+  const r = run([['402', '', 'bash tools/release.sh 0.6.96', 'zsh']]);
+  assert.equal(r.code, 1, r.out);
+  assert.match(r.out, /COUNTS 402: a real run \(cwd unknown/);
+});
+
+test('shell options before the script, and a bare name run from tools/, still count (control: -c only mentions it)', () => {
+  assert.equal(run([['501', WORK, 'bash -x tools/release.sh 0.6.96', 'zsh']]).code, 1, 'bash -x');
+  assert.equal(run([['502', WORK + '/tools', 'bash release.sh 0.6.96', 'zsh']]).code, 1, 'from inside tools/');
+  assert.equal(run([['503', WORK, 'bash release.sh 0.6.96', 'zsh']]).code, 0, 'a bare name outside tools/ is not the repo script');
+  assert.equal(run([['504', WORK, 'bash -c tools/release.sh', 'zsh']]).code, 0, 'a -c string is a mention');
+});
+
+test('only a real node --test ancestor marks a fixture, not a wrapper shell that mentions it', () => {
+  const wrapper = "zsh -c eval 'bash tools/browser-checks.sh && node --test x.test.js'";
+  const r = run([realRun(WORK, wrapper)]);
+  assert.equal(r.code, 1, 'a wrapper mentioning node --test is not a test runner: ' + r.out);
+  assert.equal(run([realRun(WORK, wrapper + ' | node --test --test-concurrency=0 y.test.js')]).code, 0, 'control: a real node --test ancestor');
+});
+
+test('live: a real release.sh outside any test ancestry counts, and --except-cwd on its folder rules it out', async (t) => {
+  const dir = fs.realpathSync(fs.mkdtempSync('/tmp/hg-live-'));
+  t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
+  fs.mkdirSync(path.join(dir, 'tools'));
+  fs.writeFileSync(path.join(dir, 'tools', 'release.sh'), 'sleep 8\n');
+  // Double fork, so the stub is re-parented away from this node --test process.
+  spawnSync('bash', ['-c', `cd "${dir}" && (bash tools/release.sh </dev/null >/dev/null 2>&1 &)`], { stdio: 'ignore' });
+  let pid = '';
+  for (let i = 0; i < 20 && !pid; i++) {
+    const ps = spawnSync('ps', ['-axo', 'pid=,command='], { encoding: 'utf8' }).stdout;
+    const line = ps.split('\n').find((l) => / bash tools\/release\.sh$/.test(l) && spawnSync('lsof', ['-a', '-p', l.trim().split(/\s+/)[0], '-d', 'cwd', '-Fn'], { encoding: 'utf8' }).stdout.includes(dir));
+    if (line) pid = line.trim().split(/\s+/)[0]; else spawnSync('sleep', ['0.1']);
+  }
+  assert.ok(pid, 'the stub started');
+  const env = { ...process.env, KOSMOS_HG_CLAIM: FREE, KOSMOS_HG_SNAPSHOT: '' };
+  const seen = spawnSync('bash', [TOOL], { encoding: 'utf8', env });
+  assert.match(seen.stdout, new RegExp('COUNTS ' + pid + ':'), seen.stdout);
+  const mine = spawnSync('bash', [TOOL, '--except-cwd', dir], { encoding: 'utf8', env });
+  assert.match(mine.stdout, new RegExp('ignore ' + pid + ': your own run'), mine.stdout);
+});
+
+test('the real reservation line is one of the two wordings the tool reads', () => {
+  const env = { ...process.env, KOSMOS_HG_SNAPSHOT: path.join(os.tmpdir(), 'hg-empty-' + process.pid) };
+  fs.writeFileSync(env.KOSMOS_HG_SNAPSHOT, '');
+  delete env.KOSMOS_HG_CLAIM;
+  const r = spawnSync('bash', [TOOL], { encoding: 'utf8', env });
+  fs.rmSync(env.KOSMOS_HG_SNAPSHOT, { force: true });
+  assert.match(r.stdout, /^reservation: (none \(no release holds|HELD \(the machine is reserved for a release)/m, r.stdout);
+});
+
+test('--except-cwd rules out your own run, exact or below, and not a sibling that shares the prefix', (t) => {
   /* Made under /tmp, not os.tmpdir(): tools/run-tests.sh points TMPDIR at its $TMPDIR/kt<pid>/
      sandbox, and the tool rightly ignores a run there as a test fixture, so a sibling in the
      sandbox would read as ignored for that reason instead of testing the prefix match. */
   const base = fs.realpathSync(fs.mkdtempSync('/tmp/hg-own-'));
+  t.after(() => fs.rmSync(base, { recursive: true, force: true }));
   assert.doesNotMatch(base, /\/T\/kt[0-9]/, 'the own-run folders must sit outside the kt sandbox pattern');
   const mine = path.join(base, 'kosmos');
   fs.mkdirSync(path.join(mine, 'sub'), { recursive: true });

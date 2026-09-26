@@ -49,6 +49,17 @@ and three real runs, `tools/release.sh 0.6.95` in the main checkout plus a relea
 browser-checks.sh in the release's own temp checkout (`$TMPDIR/kosmos-release.*/`, not the
 `kt<digits>` test sandbox, so they rightly count).
 
+## Review (challenge loop)
+- An unreadable cwd no longer reads as "exited": a process counts as gone only when `ps` no longer
+  knows its pid, and a live one with an unknown cwd COUNTS (fail toward busy).
+- A fixture needs a real `node --test` ancestor (node as the program, a `--test` flag), not a
+  wrapper shell whose command line mentions it, which is how the Bash tool runs commands.
+- The script is found after the shell's options (`bash -x tools/release.sh`). A bare `release.sh`
+  run from inside `tools/` counts, and a `-c` string is only a mention.
+- New tests: an unknown cwd counts; options and a relative name; a wrapper vs a real runner; a live
+  double-forked stub counted, then ruled out by `--except-cwd`; and the real who-has-the-box wording.
+  All pass normally and under a kt-style TMPDIR, and three mutations of the new rules are caught.
+
 ## Weakest part
 The fixture exclusions are heuristics shaped by what was observed today: a `node --test` ancestor,
 and the `kt<digits>` sandbox path. A future fixture that detaches AND lives outside the kt sandbox
