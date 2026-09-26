@@ -65,14 +65,20 @@ connector_currency_check() {
   [ "$rc" -eq 0 ] && return 0
   [ "$rc" -eq 1 ] || { echo "connector_currency: git diff failed in $relay (rc=$rc); refused." >&2; return 1; }
   missing=$(git -C "$relay" log --no-merges --format='  %h %s' "${built}..origin/main" -- "${CONNECTOR_TUNNEL_INPUTS[@]}" 2>/dev/null)
-  [ -n "$missing" ] || missing="  (the difference is not on a line of history from $built; compare with: git -C $relay diff --stat $built origin/main -- ${CONNECTOR_TUNNEL_INPUTS[*]})"
+  # Pasteable: each pathspec single-quoted (the :(exclude) ones hold parentheses).
+  local _q; _q=$(printf "'%s' " "${CONNECTOR_TUNNEL_INPUTS[@]}")
+  [ -n "$missing" ] || missing="  (the difference is not on a line of history from $built; compare with: git -C '$relay' diff --stat $built origin/main -- ${_q% })"
+  # A connector built from a commit AHEAD of main (an unmerged branch) differs too; it is
+  # refused all the same, but "stale" would be the wrong word for it.
+  local _what="STALE"
+  git -C "$relay" merge-base --is-ancestor origin/main "$built" 2>/dev/null && _what="built from a commit AHEAD of or off relay main, not from main"
   if [ "${KOSMOS_ALLOW_STALE_TUNNEL:-}" = 1 ]; then
     echo "connector_currency: KOSMOS_ALLOW_STALE_TUNNEL=1, so shipping the connector built from ${built:0:12} ON PURPOSE, without these tunnel changes on kosmos-relay main:" >&2
     printf '%s\n' "$missing" >&2
     return 0
   fi
   {
-    echo "connector_currency: the Plus connector is STALE. It was built from ${built:0:12}, and kosmos-relay main has changed its build inputs (${CONNECTOR_TUNNEL_INPUTS[*]}) since:"
+    echo "connector_currency: the Plus connector is $_what. It was built from ${built:0:12}, and its build inputs (crates/tunnel, crates/proto, Cargo.toml, Cargo.lock, tools/build-tunnel-release.sh; tests excluded) differ on kosmos-relay main:"
     printf '%s\n' "$missing"
     echo "Rebuild it before cutting: in kosmos-relay on an UP-TO-DATE main (git -C $relay pull --ff-only; this check moved only origin/main), run tools/build-tunnel-release.sh on a box with both rustup targets, and copy dist/kosmos-tunnel with its .commit and .sha256 to this box's $bin."
     echo "To ship the older connector deliberately, rerun with KOSMOS_ALLOW_STALE_TUNNEL=1."

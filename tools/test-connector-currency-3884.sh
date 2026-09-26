@@ -104,7 +104,7 @@ if check_rc; then bad "a connector with no .commit was accepted"
 else grep -q "connector_provenance: no $B.commit" "$T/err" && ok "a missing .commit refuses through the provenance check" || bad "wrong reason with no sidecar: $(cat "$T/err")"; fi
 
 # 11. the release wires it before the bump
-awk '/step "== 1d\. the Plus connector is current/{s=1} s&&/connector_currency_check/{c=1} s&&c&&/\|\| exit 1/{print "wired"; exit} /step "== 2\. the version/{exit}' tools/release.sh | grep -q wired \
+awk '/step "== 1d\. the Plus connector is current/{s=1} /step "== 2\. the version/{exit} s&&/connector_currency_check/{c=NR} s&&c&&NR<=c+1&&/\|\| exit 1/{print "wired"; exit}' tools/release.sh | grep -q wired \
   && ok "release.sh runs connector_currency_check in step 1d with || exit 1, before step 2's bump" || bad "release.sh does not run the check in 1d before the bump"
 
 echo "---"
