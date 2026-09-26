@@ -53,6 +53,10 @@ const srv = require('../../server.js');
 const authprobe = require('../../engine/authprobe');
 const subscription = require('../../engine/subscription');
 const create = require('../../engine/create');
+/* Before the server can tick, replace the real account check (a live `claude auth status` against
+   this machine's account) with a harmless one: nothing here may ever read the host's real sign-in
+   (#3675). Each arm below installs its own answer. */
+authprobe.setChecker(async () => ({ state: subscription.STATE.UNKNOWN }));
 
 const SHOTS = process.argv[2] || null;
 const fail = [];
