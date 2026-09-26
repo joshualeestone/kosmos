@@ -48,6 +48,15 @@ message after the reset works (item 4 with no restart). The board read the quest
   a pane narrower than ~70 columns is missed (falls back to idle); no backoff when an answer keeps failing (one log
   line a minute); no test that a non-Gemini card is refused (the runner check is one line in answerGeminiQuotaStop).
 
+- Review round 4 (Opus): tests added for the automatic-report arm (Gemini's bridge ending the failed turn; CONTROL: the
+  agent's own report), and a snapshot test that the board card itself carries quotaDialog and limitFrom into the sweep
+  and the manager notice. Each half of the newer-turn check, the composer requirement and the 14-row window have their
+  own fixture (the turn drawn above the composer, as Gemini draws it). The Gemini block moved above the #3723 comment,
+  which describes the Codex markers. All seven perturbed red. Deferred: the "API key" wording is wrong for a
+  default-account Gemini agent that inherited the operator's own Google login (geminisettings never clobbers an
+  existing auth type); the Google subscription path runs on Antigravity, not this runner, so that is an edge of the
+  default account, and belongs with #3997's account wording.
+
 ## Weakest premise
 - Matching Gemini's words on screen: a future CLI can reword them. The reading then falls back to today's behaviour
   (unknown/idle), and the sweep presses nothing, since it needs the question recognised.
