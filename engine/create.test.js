@@ -2065,7 +2065,8 @@ test('a role-made boot file is nowhere near the size its reader refuses', () => 
   create.setDryRun(false);
   const r = create.createAgent({ ...BINS, name: 'sized-def', role: 'pm' });
   assert.equal(r.outcome, create.OUTCOME.CREATED, r.because);
-  const bytes = Buffer.byteLength(fs.readFileSync(create.instructionFile('sized-def'), 'utf8'), 'utf8');
+  const raw = fs.readFileSync(create.instructionFile('sized-def'), 'utf8');
+  const bytes = Buffer.byteLength(raw, 'utf8');
   assert.ok(bytes <= instructions.MAX_BYTES, 'the boot file outgrew its own reader');
   /* 🛑 THIS TEST REPLACED ONE THAT PROVED NOTHING, and the replacement is
      narrower on purpose. The original built instructions ten bytes under
@@ -2095,14 +2096,17 @@ test('a role-made boot file is nowhere near the size its reader refuses', () => 
      path and not about growth. Here each is swapped for what a real install on a fixed home
      writes, so the number is the same on every machine. The raw-bytes assertion above stays on
      the unaltered file, because the reader refuses raw bytes. */
-  const raw = fs.readFileSync(create.instructionFile('sized-def'), 'utf8');
   const home = '/Users/person';
-  const cli = require('./clipath').kosmosCli();
+  // The SHOWN form, as messages.js writes it: quoted when the path needs quoting, or the bare
+  // word 'kosmos' when a path cannot be taught safely. Splitting on the bare word would rewrite
+  // every mention of the product, so that case carries no path to swap.
+  const cli = require('./clipath').kosmosCliShown();
+  const cliIsPath = cli !== 'kosmos';
   const workers = process.env.AGENT_WORKFORCE_WORKERS;
   // A swap that matched nothing would leave the measurement path-dependent while reading as fixed.
-  assert.ok(raw.includes(cli), 'the boot file no longer carries the kosmos CLI path; revisit this swap');
+  assert.ok(!cliIsPath || raw.includes(cli), 'the boot file no longer carries the kosmos CLI path; revisit this swap');
   assert.ok(raw.includes(workers), 'the boot file no longer carries the Files path; revisit this swap');
-  const text = raw.split(cli).join(home + '/.local/share/kosmos/bin/kosmos')
+  const text = (cliIsPath ? raw.split(cli).join(home + '/.local/share/kosmos/bin/kosmos') : raw)
     .split(workers).join(store.workersRootFor({}, home, 'darwin'));
   // A NEW machine path would make the number path-dependent again, silently. Refuse it here.
   const repo = nodePath.resolve(__dirname, '..');
