@@ -94,7 +94,11 @@ const MOCK_PRELOAD = nodePath.join(SANDBOX, 'codex-standin.cjs');
 fs.writeFileSync(MOCK_PRELOAD, `
 const fs = require('node:fs');
 // node resolves the first arg (login) to a script path in argv[1]; keep its name.
-if (process.env.STANDIN_ARGS_OUT) fs.writeFileSync(process.env.STANDIN_ARGS_OUT, JSON.stringify(process.argv.slice(1).map((a, i) => (i === 0 ? require('node:path').basename(a) : a))));
+// Written to a temp name and renamed into place, so the test never sees it half written (#3992).
+if (process.env.STANDIN_ARGS_OUT) {
+  fs.writeFileSync(process.env.STANDIN_ARGS_OUT + '.tmp', JSON.stringify(process.argv.slice(1).map((a, i) => (i === 0 ? require('node:path').basename(a) : a))));
+  fs.renameSync(process.env.STANDIN_ARGS_OUT + '.tmp', process.env.STANDIN_ARGS_OUT);
+}
 // node then tries to run login as a script; answer that with this (already loaded)
 // file so the stand-in stays up, printing and waiting, the way codex does.
 const Module = require('node:module');
@@ -131,10 +135,23 @@ function startWithStandin({ say, platform, mode }) {
     for (const [k, v] of Object.entries(saved)) { if (v === undefined) delete process.env[k]; else process.env[k] = v; }
   }
 }
+// Existing is not the same as written: under load a reader can land between the
+// create and the last byte, so it retries the parse too, not only the lookup (#3992).
 const readArgs = async (file) => {
-  for (let i = 0; i < 200 && !fs.existsSync(file); i++) await new Promise((r) => setTimeout(r, 25));
-  return JSON.parse(fs.readFileSync(file, 'utf8'));
+  let last;
+  for (let i = 0; i < 200; i++) {
+    try { return JSON.parse(fs.readFileSync(file, 'utf8')); } catch (e) { last = e; }
+    await new Promise((r) => setTimeout(r, 25));
+  }
+  throw last;
 };
+
+test('control (#3992): readArgs waits out a file that exists but is only half written', async () => {
+  const f = nodePath.join(SANDBOX, 'partial-' + Math.random().toString(16).slice(2) + '.json');
+  fs.writeFileSync(f, '["login",');
+  setTimeout(() => fs.appendFileSync(f, '"--device-auth"]'), 150);
+  assert.deepEqual(await readArgs(f), ['login', '--device-auth']);
+});
 
 test('on win32 a browser request runs --device-auth, and status carries the clean link and code', async () => {
   const { r, argsOut } = startWithStandin({ say: MEASURED_DEVICE_OUT, platform: 'win32', mode: 'browser' });
