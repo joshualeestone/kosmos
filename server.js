@@ -16333,8 +16333,10 @@ function start(port = PORT) {
          #3087 (the launch shim re-writes trust+bypass every relaunch); this is the live
          handle for a prompt that surfaces ANYWAY (a relaunch before #3087, a
          create-before-shim race, or a #2173 config divergence). Each tick reads the
-         RECONCILED roster and, for every agent whose reconciled state is needs_you AND was
-         self-reported by:'auto', writes the folder-trust key + restarts it
+         RECONCILED roster and, for every CLAUDE agent (#4006: a card whose runner is another
+         runner, or unknown, is never restarted; only Claude Code has this prompt) whose
+         reconciled state is needs_you AND was self-reported by:'auto', writes the folder-trust
+         key + restarts it
          (class1autohandle.sweepOnce -> the SAME create.trustAgentFolder + remove.restart
          the manual /trust-and-restart button uses; NO send-keys - a mis-fired keystroke
          into a real conversation is the whole hazard), so the relaunch clears it and the
