@@ -27,7 +27,9 @@
  * green there, since the faces sit near the middle of the too-wide chart. 430 (Pro
  * Max) passes either way, which is why it is not the only size.
  * The deep-fleet swipe arm reds when the chart keeps touch-action: none while
- * wider than its box (scrollLeft stays 0).
+ * wider than its box (scrollLeft does not move). The "does not clip" arms red when
+ * the box scrolls for every chart; the deep "held at the top edge" arm reds without the
+ * scrolling box's top padding; and the centred arm reds without the centring.
  *
  * Chromium at phone size is not an Android phone, and WebKit is an engine
  * approximation, not Safari.
@@ -92,7 +94,16 @@ function measure(page) {
       const r = n.getBoundingClientRect();
       return { agent: n.getAttribute('data-agent'), l: Math.round(r.left), r: Math.round(r.right), w: Math.round(r.width), h: Math.round(r.height) };
     });
-    return { vw, pageW: document.documentElement.scrollWidth, mapW: mr ? Math.round(mr.width) : 0, nodes };
+    // A label the chart's box cuts off: only possible while the box clips (it scrolls),
+    // and measured on every node's name and callout whether or not it is showing.
+    const wrap = document.getElementById('orgview');
+    const clips = getComputedStyle(wrap).overflowX !== 'visible';
+    const wr = wrap.getBoundingClientRect();
+    const clipped = !clips ? [] : [...document.querySelectorAll('#orgmap .onode')].flatMap((n) =>
+      [...n.querySelectorAll('.oname, .callout')].map((el) => ({ agent: n.getAttribute('data-agent'), cls: el.className, r: el.getBoundingClientRect() })))
+      .filter((x) => x.r.top < wr.top - 0.5 || x.r.bottom > wr.bottom + 0.5)
+      .map((x) => x.agent + ' ' + x.cls + ' ' + Math.round(x.r.top - wr.top) + '/' + Math.round(wr.bottom - x.r.bottom));
+    return { vw, pageW: document.documentElement.scrollWidth, mapW: mr ? Math.round(mr.width) : 0, nodes, clips, clipped };
   });
 }
 
@@ -127,6 +138,8 @@ function measure(page) {
           chk(off.length === 0, `${tag} every face is fully on screen`, JSON.stringify(off));
           const small = m.nodes.filter((n) => n.w < 44 || n.h < 44);
           chk(small.length === 0, `${tag} every face is at least 44x44`, JSON.stringify(small.length ? small : m.nodes.map((n) => n.w + 'x' + n.h)));
+          // A chart that fits must not clip: the name callout above a top node reaches past its square.
+          chk(!m.clips, `${tag} a chart that fits does not clip its names (the box is not a scroller)`, 'overflow clips=' + m.clips);
           // A tap on a face opens that agent (the chart's own click handler).
           const target = m.nodes.find((n) => n.agent);
           if (target) {
@@ -148,6 +161,7 @@ function measure(page) {
         const natural = await page.evaluate(() => Math.round((orgPlace(orgTreeOf(LAST)).maxR
           + (typeof ORG_PAD === 'number' ? ORG_PAD : 78)) * 2));
         chk(m.mapW === natural && m.nodes.length === NAMES.length, `[${engine} desktop] the chart is the natural square, as before, with every agent`, `chart ${m.mapW}px, natural ${natural}px, ${m.nodes.length} nodes`);
+        chk(!m.clips, `[${engine} desktop] the chart's box does not clip, as before`, 'overflow clips=' + m.clips);
         await ctx.close();
       } finally {
         await browser.close();
@@ -185,6 +199,32 @@ function measure(page) {
         chk(m.pageW <= m.vw, `${tag} the page does not scroll sideways`, `page ${m.pageW}px on a ${m.vw}px screen`);
         chk(box.scrollW > box.clientW, `${tag} the fleet is too deep to fit, so the chart's box scrolls (the case under test)`, JSON.stringify(box));
         chk(/pan-x/.test(box.touch), `${tag} the chart lets a finger pan when it is wider than its box`, box.touch);
+        const opened = await page.evaluate(() => document.getElementById('orgview').scrollLeft);
+        const mid = Math.round((box.scrollW - box.clientW) / 2);
+        chk(Math.abs(opened - mid) <= 2, `${tag} the chart opens centred on the hub, not scrolled to its left edge`, `scrollLeft ${opened}, centre ${mid}`);
+        // The scrolling box clips vertically too. The worst case for a callout is a node held
+        // at the top of the drag box: drag the topmost node up past it (mouse, so the drag is
+        // not given over to a pan) and measure while it is still held there.
+        {
+          const top = await page.evaluate(() => {
+            document.getElementById('orgview').scrollIntoView({ block: 'center' });
+            const ns = [...document.querySelectorAll('#orgmap .onode')].map((n) => ({ a: n.dataset.agent, r: n.getBoundingClientRect() }));
+            ns.sort((x, y) => x.r.top - y.r.top);
+            const t = ns[0];
+            return { a: t.a, x: t.r.left + t.r.width / 2, y: t.r.top + t.r.height / 2 };
+          });
+          await page.mouse.move(top.x, top.y);
+          await page.mouse.down();
+          for (let i = 1; i <= 10; i++) await page.mouse.move(top.x, top.y - i * 20);
+          await page.waitForTimeout(100);
+          const held = await measure(page);
+          const heldAt = await page.evaluate((a) => Math.round(document.querySelector('#orgmap .onode[data-agent="' + a + '"]').getBoundingClientRect().top
+            - document.getElementById('orgmap').getBoundingClientRect().top), top.a);
+          await page.mouse.up();
+          chk(heldAt <= 10 && held.clipped.length === 0,
+            `${tag} a node held at the top edge keeps its name callout inside the scrolling box`,
+            `${top.a} face top at ${heldAt}px of the chart; cut off: ${JSON.stringify(held.clipped)}`);
+        }
         if (engine === 'chromium') {
           // A real touch swipe across the middle of the chart, through the browser's own
           // gesture path (which honours touch-action), not a scrollLeft assignment.
@@ -197,14 +237,14 @@ function measure(page) {
             return { x: Math.round(wrap.left + wrap.width / 2),
               y: Math.round(Math.min(Math.max(b.top + b.height / 2, 1), innerHeight - 1)) };
           });
-          let left = 0; let why = '';
+          let left = opened; let why = '';
           try {
             const cdp = await ctx.newCDPSession(page);
             await cdp.send('Input.synthesizeScrollGesture', { x: r.x, y: r.y, xDistance: -150, yDistance: 0, gestureSourceType: 'touch', speed: 800 });
             await page.waitForTimeout(300);
             left = await page.evaluate(() => document.getElementById('orgview').scrollLeft);
           } catch (err) { why = ' (the swipe itself failed: ' + (err && err.message ? err.message.split('\n')[0] : err) + ')'; }
-          chk(left > 0, `${tag} a touch swipe across the chart scrolls its box`, `scrollLeft ${left} at ${r.x},${r.y}${why}`);
+          chk(left !== opened, `${tag} a touch swipe across the chart scrolls its box`, `scrollLeft ${opened} -> ${left} at ${r.x},${r.y}${why}`);
         } else {
           console.log(`INFO  ${tag} touch swipe arm is Chromium only (no gesture path here); touch-action is checked above`);
         }
