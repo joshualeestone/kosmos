@@ -47,7 +47,8 @@ microseconds wide and is not exercised by any test. It is argued, not measured.
 `tools/test-app-port-selftest.sh` gains four arms, each red-checked in a scratch
 copy with its own fix removed:
 
-- **The bound beats setpgrp:** a 6s seam delay with a 2s bound. It must return
+- **The bound beats setpgrp:** a 30s seam delay with a 5s bound (review 7: 6s left about
+  a second of margin under load). It must return
   124 within the watchdog, and it must have been ended by TERM, not by step 4's
   KILL. A test-only file, `KOSMOS_BOUNDED_RUN_HOW_FILE`, records which signal
   ended it. An earlier time ceiling did this job, but review 4 showed it passed
