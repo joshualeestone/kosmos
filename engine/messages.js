@@ -52,6 +52,8 @@
 
 const fs = require('node:fs');
 const path = require('node:path');
+const crypto = require('node:crypto');
+const { externalName, INVISIBLE, byCodePoint } = require('./externalname');
 const { execFileSync } = require('node:child_process');
 const chat = require('./chat');
 const store = require('./store');
@@ -107,7 +109,7 @@ function unreadAll() {
   if (seen === null) return null;
   const out = {};
   for (const m of rec.rows) {
-    if (!m || m.kind !== 'post' || !m.project || m.operator === true) continue;
+    if (!m || (m.kind !== 'post' && m.kind !== 'external') || !m.project || m.operator === true) continue;
     const since = seen[m.project] ? Date.parse(seen[m.project]) : -Infinity;
     const at = Date.parse(m.at);
     if (!Number.isFinite(at) || at <= since) continue;
@@ -458,6 +460,36 @@ function resolveSender(fromPane, roster) {
   return { ok: true, card };
 }
 
+/* #3311: record a message that arrived from outside, through a federated
+   project's seat. The sender's words are data: bounded, never parsed for
+   commands, and stored under their own kind so no reader can take them for a
+   local agent. Returns the row, or null if it did not fit the shape. */
+const EXTERNAL_FROM_MAX = 80;
+const EXTERNAL_TEXT_MAX = 16384;
+/* Control characters from outside (a terminal escape among them) are removed
+   before storage, so no reader, including `kosmos room` printing to a terminal,
+   ever receives them. Newlines stay; they are how a message has paragraphs. */
+const EXTERNAL_CONTROL = /[\u0000-\u0009\u000b-\u001f\u007f-\u009f]/g;
+function externalPost(projectId, { from, fromKind, text }) {
+  const row = {
+    kind: 'external',
+    id: 'x-' + crypto.randomUUID(),
+    project: String(projectId),
+    from: externalName(from, EXTERNAL_FROM_MAX),
+    fromKind: fromKind === 'agent' ? 'agent' : 'person',
+    external: true,
+    // Every format character goes (\p{Cf}: bidi controls, LRM/RLM, zero-widths,
+    // soft hyphen, BOM), as from names; newlines stay. A family emoji built with
+    // zero-width joiners shows as its separate parts, a fair price for words
+    // from outside.
+    text: byCodePoint(String(text == null ? '' : text).replace(/\t/g, ' ').replace(EXTERNAL_CONTROL, '').replace(/\p{Cf}/gu, '').replace(INVISIBLE, ''), EXTERNAL_TEXT_MAX),
+    at: new Date().toISOString(),
+  };
+  if (!row.text.trim() || !rowShaped(row)) return null;
+  appendLog(row);
+  return row;
+}
+
 /**
  * The record, with its own unreadability SURFACED: ENOENT is the true
  * empty (no one has messaged yet), any other read failure is could-not-
@@ -640,6 +672,14 @@ function rowShaped(m) {
      to an agent. Same shape as the valve band it renders in. */
   if (m.kind === 'note') {
     return m.from === 'kosmos' && str(m.project) && str(m.text);
+  }
+  /* #3311: a message from OUTSIDE this Kosmos, delivered into a federated
+     project's room by its seat. `from` is the sender's own display name and
+     `fromKind` says person or agent; `external: true` is what every reader keys
+     on, so it can never be mistaken for a local agent or the operator. */
+  if (m.kind === 'external') {
+    return str(m.id) && str(m.project) && str(m.from) && typeof m.text === 'string'
+      && (m.fromKind === 'person' || m.fromKind === 'agent') && m.external === true;
   }
   /* #185: the nudge receipt. Kosmos's own voice into ONE pane, recorded so
      the at-most-once rule is checkable from the store rather than believed. */
@@ -1126,7 +1166,7 @@ function _roomMembers(members) {
   return { members: members.filter((m) => !gone.has(clean(m))), ok: true };
 }
 
-function sendPost({ fromPane, sender: resolvedSender, project, projectName, text, operator, attachment, attachments, trailer, replyExpected, askWhichRoom, projectNameOf, membersOf, newPost, replyTo }, roster, members) {
+function sendPost({ fromPane, sender: resolvedSender, project, projectName, text, operator, attachment, attachments, trailer, replyExpected, askWhichRoom, projectNameOf, membersOf, newPost, federated, replyTo }, roster, members) {
   const at = new Date().toISOString();
   /* The OPERATOR path: no pane to derive (the post comes off the room's
      composer through the server, which is the operator's own surface),
@@ -1250,8 +1290,10 @@ function sendPost({ fromPane, sender: resolvedSender, project, projectName, text
    * ⚠️ THE OPERATOR'S OWN ARM KEEPS ITS REFUSAL, deliberately. A person posting
    * into a project with no agents on it is talking to nobody — there is no
    * second party at all, which is a different fact from having one.
+   * #3311: a FEDERATED project has a second party outside this Kosmos, whom
+   * the post reaches through the project's seat, so there it is not refused.
    */
-  if (operator === true && !recipients.length) {
+  if (operator === true && !recipients.length && federated !== true) {
     return refuse('nobody is on that project yet, so there is no room to post to');
   }
 
@@ -1562,15 +1604,18 @@ function sendPost({ fromPane, sender: resolvedSender, project, projectName, text
     const answer = operator === true
       ? answerClause
       : (mentioned.has(name) ? answerClause : '');
+    /* #3311: in a shared project the agent is told, on the post it would answer,
+       that its answer leaves this computer. */
+    const shownProjectAs = shownProject + (federated ? ' \u00b7 shared outside this computer, what you post here leaves it' : '');
     const envelope = (operator === true
       ? (mentioned.has(name)
-        ? '[message from your operator \u00b7 ' + id + answers + ' \u00b7 project ' + shownProject + answer + ']'
-        : '[from your operator in project ' + shownProject + ' \u00b7 ' + id + answers + ' \u00b7 for the whole room' + answer + ']')
+        ? '[message from your operator \u00b7 ' + id + answers + ' \u00b7 project ' + shownProjectAs + answer + ']'
+        : '[from your operator in project ' + shownProjectAs + ' \u00b7 ' + id + answers + ' \u00b7 for the whole room' + answer + ']')
       : (mentioned.has(name)
-        ? '[message from your colleague ' + from + ' \u00b7 ' + id + answers + ' \u00b7 project ' + shownProject + answer + ']'
+        ? '[message from your colleague ' + from + ' \u00b7 ' + id + answers + ' \u00b7 project ' + shownProjectAs + answer + ']'
         /* No answer line on background: it is explicitly not addressed to you,
            and inviting a reply is the unaddressed-steering the room prevents. */
-        : '[background from your colleague ' + from + ' \u00b7 ' + id + answers + ' \u00b7 project ' + shownProject + ' \u00b7 not addressed to you]'))
+        : '[background from your colleague ' + from + ' \u00b7 ' + id + answers + ' \u00b7 project ' + shownProjectAs + ' \u00b7 not addressed to you]'))
       + ' ' + quoteFor(name) + body;
     /* `trailer` (#358) is the attached file's path, typed after the envelope
        and body and outside the checks, the same way the direct thread does it. */
@@ -1650,7 +1695,9 @@ function sendPost({ fromPane, sender: resolvedSender, project, projectName, text
   const states = Object.values(outcomes);
   const state = states.every((v) => v === chat.DELIVERY.PLACED)
     ? chat.DELIVERY.PLACED : chat.DELIVERY.UNCONFIRMED;
-  return { state, because: null, id, at, outcomes, from };
+  // `text` is the form the room stored, so a federated room can send out
+  // exactly what this room shows (#3311).
+  return { state, because: null, id, at, outcomes, from, text: stored };
 }
 
 /** Messages involving one agent (or all, unfiltered), oldest first. */
@@ -1661,8 +1708,9 @@ function list(agent) {
   // equality, or every room post vanishes from every agent page. A
   // PROJECT-typed `to` (room valves and room refusals log the project id
   // there) is never matched against an agent name -- an agent named like
-  // a project must not inherit that room's bookkeeping rows.
-  return log.filter((m) => m && (m.from === agent
+  // a project must not inherit that room's bookkeeping rows. An external row's
+  // `from` is a name another account chose (#3311): never this Mac's agent.
+  return log.filter((m) => m && ((m.from === agent && m.kind !== 'external')
     || (typeof m.to === 'string' && !m.project && m.to === agent)
     || (Array.isArray(m.to) && m.to.includes(agent))));
 }
@@ -2349,7 +2397,7 @@ module.exports = {
   LOG,
   unanswered, sweepUnanswered, setUnansweredAfterForTests,
   suspectedMisrouteCount, confirmedNewPostCount,
-  resolveSender, paneSession, paneClaim, send, logRefusedSend, sendPost, reopenRoom, list, owesReply, pairCount, readLog, record, roomNote, markerProblem,
+  resolveSender, paneSession, paneClaim, send, logRefusedSend, sendPost, reopenRoom, list, owesReply, pairCount, readLog, record, roomNote, externalPost, markerProblem,
   unreadAll, unread, markSeen, seenRead, SEEN,
   setRunner, resetForTests,
 };

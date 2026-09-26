@@ -5663,6 +5663,12 @@ body:not(.consolidated) .pjmidhead:has(.pjhead) .tsearch:focus-within { flex-bas
   #d-dmthread .msg.you .msg-b { margin-left: calc(28px + 14px); }
 }
 .msg.you .msg-bd { background: var(--usermsg-tint); }
+/* #3311: a message from outside this Kosmos keeps the agent bubble's fill and adds
+   a dashed edge and an External tag, so it is never read as one of your agents. */
+.msg.ext .msg-bd { outline: 1px dashed var(--k-rule); outline-offset: -1px; }
+.msg-ext-tag { font: 600 .6875rem var(--font-ui); text-transform: uppercase; letter-spacing: .04em;
+  color: var(--label-2); border: 1px solid var(--k-rule); border-radius: 999px; padding: 0 6px; vertical-align: 1px; }
+.msg-ext-tx { white-space: normal; overflow-wrap: anywhere; }
 /* #2947 / #3260: the one flat cream fill (background-COLOR, not the `background`
    shorthand, so the #2921 hover overlay -- a background-IMAGE on .msg:hover
    .msg-bd -- composites on top of the cream instead of being cleared by a
@@ -14218,6 +14224,10 @@ window.kosmosMeasureScrollbarWidth();
         <div class="field">
           <span class="flabel">Name</span>
           <p class="pj-ro" id="pj-join-name"></p>
+        </div>
+        <div class="field">
+          <span class="flabel">Shared by</span>
+          <p class="pj-ro" id="pj-join-owner"></p>
         </div>
         <div class="field">
           <span class="flabel">Description</span>
@@ -26602,7 +26612,7 @@ const ROOM_SPOKE_SEEDED = new Set();
    skips it. Listed anyway, because the test above requires every emitted kind
    to be classified, and "unreachable today" is a property of the other file. */
 const ROOM_SPEECH_KINDS = new Set(['message', 'post']);
-const ROOM_NOT_SPEECH = new Set(['refused', 'valve', 'note', 'nudge', 'reaction', 'reopen', 'kosmos']); // kosmos: #3723's account line, Kosmos speaking
+const ROOM_NOT_SPEECH = new Set(['refused', 'valve', 'note', 'nudge', 'reaction', 'reopen', 'kosmos', 'external']); // kosmos: #3723's account line, Kosmos speaking; external: #3311, words from outside this Kosmos
 // Whether a status tick has ever ANSWERED. [] before the first answer means
 // "not heard yet", not "empty board", and the two must never be conflated
 // (the Recommended pill reads this).
@@ -48378,6 +48388,23 @@ function pjRoomRow(m, p, hideHeader) {
     return '<div class="msg-valve">' + esc(m.text || '')
       + (whenN ? '<span class="msg-t">' + esc(whenN) + '</span>' : '') + '</div>';
   }
+  /* #3311: a message from OUTSIDE this Kosmos, through a federated project. The
+     sender's own name, tagged External (or External agent), initials only (there
+     is no local card), and the words as plain escaped text: no mentions, no
+     quotes, no links drawn, nothing clickable that acts. */
+  if (m.kind === 'external') {
+    const whoX = m.from || 'Someone outside';
+    const tagX = m.fromKind === 'agent' ? 'External agent' : 'External';
+    const whenX = pjWhen(m.at) || '';
+    /* data-mid like every other room row (#3743): the unread edge finds its rows by it. */
+    return '<div class="msg ext" data-mid="' + esc(String(m.id || m.at || '')) + '">'
+      + '<div class="msg-av" aria-hidden="true" style="background:' + discTint(whoX) + ';color:' + discInk(whoX) + '">' + esc(initials(whoX)) + '</div>'
+      + '<div class="msg-b"><div class="msg-bd">'
+      + '<b class="msg-nm">' + esc(whoX) + '</b> <span class="msg-ext-tag">' + tagX + '</span>'
+      + '<div class="msg-ext-tx">' + esc(m.text || '').replace(/\n/g, '<br>') + '</div>'
+      + (whenX ? '<span class="msg-t">' + esc(whenX) + '</span>' : '')
+      + '</div></div></div>';
+  }
   if (m.kind === 'refused') {
     const whenR = pjWhen(m.at) || '';
     return '<div class="msg-valve">' + esc(pjNameOf(p, m.from) || m.from)
@@ -51501,6 +51528,9 @@ let PJ_COPY_TIMER = null;      // the "Copied" -> "Copy" revert timer, cleared o
 // or invite minted after create). Left unwired here rather than asserting a create-side behaviour
 // the code does not perform.
 let PJ_FEDERATION_REF = null;
+/* #3311: true once an invite was minted with PJ_FEDERATION_REF, so the create call
+   sends that ref and this board can find the project's room later. */
+let PJ_FEDERATION_MINTED = false;
 function pjFederationRef() {
   if (!PJ_FEDERATION_REF) {
     try { PJ_FEDERATION_REF = (typeof crypto !== 'undefined' && crypto.randomUUID) ? crypto.randomUUID() : String(Date.now()) + Math.random().toString(16).slice(2); }
@@ -51531,6 +51561,7 @@ function pjSetAddMode(mode) {
 // Reset the whole federation surface to a clean create-mode state (called from openAddProject).
 function pjResetFederation() {
   PJ_FEDERATION_REF = null;
+  PJ_FEDERATION_MINTED = false;
   PJ_JOIN_VERIFIED = null;
   PJ_JOIN_ADD_AGENTS = [];
   // Cancel a pending copy-revert timer so it cannot fire onto this fresh open, and reset the label.
@@ -51606,6 +51637,7 @@ async function pjMintInvite(invitedKind) {
       return;
     }
     codeEl.value = body.code;
+    PJ_FEDERATION_MINTED = true;
     status.textContent = 'Share this code with the person or agent you are inviting.';
   } catch {
     status.textContent = 'Kosmos could not reach the connection service. Try again in a moment.';
@@ -51663,6 +51695,11 @@ async function pjVerifyCode() {
     PJ_JOIN_ADD_AGENTS = [];
     document.getElementById('pj-join-name').textContent = body.project_name || '';
     document.getElementById('pj-join-desc').textContent = body.project_desc || 'No description.';
+    // Who is on the other end: the owner's Kosmos+ name, set by Kosmos+ itself, so
+    // unlike the name and description above the inviter cannot write it.
+    document.getElementById('pj-join-owner').textContent = body.owner_handle
+      ? body.owner_handle + '.kosmosplus.com'
+      : 'A Kosmos+ account with no name yet';
     // A fresh verify starts with no agents added, and any picker left open by a prior verify is
     // re-hidden: show the "No agents on it yet." hint rather than leaving the box empty. Set it
     // directly (a fresh verify is always the empty state) so this success path stays self-contained
@@ -51871,6 +51908,8 @@ document.getElementById('pj-create').addEventListener('click', async () => {
         // branches on the field being absent, and `folder: null` is a caller
         // saying "this project lives nowhere" rather than "you choose".
         ...(PJ_PICKED ? { folder: PJ_PICKED } : {}),
+        /* #3311: the ref the invites were minted with, only when one was. */
+        ...(PJ_FEDERATION_MINTED && PJ_FEDERATION_REF ? { federation_ref: PJ_FEDERATION_REF } : {}),
         /* #551: absent when blank, same absent-not-null discipline as folder. */
         ...(document.getElementById('pj-add-desc').value.trim()
           ? { description: document.getElementById('pj-add-desc').value.trim() } : {}),

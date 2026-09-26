@@ -374,6 +374,24 @@ function ensure(port) {
   }
 }
 
+/* #3311: this Mac's seat in one federated project's room (`kosmos-tunnel
+   fed-room`). stdin and stdout are the interface (lines of JSON; see
+   engine/fedseats.js); stderr joins the board's log like the tunnel's own. The
+   same binary, relay, state dir and coordinator as the drive tunnel. */
+function spawnFedSeat(edgeId) {
+  const args = [
+    'fed-room',
+    '--relay', RELAY(),
+    '--state-dir', STATE_DIR(),
+    '--coordinator', COORDINATOR(),
+    '--edge', String(edgeId),
+  ];
+  if (process.env.AGENT_WORKFORCE_TUNNEL_CA) {
+    args.push('--tunnel-ca', process.env.AGENT_WORKFORCE_TUNNEL_CA);
+  }
+  return spawn(BIN(), args, { stdio: ['pipe', 'pipe', 'inherit'] });
+}
+
 function startChild() {
   const args = [
     'run',
@@ -1302,6 +1320,7 @@ module.exports = { lastJsonLine, secondReset, forget, macRequest, assistantChat,
   setOn,
   setRelay,
   enrolled,
+  spawnFedSeat,
   address,
   ensure,
   status,
