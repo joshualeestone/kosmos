@@ -140,16 +140,20 @@ function pairKey(me, theirPub, roomId, ownerPub, memberPub) {
 
 /* ---- key-hello (member -> owner) ---- */
 
-function helloFrame(s, me, roomId) {
+/** `edge` (the member's edge id, or null) rides under the MAC, so the owner can tie a
+    pinned key to the edge it may later see revoked, and nobody without `s` can move it. */
+function helloFrame(s, me, roomId, edge = null) {
   const sb = secretBytes(s);
   if (!sb) throw new Error('the invite\'s second half is not the right shape');
-  return { t: 'key-hello', v: V, pub: me.pub, mac: b64(mac(hkdf(sb, 'hello'), ['hello', roomId, me.pub])) };
+  const e = typeof edge === 'string' && edge ? edge : null;
+  return { t: 'key-hello', v: V, pub: me.pub, edge: e, mac: b64(mac(hkdf(sb, 'hello'), ['hello', roomId, me.pub, e || ''])) };
 }
 /** The member's public key when the hello is genuine for this `s` and room, else null. */
 function checkHello(s, frame, roomId) {
   const sb = secretBytes(s);
   if (!sb || !frame || frame.t !== 'key-hello' || frame.v !== V || !publicKeyObject(frame.pub)) return null;
-  return macOk(hkdf(sb, 'hello'), ['hello', roomId, frame.pub], frame.mac) ? frame.pub : null;
+  if (frame.edge !== undefined && frame.edge !== null && typeof frame.edge !== 'string') return null;
+  return macOk(hkdf(sb, 'hello'), ['hello', roomId, frame.pub, frame.edge || ''], frame.mac) ? frame.pub : null;
 }
 
 /* ---- key-share (owner -> member, once, authenticated by s) ---- */

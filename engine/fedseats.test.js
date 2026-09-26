@@ -816,3 +816,91 @@ test('#3728: a room with no seal state (before sealing, or an older owner) posts
   await tick();
   assert.deepStrictEqual(h.recorded.map((r) => r.text), ['plain back']);
 });
+
+test('#3728: a revoked member is rotated out: the rest get the next key, the revoked one gets nothing it can open', async () => {
+  const sA = fedseal.randomSecret();
+  const sB = fedseal.randomSecret();
+  fedseal.stashInviteSecret('ref-rot', sA);
+  fedseal.stashInviteSecret('ref-rot', sB);
+  federation.recordLink('proj-rot', { role: 'owner', ref: 'ref-rot' });
+  const h = harness({ edges: [{ id: 'edge-a', project_ref: 'ref-rot', status: 'active' }, { id: 'edge-b', project_ref: 'ref-rot', status: 'active' }] });
+  await fedseats.ensure('proj-rot');
+  const seat = h.spawned[0];
+  say(seat, { event: 'connected', room: 'room-rot', expires_at: 9 });
+  await tick();
+  const a = fedseal.newKeyPair();
+  const b = fedseal.newKeyPair();
+  say(seat, { event: 'message', data: fedseal.helloFrame(sA, a, 'room-rot', 'edge-a') });
+  say(seat, { event: 'message', data: fedseal.helloFrame(sB, b, 'room-rot', 'edge-b') });
+  await tick();
+  assert.deepStrictEqual(Object.keys(fedseal.roomState('proj-rot').peers).sort(), [a.pub, b.pub].sort(), 'fixture: both members pinned');
+  // Nothing changes while both edges are active.
+  assert.strictEqual(await fedseats.rotateForRevoked('proj-rot', federation.linkFor('proj-rot'), null), false);
+  assert.strictEqual(fedseal.roomState('proj-rot').epoch, 0);
+  // The owner revokes A (the coordinator now reports its edge revoked).
+  h.edges = [{ id: 'edge-a', project_ref: 'ref-rot', status: 'revoked' }, { id: 'edge-b', project_ref: 'ref-rot', status: 'active' }];
+  const before = lines(seat).length;
+  assert.strictEqual(await fedseats.rotateForRevoked('proj-rot', federation.linkFor('proj-rot'), null), true);
+  const st = fedseal.roomState('proj-rot');
+  assert.strictEqual(st.epoch, 1);
+  assert.deepStrictEqual(Object.keys(st.peers), [b.pub], 'the revoked member is still pinned');
+  const rotates = lines(seat).slice(before).filter((f) => f.t === 'key-rotate');
+  assert.strictEqual(rotates.length, 1, 'rotates sent: ' + rotates.length);
+  const ownerPub = fedseal.sealingKey().pub;
+  assert.deepStrictEqual(fedseal.openRotate(b, ownerPub, rotates[0], 'room-rot'), { epoch: 1, roomKey: st.keys[1] });
+  assert.strictEqual(fedseal.openRotate(a, ownerPub, rotates[0], 'room-rot'), null, 'the revoked member opened the next key');
+  // Posts now use epoch 1, which A's epoch-0 key cannot open.
+  const shareA = lines(seat).find((f) => f.t === 'key-share' && fedseal.openShare(sA, a, f, 'room-rot'));
+  const keyA = fedseal.openShare(sA, a, shareA, 'room-rot').roomKey;
+  assert.strictEqual(fedseats.post('proj-rot', { from: 'Owner', kind: 'person', text: 'after revoke' }), true);
+  const out = lines(seat).pop();
+  assert.strictEqual(out.epoch, 1);
+  assert.strictEqual(fedseal.open({ 0: keyA }, 'room-rot', out), null, 'the revoked member read a post after the revoke');
+  assert.strictEqual(fedseal.open({ 1: st.keys[1] }, 'room-rot', out).text, 'after revoke');
+  // A reconnect re-sends the current rotate to the remaining member.
+  const n = lines(seat).length;
+  say(seat, { event: 'connected', room: 'room-rot', expires_at: 10 });
+  await tick();
+  assert.ok(lines(seat).slice(n).some((f) => f.t === 'key-rotate' && fedseal.openRotate(b, ownerPub, f, 'room-rot')), 'a reconnect did not re-send the rotate');
+});
+
+test('#3728: an edge the coordinator does not list is not taken as revoked', async () => {
+  const s1 = fedseal.randomSecret();
+  fedseal.stashInviteSecret('ref-rot2', s1);
+  federation.recordLink('proj-rot2', { role: 'owner', ref: 'ref-rot2' });
+  const h = harness({ edges: [{ id: 'edge-x', project_ref: 'ref-rot2', status: 'active' }] });
+  await fedseats.ensure('proj-rot2');
+  const seat = h.spawned[0];
+  say(seat, { event: 'connected', room: 'room-rot2', expires_at: 9 });
+  await tick();
+  say(seat, { event: 'message', data: fedseal.helloFrame(s1, fedseal.newKeyPair(), 'room-rot2', 'edge-x') });
+  await tick();
+  h.edges = [];
+  assert.strictEqual(await fedseats.rotateForRevoked('proj-rot2', federation.linkFor('proj-rot2'), null), false);
+  assert.strictEqual(fedseal.roomState('proj-rot2').epoch, 0, 'a partial answer locked a member out');
+});
+
+test('#3728: a member takes a rotate only from the pinned owner, and moves to the new epoch', async () => {
+  const s = fedseal.randomSecret();
+  const owner = fedseal.newKeyPair();
+  federation.recordLink('proj-rot-m', { role: 'member', edge_id: 'edge-rm' });
+  const k0 = fedseal.randomSecret();
+  fedseal.setRoomState('proj-rot-m', { role: 'member', s, peer: owner.pub, epoch: 0, keys: { 0: k0 } });
+  const h = harness();
+  await fedseats.ensure('proj-rot-m');
+  const seat = h.spawned[0];
+  say(seat, { event: 'connected', room: 'room-rm', expires_at: 9 });
+  await tick();
+  const me = fedseal.sealingKey();
+  const mallory = fedseal.newKeyPair();
+  say(seat, { event: 'message', data: fedseal.rotateFrame(mallory, me.pub, fedseal.randomSecret(), 1, 'room-rm') });
+  await tick();
+  assert.strictEqual(fedseal.roomState('proj-rot-m').epoch, 0, 'a rotate from an unpinned key was taken');
+  const k1 = fedseal.randomSecret();
+  say(seat, { event: 'message', data: fedseal.rotateFrame(owner, me.pub, k1, 1, 'room-rm') });
+  await tick();
+  assert.deepStrictEqual(fedseal.roomState('proj-rot-m').keys, { 0: k0, 1: k1 });
+  assert.strictEqual(fedseal.roomState('proj-rot-m').epoch, 1);
+  assert.strictEqual(fedseats.post('proj-rot-m', { from: 'Ana', kind: 'person', text: 'on the new key' }), true);
+  assert.strictEqual(lines(seat).pop().epoch, 1);
+});

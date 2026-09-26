@@ -169,3 +169,13 @@ test('#3728: a damaged rooms file is an error and is never overwritten (it holds
   assert.strictEqual(fs.readFileSync(f, 'utf8'), 'garbage', 'the damaged rooms file was replaced');
   fs.rmSync(f);
 });
+
+test('#3728: the edge a hello names is covered by its MAC, so nobody without s can move it', () => {
+  const me = seal.newKeyPair();
+  const s = seal.randomSecret();
+  const hello = seal.helloFrame(s, me, ROOM, 'edge-real');
+  assert.strictEqual(seal.checkHello(s, hello, ROOM), me.pub);
+  assert.strictEqual(seal.checkHello(s, { ...hello, edge: 'edge-other' }, ROOM), null, 'a moved edge was accepted');
+  assert.strictEqual(seal.checkHello(s, { ...hello, edge: null }, ROOM), null, 'a dropped edge was accepted');
+  assert.strictEqual(seal.checkHello(s, { ...hello, edge: 7 }, ROOM), null, 'a non-string edge was accepted');
+});
