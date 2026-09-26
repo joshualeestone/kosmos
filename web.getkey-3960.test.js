@@ -101,8 +101,10 @@ test('#3960: keyPageLink points a link at the table, and hides it for a provider
   keyPageLink(x, 'xai');
   assert.equal(x.said.textContent, ' (opens xAI’s key page in your browser)');
   const none = el();
+  none.said.textContent = ' (opens xAI’s key page in your browser)';   // left over from the provider picked before
   keyPageLink(none, null);
   assert.deepEqual([none.hidden, none.attrs.href], [true, '#'], 'a link with nowhere to go was left showing');
+  assert.equal(none.said.textContent, ' (opens the key page in your browser)', 'the hidden link still names the provider picked before');
   keyPageLink(null, 'google');   // a missing element is not an error
 });
 
