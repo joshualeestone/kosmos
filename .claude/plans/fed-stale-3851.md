@@ -21,3 +21,6 @@ Card: kosmos#3851 (two follow-ups deferred from the #3311 federation review, rou
 
 ## Round 2 review (sonnet): 1 WARNING
 - [WARNING] the unstamped branch read projectCreatedAt a second time for the value it wrote, so the stamp written was not the value checked (and could be undefined). FIXED: stampOf returns { state, born } and the stamp is written from born. Test: a createdAt that answers only on its first read still stamps that value. Control (the second read) fails by name.
+
+## Round 3 review (opus): 1 NIT
+- [NIT] the stale-link test's post() assertion could not fail (post returns false with no seat either way). FIXED: before ensure runs, it asserts fedseats.linkFor hides the link and a post writes no "stayed on this computer" note, which a room read as shared gets. Control (linkFor returning the raw link) fails the test by name.

@@ -624,10 +624,14 @@ test('#3851: a link left by an earlier project of the same id gives the new proj
   try {
     federation.recordLink('proj-reused', { role: 'member', edge_id: 'edge-old', project_created: '2026-09-01T00:00:00.000Z' });
     const h = harness({ createdAt: () => '2026-09-26T00:00:00.000Z' });
+    // Before any check runs, a post already treats the room as local: no seat, and
+    // no "stayed on this computer" note, which a room read as shared would get.
+    assert.strictEqual(fedseats.linkFor('proj-reused'), null, 'the stale link was seen');
+    assert.strictEqual(fedseats.post('proj-reused', { from: 'Josh', kind: 'person', text: 'private' }), false);
+    assert.strictEqual(h.notes.length, 0, 'the room was treated as shared: ' + JSON.stringify(h.notes));
     await fedseats.ensure('proj-reused');
     assert.strictEqual(h.spawned.length, 0, 'a seat started for a project nobody joined');
     assert.strictEqual(federation.linkFor('proj-reused'), null, 'the stale link was kept');
-    assert.strictEqual(fedseats.post('proj-reused', { from: 'Josh', kind: 'person', text: 'private' }), false);
   } finally {
     console.error = orig;
   }
