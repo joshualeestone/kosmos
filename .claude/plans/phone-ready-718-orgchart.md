@@ -16,8 +16,8 @@ exactly the chart it drew before.
 ## Change
 1. `orgFit(maxR, avail)`: when the natural square does not fit the width, give up the room around the outer
    ring first (78px down to 30px, the drag box's own margin), then bring the rings in (radii x k, k >= 0.7).
-2. `paintOrg` measures `#orgview`'s width, applies the fit, and resets remembered positions when the canvas
-   size changes (they are in another frame).
+2. `paintOrg` measures `#orgview`'s width and applies the fit. Remembered positions are rescaled when the
+   box's width changes (superseded the original reset; see challenge-loop iterations 3 and 5).
 3. A resize that changes the chart's width repaints it (rotation); height-only resizes (address bar) do not.
 4. `.orgwrap { overflow-x: auto }`: a fleet too big even at the floor scrolls inside its box, not the page.
 The harness additions the sweep used (the new screens, tap and field measurement) ship separately with
@@ -130,3 +130,15 @@ and a phone has no hover: a tap opens the agent. Changing that is a design call 
   control fails on the attributes only; they are what other engines and screen readers need.
 - The two base .orgwrap rules are one rule again.
 - Fixed 93/93 (Chromium + WebKit).
+
+## Post-rebase challenge loop, iteration 3
+- A failed poll cleared the chart but left the scrolling box's classes and region attributes (48px padding over
+  the error note, announced as a scrolling chart). orgBoxPlain() now resets the box on every path that clears
+  the chart (empty board, failed poll, a chart that fits). New arm: the page's own status fetch rejects; control
+  without the reset fails in both engines. First attempt used page.route, which WebKit's requests bypass through
+  the board's service worker: the arm could not see the failure at all there.
+- Keyboard arm: arrow keys asserted in Chromium only. Measured: headless WebKit does not pan a focused box with
+  the arrow keys even with tabindex/role set (the earlier WebKit pass of 40px did not reproduce across three
+  runs), so asserting it there would be a false red, and WebKit checks focus and the name.
+- The plan's Change item 2 now says positions are rescaled, not reset.
+- Fixed 95/95 (Chromium + WebKit).
