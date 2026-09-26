@@ -13,6 +13,8 @@
  *   - Stop partway returns to the choice;
  *   - a slow availability read answering after the dialog closed, or after a switch to Grok, paints
  *     no Gemini choice (the visit re-check after agyAsk), and the same read on an open dialog does;
+ *   - a keyboard press on the step's button keeps focus in the dialog (on Stop) while it hides;
+ *   - at a 320px viewport the "Google Gemini (Google subscription)" row keeps its mark and name on one line;
  *   - control: where it is NOT offered, the choice never shows and Gemini goes to its download.
  * SHOT_DIR=<dir> saves screenshots of the choice and of Ready.
  *
@@ -112,9 +114,10 @@ const view = () => ({
   const d1 = await look();
   chk(d1.sub && !d1.pick && /not on this computer yet/.test(d1.text) && d1.button === 'Install Antigravity' && d1.stop && d1.posts.join() === 'check',
     'Sign in with Google checks at once and offers Install Antigravity, with Stop', JSON.stringify(d1));
-  await q(() => document.getElementById('acct-gemini-sub-go').click());
+  await q(() => { const g = document.getElementById('acct-gemini-sub-go'); g.focus(); g.click(); });
   await q(settle);
   const d2 = await look();
+  chk(d2.focus === 'acct-gemini-sub-cancel' || d2.focus === 'acct-gemini-sub-go', 'a keyboard press keeps focus inside the dialog while the button it pressed hides', JSON.stringify({ focus: d2.focus }));
   chk(d2.button === 'Open Antigravity to sign in' && d2.posts.join() === 'check,install', 'Install runs, then offers Open (no check spent)', JSON.stringify(d2));
   await q(() => document.getElementById('acct-gemini-sub-go').click());
   await q(settle);
@@ -152,6 +155,30 @@ const view = () => ({
     if (leave === 'stay') chk(r.flow && r.modal, 'control: the same slow read on an open dialog does paint the choice', JSON.stringify(r));
     else chk(!r.flow, 'a slow availability read answering after a ' + leave + ' paints no Gemini choice', JSON.stringify(r));
     chk(s.errs.length === 0, 'no page errors (slow read, ' + leave + ')', s.errs.join(' | '));
+    await s.page.close();
+  }
+
+  // A narrow screen: the long name stays on its mark's line (it may shrink), only the pill wraps.
+  {
+    const s = await openPage(browser, true);
+    await s.page.setViewportSize({ width: 320, height: 700 });
+    await s.q(settle);
+    const g = await s.q(() => {
+      const select = document.getElementById('create-provider');
+      const wrap = select && select.parentNode.querySelector('.pcombo');
+      if (!wrap) return { fatal: 'no .pcombo on #create-provider' };
+      for (let p = select; p && p !== document.body; p = p.parentNode) {
+        if (p.hasAttribute && p.hasAttribute('hidden')) p.hidden = false;
+        if (p.style && p.style.display === 'none') p.style.display = '';
+      }
+      wrap.querySelector('.pcombo-trigger').click();
+      const li = wrap.querySelector('.pcombo-opt[data-value="antigravity"]');
+      if (!li || li.offsetParent === null) return { fatal: 'the antigravity row is not showing' };
+      const m = li.querySelector('.pcombo-mark').getBoundingClientRect();
+      const n = li.querySelector('.pcombo-name').getBoundingClientRect();
+      return { sameLine: Math.abs((m.top + m.height / 2) - (n.top + n.height / 2)) < 6, mark: Math.round(m.top), name: Math.round(n.top) };
+    });
+    chk(!g.fatal && g.sameLine, 'at 320px the Gemini (Google subscription) row keeps its mark and name on one line', JSON.stringify(g));
     await s.page.close();
   }
 

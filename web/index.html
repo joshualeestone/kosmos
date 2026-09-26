@@ -7689,6 +7689,9 @@ code.t { font: 13px var(--k-mono); border-radius: 4px; padding: .12em .4em;
    list's cap, so without wrap the NAME was cut ("Google Gemini (Google su..."); wrapped, the pill
    goes under it and the name stays whole. */
 .pcombo-opt { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 8px; padding: 8px 10px; border-radius: 6px; cursor: pointer; }
+/* The name never wraps away from its mark (18px + the 8px gap): it may only shrink, with an ellipsis,
+   when it alone is wider than a narrow screen's list. */
+.pcombo-opt .pcombo-mark ~ .pcombo-name { max-width: calc(100% - 26px); }
 .pcombo-opt .pcombo-name { color: var(--k-ink); }
 .pcombo-active { background: var(--k-rule); }
 .pcombo-off { cursor: default; }
@@ -11248,7 +11251,7 @@ window.kosmosMeasureScrollbarWidth();
           <button class="btn uprime" id="acct-gemini-sub-go" type="button">Sign in with Google</button>
         </div>
         <div class="frow" id="acct-gemini-sub-open-row" hidden style="margin-top:8px;">
-          <a class="btn" id="acct-gemini-sub-open" href="#" target="_blank" rel="noopener">Open the sign-in page</a>
+          <a class="btn" id="acct-gemini-sub-open" href="#" target="_blank" rel="noopener">About Antigravity</a>
         </div>
         <p class="dhint" id="acct-gemini-sub-code" role="status" aria-live="polite" hidden style="margin:8px 0 0;"></p>
         <div class="frow" id="acct-gemini-sub-cancel-row" hidden style="margin-top:8px;"><button class="btn" id="acct-gemini-sub-cancel" type="button">Stop this sign-in</button></div>
@@ -24770,7 +24773,11 @@ function acctGeminiShow(which) {
   document.getElementById('acct-apikey-flow').hidden = true;   // until "Use an API key"
   if (ACCT_KEYED_FOCUS) document.getElementById('acct-gemini-pick-sub').focus();
 }
+/* The last press on the choice stands: a CLI read still out when Sign in with Google is pressed acts
+   on nothing. */
+let ACCT_GEMINI_PRESS = 0;
 document.getElementById('acct-gemini-pick-sub').addEventListener('click', () => {
+  ACCT_GEMINI_PRESS += 1;
   // Straight to the check, like Grok's pick: no second screen asking to sign in.
   document.getElementById('acct-gemini-pick').hidden = true;
   const step = document.getElementById('acct-gemini-sub-step');
@@ -24780,20 +24787,23 @@ document.getElementById('acct-gemini-pick-sub').addEventListener('click', () => 
   step.focus();
   ACCT_AGY_SUB.start();
 });
-document.getElementById('acct-gemini-pick-key').addEventListener('click', async () => {
-  /* Read the Gemini CLI now, not when the choice showed: a download may have finished or started since. */
+/* "Use an API key": read the Gemini CLI now, not when the choice showed (a download may have finished
+   or started since), then the key step, or the download first. */
+async function acctGeminiKeyPath() {
   const visit = ACCT_APIKEY_GEN;
+  const press = ++ACCT_GEMINI_PRESS;
   const info = await keyedRunnerInfo('google');
-  if (visit !== ACCT_APIKEY_GEN || ACCT_APIKEY_WHICH !== 'google') return;
+  if (visit !== ACCT_APIKEY_GEN || ACCT_APIKEY_WHICH !== 'google' || press !== ACCT_GEMINI_PRESS) return;
   if (info && info.present) { acctKeyedReveal('google', true); return; }
   acctKeyedInstallShow('google', info);   // the Gemini CLI first; its Confirm reveals the key step
-});
+}
+document.getElementById('acct-gemini-pick-key').addEventListener('click', () => acctGeminiKeyPath());
 document.getElementById('acct-gemini-sub-go').addEventListener('click', () => ACCT_AGY_SUB.start());
 document.getElementById('acct-gemini-sub-cancel').addEventListener('click', () => {
   // Back to the choice, as Grok's does, so "Use an API key" is one press away.
   /* A check that found it not offered here (AGY_OFFERED false) leaves nothing to choose between:
      the key step, the way the step's own words ("Press Stop this sign-in to use an API key") say. */
-  if (!keyedSubReady('google')) { document.getElementById('acct-gemini-pick-key').click(); return; }
+  if (!keyedSubReady('google')) { ACCT_AGY_SUB.leave(); return acctGeminiKeyPath(); }
   acctGeminiShow('google');
   document.getElementById('acct-gemini-pick-sub').focus();
 });
@@ -24893,11 +24903,20 @@ function agySubDriver(pre, onReady) { return {
     const code = this.el('code'); if (code) { code.textContent = text; code.hidden = !text; }
     // Stop is there for the whole step, like Grok's, except once it is ready (review round 2).
     const stop = this.el('cancel-row'); if (stop) stop.hidden = !!done;
-    const go = this.el('go'); if (go) { go.textContent = button || ''; go.hidden = !button; }
+    const go = this.el('go');
+    const hadFocus = !!go && typeof document.activeElement !== 'undefined' && document.activeElement === go;
+    if (go) { go.textContent = button || ''; go.hidden = !button; }
     const row = this.el('open-row'); const a = this.el('open');
     if (row && a) {
       row.hidden = !about;
       if (about) { a.href = 'https://antigravity.google/docs/cli/install/'; a.textContent = 'About Antigravity'; }
+    }
+    /* #3874: the pressed button hiding would drop focus to the page, behind Settings' dialog. It goes
+       to Stop while that shows, else to the step itself (Ready). */
+    if (hadFocus && go.hidden) {
+      const cancel = this.el('cancel');
+      const to = cancel && stop && !stop.hidden ? cancel : this.el('step');
+      if (to) { if (to !== cancel && !to.hasAttribute('tabindex')) to.setAttribute('tabindex', '-1'); to.focus(); }
     }
   },
   async post(path) {

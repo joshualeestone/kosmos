@@ -26,7 +26,7 @@ the subscription is not offered (Windows, AGENT_WORKFORCE_ANTIGRAVITY=0) Gemini 
 2. Markup: #acct-gemini-flow (choice + sub step) in the Add a provider dialog, mirroring Grok's and
    the first-run Gemini step's copy.
 3. acctApikeyShow: for google, after the runner read, await agyAsk(); if offered is confirmed (AGY_OFFERED true) and keyedSubReady('google'), show
-   the Gemini choice, remembering whether the Gemini CLI still needs installing for the key path.
+   the Gemini choice; "Use an API key" reads the Gemini CLI on the press (download first if missing).
    acctGeminiShow(null) on every other path (open, close, switch) and leave() the driver.
 4. Use an API key: the key step, or the install step first when needed. Stop this sign-in: back to
    the choice. The install box hides the Gemini flow like it hides Grok's.

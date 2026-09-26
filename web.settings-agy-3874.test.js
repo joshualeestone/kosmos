@@ -158,6 +158,13 @@ test('#3874: Sign in with Google starts the driver at once; Use an API key reads
   c.state.onRead = () => { c.state.gen += 1; };
   await c.el('acct-gemini-pick-key').click();
   assert.deepEqual(c.calls, ['read:google'], 'an answer for a closed or switched dialog still acted');
+  // Sign in with Google pressed while the read was out: that later press stands.
+  c.state.onRead = null;
+  c.acctGeminiShow('google');
+  c.calls.length = 0;
+  c.state.onRead = () => { c.el('acct-gemini-pick-sub').click(); };
+  await c.el('acct-gemini-pick-key').click();
+  assert.deepEqual(c.calls, ['read:google', 'start'], 'a late CLI read overrode the Sign in with Google pressed after it');
 });
 
 test('#3874: Stop goes back to the choice, or to the key when the check found it not offered here', async () => {
@@ -172,8 +179,7 @@ test('#3874: Stop goes back to the choice, or to the key when the check found it
   n.acctGeminiShow('google');
   n.el('acct-gemini-pick-sub').click();
   n.calls.length = 0;
-  n.el('acct-gemini-sub-cancel').click();
-  await new Promise((r) => setImmediate(r));
+  await n.el('acct-gemini-sub-cancel').click();
   assert.ok(n.calls.includes('reveal:google:true'), 'a not-offered Stop should land on the key');
 });
 
