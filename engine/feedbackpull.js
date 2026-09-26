@@ -135,10 +135,15 @@ async function defaultList(tok) {
    listing, and a listing naming any other host must not receive the credential.
    Only the first hop is checked here; fetch itself drops Authorization on a
    cross-origin redirect. */
+/* The Vercel Blob host, DERIVED from DEFAULT_BLOB_API so the security check and the
+   API default cannot name two different domains. A report URL is on it when its
+   host is that host or ends in "." + it (URL.hostname is already lower-cased). */
+const BLOB_HOST = new URL(DEFAULT_BLOB_API).hostname;
 function tokenMayGoTo(url) {
   try {
     const u = new URL(url);
-    if (u.protocol === 'https:' && /(^|\.)blob\.vercel-storage\.com$/i.test(u.hostname)) return true;
+    const h = u.hostname;
+    if (u.protocol === 'https:' && (h === BLOB_HOST || h.endsWith('.' + BLOB_HOST))) return true;
     return u.origin === new URL(blobApi()).origin;
   } catch { return false; }
 }
