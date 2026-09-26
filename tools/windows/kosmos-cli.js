@@ -85,12 +85,14 @@ const USAGE = {
   whoami: 'Usage: kosmos whoami   (asks the board which agent you are and which account you are on)',
   room: 'Usage: kosmos room <project-id>   (read a room; or: kosmos room reopen <project-id> to clear a loop-guard hold)',
   task: [
-    'Usage: kosmos task <list|add|close|message>',
+    'Usage: kosmos task <list|add|close|message|built>',
     '  kosmos task list <project-id>                                 list this project\'s tasks',
     '  kosmos task add  <project-id> "<what the task is>" ["more detail"]  add one (quote each part)',
     '      --parent <task-number>                                   make it a subtask of that task',
     '  kosmos task close <project-id> <task-number>                  close one (number is from list)',
     '  kosmos task message <project-id> <task-number> "<what to say>"  say something in a task\'s conversation',
+    '  kosmos task built <project-id> <task-number> ["what is left"]  mark it built, waiting to be released or checked',
+    '      --clear                                                  take the built mark off',
     '  (project ids are in your instructions\' Your projects section.)',
   ].join('\n'),
   project: [
@@ -591,6 +593,27 @@ async function taskMessage(ctx, args) {
   return 1;
 }
 
+/* #3951, as install/kosmos cmd_task built: mark a task built, waiting to be released or checked, or take the mark
+   off with --clear. Presents the agent token, as message does, so the board names who marked it. */
+async function taskBuilt(ctx, args) {
+  const [project, num] = args;
+  if (!project || !num) { ctx.err('Usage: kosmos task built <project-id> <task-number> ["what is left"]   (or --clear to take the mark off)'); return 2; }
+  if (!/^[0-9]+$/.test(num)) { ctx.err(TASK_NUMBER_NOT_A_NUMBER); return 2; }
+  const rest = args.slice(2);
+  const clear = rest.includes('--clear');
+  const note = rest.filter((a) => a !== '--clear').join(' ');
+  const r = await ctx.call('POST', '/api/project/' + projectSlug(project) + '/task/' + num + '/built', { note, clear, from_pane: '' });
+  if (!r.reached) return ctx.unreachable('mark that task');
+  if (r.json && r.json.task) {
+    ctx.out(clear ? 'Took the built mark off task ' + num + ' on ' + project + '.'
+      : 'Marked task ' + num + ' on ' + project + ' built, waiting to be released or checked. Closing it clears the mark.');
+    return 0;
+  }
+  if (ctx.refusedBy(r)) { ctx.err('Kosmos could not mark that task: ' + ctx.refusedBy(r) + '.'); return 1; }
+  ctx.err('Kosmos gave an answer we could not read when marking that task.');
+  return 1;
+}
+
 /* kosmos#3388, as install/kosmos cmd_project create: make a project from one
    command. A board write, so it presents the board token, not the agent token
    ({agent:false}, like task add/close); from_pane is empty because a Windows
@@ -766,7 +789,7 @@ const VERB_HANDLERS = {
 const SUBCOMMAND_HANDLERS = {
   report: { show: reportShow, status: reportShow },
   room: { reopen: roomReopen },
-  task: { list: taskList, add: taskAdd, close: taskClose, message: taskMessage },
+  task: { list: taskList, add: taskAdd, close: taskClose, message: taskMessage, built: taskBuilt },
   project: { create: projectCreate },
   agent: { create: agentCreate, roles: agentRoles },
   feedback: { write: feedbackWrite, show: feedbackShow, list: feedbackList, pull: feedbackPull, triage: feedbackTriage },

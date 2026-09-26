@@ -2665,6 +2665,10 @@ function blockBody(projects, sessionName) {
       'The indented lines are tasks written down for you. When you take one up,',
       'report it as "task <number> of <project>": the number alone is ambiguous',
       'when you are on two projects.',
+      /* #3951: the only way a task reaches the Tasks page's "Built but waiting" tile. Taught here, beside the tasks
+         it applies to, and re-spliced on every membership change so existing agents learn it too. */
+      `When you have built one and it is waiting to be released or checked, mark it:`,
+      `\`${cliShown} task built <project-id> <task-number> "what is left"\`. Closing the task clears the mark.`,
     ] : []),
   ].join('\n');
 }

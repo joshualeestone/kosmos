@@ -3404,10 +3404,11 @@ button.boardname[aria-expanded="true"] { opacity: 1; color: var(--k-ink); border
    version of, this was made with Ai"): a status is a round DOT beside its label, and the
    browser check asserts no element here carries a coloured left border.
    The status colours: red (--danger) for Needs Your Decision (#3949), grey for unassigned, gold for
-   assigned but not started, the working green for in progress, a quiet grey for completed -- the
-   app's existing meanings, no new palette. */
+   assigned but not started, the working green for in progress, the mention blue for built but waiting (#3951), a
+   quiet grey for completed -- the app's existing meanings, no new palette. */
 #panel-tasks { --tsk-c: var(--k-ink-2); --tsk-nobody: var(--k-ink-2); --tsk-assigned: var(--gold-deep); --tsk-working: var(--ok);
   --tsk-decision: var(--danger);
+  --tsk-built: var(--pj-mention);
   --tsk-closed: color-mix(in srgb, var(--k-ink-2) 55%, var(--k-rule));
   --tsk-wash: color-mix(in srgb, var(--gold) 14%, var(--k-surface)); color: var(--k-ink); }
 /* #3949: one column, the full width (the Projects rail is gone; its choice is the dropdown). */
@@ -45804,6 +45805,10 @@ const TSK_GROUPS = [
     why: 'An agent has these, and what it reports does not name them yet. Old ones here are worth a nudge.' },
   { k: 'nobody', l: 'Unassigned', c: 'var(--tsk-nobody)',
     why: 'Open and unassigned. Give these to an agent, or close the ones that no longer matter.' },
+  /* #3951: Josh's fifth tile. An agent marked the task built (`kosmos task built`); the person closes it once it is
+     live, which clears the mark. */
+  { k: 'built', l: 'Built but waiting', c: 'var(--tsk-built)',
+    why: 'An agent marked these built. They are waiting to be released or checked; close each one once it is live.' },
   { k: 'closed', l: 'Completed', c: 'var(--tsk-closed)', why: 'Finished and closed.' },
 ];
 const TSK_WINDOWS = [['24h', 1], ['48h', 2], ['1 week', 7], ['1 month', 30], ['All', 0]];
@@ -45987,6 +45992,11 @@ function tskRow(t, at) {
     : notReported && t.claim.about
       ? '<div class="why">' + esc(tskAgentName(t.claim.about)) + ' ' + notReported + '.</div>'
       : t.claim.because ? '<div class="why">We cannot tell whether it started: ' + esc(t.claim.because) + '.</div>' : '';
+  /* #3951: a built row says who marked it and what is left, the agent's own words. */
+  const builtLine = t.state !== 'built' ? ''
+    : '<div class="why">Marked built' + (t.builtBy ? ' by ' + esc(t.builtBy === 'operator' ? 'you' : tskAgentName(t.builtBy)) : '')
+      + (t.builtAt ? ' ' + esc(agoWords(Date.now() - Date.parse(t.builtAt))) : '')
+      + (t.builtNote ? ': ' + esc(t.builtNote) : '') + '</div>';
   return '<div class="tsk-row' + (on ? ' sel' : '') + (place.depth ? ' d' + place.depth : '') + '" data-key="' + esc(tskKey(t)) + '">'
     + '<input type="checkbox" data-key="' + esc(tskKey(t)) + '"' + (on ? ' checked' : '')
     /* The row no longer repeats its state in a status group (the heading says it), so there the
@@ -46001,7 +46011,7 @@ function tskRow(t, at) {
     + (moved && moved !== added ? '<span>last activity ' + esc(moved) + '</span>' : '')
     + (t.dueDate ? '<span>due ' + esc(t.dueDate) + '</span>' : '')
     + chip + allDone
-    + '</div>' + cannot + '</div>'
+    + '</div>' + cannot + builtLine + '</div>'
     + '<div class="tsk-side">' + whoHtml
     /* Said once per row (Mona): inside a status group the heading already names the state, so the
        row's state line shows only when grouping by project, where it is information. */

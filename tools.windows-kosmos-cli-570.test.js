@@ -452,10 +452,10 @@ test('task message: a missing part or a non-number task is a usage error that se
   }
 });
 
-test('an unknown task subcommand lists all four, as install/kosmos does', async () => {
+test('an unknown task subcommand lists all five, as install/kosmos does', async () => {
   const r = await run(['task', 'reassign', 'p1']);
   assert.equal(r.code, 2);
-  assert.equal(r.err, 'Unknown: kosmos task reassign. Try: list | add | close | message');
+  assert.equal(r.err, 'Unknown: kosmos task reassign. Try: list | add | close | message | built');
 });
 
 test('room reopen: POST .../room/reopen with no body and no agent token; 2xx -> 0, 404 -> 1, other -> 1 with the board\'s because', async () => {

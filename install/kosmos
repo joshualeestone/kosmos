@@ -2169,12 +2169,14 @@ cmd_task() {
   local sub; sub="${1:-}"; shift 2>/dev/null || true
   case "$sub" in
     ''|help|-h|--help)
-      say "Usage: kosmos task <list|add|close|message>"
+      say "Usage: kosmos task <list|add|close|message|built>"
       say "  kosmos task list <project-id>                                 list this project's tasks"
       say "  kosmos task add  <project-id> \"<what the task is>\" [\"more detail\"]  add one (quote each part)"
       say "      --parent <task-number>                                   make it a subtask of that task"
       say "  kosmos task close <project-id> <task-number>                  close one (number is from list)"
       say "  kosmos task message <project-id> <task-number> \"<what to say>\"  say something in a task's conversation"
+      say "  kosmos task built <project-id> <task-number> [\"what is left\"]  mark it built, waiting to be released or checked"
+      say "      --clear                                                  take the built mark off"
       say "  (project ids are in your instructions' Your projects section.)"
       exit 2 ;;
     # Validate the subcommand AND its required args BEFORE the health check, the same order
@@ -2206,8 +2208,11 @@ cmd_task() {
     message)
       { [ -n "${1:-}" ] && [ -n "${2:-}" ] && [ -n "${3:-}" ]; } || { say "Usage: kosmos task message <project-id> <task-number> \"<what to say>\""; exit 2; }
       case "${2:-}" in ''|*[!0-9]*) say "The task number must be a number, from: kosmos task list <project-id>."; exit 2 ;; esac ;;
+    built)
+      { [ -n "${1:-}" ] && [ -n "${2:-}" ]; } || { say "Usage: kosmos task built <project-id> <task-number> [\"what is left\"]   (or --clear to take the mark off)"; exit 2; }
+      case "${2:-}" in ''|*[!0-9]*) say "The task number must be a number, from: kosmos task list <project-id>."; exit 2 ;; esac ;;
     *)
-      say "Unknown: kosmos task $sub. Try: list | add | close | message"
+      say "Unknown: kosmos task $sub. Try: list | add | close | message | built"
       exit 2 ;;
   esac
   if ! healthy; then
@@ -2287,6 +2292,35 @@ cmd_task() {
           local because; because=$(printf '%s' "$body" | sed -n 's/.*"error":"\([^"]*\)".*/\1/p')
           say "Kosmos could not close that task: ${because:-it did not say why}."; exit 1 ;;
         *) say "Kosmos gave an answer we could not read when closing that task."; exit 1 ;;
+      esac
+      ;;
+    built)
+      # #3951: mark a task built, waiting to be released or checked (the Tasks page's "Built but waiting"), or take
+      # the mark off with --clear. Every arg after the number that is not --clear is the note, folded as message does.
+      # The agent token names who marked it (the pane is the fallback, as for message).
+      local project num note="" clear=false _b
+      project="${1:-}"; num="${2:-}"; shift 2 2>/dev/null || true
+      for _b in "$@"; do
+        if [ "$_b" = "--clear" ]; then clear=true; else note="${note:+$note }$_b"; fi
+      done
+      local esc_note esc_pane
+      esc_note=$(printf '%s' "$note" | sed 's/\\/\\\\/g; s/"/\\"/g' | tr '\t\r\n' '   ')
+      esc_pane=$(printf '%s' "${TMUX_PANE:-}" | tr '\n\t\r' '   ' | sed 's/\\/\\\\/g; s/"/\\"/g')
+      local _tok=""   # the agent token only in its own hex shape, as reply and post take it
+      case "${KOSMOS_AGENT_TOKEN:-}" in ''|*[!0-9a-f]*) ;; *) _tok="$KOSMOS_AGENT_TOKEN" ;; esac
+      local rc=0 body
+      body=$(kosmos_curl "$_bt" "$_tok" -sS -m 15 -X POST "$URL/api/project/$esc_project/task/$num/built" \
+        -H 'content-type: application/json' \
+        --data "{\"note\":\"$esc_note\",\"clear\":$clear,\"from_pane\":\"$esc_pane\"}" 2>/dev/null) || rc=$?
+      [ "$rc" -eq 0 ] || { say "We could not reach Kosmos to mark that task. Is it running at $URL?"; exit 1; }
+      case "$body" in
+        '{"task":'*)
+          if [ "$clear" = true ]; then say "Took the built mark off task $num on ${project:-the project}."
+          else say "Marked task $num on ${project:-the project} built, waiting to be released or checked. Closing it clears the mark."; fi ;;
+        '{"error":'*)
+          local because; because=$(printf '%s' "$body" | sed -n 's/.*"error":"\([^"]*\)".*/\1/p')
+          say "Kosmos could not mark that task: ${because:-it did not say why}."; exit 1 ;;
+        *) say "Kosmos gave an answer we could not read when marking that task."; exit 1 ;;
       esac
       ;;
     message)

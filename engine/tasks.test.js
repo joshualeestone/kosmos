@@ -258,9 +258,13 @@ test('the managed block teaches the join: tasks listed in the matching spelling,
   assert.ok(!/Closed already/.test(body), 'a closed task is still taught');
   assert.match(body, /report it as "task <number> of <project>"/, 'the convention line is missing');
   assert.match(body, /the number alone is ambiguous/, 'the why was cut; an agent that does not know it helpfully shortens to "task 1" (#779)');
+  /* #3951: the only way a task reaches "Built but waiting" is an agent running this, so the block teaches it. */
+  assert.match(body, /task built <project-id> <task-number> "what is left"/, 'the built command is not taught (#3951)');
+  assert.match(body, /Closing the task clears the mark/);
   // One-arg compatibility: no session name, no task lines, no trailer.
   const bare = projects.blockBody([stored]);
   assert.ok(!/task 1 of /.test(bare) && !/task <number>/.test(bare), 'task lines appear with no agent to scope them');
+  assert.ok(!/task built/.test(bare), 'the built line appears with no tasks to apply it to');
 });
 
 test('a task records who added it, while the answer is still free', () => {

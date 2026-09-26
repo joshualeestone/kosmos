@@ -268,7 +268,7 @@ function create(projectId, { sentence, detail, who, parent, made: origin } = {},
  * So every write starts from `partsOf`, which is the derived list, and the
  * legacy `who` is retired in the same edit rather than left to disagree.
  */
-function writeParts(projectId, n, fn) {
+function writeParts(projectId, n, fn, { dropBuilt = false } = {}) {
   let changed;
   projects.mutate(projectId, (p) => {
     const t = byNumber(p, n);
@@ -276,6 +276,9 @@ function writeParts(projectId, n, fn) {
     const parts = fn(partsOf(t), t, p);
     if (!parts) throw new Error('that did not change anything');
     changed = { ...t, parts };
+    /* #3951: the built mark does not outlive the work it described: a new part is new work, and a task that is now
+       closed is done (a later reopen must not bring back a stale "built"). */
+    if (dropBuilt || progressOf(changed).closed) changed = withoutBuilt(changed);
     /* ⚠️ `who` is DROPPED once parts are stored, not kept in step. Two fields
        answering "who is on this" is two things that disagree the first time
        one of them is edited, and every reader would then have to know which
@@ -388,7 +391,7 @@ function addPart(projectId, n, { sentence, who, made } = {}) {
       taskReopened = true;
     }
     return next;
-  });
+  }, { dropBuilt: true });
   taskchat.record(projectId, Number(n), { kind: 'part-added', partId: newPartId, sentence: said, who: whoKey });
   if (taskReopened) taskchat.record(projectId, Number(n), { kind: 'reopened' });
   return { ok: true, task };
@@ -485,6 +488,61 @@ function byNumber(p, n) {
   return (p.tasks || []).find((t) => t.number === Number(n));
 }
 
+/* #3951: "built, waiting to ship". An agent (or the person) marks an OPEN task built; the Tasks page counts it in
+   Josh's "Built but waiting" tile. Three fields, all or none: when, who, and an optional note on what is left. */
+const BUILT_NOTE_MAX = 300;
+function withoutBuilt(t) {
+  if (!t || !('builtAt' in t || 'builtBy' in t || 'builtNote' in t)) return t;
+  const { builtAt, builtBy, builtNote, ...rest } = t;
+  return rest;
+}
+
+/**
+ * Mark an open task built (`by` is the agent's name, or 'operator' from the screen; `note` is optional). Marking it
+ * again refreshes the time, the builder and the note. A closed task is refused: closing already cleared the mark.
+ */
+function setBuilt(projectId, n, { by = null, note = '' } = {}) {
+  const said = typeof note === 'string' ? note.replace(/\s+/g, ' ').trim() : '';
+  if (said.length > BUILT_NOTE_MAX) return { ok: false, because: `keep the note under ${BUILT_NOTE_MAX} characters` };
+  const who = typeof by === 'string' && by.trim() ? by.trim().slice(0, WHO_MAX) : null;
+  let changed = null;
+  let closed = false;
+  try {
+    projects.mutate(projectId, (p) => {
+      const t = byNumber(p, n);
+      if (!t) throw new Error('there is no task by that number on this project');
+      if (progressOf(t).closed) { closed = true; return p; }
+      changed = { ...withoutBuilt(t), builtAt: new Date().toISOString(), builtBy: who, ...(said ? { builtNote: said } : {}) };
+      return { ...p, tasks: (p.tasks || []).map((x) => (x.number === changed.number ? changed : x)) };
+    });
+  } catch (err) {
+    return { ok: false, because: String((err && err.message) || err) };
+  }
+  if (closed) return { ok: false, closed: true, because: 'that task is closed already, so it is not waiting on anything' };
+  taskchat.record(projectId, changed.number, { kind: 'built', by: who, ...(said ? { note: said } : {}) });
+  return { ok: true, task: changed };
+}
+
+/** Take the built mark off (the work turned out not to be done). A task with no mark records nothing. */
+function clearBuilt(projectId, n, { by = null } = {}) {
+  const who = typeof by === 'string' && by.trim() ? by.trim().slice(0, WHO_MAX) : null;
+  let changed = null;
+  let had = false;
+  try {
+    projects.mutate(projectId, (p) => {
+      const t = byNumber(p, n);
+      if (!t) throw new Error('there is no task by that number on this project');
+      had = !!t.builtAt;
+      changed = withoutBuilt(t);
+      return had ? { ...p, tasks: (p.tasks || []).map((x) => (x.number === changed.number ? changed : x)) } : p;
+    });
+  } catch (err) {
+    return { ok: false, because: String((err && err.message) || err) };
+  }
+  if (had) taskchat.record(projectId, changed.number, { kind: 'unbuilt', by: who });
+  return { ok: true, task: changed, changed: had };
+}
+
 /** Close: a record edit, never an act on an agent (see the header). */
 function close(projectId, n) {
   return setClosed(projectId, n, new Date().toISOString());
@@ -513,6 +571,8 @@ function setClosed(projectId, n, closedAt) {
     changed = { ...t, closedAt };
     const after = progressOf(changed).closed;
     if (before !== after) transition = after ? 1 : -1;
+    /* #3951: closing is the person's "it is live": the built mark goes with it, and a reopen does not restore it. */
+    if (after) changed = withoutBuilt(changed);
     return {
       ...p,
       tasks: (p.tasks || []).map((x) => (x.number === changed.number ? changed : x)),
@@ -848,14 +908,16 @@ function allTasks(everyProject) {
  *   'decision' (#3949) open, and the agent holding it needs the person right now
  *              (`waitingOnPerson`, set by the Tasks route from the roster); it
  *              wins over working and assigned, so each open task is in one group
- * "Built, waiting to ship" needs an agent-says-built that no task stores yet
- * (#3951), so no task is ever put in it.
+ *   'built'    (#3951) open, and marked built (`builtAt`, by `kosmos task built`): Josh's "Built but waiting". After
+ *              decision (an agent needing the person is still the one to act on), before nobody, working and
+ *              assigned (a built task whose agent was since taken off is still built).
  */
 function taskState(task) {
   if (!task) return 'nobody';
   if (progressOf(task).closed) return 'closed';
+  if (task.waitingOnPerson === true && whoOf(task).length > 0) return 'decision';
+  if (typeof task.builtAt === 'string' && task.builtAt) return 'built';
   if (whoOf(task).length === 0) return 'nobody';
-  if (task.waitingOnPerson === true) return 'decision';
   return (task.claim && task.claim.claimed === true) ? 'working' : 'assigned';
 }
 
@@ -1039,4 +1101,4 @@ module.exports = { create, close, reopen, byNumber, columnTasks, allTasks, claim
   taskState, waitingOnPerson, lastActivityOf, TASKS_TAB_MIN, parentProblem, parentOf, childrenOf, subtaskProgress, treeOf, setParent, tasksEverCreated, tasksTabShown, claimWho,
   partsOf, progressOf, whoOf, addPart, assignPart, setPartClosed, setDue, dueProblem, say,
   partValve, processPartWrites, agePartWritesForTests, PARTS_PER_HOUR,
-  SENTENCE_MAX, DETAIL_MAX, MESSAGE_MAX, WHO_MAX };
+  SENTENCE_MAX, DETAIL_MAX, MESSAGE_MAX, WHO_MAX, setBuilt, clearBuilt, BUILT_NOTE_MAX };

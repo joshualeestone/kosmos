@@ -15074,6 +15074,46 @@ const server = http.createServer((req, res) => {
     return;
   }
 
+  /* #3951: mark a task built, waiting to ship (Josh's "Built but waiting" tile), or take the mark off. Body
+     { note?, clear?, from_pane? }. Who marked it: the screen is 'operator'; a process is named by its agent token
+     (a token that does not resolve is refused, as the message route does) or else its pane. No valve: the mark is
+     one idempotent field set per task, and a re-mark only refreshes it. A closed task is refused (409): closing
+     already cleared the mark. The block is not re-synced: the mark changes nothing an agent's instructions list. */
+  const taskBuilt = pathname.match(/^\/api\/project\/([^/]+)\/task\/(\d+)\/built$/);
+  if (taskBuilt && req.method === 'POST') {
+    const id = decodeSegment(taskBuilt[1]);
+    if (id === null) { sendJson(res, 400, { error: 'that is not a name we can read' }); return; }
+    readBody(req).then((raw) => {
+      let body = null;
+      try { body = JSON.parse(raw || '{}'); } catch { body = null; }
+      if (!body || typeof body !== 'object' || Array.isArray(body)) { sendJson(res, 400, { error: 'we could not read that request' }); return; }
+      const viaScreen = isViaScreen(req, body);
+      const roster = safeRoster();
+      if (roster === null && presentedAgentToken(req, body)) {
+        sendJson(res, 503, { error: 'we could not check which agents are running, so the task was not marked' });
+        return;
+      }
+      const tokenSender = senderFromAgentToken(req, body, roster);
+      if (tokenSender && !tokenSender.ok) { sendJson(res, 403, { error: tokenSender.because }); return; }
+      const fromPane = typeof body.from_pane === 'string' ? body.from_pane : '';
+      const card = tokenSender ? tokenSender.card
+        : (fromPane && Array.isArray(roster) ? roster.find((c) => c && c.target === fromPane) : null);
+      const by = viaScreen ? 'operator' : ((card && card.sessionName) || null);
+      const out = body.clear === true
+        ? tasks.clearBuilt(id, taskBuilt[2], { by })
+        : tasks.setBuilt(id, taskBuilt[2], { by, note: typeof body.note === 'string' ? body.note : '' });
+      if (!out.ok) {
+        const code = out.closed ? 409 : (/no project by that name|no task by that number/.test(out.because) ? 404 : 400);
+        sendJson(res, code, { error: out.because });
+        return;
+      }
+      sendJson(res, 200, { task: out.task });
+    }).catch((err) => {
+      sendJson(res, 400, { error: String((err && err.message) || 'we could not read that request') });
+    });
+    return;
+  }
+
   /* #768: record a free-text message on a task's conversation, then DELIVER it to the
      agents assigned to the task. Body { text, from_pane? }. tasks.say validates
      (empty -> 400, missing project/task -> 404) and records it via engine/taskchat.js
