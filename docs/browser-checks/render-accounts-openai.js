@@ -621,7 +621,17 @@ let failed = 0;
   await p.click('#acct-add-open');
   await p.waitForTimeout(300);
   await p.selectOption('#acct-provider-pick', 'google');
-  await p.waitForTimeout(200);
+  await p.waitForTimeout(400);
+  /* #3874: where Gemini on a Google subscription is offered (a Mac, runner on: this sandbox's
+     board on a Mac), picking Gemini asks "Sign in with Google / Use an API key" first, before any
+     key box. The key step is then one press away. Where it is not offered, Gemini goes straight to
+     the key step as before, so the choice is checked only when it is there. */
+  if (await p.isVisible('#acct-gemini-flow')) {
+    say('#3874 where the subscription is offered, Gemini asks subscription or key first, with no key box yet',
+      (await p.isVisible('#acct-gemini-pick-key')) && (await p.isHidden('#acct-apikey-flow')));
+    await p.click('#acct-gemini-pick-key');
+    await p.waitForTimeout(600);
+  }
   say('#3566 picking Gemini reveals the API-key step, and only it',
     (await p.isVisible('#acct-apikey-flow')) && (await p.isHidden('#acct-openai-flow')) && (await p.isHidden('#acct-claude-flow')));
   const head = (await p.innerText('#acct-apikey-head')).trim();
