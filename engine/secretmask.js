@@ -70,22 +70,34 @@ function setKnownSecrets(values) {
      is 12 characters or more). */
   knownByPrefix = new Map();
   knownByOpening = new Map();
+  const walked = new Set();
   for (const f of knownForms) {
     const k = f.slice(0, 8);
     if (!knownByPrefix.has(k)) knownByPrefix.set(k, []);
     knownByPrefix.get(k).push(f);
-    /* #3935: the word-skipping join assembles a form from runs of key characters, so a form holding any
-       other character (the spaced hex) can never be assembled and is left out. */
-    if (!KEY_RUN_ONLY.test(f) || f.length > WORD_WALK_MAX_FORM) continue;
-    const o = f.slice(0, 4);
+    /* #3935: the word-skipping join assembles a form from runs of key characters, so it walks the form with
+       every other character taken out (a password's ! and #, the spaced hex's spaces): those characters sit
+       between runs in the text, not inside them. */
+    const w = f.replace(NOT_KEY_CHARS, '');
+    if (w.length < 12 || w.length > WORD_WALK_MAX_FORM || walked.has(w) || madeOfWords(w)) continue;
+    walked.add(w);
+    const o = w.slice(0, 4);
     if (!knownByOpening.has(o)) knownByOpening.set(o, []);
-    knownByOpening.get(o).push(f);
+    knownByOpening.get(o).push(w);
   }
 }
+/* A held value made only of words and numbers (Administrator1, Settings2024) is not walked (review round 3):
+   the walk would assemble it out of an ordinary sentence ("Log in as Administrator on step 1") and mask
+   the sentence. Split at case changes, digits and key punctuation, every piece is a word (three letters or
+   more, with a vowel) or a number. Such a value is still masked wherever it is written whole. */
+function madeOfWords(v) {
+  const pieces = v.replace(/[+_/=-]/g, ' ').match(/[A-Z]?[a-z]+|[A-Z]+(?![a-z])|[0-9]+/g) || [];
+  return pieces.length > 0 && pieces.every((p) => /^[0-9]+$/.test(p) || (p.length >= 3 && /[aeiouy]/i.test(p)));
+}
 let knownByPrefix = new Map();
-/* The key-character-only held forms, by their first 4 characters (#3935). */
+/* The held forms the word walk assembles (key characters only), by their first 4 characters (#3935). */
 let knownByOpening = new Map();
-const KEY_RUN_ONLY = /^[A-Za-z0-9_+/=-]+$/;
+const NOT_KEY_CHARS = /[^A-Za-z0-9_+/=-]+/g;
 /* The board also holds whole files (engine/knownsecrets.js, up to 64KB) and their encodings. A form that
    long is not a key someone spells out in pieces, and the walk's reach grows with the form's length, so
    only forms up to this length are walked (review round 1: one 40,000-character held value made a reply
@@ -171,8 +183,10 @@ function normalisedCopy(text) {
  * non-whitespace characters from the first piece, which is what stops two far-apart words from
  * swallowing a reply. Returns [from, to) spans in the text, first piece to last.
  *
- * Not covered: pieces out of order or reversed, an opening piece shorter than four characters, and a key
- * split across two replies (the mask is per message).
+ * Not covered: pieces out of order or reversed; an opening piece shorter than four characters; a held value
+ * made only of words and numbers (see madeOfWords); glue other than _ , a trailing / and a label joined
+ * with = (a piece wrapped in + or -, say); a held form over WORD_WALK_MAX_FORM characters; and a key split
+ * across two replies (the mask is per message).
  */
 /* The most checks one reply may cost the walk. A reply that needs more (thousands of held forms sharing an
    opening, each opening repeated thousands of times with matching pieces after it) is not searched to the end:
@@ -212,6 +226,8 @@ function wordSkippingSpans(text) {
   const groupsFor = (opening, cands) => {
     let g = byOpening.get(opening);
     if (g) return g;
+    /* Charged: each distinct opening scans every form under its 4-character index once (review round 3). */
+    if ((budget -= cands.length) < 0) return null;
     g = { byNext: new Map(), maxLen: 0 };
     for (const f of cands) {
       /* The whole form inside one run is contiguous: the ordinary known_secret pass masks it. */
@@ -226,13 +242,16 @@ function wordSkippingSpans(text) {
   };
   for (let r = 0; r < runs.length; r += 1) {
     const [runFrom, , raw] = runs[r];
-    /* The opening may carry italics or a slash after it (_Ab3d_): it is looked for with those taken off. */
-    const run = raw.replace(/[_/]+$/, '');
-    for (let q = 0; q + 4 <= run.length; q += 1) {
+    /* The opening may carry italics or a slash after it (_Ab3d_), or end in a _ or / of the key's own
+       (review round 3): it is looked for both as written and with those taken off. */
+    const stripped = raw.replace(/[_/]+$/, '');
+    for (const run of stripped === raw ? [raw] : [raw, stripped]) for (let q = 0; q + 4 <= run.length; q += 1) {
       const cands = knownByOpening.get(run.slice(q, q + 4));
       if (!cands) continue;
       const opening = run.slice(q);
-      const { byNext, maxLen } = groupsFor(opening, cands);
+      const group = groupsFor(opening, cands);
+      if (!group) return null;
+      const { byNext, maxLen } = group;
       if (!maxLen) continue;
       if (!nonSpaceBefore) countNonSpace();
       const from = runFrom + q;

@@ -378,12 +378,13 @@ test('#3935 the word-skipping join is for held values only, and naming a held ke
 });
 
 test('#3935 the word walk is bounded: a reply built to keep thousands of held forms alive is withheld whole, cheaply', () => {
-  setKnownSecrets(Array.from({ length: 2000 }, (_, i) => `held-value-${String(i).padStart(8, '0')}-xyz`));
+  /* Random-looking, as keys are: a held value made of words is not walked at all. */
+  setKnownSecrets(Array.from({ length: 2000 }, (_, i) => `hq7x-vzlq-${String(i).padStart(8, '0')}-k9z`));
   try {
     /* 1,000 rows already exhaust the budget; a small input keeps the timing far inside the bound. */
-    const bad = Array.from({ length: 1000 }, (_, i) => `| held-value- | 0000 | ${i % 10} | 00 | -xyz |`).join('\n');
+    const bad = Array.from({ length: 1000 }, (_, i) => `| hq7x-vzlq- | 0000 | ${i % 10} | 00 | -k9z |`).join('\n');
     let r;
-    const ms = cpuMillisecondsOf(() => { r = mask(bad); });
+    const ms = cpuMillisecondsOf(() => { r = mask(bad); });   // the budget is WORD_WALK_BUDGET in secretmask.js
     /* Unbounded, the walk alone cost 9.6 seconds here. Bounded it costs about 18ms; most of what remains
        (about 600ms) is the separator copies' held-value search, which costs the same without this change. */
     assert.ok(ms < 1500, `a ${bad.length}-character adversarial reply cost ${Math.round(ms)}ms of CPU`);
@@ -446,7 +447,7 @@ test('#3935 the look-ahead is charged per run visited, so repeating a held value
     let r;
     const ms = cpuMillisecondsOf(() => { r = mask(reply); });
     assert.ok(ms < 600, `a ${reply.length}-character reply repeating a held value's opening cost ${Math.round(ms)}ms of CPU`);
-    /* The charge is what decides it: 10,000 openings each looking ahead over hundreds of runs spend the budget,
+    /* The charge is what decides it (raising WORD_WALK_BUDGET in secretmask.js changes this test's answer): 10,000 openings each looking ahead over hundreds of runs spend the budget,
        and the reply is withheld whole. That is the stated price of the bound on a reply built this way
        (it holds no key); uncharged, the scan ran to the end instead. */
     assert.equal(r.text, WITHHELD);
@@ -478,5 +479,51 @@ test('#3935 a short mention of a key\'s opening in the prose does not cut a real
     const input = `${chunks[0]} is the first part. Anthropic keys all start sk-ant so that is expected. Then ${chunks.slice(1).join(' then ')} end`;
     const out = mask(input).text;
     for (const c of chunks) assert.ok(!out.includes(c), `the piece ${c} survived: ${out}`);
+  } finally { setKnownSecrets([]); }
+});
+
+test('#3935 a first piece that ends in the key\'s own _ or / is still an opening (review round 3)', () => {
+  for (const held of ['Qx7Lm2V_Rt4Kp1ZsWq9Bn3Hy6Jd0', 'Qx7Lm2V/Rt4Kp1ZsWq9Bn3Hy6Jd0']) {
+    setKnownSecrets([held]);
+    try {
+      const chunks = held.match(/.{1,8}/g);
+      const out = mask(`Here:\n${chunks.map((c, i) => `| Row${i} name | ${c} |`).join('\n')}\nDone.`).text;
+      for (const c of chunks) assert.ok(!out.includes(c), `${held}: the piece ${c} survived: ${out}`);
+    } finally { setKnownSecrets([]); }
+  }
+});
+
+test('#3935 a held password with symbols in it is walked without them (review round 3)', () => {
+  const held = 'Xk9mR#mP2wQ!qL7zN@vT4';
+  setKnownSecrets([held]);
+  try {
+    const out = mask('First: Xk9mR# then mP2wQ! then qL7zN@ and finally vT4. Done.').text;
+    for (const c of ['Xk9mR', 'mP2wQ', 'qL7zN']) assert.ok(!out.includes(c), `the piece ${c} survived: ${out}`);
+    assert.ok(out.startsWith('First: ') && out.endsWith('. Done.'), out);
+  } finally { setKnownSecrets([]); }
+});
+
+test('#3935 a held value made of words is not assembled out of an ordinary sentence (review round 3)', () => {
+  setKnownSecrets(['Administrator1', 'Settings2024']);
+  try {
+    for (const t of ['Log in as Administrator on step 1 of the guide.', 'Open Settings, then in 2024 you will see the new layout.']) {
+      assert.equal(mask(t).text, t, `an ordinary sentence was masked: ${t}`);
+    }
+    /* CONTROL: written whole, the same held values are still masked. */
+    assert.equal(mask('the password is Administrator1 here').text.includes('Administrator1'), false, 'CONTROL: a whole held value survived');
+  } finally { setKnownSecrets([]); }
+});
+
+test('#3935 every distinct opening scanned is charged, so many openings sharing one index cost bounded CPU (review round 3)', () => {
+  const rnd = (i) => { let x = (i + 1) * 2654435761 % 4294967296, o = ''; for (let k = 0; k < 40; k += 1) { x = (x * 1103515245 + 12345) % 2147483648; o += 'ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz23456789'[x % 57]; } return o; };
+  setKnownSecrets(Array.from({ length: 2000 }, (_, i) => j('sk-ant-', 'api03-', rnd(i))));
+  try {
+    const reply = Array.from({ length: 10000 }, (_, i) => `sk-an${i}`).join(' ');
+    let r;
+    const ms = cpuMillisecondsOf(() => { r = mask(reply); });
+    assert.ok(ms < 600, `a ${reply.length}-character reply of distinct openings cost ${Math.round(ms)}ms of CPU`);
+    /* 10,000 distinct openings each scanning 2,000 forms spend the budget: withheld whole, the stated price
+       (the budget is WORD_WALK_BUDGET in secretmask.js). Uncharged, the scan ran to the end instead. */
+    assert.equal(r.text, WITHHELD);
   } finally { setKnownSecrets([]); }
 });

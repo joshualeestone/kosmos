@@ -88,10 +88,33 @@ another filled column, a bullet's description, words around bold or backticked c
 - [NIT] the trailing _ / strip is written twice --> DEFERRED: two one-line regexes, different
   inputs (the opening run vs every piece).
 
+## Review round 3
+- [BLOCKER] (SELF, round 1's code, a code line) the opening was looked for only with a trailing _ or
+  / stripped, which also strips the key's OWN last character when a chunk ends in one (_ is in
+  base64url keys), so the whole key leaked --> FIXED: the opening is looked for both as written and
+  stripped. Test with a first chunk ending in _ and in /; reds before.
+- [WARNING] held values with a character outside the key set (a password's ! or #) were left out of
+  the walk, and the comment said only the spaced hex was --> FIXED: the walk uses the value with
+  those characters removed (they sit between runs in the text, not inside them), still 12 or more.
+  Test with a random password with symbols, pieces of 5; reds before.
+- [WARNING] groupsFor was not charged: 2,000 held sk-ant-api03- keys and 10,000 distinct words
+  opening sk-a cost 1.7s --> FIXED: each distinct opening is charged the forms it scans. Test asserts
+  the reply is withheld at the budget; reds without the charge (mutant: 600ms and not withheld).
+- [WARNING] a held value made of words (Administrator1, Settings2024) was assembled out of ordinary
+  sentences and masked them --> FIXED: such values are not walked (madeOfWords: every piece at the
+  case changes, digits and key punctuation is a word or a number). They are still masked whole.
+  Test with both of the reviewer's sentences plus a whole-value control; reds before. The cost
+  tests' held values were word-shaped (held-value-...-xyz), so the budget test now uses
+  random-looking ones, as keys are.
+- [NIT] hyphen and other glue --> named in the code's Not covered comment.
+- [NIT] the tests that assert WITHHELD now point at WORD_WALK_BUDGET.
+
 ## Not covered (still open, named on #3935)
 - pieces out of order or reversed;
 - an opening piece shorter than four characters that also has words after it;
 - glue other than _ , / and a label joined with = (for example a piece wrapped in + or -);
+- a held value made only of words and numbers (Administrator1): the walk cannot tell it from prose,
+  so it is not walked; such a password split by words stays readable;
 - held forms over 1,024 characters split into pieces (whole files; not a key);
 - a key split across two replies (the mask is per message).
 
