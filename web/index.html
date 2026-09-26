@@ -690,6 +690,9 @@ h1 { font: 600 var(--text-title-1) var(--font-ui); letter-spacing: -0.012em; }
 .acct-prov-count { margin-left: auto; color: var(--k-ink-2); font-size: .8125rem; }
 .acct-tag { color: var(--label-2); font-weight: 400; font-size: .8125rem; }
 .acct-ok { color: var(--label-2); white-space: nowrap; }
+/* #2234: the Add a provider dialog's help button (Josh: "help button"). A link, because it leaves the
+   app for the browser, dressed as the page's quiet button; its ink is the page's own, light and dark. */
+.acct-help a.btn-quiet { display: inline-block; text-decoration: none; font-size: .8125rem; }
 .acct-connected { display: inline-flex; align-items: center; gap: 6px; font-size: .8125rem;
   font-weight: 600; color: #2f7d5a; white-space: nowrap; }
 /* #864 (Josh, 2026-08-25 11:54): "the dot, or both, pulsing kind of
@@ -5666,6 +5669,11 @@ body:not(.consolidated) .pjmidhead:has(.pjhead) .tsearch:focus-within { flex-bas
 /* #3311: a message from outside this Kosmos keeps the agent bubble's fill and adds
    a dashed edge and an External tag, so it is never read as one of your agents. */
 .msg.ext .msg-bd { outline: 1px dashed var(--k-rule); outline-offset: -1px; }
+/* #3851: an outside sender's avatar is outside the local tint space (a local agent's
+   is drawn from its name, and the outside name is only the sender's claim). */
+.msg.ext .msg-av.ext-av, :root .msg.ext .msg-av.ext-av { background: transparent; color: var(--label-2); border: 1px dashed var(--label-2); box-sizing: border-box; }
+/* Nothing to open on an outside sender: no local card behind the disc or the name. */
+.msg.ext:not(.you) .msg-av, .msg.ext:not(.you) .msg-nm { cursor: default; }
 .msg-ext-tag { font: 600 .6875rem var(--font-ui); text-transform: uppercase; letter-spacing: .04em;
   color: var(--label-2); border: 1px solid var(--k-rule); border-radius: 999px; padding: 0 6px; vertical-align: 1px; }
 .msg-ext-tx { white-space: normal; overflow-wrap: anywhere; }
@@ -9378,6 +9386,15 @@ body.plus-active #plus-state2 { max-width: 26rem; padding: 2rem; }
   #d-talk-box #d-talk-search { font-size: 16px; }
   #panel-detail:has(#d-sec-talk:not([hidden])) > .back { margin: 4px 0 0; min-height: 44px; }
 }
+/* #718 (Raiden's table, row 4): the same two fields on ANY touchscreen, not only a portrait phone. A
+   phone turned sideways (667 to 932 wide) or a tablet is past the 40rem block above, where the search
+   box was 13px and 22px tall and the text box 15px, and iOS zooms the page when a field under 16px
+   takes focus. (hover: none) is the room's touch query (PJ_TOUCH_MQ); a mouse keeps the desktop sizes. */
+@media (hover: none) {
+  #d-talk-box .composerbox .cinput, #d-talk-box #d-talk-search { font-size: 16px; }
+  #d-talk-box #d-talk-search-wrap { min-height: 44px; }
+  #d-talk-box #d-talk-search { min-height: 42px; }
+}
 /* The canvases honour prefers-reduced-motion in JS (a single static frame, no
    rAF loop); this makes that intent visible to a source reader too. */
 </style>
@@ -11184,6 +11201,10 @@ window.kosmosMeasureScrollbarWidth();
         <option value="moonshot" disabled>Moonshot / Kimi &middot; coming soon</option>
         <option value="mistral" disabled>Mistral &middot; coming soon</option>
       </select>
+      <!-- #2234 (Josh 2026-09-05, his words for the button): help for choosing a provider. It links to
+           a STABLE help URL on installkosmos.com, never to the help itself: the site redirects it to the
+           current help (a written page today, a video later), so the help can change with no release. -->
+      <p class="acct-help" style="margin:10px 0 0;"><a class="btn-quiet" id="acct-provider-help" href="https://installkosmos.com/help/connect-provider" target="_blank" rel="noopener">Help - I'm confused about selecting a provider<span class="vh"> (opens in your browser)</span></a></p>
     </div>
     <!-- #727 (Josh, 2026-08-24 20:57: "Add a Claude account / Add an OpenAI
          account... It changes what's below it for that thing"): one provider
@@ -49004,7 +49025,10 @@ function pjRoomRow(m, p, hideHeader) {
     const whenX = pjWhen(m.at) || '';
     /* data-mid like every other room row (#3743): the unread edge finds its rows by it. */
     return '<div class="msg ext" data-mid="' + esc(String(m.id || m.at || '')) + '">'
-      + '<div class="msg-av" aria-hidden="true" style="background:' + discTint(whoX) + ';color:' + discInk(whoX) + '">' + esc(initials(whoX)) + '</div>'
+      /* #3851: never the name's tint. `from` is the sender's own claim, and a tint drawn
+         from it would match a local agent of the same name; an outside sender gets one
+         neutral, dashed disc instead. */
+      + '<div class="msg-av ext-av" aria-hidden="true">' + esc(initials(whoX)) + '</div>'
       + '<div class="msg-b"><div class="msg-bd">'
       + '<b class="msg-nm">' + esc(whoX) + '</b> <span class="msg-ext-tag">' + tagX + '</span>'
       + '<div class="msg-ext-tx">' + esc(m.text || '').replace(/\n/g, '<br>') + '</div>'

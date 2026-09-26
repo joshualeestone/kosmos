@@ -298,6 +298,10 @@ SITE="${KOSMOS_SITE:-$HOME/work/chaoskosmos-site}"
 # #3579: the signing preflight run at step 1c. Sourced with the other libs, before the
 # freeze, for the same reason: loaded from the checkout the operator launched.
 . "$REPO/tools/lib/cut-sign-preflight.sh"
+# #3884: the connector-currency check run at step 1d (with the provenance reader it
+# builds on). Sourced here, before the freeze, like the libs above.
+. "$REPO/tools/lib/connector-provenance.sh"
+. "$REPO/tools/lib/connector-currency.sh"
 # #1796: declare THIS run a cut before the checks below, so the cut-check excludes
 # our own marker by cookie (not a live-tree walk) and a harness/second-cut starting
 # later can see us. A crash leaves a dead-pid marker the next reader cleans.
@@ -533,6 +537,14 @@ step "== 1c. the signing key answers, before anything is bumped or built (#3579)
 # here costs about a second and mutates nothing, so a refusal leaves no pushed bump. It also
 # checks the Installer identity and the notary key that 3c's pkg rebuild needs (#3647).
 kosmos_sign_preflight || exit 1
+
+step "== 1d. the Plus connector is current with kosmos-relay main (#3884) =="
+# 0.6.95 bundled a prebuilt kosmos-tunnel from 19:00 and missed relay #145 (the #3832 HSTS
+# fix), merged at 21:06: nothing compared the prebuilt with relay main. Refused here,
+# before the bump, so a stale connector costs a rebuild and not a cut. The same path
+# build-kosmos-bundle.sh reads at step 4. KOSMOS_ALLOW_STALE_TUNNEL=1 ships it on purpose.
+connector_currency_check "${KOSMOS_TUNNEL_BIN:-$HOME/work/kosmos-relay/dist/kosmos-tunnel}" \
+  "${KOSMOS_RELAY_REPO:-$HOME/work/kosmos-relay}" || exit 1
 
 step "== 2. the version, in one place =="
 node -e "

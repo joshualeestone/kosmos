@@ -24,7 +24,7 @@ function fakeChild() {
   return c;
 }
 
-function harness({ enrolled = true, edges = null, exists = () => true, gate = null } = {}) {
+function harness({ enrolled = true, edges = null, exists = () => true, gate = null, keptOn = undefined, createdAt = () => undefined } = {}) {
   const spawned = [];
   const recorded = [];
   const statuses = [];
@@ -42,6 +42,8 @@ function harness({ enrolled = true, edges = null, exists = () => true, gate = nu
     onStatus: (projectId, status) => statuses.push([projectId, status]),
     enrolled: () => enrolled,
     projectExists: (projectId) => exists(projectId),
+    externalKeptOn: keptOn,
+    projectCreatedAt: (projectId) => createdAt(projectId),
     note: (projectId, text) => notes.push({ projectId, text }),
   });
   return h;
@@ -614,4 +616,106 @@ test('a padded sender name is charged for what is kept, not its raw length', asy
   assert.strictEqual(h.recorded.length, 10, 'a padded name spent the room budget: ' + h.recorded.length + ' of 10 kept');
   assert.strictEqual(h.notes.length, 0);
   assert.strictEqual(h.recorded[0].from.length, 80);
+});
+
+// #3844: the day budget survives a restart; the minute note is said once a day.
+test('#3844: a peer over the minute rate all day gets one note, not one per minute', async (t) => {
+  t.mock.timers.enable({ apis: ['Date'], now: Date.parse('2026-09-25T00:00:00Z') });
+  federation.recordLink('proj-minutes', { role: 'member', edge_id: 'edge-minutes' });
+  const h = harness();
+  await fedseats.ensure('proj-minutes');
+  for (let w = 0; w < 3; w++) {
+    for (let i = 0; i < fedseats.INBOUND_PER_WINDOW + 5; i++) fedseats.onEvent('proj-minutes', JSON.stringify({ event: 'message', data: { from: 'Ada', text: 'w' + w + 'm' + i } }));
+    t.mock.timers.tick(61 * 1000);
+  }
+  const said = h.notes.filter((n) => n.projectId === 'proj-minutes' && /in a minute/.test(n.text));
+  assert.strictEqual(said.length, 1, 'notes: ' + JSON.stringify(said));
+  assert.strictEqual(h.recorded.filter((r) => r.projectId === 'proj-minutes').length, 3 * fedseats.INBOUND_PER_WINDOW, 'fixture: each window still kept its budget');
+  // A new day may say it again.
+  t.mock.timers.tick(24 * 60 * 60 * 1000);
+  for (let i = 0; i < fedseats.INBOUND_PER_WINDOW + 5; i++) fedseats.onEvent('proj-minutes', JSON.stringify({ event: 'message', data: { from: 'Ada', text: 'd2m' + i } }));
+  assert.strictEqual(h.notes.filter((n) => n.projectId === 'proj-minutes' && /in a minute/.test(n.text)).length, 2);
+});
+
+test('#3844: a restarted seat starts its day from what the room already kept today', async (t) => {
+  t.mock.timers.enable({ apis: ['Date'], now: Date.parse('2026-09-25T12:00:00Z') });
+  federation.recordLink('proj-restart', { role: 'member', edge_id: 'edge-restart' });
+  const asked = [];
+  const h = harness({ keptOn: (id, day) => { asked.push([id, day]); return { rows: fedseats.INBOUND_ROWS_PER_DAY - 3, bytes: 0 }; } });
+  await fedseats.ensure('proj-restart');
+  for (let i = 0; i < 10; i++) fedseats.onEvent('proj-restart', JSON.stringify({ event: 'message', data: { from: 'Ada', text: 'r' + i } }));
+  assert.strictEqual(h.recorded.filter((r) => r.projectId === 'proj-restart').length, 3, 'a restart gave the room a fresh day');
+  assert.deepStrictEqual(asked[0], ['proj-restart', '2026-09-25']);
+  assert.ok(h.notes.some((n) => n.projectId === 'proj-restart' && /in a day/.test(n.text)));
+});
+
+test('#3844: the byte half of the day is seeded too', async (t) => {
+  t.mock.timers.enable({ apis: ['Date'], now: Date.parse('2026-09-25T12:00:00Z') });
+  federation.recordLink('proj-restart-b', { role: 'member', edge_id: 'edge-restart-b' });
+  const h = harness({ keptOn: () => ({ rows: 0, bytes: fedseats.INBOUND_BYTES_PER_DAY - 4 }) });
+  await fedseats.ensure('proj-restart-b');
+  fedseats.onEvent('proj-restart-b', JSON.stringify({ event: 'message', data: { from: 'Ada', text: 'too long for four bytes' } }));
+  assert.strictEqual(h.recorded.filter((r) => r.projectId === 'proj-restart-b').length, 0);
+});
+
+test('#3844: a log that cannot be read counts from zero rather than refusing everything', async (t) => {
+  t.mock.timers.enable({ apis: ['Date'], now: Date.parse('2026-09-25T12:00:00Z') });
+  federation.recordLink('proj-unknown-day', { role: 'member', edge_id: 'edge-unknown-day' });
+  const h = harness({ keptOn: () => null });
+  await fedseats.ensure('proj-unknown-day');
+  fedseats.onEvent('proj-unknown-day', JSON.stringify({ event: 'message', data: { from: 'Ada', text: 'hi' } }));
+  assert.strictEqual(h.recorded.filter((r) => r.projectId === 'proj-unknown-day').length, 1);
+});
+
+// #3851: a link names its project by id, and ids are reused.
+test('#3851: a link left by an earlier project of the same id gives the new project no seat, and is dropped', async () => {
+  const orig = console.error;
+  console.error = () => {};
+  try {
+    federation.recordLink('proj-reused', { role: 'member', edge_id: 'edge-old', project_created: '2026-09-01T00:00:00.000Z' });
+    const h = harness({ createdAt: () => '2026-09-26T00:00:00.000Z' });
+    // Before any check runs, a post already treats the room as local: no seat, and
+    // no "stayed on this computer" note, which a room read as shared would get.
+    assert.strictEqual(fedseats.linkFor('proj-reused'), null, 'the stale link was seen');
+    assert.strictEqual(fedseats.post('proj-reused', { from: 'Josh', kind: 'person', text: 'private' }), false);
+    assert.strictEqual(h.notes.length, 0, 'the room was treated as shared: ' + JSON.stringify(h.notes));
+    await fedseats.ensure('proj-reused');
+    assert.strictEqual(h.spawned.length, 0, 'a seat started for a project nobody joined');
+    assert.strictEqual(federation.linkFor('proj-reused'), null, 'the stale link was kept');
+  } finally {
+    console.error = orig;
+  }
+});
+
+test('#3851: CONTROL: a link stamped for this very project still gets its seat', async () => {
+  federation.recordLink('proj-same', { role: 'member', edge_id: 'edge-same', project_created: '2026-09-26T00:00:00.000Z' });
+  const h = harness({ createdAt: () => '2026-09-26T00:00:00.000Z' });
+  await fedseats.ensure('proj-same');
+  assert.strictEqual(h.spawned.length, 1);
+  assert.ok(federation.linkFor('proj-same'));
+});
+
+test('#3851: a link from before the stamp is stamped on first sight and keeps its seat', async () => {
+  federation.recordLink('proj-legacy', { role: 'member', edge_id: 'edge-legacy' });
+  const h = harness({ createdAt: () => '2026-09-20T00:00:00.000Z' });
+  await fedseats.ensure('proj-legacy');
+  assert.strictEqual(h.spawned.length, 1);
+  assert.strictEqual(federation.linkFor('proj-legacy').project_created, '2026-09-20T00:00:00.000Z');
+});
+
+test('#3851: a project whose createdAt cannot be read decides nothing', async () => {
+  federation.recordLink('proj-unknown', { role: 'member', edge_id: 'edge-unknown', project_created: '2026-09-01T00:00:00.000Z' });
+  const h = harness({ createdAt: () => undefined });
+  await fedseats.ensure('proj-unknown');
+  assert.strictEqual(h.spawned.length, 1);
+  assert.strictEqual(federation.linkFor('proj-unknown').project_created, '2026-09-01T00:00:00.000Z');
+});
+
+test('#3851: a legacy link is stamped with the createdAt the check was made on, read once', async () => {
+  federation.recordLink('proj-once', { role: 'member', edge_id: 'edge-once' });
+  let reads = 0;
+  const h = harness({ createdAt: () => { reads += 1; return reads === 1 ? '2026-09-21T00:00:00.000Z' : undefined; } });
+  await fedseats.ensure('proj-once');
+  assert.strictEqual(federation.linkFor('proj-once').project_created, '2026-09-21T00:00:00.000Z', 'the stamp came from a second read');
+  assert.strictEqual(h.spawned.length, 1);
 });

@@ -94,6 +94,7 @@ case "$FAMILY" in
   mac)
     [ -z "$APPROVED_VERSION$APPROVED_SHA$APPROVAL_REF" ] || { echo "promote-channel: --approved-version/--approved-sha/--approval-ref are for --family win only (the Mac promote is gated by its experience and agent-spawn gates)" >&2; exit 1; } ;;
   win)
+    echo "promote-channel: NOTE the served Windows files live in the R2 bucket kosmos-dist-win, which this script does not write; a Windows release from the Windows PC uses tools/windows/publish-r2.ps1 (tools/windows/RELEASING.md, #3725)." >&2
     [ "$FORCE" = 0 ] || { echo "promote-channel: --force is refused for --family win - neither Josh's go nor the Windows verification record can be forced." >&2; exit 1; }
     [ -z "$PORT" ] || { echo "promote-channel: --family win takes no [port] (its gate reads the verification record, not a board)" >&2; exit 1; } ;;
   *) echo "promote-channel: --family must be 'mac' or 'win' (got '$FAMILY')" >&2; exit 1 ;;
@@ -316,7 +317,12 @@ sha256_publish_as "$SITE/dist/$ARTIFACT.sha256" "$SITE/dist/$ALIAS.sha256" "$ALI
 [ "$(awk 'NR==1{print $1}' "$SITE/dist/$ALIAS.sha256")" = "$SHA" ] || { echo "promote-channel: the refreshed alias $ALIAS does not hash to the promoted sha $SHA - refresh it by hand before any deploy" >&2; exit 1; }
 echo "   refreshed the prod alias $ALIAS to $V"
 
-echo "promote-channel: PROMOTED $V to prod - $PROD_NAME now points at the exact bytes staging verified ($ARTIFACT)."
+if [ "$FAMILY" = win ]; then
+  # Not "to prod": users are served the Windows files from R2, which this does not write (#3725).
+  echo "promote-channel: updated the SITE CHECKOUT's $PROD_NAME to $V ($ARTIFACT). This does NOT change what users are served: that is tools/windows/publish-r2.ps1 -Promote."
+else
+  echo "promote-channel: PROMOTED $V to prod - $PROD_NAME now points at the exact bytes staging verified ($ARTIFACT)."
+fi
 echo "   -> $(cat "$SITE/dist/$PROD_NAME")"
 echo "promote-channel: the next site deploy publishes the prod pointer. No rebuild happened."
 
@@ -327,6 +333,7 @@ if [ "$FAMILY" = win ]; then
   # publish a MOVED latest.json) would refuse it as "nothing to promote"; a plain --publish carries
   # the committed Windows files (they are tracked, shipped by git archive).
   echo "promote-channel: commit dist/$PROD_NAME, dist/$ALIAS and dist/$ALIAS.sha256, then deploy with tools/deploy-site.sh --publish."
+  echo "promote-channel: NOTE users are served the Windows files from R2 (kosmos-dist-win), which this does not write; tools/windows/publish-r2.ps1 -Promote is what moves served prod (#3725)."
   exit 0
 fi
 

@@ -490,6 +490,29 @@ function externalPost(projectId, { from, fromKind, text }) {
   return row;
 }
 
+/* kosmos#3844: what one room has already KEPT from outside on one UTC day
+   ('YYYY-MM-DD'), read from the log itself, so a seat's day budget survives a
+   board restart. Charged as STORED (the words and name after externalPost cleans
+   and cuts them), which is never more than fedseats charged live (the raw words
+   plus the cut name, and a refused row is charged but never stored). So a
+   restart can only give back bytes that were never kept: what is stored stays
+   within the day. null when the log cannot be read (the caller then counts from
+   zero, the send path's fail-open trade). */
+function externalKeptOn(projectId, day) {
+  const r = record();
+  if (!r.ok) return null;
+  const id = String(projectId);
+  let rows = 0;
+  let bytes = 0;
+  for (const row of r.rows) {
+    if (!row || row.kind !== 'external' || row.project !== id) continue;
+    if (typeof row.at !== 'string' || row.at.slice(0, 10) !== day) continue;
+    rows += 1;
+    bytes += Buffer.byteLength(String(row.text || '')) + Buffer.byteLength(String(row.from || ''));
+  }
+  return { rows, bytes };
+}
+
 /**
  * The record, with its own unreadability SURFACED: ENOENT is the true
  * empty (no one has messaged yet), any other read failure is could-not-
@@ -2397,7 +2420,7 @@ module.exports = {
   LOG,
   unanswered, sweepUnanswered, setUnansweredAfterForTests,
   suspectedMisrouteCount, confirmedNewPostCount,
-  resolveSender, paneSession, paneClaim, send, logRefusedSend, sendPost, reopenRoom, list, owesReply, pairCount, readLog, record, roomNote, externalPost, markerProblem,
+  resolveSender, paneSession, paneClaim, send, logRefusedSend, sendPost, reopenRoom, list, owesReply, pairCount, readLog, record, roomNote, externalPost, externalKeptOn, markerProblem,
   unreadAll, unread, markSeen, seenRead, SEEN,
   setRunner, resetForTests,
 };
