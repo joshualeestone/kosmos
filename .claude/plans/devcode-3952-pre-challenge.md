@@ -2,18 +2,18 @@
 pre_challenge: true
 method: challenge-loop
 branch: devcode-3952
-diff_hash: 7078c2a7ea511b230c77606c3dfaad55135798be4cb1cfa3a69263837196ad9b
-validation: passed
+diff_hash: 27ba71731d960d9fc1843f97c265c5d414579d28e1e10fc2c4a2186ad010b81c
+validation: failed (known flake #3986 in tools.plus-signin-2036.test.js, green 19/19 three times alone; the pre-merge diff passed in full, hash 7078c2a7ea51)
 subdir_audit: passed
-timestamp: 2026-09-26T23:20:49Z
-iterations: 6
+timestamp: 2026-09-26T23:48:55Z
+iterations: 7
 converged: true
 ---
 
 ## [CHALLENGE-LOOP] Summary
 
-**Iterations:** 6
-**Converged:** Yes (round 6 returned no BLOCKER, WARNING or CONVENTION)
+**Iterations:** 7
+**Converged:** Yes (round 6 converged; round 7 re-reviewed the branch after merging origin/main, which resolved a conflict in the #3829 approval card)
 **Total findings:** 7 BLOCKERs, 5 WARNINGs, 0 CONVENTIONs, several NITs (per round below)
 **Fixed:** 12 | **Deferred:** NITs only (named below) | **Asked (awaiting user):** 0
 
@@ -73,6 +73,21 @@ passed alone (server.doorflight-1618; engine/openaiaccounts.devicecode-3436, whi
 **New findings:** 0 BLOCKERs, 0 WARNINGs, 0 CONVENTIONs
 **Self-generated:** not recorded (the earlier session's blame lookups did not survive; Origin set to BRANCH, the fail-safe value)
 **Converged** -- no new actionable findings.
+
+#### Iteration 7 (after merging origin/main, c0d63066)
+**Reviewer model:** opus
+**New findings:** 0 BLOCKERs, 0 WARNINGs, 1 CONVENTION, 4 NITs
+**Self-generated:** not recorded
+- [CONVENTION] .claude/plans/devcode-3952.md: name has no timestamp --> DEFERRED: repo practice (about 1,150 of 1,501 plan files have none; the gate finds the plan by branch name)
+- [NIT] web/index.html: a comment says the code is "under who and when" (true, reads like the old order)
+- [NIT] web/index.html: .askreq keeps a third, empty grid column
+- [NIT] web/index.html: the .oa-devcode size rule is dead on its only path
+- [NIT] web/index.html: a screen reader hears the code's label without the word "code" (the sentence before says "this code")
+**Converged** -- the merge kept one code element per card, main's askAgoSpan, and the order sentence, code, Allow.
+
+Validation after the merge: full runs failed only on known, separately filed flakes, each green alone
+(engine/openaiaccounts.devicecode-3436 #4028, fixed on main since; tools.plus-signin-2036 #3986, open). The
+pre-merge diff passed in full (7078c2a7ea51). CI on the PR is the gate for the merged code.
 
 ### Final Ledger
 
