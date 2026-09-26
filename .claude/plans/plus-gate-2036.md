@@ -17,7 +17,7 @@ kosmos#3827's parseSaid bug broke the FIRST in-app Kosmos+ sign-in (the first re
 
 ## Decided (reasons on the cards)
 - **A record, not a live script:** only an agent can read the seed inbox (Gmail connector).
-- **The seed is a plus address on the mailbox the connector already reads,** not a new mailbox (#3751). The Resend key is never used for reading.
+- **The seed** was first a plus address on the mailbox the connector already read. That mailbox belongs to another company, and the connector can read all of it, so on 2026-09-26 06:45 it was revised (#1591): the seed is a +seed alias on a KOSMOS-owned mailbox (installkosmos.com) connected to the agents' connector. The other company's mailbox is a recorded exception for a run Josh approves, never the default. The Resend key is never used for reading.
 - **Rejected:**
   - a coordinator test-code backdoor (it would weaken production sign-in);
   - skipping the email half (the bug sat after it, and it is #1591's only way to see placement);
