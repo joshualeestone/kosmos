@@ -15289,15 +15289,21 @@ const server = http.createServer((req, res) => {
     if (req.method === 'POST' && new URL(req.url, ROUTING_BASE).searchParams.get('retell') === '1') {
       if (moved) {
         // A missing project answers 404 like every sibling path; a member that left, 409.
-        let exists = false;
-        try { exists = projects.readAll().some((p) => p && p.id === id); } catch { exists = true; }
+        // A store we cannot read is ours (500), as on the sibling path below: never "the agent left".
+        let exists;
+        try { exists = projects.readAll().some((p) => p && p.id === id); } catch {
+          sendJson(res, 500, { error: 'we cannot read your projects right now' });
+          return;
+        }
         if (!exists) { sendJson(res, 404, { error: 'there is no project by that name' }); return; }
         sendJson(res, 409, { error: 'that agent is no longer on this project' });
         return;
       }
       /* A retry writes the agent's instruction file but moves no membership, so memberValve (which
          counts membership changes) never sees it. Bounded on its own, for agent-made calls only, at
-         the same sixty an hour: the screen is never valved, like every sibling path here. */
+         the same sixty an hour: the screen is never valved, like every sibling path here. Unlike
+         memberValve this count lives in memory and a board restart empties it; accepted, because a
+         retry rewrites one agent's file with what it should already say and moves no membership. */
       if (!isViaScreen(req)) {
         const now = Date.now();
         while (RETELL_RECENT.length && now - RETELL_RECENT[0] >= 3600 * 1000) RETELL_RECENT.shift();

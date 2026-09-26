@@ -114,3 +114,14 @@ page. Try again re-tells that agent and the notice updates.
 - Save row reads "Saving did not work this time. It may work on another try."
 - Consolidated layout (Members card hidden, so no notice there): follow-up #3948.
 - The agent-made retry bound resets between tests (resetRetellForTests).
+
+## Review round 14
+- BLOCKER fixed: render-projects' Members-heading lookup skips back over BOTH regions round 13 put
+  before the list (#pj-one-notice and #pj-one-notice-said); it would have read the empty sr-only
+  line. Lesson: a browser check that passed before a markup change is not verified after it; the
+  two checks are re-run on this commit before the PR.
+- "casey's instructions live somewhere Kosmos cannot safely change" (a name then its possessive),
+  now pinned by a test.
+- The retell existence check answers 500 for an unreadable store, never "the agent left".
+- The retry bound is in memory and a restart empties it; accepted and said in the comment.
+- 404 (project gone) is an answer like 409.

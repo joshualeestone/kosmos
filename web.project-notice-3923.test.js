@@ -101,6 +101,9 @@ test('#3923: each shape as the design draws it (Wait, Act then retry twice, Expl
 
   const explain = pjNotice(rows({ casey: 'it has no folder of its own on this computer yet' }));
   assert.equal(text(explain), 'Kosmos could not update casey’s instructions for this project. Kosmos has no folder for casey on this computer, so it has nowhere to write.');
+  // The other Explain: a file Kosmos will not write through (a link, an unreadable file). A name, then its possessive.
+  assert.equal(text(pjNotice(rows({ casey: 'it keeps its instructions somewhere we cannot safely change' }))),
+    'Kosmos could not update casey’s instructions for this project. casey’s instructions live somewhere Kosmos cannot safely change, so Kosmos has nowhere to write.');
   assert.doesNotMatch(explain, /Try again|pnfix/, 'Explain prescribes nothing');
 
   // A file the reader refuses is Explain too: pressing again reads the same file the same way.
@@ -338,9 +341,11 @@ test('#3923: when the row is gone focus goes to the Members heading; after a pro
   assert.ok(dark.log.includes('paint live=null'), 'an offline retry left the row unpainted: ' + dark.log);
   assert.ok(!offline.log.some((l) => l.startsWith('paint')), 'CONTROL: a read that worked paints through loadProjects, not here');
   // The agent left (409): an answer, not a failure, so no "did not go through" on a row that is leaving.
-  const gone409 = standIn(project, { status: 409 });
-  await retryHandler(gone409)({ target: gone409.btn });
-  assert.equal(gone409.missed.has(project.id + '\nleo') || gone409.tried.has(project.id + '\nleo'), false, 'a 409 was marked as a failed retry');
+  for (const status of [409, 404]) {
+    const gone = standIn(project, { status });
+    await retryHandler(gone)({ target: gone.btn });
+    assert.equal(gone.missed.has(project.id + '\nleo') || gone.tried.has(project.id + '\nleo'), false, 'a ' + status + ' was marked as a failed retry');
+  }
   // CONTROL: an answered retry is marked tried, not missed.
   const answered = standIn(project);
   await retryHandler(answered)({ target: answered.btn });

@@ -43753,7 +43753,7 @@ const PJ_NOTICE = [
   [/^something is running under this name, but we cannot tell that it is this agent$/, 'retry', (n) => 'Something is running under ' + (n ? n + '\u2019s' : 'its') + ' name, but Kosmos cannot tell that it is ' + (n || 'the same agent') + '.',
     (name) => 'Restart ' + name + ' from Kosmos, then try again.'],
   [/^it has no folder of its own on this computer yet$|^there is no agent by that name to write to$|^that is not a folder$/, 'explain', (n, name) => 'Kosmos has no folder for ' + name + ' on this computer, so it has nowhere to write.'],
-  [/^it keeps its instructions somewhere we cannot safely change$|^its worker folder |^there is already a file there that this editor cannot safely replace/, 'explain', (n) => (n || 'It') + ' keeps its instructions somewhere Kosmos cannot safely change, so Kosmos has nowhere to write.'],
+  [/^it keeps its instructions somewhere we cannot safely change$|^its worker folder |^there is already a file there that this editor cannot safely replace/, 'explain', (n) => (n ? n + '\u2019s' : 'Its') + ' instructions live somewhere Kosmos cannot safely change, so Kosmos has nowhere to write.'],
   // The reader's own refusals for a file it cannot safely edit (workerfile.js, instructions.js):
   // pressing again reads the same file the same way, so no button.
   [/^its instruction file is not UTF-8 text|^its instruction file is not one we can read$|^its instruction file could not be read$|^we cannot get at its instruction file to read it$|^that file is not inside the workers folder$/, 'explain',
@@ -53316,11 +53316,11 @@ document.getElementById('pj-one-notice').addEventListener('click', async (e) => 
     if (m && m.name) name = String(m.name);
   } catch { /* no remembered answer: nothing is marked as "still" */ }
   let reached = false;
-  let left = false;   // 409: the agent is no longer on the project. An answer, not a failure: its row goes.
+  let left = false;   // 409 (the agent left) or 404 (the project is gone): an answer, not a failure; the row goes.
   try {
     const res = await fetch('/api/project/' + encodeURIComponent(project) + '/agent/' + encodeURIComponent(key) + '?retell=1', { method: 'POST' });
     reached = !!(res && res.ok);
-    left = !!(res && res.status === 409);
+    left = !!(res && (res.status === 409 || res.status === 404));
   } catch { /* the repaint below shows where it stands */ }
   // "It still did not work" only about a retry that reached the board, marked before the read so
   // this read's own paint shows it. Cleared again if the read is overtaken (its data is not ours).

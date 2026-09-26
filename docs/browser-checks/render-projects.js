@@ -1392,7 +1392,8 @@ async function main() {
         const list = document.getElementById('pj-one-agents');
         // #3923: the project notice sits between the heading and the list when something is wrong.
         let h = list && list.previousElementSibling;
-        if (h && h.id === 'pj-one-notice') h = h.previousElementSibling;
+        // #3923 put the notice region and its screen-reader line between the heading and the list.
+        while (h && (h.id === 'pj-one-notice' || h.id === 'pj-one-notice-said')) h = h.previousElementSibling;
         return {
           heading: h ? h.textContent : null,
           headingTag: h ? h.tagName : null,
