@@ -43,6 +43,14 @@ similar graphical fashion so that it visually matches ... Oh crap, I have to ent
 - WARNING: the hidden Copy text is aria-hidden, so a screen reader gets the code once (from the boxes' label).
 - NIT: the #3829 card comment no longer says the code is at the right.
 
+## Review round 3 (Opus): no BLOCKER/WARNING/CONVENTION. Then Mona Lisa (09-26, owner of the #3829 card) agreed with
+the code on its own row and asked that it sit directly above Allow, nothing between: the sentence moved above the
+code, and the plus-panel check asserts the code's next neighbour is the buttons (red on the previous order).
+Two stale comments fixed. Deferred NITs: a drag past the last box picks up the hidden Copy text too (the code twice);
+the manual-copy fallback selects an invisible element; the contrast walk ignores ink alpha and ancestor opacity (none
+applies today); the non-Windows OpenAI device branches have no arm; faint box borders on navy (characters 11.6:1);
+the font stack is written out; the 360px arms do not collect page errors.
+
 ## Weakest premise
 - A provider whose code has no dash is one group, which cannot break: 10cqw fits five characters in its box, so a
   longer undashed code shrinks rather than wraps. Every code seen so far has a dash (xAI 4-4, OpenAI 4-5, GitHub 4-4).

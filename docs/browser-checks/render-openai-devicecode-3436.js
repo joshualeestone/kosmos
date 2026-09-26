@@ -96,7 +96,7 @@ async function arm(browser, { platform, where, start, status, width }) {
       codeText: code ? (code.textContent || '').replace(/\s+/g, ' ').trim() : '',
       codeCell: code && code.querySelector('.fr-cmd-row .fr-cmd') ? code.querySelector('.fr-cmd-row .fr-cmd').textContent : null,
       hasCopy: !!(code && code.querySelector('[data-copy-command]')),
-      // #3952: the code in boxes, one per character, inside the cell Copy reads; no xAI line on OpenAI's screen.
+      // #3952: the code in boxes, one per character, above the Copy row; no xAI line on OpenAI's screen.
       boxText: code ? [...code.querySelectorAll('.devcode-cell')].map((c) => c.textContent).join('') : '',
       boxDashes: code ? code.querySelectorAll('.devcode-dash').length : 0,
       boxNote: !!(code && code.querySelector('.devcode-note')),

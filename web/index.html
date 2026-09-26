@@ -8512,8 +8512,9 @@ html:not([data-fed-ui="show"]) #pj-add-ext-person,html:not([data-fed-ui="show"])
 .fr-cmd-row { display: flex; align-items: flex-start; gap: var(--space-4); }
 .fr-cmd-row .fr-cmd { flex: 1 1 auto; min-width: 0; }
 .fr-copy { margin: var(--space-4) 0; flex: none; }
-/* #3436: the OpenAI one-time code on Windows. It is read and typed by a person, so it
-   is large and spaced, sized to itself rather than stretched, with Copy beside it. */
+/* #3436: the OpenAI one-time code on Windows. Since #3952 the person reads it in the boxes above this row; the
+   row's .fr-cmd holds the code only as text for Copy (hidden to the eye, .devcode-copytext), so this row shows just
+   the Copy button, and the size rule below only matters if the boxes are ever not drawn. */
 .fr-cmd-row.oa-devrow { align-items: center; }
 .fr-cmd-row .fr-cmd.oa-devcode { flex: 0 1 auto; font-size: 1.25rem; font-weight: 600; letter-spacing: .08em; }
 /* #3952 (Josh, 2026-09-26: "a big fat 4-digit code of 4 digits and another 4 digits, and they matched perfectly"): a
@@ -36957,10 +36958,11 @@ function paintAsk() {
     const say = d.code ? 'Allow only if this code is showing on the device in your hand.' : 'Allow only if this is the device in your hand.';
     return '<div class="askreq' + (stale ? ' stale' : '') + '"><div class="askdev">' + askIcon(kind) + '</div>' +
       '<div class="askwho"><b>' + askEsc(kind) + '</b><span>' + askEsc(askAgo(d.first_seen)) + '</span></div>' +
-      /* #3952: the code in the same boxes as every device code, on its own row, so it can be matched at a glance
-         against the device in the person's hand (Josh 09-26: "they matched perfectly"). */
-      (d.code ? '<div class="askcode">' + devCodeHtml('', d.code) + '</div>' : '') +
       '<p class="asksay">' + say + again + (e && e.state === 'error' ? ' ' + askEsc(e.because) : '') + '</p>' +
+      /* #3952: the code in the same boxes as every device code, on its own row, so it can be matched at a glance
+         against the device in the person's hand (Josh 09-26: "they matched perfectly"). Directly above Allow, nothing
+         between them, so matching and allowing are one glance (Mona Lisa, 09-26). */
+      (d.code ? '<div class="askcode">' + devCodeHtml('', d.code) + '</div>' : '') +
       '<div class="acts"><button class="btn uprime" type="button" data-ask="allow" data-id="' + askEsc(d.device_id) + '" aria-label="Allow ' + askEsc(kind) + (d.code ? ', code ' + askEsc(d.code) : '') + '">Allow</button>' +
       '<button class="btn" type="button" data-ask="deny" data-id="' + askEsc(d.device_id) + '" aria-label="Deny ' + askEsc(kind) + (d.code ? ', code ' + askEsc(d.code) : '') + '">Deny</button></div></div>';
   };
