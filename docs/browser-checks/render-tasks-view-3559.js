@@ -8,10 +8,11 @@
  *  - the Tasks tab and the consolidated rail's Tasks button are hidden below 25 tasks ever and
  *    shown once the saved flag is set (Josh's ruling); then the tab opens #panel-tasks, and in
  *    the consolidated view (tab bar hidden) the rail button opens it,
- *  - #3949 (Josh, 2026-09-26): five single-label tiles in his order (Needs Your Decision, red; In
- *    progress; Assigned but not started; Unassigned; Completed), with the right counts and no byline;
- *    Completed also stays the folded list; NO "Built but waiting" (#3951), "Done, check it" or
- *    category is drawn (they are not guessed). Needs Your Decision's task is a real one: its agent
+ *  - #3949 (Josh, 2026-09-26): six single-label tiles in his order (Needs Your Decision, red; In
+ *    progress; Assigned but not started; Unassigned; Built but waiting, #3951; Completed), with the
+ *    right counts and no byline; Completed also stays the folded list; NO "Done, check it" or
+ *    category is drawn (they are not guessed). Built but waiting's task is marked by the engine
+ *    (tasks.setBuilt), and its row says who marked it and what is left. Needs Your Decision's task is a real one: its agent
  *    (Max) reports a question about its project, and the pane is asking,
  *  - #3949 layout: no left Projects column; search about half the width with the open-task count to
  *    its right; Project and Created: dropdowns on one row; Group by and Sort dropdowns under the
@@ -82,12 +83,14 @@ function chk(ok, label, extra) {
   tasks.create(news.id, { sentence: 'Clean up bounced addresses', who: 'rex' });  // 1 assigned
   tasks.create(news.id, { sentence: 'Welcome email for new subscribers' });       // 2 nobody
   tasks.create(launch.id, { sentence: 'Approve the cover', who: 'max' });         // 5 decision (Max is asking)
+  tasks.create(news.id, { sentence: 'Ship the signup form', who: 'rex' });        // 3 built (#3951)
+  tasks.setBuilt(news.id, 3, { by: 'rex', note: 'waiting on the release' });
   commitments.report('ada', [{ what: 'working on task 3 of Spring launch' }]);
   // An ARCHIVED project's task must not appear anywhere in the view.
   const old = projects.create({ name: 'Old catalog' });
   tasks.create(old.id, { sentence: 'Archived away task' });
   projects.setArchived(old.id, true);
-  const EXPECT = { decision: 1, working: 1, assigned: 2, nobody: 2, closed: 1 };
+  const EXPECT = { decision: 1, working: 1, assigned: 2, nobody: 2, built: 1, closed: 1 };
 
   const server = await srv.start(0);
   const URL = 'http://127.0.0.1:' + server.address().port;
@@ -193,8 +196,8 @@ function chk(ok, label, extra) {
       const tabFrame = await page.evaluate(() => { const cs = getComputedStyle(document.querySelector('#panel-tasks .tsk-view')); return { w: cs.borderTopWidth, r: cs.borderTopLeftRadius }; });
       chk(tabFrame.w === '1px' && tabFrame.r === '14px', `${tag} the tab view keeps its outer frame (#3880 is the consolidated view only)`, JSON.stringify(tabFrame));
       /* #3949 (Josh): five single-label tiles in his order; Completed is a tile and still the fold below. */
-      chk(JSON.stringify(a.tiles.map((t) => t.k)) === JSON.stringify(['decision', 'working', 'assigned', 'nobody', 'closed']), `${tag} the tiles are the five provable groups in Josh's order`, JSON.stringify(a.tiles.map((t) => t.k)));
-      chk(JSON.stringify(a.tiles.map((t) => t.label)) === JSON.stringify(['Needs Your Decision', 'In progress', 'Assigned but not started', 'Unassigned', 'Completed']), `${tag} each tile is one label`, JSON.stringify(a.tiles.map((t) => t.label)));
+      chk(JSON.stringify(a.tiles.map((t) => t.k)) === JSON.stringify(['decision', 'working', 'assigned', 'nobody', 'built', 'closed']), `${tag} the tiles are Josh's six groups in his order, each from a recorded state`, JSON.stringify(a.tiles.map((t) => t.k)));
+      chk(JSON.stringify(a.tiles.map((t) => t.label)) === JSON.stringify(['Needs Your Decision', 'In progress', 'Assigned but not started', 'Unassigned', 'Built but waiting', 'Completed']), `${tag} each tile is one label`, JSON.stringify(a.tiles.map((t) => t.label)));
       chk(a.tiles.every((t) => t.bylines === 0), `${tag} no tile carries a byline`);
       chk(a.tiles[0].color === a.danger && a.tiles.slice(1).every((t) => t.color !== a.danger), `${tag} Needs Your Decision, and only it, is red`, JSON.stringify(a.tiles.map((t) => t.color).concat(a.danger)));
       chk(a.fold, `${tag} Completed stays the folded list`);
@@ -225,7 +228,7 @@ function chk(ok, label, extra) {
       chk(gaps.aboveTitle >= 16 && gaps.aboveTitle <= 32, `${tag} the gap above the title is about half the old 51px`, JSON.stringify(gaps));
       chk(gaps.hintToGroup >= 16 && gaps.hintToGroup <= 32, `${tag} the gap from the Group by row to the first group is about half the old 49px`, JSON.stringify(gaps));
       chk(a.tiles.every((t) => t.n === EXPECT[t.k]), `${tag} each tile counts its group`, JSON.stringify(a.tiles));
-      chk(!/Waiting on you|Built but waiting|Done, check it|Categor/i.test(a.text), `${tag} no unprovable group or category is drawn`);
+      chk(!/Waiting on you|Done, check it|Categor/i.test(a.text), `${tag} no unprovable group or category is drawn`);
       const cover = a.rows.find((r) => r.text === 'Approve the cover');
       chk(cover && /Needs Your Decision/.test(cover.group), `${tag} the task whose agent needs the person is under Needs Your Decision`, JSON.stringify(cover));
       chk(!/Archived away task|Old catalog/.test(a.text), `${tag} an archived project's tasks are left out`);
@@ -259,6 +262,15 @@ function chk(ok, label, extra) {
         const pressed = await page.evaluate(() => ({ tile: document.activeElement && document.activeElement.dataset && document.activeElement.dataset.tile, on: TSK.tile }));
         chk(pressed.tile === 'working' && pressed.on === 'working', `${tag} Enter on a tile filters and keeps focus there`, JSON.stringify(pressed));
         await page.keyboard.press('Enter'); // back to everything
+        /* #3951: the Built but waiting tile filters to the marked task, and its row says who marked it and what is
+           left (the note is the agent's own words). */
+        await page.click('#tsk-tiles [data-tile="built"]');
+        await page.waitForTimeout(200);
+        const builtRows = await page.evaluate(() => [...document.querySelectorAll('#tsk-groups .tsk-row')].map((r) => ({
+          t: r.querySelector('.tl').textContent, why: [...r.querySelectorAll('.why')].map((x) => x.textContent).join(' ') })));
+        chk(builtRows.length === 1 && builtRows[0].t === 'Ship the signup form' && /^Marked built by Rex .+: waiting on the release$/.test(builtRows[0].why),
+          `${tag} the Built but waiting tile shows the marked task, with who marked it and what is left`, JSON.stringify(builtRows));
+        await page.click('#tsk-tiles [data-tile="built"]'); // back to everything
         /* A focused CHECKBOX keeps focus through a reload (its row shares its key, so a first-match
            restore would land on the row, which cannot take focus). */
         await page.focus('#tsk-groups input[data-key="' + launch.id + '#2"]');
@@ -269,10 +281,10 @@ function chk(ok, label, extra) {
         /* Search: by agent name, then by number, combined with the project dropdown. */
         await page.fill('#tsk-search', 'rex');
         let rows = await page.evaluate(() => [...document.querySelectorAll('#tsk-groups .tsk-row .tl')].map((x) => x.textContent));
-        chk(rows.length === 2 && rows.includes('Order proof copies') && rows.includes('Clean up bounced addresses'), `${tag} search finds tasks by agent name`, JSON.stringify(rows));
+        chk(rows.length === 3 && rows.includes('Order proof copies') && rows.includes('Clean up bounced addresses') && rows.includes('Ship the signup form'), `${tag} search finds tasks by agent name`, JSON.stringify(rows));
         await page.selectOption('#tsk-projsel', news.id);
         rows = await page.evaluate(() => [...document.querySelectorAll('#tsk-groups .tsk-row .tl')].map((x) => x.textContent));
-        chk(JSON.stringify(rows) === JSON.stringify(['Clean up bounced addresses']), `${tag} search combines with the project dropdown`, JSON.stringify(rows));
+        chk(JSON.stringify([...rows].sort()) === JSON.stringify(['Clean up bounced addresses', 'Ship the signup form']), `${tag} search combines with the project dropdown`, JSON.stringify(rows));
         await page.fill('#tsk-search', '');
         /* The crumb's "All tasks" empties the crumb: focus lands on the project dropdown, not the body. */
         await page.focus('#tsk-crumb [data-proj=""]');
@@ -441,7 +453,7 @@ function chk(ok, label, extra) {
           dropdown: document.getElementById('tsk-projsel').getClientRects().length > 0,
         };
       });
-      chk(got.shown && got.tiles === 5, '[consolidated] it opens the Tasks view', JSON.stringify(got));
+      chk(got.shown && got.tiles === 6, '[consolidated] it opens the Tasks view', JSON.stringify(got));
       chk(got.stillCons && got.inColumn, '[consolidated] it stays in the consolidated view, in the display column (#2842)', JSON.stringify(got));
       chk(got.noRail && got.dropdown, '[consolidated] no project column of its own; the project dropdown is there', JSON.stringify(got));
       /* Mona's look review of #3701, in the column too: the gap above the title is about halved. */
