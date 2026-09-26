@@ -39,11 +39,10 @@ const { chromium } = require('playwright');
       const timed  = base({ sessionName: 'timed',  disruption: { cause: 'model', startedAt: Date.now() - 90000, timedOut: true } });
       /* #4006: a restart that did not come back (the engine's needs_you with disruption.failed), and a plain
          needs_you with no disruption as its control. */
-      const failed = base({ sessionName: 'failed', state: 'needs_you', because: 'Kosmos restarted this agent and it did not come back. Restart it to bring it back', disruption: { cause: 'restart', startedAt: Date.now() - 90000, timedOut: true, failed: true } });
-      const plainNeeds = base({ sessionName: 'plainneeds', state: 'needs_you', disruption: null });
-      const gone = base({ sessionName: 'gonefile', state: 'needs_you', because: 'Kosmos restarted this agent but its launch file is gone, so it cannot start. It has to be created again', disruption: { cause: 'restart', startedAt: Date.now() - 90000, timedOut: true, failed: true, gone: true } });
+      const failed = base({ sessionName: 'failed', state: 'needs_you', isNamedOurs: true, because: 'Kosmos restarted this agent and it did not come back. Restart it to bring it back', disruption: { cause: 'restart', startedAt: Date.now() - 90000, timedOut: true, failed: true } });
+      const plainNeeds = base({ sessionName: 'plainneeds', state: 'needs_you', isNamedOurs: true, disruption: null });
       try {
-        document.getElementById('grid').innerHTML = [inprog, timed, failed, plainNeeds, gone].map((a) => card(a)).join('');
+        document.getElementById('grid').innerHTML = [inprog, timed, failed, plainNeeds].map((a) => card(a)).join('');
         return 'OK';
       } catch (e) { return 'ERR: ' + e.message; }
     });
@@ -85,8 +84,8 @@ const { chromium } = require('playwright');
     say(!/\bOnline\b/.test(fTxt), 'failed restart: the card does not say Online (#4006)', JSON.stringify(fTxt));
     say(await pg.evaluate(() => cardStOf({ state: 'needs_you', disruption: { failed: true } }).pres === 'off'
       && cardStOf({ state: 'needs_you' }).pres !== 'off'), 'failed restart: presence is off, so Start this agent stays offered; CONTROL: a plain needs_you is not');
-    const gTxt = await text('gonefile');
-    say(/launch file is gone/.test(gTxt) && /created again/.test(gTxt) && !/Restart it/.test(gTxt), 'failed restart with its launch file gone: says it has to be created again, not "restart it" (#4006)', JSON.stringify(gTxt));
+    say(!/\bAnswer\b/.test(fTxt), 'failed restart: no Answer button, there is no question (#4006)', JSON.stringify(fTxt));
+    say(/\bAnswer\b/.test(await text('plainneeds')), 'CONTROL: a plain needs_you card still offers Answer');
   } finally {
     await b.close();
   }

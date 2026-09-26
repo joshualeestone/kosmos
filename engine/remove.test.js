@@ -2277,7 +2277,7 @@ test('restart of a fully-dead agent reports PARTIAL when the launch job fails to
     assert.match(out.because, /could not start|did not load/);
     assert.doesNotMatch(out.because, /closed .*window|starting\b/,
       'it claims a window close or a start that did not happen for a dead agent');
-    { const a = disruption.active(name); const d = disruption.read(name); assert.ok((!a || a.failed === true) && d.found && d.failed === true, 'a dead agent that failed to start was left marked restarting' + ' (#4006: the record stays, marked failed, so the card says it did not come back): ' + JSON.stringify(d)); }
+    assert.ok(!disruption.active(name) && !disruption.read(name).found, 'a dead agent that failed to start was left marked restarting (#4006: a failed START is not a failed restart, so its record is cleared)');
   } finally {
     remove.setRunner(null);
     status.setPaneSource(null);
@@ -2306,7 +2306,7 @@ test('restart of a fully-dead agent reports PARTIAL when bootstrap returns 0 but
     assert.ok(calls.some((c) => c[0] === '/bin/launchctl' && c[1][0] === 'print'),
       'the dead-start never confirmed the job was loaded, so a silent no-load is invisible');
     assert.doesNotMatch(out.because, /starting\b/, 'it claims a start that did not take');
-    { const a = disruption.active(name); const d = disruption.read(name); assert.ok((!a || a.failed === true) && d.found && d.failed === true, 'a silently-unloaded dead start was left marked restarting (#4006: the record stays, marked failed): ' + JSON.stringify(d)); }
+    assert.ok(!disruption.active(name) && !disruption.read(name).found, 'a silently-unloaded dead start was left marked restarting (#4006: a failed START is not a failed restart, so its record is cleared)');
   } finally {
     remove.setRunner(null);
     status.setPaneSource(null);
