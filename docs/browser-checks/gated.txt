@@ -75,6 +75,7 @@ render-firstrun-s6-2037
 render-firstrun-scan-on-grant-1652
 render-firstrun-stepcap-gear-0640
 render-firstrun-wizard-flow
+render-frame-phone-718
 render-frnav-2647
 render-gemini-logo-3422
 render-grok-subscription-3391

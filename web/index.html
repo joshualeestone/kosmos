@@ -2004,6 +2004,28 @@ button.worldsw-row:focus-visible { outline: 2px solid var(--k-ink); outline-offs
 .vt svg { display: block; }
 .vt + .vt { border-left: 0.5px solid var(--separator); }
 .vt:hover { color: var(--label); }
+/* 📱 #718 row 5: THE FRAME'S CONTROLS ARE THUMB-SIZE ON A PHONE (44x44, the tap floor
+   Settings (#3807) and the org chart use). Measured at 375px before: the K mark 34x34,
+   the Kosmos switcher and You 32px tall, the menu 40x40, the layout toggles 38x30, the
+   "← All agents" link 70x15. Phone width only, so desktop is untouched.
+   The mark, the switcher, You and the menu grow their BOX with a matching negative
+   margin, so the header row keeps its height and nothing beside them moves; the
+   toggles sit inside a bordered group that clips, so they simply grow. */
+@media (max-width: 40rem) {
+  .klink { padding: 5px; margin: -5px; }
+  .worldsw-btn, .userpop-btn { height: 44px; margin-block: -6px; }
+  .burger { width: 44px; height: 44px; margin: -2px; }
+  .vt { width: 44px; height: 44px; }
+  .back { min-height: 44px; display: inline-flex; align-items: center; }
+}
+/* 📱 #718 SAFE AREA: one name for each inset, so the frame and the pinned composer
+   (Scorpion's, which already reads var(--safe-bottom, 0px)) use the same number. The
+   viewport meta deliberately has NO viewport-fit=cover (the iOS shell, #3688, relies on
+   WebKit's default insets), so today each is 0 and WebKit keeps the page clear of the
+   notch and home bar itself. web.safe-area-718.test.js fails if cover is added without
+   the frame padding by all four. */
+:root { --safe-top: env(safe-area-inset-top, 0px); --safe-right: env(safe-area-inset-right, 0px);
+  --safe-bottom: env(safe-area-inset-bottom, 0px); --safe-left: env(safe-area-inset-left, 0px); }
 /* ⚠️ SELECTED IS GOLD, NOT INK (Josh, 2026-08-17, twice: "black indicates
    what's selected" was true only in light -- --k-ink flips in dark, so an
    ink fill inverts its meaning between themes. Gold is the one fill that
