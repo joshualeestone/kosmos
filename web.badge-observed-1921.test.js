@@ -103,3 +103,9 @@ test('back-compat: a payload without connection.badge still renders the legacy s
   assert.match(fn, /a\.connection\.state === 'connected'/, 'the legacy connected fallback is gone');
   assert.match(fn, /a\.connection\.state === 'none'/, 'the legacy none fallback is gone');
 });
+
+test('#3997 round 7: the free Check now button carries its unique folder as its FIRST data attribute (focus is found again by it)', () => {
+  const at = PAGE.indexOf("'<button class=\"acct-check\" type=\"button\" data-check-dir=\"'");
+  assert.ok(at > -1, 'the free Check now button does not lead with data-check-dir');
+  assert.ok(PAGE.indexOf('data-check-signin="', at) > at, 'the kind attribute should follow the folder');
+});

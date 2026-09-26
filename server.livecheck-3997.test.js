@@ -23,6 +23,7 @@ process.env.AGENT_WORKFORCE_PROJECTS = nodePath.join(SANDBOX, 'projects');
 process.env.AGENT_WORKFORCE_GROK_HOME = nodePath.join(HOME, '.grok');
 process.env.AGENT_WORKFORCE_GEMINI_HOME = nodePath.join(HOME, '.gemini');
 process.env.AGENT_WORKFORCE_TMUX_BIN = nodePath.join(__dirname, 'test-support', 'fake-tmux.sh');
+process.env.AGENT_WORKFORCE_GROK_CHECK_WAIT_MS = '200';   // round 7: how long the list waits on a Grok check
 delete process.env.AGENT_WORKFORCE_CODEX_HOME;
 delete process.env.CODEX_HOME;
 
@@ -183,6 +184,44 @@ test('#3997 round 6: a kept Grok answer is recorded at the time it was learned, 
   grokAccounts.setFetcher(async () => { throw new Error('asked again inside the 30s'); });
   await accounts();   // served from the kept answer
   assert.equal(observed.readDir(observed.PROVIDER.XAI, GROK).at, first.at, 'a kept answer was recorded as newer than it is');
+});
+
+test('#3997 round 7: a slow Grok check does not hold the list; the row says it is checking and the next read has it', async () => {
+  codexsigninlive.setRunner(async () => ({ ok: false }));
+  grokSignIn(3 * 3600 * 1000);
+  let calls = 0;
+  grokAccounts.setFetcher(async () => { calls++; await new Promise((r) => setTimeout(r, 700)); return { status: 200 }; });
+  const t0 = Date.now();
+  const first = (await accounts()).find((a) => a.provider === 'xai');
+  const took = Date.now() - t0;
+  assert.ok(took < 600, 'the list waited on the slow Grok check (' + took + 'ms)');
+  assert.equal(first.connection.liveCheckPending, true);
+  assert.equal(first.connection.badge, 'signed_in_unverified');
+  await new Promise((r) => setTimeout(r, 800));
+  const next = (await accounts()).find((a) => a.provider === 'xai');
+  assert.equal(next.connection.badge, 'working', 'the check that finished meanwhile did not reach the next read');
+  assert.equal(calls, 1, 'the next read asked xAI again instead of using the answer it got');
+});
+
+test('#3997 round 7: deadIsNewer: a dead answer newer than an agent success wins, an older one or a live one does not', async () => {
+  codexsigninlive.setRunner(async () => ({ ok: true, stdout: DOC('warning') }));
+  const before = Date.now() - 1000;
+  assert.equal(await codexsigninlive.livenessNow(CODEX), 'dead');
+  assert.equal(codexsigninlive.deadIsNewer(CODEX, before), true);
+  assert.equal(codexsigninlive.deadIsNewer(CODEX, Date.now() + 1000), false, 'an agent success after the dead answer lost to it');
+  codexsigninlive.setRunner(async () => ({ ok: true, stdout: DOC('ok') }));
+  await codexsigninlive.livenessNow(CODEX);
+  assert.equal(codexsigninlive.deadIsNewer(CODEX, before), false, 'a live answer counted as dead');
+});
+
+test('#3997 round 7: the OpenAI overlay asks deadIsNewer before letting an agent success paint a row green', () => {
+  // The route test cannot tie an observed agent to an account (no created agent), so the WIRING is pinned in the
+  // source, comments stripped so a description of the call cannot satisfy it. The rule itself is tested above.
+  const code = fs.readFileSync(nodePath.join(__dirname, 'server.js'), 'utf8')
+    .replace(/\/\*[\s\S]*?\*\//g, '').split('\n').filter((l) => !/^\s*\/\//.test(l)).join('\n');
+  const overlay = code.slice(code.indexOf('const openai = openaiRows.map('), code.indexOf('const openai = openaiRows.map(') + 2500);
+  assert.match(overlay, /if \(a\.connection && a\.connection\.state === 'none' && codexsigninlive\.deadIsNewer\(a\.dir, obs\.at\)\) return base;/);
+  assert.ok(overlay.indexOf('deadIsNewer') < overlay.indexOf("badge !== 'working'"), 'the rule must run before the green decision');
 });
 
 test('#3997 Check now routes: connected, none and unknown, and a wrong kind of account is refused', async () => {

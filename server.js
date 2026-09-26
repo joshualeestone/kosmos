@@ -724,6 +724,8 @@ const engmode = require('./engine/engmode');
 const accounts = require('./engine/accounts');
 const observed = require('./engine/observed');
 const codexsigninlive = require('./engine/codexsigninlive');   // #3997: the ChatGPT sign-in's free live check
+/* #3997 round 7: how long /api/accounts waits on a Grok subscription's free check before saying it is checking. */
+const GROK_CHECK_WAIT_MS = Number(process.env.AGENT_WORKFORCE_GROK_CHECK_WAIT_MS) > 0 ? Number(process.env.AGENT_WORKFORCE_GROK_CHECK_WAIT_MS) : 1500;
 /* #1304, second half: PigeonPete's live reader. It walks the pane's process tree
    to the claude descendant and reads the environment it is ACTUALLY running
    with, which is a better source than a startup file or a transcript for the
@@ -7667,8 +7669,7 @@ const server = http.createServer((req, res) => {
           if (!obs) return base;
           /* A dead verdict from the ChatGPT check that is NEWER than the agent's success wins: the person pressed Check
              now and was told it is not connected, and an older success must not paint over that (review round 6). */
-          const checkedAt = a.connection && a.connection.state === 'none' ? codexsigninlive.cachedAt(a.dir) : null;
-          if (checkedAt !== null && checkedAt > obs.at) return base;
+          if (a.connection && a.connection.state === 'none' && codexsigninlive.deadIsNewer(a.dir, obs.at)) return base;
           const v = observed.verdict({
             checkLiveState: a.connection && a.connection.state,
             observedOutcome: obs.outcome,
@@ -7750,7 +7751,13 @@ const server = http.createServer((req, res) => {
         const subChecks = new Map(await Promise.all(grokRows
           .filter((a) => a.dir && a.authMode === 'subscription' && a.connection && a.connection.state === 'connected' && grokSubStarted.has(a.dir))
           .map(async (a) => {
-            const r = await grokSubStarted.get(a.dir);
+            /* Waited on only briefly (review round 7): a slow xAI must not hold this read, which callers open and
+               re-read. A check still running keeps running (concurrent reads share it, its answer is kept 30s) and
+               the row says it is checking, so the page reads again, as for a ChatGPT sign-in. */
+            const r = await Promise.race([grokSubStarted.get(a.dir), new Promise((res) => {
+              const t = setTimeout(() => res({ verdict: 'pending', because: 'Checking this sign-in now' }), GROK_CHECK_WAIT_MS);
+              if (t.unref) t.unref();
+            })]);
             if (r.verdict === 'live') observed.sawDir(observed.PROVIDER.XAI, a.dir, observed.OUTCOME.OK, r.at);   // when it was learned, not now
             /* A refusal forgets an earlier check's green, so a later read that cannot ask again does not bring it
                back (review round 2); it records no verdict of its own (grok may renew the key). */
@@ -7761,7 +7768,8 @@ const server = http.createServer((req, res) => {
           if (!(a.authMode === 'subscription' && a.connection && a.connection.state === 'connected')) return a;
           const r = subChecks.get(a.dir);   // a `live` answer never reaches here: it is recorded, so the row is working
           const because = r ? r.because : a.connection.because;
-          return { ...a, connection: { ...a.connection, because, badge: 'signed_in_unverified', liveVerdict: r ? r.verdict : null } };
+          return { ...a, connection: { ...a.connection, because, badge: 'signed_in_unverified', liveVerdict: r ? r.verdict : null,
+            ...(r && r.verdict === 'pending' ? { liveCheckPending: true } : {}) } };
         };
         const grok = grokRows.map((a) => {
           const agentObs = a.dir ? obsByGrokDir.get(a.dir) : null;

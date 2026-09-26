@@ -76,13 +76,21 @@ Design and measurements are on the card (comment 5849157780).
 - A kept Grok answer is recorded at the time it was learned (it was re-dated on every read, so it could hide a newer
   agent 401 for up to 30s). Tested, red when reverted.
 - A newer "no answer" no longer blocks an older run's real live or dead. Tested, red when reverted.
-- A dead ChatGPT verdict from Check now that is newer than an agent's success wins (codexsigninlive.cachedAt).
-  NOT TESTED: the route test cannot tie an observed agent to an account without a created agent; reasoned from the
-  code, one line, in the OpenAI overlay.
+- A dead ChatGPT verdict from Check now that is newer than an agent's success wins (round 7: codexsigninlive.deadIsNewer,
+  unit-tested; its one call in the OpenAI overlay is pinned in the source, comments stripped, since the route test
+  cannot tie an observed agent to an account).
 - A follow-up rebuild puts keyboard focus back on the same control (found again by its data-* attribute).
 - Stale "muted" comments now say amber; the badge check's busy arm is described as what it tests.
 - Deferred NITs: the Check now route's forgetDir has no test of its own (the repaint's list read does the same);
   the `.armed` half of acctListBusy has no test.
+
+## Review round 7 (Sonnet), what changed
+- The Grok check no longer holds /api/accounts for up to 8s: the read waits at most GROK_CHECK_WAIT_MS (1.5s), then
+  the row says it is checking and the bounded follow-up reads pick up the answer (concurrent reads share the request,
+  the answer is kept 30s). Tested with a 700ms xAI (read under 600ms, next read green, xAI asked once).
+- The Check now button leads with its unique data-check-dir, so focus restoration cannot land on another row's button
+  of the same kind.
+- deadIsNewer unit-tested, and its call pinned (see round 6). Each perturbed red.
 
 ## Decided
 - Pill text stays a short "Signed in" (Josh 6.68, #3136); the reason is in the title.

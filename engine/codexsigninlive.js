@@ -199,6 +199,13 @@ function cachedAt(dir, nowMs) {
   const cur = cache.get(homeKey(dir));
   return cur && (now - cur.at) < TTL_MS ? cur.at : null;
 }
+/* #3997 round 6/7: true when this home's fresh cached answer is DEAD and was learned after `observedAt` (an agent's
+   older success). The OpenAI overlay uses it so a person's newer "not connected" is not painted over. */
+function deadIsNewer(dir, observedAt, nowMs) {
+  const now = typeof nowMs === 'number' ? nowMs : Date.now();
+  const cur = cache.get(homeKey(dir));
+  return !!cur && (now - cur.at) < TTL_MS && cur.verdict === 'dead' && Number.isFinite(observedAt) && cur.at > observedAt;
+}
 function livenessCached(dir, nowMs) {
   const now = typeof nowMs === 'number' ? nowMs : Date.now();
   const cur = cache.get(homeKey(dir));
@@ -234,4 +241,4 @@ async function livenessNow(dir) {
   return res.verdict;
 }
 
-module.exports = { liveness, livenessDetailed, livenessCached, cachedAt, checkState, livenessNow, classify, classifyDetailed, setRunner, resetForTest, TTL_MS, TIMEOUT_MS };
+module.exports = { liveness, livenessDetailed, livenessCached, cachedAt, deadIsNewer, checkState, livenessNow, classify, classifyDetailed, setRunner, resetForTest, TTL_MS, TIMEOUT_MS };
