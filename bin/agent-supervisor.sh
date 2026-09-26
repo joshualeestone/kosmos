@@ -577,8 +577,10 @@ if [ -z "$adopt" ]; then
   # (codex through the bridge's `#!/usr/bin/env node`, gemini and grok through a `node "<bridge>"`
   # hook), so they need node on the PANE's PATH. A pane inherits the tmux server's PATH, which has
   # no node when launchd started the server or Kosmos is the only node on the Mac, and then those
-  # agents' self-reports fail silently. APPEND the node this script resolved, after the server's own
-  # PATH, so a person's own node and npm still come first. Claude's hook finds node itself.
+  # agents' self-reports fail silently. APPEND the directory of the node this script resolved (on an
+  # install, Kosmos's runtime/bin, so its npm/npx come too) after the server's own PATH, so a
+  # person's own node and npm still come first. This -e comes last, so it replaces any PATH the
+  # secrets/env door added above. Claude's hook finds node itself.
   if [ -n "${NODE_BIN:-}" ] && { [ "$RUNNER" = codex ] || [ "$RUNNER" = gemini ] || [ "$RUNNER" = grok ]; }; then
     _srv_path="$("$TMUX_BIN" show-environment -g PATH 2>/dev/null || true)"
     case "$_srv_path" in
