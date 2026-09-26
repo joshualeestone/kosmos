@@ -90,6 +90,10 @@ const HANG_MS = '2000';
    raising HANG_MS cannot push it past the floor (asserted where it is used). */
 const CLEANUP_FLOOR_MS = 5000;
 const LATE_CANCEL_MS = 3000;
+/* A cancel that never answers: longer than any budget the runner could legitimately wait. */
+const NEVER_MS = 10 * 60 * 1000;
+/* Slack on top of HANG_MS + the floor for process start and a loaded machine. */
+const BOUND_SLACK_MS = 4000;
 
 /** A fake board: the routes the procedure uses, with switchable behaviour. */
 function fakeBoard(opts = {}) {
@@ -350,7 +354,7 @@ test('#2036: a register that times out after finishing on the board is recorded 
     assert.strictEqual(step(got, 'register').result, 'fail');
     assert.match(step(got, 'register').detail, /no answer from the board/);
     assert.ok(b.calls.some((c) => c.url === '/api/remote/forget'), 'a register that timed out left its Mac');
-    assert.deepStrictEqual(step(got, 'forget'), { id: 'forget', result: 'pass' }, 'forget did not retire a real registration (it found nothing to retire)');
+    assert.deepStrictEqual(step(got, 'forget'), { id: 'forget', result: 'pass' }, 'forget did not retire a real registration (it failed, or found nothing to retire)');
     assert.strictEqual(b.state.enrolled, false);
   } finally { b.server.closeAllConnections(); b.server.close(); }
 });
@@ -372,14 +376,15 @@ test('#2036: a signin-start that times out is setup: the earlier record stands a
 test('#3986: a cleanup cancel that never answers is still bounded (a hung board must not hang the agent)', async () => {
   const dir = tmp(); const e = Object.assign(env(dir), { KOSMOS_PLUS_CALL_MS: HANG_MS }); const ptr = pointerFile(dir);
   record.write(good(), e);
-  const b = await fakeBoard({ startHangs: true, cancelAnswersAfter: 10 * 60 * 1000 });
+  const b = await fakeBoard({ startHangs: true, cancelAnswersAfter: NEVER_MS });
   try {
     const began = Date.now();
     const r = await runner(['start', '--pointer', ptr, '--port', String(b.port)], e);
     const took = Date.now() - began;
+    assert.ok(b.calls.some((c) => c.url === '/api/remote/signin-start'), 'the runner stopped before the hanging start: ' + r.out);
     assert.ok(b.calls.some((c) => c.url === '/api/remote/signin-cancel'), 'the half sign-in was never cancelled: ' + r.out);
     assert.strictEqual(r.code, 2, r.out);
-    assert.ok(took < Number(HANG_MS) + CLEANUP_FLOOR_MS + 4000, 'the runner waited ' + took + 'ms on a cancel that never answered');
+    assert.ok(took < Number(HANG_MS) + CLEANUP_FLOOR_MS + BOUND_SLACK_MS, 'the runner waited ' + took + 'ms on a cancel that never answered');
   } finally { b.server.closeAllConnections(); b.server.close(); }
 });
 
