@@ -28393,12 +28393,16 @@ function setThread(el, html, key) {
        screen to measure. */
     if (el.__heldAtBottom === false) anchor = threadAnchor(el);
   }
-  const rewrote = el.__lastThread !== html;
+  /* #3966: compared by SHAPE, so a time's words ticking over do not rewrite the thread. */
+  const shape = threadShape(html);
+  const rewrote = el.__lastThread !== shape;
   if (rewrote) {
     /* #3650: the write replaces the smiley a DM-opened reaction picker is anchored to. */
     if (el.id === 'd-dmthread') rxnCloseDmPicker();
-    el.__lastThread = html;
+    el.__lastThread = shape;
     el.innerHTML = html;
+  } else {
+    refreshWhens(el);
   }
   el.__lastCount = key;
   // A note is not what the person came to read, and moving them inside one
@@ -28654,7 +28658,7 @@ function dmRow(m, name) {
     });
     return '<div class="msg-valve dm-kosmos" data-mid="' + midOf(m) + '">' + linked + '</div>';
   }
-  const whenStr = esc(pjWhen(m.at) || '');
+  const whenStr = pjWhenLive(m.at);
   if (m && m.from) {
     /* #3414: the agent's row now IS the room's `.msg` bubble -- gray ground, avatar to
        the left, the agent name bold INSIDE the bubble at the top, and the timestamp
@@ -49369,7 +49373,7 @@ function pjRoomRow(m, p, hideHeader) {
   if (m.kind === 'note') {
     const whenN = pjWhen(m.at) || '';
     return '<div class="msg-valve">' + esc(m.text || '')
-      + (whenN ? '<span class="msg-t">' + esc(whenN) + '</span>' : '') + '</div>';
+      + (whenN ? '<span class="msg-t">' + pjWhenLive(m.at) + '</span>' : '') + '</div>';
   }
   /* #3311: a message from OUTSIDE this Kosmos, through a federated project. The
      sender's own name, tagged External (or External agent), initials only (there
@@ -49388,14 +49392,14 @@ function pjRoomRow(m, p, hideHeader) {
       + '<div class="msg-b"><div class="msg-bd">'
       + '<b class="msg-nm">' + esc(whoX) + '</b> <span class="msg-ext-tag">' + tagX + '</span>'
       + '<div class="msg-ext-tx">' + esc(m.text || '').replace(/\n/g, '<br>') + '</div>'
-      + (whenX ? '<span class="msg-t">' + esc(whenX) + '</span>' : '')
+      + (whenX ? '<span class="msg-t">' + pjWhenLive(m.at) + '</span>' : '')
       + '</div></div></div>';
   }
   if (m.kind === 'refused') {
     const whenR = pjWhen(m.at) || '';
     return '<div class="msg-valve">' + esc(pjNameOf(p, m.from) || m.from)
       + ' tried to post here and Kosmos stopped it: ' + esc(pjSentence(m.because || 'no reason was recorded'))
-      + (whenR ? '<span class="msg-t">' + esc(whenR) + '</span>' : '') + '</div>';
+      + (whenR ? '<span class="msg-t">' + pjWhenLive(m.at) + '</span>' : '') + '</div>';
   }
   if (m.kind === 'refused-group') {
     /* #2700: a valve-stopped room refuses every agent that then tries to post,
@@ -49414,7 +49418,7 @@ function pjRoomRow(m, p, hideHeader) {
     const names = (m.from || []).map((f) => pjNameOf(p, f) || f);
     return '<div class="msg-valve">' + esc(pjJoinNames(names))
       + ' tried to post here and Kosmos stopped them: ' + esc(pjSentence(m.because || 'no reason was recorded'))
-      + (whenG ? '<span class="msg-t">' + esc(whenG) + '</span>' : '') + '</div>';
+      + (whenG ? '<span class="msg-t">' + pjWhenLive(m.at) + '</span>' : '') + '</div>';
   }
   if (m.kind === 'valve') {
     /* Reassurance, not an error: the valve is the product doing its job.
@@ -49422,7 +49426,7 @@ function pjRoomRow(m, p, hideHeader) {
        margin never hangs as a trailing gap on an empty inline. */
     const when = pjWhen(m.at) || '';
     return '<div class="msg-valve">' + esc(m.because || PJ_VALVE_FALLBACK)
-      + (when ? '<span class="msg-t">' + esc(when) + '</span>' : '') + '</div>';
+      + (when ? '<span class="msg-t">' + pjWhenLive(m.at) + '</span>' : '') + '</div>';
   }
   const isOp = m.operator === true;
   const card = !isOp && (p.agents || []).find((a) => a.sessionName === m.from);
@@ -49454,7 +49458,7 @@ function pjRoomRow(m, p, hideHeader) {
      it is just no longer rendered inline in the thread. The box is gated on BODY content
      (see `hasBubble = bd` below) -- a bodyless row, agent or operator, draws no box. */
   const bd = pjRoomBody(m, p) + pjPreviewCard(m.preview) + pjAttachmentCards(m);
-  const whenStr = esc(pjWhen(m.at) || '');
+  const whenStr = pjWhenLive(m.at);
   /* #3134-followup (Josh 6.72): name and timestamp move INSIDE the bubble. The agent's
      name is a bold heading at the TOP (`.msg-nm`); the operator's OWN post still gets
      NO name -- his standing #3130 6.70 rule, "me as the user doesn't have my name or
@@ -49854,12 +49858,16 @@ function paintRoom(body) {
      it true and lands on the newest post. The old key mixed the message ids in,
      so every new post read as a reset and jumped the reader down. */
   const queryChanged = box.__lastRoomQuery !== PJ_ROOM_QUERY;
-  if (box.__lastRoom !== html) {
+  /* #3966: compared by SHAPE, as the agent thread is: a time's words ticking over neither rebuilds
+     the room nor marks it seen. */
+  const shape = threadShape(html);
+  if (box.__lastRoom === shape) refreshWhens(box);
+  if (box.__lastRoom !== shape) {
     /* New rows while the room is on screen are read as they land; a tab in
        the background is not looking, so its cursor waits for the person. */
     if (box.__lastRoom !== undefined && document.visibilityState === 'visible'
       && !document.getElementById('pj-one-view').hidden) pjMarkSeen(PJ_CURRENT);
-    box.__lastRoom = html;
+    box.__lastRoom = shape;
     box.__lastRoomQuery = PJ_ROOM_QUERY;
     paintThreadInto(box, html, rows !== '', queryChanged, filtering);
     /* #3745: a repaint rebuilds every row without its measured .rxn-left, and a still mouse sends no new
@@ -50745,6 +50753,33 @@ function pjNameOf(p, sessionName) {
  * mid-task)" with a doubled space, or "…session ." with a dangling one. The
  * space belongs to the value, not to the sentence.
  */
+/**
+ * #3966: a message's relative time, as a span that can be updated IN PLACE.
+ *
+ * Josh, 2026-09-26: "I'm getting a flash every 5 seconds" on an agent's page. Measured cause: a
+ * thread was rewritten whenever its markup changed, and "51 minutes ago" becoming "52 minutes
+ * ago" on ANY row changed it. A busy thread crosses some row's minute mark on most polls, so
+ * the whole thread (every avatar, preview image and reaction) was rebuilt and reloaded about
+ * every five seconds. The time now carries its source (`data-at`) so the thread can compare
+ * its SHAPE without the words (threadShape) and refresh the words alone (refreshWhens).
+ */
+function pjWhenLive(at) {
+  const said = pjWhen(at);
+  return said ? '<span class="mwhen" data-at="' + esc(String(at)) + '">' + esc(said) + '</span>' : '';
+}
+/** A thread's markup with every live time's words blanked: what decides a rewrite. */
+function threadShape(html) {
+  return String(html).replace(/(<span class="mwhen" data-at="[^"]*">)[^<]*(<\/span>)/g, '$1$2');
+}
+/** Bring every live time under `root` up to now, touching only the ones whose words changed. */
+function refreshWhens(root) {
+  if (!root || typeof root.querySelectorAll !== 'function') return;
+  for (const el of root.querySelectorAll('.mwhen[data-at]')) {
+    const said = pjWhen(el.getAttribute('data-at'));
+    if (said && el.textContent !== said) el.textContent = said;
+  }
+}
+
 function pjWhenPart(at) {
   const said = pjWhen(at);
   return said ? ' ' + said : '';

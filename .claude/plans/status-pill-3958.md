@@ -24,3 +24,32 @@ separate static-dots bug; I could not reproduce one.
   removed (pill rewritten every poll) -> the same-nodes arm RED on both engines. The first version
   of that arm read currentTime and silently SKIPPED under the perturbation (a detached node reads
   null); it now compares node identity and asserts it ran.
+
+# #3966 on the same branch: the agent page flashes every five seconds (Josh 2026-09-26 08:59)
+
+## Cause (measured)
+setThread rewrote the whole thread whenever its markup changed, and a relative time on any row
+("51 minutes ago" -> "52 minutes ago") changed it. A sixteen-message thread spread over the last
+hour was rewritten 5 times in 30s (every ~6s), replacing all 208 thread nodes, so every avatar,
+preview image and reaction reloaded: the flash. The project room had the same gate (paintRoom's
+`__lastRoom !== html`) and additionally marked the room seen on a time-only change.
+Surveys that ruled things OUT first: the pill/avatar/busy line are not rebuilt per poll; with an
+empty or two-message thread nothing on the agent page is rebuilt; the unfurl cache's image budget
+(32 MB vs a 5 MB per-image cap) cannot evict previews in a way that flips per poll.
+
+## Fix
+- pjWhenLive(at): the time as <span class="mwhen" data-at>, used by all 7 thread row builders.
+- threadShape(html): the markup with those words blanked; setThread and paintRoom rewrite only when
+  the SHAPE changed, and otherwise refreshWhens() updates the words in place.
+
+## Verification
+- docs/browser-checks/render-thread-steady-3966.js, chromium + webkit, 8/8; raw-markup compare
+  reds it on both engines (224/224 nodes replaced).
+- web.thread-shape-3966.test.js (5): shape equality across time words, real changes still repaint,
+  source pins on both painters, every thread time written through pjWhenLive.
+- web.thread-scroll.test.js brings the two helpers across (it loads setThread by itself).
+
+## Not measured
+The room is covered by the unit pins and shares the helpers; no browser check watches a room.
+Josh's own thread was not read (it is his data on his Mac); the mechanism is reproduced, the
+exact trigger in his thread is inferred.
