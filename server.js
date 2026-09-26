@@ -274,9 +274,10 @@ function heardBy(projectId, t, who, sentence, roster) {
   }
   let title = projectId;
   try { const rec = projects.readAll().find((x) => x && x.id === projectId); if (rec && rec.name) title = rec.name; } catch { /* the id will do */ }
-  /* #1307: a webhook task's words are marked as outside text, here where they reach the agent. */
+  /* #1307: a webhook task's words are marked and quoted as outside text, here where they reach
+     the agent (tasks.forAgent). */
   const line = '[Kosmos: you were given task ' + t.number + ' in "' + String(title).replace(/[\r\n"]/g, ' ') + '": '
-    + tasks.webhookMark(t) + String(sentence || '').replace(/[\r\n]/g, ' ') + '. When you take it up, say "task ' + t.number + ' of ' + String(title).replace(/[\r\n"]/g, ' ')
+    + tasks.forAgent(t, sentence || '') + '. When you take it up, say "task ' + t.number + ' of ' + String(title).replace(/[\r\n"]/g, ' ')
     + '" in what you report (every project numbers from 1, so the name matters; #779); the room is: kosmos post ' + projectId + ']';
   let sent;
   try { sent = chat.deliver(name, line, roster); }
@@ -3386,7 +3387,9 @@ function gateLog(req) {
     // lifetime or reusability changes, and nothing else recorded the omission.
     // #1307: a webhook call carries its secret in the PATH (/hooks/<id>/<secret>), redacted too.
     const loggedUrl = String(req.url || '').replace(/([?&](?:token|boot)=)[^&]*/gi, '$1REDACTED')
-      .replace(/(\/hooks\/[^/?#]*\/)[^/?#]*/gi, '$1REDACTED'); // anywhere: an absolute-form target is accepted too
+      // Anywhere, and either slash: an absolute-form target is accepted, and the URL parser reads a
+      // backslash as a slash, so /hooks\<id>\<secret> reaches the same route.
+      .replace(/([\\/]hooks[\\/][^/\\?#]*[\\/])[^/\\?#]*/gi, '$1REDACTED');
     fs.appendFileSync(GATE_LOG, `${new Date().toISOString()} ${req.method} ${loggedUrl} ${ua}\n`);
   } catch { /* the instrument never becomes the defect */ }
 }
@@ -15017,19 +15020,23 @@ const server = http.createServer((req, res) => {
      and is given to nobody. */
   const hookCall = req.method === 'POST' ? pathname.match(HOOK_CALL_RE) : null;
   if (hookCall) {
-    const hook = webhooks.verify(hookCall[1], hookCall[2]);
     const nope = () => sendJson(res, 404, { error: 'there is no webhook at this address' });
+    /* 404 ONLY for an address that is not a live webhook. Our own trouble reading a store is a
+       503: a sender like Zapier may drop or switch off a webhook that answers 404. */
+    const ours = () => { res.setHeader('retry-after', '60'); sendJson(res, 503, { error: 'Kosmos could not check this webhook just now; try again shortly' }); };
+    let hook;
+    try { hook = webhooks.verify(hookCall[1], hookCall[2]); } catch { ours(); return; }
     if (!hook) { nope(); return; }
     /* The project it was made on, not merely one with the same id (ids are reused). */
     let owner = null;
-    try { owner = projects.get(hook.projectId); } catch { owner = null; }
+    try { owner = projects.get(hook.projectId); } catch { ours(); return; }
     if (!owner || (owner.createdAt || null) !== hook.projectMade) { nope(); return; }
     const tooOften = hookRateProblem(hook.id, hook.projectId);
-    if (tooOften) { sendJson(res, 429, { error: tooOften }); return; }
+    if (tooOften) { res.setHeader('retry-after', '60'); sendJson(res, 429, { error: tooOften }); return; }
     /* A caller gets ten seconds IN ALL to send its (at most 16 KB) body. A plain timer, armed once:
        req.setTimeout is an IDLE timeout that resets on every chunk, so a caller trickling a byte
        at a time would hold the socket open for the server's five-minute default. */
-    const deadline = setTimeout(() => { try { req.destroy(); } catch { /* already gone */ } }, HOOK_RATE.bodyMs);
+    const deadline = setTimeout(() => { try { req.destroy(new Error('the body did not arrive in time')); } catch { /* already gone */ } }, HOOK_RATE.bodyMs);
     readBody(req, HOOK_BODY_MAX).finally(() => clearTimeout(deadline)).then((buf) => {
       const text = buf.toString('utf8');
       let parsed;
@@ -15039,8 +15046,17 @@ const server = http.createServer((req, res) => {
         return;
       }
       const t = parsed.title !== undefined ? parsed.title : parsed.text;
-      const title = (typeof t === 'string' ? t : '').trim();
       const detail = typeof parsed.detail === 'string' ? parsed.detail.trim() : '';
+      /* The title is ONE line of plain text: it is printed in agents' task lists one task per line,
+         and a newline in it would let a caller print a line of its own with no webhook mark.
+         Whitespace runs (newlines included) become one space; other control characters are
+         refused. The detail may keep its lines; it is never printed as a list line. */
+      const rawTitle = typeof t === 'string' ? t : '';
+      if (/[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f-\u009f]/.test(rawTitle) || /[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f-\u009f]/.test(detail)) {
+        sendJson(res, 400, { error: 'the title and detail are plain text, with no control characters' });
+        return;
+      }
+      const title = rawTitle.replace(/\s+/g, ' ').trim();
       if (!title) { sendJson(res, 400, { error: 'send JSON with a "title" for the task' }); return; }
       /* A ceiling on what is WAITING, not only on the rate: a leaked link at the hourly limit would
          still add thousands a day, and every task lives in the one projects file the board rewrites
@@ -15051,12 +15067,15 @@ const server = http.createServer((req, res) => {
       /* And checked AGAIN now the body is here: the webhook may have been deleted, or its project
          deleted and the id reused, while the body was arriving. Both reads are synchronous and
          cheap (verify is cached), and nothing asynchronous follows them before the write. */
-      if (!webhooks.verify(hookCall[1], hookCall[2])) { nope(); return; }
+      let still;
+      try { still = webhooks.verify(hookCall[1], hookCall[2]); } catch { ours(); return; }
+      if (!still) { nope(); return; }
       let fresh = null;
-      try { fresh = projects.get(hook.projectId); } catch { fresh = null; }
+      try { fresh = projects.get(hook.projectId); } catch { ours(); return; }
       if (!fresh || (fresh.createdAt || null) !== hook.projectMade) { nope(); return; }
       const waiting = (fresh.tasks || []).filter((t) => t && t.addedVia === 'webhook' && !tasks.progressOf(t).closed).length;
       if (waiting >= HOOK_RATE.openMax) {
+        res.setHeader('retry-after', '3600');
         sendJson(res, 429, { error: 'this project already has ' + HOOK_RATE.openMax + ' open tasks from webhooks; close some first' });
         return;
       }
@@ -15097,7 +15116,9 @@ const server = http.createServer((req, res) => {
     if (!project) { sendJson(res, 404, { error: 'no project by that name' }); return; }
     const fail = (err, fallback) => {
       const msg = String((err && err.message) || '');
-      sendJson(res, /no webhook by that id/.test(msg) ? 404 : ((err && err.code === 'UNREADABLE') || /busy|exclusive access/.test(msg) ? 503 : 400), { error: msg || fallback });
+      // Our own state (unreadable, busy, a disk that refused the write) is 5xx; the request's is 400.
+      const ours = (err && (err.code === 'UNREADABLE' || /^E[A-Z]+$/.test(String(err.code || '')))) || /busy|exclusive access/.test(msg);
+      sendJson(res, /no webhook by that id/.test(msg) ? 404 : (ours ? 503 : 400), { error: msg || fallback });
     };
     const made0 = project.createdAt || null;
     /* Making, renaming and deleting are the person's, from the screen (the same advisory check as

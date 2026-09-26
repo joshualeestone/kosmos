@@ -14189,7 +14189,7 @@ window.kosmosMeasureScrollbarWidth();
          The link is shown ONCE, when made: only a hash is kept (engine/webhooks.js). -->
     <div class="field" id="pjs-hooks-field">
       <span class="flabel" id="pjs-hooks-label">Webhooks</span>
-      <p class="fhint" id="pjs-hooks-hint">A webhook is a link another program can call to add a task to this project. For now it answers programs on this computer only.</p>
+      <p class="fhint" id="pjs-hooks-hint">A webhook is a link another program can call to add a task to this project. Tasks it adds wait for you to give them to someone. For now it answers programs on this computer only.</p>
       <div class="pjs-hooks" id="pjs-hooks" role="list" aria-labelledby="pjs-hooks-label"></div>
       <p class="fmsg" id="pjs-hooks-msg" aria-live="polite" tabindex="-1"></p>
       <div class="frow" style="margin-top: var(--space-4)">
@@ -46408,8 +46408,8 @@ async function pjsHooksOpen(p) {
       /* The row whose link is showing is never dropped by a read: a read the server answered
          before that webhook was written would otherwise take the only copy of its link with it. */
       const list = body.webhooks.slice();
-      const r = PJS_HOOKS.reveal;
-      if (r && !list.some((h) => h.id === r.id)) { const keep = PJS_HOOKS.list.find((h) => h.id === r.id); if (keep) list.push(keep); }
+      const shown = PJS_HOOKS.reveal;
+      if (shown && !list.some((h) => h.id === shown.id)) { const keep = PJS_HOOKS.list.find((h) => h.id === shown.id); if (keep) list.push(keep); }
       PJS_HOOKS.list = list;
     }
   } catch {

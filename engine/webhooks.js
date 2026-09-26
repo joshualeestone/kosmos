@@ -231,8 +231,9 @@ function readCached() {
  */
 function verify(id, secret) {
   if (!ID_RE.test(String(id)) || !SECRET_RE.test(String(secret))) return null;
-  let hooks;
-  try { hooks = readCached(); } catch { return null; }
+  // A store we could not read THROWS (the caller answers 503, retryable); only an address that is
+  // not a live webhook returns null (404).
+  const hooks = readCached();
   const h = hooks.find((x) => x.id === String(id));
   const ok = sameHash(h ? h.hash : hashOf('unknown webhook'), hashOf(secret));
   return h && ok ? { ...view(h), projectId: h.projectId, projectMade: h.projectMade || null } : null;

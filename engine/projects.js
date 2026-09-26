@@ -2536,8 +2536,8 @@ function blockBody(projects, sessionName) {
        a heading two lines up is not something a reader copies from
        (Splinter's ruling, held for Josh, 2026-08-25 02:01). Lower-case
        "task" so the line and the instruction below agree. */
-    // #1307: a webhook task's words are marked as outside text (tasks.webhookMark).
-    return [head, ...mine.map((t) => `  - task ${Number(t.number)} of ${oneLine(p.name)}: ${oneLine(require('./tasks').webhookMark(t) + (t.sentence || ''))}`)].join('\n');
+    // #1307: a webhook task's words are marked and quoted as outside text (tasks.forAgent).
+    return [head, ...mine.map((t) => `  - task ${Number(t.number)} of ${oneLine(p.name)}: ${oneLine(require('./tasks').forAgent(t))}`)].join('\n');
   });
   return [
     '## Your projects',

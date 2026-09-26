@@ -88,6 +88,14 @@ function ageKey(t) {
   return Number.isFinite(at) ? at : Number(t && t.number) || 0;
 }
 
+/* Open work that stops the goal ask: any open task EXCEPT a webhook task nobody has been given.
+   Those wait for a person (pick never hands them out), so counting them would switch the goal ask
+   off for as long as an integration keeps one waiting, which for a monitor is forever. #1307. */
+function blocksGoalAsk(t) {
+  if (tasks.progressOf(t).closed) return false;
+  return !(t && t.addedVia === 'webhook' && !tasks.whoOf(t).length);
+}
+
 /* The next task nobody is on, in a live project this agent belongs to, and the part to give:
    the first open one. `taken` holds "project#number" already chosen this step. */
 function pick(session, projects, taken) {
@@ -126,7 +134,7 @@ function goalProject(session, projects, goals, asked, now) {
     if (typeof at === 'number' && now - at < GOAL_ASK_MS) continue;
     const goal = goals instanceof Map ? goals.get(p.id) : null;
     if (typeof goal !== 'string' || !goal) continue;
-    const open = (Array.isArray(p.tasks) ? p.tasks : []).some((t) => !tasks.progressOf(t).closed);
+    const open = (Array.isArray(p.tasks) ? p.tasks : []).some(blocksGoalAsk);
     if (open) continue;
     const item = { projectId: p.id, projectName: typeof p.name === 'string' && p.name ? p.name : p.id, goal };
     // The pane's own check, not a copy of it: a line it would refuse is never asked.
@@ -279,7 +287,7 @@ function tick({ prev, now, readSetting, readRoster, readRecords, readCommitment,
   if (typeof readGoal === 'function' && idle.size) {
     for (const p of liveProjects(records)) {
       if (!(Array.isArray(p.agents) && p.agents.some((m) => idle.has(m)))) continue;
-      if ((Array.isArray(p.tasks) ? p.tasks : []).some((t) => !tasks.progressOf(t).closed)) continue;
+      if ((Array.isArray(p.tasks) ? p.tasks : []).some(blocksGoalAsk)) continue;
       try { const g = readGoal(p); if (typeof g === 'string' && g) goals.set(p.id, g); } catch { /* no goal */ }
     }
   }

@@ -178,6 +178,18 @@ test('#1307: a task a webhook added is never handed out by the Assigner; the sam
   } finally { w.restore(); }
 });
 
+test('#1307: webhook tasks waiting for a person do not switch off the goal ask; one given out does (control)', () => {
+  const w = world([{ name: 'goalhook' }]);
+  try {
+    const hook = tasks.create(w.pid, { sentence: 'from a webhook', made: { via: 'webhook', by: 'Webhook 1' } });
+    const p = () => projects.readAll().find((x) => x.id === w.pid);
+    const goals = new Map([[w.pid, 'Ship the thing']]);
+    assert.ok(a.goalProject(w.key.goalhook, [p()], goals, new Map(), T0), 'a waiting webhook task blocked the goal ask');
+    tasks.assignPart(w.pid, hook.number, 1, w.key.goalhook, { via: 'screen' });
+    assert.equal(a.goalProject(w.key.goalhook, [p()], goals, new Map(), T0), null, 'control: once given out, it is open work');
+  } finally { w.restore(); }
+});
+
 test('order: soonest due date first, then the oldest; an undated task comes after dated ones', () => {
   const w = world([{ name: 'ord' }]);
   try {
