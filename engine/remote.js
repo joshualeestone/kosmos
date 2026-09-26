@@ -664,12 +664,19 @@ async function forget() {
   // the switch back on for the state this is about to wipe (#3827 review).
   signinEpoch += 1;
   signinSession = null;
+  // An abandoned register is already undoing itself (retire, wipe, switch off):
+  // a second Forget now would retire the same Mac beside it and report a failure
+  // that is not one. It is being forgotten; say so.
+  if (abandonedRegister) {
+    return { ok: true, retired: null, address: address(),
+      because: 'this computer is already being forgotten; that finishes in a moment' };
+  }
   if (registerInFlight) {
     const waited = registerInFlight;
     let timer;
     const timedOut = await Promise.race([
       waited.then(() => false),
-      new Promise((r) => { timer = setTimeout(() => r(true), forgetWaitMs()); }),
+      new Promise((r) => { timer = setTimeout(() => r(true), forgetWaitMs()); if (timer.unref) timer.unref(); }),
     ]);
     clearTimeout(timer);
     // Only a register this forget STOPPED waiting for undoes itself later; one that
@@ -1189,12 +1196,6 @@ async function signinConfirmEnrol(code) {
   return absorbSession(r.data);
 }
 
-/** Last step: register THIS computer with the session held here. The keypair is
-    born in the binary (private half never travels); the token is piped in over
-    stdin, off argv. On success the state dir is written and the tunnel comes up
-    if the switch is on, exactly as `setup complete` does. A failed register
-    keeps the session so the person can pick another name without redoing the
-    code steps. */
 /* #3827: signing in IS asking to be reachable. The sign-in wizard never passes
    the switch (the older Settings flow shows its steps only once it is on), so
    without this a successful sign-in left `on` false, ensure() never started the
@@ -1231,6 +1232,12 @@ const registerTimeoutMs = () => Number(process.env.AGENT_WORKFORCE_REGISTER_TIME
 // (0 or unset means the default, not "do not wait".)
 const forgetWaitMs = () => Number(process.env.AGENT_WORKFORCE_FORGET_WAIT_MS) || FORGET_WAIT_MS;
 
+/** Last step: register THIS computer with the session held here. The keypair is
+    born in the binary (private half never travels); the token is piped in over
+    stdin, off argv. On success the state dir is written, the switch is turned on
+    (#3827: signing in is asking to be reachable) and the tunnel comes up. A
+    failed register keeps the session so the person can pick another name
+    without redoing the code steps. */
 async function signinRegister(name) {
   if (!signinSession || typeof signinSession.token !== 'string') {
     return { ok: false, because: 'finish the code steps first' };
@@ -1288,13 +1295,17 @@ async function signinRegister(name) {
     // (every path of signinRegister is refused while this is set), so the state
     // dir is this register's.
     try {
-      if (r.ok) {
-        stopChild();
+      // Whether or not it reported ok: a register killed by its timeout after the
+      // coordinator accepted it, or one that wrote part of an identity, leaves
+      // files in the directory Forget already emptied. Retire only what can sign
+      // (an enrolled state); wipe regardless.
+      stopChild();
+      if (enrolled()) {
         const ret = await setupRun(['retire', '--coordinator', COORDINATOR(), '--state-dir', STATE_DIR()], null, registerTimeoutMs());
         if (!ret.ok) process.stderr.write('remote: a sign-in that finished after Forget could not be retired at Kosmos+ (' + ret.because + '); its address may show on the account page until it is removed there\n');
-        try { fs.rmSync(STATE_DIR(), { recursive: true, force: true }); } catch { /* enrolled() re-reads */ }
-        write({ on: false, standing: '' });
       }
+      try { fs.rmSync(STATE_DIR(), { recursive: true, force: true }); } catch { /* enrolled() re-reads */ }
+      write({ on: false, standing: '' });
     } finally {
       abandonedRegister = null;
     }
@@ -1354,7 +1365,7 @@ module.exports = { secondReset, forget, macRequest, assistantChat, hostedAvailab
      one the reachability sweep excuses for exactly this job) AND clears any
      in-flight sign-in and the device-id memo, so neither a held token/challenge
      nor a memoised device id leaks across cases. */
-  resetForTests: () => { signinSession = null; mintedDeviceId = null; stopChild(); },
+  resetForTests: () => { signinSession = null; mintedDeviceId = null; registerInFlight = null; abandonedRegister = null; stopChild(); },
   /* test seam: the live child's pid, or null. spawn() sets the handle
      synchronously, so a test can assert "nothing spawned" deterministically
      right after ensure() instead of waiting a fixed interval and hoping. */

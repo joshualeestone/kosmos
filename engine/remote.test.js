@@ -144,7 +144,7 @@ if (args[0] === 'signin') {
     if (name === 'taken') { process.stderr.write('the coordinator said no (409): a Mac on this account already has that name\\n'); process.exit(1); }
     const dir = flag('--state-dir');
     // #3827: a register that is still out when Forget is pressed.
-    if (mode.includes('slow-register')) { const until = Date.now() + 600; while (Date.now() < until) { /* busy wait: no timers in this script */ } }
+    if (mode.includes('slow-register')) { const until = Date.now() + 2500; while (Date.now() < until) { /* busy wait: no timers in this script */ } }
     fs.mkdirSync(dir, { recursive: true });
     for (const f of ['mac_id', 'mac_key', 'coordinator_pubkey', 'tls.crt', 'tls.key']) {
       fs.writeFileSync(path.join(dir, f), 'fake');
@@ -169,7 +169,7 @@ if (args[0] === 'devices') {
   process.exit(0);
 }
 // #3827: a retire that hangs (a dead network), for the abandoned-register undo.
-if (args[0] === 'retire' && mode.includes('hung-retire')) { const until = Date.now() + 4000; while (Date.now() < until) { /* busy wait */ } }
+if (args[0] === 'retire' && mode.includes('hung-retire')) { const until = Date.now() + 12000; while (Date.now() < until) { /* busy wait */ } }
 if (args[0] === 'run') {
   if (mode === 'crash') process.exit(3);
   const statusFile = flag('--status-file');
@@ -939,7 +939,7 @@ test('#3827 review: while an abandoned register undoes itself, even a same-name 
   process.env.AGENT_WORKFORCE_TUNNEL_RELAY = '127.0.0.1:9444';
   process.env.FAKE_TUNNEL_MODE = 'slow-register hung-retire';
   process.env.AGENT_WORKFORCE_FORGET_WAIT_MS = '50';
-  process.env.AGENT_WORKFORCE_REGISTER_TIMEOUT_MS = '1500';
+  process.env.AGENT_WORKFORCE_REGISTER_TIMEOUT_MS = '5000';
   try {
     await remote.signinStart('her@example.com');
     await remote.signinVerify('her@example.com', '111111');
@@ -954,9 +954,16 @@ test('#3827 review: while an abandoned register undoes itself, even a same-name 
     assert.equal(same.ok, false, 'a same-name sign-in took the shortcut during the undo');
     assert.match(same.because, /still finishing/);
     assert.equal(remote.read().on, false, 'the shortcut turned the switch on during the undo');
-    // The hung retire (4s) is bounded (1.5s), so the refusal ends well before it would.
+    // A second Forget during the undo does not retire beside it.
+    const second = await remote.forget();
+    assert.equal(second.retired, null, 'a second Forget ran its own retire during the undo');
+    assert.match(second.because, /already being forgotten/);
+    // The hung retire (12s) is bounded (5s), so the refusal ends well before it would.
     await racing;
-    assert.ok(Date.now() - t0 < 3500, 'the abandoned register waited out a hung retire (' + (Date.now() - t0) + 'ms)');
+    assert.ok(Date.now() - t0 < 10000, 'the abandoned register waited out a hung retire (' + (Date.now() - t0) + 'ms)');
+    // Forget drops a held sign-in (as it should), so sign in again.
+    await remote.signinStart('her@example.com');
+    await remote.signinVerify('her@example.com', '111111');
     const later = await remote.signinRegister('other');
     assert.equal(later.ok, true, 'sign-in stayed refused after a hung retire: ' + later.because);
   } finally {
@@ -969,7 +976,7 @@ test('#3827 review: while an abandoned register undoes itself, even a same-name 
 
 test('#3827 review: a register that finishes WITHIN the forget wait is retired once, by forget, and forget says retired', async () => {
   process.env.AGENT_WORKFORCE_TUNNEL_RELAY = '127.0.0.1:9444';
-  process.env.FAKE_TUNNEL_MODE = 'slow-register';   // ~600ms, inside the default wait
+  process.env.FAKE_TUNNEL_MODE = 'slow-register';   // ~2.5s, inside the default 20s wait
   try {
     await remote.signinStart('her@example.com');
     await remote.signinVerify('her@example.com', '111111');
@@ -992,7 +999,7 @@ test('#3827 review: Forget does not hang on a register that is still out, and th
   try {
     await remote.signinStart('her@example.com');
     await remote.signinVerify('her@example.com', '111111');
-    const racing = remote.signinRegister('hers');   // the fake takes ~600ms to answer
+    const racing = remote.signinRegister('hers');   // the fake takes ~2.5s to answer
     const t0 = Date.now();
     await remote.forget();
     assert.ok(Date.now() - t0 < 500, 'Forget waited on a register that had not finished (' + (Date.now() - t0) + 'ms)');

@@ -49,3 +49,12 @@ Controls: removing each fix reds exactly its test (epoch -> both race tests; for
 ## Round 5 review (sonnet)
 - BLOCKER: the "no new sign-in while an abandoned register is out" refusal sat below the #1010 same-name shortcut, so a same-name retry during the undo turned the switch on and was then wiped underneath. The refusal now runs before every path. Test: slow register + hung retire; a same-name sign-in during the undo is refused and the switch stays off; control with the refusal back below the shortcut fails.
 - BLOCKER: the undo's retire had no timeout, so a hung retire refused sign-in forever. It is bounded like the register (registerTimeoutMs, env seam AGENT_WORKFORCE_REGISTER_TIMEOUT_MS). Test asserts the undo ends well before the 4s hang; control without the bound fails "waited out a hung retire".
+
+## Round 6 review (opus)
+- WARNING: a second Forget during an abandoned register's undo ran its own retire beside it. It now answers "this computer is already being forgotten" and retires nothing. Asserted in the hung-retire test.
+- WARNING: an abandoned register that reported failure skipped the undo, though it may have written part of an identity (or been killed after the coordinator accepted it). The undo now always wipes, and retires if the state is enrolled.
+- WARNING (accepted): a register that times out while NOT abandoned may already be registered; the retry at the same name is recognised by the #1010 shortcut. Before this change a register had no timeout at all.
+- WARNING: test isolation and load: resetForTests clears registerInFlight/abandonedRegister; the fake's slow register is 2.5s and its hung retire 12s against a 5s bound, so a loaded machine does not close the windows first.
+- CONVENTION: the signinRegister doc moved back onto the function and says the switch is turned on.
+- NIT: the forget-wait timer is unref'd.
+- Control for the second-Forget answer: without it, the test fails "a second Forget ran its own retire". The undo-regardless-of-ok change is reasoned from the code (a partial or killed register is hard to fake without a new mode); not measured.
