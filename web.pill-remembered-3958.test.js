@@ -94,5 +94,6 @@ test('#3991: a swarm member\'s face carries the same ring and dot as any other m
   const src = pageFnSource('pjMember');
   assert.match(src, /const swFace = swRow \? '<span class="lav pj-face pj-swface' \+ dotCls \+ '"[^;]*\+ memRing \+ warn \+ reachMark/,
     'the swarm face is drawn without the ring or the dot (a SOURCE pin: no fixture here turns swarms on)');
-  assert.match(src, /const dotCls = present \? memberDotClass\(boardCard \|\| liveM\) : '';/, 'the dot must come from the shared helper');
+  assert.match(src, /const dotCls = present \? memberDotClass\(dotRow\) : '';/, 'the dot must come from the shared helper');
+  assert.match(src, /const dotRow = boardCard \? Object\.assign\(\{\}, boardCard, \{ state: liveM\.state \}\) : liveM;/, 'the dot state must follow the member projection (the tie gate)');
 });
