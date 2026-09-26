@@ -35,3 +35,15 @@ and needs no runtime flag.
 - Wrong turns caught by those controls: the first version passed vacuously (the bare '/api/'
   catch-all counted as a prefix serving everything; the regex scan found 4 of 55), and a skip
   pattern that stopped at the first ')' collapsed 41 paths into one (99 read, now 139).
+
+## Challenge-loop iteration 1
+- Page: every quoted '/api/' literal in CODE is read, not only fetch( arguments (44 went through
+  helpers: a post wrapper, an endpoint table, `url:` fields). Comments are skipped; a literal the
+  page only compares against (startsWith, ===) is not a call. 193 paths read.
+- Board: a literal counts only where the server COMPARES the path to it (=== / case), outside
+  comments; a comment or log line naming a future route no longer serves it (control added).
+- The unread and variable-tail counts have CEILINGS (20, 1): growth reds instead of scrolling by.
+- The placeholder limit is pinned by a test that asserts it: '/api/federation/x' still reads as
+  served with invite removed, because join fills it. The gate catches a missing route only where the
+  page names it literally.
+- Historical pair re-run: still red on exactly the three federation routes.

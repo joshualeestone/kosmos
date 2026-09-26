@@ -10,13 +10,13 @@
  * so the UI PR goes red at merge time, before any cut.
  *
  * WHAT IT READS, stated so nobody over-trusts it:
- *   - the page: every `fetch(` in web/index.html whose first argument begins with a quoted '/api/'
- *     literal. A dynamic piece (`' + x + '`, `${x}`) becomes one placeholder segment, and a query
+ *   - the page: every quoted '/api/' literal in web/index.html's CODE (comments skipped), whether it
+ *     is a fetch( argument or goes through a helper, a table or a `url:` field. A dynamic piece (`' + x + '`, `${x}`) becomes one placeholder segment, and a query
  *     string is dropped. A fetch whose URL is not a literal from its first character (a variable,
  *     a helper) is NOT read, and neither is one whose tail is a variable (`'/task/' + id + url`);
  *     both are counted and printed so a drop is visible.
- *   - the board: every '/api/...' string literal and every regex literal containing \/api\/ in
- *     server.js. A page path is served if it equals a literal, or a regex matches it.
+ *   - the board: '/api/...' literals the server COMPARES the path to (=== / case), startsWith
+ *     prefixes, and regex literals containing \/api\/, all outside comments. A page path is served if it equals a literal, or a regex matches it.
  *   - a placeholder segment counts as served when SOME value makes it a route (a board literal with
  *     any segment there, a number, or a regex's enumerated word). Permissive, so a per-provider route the
  *     page reaches with a name the board lacks is not caught.
@@ -38,17 +38,58 @@ const SERVER = fs.readFileSync(nodePath.join(__dirname, 'server.js'), 'utf8');
 const SERVED_ELSEWHERE = {
 };
 
-/** The /api paths the page fetches, as concrete example paths with dynamic parts filled in. */
+/* Measured 2026-09-26 on main. Growth reds; shrinking is fine (lower these when it happens). */
+const UNREAD_CEILING = 20;
+const UNREADABLE_CEILING = 1;
+
+/* The [start, end) ranges of JS comments (block and line) in a source text, skipping quoted strings
+   so a `//` inside a URL string is not taken for a comment. Good enough for this page and server;
+   a regex literal containing a quote could confuse it, and none of the /api ones do. */
+function commentRanges(src) {
+  const out = [];
+  let i = 0;
+  while (i < src.length) {
+    const c = src[i];
+    if (c === "'" || c === '"' || c === '`') {
+      let j = i + 1;
+      while (j < src.length && src[j] !== c && src[j] !== '\n') j += src[j] === '\\' ? 2 : 1;
+      i = j + 1;
+    } else if (c === '/' && src[i + 1] === '*') {
+      const e = src.indexOf('*/', i + 2);
+      const end = e < 0 ? src.length : e + 2;
+      out.push([i, end]);
+      i = end;
+    } else if (c === '/' && src[i + 1] === '/' && src[i - 1] !== ':' && src[i - 1] !== '\\') {
+      const e = src.indexOf('\n', i);
+      const end = e < 0 ? src.length : e;
+      out.push([i, end]);
+      i = end;
+    } else i += 1;
+  }
+  return out;
+}
+
+/** The /api paths the page reaches, as concrete example paths with dynamic parts filled in. */
 function pagePaths(src) {
   const out = new Set();
   const unreadable = new Set(); // a variable tail: counted and printed, never checked
   let unread = 0;
-  const re = /fetch\(\s*/g;
+  /* fetch( calls whose URL is not a literal at all: counted, since they cannot be read. */
+  for (const f of src.matchAll(/fetch\(\s*(.)/g)) if (!"'\"`".includes(f[1])) unread += 1;
+  /* Every quoted '/api/' literal in CODE, not only fetch( arguments: the page also reaches the
+     board through helpers (a post wrapper, a table of endpoints, a `url:` field), and a UI merged
+     ahead of its route through one of those is the same defect. Comments are skipped. */
+  const comments = commentRanges(src);
+  const inComment = (i) => comments.some(([s0, e0]) => i >= s0 && i < e0);
+  const re = /['"`]\/api\//g;
   let m;
   while ((m = re.exec(src))) {
-    const at = m.index + m[0].length;
+    const at = m.index;
+    if (inComment(at)) continue;
+    /* A literal the page only COMPARES against (`api.startsWith('/api/svc/')`, `=== '/api/x'`) names
+       no request, so it is not a call to check. */
+    if (/(?:startsWith|endsWith|includes|indexOf)\(\s*$|[=!]==?\s*$/.test(src.slice(Math.max(0, at - 24), at))) continue;
     const q = src[at];
-    if (q !== "'" && q !== '"' && q !== '`') { unread += 1; continue; }
     /* Walk the URL expression: literal pieces joined by `+ expr +`, or a template literal. */
     let path = '';
     let i = at;
@@ -110,17 +151,26 @@ function pagePaths(src) {
 
 /** The board's routes: exact literals, prefixes, and regexes. */
 function boardRoutes(src) {
-  const literals = new Set((src.match(/'\/api\/[A-Za-z0-9/_.-]*'/g) || []).map((s) => s.slice(1, -1)));
+  const comments = commentRanges(src);
+  const inComment = (i) => comments.some(([s0, e0]) => i >= s0 && i < e0);
+  /* A literal counts as a ROUTE only where the board compares the path to it (`=== '/api/..'`,
+     `'/api/..' ===`, a `case`), not anywhere it is merely mentioned: a comment, a log line or an
+     outbound URL naming a route that does not exist yet must not serve it. */
+  const literals = new Set();
+  for (const m of src.matchAll(/(?:===\s*|case\s+)'(\/api\/[A-Za-z0-9/_.-]*)'|'(\/api\/[A-Za-z0-9/_.-]*)'\s*===/g)) {
+    if (!inComment(m.index)) literals.add(m[1] || m[2]);
+  }
   /* A PREFIX only where the board itself tests one with startsWith, and never the bare '/api/':
      that is the "no such endpoint" catch-all, and counting it would serve every path. */
-  const prefixes = [...src.matchAll(/startsWith\('(\/api\/[A-Za-z0-9/_.-]+)'\)/g)].map((m) => m[1]);
+  const prefixes = [...src.matchAll(/startsWith\('(\/api\/[A-Za-z0-9/_.-]+)'\)/g)].filter((m) => !inComment(m.index)).map((m) => m[1]);
   const regexes = [];
   /* Regex literals are scanned by hand, because a route regex carries `[^/]`: a `/` inside a
-     character class does not end the literal, and a naive pattern stops there (it found 4 of 53). */
+     character class does not end the literal, and a naive pattern stops there (it found 4 of 55). */
   let from = 0;
   for (;;) {
     const at = src.indexOf('/^\\/api\\/', from);
     if (at < 0) break;
+    if (inComment(at)) { from = at + 1; continue; }
     let i = at + 1;
     let inClass = false;
     for (; i < src.length; i += 1) {
@@ -172,6 +222,11 @@ test('#3957: every /api path the page fetches is served by a board route', () =>
   console.log(`page paths read: ${paths.length}; fetches not read (URL not a literal): ${unread}; with a variable tail, NOT checked: ${unreadable.length} (${unreadable.join(', ')}); board literals ${board.literals.size}, prefixes ${board.prefixes.length}, regexes ${board.regexes.length}`);
   assert.ok(paths.length >= 50, 'the extractor read almost nothing from the page; it is broken, not the page');
   assert.ok(board.regexes.length >= 40, 'the board extractor found almost no route regexes (' + board.regexes.length + '); it is broken, not the board');
+  /* CEILINGS, not just a printout: a green log is read by nobody. A new fetch whose URL is a variable,
+     or a new variable-tailed one, cannot be checked here, so it has to be a deliberate change: make
+     the URL readable, or raise the ceiling with a reason in the commit. */
+  assert.ok(unread <= UNREAD_CEILING, `fetches whose URL is not a literal grew to ${unread} (ceiling ${UNREAD_CEILING}); make the new one's URL a literal, or raise the ceiling with a reason`);
+  assert.ok(unreadable.length <= UNREADABLE_CEILING, `fetches with a variable tail grew to ${unreadable.length} (ceiling ${UNREADABLE_CEILING}): ${unreadable.join(', ')}`);
   const missing = paths.filter((p) => !served(p, board) && !SERVED_ELSEWHERE[p]);
   assert.deepEqual(missing, [],
     'the page calls /api paths no board route serves. Either add the route in the SAME change, or '
@@ -196,4 +251,25 @@ test('#3957 control: the 0.6.96 invite call is caught against a board without it
   assert.equal(served('/api/federation/invite', board), true, 'precondition: today the board serves it');
   const without = boardRoutes(SERVER.split('/api/federation/invite').join('/api/federation/inv1te'));
   assert.equal(served('/api/federation/invite', without), false, 'with the route renamed away, the call must read as unserved');
+});
+
+test('#3957 KNOWN LIMIT, pinned: a placeholder segment is served by any enumerated sibling', () => {
+  /* Said out loud so nobody over-trusts the gate: had the page written '/api/federation/' + kind,
+     the missing invite route would have PASSED, because /api/federation/join fills the placeholder.
+     The gate catches a missing route only where the page names it literally. If this ever starts
+     failing, the matcher got stricter: update the header and this test together. */
+  const without = boardRoutes(SERVER.split('/api/federation/invite').join('/api/federation/inv1te'));
+  assert.equal(served('/api/federation/x', without), true);
+});
+
+test('#3957 control: a route only MENTIONED in a server comment does not count as served', () => {
+  const board = boardRoutes(SERVER + "\n// the page will call '/api/newthing-3957' once #9999 lands\n/* also === '/api/newthing2-3957' */\n");
+  assert.equal(served('/api/newthing-3957', board), false);
+  assert.equal(served('/api/newthing2-3957', board), false);
+});
+
+test('#3957 control: an /api call through a page helper (not fetch) is read and checked', () => {
+  const planted = pagePaths(PAGE + "\nplusSiPost('/api/remote/no-such-3957', {});\n").paths;
+  assert.ok(planted.includes('/api/remote/no-such-3957'), 'a helper call was not read');
+  assert.equal(served('/api/remote/no-such-3957', boardRoutes(SERVER)), false);
 });
