@@ -15414,6 +15414,7 @@ window.kosmosMeasureScrollbarWidth();
         <div class="field" id="plus-si-name-field">
           <label class="flabel" for="plus-si-name">Choose your Kosmos+ address</label>
           <p class="fhint">3 to 32 letters, numbers or hyphens. <span id="plus-si-name-count" aria-live="polite">0/32</span></p>
+          <p class="fhint" id="plus-si-name-suggested" hidden>We picked a private one. Type over it to choose your own.</p>
           <input class="tk-inp plus-si-wide" id="plus-si-name" type="text" maxlength="32" autocomplete="off" autocapitalize="none">
         </div>
         <div class="frow">
@@ -35817,6 +35818,28 @@ const PLUS_NAME_RULE = /^[a-z0-9-]{3,32}$/;
    is cleaned as it is typed, as login.kosmosplus.com does (#3791): lowercase, spaces and underscores
    to hyphens, anything else dropped, no doubled or leading hyphen, 32 at most. Capitals are fine;
    they become lowercase, which is what the coordinator stores anyway. */
+/* kosmos#3842 (Josh 17:33-17:34; Splinter's call), the same as the website's address step: the field starts
+   with a random private suggestion, 8 characters from lowercase and digits with the look-alikes (0 o 1 l i)
+   left out, crypto with rejection sampling. Accepting it is one press; typing replaces it; a name already
+   typed is never overwritten. The coordinator stays the authority on whether it is free. */
+const PLUS_NAME_ALPHABET = 'abcdefghjkmnpqrstuvwxyz23456789';
+function plusNameSuggest() {
+  let out = '';
+  const n = PLUS_NAME_ALPHABET.length, cap = 256 - (256 % n);
+  while (out.length < 8) {
+    const buf = new Uint8Array(16);
+    try { crypto.getRandomValues(buf); } catch { for (let k = 0; k < 16; k++) buf[k] = Math.floor(Math.random() * 256); }
+    for (let i = 0; i < buf.length && out.length < 8; i++) if (buf[i] < cap) out += PLUS_NAME_ALPHABET.charAt(buf[i] % n);
+  }
+  return out;
+}
+function plusNamePrefill(id, noteId) {
+  const el = document.getElementById(id);
+  if (!el || el.value) return;
+  el.value = plusNameSuggest();
+  const note = noteId ? document.getElementById(noteId) : null; if (note) note.hidden = false;
+  if (typeof plusNameCount === 'function') plusNameCount();
+}
 function plusNameClean(v) {
   return String(v || '').toLowerCase().replace(/[\s_]+/g, '-').replace(/[^a-z0-9-]/g, '').replace(/-{2,}/g, '-').replace(/^-+/, '').slice(0, 32);
 }
@@ -35829,7 +35852,10 @@ function plusNameCount() {
 }
 for (const id of ['plus-si-name', 'plus-name']) {
   const el = typeof document !== 'undefined' && document.getElementById ? document.getElementById(id) : null;
-  if (el && el.addEventListener) el.addEventListener('input', () => { const c = plusNameClean(el.value); if (el.value !== c) el.value = c; plusNameCount(); });
+  if (el && el.addEventListener) el.addEventListener('input', () => {
+    const c = plusNameClean(el.value); if (el.value !== c) el.value = c; plusNameCount();
+    const note = document.getElementById('plus-si-name-suggested'); if (note && id === 'plus-si-name') note.hidden = true;
+  });
 }
 /* #3796 addendum 8: the name step, one of two ways. With the account's address known, no field at all;
    otherwise the chooser. `address` is the service's full address (name.domain); the name is its label. */
@@ -36096,6 +36122,7 @@ document.getElementById('plus-send-code').addEventListener('click', async () => 
     await res.text().catch(() => '');
     sent.textContent = PLUS_CODE_WORDS.sent(email);
     document.getElementById('plus-code-row').hidden = false;
+    plusNamePrefill('plus-name');   // #3842: the enrol flow's address field starts with a suggestion too
     document.getElementById('plus-code').focus();
   } catch (err) {
     sent.textContent = (err && err.name === 'AbortError') ? PLUS_CODE_WORDS.slow(email) : PLUS_CODE_WORDS.refused('this computer could not reach the sign-in service');
@@ -36308,6 +36335,7 @@ function plusSiStage(stage, data) {
     plusSiShow('plus-si-register');
     /* #3796 addendum 9: an account that already has an address skips this step: register to it now. */
     if (PLUS_SI_OWNED) { plusSiDoRegister(PLUS_SI_OWNED, data.account_address); return; }
+    plusNamePrefill('plus-si-name', 'plus-si-name-suggested');   // #3842
     document.getElementById('plus-si-name').focus();
     return;
   }
@@ -36333,6 +36361,7 @@ function plusSiClear() {
     if (el) el.value = '';
   }
   const to = document.getElementById('plus-si-code-to'); if (to) to.textContent = '';
+  const sug = document.getElementById('plus-si-name-suggested'); if (sug) sug.hidden = true;   // #3842: a fresh one next time
   /* A request abandoned by Sign out returns without re-enabling its button, and a cooldown is
      stopped mid-count; start the next sign-in with every control live. */
   if (typeof PLUS_COUNTDOWN !== 'undefined' && PLUS_COUNTDOWN) { clearInterval(PLUS_COUNTDOWN); PLUS_COUNTDOWN = null; }

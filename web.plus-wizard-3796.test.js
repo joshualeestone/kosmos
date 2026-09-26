@@ -86,3 +86,16 @@ test('#3796 the in-app name is cleaned as typed: capitals lowercased, spaces to 
   for (const id of ['plus-si-name', 'plus-name']) assert.ok(SCRIPT.includes("'" + id + "'") && /for \(const id of \['plus-si-name', 'plus-name'\]\)/.test(SCRIPT), id + ' is not cleaned as typed');
   assert.doesNotMatch(HTML, /lowercase letters, digits/, 'a hint still says names must be lowercase');
 });
+
+/* kosmos#3842: the in-app address fields start with a private suggestion (the website's rule). */
+test('#3842 the suggestion generator: 8 characters, never a look-alike, and not the same twice', () => {
+  const start = SCRIPT.indexOf("const PLUS_NAME_ALPHABET");
+  const end = SCRIPT.indexOf('\n}\n', SCRIPT.indexOf('function plusNameSuggest')) + 3;
+  assert.ok(start > 0 && end > start, 'plusNameSuggest moved');
+  const gen = vm.runInNewContext(SCRIPT.slice(start, end) + '\nplusNameSuggest', { crypto: require('node:crypto').webcrypto, Uint8Array, Math });
+  const seen = new Set();
+  for (let i = 0; i < 500; i++) { const n = gen(); assert.match(n, /^[abcdefghjkmnpqrstuvwxyz23456789]{8}$/, n); seen.add(n); }
+  assert.equal(seen.size, 500, 'the generator repeats');
+  assert.match(SCRIPT, /plusNamePrefill\('plus-si-name', 'plus-si-name-suggested'\);/, 'the wizard chooser is not prefilled');
+  assert.match(SCRIPT, /plusNamePrefill\('plus-name'\);/, 'the enrol flow is not prefilled');
+});
