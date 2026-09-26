@@ -105,3 +105,18 @@ test('#3311: an outside name or body cut at its limit never ends in half a chara
   assert.ok(row, 'fixture: the row was stored');
   assert.ok(!lone.test(row.text), 'a body was cut mid-character at its limit');
 });
+
+test('#3844: externalKeptOn counts one room\'s outside rows on one UTC day, charged as stored', () => {
+  const first = messages.externalPost('proj-kept', { from: 'Zoë', fromKind: 'person', text: 'héllo' });
+  const second = messages.externalPost('proj-kept', { from: 'Zoë', fromKind: 'person', text: 'again' });
+  // The day the rows were stamped with, not the clock read separately (a run across midnight UTC).
+  const today = first.at.slice(0, 10);
+  assert.strictEqual(second.at.slice(0, 10), today, 'fixture: both rows on one day');
+  messages.externalPost('proj-other', { from: 'Bob', fromKind: 'person', text: 'not this room' });
+  // Another day's row in the same room does not count toward today.
+  fs.appendFileSync(messages.LOG, JSON.stringify({ kind: 'external', id: 'x-old', project: 'proj-kept', from: 'Ada',
+    fromKind: 'person', external: true, text: 'yesterday', at: '2000-01-01T00:00:00.000Z' }) + '\n');
+  // Bytes, not characters: a multibyte name and word must be charged as bytes.
+  assert.deepStrictEqual(messages.externalKeptOn('proj-kept', today), { rows: 2, bytes: Buffer.byteLength('héllo' + 'Zoë' + 'again' + 'Zoë') });
+  assert.deepStrictEqual(messages.externalKeptOn('proj-kept', '2000-01-01'), { rows: 1, bytes: Buffer.byteLength('yesterday' + 'Ada') });
+});

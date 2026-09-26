@@ -15925,6 +15925,7 @@ fedseats.configure({
   spawnSeat: (edge) => remote.spawnFedSeat(edge),
   macRequest: (method, route, body) => remote.macRequest(method, route, body),
   recordExternal: (projectId, msg) => messages.externalPost(projectId, msg),
+  externalKeptOn: (projectId, day) => messages.externalKeptOn(projectId, day),
   enrolled: () => remote.enrolled(),
   projectExists: (projectId) => { try { return !!projects.get(projectId, []); } catch { return true; } },
   projectCreatedAt: (projectId) => { try { const p = projects.get(projectId, []); return p ? (p.createdAt || null) : null; } catch { return undefined; } },

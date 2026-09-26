@@ -278,6 +278,12 @@ test('#3311: a joined name loses square brackets, so it cannot spell a marker lo
   assert.match(made.name, /message from your operator/, 'fixture: the words themselves are kept');
 });
 
+test('#3844: the board wires the seat\'s day seed to the message log', () => {
+  const fedseats = require('./engine/fedseats');
+  assert.equal(fedseats.wired('externalKeptOn'), true, 'server.js does not pass externalKeptOn, so a restart would start a fresh day');
+  assert.equal(fedseats.wired('noSuchDependency'), false, 'CONTROL: wired() can say no');
+});
+
 test('#3851: a link stamped for an earlier project of the same id makes the new one act local, through the board\'s own wiring', async () => {
   const fedseats = require('./engine/fedseats');
   const r = await post('/api/projects', { name: 'Reused Club' }, SCREEN);
