@@ -423,7 +423,8 @@ test('#3948: the rail notice paints only in the consolidated layout with a proje
   const run = ({ consolidated, current, said }) => {
     const rn = { html: null };
     const rs = { textContent: said ? 'Kosmos updated leo’s instructions.' : '', dataset: { pj: said || '' } };
-    const projects = { p1: { id: 'p1', agents: [{ sessionName: 'leo' }] }, p2: { id: 'p2', agents: [] } };
+    // pjNotice is a stand-in here, so the roster is only counted: one placeholder member, not a card.
+    const projects = { p1: { id: 'p1', agents: ['one member'] }, p2: { id: 'p2', agents: [] } };
     const doc = { body: { classList: { contains: (c) => c === 'consolidated' && consolidated } },
       getElementById: (id) => (id === 'alist-pj-notice' ? rn : id === 'alist-pj-notice-said' ? rs : null) };
     // eslint-disable-next-line no-new-func
