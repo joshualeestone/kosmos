@@ -394,6 +394,33 @@ const resetStore = (state) => fs.writeFileSync(tipsStore.FILE(), JSON.stringify(
     }
     const bad35 = got35.filter((g, i) => g.step !== (i + 1) + ' of 4' || g.title !== want35[i][1] || g.body !== want35[i][2] || !g.ringed || !g.dim || g.cls === 'flat' || g.overArea);
     chk(got35.length === 4 && bad35.length === 0, 'T35 a project\'s tips walk its four areas, each ringed and pointed at, none covered', JSON.stringify(bad35.length ? bad35 : got35.map((g) => g.title)));
+    // T35b (#3920): a target that fills the window (the Conversation column under #2624's taller header) leaves no room
+    // above or below and side columns narrower than the card. The card must go BESIDE it, narrowed to the room there,
+    // arrow kept, never on the target. The real tipPlace, on the open card, at synthetic targets (current main still has
+    // room above the column, so the real page cannot reach this case yet). Control: a target with too little side room
+    // keeps today's full-width fallback, so the narrowing cannot fire where it should not.
+    const syn3920 = await page.evaluate(() => {
+      const c = document.getElementById('tipcard');
+      const one = (left, width) => {
+        const d = document.createElement('div');
+        d.id = 'tip3920-target';
+        d.style.cssText = 'position:fixed;left:' + left + 'px;top:8px;width:' + width + 'px;height:' + (innerHeight - 16) + 'px;';
+        document.body.appendChild(d);
+        tipPlace(c, '#tip3920-target', false, { key: 'check-3920', avoid: false });
+        const a = c.getBoundingClientRect(), br = d.getBoundingClientRect();
+        const out = { cls: ['up', 'down', 'left', 'right', 'flat'].find((k) => c.classList.contains(k)), width: Math.round(a.width),
+          over: a.left < br.right && a.right > br.left && a.top < br.bottom && a.bottom > br.top,
+          onScreen: a.left >= 0 && a.right <= innerWidth && a.top >= 0 && a.bottom <= innerHeight };
+        d.remove();
+        return out;
+      };
+      const room = one(270, innerWidth - 540), tight = one(200, innerWidth - 400);
+      window.dispatchEvent(new Event('resize'));   // the open tip places itself again at its own target
+      return { room, tight };
+    });
+    chk((syn3920.room.cls === 'left' || syn3920.room.cls === 'right') && !syn3920.room.over && syn3920.room.onScreen && syn3920.room.width >= 220 && syn3920.room.width < 300,
+      'T35b a target that fills the window gets the card beside it, narrowed, arrow kept, off the target', JSON.stringify(syn3920.room));
+    chk(syn3920.tight.width === 300, 'T35b control: with too little side room the card keeps its full width (the narrowing did not fire)', JSON.stringify(syn3920.tight));
     await page.click('#tipcard .tip-go');
     await page.waitForTimeout(300);
     // Settings has no tip (Josh 2026-09-25 07:46): opening it shows none.
