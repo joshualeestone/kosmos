@@ -103,6 +103,6 @@ as it is, not from the staging above.
 **My pick: the light set.** It matches the App Store's own default look and the
 kosmosplus.com site. The dark set is there if you prefer it.
 
-To re-take them: pass the fleet heavy-run gate, then run
+To re-take them (needs Python with Pillow for the last step): pass the fleet heavy-run gate, then run
 `NODE_PATH=$HOME/work/pw-runtime/node_modules ios/store/shoot.sh`, then
 `ios/store/check-listing.sh`. Both end with a `VERDICT:` line.

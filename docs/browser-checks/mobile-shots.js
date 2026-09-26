@@ -268,10 +268,9 @@ const LONG_REPLY = 'Here is the plan for tomorrow, in order. First I will finish
    buying the app see. Same claims as the sample, so every screen's `go` works
    unchanged; four agents, each in a state a customer should see (two working,
    one needing you, one idle), nothing stopped and nothing overlong. */
-/* The board lists agents by id, alphabetically (engine/status.js), and the agent
-   waiting on you is the one the first store shot must show above the fold, so
-   the asker's id sorts first. Nothing on the store screens is overlong; the
-   Files folder below is shared with the sample set and is not in a store shot. */
+/* Cleo, the agent waiting on you, must lead the first store shot. Nothing on the
+   store screens is overlong; the Files folder below is shared with the sample
+   set and is not in a store shot. */
 const STORE_AGENTS = [
   { claim: 'cleo', title: '', name: 'Cleo', role: 'Project manager' },
   { claim: 'dana', title: '⠋ Writing the product copy for the spring catalogue', name: 'Dana', role: 'Writer' },
