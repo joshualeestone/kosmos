@@ -63,3 +63,11 @@ and route regexes; not the method; two permissive matcher limits, each pinned by
 - The free-segment board limit (`/api/project/<id>` serves a new `/api/project/templates`) is
   documented in the header and CLAUDE.md and pinned by a test, alongside the placeholder limit.
 - The unread fetch count ignores comments (19; ceiling lowered to match).
+
+## Challenge-loop iteration 4
+- BLOCKER (mine, iteration 2's lexer): a `/` starting a line was always taken for a regex, so a
+  division continued from the previous line swallowed the next string, fetch( included. Regex vs
+  division is now decided from the previous real token across line breaks; control added.
+- Board literals read in either quote; route regexes are taken from the lexer's REGEX spans (so a
+  grouped anchor, /^\/api(?:\/a|\/b)\//, is read); controls added. Both failed safe before.
+- History re-run: red on exactly the three federation routes.

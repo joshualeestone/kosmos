@@ -16,8 +16,8 @@
  *     on without '/' is dropped.
  *   - NOT read, and COUNTED with a ceiling: a fetch whose URL is a variable, and a URL with a
  *     variable tail. NOT read and NOT counted: a helper called with a variable URL.
- *   - the board: '/api/...' literals the server COMPARES the path to (=== / case), startsWith
- *     prefixes, and regex literals containing \/api\/, all outside comments and strings.
+ *   - the board: '/api/...' literals (either quote) the server COMPARES the path to (=== / case),
+ *     startsWith prefixes, and regex literals mentioning \/api, all outside comments and strings.
  *   - KNOWN LIMITS (each pinned by a test): a placeholder segment is served by any sibling route
  *     (had the page built '/api/federation/' + kind, a missing invite would pass); and a board
  *     route with a free segment (`/api/project/<id>`) serves any NEW literal of that shape.
@@ -35,8 +35,7 @@ const PAGE = fs.readFileSync(nodePath.join(__dirname, 'web', 'index.html'), 'utf
 const SERVER = fs.readFileSync(nodePath.join(__dirname, 'server.js'), 'utf8');
 
 /* Deliberate exceptions, each with its reason. An entry is a claim someone can check. */
-const SERVED_ELSEWHERE = {
-};
+const SERVED_ELSEWHERE = {};
 
 /* Measured 2026-09-26 on main. Growth reds; shrinking is fine (lower these when it happens). */
 const UNREAD_CEILING = 19;
@@ -52,10 +51,13 @@ const CODE = 0; const COMMENT = 1; const STRING = 2; const START = 3; const REGE
    a semicolon, `return`/`typeof`-style keywords, or at the start of a line; no after a value
    (an identifier, a number, `)` or `]`), where it divides. */
 function regexCanStart(src, i) {
+  /* Back over whitespace AND line breaks to the previous real token: a `/` starting a line can
+     still divide (`x = a` then `  / 2` on the next line), and taking it for a regex swallowed the
+     next string, a fetch( included. */
   let k = i - 1;
-  while (k >= 0 && (src[k] === ' ' || src[k] === '\t')) k -= 1;
-  if (k < 0 || src[k] === '\n') return true;
-  if ('(,=:[!&|?{};+-*%<>~^'.includes(src[k])) return true;
+  while (k >= 0 && /\s/.test(src[k])) k -= 1;
+  if (k < 0) return true;
+  if ('(,=:[!&|?{};+-*%<>~^}'.includes(src[k])) return true;
   const word = src.slice(Math.max(0, k - 10), k + 1).match(/[A-Za-z_$]+$/);
   return !!(word && /^(return|typeof|case|in|of|new|delete|void|throw|else|do)$/.test(word[0]));
 }
@@ -277,37 +279,29 @@ function boardRoutes(src) {
      `'/api/..' ===`, a `case`), not anywhere it is merely mentioned: a comment, a log line or an
      outbound URL naming a route that does not exist yet must not serve it. */
   const literals = new Set();
-  for (const m of src.matchAll(/(?:===\s*|case\s+)'(\/api\/[A-Za-z0-9/_.-]*)'|'(\/api\/[A-Za-z0-9/_.-]*)'\s*===/g)) {
+  for (const m of src.matchAll(/(?:===\s*|case\s+)(['"])(\/api\/[A-Za-z0-9/_.-]*)\1|(['"])(\/api\/[A-Za-z0-9/_.-]*)\3\s*===/g)) {
     /* The literal's own opening quote must be a real string start, and the comparison around it
-       must be CODE: `console.log("x === '/api/y'")` names no route. */
-    const q = m.index + m[0].indexOf("'");
+       must be CODE: `console.log("x === '/api/y'")` names no route. Either quote style. */
+    const q = m.index + m[0].search(/['"]/);
     const op = m[0].indexOf('===') > -1 ? m.index + m[0].indexOf('===') : m.index;
-    if (mask[q] === START && inCode(op)) literals.add(m[1] || m[2]);
+    if (mask[q] === START && inCode(op)) literals.add(m[2] || m[4]);
   }
   /* A PREFIX only where the board itself tests one with startsWith, and never the bare '/api/':
      that is the "no such endpoint" catch-all, and counting it would serve every path. */
   const prefixes = [...src.matchAll(/startsWith\('(\/api\/[A-Za-z0-9/_.-]+)'\)/g)].filter((m) => inCode(m.index)).map((m) => m[1]);
+  /* Route regexes: every REGEX span the lexer found (so a `[^/]` class or an alternation right
+     after the anchor, /^\/api(?:\/a|\/b)\//, is read whole) whose source mentions \/api. */
   const regexes = [];
-  /* Regex literals are scanned by hand, because a route regex carries `[^/]`: a `/` inside a
-     character class does not end the literal, and a naive pattern stops there (it found 4 of 55). */
-  let from = 0;
-  for (;;) {
-    const at = src.indexOf('/^\\/api\\/', from);
-    if (at < 0) break;
-    if (mask[at] !== REGEX) { from = at + 1; continue; } // a real regex literal, not text about one
-    let i = at + 1;
-    let inClass = false;
-    for (; i < src.length; i += 1) {
-      const c = src[i];
-      if (c === '\\') { i += 1; continue; }
-      if (c === '\n') break;
-      if (inClass) { if (c === ']') inClass = false; continue; }
-      if (c === '[') { inClass = true; continue; }
-      if (c === '/') break;
-    }
-    const flags = (src.slice(i + 1).match(/^[gimsuy]*/) || [''])[0];
-    try { regexes.push(new RegExp(src.slice(at + 1, i), flags.replace('g', ''))); } catch { /* not a regex after all */ }
-    from = i + 1;
+  for (let i = 0; i < src.length; i += 1) {
+    if (mask[i] !== REGEX || (i > 0 && mask[i - 1] === REGEX)) continue;
+    let e = i;
+    while (e < src.length && mask[e] === REGEX) e += 1;
+    const lit = src.slice(i, e);
+    if (lit.indexOf('\\/api') < 0) continue;
+    const last = lit.lastIndexOf('/');
+    const flags = (src.slice(e).match(/^[gimsuy]*/) || [''])[0];
+    try { regexes.push(new RegExp(lit.slice(1, last), flags.replace('g', ''))); } catch { /* not a regex after all */ }
+    i = e;
   }
   return { literals, prefixes, regexes };
 }
@@ -435,4 +429,15 @@ test('#3957 KNOWN LIMIT, pinned: a board route with a free segment serves any ne
      look the same. If this starts failing, the matcher got stricter: update the header, CLAUDE.md
      and this test together. */
   assert.equal(served('/api/project/templates-3957', baseBoard()), true);
+});
+
+test('#3957 control: a line that starts with a division does not open a phantom regex', () => {
+  const planted = pagePaths(PAGE + "\nfunction f3957(a) {\n  x = a\n  / 2; fetch('/api/after-division-3957');\n}\n").paths;
+  assert.ok(planted.includes('/api/after-division-3957'), 'the call after a line-leading division was swallowed');
+});
+
+test('#3957 control: a double-quoted board comparison and a grouped route regex are routes', () => {
+  const board = boardRoutes(SERVER + '\nif (pathname === "/api/doublequote-3957") {}\nconst g3957 = pathname.match(/^\\/api(?:\\/agent|\\/project)\\/thing-3957$/);\n');
+  assert.equal(served('/api/doublequote-3957', board), true);
+  assert.equal(served('/api/project/thing-3957', board), true);
 });
