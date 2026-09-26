@@ -558,10 +558,25 @@ const visible = (page, sel) => page.evaluate((s) => {
       chk(wrongSends === 1, `[${k}] #3942 CONTROL: the wrong code was really sent, once`, String(wrongSends));
       /* #3942: with all six digits in (the step stays, the code was wrong), the digits must still sit
          over their boxes: the spacing after the sixth would scroll the field's text unless reset. */
+      await page.evaluate(() => document.getElementById('plus-si-code-in').blur());   // arrive afresh
       await page.focus('#plus-si-code-in');
       const six = await page.evaluate(() => ({ scroll: document.getElementById('plus-si-code-in').scrollLeft,
         on: Array.from(document.querySelectorAll('#plus-si-code .otp-cell')).findIndex((x) => x.classList.contains('on')) }));
-      chk(six.scroll === 0 && six.on === 5, `[${k}] #3942 with all six digits in, they stay over their boxes and the last box is outlined`, JSON.stringify(six));
+      chk(six.scroll === 0 && six.on === 0, `[${k}] #3942 with all six digits in, they stay over their boxes; arriving selects the code, so the first box (where typing starts) is outlined`, JSON.stringify(six));
+      /* The outline follows the caret: End lights the last box, Home the first, and a click inside the
+         focused field puts the caret on that digit (a mouse user fixing one digit), outlined there. */
+      const onBox = () => page.evaluate(() => { const i = document.getElementById('plus-si-code-in');
+        return { s: i.selectionStart, e: i.selectionEnd, on: Array.from(document.querySelectorAll('#plus-si-code .otp-cell')).findIndex((x) => x.classList.contains('on')) }; });
+      // Arrow keys, not Home/End: on a Mac, End does not move the caret in a text field.
+      await page.keyboard.press('ArrowRight');   // collapses the selection to the end
+      const atEnd = await onBox();
+      for (let i = 0; i < 6; i += 1) await page.keyboard.press('ArrowLeft');
+      const atHome = await onBox();
+      chk(atEnd.s === 6 && atEnd.on === 5 && atHome.s === 0 && atHome.e === 0 && atHome.on === 0, `[${k}] #3942 the outlined box follows the caret (at the end: last box; back at the start: first)`, JSON.stringify({ atEnd, atHome }));
+      const third = await page.evaluate(() => { const c = document.querySelectorAll('#plus-si-code .otp-cell')[2].getBoundingClientRect(); return { x: c.left + 3, y: c.top + c.height / 2 }; });
+      await page.mouse.click(third.x, third.y);
+      const clicked = await onBox();
+      chk(clicked.s === clicked.e && clicked.s === 2 && clicked.on === 2, `[${k}] #3942 a click on the third box of a focused code puts the caret there, outlined, to fix that digit`, JSON.stringify(clicked));
       chk((await visible(page, '#plus-si-code-go')) && !(await visible(page, '#plus-si-expired')), `[${k}] #3796 CONTROL: a wrong code stays on the step to retype`);
       /* #3942 review (round 1, measured): after a wrong code the field is full. Focusing it selects the
          whole code, and pasting the right one replaces it and sends it, once; a paste into a partly

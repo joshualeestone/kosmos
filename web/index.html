@@ -9266,7 +9266,9 @@ body.plus-active #plus-state2 { max-width: 26rem; padding: 2rem; }
 #plus-state2 .tk-inp:focus { outline: 2px solid #7ea0f0; outline-offset: 1px; border-color: #7ea0f0; }
 #plus-state2 .plus-si-wide { width: 75%; min-width: min(100%, 15rem); }
 /* The plain field look below is what a code field shows until the script draws its boxes (#3942,
-   .otp-boxes further down), and what it keeps if the boxes are ever not drawn. */
+   .otp-boxes further down), and what it keeps if the boxes are ever not drawn. Inside the boxes
+   tabular-nums is moot (the boxes' font is monospace), and the placeholder rule has no placeholder
+   to style since the boxes replaced the "000000". */
 #plus-state2 .plus-si-otp { width: 12ch; font: 600 1.3rem ui-monospace, Menlo, monospace; letter-spacing: .3em; text-indent: .3em; text-align: center; font-variant-numeric: tabular-nums; }
 #plus-state2 .plus-si-otp::placeholder { letter-spacing: .3em; color: #4d5f86; -webkit-text-fill-color: #4d5f86; }
 /* #3942 (Josh, 2026-09-26): one big box per digit. The boxes are drawn BEHIND the one real input,
@@ -37170,6 +37172,9 @@ function plusSiClear() {
      stopped mid-count; start the next sign-in with every control live. */
   if (typeof PLUS_COUNTDOWN !== 'undefined' && PLUS_COUNTDOWN) { clearInterval(PLUS_COUNTDOWN); PLUS_COUNTDOWN = null; }
   if (typeof document.querySelectorAll === 'function') {
+    /* ⚠️ After the fields above are cleared, never before: the code fields' auto-submit watches
+       these buttons come back (#3942), and a field still holding a code at that moment would be
+       sent into a step the person has left. */
     document.querySelectorAll('#plus-state2 button').forEach((b) => { b.disabled = false; });
     document.querySelectorAll('#plus-state2 [aria-disabled]').forEach((a) => a.removeAttribute('aria-disabled'));
   }
@@ -37255,11 +37260,15 @@ for (const id of ['plus-si-code-in', 'plus-si-second-in', 'plus-si-enrol-code'])
   box.appendChild(hint);
   el.setAttribute('aria-describedby', ((el.getAttribute('aria-describedby') || '') + ' ' + hint.id).trim());
   const digits = () => el.value.replace(/\D/g, '').length;
-  // The box being typed into is outlined: the next empty one, or the last when all six are in.
+  /* The outlined box is where the next digit goes: the caret's box (so Home or a click to fix one
+     digit lights THAT box), the first box when the whole code is selected (typing replaces it from
+     the start), and never past the sixth. */
   const paint = () => {
     if (el.scrollLeft) el.scrollLeft = 0;   // digits stay over their boxes
-    const n = digits(); const on = document.activeElement === el;
-    Array.from(cells.children).forEach((c, i) => c.classList.toggle('on', on && i === Math.min(n, 5)));
+    const on = document.activeElement === el;
+    let at = digits();
+    try { if (typeof el.selectionStart === 'number') at = el.selectionStart; } catch { /* not a text input */ }
+    Array.from(cells.children).forEach((c, i) => c.classList.toggle('on', on && i === Math.min(at, 5)));
   };
   /* Auto-submit: six digits that are NOT the code last sent. So a wrong code is not resent by
      itself, but any different code is, however it arrives (typed, pasted over a selection, or
@@ -37299,9 +37308,10 @@ for (const id of ['plus-si-code-in', 'plus-si-second-in', 'plus-si-enrol-code'])
     el.value = code;
     el.dispatchEvent(new Event('input', { bubbles: true }));
   });
-  /* Typing continues at the end, one box after another; Backspace steps back a box. A field that
-     already holds all six digits is selected instead, so the next keystroke or paste replaces the
-     whole code (after a wrong code, say) rather than being refused by a full field. */
+  /* ARRIVING in the field (Tab, or the page moving focus there) puts the caret at the end, one box
+     after another, or selects a full code so the next keystroke or paste replaces it (after a wrong
+     code, say). A click inside a field that already has focus is left alone, so a mouse or touch
+     user can put the caret on one digit to fix it. */
   const place = () => {
     const n = el.value.length;
     try { if (digits() >= 6) el.setSelectionRange(0, n); else el.setSelectionRange(n, n); } catch { /* not a text input */ }
@@ -37309,7 +37319,7 @@ for (const id of ['plus-si-code-in', 'plus-si-second-in', 'plus-si-enrol-code'])
   // The page clears a field without an input event (plusSiClear on Start over), so focus also forgets
   // the last code when the field is not full: the same code entered again then goes.
   el.addEventListener('focus', () => { if (digits() < 6) lastSent = ''; place(); paint(); });
-  el.addEventListener('click', () => { place(); paint(); });
+  el.addEventListener('click', paint);
   for (const ev of ['blur', 'keyup', 'select', 'scroll']) el.addEventListener(ev, paint);
 }
 /* Ask signin-start for an email code. ONE place, shared by the initial "Email me a
@@ -37338,6 +37348,12 @@ async function plusSiRequestCode(btn) {
      paragraph; the status line below only says something when a resend went out. */
   document.getElementById('plus-si-code-to').textContent = email;
   plusSiMsg(btn.id === 'plus-si-code-resend' ? 'We sent another code.' : '');
+  /* #3942: a new code is on its way, so the old one (likely a wrong one) leaves the boxes; the input
+     event lets the boxes repaint and forget the last code sent. */
+  if (btn.id === 'plus-si-code-resend') {
+    const inp = document.getElementById('plus-si-code-in');
+    if (inp && inp.value) { inp.value = ''; inp.dispatchEvent(new Event('input', { bubbles: true })); }
+  }
   plusSiStage(r.data.stage, r.data);
 }
 document.getElementById('plus-signin-code').addEventListener('click', () => plusSiRequestCode(document.getElementById('plus-signin-code')));

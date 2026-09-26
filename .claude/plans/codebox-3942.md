@@ -55,3 +55,15 @@
   standing alone; otherwise only text whose digits are exactly six. A date or ticket number earlier
   in the text is not sent as a wrong code.
 - The input handler waits for an input method to commit; autofill keeps the digits' ink colour.
+
+## Review round 2 (app side, measured): fixing one digit
+- The outlined box follows the caret (selectionStart), not the digit count: Home or a click to fix
+  one digit lights that box; a selected full code lights the first box (typing replaces from there).
+- Arriving in the field (Tab, or the page moving focus there) still selects a full code or puts the
+  caret at the end; a click inside a field that already has focus is left alone, so a mouse or
+  touch user can put the caret on one digit. (A call, reversible: the alternative, re-selecting on
+  every click, left mouse users no way to fix one digit.)
+- App: Send again clears the old code from the boxes (the web page already did). Not covered by the
+  browser check (its only resend answers with a cooldown); reasoned from the handler.
+- plusSiClear carries a note that clearing the fields before re-enabling the buttons is load-bearing
+  for the auto-submit's button watch.
