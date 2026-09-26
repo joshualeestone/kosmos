@@ -189,6 +189,123 @@ function entryIsOurs(entry) {
 }
 
 /**
+ * True when a command path is under the temp root and the settings file is
+ * NOT: an ephemeral path about to be written into a durable file. Shared by
+ * every writer of a Claude settings file (the report hooks here, the
+ * statusline in allowance.js), so the #1582 refusal has one copy. The comment
+ * inside is the refusal's history, moved here unchanged from ensureWired.
+ */
+function ephemeralMismatch(settingsPath, commandPaths) {
+  /* #1582: the fifth refusal. hookScriptPath() correctly probes and, during
+     a release cut, resolves an app/bin/kosmos-report-hook.sh that GENUINELY
+     EXISTS inside the cut's temp sandbox -- so the value is right and
+     ephemeral at once. Persisting it into a durable, SHARED settings file
+     points every agent on the box at a directory that is gone the moment the
+     cut ends (measured: four dead paths in one night, one per cut). The
+     resolver is not the place to fix this; refusing to write an ephemeral
+     path into a durable file is. Same shape as the four refusals around it.
+
+     🛑 os.tmpdir() returns the UNRESOLVED /var/folders/... form while the
+     paths that reach a settings file are the RESOLVED /private/var/... form,
+     so startsWith(os.tmpdir()) alone never fires on macOS. Compare against the
+     realpath (fallback to raw if realpath throws) AND the raw value, so a
+     scriptPath in either form is caught. (Josh's card #1582 measured this
+     trap: the obvious implementation is committed, reviewed, and never fires.)
+
+     ⚠️ DELIBERATE REFINEMENT OF THE CARD'S LITERAL WORDING, flagged for review:
+     the card says "refuse a path under the temp root", but its RATIONALE is "a
+     DURABLE shared settings file must not point into an ephemeral tree". The
+     literal form breaks the suite, whose fixtures put both the script AND the
+     settings file under the temp root on purpose (test isolation) -- there an
+     ephemeral script in an ephemeral settings file is no mismatch. So the
+     refusal fires only when the script is ephemeral AND the settings file is
+     NOT, which is exactly #1582's shape (~/.claude/settings.json given a
+     cut-sandbox path) and leaves a fully-ephemeral setup alone. This matches
+     the rationale precisely; a production settings file is never under temp. */
+  const rawTmp = os.tmpdir();
+  let realTmp = rawTmp;
+  try { realTmp = fs.realpathSync(rawTmp); } catch { /* keep the raw value */ }
+  /* Type-safe on purpose: this module never throws for an expected shape,
+     and both callers fail soft. A non-string settingsPath must NOT throw
+     here -- it falls through to the read below, which answers with a
+     sentence. underRoot returns false for a non-string rather than calling
+     .startsWith on it (#1582 review). */
+  const underRoot = (p, root) => typeof p === 'string' && (p === root || p.startsWith(root + path.sep));
+  /* #570: the win32 entry carries TWO paths (node as the exec-form command,
+     script as args[0]), so BOTH must be vetted -- a durable settings file
+     pointing at an ephemeral runtime/node.exe is the same #1582 defect as
+     pointing at an ephemeral script. `node` is null off win32, where the entry
+     carries only the script. */
+  const scriptEphemeral = (commandPaths || []).some((p) => underRoot(p, rawTmp) || underRoot(p, realTmp));
+  /* Durable = a real settings path that is NOT under temp. A null/undefined
+     settingsPath is neither durable nor ephemeral here, so the refusal does
+     not fire and the downstream read handles the malformed input. */
+  const settingsDurable = typeof settingsPath === 'string'
+    && !underRoot(settingsPath, rawTmp) && !underRoot(settingsPath, realTmp);
+  /* Coupling this fix relies on, verified against the cut scripts (#1582
+     review): the sandbox is created with `mktemp -d` (test-install.sh:56)
+     and `${TMPDIR:-/tmp}/kosmos-release.XXXXXX` (release.sh:350), both under
+     $TMPDIR, and the setup Node process shares that $TMPDIR -- so os.tmpdir()
+     here names the same root the ephemeral script lives under. */
+  return scriptEphemeral && settingsDurable;
+}
+
+/**
+ * Read a Claude settings file for a merge-only write. Returns
+ * { target, data, prevMode } or { because } in a sentence: the target is the
+ * realpath (so a symlinked dotfile is written through, not replaced), a
+ * dangling link or a non-object is refused, and absent is the clean case.
+ */
+function readSettings(settingsPath) {
+  let target = settingsPath;
+  try {
+    target = fs.realpathSync(target);
+  } catch {
+    /* Absent is the clean case -- unless the path itself is a dangling
+       symlink: writing over that severs somebody's dotfiles arrangement. */
+    try { if (fs.lstatSync(target).isSymbolicLink()) return { because: 'that settings file is a link pointing at nothing, which is somebody’s arrangement to fix, not ours to replace' }; }
+    catch { /* truly absent */ }
+  }
+  let data = {};
+  let prevMode = null;
+  try {
+    const st = fs.statSync(target);
+    prevMode = st.mode & 0o7777;
+    if (st.size > 0) {
+      data = JSON.parse(fs.readFileSync(target, 'utf8'));
+      if (!data || typeof data !== 'object' || Array.isArray(data)) {
+        return { because: 'that settings file is not the shape we expect, so it was left alone' };
+      }
+    }
+  } catch (err) {
+    if (err && err.code === 'ENOENT') { /* absent is the clean case */ }
+    else return { because: 'that settings file could not be read as JSON, so it was left alone' };
+  }
+  return { target, data, prevMode };
+}
+
+/**
+ * Write a merged settings object back atomically, keeping the file's mode.
+ * True on success. Shared with allowance.js for the same reason as above.
+ */
+function writeSettings(target, data, prevMode) {
+  try {
+    fs.mkdirSync(path.dirname(target), { recursive: true });
+    /* Pid-suffixed: a concurrent prepare and installer writing the same
+       settings file must not share a temp name (Angel's review). The rename
+       stays atomic either way; this only keeps the two writers from
+       clobbering each other's staging file mid-write. */
+    const tmp = target + '.kosmos.' + process.pid + '.new';
+    fs.writeFileSync(tmp, JSON.stringify(data, null, 2) + '\n', prevMode !== null ? { mode: prevMode } : {});
+    if (prevMode !== null) fs.chmodSync(tmp, prevMode);
+    fs.renameSync(tmp, target);
+  } catch {
+    return false;
+  }
+  return true;
+}
+
+/**
  * Merge the seven hook entries into one settings.json. Idempotent: an event
  * already carrying our entry is left exactly as it is (so a hand-installed
  * or older wiring is never doubled), and a partial wiring is completed
@@ -222,87 +339,13 @@ function ensureWired(settingsPath, scriptPath, opts) {
   if (unsafeForCommand(scriptPath, plat) || (node !== null && unsafeForCommand(node, plat))) {
     return { wired: false, because: 'the hook command path contains characters we will not embed in a command' };
   }
-  /* #1582: the fifth refusal. hookScriptPath() correctly probes and, during
-     a release cut, resolves an app/bin/kosmos-report-hook.sh that GENUINELY
-     EXISTS inside the cut's temp sandbox -- so the value is right and
-     ephemeral at once. Persisting it into a durable, SHARED settings file
-     points every agent on the box at a directory that is gone the moment the
-     cut ends (measured: four dead paths in one night, one per cut). The
-     resolver is not the place to fix this; refusing to write an ephemeral
-     path into a durable file is. Same shape as the four refusals around it.
-
-     🛑 os.tmpdir() returns the UNRESOLVED /var/folders/... form while the
-     paths that reach a settings file are the RESOLVED /private/var/... form,
-     so startsWith(os.tmpdir()) alone never fires on macOS. Compare against the
-     realpath (fallback to raw if realpath throws) AND the raw value, so a
-     scriptPath in either form is caught. (Josh's card #1582 measured this
-     trap: the obvious implementation is committed, reviewed, and never fires.)
-
-     ⚠️ DELIBERATE REFINEMENT OF THE CARD'S LITERAL WORDING, flagged for review:
-     the card says "refuse a path under the temp root", but its RATIONALE is "a
-     DURABLE shared settings file must not point into an ephemeral tree". The
-     literal form breaks the suite, whose fixtures put both the script AND the
-     settings file under the temp root on purpose (test isolation) -- there an
-     ephemeral script in an ephemeral settings file is no mismatch. So the
-     refusal fires only when the script is ephemeral AND the settings file is
-     NOT, which is exactly #1582's shape (~/.claude/settings.json given a
-     cut-sandbox path) and leaves a fully-ephemeral setup alone. This matches
-     the rationale precisely; a production settings file is never under temp. */
-  {
-    const rawTmp = os.tmpdir();
-    let realTmp = rawTmp;
-    try { realTmp = fs.realpathSync(rawTmp); } catch { /* keep the raw value */ }
-    /* Type-safe on purpose: this module never throws for an expected shape,
-       and both callers fail soft. A non-string settingsPath must NOT throw
-       here -- it falls through to the read below, which answers with a
-       sentence. underRoot returns false for a non-string rather than calling
-       .startsWith on it (#1582 review). */
-    const underRoot = (p, root) => typeof p === 'string' && (p === root || p.startsWith(root + path.sep));
-    /* #570: the win32 entry carries TWO paths (node as the exec-form command,
-       script as args[0]), so BOTH must be vetted -- a durable settings file
-       pointing at an ephemeral runtime/node.exe is the same #1582 defect as
-       pointing at an ephemeral script. `node` is null off win32, where the entry
-       carries only the script. */
-    const scriptEphemeral = underRoot(scriptPath, rawTmp) || underRoot(scriptPath, realTmp)
-      || (node !== null && (underRoot(node, rawTmp) || underRoot(node, realTmp)));
-    /* Durable = a real settings path that is NOT under temp. A null/undefined
-       settingsPath is neither durable nor ephemeral here, so the refusal does
-       not fire and the downstream read handles the malformed input. */
-    const settingsDurable = typeof settingsPath === 'string'
-      && !underRoot(settingsPath, rawTmp) && !underRoot(settingsPath, realTmp);
-    /* Coupling this fix relies on, verified against the cut scripts (#1582
-       review): the sandbox is created with `mktemp -d` (test-install.sh:56)
-       and `${TMPDIR:-/tmp}/kosmos-release.XXXXXX` (release.sh:350), both under
-       $TMPDIR, and the setup Node process shares that $TMPDIR -- so os.tmpdir()
-       here names the same root the ephemeral script lives under. */
-    if (scriptEphemeral && settingsDurable) {
-      return { wired: false, because: 'a hook command path is under the temp root, which is ephemeral, so it was not written into the durable settings file' };
-    }
+  /* #1582: the fifth refusal (ephemeralMismatch above carries its history). */
+  if (ephemeralMismatch(settingsPath, node !== null ? [scriptPath, node] : [scriptPath])) {
+    return { wired: false, because: 'a hook command path is under the temp root, which is ephemeral, so it was not written into the durable settings file' };
   }
-  let target = settingsPath;
-  try {
-    target = fs.realpathSync(target);
-  } catch {
-    /* Absent is the clean case -- unless the path itself is a dangling
-       symlink: writing over that severs somebody's dotfiles arrangement. */
-    try { if (fs.lstatSync(target).isSymbolicLink()) return { wired: false, because: 'that settings file is a link pointing at nothing, which is somebody’s arrangement to fix, not ours to replace' }; }
-    catch { /* truly absent */ }
-  }
-  let data = {};
-  let prevMode = null;
-  try {
-    const st = fs.statSync(target);
-    prevMode = st.mode & 0o7777;
-    if (st.size > 0) {
-      data = JSON.parse(fs.readFileSync(target, 'utf8'));
-      if (!data || typeof data !== 'object' || Array.isArray(data)) {
-        return { wired: false, because: 'that settings file is not the shape we expect, so it was left alone' };
-      }
-    }
-  } catch (err) {
-    if (err && err.code === 'ENOENT') { /* absent is the clean case */ }
-    else return { wired: false, because: 'that settings file could not be read as JSON, so it was left alone' };
-  }
+  const read = readSettings(settingsPath);
+  if (read.because) return { wired: false, because: read.because };
+  const { target, data, prevMode } = read;
   if (!data.hooks || typeof data.hooks !== 'object' || Array.isArray(data.hooks)) data.hooks = {};
   let changed = false;
   /* 🛑 AN ENTRY OF OURS POINTING AT THE WRONG FILE IS NOT "ALREADY WIRED".
@@ -353,20 +396,9 @@ function ensureWired(settingsPath, scriptPath, opts) {
     changed = true;
   }
   if (!changed) return { wired: true, changed: false };
-  try {
-    fs.mkdirSync(path.dirname(target), { recursive: true });
-    /* Pid-suffixed: a concurrent prepare and installer writing the same
-       settings file must not share a temp name (Angel's review). The rename
-       stays atomic either way; this only keeps the two writers from
-       clobbering each other's staging file mid-write. */
-    const tmp = target + '.kosmos.' + process.pid + '.new';
-    fs.writeFileSync(tmp, JSON.stringify(data, null, 2) + '\n', prevMode !== null ? { mode: prevMode } : {});
-    if (prevMode !== null) fs.chmodSync(tmp, prevMode);
-    fs.renameSync(tmp, target);
-  } catch {
-    return { wired: false, because: 'we could not save the settings file' };
-  }
+  if (!writeSettings(target, data, prevMode)) return { wired: false, because: 'we could not save the settings file' };
   return { wired: true, changed: true };
 }
 
-module.exports = { HOOK_EVENTS, MARKER, hookScriptPath, entryFor, unsafeForCommand, entryIsOurs, ensureWired };
+module.exports = { HOOK_EVENTS, MARKER, hookScriptPath, entryFor, unsafeForCommand, entryIsOurs, ensureWired,
+  ephemeralMismatch, readSettings, writeSettings };

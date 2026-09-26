@@ -39,6 +39,8 @@ const path = require('node:path');
 /* Safe to require from here: reporthook has zero engine dependencies, on
    purpose, because THIS module is one of its two callers (#561). */
 const reporthook = require('./reporthook');
+/* Also dependency-free beyond reporthook, so no cycle either (#3946). */
+const allowance = require('./allowance');
 const inflight = require('./inflight');
 
 /* 🛑 A FUNCTION, NOT A CONST (#1419). Frozen at require time this read straight
@@ -459,7 +461,12 @@ function prepare(label) {
      The field in the return is what lets a screen say which happened.
      Reused spots get this free: the connect route re-runs prepare. */
   const hooks = reporthook.ensureWired(path.join(dir, 'settings.json'), reporthook.hookScriptPath());
-  return { ok: true, dir, label: clean, memoryShared, hooksWired: hooks.wired === true };
+  /* #3946: and with the statusline that records its weekly usage, so a swarm
+     on it can be limited in "% of weekly allowance". Same fail-soft posture:
+     an account that already has its own statusline keeps it and simply has
+     no weekly reading (allowance.js says why). */
+  const weekly = allowance.ensureStatusLine(path.join(dir, 'settings.json'));
+  return { ok: true, dir, label: clean, memoryShared, hooksWired: hooks.wired === true, weeklyWired: weekly.wired === true };
 }
 
 /**

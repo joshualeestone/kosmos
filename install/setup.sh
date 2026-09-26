@@ -3546,6 +3546,15 @@ for (const t of targets) {
   const got = reporthook.ensureWired(t, script);
   if (got.wired !== true) refused += 1;
 }
+/* #3946: the same targets get the statusline that records the account's weekly
+   usage (engine/allowance.js). It is NOT counted in `refused`: an account that
+   already has its own statusline is left alone on purpose, which is expected,
+   not a failure of the hooks this block reports on. Guarded so a problem here
+   can never change the hooks' answer. */
+try {
+  const allowance = require(path.join(kosmosHome, 'app', 'engine', 'allowance.js'));
+  for (const t of targets) { try { allowance.ensureStatusLine(t); } catch { /* fail soft */ } }
+} catch { /* not in this bundle: nothing to wire */ }
 process.exit(refused === 0 ? 0 : 1);
 HOOKSEOF
 then
