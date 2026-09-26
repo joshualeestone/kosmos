@@ -1574,31 +1574,44 @@ const CODEX_NEEDS_YOU_MARKERS = Object.freeze([
  *   "Your workspace is out of credits. Ask your workspace owner to add more."
  *   "You've reached your workspace credit limit"
  */
-/* ANCHORED to the start of a row (after only Codex's own lead-in mark), so the sentence has to OPEN
-   the row the way Codex prints it. An answer or a tool line that merely mentions the phrase (an agent
-   working on this very feature, or a search result) does not count. */
 /* #4004: Gemini CLI (0.61.0, measured 2026-09-26 against a fake 429 in a real tmux pane) on a daily quota.
-   While it waits, its ProQuotaDialog is on screen ("Usage limit reached for <model>." over "1. Keep trying /
-   2. Stop"), and it waits there forever: an unattended agent looks idle, or unknown, and nothing says why.
-   After Stop, it is back at its prompt under "✕ [API Error: You have exhausted your daily quota on this model.]".
-   Rows may carry the dialog's box border (│), so it is stripped before matching. */
+   While it waits, its quota question is on screen ("Usage limit reached for <model>." over numbered options that
+   end in "Stop"), and it waits there forever. After Stop, it is back at its prompt under
+   "✕ [API Error: You have exhausted your daily quota on this model.]". Rows may carry the dialog's box border (│),
+   stripped before matching. Both rules are anchored to Gemini's own shapes, because an agent can have these words
+   on screen in its tool output (a grep, another pane's capture) while it is working. */
 const GEMINI_QUOTA_DIALOG = /^Usage limit reached for\b/i;
-const GEMINI_QUOTA_OPTION = /^(?:[●○>]\s*)?\d+\.\s+(?:Keep trying|Stop)\s*$/i;
-const GEMINI_QUOTA_ERROR = /exhausted your daily quota\b/i;
+const GEMINI_QUOTA_OPTION = /^(?:[●○>]\s*)?\d+\.\s+\S.*$/;
+const GEMINI_QUOTA_STOP = /^(?:[●○>]\s*)?\d+\.\s+Stop\s*$/i;
+const GEMINI_QUOTA_ERROR = /^✕\s*\[API Error:.*exhausted your daily quota\b/i;
+const GEMINI_BOX_EDGE = /^[╭╮╰╯─]+$/;
+const GEMINI_COMPOSER = /Type your message/i;
 const GEMINI_LIMIT_ROWS = 14;
 function geminiRow(r) { return String(r).replace(/^[\s│]+|[\s│]+$/g, ''); }
-/* The dialog is up (its message and at least one of its options in the last rows), or the quota error is the
-   newest thing on screen (nothing the person or the agent said after it: Gemini echoes a message as "> ..."). */
+/* The question is up: its message, then numbered options ending in Stop, and nothing after them but the box's
+   bottom edge (the real dialog replaces the composer; a quoted copy has the agent's own screen below it). Or the
+   quota error is Gemini's newest line: nothing after it but its empty composer and footer. */
 function geminiQuotaReading(paneText) {
   const rows = String(paneText || '').split('\n').map(geminiRow).filter((r) => r).slice(-GEMINI_LIMIT_ROWS);
-  const msg = rows.find((r) => GEMINI_QUOTA_DIALOG.test(r));
-  if (msg && rows.some((r) => GEMINI_QUOTA_OPTION.test(r))) return { dialog: true, evidence: msg };
+  const m = rows.findIndex((r) => GEMINI_QUOTA_DIALOG.test(r));
+  if (m >= 0) {
+    const after = rows.slice(m + 1);
+    const lastOpt = after.reduce((at, r, i) => (GEMINI_QUOTA_OPTION.test(r) ? i : at), -1);
+    const hasStop = after.some((r) => GEMINI_QUOTA_STOP.test(r));
+    if (lastOpt >= 0 && hasStop && after.slice(lastOpt + 1).every((r) => GEMINI_BOX_EDGE.test(r))) {
+      return { dialog: true, evidence: rows[m] };
+    }
+  }
   let at = -1;
   rows.forEach((r, i) => { if (GEMINI_QUOTA_ERROR.test(r)) at = i; });
   if (at < 0) return null;
-  if (rows.slice(at + 1).some((r) => /^>\s+\S/.test(r) || /^✦/.test(r))) return null;   // a newer turn since
-  return { dialog: false, evidence: rows[at].replace(/^[✕x]\s*/, '') };
+  const newer = rows.slice(at + 1).some((r) => (/^>\s+\S/.test(r) && !GEMINI_COMPOSER.test(r)) || /^✦/.test(r));
+  if (newer) return null;   // a turn since: the person wrote, or the agent answered
+  return { dialog: false, evidence: rows[at].replace(/^✕\s*/, '') };
 }
+/* ANCHORED to the start of a row (after only Codex's own lead-in mark), so the sentence has to OPEN
+   the row the way Codex prints it. An answer or a tool line that merely mentions the phrase (an agent
+   working on this very feature, or a search result) does not count. */
 const CODEX_LIMIT_MARKERS = Object.freeze([
   /^\s*(?:[•■]\s*)?You['’]ve hit your usage limit/i,
   /^\s*(?:[•■]\s*)?Your workspace is out of credits/i,
@@ -3689,16 +3702,16 @@ function classify(pane, paneText) {
   if (paneText === null) {
     return { state: STATE.UNKNOWN, confidence: CONFIDENCE.NONE, because: 'we could not read its screen' };
   }
-  /* #4004: a Gemini agent on its daily quota, waiting on the Keep trying / Stop question or back at its prompt
-     under the quota error. Firm (Gemini's own words), like Codex's limit line. `quotaDialog` tells the sweep that
-     answers Stop that the question is up. */
+  /* #4004: a Gemini agent on its daily quota, waiting on its quota question or back at its prompt under the quota
+     error. Firm (Gemini's own words), like Codex's limit line. `quotaDialog` rides onto the card (snapshot), and
+     it is what engine/geminiquota.js answers Stop for. */
   if (pane.runner === 'gemini') {
     const q = geminiQuotaReading(paneText);
     if (q) {
       return {
         state: STATE.RATE_LIMITED,
         confidence: CONFIDENCE.SCRAPED,
-        because: q.dialog ? 'its screen says its Google daily limit is used up, and it is waiting on Keep trying or Stop'
+        because: q.dialog ? 'its screen says its Google daily limit is used up, and it is waiting on a question about it'
           : 'its screen says its Google daily limit is used up',
         evidence: q.evidence,
         limitFrom: 'gemini',
@@ -6296,6 +6309,10 @@ function reconcileReport(reported, scraped, nowMs, liveAuth, disruptionRec, code
      The reconcile is re-entered with the rate-limit signal removed rather than
      the report rules being copied, so this branch cannot drift from them. */
   if (scraped.state === STATE.RATE_LIMITED) {
+    /* #4004: Gemini's quota question on screen blocks its turn, so no report can say it is working through it. */
+    if (scraped.quotaDialog === true) {
+      return { ...scraped, reported: false, conflict: 'its screen shows it is waiting on a question about its usage limit' + saidWords(reported, nowMs) };
+    }
     const atRl = Date.parse(reported.at || '');
     const freshRl = Number.isFinite(atRl) && (nowMs - atRl) <= REPORT_WORKING_DECAY_MS;
     /* #3723: except Codex's own limit message against an AUTOMATIC report. Codex's bridge reports
@@ -7307,6 +7324,8 @@ function snapshot() {
       /* The line the classifier actually matched, when it has one. Null for
          every state that did not read a sentence off the screen. */
       stateEvidence: status.evidence || null,
+      /* #4004: Gemini's quota question is on screen (engine/geminiquota.js answers Stop for it). */
+      quotaDialog: status.quotaDialog === true,
       because: status.because,
       /* #2019: present only while state === 'restarting' -- {cause, startedAt}
          for the deliberate disruption in flight. Null otherwise, so the board

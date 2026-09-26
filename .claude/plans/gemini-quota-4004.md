@@ -27,8 +27,13 @@ message after the reset works (item 4 with no restart). The board read the quest
 
 ## Decided
 - Detect and answer, because the CLI has no way to not ask. Stop, because retrying cannot clear a daily limit.
-- The key is read off the screen (the number beside Stop), not fixed, because the dialog has variants with 2 or 3
-  options (Keep trying / Switch to <model> / Stop).
+- The key is read off the screen (the number beside Stop), not fixed: a daily limit can show "Switch to <model> /
+  [Upgrade for higher limits] / Stop" as well as "Keep trying / Stop".
+- Review round 1 (Opus): the rules are anchored to Gemini's own shapes (the dialog must end the screen with only its
+  box edge after the options; the error must be Gemini's `✕ [API Error:` line; the empty composer is not a newer
+  turn), because an agent can show these words in tool output while working. The card carries `quotaDialog` and the
+  sweep keys on it (not on a sentence). The question on screen stands over any report (a blocked turn cannot be
+  working through it).
 - "Midnight Pacific" is Google's documented reset for free-tier daily limits; the screen does not give a time.
 - The Settings account row (red/amber) belongs to #3997, which owns those rows; not duplicated here.
 
