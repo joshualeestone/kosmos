@@ -340,6 +340,8 @@ const CODE_RE = /^[A-Za-z0-9/_\-.~]{10,512}$/;
 /** Type the pasted code into agy. */
 function code(value, id) {
   if (!isMine(id)) return { ok: false, because: NOT_MINE };
+  // The window is the person's once shown (round 5): a code from another tab must not race their typing.
+  if (S.shown) return { ok: false, because: 'The sign-in window is open now, so finish it there' };
   if (S.state !== 'code') return { ok: false, because: 'Antigravity is not waiting for a code' };
   const v = String(value || '').trim();
   if (!CODE_RE.test(v)) return { ok: false, because: 'That does not look like the code from Google\'s page' };

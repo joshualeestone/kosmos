@@ -346,8 +346,6 @@ test('#3998: a sign-in another tab started since is not this step\'s to follow',
 });
 
 test('#3998 round 4: leaving while the sign-in is still starting stops the sign-in that press began', async () => {
-  let release;
-  const gate = new Promise((r) => { release = r; });
   const f = agyFlow({
     '/api/antigravity/check': [{ installed: true, signedIn: null }],
     'POST /api/antigravity/signin': [{ ok: true, id: 'c0ffee0000000001' }],
@@ -356,7 +354,7 @@ test('#3998 round 4: leaving while the sign-in is still starting stops the sign-
   await f.FR_AGY_SUB.start();   // Check: not signed in, offers Sign in with Google
   const pending = f.FR_AGY_SUB.start();   // the start request is in flight...
   f.FR_AGY_SUB.leave();          // ...and the person closes the step
-  release(); await pending; await gate.catch(() => {});
+  await pending;
   await f.settle(() => f.posts.includes('/api/antigravity/signin/stop'));
   assert.deepEqual(f.bodies.find(([p]) => p === '/api/antigravity/signin/stop'), ['/api/antigravity/signin/stop', JSON.stringify({ id: 'c0ffee0000000001' })],
     'the sign-in started as the step closed kept running out of sight');
@@ -366,4 +364,22 @@ test('#3998 round 4: the status line is rewritten only when its words change (a 
   const at = PAGE.indexOf('function agySubDriver(');
   const src = PAGE.slice(at, PAGE.indexOf('\n}', at));
   assert.match(src, /if \(code\.textContent !== text\) code\.textContent = text;/);
+});
+
+test('#3998 round 5: a code that came back refused puts the cursor in the paste box again', async () => {
+  const f = agyFlow({
+    '/api/antigravity/check': [{ installed: true, signedIn: null }],
+    'POST /api/antigravity/signin': [{ ok: true, id: 'abad1dea00000001' }],
+    'GET /api/antigravity/signin': [{ id: 'abad1dea00000001', state: 'code', url: 'https://accounts.google.com/o/oauth2/auth?x=1' },
+      { id: 'abad1dea00000001', state: 'checking' },
+      { id: 'abad1dea00000001', state: 'code', url: 'https://accounts.google.com/o/oauth2/auth?x=1', because: 'Antigravity did not take that code. Copy the newest code from Google\'s page and paste it again.' }],
+  });
+  await f.FR_AGY_SUB.start(); await f.FR_AGY_SUB.start();
+  await f.settle(() => !f.el('fr-gemini-sub-paste-row').hidden);
+  const box = f.el('fr-gemini-sub-paste');
+  let focuses = 0; box.focus = () => { focuses += 1; };
+  await f.settle(() => /did not take that code/.test(f.view().text), 400);
+  f.FR_AGY_SUB.leave();
+  assert.match(f.view().text, /did not take that code/, 'CONTROL: the refusal was shown');
+  assert.ok(focuses >= 1, 'the cursor was left where it was after the code came back refused');
 });

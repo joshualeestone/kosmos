@@ -25264,7 +25264,10 @@ function agySubDriver(pre, onReady) { return {
         // A code Antigravity did not take comes back here with the reason (#3998 review round 2).
         this.say(st.because ? frCap(st.because) : "Google's sign-in is open in your browser. Sign in there, then copy the code Google shows and paste it below.", '', false);
         this.rows(true, false, st.url || '');
-        if (!focused) { const i = this.el('paste'); if (i) i.focus(); focused = true; }
+        /* Focus the box once when it appears, and again when a code comes back refused (round 5):
+           the box was emptied on the send, and the person has to paste into it again. */
+        const reason = st.because || '';
+        if (!focused || reason !== focused) { const i = this.el('paste'); if (i) i.focus(); focused = reason || true; }
       } else if (state === 'checking' || state === 'setup') {
         this.rows(false, false);
         this.say(state === 'checking' ? 'Checking the code with Google…'
