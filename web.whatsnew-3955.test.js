@@ -43,7 +43,9 @@ test('#3955: a fresh install records its version silently (installed, not update
 
 test('#3955: a version already seen, or an old page, opens nothing', async () => {
   assert.deepEqual((await check({ seen: '0.6.98' })).opened, []);
-  assert.deepEqual((await check({ baked: '0.6.97' })).opened, [], 'the window opened over an old page');
+  const old = await check({ baked: '0.6.97' });
+  assert.deepEqual(old.opened, [], 'the window opened over an old page');
+  assert.deepEqual(old.posts, [], 'the old page recorded the version as seen, so the reloaded page would never show it (round 5)');
   assert.deepEqual((await check({ baked: null })).opened.length, 1, 'CONTROL: a source checkout (no baked version) still shows it');
 });
 
@@ -73,4 +75,20 @@ test('#3955 round 3: a release with no highlights (a hotfix) shows no window and
     assert.deepEqual(r.opened, [], 'a hotfix interrupted people with a window saying nothing new');
     assert.deepEqual(r.posts, [['/api/whats-new/seen', JSON.stringify({ version: '0.6.98' })]], 'the hotfix was not recorded, so the next release would compare against the wrong version');
   }
+});
+
+test('#3955 round 5 (Mona Lisa): the window waits while the first-run tour is on screen, then opens', async () => {
+  const opened = [];
+  const fetchStub = async (url, opts) => ((opts && opts.method === 'POST') ? { ok: true, text: async () => '' }
+    : { ok: true, json: async () => ({ current: '0.6.98', seen: '0.6.97', highlights: H1 }) });
+  const api = new Function('fetch', 'bakedVersion', 'wnOpen', 'setTimeout',
+    'let TIP_OPEN = { step: 1 };\n' + page.liftAll(SCRIPT, ['wnNewer', 'whatsNewCheck'])
+    + '\nreturn { run: whatsNewCheck, close: () => { TIP_OPEN = null; } };')(
+    fetchStub, () => '0.6.98', (v) => opened.push(v), (f) => setImmediate(f));
+  const done = api.run();
+  for (let i = 0; i < 20; i++) await new Promise((r) => setImmediate(r));
+  assert.deepEqual(opened, [], 'the window opened over the tour');
+  api.close();
+  await done;
+  assert.deepEqual(opened, ['0.6.98'], 'the window never opened once the tour closed');
 });

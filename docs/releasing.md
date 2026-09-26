@@ -36,7 +36,7 @@ improvement it gained would have died with the session that wrote it.
    version being cut, or not one the window can draw stops here
    (`tools/whats-new-check.js` says why). **A hotfix with nothing to announce:**
    `KOSMOS_CUT_NO_WHATS_NEW=1 yarn release X.Y.Z`, and that release shows no
-   "Kosmos has been updated" window. The check runs again on the frozen tree.
+   "Kosmos has been updated" window.
 
    **Then, still in step 1, test-sign with the cut's own identity (#3579; the cut
    labels it `1c`)**, before anything is bumped or built. Step 4 signs Developer

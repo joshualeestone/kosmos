@@ -1224,8 +1224,8 @@ button.uprime:hover, .btn.uprime:hover, .utoast .uacts button.uprime:hover,
   background: var(--bg-elevated); border: 1px solid var(--border-strong); border-radius: 22px;
   box-shadow: 0 24px 60px rgba(20, 18, 14, .22); padding: 32px 32px 26px; }
 .wn-mark { display: block; width: 52px; height: 52px; border-radius: 14px; margin: 0 auto; }
-.wn-title { margin: 16px 0 4px; font-size: 1.5rem; letter-spacing: -.01em; color: var(--label); }
-.wn-ver { display: inline-block; margin: 0 0 22px; padding: 3px 10px; border-radius: 999px; background: var(--bg);
+.wn-title { margin: 16px 0 0; font-size: 1.5rem; letter-spacing: -.01em; color: var(--label); }
+.wn-ver { display: inline-block; margin: 12px 0 22px; padding: 3px 10px; border-radius: 999px; background: var(--bg);
   border: 1px solid var(--border-strong); font-size: .8125rem; font-weight: 600; color: var(--label-2); }
 .wn-tiles { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; text-align: left; list-style: none; margin: 0; padding: 0; }
 .wn-tiles.one { grid-template-columns: minmax(0, 320px); justify-content: center; }
@@ -18692,7 +18692,8 @@ const UPDATE_TYPED = new Set();
 function updateTypedBox(t) {
   if (!t || !t.tagName) return false;
   if (t.tagName === 'TEXTAREA') return true;
-  return t.tagName === 'INPUT' && /^(text|search|email|url|)$/.test(String(t.type || '').toLowerCase());
+  // Every input but the kinds that hold no words (round 5: a phone number or a password is words too).
+  return t.tagName === 'INPUT' && !/^(checkbox|radio|range|color|file|hidden|button|submit|reset|image)$/.test(String(t.type || '').toLowerCase());
 }
 if (typeof document !== 'undefined' && document.addEventListener) {
   document.addEventListener('input', (e) => { if (updateTypedBox(e.target)) UPDATE_TYPED.add(e.target); }, true);
@@ -18708,9 +18709,9 @@ function updateSafeReload(servedVersion) {
     if ([typeof TALK_DRAFTS !== 'undefined' && TALK_DRAFTS, typeof TERM_DRAFTS !== 'undefined' && TERM_DRAFTS,
       typeof PJ_DRAFTS !== 'undefined' && PJ_DRAFTS, typeof PJ_ROOM_DRAFTS !== 'undefined' && PJ_ROOM_DRAFTS].some(drafted)) return false;
     for (const t of [...UPDATE_TYPED]) if (t.isConnected === false) UPDATE_TYPED.delete(t);   // a removed field holds nothing (and is let go)
-    /* Still on screen and still holding words (round 3): a field that was saved and whose dialog
-       closed is no longer shown, and does not keep blocking. */
-    if ([...UPDATE_TYPED].some((t) => String(t.value || '').trim() && t.offsetParent !== null && !(t.closest && t.closest('[hidden]')))) return false;
+    /* Still holding words, shown or not (round 5): a hidden box is not a saved one (New task keeps its
+       words when closed, #766), so any typed box with words waits for the person's Reload. */
+    if ([...UPDATE_TYPED].some((t) => String(t.value || '').trim())) return false;
     const attached = typeof ATTACH_PENDING !== 'undefined' && ATTACH_PENDING;
     if (attached && Object.values(attached).some((m) => m && Object.values(m).some((v) => Array.isArray(v) ? v.length : !!v))) return false;
     if (typeof tipModalOpen === 'function' && tipModalOpen()) return false;
@@ -31957,7 +31958,7 @@ const WN_ICONS = Object.freeze({
   spark: '<path d="M12 3v4M12 17v4M3 12h4M17 12h4M6 6l2.5 2.5M15.5 15.5L18 18M18 6l-2.5 2.5M8.5 15.5L6 18"/>',
 });
 function wnIcon(key) {
-  const inner = WN_ICONS[key] || WN_ICONS.spark;
+  const inner = Object.prototype.hasOwnProperty.call(WN_ICONS, key) ? WN_ICONS[key] : WN_ICONS.spark;
   return '<svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">' + inner + '</svg>';
 }
 let WN_OPENER = null;
@@ -32015,7 +32016,7 @@ function wnWire(back) {
 /* On the document, like the page's other dialogs (review round 1): Escape and Tab must work even
    when focus has slipped to the body behind the window (a click on its text), and focus that lands
    outside is brought back in. Each does nothing while the window is not up. */
-/* Another window opened over this one (an update confirm, first run) owns the keys and focus. */
+/* A window drawn over this one (first run, the update overlay) owns the keys and focus. */
 function wnCovered() {
   // Only windows drawn OVER this one (round 3): the other .rm-back dialogs sit under it at the same layer.
   return !!document.querySelector('.fr-back:not([hidden]), .upd-back');
@@ -32068,6 +32069,9 @@ async function whatsNewCheck() {
        (round 3, as agreed with Baron on the card): it is recorded quietly rather than interrupting
        people with a title and nothing new. */
     if (!Array.isArray(got.highlights) || !got.highlights.length) { record(); return; }
+    /* Held while the first-run tour is on screen (Mona Lisa's design review): the tour is the
+       person's current task, and this can wait for it to close. */
+    for (let i = 0; i < 3600 && typeof TIP_OPEN !== 'undefined' && TIP_OPEN; i++) await new Promise((r) => setTimeout(r, 1000));
     wnOpen(got.current, got.highlights);
   } catch { /* news can wait */ }
 }

@@ -178,17 +178,23 @@ async function seenIsCurrent() {
         chk(wn.focus === 'wn-ok' && wn.centred, theme + ': focus on Got it, the card centred over the dimmed app', JSON.stringify({ focus: wn.focus, centred: wn.centred, dim: wn.dim }));
         chk(wn.more === 'https://installkosmos.com/versions#v0-6-98' && wn.rel === 'noreferrer noopener', theme + ': "See everything that changed" goes to this version on the site', wn.more);
       }
-      // The tiles' words clear 4.5:1 on the tile (round 4: the window's own text, not only the chip's).
-    const tile = await pg.evaluate(() => {
-      const t = document.querySelector('#whatsnew .wn-tile');
-      const cs = getComputedStyle(t);
-      return { bg: cs.backgroundColor, title: getComputedStyle(t.querySelector('b')).color, line: getComputedStyle(t.querySelector('.wn-words span')).color };
-    });
-    for (const k of ['title', 'line']) {
-      const r = ratio(over(rgb(tile[k]), rgb(tile.bg)), rgb(tile.bg).c);
-      chk(r >= 4.5, theme + ': the tile ' + k + ' clears 4.5:1', r.toFixed(2));
-    }
-    await pg.screenshot({ path: path.join(OUT, 'whatsnew-' + theme + '.png') });
+      // The window's words clear 4.5:1 (round 4 tiles; round 5 the version pill and the link too).
+      const words = await pg.evaluate(() => {
+        const box = document.querySelector('#whatsnew .wn-box');
+        const t = box.querySelector('.wn-tile');
+        const cs = (el) => getComputedStyle(el);
+        return [
+          ['the tile title', cs(t.querySelector('b')).color, cs(t).backgroundColor],
+          ['the tile line', cs(t.querySelector('.wn-words span')).color, cs(t).backgroundColor],
+          ['the version pill', cs(box.querySelector('#wn-ver')).color, cs(box.querySelector('#wn-ver')).backgroundColor],
+          ['"See everything that changed"', cs(box.querySelector('#wn-more')).color, cs(box).backgroundColor],
+        ];
+      });
+      for (const [what, fg, bg] of words) {
+        const r = ratio(over(rgb(fg), rgb(bg)), rgb(bg).c);
+        chk(r >= 4.5, theme + ': ' + what + ' clears 4.5:1', r.toFixed(2));
+      }
+      await pg.screenshot({ path: path.join(OUT, 'whatsnew-' + theme + '.png') });
       // Tab stays inside the window, both ways.
       await pg.keyboard.press('Tab');
       let at = await pg.evaluate(() => document.activeElement && document.activeElement.id);

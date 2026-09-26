@@ -40,12 +40,20 @@ Card #3955 (Josh, #admin, 2026-09-26 08:11). Design: Mona Lisa's mock on card-sh
 - render-reload-toast records the board's own version as seen in a finally, however it ends.
 - Tests pin the reload's wiring in renderUpdateToast and that every page value it reads is declared.
 
+## Review round 5 and Mona Lisa's design review (decided)
+- Reverses round 3's visibility rule: any typed box still holding words blocks the reload, shown or not. A hidden box is not a saved one (New task keeps its words when closed, #766). Weakest premise: a saved field that stays holding its text (a rename box) keeps the chip waiting for Reload; the chip is the safe side.
+- Every input counts as a words box except the kinds that hold none (checkbox, radio, range, color, file, hidden, buttons): a phone number or a password is words too.
+- The cut check runs once, at 1b-ii (reverses round 3's second check): step 2 freezes at the bumped head of the same checkout, so the file cannot differ, and a refusal after the freeze would leave the bump pushed.
+- An old page never records the version as seen (tested).
+- Mona Lisa: the version pill sits 12px under the title; the window waits while the first-run tour is on screen and opens once it closes.
+- The icon lookup uses own keys only; the pill's and the link's contrast are checked too.
+
 ## Tests
 - The chip's two states and its one button; the stale chip never says "Kosmos updated"; engine-stale still first.
 - Safe reload: reloads when hidden and idle; not when visible, sending, drafting, or a dialog is open.
 - The window: shown for a new version on a fresh page, with tiles; title only without highlights; not on a fresh install; not on an old page; Got it and Escape record seen; focus trapped and returned.
 - whats-new.json shape (committed file, when present) and the check script's red arms (stale version refused, matching accepted, opt-out accepted, bad icon, too many).
-- release.sh runs the check at 1b-ii before the bump, and again on the frozen tree.
+- release.sh runs the check at 1b-ii before the bump (once; see round 5).
 - Browser check: the three states rendered (shots to the card).
 
 ## Not in this change

@@ -209,6 +209,9 @@ test('#3955 round 3: only boxes that hold words count as typed (not a dropdown, 
   assert.equal(box({ tagName: 'TEXTAREA' }), true);
   assert.equal(box({ tagName: 'INPUT', type: 'text' }), true);
   assert.equal(box({ tagName: 'INPUT', type: '' }), true, 'an input with no type is a text box');
+  for (const type of ['tel', 'password', 'number', 'email', 'search', 'url']) {
+    assert.equal(box({ tagName: 'INPUT', type }), true, 'words typed into a ' + type + ' box would be lost (round 5)');
+  }
   for (const t of [{ tagName: 'SELECT' }, { tagName: 'INPUT', type: 'checkbox' }, { tagName: 'INPUT', type: 'range' }, { tagName: 'INPUT', type: 'radio' }]) {
     assert.equal(box(t), false, (t.type || t.tagName) + ' would stop the reload for the rest of the tab');
   }
@@ -225,4 +228,16 @@ test('#3955 round 3: the old-page chip runs the safe reload, and every value the
     assert.match(PAGE, new RegExp('^(let|const) ' + name + '\\b', 'm'), name + ' is not declared on the page: the reload\'s check on it is off');
   }
   assert.match(PAGE, /^function tipModalOpen\(/m, 'tipModalOpen is gone: the reload would ignore open windows');
+});
+
+test('#3955 round 5: a box that is hidden but still holds typed words blocks the reload (a kept New task draft)', () => {
+  const src = page.liftAll(SCRIPT, ['updateSafeReload']);
+  assert.doesNotMatch(src, /offsetParent|closest\('\[hidden\]'\)/, 'a hidden box is treated as saved again');
+  const kept = { value: 'Rewrite the handoff checklist', isConnected: true, offsetParent: null, closest: () => ({}) };
+  let reloaded = 0;
+  new Function('document', 'sessionStorage', 'window', 'TALK_SENDING', 'PJ_SENDING', 'PJ_REPLY_SENDING', 'TERM_SENDING',
+    'TALK_DRAFTS', 'TERM_DRAFTS', 'PJ_DRAFTS', 'PJ_ROOM_DRAFTS', 'tipModalOpen', 'UPDATE_TYPED', 'ATTACH_PENDING', src + '\nreturn updateSafeReload("0.2.76");')(
+    { hidden: true }, { getItem: () => null, setItem() {} }, { location: { reload: () => { reloaded += 1; } } },
+    false, false, null, false, {}, {}, {}, {}, () => false, new Set([kept]), { room: {}, agent: {} });
+  assert.equal(reloaded, 0, 'a New task draft kept in a hidden dialog was reloaded away');
 });
