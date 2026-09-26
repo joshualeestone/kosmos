@@ -29,6 +29,16 @@ The #3391 comments and a chat fixture said grok "fronts as node"; that premise w
   `supervisor.adopt-grok-3953.test.js` runs the real script over every name isGrokCommand accepts, with a crashed
   control. The snapshot's isGrokPane and the card's `runner` also fall back to the command, as agy's do.
 
+- Second bug (Josh's doc, Priya's diagnosis, matches): the grok and gemini report hooks run `node "<bridge>"`
+  and codex's bridge runs through `#!/usr/bin/env node`; a pane inherits the tmux server's PATH, which has no node on
+  a Kosmos-only Mac or when launchd started the server, so those agents never self-reported. The supervisor now
+  APPENDS the node it resolved (NODE_BIN, Kosmos's bundled runtime on an install) to the server's PATH for codex,
+  gemini and grok panes. Chosen over baking an absolute node into the hook at create (the doc's suggestion): it fixes
+  EXISTING agents at their next launch with no hook-file rewrite, and it covers codex. Appended, not prepended, so a
+  person's own node and npm still win. Claude panes are untouched (their hook finds node itself).
+- Gemini needs no command arm: its Mac launcher execs node, and a gemini pane reads `node` (measured), which
+  isAgentSession already accepts.
+
 ## Decided
 - Keep the screen read for a running Grok pane rather than returning UNKNOWN (as Antigravity does): the chat tests
   rely on an idle Grok pane, and Grok's own reports (grok-report-bridge) override the screen anyway.
