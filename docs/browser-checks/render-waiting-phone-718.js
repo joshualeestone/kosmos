@@ -182,7 +182,8 @@ async function open(browser, opts) {
           talkTop: talk ? Math.round(talk.getBoundingClientRect().top) : null, scrollY: Math.round(window.scrollY),
           docH: document.documentElement.scrollHeight, vh: window.innerHeight,
           boxBottom: box ? Math.round(box.getBoundingClientRect().bottom) : null,
-          boxW: box ? Math.round(box.getBoundingClientRect().width) : 0, boxH: box ? Math.round(box.getBoundingClientRect().height) : 0 };
+          boxW: box ? Math.round(box.getBoundingClientRect().width) : 0, boxH: box ? Math.round(box.getBoundingClientRect().height) : 0,
+          talkShown: !!(talk && !talk.hidden) };
       });
       await page.close();
       return r;
@@ -196,7 +197,7 @@ async function open(browser, opts) {
     const scrolledTo = present.scrollY > 0 && present.talkTop >= 0 && present.talkTop <= 667 / 4;
     // A hidden or collapsed box has an all-zero rect, which would pass the edge tests (Kano), so it
     // must have a real size too.
-    const wholeScreen = present.docH <= present.vh + 1 && present.talkTop >= 0 && present.boxW > 0 && present.boxH > 0
+    const wholeScreen = present.talkShown && present.docH <= present.vh + 1 && present.talkTop >= 0 && present.boxW > 0 && present.boxH > 0
       && present.boxBottom !== null && present.boxBottom <= present.vh + 1;
     chk(present.detailShown && present.current === BASE.sessionName && (scrolledTo || wholeScreen),
       '[link/phone] a page load with ?tab=detail&agent= lands on that agent\'s conversation', JSON.stringify(present));

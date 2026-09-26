@@ -280,6 +280,8 @@ function measure() {
           await page.mouse.move(2, 2); await page.mouse.up();
         }
         chk(pickKept && pickKept.active === 'd-say' && !pickKept.headShown, `${t} pressing an emoji in the panel keeps focus in the text box (the handler's job) and the header aside`, JSON.stringify({ pick: !!pick, pickKept }));
+        const sr = await page.evaluate(() => document.getElementById('d-talk-search').getBoundingClientRect().height);
+        chk(sr >= 40, `${t} the search field itself is a full-height tap target`, `h=${sr}`);
         const sf = await page.evaluate(() => getComputedStyle(document.getElementById('d-talk-search')).fontSize);
         chk(sf === '16px', `${t} the search box is 16px (iOS does not zoom on focus)`, sf);
         chk(errs.length === 0, `${t} no page errors`, errs.join(' | '));
@@ -339,7 +341,7 @@ function measure() {
         chk(up.h > 0 && up.top >= 0 && up.bottom <= 370 + 0.5, `${t} the emoji panel opens above the keyboard`, JSON.stringify(up));
         await page.evaluate(() => window.__vv(700));
         const down = await page.evaluate(() => { const p = document.getElementById('d-emoji'); if (p.hidden) return { hidden: true }; const r = p.getBoundingClientRect(); const c = document.querySelector('#d-talk-box .dmbar').getBoundingClientRect(); return { top: r.top, bottom: r.bottom, cTop: c.top, cBottom: c.bottom }; });
-        chk(!down.hidden && (down.bottom <= down.cTop + 0.5 || down.top >= down.cBottom - 0.5), `${t} when the keyboard closes the panel stays open and follows the composer`, JSON.stringify(down));
+        chk(!down.hidden && (Math.abs(down.cTop - 6 - down.bottom) <= 2 || Math.abs(down.top - 6 - down.cBottom) <= 2), `${t} when the keyboard closes the panel stays open and follows the composer`, JSON.stringify(down));
         chk(perrs.length === 0, `${t} no page errors`, perrs.join(' | '));
         await page.close();
       }
