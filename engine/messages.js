@@ -1613,8 +1613,9 @@ function list(agent) {
   // equality, or every room post vanishes from every agent page. A
   // PROJECT-typed `to` (room valves and room refusals log the project id
   // there) is never matched against an agent name -- an agent named like
-  // a project must not inherit that room's bookkeeping rows.
-  return log.filter((m) => m && (m.from === agent
+  // a project must not inherit that room's bookkeeping rows. An external row's
+  // `from` is a name another account chose (#3311): never this Mac's agent.
+  return log.filter((m) => m && ((m.from === agent && m.kind !== 'external')
     || (typeof m.to === 'string' && !m.project && m.to === agent)
     || (Array.isArray(m.to) && m.to.includes(agent))));
 }

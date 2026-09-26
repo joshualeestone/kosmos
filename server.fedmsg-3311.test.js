@@ -292,3 +292,10 @@ test('a post in a shared room while the link record cannot be read stays here an
   try { federateOut(other, { id: 'p-unread-2', from: 'you', text: 'hi' }, true); } finally { console.error = orig; fs.writeFileSync(f, before); }
   assert.equal(messages.record().rows.filter((m) => m.kind === 'note' && m.project === other).length, 0);
 });
+
+test('a name from outside never makes its rows a local agent\'s own', async () => {
+  const row = messages.externalPost(pid, { from: 'lookalikefed', fromKind: 'agent', text: 'I said this, honest' });
+  assert.ok(row, 'fixture: the outside row was stored');
+  const mine = messages.list('lookalikefed');
+  assert.equal(mine.filter((m) => m.id === row.id).length, 0, 'an outside row showed in the local agent\'s own messages');
+});
