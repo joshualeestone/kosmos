@@ -217,9 +217,11 @@ Sp2="$(make_site)"; bash "$PUBLISH" "$Sp2" >/dev/null 2>&1
 rm -rf "$KOSMOS_PLUS_VERIFY_DIR"
 out="$(KOSMOS_PROMOTE_GATE_CMD="$GATE" GATE_RC_WANT=0 PLUS_RC_WANT=2 bash "$PROMOTE" "$Sp2" 2>&1)"; rc=$?
 PLUS_LOG_T="$KOSMOS_PLUS_VERIFY_DIR/promote-plus-unverified.log"
-[ "$rc" = 0 ] && has "$out" "WARNING first Kosmos+ sign-in gate has no record" && ! has "$out" "HOLDING" \
+SHA_T="$(sed -n 's/.*"sha256": *"\([^"]*\)".*/\1/p' "$Sp2/dist/latest-staging.json" | head -1)"
+[ "$rc" = 0 ] && has "$out" "WARNING first Kosmos+ sign-in gate could not confirm" && ! has "$out" "HOLDING" \
   && [ -f "$Sp2/dist/latest.json" ] && [ "$(grep -c 'version=9.9.9' "$PLUS_LOG_T" 2>/dev/null)" = 1 ] \
-  && grep -q 'first Kosmos+ sign-in NOT verified' "$PLUS_LOG_T" \
+  && [ -n "$SHA_T" ] && grep -q "sha256=$SHA_T" "$PLUS_LOG_T" \
+  && grep -q 'first Kosmos+ sign-in NOT verified' "$PLUS_LOG_T" && grep -q 'reason=plus-gate-version:9.9.9' "$PLUS_LOG_T" \
   && pass "promote: plus gate 2 (no record) -> WARN, promote, one log line" || bad "promote plus-gate-2 (rc=$rc, log=$(cat "$PLUS_LOG_T" 2>/dev/null), out=$out)"
 # --force changes nothing for a missing record: still a warning, a promote, and one MORE log line.
 out="$(KOSMOS_PROMOTE_GATE_CMD="$GATE" GATE_RC_WANT=0 PLUS_RC_WANT=2 bash "$PROMOTE" "$Sp2" --force 2>&1)"; rc=$?
@@ -249,6 +251,13 @@ SWAP
 out="$(SWAP_POINTER="$Sr/dist/latest-staging.json" KOSMOS_PROMOTE_GATE_CMD="bash $SWAP_GATE" bash "$PROMOTE" "$Sr" 2>&1)"; rc=$?
 [ "$rc" = 1 ] && has "$out" "changed while the promote ran" && [ ! -f "$Sr/dist/latest.json" ] \
   && pass "promote: a staging pointer swapped mid-gate is refused, and latest.json is never written" || bad "promote mid-gate swap (rc=$rc, out=$out)"
+# #3940: the same refused promote with NO Kosmos+ record must leave no "promoted" log line, because
+# the line is written only once the promote has actually happened.
+Sr2="$(make_site)"; bash "$PUBLISH" "$Sr2" >/dev/null 2>&1
+LOGD_R="$T/plus-verify-race"; rm -rf "$LOGD_R"
+out="$(KOSMOS_PLUS_VERIFY_DIR="$LOGD_R" PLUS_RC_WANT=2 SWAP_POINTER="$Sr2/dist/latest-staging.json" KOSMOS_PROMOTE_GATE_CMD="bash $SWAP_GATE" bash "$PROMOTE" "$Sr2" 2>&1)"; rc=$?
+[ "$rc" = 1 ] && [ ! -f "$Sr2/dist/latest.json" ] && [ ! -s "$LOGD_R/promote-plus-unverified.log" ] \
+  && pass "promote: a promote refused AFTER a missing Kosmos+ record logs nothing" || bad "promote refused-after-plus-2 logged (rc=$rc, log=$(cat "$LOGD_R/promote-plus-unverified.log" 2>/dev/null), out=$out)"
 
 echo ""
 if [ "$fail" = 0 ]; then echo "test-staging-channel-2036: ALL PASS"; else echo "test-staging-channel-2036: FAILURES above"; exit 1; fi

@@ -216,30 +216,30 @@ if [ "$FAMILY" = mac ]; then
   # check ran from a Mac already signed in. An agent takes the fresh staging board through a real
   # first sign-in (tools/plus-signin-fresh.js: the code from the seed inbox via the Gmail
   # connector, #1591) and leaves a record for this sha; this gate reads it from the SNAPSHOT.
-  # 0 pass -> promote; 1 fail or ambiguous -> refuse, never forceable; 2 no record -> WARN and
+  # 0 pass -> promote; 1 fail or ambiguous -> refuse, never forceable; 2 cannot tell -> WARN and
   # promote (#3940, Josh 2026-09-26 11:54 CDT: "I don't need to test that part on staging ... that
-  # shouldn't hold us up from pushing this live"). A missing record is written, one line, to
-  # promote-plus-unverified.log beside the records, so which prod builds went out without a first
-  # Kosmos+ sign-in check stays answerable. A record that says FAIL still refuses: that is a
-  # measured break, not a missing check. Josh's go for prod is still required, as before.
-  # Override via KOSMOS_PROMOTE_PLUS_GATE_CMD.
+  # shouldn't hold us up from pushing this live"). Exit 2 covers no record, an attempt still in
+  # flight (deliberately NOT waited for any more), and a gate that could not run; the gate's own
+  # line says which, and it is what gets logged. Once the promote has actually happened (after the
+  # pointer write reads back), one line goes to promote-plus-unverified.log in the record directory
+  # OF THE MACHINE THAT RAN THE PROMOTE, so which prod builds went out without a first Kosmos+
+  # sign-in check stays answerable. A record that says FAIL still refuses: a measured break, not a
+  # missing check. (Josh's go for a Mac prod promote is a process rule; this script has no flag
+  # for it, see the header.) Override via KOSMOS_PROMOTE_PLUS_GATE_CMD.
   PLUS_GATE_CMD="${KOSMOS_PROMOTE_PLUS_GATE_CMD:-bash $(cd "$(dirname "$0")" && pwd)/plus-signin-verified.sh}"
   echo "promote-channel: running the first Kosmos+ sign-in gate: $PLUS_GATE_CMD"
-  $PLUS_GATE_CMD "$SNAP"; PLUS_RC=$?
+  PLUS_OUT="$($PLUS_GATE_CMD "$SNAP" 2>&1)"; PLUS_RC=$?
+  [ -n "$PLUS_OUT" ] && printf '%s\n' "$PLUS_OUT"
+  PLUS_UNVERIFIED=0; PLUS_REASON=
   case "$PLUS_RC" in
     0) echo "promote-channel: first Kosmos+ sign-in gate PASSED for $V." ;;
     1) echo "promote-channel: first Kosmos+ sign-in gate FAILED (exit 1) - a fresh Kosmos+ sign-in does not work on $V (the #3827 class), or its record is ambiguous. REFUSING to promote; --force does not override it." >&2; exit 1 ;;
     2)
-      echo "promote-channel: WARNING first Kosmos+ sign-in gate has no record for $V (exit 2) - promoting anyway (#3940, Josh's ruling 2026-09-26). A first Kosmos+ sign-in was NOT verified on this build." >&2
-      PLUS_LOG_DIR="${KOSMOS_PLUS_VERIFY_DIR:-$HOME/.local/state/kosmos/release-verify}"
-      PLUS_LOG="$PLUS_LOG_DIR/promote-plus-unverified.log"
-      if mkdir -p "$PLUS_LOG_DIR" 2>/dev/null \
-         && printf '%s\tversion=%s\tsha256=%s\tfirst Kosmos+ sign-in NOT verified (no record); promoted per #3940 (Josh 2026-09-26)\n' \
-              "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$V" "$SHA" >> "$PLUS_LOG" 2>/dev/null; then
-        echo "promote-channel: recorded in $PLUS_LOG" >&2
-      else
-        echo "promote-channel: WARNING could not append to $PLUS_LOG; the promote goes ahead and this output is the only record." >&2
-      fi ;;
+      echo "promote-channel: WARNING first Kosmos+ sign-in gate could not confirm $V (exit 2) - promoting anyway (#3940, Josh's ruling 2026-09-26). A first Kosmos+ sign-in was NOT verified on this build." >&2
+      PLUS_UNVERIFIED=1
+      # The gate's last line says WHY (no record, an attempt in flight, the gate could not run).
+      PLUS_REASON="$(printf '%s\n' "$PLUS_OUT" | awk 'NF{l=$0} END{print l}' | tr '\t' ' ')"
+      [ -n "$PLUS_REASON" ] || PLUS_REASON="(the gate printed nothing)" ;;
     *) echo "promote-channel: first Kosmos+ sign-in gate returned an unexpected code ($PLUS_RC) - refusing to promote on an ambiguous result" >&2; exit 1 ;;
   esac
 else
@@ -354,6 +354,19 @@ if [ "$FAMILY" = win ]; then
   echo "promote-channel: updated the SITE CHECKOUT's $PROD_NAME to $V ($ARTIFACT). This does NOT change what users are served: that is tools/windows/publish-r2.ps1 -Promote."
 else
   echo "promote-channel: PROMOTED $V to prod - $PROD_NAME now points at the exact bytes staging verified ($ARTIFACT)."
+  # #3940: only now, after the pointer and alias were written and read back, is the promote real,
+  # so only now is it logged. A promote refused after the gate leaves no line.
+  if [ "${PLUS_UNVERIFIED:-0}" = 1 ]; then
+    PLUS_LOG_DIR="${KOSMOS_PLUS_VERIFY_DIR:-$HOME/.local/state/kosmos/release-verify}"
+    PLUS_LOG="$PLUS_LOG_DIR/promote-plus-unverified.log"
+    if mkdir -p "$PLUS_LOG_DIR" 2>/dev/null \
+       && { printf '%s\tversion=%s\tsha256=%s\tfirst Kosmos+ sign-in NOT verified; promoted per #3940 (Josh 2026-09-26)\treason=%s\n' \
+              "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$V" "$SHA" "$PLUS_REASON" >> "$PLUS_LOG"; } 2>/dev/null; then
+      echo "promote-channel: recorded in $PLUS_LOG (on this machine)" >&2
+    else
+      echo "promote-channel: WARNING could not append to $PLUS_LOG; the promote happened and this output is the only record." >&2
+    fi
+  fi
 fi
 echo "   -> $(cat "$SITE/dist/$PROD_NAME")"
 echo "promote-channel: the next site deploy publishes the prod pointer. No rebuild happened."
