@@ -23,10 +23,24 @@ Card: #3995 (filed from #3935's review rounds 27, 29 and 34). Refs #3995, does n
 - Adding + / = to SKIPPABLE: the variant route is narrower (it only adds candidate pieces, never widens a skip).
 
 ## Weakest premise
-- Per-gap reach lets a walk keep going as long as each piece is near the last. A walk only advances on runs that
+- Per-gap reach lets a walk keep going as long as each real piece (OPENING_LEN or more, not words) is near the last. A walk only advances on runs that
   are exactly the key's next characters, so coincidence in prose is out of reach, and the word-walk budget still
   bounds the cost; the existing cost tests pass unchanged. What would change it: a measured reply where a walk
   creeps through ordinary text on one-character matches.
+
+## Review round 1 (Opus), what changed
+- BLOCKERS fixed: per-gap reach let a walk creep on one-character matches ("a" after sk-ant-), so a guide naming
+  sk-ant-api03- many times was withheld (budget) and a bare mention far before a real key was masked. Reach now
+  moves only when a piece of OPENING_LEN or more, not words, takes the walk further than it has been. Tested: 160
+  mentions unchanged and under 600ms CPU; the bare mention kept. Red on the previous commit.
+- The unpunctuated copy masked the whole joined run (a JSON object, a CSV row, a URL glued to the key). It now
+  masks only the text's own key-character runs that hold a matching slice's characters. Tested, red before.
+- The three grouped-separator cases had a "Key:" label that masked them on main by another rule; dropped, and every
+  case now asserts split_secret.
+- Stale comments on the walk's reach and SPLIT_REACH corrected.
+- Deferred (not a regression, main leaks the same): a held key with its own - or _ regrouped with + or / (its grams
+  and walked form keep its own separators). Named in the file's "Not covered" list. What would change it: indexing a
+  separator-stripped form too, which doubles the index for licence-style keys; a follow-up if it is ever seen.
 
 ## Tests
 - engine/secretmask.test.js "#3995 ...": every case above, plus ordinary text with / + = (URLs, arithmetic,

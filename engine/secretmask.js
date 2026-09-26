@@ -234,6 +234,19 @@ function fragmentsIn(text) {
   }
   return spans;
 }
+/* The [from, to) of every indexed FRAGMENT_LEN slice in `text`'s runs of key characters (#3995), for a copy whose
+   runs join text across deleted characters, where masking the whole run would take the text glued to the key. */
+function fragmentSlicesIn(text) {
+  const out = [];
+  if (!knownGrams.size) return out;
+  for (const m of text.matchAll(FRAGMENT_RUN)) {
+    if (madeOfWords(m[0])) continue;
+    for (let i = 0; i + FRAGMENT_LEN <= m[0].length; i += 1) {
+      if (knownGrams.has(m[0].slice(i, i + FRAGMENT_LEN))) out.push([m.index + i, m.index + i + FRAGMENT_LEN]);
+    }
+  }
+  return out;
+}
 function addWalked(w, walked) {
   if (w.length < MIN_VALUE_LEN || w.length > WORD_WALK_MAX_FORM || walked.has(w) || madeOfWords(w)) return;
   /* An opening with no letter or digit (a PEM key's -----BEGIN) would start a walk at every markdown rule
@@ -370,9 +383,9 @@ function unspaced(text, map = Array.from({ length: text.length }, (_, i) => i)) 
  * walked in order, and a run that is exactly the form's next part advances it while any other run is
  * skipped as noise. Every position the form could have reached is kept, not only the latest, so a short
  * noise run that happens to equal the next part ("1" in a row label) cannot derail the real assembly.
- * The walk stops at the same bound as the separator copies: at most 4x the form's length in
- * non-whitespace characters from the first piece, which is what stops two far-apart words from
- * swallowing a reply. Returns [from, to) spans in the text, one per matched piece (review round 18).
+ * The walk stops at the separator copies' bound, counted per gap (#3995): at most 4x the form's length in
+ * non-whitespace characters past the opening, or past the last piece of OPENING_LEN or more that took it
+ * further. Pieces are masked one by one, so two far-apart words never swallow the text between them. Returns [from, to) spans in the text, one per matched piece (review round 18).
  *
  * Not covered:
  *  - pieces out of order or reversed;
@@ -381,7 +394,8 @@ function unspaced(text, map = Array.from({ length: text.length }, (_, i) => i)) 
  *  - a held value madeOfWords takes for words and numbers;
  *  - a partial try (one that never completes) with under PARTIAL_MIN characters after its opening, counted in
  *    non-word pieces of OPENING_LEN or more; a try that reaches it is masked piece by piece;
- *  - glue in the middle of a run other than - or _ between chunks and a label joined by =, - or _ on either side;
+ *  - glue in the middle of a run other than - _ + / = between chunks and a label joined by =, - or _ on either side;
+ *  - a held form with its own - or _ regrouped with + or / (its grams and walked form keep its own separators);
  *  - a held form over WORD_WALK_MAX_FORM characters;
  *  - pieces that overlap (a character given twice, at the end of one piece and the start of the next);
  *  - a key split across two replies (the mask is per message).
@@ -408,8 +422,8 @@ const WORD_WALK_BUDGET = 1250000;
 /* How many tails after, and heads before, a - or _ one run offers as pieces (review rounds 15 to 19). */
 const PIECE_VARIANTS_MAX = 4;
 /* How far a split value may spread: its pieces within this many times its length, counted in characters that are
-   not spaces. One constant for the separator copies and the word walk (review round 24), so their reach cannot
-   drift apart. */
+   not spaces. One constant for the separator copies and the word walk (review round 24); the walk counts it per
+   gap between real pieces (#3995), the copies over the whole span. */
 const SPLIT_REACH = 4;
 /* A comparison is charged by the characters it can read, one unit per 16 (review round 6): an opening or a
    piece can be up to WORD_WALK_MAX_FORM long, and counting comparisons alone let 2,000 held values sharing a
@@ -561,8 +575,9 @@ function wordSkippingSpans(text) {
         const via = new Map();   // position -> { s: the run that reached it, prev: the position before }
         let best = opening.length;
         let finished = false;
-        /* #3995: reach is counted from the last run a piece matched in, not from the opening: pieces spread past
-           four times the key's length in all (each with a sentence after it) left the later ones unread. */
+        /* #3995: reach is counted from the opening, or from the last run where a real piece took the walk further
+           (below), not from the opening alone: pieces spread past four times the key's length in all (each with a
+           sentence after it) left the later ones unread. */
         let lastAt = from;
         for (let s = r + 1; s < runs.length; s += 1) {
           const [, sTo] = runs[s];
@@ -582,9 +597,14 @@ function wordSkippingSpans(text) {
               const end = q + piece.length;
               if (end === f.length) { done = true; doneFrom = { s, prev: p, start: q }; break; }
               next.add(end);
-              lastAt = runs[s][0];
               if (!via.has(end)) via.set(end, { s, prev: p, start: q });
-              if (end > best) best = end;
+              /* Only a piece that takes the walk further than it has been, of OPENING_LEN or more and not words,
+                 extends its reach (#3995 review round 1): a one-character "a" matching again let a walk from every
+                 mention of sk-ant-api03- creep to the end of the reply. */
+              if (end > best) {
+                best = end;
+                if (piece.length >= OPENING_LEN && !madeOfWords(piece)) lastAt = runs[s][0];
+              }
               if (movedAt < 0) movedAt = runs[s][0];
             }
             if (done) break;
@@ -813,7 +833,20 @@ function maskFresh(text) {
        so words are not joined across it. */
     const unpunct = deleting(original, identity, /[^A-Za-z0-9_+/=\s-]+/g, (m) => [m.index, m.index + m[0].length]);
     if (unpunct.str !== original) {
-      for (const s of fragmentsIn(unpunct.str)) spans.push([unpunct.map[s[0]], unpunct.map[s[1] - 1] + 1]);
+      /* Only the runs of the TEXT that hold a matching slice's characters are masked (review round 1): the whole
+         joined run took a JSON object, a CSV row or a URL glued to the key with it. */
+      const isKeyChar = (c) => /[A-Za-z0-9_+/=-]/.test(c);
+      const seen = new Set();
+      for (const [a, b] of fragmentSlicesIn(unpunct.str)) {
+        for (let k = a; k < b; k += 1) {
+          let from = unpunct.map[k], to = from + 1;
+          if (seen.has(from)) continue;
+          while (from > 0 && isKeyChar(original[from - 1])) from -= 1;
+          while (to < original.length && isKeyChar(original[to])) to += 1;
+          for (let x = from; x < to; x += 1) seen.add(x);
+          spans.push([from, to]);
+        }
+      }
     }
     /* And in a copy with only single-character spacing closed up (review round 25): a key spaced one character
        at a time WITH words between its chunks ("Z q 8 v L m 3 p then w X y 9 ...") is neither. Not the copy above,
