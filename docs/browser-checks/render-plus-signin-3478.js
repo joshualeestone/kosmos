@@ -317,6 +317,13 @@ const visible = (page, sel) => page.evaluate((s) => {
         await page.setViewportSize(wide);
         await page.waitForTimeout(200);
         chk(narrow.input === narrow.row && narrow.input >= 18, `[${key}] #3942 on a narrow window the digits keep the boxes' size (no settings-wide 16px)`, JSON.stringify(narrow));
+        /* High-contrast (forced colours) strips the box-shadow outline: the current box keeps a thick
+           system-colour edge instead, and the other boxes keep their thin one. */
+        await page.emulateMedia({ forcedColors: 'active' });
+        const hc = await page.evaluate(() => Array.from(document.querySelectorAll('#plus-si-code .otp-cell')).map((c) => ({ on: c.classList.contains('on'), w: getComputedStyle(c).borderTopWidth, st: getComputedStyle(c).borderTopStyle })));
+        await page.emulateMedia({ forcedColors: 'none' });
+        chk(hc.length === 6 && hc.filter((c) => c.on).length === 1 && hc.every((c) => c.st === 'solid') && hc.find((c) => c.on).w === '3px' && hc.filter((c) => !c.on).every((c) => c.w === '1px'),
+          `[${key}] #3942 in high-contrast mode the current box has a thick edge, the others a thin one`, JSON.stringify(hc));
         chk(c.otp === 'one-time-code' && c.mode === 'numeric', `[${key}] #3796 the code field offers one-time-code autofill and a number pad`);
         chk(/58, 104, 216|47, 87, 196/.test(c.goBg) && !/227, 179, 65|245, 197/.test(c.goBg), `[${key}] #3796 Verify is Kosmos+ blue, not gold`, c.goBg);
         chk(c.rsTag === 'A' && c.rsText === 'Send again', `[${key}] #3796 resend is a small "Send again" link`, c.rsTag + ' ' + c.rsText);
@@ -492,6 +499,21 @@ const visible = (page, sel) => page.evaluate((s) => {
             chk(sep.fields.length === 7 && !low(sep.fields, 'r').length && sep.sec.length >= 1 && !low(sep.sec, 'r').length, `[webkit] #3841 field borders and the secondary stroke separate on the navy card (${theme})`, low(sep.fields, 'r').concat(low(sep.sec, 'r')).join(' '));
             chk(sep.prim.length >= 7 && !low(sep.prim, 'r').length && !low(sep.prim, 'edge').length, `[webkit] #3841 primary faces and edges separate on the navy card (${theme})`, low(sep.prim, 'r').concat(low(sep.prim, 'edge')).join(' '));
           }
+          /* #3942 in WebKit too: its monospace runs wider (measured on the web sign-in), so the six
+             boxes are measured here as well, at desktop and phone widths: all inside their row, the
+             digits the row's size, and five typed digits outline the sixth (five, so nothing sends). */
+          await page.evaluate(() => { plusSiShow('plus-si-code'); document.getElementById('plus-si-code-in').focus(); });
+          for (const w of [1400, 390]) {
+            await page.setViewportSize({ width: w, height: 950 });
+            await page.waitForTimeout(200);
+            const g = await page.evaluate(() => { const i = document.getElementById('plus-si-code-in'); const b = i.closest('.otp-boxes'); const fit = b.parentElement.getBoundingClientRect(); const r = b.getBoundingClientRect();
+              return { cells: b.querySelectorAll('.otp-cell').length, inside: r.left >= fit.left - 1 && r.right <= fit.right + 1, input: parseFloat(getComputedStyle(i).fontSize), row: parseFloat(getComputedStyle(b).fontSize) }; });
+            chk(g.cells === 6 && g.inside && g.input === g.row && g.input >= 18, `[webkit] #3942 the six boxes fit their row and the digits match them at ${w}px`, JSON.stringify(g));
+          }
+          await page.focus('#plus-si-code-in');
+          await page.keyboard.insertText('12345');
+          const five = await page.evaluate(() => ({ v: document.getElementById('plus-si-code-in').value, on: Array.from(document.querySelectorAll('#plus-si-code .otp-cell')).findIndex((x) => x.classList.contains('on')) }));
+          chk(five.v === '12345' && five.on === 5, `[webkit] #3942 five digits fill five boxes and outline the sixth`, JSON.stringify(five));
           await page.close();
         } finally { await wk.close(); }
       }
@@ -603,6 +625,14 @@ const visible = (page, sel) => page.evaluate((s) => {
       await page.keyboard.type('7');
       await page.waitForTimeout(400);
       chk((await page.inputValue('#plus-si-code-in')) === '317159' && wrongSends === 3, `[${k}] #3942 typing on a clicked digit replaces just that digit, and the fixed code is sent`, JSON.stringify({ v: await page.inputValue('#plus-si-code-in'), wrongSends }));
+      /* The common gesture: tapping straight onto one digit of a field that did NOT have focus puts the
+         caret there too (arriving by pointer does not select the whole code; Tab does). */
+      await page.evaluate(() => document.getElementById('plus-si-code-in').blur());
+      const fourth = await page.evaluate(() => { const c = document.querySelectorAll('#plus-si-code .otp-cell')[3].getBoundingClientRect(); return { x: c.left + 3, y: c.top + c.height / 2 }; });
+      await page.mouse.click(fourth.x, fourth.y);
+      await page.waitForTimeout(150);   // the outline repaints just after the pointer places the caret
+      const cold = await onBox();
+      chk(cold.s === 3 && cold.e === 3 && cold.on === 3, `[${k}] #3942 a first tap on the fourth digit of an unfocused field puts the caret there`, JSON.stringify(cold));
       chk((await visible(page, '#plus-si-code-go')) && !(await visible(page, '#plus-si-expired')), `[${k}] #3796 CONTROL: a wrong code stays on the step to retype`);
       /* #3942 review (round 1, measured): after a wrong code the field is full. Focusing it selects the
          whole code, and pasting the right one replaces it and sends it, once; a paste into a partly
@@ -640,6 +670,12 @@ const visible = (page, sel) => page.evaluate((s) => {
       await page.waitForTimeout(2000);
       verifyDelay = 0;
       chk(mid === 7 && wrongSends === 8 && (await page.inputValue('#plus-si-code-in')) === '666666', `[${k}] #3942 a code finished while an answer is in flight is sent when the button is free, once`, JSON.stringify({ mid, wrongSends, v: await page.inputValue('#plus-si-code-in') }));
+      /* A digit that arrives some way other than plain typing (an input method, a keyboard's
+         replacement text) lands at the caret as a seventh digit: the digit after the caret goes, so
+         it still replaces one digit. 123456 with a 9 put in after the 3 is 123956, not 123945. */
+      await page.evaluate(() => { const i = document.getElementById('plus-si-code-in'); i.value = '1239456'; i.setSelectionRange(4, 4); i.dispatchEvent(new Event('input', { bubbles: true })); });
+      await page.waitForTimeout(400);
+      chk((await page.inputValue('#plus-si-code-in')) === '123956' && wrongSends === 9, `[${k}] #3942 a seventh digit from an input method replaces the digit after the caret`, JSON.stringify({ v: await page.inputValue('#plus-si-code-in'), wrongSends }));
       const hint = await page.evaluate(() => { const i = document.getElementById('plus-si-code-in'); const ids = (i.getAttribute('aria-describedby') || '').split(/\s+/); const h = ids.map((x) => document.getElementById(x)).find(Boolean); return h ? h.textContent : null; });
       chk(hint === 'Kosmos checks the code as soon as all six digits are in.', `[${k}] #3942 a screen reader is told the sixth digit checks the code`, JSON.stringify(hint));
       page.off('request', countWrong);
@@ -652,6 +688,25 @@ const visible = (page, sel) => page.evaluate((s) => {
       await page.click('#plus-si-expired-go');
       await page.waitForSelector('#plus-si-email', { state: 'visible', timeout: 5000 });
       chk((await page.inputValue('#plus-signin-email')) === 'you@example.com', `[${k}] #3796 addendum 4: the panel's Start over returns to the email step with the email kept`);
+      /* #3942: a code finished while a RIGHT code is being checked is dropped once the answer moves
+         the sign-in on (it must not be sent to a step the person has left). */
+      verifyAnswer = { status: 200, body: { ok: true, stage: 'second', second_kind: 'totp', sent_to: '' } };
+      verifyDelay = 800;
+      const bodies = [];
+      const grab = (r) => { if (r.method() === 'POST' && /\/api\/remote\/signin-verify$/.test(r.url())) bodies.push(r.postData() || ''); };
+      page.on('request', grab);
+      await page.click('#plus-signin-code');
+      await page.waitForSelector('#plus-si-code', { state: 'visible', timeout: 5000 });
+      await page.fill('#plus-si-code-in', '777777');   // right code, answer in flight for 0.8s
+      await page.waitForTimeout(100);
+      await page.evaluate(() => { const i = document.getElementById('plus-si-code-in'); i.setSelectionRange(0, i.value.length); });
+      await page.keyboard.type('888888');                // finished while the button is busy
+      await page.waitForTimeout(2000);
+      page.off('request', grab);
+      verifyDelay = 0;
+      chk(await visible(page, '#plus-si-second') && bodies.length === 1 && !bodies.some((b) => b.includes('888888')), `[${k}] #3942 a code waiting on the button is dropped when the right code moves the sign-in on`, JSON.stringify({ second: await visible(page, '#plus-si-second'), bodies }));
+      await page.click('#plus-si-cancel');                // Start over, back to the email step for what follows
+      await page.waitForSelector('#plus-si-email', { state: 'visible', timeout: 5000 });
       /* #3796 review: an automatic register that fails (a second computer on a web-named account is refused
          today) is not a dead end: it says so and offers Try again, which registers the owned name again. */
       await page.unroute('**/api/remote/signin-**');

@@ -9285,7 +9285,7 @@ body.plus-active #plus-state2 { max-width: 26rem; padding: 2rem; }
    (Safari before 16), 7.5vw of the screen stands in: rougher, but it never overflows a phone. */
 #plus-state2 .otp-fit { container-type: inline-size; margin-top: .75rem; }
 #plus-state2 .otp-boxes { --cw: 2.6ch; --gap: .5ch; position: relative; display: block; overflow: hidden; overflow: clip;
-  font: 650 1.75rem/1 ui-monospace, Menlo, monospace; font-size: min(1.75rem, 7.5vw); font-size: min(1.75rem, 8.6cqw);
+  font: 650 1.75rem/1 ui-monospace, Menlo, monospace; font-size: clamp(1.125rem, 7.5vw, 1.75rem); font-size: clamp(1.125rem, 8.6cqw, 1.75rem);
   width: calc(6 * var(--cw) + 5 * var(--gap)); height: calc(var(--cw) * 1.25); }
 #plus-state2 .otp-cells { position: absolute; inset: 0; display: flex; gap: var(--gap); pointer-events: none; }
 #plus-state2 .otp-cell { flex: 0 0 var(--cw); box-sizing: border-box; border-radius: 12px; background: #16223e; border: 1px solid #5c78a6; }
@@ -37250,7 +37250,7 @@ function plusSiCodeFromPaste(text) {
   let m;
   while ((m = re.exec(t))) {
     const d = m[0].replace(/\D/g, '');
-    if (d.length === 6) six.push({ d, before: t.slice(Math.max(0, m.index - 24), m.index) });
+    if (d.length === 6) six.push({ d, before: t.slice(Math.max(0, m.index - 40), m.index) });
   }
   if (six.length === 1) return six[0].d;
   const named = six.filter((x) => /code/i.test(x.before));
@@ -37340,7 +37340,15 @@ for (const id of ['plus-si-code-in', 'plus-si-second-in', 'plus-si-enrol-code'])
   el.addEventListener('compositionend', () => el.dispatchEvent(new Event('input', { bubbles: true })));
   el.addEventListener('input', (e) => {
     if (e.isComposing) return;   // an input method mid-word: clean up when it commits
-    const clean = e.target.value.replace(/\D/g, '').slice(0, 6);
+    /* A seventh digit arrived by a way beforeinput does not catch (an input method, a keyboard's
+       replacement text): it went in at the caret, so the digit AFTER the caret goes, keeping the
+       replace-one-digit behaviour, rather than the last digit falling off the end. */
+    let d = e.target.value.replace(/\D/g, '');
+    if (d.length === 7 && typeof el.selectionStart === 'number') {
+      const k = e.target.value.slice(0, el.selectionStart).replace(/\D/g, '').length;
+      if (k > 0 && k < 7) d = d.slice(0, k) + d.slice(k + 1);
+    }
+    const clean = d.slice(0, 6);
     if (e.target.value !== clean) e.target.value = clean;
     paint();
     trySend();
@@ -37376,11 +37384,17 @@ for (const id of ['plus-si-code-in', 'plus-si-second-in', 'plus-si-enrol-code'])
   };
   // The page clears a field without an input event (plusSiClear on Start over), so focus also forgets
   // the last code when the field is not full: the same code entered again then goes.
-  el.addEventListener('focus', () => { if (digits() < 6) lastSent = ''; place(); paint(); });
+  // A pointer (mouse or finger) arriving is placing the caret where it lands, e.g. on one digit to
+  // fix; only a keyboard or the page arriving selects a full code or goes to the end.
+  let byPointer = false;
+  el.addEventListener('pointerdown', () => { if (document.activeElement !== el) byPointer = true; });
+  el.addEventListener('focus', () => { if (digits() < 6) lastSent = ''; if (!byPointer) place(); byPointer = false; paint(); });
   el.addEventListener('click', paint);
   for (const ev of ['blur', 'keyup', 'select', 'scroll']) el.addEventListener(ev, paint);
   // The outline follows the caret as it moves, a held arrow key included.
   document.addEventListener('selectionchange', () => { if (document.activeElement === el) paint(); });
+  el.addEventListener('selectionchange', paint);   // where the event is sent to the field itself
+  el.addEventListener('mouseup', () => setTimeout(paint, 0));   // after the pointer has placed the caret
 }
 /* Ask signin-start for an email code. ONE place, shared by the initial "Email me a
    code" button and the "again" button on the code step -- two copies of this sequence

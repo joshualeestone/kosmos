@@ -95,3 +95,19 @@
 - The outline follows the caret on selectionchange (a held arrow key); an input method's finished
   word is cleaned on compositionend.
 - App check: a code finished while an answer is in flight is sent when the button frees, once.
+
+## Review round 4 (app) and round 3 (web)
+- A seventh digit that arrives by a way beforeinput does not catch (an input method, a keyboard's
+  replacement text, or a browser without beforeinput) removes the digit AFTER the caret, so the
+  replace-one-digit behaviour holds everywhere (checked: 123456 with 9 put in after the 3 is 123956).
+- A pointer arriving in the field places the caret where it lands (a first tap on one digit);
+  Tab or the page arriving still selects a full code. The outline repaints just after the pointer.
+- Font floor clamp(1.125rem, ...): the digits never go below 18px and grow with the person's text
+  size preference.
+- The "code" window for two six-digit runs is 40 characters.
+- Checks: forced-colours current-box edge; WebKit boxes fit and match at 1400 and 390px (app);
+  a code waiting on the button is dropped when a right code moves the sign-in on (app); a final
+  quiet period after the last send (web).
+- Accepted, not changed: typing over a selected RANGE of two or more digits deletes the range and
+  inserts one digit (five digits left, nothing sent; recoverable). Real Android monospace is not
+  measured (the test browsers are desktop builds); the row has margin (8.6cqw) and a floor.
