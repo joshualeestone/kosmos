@@ -259,6 +259,10 @@ const waitFor = (page, fn, arg, ms = 6000) => page.waitForFunction(fn, arg, { ti
     for (let i = 0; i < 20 && !createBody; i++) await page.waitForTimeout(150);
     chk(!!createBody && !('kind' in createBody) && !('maxHelpers' in createBody) && await page.evaluate(() => document.getElementById('create-model-field').hidden === false),
       'S4b a plain Agent sends no swarm fields and shows the model picker', JSON.stringify(createBody));
+    // S4c CONTROL (#3946): back on Agent, the providers the swarm greyed are theirs again (OpenAI selectable).
+    chk(await page.evaluate(() => { const o = [...document.getElementById('create-provider').options].find((x) => x.value === 'openai');
+      return !!o && !o.disabled && o.dataset.off !== 'Swarms run on Claude for now' && o.dataset.swarmGated === undefined; }),
+      'S4c a plain Agent gets OpenAI back: the swarm greying is undone');
     // S33 (#3946 items 9, 10): on a calibrated account the limit is a % of the weekly allowance: Josh's subtext, a
     // low default (3%), and the request carries the % and the tokens it is worth today.
     calibrated = true;
@@ -280,10 +284,6 @@ const waitFor = (page, fn, arg, ms = 6000) => page.waitForFunction(fn, arg, { ti
     chk(!!createBody && createBody.dailyAllowancePct === 5 && createBody.dailyTokenLimit === 5000000,
       'S33 the request carries dailyAllowancePct 5 and the 5,000,000 tokens it is worth (#3946)', JSON.stringify(createBody));
     calibrated = false;
-    // S4c CONTROL (#3946): back on Agent, the providers the swarm greyed are theirs again (OpenAI selectable).
-    chk(await page.evaluate(() => { const o = [...document.getElementById('create-provider').options].find((x) => x.value === 'openai');
-      return !!o && !o.disabled && o.dataset.off !== 'Swarms run on Claude for now' && o.dataset.swarmGated === undefined; }),
-      'S4c a plain Agent gets OpenAI back: the swarm greying is undone');
 
     // S5: the board card. The crew is its cluster (min(max, 7) circles, the badge working/most, the Swarm line);
     // Rex stays a plain face (the control).
