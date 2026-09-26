@@ -46,6 +46,9 @@ export AGENT_RC_WANT=0
 # PASS; it prints the snapshot it was handed so a case can check it is a copy of the pointer.
 PLUS_STUB="$T/stub-plus-gate.sh"; printf '#!/usr/bin/env bash\nprintf "plus-gate-arg1:%%s\\n" "${1:-}"\n[ -f "${1:-}" ] && printf "plus-gate-version:%%s\\n" "$(sed -n "s/.*\\"version\\": *\\"\\([^\\"]*\\)\\".*/\\1/p" "$1" | head -1)"\nexit "${PLUS_RC_WANT:-0}"\n' > "$PLUS_STUB"; chmod +x "$PLUS_STUB"
 export KOSMOS_PROMOTE_PLUS_GATE_CMD="bash $PLUS_STUB"
+# #3940: a promote with no Kosmos+ record appends to promote-plus-unverified.log in this directory;
+# point it at the sandbox so a local run never writes into the real ~/.local/state.
+export KOSMOS_PLUS_VERIFY_DIR="$T/plus-verify"
 export PLUS_RC_WANT=0
 
 # ---- publish-staging-pointer ----
@@ -209,12 +212,24 @@ out="$(KOSMOS_PROMOTE_GATE_CMD="$GATE" GATE_RC_WANT=0 PLUS_RC_WANT=1 bash "$PROM
 [ "$rc" = 1 ] && has "$out" "first Kosmos+ sign-in gate FAILED" && [ ! -f "$Sp1/dist/latest.json" ] && pass "promote: plus gate 1 -> refuse, no promote" || bad "promote plus-gate-1 (rc=$rc, out=$out)"
 out="$(KOSMOS_PROMOTE_GATE_CMD="$GATE" GATE_RC_WANT=0 PLUS_RC_WANT=1 bash "$PROMOTE" "$Sp1" --force 2>&1)"; rc=$?
 [ "$rc" = 1 ] && [ ! -f "$Sp1/dist/latest.json" ] && pass "promote: plus gate 1 is NOT forceable" || bad "promote plus-gate-1-force (rc=$rc, out=$out)"
-# no record (2) -> HOLD; --force promotes on a hand check.
+# no record (2) -> WARN and promote, WITHOUT --force (#3940, Josh 2026-09-26), and one line in the log.
 Sp2="$(make_site)"; bash "$PUBLISH" "$Sp2" >/dev/null 2>&1
+rm -rf "$KOSMOS_PLUS_VERIFY_DIR"
 out="$(KOSMOS_PROMOTE_GATE_CMD="$GATE" GATE_RC_WANT=0 PLUS_RC_WANT=2 bash "$PROMOTE" "$Sp2" 2>&1)"; rc=$?
-[ "$rc" = 2 ] && has "$out" "HOLDING" && [ ! -f "$Sp2/dist/latest.json" ] && pass "promote: plus gate 2 (no record) -> HOLD, no promote" || bad "promote plus-gate-2 (rc=$rc, out=$out)"
+PLUS_LOG_T="$KOSMOS_PLUS_VERIFY_DIR/promote-plus-unverified.log"
+[ "$rc" = 0 ] && has "$out" "WARNING first Kosmos+ sign-in gate has no record" && ! has "$out" "HOLDING" \
+  && [ -f "$Sp2/dist/latest.json" ] && [ "$(grep -c 'version=9.9.9' "$PLUS_LOG_T" 2>/dev/null)" = 1 ] \
+  && grep -q 'first Kosmos+ sign-in NOT verified' "$PLUS_LOG_T" \
+  && pass "promote: plus gate 2 (no record) -> WARN, promote, one log line" || bad "promote plus-gate-2 (rc=$rc, log=$(cat "$PLUS_LOG_T" 2>/dev/null), out=$out)"
+# --force changes nothing for a missing record: still a warning, a promote, and one MORE log line.
 out="$(KOSMOS_PROMOTE_GATE_CMD="$GATE" GATE_RC_WANT=0 PLUS_RC_WANT=2 bash "$PROMOTE" "$Sp2" --force 2>&1)"; rc=$?
-[ "$rc" = 0 ] && [ -f "$Sp2/dist/latest.json" ] && pass "promote: plus gate 2 + --force -> promote on hand check" || bad "promote plus-gate-2-force (rc=$rc, out=$out)"
+[ "$rc" = 0 ] && [ -f "$Sp2/dist/latest.json" ] && [ "$(grep -c 'version=9.9.9' "$PLUS_LOG_T")" = 2 ] \
+  && pass "promote: plus gate 2 + --force -> promote, logged again" || bad "promote plus-gate-2-force (rc=$rc, out=$out)"
+# A log that cannot be written never stops the promote; the output says so instead.
+Sp2b="$(make_site)"; bash "$PUBLISH" "$Sp2b" >/dev/null 2>&1
+out="$(KOSMOS_PLUS_VERIFY_DIR="$T/not-a-dir-file" KOSMOS_PROMOTE_GATE_CMD="$GATE" GATE_RC_WANT=0 PLUS_RC_WANT=2 bash -c ': > "$KOSMOS_PLUS_VERIFY_DIR"; exec bash "$0" "$1"' "$PROMOTE" "$Sp2b" 2>&1)"; rc=$?
+[ "$rc" = 0 ] && [ -f "$Sp2b/dist/latest.json" ] && has "$out" "could not append" \
+  && pass "promote: plus gate 2 with an unwritable log -> still promotes, says so" || bad "promote plus-gate-2-nolog (rc=$rc, out=$out)"
 # pass (0) -> promote, and the gate was handed the SNAPSHOT (a copy of the staging pointer).
 Sp0="$(make_site)"; bash "$PUBLISH" "$Sp0" >/dev/null 2>&1
 out="$(KOSMOS_PROMOTE_GATE_CMD="$GATE" GATE_RC_WANT=0 PLUS_RC_WANT=0 bash "$PROMOTE" "$Sp0" 2>&1)"; rc=$?

@@ -10,7 +10,8 @@
 # Exit contract (the Mac gates'):
 #   0  a record names the pointer's sha256 AND version, and says pass;
 #   1  the record says fail, or is ambiguous -> refuse (never forceable);
-#   2  no record for this sha, or the pointer cannot be read -> HOLD (forceable after a hand check).
+#   2  no record for this sha, or the pointer cannot be read. promote-channel.sh WARNS, logs it to
+#      promote-plus-unverified.log and promotes anyway (#3940, Josh 2026-09-26); it no longer holds.
 #
 #   bash tools/plus-signin-verified.sh <site>/dist/latest-staging.json
 set -uo pipefail
