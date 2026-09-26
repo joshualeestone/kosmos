@@ -287,3 +287,10 @@ test('#3568: an install whose answer never came says it may still be installing,
   assert.doesNotMatch(f.view().text, /could not install/);
   assert.equal(f.view().button, 'Check again');
 });
+
+test('#3568: a saved Gemini-by-subscription create pick waits for the installed read before it is judged (review round 8)', () => {
+  const at = PAGE.indexOf('      const pref = readCreatePrefs();');
+  const next = PAGE.slice(at, at + 600);
+  assert.match(next, /if \(pref && pref\.provider === 'antigravity'\) \{ await agyAsk\(\); paintAgyOption\(document\.getElementById\('create-provider'\), ''\); \}/);
+  assert.ok(PAGE.lastIndexOf('async function loadCreateExtras', at) > PAGE.lastIndexOf('\nfunction ', at), 'the restore must sit inside the async loadCreateExtras');
+});
