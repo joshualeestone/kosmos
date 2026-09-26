@@ -221,22 +221,28 @@ test('GET /api/tasks?view=tasks leaves out archived projects (and pays nothing f
   assert.ok(plain.tasks.some((t) => t.projectId === p.id && t.projectArchived === true), 'the plain list lost the archived task');
 });
 
-test('#3949 GET /api/tasks?view=tasks: a task whose agent needs the person is Needs Your Decision, asked with the roster the route read', async () => {
+test('#3949 GET /api/tasks?view=tasks: a task whose agent asks about ITS project is Needs Your Decision, from the real roster', async () => {
+  const fleet = require('./test-support/fleet');
+  const selfreport = require('./engine/selfreport');
   const p = projects.create({ name: 'Decisions' });
-  projects.addAgent(p.id, 'askagent', null);
-  tasks.create(p.id, { sentence: 'Waiting on the person', who: 'askagent' });
-  tasks.create(p.id, { sentence: 'Not waiting', who: 'askagent' });
-  const real = tasks.waitingOnPerson;
-  const asked = [];
-  tasks.waitingOnPerson = (t, roster) => { asked.push([t.sentence, Array.isArray(roster)]); return t.sentence === 'Waiting on the person'; };
+  const other = projects.create({ name: 'Other decisions' });
+  for (const a of ['askhere', 'askthere']) projects.addAgent(p.id, a, null);
+  tasks.create(p.id, { sentence: 'Waiting on the person', who: 'askhere' });
+  tasks.create(p.id, { sentence: 'Asked about another project', who: 'askthere' });
+  /* Real agents asking real questions (selfreport + a needs_you pane), one about this project, one about another. */
+  assert.equal(selfreport.record('askhere', { state: 'needs_you', project: p.id, because: 'which cover?' }).recorded, true);
+  assert.equal(selfreport.record('askthere', { state: 'needs_you', project: other.id, because: 'a question elsewhere' }).recorded, true);
+  const board = fleet.install([fleet.agent('askhere', { state: 'needs_you' }), fleet.agent('askthere', { state: 'needs_you' })]);
   let body;
-  try { body = await all(`?view=tasks&project=${encodeURIComponent(p.id)}`); } finally { tasks.waitingOnPerson = real; }
+  try { body = await all(`?view=tasks&project=${encodeURIComponent(p.id)}`); } finally { board.restore(); }
   const by = Object.fromEntries(body.tasks.map((t) => [t.sentence, t]));
-  assert.equal(by['Waiting on the person'].state, 'decision');
+  assert.equal(by['Waiting on the person'].state, 'decision', JSON.stringify(by['Waiting on the person']));
   assert.equal(by['Waiting on the person'].waitingOnPerson, true);
-  assert.equal(by['Not waiting'].state, 'assigned', 'control: the other task is not');
-  assert.deepEqual(asked.map((a) => a[1]), [true, true], 'the engine was asked with a roster for every row');
-  /* And without the stub, a fake board has nobody asking anything: no task is a decision. */
-  const plain = await all(`?view=tasks&project=${encodeURIComponent(p.id)}`);
+  assert.equal(by['Asked about another project'].state, 'assigned', 'control: a question about another project does not count here');
+  /* And once the questions are answered (each agent reports working again), no task is a decision. */
+  for (const a of ['askhere', 'askthere']) assert.equal(selfreport.record(a, { state: 'working' }).recorded, true);
+  const quiet = fleet.install([fleet.agent('askhere', { state: 'working' }), fleet.agent('askthere', { state: 'working' })]);
+  let plain;
+  try { plain = await all(`?view=tasks&project=${encodeURIComponent(p.id)}`); } finally { quiet.restore(); }
   assert.ok(plain.tasks.every((t) => t.state !== 'decision' && t.waitingOnPerson === false), JSON.stringify(plain.tasks.map((t) => t.state)));
 });

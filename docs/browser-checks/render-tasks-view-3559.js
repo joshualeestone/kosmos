@@ -11,9 +11,8 @@
  *  - #3949 (Josh, 2026-09-26): five single-label tiles in his order (Needs Your Decision, red; In
  *    progress; Assigned but not started; Unassigned; Completed), with the right counts and no byline;
  *    Completed also stays the folded list; NO "Built but waiting" (#3951), "Done, check it" or
- *    category is drawn (they are not guessed). Needs Your Decision's task comes from a stubbed
- *    tasks.waitingOnPerson (the fleet fixture cannot make a question name a project); the rule itself
- *    is pinned by engine/tasks.state-3559.test.js,
+ *    category is drawn (they are not guessed). Needs Your Decision's task is a real one: its agent
+ *    (Max) reports a question about its project, and the pane is asking,
  *  - #3949 layout: no left Projects column; search about half the width with the open-task count to
  *    its right; Project and Created: dropdowns on one row; Group by and Sort dropdowns under the
  *    tiles; no tile hint,
@@ -63,13 +62,18 @@ function chk(ok, label, extra) {
 }
 
 (async () => {
+  const launch = projects.create({ name: 'Spring launch' });
+  const news = projects.create({ name: 'Newsletter' });
+  /* #3949: Max asks the person a question about Spring launch (his own report plus an asking pane), so the
+     task he holds is Needs Your Decision through the real rule, not a stub. */
+  const selfreport = require('../../engine/selfreport');
+  if (!selfreport.record('max', { state: 'needs_you', project: launch.id, because: 'which cover do you want?' }).recorded) throw new Error('fixture: Max\'s question was not recorded');
   fleet.install([
     fleet.agent('ada', { state: 'idle', displayName: 'Ada', role: 'a planner' }),
     fleet.agent('rex', { state: 'idle', displayName: 'Rex', role: 'a writer' }),
+    fleet.agent('max', { state: 'needs_you', displayName: 'Max', role: 'a designer' }),
   ]);
-  const launch = projects.create({ name: 'Spring launch' });
-  const news = projects.create({ name: 'Newsletter' });
-  for (const [p, a] of [[launch, 'ada'], [launch, 'rex'], [news, 'rex']]) projects.addAgent(p.id, a, null);
+  for (const [p, a] of [[launch, 'ada'], [launch, 'rex'], [news, 'rex'], [launch, 'max']]) projects.addAgent(p.id, a, null);
   tasks.create(launch.id, { sentence: 'Book the podcast tour' });                 // 1 nobody
   tasks.create(launch.id, { sentence: 'Order proof copies', who: 'rex' });        // 2 assigned
   tasks.create(launch.id, { sentence: 'Pick the launch date', who: 'ada' });      // 3 working
@@ -77,12 +81,8 @@ function chk(ok, label, extra) {
   tasks.close(launch.id, 4);
   tasks.create(news.id, { sentence: 'Clean up bounced addresses', who: 'rex' });  // 1 assigned
   tasks.create(news.id, { sentence: 'Welcome email for new subscribers' });       // 2 nobody
-  tasks.create(launch.id, { sentence: 'Approve the cover', who: 'rex' });         // 5 decision (stubbed below)
+  tasks.create(launch.id, { sentence: 'Approve the cover', who: 'max' });         // 5 decision (Max is asking)
   commitments.report('ada', [{ what: 'working on task 3 of Spring launch' }]);
-  /* #3949: the fleet fixture cannot make a question name a project, so the one decision task comes from a stub
-     of the engine's rule (pinned on its own by engine/tasks.state-3559.test.js); everything after it is real. */
-  const realWaiting = tasks.waitingOnPerson;
-  tasks.waitingOnPerson = (t, roster) => (t && t.sentence === 'Approve the cover' ? true : realWaiting(t, roster));
   // An ARCHIVED project's task must not appear anywhere in the view.
   const old = projects.create({ name: 'Old catalog' });
   tasks.create(old.id, { sentence: 'Archived away task' });
@@ -259,7 +259,7 @@ function chk(ok, label, extra) {
         /* Search: by agent name, then by number, combined with the project dropdown. */
         await page.fill('#tsk-search', 'rex');
         let rows = await page.evaluate(() => [...document.querySelectorAll('#tsk-groups .tsk-row .tl')].map((x) => x.textContent));
-        chk(rows.length === 3 && rows.includes('Order proof copies') && rows.includes('Clean up bounced addresses') && rows.includes('Approve the cover'), `${tag} search finds tasks by agent name`, JSON.stringify(rows));
+        chk(rows.length === 2 && rows.includes('Order proof copies') && rows.includes('Clean up bounced addresses'), `${tag} search finds tasks by agent name`, JSON.stringify(rows));
         await page.selectOption('#tsk-projsel', news.id);
         rows = await page.evaluate(() => [...document.querySelectorAll('#tsk-groups .tsk-row .tl')].map((x) => x.textContent));
         chk(JSON.stringify(rows) === JSON.stringify(['Clean up bounced addresses']), `${tag} search combines with the project dropdown`, JSON.stringify(rows));
@@ -273,6 +273,14 @@ function chk(ok, label, extra) {
         await page.fill('#tsk-search', 'podcast');
         rows = await page.evaluate(() => [...document.querySelectorAll('#tsk-groups .tsk-row .tl')].map((x) => x.textContent));
         chk(JSON.stringify(rows) === JSON.stringify(['Book the podcast tour']), `${tag} search finds a task by what it says`, JSON.stringify(rows));
+        /* #3949: with nothing to act on (the search leaves Needs Your Decision at 0), that tile is not red. */
+        const zero = await page.evaluate(() => {
+          const t = document.querySelector('#tsk-tiles [data-tile="decision"]');
+          const probe = document.createElement('span'); probe.style.color = 'var(--danger)'; document.getElementById('panel-tasks').appendChild(probe);
+          const danger = getComputedStyle(probe).color; probe.remove();
+          return { n: Number(t.querySelector('.num').textContent), red: getComputedStyle(t.querySelector('.num')).color === danger };
+        });
+        chk(zero.n === 0 && !zero.red, `${tag} a zero Needs Your Decision is not red`, JSON.stringify(zero));
         /* Its own clear button: shown with text, clears and hides again. */
         const clr = await page.evaluate(() => !document.getElementById('tsk-qclear').hidden);
         chk(clr, `${tag} the search's clear button shows once there is text`);
