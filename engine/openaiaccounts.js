@@ -1353,7 +1353,9 @@ async function checkLive(dir, opts) {
        so an /api/accounts render NEVER waits on codex doctor. The awaited fresh handshake is kept
        only for the callers that must have a real verdict now: codexauthprobe (which WARMS the cache
        off the request path) and create.accountConnectable. So the board's 5s tick and every HTTP
-       render stay off the handshake; only the warmer and the connectable pre-flight reach it. */
+       render stay off the handshake; only the warmer and the connectable pre-flight reach it.
+       (#3997: the /api/accounts route itself also STARTS a cold home's check without awaiting it, and
+       its Check now route awaits a fresh one on a press.) */
     const live = opts.cached
       ? codexsigninlive.livenessCached(dir).verdict
       : await codexsigninlive.liveness(dir);

@@ -84,6 +84,16 @@ test('#3997 ChatGPT: opening the list STARTS the free check without waiting, say
   assert.equal(runs, 1, 'a warm row started another check');
 });
 
+test('#3997 ChatGPT: a check that FINISHED without an answer is not "checking" (review round 2)', async () => {
+  codexsigninlive.setRunner(async () => ({ ok: false }));   // codex missing, a timeout: no report at all
+  grokAccounts.setFetcher(async () => ({ status: 200 }));
+  await accounts();
+  await new Promise((r) => setTimeout(r, 50));
+  const row = (await accounts()).find((a) => a.provider === 'openai');
+  assert.equal(row.connection.state, 'unknown');
+  assert.ok(!row.connection.liveCheckPending, 'a finished check still says it is under way');
+});
+
 test('#3997 Grok subscription: a current key checked live on open reads working; an expired one stays unconfirmed with its reason', async () => {
   let calls = 0;
   grokAccounts.setFetcher(async () => { calls++; return { status: 200 }; });
@@ -103,17 +113,25 @@ test('#3997 Grok subscription: a current key checked live on open reads working;
 });
 
 test('#3997 Check now routes: connected, none and unknown, and a wrong kind of account is refused', async () => {
-  codexsigninlive.setRunner(async () => ({ ok: true, stdout: DOC('ok') }));
+  let runs = 0;
+  codexsigninlive.setRunner(async () => { runs++; return { ok: true, stdout: DOC('ok') }; });
   let j = await (await post('/api/accounts/openai/check', { dir: CODEX })).json();
   assert.equal(j.state, 'connected');
+  // "Right now": a second press asks again rather than serving the answer from a moment ago.
+  await post('/api/accounts/openai/check', { dir: CODEX });
+  assert.equal(runs, 2, 'Check now served a cached answer');
   codexsigninlive.resetForTest();
   codexsigninlive.setRunner(async () => ({ ok: true, stdout: DOC('warning') }));
   j = await (await post('/api/accounts/openai/check', { dir: CODEX })).json();
   assert.equal(j.state, 'none');
   grokSignIn(3 * 3600 * 1000);
+  grokSignIn(-60 * 1000);
+  j = await (await post('/api/accounts/grok/check', { dir: GROK })).json();
+  assert.equal(j.state, 'expired', 'an expired key is its own answer, not "try again"');
+  grokSignIn(3 * 3600 * 1000);
   grokAccounts.setFetcher(async () => ({ status: 401 }));
   j = await (await post('/api/accounts/grok/check', { dir: GROK })).json();
-  assert.equal(j.state, 'unknown', 'a 401 is not confirmed dead');
+  assert.equal(j.state, 'refused', 'a 401 is its own answer: not confirmed, and not a negative');
   assert.match(j.because, /Signing in again/);
   observed._clearForTest();
   grokAccounts.setFetcher(async () => ({ status: 200 }));
@@ -128,6 +146,11 @@ test('#3997 Check now routes: connected, none and unknown, and a wrong kind of a
   const refused = (await accounts()).find((a) => a.provider === 'xai');
   assert.equal(refused.connection.badge, 'signed_in_unverified', 'a refused sign-in still shows an earlier green');
   assert.match(refused.connection.because, /Signing in again/);
+  // And the NEXT read, which cannot ask (the key has since expired), does not bring the refused green back.
+  grokSignIn(-60 * 1000);
+  const later = (await accounts()).find((a) => a.provider === 'xai');
+  assert.equal(later.connection.badge, 'signed_in_unverified', 'an earlier green came back after Grok refused the sign-in');
+  grokSignIn(3 * 3600 * 1000);
   // A ChatGPT dir asked on the Grok route (and a stranger's folder) is not an account of that kind.
   assert.equal((await post('/api/accounts/grok/check', { dir: CODEX })).status, 404);
   assert.ok((await accounts()).some((a) => a.dir === CODEX_KEY), 'CONTROL: the api-key account is a listed OpenAI account');

@@ -178,9 +178,8 @@ async function liveness(dir, nowMs) { return (await livenessDetailed(dir, nowMs)
  * cause:'indeterminate' } -- and it NEVER runs `codex doctor`. It is synchronous and has NO side
  * effect (it does not spawn and does not kick a warm), so `/api/accounts` can read a chatgpt row's
  * verdict and return immediately (grey on a cold miss) without ever blocking on the 1.8-20s
- * handshake. The off-tick warm is codexauthprobe's job (it calls the AWAITING liveness/checkLive to
- * fill this same cache), so the next render is warm; a truly idle account nobody probes stays grey,
- * which is honest. Contrast liveness()/livenessDetailed(), which DO run a fresh doctor on a cold
+ * handshake. The warm is codexauthprobe's (for a home with a running agent) and, since #3997, the
+ * /api/accounts read's own: it STARTS a check for a cold home without waiting on it. Contrast liveness()/livenessDetailed(), which DO run a fresh doctor on a cold
  * miss -- create.accountConnectable and codexauthprobe want that real, awaited verdict.
  */
 function livenessCached(dir, nowMs) {
@@ -190,4 +189,16 @@ function livenessCached(dir, nowMs) {
   return { verdict: 'unknown', cause: 'indeterminate' };
 }
 
-module.exports = { liveness, livenessDetailed, livenessCached, classify, classifyDetailed, setRunner, resetForTest, TTL_MS, TIMEOUT_MS };
+/* #3997: where this home's check stands, so /api/accounts can say "checking" only while one really is running (a
+   finished check that got no answer is 'fresh' too: its 'unknown' is the answer, not a check still under way). */
+function checkState(dir, nowMs) {
+  const now = typeof nowMs === 'number' ? nowMs : Date.now();
+  const key = homeKey(dir);
+  const cur = cache.get(key);
+  if (cur && (now - cur.at) < TTL_MS) return 'fresh';
+  return inflight.has(key) ? 'running' : 'cold';
+}
+/* #3997: Check now asks afresh (a cached answer from before a new sign-in could be a false red). */
+function invalidate(dir) { cache.delete(homeKey(dir)); }
+
+module.exports = { liveness, livenessDetailed, livenessCached, checkState, invalidate, classify, classifyDetailed, setRunner, resetForTest, TTL_MS, TIMEOUT_MS };

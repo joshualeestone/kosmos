@@ -308,9 +308,10 @@ async function checkLive(dir, _opts) {
   return { ...live, checkedLive: true };
 }
 
-/* A subscription account, judged OFFLINE from its auth.json (#3391). There is no
-   live check: grok has no `login status`, `grok models` lists models even with an
-   empty key, and refreshing a person's token from a probe is not ours to do. So a
+/* A subscription account, judged OFFLINE from its auth.json (#3391). grok has no
+   `login status`, `grok models` lists models even with an empty key, and refreshing a
+   person's token from a probe is not ours to do. (#3997 adds a separate free live check,
+   subscriptionLive below, for a key that has not expired.) So a
    sign-in grok can renew (a refresh token) or one still inside its expiry is
    CONNECTED; the /api/accounts overlay in server.js badges it signed_in_unverified
    until a real grok session succeeds on it. NONE only for a sign-in that has
@@ -341,7 +342,16 @@ function subscriptionVerdict(dir) {
      expired    the key has expired, so there is nothing to check until grok runs again.
      unknown    no answer (network, an unreadable file, anything else); never a negative. */
 const SUBSCRIPTION_EXPIRY_MARGIN_MS = 60 * 1000;
-async function subscriptionLive(dir) {
+/* Callers asking about the same folder at the same moment (two screens reading the list) share one request. */
+const subscriptionLiveInflight = new Map();
+function subscriptionLive(dir) {
+  const key = path.resolve(String(dir || ''));
+  if (subscriptionLiveInflight.has(key)) return subscriptionLiveInflight.get(key);
+  const p = subscriptionLiveOnce(dir).finally(() => subscriptionLiveInflight.delete(key));
+  subscriptionLiveInflight.set(key, p);
+  return p;
+}
+async function subscriptionLiveOnce(dir) {
   const auth = readAuth(dir);
   if (auth.kind !== 'ok') return { verdict: 'unknown', because: 'Could not read the Grok sign-in' };
   const e = auth.entry;

@@ -21927,6 +21927,18 @@ function acctCancelSay() { if (acctSayTimer) { clearTimeout(acctSayTimer); acctS
    A healthy check answers within a second or two; a dead or slow one takes up to about 20 seconds (codex's own
    handshake timeout), so the reads continue until nothing is pending or the count runs out. */
 const ACCT_FOLLOWUP = { ms: 3500, max: 6 };
+/* A follow-up that found the person busy waits one more turn, still bounded, and reads only if the list has not been
+   painted again meanwhile. */
+function ACCT_EPOCH_WAIT(n) {
+  const mine = ACCT_EPOCH;
+  if (n >= ACCT_FOLLOWUP.max) return;
+  setTimeout(() => {
+    if (mine !== ACCT_EPOCH) return;
+    const box = document.getElementById('set-accounts');
+    if (box && (box.querySelector('.acct-check:disabled, .armed') || box.contains(document.activeElement))) { ACCT_EPOCH_WAIT(n + 1); return; }
+    paintAccounts({ followUp: n + 1 });
+  }, ACCT_FOLLOWUP.ms);
+}
 async function paintAccounts(opts) {
   const followUp = (opts && Number.isInteger(opts.followUp)) ? opts.followUp : 0;
   const box = document.getElementById('set-accounts');
@@ -21986,7 +21998,15 @@ async function paintAccounts(opts) {
   /* #3997: a ChatGPT sign-in whose free check is still under way is read again a few seconds on, so it turns green
      (or says what is wrong) without the person doing anything; bounded by ACCT_FOLLOWUP.max, never a loop. */
   if (followUp < ACCT_FOLLOWUP.max && list.some((a) => a && a.connection && a.connection.liveCheckPending)) {
-    setTimeout(() => { if (mine === ACCT_EPOCH) paintAccounts({ followUp: followUp + 1 }); }, ACCT_FOLLOWUP.ms);
+    setTimeout(() => {
+      if (mine !== ACCT_EPOCH) return;
+      /* Never rebuild the list under the person's hands (review round 2): a Check now in flight (its button disabled),
+         a half-pressed Disconnect or Delete, or focus inside the list. Wait for the next turn instead; it still
+         counts toward the bound. */
+      const busy = box.querySelector('.acct-check:disabled, .armed') || box.contains(document.activeElement);
+      if (busy) { ACCT_EPOCH_WAIT(followUp + 1); return; }
+      paintAccounts({ followUp: followUp + 1 });
+    }, ACCT_FOLLOWUP.ms);
   }
   acctCancelSay();  /* post-await writer, same reason as the catch above */
   if (msg) msg.textContent = '';
@@ -22014,8 +22034,9 @@ async function paintAccounts(opts) {
     const keyRoute = ACCT_KEYED_ROUTE[acctProvider(a)] || '';
     const isKeyed = !!keyRoute;
     /* #3997: a ChatGPT sign-in and a Grok subscription each have a FREE live check, so they get Check now too. */
+    /* A Grok sign-in that has lapsed, or that could not be read, has nothing a check could confirm: no button there. */
     const signInCheck = isOpenai && a.authMode === 'chatgpt' ? 'openai'
-      : (acctProvider(a) === 'xai' && a.authMode === 'subscription') ? 'grok' : '';
+      : (acctProvider(a) === 'xai' && a.authMode === 'subscription' && a.connection && a.connection.state === 'connected') ? 'grok' : '';
     const canCheckSignIn = !!signInCheck;
     /* #2095: the human-chosen name is the primary label (was key-last-4-only). */
     const who = esc(acctPrimaryName(a));
@@ -22160,7 +22181,9 @@ async function paintAccounts(opts) {
     const unverifiedWhy = 'This account is signed in. We have not seen a request on it succeed recently, so we are not confirming it live here. '
       + ((isKeyed && !canCheckSignIn) ? 'It confirms itself the next time an agent on it runs.' : 'Use Check now to verify it, or it confirms itself the next time an agent on it runs.');
     /* #3997: a Grok subscription's own reason (for example, its key expired and Grok renews it on its next run). */
-    const unverifiedTitle = (acctProvider(a) === 'xai' && a.authMode === 'subscription' && a.connection && a.connection.because) ? a.connection.because + '. ' + 'Use Check now to verify it.' : null;
+    const grokWhy = acctProvider(a) === 'xai' && a.authMode === 'subscription' && a.connection ? a.connection.because : '';
+    /* An expired key cannot be checked until Grok runs, so that title does not point at Check now. */
+    const unverifiedTitle = grokWhy ? (/cannot be checked until then/.test(grokWhy) ? grokWhy + '.' : grokWhy + '. Use Check now to verify it.') : null;
     let connBadge;
     if (badge === 'working') {
       connBadge = '<span class="acct-connected" title="' + esc(workingWhy) + '"><span class="dot" aria-hidden="true"></span>Signed in' + (ageStr ? ' · active ' + esc(ageStr) : '') + '</span>';
@@ -22175,8 +22198,8 @@ async function paintAccounts(opts) {
     } else if (isOpenai && a.authMode === 'chatgpt') {
       /* #2568: a ChatGPT SUBSCRIPTION row. Its checkLive() honestly returns state
          UNKNOWN with a real, LONG because sentence ("this sign-in method is not yet
-         checked live; it may or may not still work") -- there is no live probe for a
-         subscription sign-in yet (openaiaccounts.js checkLive). OpenAI rows carry no
+         checked live; it may or may not still work") -- at the time there was no live probe
+         for a subscription sign-in (there is since #2790, codex's handshake, and #3997 starts it on open). OpenAI rows carry no
          server `badge`, so before this it fell to the legacy fallback below and rendered
          that whole sentence in the pill span. The pill classes are `white-space: nowrap`,
          so a long sentence cannot wrap: it overflowed the pill and collided with the email
@@ -22190,7 +22213,7 @@ async function paintAccounts(opts) {
          #2568 asks the OpenAI row to adopt. */
       /* #3997: amber "Signed in" like every other unconfirmed sign-in (was a grey "Signed in · not checked live").
          Opening this screen starts the free check (server.js), and a row still waiting on it says so in its title;
-         the page reads the list once more when that check has had time to finish. */
+         the page reads the list again, a bounded number of times, until that check has finished. */
       const checkingWhy = 'Checking this sign-in now.';
       const cstate = a.connection && a.connection.state;
       /* The check's own verdict: confirmed is green, a sign-in ChatGPT refused is red ("sign in again" is its title). */
@@ -22255,8 +22278,8 @@ async function paintAccounts(opts) {
          honestly reddens) THIS account's badge on demand. The passive badge only
          greens from a witnessed streaming turn, so a signed-in-but-idle account
          reads as "not connected" though it is fine (Josh, 0.6.68); this lets the
-         person confirm it now. Claude rows only: the probe is a real `claude -p`
-         call, and "not recently checked" is the Claude-side report this answers. */
+         person confirm it now. This button is the Claude probe (a real `claude -p` call);
+         #3997 adds a FREE Check now for a ChatGPT sign-in or a Grok subscription (data-check-signin). */
       + (isKeyed ? (canCheckSignIn
           ? '<button class="acct-check" type="button" data-check-signin="' + signInCheck + '" data-check-dir="' + esc(a.dir) + '" '
             + 'aria-label="Check now whether ' + who + (qual ? ' (' + esc(qual) + ')' : '') + ' is connected" '
@@ -22461,8 +22484,8 @@ async function paintAccounts(opts) {
         });
         j = res.ok ? ((await res.json()) || {}) : {};
       } catch { j = {}; }
-      if (j.state === 'connected' || j.state === 'none') { await paintAccounts(); return; }
-      btn.textContent = 'Could not confirm, try again';
+      if (j.state === 'connected' || j.state === 'none' || j.state === 'refused') { await paintAccounts(); return; }
+      btn.textContent = j.state === 'expired' ? 'Not until Grok runs again' : 'Could not confirm, try again';
       if (j.because) btn.title = j.because;
       btn.disabled = false;
       setTimeout(() => { if (btn.isConnected) btn.textContent = label; }, 4000);

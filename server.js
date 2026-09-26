@@ -7539,15 +7539,22 @@ const server = http.createServer((req, res) => {
        to be cheaper still, make the sweep cheaper - do not add a window. */
     /* #3997: a ChatGPT sign-in's live check (codex's own handshake, codexsigninlive: free) is cached for 30s, so on
        an idle Mac it is always cold when someone opens this screen, and the row sat grey forever. Start it now for
-       every cold one, WITHOUT waiting (#1921: a render never awaits a handshake); those rows say a check is under
-       way, and the page reads this route once more a few seconds later. */
+       every cold one, WITHOUT waiting (#1921: a render never awaits a handshake); a row whose check is RUNNING says
+       so, and the page reads this route again a few seconds later, a bounded number of times. A check that finished
+       without an answer is not running: its row is simply unconfirmed (review round 2). */
     const openaiPending = new Set();
     for (const row of openaiAccounts.list()) {
       if (!row || row.authMode !== 'chatgpt' || !row.dir) continue;
-      if (codexsigninlive.livenessCached(row.dir).cause !== 'indeterminate') continue;
-      openaiPending.add(row.dir);
-      codexsigninlive.liveness(row.dir).catch(() => { /* never a verdict: the next read shows what it can */ });
+      if (codexsigninlive.checkState(row.dir) === 'cold') {
+        codexsigninlive.liveness(row.dir).catch(() => { /* never a verdict: the next read shows what it can */ });
+      }
+      if (codexsigninlive.checkState(row.dir) === 'running') openaiPending.add(row.dir);
     }
+    /* #3997: and a Grok subscription's free check, started NOW so it runs beside the other providers' checks rather
+       than after them; concurrent reads share one request per folder (grokaccounts.subscriptionLive). */
+    const grokSubStarted = new Map(grokAccounts.list()
+      .filter((a) => a && a.dir && a.authMode === 'subscription')
+      .map((a) => [a.dir, grokAccounts.subscriptionLive(a.dir).catch(() => ({ verdict: 'unknown', because: 'we could not check this sign-in just now' }))]));
     Promise.all([accounts.listLive(), openaiAccounts.listLive(), geminiAccounts.listLive(), grokAccounts.listLive()])
       .then(async ([claudeRows, openaiRows, geminiRows, grokRows]) => {
         /* #1921: overlay each Claude account's badge with the LAST OBSERVED
@@ -7638,7 +7645,7 @@ const server = http.createServer((req, res) => {
            account it is a REAL /v1/models liveness proof (openaiaccounts.js:1140), which
            renders green today. Applying the Claude verdict wholesale would DOWNGRADE a
            genuinely-live API key to muted, and would also bypass the tailored #2568
-           chatgpt "not checked live" pill for a signed-in chatgpt row with no traffic.
+           chatgpt pill (amber since #3997) for a signed-in chatgpt row with no traffic.
            So we ONLY upgrade to green on a FRESH observed `ok`; every other verdict
            leaves the OpenAI row exactly as it renders today (grey fallback preserved on
            board restart / stale observation / no observed call -- #2413 acceptance).
@@ -7737,11 +7744,13 @@ const server = http.createServer((req, res) => {
            subscription's `live` answer is recorded like an observed request on its dir, so it flows through the
            same verdict and freshness below; any other answer leaves it unconfirmed, with the reason in the title. */
         const subChecks = new Map(await Promise.all(grokRows
-          .filter((a) => a.dir && a.authMode === 'subscription' && a.connection && a.connection.state === 'connected')
+          .filter((a) => a.dir && a.authMode === 'subscription' && a.connection && a.connection.state === 'connected' && grokSubStarted.has(a.dir))
           .map(async (a) => {
-            let r;
-            try { r = await grokAccounts.subscriptionLive(a.dir); } catch { r = { verdict: 'unknown', because: 'we could not check this sign-in just now' }; }
+            const r = await grokSubStarted.get(a.dir);
             if (r.verdict === 'live') observed.sawDir(observed.PROVIDER.XAI, a.dir, observed.OUTCOME.OK);
+            /* A refusal forgets an earlier check's green, so a later read that cannot ask again does not bring it
+               back (review round 2); it records no verdict of its own (grok may renew the key). */
+            if (r.verdict === 'refused') observed.forgetDir(observed.PROVIDER.XAI, a.dir);
             return [a.dir, r];
           })));
         const unverifiedSub = (a) => {
@@ -8067,9 +8076,13 @@ const server = http.createServer((req, res) => {
         if (grok) {
           const r = await grokAccounts.subscriptionLive(acct.dir);
           if (r.verdict === 'live') observed.sawDir(observed.PROVIDER.XAI, acct.dir, observed.OUTCOME.OK);
-          sendJson(res, 200, { state: r.verdict === 'live' ? 'connected' : 'unknown', because: r.because });
+          if (r.verdict === 'refused') observed.forgetDir(observed.PROVIDER.XAI, acct.dir);
+          /* `refused` and `expired` are their own answers: the page repaints on a refusal (an earlier green is gone)
+             and says what an expired key means rather than "try again" (review round 2). */
+          sendJson(res, 200, { state: r.verdict === 'live' ? 'connected' : (r.verdict === 'refused' || r.verdict === 'expired') ? r.verdict : 'unknown', because: r.because });
           return;
         }
+        codexsigninlive.invalidate(acct.dir);   // "right now": never a cached answer from before a new sign-in
         const v = await codexsigninlive.liveness(acct.dir);
         sendJson(res, 200, v === 'live' ? { state: 'connected' }
           : v === 'dead' ? { state: 'none' }

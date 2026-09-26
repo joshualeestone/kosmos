@@ -230,9 +230,55 @@ const ACCOUNTS = [
     return { before, after, afterOne, afterTwo, bound, control: count() };
   }, pendingRow);
 
+  /* #3997 round 2: the free Check now's click, and a follow-up that must not rebuild the list under the person. */
+  const grokRow = ACCOUNTS.find((a) => a.email === 'grok@example.com');
+  const clicks = await page.evaluate(async ({ row, sub }) => {
+    const wait = (ms) => new Promise((r) => setTimeout(r, ms));
+    let checkAnswer = { state: 'expired', because: 'Grok renews this sign-in the next time it runs, so it cannot be checked until then' };
+    let listAnswer = [row];
+    let lists = 0;
+    window.fetch = (u) => {
+      const url = String(u);
+      if (url.indexOf('/api/accounts/grok/check') !== -1) return Promise.resolve({ ok: true, json: async () => checkAnswer });
+      if (url.indexOf('/api/accounts') !== -1) { lists++; return Promise.resolve({ ok: true, json: async () => ({ accounts: listAnswer }) }); }
+      return Promise.reject(new Error('not in this check'));
+    };
+    await paintAccounts();
+    const btn = () => document.querySelector('#set-accounts [data-check-signin="grok"]');
+    btn().click(); await wait(200);
+    const expiredSays = btn().textContent; const expiredTitle = btn().title; const listsAfterExpired = lists;
+    checkAnswer = { state: 'connected' };
+    listAnswer = [{ ...row, connection: { ...row.connection, badge: 'working', observedAt: new Date().toISOString(), observedAgeMs: 1000 } }];
+    btn().click(); await wait(300);
+    const green = !!document.querySelector('#set-accounts .acct-box .acct-connected');
+    // Busy: a pending ChatGPT row, and focus on a button inside the list. The follow-up must wait, then read.
+    ACCT_FOLLOWUP.ms = 300;
+    const pendingSub = { ...sub, connection: { ...sub.connection, liveCheckPending: true } };
+    listAnswer = [pendingSub, row];
+    lists = 0;
+    await paintAccounts();
+    // A Check now in flight (its button disabled while it asks). The list is not on screen here, so focus cannot be
+    // placed in it; the in-flight state is the same rule's other arm.
+    const focusBtn = document.querySelector('#set-accounts .acct-check'); focusBtn.disabled = true;
+    const focused = focusBtn.disabled === true;
+    await wait(450);
+    const whileBusy = lists;
+    focusBtn.disabled = false;
+    listAnswer = [sub, row];
+    await wait(900);
+    return { expiredSays, expiredTitle, listsAfterExpired, green, focused, whileBusy, afterBusy: lists };
+  }, { row: grokRow, sub: ACCOUNTS.find((a) => a.email === 'sub@example.com') });
+
   await browser.close();
 
   const problems = [];
+  if (clicks.expiredSays !== 'Not until Grok runs again' || !/renews this sign-in/.test(clicks.expiredTitle) || clicks.listsAfterExpired !== 1) {
+    problems.push('#3997: Check now on an expired Grok key did not say so (or repainted for nothing): ' + JSON.stringify(clicks));
+  }
+  if (!clicks.green) problems.push('#3997: Check now answering connected did not repaint the row green: ' + JSON.stringify(clicks));
+  if (!clicks.focused) problems.push('#3997: the busy arm could not mark a Check now in flight, so it tested nothing: ' + JSON.stringify(clicks));
+  if (clicks.whileBusy !== 1) problems.push('#3997: a follow-up rebuilt the list while a Check now was in flight: ' + JSON.stringify(clicks));
+  if (clicks.afterBusy < 2) problems.push('#3997: the follow-up never read again once the person was done: ' + JSON.stringify(clicks));
   if (r.error) problems.push(r.error);
   if (!(follow.before === 'acct-unverified' && follow.afterOne === 3 && follow.after === 'acct-connected')) {
     problems.push('#3997: a row whose check was under way was not read again until it could say, and turned green: ' + JSON.stringify(follow));
@@ -278,16 +324,16 @@ const ACCOUNTS = [
     // #3391 part 2: a Grok KEY row has no sign-in to redo, so no Grok Sign in again.
     { email: 'API key ending gk12', claudeReauth: false, openaiReauth: false, grokReauth: false, checkNow: false, checkSignin: '' },
     { email: 'No Email Grok', grokReauth: false },
-    // #3391: the Grok subscription row. Muted (honesty), no Check now button, and a title that
-    // does not point at one; Disconnect / Delete say sign-in, never key.
+    // #3391: the Grok subscription row; #3997: amber, with its own free Check now (checkSignin) and a title that
+    // points at it. Disconnect / Delete say sign-in, never key.
     // #3997: amber, with its own free Check now (the models listing), so its title points at it.
     { email: 'grok@example.com', cls: 'acct-unverified', text: /^Signed in$/, honesty: true, checkNow: false, grokReauth: true,
       checkSignin: 'grok', titleText: /Check now/,
       disconnectTitle: /sign-in/, notDisconnectTitle: /key/, deleteTitle: /sign-in/, notDeleteTitle: /API key/ },
     // #3391 round 18: the lapsed and unknown Grok sign-ins show their short sentence, never green,
     // and keep the pill short (#2568). #3391 part 2: the remedy is the row's Sign in again button.
-    { email: 'grok-lapsed@example.com', text: /^Grok sign-in expired$/, honesty: true, notText: /sign in again|please/i, checkNow: false, grokReauth: true },
-    { email: 'grok-unk@example.com', text: /^Could not check the Grok sign-in$/, honesty: true, notText: /sign in again|please/i, checkNow: false, grokReauth: true },
+    { email: 'grok-lapsed@example.com', text: /^Grok sign-in expired$/, honesty: true, notText: /sign in again|please/i, checkNow: false, grokReauth: true, checkSignin: '' },
+    { email: 'grok-unk@example.com', text: /^Could not check the Grok sign-in$/, honesty: true, notText: /sign in again|please/i, checkNow: false, grokReauth: true, checkSignin: '' },
   ];
   for (const w of want) {
     const got = (r.byEmail || {})[w.email];
