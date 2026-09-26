@@ -327,7 +327,8 @@ test('#4003 turnEnv gemini: an agent WITH a key never waits on a browser login, 
   const mod = fakeAccounts(root, {});
   const theirs = path.join(personal, '.gemini', 'settings.json');
   const keyHome = path.join(root, 'kosmos', 'gemini-key-home', 'default');
-  const deps = { geminiAccounts: mod, doorDir: null, homeDir: personal, keyHome };
+  // bridge: null keeps this test on the auth pin alone; #4012's test below covers the hooks.
+  const deps = { geminiAccounts: mod, doorDir: null, homeDir: personal, keyHome, bridge: null };
 
   // No settings of their own: their home is used as before, but a login can never be waited on.
   let env = keyed.turnEnv('gemini', {}, null, deps);
@@ -370,4 +371,58 @@ test('#4003 turnEnv gemini: an agent WITH a key never waits on a browser login, 
 
   // Grok is not gemini.
   assert.equal('NO_BROWSER' in keyed.turnEnv('grok', {}, null, { grokAccounts: fakeAccounts(root, {}), doorDir: null }), false);
+});
+
+/* #4012: a keyed turn sent to the Kosmos key home read a settings file that held only the auth
+   pin, so the report hooks create.js wrote into the account's own home never fired and the agent
+   never reported. The key home now carries the same five hooks, a home pinned before the fix heals
+   on the next turn, and the person's own file is still never edited. */
+test('#4012 turnEnv gemini: the key home a keyed turn is sent to carries the report hooks, and an older pinned home heals', () => {
+  const geminisettings = require('./geminisettings');
+  const root = path.join(SANDBOX, 'g4012');
+  const acct = path.join(root, 'default');
+  const personal = path.join(root, 'person');
+  fs.mkdirSync(acct, { recursive: true });
+  fs.mkdirSync(path.join(personal, '.gemini'), { recursive: true });
+  fs.writeFileSync(path.join(acct, '.key'), 'ACCOUNT-KEY\n');
+  const theirs = path.join(personal, '.gemini', 'settings.json');
+  const mine = JSON.stringify({ security: { auth: { selectedType: 'oauth-personal' } } });
+  fs.writeFileSync(theirs, mine);
+  const keyHome = path.join(root, 'kosmos', 'gemini-key-home', 'default');
+  const kh = path.join(keyHome, '.gemini', 'settings.json');
+  const bridge = path.join(root, 'kosmos', 'bin', 'gemini-report-bridge.js');
+  const deps = { geminiAccounts: fakeAccounts(root, {}), doorDir: null, homeDir: personal, keyHome, bridge };
+  const hooked = () => {
+    const s = JSON.parse(fs.readFileSync(kh, 'utf8'));
+    return geminisettings.HOOK_EVENTS.every((ev) => Array.isArray(s.hooks && s.hooks[ev])
+      && s.hooks[ev].some((d) => d.hooks.some((h) => h.command === geminisettings.commandFor(bridge))));
+  };
+
+  // A home pinned before this fix: the auth alone, no hooks.
+  fs.mkdirSync(path.dirname(kh), { recursive: true });
+  fs.writeFileSync(kh, JSON.stringify({ security: { auth: { selectedType: 'gemini-api-key' } } }));
+  let env = keyed.turnEnv('gemini', {}, null, deps);
+  assert.equal(env.GEMINI_CLI_HOME, keyHome, 'the keyed turn runs in the key home');
+  assert.ok(hooked(), 'the older pinned home now carries all five report hooks');
+  assert.equal(JSON.parse(fs.readFileSync(kh, 'utf8')).security.auth.selectedType, 'gemini-api-key');
+
+  // A fresh key home: pinned AND hooked in one turn; a second turn changes nothing.
+  fs.rmSync(keyHome, { recursive: true, force: true });
+  env = keyed.turnEnv('gemini', {}, null, deps);
+  assert.equal(env.GEMINI_CLI_HOME, keyHome);
+  assert.ok(hooked(), 'a fresh key home is hooked on its first turn');
+  const before = fs.readFileSync(kh, 'utf8');
+  keyed.turnEnv('gemini', {}, null, deps);
+  assert.equal(fs.readFileSync(kh, 'utf8'), before, 'idempotent: an unchanged home is not rewritten');
+  assert.equal(fs.readFileSync(theirs, 'utf8'), mine, 'the person\'s own settings are never edited');
+});
+
+/* #4012: each Windows gemini/grok turn is a whole headless session, so the bridges must be told
+   that its SessionStart/SessionEnd are turn edges (measured: every turn otherwise ended on
+   `stopped`, which the board reads as a contradiction and drops). */
+test('#4012 turnEnv: gemini and grok turns are marked per-turn for the report bridges', () => {
+  const root = path.join(SANDBOX, 'pt4012');
+  fs.mkdirSync(root, { recursive: true });
+  assert.equal(keyed.turnEnv('gemini', {}, null, { geminiAccounts: fakeAccounts(root, {}), doorDir: null, keyHome: null }).KOSMOS_PER_TURN, '1');
+  assert.equal(keyed.turnEnv('grok', {}, null, { grokAccounts: fakeAccounts(root, {}), doorDir: null }).KOSMOS_PER_TURN, '1');
 });
