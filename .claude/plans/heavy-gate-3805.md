@@ -67,6 +67,11 @@ browser-checks.sh in the release's own temp checkout (`$TMPDIR/kosmos-release.*/
   documented and tested, and the seam warning goes to stderr so `--quiet` cannot hide it.
   `tools/who-has-the-box.sh`'s header now points heavy-run callers at this tool.
 
+- Ancestor commands are joined by the record separator (\x1e), not " | ". A single ancestor whose
+  own command line contains ` | node --test` (a shell piping into a test run) was split into a fake
+  test-runner ancestor, and a REAL release run read CLEAR. That was the unsafe direction, reproduced
+  through the seam, and it is now a test with its control.
+
 ## Adoption
 The card ends "then the fleet uses only this tool". The who-has-the-box pointer is the in-repo half.
 The fleet half (retiring the shared `heavy-gate-snippet.sh` and the hand-rolled copies) follows the
@@ -76,4 +81,8 @@ merge, per Liu Kang (m1092).
 The fixture exclusions are heuristics shaped by what was observed today: a `node --test` ancestor,
 and the `kt<digits>` sandbox path. A future fixture that detaches AND lives outside the kt sandbox
 would count as a real run. That errs toward busy, the safe direction, and the tool prints the pid
-and cwd, so it is visible, but it would block runs until the tool learns the new shape.
+and cwd, so it is visible, but it would block runs until the tool learns the new shape. The
+exclusions are the only way a real run can be ruled out, so they are where a wrong CLEAR would come
+from (the " | " joiner was one): any new exclusion needs a test that a real run is NOT caught by it.
+A process that exits between the liveness check and the cwd read keeps an empty cwd and counts for
+that one read (toward busy).

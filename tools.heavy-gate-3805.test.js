@@ -35,6 +35,8 @@ function run(lines, { claim = FREE, args = [], env = {}, shell = 'bash', cwd } =
   return { code: r.status, out: r.stdout + r.stderr, stdout: r.stdout, stderr: r.stderr };
 }
 const realRun = (cwd = WORK, anc = 'zsh') => ['101', cwd, 'bash tools/browser-checks.sh', anc];
+/* Ancestor commands are joined by \x1e in the snapshot, as live_snapshot joins them. */
+const ancs = (...a) => a.join('\x1e');
 
 test('nothing running and no reservation reads clear', () => {
   const r = run([]);
@@ -76,7 +78,7 @@ test('a fixture under $TMPDIR/kt<digits>/ does not count (control: the same run 
 });
 
 test('a node --test child does not count (control: the same run without that ancestor does)', () => {
-  const anc = 'node --test --test-concurrency=0 tools.release-gate.test.js | bash tools/run-tests.sh';
+  const anc = ancs('node --test --test-concurrency=0 tools.release-gate.test.js', 'bash tools/run-tests.sh');
   const r = run([realRun(WORK, anc)]);
   assert.equal(r.code, 0, r.out);
   assert.match(r.out, /node --test ancestor/);
@@ -107,14 +109,20 @@ test('only a real node --test ancestor marks a fixture, not a wrapper shell that
   const wrapper = "zsh -c eval 'bash tools/browser-checks.sh && node --test x.test.js'";
   const r = run([realRun(WORK, wrapper)]);
   assert.equal(r.code, 1, 'a wrapper mentioning node --test is not a test runner: ' + r.out);
-  assert.equal(run([realRun(WORK, wrapper + ' | node --test --test-concurrency=0 y.test.js')]).code, 0, 'control: a real node --test ancestor');
+  assert.equal(run([realRun(WORK, ancs(wrapper, 'node --test --test-concurrency=0 y.test.js'))]).code, 0, 'control: a real node --test ancestor');
+});
+
+test('an ancestor whose own command line contains " | node --test" is not a test runner (control: a real one is)', () => {
+  const piped = run([realRun(WORK, ancs('zsh', 'sh -c foo | node --test bar'))]);
+  assert.equal(piped.code, 1, 'a shell piping into node --test is not the runner: ' + piped.out);
+  assert.equal(run([realRun(WORK, ancs('zsh', 'sh -c foo', 'node --test bar'))]).code, 0);
 });
 
 test('an app flag that only STARTS with --test is not a test runner (control: a bare --test is)', () => {
-  const app = run([realRun(WORK, 'node server.js --test-endpoint=1 | zsh')]);
+  const app = run([realRun(WORK, ancs('node server.js --test-endpoint=1', 'zsh'))]);
   assert.equal(app.code, 1, app.out);
   assert.match(app.out, /COUNTS 101/);
-  const runner = run([realRun(WORK, 'node --test-reporter=spec --test x.test.js | zsh')]);
+  const runner = run([realRun(WORK, ancs('node --test-reporter=spec --test x.test.js', 'zsh'))]);
   assert.equal(runner.code, 0, runner.out);
   assert.match(runner.out, /ignore 101: a unit-test fixture \(node --test ancestor\)/);
 });
