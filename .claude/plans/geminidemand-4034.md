@@ -29,3 +29,10 @@ Card: joshualeestone/kosmos#4034 (filed from #4004). Measurements and the decisi
 - engine/geminidemand-4034.test.js: the captured not-found screen reads needs_you with Gemini's words; the
   high-demand variant (three options) too; controls: a usage limit stays rate_limited with quotaDialog, a quoted box
   with a working screen below is not a question, a box with no Stop option is not one. Red with the arm disabled.
+
+## Review round 1 (Sonnet), what changed
+- Stop is found among the options wherever it sits, through geminiStopKey (the one parser of that row, as
+  geminiQuotaReading uses), not only as the last option. Tested, red before.
+- Only Gemini's remedy hints ("/model to switch models.", "/stats model for usage details") are left out of the
+  message; a first line that starts with a slash is still the message. Tested, red before.
+- The shared GEMINI_LIMIT_ROWS window is stated in the comment: a box taller than it is not read, as for a usage limit.

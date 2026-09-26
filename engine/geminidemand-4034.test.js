@@ -75,3 +75,12 @@ test('#4034 CONTROLS: a usage limit stays #4004\'s, a quoted box with a working 
   assert.ok(noStop !== NOT_FOUND, 'the fixture edit did not apply');
   assert.equal(status.geminiQuestionReading(noStop), null, 'a box with no Stop option read as the question');
 });
+
+test('#4034 review round 1: Stop anywhere among the options, and a first line that starts with a slash is still the message', () => {
+  const stopMiddle = NOT_FOUND.replace('  2. Stop', '  2. Stop\n│   3. Something else');
+  assert.ok(stopMiddle.includes('3. Something else'), 'the fixture edit did not apply');
+  assert.equal(status.geminiQuestionReading(stopMiddle).evidence, 'Model "gemini-2.5-flash" was not found or is invalid.');
+  const slashFirst = NOT_FOUND.replace('Model "gemini-2.5-flash" was not found or is invalid.', '/models/custom-x was rejected.');
+  assert.ok(slashFirst.includes('/models/custom-x'), 'the fixture edit did not apply');
+  assert.equal(status.geminiQuestionReading(slashFirst).evidence, '/models/custom-x was rejected.');
+});

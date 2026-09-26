@@ -1629,18 +1629,22 @@ function geminiQuotaReading(paneText, afterStop) {
    'Model "<model>" was not found or is invalid.' over "1. Keep trying / 2. Stop". From Gemini's source, not captured:
    "We are currently experiencing high demand ..." over the same options. So the box is read by its SHAPE (a message
    inside a box top, numbered options ending in Stop, nothing after but the box edge), whatever its first line says.
-   Returns Gemini's first line, or null. A usage limit is geminiQuotaReading's, which runs first. */
+   Returns Gemini's first line, or null. A usage limit is geminiQuotaReading's, which runs first. It reads the same
+   GEMINI_LIMIT_ROWS window, so a box whose top is further up than that is not read (as for a usage limit). */
+/* Gemini's remedy hints inside the box ("/model to switch models.", "/stats model for usage details"): not the message. */
+const GEMINI_HINT = /^\/[a-z]+(?:\s+[a-z]+)?\s+(?:to|for)\s/;
 function geminiQuestionReading(paneText) {
   const rows = String(paneText || '').split('\n').map(geminiRow).filter((r) => r).slice(-GEMINI_LIMIT_ROWS);
   const lastOpt = rows.reduce((at, r, i) => (GEMINI_QUOTA_OPTION.test(r) ? i : at), -1);
-  if (lastOpt < 0 || !GEMINI_QUOTA_STOP.test(rows[lastOpt])) return null;
-  if (!rows.slice(lastOpt + 1).every((r) => GEMINI_BOX_EDGE.test(r))) return null;
+  if (lastOpt < 0 || !rows.slice(lastOpt + 1).every((r) => GEMINI_BOX_EDGE.test(r))) return null;
   let top = -1;
   for (let i = lastOpt; i >= 0; i -= 1) if (/^╭─+╮$/.test(rows[i])) { top = i; break; }
   if (top < 0) return null;
   const inside = rows.slice(top + 1, lastOpt + 1);
   const firstOpt = inside.findIndex((r) => GEMINI_QUOTA_OPTION.test(r));
-  const message = inside.slice(0, firstOpt).filter((r) => !/^\/\w/.test(r));
+  /* Stop among the options, wherever it sits: the one parser of that row, as geminiQuotaReading uses (review round 1). */
+  if (geminiStopKey(inside.slice(firstOpt).join('\n')) === null) return null;
+  const message = inside.slice(0, firstOpt).filter((r) => !GEMINI_HINT.test(r));
   return message.length ? { evidence: message[0] } : null;
 }
 
