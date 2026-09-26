@@ -309,6 +309,8 @@ async function waitForBoard(base, ms) {
 }
 
 async function startBoard() {
+  const early = Object.keys(require.cache).filter((f) => f.startsWith(path.join(REPO, 'engine') + path.sep));
+  if (early.length) throw new Error('an engine module was loaded before the sandbox was set: ' + early[0]);
   const roots = {};
   for (const k of ['DATA', 'WORKERS', 'LAUNCH', 'PROJECTS']) {
     roots[k] = fs.mkdtempSync(path.join(os.tmpdir(), 'mshots-' + k.toLowerCase() + '-'));
@@ -337,8 +339,6 @@ async function startBoard() {
        it is told it is a sandbox; every other self-booting check sets this. */
     AGENT_WORKFORCE_DRY_RUN: '1', AGENT_WORKFORCE_RUNNERS_DIR: path.join(home, 'runners'),
   };
-  const early = Object.keys(require.cache).filter((f) => f.startsWith(path.join(REPO, 'engine') + path.sep));
-  if (early.length) throw new Error('an engine module was loaded before the sandbox was set: ' + early[0]);
   /* HOME is sealed in this process too (an engine writer can fall back to os.homedir()), and
      Playwright finds its browsers under the home. Pin its cache to the REAL one first, so the
      launches below do not depend on Playwright having been required before this point. */
@@ -444,8 +444,9 @@ const EMAIL_RE = /[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}/g;
 const KEY_RE = /\bsk-[A-Za-z0-9_-]{2,}/g;
 const SHIPPED_HTML = fs.readFileSync(path.join(REPO, 'web', 'index.html'), 'utf8');
 const SHIPPED_EMAILS = new Set(SHIPPED_HTML.match(EMAIL_RE) || []);
-/* e.g. the `sk-ant-` placeholder on the API key field. A real key matches a
-   LONGER string (sk-ant-api03-...), which is not in this set, so it is still caught. */
+/* e.g. the `sk-ant-` placeholder on the API key field. This scan catches a full key
+   on screen; a key shown masked or as a suffix is not visible to it, and the accounts
+   preflight above is what stops a board that has one (the `account` control proves it). */
 const SHIPPED_KEYS = new Set(SHIPPED_HTML.match(KEY_RE) || []);
 const escapeRegExp = (t) => t.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 /* A login or host name that is also a word the product ships (`kosmos`,
@@ -480,15 +481,16 @@ async function leaksOn(page) {
     }
     return parts.join(' ');
   });
-  const hits = new Set();
+  // Keyed on what was found, so two different hits of one length count as two; masked only for printing.
+  const hits = new Map();
   for (const m of text.match(EMAIL_RE) || []) {
-    if (!/@example\.(com|org|net)$/i.test(m) && !SHIPPED_EMAILS.has(m)) hits.add(mask(m));
+    if (!/@example\.(com|org|net)$/i.test(m) && !SHIPPED_EMAILS.has(m)) hits.set('email:' + m, mask(m));
   }
-  if (REAL_HOME.length > 1 && text.includes(REAL_HOME)) hits.add('home:' + mask(REAL_HOME));
-  if (REAL_USER_RE && REAL_USER_RE.test(text)) hits.add('user:' + mask(REAL_USER));
-  if (REAL_HOST_RE && REAL_HOST_RE.test(text)) hits.add('host:' + mask(REAL_HOST));
-  for (const m of text.match(KEY_RE) || []) if (!SHIPPED_KEYS.has(m)) hits.add(m.slice(0, 6) + '***');
-  return [...hits];
+  if (REAL_HOME.length > 1 && text.includes(REAL_HOME)) hits.set('home', 'home: ' + mask(REAL_HOME));
+  if (REAL_USER_RE && REAL_USER_RE.test(text)) hits.set('user', 'user: ' + mask(REAL_USER));
+  if (REAL_HOST_RE && REAL_HOST_RE.test(text)) hits.set('host', 'host: ' + mask(REAL_HOST));
+  for (const m of text.match(KEY_RE) || []) if (!SHIPPED_KEYS.has(m)) hits.set('key:' + m, 'a key ' + mask(m));
+  return [...hits.values()];
 }
 
 /* ------------------------------------------------------------------ capture */
@@ -658,7 +660,7 @@ async function run() {
       await new Promise((r) => { process.once('SIGINT', r); process.once('SIGTERM', r); });
     }
   } finally {
-    const died = board.srv.exitCode !== null;   // the board went away on its own during the run
+    const died = board.srv.exitCode !== null || board.srv.signalCode !== null;   // the board went away on its own (exit or signal)
     board.srv.kill();
     for (const d of Object.values(board.roots)) { try { fs.rmSync(d, { recursive: true, force: true }); } catch { /* best effort */ } }
     if (died || errors) {
