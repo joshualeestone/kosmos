@@ -45,6 +45,7 @@ test('#3996: while the page polls, the app asks the board nothing extra; otherwi
   assert.match(refresh, /\/api\/status/);
   assert.match(refresh, /x-kosmos-board-token/, 'an enforcing board refuses a request without its token');
   assert.match(refresh, /answered \? Self\.badgeLabel\(fromStatusJSON: data\) : nil/, 'a refused or failed read does not clear the badge');
+  assert.match(refresh, /let answered = code == 200 && Self\.readsAsStatus\(data\)/, 'a 200 cut off mid-body skips the three-miss rule');
   assert.match(refresh, /logLine\("dock badge: \/api\/status " \+ \(code\.map/, 'a missing badge leaves no trace in the log');
   assert.match(refresh, /self\.badgeEverAnswered \|\| code != nil/, 'a board that refuses from the start is never logged');
   assert.match(refresh, /if answered \|\| self\.badgeMisses >= 3 \{ self\.showBadge\(label, asked: asked\) \}/, 'one slow answer blanks the badge');

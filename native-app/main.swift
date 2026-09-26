@@ -2313,7 +2313,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
         let asked = badgeAsked
         URLSession.shared.dataTask(with: req) { [weak self] data, response, _ in
             let code = (response as? HTTPURLResponse)?.statusCode
-            let answered = code == 200
+            /* Answered means a 200 whose body READ as the board's status (round 6): a 200 cut off
+               mid-body is a miss like any other, so it cannot skip the three-miss rule. A status
+               that read but has no count (an older board) is an answer, and clears the badge. */
+            let answered = code == 200 && Self.readsAsStatus(data)
             let label = answered ? Self.badgeLabel(fromStatusJSON: data) : nil
             DispatchQueue.main.async {
                 guard let self else { return }
@@ -2336,6 +2339,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
     }
 
     /// Whether a page origin is this app's board (127.0.0.1 on the resolved port), for BadgeMessageProxy.
+    // The scheme only resolves WebKit's port 0; it is not part of the trust check (the board is plain http).
     func isBoardOrigin(host: String, port: Int, scheme: String? = nil) -> Bool {
         guard let mine = badgeOrigin else { return false }
         // WebKit reports a URL's default port as 0; read it as the scheme's own (KOSMOS_URL without a port).
@@ -2367,6 +2371,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
        and a script message no selftest reaches). A whole number above zero is the label; over 999 it
        reads "999+" so the badge stays a badge. Zero, a missing, unreadable or non-number count
        clears it: nil. */
+    /// Whether a body is the board's status at all (a JSON object carrying `counts`).
+    static func readsAsStatus(_ data: Data?) -> Bool {
+        guard let data, let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else { return false }
+        return obj["counts"] is [String: Any]
+    }
     static func badgeLabel(fromStatusJSON data: Data?) -> String? {
         guard let data,
               let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
