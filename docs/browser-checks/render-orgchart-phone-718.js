@@ -40,7 +40,7 @@
  * arm reds when the failure path leaves the scrolling box's classes or the
  * emptied map's size behind; the note arm reds when the status note scrolls away;
  * the dragged-to-the-edge arm reds when the drag box leaves less than a glow's
- * reach between a face and the box (ORG_PAD_MIN 30: face 8px from the edge).
+ * reach between a face and the box.
  *
  * Chromium at phone size is not an Android phone, and WebKit is an engine
  * approximation, not Safari.
