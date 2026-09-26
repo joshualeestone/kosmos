@@ -123,9 +123,10 @@ test('the REAL transport (defaultList/defaultGet) lists with the token, pages, a
       else res.end(JSON.stringify({ blobs: [{ url: BASE + '/b1.json' }], hasMore: true, cursor: 'c1' }));
       return;
     }
-    if (recs[req.url]) { res.setHeader('content-type', 'application/json'); res.end(JSON.stringify(recs[req.url])); return; }
+    if (recs[req.url]) { seenGetAuth.push(req.headers.authorization || ''); res.setHeader('content-type', 'application/json'); res.end(JSON.stringify(recs[req.url])); return; }
     res.statusCode = 404; res.end('no');
   });
+  const seenGetAuth = [];
   await new Promise((r) => srv.listen(0, '127.0.0.1', r));
   const BASE = 'http://127.0.0.1:' + srv.address().port;
   const savedApi = process.env.AGENT_WORKFORCE_BLOB_API;
@@ -140,6 +141,8 @@ test('the REAL transport (defaultList/defaultGet) lists with the token, pages, a
     assert.ok(seenAuth.every((a) => a === 'Bearer tok-123'), 'every list request carried the Bearer token: ' + JSON.stringify(seenAuth));
     assert.ok(seenPaths.some((p) => /prefix=feedback%2F/.test(p)), 'the list URL carried the feedback/ prefix: ' + JSON.stringify(seenPaths));
     assert.ok(seenPaths.some((p) => /cursor=c1/.test(p)), 'the second page was requested with the cursor');
+    // kosmos#3878: the report GETs carry the token too (the private store answers 403 without it).
+    assert.deepEqual(seenGetAuth, ['Bearer tok-123', 'Bearer tok-123'], 'every report GET carried the Bearer token');
   } finally {
     if (savedApi === undefined) delete process.env.AGENT_WORKFORCE_BLOB_API; else process.env.AGENT_WORKFORCE_BLOB_API = savedApi;
     await new Promise((r) => srv.close(r));
@@ -233,4 +236,47 @@ test('#3060: a list failure with the token filed surfaces the real error, not a 
   assert.equal(r.written, 0);
   assert.match(r.because, /blob list HTTP 401/, 'the underlying error is surfaced');
   assert.match(r.because, /not a missing token/, 'it distinguishes a store/network fault from an absent token');
+});
+
+test('#3878: the token is never sent to a report URL on a host other than the blob store', async () => {
+  const http = require('node:http');
+  const seen = [];
+  const other = http.createServer((req, res) => { seen.push(req.headers.authorization || ''); res.setHeader('content-type', 'application/json'); res.end(JSON.stringify(REC('inst-x', '2026-09-04', 'x'))); });
+  await new Promise((r) => other.listen(0, '127.0.0.1', r));
+  const api = http.createServer((req, res) => {
+    res.setHeader('content-type', 'application/json');
+    res.end(JSON.stringify({ blobs: [{ url: 'http://localhost:' + other.address().port + '/r.json' }], hasMore: false }));
+  });
+  await new Promise((r) => api.listen(0, '127.0.0.1', r));
+  const savedApi = process.env.AGENT_WORKFORCE_BLOB_API;
+  process.env.AGENT_WORKFORCE_BLOB_API = 'http://127.0.0.1:' + api.address().port;
+  try {
+    fp.setTransport(null);
+    const r = await fp.pull(path.join(SB, 'd-foreign'), { token: 'tok-secret' });
+    assert.equal(r.written, 1, 'the report is still fetched, only without the credential');
+    assert.deepEqual(seen, [''], 'the store token reached a host that is not the blob store');
+  } finally {
+    if (savedApi === undefined) delete process.env.AGENT_WORKFORCE_BLOB_API; else process.env.AGENT_WORKFORCE_BLOB_API = savedApi;
+    await new Promise((r) => api.close(r)); await new Promise((r) => other.close(r));
+  }
+});
+
+test('#3878: a pull that lists reports but can read none is NOT ok, and says why', async () => {
+  fp.setTransport({
+    list: async () => [{ url: 'https://s.blob.vercel-storage.com/a.json' }, { url: 'https://s.blob.vercel-storage.com/b.json' }],
+    get: async () => { throw new Error('blob GET HTTP 403'); },
+  });
+  const r = await fp.pull(path.join(SB, 'd-unreadable'), { token: 'tok' });
+  assert.equal(r.ok, false);
+  assert.equal(r.written, 0);
+  assert.match(r.because, /none could be read \(blob GET HTTP 403\)/);
+  // Control: one readable report makes it a success again (a partial pull is not a failure).
+  let n = 0;
+  fp.setTransport({
+    list: async () => [{ url: 'https://s.blob.vercel-storage.com/a.json' }, { url: 'https://s.blob.vercel-storage.com/b.json' }],
+    get: async () => { n += 1; if (n === 1) throw new Error('blob GET HTTP 403'); return JSON.stringify(REC('inst-ok', '2026-09-04', 'ok')); },
+  });
+  const r2 = await fp.pull(path.join(SB, 'd-partial'), { token: 'tok' });
+  assert.equal(r2.ok, true);
+  assert.equal(r2.written, 1);
 });
