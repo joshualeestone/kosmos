@@ -34,6 +34,15 @@ similar graphical fashion so that it visually matches ... Oh crap, I have to ent
 - Deferred NIT: role="img" makes VoiceOver add "image" after the code. A hidden-text alternative would be copied
   along with the code by a hand selection, so the label stays.
 
+## Review round 2 (Sonnet), what changed
+- BLOCKER (mine): the unit test still named the round-1 class (devcode-host), never re-run after the rename. Fixed; it
+  now also requires the boxes above the Copy row and the Copy cell to hold exactly the code.
+- BLOCKER: the Kosmos+ approval card is drawn in the navy Kosmos+ skin, and its boxes had a 60% white fill: light ink
+  on light, about 2:1. The boxes now have no fill (card ground, card ink: 11.6:1). The plus-panel check measures it,
+  compositing translucent fills over the skin's gradient; on the old fill it reads 1.9 and fails.
+- WARNING: the hidden Copy text is aria-hidden, so a screen reader gets the code once (from the boxes' label).
+- NIT: the #3829 card comment no longer says the code is at the right.
+
 ## Weakest premise
 - A provider whose code has no dash is one group, which cannot break: 10cqw fits five characters in its box, so a
   longer undashed code shrinks rather than wraps. Every code seen so far has a dash (xAI 4-4, OpenAI 4-5, GitHub 4-4).

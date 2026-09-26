@@ -470,7 +470,7 @@ h1 { font: 600 var(--text-title-1) var(--font-ui); letter-spacing: -0.012em; }
   .askcard p b { color: var(--k-ink); font-weight: 600; }
   .askcard .code { font-family: var(--font-mono, ui-monospace, Menlo, monospace); letter-spacing: .06em;
                    color: var(--k-ink); background: var(--k-sunk, rgba(20,22,26,.05)); padding: 1px 6px; border-radius: 5px; }
-  /* #3829 (Mona Lisa's sketch): one compact card per request. Icon, who and when, the code LARGE at the right,
+  /* #3829 (Mona Lisa's sketch): one compact card per request. Icon, who and when, the code large (its own row since #3952),
      one sentence, Allow (Kosmos+ blue) / Deny. Older than an hour: faded. */
   .askreq { display: grid; grid-template-columns: 40px 1fr auto; gap: 4px 14px; align-items: center;
             padding: 12px 14px; margin-top: 8px; border: 1px solid rgba(58,104,216,.55); border-radius: 12px; max-width: 640px; }
@@ -484,7 +484,9 @@ h1 { font: 600 var(--text-title-1) var(--font-ui); letter-spacing: -0.012em; }
   /* #3952: the code on its own row under who and when (was large at the right), in the shared boxes. */
   .askcode { grid-column: 2 / span 2; }
   .askcode .devcode { color: var(--k-ink); }
-  .askcode .devcode-cell { border-color: var(--k-rule); background: rgba(255,255,255,.6); }
+  /* No fill of its own: this card is drawn in the Kosmos+ skin (navy, light ink), so the code sits on the card's own
+     ground in the card's own ink, which already reads there (review round 2: a white fill gave light-on-light). */
+  .askcode .devcode-cell { border-color: var(--k-rule); background: transparent; }
   .askreq .asksay { grid-column: 2; font-size: .85rem; color: var(--k-ink-2); }
   .askreq .acts { grid-column: 2 / span 2; display: flex; gap: 8px; margin-top: 6px; }
   .askcard .btn.uprime, .askcard .btn.uprime:hover { background: #2f57c4; border-color: #2f57c4; color: #fff; }
@@ -23172,7 +23174,7 @@ function openaiSubDeviceMarkup(out) {
          .fr-cmd a phone showed three of nine boxes, review round 1); the .fr-cmd keeps the code as text, hidden to
          the eye, so Copy still takes exactly the code. */
       + devCodeHtml('', out.userCode)
-      + '<span class="fr-cmd-row oa-devrow"><code class="fr-cmd oa-devcode devcode-copytext">' + esc(out.userCode) + '</code>'
+      + '<span class="fr-cmd-row oa-devrow"><code class="fr-cmd oa-devcode devcode-copytext" aria-hidden="true">' + esc(out.userCode) + '</code>'
       + '<button class="btn-quiet fr-copy" type="button" data-copy-command>' + windowsCopy('copyLabel') + '</button></span>' };
   }
   if (out && out.instructions) {
