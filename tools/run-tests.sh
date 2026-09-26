@@ -23,6 +23,21 @@ set -uo pipefail
 REPO="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$REPO"
 
+# DIAGNOSTIC ONLY (gate-diag-3893, never to merge): print what the surface gate's refs resolve to.
+gate_diag() {
+  echo "=== GATE-DIAG [$1] ==="
+  for r in origin/main HEAD HEAD^1 HEAD^2; do echo "  $r = $(git rev-parse --short "$r" 2>&1)"; done
+  echo "  merge-base(origin/main,HEAD) = $(git merge-base origin/main HEAD 2>&1 | cut -c1-9)"
+  echo "  merge-bases --all = $(git merge-base --all origin/main HEAD 2>&1 | cut -c1-9 | tr '\n' ' ')"
+  echo "  0a8bcc3e ancestor of origin/main: $(git merge-base --is-ancestor 0a8bcc3e origin/main 2>&1 && echo yes || echo no)"
+  echo "  0a8bcc3e ancestor of HEAD: $(git merge-base --is-ancestor 0a8bcc3e HEAD 2>&1 && echo yes || echo no)"
+  echo "  commits origin/main..HEAD: $(git rev-list --count origin/main..HEAD 2>&1)"
+  echo "  files origin/main...HEAD: $(git diff --name-only origin/main...HEAD 2>&1 | tr '\n' ' ' | cut -c1-400)"
+  echo "  shallow: $(git rev-parse --is-shallow-repository 2>&1)  refs named origin/main: $(git for-each-ref --format='%(refname)' | grep -c 'origin/main$')"
+  echo "=== END GATE-DIAG ==="
+}
+gate_diag start
+
 # #2858: strip the ambient Codex-home vars ONCE here, at the single runner every
 # `yarn test` (and the canonical validation / pre-challenge gate) routes through,
 # so the whole suite -- node AND `yarn test:shell`, every test including ones not
@@ -287,6 +302,7 @@ fi
 # updating that check, catching the specific staleness the coarse gate above lets through.
 # Same subshell isolation + fail-soft contract.
 if [ "$NODE_STATUS" -eq 0 ]; then
+  gate_diag before-surface-gate
   ( . "$(dirname "$0")/lib/browser-check-surface-gate.sh" && kosmos_browser_check_surface_gate )
   NODE_STATUS=$?
 fi
