@@ -44,6 +44,7 @@ if (args[0] === 'setup' && args[1] === 'start') {
   process.exit(0);
 }
 if (args[0] === 'setup' && args[1] === 'complete') {
+  if (mode.includes('setup-409')) { process.stderr.write('Kosmos+ said no (409): The name ' + flag('--name') + ' is already in use by a Mac on this account, at ' + flag('--name') + '.kosmos.invalid. If that is this Mac, it is already set up and there is nothing more to do here. If it is a different Mac, press Turn off there first, or pick another name.\\n'); process.exit(1); }
   if (mode.includes('slow-setup')) { const until = Date.now() + Number(process.env.FAKE_REGISTER_MS || 2500); while (Date.now() < until) { /* wait */ } }
   if (flag('--code') === '000000') {
     process.stderr.write('the coordinator said no (401): that code is not right\\n');
@@ -156,7 +157,9 @@ if (args[0] === 'signin') {
     // A register killed mid-certificate: the Mac's key and id are written, then it hangs.
     if (mode.includes('partial-register')) {
       const d0 = flag('--state-dir'); fs.mkdirSync(d0, { recursive: true });
-      for (const f of ['mac_id', 'mac_key']) fs.writeFileSync(path.join(d0, f), 'fake');
+      // What the tunnel's write_registration writes before the certificate fetch.
+      for (const f of ['mac_id', 'mac_key', 'coordinator_pubkey', 'allow_list']) fs.writeFileSync(path.join(d0, f), 'fake');
+      fs.writeFileSync(path.join(d0, 'address'), flag('--name') + '.kosmos.invalid\\n');
       const until = Date.now() + 15000; while (Date.now() < until) { /* hung at the certificate */ }
     }
     if (mode.includes('slow-register')) { const until = Date.now() + Number(process.env.FAKE_REGISTER_MS || 2500); while (Date.now() < until) { /* wait */ } }
@@ -1051,7 +1054,9 @@ test('#3827: Forget waits for a register in flight, retires it once, and leaves 
     const racing = remote.signinRegister('hers');
     fs.rmSync(RECORD, { force: true });
     const got = await remote.forget();
-    await racing;
+    const reg = await racing;
+    assert.equal(reg.ok, false, 'the register reported signed in while the Mac was being forgotten');
+    assert.match(reg.because, /cancelled/);
     assert.equal(got.retired, true, 'Forget did not retire the Mac the register made: ' + got.because);
     assert.equal(recorded().filter((c) => c[0] === 'retire').length, 1, 'the Mac was retired more (or less) than once');
     assert.equal(remote.enrolled(), false, 'a register finishing after Forget left the Mac registered');
@@ -1096,6 +1101,7 @@ test('#3827: a register killed after writing the key and id (mid-certificate) is
     assert.equal(recorded().filter((c) => c[0] === 'retire').length, 1, 'a Mac with a key and id at the coordinator was not retired');
     assert.ok(got.retired, 'Forget did not report the retire: ' + got.because);
     assert.equal(got.because, null, 'a successful retire of a half-registered Mac was reported as: ' + got.because);
+    assert.equal(got.address, 'hers.kosmos.invalid', 'Forget did not say which address it retired');
   } finally {
     delete process.env.FAKE_TUNNEL_MODE;
     delete process.env.AGENT_WORKFORCE_REGISTER_TIMEOUT_MS;
@@ -1317,7 +1323,8 @@ test('#3827: after Kosmos+ refused to retire a half identity, its "already in us
     await remote.signinVerify('her@example.com', '111111');
     const stranded = await halfThen('retire-refused,register-409');
     assert.equal(stranded.ok, false, 'fixture: the coordinator still holds the name');
-    assert.match(stranded.because, /own earlier sign-in/, 'a stranded attempt read as another Mac: ' + stranded.because);
+    assert.match(stranded.because, /earlier sign-in on this computer/, 'a stranded attempt read as another Mac: ' + stranded.because);
+    assert.doesNotMatch(stranded.because, /already signed in|said no/, 'the coordinator\'s sentence (false here) was kept: ' + stranded.because);
     assert.doesNotMatch(stranded.because, /\.\./, 'doubled punctuation: ' + stranded.because);
     // A definite refusal is final, not "try again": with the name free, it registers.
     // Each arm below ends set up at "hers"; start the next from a forgotten Mac.
@@ -1341,10 +1348,10 @@ test('#3827: after Kosmos+ refused to retire a half identity, its "already in us
     await fresh();
     // A half identity that WAS retired: the same answer is left as it is.
     const retired = await halfThen('register-409');
-    assert.doesNotMatch(retired.because, /own earlier sign-in/, 'a 409 after a working retire was blamed on this computer');
+    assert.doesNotMatch(retired.because, /earlier sign-in on this computer/, 'a 409 after a working retire was blamed on this computer');
     // Another account's name after a refused retire: not this computer's doing.
     const other = await halfThen('retire-refused,register-taken');
-    assert.doesNotMatch(other.because, /own earlier sign-in/, 'another account\'s name was blamed on this computer');
+    assert.doesNotMatch(other.because, /earlier sign-in on this computer/, 'another account\'s name was blamed on this computer');
   } finally {
     process.stderr.write = orig;
     delete process.env.FAKE_TUNNEL_MODE;
@@ -1471,5 +1478,82 @@ test('#3827: the relay cannot be changed while this computer is being forgotten'
     delete process.env.FAKE_TUNNEL_MODE;
     delete process.env.AGENT_WORKFORCE_REGISTER_TIMEOUT_MS;
     remote.setRelay('');
+  }
+});
+
+test('#3827: a Sign out during a register leaves Kosmos+ off even when it was on before the sign-in', async () => {
+  process.env.AGENT_WORKFORCE_TUNNEL_RELAY = '127.0.0.1:9444';
+  process.env.FAKE_TUNNEL_MODE = 'slow-register';
+  try {
+    assert.equal(remote.setOn(true).ok, true, 'fixture: switched on before signing in');
+    await remote.signinStart('her@example.com');
+    await remote.signinVerify('her@example.com', '111111');
+    const racing = remote.signinRegister('hers');
+    remote.signinCancel();
+    const late = await racing;
+    assert.match(late.because, /cancelled/);
+    assert.equal(remote.read().on, false, 'the Mac would come online on the next ensure tick after a Sign out');
+  } finally {
+    delete process.env.FAKE_TUNNEL_MODE;
+    remote.setOn(false);
+  }
+});
+
+test('#3827: Forget switches off before it waits on the retire, and a retire has its own shorter bound', async () => {
+  process.env.AGENT_WORKFORCE_TUNNEL_RELAY = '127.0.0.1:9444';
+  await remote.signinStart('her@example.com');
+  await remote.signinVerify('her@example.com', '111111');
+  assert.equal((await remote.signinRegister('hers')).ok, true, 'fixture: registered');
+  assert.equal(remote.read().on, true, 'fixture: on after sign-in');
+  process.env.FAKE_TUNNEL_MODE = 'hung-retire';
+  process.env.AGENT_WORKFORCE_REGISTER_TIMEOUT_MS = '6000';
+  process.env.AGENT_WORKFORCE_RETIRE_TIMEOUT_MS = '800';
+  try {
+    const t0 = Date.now();
+    const forgetting = remote.forget();
+    await new Promise((r) => setImmediate(r));
+    assert.equal(remote.read().on, false, 'the switch was still on during the retire wait (the ensure tick would restart the tunnel)');
+    await forgetting;
+    assert.ok(Date.now() - t0 < 4000, 'the retire waited out the register bound (' + (Date.now() - t0) + 'ms)');
+  } finally {
+    delete process.env.FAKE_TUNNEL_MODE;
+    delete process.env.AGENT_WORKFORCE_REGISTER_TIMEOUT_MS;
+    delete process.env.AGENT_WORKFORCE_RETIRE_TIMEOUT_MS;
+  }
+});
+
+test('#3827: after a Sign out, a stale Try again at the same name does not switch Kosmos+ back on', async () => {
+  process.env.AGENT_WORKFORCE_TUNNEL_RELAY = '127.0.0.1:9444';
+  await remote.signinStart('her@example.com');
+  await remote.signinVerify('her@example.com', '111111');
+  assert.equal((await remote.signinRegister('hers')).ok, true, 'fixture: registered');
+  remote.signinCancel();
+  remote.setOn(false);
+  const stale = await remote.signinRegister('hers');
+  assert.equal(stale.ok, false, 'a Try again with no session undid the Sign out');
+  assert.equal(remote.read().on, false, 'the switch came back on');
+});
+
+test('#3827: the Settings setup gets the same stranded-name answer', async () => {
+  process.env.AGENT_WORKFORCE_TUNNEL_RELAY = '127.0.0.1:9444';
+  process.env.AGENT_WORKFORCE_REGISTER_TIMEOUT_MS = '1500';
+  const orig = process.stderr.write;
+  try {
+    process.stderr.write = () => true;
+    await remote.signinStart('her@example.com');
+    await remote.signinVerify('her@example.com', '111111');
+    process.env.FAKE_TUNNEL_MODE = 'partial-register';
+    assert.equal((await remote.signinRegister('hers')).ok, false, 'fixture: the register was killed by its bound');
+    await remote.setupStart('her@example.com');
+    process.env.FAKE_TUNNEL_MODE = 'retire-refused,setup-409';
+    const r = await remote.setupComplete('123456', 'hers');
+    assert.equal(r.ok, false, 'fixture: the name is still held');
+    assert.match(r.because, /The name hers may be held by an earlier sign-in on this computer/, r.because);
+    assert.doesNotMatch(r.because, /nothing more to do/, 'the setup sentence (false here) was kept');
+  } finally {
+    process.stderr.write = orig;
+    delete process.env.FAKE_TUNNEL_MODE;
+    delete process.env.AGENT_WORKFORCE_REGISTER_TIMEOUT_MS;
+    remote.setOn(false);
   }
 });

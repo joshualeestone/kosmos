@@ -374,7 +374,9 @@ function setRelay(relay) {
 function ensure(port) {
   try {
     if (typeof port === 'number') localPort = port;
-    const wanted = read().on && enrolled() && !!RELAY() && typeof localPort === 'number';
+    // Never during a Forget (#3827): the board's tick calls this every 15s, and a
+    // tunnel started in the retire wait would run on the key being deleted.
+    const wanted = !forgetting && read().on && enrolled() && !!RELAY() && typeof localPort === 'number';
     if (!wanted) { stopChild(); return; }
     if (child || restartTimer) return;
     startChild();
@@ -673,9 +675,10 @@ async function forget() {
   // must not turn the switch back on), and WAIT for a register already out, so what
   // is retired and wiped below includes it; otherwise it writes a fresh identity
   // into the directory this empties. The wait is bounded: the register itself is
-  // (registerTimeoutMs). Worst case, three bounds in a row, about fifteen minutes:
-  // the register first retiring a half identity, the register itself, then this
-  // retire. Only when something is already broken.
+  // (registerTimeoutMs). Worst case, three bounds in a row, about seven minutes:
+  // the register first retiring a half identity (retireTimeoutMs, a minute), the
+  // register itself (five), then this retire (a minute). Only when something is
+  // already broken.
   //
   // One forget at a time: a second (a double click, two tabs, a retried request)
   // gets the first one's answer instead of retiring the same Mac beside it.
@@ -703,10 +706,13 @@ async function forgetNow() {
   // enrolled() needs. It can still sign a retire, so it is retired too.
   const canRetire = was.enrolled || halfRegistered();
   stopChild();
+  // Off before the retire wait, not after: nothing may bring this Mac online on
+  // the key being retired (the ensure tick, a stale page).
+  write({ on: false });
   let retired = false;
   let because = null;
   if (canRetire) {
-    const r = await setupRun(['retire', '--coordinator', COORDINATOR(), '--state-dir', STATE_DIR()], null, registerTimeoutMs());
+    const r = await setupRun(['retire', '--coordinator', COORDINATOR(), '--state-dir', STATE_DIR()], null, retireTimeoutMs());
     retired = r.ok === true;
     because = r.ok ? null : r.because;
   }
@@ -811,7 +817,7 @@ async function setupComplete(code, name) {
       '--code', String(code),
       '--name', name,
       '--state-dir', STATE_DIR(),
-    ], null, registerTimeoutMs()), half);
+    ], null, registerTimeoutMs()), half, name);
   })();
   registerInFlight = running;
   // A Forget or Sign out that lands while this waits: the Settings page must not
@@ -819,7 +825,7 @@ async function setupComplete(code, name) {
   const epoch = signinEpoch;
   let result;
   try { result = await running; } finally { if (registerInFlight === running) registerInFlight = null; }
-  if (epoch !== signinEpoch) return SIGNIN_CANCELLED;
+  if (epoch !== signinEpoch) return cancelledAfter(result);
   if (result.ok) ensure(localPort);
   // fed gate: cache the coordinator standing if this setup response carried one.
   if (result.ok && result.data && typeof result.data === 'object') fedSetStanding(result.data.standing);
@@ -1072,6 +1078,17 @@ function signinCancel() {
    cancel moved it meanwhile, returns this instead of absorbing anything. */
 let signinEpoch = 0;
 const SIGNIN_CANCELLED = { ok: false, because: 'the sign-in was cancelled' };
+/* A Sign out or Forget that landed while a register was out. If the register
+   still succeeded, the Mac now has an identity the person asked to leave: the
+   switch goes off (it may have been on before the sign-in) and no tunnel runs,
+   so the ensure tick cannot bring it online. */
+function cancelledAfter(result) {
+  if (result && result.ok) {
+    try { write({ on: false }); } catch { /* status says what happened */ }
+    stopChild();
+  }
+  return SIGNIN_CANCELLED;
+}
 
 /** Step one: ask the coordinator to email the six-digit code. Safe to repeat;
     reveals nothing about whether the account exists. A fresh start abandons any
@@ -1275,6 +1292,14 @@ const registerTimeoutMs = () => {
   const v = Number(process.env.AGENT_WORKFORCE_REGISTER_TIMEOUT_MS);
   return Number.isFinite(v) && v > 0 ? v : REGISTER_TIMEOUT_MS;   // never "no bound"
 };
+// A retire is one signed round trip, not a certificate: its own bound, so a hung
+// coordinator holds "still signing in" for a minute, not five. Never longer than
+// the register's (tests shorten both through the register seam).
+const RETIRE_TIMEOUT_MS = 60 * 1000;
+const retireTimeoutMs = () => {
+  const v = Number(process.env.AGENT_WORKFORCE_RETIRE_TIMEOUT_MS);
+  return Math.min(Number.isFinite(v) && v > 0 ? v : RETIRE_TIMEOUT_MS, registerTimeoutMs());
+};
 // A Mac key and id with no certificate: a register that was cut off after the
 // coordinator accepted it. It is registered there, so registering again would strand
 // it (or meet "already owns the name"); Forget retires it.
@@ -1284,7 +1309,7 @@ const RETIRE_TRANSIENT = /unreachable|did not answer in time|could not be starte
    (the coordinator may still hold that earlier attempt), or null. */
 async function clearHalfIdentity() {
   if (!halfRegistered()) return null;
-  const r = await setupRun(['retire', '--coordinator', COORDINATOR(), '--state-dir', STATE_DIR()], null, registerTimeoutMs());
+  const r = await setupRun(['retire', '--coordinator', COORDINATOR(), '--state-dir', STATE_DIR()], null, retireTimeoutMs());
   // No answer (timed out, unreachable, the program would not start, a server
   // error) may work a moment later, and only this key can do it: keep it, and the
   // caller says try again. Anything else is final (Kosmos+ refused this Mac, a
@@ -1306,12 +1331,15 @@ const KEPT_HALF = (why) => ({ ok: false, because: 'an earlier sign-in on this co
 /* After a half identity could not be retired, a "name taken" answer is most
    likely this computer's own earlier attempt, not another Mac: say so, and
    what to do, instead of letting it read as someone else's name. */
-function explainStranded(result, half) {
+function explainStranded(result, half, name) {
   const stranded = half && half.stranded;
   // Only the same-account answer: another account's name ("that name is taken")
   // or this account's own name rule is not this computer's doing.
   if (!stranded || !result || result.ok || !/already in use by a Mac on this account/i.test(String(result.because || ''))) return result;
-  return { ...result, because: String(result.because).replace(/[.\s]+$/, '') + '. This computer\'s own earlier sign-in could not be removed from your Kosmos+ account (' + stranded + '), so it may be what holds the name: remove it on your account page, or pick another name' };
+  // Replaced, not added to: the coordinator's sentence ("If that is this Mac, it
+  // is already signed in / set up") is false here. The retire's reason went to
+  // the log in clearHalfIdentity.
+  return { ...result, because: 'The name ' + name + ' may be held by an earlier sign-in on this computer that Kosmos+ could not remove. Remove it on your account page, or pick another name.' };
 }
 function busy() {
   // Forgetting first: while a Forget waits on a register both are true, and the
@@ -1353,7 +1381,9 @@ async function signinRegister(name) {
   // Switching the account on a Mac is what forget() (which wipes the state dir)
   // is for; once the state is gone, enrolled() is false and this guard does not
   // fire.
-  if (enrolled()) {
+  // Without a session (a Try again after the page gave up) only when the switch is
+  // already on: after a Sign out it is off on purpose, and this would undo it.
+  if (enrolled() && (signinSession || read().on === true)) {
     const have = address();
     if (have && have.split('.')[0] === name) {
       /* #3827: signing in IS asking to be reachable; ensure() only starts the tunnel when switched on. */
@@ -1384,7 +1414,7 @@ async function signinRegister(name) {
     const half = await clearHalfIdentity();
     if (half && half.kept) return KEPT_HALF(half.kept);
     return explainStranded(await setupRun(['signin', 'register', '--coordinator', COORDINATOR(),
-      '--name', name, '--state-dir', STATE_DIR()], token, registerTimeoutMs()), half);
+      '--name', name, '--state-dir', STATE_DIR()], token, registerTimeoutMs()), half, name);
   })();
   registerInFlight = running;
   let r;
@@ -1392,7 +1422,7 @@ async function signinRegister(name) {
   // A cancel after the coordinator accepted the register cannot undo it: the Mac is
   // registered and the next paint shows the switch OFF, which is the truth. What a
   // cancel must never do is let this switch it on.
-  if (epoch !== signinEpoch) return SIGNIN_CANCELLED;
+  if (epoch !== signinEpoch) return cancelledAfter(r);
   if (!r.ok) return r;
   signinSession = null;   // the token is spent; it must not linger in this process
   /* #3827 (Josh's live test: registered, then the relay never heard from this Mac): ensure() starts the
