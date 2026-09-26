@@ -58001,7 +58001,10 @@ function tipLayout(t, card) {
 /* Beside the thing, never over it, and never over another control (0.6.93): the first clear place of
    beside (when asked), below, above, either side, pointing at the target; else the nearest clear place on
    the page with no arrow. No target on screen: centred, no arrow. */
-function tipPlace(card, sel, side = false, { key = '', avoid = true } = {}) {
+function tipPlace(card, sel, side = false, { key = '', avoid = true, width = '' } = {}) {
+  /* #3920: a card narrowed to fit beside a tall target (below) is narrowed only for that one placement: every
+     other call starts from the stylesheet's width, so a later, roomier place gets the full card back. */
+  if (card.style.width !== width) card.style.width = width;
   /* The first match that is on screen: a selector list names the tab layout's target and the
      consolidated layout's, and only one of them is showing. */
   let el = null;
@@ -58072,6 +58075,16 @@ function tipPlace(card, sel, side = false, { key = '', avoid = true } = {}) {
         for (const top of [sideTop - d, sideTop + d]) if (top >= lo && top <= hi && onScreen(base.left, top)) cands.push({ ...base, top });
       }
     }
+  }
+  /* #3920: a target that fills the window (a project's Conversation column at 1280x860) leaves no room above or
+     below, and the columns beside it are narrower than the card, so nothing fits and the fallback below lands the
+     card ON the target. When the wider side has room for a readable card (220px or more), place it there once more,
+     narrowed to that room, side-first, so it keeps its arrow and stays off what it points at. Tried only when no
+     place fits at full width, so every screen with room is unchanged; never repeated (the narrowed call passes a
+     width, and does not come back here). */
+  if (!cands.length && !offScreen && !width) {
+    const room = Math.floor(Math.max(pageW - r.right - 14 - pad, r.left - 14 - pad));
+    if (room >= 220 && room < w) return tipPlace(card, sel, true, { key, avoid, width: room + 'px' });
   }
   if (!cands.length) cands.push({ ...below, cls: offScreen ? 'flat' : below.cls, top: Math.max(pad, Math.min(r.bottom + 12, vh - h - pad)) });
   /* The target itself is kept clear too (with the ring's margin): the card points at it, never sits on it. */
