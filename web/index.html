@@ -26457,6 +26457,13 @@ let ORG_SCROLL_X = 0;    // the box's scroll as the person left it at that width
    emptied map's size, or it stays a blank square the size of the last chart above
    the note. Only then: a paint that fits keeps its size, which the repaint guard
    may not set again. */
+/* #718: true while a drag is really under way: the node has moved (a tap is not a
+   drag) and is still on the page. Keyed on the element rather than a flag alone, so
+   a release that never arrives (the node cleared by a failed poll, capture lost)
+   cannot hold repaints off for good: once the node is gone, the next paint heals. */
+function orgDragHolds() {
+  return !!(ORG_LIVE && ORG_LIVE.dragEl && ORG_LIVE.dragEl.isConnected);
+}
 function orgBoxPlain(cleared) {
   const wrap = document.getElementById('orgview');
   const hadFocus = document.activeElement === wrap;   // read before tabindex goes
@@ -26617,7 +26624,7 @@ function paintOrg() {
      rebuilds the nodes and ORG_LIVE, and the drag would go on moving a node no longer
      on the page. The drag's release calls orgResizeRepaint, and the next poll draws
      anything else that changed. */
-  if (ORG_LIVE && ORG_LIVE.dragging) return;
+  if (orgDragHolds()) return;
   /* ⚠️ THE SAME SLICE THE OTHER TWO LAYOUTS DRAW. `?limit=N` exists so a board
      can be shrunk for a screenshot, and a third view that ignored it would
      draw fourteen nodes beside a three-card grid -- two pictures of one fleet
@@ -27007,7 +27014,10 @@ function orgLiveRun() {
   map.addEventListener('pointermove', (e) => {
     if (!drag) return;
     const dx = e.clientX - drag.x0; const dy = e.clientY - drag.y0;
-    if (!drag.moved && Math.abs(dx) + Math.abs(dy) > 4) { drag.moved = true; drag.el.classList.add('dragging'); }
+    if (!drag.moved && Math.abs(dx) + Math.abs(dy) > 4) {
+      drag.moved = true; drag.el.classList.add('dragging');
+      ORG_LIVE.dragEl = drag.el;   // #718: now a real drag; orgDragHolds keeps repaints off it
+    }
     if (!drag.moved) return;
     const box = ORG_LIVE.box;
     // #718: the hub (radius hub.size) is wider than a node, so it keeps its own margin
@@ -27024,7 +27034,7 @@ function orgLiveRun() {
     const was = drag;
     drag = null;
     was.body.fixed = false;
-    if (ORG_LIVE) { ORG_LIVE.dragging = false; ORG_LIVE.alpha = Math.max(ORG_LIVE.alpha, 0.5); orgLiveRun(); }
+    if (ORG_LIVE) { ORG_LIVE.dragging = false; ORG_LIVE.dragEl = null; ORG_LIVE.alpha = Math.max(ORG_LIVE.alpha, 0.5); orgLiveRun(); }
     was.el.classList.remove('dragging');
     /* 🛑 THE CLICK THAT ENDS A DRAG MUST NOT OPEN THE AGENT (#381). The first
        version swallowed it with a one-shot capture listener removed on a
@@ -27038,6 +27048,7 @@ function orgLiveRun() {
   };
   map.addEventListener('pointerup', release);
   map.addEventListener('pointercancel', release);
+  map.addEventListener('lostpointercapture', release);   // #718: capture lost ends the drag too
 })();
 document.getElementById('orgmap').addEventListener('click', (e) => {
   if (ORG_DRAG_MOVED) { ORG_DRAG_MOVED = false; return; }   // a drag just ended here (#381)
@@ -27058,7 +27069,7 @@ function orgResizeRepaint() {
     if (!wrap || wrap.hidden) return;
     // Not mid-drag: a repaint rebuilds the nodes under the pointer and the drag would go on
     // moving one that is no longer on the page. The drag's release calls this again.
-    if (ORG_LIVE && ORG_LIVE.dragging) return;
+    if (orgDragHolds()) return;
     // Against the width the chart was last PAINTED at, which every paint records:
     // a width remembered only here goes stale while the chart is hidden.
     if (wrap.clientWidth === ORG_VIEW_W) return;
