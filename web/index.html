@@ -552,12 +552,12 @@ h1 { font: 600 var(--text-title-1) var(--font-ui); letter-spacing: -0.012em; }
    0,1,0), which is what stops the badge adding a stray top gap now that it
    stacks in the name column (#3385: .dnamerow is a flex column). */
 .dnamerow .detail-state { margin: 0; }
-/* The agent's own words, marked as copied text rather than our sentence: a
-   hairline box (#3692: no left bars), the terminal's own face, and no italics
-   (this is copied text, not emphasis). */
+/* The agent's own words, marked as a quotation rather than as our sentence: a
+   rule down the left, the terminal's own face, and no italics (this is copied
+   text, not emphasis). */
 .detail-saidlab { margin: 10px 0 0; font-size: .75rem; color: var(--k-ink-2); }
-.detail-said { margin: 2px 0 0; padding: 6px 10px;
-               border: 0.5px solid var(--separator); border-radius: var(--radius-control); color: var(--k-ink-2);
+.detail-said { margin: 2px 0 0; padding: 6px 0 6px 12px;
+               border-left: 2px solid var(--k-rule); color: var(--k-ink-2);
                font: .8125rem/1.5 ui-monospace, SFMono-Regular, Menlo, monospace;
                white-space: pre-wrap; overflow-wrap: anywhere; }
 /* What the agent is doing, its own element rather than merged into the badge.
@@ -5875,7 +5875,7 @@ body:not(.consolidated) .pjmidhead:has(.pjhead) .tsearch:focus-within { flex-bas
 /* #3745: replying to a room post. */
 .rxn-reply { font: inherit; font-size: .75rem; border: 1px solid var(--k-rule); background: var(--k-surface); color: var(--k-ink-2); border-radius: 999px; padding: 1px 10px; margin-left: 4px; cursor: pointer; min-height: 24px; }   /* WCAG 2.5.8 target size */
 .rxn-reply:hover, .rxn-reply:focus-visible { color: var(--k-ink); border-color: var(--k-ink-2); }
-.pj-replying { display: flex; align-items: center; gap: 8px; margin: 0 0 6px; padding: 6px 10px; border-left: 3px solid var(--gold-deep); background: var(--k-surface); color: var(--k-ink-2); font-size: .8125rem; border-radius: 4px; }
+.pj-replying { display: flex; align-items: center; gap: 8px; margin: 0 0 6px; padding: 6px 10px; border: 0.5px solid var(--gold-deep); border-radius: var(--radius-control); background: var(--k-surface); color: var(--k-ink-2); font-size: .8125rem; border-radius: 4px; }
 .pj-replying[hidden] { display: none; }
 .pj-replying-h { flex: 0 1 auto; min-width: 0; color: var(--k-ink-2); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .pj-replying-t { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }

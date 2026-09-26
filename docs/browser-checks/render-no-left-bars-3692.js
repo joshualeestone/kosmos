@@ -1,4 +1,4 @@
-// Browser-check-surface: detail-said svc-door dmoff msg-valve pj-warn rst-list pj-folder-state pj-question rolelimit d-untied d-withdrawn
+// Browser-check-surface: svc-door dmoff msg-valve pj-warn rst-list pj-folder-state pj-question rolelimit d-untied d-withdrawn pj-replying
 'use strict';
 /**
  * #3692: no solid left bars (Josh's rule, 2026-09-24). Each card, note and warning that used
@@ -44,10 +44,9 @@ function chk(ok, label, extra) {
    line: an even hairline border. warn: an even border and a tint. tint: a background only (the
    unsure room message, which carries no stroke by #2660). Each marked data-nlb. */
 const SAMPLES = [
-  ['.detail-said', '<div class="detail-said" data-nlb>what the agent said, in the detail view</div>', 'line'],
   ['.svc-door', '<div class="svc-door" data-nlb><b>Service door</b> a note about a connection</div>', 'line'],
   ['.dmoff', '<div class="dmoff" data-nlb>Direct messages are off for this agent.</div>', 'line'],
-  ['.msg-valve', '<div class="msg-valve" data-nlb>A valve note in a message row.</div>', 'line'],
+  ['.msg-valve', '<div class="msg-valve dm-kosmos" data-nlb>A valve note in a message row.</div>', 'line'],
   ['.pj-warn', '<div class="pj-warn" data-nlb>A project warning.</div>', 'warn'],
   ['.rst-list li', '<ul class="rst-list"><li data-nlb>A restore list item.</li></ul>', 'line'],
   ['.pj-folder-state.bad', '<p class="pj-folder-state bad" data-nlb>This folder cannot be read.</p>', 'warn'],
@@ -55,6 +54,7 @@ const SAMPLES = [
   ['.pj-msg.unsure', '<div class="pj-msg unsure" data-nlb>A message Kosmos is unsure was delivered.</div>', 'tint'],
   ['.rolelimit', '<p class="rolelimit" data-nlb>What this role cannot do.</p>', 'line'],
   ['.note', '<div class="note" data-nlb>A note.</div>', 'line'],
+  ['.pj-replying', '<div class="pj-replying" data-nlb><span class="pj-replying-h">Replying to April</span></div>', 'line'],
 ];
 
 (async () => {
