@@ -6,7 +6,11 @@
  * read it it fades away".
  *
  * An agent message the person has not read carries a thin gold edge, and it fades once the message has been on
- * screen a moment with the window in front. Unread is the app's own count as the thread opens (a DM's dmUnread, a
+ * screen a moment with the window in front.
+ *
+ * #3967 (Josh 2026-09-26): the gold edge is REMOVED FOR NOW (it did not wrap the bubble's tail). The unread MARK
+ * (data-unread, set and cleared exactly as before) is what the arms below still pin, so the edge can come back
+ * drawn around the tail; the arms that read the drawn edge now pin that nothing is drawn, on every surface. Unread is the app's own count as the thread opens (a DM's dmUnread, a
  * project's unread) plus any agent message that lands while it is open. History never shows it.
  *
  * Harness: loaded over file:// with fetch answered here (render-agentdm-3414.js's posture), so the DM goes through
@@ -26,7 +30,6 @@ function chk(ok, label, extra) {
   console.log((ok ? 'PASS  ' : 'FAIL  ') + label + (extra ? '  ' + extra : ''));
   if (!ok) fail.push(label);
 }
-const EDGE_LIGHT = 'rgb(214, 166, 46)';   // --gold, #d6a62e (#3743 follow-up, 18:16: noticeable)
 
 (async () => {
   const browser = await chromium.launch({ headless: process.env.HEADED === '0' });
@@ -69,12 +72,12 @@ const EDGE_LIGHT = 'rgb(214, 166, 46)';   // --gold, #d6a62e (#3743 follow-up, 1
     const u1 = await dmState();
     const flags = u1.map((r) => r.unread);
     chk(u1.length === 4 && JSON.stringify(flags) === JSON.stringify([false, false, true, true]), 'U1 the two unread agent messages have the edge; history does not', JSON.stringify(flags));
-    chk(u1[3] && u1[3].edge.includes(EDGE_LIGHT) && !u1[0].edge.includes(EDGE_LIGHT), 'U1 the edge is the brand gold #d6a62e, inside the bubble', JSON.stringify([u1[0] && u1[0].edge, u1[3] && u1[3].edge]));
+    chk(u1[3] && u1[3].edge === 'none' && u1[0].edge === 'none', 'U1 #3967: no gold edge is drawn on an unread message (removed for now; the mark stays)', JSON.stringify([u1[0] && u1[0].edge, u1[3] && u1[3].edge]));
     if (SHOTS) { fs.mkdirSync(SHOTS, { recursive: true }); await page.screenshot({ path: path.join(SHOTS, 'unread-dm-before-read.png') }); }
 
     // U2: on screen with the window in front, the edge goes after a moment, and it fades rather than snapping.
     const tr = await page.evaluate(() => getComputedStyle(document.querySelectorAll('#d-dmthread .msg:not(.you) .msg-bd')[0]).transitionDuration);
-    chk(/1\.2s/.test(tr), 'U2 a read edge fades (a 1.2s transition), not a snap', tr);
+    chk(tr === '0s', 'U2 #3967: with nothing drawn there is nothing to fade (no box-shadow transition)', tr);
     await page.waitForTimeout(2600);
     const u2 = await dmState();
     chk(u2.length === 4 && u2.every((r) => !r.unread), 'U2 once on screen a moment, the edge goes', JSON.stringify(u2.map((r) => r.unread)));
@@ -173,7 +176,7 @@ const EDGE_LIGHT = 'rgb(214, 166, 46)';   // --gold, #d6a62e (#3743 follow-up, 1
       return v;
     }, setup);
     const dark14 = await edgeIn('dark'), navy14 = await edgeIn('navy');
-    chk(/rgba\(227, 179, 65, 0\.5\)/.test(dark14) && /rgba\(227, 179, 65, 0\.5\)/.test(navy14), 'U14 in dark and on Kosmos+ navy the edge is the gold at half strength', JSON.stringify({ dark14, navy14 }));
+    chk(dark14 === 'none' && navy14 === 'none', 'U14 #3967: no edge is drawn in dark or on Kosmos+ navy either', JSON.stringify({ dark14, navy14 }));
 
     // U9: a room whose first read did not answer (ok false, no rows) does not make its history look new on the next.
     const u9 = await page.evaluate((body) => {
@@ -231,7 +234,7 @@ const EDGE_LIGHT = 'rgb(214, 166, 46)';   // --gold, #d6a62e (#3743 follow-up, 1
       asbPaintThread(rows, 'guide');
     }, gRows);
     const u15a = await asbState();
-    chk(u15a.length === 2 && !u15a[0].unread && u15a[1].unread && u15a[1].edge.includes(EDGE_LIGHT), 'U15 the assistant\'s reply that came while folded has the edge; its history does not', JSON.stringify(u15a));
+    chk(u15a.length === 2 && !u15a[0].unread && u15a[1].unread && u15a[1].edge === 'none', 'U15 the assistant\'s reply that came while folded is marked unread, and (#3967) no edge is drawn on it', JSON.stringify(u15a));
     await page.waitForTimeout(2600);
     const u15b = await asbState();
     chk(u15b.length === 2 && u15b.every((r) => !r.unread), 'U15 once on screen a moment, it goes', JSON.stringify(u15b));
