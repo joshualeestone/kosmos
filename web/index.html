@@ -9375,6 +9375,15 @@ body.plus-active #plus-state2 { max-width: 26rem; padding: 2rem; }
   #d-talk-box #d-talk-search { font-size: 16px; }
   #panel-detail:has(#d-sec-talk:not([hidden])) > .back { margin: 4px 0 0; min-height: 44px; }
 }
+/* #718 (Raiden's table, row 4): the same two fields on ANY touchscreen, not only a portrait phone. A
+   phone turned sideways (667 to 932 wide) or a tablet is past the 40rem block above, where the search
+   box was 13px and 22px tall and the text box 15px, and iOS zooms the page when a field under 16px
+   takes focus. (hover: none) is the room's touch query (PJ_TOUCH_MQ); a mouse keeps the desktop sizes. */
+@media (hover: none) {
+  #d-talk-box .composerbox .cinput, #d-talk-box #d-talk-search { font-size: 16px; }
+  #d-talk-box #d-talk-search-wrap { min-height: 44px; }
+  #d-talk-box #d-talk-search { min-height: 42px; }
+}
 /* The canvases honour prefers-reduced-motion in JS (a single static frame, no
    rAF loop); this makes that intent visible to a source reader too. */
 </style>
