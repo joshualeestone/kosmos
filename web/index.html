@@ -5737,8 +5737,8 @@ body:not(.consolidated) .pjmidhead:has(.pjhead) .tsearch:focus-within { flex-bas
    shorthand. */
 .msg:not(.you) .msg-bd { background-color: var(--agent-msg); }
 /* #3743 (Josh 2026-09-25 09:15): "the stroke would be cool for an unread message and then as you read it it fades
-   away". An agent message not yet read carries a thin gold edge; once it has been on screen a moment, the edge fades.
-   An inset shadow, so the bubble keeps its size and the edge follows its rounded corners. */
+   away". An agent message not yet read was given a thin gold edge that faded once it had been on screen a moment
+   (an inset shadow, so the bubble kept its size). Not drawn at present: see #3967 below. */
 /* #3967 (Josh 2026-09-26 09:01): the edge is REMOVED FOR NOW. It is an inset shadow on the bubble box, so
    it does not follow the bubble's tail (the ::before wing below): "it looks broken this way". Josh liked
    the fading gold, so it is meant to come back as an outline that wraps the tail too (the wing would need

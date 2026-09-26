@@ -10,7 +10,9 @@
  *
  * #3967 (Josh 2026-09-26): the gold edge is REMOVED FOR NOW (it did not wrap the bubble's tail). The unread MARK
  * (data-unread, set and cleared exactly as before) is what the arms below still pin, so the edge can come back
- * drawn around the tail; the arms that read the drawn edge now pin that nothing is drawn, on every surface. Unread is the app's own count as the thread opens (a DM's dmUnread, a
+ * drawn around the tail; the arms that read the drawn edge now pin that nothing is drawn, on every surface.
+ *
+ * Unread is the app's own count as the thread opens (a DM's dmUnread, a
  * project's unread) plus any agent message that lands while it is open. History never shows it.
  *
  * Harness: loaded over file:// with fetch answered here (render-agentdm-3414.js's posture), so the DM goes through
