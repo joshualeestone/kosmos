@@ -1663,7 +1663,7 @@ function viewport(sessionName, roster) {
  * question", name the options, or reword anything: the person reads the
  * terminal, we only scroll it to the right place.
  */
-function questionIn(text) {
+function questionIn(text, runner) {
   const whole = String(text == null ? '' : text);
   if (!whole.trim()) return null;
   const lines = whole.split('\n');
@@ -1676,13 +1676,12 @@ function questionIn(text) {
     if (status.ALL_NEEDS_YOU_MARKERS.some((re) => re.test(lines[i]))) at = i;
   }
   if (at < 0) {
-    /* #4034: Gemini's question box matches no marker; the same reading the card's needs_you came from finds it, so
-       the page shows the question the card names. From the box's top edge. */
+    /* #4034: Gemini's question box matches no marker; for a GEMINI pane only (the box is a shape, not words, and
+       another runner's tool output can draw one), the same reading the card's needs_you came from finds it, so the
+       page shows the question the card names, from the line it says the box starts on. */
+    if (runner !== 'gemini') return null;
     const g = status.geminiQuestionReading(whole);
-    if (!g) return null;
-    let top = -1;
-    for (let i = lines.length - 1; i >= 0; i -= 1) if (/^\s*╭─+╮\s*$/.test(lines[i])) { top = i; break; }
-    return top < 0 ? null : { text: lines.slice(top).join('\n').replace(/\s+$/, '') };
+    return g ? { text: lines.slice(g.from).join('\n').replace(/\s+$/, '') } : null;
   }
   // A few lines of run-up, because a Claude permission prompt states what it is
   // asking about above the line that matches.

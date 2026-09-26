@@ -12435,7 +12435,7 @@ const server = http.createServer((req, res) => {
      * the thing rounds 19, 22 and 38 deleted three times.
      */
     const view = asking ? chat.viewport(name, roster) : null;
-    const paneQuestion = (asking && view && view.text) ? chat.questionIn(view.text) : null;
+    const paneQuestion = (asking && view && view.text) ? chat.questionIn(view.text, card.runner) : null;
     /**
      * #2456: a REPORTED needs_you handed us its question in the card's own
      * `because` - the SAME sentence the header quotes back to the person. When
@@ -12731,7 +12731,7 @@ const server = http.createServer((req, res) => {
           const card = askingCard;
           if (!card || card.state !== STATE.NEEDS_YOU) chose = null;
           const seen = chose ? seenNow : null;
-          const asked = (seen && seen.text) ? chat.questionIn(seen.text) : null;
+          const asked = (seen && seen.text) ? chat.questionIn(seen.text, card && card.runner) : null;
           const menu = asked ? chat.optionsIn(asked.text) : null;
           const row = menu ? menu.find((o) => String(o.n) === String(body.text).trim()) : null;
           /* ⚠️ COMPARED AS IT WILL BE STORED. `appendMessage` puts the bubble
@@ -15723,7 +15723,7 @@ const server = http.createServer((req, res) => {
     // measured its removal green). It stays for the day the upstream gating
     // changes; there is no route-level pin for it, on purpose recorded here.
     const asking = member.tied && member.state === STATE.NEEDS_YOU && member.restartFailed !== true;   // #4006: no question behind a failed restart
-    const paneQuestion = asking && view.text ? chat.questionIn(view.text) : null;
+    const paneQuestion = asking && view.text ? chat.questionIn(view.text, member.runner) : null;
     /* #2456: the same reported-question fallback the agent thread uses. A
        reported needs_you gave us its words in the card's `because` (the header
        quote); when the live pane no longer shows the question, those reported

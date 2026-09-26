@@ -45,3 +45,13 @@ Card: joshualeestone/kosmos#4034 (filed from #4004). Measurements and the decisi
   ("was not" / "found or is invalid."). Tested.
 - Comments and this plan say "one of which is a bare Stop"; the credits dialogs ("Stop - Abort request") are named
   as not read, for #4004's reading and this one alike. The export line's comment is its own.
+
+## Review round 3 (Sonnet), what changed
+- BLOCKER fixed: questionIn is runner-blind, and the Gemini fallback matches a shape another runner's tool output
+  can draw, so a Claude or Codex page could show a subprocess's retry box as "the question" and hide the card's own
+  reason. The fallback now runs only when the caller says the pane is Gemini's (the three server routes pass the
+  card's runner). Tested for claude, codex and an unknown runner.
+- geminiQuestionReading returns the line its box starts on; questionIn uses it rather than finding the box a second way.
+- The high-demand fixture now carries the message as Gemini renders it (two message lines, then the hint).
+- Decided, noted: a not-found box whose first option is "Switch to <model>" (no Keep trying) is read the same way,
+  and nothing is pressed for it either; switching a model is the person's call.

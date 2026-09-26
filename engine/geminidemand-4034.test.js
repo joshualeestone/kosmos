@@ -37,10 +37,10 @@ const NOT_FOUND = [
   "│                                                                                                                      │",
   "╰──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────╯",
 ].join('\n');
-/* The same box with the high-demand message from Gemini's source (capacity branch: three options). */
+/* The same box with the high-demand message as Gemini's source renders it (capacity branch: three message lines, the
+   last a hint, and three options). */
 const HIGH_DEMAND = NOT_FOUND
-  .replace('Model "gemini-2.5-flash" was not found or is invalid.', 'We are currently experiencing high demand for gemini-2.5-flash.')
-  .replace('/model to switch models.', 'We apologize and appreciate your patience.')
+  .replace('Model "gemini-2.5-flash" was not found or is invalid.', 'We are currently experiencing high demand for gemini-2.5-flash.\n│ We apologize and appreciate your patience.')
   .replace('● 1. Keep trying', '● 1. Keep trying\n│   2. Switch to gemini-2.5-pro')
   .replace('  2. Stop', '  3. Stop');
 const [gem] = status.parsePanes(fleet.line(fleet.agent('gemd', { ours: 'claim', runner: 'gemini', command: 'node', state: 'idle' })));
@@ -87,11 +87,16 @@ test('#4034 review round 1: Stop anywhere among the options, and a first line th
 
 test('#4034 review round 2: the agent page finds the question the card names, and a narrow pane\'s wrapping does not cut the reason', () => {
   const chat = require('./chat');
-  const q = chat.questionIn(NOT_FOUND);
+  const q = chat.questionIn(NOT_FOUND, 'gemini');
   assert.ok(q && q.text.includes('was not found or is invalid') && q.text.includes('2. Stop'), 'questionIn did not find the box: ' + JSON.stringify(q));
   assert.ok(q.text.startsWith('╭'), 'the question does not start at the box top: ' + JSON.stringify(q.text.slice(0, 40)));
   const quoted = ['✦ Checking the other agent', NOT_FOUND, '⠏ Thinking (esc to cancel, 3s)', ' *   Type your message or @path/to/file'].join('\n');
-  assert.equal(chat.questionIn(quoted), null, 'a quoted box was offered as this agent\'s question');
+  assert.equal(chat.questionIn(quoted, 'gemini'), null, 'a quoted box was offered as this agent\'s question');
+  // Review round 3: another runner's pane can draw the same shape in its tool output; the fallback is Gemini's only.
+  assert.equal(chat.questionIn(NOT_FOUND, 'claude'), null, 'a Claude pane was offered a Gemini-shaped box as its question');
+  assert.equal(chat.questionIn(NOT_FOUND), null, 'a pane of unknown runner was offered a Gemini-shaped box');
+  const box = ['╭──────────────────────────────────────╮', '│ Connection to db-primary timed out.  │', '│ 1. Keep trying                       │', '│ 2. Stop                              │', '╰──────────────────────────────────────╯'].join('\n');
+  assert.equal(chat.questionIn(' > run the migration tool\n' + box, 'codex'), null, 'a Codex tool\'s retry box was offered as its question');
   const narrow = [
     ' > hello there',
     '╭──────────────────────────────────────╮',

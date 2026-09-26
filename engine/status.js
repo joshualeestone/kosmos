@@ -1630,13 +1630,18 @@ function geminiQuotaReading(paneText, afterStop) {
    "We are currently experiencing high demand ..." over the same options. So the box is read by its SHAPE (a message
    inside a box top, numbered options one of which is a bare "Stop", nothing after but the box edge), whatever its
    message says. Not read: the credits dialogs, whose option is "Stop - Abort request". Returns the message's first
-   sentence (its rows joined, so a narrow pane's wrapping does not cut it), or null. A usage limit is geminiQuotaReading's, which runs first. It reads the same
+   sentence (its rows joined, so a narrow pane's wrapping does not cut it) and `from`, the line the box starts on,
+   or null. A usage limit is geminiQuotaReading's, which runs first. It reads the same
    GEMINI_LIMIT_ROWS window, so a box whose top is further up than that is not read (as for a usage limit). */
 /* Gemini's remedy hints inside the box ("/model to switch models.", "/stats model for usage details"), left out of the
    message so a box of hints alone is not read as a question. */
 const GEMINI_HINT = /^\/[a-z]+(?:\s+[a-z]+)?\s+(?:to|for)\s/;
 function geminiQuestionReading(paneText) {
-  const rows = String(paneText || '').split('\n').map(geminiRow).filter((r) => r).slice(-GEMINI_LIMIT_ROWS);
+  /* Each row keeps its line number in the text, so the caller is told where the box starts (`from`) rather than
+     finding it a second way. */
+  const pairs = String(paneText || '').split('\n').map((line, i) => ({ row: geminiRow(line), i }))
+    .filter((p) => p.row).slice(-GEMINI_LIMIT_ROWS);
+  const rows = pairs.map((p) => p.row);
   const lastOpt = rows.reduce((at, r, i) => (GEMINI_QUOTA_OPTION.test(r) ? i : at), -1);
   if (lastOpt < 0 || !rows.slice(lastOpt + 1).every((r) => GEMINI_BOX_EDGE.test(r))) return null;
   let top = -1;
@@ -1650,7 +1655,7 @@ function geminiQuestionReading(paneText) {
   if (!message.length) return null;
   const joined = message.join(' ').replace(/\s+/g, ' ').trim();
   const first = joined.match(/^.*?[.!?](?=\s|$)/);
-  return { evidence: first ? first[0] : joined };
+  return { evidence: first ? first[0] : joined, from: pairs[top].i };
 }
 
 /**
