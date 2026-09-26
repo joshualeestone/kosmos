@@ -49,10 +49,11 @@ async function openPage(browser, offered) {
       // #3998: the hidden sign-in's addresses (engine/agysignin.js stood in for).
       if (/\/api\/antigravity\/signin(\/(code|show|stop))?$/.test(u)) {
         const which = u.endsWith('/signin') ? 'signin' : u.split('/').pop();
-        if (!post) return enc(window.__signin.length > 1 ? window.__signin.shift() : window.__signin[0]);
+        const ID = 'a1b2c3d4e5f60718';   // the sign-in start() names; every state read carries it
+        if (!post) return enc({ id: ID, ...(window.__signin.length > 1 ? window.__signin.shift() : window.__signin[0]) });
         window.__posts.push(which);
-        if (which === 'code') window.__codeSent = JSON.parse(opts.body || '{}').code;
-        return enc({ ok: true, state: which === 'signin' ? 'starting' : 'checking' });
+        if (which === 'code') { const b = JSON.parse(opts.body || '{}'); window.__codeSent = b.code; window.__codeId = b.id; }
+        return enc({ ok: true, id: ID, state: which === 'signin' ? 'starting' : 'checking' });
       }
       if (/\/api\/antigravity\/(check|install)$/.test(u) && post) {
         const which = u.split('/').pop();
@@ -146,11 +147,11 @@ const view = () => ({
   await q(() => { document.getElementById('acct-gemini-sub-paste').value = '4/0AXlqoi78ZmW2ZEDHmXTxfTTbEqk1iq3YSD1LPLn9DJBTH8v'; window.__signin = [{ state: 'setup', step: 'terms' }, { state: 'done' }]; document.getElementById('acct-gemini-sub-paste-go').click(); });
   await q(() => new Promise((r) => setTimeout(r, 2800)));
   const d4 = await q(() => ({
-    code: window.__codeSent, box: !document.getElementById('acct-success-box').hidden,
+    code: window.__codeSent, codeId: window.__codeId, box: !document.getElementById('acct-success-box').hidden,
     boxText: document.getElementById('acct-success-box').textContent.replace(/\s+/g, ' ').trim(),
     flow: !document.getElementById('acct-gemini-flow').hidden,
   }));
-  chk(d4.code === '4/0AXlqoi78ZmW2ZEDHmXTxfTTbEqk1iq3YSD1LPLn9DJBTH8v' && d4.box && /Gemini is connected/.test(d4.boxText) && !d4.flow,
+  chk(d4.code === '4/0AXlqoi78ZmW2ZEDHmXTxfTTbEqk1iq3YSD1LPLn9DJBTH8v' && d4.codeId === 'a1b2c3d4e5f60718' && d4.box && /Gemini is connected/.test(d4.boxText) && !d4.flow,
     '#3998 the pasted code goes to the board, and the dialog ends on the gold connected box, like GPT and Grok', JSON.stringify(d4));
   if (shots) await page.locator('#acct-add-dialog').screenshot({ path: path.join(shots, 'settings-gemini-connected-3998.png') });
   await q(() => { closeAcctAdd(); });

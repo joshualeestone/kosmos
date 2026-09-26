@@ -57,13 +57,15 @@ async function until(fn, ms = 20000, what = 'the condition') {
 test('#3998: the whole sign-in runs hidden: menu, code from Kosmos, colour, terms left UNTICKED, own folder trusted', { skip }, async () => {
   const t = setup('normal');
   try {
-    assert.deepEqual(t.signin.start(), { ok: true });
+    const started = t.signin.start();
+    assert.equal(started.ok, true);
+    assert.match(started.id, /^[0-9a-f]{16}$/, 'a sign-in names itself so a screen can say which one it means');
     await until(() => t.signin.status().state === 'code', 15000, 'the code step');
     assert.match(t.signin.status().url, /^https:\/\/accounts\.google\.com\/o\/oauth2\/auth\?/, 'the sign-in address was not picked up');
     assert.match(t.logText(), /^menu:Enter$/m, 'Google OAuth was not chosen');
     // A code that is not one is refused before anything is typed.
-    assert.equal(t.signin.code('rm -rf ~; echo').ok, false);
-    assert.deepEqual(t.signin.code('4/0AXlqoi78ZmW2ZEDHmXTxfTTbEqk1iq3YSD1LPLn9DJBTH8v-TZgGLs9n'), { ok: true });
+    assert.equal(t.signin.code('rm -rf ~; echo', started.id).ok, false);
+    assert.deepEqual(t.signin.code('4/0AXlqoi78ZmW2ZEDHmXTxfTTbEqk1iq3YSD1LPLn9DJBTH8v-TZgGLs9n', started.id), { ok: true });
     await until(() => t.signin.status().state === 'done', 25000, 'the sign-in to finish');
     const log = t.logText();
     assert.match(log, /^code:4\/0AXlqoi78ZmW2ZEDHmXTxfTTbEqk1iq3YSD1LPLn9DJBTH8v-TZgGLs9n$/m, 'the code did not reach agy intact');
@@ -81,9 +83,9 @@ test('#3998: the whole sign-in runs hidden: menu, code from Kosmos, colour, term
 test('#3998: agy asking to trust any folder but Kosmos\'s own ends the sign-in, untrusted', { skip }, async () => {
   const t = setup('wrong-folder');
   try {
-    t.signin.start();
+    const { id } = t.signin.start();
     await until(() => t.signin.status().state === 'code', 15000, 'the code step');
-    t.signin.code('4/0AXlqoi78ZmW2ZEDHmXTxfTTbEqk1iq3YSD1LPLn9DJBTH8v-TZgGLs9n');
+    t.signin.code('4/0AXlqoi78ZmW2ZEDHmXTxfTTbEqk1iq3YSD1LPLn9DJBTH8v-TZgGLs9n', id);
     await until(() => t.signin.status().state === 'failed', 25000, 'the refusal');
     assert.match(t.signin.status().because, /trust a folder Kosmos did not choose/);
     assert.doesNotMatch(t.logText(), /^trust:/m, 'Kosmos answered the trust question for the home folder');
@@ -95,10 +97,10 @@ test('#3998: a screen Kosmos does not recognise is shown, not guessed at', { ski
   const opened = [];
   t.signin.setForTests({ openFile: (file, done) => { opened.push(file); done(null); } });
   try {
-    t.signin.start();
+    const { id } = t.signin.start();
     await until(() => t.signin.status().state === 'stuck', 20000, 'the stuck state');
     assert.match(t.signin.status().because, /does not recognise/);
-    const r = await t.signin.show();
+    const r = await t.signin.show(id);
     assert.deepEqual(r, { ok: true });
     assert.equal(opened.length, 1);
     const script = fs.readFileSync(opened[0], 'utf8');
@@ -133,9 +135,10 @@ test('#3998: a check that answers after its sign-in was stopped and restarted ne
     confirmSignedIn: () => gate,   // the FIRST session's check hangs until released
   });
   try {
-    assert.equal(s.start().ok, true);
+    const first = s.start();
+    assert.equal(first.ok, true);
     s.tickForTests();              // the session looks gone: its check starts and waits
-    s.stop();                      // the person stops it...
+    s.stop(first.id);              // the person stops it...
     assert.equal(s.start().ok, true);   // ...and signs in again
     s.setForTests({ confirmSignedIn: async () => ({ signedIn: null }) });
     const killsBefore = killed.length;
@@ -166,5 +169,161 @@ test('#3998: a recognised screen that does not move on becomes stuck (a changed 
     t0 += 15000; s.tickForTests();
     assert.equal(s.status().state, 'stuck', 'a menu that never moved on was never shown');
     assert.deepEqual(sent, [], 'Kosmos pressed a key on a menu whose choice was not Google OAuth');
+  } finally { s.resetForTests(); }
+});
+
+/* ---- the round-2 review's cases, on a scripted screen (no tmux) ---------------------------- */
+function scripted(s, first) {
+  const st = { screen: first, sent: [], killed: 0, t: 1000000, checks: 0, answer: { signedIn: null }, captureThrows: null, hasSession: true };
+  s.resetForTests();
+  s.setForTests({
+    agyBin: () => ({ installed: true, bin: '/bin/true' }),
+    folderRoot: () => os.tmpdir(),
+    now: () => st.t,
+    confirmSignedIn: async () => { st.checks += 1; return st.answer; },
+    tmux: (args) => {
+      if (args[0] === 'capture-pane') { if (st.captureThrows) throw st.captureThrows; return st.screen; }
+      if (args[0] === 'has-session') { if (!st.hasSession) { const e = new Error('no session'); e.status = 1; throw e; } return ''; }
+      if (args[0] === 'send-keys') st.sent.push(args.slice(3).join(' '));
+      if (args[0] === 'kill-session') st.killed += 1;
+      return '';
+    },
+  });
+  return st;
+}
+const settle = () => new Promise((r) => setImmediate(r));
+const TERMS = (marked) => 'Terms of Service & Data Use\n\n' + ['[ ] Yes, I agree', 'Previous', '[Done]']
+  .map((l) => (l === marked ? '> ' : '  ') + l).join('\n') + '\n';
+
+test('#3998 B2: after the setup, an unknown screen asks agy a few times at most, and stuck stays stuck', async () => {
+  const s = require('./agysignin');
+  const st = scripted(s, 'Choose your color scheme\n> terminal\n');
+  try {
+    s.start();
+    s.tickForTests();                                   // theme: Enter
+    st.screen = 'something agy draws that Kosmos has never seen';
+    const seen = [];
+    for (let i = 0; i < 60; i++) { st.t += 1000; s.tickForTests(); await settle(); seen.push(s.status().state); }
+    assert.ok(st.checks >= 1, 'CONTROL: agy was never asked (the screen after the setup is usually its ready screen)');
+    assert.ok(st.checks <= s.MAX_CHECKS, 'agy was asked ' + st.checks + ' times: each one is a prompt on the person\'s subscription');
+    const first = seen.indexOf('stuck');
+    assert.ok(first >= 0, 'never became stuck');
+    assert.deepEqual(seen.slice(first).filter((x) => x !== 'stuck'), [], 'stuck flipped back by itself: ' + seen.join(','));
+  } finally { s.resetForTests(); }
+});
+
+test('#3998 W1/W2: the terms get each key once, and a missing Done is shown, not ended', async () => {
+  const s = require('./agysignin');
+  const st = scripted(s, TERMS('Previous'));
+  try {
+    const { id } = s.start();
+    s.tickForTests(); s.tickForTests(); s.tickForTests();     // the marker has not moved yet
+    assert.deepEqual(st.sent, ['Down'], 'a second Down went out before the first one landed');
+    st.screen = TERMS('[Done]');
+    s.tickForTests(); s.tickForTests(); s.tickForTests();
+    assert.deepEqual(st.sent, ['Down', 'Enter'], 'Enter went out more than once on [Done] (a slow redraw carries it onto the trust question)');
+    assert.doesNotMatch(st.sent.join(' '), /Space/, 'Space ticks the optional data-sharing box');
+    // A terms screen whose Done never comes under the marker:
+    const st2 = scripted(s, TERMS('Previous'));
+    const again = s.start();
+    const marks = ['Previous', '[ ] Yes, I agree', 'Previous', '[ ] Yes, I agree', 'Previous', '[ ] Yes, I agree'];
+    for (const m of marks) { st2.screen = TERMS(m); s.tickForTests(); }
+    assert.equal(s.status().state, 'stuck');
+    assert.match(s.status().because, /Done button/);
+    assert.equal(st2.killed, 1, 'the session was killed (only the start\'s own clean-up may kill one), so Show had nothing to show');
+    s.setForTests({ openFile: (f, done) => done(null) });
+    assert.deepEqual(await s.show(again.id), { ok: true }, 'Show did nothing on a stuck terms screen');
+    assert.equal(id === again.id, false);
+  } finally { s.resetForTests(); }
+});
+
+test('#3998 W3: a code agy did not take goes back to asking for one', () => {
+  const s = require('./agysignin');
+  const CODE = 'Your browser should open automatically. If not:\n\nhttps://accounts.google.com/o/oauth2/auth?x=1\n\nPaste the authorization code:\n';
+  const st = scripted(s, CODE);
+  try {
+    const { id } = s.start();
+    s.tickForTests();
+    assert.equal(s.status().state, 'code');
+    assert.equal(s.code('4/0AXlqoi78ZmW2ZEDHmXTxfTTbEqk1iq3YSD1LPLn9DJBTH8v', id).ok, true);
+    st.t += 5000; s.tickForTests();
+    assert.equal(s.status().state, 'checking', 'CONTROL: a code is given a moment before it counts as refused');
+    st.t += 15000; s.tickForTests();
+    assert.equal(s.status().state, 'code', 'a refused code left the panel checking for half an hour');
+    assert.match(s.status().because, /did not take that code/);
+    assert.equal(s.code('4/0AXlqoi78ZmW2ZEDHmXTxfTTbEqk1iq3YSD1LPLn9DJBTH8v', id).ok, true, 'a second code could not be pasted');
+  } finally { s.resetForTests(); }
+});
+
+test('#3998 W4: a Stop while agy is asked (after it exited) stays stopped', async () => {
+  const s = require('./agysignin');
+  const st = scripted(s, null);
+  st.answer = { signedIn: true };
+  try {
+    const { id } = s.start();
+    st.hasSession = false;
+    s.tickForTests();                 // the session is gone: agy is asked
+    s.stop(id);
+    await settle();
+    assert.equal(s.status().state, 'stopped', 'the answer overwrote the person\'s Stop');
+  } finally { s.resetForTests(); }
+});
+
+test('#3998 W5: only a missing session is agy exiting; a slow tmux is tried again', async () => {
+  const s = require('./agysignin');
+  const st = scripted(s, 'x');
+  try {
+    s.start();
+    const slow = new Error('spawnSync tmux ETIMEDOUT'); slow.code = 'ETIMEDOUT';
+    st.captureThrows = slow;
+    s.tickForTests(); await settle();
+    assert.equal(st.checks, 0, 'a slow tmux was read as agy exiting');
+    assert.equal(s.status().state, 'starting');
+    st.captureThrows = new Error('can\'t find session'); st.hasSession = false;
+    s.tickForTests(); await settle();
+    assert.equal(s.status().state, 'failed', 'CONTROL: a session that is really gone ends the sign-in');
+  } finally { s.resetForTests(); }
+});
+
+test('#3998 W6: a code, Show or Stop from an older sign-in never touches the current one', async () => {
+  const s = require('./agysignin');
+  scripted(s, 'Your browser should open automatically.\n');
+  try {
+    const old = s.start();
+    const cur = s.start();
+    s.tickForTests();
+    assert.notEqual(old.id, cur.id);
+    assert.equal(s.stop(old.id).ok, false);
+    assert.equal(s.stop(undefined).ok, false);
+    assert.equal(s.code('4/0AXlqoi78ZmW2ZEDHmXTxfTTbEqk1iq3YSD1LPLn9DJBTH8v', old.id).ok, false);
+    assert.equal((await s.show(old.id)).ok, false);
+    assert.equal(s.status().state, 'code', 'another tab\'s Stop ended this sign-in');
+    assert.equal(s.stop(cur.id).ok, true, 'CONTROL: its own Stop works');
+    assert.equal(s.status().state, 'stopped');
+  } finally { s.resetForTests(); }
+});
+
+test('#3998 W7: Sign in again on an agy that is already signed in finishes, once agy says so', async () => {
+  const s = require('./agysignin');
+  const st = scripted(s, 'joshua@example.com (Antigravity Starter Quota) - Gemini 3.8 Flash (High)\n> \n');
+  st.answer = { signedIn: true };
+  try {
+    s.start();
+    s.tickForTests(); await settle();
+    assert.equal(st.checks, 0, 'CONTROL: agy is given a moment to draw its first screen before being asked');
+    st.t += 9000; s.tickForTests(); await settle();
+    assert.equal(st.checks, 1);
+    assert.equal(s.status().state, 'done', 'an already signed-in agy was shown as stuck');
+  } finally { s.resetForTests(); }
+});
+
+test('#3998 C3: with the live-execution gate closed, a start that would run tmux for real throws in a test', () => {
+  const s = require('./agysignin');
+  s.resetForTests();
+  require('./live-execution').resetForTests();
+  s.setForTests({ agyBin: () => ({ installed: true, bin: '/bin/true' }), folderRoot: () => os.tmpdir() });
+  try {
+    assert.throws(() => s.start(), /for real inside a test/);
+    assert.equal(s.status().state, 'idle');
   } finally { s.resetForTests(); }
 });
