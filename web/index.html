@@ -11237,7 +11237,7 @@ window.kosmosMeasureScrollbarWidth();
       <div id="acct-gemini-pick">
         <p class="dhint" style="margin:0 0 8px;">Choose how to connect Google Gemini.</p>
         <div class="frow">
-          <button class="btn uprime" id="acct-gemini-pick-sub" type="button">Sign in with Subscription</button>
+          <button class="btn uprime" id="acct-gemini-pick-sub" type="button">Sign in with Google</button>
           <button class="btn" id="acct-gemini-pick-key" type="button">Use an API key</button>
         </div>
         <p class="dhint" style="margin:8px 0 0;">A Google subscription signs in through Google, with nothing to paste. An API key is a string you create on Google's site.</p>
@@ -24471,7 +24471,8 @@ function acctApikeyShow(which) {
     if (which === 'google') {
       await agyAsk();
       if (visit !== ACCT_APIKEY_GEN || ACCT_APIKEY_WHICH !== which) return;
-      if (keyedSubReady('google')) { acctGeminiShow('google', info); return; }
+      // AGY_OFFERED stays null when the read failed: today's key path then, not a choice that may be refused.
+      if (AGY_OFFERED === true && keyedSubReady('google')) { acctGeminiShow('google', info); return; }
     }
     if (info && info.present) { if (!again) acctKeyedReveal(which); return; }
     acctKeyedInstallShow(which, info);   // Mac and Windows alike: Kosmos installs both on each
@@ -24868,15 +24869,12 @@ async function keyedRunnerInstall(which, say, alive) {
    under its own row: Connect, then the install (Confirm / Not now), then the choice (Sign in with
    Subscription / Use an API key), then the sign-in or the key. One driver for both, keyed by
    provider ('google' | 'xai'). Grok's subscription starts xAI's sign-in at once, #3335's rule for
-   GPT: no screen whose only job is a second press. Gemini's subscription is Angel's Antigravity
-   sign-in (#3568); until its route exists Gemini goes from the install straight to the key, and
-   filling in KEYED_SUB_START.google turns the choice on. It replaces #3658's one shared box and #3713's
+   GPT: no screen whose only job is a second press. Gemini's subscription is Google's Antigravity
+   (#3568). It replaces #3658's one shared box and #3713's
    download box (both sat below Grok, whichever row was pressed). */
 const FR_KEYED = { google: { pre: 'gemini' }, xai: { pre: 'grok' } };
-/* The subscription sign-in each provider can start. Grok's is the shared driver; Gemini's is
-   Angel's Antigravity sign-in (#3568) and does not exist yet. The choice (Sign in with
-   Subscription / Use an API key) is offered only where a start exists, so wiring Gemini is one
-   function here and nothing else: no flag that could show a button with nothing behind it. */
+/* The subscription sign-in each provider can start. The choice (Sign in with Subscription / Use an
+   API key) is offered only where a start exists (keyedSubReady). */
 /* #3568: Gemini's subscription is Google's Antigravity CLI (agy). It signs in inside its own window
    (Google's docs: started without a saved session it opens the default browser to sign in), so the
    step is: check agy (installed? signed in?), and either say it is ready, show Google's installer, or
@@ -24991,9 +24989,9 @@ const FR_AGY_SUB = agySubDriver('fr-gemini-sub-', () => {
     frActions({ label: 'Next', go: () => frGo(frStepAfter(5)) }, null);
   }
 });
-/* #3874: Settings, Add a provider. Ready is the step's own words: an Antigravity sign-in is held by
-   agy, not listed in /api/accounts, so there is no account row to paint. */
-const ACCT_AGY_SUB = agySubDriver('acct-gemini-sub-', () => {});
+/* #3874: Settings, Add a provider. Ready records the signed-in fact every screen reads (the create
+   hint, the guided setup's Gemini row on its next paint), but paints nothing of first run's. */
+const ACCT_AGY_SUB = agySubDriver('acct-gemini-sub-', () => { FR_AGY_READY = true; });
 const KEYED_SUB_START = { google: () => FR_AGY_SUB.start(), xai: () => FR_GROK_SUB.start() };
 /* #3568: Gemini's subscription only where it can run (a Mac, runner on); AGY_OFFERED is read before
    the choice is shown (frKeyedConnect). */

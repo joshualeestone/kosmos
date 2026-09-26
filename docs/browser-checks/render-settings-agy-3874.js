@@ -4,11 +4,11 @@
  * kosmos#3874: Settings, AI Models, Add a provider offers Gemini on a Google subscription, as the
  * first-run Gemini row does. HERMETIC (file://, fetch stubbed; Antigravity's routes answer from a
  * script). Asserts:
- *   - where it is offered, picking Google Gemini shows the choice (Sign in with Subscription / Use an
+ *   - where it is offered, picking Google Gemini shows the choice (Sign in with Google / Use an
  *     API key) first, with no key box and no download showing, and focus on the first choice;
  *   - "Use an API key" with the Gemini CLI missing goes to its download step;
  *   - switching provider and back returns to the choice (nothing left over);
- *   - "Sign in with Subscription" walks not installed -> Install Antigravity -> Open -> Check again
+ *   - "Sign in with Google" walks not installed -> Install Antigravity -> Open -> Check again
  *     -> Ready, in the dialog, each press posting only its own route;
  *   - Stop partway returns to the choice;
  *   - control: where it is NOT offered, the choice never shows and Gemini goes to its download.
@@ -87,9 +87,9 @@ const view = () => ({
   await open('google');
   const a = await look();
   chk(a.flow && a.pick && !a.sub && !a.key && !a.install && a.focus === 'acct-gemini-pick-sub',
-    'offered: Google Gemini shows the choice first, no key box and no download, focus on Sign in with Subscription', JSON.stringify(a));
+    'offered: Google Gemini shows the choice first, no key box and no download, focus on Sign in with Google', JSON.stringify(a));
   const labels = await q(() => [document.getElementById('acct-gemini-pick-sub').textContent, document.getElementById('acct-gemini-pick-key').textContent]);
-  chk(labels[0] === 'Sign in with Subscription' && labels[1] === 'Use an API key', 'the choice reads as Grok\'s and first run\'s', JSON.stringify(labels));
+  chk(labels[0] === 'Sign in with Google' && labels[1] === 'Use an API key', 'the choice names the provider, as Settings\' Grok and ChatGPT do', JSON.stringify(labels));
   if (shots) await page.locator('#acct-add-dialog').screenshot({ path: path.join(shots, 'settings-gemini-choice-3874.png') });
 
   await q(() => document.getElementById('acct-gemini-pick-key').click());
@@ -106,7 +106,7 @@ const view = () => ({
   await q(settle);
   const d1 = await look();
   chk(d1.sub && !d1.pick && /not on this computer yet/.test(d1.text) && d1.button === 'Install Antigravity' && d1.stop && d1.posts.join() === 'check',
-    'Sign in with Subscription checks at once and offers Install Antigravity, with Stop', JSON.stringify(d1));
+    'Sign in with Google checks at once and offers Install Antigravity, with Stop', JSON.stringify(d1));
   await q(() => document.getElementById('acct-gemini-sub-go').click());
   await q(settle);
   const d2 = await look();

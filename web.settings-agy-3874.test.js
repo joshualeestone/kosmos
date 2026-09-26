@@ -36,7 +36,8 @@ test('#3874: the Add a provider dialog carries the Gemini choice and every part 
     assert.match(dialog, new RegExp('id="' + id + '"'), '#' + id + ' is missing from the dialog');
   }
   assert.match(dialog, /id="acct-gemini-flow" hidden/, 'the Gemini choice must start hidden');
-  assert.match(dialog, /id="acct-gemini-pick-sub"[^>]*>Sign in with Subscription</);
+  // Named for the provider, as its Settings siblings are ("Sign in with Grok", "Sign in with ChatGPT").
+  assert.match(dialog, /id="acct-gemini-pick-sub"[^>]*>Sign in with Google</);
   assert.match(dialog, /id="acct-gemini-pick-key"[^>]*>Use an API key</);
   // The driver's status line is live, as first run's is.
   assert.match(dialog, /id="acct-gemini-sub-code" role="status" aria-live="polite"/);
@@ -66,18 +67,17 @@ function drivers(answers) {
   return { ...api, el, posts, painted: () => painted };
 }
 
-test('#3874: Settings\' sign-in paints the dialog, not the first-run row, and Ready leaves first run alone', async () => {
+test('#3874: Settings\' sign-in paints the dialog, not the first-run row; Ready records the fact but repaints nothing of first run', async () => {
   const d = drivers({ '/api/antigravity/check': [{ installed: true, signedIn: true }] });
   await d.ACCT_AGY_SUB.start();
   assert.match(d.el('acct-gemini-sub-code').textContent, /^Ready\. Gemini runs on your Google subscription/);
   assert.equal(d.el('acct-gemini-sub-cancel-row').hidden, true, 'no Stop once it is ready');
   assert.equal(d.el('fr-gemini-sub-code').textContent, '', 'Settings wrote into the first-run row');
-  assert.equal(d.frReady(), false, 'a Settings sign-in must not mark the first-run row connected');
+  assert.equal(d.frReady(), true, 'signed in is a fact of this computer: the create hint and first run read it');
   assert.equal(d.painted(), 0, 'a Settings sign-in must not repaint first run');
-  // CONTROL: the first-run instance still does all of that, so the assertions above can fail.
+  // CONTROL: the first-run instance does repaint, so the assertion above can fail.
   await d.FR_AGY_SUB.start();
   assert.match(d.el('fr-gemini-sub-code').textContent, /^Ready\./);
-  assert.equal(d.frReady(), true);
   assert.equal(d.painted(), 1);
 });
 
@@ -129,7 +129,7 @@ test('#3874: picking Gemini where it is offered shows the choice first, the key 
   assert.deepEqual(c.calls, ['leave']);
 });
 
-test('#3874: Sign in with Subscription starts the driver at once; Use an API key goes to the key, or the download first', () => {
+test('#3874: Sign in with Google starts the driver at once; Use an API key goes to the key, or the download first', () => {
   const c = choice();
   c.acctGeminiShow('google', { present: true });
   c.el('acct-gemini-pick-sub').click();
@@ -171,8 +171,8 @@ test('#3874: acctApikeyShow offers the choice only where the subscription is off
   const branch = src.slice(g, src.indexOf('\n    }', g));
   const ask = branch.indexOf('await agyAsk()');
   const recheck = branch.indexOf('if (visit !== ACCT_APIKEY_GEN || ACCT_APIKEY_WHICH !== which) return;', ask);
-  const gate = branch.indexOf("if (keyedSubReady('google')) { acctGeminiShow('google', info); return; }", recheck);
-  assert.ok(ask > 0 && recheck > ask && gate > recheck, 'ask, then re-check the visit, then gate on keyedSubReady');
+  const gate = branch.indexOf("if (AGY_OFFERED === true && keyedSubReady('google')) { acctGeminiShow('google', info); return; }", recheck);
+  assert.ok(ask > 0 && recheck > ask && gate > recheck, 'ask, then re-check the visit, then gate on a CONFIRMED offer (a failed read is null)');
   // Not offered falls through to today's path (key, or the download), unchanged.
   const after = src.slice(g + branch.length);
   assert.match(after, /if \(info && info\.present\) \{ if \(!again\) acctKeyedReveal\(which\); return; \}\s*\n\s*acctKeyedInstallShow\(which, info\);/);
