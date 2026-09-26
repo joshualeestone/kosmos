@@ -389,6 +389,9 @@ test('the code step validates in words, enrolls through the binary, and brings t
   assert.match(refused.because, /not right/);
   const done = await remote.setupComplete('123456', 'Hers');   // #3796 addendum 6: typed with a capital
   assert.equal(done.ok, true, done.because);
+  // #3889: the Settings setup caches the account's standing right away (the fake tunnel's mac-request answers
+  // good). Without it, the new identity's standing was '' with a fresh stamp, so no poll re-asked for a TTL.
+  await until(() => remote.read().standing === 'good', 'the standing to be cached right after a Settings setup');
   assert.equal(remote.enrolled(), true);
   assert.equal(remote.address(), 'hers.kosmos.invalid', 'the name did not reach the connector lowercased');
   await until(() => remote.status().state === 'up', 'the tunnel to come up');
@@ -487,8 +490,11 @@ test('#648: enrolled with nothing set dials the REAL relay and coordinator, with
   await remote.setupComplete('123456', 'hers');
   fs.rmSync(RECORD, { force: true });
   remote.ensure(4400);
-  await until(() => recorded().length > 0, 'the connector to be spawned against the default relay');
-  const args = recorded()[0];
+  // #3889: a successful setup also asks the coordinator for the standing (mac-request), which can be recorded
+  // first, so find the connector's own call rather than trusting the first one (the idiom this file uses elsewhere).
+  const runCall = () => recorded().find((c) => (Array.isArray(c) ? c[0] : c) === 'run');
+  await until(() => !!runCall(), 'the connector to be spawned against the default relay');
+  const args = runCall();
   const flat = Array.isArray(args) ? args.join(' ') : String(args);
   assert.match(flat, /--relay relay\.kosmosplus\.com:8443\b/);
   assert.match(flat, /--coordinator https:\/\/login\.kosmosplus\.com\b/);

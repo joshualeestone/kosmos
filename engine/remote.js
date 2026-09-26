@@ -915,8 +915,12 @@ async function setupComplete(code, name) {
   // A new identity: the previous account's cached standing does not carry over.
   if (result.ok && macIdHere() !== before) fedSetStanding('');
   if (result.ok) ensure(localPort);
-  // fed gate: cache the coordinator standing if this setup response carried one.
-  if (result.ok && result.data && typeof result.data === 'object') fedSetStanding(result.data.standing);
+  /* #3889: cache this account's standing now. `setup complete` prints no JSON (setupRun never sets .data, so the
+     branch that read result.data here never ran), and a new identity was just cleared to '' with a FRESH
+     standing_at, so the poll would not re-ask for a whole TTL: the member-only federation UI read "not a member"
+     until then. ttlMs 0 asks now. Not awaited: single-flighted, never throws, and the setup answer does not wait
+     on a second network call. */
+  if (result.ok) refreshStandingIfStale({ ttlMs: 0 });
   return result;
 }
 
