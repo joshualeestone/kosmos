@@ -466,9 +466,9 @@ const REAL_HOST_RE = nameCheck(REAL_HOST, 'host');
 /* Judged on what a screenshot or a hover can show: the rendered text, form
    values, and title / aria-label / alt / placeholder. NOT the page source, whose
    comments and script would match a common login name such as a word in a
-   code comment, and stop every run on that Mac. Every hit is masked, because
-   the message itself lands in shared logs. */
-const mask = (t) => t.length <= 2 ? '***' : t[0] + '***' + (t.includes('@') ? t.slice(t.indexOf('@')) : '');
+   code comment, and stop every run on that Mac. A hit is reported by kind and
+   length only, no characters of it, because the message lands in shared logs. */
+const mask = (t) => (t.includes('@') ? 'an email address' : 'a value') + ` (${t.length} chars)`;
 async function leaksOn(page) {
   const text = await page.evaluate(() => {
     if (!document.body) return '';
