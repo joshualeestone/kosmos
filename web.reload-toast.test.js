@@ -176,7 +176,7 @@ test('#3955: an old page in the background with nothing in hand reloads itself, 
 test('#3955: it never reloads a page someone is looking at, sending from, typing in, attaching to, or reading a window over', () => {
   /* Typed, not filled (review round 1): the page fills boxes itself (an agent's instructions), and
      only fields the person typed into count; the page collects those with one 'input' listener. */
-  assert.match(SCRIPT, /document\.addEventListener\('input', \(e\) => \{ if \(updateTypedBox\(e\.target\)\) UPDATE_TYPED\.add\(e\.target\); \}, true\);/);
+  assert.match(SCRIPT, /document\.addEventListener\('input', \(e\) => \{\s*if \(!updateTypedBox\(e\.target\)\) return;[\s\S]{0,400}?UPDATE_TYPED\.add\(e\.target\);\s*\}, true\);/, 'typed words boxes are not remembered in the capture phase');
   assert.doesNotMatch(page.liftAll(SCRIPT, ['updateSafeReload']), /querySelectorAll\('textarea'\)/, 'every filled textarea blocks the reload again');
   assert.equal(safeReload({ hidden: false }).reloaded, 0, 'reloaded the page in front of the person');
   assert.equal(safeReload({ sending: { talk: true } }).reloaded, 0, 'reloaded mid-send');
@@ -275,4 +275,18 @@ test('#3955 round 9: every upload counts itself up and back down, whatever happe
   const src = page.liftAll(SCRIPT, ['attachUpload']);
   assert.match(src, /ATTACH_UPLOADING \+= 1;[\s\S]*try \{[\s\S]*finally \{\s*ATTACH_UPLOADING = Math\.max\(0, ATTACH_UPLOADING - 1\);/,
     'the upload count is not raised before the try and lowered in its finally');
+});
+
+test('#3955 round 10: typing lets go of boxes that have left the page, so the set cannot grow for the life of a tab', () => {
+  const src = SCRIPT.slice(SCRIPT.indexOf('const UPDATE_TYPED = new Set();'), SCRIPT.indexOf('function updateSafeReload('));
+  let handler = null;
+  const document = { addEventListener: (type, fn) => { if (type === 'input') handler = fn; } };
+  const typed = new Function('document', src + '\nreturn UPDATE_TYPED;')(document);
+  assert.ok(handler, 'CONTROL: the input listener was installed');
+  const gone = { tagName: 'TEXTAREA', isConnected: false };
+  const live = { tagName: 'TEXTAREA', isConnected: true };
+  typed.add(gone);
+  handler({ target: live });
+  assert.equal(typed.has(gone), false, 'a box that left the page was kept');
+  assert.equal(typed.has(live), true, 'CONTROL: the box typed into now is remembered');
 });

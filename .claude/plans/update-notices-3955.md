@@ -5,7 +5,7 @@ Card #3955 (Josh, #admin, 2026-09-26 08:11). Design: Mona Lisa's mock on card-sh
 ## What finished looks like
 - Before an update, the top bar shows one small chip beside the Kosmos switcher: "An update is available" with a gold Update. Nothing else about the update is on screen.
 - When Kosmos updated underneath an open page, the same chip reads "Reload to finish updating" with Reload, and the page reloads itself when the window is in the background and nothing is being typed or sent. Nothing says "Kosmos updated" while the old page is showing.
-- After the new version is on screen (a manual Update or an auto-update), a centred window over a dimmed app says "Kosmos has been updated", a version pill, and 1 to 5 tiles (icon, title, one line) from web/whats-new.json when that file is for this version (a release with no highlights shows no window; round 3). Got it or Escape closes it; it is not shown again for that version. A fresh install never shows it.
+- After the new version is on screen (a manual Update or an auto-update), a centred window over a dimmed app says "Kosmos has been updated to X.Y.Z" (Josh's review: no version pill), and 1 to 5 tiles (icon, title, one line) from web/whats-new.json when that file is for this version (a release with no highlights shows no window; round 3). Got it or Escape closes it; it is not shown again for that version. A fresh install never shows it.
 - The old "Kosmos updated to 0.6.94 [x]" line and the "Updated. You are on Kosmos X" note are gone.
 - A cut refuses when web/whats-new.json is not for the version being cut, unless KOSMOS_CUT_NO_WHATS_NEW=1.
 
@@ -69,6 +69,18 @@ Card #3955 (Josh, #admin, 2026-09-26 08:11). Design: Mona Lisa's mock on card-sh
 - Both tour-wait tests carry a 5 s timeout, so a regression fails fast instead of spinning a real hour.
 - Comments that said a release with no highlights shows "the title alone" now say no window (round 3); render-reload-toast's #270 comparison paragraph is gone.
 - The highlights check is driven through the REAL release.sh: a file for another version stops the cut at 1b-ii with nothing bumped, and KOSMOS_CUT_NO_WHATS_NEW=1 lets the same cut through (the harness strips an operator's exported opt-out from every other arm).
+
+## Josh's review of the build (2026-09-26 18:34, via Splinter; ruling, not a review round)
+- The window replaces the old top-left "Kosmos updated to X [x]" line (already gone on this branch; the window is the only after-update notice).
+- The title is "Kosmos has been updated to 0.7.01"; the version pill is gone.
+- No Got it: an X top-right closes it (Escape and a click outside still do).
+- No black focus ring: the window opens with focus on itself, so nothing is ringed. A keyboard Tab still shows where it is, in gold, on the X and the link (WCAG 2.4.7 needs a visible keyboard focus; the ring Josh saw was the black one on Got it at open).
+- "See everything that changed" sits bottom-left, linked to that version's entry on installkosmos.com/versions.
+- A new screenshot goes on the card before merging.
+
+## Review round 10 (decided)
+- Typing lets go of boxes that have left the page (the typed set no longer grows for the life of a tab waiting for an update).
+- The tour wait watches any open tip (TIP_OPEN), which is broader than "the first-run tour" in the prose above: it only ever makes the window wait longer.
 
 ## Tests
 - The chip's two states and its one button; the stale chip never says "Kosmos updated"; engine-stale still first.

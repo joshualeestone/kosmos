@@ -153,6 +153,8 @@ async function seenIsCurrent() {
         { icon: 'phone', title: 'Kosmos on your phone', line: 'Chat with your agents from anywhere with Kosmos+.' },
         { icon: 'list', title: 'A cleaner Tasks view', line: 'All your tasks in one list, without the extra box around them.' },
       ];
+      // A fresh sandbox shows a first-visit tip; close it so the shot is the window alone (the real window waits for it).
+      await pg.evaluate(() => { const x = document.querySelector('.tip-x'); if (x && x.offsetParent) x.click(); });
       await pg.evaluate((hl) => { document.getElementById('klink').focus(); wnOpen('0.6.98', hl); }, HL);   // eslint-disable-line no-undef
       await pg.waitForTimeout(250);
       const wn = await pg.evaluate(() => {
@@ -161,7 +163,11 @@ async function seenIsCurrent() {
         const r = box && box.getBoundingClientRect();
         return back ? {
           shown: !back.hidden, dim: getComputedStyle(back).backgroundColor, title: box.querySelector('#wn-title').textContent,
-          ver: box.querySelector('#wn-ver').textContent, tiles: box.querySelectorAll('.wn-tile').length,
+          pill: !!box.querySelector('.wn-ver') || /Version \d/.test(box.textContent), gotit: /Got it/.test(box.textContent), tiles: box.querySelectorAll('.wn-tile').length,
+          x: (() => { const b = box.querySelector('#wn-x'); if (!b) return null; const xr = b.getBoundingClientRect();
+            return { label: b.getAttribute('aria-label'), topRight: xr.top - r.top < 40 && r.right - xr.right < 40 }; })(),
+          ring: getComputedStyle(document.activeElement).outlineStyle,
+          link: (() => { const a = box.querySelector('#wn-more').getBoundingClientRect(); return { left: a.left - r.left < 48, bottom: r.bottom - a.bottom < 48 }; })(),
           icons: box.querySelectorAll('.wn-tile svg').length, focus: document.activeElement && document.activeElement.id,
           centred: r && Math.abs((r.left + r.width / 2) - innerWidth / 2) < 4, more: box.querySelector('#wn-more').getAttribute('href'),
           rel: box.querySelector('#wn-more').getAttribute('rel'),
@@ -169,14 +175,17 @@ async function seenIsCurrent() {
       });
       chk(Boolean(wn && wn.shown), theme + ': the update window opens', JSON.stringify(wn));
       if (wn) {
-        chk(wn.title === 'Kosmos has been updated' && wn.ver === 'Version 0.6.98', theme + ': it says Kosmos has been updated, and the version', wn.title + ' / ' + wn.ver);
+        chk(wn.title === 'Kosmos has been updated to 0.6.98' && !wn.pill, theme + ': the title names the version, with no version pill (Josh)', wn.title);
+        chk(!wn.gotit && wn.x && wn.x.label === 'Close' && wn.x.topRight, theme + ': no Got it; an X top-right closes it (Josh)', JSON.stringify({ gotit: wn.gotit, x: wn.x }));
+        chk(wn.link.left && wn.link.bottom, theme + ': "See everything that changed" sits bottom-left (Josh)', JSON.stringify(wn.link));
         chk(wn.tiles === 4 && wn.icons === 4, theme + ': four highlight tiles, each with its icon', wn.tiles + ' tiles, ' + wn.icons + ' icons');
-        chk(wn.focus === 'wn-ok' && wn.centred, theme + ': focus on Got it, the card centred over the dimmed app', JSON.stringify({ focus: wn.focus, centred: wn.centred, dim: wn.dim }));
+        chk(wn.focus === '' && wn.ring === 'none' && wn.centred, theme + ': focus on the window itself with no ring (Josh), the card centred over the dimmed app',
+          JSON.stringify({ focus: wn.focus, ring: wn.ring, centred: wn.centred, dim: wn.dim }));
         // The URL is split so the selectors test does not read its fragment as a page id.
         chk(wn.more === 'https://installkosmos.com/versions' + '#' + 'v0-6-98' && wn.rel === 'noreferrer noopener',
           theme + ': "See everything that changed" goes to this version on the site', wn.more);
       }
-      // The window's words clear 4.5:1 (round 4 tiles; round 5 the version pill and the link too).
+      // The window's words clear 4.5:1 (round 4 tiles; round 5 the link too; the X, 3:1 as a control).
       const words = await pg.evaluate(() => {
         const box = document.querySelector('#whatsnew .wn-box');
         const t = box.querySelector('.wn-tile');
@@ -184,7 +193,7 @@ async function seenIsCurrent() {
         return [
           ['the tile title', cs(t.querySelector('b')).color, cs(t).backgroundColor],
           ['the tile line', cs(t.querySelector('.wn-words span')).color, cs(t).backgroundColor],
-          ['the version pill', cs(box.querySelector('#wn-ver')).color, cs(box.querySelector('#wn-ver')).backgroundColor],
+          ['the close X', cs(box.querySelector('#wn-x')).color, cs(box).backgroundColor],
           ['"See everything that changed"', cs(box.querySelector('#wn-more')).color, cs(box).backgroundColor],
         ];
       });
@@ -198,10 +207,16 @@ async function seenIsCurrent() {
       let at = await pg.evaluate(() => document.activeElement && document.activeElement.id);
       await pg.keyboard.press('Tab');
       const wrapped = await pg.evaluate(() => document.activeElement && document.activeElement.id);
-      chk(at === 'wn-more' && wrapped === 'wn-ok', theme + ': Tab stays inside the window', at + ' then ' + wrapped);
+      chk(at === 'wn-x' && wrapped === 'wn-more', theme + ': Tab goes to the X, then the link', at + ' then ' + wrapped);
+      // Keyboard focus is shown, and in gold, not the black ring (Josh).
+      const kring = await pg.evaluate(() => { const c = getComputedStyle(document.activeElement); return { style: c.outlineStyle, color: c.outlineColor }; });
+      chk(kring.style !== 'none' && !/^rgb\(0, 0, 0\)$|^rgb\(2[0-9], 2[0-9], 2[0-9]\)$/.test(kring.color), theme + ': a keyboard focus ring shows, not black', JSON.stringify(kring));
+      await pg.keyboard.press('Tab');
+      const wrap2 = await pg.evaluate(() => document.activeElement && document.activeElement.id);
+      chk(wrap2 === 'wn-x', theme + ': Tab stays inside the window', wrap2);
       await pg.keyboard.press('Shift+Tab');
       at = await pg.evaluate(() => document.activeElement && document.activeElement.id);
-      chk(at === 'wn-more', theme + ': Shift+Tab stays inside it too', at);
+      chk(at === 'wn-more', theme + ': Shift+Tab stays inside it too', at);   // from the X back round to the link
       // Escape closes it, focus goes back, and the version is recorded as seen on the board.
       await pg.keyboard.press('Escape');
       await pg.waitForTimeout(400);
@@ -211,15 +226,15 @@ async function seenIsCurrent() {
       }));
       chk(after.gone && after.focus === 'klink', theme + ': Escape closes it and focus goes back where it was', JSON.stringify(after));
       // (Seen is recorded by whatsNewCheck as the window opens; web.whatsnew-3955.test.js pins it. This check opens it directly.)
-      // Opened again, Got it closes it. (A release with no highlights shows no window at all: web.whatsnew-3955.test.js.)
+      // Opened again, the X closes it. (A release with no highlights shows no window at all: web.whatsnew-3955.test.js.)
       await pg.evaluate((hl) => wnOpen('0.6.99', hl.slice(0, 1)), HL);   // eslint-disable-line no-undef
       await pg.waitForTimeout(200);
       const one = await pg.evaluate(() => document.querySelectorAll('#wn-tiles .wn-tile').length);
       chk(one === 1, theme + ': one highlight is one tile', String(one));
       if (theme === 'light') await pg.screenshot({ path: path.join(OUT, 'whatsnew-one-light.png') });
-      await pg.click('#wn-ok');
+      await pg.click('#wn-x');
       await pg.waitForTimeout(200);
-      chk(!(await pg.$('#whatsnew')), theme + ': Got it closes it');
+      chk(!(await pg.$('#whatsnew')), theme + ': the X closes it');
 
       chk(errs.length === 0, theme + ': no console errors', errs.join(' | '));
       await pg.close();

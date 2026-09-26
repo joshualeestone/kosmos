@@ -1222,11 +1222,15 @@ button.uprime:hover, .btn.uprime:hover, .utoast .uacts button.uprime:hover,
 /* #3955: "Kosmos has been updated" (mock C): a centred card over the dimmed app, tiles two by two. */
 .wn-box { width: min(640px, calc(100vw - 32px)); max-height: calc(100vh - 32px); overflow: auto; text-align: center;
   background: var(--bg-elevated); border: 1px solid var(--border-strong); border-radius: 22px;
-  box-shadow: 0 24px 60px rgba(20, 18, 14, .22); padding: 32px 32px 26px; }
+  box-shadow: 0 24px 60px rgba(20, 18, 14, .22); padding: 32px 32px 26px; position: relative; }
+/* Josh, 2026-09-26 review: an X top-right instead of Got it. The window opens with focus on itself (no
+   ring at all); a keyboard Tab still shows where it is, in gold, never the black ring. */
+.wn-box:focus { outline: none; }
+.wn-x { position: absolute; top: 14px; right: 14px; width: 32px; height: 32px; border: 0; border-radius: 8px;
+  background: none; color: var(--label-2); font-size: 1.5rem; line-height: 1; cursor: pointer; }
+.wn-x:hover { color: var(--label); background: var(--bg); }
 .wn-mark { display: block; width: 52px; height: 52px; border-radius: 14px; margin: 0 auto; }
-.wn-title { margin: 16px 0 0; font-size: 1.5rem; letter-spacing: -.01em; color: var(--label); }
-.wn-ver { display: inline-block; margin: 12px 0 22px; padding: 3px 10px; border-radius: 999px; background: var(--bg);
-  border: 1px solid var(--border-strong); font-size: .8125rem; font-weight: 600; color: var(--label-2); }
+.wn-title { margin: 16px 0 22px; font-size: 1.5rem; letter-spacing: -.01em; color: var(--label); }
 .wn-tiles { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; text-align: left; list-style: none; margin: 0; padding: 0; }
 .wn-tiles.one { grid-template-columns: minmax(0, 320px); justify-content: center; }
 .wn-tile { display: flex; gap: 12px; align-items: flex-start; background: var(--bg); border: 1px solid var(--border-strong);
@@ -1235,11 +1239,8 @@ button.uprime:hover, .btn.uprime:hover, .utoast .uacts button.uprime:hover,
   background: color-mix(in srgb, var(--gold-bright) 20%, var(--bg-elevated)); color: var(--gold-edge); }
 .wn-words b { display: block; font-size: .9375rem; margin: 1px 0 2px; color: var(--label); }
 .wn-words span { display: block; font-size: .84rem; line-height: 1.4; color: var(--label-2); }
-.wn-acts { margin-top: 24px; display: flex; flex-direction: column; align-items: center; gap: 10px; }
-.wn-ok { height: 42px; min-width: 180px; border: 0; border-radius: 12px; background: var(--gold-bright); color: #14161a;
-  font: inherit; font-weight: 700; font-size: .9375rem; cursor: pointer; }
-.wn-ok:hover { background: var(--gold); }
-.wn-ok:focus-visible, .wn-more:focus-visible { outline: 2px solid var(--label); outline-offset: 3px; }
+.wn-acts { margin-top: 22px; text-align: left; }   /* Josh: the link bottom-left */
+.wn-x:focus-visible, .wn-more:focus-visible { outline: 2px solid var(--gold); outline-offset: 2px; }
 .wn-more { color: var(--label-2); font-size: .84rem; text-decoration: underline; text-underline-offset: 3px; }
 @media (max-width: 560px) { .wn-tiles { grid-template-columns: 1fr; } .wn-box { padding: 24px 18px 20px; } }
 /* ⚠️ THE `.dbox` HALVES ARE NOT DECORATION, and the button they save is the one
@@ -18677,7 +18678,13 @@ function updateTypedBox(t) {
   return t.tagName === 'INPUT' && !/^(checkbox|radio|range|color|file|hidden|button|submit|reset|image)$/.test(String(t.type || '').toLowerCase());
 }
 if (typeof document !== 'undefined' && document.addEventListener) {
-  document.addEventListener('input', (e) => { if (updateTypedBox(e.target)) UPDATE_TYPED.add(e.target); }, true);   // (contenteditable fires input too)
+  document.addEventListener('input', (e) => {
+    if (!updateTypedBox(e.target)) return;
+    /* Let go of boxes no longer on the page as new ones come in (round 10), so a board open for days
+       does not keep every closed dialog's fields alive until an update happens to land. */
+    for (const t of UPDATE_TYPED) if (t.isConnected === false) UPDATE_TYPED.delete(t);
+    UPDATE_TYPED.add(e.target);
+  }, true);   // (contenteditable fires input too)
 }
 function updateSafeReload(servedVersion) {
   try {
@@ -31949,12 +31956,14 @@ let WN_VERSION = null;
 /* Made when it is shown and removed when it closes, like the update overlay (.upd-back): the body's
    direct children are the consolidated grid's rows (web.consolidated-980), and a window seen once per
    version is not worth a permanent one. The mark is the app's own icon. */
-const WN_HTML = '<div class="wn-box" role="dialog" aria-modal="true" aria-labelledby="wn-title" aria-describedby="wn-ver">'
+/* Josh, 2026-09-26 review: the version is in the title (no pill), an X top-right closes it (no Got it),
+   and "See everything that changed" sits bottom-left, linked to this version's entry. */
+const WN_HTML = '<div class="wn-box" role="dialog" aria-modal="true" aria-labelledby="wn-title" tabindex="-1">'
+  + '<button type="button" class="wn-x" id="wn-x" aria-label="Close">&times;</button>'
   + '<img class="wn-mark" src="/icons/kosmos-192.png" alt="" width="52" height="52">'
   + '<h2 class="wn-title" id="wn-title">Kosmos has been updated</h2>'
-  + '<div class="wn-ver" id="wn-ver"></div>'
   + '<ul class="wn-tiles" id="wn-tiles" aria-label="What is new" hidden></ul>'
-  + '<div class="wn-acts"><button type="button" class="wn-ok" id="wn-ok">Got it</button>'
+  + '<div class="wn-acts">'
   + '<a class="wn-more" id="wn-more" href="https://installkosmos.com/versions" target="_blank" rel="noreferrer noopener">See everything that changed<span class="vh"> (opens in your browser)</span></a></div>'
   + '</div>';
 function wnOpen(version, highlights) {
@@ -31968,7 +31977,7 @@ function wnOpen(version, highlights) {
     wnWire(back);
   }
   WN_VERSION = version;
-  document.getElementById('wn-ver').textContent = 'Version ' + version;
+  document.getElementById('wn-title').textContent = 'Kosmos has been updated to ' + version;
   const tiles = document.getElementById('wn-tiles');
   const list = Array.isArray(highlights) ? highlights.slice(0, 5) : [];
   tiles.innerHTML = list.map((h) => '<li class="wn-tile"><span class="wn-ico">' + wnIcon(h.icon) + '</span>'
@@ -31977,7 +31986,7 @@ function wnOpen(version, highlights) {
   tiles.classList.toggle('one', list.length === 1);
   document.getElementById('wn-more').href = 'https://installkosmos.com/versions#v' + version.replace(/\./g, '-');
   WN_OPENER = document.activeElement;
-  document.getElementById('wn-ok').focus();
+  back.querySelector('.wn-box').focus();   // the window itself: no ring on open; Tab goes to the X
 }
 function wnClose() {
   const back = document.getElementById('whatsnew');
@@ -31989,7 +31998,7 @@ function wnClose() {
   if (to && typeof to.focus === 'function' && document.contains(to)) to.focus();
 }
 function wnWire(back) {
-  back.querySelector('#wn-ok').addEventListener('click', wnClose);
+  back.querySelector('#wn-x').addEventListener('click', wnClose);
   back.addEventListener('click', (e) => { if (e.target === back) wnClose(); });
 }
 /* On the document, like the page's other dialogs (review round 1): Escape and Tab must work even
@@ -32005,8 +32014,8 @@ document.addEventListener('keydown', (e) => {
   if (!back || wnCovered()) return;
   if (e.key === 'Escape') { e.preventDefault(); wnClose(); return; }
   if (e.key !== 'Tab') return;
-  // Two things to press; Tab stays between them while the window is up.
-  const f = [back.querySelector('#wn-ok'), back.querySelector('#wn-more')];
+  // Two things to press (the X and the link); Tab stays between them while the window is up.
+  const f = [back.querySelector('#wn-x'), back.querySelector('#wn-more')];
   const at = f.indexOf(document.activeElement);
   if (at === -1) { e.preventDefault(); f[0].focus(); return; }
   if (e.shiftKey && at === 0) { e.preventDefault(); f[f.length - 1].focus(); }
@@ -32014,7 +32023,7 @@ document.addEventListener('keydown', (e) => {
 });
 document.addEventListener('focusin', (e) => {
   const back = document.getElementById('whatsnew');
-  if (back && !wnCovered() && !back.contains(e.target)) { const ok = back.querySelector('#wn-ok'); if (ok) ok.focus(); }
+  if (back && !wnCovered() && !back.contains(e.target)) { const box = back.querySelector('.wn-box'); if (box) box.focus(); }
 });
 /* Is `a` a later version than `b` (x.y.z)? null when either is not one. */
 function wnNewer(a, b) {
