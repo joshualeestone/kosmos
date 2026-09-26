@@ -2,10 +2,10 @@
 pre_challenge: true
 method: challenge-loop
 branch: header-stable-2624
-diff_hash: 7b0ce4d013ae4ca35806a70dfda67fa2e958ed8a08f67fde0d4c6f83b76f2c1b
+diff_hash: 1c1847b1394f50fa3a92c6bb0eef871182146666e5148df6ad558fcd3384cebd
 validation: passed
 subdir_audit: passed
-timestamp: 2026-09-26T10:00:54Z
+timestamp: 2026-09-26T10:39:39Z
 iterations: 3
 converged: true
 ---
@@ -43,3 +43,7 @@ Validation clean at eb8b9bd8. Gates clean; render-tophead-stable-2624, render-to
 ### After #3928 (#3920) landed first
 - [CONVENTION] the 5% own-area allowance in T35 existed only for the tip engine gap #3920 closed --> FIXED (d1d3c5d53): T35 strict again (`|| g.overArea`), HEADER-control rule and diagnostics kept, as agreed with PigeonPete. Measured on this header with his fix: T35 and T35b pass (Conversation left, 244px, off the area).
 Validation clean at 7b0ce4d0; gates, the wiring tests and the header checks re-run green on af8b2a808.
+
+### Fourth rebase (onto 46d03880f)
+- [CONVENTION] the same browser-checks.sh list-line conflict a fourth time --> FIXED: render-tophead-stable-2624 now runs on its own run_one line after that loop (hermetic, needs no board), so it no longer shares the line every new check appends to. Wiring tests pass.
+Validation clean at 1c1847b1; gates and the four header checks green on the new base.
