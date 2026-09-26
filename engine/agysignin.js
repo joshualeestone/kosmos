@@ -127,7 +127,24 @@ function samePath(a, b) {
   try { return fs.realpathSync(a) === fs.realpathSync(b); } catch { return false; }
 }
 
+/* The loop runs on a timer, and a board has no process-level uncaughtException handler, so
+   nothing may throw out of it: one failed tmux call would take the whole board down. A key that
+   did not go out is pressed again on the next tick (its screen's once-guards are reset); five
+   failures in a row show the window instead. */
+const MAX_KEY_FAILURES = 5;
 function tick() {
+  const mine = S;
+  try {
+    step();
+    if (mine) mine.keyFailures = 0;
+  } catch {
+    if (!mine || S !== mine || !mine.timer) return;
+    mine.pressed = false; mine.downFrom = null;
+    mine.keyFailures = (mine.keyFailures || 0) + 1;
+    if (mine.keyFailures >= MAX_KEY_FAILURES) { mine.state = 'stuck'; mine.because = 'Kosmos could not reach Antigravity\'s sign-in just now'; }
+  }
+}
+function step() {
   if (!S || S.busy) return;
   if (now() - S.startedAt > GIVE_UP_MS) { end('failed', 'the sign-in was not finished, so Kosmos stopped it'); return; }
   const text = screen();
@@ -320,5 +337,5 @@ function resetForTests() {
   ({ tmux, openFile, confirmSignedIn, agyBin, now, folderRoot } = REAL);
 }
 
-module.exports = { start, status, code, show, stop, socket, SESSION, SCREENS, CODE_RE, MAX_CHECKS,
+module.exports = { start, status, code, show, stop, socket, SESSION, SCREENS, CODE_RE, MAX_CHECKS, MAX_KEY_FAILURES,
   urlFrom, markedLine, trustFolder, setForTests, tickForTests, resetForTests };

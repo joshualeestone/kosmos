@@ -327,3 +327,33 @@ test('#3998 C3: with the live-execution gate closed, a start that would run tmux
     assert.equal(s.status().state, 'idle');
   } finally { s.resetForTests(); }
 });
+
+test('#3998 round 3: a key tmux could not send never throws out of the loop; it is pressed again, and five in a row show the window', () => {
+  const s = require('./agysignin');
+  const st = scripted(s, 'Choose your color scheme\n> terminal\n');
+  let failing = 1;
+  const real = st;
+  s.setForTests({ tmux: (args) => {
+    if (args[0] === 'capture-pane') return real.screen;
+    if (args[0] === 'send-keys') { if (failing > 0) { failing -= 1; const e = new Error('spawnSync tmux ETIMEDOUT'); e.code = 'ETIMEDOUT'; throw e; } real.sent.push(args.slice(3).join(' ')); }
+    return '';
+  } });
+  try {
+    s.start();
+    assert.doesNotThrow(() => s.tickForTests(), 'a failed send-keys escaped the timer (it would take the board down)');
+    assert.deepEqual(real.sent, [], 'CONTROL: the first press really failed');
+    s.tickForTests();
+    assert.deepEqual(real.sent, ['Enter'], 'the key that did not go out was never pressed again');
+    s.tickForTests();
+    assert.deepEqual(real.sent, ['Enter'], 'pressed twice once it went out');
+    // A screen whose keys never go out: shown, not retried forever.
+    const st2 = scripted(s, 'Choose your color scheme\n> terminal\n');
+    s.setForTests({ tmux: (args) => { if (args[0] === 'capture-pane') return st2.screen; if (args[0] === 'send-keys') throw new Error('no server'); return ''; } });
+    s.start();
+    for (let i = 0; i < s.MAX_KEY_FAILURES - 1; i++) s.tickForTests();
+    assert.notEqual(s.status().state, 'stuck', 'CONTROL: not stuck before the limit');
+    s.tickForTests();
+    assert.equal(s.status().state, 'stuck');
+    assert.match(s.status().because, /could not reach/);
+  } finally { s.resetForTests(); }
+});
