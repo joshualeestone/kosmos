@@ -37497,7 +37497,7 @@ for (const id of ['plus-si-code-in', 'plus-si-second-in', 'plus-si-enrol-code'])
   // A touch that never focused (a swipe that started here) must not leave the flag set for a later Tab.
   // Long enough for a real tap, whose focus can follow pointerup, to be seen as a tap.
   for (const ev of ['pointerup', 'pointercancel', 'blur']) el.addEventListener(ev, () => setTimeout(() => { byPointer = false; }, 400));
-  el.addEventListener('focus', () => { prevValue = el.value; hadDigits = digits(); if (digits() < 6) lastSent = ''; if (!byPointer) place(); byPointer = false; paint(); });
+  el.addEventListener('focus', () => { prevValue = el.value; hadDigits = digits(); if (digits() < 6 && (!go || !go.disabled)) lastSent = ''; if (!byPointer) place(); byPointer = false; paint(); });
   el.addEventListener('click', paint);
   for (const ev of ['blur', 'keyup', 'select', 'scroll']) el.addEventListener(ev, paint);
   // The outline follows the caret as it moves, a held arrow key included.

@@ -592,10 +592,12 @@ const visible = (page, sel) => page.evaluate((s) => {
       await page.unroute('**/api/remote/signin-**');
       let verifyAnswer = { status: 400, body: { error: 'the coordinator said no (401): that code is not right' } };
       let verifyDelay = 0;   // #3942: a slow answer, so a code can be finished while one is in flight
-      let verifyAbort = false;   // #3942 round 9: a dropped request (network failure), never answered
+      let verifyAbort = false;
+      let startDelay = 0;   // #3942 round 11: a slow new-code request, so the old code is still in the field   // #3942 round 9: a dropped request (network failure), never answered
       await page.route('**/api/remote/signin-**', async (route, req) => {
         const p = req.url().replace(/^.*\/api\/remote\//, '');
         if (p === 'signin-verify') { if (verifyDelay) await new Promise((r) => setTimeout(r, verifyDelay)); if (verifyAbort) { route.abort(); return; } route.fulfill({ status: verifyAnswer.status, contentType: 'application/json', body: JSON.stringify(verifyAnswer.body) }); return; }
+        if (startDelay) await new Promise((r) => setTimeout(r, startDelay));
         route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ ok: true, stage: 'code_sent' }) });
       });
       await page.fill('#plus-signin-email', 'you@example.com');
@@ -819,6 +821,54 @@ const visible = (page, sel) => page.evaluate((s) => {
       await page.waitForTimeout(1800);
       verifyDelay = 0;
       chk(wrongSends === r10bBefore + 1, `[${k}] #3942 the same code retyped while it is being checked is sent once, not queued again`, String(wrongSends - r10bBefore));
+      /* Web round 8: the same retype, with the field left and come back to in between (a phone keyboard
+         hiding, Tab and back): focus must not forget a code that is still being checked either. */
+      verifyDelay = 800;
+      await page.evaluate(() => plusSiMsg(''));
+      const r8Before = wrongSends;
+      await pasteCode('232323');                     // sent; its answer (wrong) is 0.8s away
+      await page.waitForTimeout(100);
+      await page.evaluate(() => { const i = document.getElementById('plus-si-code-in'); i.focus(); i.setSelectionRange(6, 6); });
+      await page.keyboard.press('Backspace');
+      await page.evaluate(() => { const i = document.getElementById('plus-si-code-in'); i.blur(); i.focus(); i.setSelectionRange(5, 5); });
+      await page.keyboard.type('3');
+      await page.waitForTimeout(1800);
+      verifyDelay = 0;
+      chk(wrongSends === r8Before + 1, `[${k}] #3942 a code retyped during its check after leaving and coming back to the field is sent once`, String(wrongSends - r8Before));
+      /* Round 11 review: Send again throws the check in flight away unjudged, so the code is forgotten as
+         sent: a digit typed over itself while the new code is on its way (the field still shows the old
+         code) sends it, rather than being taken for the code already answered. */
+      verifyDelay = 800;
+      startDelay = 1500;
+      await page.evaluate(() => plusSiMsg(''));
+      const r11Before = wrongSends;
+      await pasteCode('718293');                     // sent; its answer is 0.8s away
+      await page.waitForTimeout(100);
+      await page.click('#plus-si-code-resend');      // frees Verify; the field is cleared only when the new code is sent
+      await page.waitForTimeout(100);
+      await page.evaluate(() => { const i = document.getElementById('plus-si-code-in'); i.focus(); i.setSelectionRange(2, 2); });
+      await page.keyboard.type('8');                 // the third digit typed over itself: the same code
+      await page.waitForTimeout(400);
+      const r11Sent = wrongSends - r11Before;
+      await page.waitForTimeout(1600);               // the new code's answer lands before what follows
+      verifyDelay = 0;
+      startDelay = 0;
+      chk(r11Sent === 2, `[${k}] #3942 after Send again, the old code typed again is sent (its check was thrown away unjudged)`, String(r11Sent));
+      /* Round 11 review: arriving at a code step re-reads how many digits the field holds (the page empties
+         fields quietly), so seven digits arriving at once after Start over are searched, not taken for a
+         seventh digit on a full code. */
+      await page.evaluate(() => { const i = document.getElementById('plus-si-code-in'); i.value = '111111'; i.dispatchEvent(new Event('input', { bubbles: true })); });
+      await page.waitForTimeout(400);
+      await page.click('#plus-si-cancel');           // Start over
+      await page.waitForSelector('#plus-si-email', { state: 'visible', timeout: 5000 });
+      await page.click('#plus-signin-code');
+      await page.waitForSelector('#plus-si-code', { state: 'visible', timeout: 5000 });
+      await page.waitForTimeout(200);
+      const r11cBefore = wrongSends;
+      await page.evaluate(() => { const i = document.getElementById('plus-si-code-in'); i.focus(); i.value = '1234567'; i.dispatchEvent(new Event('input', { bubbles: true })); });
+      await page.waitForTimeout(400);
+      const fresh7 = { v: await page.inputValue('#plus-si-code-in'), sent: wrongSends - r11cBefore };
+      chk(fresh7.v === '' && fresh7.sent === 0, `[${k}] #3942 seven digits arriving at once after Start over are searched (no code in them: nothing kept, nothing sent)`, JSON.stringify(fresh7));
       /* Web round 6 (measured there, same code here): a click near the RIGHT edge of a box in a full code
          lands on that box (the text caret alone put it on the next one); and text that arrives with no
          cancelable beforeinput (set and announced by an input event) is searched like a paste. */

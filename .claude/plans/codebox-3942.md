@@ -162,3 +162,15 @@
 - Test data spells special characters by code point, so no test file carries a literal dash.
 - Not taken: a visible auto-submit notice. The Verify button stays on screen for anyone who waits
   for it, and the screen stays as quiet as Josh asked; screen readers are told in advance.
+
+## Review round 11 (app, sonnet): decided, not missed
+- A hand press is held back only on the coordinator's wrong-GUESS words ("code is not right" / "not what
+  the app shows" / "not the one we texted"). A used-up code ("stopped working after too many wrong
+  guesses") and "no code is live" are also judged answers but are NOT held back: re-sending them costs a
+  round trip and repeats the same message, and burns no guess (signin.rs re-checks a UsedUp or absent code
+  without counting). Rejected: widening the list, because every phrase added is one more way a transient
+  answer could be mistaken for a judgement and leave a dead button. Weakest premise: that the coordinator
+  keeps not counting those re-checks; if it ever does, add those phrases.
+- Correction to the 3cebb85 commit message: its arms covered bullets 1 and 3 (the judged-wrong guard, the
+  retype during a check), not 1 and 2. drop() forgetting the code and focus re-reading hadDigits got
+  their arms in the round-11 commit.
