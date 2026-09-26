@@ -62,6 +62,21 @@ for f in crates/proto/lib.rs Cargo.lock Cargo.toml; do
   if check_rc; then bad "a change to $f did not refuse"; else grep -q "change to $f" "$T/err" && ok "a change to $f refuses" || bad "wrong refusal for $f: $(cat "$T/err")"; fi
 done
 
+# 5b. the build script is an input; tests-only changes are not
+reset_origin; land tools/build-tunnel-release.sh "build script change"
+if check_rc; then bad "a change to the build script did not refuse"; else grep -q "build script change" "$T/err" && ok "a change to tools/build-tunnel-release.sh refuses" || bad "wrong refusal for the build script: $(cat "$T/err")"; fi
+reset_origin; land crates/tunnel/tests/page.rs "tunnel tests only"
+if check_rc; then ok "a tests-only change under crates/tunnel/tests does not refuse"; else bad "a tests-only change refused: $(cat "$T/err")"; fi
+
+# 5c. the relay checkout on another branch, with a fetch refspec that does NOT cover main
+# (review 1): origin/main must still be brought up to date, or a stale connector passes.
+g -C "$T/relay" fetch -q origin; g -C "$T/relay" checkout -q -b feature
+g -C "$T/relay" config remote.origin.fetch '+refs/heads/feature:refs/remotes/origin/feature'
+land crates/tunnel/lib.rs "tunnel fix while the checkout is narrowed"
+if check_rc; then bad "a narrowed refspec hid a tunnel commit (false green)"
+else grep -q "tunnel fix while the checkout is narrowed" "$T/err" && ok "a narrowed refspec and a non-main checkout still see relay main" || bad "wrong refusal with a narrowed refspec: $(cat "$T/err")"; fi
+g -C "$T/relay" config remote.origin.fetch '+refs/heads/*:refs/remotes/origin/*'; g -C "$T/relay" checkout -q main
+
 # 6. a rebuild from the new main clears it (the CONTROL that a refusal is about currency)
 NEW="$(g -C "$T/relay" rev-parse origin/main)"; printf '%s\n' "$NEW" > "$B.commit"
 if check_rc; then ok "CONTROL: a connector rebuilt from the new main is current again"; else bad "a rebuilt connector was refused: $(cat "$T/err")"; fi
