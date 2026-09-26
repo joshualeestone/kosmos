@@ -63,3 +63,5 @@ Whether a staging pass is MANDATORY before every prod cut (#2036's item 1) is st
 - [WARNING] a signin-start that timed out was recorded as an unforceable FAIL that replaced the build's record. FIXED: no answer from signin-start is setup (the half sign-in cancelled, nothing recorded). Test (the earlier PASS stands); control fails by name.
 - [NIT] the forget was bounded at the register's 7 minutes though the engine's forget can take about 8, so a slow retire read as "not retired". FIXED: its own 9-minute bound, and no answer is worded "the retire may still complete: check the seed account".
 - The reviewer traced every exit of `finish`: setup throws all come before `registerTried`, refused steps are recorded, and the forget runs after any register.
+
+## Round 6 review (sonnet): NO FINDINGS, converged
