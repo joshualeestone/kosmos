@@ -99,11 +99,21 @@ function addWalked(w, walked) {
 }
 /* A held value made only of words and numbers (Administrator1, Settings2024) is not walked (review round 3):
    the walk would assemble it out of an ordinary sentence ("Log in as Administrator on step 1") and mask
-   the sentence. Split at case changes, digits and key punctuation, every piece is a word (three letters or
-   more, with a vowel) or a number. Such a value is still masked wherever it is written whole. */
+   the sentence. Split at case changes, digits and key punctuation, every piece is a word or a number. Such a
+   value is still masked wherever it is written whole.
+   A word is three letters or more, a quarter of them vowels, with no run of four consonants (review round 16:
+   "has a vowel" alone called 98% of random single-case secrets, zvqxrpldkinaeout, words, so they were never
+   walked and leaked split by a word). Measured over 20,000 each: random lowercase or uppercase 16-character
+   secrets 7% are still taken for words (12 characters: 15%), random keys and hex 0%; Administrator1,
+   Settings2024, Password123 and correcthorsebatterystaple are words. */
+function wordLike(p) {
+  if (/^[0-9]+$/.test(p)) return true;
+  if (p.length < 3) return false;
+  return (p.match(/[aeiouy]/gi) || []).length / p.length >= 0.25 && !/[b-df-hj-np-tv-xz]{4,}/i.test(p);
+}
 function madeOfWords(v) {
   const pieces = v.replace(/[+_/=-]/g, ' ').match(/[A-Z]?[a-z]+|[A-Z]+(?![a-z])|[0-9]+/g) || [];
-  return pieces.length > 0 && pieces.every((p) => /^[0-9]+$/.test(p) || (p.length >= 3 && /[aeiouy]/i.test(p)));
+  return pieces.length > 0 && pieces.every(wordLike);
 }
 let knownByPrefix = new Map();
 /* The held forms the word walk assembles (key characters only), by their first OPENING_LEN characters (#3935). */
@@ -340,6 +350,7 @@ function wordSkippingSpans(text) {
         const bound = 4 * f.length;
         let reached = new Set([opening.length]);
         let movedAt = -1;   // where this walk first matched a piece after its opening
+        let doneFrom = null;   // the last piece: its run, and the position it started at
         const via = new Map();   // position -> { s: the run that reached it, prev: the position before }
         let best = opening.length;
         let finished = false;
@@ -354,7 +365,7 @@ function wordSkippingSpans(text) {
           for (const p of at) {
             for (const piece of pieces) {
               if (!f.startsWith(piece, p)) continue;
-              if (p + piece.length === f.length) { done = true; break; }
+              if (p + piece.length === f.length) { done = true; doneFrom = { s, prev: p }; break; }
               next.add(p + piece.length);
               if (!via.has(p + piece.length)) via.set(p + piece.length, { s, prev: p });
               if (p + piece.length > best) best = p + piece.length;
@@ -365,7 +376,10 @@ function wordSkippingSpans(text) {
           if (done) {
             const k = `${sTo} ${f}`;
             if (!completed.has(k)) completed.set(k, { f, to: sTo, starts: [] });
-            completed.get(k).starts.push({ from, movedAt: movedAt < 0 ? runs[s][0] : movedAt });
+            /* The runs this walk matched, opening first, so an earlier start can be masked piece by piece. */
+            const matched = [[from, runs[r][1]]];
+            for (let step = doneFrom; step; step = via.get(step.prev) || null) matched.push([runs[step.s][0], runs[step.s][1]]);
+            completed.get(k).starts.push({ from, movedAt: movedAt < 0 ? runs[s][0] : movedAt, matched });
             finished = true;
             break;
           }
@@ -405,7 +419,9 @@ function wordSkippingSpans(text) {
   for (const c of completed.values()) {
     const latest = c.starts.reduce((m, st) => (st.from > m ? st.from : m), -1);
     spans.push([latest, c.to]);
-    for (const { from, movedAt } of c.starts) if (from !== latest && movedAt < latest) spans.push([from, c.to]);
+    /* An earlier start is masked piece by piece, not as one span to the end (review round 16): a retry within
+       reach joined the two and hid the prose between them ("Sorry, again:"). */
+    for (const { from, movedAt, matched } of c.starts) if (from !== latest && movedAt < latest) for (const m of matched) spans.push(m);
   }
   return spans;
 }

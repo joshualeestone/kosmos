@@ -774,3 +774,29 @@ test('#3935 a label joined to a piece by a hyphen does not hide the piece (revie
     for (const c of ['Rt2mNp9b', 'Kd4sLw8z', 'Yh3cFj6gTa1e']) assert.ok(!out.includes(c), `the piece ${c} survived: ${out}`);
   } finally { setKnownSecrets([]); }
 });
+
+test('#3935 a random single-case secret is not taken for words: split by a word it is masked (review round 16)', () => {
+  for (const [held, text] of [['kitgaubjgEFJMLCW', 'kitgaubjg account EFJMLCW'], ['zvqxrpldkinaeout', 'zvqxrpldki account naeout'], ['ZVQXRPLDKINAEOUT', 'ZVQXRPLDKI account NAEOUT']]) {
+    setKnownSecrets([held]);
+    try {
+      const r = mask(text);
+      assert.ok(!r.text.includes(text.split(' ')[0]) && !r.text.includes(text.split(' ')[2]), `${held} split by a word survived: ${r.text}`);
+      assert.ok(r.fired.some((f) => f.kind === 'split_secret'), JSON.stringify(r.fired));
+    } finally { setKnownSecrets([]); }
+  }
+  /* CONTROL: word-made values are still not walked (round 3's sentences stay readable). */
+  setKnownSecrets(['Administrator1', 'Settings2024']);
+  try {
+    for (const t2 of ['Log in as Administrator on step 1 of the guide.', 'Open Settings, then in 2024 you will see the new layout.']) assert.equal(mask(t2).text, t2);
+  } finally { setKnownSecrets([]); }
+});
+
+test('#3935 a retry within reach of an abandoned try: the prose between them stays (review round 16)', () => {
+  const held = 'Qx7Lm2VbRt4Kp1ZsWq9Bn3Hy6Jd0Tc8F';
+  setKnownSecrets([held]);
+  try {
+    const out = mask('First try: Qx7Lm2Vb then Rt4Kp1Zs then Wq9Bn3Hy. Sorry, again: Qx7Lm2Vb then Rt4Kp1Zs then Wq9Bn3Hy then 6Jd0Tc8F end').text;
+    for (const c of held.match(/.{8}/g)) assert.ok(!out.includes(c), `the chunk ${c} survived: ${out}`);
+    assert.ok(out.includes('Sorry, again:'), `the prose between the two tries was masked: ${out}`);
+  } finally { setKnownSecrets([]); }
+});
