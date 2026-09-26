@@ -228,7 +228,9 @@ if [ "$FAMILY" = mac ]; then
   # for it, see the header.) Override via KOSMOS_PROMOTE_PLUS_GATE_CMD.
   PLUS_GATE_CMD="${KOSMOS_PROMOTE_PLUS_GATE_CMD:-bash $(cd "$(dirname "$0")" && pwd)/plus-signin-verified.sh}"
   echo "promote-channel: running the first Kosmos+ sign-in gate: $PLUS_GATE_CMD"
-  PLUS_OUT="$($PLUS_GATE_CMD "$SNAP" 2>&1)"; PLUS_RC=$?
+  # stdout only: the gate prints its verdict there, and the logged reason must be that line, never
+  # a stray diagnostic from stderr (which still reaches the terminal, uncaptured).
+  PLUS_OUT="$($PLUS_GATE_CMD "$SNAP")"; PLUS_RC=$?
   [ -n "$PLUS_OUT" ] && printf '%s\n' "$PLUS_OUT"
   PLUS_UNVERIFIED=0; PLUS_REASON=
   case "$PLUS_RC" in

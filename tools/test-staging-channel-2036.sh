@@ -232,6 +232,21 @@ Sp2b="$(make_site)"; bash "$PUBLISH" "$Sp2b" >/dev/null 2>&1
 out="$(KOSMOS_PLUS_VERIFY_DIR="$T/not-a-dir-file" KOSMOS_PROMOTE_GATE_CMD="$GATE" GATE_RC_WANT=0 PLUS_RC_WANT=2 bash -c ': > "$KOSMOS_PLUS_VERIFY_DIR"; exec bash "$0" "$1"' "$PROMOTE" "$Sp2b" 2>&1)"; rc=$?
 [ "$rc" = 0 ] && [ -f "$Sp2b/dist/latest.json" ] && has "$out" "could not append" \
   && pass "promote: plus gate 2 with an unwritable log -> still promotes, says so" || bad "promote plus-gate-2-nolog (rc=$rc, out=$out)"
+# The directory exists but cannot be written (the append itself fails, not the mkdir).
+Sp2c="$(make_site)"; bash "$PUBLISH" "$Sp2c" >/dev/null 2>&1
+ROD="$T/plus-verify-readonly"; mkdir -p "$ROD" && chmod 500 "$ROD"
+out="$(KOSMOS_PLUS_VERIFY_DIR="$ROD" KOSMOS_PROMOTE_GATE_CMD="$GATE" GATE_RC_WANT=0 PLUS_RC_WANT=2 bash "$PROMOTE" "$Sp2c" 2>&1)"; rc=$?
+chmod 700 "$ROD"
+[ "$rc" = 0 ] && [ -f "$Sp2c/dist/latest.json" ] && has "$out" "could not append" && [ ! -s "$ROD/promote-plus-unverified.log" ] \
+  && pass "promote: plus gate 2 with a read-only log directory -> still promotes, says so" || bad "promote plus-gate-2-readonly (rc=$rc, out=$out)"
+# The logged reason comes from the gate's STDOUT: a stderr line printed after the verdict is not it.
+Sp2d="$(make_site)"; bash "$PUBLISH" "$Sp2d" >/dev/null 2>&1
+NOISY="$T/noisy-plus-gate.sh"; printf '#!/usr/bin/env bash\necho "plus-signin-verified: no record for this sha"\necho "node: a stray warning" >&2\nexit 2\n' > "$NOISY"
+LOGD_N="$T/plus-verify-noisy"; rm -rf "$LOGD_N"
+out="$(KOSMOS_PLUS_VERIFY_DIR="$LOGD_N" KOSMOS_PROMOTE_PLUS_GATE_CMD="bash $NOISY" KOSMOS_PROMOTE_GATE_CMD="$GATE" GATE_RC_WANT=0 bash "$PROMOTE" "$Sp2d" 2>&1)"; rc=$?
+[ "$rc" = 0 ] && grep -q 'reason=plus-signin-verified: no record for this sha' "$LOGD_N/promote-plus-unverified.log" \
+  && ! grep -q 'stray warning' "$LOGD_N/promote-plus-unverified.log" && has "$out" "a stray warning" \
+  && pass "promote: the logged reason is the gate's stdout verdict; its stderr still shows but is not logged" || bad "promote plus-gate-2-stderr (rc=$rc, log=$(cat "$LOGD_N/promote-plus-unverified.log" 2>/dev/null), out=$out)"
 # pass (0) -> promote, and the gate was handed the SNAPSHOT (a copy of the staging pointer).
 Sp0="$(make_site)"; bash "$PUBLISH" "$Sp0" >/dev/null 2>&1
 out="$(KOSMOS_PROMOTE_GATE_CMD="$GATE" GATE_RC_WANT=0 PLUS_RC_WANT=0 bash "$PROMOTE" "$Sp0" 2>&1)"; rc=$?

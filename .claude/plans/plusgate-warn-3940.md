@@ -53,6 +53,11 @@ The 0.6.97 prod promote (same morning) needed `--force` only because this gate h
 - The log line carries the staged pointer's sha256 and `reason=` the gate's line.
 - A promote refused AFTER a missing record (the mid-promote staging swap) leaves no log line.
 - The existing cases stand: a FAIL record refuses and is not forceable; a pass promotes.
+- A read-only log directory (the append fails, not the mkdir): still promotes, says so.
+- The logged reason is the gate's STDOUT verdict; a stderr line after it still shows in the output
+  but is never logged (review round 2).
+- The test points `KOSMOS_PLUS_VERIFY_DIR` at its sandbox, so a local run never writes into the
+  real `~/.local/state`.
 
 Red checks: the original promote-channel.sh fails all three new no-record cases (it HOLDs); the
 first version of this change (logging inside the gate) fails "logs nothing" and the reason check.
@@ -60,8 +65,6 @@ first version of this change (logging inside the gate) fails "logs nothing" and 
 Validation note: the first validation run had one red, engine/openaiaccounts.devicecode-3436
 (a sign-in timing test) at load 30 on 10 cores; it passed alone twice, 15/15, and this branch
 touches only tools/.
-- The test points `KOSMOS_PLUS_VERIFY_DIR` at its sandbox, so a local run never writes into the
-  real `~/.local/state`.
 
 ## Weakest premise
 
