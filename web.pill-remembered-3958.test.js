@@ -16,7 +16,14 @@
 const test = require('node:test');
 const assert = require('node:assert');
 const fs = require('node:fs');
+const os = require('node:os');
 const nodePath = require('node:path');
+/* Sandboxed before fleet is required, as the sibling web tests do: the cards below come from a real
+   snapshot of a fixture board, never typed by hand (fixture-discipline.test.js). */
+const SANDBOX = fs.realpathSync(fs.mkdtempSync(nodePath.join(os.tmpdir(), 'pill-3958-')));
+process.env.AGENT_WORKFORCE_DATA = SANDBOX;
+process.on('exit', () => { try { fs.rmSync(SANDBOX, { recursive: true, force: true }); } catch { /* best effort */ } });
+const fleet = require('./test-support/fleet');
 
 const RAW = fs.readFileSync(nodePath.join(__dirname, 'web', 'index.html'), 'utf8');
 
@@ -66,9 +73,19 @@ function pillFor(card, spokeLearnedAt, lastAt) {
 }
 
 test('#3958: a working sample older than the reply on screen paints the pill idle, as the DM line hides', () => {
-  const card = { sessionName: 'beatrix', state: 'working' };
-  assert.match(pillFor(card, 2000, 1000), /\bst-idle\b/, 'the reply was learned after the sample: stale');
-  assert.match(pillFor(card, 500, 1000), /\bst-working\b/, 'control: the sample is newer than the reply, so it stands');
-  assert.match(pillFor(card, null, 1000), /\bst-working\b/, 'control: no reply known, the sample stands');
-  assert.match(pillFor({ sessionName: 'beatrix', state: 'needs_you' }, 2000, 1000), /\bst-needs_you\b/, 'only a WORKING sample is ever downgraded');
+  const cardIn = (state) => {
+    const board = fleet.install([fleet.agent('beatrix', { state })]);
+    const card = board.agents.find((x) => x.name === 'beatrix');
+    assert.ok(card && card.state === state, 'the fixture did not produce a ' + state + ' card');
+    return card;
+  };
+  try {
+    const working = cardIn('working');
+    assert.match(pillFor(working, 2000, 1000), /\bst-idle\b/, 'the reply was learned after the sample: stale');
+    assert.match(pillFor(working, 500, 1000), /\bst-working\b/, 'control: the sample is newer than the reply, so it stands');
+    assert.match(pillFor(working, null, 1000), /\bst-working\b/, 'control: no reply known, the sample stands');
+    assert.match(pillFor(cardIn('needs_you'), 2000, 1000), /\bst-needs_you\b/, 'only a WORKING sample is ever downgraded');
+  } finally {
+    fleet.restore();
+  }
 });
