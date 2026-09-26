@@ -220,8 +220,8 @@ if [ "$FAMILY" = mac ]; then
   # promote (#3940, Josh 2026-09-26 11:54 CDT: "I don't need to test that part on staging ... that
   # shouldn't hold us up from pushing this live"). Exit 2 covers no record, an attempt still in
   # flight (deliberately NOT waited for any more), and a gate that could not run; the gate's own
-  # line says which, and it is what gets logged. Once the promote has actually happened (after the
-  # pointer write reads back), one line goes to promote-plus-unverified.log in the record directory
+  # line says which, and it is what gets logged. Once the promote has actually happened (the moment
+  # the prod pointer is renamed into place), one line goes to promote-plus-unverified.log in the record directory
   # OF THE MACHINE THAT RAN THE PROMOTE, so which prod builds went out without a first Kosmos+
   # sign-in check stays answerable. A record that says FAIL still refuses: a measured break, not a
   # missing check. (Josh's go for a Mac prod promote is a process rule; this script has no flag
@@ -312,6 +312,22 @@ if ! cmp -s "$SNAP" "$PTMP" || [ "$(read_pointer_field "$PTMP" "$ARTIFACT_FIELD"
 fi
 mv "$PTMP" "$SITE/dist/$PROD_NAME" || { echo "promote-channel: could not write $PROD_NAME" >&2; exit 1; }
 PTMP=""
+# #3940: the prod pointer now names this build, so from here on the promote has HAPPENED even if a
+# later step (the read-back, the alias) fails and exits. Log it now, not at the end: a promote
+# refused BEFORE this line leaves nothing, one that changed prod always leaves its line.
+if [ "$FAMILY" != win ] && [ "${PLUS_UNVERIFIED:-0}" = 1 ]; then
+  PLUS_HOME="${HOME:-}"
+  PLUS_LOG_DIR="${KOSMOS_PLUS_VERIFY_DIR:-${PLUS_HOME:+$PLUS_HOME/.local/state/kosmos/release-verify}}"
+  PLUS_LOG="${PLUS_LOG_DIR:+$PLUS_LOG_DIR/promote-plus-unverified.log}"
+  PLUS_HOST="$(hostname -s 2>/dev/null || echo unknown)"
+  if [ -n "$PLUS_LOG" ] && mkdir -p "$PLUS_LOG_DIR" 2>/dev/null \
+     && { printf '%s\thost=%s\tversion=%s\tsha256=%s\tfirst Kosmos+ sign-in NOT verified; promoted per #3940 (Josh 2026-09-26)\treason=%s\n' \
+            "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$PLUS_HOST" "$(printf '%s' "$V" | tr '\t\n' '  ')" "$SHA" "$PLUS_REASON" >> "$PLUS_LOG"; } 2>/dev/null; then
+    echo "promote-channel: recorded in $PLUS_LOG (on this machine, $PLUS_HOST)" >&2
+  else
+    echo "promote-channel: WARNING could not append to ${PLUS_LOG:-the unverified-promote log (no HOME and no KOSMOS_PLUS_VERIFY_DIR)}; the promote happened and this output is the only record." >&2
+  fi
+fi
 # Prove the promote landed: the prod pointer now names the same artifact + sha as the snapshot.
 PROD_ART="$(read_pointer_field "$SITE/dist/$PROD_NAME" "$ARTIFACT_FIELD")"
 PROD_SHA="$(read_pointer_field "$SITE/dist/$PROD_NAME" sha256)"
@@ -356,19 +372,6 @@ if [ "$FAMILY" = win ]; then
   echo "promote-channel: updated the SITE CHECKOUT's $PROD_NAME to $V ($ARTIFACT). This does NOT change what users are served: that is tools/windows/publish-r2.ps1 -Promote."
 else
   echo "promote-channel: PROMOTED $V to prod - $PROD_NAME now points at the exact bytes staging verified ($ARTIFACT)."
-  # #3940: only now, after the pointer and alias were written and read back, is the promote real,
-  # so only now is it logged. A promote refused after the gate leaves no line.
-  if [ "${PLUS_UNVERIFIED:-0}" = 1 ]; then
-    PLUS_LOG_DIR="${KOSMOS_PLUS_VERIFY_DIR:-$HOME/.local/state/kosmos/release-verify}"
-    PLUS_LOG="$PLUS_LOG_DIR/promote-plus-unverified.log"
-    if mkdir -p "$PLUS_LOG_DIR" 2>/dev/null \
-       && { printf '%s\tversion=%s\tsha256=%s\tfirst Kosmos+ sign-in NOT verified; promoted per #3940 (Josh 2026-09-26)\treason=%s\n' \
-              "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$V" "$SHA" "$PLUS_REASON" >> "$PLUS_LOG"; } 2>/dev/null; then
-      echo "promote-channel: recorded in $PLUS_LOG (on this machine)" >&2
-    else
-      echo "promote-channel: WARNING could not append to $PLUS_LOG; the promote happened and this output is the only record." >&2
-    fi
-  fi
 fi
 echo "   -> $(cat "$SITE/dist/$PROD_NAME")"
 echo "promote-channel: the next site deploy publishes the prod pointer. No rebuild happened."

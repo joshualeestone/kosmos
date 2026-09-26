@@ -87,7 +87,9 @@ function write(rec, env = process.env) {
 module.exports = { STEPS, PLACEMENTS, boardVersion, recordDir, recordPath, validate, write };
 
 /* CLI for the gate: `node plus-signin-record.js check <version> <sha256>` prints one line and
-   exits 0 (pass) / 1 (fail or ambiguous) / 2 (no record). */
+   exits 0 (pass) / 1 (fail, ambiguous, or a record that exists but cannot be read) / 2 (cannot
+   tell: no record, an attempt in flight, or bad arguments). promote-channel.sh proceeds past 2
+   with a warning (#3940). */
 if (require.main === module) {
   const [cmd, version, sha256] = process.argv.slice(2);
   if (cmd !== 'check' || !version || !SHA.test(String(sha256))) { console.log('plus-signin-verified: bad arguments - cannot tell'); process.exit(2); }
@@ -97,7 +99,9 @@ if (require.main === module) {
   // which the promote now warns about and proceeds past (#3940).
   const inFlight = fs.existsSync(f.replace(/\.json$/, '.progress.json'));
   let raw;
-  try { raw = fs.readFileSync(f, 'utf8'); } catch { console.log('plus-signin-verified: no record for ' + sha256 + ' at ' + f + (inFlight ? ' (an attempt is in flight)' : '') + ' - not verified (to verify, run tools/plus-signin-fresh.js against the fresh staging board)'); process.exit(2); }
+  // Only a MISSING record is "cannot tell" (exit 2, which the promote proceeds past). A record that
+  // exists but cannot be read (permissions, a directory in its place) may be a FAIL: refuse.
+  try { raw = fs.readFileSync(f, 'utf8'); } catch (e) { if (!e || e.code !== 'ENOENT') { console.log('plus-signin-verified: the record at ' + f + ' exists but cannot be read (' + ((e && e.code) || 'unknown error') + ') - refusing'); process.exit(1); } console.log('plus-signin-verified: no record for ' + sha256 + ' at ' + f + (inFlight ? ' (an attempt is in flight)' : '') + ' - not verified (to verify, run tools/plus-signin-fresh.js against the fresh staging board)'); process.exit(2); }
   let rec;
   try { rec = JSON.parse(raw); } catch { console.log('plus-signin-verified: the record at ' + f + ' is not JSON - refusing'); process.exit(1); }
   const v = validate(rec, { version, sha256 });

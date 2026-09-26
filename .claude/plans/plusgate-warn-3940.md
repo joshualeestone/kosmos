@@ -20,15 +20,21 @@ The 0.6.97 prod promote (same morning) needed `--force` only because this gate h
   (node or the record spec missing, a bad pointer). ⚠️ **An in-flight attempt is deliberately no
   longer waited for**: that is what "shouldn't hold us up" means, and the one case where a FAIL
   could land a minute after the promote. The warning says a first Kosmos+ sign-in was NOT verified.
-- **The log line is written only AFTER the promote has happened** (pointer written, read back,
-  alias refreshed), so a promote refused later (for example a staging publish landing mid-promote)
-  leaves no line. It carries the UTC time, version, sha256, the ruling, and `reason=` the gate's
+- **The log line is written the moment the prod pointer is renamed into place** (review round 3):
+  from then on prod names the build even if a later step (the read-back, the alias) fails and
+  exits, so such a partial promote IS logged; a promote refused before it (for example a staging
+  publish landing mid-promote) leaves no line. It also records `host=`, since promotes run on
+  more than one machine. It carries the UTC time, version, sha256, the ruling, and `reason=` the gate's
   own last line, so "no record", "in flight" and "the gate could not run" stay distinguishable. It
   goes to `promote-plus-unverified.log` in the record directory (`$KOSMOS_PLUS_VERIFY_DIR`, else
   `$HOME/.local/state/kosmos/release-verify`) OF THE MACHINE THAT RAN THE PROMOTE. A log that
   cannot be written never stops the promote; the output says so instead.
 - The gate's own messages no longer say "HOLD" (tools/lib/plus-signin-record.js): they say "not
   verified", since the promote now proceeds past them.
+- ⚠️ **A record that EXISTS but cannot be read now refuses (exit 1)** (review round 3). Only a
+  missing file (ENOENT) is exit 2. Before this branch every read error was exit 2, which was
+  harmless while 2 held; now 2 promotes, so an unreadable FAIL record would have let a build that
+  was measured broken reach prod.
 - **Unchanged**: exit 1 (a record that says FAIL, or is ambiguous) still refuses and is not
   forceable. That is a measured break, not a missing check, and the ruling is about not having to
   run the check. Exit 0 still promotes. The two other Mac gates and the Windows family are
@@ -52,6 +58,8 @@ The 0.6.97 prod promote (same morning) needed `--force` only because this gate h
 - No record and an unwritable log path: still promotes, and says it could not append.
 - The log line carries the staged pointer's sha256 and `reason=` the gate's line.
 - A promote refused AFTER a missing record (the mid-promote staging swap) leaves no log line.
+- A promote that fails AFTER the pointer moved (the alias .sha256 cannot be written) is logged.
+- tools.plus-signin-2036.test.js: a record path that is a directory gives exit 1, not 2.
 - The existing cases stand: a FAIL record refuses and is not forceable; a pass promotes.
 - A read-only log directory (the append fails, not the mkdir): still promotes, says so.
 - The logged reason is the gate's STDOUT verdict; a stderr line after it still shows in the output
@@ -60,11 +68,14 @@ The 0.6.97 prod promote (same morning) needed `--force` only because this gate h
   real `~/.local/state`.
 
 Red checks: the original promote-channel.sh fails all three new no-record cases (it HOLDs); the
-first version of this change (logging inside the gate) fails "logs nothing" and the reason check.
+first version of this change (logging inside the gate) fails "logs nothing" and the reason check;
+the round-2 version (logging at the end) fails the partial-promote case; the old catch-all record
+read fails the unreadable-record test.
 
 Validation note: the first validation run had one red, engine/openaiaccounts.devicecode-3436
-(a sign-in timing test) at load 30 on 10 cores; it passed alone twice, 15/15, and this branch
-touches only tools/.
+(a sign-in timing test) at load 30 on 10 cores; it passed alone twice, 15/15. The round-2 run
+had one red, server.doorflight-1618 (a concurrency test) at load 33; it passed alone twice, 4/4.
+This branch touches only tools/ and a tools test.
 
 ## Weakest premise
 

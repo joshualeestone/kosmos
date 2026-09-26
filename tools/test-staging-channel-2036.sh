@@ -273,6 +273,15 @@ LOGD_R="$T/plus-verify-race"; rm -rf "$LOGD_R"
 out="$(KOSMOS_PLUS_VERIFY_DIR="$LOGD_R" PLUS_RC_WANT=2 SWAP_POINTER="$Sr2/dist/latest-staging.json" KOSMOS_PROMOTE_GATE_CMD="bash $SWAP_GATE" bash "$PROMOTE" "$Sr2" 2>&1)"; rc=$?
 [ "$rc" = 1 ] && [ ! -f "$Sr2/dist/latest.json" ] && [ ! -s "$LOGD_R/promote-plus-unverified.log" ] \
   && pass "promote: a promote refused AFTER a missing Kosmos+ record logs nothing" || bad "promote refused-after-plus-2 logged (rc=$rc, log=$(cat "$LOGD_R/promote-plus-unverified.log" 2>/dev/null), out=$out)"
+# ...but a promote that fails AFTER the prod pointer moved (here the alias .sha256 cannot be
+# written) has changed prod, so it IS logged.
+Sp3="$(make_site)"; bash "$PUBLISH" "$Sp3" >/dev/null 2>&1
+mkdir -p "$Sp3/dist/kosmos-arm64.tar.gz.sha256"
+LOGD_P="$T/plus-verify-partial"; rm -rf "$LOGD_P"
+out="$(KOSMOS_PLUS_VERIFY_DIR="$LOGD_P" KOSMOS_PROMOTE_GATE_CMD="$GATE" GATE_RC_WANT=0 PLUS_RC_WANT=2 bash "$PROMOTE" "$Sp3" 2>&1)"; rc=$?
+[ "$rc" = 1 ] && [ -f "$Sp3/dist/latest.json" ] && [ "$(grep -c 'version=9.9.9' "$LOGD_P/promote-plus-unverified.log" 2>/dev/null)" = 1 ] \
+  && grep -q "host=" "$LOGD_P/promote-plus-unverified.log" \
+  && pass "promote: a promote that fails after the pointer moved is still logged (prod changed)" || bad "promote partial-not-logged (rc=$rc, log=$(cat "$LOGD_P/promote-plus-unverified.log" 2>/dev/null), out=$out)"
 
 echo ""
 if [ "$fail" = 0 ]; then echo "test-staging-channel-2036: ALL PASS"; else echo "test-staging-channel-2036: FAILURES above"; exit 1; fi
