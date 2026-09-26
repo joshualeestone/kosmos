@@ -29493,7 +29493,7 @@ async function paintTalk(sessionName, agentName) {
          a mid-restart agent a message; only the badge past-marking is wrong). */
       /* #3958: the LATEST card, not CURRENT: CURRENT is the card from when the page opened, and
          the pill now follows the poll, so reading CURRENT would past-mark a live restart. */
-      const latest = CURRENT && (LAST.find((x) => x.sessionName === CURRENT.sessionName) || CURRENT);
+      const latest = CURRENT && ((typeof LAST !== 'undefined' && Array.isArray(LAST) && LAST.find((x) => x.sessionName === CURRENT.sessionName)) || CURRENT);
       markStateRemembered(!(latest && latest.state === 'restarting'));
   } else if (body.presence === 'unsure') {
     off.textContent = 'We could not check whether ' + name + ' is running. '
@@ -50177,7 +50177,9 @@ function paintRoom(body) {
   /* #3966: compared by SHAPE, as the agent thread is: a time's words ticking over neither rebuilds
      the room nor marks it seen. */
   const shape = threadShape(html);
-  if (box.__lastRoom === shape) {
+  /* A query change always takes the rewrite branch, even when the rows' shape matches, so
+     queryChanged is consumed and __lastRoomQuery kept current. */
+  if (box.__lastRoom === shape && !queryChanged) {
     refreshWhens(box);
   } else {
     /* New rows while the room is on screen are read as they land; a tab in

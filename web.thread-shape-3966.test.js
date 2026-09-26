@@ -82,7 +82,7 @@ test('#3966: both thread painters decide a rewrite on the shape, not the raw mar
   assert.doesNotMatch(setThread, /el\.__lastThread !== html/, 'the raw compare is the flash');
   const paintRoom = pageFnSource('paintRoom');
   assert.match(paintRoom, /const shape = threadShape\(html\);/);
-  assert.match(paintRoom, /if \(box\.__lastRoom === shape\) \{\n\s*refreshWhens\(box\);\n\s*\} else \{/);
+  assert.match(paintRoom, /if \(box\.__lastRoom === shape && !queryChanged\) \{\n\s*refreshWhens\(box\);\n\s*\} else \{/);
   assert.match(paintRoom, /refreshWhens\(box\)/);
   assert.doesNotMatch(paintRoom, /box\.__lastRoom !== html/, 'the raw compare is the flash, and it marked the room seen');
 });

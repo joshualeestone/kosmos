@@ -146,7 +146,8 @@ const PERCENT = { beatrix: 42, dora: 71 };
           const face = row && row.querySelector('.pj-face');
           return row ? { wash: /pjm-(working|attn|idle)/.test(row.className), dot: face ? face.className : '' } : null;
         });
-        chk(z && !z.wash && !/\bpjd\b(?!-)/.test(z.dot.replace(/pjd-unk|pjd-off/g, '')) || (z && /pjd-unk|pjd-off/.test(z.dot)) || (z && !/pjd/.test(z.dot)),
+        const greenDot = !!z && /\bpjd\b/.test(z.dot) && !/pjd-(unk|off)/.test(z.dot);
+        chk(!!z && !z.wash && !greenDot,
           `${engineName}: an untied pane (a stranger holding the name) does not get a green dot`, JSON.stringify(z));
         chk(errs.length === 0, `${engineName}: no page errors`, errs.join(' | '));
         await ctx.close();

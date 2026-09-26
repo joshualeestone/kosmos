@@ -31,7 +31,7 @@ test('#3958: the remembered marker reads the latest card from LAST, not CURRENT 
   const calls = RAW.match(/markStateRemembered\(!\([^;]*\);/g) || [];
   assert.equal(calls.length, 1, 'expected the one restarting-aware call site; found ' + calls.length);
   assert.match(calls[0], /latest && latest\.state === 'restarting'/);
-  assert.match(RAW, /const latest = CURRENT && \(LAST\.find\(\(x\) => x\.sessionName === CURRENT\.sessionName\) \|\| CURRENT\);/);
+  assert.match(RAW, /const latest = CURRENT && \(\(typeof LAST !== 'undefined' && Array\.isArray\(LAST\) && LAST\.find\(\(x\) => x\.sessionName === CURRENT\.sessionName\)\) \|\| CURRENT\);/);
   assert.doesNotMatch(RAW, /markStateRemembered\(!\(CURRENT && CURRENT\.state === 'restarting'\)\)/, 'the frozen read is the bug');
 });
 
