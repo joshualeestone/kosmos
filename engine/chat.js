@@ -347,23 +347,79 @@ function cleanMessage(raw) {
  * the store was the #1927 defect: every destination lost paragraphs, including
  * the operator's HTML view (which never had a pane's limit and which Josh reads
  * daily). So the store keeps `\n`; only `deliver()` still flattens on the way
- * to a pane. Mirrors `engine/you.js` `clean(v, {multiline:true})` and also
- * normalises CR, since a bare `\r` is a control character `messageProblem`
- * would otherwise refuse:
- *   - CRLF and lone CR → LF
- *   - runs of spaces/tabs → one space (a tab cannot survive to a pane either)
- *   - three or more newlines → a single blank line (one paragraph break)
- *   - trim the ends.
- * After this the ONLY whitespace/control character left in range is `\n`, which
- * is exactly the one `CONTROL` now exempts -- every other control char (ESC and
- * the rest) is preserved here so `messageProblem` still sees and refuses it.
+ * to a pane. It also normalises CR, since a bare `\r` is a control character
+ * `messageProblem` would otherwise refuse:
+ *   - CRLF, lone CR and the Unicode line/paragraph separators → LF
+ *   - a tab → four spaces (a tab is a control character `CONTROL` refuses)
+ *   - #3679: indentation is kept, and inside a ``` fence each line is kept as
+ *     written except its trailing spaces, so code and nested lists arrive as
+ *     written. The tab and leading-space rules apply inside a fence too, and a
+ *     fence body loses at most the message's shared indent (see the dedent below).
+ *   - In a fence left open, blank lines at the very end of the message go with
+ *     the final trim. Outside a fence, a run of spaces INSIDE a line becomes one space
+ *     and trailing spaces go.
+ *   - outside a fence, three or more newlines → a single blank line
+ *   - the indentation every line shares comes off, then the ends are trimmed.
+ * Every other control char (ESC, `\v`, `\f` and the rest) is preserved, except where the
+ * final trim takes one off an end, so `messageProblem` still sees and refuses it; `\n` is
+ * the one `CONTROL` exempts.
  */
+// Every tab is four spaces, not the next tab stop, the same width pjListDepth reads.
+const STORE_TAB = '    ';
+// A fence line, CommonMark-like (its run-length and info-string rules; any indent, backticks only): three or more backticks, and
+// no backtick after them (so an inline ```span``` is not one). A fence closes only on a bare
+// run at least as long as the one that opened it, so ```` can hold a ``` example.
+// \x60 is a backtick: a literal one here reads as a template string to the #1732 scanner.
+const STORE_FENCE = /^ *(\x60{3,})([^\x60]*)$/;
+// The stored form may exceed a one-line limit (kept indentation, a tab as four spaces), but
+// not by more than this factor, so a thread read on every poll stays bounded. Four is a chosen
+// bound (a tab's width), not a measured ratio: deep indentation can grow further and is refused.
+const STORE_GROWTH = 4;
+const STORE_TOO_SPACED = 'that has more indentation and spacing than we keep in a message; put it in a file and send the path';
+// Trailing spaces off, in linear time: `/ +$/` backtracks on a long run that ends in text.
+function trimSpacesEnd(line) {
+  let e = line.length;
+  while (e > 0 && line.charCodeAt(e - 1) === 32) e -= 1;
+  return line.slice(0, e);
+}
 function storeText(raw) {
-  return String(raw == null ? '' : raw)
-    .replace(/\r\n?/g, '\n')
-    .replace(/[ \t]+/g, ' ')
-    .replace(/\n{3,}/g, '\n\n')
-    .trim();
+  // A leading byte-order mark goes, and a line's leading non-breaking spaces (how rich-text
+  // pastes indent) and full-width spaces (CJK text; two columns each) become spaces, so the
+  // dedent below and the final trim agree on what indentation is.
+  const lines = String(raw == null ? '' : raw).replace(/^\ufeff+/, '').replace(/\r\n?|[\u2028\u2029]/g, '\n').replace(/\t/g, STORE_TAB)
+    .split('\n').map((l) => l.replace(/^[ \u00a0\u3000]+/, (run) => run.replace(/\u3000/g, '  ').replace(/\u00a0/g, ' ')));
+  const out = [];
+  const inBody = [];   // parallel to out: true for a line inside a fence body
+  let fenceLen = 0;   // the opening run's length while inside a fence, else 0
+  let blanks = 0;
+  for (const line of lines) {
+    const f = STORE_FENCE.exec(line);
+    if (fenceLen) {
+      if (!(f && f[1].length >= fenceLen && /^ *$/.test(f[2]))) { out.push(trimSpacesEnd(line)); inBody.push(true); continue; }
+      fenceLen = 0;
+    } else if (f) {
+      fenceLen = f[1].length;
+    }
+    const lead = /^ */.exec(line)[0];
+    const rest = trimSpacesEnd(line.slice(lead.length).replace(/ +/g, ' '));
+    // Blank means no visible character, whatever the whitespace (a full-width space line too).
+    // (A form feed or vertical tab is not blank: it stays, so CONTROL refuses it.)
+    if (!/\S/.test(rest) && !/[\v\f]/.test(rest)) { blanks += 1; if (blanks > 1) continue; out.push(''); inBody.push(false); continue; }
+    blanks = 0;
+    out.push(lead + rest);
+    inBody.push(false);
+  }
+  // The indentation every non-blank line OUTSIDE a fence body shares comes off, so a block
+  // indented as a whole keeps its relative depths instead of losing only its first line's. A
+  // fence body loses at most that much from each line (CommonMark removes the opener's
+  // indentation from its content), so a column-0 line of code cannot cancel the dedent.
+  let common = Infinity;
+  out.forEach((l, k) => { if (l && !inBody[k]) common = Math.min(common, /^ */.exec(l)[0].length); });
+  const dedented = common > 0 && common !== Infinity
+    ? out.map((l, k) => (inBody[k] ? l.slice(Math.min(common, /^ */.exec(l)[0].length)) : l.slice(common)))
+    : out;
+  // Then trim the ends, which also takes any indentation left on the first line alone.
+  return dedented.join('\n').trim();
 }
 
 /**
@@ -374,7 +430,7 @@ function storeText(raw) {
  * arriving in a TUI: in Claude Code that cancels what is on screen. A message
  * that quietly cancels the agent's current prompt and then types the rest of
  * itself is not the message anybody wrote. `storeText` has already dealt with
- * the ordinary ones (tab → space, CR → LF), so anything left in this range got
+ * the ordinary ones (tab → four spaces, CR → LF), so anything left in this range got
  * there on purpose or by paste accident, and refusing names it.
  *
  * 🛑 ONE EXEMPTION, AND ONLY ONE: `\n` (U+000A). The store keeps paragraph
@@ -400,11 +456,36 @@ function messageProblem(raw) {
   // stored shape is what lets a legitimate newline reach `CONTROL` (which now
   // exempts it) while ESC and every other control char are still seen and
   // refused -- `storeText` leaves those untouched.
+  // #3679: measured on the one-line form, as the room does, so kept indentation
+  // (and a tab's four spaces) cannot push a message over the limit. Checked first, so
+  // the stored form is not built for a message that is refused anyway.
+  if (cleanMessage(raw).length > MAX_TEXT) return `keep it to ${MAX_TEXT} characters or fewer`;
+  // #3679: the raw text is bounded before storeText walks it line by line, so a few words and
+  // millions of blank lines (a tiny one-line form) cannot cost every caller that walk. Same
+  // bound as storedWithin's raw check.
+  if (raw != null && raw.length > STORE_GROWTH * STORE_GROWTH * MAX_TEXT) return 'that message is too long to send';
   const text = storeText(raw);
   if (!text) return 'write something to send';
-  if (text.length > MAX_TEXT) return `keep it to ${MAX_TEXT} characters or fewer`;
   if (CONTROL.test(text)) return 'that message has characters we will not type into a terminal';
   return null;
+}
+
+/**
+ * #3679: the stored form, or null when it is too large to keep: the raw text past
+ * STORE_GROWTH squared times `limit` (checked first, so a few words and a million blank
+ * lines are refused before the store walks them), or the stored form past STORE_GROWTH
+ * times `limit`. Only for paths that PERSIST `storeText`; a pane-only path keeps nothing,
+ * so the stored ceiling does not apply to it (`messageProblem` is the pane's rule). The raw
+ * bound does: `messageProblem` runs storeText too, so it carries the same raw check.
+ */
+function storedWithin(raw, limit) {
+  if (raw != null && String(raw).length > STORE_GROWTH * STORE_GROWTH * limit) return null;
+  const text = storeText(raw);
+  return text.length > STORE_GROWTH * limit ? null : text;
+}
+/** The refusal for a direct message whose stored form is too large to keep, or null. */
+function storedProblem(raw) {
+  return storedWithin(raw, MAX_TEXT) === null ? STORE_TOO_SPACED : null;
 }
 
 /**
@@ -756,7 +837,7 @@ function addressable(sessionName, roster) {
     if (card.isAgentSession === true) {
       return { ok: false, because: 'its window is scrolled back right now, so anything we typed would go to the scrollback instead of to the agent' };
     }
-    const runnerName = card.runner === 'codex' ? 'Codex' : card.runner === 'gemini' ? 'Gemini' : card.runner === 'grok' ? 'Grok' : 'Claude';
+    const runnerName = card.runner === 'codex' ? 'Codex' : card.runner === 'gemini' ? 'Gemini' : card.runner === 'grok' ? 'Grok' : card.runner === 'antigravity' ? 'Antigravity' : 'Claude';
     return { ok: false, because: 'there is no ' + runnerName + ' running in its window right now, so anything we typed would be run as a command instead of read' };
   }
   return { ok: true, card };
@@ -957,7 +1038,7 @@ function waitingNote(state, outcome, runner, backgroundWait) {
   // provider copy class). Product name 'Gemini', matching create.js's create/model copy.
   // #3391: grok names Grok for the same reason -- an auth-failed grok agent points at its
   // own XAI_API_KEY/sign-in, not Claude's. Product name 'Grok', matching create.js.
-  const provider = runner === 'codex' ? 'OpenAI' : runner === 'gemini' ? 'Gemini' : runner === 'grok' ? 'Grok' : 'Claude';
+  const provider = runner === 'codex' ? 'OpenAI' : runner === 'gemini' ? 'Gemini' : runner === 'grok' ? 'Grok' : runner === 'antigravity' ? 'Google' : 'Claude';   // #3568: its sign-in is Google's
   /* 🛑 #1889. ONE `working` MEANS THE OPPOSITE OF THE OTHER, FOR THIS SENTENCE.
      A pane whose screen says it is waiting on a BACKGROUND agent classifies
      `working`, but its own turn has ENDED and its REPL is at its prompt, so the
@@ -1022,6 +1103,64 @@ function waitingNote(state, outcome, runner, backgroundWait) {
 }
 
 /**
+ * #3564: the gate for Stop now's keystrokes. deliver's own checks for a key that is not a
+ * message: exact name, ours, an agent pane (`addressable`); NOT on Claude Code's trust
+ * dialog, where one Escape ends the session (measured, Claude Code 2.1.282, 2026-09-25);
+ * and not a Windows agent, whose input is a supervisor channel with no keys to send.
+ */
+function keysAllowed(sessionName, roster) {
+  const allowed = addressable(sessionName, roster);
+  if (!allowed.ok) return { ok: false, because: allowed.because };
+  if (allowed.card.state === status.STATE.NEEDS_YOU && status.isTrustDialogEvidence(allowed.card.stateEvidence)) {
+    return { ok: false, because: status.TRUST_DIALOG_SENTENCE };
+  }
+  if (allowed.card.reachedByChannel === true) {
+    return { ok: false, because: 'Kosmos cannot send keys to an agent on Windows yet, so it was not stopped; stop it from its own window' };
+  }
+  return { ok: true, card: allowed.card };
+}
+
+/* #3564: Claude Code's "stop all agents" chord, pressed twice (the second press confirms).
+   Measured on 2.1.282 (2026-09-25): from the plain prompt it stops every background helper,
+   and with none running it leaves the prompt untouched. */
+const STOP_ALL_HELPERS_KEYS = ['C-x', 'C-k', 'C-x', 'C-k'];
+
+/**
+ * #3564 Stop now, the half Escape cannot do: stop ALL of a swarm lead's background helpers
+ * (one Escape does not reach them, measured). Sends STOP_ALL_HELPERS_KEYS through
+ * keysAllowed. It drives Claude Code's own keys, so a change there can break it; the card's
+ * activeHelpers, read from the helpers' own files, is how anyone sees whether it held.
+ * Never throws.  { ok: true } | { ok: false, because }
+ */
+function stopHelpers(sessionName, roster) {
+  const allowed = keysAllowed(sessionName, roster);
+  if (!allowed.ok) return { ok: false, because: allowed.because };
+  const t = paneTarget(allowed.card);
+  for (const k of STOP_ALL_HELPERS_KEYS) {
+    const got = tmux(['send-keys', '-t', t, k]);
+    if (got.spawnFailed || !got.ran || got.status !== 0) return { ok: false, because: 'we could not finish stopping its helpers; look at its window' };
+  }
+  return { ok: true };
+}
+
+/**
+ * #3564 Stop now: interrupt the agent's current turn (Escape, as a person would press
+ * it). Through keysAllowed. Never throws.
+ *   { ok: true } | { ok: false, because }
+ */
+function interrupt(sessionName, roster) {
+  const allowed = keysAllowed(sessionName, roster);
+  if (!allowed.ok) return { ok: false, because: allowed.because };
+  const got = tmux(['send-keys', '-t', paneTarget(allowed.card), 'Escape']);
+  if (got.spawnFailed) return { ok: false, because: got.err || 'we could not reach its window, so nothing was stopped' };
+  if (!got.ran || got.status !== 0) return { ok: false, because: 'we could not tell whether it stopped; look at its window' };
+  return { ok: true };
+}
+
+/* #3564: what a paused swarm still accepts. */
+const PAUSED_SWARM_COMMANDS = /^\/(compact|clear|cost|context|status)([ \t][^\r\n]*)?$/i;
+
+/**
  * Put one message into one agent's session.
  *
  * ⚠️ NEVER THROWS, and never claims more than a keystroke. The return is a
@@ -1058,6 +1197,20 @@ function deliver(sessionName, raw, roster, envelope, trailer) {
     return {
       state: DELIVERY.COULD_NOT,
       because: status.TRUST_DIALOG_SENTENCE,
+      at, paneState: null, paneNote: null,
+    };
+  }
+  /* #3564: a PAUSED swarm is not typed at. Every caller comes through here (DMs, rooms,
+     tasks, the sweeps), so this is the one place that makes "paused" true. Only the
+     commands that look after an agent without setting it to work go in
+     (PAUSED_SWARM_COMMANDS); a skill such as /pplan is work. The card's `swarm` field is
+     the snapshot this request already holds. */
+  if (allowed.card && allowed.card.swarm && allowed.card.swarm.active === false
+      && !PAUSED_SWARM_COMMANDS.test(String(raw).trim())) {
+    return {
+      state: DELIVERY.COULD_NOT,
+      // Lazy: swarm requires projects, which requires this module at its top.
+      because: require('./swarm').pausedSentence(allowed.card.name || sessionName, allowed.card.swarm.pausedBecause),
       at, paneState: null, paneNote: null,
     };
   }
@@ -1247,8 +1400,9 @@ function deliver(sessionName, raw, roster, envelope, trailer) {
        agent-comms cadence) for the core task-delivery mechanism, taken as a precaution
        rather than measured per-runner. Grok drives a full-screen TUI with its own
        composer, so the paste-swallow risk is the same class; the floor is the safe
-       default and a 0 here would be the unmeasured gamble. */
-    (allowed.card.runner === 'codex' || allowed.card.runner === 'gemini' || allowed.card.runner === 'grok') ? CODEX_ENTER_GAP_MS : 0,
+       default and a 0 here would be the unmeasured gamble. #3568: antigravity takes the same
+       floor for the same reason, unmeasured like grok's. */
+    (allowed.card.runner === 'codex' || allowed.card.runner === 'gemini' || allowed.card.runner === 'grok' || allowed.card.runner === 'antigravity') ? CODEX_ENTER_GAP_MS : 0,
   );
   submitGap(gapMs);
   /**
@@ -2235,6 +2389,27 @@ function withQuestionRow(messages, agentName, question) {
   }]);
 }
 
+/**
+ * #3723: Kosmos's own line in an agent's Direct Message thread while the agent is stopped by its
+ * account (engine/accountproblem.js). Like withQuestionRow it is NOT stored: it is derived from the
+ * agent's card on every read, so there is exactly one line per problem and it goes away by itself
+ * the moment the card no longer shows the problem. `kind: 'kosmos'` draws it as Kosmos's quiet band,
+ * not as a message from the agent or the person.
+ */
+const ACCOUNT_ROW_ID_PREFIX = 'kosmos-account:';
+function withAccountRow(messages, agentName, problem) {
+  const list = Array.isArray(messages) ? messages : [];
+  if (!problem || typeof problem.text !== 'string' || !problem.text) return list;
+  return list.concat([{
+    id: ACCOUNT_ROW_ID_PREFIX + String(agentName),
+    at: null,
+    text: problem.text,
+    from: null,
+    delivery: null,
+    kind: 'kosmos',
+  }]);
+}
+
 function appendMessage(projectId, agent, entry, bornAt) {
   // ⚠️ EVERYTHING from the read to the rename happens inside the lock. Holding
   // it for the write alone would not help: the loss is in the gap between the
@@ -2690,12 +2865,197 @@ function dmUnread(agent) {
   return v === undefined ? 0 : v;
 }
 
+/* #3650: emoji REACTIONS in a Direct Message, the DM half of #2255/#3570 (Josh,
+   2026-09-24: "the ability for users to denote emojis on posts, in both their
+   conversations and projects").
+
+   The room keeps reactions as append-only events in the message log. A DM is a
+   different store: one JSON thread file, rewritten whole under its lock on every
+   append. So a DM reaction lives ON the message it reacts to, as `reactions` (the
+   emojis the person currently has on it), and `reactionsTold` (the ones the agent
+   has already been told about). Both ride along untouched when later messages are
+   appended, because appendLocked carries existing rows over whole.
+
+   Only the PERSON reacts here, and only to the AGENT's messages. An agent reacting
+   back in a DM is not built (rooms have `kosmos react`; a DM has no verb for it yet).
+
+   DELIVERY is not a push. A reaction is feedback and needs no reply (the doctrine
+   section "When someone reacts to your post"), so it must not wake the agent into a
+   turn of its own. It is told on the person's NEXT message in the DM, as one
+   `[kosmos]` note after their words, the way the room shows reactions on the next
+   `kosmos room` read. A reaction the person takes back before then is never told. */
+
+/* The emojis the person currently has on message `m`, normalised and de-duplicated.
+   A stored value that is not an array, or an entry that is not a valid emoji, is
+   skipped rather than treated as damage: the thread file is not ours alone to
+   validate, and a stray field must never make a whole conversation unreadable. */
+// Typed into a pane, so never carried there: C1 controls and bidi overrides/isolates.
+const DM_PANE_UNSAFE = /[\u0080-\u009f\u202a-\u202e\u2066-\u2069]/;
+function dmReactions(m) {
+  const { normalizeReactionEmoji } = require('./messages');   // lazy: messages.js requires this file
+  const out = [];
+  for (const raw of (m && Array.isArray(m.reactions)) ? m.reactions : []) {
+    const e = normalizeReactionEmoji(raw);
+    if (e && !DM_PANE_UNSAFE.test(e) && !out.includes(e)) out.push(e);
+  }
+  return out;
+}
+
+/* The pill list the page draws, in the room's shape ({emoji, count, who, mine}), so
+   the DM row reuses the room's renderer unchanged. The person is the only reactor. */
+function dmReactionPills(m) {
+  return dmReactions(m).map((emoji) => ({ emoji, count: 1, who: ['you'], mine: true }));
+}
+
+/* Toggle the person's `emoji` on the agent's message sent at `at`. The message is
+   found by its `at` (a DM row has no id; `at` is the key the page's anchor already
+   uses) and must be the AGENT's (`from` is this agent); any other row is refused.
+   Two agent rows sharing one `at` are refused too, rather than guessing which was
+   meant. An emoji carrying a C1 control or a bidi override is refused (DM_PANE_UNSAFE),
+   and dmReactions skips one already in the file, so the page, the note and the
+   told-marker all read the same list.
+   Returns {ok, op, emoji, at, reactions} or {ok:false, because}. */
+function reactDirect(agent, at, emoji) {
+  const { normalizeReactionEmoji } = require('./messages');
+  const name = String(agent == null ? '' : agent).trim();
+  const when = String(at == null ? '' : at).trim();
+  const e = normalizeReactionEmoji(emoji);
+  if (!name) return { ok: false, because: 'we could not tell which conversation this is' };
+  if (!when) return { ok: false, because: 'we could not tell which message to react to' };
+  if (!e || DM_PANE_UNSAFE.test(e)) return { ok: false, because: 'that is not an emoji we can react with' };
+  let file;
+  try { file = threadFile(DIRECT, name); }
+  catch (err) { return { ok: false, because: String((err && err.message) || 'we could not find that conversation') }; }
+  let held;
+  try {
+    held = withThreadLock(file, () => {
+      let thread;
+      try { thread = readThread(DIRECT, name); }
+      catch (err) { return { ok: false, because: String((err && err.message) || 'we cannot read this conversation right now') }; }
+      const hits = [];
+      thread.messages.forEach((m, i) => { if (m && m.at === when && m.from === name) hits.push(i); });
+      if (!hits.length) return { ok: false, because: 'there is no message from this agent at that time to react to' };
+      if (hits.length > 1) return { ok: false, because: 'two of this agent\'s messages share that time, so we could not tell which one you meant' };
+      const m = thread.messages[hits[0]];
+      const cur = dmReactions(m);
+      const op = cur.includes(e) ? 'remove' : 'add';
+      if (op === 'add' && cur.length >= DM_REACTIONS_PER_MESSAGE) {
+        return { ok: false, because: 'that message already has as many reactions as it can hold' };
+      }
+      const next = op === 'add' ? [...cur, e] : cur.filter((x) => x !== e);
+      const messages = thread.messages.slice();
+      messages[hits[0]] = { ...m, reactions: next };
+      const record = { ...thread, messages };
+      try {
+        const tmp = `${file}.${process.pid}.new`;
+        fs.writeFileSync(tmp, JSON.stringify(record, null, 2));
+        fs.renameSync(tmp, file);
+      } catch {
+        return { ok: false, because: 'we could not write this reaction down on this computer' };
+      }
+      return { ok: true, op, emoji: e, at: when, reactions: dmReactionPills(messages[hits[0]]) };
+    });
+  } catch {
+    return { ok: false, because: 'we could not write this reaction down on this computer' };
+  }
+  if (!held.ok) return { ok: false, because: held.because };
+  return held.value;
+}
+
+/* The `[kosmos]` note for the person's next message: every reaction on the agent's
+   messages the agent has not been told about yet, oldest message first, with the
+   start of each message so the agent can tell which one is meant. '' when there is
+   nothing new. One line, no control characters: it is typed into a pane.
+   dmReactionNews also returns `named` ({at: emojis}), what the note covers, for
+   markDmReactionsTold. */
+const DM_REACTION_SNIPPET = 48;          // enough of a message's start to recognise it, short enough for one line
+const DM_REACTION_NOTE_MESSAGES = 5;     // messages quoted per note; the rest are counted
+const DM_REACTIONS_PER_MESSAGE = 20;     // one person's reactions on one message; bounds the row a toggle rewrites
+function dmReactionNews(agent) {
+  const none = { note: '', named: {} };
+  let thread;
+  try { thread = readThread(DIRECT, String(agent)); } catch { return none; }
+  const parts = [];
+  const named = {};
+  for (const m of thread.messages) {
+    if (!m || m.from !== String(agent)) continue;
+    const told = new Set(Array.isArray(m.reactionsTold) ? m.reactionsTold : []);
+    const fresh = dmReactions(m).filter((e) => !told.has(e));
+    if (!fresh.length) continue;
+    // Every message with fresh reactions is recorded as told, the ones only counted below too.
+    named[String(m.at)] = (named[String(m.at)] || []).concat(fresh);
+    const words = String(m.text || '').replace(new RegExp(DM_PANE_UNSAFE.source, 'g'), ' ').replace(/[\s\u0000-\u001f\u007f]+/g, ' ').trim();
+    // By code point, so an emoji at the cut is never split into half a surrogate pair.
+    const chars = Array.from(words);
+    const snippet = chars.length > DM_REACTION_SNIPPET ? chars.slice(0, DM_REACTION_SNIPPET).join('').trimEnd() + '…' : words;
+    parts.push(fresh.join(' ') + ' on your message "' + snippet.replace(/"/g, '\'') + '"');
+  }
+  if (!parts.length) return none;
+  /* Bounded: at most DM_REACTION_NOTE_MESSAGES messages named, the rest counted, so a
+     backlog of reactions cannot turn one message into a wall of text in the pane. */
+  const shown = parts.slice(-DM_REACTION_NOTE_MESSAGES);
+  const more = parts.length - shown.length;
+  const note = ' [kosmos] reactions from the person you have not been told about yet: '
+    + (more ? 'reactions on ' + more + ' earlier message' + (more === 1 ? '' : 's') + '; ' : '') + shown.join('; ')
+    + '. A reaction is feedback, not a message: it needs no reply.';
+  return { note, named };
+}
+function dmReactionNote(agent) {
+  return dmReactionNews(agent).note;
+}
+
+/* Whether the note may ride this message at all. Never on a numbered menu answer: the
+   pane gets a bare digit there, and anything typed after it could land in whatever
+   prompt comes next. Checked on `chose` (the button that was pressed) AND on the text,
+   because the route drops `chose` when no menu is showing and a bare digit is exactly
+   what a menu takes. */
+function dmNoteMayRide(text, chose) {
+  if (chose) return false;
+  return !/^\s*\d+\s*$/.test(String(text == null ? '' : text));
+}
+
+/* After a message carrying that note reached the pane, record that the agent has now
+   been told what the note NAMED (`named` from dmReactionNews), not whatever is on the
+   message by the time this runs. A reaction taken back since drops out of
+   `reactionsTold`, so putting it back later is told again. Returns false, marking
+   nothing, without `named`. */
+function markDmReactionsTold(agent, named) {
+  const name = String(agent);
+  if (!named || typeof named !== 'object') return false;
+  let file;
+  try { file = threadFile(DIRECT, name); } catch { return false; }
+  try {
+    const held = withThreadLock(file, () => {
+      const thread = readThread(DIRECT, name);
+      let changed = false;
+      const messages = thread.messages.map((m) => {
+        if (!m || m.from !== name) return m;
+        const now = dmReactions(m);
+        const told = Array.isArray(m.reactionsTold) ? m.reactionsTold : [];
+        const said = Array.isArray(named[String(m.at)]) ? named[String(m.at)] : [];
+        const next = now.filter((e) => told.includes(e) || said.includes(e));
+        if (next.length === told.length && next.every((e) => told.includes(e))) return m;
+        changed = true;
+        return { ...m, reactionsTold: next };
+      });
+      if (!changed) return true;
+      const tmp = `${file}.${process.pid}.new`;
+      fs.writeFileSync(tmp, JSON.stringify({ ...thread, messages }, null, 2));
+      fs.renameSync(tmp, file);
+      return true;
+    });
+    return !!(held && held.ok);
+  } catch { return false; }
+}
+
 module.exports = {
-  DELIVERY, DIRECT, MAX_TEXT, MAX_MESSAGES, VIEWPORT_LINES,
+  DELIVERY, DIRECT, MAX_TEXT, MAX_MESSAGES, VIEWPORT_LINES, STORE_GROWTH, storedWithin, storedProblem,
   cleanMessage, storeText, messageProblem, addressable, resolveCard, paneTarget, wireText,
+  dmReactions, dmReactionPills, reactDirect, dmReactionNews, dmReactionNote, markDmReactionsTold, dmNoteMayRide,
   chunkUtf8, pasteToEnterMs, PASTE_CHUNK_BYTES,
-  deliver, viewport, questionIn, optionsIn, questionAbove, waitingNote, spawnFailure, verifyAtSend,
+  deliver, interrupt, stopHelpers, viewport, questionIn, optionsIn, questionAbove, waitingNote, spawnFailure, verifyAtSend,
   withQuestionRow,
+  withAccountRow,
   threadFile, readThread, appendMessage, supersede, withThreadLock,
   defaultAgentFor, looksLikeManager,
   dmSeenRead, markDmSeen, dmUnreadAll, dmUnread, DM_SEEN,

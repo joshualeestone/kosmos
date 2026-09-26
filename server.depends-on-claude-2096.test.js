@@ -46,6 +46,13 @@ test('every agent positively codex -> false', () => {
   assert.equal(someAgentNeedsClaude([{ runner: 'codex' }, { runner: 'codex' }]), false);
 });
 
+test('#3568: agents on Gemini, Grok or Gemini-by-subscription (antigravity) do not need Claude either', () => {
+  assert.equal(someAgentNeedsClaude([{ runner: 'antigravity' }]), false, 'an Antigravity-only Mac was shown the Claude banner');
+  assert.equal(someAgentNeedsClaude([{ runner: 'gemini' }, { runner: 'grok' }, { runner: 'codex' }]), false);
+  assert.equal(someAgentNeedsClaude([{ runner: 'antigravity' }, { runner: 'claude' }]), true, 'CONTROL: one Claude agent still needs Claude');
+  assert.equal(someAgentNeedsClaude([{ runner: 'antigravity' }, { runner: 'mystery' }]), true, 'CONTROL: an unknown runner still counts as Claude');
+});
+
 test('no agents at all (fresh install) -> false', () => {
   assert.equal(someAgentNeedsClaude([]), false);
 });

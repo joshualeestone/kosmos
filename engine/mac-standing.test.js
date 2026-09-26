@@ -2,29 +2,33 @@
 
 /**
  * Federation Kosmos+ gate, W1 refresh: engine/mac-standing.js -- the board-side
- * mac-cert POST /v1/mac/standing.
+ * READ of POST /v1/mac/standing, SIGNED through the tunnel's `mac-request` verb (#3626).
  *
  *   node --test engine/mac-standing.test.js
  *
- * The transport is FAKED (setRequestFactory), so enrolment, the cert read and the URL
- * derivation all still run -- only the network is replaced. The properties that make
- * this a safe paid-feature source: it fetches ONLY when enrolled + switched on, it maps
- * the coordinator's answer to a standing string, and EVERY failure resolves to null
- * (upstream then keeps the last-known value; the fed-route 403 is the hard gate).
+ * The tunnel binary is FAKED (test-support/fake-mac-request.js): enrolment, the switch
+ * gate, remote.macRequest's argv and stdin, and the answer parsing all run for real;
+ * only the binary that signs and dials is replaced. Every arm that expects a call runs
+ * inside a TRIPWIRE on http.request / https.request, so a return to the old unsigned
+ * direct call (which the coordinator refuses 401 "missing signature headers", measured
+ * in kosmos#3626) turns the arm red, and the fake's own record must show the call, so a
+ * module that quietly sends nothing is red too.
  */
 
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const { EventEmitter } = require('node:events');
 const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
+const { makeFakeTunnel, tripwire } = require('../test-support/fake-mac-request');
 
 const SANDBOX = fs.mkdtempSync(path.join(os.tmpdir(), 'aw-macstanding-'));
 process.env.AGENT_WORKFORCE_DATA = SANDBOX;
 const STATE = fs.mkdtempSync(path.join(os.tmpdir(), 'aw-macstanding-state-'));
 process.env.AGENT_WORKFORCE_TUNNEL_STATE = STATE;
 process.env.AGENT_WORKFORCE_TUNNEL_COORDINATOR = 'https://coord.example';
+const fake = makeFakeTunnel();
+process.env.AGENT_WORKFORCE_TUNNEL_BIN = fake.bin;
 const remote = require('../engine/remote');
 const macStanding = require('../engine/mac-standing');
 
@@ -35,110 +39,128 @@ function enroll(on) {
 }
 function unenroll() { for (const f of ['mac_id', 'address', 'tls.crt', 'tls.key']) { try { fs.rmSync(path.join(STATE, f), { force: true }); } catch { /* ignore */ } } }
 
-// A fake transport that captures opts and drives one response. `mode`:
-//  {status, body} -> emit a response; {error:true} -> emit 'error'; {timeout:true} -> 'timeout'.
-let lastOpts = null;
-function fake(mode) {
-  return (opts) => {
-    lastOpts = opts;
-    const req = new EventEmitter();
-    req.destroy = () => {};
-    req.end = () => {
-      process.nextTick(() => {
-        if (mode.error) { req.emit('error', new Error('down')); return; }
-        if (mode.timeout) { req.emit('timeout'); return; }
-        const res = new EventEmitter();
-        res.statusCode = mode.status;
-        res.setEncoding = () => {};
-        res.resume = () => {};
-        req.emit('response', res);
-        process.nextTick(() => {
-          if (typeof mode.body === 'string') res.emit('data', mode.body);
-          res.emit('end');
-        });
-      });
-    };
-    return req;
-  };
-}
-function withFake(mode, fn) { macStanding.setRequestFactory(fake(mode)); return Promise.resolve(fn()).finally(() => macStanding.setRequestFactory(null)); }
-
-test('parseStanding: standing string wins; kosmos_plus bool maps; else null', () => {
-  assert.equal(macStanding.parseStanding('{"standing":"good"}'), 'good');
-  assert.equal(macStanding.parseStanding('{"standing":"lapsed"}'), 'lapsed');
-  assert.equal(macStanding.parseStanding('{"kosmos_plus":true}'), 'good');
-  assert.equal(macStanding.parseStanding('{"kosmos_plus":false}'), 'none');
-  assert.equal(macStanding.parseStanding('{"standing":"good","kosmos_plus":false}'), 'good', 'the explicit string wins over the bool');
-  assert.equal(macStanding.parseStanding('not json'), null);
-  assert.equal(macStanding.parseStanding('{"other":1}'), null);
-  assert.equal(macStanding.parseStanding('42'), null);
-});
-
-test('fetchStanding: NULL and NO request when not enrolled', async () => {
-  unenroll();
-  lastOpts = null;
-  const r = await withFake({ status: 200, body: '{"standing":"good"}' }, () => macStanding.fetchStanding());
-  assert.equal(r, null, 'not enrolled -> null');
-  assert.equal(lastOpts, null, 'and no request was built');
-});
-
-test('fetchStanding: NULL when the switch is off (a paid route is not called)', async () => {
-  enroll(false);   // enrolled but on:false
-  lastOpts = null;
-  const r = await withFake({ status: 200, body: '{"standing":"good"}' }, () => macStanding.fetchStanding());
-  assert.equal(r, null, 'off -> null');
-  assert.equal(lastOpts, null, 'no request');
-});
-
-test('fetchStanding: a 200 good body -> "good", and it used the mac cert + the standing route', async () => {
-  enroll();
-  const r = await withFake({ status: 200, body: '{"standing":"good"}' }, () => macStanding.fetchStanding());
-  assert.equal(r, 'good');
-  assert.equal(lastOpts.method, 'POST', 'POST, not GET (verify_mac_request requires POST)');
-  assert.ok(String(lastOpts.path).endsWith('/v1/mac/standing'), 'hit the standing route: ' + lastOpts.path);
-  assert.ok(lastOpts.cert && lastOpts.key, 'the mac signature = the mTLS client cert + key (same as updating.js)');
-  assert.match(String(lastOpts.headers['content-type']), /application\/json/, 'JSON content-type');
-  assert.equal(lastOpts.hostname, 'coord.example', 'to the coordinator host');
-});
-
-test('fetchStanding: the kosmos_plus bool shape maps too (upgrade + non-member)', async () => {
-  enroll();
-  assert.equal(await withFake({ status: 200, body: '{"kosmos_plus":true}' }, () => macStanding.fetchStanding()), 'good');
-  assert.equal(await withFake({ status: 200, body: '{"kosmos_plus":false}' }, () => macStanding.fetchStanding()), 'none');
-});
-
-test('fetchStanding: a non-2xx -> null (keep last-known upstream)', async () => {
-  enroll();
-  assert.equal(await withFake({ status: 403, body: '{"error":"nope"}' }, () => macStanding.fetchStanding()), null);
-  assert.equal(await withFake({ status: 500, body: 'oops' }, () => macStanding.fetchStanding()), null);
-});
-
-test('fetchStanding: an unparseable 200 body -> null', async () => {
-  enroll();
-  assert.equal(await withFake({ status: 200, body: 'not json at all' }, () => macStanding.fetchStanding()), null);
-});
-
-test('the SUITE GUARD prevents any real coordinator dial (no injected transport) -- non-vacuous', async () => {
-  // NODE_TEST_CONTEXT is set by node --test. With NO injected factory, the guard must fire
-  // BEFORE the default transport is reached, so nothing dials login.kosmosplus.com with the
-  // bogus test cert. Spy on the DEFAULT transport (module.exports.dispatch, which fetchStanding
-  // uses when no factory is set): if the guard regressed, the spy would be called -> this fails.
-  enroll();
-  macStanding.setRequestFactory(null);
-  const realDispatch = macStanding.dispatch;
-  let dialed = false;
-  macStanding.dispatch = () => { dialed = true; throw new Error('the guard should have prevented a real dial'); };
+/* Run fn with the fake answering `mode`, the network tripwire armed, and stderr
+   captured. Returns { value, stderr, calls, dialled }. */
+async function run(mode, fn) {
+  fake.reset();
+  process.env.FAKE_MAC_REQUEST_MODE = mode;
+  const wire = tripwire();
+  const realWrite = process.stderr.write;
+  let stderr = '';
+  process.stderr.write = (chunk, ...rest) => { stderr += String(chunk); return true; };
   try {
-    const r = await macStanding.fetchStanding();
-    assert.equal(dialed, false, 'the default transport was NEVER invoked -- no real coordinator dial under test');
-    assert.equal(r, null, 'and it returned null');
-  } finally { macStanding.dispatch = realDispatch; }
+    const value = await fn();
+    return { value, stderr, calls: fake.calls(), dialled: wire.dialled };
+  } finally {
+    process.stderr.write = realWrite;
+    wire.restore();
+    delete process.env.FAKE_MAC_REQUEST_MODE;
+  }
+}
+
+test('parseStanding: standing string wins; kosmos_plus bool maps; else null; object or text', () => {
+  assert.equal(macStanding.parseStanding({ standing: 'good', kosmos_plus: false }), 'good');
+  assert.equal(macStanding.parseStanding('{"standing":"off"}'), 'off');
+  assert.equal(macStanding.parseStanding({ kosmos_plus: true }), 'good');
+  assert.equal(macStanding.parseStanding({ kosmos_plus: false }), 'none');
+  assert.equal(macStanding.parseStanding({}), null);
+  assert.equal(macStanding.parseStanding('not json'), null);
+  assert.equal(macStanding.parseStanding(null), null);
 });
 
-test('fetchStanding: a transport error or timeout -> null, never throws', async () => {
+test('fetchStanding: goes out SIGNED -- one `mac-request` POST /v1/mac/standing with {} on stdin, and no direct dial', async () => {
   enroll();
-  await assert.doesNotReject(async () => {
-    assert.equal(await withFake({ error: true }, () => macStanding.fetchStanding()), null);
-    assert.equal(await withFake({ timeout: true }, () => macStanding.fetchStanding()), null);
-  });
+  const r = await run('ok:{"standing":"good","valid_until":1,"grace_until":2,"receipt":"kst1.x"}', () => macStanding.fetchStanding());
+  assert.deepEqual(r.dialled, [], 'no direct http/https request: that is the unsigned path the coordinator refuses');
+  assert.equal(r.value, 'good');
+  assert.equal(r.calls.length, 1, 'exactly one tunnel call, so a module that sends nothing is red here too');
+  const c = r.calls[0];
+  assert.equal(c.args[0], 'mac-request', 'the signing verb, not a plain request');
+  assert.equal(fake.flag(c, '--method'), 'POST');
+  assert.equal(fake.flag(c, '--path'), '/v1/mac/standing');
+  assert.equal(fake.flag(c, '--state-dir'), remote.stateDir(), 'signed with THIS Mac\'s key directory');
+  assert.equal(fake.flag(c, '--coordinator'), 'https://coord.example');
+  assert.deepEqual(JSON.parse(c.stdin), {}, 'the body goes on stdin, never argv');
+  assert.equal(r.stderr, '', 'a success logs nothing');
+});
+
+test('fetchStanding: NULL and NO tunnel call when not enrolled', async () => {
+  unenroll();
+  const r = await run('ok:{"standing":"good"}', () => macStanding.fetchStanding());
+  assert.equal(r.value, null);
+  assert.equal(r.calls.length, 0);
+});
+
+test('fetchStanding: NULL and NO tunnel call when the switch is off (a paid route is not called)', async () => {
+  enroll(false);
+  const r = await run('ok:{"standing":"good"}', () => macStanding.fetchStanding());
+  assert.equal(r.value, null);
+  assert.equal(r.calls.length, 0);
+});
+
+test('fetchStanding: the kosmos_plus bool shape maps too', async () => {
+  enroll();
+  assert.equal((await run('ok:{"kosmos_plus":true}', () => macStanding.fetchStanding())).value, 'good');
+  assert.equal((await run('ok:{"kosmos_plus":false}', () => macStanding.fetchStanding())).value, 'none');
+});
+
+test('fetchStanding: a refusal, an old tunnel, or an unreadable answer -> null, never throws', async () => {
+  enroll();
+  for (const mode of ['refused', 'old-tunnel', 'garbage', 'ok:{"nothing":"here"}']) {
+    const r = await run(mode, () => macStanding.fetchStanding());
+    assert.equal(r.value, null, mode + ' must resolve to null so upstream keeps the last-known standing');
+    assert.deepEqual(r.dialled, [], mode + ': still no direct dial');
+  }
+});
+
+test('fetchStanding: a failure is LOGGED ONCE, not swallowed, and a success re-arms the log', async () => {
+  enroll();
+  const first = await run('refused', () => macStanding.fetchStanding());
+  assert.match(first.stderr, /kosmos#3626: \/v1\/mac\/standing failed: .*missing signature headers/,
+    'the reason reaches the board log (it was silent before #3626)');
+  const again = await run('refused', () => macStanding.fetchStanding());
+  assert.equal(again.stderr, '', 'the same failure on the next TTL refresh is not logged again');
+  const other = await run('old-tunnel', () => macStanding.fetchStanding());
+  assert.match(other.stderr, /unrecognized subcommand/, 'a DIFFERENT reason is logged');
+  await run('ok:{"standing":"good"}', () => macStanding.fetchStanding());
+  const afterOk = await run('old-tunnel', () => macStanding.fetchStanding());
+  assert.match(afterOk.stderr, /unrecognized subcommand/, 'after a success the same failure is logged again');
+});
+
+test('fetchStanding: a hung tunnel is bounded, resolves null', async () => {
+  enroll();
+  process.env.AGENT_WORKFORCE_MAC_REQUEST_TIMEOUT_MS = '300';
+  try {
+    const t0 = Date.now();
+    const r = await run('hang', () => macStanding.fetchStanding());
+    assert.equal(r.value, null);
+    assert.ok(Date.now() - t0 < 5000, 'resolved at the bound, not left hanging');
+  } finally { delete process.env.AGENT_WORKFORCE_MAC_REQUEST_TIMEOUT_MS; }
+});
+
+test('the SUITE GUARD: under the test runner with NO test tunnel binary, macRequest is never called', async () => {
+  // NODE_TEST_CONTEXT is set by node --test. Without a test-supplied tunnel binary the
+  // real bundled tunnel would sign with the sandbox key and reach the PAID coordinator.
+  // Observed at the call itself (a spy on remote.macRequest), NOT at the fake tunnel's
+  // record: with the seam unset nothing would reach the fake anyway, so a record-based
+  // arm stays green with the guard deleted.
+  enroll();
+  assert.ok(process.env.NODE_TEST_CONTEXT, 'precondition: running under node --test');
+  const real = remote.macRequest;
+  let called = 0;
+  remote.macRequest = async () => { called++; return { ok: true, data: { standing: 'good' } }; };
+  const seam = process.env.AGENT_WORKFORCE_TUNNEL_BIN;
+  delete process.env.AGENT_WORKFORCE_TUNNEL_BIN;
+  try {
+    assert.equal(await macStanding.fetchStanding(), null);
+    assert.equal(called, 0, 'the guard must stop the call before macRequest');
+    process.env.AGENT_WORKFORCE_TUNNEL_BIN = seam;
+    assert.equal(await macStanding.fetchStanding(), 'good', 'CONTROL: with the seam set, the same spy IS called');
+    assert.equal(called, 1);
+  } finally { remote.macRequest = real; process.env.AGENT_WORKFORCE_TUNNEL_BIN = seam; }
+});
+
+test.after(() => {
+  for (const d of [SANDBOX, STATE]) { try { fs.rmSync(d, { recursive: true, force: true }); } catch { /* best effort */ } }
+  fake.cleanup();
 });

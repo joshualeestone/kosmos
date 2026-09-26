@@ -50,6 +50,11 @@ const USAGE_DIR = path.join(store.ROOT, 'usage');
 // re-derived, for the reason above.
 const SYNTHETIC_ROW = /"model":"<[^"]*>"/;
 
+/* The folder Claude Code nests a session's subagent transcripts under
+   (<sess>/subagents/**). The walk descends into it and #2617's launch-folder
+   keying recognises a subagent by it, so both read one name. */
+const SUBAGENTS_DIRNAME = 'subagents';
+
 const BUCKET_FIELDS = ['input_tokens', 'output_tokens', 'cache_creation_input_tokens', 'cache_read_input_tokens'];
 
 function emptyBuckets() {
@@ -110,7 +115,7 @@ async function walkSubagentsTree(sessionDir, out) {
   let entries;
   try { entries = await fsp.readdir(sessionDir, { withFileTypes: true }); } catch { return; }
   for (const entry of entries) {
-    if (entry.isDirectory() && entry.name === 'subagents') {
+    if (entry.isDirectory() && entry.name === SUBAGENTS_DIRNAME) {
       await walkJsonlRecursive(path.join(sessionDir, entry.name), out);
     }
   }
@@ -147,8 +152,9 @@ function utcDay(isoTimestamp) {
  * (the agent that owns it may be running right now); a truncated last line
  * must not lose every other line in the file.
  *
- * Returns `{ days: { [date]: { [model]: bucketed } }, rootsRead: [...] }`
- * -- the roots list travels with the result so a caller can say "N of N
+ * Returns `{ days: { [date]: { [model]: bucketed } },
+ * folders: { [date]: { [launchCwd]: bucketed } }, rootsRead: [...] }` --
+ * the roots list travels with the result so a caller can say "N of N
  * config roots read" rather than imply completeness it cannot back up.
  */
 async function scanUsage({ sinceDay, untilDay }) {
@@ -159,11 +165,46 @@ async function scanUsage({ sinceDay, untilDay }) {
   const seenIds = new Set();
   const roots = configRoots();
   const days = {};
+  const folders = {};
+  // Launch folder per top-level transcript, for its subagents to inherit.
+  const launchOf = new Map();
   for (const root of roots) {
-    for (const file of await walkTranscriptsUnder(root)) {
+    /* Sorted, so when one message id appears in two transcripts launched in
+       different folders (a resumed session), the same file wins the dedup on
+       every scan and the per-agent split does not depend on readdir order. */
+    for (const file of (await walkTranscriptsUnder(root)).sort()) {
       let text;
       try { text = await fsp.readFile(file, 'utf8'); } catch { continue; }
-      for (const line of text.split('\n')) {
+      /* #2617: a transcript is keyed by the FIRST cwd it records, the folder
+         the session was launched in. A row's own cwd moves when the agent
+         `cd`s into a worktree; keyed per row, that work would leave the
+         agent. Measured on this Mac, 2026-09-24: 6 of the 60 newest
+         sessions carried more than one cwd, 21% of their rows off the first. */
+      const lines = text.split('\n');
+      let launch = '';
+      for (const line of lines) {
+        if (!line.includes('"cwd"')) continue;
+        let r;
+        try { r = JSON.parse(line); } catch { continue; }
+        if (r && typeof r.cwd === 'string' && r.cwd) { launch = r.cwd; break; }
+      }
+      /* A subagent's transcript (<sess>/subagents/**, at any depth) starts
+         wherever its spawner was standing, often a worktree. It is the top-level
+         session's work, so it takes that session's launch folder: the FIRST
+         /subagents/ segment names it. The sorted walk visits <sess>.jsonl before
+         <sess>/ ('.' sorts before '/'), so it is already known. The subagent
+         keeps its own first cwd when there is no top-level transcript on disk,
+         or that transcript records no cwd. Searched below the config root only,
+         so a root that itself sits under a folder named subagents is not read
+         as one. */
+      const sub = file.indexOf(path.sep + SUBAGENTS_DIRNAME + path.sep, root.length);
+      if (sub !== -1) {
+        const parent = launchOf.get(file.slice(0, sub) + '.jsonl');
+        if (parent) launch = parent;
+      } else {
+        launchOf.set(file, launch);
+      }
+      for (const line of lines) {
         if (!line || SYNTHETIC_ROW.test(line)) continue;
         let row;
         try { row = JSON.parse(line); } catch { continue; }
@@ -199,10 +240,19 @@ async function scanUsage({ sinceDay, untilDay }) {
         const bucket = days[day][model];
         for (const field of BUCKET_FIELDS) bucket[field] += Number(usage[field]) || 0;
         bucket.rows += 1;
+        /* #2617: the same row, once more, keyed by its transcript's launch
+           folder (above). byAgent() ties a folder to an agent. A transcript
+           that records no cwd keys to ''. */
+        const folder = launch;
+        if (!folders[day]) folders[day] = {};
+        if (!folders[day][folder]) folders[day][folder] = emptyBuckets();
+        const fb = folders[day][folder];
+        for (const field of BUCKET_FIELDS) fb[field] += Number(usage[field]) || 0;
+        fb.rows += 1;
       }
     }
   }
-  return { days, rootsRead: roots };
+  return { days, folders, rootsRead: roots };
 }
 
 async function ensureUsageDir() {
@@ -226,6 +276,25 @@ function frozenDayPath(day) {
      are small JSON and harmless; deleting them is a separate tidy, not a
      correctness step. */
   return path.join(USAGE_DIR, `${day}.v2.json`);
+}
+
+/* #2617: the per-folder split of a completed day, frozen beside the per-model
+   file and never in place of it. The model file stays the day's authoritative
+   total. A day frozen per-model before this shipped gets its folder split from
+   whatever transcripts still exist, which can be fewer than when the total was
+   taken; `byAgent` reports that gap as `unattributed` rather than hiding it. */
+function frozenFolderPath(day) {
+  return path.join(USAGE_DIR, `${day}.folders.v1.json`);
+}
+
+/* A frozen file's contents, or null when it is missing, unreadable, or not
+   a plain object (any of which means the day is rescanned). */
+function readFrozen(file) {
+  return fsp.readFile(file, 'utf8').then((t) => {
+    let v;
+    try { v = JSON.parse(t); } catch { return null; }
+    return v && typeof v === 'object' && !Array.isArray(v) ? v : null;
+  }, () => null);
 }
 
 function todayUtc() {
@@ -262,8 +331,9 @@ function todayUtc() {
  * scoped to `wanted` isn't wasted on days already cached -- a real, if
  * smaller, saving than skipping the read entirely would be.
  *
- * Returns `{ byDay: { [date]: { [model]: bucketed } }, rootsRead: [...] }`
- * -- `rootsRead` is always the CURRENT config roots (`configRoots()` is
+ * Returns `{ byDay: { [date]: { [model]: bucketed } },
+ * byFolder: { [date]: { [launchCwd]: bucketed } }, rootsRead: [...] }` --
+ * `rootsRead` is always the CURRENT config roots (`configRoots()` is
  * cheap: a readdir per candidate), reported every call, cached or not, so
  * a caller can always say "N of N config roots" rather than only on the
  * calls that happened to scan.
@@ -288,14 +358,14 @@ async function dailyUsageByModel(days = 7) {
   wanted.sort();
 
   const byDay = {};
+  const byFolder = {};
   const missing = [];
   for (const day of wanted) {
     if (day === today) { missing.push(day); continue; }
-    try {
-      byDay[day] = JSON.parse(await fsp.readFile(frozenDayPath(day), 'utf8'));
-    } catch {
-      missing.push(day);
-    }
+    const [m, f] = await Promise.all([readFrozen(frozenDayPath(day)), readFrozen(frozenFolderPath(day))]);
+    if (m) byDay[day] = m;
+    if (f) byFolder[day] = f;
+    if (!m || !f) missing.push(day);
   }
 
   let rootsRead = configRoots();
@@ -312,18 +382,118 @@ async function dailyUsageByModel(days = 7) {
     const scanResult = await scanUsage({ sinceDay, untilDay });
     rootsRead = scanResult.rootsRead;
     for (const day of missing) {
-      const byModel = scanResult.days[day] || {};
-      byDay[day] = byModel;
+      /* Whichever half of a past day is already frozen keeps it: re-deriving
+         it from today's transcripts could only lose what has been pruned
+         since. Only the missing half is taken from this scan and frozen. */
+      const has = (o) => day !== today && Object.prototype.hasOwnProperty.call(o, day);
+      const modelFrozen = has(byDay);
+      const folderFrozen = has(byFolder);
+      if (!modelFrozen) byDay[day] = scanResult.days[day] || {};
+      if (!folderFrozen) byFolder[day] = scanResult.folders[day] || {};
       if (day !== today) {
         try {
           await ensureUsageDir();
-          await fsp.writeFile(frozenDayPath(day), JSON.stringify(byModel), 'utf8');
-        } catch { /* best effort: a failed freeze just means this day rescans next time */ }
+        } catch { /* the writes below fail and say so */ }
+        /* Best effort, each half on its own: a failed freeze means that half
+           rescans next time. With two files per day that can be the whole
+           window on every request (a full disk, a read-only data folder), so
+           say it. */
+        if (!modelFrozen) {
+          try { await fsp.writeFile(frozenDayPath(day), JSON.stringify(byDay[day]), 'utf8'); }
+          catch (err) { console.error('usage: could not freeze ' + day + ':', (err && err.message) || err); }
+        }
+        if (!folderFrozen) {
+          try { await fsp.writeFile(frozenFolderPath(day), JSON.stringify(byFolder[day]), 'utf8'); }
+          catch (err) { console.error('usage: could not freeze the folder split for ' + day + ':', (err && err.message) || err); }
+        }
       }
     }
   }
 
-  return { byDay, rootsRead };
+  return { byDay, byFolder, rootsRead };
+}
+
+/**
+ * #2617: the window's tokens per agent, from the per-folder split.
+ *
+ * `agents` is [{ name, shown, dir }]. A folder is an agent's when it is the
+ * agent's own folder, both sides compared after `canonical` (realpath), so a
+ * link and its target match and two identical spellings always do. A subfolder is not
+ * claimed, so an agent recorded on a broad folder cannot absorb the person's
+ * own sessions beneath it. A message found in two transcripts (a resumed copy)
+ * counts once, for the transcript whose path sorts first: stable across scans,
+ * but not a judgement about which copy is the original. Kosmos resumes an agent
+ * in its own folder, so both copies usually carry the same launch folder.
+ * A folder two agents share goes to `shared`, not to
+ * whichever name sorts first. A folder no agent owns goes to `elsewhere`.
+ *
+ * Checked per day against the per-model total: `unattributed` is what a day's
+ * total holds beyond its folders (transcripts pruned after the total froze),
+ * and `overcount` is the reverse, so the two cannot cancel across days.
+ * Four buckets, never blended, as everywhere in this module.
+ */
+function byAgent({ byDay, byFolder }, agents, canonical = defaultCanonical) {
+  const owners = new Map();
+  for (const a of Array.isArray(agents) ? agents : []) {
+    if (!a || typeof a.name !== 'string' || typeof a.dir !== 'string' || !a.dir) continue;
+    const dir = canonical(a.dir);
+    if (!owners.has(dir)) owners.set(dir, []);
+    owners.get(dir).push({ name: a.name, shown: typeof a.shown === 'string' && a.shown ? a.shown : a.name });
+  }
+  const totals = new Map();
+  const elsewhere = emptyBuckets();
+  const shared = emptyBuckets();
+  const unattributed = emptyBuckets();
+  const overcount = emptyBuckets();
+  const add = (into, b) => { for (const f of BUCKET_FIELDS) into[f] += Number(b && b[f]) || 0; into.rows += Number(b && b.rows) || 0; };
+  const ownersOf = new Map();
+  const days = new Set([...Object.keys(byDay || {}), ...Object.keys(byFolder || {})]);
+  for (const day of days) {
+    const dayFolders = emptyBuckets();
+    for (const [folder, b] of Object.entries((byFolder && byFolder[day]) || {})) {
+      add(dayFolders, b);
+      if (!ownersOf.has(folder)) ownersOf.set(folder, folder ? owners.get(canonical(folder)) || [] : []);
+      const who = ownersOf.get(folder);
+      if (who.length > 1) { add(shared, b); continue; }
+      if (!who.length) { add(elsewhere, b); continue; }
+      const o = who[0];
+      if (!totals.has(o.name)) totals.set(o.name, { name: o.name, shown: o.shown, ...emptyBuckets() });
+      add(totals.get(o.name), b);
+    }
+    const dayModel = emptyBuckets();
+    for (const b of Object.values((byDay && byDay[day]) || {})) add(dayModel, b);
+    for (const f of [...BUCKET_FIELDS, 'rows']) {
+      const gap = dayModel[f] - dayFolders[f];
+      if (gap > 0) unattributed[f] += gap; else overcount[f] -= gap;
+    }
+  }
+  const list = [...totals.values()].sort((x, y) => (y.output_tokens - x.output_tokens) || x.name.localeCompare(y.name));
+  return { agents: list, elsewhere, shared, unattributed, overcount };
+}
+
+function defaultCanonical(p) {
+  return require('./trust').canonicalOnDisk(p);
+}
+
+/**
+ * byAgent() for a request handler: every folder and agent folder is resolved
+ * with the async realpath first, then the split runs on the results, so no
+ * synchronous filesystem call runs on the server's one thread. The number of
+ * distinct folders grows with worktrees and window length, not with agents.
+ * Same fallback as trust.canonicalOnDisk: a folder that is gone resolves to
+ * itself.
+ */
+async function byAgentAsync(result, agents) {
+  const all = new Set();
+  for (const day of Object.keys((result && result.byFolder) || {})) {
+    for (const folder of Object.keys(result.byFolder[day] || {})) if (folder) all.add(folder);
+  }
+  for (const a of Array.isArray(agents) ? agents : []) if (a && typeof a.dir === 'string' && a.dir) all.add(a.dir);
+  const real = new Map();
+  await Promise.all([...all].map(async (p) => {
+    try { real.set(p, await fsp.realpath(p)); } catch { real.set(p, path.resolve(p)); }
+  }));
+  return byAgent(result, agents, (p) => (real.has(p) ? real.get(p) : path.resolve(p)));
 }
 
 module.exports = {
@@ -331,6 +501,8 @@ module.exports = {
   walkTranscriptsUnder,
   scanUsage,
   dailyUsageByModel,
+  byAgent,
+  byAgentAsync,
   utcDay,
   BUCKET_FIELDS,
   USAGE_DIR,

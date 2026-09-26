@@ -8,11 +8,11 @@
  * ("We found 3 agents" over three rows, then "6 agents" counting a second surface's rows too).
  * #2497 (Josh, 2026-09-08, watching an external tester) removed the whole found-agents list from
  * onboarding: a developer's many tmux Claude Code sessions filled first run with garbage agents.
- * First run now ALWAYS lands on the no-agent "Create your first agent." / Giddy Up screen, so no
+ * First run now ALWAYS lands on the no-agent Giddy Up screen (#3575 heading "You're ready to start using Kosmos."), so no
  * found rows and no count line render on first-run S9, whatever discovery returns.
  *
  * This check now guards the SUPPRESSION: fed a found-agents payload (three, then thirty), first-run
- * S9 must show the create / Giddy Up screen with NO found rows and NO count line, and must not
+ * S9 must show the Giddy Up screen with NO found rows and NO count line, and must not
  * auto-connect anything. The found-agents engine is kept-but-bypassed (per the card); a user pulls
  * real agents in later via the manual Import Agent (#1652) on the Create Agent screen.
  *
@@ -60,8 +60,8 @@ async function landOnGiddyUp(browser, found, label) {
     countLine: (document.getElementById('fr-foundcount') || {}).textContent || null,
   }));
 
-  chk(/create your first agent/i.test(seen.heading), `[${label}] first run shows the create heading, not a found list`, seen.heading);
-  chk(/let’s get started/i.test(seen.box), `[${label}] the Giddy Up copy is present`, seen.box.slice(0, 120));
+  chk(/ready to start using Kosmos/i.test(seen.heading), `[${label}] first run shows the Giddy Up heading, not a found list`, seen.heading);
+  chk(/create or import agents/i.test(seen.box), `[${label}] the Giddy Up copy is present`, seen.box.slice(0, 120));
   chk(seen.foundRowsOnScreen === 0, `[${label}] no found/scan/adopt rows render on first run`, String(seen.foundRowsOnScreen));
   chk(seen.countLine === null, `[${label}] no found-count line renders`, JSON.stringify(seen.countLine));
   chk(connectCalls === 0, `[${label}] nothing was auto-connected on first run`, String(connectCalls));

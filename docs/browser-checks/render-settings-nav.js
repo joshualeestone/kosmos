@@ -18,6 +18,7 @@
  *   node docs/browser-checks/render-settings-nav.js            # headed
  *   HEADED=0 node docs/browser-checks/render-settings-nav.js   # headless
  */
+require('./lib-sandbox-home.js'); // #3675: never read the host Mac's real accounts
 const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
@@ -260,6 +261,180 @@ function chk(ok, label, extra) {
       chk(narrow.navHeight > 0 && narrow.navBottom <= narrow.secTop + 1, `[${theme}] at 420px the nav sits above the section`, JSON.stringify(narrow));
       chk(!narrow.overflow, `[${theme}] at 420px the page does not scroll sideways`);
       await page.screenshot({ path: path.join(OUT, `settings-${theme}-narrow.png`), fullPage: false });
+
+      /* #718 phone (375x667, the smallest of the four #718 sizes). The pills are ONE row that
+         scrolls sideways inside the nav, the page itself never does, and picking a pill off the
+         right edge brings it into view. Fields are 16px (iOS zooms the page for smaller) and the
+         controls are 44px to tap. The pill count is asserted first so "one row" cannot pass on
+         a nav that lost its pills. */
+      await page.setViewportSize({ width: 375, height: 667 });
+      await page.click('#s-nav button[data-go="you"]');
+      await page.waitForTimeout(300);
+      const phone = await page.evaluate(() => {
+        const nav = document.getElementById('s-nav');
+        const pills = [...nav.querySelectorAll('button[data-go]')];
+        return {
+          pills: pills.length,
+          rows: new Set(pills.map((b) => Math.round(b.getBoundingClientRect().top))).size,
+          navScrolls: nav.scrollWidth > nav.clientWidth,
+          pageOverflow: document.documentElement.scrollWidth > document.documentElement.clientWidth,
+          minPillH: Math.min(...pills.map((b) => b.getBoundingClientRect().height)),
+          nameFont: parseFloat(getComputedStyle(document.getElementById('you-name')).fontSize),
+          saveH: document.getElementById('you-name-save').getBoundingClientRect().height,
+        };
+      });
+      chk(phone.pills >= 9 && phone.rows === 1, `[${theme}] at 375px the section pills are one row`, JSON.stringify(phone));
+      chk(phone.navScrolls && !phone.pageOverflow, `[${theme}] at 375px the pill row scrolls inside itself and the page does not scroll sideways`, JSON.stringify(phone));
+      chk(phone.minPillH >= 44 && phone.saveH >= 44, `[${theme}] at 375px pills and the Save button are at least 44px tall`, JSON.stringify(phone));
+      chk(phone.nameFont >= 16, `[${theme}] at 375px the name field is at least 16px, so iOS does not zoom`, JSON.stringify(phone));
+
+      /* Control first: the last pill starts past the nav's right edge. The click is an in-page
+         el.click(), because Playwright's own click scrolls its target into view and would pass
+         this with settingsGo doing nothing. */
+      const offEdge = await page.evaluate(() => {
+        const n = document.getElementById('s-nav').getBoundingClientRect();
+        return document.querySelector('#s-nav button[data-go="advanced"]').getBoundingClientRect().left > n.right;
+      });
+      chk(offEdge, `[${theme}] control: at 375px the last pill starts past the nav's right edge`);
+      await page.evaluate(() => document.querySelector('#s-nav button[data-go="advanced"]').click());
+      await page.waitForTimeout(300);
+      const last = await page.evaluate(() => {
+        const n = document.getElementById('s-nav').getBoundingClientRect();
+        const c = document.querySelector('#s-nav button[data-go="advanced"]').getBoundingClientRect();
+        return { navL: n.left, navR: n.right, pillL: c.left, pillR: c.right, scrollY: window.scrollY };
+      });
+      chk(last.pillL >= last.navL - 1 && last.pillR <= last.navR + 1, `[${theme}] at 375px the chosen last pill is scrolled into view`, JSON.stringify(last));
+
+      /* A MIDDLE pill is centred, not merely in view: the last pill sits at the clamped end of
+         the scroll, where centring and snapping cannot disagree, so only a middle one tests it. */
+      const mid = await page.evaluate(async () => {
+        const pills = [...document.querySelectorAll('#s-nav button[data-go]')];
+        const b = pills[Math.floor(pills.length / 2)];
+        b.click();
+        await new Promise((r) => setTimeout(r, 600));
+        const nav = document.getElementById('s-nav');
+        const n = nav.getBoundingClientRect(), c = b.getBoundingClientRect();
+        const cs = getComputedStyle(nav);
+        const boxL = n.left + parseFloat(cs.borderLeftWidth), boxR = boxL + nav.clientWidth;
+        return { go: b.dataset.go, off: Math.round((c.left + c.width / 2) - (boxL + boxR) / 2), scrollLeft: nav.scrollLeft };
+      });
+      chk(mid.scrollLeft > 0 && Math.abs(mid.off) <= 3, `[${theme}] at 375px a middle pill (${mid.go}) is centred in the row`, JSON.stringify(mid));
+
+      // The needs-you dot on a pill clears its label (the phone padding is narrower than desktop).
+      const dot = await page.evaluate(() => {
+        const b = document.querySelector('#s-nav button[data-go="plus"]');
+        const had = b.hasAttribute('data-dot');
+        b.setAttribute('data-dot', '');
+        const d = b.querySelector('.dot');
+        // The visible label is the first span; the button also holds a visually hidden
+        // "(needs you)" span, whose off-screen box must not count as the label.
+        const range = document.createRange();
+        range.selectNodeContents(b.querySelector('span:not(.dot):not(.vh)') || b);
+        const out = { hasDot: !!d, textR: range.getBoundingClientRect().right, dotL: d ? d.getBoundingClientRect().left : null };
+        if (!had) b.removeAttribute('data-dot');
+        return out;
+      });
+      chk(dot.hasDot && dot.dotL >= dot.textR + 2, `[${theme}] at 375px the needs-you dot on a pill clears its label`, JSON.stringify(dot));
+
+      // The Kosmos Plus sign-in pill is 44px tall with its label centred in it.
+      await page.evaluate(() => document.querySelector('#s-nav button[data-go="plus"]').click());
+      await page.waitForTimeout(400);
+      const signin = await page.evaluate(() => {
+        const a = document.getElementById('plus-signin-top');
+        if (!a || !a.getClientRects().length) return null;
+        const r = a.getBoundingClientRect();
+        const range = document.createRange(); range.selectNodeContents(a);
+        const t = range.getBoundingClientRect();
+        return { h: r.height, off: Math.round((t.top + t.height / 2) - (r.top + r.height / 2)) };
+      });
+      chk(signin && signin.h >= 44 && Math.abs(signin.off) <= 2, `[${theme}] at 375px the Kosmos Plus sign-in pill is 44px with its label centred`, JSON.stringify(signin));
+      const signinLow = await page.evaluate(() => {
+        const a = document.getElementById('plus-signin-bottom');
+        if (!a || !a.getClientRects().length) return null;
+        const r = a.getBoundingClientRect();
+        const range = document.createRange(); range.selectNodeContents(a);
+        const t = range.getBoundingClientRect();
+        return { h: r.height, off: Math.round((t.top + t.height / 2) - (r.top + r.height / 2)) };
+      });
+      chk(signinLow && signinLow.h >= 44 && Math.abs(signinLow.off) <= 2, `[${theme}] at 375px the lower Kosmos Plus sign-in link is 44px with its label centred`, JSON.stringify(signinLow));
+
+      // A switch keeps its drawn size; a point just above it, inside the 44px band, still hits it.
+      // tips-toggle is always shown (eng-toggle ships hidden), in the This Mac section, so open
+      // that section first: the step above left Kosmos Plus on screen.
+      await page.evaluate(() => document.querySelector('#s-nav button[data-go="mac"]').click());
+      await page.waitForTimeout(400);
+      const hit = await page.evaluate(() => {
+        const t = document.getElementById('tips-toggle');
+        t.scrollIntoView({ block: 'center' });
+        const r = t.getBoundingClientRect();
+        const at = document.elementFromPoint(r.left + r.width / 2, r.top - 8);
+        return { h: r.height, hits: !!at && (at === t || t.contains(at)) };
+      });
+      chk(hit.h < 44 && hit.hits, `[${theme}] at 375px a switch keeps its drawn size and a tap 8px above it lands on it`, JSON.stringify(hit));
+      await page.screenshot({ path: path.join(OUT, `settings-${theme}-phone.png`), fullPage: false });
+
+      /* The current pill is centred on the two paths that do not go through a pill click:
+         a section chosen while Settings is hidden (showTab brings it back), and a section chosen
+         at desktop width before the window narrows to a phone. Each starts from scrollLeft 0,
+         so a pass means the page moved the row. Each uses its own middle pill that no step at
+         phone width clicked ('policy', then 'automation'): Chrome's scroll-snap restores the
+         pill it last snapped to, which would centre a previously clicked pill with no help. */
+      const centred = (go) => page.evaluate((key) => {
+        const nav = document.getElementById('s-nav');
+        const b = nav.querySelector('button[data-go="' + key + '"]');
+        const n = nav.getBoundingClientRect(), c = b.getBoundingClientRect();
+        const boxL = n.left + nav.clientLeft, boxR = boxL + nav.clientWidth;
+        return { go: key, on: b.classList.contains('on'), off: Math.round((c.left + c.width / 2) - (boxL + boxR) / 2), scrollLeft: nav.scrollLeft };
+      }, go);
+      await page.evaluate(() => {
+        if (document.activeElement) document.activeElement.blur();
+        showTab('agents');
+        document.getElementById('s-nav').scrollLeft = 0;
+        settingsGo('policy', { focus: false });
+        showTab('settings');
+      });
+      await page.waitForTimeout(400);
+      const viaShow = await centred('policy');
+      chk(viaShow.on && viaShow.scrollLeft > 0 && Math.abs(viaShow.off) <= 3,
+        `[${theme}] at 375px a section chosen while Settings was hidden is centred when Settings shows`, JSON.stringify(viaShow));
+      await page.setViewportSize({ width: 1400, height: 950 });
+      await page.waitForTimeout(300);
+      await page.evaluate(() => { document.getElementById('s-nav').scrollLeft = 0; settingsGo('automation', { focus: false }); });
+      await page.setViewportSize({ width: 375, height: 667 });
+      await page.waitForTimeout(500);
+      const viaResize = await centred('automation');
+      chk(viaResize.on && viaResize.scrollLeft > 0 && Math.abs(viaResize.off) <= 3,
+        `[${theme}] a section chosen at desktop width is centred once the window narrows to 375px`, JSON.stringify(viaResize));
+
+      /* A checkbox is tapped through its label, so each label wrapping one in Settings is at
+         least 44px tall. The Automation guards only show while the recommender is on, so the
+         check shows their row itself; it counts them first, so an empty set cannot pass. It runs
+         after the centring checks, which need 'automation' unclicked at this width. */
+      await page.evaluate(() => document.querySelector('#s-nav button[data-go="automation"]').click());
+      await page.waitForTimeout(300);
+      const boxes = await page.evaluate(() => {
+        const row = document.getElementById('rec-guards-row');
+        const was = row.hidden; row.hidden = false;
+        const out = [...document.querySelectorAll('#panel-settings .dsec label')]
+          .filter((l) => l.querySelector(':scope > input[type="checkbox"], :scope > input[type="radio"]') && l.getClientRects().length)
+          .map((l) => Math.round(l.getBoundingClientRect().height));
+        row.hidden = was;
+        return out;
+      });
+      chk(boxes.length >= 3 && boxes.every((h) => h >= 44), `[${theme}] at 375px every checkbox label in Settings is at least 44px tall`, JSON.stringify(boxes));
+
+      // The widest #718 phone (430) is still one row and still does not scroll sideways.
+      await page.setViewportSize({ width: 430, height: 932 });
+      await page.waitForTimeout(300);
+      const wide = await page.evaluate(() => {
+        const pills = [...document.querySelectorAll('#s-nav button[data-go]')];
+        return {
+          pills: pills.length,
+          rows: new Set(pills.map((b) => Math.round(b.getBoundingClientRect().top))).size,
+          pageOverflow: document.documentElement.scrollWidth > document.documentElement.clientWidth,
+        };
+      });
+      chk(wide.pills >= 9 && wide.rows === 1 && !wide.pageOverflow, `[${theme}] at 430px the pills are one row and the page does not scroll sideways`, JSON.stringify(wide));
 
       chk(errs.length === 0, `[${theme}] no page errors`, errs.join(' | '));
       await page.close();

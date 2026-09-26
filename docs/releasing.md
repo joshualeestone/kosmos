@@ -24,6 +24,28 @@ improvement it gained would have died with the session that wrote it.
    deliberate -- waiting three seconds for ruled copy is better than spending
    fifteen minutes to be told the same thing -- but it is a loss of a working
    habit and you will meet it on every cut, not only on a slow one.
+
+   **Then, still in step 1, test-sign with the cut's own identity (#3579; the cut
+   labels it `1c`)**, before anything is bumped or built. Step 4 signs Developer
+   ID. Over a plain SSH session the login keychain is **locked**: the identity is
+   listed, but codesign cannot reach the key and fails with
+   `errSecInternalComponent`. That killed the 0.6.91 cut twice at step 4, after
+   the full suite and the page layer, and a cut cannot resume. Now it stops in
+   about a second and mutates nothing. **Driving a cut on Mortals over SSH:** in
+   the SAME session that will run the cut, `security unlock-keychain
+   ~/Library/Keychains/login.keychain-db` (it prompts for the login password),
+   then run the cut in that session. An unlock in one SSH session did not reach a
+   cut detached (nohup) into another. The preflight prints these commands when it
+   finds the lock.
+   Since #3647, 1c also checks the two credentials that step 3c's pkg rebuild
+   would need, on every cut (it does not contact Apple's notary service): that
+   `security find-identity -v` lists the **Developer ID Installer** identity
+   (missing or expired refuses), and that the notary key's secrets-map target
+   (`KOSMOS_NOTARY_SECRET_TARGET` in `tools/lib/signing-identity.sh`, today
+   `kosmos-notarize`) resolves to a readable file. Either one missing refuses at
+   1c, naming every missing credential and its fix, instead of dying at 3c after
+   the suite. Mortals holds all three signing credentials (app, installer, notary
+   key).
 2. **Bump `package.json`.** One place. `engine/update.js` compares this against
    the served `latest.json`, numerically rather than lexically.
 3. **The whole suite**, on the tree that ships.

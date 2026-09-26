@@ -64,6 +64,10 @@
 # Exit status: 0 iff every selected check passed (after at most one retry).
 #
 set -uo pipefail
+# #3633: no board this script boots may download the agents' browser into the real
+# runners folder (engine/agentbrowser.js); the #1573 pair below does not set
+# AGENT_WORKFORCE_DRY_RUN, so this covers every boot site.
+export KOSMOS_AGENT_BROWSER=off
 
 log()  { printf '%s\n' "$*"; }
 sec()  { printf '\n=== %s ===\n' "$*"; }
@@ -213,7 +217,7 @@ else
   # freeze AND the uncommitted-changes warning above. Accepted for now: the
   # false-negative only fires on a deliberately unusual local git state, not
   # on the normal "commit, then run" workflow this fix targets.
-  log "Already on a detached HEAD ($REPO) -- isolated by the caller (release.sh's own freeze, #597/#611); not freezing again."
+  log "Already on a detached HEAD ($REPO) -- isolated by the caller (release.sh's own freeze, #597/#611, or a CI checkout, #2518); not freezing again."
 fi
 
 # --- cleanup, registered THE MOMENT there is anything to clean up -----------
@@ -234,6 +238,26 @@ fi
 # Servers were never affected: boot_board appends to SERVER_PIDS directly.
 RUN_DIR="$(mktemp -d "${TMPDIR:-/tmp}/kosmos-bc.XXXXXX")"
 SERVER_PIDS=()
+# #3675: no fixture board in this run may read the host Mac's real accounts. The
+# account modules look under AGENT_WORKFORCE_HOME || the real home, so every board
+# this script starts, and every check it runs, inherits a sandbox home inside
+# RUN_DIR (removed by cleanup). A caller that already pointed it somewhere other
+# than the real home keeps theirs. The checks also require
+# docs/browser-checks/lib-sandbox-home.js, which covers a check run on its own.
+if [ -z "${AGENT_WORKFORCE_HOME:-}" ] || [ "${AGENT_WORKFORCE_HOME%/}" = "${HOME%/}" ]; then
+  export AGENT_WORKFORCE_HOME="$RUN_DIR/home"
+  mkdir -p "$AGENT_WORKFORCE_HOME"
+fi
+# The OpenAI default resolves AGENT_WORKFORCE_CODEX_HOME || CODEX_HOME before the home seam
+# (codexupdate.js), and the Gemini/Grok/Claude session readers read GEMINI_CLI_HOME, GROK_HOME
+# and CLAUDE_CONFIG_DIR first, so an exported one would still reach the real home. Sealed by
+# REMOVAL, as tools/run-tests.sh does (#2858): naming a codex home instead would put every
+# board into the #1488 "operator named a codex home" mode, which is not the ordinary product.
+unset CODEX_HOME AGENT_WORKFORCE_CODEX_HOME GEMINI_CLI_HOME GROK_HOME CLAUDE_CONFIG_DIR
+# No check plants an ACCOUNT in this shared home: one that needs an account gets its own, in
+# its own board (sb8 below) or through lib-sandbox-home.js plantSubscribedClaude(), so no
+# check's premise depends on which other check ran first. (Boards may still write their own
+# state under it, as they would under a real home.)
 # #1818: a run that dies AFTER the checks begin but BEFORE the summary (a kill, an
 # OOM, or -- pre-fix -- a mid-run edit) otherwise leaves no FAILED line and no
 # run-log entry, so a reader grepping for FAIL reads the dead run as green (the
@@ -677,8 +701,8 @@ run_one() {
   # (the #2085 gate class: element present / hidden / clickable / labeled) and
   # leaves the timing/animation/paint checks -- which on the slow, headless
   # runner are both fragile (a "within 20s" assertion flakes) and low-confidence
-  # (SwiftShader software rendering) -- to the headed cut-time 3b, where a real
-  # compositor makes them reliable. A green under this env is the DOM-state gate,
+  # (SwiftShader software rendering) -- to the cut-time 3b on a dev Mac (headless
+  # too, but on a faster, quieter machine, where they are measured reliable). A green under this env is the DOM-state gate,
   # NOT full 3b coverage. Unset (the release cut, a dev run) => every check runs,
   # exactly as before. The case pattern is unquoted on purpose so the globs bind;
   # the label is wrapped in literal spaces for a whole-word match.
@@ -1032,7 +1056,20 @@ fi
 # socket behind them, so a lone free_port() here could collide with either
 # and strand an unrelated check's boot later in the run (#633's own class).
 sb8="$(new_sandbox)"
-AGENT_WORKFORCE_DATA="$sb8/data" AGENT_WORKFORCE_WORKERS="$sb8/workers" \
+# #3675: render-create-made makes an agent, so this board needs a Claude account and a
+# Claude Code binary. Before #3675 it silently used the host Mac's real ones (measured:
+# with an empty sandbox home it fails). Its own home carries a FIXTURE default account
+# (the address is .invalid on purpose: nothing real can answer to it), and a stand-in
+# Claude Code that answers --version and exits non-zero otherwise, as sb4's fake-claude
+# does, so the create liveness probe fails open instead of running the host's real
+# Claude Code against a real account.
+mkdir -p "$sb8/home/.claude"
+printf '%s\n' '{"oauthAccount":{"emailAddress":"fixture@example.invalid","organizationName":"Kosmos browser checks"}}' \
+  > "$sb8/home/.claude.json"
+printf '#!/bin/sh\n[ "$1" = --version ] && { echo "2.1.282 (Claude Code)"; exit 0; }\nexit 1\n' > "$sb8/fake-claude"
+chmod +x "$sb8/fake-claude"
+AGENT_WORKFORCE_HOME="$sb8/home" AGENT_WORKFORCE_CLAUDE_BIN="$sb8/fake-claude" \
+  AGENT_WORKFORCE_DATA="$sb8/data" AGENT_WORKFORCE_WORKERS="$sb8/workers" \
   AGENT_WORKFORCE_LAUNCH="$sb8/launch" AGENT_WORKFORCE_PROJECTS="$sb8/projects" \
   AGENT_WORKFORCE_RELEASE_BASE="http://127.0.0.1:9/dist" AGENT_WORKFORCE_DRY_RUN=1 \
   AGENT_WORKFORCE_TMUX_BIN="$FAKE_TMUX" \
@@ -1300,7 +1337,12 @@ fi
 # rejected account is excluded as a run target, an unchecked one stays offered+labelled). Proven RED
 # on the pre-fix page by observed behavior ("3 accounts connected", no move prompt for a rejected
 # account, rejected offered at create); no server, so it sits in this no-URL loop.
-for n in live-connect render-agent-nav render-busy-line render-busy-anim-3421 render-room-busy-scope-2882 render-reauth-reach-1918 render-account-badge-1921 render-disconnect-stop-2570 render-account-name-2095 render-account-dup-reauth-2584 render-observed-consumers-1959 render-workchip-zero-2157 render-createnav-2190 render-head-row render-room-scroll render-talk-anchor-1926 render-made-before render-detail-header-1841 render-start-agent-3410 render-detail-ring-1915 render-org-rings-2576 render-dm-badges-2863 render-nav-badges-3216 render-agentpage-fullwidth-2012 render-engmode-gate-2131 render-firstrun-namestep-1994wiz render-firstrun-enter-2186 render-firstrun-connect-box-2187 render-firstrun-connect-fires render-firstrun-access-onebox render-firstrun-stepcap-gear-0640 render-firstrun-openai-connectbox-2241 render-firstrun-grok-3386 render-firstrun-openai-sub-2621 render-chatgpt-signin-no-name-2913 render-settings-openai-goldbox render-claude-connect-choice-2433 render-connect-win32-install-570 render-win32-board-copy render-sound-master-2436 render-build-marker-2066 render-openai-only-2096 render-picker-provider-2097 render-create-openai-model-2140 render-detail-openai-model-2140 render-firstrun-model-continue-2134 render-firstrun-s6-2037 render-tophead-consolidated-2282 render-chip-filters-3423 render-org-drag render-pjsettings render-pjcreate-nav-3134 render-settings-nav render-plus-gate-1615 render-plus-signin-3478 render-prompter-label-1843 render-restarting-2019 render-talk-search render-talk render-agentdm-3414 render-talk-fill-2622 render-agent-msg-gray-2805 render-room-msgbox-2806 render-dm-multiline-3208 render-tasks render-subview-cleanup-3502 render-url-state render-memory-controls render-model-change render-model-restart-interstitial render-restart-kloader-2831 render-handoff-restart-3492 render-pjadd-back-2850 render-reassign-restart-2829 render-reassign-update-3050 render-alltasks emoji-picker-2254 render-composer-reset render-composer-stroke render-type-to-focus-3283 render-msg-counter-3403 render-agent-lines render-long-title render-title-descender-3438 render-project-rows render-richtext-2067 render-richtext-room-2239 render-docs-subfolders-2245 render-reactions-2255 render-firstrun-import-1652 render-firstrun-scan-on-grant-1652 render-firstrun-wizard-flow render-import-add-inplace-2419 render-addmem-flash-2429 render-bubblepop-2407 render-subprojects-1994 render-cons-tree-2929 render-cluster-reorder-2929 render-consolidated-settings-2842 render-consolidated-newagent-3053 render-consolidated-projects-3052 render-project-members-3387 render-user-menu-3051 render-firstrun-reentry-3359 render-projects-roadmap-3276 render-pj-clear-2575 render-autohello-2686 render-worlds-switcher-1704 render-worldswitch-2238 render-worldsw-abandon-2628 render-worldsw-lockout-3055 render-worldrename-1704 render-world-import-2563 render-worldsw-height-2350 render-emoji-mute-2357 render-pjmsg-prewrap-2294 render-model-spinners-2365 render-workindicator-2146 render-plus-blue-1615 render-trust-restart-0644 render-open-terminal-0644 render-provider-combobox-1040 render-gemini-logo-3422 render-inline-field-errors-2606 render-restore-dircheck-2615 render-frnav-2647 render-remove-force-2651 render-home-discovery-removed-3048 render-profile-field-widths-2697 render-project-needsyou-2699 render-reach-mark-3212 render-needsyou-dealarm-2808 render-codex-account-picker-2811 render-mention-blue-2922 render-worldhide-2935 render-openai-install-refusal render-fed-plus-gate; do
+# render-openai-devicecode-3436 is HERMETIC (file://, fetch stubbed): #3436, the Windows OpenAI
+# subscription sign-in by device code. On win32 the poll paints the link and the code (with Copy)
+# in first run and Settings, falls back to codex's own words, and a Mac browser sign-in is unchanged.
+# render-plus-bar-3837 boots its OWN board (#3837 F, the Kosmos+ remote bar): it reaches it through 127.0.0.1 (no bar)
+# and through remote.test, which Chromium maps to loopback and the board is told to accept (AGENT_WORKFORCE_ALLOWED_HOSTS).
+for n in live-connect render-agent-nav render-room-reply-3745 render-connlost-reconnect-3410 render-guide-hidden-3739 render-account-problem-3723 render-create-prefs-3081 render-agent-files-3614 render-tasks-view-3559 render-stale-auth-1930 render-subtasks-3861 render-busy-line render-busy-anim-3421 render-room-busy-scope-2882 render-reauth-reach-1918 render-account-badge-1921 render-disconnect-stop-2570 render-account-name-2095 render-account-dup-reauth-2584 render-observed-consumers-1959 render-workchip-zero-2157 render-createnav-2190 render-head-row render-room-scroll render-talk-anchor-1926 render-made-before render-detail-header-1841 render-start-agent-3410 render-detail-ring-1915 render-org-rings-2576 render-dm-badges-2863 render-nav-badges-3216 render-agentpage-fullwidth-2012 render-engmode-gate-2131 render-firstrun-namestep-1994wiz render-firstrun-enter-2186 render-firstrun-connect-box-2187 render-firstrun-connect-fires render-firstrun-access-onebox render-firstrun-stepcap-gear-0640 render-firstrun-openai-connectbox-2241 render-firstrun-grok-3386 render-conn-top-3708 render-firstrun-keyed-connect-3658 render-keyed-install-3713 render-no-conflict-3729 render-grok-subscription-3391 render-settings-agy-3874 render-firstrun-openai-sub-2621 render-openai-devicecode-3436 render-chatgpt-signin-no-name-2913 render-settings-openai-goldbox render-claude-connect-choice-2433 render-connect-win32-install-570 render-win32-board-copy render-sound-master-2436 render-build-marker-2066 render-openai-only-2096 render-picker-provider-2097 render-create-openai-model-2140 render-detail-openai-model-2140 render-firstrun-model-continue-2134 render-firstrun-s6-2037 render-tophead-consolidated-2282 render-chip-filters-3423 render-org-drag render-pjsettings render-pjcreate-nav-3134 render-settings-nav render-plus-gate-1615 render-plus-signin-3478 render-prompter-label-1843 render-recommender-live-3595 render-assigner-live-3595 render-restarting-2019 render-talk-search render-talk render-agentdm-3414 render-dm-emoji-3744 render-talk-fill-2622 render-help-tips-3574 render-assistant-bubble-3034 render-swarm-ui-3564 render-assistant-hosted-3660 render-plus-bar-3837 render-agent-msg-gray-2805 render-room-msgbox-2806 render-dm-multiline-3208 render-tasks render-subview-cleanup-3502 render-url-state render-memory-controls render-model-change render-model-restart-interstitial render-restart-kloader-2831 render-handoff-restart-3492 render-pjadd-back-2850 render-pjmode-style-3495 render-reassign-restart-2829 render-reassign-update-3050 render-alltasks emoji-picker-2254 render-composer-reset render-composer-stroke render-type-to-focus-3283 render-msg-counter-3403 render-agent-lines render-long-title render-title-descender-3438 render-project-rows render-richtext-2067 render-richtext-room-2239 render-reactions-2255 render-dm-reactions-3650 render-dm-phone-718 render-dm-chatfirst-718 render-firstrun-import-1652 render-firstrun-scan-on-grant-1652 render-firstrun-wizard-flow render-import-add-inplace-2419 render-addmem-flash-2429 render-bubblepop-2407 render-subprojects-1994 render-cons-tree-2929 render-cluster-reorder-2929 render-consolidated-settings-2842 render-consolidated-newagent-3053 render-consolidated-projects-3052 render-project-members-3387 render-user-menu-3051 render-firstrun-reentry-3359 render-projects-roadmap-3276 render-pj-clear-2575 render-autohello-2686 render-autohello-switch-2716 render-worlds-switcher-1704 render-worldswitch-2238 render-worldsw-abandon-2628 render-worldsw-lockout-3055 render-worldrename-1704 render-world-import-2563 render-worldsw-height-2350 render-emoji-mute-2357 render-pjmsg-prewrap-2294 render-model-spinners-2365 render-workindicator-2146 render-plus-blue-1615 render-plus-stars-3778 render-plus-panel-3829 render-trust-restart-0644 render-open-terminal-0644 render-provider-combobox-1040 render-provider-order-3651 render-gemini-logo-3422 render-inline-field-errors-2606 render-restore-dircheck-2615 render-frnav-2647 render-remove-force-2651 render-home-discovery-removed-3048 render-profile-field-widths-2697 render-project-needsyou-2699 render-reach-mark-3212 render-needsyou-dealarm-2808 render-waiting-phone-718 render-codex-account-picker-2811 render-mention-blue-2922 render-worldhide-2935 render-openai-install-refusal render-fed-plus-gate render-unread-edge-3743 render-fed-external-3311 render-no-left-bars-3692 render-docs-subfolders-2245; do
   run_one "$n" node "docs/browser-checks/$n.js"
 done
 # --- the rich board: four checks that could not be wired for want of a fixture
@@ -1602,7 +1644,7 @@ log "ran:     ${RAN[*]:-none}"
 # -cannot-see-zero). This runs BEFORE the FAILED gate below so a bad allowlist
 # lands in FAILED and reddens the run.
 if [ -n "${KOSMOS_BC_CI_ALLOWLIST:-}" ]; then
-  [ "${#SKIPPED[@]}" -gt 0 ] && log "skipped: ${#SKIPPED[@]} checks not in KOSMOS_BC_CI_ALLOWLIST (CI runs the DOM-state subset; timing/animation/paint stay at the headed cut 3b)"
+  [ "${#SKIPPED[@]}" -gt 0 ] && log "skipped: ${#SKIPPED[@]} checks not in KOSMOS_BC_CI_ALLOWLIST (CI runs the DOM-state subset; timing/animation/paint stay at the cut's 3b)"
   for _want in ${KOSMOS_BC_CI_ALLOWLIST//,/ }; do
     _seen=0
     for _m in ${CI_MATCHED[@]+"${CI_MATCHED[@]}"}; do [ "$_m" = "$_want" ] && { _seen=1; break; }; done
@@ -1615,6 +1657,9 @@ fi
 
 if [ "${#FAILED[@]}" -gt 0 ]; then
   log "FAILED:  ${FAILED[*]}"
+  # #2518: the same list, one entry per "|", for machines. Entries can contain spaces
+  # ("regress-a-night (server did not boot)"), so the line above cannot be re-split.
+  log "FAILED-LIST:  $(IFS='|'; printf '%s' "${FAILED[*]}")"
   log "why, from each check's own output (the full log has the rest):"
   for r in ${REASONS[@]+"${REASONS[@]}"}; do log "  $r"; done
   exit 1

@@ -86,6 +86,8 @@ function withStub(fn) {
 
 function runCli(args, env) {
   return new Promise((resolve) => {
+    // exit code not read (#3628): these tests assert what the stub board received, not how
+    // the CLI exited, so a killed CLI cannot pass by its exit code here.
     execFile(CLI, args, { env, timeout: 15000 }, () => resolve());
   });
 }

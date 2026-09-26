@@ -101,6 +101,27 @@ test('card: the connection_lost pill wears a state class the stylesheet actually
   assert.ok(rules > 0, `card uses .${cls[1]}, which has no rule in the stylesheet`);
 });
 
+/* #3410 (Mona Lisa's look): while Kosmos is reconnecting the card stays quiet (paused); once it
+   has given up the person is needed, so it wears needs_you's card (st-attn). */
+test('card: reconnecting keeps the paused look; given up wears the needs-you look', () => {
+  const clsOf = (extra) => (/class="astate (st-[a-z-]+)"/.exec(api.card(connLostAgent(extra))) || [])[1];
+  assert.equal(clsOf({ reconnect: { phase: 'waiting', tries: 0 } }), 'st-paused');
+  assert.equal(clsOf({ reconnect: { phase: 'retried', tries: 1 } }), 'st-paused');
+  const gaveUp = clsOf({ reconnect: { phase: 'gave_up', tries: 3 } });
+  assert.equal(gaveUp, 'st-attn', 'a given-up connection should ask for the person, not sit paused');
+  assert.equal(clsOf({}), 'st-paused', 'CONTROL: with no self-heal the card is unchanged');
+});
+
+/* #3410 (Mona Lisa): given up is counted under the Issue filter (data-attn); reconnecting is not. */
+test('card and list row: given up is in the Issue filter, reconnecting is not', () => {
+  for (const which of ['card', 'lrow']) {
+    const attnOf = (extra) => /\bdata-attn\b/.test(api[which](connLostAgent(extra)));
+    assert.equal(attnOf({ reconnect: { phase: 'gave_up', tries: 3 } }), true, `${which}: given up is not in the Issue filter`);
+    assert.equal(attnOf({ reconnect: { phase: 'waiting', tries: 0 } }), false, `${which}: reconnecting is in the Issue filter`);
+    assert.equal(attnOf({}), false, `${which}: CONTROL, no self-heal is not in the Issue filter`);
+  }
+});
+
 test('the page ships the expected connection_lost label copy', () => {
   assert.equal(pageLabel(), 'Connection lost',
     'the shipped STATE_COPY.connection_lost label changed; update this pin deliberately');
@@ -115,4 +136,80 @@ test('card: a connection_lost agent shows a human sentence, not the raw API-Erro
     'the card does not explain the connection_lost state in plain words');
   assert.doesNotMatch(html, /ENOTFOUND/,
     'the raw terminal evidence leaked onto the card face instead of a human sentence');
+});
+
+/* #3410 copy: what Kosmos is doing about it, from the route's `reconnect` field. Each phase is
+   rendered through the REAL card/lrow, and the no-field case is the control that keeps the
+   original "Connection lost" (the self-heal is not running, so nothing may promise a retry). */
+for (const which of ['card', 'lrow']) {
+  test(`${which}: while Kosmos still has retries to give, the label is "Reconnecting…", not "Connection lost"`, () => {
+    for (const phase of ['waiting', 'retried']) {
+      const html = api[which](connLostAgent({ reconnect: { phase, tries: phase === 'retried' ? 1 : 0 } }));
+      assert.match(html, /Reconnecting…/, `${which} (${phase}) did not say Kosmos is reconnecting`);
+      assert.doesNotMatch(html, /Connection lost/, `${which} (${phase}) still says Connection lost while Kosmos is on it`);
+    }
+  });
+  test(`${which}: once Kosmos has given up, or is not retrying at all, it is "Connection lost" again`, () => {
+    for (const extra of [{ reconnect: { phase: 'gave_up', tries: 3 } }, { reconnect: null }, {}]) {
+      const html = api[which](connLostAgent(extra));
+      assert.match(html, /Connection lost/, `${which} ${JSON.stringify(extra)} lost the Connection lost label`);
+      assert.doesNotMatch(html, /Reconnecting…/, `${which} ${JSON.stringify(extra)} claimed a reconnect`);
+    }
+  });
+}
+
+test('card: the sentence says what Kosmos is doing, and promises nothing when it is not retrying', () => {
+  const says = (extra) => api.card(connLostAgent(extra));
+  assert.match(says({ reconnect: { phase: 'waiting', tries: 0 } }), /Kosmos will try again for you\./);
+  assert.match(says({ reconnect: { phase: 'retried', tries: 2 } }), /Kosmos has asked it to try again/);
+  const gaveUp = says({ reconnect: { phase: 'gave_up', tries: 3 } });
+  assert.match(gaveUp, /Kosmos tried a few times and stopped\./);
+  assert.match(gaveUp, /If your internet is working, restart the agent\. It starts fresh, so anything it was in the middle of is lost\./);
+  const off = says({});
+  assert.match(off, /lost its internet connection/);
+  assert.doesNotMatch(off, /Kosmos (will try|has asked)/, 'promised a retry with no self-heal running');
+});
+
+/* #3410: the 15-minute check-in does not ask the person to reconnect an agent Kosmos is already
+   reconnecting. The shipped prompterCheckinQuestion, evaluated with a LAST it can read. */
+test('check-in: while Kosmos is reconnecting it, the question does not ask the person to reconnect it', () => {
+  const at = SCRIPT.indexOf('function prompterCheckinQuestion(n)');
+  assert.ok(at > -1, 'prompterCheckinQuestion is gone from the page; this test is stale, not the code');
+  const body = SCRIPT.slice(at, SCRIPT.indexOf('\n}\n', at) + 3);
+  // eslint-disable-next-line no-new-func
+  const ask = (LAST, n) => new Function('LAST', body + '\n; return prompterCheckinQuestion;')(LAST)(n);
+  // The LAST rows are the real fleet card (connLostAgent), keyed by its own sessionName.
+  const n = { session: BASE.sessionName, to: 'connection_lost' };
+  for (const phase of ['waiting', 'retried']) {
+    const q = ask([connLostAgent({ reconnect: { phase, tries: 0 } })], n);
+    assert.match(q, /Kosmos is reconnecting it/);
+    assert.doesNotMatch(q, /Reconnect it/, `(${phase}) asked the person to reconnect it`);
+  }
+  // Given up: the same verb as the card ("restart the agent").
+  assert.match(ask([connLostAgent({ reconnect: { phase: 'gave_up', tries: 3 } })], n), /Kosmos stopped trying\. Restart it, or is it done\?/);
+  // Control: not running, or no board read yet: the original question.
+  for (const LAST of [[connLostAgent({ reconnect: null })], []]) {
+    assert.match(ask(LAST, n), /Reconnect it, or is it done\?/);
+  }
+});
+
+/* #3726: the member row reads the reconnect its own /api/projects answer carries FIRST, so it
+   agrees with the project's Issue pill (counted from that same answer) even before /api/status has
+   answered (LAST empty) or when the two polls straddle an escalation. LAST is the fallback only. */
+test('#3726: a project member row takes the reconnect its own answer carries, LAST only as a fallback', () => {
+  const at = SCRIPT.indexOf('function pjMember(');
+  assert.ok(at > -1, 'pjMember is gone from the page; this test is stale, not the code');
+  const src = SCRIPT.slice(at, SCRIPT.indexOf('\n}\n', at));
+  const m = src.match(/const liveM = [\s\S]*?\n    : m;/);
+  assert.ok(m, 'the liveM statement moved; update this test');
+  // eslint-disable-next-line no-new-func
+  const live = (mm, LAST) => new Function('m', 'LAST', m[0] + '\nreturn liveM;')(mm, LAST);
+  // Both the member (the fields liveM reads: state, sessionName, reconnect) and the LAST rows are
+  // built from the real fleet card (connLostAgent), keyed by its own sessionName.
+  const member = (reconnect) => Object.assign({}, connLostAgent({ reconnect }), { present: true });
+  const board = (phase) => [connLostAgent({ reconnect: { phase, tries: 1 } })];
+  assert.equal(live(member({ phase: 'gave_up' }), []).reconnect.phase, 'gave_up', 'an empty LAST erased the member\'s own reconnect');
+  assert.equal(live(member({ phase: 'gave_up' }), board('waiting')).reconnect.phase, 'gave_up', 'LAST overrode the answer the pill counts from');
+  // Fallback: an answer with no reconnect borrows the board's.
+  assert.equal(live(member(null), board('retried')).reconnect.phase, 'retried', 'the fallback to LAST is gone');
 });

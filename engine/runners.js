@@ -44,6 +44,8 @@ const os = require('os');
 const path = require('path');
 const https = require('https');
 const crypto = require('crypto');
+const zlib = require('zlib');
+const { pipeline } = require('stream/promises');
 const { execFile } = require('child_process');
 const platformGate = require('./platform');
 
@@ -107,6 +109,45 @@ const MANIFEST = Object.assign(Object.create(null), {
     binInPackage: 'vendor/aarch64-apple-darwin/bin/codex',
     binName: 'codex',
     downloadBytes: 114152335,
+  },
+  /* #3713: Google's Gemini CLI, which Kosmos's Gemini runner (#3296) drives. Same trust
+     anchor as the codex entry: the npm registry's own sha512 for this exact tarball, fetched
+     with no npm client. 0.61.0 is the version #3296 was built and measured against on the
+     fleet Mac, and npm's latest on 2026-09-25.
+     ⚠️ IT IS A NODE PROGRAM, NOT A BINARY. The tarball is a self-contained `bundle/` (449
+     files, no node_modules; listed 2026-09-25) whose entry starts `#!/usr/bin/env node`, and a
+     fresh Mac has no `node` on its PATH. So the one stable path is not a symlink to the bundle
+     but a small launcher (`launcher: 'node'`) that runs it with the node this board runs on,
+     which on an installed Kosmos is its own shipped runtime. The tarball is the same for every
+     CPU, so there is no `arch`. */
+  gemini: {
+    name: "Google's Gemini CLI",
+    version: '0.61.0',
+    url: 'https://registry.npmjs.org/@google/gemini-cli/-/gemini-cli-0.61.0.tgz',
+    integrity: 'sha512-dbQ9A0qBtFJNi6XBkHvfZ6Azpn6PNgH/P8h2MZ67RLlX8hSAVjup39CRWqdRxZv7YXIuhrFaytr8y0jKnkoxnQ==',
+    binInPackage: 'bundle/gemini.js',
+    binName: 'gemini',
+    launcher: 'node',
+    downloadBytes: 20772697,
+  },
+  /* #3713: xAI's Grok CLI (Grok Build), which Kosmos's Grok runner (#3391) drives. The
+     npm package @xai-official/grok is a wrapper; the program is a per-CPU package
+     (@xai-official/grok-darwin-arm64, -darwin-x64) holding ONE brotli-compressed native
+     binary, `bin/grok.br`, which the vendor's postinstall decompresses (read 2026-09-25:
+     brotli-decompress, chmod 755, nothing else). Kosmos runs no npm scripts, so the install
+     does that step itself (`brotliFrom`) after the tarball's checksum has passed. 1.0.41 is
+     npm's latest and the version this Mac ran #3391 on. The Intel build is GROK_DARWIN.x64
+     below. */
+  grok: {
+    name: "xAI's Grok CLI",
+    version: '1.0.41',
+    arch: 'arm64',
+    url: 'https://registry.npmjs.org/@xai-official/grok-darwin-arm64/-/grok-darwin-arm64-1.0.41.tgz',
+    integrity: 'sha512-EVyCWTOe1ZDdURiK8EvRUw9Q8BPU2Upnc6o+ECwXYXSCtRmlR9/MxqNt6beZtOujjyAsAWE7VRBvjZrtyCTFWw==',
+    brotliFrom: 'bin/grok.br',
+    binInPackage: 'bin/grok-native',
+    binName: 'grok',
+    downloadBytes: 42511097,
   },
   claude: {
     name: 'Claude Code',
@@ -195,6 +236,49 @@ const CODEX_WIN32 = Object.freeze(Object.assign(Object.create(null), {
 }));
 
 /**
+ * #3713: the Intel Mac build of the same pinned Grok CLI. Same source and trust anchor as
+ * the arm64 entry (its own registry sha512; the tarball downloaded, matched it, and was
+ * measured at this size, 2026-09-25) and the same layout, one `bin/grok.br`.
+ */
+const GROK_DARWIN = Object.freeze(Object.assign(Object.create(null), {
+  x64: Object.freeze({
+    arch: 'x64',
+    url: 'https://registry.npmjs.org/@xai-official/grok-darwin-x64/-/grok-darwin-x64-1.0.41.tgz',
+    integrity: 'sha512-f7BK6JwObPuDwkV6T5H7HuH46Txa522k1F+mKIxdcgu9C+mPGTiSZSzcGXFShifJ4IZuh4Tq7vqOQacQNEEWWA==',
+    downloadBytes: 49619881,
+  }),
+}));
+
+/**
+ * The WINDOWS builds of the same pinned Grok CLI, keyed by process.arch. Same source and
+ * trust anchor as the Mac entries: xAI publishes @xai-official/grok-win32-x64 and
+ * -win32-arm64 as the wrapper's optionalDependencies, each with its own registry sha512.
+ * MEASURED on a Windows 11 box, 2026-09-25: both tarballs downloaded and matched the
+ * integrity pinned here, the byte counts are the real file sizes, and the x64 build,
+ * expanded from `bin/grok.exe.br` exactly as the vendor postinstall does, answered
+ * `grok 1.0.41` to --version and ran a headless turn up to xAI's own key check.
+ * The layout is the Mac one with the Windows name: ONE compressed binary, no siblings.
+ */
+const GROK_WIN32 = Object.freeze(Object.assign(Object.create(null), {
+  x64: Object.freeze({
+    arch: 'x64',
+    url: 'https://registry.npmjs.org/@xai-official/grok-win32-x64/-/grok-win32-x64-1.0.41.tgz',
+    integrity: 'sha512-1Z/0+cXzTJJlnqu45lfQMFErBARASXglFYpDNk0rQJVIuKAB0h4bxKCvc3SRlxX908badaSA+9ZB+KjwDO7opw==',
+    brotliFrom: 'bin/grok.exe.br',
+    binInPackage: 'bin/grok.exe',
+    downloadBytes: 46487197,
+  }),
+  arm64: Object.freeze({
+    arch: 'arm64',
+    url: 'https://registry.npmjs.org/@xai-official/grok-win32-arm64/-/grok-win32-arm64-1.0.41.tgz',
+    integrity: 'sha512-J+QqtMi7cmvYzSFU4ccyfxYoEJZQiliDHrIgRRB9lP0lSfub9Ij3uLf1SbjkNeo4bbE5dWHIJOe2zcG+Tg7umQ==',
+    brotliFrom: 'bin/grok.exe.br',
+    binInPackage: 'bin/grok.exe',
+    downloadBytes: 41583124,
+  }),
+}));
+
+/**
  * The manifest entry for `provider` ON A GIVEN PLATFORM AND CPU. Everything that
  * installs or resolves a runner asks this rather than reading MANIFEST directly,
  * so the Mac and Windows answers can never drift into two resolvers again.
@@ -214,6 +298,18 @@ function manifestFor(provider, platform = process.platform, arch = process.arch)
     const build = CODEX_WIN32[arch] || CODEX_WIN32.x64;
     return Object.freeze({ ...base, ...build, binName: 'codex.exe' });
   }
+  if (provider === 'grok' && platform === 'darwin' && GROK_DARWIN[arch]) {
+    return Object.freeze({ ...base, ...GROK_DARWIN[arch] });
+  }
+  /* Windows: Grok's own Windows build (a CPU with none gets x64, refused by name by the
+     arch guard, as codex does); Gemini's bundle is the same tarball on every platform, so
+     only its stable name changes, to the .cmd launcher managedBin names (see winNodeLauncher). */
+  if (provider === 'grok' && platform === 'win32') {
+    return Object.freeze({ ...base, ...(GROK_WIN32[arch] || GROK_WIN32.x64), binName: 'grok.exe' });
+  }
+  if (provider === 'gemini' && platform === 'win32') {
+    return Object.freeze({ ...base, binName: 'gemini.cmd' });
+  }
   return base;
 }
 
@@ -229,18 +325,27 @@ function manifestFor(provider, platform = process.platform, arch = process.arch)
  * vouches for (version + binary path) so an older marker cannot vouch for a newer
  * tree. resolveBin's win32 managed rung requires it; see the comment there.
  */
-function verifiedMarker(platform = process.platform) {
+/* The Windows Gemini and Grok installs keep one too, in their own folder: a grok.exe that
+   failed its --version can survive antivirus the same way codex.exe can. `provider`
+   defaults to 'openai', so every existing caller names the same file it always did. */
+function verifiedMarker(platform = process.platform, provider = 'openai') {
   const flavour = platform === 'win32' ? path.win32 : path;
-  return flavour.join(managedRoot(), 'openai', '.verified');
+  return flavour.join(managedRoot(), provider, '.verified');
 }
 const verifiedStamp = (m) => `${m.version} ${m.binInPackage}`;
-function isVerified(m, platform = process.platform) {
-  try { return fs.readFileSync(verifiedMarker(platform), 'utf8').trim() === verifiedStamp(m); } catch { return false; }
+function isVerified(m, platform = process.platform, provider = 'openai') {
+  try { return fs.readFileSync(verifiedMarker(platform, provider), 'utf8').trim() === verifiedStamp(m); } catch { return false; }
 }
 
-function managedBin(m, platform = process.platform) {
+function managedBin(m, platform = process.platform, provider = 'openai') {
   const flavour = platform === 'win32' ? path.win32 : path;
-  const dest = flavour.join(managedRoot(), 'openai');
+  /* #3713: each managed runner has its own folder under managedRoot(), named for its
+     provider, which is where install() stages it (`destDir`). This defaulted to 'openai'
+     when that was the only one; the default keeps every existing caller's answer. */
+  const dest = flavour.join(managedRoot(), provider);
+  /* A node program on Windows (Gemini) is reached through the .cmd launcher beside its
+     tree, the Windows spelling of the Mac's shell launcher (see winNodeLauncher). */
+  if (platform === 'win32' && m.launcher === 'node') return flavour.join(dest, m.binName);
   if (platform === 'win32') return flavour.join(dest, 'pkg', ...m.binInPackage.split('/'));
   return flavour.join(dest, m.binName);
 }
@@ -440,6 +545,13 @@ function homeDir() {
  * homeDir() rather than above the function it documents, so it described the
  * wrong thing to any reader who trusted its position.
  */
+/* #3568: the name the pane will show for an agy path. tmux reports the file that runs, after
+   symlinks, so a link called agy that points at agy-1.2.10 shows agy-1.2.10. Falls back to the
+   given name when the path cannot be resolved (it does not exist yet). */
+function agyRealName(bin) {
+  const given = String(bin || '');
+  try { return path.basename(fs.realpathSync(given)); } catch { return path.basename(given); }
+}
 function resolveBin(provider, opts) {
   if (provider === 'claude') {
     // Same authoritative-override contract as openai, with Claude's own
@@ -461,45 +573,76 @@ function resolveBin(provider, opts) {
     const canonical = path.join(homeDir(), '.local', 'bin', MANIFEST.claude.binName);
     return { bin: canonical, present: isRunnable(canonical), managed: false, overridden: false };
   }
-  /* #3296: the Gemini runner. Like the claude branch, this is a LEGACY-rung
-     resolution today, not a managed tarball install: the gemini CLI is a
-     node-script package whose `gemini` bin is a `#!/usr/bin/env node` shebang
-     script (with the exec bit, so it clears isRunnable's X_OK exactly like
-     codex's symlink). A managed MANIFEST.gemini install is a later hardening;
-     until then the runner is the vendor's npm-global `gemini`, resolved the same
-     way codex resolves its legacy `/opt/homebrew/bin/codex` rung on this box.
+  /* #3296: the Gemini runner; #3713 gave it a managed install (MANIFEST.gemini, a
+     launcher that runs the vendor's bundle with the board's node).
 
-     Rungs: the env override (the harness/self-host contract every bin path
-     honours), then the legacy npm-global path. `managed` is always false (no
-     Kosmos-managed location yet), matching the vendor-external shape of the
-     claude branch. `envName` travels with the answer for the same reason it does
-     on the other branches: a refusal that names a variable must name the RIGHT
-     one. */
+     Rungs: the env override (the harness/self-host contract every bin path honours),
+     then the copy Kosmos installed, then the vendor's npm-global `gemini` this Mac may
+     already have (resolved the way codex resolves its legacy /opt/homebrew/bin/codex
+     rung). `envName` travels with the answer for the same reason it does on the other
+     branches: a refusal that names a variable must name the RIGHT one. */
   if (provider === 'gemini') {
     const envGemini = process.env.AGENT_WORKFORCE_GEMINI_BIN;
     if (envGemini) return { bin: envGemini, present: isRunnable(envGemini), managed: false, overridden: true, envName: 'AGENT_WORKFORCE_GEMINI_BIN' };
+    /* #3713: the copy Kosmos installed comes first, then the vendor's npm-global one this
+       Mac already had. Absent both, the answer names the managed path, so an install is
+       seen the moment it lands and a refusal names where it would go (as openai's does). */
+    const plat = (opts && opts.platform) || process.platform;
+    const mf = manifestFor('gemini', plat, (opts && opts.arch) || process.arch);
+    const managed = managedBin(mf, plat, 'gemini');
+    // A launcher that can no longer find a node is not present: Connect then offers the
+    // download again, which rewrites it (review pass 1).
+    // On Windows it must also carry the verified marker, as codex.exe does (see the openai arm).
+    if (isRunnable(managed) && launcherHasNode(managed) && (plat !== 'win32' || isVerified(mf, plat, 'gemini'))) {
+      return { bin: managed, present: true, managed: true, overridden: false };
+    }
     const legacy = (opts && opts.legacyBin) || '/opt/homebrew/bin/gemini';
-    return { bin: legacy, present: isRunnable(legacy), managed: false, overridden: false };
+    if (isRunnable(legacy)) return { bin: legacy, present: true, managed: false, overridden: false };
+    return { bin: managed, present: false, managed: true, overridden: false };
   }
-  /* #3391: the Grok runner. Same LEGACY-rung shape as gemini, and for the same
-     reason it is not a managed tarball install yet: the grok CLI is the
-     @xai-official/grok npm package whose `grok` bin is a NATIVE binary
-     (/opt/homebrew/bin/grok -> node_modules/@xai-official/grok/bin/grok-native,
-     with the exec bit, so it clears isRunnable's X_OK exactly like codex's
-     symlink). A managed MANIFEST.grok install is a later hardening; until then the
-     runner is the vendor's npm-global `grok`, resolved the same way codex resolves
-     its legacy /opt/homebrew/bin/codex rung on this box.
+  /* #3391: the Grok runner; #3713 gave it a managed install (MANIFEST.grok, the
+     vendor's native binary expanded from its per-CPU package).
 
-     Rungs: the env override (the harness/self-host contract every bin path
-     honours), then the legacy npm-global path. `managed` is always false (no
-     Kosmos-managed location yet), matching the vendor-external shape of the claude
-     and gemini branches. `envName` travels with the answer so a refusal names the
-     RIGHT variable. */
+     Rungs: the env override, then the copy Kosmos installed, then the vendor's
+     npm-global `grok` (/opt/homebrew/bin/grok -> node_modules/@xai-official/grok/bin/
+     grok-native) this Mac may already have. `envName` travels with the answer so a
+     refusal names the RIGHT variable. */
   if (provider === 'grok') {
     const envGrok = process.env.AGENT_WORKFORCE_GROK_BIN;
     if (envGrok) return { bin: envGrok, present: isRunnable(envGrok), managed: false, overridden: true, envName: 'AGENT_WORKFORCE_GROK_BIN' };
+    /* #3713: the copy Kosmos installed comes first, then the vendor's npm-global one this
+       Mac already had. Absent both, the answer names the managed path, so an install is
+       seen the moment it lands and a refusal names where it would go (as openai's does). */
+    const plat = (opts && opts.platform) || process.platform;
+    const mf = manifestFor('grok', plat, (opts && opts.arch) || process.arch);
+    const managed = managedBin(mf, plat, 'grok');
+    // On Windows, existing is not installed: the verified marker must vouch for it (openai arm).
+    if (isRunnable(managed) && (plat !== 'win32' || isVerified(mf, plat, 'grok'))) {
+      return { bin: managed, present: true, managed: true, overridden: false };
+    }
     const legacy = (opts && opts.legacyBin) || '/opt/homebrew/bin/grok';
-    return { bin: legacy, present: isRunnable(legacy), managed: false, overridden: false };
+    if (isRunnable(legacy)) return { bin: legacy, present: true, managed: false, overridden: false };
+    return { bin: managed, present: false, managed: true, overridden: false };
+  }
+  /* #3568: the Antigravity runner (Google's `agy`, a native binary). Its own installer puts it
+     in the vendor's ~/.local/bin/agy, the same shape as Claude Code's ~/.local/bin/claude, so it
+     resolves under homeDir() (the AGENT_WORKFORCE_HOME sandbox seam) rather than a fixed path.
+     Env override first, like every runner. Not managed here: engine/agystatus.js runs Google's own
+     installer on a press (#3568). An override must keep
+     the basename `agy`: the board recognises the pane by that command (status.isAntigravityCommand). */
+  if (provider === 'antigravity') {
+    const envAgy = process.env.AGENT_WORKFORCE_ANTIGRAVITY_BIN;
+    if (envAgy) {
+      // A pane running any other name is invisible to the board and the supervisor, so say so here.
+      if (agyRealName(envAgy) !== 'agy') {
+        return { bin: envAgy, present: false, managed: false, overridden: true, envName: 'AGENT_WORKFORCE_ANTIGRAVITY_BIN',
+          because: 'AGENT_WORKFORCE_ANTIGRAVITY_BIN must name a file called agy, or Kosmos cannot see the agent running' };
+      }
+      return { bin: envAgy, present: isRunnable(envAgy), managed: false, overridden: true, envName: 'AGENT_WORKFORCE_ANTIGRAVITY_BIN' };
+    }
+    const canonical = (opts && opts.legacyBin) || path.join(homeDir(), '.local', 'bin', 'agy');
+    // The same name rule as the override: a canonical path that resolves to another name is not agy.
+    return { bin: canonical, present: isRunnable(canonical) && agyRealName(canonical) === 'agy', managed: false, overridden: false };
   }
   if (provider !== 'openai') return { bin: null, present: false, managed: false, overridden: false };
   // An operator-set override is AUTHORITATIVE, not a candidate: when the
@@ -845,6 +988,114 @@ function plainFailure(err, m, stage) {
  * prove(bin) replaces the real --version child. Production callers pass
  * nothing.
  */
+/**
+ * #3713: the shell launcher for a node-program runner (Gemini). It must not break when a path
+ * moves (review pass 1: a baked Homebrew node deleted by an upgrade left a launcher that read
+ * present and could not start, with no way back in the UI). So:
+ *  - the program is found RELATIVE to the launcher (like the codex symlink, which is relative
+ *    so a moved KOSMOS_HOME carries it intact);
+ *  - node is Kosmos's own runtime, found relative to the runners folder (KOSMOS_HOME/runners/
+ *    <provider>/<bin> -> KOSMOS_HOME/runtime/bin/node), and only then the node the board ran on
+ *    at install time, recorded on the `# kosmos-node:` line so resolveBin can check it is still
+ *    there (launcherHasNode) and read an unrunnable launcher as missing, which a reinstall fixes.
+ * Every path is single-quoted with embedded quotes escaped, so a space or a quote cannot split or
+ * run anything; `exec` hands over the process, so signals and the exit status are the program's.
+ */
+const LAUNCHER_NODE_MARK = '# kosmos-node: ';
+function nodeLauncher(nodeBin, scriptInPkg) {
+  const q = (p) => "'" + String(p).replace(/'/g, "'\\''") + "'";
+  return '#!/bin/sh\n'
+    + '# Written by Kosmos (#3713): runs this runner with the node Kosmos ships, or the one it was installed with.\n'
+    + LAUNCHER_NODE_MARK + JSON.stringify(String(nodeBin)) + '\n'
+    + 'd=$(cd "$(dirname "$0")" && pwd -P) || exit 127\n'
+    + 'for n in "$d/../../runtime/bin/node" ' + q(nodeBin) + '; do\n'
+    + '  if [ -x "$n" ]; then exec "$n" "$d/pkg/"' + q(scriptInPkg) + ' "$@"; fi\n'
+    + 'done\n'
+    + 'echo "Kosmos cannot find a node to run this with. Connect it again from Kosmos to reinstall it." >&2\n'
+    + 'exit 127\n';
+}
+/**
+ * The Windows launcher for a node-program runner (Gemini): `gemini.cmd` beside the unpacked tree.
+ * It exists so a person (or a PATH lookup) can run the tool, and so presence reads true through
+ * the PATHEXT rule every other Windows runner goes through. KOSMOS NEVER SPAWNS IT: Node refuses
+ * to spawn a .cmd without a shell, and a shell would re-parse every message an agent is handed,
+ * so Kosmos reads the marks below and runs node on the bundle directly (spawnTarget).
+ * The node is the one this board runs on, which on an installed Kosmos is its shipped
+ * runtime\node.exe (the Windows runners folder is not under KOSMOS_HOME, so there is no relative
+ * rung as on the Mac). A `%` in a path is doubled so cmd reads it literally; Windows paths cannot
+ * hold a double quote. CRLF, because cmd reads a LF-only file badly across labels.
+ */
+const WIN_LAUNCHER_NODE_MARK = 'rem kosmos-node: ';
+const WIN_LAUNCHER_SCRIPT_MARK = 'rem kosmos-script: ';
+function winNodeLauncher(nodeBin, scriptInPkg) {
+  const pct = (s) => String(s).replace(/%/g, '%%');
+  const script = String(scriptInPkg).split('/').join('\\');
+  return [
+    '@echo off',
+    'rem Written by Kosmos: runs this runner with the node Kosmos ships, or the one it was installed with.',
+    WIN_LAUNCHER_NODE_MARK + JSON.stringify(String(nodeBin)),
+    WIN_LAUNCHER_SCRIPT_MARK + JSON.stringify(String(scriptInPkg)),
+    'if not exist "' + pct(nodeBin) + '" goto nonode',
+    '"' + pct(nodeBin) + '" "%~dp0pkg\\' + pct(script) + '" %*',
+    'exit /b %ERRORLEVEL%',
+    ':nonode',
+    'echo Kosmos cannot find a node to run this with. Connect it again from Kosmos to reinstall it. 1>&2',
+    'exit /b 127',
+    '',
+  ].join('\r\n');
+}
+/* The value after `mark` on the first line that starts with it, JSON-decoded, or null. */
+function launcherMark(text, mark) {
+  const line = String(text).split(/\r?\n/).find((l) => l.startsWith(mark));
+  if (!line) return undefined;
+  try { const v = JSON.parse(line.slice(mark.length)); return typeof v === 'string' ? v : null; } catch { return null; }
+}
+/* Whether a launcher written by nodeLauncher (or winNodeLauncher) can still find a node:
+   Kosmos's runtime beside the runners folder, or the node it recorded. A file that is not one
+   of ours (no mark) is not second-guessed. */
+function launcherHasNode(launcher) {
+  let text;
+  try { text = fs.readFileSync(launcher, 'utf8'); } catch { return false; }
+  const win = launcherMark(text, WIN_LAUNCHER_NODE_MARK);
+  if (win !== undefined) return typeof win === 'string' && isRunnable(win);
+  const line = text.split('\n').find((l) => l.startsWith(LAUNCHER_NODE_MARK));
+  if (!line) return true;
+  let recorded = null;
+  try { recorded = JSON.parse(line.slice(LAUNCHER_NODE_MARK.length)); } catch { recorded = null; }
+  const runtime = path.join(path.dirname(launcher), '..', '..', 'runtime', 'bin', 'node');
+  return isRunnable(runtime) || (typeof recorded === 'string' && isRunnable(recorded));
+}
+
+/**
+ * What to actually spawn to run `bin`: `{ file, args }`, where `args` go BEFORE the caller's own.
+ * For everything but a Kosmos-written Windows .cmd launcher this is `{ file: bin, args: [] }`,
+ * so every other runner (and every Mac path) is spawned exactly as before. For the .cmd it is
+ * node on the bundle, read from the launcher's own marks: the recorded node when it is still
+ * there, else the node this process runs on (on an installed Kosmos, the same shipped runtime).
+ * `platform` and `nodeBin` are seams, as elsewhere in this file.
+ */
+function spawnTarget(bin, platform = process.platform, nodeBin = process.execPath) {
+  const plain = { file: bin, args: [] };
+  if (platform !== 'win32' || path.win32.extname(String(bin || '')).toLowerCase() !== '.cmd') return plain;
+  let text;
+  try { text = fs.readFileSync(bin, 'utf8'); } catch { return plain; }
+  const recorded = launcherMark(text, WIN_LAUNCHER_NODE_MARK);
+  const scriptInPkg = launcherMark(text, WIN_LAUNCHER_SCRIPT_MARK);
+  if (recorded === undefined || typeof scriptInPkg !== 'string' || !scriptInPkg) return plain;
+  const script = path.win32.join(path.win32.dirname(String(bin)), 'pkg', ...scriptInPkg.split('/'));
+  const node = (typeof recorded === 'string' && isRunnable(recorded)) ? recorded : nodeBin;
+  return { file: node, args: [script] };
+}
+
+/* #3713: whether this provider's runner is in the middle of its own install. A path can exist
+   while the install is still proving it (and may yet remove it), so the routes that take a key or
+   start a sign-in treat a live job as not-there-yet, as status() and the OpenAI route already do.
+   Job state only: the routes still ask resolveBin for presence, the seam their tests stub. */
+function installing(provider) {
+  const job = jobs[provider];
+  return !!job && job.phase !== 'installed' && job.phase !== 'failed';
+}
+
 function install(provider, opts) {
   const o = opts || {};
   // hasOwn, not truthiness: with a URL-supplied provider, a prototype-chain
@@ -879,9 +1130,13 @@ function install(provider, opts) {
      publishes a Windows Codex build and it is pinned above. Every other arm keeps the
      darwin-only canDownloadRunner, including Claude's Mac-shaped link path. The
      sentence is for a person: it names the thing and says nothing moved. */
+  /* Gemini and Grok read their own list too (canDownloadKeyedRunner: darwin + win32), since
+     their Windows builds are pinned above (GROK_WIN32; Gemini's bundle is one tarball). */
   const allowed = provider === 'openai'
     ? platformGate.canDownloadCodex(plat)
-    : platformGate.canDownloadRunner(plat);
+    : (provider === 'gemini' || provider === 'grok')
+      ? platformGate.canDownloadKeyedRunner(plat)
+      : platformGate.canDownloadRunner(plat);
   if (!allowed) {
     const what = m ? m.name : provider;
     return refuse(`installing ${what} from here is not supported on this kind of computer (${plat}), so nothing was downloaded`);
@@ -948,7 +1203,12 @@ function install(provider, opts) {
   const url = o.url || m.url;
   const integrity = o.integrity || m.integrity;
   const binInPackage = o.binInPackage || m.binInPackage;
-  const prove = o.prove || ((bin, done) => execFile(bin, ['--version'], { timeout: 30000 }, done));
+  /* spawnTarget: a Windows .cmd launcher is proved by running node on its bundle, the way Kosmos
+     runs it; every other runner (and every Mac one) is spawned exactly as before. */
+  const prove = o.prove || ((bin, done) => {
+    const t = spawnTarget(bin, plat);
+    execFile(t.file, t.args.concat(['--version']), { timeout: 30000 }, done);
+  });
   // Testing seam: the real download needs a live listener, which the test
   // sandbox forbids; a fixture download writes known bytes instead. The
   // REAL download function is exercised by the plan's one live proof.
@@ -1065,6 +1325,26 @@ function install(provider, opts) {
         execFile(tarBin(plat), ['-xzf', staging, '-C', pkgNew, '--strip-components', '1'], { timeout: 120000 },
           (err, _stdout, stderr) => err ? reject(new Error(String(stderr || err.message).trim())) : resolve());
       });
+      /* #3713: a compressed vendor binary (Grok's bin/grok.br) is expanded here, after the
+         checksum passed and before the layout check, the one step its own postinstall does. */
+      if (m.brotliFrom) {
+        const from = path.join(pkgNew, m.brotliFrom);
+        if (fs.existsSync(from)) {
+          /* pipeline closes both ends on any error, so a failed expand leaks no handle; the
+             half-written file is inside pkg.new-<pid>, which fail() removes, and nothing links
+             to it before the swap. A verified archive that will not expand is a bad download,
+             said as that, not as a disk problem. */
+          try {
+            await pipeline(fs.createReadStream(from), zlib.createBrotliDecompress(), fs.createWriteStream(path.join(pkgNew, binInPackage)));
+          } catch (err) {
+            console.warn(`[runners] ${provider} expand failed: ${err && (err.code || err.message)}`);
+            if (err && (err.code === 'ENOSPC' || err.code === 'EDQUOT')) throw err;   // plainFailure says disk space
+            fail(`the download of ${m.name || 'the runner'} could not be unpacked, so nothing was installed. Try again later`);
+            return;
+          }
+          fs.rmSync(from, { force: true });
+        }
+      }
       if (!fs.existsSync(path.join(pkgNew, binInPackage))) {
         console.warn(`[runners] ${provider} archive has no ${binInPackage}`);
         fail(`the download of ${m.name || 'the runner'} was not laid out the way we expected, so nothing was installed. Try again later`);
@@ -1081,7 +1361,7 @@ function install(provider, opts) {
       stage = 'swap';
       // The verified marker comes down BEFORE a new tree goes in: from here until
       // --version passes, nothing on disk may vouch for what is at the stable path.
-      if (plat === 'win32' && !(await rmRetrying(verifiedMarker(plat), plat))) {
+      if (plat === 'win32' && !(await rmRetrying(verifiedMarker(plat, provider), plat))) {
         throw Object.assign(new Error('the verified marker could not be removed'), { code: 'EPERM' });
       }
       if (fs.existsSync(pkgDir)) await renameRetrying(pkgDir, pkgOld, plat);
@@ -1095,13 +1375,30 @@ function install(provider, opts) {
       }
       const unpacked = path.join(pkgDir, binInPackage);
       let finalBin;
-      if (plat === 'win32') {
+      if (plat === 'win32' && m.launcher === 'node') {
+        /* The Windows spelling of the Mac launcher below: gemini.cmd beside the tree
+           (winNodeLauncher). The prove step runs the bundle through the node its marks name,
+           so a launcher that cannot start is never left installed here either. */
+        finalBin = path.join(destDir, m.binName);
+        fs.rmSync(finalBin, { force: true });
+        fs.writeFileSync(finalBin, winNodeLauncher(o.nodeBin || process.execPath, binInPackage));
+      } else if (plat === 'win32') {
         // 📌 NO SYMLINK ON WINDOWS: creating one needs Developer Mode or
         // elevation, neither of which a clean laptop has. The stable path is
         // the binary inside the tree, which is exactly what resolveBin names
         // on win32 (managedBin), and codex.exe finds its vendored siblings
         // relative to itself there without any link.
         finalBin = unpacked;
+      } else if (m.launcher === 'node') {
+        /* #3713: a node program (Gemini's bundle) cannot be reached through a symlink on a
+           Mac with no `node` on its PATH, so the stable path is a launcher that runs it with
+           the node this board runs on: on an installed Kosmos, its own shipped runtime. The
+           prove step below runs this very launcher, so a launcher that cannot start is never
+           left installed. */
+        finalBin = path.join(destDir, m.binName);
+        fs.rmSync(finalBin, { force: true });
+        fs.writeFileSync(finalBin, nodeLauncher(o.nodeBin || process.execPath, binInPackage), { mode: 0o755 });
+        fs.chmodSync(finalBin, 0o755);
       } else {
         // ONE stable path for every caller, whatever the package layout is:
         // a symlink beside the tree, RELATIVE so a moved or renamed
@@ -1142,13 +1439,15 @@ function install(provider, opts) {
         // but it is no longer what keeps the runner from reading present: the
         // verified marker was never written, so resolveBin reads absent even if
         // a locked codex.exe survives every retry.
-        if (plat === 'win32') await rmRetrying(pkgDir, plat);
-        else { try { fs.rmSync(finalBin, { recursive: true, force: true }); } catch { /* best effort */ } }
+        if (plat === 'win32') {
+          await rmRetrying(pkgDir, plat);
+          if (m.launcher === 'node') { try { fs.rmSync(finalBin, { force: true }); } catch { /* the marker keeps it absent */ } }
+        } else { try { fs.rmSync(finalBin, { recursive: true, force: true }); } catch { /* best effort */ } }
         err.plain = true;
         throw err;
       }
       // Only now, after the binary itself answered, may anything vouch for it.
-      if (plat === 'win32') fs.writeFileSync(verifiedMarker(plat), verifiedStamp(m) + '\n');
+      if (plat === 'win32') fs.writeFileSync(verifiedMarker(plat, provider), verifiedStamp(m) + '\n');
 
       try { fs.rmSync(staging, { force: true }); } catch { /* the sweep gets it */ }
       job.phase = 'installed';
@@ -1439,4 +1738,4 @@ function resetForTests() { for (const k of Object.keys(jobs)) delete jobs[k]; }
 /* pathextCandidates is exported for the SAME reason create.unusablePath is: its
    win32 branch cannot be asserted from the Mac the suite runs on unless the
    platform is injectable from a test. */
-module.exports = { MANIFEST, CODEX_WIN32, manifestFor, managedBin, verifiedMarker, tarBin, plainFailure, managedRoot, resolveBin, homeDir, status, install, download, isRunnable, runnableCandidate, pathextCandidates, runnableExactly, resetForTests };
+module.exports = { MANIFEST, CODEX_WIN32, GROK_DARWIN, GROK_WIN32, nodeLauncher, winNodeLauncher, spawnTarget, launcherHasNode, installing, manifestFor, managedBin, verifiedMarker, tarBin, fileIntegrity, plainFailure, managedRoot, resolveBin, agyRealName, homeDir, status, install, download, isRunnable, runnableCandidate, pathextCandidates, runnableExactly, resetForTests };

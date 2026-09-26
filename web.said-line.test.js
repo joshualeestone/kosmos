@@ -4,7 +4,7 @@
  * #569: a statement and a guess must not render alike. Six of seventeen
  * agents on the fleet that built this speak for themselves (#526/#565);
  * eleven are still inferred from their screens. The engine has carried the
- * distinction since #526 (`stateReported`, `stateConflict`); these pin that
+ * distinction since #526 (`stateReported`; `stateConflict` is never shown, #3729); these pin that
  * the page shows it rather than re-hiding it, in Mona Lisa's ruled words:
  * WHERE the state came from, never how. "Said so itself" / "Read from its
  * screen", under the state, never inside the state word.
@@ -24,10 +24,6 @@ const PAGE = fs.readFileSync(nodePath.join(__dirname, 'web', 'index.html'), 'utf
 const SCRIPT = page.scriptOf(PAGE);
 
 const saidLineOf = (a) => new Function('a', `${page.lift(SCRIPT, 'saidLine')}\nreturn saidLine(a);`)(a);
-// ⚠️ TWO LIFTS, the same shape as taskLine below: `conflictNote` delegates the
-// casing to the shared `asSentence` (#1199), so lifting it alone evaluates a
-// body whose only call is undefined.
-const conflictNoteOf = (a) => new Function('a', `${page.lift(SCRIPT, 'asSentence')}\n${page.lift(SCRIPT, 'conflictNote')}\nreturn conflictNote(a);`)(a);
 function taskLineOf(a) {
   return new Function('a',
     `${page.lift(SCRIPT, 'stateReason')}\n${page.lift(SCRIPT, 'taskLine')}\nreturn taskLine(a);`)(a);
@@ -66,24 +62,30 @@ test('#209 still holds for reporters: the frozen pane title never leaks back thr
   assert.equal(taskLineOf({ state: 'idle', stateReported: false, task: FROZEN }), '');
 });
 
-test('the conflict note dresses the engine\'s sentence and invents nothing', () => {
-  assert.equal(conflictNoteOf({ stateConflict: 'its screen shows a question its reports do not mention' }),
-    'Its screen shows a question its reports do not mention.');
-  assert.equal(conflictNoteOf({ stateConflict: null }), '');
-  assert.equal(conflictNoteOf({}), '');
-  /* An engine sentence that already ends firmly is not double-stopped. */
-  assert.equal(conflictNoteOf({ stateConflict: 'it reported stopping, but it is still running.' }),
-    'It reported stopping, but it is still running.');
+/* #3729 (Josh, 2026-09-25 07:32): "I dont even what there to be a space on these to have any
+   message like this injected." The witnesses-disagree note and its slot are gone from the card and
+   the agent page, and nothing in the page reads the field it came from. The rendered proof, with
+   the old sentences fed in, is docs/browser-checks/render-no-conflict-3729.js. */
+test('#3729: no conflict note, no slot for one, and nothing reads stateConflict', () => {
+  const code = SCRIPT.replace(/\/\*[\s\S]*?\*\//g, '').replace(/(^|[^:])\/\/[^\n]*/g, '$1');   // comments do not count
+  assert.ok(!/function conflictNote\b/.test(code), 'conflictNote is back');
+  assert.ok(!/stateConflict/.test(code), 'the page reads stateConflict again');
+  assert.ok(!PAGE.includes('id="d-conflict"'), 'the agent page has its conflict slot again');
+  assert.ok(!code.includes("'d-conflict'"), 'something writes into a conflict slot again');
+  // Control: the same scan finds a field the page does read, so a zero above is a real zero.
+  assert.ok(/stateReported/.test(code), 'control: the scan cannot see the page reading its fields');
 });
 
 test('the list row and the detail painter still read the shared derivations, so they cannot disagree with each other', () => {
-  /* The list row and the detail painter must call saidLine and conflictNote,
-     not re-derive them: surfaces that disagree about one agent are worse
-     than either being wrong, this file's own recurring lesson. */
-  const lrowFn = page.lift(SCRIPT, 'lrow');
-  assert.ok(lrowFn.includes('saidLine('), 'the list row stopped reading saidLine');
-  assert.ok(SCRIPT.includes("getElementById('d-said')") && SCRIPT.includes("getElementById('d-conflict')"),
-    'the detail painter stopped filling the provenance and conflict slots');
+  /* The list row and the detail painter must call saidLine, not re-derive it:
+     surfaces that disagree about one agent are worse than either being wrong,
+     this file's own recurring lesson. (The conflict slot is gone, #3729.) */
+  /* #3729 review: the list row's `saidLine(` match was its own HTML COMMENT; no code in the page
+     calls saidLine any more (on main either). Pinned as what it is, with comments stripped, rather
+     than as a caller that does not exist. */
+  const code = SCRIPT.replace(/\/\*[\s\S]*?\*\//g, '').replace(/<!--[\s\S]*?-->/g, '');
+  assert.ok(!/\bsaidLine\(a\)/.test(page.lift(SCRIPT, 'lrow').replace(/<!--[\s\S]*?-->/g, '').replace(/\/\*[\s\S]*?\*\//g, '')), 'the list row calls saidLine again; update this test to pin it as a real caller');
+  assert.ok(code.includes("getElementById('d-said')"), 'the detail painter stopped filling the provenance slot');
 });
 
 /* #855 (Josh, 2026-08-25 10:22): "let's do away with the status line
@@ -92,14 +94,12 @@ test('the list row and the detail painter still read the shared derivations, so 
    and saidLine() itself is unchanged, still backing both. This is the
    deliberate absence, pinned so a future card-template edit does not
    accidentally reintroduce it and does not get read as a regression if
-   it stays gone. conflictNote(a) is unaffected and still reads on the
-   card -- Josh's ask named the provenance line specifically, not the
-   witnesses-disagree note. */
-test('the card no longer reads saidLine, by name, since #855; conflictNote is untouched', () => {
+   it stays gone. #3729 then removed the witnesses-disagree note as well. */
+test('the card no longer reads saidLine (#855) or a conflict note (#3729)', () => {
   const cardFn = page.lift(SCRIPT, 'card');
   assert.ok(!cardFn.includes('saidLine('), 'the grid card is calling saidLine again; #855 asked for this line gone');
   assert.ok(!cardFn.includes('asaid'), 'the grid card still carries the retired .asaid class');
-  assert.ok(cardFn.includes('conflictNote('), 'conflictNote should still be on the card; #855 did not ask for this one');
+  assert.ok(!cardFn.includes('conflictNote(') && !cardFn.includes('stateConflict'), 'the card has a conflict note again; #3729 removed it');
 });
 
 /* #855: "move the model that they're on higher up". Pinned by position

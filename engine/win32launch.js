@@ -156,8 +156,11 @@ function childEnv(baseEnv, token, configDir, cliDir, runner) {
      full-autonomy posture the `--dangerously-bypass-approvals-and-sandbox` launch
      already takes. CODEX ONLY: the claude path runs its `kosmos` through Git Bash's
      extensionless shim, which never consults an execution policy, so it is left
-     byte-identical and this variable is not added to a claude child. */
-  if (runner === 'codex') env.PSExecutionPolicyPreference = 'Bypass';
+     byte-identical and this variable is not added to a claude child.
+     GEMINI AND GROK TOO: both run their shell tool through PowerShell on Windows
+     (gemini 0.61.0's getShellConfiguration picks powershell.exe; grok 1.0.41 ships a
+     PowerShell shell), so their `kosmos reply` meets the same policy. */
+  if (runner === 'codex' || runner === 'gemini' || runner === 'grok') env.PSExecutionPolicyPreference = 'Bypass';
   return env;
 }
 
@@ -210,7 +213,31 @@ function argvFor(prepared, opts) {
   const autonomy = AUTONOMY[String(o.runner || prepared.runner || 'claude')];
   if (autonomy) argv.push(autonomy);
   if (o.model) argv.push('--model', String(o.model));
+  /**
+   * 🔑 THE AGENT'S OWN BROWSER (engine/agentbrowser.js), claude only. A path the
+   * caller resolved; absent means no flag, so every caller that does not ask
+   * gets exactly the argv it always did.
+   *
+   * ⚠️ `--mcp-config` IS VARIADIC: it swallows every following word that is not
+   * a flag. Measured on the box: a prompt placed after it was read as a second
+   * config path and claude refused to start. So it goes HERE, before
+   * `launchArgs` (which opens with `--session-id`) and before streamArgvFor's
+   * `-p`, and never last.
+   *
+   * 📌 NO `--strict-mcp-config`. That would drop the person's own connectors
+   * (Gmail, Slack...) from the agent; the browser sits beside them instead.
+   */
+  const runner = String(o.runner || prepared.runner || 'claude');
+  if (o.mcpConfig && runner === 'claude') argv.push('--mcp-config', String(o.mcpConfig));
   return argv.concat(prepared.launchArgs);
+}
+
+/* The browser config for one launch: the spec may carry a path, or a function
+   asked at EVERY launch so a supervisor's relaunch picks up an install that
+   finished after it started. Never throws; a failed answer is no browser. */
+function mcpConfigFor(s) {
+  try { return typeof s.mcpConfig === 'function' ? (s.mcpConfig() || null) : (s.mcpConfig || null); }
+  catch { return null; }
 }
 
 /**
@@ -235,8 +262,11 @@ function argvFor(prepared, opts) {
  * falling back to `claude` for a codex agent would spawn the wrong program on the
  * one path where the hint is gone.
  */
+/* The bare name per runner. gemini/grok are here so a stale hint never falls back to
+   `claude` for them; their per-turn supervisor asks the resolver again before using it. */
+const BARE = Object.freeze({ codex: 'codex', gemini: 'gemini', grok: 'grok' });
 function binFor(s) {
-  const bare = String((s && s.runner) === 'codex' ? 'codex' : 'claude');
+  const bare = String(BARE[(s && s.runner) || ''] || 'claude');
   const given = s && s.claudeBin;
   if (!given) return bare;
   /* Only a path can go stale; a bare name handed in is already the PATH lookup. */
@@ -325,7 +355,7 @@ function launch(spec) {
         console off the screen. The empty string after `start` is the WINDOW TITLE
         argument -- omitting it makes `start` treat a quoted program path as the
         title and launch nothing, which is a genuinely baffling failure to debug. */
-  const argv = argvFor(prepared, s);
+  const argv = argvFor(prepared, { ...s, mcpConfig: mcpConfigFor(s) });
   const bin = binFor(s);
   let child;
   try {
@@ -472,7 +502,7 @@ function launchStreaming(spec) {
     if (!prepared.ok) return { ok: false, because: prepared.because };
   }
 
-  const argv = streamArgvFor(prepared, s);
+  const argv = streamArgvFor(prepared, { ...s, mcpConfig: mcpConfigFor(s) });
   const bin = binFor(s);
   let child;
   try {

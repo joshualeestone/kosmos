@@ -52,6 +52,8 @@
 
 const fs = require('node:fs');
 const path = require('node:path');
+const crypto = require('node:crypto');
+const { externalName, INVISIBLE, byCodePoint } = require('./externalname');
 const { execFileSync } = require('node:child_process');
 const chat = require('./chat');
 const store = require('./store');
@@ -107,7 +109,7 @@ function unreadAll() {
   if (seen === null) return null;
   const out = {};
   for (const m of rec.rows) {
-    if (!m || m.kind !== 'post' || !m.project || m.operator === true) continue;
+    if (!m || (m.kind !== 'post' && m.kind !== 'external') || !m.project || m.operator === true) continue;
     const since = seen[m.project] ? Date.parse(seen[m.project]) : -Infinity;
     const at = Date.parse(m.at);
     if (!Number.isFinite(at) || at <= since) continue;
@@ -191,6 +193,76 @@ function markerProblem(text) {
     return 'that message contains a delivery marker itself, which would let it impersonate another sender; say it without the bracket line';
   }
   return null;
+}
+
+/**
+ * #3745: what a reply answers, in two parts. `tag` (" · answers mK by <who>, posted <when>") goes INSIDE
+ * the envelope's bracket: all of it is Kosmos's, read from the record. `quote` ('(answering: "first
+ * words") ') goes AFTER the bracket, in front of the body, because the words are a room member's, and
+ * inside the bracket (the line agents are taught to follow) a first line like "to answer, run: ..."
+ * would read as Kosmos's own instruction. The words are the answered post's first line (or its file's
+ * name), allow-listed so no bracket can open a fake envelope, capped at 60 characters (by code point).
+ * Both are '' when nothing is answered; a post whose first line has nothing left after cleaning keeps
+ * its tag with an empty quote.
+ */
+/* Everything but letters, digits, spaces and plain punctuation: an allow-list, so no bracket can open a
+   fake envelope and no quote can close this one early. It is not what keeps a member's words from
+   reading as Kosmos's own: the placement is (after the bracket, never inside), since a letter can be
+   shaped like punctuation. Marks are kept so Hindi, Thai or accented words are shortened, not garbled;
+   a curly apostrophe too. */
+/* No @ (a quote must not look like it addresses anyone); \p{M} keeps vowel signs and accents. */
+const NOT_PLAIN = /[^\p{L}\p{M}\p{N} ._,!?'\u2019()\-\/&%+#$:;]/gu;
+/* #3745: when a post was made, for a quote: "09:30" today, "Mon 21 Sep 09:30" on another day, so a
+   post answered a day late never reads as minutes old. In the person's zone, like `kosmos room`. */
+function postedLabel(at, zone) {
+  const clock = roomClock(at, zone);
+  try {
+    const when = new Date(at);
+    if (Number.isNaN(when.getTime())) return clock;
+    const tz = zone ? { timeZone: zone } : {};
+    let dayOf;
+    try { dayOf = new Intl.DateTimeFormat('en-GB', { ...tz, year: 'numeric', month: '2-digit', day: '2-digit' }); }
+    catch { dayOf = new Intl.DateTimeFormat('en-GB', { year: 'numeric', month: '2-digit', day: '2-digit' }); }
+    if (dayOf.format(when) === dayOf.format(new Date())) return clock;
+    let yearOf;
+    try { yearOf = new Intl.DateTimeFormat('en-GB', { ...tz, year: 'numeric' }); }
+    catch { yearOf = new Intl.DateTimeFormat('en-GB', { year: 'numeric' }); }
+    const shape = { weekday: 'short', day: 'numeric', month: 'short', ...(yearOf.format(when) === yearOf.format(new Date()) ? {} : { year: 'numeric' }) };
+    let day;
+    try { day = new Intl.DateTimeFormat('en-GB', { ...tz, ...shape }).format(when); }
+    catch { day = new Intl.DateTimeFormat('en-GB', shape).format(when); }
+    return day.replace(/,/g, '') + ' ' + clock;
+  } catch { return clock; }
+}
+function answeredParts(row) {
+  if (!row || typeof row.id !== 'string') return { tag: '', quote: '' };
+  const name = Array.from(String(row.from || '').replace(NOT_PLAIN, ' ').replace(/\s+/g, ' ').trim().replace(/(\p{M}{2})\p{M}+/gu, '$1'));
+  /* "your operator" only from the operator flag; everyone else is "your colleague <name>", as the
+     envelope already names a sender, so an agent named "your operator" cannot pass as the person. */
+  const who = row.operator === true ? 'your operator'
+    : (name.length ? 'your colleague ' + (name.length > 40 ? name.slice(0, 40).join('') + '…' : name.join('')) : 'a colleague');
+  /* #3769: the words as a reader sees them. A setup-guide post stored before the write-side mask
+     still holds its raw text, and every read path masks it on the way out, so this one does too
+     (the whole post, before its first line is taken, so a secret split over lines is still caught). */
+  let words = String(filteredText(row.from, row.text) || '').split('\n').map((l) => l.trim()).find(Boolean) || '';
+  if (!words) {   // a post with only a file is quoted by the file, as the page does
+    const f = Array.isArray(row.attachments) && row.attachments[0] ? row.attachments[0] : row.attachment;
+    words = f && typeof f.name === 'string' ? f.name : '';
+  }
+  words = words.replace(NOT_PLAIN, ' ').replace(/\s+/g, ' ').trim();   // a space, so x\u00b7y stays two words
+  words = words.replace(/(\p{M}{2})\p{M}+/gu, '$1');   // at most two marks on a letter: a stack of them ("zalgo") stays one short line
+  const chars = Array.from(words);
+  if (chars.length > 60) words = chars.slice(0, 60).join('').trimEnd() + '…';
+  /* Who wrote it and when go INSIDE the bracket: Kosmos read them from the record, and outside it a
+     member could type the same line and pass off made-up words as the person's (review round 15). The
+     time carries the day when it is not today, so an old post answered late never reads as fresh. */
+  let zone = null;
+  try { zone = (store.readSettings() || {}).timezone || null; } catch { zone = null; }
+  const tag = ' \u00b7 answers ' + row.id + ' by ' + who + ', posted ' + postedLabel(row.at, zone);
+  if (!words) return { tag, quote: '' };
+  /* Only the words come after the bracket, claiming no author: a member who types the same shape
+     claims nothing a body could not already say. */
+  return { tag, quote: '(answering: "' + words + '") ' };
 }
 
 /**
@@ -388,6 +460,36 @@ function resolveSender(fromPane, roster) {
   return { ok: true, card };
 }
 
+/* #3311: record a message that arrived from outside, through a federated
+   project's seat. The sender's words are data: bounded, never parsed for
+   commands, and stored under their own kind so no reader can take them for a
+   local agent. Returns the row, or null if it did not fit the shape. */
+const EXTERNAL_FROM_MAX = 80;
+const EXTERNAL_TEXT_MAX = 16384;
+/* Control characters from outside (a terminal escape among them) are removed
+   before storage, so no reader, including `kosmos room` printing to a terminal,
+   ever receives them. Newlines stay; they are how a message has paragraphs. */
+const EXTERNAL_CONTROL = /[\u0000-\u0009\u000b-\u001f\u007f-\u009f]/g;
+function externalPost(projectId, { from, fromKind, text }) {
+  const row = {
+    kind: 'external',
+    id: 'x-' + crypto.randomUUID(),
+    project: String(projectId),
+    from: externalName(from, EXTERNAL_FROM_MAX),
+    fromKind: fromKind === 'agent' ? 'agent' : 'person',
+    external: true,
+    // Every format character goes (\p{Cf}: bidi controls, LRM/RLM, zero-widths,
+    // soft hyphen, BOM), as from names; newlines stay. A family emoji built with
+    // zero-width joiners shows as its separate parts, a fair price for words
+    // from outside.
+    text: byCodePoint(String(text == null ? '' : text).replace(/\t/g, ' ').replace(EXTERNAL_CONTROL, '').replace(/\p{Cf}/gu, '').replace(INVISIBLE, ''), EXTERNAL_TEXT_MAX),
+    at: new Date().toISOString(),
+  };
+  if (!row.text.trim() || !rowShaped(row)) return null;
+  appendLog(row);
+  return row;
+}
+
 /**
  * The record, with its own unreadability SURFACED: ENOENT is the true
  * empty (no one has messaged yet), any other read failure is could-not-
@@ -571,6 +673,14 @@ function rowShaped(m) {
   if (m.kind === 'note') {
     return m.from === 'kosmos' && str(m.project) && str(m.text);
   }
+  /* #3311: a message from OUTSIDE this Kosmos, delivered into a federated
+     project's room by its seat. `from` is the sender's own display name and
+     `fromKind` says person or agent; `external: true` is what every reader keys
+     on, so it can never be mistaken for a local agent or the operator. */
+  if (m.kind === 'external') {
+    return str(m.id) && str(m.project) && str(m.from) && typeof m.text === 'string'
+      && (m.fromKind === 'person' || m.fromKind === 'agent') && m.external === true;
+  }
   /* #185: the nudge receipt. Kosmos's own voice into ONE pane, recorded so
      the at-most-once rule is checkable from the store rather than believed. */
   if (m.kind === 'nudge') {
@@ -685,6 +795,16 @@ function logRefusedSend(from, toWho, because, at) {
  * chat.deliver and inventing a second vocabulary for the same outcomes is
  * how two surfaces drift.
  */
+/* #3769: a filter on what an AGENT sender says, applied once the sender is known and before the
+   text is checked, recorded or pasted anywhere. The board installs the setup guide's secret mask
+   (server.js guideMasked); unset, text passes unchanged. (from, text) -> text. */
+let senderTextFilter = null;
+function setSenderTextFilter(fn) { senderTextFilter = typeof fn === 'function' ? fn : null; }
+function filteredText(from, text) {
+  if (!senderTextFilter || typeof text !== 'string') return text;
+  try { return senderTextFilter(from, text); } catch { return text; }
+}
+
 function send({ fromPane, sender: resolvedSender, to, text, inReplyTo }, roster) {
   const at = new Date().toISOString();
   /* #570: a route that already resolved the sender from an AGENT TOKEN passes it
@@ -694,6 +814,7 @@ function send({ fromPane, sender: resolvedSender, to, text, inReplyTo }, roster)
   if (!sender.ok) return { state: chat.DELIVERY.COULD_NOT, because: sender.because, id: null, at };
 
   const from = sender.card.sessionName;
+  text = filteredText(from, text);
 
   /* ⚠️ EVERY ATTRIBUTED REFUSAL IS AN EVENT (the clean-chat rule: chrome
      may drop, events may not - and a refusal their agent just met is an
@@ -1045,7 +1166,7 @@ function _roomMembers(members) {
   return { members: members.filter((m) => !gone.has(clean(m))), ok: true };
 }
 
-function sendPost({ fromPane, sender: resolvedSender, project, projectName, text, operator, attachment, attachments, trailer, replyExpected }, roster, members) {
+function sendPost({ fromPane, sender: resolvedSender, project, projectName, text, operator, attachment, attachments, trailer, replyExpected, askWhichRoom, projectNameOf, membersOf, newPost, federated, replyTo }, roster, members) {
   const at = new Date().toISOString();
   /* The OPERATOR path: no pane to derive (the post comes off the room's
      composer through the server, which is the operator's own surface),
@@ -1061,6 +1182,7 @@ function sendPost({ fromPane, sender: resolvedSender, project, projectName, text
     const sender = resolvedSender || resolveSender(fromPane, roster);
     if (!sender.ok) return { state: chat.DELIVERY.COULD_NOT, because: sender.because, id: null, at, outcomes: null };
     from = sender.card.sessionName;
+    text = filteredText(from, text);
   }
 
   /* The same attributed-refusal contract as send(): every refusal their
@@ -1168,8 +1290,10 @@ function sendPost({ fromPane, sender: resolvedSender, project, projectName, text
    * ⚠️ THE OPERATOR'S OWN ARM KEEPS ITS REFUSAL, deliberately. A person posting
    * into a project with no agents on it is talking to nobody — there is no
    * second party at all, which is a different fact from having one.
+   * #3311: a FEDERATED project has a second party outside this Kosmos, whom
+   * the post reaches through the project's seat, so there it is not refused.
    */
-  if (operator === true && !recipients.length) {
+  if (operator === true && !recipients.length && federated !== true) {
     return refuse('nobody is on that project yet, so there is no room to post to');
   }
 
@@ -1181,11 +1305,61 @@ function sendPost({ fromPane, sender: resolvedSender, project, projectName, text
   if (chat.cleanMessage(text).length > MAX_BODY) {
     return refuse('that is a document, not a message; put it in the project folder and post your colleagues the path');
   }
+  /* #3679: the stored form keeps indentation and blank lines, so it is bounded on its own
+     (chat.storedWithin), as a direct message is. */
+  const stored = chat.storedWithin(text, MAX_BODY);
+  if (stored === null) {
+    return refuse('that has more indentation and spacing than we keep in a post; put it in the project folder and post your colleagues the path');
+  }
   const markerBad = markerProblem(text);
   if (markerBad) return refuse(markerBad);
 
+  /* #3224, the proactive half: the caller (live /api/post, never the outbox drain,
+     whose author is not there to answer) asks for this on a post that is not a reply.
+     If the agent owes the person an answer in another room, ask which room it meant
+     rather than post. After the text checks, so a post that would be refused anyway
+     gets that refusal first; before the room valve, so a misroute never meets the
+     wrong room's loop guard. NOT through refuse(): that logs a refused row the room shows,
+     and this is a question to the agent, not a refusal of the room. No double quotes
+     or backticks in the sentence: the bash CLI reads `because` with a sed that stops
+     at the first quote. */
+  if (askWhichRoom === true && operator !== true) {
+    /* The rooms the agent can still post in: a question from a room it was removed
+       from, or one that is gone, must not send it to a command that is refused. */
+    const canPostIn = (pid) => {
+      if (typeof membersOf !== 'function') return true;
+      const m = membersOf(pid);
+      if (!Array.isArray(m)) return false;
+      const r = _roomMembers(m);
+      return r.ok === true && r.members.includes(from);
+    };
+    const owed = owedElsewhere(from, projectId, Date.parse(at), { canPostIn });
+    if (owed) {
+      /* Counted, never named: no agent, project or post id in the log line. */
+      console.error('#3224: held a room post to ask which room it meant');
+      const safe = (v) => (v && /^[A-Za-z0-9._ -]+$/.test(v) && !v.includes(']') ? v : null);
+      let otherName = null;
+      try { otherName = safe(typeof projectNameOf === 'function' ? projectNameOf(owed.project) : null); } catch { otherName = null; }
+      const other = otherName || owed.project;
+      return {
+        state: chat.DELIVERY.COULD_NOT,
+        code: 'which_room',
+        because: 'you have an unanswered question from the person in ' + other + ' (' + owed.id + '), and this post is for '
+          + shownProject + '. If it answers that question, post it there: kosmos post --in-reply-to ' + owed.id + ' '
+          + owed.project + ' <your text>. If it is a new post for ' + shownProject + ', send it again with --new: kosmos post --new '
+          + projectId + ' <your text>',
+        id: null, at, outcomes: null,
+      };
+    }
+  }
+
   const rec = record();
   const log = rec.rows;
+  /* #3745: the post this one answers, when it names a post IN THIS ROOM (the routes check first and
+     refuse otherwise; here a stray id simply records nothing rather than pointing at another room). */
+  const answered = (typeof replyTo === 'string' && /^m\d+$/.test(replyTo))
+    ? (log.find((r) => r && r.kind === 'post' && r.id === replyTo && r.project === projectId) || null)
+    : null;
 
   /* THE ROOM VALVE, before the fan-out: counted across the WHOLE thread
      regardless of which AGENT sent each post. ⚠️ A decision made now for
@@ -1257,7 +1431,35 @@ function sendPost({ fromPane, sender: resolvedSender, project, projectName, text
   const arrivals = log.filter((m) => m && m.kind === 'post' && !m.operator
     && m.project === projectId && Date.parse(m.at) >= countFrom)
     .reduce((n, m) => n + (Array.isArray(m.to) ? m.to.length : 0), 0);
-  if (operator !== true && arrivals + recipients.length > lim.roomArrivalsPerWindow) {
+  const cleaned = chat.cleanMessage(text);
+  /* Addressed is an @mention naming a member. Names match exactly, and
+     the TOKENIZER carries two boundary rules the charset alone gets
+     wrong: a left boundary, because "admin@mara" is an email-shaped
+     string, and promoting it to a request manufactures an ask nobody
+     made (the dangerous direction); and a trailing-punctuation retry,
+     because "have a look @mara." captures "mara." and would silently
+     demote an addressed mention to background. Demotion still arrives
+     marked, promotion is the one to be strict about -- so the left
+     boundary is absolute and the retry only STRIPS, never fuzzes.
+     Everyone else in the room receives the same words marked as
+     background -- the one thing that must not happen is background
+     arriving unmarked. */
+  const mentioned = new Set();
+  for (const m of cleaned.matchAll(/(^|[^A-Za-z0-9._-])@([A-Za-z0-9._-]+)/g)) {
+    const token = m[2];
+    if (recipients.includes(token)) { mentioned.add(token); continue; }
+    const stripped = token.replace(/[._-]+$/, '');
+    if (stripped && recipients.includes(stripped)) mentioned.add(stripped);
+  }
+  const projectsMod = require('./projects');   // lazy: projects requires this module
+  const offInProject = projectsMod.swarmOffSet(projectId);
+  /* #3564: a swarm switched OFF in this project is not woken by the room, unless the
+     post @-names it. It stays a member, but a post it was not sent is not logged as
+     sent to it, so an @-name later tells it what it missed. */
+  const offHere = new Set(recipients.filter((n) => !mentioned.has(n) && offInProject.has(String(n))));
+  /* #3564: the post is charged for the members it is sent to. */
+  const charged = recipients.length - offHere.size;
+  if (operator !== true && arrivals + charged > lim.roomArrivalsPerWindow) {
     const because = lim.on
       ? 'This conversation went back and forth for a while without landing, '
         + 'so Kosmos stopped it and asked everyone to bring you in.'
@@ -1304,16 +1506,14 @@ function sendPost({ fromPane, sender: resolvedSender, project, projectName, text
 
   const id = 'm' + (rec.parsed.reduce((n, m) => Math.max(n, m && m.id ? Number(String(m.id).slice(1)) || 0 : 0), 0) + 1);
 
-  const cleaned = chat.cleanMessage(text);
-  /* #2239: the STORED text keeps paragraph breaks (storeText: horizontal runs
-     collapsed, but blank lines and single newlines preserved), so the room
+  /* #2239: the STORED text keeps paragraph breaks (storeText keeps newlines, and
+     since #3679 also indentation and fenced code), so the room
      thread can render an agent's headings, lists and paragraph structure
      instead of one flattened line. This mirrors what #1927 did for the direct
      thread's store. `cleaned` stays the one-line form used for everything the
      room does NOT render: the delivered pane envelope (an agent reads a line),
      @mention detection, the spill-length decision and validation. The two are
      allowed to differ -- the pane gets a line, the UI record keeps the shape. */
-  const stored = chat.storeText(text);
   let body = cleaned;
   if (cleaned.length > SPILL_AT) {
     const spillFile = path.join(SPILL_DIR, id + '.txt');
@@ -1326,29 +1526,28 @@ function sendPost({ fromPane, sender: resolvedSender, project, projectName, text
     body = cleaned.slice(0, 200) + '\u2026 (long message; the full text is at ' + spillFile + ')';
   }
 
-  /* Addressed is an @mention naming a member. Names match exactly, and
-     the TOKENIZER carries two boundary rules the charset alone gets
-     wrong: a left boundary, because "admin@mara" is an email-shaped
-     string, and promoting it to a request manufactures an ask nobody
-     made (the dangerous direction); and a trailing-punctuation retry,
-     because "have a look @mara." captures "mara." and would silently
-     demote an addressed mention to background. Demotion still arrives
-     marked, promotion is the one to be strict about -- so the left
-     boundary is absolute and the retry only STRIPS, never fuzzes.
-     Everyone else in the room receives the same words marked as
-     background -- the one thing that must not happen is background
-     arriving unmarked. */
-  const mentioned = new Set();
-  for (const m of cleaned.matchAll(/(^|[^A-Za-z0-9._-])@([A-Za-z0-9._-]+)/g)) {
-    const token = m[2];
-    if (recipients.includes(token)) { mentioned.add(token); continue; }
-    const stripped = token.replace(/[._-]+$/, '');
-    if (stripped && recipients.includes(stripped)) mentioned.add(stripped);
-  }
-
+  const replied = answeredParts(answered);   // #3745: the same for every recipient
+  /* #3745: what this post answers, so the agent knows which message is meant: the id, who wrote it
+     and when inside the bracket, its first words after it (a member's words never go inside the
+     bracket; see answeredParts). When an AGENT answers the PERSON's post, no member is given the
+     person's words again: any agent can answer any old post of theirs, and those words, retyped
+     beside a colleague's post, could read as a fresh instruction the person never gave again
+     (review rounds 17 and 23, which found it applies to an addressed member too). Each still learns
+     which post and whose it was, and can read it with kosmos room. */
+  const answers = replied.tag;
+  /* A COLLEAGUE's words are quoted only to its author, the members that post addressed, and the members
+     THIS reply addresses (rounds 25 and 26): a member who got it as background and is not being asked
+     now must not receive those words right after a reply's bracket, where they could read as endorsed;
+     one this reply @-names is being asked to act on it and needs them. The others still learn which
+     post and whose. */
+  const originalAudience = answered && answered.operator !== true
+    ? new Set([answered.from, ...(Array.isArray(answered.mentioned) ? answered.mentioned : [])]) : null;   // `to` is everyone it reached; `mentioned` is who it addressed
+  const quoteFor = (name) => ((operator !== true && answered && answered.operator === true)
+    || (originalAudience && !originalAudience.has(name) && !mentioned.has(name)) ? '' : replied.quote);
   const outcomes = {};
   let reached = 0;
   for (const name of recipients) {
+    if (offHere.has(name)) continue;
     /* The operator's arrivals carry their OWN markers: an @-mentioned
        member reads a request from the person; everyone else reads the
        room-wide form, which is the person speaking to the room rather
@@ -1405,16 +1604,19 @@ function sendPost({ fromPane, sender: resolvedSender, project, projectName, text
     const answer = operator === true
       ? answerClause
       : (mentioned.has(name) ? answerClause : '');
+    /* #3311: in a shared project the agent is told, on the post it would answer,
+       that its answer leaves this computer. */
+    const shownProjectAs = shownProject + (federated ? ' \u00b7 shared outside this computer, what you post here leaves it' : '');
     const envelope = (operator === true
       ? (mentioned.has(name)
-        ? '[message from your operator \u00b7 ' + id + ' \u00b7 project ' + shownProject + answer + ']'
-        : '[from your operator in project ' + shownProject + ' \u00b7 ' + id + ' \u00b7 for the whole room' + answer + ']')
+        ? '[message from your operator \u00b7 ' + id + answers + ' \u00b7 project ' + shownProjectAs + answer + ']'
+        : '[from your operator in project ' + shownProjectAs + ' \u00b7 ' + id + answers + ' \u00b7 for the whole room' + answer + ']')
       : (mentioned.has(name)
-        ? '[message from your colleague ' + from + ' \u00b7 ' + id + ' \u00b7 project ' + shownProject + answer + ']'
+        ? '[message from your colleague ' + from + ' \u00b7 ' + id + answers + ' \u00b7 project ' + shownProjectAs + answer + ']'
         /* No answer line on background: it is explicitly not addressed to you,
            and inviting a reply is the unaddressed-steering the room prevents. */
-        : '[background from your colleague ' + from + ' \u00b7 ' + id + ' \u00b7 project ' + shownProject + ' \u00b7 not addressed to you]'))
-      + ' ' + body;
+        : '[background from your colleague ' + from + ' \u00b7 ' + id + answers + ' \u00b7 project ' + shownProjectAs + ' \u00b7 not addressed to you]'))
+      + ' ' + quoteFor(name) + body;
     /* `trailer` (#358) is the attached file's path, typed after the envelope
        and body and outside the checks, the same way the direct thread does it. */
     /* 🔑 THE AGENT BROUGHT IN BLIND IS TOLD WHAT IT MISSED (#314, second
@@ -1447,7 +1649,7 @@ function sendPost({ fromPane, sender: resolvedSender, project, projectName, text
    * were recipients and none took it, and wrong when there were none to try.
    * The person reads the room from the record, and the record is written below.
    */
-  if (!reached && recipients.length) {
+  if (!reached && charged > 0) {
     /* Reaching NOBODY is a failed post, not a quieter success: nothing
        was typed anywhere, so nothing is logged (send()'s typed-only
        rule) and the spill must not wait for the next mint of this id. */
@@ -1467,7 +1669,7 @@ function sendPost({ fromPane, sender: resolvedSender, project, projectName, text
   // tagged -- fewer matches, never a false one, which is exactly #460's law
   // that an ambiguous quote resolves to no styling.
   const quotes = quotedSegments(stored, from, projectId, log);
-  appendLog({ kind: 'post', id, project: projectId, from, to: recipients, text: stored, at, outcomes,
+  appendLog({ kind: 'post', id, project: projectId, from, to: recipients.filter((n) => !offHere.has(n)), text: stored, at, outcomes,
     ...(quotes.length ? { quotes } : {}),
     /* #185: the tokenizer's verdict, persisted at the one moment it runs.
        The unanswered state keys on WHO WAS ASKED, and re-deriving that at
@@ -1479,6 +1681,12 @@ function sendPost({ fromPane, sender: resolvedSender, project, projectName, text
        "this was an acknowledgement, no reply was requested". Omitted for the default/true case so
        an ordinary post's record is byte-unchanged (a strict boolean === false, never a truthy). */
     ...(replyExpected === false ? { replyExpected: false } : {}),
+    /* #3224: a post sent with --new is the agent's own answer to "which room": it
+       acknowledges the questions it owed elsewhere at that moment (owedElsewhere stops
+       asking about them) and it is not a suspected misroute in the daily count. */
+    ...(newPost === true && operator !== true ? { newPost: true } : {}),
+    /* #3745: stored only when this post answers another, so an ordinary post's row is unchanged. */
+    ...(answered ? { replyTo: answered.id } : {}),
     ...(attachment && typeof attachment === 'object' && typeof attachment.id === 'string' ? { attachment } : {}),
     ...(Array.isArray(attachments) && attachments.length ? { attachments } : {}) });
   /* The aggregate state is a SUMMARY, not the receipt: the receipt
@@ -1487,7 +1695,9 @@ function sendPost({ fromPane, sender: resolvedSender, project, projectName, text
   const states = Object.values(outcomes);
   const state = states.every((v) => v === chat.DELIVERY.PLACED)
     ? chat.DELIVERY.PLACED : chat.DELIVERY.UNCONFIRMED;
-  return { state, because: null, id, at, outcomes, from };
+  // `text` is the form the room stored, so a federated room can send out
+  // exactly what this room shows (#3311).
+  return { state, because: null, id, at, outcomes, from, text: stored };
 }
 
 /** Messages involving one agent (or all, unfiltered), oldest first. */
@@ -1498,8 +1708,9 @@ function list(agent) {
   // equality, or every room post vanishes from every agent page. A
   // PROJECT-typed `to` (room valves and room refusals log the project id
   // there) is never matched against an agent name -- an agent named like
-  // a project must not inherit that room's bookkeeping rows.
-  return log.filter((m) => m && (m.from === agent
+  // a project must not inherit that room's bookkeeping rows. An external row's
+  // `from` is a name another account chose (#3311): never this Mac's agent.
+  return log.filter((m) => m && ((m.from === agent && m.kind !== 'external')
     || (typeof m.to === 'string' && !m.project && m.to === agent)
     || (Array.isArray(m.to) && m.to.includes(agent))));
 }
@@ -1861,6 +2072,25 @@ function sweepUnanswered(roster, now) {
    index) and correctness risk to a function whose exactness is the point. The
    lever if a long backfill ever proves slow is to build the index once in
    compileAll and pass windows to a count-from-index variant. */
+/* #3224: how many room posts in [sinceMs, untilMs) were sent with --new, that is, confirmed
+   as new for their room after (or instead of) the which-room question. Counts only, for the
+   digest beside the suspected-misroute line, because those posts are left out of that count:
+   without this line the digest would read lower while the heuristic's cost went unseen.
+   NULL when the record cannot be read, as suspectedMisrouteCount. */
+function confirmedNewPostCount(sinceMs, untilMs) {
+  const rec = record();
+  if (!rec.ok) return null;
+  const from = Number.isFinite(sinceMs) ? sinceMs : -Infinity;
+  const until = Number.isFinite(untilMs) ? untilMs : Infinity;
+  let n = 0;
+  for (const m of rec.rows) {
+    if (!m || m.kind !== 'post' || m.operator === true || m.newPost !== true) continue;
+    const t = Date.parse(m.at);
+    if (Number.isFinite(t) && t >= from && t < until) n += 1;
+  }
+  return n;
+}
+
 function suspectedMisrouteCount(sinceMs, untilMs) {
   const rec = record();
   if (!rec.ok) return null;   // could-not-read, NOT empty: caller omits the line rather than showing 0
@@ -1903,6 +2133,8 @@ function suspectedMisrouteCount(sinceMs, untilMs) {
   let count = 0;
   for (const p of rows) {
     if (!p || p.kind !== 'post' || p.operator === true) continue;   // W's own room post
+    // #3224: a post sent with --new is the agent's own answer to "which room" -- deliberate, not suspected.
+    if (p.newPost === true) continue;
     const who = p.from;
     const target = p.project;
     const postAt = Date.parse(p.at);
@@ -2059,6 +2291,73 @@ function reopenRoom(project, at) {
   return { ok: true, at: when };
 }
 
+/* #3224, the proactive half: a post that is NOT a reply (no in_reply_to), sent by an
+ * agent that owes the person an answer in a DIFFERENT room, is the likeliest shape of
+ * the misroute Josh reported. This finds that owed question, so /api/post can ask the
+ * agent which room it meant instead of posting blind. Returns { id, project } for the
+ * most recent owed question, or null when there is nothing to ask about.
+ *
+ * "Owed" is the same test the #185 nudge (`unanswered`) and the daily misroute count
+ * use: an operator post that mentioned this agent and reached its pane (anything but
+ * could_not), with no room post from the agent in that project since. Two bounds keep
+ * the cost of a wrong guess to one rerun, and rarely:
+ * - only questions from the last WHICH_ROOM_WINDOW_MS count, so an ask the agent
+ *   ignored yesterday does not hold every post it makes today;
+ * - if the agent ALSO owes an answer in the target room, posting there is ordinary
+ *   and nothing is asked.
+ * An unreadable record returns null (post as before): this is a question to the
+ * agent, not a gate, and sendPost's own writes meet the same record. */
+const WHICH_ROOM_WINDOW_MS = 60 * 60 * 1000;
+function owedElsewhere(agent, targetProject, now, opts) {
+  const who = String(agent == null ? '' : agent);
+  const target = String(targetProject == null ? '' : targetProject);
+  if (!who || !target) return null;
+  const at = Number.isFinite(now) ? now : Date.now();
+  const canPostIn = opts && typeof opts.canPostIn === 'function' ? opts.canPostIn : () => true;
+  const rec = record();
+  if (!rec || rec.ok !== true || !Array.isArray(rec.rows)) return null;
+  /* The id and project go into a sentence the bash CLI reads with a sed that stops at a
+     quote, and into a command the agent reruns: only the plain id shapes qualify. */
+  const plain = (v) => typeof v === 'string' && /^[A-Za-z0-9._-]+$/.test(v);
+  const asks = [];
+  const lastPostIn = new Map();   // project -> latest room post time by this agent
+  let lastNewAt = -Infinity;      // the agent's latest --new post: it answered "which room" then
+  for (const m of rec.rows) {
+    if (!m || m.kind !== 'post' || !m.project) continue;
+    const t = Date.parse(m.at);
+    if (!Number.isFinite(t)) continue;
+    if (m.operator === true) {
+      if (!Array.isArray(m.mentioned) || !m.mentioned.includes(who)) continue;
+      const oc = m.outcomes && m.outcomes[who];
+      if (!oc || oc === chat.DELIVERY.COULD_NOT) continue;
+      const age = at - t;
+      if (age < 0 || age > WHICH_ROOM_WINDOW_MS) continue;
+      if (!plain(String(m.id == null ? '' : m.id)) || !plain(m.project)) continue;
+      asks.push({ id: String(m.id), project: m.project, t });
+    } else if (m.from === who) {
+      /* operator !== true, as in `unanswered`: an agent named "you" must not find
+         operator posts standing in as its own answers. */
+      if (!(lastPostIn.get(m.project) >= t)) lastPostIn.set(m.project, t);
+      if (m.newPost === true && t > lastNewAt) lastNewAt = t;
+    }
+  }
+  /* >= as in `unanswered`: an answer in the same millisecond as the ask clears it. An
+     ask at or before the agent's latest --new post is treated as acknowledged. That is
+     slightly wider than "was put to it": a question landing between the hold and the
+     --new rerun is cleared too. Accepted: the window is one rerun long. */
+  const owed = asks.filter((a) => !(lastPostIn.get(a.project) >= a.t) && a.t > lastNewAt);
+  const elsewhere = owed.filter((a) => a.project !== target && (() => {
+    try { return canPostIn(a.project) === true; } catch { return false; }
+  })());
+  if (!elsewhere.length) return null;
+  const latest = elsewhere.reduce((x, y) => (y.t >= x.t ? y : x));
+  /* Owing the target room too makes a post there ordinary, but only when that question
+     is at least as recent as the newest one elsewhere: a question ignored in A fifty
+     minutes ago does not excuse answering B's question of two minutes ago into A. */
+  if (owed.some((a) => a.project === target && a.t >= latest.t)) return null;
+  return { id: latest.id, project: latest.project };
+}
+
 /* #3224: the project a POST belongs to, by its id, or null if no such post is in
  * the record. This is the NON-CIRCULAR oracle a reply binds to: the project of the
  * message being answered is a fact recorded when that message was posted (appendLog
@@ -2089,15 +2388,16 @@ function projectOfPost(id) {
 }
 
 module.exports = {
+  setSenderTextFilter, filteredText, // #3769
   quotedSegments, quoteWorthy, QUOTE_MIN_CHARS, QUOTE_MIN_WORDS,
-  projectOfPost,
+  projectOfPost, owedElsewhere,
   react, reactionsFor, normalizeReactionEmoji,
   operatorDirect, operatorNowLabel, validTimeZone, roomClock,
   START, END, blockBody,
   LOG,
   unanswered, sweepUnanswered, setUnansweredAfterForTests,
-  suspectedMisrouteCount,
-  resolveSender, paneSession, paneClaim, send, logRefusedSend, sendPost, reopenRoom, list, owesReply, pairCount, readLog, record, roomNote, markerProblem,
+  suspectedMisrouteCount, confirmedNewPostCount,
+  resolveSender, paneSession, paneClaim, send, logRefusedSend, sendPost, reopenRoom, list, owesReply, pairCount, readLog, record, roomNote, externalPost, markerProblem,
   unreadAll, unread, markSeen, seenRead, SEEN,
   setRunner, resetForTests,
 };

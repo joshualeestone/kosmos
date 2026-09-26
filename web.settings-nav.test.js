@@ -105,25 +105,29 @@ test('#2054/#3138/#2619: Automation holds Auto-save, Prompter, Agent Communicati
   // #2619: both new automations carry the same .toggle switch shape as the others.
   assert.match(sec, /id="rec-toggle"[^>]*class="toggle"|class="toggle"[^>]*id="rec-toggle"/, '#2619: the Recommender toggle is missing');
   assert.match(sec, /id="asg-toggle"[^>]*class="toggle"|class="toggle"[^>]*id="asg-toggle"/, '#2619: the Assigner toggle is missing');
-  // #2619 (Splinter, 2026-09-24): the behaviour is a separate build, so these
-  // controls must NOT be an actionable switch that does nothing - they render
-  // DISABLED with a "not active yet" note until the behaviour lands. Pin that: a
-  // future change that re-enables a do-nothing control fails here. The toggles are
-  // <button> elements (a disabled button fires no click); the guards are disabled
-  // checkboxes. If the behaviour PR wires them live, it updates this contract.
-  // The real boolean `disabled` attribute, NOT aria-disabled: the toggles carry
-  // BOTH (aria-disabled="true" disabled), and a plain /\bdisabled\b/ matches inside
-  // "aria-disabled" because the hyphen is a word boundary - so it would pass even if
-  // the real, click-blocking attribute were dropped. The negative lookbehind
-  // (?<!aria-) requires the standalone attribute. (Perturbation-checked: dropping the
-  // real `disabled` while keeping aria-disabled makes these fail.)
-  assert.match(sec, /id="rec-toggle"[^>]*(?<!aria-)\bdisabled\b/, '#2619: the Recommender toggle must carry the real disabled attribute (not just aria-disabled) until the behaviour is wired');
-  assert.match(sec, /id="asg-toggle"[^>]*(?<!aria-)\bdisabled\b/, '#2619: the Assigner toggle must carry the real disabled attribute (not just aria-disabled) until the behaviour is wired');
+  // #3595 phase 2: the Assigner is live too. No disabled attribute (the real boolean one, NOT
+  // aria-disabled: a plain /\bdisabled\b/ matches inside "aria-disabled", so the lookbehind
+  // (?<!aria-) requires the standalone attribute), the toggle starts hidden until the read
+  // lands, no "not active yet" note is left, and it is painted from the server and wired to save.
+  assert.doesNotMatch(sec, /id="asg-toggle"[^>]*(?<!aria-)\bdisabled\b/, '#3595: the Assigner toggle is still disabled though its behaviour is built');
+  assert.match(sec, /id="asg-toggle"[^>]*\bhidden\b/, '#3595: the Assigner toggle must start hidden until the setting is read (never a false Off)');
+  assert.doesNotMatch(sec, /Not active yet/, '#3595: a "not active yet" note is left though both automations are live');
+  assert.match(PAGE, /function paintAssigner\(/, '#3595: the Assigner has no painter');
+  assert.match(PAGE, /\/api\/assigner-setting/, '#3595: the page never reads or writes the Assigner setting');
+  // #3595: the Recommender is live. Its toggle and guards carry NO disabled attribute, the
+  // toggle starts hidden (status contract: shown only once the server read lands), and it
+  // is painted from the server and wired to save.
+  assert.doesNotMatch(sec, /id="rec-toggle"[^>]*(?<!aria-)\bdisabled\b/, '#3595: the Recommender toggle is still disabled though its behaviour is built');
+  assert.match(sec, /id="rec-toggle"[^>]*\bhidden\b/, '#3595: the Recommender toggle must start hidden until the setting is read (never a false Off)');
   for (const g of ['rec-guard-money', 'rec-guard-public', 'rec-guard-delete']) {
-    assert.match(sec, new RegExp('id="' + g + '"[^>]*(?<!aria-)\\bdisabled\\b'),
-      '#2619: the guard checkbox ' + g + ' must carry the real disabled attribute until the behaviour is wired');
+    assert.doesNotMatch(sec, new RegExp('id="' + g + '"[^>]*(?<!aria-)\\bdisabled\\b'), '#3595: the guard ' + g + ' is still disabled');
   }
-  assert.match(sec, /Not active yet/, '#2619: the automations need a "not active yet" note so a disabled control is explained');
+  // #3595 (Splinter): the guards are instructions only (agents run with bypass permissions),
+  // so the screen must say Kosmos cannot yet stop these actions itself. Pinned so a later copy
+  // edit cannot quietly promise enforcement that does not exist.
+  assert.match(sec, /Kosmos cannot yet stop these actions on its own/, '#3595: the instruction-only guard disclosure is gone');
+  assert.match(PAGE, /function paintSettings\(\)[\s\S]*?paintRecommender\(\)/, '#3595: paintSettings no longer paints the Recommender');
+  assert.match(PAGE, /getElementById\('rec-toggle'\)\.addEventListener\('click', recToggleClick\)/, '#3595: the Recommender toggle is not wired to save');
   // #2619 (a11y, CI named-controls): each guard checkbox needs an accessible name
   // the named-controls browser check recognizes. That check reads the name from
   // aria-label / aria-labelledby / own text / title / label[for=id] - it does NOT

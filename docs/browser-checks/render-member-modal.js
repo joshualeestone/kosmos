@@ -25,6 +25,7 @@
  * ⚠️ HEADED by default. `HEADED=0` on a machine with no console session. Runs the
  * server in-process against a fixture fleet, every state root a temp dir.
  */
+require('./lib-sandbox-home.js'); // #3675: never read the host Mac's real accounts
 const fs = require('fs');
 const os = require('os');
 const path = require('path');

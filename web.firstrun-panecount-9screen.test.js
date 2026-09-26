@@ -69,13 +69,22 @@ test('#2497: first-run frPaintFleet forces the no-agent Giddy Up screen and fire
   assert.ok(end !== -1, 'could not find the end of frPaintFleet');
   const body = PAGE.slice(open, end);
 
-  // The forced no-agent create / Giddy Up render is present.
-  assert.match(body, /title\.textContent = 'Create your first agent\.';/,
-    'frPaintFleet no longer forces the create heading on first run');
-  assert.match(body, /Let\\u2019s get started\./,
-    'frPaintFleet no longer shows the Giddy Up "Let’s get started" copy');
-  assert.match(body, /frActions\(\{ label: 'Giddy Up', go: \(\) => frFinish\(openCreate\) \}\)/,
-    'frPaintFleet no longer renders the Giddy Up action');
+  // The forced Giddy Up render is present. #3575 (Josh, 2026-09-24): the button KEEPS "Giddy Up",
+  // the page is about starting to use Kosmos (not creating a first agent), and Giddy Up lands on
+  // the Agents dashboard, not Create Agent.
+  assert.match(body, /title\.textContent = 'You\\u2019re ready to start using Kosmos\.';/,
+    'frPaintFleet no longer shows the #3575 start-using-Kosmos heading on first run');
+  assert.doesNotMatch(body.slice(0, body.indexOf("frActions({ label: 'Giddy Up'")),
+    /title\.textContent = 'Create your first agent\.';/,
+    '#3575: the forced ending is back to the create-your-first-agent heading');
+  assert.match(body, /Head to your dashboard to create or import agents, set up your projects, /,
+    'frPaintFleet no longer shows Josh\'s #3659 body line');
+  assert.match(body, /frActions\(\{ label: 'Giddy Up', go: \(\) => frFinish\(\(\) => showTab\('agents'\)\) \}\)/,
+    'frPaintFleet no longer renders the Giddy Up action landing on the Agents dashboard (#3575)');
+  // Everything up to the forced return is what first run renders; it must not open Create Agent.
+  const forcedBlock = body.slice(0, body.indexOf('return;', body.indexOf("frActions({ label: 'Giddy Up'")));
+  assert.doesNotMatch(forcedBlock, /frFinish\(openCreate\)/,
+    '#3575: the forced Giddy Up still drops the person into Create Agent');
 
   const forced = body.indexOf("frActions({ label: 'Giddy Up'");
   const forcedReturn = body.indexOf('return;', forced);
@@ -98,29 +107,27 @@ test('#2497: first-run frPaintFleet forces the no-agent Giddy Up screen and fire
     'the forced Giddy Up return comes after a path branch; a non-empty roster would miss it');
 });
 
-test('#2497 follow-on: the Giddy Up welcome carries the manual-import POINTER sub-line', () => {
-  // Everyone now lands on the create / Giddy Up welcome, including a user who already runs agents
-  // in Claude Code or Codex that onboarding deliberately no longer scoops up. One quiet sub-line
-  // under "Let's get started." points that user at the manual Import path on the next screen, so
-  // "where are my agents?" does not reappear one screen later. A silent deletion of the pointer
-  // reintroduces exactly the confusion #2497 removes, so guard it here (source match, the same
-  // shape this file already uses for the welcome copy above).
+test('#3659: the final setup page is Josh\'s copy: SETUP COMPLETE, one body line naming import', () => {
+  // Josh, 2026-09-24 17:49 (verbatim on #3659): one body line replaces both earlier paragraphs. It
+  // names import ("create or import agents"), so the #2497 manual-import pointer paragraph is
+  // retired by his copy rather than lost: the line still tells an existing-agent user where to go.
   const open = PAGE.indexOf('function frPaintFleet() {');
   assert.ok(open !== -1, 'frPaintFleet is gone; this guard is measuring nothing');
   const end = PAGE.indexOf('\n}', open);
-  assert.ok(end !== -1, 'could not find the end of frPaintFleet');
+  assert.ok(end !== -1, 'frPaintFleet has no closing line; the slice would be the rest of the page');
   const body = PAGE.slice(open, end);
-
-  // The copy is split across a string concat in the source, so each phrase below is chosen to sit
-  // entirely within one fragment and never crosses the ' + ' break (a phrase spanning the break
-  // could never match). Together they pin the whole pointer: the question and the Import pointer.
-  assert.match(body, /Already have agents in Claude Code or Codex on this computer\?/,
-    'the #2497 manual-import pointer sub-line is gone from the Giddy Up welcome');
-  assert.match(body, /On the next screen you can import an existing agent\./,
-    'the #2497 pointer no longer names the manual Import path on the next screen');
-  // It must be a POINTER, not a scan: it renders as a static hint paragraph, not a discovery call.
-  assert.match(body, /class="dhint"[^>]*>Already have agents/,
-    'the pointer sub-line is not the muted .dhint hint paragraph it should be');
+  // Everything below is checked on the REACHABLE code (before the forced Giddy Up return), so a
+  // line moved below that return into the kept-but-unreachable arms cannot satisfy it.
+  const giddy = body.indexOf("frActions({ label: 'Giddy Up'");
+  assert.ok(giddy > 0, 'could not find the forced Giddy Up return');
+  const reach = body.slice(0, giddy);
+  assert.match(reach, /Head to your dashboard to create or import agents, set up your projects, /);
+  assert.match(reach, /and start building your next big idea\./);
+  assert.match(reach, /eyebrow\.textContent = 'Setup complete'/, 'the eyebrow is not set to Setup complete');
+  assert.match(PAGE, /<p class="fc-eyebrow" id="fr-fleet-eyebrow">Setup complete<\/p>/, 'the pre-JS eyebrow still says something else');
+  assert.ok(reach.indexOf('box.innerHTML = ') !== -1, 'could not find the rendered body statement');
+  const render = reach.slice(reach.indexOf('box.innerHTML = '));
+  assert.doesNotMatch(render, /get started|Already have agents|Import option/, 'an old paragraph is still rendered');
 });
 
 test('every fr-pane-N carries its own <h2> (frFocusActiveHead focuses it; a null head breaks focus/aria)', () => {

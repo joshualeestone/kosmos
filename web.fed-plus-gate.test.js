@@ -62,12 +62,22 @@ test('#fedgate: the gate CSS + stamping + prompt are wired into the page', () =>
   // The status tick stamps the computed mode.
   assert.match(SCRIPT, /fedGateStamp\(data\)/, 'the status tick calls fedGateStamp');
   assert.match(SCRIPT, /setAttribute\('data-fed-ui'/, 'fedGateStamp stamps data-fed-ui');
-  // The CSS hides the fed entry points unless mode is show, and the prompt unless signup.
-  assert.match(PAGE, /html:not\(\[data-fed-ui="show"\]\) \.pj-mode/, 'fed entry points gated to show mode');
-  assert.match(PAGE, /html:not\(\[data-fed-ui="signup"\]\) #pj-plus-signup/, 'sign-up prompt gated to signup mode');
-  // The prompt markup + its route into the in-app Plus section (no hardcoded domain).
-  assert.match(PAGE, /id="pj-plus-signup"/, 'the sign-up prompt element exists');
-  assert.match(PAGE, /id="pj-plus-signup-go"/, 'the sign-up button exists');
+  // #3495 (Angel): the Create/Join toggle (.pj-mode) + the Add-external buttons ALWAYS show now
+  // (they gate by MESSAGE via showPlusGate, not by hiding). Only the Plus-only CONTENT is
+  // display-gated, and the buttons are grayed (opacity), not hidden.
+  assert.match(PAGE, /html:not\(\[data-fed-ui="show"\]\) #pj-invite-panel[^{]*#pj-join-mode[^{]*\{ display: none/, 'the Plus-only content (invite panel + join form) is gated to show mode');
+  assert.match(PAGE, /html:not\(\[data-fed-ui="show"\]\) #pj-add-ext-person[^{]*#pj-add-ext-agent[^{]*\{ opacity:/, 'the Add-external buttons are grayed (not hidden) for a non-show viewer (#3495)');
+  assert.doesNotMatch(PAGE, /html:not\(\[data-fed-ui="show"\]\)[^{]*\.pj-mode[^{]*\{ display: none/, 'the Create/Join toggle is no longer hidden by the fed gate (#3495: always shows)');
+  // #3495: the shared Plus-gate modal + its trigger are wired.
+  assert.match(SCRIPT, /function showPlusGate\(kind(?:,\s*opener)?\)/, 'showPlusGate exists (kind, plus the optional opener that focus returns to)');
+  assert.match(SCRIPT, /function fedShow\(\)/, 'the fedShow behaviour gate exists');
+  // #3495: the standalone sign-up card is gone; sign-up lives only in the shared modal.
+  assert.doesNotMatch(PAGE, /id="pj-plus-signup/, 'the standalone sign-up card is removed (the modal carries sign-up)');
+  assert.match(PAGE, /id="plus-gate-go"/, 'the modal carries the sign-up button');
+  assert.match(SCRIPT, /getElementById\('plus-gate-go'\)\.addEventListener\('click',[\s\S]{0,80}fedPlusSignupGo\(\)/, 'the modal sign-up button routes via fedPlusSignupGo');
+  // A member gated only because federation has not launched gets "soon", not a sign-up prompt.
+  assert.match(SCRIPT, /toggleAttribute\('data-fed-member', data\.kosmos_plus === true\)/, 'fedGateStamp stamps membership');
+  assert.match(SCRIPT, /soon: '/, 'the member copy exists');
   assert.match(SCRIPT, /function fedPlusSignupGo\(\)[\s\S]*settingsGo\('plus'\)/, 'sign-up routes to the in-app Plus section');
   assert.doesNotMatch(SCRIPT, /fedPlusSignupGo[\s\S]{0,120}https?:\/\//, 'no hardcoded sign-up URL (Josh ruling)');
 });

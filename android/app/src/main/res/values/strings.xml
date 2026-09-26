@@ -1,9 +1,11 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!--
-  The FOUR values below are the entire per-deployment configuration of this TWA.
-  All of them currently point at the placeholder front-door origin app.kosmos.io
-  (open question #1 on issue #718). When the real front-door origin is decided,
-  change them here and nowhere else.
+  The values below are the entire per-deployment configuration of this TWA.
+  They point at the Kosmos+ coordinator, login.kosmosplus.com: the one fixed
+  front-door origin picked on #2854 (Liu Kang, 2026-09-24), because it is the page
+  every user already signs in on and it already serves the push vapid key and
+  subscribe routes. If that origin ever changes, change it here and nowhere else,
+  and move /.well-known/assetlinks.json with it.
 
     launchUrl        the URL the TWA opens full-screen
     hostName         the verified host for deep-link / asset-link matching
@@ -11,7 +13,8 @@
 -->
 <resources>
     <string name="appName">Kosmos</string>
-    <string name="launchUrl">https://app.kosmos.io/</string>
-    <string name="hostName">app.kosmos.io</string>
-    <string name="assetStatements">[{ \"relation\": [\"delegate_permission/common.handle_all_urls\"], \"target\": { \"namespace\": \"web\", \"site\": \"https://app.kosmos.io\" } }]</string>
+    <string name="launchUrl">https://login.kosmosplus.com/</string>
+    <string name="hostName">login.kosmosplus.com</string>
+    <string name="providerAuthority">io.kosmos.app.fileprovider</string>
+    <string name="assetStatements">[{ \"relation\": [\"delegate_permission/common.handle_all_urls\"], \"target\": { \"namespace\": \"web\", \"site\": \"https://login.kosmosplus.com\" } }]</string>
 </resources>

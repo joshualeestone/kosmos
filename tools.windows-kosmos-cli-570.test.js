@@ -25,13 +25,14 @@ const hookStub = { resolveUrl: () => 'http://127.0.0.1:1', readBoardToken: () =>
 
 /* Run one command against a scripted board. `answer(route, init)` returns
    { status, body } (an object is sent as JSON) or throws to simulate a failure. */
-async function run(argv, answer, env) {
+async function run(argv, answer, env, readStdin) {
   const calls = [];
   const out = [];
   const err = [];
   const code = await cli.main(argv, {
     env: env || { KOSMOS_AGENT_TOKEN: AGENT },
     hook: hookStub,
+    readStdin,
     out: (s) => out.push(s),
     err: (s) => err.push(s),
     fetch: async (url, init) => {
@@ -84,6 +85,45 @@ test('msg: placed -> 0, unconfirmed -> 3 (never 1), could_not -> 1 with the boar
   const no = await run(['msg', 'mara', 'hi'], () => ({ body: { delivery: { state: 'could_not', because: 'mara is not running.' } } }));
   assert.equal(no.code, 1);
   assert.equal(no.err, 'Not delivered: mara is not running.', 'the board\'s sentence, once, with one period');
+});
+
+test('#2909: msg --stdin sends the piped text as written; refusals send nothing; a declined one is kept', async () => {
+  const placed = () => ({ body: { delivery: { state: 'placed' } } });
+  const r = await run(['msg', '--stdin', 'mara'], placed, undefined, async () => ({ text: 'run `x` and $y\n', ended: true }));
+  assert.equal(r.code, 0, r.err);
+  assert.deepEqual(r.calls[0].body, { to: 'mara', text: 'run `x` and $y', from_pane: '' });
+  const mixed = await run(['msg', '--stdin', 'mara', 'also'], placed, undefined, async () => ({ text: 'x', ended: true }));
+  assert.equal(mixed.code, 2); assert.equal(mixed.calls.length, 0);
+  const trailing = await run(['msg', 'mara', '--stdin'], placed, undefined, async () => { throw new Error('stdin read for a trailing --stdin'); });
+  assert.equal(trailing.code, 2); assert.equal(trailing.calls.length, 0);
+  const empty = await run(['msg', '--stdin', 'mara'], placed, undefined, async () => ({ text: '', ended: false }));
+  assert.equal(empty.code, 2); assert.match(empty.err, /nothing was piped in: kosmos msg --stdin <agent>/);
+  const declined = await run(['msg', '--stdin', 'mara'], () => ({ body: { delivery: { state: 'could_not', because: 'mara is not running.' } } }), undefined, async () => ({ text: 'keep this msg', ended: true }));
+  assert.equal(declined.code, 1);
+  const saved = declined.err.match(/saved at (\S+)/);
+  assert.ok(saved, declined.err);
+  assert.equal(fs.readFileSync(saved[1], 'utf8'), 'keep this msg');
+  fs.rmSync(path.dirname(saved[1]), { recursive: true });
+  const noAgent = await run(['msg', '--stdin'], placed, undefined, async () => { throw new Error('stdin read with no agent'); });
+  assert.equal(noAgent.code, 2, 'no agent refuses before reading stdin');
+  assert.equal(noAgent.calls.length, 0);
+  assert.match(noAgent.err, /Usage: kosmos msg \[--stdin\]/);
+  const huge = await run(['msg', '--stdin', 'mara'], placed, undefined, async () => ({ text: '"'.repeat(3.5 * 1024 * 1024), ended: true }));
+  assert.equal(huge.code, 2, 'an encoded msg body over the board limit is refused before sending');
+  assert.equal(huge.calls.length, 0);
+  assert.match(huge.err, /too large to send to the board/);
+  const hugeSaved = huge.err.match(/saved at (\S+)/);
+  assert.ok(hugeSaved, 'and the piped message is kept');
+  fs.rmSync(path.dirname(hugeSaved[1]), { recursive: true });
+  const tabs = await run(['msg', '--stdin', 'mara'], placed, undefined, async () => ({ text: 'a\tb\r\nc\r\n', ended: true }));
+  assert.equal(tabs.calls[0].body.text, 'a\tb\r\nc', 'Windows msg keeps inner tabs/CRs (the documented asymmetry with bash, which flattens them)');
+  const ww = await run(['msg', '--stdin', 'mara'], () => ({ status: 421, body: { wrongWorld: true } }), undefined, async () => ({ text: 'w'.repeat(200 * 1024), ended: true }));
+  assert.equal(ww.code, 1, 'the outbox cannot keep it here');
+  const wwSaved = ww.err.match(/saved at (\S+)/);
+  assert.ok(wwSaved, 'a wrong-world piped msg the outbox refused is kept');
+  fs.rmSync(path.dirname(wwSaved[1]), { recursive: true });
+  const control = await run(['msg', 'mara', 'plain'], placed, undefined, async () => { throw new Error('stdin read without --stdin'); });
+  assert.equal(control.code, 0, 'CONTROL: without --stdin, stdin is never read');
 });
 
 test('an unreachable board is exit 1 with the url; a TIMEOUT is exit 3, because the board may already have acted', async () => {
@@ -161,6 +201,149 @@ test('#3224: post --in-reply-to binds the reply; parity with install/kosmos (fla
   assert.equal(Object.prototype.hasOwnProperty.call(trailing.calls[0].body, 'in_reply_to'), false,
     'a flag AFTER the project must NOT bind (leading-only): the token becomes message text, not the citation');
   assert.match(trailing.calls[0].body.text, /--in-reply-to m5/, 'the trailing flag+id land verbatim in the message text, unbound');
+});
+
+test('#2710 parity: a post refused for any reason hands the text back (not only a which-room hold)', async () => {
+  const refused = () => ({ body: { delivery: { state: 'could_not', because: 'the room is paused until the person comes back' } } });
+  const r = await run(['post', 'proj-1', 'a long substantive update'], refused);
+  assert.equal(r.code, 1);
+  assert.match(r.err, /Not posted: the room is paused/);
+  assert.match(r.err, /here it is to keep and re-post when the room is ready/, 'the generic refusal must say how to keep it (install/kosmos wording)');
+  assert.match(r.err, /a long substantive update/, 'the text is handed back');
+  const held = await run(['post', 'proj-1', 'x'], () => ({ body: { delivery: { state: 'could_not', code: 'which_room', because: 'q' } } }));
+  assert.match(held.err, /here it is to send again/, 'a which-room hold keeps its own wording');
+});
+
+test('#3224: post --new sends new_post:true (not held to ask which room); without it no field; combines with the other leading flags; non-leading is text', async () => {
+  const ok = () => ({ body: { delivery: { state: 'placed' } } });
+  const a = await run(['post', '--new', 'proj-1', 'a new post'], ok);
+  assert.equal(a.code, 0);
+  assert.deepEqual(a.calls[0].body, { project: 'proj-1', text: 'a new post', from_pane: '', new_post: true },
+    '--new must consume the flag and put new_post:true on the body (parity with install/kosmos)');
+  const none = await run(['post', 'proj-1', 'a plain post'], ok);
+  assert.equal(Object.prototype.hasOwnProperty.call(none.calls[0].body, 'new_post'), false, 'an ordinary post must omit new_post');
+  const both = await run(['post', '--no-reply', '--new', 'proj-1', 'ack'], ok);
+  assert.equal(both.calls[0].body.new_post, true);
+  assert.equal(both.calls[0].body.reply_expected, false);
+  const mid = await run(['post', 'proj-1', 'this is --new stuff'], ok);
+  assert.equal(Object.prototype.hasOwnProperty.call(mid.calls[0].body, 'new_post'), false, 'a non-leading --new is message text');
+  const held = await run(['post', 'proj-1', 'meant for beta'], () => ({ body: { delivery: { state: 'could_not', code: 'which_room', because: 'you have an unanswered question from the person in Beta (m45)' } } }));
+  assert.equal(held.code, 1);
+  assert.match(held.err + held.out, /here it is to send again/, 'a which-room hold hands the text back (parity with install/kosmos)');
+  assert.match(held.err + held.out, /meant for beta/);
+  const combo = await run(['post', '--in-reply-to', 'm5', '--new', 'proj-1', 'x'], ok);
+  assert.equal(combo.code, 2, '--new with --in-reply-to is refused (parity with install/kosmos)');
+  assert.equal(combo.calls.length, 0);
+});
+
+test('#2909: post --stdin sends the piped text verbatim (backticks, $, newlines), either flag order; refusals send nothing', async () => {
+  const placed = () => ({ body: { delivery: { state: 'placed' } } });
+  const msg = 'Run `kosmos room p` then check $HOME\n\n- one\n- two';
+  const r = await run(['post', '--stdin', 'proj-1'], placed, undefined, async () => ({ text: msg + '\n', ended: true }));
+  assert.equal(r.code, 0, r.err);
+  assert.deepEqual(r.calls[0].body, { project: 'proj-1', text: msg, from_pane: '' }, 'the piped text, trailing newline trimmed, nothing else touched');
+  const both = await run(['post', '--stdin', '--no-reply', 'proj-1'], placed, undefined, async () => ({ text: 'ack', ended: true }));
+  assert.deepEqual(both.calls[0].body, { project: 'proj-1', text: 'ack', from_pane: '', reply_expected: false }, '--stdin and --no-reply combine in either order');
+  const mixed = await run(['post', '--stdin', 'proj-1', 'also', 'args'], placed, undefined, async () => ({ text: 'x', ended: true }));
+  assert.equal(mixed.code, 2);
+  assert.equal(mixed.calls.length, 0, 'args alongside --stdin is ambiguous and must send nothing');
+  const empty = await run(['post', '--stdin', 'proj-1'], placed, undefined, async () => ({ text: '', ended: false }));
+  assert.equal(empty.code, 2);
+  assert.equal(empty.calls.length, 0, 'nothing piped in must send nothing');
+  assert.match(empty.err, /nothing was piped in/);
+  assert.match(empty.err, /in PowerShell, pass the text as an argument/, 'kosmos.ps1 never forwards piped input, so the refusal must say so');
+  const crlf = await run(['post', '--stdin', 'proj-1'], placed, undefined, async () => ({ text: 'line one\r\nline two\r\n', ended: true }));
+  assert.equal(crlf.calls[0].body.text, 'line one\r\nline two', 'a CRLF file loses its trailing line ending, not just the \\n');
+  const esc = await run(['post', '--stdin', 'proj-1'], placed, undefined, async () => ({ text: '\u001b[31mred\u001b[0m\tdone\u0007\n', ended: true }));
+  assert.equal(esc.calls[0].body.text, '[31mred[0m\tdone', 'ESC/BEL dropped and tab kept, matching install/kosmos');
+  const ctl = await run(['post', '--stdin', 'proj-1'], placed, undefined, async () => ({ text: '\u001b\u0007\n', ended: true }));
+  assert.equal(ctl.code, 2, 'control-only input is nothing piped in');
+  assert.equal(ctl.calls.length, 0);
+  const huge = await run(['post', '--stdin', 'proj-1'], placed, undefined, async () => ({ text: '"'.repeat(3.5 * 1024 * 1024), ended: true }));
+  assert.equal(huge.code, 2, 'quotes escape to twice their size; the encoded body is over the board limit');
+  assert.equal(huge.calls.length, 0);
+  assert.match(huge.err, /too large to send to the board/);
+  const hugeSaved = huge.err.match(/saved at (\S+)/);
+  assert.ok(hugeSaved, 'a refused piped message must be kept in a file');
+  assert.equal(fs.readFileSync(hugeSaved[1], 'utf8'), '"'.repeat(3.5 * 1024 * 1024));
+  fs.rmSync(path.dirname(hugeSaved[1]), { recursive: true });
+  const refused = await run(['post', '--stdin', 'proj-1'], () => ({ status: 403, body: { error: 'no such room' } }), undefined, async () => ({ text: 'keep me', ended: true }));
+  assert.equal(refused.code, 1);
+  const refusedSaved = refused.err.match(/saved at (\S+)/);
+  assert.ok(refusedSaved, 'a board refusal after the read keeps the piped message too');
+  assert.equal(fs.readFileSync(refusedSaved[1], 'utf8'), 'keep me');
+  if (process.platform !== 'win32') assert.equal(fs.statSync(refusedSaved[1]).mode & 0o777, 0o600, 'the saved copy is private');
+  fs.rmSync(path.dirname(refusedSaved[1]), { recursive: true });
+  const declined = await run(['post', '--stdin', 'proj-1'], () => ({ body: { delivery: { state: 'could_not', because: 'there is no project by that name.' } } }), undefined, async () => ({ text: 'declined body', ended: true }));
+  assert.equal(declined.code, 1);
+  const declinedSaved = declined.err.match(/saved at (\S+)/);
+  assert.ok(declinedSaved, 'a declined delivery keeps the piped message too');
+  assert.equal(fs.readFileSync(declinedSaved[1], 'utf8'), 'declined body');
+  fs.rmSync(path.dirname(declinedSaved[1]), { recursive: true });
+  const big = 'w'.repeat(200 * 1024);
+  const ww = await run(['post', '--stdin', 'proj-1'], () => ({ status: 421, body: { wrongWorld: true } }), undefined, async () => ({ text: big, ended: true }));
+  assert.equal(ww.code, 1, 'the outbox cannot keep it here (no sender for this token, or over its cap): ' + ww.err.slice(0, 200));
+  const wwSaved = ww.err.match(/saved at (\S+)/);
+  assert.ok(wwSaved, 'the outbox refusal keeps the piped message in a file');
+  assert.equal(fs.readFileSync(wwSaved[1], 'utf8'), big);
+  fs.rmSync(path.dirname(wwSaved[1]), { recursive: true });
+  const boomErr = [];
+  const boom = await cli.main(['post', '--stdin', 'proj-1'], {
+    env: { KOSMOS_AGENT_TOKEN: AGENT }, hook: hookStub, out: () => {}, err: (x) => boomErr.push(x),
+    readStdin: async () => ({ text: 'outbox broke', ended: true }),
+    outbox: { keepFromClient: () => { throw new Error('engine missing'); }, WRONG_WORLD_SENTENCES: {} },
+    fetch: async () => ({ status: 421, text: async () => JSON.stringify({ wrongWorld: true }) }),
+  });
+  assert.equal(boom, 1, 'an outbox that throws is a failure, not a crash');
+  const boomSaved = boomErr.join('\n').match(/saved at (\S+)/);
+  assert.ok(boomSaved, 'the piped message is kept even when the outbox throws: ' + boomErr.join(' | '));
+  assert.equal(fs.readFileSync(boomSaved[1], 'utf8'), 'outbox broke');
+  fs.rmSync(path.dirname(boomSaved[1]), { recursive: true });
+  const argRefused = await run(['post', 'proj-1', 'typed'], () => ({ status: 403, body: { error: 'no such room' } }));
+  assert.doesNotMatch(argRefused.err, /saved at/, 'argument-mode text is still on the command line; nothing is saved');
+  const trailing = await run(['post', 'proj-1', '--stdin'], placed, undefined, async () => { throw new Error('stdin read for a trailing --stdin'); });
+  assert.equal(trailing.code, 2, 'a --stdin after the project is refused');
+  assert.equal(trailing.calls.length, 0);
+  const t0 = Date.now();
+  const runs = await run(['post', '--stdin', 'proj-1'], placed, undefined, async () => ({ text: '\n'.repeat(200000) + 'x\n', ended: true }));
+  assert.equal(runs.calls[0].body.text, '\n'.repeat(200000) + 'x', 'inner newline runs are kept, the trailing one trimmed');
+  assert.ok(Date.now() - t0 < 5000, 'trimming stays linear on a long inner run of newlines');
+  const noProject = await run(['post', '--stdin'], placed, undefined, async () => { throw new Error('stdin read with no project'); });
+  assert.equal(noProject.code, 2, 'no project refuses before reading stdin');
+  assert.equal(noProject.calls.length, 0);
+  const cut = await run(['post', '--stdin', 'proj-1'], placed, undefined, async () => ({ text: 'half a mess', ended: false }));
+  assert.equal(cut.code, 2);
+  assert.equal(cut.calls.length, 0, 'a pipe that went quiet without ending may be cut short and must not be posted');
+  const irt = await run(['post', '--in-reply-to', 'm9', '--stdin', 'proj-1'], placed, undefined, async () => ({ text: 'the `answer`\n', ended: true }));
+  assert.deepEqual(irt.calls[0].body, { project: 'proj-1', text: 'the `answer`', from_pane: '', in_reply_to: 'm9' }, '--stdin combines with --in-reply-to (#3224)');
+  const control = await run(['post', 'proj-1', 'plain', 'words'], placed, undefined, async () => { throw new Error('stdin read without --stdin'); });
+  assert.equal(control.code, 0, 'CONTROL: without --stdin the args are the message and stdin is never read');
+  assert.equal(control.calls[0].body.text, 'plain words');
+});
+
+test('#2909: post --stdin through the REAL readStandardInput (BOM, chunks, end) composes with the post trim', async () => {
+  const pipe = new PassThrough();
+  setTimeout(() => { pipe.write('\ufeffline one\r\n'); pipe.write('\u001b[1mtwo\u001b[0m\r\n'); pipe.end('\r\n'); }, 10);
+  const r = await run(['post', '--stdin', 'proj-1'], () => ({ body: { delivery: { state: 'placed' } } }), undefined, (ms) => cli.readStandardInput(pipe, ms));
+  assert.equal(r.code, 0, r.err);
+  assert.equal(r.calls[0].body.text, 'line one\r\n[1mtwo[0m', 'reader strips the BOM, post drops ESC and the trailing CR/LF run');
+});
+
+test('#2909: readStandardInput stops at an optional byte cap and reports overflow; post refuses it', async () => {
+  const pipe = new PassThrough();
+  setTimeout(() => { pipe.write('a'.repeat(10)); pipe.write('b'.repeat(10)); }, 5);
+  assert.deepEqual(await cli.readStandardInput(pipe, SHORT_QUIET_MS * 3, 15), { text: '', ended: false, overflow: true });
+  const under = new PassThrough();
+  setTimeout(() => { under.end('small'); }, 5);
+  assert.deepEqual(await cli.readStandardInput(under, SHORT_QUIET_MS * 3, 15), { text: 'small', ended: true }, 'under the cap is unchanged');
+  const r = await run(['post', '--stdin', 'proj-1'], () => ({ body: { delivery: { state: 'placed' } } }), undefined, async (ms, max) => {
+    assert.equal(max, 6 * 1024 * 1024, 'post passes the board limit as the read cap');
+    return { text: '', ended: false, overflow: true };
+  });
+  assert.equal(r.code, 2);
+  assert.equal(r.calls.length, 0);
+  assert.match(r.err, /over the 6 MB the board accepts/);
+  assert.doesNotMatch(r.err, /saved at/);
 });
 
 test('react: /api/react with project, post id and emoji, and the agent hears WHICH way the toggle went', async () => {
@@ -467,4 +650,26 @@ test('main reads kosmos.ps1\'s file, and refuses a mangled argument with exit 2 
   const bad = await cli.main([cli.ARGV_FILE_FLAG, 'x'], { env: {}, hook: hookStub, out: () => {}, err: (s) => errs.push(s), readFile: () => JSON.stringify(['reply', { a: 1 }]), fetch: async () => { throw new Error('sent a mangled message'); } });
   assert.equal(bad, 2);
   assert.match(errs.join(' '), /Put that part in quotes/);
+});
+
+test('#3878: Windows feedback pull prints the shared summary through the engine seam, could-not-be-read line included', async () => {
+  const realFp = require('./engine/feedbackpull');
+  const engine = { feedbackpull: {
+    pull: async () => ({ ok: true, written: 1, skipped: 2, unreadable: 2, lastGetError: 'blob GET HTTP 403', total: 3, dir: 'C:/fb' }),
+    summaryLines: realFp.summaryLines,
+  } };
+  const out = []; const err = [];
+  const code = await cli.main(['feedback', 'pull'], { env: {}, hook: hookStub, engine, out: (s) => out.push(s), err: (s) => err.push(s),
+    fetch: async () => { throw new Error('feedback reached the network'); } });
+  assert.equal(code, 0, err.join('\n'));
+  assert.deepEqual(out.slice(0, 2), ['pulled 1 report(s) (2 skipped) to C:/fb', '2 reports could not be read (last error: blob GET HTTP 403)']);
+});
+
+test('#3878: a Windows feedback pull whose engine module cannot load says so plainly', async () => {
+  const out = []; const err = [];
+  const engine = new Proxy({}, { get: (t, name) => { if (name === 'feedbackpull') throw new Error('Cannot find module /x/engine/feedbackpull.js'); return undefined; } });
+  const code = await cli.main(['feedback', 'pull'], { env: {}, hook: hookStub, engine, out: (s) => out.push(s), err: (s) => err.push(s),
+    fetch: async () => { throw new Error('feedback reached the network'); } });
+  assert.equal(code, 1);
+  assert.equal(err.join('\n'), 'could not pull the collected feedback');
 });

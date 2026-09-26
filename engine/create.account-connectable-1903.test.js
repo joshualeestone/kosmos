@@ -28,6 +28,7 @@ const SANDBOX = fs.mkdtempSync(nodePath.join(os.tmpdir(), 'create-connectable-19
 const HOME = nodePath.join(SANDBOX, 'home');
 fs.mkdirSync(HOME, { recursive: true });
 process.env.AGENT_WORKFORCE_HOME = HOME;
+delete process.env.AGENT_WORKFORCE_GROK_HOME;   // #3391: the default Grok home must be HOME/.grok here, never an ambient override
 delete process.env.AGENT_WORKFORCE_CODEX_HOME;
 delete process.env.CODEX_HOME;
 
@@ -224,4 +225,85 @@ test('#1903: an OpenAI account OpenAI accepts (200) is accepted, and a scope-res
   try {
     assert.deepEqual(await create.accountConnectable({ provider: 'openai', accountDir: DEAD_OPENAI }), { ok: true });
   } finally { openai.setFetcher(null); }
+});
+
+/* #3566: Gemini/Grok named accounts are checked live at create, like Claude and OpenAI. */
+test('#3566: a named Grok account whose key xAI REJECTS is refused at create; an accepted one passes', async () => {
+  const grok = require('./grokaccounts');
+  const dir = nodePath.join(HOME, '.grok-conntest');
+  grok.storeKey(dir, 'xai-conntest-key-12345678');
+  try {
+    grok.setFetcher(async () => ({ status: 401, body: { error: { code: 'invalid_api_key' } } }));
+    const bad = await create.accountConnectable({ provider: 'xai', accountDir: dir });
+    assert.equal(bad.ok, false, 'a rejected Grok key was accepted for a create');
+    assert.match(bad.because, /xAI rejected that Grok account's key/);
+    grok.setFetcher(async () => ({ status: 200, body: {} }));
+    const good = await create.accountConnectable({ provider: 'xai', accountDir: dir });
+    assert.equal(good.ok, true, 'CONTROL: an accepted key must pass');
+    const def = await create.accountConnectable({ provider: 'google' });
+    assert.equal(def.ok, true, 'the default env-key door is not the board\'s to check');
+  } finally {
+    grok.setFetcher(null);
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+/* #3391: a Grok SUBSCRIPTION account has no key, so a lapsed one is refused with sign-in
+   words, never "xAI rejected that account's key". A live one passes. */
+test('#3391: a lapsed Grok subscription is refused as an expired sign-in; a renewable one passes', async () => {
+  const dir = nodePath.join(HOME, '.grok-subconn');
+  fs.mkdirSync(dir, { recursive: true });
+  const write = (entry) => fs.writeFileSync(nodePath.join(dir, 'auth.json'), JSON.stringify({ 'https://auth.x.ai::u': { email: 's@example.com', ...entry } }), { mode: 0o600 });
+  try {
+    write({ expires_at: '2000-01-01T00:00:00.000000Z' });
+    const bad = await create.accountConnectable({ provider: 'xai', accountDir: dir });
+    assert.equal(bad.ok, false, 'a lapsed sign-in was accepted for a create');
+    assert.match(bad.because, /That Grok sign-in has expired/);
+    assert.doesNotMatch(bad.because, /rejected/, 'a subscription has no key to blame');
+    /* #3391 part 2: the row's Sign in again now exists (the reauthDir sign-in), so the
+       sentence names it, and no longer says Kosmos cannot. */
+    assert.match(bad.because, /Sign in again on that account in Settings, AI Models/, 'it names the remedy that now exists');
+    assert.doesNotMatch(bad.because, /cannot sign in/, 'the old "not yet" claim is gone');
+    assert.match(bad.because, /or choose another Grok account for this agent/, 'and the other way out stays');
+    /* Without a readable email the row has no Sign in again, so the sentence must not name it. */
+    fs.writeFileSync(nodePath.join(dir, 'auth.json'), JSON.stringify({ 'https://auth.x.ai::u': { expires_at: '2000-01-01T00:00:00.000000Z' } }), { mode: 0o600 });
+    const noEmail = await create.accountConnectable({ provider: 'xai', accountDir: dir });
+    assert.equal(noEmail.ok, false);
+    assert.doesNotMatch(noEmail.because, /Sign in again/, 'a button that row does not have');
+    assert.match(noEmail.because, /Sign in with Add a provider in Settings, AI Models, then choose the Grok account you signed in to for this agent/);
+    assert.doesNotMatch(noEmail.because, /Disconnect/, 'a step that changes nothing and can refuse while agents run');
+    write({ refresh_token: 'r' });
+    const good = await create.accountConnectable({ provider: 'xai', accountDir: dir });
+    assert.equal(good.ok, true, 'CONTROL: a renewable sign-in must pass');
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('#3391: a lapsed DEFAULT Grok subscription is refused at create too (the default is listed, so it is checked)', async () => {
+  const def = nodePath.join(HOME, '.grok');
+  const had = fs.existsSync(def);
+  fs.mkdirSync(def, { recursive: true });
+  const f = nodePath.join(def, 'auth.json');
+  try {
+    fs.writeFileSync(f, JSON.stringify({ 'https://auth.x.ai::d': { email: 'd@example.com', expires_at: '2000-01-01T00:00:00.000000Z' } }), { mode: 0o600 });
+    const bad = await create.accountConnectable({ provider: 'xai' });
+    assert.equal(bad.ok, false, 'a lapsed default sign-in was accepted');
+    assert.match(bad.because, /sign-in has expired/);
+    // Review pass 5: with an email, the default row HAS Sign in again, so that is what is named.
+    assert.match(bad.because, /Sign in again on that account in Settings, AI Models/);
+    /* Review pass 4: a default row has no Disconnect and, without an email, no Sign in again,
+       so the sentence must name only what that row can do: a new sign-in beside it. */
+    fs.writeFileSync(f, JSON.stringify({ 'https://auth.x.ai::d': { expires_at: '2000-01-01T00:00:00.000000Z' } }), { mode: 0o600 });
+    const noEmail = await create.accountConnectable({ provider: 'xai' });
+    assert.equal(noEmail.ok, false);
+    assert.doesNotMatch(noEmail.because, /Disconnect|Sign in again/, 'a control the default row does not have');
+    assert.match(noEmail.because, /Sign in with Add a provider in Settings, AI Models, then choose the Grok account you signed in to for this agent/);
+    fs.writeFileSync(f, JSON.stringify({ 'https://auth.x.ai::d': { email: 'd@example.com', refresh_token: 'r' } }), { mode: 0o600 });
+    assert.equal((await create.accountConnectable({ provider: 'xai' })).ok, true, 'CONTROL: a renewable default passes');
+    fs.rmSync(f, { force: true });
+    assert.equal((await create.accountConnectable({ provider: 'xai' })).ok, true, 'CONTROL: a default with no sign-in is the door, not checked');
+  } finally {
+    if (had) fs.rmSync(f, { force: true }); else fs.rmSync(def, { recursive: true, force: true });
+  }
 });

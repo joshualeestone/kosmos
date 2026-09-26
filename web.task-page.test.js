@@ -86,8 +86,8 @@ const TK_IDS = ['tk-back', 'tk-num', 'tk-title', 'tk-detail', 'tk-project', 'tk-
 function runPaint({ task, project, now }) {
   const doc = stubDoc(TK_IDS);
   const views = [];
-  const src = [fnSource('tkStateWord'), fnSource('tkAdded'), fnSource('tkFace'), fnSource('taskClaimHtml'),
-    fnSource('paintTaskPage')].join('\n');
+  const src = [fnSource('tkStateWord'), fnSource('tkAdded'), fnSource('tkFace'), fnSource('tkSayPart'), fnSource('claimNotReported'), fnSource('taskClaimHtml'),
+    fnSource('paintTaskPage'), fnSource('tkPaintSubtasks')].join('\n');
   const NOW = now || Date.now();
   class FixedDate extends Date {
     constructor(...args) { super(...(args.length ? args : [NOW])); }
@@ -216,7 +216,7 @@ test('the unknown claim gets its reason on the page, where there is room for it'
     task: {
       number: 5, sentence: 's', who: 'april', createdAt: new Date().toISOString(),
       addedBy: 'operator', closedAt: null,
-      claim: { claimed: null, because: 'we cannot tie the pane holding this name to the agent' },
+      claim: { claimed: null, about: 'april', because: 'we cannot tie the pane holding this name to the agent' },
     },
   });
   assert.equal(doc.els['tk-why'].hidden, false);
@@ -226,17 +226,88 @@ test('the unknown claim gets its reason on the page, where there is room for it'
     project: { ...PROJECT, tasks: [] },
     task: {
       number: 6, sentence: 's', who: 'april', createdAt: new Date().toISOString(),
-      addedBy: 'operator', closedAt: null, claim: { claimed: true },
+      addedBy: 'operator', closedAt: null, claim: { claimed: true, about: 'april' },
     },
   });
   assert.equal(settled.doc.els['tk-why'].hidden, true);
 });
 
+test('an agent that never reported is said ONCE on the page, beside its name, never "It"', () => {
+  const claim = { claimed: null, neverReported: true, about: 'april', because: 'this agent has never reported what it is holding' };
+  const plain = runPaint({
+    project: { ...PROJECT, tasks: [] },
+    task: { number: 7, sentence: 's', who: 'april', createdAt: new Date().toISOString(), addedBy: 'operator', closedAt: null, claim },
+  });
+  // Visible text only: the claim line also carries the words as its hover title, which is not a second saying.
+  const said = (doc) => (doc.els['tk-who'].innerHTML.replace(/<[^>]*>/g, ' ').match(/has not reported what it is working on yet/g) || []).length
+    + (doc.els['tk-why'].hidden ? 0 : (doc.els['tk-why'].textContent.match(/has not reported what it is working on yet/g) || []).length);
+  assert.equal(said(plain.doc), 1, 'the page says it twice, or not at all');
+  assert.equal(plain.doc.els['tk-why'].hidden, true, 'the why line repeats the claim line');
+  assert.doesNotMatch(plain.doc.els['tk-why'].textContent, /holding/);
+  // Kept as parts, the first agent's part open: the same, once, beside that agent.
+  const parted = runPaint({
+    project: { ...PROJECT, tasks: [] },
+    task: { number: 8, sentence: 's', createdAt: new Date().toISOString(), addedBy: 'operator', closedAt: null, claim,
+      parts: [{ id: 1, sentence: 'first half', who: 'april', closedAt: null }, { id: 2, sentence: 'second half', who: null, closedAt: null }] },
+  });
+  assert.equal(said(parted.doc), 1);
+  // The same agent holding TWO open parts: still said once.
+  const twice = runPaint({
+    project: { ...PROJECT, tasks: [] },
+    task: { number: 11, sentence: 's', createdAt: new Date().toISOString(), addedBy: 'operator', closedAt: null, claim,
+      parts: [{ id: 1, sentence: 'one', who: 'april', closedAt: null }, { id: 2, sentence: 'two', who: 'april', closedAt: null }] },
+  });
+  assert.equal(said(twice.doc), 1, 'an agent holding two open parts is told off twice');
+  // The engine's real case when the only agent has finished and the open part has nobody: NO claim
+  // (claimWho is null: there is no one to ask about), so the page says nothing about who is on it.
+  const done = runPaint({
+    project: { ...PROJECT, tasks: [] },
+    task: { number: 9, sentence: 's', createdAt: new Date().toISOString(), addedBy: 'operator', closedAt: null,
+      parts: [{ id: 1, sentence: 'first half', who: 'april', closedAt: '2026-09-25T00:00:00Z' }, { id: 2, sentence: 'second half', who: null, closedAt: null }] },
+  });
+  assert.equal(done.doc.els['tk-why'].hidden, true);
+  assert.doesNotMatch(done.doc.els['tk-who'].innerHTML.replace(/<[^>]*>/g, ' '), /has not reported|could not/, 'a claim is drawn about nobody');
+});
+
+test('whether the agent is named and whether its claim line is on screen are ONE derivation', () => {
+  const src = fnSource('paintTaskPage');
+  assert.match(src, /const sayPart = tkSayPart\(parts, t\.claim && t\.claim\.about\);/, 'the page picks its claim part by its own rule');
+  // The project card uses the SAME helper and the SAME agent (the engine's claim.about).
+  assert.match(fnSource('paintProjectTasks'), /const sayPart = tkSayPart\(parts, t\.claim && t\.claim\.about\);/, 'the card picks its claim part by its own rule');
+  assert.match(src, /\+ \(part === sayPart \? sayHtml : ''\)/, 'the part list decides the claim line on its own');
+  assert.match(src, /const sayShown = !!sayPart;/, 'two expressions for one fact can drift, and the page then says it twice or never');
+});
+
+test('any other could-not-tell reason on a task kept as parts names its agent, never "it"', () => {
+  const parted = runPaint({
+    project: { ...PROJECT, tasks: [] },
+    task: { number: 10, sentence: 's', createdAt: new Date().toISOString(), addedBy: 'operator', closedAt: null,
+      claim: { claimed: null, neverReported: false, about: 'april', because: 'this agent is no longer on the project, so what it reports cannot be checked against this task' },
+      parts: [{ id: 1, sentence: 'first half', who: 'april', closedAt: null }] },
+  });
+  assert.match(parted.doc.els['tk-why'].textContent, /^We could not check whether April is on this: this agent is no longer on the project/);
+  assert.doesNotMatch(parted.doc.els['tk-why'].textContent, /whether it is on this/);
+  // Once: the why line gives the reason, so the part's claim line does not repeat it.
+  const inParts = parted.doc.els['tk-who'].innerHTML.replace(/<[^>]*>/g, ' ');
+  assert.doesNotMatch(inParts, /no longer on the project/, 'the reason is said twice: beside the agent and in the why line');
+});
+
+test('the close-note warns about the agent on a task assigned through its parts (no legacy who)', () => {
+  const { doc } = runPaint({
+    project: { ...PROJECT, tasks: [] },
+    task: { number: 12, sentence: 's', createdAt: new Date().toISOString(), addedBy: 'operator', closedAt: null,
+      claim: { claimed: true, about: 'april' },
+      parts: [{ id: 1, sentence: 'the only part', who: 'april', closedAt: null }] },
+  });
+  assert.equal(doc.els['tk-note'].hidden, false, 'the warning is missing on a parts-assigned task');
+  assert.match(doc.els['tk-note'].textContent, /^April says it is on this\. Marking it done closes it here\. It does not stop April/);
+});
+
 test('a task that disappears under the open page sends you to its project', () => {
   const doc = stubDoc(TK_IDS);
   const views = [];
-  const src = [fnSource('tkStateWord'), fnSource('tkAdded'), fnSource('tkFace'), fnSource('taskClaimHtml'),
-    fnSource('paintTaskPage')].join('\n');
+  const src = [fnSource('tkStateWord'), fnSource('tkAdded'), fnSource('tkFace'), fnSource('tkSayPart'), fnSource('claimNotReported'), fnSource('taskClaimHtml'),
+    fnSource('paintTaskPage'), fnSource('tkPaintSubtasks')].join('\n');
   new Function('document', 'pjById', 'PJ_CURRENT', 'TK_OPEN', 'pjView', 'esc',
     'discTint', 'discInk', 'initials', 'tkMemberName', src + '\n; paintTaskPage();')(
     doc, () => ({ ...PROJECT, tasks: [] }), 'p1', 99, (v) => views.push(v),

@@ -148,3 +148,28 @@ test('a genuinely UNREADABLE record yields null, not 0 (so the digest omits the 
     'an unreadable record must return null, not a false 0');
   try { fs.rmSync(messages.LOG, { force: true, recursive: true }); } catch { /* cleanup */ }
 });
+
+test('#3224: a post sent with --new (newPost:true) is deliberate, not a suspected misroute', () => {
+  seed([ ask('q1', 'projB', 'mara', 0), { ...post('p1', 'projA', 'mara', 60000), newPost: true } ]);
+  assert.equal(messages.suspectedMisrouteCount(WIN_LO, WIN_HI), 0);
+  // CONTROL: the same post without the mark counts.
+  seed([ ask('q1', 'projB', 'mara', 0), post('p1', 'projA', 'mara', 60000) ]);
+  assert.equal(messages.suspectedMisrouteCount(WIN_LO, WIN_HI), 1);
+});
+
+test('#3224 round 3: confirmedNewPostCount counts --new posts in the window, only agents\' posts', () => {
+  seed([ ask('q1', 'projB', 'mara', 0), { ...post('p1', 'projA', 'mara', 60000), newPost: true },
+    { ...post('p2', 'projA', 'mara', 120000), newPost: true }, post('p3', 'projA', 'mara', 180000),
+    { ...post('p4', 'projA', 'mara', 60 * 60 * 1000), newPost: true } ]);
+  assert.equal(messages.confirmedNewPostCount(WIN_LO, WIN_HI), 2, 'two in the window, the plain post and the late one are not');
+});
+
+test('#3224 round 3: confirmedNewPostCount is null when the record cannot be read', () => {
+  messages.resetForTests();
+  fs.rmSync(messages.LOG, { force: true, recursive: true });
+  fs.mkdirSync(messages.LOG, { recursive: true });
+  messages.resetForTests();
+  assert.equal(messages.confirmedNewPostCount(WIN_LO, WIN_HI), null);
+  fs.rmSync(messages.LOG, { force: true, recursive: true });
+});
+

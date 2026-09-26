@@ -85,6 +85,11 @@ const GEMINI_BIN = '/usr/bin/true';
    distinct -- so an assertion can tell a grok-labelled job pointing at the GROK
    binary from one pointing at claude's, codex's, or gemini's. */
 const GROK_BIN = '/bin/pwd';
+/* #3568: an Antigravity stand-in must be NAMED agy (create refuses any other name), so a real
+   runnable copy under that name in the sandbox. */
+const AGY_BIN = nodePath.join(SANDBOX, 'agy-bin', 'agy');
+fs.mkdirSync(nodePath.dirname(AGY_BIN), { recursive: true });
+fs.writeFileSync(AGY_BIN, '#!/bin/sh\nexit 0\n', { mode: 0o755 });
 
 /**
  * The supervisor as SHIPPED, read from disk.
@@ -1940,9 +1945,15 @@ test('custom instructions are written verbatim with a trailing newline, and the 
     const connections = require('./connections');
     const foundConn = projects.findBlock(text, connections.START, connections.END);
     assert.ok(foundConn && !foundConn.ambiguous, 'the person\'s own agent did not get the connections block at birth');
+    // #3614: the direct-message files block rides from birth too, so it is taken out with its siblings.
+    const dmfiles = require('./dmfiles');
+    assert.ok(projects.findBlock(text, dmfiles.START, dmfiles.END), 'the person\'s own agent did not get the files block at birth');
     const without = projects.removeBlock(
-      projects.removeBlock(text, reports.START, reports.END),
-      connections.START, connections.END,
+      projects.removeBlock(
+        projects.removeBlock(text, reports.START, reports.END),
+        connections.START, connections.END,
+      ),
+      dmfiles.START, dmfiles.END,
     );
   /* #591 changed one premise here, stated rather than deleted: the operating
      defaults DO follow a person's own words now, under their own heading,
@@ -2426,6 +2437,92 @@ test('every agent is born knowing who it reports to, identically on both paths, 
   } finally {
     fs.rmSync(you.FILE, { force: true });
   }
+});
+
+test('#3564: a swarm is born with its settings and its block; an ordinary agent gets neither', () => {
+  recorder();
+  create.setDryRun(false);
+  const swarmMod = require('./swarm');
+  const projects = require('./projects');
+  const made = create.createAgent({ ...BINS, name: 'hive', role: 'pm', kind: 'swarm', maxHelpers: 5, dailyTokenLimit: 250000 });
+  assert.equal(made.outcome, create.OUTCOME.CREATED, made.because);
+  const settings = swarmMod.settingsOf(store.readProfile('hive'));
+  assert.deepEqual(settings, { maxHelpers: 5, dailyTokenLimit: 250000, active: true, pausedBecause: null, pausedAt: null, pausedAtLimit: null, limitOverrideDay: null });
+  const text = fs.readFileSync(create.instructionFile('hive'), 'utf8');
+  const block = projects.findBlock(text, swarmMod.START, swarmMod.END);
+  assert.ok(block, 'the swarm block is not in its instructions at birth');
+  assert.match(text.replace(/\s+/g, ' '), /at most 5 at once/);
+  const plain = create.createAgent({ ...BINS, name: 'solo', role: 'pm' });
+  assert.equal(plain.outcome, create.OUTCOME.CREATED, plain.because);
+  assert.equal(swarmMod.settingsOf(store.readProfile('solo')), null, 'an ordinary agent was made a swarm');
+  assert.equal(projects.findBlock(fs.readFileSync(create.instructionFile('solo'), 'utf8'), swarmMod.START, swarmMod.END), null);
+});
+
+test('#3564: a swarm on another provider, without a limit, or with a bad count is refused before anything is written', () => {
+  recorder();
+  create.setDryRun(false);
+  for (const [opts, re] of [
+    [{ provider: 'openai', dailyTokenLimit: 1000 }, /Claude/],
+    [{}, /daily token limit/],
+    [{ maxHelpers: 11, dailyTokenLimit: 1000 }, /2 to 10/],
+  ]) {
+    const name = 'nohive' + Math.random().toString(36).slice(2, 7);
+    const r = create.createAgent({ ...BINS, name, role: 'pm', kind: 'swarm', ...opts });
+    assert.equal(r.outcome, create.OUTCOME.REFUSED, JSON.stringify(opts));
+    assert.match(r.because, re);
+    assert.equal(fs.existsSync(create.workerDir(name)), false, 'a refused swarm left a folder behind');
+  }
+  assert.equal(create.createAgent({ ...BINS, name: 'oddkind', role: 'pm', kind: 'crowd' }).outcome, create.OUTCOME.REFUSED);
+});
+
+test('#3564: an existing swarm cannot be switched off Claude; an ordinary agent is not refused for being one', () => {
+  recorder();
+  create.setDryRun(false);
+  const made = create.createAgent({ ...BINS, name: 'hiveswitch', role: 'pm', kind: 'swarm', dailyTokenLimit: 1000 });
+  assert.equal(made.outcome, create.OUTCOME.CREATED, made.because);
+  for (const provider of ['openai', 'google', 'xai']) {
+    const r = create.setProvider('hiveswitch', provider, BINS);
+    assert.equal(r.outcome, create.OUTCOME.REFUSED, provider);
+    assert.match(r.because, /swarm/, provider + ': ' + r.because);
+  }
+  assert.equal(store.readProfile('hiveswitch').provider || 'anthropic', 'anthropic', 'the refused switch changed the provider');
+  const plain = create.createAgent({ ...BINS, name: 'soloswitch', role: 'pm' });
+  assert.equal(plain.outcome, create.OUTCOME.CREATED, plain.because);
+  assert.doesNotMatch(String(create.setProvider('soloswitch', 'openai', BINS).because || ''), /swarm/, 'CONTROL: an ordinary agent was refused as a swarm');
+});
+
+test('#3614: every agent is born knowing where to save the files it makes, with its OWN folder written in', () => {
+  /* The card's point: the path is written in, never left for the agent to guess. Both
+     creation paths (a menu role and the person's own words) carry the block, it names
+     that agent's own create.workerDir(name)/Files, and the later sweep composes the same
+     bytes, so it writes nothing. */
+  const projects = require('./projects');
+  const dmfiles = require('./dmfiles');
+  const instructions = require('./instructions');
+  recorder();
+  create.setDryRun(false);
+  const blockOf = (name) => {
+    const text = fs.readFileSync(create.instructionFile(name), 'utf8');
+    const at = projects.findBlock(text, dmfiles.START, dmfiles.END);
+    assert.ok(at && !at.ambiguous, `${name} has no files block`);
+    return text.slice(at.start, at.end);
+  };
+  const menu = create.createAgent({ ...BINS, name: 'files-menu', role: 'writer', label: 'Business Writer' });
+  assert.equal(menu.outcome, create.OUTCOME.CREATED, menu.because);
+  const own = create.createAgent({ ...BINS, name: 'files-own', role: 'own', label: 'Helper',
+    instructions: 'You are **files-own**, in my own words.\n\nDo the thing.' });
+  assert.equal(own.outcome, create.OUTCOME.CREATED, own.because);
+  for (const name of ['files-menu', 'files-own']) {
+    const want = '`' + nodePath.join(create.workerDir(name), 'Files') + '`';
+    assert.ok(blockOf(name).includes(want), `${name} was born without its own Files path`);
+  }
+  assert.ok(!blockOf('files-menu').includes(nodePath.join(create.workerDir('files-own'), 'Files')), 'CONTROL: not another agent\'s path');
+  // The later sweep composes the same bytes: nothing is rewritten.
+  const before = instructions.read('files-menu').text;
+  // Vouched (the record is ours; the roster gate is not what this checks): the bytes are.
+  const told = dmfiles.tellAgent('files-menu', null, { trusted: true });
+  assert.equal(told.state, projects.TOLD.TOLD, told.because || '');
+  assert.equal(instructions.read('files-menu').text, before, 'the sweep after birth rewrote a block birth had already written');
 });
 
 test('a saved About-you record rides the boot file from birth, and its absence costs nothing', () => {
@@ -3026,7 +3123,7 @@ test('a job made by a server on another port carries KOSMOS_PORT, so the agent a
   // launchd environment alone never reaches the agent.
   const script = supervisorText();
   const launches = script.split('\n').filter((l) => /new-session -d -s "\$SESSION"/.test(l));
-  assert.equal(launches.length, 6, 'the supervisor launch lines moved; update this test with them');
+  assert.equal(launches.length, 7, 'the supervisor launch lines moved; update this test with them'); // #3568: +1 antigravity
   for (const l of launches) assert.match(l, /PANE_ENV/, 'a launch line does not pass the pane environment: ' + l);
   // The names handed into the pane, pinned as a list so a new one cannot be forgotten silently
   // (#577, #540, #529). #3296/#3391 added GEMINI_CLI_HOME + GROK_HOME so a per-account gemini/grok
@@ -4125,6 +4222,104 @@ test('#3391: a Grok agent is created on the grok runner, recorded, with the righ
   assert.equal(plistArgs(name)[7], '', 'an empty Grok model choice must clear the -m slot');
   assert.ok(setAuto.model && setAuto.model.label && setAuto.model.label !== 'null',
     'the auto (empty) Grok model must carry a real label');
+});
+
+/* #3568: the Antigravity runner (Google's agy), ON unless AGENT_WORKFORCE_ANTIGRAVITY=0 (Josh, 2026-09-25). */
+function withAgyFlag(on, fn) {
+  const was = process.env.AGENT_WORKFORCE_ANTIGRAVITY;
+  if (on) process.env.AGENT_WORKFORCE_ANTIGRAVITY = '1'; else process.env.AGENT_WORKFORCE_ANTIGRAVITY = '0';
+  try { return fn(); } finally { if (was === undefined) delete process.env.AGENT_WORKFORCE_ANTIGRAVITY; else process.env.AGENT_WORKFORCE_ANTIGRAVITY = was; }
+}
+test('#3568: Gemini on a Google subscription is ON by default: unset means on, only 0 turns it off', () => {
+  const was = process.env.AGENT_WORKFORCE_ANTIGRAVITY;
+  try {
+    delete process.env.AGENT_WORKFORCE_ANTIGRAVITY;
+    assert.equal(create.antigravityEnabled(), true, 'unset must mean on (Josh, 2026-09-25 20:57)');
+    process.env.AGENT_WORKFORCE_ANTIGRAVITY = '0';
+    assert.equal(create.antigravityEnabled(), false, 'CONTROL: 0 turns it off');
+    process.env.AGENT_WORKFORCE_ANTIGRAVITY = '1';
+    assert.equal(create.antigravityEnabled(), true);
+    for (const off of ['false', 'OFF', 'no', ' 0 ']) {   // review round 7: an operator writing false meant off
+      process.env.AGENT_WORKFORCE_ANTIGRAVITY = off;
+      assert.equal(create.antigravityEnabled(), false, JSON.stringify(off) + ' did not turn it off');
+    }
+  } finally { if (was === undefined) delete process.env.AGENT_WORKFORCE_ANTIGRAVITY; else process.env.AGENT_WORKFORCE_ANTIGRAVITY = was; }
+});
+test('#3568: with the flag off, an Antigravity create is refused as an unknown provider, exactly as before', () => {
+  recorder();
+  create.setDryRun(false);
+  const r = withAgyFlag(false, () => create.createAgent({ ...BINS, antigravityBin: AGY_BIN, name: 'agy-off', role: 'pm', provider: 'antigravity' }));
+  assert.equal(r.outcome, create.OUTCOME.REFUSED);
+  assert.match(r.because, /pick a provider/);
+  assert.equal(create.readJob('agy-off'), null, 'a refused create must not write a job');
+});
+test('#3568: with the flag on, an Antigravity agent is created on the antigravity runner, with AGENTS.md and no Claude trust', () => {
+  recorder();
+  create.setDryRun(false);
+  const name = 'agy-kid';
+  const out = withAgyFlag(true, () => create.createAgent({ ...BINS, antigravityBin: AGY_BIN, name, role: 'pm', provider: 'antigravity' }));
+  assert.equal(out.outcome, create.OUTCOME.CREATED, out.because);
+  const args = plistArgs(name);
+  assert.equal(args[4], AGY_BIN, 'the runner binary is not the agy path');
+  assert.equal(args[7], '', 'no model chosen: the slot stays empty so agy picks its own');
+  assert.equal(args[8], 'antigravity', 'the recorded runner is not antigravity');
+  assert.equal(store.readProfile(name).provider, 'antigravity');
+  const dir = create.workerDir(name);
+  assert.ok(fs.existsSync(nodePath.join(dir, 'AGENTS.md')), 'an Antigravity agent got no AGENTS.md');
+  assert.ok(!fs.existsSync(nodePath.join(dir, 'CLAUDE.md')), 'an Antigravity agent must not get CLAUDE.md');
+  assert.equal(create.recordedRunner(name), 'antigravity');
+  // The create-time guard: no Claude folder-trust entry was written for the agy worker folder.
+  let cfg = {};
+  try { cfg = JSON.parse(fs.readFileSync(nodePath.join(SANDBOX, 'claude.json'), 'utf8')); } catch { /* absent is fine */ }
+  const projects = cfg.projects || {};
+  assert.ok(!Object.keys(projects).some((k) => k === dir || k === fs.realpathSync(dir)), 'a Claude trust entry was written for an Antigravity agent');
+  assert.deepEqual(create.trustAgentFolder(name), { wrote: false, runner: 'antigravity' }, 'trust-and-restart must not write a Claude trust entry');
+  const acct = create.setAccount(name, '/somewhere/.claude-x');
+  assert.equal(acct.outcome, create.OUTCOME.REFUSED, 'there are no Antigravity accounts to switch to');
+  // A Claude catalogue key cannot reach an agy launch; a free-form id lands in the model slot.
+  assert.match(create.setModel(name, 'opus').because, /is a Claude model/);
+  assert.equal(create.setModel(name, 'gemini-3-pro').outcome, create.OUTCOME.CREATED);
+  assert.equal(plistArgs(name)[7], 'gemini-3-pro');
+  const auto = create.setModel(name, '');
+  assert.equal(plistArgs(name)[7], '');
+  assert.equal(auto.model.label, "Gemini's default");
+});
+test('#3568: an Antigravity create is refused when agy is missing, when an account is given, and on Windows', () => {
+  recorder();
+  create.setDryRun(false);
+  withAgyFlag(true, () => {
+    const missing = create.createAgent({ ...BINS, antigravityBin: '/nonexistent/agy', name: 'agy-none', role: 'pm', provider: 'antigravity' });
+    assert.equal(missing.outcome, create.OUTCOME.REFUSED);
+    assert.match(missing.because, /could not find Antigravity/);
+    const acct = create.createAgent({ ...BINS, antigravityBin: AGY_BIN, name: 'agy-acct', role: 'pm', provider: 'antigravity', account: '/x/.claude-y' });
+    assert.equal(acct.outcome, create.OUTCOME.REFUSED);
+    assert.match(acct.because, /signs in to Antigravity in its own window/);
+    const win = create.createAgent({ ...BINS, antigravityBin: AGY_BIN, name: 'agy-win', role: 'pm', provider: 'antigravity', platform: 'win32' });
+    assert.equal(win.outcome, create.OUTCOME.REFUSED);
+    assert.match(win.because, /Windows/);
+    // A runnable program under another name would start an agent the board cannot see.
+    const renamed = create.createAgent({ ...BINS, antigravityBin: '/bin/pwd', name: 'agy-name', role: 'pm', provider: 'antigravity' });
+    assert.equal(renamed.outcome, create.OUTCOME.REFUSED);
+    assert.match(renamed.because, /must be named agy/);
+    // Windows AND no agy: the Windows reason, not "install it", which would not help.
+    const winMissing = create.createAgent({ ...BINS, antigravityBin: '/nonexistent/agy', name: 'agy-win2', role: 'pm', provider: 'antigravity', platform: 'win32' });
+    assert.equal(winMissing.outcome, create.OUTCOME.REFUSED);
+    assert.match(winMissing.because, /Windows/);
+  });
+});
+test('#3568: the provider and runner maps round-trip antigravity, and it is a non-Claude runner', () => {
+  assert.equal(create.providerRunner('antigravity'), 'antigravity');
+  assert.equal(create.runnerProvider('antigravity'), 'antigravity');
+  assert.equal(create.isNonClaudeRunner('antigravity'), true);
+  assert.equal(create.briefFilename('antigravity'), 'AGENTS.md');
+  assert.equal(create.providerLabel('antigravity'), 'Gemini (Google subscription)');   // the menu's word (review round 2)
+});
+test('#3568: the supervisor launches agy with its documented auto-approve flag, and --model only when one is set', () => {
+  const script = supervisorText();
+  assert.match(script, /elif \[ "\$RUNNER" = antigravity \]; then/);
+  assert.match(script, /_AGY_ARGS=\(--dangerously-skip-permissions\)/);
+  assert.match(script, /\[ -n "\$\{MODEL:-\}" \] && _AGY_ARGS\+=\(--model "\$MODEL"\)/);
+  assert.match(script, /"\$CLAUDE" "\$\{_AGY_ARGS\[@\]\}" \|\| exit 1/);
 });
 
 test('#3391: a Grok create is refused when the runner is missing', () => {

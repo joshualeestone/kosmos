@@ -35,18 +35,19 @@ test('boot the board', async () => {
 const getJson = async (p) => (await fetch(`${base}${p}`)).json();
 const put = async (p, body) => {
   const res = await fetch(`${base}${p}`, {
-    method: 'PUT', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body),
+    // sec-fetch-site marks a browser (screen) caller; the Recommender PUT refuses anything else (#3595).
+    method: 'PUT', headers: { 'content-type': 'application/json', 'sec-fetch-site': 'same-origin' }, body: JSON.stringify(body),
   });
   return { status: res.status, json: await res.json() };
 };
 
 /* ---- Recommender ---- */
 
-test('GET recommender defaults: OFF (behaviour pending), all three guards ON, guardKeys published, ok', async () => {
+test('GET recommender defaults: OFF (default off until tool-level guards, #3595), all three guards ON, guardKeys published, ok', async () => {
   const r = await getJson('/api/recommender-setting');
-  assert.equal(r.on, false, 'an unwired automation must not read as on');
+  assert.equal(r.on, false, 'the Recommender ships default OFF (#3595)');
   assert.deepEqual(r.guards, { money: true, public: true, delete: true }, 'a never-configured install is maximally guarded');
-  assert.deepEqual(r.guardKeys, ['money', 'public', 'delete'], 'the route publishes the guard order the engine owns (the behaviour PR live UI renders from it; the current disabled UI does not consume it yet)');
+  assert.deepEqual(r.guardKeys, ['money', 'public', 'delete'], 'the route publishes the guard order the engine owns');
   assert.equal(r.ok, true);
 });
 
@@ -96,11 +97,26 @@ test('PUT with neither {on} nor {guard} is a 400 (nothing to set)', async () => 
   assert.ok(w.json.error);
 });
 
+test('#3595 PUT recommender is refused to a process caller: tokenless, or an agent presenting a token', async () => {
+  const before = await getJson('/api/recommender-setting');
+  const raw = async (headers, body) => {
+    const res = await fetch(`${base}/api/recommender-setting`, { method: 'PUT', headers: { 'content-type': 'application/json', ...headers }, body: JSON.stringify(body) });
+    return res.status;
+  };
+  assert.equal(await raw({}, { guard: 'money', value: false }), 403, 'a tokenless process call switched a guard');
+  assert.equal(await raw({ 'sec-fetch-site': 'same-origin', 'x-kosmos-agent-token': 'any' }, { on: !before.on }), 403, 'an agent presenting a token changed the setting');
+  const after = await getJson('/api/recommender-setting');
+  assert.deepEqual({ on: after.on, guards: after.guards }, { on: before.on, guards: before.guards }, 'a refused write changed the store');
+  // Control: the screen's own call still works.
+  const ok = await put('/api/recommender-setting', { guard: 'money', value: before.guards.money });
+  assert.equal(ok.status, 200);
+});
+
 /* ---- Assigner ---- */
 
-test('GET assigner defaults: OFF (behaviour pending), ok', async () => {
+test('GET assigner defaults: ON (#3595, the idle-assign behaviour is wired), ok', async () => {
   const r = await getJson('/api/assigner-setting');
-  assert.equal(r.on, false, 'an unwired automation must not read as on');
+  assert.equal(r.on, true, 'the Assigner ships default ON with its behaviour (#3595)');
   assert.equal(r.ok, true);
 });
 
@@ -111,6 +127,16 @@ test('PUT assigner on:true enables it and is read back; on:false turns it off', 
   assert.equal((await getJson('/api/assigner-setting')).on, true);
   const w2 = await put('/api/assigner-setting', { on: false });
   assert.equal(w2.json.on, false);
+});
+
+test('#3595 PUT assigner is refused to a process caller: tokenless, or an agent presenting a token', async () => {
+  const before = (await getJson('/api/assigner-setting')).on;
+  const raw = async (headers, body) => (await fetch(`${base}/api/assigner-setting`, { method: 'PUT', headers: { 'content-type': 'application/json', ...headers }, body: JSON.stringify(body) })).status;
+  assert.equal(await raw({}, { on: !before }), 403, 'a tokenless process call switched the Assigner');
+  assert.equal(await raw({ 'sec-fetch-site': 'same-origin', 'x-kosmos-agent-token': 'any' }, { on: !before }), 403, 'an agent presenting a token switched the Assigner');
+  assert.equal((await getJson('/api/assigner-setting')).on, before, 'a refused write changed the store');
+  const ok = await put('/api/assigner-setting', { on: before });
+  assert.equal(ok.status, 200, 'control: the screen call was refused');
 });
 
 test('PUT assigner a non-boolean on is a 400 and does not change the stored value', async () => {

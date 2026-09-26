@@ -51,13 +51,13 @@ test('pjInline links a URL and escapes everything else', () => {
 
 
 test('direct messages link a URL (dmRow), both directions', () => {
-  const fn = new Function('CURRENT', 'let LAST = []; let YOU_PIC = false; let DISC_TINTS = ["#dfe5ea"]; let DISC_INKS = ["#4a5560"];\n' + lift(['esc', 'pjInline', 'pjPreviewCard', 'pjSize', 'pjWords', 'pjFiles', 'pjAttachmentCards', 'pjFileWord', 'pjAttachmentCard', 'pjWhen', 'pjWhenPart', 'pjSentence', 'placedWords', 'pjVerdict', 'dmWho', 'pjAvatarVer', 'discTint', 'discInk', 'discIndex', 'initials', 'dmRow', 'pjRich', 'pjRichSpans']) + '\nreturn dmRow;')(DANA);
+  const fn = new Function('CURRENT', 'let LAST = []; let YOU_PIC = false; let DISC_TINTS = ["#dfe5ea"]; let DISC_INKS = ["#4a5560"];\n' + lift(['esc', 'pjInline', 'pjPreviewCard', 'pjSize', 'pjWords', 'pjFiles', 'pjAttachmentCards', 'pjFileWord', 'pjAttachmentCard', 'pjWhen', 'pjWhenPart', 'pjSentence', 'placedWords', 'pjVerdict', 'dmWho', 'pjAvatarVer', 'discTint', 'discInk', 'discIndex', 'initials', 'dmRow', 'pjRich', 'pjRichSpans', 'pjListDepth']) + '\nreturn dmRow;')(DANA);
   expectLinked(fn({ from: 'dana', text: TEXT, at: new Date().toISOString() }, 'Dana'), 'dmRow theirs');
   expectLinked(fn({ from: 'you', you: true, text: TEXT, at: new Date().toISOString() }, 'Dana'), 'dmRow mine');
 });
 
 test('a project message row links a URL (pjMsg)', () => {
-  const src = lift(['esc', 'pjInline', 'pjPreviewCard', 'pjSize', 'pjWords', 'pjFiles', 'pjAttachmentCards', 'pjFileWord', 'pjAttachmentCard', 'pjWhen', 'pjWhenPart', 'pjSentence', 'placedWords', 'pjVerdict', 'pjMsg', 'pjRich', 'pjRichSpans']);
+  const src = lift(['esc', 'pjInline', 'pjPreviewCard', 'pjSize', 'pjWords', 'pjFiles', 'pjAttachmentCards', 'pjFileWord', 'pjAttachmentCard', 'pjWhen', 'pjWhenPart', 'pjSentence', 'placedWords', 'pjVerdict', 'pjMsg', 'pjRich', 'pjRichSpans', 'pjListDepth']);
   const fn = new Function('document', 'pjAnnounce', src + '\nreturn pjMsg;')({ getElementById: () => null }, () => {});
   expectLinked(fn({ from: 'dana', text: TEXT, at: new Date().toISOString() }, 'Dana'), 'pjMsg');
 });
@@ -105,7 +105,7 @@ test('every message row draws the preview card under its text', () => {
     assert.match(body, /pjPreviewCard\((r|m)\.preview\)/, fn + ' does not draw the preview card');
   }
   // And a row with a preview really carries it (the real dmRow, both directions).
-  const dm = new Function('CURRENT', 'let LAST = []; let YOU_PIC = false; let DISC_TINTS = ["#dfe5ea"]; let DISC_INKS = ["#4a5560"];\n' + lift(['esc', 'pjInline', 'pjPreviewCard', 'pjSize', 'pjWords', 'pjFiles', 'pjAttachmentCards', 'pjFileWord', 'pjAttachmentCard', 'pjWhen', 'pjWhenPart', 'pjSentence', 'placedWords', 'pjVerdict', 'dmWho', 'pjAvatarVer', 'discTint', 'discInk', 'discIndex', 'initials', 'dmRow', 'pjRich', 'pjRichSpans']) + '\nreturn dmRow;')(DANA);
+  const dm = new Function('CURRENT', 'let LAST = []; let YOU_PIC = false; let DISC_TINTS = ["#dfe5ea"]; let DISC_INKS = ["#4a5560"];\n' + lift(['esc', 'pjInline', 'pjPreviewCard', 'pjSize', 'pjWords', 'pjFiles', 'pjAttachmentCards', 'pjFileWord', 'pjAttachmentCard', 'pjWhen', 'pjWhenPart', 'pjSentence', 'placedWords', 'pjVerdict', 'dmWho', 'pjAvatarVer', 'discTint', 'discInk', 'discIndex', 'initials', 'dmRow', 'pjRich', 'pjRichSpans', 'pjListDepth']) + '\nreturn dmRow;')(DANA);
   const preview = { url: 'https://example.test/p', title: 'Page', site: 'example.test' };
   for (const m of [{ from: 'dana', text: 'see https://example.test/p', at: new Date().toISOString(), preview }, { from: 'you', you: true, text: 'see https://example.test/p', at: new Date().toISOString(), preview }]) {
     const html = dm(m, 'Dana');
@@ -171,9 +171,14 @@ test('every message row draws the attachment card, and the + and drop targets ar
      Assert the pendingIds body appears TWICE -- once per composer (the project room
      and the agent page) -- which verifies BOTH carry the pending ids without pinning
      the removed wrapper. */
+  /* #3745: the ROOM's body also carries `reply_to`, so it is built with Object.assign; it still
+     carries every pending id as `attachments`. One of each form, one per composer. */
   assert.equal(
     (SCRIPT.match(/body: JSON\.stringify\(pendingIds\.length \? \{ text, attachments: pendingIds \} : \{ text \}\)/g) || []).length,
-    2, 'both composers (project room and agent page) must carry the pending ids in their send body');
+    1, 'the agent page composer must carry the pending ids in its send body');
+  assert.equal(
+    (SCRIPT.match(/body: JSON\.stringify\(Object\.assign\(\{ text \},\s*pendingIds\.length \? \{ attachments: pendingIds \} : \{\},/g) || []).length,
+    1, 'the project room composer must carry the pending ids in its send body');
   assert.equal((SCRIPT.match(/else if \(attachList\(ATTACH_AGENT\)\.length\) sendTalk\(/g) || []).length, 2, 'Send (click and Enter) with files and no words does nothing on one of the two paths');
   /* Keyed by agent and by project, like the drafts: a switch repaints the
      right chips, and a send clears only the target it went to. */
@@ -191,7 +196,7 @@ test('every message row draws the attachment card, and the + and drop targets ar
 });
 
 test('a message that is only its attachment\'s name draws the card once, not the name twice (#358)', () => {
-  const fn = new Function('CURRENT', 'let LAST = []; let YOU_PIC = false; let DISC_TINTS = ["#dfe5ea"]; let DISC_INKS = ["#4a5560"];\n' + lift(['esc', 'pjInline', 'pjPreviewCard', 'pjSize', 'pjWords', 'pjFiles', 'pjAttachmentCards', 'pjFileWord', 'pjAttachmentCard', 'pjWhen', 'pjWhenPart', 'pjSentence', 'placedWords', 'pjVerdict', 'dmWho', 'pjAvatarVer', 'discTint', 'discInk', 'discIndex', 'initials', 'dmRow', 'pjRich', 'pjRichSpans']) + '\nreturn dmRow;')(DANA);
+  const fn = new Function('CURRENT', 'let LAST = []; let YOU_PIC = false; let DISC_TINTS = ["#dfe5ea"]; let DISC_INKS = ["#4a5560"];\n' + lift(['esc', 'pjInline', 'pjPreviewCard', 'pjSize', 'pjWords', 'pjFiles', 'pjAttachmentCards', 'pjFileWord', 'pjAttachmentCard', 'pjWhen', 'pjWhenPart', 'pjSentence', 'placedWords', 'pjVerdict', 'dmWho', 'pjAvatarVer', 'discTint', 'discInk', 'discIndex', 'initials', 'dmRow', 'pjRich', 'pjRichSpans', 'pjListDepth']) + '\nreturn dmRow;')(DANA);
   const att = { id: 'a1', name: 'lease notes.txt', type: 'text/plain', size: 12, url: '/api/attachment/a1', preview: null, kind: 'text' };
   const only = fn({ from: 'dana', text: 'lease notes.txt', at: new Date().toISOString(), attachment: att }, 'Dana');
   assert.equal((only.match(/lease notes\.txt/g) || []).length, 2, 'expected the name in the card (text and download attribute) only');
@@ -201,7 +206,7 @@ test('a message that is only its attachment\'s name draws the card once, not the
 });
 
 test('a message with several files draws every card, and hides the joined names the same way (#420)', () => {
-  const fn = new Function('CURRENT', 'let LAST = []; let YOU_PIC = false; let DISC_TINTS = ["#dfe5ea"]; let DISC_INKS = ["#4a5560"];\n' + lift(['esc', 'pjInline', 'pjPreviewCard', 'pjSize', 'pjWords', 'pjFiles', 'pjAttachmentCards', 'pjFileWord', 'pjAttachmentCard', 'pjWhen', 'pjWhenPart', 'pjSentence', 'placedWords', 'pjVerdict', 'dmWho', 'pjAvatarVer', 'discTint', 'discInk', 'discIndex', 'initials', 'dmRow', 'pjRich', 'pjRichSpans']) + '\nreturn dmRow;')(DANA);
+  const fn = new Function('CURRENT', 'let LAST = []; let YOU_PIC = false; let DISC_TINTS = ["#dfe5ea"]; let DISC_INKS = ["#4a5560"];\n' + lift(['esc', 'pjInline', 'pjPreviewCard', 'pjSize', 'pjWords', 'pjFiles', 'pjAttachmentCards', 'pjFileWord', 'pjAttachmentCard', 'pjWhen', 'pjWhenPart', 'pjSentence', 'placedWords', 'pjVerdict', 'dmWho', 'pjAvatarVer', 'discTint', 'discInk', 'discIndex', 'initials', 'dmRow', 'pjRich', 'pjRichSpans', 'pjListDepth']) + '\nreturn dmRow;')(DANA);
   const a = { id: 'a1', name: 'one.txt', type: 'text/plain', size: 12, url: '/api/attachment/a1', preview: null, kind: 'text' };
   const b = { id: 'b2', name: 'two.pdf', type: 'application/pdf', size: 3000, url: '/api/attachment/b2', preview: '/api/attachment/b2/preview', kind: 'pdf' };
   const at = new Date().toISOString();

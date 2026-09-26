@@ -148,6 +148,22 @@ test('#3224 EMPTY-TOLERATED: an in_reply_to of "" is treated as absent (posts no
     'an empty citation must behave like an omitted one -- the post proceeds with no binding: ' + (r.json.delivery.because || ''));
 });
 
+test('#3745: an agent\'s in_reply_to is kept on its post as replyTo, so the room shows what it answers; an id that names no post keeps none', async () => {
+  const b = room('Beta stored 3745');
+  const seed = await post({ project: b.id, text: 'seed', from_pane: '' }, { 'x-kosmos-agent-token': tok() });
+  assert.ok(seed.json.delivery, 'seed not posted: ' + JSON.stringify(seed));
+  const mB = seed.json.delivery.id;
+  const r = await post({ project: b.id, text: 'the answer', from_pane: '', in_reply_to: mB }, { 'x-kosmos-agent-token': tok() });
+  const aged = await post({ project: b.id, text: 'aged out', from_pane: '', in_reply_to: 'm999999' }, { 'x-kosmos-agent-token': tok() });
+  const rows = messagesEngine.record().rows;
+  const reply = rows.find((m) => m.id === r.json.delivery.id);
+  assert.ok(reply, 'the reply was not posted: ' + JSON.stringify(r.json));
+  assert.equal(reply.replyTo, mB, 'the agent\'s reply does not say what it answers');
+  const agedRow = rows.find((m) => m.id === aged.json.delivery.id);
+  assert.ok(agedRow, 'CONTROL: a citation that names no post still posts');
+  assert.equal(agedRow.replyTo, undefined, 'a post that names nothing known carries no replyTo');
+});
+
 // LAST test in this file: it makes the message log unreadable, so nothing may run after it.
 test('#3224 FAIL-CLOSED (server path): an unreadable record makes /api/post REFUSE the bound reply, not post blind or 500', async () => {
   const b = room('Beta failclosed 3224');

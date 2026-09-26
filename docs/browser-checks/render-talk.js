@@ -122,8 +122,8 @@ function liveCard() {
  * asserting a thing and its negation is worse than either answer, which is the rule this
  * very header states twenty lines down. `state`, `stateConfidence` and `runner` come from
  * the RAW card, the structural booleans pass through as captured, and role, task,
- * stateEvidence, stateProject, stateConflict and disruption each vary between null and a
- * value. The recording holds `state: "working"`, a fact about one capture. What the pins
+ * stateEvidence, stateProject and disruption each vary between null and a value
+ * (stateConflict is always null since #3729). The recording holds `state: "working"`, a fact about one capture. What the pins
  * buy is that the volatile MEASUREMENTS do not move.
  *
  * ⚠️ "AND TWO PROFILE TIMESTAMPS" WAS WRONG TWICE OVER and sat in three copies. No pin
@@ -845,8 +845,7 @@ function unreachableStates() {
       /* #1927: the bubble must preserve paragraph breaks. `pre-wrap` is what
          shows a stored `\n`; `normal` (the default, and what a reverted rule
          gives) collapses paragraphs into a blob -- the exact operator-facing
-         defect this card is about. `storeText` already collapsed space RUNS, so
-         pre-wrap does not resurrect ragged whitespace. */
+         defect this card is about. */
       if (m.bubbleWhiteSpace !== null) {
         measuredBubbleWrap += 1;
         if (m.bubbleWhiteSpace !== 'pre-wrap') {
@@ -938,7 +937,7 @@ function unreachableStates() {
          of ours -- 17 carrying id/idInstall/instructionsWrite/updatedAt and ONE empty,
          because store.readProfile() returns {} for an agent with no profile file. So
          one card in eighteen made the guard fire. `profile` is a free-form operator
-         record and `context` has FOUR distinct key sets in status.js, counted rather than asserted: the NONE_BASE family (FIFTEEN objects share that one key set, derived by the arm; earlier versions said six by counting only readContext and missing readCodexContext and the two inline card literals, then eleven before #3296's readGeminiContext added the codex-mirrored UNREADABLE and NO_TRANSCRIPT branches for the third provider, then thirteen before #3391's readGrokContext added the same two branches for the fourth provider), neverRecordedResult (adds `neverRecorded`), measuredResult (adds `overCeiling`, `ceiling`, `ceilingAssumed`) and noCeilingResult (adds `ceiling`, `ceilingSource`, `noCeiling`) (an earlier version said FIVE) depending on
+         record and `context` has FOUR distinct key sets in status.js, counted rather than asserted: the NONE_BASE family (SIXTEEN objects share that one key set, derived by the arm; earlier versions said six by counting only readContext and missing readCodexContext and the two inline card literals, then eleven before #3296's readGeminiContext added the codex-mirrored UNREADABLE and NO_TRANSCRIPT branches for the third provider, then thirteen before #3391's readGrokContext added the same two branches for the fourth provider, then fifteen before #3568's Antigravity context in snapshot()), neverRecordedResult (adds `neverRecorded`), measuredResult (adds `overCeiling`, `ceiling`, `ceilingAssumed`) and noCeilingResult (adds `ceiling`, `ceilingSource`, `noCeiling`) (an earlier version said FIVE) depending on
          whether that agent has a readable transcript and a known ceiling, so no two
          cards are guaranteed to share a nested shape at all.
          ⚠️ AND WHICH CARD IS COMPARED WAS ARBITRARY: liveCard() takes the first pane

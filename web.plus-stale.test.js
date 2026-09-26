@@ -66,12 +66,16 @@ const connected = (allowed) => ({
   allowed: allowed || [], pending: [],
 });
 
-test('#1012: with no devices, the recovery block is NOT offered', async () => {
+/* #3796 REVERSES #1012's first half. Every account now has a second step (the coordinator requires
+   one), so "I lost my phone" is recovery for a problem every connected person CAN have, and it is
+   the only recovery there is; hiding it with no devices left an authenticator-only account with no
+   way back (Josh's live test, 2026-09-25). Enrolled is now the only gate (the unenrolled test below). */
+test('#3796 (reverses #1012): with no devices, the recovery block IS still offered on an enrolled computer', async () => {
   const w = world(connected([]));
   await paint(w);
   assert.equal(w.el('plus-devempty').hidden, false, 'the "None yet" line should be showing');
-  assert.equal(w.el('plus-second').hidden, true,
-    '"I lost my phone" was offered to somebody who has never had a phone on the account');
+  assert.equal(w.el('plus-second').hidden, false,
+    '"I lost my phone" is hidden with no devices, so an authenticator-only account has no recovery');
 });
 
 test('#1012: once a device exists, the recovery block IS offered', async () => {

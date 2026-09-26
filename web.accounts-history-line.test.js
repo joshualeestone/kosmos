@@ -28,6 +28,7 @@ test('the "Fix this" button for an account with no shared history still exists',
 });
 
 test('an account that already shares history says nothing, rather than the removed filler', () => {
-  const at = SCRIPT.indexOf('const shared = isOpenai || a.memoryShared ? \'\'');
-  assert.ok(at > -1, 'the shared-history branch no longer collapses OpenAI and memoryShared to the same empty case');
+  /* #3566: `isKeyed` (OpenAI, Gemini, Grok): the history arm is a Claude fact for all three. */
+  const at = SCRIPT.indexOf('const shared = isKeyed || a.memoryShared ? \'\'');
+  assert.ok(at > -1, 'the shared-history branch no longer collapses keyed providers and memoryShared to the same empty case');
 });

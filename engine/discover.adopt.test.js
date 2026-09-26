@@ -291,6 +291,44 @@ test('#3519: an AGENTS.md folder with a provider:xai hint is ADOPTED as grok', (
    is absent) must be IGNORED, not obeyed -- a hint can correct codex<->grok but can
    never claim a file the folder does not have. Without this the override would let a
    caller adopt any folder as any runner regardless of what is on disk. */
+/* #3568: with the Antigravity flag off, an antigravity hint on an AGENTS.md folder is ignored,
+   so connecting a folder can never start an Antigravity agent the flag has not switched on. */
+test('#3568: with the flag off, a provider:antigravity hint adopts codex, never antigravity', () => {
+  const was = process.env.AGENT_WORKFORCE_ANTIGRAVITY;
+  process.env.AGENT_WORKFORCE_ANTIGRAVITY = '0';
+  try {
+    const dir = agentFolder('scoutagy', 'AGENTS.md', '# You are Scout Agy\n');
+    const r = discover.connect(dir, { provider: 'antigravity' });
+    assert.equal(r.ok, true, r.because);
+    assert.equal(create.readJob('scoutagy').runner, 'codex', 'an antigravity hint was obeyed with the flag off');
+    assert.notEqual(store.readProfile('scoutagy').provider, 'antigravity');
+  } finally {
+    if (was === undefined) delete process.env.AGENT_WORKFORCE_ANTIGRAVITY; else process.env.AGENT_WORKFORCE_ANTIGRAVITY = was;
+  }
+});
+
+/* #3568 CONTROL for the test above: with the flag ON the same hint does adopt as antigravity, so
+   the flag-off case is refused by the flag and not by a hint that never worked. */
+test('#3568: with the flag on, a provider:antigravity hint adopts an AGENTS.md folder as antigravity', () => {
+  const was = process.env.AGENT_WORKFORCE_ANTIGRAVITY;
+  const wasBin = process.env.AGENT_WORKFORCE_ANTIGRAVITY_BIN;
+  const agyBin = path.join(SANDBOX, 'bin-agy', 'agy');
+  fs.mkdirSync(path.dirname(agyBin), { recursive: true });
+  fs.writeFileSync(agyBin, '#!/bin/sh\nexit 0\n', { mode: 0o755 });
+  process.env.AGENT_WORKFORCE_ANTIGRAVITY = '1';
+  process.env.AGENT_WORKFORCE_ANTIGRAVITY_BIN = agyBin;
+  try {
+    const dir = agentFolder('scoutagyon', 'AGENTS.md', '# You are Scout Agy On\n');
+    const r = discover.connect(dir, { provider: 'antigravity' });
+    assert.equal(r.ok, true, r.because);
+    assert.equal(create.readJob('scoutagyon').runner, 'antigravity', 'the antigravity hint did not work with the flag on');
+    assert.equal(store.readProfile('scoutagyon').provider, 'antigravity');
+  } finally {
+    if (was === undefined) delete process.env.AGENT_WORKFORCE_ANTIGRAVITY; else process.env.AGENT_WORKFORCE_ANTIGRAVITY = was;
+    if (wasBin === undefined) delete process.env.AGENT_WORKFORCE_ANTIGRAVITY_BIN; else process.env.AGENT_WORKFORCE_ANTIGRAVITY_BIN = wasBin;
+  }
+});
+
 test('#3519 CONTROL: a provider hint that contradicts the brief file is ignored', () => {
   const dir = agentFolder('scoutbadhint', 'AGENTS.md', '# You are Scout BadHint\n');
   const r = discover.connect(dir, { provider: 'google' });

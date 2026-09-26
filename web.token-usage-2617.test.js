@@ -58,13 +58,18 @@ function bundle() {
     + lift('usageHeroDigits') + '\n'
     + lift('usageHeroHtml') + '\n'
     + lift('usageByModel') + '\n'
+    + lift('usageShareTableHtml') + '\n'
     + lift('usageModelTableHtml') + '\n'
     + lift('usageDonutSvg') + '\n'
     + lift('usageCharts4Html') + '\n'
     + lift('usageModelPrice') + '\n'
     + lift('usageApiCost') + '\n'
     + lift('usageHistoryHtml') + '\n'
-    + 'return { usageTotals, usageGrandTotal, usageRowTokenTotal, usageDailySeries, usageNum, usageAbbr, usageBigTokens, usageUsd, usageUsdTileSub1M, usageRowValue, '
+    + lift('usageAgentRows') + '\n'
+    + page.liftConst(SCRIPT, 'USAGE_AGENT_COLOR') + '\n'
+    + lift('usageAgentTableHtml') + '\n'
+    + lift('usageAgentNote') + '\n'
+    + 'return { usageAgentRows, usageAgentTableHtml, usageAgentNote, usageTotals, usageGrandTotal, usageRowTokenTotal, usageDailySeries, usageNum, usageAbbr, usageBigTokens, usageUsd, usageUsdTileSub1M, usageRowValue, '
     + 'usageHeroHtml, usageByModel, usageModelTableHtml, usageDonutSvg, usageCharts4Html, '
     + 'usageModelPrice, usageApiCost, usageHistoryHtml, USAGE_CLASS_COLORS, USAGE_MODEL_COLORS, USAGE_MODEL_PRICES };'
   )();
@@ -340,4 +345,102 @@ test('#2840: the section markup carries the approved value-view containers, and 
   assert.doesNotMatch(CODE, /id="usage-cards"/, 'the old full-number cards container is removed');
   assert.doesNotMatch(CODE, /id="usage-worth"/, 'the old output-only money box is removed');
   assert.match(SCRIPT, /fetch\('\/api\/usage\?days=14'\)/, 'the render asks for 14 days');
+});
+
+/* #2617: the per-agent block, from /api/usage's byAgent. */
+const B = (out, cr) => ({ input_tokens: 1, output_tokens: out, cache_creation_input_tokens: 0, cache_read_input_tokens: cr || 0, rows: 1 });
+const Z = { input_tokens: 0, output_tokens: 0, cache_creation_input_tokens: 0, cache_read_input_tokens: 0, rows: 0 };
+const BY_AGENT = {
+  agents: [{ name: 'ann', shown: 'Ann', ...B(90, 900) }, { name: 'bob', ...B(9, 0) }, { name: 'idle', shown: 'Idle', ...Z }],
+  elsewhere: B(40, 0), shared: Z, unattributed: Z, overcount: Z, rosterRead: true,
+};
+
+test('#2617: usageAgentRows lists agents by shown name with the four-class total, then the non-agent rows', () => {
+  const rows = U.usageAgentRows(BY_AGENT);
+  assert.deepEqual(rows.map((r) => r.name), ['Ann', 'bob', 'Sessions outside any agent\'s folder'], 'a zero agent or a zero shared row was shown, or the order moved');
+  assert.equal(rows[0].tok, 1 + 90 + 900, 'an agent row must carry all four classes, as every other usage total does');
+  assert.deepEqual(rows.map((r) => r.muted), [false, false, true]);
+  const withShared = U.usageAgentRows({ ...BY_AGENT, shared: B(5, 0) });
+  assert.equal(withShared[withShared.length - 1].name, 'Folders shared by more than one agent');
+  assert.deepEqual(U.usageAgentRows(null), [], 'a null split (the server could not compute it) must give no rows');
+});
+
+test('#2617: the per-agent table reuses the model table markup, and the non-agent rows never take an agent color', () => {
+  const html = U.usageAgentTableHtml(U.usageAgentRows(BY_AGENT));
+  assert.match(html, /<div class="tv-mrow head"><div>Agent<\/div>/);
+  assert.match(html, /<span class="tv-mnl" title="Ann">Ann<\/span>/, 'a truncated name has no title to read it by');
+  assert.equal((html.match(/class="tv-mrow( muted)?"/g) || []).length, 3, 'one row per shown entry');
+  const muted = html.slice(html.indexOf('tv-mrow muted'));
+  assert.ok(muted.includes(U.USAGE_MODEL_COLORS[U.USAGE_MODEL_COLORS.length - 1]), 'the non-agent row must use the muted Other color');
+  // Agents never take a model color: under the model table that reads as a link.
+  const agentPart = html.slice(0, html.indexOf('tv-mrow muted'));
+  for (const c of U.USAGE_MODEL_COLORS) assert.ok(!agentPart.includes(c), 'an agent row took model palette color ' + c);
+  assert.equal(U.usageAgentTableHtml([]), '', 'no rows, no table (the block stays hidden)');
+});
+
+test('#2617: an agent name is escaped in the per-agent table', () => {
+  const html = U.usageAgentTableHtml(U.usageAgentRows({ ...BY_AGENT, agents: [{ name: 'x', shown: '<img src=x onerror=alert(1)>', ...B(5, 0) }] }));
+  assert.ok(!html.includes('<img'), 'a hostile agent name reached the page as markup');
+  assert.ok(html.includes('&lt;img'));
+  assert.ok(!/title="<img/.test(html), 'the title attribute carries the raw name');
+});
+
+test('#2617: agents rank by the total the table shows, not by the engine\'s output order', () => {
+  // The engine sends agents by OUTPUT; the table shows the four-class total.
+  // Here the higher-output agent has the far smaller total, so the orders differ.
+  const rows = U.usageAgentRows({ ...BY_AGENT, elsewhere: Z,
+    agents: [{ name: 'talky', shown: 'Talky', ...B(500, 0) }, { name: 'reader', shown: 'Reader', ...B(10, 90000) }] });
+  assert.deepEqual(rows.map((r) => r.name), ['Reader', 'Talky'], 'rows must follow the total the table shows, not the engine\'s output order');
+});
+
+test('#2617: "% total" is of the page grand total, so unmatched tokens leave the rows short of 100%', () => {
+  const html = U.usageAgentTableHtml([{ name: 'Ann', tok: 50, muted: false }], 200);
+  assert.match(html, />25\.0%</, 'the share is not of the grand total');
+});
+
+test('#2617: the note states what the table cannot show, and says nothing when there is nothing to say', () => {
+  assert.equal(U.usageAgentNote(BY_AGENT), '');
+  assert.match(U.usageAgentNote({ ...BY_AGENT, rosterRead: false }), /could not read the list of agents/);
+  assert.match(U.usageAgentNote({ ...BY_AGENT, unattributed: B(2000, 0) }), /2K tokens in the totals above come from transcripts that have since been removed or can no longer be read/);
+  const over = U.usageAgentNote({ ...BY_AGENT, overcount: B(99, 0) });
+  assert.match(over, /hold 100 tokens more than/, 'the overcount note must state the amount');
+  assert.doesNotMatch(over, /a little/, 'the overcount note claims a size nothing measures');
+  const one = { input_tokens: 0, output_tokens: 1, cache_creation_input_tokens: 0, cache_read_input_tokens: 0, rows: 1 };
+  assert.match(U.usageAgentNote({ ...BY_AGENT, unattributed: one }), /^1 token in the totals above/, 'a single token is not "1 tokens"');
+  assert.equal(U.usageAgentNote(null), '');
+});
+
+test('#2617: the section carries the per-agent block, hidden until painted, and paintUsage fills it from byAgent', () => {
+  assert.match(CODE, /<div class="usage-agents" id="usage-agents" hidden>/);
+  assert.match(CODE, /id="usage-atable"/);
+  assert.match(CODE, /id="usage-agents-note"/);
+  const paint = lift('paintUsage');
+  assert.match(paint, /usageAgentTableHtml\(usageAgentRows\(data\.byAgent\), grandTotal\)/, 'paintUsage does not render the per-agent table from byAgent against the grand total');
+  assert.match(paint, /agentsBox\.hidden = !agentHtml && !agentNote/, 'the block must show when there is a table or a note, and hide only when there is neither');
+  assert.match(paint, /if \(agentsBox\) agentsBox\.hidden = true;/, 'clearAll does not hide the per-agent block');
+});
+
+test('#2617: when every token is unmatched there are no rows, and the note is the whole answer', () => {
+  const allGone = { agents: [], elsewhere: Z, shared: Z, unattributed: B(5000, 0), overcount: Z, rosterRead: true };
+  assert.equal(U.usageAgentTableHtml(U.usageAgentRows(allGone), 5001), '', 'no rows, no table');
+  assert.match(U.usageAgentNote(allGone), /5K tokens in the totals above/, 'the note must carry the answer the table cannot');
+});
+
+test('#2617: the model and agent tables are drawn by one share-table renderer', () => {
+  const rows = [{ name: 'x', tok: 30 }, { name: 'y', tok: 10 }];
+  const model = U.usageModelTableHtml(rows, 40);
+  const agent = U.usageAgentTableHtml(rows.map((r) => ({ ...r, muted: false })), 40);
+  // Same rows, same markup: only the first column's label and the colors differ.
+  const shape = (h) => h.replace(/background:[^;"]+/g, 'background:C');
+  assert.equal(shape(agent.replace('<div>Agent</div>', '<div>Model</div>')), shape(model), 'the two tables have drifted apart');
+});
+
+test('#2617: two agents with the same display name are named apart', () => {
+  const rows = U.usageAgentRows({ ...BY_AGENT, elsewhere: Z,
+    agents: [{ name: 'pm-a', shown: 'PM', ...B(9, 0) }, { name: 'pm-b', shown: 'PM', ...B(5, 0) }, { name: 'solo', shown: 'Solo', ...B(1, 0) }] });
+  assert.deepEqual(rows.map((r) => r.name), ['PM (pm-a)', 'PM (pm-b)', 'Solo'], 'identical display names were left indistinguishable');
+  // A namesake that did no work has no row, so the one shown needs no suffix.
+  const one = U.usageAgentRows({ ...BY_AGENT, elsewhere: Z,
+    agents: [{ name: 'pm-a', shown: 'PM', ...B(9, 0) }, { name: 'pm-b', shown: 'PM', ...Z }] });
+  assert.deepEqual(one.map((r) => r.name), ['PM'], 'a zero-token namesake still forced a suffix');
 });

@@ -41,7 +41,9 @@ const AT = '2026-09-02T19:50:17.326Z';
 function postLine(m, zone) {
   const when = messages.roomClock(m.at, zone);
   const who = m.operator ? 'operator' : m.from;
-  return when + '  [' + m.id + '] ' + who + ' -> '
+  // #3745: a reply carries "(answering [mK])" after the name, as server.js prints it.
+  const answering = typeof m.replyTo === 'string' && /^m\d+$/.test(m.replyTo) ? ' (answering [' + m.replyTo + '])' : '';
+  return when + '  [' + m.id + '] ' + who + answering + ' -> '
     + (Array.isArray(m.to) && m.to.length ? m.to.join(', ') : 'the room')
     + ': ' + String(m.text || '');
 }

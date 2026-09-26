@@ -48,7 +48,7 @@ const script = () => fs.readFileSync(create.supervisorSource(), 'utf8');
  */
 function paneEnvFor(runner) {
   const src = script();
-  const m = src.match(/if \[ "\$RUNNER" != codex \]; then\n\s*PANE_ENV\+=\([^\n]*\)\n\s*fi/);
+  const m = src.match(/if \[ "\$RUNNER" != codex \] && \[ "\$RUNNER" != antigravity \]; then\n\s*PANE_ENV\+=\([^\n]*\)\n\s*fi/);
   assert.ok(m, 'the renderer guard is gone from the supervisor');
   const frag = `PANE_ENV=()\nRUNNER=${runner}\n${m[0]}\nprintf '%s\\n' "\${PANE_ENV[@]:-}"\n`;
   return execFileSync('/bin/bash', ['-c', frag], { encoding: 'utf8' }).trim();
@@ -62,6 +62,69 @@ test('a claude agent gets the preference handed into its pane', () => {
 
 test('a codex agent does not, because the variable is not its runner\'s', () => {
   assert.equal(paneEnvFor('codex'), '', 'a codex pane carries no claude-only variable');
+});
+
+/* #3568: the per-var forwarding loop, RUN like the guard above: an agy pane never receives a
+   CLAUDE_CONFIG_DIR from the supervisor's env, and a claude pane still does. */
+function forwardedFor(runner) {
+  const m = script().match(/  for _var in HOME [^\n]*; do\n[\s\S]*?\n  done\n/);
+  assert.ok(m, 'the forwarding loop is gone from the supervisor');
+  const frag = `PANE_ENV=()\nRUNNER=${runner}\nCLAUDE_CONFIG_DIR=/acct\nHOME=/h\n${m[0]}printf '%s\\n' "\${PANE_ENV[@]:-}"\n`;
+  return execFileSync('/bin/bash', ['-c', frag], { encoding: 'utf8', env: { PATH: process.env.PATH } }).trim();
+}
+
+test('the forwarding loop hands CLAUDE_CONFIG_DIR to a claude pane and not to an agy pane (#3568)', () => {
+  assert.match(forwardedFor('claude'), /CLAUDE_CONFIG_DIR=\/acct/, 'CONTROL: a claude pane still gets its account folder');
+  const agy = forwardedFor('antigravity');
+  assert.doesNotMatch(agy, /CLAUDE_CONFIG_DIR/, 'an agy pane carries no Claude account folder');
+  assert.match(agy, /HOME=\/h/, 'CONTROL: the rest of the loop still runs for an agy pane');
+});
+
+/* #3568: the adopt path's "is this pane a live agent or a crashed shell" test, RUN under bash.
+   Without agy in it, a live Antigravity agent reads as a crashed shell and the supervisor kills
+   its session whenever it re-runs. */
+function aliveFor(paneCmd) {
+  const m = script().match(/      if \[\[ "\$pane_cmd" =~[^\n]*\\\n[^\n]*\\\n[^\n]*; then\n\s*alive=1\n\s*fi/);
+  assert.ok(m, 'the adopt allowlist is gone from the supervisor');
+  const frag = `alive=0\npane_cmd=${JSON.stringify(paneCmd)}\n${m[0]}\necho "$alive"\n`;
+  return execFileSync('/bin/bash', ['-c', frag], { encoding: 'utf8' }).trim();
+}
+
+test('the supervisor counts a live agy pane as an agent, not a crashed shell (#3568)', () => {
+  assert.equal(aliveFor('agy'), '1', 'a live Antigravity agent would be killed as a crashed shell');
+  assert.equal(aliveFor('codex'), '1', 'CONTROL: codex still counts');
+  assert.equal(aliveFor('-zsh'), '0', 'CONTROL: a shell is still a crashed pane');
+});
+
+/* #3568 round 14: the SECOND guard that keeps a Claude account out of an agy pane -- the one that
+   pins the tmux server-global CLAUDE_CONFIG_DIR for a default-account agent -- RUN under bash. */
+function pinsCcdFor(runner) {
+  const m = script().match(/  if \[ "\$RUNNER" != codex \] && \[ "\$RUNNER" != antigravity \] && \[ -z "\$EFFECTIVE_CCD" \]; then/);
+  assert.ok(m, 'the server-global CLAUDE_CONFIG_DIR guard is gone or no longer excludes antigravity');
+  const frag = `RUNNER=${runner}\nEFFECTIVE_CCD=\n${m[0]} echo pin; else echo skip; fi\n`;
+  return execFileSync('/bin/bash', ['-c', frag], { encoding: 'utf8' }).trim();
+}
+
+test('the server-global CLAUDE_CONFIG_DIR pin runs for a claude pane and not for an agy pane (#3568)', () => {
+  assert.equal(pinsCcdFor('claude'), 'pin', 'CONTROL: a default-account claude pane is still pinned');
+  assert.equal(pinsCcdFor('antigravity'), 'skip', 'an agy pane would be pinned to a Claude account');
+});
+
+/* #3568 spike: agy asks "trust this folder?" on every new folder and has no flag to skip it, so the
+   antigravity arm runs engine/agytrust.js on the agent's folder BEFORE it starts the pane. */
+test('the antigravity arm pre-answers agy folder trust before it starts the pane (#3568)', () => {
+  const src = script();
+  const at = src.indexOf('elif [ "$RUNNER" = antigravity ]; then');
+  assert.ok(at > -1, 'the antigravity launch arm is gone');
+  const arm = src.slice(at, src.indexOf('\n  else\n', at));
+  const trust = arm.indexOf('"$_eng/agytrust.js" "$WORKDIR"');
+  const launch = arm.indexOf('new-session');
+  assert.ok(trust > -1, 'the antigravity arm does not run agytrust.js on the agent folder');
+  assert.ok(launch > trust, 'agytrust.js must run before the pane starts, or agy asks first');
+});
+
+test('an Antigravity agent does not either (#3568)', () => {
+  assert.equal(paneEnvFor('antigravity'), '', 'an agy pane carries no claude-only variable');
 });
 
 /**

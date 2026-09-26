@@ -3465,7 +3465,11 @@ test('the runs-on box says model and account in one line, and the Signed-in-as s
 
   /* The branch's two safety additions, pinned the way the sibling
      d-model-msg clear is pinned, so neither can quietly revert. */
-  const od = script.slice(script.indexOf('function openDetail('), script.indexOf('function openDetail(') + 4200);
+  // To the end of openDetail, not a fixed length: #3757's Files resets grew the function and a
+  // fixed 4200-character window stopped reaching this clear although it was still there.
+  const odAt = script.indexOf('function openDetail(');
+  const od = script.slice(odAt, script.indexOf('\nfunction ', odAt + 1));
+  assert.ok(od.length > 4200, 'openDetail moved or shrank; the slice covers ' + od.length + ' characters');
   assert.ok(/getElementById\('d-account-msg'\)[\s\S]{0,60}?\.textContent = ''/.test(od),
     'openDetail no longer clears the account message on a switch');
   /* 📌 ASK THE SOURCE WHERE THE FUNCTION ENDS, rather than guessing a byte count.
@@ -3820,11 +3824,14 @@ test('the board renderers hold the pack grammar: thresholds, states, parity, esc
     assert.match(api.lrow(spoofed), /bar unknown/,
       'CONTROL: the spoofed percent did not degrade to the unknown bar');
 
-    // An UNRECOGNISED server state gets the unknown treatment's WHOLE
-    // honesty payload, note included: the gate reads the treatment
-    // (cardStOf's fallback), not the state's spelling.
-    assert.match(api.card(as(vex, { state: 'martian' })), /not telling you it is fine/,
-      'a future server state renders as Can’t-tell without the note that makes it honest');
+    // An UNRECOGNISED server state gets the unknown treatment (cardStOf's
+    // fallback reads the treatment, not the state's spelling). #3729: with no
+    // note any more; the "Can't tell" badge carries it, and no diagnostic
+    // sentence rides on the card.
+    const martian = api.card(as(vex, { state: 'martian' }));
+    assert.match(martian, /acard unk/, 'a future server state no longer renders as Can’t-tell');
+    assert.match(martian, /st-unknown/, 'a future server state lost the Can’t-tell pill');
+    assert.doesNotMatch(martian, /not telling you it is fine|class="note"/, 'the unknown card has a diagnostic note again (#3729 removed it)');
     const attn88 = api.card(withPct(mara, 88));
     assert.match(attn88, /acard attn/, 'needs_you lost its red card treatment');
     assert.doesNotMatch(attn88, /\bhot\b/,
@@ -3857,7 +3864,8 @@ test('the board renderers hold the pack grammar: thresholds, states, parity, esc
     assert.match(unk, /pres unsure/, 'unknown presence collapsed into on/off');
     assert.match(unk, /st-unknown/, 'unknown lost its own pill');
     assert.match(unk, /could not check/, 'the unknown pill lost its screen-reader words');
-    assert.match(unk, /not telling you it is fine/, 'the unknown card lost its note');
+    // #3729: the unknown card keeps its dashed card, pill and screen-reader words above, and has no note.
+    assert.doesNotMatch(unk, /not telling you it is fine|class="note"/, 'the unknown card has a diagnostic note again (#3729 removed it)');
     const off = api.card(nils);
     assert.match(off, /acard off/, 'stopped lost its off treatment');
     assert.match(off, /pres off/, 'a stopped agent shows a live presence dot');
@@ -5664,32 +5672,15 @@ test('no subscription state renders a verdict about the person\'s Claude account
     'even the verified-connected state renders no row, so the assertions above pass on an empty page and prove nothing');
 });
 
-test('#3326 fix: reauthDecision forces the login ONLY on a positively-dead credential (the 0.6.84 strand regression)', () => {
-  /* #3326 made sign-up force a real `claude auth login` on EVERY start (reauth:true always).
-     The 0.6.84 regression: it re-logs-in a LIVE, signed-in user, and a forced re-login they do
-     not complete leaves them (and their spawned agent) at the login screen -- Josh's exact
-     symptom, both providers having worked until this release. reauthDecision fixes it: force
-     the login ONLY when a REAL liveness probe says the credential is POSITIVELY dead; a live or
-     unprobable credential is left untouched (no forced login, no strand) and marked verified-live
-     so the client accepts the resulting short-circuit as a completed login. This is a REAL test
-     of the decision (the source-level "forwards reauth" guard it replaces could not see the
-     over-forcing). */
-  const { reauthDecision } = require('./server.js');
-  const STATE = require('./engine/subscription').STATE;
-
-  // reauth not requested -> never forces, never claims verified.
-  assert.deepEqual(reauthDecision(false, true, STATE.CONNECTED, STATE), { effectiveReauth: false, liveVerified: false });
-  // reauth requested but the FILE is not connected -> passthrough: connect.start runs the login
-  // regardless, so there is nothing to gate.
-  assert.deepEqual(reauthDecision(true, false, null, STATE), { effectiveReauth: true, liveVerified: false });
-  // 🛑 THE REGRESSION: file connected + a genuinely LIVE credential must NOT be force-re-logged-in
-  // (that is the strand), and the short-circuit is marked verified-live for the client.
-  assert.deepEqual(reauthDecision(true, true, STATE.CONNECTED, STATE), { effectiveReauth: false, liveVerified: true });
-  // file connected + probe CANNOT tell (UNKNOWN) -> fail open: do NOT force, accept it
-  // (agent-creation's live gate is the backstop for a truly-dead one). No strand on a network blip.
-  assert.deepEqual(reauthDecision(true, true, STATE.UNKNOWN, STATE), { effectiveReauth: false, liveVerified: true });
-  // file connected + POSITIVELY dead -> force the login (the stale-Connected case #3326 needed).
-  assert.deepEqual(reauthDecision(true, true, STATE.NONE, STATE), { effectiveReauth: true, liveVerified: false });
+test('#3326: the default sign-up start ALWAYS forwards reauth (Josh, 2026-09-24: force a fresh login every time)', () => {
+  /* Josh ruled 2026-09-24 14:38 CDT: "i want to force a fresh login everytime. I have seen the
+     other way fail multiple times". #3367 had gated the forced login on a liveness probe; that
+     gate is removed, and the strand it worked around is fixed in connect.js (expiryMoved at the
+     pane-death gate, tested in engine/connect.test.js "#3326"). This pins the route: the default start hands
+     the requested reauth to connect.start as-is, and no liveness probe decides it. */
+  const src = require('fs').readFileSync(require('path').join(__dirname, 'server.js'), 'utf8');
+  assert.doesNotMatch(src, /function reauthDecision\(|\.liveVerified\s*=/,
+    'a probe-gated reauth (#3367) is back: Josh ruled sign-up always forces a fresh login');
 });
 
 test('the way back is on the last step, on every ending a person can get', () => {
@@ -5738,15 +5729,15 @@ test('#2497: the fleet screen lands on Giddy Up on every path, including a broke
   // screen. Onboarding no longer counts a fleet or offers to import it (Josh, watching an external
   // tester: a dev's tmux Claude Code sessions filled first run with garbage agents). Real agents come in
   // later via the manual Import Agent (#1652) on the Create Agent screen.
-  assert.match(adopt.els['fr-fleet-title'].textContent, /Create your first agent/i);
-  assert.match(adopt.els['fr-fleet'].innerHTML, /Let’s get started/i);
+  assert.match(adopt.els['fr-fleet-title'].textContent, /ready to start using Kosmos/i);
+  assert.match(adopt.els['fr-fleet'].innerHTML, /create or import agents, set up your projects/i);
   assert.ok(!/already have|nothing to import|fr-name/.test(adopt.els['fr-fleet'].innerHTML),
     'onboarding still counts or offers the fleet on the adopt path');
 
   const create = firstRunHarness('frPaintFleet', {
     FR: { path: 'create', fleetCount: 0, fleetNames: [] },
   });
-  assert.match(create.els['fr-fleet-title'].textContent, /Create your first agent/i);
+  assert.match(create.els['fr-fleet-title'].textContent, /ready to start using Kosmos/i);
   // The endings ARE this screen's actions now, buttons verbatim from the
   // pack (spec ed29b78): adopt and create carry ONE action each; only the
   // unknown ending gets two, asserted in the broken-payload loop below.
@@ -5795,7 +5786,7 @@ test('#2497: the fleet screen lands on Giddy Up on every path, including a broke
     // #2497: onboarding renders the create / Giddy Up screen for EVERY payload, including a
     // malformed one -- the forced return runs before the path fork, so a bad payload never
     // crashes into a placeholder and never drops the person onto a two-way "we could not see" fork.
-    assert.match(title, /Create your first agent/i,
+    assert.match(title, /ready to start using Kosmos/i,
       `payload ${JSON.stringify(FR)} did not land on the create screen: "${title}"`);
     assert.ok(!/undefined|NaN|null/.test(title + body),
       `payload ${JSON.stringify(FR)} put a placeholder on screen: "${title}"`);
@@ -5843,7 +5834,7 @@ test('#2497: the fleet screen lands on Giddy Up on every path, including a broke
 test('#2497: the fleet step makes no machine-state promise (now the unconditional Giddy Up screen)', () => {
   /**
    * ⚠️ #2497 STRENGTHENS this test's concern by construction: the fleet step (frPaintFleet) now
-   * ALWAYS renders the no-agent "Create your first agent." / Giddy Up screen, whatever the machine
+   * ALWAYS renders the one Giddy Up ending (#3659: SETUP COMPLETE, "You're ready to start using Kosmos."), whatever the machine
    * state, so it can never repeat a check-screen finding NOR promise a working agent. Each case
    * below anchors on that positive render (so the absence assertions are NOT vacuous -- they only
    * pass because the Giddy Up screen genuinely rendered and carries no machine copy), then keeps
@@ -5854,7 +5845,7 @@ test('#2497: the fleet step makes no machine-state promise (now the unconditiona
     FR: { path: 'create', fleetCount: 0, fleetNames: [] },
     FR_MACHINE: { checks: [{ key: 'sleep', state: 'ok', title: 'fine', detail: 'fine' }], attention: 0, unknown: 0 },
   });
-  assert.match(clean.els['fr-fleet-title'].textContent, /create your first agent/i,
+  assert.match(clean.els['fr-fleet-title'].textContent, /ready to start using Kosmos/i,
     'the fleet step no longer lands on the Giddy Up screen');
   assert.ok(!/still outstanding|did not get to look/.test(clean.els['fr-fleet'].innerHTML),
     'warned about a machine that checked out clean');
@@ -5871,7 +5862,7 @@ test('#2497: the fleet step makes no machine-state promise (now the unconditiona
     },
   });
   const out = snagged.els['fr-fleet'].innerHTML;
-  assert.match(snagged.els['fr-fleet-title'].textContent, /create your first agent/i,
+  assert.match(snagged.els['fr-fleet-title'].textContent, /ready to start using Kosmos/i,
     'a snagged machine no longer lands on the Giddy Up screen (would make the absence checks vacuous)');
   /* 🛑 JOSH OVERRULED THIS ON 2026-08-26 22:05, having read the sentence on his
      own screen: "I'm still seeing this: this computer goes to sleep after 1
@@ -5899,7 +5890,7 @@ test('#2497: the fleet step makes no machine-state promise (now the unconditiona
      claim at all, so there is nothing to caveat. Asserting the absence of the
      claim is the stronger form -- it fails if anyone puts an "everything is
      ready" back, which a confession-shaped test never could. */
-  assert.match(never.els['fr-fleet-title'].textContent, /create your first agent/i,
+  assert.match(never.els['fr-fleet-title'].textContent, /ready to start using Kosmos/i,
     'a person who never saw the check screen no longer lands on the Giddy Up screen');
   assert.doesNotMatch(never.els['fr-fleet'].innerHTML, /everything is (connected|in place|ready)/i,
     'a person who never saw the check screen is being told everything is in place');
@@ -8735,7 +8726,7 @@ test('a card names a planned model plainly, while the detail panel keeps its ten
  * now is the nav's order and the sections' order against it, which is what the
  * test pins; membership box by box is in web.agent-nav.test.js.
  */
-test('the agent detail page is eight sections behind a nav, in the ruled order', () => {
+test('the agent detail page is nine sections behind a nav, in the ruled order', () => {
   /* ⚠️ THIS TEST USED TO PIN SOURCE ORDER OF A TWO-COLUMN GRID (Runs on | Memory,
      then Conversation | Instructions). The grid is gone: since agent-page-nav
      (2026-08-23, Mona Lisa's mock, Josh's ask) the page is one section at a
@@ -8766,7 +8757,8 @@ test('the agent detail page is eight sections behind a nav, in the ruled order',
   const secs = [...panel.matchAll(/<section class="dsec" id="d-sec-[a-z]+" data-sec="([a-z]+)"/g)].map((m) => m[1]);
   // The eight sections are unchanged and still in reading order; the folded pair sits right after
   // the section it folds under (memory after model, skills after instr).
-  assert.deepEqual(secs, ['talk', 'model', 'memory', 'instr', 'skills', 'profile', 'term', 'remove'],
+  // #3757: the Files screen, reached from View All beside the sidebar's list, comes last.
+  assert.deepEqual(secs, ['talk', 'model', 'memory', 'instr', 'skills', 'profile', 'term', 'remove', 'files'],
     'the section order moved');
   // #3500: the pills follow Josh's four-pack order (Direct Message, then Profile, Instructions,
   // AI Settings, Advanced), which deliberately does NOT track section order, so the exact pill
@@ -8806,15 +8798,11 @@ test('the detail badge reads the card’s own derivations, and the task is a sep
      header no longer shows the frozen pane title in any state.) */
   const tables = script.slice(tablesFrom, script.indexOf('\n', cardStAt) + 1)
     + '\n' + pageFnSource('stateReason') + '\n' + pageFnSource('taskLine')
-    /* #569: the painter fills the provenance and conflict slots beside the
-       badge, through the same shared derivations the card reads. They join
-       the prelude for the rule stated above: a stub would let this pass
-       while the shipped helpers said something else. */
-    /* ⚠️ `asSentence` JOINS THEM for the same reason (#1199): `conflictNote`
-       now delegates its casing to the one shared dresser, so the prelude
-       without it evaluates a body calling an undefined function. */
+    /* #569: the painter fills the provenance slot beside the badge, through
+       the same shared derivation the card reads. It joins the prelude for the
+       rule stated above: a stub would let this pass while the shipped helper
+       said something else. (#3729 removed the conflict slot and conflictNote.) */
     + '\n' + pageFnSource('saidLine') + '\n' + pageFnSource('asSentence')
-    + '\n' + pageFnSource('conflictNote')
     /* #2019: the badge's `copy` now comes from `stateCopyOf` (the shared state-copy
        derivation), which for 'restarting' names the cause via `restartingLabel`.
        Its GLYPH now comes from `glyphOf` (the shared glyph derivation, which for a
@@ -9624,7 +9612,7 @@ function bodyFn() {
   // in turn calls pjRichSpans; both are lifted in so the extracted pjBody runs.
   return pageFunction('pjBody', pageFnSource('esc') + '\n'
     + pageFnSource('pjInline') + '\n' + pageFnSource('pjCiteKey') + '\n' + pageFnSource('pjLinkPaths') + '\n'
-    + pageFnSource('pjRichSpans') + '\n' + pageFnSource('pjProse') + '\n');
+    + pageFnSource('pjRichSpans') + '\n' + pageFnSource('pjListDepth') + '\n' + pageFnSource('pjProse') + '\n');
 }
 
 test('a closed fence becomes a block and its contents are escaped, not linked', () => {
@@ -9724,6 +9712,56 @@ test('the reply route writes as the pane’s agent, whatever the body claims', a
       'a caller wrote into another agent’s private conversation by naming it');
   } finally {
     messagesEngine.setRunner(null);
+    fleet.restore();
+    void board;
+  }
+});
+
+test('#3723 an agent stopped by its account gets one Kosmos line in its thread, and an idle one gets none', async () => {
+  const board = fleet.install([
+    fleet.agent('rae', { state: 'rate_limited' }),
+    fleet.agent('sid', { state: 'auth_failed' }),
+    fleet.agent('ida', { state: 'idle' }),
+  ]);
+  try {
+    const rae = JSON.parse((await req('/api/agent/rae/thread')).body);
+    const rows = rae.messages.filter((m) => m.kind === 'kosmos');
+    assert.equal(rows.length, 1, 'exactly one Kosmos line');
+    assert.match(rows[0].text, /^It looks like rae has hit a Claude usage limit, so it has stopped\./, 'a Claude reading is said as "looks like"');
+    assert.equal(rows[0].from, null, 'Kosmos speaking: not the agent, not the person');
+    assert.equal(rows[0].at, null, 'derived each read, not stored');
+    assert.equal(rows[0].id, 'kosmos-account:rae');
+    const sid = JSON.parse((await req('/api/agent/sid/thread')).body);
+    const signin = sid.messages.find((m) => m.kind === 'kosmos');
+    assert.ok(signin, 'a sign-in that stopped working gets the line too');
+    assert.match(signin.text, /sign-in has stopped working.*Sign in again/);
+    // CONTROL: an idle agent's thread has no Kosmos line, so the line is caused by the state.
+    const ida = JSON.parse((await req('/api/agent/ida/thread')).body);
+    assert.ok(!ida.messages.some((m) => m.kind === 'kosmos'), 'an idle agent got an account line');
+  } finally {
+    fleet.restore();
+    void board;
+  }
+});
+
+test('#3723 no link preview is fetched for Kosmos\'s account line (it quotes screen text)', async () => {
+  const unfurl = require('./engine/unfurl');
+  const fetched = [];
+  unfurl.resetForTests();
+  unfurl.setResolver(async () => ['93.184.216.34']);
+  unfurl.setFetcher(async (url) => { fetched.push(String(url)); return { status: 200, headers: { 'content-type': 'text/html' }, body: Buffer.from('<title>x</title>') }; });
+  const board = fleet.install([
+    fleet.agent('cod', { state: 'rate_limited', runner: 'codex', command: 'node',
+      screen: "• You've hit your usage limit. Visit https://chatgpt.com/codex/settings/usage to purchase more credits\n\n› Ask Codex to do anything" }),
+  ]);
+  try {
+    const body = JSON.parse((await req('/api/agent/cod/thread')).body);
+    const row = body.messages.find((m) => m.kind === 'kosmos');
+    assert.ok(row && /chatgpt\.com\/codex\/settings\/usage/.test(row.text), 'CONTROL: the line carries the link');
+    await new Promise((r) => setTimeout(r, 200));
+    assert.deepEqual(fetched, [], 'the board fetched an address read off an agent\'s screen');
+  } finally {
+    unfurl.resetForTests();
     fleet.restore();
     void board;
   }
@@ -10461,7 +10499,7 @@ test('#2497: first run lands on Giddy Up regardless of what is on the disk (no a
    * "look on the disk before saying anybody has nothing" behavior FOR ONBOARDING. That behavior
    * surfaced found agents on the first-run screen; on a developer's box (many tmux Claude Code
    * sessions) it filled the board with garbage throwaway agents. Josh ruled that first run always
-   * lands on the no-agent "Create your first agent." / Giddy Up screen, even when agents ARE found,
+   * lands on the one Giddy Up ending (SETUP COMPLETE since #3659), even when agents ARE found,
    * and that the manual Import Agent (#1652) on the Create Agent screen is the way to pull real
    * ones in later. So none of the disk states (not-looked / found-some / found-none / could-not-
    * look) changes what the first-run screen shows now: it is always the create / Giddy Up screen.
@@ -10475,7 +10513,7 @@ test('#2497: first run lands on Giddy Up regardless of what is on the disk (no a
 
   /* Not looked yet (FR_FOUND null): no "looking" state anymore - onboarding does not scan. */
   const looking = firstRunHarness('frPaintFleet', { FR: create, FR_FOUND: null });
-  assert.match(looking.els['fr-fleet-title'].textContent, /Create your first agent/i);
+  assert.match(looking.els['fr-fleet-title'].textContent, /ready to start using Kosmos/i);
   assert.doesNotMatch(looking.els['fr-fleet'].innerHTML, /Looking for agents|none on this computer/i,
     'onboarding still shows a looking/empty-claim state instead of the Giddy Up screen');
 
@@ -10484,9 +10522,9 @@ test('#2497: first run lands on Giddy Up regardless of what is on the disk (no a
     FR: create,
     FR_FOUND: { ok: true, agents: [{ dir: '/w/mike', name: 'Mike', role: 'copywriter' }] },
   });
-  assert.match(found.els['fr-fleet-title'].textContent, /Create your first agent/i,
+  assert.match(found.els['fr-fleet-title'].textContent, /ready to start using Kosmos/i,
     'first run surfaced found agents instead of the create / Giddy Up screen');
-  assert.match(found.els['fr-fleet'].innerHTML, /Let’s get started/i);
+  assert.match(found.els['fr-fleet'].innerHTML, /create or import agents, set up your projects/i);
   assert.doesNotMatch(found.els['fr-fleet'].innerHTML, /found an agent|not in Kosmos yet|<input/i,
     'first run still renders a found-agents list; #2497 removed auto-import from onboarding');
 
@@ -10501,15 +10539,15 @@ test('#2497: first run lands on Giddy Up regardless of what is on the disk (no a
      found nothing is not the same as a search that could not run. It is still
      real. His point is that neither belongs on the screen that asks somebody to
      make their first agent, because both are the product talking about itself. */
-  assert.match(empty.els['fr-fleet'].innerHTML, /Let\u2019s get started/i,
-    'the generic opening line is gone from the create-first-agent step');
+  assert.match(empty.els['fr-fleet'].innerHTML, /create or import agents, set up your projects/i,
+    'the create-first-agent step does not carry Josh\'s #3659 body line');
   assert.doesNotMatch(empty.els['fr-fleet'].innerHTML, /everything is connected|everything is in place/i,
     'the screen claims everything is connected, which it cannot know on the skipped-check or failed-search paths');
   assert.doesNotMatch(empty.els['fr-fleet'].innerHTML, /could not look|did not find any agents/i,
     'the screen is reporting on its own search again rather than telling the person what to do');
   assert.doesNotMatch(empty.els['fr-fleet'].innerHTML, /Two questions/i,
     'the remnant "two questions" copy is back; Josh: "Those are not the two questions"');
-  assert.match(empty.els['fr-fleet-title'].textContent, /Create your first agent/i);
+  assert.match(empty.els['fr-fleet-title'].textContent, /ready to start using Kosmos/i);
 
   /* ⚠️ AND A SEARCH THAT COULD NOT RUN IS NOT AN EMPTY MACHINE. This is the same
      distinction one level down: `ok:false` must not license either sentence.
@@ -10525,9 +10563,9 @@ test('#2497: first run lands on Giddy Up regardless of what is on the disk (no a
     'a failed search is claiming a result');
   assert.doesNotMatch(blind.els['fr-fleet'].innerHTML, /could not look/i,
     'the failed-search confession is back on the create-first-agent step');
-  assert.match(blind.els['fr-fleet'].innerHTML, /Let\u2019s get started/i,
+  assert.match(blind.els['fr-fleet'].innerHTML, /create or import agents, set up your projects/i,
     'the neutral line is missing on the could-not-look path');
-  assert.match(blind.els['fr-fleet-title'].textContent, /Create your first agent/i,
+  assert.match(blind.els['fr-fleet-title'].textContent, /ready to start using Kosmos/i,
     'the way forward is gone on a failed search');
 });
 
@@ -11181,6 +11219,31 @@ test('the layout setting (#520): tabs by default, round-trips, and refuses anyth
   assert.equal(JSON.parse(back.body).layout, 'tabs');
 });
 
+test('the tips route (#3574): nothing seen on a fresh board, seen only grows, refusals in words, an unreadable store is an honest 200', async () => {
+  const tipsStore = require('./engine/tips');
+  const put = (body) => req('/api/tips', { method: 'PUT', headers: { 'content-type': 'application/json' }, body: typeof body === 'string' ? body : JSON.stringify(body) });
+  try { require('node:fs').rmSync(tipsStore.FILE(), { force: true }); } catch { /* not there */ }
+  const fresh = JSON.parse((await req('/api/tips')).body);
+  assert.deepEqual([fresh.ok, fresh.seen, fresh.off], [true, [], false]);
+  const one = await put({ seen: ['tour'] });
+  assert.equal(one.status, 200, one.body);
+  assert.deepEqual(JSON.parse(one.body).seen, ['tour']);
+  assert.deepEqual(JSON.parse((await req('/api/tips')).body).seen, ['tour'], 'a closed tip did not survive a re-read');
+  for (const bad of [['tour'], { seen: 'tour' }, { seen: ['nope'] }, { off: 'yes' }]) {
+    const r = await put(bad);
+    assert.equal(r.status, 400, JSON.stringify(bad) + ' was accepted');
+    assert.ok(JSON.parse(r.body).error, 'a refusal came back with no words');
+  }
+  assert.equal((await put('{ not json')).status, 400);
+  assert.deepEqual(JSON.parse((await req('/api/tips')).body).seen, ['tour'], 'a refused request moved the store');
+  require('node:fs').writeFileSync(tipsStore.FILE(), '{ not json');
+  const broken = await req('/api/tips');
+  assert.equal(broken.status, 200, 'an unreadable store is an answer, not a server error');
+  assert.equal(JSON.parse(broken.body).ok, false);
+  assert.equal((await put({ seen: ['ring'] })).status, 400, 'a write over an unreadable store would forget what was seen');
+  require('node:fs').rmSync(tipsStore.FILE(), { force: true });
+});
+
 test('the Plus switch round-trips and the off state comes back honest', async () => {
   const on = await req('/api/remote', {
     method: 'PUT', headers: { 'content-type': 'application/json' },
@@ -11289,7 +11352,9 @@ test('the in-app sign-in runs end to end through the routes, and the session tok
     "const flag = (n) => { const i = a.indexOf(n); return i === -1 ? null : a[i + 1]; };",
     "if (a[0] === 'signin' && a[1] === 'start') { console.log(JSON.stringify({ stage: 'code_sent' })); process.exit(0); }",
     // verify goes straight to a session here (the phone path is covered in the engine suite).
-    "if (a[0] === 'signin' && a[1] === 'verify') { console.log(JSON.stringify({ stage: 'session', token: 'kst1.route-fake' })); process.exit(0); }",
+    // #3796: code 242424 answers with a text-message second step, so the route's pass-through is exercised.
+    "if (a[0] === 'signin' && a[1] === 'verify' && flag('--code') === '242424') { console.log(JSON.stringify({ stage: 'second', challenge: 'ch_route_fake', second: 'sms', sent_to: '\u2022\u2022\u2022 4321' })); process.exit(0); }",
+    "if (a[0] === 'signin' && a[1] === 'verify') { console.log(JSON.stringify({ stage: 'session', token: 'kst1.route-fake', account_address: 'srv-mac.kosmos.invalid' })); process.exit(0); }",
     "if (a[0] === 'signin' && a[1] === 'register') {",
     '  const token = fs.readFileSync(0, "utf8").trim();',
     '  if (!token) { process.stderr.write("no token on stdin"); process.exit(1); }',
@@ -11321,6 +11386,22 @@ test('the in-app sign-in runs end to end through the routes, and the session tok
     // The whole #874 point, asserted at the HTTP boundary: no credential crosses it.
     assert.ok(!('token' in vbody), 'the session token crossed the HTTP boundary: ' + verified.body);
     assert.ok(!('challenge' in vbody), 'a challenge crossed the HTTP boundary: ' + verified.body);
+    assert.equal(vbody.account_address, 'srv-mac.kosmos.invalid', '#3796 addendum 8: the route dropped the account\'s address: ' + verified.body);
+
+    // #3796: "Sign out" drops the held session, so register is refused until a fresh verify.
+    const cancelled = await postJson('/api/remote/signin-cancel', {});
+    assert.equal(cancelled.status, 200, cancelled.body);
+    const orphan = await postJson('/api/remote/signin-register', { name: 'srv-mac' });
+    assert.equal(orphan.status, 400, 'register spent a session after Sign out: ' + orphan.body);
+    // #3796 addendum 3: the second step's factor crosses the route (so the page can name it); the challenge does not.
+    const second = await postJson('/api/remote/signin-verify', { email: 'person@example.com', code: '242424' });
+    const sbody = JSON.parse(second.body);
+    assert.equal(sbody.stage, 'second', second.body);
+    assert.equal(sbody.second_kind, 'sms', 'the route dropped the account\'s factor: ' + second.body);
+    assert.equal(sbody.sent_to, '\u2022\u2022\u2022 4321', second.body);
+    assert.ok(!second.body.includes('ch_route_fake'), 'the challenge crossed the HTTP boundary: ' + second.body);
+    const again = await postJson('/api/remote/signin-verify', { email: 'person@example.com', code: '123456' });
+    assert.equal(JSON.parse(again.body).stage, 'session', again.body);
 
     const done = await postJson('/api/remote/signin-register', { name: 'srv-mac' });
     assert.equal(done.status, 200, done.body);
@@ -11329,6 +11410,7 @@ test('the in-app sign-in runs end to end through the routes, and the session tok
     assert.equal(dbody.address, 'srv-mac.kosmos.invalid');
     assert.equal(dbody.name, 'srv-mac');
     assert.equal(dbody.standing, 'good');
+    assert.equal(dbody.switchedOn, true, 'the route dropped switchedOn: ' + done.body);
     // The token reached the binary on stdin, off argv: the fake would have exited 1 without it.
     assert.equal(fs.readFileSync(nodePath.join(sb, 'state', 'address'), 'utf8').trim(), 'srv-mac.kosmos.invalid');
   } finally {
@@ -12823,6 +12905,16 @@ test('#2811: the RECORD account path does not score a codex dir as a non-default
   }
 });
 
+test('#3568: an Antigravity agent reads as what the person picked, with the program it runs on', () => {
+  const { sentenceForWhoami } = require('./server.js');
+  const said = sentenceForWhoami(null, null, 'antigravity');
+  assert.match(said, /^This is a Gemini \(Google subscription\) agent \(it runs on Antigravity\), and /, said);
+  assert.match(said, /it signs in with your Google account inside Antigravity/, 'no account is by design, not a fault');
+  assert.doesNotMatch(said, /cannot tell which account/);
+  // CONTROL: a consonant keeps "a".
+  assert.match(sentenceForWhoami(null, null, 'codex'), /^This is a Codex agent, and /);
+});
+
 test('#2811: the sentence a Codex agent reads back actually says Codex', () => {
   /* 🔑 THE ONLY USER-VISIBLE SURFACE OF THE VERB. `install/kosmos` prints the
      `because` sentence and nothing else (it seds the field out of the body), and
@@ -13747,7 +13839,7 @@ test('#734: the status route carries the lines it could not read, beside the cou
   assert.equal(c.unreadableSamples.length <= 3, true);
   // The route rebuilds counts with its own countAgents call; the samples must survive that (they did not, once).
   const src = require('node:fs').readFileSync(require('node:path').join(__dirname, 'server.js'), 'utf8');
-  assert.match(src, /countAgents\(agents, snap\.counts && snap\.counts\.unreadableLines, snap\.counts && snap\.counts\.unreadableSamples\)/);
+  assert.match(src, /countAgents\(agents\.filter\(\(a\) => !a\.isGuide\), snap\.counts && snap\.counts\.unreadableLines, snap\.counts && snap\.counts\.unreadableSamples\)/);
 });
 
 /* #761: an assignee is TOLD (its instructions, for its next start) and HEARD
@@ -14670,5 +14762,174 @@ test('#2811: a LIVE pane marker beats the record on the board row, so a mid-swit
   } finally {
     if (board) board.restore();
     try { fsX.unlinkSync(create.plistPath(name)); } catch { /* may not exist */ }
+  }
+});
+
+test('#3650: a pane that merely borrows the name cannot react in the real agent\'s DM', async () => {
+  const chatEngine = require('./engine/chat');
+  const status = require('./engine/status');
+  const AT = '2026-09-24T21:10:00.000Z';
+  chatEngine.appendMessage(chatEngine.DIRECT, 'rxborrow', { text: 'private', from: 'rxborrow', at: AT });
+  const react = () => req('/api/agent/rxborrow/thread/react', {
+    method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ at: AT, emoji: '👍' }),
+  });
+  status.setPaneSource(() => fleet.line({ session: 'rxborrow', title: 'stranger' }));
+  status.setPaneCapture(() => 'Worked for 1m\n> \n');
+  try {
+    const board = JSON.parse((await req('/api/status')).body);
+    const card = (board.agents || []).find((a) => a.sessionName === 'rxborrow');
+    assert.ok(card && card.isNamedOurs === false, 'the fixture is not exercising the untied case');
+    const res = await react();
+    assert.equal(res.status, 404, res.body);
+    assert.equal(JSON.parse(res.body).because, 'borrowed');
+    assert.deepEqual(chatEngine.dmReactions(chatEngine.readThread(chatEngine.DIRECT, 'rxborrow').messages[0]), []);
+  } finally {
+    status.setPaneSource(null);
+    status.setPaneCapture(null);
+  }
+  // CONTROL: the tied agent under the same name reacts, so the 404 above is the gate.
+  const tied = fleet.install([fleet.agent('rxborrow', { state: 'idle' })]);
+  try {
+    const ok = await react();
+    assert.equal(ok.status, 200, 'CONTROL: the tied agent could not react, so the refusal proves nothing: ' + ok.body);
+  } finally {
+    tied.restore();
+    chatEngine.resetForTests();
+  }
+});
+
+/**
+ * #3650: the person reacts to an agent's message in a Direct Message. The react route
+ * toggles it on the message, the thread read carries the pills, and the person's NEXT
+ * message tells the agent once, as a `[kosmos]` note typed after their words.
+ */
+test('#3650: a DM reaction is stored, shown, and told to the agent once with the next message', async () => {
+  const chatEngine = require('./engine/chat');
+  const board = fleet.install([fleet.agent('lena', { state: 'idle', displayName: 'Lena' })]);
+  const AT = '2026-09-24T21:00:00.000Z';
+  try {
+    chatEngine.appendMessage(chatEngine.DIRECT, 'lena', { text: 'Done with the login fix', from: 'lena', at: AT });
+    const react = (body) => req('/api/agent/lena/thread/react', {
+      method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body),
+    });
+
+    const on = await react({ at: AT, emoji: '👍' });
+    assert.equal(on.status, 200, on.body);
+    assert.deepEqual(JSON.parse(on.body).reactions, [{ emoji: '👍', count: 1, who: ['you'], mine: true }]);
+    const missing = await react({ at: '2026-01-01T00:00:00.000Z', emoji: '👍' });
+    assert.equal(missing.status, 400, 'a reaction to no message must be refused');
+    const junk = await react({ at: AT, emoji: 'ok' });
+    assert.equal(junk.status, 400, 'a non-emoji must be refused');
+
+    const read = JSON.parse((await req('/api/agent/lena/thread')).body);
+    const row = (read.messages || []).find((m) => m.at === AT);
+    assert.ok(row, 'the reacted message is not in the thread');
+    assert.deepEqual(row.reactions, [{ emoji: '👍', count: 1, who: ['you'], mine: true }]);
+
+    const say = (text, extra) => req('/api/agent/lena/thread', {
+      method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ text, ...(extra || {}) }),
+    });
+    /* A send that never reaches the pane (dry run, the default here) must leave the
+       reaction untold, so it rides the next message instead. */
+    const failed = await say('are you there?');
+    assert.ok([200, 202].includes(failed.status), failed.body);
+    assert.notEqual(chatEngine.dmReactionNote('lena'), '', 'an undelivered note was marked told');
+
+    const sends = [];
+    chatEngine.setRunner((args) => {
+      sends.push(args);
+      if (args[0] === 'display-message') return { ran: true, spawnFailed: false, status: 0, out: '2.1.212\t\t0\n', err: '' };
+      return { ran: true, spawnFailed: false, status: 0, out: '', err: '' };
+    });
+    chatEngine.setDryRun(false);
+
+    /* A bare digit (what a numbered menu takes) must not carry the note, and it must
+       still be pending afterwards. The agent is idle, so the route drops `chose` and this
+       exercises the DIGIT guard; the `chose` guard is dmNoteMayRide's engine test. The
+       digit must actually be typed, or "the note did not ride it" proves nothing. */
+    const answered = await say('1', { chose: 'Yes, go ahead' });
+    assert.ok([200, 202].includes(answered.status), answered.body);
+    assert.match(pastedChunks(sends).join(''), /(^|\D)1\s*$/, 'the digit was not what was typed last, so this arm tests nothing');
+    assert.equal(pastedChunks(sends).join('').includes('[kosmos] reactions'), false, 'the note rode a bare digit');
+    assert.notEqual(chatEngine.dmReactionNote('lena'), '', 'a bare digit marked the note told');
+    sends.length = 0;
+
+    const first = await say('thanks');
+    assert.ok([200, 202].includes(first.status), first.body);
+    const typed1 = pastedChunks(sends).join('');
+    assert.ok(typed1.includes('thanks [kosmos] reactions from the person you have not been told about yet: 👍 on your message "Done with the login fix"'),
+      'the note did not ride the message: ' + typed1);
+    const told = chatEngine.readThread(chatEngine.DIRECT, 'lena').messages.find((m) => m.at === AT);
+    assert.deepEqual(told.reactionsTold, ['👍'], 'CONTROL: the engine did not record it as told');
+    const served = JSON.parse((await req('/api/agent/lena/thread')).body).messages.find((m) => m.at === AT);
+    assert.equal(served.reactionsTold, undefined, 'the engine\'s bookkeeping was sent to the page');
+
+    sends.length = 0;
+    const second = await say('one more thing');
+    assert.ok([200, 202].includes(second.status), second.body);
+    const typed2 = pastedChunks(sends).join('');
+    assert.ok(typed2.includes('one more thing'), 'the second message was not typed: ' + typed2);
+    assert.equal(typed2.includes('[kosmos] reactions'), false, 'a reaction was told twice: ' + typed2);
+
+    /* An UNCONFIRMED send (here: Enter could not be pressed) may have lost the note, which
+       rides the tail, so the reaction stays pending rather than being marked told. */
+    await react({ at: AT, emoji: '🎉' });
+    chatEngine.setRunner((args) => {
+      if (args[0] === 'display-message') return { ran: true, spawnFailed: false, status: 0, out: '2.1.212\t\t0\n', err: '' };
+      if (args[0] === 'send-keys' && args.includes('Enter')) return { ran: true, spawnFailed: false, status: 1, out: '', err: 'no pane' };
+      return { ran: true, spawnFailed: false, status: 0, out: '', err: '' };
+    });
+    const lost = await say('did you see that?');
+    const lostState = JSON.parse(lost.body).delivery && JSON.parse(lost.body).delivery.state;
+    assert.equal(lostState, chatEngine.DELIVERY.UNCONFIRMED, 'CONTROL: the send was not unconfirmed, so this arm tests nothing: ' + lost.body);
+    assert.ok(chatEngine.dmReactionNote('lena').includes('🎉'), 'an unconfirmed send marked the reaction told');
+  } finally {
+    chatEngine.resetForTests();
+    board.restore();
+  }
+});
+
+test('#3679: the DM route refuses a message whose stored form is past the ceiling, and says why', async () => {
+  const chatEngine = require('./engine/chat');
+  const board = fleet.install([fleet.agent('indenta', { state: 'idle' })]);
+  try {
+    const text = '```\n' + ('    a' + ' '.repeat(40) + 'b\n').repeat(1000) + '```';
+    assert.ok(chatEngine.cleanMessage(text).length <= chatEngine.MAX_TEXT, 'CONTROL: the one-line form is under the limit');
+    const res = await req('/api/agent/indenta/thread', {
+      method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ text }),
+    });
+    assert.equal(res.status, 400, res.body);
+    assert.match(res.body, /indentation and spacing/);
+  } finally {
+    chatEngine.resetForTests();
+    board.restore();
+  }
+});
+
+test('#3679: /api/reply and the project-thread DM route refuse a stored form past the ceiling', async () => {
+  const messagesEngine = require('./engine/messages');
+  const chatEngine = require('./engine/chat');
+  const projectsEngine = require('./engine/projects');
+  const board = fleet.install([fleet.agent('leo', { state: 'idle' })]);
+  const text = '```\n' + ('    a' + ' '.repeat(40) + 'b\n').repeat(1000) + '```';
+  assert.ok(chatEngine.cleanMessage(text).length <= chatEngine.MAX_TEXT, 'CONTROL: the one-line form is under the limit');
+  const pr = projectsEngine.create({ name: 'Indent Ceiling 3679' });
+  projectsEngine.writeAll(projectsEngine.readAll().map((x) => (x.id === pr.id ? { ...x, agents: ['leo'] } : x)));
+  try {
+    messagesEngine.setRunner(() => ({ ok: true, session: 'leo-discord' }));
+    const reply = await req('/api/reply', {
+      method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ text }),
+    });
+    assert.match(reply.body, /indentation and spacing/, 'the reply route kept it: ' + reply.body.slice(0, 200));
+    const thread = await req('/api/project/' + pr.id + '/thread/leo', {
+      method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ text }),
+    });
+    assert.equal(thread.status, 400, thread.body.slice(0, 200));
+    assert.match(thread.body, /indentation and spacing/);
+  } finally {
+    try { projectsEngine.writeAll(projectsEngine.readAll().filter((x) => x.id !== pr.id)); } catch { /* sandboxed */ }
+    messagesEngine.setRunner(null);
+    chatEngine.resetForTests();
+    board.restore();
   }
 });

@@ -270,20 +270,25 @@ async function waitAnchorLeft(page, anchorSel, timeout = 5000) {
     // Continue SAVES before it advances (a real PUT), so wait for the About-you
     // pane to LEAVE rather than reading the head mid-flight.
     await waitAnchorLeft(page, '#fr-you');
-    // The Your-agents fork (step 9). #2497 (Josh, 2026-09-08): onboarding no longer
-    // auto-scans/auto-imports, so this step ALWAYS lands on the no-agent "Create your
-    // first agent." / Giddy Up screen, even on a fleet-present (rich) board. What must
-    // be true is it rendered a real heading and a single onward action (Giddy Up).
-    ok((await activeHead(page)).length > 0, 'the Your-agents fork rendered a heading');
+    // The SETUP COMPLETE ending (step 9). #2497 (Josh, 2026-09-08): onboarding no longer
+    // auto-scans/auto-imports, so this step ALWAYS lands on the no-agent Giddy Up screen,
+    // even on a fleet-present (rich) board. What must be true is it rendered a real
+    // heading and a single onward action (Giddy Up).
+    ok((await activeHead(page)).length > 0, 'the SETUP COMPLETE ending rendered a heading');
     ok((await page.locator('#fr-next').textContent()).trim().length > 0, 'and a single onward action');
-    console.log('   ...and out the front door, through the Giddy Up create ending');
+    console.log('   ...and out the front door, through the Giddy Up ending');
     await page.click('#fr-next');
     await page.waitForTimeout(600);
-    // #2497: the Giddy Up action is frFinish(openCreate) -- it closes the overlay and
-    // opens the Create-your-first-agent panel (showTab('agents')), so the surface is
-    // #panel-create, not the board grid. The board is un-inert behind it either way.
+    // #3575 (Josh, 2026-09-24): Giddy Up is frFinish(() => showTab('agents')) -- it closes the
+    // overlay and lands on the Agents dashboard, NOT the Create Agent panel (#2497 used to open it).
     ok(await page.isHidden('#firstrun'), 'the overlay closed');
-    ok(await page.isVisible('#panel-create'), 'the Create-your-first-agent panel is there (#2497 Giddy Up ending)');
+    ok(await page.isVisible('.tab[data-tab="agents"].on'), 'Giddy Up landed on the Agents dashboard (#3575)');
+    ok(await page.isHidden('#panel-create'), 'and did NOT open Create Agent (#3575)');
+    // The ending says "Head to your dashboard to create or import agents" (#3659). This is the
+    // fleet-present (rich) board, where the empty state's "Create your first agent" button does
+    // not exist, so this is the case that proves the dashboard it sends them to has a way to do it.
+    ok(await page.isVisible('#new-agent') || await page.isVisible('#rail-agents-new'),
+      'a New agent control is on the populated dashboard, as the ending promises');
     ok(await page.evaluate(() => document.querySelector('.apphead').inert === false),
       'the app behind is interactive again');
     // #3030: poll for the flag (its write can lag this read under cut load).
@@ -344,7 +349,7 @@ async function waitAnchorLeft(page, anchorSel, timeout = 5000) {
   }
 
   /* ------------------------------------------------------------------ */
-  console.log('\n4. The hand-off into making an agent actually lands there (create fork)');
+  console.log('\n4. Giddy Up lands on the dashboard, and making an agent is one click from there (#3575)');
   {
     const { ctx, page } = await fresh(browser, {
       route: ['**/api/first-run', (r) => r.fulfill({ json: { done: false, fleetKnown: true, fleetCount: 0, fleetNames: [], path: 'create', subscription: { state: 'connected', plan: 'Claude Max', because: '' } } })],
@@ -366,14 +371,22 @@ async function waitAnchorLeft(page, anchorSel, timeout = 5000) {
       }, null, { timeout: 5000 });
     const endTitle = await activeHead(page);
     const endAction = (await page.locator('#fr-next').textContent()).trim();
-    ok(/Create your first agent/.test(endTitle), `on the create ending (saw ${JSON.stringify(endTitle)})`);
+    ok(/ready to start using Kosmos/.test(endTitle), `on the #3575 start-using-Kosmos ending (saw ${JSON.stringify(endTitle)})`);
     /* Josh, 2026-08-27: the create-fork label is "Giddy Up" (kosmos#1204). */
     ok(/Giddy Up/.test(endAction),
       `the create ending carries the pack's single action (saw ${JSON.stringify(endAction)})`);
     await page.click('#fr-next');
     await page.waitForTimeout(800);
     ok(await page.isHidden('#firstrun'), 'the overlay got out of the way');
-    ok(await page.isVisible('#panel-create'), 'and the create panel is open');
+    ok(await page.isVisible('.tab[data-tab="agents"].on'), 'on the Agents dashboard (#3575)');
+    ok(await page.isHidden('#panel-create'), 'not dropped into Create Agent (#3575)');
+    // The ending sends the person to the dashboard to create or import agents (#3659); prove
+    // New agent is there on the empty board too and leads into a usable create flow.
+    const newAgent = (await page.isVisible('#new-agent')) ? page.locator('#new-agent') : page.locator('#rail-agents-new');
+    ok(await newAgent.isVisible(), 'the empty dashboard offers New agent, as the ending says');
+    await newAgent.click();
+    await page.waitForTimeout(600);
+    ok(await page.isVisible('#panel-create'), 'and it opens the create panel');
     // Not just open -- usable. The picker's radios are only un-hidden by the fetch.
     await page.waitForSelector('#roles-list .pick2', { state: 'visible', timeout: 5000 }).catch(() => {});
     // Five since #1280 added "upload an org chart" as a fifth .pick2 (after the
@@ -494,10 +507,11 @@ async function waitAnchorLeft(page, anchorSel, timeout = 5000) {
     await page.keyboard.press('Escape');
     await page.waitForTimeout(2200);
     ok(posts === 1, `exactly one completion was written (saw ${posts})`);
-    // ⚠️ And the callback that won is the one they CHOSE. Two completions ran both
-    // callbacks, so openCreate() opened the panel and showTab('agents') took it off.
-    ok(await page.isVisible('#panel-create'),
-      'the create panel they asked for survived, rather than being closed by a second callback');
+    // #3575: Giddy Up and Escape now share one callback (showTab('agents')), so where the
+    // person lands can no longer tell one completion from two. `posts === 1` above is the
+    // guard on the double run; this line only checks the landing itself.
+    ok(await page.isVisible('.tab[data-tab="agents"].on') && await page.isHidden('#panel-create'),
+      'they landed on the Agents dashboard, not in Create Agent');
     await ctx.close();
   }
 

@@ -39,6 +39,49 @@ const os = require('node:os');
 const path = require('node:path');
 const { spawnSync } = require('node:child_process');
 
+/* #3647: step 1c also checks the Developer ID Installer identity (`security
+   find-identity -v`) and the notary key (`secrets-map.sh path`). The sandbox has
+   neither (an empty HOME; CI's Linux has no `security`), so the arms that must reach
+   step 2 get two stand-ins, as KOSMOS_CODESIGN_BIN gets `true` below. They are
+   scripts rather than builtins because each must PRINT something: the identity name
+   and the path of a real file. The checks have their own tests in
+   tools/test-cut-sign-preflight.sh. */
+const SIGN_STUBS = fs.mkdtempSync(path.join(os.tmpdir(), 'kosmos-gitgate-signstubs-'));
+const SANDBOX_INSTALLER_ID = 'Developer ID Installer: kosmos release-gate sandbox';
+fs.writeFileSync(path.join(SIGN_STUBS, 'notary.p8'), 'not a key\n');
+test.after(() => fs.rmSync(SIGN_STUBS, { recursive: true, force: true }));
+fs.writeFileSync(path.join(SIGN_STUBS, 'security'),
+  `#!/bin/sh\nprintf '  1) 0000000000 "%s"\\n' '${SANDBOX_INSTALLER_ID}'\n`, { mode: 0o755 });
+fs.writeFileSync(path.join(SIGN_STUBS, 'secrets-map'),
+  `#!/bin/sh\nprintf '%s\\n' '${path.join(SIGN_STUBS, 'notary.p8')}'\n`, { mode: 0o755 });
+
+/* #3884: step 1d refuses a prebuilt Plus connector that kosmos-relay main has moved past.
+   The sandbox has neither, so the arms that must reach step 2 get a REAL, current fixture
+   rather than a skipped check: a tiny relay (bare origin plus a clone) and a connector whose
+   .commit sidecar names the clone's HEAD. The check itself runs; it just finds nothing stale.
+   Its own arms are in tools/test-connector-currency-3884.sh. */
+const RELAY_FX = fs.mkdtempSync(path.join(os.tmpdir(), 'kosmos-gitgate-relay-'));
+test.after(() => fs.rmSync(RELAY_FX, { recursive: true, force: true }));
+const gitfx = (...args) => {
+  const r = spawnSync('git', ['-c', 'user.name=t', '-c', 'user.email=t@example.com', '-c', 'commit.gpgsign=false', ...args], { encoding: 'utf8' });
+  if (r.status !== 0) throw new Error(`relay fixture: git ${args.join(' ')} failed: ${r.stderr}`);
+  return r.stdout.trim();
+};
+const RELAY_REPO = path.join(RELAY_FX, 'relay');
+gitfx('init', '-q', '--bare', '-b', 'main', path.join(RELAY_FX, 'origin.git'));
+gitfx('init', '-q', '-b', 'main', RELAY_REPO);
+fs.mkdirSync(path.join(RELAY_REPO, 'crates', 'tunnel'), { recursive: true });
+fs.writeFileSync(path.join(RELAY_REPO, 'crates', 'tunnel', 'lib.rs'), '// fixture\n');
+gitfx('-C', RELAY_REPO, 'add', '-A');
+gitfx('-C', RELAY_REPO, 'commit', '-q', '-m', 'fixture');
+gitfx('-C', RELAY_REPO, 'remote', 'add', 'origin', path.join(RELAY_FX, 'origin.git'));
+gitfx('-C', RELAY_REPO, 'push', '-q', 'origin', 'main');
+const TUNNEL_BIN = path.join(RELAY_FX, 'kosmos-tunnel');
+fs.writeFileSync(TUNNEL_BIN, 'MACHO-STAND-IN\n', { mode: 0o755 });
+fs.writeFileSync(`${TUNNEL_BIN}.commit`, `${gitfx('-C', RELAY_REPO, 'rev-parse', 'HEAD')}\n`);
+fs.writeFileSync(`${TUNNEL_BIN}.sha256`,
+  `${require('node:crypto').createHash('sha256').update(fs.readFileSync(TUNNEL_BIN)).digest('hex')}\n`);
+
 const REAL = path.join(__dirname, 'tools', 'release.sh');
 
 /**
@@ -349,6 +392,13 @@ function git_sandbox(version, { diverge = 'none' } = {}) {
   return { dir, remote, home, site };
 }
 
+/* A TMPDIR inside the sandbox (never equal to HOME, which release.sh refuses). */
+function tmpdirIn(dir) {
+  const t = path.join(dir, 'tmp');
+  fs.mkdirSync(t, { recursive: true });
+  return t;
+}
+
 function run_git(dir, version, home, site, { staleBy = 0, entry = true, pending = null } = {}) {
   /* #1455: the pending-entry shape. The operator may leave the entry as a FILE
      carrying TIMESTAMP instead of hand-stamping the page, and step 1 accepts that as a
@@ -415,6 +465,34 @@ function run_git(dir, version, home, site, { staleBy = 0, entry = true, pending 
       HOME: home,
       KOSMOS_SITE: site,
       KOSMOS_HARNESS_IGNORE_CUT: '1',
+      /* #3619: and the other direction. release.sh also refuses while an install harness
+         (tools/test-install.sh) runs anywhere on the Mac, and tools/test-cut-guard.sh starts
+         a real stand-in for one (`bash tools/test-install.sh --sleep 4`) as its fixture. So
+         any other suite on the box that is inside test-cut-guard.sh turned these arms red
+         with the harness refusal, although none of them tests that guard
+         (test-cut-guard.sh does). Measured with a stand-in harness running: 12 of 26 red
+         without this, 26 of 26 with it. */
+      KOSMOS_CUT_IGNORE_HARNESS: '1',
+      /* #3619, same family: the arms that pass step 2 run on into the load guard (step 2b),
+         which waits up to 600 s while the Mac's load is high. They only need to reach step 2,
+         so the load is pinned quiet; otherwise a loaded Mac holds each arm to its timeout
+         and leaves a live sandbox release.sh that other suites' cut guard takes for a cut. */
+      KOSMOS_FAKE_LOAD: '0',
+      /* #3619, same family: release.sh recreates $TMPDIR/kosmos-cut-home, so a bare run
+         of this file sharing the per-user TMPDIR could wipe a real cut's home. Kept inside
+         the sandbox, as tools.cut-home-2724.test.js does. */
+      TMPDIR: tmpdirIn(dir),
+      /* #3579: step 1c test-signs with the Developer ID cert before the bump. The
+         sandbox holds no cert (CI runs on Linux and cert-less macOS), so the arms that
+         must reach step 2 point the preflight at the `true` builtin. The preflight has
+         its own tests in tools/test-cut-sign-preflight.sh. */
+      KOSMOS_CODESIGN_BIN: 'true',
+      KOSMOS_SECURITY_BIN: path.join(SIGN_STUBS, 'security'),
+      KOSMOS_SECRETS_MAP_BIN: path.join(SIGN_STUBS, 'secrets-map'),
+      KOSMOS_INSTALLER_CERT: SANDBOX_INSTALLER_ID,
+      /* #3884: step 1d, against the current fixture connector above. */
+      KOSMOS_TUNNEL_BIN: TUNNEL_BIN,
+      KOSMOS_RELAY_REPO: RELAY_REPO,
     },
     timeout: 60000,
     killSignal: 'SIGKILL',

@@ -43,8 +43,10 @@ const { spawn } = require('node:child_process');
 
 const REPO = __dirname;
 const fleet = require('./test-support/fleet');
+const { stopBoard } = require('./test-support/board-child');
 const reports = require('./engine/reports');
 const projects = require('./engine/projects');
+const dmfiles = require('./engine/dmfiles');
 
 /* 🔑 The `-discord` suffix is load-bearing and the folder DROPS it -- both traps
    are documented at length in server.connections-refresh-1649.test.js. Without
@@ -113,6 +115,7 @@ test('#1684: a block that did not land is not reported as told', async () => {
     'precondition: the fixture must be AMBIGUOUS for reports, or nothing is being isolated');
 
   const { child, base } = await boot(sb);
+  let dead = false;
   try {
     const res = await fetch(`${base}/api/you`, {
       method: 'PUT',
@@ -141,7 +144,8 @@ test('#1684: a block that did not land is not reported as told', async () => {
     /* And it must say WHICH block, or the person looks at the wrong thing. */
     assert.match(String(row.because || ''), /who they report to/,
       'the reason must name the block that failed, not just say it failed');
-  } finally { try { child.kill(); } catch {} }
+  } finally { dead = await stopBoard(child); }
+  assert.equal(dead, true, 'the board was still running, so deleting its sandbox now would race it');
   fs.rmSync(sb, { recursive: true, force: true });
 });
 
@@ -151,6 +155,7 @@ test('#1684 CONTROL: an agent whose blocks all land is still reported as told', 
      keeps its `told`. */
   const sb = sandbox({ 'mk-clean-discord': '# An agent\n\nProse.\n' });
   const { child, base } = await boot(sb);
+  let dead = false;
   try {
     const res = await fetch(`${base}/api/you`, {
       method: 'PUT',
@@ -162,6 +167,35 @@ test('#1684 CONTROL: an agent whose blocks all land is still reported as told', 
     assert.ok(row, 'the clean agent must appear in told');
     assert.equal(row.state, projects.TOLD.TOLD,
       'an agent whose blocks all landed must still be reported as told');
-  } finally { try { child.kill(); } catch {} }
+  } finally { dead = await stopBoard(child); }
+  assert.equal(dead, true, 'the board was still running, so deleting its sandbox now would race it');
+  fs.rmSync(sb, { recursive: true, force: true });
+});
+
+/* #3614: the direct-message files block rides the same About-you side work, so the same isolation
+   proves its arm is wired: a file with TWO dmfiles blocks is ambiguous for `dmfiles` only, so the
+   row must come back not-told and name that block. Deleting its row from the route's side work
+   turns this red. */
+test('#3614: the files block\'s verdict reaches the About-you answer too', async () => {
+  const one = `${dmfiles.START}\n## Where to save files you make for the person\n\nsomething\n${dmfiles.END}\n`;
+  const sb = sandbox({ 'mk-dmdup-discord': `# An agent\n\nProse.\n\n${one}\nMore prose.\n\n${one}` });
+  const file = path.join(sb, 'workers', 'mk-dmdup', 'CLAUDE.md');
+  const found = projects.findBlock(fs.readFileSync(file, 'utf8'), dmfiles.START, dmfiles.END);
+  assert.equal(found && found.ambiguous, true, 'precondition: the fixture must be AMBIGUOUS for dmfiles');
+  const { child, base } = await boot(sb);
+  let dead = false;
+  try {
+    const res = await fetch(`${base}/api/you`, {
+      method: 'PUT',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ name: 'Josh', does: 'runs things', know: '' }),
+    });
+    assert.equal(res.status, 200);
+    const row = ((await res.json()).told || []).find((t) => t && t.agent === 'mk-dmdup');
+    assert.ok(row, 'the agent must appear in told at all');
+    assert.equal(row.state, projects.TOLD.COULD_NOT, 'a refused files block must not read as told');
+    assert.match(String(row.because || ''), /where to save the files it makes/, 'the reason names the files block');
+  } finally { dead = await stopBoard(child); }
+  assert.equal(dead, true, 'the board was still running, so deleting its sandbox now would race it');
   fs.rmSync(sb, { recursive: true, force: true });
 });

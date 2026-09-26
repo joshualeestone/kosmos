@@ -3,6 +3,7 @@
    confirm with the exact frozen copy, used to surface the route's from-source
    refusal, and Later remembers per version. Sandboxed server + local release
    host. */
+require('./lib-sandbox-home.js'); // #3675: never read the host Mac's real accounts
 const { spawn } = require('node:child_process');
 const http = require('node:http');
 const fs = require('node:fs');
@@ -79,6 +80,15 @@ const RELPORT = freePort();
      nobody ran it. The board here is booted from a throwaway install layout
      whose app/ is a symlink to this checkout, with symlinks preserved so
      __dirname stays inside the layout. That is the shipped case, exercised. */
+  /* #3574 (0.6.93 cut, 3b red): this check's board is its own, so a fresh sandbox shows the
+     first-visit tips, and the Settings tip card sits over #upd-btn and takes the click.
+     Tips are not what this check tests, so turn them off in THIS sandbox's store, the way
+     render-help-tips-3574.js seeds its own. The path comes from engine/tips.js's FILE(), so
+     it cannot drift from where the board reads it. */
+  process.env.AGENT_WORKFORCE_DATA = roots.DATA;
+  const tipsFile = require(path.join(REPO, 'engine', 'tips')).FILE();
+  fs.mkdirSync(path.dirname(tipsFile), { recursive: true });
+  fs.writeFileSync(tipsFile, JSON.stringify({ seen: [], off: true }));
   const home = fs.mkdtempSync(path.join(os.tmpdir(), 'ut-drive-home-'));
   fs.mkdirSync(path.join(home, 'runtime', 'bin'), { recursive: true });
   fs.writeFileSync(path.join(home, 'runtime', 'bin', 'node'), '#!/bin/sh\nexec node "$@"\n', { mode: 0o755 });

@@ -208,6 +208,13 @@ const REPORTS_END = '<!-- kosmos:reports:end -->';
 // the neutralisers derive from the list and the registry test reads it.
 const CONNECTIONS_START = '<!-- kosmos:connections:start -->';
 const CONNECTIONS_END = '<!-- kosmos:connections:end -->';
+// The direct-message files pair (#3614), defined beside the others for the same reason:
+// the neutralisers derive from the list and the registry test reads it.
+const DMFILES_START = '<!-- kosmos:dmfiles:start -->';
+const DMFILES_END = '<!-- kosmos:dmfiles:end -->';
+/* #3564: a swarm lead's own block (how many helpers, isolation, one voice). */
+const SWARM_START = '<!-- kosmos:swarm:start -->';
+const SWARM_END = '<!-- kosmos:swarm:end -->';
 // The AI-policy pair (#479), defined beside the others for the same reason:
 // the neutralisers derive from the list and the registry test reads it.
 const POLICY_START = '<!-- kosmos:policy:start -->';
@@ -245,7 +252,7 @@ const POLICY_END = '<!-- kosmos:policy:end -->';
  */
 function ALL_MARKERS() {
   const mm = require('./messages');
-  return [BLOCK_START, BLOCK_END, YOU_START, YOU_END, REPORTS_START, REPORTS_END, CONNECTIONS_START, CONNECTIONS_END, POLICY_START, POLICY_END, DOCTRINE_START, DOCTRINE_END, mm.START, mm.END];
+  return [BLOCK_START, BLOCK_END, YOU_START, YOU_END, REPORTS_START, REPORTS_END, CONNECTIONS_START, CONNECTIONS_END, DMFILES_START, DMFILES_END, SWARM_START, SWARM_END, POLICY_START, POLICY_END, DOCTRINE_START, DOCTRINE_END, mm.START, mm.END];
 }
 
 /**
@@ -654,10 +661,17 @@ function joinTaskClaims(tasks, all, memberOf, roster, project) {
      sit further down, so the one path that returned without reaching it
      returned unshaped tasks. Uses `tasksModEarly`, the same require the filter
      above already made. */
+  /* #3861 part 2: the project page's rows carry the same tree facts as /api/tasks rows (the parent
+     AS READ, its sentence, the direct-children "2 of 5"), from the one tree derivation, so the
+     project column and the task page never count children themselves. Built once per call. */
+  const tree = tasksModEarly.treeOf({ tasks });
   const withParts = (t) => (t ? {
     ...t,
     parts: tasksModEarly.partsOf(t),
     progress: (({ done, total, closed, assigned }) => ({ done, total, closed, assigned }))(tasksModEarly.progressOf(t)),
+    parent: tree.up(t),
+    parentSentence: tree.up(t) === null ? null : (tree.byNum.get(tree.up(t)).sentence || null),
+    subtasks: tree.progress(t.number),
   } : t);
   const withWho = tasks.filter((t) => t && tasksModEarly.whoOf(t).length > 0 && !tasksModEarly.progressOf(t).closed);
   /* 🛑 THE EARLY RETURN USED TO HAND BACK THE RAW TASKS, and that was the whole
@@ -747,59 +761,70 @@ function joinTaskClaims(tasks, all, memberOf, roster, project) {
        here: no claim computed, `claim: undefined`, and the card silently short
        one line. Found only because a mutation of the OTHER gate went unnoticed
        and the missing test exposed this one.
-       📌 `who` is the first agent named on the task. The claim is asked of the
+       📌 `who` is the agent the claim is ABOUT: the first holding an OPEN part
+       (claimWho, #3559), not the first ever named. The claim is asked of the
        task as a whole, because "task 15" in a report is a claim about the task;
        per-part claims would need a spelling agents have not been taught. */
     if (!t || t.closedAt) return withParts(t);
-    const who = tasksMod.whoOf(t)[0];
+    /* #3559: the claim is about the agent still holding open work (claimWho), not the first agent
+       ever named: a finished part's agent must not decide "In progress" or be named for work it
+       handed on. Nobody holding open work: no claim (there is no one to ask about). Every claim
+       carries `about`, so every surface names and places it by the same agent. */
+    const who = tasksMod.claimWho(t);
     if (!who || tasksMod.progressOf(t).closed) return withParts(t);
-    // ⚠️ A departed assignee: removal does not unassign (the given-to record
-    // is the person's, and history should not vanish because membership
-    // changed), but the taught convention and the managed block both derive
-    // from membership, so a non-member's report cannot be checked against
-    // this task. Could-not-tell with the real reason -- rendering a
-    // still-fresh "task N" report as a definite claim here would be the
-    // told-when-not shape back through the removal door.
-    if (!members.includes(who)) {
-      return {
-        ...withParts(t),
-        claim: {
-          claimed: null,
-          because: 'this agent is no longer on the project, so what it reports cannot be checked against this task',
-        },
-      };
-    }
-    if (rosterUnreadable) {
-      return {
-        ...withParts(t),
-        claim: {
-          claimed: null,
-          because: 'we could not check which agents are running, so we cannot say who holds this task',
-        },
-      };
-    }
-    if (borrowed(who)) {
-      return {
-        ...withParts(t),
-        claim: {
-          claimed: null,
-          because: 'we cannot tell whether this is the same agent, so we cannot say whether it holds this task',
-        },
-      };
-    }
-    /* #779: an ambiguous number is not refused outright any more; the
-       matcher is asked for the qualified spelling ("task N of <project>"),
-       which alone is a claim here, and a bare "task N" is could-not-tell
-       with the reason and the spelling that would settle it. */
-    if (ambiguous(t, who)) {
-      return { ...withParts(t), claim: tasksMod.claimFor(t, readFor(who), { project: project || null, ambiguous: true }) };
-    }
-    /* One reading, for the first agent named on the task. The claim is asked of
-       the task as a whole, because "task 15" in a report is a claim about the
-       task; per-part claims would need a spelling agents have not been taught
-       and would be a fact nobody computed. */
-    return { ...withParts(t), claim: tasksMod.claimFor(t, readFor(who)) };
+    return aboutWho(who, (() => {
+      // ⚠️ A departed assignee: removal does not unassign (the given-to record
+      // is the person's, and history should not vanish because membership
+      // changed), but the taught convention and the managed block both derive
+      // from membership, so a non-member's report cannot be checked against
+      // this task. Could-not-tell with the real reason -- rendering a
+      // still-fresh "task N" report as a definite claim here would be the
+      // told-when-not shape back through the removal door.
+      if (!members.includes(who)) {
+        return {
+          ...withParts(t),
+          claim: {
+            claimed: null,
+            because: 'this agent is no longer on the project, so what it reports cannot be checked against this task',
+          },
+        };
+      }
+      if (rosterUnreadable) {
+        return {
+          ...withParts(t),
+          claim: {
+            claimed: null,
+            because: 'we could not check which agents are running, so we cannot say who holds this task',
+          },
+        };
+      }
+      if (borrowed(who)) {
+        return {
+          ...withParts(t),
+          claim: {
+            claimed: null,
+            because: 'we cannot tell whether this is the same agent, so we cannot say whether it holds this task',
+          },
+        };
+      }
+      /* #779: an ambiguous number is not refused outright any more; the
+         matcher is asked for the qualified spelling ("task N of <project>"),
+         which alone is a claim here, and a bare "task N" is could-not-tell
+         with the reason and the spelling that would settle it. */
+      if (ambiguous(t, who)) {
+        return { ...withParts(t), claim: tasksMod.claimFor(t, readFor(who), { project: project || null, ambiguous: true }) };
+      }
+      /* One reading, for the agent the claim is about (claimWho). The claim is asked of
+         the task as a whole, because "task 15" in a report is a claim about the
+         task; per-part claims would need a spelling agents have not been taught
+         and would be a fact nobody computed. */
+      return { ...withParts(t), claim: tasksMod.claimFor(t, readFor(who)) };
+    })());
   });
+}
+/* Stamp the agent a claim is about on the claim itself (see joinTaskClaims). */
+function aboutWho(who, row) {
+  return row && row.claim ? { ...row, claim: { ...row.claim, about: who } } : row;
 }
 
 function describe(project, roster, all) {
@@ -850,6 +875,10 @@ function describe(project, roster, all) {
       // name it is showing was read off a live agent or is just the key.
       name: card && card.name ? card.name : sessionName,
       present: Boolean(card),
+      // Whether `name` is a real name (typed, or read off the agent's identity
+      // line) rather than the machine name a card falls back to. A card being
+      // present does not make its name real (#3311: what may leave this Mac).
+      nameDerived: Boolean(card && card.nameDerived),
       // ⚠️ TIED, and it is a different question from `present`. A pane can hold
       // this name without being this agent — a stranger's `tmux new -s angel`
       // is on the roster and matches by `sessionName`. The write gate already
@@ -881,6 +910,10 @@ function describe(project, roster, all) {
          needs_you question (#763) or a working state (#2837). */
       stateProject: (card && card.isNamedOurs && typeof card.stateProject === 'string' && card.stateProject && (knownIds === null || knownIds.has(card.stateProject))) ? card.stateProject : null,
       stateProjectInferred: Boolean(card && card.isNamedOurs && card.stateProjectInferred === true),
+      /* #3726: where the board's automatic reconnect stands (the /api/status field, carried onto the
+         roster by the server's safeRoster), so a connection Kosmos has given up on counts as needing
+         the person here as it does on the board. Same tied gate as `state`. */
+      reconnect: (card && card.isNamedOurs && 'reconnect' in card && card.reconnect) ? card.reconnect : null,   // `in`: a raw snapshot() roster has no reconnect field
       /* #2808 class 2: carry the card's `stateReportedBy` onto the member (same isNamedOurs gate
          as `state`), so pjMember's shared `cardStOf(m).st==='attn'` render de-alarms a deliberate
          agent question here just as it does on the home card / list row / org node. WITHOUT this,
@@ -1109,7 +1142,16 @@ function describe(project, roster, all) {
          read on the Agents page. needsYouElsewhere is the rest that names ANOTHER project, for a
          screen that wants to say "someone on this project needs you about
          something else"; needsYouUnattributed names none. */
-      needsYou: members.filter((m) => m.present && m.tied && m.state === 'needs_you' && m.stateProject === project.id).length,
+      /* #3726: the board's Issue rule, status.needsPerson ("needs the person": needs_you, a trust
+         wait, a connection Kosmos gave up on), so the project cannot say nothing needs the person
+         while a red member row sits inside it. A needs_you still counts only for the project its
+         question named (#763). A given-up connection is the AGENT's own condition, about no project:
+         it counts on every project the agent is a member of, where its member row is red too. A trust
+         wait is counted by the same rule, but today it never reaches this roster (the route builds
+         those rows offline, so such a member is not `present`); the rule covers it when it does. */
+      needsYou: members.filter((m) => m.present && m.tied && (m.state === 'needs_you'
+        ? m.stateProject === project.id
+        : require('./status').needsPerson(m))).length,
       needsYouElsewhere: members.filter((m) => m.present && m.tied && m.state === 'needs_you' && m.stateProject !== null && m.stateProject !== project.id).length,
       /* ...and about no project at all (nothing named, nothing to inherit): read
          on the Agents page. Kept apart from "elsewhere" so a screen sentence
@@ -1452,13 +1494,14 @@ function listFiles(folder, limit) {
  *      comparing can see that, which is why this gate exists separately from
  *      the first rather than being folded into it.
  */
-function openFile(folder, name) {
+/* `where` names the folder in a refusal (#3614: the agent page's Files folder is not a project). */
+function openFile(folder, name, where = 'this project') {
   const given = String(name == null ? '' : name);
   if (!given) return { ok: false, because: 'no file was named' };
   const segs = given.split('/');
   if (given.includes('\\') || path.isAbsolute(given) || path.win32.isAbsolute(given)
       || segs.some((s) => s === '' || s.startsWith('.'))) {
-    return { ok: false, because: 'that is not a file in this project' };
+    return { ok: false, because: 'that is not a file in ' + where };
   }
   const state = folderState(folder);
   if (!state || state.state !== FOLDER.READABLE) {
@@ -1472,7 +1515,7 @@ function openFile(folder, name) {
   }
   const root = state.real.endsWith(path.sep) ? state.real : state.real + path.sep;
   if (!target.startsWith(root)) {
-    return { ok: false, because: 'that file lives outside this project, so we will not open it' };
+    return { ok: false, because: 'that file lives outside ' + where + ', so we will not open it' };
   }
   let st;
   try { st = statOfFolderPath(target); } catch { return { ok: false, because: 'that file is not there any more, or it was moved' }; }
@@ -2184,6 +2227,38 @@ function cleanArchivedAt(value) {
 }
 
 /**
+ * #3564: swarms switched OFF in a project. An Off swarm stays a member, but work in
+ * that project does not reach it: room posts skip it unless it is @-named, and a
+ * message or task line to it there is refused with a sentence. Stored on the project
+ * as `swarmOff: [sessionName]`.
+ */
+/* The one reading of the stored fact, for a caller that already holds the project record. */
+function isSwarmOff(record, name) {
+  return Boolean(record && Array.isArray(record.swarmOff) && record.swarmOff.includes(String(name)));
+}
+function swarmOffIn(projectId, name) {
+  try {
+    return isSwarmOff(readAll().find((x) => x && x.id === projectId), name);
+  } catch { return false; }
+}
+/* The same fact for every member at once: one read of the store, for a caller that checks many. */
+function swarmOffSet(projectId) {
+  try {
+    const p = readAll().find((x) => x && x.id === projectId);
+    return new Set(p && Array.isArray(p.swarmOff) ? p.swarmOff.map(String) : []);
+  } catch { return new Set(); }
+}
+function setSwarmOn(projectId, name, on) {
+  return mutate(projectId, (p) => {
+    const off = new Set(Array.isArray(p.swarmOff) ? p.swarmOff : []);
+    if (on) off.delete(String(name)); else off.add(String(name));
+    p.swarmOff = [...off];
+    return p;
+  });
+}
+const SWARM_OFF_SENTENCE = (who) => `${who} is switched off in this project. Switch it on in the project's members to send it work here.`;
+
+/**
  * Archive or restore a project.
  *
  * ⚠️ A display state, not a removal. The record stays in the store, the folder
@@ -2274,6 +2349,8 @@ function removeAgent(id, sessionName, made) {
     const told = { ...(p.told || {}) };
     const everSeen = { ...(p.everSeen || {}) };
     delete everSeen[key];
+    /* #3564: leaving the project clears its On/Off, so an agent re-added later starts On. */
+    if (Array.isArray(p.swarmOff)) p = { ...p, swarmOff: p.swarmOff.filter((n) => n !== key) };
     // The record of having told it goes with the membership. Keeping it would
     // leave a stale "we told this agent" beside an agent that is no longer on
     // the project, which is a sentence about a thing that is not true any more.
@@ -2494,9 +2571,14 @@ function blockBody(projects, sessionName) {
     // shows the done ones -- the opposite mismatch. Raw length matches the card's
     // count-0 semantics exactly: "No tasks set" only when there are none at all.
     const hasTasks = Array.isArray(p.tasks) && p.tasks.length > 0;
-    const taskLine = hasTasks
+    /* #3861 (Josh, 2026-09-25: tasks can have a parent; Splinter's call: the doctrine says to
+       use it). One line, on every project, so big work lands as one task with its pieces under
+       it rather than as a pile of loose tasks nobody can see belong together. */
+    const subtaskLine = `\n  - Big work: add one task for the whole thing, then its pieces under it with \`${cliShown} task add ${oneLine(String(p.id))} "the piece" --parent <its number>\``;
+    const taskLine = (hasTasks
       ? `\n  - Its tasks: \`${cliShown} task list ${oneLine(String(p.id))}\` to see them, \`${cliShown} task add ${oneLine(String(p.id))} "what needs doing"\` to add one (use this, not a hand-rolled task-board file)`
-      : `\n  - No tasks set for this project yet. Add one with \`${cliShown} task add ${oneLine(String(p.id))} "what needs doing"\` (use this, not a hand-rolled task-board file)`;
+      : `\n  - No tasks set for this project yet. Add one with \`${cliShown} task add ${oneLine(String(p.id))} "what needs doing"\` (use this, not a hand-rolled task-board file)`)
+      + subtaskLine;
     const head = `- **${oneLine(p.name)}**: \`${oneLine(p.folder)}\`` + (p.id
       ? `\n  - Post to everyone on it: \`${cliShown} post ${oneLine(String(p.id))} "your message"\``
         + taskLine
@@ -2785,8 +2867,9 @@ function toldOverride(verdict, sessionName, known) {
   } catch { return verdict; }
 }
 
-module.exports = { memberValve, processMemberChanges, ageMemberChangesForTests, MEMBERS_PER_HOUR, toldOverride,
-  FILE, FOLDER, TOLD, BLOCK_START, BLOCK_END, YOU_START, YOU_END, REPORTS_START, REPORTS_END, CONNECTIONS_START, CONNECTIONS_END, POLICY_START, POLICY_END, DOCTRINE_START, DOCTRINE_END, ALL_MARKERS, neutralise,
+module.exports = {
+  joinTaskClaims, swarmOffIn, swarmOffSet, isSwarmOff, setSwarmOn, SWARM_OFF_SENTENCE, memberValve, processMemberChanges, ageMemberChangesForTests, MEMBERS_PER_HOUR, toldOverride,
+  FILE, FOLDER, TOLD, BLOCK_START, BLOCK_END, YOU_START, YOU_END, REPORTS_START, REPORTS_END, CONNECTIONS_START, CONNECTIONS_END, DMFILES_START, DMFILES_END, SWARM_START, SWARM_END, POLICY_START, POLICY_END, DOCTRINE_START, DOCTRINE_END, ALL_MARKERS, neutralise,
   file, readAll, writeAll, idFor, folderState, describe, andList,
   list, get, projectsFor, namesFor, create, edit, rename, setDescription, setArchived, addAgent, removeAgent, remove, mutate,
   WELCOME_NAME, WELCOME_DESCRIPTION, WELCOME_ROOM_NOTE, welcomeSeeded, markWelcomeSeeded, seedWelcomeHome, homeForFirstAgent,

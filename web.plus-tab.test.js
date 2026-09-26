@@ -52,11 +52,13 @@ test('the holding place has NO controls, and the flow starts hidden (no dead but
     'state 1 grew a control. It is marketing and a link; the sign-in belongs in state 2');
   assert.match(SEC, /id="plus-flow" hidden/, 'the flow does not start hidden');
   /* #1615 re-anchored `plus-holding` -> `plus-state1` when the pane became three states.
-     THE ASSERTION IS UNCHANGED AND DELIBERATELY SO: signup is still not open (Stripe is in
-     SANDBOX as of 2026-08-30), so the sentence is still true and must still be said. Only
-     the id moved. If signup opens, this sentence becomes false and the guard should be the
-     thing that makes somebody notice. */
-  assert.match(holding, /Sign-up is not open yet/, 'state 1 stopped saying the honest sentence');
+     #3780 (Josh, 2026-09-25 13:12: "Join works"): sign-up opened, so "Sign-up is not open yet"
+     became false, exactly as this guard's old comment said it would, and the honest sentence is
+     now how joining works. Pinned both ways: the new sentence is said, the old one is gone. */
+  // What the page SAYS: comments stripped, since a comment recording the old sentence is not the page saying it.
+  const said = holding.replace(/<!--[\s\S]*?-->/g, '').replace(/\s+/g, ' ');
+  assert.match(said, /Joining takes a minute on the Kosmos website/, 'state 1 stopped saying how joining works');
+  assert.doesNotMatch(said, /not open yet/i, 'state 1 says sign-up is not open, and Join works');
 });
 
 test('no hostname or price appears in the Plus copy: the domain is temporary and the price is not ruled', () => {
@@ -112,7 +114,8 @@ test('#743: the status line stays fresh while the tab is open, not only on arriv
   const tick = pageFnSource('tick');
   assert.doesNotMatch(tick, /\nfunction topLevelReset\(/,
     'CONTROL: the extraction ran past tick() into the next function, so the pin below would prove nothing');
-  assert.match(tick, /if \(URL_TAB === 'settings' && SETTINGS_SEC === 'plus'\) paintPlus\(\);/,
+  // #3599: the predicate is plusOnScreen(), shared with syncPlusChrome (the tab OR consolidated Settings on Plus).
+  assert.match(tick, /if \(plusOnScreen\(\)\) paintPlus\(\);/,
     'the status tick no longer keeps the Plus section fresh while it is the one on screen');
 });
 

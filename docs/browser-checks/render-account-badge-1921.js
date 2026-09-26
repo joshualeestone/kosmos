@@ -102,6 +102,32 @@ const OPENAI_APIKEY_ROW = {
   organization: null, isDefault: false, keyTail: 'cd34', authMode: 'apikey', memoryShared: true, offerable: true,
   connection: { state: 'connected', plan: null, checkedLive: true, because: 'OpenAI confirmed this key still works', observedAt: null, observedAgeMs: null },
 };
+/* #3391: a GROK SUBSCRIPTION row (authMode 'subscription', a sign-in not a key). The server
+   badges it signed_in_unverified on its file alone, so it must render muted, and as a KEYED row
+   it has no Check now, so its title must not send anyone to one. Its Disconnect and Delete
+   titles must speak of a sign-in, not a key. */
+const GROK_SUB_ROW = {
+  provider: 'xai', providerName: 'Grok', email: 'grok@example.com', label: 'grok@example.com',
+  dir: '/home/.grok-gs', organization: null, isDefault: false, keyTail: null, authMode: 'subscription',
+  memoryShared: true, offerable: true,
+  connection: { state: 'connected', badge: 'signed_in_unverified', plan: null, checkedLive: true, because: 'signed in with your Grok subscription', observedAt: null, observedAgeMs: null },
+};
+/* #3391 part 2: a Grok API-KEY row, so the Sign in again arm can see a Grok row that must
+   NOT carry one (a key has no sign-in to redo). */
+const GROK_KEY_ROW = { ...GROK_SUB_ROW, email: null, label: 'work2', dir: '/home/.grok-work2', keyTail: 'gk12', authMode: 'apikey' };
+/* A subscription row whose email could not be read: the engine refuses a sign-in again for it
+   (it tells a refresh from a swap by the email), so the row must not offer one. */
+const GROK_SUB_NOEMAIL = { ...GROK_SUB_ROW, email: null, label: 'noemail', name: 'No Email Grok', dir: '/home/.grok-noemail' };
+/* #3391 round 18: a LAPSED and an UNKNOWN Grok subscription. Neither is connected, so the server
+   adds no badge and the page's legacy fallback puts connection.because in the VISIBLE pill. Those
+   sentences must be pill-sized: the remedy is the row's own Sign in again button (#3391 part 2),
+   not words in the pill. The texts are grokaccounts.subscriptionVerdict's own. */
+const grokSubRow = (email, dir, state, because) => ({
+  ...GROK_SUB_ROW, email, label: email, dir,
+  connection: { state, plan: null, checkedLive: true, because, observedAt: null, observedAgeMs: null },
+});
+const GROK_SUB_LAPSED = grokSubRow('grok-lapsed@example.com', '/home/.grok-gl', 'none', 'Grok sign-in expired');
+const GROK_SUB_UNKNOWN = grokSubRow('grok-unk@example.com', '/home/.grok-gu', 'unknown', 'Could not check the Grok sign-in');
 const ACCOUNTS = [
   row('work@example.com', 'working', 'wd'),
   row('rej@example.com', 'rejected', 'rd'),
@@ -111,6 +137,11 @@ const ACCOUNTS = [
   openaiChatgptRow('sub@example.com', 'sd'),
   CLAUDE_APIKEY_ROW,
   OPENAI_APIKEY_ROW,
+  GROK_SUB_ROW,
+  GROK_KEY_ROW,
+  GROK_SUB_NOEMAIL,
+  GROK_SUB_LAPSED,
+  GROK_SUB_UNKNOWN,
 ];
 
 (async () => {
@@ -149,10 +180,14 @@ const ACCOUNTS = [
         // reauth (data-openai-reauth); they must never both appear on one row.
         claudeReauth: !!b.querySelector('[data-reauth]'),
         openaiReauth: !!b.querySelector('[data-openai-reauth]'),
+        grokReauth: !!b.querySelector('[data-grok-reauth]'),   // #3391 part 2
         // #3136: the "Check now" affordance is CLAUDE-ONLY (the probe is a real
         // claude -p call). It must appear on every Claude row -- including the
         // api-key one -- and never on an OpenAI row.
         checkNow: !!b.querySelector('[data-check-claude]'),
+        // #3391: the Disconnect / Delete titles, read off the rendered buttons.
+        disconnectTitle: ([...b.querySelectorAll('button')].find((x) => /^Disconnect$/.test((x.textContent || '').trim())) || { getAttribute: () => '' }).getAttribute('title') || '',
+        deleteTitle: ([...b.querySelectorAll('button')].find((x) => /^Delete and remove$/.test((x.textContent || '').trim())) || { getAttribute: () => '' }).getAttribute('title') || '',
       };
     }
     return { count: boxes.length, byEmail };
@@ -162,7 +197,7 @@ const ACCOUNTS = [
 
   const problems = [];
   if (r.error) problems.push(r.error);
-  if (r.count !== 8) problems.push('expected 8 account rows, got ' + r.count);
+  if (r.count !== ACCOUNTS.length) problems.push('expected ' + ACCOUNTS.length + ' account rows, got ' + r.count);
 
   const want = [
     // A Claude subscription row carries the browser-OAuth reauth (data-reauth), never the
@@ -195,6 +230,18 @@ const ACCOUNTS = [
     // the OpenAI api-key row does NOT (Check now is Claude-only).
     { email: 'clkey@example.com', claudeReauth: false, openaiReauth: false, checkNow: true },
     { email: 'API key ending cd34', claudeReauth: false, openaiReauth: false, checkNow: false },
+    // #3391 part 2: a Grok KEY row has no sign-in to redo, so no Grok Sign in again.
+    { email: 'API key ending gk12', claudeReauth: false, openaiReauth: false, grokReauth: false, checkNow: false },
+    { email: 'No Email Grok', grokReauth: false },
+    // #3391: the Grok subscription row. Muted (honesty), no Check now button, and a title that
+    // does not point at one; Disconnect / Delete say sign-in, never key.
+    { email: 'grok@example.com', cls: 'acct-unknown', text: /Signed in/, honesty: true, checkNow: false, grokReauth: true,
+      titleText: /confirms itself the next time an agent on it runs/, notTitle: /Check now/,
+      disconnectTitle: /sign-in/, notDisconnectTitle: /key/, deleteTitle: /sign-in/, notDeleteTitle: /API key/ },
+    // #3391 round 18: the lapsed and unknown Grok sign-ins show their short sentence, never green,
+    // and keep the pill short (#2568). #3391 part 2: the remedy is the row's Sign in again button.
+    { email: 'grok-lapsed@example.com', text: /^Grok sign-in expired$/, honesty: true, notText: /sign in again|please/i, checkNow: false, grokReauth: true },
+    { email: 'grok-unk@example.com', text: /^Could not check the Grok sign-in$/, honesty: true, notText: /sign in again|please/i, checkNow: false, grokReauth: true },
   ];
   for (const w of want) {
     const got = (r.byEmail || {})[w.email];
@@ -212,6 +259,16 @@ const ACCOUNTS = [
     if (typeof w.openaiReauth === 'boolean' && got.openaiReauth !== w.openaiReauth) {
       problems.push(`${w.email}: OpenAI reauth button ${got.openaiReauth ? 'present' : 'absent'}, expected ${w.openaiReauth ? 'present' : 'absent'}`);
     }
+    /* #3391 part 2: checked on EVERY row, so it is also a guard that no Claude, OpenAI or
+       key row grows a Grok sign-in again. */
+    if (got.grokReauth !== (w.grokReauth === true)) {
+      problems.push(`${w.email}: Grok sign-in again button ${got.grokReauth ? 'present' : 'absent'}, expected ${w.grokReauth ? 'present' : 'absent'}`);
+    }
+    if (w.notTitle && w.notTitle.test(got.title || '')) problems.push(`${w.email}: the title points at something this row does not have (${w.notTitle}); got "${got.title}"`);
+    if (w.disconnectTitle && !w.disconnectTitle.test(got.disconnectTitle || '')) problems.push(`${w.email}: Disconnect title "${got.disconnectTitle}" does not match ${w.disconnectTitle}`);
+    if (w.notDisconnectTitle && w.notDisconnectTitle.test(got.disconnectTitle || '')) problems.push(`${w.email}: Disconnect title "${got.disconnectTitle}" says ${w.notDisconnectTitle}`);
+    if (w.deleteTitle && !w.deleteTitle.test(got.deleteTitle || '')) problems.push(`${w.email}: Delete title "${got.deleteTitle}" does not match ${w.deleteTitle}`);
+    if (w.notDeleteTitle && w.notDeleteTitle.test(got.deleteTitle || '')) problems.push(`${w.email}: Delete title "${got.deleteTitle}" says ${w.notDeleteTitle}`);
     if (typeof w.checkNow === 'boolean' && got.checkNow !== w.checkNow) {
       problems.push(`${w.email}: Check now button ${got.checkNow ? 'present' : 'absent'}, expected ${w.checkNow ? 'present' : 'absent'} (#3136 is Claude-only)`);
     }

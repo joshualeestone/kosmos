@@ -295,6 +295,13 @@ SITE="${KOSMOS_SITE:-$HOME/work/chaoskosmos-site}"
 # HERE (before the freeze), so the functions are in memory and unaffected if the shared
 # checkout is fast-forwarded past this cut's sha mid-run.
 . "$REPO/tools/lib/board-shape.sh"
+# #3579: the signing preflight run at step 1c. Sourced with the other libs, before the
+# freeze, for the same reason: loaded from the checkout the operator launched.
+. "$REPO/tools/lib/cut-sign-preflight.sh"
+# #3884: the connector-currency check run at step 1d (with the provenance reader it
+# builds on). Sourced here, before the freeze, like the libs above.
+. "$REPO/tools/lib/connector-provenance.sh"
+. "$REPO/tools/lib/connector-currency.sh"
 # #1796: declare THIS run a cut before the checks below, so the cut-check excludes
 # our own marker by cookie (not a live-tree walk) and a harness/second-cut starting
 # later can see us. A crash leaves a dead-pid marker the next reader cleans.
@@ -522,6 +529,22 @@ KOSMOS_ENTRY_FILE="${KOSMOS_ENTRY_FILE:-$REPO/.release-entry.html}"
 kosmos_versions_entry_gate_or_pending "$V" "$SITE/versions.html" "Nothing has been built yet." \
   "Stamp it for when you expect to PUBLISH, about 15 minutes out -- a stamp written now, or already minutes old, is stale by step 7. Or leave it as an entry file carrying TIMESTAMP (see docs/releasing.md) and the deploy stamps it for you." \
   "$KOSMOS_STEP1_PAST_BOUND" "$KOSMOS_ENTRY_FILE" || exit 1
+
+step "== 1c. the signing key answers, before anything is bumped or built (#3579) =="
+# Step 4 signs Developer ID. A locked login keychain (any plain SSH session, or a cut
+# detached from the session that unlocked it) made 0.6.91's first cuts die THERE, after
+# ~22 minutes of suite and page layer, and a cut does not resume. One throwaway test-sign
+# here costs about a second and mutates nothing, so a refusal leaves no pushed bump. It also
+# checks the Installer identity and the notary key that 3c's pkg rebuild needs (#3647).
+kosmos_sign_preflight || exit 1
+
+step "== 1d. the Plus connector is current with kosmos-relay main (#3884) =="
+# 0.6.95 bundled a prebuilt kosmos-tunnel from 19:00 and missed relay #145 (the #3832 HSTS
+# fix), merged at 21:06: nothing compared the prebuilt with relay main. Refused here,
+# before the bump, so a stale connector costs a rebuild and not a cut. The same path
+# build-kosmos-bundle.sh reads at step 4. KOSMOS_ALLOW_STALE_TUNNEL=1 ships it on purpose.
+connector_currency_check "${KOSMOS_TUNNEL_BIN:-$HOME/work/kosmos-relay/dist/kosmos-tunnel}" \
+  "${KOSMOS_RELAY_REPO:-$HOME/work/kosmos-relay}" || exit 1
 
 step "== 2. the version, in one place =="
 node -e "
@@ -836,8 +859,8 @@ step "== 3c. the installer .pkg, rebuilt and published only when its inputs chan
 # same afternoon a hand republish went live beside the previous build's
 # .sha256. This step is the remembering. It is NOT a rebuild every cut: the pkg is payload-free
 # (a postinstall that runs the served /setup), so it changes only when its
-# INPUTS change (pkg-scripts, pkg-resources, the build script, which carries
-# the identifier; tools/lib/pkg-inputs.sh is the one definition). A rebuild
+# INPUTS change (pkg-scripts, pkg-resources, the build script (which carries the identifier), and
+# the signing identity; tools/lib/pkg-inputs.sh is the one definition). A rebuild
 # costs a sign + notarise round trip, minutes, and only when one of those
 # moved. It sits BEFORE step 4 on purpose: step 4 copies the cache-immutable
 # versioned tarball into the site dist, and a notarisation flake after that

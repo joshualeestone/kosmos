@@ -135,12 +135,12 @@ else
 fi
 
 # 9. SELF-DEFENDING zsh arm: source the lib into zsh and reproduce the refuse path on a
-#    MULTI-token check (alltasks-count is render-alltasks's 3rd declared token). If either
+#    MULTI-token check (tsk-crumb is render-alltasks's 3rd declared token). If either
 #    zsh fix (find+while-read for the check glob, tr+while-read for the token split) were
 #    reverted, this would ALLOW under zsh and red here -- the bash-only suite cannot see that.
 if command -v zsh >/dev/null 2>&1; then
   printf '%s\n' '--- a/web/index.html' '+++ b/web/index.html' '@@ -1 +1 @@' \
-    '-  <b id="alltasks-count">3</b>' '+  <b id="alltasks-count">4</b>' > "$TMP/wd-zsh"
+    '-  <p id="tsk-crumb">3</p>' '+  <p id="tsk-crumb">4</p>' > "$TMP/wd-zsh"
   : > "$TMP/f-zsh"; : > "$TMP/m-zsh"
   BCDIR_ABS="$(cd "$HERE/.." && pwd)/docs/browser-checks"
   if zsh -c ". \"$HERE/lib/browser-check-surface-gate.sh\" && KOSMOS_BCSG_WEBDIFF=\"$TMP/wd-zsh\" KOSMOS_BCG_FILES=\"$TMP/f-zsh\" KOSMOS_BCG_MSGS=\"$TMP/m-zsh\" KOSMOS_BCSG_DIR=\"$BCDIR_ABS\" kosmos_browser_check_surface_gate" >/dev/null 2>&1; then
@@ -150,6 +150,90 @@ if command -v zsh >/dev/null 2>&1; then
   fi
 else
   echo "SKIP  zsh not available for the self-defending zsh arm"
+fi
+
+# 10. #3893: a PR MERGED INTO BASE before CI checked out (two merge bases, a criss-cross).
+#     Built with real git: main gains M1 (changes tok-x, updates render-x.js, excuses
+#     render-y.js by trailer), the PR (an unrelated file) is merged into main as M2, and CI's
+#     HEAD is the synthetic merge of the PR head into M1. With base=M2, `base...HEAD` picked
+#     the PR head as merge base, so M1's change read as the PR's while `base..HEAD` never
+#     showed M1's trailer: render-y.js was refused. Measured on #3893 and fed-msg-3311.
+xrepo() {  # <dir> <pr-changes-token: 0|1> -> prints "M1 M2 H"
+  local d="$1" g t=1700000000
+  # Commit dates mirror #3893 (the PR head NEWER than main's change), because with two merge
+  # bases git's pick follows commit dates, and only the PR-head pick exposes the bug.
+  g() { GIT_COMMITTER_DATE="@$t +0000" GIT_AUTHOR_DATE="@$t +0000" \
+          git -C "$d" -c user.email=t@t -c user.name=t -c init.defaultBranch=main "$@"; }
+  mkdir -p "$d/docs/browser-checks" "$d/web"
+  g init -q
+  printf '%s\n' '<p id="tok-x">old</p>' '' '' '' '<b class="tok-x">b</b>' > "$d/web/index.html"
+  printf '%s\n' '// Browser-check-surface: tok-x' 'x' > "$d/docs/browser-checks/render-x.js"
+  printf '%s\n' '// Browser-check-surface: tok-x' 'y' > "$d/docs/browser-checks/render-y.js"
+  g add -A && g commit -qm A
+  t=$((t + 100))
+  g branch pr
+  # M1 first (main's trailer-excused change), then P, so P is the NEWER merge base.
+  sed -i.bak 's|<p id="tok-x">old</p>|<p id="tok-x">new</p>|' "$d/web/index.html" && rm -f "$d/web/index.html.bak"
+  echo x2 >> "$d/docs/browser-checks/render-x.js"
+  g add -A && g commit -qm "M1" -m "Browser-check-surface: render-y.js wording only"
+  t=$((t + 100))
+  local m1; m1="$(g rev-parse HEAD)"
+  g checkout -q pr
+  # The positive variant changes the OTHER tok-x line, so the merge with M1 is clean.
+  if [ "$2" = 1 ]; then sed -i.bak 's|<b class="tok-x">b</b>|<b class="tok-x">pr</b>|' "$d/web/index.html" && rm -f "$d/web/index.html.bak"; else echo e > "$d/engine.txt"; fi
+  g add -A && g commit -qm P
+  t=$((t + 100))
+  g checkout -q main
+  g checkout -q --detach "$m1" && g merge -q --no-ff -m H pr >/dev/null 2>&1
+  local h; h="$(g rev-parse HEAD)"
+  g checkout -q main && g merge -q --no-ff -m M2 pr >/dev/null 2>&1
+  local m2; m2="$(g rev-parse HEAD)"
+  g checkout -q --detach "$h"
+  echo "$m1 $m2 $h"
+}
+gate_at() {  # <dir> <base> <lib> -> rc of the surface gate run in <dir> with no seams
+  ( cd "$1" && unset KOSMOS_BCSG_WEBDIFF KOSMOS_BCG_FILES KOSMOS_BCG_MSGS KOSMOS_BCSG_DIR
+    . "$3" && KOSMOS_BCG_BASE="$2" kosmos_browser_check_surface_gate ) >/dev/null 2>&1
+}
+read -r X_M1 X_M2 X_H <<< "$(xrepo "$TMP/xx" 0)"
+nbases="$(git -C "$TMP/xx" merge-base --all "$X_M2" "$X_H" | wc -l | tr -d ' ')"
+picked="$(git -C "$TMP/xx" merge-base "$X_M2" "$X_H")"; prhead="$(git -C "$TMP/xx" rev-parse "$X_H^2")"
+# Both conditions, or the fixture no longer reproduces the dangerous pick and the arm below is vacuous.
+[ "$nbases" = 2 ] && [ "$picked" = "$prhead" ] \
+  && pass "criss-cross built: 2 merge bases, and git picks the PR head (the #3893 shape)" \
+  || fail "the fixture did not reproduce #3893 (merge bases: $nbases; picked the PR head: $([ "$picked" = "$prhead" ] && echo yes || echo no))"
+if gate_at "$TMP/xx" "$X_M2" "$HERE/lib/browser-check-surface-gate.sh"; then
+  pass "#3893: a PR already merged into base is not refused for main's own excused change"
+else
+  fail "#3893: the gate refused main's own trailer-excused change on an already-merged PR"
+fi
+if gate_at "$TMP/xx" "$X_M1" "$HERE/lib/browser-check-surface-gate.sh"; then
+  pass "#3893 control: the ordinary case (base = the tip the PR merged into) still passes"
+else
+  fail "#3893 control: the ordinary single-merge-base case must pass"
+fi
+# The fix must not blind the gate: a PR that DOES change tok-x without updating render-y.js
+# (or excusing it) is still refused. First with one merge base (base = the tip it merged into),
+# then IN the criss-cross (base = main after the PR merged), where anchoring on git's plain
+# merge-base pick would read main's change and main's trailer and pass it (review, #3893).
+read -r Y_M1 Y_M2 Y_H <<< "$(xrepo "$TMP/yy" 1)"
+if gate_at "$TMP/yy" "$Y_M1" "$HERE/lib/browser-check-surface-gate.sh"; then
+  fail "#3893 positive control: a PR changing tok-x with render-y.js not updated must be refused"
+else
+  pass "#3893 positive control: a PR's own unexcused surface change is still refused"
+fi
+if gate_at "$TMP/yy" "$Y_M2" "$HERE/lib/browser-check-surface-gate.sh"; then
+  fail "#3893 criss-cross positive control: the PR's own unexcused change passed on main's trailer"
+else
+  pass "#3893 criss-cross positive control: the PR's own unexcused change is refused even when base already contains the PR"
+fi
+# The anchor helper is duplicated in both gate libs (each is sourced alone); the copies must match.
+h1="$(sed -n '/^bcg_anchor_base() {/,/^}/p' "$HERE/lib/browser-check-surface-gate.sh")"
+h2="$(sed -n '/^bcg_anchor_base() {/,/^}/p' "$HERE/lib/browser-check-gate.sh")"
+if [ -n "$h1" ] && [ "$h1" = "$h2" ]; then
+  pass "bcg_anchor_base is identical in both gate libs"
+else
+  fail "bcg_anchor_base differs between the two gate libs (or is missing)"
 fi
 
 echo "browser-check surface gate: $fails FAILED"

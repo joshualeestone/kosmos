@@ -17,6 +17,7 @@
  * newlines and grows, the Enter/Shift+Enter split, and that a multi-line message
  * renders as multiple lines in the bubble.
  */
+require('./lib-sandbox-home.js'); // #3675: never read the host Mac's real accounts
 const fs = require('fs');
 const os = require('os');
 const path = require('path');

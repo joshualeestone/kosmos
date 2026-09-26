@@ -93,11 +93,103 @@ function taskProblem({ sentence, detail, who } = {}) {
 }
 
 /**
+ * #3861 (Josh, 2026-09-25 20:20: "Let's add something to tasks so they can have a parent"):
+ * a task can sit under another task on the SAME project, a subtask. Different from PARTS
+ * (#803): a part is a per-person piece INSIDE one task and has no page of its own; a subtask
+ * is a whole task (its own number, page, conversation, assignee) that belongs to a bigger one.
+ *
+ * 🔑 THE PARENT IS A TASK NUMBER, NEVER A PROJECT-AND-NUMBER. A number is only unique inside
+ * its project (the header), so a parent stored as a bare number cannot name a task anywhere
+ * else: a cross-project parent is not refused by a check that could be forgotten, it has no
+ * spelling at all.
+ * 🔑 NOTHING CASCADES. Closing a parent never closes its children, closing the last child
+ * never closes the parent (the person decides; the screen offers it), and tasks are never
+ * deleted. The parent's "3 of 5 done" is DERIVED from its children on every read, so it
+ * cannot drift from them.
+ *
+ * Refused: a parent that is not a whole number, that is not a task on this project, that is
+ * the task itself, or that sits (at any depth) under the task, which would be a cycle.
+ * Returns the refusal sentence, or null.
+ */
+function parentProblem(p, n, parent) {
+  if (parent === undefined || parent === null || parent === '') return null; // none / clear
+  const want = typeof parent === 'string' && /^\d+$/.test(parent.trim()) ? Number(parent.trim()) : parent;
+  if (typeof want !== 'number' || !Number.isSafeInteger(want) || want < 1) {
+    return 'the task this is part of has to be a task number on this project';
+  }
+  // A CLOSED task is a valid parent on purpose: nothing cascades, so filing a follow-up under
+  // finished work is allowed rather than refused.
+  if (!byNumber(p, want)) return 'there is no task ' + want + ' on this project to put this under';
+  if (n !== null && n !== undefined && want === Number(n)) return 'a task cannot be part of itself';
+  // Walk UP from the proposed parent. Reaching this task means the parent already sits under
+  // it, so the link would make a loop. `seen` bounds a hand-edited store that already loops.
+  const seen = new Set();
+  let at = byNumber(p, want);
+  while (at && Number.isSafeInteger(at.parent) && !seen.has(at.number)) {
+    seen.add(at.number);
+    if (n !== null && n !== undefined && at.parent === Number(n)) {
+      return 'task ' + want + ' is already under this task, so this cannot go under it';
+    }
+    at = byNumber(p, at.parent);
+  }
+  return null;
+}
+
+/** The stored form of a parent the caller gave: a whole number, or null for none. */
+function parentValue(parent) {
+  if (parent === undefined || parent === null || parent === '') return null;
+  return typeof parent === 'string' ? Number(parent.trim()) : parent;
+}
+
+/**
+ * A task's parent AS READ: the number when that task still exists on the project, else null.
+ * A hand-edited store can name a number that is not there; a reader treating it as a real
+ * parent would nest the task under nothing, so it reads as top level instead.
+ */
+function parentOf(p, task) {
+  return treeOf(p).up(task);
+}
+
+/**
+ * THE one derivation of a project's task tree: number -> task, and parent -> children, built
+ * in one pass. parentOf, childrenOf, subtaskProgress and allTasks's rows all read it, so the
+ * rules for which parent counts cannot differ between them. Linear in the project's tasks.
+ */
+function treeOf(p) {
+  const byNum = new Map();
+  for (const t of (p && p.tasks) || []) if (t && typeof t.number === 'number') byNum.set(t.number, t);
+  const up = (t) => (t && Number.isSafeInteger(t.parent) && t.parent !== t.number && byNum.has(t.parent) ? t.parent : null);
+  const kids = new Map();
+  for (const t of (p && p.tasks) || []) {
+    const u = up(t);
+    if (u === null) continue;
+    if (!kids.has(u)) kids.set(u, []);
+    kids.get(u).push(t);
+  }
+  for (const list of kids.values()) list.sort((a, b) => (a.number || 0) - (b.number || 0));
+  const under = (n) => kids.get(Number(n)) || [];
+  /* The parent's "2 of 5 done": its DIRECT children, finished by progressOf (parts included).
+     Direct only: a grandchild is counted by its own parent, never twice up a chain. */
+  const progress = (n) => { const k = under(n); return { done: k.filter((t) => progressOf(t).closed).length, total: k.length }; };
+  return { byNum, up, under, progress };
+}
+
+/** The tasks directly under task `n` on project record `p`, in number order. */
+function childrenOf(p, n) {
+  return treeOf(p).under(n);
+}
+
+/** A parent's `{done, total}` over its direct children; total 0 means no subtasks. */
+function subtaskProgress(p, n) {
+  return treeOf(p).progress(n);
+}
+
+/**
  * Create a task on a project. Validated whole-or-not-at-all BEFORE the
  * write; the number is issued inside the same atomic mutate that stores
  * the task, so two concurrent creates cannot share one.
  */
-function create(projectId, { sentence, detail, who, made: origin } = {}, roster) {
+function create(projectId, { sentence, detail, who, parent, made: origin } = {}, roster) {
   const problem = taskProblem({ sentence, detail, who });
   if (problem) throw new Error(problem);
   const whoKey = typeof who === 'string' && who.trim() ? who.trim() : null;
@@ -116,6 +208,11 @@ function create(projectId, { sentence, detail, who, made: origin } = {}, roster)
     if (whoKey && !(p.agents || []).includes(whoKey)) {
       throw new Error('that agent is not on this project, so the task cannot be given to it');
     }
+    // #3861: checked inside the same read that stores the task, like membership above, so the
+    // parent cannot be a task that was not there when this one was written. A new task has no
+    // children yet, so it cannot close a loop (n is null).
+    const parentRefused = parentProblem(p, null, parent);
+    if (parentRefused) throw new Error(parentRefused);
     const number = (p.taskCounter || 0) + 1;
     made = {
       number,
@@ -138,6 +235,8 @@ function create(projectId, { sentence, detail, who, made: origin } = {}, roster)
       // #768: every task carries the field so a consumer never has to guess
       // whether it exists; null means no due date, set later via setDue.
       dueDate: null,
+      // #3861: the task this one is part of (a task number on this project), or null.
+      parent: parentValue(parent),
     };
     return {
       ...p,
@@ -153,6 +252,8 @@ function create(projectId, { sentence, detail, who, made: origin } = {}, roster)
     // so without this the transcript would show an agent removed but never that
     // one was on it from birth. null when it was created unassigned.
     who: made.who,
+    // #3861: a task made as a subtask says so from birth, as a pre-assigned one does.
+    ...(made.parent ? { parent: made.parent } : {}),
   });
   return made;
 }
@@ -202,7 +303,13 @@ function nextPartId(parts) {
    restart does not open the valve. The SCREEN is never valved. */
 const PARTS_PER_HOUR = 12;
 const HOUR_MS = 3600000;
-function viaOf(made) { return made && made.via === 'process' ? 'process' : 'screen'; }
+/* #3595: 'assigner' is the Kosmos Assigner's own write. It is its own provenance so the process
+   parts valve (which counts 'process' only) never charges agents for it, nor blames them for it. */
+function viaOf(made) {
+  if (made && made.via === 'process') return 'process';
+  if (made && made.via === 'assigner') return 'assigner';
+  return 'screen';
+}
 
 /** Every process-originated part write in the last hour, across all
  * projects: parts added, and parts moved to somebody. Answers the count and
@@ -299,6 +406,11 @@ function assignPart(projectId, n, partId, who, made) {
   // `changed` (the merged task record it returns) -- same word, unrelated
   // meaning, easy to conflate on a re-read.
   let moved = false;
+  // #3595: `made.onlyIfFree` refuses, inside the same write, a part somebody is already on, so a
+  // caller that chose the part from an earlier read never moves it off a person who took it since.
+  // `made.onlyIfWho` likewise refuses unless the part is still on that agent (the Assigner's
+  // takeback, so it never clears a part somebody else took in the meantime).
+  let taken = false;
   // The membership check runs only for a part that actually exists (inside
   // the id match below) -- checked unconditionally up front, a nonexistent
   // partId with an unrecognised who threw the membership error instead of
@@ -312,6 +424,8 @@ function assignPart(projectId, n, partId, who, made) {
     return parts.map((x) => {
       if (Number(x.id) !== Number(partId)) return x;
       found = true;
+      if (made && made.onlyIfFree && x.who) { taken = true; return x; }
+      if (made && typeof made.onlyIfWho === 'string' && x.who !== made.onlyIfWho) { taken = true; return x; }
       moved = (x.who || null) !== whoKey;
       if (moved && whoKey && !(p.agents || []).includes(whoKey)) {
         throw new Error('that agent is not on this project, so the part cannot be given to it');
@@ -320,6 +434,7 @@ function assignPart(projectId, n, partId, who, made) {
     });
   });
   if (!found) return { ok: false, because: 'there is no part by that number on this task' };
+  if (taken) return { ok: false, because: made && typeof made.onlyIfWho === 'string' ? 'that part is no longer on ' + made.onlyIfWho : 'somebody is already on that part' };
   // Only a real move is recorded: a resubmit of the current assignee (moved
   // false) changed nothing and types no pane line, so it leaves no transcript
   // line either. `who: null` is a real event -- somebody was taken off.
@@ -438,6 +553,38 @@ function setDue(projectId, n, dueDate) {
   return changed;
 }
 
+/**
+ * #3861: put a task under another task on the same project, or take it out from under one
+ * (`parent` null or ''). Checked inside the write (parentProblem), so two people linking in
+ * opposite directions at once cannot both land and make a loop: the second read sees the
+ * first link. Setting what it already is records nothing, as setDue does.
+ */
+function setParent(projectId, n, parent) {
+  let changed;
+  let didChange = false;
+  let next = null;
+  projects.mutate(projectId, (p) => {
+    const t = byNumber(p, n);
+    if (!t) throw new Error('there is no task by that number on this project');
+    const problem = parentProblem(p, t.number, parent);
+    if (problem) throw new Error(problem);
+    next = parentValue(parent);
+    const before = Number.isSafeInteger(t.parent) ? t.parent : null;
+    didChange = before !== next;
+    changed = { ...t, parent: next };
+    return {
+      ...p,
+      tasks: (p.tasks || []).map((x) => (x.number === changed.number ? changed : x)),
+    };
+  });
+  if (didChange) {
+    taskchat.record(projectId, changed.number, next
+      ? { kind: 'parent-set', parent: next }
+      : { kind: 'parent-cleared' });
+  }
+  return changed;
+}
+
 /* #768: record a free-text message on a task's conversation -- the WRITE half of
    #992's transcript (the read half is the activity list, engine/taskchat.js read()).
    THIS FUNCTION only RECORDS; DELIVERY to the task's agents happens at the server
@@ -543,6 +690,19 @@ function progressOf(task) {
   };
 }
 
+/**
+ * #3559 (look review, iteration 15): the agent a task's claim is ABOUT. The claim asks "is this
+ * agent on this task?", which has a subject only while some agent still holds open work here, so
+ * it is the first agent holding an OPEN part, or null. Reading the first agent ever named instead
+ * let a finished part's agent decide "In progress" and get named for work it had handed on.
+ */
+function claimWho(task) {
+  // A closed task has nobody to ask about, whatever its parts say (closing leaves parts open).
+  if (!task || task.closedAt || progressOf(task).closed) return null;
+  const p = partsOf(task).find((x) => x && x.who && !x.closedAt);
+  return p ? p.who : null;
+}
+
 /** Whoever is on this task at all, for the join and the card's face. */
 function whoOf(task) {
   const named = partsOf(task).map((x) => x.who).filter(Boolean);
@@ -593,19 +753,19 @@ function columnTasks(p) {
    before agents are taught it; teaching it is a wording change (#763's
    rule: Splinter, then Josh) and is not in this file. */
 /**
- * Every open task on every project, for the all-tasks screen (#1382).
+ * Every task on every project, for the Tasks view (#3559) and `kosmos tasks`. It was
+ * written for the all-tasks screen (#1382), which #3703 retired for the Tasks view.
  *
  * Josh: a list of "all tasks across all projects", reachable the way the
  * documents list is.
  *
  * 🔑 CLOSED TASKS ARE IN, AND THE REASON IS A REMOVAL RATHER THAN A
- * PREFERENCE. This screen is reached from `#pj-alltasks`, the per-project
- * door, which today reveals hidden tasks IN PLACE. #1009 already put every
- * OPEN task in the column, assigned or not, so what that door reveals now is
- * the remainder: FINISHED WORK.
- * ⇒ Repurposing the door to open this screen is a removal plus an addition,
- * and if the screen excluded closed tasks the removal would leave finished
- * work unreachable anywhere in Kosmos.
+ * PREFERENCE. The project page's `#pj-alltasks` door leads here (since #3703,
+ * to the Tasks view scoped to that project). #1009 already put every OPEN task
+ * in the column, assigned or not, so what that door is for is the remainder:
+ * FINISHED WORK.
+ * ⇒ If this list excluded closed tasks, finished work would be unreachable
+ * anywhere in Kosmos.
  *
  * ⚠️ THE COST, STATED RATHER THAN HIDDEN: closed tasks grow without bound, so
  * this list does too. There is no pager, deliberately, while the realistic
@@ -613,8 +773,8 @@ function columnTasks(p) {
  * real machine with enough finished work to scroll, not a guess about one.
  *
  * 🔑 ONE ARRAY, SO A COUNT CANNOT DISAGREE WITH ITS OWN DESTINATION. The
- * "View all tasks (N)" control and the rows on the screen both derive from
- * what this returns. That is #1346 stated as a construction rather than as a
+ * Tasks view's open count and its rows both derive from what this returns
+ * (the project door carries no count at all). That is #1346 stated as a construction rather than as a
  * rule to remember: that screen said "3 agents" over three rows and "6" below
  * them because one number came from the DATA and the other from a
  * document-wide DOM query.
@@ -623,19 +783,33 @@ function columnTasks(p) {
  * fields: a task that stores parts has no `who` at all, and overwriting it
  * with the derived list would make two different facts share one name.
  */
-function allTasks() {
+function allTasks(everyProject) {
   const out = [];
-  for (const p of projects.readAll() || []) {
+  /* #3559: a caller that already read the store passes that snapshot, so the
+     rows and anything it joins onto them come from ONE read. */
+  for (const p of (Array.isArray(everyProject) ? everyProject : projects.readAll()) || []) {
+    /* #3861: the project's tree is built once (treeOf), so each row's parent and subtask
+       count is a lookup rather than a re-scan of the project per task. */
+    const tree = treeOf(p);
     for (const t of p.tasks || []) {
+      const up = tree.up(t);
       out.push(Object.assign({}, t, {
         projectId: p.id,
         projectName: p.name,
+        /* #3559: the Tasks view leaves archived projects' tasks out, as the rails tuck them away. */
+        projectArchived: p.archived === true,
         whoNames: whoOf(t),
         /* Named on the row rather than inferred by the screen: `progressOf`
            lives here, and a caller re-deriving "is it finished" from another
            field is the two-sources-for-one-fact shape that put "3 agents" over
            six rows in #1346. */
         isClosed: !!progressOf(t).closed,
+        /* #3861: the parent AS READ (null when the stored number is not a task here), its
+           sentence for the child's breadcrumb, and the "2 of 5" for a parent. On the row so the
+           screen never re-derives them, for the reason isClosed is. */
+        parent: up,
+        parentSentence: up === null ? null : (tree.byNum.get(up).sentence || null),
+        subtasks: tree.progress(t && t.number),
       }));
     }
   }
@@ -653,6 +827,62 @@ function allTasks() {
   return out.sort((a, b) => (a.isClosed ? 1 : 0) - (b.isClosed ? 1 : 0)
     || String(a.projectName).localeCompare(String(b.projectName))
     || (b.number || 0) - (a.number || 0));
+}
+
+/**
+ * Where a task's work actually is, for the Tasks view (#3559), DERIVED from
+ * evidence, never a column somebody drags it into (Josh, 2026-09-24).
+ *
+ * Takes a task already shaped by `projects.joinTaskClaims` (so it carries its
+ * `claim`). The view renders this word and never computes it.
+ *
+ * 🔑 ONLY STATES THE ENGINE CAN PROVE TODAY (Mona's weakest-premise note):
+ *   'closed'   finished (`progressOf`, parts included)
+ *   'nobody'   open, nobody named on it
+ *   'working'  assigned, and the agent's own report NAMES this task
+ *   'assigned' assigned, and its report does not name it -- OR it could not be
+ *              read, in which case the claim's `because` travels with the task
+ *              and the screen says why it cannot tell, never "not started" as
+ *              a fact
+ * "Waiting on you" and "Done, check it" need a decision flag, a question and
+ * an agent-says-done that no task stores yet, so no task is ever put in them.
+ */
+function taskState(task) {
+  if (!task) return 'nobody';
+  if (progressOf(task).closed) return 'closed';
+  if (whoOf(task).length === 0) return 'nobody';
+  return (task.claim && task.claim.claimed === true) ? 'working' : 'assigned';
+}
+
+/**
+ * The last time anything happened on a task (#3559's "Quietest first"): for an
+ * open task the newest event in its transcript (engine/taskchat.js stamps every
+ * event with `at`), else when it was made; for a closed one, when it closed. A task with neither has no answer (null), never
+ * "now", which would float an unknown to the top of Quietest first as if fresh.
+ */
+function lastActivityOf(projectId, task) {
+  let newest = null;
+  let newestMs = -Infinity;
+  const consider = (iso) => {
+    const ms = typeof iso === 'string' ? Date.parse(iso) : NaN;
+    if (Number.isFinite(ms) && ms > newestMs) { newestMs = ms; newest = iso; }
+  };
+  if (task) {
+    consider(task.createdAt);
+    consider(task.closedAt);
+    /* A task closed because every PART closed has no closedAt of its own: its parts' closes are
+       when it closed (and a part closing is activity on an open task too). */
+    for (const part of partsOf(task)) consider(part.closedAt);
+    /* A CLOSED task's last activity is its close (anything said after it is not work moving):
+       the transcript is read only for open tasks, so the view's cost follows open work, not the
+       whole history of finished tasks and their transcripts. */
+    if (!progressOf(task).closed) {
+      let events = [];
+      try { events = taskchat.read(projectId, task.number) || []; } catch { events = []; }
+      for (const e of events) consider(e && e.at);
+    }
+  }
+  return newest;
 }
 
 function escapeRe(s) { return String(s).replace(/[.*+?^${}()|[\]\\]/g, '\\$&'); }
@@ -674,7 +904,8 @@ function claimFor(task, reading, opts) {
      returned null for every assigned multi-part task and the card lost its
      says-it-is-on-this line with nothing saying why. The claim is still asked
      of the task as a whole (one report naming "task 15" is a claim about the
-     task); per-part claims need a spelling agents have not been taught. */
+     task); per-part claims need a spelling agents have not been taught. The
+     caller reads `reading` for claimWho(task), the agent holding open work. */
   if (!task || whoOf(task).length === 0 || progressOf(task).closed) return null;
   // ⚠️ The DEFINITE branch is allowlisted, never the unknown one: a state
   // this module does not recognize (a future vocabulary word, a hand-edited
@@ -686,6 +917,11 @@ function claimFor(task, reading, opts) {
     return {
       claimed: null,
       because: (reading && reading.because) || 'we could not read what it reports holding',
+      /* #3559 (Mona's look review): the one could-not-tell case the page puts in plain words
+         and NAMES the agent for ("Rex has not reported what it is working on yet.") is an agent
+         that has never written its report. The claim is read for claimWho(task), an agent that
+         still holds open work here, so a finished agent is never named. A field, never our prose. */
+      neverReported: !!(reading && reading.neverReported === true) && !!claimWho(task),
     };
   }
   // Server-issued numbers are integers; a hand-edited store can hold
@@ -693,7 +929,7 @@ function claimFor(task, reading, opts) {
   // (1.5 matches "task 175"). Same way-out validation commitments.js does.
   const n = task.number;
   if (typeof n !== 'number' || !Number.isSafeInteger(n)) {
-    return { claimed: null, because: 'this task\'s number is not a whole number, so a report cannot name it' };
+    return { claimed: null, because: 'this task\'s number is not a whole number, so a report cannot name it', neverReported: false };
   }
   // The trailing guard is two lookaheads, not \b: \b sits happily between
   // "1" and ".", so "task 1.5" in a report would join task 1. Not-a-digit
@@ -707,14 +943,71 @@ function claimFor(task, reading, opts) {
     if (saysQualified) return { claimed: true, because: null };
     if (saysBare) {
       return { claimed: null, because: '"task ' + n + '" names more than one of this agent\'s open tasks: it has a task '
-        + n + ' in two projects and has not said which' + (project && project.name ? ' (say "task ' + n + ' of ' + String(project.name).trim() + '")' : '') };
+        + n + ' in two projects and has not said which' + (project && project.name ? ' (say "task ' + n + ' of ' + String(project.name).trim() + '")' : ''), neverReported: false };
     }
     return { claimed: false, because: null };
   }
   return { claimed: saysBare || saysQualified, because: null };
 }
 
+/**
+ * #3559, Josh's ruling (relayed by Splinter, 2026-09-25): the top-level Tasks tab appears only
+ * once the person has TASKS_TAB_MIN tasks. Splinter's calls: count every task ever created, open
+ * and closed; once shown it stays shown (a saved flag); one constant.
+ *
+ * "Ever created" is each project's `taskCounter` (the next-number counter, never reused; tasks
+ * are never deleted), with the task list as a floor for a project written before the counter.
+ * Archived projects count: they were created. A DELETED project's tasks are gone from the
+ * store, so they do not count; that is the one gap, and the saved flag makes it matter only
+ * before the tab first appears.
+ */
+const TASKS_TAB_MIN = 25;
+function tasksEverCreated(everyProject) {
+  return (Array.isArray(everyProject) ? everyProject : []).reduce((n, p) => {
+    if (!p) return n;
+    const counter = Number.isSafeInteger(p.taskCounter) && p.taskCounter > 0 ? p.taskCounter : 0;
+    return n + Math.max(counter, Array.isArray(p.tasks) ? p.tasks.length : 0);
+  }, 0);
+}
+/* Rides the 5s status poll, so it must be cheap: once the flag is saved it is one settings read.
+   Before that, the projects file is re-counted only when it changed (path, mtime, size), and the
+   first time the count reaches the constant the flag is written, once. */
+let TASKS_TAB_SEEN = { file: null, mtimeMs: null, size: null, shown: false };
+/* Write the once-shown flag WITHOUT risking the person's other settings: through the store's own
+   writeSettingsIfReadable, which refuses a settings file it cannot read (a hand-edit typo, EACCES,
+   EMFILE) instead of merging over {}. A refused or failed write is retried on a later poll (see
+   tasksTabShown). Returns whether it was written. */
+function saveTasksTabFlag(store) {
+  try { return !!store.writeSettingsIfReadable({ tasksTabShown: true, tasksTabShownAt: new Date().toISOString() }); }
+  catch { return false; }
+}
+function tasksTabShown() {
+  const store = require('./store');
+  let flagged = false;
+  try { flagged = store.readSettings().tasksTabShown === true; } catch { /* fall to the count */ }
+  if (flagged) return true;
+  const f = projects.file();
+  let st;
+  try { st = require('node:fs').statSync(f); } catch { return false; }   // no projects yet: no tasks
+  let shown;
+  if (TASKS_TAB_SEEN.file === f && TASKS_TAB_SEEN.mtimeMs === st.mtimeMs && TASKS_TAB_SEEN.size === st.size) {
+    shown = TASKS_TAB_SEEN.shown;
+  } else {
+    let counted = true;
+    try { shown = tasksEverCreated(projects.readAll()) >= TASKS_TAB_MIN; } catch { shown = false; counted = false; }
+    /* A read that failed (EACCES, EMFILE, a mid-write parse) is not an answer: not cached, so the
+       next poll counts again instead of pinning "hidden" until the file next changes. */
+    if (counted) TASKS_TAB_SEEN = { file: f, mtimeMs: st.mtimeMs, size: st.size, shown };
+  }
+  /* Shown and not yet saved (the first time, or an earlier write was skipped or failed): save it
+     now. Every poll retries until it lands, so "once shown, stays shown" holds even if the count
+     later falls. */
+  if (shown) saveTasksTabFlag(store);
+  return shown;
+}
+
 module.exports = { create, close, reopen, byNumber, columnTasks, allTasks, claimFor, claimPatterns, taskProblem,
+  taskState, lastActivityOf, TASKS_TAB_MIN, parentProblem, parentOf, childrenOf, subtaskProgress, treeOf, setParent, tasksEverCreated, tasksTabShown, claimWho,
   partsOf, progressOf, whoOf, addPart, assignPart, setPartClosed, setDue, dueProblem, say,
   partValve, processPartWrites, agePartWritesForTests, PARTS_PER_HOUR,
   SENTENCE_MAX, DETAIL_MAX, MESSAGE_MAX, WHO_MAX };

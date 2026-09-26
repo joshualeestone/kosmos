@@ -148,3 +148,27 @@ test('#2406: the collision guard survives INSIDE one flattened folder — belong
   assert.ok(got && got.endsWith('ours.jsonl'),
     'the transcript whose cwd matches must win over a foreign one in the same folder');
 });
+
+test('#3564: a swarm\'s meter leaves out another agent\'s session that shares its flattened folder', () => {
+  reset();
+  const swarm = require('./swarm');
+  swarm.resetForTests();
+  const mineDir = path.join(SB, 'workers', 'my_swarm');
+  const theirDir = path.join(SB, 'workers', 'my-swarm');
+  fs.mkdirSync(mineDir, { recursive: true });
+  fs.mkdirSync(theirDir, { recursive: true });
+  assert.equal(flatten(canonOf(mineDir)), flatten(canonOf(theirDir)), 'CONTROL: the two folders flatten to one');
+  const folder = path.join(PROJECTS, flatten(canonOf(mineDir)));
+  fs.mkdirSync(folder, { recursive: true });
+  const at = new Date().toISOString();
+  const session = (cwd, id, n) => JSON.stringify({ type: 'summary', sessionId: id }) + '\n'
+    + JSON.stringify({ type: 'assistant', cwd, timestamp: at, message: { id: id + '-1', role: 'assistant', stop_reason: 'end_turn', usage: { input_tokens: n } } }) + '\n';
+  fs.writeFileSync(path.join(folder, 'sess-mine.jsonl'), session(canonOf(mineDir), 'sess-mine', 10));
+  fs.writeFileSync(path.join(folder, 'sess-theirs.jsonl'), session(canonOf(theirDir), 'sess-theirs', 1000));
+  const profile = { dir: mineDir, ...swarm.birthProfile({ maxHelpers: 3, dailyTokenLimit: 5000 }) };
+  store.writeProfile('my_swarm', profile);
+  const field = status.swarmField(profile, 'my_swarm', undefined);
+  assert.ok(field, 'no swarm field came back');
+  assert.equal(field.tokensToday, 10, 'the other agent\'s tokens were counted against this swarm');
+  swarm.resetForTests();
+});

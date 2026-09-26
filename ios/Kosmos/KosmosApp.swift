@@ -6,8 +6,7 @@ import SwiftUI
 // clears App Store Review 4.2 - APNs registration, notification actions, and
 // biometric unlock - is wired via the AppDelegate (installed below) plus
 // PushNotificationManager and BiometricAuth; the parts needing external unblocks
-// (the APNs auth key, provisioning, the token-upload endpoint) are stubbed and
-// marked, tracked on #718.
+// (the APNs auth key on the coordinator, provisioning) are tracked on #718.
 @main
 struct KosmosApp: App {
     // Bridges to UIKit so APNs registration callbacks (delivered to
@@ -16,7 +15,7 @@ struct KosmosApp: App {
 
     var body: some Scene {
         WindowGroup {
-            ContentView()
+            ContentView(pushManager: appDelegate.pushManager)
         }
     }
 }

@@ -1,0 +1,77 @@
+# iOS CI (#718). Runs the push bridge logic tests (ios/LogicTests) and compiles the
+# app against the simulator SDK, so a change to the origin gate, the session
+# handling or the register/unregister rules goes red here instead of only on
+# whoever remembers to run ios/LogicTests/run.sh by hand.
+#
+# ADVISORY, like android.yml and test.yml: nothing here blocks a merge (no branch
+# protection on this repo, by a deliberate repo-admin decision; see test.yml).
+#
+# WHAT GREEN CERTIFIES: the Foundation-only push logic passes its suite on macOS,
+# the app compiles and links for the simulator with signing off (Debug and
+# Release), and both built apps carry the four permission strings. It does NOT
+# certify running on a simulator or device, a signed build, or APNs delivery.
+
+name: ios
+
+# Path-filtered like android.yml: safe because this is advisory, not required.
+on:
+  push:
+    branches: ["main"]
+    paths:
+      - "ios/**"
+      - ".github/workflows/ios.yml"
+  pull_request:
+    paths:
+      - "ios/**"
+      - ".github/workflows/ios.yml"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ios-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    name: logic tests + simulator build
+    runs-on: macos-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Toolchain versions
+        run: |
+          xcodebuild -version
+          xcrun swiftc --version
+
+      # The suite prints one VERDICT line last. Assert that line, not only the exit
+      # code, so a run cut off before it cannot read as green.
+      - name: Push bridge logic tests
+        run: |
+          set -o pipefail
+          ios/LogicTests/run.sh | tee "$RUNNER_TEMP/logic.log"
+          grep -q '^VERDICT: PASS' "$RUNNER_TEMP/logic.log"
+
+      # -target with an unversioned -sdk: needs no installed simulator runtime
+      # (see ios/README.md for why -scheme/-destination is not used).
+      - name: Simulator SDK build
+        working-directory: ios
+        run: |
+          xcodebuild -project Kosmos.xcodeproj -target Kosmos -sdk iphonesimulator \
+            -configuration Debug CODE_SIGNING_ALLOWED=NO build
+
+      # iOS closes the app when a feature is used without its permission string;
+      # check the strings in the apps just built, not the project file. Release is
+      # built too because the store build is Release and the strings are set per
+      # configuration, so a key dropped from Release alone would pass a Debug-only check.
+      - name: Permission strings are in the built app (Debug and Release)
+        working-directory: ios
+        run: |
+          set -o pipefail
+          xcodebuild -project Kosmos.xcodeproj -target Kosmos -sdk iphonesimulator \
+            -configuration Release CODE_SIGNING_ALLOWED=NO build
+          for config in Debug Release; do
+            tools/check-usage-strings.sh "build/$config-iphonesimulator/Kosmos.app/Info.plist" | tee "$RUNNER_TEMP/usage-$config.log"
+            grep -q '^VERDICT: PASS' "$RUNNER_TEMP/usage-$config.log"
+          done

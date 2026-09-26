@@ -64,6 +64,28 @@ const path = require('path');
      open -- a combination no person can reach, pinned as if it were correct.
      🔑 A forced state has to force EVERY write the real route performs, or
      the check certifies a screen that does not exist. */
+  /* #3756 (Josh, 0.6.94): the Tasks and Files headers are the SAME in both views: the title left,
+     then on the same line a small View All (and Tasks' +) at the right. Measured the same way in
+     each view (the doors are forced visible, as #3218's arm does), and the tab view is compared
+     with the consolidated one, so either drifting from the other goes red. */
+  const hdr = () => pg.evaluate(() => {
+    const one = (cardSel, labSel, vaSel, plusSel) => {
+      const card = document.querySelector(cardSel); const lab = card && card.querySelector(labSel);
+      const va = document.querySelector(vaSel); const plus = plusSel ? document.querySelector(plusSel) : null;
+      if (!card || !lab || !va) return 'missing';
+      va.hidden = false; if (!va.textContent.trim()) va.textContent = 'View All';
+      const c = card.getBoundingClientRect(); const l = lab.getBoundingClientRect(); const v = va.getBoundingClientRect();
+      const mid = (r) => r.top + r.height / 2;
+      const o = { sameRow: Math.abs(mid(l) - mid(v)) <= 6, order: l.right <= v.left, rightGap: Math.round(c.right - (plus ? plus.getBoundingClientRect().right : v.right)),
+        small: v.width < c.width / 2, vaFont: getComputedStyle(va).fontSize, labFont: getComputedStyle(lab).fontSize };
+      if (plus) { const p = plus.getBoundingClientRect(); o.plus = Math.round(p.width) + 'x' + Math.round(p.height); o.plusRow = Math.abs(mid(p) - mid(v)) <= 6; o.plusRight = p.left >= v.right - 2; }
+      return o;
+    };
+    return { tasks: one('#pj-tasks-field', '.dlab', '#pj-alltasks', '#pj-newtask'), files: one('.pjcard-files', '.dlab', '#pj-docs-all', null) };
+  });
+  const hdrShape = (o, withPlus) => o && typeof o === 'object' && o.sameRow && o.order && o.small && o.rightGap >= -2 && o.rightGap <= 44
+    && (!withPlus || (o.plus === '22x22' && o.plusRow && o.plusRight));
+  let consHdr = null;
   const forceNothingOpen = () => pg.evaluate(() => { PJ_CURRENT = null; pjView('list'); pjMarkOpen(null); paintPjNone(); });
 
   let seedFolder = '';
@@ -110,7 +132,7 @@ const path = require('path');
       const ra = await rect('#rail-agents'); const rp = await rect('#rail-projects');
       say(!!ra && !!rp && Math.abs(ra.y - rp.y) <= 12, tag + ': the two rails start at the same height', ra && rp ? ra.y + ' vs ' + rp.y : JSON.stringify({ ra, rp }));
       const said = await none();
-      say(!!said && /Pick a project on the left/.test(said), tag + ': the empty centre says what to press', JSON.stringify(said));
+      say(!!said && /Open or create a project to get started/.test(said), tag + ': the empty centre says what to press', JSON.stringify(said));
     }
   }
 
@@ -120,9 +142,9 @@ const path = require('path');
   await forceNothingOpen();
   say((await pg.$('#rail-projects-fold')) === null, 'the projects fold control is gone (#3126)');
   await pg.click('#rail-agents-fold'); await pg.waitForTimeout(300);
-  say(/Pick a project on the left/.test((await none()) || ''), 'agents rail folded: the projects centre sentence is unchanged');
+  say(/Open or create a project to get started/.test((await none()) || ''), 'agents rail folded: the projects centre sentence is unchanged');
   await pg.click('#rail-agents-fold'); await pg.waitForTimeout(300);
-  say(/Pick a project on the left/.test((await none()) || ''), 'agents rail open again: still the plain sentence');
+  say(/Open or create a project to get started/.test((await none()) || ''), 'agents rail open again: still the plain sentence');
 
   // the New project form open: the sentence is not painted over it by a fold press
   await pg.click('#rail-projects-new'); await pg.waitForTimeout(400);
@@ -136,8 +158,8 @@ const path = require('path');
   // click handler calls -- so it returns to the list view without the hidden click.
   await pg.click('#rail-agents-fold'); await forceNothingOpen(); await pg.waitForTimeout(400);
 
-  // #3126 (Josh, 6.68): a board with no projects: the open rail's own card says it,
-  // so the sentence stays hidden; a failed read never says "no projects". The
+  // #3597 (Josh, 0.6.91 QA): a board with no projects yet shows the centred sentence too
+  // ("when there's no project available"); a failed read stays silent. #3126: the
   // projects column is no longer collapsible, so the folded variants (press + /
   // "folded; press ›") were removed - fold-p can never be set.
   const paintAs = (loaded, failed) => pg.evaluate(([l, f]) => {
@@ -148,8 +170,8 @@ const path = require('path');
     PROJECTS = keep.P; PJ_LOADED_ONCE = keep.L; PJ_READ_FAILED = keep.F; paintPjNone('list');
     return t;
   }, [loaded, failed]);
-  say((await paintAs(true, false)) === null, 'no projects, rail open: the sentence is hidden (the rail card says it)');
-  say(/Pick a project on the left/.test((await paintAs(false, false)) || ''), 'before the first read: never "No projects yet"');
+  say(/Open or create a project to get started/.test((await paintAs(true, false)) || ''), 'no projects yet: the centre says to open or create one (#3597)');
+  say(/Open or create a project to get started/.test((await paintAs(false, false)) || ''), 'before the first read: the same sentence (#3597)');
   say((await paintAs(true, true)) === null, 'after a failed read, rail open: silence beside the rail\'s own message');
 
   // open a project: the sentence goes
@@ -217,6 +239,9 @@ const path = require('path');
     const headerTR = (o) => o && typeof o === 'object' && o.topGap >= -2 && o.topGap <= 44 && o.rightGap >= -2 && o.rightGap <= 44;
     say(headerTR(va.tasks), '#3218: Tasks View All sits in the header, top-right', JSON.stringify(va.tasks));
     say(headerTR(va.files), '#3218: Files View All sits in the header, top-right', JSON.stringify(va.files));
+    consHdr = await hdr();
+    if (process.env.KOSMOS_SHOTS) await pg.screenshot({ path: path.join(process.env.KOSMOS_SHOTS, '3756-consolidated-view.png') });
+    say(hdrShape(consHdr.tasks, true) && hdrShape(consHdr.files, false), '#3756: consolidated: Tasks and Files headers are title | small View All (| +) on one line', JSON.stringify(consHdr));
 
     /* #3304 (Josh 2026-09-19): the Tasks header reordered to TASKS | View All | +, so the + now
        sits to the RIGHT of the View All door (was to its left). Measured live, not from CSS text. */
@@ -299,8 +324,17 @@ const path = require('path');
     say(false, 'the board has a project to open (this check needs one)');
   }
 
-  // the tab view keeps the person's org chart and never shows the sentence
+  // #3756: the tab view's project page draws the same Tasks and Files headers as the consolidated one.
   await style('tabs');
+  await pg.goto(URL + '/?tab=projects', { waitUntil: 'networkidle' }); await settled(false);
+  await pg.evaluate(() => { const p = (PROJECTS || []).find((x) => x.name === 'Consolidated check'); if (p) openProject(p.id); });
+  await pg.waitForTimeout(600);
+  const tabHdr = await hdr();
+  say(hdrShape(tabHdr.tasks, true) && hdrShape(tabHdr.files, false), '#3756: tab view: Tasks and Files headers are title | small View All (| +) on one line', JSON.stringify(tabHdr));
+  say(!!consHdr && tabHdr.tasks.vaFont === consHdr.tasks.vaFont && tabHdr.files.vaFont === consHdr.files.vaFont && tabHdr.tasks.plus === consHdr.tasks.plus,
+    '#3756: the tab view\'s View All and + are the consolidated view\'s sizes', JSON.stringify({ tab: tabHdr, cons: consHdr }));
+  if (process.env.KOSMOS_SHOTS) await pg.screenshot({ path: path.join(process.env.KOSMOS_SHOTS, '3756-tab-view.png') });
+  // the tab view keeps the person's org chart and never shows the sentence
   await pg.goto(URL + '/?tab=agents', { waitUntil: 'networkidle' }); await settled(false);
   say(!(await pg.evaluate(() => document.body.classList.contains('consolidated'))), 'tabs: the consolidated view is down');
   say(await up('#orgview'), 'tabs, agents left on org: the org chart is painted');

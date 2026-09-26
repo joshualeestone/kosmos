@@ -1,143 +1,136 @@
 'use strict';
 
 /**
- * The all-tasks screen (#1382).
+ * The project View-all door (#1382), since #3703 opening the Tasks view scoped to its project.
  *
- * Josh: *"for tasks, i want to see a view of them in a list form basically"*,
- * answering his earlier *"where I can see ALL of the tasks"*.
+ * Josh (#1382): *"for tasks, i want to see a view of them in a list form basically"*, answering
+ * his earlier *"where I can see ALL of the tasks"*. #3703 retired the separate all-tasks screen
+ * for the Tasks view (#3559): ONE list screen, Mona's mock.
  *
- * 🔑 THE CLAIM THIS FILE EXISTS FOR is the one the card made a requirement:
- * *"the count in the button matches the number of rows on the screen... do not
- * ship a second count that can disagree with its own destination."*
- * That is #1346, whose cause was one number from the data and another from a
- * document-wide DOM query. Here it is guaranteed by construction instead:
- * there is no count on the door at all, and the screen's own count and its
- * rows are the same array.
+ * 🔑 WHAT THE OLD SCREEN GUARANTEED, AND WHERE EACH GUARANTEE LIVES NOW (asserted below, not
+ * assumed to have moved):
+ *   - #1346, one array: the count and the rows cannot disagree. The Tasks view's sub-line count
+ *     and its groups are both taken from `scoped`.
+ *   - an unreadable read is SAID, never shown as an empty list (tskLoad sets TSK.error).
+ *   - #2498, the door is per-project: it scopes the view to PJ_CURRENT.
+ *   - a row opens its task on ITS OWN project (tskOpenTask goes to t.projectId).
+ *   - closed tasks stay reachable per project: the door opens with the window at All.
+ *   - the door carries no count (#1346's second number).
  */
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
+const path = require('node:path');
+const page = require('./test-support/page');
 
-const PAGE = fs.readFileSync(process.env.PLUS_PAGE || 'web/index.html', 'utf8');
+const PAGE = fs.readFileSync(process.env.PLUS_PAGE || path.join(__dirname, 'web', 'index.html'), 'utf8');
+const SCRIPT = page.scriptOf(PAGE);
+const body = (name) => {
+  const at = SCRIPT.search(new RegExp('(?:async )?function ' + name + '\\('));
+  assert.ok(at > -1, name + ' is gone; update this test');
+  return SCRIPT.slice(at, SCRIPT.indexOf('\n}\n', at) + 2);
+};
 
-test('#1382: the screen exists and is one of the project views', () => {
-  assert.match(PAGE, /<div id="pj-alltasks-view" hidden>/, 'the screen is gone');
-  for (const id of ['alltasks-back', 'alltasks-count', 'alltasks-list', 'alltasks-msg']) {
-    assert.ok(PAGE.includes('id="' + id + '"'), `the screen lost #${id}`);
+test('#3703: the old all-tasks screen is gone, and nothing still points at it', () => {
+  assert.ok(!PAGE.includes('id="pj-alltasks-view"'), 'the retired screen is back');
+  for (const id of ['alltasks-back', 'alltasks-count', 'alltasks-list', 'alltasks-msg', 'alltasks-desc']) {
+    assert.ok(!PAGE.includes(id), `#${id} still appears in the page`);
   }
-  const loop = PAGE.match(/for \(const v of \['list', 'one',([^\]]*)\]\)/);
-  assert.ok(loop, 'the project-view loop is gone');
-  assert.match(loop[0], /'alltasks'/,
-    'the screen is not registered as a view, so opening it leaves another one on top of it');
+  assert.ok(!SCRIPT.includes('openAllTasksView'), 'the old screen\'s opener is still in the script');
+  for (const m of SCRIPT.matchAll(/for \(const v of \[([^\]]*)\]\)/g)) {
+    assert.doesNotMatch(m[1], /'alltasks'/, 'a project-view loop still lists the retired screen');
+  }
+  // CONTROL: the same loop pattern does find the project views, so the negative above is not vacuous.
+  assert.ok([...SCRIPT.matchAll(/for \(const v of \[([^\]]*)\]\)/g)].some((m) => /'docs'/.test(m[1])), 'the view-loop pattern matches nothing; update this test');
 });
 
-test('#1382: the door is unconditional and carries no count', () => {
-  assert.match(PAGE, /door\.textContent = 'View All'/, 'the door lost its label');
-  /* CONTROL for the negative below: the forbidden pattern must be able to match
-     a counted door, or the assertion could never fail. */
+test('#1382 + #3703: the door opens the Tasks view scoped to THIS project, unconditional and uncounted', () => {
+  assert.match(SCRIPT, /getElementById\('pj-alltasks'\)\.addEventListener\('click', \(\) => openProjectTasks\(PJ_CURRENT\)\)/,
+    'the door no longer opens the Tasks view for the current project');
+  assert.match(SCRIPT, /door\.textContent = 'View All'/, 'the door lost its label');
   const OLD = "    door.textContent = 'View All (' + all.length + ')';";
-  assert.match(OLD, /door\.textContent = 'View All \(' \+/,
-    'the forbidden pattern cannot match a counted door, so the assertion below is vacuous');
-  /* #2498 scoped the destination to the current project, so a per-project count
-     could now agree with it - but adding one was out of this card's scope, so
-     the door still carries no count. This still guards the #1346 rule: no count
-     was reintroduced on the door. (#2711 item 12 relabelled it "View All".) */
-  assert.doesNotMatch(PAGE, /door\.textContent = 'View All \(' \+/,
-    'a per-project count is back on the door');
+  assert.match(OLD, /door\.textContent = 'View All \(' \+/, 'the forbidden pattern cannot match a counted door (control)');
+  assert.doesNotMatch(SCRIPT, /door\.textContent = 'View All \(' \+/, 'a count is back on the door (#1346)');
 });
 
-/**
- * 🛑 THE ONE-ARRAY GUARANTEE, ASSERTED ON THE SOURCE THAT PROVIDES IT.
- *
- * A comment saying "these come from the same array" cannot fail. This reads the
- * two lines that render the count and the rows and requires both to be built
- * from `rows`.
- */
-test('#1382: the count and the rows are the same array, so they cannot disagree', () => {
-  const fn = PAGE.slice(PAGE.indexOf('async function openAllTasksView'));
-  const body = fn.slice(0, fn.indexOf('\n}\n'));
-  assert.ok(body.length > 200, 'openAllTasksView is gone or unrecognisable, so nothing below is a test');
-  assert.match(body, /const rows = \(body && body\.tasks\) \|\| \[\];/,
-    'the rows no longer come from one place');
-  assert.match(body, /count\.textContent = rows\.length/,
-    'the count is no longer taken from the rows it sits above');
-  assert.match(body, /list\.innerHTML = rows\.map\(/,
-    'the rows are no longer rendered from the same array the count was taken from');
+/* openProjectTasks, run for real on the lifted source with a stub world. */
+function harness({ consolidated }) {
+  const calls = [];
+  const els = { 'tsk-search': { value: 'left over' }, 'tsk-qclear': { hidden: false } };
+  const document = {
+    getElementById: (id) => els[id] || null,
+    body: { classList: { contains: (c) => c === 'consolidated' && consolidated } },
+  };
+  const TSK = { proj: 'other', projHint: null, win: 7, tile: 'closed', q: 'left over', by: 'project', sort: 'stale' };
+  const PROJECTS = [{ id: 'p1', name: 'Spring launch' }];
+  const run = new Function('document', 'TSK', 'pjById', 'showTab', 'openConsolidatedTasks',
+    body('openProjectTasks') + '\nreturn openProjectTasks;')(
+    document, TSK, (id) => PROJECTS.find((p) => p.id === id) || null,
+    (t) => calls.push('showTab:' + t), () => calls.push('openConsolidatedTasks'));
+  return { run, TSK, els, calls };
+}
+
+test('#3703: a door is a fresh look at its project: scope set, window All, search and tile cleared, Group by and Sort kept', () => {
+  const h = harness({ consolidated: false });
+  h.run('p1');
+  assert.equal(h.TSK.proj, 'p1');
+  assert.deepEqual(h.TSK.projHint, { id: 'p1', name: 'Spring launch' }, 'an empty project would lose its name');
+  assert.equal(h.TSK.win, 0, 'a remembered window would hide tasks the door promises (closed ones included)');
+  assert.equal(h.TSK.tile, null);
+  assert.equal(h.TSK.q, '');
+  assert.equal(h.els['tsk-search'].value, '', 'the search box still shows the old words while the filter is cleared');
+  assert.equal(h.els['tsk-qclear'].hidden, true);
+  assert.equal(h.TSK.by, 'project', 'Group by is the person\'s own and must survive a door');
+  assert.equal(h.TSK.sort, 'stale', 'Sort is the person\'s own and must survive a door');
+  assert.deepEqual(h.calls, ['showTab:tasks']);
 });
 
-test('#1382: an unreadable answer is SAID, never shown as an empty list', () => {
-  const fn = PAGE.slice(PAGE.indexOf('async function openAllTasksView'));
-  const body = fn.slice(0, fn.indexOf('\n}\n'));
-  /* "No tasks anywhere yet" is a claim about somebody's own work. Serving it
-     when the read failed is the quietest way to say something false, which is
-     the failure /api/projects carries its own guard against. */
-  assert.match(body, /catch \(err\) \{[\s\S]*msg\.textContent = String/,
-    'a failed read no longer says anything, so it will render as "no tasks"');
-  assert.match(body, /if \(!rows\.length\)/, 'the genuinely-empty case is gone');
-  /* #2498 scoped this door to the current project, so the empty copy reads
-     "on this project" rather than "on any project yet". The guarantee is
-     unchanged: the empty state SAYS something and is reachable only AFTER the
-     error catch, so a failed read never renders as "no tasks". */
-  assert.match(body, /No tasks on this project yet/, 'the empty state lost its words');
-  const emptyAt = body.indexOf('No tasks on this project yet');
-  const catchAt = body.indexOf('catch (err)');
-  assert.ok(catchAt > -1 && emptyAt > catchAt,
-    'the empty state is reachable before the error is handled, so a failed read can render as "no tasks"');
+test('#3703: in the consolidated layout the door opens Tasks in the display column, not the tab view', () => {
+  const h = harness({ consolidated: true });
+  h.run('p1');
+  assert.deepEqual(h.calls, ['openConsolidatedTasks']);
 });
 
-test('#2498: the door carries the current project into its fetch, not the global set', () => {
-  const fn = PAGE.slice(PAGE.indexOf('async function openAllTasksView'));
-  const body = fn.slice(0, fn.indexOf('\n}\n'));
-  assert.match(body, /\?project=' \+ encodeURIComponent\(PJ_CURRENT\)/,
-    'the door no longer scopes its fetch to the current project, so it lists every project again (#2498)');
-  /* CONTROL: the pre-fix unscoped fetch, which must be gone. It can match the
-     line it came from, so the negative below is not vacuous. */
-  const OLD = "    const r = await fetch('/api/tasks', { cache: 'no-store' });";
-  assert.match(OLD, /fetch\('\/api\/tasks', \{/, 'the forbidden pattern cannot match its origin line, so the assertion below is vacuous');
-  assert.doesNotMatch(body, /fetch\('\/api\/tasks', \{/,
-    'the door fetches the UNSCOPED /api/tasks again, which is the #2498 bug');
+test('#3703: the scope a door sets survives the paint before the first read', () => {
+  const fn = body('tskPaint');
+  assert.match(fn, /if \(TSK\.data && TSK\.proj && !projMap\.has\(TSK\.proj\)\) TSK\.proj = null;/,
+    'the scope can be dropped before any data is read, which loses the door\'s project');
+  // CONTROL: the pre-fix line (no data guard) is a different line, so the match above can fail.
+  assert.doesNotMatch('  if (TSK.proj && !projMap.has(TSK.proj)) TSK.proj = null;', /if \(TSK\.data && TSK\.proj/);
+  assert.match(fn, /TSK\.projHint && TSK\.projHint\.id === TSK\.proj\s*&& PROJECTS\.some\(\(x\) => x && x\.id === TSK\.proj\)\)/,
+    'the hint keeps a deleted project as the scope forever, or a door to an empty project falls back to All tasks');
 });
 
-test('#1382: a row opens its task on ITS OWN project, not the one we came from', () => {
-  assert.match(PAGE, /data-project="' \+ esc\(t\.projectId\)/,
-    'a row no longer carries its project, so a cross-project row opens the wrong task');
-  assert.match(PAGE, /if \(pid && pid !== PJ_CURRENT\) \{ PJ_CURRENT = pid; \}/,
-    'clicking a row from another project no longer switches to it first');
+test('#1346 on the new destination: the count and the rows come from the same scoped array', () => {
+  const fn = body('tskPaint');
+  assert.match(fn, /const scoped = tskScoped\(all, TSK, now\);/);
+  assert.match(fn, /const open = scoped\.filter\(\(t\) => t\.state !== 'closed'\);/);
+  assert.match(fn, /getElementById\('tsk-sub'\)\.textContent = [\s\S]{0,80}open\.length/, 'the count is not taken from the scoped rows');
+  assert.match(fn, /const shown = TSK\.tile \? scoped\.filter/, 'the rows are not taken from the same scoped array');
 });
 
-test('#1382: the count says "still open" only when it has something to say', () => {
-  const fn = PAGE.slice(PAGE.indexOf('async function openAllTasksView'));
-  const body = fn.slice(0, fn.indexOf('\n}\n'));
-  /* "5 tasks, 5 still open" spends four words repeating the first two. The
-     Documents screen one over has the same convention: "N files", and a page
-     count only when there is more than one page. */
-  assert.match(body, /live < rows\.length \?/,
-    'the second clause is unconditional again, so a list with nothing finished reads "5 tasks, 5 still open"');
-  const UNCONDITIONAL = "  count.textContent = rows.length + ' tasks, ' + live + ' still open.';";
-  assert.doesNotMatch(UNCONDITIONAL, /live < rows\.length \?/,
-    'the pattern matches a line that has no condition in it, so the assertion above proves nothing');
+test('#1382 on the new destination: an unreadable read is said, and a row opens its task on its own project', () => {
+  const load = body('tskLoad');
+  // A good read clears only the error line it left, never a "Closed N" or "Added task N" line.
+  assert.match(load, /if \(TSK\.error && msg && msg\.textContent === asSentence\(TSK\.error\)\) msg\.textContent = '';/);
+  assert.match(load, /TSK\.error = String\(body\.error \|\| 'we could not read your tasks just now'\)/);
+  assert.match(load, /msg\.textContent = asSentence\(TSK\.error\)/, 'a failed read would render as an empty list');
+  assert.match(body('tskOpenTask'), /tskGoToProject\(t\.projectId\)/, 'a row would open its task on the wrong project');
 });
 
-/**
- * #1196 arrives at a new screen, and it does not arrive by itself.
- *
- * 🛑 A NEW PROJECT VIEW DOES NOT INHERIT THE CONSOLIDATED LAYOUT'S TREATMENT BY
- * EXISTING. Every sibling that scrolls is named explicitly in four rule groups,
- * and I shipped this screen into none of them. Josh's #1196 complaint was
- * precisely the scrollbar those rules hide: "The project settings tab itself is
- * quite a mess. It has a horizontal or vertical scroll bar in the middle of the
- * page."
- *
- * ⇒ Found by asking what ELSE answers this question for the other views, not by
- * re-reading my own diff.
- */
-test('#1382: the screen is named in the consolidated layout rules, like its siblings', () => {
-  const mine = (PAGE.match(/body\.consolidated #pj-alltasks-view/g) || []).length;
-  const docs = (PAGE.match(/body\.consolidated #pj-docs-view/g) || []).length;
-  /* CONTROL: the sibling must have them, or the count below means nothing and
-     the whole convention has been removed rather than missed. */
-  assert.ok(docs >= 4, `the documents screen has only ${docs} consolidated rules, so this convention is gone and this test is measuring nothing`);
-  assert.ok(mine >= 4, `the all-tasks screen has ${mine} consolidated rules against the documents screen's ${docs}`);
-  assert.match(PAGE, /#pj-alltasks-view::-webkit-scrollbar/,
-    'the screen shows a scrollbar in the consolidated view, which is the #1196 complaint');
+test('#3703: an archived project\'s own door still lists its tasks; no other archived project shows', () => {
+  const load = body('tskLoad');
+  assert.match(load, /const door = TSK\.proj && TSK\.projHint && TSK\.projHint\.id === TSK\.proj \? TSK\.proj : null;/,
+    'a rail pick is treated as a door, so a project archived after it was picked stays listed');
+  assert.match(load, /'&withArchived=' \+ encodeURIComponent\(door\)/,
+    'the read does not name the door\'s project, so an archived project\'s door shows nothing');
+  const tskVisible = new Function(body('tskVisible') + '\nreturn tskVisible;')();
+  const rows = [
+    { projectId: 'live', projectArchived: false },
+    { projectId: 'arch', projectArchived: true },
+    { projectId: 'other-arch', projectArchived: true },
+  ];
+  assert.deepEqual(tskVisible(rows, null).map((t) => t.projectId), ['live']);
+  assert.deepEqual(tskVisible(rows, 'arch').map((t) => t.projectId), ['live', 'arch']);
+  assert.deepEqual(tskVisible(null, 'arch'), []);
 });

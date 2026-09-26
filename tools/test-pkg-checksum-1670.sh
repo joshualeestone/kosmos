@@ -17,6 +17,10 @@
 # without it would make the pkg path no better than `curl | sh`, which is the
 # whole argument for the card.
 set -u
+# #3578: prefer the system /usr/bin/python3 (what CI has always used), but fall back to python3 on
+# PATH when that shim cannot run -- on a Mac whose Xcode license is unaccepted it exits 69 on every call.
+PY3=/usr/bin/python3; "$PY3" -c '' >/dev/null 2>&1 || PY3=python3
+"$PY3" -c '' >/dev/null 2>&1 || { echo "FAIL  no runnable python3: /usr/bin/python3 and python3 on PATH both failed to start (the /usr/bin shim exits 69 until the Xcode license is accepted, #3578)"; exit 1; }
 HERE="$(cd "$(dirname "$0")" && pwd)"
 REPO="$(cd "$HERE/.." && pwd)"
 T="$(mktemp -d)"; trap 'rm -rf "$T"; [ -n "${SRV:-}" ] && kill "$SRV" 2>/dev/null' EXIT
@@ -27,7 +31,7 @@ has() { case "$1" in *"$2"*) return 0;; *) return 1;; esac; }
 
 # --- lift the verification out of the shipped postinstall -------------------
 INNER="$T/inner.sh"
-/usr/bin/python3 - "$REPO/install/pkg-scripts/postinstall" "$INNER" <<'PY'
+"$PY3" - "$REPO/install/pkg-scripts/postinstall" "$INNER" <<'PY'
 import re, sys
 src, out = sys.argv[1], sys.argv[2]
 s = open(src, encoding="utf-8").read()
@@ -45,7 +49,7 @@ WWW="$T/www"; mkdir -p "$WWW"
 printf '#!/bin/sh\ntouch "%s/RAN"\n' "$T" > "$WWW/setup"
 GOOD=$(/usr/bin/shasum -a 256 "$WWW/setup" | /usr/bin/awk '{print $1}')
 cd "$WWW" || exit 1
-/usr/bin/python3 -u -m http.server 0 -b 127.0.0.1 >"$T/srv.log" 2>&1 &
+"$PY3" -u -m http.server 0 -b 127.0.0.1 >"$T/srv.log" 2>&1 &
 SRV=$!
 cd "$REPO" || exit 1
 # ⚠️ POLL, DO NOT SLEEP A FIXED SECOND. A fixed sleep is a race that fails on a
@@ -111,7 +115,7 @@ kill "$SRV" 2>/dev/null; wait "$SRV" 2>/dev/null; SRV=""
 CNT="$T/sha_hits"; : > "$CNT"
 # bind + report the port, then serve (wrong sha on the 1st fetch, right after)
 FLIPLOG="$T/flip.log"
-/usr/bin/python3 - "$GOOD" "$CNT" "$WWW" "$FLIPLOG" <<'PY' &
+"$PY3" - "$GOOD" "$CNT" "$WWW" "$FLIPLOG" <<'PY' &
 import http.server, sys
 GOOD, CNT, ROOT, LOG = sys.argv[1], sys.argv[2], sys.argv[3], sys.argv[4]
 BAD = "0"*64
@@ -149,7 +153,7 @@ fi
 # --- CONTROL: the harness can tell a run from a refusal --------------------
 kill "$SRV" 2>/dev/null; wait "$SRV" 2>/dev/null; SRV=""
 cd "$WWW" || exit 1
-/usr/bin/python3 -u -m http.server 0 -b 127.0.0.1 >"$T/srv.log" 2>&1 &
+"$PY3" -u -m http.server 0 -b 127.0.0.1 >"$T/srv.log" 2>&1 &
 SRV=$!
 cd "$REPO" || exit 1
 PORT=""

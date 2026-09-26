@@ -2,7 +2,7 @@
 
 /**
  * #2497 (Josh, 2026-09-08, watching an external tester): onboarding no longer auto-scans or
- * auto-imports. First run ALWAYS lands on the no-agent "Create your first agent." / "Giddy Up"
+ * auto-imports. First run ALWAYS lands on the one "Giddy Up" ending (SETUP COMPLETE since #3659)
  * screen, whatever the engine's path (adopt/create/unknown) or fleetCount, and fires NO discovery.
  *
  *   node --test web.found-every-path-1493.test.js
@@ -37,7 +37,7 @@ const BODY = lift(SCRIPT, 'frFoundOffer') + '\n' + lift(SCRIPT, 'frScanOffer') +
 
 /* ⚠️ THIS HARNESS LIFTS frPaintFleet OUT OF ITS MODULE (Splinter, 2026-09-02): it measures the
    branch logic, not the wired page. The real first-run landing is covered on the actual document
-   by render-first-run.js. `frActions`'s `go` closure (() => frFinish(openCreate)) is created but
+   by render-first-run.js. `frActions`'s `go` closure (() => frFinish(() => showTab('agents')) since #3575) is created but
    never invoked here, so frFinish/openCreate need not be injected. */
 function paint(FR, FR_FOUND, FR_SCAN, FR_SCAN_INFLIGHT) {
   const scan = FR_SCAN === undefined ? { ok: true, candidates: [] } : FR_SCAN;
@@ -62,8 +62,8 @@ function paint(FR, FR_FOUND, FR_SCAN, FR_SCAN_INFLIGHT) {
 /** Every discovery/found stub the onboarding auto-import used; NONE may fire on first run now. */
 const DISCOVERY = ['SEARCH', 'SCAN-SEARCH', 'PAINT-FOUND', 'PAINT-SCAN', 'ARM-RESCAN'];
 function assertGiddyUpNoScan(r, where) {
-  assert.equal(r.title, 'Create your first agent.', `${where}: first run did not land on the create heading`);
-  assert.match(r.box, /Let’s get started\./, `${where}: the Giddy Up copy is gone`);
+  assert.equal(r.title, 'You’re ready to start using Kosmos.', `${where}: first run did not land on the #3575 start-using-Kosmos heading`);
+  assert.match(r.box, /Head to your dashboard to create or import agents/, `${where}: the Giddy Up copy is gone (#3659)`);
   assert.ok(r.calls.includes('actions'), `${where}: the Giddy Up action was not rendered (calls: ${r.calls})`);
   for (const d of DISCOVERY) {
     assert.ok(!r.calls.includes(d), `${where}: onboarding still runs discovery (${d}) on first run (calls: ${r.calls})`);

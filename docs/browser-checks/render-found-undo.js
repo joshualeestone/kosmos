@@ -4,11 +4,11 @@
  * This check drove the first-run Screen 9 found-agents list and pressed Add/Undo on its rows.
  * #2497 (Josh, 2026-09-08, watching an external tester) removed the found-agents list from onboarding:
  * a developer's many tmux Claude Code sessions filled first run with garbage agents. First run now
- * ALWAYS lands on the no-agent "Create your first agent." / Giddy Up screen, so no found rows (and
+ * ALWAYS lands on the no-agent Giddy Up screen (#3575 heading "You're ready to start using Kosmos."), so no found rows (and
  * no Add/Undo controls) render on first-run S9, whatever discovery returns.
  *
  * This check now guards the SUPPRESSION: fed found agents (including the folder-name-differs case
- * that the original guarded), first-run S9 must show the create / Giddy Up screen with NO found
+ * that the original guarded), first-run S9 must show the Giddy Up screen with NO found
  * rows and must not auto-connect/decline anything. The found-agents engine is kept-but-bypassed
  * (per the card); a user pulls real agents in later via the manual Import Agent (#1652) on the
  * Create Agent screen.
@@ -80,8 +80,8 @@ const FOUND = {
     undoButtons: document.querySelectorAll('#fr-fleet .fr-foundundo').length,
   }));
 
-  check('first run shows the create heading (not a found list)', /create your first agent/i.test(view.title), JSON.stringify(view.title));
-  check('the Giddy Up copy is present', /let’s get started/i.test(view.box), view.box.slice(0, 120));
+  check('first run shows the Giddy Up heading (not a found list)', /ready to start using Kosmos/i.test(view.title), JSON.stringify(view.title));
+  check('the Giddy Up copy is present', /create or import agents/i.test(view.box), view.box.slice(0, 120));
   check('no found rows render on first run', view.foundRows === 0, `foundRows=${view.foundRows}`);
   check('no Add or Undo controls render', view.addButtons === 0 && view.undoButtons === 0,
     `add=${view.addButtons} undo=${view.undoButtons}`);

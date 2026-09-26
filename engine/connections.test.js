@@ -37,13 +37,30 @@ test('#1034: the block tells the agent it cannot see the screen, which is the wh
   assert.match(body, /Do not guess and do not describe a button as though you/);
 });
 
-test('#1034: it names only the two providers that can actually be connected today', () => {
+test('#1034/#3566: it names the providers that can be connected today and says the rest cannot', () => {
   const body = connections.blockBody();
   assert.match(body, /Claude Code/);
   assert.match(body, /Codex/);
   /* And it says plainly that the coming-soon ones cannot be chosen, because
      "it is in the menu" is exactly what would send somebody hunting. */
   assert.match(body, /coming soon and cannot be chosen yet/);
+  /* #3566: Gemini and Grok are connectable with a key, and must not be in the
+     coming-soon list. Read as one line, because the block wraps sentences. */
+  const flat = body.replace(/\s+/g, ' ');
+  assert.match(flat, /Google Gemini and xAI Grok can be\s+connected too: Gemini with an API key or a Google subscription, Grok with\s+an API key or an xAI subscription/);
+  // #3568: how Gemini's subscription is set up is said, with Google's own installer.
+  assert.match(flat, /Gemini on a Google subscription runs on Google's Antigravity, on a Mac \(not\s+on Windows yet\)/);
+  assert.match(flat, /Kosmos\s+installs it from Google when the person presses Install Antigravity/);
+  assert.doesNotMatch(flat, /into Terminal/, 'a person is never told to open a Terminal (#996)');
+  /* #3713: Kosmos installs Gemini's and Grok's terminal agents on a Mac and on Windows, so the
+     guide must not tell an agent they have to be there already, which would send a person off
+     to install one. */
+  assert.doesNotMatch(flat, /does not install their terminal/);
+  assert.doesNotMatch(flat, /On Windows it does not install/);
+  assert.match(flat, /Kosmos installs them the same way, on a Mac and on Windows/);
+  const soon = flat.match(/[^.]*marked coming soon[^.]*\./);
+  assert.ok(soon, 'CONTROL: the coming-soon sentence must be found, or the next check proves nothing');
+  assert.doesNotMatch(soon[0], /Gemini|Grok/, 'Gemini or Grok is still listed as coming soon: ' + soon[0]);
 });
 
 test('#1034: it carries NO machine state, which is the line between part one and part two', () => {

@@ -244,6 +244,76 @@ const CODEX_IDLE = `╭───────────────────
 const CODEX_WORKING = `• Reconnecting... 4/5 (4s • esc to interrupt)
   └ Unexpected status 401 Unauthorized`;
 
+/* #3723: Codex's out-of-usage / out-of-credits messages (read from Codex's own program text; see
+   CODEX_LIMIT_MARKERS). Codex prints the message and then redraws its empty prompt under it, which
+   on its own reads as idle. */
+const CODEX_OUT_OF_CREDITS = `• You've hit your usage limit. Visit https://chatgpt.com/codex/settings/usage to purchase more credits
+  or try again at 4:10 PM.
+
+› Ask Codex to do anything
+  gpt-5.6-sol default · /private/tmp/somewhere`;
+
+test('#3723: a Codex pane showing its usage-limit message is rate_limited, with the message as evidence, not idle', () => {
+  const r = classify(pane({ command: 'node', runner: 'codex' }), CODEX_OUT_OF_CREDITS);
+  assert.equal(r.state, 'rate_limited');
+  assert.match(r.evidence, /You've hit your usage limit\. Visit https:\/\/chatgpt\.com\/codex\/settings\/usage/);
+  assert.equal(r.limitFrom, 'codex');
+  const ws = classify(pane({ command: 'node', runner: 'codex' }), "  Your workspace is out of credits. Ask your workspace owner to add more.\n› Ask Codex to do anything");
+  assert.equal(ws.state, 'rate_limited');
+  // CONTROL: the same prompt without the message is idle.
+  assert.equal(classify(pane({ command: 'node', runner: 'codex' }), CODEX_IDLE).state, 'idle');
+});
+
+test('#3723: an old limit line further up the scrollback does not hold a recovered Codex agent', () => {
+  const later = Array.from({ length: 14 }, (_, i) => `  line ${i} of the next answer`).join('\n');
+  const r = classify(pane({ command: 'node', runner: 'codex' }), `• You've hit your usage limit. Upgrade to Plus to continue using Codex\n${later}\n› Ask Codex to do anything`);
+  assert.equal(r.state, 'idle');
+});
+
+test('#3723: the quoted message is Codex\'s sentence alone, never its prompt or footer (real sentences end without a full stop)', () => {
+  const screen = "■ You've hit your usage limit. Visit https://chatgpt.com/codex/settings/usage to purchase more credits\n\n› Ask Codex to do anything\n  gpt-5-codex high · 62% context left · ~/secret-project";
+  const r = classify(pane({ command: 'node', runner: 'codex' }), screen);
+  assert.equal(r.state, 'rate_limited');
+  assert.equal(r.evidence, "You've hit your usage limit. Visit https://chatgpt.com/codex/settings/usage to purchase more credits");
+  const noBlank = classify(pane({ command: 'node', runner: 'codex' }), "• You've hit your usage limit. Upgrade to Plus to continue using Codex (https://chatgpt.com/explore/plus),\n› Ask Codex to do anything\n  gpt-5.6-sol default · /Users/josh/secret-project");
+  assert.doesNotMatch(noBlank.evidence, /Ask Codex|secret-project/);
+  // It still reaches the DM line and the manager (the footer's "context left" must not suppress it).
+  const { accountProblemOf } = require('./accountproblem');
+  const p = accountProblemOf({ state: r.state, runner: 'codex', name: 'Cx', stateEvidence: r.evidence });
+  assert.ok(p, 'the headline case produced no account line');
+  assert.doesNotMatch(p.text, /context left|secret-project/);
+});
+
+test('#3723: an answer or a tool line that merely mentions the phrase is not a limit', () => {
+  const answer = classify(pane({ command: 'node', runner: 'codex' }), `• I added a marker for Codex's message "You've hit your usage limit" so the board shows it.\n› Ask Codex to do anything`);
+  assert.equal(answer.state, 'idle', 'an agent talking about the feature read as out of credits');
+  const midRow = classify(pane({ command: 'node', runner: 'codex' }), "• Done. The fix handles You've hit your usage limit screens.\n› Ask Codex to do anything");
+  assert.equal(midRow.state, 'idle');
+  const tool = classify(pane({ command: 'node', runner: 'codex' }), "  └ engine/status.js:1575: /You've hit your usage limit/i\n› Ask Codex to do anything");
+  assert.equal(tool.state, 'idle', 'a search result read as out of credits');
+});
+
+test('#3723: a short reply after the limit ends it (the person fixed it and the agent carried on)', () => {
+  const r = classify(pane({ command: 'node', runner: 'codex' }), `• You've hit your usage limit. Visit https://chatgpt.com/codex/settings/usage to purchase more credits\n› continue\n• Done.\n› Ask Codex to do anything\n  gpt-5.6-sol default`);
+  assert.equal(r.state, 'idle');
+});
+
+test('#3723: a live Codex turn beats a limit line (it is working, not stopped)', () => {
+  const r = classify(pane({ command: 'node', runner: 'codex' }), `• You've hit your usage limit for GPT-5.\n${CODEX_WORKING}`);
+  assert.equal(r.state, 'working');
+});
+
+test('#3723: Codex automatic end-of-turn idle does not hide a Codex limit, but an agent\'s own report still wins', () => {
+  const now = T0 + 5000;
+  const scraped = { state: 'rate_limited', confidence: 'scraped', because: 'x', evidence: 'You\'ve hit your usage limit.', limitFrom: 'codex' };
+  const auto = reconcileReport(rep('idle', { by: 'auto' }), scraped, now);
+  assert.equal(auto.state, 'rate_limited', 'Codex\'s own turn-ended idle hid the limit');
+  const agent = reconcileReport(rep('idle', { by: 'agent' }), scraped, now);
+  assert.equal(agent.state, 'idle', 'CONTROL: an agent\'s own fresh report still wins, as for Claude');
+  const claude = reconcileReport(rep('idle', { by: 'auto' }), { ...scraped, limitFrom: undefined }, now);
+  assert.equal(claude.state, 'idle', 'CONTROL: a Claude limit still gives way to a fresh report, unchanged');
+});
+
 test('#246: the recorded runner reaches the board row, and absent means claude', () => {
   const { setPaneSource, setPaneCapture, snapshot } = require('./status');
   try {
@@ -575,6 +645,30 @@ test('no output and empty output both yield an empty roster, not a crash', () =>
   assert.deepEqual(parsePanes(null), []);
   assert.deepEqual(parsePanes(''), []);
   assert.deepEqual(parsePanes('\n\n'), []);
+});
+
+test('#3568: an agy pane in one of our sessions is an agent session; the same command in a stranger\'s session is not', () => {
+  const [ours] = parsePanes('agyk-discord\t0.0\tagy\t0\t');
+  assert.equal(isAgentSession(ours), true, 'a Kosmos Antigravity pane (command agy) was not recognised, so nothing could be typed into it');
+  const [stranger] = parsePanes('agyk\t0.0\tagy\t0\t');
+  assert.equal(isAgentSession(stranger), false, "a person's own agy session was claimed as ours");
+  const [lookalike] = parsePanes('agyk-discord\t0.0\tagy2\t0\t');
+  assert.equal(isAgentSession(lookalike), false, 'only the literal agy command counts');
+});
+
+test('#3568: classify reads a running agy pane as unknown (not stopped), and a shell in its place as stopped, naming Antigravity', () => {
+  const up = classify(pane({ command: 'agy', runner: 'antigravity' }), 'anything on screen\n> ');
+  assert.equal(up.state, 'unknown', 'a live Antigravity agent read as ' + up.state);
+  assert.doesNotMatch(up.because, /Claude/);
+  const down = classify(pane({ command: '-zsh', runner: 'antigravity' }), '$ ');
+  assert.equal(down.state, 'stopped');
+  assert.match(down.because, /Antigravity is not running/);
+  // An agy pane read before its runner tag lands is still Antigravity, never "Claude is not running".
+  const untagged = classify(pane({ command: 'agy' }), '> ');
+  assert.equal(untagged.state, 'unknown');
+  assert.match(untagged.because, /Antigravity/);
+  // Control: a plain shell with no tag is still stopped, the Claude way.
+  assert.equal(classify(pane({ command: 'zsh' }), '> ').state, 'stopped');
 });
 
 test('a session that merely shares an agent name is not one of our agents', () => {
@@ -4649,6 +4743,43 @@ test('#1898: countAgents tallies needsYouUnattributed = needs_you agents that na
   const attributed = countAgents([A(STATE.NEEDS_YOU, 'p-1'), A(STATE.NEEDS_YOU, 'p-2')], 0);
   assert.equal(attributed.needsYou, 2, 'both are needs_you');
   assert.equal(attributed.needsYouUnattributed, 0, 'all attributed -> zero unattributed');
+});
+
+/* #3410/#3718 (Mona Lisa, 2026-09-25): the Issue tile counts every card that needs the person:
+   needs_you, needs_trust, and a connection Kosmos gave up reconnecting. A connection Kosmos is
+   still reconnecting is not counted (nothing for the person to do yet). */
+test('#3410/#3718: countAgents.needsYou counts needs_trust and a given-up connection, not one still reconnecting', () => {
+  const { countAgents } = require('./status');
+  const A = (state, extra) => Object.assign({ state, stateProject: null, paneless: false, context: { tokens: 100, percent: 50 } }, extra || {});
+  const c = countAgents([
+    A(STATE.NEEDS_YOU),
+    A('needs_trust'),
+    A('connection_lost', { reconnect: { phase: 'gave_up', tries: 3 } }),
+    A('connection_lost', { reconnect: { phase: 'waiting', tries: 0 } }),
+    A('connection_lost', { reconnect: { phase: 'retried', tries: 1 } }),
+    A('connection_lost', { reconnect: null }),
+    A(STATE.WORKING),
+  ], 0);
+  assert.equal(c.needsYou, 3, 'needs_you + needs_trust + given up');
+  assert.equal(c.needsYouUnattributed, 1, 'CONTROL: the no-project tile is still needs_you only');
+});
+
+/* #3718: needs_trust rows are built by the /api/status route AFTER countAgents runs (they are the
+   offline rows), so the route must add them with the same rule. A behavioural route test cannot
+   make one on a Mac (the trust probe is win32-gated, see server.trust-wait-offline-3013.test.js),
+   so this pins the route's source: the offline rows are counted into needsYou with needsPerson. */
+test('#3718: the /api/status route adds offline needs_trust rows to the Issue count with needsPerson', () => {
+  const src = require('fs').readFileSync(require('path').join(__dirname, '..', 'server.js'), 'utf8');
+  const at = src.indexOf('const counts = countAgents(agents');
+  assert.ok(at > -1, 'the route no longer counts with countAgents');
+  const region = src.slice(at, at + 6000); // the route's count block; the assertion names the exact statement
+  assert.match(region, /counts\.needsYou \+= offline\.filter\(\(a\) => !a\.isGuide\)\.filter\(needsPerson\)\.length;/,
+    'the route does not count offline needs_trust rows into the Issue tile, so the filter would show more than the tile says');
+  const { needsPerson } = require('./status');
+  assert.equal(needsPerson({ state: 'needs_trust' }), true);
+  assert.equal(needsPerson({ state: 'stopped' }), false, 'CONTROL: an ordinary offline row is not counted');
+  assert.equal(needsPerson({ state: 'connection_lost', reconnect: { phase: 'waiting' } }), false);
+  assert.equal(needsPerson(null), false);
 });
 
 /* #763: a reported needs_you carries the question's project onto the state,

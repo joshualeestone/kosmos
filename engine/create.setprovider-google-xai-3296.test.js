@@ -43,7 +43,8 @@ const CODEX_BIN = nodePath.join(BIN, 'codex');
 const GEMINI_BIN = nodePath.join(BIN, 'gemini');
 const GROK_BIN = nodePath.join(BIN, 'grok');
 const TMUX_BIN = nodePath.join(BIN, 'tmux');
-for (const b of [CLAUDE_BIN, CODEX_BIN, GEMINI_BIN, GROK_BIN, TMUX_BIN]) {
+const AGY_BIN = nodePath.join(BIN, 'agy'); // #3568: must be named agy
+for (const b of [CLAUDE_BIN, CODEX_BIN, GEMINI_BIN, GROK_BIN, TMUX_BIN, AGY_BIN]) {
   fs.writeFileSync(b, '#!/bin/sh\nexit 0\n', { mode: 0o755 });
 }
 const BINS = { claudeBin: CLAUDE_BIN, codexBin: CODEX_BIN, geminiBin: GEMINI_BIN, grokBin: GROK_BIN, tmuxBin: TMUX_BIN };
@@ -217,7 +218,38 @@ test('#3519: runnerProvider is the exact inverse of providerRunner over the runn
   assert.equal(create.runnerProvider(undefined), 'anthropic');
   assert.equal(create.runnerProvider(null), 'anthropic');
   // Round-trip: every non-claude provider survives provider -> runner -> provider.
-  for (const p of ['openai', 'google', 'xai']) {
+  for (const p of ['openai', 'google', 'xai', 'antigravity']) {
     assert.equal(create.runnerProvider(create.providerRunner(p)), p, `${p} did not round-trip`);
+  }
+});
+
+/* #3568: the switch path is one of the places the Antigravity flag gates. */
+test('#3568: switching to Antigravity is refused with the flag off and allowed with it on', () => {
+  const name = born('sw-agy', 'claude');
+  const was = process.env.AGENT_WORKFORCE_ANTIGRAVITY;
+  try {
+    process.env.AGENT_WORKFORCE_ANTIGRAVITY = '0';
+    const off = create.setProvider(name, 'antigravity', { ...BINS, antigravityBin: AGY_BIN });
+    assert.equal(off.outcome, create.OUTCOME.REFUSED);
+    assert.match(off.because, /pick a provider/);
+    assert.notEqual((create.readJob(name) || {}).runner, 'antigravity');
+    process.env.AGENT_WORKFORCE_ANTIGRAVITY = '1';
+    const on = create.setProvider(name, 'antigravity', { ...BINS, antigravityBin: AGY_BIN });
+    assert.equal(on.outcome, create.OUTCOME.CREATED, on.because);
+    assert.equal((create.readJob(name) || {}).runner, 'antigravity');
+    // An account is refused on the switch too, as create, setAccount and installJob refuse it.
+    const withAcct = born('sw-agy-acct', 'claude');
+    const acct = create.setProvider(withAcct, 'antigravity', { ...BINS, antigravityBin: AGY_BIN, accountDir: nodePath.join(SANDBOX, '.claude-x') });
+    assert.equal(acct.outcome, create.OUTCOME.REFUSED);
+    assert.match(acct.because, /cannot be given an account/);
+    assert.notEqual((create.readJob(withAcct) || {}).runner, 'antigravity', 'a refused switch must not rewrite the job');
+    // Windows has no Antigravity launch path: the switch refuses there, as create and installJob do.
+    const other = born('sw-agy-win', 'claude');
+    const win = create.setProvider(other, 'antigravity', { ...BINS, antigravityBin: AGY_BIN, platform: 'win32' });
+    assert.equal(win.outcome, create.OUTCOME.REFUSED);
+    assert.match(win.because, /Windows/);
+    assert.notEqual((create.readJob(other) || {}).runner, 'antigravity', 'a refused switch must not rewrite the job');
+  } finally {
+    if (was === undefined) delete process.env.AGENT_WORKFORCE_ANTIGRAVITY; else process.env.AGENT_WORKFORCE_ANTIGRAVITY = was;
   }
 });

@@ -31,6 +31,7 @@
  * Run: NODE_PATH=$HOME/work/pw-runtime/node_modules node docs/browser-checks/render-msg-counter-3403.js
  *      (HEADED=0 on a machine with no console session)
  */
+require('./lib-sandbox-home.js'); // #3675: never read the host Mac's real accounts
 const { spawn } = require('node:child_process');
 const fs = require('node:fs');
 const os = require('node:os');

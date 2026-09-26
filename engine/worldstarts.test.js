@@ -655,6 +655,33 @@ test('#3296/#3391: an imported gemini/grok agent starts as its OWN runner, and n
   assert.ok(!trusted.some((d) => d.includes('gale') || d.includes('grok')), 'a Claude trust file was pre-answered for a gemini/grok agent');
 });
 
+/* #3568: an imported Antigravity entry goes to installJob as antigravity (before this change it fell
+   back to Claude), gets no Claude trust, and with the flag off installJob refuses it, so it is not
+   started and no job is written. */
+test('#3568: an imported antigravity agent reaches installJob as antigravity and, with the flag off, is not started', () => {
+  const was = process.env.AGENT_WORKFORCE_ANTIGRAVITY;
+  process.env.AGENT_WORKFORCE_ANTIGRAVITY = '0';
+  writeRecord([importEntry('agyimp', { runner: 'antigravity' })]);
+  const trust = require('./trust');
+  const realTrust = trust.trustFolder;
+  const trusted = [];
+  trust.trustFolder = (dir) => { trusted.push(dir); return { ok: true }; };
+  const got = [];
+  let r;
+  try {
+    r = withInstallJob((name, opts) => { got.push({ name, opts }); return create.installJob(name, opts); },
+      () => worldstarts.resumePaused({ platform: MAC }));
+  } finally {
+    trust.trustFolder = realTrust;
+    if (was === undefined) delete process.env.AGENT_WORKFORCE_ANTIGRAVITY; else process.env.AGENT_WORKFORCE_ANTIGRAVITY = was;
+  }
+  // The import retries a refused entry, so every attempt is checked, not a count.
+  assert.ok(got.length > 0 && got.every((g) => g.opts.runner === 'antigravity'), 'the import did not reach installJob as antigravity: ' + JSON.stringify(got.map((g) => g.opts.runner)));
+  assert.deepEqual(r.resumed, [], 'an Antigravity import was started with the flag off');
+  assert.equal(create.readJob('agyimp'), null, 'a job was written for an Antigravity import with the flag off');
+  assert.deepEqual(trusted, [], 'a Claude trust was pre-answered for an Antigravity agent');
+});
+
 test('PR4 (Mac, end to end in dry-run): the copy\'s Claude folder is trusted, then installJob enables and bootstraps its job', () => {
   fs.mkdirSync(create.workerDir('fae'), { recursive: true });
   writeRecord([importEntry('fae')]);

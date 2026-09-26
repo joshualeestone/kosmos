@@ -40,11 +40,20 @@
  * conversation. So messages queue and run one at a time; `send` reports the message
  * ACCEPTED (the codex analog of a claude stdin flush), not the turn finished, which
  * is the delivery contract `win32channel`/`chat.js` already expect.
+ *
+ * 🔑 GEMINI AND GROK RUN THROUGH THIS SAME LOOP (`spec.runner` 'gemini' | 'grok'). They are
+ * per-turn on Windows for the same reason codex is (see engine/win32keyed.js), so the
+ * record, presence, queue, stop and token handling here are exactly right for them; what
+ * differs is only the turn (`win32keyed.runKeyedTurn`) and its environment
+ * (`win32keyed.turnEnv`: the account's key, or no key for a Grok subscription). A codex
+ * spec (no runner, or 'codex') takes the path it always did.
  */
 const win32create = require('./win32create');
 const win32launch = require('./win32launch');
 const win32codex = require('./win32codex');
+const win32keyed = require('./win32keyed');
 const win32sessions = require('./win32sessions');
+const path = require('node:path');
 
 /* A stream sink that records nothing: the default, so only `main()` publishes --
    the same NO_STREAM the claude supervisor uses. */
@@ -62,7 +71,11 @@ function superviseCodexStreaming(spec, opts) {
   const onEvent = typeof o.onEvent === 'function' ? o.onEvent : () => {};
   const stream = o.stream || NO_STREAM;
   const mayStart = typeof o.mayStart === 'function' ? o.mayStart : () => true;
-  const runTurn = typeof o.runTurn === 'function' ? o.runTurn : win32codex.runCodexTurn;
+  /* Which per-turn runner this is. Anything but gemini/grok is codex, as before. */
+  const runner = win32keyed.isKeyedRunner(s.runner) ? String(s.runner) : 'codex';
+  const runTurn = typeof o.runTurn === 'function' ? o.runTurn
+    : runner === 'codex' ? win32codex.runCodexTurn
+      : (t) => win32keyed.runKeyedTurn(Object.assign({ runner }, t));
   const prepare = typeof o.prepare === 'function' ? o.prepare : (meta) => win32create.prepareSession(meta);
   const retireRun = typeof o.retireRun === 'function' ? o.retireRun
     : (name, instance) => win32create.retireRun(name, instance);
@@ -72,6 +85,13 @@ function superviseCodexStreaming(spec, opts) {
   /* The codex binary (path hint or bare name) and the turn environment, resolved
      once: every turn runs the same program with the same account, token and PATH. */
   const bin = o.bin || win32launch.binFor(s);
+  /* A gemini/grok path hint that has gone stale leaves binFor's bare name, which is not on a
+     task's PATH; ask the resolver again at each turn, so a reinstall is picked up. */
+  const binNow = () => {
+    if (runner === 'codex' || o.bin || path.win32.isAbsolute(String(bin))) return bin;
+    try { const r = require('./runners').resolveBin(runner); if (r && r.present) return r.bin; } catch { /* the bare name */ }
+    return bin;
+  };
   const cliDir = o.cliDir !== undefined ? o.cliDir : win32launch.agentCliDir();
 
   let running = true;
@@ -102,7 +122,7 @@ function superviseCodexStreaming(spec, opts) {
     try { may = mayStart() !== false; } catch { may = true; }
     if (!may) { onEvent({ action: 'not-starting', because: 'its task was ended, so it is not starting its agent again' }); return; }
 
-    const p = prepare({ name: s.name, runner: 'codex' });
+    const p = prepare({ name: s.name, runner });
     if (!p || !p.ok) { onEvent({ action: 'refused', because: (p && p.because) || 'we could not record its session' }); return; }
     sessionId = p.sessionId;
     handle.sessionId = sessionId;
@@ -110,7 +130,9 @@ function superviseCodexStreaming(spec, opts) {
     /* The env every turn runs under: CODEX_HOME (the account), the sender token,
        the agent's `kosmos` on PATH, the child markers stripped. Built with the
        same helper a streaming claude child uses, so the account rule cannot drift. */
-    turnEnv = o.env || win32launch.childEnv(process.env, p.token, s.configDir, cliDir, 'codex');
+    turnEnv = o.env || win32launch.childEnv(process.env, p.token, s.configDir, cliDir, runner);
+    /* gemini/grok: the account's key (or none, for a Grok subscription), see win32keyed. */
+    if (!o.env && runner !== 'codex') turnEnv = win32keyed.turnEnv(runner, turnEnv, s.configDir || null);
     /* Idle until it is told something -- measured true of a streaming claude agent,
        and true here: nothing runs until a message arrives. Presence is stamped now
        (pid + id), which is what makes `win32codexlive` see this agent as up. */
@@ -129,7 +151,7 @@ function superviseCodexStreaming(spec, opts) {
        claude one. */
     stream.wrote();
     Promise.resolve(runTurn({
-      bin,
+      bin: binNow(),
       message: msg,
       sessionId: threadId || undefined,   // resume the codex thread for continuity
       model: s.model || undefined,
@@ -140,16 +162,19 @@ function superviseCodexStreaming(spec, opts) {
     })).then((r) => {
       turnChild = null;
       if (!running) { turning = false; return; }
-      if (r && r.sessionId) threadId = r.sessionId;
+      /* resetSession: a gemini/grok turn whose conversation cannot be resumed (a failed first
+         turn, or one the CLI says is gone) starts the next turn fresh. codex never sets it. */
+      if (r && r.resetSession) threadId = null;
+      else if (r && r.sessionId) threadId = r.sessionId;
       stream.event({ type: 'result' });   // idle: reuses stateAfterEvent's mapping
       if (r && r.ok) onEvent({ action: 'turn', sessionId });
-      else onEvent({ action: 'turn-failed', sessionId, because: (r && r.error) || 'the codex turn produced no answer' });
+      else onEvent({ action: 'turn-failed', sessionId, because: (r && r.error) || 'the ' + runner + ' turn produced no answer' });
       turning = false;
       pump();
     }).catch((e) => {
       turnChild = null;
       stream.event({ type: 'result' });
-      onEvent({ action: 'turn-failed', sessionId, because: 'the codex turn threw (' + ((e && e.code) || 'unknown') + ')' });
+      onEvent({ action: 'turn-failed', sessionId, because: 'the ' + runner + ' turn threw (' + ((e && e.code) || 'unknown') + ')' });
       turning = false;
       if (running) pump();
     });

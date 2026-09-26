@@ -42,10 +42,29 @@
 # and zsh (a sourced file's $0), which is the shell mix this lib is sourced into.
 . "$(dirname "${BASH_SOURCE[0]:-$0}")/browser-check-surface-lib.sh"
 
+# The merge base the gate anchors on (#3893). One base: that one (every ordinary PR).
+# Several bases happen when base already contains this PR (merged before CI checked out), a
+# criss-cross in which git's plain pick can be the PR head, so the "PR change" becomes main's.
+# CI's HEAD is the synthetic merge of the PR into the tip HEAD^1; when that tip is one of the
+# bases, anchoring on it gives exactly the PR's net change. Otherwise the change cannot be told
+# apart from main's: say so and fail (the caller fails soft). IDENTICAL in browser-check-gate.sh
+# and browser-check-surface-gate.sh (each is sourced alone, sometimes into zsh); a test
+# asserts the two copies match.
+bcg_anchor_base() {  # <base> -> prints the merge base, or returns 1
+  local all n p1
+  all="$(git merge-base --all "$1" HEAD 2>/dev/null)" || return 1
+  n="$(printf '%s\n' "$all" | grep -c .)"
+  if [ "$n" -le 1 ]; then printf '%s\n' "$all"; return 0; fi
+  p1="$(git rev-parse -q --verify 'HEAD^1' 2>/dev/null)" || p1=""
+  if [ -n "$p1" ] && printf '%s\n' "$all" | grep -qx "$p1"; then printf '%s\n' "$p1"; return 0; fi
+  echo "browser-check gate: $n merge bases with $1, and HEAD^1 is not one of them; cannot tell this change from main's, skipping" >&2
+  return 1
+}
+
 kosmos_browser_check_surface_gate() {
   # dstat/dpath NOT status/path: zsh ties `path`->PATH and `status`->$?, and this lib
   # is sourced, sometimes into zsh.
-  local base bcdir files msgs webdiff changed tab
+  local base mb bcdir files msgs webdiff changed tab
   local ann ann_list toks tok basename_chk esc_base esc_bcdir viol reason
   base="${KOSMOS_BCG_BASE:-origin/main}"
   bcdir="${KOSMOS_BCSG_DIR:-docs/browser-checks}"
@@ -53,10 +72,19 @@ kosmos_browser_check_surface_gate() {
 
   # 1. The changed web/index.html content (added/removed lines only, NOT context, NOT
   #    the +++/--- file headers). No web change at all -> nothing to guard.
+  # ONE range for the diff, the file list AND the trailers (#3893). `git diff base...HEAD`
+  # and `git log base..HEAD` are NOT the same range: when the PR was already merged into
+  # base by the time CI checked out (base contains HEAD^2), base and HEAD have TWO merge
+  # bases, `...` silently picks one (it can be the PR head), and the "PR diff" becomes
+  # main's intervening changes while `base..HEAD` holds only the synthetic merge, so their
+  # trailers are unseen and a correctly-excused check reads as stale. Measured on #3893
+  # and fed-msg-3311. Anchoring all three on one merge base makes them agree by
+  # construction; with a single merge base (every ordinary PR) nothing changes.
+  mb="$(bcg_anchor_base "$base")" || mb=""
   if [ -n "${KOSMOS_BCSG_WEBDIFF:-}" ]; then
     webdiff="$(cat "$KOSMOS_BCSG_WEBDIFF" 2>/dev/null)"
   else
-    webdiff="$(git diff "$base...HEAD" -- web/index.html 2>/dev/null)" || {
+    webdiff="$([ -n "$mb" ] && git diff "$mb" HEAD -- web/index.html 2>/dev/null)" || {
       echo "browser-check surface gate: could not diff against $base, skipping (not a branch gap)" >&2
       return 0
     }
@@ -70,13 +98,13 @@ kosmos_browser_check_surface_gate() {
   if [ -n "${KOSMOS_BCG_FILES:-}" ]; then
     files="$(cat "$KOSMOS_BCG_FILES" 2>/dev/null)"
   else
-    files="$(git diff --name-status --no-renames "$base...HEAD" 2>/dev/null || true)"
+    files="$([ -n "$mb" ] && git diff --name-status --no-renames "$mb" HEAD 2>/dev/null || true)"
   fi
   # 3. Override trailers + updated-check set are read below per candidate.
   if [ -n "${KOSMOS_BCG_MSGS:-}" ]; then
     msgs="$(cat "$KOSMOS_BCG_MSGS" 2>/dev/null)"
   else
-    msgs="$(git log --format=%B "$base..HEAD" 2>/dev/null || true)"
+    msgs="$([ -n "$mb" ] && git log --format=%B "$mb..HEAD" 2>/dev/null || true)"
   fi
 
   viol=""

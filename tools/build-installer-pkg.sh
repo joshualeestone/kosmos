@@ -37,9 +37,10 @@ VERSION="${1:?usage: bash tools/build-installer-pkg.sh <version>}"
 OUT_DIR="${OUT_DIR:-$REPO/dist}"
 SCRIPTS="$REPO/install/pkg-scripts"
 IDENTIFIER="com.stonesyndicate.kosmos.installer"
-INSTALLER_CERT="${KOSMOS_INSTALLER_CERT:-Developer ID Installer: Stone Syndicate LLC (864QZ69GF2)}"
-NOTARY_KEY_ID="${KOSMOS_NOTARY_KEY_ID:-43F2HU5BT8}"
-NOTARY_ISSUER="${KOSMOS_NOTARY_ISSUER:-69a6de7f-a03e-47e3-e053-5b8c7c11a4d1}"
+. "$REPO/tools/lib/signing-identity.sh"   # the one place the signing team is named (#3643)
+INSTALLER_CERT="${KOSMOS_INSTALLER_CERT:-$KOSMOS_SIGN_INSTALLER_DEFAULT}"
+NOTARY_KEY_ID="${KOSMOS_NOTARY_KEY_ID:-$KOSMOS_NOTARY_KEY_ID_DEFAULT}"
+NOTARY_ISSUER="${KOSMOS_NOTARY_ISSUER:-$KOSMOS_NOTARY_ISSUER_DEFAULT}"
 PKG="$OUT_DIR/Kosmos.pkg"
 UNSIGNED="$OUT_DIR/.Kosmos-unsigned.pkg"
 
@@ -126,7 +127,7 @@ productsign --sign "$INSTALLER_CERT" "$UNSIGNED" "$PKG"
 rm -f "$UNSIGNED"
 
 echo "==> notarytool submit --wait"
-NOTARY_KEY="$("$HOME/.claude/scripts/secrets-map.sh" path kosmos-notarize)"
+NOTARY_KEY="$("$HOME/.claude/scripts/secrets-map.sh" path "$KOSMOS_NOTARY_SECRET_TARGET")"
 xcrun notarytool submit "$PKG" \
   --key "$NOTARY_KEY" --key-id "$NOTARY_KEY_ID" --issuer "$NOTARY_ISSUER" \
   --wait

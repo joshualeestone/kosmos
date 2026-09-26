@@ -22,7 +22,13 @@ HERE="$(cd "$(dirname "$0")" && pwd)"
 PUBLISH="$HERE/publish-kosmos-windows.sh"
 PROMOTE="$HERE/promote-channel.sh"
 GATE="$HERE/win-staging-verified.sh"
-T="$(mktemp -d "${TMPDIR:-/tmp}/promote-win-test.XXXXXXXX")"
+# #3594: macOS sets TMPDIR with a trailing slash, and mktemp keeps the resulting "//"
+# while the gate builds its record path with node's path.join, which collapses it. Two
+# assertions below compare those paths as strings, so strip trailing slashes first (the
+# same loop tools/release.sh uses for its own temp home).
+_tmp="${TMPDIR:-/tmp}"
+while [ "$_tmp" != "/" ] && [ "${_tmp%/}" != "$_tmp" ]; do _tmp="${_tmp%/}"; done
+T="$(mktemp -d "$_tmp/promote-win-test.XXXXXXXX")"
 trap 'rm -rf "$T"' EXIT
 fail=0
 pass() { printf 'PASS  %s\n' "$*"; }

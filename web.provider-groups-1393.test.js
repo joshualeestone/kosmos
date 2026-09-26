@@ -18,10 +18,19 @@ const path = require('node:path');
 
 const PAGE = fs.readFileSync(path.join(__dirname, 'web', 'index.html'), 'utf8');
 
+/* Lift one top-level declaration (a `function` or a one-statement `const`) by name. */
+function liftDecl(head) {
+  const at = PAGE.indexOf(head);
+  assert.notEqual(at, -1, head + ' is gone from the page');
+  const end = head.startsWith('function') ? PAGE.indexOf('\n}', at) + 2 : PAGE.indexOf(';\n', at) + 1;
+  return PAGE.slice(at, end);
+}
 function loadGroups() {
-  const at = PAGE.indexOf('function accountGroupsHtml(');
-  assert.notEqual(at, -1, 'accountGroupsHtml is gone from the page');
-  const src = PAGE.slice(at, PAGE.indexOf('\n}', at) + 2);
+  /* #3651: groups are sorted by PROVIDER_ORDER through providerRank(acctProvider(row)),
+     so those come along with the function under test. */
+  const src = ['const ACCT_KEYED_ROUTE', 'function acctProvider(', 'const PROVIDER_ORDER =',
+    'const PROVIDER_ORDER_ALIAS', 'function providerRank(', 'function accountGroupsHtml(']
+    .map(liftDecl).join('\n');
   return new Function('esc', src + '; return accountGroupsHtml;')((s) => String(s));
 }
 const groups = loadGroups();
@@ -137,4 +146,15 @@ test('#1393 COMPATIBILITY: rows stay DESCENDANTS of #set-accounts', () => {
   const html = groups([CLAUDE_A, OPENAI], row);
   assert.match(html, /<section class="acct-prov">[\s\S]*class="acct-box"/,
     'rows are no longer inside the group box');
+});
+
+test('#3651: provider boxes come in PROVIDER_ORDER (Claude, OpenAI, Gemini, Grok), whatever order the server lists them', () => {
+  const html = groups([
+    { provider: 'xai', providerName: 'xAI Grok', keyTail: 'g1' },
+    { provider: 'google', providerName: 'Google Gemini', keyTail: 'm1' },
+    { provider: 'openai', providerName: 'OpenAI', email: 'o@x' },
+    { provider: 'anthropic', providerName: 'Anthropic / Claude', email: 'c@x' },
+  ], row);
+  const heads = [...html.matchAll(/acct-prov-name">([^<]+)</g)].map((m) => m[1]);
+  assert.deepEqual(heads, ['Anthropic / Claude', 'OpenAI', 'Google Gemini', 'xAI Grok']);
 });

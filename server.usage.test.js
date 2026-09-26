@@ -66,6 +66,68 @@ test('GET /api/usage returns the four buckets separately, by day and model, neve
   assert.ok(Array.isArray(body.rootsRead) && body.rootsRead.length >= 1, 'rootsRead is missing');
 });
 
+test('#2617: GET /api/usage splits the window per agent by the folder each session ran in', async () => {
+  const today = new Date().toISOString().slice(0, 10);
+  const annDir = path.join(process.env.AGENT_WORKFORCE_WORKERS, 'ann');
+  fs.mkdirSync(annDir, { recursive: true });
+  require('./engine/store').writeProfile('ann', { displayName: 'Ann' });
+  // Its own project folder; other tests' rows are subtracted via a baseline.
+  const before = (await (await fetch(base + '/api/usage?days=1')).json()).byAgent.elsewhere.output_tokens;
+  const dir = path.join(process.env.AGENT_WORKFORCE_CONFIG_ROOT, 'projects', 'proj-ann');
+  fs.mkdirSync(dir, { recursive: true });
+  const row = (id, cwd, out) => JSON.stringify({ timestamp: `${today}T09:00:00.000Z`, cwd, sessionId: 'sess',
+    message: { id, model: 'claude-sonnet-5', usage: { input_tokens: 1, output_tokens: out, cache_creation_input_tokens: 0, cache_read_input_tokens: 0 } } });
+  fs.writeFileSync(path.join(dir, 'sess.jsonl'), row('r1', annDir, 30) + '\n', 'utf8');
+  fs.writeFileSync(path.join(dir, 'home.jsonl'), row('r2', HOME, 4) + '\n', 'utf8');
+  const body = await (await fetch(base + '/api/usage?days=1')).json();
+  assert.ok(body.byAgent, 'byAgent is missing from the response');
+  assert.equal(body.byAgent.rosterRead, true);
+  const ann = body.byAgent.agents.find((a) => a.name === 'ann');
+  assert.ok(ann, 'the agent whose folder the session ran in got no tokens: ' + JSON.stringify(body.byAgent));
+  assert.equal(ann.output_tokens, 30);
+  assert.equal(body.byAgent.elsewhere.output_tokens - before, 4, 'a session outside every agent folder must be counted as elsewhere');
+  // The per-folder split names every folder a session ran in; only its per-agent
+  // sum leaves. (rootsRead does name the config folders; that predates this.)
+  assert.equal(body.byFolder, undefined, 'the route leaked the per-folder split');
+  assert.ok(!JSON.stringify(body).includes(annDir), 'a session working folder reached the response');
+});
+
+test('#2617: a roster that cannot be read says so, and a failing split leaves the per-model page up', async () => {
+  const register = require('./engine/register');
+  const usage = require('./engine/usage');
+  const knownWas = register.known;
+  const splitWas = usage.byAgentAsync;
+  try {
+    // Its own agent and transcript, so this does not lean on another test's data.
+    const today = new Date().toISOString().slice(0, 10);
+    const cleoDir = path.join(process.env.AGENT_WORKFORCE_WORKERS, 'cleo');
+    fs.mkdirSync(cleoDir, { recursive: true });
+    require('./engine/store').writeProfile('cleo', { displayName: 'Cleo' });
+    const dir = path.join(process.env.AGENT_WORKFORCE_CONFIG_ROOT, 'projects', 'proj-cleo');
+    fs.mkdirSync(dir, { recursive: true });
+    fs.writeFileSync(path.join(dir, 'cleo.jsonl'), JSON.stringify({ timestamp: `${today}T09:00:00.000Z`, cwd: cleoDir, sessionId: 's',
+      message: { id: 'cleo-1', model: 'claude-sonnet-5', usage: { input_tokens: 1, output_tokens: 6, cache_creation_input_tokens: 0, cache_read_input_tokens: 0 } } }) + '\n', 'utf8');
+    // Control: with the roster read, Cleo is credited.
+    const control = await (await fetch(base + '/api/usage?days=1')).json();
+    assert.ok(control.byAgent.agents.some((a) => a.name === 'cleo'), 'the control did not credit cleo, so the check below means nothing');
+    // Names alongside ok:false: an unread roster's names must not be used.
+    register.known = () => ({ ok: false, names: ['cleo'] });
+    let body = await (await fetch(base + '/api/usage?days=1')).json();
+    assert.equal(body.byAgent.rosterRead, false, 'an unread roster was not stated');
+    assert.deepEqual(body.byAgent.agents, []);
+    register.known = knownWas;
+    usage.byAgentAsync = async () => { throw new Error('boom'); };
+    const res = await fetch(base + '/api/usage?days=1');
+    assert.equal(res.status, 200, 'a failing per-agent split took the whole route down');
+    body = await res.json();
+    assert.equal(body.byAgent, null);
+    assert.ok(body.byDay && Object.keys(body.byDay).length, 'the per-model totals went with the split');
+  } finally {
+    register.known = knownWas;
+    usage.byAgentAsync = splitWas;
+  }
+});
+
 test('GET /api/usage?days= with a hostile value does not crash the route', async () => {
   const res = await fetch(base + '/api/usage?days=not-a-number');
   assert.equal(res.status, 200, 'a non-numeric days value should fall back, not error');

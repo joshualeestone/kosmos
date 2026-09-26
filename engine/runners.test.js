@@ -98,80 +98,48 @@ test('#979: resolution priority is env override, then managed, then legacy', () 
   }
 });
 
-test('#3296: resolveBin(gemini) is env override then legacy (no managed rung, like the vendor-external claude branch)', () => {
-  // Sandbox the legacy rung via the seam, exactly as the codex tests do: without
-  // it resolveBin(gemini) falls back to this machine's real /opt/homebrew/bin/gemini
-  // and the assertion would depend on machine state. The create tests all pass
-  // geminiBin explicitly (short-circuiting binPaths -> resolveBin), so this is the
-  // only place the new resolver branch itself is exercised.
-  const GEMINI_LEGACY = nodePath.join(SANDBOX, 'legacy', 'gemini');
-  const envBin = nodePath.join(SANDBOX, 'env', 'gemini');
-  try {
-    // Absent everywhere: the legacy path is named (present false), managed always false.
-    let r = runners.resolveBin('gemini', { legacyBin: GEMINI_LEGACY });
-    assert.deepEqual({ bin: r.bin, present: r.present, managed: r.managed, overridden: r.overridden },
-      { bin: GEMINI_LEGACY, present: false, managed: false, overridden: false });
+for (const [prov, envName, binName] of [['gemini', 'AGENT_WORKFORCE_GEMINI_BIN', 'gemini'], ['grok', 'AGENT_WORKFORCE_GROK_BIN', 'grok']]) {
+  test(`#3713: resolveBin(${prov}) is env override, then the copy Kosmos installed, then the vendor's own`, () => {
+    // #3296/#3391 resolved env then legacy only; #3713 gives both a managed install, which
+    // comes first, as openai's does. The legacy rung is sandboxed through its seam, so
+    // nothing here depends on this Mac's real /opt/homebrew/bin/<prov>.
+    const LEGACY = nodePath.join(SANDBOX, 'legacy', binName);
+    const MANAGED = nodePath.join(SANDBOX, 'runners', prov, binName);
+    const envBin = nodePath.join(SANDBOX, 'env', binName);
+    try {
+      // Absent everywhere: the MANAGED path is named, so an install is seen the moment it lands.
+      let r = runners.resolveBin(prov, { legacyBin: LEGACY });
+      assert.deepEqual({ bin: r.bin, present: r.present, managed: r.managed, overridden: r.overridden },
+        { bin: MANAGED, present: false, managed: true, overridden: false });
 
-    // Legacy present.
-    put(GEMINI_LEGACY);
-    r = runners.resolveBin('gemini', { legacyBin: GEMINI_LEGACY });
-    assert.deepEqual({ bin: r.bin, present: r.present, managed: r.managed }, { bin: GEMINI_LEGACY, present: true, managed: false });
+      // Only the vendor's own copy: it is used.
+      put(LEGACY);
+      r = runners.resolveBin(prov, { legacyBin: LEGACY });
+      assert.deepEqual({ bin: r.bin, present: r.present, managed: r.managed }, { bin: LEGACY, present: true, managed: false });
 
-    // Env override is AUTHORITATIVE and names its own variable.
-    put(envBin);
-    process.env.AGENT_WORKFORCE_GEMINI_BIN = envBin;
-    r = runners.resolveBin('gemini', { legacyBin: GEMINI_LEGACY });
-    assert.deepEqual({ bin: r.bin, present: r.present, managed: r.managed, overridden: r.overridden, envName: r.envName },
-      { bin: envBin, present: true, managed: false, overridden: true, envName: 'AGENT_WORKFORCE_GEMINI_BIN' });
+      // The managed copy wins over the vendor's.
+      put(MANAGED);
+      r = runners.resolveBin(prov, { legacyBin: LEGACY });
+      assert.deepEqual({ bin: r.bin, present: r.present, managed: r.managed }, { bin: MANAGED, present: true, managed: true });
 
-    // An override at a MISSING path answers that path as absent, never falling back.
-    const missing = nodePath.join(SANDBOX, 'env', 'no-such-gemini');
-    process.env.AGENT_WORKFORCE_GEMINI_BIN = missing;
-    r = runners.resolveBin('gemini', { legacyBin: GEMINI_LEGACY });
-    assert.deepEqual({ bin: r.bin, present: r.present, overridden: r.overridden }, { bin: missing, present: false, overridden: true });
-  } finally {
-    delete process.env.AGENT_WORKFORCE_GEMINI_BIN;
-    fs.rmSync(GEMINI_LEGACY, { force: true });
-    fs.rmSync(envBin, { force: true });
-  }
-});
+      // Env override is AUTHORITATIVE, over a managed copy too, and names its own variable.
+      put(envBin);
+      process.env[envName] = envBin;
+      r = runners.resolveBin(prov, { legacyBin: LEGACY });
+      assert.deepEqual({ bin: r.bin, present: r.present, managed: r.managed, overridden: r.overridden, envName: r.envName },
+        { bin: envBin, present: true, managed: false, overridden: true, envName });
 
-test('#3391: resolveBin(grok) is env override then legacy (no managed rung, like gemini and the vendor-external claude branch)', () => {
-  // Sandbox the legacy rung via the seam, as the codex/gemini tests do: without it
-  // resolveBin(grok) falls back to this machine's real /opt/homebrew/bin/grok and the
-  // assertion would depend on machine state. The create tests all pass grokBin
-  // explicitly, so this is the only place the new resolver branch itself is exercised.
-  const GROK_LEGACY = nodePath.join(SANDBOX, 'legacy', 'grok');
-  const envBin = nodePath.join(SANDBOX, 'env', 'grok');
-  try {
-    // Absent everywhere: the legacy path is named (present false), managed always false.
-    let r = runners.resolveBin('grok', { legacyBin: GROK_LEGACY });
-    assert.deepEqual({ bin: r.bin, present: r.present, managed: r.managed, overridden: r.overridden },
-      { bin: GROK_LEGACY, present: false, managed: false, overridden: false });
-
-    // Legacy present.
-    put(GROK_LEGACY);
-    r = runners.resolveBin('grok', { legacyBin: GROK_LEGACY });
-    assert.deepEqual({ bin: r.bin, present: r.present, managed: r.managed }, { bin: GROK_LEGACY, present: true, managed: false });
-
-    // Env override is AUTHORITATIVE and names its own variable.
-    put(envBin);
-    process.env.AGENT_WORKFORCE_GROK_BIN = envBin;
-    r = runners.resolveBin('grok', { legacyBin: GROK_LEGACY });
-    assert.deepEqual({ bin: r.bin, present: r.present, managed: r.managed, overridden: r.overridden, envName: r.envName },
-      { bin: envBin, present: true, managed: false, overridden: true, envName: 'AGENT_WORKFORCE_GROK_BIN' });
-
-    // An override at a MISSING path answers that path as absent, never falling back.
-    const missing = nodePath.join(SANDBOX, 'env', 'no-such-grok');
-    process.env.AGENT_WORKFORCE_GROK_BIN = missing;
-    r = runners.resolveBin('grok', { legacyBin: GROK_LEGACY });
-    assert.deepEqual({ bin: r.bin, present: r.present, overridden: r.overridden }, { bin: missing, present: false, overridden: true });
-  } finally {
-    delete process.env.AGENT_WORKFORCE_GROK_BIN;
-    fs.rmSync(GROK_LEGACY, { force: true });
-    fs.rmSync(envBin, { force: true });
-  }
-});
+      // An override at a MISSING path answers that path as absent, never falling back.
+      const missing = nodePath.join(SANDBOX, 'env', 'no-such-' + binName);
+      process.env[envName] = missing;
+      r = runners.resolveBin(prov, { legacyBin: LEGACY });
+      assert.deepEqual({ bin: r.bin, present: r.present, overridden: r.overridden }, { bin: missing, present: false, overridden: true });
+    } finally {
+      delete process.env[envName];
+      for (const f of [LEGACY, MANAGED, envBin]) fs.rmSync(f, { force: true });
+    }
+  });
+}
 
 test('#979: a prototype-chain name from a URL is refused like any unknown provider', () => {
   const job = runners.install('constructor');
@@ -807,5 +775,51 @@ test('#979/#133: a codex binary that is not executable BY US reads absent, on ev
     if (prevBin === undefined) delete process.env.AGENT_WORKFORCE_CODEX_BIN;
     else process.env.AGENT_WORKFORCE_CODEX_BIN = prevBin;
     fs.rmSync(spot, { recursive: true, force: true });
+  }
+});
+
+test('#3568: resolveBin(antigravity) is env override, then the vendor path ~/.local/bin/agy under the home seam', () => {
+  const AGY_HOME = nodePath.join(SANDBOX, 'agy-home');
+  const canonical = nodePath.join(AGY_HOME, '.local', 'bin', 'agy');
+  const envBin = nodePath.join(SANDBOX, 'env', 'agy');
+  const prevHome = process.env.AGENT_WORKFORCE_HOME;
+  const prevBin = process.env.AGENT_WORKFORCE_ANTIGRAVITY_BIN;
+  process.env.AGENT_WORKFORCE_HOME = AGY_HOME;
+  try {
+    let r = runners.resolveBin('antigravity');
+    assert.deepEqual({ bin: r.bin, present: r.present, managed: r.managed, overridden: r.overridden },
+      { bin: canonical, present: false, managed: false, overridden: false });
+    put(canonical);
+    r = runners.resolveBin('antigravity');
+    assert.deepEqual({ bin: r.bin, present: r.present }, { bin: canonical, present: true });
+    put(envBin);
+    process.env.AGENT_WORKFORCE_ANTIGRAVITY_BIN = envBin;
+    r = runners.resolveBin('antigravity');
+    assert.deepEqual({ bin: r.bin, present: r.present, overridden: r.overridden, envName: r.envName },
+      { bin: envBin, present: true, overridden: true, envName: 'AGENT_WORKFORCE_ANTIGRAVITY_BIN' });
+    // An override under any other name would run a pane the board cannot see: not present, and says why.
+    const renamed = nodePath.join(SANDBOX, 'env', 'agy-1.2.10');
+    put(renamed);
+    process.env.AGENT_WORKFORCE_ANTIGRAVITY_BIN = renamed;
+    r = runners.resolveBin('antigravity');
+    assert.equal(r.present, false, 'a runnable file not called agy must not count as present');
+    assert.match(r.because, /called agy/);
+    // A symlink CALLED agy that points at a versioned file: the pane shows the real file's name,
+    // so it is refused too. The link's own name is not what tmux reports.
+    const link = nodePath.join(SANDBOX, 'env', 'link', 'agy');
+    fs.mkdirSync(nodePath.dirname(link), { recursive: true });
+    fs.rmSync(link, { force: true });
+    fs.symlinkSync(renamed, link);
+    process.env.AGENT_WORKFORCE_ANTIGRAVITY_BIN = link;
+    r = runners.resolveBin('antigravity');
+    assert.equal(r.present, false, 'a symlink named agy onto agy-1.2.10 would show agy-1.2.10 in the pane');
+    assert.equal(runners.agyRealName(link), 'agy-1.2.10');
+    fs.rmSync(link, { force: true });
+    fs.rmSync(renamed, { force: true });
+  } finally {
+    if (prevBin === undefined) delete process.env.AGENT_WORKFORCE_ANTIGRAVITY_BIN; else process.env.AGENT_WORKFORCE_ANTIGRAVITY_BIN = prevBin;
+    if (prevHome === undefined) delete process.env.AGENT_WORKFORCE_HOME; else process.env.AGENT_WORKFORCE_HOME = prevHome;
+    fs.rmSync(canonical, { force: true });
+    fs.rmSync(envBin, { force: true });
   }
 });

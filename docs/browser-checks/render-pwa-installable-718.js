@@ -31,22 +31,16 @@
  *  (1) [ARMED -- this check] Load the board; the PWA is installable: manifest +
  *      icons + Apple metas served and valid, so Add-to-Home-Screen offers the
  *      Kosmos icon.
- *  (2) [GATED: service worker, Kano -- unmerged] A service worker registers at
- *      scope "/" and controls the page (navigator.serviceWorker.controller is
- *      non-null). Web push cannot be received without it; there is no SW in web/
- *      today, so this cannot be asserted yet.
- *  (3) [GATED: web-push subscribe + front-door #2854] Grant notification
- *      permission (Playwright: context.grantPermissions(['notifications'],
- *      { origin })), subscribe via pushManager.subscribe with the server's VAPID
- *      public key, and POST the subscription to the relay's /v1/push/subscribe
- *      (in the SEPARATE kosmos-relay repo, Raiden -- a branch, not on kosmos
- *      origin/main). The mobile story needs a real HTTPS front-door origin
- *      (#2854); http://127.0.0.1 is a secure context locally but is not the
- *      per-user hostname a phone reaches.
- *  (4) [GATED: push send path, kosmos-relay -- Raiden] Trigger a send; the
- *      service worker's push handler fires and a notification is shown. Assert
- *      via the SW's notification bookkeeping, not a screenshot (a picture cannot
- *      show a notification was delivered).
+ *  (2) [ARMED in docs/browser-checks/render-push-718.js] A service worker
+ *      (web/sw.js) registers at scope "/" and controls the page.
+ *  (3) [SUPERSEDED on #3510] Josh, 2026-09-24: phone notifications come through
+ *      the Kosmos phone apps, not browser web push, so there is no board-origin
+ *      subscribe to check here. The board side is the Phone notifications
+ *      setting (engine/phonenotify.js). #3520's board-origin subscribe was
+ *      removed; restore it from #3520 if an app needs an in-origin subscribe.
+ *  (4) [ARMED in docs/browser-checks/render-push-718.js] A push reaches the
+ *      worker and a notification is shown, asserted via the worker's own
+ *      notification list, not a screenshot.
  *
  * ENGINE CAVEAT (per the /browser-test skill): Service Workers and Web Push are
  * exactly where Playwright's webkit is NOT Safari and device emulation is NOT a

@@ -55,6 +55,10 @@ const NETWORK_LINES = [
   // paren-arm regex fires.
   "API Error: Unable to connect to API (E_OTHER_NET)",
   "API Error: Request timed out. Check your internet connection and proxy settings",
+  // Bun's mixed-case codes, which Claude Code prints as-is (read from 2.1.282's formatter).
+  "API Error: Connection refused — a firewall or proxy may be blocking it (ConnectionRefused)",
+  "API Error: Can't reach the API server — check your internet or DNS (FailedToOpenSocket)",
+  "API Error: Connection dropped (ConnectionClosed)",
 ];
 
 for (const line of NETWORK_LINES) {
@@ -94,13 +98,16 @@ test('a network error with a CURLY apostrophe still classifies connection_lost',
 
 // CONTROL 2 — PRECEDENCE, the safety hinge. An agent Claude is ACTIVELY RETRYING
 // draws a live spinner; that must read WORKING, never connection_lost, so the
-// self-heal restart never touches an agent that may recover on its own. The
+// self-heal nudge never touches an agent that may recover on its own. The
 // spinner sits ON SCREEN with the error line still in the tail.
+// ⚠️ This fixture's spinner is COMPOSED. The real Claude Code 2.1.281 retry line (measured
+// 2026-09-24) has no ellipsis or timer, so WORKING_LINE does not match it; that case is
+// status.connlost-retry-3410.test.js, built from captured frames.
 test('an actively-retrying agent (live spinner) reads working, NOT connection_lost', () => {
   const tail = "API Error: Can't reach the API server — check your internet or DNS (ENOTFOUND)\n· Reconnecting… (4s · esc to interrupt)\n";
   const r = classify(pane(), tail);
   assert.equal(r.state, STATE.WORKING,
-    'a live spinner must win over the connection-error line, or the self-heal could restart a recovering agent');
+    'a live spinner must win over the connection-error line, or the self-heal could nudge a recovering agent');
 });
 
 // CONTROL 2b — proves CONTROL 2 is not vacuous: the SAME error line WITHOUT the

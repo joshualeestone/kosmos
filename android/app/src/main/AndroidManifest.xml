@@ -9,9 +9,10 @@
     <application
         android:label="@string/appName"
         android:icon="@mipmap/ic_launcher"
+        android:roundIcon="@mipmap/ic_launcher_round"
         android:allowBackup="false"
         android:supportsRtl="true"
-        android:theme="@android:style/Theme.Translucent.NoTitleBar">
+        android:theme="@style/KosmosLauncherTheme">
 
         <!-- Digital Asset Links statement. Points at the same front-door origin
              the TWA loads; the matching assetlinks.json must be hosted at
@@ -30,7 +31,35 @@
 
             <meta-data
                 android:name="android.support.customtabs.trusted.STATUS_BAR_COLOR"
-                android:resource="@color/colorPrimary" />
+                android:resource="@color/status_bar_color" />
+
+            <meta-data
+                android:name="android.support.customtabs.trusted.STATUS_BAR_COLOR_DARK"
+                android:resource="@color/status_bar_color_dark" />
+
+            <meta-data
+                android:name="android.support.customtabs.trusted.NAVIGATION_BAR_COLOR"
+                android:resource="@color/navigation_bar_color" />
+
+            <meta-data
+                android:name="android.support.customtabs.trusted.NAVIGATION_BAR_COLOR_DARK"
+                android:resource="@color/navigation_bar_color_dark" />
+
+            <meta-data
+                android:name="android.support.customtabs.trusted.SPLASH_IMAGE_DRAWABLE"
+                android:resource="@drawable/splash_screen" />
+
+            <meta-data
+                android:name="android.support.customtabs.trusted.SPLASH_SCREEN_BACKGROUND_COLOR"
+                android:resource="@color/splash_background" />
+
+            <meta-data
+                android:name="android.support.customtabs.trusted.SPLASH_SCREEN_FADE_OUT_DURATION"
+                android:value="250" />
+
+            <meta-data
+                android:name="android.support.customtabs.trusted.FILE_PROVIDER_AUTHORITY"
+                android:value="@string/providerAuthority" />
 
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
@@ -46,5 +75,51 @@
                 <data android:scheme="https" android:host="@string/hostName" />
             </intent-filter>
         </activity>
+
+        <!-- Chrome receives the prepared splash bitmap through this provider. -->
+        <provider
+            android:name="androidx.core.content.FileProvider"
+            android:authorities="@string/providerAuthority"
+            android:exported="false"
+            android:grantUriPermissions="true">
+
+            <meta-data
+                android:name="android.support.FILE_PROVIDER_PATHS"
+                android:resource="@xml/filepaths" />
+        </provider>
+
+        <!-- Notification delegation (#718: push lives in the app, not the website).
+             Without this service Chrome shows a web push as a CHROME notification
+             (Chrome's name and icon, Chrome's permission). With it, Chrome hands the
+             notification to this app, so it is posted under Kosmos's own name, icon and
+             notification permission. The base class already registers the Android 13
+             permission bridge (NotificationDelegationExtraCommandHandler), so this stays
+             zero hand-written code. The library's own manifest declares neither this
+             service nor the activity below; the app has to. -->
+        <service
+            android:name="com.google.androidbrowserhelper.trusted.DelegationService"
+            android:enabled="true"
+            android:exported="true">
+
+            <!-- Status-bar icon for delegated notifications. Android draws it as a
+                 white-on-transparent silhouette, so it is a separate monochrome drawable,
+                 not the full-colour launcher icon. -->
+            <meta-data
+                android:name="android.support.customtabs.trusted.SMALL_ICON"
+                android:resource="@drawable/ic_notification" />
+
+            <intent-filter>
+                <action android:name="android.support.customtabs.trusted.TRUSTED_WEB_ACTIVITY_SERVICE" />
+                <category android:name="android.intent.category.DEFAULT" />
+            </intent-filter>
+        </service>
+
+        <!-- Shows the system notification-permission prompt (Android 13+) on the
+             page's behalf when it asks for push, so the grant is the app's rather
+             than Chrome's. Reached only through a PendingIntent this app creates, which
+             runs with the app's own identity, hence not exported. -->
+        <activity
+            android:name="com.google.androidbrowserhelper.trusted.NotificationPermissionRequestActivity"
+            android:exported="false" />
     </application>
 </manifest>

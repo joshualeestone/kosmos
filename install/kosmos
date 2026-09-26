@@ -510,20 +510,24 @@ keep_in_outbox() {
   local _node _bf _said _rc=0
   _node="$(kosmos_engine_node)" || {
     say "Your Kosmos is not the one open right now, and we could not find node to keep this for later, so it was not kept. Send it again once your Kosmos is open."
+    _keep_piped   # #2909: a no-op unless a post/msg --stdin message is being kept
     exit 1
   }
   _bf="$(mktemp "${TMPDIR:-/tmp}/kosmos-outbox.XXXXXX")" || {
     say "Your Kosmos is not the one open right now, and we could not make a file to keep this in, so it was not kept. Send it again once your Kosmos is open."
+    _keep_piped   # #2909: a no-op unless a post/msg --stdin message is being kept
     exit 1
   }
   if ! { chmod 600 "$_bf" && printf '%s' "$2" > "$_bf"; }; then
     rm -f "$_bf"
     say "Your Kosmos is not the one open right now, and we could not write this down to keep it, so it was not kept. Send it again once your Kosmos is open."
+    _keep_piped   # #2909: a no-op unless a post/msg --stdin message is being kept
     exit 1
   fi
   _said="$("$_node" "$(kosmos_engine_module outbox).js" keep "$1" "$_bf" 2>&1)" || _rc=$?
   rm -f "$_bf"
   say "${_said:-Your Kosmos is not the one open right now, and keeping this for later said nothing, so it may not have been kept.}"
+  [ "$_rc" -eq 0 ] || _keep_piped   # #2909: the outbox refused it (e.g. too long); keep a piped post/msg message
   exit "$_rc"
 }
 
@@ -993,7 +997,7 @@ cmd_version() {
   fi
 }
 
-# ---- kosmos msg <agent> <text…> ---------------------------------------------
+# ---- kosmos msg [--stdin] <agent> <text…> ---------------------------------------------
 # An agent messages a colleague. The SENDER IS NOT AN ARGUMENT: the server
 # derives it from the tmux pane this command runs inside ($TMUX_PANE), so an
 # agent cannot mistype itself into being someone else. Everything else about
@@ -1003,16 +1007,41 @@ cmd_version() {
 # messages -- the transport lesson this port exists to keep.
 
 cmd_msg() {
-  local to text body verdict state because
+  local to text body verdict state because _a
+  # #2909: --stdin (leading) reads the message from standard input, so backticks and $ reach the
+  # agent as written; the shared _read_piped_message does the read. from_stdin also arms
+  # _keep_piped, so every failure after the read keeps the message in a private file.
+  local from_stdin=0 _orig="" _trimmed _keep
+  if [ "${1:-}" = "--stdin" ]; then from_stdin=1; shift; fi
   to="${1:-}"
   shift 2>/dev/null || true
-  text="$*"
+  if [ "$from_stdin" = 1 ]; then
+    if [ -n "$to" ] && [ $# -gt 0 ]; then
+      say "Give the message on stdin OR as arguments, not both: kosmos msg --stdin <agent> < message.md"
+      exit 2
+    fi
+    [ -n "$to" ] && _read_piped_message sent "kosmos msg --stdin <agent> < message.md"
+  else
+    # A --stdin AFTER the agent would send the literal word and silently drop the pipe, so it is
+    # refused. Tradeoff, same as cmd_post's --file scan: a standalone unquoted `--stdin` word in a
+    # typed message is refused too; recoverable by quoting the message as one argument.
+    for _a in "$@"; do
+      if [ "$_a" = "--stdin" ]; then
+        say "--stdin must come before the agent name: kosmos msg --stdin <agent> < message.md"
+        exit 2
+      fi
+    done
+    text="$*"
+  fi
   if [ -z "$to" ] || [ -z "$text" ]; then
-    say "Usage: kosmos msg <agent> <what you want to tell them>"
+    say "Usage: kosmos msg [--stdin] <agent> <what you want to tell them>  (--stdin: read the message from stdin, so backticks and \$ arrive as written)"
     exit 2
   fi
+  # With --stdin the pipe is read BEFORE this check on purpose (as in cmd_post): a live pipe cannot
+  # be replayed, so with Kosmos down the message is read and kept in a file.
   if ! healthy; then
     say "Kosmos is not running, so nothing can be delivered. Start it with: kosmos start"
+    _keep_piped
     exit 1
   fi
   # JSON-escaped by hand, because this must run on a clean Mac's bash 3.2
@@ -1049,25 +1078,45 @@ cmd_msg() {
   # the arm that works). Do NOT drop the `$!` guard.
   local esc_to esc_text esc_pane
   esc_to=$(printf '%s' "$to" | tr '\n\t\r' '   ' | sed 's/\\/\\\\/g; s/"/\\"/g')
-  esc_text=$(printf '%s' "$text" | sed 's/\\/\\\\/g; s/"/\\"/g' | tr '\t\r' '  ' | sed -e ':a' -e '$!{N;ba' -e '}' -e 's/\n/\\n/g')
+  # #2909: LC_ALL=C so a piped file with bytes that are not UTF-8 cannot make BSD sed/tr abort
+  # (escaping is byte-wise, safe for UTF-8), and a failure keeps a piped message instead of dying.
+  if ! esc_text=$(printf '%s' "$text" | LC_ALL=C sed 's/\\/\\\\/g; s/"/\\"/g' | LC_ALL=C tr '\t\r' '  ' | LC_ALL=C sed -e ':a' -e '$!{N;ba' -e '}' -e 's/\n/\\n/g'); then
+    say "Nothing was sent: the message could not be prepared for sending."; _keep_piped; exit 2
+  fi
   esc_pane=$(printf '%s' "${TMUX_PANE:-}" | tr '\n\t\r' '   ' | sed 's/\\/\\\\/g; s/"/\\"/g')
   # No -f: an HTTP error still carries the server's own sentence, and
   # "could not reach" is a wrong diagnosis for a reachable server that
   # refused. Only a transport failure gets the unreachable sentence.
   local _bt; _bt="$(board_token || true)"   # #1946: board token for an enforcing board; inert (omitted) when empty
   local _data="{\"to\":\"$esc_to\",\"text\":\"$esc_text\",\"from_pane\":\"$esc_pane\"}"
-  body=$(kosmos_curl "$_bt" "" -sS -m 15 -X POST "$URL/api/msg" \
+  # #2909: refuse a body over the board's read limit with the real reason, and send it to curl on
+  # stdin (printf is a builtin, so no argv limit applies to a long piped message).
+  if [ "$(printf '%s' "$_data" | LC_ALL=C wc -c | LC_ALL=C tr -d ' ')" -gt "$POST_BODY_MAX_BYTES" ]; then
+    say "Nothing was sent: that message is too large to send to the board at all. Send a summary, or split it."
+    _keep_piped
+    exit 2
+  fi
+  # rc via `|| rc=$?` (as cmd_post): a curl timeout (28) may come AFTER the board delivered, so it
+  # is a "maybe" (exit 3, do not re-send, nothing saved), not "could not reach".
+  local rc=0
+  body=$(printf '%s' "$_data" | kosmos_curl "$_bt" "" -sS -m 15 -X POST "$URL/api/msg" \
     -H 'content-type: application/json' \
-    --data "$_data" 2>/dev/null) || {
+    --data-binary @- 2>/dev/null) || rc=$?
+  if [ "$rc" -eq 28 ]; then
+    say "Kosmos was slow to answer and we stopped waiting. The message may have been delivered; check with them before sending it again."
+    exit 3
+  elif [ "$rc" -ne 0 ]; then
     say "We could not reach Kosmos to send that. Is it running at $URL?"
+    _keep_piped
     exit 1
-  }
+  fi
   # #1704 PR2: the board is serving another Kosmos; keep this for later (exits).
   case "$body" in '{"wrongWorld":true'*) keep_in_outbox msg "$_data" ;; esac
   case "$body" in
     *'"error"'*)
       because=$(printf '%s' "$body" | sed -n 's/.*"error":"\([^"]*\)".*/\1/p')
       say "Kosmos refused that request: ${because:-it did not say why}."
+      _keep_piped
       exit 1
       ;;
   esac
@@ -1089,6 +1138,7 @@ cmd_msg() {
     *)
       because=$(printf '%s' "$body" | sed -n 's/.*"because":"\([^"]*\)".*/\1/p')
       say "Not delivered: ${because:-we could not tell why}."
+      _keep_piped
       exit 1
       ;;
   esac
@@ -1124,8 +1174,16 @@ cmd_reply() {
   # refuses on an enforcing board (a bare pane is the cross-account spoof path).
   # Inert (omitted) when empty -- a non-enforcing board writes no token file.
   local _bt; _bt="$(board_token || true)"
+  # #3769: the agent's own token too, as `whoami` and `report` present it (hex only). The setup guide
+  # runs sandboxed with Kosmos's data folder denied, so it cannot read the board token; its agent
+  # token is what keeps its reply on an enforcing board. Omitted when empty, as before.
+  local _tok=""
+  case "${KOSMOS_AGENT_TOKEN:-}" in
+    ''|*[!0-9a-f]*) ;;
+    *) _tok="$KOSMOS_AGENT_TOKEN" ;;
+  esac
   local _data="{\"text\":\"$esc_text\",\"from_pane\":\"$esc_pane\"}"
-  body=$(kosmos_curl "$_bt" "" -sS -m 15 -X POST "$URL/api/reply" \
+  body=$(kosmos_curl "$_bt" "$_tok" -sS -m 15 -X POST "$URL/api/reply" \
     -H 'content-type: application/json' \
     --data "$_data" 2>/dev/null) || {
     say "We could not reach Kosmos to keep that. Is it running at $URL?"
@@ -1175,6 +1233,75 @@ require_valid_project_id() {
   esac
 }
 
+# #2909: a piped message may have no other copy (gh ... | kosmos post --stdin), so every
+# cmd_post / cmd_msg failure after the read keeps it in a private file and names the path. Reads
+# the caller's from_stdin and text (bash dynamic scope); a no-op without --stdin.
+_keep_piped() {
+  [ "${from_stdin:-0}" = 1 ] || return 0
+  local _f
+  if _f="$(mktemp "${TMPDIR:-/tmp}/kosmos-unsent.XXXXXX")" && chmod 600 "$_f" && printf '%s' "$text" > "$_f"; then
+    say "The piped message was not sent; it is saved at $_f"
+  else
+    [ -n "${_f:-}" ] && rm -f "$_f"
+    say "The piped message was not sent, and we could not save a copy of it."
+  fi
+}
+
+POST_BODY_MAX_BYTES=6291456   # #2909: the board's request-READ limit (server.js MAX_UPLOAD), past which it drops the connection; the room's own text cap is far lower and says so itself. Pinned by cli.post-stdin-2909.test.js
+# #2909: read a --stdin message into the caller's `text` (and `_orig`, the as-read copy), shared
+# by cmd_post and cmd_msg. Refuses (exit 2) a terminal, a pipe over the board's limit, and blank
+# input; drops control characters and a leading BOM; trims the trailing CR/LF run in linear time.
+# Uses the caller's locals text/_orig/_trimmed/_keep by bash dynamic scope. $1 = posted|sent,
+# $2 = the usage example named in the refusals.
+_read_piped_message() {
+  local _verb="$1" _usage="$2" _raw _rawn
+  if [ -t 0 ]; then
+    say "--stdin reads the message from a pipe or file, and nothing was piped in: $_usage"
+    exit 2
+  fi
+  # Read at most one byte past the board's limit, raw, into a private file: an accidental huge
+  # pipe is never held whole, and the size is judged on the bytes as sent, before anything is
+  # dropped, so an over-limit message is refused rather than truncated and posted.
+  _raw="$(mktemp "${TMPDIR:-/tmp}/kosmos-stdin-read.XXXXXX")" && chmod 600 "$_raw" || { [ -n "${_raw:-}" ] && rm -f "$_raw"; say "Nothing was $_verb: the piped message could not be read."; exit 2; }
+  trap 'rm -f "$_raw"' INT TERM   # a Ctrl-C while waiting on an open pipe must not leave the copy behind
+  if ! LC_ALL=C head -c "$((POST_BODY_MAX_BYTES + 1))" > "$_raw"; then
+    trap - INT TERM; rm -f "$_raw"; say "Nothing was $_verb: the piped message could not be read."; exit 2
+  fi
+  trap - INT TERM
+  _rawn="$(LC_ALL=C wc -c < "$_raw" | LC_ALL=C tr -d ' ')" || { rm -f "$_raw"; say "Nothing was $_verb: the piped message could not be read."; exit 2; }
+  if [ "$_rawn" -gt "$POST_BODY_MAX_BYTES" ]; then
+    rm -f "$_raw"
+    say "Nothing was $_verb: the piped message is over the 6 MB the board accepts, so only its start was read and no copy was kept. Send a summary, or split it."
+    exit 2
+  fi
+  # Control characters are dropped at the read (before the blank check, so control-only
+  # input is refused), and under LC_ALL=C so bytes that are not UTF-8 pass through instead
+  # of making tr abort; the board decodes them as it decodes any body. NUL is outside the tr
+  # range because bash's $(...) already drops it; reading by another route must drop it too.
+  if ! text="$(LC_ALL=C tr -d '\001-\010\013\014\016-\037\177' < "$_raw")"; then
+    rm -f "$_raw"; say "Nothing was $_verb: the piped message could not be read."; exit 2
+  fi
+  rm -f "$_raw"
+  _orig="$text"   # the message as read; a trim step that fails saves this, never a half-processed copy
+  # Drop a leading UTF-8 BOM. Not ${text#...}: under bash 3.2 in a UTF-8 locale that
+  # expansion is quadratic in the text length (measured, 5.6s on 200 KB).
+  case "$text" in $'\xef\xbb\xbf'*) text="$(printf '%s' "$text" | LC_ALL=C tail -c +4)" || { say "Nothing was $_verb: the piped message could not be processed."; text="$_orig"; _keep_piped; exit 2; } ;; esac
+  # Drop the trailing CR/LF run in linear time: map CR to LF so the command substitution strips
+  # the whole run, count the bytes left, and cut the original to that length. A ${text%?} loop
+  # is quadratic here (a 60 KB message ending in blank CRLF lines ran for over a minute).
+  _trimmed="$(printf '%s' "$text" | LC_ALL=C tr '\r' '\n')" || { say "Nothing was $_verb: the piped message could not be processed."; text="$_orig"; _keep_piped; exit 2; }
+  _keep="$(printf '%s' "$_trimmed" | LC_ALL=C wc -c | LC_ALL=C tr -d ' ')" || { say "Nothing was $_verb: the piped message could not be processed."; text="$_orig"; _keep_piped; exit 2; }
+  if [ "$_keep" -gt 0 ]; then text="$(printf '%s' "$text" | { LC_ALL=C head -c "$_keep"; cat >/dev/null; })" || { say "Nothing was $_verb: the piped message could not be processed."; text="$_orig"; _keep_piped; exit 2; }; else text=""; fi   # macOS head refuses -c 0; cat drains the rest so printf never takes SIGPIPE under pipefail
+  _trimmed=
+  case "$text" in
+    *[![:space:]]*) ;;
+    *)
+      say "--stdin reads the message from a pipe or file, and nothing was piped in: $_usage"
+      exit 2
+      ;;
+  esac
+}
+
 cmd_post() {
   local project text body because _a
   # #1955: attaching a FILE to a room post is not supported yet. Detect the
@@ -1211,34 +1338,81 @@ cmd_post() {
   # recipient reads it in the foreground but is NOT told to answer -- this is what breaks the
   # ack-of-an-ack loop. Leading flag only (kosmos post --no-reply <project> <text>); anywhere else
   # it is treated as message text, the same recoverable tradeoff the --file scan above takes.
-  # #2908 --no-reply and #3224 --in-reply-to are LEADING flags, in any order, the same
-  # recoverable tradeoff as the --file scan: anywhere but the front they are message text.
+  # #2908 --no-reply, #3224 --in-reply-to and #2909 --stdin are LEADING flags, in any order, the
+  # same recoverable tradeoff as the --file scan: anywhere but the front they are message text.
   # --in-reply-to <id> binds the answer to the room the cited message came from; the server
   # refuses if the target project differs (the misroute this fix catches).
-  local no_reply=0 in_reply_to=""
+  # --stdin reads the message from standard input instead of the args, so backticks and $
+  # reach the room as written (in a double-quoted arg the shell runs `x` and expands $y
+  # BEFORE Kosmos ever sees the text).
+  # Unlike the Windows CLI there is no quiet-pipe time limit here (same as `feedback write`): an
+  # open pipe nobody writes to blocks until the caller closes it.
+  # #3224: --new says this post is deliberately new for this room, so the board does not hold it
+  # back to ask about a question the agent owes the person in another room.
+  local no_reply=0 in_reply_to="" from_stdin=0 new_post=0 _trimmed _keep _orig=""
   while :; do
     case "${1:-}" in
       --no-reply) no_reply=1; shift ;;
+      --stdin)    from_stdin=1; shift ;;
+      --new)      new_post=1; shift ;;
       --in-reply-to) in_reply_to="${2:-}"; shift 2 2>/dev/null || { say "Usage: --in-reply-to needs a message id, like m12"; exit 2; }; case "$in_reply_to" in ''|--*) say "Usage: --in-reply-to needs a message id, like m12"; exit 2 ;; esac ;;
       --in-reply-to=*) in_reply_to="${1#--in-reply-to=}"; [ -n "$in_reply_to" ] || { say "Usage: --in-reply-to needs a message id, like m12"; exit 2; }; shift ;;
       *) break ;;
     esac
   done
-  project="${1:-}"
-  shift 2>/dev/null || true
-  text="$*"
-  if [ -z "$project" ] || [ -z "$text" ]; then
-    say "Usage: kosmos post [--no-reply] [--in-reply-to <id>] <project-id> <what you want to tell the room>  (text only; file attachments are not supported yet, kosmos#1955)"
+  # #3224: a reply is already bound to its room, so --new has nothing to say about it.
+  if [ "$new_post" = 1 ] && [ -n "$in_reply_to" ]; then
+    say "Use --new or --in-reply-to, not both: a reply is already bound to the room its message came from."
     exit 2
   fi
+  project="${1:-}"
+  shift 2>/dev/null || true
+  if [ "$from_stdin" = 1 ]; then
+    if [ -n "$project" ] && [ $# -gt 0 ]; then
+      say "Give the message on stdin OR as arguments, not both: kosmos post --stdin <project-id> < message.md"
+      exit 2
+    fi
+    if [ -n "$project" ]; then
+      _read_piped_message posted "kosmos post --stdin <project-id> < message.md"
+    fi
+  else
+    # #2909: a --stdin AFTER the project would post the literal word and silently drop the
+    # piped message; refuse it, the same recoverable tradeoff as the --file scan above.
+    for _a in "$@"; do
+      if [ "$_a" = "--stdin" ]; then
+        say "--stdin must come before the project id: kosmos post --stdin <project-id> < message.md"
+        exit 2
+      fi
+    done
+    text="$*"
+  fi
+  if [ -z "$project" ] || [ -z "$text" ]; then
+    say "Usage: kosmos post [--no-reply] [--in-reply-to <id>] [--new] [--stdin] <project-id> <what you want to tell the room>  (--stdin: read the message from stdin, so backticks and \$ arrive as written; text only, file attachments are not supported yet, kosmos#1955)"
+    exit 2
+  fi
+  # With --stdin the pipe is read BEFORE this check on purpose: a live pipe (gh ... | kosmos post
+  # --stdin) cannot be replayed, so with Kosmos down the message is read and kept in a file.
   if ! healthy; then
     say "Kosmos is not running, so nothing can be posted. Start it with: kosmos start"
+    _keep_piped
     exit 1
   fi
-  # Same hand-rolled JSON escaping as cmd_msg, same bash-3.2 reason.
+  # Hand-rolled JSON escaping, same bash-3.2 reason as cmd_msg (the text escaper below differs).
+  # The tr -d below repeats the --stdin read's control drop on purpose: argument-mode text has not
+  # been through it.
   local esc_project esc_text esc_pane
   esc_project=$(printf '%s' "$project" | tr '\n\t\r' '   ' | sed 's/\\/\\\\/g; s/"/\\"/g')
-  esc_text=$(printf '%s' "$text" | sed 's/\\/\\\\/g; s/"/\\"/g' | tr '\t\r' '  ' | sed -e ':a' -e '$!{N;ba' -e '}' -e 's/\n/\\n/g')
+  # #2909: tab and CR are JSON-escaped (not flattened to spaces), and the other C0 controls
+  # plus DEL are dropped, since a raw one makes the body invalid JSON (colored tool output piped
+  # through --stdin carries ESC).
+  local _tab=$'\t' _cr=$'\r'
+  esc_text=$(printf '%s' "$text" | LC_ALL=C tr -d '\001-\010\013\014\016-\037\177' | LC_ALL=C sed "s/\\\\/\\\\\\\\/g; s/\"/\\\\\"/g; s/${_tab}/\\\\t/g; s/${_cr}/\\\\r/g" | LC_ALL=C sed -e ':a' -e '$!{N;ba' -e '}' -e 's/\n/\\n/g') || { say "Nothing was posted: the message could not be prepared for sending."; _keep_piped; exit 2; }
+  # #2909: an argument made only of dropped control characters escapes to nothing; refuse it rather
+  # than post an empty message and report success. (--stdin input was blank-checked after its drop.)
+  if [ -z "$esc_text" ]; then
+    say "Nothing was posted: the message is empty once control characters are removed."
+    exit 2
+  fi
   esc_pane=$(printf '%s' "${TMUX_PANE:-}" | tr '\n\t\r' '   ' | sed 's/\\/\\\\/g; s/"/\\"/g')
   # -m 120, not msg's 15: delivery fans out SERIALLY and a wedged tmux
   # can stall ~15s per recipient, so a room-sized timeout has to cover
@@ -1265,15 +1439,27 @@ cmd_post() {
     esc_irt=$(printf '%s' "$in_reply_to" | tr '\n\t\r' '   ' | sed 's/\\/\\\\/g; s/"/\\"/g')
     _irt_field=",\"in_reply_to\":\"$esc_irt\""
   fi
-  local _data="{\"project\":\"$esc_project\",\"text\":\"$esc_text\",\"from_pane\":\"$esc_pane\"$_reply_field$_irt_field}"
-  body=$(kosmos_curl "$_bt" "" -sS -m 120 -X POST "$URL/api/post" \
+  local _new_field=""
+  [ "$new_post" -eq 1 ] && _new_field=',"new_post":true'
+  local _data="{\"project\":\"$esc_project\",\"text\":\"$esc_text\",\"from_pane\":\"$esc_pane\"$_reply_field$_irt_field$_new_field}"
+  # #2909: the board drops a request body over its limit, which would read below as "could not
+  # reach Kosmos". Measured on the escaped body, since escaping grows quotes, newlines and tabs.
+  if [ "$(printf '%s' "$_data" | LC_ALL=C wc -c | LC_ALL=C tr -d ' ')" -gt "$POST_BODY_MAX_BYTES" ]; then
+    say "Nothing was posted: that message is too large to send to the board at all. Post a summary, or split it."
+    _keep_piped
+    exit 2
+  fi
+  # #2909: the body goes to curl on stdin (printf is a builtin, so no argv limit applies), not
+  # as a --data argument, so a long piped message cannot make curl fail to start.
+  body=$(printf '%s' "$_data" | kosmos_curl "$_bt" "" -sS -m 120 -X POST "$URL/api/post" \
     -H 'content-type: application/json' \
-    --data "$_data" 2>/dev/null) || rc=$?
+    --data-binary @- 2>/dev/null) || rc=$?
   if [ "$rc" -eq 28 ]; then
     say "Kosmos is still delivering that post and we stopped waiting. Do not re-post; the room screen shows who got it."
     exit 3
   elif [ "$rc" -ne 0 ]; then
     say "We could not reach Kosmos to post that. Is it running at $URL?"
+    _keep_piped
     exit 1
   fi
   # #1704 PR2: the board is serving another Kosmos; keep this for later (exits).
@@ -1286,6 +1472,7 @@ cmd_post() {
     '{"error":'*)
       because=$(printf '%s' "$body" | sed -n 's/.*"error":"\([^"]*\)".*/\1/p')
       say "Kosmos refused that request: ${because:-it did not say why}."
+      _keep_piped
       exit 1
       ;;
   esac
@@ -1312,8 +1499,17 @@ cmd_post() {
       # scrollback, so a substantive post vanished the moment the agent moved on.
       # Echo it here so it is kept. (An operator clears a loop-guard hold with
       # `kosmos room reopen <project-id>`, after which this text can be re-posted.)
-      say "Your message was not sent, so here it is to keep and re-post when the room is ready:"
-      printf '%s\n' "$text"
+      # #2909: a piped message can be megabytes; it goes to a private file instead of the screen.
+      if [ "$from_stdin" = 1 ]; then
+        _keep_piped
+      else
+        # #3224: a which-room hold is a question, not a closed room, so say "send again".
+        case "$body" in
+          *'"code":"which_room"'*) say "Your message was not sent, so here it is to send again:" ;;
+          *) say "Your message was not sent, so here it is to keep and re-post when the room is ready:" ;;
+        esac
+        printf '%s\n' "$text"
+      fi
       exit 1
       ;;
   esac
@@ -1799,7 +1995,7 @@ for _a in "$@"; do
 done
 if [ "$_kosmos_help" = 1 ]; then
   case "${1:-}" in
-    msg|reply|post|react|report|room|feedback|task|project)
+    msg|reply|post|react|report|room|feedback|task|project|agent)
       # kosmos#3036: these verbs, run bare, print their own usage and exit 2 --
       # the missing-required-argument error. A --help re-dispatched here to GET
       # that usage SUCCEEDED, so it must exit 0, not inherit the bare-usage 2 (a
@@ -1823,7 +2019,7 @@ if [ "$_kosmos_help" = 1 ]; then
       # Keep the bare re-dispatch and let their status stand.
       set -- "$1" ;;
     *)
-      printf '\n  kosmos start | stop | restart | status | open | agents | version | msg | post | reply | react | report | room | feedback | task | project | adopt | whoami\n\n'
+      printf '\n  kosmos start | stop | restart | status | open | agents | version | msg | post | reply | react | report | room | feedback | task | project | agent | adopt | whoami\n\n'
       printf '  Add --help to any command; it never acts, except adopt and whoami, which show their read-only output.\n'
       printf '  (stop and restart ACT when run bare; --help never does.)\n'
       printf '  The dashboard lives at %s once started.\n\n' "$URL"
@@ -1941,9 +2137,7 @@ cmd_feedback() {
         const dir = process.env.KOSMOS_PULL_DIR || "";
         fp.pull(dir || undefined).then((r) => {
           if (!r.ok) { console.error(r.because); process.exit(1); }
-          process.stdout.write("pulled " + r.written + " report(s)"
-            + (r.skipped ? " (" + r.skipped + " skipped)" : "")
-            + " to " + r.dir + "\n");
+          for (const line of fp.summaryLines(r)) process.stdout.write(line + "\n");
           process.stdout.write("next: kosmos feedback triage --dir " + r.dir + "\n");
         }).catch(() => { console.error("could not pull the collected feedback"); process.exit(1); });
       ' "$KOSMOS_HOME/app"
@@ -1978,6 +2172,7 @@ cmd_task() {
       say "Usage: kosmos task <list|add|close|message>"
       say "  kosmos task list <project-id>                                 list this project's tasks"
       say "  kosmos task add  <project-id> \"<what the task is>\" [\"more detail\"]  add one (quote each part)"
+      say "      --parent <task-number>                                   make it a subtask of that task"
       say "  kosmos task close <project-id> <task-number>                  close one (number is from list)"
       say "  kosmos task message <project-id> <task-number> \"<what to say>\"  say something in a task's conversation"
       say "  (project ids are in your instructions' Your projects section.)"
@@ -1988,7 +2183,23 @@ cmd_task() {
     list)
       [ -n "${1:-}" ] || { say "Usage: kosmos task list <project-id>"; exit 2; } ;;
     add)
-      { [ -n "${1:-}" ] && [ -n "${2:-}" ]; } || { say "Usage: kosmos task add <project-id> \"<what the task is>\" [\"more detail\"]"; exit 2; } ;;
+      { [ -n "${1:-}" ] && [ -n "${2:-}" ]; } || { say "Usage: kosmos task add <project-id> \"<what the task is>\" [\"more detail\"] [--parent <task-number>]"; exit 2; }
+      # #3861: the sentence comes first, so `add <project> --parent 3 "x"` would file a task
+      # called "--parent"; refuse it with the right order instead.
+      [ "${2:-}" != "--parent" ] || { say "Put what the task is first: kosmos task add <project-id> \"<what the task is>\" --parent <task-number>"; exit 2; }
+      # #3861: --parent must carry a task number; checked here so a bad one is named even
+      # when the board is stopped. Parsed for real in the add arm below.
+      local _a _want=0
+      for _a in "$@"; do
+        if [ "$_want" = 1 ]; then
+          case "$_a" in ''|*[!0-9]*) say "--parent needs a task number, from: kosmos task list <project-id>."; exit 2 ;; esac
+          _want=2
+        elif [ "$_a" = "--parent" ]; then _want=1
+        else
+          case "$_a" in --parent=*) say "Write it as --parent <task-number>, with a space."; exit 2 ;; esac
+        fi
+      done
+      [ "$_want" != 1 ] || { say "--parent needs a task number, from: kosmos task list <project-id>."; exit 2; } ;;
     close)
       { [ -n "${1:-}" ] && [ -n "${2:-}" ]; } || { say "Usage: kosmos task close <project-id> <task-number>   (the number is shown by kosmos task list)"; exit 2; }
       case "${2:-}" in ''|*[!0-9]*) say "The task number must be a number, from: kosmos task list <project-id>."; exit 2 ;; esac ;;
@@ -2021,7 +2232,7 @@ cmd_task() {
       esac
       # Render with the app's own node (bash 3.2 has no JSON parser); raw JSON is the fallback.
       if [ -f "$NODE" ] && [ -x "$NODE" ]; then
-        printf '%s' "$body" | "$NODE" -e 'const d=JSON.parse(require("fs").readFileSync(0));const t=d.tasks||[];if(!t.length){console.log("No tasks for this project yet. Add one: kosmos task add <project-id> <what the task is>");process.exit(0)}for(const x of t){const who=(x.whoNames&&x.whoNames.length)?" ("+x.whoNames.join(", ")+")":"";console.log("["+(x.number!=null?x.number:"?")+"] "+(x.isClosed?"[done] ":"")+(x.sentence||"(no description)")+who)}' 2>/dev/null || printf '%s\n' "$body"
+        printf '%s' "$body" | "$NODE" -e 'const d=JSON.parse(require("fs").readFileSync(0));const t=d.tasks||[];if(!t.length){console.log("No tasks for this project yet. Add one: kosmos task add <project-id> <what the task is>");process.exit(0)}for(const x of t){const who=(x.whoNames&&x.whoNames.length)?" ("+x.whoNames.join(", ")+")":"";const up=x.parent?" (under task "+x.parent+")":"";const kids=(x.subtasks&&x.subtasks.total)?" ["+x.subtasks.done+"/"+x.subtasks.total+" subtasks done]":"";console.log("["+(x.number!=null?x.number:"?")+"] "+(x.isClosed?"[done] ":"")+(x.sentence||"(no description)")+who+up+kids)}' 2>/dev/null || printf '%s\n' "$body"
       else
         printf '%s\n' "$body"
       fi
@@ -2032,20 +2243,32 @@ cmd_task() {
       # Fold EVERY arg after the sentence into detail, so an unquoted multi-word detail is not
       # silently dropped (bash word-splits it into $4, $5, ... which a $3-only read would lose).
       shift 2 2>/dev/null || true   # drop project + sentence; the remaining args are the detail
-      detail="$*"
+      # #3861: take `--parent <n>` out wherever it sits (validated above); everything else is
+      # still the detail, folded as before.
+      local parent="" _arg _next=0
+      detail=""
+      for _arg in "$@"; do
+        if [ "$_next" = 1 ]; then parent="$_arg"; _next=0; continue; fi
+        if [ "$_arg" = "--parent" ]; then _next=1; continue; fi
+        detail="${detail:+$detail }$_arg"
+      done
+      # Leading zeros off, so "007" is said back as task 7 (the Windows command does the same).
+      if [ -n "$parent" ]; then parent=$(printf '%s' "$parent" | sed 's/^0*//'); parent="${parent:-0}"; fi
       local esc_sentence esc_detail esc_pane
       esc_sentence=$(printf '%s' "$sentence" | sed 's/\\/\\\\/g; s/"/\\"/g' | tr '\t\r' '  ' | sed -e ':a' -e '$!{N;ba' -e '}' -e 's/\n/\\n/g')
       esc_detail=$(printf '%s' "$detail" | sed 's/\\/\\\\/g; s/"/\\"/g' | tr '\t\r' '  ' | sed -e ':a' -e '$!{N;ba' -e '}' -e 's/\n/\\n/g')
       esc_pane=$(printf '%s' "${TMUX_PANE:-}" | tr '\n\t\r' '   ' | sed 's/\\/\\\\/g; s/"/\\"/g')
+      # #3861: the parent goes as a STRING ("007" is not valid JSON as a number); the board
+      # reads a digit string as the task number.
       local rc=0 body
       body=$(kosmos_curl "$_bt" "" -sS -m 15 -X POST "$URL/api/project/$esc_project/tasks" \
         -H 'content-type: application/json' \
-        --data "{\"sentence\":\"$esc_sentence\",\"detail\":\"$esc_detail\",\"from_pane\":\"$esc_pane\"}" 2>/dev/null) || rc=$?
+        --data "{\"sentence\":\"$esc_sentence\",\"detail\":\"$esc_detail\",\"from_pane\":\"$esc_pane\"${parent:+,\"parent\":\"$parent\"}}" 2>/dev/null) || rc=$?
       [ "$rc" -eq 0 ] || { say "We could not reach Kosmos to add that task. Is it running at $URL?"; exit 1; }
       # Success is the board's own {"task":...} shape (server.js), not merely the absence of
       # {"error":...}: an unexpected 200 (a proxy page, a future response shape) must NOT read as done.
       case "$body" in
-        '{"task":'*) say "Task added to ${project:-the project}. See it with: kosmos task list ${project:-<project-id>}" ;;
+        '{"task":'*) say "Task added to ${project:-the project}${parent:+, under task $parent}. See it with: kosmos task list ${project:-<project-id>}" ;;
         '{"error":'*)
           local because; because=$(printf '%s' "$body" | sed -n 's/.*"error":"\([^"]*\)".*/\1/p')
           say "Kosmos refused that task: ${because:-it did not say why}."; exit 1 ;;
@@ -2174,6 +2397,81 @@ cmd_project() {
   esac
 }
 
+# kosmos#3734: make an agent for the person, after they confirm (the setup guide's verb; its
+# instructions are the only ones that name it). It asks for a one-member team (POST /api/team,
+# #1279) with the agent's launch token, so the board records who asked and why, bounds how many
+# one agent makes, and runs the new agent where the asker runs. `roles` lists the role keys.
+cmd_agent() {
+  local sub; sub="${1:-}"; shift 2>/dev/null || true
+  case "$sub" in
+    ''|help|-h|--help)
+      say "Usage: kosmos agent <create|roles>"
+      say "  kosmos agent create \"<name>\" <role> [\"<why>\"]   make an agent for the person, after they confirm"
+      say "  kosmos agent roles                              list the roles an agent can be made with"
+      exit 2 ;;
+    create)
+      { [ -n "${1:-}" ] && [ -n "${2:-}" ]; } || { say "Usage: kosmos agent create \"<name>\" <role> [\"<why>\"]   (quote the name; kosmos agent roles lists roles)"; exit 2; } ;;
+    roles) : ;;
+    *)
+      say "Unknown: kosmos agent $sub. Try: create, roles"
+      exit 2 ;;
+  esac
+  if ! healthy; then
+    say "Kosmos is not running, so an agent cannot be made. Start it with: kosmos start"
+    exit 1
+  fi
+  # The answer is read as JSON by the engine's own node (an agent's PATH may have none, #1911).
+  local _node; _node="$(kosmos_engine_node)" || { say "Kosmos could not find its own runtime to read the board's answer."; exit 1; }
+  local _bt; _bt="$(board_token || true)"   # #1946: board token for an enforcing board; inert when empty
+  local body rc=0
+  case "$sub" in
+    roles)
+      body=$(kosmos_curl "$_bt" "" -sS -m 15 "$URL/api/roles" 2>/dev/null) || rc=$?
+      if [ "$rc" -ne 0 ] || [ -z "$body" ]; then say "We could not reach Kosmos to list the roles. Is it running at $URL?"; exit 1; fi
+      printf '%s' "$body" | "$_node" -e 'let s="";process.stdin.on("data",(d)=>s+=d).on("end",()=>{let j;try{j=JSON.parse(s)}catch{process.exit(1)}for(const r of (j.roles||[]))if(r&&r.key)console.log(r.key+"  "+(r.label||""))})' \
+        || { say "Kosmos gave an answer we could not read when listing the roles."; exit 1; }
+      ;;
+    create)
+      local name role why esc_name esc_role esc_why _tok="" parsed outcome made because
+      name="$1"; role="$2"; why="${3:-the person asked for it}"
+      case "${KOSMOS_AGENT_TOKEN:-}" in
+        ''|*[!0-9a-f]*) ;;
+        *) _tok="$KOSMOS_AGENT_TOKEN" ;;
+      esac
+      if [ -z "$_tok" ]; then
+        say "kosmos agent create is for an agent acting for the person, and this one has no launch token; make the agent from New agent instead."
+        exit 1
+      fi
+      esc_name=$(printf '%s' "$name" | tr '\n\t\r' '   ' | sed 's/\\/\\\\/g; s/"/\\"/g')
+      esc_role=$(printf '%s' "$role" | tr '\n\t\r' '   ' | sed 's/\\/\\\\/g; s/"/\\"/g')
+      esc_why=$(printf '%s' "$why" | tr '\n\t\r' '   ' | sed 's/\\/\\\\/g; s/"/\\"/g')
+      body=$(kosmos_curl "$_bt" "$_tok" -sS -m 60 -X POST "$URL/api/team" \
+        -H 'content-type: application/json' \
+        --data "{\"purpose\":\"$esc_why\",\"members\":[{\"name\":\"$esc_name\",\"role\":\"$esc_role\"}]}" 2>/dev/null) || rc=$?
+      # 28 is curl's timeout: the request left, so the agent may have been made.
+      if [ "$rc" -eq 28 ]; then
+        say "Kosmos was slow to answer and we stopped waiting. The agent may have been made; look at the board before trying again: $URL/"
+        exit 3
+      fi
+      if [ "$rc" -ne 0 ]; then
+        say "We could not reach Kosmos to make that agent. Is it running at $URL?"
+        exit 1
+      fi
+      # Top-level fields only, never grepped: made (created[0]), or the reason (error, refused[0], because).
+      parsed=$(printf '%s' "$body" | "$_node" -e 'let s="";process.stdin.on("data",(d)=>s+=d).on("end",()=>{let j;try{j=JSON.parse(s)}catch{process.exit(1)}const one=(v)=>String(v==null?"":v).replace(/[\t\r\n]+/g," ");const made=Array.isArray(j.created)&&j.created[0]?j.created[0]:null;const ref=Array.isArray(j.refused)&&j.refused[0]?j.refused[0]:null;const kind=j.error?"error":made?"created":(ref||j.outcome==="refused")?"refused":"unread";console.log([kind,one(made&&(made.shownAs||made.name)),one(j.error||(ref&&ref.because)||j.because)].join("\t"))})') \
+        || { say "Kosmos gave an answer we could not read when making that agent."; exit 1; }
+      outcome=$(printf '%s' "$parsed" | cut -f1)
+      made=$(printf '%s' "$parsed" | cut -f2)
+      because=$(printf '%s' "$parsed" | cut -f3)
+      case "$outcome" in
+        created) say "Made \"${made:-$name}\". It's on your board now: $URL/" ;;
+        error|refused) say "Kosmos did not make that agent: ${because:-it did not say why}."; exit 1 ;;
+        *) say "Kosmos gave an answer we could not read when making that agent."; exit 1 ;;
+      esac
+      ;;
+  esac
+}
+
 # #3079: let a test `source` this file to reach the pure helpers
 # (_kosmos_reclaim_decision et al.) without running a verb. Executed directly,
 # BASH_SOURCE[0] == $0 and we fall through to the dispatch; sourced, they differ and
@@ -2201,8 +2499,9 @@ case "${1:-}" in
   feedback) shift; cmd_feedback "$@" ;;
   task)    shift; cmd_task "$@" ;;
   project) shift; cmd_project "$@" ;;
+  agent) shift; cmd_agent "$@" ;;
   *)
-    printf '\n  kosmos start | stop | restart | status | open | agents | version | msg | post | reply | react | report | room | feedback | task | project | adopt | whoami\n\n'
+    printf '\n  kosmos start | stop | restart | status | open | agents | version | msg | post | reply | react | report | room | feedback | task | project | agent | adopt | whoami\n\n'
     printf '  The dashboard lives at %s once started.\n\n' "$URL"
     exit 2
     ;;

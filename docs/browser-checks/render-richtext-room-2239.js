@@ -28,6 +28,7 @@
  * the real .msg-b; getComputedStyle of a real .mdh/.mdc) rather than judging a
  * screenshot, so it is mode-independent.
  */
+require('./lib-sandbox-home.js'); // #3675: never read the host Mac's real accounts
 const { spawn } = require('node:child_process');
 const fs = require('node:fs');
 const os = require('node:os');
@@ -98,9 +99,13 @@ const bad = (n, why) => { ran++; failures++; console.log('FAIL  ' + n + '  --  '
           paras: body('First.\n\nSecond.', N),
           // more markdown that must not regress
           ul: body('- one', N),
+          // #3679: a nested item keeps its depth.
+          nested: body('- one\n  - two', N),
           ol: body('1. first', N),
           codeInline: body('run `kosmos open`', N),
           fence: body('before\n```\ncode\nline\n```\nafter', N),
+          // #3685: a fence indented under a list item is code in the room too.
+          nestedFence: body('- step\n  ```\n  # not a heading\n  ```\n- next', N),
           // the room's citation chip must SURVIVE alongside markdown
           chip: body('see notes.md now', N),
           chipInHeading: body('# See plan.md', N),
@@ -135,8 +140,10 @@ const bad = (n, why) => { ran++; failures++; console.log('FAIL  ' + n + '  --  '
       if (/First\.<br><br>Second\./.test(r.paras)) ok(t + ' paragraph breaks -> <br><br>'); else bad(t + ' paragraph breaks', r.paras);
       if (/<span class="mdli">one<\/span>/.test(r.ul) && !/- one/.test(r.ul)) ok(t + ' unordered list (strips dash)'); else bad(t + ' unordered list', r.ul);
       if (/data-n="1\."/.test(r.ol) && />first<\/span>/.test(r.ol)) ok(t + ' ordered list'); else bad(t + ' ordered list', r.ol);
+      if (/<span class="mdli mdli-d1">two<\/span>/.test(r.nested)) ok(t + ' nested list item keeps its depth (#3679)'); else bad(t + ' nested list depth', r.nested);
       if (/<code class="mdc">kosmos open<\/code>/.test(r.codeInline)) ok(t + ' inline code'); else bad(t + ' inline code', r.codeInline);
       if (/<figure class="codeb"><pre>code\nline<\/pre><\/figure>/.test(r.fence) && !/```/.test(r.fence)) ok(t + ' fenced code (no leak, figure kept)'); else bad(t + ' fenced code', r.fence);
+      if (/<figure class="codeb"><pre># not a heading<\/pre><\/figure>/.test(r.nestedFence) && !/mdh/.test(r.nestedFence)) ok(t + ' fence nested in a list item is code (#3685)'); else bad(t + ' nested fence', r.nestedFence);
       if (/<span class="ref">notes\.md<button class="refgo"/.test(r.chip)) ok(t + ' citation chip survives'); else bad(t + ' citation chip', r.chip);
       if (/<span class="mdh mdh1">See <span class="ref">plan\.md/.test(r.chipInHeading)) ok(t + ' chip inside heading'); else bad(t + ' chip inside heading', r.chipInHeading);
       // room-specific: `>` is literal (escaped), never an .mdq quote span
@@ -162,7 +169,7 @@ const bad = (n, why) => { ran++; failures++; console.log('FAIL  ' + n + '  --  '
         // A markdown room post carrying every element Josh named + a safety control.
         // #2701: also a table and a level-6 heading, so the painted DOM proves a
         // real table element and that heading LEVELS render at different sizes.
-        const text = '# Status\n\nDone **three** things and *one* more:\n- fixed the `bug`\n\n| Step | Done |\n| :-- | --: |\n| build | yes |\n\n###### tiny\n\n<script>alert(1)</script>\n\nsee https://kosmos.test/pr/42';
+        const text = '# Status\n\nDone **three** things and *one* more:\n- fixed the `bug`\n  - nested one\n\n```\nif (x) {\n    return 1;\n}\n```\n\n| Step | Done |\n| :-- | --: |\n| build | yes |\n\n###### tiny\n\n<script>alert(1)</script>\n\nsee https://kosmos.test/pr/42';
         const r2 = await fetch('/api/project/' + id + '/room', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ text }) });
         const j = await r2.json().catch(() => null);
         if (j && j.delivery && j.delivery.state === 'could_not') return { error: 'post refused: ' + j.delivery.because };
@@ -196,6 +203,14 @@ const bad = (n, why) => { ran++; failures++; console.log('FAIL  ' + n + '  --  '
           hasEm: !!(b && b.querySelector('em')),
           hasHeading: !!mdh,
           hasLi: !!(b && b.querySelector('.mdli')),
+          // #3679: the stored post kept its indentation, and the page draws it.
+          nestedIndent: (() => {
+            const top = b && b.querySelector('.mdli:not([class*="mdli-d"])');
+            const d1 = b && b.querySelector('.mdli.mdli-d1');
+            if (!top || !d1) return null;
+            return d1.getBoundingClientRect().left - top.getBoundingClientRect().left;
+          })(),
+          codeKeptIndent: !!(b && Array.from(b.querySelectorAll('figure.codeb pre')).some((x) => x.textContent.includes('\n    return 1;\n'))),
           hasCode: !!mdc,
           hasLink: !!(b && b.querySelector('a.xlink')),
           hasBr: b ? /<br>/.test(b.innerHTML) : false,
@@ -213,6 +228,10 @@ const bad = (n, why) => { ran++; failures++; console.log('FAIL  ' + n + '  --  '
       if (dom.hasHeading) ok(t + ' DOM: heading rendered in room'); else bad(t + ' DOM: heading rendered', dom.html);
       if (dom.hasStrong) ok(t + ' DOM: bold rendered in room'); else bad(t + ' DOM: bold rendered', dom.html);
       if (dom.hasEm) ok(t + ' DOM: italic rendered in room'); else bad(t + ' DOM: italic rendered', dom.html);
+      // A depth-1 item is indented 1.25em (about 20px here); 8px is well above rounding and
+      // well below one level, so it tells nested from flat without pinning the exact margin.
+      if (dom.nestedIndent !== null && dom.nestedIndent > 8) ok(t + ' DOM: a nested list item is drawn indented (#3679)'); else bad(t + ' DOM: nested list indented', 'offset ' + dom.nestedIndent + ' ' + dom.html);
+      if (dom.codeKeptIndent) ok(t + ' DOM: fenced code keeps its indentation through the store (#3679)'); else bad(t + ' DOM: fenced code indentation', dom.html);
       if (dom.hasLi) ok(t + ' DOM: list rendered in room'); else bad(t + ' DOM: list rendered', dom.html);
       // #2701: a real table element painted (not literal piped text).
       if (dom.hasTable) ok(t + ' DOM: table rendered in room (#2701)'); else bad(t + ' DOM: table rendered', dom.html);

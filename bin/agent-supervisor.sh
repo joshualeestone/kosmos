@@ -59,7 +59,8 @@ LOG="${5:-}"
 # an explicit model choice carry a sixth.
 MODEL="${6:-}"
 # The RUNNER this agent runs on, optional and NEW as of #245 (2026-08-24).
-# 'claude' (the default every existing plist means by omission) or 'codex'.
+# 'claude' (the default every existing plist means by omission), 'codex', 'gemini', 'grok',
+# or 'antigravity' (#3568, on by default; AGENT_WORKFORCE_ANTIGRAVITY=0 turns off setting one up).
 # Per the vector contract above: optional, defaulted, position seven, and
 # every earlier argument keeps its position and meaning. $3 stays "the path
 # to the runner binary" -- for a codex agent, create.js writes the codex
@@ -162,9 +163,10 @@ while "$TMUX_BIN" has-session -t "$TARGET" 2>/dev/null; do
       # status.js's isCodexCommand the way the claude entries mirror
       # isClaudeCommand. Without them, a LIVE codex agent's pane reads as
       # "every pane is a shell: it crashed" and this script kills it.
+      # #3568: agy (Antigravity) for the same reason, mirroring status.js's isAntigravityCommand.
       if [[ "$pane_cmd" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] \
         || [ "$pane_cmd" = claude ] || [ "$pane_cmd" = claude.exe ] || [ "$pane_cmd" = node ] \
-        || [ "$pane_cmd" = codex ] || [ "$pane_cmd" = codex.exe ]; then
+        || [ "$pane_cmd" = codex ] || [ "$pane_cmd" = codex.exe ] || [ "$pane_cmd" = agy ]; then
         alive=1
       fi
     done <<EOF
@@ -370,18 +372,26 @@ if [ -z "$adopt" ]; then
       PANE_ENV+=(-e "KOSMOS_AGENT_TOKEN=$KOSMOS_AGENT_TOKEN")
     fi
 
+  # #3769 (Josh, 2026-09-25 11:54: the helper agent must never give out passwords
+  # or keys): the setup guide gets NONE of the tokens Kosmos holds for the person
+  # (Cloudflare, GitHub, the token doors below). It helps someone set Kosmos up and
+  # needs none of them, and a key it was never given is one it cannot repeat. Known
+  # by the marker the guide's folder carries from before its first start
+  # (engine/setup-assistant.js guardGuideFolder, called by create.js).
+  IS_SETUP_GUIDE=0
+  [ -f "$WORKDIR/.kosmos-setup-guide" ] && IS_SETUP_GUIDE=1
   # A token Kosmos holds for the person (#529, Cloudflare) lives in the store
   # beside this script, mode 600, never in the plist. Read here, handed into
   # the pane, so an agent's wrangler or curl finds CLOUDFLARE_API_TOKEN set.
   _cf="$(cd "$(dirname "$0")/.." && pwd)/secrets/cloudflare.token"
-  if [ -s "$_cf" ]; then
+  if [ "$IS_SETUP_GUIDE" = 0 ] && [ -s "$_cf" ]; then
     CLOUDFLARE_API_TOKEN="$(head -1 "$_cf")"; export CLOUDFLARE_API_TOKEN
   fi
   # GitHub's token rides the same way when the no-install door holds one
   # (#620): gh and the GitHub API read GH_TOKEN, so an agent on a Mac with
   # no keyring can still read a private repo.
   _gh="$(cd "$(dirname "$0")/.." && pwd)/secrets/github.token"
-  if [ -s "$_gh" ]; then
+  if [ "$IS_SETUP_GUIDE" = 0 ] && [ -s "$_gh" ]; then
     GH_TOKEN="$(head -1 "$_gh")"; export GH_TOKEN
   fi
   # 🛑 THE RENDERER QUESTION, AND IT HAS TO BE SET HERE RATHER THAN IN THE JOB
@@ -412,7 +422,8 @@ if [ -z "$adopt" ]; then
   # board scrapes. Measured on a private socket: an alt screen does not destroy
   # scrollback. `Does not destroy` is not a reason to move it while fixing a
   # prompt.
-  if [ "$RUNNER" != codex ]; then
+  # #3568: not for an Antigravity pane either; this is a Claude Code setting.
+  if [ "$RUNNER" != codex ] && [ "$RUNNER" != antigravity ]; then
     PANE_ENV+=(-e "CLAUDE_CODE_DISABLE_ALTERNATE_SCREEN=1")
   fi
   # 🛑 #3383c: HOME is the load-bearing addition here (its position in the loop is irrelevant --
@@ -442,7 +453,13 @@ if [ -z "$adopt" ]; then
   # PER-ACCOUNT gemini/grok agent (its account home written into the plist as that
   # var) reaches the pane with the home the CLI reads. Absent for a default-account
   # agent, so this is a no-op there -- exactly like CODEX_HOME.
+  # #3568: CLAUDE_CONFIG_DIR is not forwarded from this supervisor's env into an Antigravity pane.
   for _var in HOME KOSMOS_PORT CLAUDE_CONFIG_DIR CODEX_HOME GEMINI_CLI_HOME GROK_HOME CLOUDFLARE_API_TOKEN GH_TOKEN; do
+    [ "$RUNNER" = antigravity ] && [ "$_var" = CLAUDE_CONFIG_DIR ] && continue
+    # #3769: not even one this supervisor inherited from its own environment.
+    if [ "$IS_SETUP_GUIDE" = 1 ]; then
+      case "$_var" in CLOUDFLARE_API_TOKEN|GH_TOKEN) continue ;; esac
+    fi
     if [ -n "$(eval "printf '%s' \"\${$_var:-}\"")" ]; then
       PANE_ENV+=(-e "$_var=$(eval "printf '%s' \"\$$_var\"")")
     fi
@@ -454,6 +471,11 @@ if [ -z "$adopt" ]; then
   # here. Only names that are variable names are taken; anything else in the
   # directory is left alone rather than typed into a pane.
   _envdir="$(cd "$(dirname "$0")/.." && pwd)/secrets/env"
+  # #3769: the setup guide takes ONE door only, the key its own runner signs in with on a default
+  # account (a default Gemini or Grok key arrives only this way). Everything else stays out.
+  _guide_key=""
+  [ "$RUNNER" = gemini ] && _guide_key=GEMINI_API_KEY
+  [ "$RUNNER" = grok ] && _guide_key=XAI_API_KEY
   if [ -d "$_envdir" ]; then
     for _f in "$_envdir"/*; do
       [ -s "$_f" ] || continue
@@ -461,6 +483,7 @@ if [ -z "$adopt" ]; then
       case "$_name" in
         *[!A-Z0-9_]*|[0-9]*) continue ;;
       esac
+      if [ "$IS_SETUP_GUIDE" = 1 ] && [ "$_name" != "$_guide_key" ]; then continue; fi
       PANE_ENV+=(-e "$_name=$(head -1 "$_f")")
     done
   fi
@@ -501,7 +524,7 @@ if [ -z "$adopt" ]; then
   # below (it is not Claude-specific: a board cold-started under one account's CODEX_HOME leaks
   # it into a default-account codex pane the same way).
   EFFECTIVE_CCD="${CLAUDE_CONFIG_DIR:-}"
-  if [ "$RUNNER" != codex ] && [ -z "$EFFECTIVE_CCD" ]; then
+  if [ "$RUNNER" != codex ] && [ "$RUNNER" != antigravity ] && [ -z "$EFFECTIVE_CCD" ]; then # #3568: no explicit pin for an agy pane
     _srv_ccd="$("$TMUX_BIN" show-environment -g CLAUDE_CONFIG_DIR 2>/dev/null || true)"
     case "$_srv_ccd" in
       # `CLAUDE_CONFIG_DIR=<val>` sets it; a `-CLAUDE_CONFIG_DIR` unset line or an absent
@@ -640,8 +663,8 @@ if [ -z "$adopt" ]; then
     # measured), so no auth pre-seed file is needed. GROK_CLAUDE_HOOKS_ENABLED=0 keeps
     # the grok agent from ALSO running the fleet's ~/.claude Claude-Code hooks via
     # grok's claude-compat -- it runs only its own report hooks (measured: our
-    # ~/.grok/hooks report hook still fires with this set). Default account reads
-    # ~/.grok (no GROK_HOME set).
+    # ~/.grok/hooks report hook still fires with this set). The default account reads
+    # ~/.grok, exported below as GROK_HOME (#3391).
     # #3391 accounts slice: a PER-ACCOUNT grok agent's account home is in GROK_HOME
     # (read VERBATIM as the storage root, unlike gemini). Its key lives in the mode-600
     # file engine/grokaccounts.js wrote at $GROK_HOME/.kosmos-grok-apikey; read it and
@@ -653,10 +676,95 @@ if [ -z "$adopt" ]; then
       [ -n "$_xkey" ] && PANE_ENV+=(-e "XAI_API_KEY=$_xkey")
       unset _xkey
     fi
+    # #3391: a SUBSCRIPTION account must reach grok with NO XAI_API_KEY at all, or grok
+    # uses the key instead of the sign-in. An EMPTY value still counts as set to grok
+    # (measured), so the variable is REMOVED: every `-e XAI_API_KEY=...` pair the
+    # secrets/env door added is dropped from PANE_ENV, and the pane runs grok through
+    # `env -u XAI_API_KEY` so a server-global value cannot reach it either.
+    # ONE RULE, whatever the sign-in's state (challenge iteration 14): a subscription
+    # account's agent runs on its OWN sign-in, named or default, so the board's row, the
+    # create gate and the runtime always describe the same credential. A lapsed sign-in
+    # therefore fails visibly (the row says expired) rather than quietly running on the
+    # machine's door key, which for a named account would also bill somebody else.
+    # WHICH DIR: GROK_HOME for a per-account agent; for a default one, the three tiers of
+    # engine/grokaccounts.js defaultDir(), EXPORTED into the pane as GROK_HOME the way the
+    # codex arm exports EFFECTIVE_CODEX_HOME, so the dir judged here is the dir grok reads.
+    # (The plist carries GROK_HOME only for a per-account agent; see create.js plistFor. A
+    # machine-wide `launchctl setenv GROK_HOME` would still reach a default agent, and then
+    # this names that dir; nothing in Kosmos sets one.)
+    # WHAT KIND: grokaccounts.identityOf ITSELF, asked through node, so there is one copy
+    # of the rule. With no engine or no node the key is kept, and the log says so.
+    _GROK_PREFIX=()
+    _GROK_ACCT="${GROK_HOME:-${AGENT_WORKFORCE_GROK_HOME:-${AGENT_WORKFORCE_HOME:-$HOME}/.grok}}"
+    [ -z "${GROK_HOME:-}" ] && PANE_ENV+=(-e "GROK_HOME=$_GROK_ACCT")
+    _GROK_KIND=""
+    if [ -n "$_eng" ] && [ -n "$NODE_BIN" ] && [ -f "$_eng/grokaccounts.js" ]; then
+      # The account's authMode, or nothing. A function, so its early return is legal:
+      # `node -e` runs a script, where a top-level return is a SyntaxError.
+      _GROK_KIND="$("$NODE_BIN" -e '
+        (function () {
+          try {
+            const w = require(process.argv[1]).identityOf(process.argv[2]);
+            if (w) process.stdout.write(String(w.authMode));
+            // A sign-in file that is not ONE readable Grok account (torn mid-refresh, a second
+            // account, another issuer): the key stays, as for any undescribed account, but it
+            // is never silent, because it may be a sign-in running on the machine key.
+            else if (require("fs").existsSync(require("path").join(process.argv[2], "auth.json"))) {
+              process.stderr.write("grok: " + process.argv[2] + "/auth.json is not one Grok sign-in Kosmos can read, so this agent keeps any XAI_API_KEY\n");
+            }
+          } catch (e) {
+            // The key stays, and the log says why: a silent keep would read as "not a subscription".
+            process.stderr.write("grok: could not read what kind of account " + process.argv[2] + " is (" + ((e && e.message) || e) + "), so this agent keeps any XAI_API_KEY\n");
+          }
+        })();
+      ' "$_eng/grokaccounts.js" "$_GROK_ACCT" || true)"
+    elif [ -e "${_GROK_ACCT}/auth.json" ]; then
+      echo "grok: ${_GROK_ACCT}/auth.json is there but this supervisor cannot reach the engine or node to read it, so this agent keeps any XAI_API_KEY rather than its sign-in" >&2
+    fi
+    if [ "$_GROK_KIND" = subscription ]; then
+      _kept=()
+      _i=0
+      _n=${#PANE_ENV[@]}
+      while [ "$_i" -lt "$_n" ]; do
+        if [ "${PANE_ENV[$_i]}" = "-e" ] && [ $((_i + 1)) -lt "$_n" ]; then
+          case "${PANE_ENV[$((_i + 1))]}" in
+            XAI_API_KEY=*) ;;
+            *) _kept+=(-e "${PANE_ENV[$((_i + 1))]}") ;;
+          esac
+          _i=$((_i + 2))
+        else
+          _kept+=("${PANE_ENV[$_i]}")
+          _i=$((_i + 1))
+        fi
+      done
+      PANE_ENV=(${_kept[@]+"${_kept[@]}"})
+      unset _kept _i _n
+      _GROK_PREFIX=(/usr/bin/env -u XAI_API_KEY)
+    fi
+    unset _GROK_ACCT _GROK_KIND
     GROK_MODEL="${MODEL:-grok-4.6}"
     "$TMUX_BIN" new-session -d -s "$SESSION" -c "$WORKDIR" ${PANE_ENV[@]+"${PANE_ENV[@]}"} \
       -e "GROK_CLAUDE_HOOKS_ENABLED=0" \
-      "$CLAUDE" --permission-mode bypassPermissions --always-approve --trust -m "$GROK_MODEL" || exit 1
+      ${_GROK_PREFIX[@]+"${_GROK_PREFIX[@]}"} "$CLAUDE" --permission-mode bypassPermissions --always-approve --trust -m "$GROK_MODEL" || exit 1
+  elif [ "$RUNNER" = antigravity ]; then
+    # #3568: the Antigravity runner (Google's agy). The board sets one up unless AGENT_WORKFORCE_ANTIGRAVITY=0, and a job set up while it was on keeps
+    # launching here after it is turned off, including the trust write below. Launched with its documented flags only (agy 1.2.10 --help):
+    #   --dangerously-skip-permissions : auto-approve tool requests (the claude/gemini/grok analog)
+    #   --model                        : only when a model was recorded; empty lets agy pick.
+    # The pane's own directory is agy's workspace (it has no --cwd). The person signs in to
+    # Antigravity inside this pane with their own Google account; Kosmos never reads or reuses
+    # agy's stored sign-in. No hooks yet: status comes in a later slice.
+    # agy asks "trust this folder?" on every new folder and has no flag to skip it (measured
+    # 2026-09-25), so pre-answer it here, before every launch. Best-effort, like
+    # ensure-launch-trust.js below for Claude: if it cannot write, the prompt shows instead.
+    if [ -n "${_eng:-}" ] && [ -f "$_eng/agytrust.js" ] && [ -n "${NODE_BIN:-}" ]; then
+      "$NODE_BIN" "$_eng/agytrust.js" "$WORKDIR" >/dev/null || true  # stderr (why, if it could not) goes to the agent log
+    fi
+    _AGY_ARGS=(--dangerously-skip-permissions)
+    [ -n "${MODEL:-}" ] && _AGY_ARGS+=(--model "$MODEL")
+    "$TMUX_BIN" new-session -d -s "$SESSION" -c "$WORKDIR" ${PANE_ENV[@]+"${PANE_ENV[@]}"} \
+      "$CLAUDE" "${_AGY_ARGS[@]}" || exit 1
+    unset _AGY_ARGS
   else
     # #2808 class-1 / #2129: re-apply the folder-trust write + bypass pre-accept BEFORE
     # this (re)launch. engine/create.js writes them once at CREATE, but a restart re-runs
@@ -678,12 +786,25 @@ if [ -z "$adopt" ]; then
       # is launched with (the -e above), so the write and the read agree by construction.
       "$NODE_BIN" "$_eng/ensure-launch-trust.js" "$WORKDIR" "${EFFECTIVE_CCD:-}" >/dev/null 2>&1 || true
     fi
+    # #3633: the agent's own private browser (engine/agentbrowser.js). The shim prints
+    # a config path once the pinned browser is installed, and nothing otherwise, so
+    # an agent started before the install landed simply has no browser this launch.
+    # Only a path to an existing file is passed on: a missing --mcp-config file stops
+    # claude from starting. `--mcp-config` takes several values, so it goes before
+    # --dangerously-skip-permissions, a flag, which ends its list.
+    MCP_ARGS=()
+    if [ -n "${_eng:-}" ] && [ -f "$_eng/agent-browser-config.js" ] && [ -n "${NODE_BIN:-}" ]; then
+      _mcp="$("$NODE_BIN" "$_eng/agent-browser-config.js" 2>/dev/null || true)"
+      # Absolute only: claude runs from $WORKDIR, where a relative path would not resolve.
+      case "$_mcp" in /*) if [ -f "$_mcp" ]; then MCP_ARGS=(--mcp-config "$_mcp"); fi ;; esac
+      unset _mcp
+    fi
     if [ -n "$MODEL" ]; then
       "$TMUX_BIN" new-session -d -s "$SESSION" -c "$WORKDIR" ${PANE_ENV[@]+"${PANE_ENV[@]}"} \
-        "$CLAUDE" --dangerously-skip-permissions --model "$MODEL" || exit 1
+        "$CLAUDE" ${MCP_ARGS[@]+"${MCP_ARGS[@]}"} --dangerously-skip-permissions --model "$MODEL" || exit 1
     else
       "$TMUX_BIN" new-session -d -s "$SESSION" -c "$WORKDIR" ${PANE_ENV[@]+"${PANE_ENV[@]}"} \
-        "$CLAUDE" --dangerously-skip-permissions || exit 1
+        "$CLAUDE" ${MCP_ARGS[@]+"${MCP_ARGS[@]}"} --dangerously-skip-permissions || exit 1
     fi
   fi
 fi

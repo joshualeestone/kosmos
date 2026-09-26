@@ -23,6 +23,14 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 
 const PAGE = fs.readFileSync('web/index.html', 'utf8');
+/* #3566: the route table and keyOnlyProvider, sliced from the page for the harness below. */
+const KEYED_SRC = (() => {
+  const r = PAGE.indexOf('const ACCT_KEYED_ROUTE');
+  const k = PAGE.indexOf('function keyOnlyProvider(');
+  const v = PAGE.indexOf('function vendorPicksModel(');   // #3568: the one "picks its own model" predicate
+  return PAGE.slice(r, PAGE.indexOf('\n', r)) + '\n' + PAGE.slice(k, PAGE.indexOf('\n}', k) + 2)
+    + '\n' + PAGE.slice(v, PAGE.indexOf('\n', v));
+})();
 const SCRIPT = PAGE.match(/<script>([\s\S]*?)<\/script>/)[1];
 
 // Slice each shipped top-level function (its closing brace is at column 0 -> '\n}\n').
@@ -74,6 +82,9 @@ function run(fn, seed) {
     // the OpenAI-import default flag; declare it so the reset does not create a stray
     // implicit global in this new Function scope.
     let IMPORT_OPENAI_DEFAULT = false;
+    // #3566: applyCreateProviderUI asks keyOnlyProvider whether the pick is Gemini/Grok
+    // (it reads the route table); the real ones, sliced from the page.
+    ${KEYED_SRC}
     ${applyFn}
     ${resetFn}
     ${fn};

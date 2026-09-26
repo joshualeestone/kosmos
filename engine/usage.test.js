@@ -276,3 +276,207 @@ test('a scan across many transcript files yields to the event loop (does not blo
   }
   assert.ok(ticks > 0, `a 1ms timer never fired during the scan (${ticks} ticks) -- the read path is blocking the event loop synchronously`);
 });
+
+// ---- #2617: tokens per agent, keyed by the folder a session ran in ----
+
+function cwdRow({ timestamp, id, cwd, output }) {
+  return JSON.stringify({
+    timestamp, cwd, sessionId: 'sess',
+    message: { id, model: 'claude-sonnet-5', usage: { input_tokens: 1, output_tokens: output, cache_creation_input_tokens: 0, cache_read_input_tokens: 0 } },
+  });
+}
+
+test('#2617: the scan splits the same rows by folder, once per message', async () => {
+  resetSandbox();
+  const dir = projectDir('proj-f');
+  fs.writeFileSync(nodePath.join(dir, 's.jsonl'), [
+    cwdRow({ timestamp: '2026-08-21T10:00:00.000Z', id: 'a', cwd: '/w/ann', output: 10 }),
+    cwdRow({ timestamp: '2026-08-21T10:00:01.000Z', id: 'a', cwd: '/w/ann', output: 10 }), // the same message restated
+  ].join('\n') + '\n', 'utf8');
+  fs.writeFileSync(nodePath.join(dir, 't.jsonl'),
+    cwdRow({ timestamp: '2026-08-21T11:00:00.000Z', id: 'b', cwd: '/w/bob', output: 7 }) + '\n', 'utf8');
+  const { days, folders } = await usage.scanUsage({ sinceDay: '2026-08-21', untilDay: '2026-08-21' });
+  assert.equal(folders['2026-08-21']['/w/ann'].output_tokens, 10, 'a restated message was counted twice in the folder split');
+  assert.equal(folders['2026-08-21']['/w/bob'].output_tokens, 7);
+  // The folder split and the model total are one population, so they agree.
+  assert.equal(days['2026-08-21']['claude-sonnet-5'].output_tokens, 17);
+});
+
+test('#2617: byAgent gives an agent its own folder only, names the rest, and never picks between sharers', () => {
+  const B = (out) => ({ input_tokens: 0, output_tokens: out, cache_creation_input_tokens: 0, cache_read_input_tokens: 0, rows: 1 });
+  const byDay = { d1: { m: { ...B(100), rows: 7 } } };
+  const byFolder = { d1: {
+    '/w/ann': B(40),
+    '/w/ann/sub': B(5),   // a subfolder is not the agent's own folder
+    '/w/annex': B(3),     // a prefix-sharing sibling that is no agent's
+    '/w/bob': B(20),
+    '/w/pair': B(9),      // two agents recorded on one folder
+    '/home/me': B(15),
+  } };
+  const agents = [
+    { name: 'ann', shown: 'Ann', dir: '/w/ann' },
+    { name: 'bob', dir: '/w/bob' },
+    { name: 'p1', dir: '/w/pair' }, { name: 'p2', dir: '/w/pair' },
+    { name: 'gone', shown: 'Gone', dir: null },
+  ];
+  const out = usage.byAgent({ byDay, byFolder }, agents, (p) => p);
+  const by = Object.fromEntries(out.agents.map((a) => [a.name, a]));
+  assert.equal(by.ann.output_tokens, 40, 'only the agent\'s own folder is its, not a subfolder or a sibling');
+  assert.equal(by.ann.shown, 'Ann');
+  assert.equal(by.bob.shown, 'bob', 'a missing shown name falls back to the name');
+  assert.equal(by.p1, undefined, 'a shared folder was handed to one of its agents');
+  assert.equal(by.p2, undefined, 'a shared folder was handed to one of its agents');
+  assert.equal(out.shared.output_tokens, 9, 'a folder two agents share must be stated as shared');
+  assert.equal(out.elsewhere.output_tokens, 5 + 3 + 15);
+  assert.equal(out.unattributed.output_tokens, 100 - 92);
+  assert.equal(out.overcount.output_tokens, 0);
+  assert.deepEqual(out.agents.map((a) => a.name), ['ann', 'bob'], 'agents are ordered by output, largest first');
+  assert.equal(by.gone, undefined, 'an agent with no folder cannot own tokens');
+});
+
+test('#2617: a day short and a day over do not cancel: each is reported', () => {
+  const B = (out) => ({ input_tokens: 0, output_tokens: out, cache_creation_input_tokens: 0, cache_read_input_tokens: 0, rows: 1 });
+  const byDay = { d1: { m: B(10) }, d2: { m: B(10) } };
+  const byFolder = { d1: { '/x': B(4) }, d2: { '/x': B(16) } };
+  const out = usage.byAgent({ byDay, byFolder }, [], (p) => p);
+  assert.equal(out.unattributed.output_tokens, 6, 'the short day went missing');
+  assert.equal(out.overcount.output_tokens, 6, 'the over day was clamped away');
+});
+
+test('#2617: byAgent matches a folder spelled through a link to the same real folder', () => {
+  const real = fs.mkdtempSync(nodePath.join(SANDBOX, 'real-'));
+  const link = nodePath.join(SANDBOX, 'link-' + nodePath.basename(real));
+  fs.symlinkSync(real, link);
+  const B = { input_tokens: 0, output_tokens: 11, cache_creation_input_tokens: 0, cache_read_input_tokens: 0, rows: 1 };
+  // The agent's folder is recorded through the link; the session recorded the real path.
+  const out = usage.byAgent({ byDay: { d: { m: B } }, byFolder: { d: { [fs.realpathSync(real)]: B } } }, [{ name: 'ann', dir: link }]);
+  assert.equal((out.agents[0] || {}).output_tokens, 11, 'two spellings of one real folder were not matched: ' + JSON.stringify(out));
+});
+
+test('#2617: a day already frozen per model keeps its total; its folder split is filled and frozen', async () => {
+  resetSandbox();
+  const day = new Date(Date.now() - 86400000).toISOString().slice(0, 10);
+  fs.mkdirSync(usage.USAGE_DIR, { recursive: true });
+  // The frozen total says 99; the transcripts left on disk only hold 7.
+  const frozen = { 'claude-sonnet-5': { input_tokens: 0, output_tokens: 99, cache_creation_input_tokens: 0, cache_read_input_tokens: 0, rows: 9 } };
+  fs.writeFileSync(nodePath.join(usage.USAGE_DIR, `${day}.v2.json`), JSON.stringify(frozen), 'utf8');
+  const dir = projectDir('proj-z');
+  fs.writeFileSync(nodePath.join(dir, 's.jsonl'),
+    cwdRow({ timestamp: `${day}T10:00:00.000Z`, id: 'z', cwd: '/w/ann', output: 7 }) + '\n', 'utf8');
+  const r = await usage.dailyUsageByModel(2);
+  assert.equal(r.byDay[day]['claude-sonnet-5'].output_tokens, 99, 'the frozen per-model total was overwritten by a rescan');
+  assert.equal(r.byFolder[day]['/w/ann'].output_tokens, 7);
+  const frozenFolders = JSON.parse(fs.readFileSync(nodePath.join(usage.USAGE_DIR, `${day}.folders.v1.json`), 'utf8'));
+  assert.equal(frozenFolders['/w/ann'].output_tokens, 7, 'the folder split was not frozen with its contents');
+  assert.equal(JSON.parse(fs.readFileSync(nodePath.join(usage.USAGE_DIR, `${day}.v2.json`), 'utf8'))['claude-sonnet-5'].output_tokens, 99,
+    'the frozen per-model file on disk was rewritten');
+  const a = usage.byAgent(r, [{ name: 'ann', dir: '/w/ann' }], (p) => p);
+  assert.equal(a.unattributed.output_tokens, 92, 'the pruned gap must be reported as unattributed');
+});
+
+test('#2617: an unreadable frozen file is rescanned, not fatal', async () => {
+  resetSandbox();
+  const day = new Date(Date.now() - 86400000).toISOString().slice(0, 10);
+  fs.mkdirSync(usage.USAGE_DIR, { recursive: true });
+  fs.writeFileSync(nodePath.join(usage.USAGE_DIR, `${day}.v2.json`), '{not json', 'utf8');
+  fs.writeFileSync(nodePath.join(usage.USAGE_DIR, `${day}.folders.v1.json`), '[]', 'utf8'); // JSON, but not a map
+  const dir = projectDir('proj-bad');
+  fs.writeFileSync(nodePath.join(dir, 's.jsonl'),
+    cwdRow({ timestamp: `${day}T10:00:00.000Z`, id: 'q', cwd: '/w/ann', output: 5 }) + '\n', 'utf8');
+  const r = await usage.dailyUsageByModel(2);
+  assert.equal(r.byDay[day]['claude-sonnet-5'].output_tokens, 5, 'a malformed frozen total was not rescanned');
+  assert.equal(r.byFolder[day]['/w/ann'].output_tokens, 5, 'a malformed frozen folder split was not rescanned');
+});
+
+test('#2617: a session that cd-s into a worktree stays with the folder it was launched in', async () => {
+  resetSandbox();
+  const dir = projectDir('proj-cd');
+  fs.writeFileSync(nodePath.join(dir, 's.jsonl'), [
+    JSON.stringify({ type: 'summary', summary: 'no cwd on this line' }),
+    cwdRow({ timestamp: '2026-08-22T10:00:00.000Z', id: 'c1', cwd: '/w/ann', output: 3 }),
+    cwdRow({ timestamp: '2026-08-22T10:05:00.000Z', id: 'c2', cwd: '/work/repo-branch', output: 8 }),
+  ].join('\n') + '\n', 'utf8');
+  const { folders } = await usage.scanUsage({ sinceDay: '2026-08-22', untilDay: '2026-08-22' });
+  assert.equal(folders['2026-08-22']['/w/ann'].output_tokens, 11, 'work after a cd left the agent it belongs to');
+  assert.equal(folders['2026-08-22']['/work/repo-branch'], undefined);
+});
+
+test('#2617: a corrupt frozen total does not throw away a good frozen folder split', async () => {
+  resetSandbox();
+  const day = new Date(Date.now() - 86400000).toISOString().slice(0, 10);
+  fs.mkdirSync(usage.USAGE_DIR, { recursive: true });
+  fs.writeFileSync(nodePath.join(usage.USAGE_DIR, `${day}.v2.json`), '{not json', 'utf8');
+  const good = { '/w/ann': { input_tokens: 0, output_tokens: 50, cache_creation_input_tokens: 0, cache_read_input_tokens: 0, rows: 5 } };
+  fs.writeFileSync(nodePath.join(usage.USAGE_DIR, `${day}.folders.v1.json`), JSON.stringify(good), 'utf8');
+  // Only part of that day survives on disk now.
+  const dir = projectDir('proj-part');
+  fs.writeFileSync(nodePath.join(dir, 's.jsonl'),
+    cwdRow({ timestamp: `${day}T10:00:00.000Z`, id: 'p', cwd: '/w/ann', output: 2 }) + '\n', 'utf8');
+  const r = await usage.dailyUsageByModel(2);
+  assert.equal(r.byFolder[day]['/w/ann'].output_tokens, 50, 'the good frozen folder split was replaced by a thinner rescan');
+  assert.equal(JSON.parse(fs.readFileSync(nodePath.join(usage.USAGE_DIR, `${day}.folders.v1.json`), 'utf8'))['/w/ann'].output_tokens, 50);
+  assert.equal(r.byDay[day]['claude-sonnet-5'].output_tokens, 2, 'the corrupt total was not rescanned');
+});
+
+test('#2617: one message in two transcripts is credited to the lexically first transcript', async () => {
+  /* Pins the rule the sort in scanUsage implements. It goes red if the order
+     is reversed; it cannot catch the sort being deleted on a filesystem that
+     already lists names in order (APFS does). */
+  resetSandbox();
+  const dir = projectDir('proj-dup');
+  fs.writeFileSync(nodePath.join(dir, 'b.jsonl'),
+    cwdRow({ timestamp: '2026-08-23T10:00:00.000Z', id: 'same', cwd: '/w/bob', output: 9 }) + '\n', 'utf8');
+  fs.writeFileSync(nodePath.join(dir, 'a.jsonl'),
+    cwdRow({ timestamp: '2026-08-23T10:00:00.000Z', id: 'same', cwd: '/w/ann', output: 9 }) + '\n', 'utf8');
+  const { folders } = await usage.scanUsage({ sinceDay: '2026-08-23', untilDay: '2026-08-23' });
+  assert.equal(folders['2026-08-23']['/w/ann'].output_tokens, 9, 'the sorted-first transcript did not win the dedup');
+  assert.equal(folders['2026-08-23']['/w/bob'], undefined, 'one message was counted in two folders');
+});
+
+test('#2617: a subagent transcript is its parent session\'s work, wherever it started', async () => {
+  resetSandbox();
+  const dir = projectDir('proj-sub');
+  fs.writeFileSync(nodePath.join(dir, 'sess.jsonl'),
+    cwdRow({ timestamp: '2026-08-24T10:00:00.000Z', id: 'p1', cwd: '/w/ann', output: 2 }) + '\n', 'utf8');
+  const subDir = nodePath.join(dir, 'sess', 'subagents');
+  fs.mkdirSync(subDir, { recursive: true });
+  // The subagent was spawned while the parent stood in a worktree.
+  fs.writeFileSync(nodePath.join(subDir, 'agent-1.jsonl'),
+    cwdRow({ timestamp: '2026-08-24T10:01:00.000Z', id: 's1', cwd: '/work/repo-branch', output: 30 }) + '\n', 'utf8');
+  // A subagent's own subagent (spawnDepth 2) is still the top-level session's.
+  const deep = nodePath.join(subDir, 'agent-1', 'subagents');
+  fs.mkdirSync(deep, { recursive: true });
+  fs.writeFileSync(nodePath.join(deep, 'agent-1a.jsonl'),
+    cwdRow({ timestamp: '2026-08-24T10:03:00.000Z', id: 's3', cwd: '/work/other', output: 100 }) + '\n', 'utf8');
+  // A subagent with no parent transcript on disk keeps its own first cwd.
+  const orphan = nodePath.join(dir, 'gone', 'subagents');
+  fs.mkdirSync(orphan, { recursive: true });
+  fs.writeFileSync(nodePath.join(orphan, 'agent-2.jsonl'),
+    cwdRow({ timestamp: '2026-08-24T10:02:00.000Z', id: 's2', cwd: '/w/bob', output: 4 }) + '\n', 'utf8');
+  const { folders } = await usage.scanUsage({ sinceDay: '2026-08-24', untilDay: '2026-08-24' });
+  assert.equal(folders['2026-08-24']['/w/ann'].output_tokens, 132, 'a subagent\'s tokens, at depth 1 or 2, left its session\'s agent');
+  assert.equal(folders['2026-08-24']['/work/repo-branch'], undefined);
+  assert.equal(folders['2026-08-24']['/work/other'], undefined, 'a depth-2 subagent kept its own folder');
+  assert.equal(folders['2026-08-24']['/w/bob'].output_tokens, 4);
+});
+
+test('#2617: byAgentAsync resolves folders without a synchronous realpath and splits the same way', async () => {
+  const real = fs.mkdtempSync(nodePath.join(SANDBOX, 'areal-'));
+  const link = nodePath.join(SANDBOX, 'alink-' + nodePath.basename(real));
+  fs.symlinkSync(real, link);
+  const B = { input_tokens: 0, output_tokens: 13, cache_creation_input_tokens: 0, cache_read_input_tokens: 0, rows: 1 };
+  const result = { byDay: { d: { m: { ...B, output_tokens: 20 } } }, byFolder: { d: { [fs.realpathSync(real)]: B, '/gone/elsewhere': { ...B, output_tokens: 7 } } } };
+  const agents = [{ name: 'ann', dir: link }];
+  const nativeWas = fs.realpathSync.native;
+  const plainWas = fs.realpathSync;
+  let syncCalls = 0;
+  const counted = (fn) => (...a) => { syncCalls += 1; return fn(...a); };
+  fs.realpathSync = counted(plainWas);
+  fs.realpathSync.native = counted(nativeWas);
+  let out;
+  try { out = await usage.byAgentAsync(result, agents); } finally { fs.realpathSync = plainWas; plainWas.native = nativeWas; }
+  assert.equal(syncCalls, 0, 'byAgentAsync made a synchronous realpath call');
+  assert.equal((out.agents[0] || {}).output_tokens, 13, 'the link and its target did not match');
+  assert.equal(out.elsewhere.output_tokens, 7, 'a folder that is gone must still be counted, as elsewhere');
+  assert.deepEqual(out, usage.byAgent(result, agents), 'the async split disagrees with the sync one');
+});

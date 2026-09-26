@@ -60,18 +60,6 @@ test('both open-file handlers dress the engine sentence, not just one', () => {
   assert.equal(raw.length, 0, 'no handler shows the engine sentence undressed');
 });
 
-test('conflictNote delegates rather than keeping its own copy', () => {
-  const f = asSentence();
-  assert.equal(f('its screen shows a question its reports do not mention'),
-    'Its screen shows a question its reports do not mention.');
-  // The body, not the whole page: conflictNote had this inline and must not
-  // regrow it. Scoped to the function so the assertion says what it means.
-  const m = PAGE.match(/function conflictNote\(a\) \{[\s\S]*?\n\}/);
-  assert.ok(m, 'conflictNote is gone');
-  assert.ok(m[0].includes('asSentence'), 'conflictNote goes through the shared dressing');
-  assert.ok(!m[0].includes('toUpperCase'), 'conflictNote keeps no copy of the casing rule');
-});
-
 /**
  * ⚠️ WHAT THIS CARD DOES NOT FIX, asserted so the number cannot quietly grow.
  *

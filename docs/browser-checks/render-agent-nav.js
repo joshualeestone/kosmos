@@ -24,6 +24,7 @@
  *   HEADED=0 node docs/browser-checks/render-agent-nav.js   # headless
  *   SHOT_DIR=... to keep the screenshots somewhere.
  */
+require('./lib-sandbox-home.js'); // #3675: never read the host Mac's real accounts
 const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');

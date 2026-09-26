@@ -153,6 +153,18 @@ function check(name, pass, detail) {
         reportsValue: id('create-reports').value,
         reportsShown: live(id('create-reports')),
         providers: Array.from(id('create-provider').options).map((o) => [o.textContent, o.disabled]),
+        /* #3566: what the Gemini/Grok gate should have decided, read from the same page
+           state it reads: known only once the accounts answered, then on iff a usable
+           account of that provider is in the list. */
+        keyedExpect: (() => {
+          const known = typeof CREATE_ACCOUNTS_KNOWN !== 'undefined' && CREATE_ACCOUNTS_KNOWN === true;
+          const rows = typeof CREATE_ACCOUNTS !== 'undefined' ? CREATE_ACCOUNTS : [];
+          const has = (p) => rows.some((x) => x && String(x.provider || '').toLowerCase() === p && acctOfferableTarget(x)
+            && (!x.connection || x.connection.state !== 'none') && x.offerable !== false);
+          return { known, google: known && has('google'), xai: known && has('xai') };
+        })(),
+        keyedSeen: { google: !id('create-provider').querySelector('option[value="google"]').disabled,
+          xai: !id('create-provider').querySelector('option[value="xai"]').disabled },
         acctShown: live(id('create-account')),
         acctCount: id('create-account').options.length,
         /* #2097: the account ROW hides at fewer than two usable accounts (Josh's
@@ -273,12 +285,40 @@ function check(name, pass, detail) {
        coming soon. This assertion moved WITH the product in the same change,
        per the menu's own instruction that whoever wires a second provider
        enables its option in the same commit. */
-    check(`[${engine}] two providers can be chosen and the rest are refused up front`,
-      enabled.length === 2
+    /* #3566: Gemini and Grok joined, GATED on a connected account of theirs
+       (paintKeyedProviderOptions), so on a machine without one they are refused up front
+       like the roster and on a machine with one they are choosable. Either is correct; what
+       must hold is that nothing OUTSIDE those four is ever choosable and the two always-on
+       providers always are. */
+    check(`[${engine}] Anthropic and OpenAI can be chosen, Gemini/Grok only when connected, and the rest are refused up front`,
+      enabled.every(([t]) => /anthropic|openai|gemini|grok/i.test(t))
         && enabled.some(([t]) => /anthropic/i.test(t))
         && enabled.some(([t]) => /openai/i.test(t))
-        && seen.providers.length === 8,
+        // #3568: nine with Google Gemini (Google subscription), gated on Antigravity being installed
+        // (off in this check's sandbox, which has no agy); its name matches /gemini/ above.
+        && seen.providers.length === 9,
       `${enabled.length} of ${seen.providers.length} selectable: ${enabled.map((x) => x[0]).join(', ')}`);
+    /* #3566: the loose check above cannot see the gate break (a gate that always offers
+       Gemini/Grok passes it). This one compares each against what the page's own account
+       state says it should be. */
+    check(`[${engine}] Gemini and Grok are offered exactly when an account of theirs is connected`,
+      seen.keyedSeen.google === seen.keyedExpect.google && seen.keyedSeen.xai === seen.keyedExpect.xai,
+      JSON.stringify({ seen: seen.keyedSeen, expect: seen.keyedExpect }));
+    /* The sandbox board has no Gemini/Grok account, so the check above sees only the OFF side,
+       and a gate that never turned them on would pass it. Drive the ON side through the page's
+       own gate with one usable Gemini row, then hand the menu back to the page's real state. */
+    const keyedOn = await page.evaluate(() => {
+      const sel = document.getElementById('create-provider');
+      const opt = (v) => sel.querySelector('option[value="' + v + '"]');
+      paintKeyedProviderOptions(sel, [{ provider: 'google', dir: '/tmp/.gemini-browsercheck', connection: { state: 'connected' } }], true, '', false);
+      const on = { google: !opt('google').disabled, xai: !opt('xai').disabled };
+      fillCreateAccounts();
+      return { on, back: { google: !opt('google').disabled, xai: !opt('xai').disabled } };
+    });
+    check(`[${engine}] a usable Gemini account turns Gemini ON (and not Grok), and the menu returns to the page's state`,
+      keyedOn.on.google === true && keyedOn.on.xai === false
+        && keyedOn.back.google === seen.keyedExpect.google && keyedOn.back.xai === seen.keyedExpect.xai,
+      JSON.stringify(keyedOn));
     /* #245: choosing OpenAI disables the model control WITH WORDS, and
        choosing Anthropic back re-enables it. Driven, not read from source:
        the disabling is a live listener. #540 moved the ACCOUNT menu out of

@@ -48,6 +48,7 @@ test.before(async () => {
   base = `http://127.0.0.1:${server.address().port}`;
 });
 test.after(async () => {
+  require('./engine/agystatus').resetForTests();   // #3568: no agy stub outlives this file
   server.closeAllConnections();
   server.close();
   fs.rmSync(SANDBOX, { recursive: true, force: true });
@@ -183,4 +184,71 @@ test('#979: claude is listed beside openai with the documented shape (vendor-ext
   assert.equal(r.claude.downloadBytes, null);
   assert.equal(r.claude.kind, 'vendor-external');
   assert.equal(r.openai.kind, 'tarball');
+});
+
+/* #3568: Gemini on a Google subscription (agy). GET says whether it is installed; POST .../check
+   asks it one question and answers true / null (never a guessed "signed out"). */
+test('#3568: /api/antigravity reports agy missing, and the check says so without running anything', async () => {
+  const agystatus = require('./engine/agystatus');
+  process.env.AGENT_WORKFORCE_ANTIGRAVITY_BIN = path.join(SANDBOX, 'no-agy', 'agy');
+  let ran = 0;
+  agystatus.setRunnerForTests((b, done) => { ran += 1; done(null, 'ok'); });
+  try {
+    const g = await req('/api/antigravity');
+    assert.equal(g.status, 200);
+    assert.equal(json(g).installed, false);
+    const c = await req('/api/antigravity/check', { method: 'POST' });
+    assert.equal(c.status, 200);
+    assert.equal(json(c).installed, false);
+    assert.equal(ran, 0);
+  } finally { delete process.env.AGENT_WORKFORCE_ANTIGRAVITY_BIN; }
+});
+
+test('#3568: with agy installed, the check is signed in on "ok" and could-not-confirm otherwise', async () => {
+  const agystatus = require('./engine/agystatus');
+  const dir = path.join(SANDBOX, 'agybin'); fs.mkdirSync(dir, { recursive: true });
+  const bin = path.join(dir, 'agy'); fs.writeFileSync(bin, '#!/bin/sh\nexit 0\n', { mode: 0o755 });
+  process.env.AGENT_WORKFORCE_ANTIGRAVITY_BIN = bin;
+  try {
+    assert.equal(json(await req('/api/antigravity')).installed, true);
+    agystatus.setRunnerForTests((b, done) => done(null, 'ok'));
+    assert.equal(json(await req('/api/antigravity/check', { method: 'POST' })).signedIn, true);
+    agystatus.setRunnerForTests((b, done) => done(new Error('timed out'), ''));
+    const r = json(await req('/api/antigravity/check', { method: 'POST' }));
+    assert.equal(r.signedIn, null, 'a failed check must not read as signed out');
+    assert.match(r.because, /may need signing in/);
+  } finally { delete process.env.AGENT_WORKFORCE_ANTIGRAVITY_BIN; }
+});
+
+test('#3568: POST /api/antigravity/open and /install answer through the real routes, with their reasons', async () => {
+  if (process.platform !== 'darwin') return;
+  const agystatus = require('./engine/agystatus');
+  const dir = path.join(SANDBOX, 'agyroutes'); fs.mkdirSync(dir, { recursive: true });
+  const bin = path.join(dir, 'agy');
+  process.env.AGENT_WORKFORCE_ANTIGRAVITY_BIN = bin;
+  try {
+    // Not installed: open refuses with its reason, and install runs the installer.
+    agystatus.allowSandboxInstallForTests(true);   // this test board is a sandbox by design
+    let ran = 0;
+    agystatus.setInstallerForTests((done) => { ran += 1; fs.writeFileSync(bin, '#!/bin/sh\nexit 0\n', { mode: 0o755 }); done(null); });
+    const o1 = await req('/api/antigravity/open', { method: 'POST' });
+    assert.equal(o1.status, 400);
+    assert.match(json(o1).error, /not installed/);
+    const i1 = await req('/api/antigravity/install', { method: 'POST' });
+    assert.equal(i1.status, 200, i1.body);
+    assert.deepEqual(json(i1), { ok: true, installed: true });
+    assert.equal(ran, 1);
+    // Installed: open opens it.
+    let opened = null;
+    agystatus.setOpenerForTests((b, done) => { opened = b; done(null); });
+    const o2 = await req('/api/antigravity/open', { method: 'POST' });
+    assert.equal(o2.status, 200);
+    assert.equal(opened, bin);
+    // CONTROL: a failed install is a 400 with its reason, not a 200.
+    fs.rmSync(bin, { force: true });
+    agystatus.setInstallerForTests((done) => done(new Error('curl: (6)')));
+    const i2 = await req('/api/antigravity/install', { method: 'POST' });
+    assert.equal(i2.status, 400);
+    assert.match(json(i2).error, /did not finish/);
+  } finally { delete process.env.AGENT_WORKFORCE_ANTIGRAVITY_BIN; }
 });

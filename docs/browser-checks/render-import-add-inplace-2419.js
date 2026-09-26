@@ -5,12 +5,13 @@
  * Kosmos" rows that created the agent in place. #2497 (Josh, 2026-09-08, watching an external tester)
  * removed the whole found/scan/import list from onboarding: a developer's many tmux Claude Code
  * sessions filled first run with garbage agents. First run now ALWAYS lands on the no-agent
- * "Create your first agent." / Giddy Up screen, so no import rows render on first-run S9, whatever
+ * Giddy Up screen (#3575 heading "You're ready to start using Kosmos."), so no import rows
+ * render on first-run S9, whatever
  * the disk scan returns.
  *
  * This check now guards the SUPPRESSION: with file access granted and /api/scan-import returning a
  * loose importable FILE (exactly the input that used to raise an import row), first-run S9 must
- * show the create / Giddy Up screen with NO import rows, and must not auto-parse or auto-create
+ * show the Giddy Up screen with NO import rows, and must not auto-parse or auto-create
  * anything. The import engine is kept-but-bypassed (per the card); a user pulls agents in later via
  * the manual Import Agent (#1652) on the Create Agent screen, which uses /api/scan-import there.
  *
@@ -18,6 +19,7 @@
  * Run: NODE_PATH=$HOME/work/pw-runtime/node_modules HEADED=0 node docs/browser-checks/render-import-add-inplace-2419.js
  */
 
+require('./lib-sandbox-home.js'); // #3675: never read the host Mac's real accounts
 const { spawn } = require('node:child_process');
 const fs = require('node:fs');
 const os = require('node:os');
@@ -85,8 +87,8 @@ const bad = (n, why) => { ran++; failures++; console.log('FAIL  ' + n + '  --  '
       scanRows: document.querySelectorAll('#fr-fleet .fr-scanrow, #fr-fleet .fr-foundrow').length,
     }));
 
-    if (/create your first agent/i.test(view.title)) ok('first run shows the create heading, not an import list'); else bad('create heading', JSON.stringify(view.title));
-    if (/let’s get started/i.test(view.box)) ok('the Giddy Up copy is present'); else bad('Giddy Up copy', view.box.slice(0, 160));
+    if (/ready to start using Kosmos/i.test(view.title)) ok('first run shows the Giddy Up heading, not an import list'); else bad('Giddy Up heading', JSON.stringify(view.title));
+    if (/create or import agents/i.test(view.box)) ok('the Giddy Up copy is present'); else bad('Giddy Up copy', view.box.slice(0, 160));
     if (view.importRows === 0) ok('no import rows render on first run'); else bad('import rows still render', String(view.importRows));
     if (view.scanRows === 0) ok('no scan/found rows render on first run'); else bad('scan/found rows still render', String(view.scanRows));
     if (createCalls === 0) ok('no agent was auto-created on first run'); else bad('auto-created on first run', String(createCalls));

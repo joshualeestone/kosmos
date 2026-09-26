@@ -547,6 +547,18 @@ test('#1760 scrub stops a value at & so a following query param survives', () =>
     'the reset link /reset?token=[redacted-secret]&email=foo@bar.com failed');
 });
 
+// #3710: the two scrub timing tests below bound CPU time, not wall time.
+// Backtracking is CPU work, so a real regression still burns past the bound. A
+// busy Mac inflates wall time far more than CPU time: the degenerate run below
+// failed at 3.4 to 4.4s of wall time under load 16 to 31, and measured about
+// 270ms of CPU alone and about 480ms under load 22, well inside 3000.
+/** CPU budget for one scrub() call. Unchanged from the old wall-time bound. */
+const SCRUB_CPU_BOUND_MS = 3000;
+// The shared helper (#3715). Its own controls, in test-support.cpu-time.test.js, check
+// that it reads milliseconds and CPU rather than wall time; this file kept a private copy
+// and a units control of its own until the helper existed.
+const { cpuMillisecondsOf } = require('../test-support/cpu-time');
+
 // #1760 iter-7: scrub() runs synchronously on the board event loop, so no arm may
 // be O(N^2). A long dotted/hex run (a stack trace / digest chain) with no `://`
 // used to make the URL-userinfo arm backtrack quadratically (~53s at 200k chars);
@@ -554,11 +566,10 @@ test('#1760 scrub stops a value at & so a following query param survives', () =>
 // still fails hard on a return of the quadratic blowup.
 test('#1760 scrub stays fast on a long non-URL run (no ReDoS in the URL arm)', () => {
   const big = 'a' + '.b1c'.repeat(40000); // ~160k chars of [a-z0-9.], no ://
-  const t = Date.now();
-  const out = feedbacksend.scrub(big);
-  const ms = Date.now() - t;
+  let out;
+  const ms = cpuMillisecondsOf(() => { out = feedbacksend.scrub(big); });
   assert.equal(out, big, 'a non-credential run should pass through unchanged');
-  assert.ok(ms < 3000, `scrub took ${ms}ms on a ${big.length}-char run - possible ReDoS regression`);
+  assert.ok(ms < SCRUB_CPU_BOUND_MS, `scrub used ${Math.round(ms)}ms of CPU on a ${big.length}-char run - possible ReDoS regression`);
 });
 
 // #1760 iter-8: the Basic arm must be case-insensitive on the scheme word, like
@@ -588,10 +599,8 @@ test('#1760 scrub stops the value at , and ; (no cross-separator over-redaction)
 // (scrub runs synchronously on the board event loop). It must return, not throw.
 test('#1760 scrub survives a multi-MB degenerate assignment run without throwing', () => {
   const big = 'token:' + 'a'.repeat(3_000_000); // no digit/symbol, no separator
-  const t = Date.now();
   let out, threw = null;
-  try { out = feedbacksend.scrub(big); } catch (e) { threw = e.message; }
-  const ms = Date.now() - t;
+  const ms = cpuMillisecondsOf(() => { try { out = feedbacksend.scrub(big); } catch (e) { threw = e.message; } });
   assert.equal(threw, null, 'scrub threw on a large run: ' + threw);
-  assert.ok(ms < 3000, `scrub took ${ms}ms on a large run - possible unbounded backtracking`);
+  assert.ok(ms < SCRUB_CPU_BOUND_MS, `scrub used ${Math.round(ms)}ms of CPU on a large run - possible unbounded backtracking`);
 });

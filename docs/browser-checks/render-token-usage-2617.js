@@ -11,6 +11,11 @@
  * served board with /api/usage MOCKED to a fixed two-day response, so the rendered
  * facts are deterministic regardless of what transcripts the board holds.
  *
+ * #2617 adds the By agent block: the fixture carries byAgent, and the check
+ * asserts the rendered rows, the note, both tables' fit at 390 wide and when the
+ * model table sits beside the donut, the note-only state, and a same-page
+ * repaint to a response with no byAgent (the hide path).
+ *
  * It asserts the DETERMINISTIC, headless-safe structure + numbers; the pixel match
  * to the mockup belongs to the headed pass.
  *
@@ -39,6 +44,19 @@ const USAGE = {
     '2026-08-31': { 'claude-opus-4-8': { input_tokens: 2010445, output_tokens: 701558, cache_creation_input_tokens: 8702558, cache_read_input_tokens: 940558112 } },
   },
   rootsRead: ['/tmp/fixture'],
+  // #2617: the per-agent split, as /api/usage sends it. Ann towers, Bob is small,
+  // some work was the person's own, and 2,000 tokens could not be matched.
+  byAgent: {
+    agents: [
+      { name: 'ann', shown: 'Ann', input_tokens: 3000000, output_tokens: 1000000, cache_creation_input_tokens: 12000000, cache_read_input_tokens: 1500000000, rows: 10 },
+      { name: 'bob', shown: 'Bob', input_tokens: 500000, output_tokens: 200000, cache_creation_input_tokens: 2000000, cache_read_input_tokens: 150000000, rows: 3 },
+    ],
+    elsewhere: { input_tokens: 651004, output_tokens: 259889, cache_creation_input_tokens: 4103778, cache_read_input_tokens: 314004102, rows: 2 },
+    shared: { input_tokens: 0, output_tokens: 0, cache_creation_input_tokens: 0, cache_read_input_tokens: 0, rows: 0 },
+    unattributed: { input_tokens: 0, output_tokens: 2000, cache_creation_input_tokens: 0, cache_read_input_tokens: 0, rows: 1 },
+    overcount: { input_tokens: 0, output_tokens: 0, cache_creation_input_tokens: 0, cache_read_input_tokens: 0, rows: 0 },
+    rosterRead: true,
+  },
 };
 
 async function openUsage(page) {
@@ -123,6 +141,17 @@ function readUsage(page) {
       sectionFits: (() => { const el = document.getElementById('s-sec-usage'); return el ? el.scrollWidth <= el.clientWidth + 2 : null; })(),
       wtrCols: (() => { const el = document.getElementById('usage-wtr'); return el ? (getComputedStyle(el).gridTemplateColumns || '').split(' ').filter(Boolean).length : null; })(),
       secW: (() => { const el = document.getElementById('s-sec-usage'); return el ? el.clientWidth : null; })(),
+      // #2617 the per-agent block.
+      agentsShown: (() => { const el = document.getElementById('usage-agents'); return el ? !el.hidden : null; })(),
+      agentHead: ((document.querySelector('#usage-atable .tv-mrow.head > div') || {}).textContent || '').trim(),
+      agentNames: [...document.querySelectorAll('#usage-atable .tv-mrow:not(.head) .tv-mnl')].map((e) => (e.textContent || '').trim()),
+      agentMutedCount: document.querySelectorAll('#usage-atable .tv-mrow.muted').length,
+      agentBarsPainted: (() => { const bars = [...document.querySelectorAll('#usage-atable .tv-mbar span')]; return bars.length > 0 && bars.every((b) => b.getBoundingClientRect().width > 0); })(),
+      agentFits: (() => { const el = document.getElementById('usage-atable'); return el ? el.scrollWidth <= el.clientWidth + 1 : null; })(),
+      // Mona's #3603 review: the non-agent label is a sentence and must read in full.
+      mutedLabelWhole: (() => { const el = document.querySelector('#usage-atable .tv-mrow.muted .tv-mnl'); return el ? el.scrollWidth <= el.clientWidth + 1 : null; })(),
+      agentNote: txt('#usage-agents-note') || '',
+      agentsAfterWtr: (() => { const a = document.getElementById('usage-agents'), w = document.getElementById('usage-wtr'); return a && w ? !!(w.compareDocumentPosition(a) & Node.DOCUMENT_POSITION_FOLLOWING) : null; })(),
       // the removed elements must be GONE (Josh's exact-to-spec replacement).
       noCards: !document.getElementById('usage-cards'),
       noMoney: !document.getElementById('usage-worth'),
@@ -198,6 +227,60 @@ function readUsage(page) {
     ok(v.sectionFits, 'the token-usage section has no horizontal overflow at the settings-column width');
     ok(v.donutCenter, 'the donut center names the total tokens');
     ok(v.donutLegend >= 1, `the donut legend lists the model(s) (got ${v.donutLegend})`);
+    // #2617 the per-agent block
+    ok(v.agentsShown === true, 'the By agent block is shown when /api/usage sends byAgent');
+    ok(v.agentHead === 'Agent', `the per-agent table heads its first column Agent (got ${JSON.stringify(v.agentHead)})`);
+    ok(JSON.stringify(v.agentNames) === JSON.stringify(['Ann', 'Bob', 'Sessions outside any agent\'s folder']),
+      `the per-agent rows are the agents by shown name, then sessions outside any agent's folder (got ${JSON.stringify(v.agentNames)})`);
+    ok(v.agentMutedCount === 1, `only the non-agent row is muted (got ${v.agentMutedCount})`);
+    ok(v.agentBarsPainted, 'every per-agent share bar paints with a width');
+    ok(v.agentFits, 'the per-agent table fits the settings column with no horizontal overflow');
+    ok(v.mutedLabelWhole === true, 'the non-agent row label reads in full, wrapped rather than cut short');
+    ok(/2K tokens in the totals above come from transcripts that have since been removed or can no longer be read/.test(v.agentNote),
+      `the note states the tokens that cannot be matched (got ${JSON.stringify(v.agentNote)})`);
+    ok(v.agentsAfterWtr === true, 'the By agent block sits under the per-model table and donut');
+    if (process.env.SHOTS) {
+      const el = await p.$('#s-sec-usage');
+      await el.screenshot({ path: process.env.SHOTS + '/usage-by-agent-1280.png' });
+    }
+    // #2617 phone width: the fixed number columns used to leave a name a few pixels
+    // and clip "% total" in both tables. Below 420px the share bar drops out.
+    await p.setViewportSize({ width: 390, height: 1100 });
+    const narrow = await p.evaluate(() => {
+      const fit = (id) => { const el = document.getElementById(id); return el ? el.scrollWidth <= el.clientWidth + 1 : null; };
+      const clipped = [...document.querySelectorAll('#usage-atable .tv-num, #usage-mtable .tv-num, #usage-atable .tv-mrow.head > div, #usage-mtable .tv-mrow.head > div')]
+        .filter((e) => e.scrollWidth > e.clientWidth + 1).map((e) => (e.textContent || '').trim());
+      const cell = document.querySelector('#usage-atable .tv-mrow:not(.head) .tv-mn');
+      const row = document.querySelector('#usage-atable .tv-mrow:not(.head)');
+      const bar = document.querySelector('#usage-atable .tv-mbar');
+      return { agentFits: fit('usage-atable'), modelFits: fit('usage-mtable'), clipped,
+        nameShare: cell && row ? cell.getBoundingClientRect().width / row.getBoundingClientRect().width : 0,
+        barHidden: bar ? getComputedStyle(bar).display === 'none' : null,
+        mutedWhole: (() => { const el = document.querySelector('#usage-atable .tv-mrow.muted .tv-mnl'); return el ? el.scrollWidth <= el.clientWidth + 1 : null; })() };
+    });
+    ok(narrow.modelFits === true, 'at 390 wide the per-model table fits with no horizontal overflow (it did not before #2617)');
+    ok(narrow.agentFits === true, 'at 390 wide the per-agent table fits with no horizontal overflow');
+    ok(narrow.clipped.length === 0, `at 390 wide no number or header cell is clipped (clipped: ${JSON.stringify(narrow.clipped)})`);
+    ok(narrow.barHidden === true, 'at 390 wide the share bar column gives way to the name');
+    ok(narrow.mutedWhole === true, 'at 390 wide the non-agent row label still reads in full');
+    ok(narrow.nameShare >= 0.35, `at 390 wide the name cell takes at least a third of the row (got ${Math.round(narrow.nameShare * 100)}%)`);
+    // #2617: a wide section puts the model table beside the donut at half width.
+    // The narrow rule keys on each table's own width, so it must fire there too.
+    const sideBySide = await p.evaluate(() => {
+      const sec = document.getElementById('s-sec-usage');
+      const was = sec.style.maxWidth + '|' + sec.style.width;
+      sec.style.maxWidth = 'none'; sec.style.width = '700px';
+      const wtr = document.getElementById('usage-wtr');
+      const cols = (getComputedStyle(wtr).gridTemplateColumns || '').split(' ').filter(Boolean).length;
+      const m = document.getElementById('usage-mtable');
+      const bar = document.querySelector('#usage-mtable .tv-mbar');
+      const out = { cols, fits: m.scrollWidth <= m.clientWidth + 1, barHidden: bar ? getComputedStyle(bar).display === 'none' : null };
+      const [mw, w] = was.split('|'); sec.style.maxWidth = mw; sec.style.width = w;
+      return out;
+    });
+    ok(sideBySide.cols === 2 && sideBySide.fits && sideBySide.barHidden === true,
+      `beside the donut at half width the model table takes the narrow layout and fits (got ${JSON.stringify(sideBySide)})`);
+    await p.setViewportSize({ width: 1280, height: 1100 });
     // the replaced elements are gone
     ok(v.noCards, 'the old full-number cards are removed (replaced by the approved design)');
     ok(v.noMoney, 'the old output-only money box is removed (replaced by the hero value)');
@@ -240,6 +323,51 @@ function readUsage(page) {
     });
     ok(scale.big.includes('B'), `hero shows the production-scale total in the B band (got ${scale.big})`);
     ok(scale.clipped.length === 0, `hero figures fit their boxes at production scale, none clipped (clipped: ${JSON.stringify(scale.clipped)})`);
+    // #2617 CONTROL: repaint in the SAME page life, from a painted block to a
+    // response with no byAgent (an older board, a failed split). After a reload
+    // the block is hidden by its markup whatever the code does, so the hide path
+    // is only exercised by painting over a shown block.
+    await p.unroute('**/api/usage*');
+    await p.route('**/api/usage*', (r) => r.fulfill({ json: USAGE }));
+    // paintUsage returns early while another paint is in flight (USAGE_BUSY), so
+    // wait for the one the reload started before painting again.
+    await p.waitForFunction(() => !USAGE_BUSY);
+    await p.evaluate(() => paintUsage()); // awaited: the paint has finished
+    const shownFirst = await p.evaluate(() => { const el = document.getElementById('usage-agents'); return el ? !el.hidden : null; });
+    ok(shownFirst === true, 'CONTROL setup: the block is shown before the repaint that must hide it');
+    await p.unroute('**/api/usage*');
+    await p.route('**/api/usage*', (r) => r.fulfill({ json: BIG }));
+    await p.waitForFunction(() => !USAGE_BUSY);
+    await p.evaluate(() => paintUsage());
+    const repaint = await p.evaluate(() => {
+      const el = (id) => document.getElementById(id);
+      return { hidden: el('usage-agents') ? el('usage-agents').hidden : null,
+        rows: document.querySelectorAll('#usage-atable .tv-mrow').length,
+        note: el('usage-agents-note') ? el('usage-agents-note').textContent : null };
+    });
+    ok(repaint.hidden === true && repaint.rows === 0 && repaint.note === '',
+      `a repaint with no byAgent hides the block and leaves no stale rows or note (got ${JSON.stringify(repaint)})`);
+    // #2617: every token unmatched (all the window's transcripts removed). No rows,
+    // so the table hides, but the block shows because the note is the answer.
+    const Z = { input_tokens: 0, output_tokens: 0, cache_creation_input_tokens: 0, cache_read_input_tokens: 0, rows: 0 };
+    const GONE = { ...BIG, byAgent: { agents: [], elsewhere: Z, shared: Z, overcount: Z, rosterRead: true,
+      unattributed: { input_tokens: 0, output_tokens: 5000, cache_creation_input_tokens: 0, cache_read_input_tokens: 0, rows: 1 } } };
+    await p.unroute('**/api/usage*');
+    await p.route('**/api/usage*', (r) => r.fulfill({ json: GONE }));
+    await p.reload({ waitUntil: 'networkidle' });
+    await p.evaluate(() => showTab('settings'));
+    await p.click('#s-nav button[data-go="usage"]');
+    await p.waitForSelector('#usage-hero .tv-hero');
+    const gone = await p.evaluate(() => {
+      const el = (id) => document.getElementById(id);
+      return {
+        block: el('usage-agents') ? !el('usage-agents').hidden : null,
+        table: el('usage-atable') ? !el('usage-atable').hidden : null,
+        note: el('usage-agents-note') ? (el('usage-agents-note').textContent || '').trim() : null,
+      };
+    });
+    ok(gone.block === true && gone.table === false && /5K tokens in the totals above/.test(gone.note || ''),
+      `with every token unmatched the block shows its note and no empty table (got ${JSON.stringify(gone)})`);
     await ctx.close();
   } finally {
     await browser.close();

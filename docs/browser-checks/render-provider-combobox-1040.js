@@ -7,10 +7,12 @@
  * contract: the native <select> stays the source of truth (hidden, still in the DOM with its
  * options), the trigger shows the selected mark+label, open/close + keyboard nav +
  * Enter-select sync the hidden select's .value and fire `change`, Esc closes and refocuses,
- * a coming-soon option is aria-disabled and NOT selectable, Grok gets an initial-letter chip
+ * a coming-soon option is aria-disabled and NOT selectable, Grok gets its real mark (#3708; it was an initial-letter chip)
  * (no wrong-brand mark), and a programmatic value change re-renders the trigger. Both themes,
  * plus a screenshot. It also checks the #acct-provider-pick reauth-hide contract: the
- * "Sign in again" screen hides the whole chooser container, widget included. This is the CI
+ * "Sign in again" screen hides the whole chooser container, widget included. And a REAL mouse
+ * pick of Gemini or Grok in the Add-a-provider dialog keeps the dialog open (the 0.6.95 flash:
+ * the option was chosen on mousedown, and the mouseup's click closed the dialog). This is the CI
  * browser-checks (Playwright) verification of the a11y CONTRACT; a real screen-reader pass is
  * the human follow-up no Playwright can do.
  *
@@ -125,13 +127,15 @@ const SELECTS = [
       let disabledNotSelectable = true;
       if (disabledLi) {
         const before = select.value;
+        // A whole press (the choice is made on click since the Add-dialog fix below).
         disabledLi.dispatchEvent(new MouseEvent('mousedown', { bubbles: true, cancelable: true }));
+        disabledLi.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
         disabledNotSelectable = select.value === before; // committing a disabled option is a no-op
       }
 
-      // Grok/xai option renders an initial-letter chip, never a cloned brand mark.
+      // #3708: the Grok/xai option wears the real Grok mark cloned from first run, not the letter chip.
       const grokLi = Array.from(list.children).find((li) => li.dataset.value === 'xai');
-      const grokChip = !!(grokLi && grokLi.querySelector('.pcombo-chip') && !grokLi.querySelector('svg'));
+      const grokChip = !!(grokLi && !grokLi.querySelector('.pcombo-chip') && grokLi.querySelector('[data-pmark="xai"] svg path'));
 
       // Esc closes and refocuses the trigger.
       trigger.click(); // open again
@@ -215,7 +219,7 @@ const SELECTS = [
     ok(t + 'Enter closes the listbox', r.closedAfterEnter);
     ok(t + 'a coming-soon option is aria-disabled', r.disabledIsDisabled);
     ok(t + 'a coming-soon option is NOT selectable', r.disabledNotSelectable);
-    ok(t + 'Grok/xai renders an initial-letter chip, not a brand mark', r.grokChip);
+    ok(t + 'Grok/xai renders its real Grok mark, not the letter chip (#3708)', r.grokChip);
     ok(t + 'Esc closes the listbox', r.reopened && r.escClosed);
     ok(t + 'Esc returns focus to the trigger', r.escRefocus);
     ok(t + 'a no-dispatch programmatic value change re-renders the trigger (value-setter wrap)',
@@ -274,6 +278,60 @@ const SELECTS = [
     await page.close();
   }
 
+  // A REAL mouse pick in the Add-a-provider dialog keeps the dialog open (0.6.95, Windows,
+  // Settings > AI Models: "when I try to add Grok or Gemini it flashes for a second and then
+  // goes away"). The widget used to commit on MOUSEDOWN, which hid the list while the button
+  // was still down; the mouseup then landed on the dialog's backdrop, the browser sent the
+  // click to the element holding both (the backdrop), and its click handler closed the dialog.
+  // Only options drawn past the dialog's bottom edge were hit, which is Gemini and Grok (and
+  // OpenAI). Every other assertion in this file picks by keyboard or synthetic events, which
+  // is why none of them saw it: this one presses the real mouse (page.click) on the option.
+  for (const [val, label] of [['google', 'Gemini'], ['xai', 'Grok']]) {
+    const page = await browser.newPage({ viewport: { width: 900, height: 700 } });
+    const pageErrors = [];
+    page.on('pageerror', (e) => pageErrors.push(e.message));
+    await page.goto(PAGE);
+    const t = '[add-dialog mouse pick][' + label + '] ';
+    const setup = await page.evaluate(() => {
+      // The tool is missing, so the pick opens the download step (the operator's fresh machine).
+      const enc = (o) => new Response(JSON.stringify(o), { status: 200, headers: { 'content-type': 'application/json' } });
+      window.fetch = async (url) => {
+        const u = String(url);
+        if (/\/api\/runners(\?|$)/.test(u)) return enc({ runners: { gemini: { present: false, job: null }, grok: { present: false, job: null } } });
+        if (/\/api\/accounts(\?|$)/.test(u)) return enc({ accounts: [] });
+        // #3874: Gemini on a Google subscription not offered here, so Gemini's pick goes on to the download.
+        if (/\/api\/antigravity(\?|$)/.test(u)) return enc({ enabled: true, supported: false, installed: false });
+        return enc({});
+      };
+      if (typeof openAcctAdd !== 'function') return { fatal: 'openAcctAdd is not a global function' };
+      openAcctAdd();
+      return { open: !document.getElementById('acct-add-modal').hidden };
+    });
+    if (setup.fatal) { problems.push(t + setup.fatal); await page.close(); continue; }
+    await page.click('#acct-provider-field .pcombo-trigger');
+    const geo = await page.evaluate((v) => {
+      const li = document.querySelector('#acct-provider-field .pcombo-opt[data-value="' + v + '"]');
+      const d = document.getElementById('acct-add-dialog').getBoundingClientRect();
+      if (!li || li.offsetParent === null) return { listOpen: false };
+      const b = li.getBoundingClientRect();
+      return { listOpen: true, belowDialog: b.top + b.height / 2 > d.bottom };
+    }, val);
+    // Non-vacuous: the option sits past the dialog's bottom edge, the geometry the bug needed.
+    ok(t + 'the open list draws the option past the dialog\'s bottom edge (the case that closed it)', geo.listOpen && geo.belowDialog, JSON.stringify(geo));
+    await page.click('#acct-provider-field .pcombo-opt[data-value="' + val + '"]');
+    await page.waitForTimeout(600);
+    const after = await page.evaluate(() => ({
+      modalOpen: !document.getElementById('acct-add-modal').hidden,
+      picked: document.getElementById('acct-provider-pick').value,
+      install: !document.getElementById('acct-keyed-install').hidden,
+    }));
+    ok(t + 'a mouse pick keeps the Add-a-provider dialog open', after.modalOpen, JSON.stringify(after));
+    ok(t + 'the mouse pick selects the provider', after.picked === val, JSON.stringify(after));
+    ok(t + 'the dialog goes on to the download step for the missing tool', after.install, JSON.stringify(after));
+    if (pageErrors.length) problems.push(t + 'pageerror: ' + pageErrors.join(' | '));
+    await page.close();
+  }
+
   // #1040 2b: #create-provider is the ONLY enhanced select in a fixed-width (18rem) stepped
   // flex row (#cstep-name .msteps .frow), elbow-aligned with #create-account / #create-model.
   // enhanceProviderSelect clips the native select and inserts a .pcombo with no width of its
@@ -318,5 +376,5 @@ const SELECTS = [
     for (const p of problems) console.error('  FAIL  ' + p);
     process.exit(1);
   }
-  console.log('render-provider-combobox-1040: the #d-provider, #acct-provider-pick and #create-provider logo comboboxes keep the native select as source of truth, open/navigate/select/close by keyboard, sync + fire change, disable coming-soon rows, fall back to a chip for Grok, and re-render on a programmatic change; and the reauth screen hides the whole #acct-provider-pick chooser (widget included). Screenshots: ' + shots.join(', '));
+  console.log('render-provider-combobox-1040: the #d-provider, #acct-provider-pick and #create-provider logo comboboxes keep the native select as source of truth, open/navigate/select/close by keyboard, sync + fire change, disable coming-soon rows, show the real Grok mark (#3708), and re-render on a programmatic change; and the reauth screen hides the whole #acct-provider-pick chooser (widget included). Screenshots: ' + shots.join(', '));
 })();

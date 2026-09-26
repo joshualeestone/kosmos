@@ -62,8 +62,8 @@ function sandbox(prefix) {
      running. 🛑 THAT ONE IS NOT HYPOTHETICAL AND IT COST A RED SUITE: these arms
      PASS ALONE AND FAIL IN THE FULL SUITE, because tools.release-gate.test.js is
      spawning its own sandbox copies of release.sh concurrently and pgrep sees
-     them. (That file never trips the guard itself: every refusal it asserts
-     happens at the version gate, ABOVE where the guard is even sourced.) So the
+     them. (That file's git-sandbox arms do reach the guards; since #3619 they
+     set both ignore flags, so they no longer trip them.) So the
      arms here are pinned to cut-guard.sh's OWN documented seam, KOSMOS_CUT_PROBE
      ("so the guard can be shown red and green without a cut"), pointed at a stub
      that reports no cut. That makes these arms independent of whatever else on

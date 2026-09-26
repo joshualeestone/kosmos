@@ -27,6 +27,7 @@
  *     node docs/browser-checks/thread-server.js
  */
 
+require('./lib-sandbox-home.js'); // #3675: never read the host Mac's real accounts
 const os = require('node:os');
 const path = require('node:path');
 const fs = require('node:fs');

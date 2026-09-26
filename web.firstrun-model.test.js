@@ -98,10 +98,29 @@ test('the step is a real slice of the model pane', () => {
      tile (grouped with Gemini), taking the slice to 36511 -- 489 chars under the old
      37000 ceiling, too tight to leave. `id="create-model"` now sits 98767 chars from
      the slice start, so 40000 is 58767 chars short of swallowing the create form; the
-     tripwire still trips long before it stops meaning anything. */
-  assert.ok(STEP.length > 200 && STEP.length < 40000, 'the slice is ' + STEP.length + ' chars, so it is not this step');
+     tripwire still trips long before it stops meaning anything.
+     ⚠️ RAISED 40000 -> 44000 (#3708): Grok's letter chip became the real inlined Grok
+     mark, and main had already grown to 39949 (51 under the old ceiling). The slice
+     measures 41109; `id="create-model"` sits 103294 chars from the slice start, so
+     44000 is ~59k short of swallowing the create form.
+     ⚠️ RAISED 44000 -> 49000 (#3731): Gemini and Grok each got GPT's four panels (install, choice,
+     sign-in, key) directly under their own rows, replacing one shared box. The slice measures
+     46213; `id="create-model"` sits 108398 chars from the slice start, so 49000 is still far
+     short of swallowing the create form. */
+  assert.ok(STEP.length > 200 && STEP.length < 49000, 'the slice is ' + STEP.length + ' chars, so it is not this step');
   assert.match(STEP, /Your agents run on your own subscription/, 'the slice does not contain the model step');
   assert.ok(!STEP.includes('id="create-model"'), 'the slice ran past this step into the create form');
+});
+
+test('#3708: Grok wears its real mark and Gemini and Grok name how they connect', () => {
+  // Grok's row is a full-weight vendor mark like the others, not the old "X" letter chip.
+  assert.match(STEP, /<span class="llm-m pmark live" data-pmark="xai" role="img" aria-label="Grok"><svg viewBox="0 0 34 33"[^>]*><path /,
+    'Grok is not wearing its inlined vendor mark');
+  assert.doesNotMatch(STEP, /llm-chip/, 'a letter chip is back on the model step');
+  // Each subtitle names how it connects, not 'works today': Kosmos does not install either one's
+  // command line tool yet, so Connect can stop at 'not installed' on a fresh computer.
+  assert.match(STEP, /<b>Grok<\/b><small>xAI &middot; subscription or API key today<\/small>/);
+  assert.match(STEP, /<b>Gemini<\/b><small>Google &middot; subscription or API key today<\/small>/);
 });
 
 test('Claude stays at full weight, the one with an OAuth connect', () => {
@@ -158,10 +177,18 @@ test('no disclosure survives: all eleven providers render in the open', () => {
      works via Settings, so first-run stopped saying otherwise. #1040 added four
      more, and #3386 added Grok up front (Josh, 2026-09-21), honouring "show all the
      models"; the sticky footer already removed the fold tension six rows once created. */
-  assert.equal((STEP.match(/class="llm off"/g) || []).length, 9,
-    'expected exactly the nine coming-soon providers at .llm off weight');
-  assert.equal((STEP.match(/class="soon"/g) || []).length, 9,
-    'expected a "Coming soon" pill on each of the nine still-unavailable providers');
+  /* #3658 (Josh, 2026-09-24 17:46): Gemini and Grok connect HERE now, with the gold
+     Connect, so they are `.llm on` like Claude and GPT and carry no pill. The seven
+     genuinely unavailable providers stay `.llm off` and say "Coming soon", and no
+     "After setup" pill survives (it said the opposite of what the row now does). */
+  assert.equal((STEP.match(/class="llm off"/g) || []).length, 7,
+    'expected exactly the seven not-yet-available providers at .llm off weight');
+  assert.equal((STEP.match(/class="llm on"/g) || []).length, 4,
+    'expected Claude, GPT, Gemini and Grok as connectable rows');
+  assert.equal((STEP.match(/class="soon"[^>]*>Coming soon</g) || []).length, 7,
+    'expected a "Coming soon" pill on each of the seven still-unavailable providers');
+  assert.equal((STEP.match(/After setup/g) || []).length, 0,
+    'an "After setup" pill came back; Gemini and Grok connect on this step (#3658)');
 });
 
 test('every provider carries a real, inlined vendor mark', () => {
@@ -177,13 +204,18 @@ test('every provider carries a real, inlined vendor mark', () => {
      means the grayscale/opacity filter lifts, not a colour change. */
   assert.match(STEP, /class="llm-m pmark live" data-pmark="claude"/, 'Claude is not a live mark');
   assert.match(STEP, /class="llm-m pmark live" data-pmark="openai"/, 'OpenAI is not a live mark');
-  assert.equal((STEP.match(/class="llm-m pmark dim"/g) || []).length, 8,
-    'expected all eight still-coming-soon marks to be dimmed');
+  /* #3658: Gemini's mark is live now (it connects here); the seven coming-soon marks stay dim. */
+  assert.match(STEP, /class="llm-m pmark live" data-pmark="gemini"/, 'Gemini is not a live mark');
+  assert.equal((STEP.match(/class="llm-m pmark dim"/g) || []).length, 7,
+    'expected all seven still-coming-soon marks to be dimmed');
 });
 
 test('the tier label and its separator match the rest of the product', () => {
-  assert.match(STEP, /<p class="smore-t">Runs on this computer<\/p>/,
-    'the "Runs on this computer" tier heading is missing or changed shape');
+  /* #3658 (Josh): "kill 'Runs on this computer' ... just list all the models in a single
+     uninterrupted list." Its ABSENCE is asserted, so a branch cut before this cannot
+     silently bring it back (the #1214-era deletion that came back is the precedent). */
+  assert.doesNotMatch(STEP, /Runs on this computer/, 'the "Runs on this computer" tier heading came back');
+  assert.doesNotMatch(STEP, /class="smore-t"/, 'a tier heading came back inside the model list');
   /* The house never ships an em dash in PRODUCT-FACING TEXT (code comments
      are a different convention and use them freely, including several in
      this very step's own build comments) -- so this strips HTML comments

@@ -190,7 +190,7 @@ const BLOCK = [
   '',
   '**This is a separate act from thinking about the message.** Nothing carries',
   'your reply across for you: `kosmos post <project> "..."` for the room,',
-  '`kosmos msg <name> "..."` for one person.',
+  '`kosmos msg <name> "..."` for one other agent.',
   '',
   '**You can also react to a room post** with `kosmos react <project> <postId>',
   '<emoji>`, the way a thumbs up or a fire works in a chat. Each post in `kosmos',
@@ -226,13 +226,14 @@ const BLOCK = [
   '',
   '### Send readable messages, not a wall of text',
   '',
-  '**A Kosmos room and an agent dialogue both render formatting, so a single',
-  'grey block of text is a choice you are making, not a limit you are under.**',
+  '**A Kosmos room and your dialogue with the person both render formatting,',
+  'so a single grey block of text is a choice you are making, not a limit you',
+  'are under.**',
   'The person reading you sees headings, spacing, lists and tables when you',
   'write them and one unbroken paragraph when you do not. Write the formatted',
   'version from your first message, without being asked, in project rooms and',
-  'in your direct dialogues alike. This is the default, not a flourish for',
-  'special occasions.',
+  'in your dialogue with the person alike. This is the default, not a',
+  'flourish for special occasions.',
   '',
   '**What a room shows you:** short paragraphs with a blank line between them,',
   'headings written with `#` through `######`, **bold**, *italic*,',
@@ -242,18 +243,76 @@ const BLOCK = [
   'address rather than hiding it behind words.',
   '',
   '**What it does not, so do not reach for these:** a `[label](address)` link',
-  'shows only the label and drops the address in both a room and a dialogue,',
-  'which is why you paste the bare address when the person needs to open it.',
-  'Anything written as raw',
-  'HTML is shown the way you typed it, not turned into a page. And a line that',
-  'starts with `>` becomes a quote in a direct dialogue but stays literal text',
-  'in a project room, so lean on it only one-to-one, never in a room.',
+  'shows only the label and drops the address in both a room and your dialogue',
+  'with the person, which is why you paste the bare address when the person',
+  'needs to open it. Anything written as raw HTML is shown the way you typed',
+  'it, not turned into a page. And a line that',
+  'starts with `>` becomes a quote in your dialogue with the person but stays',
+  'literal text in a project room, so lean on it only there, never in a room.',
   '',
   '**One trap, and it is your shell rather than Kosmos:** backticks and a `$`',
   'inside a double-quoted message are read by your own shell before Kosmos ever',
   'receives the text, so a code sample can arrive changed or empty. Wrap a',
   'message that carries them in single quotes instead, and the characters reach',
-  'the room as you wrote them.',
+  'the room as you wrote them. Single quotes break on an apostrophe, so for',
+  'anything longer use the heredoc in the next section.',
+  '',
+  '### Formatted messages need line breaks',
+  '',
+  '**A heading, a list or a table only shows as one when each part starts on',
+  'its own line, and a message typed on one line has none.** However carefully',
+  'it was formatted in your head, it arrives as one paragraph. So write anything',
+  'with structure across several lines, in a quoted heredoc so your shell',
+  'changes nothing in it (the quotes around `KOSMOS_MSG` stop it reading',
+  'backticks and `$`).',
+  '',
+  '**In a project room,** pipe it into `kosmos post --stdin` (to answer a post,',
+  '`kosmos post --stdin --in-reply-to <id> <project>`):',
+  '',
+  '```',
+  "kosmos post --stdin <project> <<'KOSMOS_MSG'",
+  '## What changed',
+  '',
+  '- the first point',
+  '- the second point',
+  'KOSMOS_MSG',
+  '```',
+  '',
+  '**In your reply to the person,** `kosmos reply` has no `--stdin`, so read the',
+  'heredoc into a variable and pass that:',
+  '',
+  '```',
+  "IFS= read -r -d '' msg <<'KOSMOS_MSG' || true",
+  '## What changed',
+  '',
+  '- the first point',
+  'KOSMOS_MSG',
+  'kosmos reply "$msg"',
+  '```',
+  '',
+  'The `|| true` matters: `read` ends non-zero when it reaches the end of the',
+  'message, which would otherwise stop a script before the reply is sent.',
+  '',
+  '**A message to another agent** (`kosmos msg`) is kept and delivered as one',
+  'line, so formatting it changes nothing; write it plainly.',
+  '',
+  "**Only if your commands run in PowerShell** (not Git Bash: on Windows a",
+  "Bash tool is Git Bash, and the forms above are the ones for it), a heredoc",
+  "does not exist and piping does not reach `kosmos`. Pass the message as one",
+  "argument in a single-quoted here-string, with `@'` at the end of the first",
+  "line and `'@` at the start of the last (to answer a post, `kosmos post",
+  "--in-reply-to <id> <project> @'`):",
+  '',
+  '```',
+  "kosmos post <project> @'",
+  '## What changed',
+  '',
+  '- the first point',
+  "'@",
+  '```',
+  '',
+  "`kosmos reply @'` works the same way. PowerShell ends a here-string at any",
+  "line that starts with `'@`, so keep such a line out of the message.",
   '',
   '### Before you do something you cannot take back',
   '',
@@ -368,6 +427,31 @@ const BLOCK = [
   'every agent, so use the name you were given. A message that uses their name',
   'reads as written to them; a generic word like "the operator" reads as written',
   'about them to someone else.',
+  '',
+  '### When someone reacts to your post',
+  '',
+  '**A reaction is feedback, not a message.** When someone reacts to one of your',
+  'room posts with an emoji, `kosmos room` shows it on a line under that post.',
+  'Read it the way you would in any chat: a thumbs up means seen or approved, a',
+  'heart or a fire means they liked it, eyes mean they are looking at it.',
+  '**Do not reply to a reaction.** A message that answers a thumbs up is noise.',
+  '',
+  '**You may react back, sparingly.** React instead of replying only when a reply',
+  'would be noise: to mark something done, or to acknowledge a post that asked',
+  'nothing of you. **A reaction never answers a message addressed to you**; that',
+  'still needs a post, or the room keeps showing you as not having answered. Do',
+  'not react to every post, put at most one reaction on any post, and never',
+  'react to your own posts.',
+  '',
+  '### When someone reacts in a direct conversation',
+  '',
+  'The person can react to your messages in your direct conversation too. You are',
+  'not interrupted for it: you learn about it with their next message, on a',
+  '`[kosmos] reactions from the person` note after their words, naming the emoji and',
+  'the start of the message it was on. Treat it exactly like a reaction in a room:',
+  'feedback, not a message, and never something to reply to on its own. There is no',
+  'way for you to react back in a direct conversation; answer in words when an',
+  'answer is needed.',
 ].join('\n');
 
 /**
@@ -562,8 +646,69 @@ function block() {
  *     agent with no record has no name to use. The shipped prose is conditional
  *     ("If you were given a name for them ...") so that case degrades to the
  *     generic word rather than asserting a name that is not there.
+ *
+ *  13. kosmos#3570. Josh, 2026-09-24 07:27: agents should know when a person
+ *     reacts to their post, and may react back, "but not in an annoying way".
+ *     `kosmos room` now prints a post's reactions on a `[kosmos]` line under
+ *     it (server.js room text arm); before, only the web board drew them, so
+ *     an agent never saw one. A NEW section says how to read a reaction (no
+ *     reply to one) and when to react back.
+ *     NEW HEADING, deliberately, for the version 5/6/7/8 delivery reason:
+ *     `missingFrom` matches by heading, so agents that already exist are
+ *     re-offered it through the consented refresh, not only new ones.
+ *     WEAKEST PREMISE, NAMED: an agent sees a reaction the next time it reads
+ *     the room, not as a notice that wakes it. Nothing is pushed to the pane,
+ *     which is also why a reaction cannot force a reply turn.
+ *
+ *  14. kosmos#3650. Josh, 2026-09-24 12:27: reactions "in both their
+ *     conversations and projects". The person can now react to an agent's
+ *     messages in a Direct Message; the agent is told on the person's next
+ *     message there, as one `[kosmos]` note (engine/chat.js dmReactionNote).
+ *     A NEW section, for the same delivery reason as 13: `missingFrom` matches
+ *     by heading, so an edit inside `### When someone reacts to your post`
+ *     would have reached new agents only.
+ *     WEAKEST PREMISE, NAMED: a reaction the person makes and never follows
+ *     with a message is never told. That is deliberate (a reaction must not
+ *     wake the agent into a turn) and matches the room, where a reaction is
+ *     seen only on the agent's next read.
+ *
+ *  15. kosmos#2909, the part #10 left out. #10 asks for headings and lists, which
+ *     need their own lines, but never said how to send a line break, and an
+ *     agent composing a command writes it on one line. Which surfaces keep a
+ *     break, read from the code (2026-09-24): a room post (#2239, messages.js
+ *     storeText) and a reply to the person (#1927, chat.js appendMessage) keep
+ *     them; `kosmos msg` to another agent does NOT (messages.send stores
+ *     cleanMessage, one line), so the section says not to format those.
+ *     `kosmos post` takes `--stdin` (#3591); `kosmos reply` takes only an
+ *     argument, so the heredoc is read into a variable first (`IFS= read -r
+ *     -d ''`). Not `"$(cat <<'KOSMOS_MSG' ...)"`: macOS's bash 3.2 fails to parse
+ *     that when the message holds an apostrophe (measured); zsh and bash 3.2
+ *     both take the read form. `|| true` because read ends non-zero at the end
+ *     of its input, which under `set -e` would stop the script before the reply
+ *     (measured in both shells).
+ *     Delimiter KOSMOS_MSG, not EOF: a message line that is exactly the
+ *     delimiter would end the heredoc and run the rest as commands. PowerShell
+ *     cannot pipe into kosmos (kosmos.ps1 never reads piped input); a
+ *     single-quoted here-string argument keeps its line breaks through
+ *     kosmos.ps1's JSON hand-off, and its `'@` ending cannot be renamed, so the
+ *     copy says to keep such a line out. Section #10's "direct dialogues" now
+ *     reads "your dialogue with the person", so it does not seem to cover `kosmos
+ *     msg`, which this section says is one line; likewise its opening sentence,
+ *     the `>` sentence, and "Answering where you were asked" (msg is for one
+ *     other agent). Those edits sit inside headings existing agents already
+ *     hold, so only new agents and agents with a managed span (doctrine.planFor
+ *     rewrites the whole span) get them; the new section itself reaches all.
+ *     NEW HEADING, deliberately, for the version 5/6/7/8 delivery reason:
+ *     `missingFrom` matches by heading, so existing agents are re-offered it.
+ *     WEAKEST PREMISE, NAMED (two): the PowerShell form was measured on pwsh
+ *     7.6 on macOS, not on Windows PowerShell 5.1 under Codex, the only runner
+ *     that uses it (5.1 parses here-strings the same way; not yet seen). And
+ *     that agents skip line breaks for want of the
+ *     how, not by ignoring #10. Local evidence is thin: this board's store has
+ *     one room post since #2239, and it has no line break. Re-measure room
+ *     posts after this reaches agents.
  */
-const DOCTRINE_VERSION = 12;
+const DOCTRINE_VERSION = 15;
 
 /**
  * The block as named sections (#539): the `##` preamble first, then each

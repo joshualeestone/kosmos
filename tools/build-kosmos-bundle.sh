@@ -34,8 +34,8 @@ set -euo pipefail
 # One EXIT trap, registered before anything can create a temp resource: six
 # exit-1 paths once sat between the download's mktemp and a trap that was
 # "folded in" later, each leaking ~150MB of Node tarball per failed build.
-TMP=""; SMOKE_LOG=""; SMOKE_ROOTS=""; _reload_table_stderr=""; _menu_table_stderr=""
-trap 'rm -rf "${TMP:-}" "${SMOKE_LOG:-}" "${SMOKE_ROOTS:-}" "${_reload_table_stderr:-}" "${_menu_table_stderr:-}"' EXIT
+TMP=""; SMOKE_LOG=""; SMOKE_ROOTS=""; _reload_table_stderr=""; _menu_table_stderr=""; _connector_probe_dir=""
+trap 'rm -rf "${TMP:-}" "${SMOKE_LOG:-}" "${SMOKE_ROOTS:-}" "${_reload_table_stderr:-}" "${_menu_table_stderr:-}" "${_connector_probe_dir:-}"' EXIT
 
 NODE_VERSION="${KOSMOS_NODE_VERSION:-24.19.0}"
 OUT="${1:-dist}"
@@ -181,6 +181,13 @@ esac
 # log the old commit beside the new bytes, the very shape #621 closes.
 _connector_provenance_check "$TUNNEL_BIN" || exit 1
 _tunnel_src="$CONNECTOR_COMMIT"; _tunnel_in="$CONNECTOR_SHA"
+# The connector should know `mac-request`, the verb behind the board's
+# Mac-signed calls (#718, #3626). Refused when PHONE_APP_CAN_RECEIVE is true and
+# it does not; one line saying what stays inactive while the gate is closed.
+# The probe's scratch file lands in a dir on the ONE EXIT trap above.
+. "$REPO/tools/lib/connector-verbs.sh"
+_connector_probe_dir="$(mktemp -d)"
+TMPDIR="$_connector_probe_dir" connector_verbs_check "$TUNNEL_BIN" "$REPO/engine/phonenotify.js" || exit 1
 cp "$TUNNEL_BIN" "$STAGE/app/bin/kosmos-tunnel"
 chmod +x "$STAGE/app/bin/kosmos-tunnel"
 # The bytes STAGED are the bytes the sidecar vouched for: a relay rebuild landing
@@ -196,7 +203,8 @@ _tunnel_staged="$(shasum -a 256 "$STAGE/app/bin/kosmos-tunnel" | awk '{print $1}
 # FAIL LOUD if the identity is absent: a release binds to a machine holding the
 # cert, and a silent ad-hoc fallback would build fine and fail notarisation
 # later -- the same defect one layer down.
-_codesign_id="${KOSMOS_CODESIGN_ID:-Developer ID Application: Stone Syndicate LLC (864QZ69GF2)}"
+. "$REPO/tools/lib/signing-identity.sh"   # the one place the signing team is named (#3643)
+_codesign_id="${KOSMOS_CODESIGN_ID:-$KOSMOS_SIGN_APP_DEFAULT}"
 codesign --force --options runtime --timestamp -s "$_codesign_id" "$STAGE/app/bin/kosmos-tunnel" 2>&1 | sed 's/^/    /' || {
   printf '%s\n' "could not Developer ID sign the Plus connector as \"$_codesign_id\" (is this the machine holding the cert? set KOSMOS_CODESIGN_ID to override). NOT falling back to ad-hoc." >&2; exit 1; }
 codesign -v "$STAGE/app/bin/kosmos-tunnel" 2>&1 | sed 's/^/    /' || { echo "the connector's signature did not verify after signing" >&2; exit 1; }

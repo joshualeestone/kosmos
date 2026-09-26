@@ -195,7 +195,8 @@ test('#1373: the picker is not offered where it can do nothing', () => {
      disabled and the engine would refuse anyway. */
   assert.match(PAGE, /const armed =[\s\S]{0,60}?CURRENT[\s\S]{0,60}?prov\.value !== providerOf\(CURRENT\)/,
     'the armed gate is gone, so the picker renders on an agent already on OpenAI');
-  assert.match(PAGE, /if \([\s\S]{0,30}?!openai[\s\S]{0,20}?!armed[\s\S]{0,30}?!list\.length[\s\S]{0,10}?\)/,
+  // #3566: `keyed` (OpenAI, Gemini or Grok chosen) replaced `openai` as the provider arm.
+  assert.match(PAGE, /if \([\s\S]{0,30}?!keyed[\s\S]{0,20}?!armed[\s\S]{0,30}?!list\.length[\s\S]{0,10}?\)/,
     'the hidden condition no longer consults the armed gate');
 });
 

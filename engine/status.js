@@ -263,11 +263,13 @@ const STATE = {
      working chrome while it retries, so an actively-retrying agent stays
      WORKING (the live-working checks precede this); this state is reached only
      once the retries are exhausted and the pane sits with the error, where it
-     used to read UNKNOWN ("Can't tell"). It is RECOVERABLE by a restart when
-     connectivity returns (the self-heal half, #3410 PR 2), which is why it is
-     its own state and not folded into AUTH_FAILED (an auth failure a restart
-     cannot fix) or UNKNOWN (which must never be auto-restarted). The SSL/cert
-     class is deliberately excluded: it needs a CA-trust fix, not a restart. */
+     used to read UNKNOWN ("Can't tell"). It is RECOVERABLE once connectivity
+     returns: the self-heal (#3410 PR 2b, engine/connlost-heal.js) types a short
+     retry nudge into the pane, which keeps the agent's context (a restart would
+     lose it). That is why it is its own state and not folded into AUTH_FAILED
+     (an auth failure a nudge cannot fix) or UNKNOWN (which nothing may type
+     into automatically). The SSL/cert class is deliberately excluded: it needs
+     a CA-trust fix, which retrying cannot give it. */
   CONNECTION_LOST: 'connection_lost',
   IDLE: 'idle',
   STOPPED: 'stopped',
@@ -712,7 +714,9 @@ function isAgentSession(pane) {
   // recognised by its `@kosmos_agent` claim (the name arm), which is why keying
   // membership on the command is unnecessary here and would be the looser,
   // wrong direction.
-  return isClaudeCommand(pane.command) || isCodexCommand(pane.command);
+  // #3568: Antigravity's agy is a native binary, so its pane command is `agy` itself. Only for a
+  // fleet session (the guard above), so a person's own `agy` in some other pane is never ours.
+  return isClaudeCommand(pane.command) || isCodexCommand(pane.command) || isAntigravityCommand(pane.command);
 }
 
 /**
@@ -955,9 +959,9 @@ function parsePanes(out) {
       claim: raw.claim || '',
       /* Empty means claude, the same absent-means-default the supervisor's
          optional runner argument carries (#245). Normalised to the runner
-         words the classifier dispatches on (codex, gemini, grok; empty is
-         claude), so a truncated line cannot invent a runner. */
-      runner: raw.runner === 'codex' ? 'codex' : raw.runner === 'gemini' ? 'gemini' : raw.runner === 'grok' ? 'grok' : '',
+         words the classifier dispatches on (codex, gemini, grok, antigravity;
+         empty is claude), so a truncated line cannot invent a runner. */
+      runner: raw.runner === 'codex' ? 'codex' : raw.runner === 'gemini' ? 'gemini' : raw.runner === 'grok' ? 'grok' : raw.runner === 'antigravity' ? 'antigravity' : '',
       title: raw.title || '',
     };
   /* ⚠️ AND THE ROW ITSELF (#603's other half, MEASURED before believed):
@@ -1283,7 +1287,7 @@ function rank(pane) {
     // a shell at RANK_NAMED_CRASHED (1), the identical `zsh` + `claude` bug the
     // comment above measured, reproduced for codex. Reuses the one
     // `isCodexCommand` source rather than a private copy.
-    if (isUnambiguousClaude(pane && pane.command) || isCodexCommand(pane && pane.command)) return RANK_NAMED_RUNNING + byClaimOnly;
+    if (isUnambiguousClaude(pane && pane.command) || isCodexCommand(pane && pane.command) || isAntigravityCommand(pane && pane.command)) return RANK_NAMED_RUNNING + byClaimOnly; // #3568: agy too
     // `isAgentSession` accepts these too, but they are weaker: `node` is what a
     // dev server looks like, and inside our own session it must not outrank the
     // pane that is unambiguously Claude.
@@ -1401,6 +1405,11 @@ function isClaudeRunning(command) {
 function isCodexCommand(command) {
   const c = String(command || '').trim();
   return c === 'codex' || c === 'codex.exe';
+}
+
+/* #3568: Antigravity (Google's agy), the same strict literal shape as isCodexCommand. */
+function isAntigravityCommand(command) {
+  return String(command || '').trim() === 'agy';
 }
 
 /**
@@ -1538,6 +1547,54 @@ const CODEX_NEEDS_YOU_MARKERS = Object.freeze([
   /^\s*›\s*1\.\s*Yes/m,
   /^\s*›\s*\d+\.\s.*\n\s*\d+\.\s/m,
 ]);
+
+/**
+ * #3723: Codex's own "you are out of usage or credits" messages. READ FROM CODEX'S PROGRAM TEXT
+ * (the installed codex binary, 2026-09-25), not captured from a live pane: nobody here had an
+ * exhausted account to capture. The sentences are Codex's own, so they are what its screen prints;
+ * how the TUI wraps or prefixes them is unobserved, so each marker is a short unanchored phrase.
+ *   "You've hit your usage limit. Visit https://chatgpt.com/codex/settings/usage to purchase more credits"
+ *   "You've hit your usage limit. Upgrade to Plus to continue using Codex (https://chatgpt.com/explore/plus)"
+ *   "You've hit your usage limit. To get more access now, send a request to your admin"
+ *   "You've hit your usage limit for ..." (then "Try again at ...")
+ *   "Your workspace is out of credits. Ask your workspace owner to add more."
+ *   "You've reached your workspace credit limit"
+ */
+/* ANCHORED to the start of a row (after only Codex's own lead-in mark), so the sentence has to OPEN
+   the row the way Codex prints it. An answer or a tool line that merely mentions the phrase (an agent
+   working on this very feature, or a search result) does not count. */
+const CODEX_LIMIT_MARKERS = Object.freeze([
+  /^\s*(?:[•■]\s*)?You['’]ve hit your usage limit/i,
+  /^\s*(?:[•■]\s*)?Your workspace is out of credits/i,
+  /^\s*(?:[•■]\s*)?You['’]ve reached your workspace credit limit/i,
+]);
+/* Only the last rows count, and only while nothing has happened since: Codex redraws its empty
+   prompt (and a footer) right under the message, but once a newer turn shows (a message the person
+   sent, echoed after `›`, or an answer, drawn after `•`), the limit line is from before it was fixed. */
+const CODEX_LIMIT_ROWS = 12;
+/* The vendor's message as the person should read it: the LAST limit row plus the rows that continue
+   it, stopping at a blank row, the prompt (`›`) or a new answer (`•`), so Codex's prompt and footer
+   (model, folder, "context left") are never glued onto it. Read from the raw rows, blanks kept,
+   because a blank row is where the message ends. */
+function codexLimitMessage(rawRows) {
+  let at = -1;
+  rawRows.forEach((r, i) => { if (CODEX_LIMIT_MARKERS.some((re) => re.test(r))) at = i; });
+  if (at < 0) return null;
+  const clean = (r) => r.replace(/^[\s>│├└─*❯›•■●]+/, '').trim();
+  let out = clean(rawRows[at]);
+  for (let i = at + 1; i < rawRows.length && i <= at + 2; i++) {
+    const r = rawRows[i];
+    if (!r.trim() || /^\s*[›•■●]/.test(r)) break;
+    out += ' ' + r.trim();
+  }
+  return out.length > 240 ? out.slice(0, 240) + '…' : out;
+}
+function codexLimitStillCurrent(rows) {
+  let at = -1;
+  rows.forEach((r, i) => { if (CODEX_LIMIT_MARKERS.some((re) => re.test(r))) at = i; });
+  if (at < 0) return false;
+  return !rows.slice(at + 1).some((r) => /^\s*[›•]/.test(r) && !/^\s*›\s*Ask Codex to do anything/.test(r));
+}
 
 /**
  * Claude Code's workspace-trust dialog (#1629, point 3). OBSERVED, per this
@@ -2018,8 +2075,8 @@ const AUTH_FRIENDLY_REMEDY = /Please run \/login|Re-authenticate to continue/i;
  *   - StreamSuspended -> "Connection lost while your computer was asleep": rendered
  *     EARLIER (not by this "Connection error." switch), a sleep/wake artifact with
  *     its OWN recovery path (the session resumes when the Mac wakes), not the
- *     DNS/network-down class #3410 targets. Auto-restarting it (PR 2) would abort a
- *     session that resumes on its own.
+ *     DNS/network-down class #3410 targets. The self-heal nudge (PR 2b) would type a
+ *     stray message into a session that resumes on its own.
  *   - StreamNoResponse -> "No response from API": the connection was MADE but no
  *     first byte arrived in the window. The network is not down and the connection
  *     is not lost -- it is a server-side hang, a different symptom from this state,
@@ -2033,8 +2090,8 @@ const AUTH_FRIENDLY_REMEDY = /Please run \/login|Re-authenticate to continue/i;
  * apostrophe in the pattern would silently miss a curly one the bundle might render
  * -- the identical fragility the em-dash avoidance guards against, and one a test
  * using the same author-typed apostrophe could not catch. Matched as a SUBSTRING per
- * row (like AUTH_FRIENDLY_MESSAGE) so the "API Error:" prefix / `●` bullet the TUI
- * wraps around it does not matter.
+ * row. Since #3410 PR 2b the row must be Claude Code's own column-0 "API Error:" row (see
+ * connectionLostAtTail below), so the `●`/`⏺` bullet does not matter but the prefix does.
  *
  * 🛑 THE SSL/CERT CLASS IS DELIBERATELY EXCLUDED. Its lines are
  * `Unable to connect to API: SSL certificate …` (a COLON after "API"), which is
@@ -2042,15 +2099,17 @@ const AUTH_FRIENDLY_REMEDY = /Please run \/login|Re-authenticate to continue/i;
  * remedy, not reconnecting). The two "Unable to connect to API" arms here match
  * only the PERIOD form ("… API. Check your internet connection") and the PAREN
  * form ("… API (CODE)"), never the colon form -- so an SSL error never reads
- * connection_lost and never triggers the self-heal restart (#3410 PR 2).
+ * connection_lost and never triggers the self-heal nudge (#3410 PR 2b).
  *
- * ⚠️ ONE RESIDUAL, the same one AUTH_FRIENDLY_MESSAGE pins and accepts: a card or
- * message quoting one of these lines verbatim reads connection_lost. It is rare,
- * and it is not silent: reconcileReport's connection-lost half (rule 3b, #3410)
- * makes the scraped connection_lost stand over the agent's report WITH a conflict
- * note, so a self-reporting agent shows the state plus "its reports cannot know
- * about" rather than being masked back to working/idle. A missed wedged agent is
- * worse than a rare false pause -- this file's oldest trade.
+ * ⚠️ THE TRADE MOVED IN #3410 PR 2b, knowingly. Before it, any row containing the phrase
+ * counted, so a message quoting it read connection_lost (a rare false pause, accepted as
+ * better than a missed wedged agent). PR 2b's sweep TYPES into panes that read
+ * connection_lost, so a false read now costs a message typed into a healthy agent. So only
+ * Claude Code's own column-0 "API Error:" row counts, and only while nothing newer follows
+ * it. The new residual runs the other way: an error drawn indented (for example under a
+ * tool's `⎿`, which some older Claude Code builds may have done; every 2.1.281 capture
+ * draws it at column 0) reads "Can't tell" instead of connection_lost. That fails safe for
+ * the nudge, and reconcileReport's rule 3b still applies to what does match.
  *
  * 📌 SCOPE: CLAUDE CODE ONLY, DELIBERATELY. These are Claude Code's formatter
  * strings and the classify() rule that uses them lives in the Claude branch, so a
@@ -2061,6 +2120,84 @@ const AUTH_FRIENDLY_REMEDY = /Please run \/login|Re-authenticate to continue/i;
  * separate change with its own captured strings, not a silent omission here.
  */
 const CONNECTION_LOST_MESSAGE = /reach the API server|No internet route|a firewall or proxy may be blocking it|Connection dropped \(|connect through your proxy|Unable to connect to API\. Check your internet connection|Unable to connect to API \(|Request timed out\. Check your internet connection/i;
+
+/* #3410 PR 2b: the connection error only counts while nothing newer follows it. Measured
+   2026-09-24 (2.1.281): an agent nudged after the API came back answered at once ("⏺ PINEAPPLE"),
+   but its old "⏺ API Error: …" line stayed on screen above the new turn, and the pane kept
+   reading connection_lost (this rule sits above the idle footer rule), so a sweep would nudge an
+   agent that had already recovered. So: take the LAST matching row, and if any agent-output row
+   ("⏺ " or "● ", the bullets Claude Code puts on what the agent writes) comes after it, the line
+   is stale and the rule does not fire. Prompt rows, footers and the status bar are not agent
+   output, so a wedged pane (error, footer, empty prompt, status bar) still matches, whatever
+   placeholder its prompt shows. Returns the evidence line, or null. */
+// Column 0 on purpose: Claude Code draws its own error row at column 0 (every capture), while an
+// agent's quoted line or a tool's output is indented. `^\s*` let those read connection_lost.
+const API_ERROR_ROW = /^(?:[⏺●]\s+)?API Error:/u;
+// How many indented continuation rows under an "API Error:" row are read as part of it. Claude Code
+// breaks its own long message text; the longest network message (~140 characters, the proxy
+// tunnel one) can take three rows on a narrow pane, so allow four.
+const API_ERROR_CONTINUATION_ROWS = 4;
+// How Claude Code's network messages END: an error code in parentheses, "Check your internet
+// connection" (optionally "and proxy settings"), or the proxy-tunnel message's "allows this host".
+// The joined error must end there. An agent's own reply that happens to start with "API Error:"
+// is drawn the same way ("⏺ " at column 0) but goes on with prose, so it does not end on one of
+// these. Residual: prose that itself ends on "(CODE)" still counts.
+// The code is printed as the runtime gave it: Node's ECONNREFUSED style and Bun's mixed-case
+// ConnectionRefused / FailedToOpenSocket / ConnectionClosed (read from Claude Code 2.1.282).
+const API_ERROR_MESSAGE_END = /(?:\([A-Za-z][A-Za-z0-9_]*\)|internet connection(?: and proxy settings)?|allows this host)\.?$/;
+function connectionLostAtTail(tail) {
+  const rows = String(tail == null ? '' : tail).split('\n');
+  let at = -1;
+  let atJoined = '';
+  // Only Claude Code's own error row counts ("⏺ API Error: …", or bare "API Error: …", at column 0
+  // and ending the way its messages end), never the agent's prose quoting the same words: that would read connection_lost on a healthy agent,
+  // and PR 2b's sweep types into panes that read connection_lost.
+  // Claude Code breaks its own long error text onto indented continuation rows (not tmux soft
+  // wraps, so capture-pane -J does not rejoin them), so the phrase is looked for on the error row
+  // joined with the continuation rows under it.
+  for (let i = 0; i < rows.length; i += 1) {
+    if (!API_ERROR_ROW.test(rows[i])) continue;
+    let joined = rows[i];
+    for (let k = 1; k <= API_ERROR_CONTINUATION_ROWS && i + k < rows.length && /^\s{2,}\S/.test(rows[i + k]) && !/^\s*[⏺●❯›⎿✻]/.test(rows[i + k]); k += 1) {
+      joined += ' ' + rows[i + k].trim();
+    }
+    if (CONNECTION_LOST_MESSAGE.test(joined) && API_ERROR_MESSAGE_END.test(joined.trim())) { at = i; atJoined = joined; }
+  }
+  if (at === -1) return null;
+  // Newer content supersedes it: agent output, or any later Claude Code error row (bulleted or
+  // bare), which means the current error is a different one.
+  // A retry line after it (any shape, including ones RETRYING_LINES does not match, such as a
+  // minutes countdown) also supersedes it: Claude Code is working on a newer attempt.
+  // A person's input also supersedes it: a submitted prompt, which Claude Code echoes as a
+  // "❯ text" row above the input box. That covers a person pressing Esc on the retry a nudge
+  // started (the nudge's own echo is above the "Interrupted" row), so they are not nudged again.
+  // The input box's own prompt row is the LAST prompt row, and text there is a draft or a
+  // placeholder, not a submission.
+  let lastPrompt = -1;
+  for (let i = rows.length - 1; i > at; i -= 1) if (/^\s*[❯›>]\s/.test(rows[i]) || /^\s*[❯›>]\s*$/.test(rows[i])) { lastPrompt = i; break; }
+  for (let i = at + 1; i < rows.length; i += 1) {
+    if (/^\s*[⏺●]\s/.test(rows[i]) || API_ERROR_ROW.test(rows[i]) || /Retrying in\s+\d/.test(rows[i])) return null;
+    if (i !== lastPrompt && /^\s*[❯›>]\s+\S/.test(rows[i])) return null;
+  }
+  // Evidence without the ⏺/● bullet, so the same error reads the same however it was drawn.
+  // The whole message, continuation rows included, so the evidence shows what the screen says.
+  const line = atJoined.replace(/^[⏺●]\s+/, '').replace(/\s+/g, ' ').trim();
+  return line.length > 240 ? line.slice(0, 240) + '…' : line;
+}
+
+/* #3410: Claude Code's live retry line, anchored at both ends:
+   "✻ <error> · Retrying in 5s · attempt 4/10". Measured 2026-09-24 (2.1.281) in all 152
+   retrying frames: always the ✻ glyph, always at column 0 (the glyph did not animate).
+   Column 0 is required because agent prose continuation rows are indented. The class is
+   WORKING_LINE's spinner frames WITHOUT `*`, since this anchor is plain text and a markdown
+   "* " bullet ending in the suffix would otherwise match.
+   NOT covered, deliberately: #874's "  └ Retrying in 30 seconds… (attempt 7/10)" layout. It was
+   only ever seen under a 401 (which authFailed catches), never under a network error, and its
+   persistence after the retries end is unmeasured; matching it anywhere in the tail let a stale
+   row make a wedged pane read working (a false calm the self-heal would never act on). */
+const RETRYING_LINES = [
+  /^[·✢✳✶✻✽] .*·\s+Retrying in\s+\d+s\s+·\s+attempt\s+\d+\/\d+\s*$/u,
+];
 
 /* #369: the CURRENT mid-turn spinner line, keyed on structure. See the
    comment at its use site in classify(). Module-level like its sibling
@@ -3428,6 +3565,18 @@ function classify(pane, paneText) {
     if (hasLiveInterruptLine(codexTail)) {   /* #2378: on a row, not anywhere in the tail */
       return { state: STATE.WORKING, confidence: CONFIDENCE.SCRAPED, because: 'it is mid-task' };
     }
+    // #3723: out of usage or credits. Below working (a live turn means it is not stopped) and above
+    // idle (Codex shows its empty prompt under the message, which would otherwise read as idle).
+    const codexRows = codexTail.split('\n').filter((r) => r.trim()).slice(-CODEX_LIMIT_ROWS);
+    if (codexLimitStillCurrent(codexRows)) {
+      return {
+        state: STATE.RATE_LIMITED,
+        confidence: CONFIDENCE.SCRAPED,
+        because: 'its screen says it is out of usage or credits',
+        evidence: codexLimitMessage(codexTail.split('\n')),
+        limitFrom: 'codex', // reconcileReport: Codex's automatic end-of-turn idle cannot contradict it
+      };
+    }
     // Observed: the empty composer, codex's equivalent of sitting at the
     // prompt. Like Claude's footer rule this sits below the checks above:
     // reaching it means nothing said working and nothing said it needs you.
@@ -3479,6 +3628,17 @@ function classify(pane, paneText) {
     // null (a failed/absent live read) or any status token we do not recognise:
     // refuse honestly rather than assert a state off a look that did not land.
     return { state: STATE.UNKNOWN, confidence: CONFIDENCE.NONE, because: 'we could not read its state' };
+  }
+  /* #3568: an Antigravity pane. agy is a native binary (its pane command is `agy`, never a
+     Claude version string or node), so the Claude running check below would call a live agy agent
+     stopped. Running-or-not comes from the command; WHAT it is doing is not read yet (no signed-in
+     agy screen or transcript has been captured), so a running one is honestly unknown. The
+     command counts too, as for codex: an agy pane read before its runner tag lands is still agy. */
+  if (pane.runner === 'antigravity' || isAntigravityCommand(pane.command)) {
+    if (!isAntigravityCommand(pane.command)) {
+      return { state: STATE.STOPPED, confidence: CONFIDENCE.STRUCTURED, because: 'Antigravity is not running for this one' };
+    }
+    return { state: STATE.UNKNOWN, confidence: CONFIDENCE.NONE, because: 'Kosmos cannot read what Antigravity is doing yet' };
   }
   if (!isClaudeRunning(pane.command)) {
     return { state: STATE.STOPPED, confidence: CONFIDENCE.STRUCTURED, because: 'Claude is not running for this one' };
@@ -3817,15 +3977,31 @@ function classify(pane, paneText) {
                return closed ? line : line + '…';
              })() };
   }
+  /* #3410: Claude Code's LIVE retry line. Measured 2026-09-24 (Claude Code 2.1.281,
+     API pointed at a closed port): for all 152 seconds of retrying the pane drew
+     "✻ Connection refused — … (ECONNREFUSED) · Retrying in 5s · attempt 4/10", which
+     has no ellipsis and no "(Ns" timer, so WORKING_LINE never matched and every one of
+     those frames read connection_lost. Only after attempt 10/10 did the line become
+     "⏺ API Error: …" with no retry suffix. At 80 columns (measured) Claude Code truncates the
+     error text with "…" and keeps the suffix on the same row, so it did not wrap there;
+     the board's capture-pane -J would also rejoin a wrapped row. An agent that is retrying is mid-turn, so it
+     reads WORKING, which the #3410 self-heal does not act on. Keyed on the retry suffix,
+     not the error wording, so any error Claude Code retries this way matches (the
+     evidence line names the actual error). */
+  const retryLine = matchedLine(tail, RETRYING_LINES);
+  if (retryLine !== null) {
+    return { state: STATE.WORKING, confidence: CONFIDENCE.SCRAPED,
+             because: 'it is retrying a failed request to the API', evidence: retryLine };
+  }
   /**
    * #3410. A TRANSIENT network error, sitting on the pane with no live activity.
    *
    * 🔑 PLACEMENT IS THE SAFETY. This sits BELOW every working check
-   * (`hasLiveInterruptLine`, `backgroundAgentWait`, `WORKING_LINE`) on purpose:
-   * Claude Code retries a network error internally and draws working chrome
-   * (a live spinner / "retrying in Ns") while it does, so an agent that is
-   * ACTIVELY RETRYING classifies WORKING above and is never touched by the
-   * self-heal restart (#3410 PR 2). Only once the retries are exhausted and the
+   * (`hasLiveInterruptLine`, `backgroundAgentWait`, `WORKING_LINE`, and the
+   * `RETRYING_LINES` rule just above) on purpose: Claude Code retries a network
+   * error internally and draws a live "· Retrying in Ns · attempt K/N" line while
+   * it does, so an agent that is ACTIVELY RETRYING classifies WORKING and is never
+   * touched by the self-heal nudge (#3410 PR 2b). Only once the retries are exhausted and the
    * error line is sitting on a pane with no live spinner do we reach here -- the
    * exact "wedged, will not recover on its own" state Josh hit, which used to
    * fall through to the idle footer rule or to UNKNOWN ("Can't tell"). It sits
@@ -3836,34 +4012,20 @@ function classify(pane, paneText) {
    * know the network is down, only that Claude Code SAID it could not reach the
    * API, so we show what the screen actually says.
    *
-   * ⚠️ THE PRECEDENCE PREMISE IS ASSERTED ABOUT A UI WE DO NOT CONTROL, and it is
-   * only cosmetic for THIS surfacing-only PR: worst case a pane briefly reads
-   * "Connection lost" during a no-spinner retry frame, which is not harmful and
-   * is arguably accurate. It becomes LOAD-BEARING for the #3410 self-heal (PR 2),
-   * which restarts on this state -- restarting an agent that is still mid-retry
-   * would abort a turn that might have recovered on its own. So PR 2 must confirm,
-   * against a REAL captured retry sequence, that an in-flight retry draws live
-   * working chrome (and hence never reaches here) before it acts on this state --
-   * do not carry this premise forward into a restart on my word alone.
+   * ✅ THE PRECEDENCE PREMISE WAS MEASURED (2026-09-24, Claude Code 2.1.281, a real
+   * captured retry sequence) AND WAS FALSE AS FIRST WRITTEN: the retry line has no
+   * ellipsis and no "(Ns" timer, so WORKING_LINE missed it and all 152 retrying
+   * seconds read connection_lost. RETRYING_LINES now catches it
+   * (status.connlost-retry-3410.test.js, built from those frames). A future Claude Code
+   * that draws its retry differently would reopen this, and the self-heal nudges on
+   * this state, so re-measure after a Claude Code UI change.
    *
-   * ⚠️ A SECOND STALE-READ, ALSO COSMETIC FOR PR 1 AND LOAD-BEARING FOR PR 2: this
-   * rule sits ABOVE the idle/finished fallbacks, so an agent that ALREADY RECOVERED
-   * and went idle still reads connection_lost while its old error line remains in the
-   * ~25-row capture window (it scrolls out as the recovered agent produces new
-   * output, so PR 1 self-corrects within a few lines -- and a recently-recovered
-   * agent briefly labelled "Connection lost" is stale, not a false calm). Unlike
-   * auth_failed, this state has NO external freshness signal (auth_failed has the
-   * #1930 liveAuth-healthy guard; there is no "is the network back" probe in
-   * classify). ⇒ PR 2 must NOT restart on connection_lost alone: connectivity
-   * returning is necessary but not sufficient, because a recovered pane can show
-   * connectivity-up AND a stale error line at once. PR 2 needs a "still actually
-   * wedged" bound (no new activity since the error / the error is the live tail),
-   * not just a connectivity probe, or it will restart an agent that already healed.
+   * ✅ THE STALE READ IS BOUNDED (PR 2b, measured 2026-09-24): an agent that recovered kept its
+   * old error line on screen above its new turn and read connection_lost, which the auto-recovery
+   * sweep (engine/connlost-heal.js, a nudge, not a restart) would have acted on. connectionLostAtTail
+   * now takes the LAST Claude Code "API Error:" row and ignores it once an agent-output row follows.
    */
-  /* The shared matchedLine helper (as rate_limited uses it): first row matching
-     CONNECTION_LOST_MESSAGE, leading frame/prompt glyphs stripped, capped at 240 --
-     one derivation of "find the evidence line", not a private copy. */
-  const connLine = matchedLine(tail, [CONNECTION_LOST_MESSAGE]);
+  const connLine = connectionLostAtTail(tail);
   if (connLine !== null) {
     return {
       state: STATE.CONNECTION_LOST,
@@ -4151,6 +4313,22 @@ function sessionIdsFor(sessionName, exactSession) {
   return found;
 }
 
+/* #3564: the card's `swarm` field. The transcript is resolved only for a swarm. `owns` tells
+   the meter whether a session file in the lead's folder is this agent's: two workdirs can
+   flatten to one folder (see byWorkdirDetailed). */
+function swarmField(profile, agentName, exactSession) {
+  try {
+    const swarm = require('./swarm');
+    if (!swarm.settingsOf(profile)) return null;
+    const belongs = workdirBelongs(agentName);
+    const owns = (file) => {
+      const cwd = transcriptCwd(file);
+      return belongs && cwd != null ? belongs(cwd) : null;
+    };
+    return swarm.cardField(profile, () => transcriptFor(agentName, exactSession), undefined, owns);
+  } catch { return null; }
+}
+
 /**
  * The transcript belonging to THIS session, with no folder fallback.
  *
@@ -4265,12 +4443,9 @@ function byWorkdir(agentName) {
  */
 function byWorkdirDetailed(agentName) {
   const nothing = { file: null, sawTranscripts: false };
-  // Lazily, and from create.js rather than re-derived here: the workers
-  // directory is that module's fact, and a second copy of it would drift the
-  // first time somebody moves it.
-  let dir;
-  try { dir = require('./create').workerDir(agentName); } catch { return nothing; }
-  if (!dir) return nothing;
+  const belongs = workdirBelongs(agentName);
+  if (!belongs) return nothing;
+  const { dir, canon } = belongs;
 
   /* 🔑 #2406: FLATTEN AND COMPARE THE ON-DISK CANONICAL SPELLING, NOT THE RAW
      RECORDED PATH. The agent is launched through the launchd `WorkingDirectory =
@@ -4291,18 +4466,10 @@ function byWorkdirDetailed(agentName) {
      and the macOS `/private` twin, and falls back to path.resolve when the folder
      is gone. Strictly additive: with no divergence canon is the resolved raw path,
      flatten(canon) === flatten(dir), and nothing changes for the common case. */
-  const trust = require('./trust');
   const flatten = (p) => String(p).replace(/[^A-Za-z0-9]/g, '-');
-  const canon = trust.canonicalOnDisk(dir);
   // Both spellings, deduped: the canonical folder the runner actually wrote into,
   // and the raw recorded one (identical when there is no case/symlink divergence).
   const flats = [...new Set([flatten(canon), flatten(dir)])];
-  // A transcript is this agent's when its recorded cwd is the same real folder.
-  // The two-paths-flatten-to-one collision guard is preserved: distinct real
-  // paths stay distinct under canonicalOnDisk. The direct `=== dir`/`=== canon`
-  // arms short-circuit the common case before any per-candidate realpath syscall.
-  const belongs = (cwd) => cwd != null
-    && (cwd === dir || cwd === canon || trust.canonicalOnDisk(cwd) === canon);
   let sawTranscripts = false;
 
   // Gather candidates from EVERY searched folder first, then rank globally.
@@ -4338,6 +4505,30 @@ function byWorkdirDetailed(agentName) {
     if (belongs(transcriptCwd(f.full))) return { file: f.full, sawTranscripts };
   }
   return { file: null, sawTranscripts };
+}
+
+/**
+ * Whether a transcript's recorded cwd is this agent's folder: a predicate over the cwd,
+ * carrying `dir` (the recorded workdir) and `canon` (its on-disk spelling), or null when
+ * the agent has no workdir we can read.
+ *
+ * Lazily, and from create.js rather than re-derived here: the workers directory is that
+ * module's fact, and a second copy of it would drift the first time somebody moves it.
+ * The two-paths-flatten-to-one collision guard: distinct real paths stay distinct under
+ * canonicalOnDisk. The direct `=== dir`/`=== canon` arms short-circuit the common case
+ * before any per-candidate realpath syscall.
+ */
+function workdirBelongs(agentName) {
+  let dir;
+  try { dir = require('./create').workerDir(agentName); } catch { return null; }
+  if (!dir) return null;
+  const trust = require('./trust');
+  const canon = trust.canonicalOnDisk(dir);
+  const belongs = (cwd) => cwd != null
+    && (cwd === dir || cwd === canon || trust.canonicalOnDisk(cwd) === canon);
+  belongs.dir = dir;
+  belongs.canon = canon;
+  return belongs;
 }
 
 /**
@@ -6047,7 +6238,11 @@ function reconcileReport(reported, scraped, nowMs, liveAuth, disruptionRec, code
   if (scraped.state === STATE.RATE_LIMITED) {
     const atRl = Date.parse(reported.at || '');
     const freshRl = Number.isFinite(atRl) && (nowMs - atRl) <= REPORT_WORKING_DECAY_MS;
-    if (freshRl) {
+    /* #3723: except Codex's own limit message against an AUTOMATIC report. Codex's bridge reports
+       idle at the end of every turn, and a turn that failed on the limit still ends, so that report
+       is the machine noticing the turn ended, not evidence the account works. */
+    const autoOverCodexLimit = scraped.limitFrom === 'codex' && reported.by === 'auto';
+    if (freshRl && !autoOverCodexLimit) {
       const answer = reconcileReport(reported, { ...scraped, state: STATE.UNKNOWN, confidence: CONFIDENCE.NONE }, nowMs, liveAuth, disruptionRec, codexLiveAuth, activity);
       return { ...answer, conflict: 'its screen shows a usage limit, but it is still reporting, so it may be working through it' };
     }
@@ -6184,14 +6379,14 @@ function reconcileReport(reported, scraped, nowMs, liveAuth, disruptionRec, code
          be broken" note. It is internal telemetry-staleness hedging that reads as
          broken/uncertain to a user, and Josh asked for it gone from the app on
          BOTH Mac and Windows. Removed at the SOURCE (conflict: null) rather than
-         suppressed per-string in the render, so no surface -- the agent card, the
-         agent-page #d-conflict slot, or the Windows client, all of which read
-         this shared field -- ever shows it, and no empty placeholder is left
-         (conflictNote returns '' and both slots hide). The verdict is unchanged
+         suppressed per-string in the render (the card and agent-page slots it
+         would have filled are gone since #3729 anyway). The verdict is unchanged
          (still reported:false, working); only the display sentence is dropped.
-         The other stateConflict messages (the sign-in rejection loop, "reported
-         stopping but still running") are genuine actionable conflicts Josh did
-         not name, and they stay.
+         #3729 (Josh, 2026-09-25): the other stateConflict sentences went too ("it
+         reported stopping, but it is still running", "its screen shows a question
+         its reports do not mention", the sign-in variants). The engine still
+         computes `conflict`, but the board payload always carries stateConflict:
+         null, and the page has no slot for it.
          🔑 This collapses the #1889 background-wait branch documented above. That
          branch existed ONLY to withhold this one accusation on a wait a healthy
          reporter cannot heartbeat through; with the accusation gone for every
@@ -6438,7 +6633,11 @@ function panelessCard(key, nowMs, defaultStatus) {
        checked when nothing here checks it. Same sentence, same reason, applied to
        my own line after somebody pointed at it. */
     stateBackgroundWait: status.backgroundWait === true,
-    stateConflict: status.conflict || null,
+    /* #3729 (Josh, 2026-09-25 07:32): no agent-status diagnostic sentence reaches a person, ever.
+       `status.conflict` is still computed (the engine's own record of two witnesses disagreeing)
+       but the board is always sent null, so no surface on Mac or Windows, including an older page
+       still open, has anything to show. */
+    stateConflict: null,
     context: {
       tokens: null, percent: null, confidence: CONFIDENCE.NONE, notYet: false,
       because: 'it is not running on this computer, so there is no transcript here to measure',
@@ -6553,7 +6752,14 @@ function computeLoginAdvisories(panes, nowMs, opts = {}) {
   return le.cachedAdvisories({
     cache: opts.cache || loginAdvCache, now: nowMs, ttlMs: LOGIN_ADV_TTL_MS,
     compute: () => {
-      const agents = panes.filter((p) => isNamedOurs(p)).map((p) => ({ name: p.name, target: p.target }));
+      /* #3568: only an agent that runs on Claude can be in a Claude login warning. A codex, gemini,
+         grok or antigravity pane reads no Claude credential; filed under the bare Claude account's
+         keychain service (its pane has no CLAUDE_CONFIG_DIR), it would be named in a warning about a
+         sign-in it does not use. */
+      const nonClaude = require('./create').isNonClaudeRunner;   // the one list (review round 5)
+      const onClaude = (p) => !nonClaude(p.runner)
+        && !isAntigravityCommand(p.command) && !isCodexCommand(p.command);   // a pane not yet tagged: its command says
+      const agents = panes.filter((p) => isNamedOurs(p) && onClaude(p)).map((p) => ({ name: p.name, target: p.target }));
       return le.agentAdvisories({ agents, readCcd, now: nowMs, readCred: opts.readCred });
     },
   });
@@ -6813,6 +7019,9 @@ function snapshot() {
        the command. Read the session once for the context ring below (no observation
        arm yet -- the account badge's XAI provider is the launcher slice). */
     const isGrokPane = pane.runner === 'grok';
+    /* #3568: an Antigravity pane is not a Claude pane either; kept out of the ANTHROPIC
+       observation arm below so it can never record a false Claude-account reading. */
+    const isAgyPane = pane.runner === 'antigravity' || isAntigravityCommand(pane.command);
     const grokSess = (isNamedOurs(pane) && isGrokPane) ? readGrokSession(pane.name) : null;
     try {
       /* #3296: EXCLUDE a gemini pane from the ANTHROPIC observation arm. Without
@@ -6826,7 +7035,7 @@ function snapshot() {
          would otherwise record a false observed.saw(PROVIDER.ANTHROPIC, ok). Grok's
          own XAI-provider observation is likewise the launcher slice; until then a grok
          pane takes NEITHER arm, only the context ring below. */
-      if (isNamedOurs(pane) && !isCodexPane && !isGeminiPane && !isGrokPane) {
+      if (isNamedOurs(pane) && !isCodexPane && !isGeminiPane && !isGrokPane && !isAgyPane) {
         /* 🛑 #1889 EXCLUSION, AND IT IS NOT A TWEAK TO THE RULE ABOVE, IT IS THE
            RULE ABOVE HOLDING. The OK arm's whole justification is that a scraped
            WORKING is a WITNESSED live streaming turn. #1889 added one scraped
@@ -6920,7 +7129,8 @@ function snapshot() {
     // underived, and carries no model and no context — which is the honest
     // answer, because we do not know whose conversation it is.
     const tied = isNamedOurs(pane);
-    const { model } = tied ? readModel(pane.name, pane.session) : { model: null };
+    // #3568: not for an agy pane: readModel is the Claude transcript lookup, same as the context ring.
+    const { model } = (tied && !isAgyPane) ? readModel(pane.name, pane.session) : { model: null };
     /* #2257: a Codex (OpenAI) agent does not write a Claude `.jsonl`, so
        `readContext` returned NO_TRANSCRIPT for every OpenAI agent and the ring
        read "Not yet read" forever. Its context lives in the Codex rollout, which
@@ -6937,6 +7147,9 @@ function snapshot() {
         // #3391: a Grok pane's context lives in its Grok Build session, read by
         // readGrokContext (same pre-read-once contract as the codex/gemini arms).
         : isGrokPane ? readGrokContext(pane.name, grokSess)
+        // #3568: no Antigravity transcript reader yet, and the Claude one below must never read
+        // an agy agent's folder (it could pick up a Claude transcript left there).
+        : isAgyPane ? { ...NONE_BASE, notYet: false, because: 'Kosmos cannot read how much of its memory an Antigravity agent has used yet' }
         : readContext(pane.name, model, pane.session))
       // ⚠️ Unknown, and not because it is ambiguous: this one is a REFUSAL. We
       // can see there is something to read and are declining to read it, so
@@ -6966,6 +7179,8 @@ function snapshot() {
       });
       activeWhileWaiting = activeWhileWaitingFrom(status.state, fresh, waitReport.found === true ? Date.parse(waitReport.at || '') : NaN);
     }
+    /* Read once: the card carries it, and #3564's swarm field is computed from it. */
+    const rowProfile = tied ? store.readProfile(pane.name) : null;
     return {
       name: identity.displayName,
       sessionName: pane.name,
@@ -7015,10 +7230,11 @@ function snapshot() {
          re-deciding what platform it is on. */
       reachedByChannel: require('./win32roster').isWin32Pane(pane),
       /* Which runner this pane RECORDED at launch (#245/#246): 'codex',
-         'gemini', 'grok' or 'claude', with empty meaning claude the way it does
+         'gemini', 'grok', 'antigravity' or 'claude', with empty meaning claude the way it does
          everywhere the option is absent. The switch screen keys on this, and it is
          the supervisor's record, never an inference from the command. */
-      runner: pane.runner === 'codex' ? 'codex' : pane.runner === 'gemini' ? 'gemini' : pane.runner === 'grok' ? 'grok' : 'claude',
+      // #3568: an agy pane read before its runner tag lands is still antigravity (as isAgyPane says).
+      runner: pane.runner === 'codex' ? 'codex' : pane.runner === 'gemini' ? 'gemini' : pane.runner === 'grok' ? 'grok' : (pane.runner === 'antigravity' || isAntigravityCommand(pane.command)) ? 'antigravity' : 'claude',
       task: taskLine(pane.title),
       state: status.state,
       stateConfidence: status.confidence,
@@ -7064,10 +7280,10 @@ function snapshot() {
          boolean, never undefined, so a consumer branching on it gets `false`
          rather than absence on every other state. */
       stateBackgroundWait: status.backgroundWait === true,
-      /* A sentence when the agent's report and the pane reader materially
-         disagree, null otherwise. Surfaced rather than silently resolved:
-         the two witnesses disagreeing is a fact the operator gets to see. */
-      stateConflict: status.conflict || null,
+      /* #3729: always null. The engine still computes `conflict` (its own record of the agent's
+         report and the pane reader disagreeing), but Josh ruled that no such sentence reaches a
+         person, so it is never put on the card (see the other card builder). */
+      stateConflict: null,
       context,
       model,
       modelName: modelDisplayName(model),
@@ -7095,7 +7311,11 @@ function snapshot() {
       // above -- the same "every read keyed on the name needs the same gate"
       // rule this block already states. Untied -> 0, the no-picture value.
       avatarVer: tied ? store.avatarVersion(pane.name) : 0,
-      profile: tied ? store.readProfile(pane.name) : null,
+      profile: rowProfile,
+      /* #3564: null for an ordinary agent; for a swarm, its helpers and today's tokens,
+         read from the lead's transcripts (engine/swarm.js). Same `tied` gate as every
+         other read keyed on the name. The contract with the UI is on #3564. */
+      swarm: tied ? swarmField(rowProfile, pane.name, pane.session) : null,
     };
   });
 
@@ -7160,6 +7380,13 @@ function snapshot() {
   };
 }
 
+/* #3410/#3718 (Mona Lisa, 2026-09-25): the Issue tile and filter mean "needs the person":
+   needs_you, needs_trust, and a connection Kosmos has given up reconnecting. The page's data-attn
+   inlines the same rule (its painters stay self-contained), and the route counts with this. */
+function needsPerson(a) {
+  return Boolean(a) && (a.state === STATE.NEEDS_YOU || a.state === 'needs_trust'
+    || (a.state === STATE.CONNECTION_LOST && Boolean(a.reconnect) && a.reconnect.phase === 'gave_up'));
+}
 /**
  * The numbers on the summary line, for a given set of cards.
  *
@@ -7184,7 +7411,10 @@ function countAgents(agents, unreadableLines, unreadableSamples) {
        to a follow-up with Josh's call + Mona (design) + PigeonPete (#1253 owner) rather than
        reshaped unilaterally here. The card is the surface a QA tester reads as "app broken";
        calming it is the confident, low-blast-radius half. */
-    needsYou: agents.filter((a) => a.state === STATE.NEEDS_YOU).length,
+    /* #3410/#3718: needsPerson, the Issue tile's rule. A given-up connection only counts where
+       `reconnect` is set (the /api/status route; snapshot()'s own counts never see one), and
+       needs_trust rows are built by the route after this, so it adds those itself. */
+    needsYou: agents.filter(needsPerson).length,
     /* #1898: of those needs_you, how many named NO project (`stateProject`
        null). A needs_you without `--project` lights no project tile, so it is
        the easy-to-miss case a person scanning the Projects board never sees; the
@@ -7337,7 +7567,8 @@ module.exports = {
   NO_READING,
   sessionStartedAtFromTmux, transcriptForSession, setSessionSource,
   identityFromText, configRoots, transcriptCwd,
-  countAgents, projectsUnreadTotal, snapshot, paneRoster, readPanes, isParseable, classify, isNamedOurs,
+  swarmField,   // #3564: exported so the meter's owner test is tested through the real folder search
+  countAgents, needsPerson, projectsUnreadTotal, snapshot, paneRoster, readPanes, isParseable, classify, isNamedOurs,
   /* #3532: exported so the pane-filter + advisory wiring is testable with injected deps. */
   computeLoginAdvisories,
   rank, paneOrder, modelDisplayName, readIdentity, transcriptFor, readCodexContext,
@@ -7376,7 +7607,7 @@ module.exports = {
   // first time a marker is added here. The card that says "Needs you" and the
   // thread that shows the question must never be able to disagree.
   NEEDS_YOU_MARKERS,
-  CODEX_NEEDS_YOU_MARKERS,
+  CODEX_NEEDS_YOU_MARKERS, CODEX_LIMIT_MARKERS,
   ALL_NEEDS_YOU_MARKERS,
   /* #2456: the placeholder `because` string, so the routes can tell a real
      reported question from the board's generic "asking" and never render the
@@ -7388,6 +7619,7 @@ module.exports = {
   TRUST_DIALOG_SENTENCE,
   SELECTOR_GLYPHS,
   isCodexCommand,
+  isAntigravityCommand, // #3568
   /* #570: exported so the two job gates can be asserted for BOTH platforms from
      either one. They read `create.hasJob`/`create.jobMissing`, which used to be
      a plist stat -- the reason a freshly made Windows agent was told it was
