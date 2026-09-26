@@ -246,7 +246,7 @@ async function pull(dir, opts) {
   // could read NOTHING is not reported as a success.
   let unreadable = 0;
   let lastGetError = '';
-  // Reads refused although the token WAS sent. The listing came from that token's own
+  // Reads refused although the token WAS sent. The listing came from this token's
   // store, so this is not a wrong store: the read path wants another URL or auth form.
   let denied = 0;
   for (const b of (Array.isArray(blobs) ? blobs : [])) {
@@ -271,21 +271,24 @@ async function pull(dir, opts) {
     } catch { skipped += 1; }
   }
   const total = Array.isArray(blobs) ? blobs.length : 0;
-  /* The real wrong-store case (kosmos#3878): after the migration the reports live in
-     the PRIVATE store, so a listing served from a PUBLIC blob host means the token
-     filed as FEEDBACK_TOKEN_TARGET is still the old public store's. That listing
-     succeeds and its reads succeed, so nothing above can see it; the host says it. */
+  /* Whether the listing came from a PUBLIC blob store (<store>.public.<BLOB_HOST>, the
+     shape @vercel/blob builds). Before kosmos#3878's migration that is correct; after
+     it, it means the token filed as FEEDBACK_TOKEN_TARGET is still the old public
+     store's. This file cannot tell which side of the migration it is on, so the note
+     it drives is conditional (PUBLIC_STORE_NOTE). A stale public token AFTER the
+     migration lists an empty store instead; that case is the zero-listed line in
+     summaryLines, not this flag. */
   const fromPublicStore = (Array.isArray(blobs) ? blobs : []).some((b) => {
-    try { return b && /\.public\./.test(new URL(b.url).hostname); } catch { return false; }
+    try { return b && new URL(b.url).hostname.endsWith('.public.' + BLOB_HOST); } catch { return false; }
   });
   if (written === 0 && unreadable > 0) {
     return {
       ok: false, written, skipped, total, dir: target,
-      because: 'the store listed ' + total + ' report(s) and none was pulled: ' + unreadable + ' could not be read'
-        + (skipped > unreadable ? ', ' + (skipped - unreadable) + ' were malformed or not written' : '')
+      because: 'the store listed ' + reports(total) + ' and none was pulled: ' + unreadable + ' could not be read'
+        + (skipped > unreadable ? ', ' + (skipped - unreadable) + ' malformed or not written' : '')
         + ' (last read error: ' + lastGetError + ')'
         + (denied
-          ? '. ' + denied + ' were refused although the store\'s own token was sent: the read path may need a different URL or auth form.'
+          ? '. ' + denied + ' of them refused although this token was sent: the read path may need a different URL or auth form.'
           : '.')
         + (fromPublicStore ? ' ' + PUBLIC_STORE_NOTE : ''),
       unreadable, denied, fromPublicStore,
@@ -296,18 +299,30 @@ async function pull(dir, opts) {
   return { ok: true, written, skipped, unreadable, denied, lastGetError: unreadable ? lastGetError : '', fromPublicStore, total, dir: target };
 }
 
+/* The public-store hint, one wording for the success summary and the failure. It is
+   conditional because before the site's private-store migration a public listing is
+   correct, and only after it does it mean the token is stale. */
+const PUBLIC_STORE_NOTE = 'These reports were listed from a PUBLIC blob store. That is expected until the site\'s '
+  + 'private-store migration (kosmos#3878) has run; after it, refile ' + FEEDBACK_TOKEN_TARGET
+  + ' with the private feedback store\'s token.';
+
+/* A count with its noun, so a message never says "1 report(s)". */
+function reports(n) { return n + (n === 1 ? ' report' : ' reports'); }
+
 /**
  * The success summary of a pull, as lines. The ONE place it is worded: runCli, the
  * Mac `kosmos feedback pull` (install/kosmos) and the Windows command all print
  * these, so a partial pull's "could not be read" line cannot be missing from one of
  * them (kosmos#3878).
  */
-/* The real wrong-store hint, in one place for the success summary and the failure. */
-const PUBLIC_STORE_NOTE = 'These reports were listed from a PUBLIC blob store. Since kosmos#3878 they are kept in the private feedback store; refile '
-  + FEEDBACK_TOKEN_TARGET + ' with that store\'s token.';
-
 function summaryLines(r) {
   const out = ['pulled ' + r.written + ' report(s)' + (r.skipped ? ' (' + r.skipped + ' skipped)' : '') + ' to ' + r.dir];
+  // After the migration a stale public token lists an EMPTY store and reads cleanly,
+  // so "pulled 0" alone would be the silent success this module refuses elsewhere.
+  if (r.total === 0) {
+    out.push('no reports were listed. If reports are expected, check that ' + FEEDBACK_TOKEN_TARGET
+      + ' holds the private feedback store\'s token (kosmos#3878).');
+  }
   if (r.unreadable) {
     out.push(r.unreadable + ' report(s) could not be read'
       + (r.denied ? ', ' + r.denied + ' of them refused although the token was sent' : '')
