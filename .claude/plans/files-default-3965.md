@@ -5,8 +5,9 @@
   made for the person is a file, saved where the block says and named in the reply; no Claude
   artifact, shared doc or link unless asked for by name; and it outranks a tool's own publish
   default. Why there: that block is written for EVERY provider and re-synced into EVERY existing
-  agent by dmfiles.syncEveryone (on board start and on its periodic pass, server.js), so it covers
-  item 2 (existing agents) without a new mechanism. Not in engine/roles.js: role text is per role,
+  agent by dmfiles.syncEveryone (at board start, and on the person's name-form save; server.js), so
+  it covers item 2 (existing agents) without a new mechanism. It rewrites the instructions FILE, not
+  the running agent: an agent already running reads it at its next start. Not in engine/roles.js: role text is per role,
   and the card asks for the shared part.
 - Why "outranks a tool default" is spelled out: a Claude agent's own harness tells it to publish a
   finished piece as an artifact by default; a softer sentence loses to an always-present one.
