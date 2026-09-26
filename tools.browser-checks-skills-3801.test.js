@@ -22,6 +22,7 @@ const { spawnSync } = require('node:child_process');
 const LIB = path.join(__dirname, 'docs', 'browser-checks', 'lib-sandbox-home.js');
 const SERVER = path.join(__dirname, 'server.js');
 const SKILL = 'planted-3801';
+const ADDED = 'added-3801';
 
 /* A "real" home: NOT under the temp dir, or the engine would already take it for a sandbox
    and the arms below would test nothing. Under the repo, removed after. */
@@ -37,8 +38,8 @@ function plantSkill(home) {
   return dir;
 }
 
-/* Boot a real board in a child, as a check does, list the global skills, then press Remove
-   on the planted one. `data` decides whether the process looks like a fixture. */
+/* Boot a real board in a child, as a check does: list the global skills, Add one, then press
+   Remove on the planted one. `data` decides whether the process looks like a fixture. */
 function board({ home, data, withLib }) {
   const code = `
     const fs = require('fs'), path = require('path');
@@ -55,8 +56,9 @@ function board({ home, data, withLib }) {
       await start(0);
       const base = 'http://127.0.0.1:' + server.address().port;
       const list = await (await fetch(base + '/api/skills')).json();
+      const add = await fetch(base + '/api/skills', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ name: '${ADDED}', body: 'do the thing' }) });
       const rm = await fetch(base + '/api/skills/${SKILL}', { method: 'DELETE' });
-      process.stdout.write('\\nRESULT-3801 ' + JSON.stringify({ names: (list.skills || []).map((s) => s.name || s.slug), removeStatus: rm.status }));
+      process.stdout.write('\\nRESULT-3801 ' + JSON.stringify({ names: (list.skills || []).map((s) => s.name || s.slug), addStatus: add.status, removeStatus: rm.status }));
       server.close();
       process.exit(0);
     })().catch((e) => { console.error(e); process.exit(1); });`;
@@ -75,18 +77,31 @@ test('#3801 CONTROL: a board that is not a fixture lists the home\'s skills and 
   const skill = plantSkill(home);
   const got = board({ home, data: realLookingDir(t, '.aw-3801-data-'), withLib: false });
   assert.ok(got.names.includes(SKILL), `the planted skill is listed, got ${JSON.stringify(got.names)}`);
+  assert.equal(got.addStatus, 200);
+  assert.equal(fs.existsSync(path.join(home, '.claude', 'skills', ADDED, 'SKILL.md')), true, 'Add really wrote into the home');
   assert.equal(got.removeStatus, 200);
   assert.equal(fs.existsSync(skill), false, 'and Remove really deleted it from the home');
 });
 
-test('#3801: a fixture board requiring lib-sandbox-home lists none of the real home\'s skills, and Remove cannot touch one', (t) => {
+/* What a fixture arm must show: nothing listed, the Add landed but not in the home, the
+   Remove found nothing to remove, and the home's skills folder was not touched at all. */
+function assertHomeUntouched(got, home, skill, mtimeBefore) {
+  assert.deepEqual(got.names, [], '/api/skills is empty');
+  assert.equal(got.addStatus, 200, 'the Add went somewhere');
+  assert.equal(fs.existsSync(path.join(home, '.claude', 'skills', ADDED)), false, 'but not into the home');
+  assert.notEqual(got.removeStatus, 200, 'Remove found no such skill');
+  assert.equal(fs.existsSync(path.join(skill, 'SKILL.md')), true, 'the real skill survived a Remove');
+  assert.equal(fs.statSync(path.join(home, '.claude', 'skills')).mtimeMs, mtimeBefore, 'the home skills folder is unchanged');
+}
+
+/* Data is real-looking here, NOT in temp, so the engine seal below stays off and this arm
+   proves the lib's seal alone: without the lib's skills lines it goes red. */
+test('#3801: a board requiring lib-sandbox-home lists none of the real home\'s skills, and Add and Remove cannot touch it', (t) => {
   const home = realLookingDir(t, '.aw-3801-home-');
   const skill = plantSkill(home);
-  const data = fs.mkdtempSync(path.join(os.tmpdir(), 'aw-3801-'));
-  t.after(() => fs.rmSync(data, { recursive: true, force: true }));
-  const got = board({ home, data, withLib: true });
-  assert.deepEqual(got.names, [], '/api/skills is empty');
-  assert.equal(fs.existsSync(path.join(skill, 'SKILL.md')), true, 'the real skill survived a Remove');
+  const mtimeBefore = fs.statSync(path.join(home, '.claude', 'skills')).mtimeMs;
+  const got = board({ home, data: realLookingDir(t, '.aw-3801-data-'), withLib: true });
+  assertHomeUntouched(got, home, skill, mtimeBefore);
 });
 
 test('#3801: without the lib, the engine alone still refuses the real folder to a fixture (data in temp, home real)', (t) => {
@@ -94,9 +109,9 @@ test('#3801: without the lib, the engine alone still refuses the real folder to 
   const skill = plantSkill(home);
   const data = fs.mkdtempSync(path.join(os.tmpdir(), 'aw-3801-'));
   t.after(() => fs.rmSync(data, { recursive: true, force: true }));
+  const mtimeBefore = fs.statSync(path.join(home, '.claude', 'skills')).mtimeMs;
   const got = board({ home, data, withLib: false });
-  assert.deepEqual(got.names, [], '/api/skills is empty');
-  assert.equal(fs.existsSync(path.join(skill, 'SKILL.md')), true, 'the real skill survived a Remove');
+  assertHomeUntouched(got, home, skill, mtimeBefore);
 });
 
 test('#3801: the lib names a fresh skills folder, replaces the real one, keeps a caller\'s, and removes only its own', () => {
