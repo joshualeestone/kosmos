@@ -54,5 +54,9 @@ server.test.js:
   - a per-assignee limit at 30;
   - another assignee is unaffected;
   - the reassign and no-assignee answers;
-  - the fleet ceiling via a test seam;
+  - the fleet ceiling via a test seam, and it is the limit named when both are spent;
+  - one allowance whatever the name's case, since delivery ignores case;
   - tasks leave the parts valve alone.
+- #761 round 6 is rebuilt: its failed deliveries used to go to a different agent than
+  the real one, which a per-assignee allowance can never charge, so it could not fail.
+  Now 31 failed deliveries go to one agent, which must still be told once reachable.

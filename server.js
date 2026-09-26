@@ -252,11 +252,13 @@ const heardBudgetLog = new Map(); // assignee name -> times typed to, oldest fir
 const HEARD_BUDGET_WINDOW_MS = 3600000;
 const HEARD_PER_AGENT_MAX = 30;
 const HEARD_RUNAWAY_MAX = 500;
+/* Lowercased, because delivery finds the pane case-insensitively (chat.resolveCard,
+   #989): "mara" and "Mara" type into one screen, so they spend one allowance. */
 function heardKey(who) {
-  return typeof who === 'string' && who.trim() ? who.trim() : null;
+  return typeof who === 'string' && who.trim() ? who.trim().toLowerCase() : null;
 }
-function heardBudgetPrune(now = Date.now()) {
-  const cutoff = now - HEARD_BUDGET_WINDOW_MS;
+function heardBudgetPrune() {
+  const cutoff = Date.now() - HEARD_BUDGET_WINDOW_MS;
   let total = 0;
   for (const [k, times] of heardBudgetLog) {
     while (times.length && times[0] < cutoff) times.shift();
@@ -283,8 +285,8 @@ function heardBudgetRecord(who) {
    assignee". Undefined only when there is genuinely nobody named. The sentence names
    which limit it was, since the two call for different readings. */
 function heardBudgetSkipped(who) {
-  const name = heardKey(who);
-  if (!name) return undefined;
+  if (!heardKey(who)) return undefined;
+  const name = who.trim(); // as the caller spelled it, for the sentence
   // When both limits are spent, the fleet ceiling is named: it is the graver fact.
   const runaway = heardBudgetPrune() >= HEARD_RUNAWAY_MAX;
   return { who: name, state: chat.DELIVERY.COULD_NOT,
@@ -394,8 +396,8 @@ function tellEveryoneOn(t, roster) {
    - process (screen false): the parts valve applies (one count shared by agents), and the
      pane line spends the assignee's paging allowance (heardBudgetAllows, per assignee).
    - assigner: the Kosmos Assigner. Its own provenance ('assigner'), so neither the parts
-     valve nor the paging allowance is charged (the Assigner has its own hourly caps); the part must still be free at
-     the moment of the write (onlyIfFree); the pane line is always sent, and if it could not
+     valve nor the paging allowance is charged (the Assigner has its own hourly caps);
+     the part must still be free at the moment of the write (onlyIfFree); the pane line is always sent, and if it could not
      reach the agent at all (COULD_NOT) the assignment is taken back, so nobody is left on a task
      they were never told about.
    Returns the route's body fields plus `ok`/`status`/`because`; never throws for a refusal. */

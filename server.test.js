@@ -14205,6 +14205,14 @@ test('#3961: the paging allowance is per assignee, every route says when it skip
     const rNone = await api('/task/1/parts', { sentence: 'Unassigned' });
     assert.equal(rNone.status, 200, rNone.body);
     assert.equal(JSON.parse(rNone.body).heard, undefined, 'a part with no assignee claimed someone was not told');
+    // One allowance per pane, whatever the spelling: delivery matches names without
+    // regard to case, so spending "THEO" spends theo's.
+    resetHeardBudgetForTests();
+    spendHeardBudgetForTests('THEO', HEARD_PER_AGENT_MAX);
+    const rCase = await api('/tasks', { sentence: 'Spelled differently', who: 'theo' });
+    assert.equal((JSON.parse(rCase.body).heard || {}).state, 'could_not', 'a differently-cased spelling got its own allowance: ' + rCase.body);
+    assert.match(JSON.parse(rCase.body).heard.because, /already told theo/);
+    resetHeardBudgetForTests();
     // The fleet-wide ceiling: once agents have typed HEARD_RUNAWAY_MAX times this hour,
     // even theo (well under his own allowance) is not typed to, and the sentence says why.
     spendHeardBudgetForTests('somebody-else', HEARD_RUNAWAY_MAX);
@@ -14215,6 +14223,10 @@ test('#3961: the paging allowance is per assignee, every route says when it skip
     assert.equal(hRun.state, 'could_not');
     assert.match(hRun.because, new RegExp('typed into agent screens ' + HEARD_RUNAWAY_MAX + ' times this hour'));
     assert.equal(sends.length, before, 'CONTROL: nothing was typed past the fleet ceiling');
+    // Both limits spent at once: the ceiling is the one named.
+    spendHeardBudgetForTests('theo', HEARD_PER_AGENT_MAX);
+    const rBoth = await api('/tasks', { sentence: 'Both spent', who: 'theo' });
+    assert.match(JSON.parse(rBoth.body).heard.because, /typed into agent screens/, 'with both limits spent, the ceiling was not the one named');
   } finally {
     resetHeardBudgetForTests(); // this test spent it; later tests must not inherit that
     chatEngine.setRunner(null);
