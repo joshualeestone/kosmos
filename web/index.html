@@ -24637,10 +24637,13 @@ const FR_AGY_SUB = {
           return;
         }
         if (!got.ok) {
-          this.next = 'install';
-          this.say(frCap(got.error || 'We could not install Antigravity just now') + '.', 'Try again', false);
+          // A refusal a retry cannot change goes back to checking, not round the same Try again.
+          const stuck = /different home|switched off|not available/.test(got.error || '');
+          this.next = stuck ? 'check' : 'install';
+          this.say(frCap(got.error || 'We could not install Antigravity just now') + '.', stuck ? 'Check again' : 'Try again', false);
           return;
         }
+        AGY_INSTALLED = true;
         /* Freshly installed means not signed in yet, so go straight to the sign-in step rather than
            spending a check on it (review round 2: a signed-out check may itself open a browser). */
         this.next = 'open';
@@ -24650,7 +24653,11 @@ const FR_AGY_SUB = {
       this.say('Checking Antigravity on this computer…', '', false);
       const r = await this.post('/api/antigravity/check');
       if (!live()) return;
-      if (r && typeof r.installed === 'boolean') { AGY_INSTALLED = r.installed; paintAgyOption(document.getElementById('create-provider'), ''); }
+      if (r && typeof r.installed === 'boolean') {
+        AGY_INSTALLED = r.installed;
+        paintAgyOption(document.getElementById('create-provider'), '');
+        paintAgyOption(document.getElementById('d-provider'), typeof CURRENT !== 'undefined' && CURRENT ? providerOf(CURRENT) : '');
+      }
       if (r && r.offered === false) {
         this.next = 'check';
         AGY_OFFERED = false;

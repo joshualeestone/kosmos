@@ -37,6 +37,7 @@ test('not installed: says so, and never runs anything', async () => {
 });
 
 test('installed and answering "ok": signed in', () => withFakeAgy(async (bin) => {
+  if (process.platform !== 'darwin') return;   // offered on a Mac only
   let asked = null;
   agystatus.setRunnerForTests((b, done) => { asked = b; done(null, 'ok\n'); });
   const r = await agystatus.check();
@@ -46,6 +47,7 @@ test('installed and answering "ok": signed in', () => withFakeAgy(async (bin) =>
 }));
 
 test('installed but no answer (signed out, offline, slow): could not confirm, never a confident signed-out', () => withFakeAgy(async () => {
+  if (process.platform !== 'darwin') return;   // offered on a Mac only
   agystatus.setRunnerForTests((b, done) => done(Object.assign(new Error('timed out'), { killed: true }), ''));
   const r = await agystatus.check();
   assert.equal(r.installed, true);
@@ -64,6 +66,7 @@ test('installed but no answer (signed out, offline, slow): could not confirm, ne
 }));
 
 test('two asks at once share one check (it costs a prompt on the person\'s subscription)', () => withFakeAgy(async () => {
+  if (process.platform !== 'darwin') return;   // offered on a Mac only
   let runs = 0;
   agystatus.setRunnerForTests((b, done) => { runs += 1; setTimeout(() => done(null, 'ok'), 20); });
   const [a, b] = await Promise.all([agystatus.check(), agystatus.check()]);
