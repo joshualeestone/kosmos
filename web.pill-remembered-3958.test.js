@@ -32,3 +32,43 @@ test('#3958: the poll paints the pill off the same fresh card as the DM line', (
   assert.match(RAW, /paintBusy\(fresh, CURRENT\.name\);\n\s*\/\* #3958: the pill follows the poll too/);
   assert.match(RAW, /if \(fresh\) paintDetailState\(fresh\);/);
 });
+
+/* The page's function source by name, brace-matched (the same slicer the sibling web tests use). */
+function pageFnSource(name) {
+  const start = RAW.indexOf('function ' + name + '(');
+  assert.ok(start > -1, name + ' vanished from web/index.html');
+  let depth = 0;
+  for (let k = RAW.indexOf('{', start); k < RAW.length; k += 1) {
+    if (RAW[k] === '{') depth += 1;
+    else if (RAW[k] === '}') { depth -= 1; if (depth === 0) return RAW.slice(start, k + 1); }
+  }
+  throw new Error('unbalanced ' + name);
+}
+
+/* The REAL paintDetailState and workingSampleIsStale, with the label/glyph derivations stubbed to
+   echo the state they were handed, so the test reads which state the pill was painted from. */
+function pillFor(card, spokeLearnedAt, lastAt) {
+  const els = {};
+  const doc = { getElementById: (id) => (els[id] = els[id] || { className: '', innerHTML: '', textContent: '', hidden: false, dataset: {} }) };
+  // eslint-disable-next-line no-new-func
+  const run = new Function('document', 'DM_SPOKE_AT', 'LAST_AT', [
+    'const esc = (s) => String(s);',
+    'const stateCopyOf = (a) => ({ label: a.state });',
+    'const cardStOf = (a) => ({ st: a.state });',
+    'const glyphOf = () => "";',
+    'const taskLine = () => "";',
+    pageFnSource('workingSampleIsStale'),
+    pageFnSource('paintDetailState'),
+    'return paintDetailState;',
+  ].join('\n'))(doc, new Map(spokeLearnedAt === null ? [] : [[card.sessionName, { at: 1, learnedAt: spokeLearnedAt }]]), lastAt);
+  run(card);
+  return els['d-state'].className;
+}
+
+test('#3958: a working sample older than the reply on screen paints the pill idle, as the DM line hides', () => {
+  const card = { sessionName: 'beatrix', state: 'working' };
+  assert.match(pillFor(card, 2000, 1000), /\bst-idle\b/, 'the reply was learned after the sample: stale');
+  assert.match(pillFor(card, 500, 1000), /\bst-working\b/, 'control: the sample is newer than the reply, so it stands');
+  assert.match(pillFor(card, null, 1000), /\bst-working\b/, 'control: no reply known, the sample stands');
+  assert.match(pillFor({ sessionName: 'beatrix', state: 'needs_you' }, 2000, 1000), /\bst-needs_you\b/, 'only a WORKING sample is ever downgraded');
+});

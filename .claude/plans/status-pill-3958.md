@@ -14,7 +14,10 @@ separate static-dots bug; I could not reproduce one.
 ## Fix
 - paintDetailState(a): the pill + #d-task block moved out of openDetail unchanged, called by
   openDetail and by the poll (`if (fresh) paintDetailState(fresh)`), off the same fresh card as
-  paintBusy and swarmPagePaint: one sample for pill, dots and the card's green.
+  paintBusy and swarmPagePaint: one sample. CORRECTED after review: the pill and the DM line also
+  share the stale-working rule (workingSampleIsStale); the grid card does not, so for the one poll
+  after a reply lands the card can still say working while the pill says idle. Deliberate (see the
+  comment in paintDetailState).
 - The pill's innerHTML is written only when its markup changed (data-pill-key), so a steady working
   agent's dots are not rebuilt and restarted every poll (#3421's reason).
 
@@ -60,3 +63,12 @@ empty or two-message thread nothing on the agent page is rebuilt; the unfurl cac
 The room and the member panel are covered by the unit pins and shares the helpers; no browser check watches a room.
 Josh's own thread was not read (it is his data on his Mac); the mechanism is reproduced, the
 exact trigger in his thread is inferred.
+
+## Challenge-loop iteration 3
+- The pill's stale-sample downgrade now has a behavioural test (web.pill-remembered-3958: the real
+  paintDetailState + workingSampleIsStale, stubbed labels); deleting the downgrade reds it.
+- The pill/card one-poll split is stated in the code and above instead of claimed away.
+- OUT OF SCOPE, carded: the device-ask rows (#ask-rows) rebuild every poll and lose focus -> #3978.
+- NITs: the #3966 helpers moved below pjWhenPart (they had split it from its docblock); two comments
+  that quoted the old raw compare; setLive refreshes times only when the markup has one.
+- render-agentdm-3414.js (maps msg-t) re-run green on this branch: surface trailer on the commit.

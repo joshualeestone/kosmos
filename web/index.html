@@ -29792,7 +29792,11 @@ document.getElementById('d-files-finder') && document.getElementById('d-files-fi
  * line's dots and the card's green all read one sample.
  */
 function paintDetailState(card) {
-  /* The same stale-sample rule as the DM line (workingSampleIsStale), so the two never split. */
+  /* The same stale-sample rule as the DM line (workingSampleIsStale), so the two never split.
+     ⚠️ The grid card does NOT apply it: on the one poll where a reply has landed after the
+     sample, this pill and the DM line say idle while the card still says working. Chosen: the
+     split Josh reported was the pill against the DM line on this same page, and a card one
+     poll behind resolves on the next sample. */
   const a = workingSampleIsStale(card) ? { ...card, state: 'idle' } : card;
   const copy = stateCopyOf(a);
   /* ⚠️ The card's own derivations, not a copy of them: `cardStOf` decides the
@@ -32409,7 +32413,7 @@ function setLive(el, html) {
      (the project member panel #pj-msgs flashed every few seconds the way the agent thread did).
      Markup with no live time has a shape identical to itself, so every other caller is unchanged. */
   const shape = threadShape(html);
-  if (el.__lastLive === shape) { refreshWhens(el); return; }
+  if (el.__lastLive === shape) { if (html.indexOf('mwhen') > -1) refreshWhens(el); return; }
   el.__lastLive = shape;
   el.innerHTML = html;
 }
@@ -43608,7 +43612,7 @@ function pjMember(m, suppressTold, withMinus, hideState) {
   const face = m.hasAvatar
     /* #2762: `?v=` the avatar version, same as tkFace above and the org chart
        (#2698). This row is painted through `setIfChanged` -> `setLive`, which is
-       `if (el.__lastLive === html) return;` -- an identical-HTML skip exactly like
+       an unchanged-markup skip (by shape since #3966, which ignores only live times) exactly like
        TK_LIST_HTML and ORG_HTML. So a bare URL here is stale for the same reason
        and by the same mechanism. `m` is the member row from projects.describe,
        which carries avatarVer. */
@@ -49601,7 +49605,7 @@ function paintThreadInto(box, html, hasRows, queryChanged, filtering) {
   /* #2834: the full picker is now the shared `#rxn-picker` (in body), so a room
      rebuild no longer destroys it the way the old inline-per-post picker was
      destroyed. Close it here -- reaching `paintThreadInto` at all means the room
-     content changed (its sole caller `paintRoom` gates on `box.__lastRoom !== html`),
+     content changed (its sole caller `paintRoom` gates on the thread's shape, #3966),
      which is exactly the moment the old inline picker went away and its `.rxn-more`
      opener was recreated with aria-expanded reset. A quiet poll never reaches here,
      so an open picker is left alone on an unchanged room (parity with the composer
@@ -50757,6 +50761,11 @@ function pjNameOf(p, sessionName) {
  * mid-task)" with a doubled space, or "…session ." with a dangling one. The
  * space belongs to the value, not to the sentence.
  */
+function pjWhenPart(at) {
+  const said = pjWhen(at);
+  return said ? ' ' + said : '';
+}
+
 /**
  * #3966: a message's relative time, as a span that can be updated IN PLACE.
  *
@@ -50782,11 +50791,6 @@ function refreshWhens(root) {
     const said = pjWhen(el.getAttribute('data-at'));
     if (said && el.textContent !== said) el.textContent = said;
   }
-}
-
-function pjWhenPart(at) {
-  const said = pjWhen(at);
-  return said ? ' ' + said : '';
 }
 
 function pjWhen(at) {
