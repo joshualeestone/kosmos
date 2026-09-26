@@ -24472,7 +24472,7 @@ function acctApikeyShow(which) {
       await agyAsk();
       if (visit !== ACCT_APIKEY_GEN || ACCT_APIKEY_WHICH !== which) return;
       // AGY_OFFERED stays null when the read failed: today's key path then, not a choice that may be refused.
-      if (AGY_OFFERED === true && keyedSubReady('google')) { acctGeminiShow('google', info); return; }
+      if (AGY_OFFERED === true && keyedSubReady('google')) { acctGeminiShow('google'); return; }
     }
     if (info && info.present) { if (!again) acctKeyedReveal(which); return; }
     acctKeyedInstallShow(which, info);   // Mac and Windows alike: Kosmos installs both on each
@@ -24753,17 +24753,14 @@ document.getElementById('acct-grok-sub-cancel').addEventListener('click', () => 
   go.hidden = false;   // #3731: hidden while a pick-started sign-in ran; stopping brings the retry back
   go.focus();
 });
-/* #3874: Gemini's choice in Settings, or put it away (which !== 'google'). `info` is the Gemini CLI
-   read: "Use an API key" goes through its download when it is not present. Called from
-   acctApikeyShow and the install box, so every open, close and switch reaches it. */
-let ACCT_GEMINI_INFO = null;
-function acctGeminiShow(which, info) {
+/* #3874: Gemini's choice in Settings, or put it away (which !== 'google'). Called from acctApikeyShow
+   and the install box, so every open, close and switch reaches it. */
+function acctGeminiShow(which) {
   const flow = document.getElementById('acct-gemini-flow');
   if (!flow) return;
   ACCT_AGY_SUB.leave();
   { const c = document.getElementById('acct-gemini-sub-code'); if (c) { c.textContent = ''; c.hidden = true; } }
-  if (which !== 'google') { flow.hidden = true; ACCT_GEMINI_INFO = null; return; }
-  ACCT_GEMINI_INFO = info || null;
+  if (which !== 'google') { flow.hidden = true; return; }
   flow.hidden = false;
   document.getElementById('acct-gemini-pick').hidden = false;
   document.getElementById('acct-gemini-sub-step').hidden = true;
@@ -24783,19 +24780,21 @@ document.getElementById('acct-gemini-pick-sub').addEventListener('click', () => 
   step.focus();
   ACCT_AGY_SUB.start();
 });
-document.getElementById('acct-gemini-pick-key').addEventListener('click', () => {
-  const info = ACCT_GEMINI_INFO;
+document.getElementById('acct-gemini-pick-key').addEventListener('click', async () => {
+  /* Read the Gemini CLI now, not when the choice showed: a download may have finished or started since. */
+  const visit = ACCT_APIKEY_GEN;
+  const info = await keyedRunnerInfo('google');
+  if (visit !== ACCT_APIKEY_GEN || ACCT_APIKEY_WHICH !== 'google') return;
   if (info && info.present) { acctKeyedReveal('google', true); return; }
   acctKeyedInstallShow('google', info);   // the Gemini CLI first; its Confirm reveals the key step
 });
 document.getElementById('acct-gemini-sub-go').addEventListener('click', () => ACCT_AGY_SUB.start());
 document.getElementById('acct-gemini-sub-cancel').addEventListener('click', () => {
   // Back to the choice, as Grok's does, so "Use an API key" is one press away.
-  const info = ACCT_GEMINI_INFO;
   /* A check that found it not offered here (AGY_OFFERED false) leaves nothing to choose between:
      the key step, the way the step's own words ("Press Stop this sign-in to use an API key") say. */
   if (!keyedSubReady('google')) { document.getElementById('acct-gemini-pick-key').click(); return; }
-  acctGeminiShow('google', info);
+  acctGeminiShow('google');
   document.getElementById('acct-gemini-pick-sub').focus();
 });
 /* Sign in again AS an existing Grok subscription account: the dialog in its sign-in-again
@@ -24953,6 +24952,9 @@ function agySubDriver(pre, onReady) { return {
       if (!live()) return;
       if (r && typeof r.installed === 'boolean') {
         AGY_INSTALLED = r.installed;
+        /* #3874: an answer the board gave without `offered: false` confirms it is offered. agyAsk stops
+           asking once installed, so a first read that failed would otherwise leave this null for good. */
+        if (r.offered !== false) AGY_OFFERED = true;
         paintAgyOption(document.getElementById('create-provider'), '');
         paintAgyOption(document.getElementById('d-provider'), typeof CURRENT !== 'undefined' && CURRENT ? providerOf(CURRENT) : '');
       }

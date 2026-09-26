@@ -11,6 +11,8 @@
  *   - "Sign in with Google" walks not installed -> Install Antigravity -> Open -> Check again
  *     -> Ready, in the dialog, each press posting only its own route;
  *   - Stop partway returns to the choice;
+ *   - a slow availability read answering after the dialog closed, or after a switch to Grok, paints
+ *     no Gemini choice (the visit re-check after agyAsk), and the same read on an open dialog does;
  *   - control: where it is NOT offered, the choice never shows and Gemini goes to its download.
  * SHOT_DIR=<dir> saves screenshots of the choice and of Ready.
  *
@@ -46,7 +48,10 @@ async function openPage(browser, offered) {
         if (which === 'check') return enc(window.__check.length > 1 ? window.__check.shift() : window.__check[0]);
         return enc({ ok: true, installed: true });
       }
-      if (/\/api\/antigravity(\?|$)/.test(u)) return enc({ enabled: true, supported: isOffered, installed: false });
+      if (/\/api\/antigravity(\?|$)/.test(u)) {
+        if (window.__agyHold) await window.__agyHold;   // a slow availability read, released by the check
+        return enc({ enabled: true, supported: isOffered, installed: false });
+      }
       if (/\/api\/runners(\?|$)/.test(u)) return enc({ runners: { gemini: { present: false, downloadBytes: 20772697, job: null }, grok: { present: true } } });
       if (/\/api\/accounts(\?|$)/.test(u)) return enc({ accounts: [] });
       return enc({});
@@ -130,6 +135,25 @@ const view = () => ({
   chk(e.pick && !e.sub && e.focus === 'acct-gemini-pick-sub' && e.button === 'Sign in with Google', 'Stop partway returns to the choice, the step\'s button reset', JSON.stringify(e));
   chk(errs.length === 0, 'no page errors (offered)', errs.join(' | '));
   await page.close();
+
+  // A slow availability read: closed, then switched, mid-read. Each on a fresh page (agyAsk settles once).
+  for (const leave of ['close', 'switch', 'stay']) {
+    const s = await openPage(browser, true);
+    const r = await s.q(async (how) => {
+      let release; window.__agyHold = new Promise((ok) => { release = ok; });
+      frClose(); openAcctAdd(); acctPick('google');
+      await new Promise((ok) => setTimeout(ok, 200));
+      if (how === 'close') closeAcctAdd(); else if (how === 'switch') acctPick('xai');
+      release();
+      await new Promise((ok) => setTimeout(ok, 300));
+      return { flow: !document.getElementById('acct-gemini-flow').hidden, grok: !document.getElementById('acct-grok-flow').hidden,
+        modal: !document.getElementById('acct-add-modal').hidden };
+    }, leave);
+    if (leave === 'stay') chk(r.flow && r.modal, 'control: the same slow read on an open dialog does paint the choice', JSON.stringify(r));
+    else chk(!r.flow, 'a slow availability read answering after a ' + leave + ' paints no Gemini choice', JSON.stringify(r));
+    chk(s.errs.length === 0, 'no page errors (slow read, ' + leave + ')', s.errs.join(' | '));
+    await s.page.close();
+  }
 
   // CONTROL: not offered (not a Mac, or switched off): no choice, today's path.
   const n = await openPage(browser, false);

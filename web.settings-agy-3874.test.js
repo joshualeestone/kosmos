@@ -22,7 +22,7 @@ function stubEl(id) {
     hasAttribute(k) { return k in this.attrs; },
     setAttribute(k, v) { this.attrs[k] = v; },
     addEventListener(type, fn) { this.onclick = fn; },
-    click() { if (this.onclick) this.onclick(); },
+    click() { return this.onclick ? this.onclick() : undefined; },
   };
 }
 
@@ -93,30 +93,34 @@ test('#3874: the two instances keep their own state: leaving one does not stop t
 });
 
 /* The dialog's choice and its buttons, as written, with the neighbours it calls stubbed. */
-function choice({ offered = true } = {}) {
-  const at = PAGE.indexOf('let ACCT_GEMINI_INFO = null;');
+function choice({ offered = true, cli = { present: true } } = {}) {
+  const at = PAGE.indexOf('function acctGeminiShow(');
   const end = PAGE.indexOf('/* Sign in again AS an existing Grok subscription account', at);
   assert.ok(at > 0 && end > at, 'acctGeminiShow moved; re-anchor');
   const els = {};
   const el = (id) => (els[id] || (els[id] = stubEl(id)));
   const calls = [];
   const sub = { leave: () => calls.push('leave'), start: () => calls.push('start') };
+  const state = { gen: 1, which: 'google', cli, onRead: null };
   // eslint-disable-next-line no-new-func
-  const api = new Function('document', 'ACCT_AGY_SUB', 'acctKeyedReveal', 'acctKeyedInstallShow', 'keyedSubReady', 'ACCT_KEYED_FOCUS', `
-    ${PAGE.slice(at, end)}
+  const api = new Function('document', 'ACCT_AGY_SUB', 'acctKeyedReveal', 'acctKeyedInstallShow', 'keyedSubReady', 'ACCT_KEYED_FOCUS',
+    'keyedRunnerInfo', 'state', `
+    ${PAGE.slice(at, end).replace(/ACCT_APIKEY_GEN/g, 'state.gen').replace(/ACCT_APIKEY_WHICH/g, 'state.which')}
     return { acctGeminiShow };
   `)({ getElementById: el }, sub,
     (w, after) => calls.push('reveal:' + w + ':' + after),
     (w) => calls.push('install:' + w),
     (w) => w === 'google' && offered,
-    true);
-  return { ...api, el, calls };
+    true,
+    async (w) => { calls.push('read:' + w); if (state.onRead) state.onRead(); return state.cli; },
+    state);
+  return { ...api, el, calls, state };
 }
 
 test('#3874: picking Gemini where it is offered shows the choice first, the key box hidden', () => {
   const c = choice();
   c.el('acct-apikey-flow').hidden = false;
-  c.acctGeminiShow('google', { present: true });
+  c.acctGeminiShow('google');
   assert.equal(c.el('acct-gemini-flow').hidden, false);
   assert.equal(c.el('acct-gemini-pick').hidden, false);
   assert.equal(c.el('acct-gemini-sub-step').hidden, true);
@@ -129,38 +133,47 @@ test('#3874: picking Gemini where it is offered shows the choice first, the key 
   assert.deepEqual(c.calls, ['leave']);
 });
 
-test('#3874: Sign in with Google starts the driver at once; Use an API key goes to the key, or the download first', () => {
+test('#3874: Sign in with Google starts the driver at once; Use an API key reads the Gemini CLI then goes to the key, or the download first', async () => {
   const c = choice();
-  c.acctGeminiShow('google', { present: true });
+  c.acctGeminiShow('google');
   c.el('acct-gemini-pick-sub').click();
   assert.equal(c.el('acct-gemini-pick').hidden, true);
   assert.equal(c.el('acct-gemini-sub-step').hidden, false);
   assert.ok(c.calls.includes('start'), 'the check did not start on the pick');
 
-  c.acctGeminiShow('google', { present: true });
+  c.acctGeminiShow('google');
   c.calls.length = 0;
-  c.el('acct-gemini-pick-key').click();
-  assert.deepEqual(c.calls, ['reveal:google:true'], 'a present Gemini CLI goes straight to the key');
+  await c.el('acct-gemini-pick-key').click();
+  assert.deepEqual(c.calls, ['read:google', 'reveal:google:true'], 'a present Gemini CLI goes straight to the key');
 
-  c.acctGeminiShow('google', { present: false });
+  c.state.cli = { present: false };
+  c.acctGeminiShow('google');
   c.calls.length = 0;
-  c.el('acct-gemini-pick-key').click();
-  assert.deepEqual(c.calls, ['install:google'], 'a missing Gemini CLI is downloaded before the key');
+  await c.el('acct-gemini-pick-key').click();
+  assert.deepEqual(c.calls, ['read:google', 'install:google'], 'a missing Gemini CLI is downloaded before the key');
+  // The read is taken on the press: a dialog closed or switched while it was out does nothing.
+  c.state.cli = { present: true };
+  c.acctGeminiShow('google');
+  c.calls.length = 0;
+  c.state.onRead = () => { c.state.gen += 1; };
+  await c.el('acct-gemini-pick-key').click();
+  assert.deepEqual(c.calls, ['read:google'], 'an answer for a closed or switched dialog still acted');
 });
 
-test('#3874: Stop goes back to the choice, or to the key when the check found it not offered here', () => {
+test('#3874: Stop goes back to the choice, or to the key when the check found it not offered here', async () => {
   const c = choice();
-  c.acctGeminiShow('google', { present: true });
+  c.acctGeminiShow('google');
   c.el('acct-gemini-pick-sub').click();
   c.el('acct-gemini-sub-cancel').click();
   assert.equal(c.el('acct-gemini-pick').hidden, false, 'Stop did not return to the choice');
   assert.equal(c.el('acct-gemini-sub-step').hidden, true);
 
   const n = choice({ offered: false });
-  n.acctGeminiShow('google', { present: true });
+  n.acctGeminiShow('google');
   n.el('acct-gemini-pick-sub').click();
   n.calls.length = 0;
   n.el('acct-gemini-sub-cancel').click();
+  await new Promise((r) => setImmediate(r));
   assert.ok(n.calls.includes('reveal:google:true'), 'a not-offered Stop should land on the key');
 });
 
@@ -171,7 +184,7 @@ test('#3874: acctApikeyShow offers the choice only where the subscription is off
   const branch = src.slice(g, src.indexOf('\n    }', g));
   const ask = branch.indexOf('await agyAsk()');
   const recheck = branch.indexOf('if (visit !== ACCT_APIKEY_GEN || ACCT_APIKEY_WHICH !== which) return;', ask);
-  const gate = branch.indexOf("if (AGY_OFFERED === true && keyedSubReady('google')) { acctGeminiShow('google', info); return; }", recheck);
+  const gate = branch.indexOf("if (AGY_OFFERED === true && keyedSubReady('google')) { acctGeminiShow('google'); return; }", recheck);
   assert.ok(ask > 0 && recheck > ask && gate > recheck, 'ask, then re-check the visit, then gate on a CONFIRMED offer (a failed read is null)');
   // Not offered falls through to today's path (key, or the download), unchanged.
   const after = src.slice(g + branch.length);
@@ -186,4 +199,31 @@ test('#3874: people are pointed at Settings\' Add a provider for it, not the gui
   assert.doesNotMatch(conn, /Connect on Gemini/);
   assert.match(conn, /Grok and Gemini each take a subscription sign-in or a key, all in Settings,/);
   assert.equal((PAGE.match(/Add a provider, then Google Gemini\./g) || []).length, 4);
+});
+
+test('#3874: the agents\' guide names the Settings button as the page labels it, and first run\'s as it does', () => {
+  const conn = fs.readFileSync(nodePath.join(__dirname, 'engine', 'connections.js'), 'utf8').replace(/',\s*\n\s*'/g, ' ');
+  const label = (id) => {
+    const m = PAGE.match(new RegExp('id="' + id + '"[^>]*>([^<]+)<'));
+    assert.ok(m, '#' + id + ' is gone');
+    return m[1];
+  };
+  assert.equal(label('acct-gemini-pick-sub'), 'Sign in with Google');
+  assert.ok(conn.includes(label('acct-gemini-pick-sub') + ', for Gemini in Settings, AI Models, Add a provider'), 'the guide names a Settings button that is not on the page');
+  assert.ok(conn.includes('the button reads ' + label('fr-gemini-pick-sub')), 'the guide names a first-run button that is not on the page');
+});
+
+test('#3874: a check that answers without `offered: false` confirms the offer (a failed first read left it null)', async () => {
+  const at = PAGE.indexOf('let FR_AGY_READY = false;');
+  const end = PAGE.indexOf('const KEYED_SUB_START', at);
+  const els = {};
+  const el = (id) => (els[id] || (els[id] = stubEl(id)));
+  const run = async (answer) => new Function('document', 'fetch', 'paintAgyOption', 'frPaintKeyed', `
+    let AGY_INSTALLED = null; let AGY_OFFERED = null;
+    ${PAGE.slice(at, end)}
+    return ACCT_AGY_SUB.start().then(() => AGY_OFFERED);
+  `)({ getElementById: el }, async () => ({ json: async () => answer }), () => {}, () => {});
+  assert.equal(await run({ installed: true, signedIn: true }), true);
+  assert.equal(await run({ installed: false, signedIn: false, offered: false }), false);   // CONTROL
+  assert.equal(await run(null), null, 'no answer confirms nothing');
 });
