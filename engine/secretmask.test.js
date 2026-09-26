@@ -468,7 +468,8 @@ test('#3935 two held keys that share an opening, both split in one reply, are ma
     assert.ok(r.text.includes('\nAccount two:\n'), `the text between the two keys was masked: ${JSON.stringify(r.text)}`);
     assert.ok(r.text.startsWith('Account one:\n') && r.text.endsWith(' |\nDone.'), JSON.stringify(r.text));
     assert.ok(!r.text.includes(MASK + MASK), `two masks printed side by side: ${JSON.stringify(r.text)}`);
-    assert.equal(r.fired.find((f) => f.kind === 'split_secret').count, 2, JSON.stringify(r.fired));
+    /* Masked piece by piece (review round 18), so one split_secret per piece: at least one per key. */
+    assert.ok(r.fired.find((f) => f.kind === 'split_secret').count >= 2, JSON.stringify(r.fired));
   } finally { setKnownSecrets([]); }
 });
 
@@ -539,7 +540,10 @@ test('#3935 a sentence naming the key\'s longer prefix between two pieces does n
     const chunks = held.match(/.{1,8}/g);
     const input = `${chunks[0]} is the first part (every Anthropic key starts with sk-ant-api03). Then ${chunks.slice(1).join(' then ')} end`;
     const out = mask(input).text;
-    for (const c of chunks) assert.ok(!out.includes(c), `the piece ${c} survived: ${out}`);
+    /* The first chunk is masked where it stands; the sentence's own public prefix (sk-ant-api03, which contains
+       it) stays readable now that pieces are masked one by one (review round 18). */
+    assert.ok(out.startsWith(MASK + ' is the first part (every Anthropic key starts with sk-ant-api03).'), out);
+    for (const c of chunks.slice(1)) assert.ok(!out.includes(c), `the piece ${c} survived: ${out}`);
     assert.ok(out.endsWith(' end'), out);
   } finally { setKnownSecrets([]); }
 });
@@ -825,5 +829,31 @@ test('#3935 a label with many hyphens before a piece still offers the piece (rev
     /* Six hyphens before a piece: more than the four tails, so only tails taken from the end reach it. */
     const out = mask('first sk-ant-api03-Qx7v then a-very-long-label-name-here-Rt2mNp9b then yet-another-long-label-name-here-Kd4sLw8z then Yh3cFj6gTa1e').text;
     for (const c of ['Rt2mNp9b', 'Kd4sLw8z', 'Yh3cFj6gTa1e']) assert.ok(!out.includes(c), `the piece ${c} survived: ${out}`);
+  } finally { setKnownSecrets([]); }
+});
+
+test('#3935 a completed walk masks the key\'s pieces, not the rows and bullets between them (review round 18)', () => {
+  const held = j('sk-ant-', 'api03-', 'WordsBetweenThePieces0123456789XYZ');
+  setKnownSecrets([held]);
+  try {
+    const chunks = held.match(/.{1,8}/g);
+    const names = ['Alpha', 'Bravo', 'Charlie', 'Delta', 'Echo', 'Foxtrot'];
+    const out = mask(`Here:\n| Part | Value |\n|---|---|\n${chunks.map((c, i) => `| ${names[i]} | ${c} |`).join('\n')}\nDone.`).text;
+    for (const c of chunks.slice(1)) assert.ok(!out.includes(c), `the piece ${c} survived: ${out}`);
+    for (const n of names) assert.ok(out.includes(`| ${n} | ${MASK} |`), `the row ${n} lost its shape: ${out}`);
+  } finally { setKnownSecrets([]); }
+});
+
+test('#3935 text dense with - _ and = but no held opening costs little (review round 18)', () => {
+  setKnownSecrets(Array.from({ length: 50 }, (_, i) => j('sk-ant-', 'api03-', `Qx7v${String(i).padStart(4, '0')}Rt2mNp9bKd4sLw8zYh3cFj6gTa1e`)));
+  try {
+    const reply = Array.from({ length: 4000 }, (_, i) => `pa-rt${i}_va=lue-${i}_end`).join(' ');
+    const baseline = (() => { setKnownSecrets(['zz9yx8wv7ut6']); return cpuMillisecondsOf(() => mask(reply)); })();
+    setKnownSecrets(Array.from({ length: 50 }, (_, i) => j('sk-ant-', 'api03-', `Qx7v${String(i).padStart(4, '0')}Rt2mNp9bKd4sLw8zYh3cFj6gTa1e`)));
+    let r;
+    const ms = cpuMillisecondsOf(() => { r = mask(reply); });
+    assert.equal(r.text, reply, 'glue-dense text holding no key was changed');
+    /* A ceiling, not a pin: measured 76ms here with variants built lazily against 118ms built for every run. */
+    assert.ok(ms < 4 * baseline + 100, `a ${reply.length}-character glue-dense reply cost ${Math.round(ms)}ms against ${Math.round(baseline)}ms with one unrelated held value`);
   } finally { setKnownSecrets([]); }
 });

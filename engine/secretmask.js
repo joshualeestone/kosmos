@@ -106,6 +106,9 @@ function addWalked(w, walked) {
    walked and leaked split by a word). Measured over 20,000 each: random lowercase or uppercase 16-character
    secrets 7% are still taken for words (12 characters: 15%), random keys and hex 0%; Administrator1,
    Settings2024, Password123 and correcthorsebatterystaple are words. */
+/* Not looksRandom's wordish, on purpose: that one decides whether the catch-all may leave a long NAME alone (loose,
+   so fewer names are masked); this one decides whether a held value is too word-like to walk (strict, so fewer
+   secrets escape the walk). One rule would loosen one of them. */
 function wordLike(p) {
   if (/^[0-9]+$/.test(p)) return true;
   if (p.length < 3) return false;
@@ -281,10 +284,22 @@ function wordSkippingSpans(text) {
   let budget = WORD_WALK_BUDGET;
   const runs = [];
   for (const m of text.matchAll(/[A-Za-z0-9_+/=-]+/g)) {
-    const variants = pieceVariants(m[0]);
-    runs.push([m.index, m.index + m[0].length, m[0], variants, variants.reduce((n, v) => n + chunksOf(v.length), 0)]);
+    runs.push([m.index, m.index + m[0].length, m[0]]);
   }
   if (runs.length < 2) return [];
+  /* A run's piece variants and what comparing them costs, built on first use. */
+  const built = new Map();
+  const varsOf = (i) => {
+    let v = built.get(i);
+    if (!v) { const vs = pieceVariants(runs[i][2]); v = [vs, vs.reduce((n, x) => n + chunksOf(x.length), 0)]; built.set(i, v); }
+    return v;
+  };
+  const hasOpening = (raw) => {
+    for (const str of /[-_]/.test(raw) ? [raw, raw.replace(/[-_]+/g, '')] : [raw]) {
+      for (let q = 0; q + OPENING_LEN <= str.length; q += 1) if (knownByOpening.has(str.slice(q, q + OPENING_LEN))) return true;
+    }
+    return false;
+  };
   /* nonSpaceBefore[i]: non-whitespace characters in text[0, i), so any span's count is one subtraction.
      Built on the first opening found, so a reply with none pays nothing for it. */
   let nonSpaceBefore = null;
@@ -324,7 +339,11 @@ function wordSkippingSpans(text) {
     const [runFrom] = runs[r];
     /* The opening is looked for in the run as written and in each variant a piece is tried as (glue taken off),
        so a key's own last _ or / is kept in one and italics or a label are gone in another. */
-    for (const head of runs[r][3]) for (let q = 0; q + OPENING_LEN <= head.length; q += 1) {
+    /* Every variant is a substring of the run or of the run without its - and _, so a run holding no indexed
+       opening in either starts nothing, and its variants are not built (review round 18: building them for
+       every run cost 2.5x on text dense with - _ and =, when nothing matched). */
+    if (!hasOpening(runs[r][2])) continue;
+    for (const head of varsOf(r)[0]) for (let q = 0; q + OPENING_LEN <= head.length; q += 1) {
       const cands = knownByOpening.get(head.slice(q, q + OPENING_LEN));
       if (!cands) continue;
       const opening = head.slice(q);
@@ -342,7 +361,7 @@ function wordSkippingSpans(text) {
         /* Every run visited is charged, matching or not (review round 1: charging only matches left the
            scan itself unbounded). */
         if ((budget -= 1) < 0) return null;
-        for (const v of runs[s][3]) {
+        for (const v of varsOf(s)[0]) {
           const next = byNext.get(v[0]);
           if (!next) continue;
           if ((budget -= next.length) < 0) return null;
@@ -358,7 +377,8 @@ function wordSkippingSpans(text) {
         let best = opening.length;
         let finished = false;
         for (let s = r + 1; s < runs.length; s += 1) {
-          const [, sTo, , pieces, piecesCost] = runs[s];
+          const [, sTo] = runs[s];
+          const [pieces, piecesCost] = varsOf(s);
           if (nonSpaceBefore[sTo] - nonSpaceBefore[from] > bound) break;
           let done = false;
           const next = new Set(reached);
@@ -425,7 +445,9 @@ function wordSkippingSpans(text) {
      join the two into one span masking everything between). Linear: one pass over the starts. */
   for (const c of completed.values()) {
     const latest = c.starts.reduce((m, st) => (st.from > m ? st.from : m), -1);
-    spans.push([latest, c.to]);
+    /* Piece by piece, the latest start too (review round 18): one span from the first piece to the last took
+       the row labels, columns and bullet text between them, so a word-labelled table collapsed to one row. */
+    for (const st of c.starts) if (st.from === latest) for (const m of st.matched) spans.push(m);
     /* An earlier start is masked piece by piece, not as one span to the end (review round 16): a retry within
        reach joined the two and hid the prose between them ("Sorry, again:"). */
     for (const { from, movedAt, matched } of c.starts) if (from !== latest && movedAt < latest) for (const m of matched) spans.push(m);
