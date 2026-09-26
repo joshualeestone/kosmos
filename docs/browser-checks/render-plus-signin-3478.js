@@ -1,4 +1,4 @@
-// Browser-check-surface: plus-state1 plus-state2 plus-si-done plus-si-owned plus-si-name-count plus-si-expired plus-si-second-lead plus-si-second-help plus-si-cancel plus-si-code-resend plus-si-code-to plus-si-email plus-si-code plus-si-second plus-si-enrol plus-si-enrol-sms plus-si-enrol-why plus-si-enrol-confirm plus-si-secret plus-si-register plus-flow plus-status
+// Browser-check-surface: plus-state1 plus-state2 plus-si-done plus-si-owned plus-si-name-count plus-si-expired plus-si-second-lead plus-si-second-help plus-si-cancel plus-si-code-resend plus-si-code-to plus-si-email plus-si-code plus-si-second plus-si-enrol plus-si-enrol-sms plus-si-enrol-why plus-si-enrol-confirm plus-si-secret plus-si-register plus-flow plus-status otp-boxes otp-cell otp-cells otp-fit
 'use strict';
 /**
  * #3478: the Kosmos+ sign-in links open the IN-APP wizard, not the web.
@@ -252,7 +252,11 @@ const visible = (page, sel) => page.evaluate((s) => {
           const okBorder = getComputedStyle(probe).borderTopColor;
           return { gap: btn.top - f.bottom, n: inputs.length, badBorder, okBorder,
             wiz: inputs.filter((i) => i.closest('#plus-state2')).length,
-            bad: inputs.map((i) => { const c = getComputedStyle(i); return { id: i.id, raw: c.color + ' on ' + c.backgroundColor, want: WANT(i) }; })
+            /* #3942: a code field is transparent over its six boxes, so what the digits sit on is the
+               boxes' fill: read that, not the input's own (now see-through) background. */
+            bad: inputs.map((i) => { const c = getComputedStyle(i); const boxed = i.closest('.otp-boxes');
+              const under = boxed ? getComputedStyle(boxed.querySelector('.otp-cell')).backgroundColor : c.backgroundColor;
+              return { id: i.id, raw: c.color + ' on ' + under, want: WANT(i) }; })
               .filter((x) => x.raw !== x.want).map((x) => x.id + ': ' + x.raw) };
         }, theme);
         chk(r.n === 10, `[${key}] #3596 CONTROL: the Kosmos+ pane's 10 inputs were found (${theme})`, String(r.n));
@@ -288,14 +292,55 @@ const visible = (page, sel) => page.evaluate((s) => {
           const inp = document.getElementById('plus-si-code-in'); const cs = getComputedStyle(inp);
           const go = getComputedStyle(document.getElementById('plus-si-code-go'));
           const rs = document.getElementById('plus-si-code-resend');
-          return { lead: document.querySelector('#plus-si-code .plus-si-lead').textContent.trim(), w: inp.getBoundingClientRect().width,
-            align: cs.textAlign, mono: /mono|menlo/i.test(cs.fontFamily), otp: inp.getAttribute('autocomplete'), mode: inp.getAttribute('inputmode'),
+          const cells = Array.from(document.querySelectorAll('#plus-si-code .otp-cell')).map((x) => x.getBoundingClientRect());
+          return { lead: document.querySelector('#plus-si-code .plus-si-lead').textContent.trim(),
+            cells: cells.length, cellW: Math.min(...cells.map((r) => r.width)), cellH: Math.min(...cells.map((r) => r.height)),
+            hidden: (document.querySelector('#plus-si-code .otp-cells') || { getAttribute: () => null }).getAttribute('aria-hidden'), fontPx: parseFloat(cs.fontSize),
+            on: Array.from(document.querySelectorAll('#plus-si-code .otp-cell')).findIndex((x) => x.classList.contains('on')),
+            mono: /mono|menlo/i.test(cs.fontFamily), otp: inp.getAttribute('autocomplete'), mode: inp.getAttribute('inputmode'),
             goBg: go.backgroundImage + ' ' + go.backgroundColor, rsTag: rs.tagName, rsText: rs.textContent.trim(),
             labelShown: document.querySelector('label[for="plus-si-code-in"]').getBoundingClientRect().width > 1 };
         });
         chk(c.lead === 'We sent a code to you@example.com. It works for 10 minutes.', `[${key}] #3796 the code step's one line names the email and how long the code works`, c.lead);
         chk((await page.textContent('#plus-si-cancel')).trim() === 'Start over', `[${key}] #3796 addendum 4: while a sign-in is in progress the way out reads "Start over"`, await page.textContent('#plus-si-cancel'));
-        chk(c.w > 90 && c.w < 200 && c.align === 'center' && c.mono, `[${key}] #3796 the code field is compact, centred and monospace`, JSON.stringify(c));
+        // #3942 (Josh, 2026-09-26) replaces #3796's compact field: one big box per digit.
+        chk(c.cells === 6 && c.cellW >= 40 && c.cellH >= 48 && c.fontPx >= 26 && c.mono && c.hidden === 'true',
+          `[${key}] #3942 the code is six big boxes (drawn for the eye, hidden from a screen reader), with big digits`, JSON.stringify(c));
+        chk(c.on === 0, `[${key}] #3942 the first box is outlined while the field has focus`, String(c.on));
+        /* Round 3 review (measured): below 40rem a settings-wide rule set inputs to 16px and pulled
+           the digits off their boxes. At 520px wide the digits must keep the boxes' size. */
+        const wide = page.viewportSize();
+        await page.setViewportSize({ width: 520, height: wide.height });
+        await page.waitForTimeout(200);
+        const narrow = await page.evaluate(() => { const i = document.getElementById('plus-si-code-in'); const b = i.closest('.otp-boxes');
+          return { input: parseFloat(getComputedStyle(i).fontSize), row: parseFloat(getComputedStyle(b).fontSize) }; });
+        await page.setViewportSize(wide);
+        await page.waitForTimeout(200);
+        chk(narrow.input === narrow.row && narrow.input >= 18, `[${key}] #3942 on a narrow window the digits keep the boxes' size (no settings-wide 16px)`, JSON.stringify(narrow));
+        /* Round 5 review (measured): at phone width a settings-wide min-height: 44px made the input
+           taller than the boxes, so the digits sat low. And at a 150% text size the 18px floor pushed
+           the row out of its card. The input must be the row's height, and the row inside its card. */
+        const fits = async (w, pct) => {
+          await page.setViewportSize({ width: w, height: wide.height });
+          await page.evaluate((p) => { document.documentElement.style.fontSize = p; }, pct);
+          await page.waitForTimeout(200);
+          return page.evaluate(() => { const i = document.getElementById('plus-si-code-in'); const b = i.closest('.otp-boxes'); const f = b.parentElement.getBoundingClientRect(); const r = b.getBoundingClientRect();
+            return { inH: Math.round(i.getBoundingClientRect().height), rowH: Math.round(r.height), inside: r.left >= f.left - 1 && r.right <= f.right + 1, font: parseFloat(getComputedStyle(b).fontSize) }; });
+        };
+        const at320 = await fits(320, '');
+        const big = await fits(390, '150%');
+        await page.evaluate(() => { document.documentElement.style.fontSize = ''; });
+        await page.setViewportSize(wide);
+        await page.waitForTimeout(200);
+        chk(at320.inH === at320.rowH && at320.inside, `[${key}] #3942 at 320px the input is exactly the boxes' height (digits centred) and the row fits`, JSON.stringify(at320));
+        chk(big.inside && big.inH === big.rowH, `[${key}] #3942 with a 150% text size the row still fits its card`, JSON.stringify(big));
+        /* High-contrast (forced colours) strips the box-shadow outline: the current box keeps a thick
+           system-colour edge instead, and the other boxes keep their thin one. */
+        await page.emulateMedia({ forcedColors: 'active' });
+        const hc = await page.evaluate(() => Array.from(document.querySelectorAll('#plus-si-code .otp-cell')).map((c) => ({ on: c.classList.contains('on'), w: getComputedStyle(c).borderTopWidth, st: getComputedStyle(c).borderTopStyle })));
+        await page.emulateMedia({ forcedColors: 'none' });
+        chk(hc.length === 6 && hc.filter((c) => c.on).length === 1 && hc.every((c) => c.st === 'solid') && hc.find((c) => c.on).w === '3px' && hc.filter((c) => !c.on).every((c) => c.w === '1px'),
+          `[${key}] #3942 in high-contrast mode the current box has a thick edge, the others a thin one`, JSON.stringify(hc));
         chk(c.otp === 'one-time-code' && c.mode === 'numeric', `[${key}] #3796 the code field offers one-time-code autofill and a number pad`);
         chk(/58, 104, 216|47, 87, 196/.test(c.goBg) && !/227, 179, 65|245, 197/.test(c.goBg), `[${key}] #3796 Verify is Kosmos+ blue, not gold`, c.goBg);
         chk(c.rsTag === 'A' && c.rsText === 'Send again', `[${key}] #3796 resend is a small "Send again" link`, c.rsTag + ' ' + c.rsText);
@@ -304,9 +349,31 @@ const visible = (page, sel) => page.evaluate((s) => {
         chk(g.above > 40 && Math.abs(g.above - g.below) <= 4, `[${key}] #3796 the code step's card is centred vertically`, JSON.stringify(g));
       }
 
-      // Step: email code -> the branch signin-verify chose.
-      await page.fill('#plus-si-code-in', '123456');
-      await page.click('#plus-si-code-go');
+      // Step: email code -> the branch signin-verify chose. #3942: the sixth digit submits by itself,
+      // so no click: reaching the next step below IS the auto-submit. The first scenario PASTES the
+      // code with a space in it, as it arrives from an email, and counts the verify requests.
+      if (key === 'existing-2fa') {
+        let verifies = 0;
+        const count = (r) => { if (r.method() === 'POST' && /\/api\/remote\/signin-verify$/.test(r.url())) verifies += 1; };
+        page.on('request', count);
+        await page.focus('#plus-si-code-in');
+        await page.keyboard.insertText('123 45');
+        const part = await page.evaluate(() => { const box = document.querySelector('#plus-si-code .otp-boxes');
+          if (!box) return { v: document.getElementById('plus-si-code-in').value, on: -1, scroll: null, shift: null, boxes: false };   // a red, not a throw
+          return { v: document.getElementById('plus-si-code-in').value,
+            on: Array.from(document.querySelectorAll('#plus-si-code .otp-cell')).findIndex((x) => x.classList.contains('on')),
+            scroll: box.scrollLeft + document.getElementById('plus-si-code-in').scrollLeft, shift: Math.round(box.querySelector('.otp-cell').getBoundingClientRect().left - box.getBoundingClientRect().left) }; });
+        chk(part.v === '12345' && part.on === 5 && verifies === 0, `[${key}] #3942 five digits fill five boxes, outline the sixth, and do not submit yet`, JSON.stringify({ part, verifies }));
+        chk(part.scroll === 0 && part.shift === 0, `[${key}] #3942 typing never scrolls the boxes sideways (the first box stays whole)`, JSON.stringify(part));
+        await page.screenshot({ path: path.join(OUT, `${key}-code-boxes-3942.png`) });
+        await page.evaluate(() => { const i = document.getElementById('plus-si-code-in'); i.value = ''; i.dispatchEvent(new Event('input')); });
+        await page.keyboard.insertText('123 456');   // text arriving at once, space and all (no paste event: the beforeinput path)
+        await page.waitForTimeout(300);
+        chk(verifies === 1, `[${key}] #3942 "123 456" arriving at once (not a paste event) fills every box and submits exactly once`, String(verifies));
+        page.off('request', count);
+      } else {
+        await page.fill('#plus-si-code-in', '123456');
+      }
 
       const verifyStage = sc.steps['/api/remote/signin-verify'].stage;
       if (verifyStage === 'second') {
@@ -320,8 +387,7 @@ const visible = (page, sel) => page.evaluate((s) => {
         await page.click('#plus-si-second-help');
         const rec = (await page.textContent('#plus-si-second-recover')).trim();
         chk((await visible(page, '#plus-si-second-recover')) && /I lost my phone/.test(rec), `[${key}] #3796 "Can't get a code?" opens the recovery path`, JSON.stringify(rec));
-        await page.fill('#plus-si-second-in', '654321');
-        await page.click('#plus-si-second-go');
+        await page.fill('#plus-si-second-in', '654321');   // #3942: auto-submits
       } else if (verifyStage === 'enrol_second_factor') {
         await page.waitForSelector('#plus-si-enrol', { state: 'visible', timeout: 5000 });
         chk(await visible(page, '#plus-si-enrol-sms'), `[${key}] verify -> set-up step offers text when sms_available`);
@@ -346,8 +412,7 @@ const visible = (page, sel) => page.evaluate((s) => {
           const secret = await page.inputValue('#plus-si-secret');
           chk(secret === 'ABCD1234EFGH5678', `[${key}] the authenticator key is shown to type in`, JSON.stringify(secret));
         }
-        await page.fill('#plus-si-enrol-code', '111222');
-        await page.click('#plus-si-enrol-confirm-go');
+        await page.fill('#plus-si-enrol-code', '111222');   // #3942: auto-submits
       }
 
       // Step: session -> name -> hand off to the connected flow.
@@ -451,6 +516,21 @@ const visible = (page, sel) => page.evaluate((s) => {
             chk(sep.fields.length === 7 && !low(sep.fields, 'r').length && sep.sec.length >= 1 && !low(sep.sec, 'r').length, `[webkit] #3841 field borders and the secondary stroke separate on the navy card (${theme})`, low(sep.fields, 'r').concat(low(sep.sec, 'r')).join(' '));
             chk(sep.prim.length >= 7 && !low(sep.prim, 'r').length && !low(sep.prim, 'edge').length, `[webkit] #3841 primary faces and edges separate on the navy card (${theme})`, low(sep.prim, 'r').concat(low(sep.prim, 'edge')).join(' '));
           }
+          /* #3942 in WebKit too: its monospace runs wider (measured on the web sign-in), so the six
+             boxes are measured here as well, at desktop and phone widths: all inside their row, the
+             digits the row's size, and five typed digits outline the sixth (five, so nothing sends). */
+          await page.evaluate(() => { plusSiShow('plus-si-code'); document.getElementById('plus-si-code-in').focus(); });
+          for (const w of [1400, 390]) {
+            await page.setViewportSize({ width: w, height: 950 });
+            await page.waitForTimeout(200);
+            const g = await page.evaluate(() => { const i = document.getElementById('plus-si-code-in'); const b = i.closest('.otp-boxes'); const fit = b.parentElement.getBoundingClientRect(); const r = b.getBoundingClientRect();
+              return { cells: b.querySelectorAll('.otp-cell').length, inside: r.left >= fit.left - 1 && r.right <= fit.right + 1, input: parseFloat(getComputedStyle(i).fontSize), row: parseFloat(getComputedStyle(b).fontSize) }; });
+            chk(g.cells === 6 && g.inside && g.input === g.row && g.input >= 18, `[webkit] #3942 the six boxes fit their row and the digits match them at ${w}px`, JSON.stringify(g));
+          }
+          await page.focus('#plus-si-code-in');
+          await page.keyboard.insertText('12345');
+          const five = await page.evaluate(() => ({ v: document.getElementById('plus-si-code-in').value, on: Array.from(document.querySelectorAll('#plus-si-code .otp-cell')).findIndex((x) => x.classList.contains('on')) }));
+          chk(five.v === '12345' && five.on === 5, `[webkit] #3942 five digits fill five boxes and outline the sixth`, JSON.stringify(five));
           await page.close();
         } finally { await wk.close(); }
       }
@@ -478,8 +558,11 @@ const visible = (page, sel) => page.evaluate((s) => {
       await page.fill('#plus-signin-email', 'you@example.com');
       await page.click('#plus-signin-code');
       await page.waitForSelector('#plus-si-code', { state: 'visible', timeout: 5000 });
+      // #3942: auto-submits (verify now in flight for 1.5s). Waiting for the request keeps this arm
+      // honest: with no click, an auto-submit that broke would otherwise pass it with nothing in flight.
+      const sent = page.waitForRequest((r) => r.method() === 'POST' && /\/api\/remote\/signin-verify$/.test(r.url()), { timeout: 3000 }).then(() => true, () => false);
       await page.fill('#plus-si-code-in', '123456');
-      await page.click('#plus-si-code-go');           // verify now in flight for 1.5s
+      chk(await sent, `[${k}] #3942 CONTROL: the sixth digit really sent the verify this arm holds in flight`);
       const startOverPost = page.waitForRequest((r) => r.method() === 'POST' && /\/api\/remote\/signin-cancel$/.test(r.url()), { timeout: 3000 }).then(() => true, () => false);
       await page.click('#plus-si-cancel');            // "Start over" (addendum 4)
       chk(await startOverPost, `[${k}] #3796 addendum 4: Start over drops the held sign-in (POST signin-cancel)`);
@@ -508,18 +591,356 @@ const visible = (page, sel) => page.evaluate((s) => {
          (also a 401, different words) stays on the step so the person can retype. */
       await page.unroute('**/api/remote/signin-**');
       let verifyAnswer = { status: 400, body: { error: 'the coordinator said no (401): that code is not right' } };
-      await page.route('**/api/remote/signin-**', (route, req) => {
+      let verifyDelay = 0;   // #3942: a slow answer, so a code can be finished while one is in flight
+      let verifyAbort = false;   // #3942 round 9: a dropped request (network failure), never answered
+      let startDelay = 0;   // #3942 round 11: a slow new-code request, so the old code is still in the field
+      let startFail = null;   // #3942 round 12: a refused new-code request (no new code was made)
+      await page.route('**/api/remote/signin-**', async (route, req) => {
         const p = req.url().replace(/^.*\/api\/remote\//, '');
-        if (p === 'signin-verify') { route.fulfill({ status: verifyAnswer.status, contentType: 'application/json', body: JSON.stringify(verifyAnswer.body) }); return; }
+        if (p === 'signin-verify') { if (verifyDelay) await new Promise((r) => setTimeout(r, verifyDelay)); if (verifyAbort) { route.abort(); return; } route.fulfill({ status: verifyAnswer.status, contentType: 'application/json', body: JSON.stringify(verifyAnswer.body) }); return; }
+        if (startDelay) await new Promise((r) => setTimeout(r, startDelay));
+        if (startFail && p === 'signin-start') { route.fulfill({ status: startFail.status, contentType: 'application/json', body: JSON.stringify(startFail.body) }); return; }
         route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ ok: true, stage: 'code_sent' }) });
       });
       await page.fill('#plus-signin-email', 'you@example.com');
       await page.click('#plus-signin-code');
       await page.waitForSelector('#plus-si-code', { state: 'visible', timeout: 5000 });
-      await page.fill('#plus-si-code-in', '111111');
+      let wrongSends = 0;
+      const countWrong = (r) => { if (r.method() === 'POST' && /\/api\/remote\/signin-verify$/.test(r.url())) wrongSends += 1; };
+      page.on('request', countWrong);
+      await page.fill('#plus-si-code-in', '111111');   // #3942: auto-submits
+      await page.waitForTimeout(400);
+      chk(wrongSends === 1, `[${k}] #3942 CONTROL: the wrong code was really sent, once`, String(wrongSends));
+      /* #3942 review (web half, round 2, measured): after the answer, WITHOUT leaving the field, the
+         refused code is selected, so typing the right one replaces it and sends it (a full field with
+         the caret at its end would otherwise refuse every keystroke). No blur here, on purpose. */
+      const after = await page.evaluate(() => { const i = document.getElementById('plus-si-code-in'); return { focused: document.activeElement === i, s: i.selectionStart, e: i.selectionEnd, n: i.value.length }; });
+      chk(after.focused && after.s === 0 && after.e === 6, `[${k}] #3942 after a wrong code, still in the field, the code is selected for replacing`, JSON.stringify(after));
+      await page.keyboard.type('314159');
+      await page.waitForTimeout(400);
+      chk((await page.inputValue('#plus-si-code-in')) === '314159' && wrongSends === 2, `[${k}] #3942 typing a new code over a wrong one replaces it and sends it`, JSON.stringify({ v: await page.inputValue('#plus-si-code-in'), wrongSends }));
+      /* #3942: with all six digits in (the step stays, the code was wrong), the digits must still sit
+         over their boxes: the spacing after the sixth would scroll the field's text unless reset. */
+      await page.evaluate(() => document.getElementById('plus-si-code-in').blur());   // arrive afresh
+      await page.focus('#plus-si-code-in');
+      const six = await page.evaluate(() => ({ scroll: document.getElementById('plus-si-code-in').scrollLeft,
+        on: Array.from(document.querySelectorAll('#plus-si-code .otp-cell')).findIndex((x) => x.classList.contains('on')) }));
+      chk(six.scroll === 0 && six.on === 0, `[${k}] #3942 with all six digits in, they stay over their boxes; arriving selects the code, so the first box (where typing starts) is outlined`, JSON.stringify(six));
+      /* The outline follows the caret: End lights the last box, Home the first, and a click inside the
+         focused field puts the caret on that digit (a mouse user fixing one digit), outlined there. */
+      const onBox = () => page.evaluate(() => { const i = document.getElementById('plus-si-code-in');
+        return { s: i.selectionStart, e: i.selectionEnd, on: Array.from(document.querySelectorAll('#plus-si-code .otp-cell')).findIndex((x) => x.classList.contains('on')) }; });
+      // Arrow keys, not Home/End: on a Mac, End does not move the caret in a text field.
+      await page.keyboard.press('ArrowRight');   // collapses the selection to the end
+      // At the end of a FULL code the next digit starts the code again, so the first box is the one shown.
+      const atEnd = await onBox();
+      await page.keyboard.press('ArrowLeft');
+      const oneIn = await onBox();
+      for (let i = 0; i < 5; i += 1) await page.keyboard.press('ArrowLeft');
+      const atHome = await onBox();
+      chk(atEnd.s === 6 && atEnd.on === 0 && oneIn.s === 5 && oneIn.on === 5 && atHome.s === 0 && atHome.e === 0 && atHome.on === 0,
+        `[${k}] #3942 the outlined box follows the caret (at the start: first; on the last digit: last; past a full code: first, where the next digit goes)`, JSON.stringify({ atEnd, oneIn, atHome }));
+      await page.keyboard.press('Home');
+      const third = await page.evaluate(() => { const c = document.querySelectorAll('#plus-si-code .otp-cell')[2].getBoundingClientRect(); return { x: c.left + 3, y: c.top + c.height / 2 }; });
+      await page.mouse.click(third.x, third.y);
+      const clicked = await onBox();
+      chk(clicked.s === clicked.e && clicked.s === 2 && clicked.on === 2, `[${k}] #3942 a click on the third box of a focused code puts the caret there, outlined, to fix that digit`, JSON.stringify(clicked));
+      /* Round 3 review (measured): typing there must REPLACE that digit, not insert one and push the
+         last off the end (which made a different code and sent it). 314159 with the third digit
+         fixed to 7 is 317159 (inserting would give 317415), sent once. Distinct digits on purpose:
+         with 333333 the two behaviours give the same code and the arm could not tell them apart. */
+      await page.keyboard.type('7');
+      await page.waitForTimeout(400);
+      chk((await page.inputValue('#plus-si-code-in')) === '317159' && wrongSends === 3, `[${k}] #3942 typing on a clicked digit replaces just that digit, and the fixed code is sent`, JSON.stringify({ v: await page.inputValue('#plus-si-code-in'), wrongSends }));
+      /* The common gesture: tapping straight onto one digit of a field that did NOT have focus puts the
+         caret there too (arriving by pointer does not select the whole code; Tab does). */
+      await page.evaluate(() => document.getElementById('plus-si-code-in').blur());
+      const fourth = await page.evaluate(() => { const c = document.querySelectorAll('#plus-si-code .otp-cell')[3].getBoundingClientRect(); return { x: c.left + 3, y: c.top + c.height / 2 }; });
+      await page.mouse.click(fourth.x, fourth.y);
+      await page.waitForTimeout(150);   // the outline repaints just after the pointer places the caret
+      const cold = await onBox();
+      chk(cold.s === 3 && cold.e === 3 && cold.on === 3, `[${k}] #3942 a first tap on the fourth digit of an unfocused field puts the caret there`, JSON.stringify(cold));
+      chk((await visible(page, '#plus-si-code-go')) && !(await visible(page, '#plus-si-expired')), `[${k}] #3796 CONTROL: a wrong code stays on the step to retype`);
+      /* #3942 review (round 1, measured): after a wrong code the field is full. Focusing it selects the
+         whole code, and pasting the right one replaces it and sends it, once; a paste into a partly
+         typed field replaces rather than splices. A real paste event, with its clipboard data. */
+      const pasteCode = (text) => page.evaluate((t) => {
+        const i = document.getElementById('plus-si-code-in'); i.focus();
+        const dt = new DataTransfer(); dt.setData('text/plain', t);
+        // The result says whether the page CANCELLED the browser's own paste (a synthetic paste never
+        // inserts text by itself, so only this can show the no-code path really stops the insert).
+        return i.dispatchEvent(new ClipboardEvent('paste', { clipboardData: dt, bubbles: true, cancelable: true }));
+      }, text);
+      const sel = await page.evaluate(() => { const i = document.getElementById('plus-si-code-in'); i.blur(); i.focus(); return { s: i.selectionStart, e: i.selectionEnd, n: i.value.length }; });
+      chk(sel.s === 0 && sel.e === sel.n && sel.n === 6, `[${k}] #3942 focusing a full field selects the whole code, ready to be replaced`, JSON.stringify(sel));
+      await pasteCode('222-222');
+      await page.waitForTimeout(400);
+      chk((await page.inputValue('#plus-si-code-in')) === '222222' && wrongSends === 4, `[${k}] #3942 pasting a new code over a wrong one replaces it and sends it, once`, JSON.stringify({ v: await page.inputValue('#plus-si-code-in'), wrongSends }));
+      await page.evaluate(() => { const i = document.getElementById('plus-si-code-in'); i.value = '123'; i.dispatchEvent(new Event('input', { bubbles: true })); });
+      await pasteCode('987654');
+      await page.waitForTimeout(400);
+      chk((await page.inputValue('#plus-si-code-in')) === '987654' && wrongSends === 5, `[${k}] #3942 a whole code pasted after a few typed digits replaces them (no spliced 123987)`, JSON.stringify({ v: await page.inputValue('#plus-si-code-in'), wrongSends }));
+      // Pasting a whole email line takes the code itself, not the first digits of another number.
+      await pasteCode('Your Kosmos+ code is 482 913. Ref 20260926.');
+      await page.waitForTimeout(400);
+      chk((await page.inputValue('#plus-si-code-in')) === '482913' && wrongSends === 6, `[${k}] #3942 pasting a whole email line picks out the code, not another number`, JSON.stringify({ v: await page.inputValue('#plus-si-code-in'), wrongSends }));
+      /* Round 5 review (measured): text that arrives WITHOUT a paste event (a drop, dictation, a
+         keyboard's clipboard chip) went round the finder and sent the date as the code. */
+      await page.focus('#plus-si-code-in');
+      await page.keyboard.insertText('Sent 2026-09-26. Your code is 482 915.');
+      await page.waitForTimeout(400);
+      chk((await page.inputValue('#plus-si-code-in')) === '482915' && wrongSends === 7, `[${k}] #3942 an email line arriving without a paste event also yields the code, not the date`, JSON.stringify({ v: await page.inputValue('#plus-si-code-in'), wrongSends }));
+      // A paste with no one code in it (two numbers, no "code") pastes nothing and sends nothing.
+      const notCancelled = await pasteCode('Order 482914 and 123457');
+      await page.waitForTimeout(300);
+      chk(notCancelled === false, `[${k}] #3942 a paste with no single code is cancelled, so the browser inserts nothing`, String(notCancelled));
+      const refusal = (await page.textContent('#plus-signin-msg')).trim();
+      chk((await page.inputValue('#plus-si-code-in')) === '482915' && wrongSends === 7 && /one six-digit code/.test(refusal), `[${k}] #3942 a paste with no single code in it changes nothing, sends nothing, and says why`, JSON.stringify({ v: await page.inputValue('#plus-si-code-in'), wrongSends, refusal }));
+      /* A code finished while an answer is still on its way goes when the button is free (the
+         button watch), once. The first code is slow to answer; the second is typed meanwhile. */
+      verifyDelay = 800;
+      await pasteCode('555555');                     // sent, answer in flight for 0.8s
+      await page.waitForTimeout(100);
+      await page.evaluate(() => { const i = document.getElementById('plus-si-code-in'); i.setSelectionRange(0, i.value.length); });
+      await page.keyboard.type('666666');            // finished while the button is busy
+      const mid = wrongSends;
+      await page.waitForTimeout(2000);
+      verifyDelay = 0;
+      chk(mid === 8 && wrongSends === 9 && (await page.inputValue('#plus-si-code-in')) === '666666', `[${k}] #3942 a code finished while an answer is in flight is sent when the button is free, once`, JSON.stringify({ mid, wrongSends, v: await page.inputValue('#plus-si-code-in') }));
+      /* A digit that arrives some way other than plain typing (an input method, a keyboard's
+         replacement text) lands at the caret as a seventh digit: the digit after the caret goes, so
+         it still replaces one digit. 123456 with a 9 put in after the 3 is 123956, not 123945. */
+      await page.evaluate(() => { const i = document.getElementById('plus-si-code-in'); i.value = '1239456'; i.setSelectionRange(4, 4); i.dispatchEvent(new Event('input', { bubbles: true })); });
+      await page.waitForTimeout(400);
+      const imeOk = (await page.inputValue('#plus-si-code-in')) === '123956' && wrongSends === 10;
+      /* Round 4 review (web half, measured): a few digits pasted into a FULL code overwrite from the
+         caret, as typing does; spliced in and cut, they made a different code and sent it. 123956
+         with 27 pasted after the 1 is 127956 (splicing would give 127239). */
+      await page.evaluate(() => { const i = document.getElementById('plus-si-code-in'); i.focus(); i.setSelectionRange(1, 1); });
+      await pasteCode('27');
+      await page.waitForTimeout(400);
+      chk((await page.inputValue('#plus-si-code-in')) === '127956' && wrongSends === 11, `[${k}] #3942 a short paste into a full code overwrites from the caret`, JSON.stringify({ v: await page.inputValue('#plus-si-code-in'), wrongSends }));
+      // The same fallback with the caret at the very END of a full code: the digit starts the code
+      // again (as typing does), rather than being dropped. 127956 then a 4 at the end is 4.
+      await page.evaluate(() => { const i = document.getElementById('plus-si-code-in'); i.value = '1279564'; i.setSelectionRange(7, 7); i.dispatchEvent(new Event('input', { bubbles: true })); });
+      await page.waitForTimeout(200);
+      chk((await page.inputValue('#plus-si-code-in')) === '4' && wrongSends === 11, `[${k}] #3942 a seventh digit at the end of a full code starts the code again`, JSON.stringify({ v: await page.inputValue('#plus-si-code-in'), wrongSends }));
+      /* Round 7 review (measured): a few digits put over a SELECTED full code (the page selects a
+         refused code) replace the selection, as anywhere else; overwriting from the selection's start
+         made a code nobody entered (121111) and sent it. And two pastes of the same code during a
+         check send it once. */
+      await page.evaluate(() => { const i = document.getElementById('plus-si-code-in'); i.value = '111111'; i.focus(); i.setSelectionRange(0, 6); });
+      const beforeSel = wrongSends;
+      await page.keyboard.insertText('12');
+      await page.waitForTimeout(300);
+      chk((await page.inputValue('#plus-si-code-in')) === '12' && wrongSends === beforeSel, `[${k}] #3942 a few digits over a selected code replace it, and nothing is sent`, JSON.stringify({ v: await page.inputValue('#plus-si-code-in'), sent: wrongSends - beforeSel }));
+      verifyDelay = 700;
+      const beforeTwice = wrongSends;
+      await pasteCode('424242');
+      await page.waitForTimeout(50);
+      await pasteCode('424242');
+      await page.waitForTimeout(1600);
+      verifyDelay = 0;
+      chk(wrongSends === beforeTwice + 1, `[${k}] #3942 the same code pasted twice during a check is sent once`, String(wrongSends - beforeTwice));
+      /* Round 8 review: Send again while a code is still being checked makes that check's answer stale,
+         so its "not right" (or the timed-out panel) cannot land on the fresh code step. */
+      verifyDelay = 800;
+      await page.evaluate(() => plusSiMsg(''));
+      await pasteCode('515151');                     // sent; its answer (wrong) is 0.8s away
+      await page.waitForTimeout(100);
+      await page.click('#plus-si-code-resend');      // a new code, while that answer is in flight
+      await page.waitForTimeout(1600);
+      verifyDelay = 0;
+      const afterResend = { msg: (await page.textContent('#plus-signin-msg')).trim(), v: await page.inputValue('#plus-si-code-in'),
+        expired: await visible(page, '#plus-si-expired'), go: !(await page.isDisabled('#plus-si-code-go')) };
+      chk(!/not right|timed out/i.test(afterResend.msg) && afterResend.v === '' && !afterResend.expired && afterResend.go,
+        `[${k}] #3942 a check still in flight when Send again is pressed does not land on the fresh code step`, JSON.stringify(afterResend));
+      /* Round 9 review (B1): a code typed while a check is in flight waits for the button. Send again
+         frees the button at once, so without dropping it that queued code (meant for the OLD code) went
+         out the moment Send again was pressed. Exactly one verify, the pasted one. Distinct codes. */
+      const b1Bodies = [];
+      const b1Grab = (r) => { if (r.method() === 'POST' && /\/api\/remote\/signin-verify$/.test(r.url())) b1Bodies.push(r.postData() || ''); };
+      page.on('request', b1Grab);
+      verifyDelay = 800;
+      await page.evaluate(() => plusSiMsg(''));
+      await pasteCode('818181');                     // sent; its answer is 0.8s away
+      await page.waitForTimeout(100);
+      await page.evaluate(() => { const i = document.getElementById('plus-si-code-in'); i.focus(); i.setSelectionRange(0, i.value.length); });
+      await page.keyboard.type('929292');            // finished while the button is busy: queued
+      await page.waitForTimeout(100);
+      await page.click('#plus-si-code-resend');      // frees the button; the queued code must not go
+      await page.waitForTimeout(1600);
+      verifyDelay = 0;
+      page.off('request', b1Grab);
+      const b1Msg = (await page.textContent('#plus-signin-msg')).trim();
+      chk(b1Bodies.length === 1 && b1Bodies[0].includes('818181') && !/not right/i.test(b1Msg),
+        `[${k}] #3942 Send again drops a code typed while a check was in flight (one verify, the first code)`, JSON.stringify({ b1Bodies, b1Msg }));
+      /* Round 9 review (B2): pressing Verify by hand on the unchanged code the server has just refused
+         does not send it again; it puts the person back in the field with the code selected. */
+      await page.evaluate(() => plusSiMsg(''));
+      const b2Before = wrongSends;
+      await pasteCode('343434');                     // auto-sent, refused ("not right")
+      await page.waitForTimeout(400);
+      chk(wrongSends === b2Before + 1, `[${k}] #3942 CONTROL: the refused code was really sent, once`, String(wrongSends - b2Before));
       await page.click('#plus-si-code-go');
       await page.waitForTimeout(400);
-      chk((await visible(page, '#plus-si-code-go')) && !(await visible(page, '#plus-si-expired')), `[${k}] #3796 CONTROL: a wrong code stays on the step to retype`);
+      const b2 = await page.evaluate(() => { const i = document.getElementById('plus-si-code-in'); return { focused: document.activeElement === i, s: i.selectionStart, e: i.selectionEnd, v: i.value }; });
+      chk(wrongSends === b2Before + 1 && b2.focused && b2.s === 0 && b2.e === 6 && b2.v === '343434',
+        `[${k}] #3942 Verify pressed on a code just refused does not resend it; focus returns to the field with the code selected`, JSON.stringify({ sent: wrongSends - b2Before, b2 }));
+      // Round 12 review: pasting that same refused code again ("properly") is held back the same way.
+      await pasteCode('343434');
+      await page.waitForTimeout(400);
+      const rp = await page.evaluate(() => { const i = document.getElementById('plus-si-code-in'); return { s: i.selectionStart, e: i.selectionEnd, v: i.value }; });
+      chk(wrongSends === b2Before + 1 && rp.v === '343434' && rp.s === 0 && rp.e === 6, `[${k}] #3942 pasting a code just refused again does not resend it; the code is selected`, JSON.stringify({ sent: wrongSends - b2Before, rp }));
+      // Web review round 10: a double press on it: saying the refusal again must not switch the hold off
+      // for the second press (a blank moment in the status line did).
+      await page.click('#plus-si-code-go');
+      await page.waitForTimeout(10);
+      await page.click('#plus-si-code-go');
+      await page.waitForTimeout(400);
+      const dbl = { sent: wrongSends - b2Before, msg: (await page.textContent('#plus-signin-msg')).trim() };
+      chk(dbl.sent === 1 && /not right/.test(dbl.msg), `[${k}] #3942 a double press on a code just refused sends nothing and keeps the refusal`, JSON.stringify(dbl));
+      /* Web review round 12 (same design here): the box's own message ("We could not find one six-digit code
+         in that.") takes over the status line; the hold must survive it (it re-read the line, so the
+         refused code went). */
+      const noCode = await pasteCode('Order 482914 and 123457');
+      await page.waitForTimeout(300);
+      const overwritten = (await page.textContent('#plus-signin-msg')).trim();
+      await page.click('#plus-si-code-go');
+      await page.waitForTimeout(400);
+      chk(noCode === false && /one six-digit code/.test(overwritten) && wrongSends === b2Before + 1 && (await page.inputValue('#plus-si-code-in')) === '343434',
+        `[${k}] #3942 after the page's own paste message replaces the refusal, Verify still holds the refused code back`, JSON.stringify({ noCode, overwritten, sent: wrongSends - b2Before }));
+      // CONTROL for B2: after a DROPPED request the code was never tried, so a hand press does send it.
+      verifyAbort = true;
+      await page.evaluate(() => plusSiMsg(''));
+      await pasteCode('565656');                     // auto-sent, dropped by the network
+      await page.waitForTimeout(400);
+      const dropMsg = (await page.textContent('#plus-signin-msg')).trim();
+      verifyAbort = false;
+      const b2cBefore = wrongSends;
+      await page.click('#plus-si-code-go');
+      await page.waitForTimeout(400);
+      chk(/could not reach/i.test(dropMsg) && wrongSends === b2cBefore + 1,
+        `[${k}] #3942 after a dropped request, Verify pressed on the same code does send it`, JSON.stringify({ dropMsg, sent: wrongSends - b2cBefore }));
+      /* Round 10 review: an answer that never JUDGED the code (a 500 "try again", "give it a minute")
+         must not make the code unsendable by hand; only the coordinator's wrong-code words hold it back. */
+      verifyAnswer = { status: 500, body: { error: 'the coordinator said no (500): try again' } };
+      await page.evaluate(() => plusSiMsg(''));
+      await pasteCode('676767');                     // auto-sent, answered "try again"
+      await page.waitForTimeout(400);
+      const r10aBefore = wrongSends;
+      await page.click('#plus-si-code-go');
+      await page.waitForTimeout(400);
+      verifyAnswer = { status: 400, body: { error: 'the coordinator said no (401): that code is not right' } };
+      chk(wrongSends === r10aBefore + 1, `[${k}] #3942 after an answer that did not judge the code (a 500), Verify pressed by hand sends it again`, String(wrongSends - r10aBefore));
+      /* Round 10 review: deleting and retyping the last digit WHILE the code is being checked (the "did it
+         go?" gesture) must not queue the same code for a second, wasted try. */
+      verifyDelay = 800;
+      await page.evaluate(() => plusSiMsg(''));
+      const r10bBefore = wrongSends;
+      await pasteCode('454545');                     // sent; its answer (wrong) is 0.8s away
+      await page.waitForTimeout(100);
+      await page.evaluate(() => { const i = document.getElementById('plus-si-code-in'); i.focus(); i.setSelectionRange(6, 6); });
+      await page.keyboard.press('Backspace');
+      await page.keyboard.type('5');                 // the same code again, while it is in flight
+      await page.waitForTimeout(1800);
+      verifyDelay = 0;
+      chk(wrongSends === r10bBefore + 1, `[${k}] #3942 the same code retyped while it is being checked is sent once, not queued again`, String(wrongSends - r10bBefore));
+      /* Web round 8: the same retype, with the field left and come back to in between (a phone keyboard
+         hiding, Tab and back): focus must not forget a code that is still being checked either. */
+      verifyDelay = 800;
+      await page.evaluate(() => plusSiMsg(''));
+      const r8Before = wrongSends;
+      await pasteCode('232323');                     // sent; its answer (wrong) is 0.8s away
+      await page.waitForTimeout(100);
+      await page.evaluate(() => { const i = document.getElementById('plus-si-code-in'); i.focus(); i.setSelectionRange(6, 6); });
+      await page.keyboard.press('Backspace');
+      await page.evaluate(() => { const i = document.getElementById('plus-si-code-in'); i.blur(); i.focus(); i.setSelectionRange(5, 5); });
+      await page.keyboard.type('3');
+      await page.waitForTimeout(1800);
+      verifyDelay = 0;
+      chk(wrongSends === r8Before + 1, `[${k}] #3942 a code retyped during its check after leaving and coming back to the field is sent once`, String(wrongSends - r8Before));
+      /* Round 12 review: Send again keeps Verify busy until the new code's request answers. Free at once,
+         the old code still in the boxes could be sent while the new code was being made. Then, when the
+         new code is sent, the boxes are empty and Verify is live. */
+      verifyDelay = 800;
+      startDelay = 1500;
+      await page.evaluate(() => plusSiMsg(''));
+      const r11Before = wrongSends;
+      await pasteCode('718293');                     // sent; its answer is 0.8s away
+      await page.waitForTimeout(100);
+      await page.click('#plus-si-code-resend');      // the old check is thrown away; a new code is asked for
+      await page.waitForTimeout(100);
+      const busyMid = await page.isDisabled('#plus-si-code-go');
+      await page.evaluate(() => { const i = document.getElementById('plus-si-code-in'); i.focus(); i.setSelectionRange(2, 2); });
+      await page.keyboard.type('8');                 // the third digit typed over itself: the same old code
+      await page.waitForTimeout(1000);               // the old check has answered (stale); the new code has not
+      const sentMid = wrongSends - r11Before;
+      await page.waitForTimeout(1000);               // the new code is sent
+      verifyDelay = 0;
+      startDelay = 0;
+      const after12 = { busyMid, sentMid, v: await page.inputValue('#plus-si-code-in'), live: !(await page.isDisabled('#plus-si-code-go')), sent: wrongSends - r11Before };
+      chk(after12.busyMid && after12.sentMid === 1 && after12.sent === 1 && after12.v === '' && after12.live,
+        `[${k}] #3942 while Send again is making a new code, Verify is busy and the old code is not sent; then the boxes are empty and Verify is live`, JSON.stringify(after12));
+      /* Rounds 11 and 12: when Send again makes NO new code (refused), the old code is back in play (its check
+         was thrown away unjudged): a digit typed over itself sends it. */
+      startFail = { status: 400, body: { error: 'the coordinator said no (503): try again' } };
+      await page.evaluate(() => { const i = document.getElementById('plus-si-code-in'); i.value = ''; i.dispatchEvent(new Event('input', { bubbles: true })); plusSiMsg(''); });
+      verifyDelay = 800;
+      const r12Before = wrongSends;
+      await pasteCode('718294');                     // sent; its answer is 0.8s away
+      await page.waitForTimeout(100);
+      await page.click('#plus-si-code-resend');      // refused: no new code
+      await page.waitForTimeout(300);
+      verifyDelay = 0;
+      startFail = null;
+      await page.evaluate(() => { const i = document.getElementById('plus-si-code-in'); i.focus(); i.setSelectionRange(2, 2); });
+      await page.keyboard.type('8');                 // the same old code, typed over itself
+      await page.waitForTimeout(400);
+      const failed = { sent: wrongSends - r12Before, v: await page.inputValue('#plus-si-code-in') };
+      await page.waitForTimeout(800);                // the stale answer of the first send has come and gone
+      chk(failed.sent === 2 && failed.v === '718294', `[${k}] #3942 when Send again makes no new code, the old code can be sent again`, JSON.stringify(failed));
+      /* Round 11 review: arriving at a code step re-reads how many digits the field holds (the page empties
+         fields quietly), so seven digits arriving at once after Start over are searched, not taken for a
+         seventh digit on a full code. */
+      await page.evaluate(() => { const i = document.getElementById('plus-si-code-in'); i.value = '111111'; i.dispatchEvent(new Event('input', { bubbles: true })); });
+      await page.waitForTimeout(400);
+      await page.click('#plus-si-cancel');           // Start over
+      await page.waitForSelector('#plus-si-email', { state: 'visible', timeout: 5000 });
+      await page.click('#plus-signin-code');
+      await page.waitForSelector('#plus-si-code', { state: 'visible', timeout: 5000 });
+      await page.waitForTimeout(200);
+      const r11cBefore = wrongSends;
+      await page.evaluate(() => { const i = document.getElementById('plus-si-code-in'); i.focus(); i.value = '1234567'; i.dispatchEvent(new Event('input', { bubbles: true })); });
+      await page.waitForTimeout(400);
+      const fresh7 = { v: await page.inputValue('#plus-si-code-in'), sent: wrongSends - r11cBefore };
+      chk(fresh7.v === '' && fresh7.sent === 0, `[${k}] #3942 seven digits arriving at once after Start over are searched (no code in them: nothing kept, nothing sent)`, JSON.stringify(fresh7));
+      /* Web round 6 (measured there, same code here): a click near the RIGHT edge of a box in a full code
+         lands on that box (the text caret alone put it on the next one); and text that arrives with no
+         cancelable beforeinput (set and announced by an input event) is searched like a paste. */
+      await page.evaluate(() => { const i = document.getElementById('plus-si-code-in'); i.value = '314159'; i.focus(); });
+      const edge4 = await page.evaluate(() => { const c = document.querySelectorAll('#plus-si-code .otp-cell')[3].getBoundingClientRect(); return { x: c.left + c.width * 0.95, y: c.top + c.height / 2 }; });
+      await page.mouse.click(edge4.x, edge4.y);
+      await page.waitForTimeout(150);
+      const onEdge = await onBox();
+      chk(onEdge.s === 3 && onEdge.e === 3 && onEdge.on === 3, `[${k}] #3942 a click near the right edge of the fourth box puts the caret on the fourth box`, JSON.stringify(onEdge));
+      const beforeRaw = wrongSends;
+      await page.evaluate(() => { const i = document.getElementById('plus-si-code-in'); i.value = ''; i.dispatchEvent(new Event('input', { bubbles: true })); i.value = 'Sent 2026-09-26. Your code is 482 917.'; i.dispatchEvent(new Event('input', { bubbles: true })); });
+      await page.waitForTimeout(400);
+      chk((await page.inputValue('#plus-si-code-in')) === '482917' && wrongSends === beforeRaw + 1, `[${k}] #3942 email text arriving without a cancelable event yields the code, not the date`, JSON.stringify({ v: await page.inputValue('#plus-si-code-in'), sent: wrongSends - beforeRaw }));
+      /* Web round 7 (W2): exactly SEVEN digits arriving at once in a field that was not full (dictating
+         1234567) are searched like any block of text; cut to six they sent 123456, a code nobody said. */
+      const beforeSeven = wrongSends;
+      await page.evaluate(() => { const i = document.getElementById('plus-si-code-in'); i.value = ''; i.dispatchEvent(new Event('input', { bubbles: true })); i.value = '1234567'; i.dispatchEvent(new Event('input', { bubbles: true })); });
+      await page.waitForTimeout(400);
+      const seven = { v: await page.inputValue('#plus-si-code-in'), sent: wrongSends - beforeSeven };
+      chk(seven.v !== '123456' && seven.sent === 0, `[${k}] #3942 seven digits arriving at once in a field that was not full are not cut to a code and sent`, JSON.stringify(seven));
+      // Put a full code back quietly (no input event, so nothing is sent): the scenario after this presses Verify.
+      await page.evaluate(() => { document.getElementById('plus-si-code-in').value = '127956'; });
+      chk(imeOk, `[${k}] #3942 a seventh digit from an input method replaces the digit after the caret`, JSON.stringify({ v: await page.inputValue('#plus-si-code-in'), wrongSends }));
+      const hint = await page.evaluate(() => { const i = document.getElementById('plus-si-code-in'); const ids = (i.getAttribute('aria-describedby') || '').split(/\s+/); const h = ids.map((x) => document.getElementById(x)).find(Boolean); return h ? h.textContent : null; });
+      chk(hint === 'Kosmos checks the code as soon as all six digits are in.', `[${k}] #3942 a screen reader is told the sixth digit checks the code`, JSON.stringify(hint));
+      page.off('request', countWrong);
       verifyAnswer = { status: 400, body: { error: 'Kosmos+ said no (401): that sign-in has expired or was already finished; start again from the email' } };
       await page.click('#plus-si-code-go');
       await page.waitForSelector('#plus-si-expired', { state: 'visible', timeout: 5000 });
@@ -529,6 +950,25 @@ const visible = (page, sel) => page.evaluate((s) => {
       await page.click('#plus-si-expired-go');
       await page.waitForSelector('#plus-si-email', { state: 'visible', timeout: 5000 });
       chk((await page.inputValue('#plus-signin-email')) === 'you@example.com', `[${k}] #3796 addendum 4: the panel's Start over returns to the email step with the email kept`);
+      /* #3942: a code finished while a RIGHT code is being checked is dropped once the answer moves
+         the sign-in on (it must not be sent to a step the person has left). */
+      verifyAnswer = { status: 200, body: { ok: true, stage: 'second', second_kind: 'totp', sent_to: '' } };
+      verifyDelay = 800;
+      const bodies = [];
+      const grab = (r) => { if (r.method() === 'POST' && /\/api\/remote\/signin-verify$/.test(r.url())) bodies.push(r.postData() || ''); };
+      page.on('request', grab);
+      await page.click('#plus-signin-code');
+      await page.waitForSelector('#plus-si-code', { state: 'visible', timeout: 5000 });
+      await page.fill('#plus-si-code-in', '777777');   // right code, answer in flight for 0.8s
+      await page.waitForTimeout(100);
+      await page.evaluate(() => { const i = document.getElementById('plus-si-code-in'); i.setSelectionRange(0, i.value.length); });
+      await page.keyboard.type('888888');                // finished while the button is busy
+      await page.waitForTimeout(2000);
+      page.off('request', grab);
+      verifyDelay = 0;
+      chk(await visible(page, '#plus-si-second') && bodies.length === 1 && !bodies.some((b) => b.includes('888888')), `[${k}] #3942 a code waiting on the button is dropped when the right code moves the sign-in on`, JSON.stringify({ second: await visible(page, '#plus-si-second'), bodies }));
+      await page.click('#plus-si-cancel');                // Start over, back to the email step for what follows
+      await page.waitForSelector('#plus-si-email', { state: 'visible', timeout: 5000 });
       /* #3796 review: an automatic register that fails (a second computer on a web-named account is refused
          today) is not a dead end: it says so and offers Try again, which registers the owned name again. */
       await page.unroute('**/api/remote/signin-**');
@@ -546,8 +986,7 @@ const visible = (page, sel) => page.evaluate((s) => {
       await page.fill('#plus-signin-email', 'you@example.com');
       await page.click('#plus-signin-code');
       await page.waitForSelector('#plus-si-code', { state: 'visible', timeout: 5000 });
-      await page.fill('#plus-si-code-in', '123456');
-      await page.click('#plus-si-code-go');
+      await page.fill('#plus-si-code-in', '123456');   // #3942: auto-submits
       await page.waitForSelector('#plus-si-register-go', { state: 'visible', timeout: 5000 });
       const f = await page.evaluate(() => ({ lead: document.getElementById('plus-si-owned').textContent.trim(), btn: document.getElementById('plus-si-register-go').textContent.trim(), msg: document.getElementById('plus-signin-msg').textContent.trim() }));
       chk(/could not connect as twin-mac\.kosmosplus\.com/.test(f.lead) && f.btn === 'Try again' && /already connected/.test(f.msg), `[${k}] #3796 review: a failed automatic register says so and offers Try again`, JSON.stringify(f));
@@ -569,8 +1008,7 @@ const visible = (page, sel) => page.evaluate((s) => {
       await page.fill('#plus-signin-email', 'you@example.com');
       await page.click('#plus-signin-code');
       await page.waitForSelector('#plus-si-code', { state: 'visible', timeout: 5000 });
-      await page.fill('#plus-si-code-in', '123456');
-      await page.click('#plus-si-code-go');
+      await page.fill('#plus-si-code-in', '123456');   // #3942: auto-submits
       await page.waitForSelector('#plus-si-enrol-sms', { state: 'visible', timeout: 5000 });
       const stroke = await page.evaluate(() => { const c = getComputedStyle(document.getElementById('plus-si-enrol-sms')); return { w: c.borderTopWidth, col: c.borderTopColor, style: c.borderTopStyle }; });
       const alpha = /rgba\([^)]*,\s*([\d.]+)\)/.exec(stroke.col);
