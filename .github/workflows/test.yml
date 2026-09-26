@@ -60,9 +60,20 @@ permissions:
 # redundant run. With push gated to main (above, #3499), a feature branch no longer
 # runs the suite for BOTH its push and its PR, so there is no push-and-PR pair left to
 # collapse here; this group now only dedupes successive events on the same ref.
+#
+# 🛑 #4021: EXCEPT ON MAIN, WHERE A RUN IS NEVER CANCELLED. The suite takes ~14m and merges
+# landed faster than that on 2026-09-26, so every main run from 17:57Z to 18:49Z was
+# cancelled by the next merge: main went red and no run ever finished to say so. It was
+# first seen at a release cut's step 3, the most expensive place. With this, a running
+# main run always finishes; GitHub still keeps at most ONE pending run per group (a newer
+# pending replaces an older pending), so the head of main is always tested next and the
+# queue cannot grow. Chosen over one run per main sha (group keyed on github.sha): that
+# tests every merge but puts N suites on the shared macOS runners at once, the #3499
+# contention. Weakest premise: a red commit that is superseded while PENDING is never run
+# on its own, so a bisect may need a manual run; the red itself still shows at the head.
 concurrency:
   group: test-${{ github.ref }}
-  cancel-in-progress: true
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
 
 jobs:
   test:
