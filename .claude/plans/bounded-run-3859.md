@@ -23,7 +23,9 @@ was not used as written.
 
 Then, from review 1, a fourth step. All the kills are SIGTERM, and a bundle that
 traps or ignores TERM would still hang the `wait`, the same #955 shape by another
-route. So after about 2s of grace, the group and the leader get SIGKILL.
+route. So after about 2s of grace, the group and the leader get SIGKILL. The
+grace watches the GROUP, not the leader (review 2): a leader that dies on TERM can
+leave a child that ignores it, still holding the port.
 
 A test seam, `KOSMOS_BOUNDED_RUN_SETPGRP_DELAY`, holds perl before `setpgrp` so
 the self-test can hit the window on purpose. When unset it costs nothing.
@@ -39,15 +41,22 @@ microseconds wide and is not exercised by any test. It is argued, not measured.
 
 ## Tests
 
-`tools/test-app-port-selftest.sh` gains an arm: a 4s delay before `setpgrp` with a
-2s bound. It must return 124 within a 20s watchdog, and nothing may leak.
+`tools/test-app-port-selftest.sh` gains four arms, each red-checked in a scratch
+copy with its own fix removed:
 
-- Against the old kill (steps 2 and 3 removed, in a scratch copy), the arm reports
-  `HUNG-20s` and the suite fails.
-- With the fix, all checks pass.
+- **The bound beats setpgrp:** a 6s seam delay with a 2s bound. It must return
+  124 within a 20s watchdog, and within 3s. KILL alone would land near 4s, so the
+  ceiling is what keeps steps 2 and 3 visible now that step 4 exists.
+  - Old kill: `HUNG-20s`.
+  - Steps 2-3 removed: `took-5s`.
+- **A bundle that ignores SIGTERM:** must return 124. With step 4 removed it
+  reports `HUNG-20s`.
+- **A bundle whose child ignores SIGTERM while the leader dies on it:** the child
+  must be gone. With a leader-only grace it is left orphaned.
+- **Nothing leaked**, after each arm.
 
-A second arm uses a stub that ignores SIGTERM. It must return 124 under the same
-watchdog. With step 4 removed (scratch copy) it reports `HUNG-20s`.
+The rc file each watched arm polls for is written to a temporary name and moved
+into place, so the poller can never read it half-written.
 
-The rc file each arm polls for is written to a temporary name and moved into
-place, so the poller can never read it half-written.
+**Not measured:** step 3's own window, perl forking between steps 1 and 2. It is
+microseconds wide and no test hits it.

@@ -29,7 +29,7 @@
 #   2. the leader       - if there was no group yet, perl has forked nothing, so this
 #                          is enough;
 #   3. the group again  - covers perl reaching setpgrp and forking BETWEEN steps 1 and
-#                          2: those children are in the group, and step 3 reaps them.
+#                          2: those children are in the group, and step 3 kills them.
 # KOSMOS_BOUNDED_RUN_SETPGRP_DELAY (seconds) is a TEST SEAM that widens that window so
 # the self-test can hit it on purpose; unset, it costs nothing.
 bounded_run() {
@@ -46,10 +46,15 @@ bounded_run() {
       kill -- -"$pid" 2>/dev/null   # 3. the group again: children forked between 1 and 2
       # 4. a bundle that traps or ignores TERM would still hang the wait below, the same
       #    #955 shape by another route (review of #3859). Give TERM about 2s, then KILL
-      #    the group and the leader, which nothing can trap.
+      #    the group and the leader, which nothing can trap. The GROUP is what is
+      #    watched, not the leader: a leader that dies on TERM can leave a child that
+      #    ignores it, still holding the port (review 2). A pgid is not reused while
+      #    any member lives, so `kill -0 -- -$pid` cannot reach a stranger's group.
       _g=0
-      while kill -0 "$pid" 2>/dev/null && [ "$_g" -lt 10 ]; do sleep 0.2; _g=$((_g + 1)); done
-      if kill -0 "$pid" 2>/dev/null; then
+      while { kill -0 -- -"$pid" || kill -0 "$pid"; } 2>/dev/null && [ "$_g" -lt 10 ]; do
+        sleep 0.2; _g=$((_g + 1))
+      done 2>/dev/null
+      if { kill -0 -- -"$pid" || kill -0 "$pid"; } 2>/dev/null; then
         kill -KILL -- -"$pid" 2>/dev/null
         kill -KILL "$pid" 2>/dev/null
       fi

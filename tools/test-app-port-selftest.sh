@@ -131,14 +131,21 @@ check "the FORKED child is reaped by the group-kill (not orphaned)" 0 "$reaped"
 # perl went on to exec the hanging bundle: a hang, not a 124. So this arm runs under its
 # own watchdog: if bounded_run is still going after 20s it is killed and reported as a
 # hang, rather than hanging this test (which would be the #955 shape all over again).
+# It must also return BEFORE the KILL grace (bound + ~2s) could have fired: step 4's KILL
+# would otherwise bound it too, and this arm could no longer see steps 2 and 3 (review 2).
+# The seam delay is 6s, so a KILL-only return lands near 4s and the ceiling below is 3s.
 rcf="$tmp/rc-3859"; rm -f "$rcf"
-( KOSMOS_BOUNDED_RUN_SETPGRP_DELAY=4 bounded_run "$T" "$bhang" --kosmos-app-port-selftest 501 >/dev/null 2>&1
-  echo "$?" > "$rcf.tmp"; mv "$rcf.tmp" "$rcf" ) &
+( s0=$(date +%s)
+  KOSMOS_BOUNDED_RUN_SETPGRP_DELAY=6 bounded_run "$T" "$bhang" --kosmos-app-port-selftest 501 >/dev/null 2>&1
+  echo "$? $(( $(date +%s) - s0 ))" > "$rcf.tmp"; mv "$rcf.tmp" "$rcf" ) &
 wd=$!
 for _ in $(seq 1 40); do [ -f "$rcf" ] && break; sleep 0.5; done
 if [ -f "$rcf" ]; then
   wait "$wd" 2>/dev/null
-  check "bound expiring before setpgrp: returns 124, does not hang (#3859)" 124 "$(cat "$rcf")"
+  read -r rc_3859 el_3859 < "$rcf"
+  check "bound expiring before setpgrp: returns 124, does not hang (#3859)" 124 "$rc_3859"
+  if [ "$el_3859" -le 3 ]; then check "...and by TERM to the leader, before any KILL (steps 2-3)" ok ok
+  else check "...and by TERM to the leader, before any KILL (steps 2-3)" ok "took-${el_3859}s"; fi
 else
   # The regression: tear down what it left (the subshell, perl, and the bundle it
   # exec'd, which carry our unique markers) so the rest of this test still runs.
@@ -173,6 +180,22 @@ else
   check "a bundle ignoring SIGTERM is still bounded: 124, no hang" 124 "HUNG-20s"
 fi
 check "nothing leaked from the TERM-ignoring bundle" 0 "$(wait_gone "sleep $LAUNCH")"
+
+# --- a CHILD that ignores SIGTERM is killed even when the leader dies on TERM (review 2)
+# The grace used to watch only the leader: it died on TERM, the loop ended, no KILL was
+# sent, and the TERM-ignoring child lived on (reparented, able to hold the port).
+bchild="$tmp/behind-child-ignores-term"
+cat > "$bchild" <<EOF
+#!/bin/bash
+( trap '' TERM; exec sleep $FORK ) &
+exec sleep $LAUNCH
+EOF
+chmod +x "$bchild"
+bounded_run "$T" "$bchild" --kosmos-app-port-selftest 501 >/dev/null 2>&1; rc=$?
+check "bounded_run returns 124 on a bundle with a TERM-ignoring child" 124 "$rc"
+left=$(wait_gone "sleep $FORK")
+check "the TERM-ignoring CHILD is killed, not orphaned" 0 "$left"
+[ "$left" = 0 ] || pkill -KILL -f "sleep $FORK\$" 2>/dev/null
 
 # --- bounded_run returns a quick command's output and rc --------------------------
 start=$(date +%s)
