@@ -868,6 +868,10 @@ function describe(project, roster, all) {
       // name it is showing was read off a live agent or is just the key.
       name: card && card.name ? card.name : sessionName,
       present: Boolean(card),
+      // Whether `name` is a real name (typed, or read off the agent's identity
+      // line) rather than the machine name a card falls back to. A card being
+      // present does not make its name real (#3311: what may leave this Mac).
+      nameDerived: Boolean(card && card.nameDerived),
       // ⚠️ TIED, and it is a different question from `present`. A pane can hold
       // this name without being this agent — a stranger's `tmux new -s angel`
       // is on the roster and matches by `sessionName`. The write gate already

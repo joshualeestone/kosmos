@@ -333,3 +333,46 @@ test('words that go out without their attached file say the file stayed here', a
   federateOut(pid, plain, true);
   assert.equal(messages.record().rows.filter((m) => m.kind === 'note' && m.project === pid && /attached file stayed/.test(m.text)).length, 1);
 });
+
+test('an agent whose card carries only its machine name goes out as "an agent"', async () => {
+  const board = fleet.install([fleet.agent('plainfed', { state: 'idle' })]);
+  try {
+    const p5 = projects.create({ name: 'Plain Club' }).id;
+    projects.addAgent(p5, 'plainfed', board.agents);
+    const member = projects.get(p5, board.agents).agents[0];
+    assert.equal(member.present, true, 'fixture: the card is present');
+    assert.equal(member.name, 'plainfed', 'fixture: the card carries only the machine name');
+    federation.recordLink(p5, { role: 'member', edge_id: 'edge-plain', project_name: 'Plain Club' });
+    await fedseats.ensure(p5);
+    const seat = children[children.length - 1];
+    assert.equal(seat.edge, 'edge-plain', 'fixture: the new project has its own seat');
+    seat.stdout.write(JSON.stringify({ event: 'connected', room: 'r5', expires_at: 9 }) + '\n');
+    await new Promise((r) => setImmediate(r));
+    federateOut(p5, { id: 'p-5', from: 'plainfed', text: 'hi' }, false);
+    const out = JSON.parse(seat.written.join('').trim());
+    assert.equal(out.from, 'an agent', 'the session name left this Mac: ' + out.from);
+  } finally {
+    board.restore();
+  }
+});
+
+test('a person who joined, with no saved name, is never sent as "the project owner"', async () => {
+  const you = require('./engine/you');
+  const saved = fs.existsSync(you.FILE) ? fs.readFileSync(you.FILE) : null;
+  fs.rmSync(you.FILE, { force: true });
+  try {
+    const p6 = projects.create({ name: 'Joined Club' }).id;
+    federation.recordLink(p6, { role: 'member', edge_id: 'edge-joined', project_name: 'Joined Club' });
+    await fedseats.ensure(p6);
+    const seat = children[children.length - 1];
+    assert.equal(seat.edge, 'edge-joined', 'fixture: the new project has its own seat');
+    seat.stdout.write(JSON.stringify({ event: 'connected', room: 'r6', expires_at: 9 }) + '\n');
+    await new Promise((r) => setImmediate(r));
+    federateOut(p6, { id: 'p-6', from: 'you', text: 'hello, owner' }, true);
+    const out = JSON.parse(seat.written.join('').trim());
+    assert.notEqual(out.from, 'the project owner', 'a member was sent as the project owner');
+    assert.equal(out.from, 'someone who joined');
+  } finally {
+    if (saved) fs.writeFileSync(you.FILE, saved);
+  }
+});

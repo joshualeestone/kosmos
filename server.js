@@ -15856,8 +15856,8 @@ function joinedProjectName(ownerName) {
    post local, and the seat manager says so in the room with a Kosmos note. */
 function federateOut(projectId, delivery, operator) {
   if (!delivery || !delivery.id) return;
-  let linked = false;
-  try { linked = !!federation.linkFor(projectId); } catch (err) {
+  let link = null;
+  try { link = federation.linkFor(projectId); } catch (err) {
     fedseats.logUnreadable(err);
     // The record cannot say whether this room is shared, but a seat running for
     // it can: that room is, and its post must not stay here without a word.
@@ -15866,7 +15866,7 @@ function federateOut(projectId, delivery, operator) {
     }
     return;
   }
-  if (!linked) return;
+  if (!link) return;
   const text = typeof delivery.text === 'string' ? delivery.text : '';
   if (!text.trim()) {
     messages.roomNote(projectId, 'That post stayed on this computer: attachments are not sent to the external project, only words.');
@@ -15875,15 +15875,19 @@ function federateOut(projectId, delivery, operator) {
   let from;
   if (operator) {
     // you.read() answers { state, you: { name, ... } }; the name is one level in.
-    try { const r = you.read(); from = (r && r.you && r.you.name) || 'the project owner'; } catch { from = 'the project owner'; }
+    // Without a saved name, the fallback says which side this is: only the
+    // owner's board may call its person the project owner.
+    const fallback = link.role === 'owner' ? 'the project owner' : 'someone who joined';
+    try { const r = you.read(); from = (r && r.you && r.you.name) || fallback; } catch { from = fallback; }
   } else {
     from = 'an agent';
     try {
       const p = projects.get(projectId, safeRoster());
       const m = p && (p.agents || []).find((a) => a && a.sessionName === delivery.from);
-      // `present`: only a name read off the agent's own card. Without one the
-      // project shows the session name, which is internal and never leaves.
-      if (m && m.name && m.present) from = m.name;
+      // Only a REAL name read off the agent's own card. A card can be present
+      // and still carry the machine name (no identity line, an untied pane), and
+      // the session name is internal and never leaves.
+      if (m && m.name && m.present && m.nameDerived && m.name !== m.sessionName) from = m.name;
     } catch { /* keeps 'an agent': the session name is internal and never leaves */ }
   }
   let sent = false;
