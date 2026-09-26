@@ -66,9 +66,14 @@ const chk = (ok, label, extra) => { console.log((ok ? 'PASS  ' : 'FAIL  ') + lab
   await page.screenshot({ path: process.env.SHOT || path.join(os.tmpdir(), 'org-drag.png') });
   // Wires follow: the kid's wire ends where the kid is.
   const kidNow = await pos('.onode[data-agent="kid"]');
-  const wireEnd = await page.$eval('#orgmap line[data-for="kid"]', (l) => { const r = l.ownerSVGElement.getBoundingClientRect(); const vb = l.ownerSVGElement.viewBox.baseVal; const sx = r.width / vb.width; return { x: r.x + Number(l.getAttribute('x2')) * sx, y: r.y + Number(l.getAttribute('y2')) * sx }; });
-  // #4040: it stops at the node's edge (22px from the centre of a 44px disc), not at its centre.
-  chk(Math.abs(Math.hypot(wireEnd.x - kidNow.x, wireEnd.y - kidNow.y) - 22) < 4, 'the wire ends at the edge of the node it belongs to', Math.hypot(wireEnd.x - kidNow.x, wireEnd.y - kidNow.y).toFixed(1) + 'px');
+  const wire = await page.$eval('#orgmap line[data-for="kid"]', (l) => { const r = l.ownerSVGElement.getBoundingClientRect(); const vb = l.ownerSVGElement.viewBox.baseVal; const sx = r.width / vb.width;
+    return { a: { x: r.x + Number(l.getAttribute('x1')) * sx, y: r.y + Number(l.getAttribute('y1')) * sx }, b: { x: r.x + Number(l.getAttribute('x2')) * sx, y: r.y + Number(l.getAttribute('y2')) * sx } }; });
+  const wireEnd = wire.b;
+  // #4040: it stops at the node's edge (22px from the centre of a 44px disc), not at its centre, and on the side
+  // facing the wire's other end (nearer to it than the kid's centre is).
+  chk(Math.abs(Math.hypot(wireEnd.x - kidNow.x, wireEnd.y - kidNow.y) - 22) < 4
+    && Math.hypot(wireEnd.x - wire.a.x, wireEnd.y - wire.a.y) < Math.hypot(kidNow.x - wire.a.x, kidNow.y - wire.a.y),
+  'the wire ends at the near edge of the node it belongs to', Math.hypot(wireEnd.x - kidNow.x, wireEnd.y - kidNow.y).toFixed(1) + 'px');
   // Drag a NODE, not only the hub (#381): a node has a click action, the hub
   // does not, so this is the case the first version of this check could not
   // see. Letting go must not open the agent.

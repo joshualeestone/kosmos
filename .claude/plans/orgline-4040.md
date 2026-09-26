@@ -39,7 +39,7 @@ cluster circle or agent disc, and both ends of every branch wire land within 6px
 
 ## Weakest premise
 
-A ray that grazes one circle's edge stops where it leaves that edge, which can be well inside the
-cluster's outline (measured: 4 to 5px from the centre of a two-helper cluster at about 66 degrees).
-The wire then runs along a circle's edge, not across a face; S40 measures the angles its branch
-draws, not every angle.
+The cut is exact only for the drawn circles; a ray that passes more than 20% of a radius beside a
+circle (a wide gap in a ring) runs on to the next circle it meets, which can be the lead circle at the
+centre. It crosses no face on the way, which is the property S40 measures, but it does enter the
+cluster's outline. S40 measures the angles its branch draws, not every angle.

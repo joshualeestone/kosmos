@@ -357,7 +357,10 @@ const waitFor = (page, fn, arg, ms = 6000) => page.waitForFunction(fn, arg, { ti
     chk(s40.gap.length === 0, 'S40 and each wire still reaches both its nodes: neither end is more than 6px short of its picture', JSON.stringify(s40.gap));
     orgBranch = false;
     await page.click('[data-scope="agents"] .vt[data-layout="grid"]');
-    await page.waitForTimeout(400);
+    /* The reset rides the next /api/status poll: wait until it has landed (crew2 back to four circles) so no later
+       arm reads S40's branch or its two-helper crew2. */
+    chk(await waitFor(page, () => document.querySelectorAll('#grid [data-agent="crew2"] .swd').length === 4, null, 20000),
+      'S40 teardown: the next poll has put crew2 back to four helpers', await page.evaluate(() => document.querySelectorAll('#grid [data-agent="crew2"] .swd').length));
 
     // S6: the swarm's page shows its panel; Rex's page does not (the control).
     await page.evaluate(() => document.querySelector('#grid [data-agent="rex"]').click());

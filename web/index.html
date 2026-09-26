@@ -27240,9 +27240,9 @@ function orgLiveStart(map, placed, cx, cy, size) {
    wire, but a swarm's cluster has no disc (gaps between its circles, and it rests at half strength), so the
    wire showed through it. orgReach(a, ux, uy) is how far along the direction (ux, uy) from a node's centre
    its picture ends, on its 44px node: a disc ends at 22px whatever the direction; a cluster ends where that
-   ray leaves the last circle it crosses (swarmLayout, the one swarmCircles draws). A ray that passes just
-   beside a circle (through the narrow gap between two) stops level with that circle's outer edge rather
-   than running on to the centre. The hub is an opaque disc drawn over the wires: a wire from it starts at
+   ray leaves the last circle it crosses (swarmLayout, the one swarmCircles draws). A ray that only grazes a
+   circle's edge, or passes just beside it (through the narrow gap between two), stops level with that
+   circle's outer edge rather than running along it or on to the centre. The hub is an opaque disc drawn over the wires: a wire from it starts at
    its centre. */
 function orgReach(a, ux, uy) {
   if (!(typeof SWARMS_ON !== 'undefined' && SWARMS_ON && !!a && Object.prototype.hasOwnProperty.call(a, 'swarm') && !!a.swarm)) return 22;
@@ -27252,8 +27252,8 @@ function orgReach(a, ux, uy) {
   for (const q of L.p) {
     const cx = (q[0] - 0.5) * 44, cy = (q[1] - 0.5) * 44;
     const b = cx * ux + cy * uy, d = Math.sqrt(Math.max(0, cx * cx + cy * cy - b * b));
-    if (d <= r) cut = Math.max(cut, b + Math.sqrt(r * r - d * d));
-    else if (d < 1.2 * r) cut = Math.max(cut, b + r);
+    if (d <= r - 1.5) cut = Math.max(cut, b + Math.sqrt(r * r - d * d));
+    else if (d < 1.2 * r) cut = Math.max(cut, b + r);   // grazing its edge stroke, or passing just beside it
   }
   return cut;
 }
