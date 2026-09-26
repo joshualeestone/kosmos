@@ -31,3 +31,6 @@ Weakest premise: Forget can now take up to the register bound (60s) when a regis
 - WARNING: the retire bound was untested. New hung-retire fake mode; Forget returns within the bound and reports retired false. Control with an unbounded retire fails.
 - NIT: the env seam only accepts a positive number (never "no bound").
 - NIT, left: the forgetting refusal inside signinRegister is not reached by a test (the in-flight check wins first).
+
+## Round 4 review (sonnet)
+- BLOCKER: signinStart did not refuse while a register was in flight; the finishing register then cleared the new sign-in's session ("finish the code steps first"). It refuses now, like setupComplete and signinRegister. Test; control fails.

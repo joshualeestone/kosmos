@@ -1054,6 +1054,8 @@ const SIGNIN_CANCELLED = { ok: false, because: 'the sign-in was cancelled' };
     half-finished flow. */
 async function signinStart(email, deviceName) {
   if (forgetting) return { ok: false, because: 'this computer is being forgotten; try again in a moment' };
+  // A register still out would clear this new sign-in's session when it finishes.
+  if (registerInFlight) return { ok: false, because: 'this computer is still signing in; give it a minute' };
   if (typeof email !== 'string' || !email.includes('@')) {
     return { ok: false, because: 'that does not look like an email address' };
   }

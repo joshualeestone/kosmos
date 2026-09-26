@@ -1107,6 +1107,10 @@ test('#3827: a second register while one is in flight is refused, and so is a si
     const second = await remote.signinRegister('hers');
     assert.equal(second.ok, false, 'a second register ran beside the first');
     assert.match(second.because, /still signing in/);
+    // Nor a fresh sign-in: the register still out would clear its session.
+    const fresh = await remote.signinStart('her@example.com');
+    assert.equal(fresh.ok, false, 'a new sign-in started while a register was still out');
+    assert.match(fresh.because, /still signing in/);
     const forgetting = remote.forget();                 // waits for `first`
     const during = await remote.signinStart('her@example.com');
     assert.equal(during.ok, false, 'a sign-in started while this computer was being forgotten');
