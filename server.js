@@ -819,7 +819,17 @@ const tasks = require('./engine/tasks');
 /* #1307: a project's webhooks (engine/webhooks.js). */
 const webhooks = require('./engine/webhooks');
 const HOOK_BODY_MAX = 16 * 1024;
-const HOOK_RATE = { perMinute: 30, perProjectHour: 120, seen: new Map(), byProject: new Map() };
+const HOOK_RATE = { perMinute: 30, perProjectHour: 120, allPerMinute: 600, seen: new Map(), byProject: new Map(), all: [] };
+/* Before any check at all: every call to a /hooks/ address counts, valid or not, 600 a minute in
+   total. It is the one board route a local program can reach with no token, so a stream of wrong
+   guesses must not become unlimited file reads and hashing. Generous enough that it never stands
+   between real webhooks (at most 120 tasks an hour per project) and their calls. */
+function hookFloodOk(now = Date.now()) {
+  HOOK_RATE.all = HOOK_RATE.all.filter((t) => now - t < 60000);
+  if (HOOK_RATE.all.length >= HOOK_RATE.allPerMinute) return false;
+  HOOK_RATE.all.push(now);
+  return true;
+}
 /* Two limits, in memory. Per webhook, 30 a minute, so one looping caller is slowed at once. Per
    PROJECT, 120 an hour across all its webhooks, so neither a leaked link nor a project's twenty
    webhooks together can add more than 120 tasks an hour (about 2,900 a day at the ceiling, where
@@ -15009,6 +15019,7 @@ const server = http.createServer((req, res) => {
      and is given to nobody. */
   const hookCall = req.method === 'POST' ? pathname.match(HOOK_CALL_RE) : null;
   if (hookCall) {
+    if (!hookFloodOk()) { sendJson(res, 429, { error: 'webhooks are being called too often; try again in a minute' }); return; }
     const hook = webhooks.verify(hookCall[1], hookCall[2]);
     const nope = () => sendJson(res, 404, { error: 'there is no webhook at this address' });
     if (!hook) { nope(); return; }

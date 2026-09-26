@@ -46466,7 +46466,10 @@ async function pjsHookRename(id, name) {
     if (del) del.setAttribute('aria-label', 'Delete ' + h.name);
   } catch (e) {
     msg.textContent = asSentence(e.message);
-    pjsHooksPaint();
+    /* Put back only this row's name, for the same reason as above. */
+    const row = document.querySelector('[data-hook="' + CSS.escape(id) + '"]');
+    const input = row && row.querySelector('[data-hook-name]');
+    if (input) input.value = h.name;
   }
 }
 async function pjsHookDelete(id) {

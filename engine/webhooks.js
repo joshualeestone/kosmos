@@ -71,15 +71,24 @@ function writeAll(hooks) {
 
 /* Inside the lock, for a change: a file that is not JSON is moved aside (kept, never deleted) and
    the store starts again empty, so the person can make a new webhook instead of meeting the same
-   error forever. Its webhooks stop answering, which is the safe direction for a lost list. */
+   error forever. Its webhooks stop answering, which is the safe direction for a lost list.
+   The whole file is one store for every project, so this drops every project's webhooks; they
+   were already unusable (no call can verify against a file that does not parse).
+   It also sweeps orphans: a webhook whose project is gone, or whose project id now belongs to a
+   project made later, answers for nobody and nothing could list or delete it, so it is dropped
+   here rather than kept forever. If the projects cannot be read, nothing is swept. */
 function readForChange() {
-  try { return readAll(); } catch (e) {
+  let hooks;
+  try { hooks = readAll(); } catch (e) {
     if (!(e && e.corrupt)) throw e;
     const aside = fileOf() + '.unreadable-' + Date.now();
     try { fs.renameSync(fileOf(), aside); } catch { throw e; }
     console.error('[webhooks] ' + fileOf() + ' was not JSON; moved aside to ' + aside + ' and started again');
     return [];
   }
+  let live;
+  try { live = new Map(require('./projects').readAll().map((p) => [p.id, p.createdAt || null])); } catch { return hooks; }
+  return hooks.filter((h) => live.has(h.projectId) && live.get(h.projectId) === (h.projectMade || null));
 }
 
 function locked(fn) {
@@ -172,13 +181,16 @@ function remove(projectId, id, projectMade) {
   });
 }
 
-/** A project was deleted: remove every webhook under its id. Returns how many. */
+/** A project was deleted: remove every webhook under its id. */
 function removeProject(projectId) {
   return locked(() => {
     const hooks = readForChange();
     const kept = hooks.filter((x) => x.projectId !== String(projectId));
-    if (kept.length !== hooks.length) writeAll(kept);
-    return hooks.length - kept.length;
+    // Always written: readForChange may already have swept this project's hooks as orphans
+    // (projects.remove calls this AFTER the project record is gone), and that sweep is only
+    // in memory until a write.
+    writeAll(kept);
+    return true;
   });
 }
 

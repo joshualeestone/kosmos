@@ -10,12 +10,16 @@
   the coordinator), the secret only as a sha256 hash, keyed by a random id (the name is a label;
   renaming never changes the link). Timing-safe verify; unknown id and wrong secret answer the
   same 404. At most 20 per project; 30 calls a minute each, and 120 webhook tasks an hour per
-  project across all its webhooks.
+  project across all its webhooks. Before any check, every /hooks/ call (valid or not) counts
+  toward 600 a minute in total, so wrong guesses cannot become unlimited file reads.
 - A webhook belongs to the project MADE at a moment, not to an id (ids are reused): it records the
   project's createdAt and answers only for that project. projects.remove removes a deleted
   project's webhooks; the stamp still holds if that clean-up fails.
 - A webhooks file that is not JSON is moved aside (kept) on the next change, so the person can
-  make a new webhook instead of meeting the same error forever; reads answer 503 until then.
+  make a new webhook instead of meeting the same error forever; reads answer 503 until then. It is
+  one file for every project, so this drops every project's webhooks, which were already unusable.
+- Each change also sweeps orphans (project gone, or its id now a later project's), which nothing
+  could otherwise list or delete.
 - The Assigner never hands out a webhook task (engine/assigner.js pick): anyone holding the link
   writes its words, so a person gives it out. Tested with a control arm.
 - The install-gate log redacts the secret in a /hooks/ path, as it does ?token= and ?boot=.
@@ -23,7 +27,7 @@
   network peers are still refused by remoteWriteGuard (it is not in REMOTE_AGENT_ROUTES). JSON only,
   since a plain-text POST is refused by the board's cross-site guard. The settings routes are
   ordinary board-token /api routes and never return a hash.
-- Tests: server.webhooks-1307.test.js (enforcing board, 13 arms); engine/assigner.test.js (the
+- Tests: server.webhooks-1307.test.js (enforcing board, 14 arms); engine/assigner.test.js (the
   webhook arm); render-webhooks-1307.js (browser).
 
 ## Calls (on #1307)

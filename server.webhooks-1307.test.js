@@ -191,6 +191,12 @@ test('an orphan the clean-up missed still answers for nobody: the project stamp 
   assert.equal((await api(`/api/project/${encodeURIComponent(again.id)}/webhooks`)).json.webhooks.length, 0, 'not listed on the new project');
   assert.equal((await call(made.json.url, { title: 'orphan' })).status, 404);
   assert.equal(projects.get(again.id).tasks.length, 0);
+  // And it does not sit in the store forever: the next change anywhere sweeps it out.
+  const file = path.join(require('./engine/store').ROOT, 'webhooks', 'webhooks.json');
+  const orphanId = made.json.webhook.id;
+  assert.ok(fs.readFileSync(file, 'utf8').includes(orphanId), 'fixture: the orphan really is in the file');
+  await api(`/api/project/${encodeURIComponent(again.id)}/webhooks`, { method: 'POST', body: {} });
+  assert.ok(!fs.readFileSync(file, 'utf8').includes(orphanId), 'the orphan was swept on the next change');
 });
 
 test('a project gets at most 120 webhook tasks an hour across all its webhooks', async () => {
@@ -214,4 +220,17 @@ test('a webhooks file that is not JSON: calls answer 404, the list answers 503, 
   assert.equal(fresh.status, 201, JSON.stringify(fresh.json));
   assert.ok(fs.readdirSync(path.dirname(file)).some((n) => n.startsWith('webhooks.json.unreadable-')), 'the bad file is kept aside, not deleted');
   assert.equal((await call(fresh.json.url, { title: 'after recovery' })).status, 201);
+});
+
+test('every /hooks/ call counts toward 600 a minute in total, before any check, so wrong guesses are capped too', async () => {
+  HOOK_RATE.all = [];
+  const made = await api(P(), { method: 'POST', body: { name: 'Flood' } });
+  const guess = base + '/hooks/' + '0'.repeat(16) + '/' + 'A'.repeat(43);
+  const seen = await Promise.all(Array.from({ length: HOOK_RATE.allPerMinute }, () => call(guess, { title: 'x' })));
+  assert.ok(seen.every((r) => r.status === 404), 'the first 600 wrong guesses answer 404');
+  const over = await call(guess, { title: 'x' });
+  assert.equal(over.status, 429);
+  assert.equal((await call(made.json.url, { title: 'real' })).status, 429, 'a real call waits too, for at most a minute');
+  HOOK_RATE.all = [];
+  assert.equal((await call(made.json.url, { title: 'real' })).status, 201, 'control: the same call works once the minute passes');
 });
