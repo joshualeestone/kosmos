@@ -43771,7 +43771,6 @@ const pjNoticeKey = (projectId, sessionName) => String(projectId) + '\n' + Strin
    earlier answer, so it says the retry did not go through rather than looking untouched.
    Same key and the same lifetime as a PJ_NOTICE_TRIED mark. */
 const PJ_NOTICE_MISSED = new Map();
-const PJ_NOTICE_COUNT = ['', 'one', 'two', 'three', 'four', 'five', 'six', 'seven', 'eight', 'nine', 'ten'];
 
 /** One agent's row, or null when nothing is wrong (success and not_tried say nothing). */
 function pjNoticeRow(m, solo) {
@@ -43816,7 +43815,8 @@ function pjNotice(roster, projectId) {
     // What failed, true in every row's case: the last update did not land (the project may still be
     // listed from an earlier one), and "folder" is kept for the one row about a missing folder.
     ? 'Kosmos could not update ' + esc(rows[0].name) + '\u2019s instructions for this project.'
-    : 'Kosmos could not update ' + (PJ_NOTICE_COUNT[rows.length] || String(rows.length)) + ' agents\u2019 instructions for this project.';
+    // Digits, as the board's other counts are ("We found 3 agents on this computer.").
+    : 'Kosmos could not update ' + rows.length + ' agents\u2019 instructions for this project.';
   const body = rows.map((r) => '<div class="pnrow">'
     + (solo ? '' : '<span class="pnwho">' + esc(r.name) + '</span>')
     + '<span class="pnwhy">' + esc(r.why + pjNoticeStill(r, projectId)) + (r.fix ? ' <b class="pnfix">' + esc(r.fix) + '</b>' : '') + '</span>'

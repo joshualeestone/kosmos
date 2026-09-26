@@ -84,7 +84,7 @@ page. Try again re-tells that agent and the notice updates.
 - A retry announces the join only for a project the write newly put in the block (`added`, from
   `projectsInBlock`, which reads the same post line the block writes), and only while the agent is
   still on it. `changed` alone also fired for a write that added a different project.
-- Headline is now "Kosmos could not update X's instructions for this project." (plural: "... three
+- Headline is now "Kosmos could not update X's instructions for this project." (plural, in digits like the board's other counts: "... 3
   agents' instructions ..."). The old one claimed the folder was missing, which is false when an
   earlier update landed, and used "folder" in two senses beside the no-folder row. Mona's copy; she
   can override. The generic write row no longer repeats it ("The change did not save. It may work on

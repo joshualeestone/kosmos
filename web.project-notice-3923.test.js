@@ -117,7 +117,7 @@ test('#3923: several agents: the header counts, each row carries its own why and
     april: 'it has no instructions file yet, and we will not create one',
     casey: 'it has no folder of its own on this computer yet',
   }));
-  assert.match(text(html), /^Kosmos could not update three agents’ instructions for this project\./);
+  assert.match(text(html), /^Kosmos could not update 3 agents’ instructions for this project\./);
   assert.equal((html.match(/class="pnrow"/g) || []).length, 3, 'one row per failing agent; the told one says nothing');
   assert.equal((html.match(/data-pn-retry=/g) || []).length, 2, 'leo (Wait) and april (fix, then retry) get a button; casey (Explain) does not');
   assert.doesNotMatch(html, /data-pn-retry="casey"/);
