@@ -377,6 +377,7 @@
 .pjs-hook-reveal input { flex: 1 1 auto; min-width: 0; font-family: var(--font-mono); font-size: .8125rem; }
 .pjs-hook-reveal code { font-family: var(--font-mono); font-size: .8125rem; }
 .pjs-hook-confirm { margin-top: 8px; font-size: .875rem; }
+.tkcard-from { display: block; font-size: .75rem; color: var(--k-ink-2); margin-top: 2px; }
 
 * { box-sizing: border-box; margin: 0; padding: 0; }
 body {
@@ -44793,6 +44794,10 @@ function paintProjectTasks(p) {
       + partOf
       + '<span class="tkcard-n">Task ' + n + (t.closedAt ? ' (done)' : '') + '</span>'
       + '<div class="tkcard-t">' + esc(t.sentence) + '</div>'
+      /* #1307: a webhook task says so wherever it can be given out, so the person who gives it
+         knows its words came from outside. Inline, not a shared helper: the tests lift this
+         function and run it alone. The Tasks view row carries the same line (tsk-from). */
+      + (t.addedVia === 'webhook' ? '<span class="tkcard-from">From ' + esc(t.addedBy || 'a webhook') + ' (a webhook)</span>' : '')
       + who + chip + '</button>';
   }).join('');
   // ⚠️ Change-guarded, the removed-list's own pattern: the five-second poll
@@ -45016,6 +45021,8 @@ function tskRow(t, at) {
     + '<button type="button" class="tl" data-open-task="' + esc(tskKey(t)) + '">' + esc(t.sentence) + '</button>'
     + '<div class="meta"><button type="button" data-open-project="' + esc(t.projectId) + '">' + esc(t.projectName) + '</button>'
     + (added ? '<span>added ' + esc(added) + '</span>' : '')
+    /* #1307: inline for the same reason as the task card's tkcard-from line. */
+    + (t.addedVia === 'webhook' ? '<span class="tsk-from">From ' + esc(t.addedBy || 'a webhook') + ' (a webhook)</span>' : '')
     + (moved && moved !== added ? '<span>last activity ' + esc(moved) + '</span>' : '')
     + (t.dueDate ? '<span>due ' + esc(t.dueDate) + '</span>' : '')
     + chip + allDone
@@ -46374,8 +46381,14 @@ function paintProjectSettings(p) {
 const PJS_HOOKS = { projectId: null, list: [], reveal: null, confirm: null, gen: 0 };
 function pjsHooksUrl(id) { return '/api/project/' + encodeURIComponent(PJS_HOOKS.projectId) + '/webhooks' + (id ? '/' + id : ''); }
 async function pjsHooksOpen(p) {
-  if (PJS_HOOKS.projectId !== p.id) { PJS_HOOKS.reveal = null; PJS_HOOKS.confirm = null; document.getElementById('pjs-hooks-msg').textContent = ''; }
-  PJS_HOOKS.projectId = p.id;
+  if (PJS_HOOKS.projectId !== p.id) {
+    /* Another project: nothing of the last one may show, even while this read is in flight or if
+       it fails (its rows would rename and delete against this project's address). */
+    PJS_HOOKS.reveal = null; PJS_HOOKS.confirm = null; PJS_HOOKS.list = [];
+    document.getElementById('pjs-hooks-msg').textContent = '';
+    PJS_HOOKS.projectId = p.id;
+    pjsHooksPaint();
+  }
   const mine = ++PJS_HOOKS.gen;
   const msg = document.getElementById('pjs-hooks-msg');
   try {
@@ -46403,6 +46416,15 @@ function pjsHooksWhen(h) {
 function pjsHooksPaint() {
   const box = document.getElementById('pjs-hooks');
   if (!box) return;
+  /* A repaint (Delete, Keep it, Done, a fresh read) keeps a name someone is half-way through
+     typing in any row, and the focus if it was in a name box. */
+  const typed = new Map();
+  let focusedName = null;
+  box.querySelectorAll('input[data-hook-name]').forEach((i) => {
+    const h = PJS_HOOKS.list.find((x) => x.id === i.dataset.hookName);
+    if (h && i.value !== h.name) typed.set(i.dataset.hookName, i.value);
+    if (document.activeElement === i) focusedName = i.dataset.hookName;
+  });
   box.innerHTML = PJS_HOOKS.list.map((h) => {
     const id = esc(h.id);
     const reveal = PJS_HOOKS.reveal && PJS_HOOKS.reveal.id === h.id
@@ -46410,7 +46432,7 @@ function pjsHooksPaint() {
         + '<p><b>Copy this link now.</b> For your safety Kosmos shows it only once.</p>'
         + '<div class="frow"><input class="tk-inp" type="text" readonly id="pjs-hook-url" value="' + esc(PJS_HOOKS.reveal.url) + '" aria-label="The link for ' + esc(h.name) + '">'
         + '<button class="btn" type="button" data-hook-copy="' + id + '">Copy</button></div>'
-        + '<p class="fhint" style="margin:8px 0 0;">A program adds a task by sending it JSON, like <code>{"title": "Invoice 42 is overdue"}</code>.</p>'
+        + '<p class="fhint" style="margin:8px 0 0;">A program adds a task by sending it JSON, like <code>{"title": "Invoice 42 is overdue"}</code>, with the header <code>Content-Type: application/json</code>.</p>'
         + '<p class="fmsg" id="pjs-hook-copied" aria-live="polite" style="margin:6px 0 0;"></p>'
         + '<button class="linkish" type="button" data-hook-done="' + id + '">Done, I have copied it</button></div>'
       : '';
@@ -46424,6 +46446,8 @@ function pjsHooksPaint() {
       + (PJS_HOOKS.confirm === h.id ? '' : '<button class="linkish" type="button" data-hook-delete="' + id + '" aria-label="Delete ' + esc(h.name) + '">Delete</button>') + '</div>'
       + '<p class="pjs-hook-when">' + esc(pjsHooksWhen(h)) + '</p>' + confirm + reveal + '</div>';
   }).join('');
+  typed.forEach((v, id) => { const i = box.querySelector('input[data-hook-name="' + CSS.escape(id) + '"]'); if (i) i.value = v; });
+  if (focusedName) { const i = box.querySelector('input[data-hook-name="' + CSS.escape(focusedName) + '"]'); if (i) i.focus(); }
 }
 async function pjsHooksSend(url, method, body) {
   const r = await fetch(url, { method, headers: { 'content-type': 'application/json' }, body: body === undefined ? undefined : JSON.stringify(body) });
@@ -46436,8 +46460,12 @@ async function pjsHookAdd() {
   const btn = document.getElementById('pjs-hook-add');
   btn.disabled = true;
   PJS_HOOKS.gen += 1;
+  const forProject = PJS_HOOKS.projectId;
   try {
     const out = await pjsHooksSend(pjsHooksUrl(), 'POST', {});
+    /* Settings moved to another project while this was being made: it belongs to the first one,
+       so it is not shown here. Its link can no longer be shown; the person deletes it there. */
+    if (PJS_HOOKS.projectId !== forProject) return;
     PJS_HOOKS.reveal = { id: out.webhook.id, url: out.url };
     PJS_HOOKS.list = PJS_HOOKS.list.concat([out.webhook]);
     msg.textContent = '';
@@ -46526,7 +46554,12 @@ document.getElementById('pjs-hooks').addEventListener('change', (e) => {
 });
 document.getElementById('pjs-hooks').addEventListener('keydown', (e) => {
   const input = e.target.closest('input[data-hook-name]');
-  if (input && e.key === 'Enter') { e.preventDefault(); input.blur(); }
+  if (input && e.key === 'Enter') { e.preventDefault(); input.blur(); return; }
+  /* Escape in a delete question is Keep it. */
+  if (e.key === 'Escape' && PJS_HOOKS.confirm) {
+    const no = document.querySelector('[data-hook-delete-no="' + CSS.escape(PJS_HOOKS.confirm) + '"]');
+    if (no) { e.preventDefault(); e.stopPropagation(); no.click(); }
+  }
 });
 
 /* The state-derived half of the settings view, callable from the poll: the

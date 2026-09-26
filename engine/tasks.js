@@ -307,6 +307,17 @@ const PARTS_PER_HOUR = 12;
 const HOUR_MS = 3600000;
 /* #3595: 'assigner' is the Kosmos Assigner's own write. It is its own provenance so the process
    parts valve (which counts 'process' only) never charges agents for it, nor blames them for it. */
+/* #1307: a task a webhook added waits for a PERSON to give it out. Anyone holding a webhook's link
+   writes its words, and giving a task to an agent types them into its pane, where it runs with its
+   permissions skipped. So only the screen may put somebody on one: a process (any agent, through
+   the API) is refused, and the Assigner skips them (engine/assigner.js pick). Taking somebody OFF
+   is always allowed. */
+function webhookGiveProblem(t, whoKey, made) {
+  if (!whoKey || !t || t.addedVia !== 'webhook') return null;
+  if (made && made.via === 'screen') return null;
+  return 'a task a webhook added can only be given to someone from the screen, by a person';
+}
+
 function viaOf(made) {
   if (made && made.via === 'process') return 'process';
   if (made && made.via === 'assigner') return 'assigner';
@@ -382,6 +393,8 @@ function addPart(projectId, n, { sentence, who, made } = {}) {
     if (whoKey && !(p.agents || []).includes(whoKey)) {
       throw new Error('that agent is not on this project, so the part cannot be given to it');
     }
+    const hookNo = webhookGiveProblem(t, whoKey, made);
+    if (hookNo) throw new Error(hookNo);
     newPartId = nextPartId(parts);
     const next = parts.concat([{ id: newPartId, who: whoKey, sentence: said, closedAt: null,
       addedVia: viaOf(made), createdAt: new Date().toISOString() }]);
@@ -432,6 +445,8 @@ function assignPart(projectId, n, partId, who, made) {
       if (moved && whoKey && !(p.agents || []).includes(whoKey)) {
         throw new Error('that agent is not on this project, so the part cannot be given to it');
       }
+      const hookNo = moved ? webhookGiveProblem(t, whoKey, made) : null;
+      if (hookNo) throw new Error(hookNo);
       return moved ? { ...x, who: whoKey, movedVia: viaOf(made), movedAt: new Date().toISOString() } : x;
     });
   });

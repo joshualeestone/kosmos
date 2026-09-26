@@ -1,4 +1,4 @@
-// Browser-check-surface: pjs-hooks pjs-hook-add pjs-hooks-msg
+// Browser-check-surface: pjs-hooks pjs-hook-add pjs-hooks-msg tsk-from tkcard-from
 'use strict';
 /**
  * A project's webhooks in its settings (#1307, Josh 2026-08-28), on a real board in a real browser.
@@ -11,6 +11,8 @@
  *  - Done hides the link and nothing shows it again (a repaint or reopening settings),
  *  - renaming keeps the same link working; the row shows when it was last used,
  *  - Delete asks first (Keep it cancels), then the link stops working,
+ *  - a webhook task says "From <name> (a webhook)" in the Tasks view, and a name carrying HTML is
+ *    shown as text, never as markup,
  *  - light, dark and 390 wide, with no sideways scroll and no page errors.
  *
  * Not part of `npm test` -- it needs a browser. See README.md in this directory.
@@ -131,6 +133,23 @@ function chk(ok, label, extra) {
         const gone = await page.evaluate(async (u) => (await fetch(u, { method: 'POST', headers: { 'content-type': 'application/json' }, body: '{"title":"after delete"}' })).status, made.url);
         const rowGone = await page.evaluate(() => !document.querySelector('[data-hook-name]'));
         chk(gone === 404 && rowGone, '[delete] the row goes and the link stops working', JSON.stringify({ gone, rowGone }));
+
+        // The Tasks view marks a webhook task, and escapes the webhook's name.
+        const evil = await page.evaluate(async (id) => {
+          const r = await fetch('/api/project/' + encodeURIComponent(id) + '/webhooks', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ name: '<i id="inj">Zap</i>' }) });
+          const b = await r.json();
+          const c = await fetch(b.url, { method: 'POST', headers: { 'content-type': 'application/json' }, body: '{"title":"from the evil name"}' });
+          return c.status;
+        }, proj.id);
+        await page.evaluate(() => showTab('tasks'));
+        await page.waitForFunction(() => [...document.querySelectorAll('.tsk-from')].some((e) => /Zap/.test(e.textContent)), null, { timeout: 8000 }).catch(() => {});
+        const mark = await page.evaluate(() => {
+          const all = [...document.querySelectorAll('.tsk-from')].map((e) => e.textContent);
+          return { all, injected: !!document.getElementById('inj') };
+        });
+        chk(evil === 201 && mark.all.includes('From <i id="inj">Zap</i> (a webhook)') && mark.all.includes('From Billing system (a webhook)'),
+          '[tasks] webhook tasks say which webhook they came from', JSON.stringify({ evil, mark }));
+        chk(!mark.injected, '[tasks] a webhook name with HTML in it is shown as text, never run as markup');
       } else {
         // The other passes: a made webhook as the person sees it.
         await page.click('#pjs-hook-add');

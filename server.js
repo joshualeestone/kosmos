@@ -819,17 +819,11 @@ const tasks = require('./engine/tasks');
 /* #1307: a project's webhooks (engine/webhooks.js). */
 const webhooks = require('./engine/webhooks');
 const HOOK_BODY_MAX = 16 * 1024;
-const HOOK_RATE = { perMinute: 30, perProjectHour: 120, allPerMinute: 600, seen: new Map(), byProject: new Map(), all: [] };
-/* Before any check at all: every call to a /hooks/ address counts, valid or not, 600 a minute in
-   total. It is the one board route a local program can reach with no token, so a stream of wrong
-   guesses must not become unlimited file reads and hashing. Generous enough that it never stands
-   between real webhooks (at most 120 tasks an hour per project) and their calls. */
-function hookFloodOk(now = Date.now()) {
-  HOOK_RATE.all = HOOK_RATE.all.filter((t) => now - t < 60000);
-  if (HOOK_RATE.all.length >= HOOK_RATE.allPerMinute) return false;
-  HOOK_RATE.all.push(now);
-  return true;
-}
+const HOOK_RATE = { perMinute: 30, perProjectHour: 120, openMax: 200, seen: new Map(), byProject: new Map() };
+/* 🛑 NO SHARED CAP IN FRONT OF VERIFY, on purpose. A bucket every /hooks/ call counts toward is a
+   lever any local program (another account on this computer included) can pull to silence every
+   real webhook with garbage. Instead a wrong guess is made cheap: verify reads a cached copy of the
+   store (one stat while the file is unchanged) and hashes once, about what any not-found costs. */
 /* Two limits, in memory. Per webhook, 30 a minute, so one looping caller is slowed at once. Per
    PROJECT, 120 an hour across all its webhooks, so neither a leaked link nor a project's twenty
    webhooks together can add more than 120 tasks an hour (about 2,900 a day at the ceiling, where
@@ -3268,7 +3262,7 @@ const LOOPBACK_AGENT_ROUTES = new Set(['POST /api/team', 'GET /api/report']);
    the board-token gate below. ONLY this exact shape. It is NOT in REMOTE_AGENT_ROUTES, so
    remoteWriteGuard still refuses every network peer: for now a webhook answers programs on this
    computer only, and reaching it from the internet waits on the Kosmos+ tunnel admitting it with
-   the Mac's own check (the coordinator must never mint or honour it). */
+   this computer's own check (the coordinator must never mint or honour it). */
 const HOOK_CALL_RE = /^\/hooks\/([0-9a-f]{16})\/([A-Za-z0-9_-]{43})$/;
 /* #3055: the world NAMES list (GET /api/worlds/names) is exempt from the board-token
    gate so the world-switcher dropdown ALWAYS renders -- even on a board that came up
@@ -3388,7 +3382,7 @@ function gateLog(req) {
     // lifetime or reusability changes, and nothing else recorded the omission.
     // #1307: a webhook call carries its secret in the PATH (/hooks/<id>/<secret>), redacted too.
     const loggedUrl = String(req.url || '').replace(/([?&](?:token|boot)=)[^&]*/gi, '$1REDACTED')
-      .replace(/^(\/hooks\/[^/?#]*\/)[^/?#]*/i, '$1REDACTED');
+      .replace(/(\/hooks\/[^/?#]*\/)[^/?#]*/gi, '$1REDACTED'); // anywhere: an absolute-form target is accepted too
     fs.appendFileSync(GATE_LOG, `${new Date().toISOString()} ${req.method} ${loggedUrl} ${ua}\n`);
   } catch { /* the instrument never becomes the defect */ }
 }
@@ -15019,7 +15013,6 @@ const server = http.createServer((req, res) => {
      and is given to nobody. */
   const hookCall = req.method === 'POST' ? pathname.match(HOOK_CALL_RE) : null;
   if (hookCall) {
-    if (!hookFloodOk()) { sendJson(res, 429, { error: 'webhooks are being called too often; try again in a minute' }); return; }
     const hook = webhooks.verify(hookCall[1], hookCall[2]);
     const nope = () => sendJson(res, 404, { error: 'there is no webhook at this address' });
     if (!hook) { nope(); return; }
@@ -15029,6 +15022,14 @@ const server = http.createServer((req, res) => {
     if (!owner || (owner.createdAt || null) !== hook.projectMade) { nope(); return; }
     const tooOften = hookRateProblem(hook.id, hook.projectId);
     if (tooOften) { sendJson(res, 429, { error: tooOften }); return; }
+    /* A ceiling on what is WAITING, not only on the rate: a leaked link at the hourly limit would
+       still add thousands a day, and every task lives in the one projects file the board rewrites
+       whole. Past HOOK_RATE.openMax open webhook tasks, calls are refused until some are closed. */
+    const waiting = (owner.tasks || []).filter((t) => t && t.addedVia === 'webhook' && !tasks.progressOf(t).closed).length;
+    if (waiting >= HOOK_RATE.openMax) {
+      sendJson(res, 429, { error: 'this project already has ' + HOOK_RATE.openMax + ' open tasks from webhooks; close some first' });
+      return;
+    }
     readBody(req, HOOK_BODY_MAX).then((buf) => {
       const text = buf.toString('utf8');
       let parsed;

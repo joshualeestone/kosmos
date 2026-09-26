@@ -3,9 +3,9 @@
  * #1307 (Josh, 2026-08-28): a project's webhooks. A webhook is a link another program can call to
  * add a task to one project. Made, named and deleted in the project's settings.
  *
- * 🔑 THE SECRET IS MINTED AND HELD BY THE MAC, NEVER BY THE COORDINATOR (Ice Cream Kitty's
- * measurement on #1307): admission is the Mac's own decision, so a credential the coordinator
- * minted and the Mac honoured would let a stolen coordinator admit callers. This store lives in
+ * 🔑 THE SECRET IS MINTED AND HELD BY THIS COMPUTER (THE BOARD), NEVER BY THE COORDINATOR (Ice Cream Kitty's
+ * measurement on #1307): admission is this computer's own decision, so a credential the coordinator
+ * minted and this computer honoured would let a stolen coordinator admit callers. This store lives in
  * the board's data directory and nothing here is sent anywhere.
  *
  * 🔑 ONLY A HASH OF THE SECRET IS KEPT, so the full URL can be shown once, when the webhook is
@@ -88,6 +88,9 @@ function readForChange() {
   }
   let live;
   try { live = new Map(require('./projects').readAll().map((p) => [p.id, p.createdAt || null])); } catch { return hooks; }
+  // No projects at all while webhooks exist reads like a projects file briefly missing (a restore,
+  // a first read that raced), not like every project deleted: sweep nothing rather than everything.
+  if (!live.size && hooks.length) return hooks;
   return hooks.filter((h) => live.has(h.projectId) && live.get(h.projectId) === (h.projectMade || null));
 }
 
@@ -203,6 +206,22 @@ function sameHash(a, b) {
   return crypto.timingSafeEqual(x, y);
 }
 
+/* verify's read: the parsed store, reused while the file's mtime and size are unchanged, so a
+   stream of wrong guesses costs one stat each rather than a read and a parse. Only verify uses it
+   (it never mutates what it reads); every change still reads the file afresh inside the lock. */
+let cached = { key: null, hooks: [] };
+function readCached() {
+  let st;
+  try { st = fs.statSync(fileOf()); } catch (e) {
+    if (e && e.code === 'ENOENT') { cached = { key: null, hooks: [] }; return []; }
+    throw e;
+  }
+  // The inode too: every write replaces the file, so two writes in one mtime tick still differ.
+  const key = fileOf() + ':' + st.ino + ':' + st.mtimeMs + ':' + st.size;
+  if (cached.key !== key) cached = { key, hooks: readAll() };
+  return cached.hooks;
+}
+
 /**
  * Is this id and secret a live webhook? Returns the stored record's view plus its project, or null.
  * A malformed id or secret, an unknown id and a wrong secret all return null, so a caller learns
@@ -211,7 +230,7 @@ function sameHash(a, b) {
 function verify(id, secret) {
   if (!ID_RE.test(String(id)) || !SECRET_RE.test(String(secret))) return null;
   let hooks;
-  try { hooks = readAll(); } catch { return null; }
+  try { hooks = readCached(); } catch { return null; }
   const h = hooks.find((x) => x.id === String(id));
   const ok = sameHash(h ? h.hash : hashOf('unknown webhook'), hashOf(secret));
   return h && ok ? { ...view(h), projectId: h.projectId, projectMade: h.projectMade || null } : null;

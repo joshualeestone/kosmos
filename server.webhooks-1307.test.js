@@ -55,6 +55,9 @@ test.before(async () => {
   boardAuthState.token = TOK;
   projectId = projects.create({ name: 'Alpha' }).id;
 });
+/* The limits are module state; each test starts from none, so no test's 429 depends on the calls
+   an earlier one made in the same minute. */
+test.beforeEach(() => { HOOK_RATE.seen.clear(); HOOK_RATE.byProject.clear(); });
 test.after(() => {
   try { server.close(); } catch { /* already down */ }
   fs.rmSync(SANDBOX, { recursive: true, force: true });
@@ -161,8 +164,9 @@ test('bad input is refused with a sentence and adds nothing', async () => {
 
 test('past 30 calls a minute a webhook answers 429', async () => {
   const made = await api(P(), { method: 'POST', body: { name: 'Burst' } });
-  let last;
-  for (let i = 0; i < 31; i += 1) last = await call(made.json.url, { title: 'burst ' + i });
+  let last; let ok = 0;
+  for (let i = 0; i < 31; i += 1) { last = await call(made.json.url, { title: 'burst ' + i }); if (last.status === 201) ok += 1; }
+  assert.equal(ok, HOOK_RATE.perMinute, 'the first 30 really added tasks');
   assert.equal(last.status, 429);
 });
 
@@ -222,15 +226,41 @@ test('a webhooks file that is not JSON: calls answer 404, the list answers 503, 
   assert.equal((await call(fresh.json.url, { title: 'after recovery' })).status, 201);
 });
 
-test('every /hooks/ call counts toward 600 a minute in total, before any check, so wrong guesses are capped too', async () => {
-  HOOK_RATE.all = [];
-  const made = await api(P(), { method: 'POST', body: { name: 'Flood' } });
-  const guess = base + '/hooks/' + '0'.repeat(16) + '/' + 'A'.repeat(43);
-  const seen = await Promise.all(Array.from({ length: HOOK_RATE.allPerMinute }, () => call(guess, { title: 'x' })));
-  assert.ok(seen.every((r) => r.status === 404), 'the first 600 wrong guesses answer 404');
-  const over = await call(guess, { title: 'x' });
-  assert.equal(over.status, 429);
-  assert.equal((await call(made.json.url, { title: 'real' })).status, 429, 'a real call waits too, for at most a minute');
-  HOOK_RATE.all = [];
-  assert.equal((await call(made.json.url, { title: 'real' })).status, 201, 'control: the same call works once the minute passes');
+test('the store on disk holds the hash, never the secret', async () => {
+  const made = await api(P(), { method: 'POST', body: { name: 'Disk' } });
+  const secret = made.json.url.split('/').pop();
+  const raw = fs.readFileSync(path.join(require('./engine/store').ROOT, 'webhooks', 'webhooks.json'), 'utf8');
+  assert.ok(raw.includes(made.json.webhook.id), 'control: this is the file that holds it');
+  assert.ok(!raw.includes(secret), 'the secret is not on disk');
+  assert.ok(raw.includes(require('node:crypto').createHash('sha256').update(secret).digest('hex')), 'its hash is');
+});
+
+test('an agent cannot give a webhook task to anyone; the screen can (the task waits for a person)', async () => {
+  const tasks = require('./engine/tasks');
+  const p = projects.create({ name: 'Give' });
+  projects.addAgent(p.id, 'ada', [{ sessionName: 'ada' }]);
+  const made = await api(`/api/project/${encodeURIComponent(p.id)}/webhooks`, { method: 'POST', body: {} });
+  const n = (await call(made.json.url, { title: 'outside words' })).json.task;
+  assert.throws(() => tasks.assignPart(p.id, n, 1, 'ada', { via: 'process' }), /from the screen, by a person/);
+  assert.throws(() => tasks.addPart(p.id, n, { sentence: 'do it', who: 'ada', made: { via: 'process' } }), /from the screen, by a person/);
+  assert.throws(() => tasks.assignPart(p.id, n, 1, 'ada', { via: 'assigner' }), /from the screen, by a person/);
+  assert.equal(tasks.assignPart(p.id, n, 1, 'ada', { via: 'screen' }).ok, true, 'control: a person can');
+  assert.equal(tasks.assignPart(p.id, n, 1, null, { via: 'process' }).ok, true, 'taking someone off is always allowed');
+  const plain = tasks.create(p.id, { sentence: 'from the screen', made: { via: 'screen' } });
+  assert.equal(tasks.assignPart(p.id, plain.number, 1, 'ada', { via: 'process' }).ok, true, 'control: an ordinary task an agent can give');
+});
+
+test('past 200 open webhook tasks a project refuses more until some are closed', async () => {
+  const p = projects.create({ name: 'Waiting' });
+  const made = await api(`/api/project/${encodeURIComponent(p.id)}/webhooks`, { method: 'POST', body: {} });
+  const old = HOOK_RATE.openMax;
+  HOOK_RATE.openMax = 3;
+  try {
+    for (let i = 0; i < 3; i += 1) assert.equal((await call(made.json.url, { title: 'w' + i })).status, 201);
+    const over = await call(made.json.url, { title: 'one too many' });
+    assert.equal(over.status, 429);
+    assert.match(over.json.error, /open tasks from webhooks/);
+    require('./engine/tasks').close(p.id, 1);
+    assert.equal((await call(made.json.url, { title: 'after closing one' })).status, 201, 'control: closing one makes room');
+  } finally { HOOK_RATE.openMax = old; }
 });
