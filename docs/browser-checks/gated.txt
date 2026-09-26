@@ -53,6 +53,7 @@ render-dm-emoji-3744
 render-dm-multiline-3208
 render-dm-phone-718
 render-dm-reactions-3650
+render-dm-sideways-3969
 render-dm-tapreact-718
 render-docs-subfolders-2245
 render-emoji-mute-2357
