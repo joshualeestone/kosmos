@@ -20,16 +20,30 @@
 # child reparented to init and holding port 16180 (measured: a naive `kill $pid` orphaned
 # a `sleep` for its full lifetime). `perl setpgrp` (macOS has no `setsid`) makes the child
 # a group leader, so `kill -- -$pid` takes the whole tree with it.
+#
+# 🛑 BUT THE GROUP EXISTS ONLY ONCE PERL HAS RUN setpgrp (kosmos#3859). If the bound
+# expires before that (a short bound on a loaded box), `kill -- -$pid` finds no group
+# and does nothing, and a bare `wait` then blocks while perl carries on, calls setpgrp
+# and execs a bundle that never exits: the #955 hang again. So the kill is three steps:
+#   1. the group        - the normal case, takes every child;
+#   2. the leader       - if there was no group yet, perl has forked nothing, so this
+#                          is enough;
+#   3. the group again  - covers perl reaching setpgrp and forking BETWEEN steps 1 and
+#                          2: those children are in the group, and step 3 reaps them.
+# KOSMOS_BOUNDED_RUN_SETPGRP_DELAY (seconds) is a TEST SEAM that widens that window so
+# the self-test can hit it on purpose; unset, it costs nothing.
 bounded_run() {
   local secs="$1"; shift
   local tmp pid waited rc
   tmp="$(mktemp)"
-  perl -e 'setpgrp(0,0); exec @ARGV or exit 127' "$@" >"$tmp" 2>/dev/null &
+  perl -e 'select(undef, undef, undef, $ENV{KOSMOS_BOUNDED_RUN_SETPGRP_DELAY}) if $ENV{KOSMOS_BOUNDED_RUN_SETPGRP_DELAY}; setpgrp(0,0); exec @ARGV or exit 127' "$@" >"$tmp" 2>/dev/null &
   pid=$!
   waited=0
   while kill -0 "$pid" 2>/dev/null; do
     if [ "$waited" -ge "$secs" ]; then
-      kill -- -"$pid" 2>/dev/null   # the group (pgid == pid, the leader) -- takes children too
+      kill -- -"$pid" 2>/dev/null   # 1. the group (pgid == pid, the leader) -- takes children too
+      kill "$pid" 2>/dev/null       # 2. the leader, in case setpgrp had not run yet
+      kill -- -"$pid" 2>/dev/null   # 3. the group again: children forked between 1 and 2
       wait "$pid" 2>/dev/null
       rm -f "$tmp"
       return 124

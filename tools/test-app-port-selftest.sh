@@ -125,6 +125,29 @@ if [ -s "$FORKED" ]; then
 else reaped="never-forked"; fi
 check "the FORKED child is reaped by the group-kill (not orphaned)" 0 "$reaped"
 
+# --- kosmos#3859: the bound expires BEFORE perl has run setpgrp ----------------------
+# The seam holds perl for 4s before setpgrp, so the 2s bound expires while there is no
+# group yet. The old kill (group only) found nothing and a bare wait then blocked while
+# perl went on to exec the hanging bundle: a hang, not a 124. So this arm runs under its
+# own watchdog: if bounded_run is still going after 20s it is killed and reported as a
+# hang, rather than hanging this test (which would be the #955 shape all over again).
+rcf="$tmp/rc-3859"; rm -f "$rcf"
+( KOSMOS_BOUNDED_RUN_SETPGRP_DELAY=4 bounded_run "$T" "$bhang" --kosmos-app-port-selftest 501 >/dev/null 2>&1
+  echo "$?" > "$rcf" ) &
+wd=$!
+for _ in $(seq 1 40); do [ -f "$rcf" ] && break; sleep 0.5; done
+if [ -f "$rcf" ]; then
+  wait "$wd" 2>/dev/null
+  check "bound expiring before setpgrp: returns 124, does not hang (#3859)" 124 "$(cat "$rcf")"
+else
+  # The regression: tear down what it left (the subshell, perl, and the bundle it
+  # exec'd, which carry our unique markers) so the rest of this test still runs.
+  pkill -f "sleep $LAUNCH\$" 2>/dev/null; pkill -f "sleep $FORK\$" 2>/dev/null
+  kill "$wd" 2>/dev/null; wait "$wd" 2>/dev/null
+  check "bound expiring before setpgrp: returns 124, does not hang (#3859)" 124 "HUNG-20s"
+fi
+check "nothing leaked when the bound beat setpgrp (#3859)" 0 "$(wait_gone "sleep $LAUNCH")"
+
 # --- bounded_run returns a quick command's output and rc --------------------------
 start=$(date +%s)
 out="$(bounded_run "$QUICK_T" "$cur" --kosmos-app-port-selftest 501)"; rc=$?
