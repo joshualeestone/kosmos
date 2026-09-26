@@ -342,6 +342,9 @@ function address() {
     then ensure() brings the tunnel up. Turning off stops it now. */
 function setOn(on) {
   if (typeof on !== 'boolean') return { ok: false, because: 'that has to be on or off' };
+  // #3827: Forget stops the tunnel, then waits on the retire; turning on in that
+  // wait would start one from the key it is about to delete.
+  if (on && forgetting) return busy();
   const wrote = write({ on });
   if (!wrote.ok) return wrote;
   ensure(localPort);
@@ -666,8 +669,9 @@ async function forget() {
   // must not turn the switch back on), and WAIT for a register already out, so what
   // is retired and wiped below includes it; otherwise it writes a fresh identity
   // into the directory this empties. The wait is bounded: the register itself is
-  // (registerTimeoutMs). Worst case, a hung register then a hung retire: two
-  // bounds, about ten minutes, and only when something is already broken.
+  // (registerTimeoutMs). Worst case, three bounds in a row, about fifteen minutes:
+  // the register first retiring a half identity, the register itself, then this
+  // retire. Only when something is already broken.
   //
   // One forget at a time: a second (a double click, two tabs, a retried request)
   // gets the first one's answer instead of retiring the same Mac beside it.
@@ -711,6 +715,8 @@ async function forgetNow() {
      of a member-only feature to a non-member. A real sign-in re-caches the new
      account's standing; until then, unknown -> not a member. */
   write({ ...r, on: false, standing: '' });
+  // Anything started during the retire wait (it can be minutes) goes too.
+  stopChild();
   return {
     ok: true,
     retired,
@@ -792,7 +798,8 @@ async function setupComplete(code, name) {
   // Tracked like the in-app register (Forget waits for it; nothing else starts
   // beside it), bounded the same, and a half identity is retired first.
   const running = (async () => {
-    const stranded = await clearHalfIdentity();
+    const half = await clearHalfIdentity();
+    if (half && half.kept) return KEPT_HALF(half.kept);
     return explainStranded(await setupRun([
       'setup', 'complete',
       '--coordinator', COORDINATOR(),
@@ -800,11 +807,15 @@ async function setupComplete(code, name) {
       '--code', String(code),
       '--name', name,
       '--state-dir', STATE_DIR(),
-    ], null, registerTimeoutMs()), stranded);
+    ], null, registerTimeoutMs()), half);
   })();
   registerInFlight = running;
+  // A Forget or Sign out that lands while this waits: the Settings page must not
+  // be told it is set up, and nothing here may bring the tunnel up.
+  const epoch = signinEpoch;
   let result;
   try { result = await running; } finally { if (registerInFlight === running) registerInFlight = null; }
+  if (epoch !== signinEpoch) return SIGNIN_CANCELLED;
   if (result.ok) ensure(localPort);
   // fed gate: cache the coordinator standing if this setup response carried one.
   if (result.ok && result.data && typeof result.data === 'object') fedSetStanding(result.data.standing);
@@ -1269,17 +1280,29 @@ const halfRegistered = () => !enrolled() && ['mac_id', 'mac_key'].every((f) => f
 async function clearHalfIdentity() {
   if (!halfRegistered()) return null;
   const r = await setupRun(['retire', '--coordinator', COORDINATOR(), '--state-dir', STATE_DIR()], null, registerTimeoutMs());
+  // No answer (timed out, unreachable, the program would not start) may work a
+  // moment later, and only this key can do it: keep it, and the caller says try
+  // again. A retire that worked, or a definite refusal from Kosmos+, wipes it.
+  if (!r.ok && !/said no \(4\d\d\)/.test(String(r.because || ''))) {
+    process.stderr.write('remote: an unfinished earlier sign-in could not be retired at Kosmos+ yet (' + r.because + '); kept, so a retry can\n');
+    return { kept: r.because || 'no reason given' };
+  }
   if (!r.ok) process.stderr.write('remote: an unfinished earlier sign-in could not be retired at Kosmos+ (' + r.because + '); its address may show on the account page until it is removed there\n');
   try { fs.rmSync(STATE_DIR(), { recursive: true, force: true }); } catch { /* the register writes it again */ }
   secureStateDir();
-  return r.ok ? null : (r.because || 'no reason given');
+  return r.ok ? null : { stranded: r.because || 'no reason given' };
 }
+/* The register's answer when a half identity was kept for a retry. */
+const KEPT_HALF = (why) => ({ ok: false, because: 'an earlier sign-in on this computer could not be removed from your Kosmos+ account yet (' + why + '); try again in a moment' });
 /* After a half identity could not be retired, a "name taken" answer is most
    likely this computer's own earlier attempt, not another Mac: say so, and
    what to do, instead of letting it read as someone else's name. */
-function explainStranded(result, stranded) {
-  if (!stranded || !result || result.ok || !/\(409\)|already (has|owns) that name/i.test(String(result.because || ''))) return result;
-  return { ...result, because: result.because + '. It may be this computer\'s own earlier sign-in, which could not be removed from your Kosmos+ account (' + stranded + '): remove it on your account page, or choose another name' };
+function explainStranded(result, half) {
+  const stranded = half && half.stranded;
+  // Only the same-account answer: another account's name ("that name is taken")
+  // or this account's own name rule is not this computer's doing.
+  if (!stranded || !result || result.ok || !/already in use by a Mac on this account/i.test(String(result.because || ''))) return result;
+  return { ...result, because: String(result.because).replace(/[.\s]+$/, '') + '. This computer\'s own earlier sign-in could not be removed from your Kosmos+ account (' + stranded + '), so it may be what holds the name: remove it on your account page, or pick another name' };
 }
 function busy() {
   // Forgetting first: while a Forget waits on a register both are true, and the
@@ -1302,9 +1325,6 @@ async function signinRegister(name) {
   // Try again must not start a second into the same directory), and none while
   // this computer is being forgotten.
   { const b = busy(); if (b) return b; }
-  if (!signinSession || typeof signinSession.token !== 'string') {
-    return { ok: false, because: 'finish the code steps first' };
-  }
   /* #3796 addendum 6 (Josh: "support either capital or lowercase"): the coordinator lowercases a
      name anyway, so only this app refused "MacbookPro". Lowercase (and trim) BEFORE the rule. */
   if (typeof name === 'string') name = name.trim().toLowerCase();
@@ -1338,6 +1358,12 @@ async function signinRegister(name) {
       return { ok: true, because: null, data: { stage: 'registered', address: have, name, standing: '', alreadySetUp: true } };
     }
   }
+  // After the shortcut: a register the page gave up on (it waits 15s, a
+  // certificate takes about a minute) finishes, clears the session and is set up;
+  // a Try again at the same name is answered above, not sent to the code steps.
+  if (!signinSession || typeof signinSession.token !== 'string') {
+    return { ok: false, because: 'finish the code steps first' };
+  }
   secureStateDir();
   // Like every other step: a Sign out (or a Forget) that lands while register is
   // waiting on the connector must not be followed by this turning Kosmos+ on.
@@ -1346,9 +1372,10 @@ async function signinRegister(name) {
   const running = (async () => {
     // An earlier register that stopped after the coordinator accepted it (key and
     // id, no certificate) is retired first, so this one does not strand it.
-    const stranded = await clearHalfIdentity();
+    const half = await clearHalfIdentity();
+    if (half && half.kept) return KEPT_HALF(half.kept);
     return explainStranded(await setupRun(['signin', 'register', '--coordinator', COORDINATOR(),
-      '--name', name, '--state-dir', STATE_DIR()], token, registerTimeoutMs()), stranded);
+      '--name', name, '--state-dir', STATE_DIR()], token, registerTimeoutMs()), half);
   })();
   registerInFlight = running;
   let r;

@@ -59,3 +59,12 @@ Weakest premise: Forget can now take up to the register bound (60s) when a regis
 - WARNING: setupComplete's half-identity retire was untested. Test: a killed in-app register, then the Settings setup retires before `setup complete`. Control (no retire there) fails by name.
 - NIT: busy() now says "being forgotten" first: while a Forget waits on a register both are true, and Forget is what the person asked for.
 - NIT (no change): forget's `address` is null for a half-registered Mac. Nothing reads it: server.js relays it and no page consumes it (searched web/ and bin/).
+
+## Round 8 review (opus)
+- WARNING: explainStranded matched every 409 (its "already has that name" half matched only the fixture). It now matches only the coordinator's same-account sentence ("already in use by a Mac on this account"); the fake now prints the coordinator's real sentences in the tunnel's "Kosmos+ said no (409): ..." form. Test: after a refused retire the same-account 409 gets the note; after a working retire, or another account's "that name is taken", it does not. Control (any 409) fails by name.
+- WARNING: a retire that got no answer still deleted the only key that could retire the half identity. Now: no answer (timeout, unreachable, would not start) keeps the key and the register answers "could not be removed yet; try again in a moment"; the retry retires and registers. A retire that worked or a definite refusal (said no 4xx) wipes as before. Test; control (always wipe) fails by name.
+- WARNING: Kosmos+ could be turned on during Forget's retire wait, starting a tunnel from the key about to be deleted. setOn(true) refuses while forgetting; forgetNow also stops any child after its final write. Test; control fails by name.
+- WARNING: a register the page gave up on (15s vs ~65s) succeeded, cleared the session, and a Try again at the same name was told "finish the code steps first". The already-set-up-at-this-name answer now comes before the session check. Test; control fails "finish the code steps first".
+- NIT: the Forget worst case is three bounds (~15 min); comment corrected.
+- NIT: the "being forgotten or still signing in" assertion now asserts being forgotten (busy() order). The in-test control now plants a half identity and retires it before the plain 409.
+- NIT: doubled period in the stranded note fixed (tested). setupComplete now has the epoch check signinRegister has: a Forget during a Settings setup answers cancelled, not set up. Test; control fails by name.

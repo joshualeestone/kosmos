@@ -44,6 +44,7 @@ if (args[0] === 'setup' && args[1] === 'start') {
   process.exit(0);
 }
 if (args[0] === 'setup' && args[1] === 'complete') {
+  if (mode.includes('slow-setup')) { const until = Date.now() + Number(process.env.FAKE_REGISTER_MS || 2500); while (Date.now() < until) { /* wait */ } }
   if (flag('--code') === '000000') {
     process.stderr.write('the coordinator said no (401): that code is not right\\n');
     process.exit(1);
@@ -148,7 +149,9 @@ if (args[0] === 'signin') {
     if (!token) { process.stderr.write('no session token on stdin\\n'); process.exit(1); }
     const name = flag('--name');
     if (name === 'taken') { process.stderr.write('the coordinator said no (409): a Mac on this account already has that name\\n'); process.exit(1); }
-    if (mode.includes('register-409')) { process.stderr.write('the coordinator said no (409): a Mac on this account already has that name\\n'); process.exit(1); }
+    // The coordinator's own sentences, as the tunnel prints them (setup.rs: "Kosmos+ said no (<code>): <words>").
+    if (mode.includes('register-409')) { process.stderr.write('Kosmos+ said no (409): The name ' + name + ' is already in use by a Mac on this account, at ' + name + '.kosmos.invalid. If that is this Mac, it is already signed in. If it is a different Mac, turn it off there first, or pick another name.\\n'); process.exit(1); }
+    if (mode.includes('register-taken')) { process.stderr.write('Kosmos+ said no (409): that name is taken\\n'); process.exit(1); }
     // #3827: a register that is still out when Sign out or Forget lands (busy wait: no timers here).
     // A register killed mid-certificate: the Mac's key and id are written, then it hangs.
     if (mode.includes('partial-register')) {
@@ -183,6 +186,8 @@ if (args[0] === 'devices') {
 }
 // #3827: a retire that hangs (a dead network).
 if (args[0] === 'retire' && mode.includes('hung-retire')) { const until = Date.now() + 15000; while (Date.now() < until) { /* wait */ } }
+// A definite refusal: Kosmos+ answered, and it will not retire this key.
+if (args[0] === 'retire' && mode.includes('retire-refused')) { process.stderr.write('Kosmos+ said no (401): this Mac is not known here\\n'); process.exit(1); }
 if (args[0] === 'run') {
   if (mode === 'crash') process.exit(3);
   const statusFile = flag('--status-file');
@@ -1111,7 +1116,8 @@ test('#3827: a second register while one is in flight is refused, and so is a si
     const forgetting = remote.forget();                 // waits for `first`
     const during = await remote.signinStart('her@example.com');
     assert.equal(during.ok, false, 'a sign-in started while this computer was being forgotten');
-    assert.match(during.because, /being forgotten|still signing in/);
+    // Both are true here; the Forget is what the person just asked for.
+    assert.match(during.because, /being forgotten/);
     await first;
     await forgetting;
     assert.equal(remote.enrolled(), false);
@@ -1256,7 +1262,7 @@ test('#3827: every sign-in step and the Settings setup are refused while a Forge
   }
 });
 
-test('#3827: a half identity that cannot be retired is logged, and the new register still runs', async () => {
+test('#3827: a half identity whose retire gets no answer is kept, the register waits, and a retry retires it', async () => {
   process.env.AGENT_WORKFORCE_TUNNEL_RELAY = '127.0.0.1:9444';
   process.env.FAKE_TUNNEL_MODE = 'partial-register';
   process.env.AGENT_WORKFORCE_REGISTER_TIMEOUT_MS = '1500';
@@ -1268,11 +1274,21 @@ test('#3827: a half identity that cannot be retired is logged, and the new regis
     const killed = await remote.signinRegister('hers');
     assert.equal(killed.ok, false, 'fixture: the register was killed by its bound');
     process.env.FAKE_TUNNEL_MODE = 'hung-retire';
+    fs.rmSync(RECORD, { force: true });
     process.stderr.write = function (chunk, ...rest) { logged.push(String(chunk)); return orig.call(this, chunk, ...rest); };
     const again = await remote.signinRegister('hers');
     process.stderr.write = orig;
-    assert.equal(again.ok, true, 'the register after a failed retire hit a dead end: ' + again.because);
-    assert.ok(logged.some((l) => /could not be retired/.test(l)), 'the failed retire of the half identity was silent: ' + JSON.stringify(logged));
+    assert.equal(again.ok, false, 'a register ran after a retire that got no answer');
+    assert.match(again.because, /could not be removed.*try again/, again.because);
+    assert.ok(!recorded().some((c) => c[0] === 'signin' && c[1] === 'register'), 'the register ran beside a kept half identity');
+    assert.ok(logged.some((l) => /could not be retired/.test(l)), 'the failed retire was silent: ' + JSON.stringify(logged));
+    // The key was kept, so a retry (the network back) retires it and registers.
+    delete process.env.FAKE_TUNNEL_MODE;
+    fs.rmSync(RECORD, { force: true });
+    const retry = await remote.signinRegister('hers');
+    assert.equal(retry.ok, true, 'the retry hit a dead end: ' + retry.because);
+    const calls = recorded().map((c) => (c[0] === 'signin' ? 'signin ' + c[1] : c[0]));
+    assert.ok(calls.indexOf('retire') >= 0 && calls.indexOf('retire') < calls.indexOf('signin register'), 'the kept half identity was not retired on the retry: ' + JSON.stringify(calls));
   } finally {
     process.stderr.write = orig;
     delete process.env.FAKE_TUNNEL_MODE;
@@ -1281,27 +1297,31 @@ test('#3827: a half identity that cannot be retired is logged, and the new regis
   }
 });
 
-test('#3827: after a half identity could not be retired, "name taken" says it may be this computer\'s own earlier sign-in', async () => {
+test('#3827: after Kosmos+ refused to retire a half identity, its "already in use on this account" says it may be this computer\'s own', async () => {
   process.env.AGENT_WORKFORCE_TUNNEL_RELAY = '127.0.0.1:9444';
-  process.env.FAKE_TUNNEL_MODE = 'partial-register';
   process.env.AGENT_WORKFORCE_REGISTER_TIMEOUT_MS = '1500';
   const orig = process.stderr.write;
-  try {
-    await remote.signinStart('her@example.com');
-    await remote.signinVerify('her@example.com', '111111');
+  const halfThen = async (mode) => {
+    process.env.FAKE_TUNNEL_MODE = 'partial-register';
     const killed = await remote.signinRegister('hers');
     assert.equal(killed.ok, false, 'fixture: the register was killed by its bound');
-    process.env.FAKE_TUNNEL_MODE = 'hung-retire,register-409';
+    process.env.FAKE_TUNNEL_MODE = mode;
+    return remote.signinRegister('hers');
+  };
+  try {
     process.stderr.write = () => true;
-    const again = await remote.signinRegister('hers');
-    process.stderr.write = orig;
-    assert.equal(again.ok, false, 'fixture: the coordinator still holds the name');
-    assert.match(again.because, /own earlier sign-in/, 'a stranded attempt read as another Mac\'s name: ' + again.because);
-    // Control inside the test: with the retire working, a 409 is left as it is.
-    process.env.FAKE_TUNNEL_MODE = 'register-409';
-    const plain = await remote.signinRegister('hers');
-    assert.equal(plain.ok, false);
-    assert.doesNotMatch(plain.because, /own earlier sign-in/, 'a plain 409 was blamed on this computer');
+    await remote.signinStart('her@example.com');
+    await remote.signinVerify('her@example.com', '111111');
+    const stranded = await halfThen('retire-refused,register-409');
+    assert.equal(stranded.ok, false, 'fixture: the coordinator still holds the name');
+    assert.match(stranded.because, /own earlier sign-in/, 'a stranded attempt read as another Mac: ' + stranded.because);
+    assert.doesNotMatch(stranded.because, /\.\./, 'doubled punctuation: ' + stranded.because);
+    // A half identity that WAS retired: the same answer is left as it is.
+    const retired = await halfThen('register-409');
+    assert.doesNotMatch(retired.because, /own earlier sign-in/, 'a 409 after a working retire was blamed on this computer');
+    // Another account's name after a refused retire: not this computer's doing.
+    const other = await halfThen('retire-refused,register-taken');
+    assert.doesNotMatch(other.because, /own earlier sign-in/, 'another account\'s name was blamed on this computer');
   } finally {
     process.stderr.write = orig;
     delete process.env.FAKE_TUNNEL_MODE;
@@ -1329,6 +1349,64 @@ test('#3827: the Settings setup also retires a half identity before it registers
   } finally {
     delete process.env.FAKE_TUNNEL_MODE;
     delete process.env.AGENT_WORKFORCE_REGISTER_TIMEOUT_MS;
+    remote.setOn(false);
+  }
+});
+
+test('#3827: Kosmos+ cannot be turned on while this computer is being forgotten', async () => {
+  process.env.AGENT_WORKFORCE_TUNNEL_RELAY = '127.0.0.1:9444';
+  await remote.signinStart('her@example.com');
+  await remote.signinVerify('her@example.com', '111111');
+  const reg = await remote.signinRegister('hers');
+  assert.equal(reg.ok, true, 'fixture: registered ' + reg.because);
+  process.env.FAKE_TUNNEL_MODE = 'hung-retire';
+  process.env.AGENT_WORKFORCE_REGISTER_TIMEOUT_MS = '1500';
+  try {
+    const forgetting = remote.forget();
+    const on = remote.setOn(true);
+    assert.equal(on.ok, false, 'Kosmos+ was switched on in the middle of a Forget');
+    assert.match(on.because, /being forgotten/);
+    await forgetting;
+    assert.equal(remote.read().on, false, 'the switch is on after the Forget');
+  } finally {
+    delete process.env.FAKE_TUNNEL_MODE;
+    delete process.env.AGENT_WORKFORCE_REGISTER_TIMEOUT_MS;
+  }
+});
+
+test('#3827: a Try again after a register the page gave up on is answered, not sent back to the code steps', async () => {
+  process.env.AGENT_WORKFORCE_TUNNEL_RELAY = '127.0.0.1:9444';
+  process.env.FAKE_TUNNEL_MODE = 'slow-register';
+  try {
+    await remote.signinStart('her@example.com');
+    await remote.signinVerify('her@example.com', '111111');
+    const first = remote.signinRegister('hers');
+    const early = await remote.signinRegister('hers');
+    assert.match(early.because, /still signing in/, 'fixture: the first is still out');
+    assert.equal((await first).ok, true, 'fixture: the late register succeeded');
+    const late = await remote.signinRegister('hers');
+    assert.equal(late.ok, true, 'a Try again after a late success hit: ' + late.because);
+    assert.equal(late.data && late.data.alreadySetUp, true);
+  } finally {
+    delete process.env.FAKE_TUNNEL_MODE;
+    remote.setOn(false);
+  }
+});
+
+test('#3827: a Forget during a Settings setup ends it cancelled, not "set up"', async () => {
+  process.env.AGENT_WORKFORCE_TUNNEL_RELAY = '127.0.0.1:9444';
+  process.env.FAKE_TUNNEL_MODE = 'slow-setup';
+  try {
+    await remote.setupStart('her@example.com');
+    const setting = remote.setupComplete('123456', 'hers');
+    const forgetting = remote.forget();
+    const r = await setting;
+    assert.equal(r.ok, false, 'the Settings page was told it is set up while the Mac was being forgotten');
+    assert.match(r.because, /cancelled/);
+    await forgetting;
+    assert.equal(remote.enrolled(), false, 'the Mac is still set up after the Forget');
+  } finally {
+    delete process.env.FAKE_TUNNEL_MODE;
     remote.setOn(false);
   }
 });
