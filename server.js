@@ -7120,7 +7120,8 @@ const server = http.createServer((req, res) => {
      card only when Plus is on and enrolled, which the engine already
      encodes as an empty list. */
   if (pathname === '/api/remote/pending' && (req.method === 'GET' || req.method === 'HEAD')) {
-    try { sendJson(res, 200, remote.pendingDevices()); }
+    // #3829 follow-up: the card names this Mac's own sign-in the same way the list does.
+    try { sendJson(res, 200, Object.assign({}, remote.pendingDevices(), { self_device_id: typeof remote.read().device_id === 'string' ? remote.read().device_id : '' })); }
     catch { sendJson(res, 500, { error: 'we could not read what is waiting' }); }
     return;
   }
@@ -7129,7 +7130,10 @@ const server = http.createServer((req, res) => {
       .then((list) => {
         if (!list.ok) { sendJson(res, 500, { error: list.because }); return; }
         const pending = remote.pendingDevices();
-        sendJson(res, 200, { pending: pending.devices, allowed: list.data.devices, email: pending.email, on: remote.read().on === true });
+        /* #3829 follow-up (ICK's finding): this Mac's own in-app sign-in is a row too, and it sends no name.
+           Its id (an opaque label kept in remote.json, not a credential) lets the page call it "This Mac". */
+        const self = typeof remote.read().device_id === 'string' ? remote.read().device_id : '';
+        sendJson(res, 200, { pending: pending.devices, allowed: list.data.devices, email: pending.email, on: remote.read().on === true, self_device_id: self });
       })
       .catch(() => sendJson(res, 500, { error: 'we could not read the devices' }));
     return;

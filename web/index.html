@@ -15468,7 +15468,6 @@ window.kosmosMeasureScrollbarWidth();
       </div>
       <div class="plus-chip" id="plus-chip" hidden>
         <code id="plus-chip-addr"></code>
-        <button class="btn" type="button" id="plus-copy">Copy</button>
         <a class="btn" id="plus-open" href="#" target="_blank" rel="noreferrer noopener">Open</a>
       </div>
       <div class="setrow">
@@ -35549,13 +35548,18 @@ paintStyles(true);
    it asked, never by anything that identifies it; the time keeps ticking
    while shown; the two buttons keep their colours whatever the history,
    because swapping the gold one on a re-ask is itself a mis-tap hazard. */
-const ASK = { devices: [], email: '', done: {}, allowed: null, confirm: null };
+const ASK = { devices: [], email: '', done: {}, allowed: null, confirm: null, self: '' };
 /* #3829: "Not now" is gone (a waiting request stays on screen until Allow or Deny; an old one fades). A
    session flag an older build left behind must not keep hiding the card, so it is cleared, never read. */
 try { sessionStorage.removeItem('ask-later'); } catch { /* no storage: nothing to clear */ }
 /* #3829 (Josh's shots: a list row named just "device"): a request with no name reads "Unknown device",
    never the bare noun. The name comes from the device's own sign-in ("Windows browser", "iPhone"). */
-function askKind(d) { return d && typeof d.name === 'string' && d.name ? d.name : 'Unknown device'; }
+function askKind(d) {
+  /* #3829 follow-up (ICK): this computer's own in-app sign-in has no name; it is this computer, not an unknown
+     device. "computer", not "Mac": Kosmos runs on Windows too, and engine/machine.test.js holds the page to it. */
+  if (d && ASK.self && d.device_id === ASK.self) return 'This computer (Kosmos app)';
+  return d && typeof d.name === 'string' && d.name ? d.name : 'Unknown device';
+}
 /* The request card's icon, from the kind: a phone, a tablet, or a computer (a browser, or unknown). */
 function askIcon(kind) {
   const k = String(kind || '');
@@ -35592,6 +35596,7 @@ async function pollAsk() {
   if (!r || !Array.isArray(r.devices)) return;   /* a blip keeps the last paint; nothing is invented */
   ASK.devices = r.devices;
   ASK.email = r.email || '';
+  if (typeof r.self_device_id === 'string') ASK.self = r.self_device_id;
   /* A finished row leaves once the tunnel stops listing the device (allowed
      ids are excluded from pending; a deny drops the row at the coordinator),
      and an allowed row leaves on its own after a few seconds regardless. */
@@ -35717,6 +35722,7 @@ async function paintDevices() {
   if (!r || !Array.isArray(r.allowed)) { msg.textContent = plusWords((r && r.error) || 'we could not read the devices'); return; }
   msg.textContent = '';
   ASK.allowed = r.allowed;
+  if (typeof r.self_device_id === 'string') ASK.self = r.self_device_id;
   document.getElementById('plus-devices-off').hidden = r.on !== false;
   /* #3829: a pending request shows ONCE, as its card at the top of the app (#askcard), not again here.
      This list is the devices already allowed. */
@@ -36006,8 +36012,9 @@ async function paintPlus() {
     }
   }
   /* Connected: one plain line under the chip. Otherwise the engine's own sentence says why not. */
+  /* Josh's 17:30 ruling (the #3796 landing's line): one way in on another device, the website. */
   st.textContent = up
-    ? 'Open this address in any browser, or sign in on the Kosmos+ mobile apps.'
+    ? 'To use Kosmos on another device, sign in at login.kosmosplus.com.'
     : (stat.state === 'up' ? 'Connected. Your address is on its way.'
       : (because ? because.charAt(0).toUpperCase() + because.slice(1) + (/[.!?]$/.test(because) ? '' : '.') : ''));
   /* #1014: only a real address earns an instruction. While the tunnel is
@@ -36045,11 +36052,7 @@ document.getElementById('plus-code').addEventListener('input', (e) => {
   const clean = e.target.value.replace(/\D/g, '').slice(0, 6);
   if (e.target.value !== clean) e.target.value = clean;
 });
-document.getElementById('plus-copy').addEventListener('click', (e) => {
-  const b = e.currentTarget;
-  const text = document.getElementById('plus-chip-addr').textContent;
-  try { navigator.clipboard.writeText(text).then(() => { b.textContent = 'Copied'; setTimeout(() => { b.textContent = 'Copy'; }, 1500); }, () => {}); } catch (err) { /* the address is on screen to copy by hand */ }
-});
+
 document.getElementById('plus-switch').addEventListener('click', async () => {
   const msg = document.getElementById('plus-msg');
   plusSay('');

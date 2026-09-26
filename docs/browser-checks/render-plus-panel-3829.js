@@ -63,8 +63,8 @@ const STATES = {
       page.on('pageerror', (e) => errs.push(e.message));
       const json = (o) => ({ status: 200, contentType: 'application/json', body: JSON.stringify(o) });
       await page.route('**/api/remote', (route, req) => route.fulfill(json(req.method() === 'GET' ? st.remote : { ok: true })));
-      await page.route('**/api/remote/pending', (route) => route.fulfill(json({ devices: st.pending, email: 'you@example.com' })));
-      await page.route('**/api/remote/devices**', (route) => route.fulfill(json({ on: st.remote.on, allowed: [{ device_id: 'd-mac', name: 'Mac browser', allowed_at: now() - 86400, last_seen: now() - 600 }, { device_id: 'd-noname', allowed_at: now() - 7200 }], pending: st.pending })));
+      await page.route('**/api/remote/pending', (route) => route.fulfill(json({ devices: st.pending, email: 'you@example.com', self_device_id: 'd-self' })));
+      await page.route('**/api/remote/devices**', (route) => route.fulfill(json({ on: st.remote.on, allowed: [{ device_id: 'd-mac', name: 'Mac browser', allowed_at: now() - 86400, last_seen: now() - 600 }, { device_id: 'd-noname', allowed_at: now() - 7200 }, { device_id: 'd-self', allowed_at: now() - 3600 }], pending: st.pending, self_device_id: 'd-self' })));
       await page.goto(BASE, { waitUntil: 'networkidle' });
       if (await page.$('#firstrun:not([hidden])')) { await page.keyboard.press('Escape'); await page.waitForTimeout(400); }
       await page.evaluate(() => showTab('settings'));
@@ -78,7 +78,7 @@ const STATES = {
         const card = document.getElementById('askcard');
         return {
           pill: document.getElementById('plus-pill').textContent.trim(), pillState: document.getElementById('plus-pill').getAttribute('data-state'),
-          chip: vis('plus-chip'), chipAddr: document.getElementById('plus-chip-addr').textContent.trim(),
+          chip: vis('plus-chip'), copy: !!document.getElementById('plus-copy'), chipAddr: document.getElementById('plus-chip-addr').textContent.trim(),
           open: document.getElementById('plus-open').getAttribute('href'), account: document.getElementById('plus-account').getAttribute('href'),
           status: document.getElementById('plus-status').textContent.trim(), sw: sw.textContent.trim(), swClass: sw.className,
           cardShown: vis('askcard'), cardText: card ? card.innerText.replace(/\s+/g, ' ') : '',
@@ -100,7 +100,7 @@ const STATES = {
       } else {
         chk(v.pill === 'Connected' && v.pillState === 'up', `${t} a green Connected pill`, v.pill);
         chk(v.chip && v.chipAddr === ADDR && v.open === 'https://' + ADDR + '/', `${t} the address in one chip with Open to it`, JSON.stringify({ chip: v.chip, a: v.chipAddr, open: v.open }));
-        chk(v.status === 'Open this address in any browser, or sign in on the Kosmos+ mobile apps.', `${t} one plain line under the chip`, v.status);
+        chk(v.status === 'To use Kosmos on another device, sign in at login.kosmosplus.com.' && !v.copy, `${t} one plain line under the chip (Josh's 17:30 wording), and no Copy`, v.status);
         chk(v.sw === 'Turn off' && v.swClass === 'plus-quiet', `${t} Turn off is quiet, not a headline button`, v.sw + ' ' + v.swClass);
         chk(v.account === 'https://login.kosmosplus.com/', `${t} View my account opens the web account`, v.account);
       }
@@ -118,6 +118,7 @@ const STATES = {
         chk(/Unknown device/.test(v.cardText) && !/\bdevice\b[^s]*\bis asking/.test(v.cardText), `${t} an unnamed request reads "Unknown device"`, v.cardText);
       }
       chk(!v.listNames.some((n) => n === 'device') && v.listNames.includes('Unknown device'), `${t} an unnamed devices-list row reads "Unknown device", never just "device"`, JSON.stringify(v.listNames));
+      chk(v.listNames.includes('This computer (Kosmos app)'), `${t} this Mac's own sign-in row reads "This computer (Kosmos app)" (ICK's finding)`, JSON.stringify(v.listNames));
       if (SHOTS) { await page.setViewportSize({ width: 1400, height: 1300 }); await page.evaluate(() => window.scrollTo(0, 0)); await page.waitForTimeout(200); await page.screenshot({ path: path.join(SHOTS, `3829-${key}.png`) }); }
       chk(errs.length === 0, `${t} no page errors`, errs.join(' | '));
       await page.close();

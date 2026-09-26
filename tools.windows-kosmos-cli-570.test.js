@@ -203,6 +203,17 @@ test('#3224: post --in-reply-to binds the reply; parity with install/kosmos (fla
   assert.match(trailing.calls[0].body.text, /--in-reply-to m5/, 'the trailing flag+id land verbatim in the message text, unbound');
 });
 
+test('#2710 parity: a post refused for any reason hands the text back (not only a which-room hold)', async () => {
+  const refused = () => ({ body: { delivery: { state: 'could_not', because: 'the room is paused until the person comes back' } } });
+  const r = await run(['post', 'proj-1', 'a long substantive update'], refused);
+  assert.equal(r.code, 1);
+  assert.match(r.err, /Not posted: the room is paused/);
+  assert.match(r.err, /here it is to keep and re-post when the room is ready/, 'the generic refusal must say how to keep it (install/kosmos wording)');
+  assert.match(r.err, /a long substantive update/, 'the text is handed back');
+  const held = await run(['post', 'proj-1', 'x'], () => ({ body: { delivery: { state: 'could_not', code: 'which_room', because: 'q' } } }));
+  assert.match(held.err, /here it is to send again/, 'a which-room hold keeps its own wording');
+});
+
 test('#3224: post --new sends new_post:true (not held to ask which room); without it no field; combines with the other leading flags; non-leading is text', async () => {
   const ok = () => ({ body: { delivery: { state: 'placed' } } });
   const a = await run(['post', '--new', 'proj-1', 'a new post'], ok);
