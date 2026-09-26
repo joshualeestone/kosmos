@@ -2,10 +2,10 @@
 pre_challenge: true
 method: challenge-loop
 branch: header-stable-2624
-diff_hash: eb8b9bd8da1de0fbedec49cf511fe72476c3c978dcb9f117ff07b20878c51046
+diff_hash: 7b0ce4d013ae4ca35806a70dfda67fa2e958ed8a08f67fde0d4c6f83b76f2c1b
 validation: passed
 subdir_audit: passed
-timestamp: 2026-09-26T09:44:01Z
+timestamp: 2026-09-26T10:00:54Z
 iterations: 3
 converged: true
 ---
@@ -39,3 +39,7 @@ fix, which removes the need for one, is #3920. [NIT] String(className) on an SVG
 
 ### After two rebases onto main (browser-checks.sh loop-line conflicts only)
 Validation clean at eb8b9bd8. Gates clean; render-tophead-stable-2624, render-tophead-consolidated-2282, render-dm-emoji-3744 and render-help-tips-3574 re-run green on the rebased tree. A full tools/browser-checks.sh run on the first rebase was green except render-accounts-openai, which fails identically on main: bisected to c00ccac97 (#3910), reported on #3874, and Angel is fixing it.
+
+### After #3928 (#3920) landed first
+- [CONVENTION] the 5% own-area allowance in T35 existed only for the tip engine gap #3920 closed --> FIXED (d1d3c5d53): T35 strict again (`|| g.overArea`), HEADER-control rule and diagnostics kept, as agreed with PigeonPete. Measured on this header with his fix: T35 and T35b pass (Conversation left, 244px, off the area).
+Validation clean at 7b0ce4d0; gates, the wiring tests and the header checks re-run green on af8b2a808.
