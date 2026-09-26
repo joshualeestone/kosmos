@@ -14,7 +14,9 @@ const INVISIBLE = /[\uFE00-\uFE0F\u{E0100}-\u{E01EF}\u115F\u1160\u3164\uFFA0\u28
    then folds lookalike forms (fullwidth letters). The fallback enumerates the
    class for an engine without \p{Cf}. */
 function externalName(v, max) {
-  let s = String(v == null ? '' : v);
+  // Only a string or a number is a name; anything else from outside is none (and
+  // String() on some objects throws).
+  let s = typeof v === 'string' ? v : (typeof v === 'number' && Number.isFinite(v) ? String(v) : '');
   try { s = s.replace(/\p{Cf}/gu, ''); }
   catch { s = s.replace(/[\u00ad\u061c\u200b-\u200f\u2060-\u2064\u202a-\u202e\u2066-\u2069\ufeff]/g, ''); }
   s = s.normalize('NFKC');

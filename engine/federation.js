@@ -142,7 +142,7 @@ function reasonFor(sentence) {
   return null;
 }
 
-const { externalName } = require('./externalname');
+const { externalName, INVISIBLE, byCodePoint } = require('./externalname');
 const DESC_MAX = 1000;
 // A project name is a ref (refOk's 200), and an owner handle is a Kosmos+ name
 // (3 to 32 characters at the coordinator), kept with room to spare.
@@ -187,7 +187,8 @@ async function verify(remote, body) {
   }
   // Bounded like everything else that arrives from outside: the name as a ref,
   // the description as a project's own (DESC_MAX), the handle as a name.
-  const bound = (v, max) => (typeof v === 'string' && v ? v.slice(0, max) : null);
+  // By code point, like every outside name and body (never half a character).
+  const bound = (v, max) => (typeof v === 'string' && v ? byCodePoint(v, max) : null);
   const snap = {
     edge_id: d.edge_id,
     // Shown on the join screen and made this project's name: cleaned as every
@@ -197,7 +198,7 @@ async function verify(remote, body) {
     // as they do from every outside name: bidi overrides and zero-widths could make
     // the join screen show something other than what was sent.
     project_desc: bound(typeof d.project_desc === 'string'
-      ? d.project_desc.replace(/\p{Cf}/gu, '').replace(/[\u0000-\u0009\u000b-\u001f\u007f-\u009f\u2028\u2029]/g, ' ')
+      ? d.project_desc.replace(/\p{Cf}/gu, '').replace(INVISIBLE, '').replace(/[\u0000-\u0009\u000b-\u001f\u007f-\u009f\u2028\u2029]/g, ' ')
       : d.project_desc, DESC_MAX),
     // Shown as the trusted "Shared by": cleaned like every outside name, not
     // only bounded, so it does not rest on the coordinator's handle rules alone.

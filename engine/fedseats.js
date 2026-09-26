@@ -130,7 +130,10 @@ function onEvent(projectId, line) {
     if (!s.inbound || now - s.inbound.since >= INBOUND_WINDOW_MS) s.inbound = { since: now, count: 0, bytes: 0, noted: false };
     const day = new Date(now).toISOString().slice(0, 10);
     if (!s.inday || s.inday.day !== day) s.inday = { day, bytes: 0, rows: 0, noted: false };
-    const size = Buffer.byteLength(ev.data.text) + Buffer.byteLength(String(ev.data.from || ''));
+    // `from` is whatever the other Mac wrote: only a string counts. String() on an
+    // object whose toString is not a function throws, here, where nothing catches.
+    const fromRaw = typeof ev.data.from === 'string' ? ev.data.from : '';
+    const size = Buffer.byteLength(ev.data.text) + Buffer.byteLength(fromRaw);
     s.inbound.count += 1;
     s.inbound.bytes += size;
     if (s.inbound.count > INBOUND_PER_WINDOW || s.inbound.bytes > INBOUND_BYTES_PER_WINDOW) {
@@ -149,7 +152,7 @@ function onEvent(projectId, line) {
     // has nothing above it to catch it and would take the board down.
     try {
       deps.recordExternal(projectId, {
-        from: clean(ev.data.from, 80) || 'someone outside',
+        from: clean(fromRaw, 80) || 'someone outside',
         fromKind: ev.data.kind === 'agent' ? 'agent' : 'person',
         text: ev.data.text,
       });
@@ -221,7 +224,12 @@ function spawnFor(projectId, edge) {
     while ((i = buf.indexOf('\n')) >= 0) {
       const line = buf.slice(0, i);
       buf = buf.slice(i + 1);
-      if (line.trim()) onEvent(projectId, line);
+      // Every field of an event came from outside this Mac: no shape of one may
+      // throw out of this listener, which has nothing above it and would take the
+      // board down.
+      if (line.trim()) {
+        try { onEvent(projectId, line); } catch (err) { console.error('#3311: an event from the external project could not be read: ' + String((err && err.message) || err)); }
+      }
     }
   });
   // A real child's 'exit' can come before its stdout is read, so its last line

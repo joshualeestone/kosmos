@@ -15886,7 +15886,19 @@ function federateOut(projectId, delivery, operator) {
       if (m && m.name && m.present) from = m.name;
     } catch { /* keeps 'an agent': the session name is internal and never leaves */ }
   }
-  try { fedseats.post(projectId, { from, kind: operator ? 'person' : 'agent', text }); } catch { /* a seat is best-effort */ }
+  let sent = false;
+  try { sent = fedseats.post(projectId, { from, kind: operator ? 'person' : 'agent', text }) === true; } catch { /* a seat is best-effort */ }
+  // Files never leave this computer. When the words went and a file did not, say
+  // so here, or "see the attached plan" arrives with nothing attached and nobody
+  // on this side knows.
+  if (sent) {
+    let hadFiles = false;
+    try {
+      const row = messages.record().rows.find((m) => m && m.id === delivery.id);
+      hadFiles = !!(row && (row.attachment || (Array.isArray(row.attachments) && row.attachments.length)));
+    } catch { hadFiles = false; }
+    if (hadFiles) messages.roomNote(projectId, 'The words went to the external project; the attached file stayed on this computer.');
+  }
 }
 
 function start(port = PORT) {

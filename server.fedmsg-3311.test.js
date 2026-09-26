@@ -243,6 +243,9 @@ test('a post too long for the connector stays here and says so, before anything 
 });
 
 test('the room view keeps local posts in sight however much arrives from outside', async () => {
+  // A local row written BEFORE the flood: only a view that keeps local rows past
+  // the outside cap still shows it (a row written last would show either way).
+  messages.roomNote(pid, 'an older local note, before the flood');
   for (let i = 0; i < 45; i++) children[0].stdout.write(JSON.stringify({ event: 'message', data: { from: 'Busy', kind: 'person', text: 'outside ' + i } }) + '\n');
   await new Promise((r) => setImmediate(r));
   federateOut(pid, { id: 'p-local-seen', from: 'you', text: 'local words' }, true);
@@ -251,6 +254,7 @@ test('the room view keeps local posts in sight however much arrives from outside
   const outsideLines = text.split('\n').filter((l) => l.includes('[external')).length;
   assert.ok(outsideLines <= 20, `${outsideLines} outside rows in the view`);
   assert.match(text, /a local note to find/);
+  assert.match(text, /an older local note, before the flood/, 'a local row from before the flood fell out of the view');
 });
 
 test('a link in words from outside is never fetched when the room is read', async () => {
@@ -298,4 +302,34 @@ test('a name from outside never makes its rows a local agent\'s own', async () =
   assert.ok(row, 'fixture: the outside row was stored');
   const mine = messages.list('lookalikefed');
   assert.equal(mine.filter((m) => m.id === row.id).length, 0, 'an outside row showed in the local agent\'s own messages');
+});
+
+test('a message whose sender is not text cannot take the board down', async () => {
+  const before = messages.record().rows.filter((m) => m.kind === 'external' && m.project === pid).length;
+  const orig = console.error;
+  console.error = () => {};
+  try {
+    for (const from of [{ toString: 1 }, [{ toString: 1 }], 42, null]) {
+      children[0].stdout.write(JSON.stringify({ event: 'message', data: { from, kind: 'person', text: 'odd sender' } }) + '\n');
+      await new Promise((r) => setImmediate(r));
+    }
+  } finally { console.error = orig; }
+  const rows = messages.record().rows.filter((m) => m.kind === 'external' && m.project === pid);
+  assert.equal(rows.length, before + 4, 'the messages were not kept');
+  assert.deepEqual(rows.slice(-4).map((m) => m.from), ['someone outside', 'someone outside', 'someone outside', 'someone outside']);
+});
+
+test('words that go out without their attached file say the file stayed here', async () => {
+  const att = { id: 'att-fed-1', name: 'plan.pdf', type: 'application/pdf', size: 10, kind: 'pdf', url: '/api/attachment/att-fed-1', preview: null };
+  const delivery = messages.sendPost({ operator: true, project: pid, projectName: 'Shared Club', text: 'see the attached plan', attachment: att, attachments: [att], federated: true }, [], []);
+  assert.ok(delivery && delivery.id, 'fixture: the post landed');
+  const sent = children[0].written.length;
+  federateOut(pid, delivery, true);
+  assert.equal(children[0].written.length, sent + 1, 'fixture: the words went out');
+  const said = messages.record().rows.filter((m) => m.kind === 'note' && m.project === pid && /attached file stayed on this computer/.test(m.text));
+  assert.equal(said.length, 1, 'the file stayed here without a word');
+  // A post with no file says nothing of the kind.
+  const plain = messages.sendPost({ operator: true, project: pid, projectName: 'Shared Club', text: 'no file here', federated: true }, [], []);
+  federateOut(pid, plain, true);
+  assert.equal(messages.record().rows.filter((m) => m.kind === 'note' && m.project === pid && /attached file stayed/.test(m.text)).length, 1);
 });

@@ -299,3 +299,9 @@ not count).
 ## Round 24 (sonnet)
 - WARNING: externalName cut by UTF-16 code unit, so an emoji at the limit left a lone surrogate in a stored name (and, through joinedProjectName, a U+FFFD in a folder name). It now cuts by code point (byCodePoint), and so does the outside message body. Test; controls (either slice back to code units) fail by name.
 - WARNING: the per-day inbound budget resets on a board restart. Already on kosmos#3844 (round 20); the comment now says it bounds one run's growth, not a calendar day's.
+
+## Round 25 (opus)
+- BLOCKER: a peer could crash the board with one message: `{"from":{"toString":1},"text":"hi"}` made String(ev.data.from) throw inside the child's stdout listener, which nothing catches (no process-level handler). `from` now counts only as a string; externalName never calls String() on a non-string (strings and finite numbers only); and every onEvent call in the data loop is wrapped, so no future field can throw out of that listener. Test feeds four odd senders and checks all four are kept as "someone outside"; control (String() on from, both sites) fails "the messages were not kept".
+- WARNING: words with an attached file went out and the file silently stayed here. federateOut now reads the stored row: when the words were sent and it carried files, the room says "The words went to the external project; the attached file stayed on this computer." Test (with a no-file post that says nothing); control fails by name.
+- NIT: project_desc was cut by code unit and kept variation selectors / blank letters: now byCodePoint and INVISIBLE, like names and bodies.
+- NIT: "the room view keeps local posts in sight" only found the newest row. It now writes a local note before the 45-message flood and asserts it is still in the view.
