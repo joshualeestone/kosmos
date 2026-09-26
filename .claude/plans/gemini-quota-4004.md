@@ -37,6 +37,10 @@ message after the reset works (item 4 with no restart). The board read the quest
 - "Midnight Pacific" is Google's documented reset for free-tier daily limits; the screen does not give a time.
 - The Settings account row (red/amber) belongs to #3997, which owns those rows; not duplicated here.
 
+- Review round 2: one parser of the Stop row (status.geminiStopKey) for the reading and the key; the card carries
+  limitFrom and the wording keys on it. Deferred: the setup guide's hosted-fallback limit sentence (web asbFallbackWords)
+  stays generic; it belongs with #3997's account wording. A two-digit option number is untested (dialogs have 2-3).
+
 ## Weakest premise
 - Matching Gemini's words on screen: a future CLI can reword them. The reading then falls back to today's behaviour
   (unknown/idle), and the sweep presses nothing, since it needs the question recognised.

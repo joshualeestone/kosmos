@@ -1174,9 +1174,7 @@ function answerGeminiQuotaStop(sessionName, roster) {
   try { text = status.capturePane(t); } catch { text = null; }
   const q = text ? status.geminiQuotaReading(text) : null;
   if (!q || !q.dialog) return { ok: false, because: 'the quota question is not on its screen now' };
-  const stopRow = String(text).split('\n').map((r) => r.replace(/^[\s│●○>]+|[\s│]+$/g, '')).reverse()
-    .find((r) => /^\d+\.\s+Stop$/i.test(r));
-  const key = stopRow ? stopRow.match(/^(\d+)\./)[1] : null;
+  const key = status.geminiStopKey(text);
   if (!key) return { ok: false, because: 'the question on its screen has no Stop to choose' };
   const got = tmux(['send-keys', '-t', t, key]);
   if (got.spawnFailed || !got.ran || got.status !== 0) return { ok: false, because: 'we could not answer the question; look at its window' };
