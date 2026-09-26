@@ -58,3 +58,9 @@ test's 5s device wait, which failed with a message blaming the browser wait; now
 - NIT: the ok-assert moved inside the try, so a failed Mac start still cancels the Windows one.
 
   Measured after the fix: wrong watchdog, starts swapped, 60 runs, load 16-27: 60 red, 0 vacuous.
+
+## Iteration 4 (sonnet)
+- Confirmed: 60/60 pass on the real engine and 60/60 red on the wrong-watchdog engine, both start
+  orders, at load ~14-29 and ~41-77; no leftover stand-ins or sandboxes.
+- CONVENTION: "certainly have fired" claimed a guarantee; the scheduled time is bounded, the
+  margin against event-loop lateness is measured, not proven --> reworded.

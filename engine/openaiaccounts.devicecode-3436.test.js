@@ -227,7 +227,8 @@ test('the watchdog uses the longer wait only for a win32 device sign-in', async 
     await waitFor(win.sessionId, (x) => x.state === 'awaiting-code' || x.state === 'error');
     const m = await waitFor(mac.sessionId, (x) => x.state === 'error');
     assert.equal(m.error, 'the OpenAI sign-in timed out');
-    /* Read only once a browser-wait watchdog for Windows would certainly have fired: measured from
+    /* Read only once a browser-wait watchdog for Windows would have fired (its scheduled time is
+       bounded; READ_MARGIN_MS covers event-loop lateness, measured to load ~77, not proven): measured from
        when ITS start returned, not from the Mac error. (Reading at the Mac error relied on the
        Windows start coming first: swapped, a slow second start let a wrong watchdog pass 10 of 100
        runs under load.) Staying in awaiting-code then means Windows is NOT on the browser wait; the
