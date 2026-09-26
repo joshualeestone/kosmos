@@ -16,6 +16,8 @@
  *   - a long agent name stays inside the screen in the compact header;
  *   - while typing the thread still shows some conversation, focus on Post does not bring the
  *     header back, and searching keeps the search row while the rest steps aside;
+ *   - on any touchscreen past the phone width (a phone turned sideways, a tablet) the search box and
+ *     the text box are 16px and the search row is 44px; a mouse at 1280 keeps 13px and 15px;
  *   - and at 800 and 1280 the Talk section keeps its stacked or side-by-side layout: the body is
  *     not locked, the 800px page still scrolls, and the tiles keep their box layout.
  *   - the visualViewport listener itself, driven through a stubbed window.visualViewport: the
@@ -464,6 +466,38 @@ function measure() {
         chk(m.dm && m.dm.h > 60, `${t} the Direct Message tile keeps its large size`, JSON.stringify(m.dm));
         chk(errs.length === 0, `${t} no page errors`, errs.join(' | '));
         await page.close();
+      }
+      // Any touchscreen wider than the phone block (a phone turned sideways, a tablet): the search box and
+      // the text box are 16px, or iOS zooms the page on focus, and the search row is a 44px target
+      // (Raiden's #718 table, row 4). A mouse keeps the desktop sizes (the 1280 arm below).
+      for (const [w, h, touch] of [[667, 375, true], [852, 393, true], [932, 430, true], [1024, 768, true], [1280, 900, false]]) {
+        const ctx = await browser.newContext({ viewport: { width: w, height: h }, hasTouch: touch, isMobile: touch && eng === 'chromium' });
+        const page = await ctx.newPage();
+        const errs = []; page.on('pageerror', (e) => errs.push(e.message));
+        await page.addInitScript(() => {
+          const enc = (o) => new Response(JSON.stringify(o), { status: 200, headers: { 'content-type': 'application/json' } });
+          window.setInterval = () => 0;
+          window.fetch = async (url) => { const u = String(url); if (u.includes('/thread')) return enc(window.__fx); if (u.includes('avatar')) return new Response('', { status: 404 }); return enc({}); };
+        });
+        await page.goto(PAGE);
+        await page.evaluate((f) => { window.__fx = f; const fr = document.getElementById('firstrun'); if (fr) fr.hidden = true; document.querySelectorAll('body > *').forEach((el) => { el.inert = false; }); LAST = [{ sessionName: 'april', name: 'April', status: 'working', isNamedOurs: true, nameDerived: true }]; openDetail('april', 'talk'); }, FX);
+        await page.evaluate(() => paintTalk('april', 'April'));
+        await page.waitForSelector('#d-dmthread .msg');
+        const t = `[${eng} ${w}x${h} ${touch ? 'touch' : 'mouse'}]`;
+        const f = await page.evaluate(() => {
+          const px = (el) => (el ? getComputedStyle(el).fontSize : null);
+          const hh = (el) => (el ? Math.round(el.getBoundingClientRect().height) : null);
+          return { hoverNone: matchMedia('(hover: none)').matches, search: px(document.getElementById('d-talk-search')), say: px(document.getElementById('d-say')),
+            row: hh(document.getElementById('d-talk-search-wrap')), field: hh(document.getElementById('d-talk-search')) };
+        });
+        if (touch) {
+          chk(f.hoverNone && f.search === '16px' && f.say === '16px', `${t} the search box and the text box are 16px on a touchscreen past the phone width (iOS does not zoom)`, JSON.stringify(f));
+          chk(f.row >= MIN_TAP_PX && f.field >= MIN_TAP_PX - 2, `${t} the search row is a ${MIN_TAP_PX}px target and the field fills it`, JSON.stringify(f));
+        } else {
+          chk(!f.hoverNone && f.search === '13px' && f.say === '15px', `${t} a mouse keeps the desktop sizes`, JSON.stringify(f));
+        }
+        chk(errs.length === 0, `${t} no page errors`, errs.join(' | '));
+        await ctx.close();
       }
     } finally {
       await browser.close();
