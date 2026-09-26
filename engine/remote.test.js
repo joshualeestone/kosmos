@@ -1159,7 +1159,7 @@ test('#3827: a signed request whose tunnel logs a line before its answer is stil
   await remote.signinStart('her@example.com');
   await remote.signinVerify('her@example.com', '111111');
   assert.equal((await remote.signinRegister('hers')).ok, true, 'fixture: registered');
-  const r = await remote.macRequest('GET', '/v1/mac/standing');
+  const r = await remote.macRequest('POST', '/v1/mac/standing', {});   // the real tunnel refuses GET
   assert.equal(r.ok, true, 'a log line on stdout made a signed request unreadable: ' + r.because);
   assert.deepEqual(r.data, { standing: 'good' });
   remote.setOn(false);

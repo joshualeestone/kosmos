@@ -812,23 +812,27 @@ function pendingDevices() {
     }));
   return { devices, snapshot: raw !== null, email: settings.email || '' };
 }
-/** The binary answers JSON on stdout for every devices verb; a non-JSON
-    answer is reported as such rather than guessed at. */
 /* The tunnel's answer is its LAST line of stdout, one line of JSON. Other lines
    can come before it: a fresh register prints its certificate line first
    ("certificate for ... written to ...", kosmos-relay setup.rs fetch_certificate),
    and most verbs log to stdout (tracing's default writer). Parsing all of stdout
    made every first sign-in read as a failure while the Mac was registered, and
    Kosmos+ was never switched on (#3827). Only the last line starting with "{" is
-   read: if it does not parse, the answer is unreadable, never an older object. */
+   read: if it does not parse, the answer is unreadable, never an older object.
+   ⚠️ This relies on the tunnel never logging a JSON-shaped line to stdout: its
+   tracing uses the default human-readable format (kosmos-relay main.rs,
+   tracing_subscriber::fmt()). A JSON log formatter there would be read here as
+   the answer. Used by parseSaid, macRequest and assistantChat. */
 function lastJsonLine(said) {
   const lines = String(said || '').split('\n').map((l) => l.trim()).filter(Boolean);
   for (let i = lines.length - 1; i >= 0; i--) {
     if (!lines[i].startsWith('{')) continue;
-    try { return { ok: true, value: JSON.parse(lines[i]) }; } catch { return null; }
+    try { return { value: JSON.parse(lines[i]) }; } catch { return null; }
   }
   return null;
 }
+/** The binary answers JSON for every devices and signin verb; a non-JSON answer
+    is reported as such rather than guessed at. */
 function parseSaid(result) {
   if (!result.ok) return result;
   const got = lastJsonLine(result.said);

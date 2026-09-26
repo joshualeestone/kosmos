@@ -19,3 +19,9 @@ The wider #3827 hardening (single-flight register and Forget, half identities, c
 - WARNING: the register test proved nothing by itself (every register test goes red on the old parse). lastJsonLine is exported and unit-tested: certificate line then JSON, JSON only, a tracing line first, CRLF, empty, no JSON line, a last line that does not parse (never falls back to an older object), pretty-printed JSON. Controls: the fallback-to-older variant fails "never the older object"; whole-stdout fails "a certificate line before the JSON".
 - NIT: a re-register that kept its certificate prints JSON only; the fake has that branch (name "kept") and a test.
 - Pre-existing, carded separately: setupComplete never caches standing (setupRun sets no .data and real `setup complete` prints no JSON).
+
+## Round 2 review (sonnet)
+- WARNING: the old parseSaid doc comment sat above the new lastJsonLine (documenting the wrong function, and "every devices verb" undersold it). parseSaid has its own doc again; lastJsonLine's names its three callers.
+- WARNING: nothing pinned the assumption that the tunnel never logs a JSON-shaped line to stdout (its tracing uses the default human-readable format; no .json() anywhere in crates/tunnel). Stated at lastJsonLine with the file it depends on; the matching note beside tracing_subscriber::fmt() in kosmos-relay main.rs goes with that repo's next change (kosmos#3827 comment).
+- NIT: the macRequest test used GET, which the real tunnel refuses (check_mac_request); now POST like every real caller.
+- NIT: lastJsonLine returned an unused `ok`; it returns { value } or null.
