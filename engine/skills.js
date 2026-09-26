@@ -30,8 +30,8 @@ const SLUG_RE = /^[a-z0-9][a-z0-9-]{0,63}$/;
    deletes from it recursively, so a check that clicked Remove on a fixture board
    would delete a real skill. Same guard, and same direction, as status.js's
    config roots: a process whose data dir is in temp but whose home is the real
-   one has declared itself a fixture, and gets a folder that does not exist (no
-   skills) instead of the real one. Production data lives in Application Support,
+   one has declared itself a fixture, and gets an empty folder inside its own
+   data dir instead of the real one. Production data lives in Application Support,
    so this cannot fire for somebody running Kosmos. Required lazily: status.js
    pulls in half the engine. */
 function globalDir() {
