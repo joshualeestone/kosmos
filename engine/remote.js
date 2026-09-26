@@ -392,7 +392,23 @@ function startChild() {
   try {
     /* stdout is dropped (the status file is the interface); stderr joins the
        board's log, which launchd keeps, so a refused ticket is findable. */
-    spawned = spawn(BIN(), args, { stdio: ['ignore', 'ignore', 'inherit'] });
+    /* #3838: the tunnel presents the board's own token on requests from devices this
+       Mac has Allowed; since #1946 the board answers nothing without it, and a remote
+       browser saw "This board is not signed in". The PATH goes by environment, never
+       the value and never argv: it is the SAME file the board reads its token from
+       (the primary leaf is mode 600; a legacy-leaf copy has no mode guarantee, but
+       the board already trusts it, so the tunnel adds no new trust), and an
+       older bundled tunnel ignores an unknown variable where it would refuse an
+       unknown flag and never connect. */
+    let tokenFile = '';
+    try { tokenFile = require('./boardauth').enforcedTokenPath(); } catch (err) {
+      // Not "the tunnel could not start": it can, it just shows a board that is not signed in.
+      process.stderr.write('remote: could not find the board token file: ' + (err && err.message) + '\n');
+    }
+    const env = { ...process.env };
+    delete env.KOSMOS_BOARD_TOKEN_FILE;   // never a stale one inherited from the launcher
+    if (tokenFile) env.KOSMOS_BOARD_TOKEN_FILE = tokenFile;
+    spawned = spawn(BIN(), args, { stdio: ['ignore', 'ignore', 'inherit'], env });
   } catch (err) {
     restartBecause = 'the tunnel program could not be started: ' + (err && err.message);
     process.stderr.write('remote: ' + restartBecause + '\n');
