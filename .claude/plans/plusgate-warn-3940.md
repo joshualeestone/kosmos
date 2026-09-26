@@ -34,7 +34,9 @@ The 0.6.97 prod promote (same morning) needed `--force` only because this gate h
 - ⚠️ **A record that EXISTS but cannot be read now refuses (exit 1)** (review round 3). Only a
   missing file (ENOENT) is exit 2. Before this branch every read error was exit 2, which was
   harmless while 2 held; now 2 promotes, so an unreadable FAIL record would have let a build that
-  was measured broken reach prod.
+  was measured broken reach prod. This also refuses on a TRANSIENT read error (EIO, EMFILE):
+  chosen on purpose (review round 4). A transient error costs a rerun of the promote; treating it
+  as "no record" could ship a build whose record says FAIL, which cannot be undone.
 - **Unchanged**: exit 1 (a record that says FAIL, or is ambiguous) still refuses and is not
   forceable. That is a measured break, not a missing check, and the ruling is about not having to
   run the check. Exit 0 still promotes. The two other Mac gates and the Windows family are

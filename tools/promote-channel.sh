@@ -322,7 +322,7 @@ if [ "$FAMILY" != win ] && [ "${PLUS_UNVERIFIED:-0}" = 1 ]; then
   PLUS_HOST="$(hostname -s 2>/dev/null || echo unknown)"
   if [ -n "$PLUS_LOG" ] && mkdir -p "$PLUS_LOG_DIR" 2>/dev/null \
      && { printf '%s\thost=%s\tversion=%s\tsha256=%s\tfirst Kosmos+ sign-in NOT verified; promoted per #3940 (Josh 2026-09-26)\treason=%s\n' \
-            "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$PLUS_HOST" "$(printf '%s' "$V" | tr '\t\n' '  ')" "$SHA" "$PLUS_REASON" >> "$PLUS_LOG"; } 2>/dev/null; then
+            "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$PLUS_HOST" "$(printf '%s' "$V" | tr '\t\n' '  ')" "$(printf '%s' "$SHA" | tr '\t\n' '  ')" "$PLUS_REASON" >> "$PLUS_LOG"; } 2>/dev/null; then
     echo "promote-channel: recorded in $PLUS_LOG (on this machine, $PLUS_HOST)" >&2
   else
     echo "promote-channel: WARNING could not append to ${PLUS_LOG:-the unverified-promote log (no HOME and no KOSMOS_PLUS_VERIFY_DIR)}; the promote happened and this output is the only record." >&2
