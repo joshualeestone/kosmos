@@ -128,6 +128,9 @@ const waitFor = (page, fn, ms = 6000) => page.waitForFunction(fn, null, { timeou
     const withPic = await page.evaluate(() => asbAvatar({ sessionName: 'josh', name: 'Josh', hasAvatar: true, avatarVer: 3 }));
     chk(withPic === '/api/agent/josh/avatar?v=3', 'B2 CONTROL: a guide with a picture shows its picture', withPic);
     chk(two.nudge, 'B2 the nudge shows before the person has written to the guide');
+    // kosmos#3881 (Josh): the nudge reads exactly "Need help?" (it said "Want help setting up Kosmos?").
+    const nudgeText = await page.evaluate(() => (document.getElementById('asb-nudge-go') || {}).textContent || '');
+    chk(nudgeText.trim() === 'Need help?', 'B2 the nudge says "Need help?"', JSON.stringify(nudgeText));
     // B2b: the lookup itself, with the person's own "Josh" (session josh-2) placed FIRST: the guide is found by
     // its session name, never by a display name the person's agent can share.
     const b2b = await page.evaluate(() => {
