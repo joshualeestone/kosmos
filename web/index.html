@@ -6953,7 +6953,6 @@ body:not(.consolidated) .pjmidhead:has(.pjhead) .tsearch:focus-within { flex-bas
 .pj-member .pj-notyet { display: block; font: var(--text-caption) var(--font-ui); color: var(--k-ink-2); flex-basis: 100%; }
 /* The one-verdict-for-the-roster line: same voice as .pj-told, but it sits
    as its own flex child below the member cards, not inside one of them. */
-.pj-members .pj-told-group { display: block; font: var(--text-caption) var(--font-ui); color: var(--label-2); margin: 0; }
 /* #3923: the project notice (Mona Lisa's design, project-notice-mock.html). Appears only while
    an agent on the project could not be given its folder; one row per agent, each shaped by what
    the person must do. No bar down the left (Josh has ruled those out). */
@@ -13720,10 +13719,11 @@ window.kosmosMeasureScrollbarWidth();
 <div class="pjcard pjcard-members">
       <!-- Josh, 2026-09-10 (#2711 item 14): the column heading is just
            "Members" now. "Project members" restated the page it sits on. -->
-      <!-- #3923: the project notice, painted by pjNotice() only while something is wrong. Above
-           the heading, so the heading stays immediately before the list it names. -->
-      <div id="pj-one-notice" class="pnotice" role="status" hidden></div>
       <h3 class="dlab">Members</h3>
+      <!-- #3923: the project notice, painted by pjNotice() only while something is wrong, under the
+           heading and above the list, in the page's order and on screen (the card's grid pins the
+           heading to row 1). -->
+      <div id="pj-one-notice" class="pnotice" role="status" hidden></div>
       <div id="pj-one-agents" class="pj-members"></div>
       <!-- ⚠️ The picker hides behind the button, not the other way round: the
            resting state of the box is the members, and "+ Add Member" (the
@@ -43725,54 +43725,6 @@ function pjToldLine(told) {
 }
 
 /**
- * The roster's verdicts collapsed to one sentence, when that is honest.
- *
- * The key is RENDERED-LINE equality, not state equality: two could_not
- * members with different becauses render different lines and keep their own
- * rows, so the group claim is exactly as true as each per-member claim it
- * replaces. Two or more members only; a singleton's line stays on its row.
- */
-function pjSharedTold(roster) {
-  if (roster.length < 2) return '';
-  const first = pjToldLine(roster[0].told || {});
-  if (!first) return '';
-  for (const m of roster.slice(1)) {
-    if (pjToldLine(m.told || {}) !== first) return '';
-  }
-  // ⚠️ A collapse may never LOSE a reason. Collapsing suppresses every
-  // per-member line, so it is only allowed when the group line carries
-  // everything those lines carried: now only a could_not whose because
-  // has a plural sibling (the told sentence is retired; success says
-  // nothing and an all-told roster has nothing to collapse). A could_not whose
-  // reason has NO plural form keeps its per-member rows -- three
-  // repeated sentences are weight, but a vanished reason is a lie of
-  // omission (iteration 3: the N-blocks because collapsed to a line
-  // that named no reason at all).
-  const t = roster[0].told || {};
-  if (t.state === 'could_not' && !t.becauseGroup) return '';
-  return pjToldGroupLine(t);
-}
-
-function pjToldGroupLine(told) {
-  // The told (success) arm is GONE with its singular sibling: success
-  // says nothing, so an all-told roster has nothing to collapse.
-
-  // Explicit, not an else: pjSharedTold pre-filters through pjToldLine, but
-  // the honesty guarantee (no sentence for not_tried/empty) must hold here
-  // too, not only in the current caller.
-  if (told.state !== 'could_not') return '';
-  // The engine supplies the plural sibling (becauseGroup, derived at read
-  // time from the verbatim singular). Without one, the line carries NO
-  // reason: an incomplete true sentence beats a complete confusing one
-  // (her ruling), because the singular because is written for a one-agent
-  // context and does not survive being quoted inside a plural frame.
-  if (told.becauseGroup) {
-    return 'We could not update these agents about this folder: ' + esc(told.becauseGroup) + '.';
-  }
-  return 'We could not update these agents about this folder.';
-}
-
-/**
  * #3923: the project notice (Mona Lisa's design). The variable is what the person must do,
  * not the kind of failure: WAIT (a button only), ACT (a sentence only), RETRY (act, then a
  * button), EXPLAIN (a sentence saying nothing can be done yet). A "Try again" is offered only
@@ -43801,7 +43753,14 @@ const PJ_NOTICE = [
     ? 'Kosmos only keeps instructions for agents it made. ' + n + ' came from somewhere else, so Kosmos has nowhere to write.'
     : 'Kosmos only keeps instructions for agents it made, and ' + name + ' came from somewhere else.'],
   [/^it keeps its instructions somewhere we cannot safely change$|^its worker folder /, 'explain', (n) => (n || 'It') + ' keeps its instructions somewhere Kosmos will not change, so Kosmos has nowhere to write.'],
+  // The reader's own refusals for a file it cannot safely edit (workerfile.js, instructions.js):
+  // pressing again reads the same file the same way, so no button.
+  [/^its instruction file is not UTF-8 text|^its instruction file is not one we can read$|^its instruction file could not be read$|^we cannot get at its instruction file to read it$|^that file is not inside the workers folder$/, 'explain',
+    (n) => (n ? n + '\u2019s' : 'Its') + ' instructions are in a file Kosmos cannot safely change, so Kosmos has nowhere to write.'],
 ];
+/* A Try again that came back with the same answer: its row says so once, until the answer
+   changes or the row goes. Keyed by session name. */
+const PJ_NOTICE_TRIED = new Map();
 const PJ_NOTICE_COUNT = ['', 'One', 'Two', 'Three', 'Four', 'Five', 'Six', 'Seven', 'Eight', 'Nine', 'Ten'];
 
 /** One agent's row, or null when nothing is wrong (success and not_tried say nothing). */
@@ -43818,19 +43777,28 @@ function pjNoticeRow(m, solo) {
   const [, shape, why, fix] = hit;
   return { shape, why: why(solo ? name : null, name), fix: fix ? fix(name) : '', name, key: m.sessionName };
 }
+/* The row's sentence after a Try again that did not change the answer. */
+function pjNoticeStill(r, because) {
+  return PJ_NOTICE_TRIED.get(r.key) === because ? ' It still did not work.' : '';
+}
 
 /** The whole notice: '' when every agent has the folder. */
 function pjNotice(roster) {
   const failing = (roster || []).filter((m) => m && m.told && m.told.state === 'could_not');
+  // A retry mark lasts only while its agent is still failing, so a row that later comes back
+  // does not open with "It still did not work".
+  for (const k of [...PJ_NOTICE_TRIED.keys()]) {
+    if (!failing.some((m) => m.sessionName === k)) PJ_NOTICE_TRIED.delete(k);
+  }
   if (!failing.length) return '';
   const solo = failing.length === 1;
   const rows = failing.map((m) => pjNoticeRow(m, solo)).filter(Boolean);
   const head = solo
     ? esc(rows[0].name) + ' does not have this project\u2019s folder.'
     : (PJ_NOTICE_COUNT[rows.length] || String(rows.length)) + ' agents do not have this project\u2019s folder.';
-  const body = rows.map((r) => '<div class="pnrow">'
+  const body = rows.map((r, i) => '<div class="pnrow">'
     + (solo ? '' : '<span class="pnwho">' + esc(r.name) + '</span>')
-    + '<span class="pnwhy">' + esc(r.why) + (r.fix ? ' <b class="pnfix">' + esc(r.fix) + '</b>' : '') + '</span>'
+    + '<span class="pnwhy">' + esc(r.why + pjNoticeStill(r, String(failing[i].told.because || ''))) + (r.fix ? ' <b class="pnfix">' + esc(r.fix) + '</b>' : '') + '</span>'
     + (r.shape === 'wait' || r.shape === 'retry'
       ? '<button class="qopt" type="button" data-pn-retry="' + esc(r.key) + '">Try again</button>' : '')
     + '</div>').join('');
@@ -43853,8 +43821,8 @@ function pjMember(m, suppressTold, withMinus, hideState) {
   const liveM = (m && m.state === 'connection_lost' && !m.reconnect && typeof LAST !== 'undefined' && Array.isArray(LAST))
     ? Object.assign({}, m, { reconnect: ((LAST.find((a) => a && a.sessionName === m.sessionName)) || {}).reconnect || null })
     : m;
-  // suppressTold: the roster's identical verdicts are being said ONCE below
-  // the list (pjSharedTold), so the per-member span would triple-state it.
+  // suppressTold: the project page says every verdict once, in the project notice above the
+  // list (#3923), so the per-member span would say it twice. Settings' list keeps it.
   // #3131 (Josh 6.68): hideState drops the per-member STATE LABEL text
   // (Working/Idle/Waiting/Issue...) in the project Agents column, where Josh
   // wants ONLY the red needs-you triangle to speak. The red-you triangle (warn),
@@ -53291,19 +53259,6 @@ document.getElementById('pj-create').addEventListener('click', async () => {
  * refresh is the CALLER's now -- the modal handler closes FIRST, then refreshes a hidden
  * picker (no visible flash); the settings-door caller refreshes in place as before.
  */
-/* #3923: "Try again" on the project notice re-tells that one agent. Re-adding an existing member
-   changes no membership (the route's `moved` is false, so nothing is typed into its window) and
-   runs the same sync, which records a fresh verdict. Success says nothing: the repaint drops the
-   row. A failure repaints with whatever the engine now says. */
-document.getElementById('pj-one-notice').addEventListener('click', async (e) => {
-  const btn = e.target && e.target.closest ? e.target.closest('[data-pn-retry]') : null;
-  if (!btn || !PJ_CURRENT) return;
-  btn.disabled = true;
-  try {
-    await fetch('/api/project/' + encodeURIComponent(PJ_CURRENT) + '/agent/' + encodeURIComponent(btn.dataset.pnRetry), { method: 'POST' });
-  } catch { /* the repaint below shows where it stands */ }
-  loadProjects();
-});
 async function addMemberToProject(who, msg) {
   if (!who || !PJ_CURRENT) return false;
   msg.textContent = '';
@@ -53319,6 +53274,34 @@ async function addMemberToProject(who, msg) {
     return false;
   }
 }
+/* #3923: "Try again" on the project notice re-tells that one agent (`?retell=1`: the route
+   refuses rather than re-adds an agent that has left). Success says nothing: the repaint drops
+   the row. The same answer again says so on the row. Focus returns to the row's new button, or
+   to the Members heading when the row is gone, since the repaint replaces the pressed button. */
+document.getElementById('pj-one-notice').addEventListener('click', async (e) => {
+  const btn = e.target && e.target.closest ? e.target.closest('[data-pn-retry]') : null;
+  if (!btn || !PJ_CURRENT) return;
+  const key = btn.dataset.pnRetry;
+  const box = document.getElementById('pj-one-notice');
+  btn.disabled = true;
+  let before = '';
+  try {
+    const p = (PROJECTS || []).find((x) => x && x.id === PJ_CURRENT);
+    const m = p ? (p.agents || []).find((a) => a && a.sessionName === key) : null;
+    before = String((m && m.told && m.told.because) || '');
+  } catch { /* no remembered answer: nothing is marked as "still" */ }
+  try {
+    await fetch('/api/project/' + encodeURIComponent(PJ_CURRENT) + '/agent/' + encodeURIComponent(key) + '?retell=1', { method: 'POST' });
+  } catch { /* the repaint below shows where it stands */ }
+  PJ_NOTICE_TRIED.set(key, before);
+  box.__lastLive = null;   // repaint even when the answer is word for word the same
+  await loadProjects();
+  btn.disabled = false;
+  const again = box.querySelector('[data-pn-retry="' + (window.CSS && CSS.escape ? CSS.escape(key) : key) + '"]');
+  const heading = document.querySelector('.pjcard-members > .dlab');
+  if (again) again.focus();
+  else if (heading) { if (!heading.hasAttribute('tabindex')) heading.setAttribute('tabindex', '-1'); heading.focus(); }
+});
 document.getElementById('pj-one-add-go').addEventListener('click', async () => {
   // #2429 (Josh, 0.6.45): once the member is added there is nothing more to do in the
   // modal, so CLOSE it on success -- and close BEFORE the board refresh, so the picker's

@@ -1024,18 +1024,8 @@ async function main() {
       // shared `.pj-minus` row, not the retired `.drop` button) without
       // moving it off this screen again, so the selector below follows it.
       //
-      // (#3923: the failed tell now renders in the project notice, measured in its own pass below.)
-      // ⚠️ `.pj-told` STAYS HERE AND STAYS RED, deliberately. It did NOT move to
-      // another screen; it moved to a STATE. pjToldLine returns a non-empty
-      // string only when told.state === 'could_not' ("success says nothing",
-      // ruled 2026-08-18), and this fixture is a HEALTHY project, so the element
-      // cannot render here. Measuring it needs a fixture with a FAILED TELL,
-      // which is NOT the missing-folder fixture below: a failed tell is "we
-      // could not write to its instructions", and a missing folder does not
-      // necessarily produce one. No such fixture exists yet.
-      // Not deleted, because this check's own rule is that a miss is RECORDED
-      // rather than skipped. A red saying "this failure state is unmeasured" is
-      // worth more than a green saying nothing.
+      // #3923: a failed tell no longer renders on this list as `.pj-told`; it is the project notice,
+      // measured in its own pass below on the fixture that produces one ("Quarter close").
       // 🛑 `#pj-one-view .flabel` USED TO BE IN THIS LIST AND IT WAS THE SAME
       // BUG AS THE HEADING ONE, one loop lower and considerably worse. When the
       // three column headers moved from `.flabel` to the pack's `.dlab`, this
@@ -1108,7 +1098,7 @@ async function main() {
        Mona Lisa traced it and could not confirm a failed-tell fixture existed.
        One does, and this check already makes it: "Quarter close" is created
        with `claudebot`, which has no folder on this machine, so its tell comes
-       back could_not and the member row carries the sentence.
+       back could_not and the project notice carries the sentence (#3923).
        ⚠️ It is a DIFFERENT failure from the missing-folder pass below. A failed
        tell is "we could not write to its instructions"; a missing folder is
        "the folder is gone". One does not imply the other, which is why this is
@@ -1399,7 +1389,9 @@ async function main() {
       // changed once already.
       const members = await page.evaluate(() => {
         const list = document.getElementById('pj-one-agents');
-        const h = list && list.previousElementSibling;
+        // #3923: the project notice sits between the heading and the list when something is wrong.
+        let h = list && list.previousElementSibling;
+        if (h && h.id === 'pj-one-notice') h = h.previousElementSibling;
         return {
           heading: h ? h.textContent : null,
           headingTag: h ? h.tagName : null,

@@ -30,4 +30,10 @@ page. Try again re-tells that agent and the notice updates.
   the project page is where the design puts it.
 - Copy for the reasons the mock does not draw (N blocks, too short, size limit, the ambiguous name, a
   folder Kosmos will not change) follows the mock's pattern: the reason in plain words, the fix in ink.
-- Try again reuses the member route rather than adding one: it is idempotent for an existing member.
+- Try again posts the member route with `?retell=1`: a current member is re-told (idempotent, nothing
+  typed into its window); an agent that has left gets 409 rather than being put back (review round 1).
+  A same-answer retry says "It still did not work." on its row; the button re-enables and focus returns.
+- The consolidated layout hides the whole Members card (#3218/#3305), so the notice does not show there;
+  that was already true of the old line. Not changed here.
+- pjSharedTold, pjToldGroupLine, their CSS and tests are removed (dead once the notice replaced the
+  group line). pjToldLine stays: the Settings members list still uses it.

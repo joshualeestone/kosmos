@@ -15279,6 +15279,13 @@ const server = http.createServer((req, res) => {
       const on = !!(before && (before.agents || []).includes(name));
       moved = req.method === 'POST' ? !on : on;
     } catch { moved = false; }
+    /* #3923: `?retell=1` is the project notice's Try again: re-tell a CURRENT member, never
+       re-add one. A notice painted before the agent left must not put it back on the project
+       (and type "Kosmos put you on the project" into its window). */
+    if (req.method === 'POST' && moved && new URL(req.url, ROUTING_BASE).searchParams.get('retell') === '1') {
+      sendJson(res, 409, { error: 'that agent is no longer on this project' });
+      return;
+    }
     /* The membership valve (#803, extended): a process past sixty membership
        changes an hour across projects is refused the WRITE with the count
        and the minutes; the screen is never valved (a person building a team
