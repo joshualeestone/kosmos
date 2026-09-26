@@ -49,11 +49,13 @@ function accountProblemOf(card) {
      two ways out. Google's free-tier daily limits reset at midnight Pacific time. */
   if (card.state === 'rate_limited' && card.runner === 'gemini' && card.limitFrom === 'gemini') {
     /* While only Gemini's question is up, the limit may be the free daily one or another (a billed key's cap, a model
-       with no free quota), so it is said neutrally; Kosmos answers the question Stop. Gemini's own "exhausted your
+       with no free quota), so it is said neutrally. Gemini's own "exhausted your
        daily quota" line, shown after that, is the free daily limit, and gets the reset and the two ways out. */
     if (card.quotaDialog === true) {
-      const text = `${who} has reached a Google usage limit for its API key, so it has stopped. Kosmos is answering`
-        + ' Gemini\'s question about it; add billing to the key in Google AI Studio, or use Google Gemini (Google subscription).';
+      /* Says what is on screen, not what Kosmos will do about it: the sweep that answers Stop can be switched off
+         (AGENT_WORKFORCE_GEMINI_QUOTA_OFF, or live execution off), and then "Kosmos is answering" would be false. */
+      const text = `${who} has reached a Google usage limit for its API key, so it has stopped at Gemini's question about`
+        + ' it. Add billing to the key in Google AI Studio, or use Google Gemini (Google subscription).';
       return { kind: 'usage', provider: 'Gemini', notify: true, text, summary: text };
     }
     const head = `Google's free daily limit for ${who}'s API key is used up, so it has stopped.`;
