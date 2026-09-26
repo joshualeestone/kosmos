@@ -25314,7 +25314,9 @@ function agySubDriver(pre, onReady) { return {
   },
   el(part) { return document.getElementById(pre + part); },
   say(text, button, about, done) {
-    const code = this.el('code'); if (code) { code.textContent = text; code.hidden = !text; }
+    /* Only when the words change: this runs every second while a sign-in is followed, and the line is
+       a live region, so rewriting the same words made a screen reader read them again each second. */
+    const code = this.el('code'); if (code) { if (code.textContent !== text) code.textContent = text; code.hidden = !text; }
     // Stop is there for the whole step, like Grok's, except once it is ready (review round 2).
     const stop = this.el('cancel-row'); if (stop) stop.hidden = !!done;
     const go = this.el('go');
@@ -25348,7 +25350,12 @@ function agySubDriver(pre, onReady) { return {
            Google's page in the browser and pastes its code here (follow() drives the rest). Its own
            press, never a side effect of a check (review round 1 of #3568). */
         const started = await this.post('/api/antigravity/signin');
-        if (!live()) return;
+        if (!live()) {
+          // Left while it was starting: stop the sign-in this press began, or agy would carry on out of
+          // sight (and open Google's page after the person had closed the dialog).
+          if (started && started.ok && started.id) this.post('/api/antigravity/signin/stop', { id: String(started.id) });
+          return;
+        }
         if (!(started && started.ok)) {
           const refused = /not installed|not available|not offered|switched off/.test((started && started.error) || '');
           this.next = refused ? 'check' : 'open';

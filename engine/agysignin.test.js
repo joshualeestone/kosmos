@@ -248,7 +248,7 @@ test('#3998 W3: a code agy did not take goes back to asking for one', () => {
     assert.equal(s.code('4/0AXlqoi78ZmW2ZEDHmXTxfTTbEqk1iq3YSD1LPLn9DJBTH8v', id).ok, true);
     st.t += 5000; s.tickForTests();
     assert.equal(s.status().state, 'checking', 'CONTROL: a code is given a moment before it counts as refused');
-    st.t += 15000; s.tickForTests();
+    st.t += 16000; s.tickForTests();
     assert.equal(s.status().state, 'code', 'a refused code left the panel checking for half an hour');
     assert.match(s.status().because, /did not take that code/);
     assert.equal(s.code('4/0AXlqoi78ZmW2ZEDHmXTxfTTbEqk1iq3YSD1LPLn9DJBTH8v', id).ok, true, 'a second code could not be pasted');
@@ -310,10 +310,17 @@ test('#3998 W7: Sign in again on an agy that is already signed in finishes, once
   try {
     s.start();
     s.tickForTests(); await settle();
-    assert.equal(st.checks, 0, 'CONTROL: agy is given a moment to draw its first screen before being asked');
-    st.t += 9000; s.tickForTests(); await settle();
-    assert.equal(st.checks, 1);
+    assert.equal(st.checks, 1, 'agy\'s own ready screen was not confirmed');
     assert.equal(s.status().state, 'done', 'an already signed-in agy was shown as stuck');
+    // A first screen Kosmos does not know is given a moment before agy is asked (one ask).
+    const st2 = scripted(s, 'agy 1.2.11 starting...');
+    st2.answer = { signedIn: true };
+    s.start();
+    s.tickForTests(); await settle();
+    assert.equal(st2.checks, 0, 'CONTROL: agy is given a moment to draw its first screen before being asked');
+    st2.t += 9000; s.tickForTests(); await settle();
+    assert.equal(st2.checks, 1);
+    assert.equal(s.status().state, 'done');
   } finally { s.resetForTests(); }
 });
 
@@ -356,4 +363,67 @@ test('#3998 round 3: a key tmux could not send never throws out of the loop; it 
     assert.equal(s.status().state, 'stuck');
     assert.match(s.status().because, /could not reach/);
   } finally { s.resetForTests(); }
+});
+
+/* ---- review round 4 ---------------------------------------------------------------------- */
+const CODE_SCREEN = 'Your browser should open automatically. If not:\n\nhttps://accounts.google.com/o/oauth2/auth?x=1\n\nPaste the authorization code:\n';
+const CODE = '4/0AXlqoi78ZmW2ZEDHmXTxfTTbEqk1iq3YSD1LPLn9DJBTH8v';
+
+test('#3998 round 4: a code is typed only while agy\'s code prompt is on the screen right now', () => {
+  const s = require('./agysignin');
+  const st = scripted(s, CODE_SCREEN);
+  try {
+    const { id } = s.start();
+    s.tickForTests();
+    assert.equal(s.status().state, 'code');
+    st.screen = 'Choose your color scheme\n> terminal\n';   // agy moved on; the state is a tick behind
+    const r = s.code(CODE, id);
+    assert.equal(r.ok, false, 'a code was typed onto the colour screen');
+    assert.deepEqual(st.sent, [], 'keys went out');
+    st.screen = CODE_SCREEN;
+    assert.equal(s.code(CODE, id).ok, true, 'CONTROL: on the code screen it is typed');
+    assert.ok(st.sent.some((k) => k.includes(CODE)));
+  } finally { s.resetForTests(); }
+});
+
+test('#3998 round 4: once the window is shown, Kosmos presses nothing, and agy\'s ready screen still finishes it', async () => {
+  const s = require('./agysignin');
+  const st = scripted(s, 'something Kosmos does not know');
+  st.answer = { signedIn: null };
+  s.setForTests({ openFile: (f, done) => done(null) });
+  try {
+    const { id } = s.start();
+    for (let i = 0; i < 12; i++) { st.t += 1000; s.tickForTests(); await settle(); }
+    assert.equal(s.status().state, 'stuck');
+    assert.deepEqual(await s.show(id), { ok: true });
+    const before = st.sent.length;
+    for (const scr of ['Select login method:\n> 1. Google OAuth\n', 'Choose your color scheme\n> terminal\n',
+      'Terms of Service & Data Use\n> Previous\n  [Done]\n']) {
+      st.screen = scr; st.t += 1000; s.tickForTests(); await settle();
+    }
+    assert.equal(st.sent.length, before, 'Kosmos pressed keys while the person was driving: ' + st.sent.slice(before).join(','));
+    // Every ask is spent by now; agy's ready screen still earns one.
+    st.checks = 0; st.answer = { signedIn: true };
+    st.screen = 'j@example.com (Antigravity Starter Quota) - Gemini 3.8 Flash (High)\n> \n';
+    st.t += 1000; s.tickForTests(); await settle();
+    assert.equal(st.checks, 1, 'the ready screen was not confirmed');
+    assert.equal(s.status().state, 'done', 'a sign-in the person finished by hand stayed stuck');
+  } finally { s.resetForTests(); }
+});
+
+test('#3998 round 4: the screen drawn LAST wins over words an earlier screen left behind', () => {
+  const s = require('./agysignin');
+  assert.equal(s.screenOf('Select login method:\n> 1. Google OAuth\n\nTerms of Service & Data Use\n  Previous\n> [Done]\n'), 'terms');
+  assert.equal(s.screenOf('Terms of Service & Data Use\n...\nSelect login method:\n'), 'menu', 'CONTROL: the other order');
+  assert.equal(s.screenOf('nothing known'), null);
+  assert.equal(s.markedLine('> 1. Google OAuth\n...\n  Previous\n> [Done]\n'), '> [Done]', 'the marker read was the old screen\'s');
+});
+
+test('#3998 round 4: the tmux socket is this board\'s own, so two boards never share a sign-in', () => {
+  const s = require('./agysignin');
+  const was = process.env.AGENT_WORKFORCE_AGY_SIGNIN_SOCKET;
+  delete process.env.AGENT_WORKFORCE_AGY_SIGNIN_SOCKET;
+  try {
+    assert.match(s.socket(), /^kosmos-agy-signin-[0-9a-f]{10}$/);
+  } finally { if (was !== undefined) process.env.AGENT_WORKFORCE_AGY_SIGNIN_SOCKET = was; }
 });

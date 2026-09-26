@@ -7731,14 +7731,20 @@ const server = http.createServer((req, res) => {
            guided setup's key row), and this row has no key. Grouped under Gemini by providerName.
            signed_in_unverified: a remembered answer, not a live one, so the muted "Signed in" Grok's
            subscription row uses. Listed only while agy is still installed. */
-        const agy = require('./engine/agystatus');
-        const agyInst = agy.offered() ? agy.installed() : null;
-        const agyLast = agyInst && agyInst.installed ? agy.lastKnown() : null;
-        const agySub = agyLast && agyLast.signedIn ? [{
-          provider: 'antigravity', providerName: 'Gemini', dir: null, label: null, name: null, isDefault: false,
-          email: agy.activeEmail(), authMode: 'antigravity', keyTail: null,
-          connection: { state: 'connected', checkedLive: false, checkedAt: agyLast.at, badge: 'signed_in_unverified' },
-        }] : [];
+        /* Its own try: a fault in this one row must not turn every account into a 500. */
+        let agySub = [];
+        try {
+          const agy = require('./engine/agystatus');
+          const agyInst = agy.offered() ? agy.installed() : null;
+          const agyLast = agyInst && agyInst.installed ? agy.lastKnown() : null;
+          if (agyLast && agyLast.signedIn) {
+            agySub = [{
+              provider: 'antigravity', providerName: 'Gemini', dir: null, label: null, name: null, isDefault: false,
+              email: null, authMode: 'antigravity', keyTail: null,
+              connection: { state: 'connected', checkedLive: false, checkedAt: agyLast.at, badge: 'signed_in_unverified' },
+            }];
+          }
+        } catch { agySub = []; }
         sendJson(res, 200, { accounts: [...claude, ...openai, ...gemini, ...agySub, ...grok] });
       })
       .catch(() => sendJson(res, 500, { error: 'we could not read the accounts on this computer' }));
@@ -7798,8 +7804,12 @@ const server = http.createServer((req, res) => {
     const signin = require('./engine/agysignin');
     const agy = require('./engine/agystatus');
     const sub = pathname.slice('/api/antigravity/signin'.length);
+    if (!['', '/code', '/show', '/stop'].includes(sub)) { req.resume(); sendJson(res, 404, { error: 'there is nothing at that address' }); return; }
     if (sub === '' && req.method === 'GET') { sendJson(res, 200, signin.status()); return; }
-    if (req.method !== 'POST') { sendJson(res, 405, { error: 'that is not something this address does' }); return; }
+    if (req.method !== 'POST') { req.resume(); sendJson(res, 405, { error: 'that is not something this address does' }); return; }
+    /* A request naming a sign-in that has ended or been replaced is a conflict (409) on every
+       route, so a screen can tell it apart from a refused code. */
+    const refusal = (r) => (r.because === signin.NOT_MINE ? 409 : 400);
     // Only STARTING needs the subscription to be offered: Stop and Show must work on a sign-in already
     // running, whatever changed since.
     if (sub === '' && !agy.offered()) { req.resume(); sendJson(res, 400, { ok: false, error: 'Gemini on a Google subscription is not offered on this computer' }); return; }
@@ -7818,12 +7828,12 @@ const server = http.createServer((req, res) => {
         const id = body && typeof body.id === 'string' ? body.id : '';
         if (sub === '/code') {
           const r = signin.code(body && body.code, id);
-          sendJson(res, r.ok ? 200 : 400, r.ok ? { ok: true, ...signin.status() } : { ...r, error: r.because });
+          sendJson(res, r.ok ? 200 : refusal(r), r.ok ? { ok: true, ...signin.status() } : { ...r, error: r.because });
           return;
         }
-        if (sub === '/stop') { const r = signin.stop(id); sendJson(res, r.ok ? 200 : 409, r.ok ? r : { ...r, error: r.because }); return; }
+        if (sub === '/stop') { const r = signin.stop(id); sendJson(res, r.ok ? 200 : refusal(r), r.ok ? r : { ...r, error: r.because }); return; }
         signin.show(id)
-          .then((r) => sendJson(res, r.ok ? 200 : 400, r.ok ? r : { ...r, error: r.because }))
+          .then((r) => sendJson(res, r.ok ? 200 : refusal(r), r.ok ? r : { ...r, error: r.because }))
           .catch(() => sendJson(res, 500, { ok: false, error: 'Kosmos could not open the sign-in window' }));
       }).catch(() => sendJson(res, 400, { ok: false, error: 'we could not read that request' }));
       return;

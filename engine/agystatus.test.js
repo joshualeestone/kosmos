@@ -145,5 +145,18 @@ test('#3998: the last confident answer is remembered for the account row, and "c
     assert.equal(agystatus.lastKnown().signedIn, false, 'an uninstalled agy still read as signed in');
     agystatus.forget();
     assert.equal(agystatus.lastKnown(), null, 'forget left the row behind');
-  } finally { fs.rmSync(dir, { recursive: true, force: true }); }
+    agystatus.remember({ installed: false, signedIn: false, offered: false });
+    assert.equal(agystatus.lastKnown(), null, '"not offered here" was remembered as a signed-out sign-in');
+  } finally { agystatus.setLastFileForTests(null); fs.rmSync(dir, { recursive: true, force: true }); }
+});
+
+test('#3998 review round 4: a test process never reads or writes the real board\'s remembered sign-in', () => {
+  const real = path.join(require('./store').ROOT, 'agy-signin', 'last.json');
+  const before = fs.existsSync(real) ? fs.readFileSync(real, 'utf8') : null;
+  agystatus.setLastFileForTests(null);
+  agystatus.remember({ installed: true, signedIn: true });
+  assert.equal(fs.existsSync(real) ? fs.readFileSync(real, 'utf8') : null, before, 'a test wrote the person\'s own record');
+  assert.equal(agystatus.lastKnown(), null, 'a test read the person\'s own record');
+  agystatus.forget();
+  assert.equal(fs.existsSync(real) ? fs.readFileSync(real, 'utf8') : null, before, 'a test removed the person\'s own record');
 });
