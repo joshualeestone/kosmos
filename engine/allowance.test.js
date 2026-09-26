@@ -263,6 +263,19 @@ test('setup.sh wires the default account with the report hooks AND the statuslin
     'an installed bundle did not bake its own runtime node: ' + data.statusLine.command);
 });
 
+test('accounts.prepare still makes an account when the allowance module is missing', () => {
+  const { kh } = runSetupBlock({ withAllowance: false }).r;
+  const home = fs.mkdtempSync(path.join(SANDBOX, 'prep-'));
+  const prog = "const a = require(process.argv[1]); process.stdout.write(JSON.stringify(a.prepare('No allowance 3946')));";
+  const r = spawnSync(NODE, ['-e', prog, path.join(kh, 'app', 'engine', 'accounts.js')], { encoding: 'utf8',
+    env: { ...process.env, AGENT_WORKFORCE_HOME: home, AGENT_WORKFORCE_DATA: path.join(home, 'data') } });
+  assert.equal(r.status, 0, r.stderr);
+  const got = JSON.parse(r.stdout);
+  assert.equal(got.ok, true, r.stdout);
+  assert.equal(got.weeklyWired, false, r.stdout);
+  assert.equal(got.hooksWired, true, 'the report hooks were lost with the allowance module: ' + r.stdout);
+});
+
 test('setup.sh: a statusline that cannot be wired does not change the hooks\' answer', () => {
   const { r, data } = runSetupBlock({ withAllowance: false });
   assert.equal(r.status, 0, 'a missing allowance module changed the exit code: ' + r.stderr);

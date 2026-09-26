@@ -3563,7 +3563,7 @@ for (const t of targets) {
 try {
   const allowance = require(path.join(kosmosHome, 'app', 'engine', 'allowance.js'));
   for (const t of targets) { try { allowance.ensureStatusLine(t); } catch { /* fail soft */ } }
-} catch { /* not in this bundle: nothing to wire */ }
+} catch { /* missing from this bundle, or it failed to load: the hooks' answer stands */ }
 process.exit(refused === 0 ? 0 : 1);
 HOOKSEOF
 then
