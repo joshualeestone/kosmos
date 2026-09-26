@@ -7,16 +7,19 @@
  * grid / list / org toggles 38x30, and "← All agents" 70x15. Under `max-width: 40rem`
  * each now has a 44x44 box. This drives the REAL page from the REAL server and reads:
  *   - at the four harness phone sizes, every frame control that is showing is at least
- *     44x44, and the ones a phone always shows (the mark, the menu, the three toggles,
- *     both back links) are showing;
+ *     44x44, and every one of them is showing (a hidden one fails, so a renamed or moved control cannot pass
+ *     by vanishing), with both back links;
  *   - no two of them overlap (a grown box must not take its neighbour's taps);
  *   - the page is no wider than the screen;
  *   - the header is no taller than the same page with the old sizes put back (the grown
  *     boxes are cancelled by negative margins, so the row keeps its height);
  *   - at desktop width (1280) every control keeps its old size.
  *
- * RED arm (measured on main, Chromium and WebKit): the size arms red at every phone size
- * (the mark 34, the toggles 30 tall, the back link 15 tall); the rest stay green.
+ * Controls, measured (Chromium and WebKit, all four sizes): on main's page every size arm
+ * reds (the mark 34x34, the switcher and You 32 tall, the menu 40x40, the toggles 38x30, the
+ * create page's back link 15 tall) except the agent page's back link, which main already
+ * makes 44px tall on a phone (the Talk section's own rule); the other arms stay green there.
+ * Without the negative margins the header arm reds (99px against 83 at 375, 87 at the rest).
  *
  * Chromium at phone size is not an Android phone, and WebKit is an engine
  * approximation, not Safari.
@@ -65,8 +68,8 @@ const NAMES = ['ada', 'bram', 'cleo'];
 // instead of being skipped, so a renamed or moved control cannot pass by vanishing).
 const HOME = [
   { sel: '#klink', name: 'the K mark', always: true },
-  { sel: '#worldsw-btn', name: 'the Kosmos switcher' },
-  { sel: '#userpop-btn', name: 'You' },
+  { sel: '#worldsw-btn', name: 'the Kosmos switcher', always: true },
+  { sel: '#userpop-btn', name: 'You', always: true },
   { sel: '#burger', name: 'the menu', always: true },
   { sel: '[data-scope="agents"] .vt[data-layout="grid"]', name: 'the grid toggle', always: true },
   { sel: '[data-scope="agents"] .vt[data-layout="list"]', name: 'the list toggle', always: true },
@@ -148,7 +151,7 @@ async function home(page, url) {
           const pageW = await page.evaluate(() => document.documentElement.scrollWidth);
           chk(pageW <= w, `${tag} the page is no wider than the screen`, `page ${pageW}px`);
           // The header's height with the new sizes, then with the old ones put back.
-          const headH = () => page.evaluate(() => Math.round(document.querySelector('body > header').getBoundingClientRect().height));
+          const headH = () => page.evaluate(() => Math.round(document.querySelector('.apphead').getBoundingClientRect().height));
           const now = await headH();
           const tagEl = await page.addStyleTag({ content: '@media (max-width: 40rem){' + OLD + '}' });
           await page.waitForTimeout(50);
