@@ -46,6 +46,9 @@ export AGENT_RC_WANT=0
 # PASS; it prints the snapshot it was handed so a case can check it is a copy of the pointer.
 PLUS_STUB="$T/stub-plus-gate.sh"; printf '#!/usr/bin/env bash\nprintf "plus-gate-arg1:%%s\\n" "${1:-}"\n[ -f "${1:-}" ] && printf "plus-gate-version:%%s\\n" "$(sed -n "s/.*\\"version\\": *\\"\\([^\\"]*\\)\\".*/\\1/p" "$1" | head -1)"\nexit "${PLUS_RC_WANT:-0}"\n' > "$PLUS_STUB"; chmod +x "$PLUS_STUB"
 export KOSMOS_PROMOTE_PLUS_GATE_CMD="bash $PLUS_STUB"
+# #3940: a promote with no Kosmos+ record appends to promote-plus-unverified.log in this directory;
+# point it at the sandbox so a local run never writes into the real ~/.local/state.
+export KOSMOS_PLUS_VERIFY_DIR="$T/plus-verify"
 export PLUS_RC_WANT=0
 
 # ---- publish-staging-pointer ----
@@ -209,12 +212,44 @@ out="$(KOSMOS_PROMOTE_GATE_CMD="$GATE" GATE_RC_WANT=0 PLUS_RC_WANT=1 bash "$PROM
 [ "$rc" = 1 ] && has "$out" "first Kosmos+ sign-in gate FAILED" && [ ! -f "$Sp1/dist/latest.json" ] && pass "promote: plus gate 1 -> refuse, no promote" || bad "promote plus-gate-1 (rc=$rc, out=$out)"
 out="$(KOSMOS_PROMOTE_GATE_CMD="$GATE" GATE_RC_WANT=0 PLUS_RC_WANT=1 bash "$PROMOTE" "$Sp1" --force 2>&1)"; rc=$?
 [ "$rc" = 1 ] && [ ! -f "$Sp1/dist/latest.json" ] && pass "promote: plus gate 1 is NOT forceable" || bad "promote plus-gate-1-force (rc=$rc, out=$out)"
-# no record (2) -> HOLD; --force promotes on a hand check.
+# no record (2) -> WARN and promote, WITHOUT --force (#3940, Josh 2026-09-26), and one line in the log.
 Sp2="$(make_site)"; bash "$PUBLISH" "$Sp2" >/dev/null 2>&1
+rm -rf "$KOSMOS_PLUS_VERIFY_DIR"
 out="$(KOSMOS_PROMOTE_GATE_CMD="$GATE" GATE_RC_WANT=0 PLUS_RC_WANT=2 bash "$PROMOTE" "$Sp2" 2>&1)"; rc=$?
-[ "$rc" = 2 ] && has "$out" "HOLDING" && [ ! -f "$Sp2/dist/latest.json" ] && pass "promote: plus gate 2 (no record) -> HOLD, no promote" || bad "promote plus-gate-2 (rc=$rc, out=$out)"
+PLUS_LOG_T="$KOSMOS_PLUS_VERIFY_DIR/promote-plus-unverified.log"
+SHA_T="$(sed -n 's/.*"sha256": *"\([^"]*\)".*/\1/p' "$Sp2/dist/latest-staging.json" | head -1)"
+[ "$rc" = 0 ] && has "$out" "WARNING first Kosmos+ sign-in gate could not confirm" && ! has "$out" "HOLDING" \
+  && [ -f "$Sp2/dist/latest.json" ] && [ "$(grep -c 'version=9.9.9' "$PLUS_LOG_T" 2>/dev/null)" = 1 ] \
+  && [ -n "$SHA_T" ] && grep -q "sha256=$SHA_T" "$PLUS_LOG_T" \
+  && grep -q 'first Kosmos+ sign-in NOT verified' "$PLUS_LOG_T" && grep -q 'reason=plus-gate-version:9.9.9' "$PLUS_LOG_T" \
+  && pass "promote: plus gate 2 (no record) -> WARN, promote, one log line" || bad "promote plus-gate-2 (rc=$rc, log=$(cat "$PLUS_LOG_T" 2>/dev/null), out=$out)"
+# --force changes nothing for a missing record: still a warning, a promote, and one MORE log line.
 out="$(KOSMOS_PROMOTE_GATE_CMD="$GATE" GATE_RC_WANT=0 PLUS_RC_WANT=2 bash "$PROMOTE" "$Sp2" --force 2>&1)"; rc=$?
-[ "$rc" = 0 ] && [ -f "$Sp2/dist/latest.json" ] && pass "promote: plus gate 2 + --force -> promote on hand check" || bad "promote plus-gate-2-force (rc=$rc, out=$out)"
+[ "$rc" = 0 ] && [ -f "$Sp2/dist/latest.json" ] && [ "$(grep -c 'version=9.9.9' "$PLUS_LOG_T")" = 2 ] \
+  && pass "promote: plus gate 2 + --force -> promote, logged again" || bad "promote plus-gate-2-force (rc=$rc, out=$out)"
+# A log that cannot be written never stops the promote; the output says so instead.
+Sp2b="$(make_site)"; bash "$PUBLISH" "$Sp2b" >/dev/null 2>&1
+out="$(KOSMOS_PLUS_VERIFY_DIR="$T/not-a-dir-file" KOSMOS_PROMOTE_GATE_CMD="$GATE" GATE_RC_WANT=0 PLUS_RC_WANT=2 bash -c ': > "$KOSMOS_PLUS_VERIFY_DIR"; exec bash "$0" "$1"' "$PROMOTE" "$Sp2b" 2>&1)"; rc=$?
+[ "$rc" = 0 ] && [ -f "$Sp2b/dist/latest.json" ] && has "$out" "could not append" \
+  && pass "promote: plus gate 2 with an unwritable log -> still promotes, says so" || bad "promote plus-gate-2-nolog (rc=$rc, out=$out)"
+# The directory exists but cannot be written (the append itself fails, not the mkdir).
+# Skipped as root, where chmod 500 does not stop a write (the case would fail with no product change).
+if [ "$(id -u)" = 0 ]; then echo "SKIP  promote: read-only log directory (running as root)"; else
+Sp2c="$(make_site)"; bash "$PUBLISH" "$Sp2c" >/dev/null 2>&1
+ROD="$T/plus-verify-readonly"; mkdir -p "$ROD" && chmod 500 "$ROD"
+out="$(KOSMOS_PLUS_VERIFY_DIR="$ROD" KOSMOS_PROMOTE_GATE_CMD="$GATE" GATE_RC_WANT=0 PLUS_RC_WANT=2 bash "$PROMOTE" "$Sp2c" 2>&1)"; rc=$?
+chmod 700 "$ROD"
+[ "$rc" = 0 ] && [ -f "$Sp2c/dist/latest.json" ] && has "$out" "could not append" && [ ! -s "$ROD/promote-plus-unverified.log" ] \
+  && pass "promote: plus gate 2 with a read-only log directory -> still promotes, says so" || bad "promote plus-gate-2-readonly (rc=$rc, out=$out)"
+fi
+# The logged reason comes from the gate's STDOUT: a stderr line printed after the verdict is not it.
+Sp2d="$(make_site)"; bash "$PUBLISH" "$Sp2d" >/dev/null 2>&1
+NOISY="$T/noisy-plus-gate.sh"; printf '#!/usr/bin/env bash\necho "plus-signin-verified: no record for this sha"\necho "node: a stray warning" >&2\nexit 2\n' > "$NOISY"
+LOGD_N="$T/plus-verify-noisy"; rm -rf "$LOGD_N"
+out="$(KOSMOS_PLUS_VERIFY_DIR="$LOGD_N" KOSMOS_PROMOTE_PLUS_GATE_CMD="bash $NOISY" KOSMOS_PROMOTE_GATE_CMD="$GATE" GATE_RC_WANT=0 bash "$PROMOTE" "$Sp2d" 2>&1)"; rc=$?
+[ "$rc" = 0 ] && grep -q 'reason=plus-signin-verified: no record for this sha' "$LOGD_N/promote-plus-unverified.log" \
+  && ! grep -q 'stray warning' "$LOGD_N/promote-plus-unverified.log" && has "$out" "a stray warning" \
+  && pass "promote: the logged reason is the gate's stdout verdict; its stderr still shows but is not logged" || bad "promote plus-gate-2-stderr (rc=$rc, log=$(cat "$LOGD_N/promote-plus-unverified.log" 2>/dev/null), out=$out)"
 # pass (0) -> promote, and the gate was handed the SNAPSHOT (a copy of the staging pointer).
 Sp0="$(make_site)"; bash "$PUBLISH" "$Sp0" >/dev/null 2>&1
 out="$(KOSMOS_PROMOTE_GATE_CMD="$GATE" GATE_RC_WANT=0 PLUS_RC_WANT=0 bash "$PROMOTE" "$Sp0" 2>&1)"; rc=$?
@@ -234,6 +269,25 @@ SWAP
 out="$(SWAP_POINTER="$Sr/dist/latest-staging.json" KOSMOS_PROMOTE_GATE_CMD="bash $SWAP_GATE" bash "$PROMOTE" "$Sr" 2>&1)"; rc=$?
 [ "$rc" = 1 ] && has "$out" "changed while the promote ran" && [ ! -f "$Sr/dist/latest.json" ] \
   && pass "promote: a staging pointer swapped mid-gate is refused, and latest.json is never written" || bad "promote mid-gate swap (rc=$rc, out=$out)"
+# #3940: the same refused promote with NO Kosmos+ record must leave no "promoted" log line, because
+# the line is written only once the promote has actually happened.
+Sr2="$(make_site)"; bash "$PUBLISH" "$Sr2" >/dev/null 2>&1
+LOGD_R="$T/plus-verify-race"; rm -rf "$LOGD_R"
+out="$(KOSMOS_PLUS_VERIFY_DIR="$LOGD_R" PLUS_RC_WANT=2 SWAP_POINTER="$Sr2/dist/latest-staging.json" KOSMOS_PROMOTE_GATE_CMD="bash $SWAP_GATE" bash "$PROMOTE" "$Sr2" 2>&1)"; rc=$?
+# The gate really returned 2 (the warning), and the refusal is the staging-changed check AFTER it,
+# so this proves the ordering, not just that some earlier check refused.
+[ "$rc" = 1 ] && [ ! -f "$Sr2/dist/latest.json" ] && [ ! -s "$LOGD_R/promote-plus-unverified.log" ] \
+  && has "$out" "WARNING first Kosmos+ sign-in gate could not confirm" && has "$out" "changed while the promote ran" \
+  && pass "promote: a promote refused AFTER a missing Kosmos+ record logs nothing" || bad "promote refused-after-plus-2 logged (rc=$rc, log=$(cat "$LOGD_R/promote-plus-unverified.log" 2>/dev/null), out=$out)"
+# ...but a promote that fails AFTER the prod pointer moved (here the alias .sha256 cannot be
+# written) has changed prod, so it IS logged.
+Sp3="$(make_site)"; bash "$PUBLISH" "$Sp3" >/dev/null 2>&1
+mkdir -p "$Sp3/dist/kosmos-arm64.tar.gz.sha256"
+LOGD_P="$T/plus-verify-partial"; rm -rf "$LOGD_P"
+out="$(KOSMOS_PLUS_VERIFY_DIR="$LOGD_P" KOSMOS_PROMOTE_GATE_CMD="$GATE" GATE_RC_WANT=0 PLUS_RC_WANT=2 bash "$PROMOTE" "$Sp3" 2>&1)"; rc=$?
+[ "$rc" = 1 ] && [ -f "$Sp3/dist/latest.json" ] && [ "$(grep -c 'version=9.9.9' "$LOGD_P/promote-plus-unverified.log" 2>/dev/null)" = 1 ] \
+  && grep -q "host=" "$LOGD_P/promote-plus-unverified.log" && grep -q "force=0" "$LOGD_P/promote-plus-unverified.log" \
+  && pass "promote: a promote that fails after the pointer moved is still logged (prod changed)" || bad "promote partial-not-logged (rc=$rc, log=$(cat "$LOGD_P/promote-plus-unverified.log" 2>/dev/null), out=$out)"
 
 echo ""
 if [ "$fail" = 0 ]; then echo "test-staging-channel-2036: ALL PASS"; else echo "test-staging-channel-2036: FAILURES above"; exit 1; fi

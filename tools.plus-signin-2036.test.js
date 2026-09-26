@@ -271,7 +271,18 @@ test('#2036: a sign-in that skips the second step straight to a session is recor
   } finally { b.server.close(); }
 });
 
-test('#2036: while an attempt is in flight the gate HOLDs over an old pass, but an old FAIL still refuses', () => {
+test('#3940: a record that exists but cannot be read refuses (1); among read failures only a MISSING record is 2', () => {
+  // exit 2 now lets a promote through (#3940), so an unreadable record, which may be a FAIL, must not.
+  const dir = tmp(); const ptr = pointerFile(dir);
+  const env0 = { KOSMOS_PLUS_VERIFY_DIR: dir };
+  assert.strictEqual(runGate(dir, ptr).status, 2, 'CONTROL: no record at all is "cannot tell"');
+  fs.mkdirSync(record.recordPath(SHA, env0));   // a directory where the record file belongs: EISDIR
+  const r = runGate(dir, ptr);
+  assert.strictEqual(r.status, 1, 'an unreadable record was read as no record: ' + r.stdout);
+  assert.match(r.stdout, /exists but cannot be read/);
+});
+
+test('#2036: while an attempt is in flight the gate cannot tell (2) over an old pass, but an old FAIL still refuses', () => {
   const dir = tmp(); const ptr = pointerFile(dir);
   const env0 = { KOSMOS_PLUS_VERIFY_DIR: dir };
   record.write(good(), env0);
@@ -282,7 +293,7 @@ test('#2036: while an attempt is in flight the gate HOLDs over an old pass, but 
   const failed = good(); failed.result = 'fail'; failed.steps = passSteps().map((s) => (s.id === 'up' ? { id: 'up', result: 'fail' } : s));
   record.write(failed, env0);
   r = runGate(dir, ptr);
-  assert.strictEqual(r.status, 1, 'an attempt in flight turned a refusal into a HOLD');
+  assert.strictEqual(r.status, 1, 'an attempt in flight turned a refusal into a "cannot tell"');
 });
 
 test('#2036: a board call that times out, or a seed whose second step is a text, is setup: nothing recorded', async () => {

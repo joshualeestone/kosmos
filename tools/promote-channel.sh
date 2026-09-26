@@ -216,21 +216,32 @@ if [ "$FAMILY" = mac ]; then
   # check ran from a Mac already signed in. An agent takes the fresh staging board through a real
   # first sign-in (tools/plus-signin-fresh.js: the code from the seed inbox via the Gmail
   # connector, #1591) and leaves a record for this sha; this gate reads it from the SNAPSHOT.
-  # Same exit contract: 0 pass -> promote; 1 fail or ambiguous -> refuse, never forceable; 2 no
-  # record -> HOLD, forceable only after a HAND check. Override via KOSMOS_PROMOTE_PLUS_GATE_CMD.
+  # 0 pass -> promote; 1 fail or ambiguous -> refuse, never forceable; 2 cannot tell -> WARN and
+  # promote (#3940, Josh 2026-09-26 11:54 CDT: "I don't need to test that part on staging ... that
+  # shouldn't hold us up from pushing this live"). Exit 2 covers no record, an attempt still in
+  # flight (deliberately NOT waited for any more), and a gate that could not run; the gate's own
+  # line says which, and it is what gets logged. Once the promote has actually happened (the moment
+  # the prod pointer is renamed into place), one line goes to promote-plus-unverified.log in the record directory
+  # OF THE MACHINE THAT RAN THE PROMOTE, so which prod builds went out without a first Kosmos+
+  # sign-in check stays answerable. A record that says FAIL still refuses: a measured break, not a
+  # missing check. (Josh's go for a Mac prod promote is a process rule; this script has no flag
+  # for it, see the header.) Override via KOSMOS_PROMOTE_PLUS_GATE_CMD.
   PLUS_GATE_CMD="${KOSMOS_PROMOTE_PLUS_GATE_CMD:-bash $(cd "$(dirname "$0")" && pwd)/plus-signin-verified.sh}"
   echo "promote-channel: running the first Kosmos+ sign-in gate: $PLUS_GATE_CMD"
-  $PLUS_GATE_CMD "$SNAP"; PLUS_RC=$?
+  # stdout only: the gate prints its verdict there, and the logged reason must be that line, never
+  # a stray diagnostic from stderr (which still reaches the terminal, uncaptured).
+  PLUS_OUT="$($PLUS_GATE_CMD "$SNAP")"; PLUS_RC=$?
+  [ -n "$PLUS_OUT" ] && printf '%s\n' "$PLUS_OUT"
+  PLUS_UNVERIFIED=0; PLUS_REASON=
   case "$PLUS_RC" in
     0) echo "promote-channel: first Kosmos+ sign-in gate PASSED for $V." ;;
     1) echo "promote-channel: first Kosmos+ sign-in gate FAILED (exit 1) - a fresh Kosmos+ sign-in does not work on $V (the #3827 class), or its record is ambiguous. REFUSING to promote; --force does not override it." >&2; exit 1 ;;
     2)
-      if [ "$FORCE" = 1 ]; then
-        echo "promote-channel: first Kosmos+ sign-in gate has no record for $V (exit 2) and --force was given - promoting on the strength of a HAND verification. NOTE: a first Kosmos+ sign-in was NOT verified on this build." >&2
-      else
-        echo "promote-channel: first Kosmos+ sign-in gate has no record for $V (exit 2) - HOLDING. Run tools/plus-signin-fresh.js start/finish against the fresh staging board (an agent reads the code from the seed inbox), or pass --force after verifying by hand." >&2
-        exit 2
-      fi ;;
+      echo "promote-channel: WARNING first Kosmos+ sign-in gate could not confirm $V (exit 2) - this does not hold the promote (#3940, Josh's ruling 2026-09-26); it goes ahead if the remaining checks pass. A first Kosmos+ sign-in was NOT verified on this build." >&2
+      PLUS_UNVERIFIED=1
+      # The gate's last line says WHY (no record, an attempt in flight, the gate could not run).
+      PLUS_REASON="$(printf '%s\n' "$PLUS_OUT" | awk 'NF{l=$0} END{print l}' | tr '\t\r' '  ')"
+      [ -n "$PLUS_REASON" ] || PLUS_REASON="(the gate printed nothing)" ;;
     *) echo "promote-channel: first Kosmos+ sign-in gate returned an unexpected code ($PLUS_RC) - refusing to promote on an ambiguous result" >&2; exit 1 ;;
   esac
 else
@@ -301,6 +312,22 @@ if ! cmp -s "$SNAP" "$PTMP" || [ "$(read_pointer_field "$PTMP" "$ARTIFACT_FIELD"
 fi
 mv "$PTMP" "$SITE/dist/$PROD_NAME" || { echo "promote-channel: could not write $PROD_NAME" >&2; exit 1; }
 PTMP=""
+# #3940: the prod pointer now names this build, so from here on the promote has HAPPENED even if a
+# later step (the read-back, the alias) fails and exits. Log it now, not at the end: a promote
+# refused BEFORE this line leaves nothing, one that changed prod always leaves its line.
+if [ "$FAMILY" != win ] && [ "${PLUS_UNVERIFIED:-0}" = 1 ]; then
+  PLUS_HOME="${HOME:-}"
+  PLUS_LOG_DIR="${KOSMOS_PLUS_VERIFY_DIR:-${PLUS_HOME:+$PLUS_HOME/.local/state/kosmos/release-verify}}"
+  PLUS_LOG="${PLUS_LOG_DIR:+$PLUS_LOG_DIR/promote-plus-unverified.log}"
+  PLUS_HOST="$(hostname -s 2>/dev/null)"; [ -n "$PLUS_HOST" ] || PLUS_HOST=unknown
+  if [ -n "$PLUS_LOG" ] && mkdir -p "$PLUS_LOG_DIR" 2>/dev/null \
+     && { printf '%s\thost=%s\tversion=%s\tsha256=%s\tforce=%s\tfirst Kosmos+ sign-in NOT verified; promoted per #3940 (Josh 2026-09-26)\treason=%s\n' \
+            "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$PLUS_HOST" "$(printf '%s' "$V" | tr '\t\n' '  ')" "$(printf '%s' "$SHA" | tr '\t\n' '  ')" "$FORCE" "$PLUS_REASON" >> "$PLUS_LOG"; } 2>/dev/null; then
+    echo "promote-channel: recorded in $PLUS_LOG (on this machine, $PLUS_HOST)" >&2
+  else
+    echo "promote-channel: WARNING could not append to ${PLUS_LOG:-the unverified-promote log (no HOME and no KOSMOS_PLUS_VERIFY_DIR)}; the promote happened and this output is the only record." >&2
+  fi
+fi
 # Prove the promote landed: the prod pointer now names the same artifact + sha as the snapshot.
 PROD_ART="$(read_pointer_field "$SITE/dist/$PROD_NAME" "$ARTIFACT_FIELD")"
 PROD_SHA="$(read_pointer_field "$SITE/dist/$PROD_NAME" sha256)"
@@ -345,6 +372,7 @@ if [ "$FAMILY" = win ]; then
   echo "promote-channel: updated the SITE CHECKOUT's $PROD_NAME to $V ($ARTIFACT). This does NOT change what users are served: that is tools/windows/publish-r2.ps1 -Promote."
 else
   echo "promote-channel: PROMOTED $V to prod - $PROD_NAME now points at the exact bytes staging verified ($ARTIFACT)."
+  [ "${PLUS_UNVERIFIED:-0}" = 1 ] && echo "promote-channel: NOTE a first Kosmos+ sign-in was NOT verified on $V (#3940); see ${PLUS_LOG:-the output above}."
 fi
 echo "   -> $(cat "$SITE/dist/$PROD_NAME")"
 echo "promote-channel: the next site deploy publishes the prod pointer. No rebuild happened."
