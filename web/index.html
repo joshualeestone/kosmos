@@ -6923,6 +6923,15 @@ body:not(.consolidated) .pjmidhead:has(.pjhead) .tsearch:focus-within { flex-bas
    informational, not urgent. The --k-bg ring lifts it off the avatar, like the warn glyph's
    built-in halo. */
 .pj-member .pj-face > .lreach { display: grid; place-items: center; position: absolute; right: -3px; bottom: -3px; width: 15px; height: 15px; border-radius: 50%; background: var(--k-ink-2); color: var(--k-bg); font: 700 10px/1 var(--font-ui); border: 1.5px solid var(--k-bg); box-sizing: border-box; }
+/* #3991: the tab view's members draw the consolidated rows' memory ring and presence dot. The
+   ring sits just OUTSIDE the full-size photo (the consolidated row shrinks its photo instead), and
+   both are scoped to the tab view's members so a picker or the consolidated layout is unchanged. */
+html:not([data-layout="consolidated"]) #pj-one-agents .pj-member .pj-face > .lring { display: block; position: absolute; inset: -4px; width: 42px; height: 42px; pointer-events: none; }
+html:not([data-layout="consolidated"]) #pj-one-agents .pj-member .pj-face.pjd::after {
+  content: ""; position: absolute; right: -1px; bottom: -1px; width: 9px; height: 9px; border-radius: 50%;
+  background: #2f7d5a; box-shadow: 0 0 0 2px var(--k-surface); }
+html:not([data-layout="consolidated"]) #pj-one-agents .pj-member .pj-face.pjd-off::after { background: var(--k-ink-2); }
+html:not([data-layout="consolidated"]) #pj-one-agents .pj-member .pj-face.pjd-unk::after { background: transparent; border: 1.5px solid var(--k-ink-2); box-sizing: border-box; }
 .pj-member small.pj-attn { color: #b3261e; }
 /* #b3261e is a ~2:1 whisper on the dark surface (under WCAG AA for this caption), so it
    lightens to #ff8c82 in dark mode. Only the SYSTEM-dark @media rule is written by hand; the
@@ -19800,6 +19809,12 @@ async function tick() {
          second find() for the same card is the one-fact-two-derivations habit
          this file keeps paying for. */
       paintBusy(fresh, CURRENT.name);
+      /* #3958: the pill follows the poll too, off the same `fresh` card. No card this poll (the
+         agent is gone or unread) keeps the last reading rather than guessing. */
+      if (fresh) paintDetailState(fresh);
+      /* The Start button follows the same poll: with the pill live, a button frozen at open
+         could sit beside "Working" and restart a running agent (review, iteration 11). */
+      if (fresh) refreshStartAffordance(fresh);
       /* #3614: the Files list, on the same tab-and-panel gate as the Talk poll above. */
       if (!document.hidden && !document.getElementById('panel-detail').hidden) paintAgentFiles(CURRENT.sessionName);
       /* The same tab gate as the poll above, for the same reason: this is a
@@ -28031,7 +28046,10 @@ function refreshStartAffordance(a) {
      would not catch the resulting second restart. Keying on START_EPOCH means a
      later open (which DID bump it) still re-enables normally. */
   const inFlight = START_FLIGHT !== null && START_FLIGHT === START_EPOCH;
-  if (notRunning && btn && !inFlight) { btn.hidden = false; btn.disabled = false; btn.textContent = 'Start this agent'; }
+  if (notRunning && btn && !inFlight) {
+    btn.hidden = false; btn.disabled = false;
+    if (btn.textContent !== 'Start this agent') btn.textContent = 'Start this agent'; // runs every poll
+  }
 }
 
 /* The pack's Memory box: a READING, not a control panel. The same
@@ -28255,6 +28273,15 @@ function paintRoomBusy(members, projectId) {
      seconds. Same rule the update line and the removed list already follow. */
   if (el.innerHTML !== html) el.innerHTML = html;
 }
+/* #2660's test, shared (#3958): a `working` sample older than the reply already on screen. The DM
+   line and the agent page's pill both use it, so on the tick an agent finishes they drop the stale
+   sample together rather than one saying Working beside the other's silence. */
+function workingSampleIsStale(fresh) {
+  if (!fresh || fresh.state !== 'working') return false;
+  const spoke = DM_SPOKE_AT.get(fresh.sessionName);
+  return !!(spoke && spoke.learnedAt > LAST_AT);
+}
+
 function paintBusy(fresh, name) {
   const el = document.getElementById('d-busy');
   if (!el) return;
@@ -28274,9 +28301,8 @@ function paintBusy(fresh, name) {
      🔑 Bounded the same way the room's is: the next snapshot is newer than the
      message, so a genuinely mid-task agent reappears within one poll. It
      under-claims for at most that long, which is the direction to fail in. */
-  const spoke = fresh && DM_SPOKE_AT.get(fresh.sessionName);
   const working = !!(fresh && fresh.state === 'working');
-  const staleWorking = working && !!(spoke && spoke.learnedAt > LAST_AT);
+  const staleWorking = workingSampleIsStale(fresh);
   const show = (working && !staleWorking) || !!(fresh && fresh.state === 'auth_failed');
   el.hidden = !show;
   if (!show) { el.innerHTML = ''; el.dataset.busyKey = ''; return; }
@@ -28634,12 +28660,16 @@ function setThread(el, html, key) {
        screen to measure. */
     if (el.__heldAtBottom === false) anchor = threadAnchor(el);
   }
-  const rewrote = el.__lastThread !== html;
+  /* #3966: compared by SHAPE, so a time's words ticking over do not rewrite the thread. */
+  const shape = threadShape(html);
+  const rewrote = el.__lastThread !== shape;
   if (rewrote) {
     /* #3650: the write replaces the smiley a DM-opened reaction picker is anchored to. */
     if (el.id === 'd-dmthread') rxnCloseDmPicker();
-    el.__lastThread = html;
+    el.__lastThread = shape;
     el.innerHTML = html;
+  } else {
+    refreshWhens(el);
   }
   el.__lastCount = key;
   // A note is not what the person came to read, and moving them inside one
@@ -28895,7 +28925,7 @@ function dmRow(m, name) {
     });
     return '<div class="msg-valve dm-kosmos" data-mid="' + midOf(m) + '">' + linked + '</div>';
   }
-  const whenStr = esc(pjWhen(m.at) || '');
+  const whenStr = pjWhenLive(m.at);
   if (m && m.from) {
     /* #3414: the agent's row now IS the room's `.msg` bubble -- gray ground, avatar to
        the left, the agent name bold INSIDE the bubble at the top, and the timestamp
@@ -29332,9 +29362,8 @@ async function paintTalk(sessionName, agentName) {
    * #991: say that the header's state is REMEMBERED, not current.
    *
    * ⚠️ AN ATTRIBUTE, NOT CONTENT, and that is the whole reason this works.
-   * `#d-state` has its innerHTML rewritten wholesale by the card painter
-   * (`dst.innerHTML = GLYPH[...] + '<b>' + label + '</b>'`), which runs on its
-   * own schedule. Anything appended as a CHILD is destroyed by the next repaint
+   * `#d-state` has its innerHTML rewritten by paintDetailState (on open, and by
+   * the poll whenever the pill's markup changes), which runs on its own schedule. Anything appended as a CHILD is destroyed by the next repaint
    * and comes back at the next presence check, so the qualifier would flicker
    * on and off beside a state that never changed. An attribute survives
    * innerHTML replacement, and the qualifier is drawn from CSS.
@@ -29556,7 +29585,10 @@ async function paintTalk(sessionName, agentName) {
          every other surface. Suppress the marker for 'restarting' (the composer's
          "cannot be reached right now" line above stays -- you genuinely cannot hand
          a mid-restart agent a message; only the badge past-marking is wrong). */
-      markStateRemembered(!(CURRENT && CURRENT.state === 'restarting'));
+      /* #3958: the LATEST card, not CURRENT: CURRENT is the card from when the page opened, and
+         the pill now follows the poll, so reading CURRENT would past-mark a live restart. */
+      const latest = CURRENT && ((typeof LAST !== 'undefined' && Array.isArray(LAST) && LAST.find((x) => x.sessionName === CURRENT.sessionName)) || CURRENT);
+      markStateRemembered(!(latest && latest.state === 'restarting'));
   } else if (body.presence === 'unsure') {
     off.textContent = 'We could not check whether ' + name + ' is running. '
       + 'You can still send this, and we will tell you if it did not land.';
@@ -30026,6 +30058,109 @@ document.getElementById('d-files-finder') && document.getElementById('d-files-fi
   paintAgentFiles(who);   // with the stamp reset this also repaints the Files screen, which is showing
 });
 
+/**
+ * #3958: the agent page's status pill (#d-state) and its short engine-state line (#d-task).
+ *
+ * Josh, 2026-09-26: the pill said Idle while the same page's DM said "is working…", and the
+ * dots did not animate after idle -> working. Both were one defect: this used to be painted
+ * only by openDetail, so the pill froze at whatever state the agent had when the page opened,
+ * while the DM line followed every poll. Now openDetail AND the poll call it, and the poll
+ * passes the same `fresh` card it hands paintBusy and swarmPagePaint, so the pill, the DM
+ * line's dots and the card's green all read one sample.
+ */
+function paintDetailState(card) {
+  /* The same stale-sample rule as the DM line (workingSampleIsStale), so the two never split.
+     ⚠️ The grid card does NOT apply it: on the one poll where a reply has landed after the
+     sample, this pill and the DM line say idle while the card still says working. Chosen: the
+     split Josh reported was the pill against the DM line on this same page, and a card one
+     poll behind resolves on the next sample. The stale sample is dropped whole: its evidence line
+     described the work, so an Idle pill beside "Its screen said: <that work>" would be the same
+     split one row lower. */
+  const a = workingSampleIsStale(card) ? { ...card, state: 'idle', stateEvidence: '' } : card;
+  /* #3958 (review): the screen-said evidence and the re-auth button follow the poll with the
+     pill. Painted FIRST, so a missing #d-task or #d-state cannot stop them. Painted only by openDetail they froze while the pill went live, so a page opened on a
+     working agent that then hit auth_failed said so in the pill with no "Sign in again" beside it. */
+  /* ⚠️ TEXT, NEVER MARKUP. This is pane content: whatever happens to be on
+     somebody's terminal, on its way to a product surface. `textContent` is the
+     escape, and the engine has already trimmed and capped it. */
+  const said = document.getElementById('d-said');
+  const saidLab = document.getElementById('d-said-lab');
+  if (said) {
+    const line = String(a.stateEvidence || '').trim();
+    if (said.textContent !== line) said.textContent = line;
+    said.hidden = !line;
+    /* The label follows the quote exactly, or an empty agent page keeps a
+       stranded "Its screen said:" with nothing under it. */
+    if (saidLab) {
+      /* `a.name`, which is what the heading two lines up uses. My first version
+         called a `dispName()` that DOES NOT EXIST -- it would have thrown the
+         moment a rate-limited agent's page opened, and every text-matching test
+         passed over it because a regex cannot call a function. */
+      const lab = line ? a.name + '\u2019s screen said:' : '';
+      /* Written only when it changes: this runs every poll, and reassigning identical text
+         replaces the node, which drops a selection somebody is copying from. */
+      if (saidLab.textContent !== lab) saidLab.textContent = lab;
+      saidLab.hidden = !line;
+    }
+  }
+  /* kosmos#1918: the reachable remedy for a broken sign-in. The evidence quote
+     above may name "/login", which has no surface in this product; this button is
+     that surface. Shown ONLY when the state is auth_failed, so a healthy agent
+     never sees a control it does not need, and hidden again the moment the state
+     is anything else. The click (wired once below) opens Settings -> Accounts,
+     the existing re-auth surface. */
+  const reauthBtn = document.getElementById('d-reauth');
+  if (reauthBtn) reauthBtn.hidden = a.state !== 'auth_failed';
+  const copy = stateCopyOf(a);
+  /* ⚠️ The card's own derivations, not a copy of them: `cardStOf` decides the
+     class, `GLYPH` the mark, `stateCopyOf` the word (the shared wrapper over
+     STATE_COPY that also names a restarting cause, #2019). A card and its detail page
+     disagreeing about an agent's state is worse than either being wrong. */
+  const dm = cardStOf(a);
+  const dst = document.getElementById('d-state');
+  if (!dst) return;
+  const cls = 'detail-state astate st-' + dm.st;
+  if (dst.className !== cls) dst.className = cls;
+  /* #3958: WRITTEN ONLY WHEN IT CHANGED, for the reason paintBusy gives (#3421): the poll calls
+     this every five seconds, and rewriting the pill would rebuild its working dots and restart
+     them each time. Keyed on the markup itself, held in a data attribute, because innerHTML
+     reads back reserialized and would never compare equal. */
+  const pillHtml = glyphOf(a) + '<b>' + esc(copy.label) + '</b>';
+  if (dst.dataset.pillKey !== pillHtml) {
+    dst.innerHTML = pillHtml;
+    dst.dataset.pillKey = pillHtml;
+  }
+  /* #3729 (Josh, 2026-09-25): there is no "its reports and its screen disagree" line here, or on
+     the card, any more. The slot is gone, not hidden, so nothing can be written into it. */
+  /* ⚠️ HIDDEN WHEN THERE IS NO TASK. Beside a badge that already says Idle,
+     a task line would restate the badge; this panel shows nothing rather than
+     that. Since #209 the card, too, shows nothing here rather than a frozen
+     title, so the two surfaces no longer diverge on what "no task" looks like. */
+  /* #3043 (Josh, 2026-09-14) then #3271 (Josh, 2026-09-18): the agent's own self-reported
+     sentence no longer prints beside the status bubble in the header. Josh, on the agent view:
+     "I only want to show the status bubble ... it prints out really long stuff that I don't
+     need. I just need to know if it's idle, or if it's working, or if it needs something." So
+     the reported quote is dropped from this line. #3043 had relocated it to a #d-why note below
+     the name; #3271 removed that note entirely (Josh: no status line up there), so the reported
+     reason now shows on no header line at all. The SHORT engine-state reassurances stay here
+     (restarting "Nothing was lost" #2019, auth #874, rate-limit #215): those are not the long
+     self-reported text Josh flagged, and
+     dropping them would silently undo those prior rulings.
+     (#2833 still holds: needs_you hides its quote here, and the Talk waiting box carries it.)
+     taskLine / stateReason are UNCHANGED, so the grid/list cards that share them are unaffected.
+     🔑 The mechanism is the SAME derivation the grid/list cards already use -- taskLine with
+     { noQuote: true }. That path falls through stateReason's reported branch (returning '' for a
+     reported self-quote) while KEEPING the engine-state sentences (auth/rate-limit/restart), which
+     is exactly what this line wants. Delegating rather than re-deriving the "is this the reported
+     quote" test inline keeps the header and the cards from ever disagreeing about what drops beside
+     the bubble (one fact, one derivation), and the noQuote behavior is already unit-tested. */
+  const dtask = document.getElementById('d-task');
+  if (!dtask) return;
+  const taskText = taskLine(a, { noQuote: true });
+  if (dtask.textContent !== taskText) dtask.textContent = taskText; // every poll: keep a selection
+  dtask.hidden = !taskText || (a.state === 'needs_you');
+}
+
 function openDetail(sessionName, section, fromProject) {
   // #3050: opening ANY agent - INCLUDING one no longer in LAST (removed while its
   // Update reload was in flight), which is why this precedes the `if (!a) return`
@@ -30204,42 +30339,7 @@ function openDetail(sessionName, section, fromProject) {
   // flex column with gap:4px, so an empty-but-shown #d-meta would still take a slot and
   // double the gap between the name and the status badge (#3385 iteration-9).
   dmeta.hidden = metaBits.length === 0;
-  const copy = stateCopyOf(a);
-  /* ⚠️ The card's own derivations, not a copy of them: `cardStOf` decides the
-     class, `GLYPH` the mark, `stateCopyOf` the word (the shared wrapper over
-     STATE_COPY that also names a restarting cause, #2019). A card and its detail page
-     disagreeing about an agent's state is worse than either being wrong. */
-  const dm = cardStOf(a);
-  const dst = document.getElementById('d-state');
-  dst.className = 'detail-state astate st-' + dm.st;
-  dst.innerHTML = glyphOf(a) + '<b>' + esc(copy.label) + '</b>';
-  /* #3729 (Josh, 2026-09-25): there is no "its reports and its screen disagree" line here, or on
-     the card, any more. The slot is gone, not hidden, so nothing can be written into it. */
-  /* ⚠️ HIDDEN WHEN THERE IS NO TASK. Beside a badge that already says Idle,
-     a task line would restate the badge; this panel shows nothing rather than
-     that. Since #209 the card, too, shows nothing here rather than a frozen
-     title, so the two surfaces no longer diverge on what "no task" looks like. */
-  /* #3043 (Josh, 2026-09-14) then #3271 (Josh, 2026-09-18): the agent's own self-reported
-     sentence no longer prints beside the status bubble in the header. Josh, on the agent view:
-     "I only want to show the status bubble ... it prints out really long stuff that I don't
-     need. I just need to know if it's idle, or if it's working, or if it needs something." So
-     the reported quote is dropped from this line. #3043 had relocated it to a #d-why note below
-     the name; #3271 removed that note entirely (Josh: no status line up there), so the reported
-     reason now shows on no header line at all. The SHORT engine-state reassurances stay here
-     (restarting "Nothing was lost" #2019, auth #874, rate-limit #215): those are not the long
-     self-reported text Josh flagged, and
-     dropping them would silently undo those prior rulings.
-     (#2833 still holds: needs_you hides its quote here, and the Talk waiting box carries it.)
-     taskLine / stateReason are UNCHANGED, so the grid/list cards that share them are unaffected.
-     🔑 The mechanism is the SAME derivation the grid/list cards already use -- taskLine with
-     { noQuote: true }. That path falls through stateReason's reported branch (returning '' for a
-     reported self-quote) while KEEPING the engine-state sentences (auth/rate-limit/restart), which
-     is exactly what this line wants. Delegating rather than re-deriving the "is this the reported
-     quote" test inline keeps the header and the cards from ever disagreeing about what drops beside
-     the bubble (one fact, one derivation), and the noQuote behavior is already unit-tested. */
-  const dtask = document.getElementById('d-task');
-  dtask.textContent = taskLine(a, { noQuote: true });
-  dtask.hidden = !dtask.textContent || (a.state === 'needs_you');
+  paintDetailState(a);
   /* The lede names the AGENT rather than saying "this agent", which is the
      pack's wording and the same substitution the rest of this panel already
      makes. `textContent`, so a name is never markup.
@@ -30269,34 +30369,6 @@ function openDetail(sessionName, section, fromProject) {
      now has no dedicated header line by design; the actionable surfaces remain (the state
      badge #d-state, the short engine-state sentences #d-task, the screen-said evidence
      #d-said, and the re-auth sign-in button). Guarded in server.test.js so a re-add reds. */
-  /* ⚠️ TEXT, NEVER MARKUP. This is pane content: whatever happens to be on
-     somebody's terminal, on its way to a product surface. `textContent` is the
-     escape, and the engine has already trimmed and capped it. */
-  const said = document.getElementById('d-said');
-  const saidLab = document.getElementById('d-said-lab');
-  if (said) {
-    const line = String(a.stateEvidence || '').trim();
-    said.textContent = line;
-    said.hidden = !line;
-    /* The label follows the quote exactly, or an empty agent page keeps a
-       stranded "Its screen said:" with nothing under it. */
-    if (saidLab) {
-      /* `a.name`, which is what the heading two lines up uses. My first version
-         called a `dispName()` that DOES NOT EXIST -- it would have thrown the
-         moment a rate-limited agent's page opened, and every text-matching test
-         passed over it because a regex cannot call a function. */
-      saidLab.textContent = line ? a.name + '\u2019s screen said:' : '';
-      saidLab.hidden = !line;
-    }
-  }
-  /* kosmos#1918: the reachable remedy for a broken sign-in. The evidence quote
-     above may name "/login", which has no surface in this product; this button is
-     that surface. Shown ONLY when the state is auth_failed, so a healthy agent
-     never sees a control it does not need, and hidden again the moment the state
-     is anything else. The click (wired once below) opens Settings -> Accounts,
-     the existing re-auth surface. */
-  const reauthBtn = document.getElementById('d-reauth');
-  if (reauthBtn) reauthBtn.hidden = a.state !== 'auth_failed';
   /* #3410: the Start affordance. Bump the generation so any in-flight Start from
      a prior open (this agent reopened, or a switch away and back) can no longer
      write onto this fresh panel; reset PANEL_WITHDRAWN so a stale withdrawn flag
@@ -32632,8 +32704,19 @@ function setLive(el, html) {
   // made the comparison miss forever -- the node rebuilt every poll,
   // which on the recipient picker closed an open dropdown every five
   // seconds.
-  if (el.__lastLive === html) return;
-  el.__lastLive = html;
+  /* #3966: compared by SHAPE, so a relative time's words ticking over do not rebuild the node
+     (the project member panel #pj-msgs flashed every few seconds the way the agent thread did).
+     The shape also ignores a memory ring's arc length (#3991), patched in place by refreshRings:
+     markup with neither a live time nor a ring has a shape identical to itself, and every caller
+     whose markup draws a ring (the project members, the settings members list) gets its arc
+     patched rather than a rebuild. */
+  const shape = threadShape(html);
+  if (el.__lastLive === shape) {
+    if (html.indexOf('mwhen') > -1) refreshWhens(el);
+    if (html.indexOf('lring') > -1) refreshRings(el, html);
+    return;
+  }
+  el.__lastLive = shape;
   el.innerHTML = html;
 }
 
@@ -44331,6 +44414,31 @@ function pjNotice(roster, projectId) {
 }
 
 /**
+ * #3991: a project member's presence dot class, from the SAME rule the consolidated row applies:
+ * lrow's not-running branch (a restart excepted), then boardMods' `off` and `unk`. It reads
+ * boardMods rather than restating it, so a state boardMods learns to call off or unknown reaches
+ * this dot too. ' pjd' alone is the green dot.
+ */
+function memberDotClass(row) {
+  if (!row) return '';
+  /* lrow's not-running branch, with its two exceptions: a restart, and the needs-trust arm (which
+     draws `attn notrunning needstrust`, no `off`; here it is the unsure dot, below). The trust arm reads lrow's own field, needsTrust,
+     which rides the same board poll as `running`; a member row's state comes from the projects poll,
+     so it is the fallback only when the board card is not there. */
+  const trust = row.needsTrust === true || (!('needsTrust' in row) && row.state === 'needs_trust');
+  /* A trust-stuck agent's presence is UNSURE (CARD_ST.needs_trust, drawn hollow on the grid card):
+     never the green all-clear, which would sit beside the red needs-you triangle on the same face.
+     boardMods cannot say this: it washes needs_trust into `attn` with needs_you. */
+  if (trust) return ' pjd pjd-unk';
+  if (row.running === false && row.state !== 'restarting') return ' pjd pjd-off';
+  if (cardStOf(row).pres === 'unsure') return ' pjd pjd-unk';
+  const mods = ' ' + boardMods(row, cardStOf(row)) + ' ';
+  if (mods.indexOf(' off ') > -1) return ' pjd pjd-off';
+  if (mods.indexOf(' unk ') > -1) return ' pjd pjd-unk';
+  return ' pjd';
+}
+
+/**
  * How a member reads.
  *
  * ⚠️ `present: false` is NOT rendered as anything reassuring and NOT dropped.
@@ -44400,17 +44508,30 @@ function pjMember(m, suppressTold, withMinus, hideState) {
      not reach, so mark the avatar with the question-mark badge instead of a status sentence.
      Mutually exclusive with `warn` by construction: warn is gated on `m.present === true`. */
   const reachMark = present ? '' : LROW_REACH;
+  /* #3991 (Josh, 2026-09-26: "we lost the context ring and green dot indicator on the tab view of
+     project, project members"). Measured: the tab view never drew them; the consolidated rows do,
+     through lrow(). Same derivations here, so the two views cannot disagree: the memory ring is
+     lrowRing() off the LIVE board card (a project's member rows carry no context reading), and the
+     dot follows lrow's rule (its offline branch and boardMods): grey for not running (a restart
+     excepted) or a stopped pill, hollow for an unknown one, green otherwise. A member the board cannot see keeps its "?" badge instead. */
+  const boardCard = typeof LAST !== 'undefined' && Array.isArray(LAST) ? LAST.find((x) => x && x.sessionName === m.sessionName) : null;
+  const memRing = boardCard ? lrowRing(boardCard) : '';
+  /* The dot's STATE is the member projection's (liveM), the same read the row's wash and warning
+     use: it carries the tie gate (a pane merely holding this agent's name reads `unknown`), which
+     the raw board card does not. Only `running` comes from the board card. */
+  const dotRow = boardCard ? Object.assign({}, boardCard, { state: liveM.state }) : liveM;
+  const dotCls = present ? memberDotClass(dotRow) : '';
   const face = m.hasAvatar
     /* #2762: `?v=` the avatar version, same as tkFace above and the org chart
        (#2698). This row is painted through `setIfChanged` -> `setLive`, which is
-       `if (el.__lastLive === html) return;` -- an identical-HTML skip exactly like
+       an unchanged-markup skip (by shape since #3966, which ignores live times and ring arc lengths) exactly like
        TK_LIST_HTML and ORG_HTML. So a bare URL here is stale for the same reason
        and by the same mechanism. `m` is the member row from projects.describe,
        which carries avatarVer. */
-    ? '<span class="lav pj-face" aria-hidden="true"><img src="/api/agent/'
-      + encodeURIComponent(m.sessionName) + '/avatar?v=' + (m.avatarVer || 0) + '" alt="">' + warn + reachMark + '</span>'
-    : '<span class="lav pj-face" aria-hidden="true" style="background:' + discTint(m.name)
-      + ';color:' + discInk(m.name) + '">' + esc(initials(m.name)) + warn + reachMark + '</span>';
+    ? '<span class="lav pj-face' + dotCls + '" aria-hidden="true"><img src="/api/agent/'
+      + encodeURIComponent(m.sessionName) + '/avatar?v=' + (m.avatarVer || 0) + '" alt="">' + memRing + warn + reachMark + '</span>'
+    : '<span class="lav pj-face' + dotCls + '" aria-hidden="true" style="background:' + discTint(m.name)
+      + ';color:' + discInk(m.name) + '">' + esc(initials(m.name)) + memRing + warn + reachMark + '</span>';
   /* #2019: a restarting member is NOT "unseen" -- .unseen draws the dashed
      "slot waiting / cannot see this" border the restarting state refuses on every
      other surface (the card pill is deliberately SOLID). Suppress it for
@@ -44418,7 +44539,7 @@ function pjMember(m, suppressTold, withMinus, hideState) {
   /* #3564: a swarm member shows its cluster and, in the project's Agents column, a small On / Off (the mock). */
   const swRow = typeof SWARMS_ON !== 'undefined' && SWARMS_ON && typeof LAST !== 'undefined' && Array.isArray(LAST)
     ? LAST.find((x) => x && x.sessionName === m.sessionName && Object.prototype.hasOwnProperty.call(x, 'swarm') && x.swarm) : null;
-  const swFace = swRow ? '<span class="lav pj-face pj-swface" aria-hidden="true">' + swarmCluster(swRow, 32) + warn + reachMark + '</span>' : '';
+  const swFace = swRow ? '<span class="lav pj-face pj-swface' + dotCls + '" aria-hidden="true">' + swarmCluster(swRow, 32) + memRing + warn + reachMark + '</span>' : '';
   let swToggle = '';
   if (swRow && hideState && PJ_CURRENT) {
     const pj = Array.isArray(PROJECTS) ? PROJECTS.find((x) => x && x.id === PJ_CURRENT) : null;
@@ -50235,7 +50356,7 @@ function pjRoomRow(m, p, hideHeader) {
   if (m.kind === 'note') {
     const whenN = pjWhen(m.at) || '';
     return '<div class="msg-valve">' + esc(m.text || '')
-      + (whenN ? '<span class="msg-t">' + esc(whenN) + '</span>' : '') + '</div>';
+      + (whenN ? '<span class="msg-t">' + pjWhenLive(m.at) + '</span>' : '') + '</div>';
   }
   /* #3311: a message from OUTSIDE this Kosmos, through a federated project. The
      sender's own name, tagged External (or External agent), initials only (there
@@ -50254,14 +50375,14 @@ function pjRoomRow(m, p, hideHeader) {
       + '<div class="msg-b"><div class="msg-bd">'
       + '<b class="msg-nm">' + esc(whoX) + '</b> <span class="msg-ext-tag">' + tagX + '</span>'
       + '<div class="msg-ext-tx">' + esc(m.text || '').replace(/\n/g, '<br>') + '</div>'
-      + (whenX ? '<span class="msg-t">' + esc(whenX) + '</span>' : '')
+      + (whenX ? '<span class="msg-t">' + pjWhenLive(m.at) + '</span>' : '')
       + '</div></div></div>';
   }
   if (m.kind === 'refused') {
     const whenR = pjWhen(m.at) || '';
     return '<div class="msg-valve">' + esc(pjNameOf(p, m.from) || m.from)
       + ' tried to post here and Kosmos stopped it: ' + esc(pjSentence(m.because || 'no reason was recorded'))
-      + (whenR ? '<span class="msg-t">' + esc(whenR) + '</span>' : '') + '</div>';
+      + (whenR ? '<span class="msg-t">' + pjWhenLive(m.at) + '</span>' : '') + '</div>';
   }
   if (m.kind === 'refused-group') {
     /* #2700: a valve-stopped room refuses every agent that then tries to post,
@@ -50280,7 +50401,7 @@ function pjRoomRow(m, p, hideHeader) {
     const names = (m.from || []).map((f) => pjNameOf(p, f) || f);
     return '<div class="msg-valve">' + esc(pjJoinNames(names))
       + ' tried to post here and Kosmos stopped them: ' + esc(pjSentence(m.because || 'no reason was recorded'))
-      + (whenG ? '<span class="msg-t">' + esc(whenG) + '</span>' : '') + '</div>';
+      + (whenG ? '<span class="msg-t">' + pjWhenLive(m.at) + '</span>' : '') + '</div>';
   }
   if (m.kind === 'valve') {
     /* Reassurance, not an error: the valve is the product doing its job.
@@ -50288,7 +50409,7 @@ function pjRoomRow(m, p, hideHeader) {
        margin never hangs as a trailing gap on an empty inline. */
     const when = pjWhen(m.at) || '';
     return '<div class="msg-valve">' + esc(m.because || PJ_VALVE_FALLBACK)
-      + (when ? '<span class="msg-t">' + esc(when) + '</span>' : '') + '</div>';
+      + (when ? '<span class="msg-t">' + pjWhenLive(m.at) + '</span>' : '') + '</div>';
   }
   const isOp = m.operator === true;
   const card = !isOp && (p.agents || []).find((a) => a.sessionName === m.from);
@@ -50320,7 +50441,7 @@ function pjRoomRow(m, p, hideHeader) {
      it is just no longer rendered inline in the thread. The box is gated on BODY content
      (see `hasBubble = bd` below) -- a bodyless row, agent or operator, draws no box. */
   const bd = pjRoomBody(m, p) + pjPreviewCard(m.preview) + pjAttachmentCards(m);
-  const whenStr = esc(pjWhen(m.at) || '');
+  const whenStr = pjWhenLive(m.at);
   /* #3134-followup (Josh 6.72): name and timestamp move INSIDE the bubble. The agent's
      name is a bold heading at the TOP (`.msg-nm`); the operator's OWN post still gets
      NO name -- his standing #3130 6.70 rule, "me as the user doesn't have my name or
@@ -50459,7 +50580,7 @@ function paintThreadInto(box, html, hasRows, queryChanged, filtering) {
   /* #2834: the full picker is now the shared `#rxn-picker` (in body), so a room
      rebuild no longer destroys it the way the old inline-per-post picker was
      destroyed. Close it here -- reaching `paintThreadInto` at all means the room
-     content changed (its sole caller `paintRoom` gates on `box.__lastRoom !== html`),
+     content changed (its sole caller `paintRoom` gates on the thread's shape, #3966),
      which is exactly the moment the old inline picker went away and its `.rxn-more`
      opener was recreated with aria-expanded reset. A quiet poll never reaches here,
      so an open picker is left alone on an unchanged room (parity with the composer
@@ -50720,12 +50841,19 @@ function paintRoom(body) {
      it true and lands on the newest post. The old key mixed the message ids in,
      so every new post read as a reset and jumped the reader down. */
   const queryChanged = box.__lastRoomQuery !== PJ_ROOM_QUERY;
-  if (box.__lastRoom !== html) {
+  /* #3966: compared by SHAPE, as the agent thread is: a time's words ticking over neither rebuilds
+     the room nor marks it seen. */
+  const shape = threadShape(html);
+  /* A query change always takes the rewrite branch, even when the rows' shape matches, so
+     queryChanged is consumed and __lastRoomQuery kept current. */
+  if (box.__lastRoom === shape && !queryChanged) {
+    refreshWhens(box);
+  } else {
     /* New rows while the room is on screen are read as they land; a tab in
        the background is not looking, so its cursor waits for the person. */
     if (box.__lastRoom !== undefined && document.visibilityState === 'visible'
       && !document.getElementById('pj-one-view').hidden) pjMarkSeen(PJ_CURRENT);
-    box.__lastRoom = html;
+    box.__lastRoom = shape;
     box.__lastRoomQuery = PJ_ROOM_QUERY;
     paintThreadInto(box, html, rows !== '', queryChanged, filtering);
     /* #3745: a repaint rebuilds every row without its measured .rxn-left, and a still mouse sends no new
@@ -51616,6 +51744,64 @@ function pjWhenPart(at) {
   return said ? ' ' + said : '';
 }
 
+/**
+ * #3966: a message's relative time, as a span that can be updated IN PLACE.
+ *
+ * Josh, 2026-09-26: "I'm getting a flash every 5 seconds" on an agent's page. Measured cause: a
+ * thread was rewritten whenever its markup changed, and "51 minutes ago" becoming "52 minutes
+ * ago" on ANY row changed it. A busy thread crosses some row's minute mark on most polls, so
+ * the whole thread (every avatar, preview image and reaction) was rebuilt and reloaded about
+ * every five seconds. The time now carries its source (`data-at`) so the thread can compare
+ * its SHAPE without the words (threadShape) and refresh the words alone (refreshWhens).
+ */
+function pjWhenLive(at) {
+  const said = pjWhen(at);
+  return said ? '<span class="mwhen" data-at="' + esc(String(at)) + '">' + esc(said) + '</span>' : '';
+}
+/** A thread's markup with every live time's words blanked, and (#3991) every memory ring's arc: what
+    decides a rewrite. The arc moves with each percent a working agent uses, and a member column
+    rebuilt for that would be the same flash this function exists to stop. */
+function threadShape(html) {
+  return String(html)
+    .replace(/(<span class="mwhen" data-at="[^"]*">)[^<]*(<\/span>)/g, '$1$2')
+    .replace(/<svg class="lring"[\s\S]*?<\/svg>/g, (ring) => ring.replace(/stroke-dasharray="[^"]*"/g, 'stroke-dasharray=""'));
+}
+/** #3991: bring every memory ring arc under `root` to the one in `html`, pairing each ring with the
+    one for the same agent (a ring with no partner is left alone; a different set of rings is a shape
+    change, and the caller rewrites instead). */
+function refreshRings(root, html) {
+  if (!root || typeof root.querySelectorAll !== 'function' || typeof document === 'undefined') return;
+  const t = document.createElement('template');
+  t.innerHTML = html;
+  /* Paired by the agent each ring belongs to (its [data-agent] row) and its place within that row.
+     Today a reorder always changes the shape and rebuilds before this runs, so position alone would
+     pair the same nodes; the key keeps that true without depending on it. */
+  const keyed = (list) => {
+    const seen = new Map();
+    return Array.from(list, (el) => {
+      const host = el.closest ? el.closest('[data-agent]') : null;
+      const who = host ? host.getAttribute('data-agent') : '';
+      const n = seen.get(who) || 0;
+      seen.set(who, n + 1);
+      return [who + '\u0000' + n, el];
+    });
+  };
+  const want = new Map(keyed(t.content.querySelectorAll('.lring .gf')).map(([k, el]) => [k, el.getAttribute('stroke-dasharray')]));
+  for (const [k, el] of keyed(root.querySelectorAll('.lring .gf'))) {
+    if (!want.has(k)) continue;
+    const w = want.get(k);
+    if (el.getAttribute('stroke-dasharray') !== w) el.setAttribute('stroke-dasharray', w);
+  }
+}
+/** Bring every live time under `root` up to now, touching only the ones whose words changed. */
+function refreshWhens(root) {
+  if (!root || typeof root.querySelectorAll !== 'function') return;
+  for (const el of root.querySelectorAll('.mwhen[data-at]')) {
+    const said = pjWhen(el.getAttribute('data-at'));
+    if (said && el.textContent !== said) el.textContent = said;
+  }
+}
+
 function pjWhen(at) {
   const when = Date.parse(at);
   if (!Number.isFinite(when)) return '';
@@ -51732,7 +51918,9 @@ function pjVerdict(m, name) {
   const consequential = Boolean(note) && d.paneState !== 'idle';
   let said;
   let mark;
-  const when = pjWhenPart(m.at);
+  /* #3966: a live time, so the member panel can refresh it in place (see setLive). */
+  const whenLive = pjWhenLive(m.at);
+  const when = whenLive ? ' ' + whenLive : '';
   if (d.state === 'placed') {
     mark = '';
     /* #3419: a placed message's thread row carries NO delivery-status copy --

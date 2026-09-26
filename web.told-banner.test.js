@@ -71,6 +71,8 @@ function panel() {
   const reportsGo = { dataset: {} };
   const els = { 'd-instr-stale': el, 'd-instr-reports': reports, 'd-instr-reports-text': reportsText, 'd-instr-reports-go': reportsGo };
   const fn = new Function('document', 'esc', 'CURRENT', `
+    ${page.lift(SCRIPT, 'threadShape')}
+    ${page.lift(SCRIPT, 'refreshWhens')}
     ${page.lift(SCRIPT, 'setLive')}
     ${page.lift(SCRIPT, 'staleWords')}
     ${page.lift(SCRIPT, 'renderStale')}
