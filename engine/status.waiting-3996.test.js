@@ -10,7 +10,9 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 const status = require('./status');
 
-const agent = (name, dmUnread, extra) => ({ sessionName: name, dmUnread, ...extra });
+/* Only the two fields waitingTotal reads (dmUnread, isGuide): not a card. The real payload is
+   covered end to end by server.test.js's '#3996' test, which builds its agents with fleet. */
+const agent = (_name, dmUnread, extra) => ({ dmUnread, ...extra });
 
 test('#3996: needs-you + every agent\'s unread DMs + unread project messages', () => {
   const counts = { needsYou: 2, projectsUnread: 5 };
