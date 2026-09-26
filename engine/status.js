@@ -1625,6 +1625,25 @@ function geminiQuotaReading(paneText, afterStop) {
   return { dialog: false, daily: GEMINI_QUOTA_ERROR.test(raw[at]), evidence: rows[at].replace(/^✕\s*/, '') };
 }
 
+/* #4034: the same question box for other conditions (Gemini CLI 0.61.0). Captured: a model not found draws
+   'Model "<model>" was not found or is invalid.' over "1. Keep trying / 2. Stop". From Gemini's source, not captured:
+   "We are currently experiencing high demand ..." over the same options. So the box is read by its SHAPE (a message
+   inside a box top, numbered options ending in Stop, nothing after but the box edge), whatever its first line says.
+   Returns Gemini's first line, or null. A usage limit is geminiQuotaReading's, which runs first. */
+function geminiQuestionReading(paneText) {
+  const rows = String(paneText || '').split('\n').map(geminiRow).filter((r) => r).slice(-GEMINI_LIMIT_ROWS);
+  const lastOpt = rows.reduce((at, r, i) => (GEMINI_QUOTA_OPTION.test(r) ? i : at), -1);
+  if (lastOpt < 0 || !GEMINI_QUOTA_STOP.test(rows[lastOpt])) return null;
+  if (!rows.slice(lastOpt + 1).every((r) => GEMINI_BOX_EDGE.test(r))) return null;
+  let top = -1;
+  for (let i = lastOpt; i >= 0; i -= 1) if (/^╭─+╮$/.test(rows[i])) { top = i; break; }
+  if (top < 0) return null;
+  const inside = rows.slice(top + 1, lastOpt + 1);
+  const firstOpt = inside.findIndex((r) => GEMINI_QUOTA_OPTION.test(r));
+  const message = inside.slice(0, firstOpt).filter((r) => !/^\/\w/.test(r));
+  return message.length ? { evidence: message[0] } : null;
+}
+
 /**
  * #3723: Codex's own "you are out of usage or credits" messages. READ FROM CODEX'S PROGRAM TEXT
  * (the installed codex binary, 2026-09-25), not captured from a live pane: nobody here had an
@@ -3745,6 +3764,17 @@ function classify(pane, paneText) {
         limitFrom: 'gemini',
         quotaDialog: q.dialog,
         quotaDaily: q.daily === true,
+      };
+    }
+    /* #4034: any other question in that box (a model not found, high demand) waits for a person. No key is
+       pressed: Keep trying cannot find a missing model, and Stop would hide the reason behind an error line. */
+    const other = geminiQuestionReading(paneText);
+    if (other) {
+      return {
+        state: STATE.NEEDS_YOU,
+        confidence: CONFIDENCE.SCRAPED,
+        because: 'Gemini is waiting on a question: ' + other.evidence,
+        evidence: other.evidence,
       };
     }
   }
@@ -7767,7 +7797,7 @@ module.exports = {
   // first time a marker is added here. The card that says "Needs you" and the
   // thread that shows the question must never be able to disagree.
   NEEDS_YOU_MARKERS,
-  CODEX_NEEDS_YOU_MARKERS, CODEX_LIMIT_MARKERS, geminiQuotaReading, geminiStopKey, capturePane,   // #4004: chat re-reads a pane before a key
+  CODEX_NEEDS_YOU_MARKERS, CODEX_LIMIT_MARKERS, geminiQuotaReading, geminiQuestionReading, geminiStopKey, capturePane,   // #4004: chat re-reads a pane before a key
   ALL_NEEDS_YOU_MARKERS,
   /* #2456: the placeholder `because` string, so the routes can tell a real
      reported question from the board's generic "asking" and never render the
