@@ -75,6 +75,7 @@ function regexCanStart(src, i) {
 }
 function lexMask(src) {
   const mask = new Uint8Array(src.length);
+  const templateEnd = new Map(); // opening backtick -> index of its closing backtick
   /* Where JS actually lives. In the page, raw markup sits OUTSIDE <script> blocks and is lexed as code
      for its attribute quotes; there a stray backtick in visible text is prose, so a template that
      opens outside a script ends at its line instead of running into the script. A file with no
@@ -167,9 +168,11 @@ function lexMask(src) {
       j += 1;
     }
     if (j < src.length) mask[j] = STRING;
+    templateEnd.set(i, j);
     return j + 1;
   }
   code(0, false);
+  mask.templateEnd = templateEnd;
   return mask;
 }
 
@@ -194,12 +197,12 @@ function skipDynamic(src, i) {
     } else if (c === '+' && depth === 0) {
       const after = src.slice(j + 1).match(/^\s*/)[0].length;
       const nc = src[j + 1 + after];
-      if (nc === "'" || nc === '"') return { resumed: true, next: j + 1 + after, openEnded };
+      if (nc === "'" || nc === '"') return { resumed: true, next: j + 1 + after, openEnded, text: src.slice(i, j) };
       openEnded = true;
     }
   }
   /* Ran out of budget inside one expression: say so, rather than read it as a clean end. */
-  return { resumed: false, next: i, openEnded: openEnded || src.length > i + 600 && depth > 0 };
+  return { resumed: false, next: i, openEnded: openEnded || src.length > i + 600 && depth > 0, text: src.slice(i, Math.min(src.length, i + 600)) };
 }
 
 /* Normalise a read URL (placeholders as \u0000) into an example path, or null if it is not /api. */
@@ -252,9 +255,14 @@ function pagePaths(src) {
         if (!plus) break;
         i += plus[0].length;
         if (src[i] === "'" || src[i] === '"') continue;
+        /* Glued on WITHOUT a '/' (`'/api/accounts' + x`): only a provable query string (the piece holds
+           a string starting with '?') may be dropped; a path suffix (`+ (on ? '/pause' : '/resume')`)
+           cannot be read, so it is counted as unreadable, not silently cut off. */
+        const glued = path.length > 0 && !path.endsWith('/') && !path.includes('?'); // after a '?' it is query
         path += '\u0000';
         const d = skipDynamic(src, i);
         if (d.openEnded) openEnded = true;
+        if (glued && !/['"`]\?/.test(d.text)) openEnded = true;
         if (!d.resumed) break;
         i = d.next;
       }
@@ -267,8 +275,8 @@ function pagePaths(src) {
      origin, so the route is read from '/api/' onward, its own `${}` as placeholders. */
   for (let t = src.indexOf('`'); t > -1; t = src.indexOf('`', t + 1)) {
     if (mask[t] !== START) continue;
-    let e = t + 1;
-    while (e < src.length && !(src[e] === '`' && mask[e] === STRING && mask[e - 1] !== START)) e += 1;
+    const e = mask.templateEnd.get(t);
+    if (e === undefined) continue;
     const text = src.slice(t + 1, e);
     const k = text.indexOf('/api/');
     if (k <= 0) continue; // at 0 it was read above
@@ -480,8 +488,22 @@ test('#3957 control: an /api call through a page helper (not fetch) is read and 
   assert.equal(served('/api/remote/no-such-3957', boardRoutes(SERVER)), false);
 });
 
+/* Put a snippet INSIDE the page's largest <script>, where the in-script lexer (not the line-bound
+   markup rule) reads it. */
+function inScript(snippet) {
+  let best = null;
+  for (const m of PAGE.matchAll(/<script\b[^>]*>/g)) {
+    const end = PAGE.indexOf('</script>', m.index);
+    if (end > -1 && (!best || end - m.index > best[1] - best[0])) best = [m.index, end];
+  }
+  return PAGE.slice(0, best[1]) + '\n' + snippet + '\n' + PAGE.slice(best[1]);
+}
+function maskAt(text, needle) { const i = text.indexOf(needle); return lexMask(text)[i]; }
+
 test('#3957 control: a `//` inside a multi-line template literal does not hide a real call after it', () => {
-  const planted = pagePaths(PAGE + "\nconst label3957 = `Manage your account\n// settings and preferences` + 0; fetch('/api/attack-three-missing-3957');\n").paths;
+  const text = inScript("const label3957 = `Manage your account\n// settings and preferences` + 0; fetch('/api/attack-three-missing-3957');");
+  assert.equal(maskAt(text, "'/api/attack-three-missing-3957'"), START, 'the lexer did not see the call after the template as code');
+  const planted = pagePaths(text).paths;
   assert.ok(planted.includes('/api/attack-three-missing-3957'), 'the call after a multi-line template was swallowed as a comment');
 });
 
@@ -491,7 +513,9 @@ test('#3957 control: a comparison quoted inside a board LOG STRING is not a rout
 });
 
 test('#3957 control: a nested template inside an interpolation does not desynchronise the lexer', () => {
-  const planted = pagePaths(PAGE + "\nconst help3957 = `${ok ? `see https://kosmos.example/help` : ''}\n  and more`;\nfetch('/api/brand-new-missing-3957', { method: 'POST' });\n").paths;
+  const text = inScript("const help3957 = `${ok ? `see https://kosmos.example/help` : ''}\n  and more`;\nfetch('/api/brand-new-missing-3957', { method: 'POST' });");
+  assert.equal(maskAt(text, "'/api/brand-new-missing-3957'"), START, 'the lexer lost step after a nested template');
+  const planted = pagePaths(text).paths;
   assert.ok(planted.includes('/api/brand-new-missing-3957'), 'the call after a nested template was lost');
 });
 
@@ -559,11 +583,16 @@ test('#3957 control: a stray backtick in raw markup does not swallow the script'
 
 test('#3957 control: the unread ceiling can go red', () => {
   const { unread } = pagePaths(PAGE + '\nfetch(someUrl3957);\n');
-  assert.ok(unread > UNREAD_CEILING, 'a new variable-URL fetch did not raise the unread count past its ceiling');
+  assert.ok(unread > UNREAD_CEILING, 'a new variable-URL fetch did not raise the unread count past its ceiling. This is a RATCHET: if a variable-URL fetch was removed, lower UNREAD_CEILING to the new count');
 });
 
 test('#3957 control: an anchored wildcard guard regex is not a route, and is counted', () => {
   const board = boardRoutes(SERVER.split('/api/federation/invite').join('/api/federation/inv1te') + "\nif (/^\\/api\\/federation\\/.*$/.test(pathname) && !authed) deny(res);\n");
   assert.equal(served('/api/federation/invite', board), false);
   assert.equal(board.wild.length, 1);
+});
+
+test('#3957 control: a path suffix glued on without a slash is counted, not dropped', () => {
+  const r = pagePaths(inScript("fetch('/api/accounts' + (on ? '/pause-3957' : '/resume-3957'));"));
+  assert.ok(r.unreadable.length > basePage().unreadable.length, 'a glued path suffix vanished without being counted');
 });

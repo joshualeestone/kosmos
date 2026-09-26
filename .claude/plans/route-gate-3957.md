@@ -105,3 +105,14 @@ and route regexes; not the method; two permissive matcher limits, each pinned by
   unchanged count). CANARY calls from across the script must always be read, so a count-neutral
   slip reds by name. The header states the real lexer bounds and the equality-guard limit; a control
   shows the unread ceiling can go red; the history wording is corrected.
+
+## Challenge-loop iterations 10 and 11
+- 10: an anchored wildcard /api regex (`/^\/api\/x\/.*$/`) is counted, not served, pinned at zero.
+- 11: a dynamic piece glued on without '/' BEFORE any '?' is a query only if its text holds a string
+  starting with '?'; otherwise (a path suffix like `+ (on ? '/pause' : '/resume')`) it is counted
+  as unreadable, not silently cut. The lexer records template ends, and the base-template reader
+  uses them (no overrun on an empty template).
+- 11: the two lexer controls were planted after </html>, where a DIFFERENT rule rescued the call, so
+  they guarded nothing (measured: disabling interpolation tracking left them green). They now plant
+  inside the largest <script> and assert the lexer's mask; disabling interpolation tracking now reds
+  the nested-template control.
