@@ -25358,8 +25358,10 @@ let ACCT_GEMINI_PRESS = 0;
 async function acctGeminiSignInAgain() {
   openAcctAdd(); acctPick('google');
   const pick = document.getElementById('acct-gemini-pick');
-  for (let i = 0; i < 30 && pick.hidden; i++) await new Promise((r) => setTimeout(r, 100));
-  if (pick.hidden) {
+  /* Wait for the availability read itself (up to 3 s), not for a DOM attribute nothing sets on the
+     negative path (review round 11): only a subscription offered here is signed in again. */
+  await Promise.race([Promise.resolve(agyAsk()).catch(() => {}), new Promise((r) => setTimeout(r, 3000))]);
+  if (AGY_OFFERED !== true) {
     // Not offered here after all (or the availability read did not answer): say so rather than nothing.
     const m = document.getElementById('acct-gemini-sub-code');
     const step = document.getElementById('acct-gemini-sub-step');
@@ -25497,6 +25499,7 @@ function agySubDriver(pre, onReady) { return {
   next: 'check',   // what the step's button does next: 'install' Antigravity, 'open' its sign-in, or 'check'
   signing: false,  // #3998: a hidden Antigravity sign-in this step started and has not finished
   signinId: '',    // #3998: which sign-in that is, so this step never stops or types into another tab's
+  sendingCode: false,   // #3998: a code is on its way (a second press is ignored)
   codeError: '',   // #3998: why the last pasted code was refused, until the person types again
   leave() {
     this.gen += 1; this.busy = false; this.next = 'check';

@@ -445,3 +445,28 @@ test('#3998 round 8: hiding the paste row with focus in it moves focus to Stop, 
   assert.equal(row.hidden, true);
   assert.equal(moved, 'cancel', 'focus was left in a hidden row');
 });
+
+test('#3998 round 11: Sign in again waits for the availability read, and refuses where the subscription is not offered', async () => {
+  const at = PAGE.indexOf('async function acctGeminiSignInAgain(');
+  assert.notEqual(at, -1);
+  const src = PAGE.slice(at, PAGE.indexOf('\n}\n', at) + 2);
+  const run = async (offered, askAnswers) => {
+    const els = {};
+    const el = (id) => (els[id] || (els[id] = { id, hidden: true, textContent: '', attrs: {}, setAttribute(k, v) { this.attrs[k] = v; }, hasAttribute(k) { return k in this.attrs; }, focus() {} }));
+    const state = { AGY_OFFERED: null, started: 0 };
+    const sub = { next: 'check', start: () => { state.started += 1; } };
+    // eslint-disable-next-line no-new-func
+    const fn = new Function('document', 'openAcctAdd', 'acctPick', 'agyAsk', 'ACCT_AGY_SUB', 'setTimeout', 'state',
+      'let AGY_OFFERED = null;\n' + src.replace(/AGY_OFFERED/g, 'state.AGY_OFFERED') + '\nreturn acctGeminiSignInAgain();');
+    await fn({ getElementById: el }, () => {}, () => {}, () => (askAnswers ? Promise.resolve().then(() => { state.AGY_OFFERED = offered; }) : new Promise(() => {})),
+      sub, (f) => setImmediate(f), state);
+    return { state, els };
+  };
+  const yes = await run(true, true);
+  assert.equal(yes.state.started, 1, 'an offered subscription was not signed in again');
+  const no = await run(false, true);
+  assert.equal(no.state.started, 0, 'Sign in again started where the subscription is not offered');
+  assert.match(no.els['acct-gemini-sub-code'].textContent, /not available on this computer/);
+  const silent = await run(null, false);
+  assert.equal(silent.state.started, 0, 'Sign in again started before the availability read answered');
+});
