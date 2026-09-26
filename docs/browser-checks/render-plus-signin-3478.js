@@ -331,7 +331,7 @@ const visible = (page, sel) => page.evaluate((s) => {
             scroll: box.scrollLeft + document.getElementById('plus-si-code-in').scrollLeft, shift: Math.round(box.querySelector('.otp-cell').getBoundingClientRect().left - box.getBoundingClientRect().left) }; });
         chk(part.v === '12345' && part.on === 5 && verifies === 0, `[${key}] #3942 five digits fill five boxes, outline the sixth, and do not submit yet`, JSON.stringify({ part, verifies }));
         chk(part.scroll === 0 && part.shift === 0, `[${key}] #3942 typing never scrolls the boxes sideways (the first box stays whole)`, JSON.stringify(part));
-        if (process.env.SHOT_DIR || OUT) await page.screenshot({ path: path.join(OUT, `${key}-code-boxes-3942.png`) });
+        await page.screenshot({ path: path.join(OUT, `${key}-code-boxes-3942.png`) });
         await page.evaluate(() => { const i = document.getElementById('plus-si-code-in'); i.value = ''; i.dispatchEvent(new Event('input')); });
         await page.keyboard.insertText('123 456');   // one paste, space and all
         await page.waitForTimeout(300);
@@ -509,7 +509,11 @@ const visible = (page, sel) => page.evaluate((s) => {
       await page.fill('#plus-signin-email', 'you@example.com');
       await page.click('#plus-signin-code');
       await page.waitForSelector('#plus-si-code', { state: 'visible', timeout: 5000 });
-      await page.fill('#plus-si-code-in', '123456');   // #3942: auto-submits; verify now in flight for 1.5s
+      // #3942: auto-submits (verify now in flight for 1.5s). Waiting for the request keeps this arm
+      // honest: with no click, an auto-submit that broke would otherwise pass it with nothing in flight.
+      const sent = page.waitForRequest((r) => r.method() === 'POST' && /\/api\/remote\/signin-verify$/.test(r.url()), { timeout: 3000 }).then(() => true, () => false);
+      await page.fill('#plus-si-code-in', '123456');
+      chk(await sent, `[${k}] #3942 CONTROL: the sixth digit really sent the verify this arm holds in flight`);
       const startOverPost = page.waitForRequest((r) => r.method() === 'POST' && /\/api\/remote\/signin-cancel$/.test(r.url()), { timeout: 3000 }).then(() => true, () => false);
       await page.click('#plus-si-cancel');            // "Start over" (addendum 4)
       chk(await startOverPost, `[${k}] #3796 addendum 4: Start over drops the held sign-in (POST signin-cancel)`);
@@ -546,8 +550,12 @@ const visible = (page, sel) => page.evaluate((s) => {
       await page.fill('#plus-signin-email', 'you@example.com');
       await page.click('#plus-signin-code');
       await page.waitForSelector('#plus-si-code', { state: 'visible', timeout: 5000 });
+      let wrongSends = 0;
+      const countWrong = (r) => { if (r.method() === 'POST' && /\/api\/remote\/signin-verify$/.test(r.url())) wrongSends += 1; };
+      page.on('request', countWrong);
       await page.fill('#plus-si-code-in', '111111');   // #3942: auto-submits
       await page.waitForTimeout(400);
+      chk(wrongSends === 1, `[${k}] #3942 CONTROL: the wrong code was really sent, once`, String(wrongSends));
       /* #3942: with all six digits in (the step stays, the code was wrong), the digits must still sit
          over their boxes: the spacing after the sixth would scroll the field's text unless reset. */
       await page.focus('#plus-si-code-in');
@@ -555,6 +563,26 @@ const visible = (page, sel) => page.evaluate((s) => {
         on: Array.from(document.querySelectorAll('#plus-si-code .otp-cell')).findIndex((x) => x.classList.contains('on')) }));
       chk(six.scroll === 0 && six.on === 5, `[${k}] #3942 with all six digits in, they stay over their boxes and the last box is outlined`, JSON.stringify(six));
       chk((await visible(page, '#plus-si-code-go')) && !(await visible(page, '#plus-si-expired')), `[${k}] #3796 CONTROL: a wrong code stays on the step to retype`);
+      /* #3942 review (round 1, measured): after a wrong code the field is full. Focusing it selects the
+         whole code, and pasting the right one replaces it and sends it, once; a paste into a partly
+         typed field replaces rather than splices. A real paste event, with its clipboard data. */
+      const pasteCode = (text) => page.evaluate((t) => {
+        const i = document.getElementById('plus-si-code-in'); i.focus();
+        const dt = new DataTransfer(); dt.setData('text/plain', t);
+        i.dispatchEvent(new ClipboardEvent('paste', { clipboardData: dt, bubbles: true, cancelable: true }));
+      }, text);
+      const sel = await page.evaluate(() => { const i = document.getElementById('plus-si-code-in'); i.blur(); i.focus(); return { s: i.selectionStart, e: i.selectionEnd, n: i.value.length }; });
+      chk(sel.s === 0 && sel.e === sel.n && sel.n === 6, `[${k}] #3942 focusing a full field selects the whole code, ready to be replaced`, JSON.stringify(sel));
+      await pasteCode('222-222');
+      await page.waitForTimeout(400);
+      chk((await page.inputValue('#plus-si-code-in')) === '222222' && wrongSends === 2, `[${k}] #3942 pasting a new code over a wrong one replaces it and sends it, once`, JSON.stringify({ v: await page.inputValue('#plus-si-code-in'), wrongSends }));
+      await page.evaluate(() => { const i = document.getElementById('plus-si-code-in'); i.value = '123'; i.dispatchEvent(new Event('input', { bubbles: true })); });
+      await pasteCode('987654');
+      await page.waitForTimeout(400);
+      chk((await page.inputValue('#plus-si-code-in')) === '987654' && wrongSends === 3, `[${k}] #3942 a whole code pasted after a few typed digits replaces them (no spliced 123987)`, JSON.stringify({ v: await page.inputValue('#plus-si-code-in'), wrongSends }));
+      const hint = await page.evaluate(() => { const i = document.getElementById('plus-si-code-in'); const ids = (i.getAttribute('aria-describedby') || '').split(/\s+/); const h = ids.map((x) => document.getElementById(x)).find(Boolean); return h ? h.textContent : null; });
+      chk(hint === 'Kosmos checks the code as soon as all six digits are in.', `[${k}] #3942 a screen reader is told the sixth digit checks the code`, JSON.stringify(hint));
+      page.off('request', countWrong);
       verifyAnswer = { status: 400, body: { error: 'Kosmos+ said no (401): that sign-in has expired or was already finished; start again from the email' } };
       await page.click('#plus-si-code-go');
       await page.waitForSelector('#plus-si-expired', { state: 'visible', timeout: 5000 });

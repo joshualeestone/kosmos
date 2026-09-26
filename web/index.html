@@ -9265,6 +9265,8 @@ body.plus-active #plus-state2 { max-width: 26rem; padding: 2rem; }
 #plus-state2 .tk-inp:-webkit-autofill { -webkit-box-shadow: 0 0 0 1000px #16223e inset; }
 #plus-state2 .tk-inp:focus { outline: 2px solid #7ea0f0; outline-offset: 1px; border-color: #7ea0f0; }
 #plus-state2 .plus-si-wide { width: 75%; min-width: min(100%, 15rem); }
+/* The plain field look below is what a code field shows until the script draws its boxes (#3942,
+   .otp-boxes further down), and what it keeps if the boxes are ever not drawn. */
 #plus-state2 .plus-si-otp { width: 12ch; font: 600 1.3rem ui-monospace, Menlo, monospace; letter-spacing: .3em; text-indent: .3em; text-align: center; font-variant-numeric: tabular-nums; }
 #plus-state2 .plus-si-otp::placeholder { letter-spacing: .3em; color: #4d5f86; -webkit-text-fill-color: #4d5f86; }
 /* #3942 (Josh, 2026-09-26): one big box per digit. The boxes are drawn BEHIND the one real input,
@@ -9284,6 +9286,9 @@ body.plus-active #plus-state2 { max-width: 26rem; padding: 2rem; }
   margin: 0; padding: 0 0 0 calc((var(--cw) - 1ch) / 2); border: 0; border-radius: 0; outline: 0; box-shadow: none; background: transparent;
   font: inherit; letter-spacing: calc(var(--cw) + var(--gap) - 1ch); text-indent: 0; text-align: left; caret-color: transparent; }
 #plus-state2 .otp-boxes .plus-si-otp:-webkit-autofill { -webkit-box-shadow: none; transition: background-color 600000s 0s; }
+/* High-contrast (forced colours) drops the box-shadow and repaints every border alike, which would
+   leave no sign of focus or of the current box: give the current box a thick system-colour edge. */
+@media (forced-colors: active) { #plus-state2 .otp-cell.on { border: 3px solid Highlight; } }
 #plus-state2 .plus-si-sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
 #plus-state2 .btn.uprime { background: linear-gradient(150deg,#3a68d8,#2f57c4); border: 1px solid #2f57c4; color: #fff; border-radius: 10px; font-weight: 650; padding: .6rem 1.4rem; }
 #plus-state2 .btn.uprime:hover { filter: brightness(1.08); background: linear-gradient(150deg,#3a68d8,#2f57c4); border-color: #2f57c4; color: #fff; }
@@ -37233,6 +37238,13 @@ for (const id of ['plus-si-code-in', 'plus-si-second-in', 'plus-si-enrol-code'])
   box.appendChild(el);
   // Where overflow: clip is not supported, a focus can still scroll the box; put it straight back.
   box.addEventListener('scroll', () => { if (box.scrollLeft) box.scrollLeft = 0; });
+  /* Said to a screen reader before it happens (WCAG 3.2.2): the sixth digit moves the sign-in on. */
+  const hint = document.createElement('span');
+  hint.className = 'plus-si-sr';
+  hint.id = id + '-auto';
+  hint.textContent = 'Kosmos checks the code as soon as all six digits are in.';
+  box.appendChild(hint);
+  el.setAttribute('aria-describedby', ((el.getAttribute('aria-describedby') || '') + ' ' + hint.id).trim());
   const digits = () => el.value.replace(/\D/g, '').length;
   // The box being typed into is outlined: the next empty one, or the last when all six are in.
   const paint = () => {
@@ -37240,24 +37252,49 @@ for (const id of ['plus-si-code-in', 'plus-si-second-in', 'plus-si-enrol-code'])
     const n = digits(); const on = document.activeElement === el;
     Array.from(cells.children).forEach((c, i) => c.classList.toggle('on', on && i === Math.min(n, 5)));
   };
-  /* Auto-submit fires on the step from fewer than six digits to six, so a code already complete
-     (say, after a wrong-code answer) is not sent again until it changes. Focus re-reads it, since a
-     cleared field (plusSiClear) changes without an input event. */
-  let had = 0;
+  /* Auto-submit: six digits that are NOT the code last sent. So a wrong code is not resent by
+     itself, but any different code is, however it arrives (typed, pasted over a selection, or
+     completed while a request was still running: the button's disabled attribute is watched, and
+     the code goes the moment the button is free). Deleting a digit forgets the last code, so
+     retyping it on purpose sends it again. */
+  let lastSent = '';
+  const go = document.getElementById(PLUS_SI_OTP_GO[id]);
+  const trySend = () => {
+    const code = el.value.replace(/\D/g, '');
+    if (code.length < 6) { lastSent = ''; return; }
+    if (code === lastSent || !go || go.disabled) return;
+    lastSent = code;
+    go.click();
+  };
+  if (go && typeof MutationObserver === 'function') new MutationObserver(trySend).observe(go, { attributes: true, attributeFilter: ['disabled'] });
   el.addEventListener('input', (e) => {
     const clean = e.target.value.replace(/\D/g, '').slice(0, 6);
     if (e.target.value !== clean) e.target.value = clean;
     paint();
-    if (clean.length === 6 && had < 6) {
-      const go = document.getElementById(PLUS_SI_OTP_GO[id]);
-      if (go && !go.disabled) go.click();
-    }
-    had = clean.length;
+    trySend();
   });
-  // Typing always continues at the end, one box after another; Backspace steps back a box.
-  const toEnd = () => { const n = el.value.length; try { el.setSelectionRange(n, n); } catch { /* not a text input */ } };
-  el.addEventListener('focus', () => { had = digits(); toEnd(); paint(); });
-  el.addEventListener('click', () => { toEnd(); paint(); });
+  /* A paste carrying a whole code REPLACES what is there: pasted into a full field, or after a few
+     typed digits, keeping the old digits would drop the paste or splice a wrong code (and each wrong
+     code counts toward the sign-in's too-many-tries limit). A shorter paste inserts as usual. */
+  el.addEventListener('paste', (e) => {
+    const text = (e.clipboardData && e.clipboardData.getData('text')) || '';
+    const code = text.replace(/\D/g, '');
+    if (code.length < 6) return;
+    e.preventDefault();
+    el.value = code.slice(0, 6);
+    el.dispatchEvent(new Event('input', { bubbles: true }));
+  });
+  /* Typing continues at the end, one box after another; Backspace steps back a box. A field that
+     already holds all six digits is selected instead, so the next keystroke or paste replaces the
+     whole code (after a wrong code, say) rather than being refused by a full field. */
+  const place = () => {
+    const n = el.value.length;
+    try { if (digits() >= 6) el.setSelectionRange(0, n); else el.setSelectionRange(n, n); } catch { /* not a text input */ }
+  };
+  // The page clears a field without an input event (plusSiClear on Start over), so focus also forgets
+  // the last code when the field is not full: the same code entered again then goes.
+  el.addEventListener('focus', () => { if (digits() < 6) lastSent = ''; place(); paint(); });
+  el.addEventListener('click', () => { place(); paint(); });
   for (const ev of ['blur', 'keyup', 'select', 'scroll']) el.addEventListener(ev, paint);
 }
 /* Ask signin-start for an email code. ONE place, shared by the initial "Email me a

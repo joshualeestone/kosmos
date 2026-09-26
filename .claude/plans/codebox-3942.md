@@ -31,3 +31,16 @@
   next step is the auto-submit; the input-colour check reads the boxes' fill under a boxed field.
 - web.lost-phone.test.js runs this stretch of top-level code on stub elements: a field with no
   parent is skipped.
+
+## Review round 1 (app side, measured): the auto-submit rule
+- Auto-submit is "six digits that are not the code last sent", not "the step from five to six":
+  after a wrong code the field stayed full, so a new code pasted over it was never sent. A code
+  completed while a request is in flight goes when the button is free (its disabled attribute is
+  watched). Deleting a digit, or focusing a field that is not full (the page clears fields without
+  an input event), forgets the last code.
+- A paste carrying a whole code replaces the field (no splice of typed digits and pasted ones, no
+  paste dropped by a full field); focusing a full field selects the whole code.
+- A screen reader is told, before it happens, that the sixth digit checks the code (WCAG 3.2.2);
+  forced-colours mode gives the current box a thick Highlight edge.
+- Not taken: widening the input past its boxes so the caret never scrolls it. The phone check
+  flags that overhang on narrow screens; the scroll reset is kept, and a check arm fails without it.
