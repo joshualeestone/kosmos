@@ -22,7 +22,7 @@ migration it would pull nothing, and it would still report `ok: true`.
   - Accepted: https Vercel Blob hosts in any case, and the API origin.
   - Refused: plain http, a lookalike prefix (`evilblob.`), a lookalike suffix (`.com.evil.com`), a userinfo trick, a trailing dot, the bare parent domain, a foreign host, a non-URL.
   - The check is Vercel-host scoped, not store scoped, and the comment says so.
-- A partial pull stays ok but returns `unreadable` and `lastGetError`, and both CLIs print "N of them could not be read (last error: ...)".
+- A partial pull stays ok but returns `unreadable` and `lastGetError`, and both CLIs print "N report(s) could not be read (last error: ...)".
 - The wrong-store hint follows only a 401 or 403. A 404 (a blob deleted between the list and the GET) does not blame the token.
 
 ## Review iteration 2
