@@ -2,7 +2,7 @@
 pre_challenge: true
 method: challenge-loop
 branch: win-publish-r2-3725
-diff_hash: b0a7243392b8c4d5b9adfffbf248714b51555cb5ab084a305dbfb2f96790ca54
+diff_hash: 0b32816c66eaf3b4fced35b6283c308786a9c08c998f06beb4e4680439f5c317
 validation: passed
 subdir_audit: passed
 timestamp: 2026-09-26T08:41:03Z
