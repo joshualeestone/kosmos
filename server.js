@@ -16392,7 +16392,7 @@ function start(port = PORT) {
       });
       const connlostSweep = setInterval(connlostTick, Number(process.env.AGENT_WORKFORCE_CONNLOST_HEAL_MS) > 0 ? Number(process.env.AGENT_WORKFORCE_CONNLOST_HEAL_MS) : 60 * 1000); // the env is the test seam only
       if (connlostSweep && typeof connlostSweep.unref === 'function') connlostSweep.unref();
-      /* #4004: a Gemini agent frozen on its daily-quota question (Keep trying / Stop) is answered Stop
+      /* #4004: a Gemini agent frozen on its usage-limit question (Keep trying / Stop) is answered Stop
          (engine/geminiquota.js -> chat.answerGeminiQuotaStop, which re-reads the pane first). Same gating as
          the sweeps above: inert under `node --test` and before the live-execution opt-in, operator brake
          AGENT_WORKFORCE_GEMINI_QUOTA_OFF=1, own ~1-min timer, unref'd, best-effort. */

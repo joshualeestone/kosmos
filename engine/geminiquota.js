@@ -1,7 +1,7 @@
 'use strict';
 
 /**
- * #4004: a Gemini API-key agent that runs out of Google's free daily limit stops on Gemini's own question
+ * #4004: a Gemini API-key agent that reaches Google's daily limit stops on Gemini's own question
  * ("Usage limit reached for <model>." / 1. Keep trying / 2. Stop) and waits there forever: an unattended agent
  * nobody is watching. Each tick, for every Gemini card whose screen shows that question (status.js reads it as
  * rate_limited with quotaDialog on the card), answer Stop through chat.answerGeminiQuotaStop, which re-reads the
@@ -12,7 +12,8 @@
  * a failed answer is logged, never looped on quickly.
  */
 
-const ANSWER_EVERY_MS = 60 * 1000;
+/* Under the sweep's one-minute tick, so timer jitter never skips a tick and stretches a retry to two minutes. */
+const ANSWER_EVERY_MS = 55 * 1000;
 
 function waitingOnQuestion(card) {
   return !!card && card.runner === 'gemini' && card.state === 'rate_limited' && card.quotaDialog === true;
