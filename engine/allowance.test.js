@@ -333,7 +333,7 @@ test('setup tells the person about the status line only when one was really adde
   };
   const added = run({ type: 'command', command: allowance.commandFor(NODE, SCRIPT, '/x') });
   assert.equal(added.status, 0, added.stderr);
-  assert.match(added.stdout, /Kosmos added a status line/);
+  assert.match(added.stdout, /carry Kosmos's/);
   assert.equal(run(null).stdout, '', 'setup claimed a status line it did not add');
   assert.equal(run({ type: 'command', command: 'bash mine.sh' }).stdout, '', 'setup claimed somebody else\'s status line as ours');
 });

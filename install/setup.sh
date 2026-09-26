@@ -2174,7 +2174,7 @@ KOSMOS_SWEEP_LIST
   done
   if [ -n "$_sl_left" ]; then
     printf '  Kosmos\047s status line was left in these settings files (the "statusLine"\n'
-    printf '  entry naming kosmos-statusline.js). It does nothing now; delete that entry\n'
+    printf '  entry naming kosmos-statusline.js). It records nothing now; delete that entry\n'
     printf '  if you want to use a status line of your own:\n'
     for _sl in "$HOME/.claude/settings.json" "$HOME"/.claude-*/settings.json; do
       [ -f "$_sl" ] && grep -q 'kosmos-statusline\.js' "$_sl" 2>/dev/null && printf '    %s\n' "$_sl"
@@ -3594,9 +3594,9 @@ for _sl in "$_sl_home/.claude/settings.json" "$_sl_home"/.claude-*/settings.json
   [ -f "$_sl" ] && grep -q 'kosmos-statusline\.js' "$_sl" 2>/dev/null && _sl_added=yes
 done
 if [ -n "$_sl_added" ]; then
-  info "Kosmos added a status line to Claude accounts that had none, for every Claude"
-  info "session on them: it notes how much of the weekly allowance is used and prints"
-  info "nothing, which leaves an empty row under the prompt"
+  info "Claude accounts that had no status line of their own carry Kosmos's, in every"
+  info "Claude session on them: it notes how much of the weekly allowance is used and"
+  info "prints nothing, which leaves an empty row under the prompt"
 fi
 
 # ---- start ------------------------------------------------------------------
