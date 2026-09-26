@@ -24,12 +24,12 @@ const { execFileSync, execFile } = require('node:child_process');
 
 /* Its own tmux socket, so the session is invisible to every agent-listing tmux call. A test names
    its own (AGENT_WORKFORCE_AGY_SIGNIN_SOCKET) so it can never meet a real sign-in. */
-/* Named after this board's own folder, so two boards run by one macOS account never kill each
-   other's sign-in (review round 4). */
+/* Named after this macOS account's home (review round 8, replacing round 4's per-Kosmos name): agy's
+   sign-in is one per account, so a sign-in started in one Kosmos and left behind by a switch to
+   another is the one the next start ends, rather than an orphan on a socket nobody asks about. */
 function socket() {
   if (process.env.AGENT_WORKFORCE_AGY_SIGNIN_SOCKET) return process.env.AGENT_WORKFORCE_AGY_SIGNIN_SOCKET;
-  const root = String(require('./store').ROOT);
-  return 'kosmos-agy-signin-' + crypto.createHash('sha256').update(root).digest('hex').slice(0, 10);
+  return 'kosmos-agy-signin-' + crypto.createHash('sha256').update(String(require('node:os').homedir())).digest('hex').slice(0, 10);
 }
 const SESSION = 'agy-signin';
 const TICK_MS = 1000;
@@ -187,7 +187,17 @@ function step() {
   if (text === undefined) return;
   const name = screenOf(text);
   const changed = name !== S.screen;
-  if (changed) { S.screen = name; S.screenSince = now(); S.pressed = false; S.downFrom = null; S.moves = 0; }
+  if (changed) {
+    S.screen = name; S.screenSince = now(); S.pressed = false; S.downFrom = null; S.moves = 0;
+    if (name) {
+      S.seenKnown = true;
+      /* A screen that keeps coming back (Enter landing on "Previous" loops terms -> theme -> terms)
+         is shown, not driven round for half an hour (round 8). */
+      S.visits = S.visits || {};
+      S.visits[name] = (S.visits[name] || 0) + 1;
+      if (S.visits[name] > 3 && name !== 'code' && !S.shown) { S.state = 'stuck'; S.because = UNKNOWN; return; }
+    }
+  }
   if (name === 'ready') { readyCheck(text); return; }
   /* 🛑 ONCE THE WINDOW IS SHOWN, THE PERSON DRIVES (review round 4). Kosmos presses nothing more on
      a screen it knows: its keys would race theirs (a Done pressed before they tick the box they
@@ -205,7 +215,8 @@ function step() {
   if (seen('menu')) {
     // "> 1. Google OAuth" is the default choice; press Enter only when it is the marked one.
     if (S.state === 'stuck') { S.state = 'starting'; S.because = null; }
-    if (/Google OAuth/.test(markedLine(text)) && !S.pressed) { S.step = 'menu'; S.pressed = true; keys('Enter'); }
+    // Anchored to the marker (round 8): the words must be the item the ">" is on, not anywhere on its line.
+    if (/^>\s*(1\.\s*)?Google OAuth\b/.test(markedLine(text)) && !S.pressed) { S.step = 'menu'; S.pressed = true; keys('Enter'); }
     S.lastSeen = now();
     return;
   }
@@ -218,7 +229,7 @@ function step() {
     /* Each key once: Enter once on "[Done]", and the next Down only after the marker has moved, so
        a slow redraw never carries a second key onto the next screen (the trust question). */
     if (S.pressed) return;
-    if (/\[Done\]/.test(on)) { S.pressed = true; keys('Enter'); return; }
+    if (/^>\s*\[Done\]/.test(on)) { S.pressed = true; keys('Enter'); return; }
     if (S.downFrom !== null && S.downFrom !== undefined && on === S.downFrom) return;   // the last Down has not landed yet
     // The move counts only once the key went out (round 7): a tmux hiccup must not spend the budget.
     if (S.moves < 4) { keys('Down'); S.downFrom = on; S.moves += 1; return; }
@@ -234,7 +245,7 @@ function step() {
       return;
     }
     S.state = 'setup'; S.step = 'trust'; S.because = null;
-    if (/Yes/.test(markedLine(text)) && !S.pressed) { S.pressed = true; keys('Enter'); }
+    if (/^>\s*Yes\b/.test(markedLine(text)) && !S.pressed) { S.pressed = true; keys('Enter'); }
     S.lastSeen = now();
     return;
   }
@@ -266,7 +277,12 @@ function step() {
   /* Only after the LAST setup screen (round 6): between theme and terms a blank redraw is not agy's
      ready screen, and a yes there would end the session before terms and trust were answered. */
   const settled = S.step === 'trust';
-  const ask = S.checks < MAX_CHECKS && (S.state === 'stuck'
+  /* Nothing is asked before agy has drawn a screen Kosmos knows (round 8): a signed-out check may
+     open a Google page of its own, and a second page while the person signs in on the first hands
+     them the wrong code. An already signed-in agy is its ready screen (readyCheck), and a window the
+     person drives may still be asked about. */
+  const mayAsk = S.seenKnown || S.shown;
+  const ask = mayAsk && S.checks < MAX_CHECKS && (S.state === 'stuck'
     ? text !== S.stuckText && now() - S.lastCheckAt > STUCK_MS   // a redrawing screen does not spend them all at once
     : settled || now() - S.lastSeen > STUCK_MS);
   if (!ask) {
@@ -301,13 +317,15 @@ function readyCheck(text) {
     mine.busy = false;
     if (S !== mine || !mine.timer) return;
     if (r && r.signedIn === true) { end('done'); return; }
-    mine.state = 'stuck'; mine.because = UNKNOWN; mine.stuckText = text;
+    mine.state = 'stuck'; mine.because = NOT_CONFIRMED; mine.stuckText = text;
   }, () => {
     mine.busy = false;
     if (S !== mine || !mine.timer) return;
-    mine.state = 'stuck'; mine.because = UNKNOWN; mine.stuckText = text;
+    mine.state = 'stuck'; mine.because = NOT_CONFIRMED; mine.stuckText = text;
   });
 }
+// On agy's own ready screen the honest reason is that the sign-in could not be confirmed, not a strange step.
+const NOT_CONFIRMED = 'Kosmos could not confirm the sign-in with Antigravity just now';
 
 /** Start a sign-in (ending any earlier one). */
 function start() {

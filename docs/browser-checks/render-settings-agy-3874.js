@@ -9,8 +9,8 @@
  *   - "Use an API key" with the Gemini CLI missing goes to its download step;
  *   - switching provider and back returns to the choice (nothing left over);
  *   - "Sign in with Google" walks not installed -> Install Antigravity -> Sign in with Google (the
- *     hidden sign-in, #3998) -> the code pasted in the dialog -> the gold connected box
- *     -> Ready, in the dialog, each press posting only its own route;
+ *     hidden sign-in, #3998) -> the code pasted in the dialog -> the gold connected box, in the
+ *     dialog, each press posting only its own route, with focus kept inside the dialog;
  *   - Stop partway returns to the choice;
  *   - a slow availability read answering after the dialog closed, or after a switch to Grok, paints
  *     no Gemini choice (the visit re-check after agyAsk), and the same read on an open dialog does;
@@ -148,9 +148,11 @@ const view = () => ({
   await q(() => new Promise((r) => setTimeout(r, 2800)));
   const d4 = await q(() => ({
     code: window.__codeSent, codeId: window.__codeId, box: !document.getElementById('acct-success-box').hidden,
+    focusIn: !!(document.activeElement && document.activeElement !== document.body && document.activeElement.closest('#acct-add-dialog')),
     boxText: document.getElementById('acct-success-box').textContent.replace(/\s+/g, ' ').trim(),
     flow: !document.getElementById('acct-gemini-flow').hidden,
   }));
+  chk(d4.focusIn, '#3998 focus stays inside the dialog after the paste box hides (not dropped behind it)', JSON.stringify({ focusIn: d4.focusIn }));
   chk(d4.code === '4/0AXlqoi78ZmW2ZEDHmXTxfTTbEqk1iq3YSD1LPLn9DJBTH8v' && d4.codeId === 'a1b2c3d4e5f60718' && d4.box && /Gemini is connected/.test(d4.boxText) && !d4.flow,
     '#3998 the pasted code goes to the board, and the dialog ends on the gold connected box, like GPT and Grok', JSON.stringify(d4));
   if (shots) await page.locator('#acct-add-dialog').screenshot({ path: path.join(shots, 'settings-gemini-connected-3998.png') });
