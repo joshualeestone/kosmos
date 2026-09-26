@@ -120,7 +120,7 @@ test('#718: positions from a canvas of another width are carried across in propo
   // Every path that clears the chart instead of painting it resets the box the same way.
   assert.match(paint, /\} else orgBoxPlain\(\);/);
   // The failed-poll path in tick(): identified by the note it writes right after.
-  assert.match(SCRIPT, /document\.getElementById\('orgmap'\)\.innerHTML = '';\s*ORG_HTML = null;\s*orgBoxPlain\(\);\s*document\.getElementById\('orgnote'\)\.textContent = BOARD_NEEDS_SIGNIN/);
+  assert.match(SCRIPT, /document\.getElementById\('orgmap'\)\.innerHTML = '';\s*ORG_HTML = null;\s*orgBoxPlain\(true\);\s*document\.getElementById\('orgnote'\)\.textContent = BOARD_NEEDS_SIGNIN/);
   assert.match(paint, /for \(const p of ORG_POS\.values\(\)\) \{ p\.x \*= f; p\.y \*= f; \}/);
   assert.doesNotMatch(paint, /ORG_POS = new Map\(\)/, 'a width change throws the positions away again');
 });

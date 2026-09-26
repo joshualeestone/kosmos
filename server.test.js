@@ -3282,7 +3282,7 @@ test('a failed poll blanks the stats tiles instead of asserting the last fleet i
   els.orgmap.innerHTML = '<svg class="wires"></svg><div class="hub">You</div>'
     + '<button class="onode" data-agent="april"></button>';
   const checked = { className: '', innerHTML: '' };
-  let orgBoxReset = 0;
+  const orgBoxResets = [];
   /* ⚠️ `boardEmpty` IS LIFTED, NOT STUBBED. The catch used to build its own
      failure card here; it now calls the one function that decides what an
      empty board says, because two deciders meant the other one was dead code
@@ -3302,9 +3302,10 @@ test('a failed poll blanks the stats tiles instead of asserting the last fleet i
     require('./test-support/page').PLATFORM_COPY_FNS.map(pageFnSource).join('\n') + '\n'
     + script.slice(beAt, beEnd) + '\n' + script.slice(from, end))(
     { getElementById: (id) => els[id] }, checked, (s) => String(s), { message: 'boom' },
-    true, 'boom', false, () => {}, () => { orgBoxReset += 1; }); // #3387: setAgentsGrouped no-op (the catch resets the grouped head; not under test here)
-  // #718: clearing the chart also resets its box (no scroll padding over the note, not a scrolling region).
-  assert.equal(orgBoxReset, 1, 'the failure path cleared the chart but left its box as a scrolling region');
+    true, 'boom', false, () => {}, (cleared) => { orgBoxResets.push(cleared); }); // #3387: setAgentsGrouped no-op (the catch resets the grouped head; not under test here)
+  // #718: clearing the chart also resets its box (no scroll padding over the note, not a scrolling region,
+  // and `true`: the emptied map drops its size rather than staying a blank square).
+  assert.deepEqual(orgBoxResets, [true], 'the failure path cleared the chart but left its box (or its size) behind');
 
   // The rendered failure card proves the extracted block really ran.
   assert.match(els.grid.innerHTML, /cannot read your agents/,
