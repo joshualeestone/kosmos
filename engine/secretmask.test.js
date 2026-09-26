@@ -1213,3 +1213,20 @@ test('#3935 lines with spaces are not walked, their key-shaped tokens are; a bar
     for (const t of ['The token was created at 2026-09-25T11:54:00Z.', 'Details are in https://github.com/joshualeestone/kosmos/issues/3935 today.']) assert.equal(mask(t).text, t);
   } finally { setKnownSecrets([]); fs.rmSync(root, { recursive: true, force: true }); }
 });
+
+test('#3935 past the value cap, a compact JSON line ("name":"value") does not crowd out a real key (review round 30)', () => {
+  const value = 'zq8vLm3pRt6wXy9kHb2nWc4dPq7sTu5v';
+  const filler = Array.from({ length: 1999 }, (_, i) => `zz-filler-${String(i).padStart(6, '0')}-xyz`);
+  setKnownSecrets([...filler, value, '"name":"AbCdEf123456ZzYy1234"']);
+  try {
+    const out = mask('First zq8vLm3p then Rt6wXy9k then Hb2nWc4d then Pq7sTu5v done').text;
+    assert.ok(!out.includes('Rt6wXy9k') && !out.includes('Pq7sTu5v'), out);
+  } finally { setKnownSecrets([]); }
+});
+
+test('#3935 an env value is one token or a quoted string, not the rest of the line (review round 30)', () => {
+  const { assignedValue } = require('./knownsecrets');
+  assert.equal(assignedValue('CF_API_TOKEN=AbCdEf123456ZzYy is the rotated one'), 'AbCdEf123456ZzYy');
+  assert.equal(assignedValue('CF_API_TOKEN=AbCdEf123456ZzYy # rotated'), 'AbCdEf123456ZzYy');
+  assert.equal(assignedValue('PASS="my long pass phrase 9"'), 'my long pass phrase 9');
+});

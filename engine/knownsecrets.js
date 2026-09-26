@@ -55,7 +55,8 @@ function assignedValue(line) {
   /* A commented-out assignment (# OLD_API_KEY=value, review round 28) still holds a real value. */
   const t = line.trim().replace(/^#\s*/, '');
   /* YAML and JSON values with no space in them (review round 28: "Note: see the wiki" is prose, not a value). */
-  const m = /^(?:export\s+)?[A-Za-z_][A-Za-z0-9_]*=(.*)$/.exec(t)
+  /* The env value is a quoted string or one token (review round 30: "(.*)" took a trailing comment or sentence). */
+  const m = /^(?:export\s+)?[A-Za-z_][A-Za-z0-9_]*=("[^"]*"|'[^']*'|\S+)/.exec(t)
     || /^[A-Za-z_][A-Za-z0-9_.-]*:\s+(\S+)$/.exec(t)
     || /^"[A-Za-z_][A-Za-z0-9_.-]*"\s*:\s*("[^\s"]*"|[^\s,]+),?$/.exec(t);
   if (!m) return null;

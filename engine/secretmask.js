@@ -73,7 +73,10 @@ function setKnownSecrets(values) {
   /* In sorted order (review round 27): past MAX_KNOWN_VALUES the same set in another order keeps the same values.
      Bare values first (review round 29): a key on its own is what the walk needs, and a line or a file only stands
      in for the values held from it, so those are the ones the cap drops. */
-  const rank = (v) => (/\s/.test(v.trim()) || /^[A-Za-z_][A-Za-z0-9_]*=/.test(v.trim()) ? 1 : 0);
+  /* The collector's own parser decides what an assignment is (review round 30: a second regex here missed a compact
+     JSON line, "name":"value", which then crowded a real key out of the cap). */
+  const { assignedValue } = require('./knownsecrets');
+  const rank = (v) => (/\s/.test(v.trim()) || assignedValue(v) ? 1 : 0);
   for (const v of [...list].sort((x, y) => rank(x) - rank(y) || (x < y ? -1 : x > y ? 1 : 0))) {
     const k = v.trim();
     if (k.length < MIN_VALUE_LEN) continue;
