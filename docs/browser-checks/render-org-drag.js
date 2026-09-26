@@ -67,7 +67,8 @@ const chk = (ok, label, extra) => { console.log((ok ? 'PASS  ' : 'FAIL  ') + lab
   // Wires follow: the kid's wire ends where the kid is.
   const kidNow = await pos('.onode[data-agent="kid"]');
   const wireEnd = await page.$eval('#orgmap line[data-for="kid"]', (l) => { const r = l.ownerSVGElement.getBoundingClientRect(); const vb = l.ownerSVGElement.viewBox.baseVal; const sx = r.width / vb.width; return { x: r.x + Number(l.getAttribute('x2')) * sx, y: r.y + Number(l.getAttribute('y2')) * sx }; });
-  chk(Math.hypot(wireEnd.x - kidNow.x, wireEnd.y - kidNow.y) < 4, 'the wire ends on the node it belongs to', Math.hypot(wireEnd.x - kidNow.x, wireEnd.y - kidNow.y).toFixed(1) + 'px');
+  // #4040: it stops at the node's edge (22px from the centre of a 44px disc), not at its centre.
+  chk(Math.abs(Math.hypot(wireEnd.x - kidNow.x, wireEnd.y - kidNow.y) - 22) < 4, 'the wire ends at the edge of the node it belongs to', Math.hypot(wireEnd.x - kidNow.x, wireEnd.y - kidNow.y).toFixed(1) + 'px');
   // Drag a NODE, not only the hub (#381): a node has a click action, the hub
   // does not, so this is the case the first version of this check could not
   // see. Letting go must not open the agent.

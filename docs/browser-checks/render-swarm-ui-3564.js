@@ -1,4 +1,4 @@
-// Browser-check-surface: create-kind create-swarm create-swarm-max create-swarm-cap create-swarm-warn d-swarm d-swarm-panel d-swarm-stop d-swarm-max d-swarm-why swmini swc
+// Browser-check-surface: orgmap create-kind create-swarm create-swarm-max create-swarm-cap create-swarm-warn d-swarm d-swarm-panel d-swarm-stop d-swarm-max d-swarm-why swmini swc
 'use strict';
 
 /**
@@ -62,6 +62,7 @@ const waitFor = (page, fn, arg, ms = 6000) => page.waitForFunction(fn, arg, { ti
     let crewState = null;
     let crewNoSwarm = false;   // S28: the crew's row without its swarm field
     let putFail = null;   // S26: an answer that refuses the change   // S23: the crew's board state (null = as the fleet says)   // S11: no poll may land while it checks the merge
+    let orgBranch = false;
     let crewSwarm = { maxHelpers: 5, activeHelpers: 3, tokensToday: 2461380, dailyTokenLimit: 6000000, active: true, pausedBecause: null, helperTokenRatio: null, metered: true };
     await page.route('**/api/status', async (route) => {
       while (holdStatus) await new Promise((res) => setTimeout(res, 100));
@@ -70,6 +71,11 @@ const waitFor = (page, fn, arg, ms = 6000) => page.waitForFunction(fn, arg, { ti
       if (engineOn) {
         j.swarms = true;
         for (const a of j.agents || []) { if (a.sessionName === 'crew' && crewState) a.state = crewState; }
+        /* S40 (#4040): a branch, hub > crew (a swarm) > rex > crew2 (a swarm at the end of it). */
+        if (orgBranch) for (const a of j.agents || []) {
+          if (a.sessionName === 'rex') a.profile = { ...(a.profile || {}), reportsTo: 'crew' };
+          if (a.sessionName === 'crew2') a.profile = { ...(a.profile || {}), reportsTo: 'rex' };
+        }
         if (crewNoSwarm) { for (const a of j.agents || []) if (a.sessionName === 'crew') { delete a.swarm; a.__noSwarm = true; } }
         for (const a of j.agents || []) if (!a.__noSwarm) a.swarm = a.sessionName === 'crew' ? { ...crewSwarm }
           : a.sessionName === 'crew2' ? { maxHelpers: 4, activeHelpers: 1, tokensToday: 1000, dailyTokenLimit: 2000000, active: true, pausedBecause: null, helperTokenRatio: null, metered: true } : null;
@@ -287,6 +293,40 @@ const waitFor = (page, fn, arg, ms = 6000) => page.waitForFunction(fn, arg, { ti
     const same = (x) => x && x.circles === 5 && !x.badge && !x.clip && gridDraw && JSON.stringify(x.src) === JSON.stringify(gridDraw.src);
     chk(same(listDraw), 'S31 the list row draws the swarm as the grid does: five circles, the same picture, no badge, not clipped (#3946)', JSON.stringify({ gridDraw, listDraw }));
     chk(same(orgDraw), 'S31 the org chart node draws the swarm as the grid does: five circles, the same picture, no badge, not clipped (#3946)', JSON.stringify({ gridDraw, orgDraw }));
+
+    // S40 (#4040, Josh: the connecting line "goes above agent clusters avatars"): no wire reaches into any node's
+    // picture. A cluster has no opaque disc behind it, so z-order cannot hide a wire there (the page's wires are
+    // already under the nodes, which is why elementFromPoint cannot see this); the wire has to stop at the edge.
+    // Measured on a branch: a swarm under the hub, an agent under it, and a swarm at the end of the branch.
+    orgBranch = true;
+    await page.click('[data-scope="agents"] .vt[data-layout="org"]');
+    chk(await waitFor(page, () => !!document.querySelector('#orgmap line[data-for="crew2"]') && !!document.querySelector('#orgmap line[data-for="rex"]')
+      && [...document.querySelectorAll('#orgmap .onode')].length >= 3, null, 15000), 'S40 precondition: the branch is on the org chart');
+    await page.waitForTimeout(2500);   // let the layout settle; the read below is one frame either way
+    const s40 = await page.evaluate(() => {
+      const map = document.getElementById('orgmap');
+      const svg = map.querySelector('svg');
+      const r = svg.getBoundingClientRect(), vb = svg.viewBox.baseVal, k = vb && vb.width ? r.width / vb.width : 1;
+      const at = (x, y) => ({ x: r.left + Number(x) * k, y: r.top + Number(y) * k });
+      const nodes = [...map.querySelectorAll('.onode')].map((n) => {
+        const b = n.getBoundingClientRect();
+        return { who: n.dataset.agent, x: b.left + b.width / 2, y: b.top + b.height / 2, reach: n.querySelector('.face > .swc') ? 32 * b.width / 44 : 22 * b.width / 44 };
+      });
+      const wires = [...map.querySelectorAll('line[data-for]')].filter((l) => l.getAttribute('visibility') !== 'hidden')
+        .map((l) => ({ who: l.dataset.for, a: at(l.getAttribute('x1'), l.getAttribute('y1')), b: at(l.getAttribute('x2'), l.getAttribute('y2')) }));
+      const dist = (p, a, b) => { const dx = b.x - a.x, dy = b.y - a.y, L2 = dx * dx + dy * dy;
+        const t = L2 ? Math.max(0, Math.min(1, ((p.x - a.x) * dx + (p.y - a.y) * dy) / L2)) : 0;
+        return Math.hypot(p.x - (a.x + t * dx), p.y - (a.y + t * dy)); };
+      const into = [];
+      for (const w of wires) for (const n of nodes) { const d = dist(n, w.a, w.b); if (d < n.reach - 1.5) into.push(w.who + ' into ' + n.who + ' ' + d.toFixed(1) + '<' + n.reach.toFixed(1)); }
+      return { wires: wires.map((w) => w.who), clusters: nodes.filter((n) => n.reach > 22 * 1.1).map((n) => n.who), into };
+    });
+    chk(s40.clusters.includes('crew') && s40.clusters.includes('crew2') && ['crew', 'rex', 'crew2'].every((w) => s40.wires.includes(w)),
+      'S40 precondition: two clusters on the chart, and a wire to each of crew, rex and crew2', JSON.stringify(s40));
+    chk(s40.into.length === 0, 'S40 no wire runs into a cluster or an avatar: each stops at the node\'s edge (#4040)', JSON.stringify(s40.into));
+    orgBranch = false;
+    await page.click('[data-scope="agents"] .vt[data-layout="grid"]');
+    await page.waitForTimeout(400);
 
     // S6: the swarm's page shows its panel; Rex's page does not (the control).
     await page.evaluate(() => document.querySelector('#grid [data-agent="rex"]').click());
