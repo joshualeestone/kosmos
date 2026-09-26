@@ -80,7 +80,7 @@ test('an agent token names the agent as the builder; the note is kept and the hi
 test('from the screen the builder is the person (operator); clear takes the mark off', async () => {
   const n = newTask('Write the launch post');
   assert.equal((await post(`/api/project/${projectId}/task/${n}/built`, {}, screen)).status, 200);
-  assert.equal(stored(n).builtBy, 'operator');
+  assert.equal(stored(n).builtByPerson, true);
   const c = await post(`/api/project/${projectId}/task/${n}/built`, { clear: true }, screen);
   assert.equal(c.status, 200);
   assert.equal('builtAt' in stored(n), false);
@@ -110,7 +110,7 @@ test('the Tasks view reads the state: a marked task is "built", with who and the
   const rows = (await (await fetch(`${base}/api/tasks?view=tasks`)).json()).tasks;
   const row = rows.find((t) => t.projectId === projectId && t.number === n);
   assert.equal(row.state, 'built');
-  assert.equal(row.builtBy, 'operator');
+  assert.equal(row.builtByPerson, true);
   assert.equal(row.builtNote, 'needs a release');
 });
 
@@ -195,16 +195,17 @@ test('an agent that is not on the project is refused (403); the person\'s mark i
   assert.equal(zed.ok, true, zed.because);
   const outsider = await post(`/api/project/${projectId}/task/${n}/built`, {}, { 'x-kosmos-agent-token': zed.token });
   assert.equal(outsider.status, 403, JSON.stringify(outsider.json));
+  assert.match(outsider.json.error, /not on this project/, 'the 403 came from another refusal');
   assert.equal('builtAt' in stored(n), false);
   await post(`/api/project/${projectId}/task/${n}/built`, {}, screen);
   const mona = sendertoken.mint('mona');
   const agentClear = await post(`/api/project/${projectId}/task/${n}/built`, { clear: true }, { 'x-kosmos-agent-token': mona.token });
   assert.equal(agentClear.status, 403, JSON.stringify(agentClear.json));
-  assert.equal(stored(n).builtBy, 'operator', 'an agent took the person\'s mark off');
+  assert.equal(stored(n).builtByPerson, true, 'an agent took the person\'s mark off');
   /* Review round 7: nor can it re-mark the person's mark as its own (then clear that). */
   const overwrite = await post(`/api/project/${projectId}/task/${n}/built`, { note: 'mine' }, { 'x-kosmos-agent-token': mona.token });
   assert.equal(overwrite.status, 403, JSON.stringify(overwrite.json));
-  assert.equal(stored(n).builtBy, 'operator', 'an agent overwrote the person\'s mark');
+  assert.equal(stored(n).builtByPerson, true, 'an agent overwrote the person\'s mark');
   /* CONTROLS: the screen can clear the person's mark; an agent can clear its own. */
   assert.equal((await post(`/api/project/${projectId}/task/${n}/built`, { clear: true }, screen)).status, 200);
   assert.equal((await post(`/api/project/${projectId}/task/${n}/built`, {}, { 'x-kosmos-agent-token': mona.token })).status, 200);

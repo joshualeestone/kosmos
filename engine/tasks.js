@@ -518,53 +518,79 @@ function byNumber(p, n) {
 /* The note says what is left in a sentence or two; 300 characters is SENTENCE_MAX's room for a task's own sentence,
    plus a clause, and keeps the row's line readable. */
 const BUILT_NOTE_MAX = 300;
+const BUILT_FIELDS = ['builtAt', 'builtBy', 'builtByPerson', 'builtWho', 'builtFreesAll', 'builtNote'];
 function withoutBuilt(t) {
-  if (!t || !('builtAt' in t || 'builtBy' in t || 'builtNote' in t)) return t;
-  const { builtAt, builtBy, builtNote, ...rest } = t;
+  if (!t || !BUILT_FIELDS.some((k) => k in t)) return t;
+  const rest = { ...t };
+  for (const k of BUILT_FIELDS) delete rest[k];
   return rest;
 }
 
 /**
- * Mark an open task built (`by` is the agent's name, or 'operator' from the screen; `note` is optional). Marking it
- * again with another builder or note refreshes all three; the same mark again records nothing (`changed: false`).
- * A closed task is refused: closing already cleared the mark.
+ * Mark an open task built. `by` is the agent's name (null when the caller could not be named); `person` is true when
+ * the person marked it from the screen, a flag and not a name, so no agent's name can pass for the person (review
+ * round 9: an agent named "operator" did). `note` is optional. Fields:
+ *   builtAt, builtNote     when, and what is left
+ *   builtBy, builtByPerson the LAST marker, for what the page says ("by April", "by you")
+ *   builtWho               every agent that has marked it since the mark was set (review round 9: a second agent's
+ *                          mark made the first busy again); the Assigner frees each of them
+ *   builtFreesAll          the person or an unnamed caller marked it: the Assigner frees every agent on it
+ * The same mark again (same marker, same note) records nothing (`changed: false`). `refusePersonMark` refuses a
+ * change to a mark the person made, checked inside the write (review round 9: it was read before it). A closed
+ * task is refused: closing already cleared the mark.
  */
-function setBuilt(projectId, n, { by = null, note = '' } = {}) {
+function setBuilt(projectId, n, { by = null, person = false, note = '', refusePersonMark = false } = {}) {
   const said = typeof note === 'string' ? note.replace(/\s+/g, ' ').trim() : '';
   if (said.length > BUILT_NOTE_MAX) return { ok: false, because: `keep the note to ${BUILT_NOTE_MAX} characters or fewer` };
-  const who = typeof by === 'string' && by.trim() ? by.trim().slice(0, WHO_MAX) : null;
+  const isPerson = person === true;
+  const who = !isPerson && typeof by === 'string' && by.trim() ? by.trim().slice(0, WHO_MAX) : null;
   let changed = null;
   let closed = false;
   let same = false;
+  let personMark = false;
   try {
     projects.mutate(projectId, (p) => {
       const t = byNumber(p, n);
       if (!t) throw new Error('there is no task by that number on this project');
       if (progressOf(t).closed) { closed = true; return p; }
-      /* The same mark again (same builder, same note) changes no field and records nothing (review round 3: a looping
+      if (refusePersonMark && t.builtAt && t.builtByPerson === true) { personMark = true; return p; }
+      /* The same mark again (same marker, same note) changes no field and records nothing (review round 3: a looping
          agent re-marking wrote a history line each time). The store's own write still happens, as for any mutate. */
-      if (t.builtAt && (t.builtBy || null) === who && (t.builtNote || '') === said) { same = true; changed = t; return p; }
-      changed = { ...withoutBuilt(t), builtAt: new Date().toISOString(), builtBy: who, ...(said ? { builtNote: said } : {}) };
+      if (t.builtAt && (t.builtBy || null) === who && (t.builtByPerson === true) === isPerson && (t.builtNote || '') === said) {
+        same = true; changed = t; return p;
+      }
+      const earlier = t.builtAt ? (Array.isArray(t.builtWho) ? t.builtWho : []) : [];
+      const builtWho = who && !earlier.includes(who) ? earlier.concat([who]) : earlier;
+      changed = {
+        ...withoutBuilt(t), builtAt: new Date().toISOString(), builtBy: who,
+        ...(isPerson ? { builtByPerson: true } : {}), builtWho,
+        ...((t.builtAt && t.builtFreesAll === true) || isPerson || !who ? { builtFreesAll: true } : {}),
+        ...(said ? { builtNote: said } : {}),
+      };
       return { ...p, tasks: (p.tasks || []).map((x) => (x.number === changed.number ? changed : x)) };
     });
   } catch (err) {
     return { ok: false, because: String((err && err.message) || err), code: err && err.code };
   }
   if (closed) return { ok: false, closed: true, because: 'that task is closed already, so it is not waiting on anything' };
+  if (personMark) return { ok: false, person: true, because: 'the person marked this task built, so only the person can change that mark' };
   if (same) return { ok: true, task: changed, changed: false };
-  taskchat.record(projectId, changed.number, { kind: 'built', by: who, ...(said ? { note: said } : {}) });
+  taskchat.record(projectId, changed.number, { kind: 'built', by: who, ...(isPerson ? { person: true } : {}), ...(said ? { note: said } : {}) });
   return { ok: true, task: changed, changed: true };
 }
 
 /** Take the built mark off (the work turned out not to be done). A task with no mark records nothing. */
-function clearBuilt(projectId, n, { by = null } = {}) {
-  const who = typeof by === 'string' && by.trim() ? by.trim().slice(0, WHO_MAX) : null;
+function clearBuilt(projectId, n, { by = null, person = false, refusePersonMark = false } = {}) {
+  const isPerson = person === true;
+  const who = !isPerson && typeof by === 'string' && by.trim() ? by.trim().slice(0, WHO_MAX) : null;
   let changed = null;
   let had = false;
+  let personMark = false;
   try {
     projects.mutate(projectId, (p) => {
       const t = byNumber(p, n);
       if (!t) throw new Error('there is no task by that number on this project');
+      if (refusePersonMark && t.builtAt && t.builtByPerson === true) { personMark = true; return p; }
       had = !!t.builtAt;
       changed = withoutBuilt(t);
       return had ? { ...p, tasks: (p.tasks || []).map((x) => (x.number === changed.number ? changed : x)) } : p;
@@ -572,7 +598,8 @@ function clearBuilt(projectId, n, { by = null } = {}) {
   } catch (err) {
     return { ok: false, because: String((err && err.message) || err), code: err && err.code };
   }
-  if (had) taskchat.record(projectId, changed.number, { kind: 'unbuilt', by: who });
+  if (personMark) return { ok: false, person: true, because: 'the person marked this task built, so only the person can change that mark' };
+  if (had) taskchat.record(projectId, changed.number, { kind: 'unbuilt', by: who, ...(isPerson ? { person: true } : {}) });
   return { ok: true, task: changed, changed: had };
 }
 

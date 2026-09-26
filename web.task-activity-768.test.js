@@ -214,9 +214,9 @@ test('a failed read leaves a quiet could-not-read line, never a false empty stat
 test('#3951: marked built (by an agent, with its note; by the person) and the mark going read as words', async () => {
   const acts = await render([
     { at: minsAgo(9), kind: 'built', by: 'mona', note: 'waiting on the release' },
-    { at: minsAgo(7), kind: 'built', by: 'operator' },
+    { at: minsAgo(7), kind: 'built', person: true },
     { at: minsAgo(5), kind: 'unbuilt', reason: 'new work' },
-    { at: minsAgo(3), kind: 'unbuilt', by: 'operator' },
+    { at: minsAgo(3), kind: 'unbuilt', person: true },
   ]);
   const html = acts.innerHTML;
   assert.match(html, /Mona marked it built: waiting on the release/);

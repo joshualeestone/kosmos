@@ -15154,7 +15154,7 @@ const server = http.createServer((req, res) => {
   }
 
   /* #3951: mark a task built, waiting to ship (Josh's "Built but waiting" tile), or take the mark off. Body
-     { note?, clear?, from_pane? }. Who marked it: the screen is 'operator'; a process is named by its agent token
+     { note?, clear?, from_pane? }. Who marked it: the screen is the person (builtByPerson); a process is named by its agent token
      (a token that does not resolve is refused, as the message route does) or else its pane. The pane name is
      advisory, as on the message route: a local process can claim any pane, so the builder it names is a label, not
      a proof (an enforcing board still needs the board token to reach this at all). An identified agent may mark or
@@ -15184,10 +15184,10 @@ const server = http.createServer((req, res) => {
       const fromPane = typeof body.from_pane === 'string' ? body.from_pane : '';
       const card = tokenSender ? tokenSender.card
         : (fromPane && Array.isArray(roster) ? roster.find((c) => c && c.target === fromPane) : null);
-      const by = viaScreen ? 'operator' : ((card && card.sessionName) || null);
+      const by = viaScreen ? null : ((card && card.sessionName) || null);
       if (!viaScreen) {
         if (builtMarkValveTripped()) {
-          sendJson(res, 429, { error: 'agents have marked tasks built many times in the last hour, so Kosmos is pausing agent marks; the person can still mark from the screen' });
+          sendJson(res, 429, { error: 'agents have marked tasks built many times in the last hour, so Kosmos is pausing agent marks; the person can still take a mark off from the screen' });
           return;
         }
         const proj = projects.readAll().find((x) => x.id === id) || null;   // the stored record: agents are names
@@ -15195,19 +15195,16 @@ const server = http.createServer((req, res) => {
           sendJson(res, 403, { error: 'that agent is not on this project, so it cannot mark its tasks' });
           return;
         }
-        /* The person's own mark is changed only from the screen, in either direction (review round 7: a process
-           could re-mark it as its own and then clear that). */
-        const now = proj && tasks.byNumber(proj, taskBuilt[2]);
-        if (now && now.builtAt && now.builtBy === 'operator') {
-          sendJson(res, 403, { error: 'the person marked this task built, so only the person can change that mark' });
-          return;
-        }
       }
+      /* The person's own mark is changed only from the screen, in either direction (review round 7: a process could
+         re-mark it as its own and then clear that), checked inside the write (review round 9). The person is a flag,
+         not a name, so an agent named "operator" is not the person. */
+      const as = { by, person: viaScreen, refusePersonMark: !viaScreen };
       const out = body.clear === true
-        ? tasks.clearBuilt(id, taskBuilt[2], { by })
-        : tasks.setBuilt(id, taskBuilt[2], { by, note: typeof body.note === 'string' ? body.note : '' });
+        ? tasks.clearBuilt(id, taskBuilt[2], as)
+        : tasks.setBuilt(id, taskBuilt[2], { ...as, note: typeof body.note === 'string' ? body.note : '' });
       if (!out.ok) {
-        const code = out.closed ? 409 : out.code === 'UNREADABLE' ? 500
+        const code = out.person ? 403 : out.closed ? 409 : out.code === 'UNREADABLE' ? 500
           : (/no project by that name|no task by that number/.test(out.because) ? 404 : 400);
         sendJson(res, code, { error: out.because });
         return;

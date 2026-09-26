@@ -45,9 +45,10 @@ test('setBuilt stamps when, who and the note on an open task, and records a buil
 test('marking again refreshes the builder and the note; with no note the old one does not linger', () => {
   const { id, n } = freshTask();
   tasks.setBuilt(id, n, { by: 'rex', note: 'first' });
-  tasks.setBuilt(id, n, { by: 'operator' });
+  tasks.setBuilt(id, n, { person: true });
   const t = stored(id, n);
-  assert.equal(t.builtBy, 'operator');
+  assert.equal(t.builtByPerson, true);
+  assert.equal(t.builtBy, null);
   assert.equal('builtNote' in t, false, 'a stale note survived a re-mark with none');
 });
 
@@ -79,7 +80,7 @@ test('closing clears the mark, and reopening does not bring it back', () => {
 test('the last part closing (the task completes) clears the mark too', () => {
   const { id, n } = freshTask(null);
   tasks.addPart(id, n, { sentence: 'the only piece' });
-  tasks.setBuilt(id, n, { by: 'operator' });
+  tasks.setBuilt(id, n, { person: true });
   const parts = tasks.partsOf(stored(id, n));   // the derived first part and the added one
   assert.ok(parts.length >= 1);
   for (const x of parts.slice(0, -1)) tasks.setPartClosed(id, n, x.id, new Date().toISOString());
@@ -137,7 +138,7 @@ test('a part put back on a built task is new work: the mark goes, and the histor
   tasks.addPart(id, n, { sentence: 'piece two' });
   const parts = tasks.partsOf(stored(id, n));
   tasks.setPartClosed(id, n, parts[0].id, new Date().toISOString());
-  tasks.setBuilt(id, n, { by: 'operator' });
+  tasks.setBuilt(id, n, { person: true });
   /* Control: re-closing an already closed part is no transition, and keeps the mark. */
   tasks.setPartClosed(id, n, parts[0].id, new Date().toISOString());
   assert.ok('builtAt' in stored(id, n), 'CONTROL: a re-close with no transition dropped the mark');
@@ -168,7 +169,7 @@ test('the history reads cause then effect: the part change, then "no longer buil
   tasks.addPart(id2, n2, { sentence: 'two' });
   const parts = tasks.partsOf(stored(id2, n2));
   tasks.setPartClosed(id2, n2, parts[0].id, new Date().toISOString());
-  tasks.setBuilt(id2, n2, { by: 'operator' });
+  tasks.setBuilt(id2, n2, { person: true });
   tasks.setPartClosed(id2, n2, parts[0].id, null);
   const k2 = taskchat.read(id2, n2).map((e) => e.kind);
   assert.ok(k2.lastIndexOf('part-reopened') < k2.lastIndexOf('unbuilt'), JSON.stringify(k2));
@@ -200,7 +201,7 @@ test('the Assigner does not hand out a built task, and a built task does not kee
   const before = assigner.pick('rex', read(), new Set());
   assert.ok(before && before.n === nobody, 'CONTROL: the unassigned task is picked: ' + JSON.stringify(before));
   tasks.setBuilt(id, n, { by: 'rex' });
-  tasks.setBuilt(id, nobody, { by: 'operator' });
+  tasks.setBuilt(id, nobody, { person: true });
   assert.equal(assigner.hasOpenWork('rex', read()), false, 'a built task kept its agent busy');
   assert.equal(assigner.pick('rex', read(), new Set()), null, 'a built task was handed out again');
 });
@@ -215,7 +216,7 @@ test('a mark frees the agent who made it, or every agent when the person made it
   tasks.setBuilt(p.id, n, { by: 'mona' });
   assert.equal(assigner.hasOpenWork('mona', read()), false, 'the builder is freed');
   assert.equal(assigner.hasOpenWork('rex', read()), true, 'another agent with an open part was freed by mona\'s mark');
-  tasks.setBuilt(p.id, n, { by: 'operator' });
+  tasks.setBuilt(p.id, n, { person: true });
   assert.equal(assigner.hasOpenWork('rex', read()), false, 'the person marking it built did not free the agents on it');
 });
 
@@ -244,4 +245,31 @@ test('a mark with no named builder frees every agent on the task, as the person\
   tasks.setBuilt(id, n, { by: null });
   assert.equal(stored(id, n).builtBy, null);
   assert.equal(assigner.hasOpenWork('rex', read()), false, 'an unnamed mark left rex busy with a task nobody hands out');
+});
+
+test('a second agent\'s mark keeps the first one free, and an agent named "operator" is not the person (review round 9)', () => {
+  const assigner = require('../engine/assigner');
+  const p = projects.create({ name: 'Two ' + Math.random().toString(36).slice(2), agents: ['rex', 'mona', 'operator'] });
+  const n = tasks.create(p.id, { sentence: 'Two parts' }).number;
+  tasks.addPart(p.id, n, { sentence: 'rex part', who: 'rex' });
+  tasks.addPart(p.id, n, { sentence: 'mona part', who: 'mona' });
+  tasks.addPart(p.id, n, { sentence: 'operator part', who: 'operator' });
+  const read = () => projects.readAll().filter((x) => x.id === p.id);
+  tasks.setBuilt(p.id, n, { by: 'mona', note: 'mine' });
+  tasks.setBuilt(p.id, n, { by: 'rex', note: 'mine too' });
+  assert.deepEqual(stored(p.id, n).builtWho, ['mona', 'rex']);
+  assert.equal(assigner.hasOpenWork('mona', read()), false, 'rex\'s mark made mona busy again');
+  assert.equal(assigner.hasOpenWork('rex', read()), false);
+  assert.equal(assigner.hasOpenWork('operator', read()), true, 'CONTROL: an agent that did not mark it stays busy');
+  /* An agent whose name is "operator" marks it: that is an agent, not the person. */
+  tasks.setBuilt(p.id, n, { by: 'operator' });
+  const t = stored(p.id, n);
+  assert.equal(t.builtByPerson === true, false, 'an agent named operator was recorded as the person');
+  assert.equal(t.builtFreesAll === true, false, 'an agent named operator freed everyone');
+  assert.equal(tasks.setBuilt(p.id, n, { by: 'rex', refusePersonMark: true }).ok, true, 'an agent named operator locked the mark as the person\'s');
+  /* CONTROL: the person's own mark does lock it, and frees everyone. */
+  tasks.setBuilt(p.id, n, { person: true });
+  assert.equal(tasks.setBuilt(p.id, n, { by: 'rex', refusePersonMark: true }).person, true);
+  assert.equal(tasks.clearBuilt(p.id, n, { by: 'rex', refusePersonMark: true }).person, true);
+  assert.equal(assigner.hasOpenWork('operator', read()), false);
 });
