@@ -13,7 +13,9 @@
  *     pages' four and the Files view's);
  *   - no two of them overlap (a grown box must not take its neighbour's taps);
  *   - the projects list's own grid / roadmap toggle (the same .vt) is at least 44x44, does
- *     not overlap Add Project or the sort, and that page is no wider than the screen;
+ *     not overlap Add Project or the sort, and that page is no wider than the screen, at the
+ *     four sizes and at 600px (between the list's own 30rem wrap and this 40rem rule);
+ *   - a back link with a one-character label is still 44 wide (three take a name);
  *   - the page is no wider than the screen;
  *   - the header is no taller than the same page with the old sizes put back (the grown
  *     boxes are cancelled by negative margins, so the row keeps its height);
@@ -31,6 +33,7 @@
  * Without the negative margins the header arm reds (99px against 83 at 375, 87 at the rest).
  * With the projects toggle slid 120px left onto the sort, the projects overlap arm reds.
  * With the rule at 41rem instead of 40rem, the 641px edge arm reds (mark 44x44).
+ * Without the back link's min-width, the one-character label arm reds (10.9px wide).
  *
  * Chromium at phone size is not an Android phone, and WebKit is an engine
  * approximation, not Safari.
@@ -135,6 +138,21 @@ async function home(page, url) {
   await page.waitForTimeout(500);
 }
 
+// The projects list's toggle, beside Add Project and the sort, at width w.
+async function projectsArm(page, tag, w) {
+  await page.evaluate(() => showTab('projects'));
+  await page.waitForSelector(PROJECTS[2].sel, { state: 'visible', timeout: 8000 }).catch(() => {});
+  const pj = await measure(page, PROJECTS);
+  for (const c of pj) {
+    if (c.missing || !c.shown) { chk(false, `${tag} ${c.name} is on the page and showing`, c.sel); continue; }
+    if (!c.sizeFree) chk(c.w >= 44 && c.h >= 44, `${tag} ${c.name} is at least 44x44`, `${c.w}x${c.h}`);
+  }
+  const pjOv = overlaps(pj);
+  chk(pjOv.length === 0, `${tag} Add Project, the sort and the projects toggle do not overlap`, pjOv.join(', '));
+  const pjW = await page.evaluate(() => document.documentElement.scrollWidth);
+  chk(pjW <= w, `${tag} the projects list is no wider than the screen`, `page ${pjW}px`);
+}
+
 (async () => {
   fleet.install(NAMES.map((n, i) => fleet.agent(n, {
     state: ['working', 'idle', 'needs_you'][i],
@@ -178,18 +196,7 @@ async function home(page, url) {
           const before = await headH();
           await tagEl.evaluate((n) => n.remove());
           chk(now <= before, `${tag} the header is no taller than with the old sizes`, `${now}px now, ${before}px old`);
-          // The projects list's toggle, beside Add Project and the sort.
-          await page.evaluate(() => showTab('projects'));
-          await page.waitForSelector(PROJECTS[2].sel, { state: 'visible', timeout: 8000 }).catch(() => {});
-          const pj = await measure(page, PROJECTS);
-          for (const c of pj) {
-            if (c.missing || !c.shown) { chk(false, `${tag} ${c.name} is on the page and showing`, c.sel); continue; }
-            if (!c.sizeFree) chk(c.w >= 44 && c.h >= 44, `${tag} ${c.name} is at least 44x44`, `${c.w}x${c.h}`);
-          }
-          const pjOv = overlaps(pj);
-          chk(pjOv.length === 0, `${tag} Add Project, the sort and the projects toggle do not overlap`, pjOv.join(', '));
-          const pjW = await page.evaluate(() => document.documentElement.scrollWidth);
-          chk(pjW <= w, `${tag} the projects list is no wider than the screen`, `page ${pjW}px`);
+          await projectsArm(page, tag, w);
           // The back links, on the agent page and on the create page.
           for (const [go, sel, name] of [
             [() => page.locator('.acard[data-agent="ada"] .namego').first().tap(), '#detail-back', 'the agent page\'s "All agents"'],
@@ -203,6 +210,13 @@ async function home(page, url) {
             const [b] = await measure(page, [{ sel, name, always: true }]);
             if (b.missing || !b.shown) chk(false, `${tag} ${name} is on the page and showing`, sel);
             else chk(b.w >= 44 && b.h >= 44, `${tag} ${name} is at least 44x44`, `${b.w}x${b.h}`);
+            if (sel === '#pj-add-back') {
+              // Three back links carry a project or task name; the shortest label must still be 44 wide.
+              const short = await page.evaluate((sel) => { const el = document.querySelector(sel); const was = el.textContent;
+                el.textContent = '\u2190'; const r = el.getBoundingClientRect(); el.textContent = was;
+                return { w: Math.round(r.width * 10) / 10, h: Math.round(r.height * 10) / 10 }; }, sel);
+              chk(short.w >= 44 && short.h >= 44, `${tag} a back link with a one-character label is still at least 44x44`, `${short.w}x${short.h}`);
+            }
           }
           chk(errs.length === 0, `${tag} no page errors`, errs.join(' | '));
           await ctx.close();
@@ -214,11 +228,20 @@ async function home(page, url) {
           const ctx = await browser.newContext({ viewport: { width: w, height: 900 } });
           const page = await ctx.newPage();
           await home(page, URL);
-          const [mark, grid] = await measure(page, [HOME[0], HOME[4]]);
+          const [mark, grid] = await measure(page, ['#klink', '[data-scope="agents"] .vt[data-layout="grid"]'].map((sel) => HOME.find((c) => c.sel === sel)));
           const ok = phone ? (mark.w >= 44 && mark.h >= 44 && grid.w >= 44 && grid.h >= 44)
             : (mark.w === 34 && mark.h === 34 && grid.w === 38 && grid.h === 30);
           chk(!mark.missing && !grid.missing && ok, `${tag} ${phone ? 'the phone sizes apply' : 'the old sizes hold'} at the rule's edge`,
             `mark ${mark.w}x${mark.h}, grid toggle ${grid.w}x${grid.h}`);
+          await ctx.close();
+        }
+        // 600px: the frame rule applies (under 40rem) but the projects list's own wrap (30rem = 480)
+        // does not, so the grown toggle meets the sort without it. Measured there too.
+        {
+          const ctx = await browser.newContext({ viewport: { width: 600, height: 900 }, hasTouch: true, isMobile: engine === 'chromium' });
+          const page = await ctx.newPage();
+          await home(page, URL);
+          await projectsArm(page, `[${engine} 600x900]`, 600);
           await ctx.close();
         }
         // Desktop: the phone rules must not reach it.
