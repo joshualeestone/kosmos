@@ -68,7 +68,8 @@
 const fs = require('node:fs');
 const path = require('node:path');
 const crypto = require('node:crypto');
-const { spawn } = require('node:child_process');
+const { spawn, execFileSync } = require('node:child_process');
+const os = require('node:os');
 const store = require('./store');
 
 // #1848: route through store.ROOT (= store.dataRootFor(platform, home, env)) rather
@@ -1164,11 +1165,54 @@ function absorbSession(data) {
   return { ok: false, because: 'the tunnel program answered in a shape we could not read' };
 }
 
-/** Append --device-name only when the label is present and clean (trimmed once,
-    no newline, 1-60 chars). A malformed label is dropped rather than surfaced --
-    a newline in argv would let it inject a second value. Shared by start/verify
-    so the two carry the label identically. */
+/* kosmos#3831: the app's own sign-in is THIS computer asking to be let in. With
+   no name it reached the device list as "a device" with a code nobody had seen,
+   next to the person's real browser request, and read as a stranger (Josh,
+   2026-09-25). So it is named after this computer: the name the person gave it
+   (macOS: scutil ComputerName), else the host name, plus "(Kosmos app)". */
+const DEVICE_SUFFIX = ' (Kosmos app)';
+/** The label for this computer from a raw name. Pure, so every edge is testable:
+    one line, no control characters, cut to fit DEVICE_NAME's 60 UTF-16 units with
+    the suffix (never splitting a surrogate pair), and a plain fallback when
+    nothing usable is left. */
+function deviceNameFrom(raw) {
+  let name = String(raw == null ? '' : raw).replace(/[\u0000-\u001f\u007f]/g, ' ').replace(/\s+/g, ' ').trim();
+  const room = 60 - DEVICE_SUFFIX.length;
+  if (name.length > room) {
+    let cut = room;
+    const c = name.charCodeAt(cut - 1);
+    if (c >= 0xd800 && c <= 0xdbff) cut -= 1;   // do not keep half of a pair
+    name = name.slice(0, cut).trim();
+  }
+  const label = name ? name + DEVICE_SUFFIX : '';
+  if (label && DEVICE_NAME.test(label)) return label;
+  // "this computer", never "this Mac", on every platform (Josh, kosmos#1004).
+  return 'This computer' + DEVICE_SUFFIX;
+}
+/* Read once per process (a computer's name does not change under a running
+   sign-in). scutil is synchronous but local and bounded at 2 seconds, once. */
+let thisComputerNameCache = null;
+function thisComputerDeviceName() {
+  if (thisComputerNameCache !== null) return thisComputerNameCache;
+  let raw = '';
+  if (process.platform === 'darwin') {
+    try { raw = execFileSync('/usr/sbin/scutil', ['--get', 'ComputerName'], { encoding: 'utf8', timeout: 2000, stdio: ['ignore', 'pipe', 'ignore'] }); } catch { raw = ''; }
+  }
+  if (!String(raw).trim()) { try { raw = os.hostname().replace(/\.local$/i, ''); } catch { raw = ''; } }
+  thisComputerNameCache = deviceNameFrom(raw);
+  return thisComputerNameCache;
+}
+
+/** Append --device-name. A caller's label goes through only when clean (trimmed
+    once, no newline, 1-60 chars): a malformed one is dropped, never surfaced (a
+    newline in argv would let it inject a second value) and never replaced, since
+    it names some other device. With NO label (the app's own sign-in, #3831) this
+    computer's name is sent. Shared by start/verify so the two carry it alike. */
 function pushDeviceName(args, deviceName) {
+  if (deviceName === undefined || deviceName === null || (typeof deviceName === 'string' && !deviceName.trim())) {
+    args.push('--device-name', thisComputerDeviceName());
+    return;
+  }
   if (typeof deviceName !== 'string') return;
   const trimmed = deviceName.trim();
   if (DEVICE_NAME.test(trimmed)) args.push('--device-name', trimmed);
@@ -1626,7 +1670,7 @@ async function signinRegister(name) {
   } };
 }
 
-module.exports = { lastJsonLine, secondReset, forget, macRequest, assistantChat, hostedAvailable, DEFAULT_RELAY, DEFAULT_COORDINATOR, configured,
+module.exports = { thisComputerDeviceName, deviceNameFrom, lastJsonLine, secondReset, forget, macRequest, assistantChat, hostedAvailable, DEFAULT_RELAY, DEFAULT_COORDINATOR, configured,
   FILE,
   read,
   kosmosPlus,

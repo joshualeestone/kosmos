@@ -1057,6 +1057,40 @@ test('a device name reaches the binary when valid, and is dropped (never surface
   assert.ok(!dropped.includes('--device-name'), 'a malformed device name was passed through: ' + JSON.stringify(dropped));
 });
 
+test('#3831: the app\'s own sign-in is named after this computer, never left as "a device"', async () => {
+  fs.rmSync(RECORD, { force: true });
+  await remote.signinStart('her@example.com');
+  await remote.signinVerify('her@example.com', '111111');
+  const start = recorded().find((c) => c[0] === 'signin' && c[1] === 'start');
+  const verify = recorded().find((c) => c[0] === 'signin' && c[1] === 'verify');
+  const name = remote.thisComputerDeviceName();
+  assert.match(name, /\(Kosmos app\)$/);
+  assert.ok(name.length <= 60, name);
+  assert.equal(start[start.indexOf('--device-name') + 1], name, 'start carried no name: ' + JSON.stringify(start));
+  assert.equal(verify[verify.indexOf('--device-name') + 1], name, 'verify carried no name: ' + JSON.stringify(verify));
+});
+
+test('#3831: the computer name becomes a label that always fits the device-name rule', () => {
+  const RULE = /^[^\n\r]{1,60}$/;
+  const cases = {
+    plain: ['Josh’s Mac mini', 'Josh’s Mac mini (Kosmos app)'],
+    newline: ['Josh\nMac', 'Josh Mac (Kosmos app)'],
+    empty: ['', 'This computer (Kosmos app)'],
+    spaces: ['   ', 'This computer (Kosmos app)'],
+    nul: [null, 'This computer (Kosmos app)'],
+  };
+  for (const [k, [raw, want]] of Object.entries(cases)) {
+    assert.equal(remote.deviceNameFrom(raw), want, k);
+  }
+  // Long, and long with emoji (two UTF-16 units each): still inside the rule, never half an emoji.
+  const long = remote.deviceNameFrom('M'.repeat(70));
+  assert.ok(RULE.test(long) && long.endsWith(' (Kosmos app)'), long);
+  const emoji = remote.deviceNameFrom('Mac ' + '😀'.repeat(30));
+  assert.ok(RULE.test(emoji), 'over the rule: ' + emoji.length);
+  assert.ok(!/[\ud800-\udbff](?![\udc00-\udfff])/.test(emoji), 'half an emoji: ' + JSON.stringify(emoji));
+  assert.ok(emoji.startsWith('Mac 😀'), 'cut away the name: ' + emoji);
+});
+
 test('a malformed coordinator answer is refused, and no session is held to spend', async () => {
   await remote.signinStart('her@example.com');
   const noToken = await remote.signinVerify('her@example.com', '444444');   // session stage, no token
