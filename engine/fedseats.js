@@ -62,7 +62,8 @@ const RESTART_MAX_MS = 60000;
 const STABLE_MS = 30000;
 const MAC_EDGES = '/v1/mac/federation/edges';
 
-/* projectId -> { child, edge, status, backoff, timer, ended, stopped, starting, inbound } */
+/* projectId -> { child, edge, status, backoff, timer, ended, stopped, starting, inbound, inday }
+   inbound: this minute's { since, count, bytes }; inday: this UTC day's { day, bytes, rows, noted, minuteNoted } */
 const seats = new Map();
 
 let deps = null;

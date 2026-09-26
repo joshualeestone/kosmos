@@ -19,3 +19,7 @@ Card: kosmos#3844 (deferred from the #3311 federation review, round 19).
 - [NIT] a second flood in the same day is dropped with no further note. DEFERRED: disclosed in the note itself ("Kosmos says this once a day"); a dropped-count summary is a possible follow-up.
 - [NIT] the externalKeptOn test read "today" from the clock before the rows were stamped (a run across midnight UTC). FIXED: the day comes from the stored row.
 - [NIT] the null-seed test cannot catch a missing seed. NO CHANGE: it guards only the fail-open path, as its name says; the rows- and bytes-seed tests are the controls for the seed.
+
+## Round 2 review (sonnet): 2 NITs
+- [NIT] the seat-shape comment did not name inday. FIXED: it names inbound and inday and their fields.
+- [NIT] the externalKeptOn test computed bytes with .length on ASCII only. FIXED: a multibyte name and word, expected via Buffer.byteLength (so a .length implementation would fail).
