@@ -17134,7 +17134,9 @@ function stateReason(a, opts) {
   /* #4006: a restart that did not come back (the engine's needs_you with disruption.failed). The card
      says so and what to do, instead of a bare "Issue": Josh's Grok agent sat dead 23 minutes behind one. */
   if (a && a.state === 'needs_you' && a.disruption && a.disruption.failed === true) {
-    return 'Kosmos restarted it and it did not come back. Restart it to bring it back.';
+    return a.disruption.gone === true
+      ? 'Kosmos restarted it but its launch file is gone, so it cannot start. It has to be created again.'
+      : 'Kosmos restarted it and it did not come back. Restart it to bring it back.';
   }
   if (a && a.state === 'restarting') {
     /* #2019 timedOut: an OVERRUN restart must not still promise "a few seconds"

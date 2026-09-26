@@ -119,6 +119,8 @@ function read(sessionName) {
   if (rec && typeof rec.failedAt === 'string' && Number.isFinite(Date.parse(rec.failedAt))) {
     out.failed = true;
     out.failedAt = rec.failedAt;
+    /* Its launch file was gone, so restarting cannot help; the agent has to be created again. */
+    if (rec.diagnostics && rec.diagnostics.plistExists === false) out.gone = true;
   }
   return out;
 }
@@ -144,7 +146,7 @@ function active(sessionName, windowMs) {
   if (!r.found) return null;
   const w = Number.isFinite(windowMs) ? windowMs : WINDOW_MS;
   if (r.ageMs > w) return null;
-  return r.failed ? { cause: r.cause, startedAt: r.startedAt, ageMs: r.ageMs, failed: true }
+  return r.failed ? { cause: r.cause, startedAt: r.startedAt, ageMs: r.ageMs, failed: true, gone: r.gone === true }
     : { cause: r.cause, startedAt: r.startedAt, ageMs: r.ageMs };
 }
 

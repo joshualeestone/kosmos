@@ -235,6 +235,21 @@ test('#4006 snapshot: a created agent with NO pane whose restart failed (Josh\'s
   }
 });
 
+test('#4006: a failed restart whose launch file was gone says the agent has to be created again, not "restart it"', () => {
+  disruption.begin('nofile', 'restart');
+  disruption.fail('nofile', { plistExists: false, bootstrap: null });
+  const r = disruption.read('nofile');
+  assert.equal(r.gone, true);
+  const out = reconcileReport({ found: false }, STOPPED_SCRAPE, Date.now(), undefined, { cause: r.cause, startedAt: r.startedAt, failed: true, gone: true });
+  assert.equal(out.state, STATE.NEEDS_YOU);
+  assert.match(out.because, /launch file is gone.*created again/);
+  assert.doesNotMatch(out.because, /Restart it/);
+  // CONTROL: the file still there reads the ordinary "restart it".
+  disruption.fail('nofile', { plistExists: true, bootstrap: null });
+  assert.equal(disruption.read('nofile').gone, undefined);
+  disruption.clear('nofile');
+});
+
 test('#4006: disruption.fail keeps the cause and start, marks it failed, and keeps the diagnostics on disk', () => {
   disruption.begin('diagme', 'model');
   const began = disruption.read('diagme');

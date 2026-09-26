@@ -153,6 +153,16 @@ function relaunchRetryMs() {
   return Number.isFinite(v) && v >= 0 ? v : 2000;
 }
 function sleepMs(ms) { if (ms > 0) Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms); }
+/* The wait blocks this whole process (restart is synchronous), so a burst of failing restarts in one sweep must not
+   add up: only the first failure in a RETRY_WAIT_WINDOW_MS window waits; later ones in the burst retry at once. */
+const RETRY_WAIT_WINDOW_MS = 10 * 1000;
+let lastRetryWaitAt = 0;
+function retryWait() {
+  const now = Date.now();
+  if (now - lastRetryWaitAt < RETRY_WAIT_WINDOW_MS) return;
+  lastRetryWaitAt = now;
+  sleepMs(relaunchRetryMs());
+}
 
 function run(file, args) {
   if (runner) return runner(file, args);
@@ -1973,7 +1983,7 @@ function restartInner(name, cause, platform, startIfDead) {
      reload, while a bootstrap by hand minutes later worked at once. Only when the file is still
      there (a missing one cannot be bootstrapped at all). */
   if (!loaded && !ops.win32 && !ops.startableGone(clean, job)) {   // the Mac's bootout/bootstrap race only
-    sleepMs(relaunchRetryMs());
+    retryWait();
     const again = step('asked it to start once more', () => ops.startNow(clean, job));
     loaded = again && step('confirmed its job is loaded on the second try', () => ops.loaded(clean, job, before));
   }

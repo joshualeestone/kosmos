@@ -30,6 +30,14 @@ logged to board.log only; the card fell to a quiet "not running" for 23 minutes.
   guard removed: activeWhileWaiting stays false on both. A guard that cannot fire was not added.
 - fail() validates its time; stale comments in remove.js and disruption.js corrected.
 
+## Review round 2 (Sonnet), what changed
+- The second-try wait blocks the whole board (restart is synchronous), so only the first failure in a 10-second
+  window waits; later ones in a burst retry at once. A test runs two failing restarts back to back and requires the
+  second to take under 300ms with a 400ms wait configured (perturbed red).
+- A failed restart whose launch file was gone says the agent has to be created again, not "restart it" (engine
+  reason and card copy; the record carries `gone` from its diagnostics).
+- Kept as documented: the diagnostics hold the LAST bootstrap's answer only.
+
 ## Decided
 - Reuse the disruption record rather than a new store: it already ties a restart to the card and already clears when
   the agent is back.

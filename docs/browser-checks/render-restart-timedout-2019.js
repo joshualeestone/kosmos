@@ -41,8 +41,9 @@ const { chromium } = require('playwright');
          needs_you with no disruption as its control. */
       const failed = base({ sessionName: 'failed', state: 'needs_you', disruption: { cause: 'restart', startedAt: Date.now() - 90000, timedOut: true, failed: true } });
       const plainNeeds = base({ sessionName: 'plainneeds', state: 'needs_you', disruption: null });
+      const gone = base({ sessionName: 'gonefile', state: 'needs_you', disruption: { cause: 'restart', startedAt: Date.now() - 90000, timedOut: true, failed: true, gone: true } });
       try {
-        document.getElementById('grid').innerHTML = [inprog, timed, failed, plainNeeds].map((a) => card(a)).join('');
+        document.getElementById('grid').innerHTML = [inprog, timed, failed, plainNeeds, gone].map((a) => card(a)).join('');
         return 'OK';
       } catch (e) { return 'ERR: ' + e.message; }
     });
@@ -80,6 +81,8 @@ const { chromium } = require('playwright');
     say(/did not come back/.test(fTxt) && /Restart it/.test(fTxt), 'failed restart: the card says it did not come back and to restart it (#4006)', JSON.stringify(fTxt));
     say(/\bst-attn\b/.test(await stateClass('failed')), 'failed restart: the card is in the needs-you (red, st-attn) family', await stateClass('failed'));
     say(!/did not come back/.test(await text('plainneeds')), 'CONTROL: a needs_you card with no failed restart does not say it (#4006)');
+    const gTxt = await text('gonefile');
+    say(/launch file is gone/.test(gTxt) && /created again/.test(gTxt) && !/Restart it/.test(gTxt), 'failed restart with its launch file gone: says it has to be created again, not "restart it" (#4006)', JSON.stringify(gTxt));
   } finally {
     await b.close();
   }

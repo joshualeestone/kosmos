@@ -2592,6 +2592,36 @@ test('#4006: a job that did not load on the first bootstrap is tried once more, 
   } finally {
     remove.setRunner(null);
     status.setPaneSource(null);
+    disruption.clear(name);
+  }
+});
+
+test('#4006: a burst of failing restarts waits once, not once each (the wait blocks the whole board)', () => {
+  const a = madeAgent('burstone');
+  const b = madeAgent('bursttwo');
+  boardShows(a, a);
+  remove.setRunner((file, args) => {
+    const cmd = args && args[0];
+    if (cmd === 'has-session') return { ok: false, code: 1 };
+    if (cmd === 'bootstrap') return { ok: true, stdout: '' };
+    if (cmd === 'print') return { ok: false, code: 113 };
+    return { ok: true, stdout: '' };
+  });
+  const was = process.env.AGENT_WORKFORCE_RELAUNCH_RETRY_MS;
+  process.env.AGENT_WORKFORCE_RELAUNCH_RETRY_MS = '400';
+  try {
+    mac.restart(a);                       // may wait (or not, if another failure waited moments ago)
+    boardShows(b, b);
+    const t0 = Date.now();
+    const out = mac.restart(b);           // the second failure in the burst must not wait again
+    const took = Date.now() - t0;
+    assert.equal(out.outcome, remove.OUTCOME.PARTIAL, out.because);
+    assert.ok(took < 300, `the second failing restart in a burst waited again (${took}ms)`);
+  } finally {
+    if (was === undefined) delete process.env.AGENT_WORKFORCE_RELAUNCH_RETRY_MS; else process.env.AGENT_WORKFORCE_RELAUNCH_RETRY_MS = was;
+    remove.setRunner(null);
+    status.setPaneSource(null);
+    disruption.clear(a); disruption.clear(b);
   }
 });
 
