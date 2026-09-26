@@ -34,6 +34,28 @@
 
 const TIMEOUT_MS = 5000;
 
+/* #4023 (the codex sibling of #4012): where the engine is, for the board token and the world
+   header below. In a checkout and in the bundle this file sits in bin/ with engine/ beside it.
+   The copy every codex agent actually RUNS is the one installSupervisor puts in <supportDir>/bin,
+   which has no engine/ beside it, so `require('../engine/...')` always failed there and the two
+   headers this file promises were never sent. That folder does carry the `engine-path` pointer
+   installSupervisor writes (#1139, the same file agent-supervisor.sh reads), so fall back to it.
+   Null when neither resolves: the report then goes without those headers, exactly as before.
+   The same lookup as bin/gemini-report-bridge.js and bin/grok-report-bridge.js; each bridge is
+   copied alone into <supportDir>/bin, so none can require a shared helper to find the engine. */
+function engineDir(here) {
+  const fs = require('node:fs');
+  const path = require('node:path');
+  const h = here || __dirname;
+  const beside = path.join(h, '..', 'engine');
+  if (fs.existsSync(path.join(beside, 'boardauth.js'))) return beside;
+  try {
+    const ptr = String(fs.readFileSync(path.join(h, 'engine-path'), 'utf8')).split(/\r?\n/)[0].trim();
+    if (ptr && fs.existsSync(path.join(ptr, 'boardauth.js'))) return ptr;
+  } catch { /* no pointer: no engine */ }
+  return null;
+}
+
 function main() {
   let event;
   try { event = JSON.parse(process.argv[2] || ''); } catch { return; }
@@ -99,8 +121,9 @@ function main() {
      cardinal rule: a token we cannot read must never break the agent, so any
      failure just omits the header and the pane arm carries the report exactly as
      before on a non-enforcing board. */
+  const engine = engineDir();
   try {
-    const boardTok = require('../engine/boardauth').readToken();
+    const boardTok = require(require('node:path').join(engine, 'boardauth')).readToken();
     if (typeof boardTok === 'string' && boardTok) headers['x-kosmos-board-token'] = boardTok;
   } catch { /* a missed board token must never become a failed turn */ }
 
@@ -110,7 +133,7 @@ function main() {
      Kosmos opens, so it costs one report, exactly as a down board does. Guarded
      by this file's cardinal rule, like the token read above. */
   try {
-    const launchidentity = require('../engine/launchidentity');
+    const launchidentity = require(require('node:path').join(engine, 'launchidentity'));
     headers[launchidentity.WORLD_HEADER] = launchidentity.worldHeaderValue(process.env);
   } catch { /* a missed world header must never become a failed turn */ }
 
