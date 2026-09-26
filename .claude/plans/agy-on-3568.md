@@ -100,6 +100,15 @@ subscription, only now that it is true.
   Left: the install holds one request open for its length (no job + poll); a drop now says "may still
   be installing", and Check again finds out.
 
+- Review rounds 8-9: the saved create pick awaits the installed read and yields to a fresh choice; the
+  installer gets a minimal environment; Ready marks the row connected and offers Next without the
+  accounts read; the Gemini row names the subscription only where offered; "Download complete." only
+  after a download; whoami says an Antigravity agent signs in with Google.
+- Review round 10: converged. Accepted residual: if the accounts read fails at the moment sign-in
+  finishes, the green "is ready" summary line under the row waits for the next repaint (Ready text, the
+  Connected button and Next already show). runnerDisplayName's antigravity arm is unreached by whoami
+  (it names the program for other callers) and is left.
+
 ## Not in this card
 - Reading what an Antigravity agent is doing (status) and its auth-failed copy: #3568's PR 2.
 - Windows: agy is refused there today.
