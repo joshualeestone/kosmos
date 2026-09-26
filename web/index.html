@@ -6029,6 +6029,25 @@ body:not(.consolidated) .pjmidhead:has(.pjhead) .tsearch:focus-within { flex-bas
   /* A reaction already on a post is a target too, on any touchscreen (a phone turned
      sideways is wider than the phone block but still a thumb). */
   #pj-room .rxn { min-height: var(--room-tap); padding: 2px 10px; }
+  /* #718 mobile: the agent DM's reactions (#3650) are the room's pills and bar, so on a touchscreen
+     they open the same way: a tap on the agent's message (the room's tap handler serves both threads),
+     never sticky hover. The rules above, for #d-dmthread. Only the agent's rows carry reactions there,
+     so the bar always starts at its bubble's left. The open row's lift is 1, low enough to stay under
+     the DM's composer bar where it is sticky on a phone (z 4, #3882). */
+  #d-dmthread .msg.rxn-show .rxn-quick { opacity: 1; pointer-events: auto; }
+  #d-dmthread .msg:hover:not(.rxn-show) .rxn-quick:not(:focus-within) { opacity: 0; pointer-events: none; }
+  #d-dmthread .msg:hover:not(.rxn-show) .msg-bd,
+  #d-dmthread .msg:hover:not(.rxn-show) .msg-bd::before { background-image: none; }
+  #d-dmthread .rxn-quick { gap: 4px; top: auto; bottom: calc(100% + 4px); right: auto; left: 0; }
+  #d-dmthread .msg.rxn-below .rxn-quick { bottom: auto; top: calc(100% + 4px); }
+  #d-dmthread .msg.rxn-show .msg-b, #d-dmthread .msg.rxn-below .msg-b { z-index: 1; }
+  #d-dmthread .msg.rxn-still .rxn-quick { transition: none; }
+  #d-dmthread .msg.rxn-show .rxn-quick, #d-dmthread .rxn-quick:focus-within { background: var(--k-surface); border: 1px solid var(--k-rule);
+    border-radius: 100px; padding: 2px 4px; box-shadow: 0 2px 8px rgba(0,0,0,.12); }
+  #d-dmthread { -webkit-tap-highlight-color: transparent; touch-action: manipulation; --room-tap: 36px; }
+  #d-dmthread a, #d-dmthread button { -webkit-tap-highlight-color: rgba(120, 120, 128, .2); }
+  #d-dmthread .rxn-pick, #d-dmthread .rxn-more { min-width: var(--room-tap); min-height: var(--room-tap); }
+  #d-dmthread .rxn { min-height: var(--room-tap); padding: 2px 10px; }
 }
 .rxn-pick { border: 0; background: transparent; cursor: pointer; font-size: 1.15rem; line-height: 1;
             padding: 3px 5px; border-radius: 7px; }
@@ -43163,7 +43182,7 @@ function pjView(which) {
      navigation-only (room polls never pass through here), so a picker in use stays
      open; only a navigation closes it. */
   rxnCloseAllPickers();
-  pjRxnClose();   // #718: a touchscreen reaction bar too (its state is var, so safe at any load point)
+  pjRxnClose();   // #718: a touchscreen reaction bar too (its state is var and its helpers are function declarations, so safe at any load point)
   // Arriving at a project resets the member picker to its resting state (the
   // "+ Add Member" button), so an open picker does not leak from the last
   // project into this one. Navigation-only: repaints while the view is open
@@ -48004,6 +48023,10 @@ function rxnPickerEl() {
        was opened from a DM row) routes the pick to the DM route; `data-post` to the room. */
     const dmAt = el.getAttribute('data-at');
     if (dmAt !== null) {
+      pjRxnClose();   // #718: a pick from the full list closes a tapped bar, as in the room
+      // Found by `at` on purpose, unlike the tapped bar (keyed by the row's data-mid): the react
+      // route itself names the message by its `at` (#3650), so two messages sharing an `at` cannot
+      // be told apart here anyway, and a row id would only repaint a row the server may not have changed.
       let box = null;
       document.querySelectorAll('#d-dmthread .rxns').forEach((r) => {
         if (r.getAttribute('data-at') === dmAt) box = r;
@@ -48244,6 +48267,30 @@ if (window.matchMedia) {
 var RXN_SHOW_POST = null;
 var RXN_SHOW_PID = null;
 var RXN_PINNED = false;   // the open bar is pinned (by a tap, or a tall post's re-place); a scroll, viewport change or repaint re-places it
+/* #718 mobile: the agent DM (#d-dmthread) opens the same bar on a tap. Its open row is keyed by the
+   row's own data-mid (the message's id, else its `at`, dmRow's #1926 key), not the reaction row's
+   `at`: two messages written in the same millisecond would share an `at`. A DM row belongs to the
+   agent whose page is open, a room row (keyed by post id) to the project. RXN_SHOW_HOST names the
+   thread holding the open bar (unset means the room, as before this). */
+/* Function declarations, not const or a var holding a value: pjView (much earlier in this script)
+   calls pjRxnClose, which reads these. A function is hoisted WITH its body, so it works whatever order
+   the script runs in; a var is hoisted as undefined until its line runs. */
+var RXN_SHOW_HOST = null;   // null (or undefined before this line runs): every reader treats either as "the room"
+function rxnHosts() { return ['pj-room', 'd-dmthread']; }
+function rxnShowHost() { return document.getElementById(RXN_SHOW_HOST || 'pj-room'); }
+// The reaction row a tappable message carries.
+function rxnKeyAttr(host) { return host && host.id === 'd-dmthread' ? 'data-at' : 'data-post'; }
+// The key as getAttribute returns it (data-mid is written escaped); compare only with another getAttribute read.
+function rxnRowKey(host, row, box) { return host && host.id === 'd-dmthread' ? row.getAttribute('data-mid') : box.getAttribute('data-post'); }
+// A DM with no CURRENT is never on screen, so its null scope is unreachable in practice.
+function rxnHostScope(host) { return host && host.id === 'd-dmthread' ? (CURRENT ? CURRENT.sessionName : null) : PJ_CURRENT; }
+/* The open bar's row, found again after a repaint rewrote it (null when it is gone). */
+function rxnOpenRow() {
+  const host = rxnShowHost();
+  const attr = rxnKeyAttr(host);
+  const box = host && [...host.querySelectorAll('.rxns[' + attr + ']')].find((b) => rxnRowKey(host, b.closest('.msg'), b) === RXN_SHOW_POST);
+  return box ? box.closest('.msg') : null;
+}
 function pjRxnVisibleBand(room) {
   // The part of the thread a person can actually see: inside the thread's box, below the
   // screen's top and the sticky app header, above the screen's bottom and the sticky composer.
@@ -48253,7 +48300,8 @@ function pjRxnVisibleBand(room) {
   let bottom = Math.min(roomRect.bottom, visual ? visual.offsetTop + visual.height : window.innerHeight);
   const header = document.querySelector('.apphead');
   if (header && getComputedStyle(header).position === 'sticky') top = Math.max(top, header.getBoundingClientRect().bottom);
-  const composer = document.querySelector('.pjmid .composer');
+  // The DM's composer bar is sticky on a phone (#718 chat first), the room's always.
+  const composer = document.querySelector(room.id === 'd-dmthread' ? '#d-talk-box .dmbar' : '.pjmid .composer');
   if (composer && composer.offsetParent) bottom = Math.min(bottom, composer.getBoundingClientRect().top);
   return { top, bottom };
 }
@@ -48269,7 +48317,7 @@ function pjRxnResetRow(messageRow) {
    scrolls on a phone), would cut it; then below (CSS .rxn-below). */
 function pjRxnPlace(row, fromTap) {
   row.classList.remove('rxn-below');
-  const quickBar = row.querySelector('.rxn-quick'); const room = document.getElementById('pj-room');
+  const quickBar = row.querySelector('.rxn-quick'); const room = row.closest('#pj-room, #d-dmthread');
   if (!quickBar || !room) { pjRxnClose(); return; }   // nothing to place: do not leave a lifted, empty row
   quickBar.removeAttribute('style');
   const band = pjRxnVisibleBand(room);
@@ -48301,17 +48349,18 @@ function pjRxnPlace(row, fromTap) {
   quickBar.style.left = Math.round(barLeft) + 'px'; quickBar.style.right = 'auto'; quickBar.style.bottom = 'auto';
 }
 /* #718 mobile: on a touchscreen, a tap on a message shows its add-reaction bar (hover
-   does it on a computer). One row at a time. A tap on a link, a button or the reaction row
+   does it on a computer), in the room and in the agent DM alike. One row at a time. A tap on a link, a button or the reaction row
    is left to its own handler, except that picking a reaction closes the bar, and a tap on
-   another row's link or button closes an open bar (one at a time). Registered
-   BEFORE the data-open-agent listener below, which asks to stay last. */
-document.getElementById('pj-room').addEventListener('click', (e) => {
+   another row's link or button closes an open bar (one at a time). Registered on both
+   threads, and on the room BEFORE its data-open-agent listener below, which asks to stay last. */
+function pjRxnTap(e) {
   if (!(window.matchMedia && window.matchMedia(PJ_TOUCH_MQ).matches)) return;
   if (!e.target || !e.target.closest) return;
-  const room = document.getElementById('pj-room');
+  const room = e.currentTarget;
   if (e.target.closest('.rxn-pick, .rxn, .rxn-reply')) { pjRxnClose(); return; }   // any reaction taken, or Reply (#3745), closes it
   if (e.target.closest('a, button, .rxns, [data-open-agent]')) {
-    // Left to its own handler, but one bar at a time: a tap on another row's link closes an open bar.
+    // Left to its own handler, but one bar at a time: a tap on another row's link closes an open bar
+    // (in the other thread too: pjRxnClose closes both, as the outside-tap closer already would).
     const tappedRow = e.target.closest('.msg');
     room.querySelectorAll('.msg.rxn-show').forEach((openRow) => { if (openRow !== tappedRow) pjRxnResetRow(openRow); });
     if (!room.querySelector('.msg.rxn-show')) pjRxnClose();   // the one close path (state, pin, focus)
@@ -48320,36 +48369,42 @@ document.getElementById('pj-room').addEventListener('click', (e) => {
   const row = e.target.closest('.msg');
   room.querySelectorAll('.msg.rxn-show, .msg.rxn-below').forEach((openRow) => { if (openRow !== row) pjRxnResetRow(openRow); });
   if (!row) { pjRxnClose(); return; }   // a tap between messages closes it for good
-  const box = row.querySelector('.rxns[data-post]');
-  if (!box) { pjRxnClose(); return; }   // nothing to react to (a system row, an unsaved post)
+  const box = row.querySelector('.rxns[' + rxnKeyAttr(room) + ']');
+  if (!box) { pjRxnClose(); return; }   // nothing to react to (a system row, an unsaved post, your own DM message)
   const open = !row.classList.contains('rxn-show');
   if (!open) { pjRxnClose(); return; }   // the one close path (state, pin, focus)
+  // A bar open in the OTHER thread (the room and the DM can both be in the page) goes first.
+  if (RXN_SHOW_POST && rxnShowHost() !== room) pjRxnClose();
   RXN_PINNED = false;
   row.classList.add('rxn-show');
-  RXN_SHOW_POST = box.getAttribute('data-post');
-  RXN_SHOW_PID = PJ_CURRENT;
+  RXN_SHOW_POST = rxnRowKey(room, row, box);
+  RXN_SHOW_PID = rxnHostScope(room);
+  RXN_SHOW_HOST = room.id;
   pjRxnPlace(row, true);
-});
+}
+for (const id of rxnHosts()) document.getElementById(id).addEventListener('click', pjRxnTap);
 function pjRxnClose() {
   RXN_SHOW_POST = null;
   RXN_SHOW_PID = null;
   RXN_PINNED = false;
-  const room = document.getElementById('pj-room');
-  if (room) room.querySelectorAll('.msg.rxn-show, .msg.rxn-below').forEach(pjRxnResetRow);
-  if (room) room.querySelectorAll('.rxn-quick[style]').forEach((quickBar) => quickBar.removeAttribute('style'));
+  RXN_SHOW_HOST = null;
+  for (const id of rxnHosts()) {
+    const room = document.getElementById(id);
+    if (room) room.querySelectorAll('.msg.rxn-show, .msg.rxn-below').forEach(pjRxnResetRow);
+    if (room) room.querySelectorAll('.rxn-quick[style]').forEach((quickBar) => quickBar.removeAttribute('style'));
+  }
   // A tapped button keeps focus on Android, and .rxn-quick:focus-within would keep the bar up.
   const focusedElement = document.activeElement;
-  if (focusedElement && focusedElement.closest && focusedElement.closest('#pj-room .rxn-quick') && focusedElement.blur) focusedElement.blur();
+  if (focusedElement && focusedElement.closest && focusedElement.closest('#pj-room .rxn-quick, #d-dmthread .rxn-quick') && focusedElement.blur) focusedElement.blur();
 }
 /* A repaint of the room (a new post, a timestamp re-worded) rewrites its rows and would drop an
    open bar between the tap that opened it and the tap on an emoji: put it back on the same post. */
 if (window.MutationObserver) {
-  new MutationObserver(() => {
+  const RXN_OBSERVER = new MutationObserver(() => {
     if (!RXN_SHOW_POST) return;
-    if (RXN_SHOW_PID !== PJ_CURRENT) { pjRxnClose(); return; }
-    const room = document.getElementById('pj-room');
-    const box = room && [...room.querySelectorAll('.rxns[data-post]')].find((b) => b.getAttribute('data-post') === RXN_SHOW_POST);
-    const row = box && box.closest('.msg');
+    // Another project, or another agent's DM, never inherits the bar (ids repeat across them).
+    if (RXN_SHOW_PID !== rxnHostScope(rxnShowHost())) { pjRxnClose(); return; }
+    const row = rxnOpenRow();
     // A bar a tap pinned may be pinned again (a scroll would already have re-placed it).
     // rxn-still: no fade-in when a repaint puts the same bar back (it was already showing).
     if (row) {
@@ -48358,7 +48413,8 @@ if (window.MutationObserver) {
       else if (RXN_PINNED) { const bar = row.querySelector('.rxn-quick'); if (bar && bar.style.position !== 'fixed') pjRxnPlace(row, true); }
     }
     else pjRxnClose();   // the post is gone from view
-  }).observe(document.getElementById('pj-room'), { childList: true, subtree: true });
+  });
+  for (const id of rxnHosts()) RXN_OBSERVER.observe(document.getElementById(id), { childList: true, subtree: true });
 }
 /* Any scroll (or a viewport change, below) RE-PLACES an open bar (pjRxnReplaceOpenBar): an
    ordinary bar flips below its post at the thread's edge, a pinned one stays over its post while
@@ -48384,9 +48440,7 @@ function pjRxnReplaceOpenBar() {
   // Any open bar, not only a pinned one: an ordinary bar whose post scrolls to the thread's edge
   // flips below it (or closes when neither side fits), and closes once its post leaves.
   if (!RXN_SHOW_POST) return;
-  const room = document.getElementById('pj-room');
-  const box = room && [...room.querySelectorAll('.rxns[data-post]')].find((rxns) => rxns.getAttribute('data-post') === RXN_SHOW_POST);
-  const row = box && box.closest('.msg');
+  const row = rxnOpenRow();
   if (row) pjRxnPlace(row, RXN_PINNED); else pjRxnClose();
 }
 /* A viewport change (a turn, the keyboard closing when a tap leaves the composer, pinch zoom)
@@ -48396,15 +48450,15 @@ window.addEventListener('resize', pjRxnReplaceSoon);
 /* A bar opened by keyboard focus (an iPad with a keyboard, VoiceOver) opens without a tap, so
    pjRxnPlace never runs for it: flip it below its post where the thread's top would cut it, as a
    tapped bar does, and put it back when focus leaves the bar. */
-document.getElementById('pj-room').addEventListener('focusin', (event) => {
-  const quickBar = event.target && event.target.closest && event.target.closest('#pj-room .rxn-quick');
+for (const id of rxnHosts()) document.getElementById(id).addEventListener('focusin', (event) => {
+  const quickBar = event.target && event.target.closest && event.target.closest('.rxn-quick');
   if (!quickBar || !(window.matchMedia && window.matchMedia(PJ_TOUCH_MQ).matches)) return;
   const row = quickBar.closest('.msg'); if (!row || row.classList.contains('rxn-show')) return;
   row.classList.remove('rxn-below');
   if (quickBar.getBoundingClientRect().top < pjRxnVisibleBand(event.currentTarget).top) row.classList.add('rxn-below');
 });
-document.getElementById('pj-room').addEventListener('focusout', (event) => {
-  const quickBar = event.target && event.target.closest && event.target.closest('#pj-room .rxn-quick');
+for (const id of rxnHosts()) document.getElementById(id).addEventListener('focusout', (event) => {
+  const quickBar = event.target && event.target.closest && event.target.closest('.rxn-quick');
   if (!quickBar || quickBar.contains(event.relatedTarget)) return;
   const row = quickBar.closest('.msg'); if (row && !row.classList.contains('rxn-show')) row.classList.remove('rxn-below');
 });
@@ -48413,7 +48467,7 @@ if (window.visualViewport) {
   window.visualViewport.addEventListener('resize', pjRxnReplaceSoon);
   window.visualViewport.addEventListener('scroll', pjRxnReplaceSoon);
 }
-/* A tap anywhere outside the room closes an open bar too, except inside the shared emoji
+/* A tap anywhere outside the thread holding the bar (the room or the DM) closes it too, except inside the shared emoji
    picker (it lives in body, outside the room): the bar it was opened from stays with it.
    pointerdown, not click: iOS Safari sends no click for a tap on plain content unless
    something below body listens, so a document click listener would miss most taps.
@@ -48422,8 +48476,9 @@ if (window.visualViewport) {
    is set, which only the touch-gated tap listener does, so with a mouse they do nothing. */
 document.addEventListener('pointerdown', (e) => {
   if (!RXN_SHOW_POST) return;   // nothing open: a mouse click (or any tap) costs nothing here
-  const room = document.getElementById('pj-room');
-  if (!room || (e.target && room.contains(e.target))) return;
+  const room = document.getElementById('pj-room');   // this exact line is pinned by web.room-phone-718.test.js
+  const host = rxnShowHost() || room;   // #718: the thread holding the bar, the DM's likewise
+  if (!host || (e.target && host.contains(e.target))) return;
   if (e.target && e.target.closest && e.target.closest('.rxn-picker')) return;
   pjRxnClose();
 });
@@ -48451,7 +48506,7 @@ function rxnCloseDmPicker() {
 function rxnCloseAllPickers() {
   const picker = document.getElementById('rxn-picker');
   if (picker) { picker.hidden = true; picker.removeAttribute('data-post'); picker.removeAttribute('data-at'); }
-  for (const id of ['pj-room', 'd-dmthread']) {   // #3650: the DM thread opens it too
+  for (const id of rxnHosts()) {   // #3650: the DM thread opens it too
     const host = document.getElementById(id);
     if (host) host.querySelectorAll('.rxn-more[aria-expanded="true"]').forEach((b) => b.setAttribute('aria-expanded', 'false'));
   }
