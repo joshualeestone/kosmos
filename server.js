@@ -240,8 +240,8 @@ let engineLook = { at: 0, staleSince: null };
    thing actually being limited -- process-triggered pane notifications --
    directly, in memory. ⚠️ Resets on restart, unlike taskMake's persisted
    count: an acceptable line for a notification valve (the write it guards
-   still lands either way) but NOT one to reuse for anything that gates data. */
-/* #3961: the allowance is PER ASSIGNEE, not one count shared by the whole fleet. It
+   still lands either way) but NOT one to reuse for anything that gates data.
+   #3961: the allowance is PER ASSIGNEE, not one count shared by the whole fleet. It
    was twelve an hour across every agent, so after one agent handed out twelve tasks
    nobody else's assignment reached anybody's screen for the rest of the hour, while
    the tasks themselves (#3959) now land up to a 500-an-hour breaker. What the valve
@@ -285,6 +285,7 @@ function heardBudgetRecord(who) {
 function heardBudgetSkipped(who) {
   const name = heardKey(who);
   if (!name) return undefined;
+  // When both limits are spent, the fleet ceiling is named: it is the graver fact.
   const runaway = heardBudgetPrune() >= HEARD_RUNAWAY_MAX;
   return { who: name, state: chat.DELIVERY.COULD_NOT,
     because: runaway
@@ -390,10 +391,10 @@ function tellEveryoneOn(t, roster) {
    Assigner runner both call this, so the sequence (valve, assignPart, heardBy, tellEveryoneOn)
    exists once. Three callers:
    - screen: no valve, the pane line always.
-   - process (screen false): the parts valve applies and the pane line is spent from the heard
-     budget, both shared by agents.
-   - assigner: the Kosmos Assigner. Its own provenance ('assigner'), so neither shared agent
-     budget is charged (the Assigner has its own hourly caps); the part must still be free at
+   - process (screen false): the parts valve applies (one count shared by agents), and the
+     pane line spends the assignee's paging allowance (heardBudgetAllows, per assignee).
+   - assigner: the Kosmos Assigner. Its own provenance ('assigner'), so neither the parts
+     valve nor the paging allowance is charged (the Assigner has its own hourly caps); the part must still be free at
      the moment of the write (onlyIfFree); the pane line is always sent, and if it could not
      reach the agent at all (COULD_NOT) the assignment is taken back, so nobody is left on a task
      they were never told about.
@@ -14952,9 +14953,9 @@ const server = http.createServer((req, res) => {
           let heard;
           if (viaScreen || heardBudgetAllows(made.who)) {
             heard = heardBy(id, made, made.who, made.sentence, roster);
-            // Only a REAL delivery spends the budget -- a run of failed
-            // attempts at an unreachable agent must not exhaust the shared
-            // hour for every other project's legitimate placements.
+            // Only a REAL delivery spends the allowance: a run of failed attempts
+            // while an agent is unreachable must not use up its hour, or it would
+            // not be told once it is back.
             if (heard && heard.state === chat.DELIVERY.PLACED && !viaScreen) heardBudgetRecord(made.who);
           } else {
             heard = heardBudgetSkipped(made.who);
