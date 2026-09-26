@@ -143,3 +143,8 @@ page. Try again re-tells that agent and the notice updates.
   did not work.", focus kept on the button, and no success line.
 - "Kosmos could not check which agents are running." (one voice).
 - Declined: a 400 for DELETE ...?retell=1 (no caller sends it).
+
+## Review round 16
+- The retell 409 says "that agent is not on this project", true whether it left or never joined.
+- Already recorded: DELETE ...?retell=1 (round 15). Noted: render-projects' real Try again uses one
+  slot of the agent-made bound only when the browser is not the screen; a browser press is the screen.

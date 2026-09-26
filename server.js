@@ -15298,7 +15298,7 @@ const server = http.createServer((req, res) => {
           return;
         }
         if (!exists) { sendJson(res, 404, { error: 'there is no project by that name' }); return; }
-        sendJson(res, 409, { error: 'that agent is no longer on this project' });
+        sendJson(res, 409, { error: 'that agent is not on this project' });   // true whether it left or never joined
         return;
       }
       /* A retry writes the agent's instruction file but moves no membership, so memberValve (which

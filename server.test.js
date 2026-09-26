@@ -14978,7 +14978,7 @@ test('#3923: Try again (?retell=1) re-tells a current member and never re-adds o
   // A notice painted before the agent left: the retry must not put it back.
   const stale = await req('/api/project/' + encodeURIComponent(id) + '/agent/leo?retell=1', { method: 'POST' });
   assert.equal(stale.status, 409, stale.body);
-  assert.match(stale.body, /no longer on this project/);
+  assert.match(stale.body, /that agent is not on this project/);
   assert.deepEqual(agentsOf(), [], 'a retell added an agent that was not on the project');
 
   // CONTROL: the same retell for a current member goes through and adds nothing new.
