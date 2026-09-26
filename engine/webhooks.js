@@ -59,9 +59,15 @@ function readAll() {
     err.corrupt = true;
     throw err;
   }
-  return Array.isArray(kept && kept.hooks)
-    ? kept.hooks.filter((h) => h && ID_RE.test(String(h.id)) && typeof h.hash === 'string' && typeof h.projectId === 'string')
-    : [];
+  // JSON of the wrong shape ({}, [], {"hooks": null}) is as damaged as a file that does not parse:
+  // read as empty, it would answer 404 to real links and the next change would overwrite it.
+  if (!Array.isArray(kept && kept.hooks)) {
+    const err = new Error('we could not read the webhooks just now');
+    err.code = 'UNREADABLE';
+    err.corrupt = true;
+    throw err;
+  }
+  return kept.hooks.filter((h) => h && ID_RE.test(String(h.id)) && typeof h.hash === 'string' && typeof h.projectId === 'string');
 }
 
 function writeAll(hooks) {

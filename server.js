@@ -3269,9 +3269,11 @@ const LOOPBACK_AGENT_ROUTES = new Set(['POST /api/team', 'GET /api/report']);
 /* #1307: a project webhook's call, POST /hooks/<id>/<secret>. It carries its own secret (checked
    against a hash by engine/webhooks.js in the handler), not the board token, so it is exempt from
    the board-token gate below. ONLY this exact shape. It is NOT in REMOTE_AGENT_ROUTES, so
-   remoteWriteGuard still refuses every network peer: for now a webhook answers programs on this
-   computer only, and reaching it from the internet waits on the Kosmos+ tunnel admitting it with
-   this computer's own check (the coordinator must never mint or honour it). */
+   remoteWriteGuard refuses every DIRECT network peer, and the link the screen shows is a
+   127.0.0.1 address. ⚠️ Traffic through the Kosmos+ tunnel reaches the board over loopback, so
+   whether a webhook is reachable from the internet is decided by the tunnel's own path filter
+   (crates/tunnel, not in this repo), not by this line; if it forwards /hooks/, a call still needs
+   the secret. The coordinator must never mint or honour a webhook secret. */
 const HOOK_CALL_RE = /^\/hooks\/([0-9a-f]{16})\/([A-Za-z0-9_-]{43})$/;
 /* #3055: the world NAMES list (GET /api/worlds/names) is exempt from the board-token
    gate so the world-switcher dropdown ALWAYS renders -- even on a board that came up
@@ -3391,9 +3393,10 @@ function gateLog(req) {
     // lifetime or reusability changes, and nothing else recorded the omission.
     // #1307: a webhook call carries its secret in the PATH (/hooks/<id>/<secret>), redacted too.
     const loggedUrl = String(req.url || '').replace(/([?&](?:token|boot)=)[^&]*/gi, '$1REDACTED')
-      // Anywhere, and either slash: an absolute-form target is accepted, and the URL parser reads a
-      // backslash as a slash, so /hooks\<id>\<secret> reaches the same route.
-      .replace(/([\\/]hooks[\\/][^/\\?#]*[\\/])[^/\\?#]*/gi, '$1REDACTED');
+      // Everything after "hooks", in any spelling: an absolute-form target, a backslash, or dot
+      // segments (/hooks/./<id>/<secret>) all reach the route, so no pattern for the secret's
+      // exact position is safe. A webhook call logs as .../hooks/REDACTED.
+      .replace(/(hooks)[\s\S]*$/i, '$1/REDACTED');
     fs.appendFileSync(GATE_LOG, `${new Date().toISOString()} ${req.method} ${loggedUrl} ${ua}\n`);
   } catch { /* the instrument never becomes the defect */ }
 }
@@ -15095,7 +15098,8 @@ const server = http.createServer((req, res) => {
         if (/no project by that name/.test(msg)) { nope(); return; }
         /* Busy or unreadable is OUR state and worth retrying: a 4xx would tell a sender like Zapier
            to drop the event for good. */
-        const ours = (err && err.code === 'UNREADABLE') || /busy|exclusive access/i.test(msg);
+        // Includes a disk that refused the write (ENOSPC, EACCES, EROFS...), as the settings routes do.
+        const ours = (err && (err.code === 'UNREADABLE' || /^E[A-Z]+$/.test(String(err.code || '')))) || /busy|exclusive access/i.test(msg);
         sendJson(res, ours ? 503 : 400, { error: msg || 'we could not add that task' });
         return;
       }
@@ -15120,7 +15124,7 @@ const server = http.createServer((req, res) => {
     const id = decodeSegment((hookList || hookOne)[1]);
     if (id === null) { sendJson(res, 400, { error: 'that is not a name we can read' }); return; }
     let project = null;
-    try { project = projects.get(id); } catch { project = null; }
+    try { project = projects.get(id); } catch { sendJson(res, 503, { error: 'we could not read your projects just now' }); return; }
     if (!project) { sendJson(res, 404, { error: 'no project by that name' }); return; }
     const fail = (err, fallback) => {
       const msg = String((err && err.message) || '');

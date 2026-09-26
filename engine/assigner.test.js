@@ -184,7 +184,11 @@ test('#1307: webhook tasks waiting for a person do not switch off the goal ask; 
     const hook = tasks.create(w.pid, { sentence: 'from a webhook', made: { via: 'webhook', by: 'Webhook 1' } });
     const p = () => projects.readAll().find((x) => x.id === w.pid);
     const goals = new Map([[w.pid, 'Ship the thing']]);
-    assert.ok(a.goalProject(w.key.goalhook, [p()], goals, new Map(), T0), 'a waiting webhook task blocked the goal ask');
+    const item = a.goalProject(w.key.goalhook, [p()], goals, new Map(), T0);
+    assert.ok(item, 'a waiting webhook task blocked the goal ask');
+    const text = a.askText(item);
+    assert.match(text, /has no open tasks you can take \(1 added by a webhook wait for the person to give them out; leave them\)/, 'the ask must not claim the project has no open tasks: ' + text);
+    assert.equal(require('./chat').messageProblem(text), null, 'the pane would refuse this ask');
     tasks.assignPart(w.pid, hook.number, 1, w.key.goalhook, { via: 'screen' });
     assert.equal(a.goalProject(w.key.goalhook, [p()], goals, new Map(), T0), null, 'control: once given out, it is open work');
   } finally { w.restore(); }

@@ -14189,7 +14189,7 @@ window.kosmosMeasureScrollbarWidth();
          The link is shown ONCE, when made: only a hash is kept (engine/webhooks.js). -->
     <div class="field" id="pjs-hooks-field">
       <span class="flabel" id="pjs-hooks-label">Webhooks</span>
-      <p class="fhint" id="pjs-hooks-hint">A webhook is a link another program can call to add a task to this project. Tasks it adds wait for you to give them to someone. For now it answers programs on this computer only.</p>
+      <p class="fhint" id="pjs-hooks-hint">A webhook is a link another program can call to add a task to this project. Tasks it adds wait for you to give them to someone. The link works for programs on this computer.</p>
       <div class="pjs-hooks" id="pjs-hooks" role="list" aria-labelledby="pjs-hooks-label"></div>
       <p class="fmsg" id="pjs-hooks-msg" aria-live="polite" tabindex="-1"></p>
       <div class="frow" style="margin-top: var(--space-4)">
@@ -46402,8 +46402,9 @@ async function pjsHooksOpen(p) {
     const body = await r.json().catch(() => ({}));
     if (mine !== PJS_HOOKS.gen) return;
     if (!r.ok || !Array.isArray(body.webhooks)) {
+      /* The list stays as it was, like a network failure below: clearing it would drop the row
+         whose link is showing. */
       msg.textContent = asSentence(body.error || 'we could not read this project’s webhooks just now');
-      PJS_HOOKS.list = [];
     } else {
       /* The row whose link is showing is never dropped by a read: a read the server answered
          before that webhook was written would otherwise take the only copy of its link with it. */
