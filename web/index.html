@@ -36773,7 +36773,10 @@ async function plusSiDoRegister(name, owned) {
      person onto the marketing state the instant after they succeeded. Leaving it set makes
      that unlucky window fall back to the wizard with this confirmation instead, and the
      recurring 5s tick completes the handoff once enrolled reads true. */
-  plusSiMsg('Signed in. Connecting this computer to Kosmos+.');
+  /* #3827: turned off while the sign-in was finishing: that stands, so say so. */
+  plusSiMsg(r.data && r.data.switchedOn === false
+    ? 'Signed in. Kosmos+ is off, as you set it; turn it on to be reachable.'
+    : 'Signed in. Connecting this computer to Kosmos+.');
   paintPlus();
 }
 document.getElementById('plus-si-register-go').addEventListener('click', () => {

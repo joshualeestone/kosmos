@@ -244,6 +244,9 @@ async function refreshStandingIfStale(opts) {
   standingRefreshInFlight = true;
   try {
     const standing = await fetcher();
+    // A Forget that landed meanwhile cleared this; the answer is about an identity
+    // that is gone and must not be written back (#3827).
+    if (forgetting || !enrolled()) return;
     if (typeof standing === 'string') {
       fedSetStanding(standing);             // a definite answer: update the value + reset the clock
     } else {
@@ -341,6 +344,15 @@ function address() {
     already happened; the Settings flow calls setupStart/setupComplete and
     then ensure() brings the tunnel up. Turning off stops it now. */
 let offEpoch = 0;
+/* #3827: signed calls in flight on this Mac's key (device verbs, a second-factor
+   reset). Forget waits for them before it retires and wipes, so none finishes
+   after the wipe and writes into a state dir that no longer belongs to anyone. */
+const signedInFlight = new Set();
+function tracked(p) {
+  signedInFlight.add(p);
+  p.finally(() => signedInFlight.delete(p)).catch(() => {});
+  return p;
+}
 function setOn(on) {
   if (typeof on !== 'boolean') return { ok: false, because: 'that has to be on or off' };
   // #3827: Forget stops the tunnel, then waits on the retire; turning on in that
@@ -383,6 +395,11 @@ function ensure(port) {
     const wanted = !forgetting && read().on && enrolled() && !!RELAY() && typeof localPort === 'number';
     if (!wanted) { stopChild(); return; }
     if (child || restartTimer) return;
+    // Not while a register is out (#3827): the tunnel writes the new key, id and
+    // address first and fetches the certificate last, so a tunnel started in that
+    // minute would run the new identity on the old certificate. The register
+    // brings it up itself when it finishes.
+    if (registerInFlight) return;
     startChild();
   } catch (err) {
     process.stderr.write('remote: ensure failed: ' + (err && err.message) + '\n');
@@ -731,6 +748,7 @@ async function forget() {
   forgetInFlight = (async () => {
     try {
       if (registerInFlight) await registerInFlight;
+      if (signedInFlight.size) await Promise.allSettled([...signedInFlight]);
       return await forgetNow();
     } finally {
       forgetting = false;
@@ -791,7 +809,7 @@ async function secondReset() {
   if (!enrolled()) {
     return { ok: false, because: 'this computer is not set up for Plus, so it cannot reset a second factor' };
   }
-  const r = await setupRun(['second', 'reset', '--coordinator', COORDINATOR(), '--state-dir', STATE_DIR()]);
+  const r = await tracked(setupRun(['second', 'reset', '--coordinator', COORDINATOR(), '--state-dir', STATE_DIR()]));
   if (!r.ok) return { ok: false, because: r.because };
   return { ok: true, because: null };
 }
@@ -872,6 +890,8 @@ async function setupComplete(code, name) {
   let result;
   try { result = await running; } finally { if (registerInFlight === running) registerInFlight = null; }
   if (epoch !== signinEpoch) return cancelledAfter(result, before);
+  if (result.ok && macIdHere() !== before) stopChild();
+  if (!result.ok && enrolled() && macIdHere() !== before) fedSetStanding('');
   if (result.ok) ensure(localPort);
   // fed gate: cache the coordinator standing if this setup response carried one.
   if (result.ok && result.data && typeof result.data === 'object') fedSetStanding(result.data.standing);
@@ -971,7 +991,7 @@ async function deviceAllow(id, name) {
   if (!enrolled()) return { ok: false, because: 'finish the Plus sign-up first' };
   const args = deviceArgs('allow', id, true);
   if (typeof name === 'string' && DEVICE_NAME.test(name.trim())) args.push('--name', name.trim());
-  return parseSaid(await setupRun(args));
+  return parseSaid(await tracked(setupRun(args)));
 }
 /** Say no: the coordinator drops the request and the phone is told. Writes
     nothing on this Mac; a fresh sign-in may ask again. */
@@ -979,7 +999,7 @@ async function deviceDeny(id) {
   { const b = busy(); if (b) return b; }
   const bad = checkId(id); if (bad) return bad;
   if (!enrolled()) return { ok: false, because: 'finish the Plus sign-up first' };
-  const r = parseSaid(await setupRun(deviceArgs('deny', id, true)));
+  const r = parseSaid(await tracked(setupRun(deviceArgs('deny', id, true))));
   if (r.ok) {
     const denied = { ...read().denied, [id]: Math.floor(Date.now() / 1000) };
     /* Bounded: the newest 50, so a file cannot grow without limit. */
@@ -994,7 +1014,7 @@ async function deviceRemove(id) {
   { const b = busy(); if (b) return b; }
   const bad = checkId(id); if (bad) return bad;
   if (!enrolled()) return { ok: false, because: 'finish the Plus sign-up first' };
-  return parseSaid(await setupRun(deviceArgs('remove', id, false)));
+  return parseSaid(await tracked(setupRun(deviceArgs('remove', id, false))));
 }
 
 /* ---- Sign in THIS computer (#3149 journey 2). The in-app wizard replaces the
@@ -1161,6 +1181,9 @@ function cancelledAfter(result, before) {
   if ((result && result.ok) || (enrolled() && macIdHere() !== before)) {
     try { write({ on: false }); } catch { /* status says what happened */ }
     stopChild();
+    // Another identity now: the previous account's cached standing must not
+    // carry over to it (the fed gate reads it).
+    if (macIdHere() !== before) fedSetStanding('');
   }
   return SIGNIN_CANCELLED;
 }
@@ -1529,12 +1552,20 @@ async function signinRegister(name) {
   // registered and the next paint shows the switch OFF, which is the truth. What a
   // cancel must never do is let this switch it on.
   if (epoch !== signinEpoch) return cancelledAfter(r, before);
-  if (!r.ok) return r;
+  if (!r.ok) {
+    // Killed by its bound after it wrote a new identity: that identity is on disk,
+    // and the old account's standing must not carry over to it.
+    if (enrolled() && macIdHere() !== before) fedSetStanding('');
+    return r;
+  }
   signinSession = null;   // the token is spent; it must not linger in this process
   /* #3827 (Josh's live test: registered, then the relay never heard from this Mac): ensure() starts the
      tunnel only when switched ON, and nothing set it, so the pane showed "Turn on" and the wizard's
      "connecting" was false. Signing in IS asking to be reachable; turning off stays one press away.
      Unless the person pressed that off while this register was out: that stands. */
+  // A new identity: a tunnel still running the old one (or started on it) stops,
+  // so ensure() below brings it up on the new key and certificate.
+  if (macIdHere() !== before) stopChild();
   const switchedOn = offEpoch === offAt;
   if (switchedOn) turnOnAfterSignin();
   ensure(localPort);

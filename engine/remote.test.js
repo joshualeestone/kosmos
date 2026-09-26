@@ -180,11 +180,19 @@ if (args[0] === 'signin') {
       fs.writeFileSync(path.join(d1, 'address'), name + '.kosmos.invalid\\n');
       const until = Date.now() + 15000; while (Date.now() < until) { /* hung after writing */ }
     }
-    if (mode.includes('slow-register')) { const until = Date.now() + Number(process.env.FAKE_REGISTER_MS || 2500); while (Date.now() < until) { /* wait */ } }
+    // Like the real register: the new key, id and address are written first, then
+    // the certificate takes its time (setup.rs write_registration).
+    if (mode.includes('slow-register')) {
+      const d2 = flag('--state-dir'); fs.mkdirSync(d2, { recursive: true });
+      for (const f of ['mac_id', 'mac_key', 'coordinator_pubkey', 'allow_list']) fs.writeFileSync(path.join(d2, f), f === 'mac_id' ? 'mac-' + name : 'fake');
+      fs.writeFileSync(path.join(d2, 'address'), name + '.kosmos.invalid\\n');
+      const until = Date.now() + Number(process.env.FAKE_REGISTER_MS || 2500); while (Date.now() < until) { /* wait on the certificate */ }
+    }
     const dir = flag('--state-dir');
     fs.mkdirSync(dir, { recursive: true });
     for (const f of ['mac_id', 'mac_key', 'coordinator_pubkey', 'tls.crt', 'tls.key']) {
-      fs.writeFileSync(path.join(dir, f), 'fake');
+      // Each registration is its own Mac at the coordinator: its own mac_id.
+      fs.writeFileSync(path.join(dir, f), f === 'mac_id' ? 'mac-' + name : 'fake');
     }
     fs.writeFileSync(path.join(dir, 'address'), name + '.kosmos.invalid\\n');
     fs.writeFileSync(path.join(dir, 'stdin-token'), token);
@@ -235,6 +243,16 @@ if (args[0] === 'run') {
 `, { mode: 0o755 });
 
 const remote = require('./remote');
+
+/* The same for the Settings setup's `setup complete`. */
+async function setupSent() {
+  const until = Date.now() + 5000;
+  while (Date.now() < until) {
+    if (recorded().some((c) => c[0] === 'setup' && c[1] === 'complete')) return;
+    await new Promise((r) => setTimeout(r, 25));
+  }
+  throw new Error('fixture: the setup was never sent');
+}
 
 /* Wait until the fake has been asked to register, so a cancel lands while the
    register is out at the coordinator, not before it was sent (#3827). */
@@ -1078,7 +1096,9 @@ test('#3827: a Sign out while register is in flight never switches Kosmos+ on', 
     remote.setOn(false);
     await remote.signinStart('her@example.com');
     await remote.signinVerify('her@example.com', '111111');
+    fs.rmSync(RECORD, { force: true });
     const racing = remote.signinRegister('hers');
+    await registerSent();
     remote.signinCancel();
     const late = await racing;
     assert.equal(late.ok, false, 'a register cancelled mid-flight reported success');
@@ -1114,8 +1134,10 @@ test('#3827: a register that hangs cannot hang Forget: both are bounded', async 
   try {
     await remote.signinStart('her@example.com');
     await remote.signinVerify('her@example.com', '111111');
+    fs.rmSync(RECORD, { force: true });
     const racing = remote.signinRegister('hers');
     const t0 = Date.now();
+    await registerSent();
     await remote.forget();
     assert.ok(Date.now() - t0 < 8000, 'Forget waited out a hung register (' + (Date.now() - t0) + 'ms)');
     const late = await racing;
@@ -1486,7 +1508,9 @@ test('#3827: a Forget during a Settings setup ends it cancelled, not "set up"', 
   process.env.FAKE_TUNNEL_MODE = 'slow-setup';
   try {
     await remote.setupStart('her@example.com');
+    fs.rmSync(RECORD, { force: true });
     const setting = remote.setupComplete('123456', 'hers');
+    await setupSent();
     const forgetting = remote.forget();
     const r = await setting;
     assert.equal(r.ok, false, 'the Settings page was told it is set up while the Mac was being forgotten');
@@ -1690,7 +1714,7 @@ test('#3827: device verbs and a second-factor reset wait while this computer is 
   }
 });
 
-test('#3827: during a Forget waiting on a register, a tunnel restart does not bring the Mac back online', async () => {
+test('#3827: a tunnel restart while a register is out does not start a tunnel on the half-written identity', async () => {
   process.env.AGENT_WORKFORCE_TUNNEL_RELAY = '127.0.0.1:9444';
   await remote.signinStart('her@example.com');
   await remote.signinVerify('her@example.com', '111111');
@@ -1703,19 +1727,20 @@ test('#3827: during a Forget waiting on a register, a tunnel restart does not br
   try {
     await remote.signinStart('her@example.com');
     await remote.signinVerify('her@example.com', '111111');
-    const racing = remote.signinRegister('theirs');   // a new name: a real register, still out
-    const forgetting = remote.forget();                // waits on it; the switch is still on
-    process.kill(pid, 'SIGTERM');                      // the tunnel dies; its restart comes in ~1s
+    fs.rmSync(RECORD, { force: true });
+    const racing = remote.signinRegister('theirs');   // writes the new key, id and address, then waits on the certificate
+    await registerSent();
+    process.kill(pid, 'SIGTERM');                      // the tunnel dies; its restart comes in ~1s, mid-register
     await new Promise((r) => setTimeout(r, 2000));
-    assert.equal(remote.currentChildPid(), null, 'the tunnel restarted during the Forget, on the key being retired');
-    await racing;
-    await forgetting;
+    assert.equal(remote.currentChildPid(), null, 'a tunnel was started on the new key with the old certificate');
+    assert.equal((await racing).ok, true, 'fixture: the register finished');
   } finally {
     delete process.env.FAKE_TUNNEL_MODE;
     delete process.env.FAKE_REGISTER_MS;
+    remote.setOn(false);
+    await remote.forget();
   }
 });
-
 test('#3827: the Settings setup also keeps a half identity whose retire got no answer', async () => {
   process.env.AGENT_WORKFORCE_TUNNEL_RELAY = '127.0.0.1:9444';
   process.env.AGENT_WORKFORCE_REGISTER_TIMEOUT_MS = '1500';
@@ -1820,7 +1845,9 @@ test('#3827: a Sign out during a register that then fails leaves a Mac that was 
   try {
     await remote.signinStart('her@example.com');
     await remote.signinVerify('her@example.com', '111111');
+    fs.rmSync(RECORD, { force: true });
     const racing = remote.signinRegister('other');
+    await registerSent();
     remote.signinCancel();
     const late = await racing;
     assert.match(late.because, /cancelled/);
