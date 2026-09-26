@@ -592,9 +592,10 @@ const visible = (page, sel) => page.evaluate((s) => {
       await page.unroute('**/api/remote/signin-**');
       let verifyAnswer = { status: 400, body: { error: 'the coordinator said no (401): that code is not right' } };
       let verifyDelay = 0;   // #3942: a slow answer, so a code can be finished while one is in flight
+      let verifyAbort = false;   // #3942 round 9: a dropped request (network failure), never answered
       await page.route('**/api/remote/signin-**', async (route, req) => {
         const p = req.url().replace(/^.*\/api\/remote\//, '');
-        if (p === 'signin-verify') { if (verifyDelay) await new Promise((r) => setTimeout(r, verifyDelay)); route.fulfill({ status: verifyAnswer.status, contentType: 'application/json', body: JSON.stringify(verifyAnswer.body) }); return; }
+        if (p === 'signin-verify') { if (verifyDelay) await new Promise((r) => setTimeout(r, verifyDelay)); if (verifyAbort) { route.abort(); return; } route.fulfill({ status: verifyAnswer.status, contentType: 'application/json', body: JSON.stringify(verifyAnswer.body) }); return; }
         route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ ok: true, stage: 'code_sent' }) });
       });
       await page.fill('#plus-signin-email', 'you@example.com');
@@ -750,6 +751,50 @@ const visible = (page, sel) => page.evaluate((s) => {
         expired: await visible(page, '#plus-si-expired'), go: !(await page.isDisabled('#plus-si-code-go')) };
       chk(!/not right|timed out/i.test(afterResend.msg) && afterResend.v === '' && !afterResend.expired && afterResend.go,
         `[${k}] #3942 a check still in flight when Send again is pressed does not land on the fresh code step`, JSON.stringify(afterResend));
+      /* Round 9 review (B1): a code typed while a check is in flight waits for the button. Send again
+         frees the button at once, so without dropping it that queued code (meant for the OLD code) went
+         out the moment Send again was pressed. Exactly one verify, the pasted one. Distinct codes. */
+      const b1Bodies = [];
+      const b1Grab = (r) => { if (r.method() === 'POST' && /\/api\/remote\/signin-verify$/.test(r.url())) b1Bodies.push(r.postData() || ''); };
+      page.on('request', b1Grab);
+      verifyDelay = 800;
+      await page.evaluate(() => plusSiMsg(''));
+      await pasteCode('818181');                     // sent; its answer is 0.8s away
+      await page.waitForTimeout(100);
+      await page.evaluate(() => { const i = document.getElementById('plus-si-code-in'); i.focus(); i.setSelectionRange(0, i.value.length); });
+      await page.keyboard.type('929292');            // finished while the button is busy: queued
+      await page.waitForTimeout(100);
+      await page.click('#plus-si-code-resend');      // frees the button; the queued code must not go
+      await page.waitForTimeout(1600);
+      verifyDelay = 0;
+      page.off('request', b1Grab);
+      const b1Msg = (await page.textContent('#plus-signin-msg')).trim();
+      chk(b1Bodies.length === 1 && b1Bodies[0].includes('818181') && !/not right/i.test(b1Msg),
+        `[${k}] #3942 Send again drops a code typed while a check was in flight (one verify, the first code)`, JSON.stringify({ b1Bodies, b1Msg }));
+      /* Round 9 review (B2): pressing Verify by hand on the unchanged code the server has just refused
+         does not send it again; it puts the person back in the field with the code selected. */
+      await page.evaluate(() => plusSiMsg(''));
+      const b2Before = wrongSends;
+      await pasteCode('343434');                     // auto-sent, refused ("not right")
+      await page.waitForTimeout(400);
+      chk(wrongSends === b2Before + 1, `[${k}] #3942 CONTROL: the refused code was really sent, once`, String(wrongSends - b2Before));
+      await page.click('#plus-si-code-go');
+      await page.waitForTimeout(400);
+      const b2 = await page.evaluate(() => { const i = document.getElementById('plus-si-code-in'); return { focused: document.activeElement === i, s: i.selectionStart, e: i.selectionEnd, v: i.value }; });
+      chk(wrongSends === b2Before + 1 && b2.focused && b2.s === 0 && b2.e === 6 && b2.v === '343434',
+        `[${k}] #3942 Verify pressed on a code just refused does not resend it; focus returns to the field with the code selected`, JSON.stringify({ sent: wrongSends - b2Before, b2 }));
+      // CONTROL for B2: after a DROPPED request the code was never tried, so a hand press does send it.
+      verifyAbort = true;
+      await page.evaluate(() => plusSiMsg(''));
+      await pasteCode('565656');                     // auto-sent, dropped by the network
+      await page.waitForTimeout(400);
+      const dropMsg = (await page.textContent('#plus-signin-msg')).trim();
+      verifyAbort = false;
+      const b2cBefore = wrongSends;
+      await page.click('#plus-si-code-go');
+      await page.waitForTimeout(400);
+      chk(/could not reach/i.test(dropMsg) && wrongSends === b2cBefore + 1,
+        `[${k}] #3942 after a dropped request, Verify pressed on the same code does send it`, JSON.stringify({ dropMsg, sent: wrongSends - b2cBefore }));
       /* Web round 6 (measured there, same code here): a click near the RIGHT edge of a box in a full code
          lands on that box (the text caret alone put it on the next one); and text that arrives with no
          cancelable beforeinput (set and announced by an input event) is searched like a paste. */
@@ -763,6 +808,13 @@ const visible = (page, sel) => page.evaluate((s) => {
       await page.evaluate(() => { const i = document.getElementById('plus-si-code-in'); i.value = ''; i.dispatchEvent(new Event('input', { bubbles: true })); i.value = 'Sent 2026-09-26. Your code is 482 917.'; i.dispatchEvent(new Event('input', { bubbles: true })); });
       await page.waitForTimeout(400);
       chk((await page.inputValue('#plus-si-code-in')) === '482917' && wrongSends === beforeRaw + 1, `[${k}] #3942 email text arriving without a cancelable event yields the code, not the date`, JSON.stringify({ v: await page.inputValue('#plus-si-code-in'), sent: wrongSends - beforeRaw }));
+      /* Web round 7 (W2): exactly SEVEN digits arriving at once in a field that was not full (dictating
+         1234567) are searched like any block of text; cut to six they sent 123456, a code nobody said. */
+      const beforeSeven = wrongSends;
+      await page.evaluate(() => { const i = document.getElementById('plus-si-code-in'); i.value = ''; i.dispatchEvent(new Event('input', { bubbles: true })); i.value = '1234567'; i.dispatchEvent(new Event('input', { bubbles: true })); });
+      await page.waitForTimeout(400);
+      const seven = { v: await page.inputValue('#plus-si-code-in'), sent: wrongSends - beforeSeven };
+      chk(seven.v !== '123456' && seven.sent === 0, `[${k}] #3942 seven digits arriving at once in a field that was not full are not cut to a code and sent`, JSON.stringify(seven));
       // Put a full code back quietly (no input event, so nothing is sent): the scenario after this presses Verify.
       await page.evaluate(() => { document.getElementById('plus-si-code-in').value = '127956'; });
       chk(imeOk, `[${k}] #3942 a seventh digit from an input method replaces the digit after the caret`, JSON.stringify({ v: await page.inputValue('#plus-si-code-in'), wrongSends }));
