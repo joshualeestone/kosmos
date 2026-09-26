@@ -1591,13 +1591,21 @@ function geminiRow(r) { return String(r).replace(/^[\s│]+|[\s│]+$/g, ''); }
 /* The question is up: its message, then numbered options ending in Stop, and nothing after them but the box's
    bottom edge (the real dialog replaces the composer; a quoted copy has the agent's own screen below it). Or the
    quota error is Gemini's newest line: nothing after it but its empty composer and footer. */
+/* The number Gemini printed beside "Stop" in its quota question, or null. The one parser of that row: the reading
+   below and chat.answerGeminiQuotaStop both use it. Reads the LAST such row (the dialog is at the bottom). */
+function geminiStopKey(paneText) {
+  const rows = String(paneText || '').split('\n').map(geminiRow).filter((r) => r).reverse();
+  const row = rows.find((r) => GEMINI_QUOTA_STOP.test(r));
+  const m = row ? row.match(/(\d+)\./) : null;
+  return m ? m[1] : null;
+}
 function geminiQuotaReading(paneText) {
   const rows = String(paneText || '').split('\n').map(geminiRow).filter((r) => r).slice(-GEMINI_LIMIT_ROWS);
   const m = rows.findIndex((r) => GEMINI_QUOTA_DIALOG.test(r));
   if (m >= 0) {
     const after = rows.slice(m + 1);
     const lastOpt = after.reduce((at, r, i) => (GEMINI_QUOTA_OPTION.test(r) ? i : at), -1);
-    const hasStop = after.some((r) => GEMINI_QUOTA_STOP.test(r));
+    const hasStop = geminiStopKey(after.join('\n')) !== null;
     if (lastOpt >= 0 && hasStop && after.slice(lastOpt + 1).every((r) => GEMINI_BOX_EDGE.test(r))) {
       return { dialog: true, evidence: rows[m] };
     }
@@ -7326,6 +7334,8 @@ function snapshot() {
       stateEvidence: status.evidence || null,
       /* #4004: Gemini's quota question is on screen (engine/geminiquota.js answers Stop for it). */
       quotaDialog: status.quotaDialog === true,
+    /* #4004: whose own words set a limit reading ('codex' / 'gemini'), so the wording keys on a field, not a sentence. */
+    limitFrom: typeof status.limitFrom === 'string' ? status.limitFrom : null,
       because: status.because,
       /* #2019: present only while state === 'restarting' -- {cause, startedAt}
          for the deliberate disruption in flight. Null otherwise, so the board
@@ -7683,7 +7693,7 @@ module.exports = {
   // first time a marker is added here. The card that says "Needs you" and the
   // thread that shows the question must never be able to disagree.
   NEEDS_YOU_MARKERS,
-  CODEX_NEEDS_YOU_MARKERS, CODEX_LIMIT_MARKERS, geminiQuotaReading, capturePane,   // #4004: chat re-reads a pane before a key
+  CODEX_NEEDS_YOU_MARKERS, CODEX_LIMIT_MARKERS, geminiQuotaReading, geminiStopKey, capturePane,   // #4004: chat re-reads a pane before a key
   ALL_NEEDS_YOU_MARKERS,
   /* #2456: the placeholder `because` string, so the routes can tell a real
      reported question from the board's generic "asking" and never render the

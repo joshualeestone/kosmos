@@ -47,7 +47,7 @@ function accountProblemOf(card) {
   /* #4004 (Josh, 2026-09-26): a Gemini API-key agent on Google's free daily limit, read from Gemini's own words
      (status.js geminiQuotaReading), so it is firm. Said the way Josh asked: what happened, when it resets, and the
      two ways out. Google's free-tier daily limits reset at midnight Pacific time. */
-  if (card.state === 'rate_limited' && card.runner === 'gemini' && /daily limit/i.test(String(card.because || ''))) {
+  if (card.state === 'rate_limited' && card.runner === 'gemini' && card.limitFrom === 'gemini') {
     const head = `Google's free daily limit for ${who}'s API key is used up, so it has stopped.`;
     const todo = ' It resets at midnight Pacific time, or add billing to the key in Google AI Studio, or use Google Gemini'
       + ' (Google subscription) instead. It picks up again on the next message after that.';

@@ -100,14 +100,15 @@ test('#4004: the question on screen stands over a fresh report the agent filed i
 });
 
 test('#4004: the card and the manager are told in plain words, with the reset and the two ways out', () => {
-  const p = accountProblemOf({ name: 'Gem', runner: 'gemini', state: 'rate_limited', because: status.classify(gem, DIALOG).because });
+  const c = status.classify(gem, DIALOG);
+  const p = accountProblemOf({ name: 'Gem', runner: 'gemini', state: 'rate_limited', because: c.because, limitFrom: c.limitFrom });
   assert.ok(p && p.notify === true, JSON.stringify(p));
   assert.match(p.text, /Google's free daily limit for Gem's API key is used up/);
   assert.match(p.text, /midnight Pacific/);
   assert.match(p.text, /Google AI Studio/);
   assert.match(p.text, /Google Gemini \(Google subscription\)/);
   // CONTROL: another Gemini usage limit (not the daily one) keeps the general wording.
-  const other = accountProblemOf({ name: 'Gem', runner: 'gemini', state: 'rate_limited', because: 'its screen says it has hit a usage limit' });
+  const other = accountProblemOf({ name: 'Gem', runner: 'gemini', state: 'rate_limited', because: 'its screen mentions a usage limit', limitFrom: null });
   assert.doesNotMatch(other.text, /free daily limit/);
 });
 
