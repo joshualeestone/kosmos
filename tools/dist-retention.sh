@@ -7,10 +7,35 @@
 # This tool REPORTS what would be retained/pruned and, only behind an explicit
 # --prune --yes, deletes the old versioned triples of BOTH families.
 #
-# 🛑 DELETING A PUBLISHED RELEASE TARBALL/ZIP IS IRREVERSIBLE. There is no off-disk
-# copy (no GH release, untracked in the site repo). By the reversibility test the
-# DECISION to prune is Josh's, not a worker's -- so --prune requires --yes and
-# prints that it is his call. The DEFAULT is a dry run that deletes nothing.
+# 🛑 DELETING A PUBLISHED RELEASE TARBALL/ZIP IS IRREVERSIBLE unless another copy
+# exists. The tarballs are gitignored in the site repo and there is no GH release,
+# and installkosmos.com/dist serves the arm64 tarballs FROM A DEPLOY OF THIS SAME
+# DIRECTORY, so the served URL is not a second copy (measured 2026-09-26: Vercel
+# serves them; only the Windows zips redirect to R2). --prune requires --yes, and
+# it deletes a version ONLY after the SECOND-COPY GATE below proves a byte-identical
+# copy of every file in its triple. The DEFAULT is a dry run that deletes nothing.
+#
+# #1605 keep rule (a version is KEPT if ANY of these hold; the rule only ever adds):
+#   1. it is served: latest.json / latest-win.json names it;
+#   2. it is staged: latest-staging.json / latest-win-staging.json names it;
+#   3. it is one of the --prod-history N most recent PRIOR served versions, read
+#      from the git history of the pointer (the site repo commits every promote).
+#      If that history cannot be read, the family is NOT pruned (fail closed);
+#      --prod-history 0 opts out of this rule explicitly;
+#   4. any other top-level *.json in the dist (a rollback pointer, say) names it,
+#      by "version" or by artifact filename;
+#   5. a --referenced-by FILE names its artifact (defaults to ../versions.html
+#      when present), so a download link on the site never dangles;
+#   6. it is in the newest --keep N (default 12), the pre-#1605 rolling window.
+#
+# SECOND-COPY GATE (--copy-base URL, required by --prune): for each prune candidate,
+# every file of its triple is fetched in full from <URL>/<name> and its sha256 is
+# compared to the local file. Only an exact match on EVERY file lets the version go;
+# a 404, a network error, an empty or different body REFUSES it and it is kept.
+# A HEAD or a range request is never used (a 206 proves nothing). The base may not
+# be installkosmos.com / chaoskosmos.com or this dist directory itself, because a
+# copy that the prune removes is not a second copy. --check-copies runs the same
+# gate in a dry run, so the report says what a real prune would actually delete.
 #
 # Deletion is a WHITELIST of prunable versioned triples, never a blacklist of
 # protected names: the tool only ever removes a file it positively recognises as
@@ -26,16 +51,26 @@
 # before.
 #
 # Usage:
-#   tools/dist-retention.sh --dist <DIR> [--keep N] [--prune] [--yes] [--json]
-#     --dist <DIR>  REQUIRED. A dist directory containing latest.json.
-#     --keep N      keep the N most-recent versioned triples PER FAMILY (default 12).
-#     --prune       actually delete prune candidates (needs --yes).
-#     --yes         confirm an irreversible prune.
-#     --json        emit a machine-readable summary instead of the human report.
+#   tools/dist-retention.sh --dist <DIR> [--keep N] [--prod-history N]
+#                           [--referenced-by FILE]... [--copy-base URL] [--check-copies]
+#                           [--prune] [--yes] [--json]
+#     --dist <DIR>        REQUIRED. A dist directory containing latest.json.
+#     --keep N            keep the N most-recent versioned triples PER FAMILY (default 12).
+#     --prod-history N    keep the N most recent prior served versions (default 3).
+#     --referenced-by F   protect every artifact filename F mentions (repeatable).
+#     --copy-base URL     where the second copy lives (the R2 public base). --prune needs it.
+#     --check-copies      run the second-copy gate in a dry run too (downloads each candidate).
+#     --prune             actually delete prune candidates (needs --yes and --copy-base).
+#     --yes               confirm the prune.
+#     --json              emit a machine-readable summary instead of the human report.
 set -euo pipefail
 
 DIST=""
 KEEP=12
+PROD_HISTORY=3
+REFERENCED_BY=()
+COPY_BASE=""
+CHECK_COPIES=0
 DO_PRUNE=0
 CONFIRM=0
 JSON=0
@@ -46,10 +81,17 @@ while [ $# -gt 0 ]; do
     --dist=*) DIST="${1#--dist=}"; shift ;;
     --keep) [ $# -ge 2 ] || { echo "dist-retention: --keep needs an integer value" >&2; exit 1; }; KEEP="$2"; shift 2 ;;
     --keep=*) KEEP="${1#--keep=}"; shift ;;
+    --prod-history) [ $# -ge 2 ] || { echo "dist-retention: --prod-history needs an integer value" >&2; exit 1; }; PROD_HISTORY="$2"; shift 2 ;;
+    --prod-history=*) PROD_HISTORY="${1#--prod-history=}"; shift ;;
+    --referenced-by) [ $# -ge 2 ] || { echo "dist-retention: --referenced-by needs a file" >&2; exit 1; }; REFERENCED_BY+=("$2"); shift 2 ;;
+    --referenced-by=*) REFERENCED_BY+=("${1#--referenced-by=}"); shift ;;
+    --copy-base) [ $# -ge 2 ] || { echo "dist-retention: --copy-base needs a URL" >&2; exit 1; }; COPY_BASE="$2"; shift 2 ;;
+    --copy-base=*) COPY_BASE="${1#--copy-base=}"; shift ;;
+    --check-copies) CHECK_COPIES=1; shift ;;
     --prune) DO_PRUNE=1; shift ;;
     --yes) CONFIRM=1; shift ;;
     --json) JSON=1; shift ;;
-    -h|--help) sed -n '2,33p' "$0"; exit 0 ;;
+    -h|--help) sed -n '2,/^set -euo pipefail/p' "$0" | sed '$d'; exit 0 ;;
     *) echo "dist-retention: unknown argument '$1'" >&2; exit 1 ;;
   esac
 done
@@ -60,6 +102,49 @@ done
 case "$KEEP" in
   ''|*[!0-9]*) echo "dist-retention: --keep must be a non-negative integer, got '$KEEP'" >&2; exit 1 ;;
 esac
+case "$PROD_HISTORY" in
+  ''|*[!0-9]*) echo "dist-retention: --prod-history must be a non-negative integer, got '$PROD_HISTORY'" >&2; exit 1 ;;
+esac
+# A history deeper than any real promote log is "all of it"; clamp before base-10
+# normalization so a huge value cannot wrap (same reasoning as --keep below).
+if [ "${#PROD_HISTORY}" -gt 7 ]; then PROD_HISTORY=1000000; else PROD_HISTORY=$((10#$PROD_HISTORY)); fi
+for rf in "${REFERENCED_BY[@]:-}"; do
+  [ -z "$rf" ] || [ -f "$rf" ] || { echo "dist-retention: --referenced-by '$rf' is not a readable file -- refusing (a missing reference list would protect nothing)" >&2; exit 1; }
+done
+# The site page that links downloads sits beside dist/. Protect what it links by default.
+[ -f "$DIST/../versions.html" ] && REFERENCED_BY+=("$DIST/../versions.html")
+
+# --- second-copy base: validated up front, before any family runs ---------------
+if [ -n "$COPY_BASE" ]; then
+  COPY_BASE="${COPY_BASE%/}"
+  case "$COPY_BASE" in
+    https://*|file:///*) : ;;
+    *) echo "dist-retention: --copy-base must be an https:// or file:/// URL, got '$COPY_BASE'" >&2; exit 1 ;;
+  esac
+  cb_host="${COPY_BASE#https://}"; cb_host="${cb_host%%/*}"; cb_host="${cb_host%%:*}"
+  cb_host="$(printf '%s' "$cb_host" | tr '[:upper:]' '[:lower:]')"
+  case "$cb_host" in
+    installkosmos.com|*.installkosmos.com|chaoskosmos.com|*.chaoskosmos.com)
+      echo "dist-retention: --copy-base '$COPY_BASE' is the site that serves THIS dist -- it is not a second copy (deploying the prune removes it). Use the R2 bucket's own URL." >&2
+      exit 1 ;;
+  esac
+  case "$COPY_BASE" in
+    file:///*)
+      cb_dir="${COPY_BASE#file://}"
+      if [ -d "$cb_dir" ] && [ "$(cd "$cb_dir" && pwd -P)" = "$(cd "$DIST" && pwd -P)" ]; then
+        echo "dist-retention: --copy-base is this dist directory itself -- a file cannot be its own second copy" >&2
+        exit 1
+      fi ;;
+  esac
+fi
+if [ "$DO_PRUNE" -eq 1 ] && [ "$CONFIRM" -eq 1 ] && [ -z "$COPY_BASE" ]; then
+  echo "dist-retention: REFUSING to prune without --copy-base: a version is deleted only when a byte-identical second copy is proven there." >&2
+  exit 2
+fi
+if [ "$CHECK_COPIES" -eq 1 ] && [ -z "$COPY_BASE" ]; then
+  echo "dist-retention: --check-copies needs --copy-base <URL>" >&2
+  exit 1
+fi
 # Cap an absurd --keep BEFORE base-10 normalization. A keep count larger than any
 # plausible release history means "keep everything" anyway -- but a ~20-digit value
 # would overflow bash's signed 64-bit $(( 10#$KEEP )) and WRAP to a small positive
@@ -96,6 +181,70 @@ read_pointer_artifact() {
 read_pointer_versioned() {
   grep -o '"versioned"[[:space:]]*:[[:space:]]*"[^"]*"' "$1" 2>/dev/null | head -1 | sed 's/.*"\([^"]*\)"$/\1/' || true
 }
+
+# sha256_of <file>: the hex digest, or non-zero status. No pipe, so a failing
+# hasher cannot be masked by a later stage.
+sha256_of() {
+  local out
+  if command -v shasum >/dev/null 2>&1; then out="$(shasum -a 256 "$1")" || return 1
+  else out="$(sha256sum "$1")" || return 1; fi
+  printf '%s' "${out%% *}"
+}
+
+# The gate's scratch space: one download at a time, removed on exit.
+GATE_TMP=""
+cleanup_gate() { [ -z "$GATE_TMP" ] || rm -rf "$GATE_TMP"; }
+trap cleanup_gate EXIT
+
+# copy_proven <local-file>: 0 only when <COPY_BASE>/<basename> downloads IN FULL
+# and its sha256 equals the local file's. Prints the refusal reason on stdout
+# (the caller reports it) and returns 1 otherwise. A full GET, never HEAD or a
+# range, because a 206 or a 200 header says nothing about the bytes.
+copy_proven() {
+  local f="$1" name tmp lh rh
+  name="$(basename "$f")"
+  # GATE_TMP is made in the main shell (this runs inside a command substitution,
+  # so anything created here could not be cleaned up by the EXIT trap).
+  [ -d "$GATE_TMP" ] || { echo "gate scratch directory missing"; return 1; }
+  tmp="$GATE_TMP/copy"
+  rm -f "$tmp"
+  if ! curl -fsSL --proto '=https,file' --proto-redir '=https' --max-time 1800 -o "$tmp" "$COPY_BASE/$name" </dev/null 2>/dev/null; then
+    echo "no copy at $COPY_BASE/$name (fetch failed or not found)"; return 1
+  fi
+  [ -f "$tmp" ] || { echo "no copy at $COPY_BASE/$name (nothing downloaded)"; return 1; }
+  lh="$(sha256_of "$f")" || { echo "could not hash local $name"; return 1; }
+  rh="$(sha256_of "$tmp")" || { echo "could not hash the copy of $name"; return 1; }
+  rm -f "$tmp"
+  [ ${#lh} -eq 64 ] || { echo "local hash of $name is malformed"; return 1; }
+  [ "$lh" = "$rh" ] || { echo "copy of $name DIFFERS (local ${lh:0:12}, copy ${rh:0:12})"; return 1; }
+  return 0
+}
+
+# prior_served_versions <pointer> <served> <n>: the n most recent DISTINCT versions
+# the pointer named before the served one, newest first, read from git history.
+# Non-zero when the history cannot be read (not a git checkout, pointer never
+# committed): the caller then refuses to prune that family rather than guess.
+prior_served_versions() {
+  local pointer="$1" served="$2" n="$3" shas sha content ver seen=" " got=0
+  git -C "$DIST" rev-parse --is-inside-work-tree >/dev/null 2>&1 || return 1
+  shas="$(git -C "$DIST" log --format=%H -- "$pointer" 2>/dev/null)" || return 1
+  [ -n "$shas" ] || return 1
+  [ "$n" -gt 0 ] || return 0
+  for sha in $shas; do
+    content="$(git -C "$DIST" show "${sha}:./${pointer}" 2>/dev/null)" || continue
+    ver="$(printf '%s\n' "$content" | grep -o '"version"[[:space:]]*:[[:space:]]*"[^"]*"' | head -1 | sed 's/.*"\([^"]*\)"$/\1/' || true)"
+    case "$ver" in ''|*[!0-9A-Za-z.+_-]*) continue ;; esac
+    [ "$ver" = "$served" ] && continue
+    case "$seen" in *" $ver "*) continue ;; esac
+    seen="${seen}${ver} "
+    printf '%s\n' "$ver"
+    got=$(( got + 1 ))
+    [ "$got" -ge "$n" ] && break
+  done
+  return 0
+}
+
+if [ -n "$COPY_BASE" ]; then GATE_TMP="$(mktemp -d)" || { echo "dist-retention: cannot create a scratch directory for the second-copy gate" >&2; exit 1; }; fi
 
 # ---------------------------------------------------------------------------
 # process_family <arch> <ext> <sha_ext> <pointer> <served_required> <skip_if_empty> [<staged_pointer>]
@@ -234,6 +383,36 @@ process_family() {
     protect_named_artifact "$(read_pointer_versioned "$DIST/$STAGED_POINTER")"
   fi
 
+  # #1605 rule 3: the N most recent PRIOR served versions, from the pointer's git
+  # history. Unreadable history = do not prune this family (fail closed), unless
+  # the operator opted out with --prod-history 0.
+  local PRIOR_PROD="" pv HISTORY_OK=1
+  if [ -n "$SERVED_VERSION" ] && [ "$NVER" -gt 0 ]; then
+    if PRIOR_PROD="$(prior_served_versions "$POINTER" "$SERVED_VERSION" "$PROD_HISTORY")"; then
+      for pv in $PRIOR_PROD; do in_keep "$pv" || KEEP_LIST="${KEEP_LIST}${pv} "; done
+    elif [ "$PROD_HISTORY" -gt 0 ]; then
+      HISTORY_OK=0
+      PRUNE_ALLOWED=0
+    fi
+  fi
+
+  # #1605 rules 4 and 5: any other pointer-shaped json in the dist (a rollback
+  # pointer), and any --referenced-by file, protects what it names. Over-protecting
+  # (a win pointer's version also shielding the same arm64 version) is the safe side.
+  local jf nm
+  shopt -s nullglob
+  for jf in "$DIST"/*.json; do
+    case "$(basename "$jf")" in *.manifest.json) continue ;; esac
+    pv="$(read_pointer_version "$jf")"
+    case "$pv" in ''|*[!0-9A-Za-z.+_-]*) : ;; *) in_keep "$pv" || KEEP_LIST="${KEEP_LIST}${pv} " ;; esac
+    while IFS= read -r nm; do protect_named_artifact "$nm"; done < <(grep -o "kosmos-[0-9][0-9A-Za-z.+_-]*-${ARCH}\.${EXT}" "$jf" 2>/dev/null || true)
+  done
+  shopt -u nullglob
+  for jf in "${REFERENCED_BY[@]:-}"; do
+    [ -n "$jf" ] || continue
+    while IFS= read -r nm; do protect_named_artifact "$nm"; done < <(grep -o "kosmos-[0-9][0-9A-Za-z.+_-]*-${ARCH}\.${EXT}" "$jf" 2>/dev/null || true)
+  done
+
   # Retained count: only DISCOVERED versions that are kept (a phantom served token
   # that matches no on-disk triple must not inflate the count).
   local RETAINED=0
@@ -267,6 +446,25 @@ process_family() {
     done < <(triple_files "$v")
   done
 
+  # ---- second-copy gate ----
+  # Runs for a confirmed prune (always) or a dry run with --check-copies. A version
+  # is PROVEN only when every file of its triple has a byte-identical copy.
+  local GATE_RAN=0 PROVEN_VERSIONS=() REFUSED_VERSIONS=() REFUSED_LINES="" why ok
+  if [ "$PRUNE_ALLOWED" -eq 1 ] && { { [ "$DO_PRUNE" -eq 1 ] && [ "$CONFIRM" -eq 1 ]; } || [ "$CHECK_COPIES" -eq 1 ]; }; then
+    GATE_RAN=1
+    for v in "${PRUNE_VERSIONS[@]:-}"; do
+      [ -n "$v" ] || continue
+      ok=1
+      while IFS= read -r pf; do
+        [ -n "$pf" ] || continue
+        if ! why="$(copy_proven "$pf")"; then
+          ok=0; REFUSED_LINES="${REFUSED_LINES}    - kosmos-${v}-${ARCH}: ${why}"$'\n'; break
+        fi
+      done < <(triple_files "$v")
+      if [ "$ok" -eq 1 ]; then PROVEN_VERSIONS+=("$v"); else REFUSED_VERSIONS+=("$v"); fi
+    done
+  fi
+
   # ---- report ----
   if [ "$JSON" -eq 1 ]; then
     local jfirst=1 jv
@@ -287,6 +485,21 @@ process_family() {
       "$PRUNE_FILE_COUNT" "$RECLAIM" \
       "$([ "$PRUNE_ALLOWED" -eq 1 ] && echo true || echo false)" \
       "$([ "$DO_PRUNE" -eq 1 ] && [ "$CONFIRM" -eq 1 ] && [ "$PRUNE_ALLOWED" -eq 1 ] && echo true || echo false)")"
+    FAMILY_JSON="${FAMILY_JSON}$(printf ',"prior_served":[')"
+    jfirst=1
+    for v in $PRIOR_PROD; do
+      [ "$jfirst" -eq 1 ] || FAMILY_JSON="${FAMILY_JSON},"; jfirst=0
+      FAMILY_JSON="${FAMILY_JSON}$(printf '"%s"' "$v")"
+    done
+    FAMILY_JSON="${FAMILY_JSON}$(printf '],"history_ok":%s,"copies_checked":%s' \
+      "$([ "$HISTORY_OK" -eq 1 ] && echo true || echo false)" "$([ "$GATE_RAN" -eq 1 ] && echo true || echo false)")"
+    if [ "$GATE_RAN" -eq 1 ]; then
+      FAMILY_JSON="${FAMILY_JSON},\"copy_proven\":["; jfirst=1
+      for v in "${PROVEN_VERSIONS[@]:-}"; do [ -n "$v" ] || continue; [ "$jfirst" -eq 1 ] || FAMILY_JSON="${FAMILY_JSON},"; jfirst=0; FAMILY_JSON="${FAMILY_JSON}\"$v\""; done
+      FAMILY_JSON="${FAMILY_JSON}],\"copy_refused\":["; jfirst=1
+      for v in "${REFUSED_VERSIONS[@]:-}"; do [ -n "$v" ] || continue; [ "$jfirst" -eq 1 ] || FAMILY_JSON="${FAMILY_JSON},"; jfirst=0; FAMILY_JSON="${FAMILY_JSON}\"$v\""; done
+      FAMILY_JSON="${FAMILY_JSON}]"
+    fi
   else
     echo "dist-retention [$ARCH]: $DIST"
     echo "  served version (protected): ${SERVED_VERSION:-<none: $POINTER absent or version-less>}"
@@ -295,13 +508,27 @@ process_family() {
     fi
     echo "  versioned triples found:    $NVER"
     echo "  keep window (--keep):       $KEEP"
+    if [ "$HISTORY_OK" -eq 0 ]; then
+      echo "  prior served (protected):   <UNREADABLE: $POINTER has no git history here>"
+    else
+      echo "  prior served (protected):   ${PRIOR_PROD:+$(printf '%s ' $PRIOR_PROD)}${PRIOR_PROD:-<none> }(--prod-history $PROD_HISTORY)"
+    fi
     echo "  retained versions:          $RETAINED"
     echo "  prune candidates:           ${#PRUNE_VERSIONS[@]} version(s), $PRUNE_FILE_COUNT file(s), $(( RECLAIM / 1024 / 1024 )) MiB"
-    if [ "$PRUNE_ALLOWED" -eq 0 ]; then
+    if [ "$HISTORY_OK" -eq 0 ]; then
+      echo "  🛑 NOT pruning $ARCH: the prior served versions cannot be read from $POINTER's git history, so the candidates are LEFT ALONE (pass --prod-history 0 to opt out of that rule)."
+    elif [ "$PRUNE_ALLOWED" -eq 0 ]; then
       echo "  🛑 NOT pruning $ARCH: $POINTER names no served release to protect, so the candidates are LEFT ALONE."
     elif [ "${#PRUNE_VERSIONS[@]}" -gt 0 ]; then
       echo "  would prune:"
       for v in "${PRUNE_VERSIONS[@]}"; do echo "    - kosmos-${v}-${ARCH}.{${EXT},${SHA_EXT},manifest.json}"; done
+    fi
+    if [ "$GATE_RAN" -eq 1 ]; then
+      echo "  second copy proven at $COPY_BASE: ${#PROVEN_VERSIONS[@]} version(s) may go"
+      if [ "${#REFUSED_VERSIONS[@]}" -gt 0 ]; then
+        echo "  REFUSED, kept (no proven byte-identical copy): ${#REFUSED_VERSIONS[@]} version(s)"
+        printf '%s' "$REFUSED_LINES"
+      fi
     fi
   fi
 
@@ -328,8 +555,9 @@ process_family() {
     done
   done
 
-  # Delete ONLY the whitelisted prunable-triple files.
-  for v in "${PRUNE_VERSIONS[@]:-}"; do
+  # Delete ONLY the whitelisted prunable-triple files, and only for versions the
+  # second-copy gate PROVED. A refused version is never touched.
+  for v in "${PROVEN_VERSIONS[@]:-}"; do
     [ -n "$v" ] || continue
     while IFS= read -r pf; do
       [ -n "$pf" ] || continue
