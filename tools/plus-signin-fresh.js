@@ -47,12 +47,10 @@ const crypto = require('node:crypto');
 const record = require('./lib/plus-signin-record');
 
 const CALL_MS = Number(process.env.KOSMOS_PLUS_CALL_MS) || 15 * 1000;
-/* #3986: the cancel that cleans up a half sign-in gets at least five seconds. Two of its six
-   sites follow a call that timed out (the start, and a step failing in fail()), which is when the
-   board is slowest, so it should not share that call's budget; the other four (a bad argument, an
-   unsupported second step, no TOTP secret, nothing registered) get the same floor for one rule.
-   This only changes anything when KOSMOS_PLUS_CALL_MS is set under 5s (tests do); at the 15s
-   default the floor is inert. Exported so the tests read it rather than copy it. */
+/* #3986: every cleanup cancel gets at least five seconds, so a cancel sent right after a call
+   that timed out is not abandoned on that same short clock. It only matters when
+   KOSMOS_PLUS_CALL_MS is set under 5s (the tests do); at the 15s default every call, cleanup
+   included, already has 15s. Exported so the tests read it rather than copy it. */
 const CLEANUP_FLOOR_MS = 5 * 1000;
 const CLEANUP_MS = Math.max(CALL_MS, CLEANUP_FLOOR_MS);
 /* The engine bounds a register at five minutes plus up to a minute clearing a half identity. */

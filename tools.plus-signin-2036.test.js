@@ -80,7 +80,8 @@ test('#2036: the TOTP matches RFC 6238\'s SHA-1 test vectors', () => {
 });
 
 /* #3986: the budget for a test whose board HANGS one call. Long enough that the runner's other
-   calls (its identity check, /api/remote) never time out on a loaded machine: at 300ms they did,
+   calls (its identity check, /api/remote) do not time out under ordinary load (a margin, not a
+   guarantee: a 2.5s identity check still fails, loudly, naming the call). At 300ms they did,
    and the runner exited as setup BEFORE reaching the hanging call, with the same code the test
    expects, so only a later assertion noticed. Each such test also asserts the hanging call was
    reached. */
@@ -89,11 +90,15 @@ const HANG_MS = 2000;
    read from the tool, not copied). Midway between them, so either can move a little and the
    assertion where it is used says when they no longer leave room. */
 const LATE_CANCEL_MS = Math.round((HANG_MS + CLEANUP_FLOOR_MS) / 2);
-assert.ok(HANG_MS + 500 < LATE_CANCEL_MS && LATE_CANCEL_MS + 500 < CLEANUP_FLOOR_MS, 'the late answer must land after HANG_MS and inside the floor, with room');
+/* The least room either side of LATE_CANCEL_MS that still separates "waited" from "gave up" on a
+   loaded machine. */
+const LATE_ROOM_MS = 500;
+assert.ok(HANG_MS + LATE_ROOM_MS < LATE_CANCEL_MS && LATE_CANCEL_MS + LATE_ROOM_MS < CLEANUP_FLOOR_MS, 'the late answer must land after HANG_MS and inside the floor, with room');
 /* A cancel that never answers: longer than any budget the runner could legitimately wait. */
 const NEVER_MS = 10 * 60 * 1000;
-/* Slack on top of HANG_MS + the floor for process start and a loaded machine. */
-const BOUND_SLACK_MS = 4000;
+/* Slack on top of the floor, from the cancel reaching the board to the runner's exit: its
+   setup message and process exit, on a loaded machine. */
+const BOUND_SLACK_MS = 3000;
 
 /** A fake board: the routes the procedure uses, with switchable behaviour. */
 function fakeBoard(opts = {}) {
@@ -103,7 +108,7 @@ function fakeBoard(opts = {}) {
     let body = '';
     req.on('data', (c) => { body += c; });
     req.on('end', () => {
-      calls.push({ method: req.method, url: req.url, body: body ? JSON.parse(body) : null });
+      calls.push({ method: req.method, url: req.url, body: body ? JSON.parse(body) : null, at: Date.now() });
       const send = (code, j) => { res.writeHead(code, { 'content-type': 'application/json', 'x-kosmos-board': opts.identity || BOARD }); res.end(JSON.stringify(j)); };
       if (req.url === '/') return send(200, {});
       if (req.headers['x-kosmos-board-token'] !== 'tok') return send(401, { error: 'no token' });
@@ -404,13 +409,16 @@ test('#3986: a cleanup cancel that never answers is still bounded (a hung board 
   record.write(good(), e);
   const b = await fakeBoard({ startHangs: true, cancelAnswersAfter: NEVER_MS });
   try {
-    const began = Date.now();
     const r = await runner(['start', '--pointer', ptr, '--port', String(b.port)], e);
-    const took = Date.now() - began;
+    const exitedAt = Date.now();
     assert.ok(b.calls.some((c) => c.url === '/api/remote/signin-start'), 'the runner stopped before the hanging start: ' + r.out);
-    assert.ok(b.calls.some((c) => c.url === '/api/remote/signin-cancel'), 'the half sign-in was never cancelled: ' + r.out);
+    const cancel = b.calls.find((c) => c.url === '/api/remote/signin-cancel');
+    assert.ok(cancel, 'the half sign-in was never cancelled: ' + r.out);
     assert.strictEqual(r.code, 2, r.out);
-    assert.ok(took < HANG_MS + CLEANUP_FLOOR_MS + BOUND_SLACK_MS, 'the runner waited ' + took + 'ms on a cancel that never answered');
+    /* Timed from the cancel reaching the board, not from spawn: the earlier calls may legitimately
+       take up to HANG_MS each, which is not what this test is about. */
+    const waited = exitedAt - cancel.at;
+    assert.ok(waited < CLEANUP_FLOOR_MS + BOUND_SLACK_MS, 'the runner waited ' + waited + 'ms after sending a cancel that never answered');
   } finally { b.server.closeAllConnections(); b.server.close(); }
 });
 
