@@ -9049,6 +9049,8 @@ body.plus-active {
      light or dark mode, so a light-mode Mac painted light-mode red, green, warning and @mention on navy, where
      they fail (2.30 to 3.03:1). On navy the dark values read at 5.70 to 10.48:1. */
   --pj-mention: #5aa2ff; --gold-edge: #d6a62e; --ok: #4ade80; --danger: #ff6b5e; --warn-ink: #ffca55;
+  /* #3692: warnings are marked by a tint and a hairline now, so those two are pinned the same way. */
+  --warn-bg: rgba(255,190,60,0.12); --warn-border: rgba(255,190,60,0.32);
 }
 /* #3724: the update toast sets its own red (--utone) on itself, so the navy block above cannot reach it. Restated
    in the dark look's order: the bare override is (0,2,1), so each severity must be restated to stay above it.
