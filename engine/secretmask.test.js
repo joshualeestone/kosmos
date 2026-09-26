@@ -648,3 +648,20 @@ test('#3935 a bare mention of the key\'s prefix before the key is not taken for 
     assert.ok(out.includes(' like this. Here is yours, split: '), `the explanation was masked: ${out}`);
   } finally { setKnownSecrets([]); }
 });
+
+test('#3935 an unrelated key between an abandoned try and the retry does not unmask the try (review round 10)', () => {
+  const C = 'Qw8eRt2yUi9oPa3sDf6gHj1kLz5xCv0b';
+  const B = 'Nm4bVc7xZq1wEr8tYu5iOp2aSd9fGh3j';
+  setKnownSecrets([C, B]);
+  try {
+    const text = [
+      'First try: Qw8eRt2y then Ui9oPa3s then Df6gHj1k.',
+      "Meanwhile, here is another account's key:",
+      '| Row0 | Nm4bVc7x |', '| Row1 | Zq1wEr8t |', '| Row2 | Yu5iOp2a |', '| Row3 | Sd9fGh3j |',
+      'Sorry, retry: Qw8eRt2y then Ui9oPa3s then Df6gHj1k then Lz5xCv0b end',
+    ].join('\n');
+    const out = mask(text).text;
+    for (const piece of [...C.match(/.{8}/g), ...B.match(/.{8}/g)]) assert.ok(!out.includes(piece), `the piece ${piece} survived: ${out}`);
+    assert.ok(out.startsWith('First try: ') && out.endsWith(' end'), out);
+  } finally { setKnownSecrets([]); }
+});

@@ -303,6 +303,9 @@ function wordSkippingSpans(text) {
         const bound = 4 * f.length;
         let reached = new Set([opening.length]);
         let movedAt = -1;   // where this walk first matched a piece after its opening
+        const via = new Map();   // position -> { s: the run that reached it, prev: the position before }
+        let best = opening.length;
+        let finished = false;
         for (let s = r + 1; s < runs.length; s += 1) {
           const [, sTo, , pieces, piecesCost] = runs[s];
           if (nonSpaceBefore[sTo] - nonSpaceBefore[from] > bound) break;
@@ -316,6 +319,8 @@ function wordSkippingSpans(text) {
               if (!f.startsWith(piece, p)) continue;
               if (p + piece.length === f.length) { done = true; break; }
               next.add(p + piece.length);
+              if (!via.has(p + piece.length)) via.set(p + piece.length, { s, prev: p });
+              if (p + piece.length > best) best = p + piece.length;
               if (movedAt < 0) movedAt = runs[s][0];
             }
             if (done) break;
@@ -324,41 +329,38 @@ function wordSkippingSpans(text) {
             const k = `${sTo} ${f}`;
             if (!completed.has(k)) completed.set(k, { f, to: sTo, starts: [] });
             completed.get(k).starts.push({ from, movedAt: movedAt < 0 ? runs[s][0] : movedAt });
+            finished = true;
             break;
           }
           reached = next;
         }
+        /* A walk that got part of the way and then ran out of reach (review round 10): an abandoned first try
+           at a key, cut off from the retry by other text, or a key given only in part. When it matched the
+           opening and at least one more piece, 12 characters or more of the held value (the shortest value
+           held at all), the pieces it matched are masked, each on its own: not the text between them, so
+           nothing but the key's own pieces is hidden. Consecutive exact slices of a held value do not turn
+           up in ordinary text by chance. */
+        if (!finished && best >= 12 && via.has(best)) {
+          spans.push([from, runs[r][1]]);
+          for (let at = best; via.has(at); at = via.get(at).prev) {
+            const step = via.get(at);
+            spans.push([runs[step.s][0], runs[step.s][1]]);
+          }
+        }
       }
     }
   }
-  /* The same form completing at the same place from several starts (review rounds 2, 5 and 7). The latest start
-     is always kept. An earlier one is kept too (an abandoned first try at the key, left readable otherwise)
-     UNLESS a DIFFERENT held form completes between it and the latest start: that is two held keys sharing an
-     opening (both sk-ant-api03-), where the earlier start is the first key's opening and would join the two into
-     one span masking everything between. Stopping a walk at a later mention of the opening instead let a
-     sentence naming the key's prefix between two pieces stop the only walk that could complete. */
-  /* One sweep, not a scan per start (review round 8: comparing every completion with every other was quadratic,
-     outside the budget, and cost seconds on a reply repeating an opening): completions in order of where they
-     end, keeping the latest start seen for the two most recent DIFFERENT forms, answer each "did another form
-     complete between this start and the latest one" in constant time. */
-  const all = [...completed.values()];
-  for (const c of all) c.latest = c.starts.reduce((m, st) => (st.from > m ? st.from : m), -1);
-  const byEnd = [...all].sort((a, b) => a.to - b.to);
-  const withRivals = all.filter((c) => c.starts.length > 1).sort((a, b) => a.latest - b.latest);
-  let best = { at: -1, f: null }, second = { at: -1, f: null }, i = 0;
-  for (const c of all) spans.push([c.latest, c.to]);
-  for (const c of withRivals) {
-    for (; i < byEnd.length && byEnd[i].to <= c.latest; i += 1) {
-      const o = byEnd[i];
-      if (o.f === best.f) { if (o.latest > best.at) best.at = o.latest; }
-      else if (o.latest > best.at) { second = best; best = { at: o.latest, f: o.f }; }
-      else if (o.latest > second.at) second = { at: o.latest, f: o.f };
-    }
-    const sibling = c.f !== best.f ? best.at : second.at;
-    /* An earlier start is an abandoned try only if it got somewhere: its walk matched a piece before the latest
-       start. A bare mention of the opening ("every key begins sk-ant-api03-") matched nothing there, and keeping
-       it would mask the explanation between the mention and the key. */
-    for (const { from, movedAt } of c.starts) if (from !== c.latest && sibling < from && movedAt < c.latest) spans.push([from, c.to]);
+  /* The same form completing at the same place from several starts (review rounds 2, 5, 7, 9 and 10). The latest
+     start is always kept. An earlier one is kept only if its walk got somewhere before the latest start, a piece
+     matched there: an abandoned first try at the key. It is not kept when its walk first moved AFTER the latest
+     start, which covers both a bare mention of the opening ("every key begins sk-ant-api03-", masking the
+     explanation between would hide it) and two held keys sharing an opening (the second key's walk from the
+     first key's opening moves only on the second key's own pieces, all after its own start; keeping it would
+     join the two into one span masking everything between). Linear: one pass over the starts. */
+  for (const c of completed.values()) {
+    const latest = c.starts.reduce((m, st) => (st.from > m ? st.from : m), -1);
+    spans.push([latest, c.to]);
+    for (const { from, movedAt } of c.starts) if (from !== latest && movedAt < latest) spans.push([from, c.to]);
   }
   return spans;
 }
