@@ -282,6 +282,8 @@ test('./release.sh and an option value before a bare name still count from tools
   assert.equal(dot.code, 1, dot.out);
   const opt = run([['602', tools, 'bash -o pipefail release.sh 0.6.9', 'zsh']]);
   assert.equal(opt.code, 1, opt.out);
+  const cluster = run([['604', tools, 'bash -eo pipefail release.sh 0.6.9', 'zsh']]);
+  assert.equal(cluster.code, 1, 'a cluster ending in o takes its value: ' + cluster.out);
   assert.equal(run([['603', WORK, 'bash ./release.sh 0.6.9', 'zsh']]).code, 0);
 });
 
@@ -297,6 +299,17 @@ test('a KOSMOS_HG_TWICE_SECONDS that is not whole seconds is exit 2, never a qui
   const r = run([], { args: ['--twice'], env: { KOSMOS_HG_TWICE_SECONDS: 'abc' } });
   assert.equal(r.code, 2, r.out);
   assert.equal(run([], { args: ['--twice'] }).code, 0);
+});
+
+test('the free line is the one cut-guard.sh prints, in the tool and in these tests (control: a reworded line is not)', () => {
+  const guard = fs.readFileSync(path.join(__dirname, 'tools', 'lib', 'cut-guard.sh'), 'utf8');
+  const fn = guard.slice(guard.indexOf('kosmos_machine_claim_status() {'));
+  const printed = (fn.match(/echo "(no release holds[^"]*)"/) || [])[1];
+  assert.ok(printed, 'kosmos_machine_claim_status no longer prints a "no release holds" line');
+  const tool = (fs.readFileSync(TOOL, 'utf8').match(/^FREE_LINE='([^']*)'/m) || [])[1];
+  assert.equal(tool, printed, 'heavy-gate.sh FREE_LINE drifted from cut-guard.sh');
+  assert.equal(FREE, printed, 'this test file\'s FREE drifted from cut-guard.sh');
+  assert.equal(run([], { claim: printed.replace('holds', 'currently holds') }).code, 1);
 });
 
 test('the reservation reads free only on the exact free line (control: the phrase inside a held line is held)', () => {

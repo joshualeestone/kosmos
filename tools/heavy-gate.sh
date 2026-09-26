@@ -81,8 +81,9 @@ say() { [ "$QUIET" = 1 ] || printf '%s\n' "$*"; }
 # stderr, so --quiet does not hide it.
 [ -n "${KOSMOS_HG_CLAIM+x}${KOSMOS_HG_SNAPSHOT:+x}" ] && echo "(test seam active: KOSMOS_HG_CLAIM or KOSMOS_HG_SNAPSHOT is set)" >&2
 
-# who-has-the-box's whole line when nothing holds the machine (tools/lib/cut-guard.sh). Anything
-# else, including extra output around it, reads as held.
+# who-has-the-box's whole line when nothing holds the machine, copied from
+# kosmos_machine_claim_status in tools/lib/cut-guard.sh; tools.heavy-gate-3805.test.js pins the
+# two equal. Anything else, including extra output around it, reads as held.
 FREE_LINE='no release holds the machine right now.'
 claim_line() {
   if [ -n "${KOSMOS_HG_CLAIM+x}" ]; then printf '%s\n' "$KOSMOS_HG_CLAIM"; return; fi
@@ -117,7 +118,8 @@ live_snapshot() {
 
 # The script a shell command runs. ps loses argument boundaries, so a path with a space arrives
 # split: any word ENDING in a heavy script path counts (fail toward busy); otherwise the first
-# argument after the shell's own options and their values (-o/-O NAME, --rcfile FILE), for a
+# argument after the shell's own options and their values (-o/-O NAME, also as the last letter of
+# a cluster like -eo NAME, and --rcfile FILE), for a
 # bare release.sh. A command string (-c, or c inside combined flags like -lc) is not a script
 # run (it only mentions the name): prints nothing. Runs in a subshell with globbing off,
 # so a `*` in a command line stays one literal word.
@@ -132,6 +134,7 @@ script_of() (
         --rcfile|--init-file|[-+]o|[-+]O) skip=1; continue ;;
         --*) continue ;;
         -*c*) exit 0 ;;
+        -*[oO]|+*[oO]) skip=1; continue ;;   # a cluster ending in o/O (-eo) takes the next word
         -*|+*) continue ;;
       esac
       lead="$w"
