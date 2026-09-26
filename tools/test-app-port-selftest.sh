@@ -136,7 +136,7 @@ check "the FORKED child is reaped by the group-kill (not orphaned)" 0 "$reaped"
 # test-only file, not a wall clock: the grace's real length differs by machine (review 4
 # found a time ceiling that passed without steps 2-3 on a normal Mac).
 rcf="$tmp/rc-3859"; howf="$tmp/how-3859"; rm -f "$rcf" "$howf"
-( KOSMOS_BOUNDED_RUN_HOW_FILE="$howf" KOSMOS_BOUNDED_RUN_SETPGRP_DELAY=6 bounded_run "$T" "$bhang" --kosmos-app-port-selftest 501 >/dev/null 2>&1
+( KOSMOS_BOUNDED_RUN_TEST=1 KOSMOS_BOUNDED_RUN_HOW_FILE="$howf" KOSMOS_BOUNDED_RUN_SETPGRP_DELAY=6 bounded_run "$T" "$bhang" --kosmos-app-port-selftest 501 >/dev/null 2>&1
   echo "$?" > "$rcf.tmp"; mv "$rcf.tmp" "$rcf" ) &
 wd=$!
 for _ in $(seq 1 40); do [ -f "$rcf" ] && break; sleep 0.5; done
@@ -169,7 +169,7 @@ EOF
 chmod +x "$bterm"
 rcf2="$tmp/rc-3859-term"; rm -f "$rcf2"
 howf2="$tmp/how-3859-term"; rm -f "$howf2"
-( KOSMOS_BOUNDED_RUN_HOW_FILE="$howf2" bounded_run "$T" "$bterm" --kosmos-app-port-selftest 501 >/dev/null 2>&1
+( KOSMOS_BOUNDED_RUN_TEST=1 KOSMOS_BOUNDED_RUN_HOW_FILE="$howf2" bounded_run "$T" "$bterm" --kosmos-app-port-selftest 501 >/dev/null 2>&1
   echo "$?" > "$rcf2.tmp"; mv "$rcf2.tmp" "$rcf2" ) &
 wd2=$!
 for _ in $(seq 1 40); do [ -f "$rcf2" ] && break; sleep 0.5; done
@@ -202,6 +202,14 @@ check "bounded_run returns 124 on a bundle with a TERM-ignoring child" 124 "$rc"
 left=$(wait_gone "sleep $FORK")
 check "the TERM-ignoring CHILD is killed, not orphaned" 0 "$left"
 [ "$left" = 0 ] || pkill -KILL -f "sleep $FORK\$" 2>/dev/null
+
+# --- review 5: the seams do nothing without KOSMOS_BOUNDED_RUN_TEST=1 -----------------
+# A delay left exported must not reach a real run: with it set but the gate unset, a quick
+# bundle still answers in time, and no how-file is written.
+howf3="$tmp/how-3859-gate"; rm -f "$howf3"
+out="$(KOSMOS_BOUNDED_RUN_SETPGRP_DELAY=6 KOSMOS_BOUNDED_RUN_HOW_FILE="$howf3" bounded_run "$T" "$cur" --kosmos-app-port-selftest 501)"; rc=$?
+check "an exported seam delay without the test gate does not delay a real run" "0 16180" "$rc $out"
+check "...and writes no how-file" absent "$([ -e "$howf3" ] && echo present || echo absent)"
 
 # --- bounded_run returns a quick command's output and rc --------------------------
 start=$(date +%s)

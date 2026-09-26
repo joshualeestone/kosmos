@@ -28,7 +28,9 @@ starting a program is slow), the group and the leader get SIGKILL. The
 grace watches the GROUP, not the leader (review 2): a leader that dies on TERM can
 leave a child that ignores it, still holding the port.
 
-A test seam, `KOSMOS_BOUNDED_RUN_SETPGRP_DELAY`, holds perl before `setpgrp` so
+Both test seams (below) are honoured only with `KOSMOS_BOUNDED_RUN_TEST=1` beside them
+(review 5), so a value left exported in a shell cannot change a real run. A test seam,
+`KOSMOS_BOUNDED_RUN_SETPGRP_DELAY`, holds perl before `setpgrp` so
 the self-test can hit the window on purpose. When unset it costs nothing.
 
 **Rejected:**

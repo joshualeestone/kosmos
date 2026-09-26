@@ -36,7 +36,11 @@ bounded_run() {
   local secs="$1"; shift
   local tmp pid waited rc _g _how
   tmp="$(mktemp)"
-  perl -e 'select(undef, undef, undef, $ENV{KOSMOS_BOUNDED_RUN_SETPGRP_DELAY}) if $ENV{KOSMOS_BOUNDED_RUN_SETPGRP_DELAY}; setpgrp(0,0); exec @ARGV or exit 127' "$@" >"$tmp" 2>/dev/null &
+  # The two test seams are honoured ONLY with KOSMOS_BOUNDED_RUN_TEST=1 beside them, so a
+  # value left exported in a shell cannot change a real run (review 5): a stray delay would
+  # make a healthy bundle read as behind.
+  local _delay=""; [ "${KOSMOS_BOUNDED_RUN_TEST:-}" = 1 ] && _delay="${KOSMOS_BOUNDED_RUN_SETPGRP_DELAY:-}"
+  KOSMOS_BOUNDED_RUN_SETPGRP_DELAY="$_delay" perl -e 'select(undef, undef, undef, $ENV{KOSMOS_BOUNDED_RUN_SETPGRP_DELAY}) if $ENV{KOSMOS_BOUNDED_RUN_SETPGRP_DELAY}; setpgrp(0,0); exec @ARGV or exit 127' "$@" >"$tmp" 2>/dev/null &
   pid=$!
   waited=0
   while kill -0 "$pid" 2>/dev/null; do
@@ -51,6 +55,9 @@ bounded_run() {
       #    watched, not the leader: a leader that dies on TERM can leave a child that
       #    ignores it, still holding the port (review 2). A pgid is not reused while
       #    any member lives, so `kill -0 -- -$pid` cannot reach a stranger's group.
+      # Relies on bash reaping the killed child promptly, so `kill -0` stops seeing it (measured
+      # well under 0.3s here). A shell that reaped lazily would burn the whole grace and record
+      # "kill" even when TERM worked: look here first if the TERM arm of the self-test flakes.
       _g=0
       while { kill -0 -- -"$pid" || kill -0 "$pid"; } 2>/dev/null && [ "$_g" -lt 10 ]; do
         sleep 0.2; _g=$((_g + 1))
@@ -58,13 +65,13 @@ bounded_run() {
       _how=term
       if { kill -0 -- -"$pid" || kill -0 "$pid"; } 2>/dev/null; then
         _how=kill
-        kill -KILL -- -"$pid" 2>/dev/null   # the same three steps as TERM, for the same
-        kill -KILL "$pid" 2>/dev/null       # window: a leader still before setpgrp can
-        kill -KILL -- -"$pid" 2>/dev/null   # fork between the first two
+        kill -KILL -- -"$pid" 2>/dev/null   # the same three steps as TERM. Defence in depth:
+        kill -KILL "$pid" 2>/dev/null       # after a whole grace a leader still before setpgrp
+        kill -KILL -- -"$pid" 2>/dev/null   # needs an extreme stall, but it costs one line
       fi
       # TEST SEAM: which signal ended it, so the self-test can tell TERM from KILL without
       # a wall clock (timing differs by machine). Unset, it writes nothing.
-      [ -n "${KOSMOS_BOUNDED_RUN_HOW_FILE:-}" ] && echo "$_how" > "$KOSMOS_BOUNDED_RUN_HOW_FILE"
+      [ "${KOSMOS_BOUNDED_RUN_TEST:-}" = 1 ] && [ -n "${KOSMOS_BOUNDED_RUN_HOW_FILE:-}" ] && echo "$_how" > "$KOSMOS_BOUNDED_RUN_HOW_FILE"
       wait "$pid" 2>/dev/null
       rm -f "$tmp"
       return 124
