@@ -295,14 +295,19 @@ function nextPartId(parts) {
 
 /* The parts valve (#803). tasks.create and projects.create sit behind a
    persisted refusal of process-originated writes (twelve an hour until #3959
-   made it a 500-an-hour runaway breaker; this valve kept its 12); addPart and
+   made it a 500-an-hour runaway breaker, and this valve followed); addPart and
    assignPart did not, so a looping process could make unlimited parts and
    reassign them without bound, each one rewriting instruction files through
    tellEveryoneOn. It looked metered because its neighbours were. Persisted
    the same way the task valve is: in the records themselves (a part carries
    how and when it was added, and how and when it was last moved), so a
    restart does not open the valve. The SCREEN is never valved. */
-const PARTS_PER_HOUR = 12;
+const { AGENT_RUNAWAY_PER_HOUR, runawayRefusal } = require('./runaway');
+// #3959: was 12 an hour; now the shared runaway breaker (engine/runaway.js), like task creation.
+const PARTS_PER_HOUR = AGENT_RUNAWAY_PER_HOUR;
+let partsLimit = PARTS_PER_HOUR;
+// Test-only: a test trips the valve without making 500 part changes. No argument restores it.
+function setPartsLimitForTests(n) { partsLimit = Number.isInteger(n) && n > 0 ? n : PARTS_PER_HOUR; }
 const HOUR_MS = 3600000;
 /* #3595: 'assigner' is the Kosmos Assigner's own write. It is its own provenance so the process
    parts valve (which counts 'process' only) never charges agents for it, nor blames them for it. */
@@ -317,29 +322,28 @@ function viaOf(made) {
  * when the oldest one ages out, so a refusal can say the number. */
 function processPartWrites(now = Date.now()) {
   const since = now - HOUR_MS;
-  let count = 0; let oldest = null;
+  let count = 0; let oldest = null; const times = [];
   for (const p of projects.readAll()) {
     for (const t of (p && p.tasks) || []) {
       for (const x of (t && t.parts) || []) {
         for (const [via, at] of [[x.addedVia, x.createdAt], [x.movedVia, x.movedAt]]) {
           const ms = Date.parse(at);
-          if (via === 'process' && Number.isFinite(ms) && ms >= since) { count += 1; if (oldest === null || ms < oldest) oldest = ms; }
+          if (via === 'process' && Number.isFinite(ms) && ms >= since) { count += 1; times.push(ms); if (oldest === null || ms < oldest) oldest = ms; }
         }
       }
     }
   }
-  return { count, liftsInSecs: oldest === null ? 0 : Math.max(1, Math.ceil((oldest + HOUR_MS - now) / 1000)) };
+  return { count, times, liftsInSecs: oldest === null ? 0 : Math.max(1, Math.ceil((oldest + HOUR_MS - now) / 1000)) };
 }
 
-/** The refusal, or not, for a process write right now. The sentence says the
- * count and when it lifts, and that the person's own path is open. */
+/** The refusal, or not, for a process write right now: the shared breaker's sentence (the
+ * count, the limit, that it is shared, when it lifts, and that the person's path is open). */
 function partValve(now = Date.now()) {
   const w = processPartWrites(now);
-  if (w.count < PARTS_PER_HOUR) return { refused: false, count: w.count };
-  const mins = Math.max(1, Math.ceil(w.liftsInSecs / 60));
-  return { refused: true, count: w.count, retryAfterSecs: w.liftsInSecs,
-    because: 'agents have made ' + w.count + ' part changes in the last hour, so Kosmos is pausing agent-made parts for '
-      + mins + (mins === 1 ? ' minute' : ' minutes') + '; the person can still make them from the screen' };
+  const r = runawayRefusal(w.times, { noun: 'part changes', did: 'made', pausing: 'agent-made parts',
+    again: 'make part changes', screen: 'make them' }, { now, limit: partsLimit });
+  if (!r) return { refused: false, count: w.count };
+  return { refused: true, count: w.count, retryAfterSecs: r.retryAfterSecs, because: r.because };
 }
 
 /** Tests age the records through this rather than shortening the hour. */
@@ -1010,5 +1014,5 @@ function tasksTabShown() {
 module.exports = { create, close, reopen, byNumber, columnTasks, allTasks, claimFor, claimPatterns, taskProblem,
   taskState, lastActivityOf, TASKS_TAB_MIN, parentProblem, parentOf, childrenOf, subtaskProgress, treeOf, setParent, tasksEverCreated, tasksTabShown, claimWho,
   partsOf, progressOf, whoOf, addPart, assignPart, setPartClosed, setDue, dueProblem, say,
-  partValve, processPartWrites, agePartWritesForTests, PARTS_PER_HOUR,
+  partValve, processPartWrites, agePartWritesForTests, PARTS_PER_HOUR, setPartsLimitForTests,
   SENTENCE_MAX, DETAIL_MAX, MESSAGE_MAX, WHO_MAX };

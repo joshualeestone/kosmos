@@ -275,32 +275,19 @@ function resetHeardBudgetForTests() {
    batch. It counts every agent together (one shared count per kind, across all
    projects), from the records themselves, so it survives a restart. The screen is
    never counted or refused. */
-const AGENT_RUNAWAY_PER_HOUR = 500;
-const AGENT_RUNAWAY_WINDOW_MS = 3600000;
+const { AGENT_RUNAWAY_PER_HOUR, runawayRefusal } = require('./engine/runaway');
 let agentRunawayLimit = AGENT_RUNAWAY_PER_HOUR;
 // Test-only: lets a route test trip the breaker without making 500 records.
 // Called with no argument it restores the real limit.
 function setAgentRunawayLimitForTests(n) {
   agentRunawayLimit = Number.isInteger(n) && n > 0 ? n : AGENT_RUNAWAY_PER_HOUR;
 }
-/* `times` are the creation times (ms) of the agent-made records of one kind. Returns
-   null to allow, or { because, retryAfterSecs }: the sentence (the limit, that it is shared
-   by every agent, and when the next one is allowed) and the same wait in seconds, which the
-   routes send as retry-after the way the part routes do. */
+/* `times` are the creation times (ms) of the agent-made records of one kind (`noun`: 'tasks' or
+   'projects'). Returns null to allow, or { because, retryAfterSecs } from the shared breaker
+   (engine/runaway.js); the routes send the seconds as retry-after. */
 function agentRunawayRefusal(times, noun, now = Date.now(), limit = agentRunawayLimit) {
-  const hourAgo = now - AGENT_RUNAWAY_WINDOW_MS;
-  const recent = times.filter((t) => Number.isFinite(t) && t >= hourAgo).sort((a, b) => a - b);
-  if (recent.length < limit) return null;
-  // Below the limit again once enough of the oldest have aged out of the hour.
-  const freesAt = recent[recent.length - limit] + AGENT_RUNAWAY_WINDOW_MS;
-  // Capped at the window: a record dated in the future (clock skew) must not quote a longer wait.
-  const retryAfterSecs = Math.min(AGENT_RUNAWAY_WINDOW_MS / 1000, Math.max(1, Math.ceil((freesAt - now) / 1000)));
-  const mins = Math.max(1, Math.ceil(retryAfterSecs / 60));
-  const because = 'agents have made ' + recent.length + ' ' + noun + ' in the last hour, which is at or over the limit of '
-    + limit + ' an hour shared by all agents together (a safety stop for an agent stuck in a loop), so Kosmos is pausing agent-made '
-    + noun + '. Agents can make ' + noun + ' again in about ' + mins + ' minute' + (mins === 1 ? '' : 's')
-    + '; the person can still make them from the screen';
-  return { because, retryAfterSecs };
+  const r = runawayRefusal(times, { noun, did: 'made', pausing: 'agent-made ' + noun, again: 'make ' + noun, screen: 'make them' }, { now, limit });
+  return r && { because: r.because, retryAfterSecs: r.retryAfterSecs };
 }
 // `sentence` is explicit, never read off `t`: a part's own sentence is
 // never the task's top-level one (a task with parts drops `who`/keeps one
@@ -1705,16 +1692,26 @@ function policySummaries(r) {
 /* `>= 0`, not `|| 30`: an operator who sets the cap to 0 to silence agent
    task-messages entirely means 0, and `Number("0") || 30` would give 30 -- the
    same env-0 footgun this file already guards against elsewhere with a range check. */
+/* #3959: the default was 30 an hour; it is now the shared runaway breaker (engine/runaway.js).
+   An operator's AGENT_WORKFORCE_TASK_MSG_CAP still wins, including 0 (switched off). */
 const TASK_MSG_CAP_PER_HOUR = (() => {
-  const n = Number(process.env.AGENT_WORKFORCE_TASK_MSG_CAP);
-  return Number.isFinite(n) && n >= 0 ? n : 30;
+  const raw = process.env.AGENT_WORKFORCE_TASK_MSG_CAP;
+  const n = raw === undefined || raw === '' ? NaN : Number(raw);
+  return Number.isFinite(n) && n >= 0 ? n : require('./engine/runaway').AGENT_RUNAWAY_PER_HOUR;
 })();
 const TASK_MSG_WINDOW_MS = 3600000;
 let taskMessageSends = [];
-function taskMessageValveTripped() {
+/* null to allow, or { because, retryAfterSecs }. The sentence names the limit, that it is shared
+   by all agents, and when it lifts; a cap of 0 says the messages are switched off instead. */
+function taskMessageRefusal() {
   const cutoff = Date.now() - TASK_MSG_WINDOW_MS;
   taskMessageSends = taskMessageSends.filter((t) => t >= cutoff);
-  return taskMessageSends.length >= TASK_MSG_CAP_PER_HOUR;
+  if (TASK_MSG_CAP_PER_HOUR === 0) {
+    return { because: 'agent task messages are switched off on this computer (AGENT_WORKFORCE_TASK_MSG_CAP is 0); the person can still send from the screen', retryAfterSecs: TASK_MSG_WINDOW_MS / 1000 };
+  }
+  const r = require('./engine/runaway').runawayRefusal(taskMessageSends, { noun: 'task messages', did: 'sent',
+    pausing: 'agent task messages', again: 'send task messages', screen: 'send them' }, { limit: TASK_MSG_CAP_PER_HOUR });
+  return r && { because: r.because, retryAfterSecs: r.retryAfterSecs };
 }
 function taskMessageValveRecord() {
   taskMessageSends.push(Date.now());
@@ -15092,8 +15089,10 @@ const server = http.createServer((req, res) => {
          spam a task's people. Counted for PROCESS senders only; the operator is
          never valved (the person driving is the remedy, not the hazard -- the same
          posture as the task-creation and room valves). */
-      if (!viaScreen && taskMessageValveTripped()) {
-        sendJson(res, 429, { error: 'agents have sent many task messages in the last hour, so Kosmos is pausing agent task messages; the person can still send from the screen' });
+      const msgRefusal = viaScreen ? null : taskMessageRefusal();
+      if (msgRefusal) {
+        res.setHeader('retry-after', String(msgRefusal.retryAfterSecs));
+        sendJson(res, 429, { error: msgRefusal.because, retry_after_secs: msgRefusal.retryAfterSecs });
         return;
       }
       try {
@@ -15193,9 +15192,9 @@ const server = http.createServer((req, res) => {
       let body = null;
       try { body = JSON.parse(raw || 'null'); } catch { body = null; }
       const screen = isViaScreen(req, body);
-      /* The parts valve (#803): the WRITE is refused for a process past
-         twelve part changes an hour, counted across projects from the
-         records themselves; the screen is never valved. The sentence says
+      /* The parts valve (#803): the WRITE is refused for a process past the
+         shared runaway limit (engine/runaway.js, #3959), counted across projects
+         from the records themselves; the screen is never valved. The sentence says
          the number and when it lifts, and the header says it too. */
       if (!screen) {
         const v = tasks.partValve();
@@ -16957,6 +16956,7 @@ if (require.main === module) {
 module.exports = {
   server, start, pathOf, decodeSegment, resetHeardBudgetForTests,
   AGENT_RUNAWAY_PER_HOUR, agentRunawayRefusal, setAgentRunawayLimitForTests, // #3959: the agent task/project breaker, for its tests
+  TASK_MSG_CAP_PER_HOUR, // #3959: the task-message limit's default is the same breaker, pinned by a test
   CONNLOST_BOOK, connlostHealEnabled, // #3410: exported so a test can pin the route's reconnect field to the sweep's own book
   givePart, // #3595: the assign-and-tell path, exported so the Assigner's real write path is tested
   federateOut, // #3311: what leaves this computer for a federated room, exported so the agent arm is tested

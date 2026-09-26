@@ -54,6 +54,9 @@ const assert = require('node:assert/strict');
 const { start, server } = require('./server');
 const projects = require('./engine/projects');
 const tasks = require('./engine/tasks');
+/* #3959: the production limit is the shared 500-an-hour breaker (pinned below). This file tests
+   the valve's BEHAVIOUR, so it runs it at twelve rather than making 500 part changes. */
+tasks.setPartsLimitForTests(12);
 
 let base;
 test.before(async () => { await start(0); base = `http://127.0.0.1:${server.address().port}`; });
@@ -62,9 +65,15 @@ async function req(p, options) { const res = await fetch(base + p, options); ret
 const asProcess = (body) => ({ method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) });
 const asScreen = (body) => ({ method: 'POST', headers: { 'content-type': 'application/json', 'sec-fetch-site': 'same-origin' }, body: JSON.stringify(body) });
 
-/* The parts valve (#803): the write itself is refused for a process past
-   twelve part changes an hour, counted from the records (so a restart does
-   not open it); the screen is never valved; the refusal says the number. */
+test('#3959: in production the parts valve is the shared 500-an-hour runaway breaker, not twelve', () => {
+  assert.equal(tasks.PARTS_PER_HOUR, 500, 'the parts limit moved off the shared breaker');
+  assert.equal(tasks.PARTS_PER_HOUR, require('./engine/runaway').AGENT_RUNAWAY_PER_HOUR);
+});
+
+/* The parts valve (#803): the write itself is refused for a process past its
+   limit (run at twelve here, see the top of this file), counted from the records
+   (so a restart does not open it); the screen is never valved; the refusal says
+   the number. */
 test('the thirteenth process part change in an hour is refused with the count and the minutes; the screen still writes; moves count too', async () => {
   const p = projects.create({ name: 'Valve Route' });
   projects.addAgent(p.id, 'april');
@@ -79,7 +88,8 @@ test('the thirteenth process part change in an hour is refused with the count an
   assert.equal(made, 12, 'the valve closed at the wrong count');
   const err = JSON.parse(refused.body);
   assert.match(err.error, /agents have made 12 part changes in the last hour/);
-  assert.match(err.error, /pausing agent-made parts for \d+ minutes?/);
+  assert.match(err.error, /at or over the limit of 12 an hour shared by all agents together/, 'the refusal does not name the limit, or that it is shared');
+  assert.match(err.error, /pausing agent-made parts\. Agents can make part changes again in about \d+ minutes?;/, 'the refusal does not say when it lifts');
   assert.match(err.error, /from the screen/);
   assert.ok(err.retry_after_secs > 0, 'no retry_after_secs');
   assert.equal(refused.headers.get('retry-after'), String(err.retry_after_secs), 'the header and the field disagree');

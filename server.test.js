@@ -11851,6 +11851,11 @@ test('a task records who added it and how; 30 agent-made tasks in an hour all la
   assert.equal(r.status, 200, 'the valve caught the person, which is the one participant it must never touch');
 });
 
+test('#3959: agent task messages default to the same 500-an-hour breaker (the operator override still wins)', () => {
+  assert.equal(process.env.AGENT_WORKFORCE_TASK_MSG_CAP, undefined, 'PRECONDITION: this file sets no override');
+  assert.equal(require('./server').TASK_MSG_CAP_PER_HOUR, 500);
+});
+
 test('the agent runaway breaker: 500 an hour, shared, and it says when it lifts (#3959)', () => {
   assert.equal(AGENT_RUNAWAY_PER_HOUR, 500, 'the production breaker moved; Josh ruled the limit is a runaway stop only');
   const now = Date.parse('2026-09-26T13:00:00Z');
@@ -14083,6 +14088,9 @@ test('#761 round 2: a process cannot unboundedly page a live agent through the p
     });
     assert.equal(r0.status, 200, r0.body);
 
+    // #3959: the parts valve is the 500-an-hour breaker in production; this test pins its
+    // interplay with the twelve-an-hour paging allowance, so it runs the valve at twelve too.
+    require('./engine/tasks').setPartsLimitForTests(12);
     // Twelve process-originated (no sec-fetch-site: a curl, not a browser)
     // part assignments should each page the pane -- the cap is 12/hour.
     let placed = 0;
@@ -14133,6 +14141,7 @@ test('#761 round 2: a process cannot unboundedly page a live agent through the p
     });
     assert.equal(r14.status, 200, r14.body);
   } finally {
+    require('./engine/tasks').setPartsLimitForTests();
     chatEngine.setRunner(null);
     board.restore();
   }
