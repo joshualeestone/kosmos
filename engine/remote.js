@@ -343,8 +343,10 @@ function address() {
 function setOn(on) {
   if (typeof on !== 'boolean') return { ok: false, because: 'that has to be on or off' };
   // #3827: Forget stops the tunnel, then waits on the retire; turning on in that
-  // wait would start one from the key it is about to delete.
-  if (on && forgetting) return busy();
+  // wait would start one from the key it is about to delete. And a register still
+  // out may already have written the certificate: a second tunnel would start
+  // beside it before it finishes.
+  if (on) { const b = busy(); if (b) return b; }
   const wrote = write({ on });
   if (!wrote.ok) return wrote;
   ensure(localPort);
@@ -352,6 +354,8 @@ function setOn(on) {
 }
 
 function setRelay(relay) {
+  // It starts the tunnel too (ensure), so it waits like turning on does.
+  { const b = busy(); if (b) return b; }
   if (typeof relay !== 'string') return { ok: false, because: 'the relay has to be host:port' };
   const v = relay.trim();
   /* Refuse garbage at set time rather than letting it become a spawn-crash
@@ -1275,15 +1279,20 @@ const registerTimeoutMs = () => {
 // coordinator accepted it. It is registered there, so registering again would strand
 // it (or meet "already owns the name"); Forget retires it.
 const halfRegistered = () => !enrolled() && ['mac_id', 'mac_key'].every((f) => fs.existsSync(path.join(STATE_DIR(), f)));
+const RETIRE_TRANSIENT = /unreachable|did not answer in time|could not be started|\(HTTP 5\d\d on |answered 5\d\d for /i;
 /* Retires a half identity before a new register. Answers why the retire failed
    (the coordinator may still hold that earlier attempt), or null. */
 async function clearHalfIdentity() {
   if (!halfRegistered()) return null;
   const r = await setupRun(['retire', '--coordinator', COORDINATOR(), '--state-dir', STATE_DIR()], null, registerTimeoutMs());
-  // No answer (timed out, unreachable, the program would not start) may work a
-  // moment later, and only this key can do it: keep it, and the caller says try
-  // again. A retire that worked, or a definite refusal from Kosmos+, wipes it.
-  if (!r.ok && !/said no \(4\d\d\)/.test(String(r.because || ''))) {
+  // No answer (timed out, unreachable, the program would not start, a server
+  // error) may work a moment later, and only this key can do it: keep it, and the
+  // caller says try again. Anything else is final (Kosmos+ refused this Mac, a
+  // key this computer cannot read), so it is wiped: keeping it would say "try
+  // again" forever. Named from what the tunnel prints (crates/tunnel
+  // coordinator.rs signed_request: "Kosmos+ unreachable for", "(HTTP <code> on",
+  // "Kosmos+ answered <code> for") and from setupRun's own answers.
+  if (!r.ok && RETIRE_TRANSIENT.test(String(r.because || ''))) {
     process.stderr.write('remote: an unfinished earlier sign-in could not be retired at Kosmos+ yet (' + r.because + '); kept, so a retry can\n');
     return { kept: r.because || 'no reason given' };
   }

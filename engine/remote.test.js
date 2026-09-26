@@ -187,7 +187,10 @@ if (args[0] === 'devices') {
 // #3827: a retire that hangs (a dead network).
 if (args[0] === 'retire' && mode.includes('hung-retire')) { const until = Date.now() + 15000; while (Date.now() < until) { /* wait */ } }
 // A definite refusal: Kosmos+ answered, and it will not retire this key.
-if (args[0] === 'retire' && mode.includes('retire-refused')) { process.stderr.write('Kosmos+ said no (401): this Mac is not known here\\n'); process.exit(1); }
+// The tunnel's own sentences for a retire (crates/tunnel coordinator.rs signed_request).
+if (args[0] === 'retire' && mode.includes('retire-refused')) { process.stderr.write('Kosmos+ refused this Mac: this Mac was retired; set Kosmos up again to give it a new key (HTTP 401 on /v1/mac/retire)\\n'); process.exit(1); }
+if (args[0] === 'retire' && mode.includes('retire-down')) { process.stderr.write('Kosmos+ unreachable for /v1/mac/retire: connection refused\\n'); process.exit(1); }
+if (args[0] === 'retire' && mode.includes('retire-5xx')) { process.stderr.write('Kosmos+ answered 503 for /v1/mac/retire: unavailable\\n'); process.exit(1); }
 if (args[0] === 'run') {
   if (mode === 'crash') process.exit(3);
   const statusFile = flag('--status-file');
@@ -1316,6 +1319,26 @@ test('#3827: after Kosmos+ refused to retire a half identity, its "already in us
     assert.equal(stranded.ok, false, 'fixture: the coordinator still holds the name');
     assert.match(stranded.because, /own earlier sign-in/, 'a stranded attempt read as another Mac: ' + stranded.because);
     assert.doesNotMatch(stranded.because, /\.\./, 'doubled punctuation: ' + stranded.because);
+    // A definite refusal is final, not "try again": with the name free, it registers.
+    // Each arm below ends set up at "hers"; start the next from a forgotten Mac.
+    const fresh = async () => {
+      process.env.FAKE_TUNNEL_MODE = '';
+      await remote.forget();
+      await remote.signinStart('her@example.com');
+      await remote.signinVerify('her@example.com', '111111');
+    };
+    const refusedThenFree = await halfThen('retire-refused');
+    assert.equal(refusedThenFree.ok, true, 'a definite refusal became a dead end: ' + refusedThenFree.because);
+    // Unreachable and a server error are kept for a retry.
+    for (const mode of ['retire-down', 'retire-5xx']) {
+      await fresh();
+      const kept = await halfThen(mode);
+      assert.equal(kept.ok, false, mode + ': registered over a half identity that could still be retired');
+      assert.match(kept.because, /try again/, mode);
+      process.env.FAKE_TUNNEL_MODE = '';
+      assert.equal((await remote.signinRegister('hers')).ok, true, mode + ': the retry did not clear it');
+    }
+    await fresh();
     // A half identity that WAS retired: the same answer is left as it is.
     const retired = await halfThen('register-409');
     assert.doesNotMatch(retired.because, /own earlier sign-in/, 'a 409 after a working retire was blamed on this computer');
@@ -1408,5 +1431,45 @@ test('#3827: a Forget during a Settings setup ends it cancelled, not "set up"', 
   } finally {
     delete process.env.FAKE_TUNNEL_MODE;
     remote.setOn(false);
+  }
+});
+
+test('#3827: turning Kosmos+ on, or changing the relay, waits for a register that is still out', async () => {
+  process.env.AGENT_WORKFORCE_TUNNEL_RELAY = '127.0.0.1:9444';
+  process.env.FAKE_TUNNEL_MODE = 'slow-register';
+  try {
+    await remote.signinStart('her@example.com');
+    await remote.signinVerify('her@example.com', '111111');
+    const racing = remote.signinRegister('hers');
+    const on = remote.setOn(true);
+    assert.equal(on.ok, false, 'Kosmos+ was switched on beside a register still out');
+    assert.match(on.because, /still signing in/);
+    const relay = remote.setRelay('127.0.0.1:9555');
+    assert.equal(relay.ok, false, 'the relay was changed beside a register still out');
+    assert.equal(remote.setOn(false).ok, true, 'turning off must never wait');
+    await racing;
+  } finally {
+    delete process.env.FAKE_TUNNEL_MODE;
+    remote.setOn(false);
+  }
+});
+
+test('#3827: the relay cannot be changed while this computer is being forgotten', async () => {
+  process.env.AGENT_WORKFORCE_TUNNEL_RELAY = '127.0.0.1:9444';
+  await remote.signinStart('her@example.com');
+  await remote.signinVerify('her@example.com', '111111');
+  assert.equal((await remote.signinRegister('hers')).ok, true, 'fixture: registered');
+  process.env.FAKE_TUNNEL_MODE = 'hung-retire';
+  process.env.AGENT_WORKFORCE_REGISTER_TIMEOUT_MS = '1500';
+  try {
+    const forgetting = remote.forget();
+    const relay = remote.setRelay('127.0.0.1:9555');
+    assert.equal(relay.ok, false, 'the relay was changed (and the tunnel started) in the middle of a Forget');
+    assert.match(relay.because, /being forgotten/);
+    await forgetting;
+  } finally {
+    delete process.env.FAKE_TUNNEL_MODE;
+    delete process.env.AGENT_WORKFORCE_REGISTER_TIMEOUT_MS;
+    remote.setRelay('');
   }
 });
