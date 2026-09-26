@@ -25,6 +25,8 @@ const PAGE = fs.readFileSync('web/index.html', 'utf8');
 const ALLOWED = new Map([
   ['.dm-b .mdq, .pj-msg-text .mdq, .msg-b .mdq, .tkdetail .mdq', 'a quote: the rule is how a quote reads (#3692 scope)'],
   ['.msg .quoteb', 'a quote inside a message (#3692 scope, Josh can overrule)'],
+  ['.detail-said', 'a quote: the agent\'s own words (Liu Kang, 2026-09-25, Josh can overrule)'],
+  ['.msg-replyto', 'a quote: the message a reply answers, inside the reply (#3745; same call as .msg .quoteb)'],
   ['body:not(.consolidated) #pj-list:not(.asgrid) .pj-row.child', 'the project tree indent guide, not a card'],
   ['body:not(.consolidated).pj-roadmap #pj-list:not(.asgrid) .pj-row.child::before', 'the roadmap tree connector line, not a card'],
 ]);
