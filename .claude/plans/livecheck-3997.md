@@ -64,6 +64,12 @@ Design and measurements are on the card (comment 5849157780).
   unchanged at 2026-09-25T03:00Z after a doctor run on 09-26). Caveat: that token was days from expiry; a token near
   expiry was not measured, and the agent-probe path (codexauthprobe) already runs doctor for homes with agents.
 
+## Review round 5 (Sonnet)
+- WARNING: server.grok-subscription-3391.test.js signs in to Grok and reads /api/accounts with no fetcher stub; safe
+  only because its fixture has no key. It now answers every check itself, so a fixture that grows a key cannot reach
+  xAI. (Round 4's codex stub measurement showed every other suite that reads the route either stubs or has no such
+  account; this reviewer re-audited them.)
+
 ## Decided
 - Pill text stays a short "Signed in" (Josh 6.68, #3136); the reason is in the title.
 - A 401 from Grok is "not confirmed" (amber), never red: grok may renew the key on its next run.
