@@ -383,3 +383,51 @@ test('#3998 round 5: a code that came back refused puts the cursor in the paste 
   assert.match(f.view().text, /did not take that code/, 'CONTROL: the refusal was shown');
   assert.ok(focuses >= 1, 'the cursor was left where it was after the code came back refused');
 });
+
+test('#3998 round 6: the paste box is focused once, not on every poll (Tab must be able to leave it)', async () => {
+  const code = { id: 'f0cus0000000001', state: 'code', url: 'https://accounts.google.com/o/oauth2/auth?x=1' };
+  const f = agyFlow({
+    '/api/antigravity/check': [{ installed: true, signedIn: null }],
+    'POST /api/antigravity/signin': [{ ok: true, id: 'f0cus0000000001' }],
+    'GET /api/antigravity/signin': [code, code, code, code, code, code],
+  });
+  let focuses = 0;
+  f.el('fr-gemini-sub-paste').focus = () => { focuses += 1; };
+  await f.FR_AGY_SUB.start(); await f.FR_AGY_SUB.start();
+  await f.settle(() => f.posts.filter((p) => p === '/api/antigravity/signin').length >= 6, 600);
+  f.FR_AGY_SUB.leave();
+  assert.ok(f.posts.filter((p) => p === '/api/antigravity/signin').length >= 5, 'CONTROL: several polls ran');
+  assert.equal(focuses, 1, 'the box took focus back ' + focuses + ' times');
+});
+
+test('#3998 round 6: why a pasted code was refused stays on screen until the person types again', async () => {
+  const code = { id: 'c0de00000000001', state: 'code', url: 'https://accounts.google.com/o/oauth2/auth?x=1' };
+  const f = agyFlow({
+    '/api/antigravity/check': [{ installed: true, signedIn: null }],
+    'POST /api/antigravity/signin': [{ ok: true, id: 'c0de00000000001' }],
+    'GET /api/antigravity/signin': [code, code, code, code],
+    '/api/antigravity/signin/code': [{ ok: false, error: 'that does not look like the code from Google\'s page' }],
+  });
+  await f.FR_AGY_SUB.start(); await f.FR_AGY_SUB.start();
+  await f.settle(() => !f.el('fr-gemini-sub-paste-row').hidden);
+  f.el('fr-gemini-sub-paste').value = 'nope';
+  await f.FR_AGY_SUB.sendCode();
+  const polls = f.posts.length;
+  await f.settle(() => f.posts.length >= polls + 2, 400);
+  const text = f.view().text;
+  f.FR_AGY_SUB.leave();
+  assert.match(text, /^That does not look like the code/, 'the next poll wrote over the refusal: ' + text);
+});
+
+test('#3998 round 6: once the window is shown, the panel says to finish there and offers no second window', async () => {
+  const f = agyFlow({
+    '/api/antigravity/check': [{ installed: true, signedIn: null }],
+    'POST /api/antigravity/signin': [{ ok: true, id: '5h0wn0000000001' }],
+    'GET /api/antigravity/signin': [{ id: '5h0wn0000000001', state: 'stuck', shown: true, because: 'x' }],
+  });
+  await f.FR_AGY_SUB.start(); await f.FR_AGY_SUB.start();
+  await f.settle(() => /window is open/.test(f.view().text));
+  f.FR_AGY_SUB.leave();
+  assert.match(f.view().text, /^The sign-in window is open\. Finish it there/);
+  assert.equal(f.el('fr-gemini-sub-show-row').hidden, true, 'a second Show would open another window');
+});
