@@ -451,6 +451,8 @@ function assignPart(projectId, n, partId, who, made) {
       if (Number(x.id) !== Number(partId)) return x;
       found = true;
       if (made && made.onlyIfFree && x.who) { taken = true; return x; }
+      /* #3951 (review round 15): the Assigner picked it before it was marked built; giving it now would drop the mark. */
+      if (made && made.onlyIfFree && t.builtAt) { taken = true; return x; }
       if (made && typeof made.onlyIfWho === 'string' && x.who !== made.onlyIfWho) { taken = true; return x; }
       moved = (x.who || null) !== whoKey;
       givenOpen = moved && !!whoKey && !x.closedAt;
@@ -518,6 +520,9 @@ function byNumber(p, n) {
 /* The note says what is left in a sentence or two; 300 characters is SENTENCE_MAX's room for a task's own sentence,
    plus a clause, and keeps the row's line readable. */
 const BUILT_NOTE_MAX = 300;
+/* Thrown inside projects.mutate's callback to leave the store unwritten (review round 15: mutate writes the whole
+   store even when the callback changes nothing, so a looping repeat mark rewrote it on every call). */
+const NO_WRITE = Symbol('no write');
 const BUILT_FIELDS = ['builtAt', 'builtBy', 'builtByPerson', 'builtWho', 'builtFreesAll', 'builtNote'];
 function withoutBuilt(t) {
   if (!t || !BUILT_FIELDS.some((k) => k in t)) return t;
@@ -554,12 +559,12 @@ function setBuilt(projectId, n, { by = null, person = false, note = '', refusePe
     projects.mutate(projectId, (p) => {
       const t = byNumber(p, n);
       if (!t) throw new Error('there is no task by that number on this project');
-      if (progressOf(t).closed) { closed = true; return p; }
-      if (refusePersonMark && t.builtAt && t.builtByPerson === true) { personMark = true; return p; }
+      if (progressOf(t).closed) { closed = true; throw NO_WRITE; }
+      if (refusePersonMark && t.builtAt && t.builtByPerson === true) { personMark = true; throw NO_WRITE; }
       /* The same mark again (same marker, same note) changes no field and records nothing (review round 3: a looping
-         agent re-marking wrote a history line each time). The store's own write still happens, as for any mutate. */
+         agent re-marking wrote a history line each time), and writes nothing (review round 15). */
       if (t.builtAt && (t.builtBy || null) === who && (t.builtByPerson === true) === isPerson && (t.builtNote || '') === said) {
-        same = true; changed = t; return p;
+        same = true; changed = t; throw NO_WRITE;
       }
       const earlier = t.builtAt ? (Array.isArray(t.builtWho) ? t.builtWho : []) : [];
       const builtWho = who && !earlier.includes(who) ? earlier.concat([who]) : earlier;
@@ -572,7 +577,7 @@ function setBuilt(projectId, n, { by = null, person = false, note = '', refusePe
       return { ...p, tasks: (p.tasks || []).map((x) => (x.number === changed.number ? changed : x)) };
     });
   } catch (err) {
-    return { ok: false, because: String((err && err.message) || err), code: err && err.code };
+    if (err !== NO_WRITE) return { ok: false, because: String((err && err.message) || err), code: err && err.code };
   }
   if (closed) return { ok: false, closed: true, because: 'that task is closed already, so it is not waiting on anything' };
   if (personMark) return { ok: false, person: true, because: 'the person marked this task built, so only the person can change that mark' };
@@ -592,13 +597,14 @@ function clearBuilt(projectId, n, { by = null, person = false, refusePersonMark 
     projects.mutate(projectId, (p) => {
       const t = byNumber(p, n);
       if (!t) throw new Error('there is no task by that number on this project');
-      if (refusePersonMark && t.builtAt && t.builtByPerson === true) { personMark = true; return p; }
+      if (refusePersonMark && t.builtAt && t.builtByPerson === true) { personMark = true; throw NO_WRITE; }
       had = !!t.builtAt;
       changed = withoutBuilt(t);
-      return had ? { ...p, tasks: (p.tasks || []).map((x) => (x.number === changed.number ? changed : x)) } : p;
+      if (!had) throw NO_WRITE;
+      return { ...p, tasks: (p.tasks || []).map((x) => (x.number === changed.number ? changed : x)) };
     });
   } catch (err) {
-    return { ok: false, because: String((err && err.message) || err), code: err && err.code };
+    if (err !== NO_WRITE) return { ok: false, because: String((err && err.message) || err), code: err && err.code };
   }
   if (personMark) return { ok: false, person: true, because: 'the person marked this task built, so only the person can change that mark' };
   if (had) taskchat.record(projectId, changed.number, { kind: 'unbuilt', by: who, ...(isPerson ? { person: true } : {}) });

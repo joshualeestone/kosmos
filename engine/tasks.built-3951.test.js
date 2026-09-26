@@ -275,3 +275,40 @@ test('a second agent\'s mark keeps the first one free, and an agent named "opera
   assert.equal(tasks.clearBuilt(p.id, n, { by: 'rex', refusePersonMark: true }).person, true);
   assert.equal(assigner.hasOpenWork('operator', read()), false);
 });
+
+test('a repeat mark, a refusal and a no-op clear leave the store unwritten (review round 15)', async () => {
+  const { id, n } = freshTask();
+  const at = () => projects.readAll().find((p) => p.id === id).updatedAt;
+  tasks.setBuilt(id, n, { by: 'rex', note: 'x' });
+  const before = at();
+  await new Promise((r) => setTimeout(r, 5));
+  assert.equal(tasks.setBuilt(id, n, { by: 'rex', note: 'x' }).changed, false);
+  assert.equal(at(), before, 'a repeat mark rewrote the store');
+  tasks.setBuilt(id, n, { person: true });
+  const locked = at();
+  await new Promise((r) => setTimeout(r, 5));
+  assert.equal(tasks.setBuilt(id, n, { by: 'rex', refusePersonMark: true }).person, true);
+  assert.equal(at(), locked, 'a refused change rewrote the store');
+  const { id: id2, n: n2 } = freshTask();
+  const b2 = projects.readAll().find((p) => p.id === id2).updatedAt;
+  await new Promise((r) => setTimeout(r, 5));
+  assert.equal(tasks.clearBuilt(id2, n2, {}).changed, false);
+  assert.equal(projects.readAll().find((p) => p.id === id2).updatedAt, b2, 'a no-op clear rewrote the store');
+  /* CONTROL: a real change does write. */
+  await new Promise((r) => setTimeout(r, 5));
+  tasks.setBuilt(id2, n2, { by: 'rex' });
+  assert.notEqual(projects.readAll().find((p) => p.id === id2).updatedAt, b2);
+});
+
+test('the Assigner\'s only-if-free give refuses a task marked built since it was picked (review round 15)', () => {
+  const { id, n } = freshTask(null);
+  tasks.addPart(id, n, { sentence: 'free part' });
+  const part = tasks.partsOf(stored(id, n)).find((x) => x.sentence === 'free part');
+  tasks.setBuilt(id, n, { person: true });
+  const r = tasks.assignPart(id, n, part.id, 'rex', { onlyIfFree: true });
+  assert.equal(r.ok, false, 'the give went through and dropped the mark');
+  assert.ok('builtAt' in stored(id, n));
+  /* CONTROL: a plain give (the person's own choice) still works and drops the mark as new work. */
+  assert.equal(tasks.assignPart(id, n, part.id, 'rex').ok, true);
+  assert.equal('builtAt' in stored(id, n), false);
+});

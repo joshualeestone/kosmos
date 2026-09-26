@@ -15198,15 +15198,16 @@ const server = http.createServer((req, res) => {
       const card = tokenSender ? tokenSender.card : (byPane && byPane.ok ? byPane.card : null);
       const by = viaScreen ? null : ((card && card.sessionName) || null);
       if (!viaScreen) {
+        /* Membership first, so a non-member hears why, not the breaker (review round 15). */
+        const proj = projects.readAll().find((x) => x.id === id) || null;   // the stored record: agents are names
+        if (card && proj && !(proj.agents || []).includes(card.sessionName)) {
+          sendJson(res, 403, { error: 'that agent is not on this project, so it cannot mark its tasks' });
+          return;
+        }
         const refused = builtMarkRefusal();
         if (refused) {
           if (refused.retryAfterSecs !== null) res.setHeader('retry-after', String(refused.retryAfterSecs));
           sendJson(res, 429, { error: refused.because, ...(refused.retryAfterSecs !== null ? { retry_after_secs: refused.retryAfterSecs } : {}) });
-          return;
-        }
-        const proj = projects.readAll().find((x) => x.id === id) || null;   // the stored record: agents are names
-        if (card && proj && !(proj.agents || []).includes(card.sessionName)) {
-          sendJson(res, 403, { error: 'that agent is not on this project, so it cannot mark its tasks' });
           return;
         }
       }
