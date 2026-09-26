@@ -981,6 +981,11 @@ select:focus-visible { outline: 2px solid var(--label); outline-offset: 1px; }
 .btn:hover { background: var(--attn-bg); }
 .btn:disabled { opacity: 0.5; cursor: default; }
 .btn:disabled:hover { background: var(--bg); }
+/* 📱 #718 row 6: "Set them to start at login", under the board when agents would not survive a
+   restart, is the one home-screen button with nothing bigger around it: 34px tall at 375 (the
+   agent names are 16px but a tap anywhere on the card or row opens the agent, and "Answer" has its
+   own touch hit area below). Phone width only; .btn is shared, so this is scoped to its box. */
+@media (max-width: 40rem) { #restart-wrap .btn { min-height: 44px; } }
 /* 🛑 #2615: THE aria-disabled ARM NEEDS ITS OWN RULE, AND ITS ABSENCE SHIPPED A
    CARD TITLED "grey out the control" THAT GREYED NOTHING OUT. `disabled` was
    doing TWO jobs: the semantics AND the dimming, via `.btn:disabled` right
