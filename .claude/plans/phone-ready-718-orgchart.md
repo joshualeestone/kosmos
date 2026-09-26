@@ -4,7 +4,7 @@ Issue: kosmos #718 (Liu Kang m927: survey the board screens not yet phone-ready,
 Survey table: https://github.com/joshualeestone/kosmos/issues/718#issuecomment-5842472848
 
 ## Problem
-The org chart canvas is a fixed square, `(maxR + 78) * 2` px (420px for the sample fleet of five), drawn at
+The org chart canvas is a fixed square, `(maxR + 78) * 2` px (396px for the sample fleet of five, which made the page 420px wide), drawn at
 that width whatever the screen. On 375, 393 and 412px phones the whole board scrolled sideways (every shot under
 430px wide that the sweep took, 6 Chromium and 2 WebKit, flagged by mobile-shots.js). It was the only screen in the sweep that overflowed.
 

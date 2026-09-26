@@ -3,7 +3,7 @@
 /**
  * #718: the org chart fits a phone (orgFit).
  *
- * The chart was a fixed (maxR + 78) * 2 square, 420px for a small flat fleet,
+ * The chart was a fixed (maxR + 78) * 2 square, 396px for a small flat fleet of five,
  * whatever the screen: on a 375px iPhone the whole board scrolled sideways.
  * orgFit sizes it to the width it is given by giving up the room around the
  * outer ring first and then bringing the rings in, never by shrinking the
