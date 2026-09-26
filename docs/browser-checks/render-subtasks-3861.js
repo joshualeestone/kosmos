@@ -145,7 +145,7 @@ function chk(ok, label, extra) {
         chk(JSON.stringify(col.map((c) => c.n)) === JSON.stringify([7, 3, 4, 5, 2]), '[column] the five newest open tasks, a family kept together', JSON.stringify(col.map((c) => c.n)));
         chk(cn(4).sub === 1 && cn(5).sub === 2 && cn(3).sub === 0, '[column] a subtask nests under its parent', JSON.stringify(col));
         chk(/^Part of #1 Plan the launch week/.test(cn(3).part) && /^Part of #1 /.test(cn(2).part) && !cn(4).part, '[column] one whose parent is past the cap names it; one under its parent does not', JSON.stringify(col));
-        chk(/^0\/1$/.test(cn(3).chip) && /^1\/1, all subtasks done$/.test(cn(7).chip), '[column] a parent carries its chip', JSON.stringify(col));
+        chk(/^0\/1 subtasks done$/.test(cn(3).chip) && /^1\/1, all subtasks done$/.test(cn(7).chip), '[column] a parent carries its chip', JSON.stringify(col));
         if (SHOTS) await page.screenshot({ path: path.join(SHOTS, 'subtasks-project-column.png'), fullPage: false });
 
         /* The task page. */
@@ -182,8 +182,32 @@ function chk(ok, label, extra) {
         const none = await page.evaluate(() => ({ v: document.getElementById('nt-parent').value, opts: document.getElementById('nt-parent').options.length }));
         chk(none.v === '' && none.opts > 1, '[new task] Part of starts at None and offers the open tasks', JSON.stringify(none));
         await page.evaluate(() => leaveNewTask());
+        /* A preset belongs to its "+ Add subtask" press: Cancel it, then a plain New task starts at None. */
+        await page.evaluate(() => openTaskPage(3));
+        await page.click('#tk-subadd');
+        await page.waitForSelector('#nt-modal:not([hidden])', { timeout: 5000 });
+        await page.click('#nt-back');
+        await page.evaluate(() => openNewTask(PJ_CURRENT));
+        const afterCancel = await page.evaluate(() => document.getElementById('nt-parent').value);
+        chk(afterCancel === '', '[new task] after a cancelled "+ Add subtask", a plain New task starts at None', afterCancel);
+        await page.evaluate(() => leaveNewTask());
       }
       chk(errs.length === 0, `${tag} no page errors`, errs.join(' | '));
+      await page.close();
+    }
+    /* The dialog's own project switch keeps the words but never the Part of pick: a task number means
+       nothing in another project. A second project with a task #3 is the dangerous case. */
+    {
+      const other = projects.create({ name: 'Newsletter' });
+      for (const s of ['Pick a template', 'Write the intro', 'Send the test']) tasks.create(other.id, { sentence: s });
+      const page = await browser.newPage({ viewport: { width: 1400, height: 1000 } });
+      await page.goto(URL, { waitUntil: 'networkidle' });
+      await clearFirstRun(page);
+      await page.evaluate(async (id) => { await loadProjects(); TSK.proj = null; openNewTask(null, 'tasks'); document.getElementById('nt-proj').value = id; document.getElementById('nt-proj').dispatchEvent(new Event('change')); }, launch.id);
+      await page.selectOption('#nt-parent', '3');
+      await page.evaluate((id) => { const s = document.getElementById('nt-proj'); s.value = id; s.dispatchEvent(new Event('change')); }, other.id);
+      const sw = await page.evaluate(() => ({ v: document.getElementById('nt-parent').value, first: (document.getElementById('nt-parent').options[1] || {}).textContent }));
+      chk(sw.v === '' && /^#3 Send the test$/.test(sw.first || ''), '[new task] switching project in the dialog drops the Part of pick and lists the new project\'s tasks', JSON.stringify(sw));
       await page.close();
     }
   } finally {

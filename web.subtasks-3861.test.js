@@ -100,7 +100,8 @@ test('a parent row carries its chip; with its family in the list the chip is the
   assert.match(folded, /aria-expanded="false" aria-label="1 of 2 subtasks done\. Show them"/);
   const alone = rowHtml(one, { depth: 0, crumb: false, kids: 0 });
   assert.doesNotMatch(alone, /data-fold/);
-  assert.match(alone, /<span class="tsk-chip"[^>]*>1\/2<\/span>/);
+  assert.match(alone, /<span class="tsk-chip" title="1 of 2 subtasks done">1\/2<span class="vh"> subtasks done<\/span><\/span>/);
+  assert.doesNotMatch(alone, /<span[^>]*aria-label/, 'no aria-label on a plain span: the words are in the chip');
   assert.doesNotMatch(withKids, /all subtasks done/, 'one subtask is still open');
 });
 
