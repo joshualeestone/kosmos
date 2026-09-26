@@ -508,6 +508,19 @@ const waitFor = (page, fn, ms = 6000) => page.waitForFunction(fn, null, { timeou
     const afterSend = await bubble(page);
     const s7cs = (await (await fetch(URL + '/api/settings')).json()).setupAssistant;
     chk(!afterSend.hide && !afterSend.panel && s7cs.idleCloses === 1, 'B7c CONTROL: after the send, the next idle close counts 1 and does not offer', JSON.stringify({ afterSend, s7cs }));
+    // A save that never answers does not hold the next one: an idle close's save hangs, and a later save still lands.
+    await fresh({ asked: true, idleCloses: 0, kept: false });
+    await page.evaluate(() => { ASB_SAVE_TIMEOUT_MS = 800; });
+    await page.route('**/api/settings', async (route) => { const b = route.request().method() === 'POST' ? route.request().postData() || '' : '';
+      if (/"idleCloses":1/.test(b)) return;   // never answered
+      return route.continue(); });
+    await page.click('#asb');
+    await page.click('#asp-x');
+    // Bounded, so a queue that DOES stall fails here in seconds instead of hanging the whole check.
+    const later = await page.evaluate(() => Promise.race([asbSaveSetting({ kept: false }), new Promise((r) => setTimeout(() => r('still waiting after 5s'), 5000))]));
+    await page.unroute('**/api/settings');
+    await page.evaluate(() => { ASB_SAVE_TIMEOUT_MS = 10000; });
+    chk(later === true, 'B7c a save that never answers does not hold the next one behind it (#3947)', JSON.stringify(later));
     // Hide it: the same switch as Close forever.
     await fresh({ asked: true, idleCloses: 1, kept: false });
     await page.click('#asb');

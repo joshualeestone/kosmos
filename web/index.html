@@ -59207,17 +59207,21 @@ async function asbHideChoice(hide) {
    reset). Each patch sets absolute values, so the order they reach the board decides what it keeps; in order, the
    board and the page end on the same value, and every answer is applied. */
 let ASB_SAVES = Promise.resolve();
+/* A save that never answers must not hold every later one (the Settings switch included) behind it. `let`, as the
+   test seam: a browser check shortens it. */
+let ASB_SAVE_TIMEOUT_MS = 10000;
 function asbSaveSetting(patch) {
   const run = async () => {
+    const ac = new AbortController(), cut = setTimeout(() => ac.abort(), ASB_SAVE_TIMEOUT_MS);   // not AbortSignal.timeout: Safari before 16 lacks it
     try {
-      const r = await fetch('/api/settings', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ setupAssistant: patch }) });
+      const r = await fetch('/api/settings', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ setupAssistant: patch }), signal: ac.signal });
       const body = await r.json();
       if (r.ok && body && body.setupAssistant) { ASB.setting = body.setupAssistant; return true; }
-    } catch { /* said below */ }
+    } catch { /* said below */ } finally { clearTimeout(cut); }
     return false;
   };
   const done = ASB_SAVES.then(run);
-  ASB_SAVES = done;   // run never rejects, so the queue never stalls
+  ASB_SAVES = done;   // run never rejects, and times out, so one bad save cannot hold the rest
   return done;
 }
 async function asbCloseChoice(forGood) {
