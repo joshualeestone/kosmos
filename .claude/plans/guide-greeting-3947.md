@@ -41,6 +41,10 @@ prompt me to close the agent forever."
 - This REPLACES the 09-25 rule that asked on every idle close (Josh's 08:13 ruling is newer).
 - Browser check B7c rewritten: first idle close counts and just closes; second offers; Keep it; Hide it; a send
   resets. Threshold and send-reset each perturbed: red.
+- Settings saves from the page go one at a time, in order, so what the board keeps matches the page (review:
+  absolute patches racing on the wire). After Keep it nothing is counted. X on the offer is "not now": it closes,
+  the board keeps the count before it, so the next idle close offers again (deliberate: they answered neither).
+  Escape folds without counting (Josh's words are about the X; reversible if keyboard users should count too).
 - Decided: "Keep it" never asks again (the card allowed "or at most much later"); simplest, and the Settings switch
   still turns it off. Weakest premise: that Josh did not see the old every-idle-close ask; if he did and still wants
   this, the count is what he asked for either way.

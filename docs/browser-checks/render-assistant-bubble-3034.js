@@ -485,8 +485,9 @@ const waitFor = (page, fn, ms = 6000) => page.waitForFunction(fn, null, { timeou
     await waitFor(page, () => ASB.sending === false && document.getElementById('asp-say').value === '');
     await page.waitForTimeout(1900);
     await page.unroute('**/api/settings');
-    chk(await page.evaluate(() => ASB.setting.idleCloses) === 0, 'B7c a slow earlier save does not put back a count the person reset (#3947)',
-      JSON.stringify(await page.evaluate(() => ASB.setting)));
+    const boardAfter = (await (await fetch(URL + '/api/settings')).json()).setupAssistant.idleCloses;
+    chk(await page.evaluate(() => ASB.setting.idleCloses) === 0 && boardAfter === 0, 'B7c a slow earlier save does not put back a count the person reset, on the page or on the board (#3947)',
+      JSON.stringify({ page: await page.evaluate(() => ASB.setting), boardAfter }));
     await page.click('#asp-fold');
     await page.waitForTimeout(300);
     // A message sent restarts the count: counted once, then a send, then an idle close only counts again (no offer).
