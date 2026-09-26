@@ -1797,9 +1797,14 @@ button.worldsw-row:focus-visible { outline: 2px solid var(--k-ink); outline-offs
    nobody loses, and it doubles as urgency -- needs-you is nearly the whole
    ring AND the loudest colour, working is a quarter, idle is absent. Read the
    view in greyscale and it still works. */
-/* #718: overflow-x: a fleet too big to fit a phone even with its rings brought
-   in (orgFit) scrolls inside the chart's own box, never the whole page sideways. */
-.orgwrap { margin-top: 8px; overflow-x: auto; }
+.orgwrap { margin-top: 8px; }
+/* #718: a fleet too big to fit a phone even with its rings brought in (orgFit)
+   scrolls inside the chart's own box, never the whole page sideways. Only then
+   (paintOrg sets .orgscroll), because overflow-x makes overflow-y clip as well.
+   The top padding is room for the name callout of a node held at the top of
+   the drag box; the deep-fleet arm of render-orgchart-phone-718 drags one there
+   and fails if its callout is cut off. */
+.orgwrap.orgscroll { overflow-x: auto; padding-top: 48px; }
 /* Centred under the chart, per Josh. The chart itself is centred in the page,
    so a line hugging the left edge reads as belonging to the page rather than
    to the drawing it is about. */
@@ -26424,7 +26429,7 @@ function orgStep(nodes, hub, alpha, box) {
 let ORG_LIVE = null;   // { nodes: Map key -> node, hub, size, raf, alpha }
 let ORG_DRAG_MOVED = false;   // the last pointer sequence on the map was a drag, not a click (#381)
 let ORG_POS = new Map(); // last positions by key, so a repaint does not snap back
-let ORG_SIZE = 0;        // the canvas ORG_POS was measured on (#718: a new width starts fresh)
+let ORG_SIZE = 0;        // the canvas ORG_POS was measured on (#718: a new width rescales them)
 let ORG_HTML = null;         // the repaint guard's memory
 
 function orgTreeOf(agents) {
@@ -26580,6 +26585,7 @@ function paintOrg() {
     note.textContent = BOARD_SEEN ? 'No agents set up in Kosmos yet.' : 'Looking…';
     // Same correction as the failure path: the container, never its children.
     document.getElementById('orgmap').innerHTML = '';
+    wrap.classList.remove('orgscroll'); document.getElementById('orgmap').classList.remove('orgwide');
     ORG_HTML = null;
     return;
   }
@@ -26588,11 +26594,19 @@ function paintOrg() {
   const fit = orgFit(maxR, wrap.clientWidth);
   if (fit.k < 1) for (const spot of placed.values()) spot.r *= fit.k;
   const size = fit.size;
-  /* Positions kept from a canvas of another size (a phone turned sideways) are
-     in the wrong frame: start this one from the rings instead. */
-  if (ORG_SIZE !== size) { ORG_POS = new Map(); ORG_SIZE = size; }
-  // #718: wider than its box even at the floor: the box scrolls, so touch must pan (.orgwide).
-  document.getElementById('orgmap').classList.toggle('orgwide', size > wrap.clientWidth);
+  /* Positions kept from a canvas of another size (a phone turned sideways, a
+     scrollbar coming and going) are in that canvas's frame: carry them across
+     in proportion rather than restarting from the rings. */
+  if (ORG_SIZE !== size) {
+    if (ORG_SIZE > 0) { const f = size / ORG_SIZE; for (const p of ORG_POS.values()) { p.x *= f; p.y *= f; } }
+    ORG_SIZE = size;
+  }
+  // #718: wider than its box even at the floor: the box scrolls (.orgscroll) and
+  // touch must pan it (.orgwide). The first time, it opens centred on the hub.
+  const wide = size > wrap.clientWidth;
+  const centreScroll = wide && !wrap.classList.contains('orgscroll');
+  wrap.classList.toggle('orgscroll', wide);
+  document.getElementById('orgmap').classList.toggle('orgwide', wide);
   /**
    * 🔑 CENTRED ON THE DRAWING, NOT ON THE HUB, and this is the change that does
    * most of the work for "too wide". The hub was pinned to the middle of the
@@ -26762,6 +26776,7 @@ function paintOrg() {
   const map = document.getElementById('orgmap');
   map.style.width = size + 'px';
   map.style.height = size + 'px';
+  if (centreScroll) wrap.scrollLeft = Math.round((size - wrap.clientWidth) / 2);
   map.innerHTML = html;
   ORG_HTML = html;
   if (hadName) {

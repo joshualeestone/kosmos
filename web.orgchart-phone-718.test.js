@@ -86,14 +86,25 @@ test('#718: paintOrg sizes the chart by orgFit from its own width, and squeezes 
 test('#718: a width change repaints the chart, and a too-big chart scrolls in its own box', () => {
   assert.match(SCRIPT, /function orgResizeRepaint\(\) \{\s*const wrap = document\.getElementById\('orgview'\);[\s\S]{0,200}paintOrg\(\);/);
   assert.match(SCRIPT, /window\.addEventListener\('resize', orgResizeRepaint\);/);
-  assert.match(PAGE, /\.orgwrap \{ margin-top: 8px; overflow-x: auto; \}/);
 });
 
 test('#718: a chart wider than its box lets a finger scroll the box, and the drag box is the fit margin', () => {
   const paint = SCRIPT.slice(SCRIPT.indexOf('function paintOrg'), SCRIPT.indexOf('function orgLiveStart'));
-  assert.match(paint, /classList\.toggle\('orgwide', size > wrap\.clientWidth\)/);
+  assert.match(paint, /const wide = size > wrap\.clientWidth;/);
+  assert.match(paint, /classList\.toggle\('orgwide', wide\)/);
   // touch-action: none on the chart would block the box's own scroll on every point of it.
   assert.match(PAGE, /\.orgmap\.orgwide \{ touch-action: pan-x pan-y; \}/);
   // One number for the margin orgFit leaves and the box a dragged node is kept inside.
   assert.match(SCRIPT, /box: \{ lo: ORG_PAD_MIN, hi: size - ORG_PAD_MIN \}/);
+  // Only a chart wider than its box scrolls: overflow-x clips overflow-y too, and the
+  // callouts reach past the square, so an always-on scroller would cut them off.
+  assert.match(paint, /classList\.toggle\('orgscroll', wide\)/);
+  assert.match(PAGE, /\.orgwrap\.orgscroll \{ overflow-x: auto;/);
+  assert.doesNotMatch(PAGE, /\.orgwrap \{[^}]*overflow-x/, 'every chart would clip its callouts');
+});
+
+test('#718: positions from a canvas of another width are carried across in proportion', () => {
+  const paint = SCRIPT.slice(SCRIPT.indexOf('function paintOrg'), SCRIPT.indexOf('function orgLiveStart'));
+  assert.match(paint, /const f = size \/ ORG_SIZE; for \(const p of ORG_POS\.values\(\)\) \{ p\.x \*= f; p\.y \*= f; \}/);
+  assert.doesNotMatch(paint, /ORG_POS = new Map\(\)/, 'a width change throws the positions away again');
 });

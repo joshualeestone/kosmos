@@ -67,3 +67,19 @@ and a phone has no hover: a tap opens the agent. Changing that is a design call 
 - The drag box uses ORG_PAD_MIN rather than a second literal 30.
 - Browser check: deep-fleet arms at 375 in both engines, real touch swipe in Chromium. Fixed 61/61; with the
   touch rule removed, the touch-action and swipe arms fail (scrollLeft 0).
+
+## Challenge loop, iteration 3
+- `overflow-x: auto` also clips vertically, so an always-on scroller would cut off name callouts on every chart,
+  desktop included. The box now scrolls only when the chart is wider than it (`.orgscroll`, same test as
+  `.orgwide`), with 48px top padding. Measured: on this fixture the relaxation keeps every callout inside the
+  square (topmost 2px, deep fleet 14px); the case that needs the padding is a node held at the top of the drag
+  box (face top 8px, callout 45px above the box). The check drags one there. No bottom padding: nothing is drawn
+  below a face.
+- A chart wider than its box opens centred on the hub, not at its left edge.
+- Positions from a canvas of another width are rescaled instead of dropped. Finding said this loses the user's
+  drags; measured that it mostly does not matter: ORG_POS only seeds the next layout, and every repaint re-runs
+  the relaxation, which pulls a dragged node back toward its ring at any width (drift 0.046 of the chart with
+  the rescale, 0.064 with the old reset, under reduced motion). A browser arm for "keeps its place" was written,
+  measured as non-discriminating, and removed; the rescale is pinned by the unit test only.
+- An empty board clears both classes.
+- Fixed 75/75 (Chromium + WebKit). Controls: always-on scroller (5 fails), no top padding (1), no centring (1).
