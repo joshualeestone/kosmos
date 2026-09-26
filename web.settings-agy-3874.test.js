@@ -59,12 +59,13 @@ function drivers(answers) {
   };
   let painted = 0;
   // eslint-disable-next-line no-new-func
-  const api = new Function('document', 'fetch', 'paintAgyOption', 'frPaintKeyed', `
+  const successes = [];   // #3998: Settings' Ready ends on the gold box (acctShowSuccess)
+  const api = new Function('document', 'fetch', 'paintAgyOption', 'frPaintKeyed', 'acctShowSuccess', 'frCheckRow', `
     let AGY_INSTALLED = null; let AGY_OFFERED = null;
     ${PAGE.slice(at, end)}
     return { FR_AGY_SUB, ACCT_AGY_SUB, frReady: () => FR_AGY_READY };
-  `)({ getElementById: el }, fetchStub, () => {}, () => { painted += 1; });
-  return { ...api, el, posts, painted: () => painted };
+  `)({ getElementById: el }, fetchStub, () => {}, () => { painted += 1; }, (label, box) => successes.push([label, box]), (o) => o.title);
+  return { ...api, el, posts, painted: () => painted, successes };
 }
 
 test('#3874: Settings\' sign-in paints the dialog, not the first-run row; Ready records the fact but repaints nothing of first run', async () => {
@@ -75,6 +76,7 @@ test('#3874: Settings\' sign-in paints the dialog, not the first-run row; Ready 
   assert.equal(d.el('fr-gemini-sub-code').textContent, '', 'Settings wrote into the first-run row');
   assert.equal(d.frReady(), true, 'signed in is a fact of this computer: the create hint and first run read it');
   assert.equal(d.painted(), 0, 'a Settings sign-in must not repaint first run');
+  assert.deepEqual(d.successes.map(([, box]) => box), ['Gemini is connected'], '#3998: Settings ends on the gold connected box');
   // CONTROL: the first-run instance does repaint, so the assertion above can fail.
   await d.FR_AGY_SUB.start();
   assert.match(d.el('fr-gemini-sub-code').textContent, /^Ready\./);
@@ -224,11 +226,11 @@ test('#3874: a check that answers without `offered: false` confirms the offer (a
   const end = PAGE.indexOf('const KEYED_SUB_START', at);
   const els = {};
   const el = (id) => (els[id] || (els[id] = stubEl(id)));
-  const run = async (answer) => new Function('document', 'fetch', 'paintAgyOption', 'frPaintKeyed', `
+  const run = async (answer) => new Function('document', 'fetch', 'paintAgyOption', 'frPaintKeyed', 'acctShowSuccess', 'frCheckRow', `
     let AGY_INSTALLED = null; let AGY_OFFERED = null;
     ${PAGE.slice(at, end)}
     return ACCT_AGY_SUB.start().then(() => AGY_OFFERED);
-  `)({ getElementById: el }, async () => ({ json: async () => answer }), () => {}, () => {});
+  `)({ getElementById: el }, async () => ({ json: async () => answer }), () => {}, () => {}, () => {}, (o) => o.title);
   assert.equal(await run({ installed: true, signedIn: true }), true);
   assert.equal(await run({ installed: false, signedIn: false, offered: false }), false);   // CONTROL
   assert.equal(await run(null), null, 'no answer confirms nothing');
