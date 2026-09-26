@@ -1163,3 +1163,29 @@ test('#3935 past the value cap, the same set in another order keeps the same val
   }
   assert.equal(results[0], results[1], `the same set held a different subset by order: ${JSON.stringify(results)}`);
 });
+
+test('#3935 a key in a comment line of a secrets file is still masked: commented out, or written bare (review round 28)', () => {
+  const knownsecrets = require('./knownsecrets');
+  const fs = require('fs'); const os = require('os'); const path = require('path');
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'km-3935-28-'));
+  const old = 'Zq8vLm3pRt6wXy9kHb2nWc4d'; const bare = 'Qw8eRt2yUi9oPa3sDf6gHj1k';
+  try {
+    fs.mkdirSync(path.join(root, 'secrets'));
+    fs.writeFileSync(path.join(root, 'secrets', 'cf.env'), `# OLD_API_KEY=${old}\n# rotated: ${bare} (keep until Friday)\nCF_API_TOKEN=Mn4bVc7xZa1sDf3gHj5kLp8o\n`);
+    setKnownSecrets(knownsecrets.collect({ dataRoot: root, home: root }));
+    for (const v of [old, bare]) {
+      const out = mask(`First ${v.slice(0, 8)} then ${v.slice(8, 16)} then ${v.slice(16)} done`).text;
+      assert.ok(!out.includes(v.slice(8, 16)) && !out.includes(v.slice(16)), `${v}: ${out}`);
+    }
+    /* Controls: the comment's words and the variable names stay readable. */
+    for (const t of ['Set OLD_API_KEY and CF_API_TOKEN in the file.', 'It was rotated, keep it until Friday.']) assert.equal(mask(t).text, t);
+  } finally { setKnownSecrets([]); fs.rmSync(root, { recursive: true, force: true }); }
+});
+
+test('#3935 a prose line in a secrets folder ("Note: see the wiki ...") is not read as a YAML value (review round 28)', () => {
+  const { assignedValue } = require('./knownsecrets');
+  assert.equal(assignedValue('Note: see the wiki for full setup details'), null);
+  assert.equal(assignedValue('r2_secret_access_key: Qw8eRt2yUi9oPa3s'), 'Qw8eRt2yUi9oPa3s');
+  assert.equal(assignedValue('  "webhook_url_v2": "Mn4bVc7xZa1sDf3g",'), 'Mn4bVc7xZa1sDf3g');
+  assert.equal(assignedValue('# OLD_API_KEY=Zq8vLm3pRt6wXy9kHb2n'), 'Zq8vLm3pRt6wXy9kHb2n');
+});

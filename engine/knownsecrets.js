@@ -42,6 +42,14 @@ function valuesIn(text, out) {
     out.add(t);
     const value = assignedValue(t);
     if (value) out.add(value);
+    /* A comment line is not walked by the mask (#3935 review round 27), so a key written bare in one is held on its
+       own here (review round 28): each token of 12 characters or more with both a letter and a digit. A name
+       (CF_API_TOKEN) has no digit, and prose has neither shape. */
+    if (/^#/.test(t)) {
+      for (const tok of t.replace(/^#+/, '').split(/[\s,;]+/)) {
+        if (tok.length >= 12 && /[A-Za-z]/.test(tok) && /[0-9]/.test(tok)) out.add(tok.replace(/^["'`]|["'`.]$/g, ''));
+      }
+    }
   }
 }
 
@@ -51,10 +59,12 @@ function valuesIn(text, out) {
    on its own here is masked whole there but not walked, so its NAME stays readable. One parser, two uses. */
 function assignedValue(line) {
   if (typeof line !== 'string') return null;
-  const t = line.trim();
+  /* A commented-out assignment (# OLD_API_KEY=value, review round 28) still holds a real value. */
+  const t = line.trim().replace(/^#\s*/, '');
+  /* YAML and JSON values with no space in them (review round 28: "Note: see the wiki" is prose, not a value). */
   const m = /^(?:export\s+)?[A-Za-z_][A-Za-z0-9_]*=(.*)$/.exec(t)
-    || /^[A-Za-z_][A-Za-z0-9_.-]*:\s+(.*)$/.exec(t)
-    || /^"[A-Za-z_][A-Za-z0-9_.-]*"\s*:\s*(.*?),?$/.exec(t);
+    || /^[A-Za-z_][A-Za-z0-9_.-]*:\s+(\S+)$/.exec(t)
+    || /^"[A-Za-z_][A-Za-z0-9_.-]*"\s*:\s*("[^\s"]*"|[^\s,]+),?$/.exec(t);
   if (!m) return null;
   const value = m[1].trim().replace(/^["']|["']$/g, '');
   return value || null;

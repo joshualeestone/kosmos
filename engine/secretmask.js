@@ -384,7 +384,8 @@ function unspaced(text, map = Array.from({ length: text.length }, (_, i) => i)) 
    250,000; review round 21 measured denser prose (a mention every 130 characters) withheld 9 of 20 times at 80
    mentions with five keys, while an exhausted search had cost only 37 to 50ms, so the budget is 1,250,000: what
    matters is mentions per character, and every adversarial test still ends at it within its CPU bound. At this
-   budget an exhausted search costs about 1 to 1.3 seconds (review round 23, 50,000-character replies), and a
+   budget an exhausted search costs about 1 to 1.3 seconds (review round 23, 50,000-character replies), up to twice
+   that when the reply also holds single-character spacing and the spaced copy is searched too (review round 28), and a
    1,440-character reply naming sk-ant-api03- 20 times about 50 to 280ms; mask() caches results, so a stored reply
    served on every poll pays that once per held set, not per read. Earlier measurements (review round 13): well
    inside it, a 50,000-character reply with five held Anthropic keys and 400 sk-ant-api03- mentions. Measured
