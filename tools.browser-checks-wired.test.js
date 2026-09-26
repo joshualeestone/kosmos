@@ -294,6 +294,15 @@ test('#1387: the instrument is reading something', () => {
 });
 
 test('#3929: the gated list is one name per line, sorted, unique, each a real check, and the runner iterates IT', () => {
+  /* The file's RAW lines, as the runner reads them (review 1): it only skips an empty line or one
+     starting with "#" in column 1, and runs every other line exactly as written. So a CRLF line, a
+     trailing space or an indented comment would reach run_one as a name that is not a file. */
+  const raw = fs.readFileSync(GATED_FILE, 'utf8').split('\n');
+  if (raw[raw.length - 1] === '') raw.pop();
+  for (const [i, l] of raw.entries()) {
+    if (l === '' || l.startsWith('#')) continue;
+    assert.ok(/^[a-z0-9-]+$/.test(l), `${GATED_FILE}:${i + 1} ${JSON.stringify(l)} is not a bare check name exactly as written (no spaces, no CR, comments start in column 1)`);
+  }
   const names = gatedNames();
   assert.ok(names.length >= 100, `only ${names.length} names read from ${GATED_FILE}; the read looks broken`);
   const sorted = [...names].sort((a, b) => (a < b ? -1 : a > b ? 1 : 0));
@@ -331,7 +340,7 @@ test('#1387: every browser check is RUN by the runner, or is listed as unwired w
   }
   assert.deepEqual(orphans, [],
     `these checks exist and are never run by ${RUNNER}, and nothing else would tell you:\n  ${orphans.join('\n  ')}\n`
-    + 'Wire them, or add them to NOT_WIRED with a reason that is a real cost.');
+    + 'Wire them (a hermetic check: add its name to docs/browser-checks/gated.txt, sorted), or add them to NOT_WIRED with a reason that is a real cost.');
 });
 
 /* 🛑 THE LIST MUST SHRINK, NEVER SILENTLY ROT. An entry that has since been
