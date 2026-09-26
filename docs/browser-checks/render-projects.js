@@ -1091,7 +1091,8 @@ async function main() {
       }
       return out;
     });
-    /* ⚠️ `.pj-told` MEASURED WHERE IT RENDERS, which is a project whose tell
+    /* ⚠️ THE FAILED TELL MEASURED WHERE IT RENDERS (the project notice since #3923; it was
+       the row's `.pj-told` before), which is a project whose tell
        FAILED. It sat in the healthy-project list above and was red for two
        reasons at once: the element only exists when `told.state` is
        `could_not`, and this fixture's healthy project has no such member.

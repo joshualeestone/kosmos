@@ -47,3 +47,12 @@ page. Try again re-tells that agent and the notice updates.
 
 ## Verified checks
 - render-projects and render-project-members-3387 pass through tools/browser-checks.sh with the notice in the Members card (the second is surface-mapped to pjcard-members; the notice adds a sibling and changes nothing it asserts).
+
+## Review round 5
+- The Act fixes no longer promise a time Kosmos picks the fix up: three wordings in a row were false
+  (another agent's membership change does not re-tell this one). The four "change something" rows are
+  now Act then retry ("..., then try again." with Try again), which is Mona's own third shape: the
+  retry fails before the fix and works after it, and nothing else re-tells the agent. #3932 (automatic
+  re-tell) becomes a nice-to-have.
+- Try again no longer paints twice (a role=status notice announced twice); "still" is marked only for a
+  read that landed, and an overtaken read places no focus.

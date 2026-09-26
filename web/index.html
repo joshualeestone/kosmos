@@ -43735,14 +43735,14 @@ function pjToldLine(told) {
 const PJ_NOTICE = [
   [/^we could not write to its instructions$/, 'wait', (n) => n ? 'We could not write to ' + n + '\u2019s instructions.' : 'We could not write to its instructions.'],
   [/^we could not check which agents are running$/, 'wait', () => 'We could not check which agents are running.'],
-  [/^it has no instructions file yet, and we will not create one$|^it has no instruction file yet$/, 'act', (n) => (n ? n + ' has' : 'It has') + ' no instructions file, and Kosmos will not create one.',
-    (name) => 'Give ' + name + ' some instructions and Kosmos will pick it up the next time you give ' + name + ' a task here, or change who is on this project or its name.'],
-  [/^its instructions contain \d+ Kosmos project blocks/, 'act', (n) => (n ? n + '\u2019s' : 'Its') + ' instructions hold more than one Kosmos project section, so Kosmos cannot tell which is its own.',
-    (name) => 'Leave one Kosmos project section in ' + name + '\u2019s instructions and Kosmos will pick it up the next time you give ' + name + ' a task here, or change who is on this project or its name.'],
-  [/^taking this out would leave its instructions almost empty$/, 'act', (n) => (n ? n + '\u2019s' : 'Its') + ' instructions are too short for Kosmos to change safely.',
-    (name) => 'Add to ' + name + '\u2019s instructions and Kosmos will pick it up the next time you give ' + name + ' a task here, or change who is on this project or its name.'],
-  [/^its instructions are already at the size limit$/, 'act', (n) => (n ? n + '\u2019s' : 'Its') + ' instructions are already at the size limit.',
-    (name) => 'Shorten ' + name + '\u2019s instructions and Kosmos will pick it up the next time you give ' + name + ' a task here, or change who is on this project or its name.'],
+  [/^it has no instructions file yet, and we will not create one$|^it has no instruction file yet$/, 'retry', (n) => (n ? n + ' has' : 'It has') + ' no instructions file, and Kosmos will not create one.',
+    (name) => 'Give ' + name + ' some instructions, then try again.'],
+  [/^its instructions contain \d+ Kosmos project blocks/, 'retry', (n) => (n ? n + '\u2019s' : 'Its') + ' instructions hold more than one Kosmos project section, so Kosmos cannot tell which is its own.',
+    (name) => 'Leave one Kosmos project section in ' + name + '\u2019s instructions, then try again.'],
+  [/^taking this out would leave its instructions almost empty$/, 'retry', (n) => (n ? n + '\u2019s' : 'Its') + ' instructions are too short for Kosmos to change safely.',
+    (name) => 'Add to ' + name + '\u2019s instructions, then try again.'],
+  [/^its instructions are already at the size limit$/, 'retry', (n) => (n ? n + '\u2019s' : 'Its') + ' instructions are already at the size limit.',
+    (name) => 'Shorten ' + name + '\u2019s instructions, then try again.'],
   [/^we could not find an agent with exactly this name on this computer$/, 'retry', (n) => 'Kosmos cannot match ' + (n || 'it') + ' to a session on this computer.',
     (name) => 'Start ' + name + ', then try again.'],
   [/^something is running under this name, but we cannot tell that it is this agent$/, 'retry', (n) => 'Something is running under ' + (n ? n + '\u2019s' : 'its') + ' name, but Kosmos cannot tell that it is ' + (n || 'the same agent') + '.',
@@ -53295,15 +53295,16 @@ document.getElementById('pj-one-notice').addEventListener('click', async (e) => 
     const res = await fetch('/api/project/' + encodeURIComponent(project) + '/agent/' + encodeURIComponent(key) + '?retell=1', { method: 'POST' });
     reached = !!(res && res.ok);
   } catch { /* the repaint below shows where it stands */ }
-  // "It still did not work" only about a retry that reached the board and was answered.
-  if (reached) PJ_NOTICE_TRIED.set(pjNoticeKey(project, key), before);
+  // "It still did not work" only about a retry that reached the board, marked before the read so
+  // this read's own paint shows it. Cleared again if the read is overtaken (its data is not ours).
+  const mark = pjNoticeKey(project, key);
+  if (reached) PJ_NOTICE_TRIED.set(mark, before);
   box.__lastLive = null;   // repaint even when the answer is word for word the same
-  await loadProjects();
+  const landed = await loadProjects();
   btn.disabled = false;
+  // A newer poll overtook this read: it paints on its own, so no focus is placed here.
+  if (!landed) { PJ_NOTICE_TRIED.delete(mark); return; }
   if (PJ_CURRENT !== project) return;
-  // A newer poll can overtake this read and paint later; paint now so focus lands on this paint.
-  box.__lastLive = null;
-  paintOneProject();
   // Compared as data, not built into a selector, so no session name can break the lookup.
   const again = Array.from(box.querySelectorAll('[data-pn-retry]')).find((b) => b.dataset.pnRetry === key) || null;
   const heading = document.querySelector('.pjcard-members > .dlab');

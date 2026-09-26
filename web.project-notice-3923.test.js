@@ -91,8 +91,9 @@ test('#3923: the four shapes, one agent each, as the design draws them', () => {
   assert.match(wait, /data-pn-retry="leo"/);
 
   const act = pjNotice(rows({ april: 'it has no instructions file yet, and we will not create one' }));
-  assert.equal(text(act), 'april does not have this project’s folder. april has no instructions file, and Kosmos will not create one. Give april some instructions and Kosmos will pick it up the next time you give april a task here, or change who is on this project or its name.');
-  assert.doesNotMatch(act, /Try again/, 'Act offers no button: pressing it would fail every time');
+  assert.equal(text(act), 'april does not have this project’s folder. april has no instructions file, and Kosmos will not create one. Give april some instructions, then try again. Try again');
+  // A fix the person makes, then a retry: nothing else re-tells the agent, so the button is how it is picked up.
+  assert.match(act, /data-pn-retry="april"/, 'a change-something row must offer Try again after the fix');
   assert.match(act, /<b class="pnfix">Give april/);
 
   const retry = pjNotice(rows({ mikey: 'we could not find an agent with exactly this name on this computer' }));
@@ -118,7 +119,8 @@ test('#3923: several agents: the header counts, each row carries its own why and
   }));
   assert.match(text(html), /^Three agents do not have this project’s folder\./);
   assert.equal((html.match(/class="pnrow"/g) || []).length, 3, 'one row per failing agent; the told one says nothing');
-  assert.equal((html.match(/data-pn-retry=/g) || []).length, 1, 'only leo (Wait) gets a button');
+  assert.equal((html.match(/data-pn-retry=/g) || []).length, 2, 'leo (Wait) and april (fix, then retry) get a button; casey (Explain) does not');
+  assert.doesNotMatch(html, /data-pn-retry="casey"/);
   assert.match(html, /aria-label="Try again for leo"/, 'each button names its agent for a screen reader');
   assert.match(html, /<span class="pnwho">leo<\/span><span class="pnwhy">We could not write to its instructions\./);
   assert.match(html, /<span class="pnwho">casey<\/span><span class="pnwhy">Kosmos only keeps instructions for agents it made, and casey came from somewhere else, so Kosmos has nowhere to write\./);
@@ -208,7 +210,7 @@ function retryHandler(state) {
   return new Function('state', 'document', 'fetch', 'loadProjects', 'paintOneProject', 'PROJECTS', 'PJ_NOTICE_TRIED', 'window', 'CSS',
     pageFn('const pjNoticeKey').split('\n')[0] + '\nreturn ' + body + ';')(state, state.document, state.fetch, state.loadProjects, state.paintOneProject, state.PROJECTS, state.tried, {}, undefined);
 }
-function standIn(project, { rowAfter = true, switchTo = null, fetchFails = false } = {}) {
+function standIn(project, { rowAfter = true, switchTo = null, fetchFails = false, overtaken = false } = {}) {
   const log = [];
   const btn = { dataset: { pnRetry: project.agents[0].sessionName }, disabled: false, closest() { return this; } };
   const again = { focus() { log.push('focus:again'); } };
@@ -220,7 +222,7 @@ function standIn(project, { rowAfter = true, switchTo = null, fetchFails = false
     PJ_CURRENT: project.id, PROJECTS: [project], tried: new Map(), log, btn, attrs,
     document: { getElementById: () => box, querySelector: () => heading },
     fetch: async (url, opts) => { log.push('fetch:' + opts.method + ' ' + url + ' disabled=' + btn.disabled); if (switchTo) state.PJ_CURRENT = switchTo; if (fetchFails) throw new Error('offline'); return { ok: true }; },
-    loadProjects: async () => { log.push('load live=' + box.__lastLive); },
+    loadProjects: async () => { log.push('load live=' + box.__lastLive); return !overtaken; },
     paintOneProject: () => { log.push('paint live=' + box.__lastLive); },
   };
   return state;
@@ -233,7 +235,6 @@ test('#3923: Try again re-tells with ?retell=1, repaints, marks the answer, and 
   assert.deepEqual(st.log, [
     'fetch:POST /api/project/' + encodeURIComponent(project.id) + '/agent/leo?retell=1 disabled=true',
     'load live=null',
-    'paint live=null',
     'focus:again',
   ]);
   assert.equal(st.btn.disabled, false, 'the button must be re-enabled after the repaint');
@@ -257,6 +258,13 @@ test('#3923: when the row is gone focus goes to the Members heading; after a pro
   await retryHandler(offline)({ target: offline.btn });
   assert.equal(offline.tried.has(project.id + '\nleo'), false, 'a failed request was recorded as a retry that did not work');
   assert.equal(offline.btn.disabled, false);
+
+  // A newer poll overtook this read: no focus here, and no "still" mark from data that is not ours.
+  const over = standIn(project, { overtaken: true });
+  await retryHandler(over)({ target: over.btn });
+  assert.ok(!over.log.some((l) => l.startsWith('focus:') || l.startsWith('paint')), 'an overtaken read painted or moved focus: ' + over.log);
+  assert.equal(over.tried.size, 0, 'an overtaken read left a still-mark');
+  assert.equal(over.btn.disabled, false);
 
   // CONTROL: a click that is not on a Try again does nothing at all.
   const idle = standIn(project);
