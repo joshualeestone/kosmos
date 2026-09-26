@@ -387,7 +387,7 @@ function seedFiles(roots) {
     }
   }
   /* The chat agent's Files folder, for the agent-files screens: more rows than the
-     agent page shows (AGENT_FILES_SHOWN, 10, so View All appears), one with
+     agent page shows (AGENT_FILES_SHOWN, 10, so the list is capped; View All shows with any file), one with
      a long name. */
   const chatFiles = require(path.join(REPO, 'engine', 'dmfiles')).filesDir(DATA.chatAgent);
   fs.mkdirSync(chatFiles, { recursive: true });
