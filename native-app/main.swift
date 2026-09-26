@@ -1000,6 +1000,19 @@ func tokenizedBoardURL(_ urlString: String) -> URL? {
     return comps.url ?? URL(string: urlString)
 }
 
+/* #3996: the page's waiting count, handed to the app. A separate object held WEAKLY to the app:
+   WKUserContentController keeps its handlers alive, and holding the AppDelegate there would be a
+   cycle. Only the board's own page is heard: the main frame, on this computer. */
+final class BadgeMessageProxy: NSObject, WKScriptMessageHandler {
+    weak var owner: AppDelegate?
+    init(_ owner: AppDelegate) { self.owner = owner }
+    func userContentController(_ controller: WKUserContentController, didReceive message: WKScriptMessage) {
+        let host = message.frameInfo.securityOrigin.host
+        guard message.frameInfo.isMainFrame, host == "127.0.0.1" || host == "localhost" else { return }
+        owner?.pageSaidWaiting(message.body)
+    }
+}
+
 final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNavigationDelegate, WKUIDelegate {
     var window: NSWindow!
     var webView: WKWebView!
@@ -1050,8 +1063,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
     // #1 / #2189: the watcher that turns a webview grant-button POST into a real,
     // under-tmux macOS prompt (see startPromptRequestWatcher).
     private var promptRequestTimer: Timer?
-    // #3996: the Dock badge's poll (held so it survives).
+    // #3996: the Dock badge's poll (held so it survives), when the page last handed over its count,
+    // and the order answers were asked in (an older answer never overwrites a newer one).
     private var badgeTimer: Timer?
+    private var lastPageBadgeAt: Date?
+    private var badgeAsked = 0
+    private var badgeShown = 0
+    private var badgeReadFailing = false
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         // #2124: single-instance. A fresh install could run this app from two bundle
@@ -1654,6 +1672,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
     /// extracted to close.
     static func makeWebView(frame: NSRect, delegate: AppDelegate) -> WKWebView {
         let config = WKWebViewConfiguration()
+        // #3996: the page hands the app its waiting count each time it polls the board.
+        config.userContentController.add(BadgeMessageProxy(delegate), name: "kosmosBadge")
         let web = WKWebView(frame: frame, configuration: config)
         web.navigationDelegate = delegate
         // 🛑 WITHOUT THIS LINE EVERY + BUTTON IN KOSMOS IS DEAD AND SILENT.
@@ -2248,18 +2268,28 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
        the dock, like Messages app shows"): the red number on the Dock icon. The board works the
        number out (engine/status.js waitingTotal: needs-you + unread DMs + unread project messages,
        the page's own three counters) and serves it as counts.waiting on /api/status; this only
-       shows it. Its own timer, not the page's poll, so the badge keeps up with the window closed.
-       10 s, not the page's 5 s: it runs as well as the page's poll, and a badge a few seconds
-       late is still right. The request is the stale check's (token header, no cache). */
+       shows it.
+       TWO SOURCES, ONE NUMBER. While the page is polling the board (every 5 s) it hands the app its
+       counts.waiting (pageSaidWaiting), so the app asks nothing extra of the board's heaviest
+       route. When the page has not said anything for 12 s (the window closed, the page hidden or
+       reloading), the app's own 10 s timer asks /api/status itself, the stale check's request
+       (token header, no cache), so the badge keeps up with the window closed.
+       ⚠️ macOS may slow a windowless app's timers (App Nap): with the window closed the badge can
+       lag the ten seconds. The tolerance lets macOS batch it rather than skip it. Not measured on a
+       served build yet. */
     private func startDockBadge(port: Int) {
         badgeTimer?.invalidate()
         refreshDockBadge(port: port)
-        badgeTimer = Timer.scheduledTimer(withTimeInterval: 10, repeats: true) { [weak self] _ in
+        let t = Timer(timeInterval: 10, repeats: true) { [weak self] _ in
             self?.refreshDockBadge(port: port)
         }
+        t.tolerance = 2
+        RunLoop.main.add(t, forMode: .common)   // keeps counting while a dialog or a menu is open
+        badgeTimer = t
     }
 
     private func refreshDockBadge(port: Int) {
+        if let at = lastPageBadgeAt, Date().timeIntervalSince(at) < 12 { return }   // the page is saying it
         guard let url = URL(string: "http://127.0.0.1:\(port)/api/status") else { return }
         var req = URLRequest(url: url)
         if let tok = boardTokenValue() {
@@ -2267,36 +2297,66 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
         }
         req.timeoutInterval = 8
         req.cachePolicy = .reloadIgnoringLocalCacheData
-        URLSession.shared.dataTask(with: req) { data, response, _ in
+        badgeAsked += 1
+        let asked = badgeAsked
+        URLSession.shared.dataTask(with: req) { [weak self] data, response, _ in
             /* A board that did not answer, or answered anything but 200, CLEARS the badge rather than
                leaving the last number up: a stale count reads as work waiting that may be gone. */
             let answered = (response as? HTTPURLResponse)?.statusCode == 200
             let label = answered ? Self.badgeLabel(fromStatusJSON: data) : nil
-            Self.badgesAllowed { allowed in
-                DispatchQueue.main.async { NSApp.dockTile.badgeLabel = allowed ? label : nil }
+            DispatchQueue.main.async {
+                guard let self else { return }
+                // Said once when the read starts failing and once when it recovers, so "the badge
+                // never shows" can be told apart from "nothing is waiting" in the app's log.
+                if !answered && !self.badgeReadFailing { logLine("dock badge: the board did not answer /api/status; the badge is cleared") }
+                if answered && self.badgeReadFailing { logLine("dock badge: the board answers again") }
+                self.badgeReadFailing = !answered
+                self.showBadge(label, asked: asked)
             }
         }.resume()
     }
 
-    /* 🔑 PURE, so --kosmos-app-badge-selftest can drive it (the caller is a URLSession callback no
-       selftest reaches). A whole number above zero is the label; over 999 it reads "999+" so the
-       badge stays a badge. Zero, a missing, unreadable or non-number count clears it: nil. */
+    /// The page's own count (#3996), handed over by BadgeMessageProxy after every board poll.
+    func pageSaidWaiting(_ body: Any) {
+        lastPageBadgeAt = Date()
+        badgeAsked += 1
+        showBadge(Self.badgeLabel(fromCount: body), asked: badgeAsked)
+    }
+
+    /// Main thread. `asked` orders the answers: one asked earlier never replaces one asked later.
+    private func showBadge(_ label: String?, asked: Int) {
+        Self.badgesAllowed { allowed in
+            DispatchQueue.main.async {
+                guard asked >= self.badgeShown else { return }
+                self.badgeShown = asked
+                NSApp.dockTile.badgeLabel = allowed ? label : nil
+            }
+        }
+    }
+
+    /* 🔑 PURE, so --kosmos-app-badge-selftest can drive it (the callers are a URLSession callback
+       and a script message no selftest reaches). A whole number above zero is the label; over 999 it
+       reads "999+" so the badge stays a badge. Zero, a missing, unreadable or non-number count
+       clears it: nil. */
     static func badgeLabel(fromStatusJSON data: Data?) -> String? {
         guard let data,
               let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-              let counts = obj["counts"] as? [String: Any],
-              let n = counts["waiting"] as? NSNumber,
-              CFGetTypeID(n) != CFBooleanGetTypeID() else { return nil }   // true is an NSNumber too
+              let counts = obj["counts"] as? [String: Any] else { return nil }
+        return badgeLabel(fromCount: counts["waiting"])
+    }
+    static func badgeLabel(fromCount value: Any?) -> String? {
+        guard let n = value as? NSNumber, CFGetTypeID(n) != CFBooleanGetTypeID() else { return nil }   // true is an NSNumber too
         let d = n.doubleValue
         guard d.isFinite, d >= 1, d == d.rounded() else { return nil }
         return d > 999 ? "999+" : String(Int(d))
     }
 
-    /* The person's own macOS setting wins: when Kosmos has a notification setting and its badges
-       are turned off, no badge. Kosmos does not ASK for notification permission to get a setting
-       (a system dialog nobody asked for); without one, the badge shows, as NSDockTile does for any
-       app. UNUserNotificationCenter needs a real bundle, so a bare binary (a selftest, the
-       prototype build) skips the question. */
+    /* A forward check, not a switch the person can reach today: macOS lists an app under
+       Notifications (with its Badges switch) only once it has asked for notification permission,
+       and Kosmos does not ask (a system dialog nobody asked for). So this reads .notSupported and
+       the badge shows; if Kosmos ever asks, turning badges off there will hide it. An in-app off
+       switch is a follow-up card. UNUserNotificationCenter needs a real bundle, so a bare binary
+       (a selftest, the prototype build) skips the question. */
     static func badgesAllowed(_ done: @escaping (Bool) -> Void) {
         guard Bundle.main.bundleIdentifier != nil else { done(true); return }
         UNUserNotificationCenter.current().getNotificationSettings { settings in

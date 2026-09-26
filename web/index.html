@@ -20056,6 +20056,12 @@ async function tick() {
        and the cards, which is where a stopped agent is read. */
     document.getElementById('st-attn').textContent = String(c.needsYou || 0);
     document.getElementById('st-attn-tile').hidden = !c.needsYou;
+    /* #3996: in the Mac app, hand the board's waiting count to the Dock badge on every poll, so the
+       app need not ask the board itself while this page is polling. Nothing outside the Mac app. */
+    try {
+      const h = window.webkit && window.webkit.messageHandlers && window.webkit.messageHandlers.kosmosBadge;
+      if (h && typeof c.waiting === 'number') h.postMessage(c.waiting);
+    } catch { /* not in the Mac app, or no window (a test): nothing to tell */ }
     /* #3423: if the Issue filter is on and there is nothing left to filter, exit it
        (same auto-exit the Messages filter does at dmTotal <= 0). */
     if (!c.needsYou && document.body && boardFilterActive() === 'attn') setBoardFilter(null);

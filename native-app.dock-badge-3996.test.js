@@ -34,22 +34,40 @@ test('#3996: the badge starts once the board\'s port is known, and keeps polling
     'the badge is not started where the port is resolved');
   const start = body('private func startDockBadge(port: Int)');
   assert.match(start, /badgeTimer\?\.invalidate\(\)/, 'a second start would leave two timers polling');
-  assert.match(start, /refreshDockBadge\(port: port\)\n\s+badgeTimer = Timer\.scheduledTimer\(withTimeInterval: 10, repeats: true\)/,
-    'no first read before the timer, or the timer is not a repeating 10 s one');
+  assert.match(start, /refreshDockBadge\(port: port\)\n\s+let t = Timer\(timeInterval: 10, repeats: true\)/, 'no first read, or not a repeating 10 s timer');
+  assert.match(start, /RunLoop\.main\.add\(t, forMode: \.common\)/, 'the badge stops counting while a dialog or menu is open');
 });
 
-test('#3996: it reads counts.waiting from /api/status with the board token, and a board that did not answer clears the badge', () => {
+test('#3996: while the page polls, the app asks the board nothing extra; otherwise it reads /api/status with the token', () => {
   const refresh = body('private func refreshDockBadge(port: Int)');
+  assert.match(refresh, /if let at = lastPageBadgeAt, Date\(\)\.timeIntervalSince\(at\) < 12 \{ return \}/,
+    'the app polls the heaviest route even while the page is already handing it the count');
   assert.match(refresh, /\/api\/status/);
   assert.match(refresh, /x-kosmos-board-token/, 'an enforcing board refuses a request without its token');
-  assert.match(refresh, /statusCode == 200/);
   assert.match(refresh, /answered \? Self\.badgeLabel\(fromStatusJSON: data\) : nil/, 'a refused or failed read does not clear the badge');
-  assert.match(refresh, /DispatchQueue\.main\.async \{ NSApp\.dockTile\.badgeLabel = allowed \? label : nil \}/,
-    'the Dock tile is set off the main thread, or the person\'s setting is not applied');
-  assert.match(body('static func badgeLabel(fromStatusJSON data: Data?)'), /counts\["waiting"\]/);
+  assert.match(refresh, /logLine\("dock badge: the board did not answer/, 'a missing badge leaves no trace in the log');
+  const said = body('func pageSaidWaiting(_ body: Any)');
+  assert.match(said, /lastPageBadgeAt = Date\(\)/);
+  assert.match(said, /badgeLabel\(fromCount: body\)/, 'the page\'s count is not read by the same rule as the board\'s');
+  const show = body('private func showBadge(_ label: String?, asked: Int)');
+  assert.match(show, /guard asked >= self\.badgeShown else \{ return \}/, 'an older answer can overwrite a newer one');
+  assert.match(show, /DispatchQueue\.main\.async \{/);
+  assert.match(show, /NSApp\.dockTile\.badgeLabel = allowed \? label : nil/);
 });
 
-test('#3996: the person\'s macOS badge setting wins, without asking for notification permission', () => {
+test('#3996: only the board\'s own page can hand over a count, and the page hands it on every poll', () => {
+  assert.match(SRC, /config\.userContentController\.add\(BadgeMessageProxy\(delegate\), name: "kosmosBadge"\)/);
+  const at = SRC.indexOf('final class BadgeMessageProxy');
+  assert.notEqual(at, -1);
+  const proxy = SRC.slice(at, SRC.indexOf('\n}\n', at));
+  assert.match(proxy, /weak var owner: AppDelegate\?/, 'the handler holds the app strongly (a cycle)');
+  assert.match(proxy, /message\.frameInfo\.isMainFrame, host == "127\.0\.0\.1" \|\| host == "localhost"/, 'any frame or site could set the badge');
+  const page = fs.readFileSync(path.join(__dirname, 'web', 'index.html'), 'utf8');
+  assert.match(page, /window\.webkit\.messageHandlers\.kosmosBadge;\n\s+if \(h && typeof c\.waiting === 'number'\) h\.postMessage\(c\.waiting\);/,
+    'the page does not hand the count over');
+});
+
+test('#3996: a macOS badge setting of off would win (a forward check), and Kosmos never asks for notification permission', () => {
   const allowed = body('static func badgesAllowed(');
   assert.match(allowed, /settings\.badgeSetting != \.disabled/);
   assert.match(allowed, /Bundle\.main\.bundleIdentifier != nil/, 'UNUserNotificationCenter outside a bundle crashes');
