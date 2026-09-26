@@ -2182,7 +2182,7 @@ test('the detail panel withdraws the writes it cannot perform, and clears what i
   const raw = fs.readFileSync(nodePath.join(__dirname, 'web', 'index.html'), 'utf8');
   const script = raw.match(/<script>([\s\S]*?)<\/script>/)[1];
 
-  const ids = ['d-file', 'd-remove', 'd-save', 'd-role', 'd-rename', 'd-instr', 'd-instr-save',
+  const ids = ['d-file', 'd-file-btn', 'd-remove', 'd-save', 'd-role', 'd-rename', 'd-instr', 'd-instr-save',
     'd-instr-foot', 'd-instr-stale', 'd-instr-outdated', 'd-instr-prev', 'd-instr-msg', 'd-untied'];
   const els = {};
   for (const id of ids) els[id] = { id, disabled: false, hidden: false, value: '', textContent: '' };
@@ -2245,7 +2245,8 @@ test('the detail panel withdraws the writes it cannot perform, and clears what i
 
   // `d-name` joined this list WITH the control, not after it: a new sibling
   // does not inherit its neighbours' guard just by sitting beside them.
-  for (const id of ['d-file', 'd-remove', 'd-save', 'd-role', 'd-rename']) {
+  /* #4038: 'd-file-btn', the VISIBLE Change picture button, with its hidden input: left live, its click did nothing. */
+  for (const id of ['d-file', 'd-file-btn', 'd-remove', 'd-save', 'd-role', 'd-rename']) {
     assert.equal(els[id].disabled, true, `${id} was still offered`);
   }
   assert.equal(els['d-untied'].hidden, false, 'nothing explained why the writes are gone');
