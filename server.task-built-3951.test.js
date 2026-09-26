@@ -77,7 +77,7 @@ test('an agent token names the agent as the builder; the note is kept and the hi
   assert.ok(taskchat.read(projectId, n).some((e) => e.kind === 'built' && e.by === 'mona'));
 });
 
-test('from the screen the builder is the person (operator); clear takes the mark off', async () => {
+test('from the screen the builder is the person; clear takes the mark off', async () => {
   const n = newTask('Write the launch post');
   assert.equal((await post(`/api/project/${projectId}/task/${n}/built`, {}, screen)).status, 200);
   assert.equal(stored(n).builtByPerson, true);
@@ -215,3 +215,14 @@ test('an agent that is not on the project is refused (403); the person\'s mark i
   assert.equal(again.json.changed, false, 'clearing an unmarked task claimed a change');
 });
 
+
+test('with the roster unreadable, a pane-named mark is 503, not an unnamed mark (review round 11)', async () => {
+  const status = require('./engine/status');
+  const n = newTask('Roster down');
+  status.setPaneSource(() => { throw new Error('roster unreadable (test)'); });
+  try {
+    const r = await post(`/api/project/${projectId}/task/${n}/built`, { from_pane: 'mona-pane:0.0' });
+    assert.equal(r.status, 503, JSON.stringify(r.json));
+    assert.equal('builtAt' in stored(n), false);
+  } finally { status.setPaneSource(null); }
+});

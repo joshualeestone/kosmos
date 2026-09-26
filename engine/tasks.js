@@ -514,7 +514,7 @@ function byNumber(p, n) {
 }
 
 /* #3951: "built, waiting to ship". An agent (or the person) marks an OPEN task built; the Tasks page counts it in
-   Josh's "Built but waiting" tile. Three fields, all or none: when, who, and an optional note on what is left. */
+   Josh's "Built but waiting" tile. The fields are BUILT_FIELDS, set and dropped together; setBuilt says what each is. */
 /* The note says what is left in a sentence or two; 300 characters is SENTENCE_MAX's room for a task's own sentence,
    plus a clause, and keeps the row's line readable. */
 const BUILT_NOTE_MAX = 300;
@@ -534,7 +534,9 @@ function withoutBuilt(t) {
  *   builtBy, builtByPerson the LAST marker, for what the page says ("by April", "by you")
  *   builtWho               every agent that has marked it since the mark was set (review round 9: a second agent's
  *                          mark made the first busy again); the Assigner frees each of them
- *   builtFreesAll          the person or an unnamed caller marked it: the Assigner frees every agent on it
+ *   builtFreesAll          the person marked it: the Assigner frees every agent on it. Not an unnamed caller
+ *                          (review round 11: that gave a caller that would not name itself more power than one that
+ *                          did); an unnamed mark frees nobody, and the person can free them from the screen
  * The same mark again (same marker, same note) records nothing (`changed: false`). `refusePersonMark` refuses a
  * change to a mark the person made, checked inside the write (review round 9: it was read before it). A closed
  * task is refused: closing already cleared the mark.
@@ -564,7 +566,7 @@ function setBuilt(projectId, n, { by = null, person = false, note = '', refusePe
       changed = {
         ...withoutBuilt(t), builtAt: new Date().toISOString(), builtBy: who,
         ...(isPerson ? { builtByPerson: true } : {}), builtWho,
-        ...((t.builtAt && t.builtFreesAll === true) || isPerson || !who ? { builtFreesAll: true } : {}),
+        ...((t.builtAt && t.builtFreesAll === true) || isPerson ? { builtFreesAll: true } : {}),
         ...(said ? { builtNote: said } : {}),
       };
       return { ...p, tasks: (p.tasks || []).map((x) => (x.number === changed.number ? changed : x)) };

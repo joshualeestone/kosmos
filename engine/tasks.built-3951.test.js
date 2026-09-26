@@ -237,14 +237,16 @@ test('giving an open part to somebody drops the mark; giving it to the same agen
   assert.ok(taskchat.read(id, n).some((e) => e.kind === 'unbuilt' && e.reason === 'new work'));
 });
 
-test('a mark with no named builder frees every agent on the task, as the person\'s does (review round 8)', () => {
+test('a mark with no named builder frees nobody; the person\'s own mark frees every agent on it (review rounds 8 and 11)', () => {
   const assigner = require('../engine/assigner');
   const { id, n } = freshTask();
   const read = () => projects.readAll().filter((p) => p.id === id);
-  assert.equal(assigner.hasOpenWork('rex', read()), true, 'CONTROL: rex is busy before the mark');
   tasks.setBuilt(id, n, { by: null });
   assert.equal(stored(id, n).builtBy, null);
-  assert.equal(assigner.hasOpenWork('rex', read()), false, 'an unnamed mark left rex busy with a task nobody hands out');
+  assert.equal(stored(id, n).builtFreesAll === true, false, 'an unnamed caller was given the person\'s power');
+  assert.equal(assigner.hasOpenWork('rex', read()), true, 'an unnamed mark freed rex');
+  tasks.setBuilt(id, n, { person: true });
+  assert.equal(assigner.hasOpenWork('rex', read()), false, 'CONTROL: the person\'s mark frees rex');
 });
 
 test('a second agent\'s mark keeps the first one free, and an agent named "operator" is not the person (review round 9)', () => {

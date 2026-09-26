@@ -46173,7 +46173,8 @@ function tskRow(t, at) {
      sits under Needs Your Decision, and still says who marked it and offers the undo). */
   const builtLine = !t.builtAt || t.state === 'closed' ? ''
     : '<div class="why">Marked built' + (t.builtByPerson ? ' by you' : t.builtBy ? ' by ' + esc(tskAgentName(t.builtBy)) : '')
-      + (t.builtAt ? ' ' + esc(agoWords(Date.now() - Date.parse(t.builtAt))) : '')
+      /* An empty ago (a time ahead of this device's clock) leaves no stray space before the colon (review round 11). */
+      + (t.builtAt && agoWords(Date.now() - Date.parse(t.builtAt)) ? ' ' + esc(agoWords(Date.now() - Date.parse(t.builtAt))) : '')
       + (t.builtNote ? ': ' + esc(t.builtNote) : '')
       /* Review round 1: the person can take a mistaken mark off without closing the task. */
       + ' <button type="button" class="tsk-unbuild" data-unbuild="' + esc(tskKey(t)) + '" aria-label="Mark task ' + Number(t.number) + ' of ' + esc(t.projectName) + ' not built yet">Not built yet</button></div>';
@@ -46448,7 +46449,7 @@ async function tskCloseParent(key) {
 /* #3951 (review round 1): take the built mark off one task, from the screen. The task stays open. */
 async function tskUnbuild(key) {
   if (TSK.busy) return;
-  const msg = document.getElementById('tsk-msg');
+  const said = document.getElementById('tsk-said');
   const i = key.lastIndexOf('#');
   const projectId = key.slice(0, i);
   const number = Number(key.slice(i + 1));
@@ -46459,17 +46460,17 @@ async function tskUnbuild(key) {
     });
     const body = await r.json().catch(() => ({}));
     /* Only "stays open" when it does: the task may have been closed since the row was drawn (review round 2). */
-    msg.textContent = r.ok && body.task
+    said.textContent = r.ok && body.task
       ? (body.changed === false ? 'Task ' + number + ' was not marked built.'
         : 'Task ' + number + ' is no longer marked built.' + (body.task.closedAt ? '' : ' It stays open.'))
       : asSentence(body.error || 'the mark was not taken off');
   } catch {
-    msg.textContent = 'We could not reach Kosmos, so the mark is still there.';
+    said.textContent = 'We could not reach Kosmos, so the mark is still there.';
   } finally {
     TSK.busy = false;
   }
-  msg.tabIndex = -1;
-  msg.focus();
+  said.tabIndex = -1;
+  said.focus();
   tskLoad();
 }
 async function tskBulkClose() {

@@ -15161,7 +15161,8 @@ const server = http.createServer((req, res) => {
      clear only tasks in projects it is on (any task there: membership is per project, as for task messages), and
      only the screen changes the person's own mark, clearing or re-marking (review rounds 5 and 7). A
      process the board cannot name (no token, no known pane) is not held to membership: it is refused nothing the
-     message route would refuse it, it is valved, and it is recorded as builtBy null (review round 6). The real
+     message route would refuse it, it is valved, and it is recorded as builtBy null (review round 6); its mark frees
+     no agent (review round 11). The real
      boundary is the board token. A
      process is valved (builtMarkValveTripped); the same mark again records nothing and is not counted. Marking a closed
      task is refused (409); clearing one is a no-op answered `changed: false` (review round 10), since closing
@@ -15183,6 +15184,11 @@ const server = http.createServer((req, res) => {
       const tokenSender = senderFromAgentToken(req, body, roster);
       if (tokenSender && !tokenSender.ok) { sendJson(res, 403, { error: tokenSender.because }); return; }
       const fromPane = typeof body.from_pane === 'string' ? body.from_pane : '';
+      /* A pane nobody could look up is not an unnamed caller (review round 11): say so, as for a token. */
+      if (roster === null && fromPane && !viaScreen) {
+        sendJson(res, 503, { error: 'we could not check which agents are running, so the task was not marked' });
+        return;
+      }
       const card = tokenSender ? tokenSender.card
         : (fromPane && Array.isArray(roster) ? roster.find((c) => c && c.target === fromPane) : null);
       const by = viaScreen ? null : ((card && card.sessionName) || null);
