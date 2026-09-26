@@ -42,3 +42,15 @@ Priya Raman to reactivate them on Claude", and Runs on behind the dialog still s
   live reading) and the clear-on-agree source pin. Red without the change.
 - web.change-dialog.test.js: pins updated (waking flag, new helper arguments, the plain manual line).
 - render-restart-kloader-2831, render-autohello-2686, render-start-agent-3410: pass.
+
+## Review rounds 1 to 3
+- Round 1 (opus): Runs on was painted only on opening the agent's page, so the switch never showed there
+  (BLOCKER, fixed: repaintRunsOnName); the record could pin a wrong model (cleared by any model or provider
+  change; Claude runners only); the picker now agrees with Runs on; the instructions flow's waiting line
+  has the loader; README and comments updated; surface-gate trailers.
+- Round 2 (sonnet): the fallback finish and a superseded Start are now checked; switchedModelFor is the one
+  gate Runs on and the picker both read; the Start waiting sentence is built once.
+- Round 3 (opus): the provider switch now repaints Runs on too, in modelLine's words for a runner with no
+  transcript yet ("OpenAI Codex", "Gemini", "Grok", "Gemini (Google subscription)", "Claude"). And Start
+  and Restart NO LONGER drop the record: they start from the same job the switch wrote, so it is still
+  true; a model changed while stopped is already covered because changeModelNow drops the record first.

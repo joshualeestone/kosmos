@@ -339,6 +339,8 @@ function initStub() {
     const psel = document.getElementById('d-provider');
     psel.innerHTML = '<option value="openai">OpenAI</option>';
     psel.value = 'openai';
+    // #4008: Runs on as the agent's page painted it before the switch.
+    document.getElementById('d-runson').innerHTML = 'Right now: <b>Claude Sonnet 5</b> (hello@example.com)';
     const pgo = document.getElementById('d-provider-go');
     pgo.disabled = false;
     pgo.click();
@@ -351,7 +353,8 @@ function initStub() {
     }
     const keep = document.getElementById('chg-keep');
     const out = { helloAt, msg: msg.textContent, threads: window.__posted.filter((x) => /\/thread$/.test(x.url)).length,
-      title: document.getElementById('chg-title').textContent, gold: keep.classList.contains('uprime'), check: !!msg.querySelector('svg.wake-done') };
+      title: document.getElementById('chg-title').textContent, gold: keep.classList.contains('uprime'), check: !!msg.querySelector('svg.wake-done'),
+      runsOn: document.getElementById('d-runson').textContent };
     window.__kosmosRestartHoldMs = undefined;
     keep.click();
     return out;
@@ -362,6 +365,8 @@ function initStub() {
     s11b.threads === 1 && s11b.msg === 'Ready: April is on OpenAI.', 'threads=' + s11b.threads + ' msg=' + JSON.stringify(s11b.msg));
   check('#4008 real provider switch: the finished dialog is titled "Switched to OpenAI", with a check and a gold Done',
     s11b.title === 'Switched to OpenAI' && s11b.check && s11b.gold, JSON.stringify(s11b));
+  check('#4008 real provider switch: Runs on names the provider it moved to (the account kept), not the old Claude model',
+    s11b.runsOn === 'Right now: OpenAI Codex (hello@example.com)', JSON.stringify(s11b.runsOn));
 
   // ---- Arm 11c: a real switch that does NOT restart sends no hello ----
   const s11c = await page.evaluate(async () => {
