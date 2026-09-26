@@ -7722,7 +7722,18 @@ const server = http.createServer((req, res) => {
           if (v.badge !== 'working') return unverifiedSub(a);
           return { ...a, connection: { ...(a.connection || {}), badge: v.badge, observedAt: v.observedAt, observedAgeMs: v.ageMs } };
         });
-        sendJson(res, 200, { accounts: [...claude, ...openai, ...gemini, ...grok] });
+        /* #3998 (Josh, 11:34: "it doesn't show up here as a connected subscription"): Gemini on the
+           Google subscription gets its own row, from agystatus's LAST confident answer (a live check
+           costs a prompt on the person's subscription, so it is never run per repaint). No folder:
+           agy keeps its own sign-in, so the row's actions are its own (Sign in again, Remove). */
+        const agy = require('./engine/agystatus');
+        const agyLast = agy.offered() ? agy.lastKnown() : null;
+        const agySub = agyLast && agyLast.signedIn ? [{
+          provider: 'google', providerName: 'Gemini', dir: null, label: null, name: null, isDefault: false,
+          email: agy.activeEmail(), authMode: 'antigravity', keyTail: null,
+          connection: { state: 'connected', checkedLive: false, checkedAt: agyLast.at },
+        }] : [];
+        sendJson(res, 200, { accounts: [...claude, ...openai, ...gemini, ...agySub, ...grok] });
       })
       .catch(() => sendJson(res, 500, { error: 'we could not read the accounts on this computer' }));
     return;
@@ -7768,6 +7779,15 @@ const server = http.createServer((req, res) => {
   /* #3998: the Gemini subscription sign-in without a terminal. Kosmos runs agy's interactive sign-in
      out of sight (engine/agysignin.js) and the screen drives it: start, read the state, hand it the
      code the person pasted from Google's page, show the hidden window as a last resort, stop. */
+  /* #3998: Remove on the Gemini subscription row. Kosmos forgets the sign-in it remembered, so the
+     row goes; Antigravity's own Google sign-in on this computer is untouched (agy has no sign-out
+     command Kosmos can call), and the row's copy says so. */
+  if (pathname === '/api/antigravity/forget' && req.method === 'POST') {
+    req.resume();
+    require('./engine/agystatus').forget();
+    sendJson(res, 200, { ok: true });
+    return;
+  }
   if (pathname.startsWith('/api/antigravity/signin')) {
     const signin = require('./engine/agysignin');
     const agy = require('./engine/agystatus');
