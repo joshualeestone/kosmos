@@ -293,7 +293,7 @@ async function pull(dir, opts) {
   if (written === 0 && skipped > 0) {
     const why = [];
     if (unreadable) why.push(unreadableClause({ unreadable, denied, lastGetError }));
-    if (unwritten) why.push(reports(unwritten) + ' could not be saved in ' + target + ' (last error: ' + lastWriteError + ')');
+    if (unwritten) why.push(unwrittenClause({ unwritten, lastWriteError, dir: target }));
     if (skipped > unreadable + unwritten) why.push((skipped - unreadable - unwritten) + ' malformed');
     return {
       ok: false, written, skipped, total, dir: target,
@@ -304,7 +304,8 @@ async function pull(dir, opts) {
   }
   // A partial pull is still ok, but says how many could not be read and why, so a
   // mostly-failed pull is not mistaken for a clean one.
-  return { ok: true, written, skipped, unreadable, denied, lastGetError: unreadable ? lastGetError : '', fromPublicStore, total, dir: target };
+  return { ok: true, written, skipped, unreadable, denied, lastGetError: unreadable ? lastGetError : '',
+    unwritten, lastWriteError: unwritten ? lastWriteError : '', fromPublicStore, total, dir: target };
 }
 
 /* The public-store hint, one wording for the success summary and the failure. It is
@@ -325,6 +326,12 @@ function unreadableClause({ unreadable, denied, lastGetError }) {
     + ' (last error: ' + lastGetError + ')';
 }
 
+/* The one wording of "some reports could not be saved here" (a local write failure,
+   kosmos#3906), for the failure message and the success summary alike. */
+function unwrittenClause({ unwritten, lastWriteError, dir }) {
+  return reports(unwritten) + ' could not be saved in ' + dir + ' (last error: ' + lastWriteError + ')';
+}
+
 /**
  * The success summary of a pull, as lines. The ONE place it is worded: runCli, the
  * Mac `kosmos feedback pull` (install/kosmos) and the Windows command all print
@@ -340,6 +347,7 @@ function summaryLines(r) {
       + ' holds the private feedback store\'s token (kosmos#3878).');
   }
   if (r.unreadable) out.push(unreadableClause(r));
+  if (r.unwritten) out.push(unwrittenClause({ unwritten: r.unwritten, lastWriteError: r.lastWriteError, dir: r.dir }));
   if (r.fromPublicStore) out.push('note: ' + PUBLIC_STORE_NOTE);
   return out;
 }

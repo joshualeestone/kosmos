@@ -525,3 +525,40 @@ test('#3906: reports read fine but not saved here are said as a local write fail
   assert.match(r.because, new RegExp('1 report could not be saved in ' + dir.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + ' \\(last error: '));
   assert.doesNotMatch(r.because, /malformed/, 'a local write failure must not be blamed on the record');
 });
+
+test('#3906: a partial pull says how many reports could not be saved here, with the error, in the same words as a failure', async () => {
+  const dir = path.join(SB, 'd-partial-write');
+  fs.mkdirSync(dir, { recursive: true });
+  const bad = REC('inst-bad', '2026-09-26', 'b');
+  fs.mkdirSync(path.join(dir, fp.fileName(bad) + '.tmp'), { recursive: true });
+  const recs = { 'a.json': REC('inst-good', '2026-09-26', 'g'), 'b.json': bad };
+  fp.setTransport({
+    list: async () => Object.keys(recs).map((k) => ({ url: 'https://s.private.blob.vercel-storage.com/' + k })),
+    get: async (u) => JSON.stringify(recs[u.split('/').pop()]),
+  });
+  const r = await fp.pull(dir, { token: 'tok' });
+  assert.equal(r.ok, true);
+  assert.equal(r.written, 1);
+  assert.equal(r.unwritten, 1);
+  assert.ok(r.lastWriteError, 'the write error was dropped');
+  const lines = fp.summaryLines(r);
+  assert.ok(lines.some((l) => l.startsWith('1 report could not be saved in ' + dir + ' (last error: ')), lines.join('\n'));
+});
+
+test('#3906: unreadable, unsaved and malformed together are each counted once', async () => {
+  const dir = path.join(SB, 'd-three-ways');
+  fs.mkdirSync(dir, { recursive: true });
+  const unsaved = REC('inst-u', '2026-09-26', 'u');
+  fs.mkdirSync(path.join(dir, fp.fileName(unsaved) + '.tmp'), { recursive: true });
+  fp.setTransport({
+    list: async () => ['r', 'u', 'm'].map((k) => ({ url: 'https://s.private.blob.vercel-storage.com/' + k + '.json' })),
+    get: async (url) => {
+      if (url.endsWith('/r.json')) throw new Error('blob GET HTTP 500');
+      if (url.endsWith('/u.json')) return JSON.stringify(unsaved);
+      return '{not json';
+    },
+  });
+  const r = await fp.pull(dir, { token: 'tok' });
+  assert.equal(r.ok, false);
+  assert.match(r.because, /none was pulled: 1 report could not be read \(last error: blob GET HTTP 500\); 1 report could not be saved in .* \(last error: .*\); 1 malformed\./);
+});

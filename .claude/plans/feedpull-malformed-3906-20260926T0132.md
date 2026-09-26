@@ -8,13 +8,15 @@ Deferred from #3878's review loop (kosmos#3904, iteration 8). `pull` already ans
   - the shared `unreadableClause` for reports that could not be read;
   - "N could not be saved in <dir> (last error: ...)" for local write failures, which are counted apart and carry the error (review iteration 1);
   - "N malformed" for bad records.
-- A partial pull stays ok. So does an empty listing, which already has its own line in `summaryLines`.
+- A partial pull stays ok, and its summary also says how many could not be saved here, with the error (`unwrittenClause`, shared with the failure message; review iteration 2). So does an empty listing, which already has its own line in `summaryLines`.
 
 ## Tests
 `engine/feedbackpull.test.js`:
 - all malformed;
 - an entry with no url;
 - a real local write failure (a directory where the file would go);
+- a partial pull with a local write failure;
+- all three kinds together, each counted once;
 - controls: one good report among bad ones, and an empty listing.
 
 The mutation that restores the old condition runs red.
