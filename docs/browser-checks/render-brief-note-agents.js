@@ -88,8 +88,9 @@ async function openRoom(page, base, id) {
   await page.waitForSelector(`#pj-list .pj-row[data-project="${id}"]`, { timeout: 8000 });
   await page.click(`#pj-list .pj-row[data-project="${id}"]`);
   await page.waitForSelector('#pj-one-view', { state: 'visible', timeout: 8000 });
-  // The room paints from its own fetch; wait until it has painted something.
-  await page.waitForFunction(() => { const r = document.getElementById('pj-room'); return r && r.textContent.trim().length > 0; }, null, { timeout: 8000 }).catch(() => {});
+  // The room paints from its own fetch; a room that never paints is its own failure, not an
+  // empty string that would let "does not show the note" pass.
+  await page.waitForFunction(() => { const r = document.getElementById('pj-room'); return r && r.textContent.trim().length > 0; }, null, { timeout: 8000 });
   return page.evaluate(() => (document.getElementById('pj-room') || {}).textContent || '');
 }
 
@@ -123,7 +124,7 @@ async function openRoom(page, base, id) {
     const pid2 = made2 && (made2.id || (made2.project && made2.project.id));
     chk(res2.ok && !!pid2, 'a second project for the older room', `status ${res2.status}`);
     if (!pid2) throw new Error('no second project');
-    messages.roomNote(pid2, projects.BRIEF_PENDING_NOTE);   // untagged: the pre-change shape
+    messages.roomNote(pid2, projects.BRIEF_PENDING_NOTES_BEFORE_AUDIENCE[0]);   // untagged: the pre-change shape
     messages.roomNote(pid2, PLAIN_NOTE);
     chk((await roomText(base, pid2)).toLowerCase().includes(NOTE_MARK), 'an older, untagged note still reaches the agents');
     const rows2 = await roomRows(base, pid2);
@@ -143,11 +144,17 @@ async function openRoom(page, base, id) {
         const page = await ctx.newPage();
         const errs = [];
         page.on('pageerror', (e) => errs.push(String(e.message || e).split('\n')[0]));
-        const shown = await openRoom(page, base, pid);
-        chk(!shown.toLowerCase().includes(NOTE_MARK), `[${engine}] the new room does not show the agents' note`, JSON.stringify(shown.slice(0, 160)));
-        chk(/Nothing here yet/.test(shown), `[${engine}] the new room shows its own empty state instead`, JSON.stringify(shown.slice(0, 160)));
-        const shown2 = await openRoom(page, base, pid2);
-        chk(!shown2.toLowerCase().includes(NOTE_MARK) && shown2.includes(PLAIN_NOTE), `[${engine}] the older room hides the untagged note and still shows an ordinary Kosmos note`, JSON.stringify(shown2.slice(0, 200)));
+        // A room that cannot be opened or never paints is a labelled FAIL, and the other arms still run.
+        const open = (id) => openRoom(page, base, id).catch((e) => ({ error: String(e && e.message || e).split('\n')[0] }));
+        const shown = await open(pid);
+        if (typeof shown !== 'string') chk(false, `[${engine}] the new room opened and painted`, shown.error);
+        else {
+          chk(!shown.toLowerCase().includes(NOTE_MARK), `[${engine}] the new room does not show the agents' note`, JSON.stringify(shown.slice(0, 160)));
+          chk(/Nothing here yet/.test(shown), `[${engine}] the new room shows its own empty state instead`, JSON.stringify(shown.slice(0, 160)));
+        }
+        const shown2 = await open(pid2);
+        if (typeof shown2 !== 'string') chk(false, `[${engine}] the older room opened and painted`, shown2.error);
+        else chk(!shown2.toLowerCase().includes(NOTE_MARK) && shown2.includes(PLAIN_NOTE), `[${engine}] the older room hides the untagged note and still shows an ordinary Kosmos note`, JSON.stringify(shown2.slice(0, 200)));
         chk(errs.length === 0, `[${engine}] no page errors`, errs.join(' | '));
         await ctx.close();
       } finally {

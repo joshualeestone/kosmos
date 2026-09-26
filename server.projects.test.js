@@ -3688,13 +3688,30 @@ test('the brief-pending note reaches the agents (text) but not the person\'s vie
   assert.ok(!rows.some((r) => r.kind === 'note' && /not seven/i.test(r.text || '')), 'the person\'s view still carries the agents\' note');
   // A note written before notes carried an audience (same text, untagged) is left out too,
   // and an ordinary Kosmos note still shows: the filter is not hiding every note.
+  // The create route writes the note TAGGED: the exact-text match below covers only older rows.
+  const raw = messages.record().rows.filter((r) => r && r.kind === 'note' && r.project === made.id);
+  assert.equal(raw.length, 1, 'the create route did not write exactly one note');
+  assert.equal(raw[0].audience, messages.NOTE_AUDIENCE_AGENTS, 'the note was written without its agents audience');
   const old = json(await post('/api/projects', { name: 'Older room', folder: folder('older-room'), description: 'A briefed test project.' })).project;
-  messages.roomNote(old.id, projects.BRIEF_PENDING_NOTE);
+  // A tagged note in other words is left out by its tag alone, and still reaches the agents.
+  messages.roomNote(old.id, 'For the agents only: wait for the goal.', { audience: messages.NOTE_AUDIENCE_AGENTS });
+  messages.roomNote(old.id, projects.BRIEF_PENDING_NOTES_BEFORE_AUDIENCE[0]);   // untagged: the pre-change shape
   messages.roomNote(old.id, 'Kosmos here: an ordinary note.');
   assert.match((await req(`/api/project/${old.id}/room?as=text`)).body, /not seven/i, 'an older note no longer reaches the agents');
   const oldRows = JSON.parse((await req(`/api/project/${old.id}/room`)).body).rows;
   assert.ok(!oldRows.some((r) => r.kind === 'note' && /not seven/i.test(r.text || '')), 'an older, untagged note still reaches the person');
   assert.ok(oldRows.some((r) => r.kind === 'note' && r.text === 'Kosmos here: an ordinary note.'), 'CONTROL: an ordinary note vanished from the person\'s view');
+  assert.ok(!oldRows.some((r) => r.kind === 'note' && /wait for the goal/.test(r.text || '')), 'a tagged note in other words still reaches the person');
+  assert.match((await req(`/api/project/${old.id}/room?as=text`)).body, /wait for the goal/, 'a tagged note no longer reaches the agents');
+});
+
+test('the pre-audience brief note text is frozen: it is what #2707 wrote, whatever BRIEF_PENDING_NOTE says now', () => {
+  // sha256 of the note as main wrote it before notes carried an audience. Editing the frozen
+  // entry would bring the old instruction back into every room written before the change.
+  const crypto = require('node:crypto');
+  assert.equal(crypto.createHash('sha256').update(projects.BRIEF_PENDING_NOTES_BEFORE_AUDIENCE[0]).digest('hex'),
+    'fafb5509f0206067d957cbdbec2f5c3c6bc0a0fcfb19fc24dd4b00cf31397f27');
+  assert.ok(Object.isFrozen(projects.BRIEF_PENDING_NOTES_BEFORE_AUDIENCE));
 });
 
 test('#2707 CONTROL: a project created WITH a description (goal already set) gets NO brief-pending note', async () => {
