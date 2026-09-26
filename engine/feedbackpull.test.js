@@ -561,9 +561,10 @@ test('#3906: unreadable, unsaved and malformed together are each counted once', 
   const r = await fp.pull(dir, { token: 'tok' });
   assert.equal(r.ok, false);
   assert.match(r.because, /none was pulled: 1 report could not be read \(last error: blob GET HTTP 500\); 1 report could not be saved in .* \(last error: .*\); 1 report malformed \(not a valid report, or no url\)\./);
+  assert.deepEqual([r.unreadable, r.unwritten, r.malformed, r.skipped], [1, 1, 1, 3]);
 });
 
-test('#3906: every skip is explained on a partial pull too, and both results carry the same fields', async () => {
+test('#3906: every skip is explained on a partial pull too, and both pull results carry the count fields', async () => {
   fp.setTransport({
     list: async () => ['g', 'm'].map((k) => ({ url: 'https://s.private.blob.vercel-storage.com/' + k + '.json' })),
     get: async (u) => (u.endsWith('/g.json') ? JSON.stringify(REC('inst-g', '2026-09-26', 'g')) : '{not json'),
@@ -579,35 +580,31 @@ test('#3906: every skip is explained on a partial pull too, and both results car
   }
 });
 
-test('#3906: a pull that failed only because nothing could be saved here does not point at the token', async () => {
+test('#3906: the public-store note is a fact about the listing: it follows fromPublicStore on every path', async () => {
   const dir = path.join(SB, 'd-public-unsaved');
   fs.mkdirSync(dir, { recursive: true });
   const rec = REC('inst-pu', '2026-09-26', 'pu');
   fs.mkdirSync(path.join(dir, fp.fileName(rec) + '.tmp'), { recursive: true });
   fp.setTransport({ list: async () => [{ url: 'https://abc.public.blob.vercel-storage.com/feedback/pu.json' }], get: async () => JSON.stringify(rec) });
-  const r = await fp.pull(dir, { token: 'tok' });
-  assert.equal(r.ok, false);
-  assert.doesNotMatch(r.because, /PUBLIC blob store/, 'a local save failure is not the token\'s problem');
-  // Control: the same public listing with an unreadable report does carry the note.
-  fp.setTransport({ list: async () => [{ url: 'https://abc.public.blob.vercel-storage.com/feedback/x.json' }], get: async () => { throw new Error('blob GET HTTP 404'); } });
-  assert.match((await fp.pull(path.join(SB, 'd-public-unread'), { token: 'tok' })).because, /PUBLIC blob store/);
-});
-
-test('#3906: the public-store note follows ONE rule on a partial pull and a failed one', async () => {
-  const dir = path.join(SB, 'd-public-partial-unsaved');
-  fs.mkdirSync(dir, { recursive: true });
-  const bad = REC('inst-pb', '2026-09-26', 'pb');
-  fs.mkdirSync(path.join(dir, fp.fileName(bad) + '.tmp'), { recursive: true });
-  const recs = { 'g.json': REC('inst-pg', '2026-09-26', 'pg'), 'b.json': bad };
-  fp.setTransport({
-    list: async () => Object.keys(recs).map((k) => ({ url: 'https://abc.public.blob.vercel-storage.com/feedback/' + k })),
-    get: async (u) => JSON.stringify(recs[u.split('/').pop()]),
-  });
-  const r = await fp.pull(dir, { token: 'tok' });
-  assert.equal(r.ok, true);
-  assert.equal(r.unwritten, r.skipped);
-  assert.doesNotMatch(fp.summaryLines(r).join('\n'), /PUBLIC blob store/, 'only local save failures: the token note does not apply');
-  // A clean public pull (no skips) still carries it.
+  const failed = await fp.pull(dir, { token: 'tok' });
+  assert.equal(failed.ok, false);
+  assert.match(failed.because, /PUBLIC blob store\. That is expected until/);
   fp.setTransport({ list: async () => [{ url: 'https://abc.public.blob.vercel-storage.com/feedback/c.json' }], get: async () => JSON.stringify(REC('inst-pc', '2026-09-26', 'pc')) });
   assert.match(fp.summaryLines(await fp.pull(path.join(SB, 'd-public-clean'), { token: 'tok' })).join('\n'), /PUBLIC blob store/);
+  // Control: a private listing never carries it.
+  fp.setTransport({ list: async () => [{ url: 'https://abc.private.blob.vercel-storage.com/feedback/p.json' }], get: async () => '{not json' });
+  assert.doesNotMatch((await fp.pull(path.join(SB, 'd-private-bad'), { token: 'tok' })).because, /PUBLIC/);
+});
+
+
+test('#3906: a save whose rename fails removes the .tmp it wrote', async () => {
+  const dir = path.join(SB, 'd-rename-fails');
+  const rec = REC('inst-rn', '2026-09-26', 'rn');
+  const dest = path.join(dir, fp.fileName(rec));
+  fs.mkdirSync(path.join(dest, 'occupied'), { recursive: true });   // a non-empty directory at the destination
+  fp.setTransport({ list: async () => [{ url: 'https://s.private.blob.vercel-storage.com/rn.json' }], get: async () => JSON.stringify(rec) });
+  const r = await fp.pull(dir, { token: 'tok' });
+  assert.equal(r.ok, false);
+  assert.equal(r.unwritten, 1);
+  assert.equal(fs.existsSync(dest + '.tmp'), false, 'the .tmp this pull wrote was left behind');
 });

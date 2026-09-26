@@ -17,7 +17,11 @@ Deferred from #3878's review loop (kosmos#3904, iteration 8). `pull` already ans
 ## Review iterations 4 to 6
 - A stale duplicate of the #3906 comment was deleted (iteration 4).
 - "malformed" is said as "N report(s) malformed (not a valid report, or no url)". A failed save removes its .tmp (iteration 5).
-- The public-store note is a TOKEN hint, so it is left out when every skip was a local save failure. The decision is ONE function, `storeNoteApplies`, used by the failure message and the summary alike. Iteration 5 had applied it to the failure path only; iteration 6 caught the second derivation.
+- **The public-store note, decided (iterations 5 to 7):**
+  - Iteration 5 hid it on save-only failures, and iteration 6 made that one rule for both paths. Iteration 7 showed the rule regressed a partial pull and still left malformed-only failures inconsistent.
+  - **Final:** the note is a FACT about where the listing came from, worded conditionally ("expected until the migration has run"). It is not a diagnosis of the skip. So it follows `fromPublicStore` on every path, the same as on main.
+  - Iteration 5's finding is DEFERRED on that reasoning.
+- A failed save removes only a .tmp THIS call wrote (the write succeeded and the rename failed), so it never touches a concurrent pull's file. Tested with a non-empty directory at the destination.
 
 ## Tests
 `engine/feedbackpull.test.js`:
@@ -27,7 +31,8 @@ Deferred from #3878's review loop (kosmos#3904, iteration 8). `pull` already ans
 - a partial pull with a local write failure;
 - all three kinds together, each counted once;
 - a partial pull explains its malformed remainder, and both results carry the same fields;
-- the store note: dropped on a save-only failure and on a save-only partial pull; kept on a clean public pull and on an unreadable one;
+- the store note follows fromPublicStore on a failed pull and a clean one, never on a private listing;
+- a failed rename removes its own .tmp;
 - controls: one good report among bad ones, and an empty listing.
 
 The mutation that restores the old condition runs red.
