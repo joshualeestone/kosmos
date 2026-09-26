@@ -15459,6 +15459,18 @@ window.kosmosMeasureScrollbarWidth();
         <button class="toggle on" id="snd-toggle" role="switch" aria-checked="true" aria-label="Play a sound for new messages on any of your projects"><i></i></button>
       </div>
     </section>
+    <!-- #4025: the waiting count on the app icon (#3996), switchable. Kept on the board, not in this
+         browser, because the app reads the count from the board even with no page open. Ships hidden
+         and unclickable until the setting has loaded (paintSwitch), the auto-handoff pattern. -->
+    <section class="dbox">
+      <h3 class="dlab">App icon</h3>
+      <div class="setrow" id="wb-row" style="margin-top:14px;">
+        <div><b>Show the waiting count on the Kosmos icon</b>
+          <p class="dhint" style="margin:2px 0 0;">In the Kosmos app, the icon in the Dock or taskbar shows how many things are waiting on you: agents that need you and unread messages. On by default.</p></div>
+        <button class="toggle" id="wb-toggle" role="switch" aria-label="Show the waiting count on the Kosmos icon" hidden><i></i></button>
+      </div>
+      <p class="dhint" id="wb-msg" role="status"></p>
+    </section>
   </section>
   <section class="dsec" id="s-sec-automation" data-sec="automation" tabindex="-1" aria-label="Automation" hidden>
     <section class="dbox">
@@ -21115,6 +21127,48 @@ async function paintYouTz() {
    newer paint or save cannot repaint over the fresher state -- which is the exact
    "a moved setting keeps its stored value" acceptance under tab churn. */
 let AH_EPOCH = 0;
+/* #4025: the App icon switch. Painted only from what the board holds (a read that fails leaves it
+   hidden, never a guessed Off), and a click saves and repaints from the board's answer. */
+let WB_EPOCH = 0;
+let WB_SAVING = false;
+async function paintWaitingBadge() {
+  const mine = ++WB_EPOCH;
+  const msg = document.getElementById('wb-msg');
+  try {
+    const res = await fetch('/api/settings', { cache: 'no-store' });
+    if (mine !== WB_EPOCH) return;
+    if (!res.ok) throw new Error('not ok');
+    const r = await res.json();
+    if (mine !== WB_EPOCH) return;
+    if (!r || typeof r.waitingBadge !== 'boolean') throw new Error('no setting');   // an older board
+    paintSwitch('wb-toggle', r.waitingBadge);
+    if (msg) msg.textContent = '';
+  } catch {
+    if (mine !== WB_EPOCH) return;
+    paintSwitch('wb-toggle', null);
+    if (msg) msg.textContent = 'We could not read this setting just now.';
+  }
+}
+async function saveWaitingBadge() {
+  const tog = document.getElementById('wb-toggle');
+  if (!tog || WB_SAVING || !tog.hasAttribute('aria-checked')) return;   // not loaded: never write over a stored value
+  WB_SAVING = true;
+  const mine = ++WB_EPOCH;
+  const msg = document.getElementById('wb-msg');
+  try {
+    const res = await fetch('/api/settings', { method: 'POST', headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ waitingBadge: tog.getAttribute('aria-checked') !== 'true' }) });
+    const out = await res.json().catch(() => null);
+    if (mine !== WB_EPOCH) return;
+    if (!res.ok || !out || typeof out.waitingBadge !== 'boolean') throw new Error('not saved');
+    paintSwitch('wb-toggle', out.waitingBadge);   // what the board stored, not the click
+    if (msg) msg.textContent = '';
+  } catch {
+    if (mine === WB_EPOCH && msg) msg.textContent = 'We could not save that just now. Try again in a moment.';
+  } finally { WB_SAVING = false; }
+}
+document.getElementById('wb-toggle') && document.getElementById('wb-toggle').addEventListener('click', saveWaitingBadge);
+
 async function paintAutomation() {
   const mine = ++AH_EPOCH;
   const th = document.getElementById('ah-threshold');
@@ -21526,6 +21580,7 @@ async function paintSettings() {
   /* #2436: a per-viewer localStorage preference, so there is nothing to fetch -- confirm
      the master sound toggle from storage on open (always a real boolean, never null). */
   paintSwitch('snd-toggle', soundMasterOn());
+  paintWaitingBadge();   // #4025
   const loc = document.getElementById('set-applocation');
   const mach = document.getElementById('set-machine');
   try {

@@ -41,7 +41,7 @@ const worldRegistryBase = require('./engine/worldenv').bootstrapWorldEnv(process
 // literal there is a comparison that silently stops matching the day the engine
 // renames one.
 const {
-  snapshot, paneRoster, countAgents, needsPerson, projectsUnreadTotal, waitingTotal, STATE, modelDisplayName,
+  snapshot, paneRoster, countAgents, needsPerson, projectsUnreadTotal, waitingTotal, waitingBadgeOn, STATE, modelDisplayName,
   /* #1304: the tier vocabulary, imported rather than hand-written. A literal
      'structured' beside a value read off a process command line is exactly the
      two-copies-of-one-fact habit this file criticises elsewhere. */
@@ -4481,7 +4481,10 @@ const server = http.createServer((req, res) => {
       const rows = withDmUnread(agents.concat(offline));
       /* #3996: what is waiting on the person, in one number (the Dock badge reads it). The same
          rows the Messages tile sums, after the needs-you and projects counts above are final. */
-      counts.waiting = waitingTotal(counts, rows);
+      /* #4025: null when the person switched the icon count off in Settings; the apps clear the badge on null. */
+      let badgeSettings;
+      try { badgeSettings = store.readSettings(); } catch { badgeSettings = {}; }
+      counts.waiting = waitingBadgeOn(badgeSettings) ? waitingTotal(counts, rows) : null;
       body = JSON.stringify({
         ...snap, agents: rows, counts, connection, version, dependsOnClaude,
         /* #2066: the board reads (version, sourceChannel); the version line and the
@@ -10070,7 +10073,7 @@ const server = http.createServer((req, res) => {
     /* timezone is null until the operator sets one; the UI then defaults its
        dropdown to the browser's own machine timezone (detected client-side,
        the authoritative source for the operator's machine). */
-    sendJson(res, 200, { timezone: (s && s.timezone) || null, autohandoff: autohandoff.settingFrom(s), setupAssistant: setupAssistant.settingFrom(s) });
+    sendJson(res, 200, { timezone: (s && s.timezone) || null, autohandoff: autohandoff.settingFrom(s), setupAssistant: setupAssistant.settingFrom(s), waitingBadge: waitingBadgeOn(s) });
     return;
   }
   if (pathname === '/api/settings' && req.method === 'POST') {
@@ -10105,12 +10108,17 @@ const server = http.createServer((req, res) => {
           try { had = store.readSettings(); } catch { had = {}; }
           patch.setupAssistant = setupAssistant.mergeSetting(had, body.setupAssistant);
         }
+        /* #4025: the waiting count on the app icon, a plain on/off. */
+        if ('waitingBadge' in body) {
+          if (typeof body.waitingBadge !== 'boolean') { sendJson(res, 400, { ok: false, because: 'that is not a valid app icon setting' }); return; }
+          patch.waitingBadge = body.waitingBadge;
+        }
         if (Object.keys(patch).length === 0) {
           sendJson(res, 400, { ok: false, because: 'no known setting to save' });
           return;
         }
         const saved = store.writeSettings(patch);
-        sendJson(res, 200, { ok: true, timezone: saved.timezone || null, autohandoff: autohandoff.settingFrom(saved), setupAssistant: setupAssistant.settingFrom(saved) });
+        sendJson(res, 200, { ok: true, timezone: saved.timezone || null, autohandoff: autohandoff.settingFrom(saved), setupAssistant: setupAssistant.settingFrom(saved), waitingBadge: waitingBadgeOn(saved) });
       })
       .catch((err) => sendJson(res, 400, { ok: false, because: String((err && err.message) || 'we could not read that request') }));
     return;

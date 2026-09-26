@@ -1,0 +1,85 @@
+'use strict';
+/* #4025: the App icon switch in Settings (the waiting count on the Dock or taskbar icon). Runs the
+ * REAL page functions (lifted from web/index.html) against a stub DOM and fetch: hidden until the
+ * board's setting is read, never a guessed Off, and a save repaints from what the board stored.
+ *
+ *   node --test web.waiting-badge-4025.test.js
+ */
+const test = require('node:test');
+const assert = require('node:assert/strict');
+const fs = require('node:fs');
+const path = require('node:path');
+const page = require('./test-support/page');
+
+const HTML = fs.readFileSync(path.join(__dirname, 'web', 'index.html'), 'utf8');
+const SCRIPT = page.scriptOf(HTML);
+const FNS = page.liftAll(SCRIPT, ['paintWaitingBadge', 'saveWaitingBadge']);
+
+function harness(fetchImpl) {
+  const tog = { hidden: true, attrs: {}, getAttribute(k) { return this.attrs[k] === undefined ? null : this.attrs[k]; },
+    hasAttribute(k) { return this.attrs[k] !== undefined; } };
+  const msg = { textContent: '' };
+  const el = { 'wb-toggle': tog, 'wb-msg': msg };
+  const document = { getElementById: (id) => el[id] || null };
+  const paintSwitch = (id, on) => {
+    const t = el[id];
+    if (on === null || on === undefined) { delete t.attrs['aria-checked']; t.hidden = true; return; }
+    t.attrs['aria-checked'] = on === true ? 'true' : 'false'; t.hidden = false;
+  };
+  const make = new Function('document', 'fetch', 'paintSwitch',
+    'let WB_EPOCH = 0; let WB_SAVING = false;\n' + FNS + '\nreturn { paintWaitingBadge, saveWaitingBadge };');
+  return { tog, msg, api: make(document, fetchImpl, paintSwitch) };
+}
+
+test('#4025: the switch ships hidden and unchecked in the markup, inside Settings', () => {
+  const m = HTML.match(/<button[^>]*id="wb-toggle"[^>]*>/);
+  assert.ok(m, 'no App icon switch');
+  assert.match(m[0], /\bhidden\b/, 'the switch is clickable before its setting has loaded');
+  assert.doesNotMatch(m[0], /aria-checked/, 'the markup claims a position the board has not said');
+  assert.match(m[0], /aria-label="Show the waiting count on the Kosmos icon"/, 'the name does not contain the visible label (WCAG 2.5.3)');
+});
+
+test('#4025: a read shows the stored position, off included', async () => {
+  const h = harness(async () => ({ ok: true, json: async () => ({ waitingBadge: false }) }));
+  await h.api.paintWaitingBadge();
+  assert.equal(h.tog.hidden, false);
+  assert.equal(h.tog.getAttribute('aria-checked'), 'false');
+});
+
+test('#4025: a failed read, or a board with no such setting, hides the switch and says so (never a false Off)', async () => {
+  for (const f of [async () => ({ ok: false, json: async () => ({}) }), async () => ({ ok: true, json: async () => ({ timezone: null }) }),
+    async () => { throw new Error('offline'); }]) {
+    const h = harness(f);
+    await h.api.paintWaitingBadge();
+    assert.equal(h.tog.hidden, true);
+    assert.equal(h.tog.getAttribute('aria-checked'), null);
+    assert.match(h.msg.textContent, /could not read/);
+  }
+});
+
+test('#4025: a click saves the opposite, and paints what the board stored', async () => {
+  const posts = [];
+  const h = harness(async (url, opts) => {
+    if (opts && opts.method === 'POST') { posts.push(JSON.parse(opts.body)); return { ok: true, json: async () => ({ ok: true, waitingBadge: false }) }; }
+    return { ok: true, json: async () => ({ waitingBadge: true }) };
+  });
+  await h.api.paintWaitingBadge();
+  await h.api.saveWaitingBadge();
+  assert.deepEqual(posts, [{ waitingBadge: false }], 'the click did not save the opposite');
+  assert.equal(h.tog.getAttribute('aria-checked'), 'false');
+});
+
+test('#4025: a refused save keeps the old position and says so; a switch not yet loaded saves nothing', async () => {
+  let posts = 0;
+  const h = harness(async (url, opts) => {
+    if (opts && opts.method === 'POST') { posts += 1; return { ok: false, json: async () => ({ ok: false }) }; }
+    return { ok: true, json: async () => ({ waitingBadge: true }) };
+  });
+  await h.api.saveWaitingBadge();
+  assert.equal(posts, 0, 'a click before the setting loaded wrote over it');
+  await h.api.paintWaitingBadge();
+  await h.api.saveWaitingBadge();
+  assert.equal(posts, 1, 'CONTROL: a loaded switch saves');
+  assert.equal(h.tog.getAttribute('aria-checked'), 'true', 'a refused save showed a position the board does not hold');
+  assert.match(h.msg.textContent, /could not save/);
+});
