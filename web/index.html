@@ -27235,17 +27235,19 @@ function orgLiveStart(map, placed, cx, cy, size) {
     orgLiveRun();
   }
 }
-/* #1738: run the same relaxation orgLiveRun animates, but synchronously and
-   bounded, so a reduced-motion (static) render still separates overlapping
-   nodes. Mirrors tickOnce's anneal without requestAnimationFrame. */
 /* #4040 (Josh, 2026-09-26: the connecting line "goes above agent clusters avatars"): a wire stops at each
    node's edge instead of running to its centre. An agent's opaque disc hid the rest of a centre-to-centre
    wire, but a swarm's cluster has no disc (gaps between its circles, and it rests at half strength), so the
-   wire showed through it. The reach is how far a node's picture extends from its centre: a 44px disc
-   reaches 22px, a cluster fills its square 44px box so its corner circles reach 32px (22 times the square
-   root of 2, rounded up). The hub is an opaque disc and has no reach: a wire from it starts at the centre. */
+   wire showed through it. The reach is how far a node's picture extends from its centre on its 44px node:
+   a disc reaches 22px; a cluster is measured from its own layout (swarmLayout, the one swarmCircles draws),
+   never less than a disc. The hub is an opaque disc drawn over the wires: a wire from it starts at its
+   centre (reach 0). */
 function orgReach(a) {
-  return typeof SWARMS_ON !== 'undefined' && SWARMS_ON && !!a && Object.prototype.hasOwnProperty.call(a, 'swarm') && !!a.swarm ? 32 : 22;
+  if (!(typeof SWARMS_ON !== 'undefined' && SWARMS_ON && !!a && Object.prototype.hasOwnProperty.call(a, 'swarm') && !!a.swarm)) return 22;
+  const L = swarmLayout(Math.max(2, Math.min(10, Number(a.swarm.maxHelpers) || 3)));
+  let far = 0;
+  for (const q of L.p) far = Math.max(far, Math.hypot(q[0] - 0.5, q[1] - 0.5) + L.r);
+  return Math.max(22, Math.ceil(far * 44));
 }
 /* A wire from (x0, y0) to (x1, y1), cut back by each end's reach. Two nodes closer than their reaches
    together get no wire (shown false) rather than one drawn backwards across both faces. */
@@ -27255,6 +27257,9 @@ function orgWireEnds(x0, y0, cut0, x1, y1, cut1) {
   const ux = (x1 - x0) / len, uy = (y1 - y0) / len;
   return { x1: x0 + ux * cut0, y1: y0 + uy * cut0, x2: x1 - ux * cut1, y2: y1 - uy * cut1, shown: true };
 }
+/* #1738: run the same relaxation orgLiveRun animates, but synchronously and
+   bounded, so a reduced-motion (static) render still separates overlapping
+   nodes. Mirrors tickOnce's anneal without requestAnimationFrame. */
 function orgLiveSettle() {
   if (!ORG_LIVE) return;
   const L = ORG_LIVE;

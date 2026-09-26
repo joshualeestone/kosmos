@@ -300,30 +300,56 @@ const waitFor = (page, fn, arg, ms = 6000) => page.waitForFunction(fn, arg, { ti
     // Measured on a branch: a swarm under the hub, an agent under it, and a swarm at the end of the branch.
     orgBranch = true;
     await page.click('[data-scope="agents"] .vt[data-layout="org"]');
-    chk(await waitFor(page, () => !!document.querySelector('#orgmap line[data-for="crew2"]') && !!document.querySelector('#orgmap line[data-for="rex"]')
-      && [...document.querySelectorAll('#orgmap .onode')].length >= 3, null, 15000), 'S40 precondition: the branch is on the org chart');
-    await page.waitForTimeout(2500);   // let the layout settle; the read below is one frame either way
+    /* Every agent has a wire to the hub before the branch arrives (reportsTo rides the next /api/status poll), so
+       wait until the branch is DRAWN: rex's wire starts nearer crew than the hub, and crew2's nearer rex. */
+    chk(await waitFor(page, () => {
+      const map = document.getElementById('orgmap');
+      const svg = map && map.querySelector('svg');
+      const w = (n) => map.querySelector('line[data-for="' + n + '"]');
+      const c = (sel) => { const e = map.querySelector(sel); if (!e) return null; const b = e.getBoundingClientRect(); return { x: b.left + b.width / 2, y: b.top + b.height / 2 }; };
+      if (!svg || !w('rex') || !w('crew2')) return false;
+      const r = svg.getBoundingClientRect(), vb = svg.viewBox.baseVal, k = vb && vb.width ? r.width / vb.width : 1;
+      const start = (l) => ({ x: r.left + Number(l.getAttribute('x1')) * k, y: r.top + Number(l.getAttribute('y1')) * k });
+      const hub = c('.hub'), crew = c('.onode[data-agent="crew"]'), rex = c('.onode[data-agent="rex"]');
+      if (!hub || !crew || !rex) return false;
+      const d = (p, q) => Math.hypot(p.x - q.x, p.y - q.y);
+      return d(start(w('rex')), crew) < d(start(w('rex')), hub) && d(start(w('crew2')), rex) < d(start(w('crew2')), hub);
+    }, null, 20000), 'S40 precondition: the branch is drawn (rex wired from crew, crew2 from rex), not the flat ring');
+    await page.waitForTimeout(1500);   // let the layout settle; the read below is one frame either way
+    /* Measured against what is DRAWN: every circle of every cluster, and every agent's disc. A wire may not come
+       within a drawn circle (a pixel of antialiasing allowed). */
     const s40 = await page.evaluate(() => {
       const map = document.getElementById('orgmap');
       const svg = map.querySelector('svg');
       const r = svg.getBoundingClientRect(), vb = svg.viewBox.baseVal, k = vb && vb.width ? r.width / vb.width : 1;
       const at = (x, y) => ({ x: r.left + Number(x) * k, y: r.top + Number(y) * k });
-      const nodes = [...map.querySelectorAll('.onode')].map((n) => {
-        const b = n.getBoundingClientRect();
-        return { who: n.dataset.agent, x: b.left + b.width / 2, y: b.top + b.height / 2, reach: n.querySelector('.face > .swc') ? 32 * b.width / 44 : 22 * b.width / 44 };
-      });
+      const round = (e) => { const b = e.getBoundingClientRect(); return { x: b.left + b.width / 2, y: b.top + b.height / 2, r: Math.min(b.width, b.height) / 2 }; };
+      const drawn = [];
+      for (const n of map.querySelectorAll('.onode')) {
+        const circles = [...n.querySelectorAll('.face > .swc .swd')];
+        if (circles.length) for (const g of circles) drawn.push({ who: n.dataset.agent + ' circle', ...round(g) });
+        else drawn.push({ who: n.dataset.agent + ' disc', ...round(n.querySelector('.face')) });
+      }
       const wires = [...map.querySelectorAll('line[data-for]')].filter((l) => l.getAttribute('visibility') !== 'hidden')
         .map((l) => ({ who: l.dataset.for, a: at(l.getAttribute('x1'), l.getAttribute('y1')), b: at(l.getAttribute('x2'), l.getAttribute('y2')) }));
       const dist = (p, a, b) => { const dx = b.x - a.x, dy = b.y - a.y, L2 = dx * dx + dy * dy;
         const t = L2 ? Math.max(0, Math.min(1, ((p.x - a.x) * dx + (p.y - a.y) * dy) / L2)) : 0;
         return Math.hypot(p.x - (a.x + t * dx), p.y - (a.y + t * dy)); };
       const into = [];
-      for (const w of wires) for (const n of nodes) { const d = dist(n, w.a, w.b); if (d < n.reach - 1.5) into.push(w.who + ' into ' + n.who + ' ' + d.toFixed(1) + '<' + n.reach.toFixed(1)); }
-      return { wires: wires.map((w) => w.who), clusters: nodes.filter((n) => n.reach > 22 * 1.1).map((n) => n.who), into };
+      for (const w of wires) for (const c of drawn) { const d = dist(c, w.a, w.b); if (d < c.r - 1) into.push(w.who + ' into ' + c.who + ' ' + d.toFixed(1) + '<' + c.r.toFixed(1)); }
+      /* And it reaches the picture: a wire ending well short of its own node reads as detached. */
+      const gap = [];
+      for (const w of wires) {
+        const own = drawn.filter((c) => c.who.startsWith(w.who + ' '));
+        const near = Math.min(...own.map((c) => Math.hypot(c.x - w.b.x, c.y - w.b.y) - c.r));
+        if (!(near < 6)) gap.push(w.who + ' ends ' + near.toFixed(1) + 'px short');
+      }
+      return { wires: wires.map((w) => w.who), clusters: [...new Set(drawn.filter((c) => c.who.endsWith('circle')).map((c) => c.who.split(' ')[0]))], into, gap };
     });
     chk(s40.clusters.includes('crew') && s40.clusters.includes('crew2') && ['crew', 'rex', 'crew2'].every((w) => s40.wires.includes(w)),
       'S40 precondition: two clusters on the chart, and a wire to each of crew, rex and crew2', JSON.stringify(s40));
-    chk(s40.into.length === 0, 'S40 no wire runs into a cluster or an avatar: each stops at the node\'s edge (#4040)', JSON.stringify(s40.into));
+    chk(s40.into.length === 0, 'S40 no wire runs into a drawn circle or disc: each stops at the node\'s edge (#4040)', JSON.stringify(s40.into));
+    chk(s40.gap.length === 0, 'S40 and each wire still reaches its node: none ends more than 6px short of its picture', JSON.stringify(s40.gap));
     orgBranch = false;
     await page.click('[data-scope="agents"] .vt[data-layout="grid"]');
     await page.waitForTimeout(400);

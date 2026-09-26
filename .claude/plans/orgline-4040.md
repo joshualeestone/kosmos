@@ -10,9 +10,11 @@ between its circles, and rests at half strength, so the wire shows through it.
 
 ## The change
 
-- `orgReach(agent)`: how far a node's picture reaches from its centre. 22px for a 44px disc, 32px
-  for a cluster (it fills its square 44px box, so its corner circles reach 22 times the square root
-  of 2).
+- `orgReach(agent)`: how far a node's picture reaches from its centre on its 44px node. 22px for a
+  disc; a cluster is measured from its own layout (`swarmLayout`, which `swarmCircles` draws), the
+  farthest circle edge from the centre, never less than 22. (A first version assumed the circles
+  reach the box's corners, 32px; they sit on a ring and reach at most about 26px, so its wires
+  stopped visibly short. Caught in review.)
 - `orgWireEnds(...)`: a wire cut back by each end's reach. The hub is an opaque disc, so a wire from
   it starts at the centre (reach 0). Two nodes closer than their reaches together get a hidden wire
   rather than one drawn backwards across both faces.
@@ -28,12 +30,14 @@ between its circles, and rests at half strength, so the wire shows through it.
 
 ## The check
 
-`render-swarm-ui-3564.js` S40 builds a branch (hub, a swarm, an agent under it, a swarm at the end)
-and measures, in one frame, that no visible wire comes within any node's reach of its centre.
-`render-org-drag.js`'s wire-end arm now expects the wire to end at the node's edge.
+`render-swarm-ui-3564.js` S40 builds a branch (hub, a swarm, an agent under it, a swarm at the end),
+waits until the branch is drawn (not the flat ring every agent starts on), and measures against what
+is drawn: no visible wire comes within any cluster circle or agent disc, and every wire ends within
+6px of its own node's picture. `render-org-drag.js`'s wire-end arm now expects the wire to end at
+the node's edge.
 
 ## Weakest premise
 
-The 32px reach assumes the cluster's circles can reach the corners of its box. A wire arriving
-straight along an axis stops up to 10px short of the nearest circle, which reads as a small gap,
-not a crossing.
+The reach is the farthest circle, so a wire arriving between two circles of a sparse cluster (two
+helpers, approached from above) stops short of the nearest picture by up to the gap between them.
+S40's 6px gap limit is measured on the layouts the check draws, not on every helper count.
