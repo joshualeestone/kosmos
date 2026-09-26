@@ -112,6 +112,9 @@ test('#718: a chart wider than its box lets a finger scroll the box, and the dra
 test('#718: positions from a canvas of another width are carried across in proportion', () => {
   const paint = SCRIPT.slice(SCRIPT.indexOf('function paintOrg'), SCRIPT.indexOf('function orgLiveStart'));
   assert.match(paint, /const f = widthChanged && ORG_SIZE > 0 \? size \/ ORG_SIZE : 1;/);
+  // A zero-width box (an ancestor not laid out) is neither a width change nor a new ORG_SIZE.
+  assert.match(paint, /const widthChanged = viewW > 0 && ORG_VIEW_W > 0 && viewW !== ORG_VIEW_W;/);
+  assert.match(paint, /if \(viewW > 0\) ORG_SIZE = size;/);
   // The scroll is written the first time the box scrolls and when its width changes, never on a
   // same-width repaint (the 5s poll): a write mid-pan stops a finger's scroll.
   assert.match(paint, /: widthChanged \? \(ORG_SCROLL_X \+ ORG_VIEW_W \/ 2\) \* f - viewW \/ 2\s*: size !== sizeWas && sizeWas > 0 \? wrap\.scrollLeft \+ \(size - sizeWas\) \/ 2 : null;/);

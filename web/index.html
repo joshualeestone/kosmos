@@ -26624,14 +26624,16 @@ function paintOrg() {
      acted on here: a new agent growing a desktop chart keeps its positions as
      before, and the 5s poll repainting at the same width touches neither the
      positions nor the scroll (writing scrollLeft mid-pan stops a finger's scroll). */
-  const widthChanged = ORG_VIEW_W > 0 && viewW !== ORG_VIEW_W;
+  // A box with no width yet (an ancestor not laid out) is not a width change, and
+  // does not move ORG_SIZE either: the next real paint compares against the last one.
+  const widthChanged = viewW > 0 && ORG_VIEW_W > 0 && viewW !== ORG_VIEW_W;
   const f = widthChanged && ORG_SIZE > 0 ? size / ORG_SIZE : 1;
   /* Positions kept from a canvas of another size (a phone turned sideways, a
      scrollbar coming and going) are in that canvas's frame: carry them across
      in proportion rather than restarting from the rings. */
   if (f !== 1) for (const p of ORG_POS.values()) { p.x *= f; p.y *= f; }
   const sizeWas = ORG_SIZE;
-  ORG_SIZE = size;
+  if (viewW > 0) ORG_SIZE = size;
   // #718: wider than its box even at the floor: the box scrolls (.orgscroll) and
   // touch must pan it (.orgwide). A box with no width yet is not "wide".
   const wide = viewW > 0 && size > viewW;

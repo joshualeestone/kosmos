@@ -165,3 +165,12 @@ and a phone has no hover: a tap opens the agent. Changing that is a design call 
   orgBoxPlain(true) on the two clearing paths also drops the size. Not on a paint that fits: the repaint guard
   may skip setting the size again, so clearing it there would collapse a drawn chart. The failed-poll arm asserts
   the emptied map is 0px tall; server.test.js asserts the failure path passes true. Both fail without it.
+
+## Second rebase, challenge loop iteration 3
+- Deferred, measured: "a deep chart reopens at its left edge after opening an agent and coming back". Driven in
+  both engines (scroll set to 20, openDetail, showTab('agents')): scrollLeft is 20 on return, ORG_SCROLL_X 20.
+  The loss does not happen on that path.
+- A paint from a zero-width box is no longer a width change and does not move ORG_SIZE (it would have rescaled
+  positions into the natural frame and shifted the scroll on the next real paint). Unit pin.
+- The check fails on any unknown engine name, not only on none (ENGINES=chromium,webkti ran Chromium alone and
+  read green). Same FAIL line, so the reason-grep count is unchanged.

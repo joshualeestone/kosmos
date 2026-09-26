@@ -73,12 +73,14 @@ const srv = require('../../server.js');
 
 // The gate runs Chromium; ENGINES=chromium,webkit adds WebKit by hand.
 const ALL_ENGINES = ['chromium', 'webkit'];
-const ENGINES = (process.env.ENGINES || 'chromium').split(',').map((s) => s.trim()).filter((e) => ALL_ENGINES.includes(e));
-// The mobile-shots harness sizes: iPhone SE, iPhone 15, iPhone 15 Pro Max, a Pixel.
-if (!ENGINES.length) {
-  console.log('FAIL  render-orgchart-phone-718: ENGINES names no known engine (' + (process.env.ENGINES || '') + '); nothing would run');
+const ASKED = (process.env.ENGINES || 'chromium').split(',').map((s) => s.trim()).filter(Boolean);
+const ENGINES = ASKED.filter((e) => ALL_ENGINES.includes(e));
+// A misspelt engine would otherwise be dropped silently and the run read as covering it.
+if (!ENGINES.length || ENGINES.length !== ASKED.length) {
+  console.log('FAIL  render-orgchart-phone-718: ENGINES names an unknown engine (' + (process.env.ENGINES || '') + '); known: ' + ALL_ENGINES.join(', '));
   process.exit(1);
 }
+// The mobile-shots harness sizes: iPhone SE, iPhone 15, iPhone 15 Pro Max, a Pixel.
 const PHONES = [[375, 667], [393, 852], [430, 932], [412, 915]];
 const NAMES = ['ada', 'bram', 'cleo', 'dov', 'eve'];
 
