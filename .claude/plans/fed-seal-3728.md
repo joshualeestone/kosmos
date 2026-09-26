@@ -60,7 +60,7 @@ Tests (engine/fedseal.test.js):
 
 ## Stated limits (v1)
 - The relay still sees metadata: who posts, when and how much. Only content is sealed.
-- A relay that suppresses every newer-epoch frame to one member can keep that member on the old key. A member that sees a message one epoch ahead holds its posts for up to 3 minutes (round 5, bounded in round 6); a forged envelope costs at most that pause, no more than a relay can do by dropping frames.
+- A relay that suppresses every newer-epoch frame to one member can keep that member on the old key. A member that sees a message from any epoch ahead of its own holds its posts for up to 3 minutes, armed at most once per epoch it holds (rounds 5 to 7): forged envelopes, however many, pause a member for at most 3 minutes per rotation it has taken.
 
 ## Round 1 review (opus, crypto-focused): 2 BLOCKERs, 3 WARNINGs, 4 NITs, all taken
 - [BLOCKER] an owner's room was unsealed until the first hello, so a relay that drops hellos kept the owner posting and showing plaintext. FIXED: a project is sealed for good from its first sealing invite (`sealedRefs`). The owner holds posts ("no member's computer has joined with its key yet") and refuses plaintext inbound. Control fails by name.
@@ -94,3 +94,8 @@ Tests (engine/fedseal.test.js):
 
 ## Round 6 review (sonnet): 1 BLOCKER, taken
 - [BLOCKER] round 5's hold read the envelope's epoch before it opened (unauthenticated), so one forged envelope with a huge epoch silenced a member's posting for good (until a board restart). FIXED: only an envelope exactly one epoch ahead counts (rotations advance by one), the hold lasts at most BEHIND_HOLD_MS (3 minutes, about two re-send passes), and a reconnect clears it. Tests: a forged huge epoch holds nothing; a forged next epoch holds for at most 3 minutes; the genuine catch-up test still passes. Control fails by name.
+
+## Round 7 review (opus, whole flow): 2 WARNINGs, both taken
+- [WARNING] the round-6 hold re-armed on every forged next-epoch envelope, so a member (or the relay) sending one every ~3 minutes silenced others indefinitely; and the connector's `connected` after each ticket renewal cleared a genuine hold. FIXED: the hold arms at most once per epoch the member holds (s.behindArmedAt), and is no longer cleared on connect. Test: repeated forged envelopes at the same own epoch pause posting once, for at most 3 minutes. Control (re-arm allowed) fails by name.
+- [WARNING] ahead-by-exactly-one missed a member two rotations behind, which then kept posting under a key the revoked members hold. FIXED: any epoch ahead counts (safe now that the hold is bounded once per own epoch). Test: a genuine two-rotations-behind member holds its posts. Control (+1 only) fails by name.
+- Checked sound: edges are only active or revoked; a hello racing a delete re-reads; a resent hello is answered only from its own invite; every ownerHello throw lands in sealStep's catch.

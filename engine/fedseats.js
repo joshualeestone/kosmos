@@ -124,7 +124,6 @@ function onEvent(projectId, line) {
     setStatus(projectId, 'connected'); s.connectedAt = Date.now(); s.macNoted = false;
     // #3728: the room id both ends share (the coordinator derives it per project); it is bound into every seal.
     s.room = typeof ev.room === 'string' && ev.room ? ev.room : null;
-    s.behind = null;
     sayHello(projectId, s);
     sendRotates(projectId, s);
     return;
@@ -162,12 +161,17 @@ function onEvent(projectId, line) {
       const now = Date.now();
       // A member seeing a newer epoch than its own missed a rotation: until the owner's
       // re-send arrives it holds its posts (a revoked member may still hold its key).
-      // Only the NEXT epoch counts (rotations advance one at a time), and only for
-      // BEHIND_HOLD_MS: the envelope's epoch is unauthenticated until it opens.
-      const aheadByOne = sealed && sealed.role === 'member' && hasKey(sealed) && ev.data.epoch === sealed.epoch + 1;
+      // Any epoch ahead counts (a member may have missed several rotations), but the
+      // envelope's epoch is unauthenticated until it opens, so the hold arms AT MOST
+      // ONCE per epoch this member holds, for BEHIND_HOLD_MS: forged envelopes, however
+      // many and whatever epochs they claim, cannot pause a member for longer than that.
+      const ahead = sealed && sealed.role === 'member' && hasKey(sealed) && ev.data.epoch > sealed.epoch;
       const opened = hasKey(sealed) && s.room ? fedseal.open(acceptedKeys(sealed, now), s.room, ev.data) : null;
-      if (!opened && aheadByOne) {
-        s.behind = { epoch: ev.data.epoch, until: now + BEHIND_HOLD_MS };
+      if (!opened && ahead) {
+        if (s.behindArmedAt !== sealed.epoch) {
+          s.behindArmedAt = sealed.epoch;
+          s.behind = { epoch: ev.data.epoch, until: now + BEHIND_HOLD_MS };
+        }
         noteOnce(projectId, s, 'behind', 'This computer is behind on this shared room\'s key, so a message could not be read yet. It is waiting for the owner\'s computer to send the new key, and holds its own posts for a few minutes meanwhile.');
         return;
       }

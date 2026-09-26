@@ -1054,7 +1054,7 @@ test('#3728: a member that sees a newer epoch than its own holds its posts until
   assert.strictEqual(lines(seat).pop().epoch, 1);
 });
 
-test('#3728: a forged newer epoch cannot silence a member: a huge one holds nothing, the next one at most 3 minutes', async (t) => {
+test('#3728: forged newer epochs pause a member at most once per epoch it holds, for at most 3 minutes', async (t) => {
   t.mock.timers.enable({ apis: ['Date'], now: Date.parse('2026-09-26T13:00:00Z') });
   const owner = fedseal.newKeyPair();
   federation.recordLink('proj-forge-e', { role: 'member', edge_id: 'edge-fe' });
@@ -1064,14 +1064,32 @@ test('#3728: a forged newer epoch cannot silence a member: a huge one holds noth
   const seat = h.spawned[0];
   say(seat, { event: 'connected', room: 'room-fe', expires_at: 9 });
   await settle();
-  // A garbage envelope claiming a far epoch: nothing is held.
-  say(seat, { event: 'message', data: { v: 1, epoch: 2 ** 53 - 1, nonce: 'AAAAAAAAAAAAAAAA', ct: 'AAAAAAAAAAAAAAAAAAAAAA' } });
-  await settle();
-  assert.strictEqual(fedseats.post('proj-forge-e', { from: 'Ana', kind: 'person', text: 'still here' }), true, 'a forged far epoch silenced the member');
-  // A garbage envelope claiming the next epoch: held, but only for the bounded pause.
-  say(seat, { event: 'message', data: { v: 1, epoch: 1, nonce: 'AAAAAAAAAAAAAAAA', ct: 'AAAAAAAAAAAAAAAAAAAAAA' } });
+  const junk = (epoch) => ({ event: 'message', data: { v: 1, epoch, nonce: 'AAAAAAAAAAAAAAAA', ct: 'AAAAAAAAAAAAAAAAAAAAAA' } });
+  // A garbage envelope claiming a far epoch: held, but only for the bounded pause.
+  say(seat, junk(2 ** 53 - 1));
   await settle();
   assert.strictEqual(fedseats.post('proj-forge-e', { from: 'Ana', kind: 'person', text: 'held' }), false);
   t.mock.timers.tick(3 * 60 * 1000 + 1);
-  assert.strictEqual(fedseats.post('proj-forge-e', { from: 'Ana', kind: 'person', text: 'back' }), true, 'a forged next epoch held posts past the bound');
+  assert.strictEqual(fedseats.post('proj-forge-e', { from: 'Ana', kind: 'person', text: 'back' }), true, 'a forged epoch held posts past the bound');
+  // More forged envelopes, any epochs, and a renewal's `connected`: no second pause at this own epoch.
+  say(seat, junk(1));
+  say(seat, junk(7));
+  say(seat, { event: 'connected', room: 'room-fe', expires_at: 10 });
+  say(seat, junk(2));
+  await settle();
+  assert.strictEqual(fedseats.post('proj-forge-e', { from: 'Ana', kind: 'person', text: 'still posting' }), true, 'forged envelopes re-armed the pause');
+});
+
+test('#3728: a member two rotations behind holds its posts too', async () => {
+  const owner = fedseal.newKeyPair();
+  federation.recordLink('proj-two-behind', { role: 'member', edge_id: 'edge-tb' });
+  fedseal.setRoomState('proj-two-behind', { role: 'member', s: fedseal.randomSecret(), code: 'code-tb', peer: owner.pub, epoch: 0, keys: { 0: fedseal.randomSecret() } });
+  const h = harness();
+  await fedseats.ensure('proj-two-behind');
+  const seat = h.spawned[0];
+  say(seat, { event: 'connected', room: 'room-tb', expires_at: 9 });
+  await settle();
+  say(seat, { event: 'message', data: fedseal.seal(fedseal.randomSecret(), 2, 'room-tb', { from: 'Owner', kind: 'person', text: 'epoch two' }) });
+  await settle();
+  assert.strictEqual(fedseats.post('proj-two-behind', { from: 'Ana', kind: 'person', text: 'on the old key' }), false, 'a member two rotations behind kept posting on the old key');
 });
