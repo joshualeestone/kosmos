@@ -2012,14 +2012,14 @@ button.worldsw-row:focus-visible { outline: 2px solid var(--k-ink); outline-offs
    simply grow. render-frame-phone-718.js measures all of it. */
 @media (max-width: 40rem) {
   .klink { padding: 5px; margin: -5px; }
+  .klink:focus-visible { outline-offset: -1px; }   /* the ring stays 4px off the mark, inside the padding */
   .worldsw-btn, .userpop-btn { height: 44px; margin-block: -6px; }
   .burger { width: 44px; height: 44px; margin: -2px; }
   .vt { width: 44px; height: 44px; }
-  /* The agent page's back link is already 44px on a phone (its Talk rule, #panel-detail ... > .back);
-     this reaches the rest. */
-  /* min-width too: three back links take a project or task name, and a short one would leave a
-     44px tall target narrower than 44. */
-  .back { min-height: 44px; min-width: 44px; display: inline-flex; align-items: center; }
+  /* Every back link (the agent page's is already 44px through its Talk rule). min-width because
+     three take a project or task name, and a short one would be tall but narrow. The gap stands
+     in for the space a flex container drops after "←" in "← <span>name</span>" (#pj-settings-back). */
+  .back { min-height: 44px; min-width: 44px; display: inline-flex; align-items: center; column-gap: .3em; }
 }
 /* 📱 #718 SAFE AREA: one name for each inset, so the frame and the pinned composer
    (Scorpion's, which already reads var(--safe-bottom, 0px)) use the same number. The
