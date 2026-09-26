@@ -269,7 +269,7 @@ test('#3878: a pull that lists reports but can read none is NOT ok, and says why
   const r = await fp.pull(path.join(SB, 'd-unreadable'), { token: 'tok' });
   assert.equal(r.ok, false);
   assert.equal(r.written, 0);
-  assert.match(r.because, /none was pulled: 2 could not be read \(last read error: blob GET HTTP 403\)/);
+  assert.match(r.because, /none was pulled: 2 reports could not be read, 2 of them refused although the token was sent .* \(last error: blob GET HTTP 403\)/);
   // Control: one readable report makes it a success again (a partial pull is not a failure).
   let n = 0;
   fp.setTransport({
@@ -330,7 +330,7 @@ test('#3878: a partial pull says how many reports could not be read; only a 401/
     get: async () => { throw new Error('blob GET HTTP 403'); },
   });
   const denied = await fp.pull(path.join(SB, 'd-denied'), { token: 'tok' });
-  assert.match(denied.because, /1 of them refused although this token was sent/);
+  assert.match(denied.because, /1 report could not be read, 1 of them refused although the token was sent/);
   // A private-host listing refused with the token: no refile advice (the listing came from
   // this token's own store), which the code WOULD emit if it wrongly treated it as stale.
   assert.doesNotMatch(denied.because, /refile/, 'a token that listed the store must not be told to refile');
@@ -360,7 +360,7 @@ test('#3878: refusals are counted even when the last failure was a 404', async (
   });
   const r = await fp.pull(path.join(SB, 'd-mixed'), { token: 'tok' });
   assert.equal(r.ok, false);
-  assert.match(r.because, /last read error: blob GET HTTP 404/);
+  assert.match(r.because, /last error: blob GET HTTP 404/);
   assert.match(r.because, /2 of them refused although/, 'two 403s then a 404 must still be reported as refusals');
 });
 
@@ -372,7 +372,7 @@ test('#3878: the counts are the message: some unreadable and some malformed is s
   });
   const r = await fp.pull(path.join(SB, 'd-mixed-bad'), { token: 'tok' });
   assert.equal(r.ok, false);
-  assert.match(r.because, /1 could not be read, 2 malformed or not written/);
+  assert.match(r.because, /1 report could not be read.*; 2 malformed or not written/);
 });
 
 test('#3878: a refusal after the token was withheld names the host, not the token', async () => {
@@ -400,7 +400,7 @@ test('#3878: a refusal after the token was withheld names the host, not the toke
 
 test('#3878: a partial pull keeps its refusal count in the summary', () => {
   assert.deepEqual(fp.summaryLines({ written: 1, skipped: 3, unreadable: 3, denied: 2, lastGetError: 'blob GET HTTP 404', dir: '/d' }),
-    ['pulled 1 report(s) (3 skipped) to /d', '3 reports could not be read, 2 of them refused although the token was sent (last error: blob GET HTTP 404)']);
+    ['pulled 1 report(s) (3 skipped) to /d', '3 reports could not be read, 2 of them refused although the token was sent (the read path may need a different URL or auth form) (last error: blob GET HTTP 404)']);
 });
 
 test('#3878: reports listed from a PUBLIC blob store carry the conditional public-store note', async () => {
@@ -445,4 +445,37 @@ test('#3878: the public-store flag is anchored to the blob host, not any ".publi
   });
   const r = await fp.pull(path.join(SB, 'd-notblob'), { token: 'tok' });
   assert.equal(r.fromPublicStore, false);
+});
+
+test('#3878: the failure message and the success summary say "could not be read" with the same words', async () => {
+  fp.setTransport({
+    list: async () => [{ url: 'https://s.private.blob.vercel-storage.com/a.json' }],
+    get: async () => { throw new Error('blob GET HTTP 403'); },
+  });
+  const failed = await fp.pull(path.join(SB, 'd-same-words'), { token: 'tok' });
+  const clause = fp.summaryLines({ written: 0, skipped: 1, total: 1, unreadable: 1, denied: 1, lastGetError: 'blob GET HTTP 403', dir: '/d' })[1];
+  assert.ok(failed.because.includes(clause), 'the failure message words the clause differently:\n' + failed.because + '\n' + clause);
+});
+
+test('#3878: a report GET that redirects to another origin does not carry the token there', async () => {
+  const http = require('node:http');
+  const seenAtB = [];
+  const b = http.createServer((req, res) => { seenAtB.push(req.headers.authorization || ''); res.setHeader('content-type', 'application/json'); res.end(JSON.stringify(REC('inst-r', '2026-09-26', 'r'))); });
+  await new Promise((r) => b.listen(0, '127.0.0.1', r));
+  const a = http.createServer((req, res) => {
+    if (req.url.startsWith('/?prefix=')) { res.setHeader('content-type', 'application/json'); res.end(JSON.stringify({ blobs: [{ url: 'http://127.0.0.1:' + a.address().port + '/r.json' }], hasMore: false })); return; }
+    res.statusCode = 302; res.setHeader('location', 'http://localhost:' + b.address().port + '/r.json'); res.end();
+  });
+  await new Promise((r) => a.listen(0, '127.0.0.1', r));
+  const savedApi = process.env.AGENT_WORKFORCE_BLOB_API;
+  process.env.AGENT_WORKFORCE_BLOB_API = 'http://127.0.0.1:' + a.address().port;
+  try {
+    fp.setTransport(null);
+    const r = await fp.pull(path.join(SB, 'd-redirect'), { token: 'tok-redirect' });
+    assert.equal(r.written, 1, 'the redirected report is still fetched');
+    assert.deepEqual(seenAtB, [''], 'the token followed a cross-origin redirect');
+  } finally {
+    if (savedApi === undefined) delete process.env.AGENT_WORKFORCE_BLOB_API; else process.env.AGENT_WORKFORCE_BLOB_API = savedApi;
+    await new Promise((r) => a.close(r)); await new Promise((r) => b.close(r));
+  }
 });

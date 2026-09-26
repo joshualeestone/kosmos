@@ -285,13 +285,10 @@ async function pull(dir, opts) {
   if (written === 0 && unreadable > 0) {
     return {
       ok: false, written, skipped, total, dir: target,
-      because: 'the store listed ' + reports(total) + ' and none was pulled: ' + unreadable + ' could not be read'
-        + (skipped > unreadable ? ', ' + (skipped - unreadable) + ' malformed or not written' : '')
-        + ' (last read error: ' + lastGetError + ')'
-        + (denied
-          ? '. ' + denied + ' of them refused although this token was sent: the read path may need a different URL or auth form.'
-          : '.')
-        + (fromPublicStore ? ' ' + PUBLIC_STORE_NOTE : ''),
+      because: 'the store listed ' + reports(total) + ' and none was pulled: '
+        + unreadableClause({ unreadable, denied, lastGetError })
+        + (skipped > unreadable ? '; ' + (skipped - unreadable) + ' malformed or not written' : '')
+        + '.' + (fromPublicStore ? ' ' + PUBLIC_STORE_NOTE : ''),
       unreadable, denied, fromPublicStore,
     };
   }
@@ -310,6 +307,14 @@ const PUBLIC_STORE_NOTE = 'These reports were listed from a PUBLIC blob store. T
 /* A count with its noun: "1 report", "2 reports". */
 function reports(n) { return n + (n === 1 ? ' report' : ' reports'); }
 
+/* The one wording of "some reports could not be read", for the failure message and
+   the success summary alike. `denied` = refused although the token was sent. */
+function unreadableClause({ unreadable, denied, lastGetError }) {
+  return reports(unreadable) + ' could not be read'
+    + (denied ? ', ' + denied + ' of them refused although the token was sent (the read path may need a different URL or auth form)' : '')
+    + ' (last error: ' + lastGetError + ')';
+}
+
 /**
  * The success summary of a pull, as lines. The ONE place it is worded: runCli, the
  * Mac `kosmos feedback pull` (install/kosmos) and the Windows command all print
@@ -324,11 +329,7 @@ function summaryLines(r) {
     out.push('no reports were listed. If reports are expected, check that ' + FEEDBACK_TOKEN_TARGET
       + ' holds the private feedback store\'s token (kosmos#3878).');
   }
-  if (r.unreadable) {
-    out.push(reports(r.unreadable) + ' could not be read'
-      + (r.denied ? ', ' + r.denied + ' of them refused although the token was sent' : '')
-      + ' (last error: ' + r.lastGetError + ')');
-  }
+  if (r.unreadable) out.push(unreadableClause(r));
   if (r.fromPublicStore) out.push('note: ' + PUBLIC_STORE_NOTE);
   return out;
 }
