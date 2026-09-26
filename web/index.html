@@ -9047,9 +9047,6 @@ body.plus-active {
      light or dark mode, so a light-mode Mac painted light-mode red, green, warning and @mention on navy, where
      they fail (2.30 to 3.03:1). On navy the dark values read at 5.70 to 10.48:1. */
   --pj-mention: #5aa2ff; --gold-edge: #d6a62e; --ok: #4ade80; --danger: #ff6b5e; --warn-ink: #ffca55;
-  /* #3692: cards and warnings are marked by a hairline and a tint now, not a --k-rule left bar, so
-     their tokens are pinned to the dark values the same way. */
-  --warn-bg: rgba(255,190,60,0.12); --warn-border: rgba(255,190,60,0.32); --border-strong: rgba(255,255,255,0.26);
 }
 /* #3724: the update toast sets its own red (--utone) on itself, so the navy block above cannot reach it. Restated
    in the dark look's order: the bare override is (0,2,1), so each severity must be restated to stay above it.
@@ -9058,10 +9055,15 @@ body.plus-active {
 body.plus-active .utoast { --utone: #ff8c82; }
 body.plus-active .utoast.stale, body.plus-active .utoast.login-adv.notice { --utone: var(--label-2); }
 body.plus-active .utoast.login-adv.warn { --utone: var(--warn-ink); }
-/* #3692: the roadmap needs-you ring is a hard-coded red, so the navy block cannot reach it; pinned
-   to the dark ring here, as the warn tokens are above. */
-body.plus-active:not(.consolidated).pj-roadmap #pj-list:not(.asgrid) .pj-row.attn { box-shadow: inset 0 0 0 1px rgba(255,140,130,.55); }
 body.plus-active .utoast.login-adv.urgent { --utone: #ff8c82; }
+/* #3692: the cards and warnings that lost their left bar are marked by a hairline and a tint, and
+   those tokens' light values nearly vanish on navy, so they take the dark values here. Set on just
+   these elements, not on the skin, so the other users of the tokens are unchanged. */
+body.plus-active :is(.svc-door, .dmoff, .msg-valve, .rst-list li, .rolelimit, .note, .pj-warn,
+  .pj-folder-state.bad, .pj-question, .pj-msg.unsure, #d-untied, #d-withdrawn) {
+  --warn-bg: rgba(255,190,60,0.12); --warn-border: rgba(255,190,60,0.32); --border-strong: rgba(255,255,255,0.26); }
+/* The roadmap needs-you ring is a hard-coded red, so it is pinned to the dark ring here too. */
+body.plus-active:not(.consolidated).pj-roadmap #pj-list:not(.asgrid) .pj-row.attn { box-shadow: inset 0 0 0 1px rgba(255,140,130,.55); }
 /* The section is the positioning context for the ambient star field, which sits
    behind everything else in the pane. Every direct child is lifted above it. */
 #s-sec-plus { position: relative; }

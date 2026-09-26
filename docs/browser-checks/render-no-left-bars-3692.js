@@ -132,7 +132,8 @@ const SAMPLES = [
 
       chk(res.controls.quote.widths[3] > res.controls.quote.widths[1], `[${theme}] control: the quote's left rule is seen as a left bar`, JSON.stringify(res.controls.quote.widths));
       chk(res.controls.shadow.insetX, `[${theme}] control: an inset left shadow is seen as a left bar`, res.controls.shadow.shadow);
-      chk(res.samples.length === SAMPLES.length + 3, `[${theme}] every fixed element was measured`, String(res.samples.length));
+      const pageOwned = res.samples.filter((s) => s.label.startsWith('#') || s.label.startsWith('roadmap'));
+      chk(pageOwned.length === 3 && pageOwned.every((s) => !s.missing), `[${theme}] the page's own #d-untied, #d-withdrawn and #pj-list were found`, JSON.stringify(pageOwned.map((s) => [s.label, !s.missing])));
       ringByTheme[theme] = res.samples.find((s) => s.label === 'roadmap .pj-row.attn').shadow;
       chk(res.roadmap && res.roadmap.widths.every((w) => w === 0) && res.roadmap.ringed,
         `[${theme}] the roadmap rules applied to the needs-you row (no border, an inset ring)`, JSON.stringify(res.roadmap));
