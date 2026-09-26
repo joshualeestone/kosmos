@@ -10235,7 +10235,11 @@ window.kosmosMeasureScrollbarWidth();
        reads like the project page's: "Files", a short list, and View All on the right only when
        there are more than the list shows. View All opens the Files screen (#d-sec-files), which is
        where Open in Finder now lives ("it looks crowded and junky" here). -->
-  <section class="dfiles" id="d-files" aria-labelledby="d-files-h" hidden>
+  <!-- #3994 (Josh, 2026-09-26): "lets put the files for an agent inside a white container just like we do
+       on projects". It wears the project Files panel's own class, .pjcard, so the two cannot drift: the
+       same surface, radius, padding and (per layout) border. The project page's layout rules for its
+       panel are all scoped under .pj3, so only the look comes across, not that page's grid. -->
+  <section class="dfiles pjcard" id="d-files" aria-labelledby="d-files-h" hidden>
     <div class="dfiles-head">
       <h3 class="dlab" id="d-files-h">Files</h3>
       <button class="linkish pj-viewall" id="d-files-all" type="button" hidden>View All</button>
