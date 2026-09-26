@@ -109,6 +109,13 @@ test('#3949 the layout: no Projects rail, search beside the count, Project and C
   assert.ok(offending.checked > 0, 'no .tsk-view rule found');
   assert.deepEqual(offending.hits, [], 'the page body has a frame again');
   const at = (re) => { const i = body.search(re); assert.ok(i >= 0, 'missing: ' + re); return i; };
+  // #3949 (Josh, 09-26 18:03): two bands. The top one holds the title, search, filters and tiles; the white one
+  // starts at Group by / Sort and holds the groups and the bulk bar. (The colours are read as pixels in the browser check.)
+  const bandAt = at(/<div class="tsk-band">/); const belowAt = at(/<div class="tsk-below">/);
+  for (const id of ['tsk-title', 'tsk-search', 'tsk-projsel', 'tsk-tiles']) {
+    const i = at(new RegExp('id="' + id + '"')); assert.ok(i > bandAt && i < belowAt, id + ' is not in the top band');
+  }
+  for (const id of ['tsk-by', 'tsk-sort', 'tsk-groups', 'tsk-bulk']) assert.ok(at(new RegExp('id="' + id + '"')) > belowAt, id + ' is not on the white band');
   // Search and the count share the top row, the count to the right.
   const top = body.slice(at(/<div class="tsk-toprow">/), at(/<div class="tsk-ctrls" id="tsk-filters">/));
   assert.ok(top.indexOf('id="tsk-search"') >= 0 && top.indexOf('id="tsk-sub"') > top.indexOf('id="tsk-search"'), 'the count is not to the right of the search');

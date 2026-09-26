@@ -1,4 +1,4 @@
-// Browser-check-surface: panel-tasks tsk-tiles tsk-groups tsk-search tsk-bulk rail-projects-tasks tsk-view
+// Browser-check-surface: panel-tasks tsk-tiles tsk-groups tsk-search tsk-bulk rail-projects-tasks tsk-view tsk-band tsk-below tsk-list
 'use strict';
 /**
  * The Tasks view on a screen (#3559): the third top-level tab, every task on every project,
@@ -200,6 +200,33 @@ function chk(ok, label, extra) {
           shadow: cs.boxShadow, tileBorder: tile.borderTopWidth }; });
       chk(tabFrame.sides && tabFrame.r === '0px' && tabFrame.outline === 'none' && tabFrame.shadow === 'none' && tabFrame.tileBorder !== '0px',
         `${tag} the tab view has no outer frame; the tiles keep their own border`, JSON.stringify(tabFrame));
+      /* #3949 (Josh, 09-26 18:03): two bands, read as PIXELS (what he sees, not what the CSS says): the top band
+         (title to tiles) on the page's ground to the window's left and right edges; from Group by down, the surface
+         (white) to both edges and to the bottom of the window; the task cards shaded with the ground; the tiles still
+         the surface. A 1x1 screenshot is read back through a canvas in the page. */
+      const px = async (x, y) => {
+        const b64 = (await page.screenshot({ clip: { x, y, width: 1, height: 1 } })).toString('base64');
+        return page.evaluate((src) => new Promise((ok) => { const i = new Image(); i.onload = () => { const c = document.createElement('canvas');
+          c.width = 1; c.height = 1; const x2 = c.getContext('2d'); x2.drawImage(i, 0, 0); ok([...x2.getImageData(0, 0, 1, 1).data].slice(0, 3)); };
+          i.src = 'data:image/png;base64,' + src; }), b64);
+      };
+      const tok = await page.evaluate(() => { const probe = (v) => { const e = document.createElement('i'); e.style.color = v;
+        document.getElementById('panel-tasks').appendChild(e); const c = getComputedStyle(e).color; e.remove(); return c.match(/\d+/g).slice(0, 3).map(Number); };
+        return { bg: probe('var(--k-bg)'), surface: probe('var(--k-surface)') }; });
+      await page.evaluate(() => scrollTo(0, 0));
+      const geo = await page.evaluate(() => { const r = (sel) => document.querySelector(sel).getBoundingClientRect();
+        const tiles = r('#tsk-tiles'); const under = r('#tsk-under'); const list = r('#tsk-groups .tsk-list'); const tile = r('#tsk-tiles .tsk-tile');
+        return { w: innerWidth, h: innerHeight, bandY: Math.round((tiles.top + tiles.bottom) / 2), belowY: Math.round(under.top + under.height / 2),
+          listX: Math.round(list.left + 6), listY: Math.round(list.top + 6), tileX: Math.round(tile.left + 6), tileY: Math.round(tile.top + 6) }; });
+      const same = (p, q) => p.every((v, i) => Math.abs(v - q[i]) <= 2);
+      const band = [await px(1, geo.bandY), await px(geo.w - 2, geo.bandY)];
+      const below = [await px(1, geo.belowY), await px(geo.w - 2, geo.belowY), await px(1, geo.h - 2), await px(geo.w - 2, geo.h - 2)];
+      const card = await px(geo.listX, geo.listY); const tilePx = await px(geo.tileX, geo.tileY);
+      chk(!same(tok.bg, tok.surface), `${tag} CONTROL: the ground and the surface are different colours, so the band checks can fail`, JSON.stringify(tok));
+      chk(band.every((p) => same(p, tok.bg)), `${tag} the top band keeps the page's ground to both edges`, JSON.stringify({ band, bg: tok.bg }));
+      chk(below.every((p) => same(p, tok.surface)), `${tag} from Group by down it is the surface (white) to both edges and the bottom`, JSON.stringify({ below, surface: tok.surface }));
+      chk(same(card, tok.bg) && same(tilePx, tok.surface), `${tag} the task cards are shaded with the ground; the tiles stay the surface`, JSON.stringify({ card, tile: tilePx }));
+      chk(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), `${tag} the full-width band adds no sideways scroll`);
       /* #3949/#3951 (Josh): six single-label tiles in his order; Completed is a tile and still the fold below. */
       chk(JSON.stringify(a.tiles.map((t) => t.k)) === JSON.stringify(['decision', 'working', 'assigned', 'nobody', 'built', 'closed']), `${tag} the tiles are Josh's six groups in his order, each from a recorded state`, JSON.stringify(a.tiles.map((t) => t.k)));
       chk(JSON.stringify(a.tiles.map((t) => t.label)) === JSON.stringify(['Needs Your Decision', 'In progress', 'Assigned but not started', 'Unassigned', 'Built but waiting', 'Completed']), `${tag} each tile is one label`, JSON.stringify(a.tiles.map((t) => t.label)));
