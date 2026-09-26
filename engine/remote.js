@@ -242,11 +242,13 @@ async function refreshStandingIfStale(opts) {
   if (s.ok !== true) return;
   if (now - (s.standing_at || 0) < ttl) return;   // still fresh
   standingRefreshInFlight = true;
+  // The answer is about the identity on disk when it was asked: a Forget, or a
+  // Forget and a new sign-in, while it was out means it is about one that is gone,
+  // and it must not be written onto another (#3827).
+  const idBefore = macIdHere();
   try {
     const standing = await fetcher();
-    // A Forget that landed meanwhile cleared this; the answer is about an identity
-    // that is gone and must not be written back (#3827).
-    if (forgetting || !enrolled()) return;
+    if (forgetting || !enrolled() || macIdHere() !== idBefore) return;
     if (typeof standing === 'string') {
       fedSetStanding(standing);             // a definite answer: update the value + reset the clock
     } else {
@@ -658,7 +660,8 @@ async function macRequest(method, routePath, body) {
     '--method', method, '--path', routePath];
   // AGENT_WORKFORCE_MAC_REQUEST_TIMEOUT_MS is a test seam (a hung tunnel in a test).
   const timeout = Number(process.env.AGENT_WORKFORCE_MAC_REQUEST_TIMEOUT_MS) || MAC_REQUEST_TIMEOUT_MS;
-  const r = await setupRun(args, method === 'GET' ? null : JSON.stringify(body || {}), timeout);
+  // A signed call like the device verbs: Forget waits for it (it carries its own bound).
+  const r = await tracked(setupRun(args, method === 'GET' ? null : JSON.stringify(body || {}), timeout));
   if (!r.ok) return { ok: false, because: r.because };
   const got = lastJsonLine(r.said);
   if (got) return { ok: true, data: got.value };
@@ -882,6 +885,7 @@ async function setupComplete(code, name) {
   // beside it), bounded the same, and a half identity is retired first.
   const epoch = signinEpoch;
   const before = macIdHere();
+  const addressBefore = address();
   const running = (async () => {
     const half = await clearHalfIdentity();
     if (half && half.kept) return KEPT_HALF(half.kept);
@@ -902,7 +906,7 @@ async function setupComplete(code, name) {
   try { result = await running; } finally { if (registerInFlight === running) registerInFlight = null; }
   if (epoch !== signinEpoch) return cancelledAfter(result, before);
   if (result.ok && macIdHere() !== before) stopChild();
-  if (!result.ok) abandonChangedIdentity(before);
+  if (!result.ok) abandonChangedIdentity(before, addressBefore);
   // A new identity: the previous account's cached standing does not carry over.
   if (result.ok && macIdHere() !== before) fedSetStanding('');
   if (result.ok) ensure(localPort);
@@ -1190,10 +1194,15 @@ const SIGNIN_CANCELLED = { ok: false, because: 'the sign-in was cancelled' };
    beside the old certificate, which no tunnel may run on. The old certificate
    belongs to a key that is gone, so it is dropped: the directory is then half
    registered, and the next register retires that id first. (#3827) */
-function abandonChangedIdentity(before) {
+function abandonChangedIdentity(before, addressBefore) {
   if (macIdHere() === before) return;
   stopChild();
-  for (const f of ['tls.crt', 'tls.key']) { try { fs.rmSync(path.join(STATE_DIR(), f), { force: true }); } catch { /* the register writes them again */ } }
+  // The certificate belongs to the ADDRESS (the tunnel keeps it across a register
+  // at the same address: setup.rs certificate_survives), so it is dropped only when
+  // the address changed; then it is for a name this key no longer holds.
+  if (address() !== addressBefore) {
+    for (const f of ['tls.crt', 'tls.key']) { try { fs.rmSync(path.join(STATE_DIR(), f), { force: true }); } catch { /* the register writes them again */ } }
+  }
   fedSetStanding('');
 }
 const macIdHere = () => { try { return fs.readFileSync(path.join(STATE_DIR(), 'mac_id'), 'utf8').trim() || null; } catch { return null; } };
@@ -1557,6 +1566,7 @@ async function signinRegister(name) {
   const epoch = signinEpoch;
   const token = signinSession.token;
   const before = macIdHere();
+  const addressBefore = address();
   const running = (async () => {
     // An earlier register that stopped after the coordinator accepted it (key and
     // id, no certificate) is retired first, so this one does not strand it.
@@ -1577,7 +1587,7 @@ async function signinRegister(name) {
   // cancel must never do is let this switch it on.
   if (epoch !== signinEpoch) return cancelledAfter(r, before);
   if (!r.ok) {
-    abandonChangedIdentity(before);
+    abandonChangedIdentity(before, addressBefore);
     return r;
   }
   signinSession = null;   // the token is spent; it must not linger in this process

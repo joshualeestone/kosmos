@@ -241,6 +241,7 @@ if (args[0] === 'retire' && mode.includes('retire-5xx')) { process.stderr.write(
 // A retire that worked prints the coordinator's answer, as the real one does.
 if (args[0] === 'retire') { console.log(JSON.stringify({ retired: true })); process.exit(0); }
 // A signed request: tracing logs to stdout by default (kosmos-relay main.rs), so a warn line can come first.
+if (args[0] === 'mac-request' && mode.includes('hung-macreq')) { const until = Date.now() + Number(process.env.FAKE_DEVICE_HANG_MS || 700); while (Date.now() < until) { /* wait */ } fs.appendFileSync(${JSON.stringify(RECORD)}, JSON.stringify(['macreq-done']) + '\\n'); }
 if (args[0] === 'mac-request') { console.log('\\u001b[33m WARN\\u001b[0m kosmos_tunnel::coordinator: could not record mac_last_signed'); console.log(JSON.stringify({ standing: 'good' })); process.exit(0); }
 if (args[0] === 'run') {
   if (mode === 'crash') process.exit(3);
@@ -2128,5 +2129,45 @@ test('#3827: a successful rename replaces the running tunnel with one on the new
   } finally {
     remote.setOn(false);
     await remote.forget();
+  }
+});
+
+test('#3827: a standing answer about an identity replaced while it was out is not written onto the new one', async () => {
+  process.env.AGENT_WORKFORCE_TUNNEL_RELAY = '127.0.0.1:9444';
+  const dir = process.env.AGENT_WORKFORCE_TUNNEL_STATE || nodePath.join(DATA_ROOT, 'remote');
+  await remote.signinStart('her@example.com');
+  await remote.signinVerify('her@example.com', '111111');
+  assert.equal((await remote.signinRegister('hers')).ok, true, 'fixture: registered');
+  remote.fedSetStanding('');
+  try {
+    await remote.refreshStandingIfStale({ ttlMs: 0, now: Date.now() + 1, fetcher: async () => {
+      fs.writeFileSync(nodePath.join(dir, 'mac_id'), 'mac-someone-else');   // a Forget and a new sign-in meanwhile
+      return 'good';
+    } });
+    assert.equal(remote.read().standing, '', 'the old identity\'s standing was written onto the new one');
+  } finally {
+    remote.setOn(false);
+    await remote.forget();
+  }
+});
+
+test('#3827: Forget lets a signed mac-request already out finish before it retires', async () => {
+  process.env.AGENT_WORKFORCE_TUNNEL_RELAY = '127.0.0.1:9444';
+  await remote.signinStart('her@example.com');
+  await remote.signinVerify('her@example.com', '111111');
+  assert.equal((await remote.signinRegister('hers')).ok, true, 'fixture: registered');
+  process.env.FAKE_TUNNEL_MODE = 'hung-macreq';
+  process.env.FAKE_DEVICE_HANG_MS = '700';
+  try {
+    fs.rmSync(RECORD, { force: true });
+    const asking = remote.macRequest('POST', '/v1/mac/standing', {});
+    await new Promise((r) => setTimeout(r, 100));
+    await remote.forget();
+    await asking;
+    const calls = recorded().map((c) => c[0]);
+    assert.ok(calls.indexOf('macreq-done') >= 0 && calls.indexOf('macreq-done') < calls.indexOf('retire'), 'Forget retired while a mac-request was still out: ' + JSON.stringify(calls));
+  } finally {
+    delete process.env.FAKE_TUNNEL_MODE;
+    delete process.env.FAKE_DEVICE_HANG_MS;
   }
 });
