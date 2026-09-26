@@ -80,3 +80,10 @@ and route regexes; not the method; two permissive matcher limits, each pinned by
 - Header: ceilings are NET; '/api' + '/x' is not read; a template URL is read with `${}` flattened.
   The acorn measurement (every /api literal in both files classified START, iteration 3's review)
   lives here, not in the code.
+
+## Challenge-loop iteration 6
+- BLOCKER (latent): a template URL starting with an interpolated base (`${origin}/api/x`) was not
+  read, counted, or signalled. It is now read from '/api/' on; control added. None exist today.
+- skipDynamic flags an expression that ran past its 600-char budget as open-ended (counted),
+  not a clean end; alternation words are matched case-insensitively; a comment now says raw-HTML
+  attributes ARE read.

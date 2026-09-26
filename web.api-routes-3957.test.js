@@ -96,7 +96,8 @@ function lexMask(src) {
         i = end;
       } else if (c === '<' && /^<\/?[A-Za-z]/.test(src.slice(i, i + 3))) {
         /* An HTML tag in the page's raw markup (`</p>`, `<img`): skipped to the end of its name, so
-           the `/` of a closing tag is never read as a regex that swallows a following attribute. */
+           the `/` of a closing tag is never read as a regex that swallows a following attribute.
+           (A raw attribute's own quote is a string START, so `<img src="/api/x">` is read.) */
         let j = i + 1;
         if (src[j] === '/') j += 1;
         while (j < src.length && /[A-Za-z0-9-]/.test(src[j])) j += 1;
@@ -174,7 +175,8 @@ function skipDynamic(src, i) {
       openEnded = true;
     }
   }
-  return { resumed: false, next: i, openEnded };
+  /* Ran out of budget inside one expression: say so, rather than read it as a clean end. */
+  return { resumed: false, next: i, openEnded: openEnded || src.length > i + 600 && depth > 0 };
 }
 
 /* Normalise a read URL (placeholders as \u0000) into an example path, or null if it is not /api. */
@@ -237,6 +239,13 @@ function pagePaths(src) {
     if (!path.startsWith('/api/')) continue;
     if (openEnded) { unreadable.add(path.split('?')[0].replace(/\u0000+/g, 'x') + '...'); continue; }
     out.add(finish(path));
+  }
+  /* A template whose URL starts with an interpolated BASE (`${origin}/api/x`): the base is only an
+     origin, so the route is read from '/api/' onward, its own `${}` as placeholders. */
+  for (const t of src.matchAll(/`\$\{[^}`]*\}(\/api\/[^`]*)`/g)) {
+    if (mask[t.index] !== START) continue;
+    const f = finish(t[1].replace(/\$\{[^}]*\}/g, '\u0000'));
+    if (f) out.add(f);
   }
   /* MARKUP built inside JS strings: `'<img src="/api/agent/' + name + '/avatar">'`. The URL's own
      quote is inside the JS string, so the loop above does not see it as a string start. Read from
@@ -317,7 +326,7 @@ function boardRoutes(src) {
 /* The words a route regex enumerates, `(allow|deny|remove)`, so a page placeholder can stand for one. */
 function alternatives(board) {
   const words = new Set();
-  for (const r of board.regexes) for (const m of r.source.matchAll(/\(((?:[a-z0-9-]+\|)+[a-z0-9-]+)\)/g)) m[1].split('|').forEach((w) => words.add(w));
+  for (const r of board.regexes) for (const m of r.source.matchAll(/\(((?:[A-Za-z0-9-]+\|)+[A-Za-z0-9-]+)\)/g)) m[1].split('|').forEach((w) => words.add(w));
   return [...words];
 }
 
@@ -463,4 +472,9 @@ test('#3957 control: a board prefix serves only whole segments under it', () => 
   const board = boardRoutes(SERVER + "\nif (pathname.startsWith('/api/pfx-3957')) {}\n");
   assert.equal(served('/api/pfx-3957/child', board), true);
   assert.equal(served('/api/pfx-3957bar', board), false, 'a prefix matched across a segment boundary');
+});
+
+test('#3957 control: a template URL with an interpolated base is read from /api on', () => {
+  const planted = pagePaths(PAGE + "\nplusSiPost(`${base}/api/helper-template-gap-3957/${id}/go`, {});\n").paths;
+  assert.ok(planted.includes('/api/helper-template-gap-3957/x/go'), 'a base-prefixed template call was invisible');
 });
