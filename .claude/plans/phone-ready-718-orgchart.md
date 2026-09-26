@@ -142,3 +142,7 @@ and a phone has no hover: a tap opens the agent. Changing that is a design call 
   runs), so asserting it there would be a false red, and WebKit checks focus and the name.
 - The plan's Change item 2 now says positions are rescaled, not reset.
 - Fixed 95/95 (Chromium + WebKit).
+- 6g: three suite tests that run tick()'s failure path with every dependency injected (server.test.js,
+  web.offline-note.test.js x2) had no orgBoxPlain and threw. They now inject it like their other tick
+  dependencies; server.test.js passes a counter and asserts the failure path calls it once (control without
+  the call fails).

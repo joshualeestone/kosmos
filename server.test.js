@@ -3282,6 +3282,7 @@ test('a failed poll blanks the stats tiles instead of asserting the last fleet i
   els.orgmap.innerHTML = '<svg class="wires"></svg><div class="hub">You</div>'
     + '<button class="onode" data-agent="april"></button>';
   const checked = { className: '', innerHTML: '' };
+  let orgBoxReset = 0;
   /* ⚠️ `boardEmpty` IS LIFTED, NOT STUBBED. The catch used to build its own
      failure card here; it now calls the one function that decides what an
      empty board says, because two deciders meant the other one was dead code
@@ -3296,12 +3297,14 @@ test('a failed poll blanks the stats tiles instead of asserting the last fleet i
     else if (script[k] === '}') { d -= 1; if (d === 0) { beEnd = k + 1; break; } }
   }
   // eslint-disable-next-line no-new-func
-  new Function('document', 'checked', 'esc', 'err', 'BOARD_SEEN', 'BOARD_LOOK_FAILED', 'BOARD_NEEDS_SIGNIN', 'setAgentsGrouped',
+  new Function('document', 'checked', 'esc', 'err', 'BOARD_SEEN', 'BOARD_LOOK_FAILED', 'BOARD_NEEDS_SIGNIN', 'setAgentsGrouped', 'orgBoxPlain',
     /* win32-board-copy: boardEmpty asks the platform copy layer ("not Windows" here). */
     require('./test-support/page').PLATFORM_COPY_FNS.map(pageFnSource).join('\n') + '\n'
     + script.slice(beAt, beEnd) + '\n' + script.slice(from, end))(
     { getElementById: (id) => els[id] }, checked, (s) => String(s), { message: 'boom' },
-    true, 'boom', false, () => {}); // #3387: setAgentsGrouped no-op (the catch resets the grouped head; not under test here)
+    true, 'boom', false, () => {}, () => { orgBoxReset += 1; }); // #3387: setAgentsGrouped no-op (the catch resets the grouped head; not under test here)
+  // #718: clearing the chart also resets its box (no scroll padding over the note, not a scrolling region).
+  assert.equal(orgBoxReset, 1, 'the failure path cleared the chart but left its box as a scrolling region');
 
   // The rendered failure card proves the extracted block really ran.
   assert.match(els.grid.innerHTML, /cannot read your agents/,
