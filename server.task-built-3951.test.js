@@ -46,9 +46,11 @@ test.before(async () => {
   win32job.setRunner(() => ({ ok: false, out: 'ERROR: The system cannot find the file specified.', code: 1 }));
   await start(0);
   base = `http://127.0.0.1:${server.address().port}`;
-  const roster = fleet.install([fleet.agent('mona', { state: 'idle' }), fleet.agent('zed', { state: 'idle' })]).agents;
+  /* `fixture`: the test fake-tmux answers every pane's session_name as fixture-discord, which ties to it. */
+  const roster = fleet.install([fleet.agent('mona', { state: 'idle' }), fleet.agent('zed', { state: 'idle' }), fleet.agent('fixture', { state: 'idle' })]).agents;
   const p = projects.create({ name: 'Alpha' });
   projects.addAgent(p.id, 'mona', roster);
+  projects.addAgent(p.id, 'fixture', roster);
   projectId = p.id;
 });
 test.after(() => {
@@ -224,5 +226,16 @@ test('with the roster unreadable, a pane-named mark is 503, not an unnamed mark 
     const r = await post(`/api/project/${projectId}/task/${n}/built`, { from_pane: 'mona-pane:0.0' });
     assert.equal(r.status, 503, JSON.stringify(r.json));
     assert.equal('builtAt' in stored(n), false);
-  } finally { status.setPaneSource(null); }
+  } finally {
+    /* Put the fleet stub back, not null: null would leave every later test reading the fake tmux's empty board. */
+    fleet.install([fleet.agent('mona', { state: 'idle' }), fleet.agent('zed', { state: 'idle' }), fleet.agent('fixture', { state: 'idle' })]);
+  }
+});
+
+test('a Mac agent with no token is named from its %N pane, as /api/post names it (review round 13)', async () => {
+  const n = newTask('Pane named');
+  const r = await post(`/api/project/${projectId}/task/${n}/built`, { note: 'from the pane', from_pane: '%7' });
+  assert.equal(r.status, 200, JSON.stringify(r.json));
+  assert.equal(stored(n).builtBy, 'fixture', 'the %N pane did not name its agent: ' + JSON.stringify(stored(n)));
+  assert.deepEqual(stored(n).builtWho, ['fixture']);
 });

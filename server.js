@@ -15163,7 +15163,8 @@ const server = http.createServer((req, res) => {
      process the board cannot name (no token, no known pane) is not held to membership: it is refused nothing the
      message route would refuse it, it is valved, and it is recorded as builtBy null (review round 6); its mark frees
      no agent (review round 11). The real
-     boundary is the board token. A
+     boundary is the board token, and the person's own mark rests on the screen posture (isViaScreen), advisory
+     as on the bulk-close route: a local process that claims to be the screen is taken at its word (review round 13). A
      process is valved (builtMarkValveTripped); the same mark again records nothing and is not counted. Marking a closed
      task is refused (409); clearing one is a no-op answered `changed: false` (review round 10), since closing
      already cleared the mark. The block is not re-synced: the mark changes nothing on an agent's instructions list. */
@@ -15189,8 +15190,11 @@ const server = http.createServer((req, res) => {
         sendJson(res, 503, { error: 'we could not check which agents are running, so the task was not marked' });
         return;
       }
-      const card = tokenSender ? tokenSender.card
-        : (fromPane && Array.isArray(roster) ? roster.find((c) => c && c.target === fromPane) : null);
+      /* The pane as /api/post resolves it (review round 13): the CLI sends tmux's %N, which no roster target equals;
+         messages.resolveSender asks tmux for its session and ties it to a card. A pane that does not resolve leaves
+         the caller unnamed. */
+      const byPane = !tokenSender && fromPane ? messages.resolveSender(fromPane, roster) : null;
+      const card = tokenSender ? tokenSender.card : (byPane && byPane.ok ? byPane.card : null);
       const by = viaScreen ? null : ((card && card.sessionName) || null);
       if (!viaScreen) {
         if (builtMarkValveTripped()) {
