@@ -7749,15 +7749,6 @@ const server = http.createServer((req, res) => {
     sendJson(res, 200, require('./engine/agystatus').installedForScreen());
     return;
   }
-  /* #3568: open agy once in Terminal so it launches Google's sign-in in the browser (its documented
-     first-run behaviour). Only on a press; Kosmos types nothing into it. */
-  if (pathname === '/api/antigravity/open' && req.method === 'POST') {
-    req.resume();
-    require('./engine/agystatus').openForSignIn()
-      .then((r) => sendJson(res, r.ok ? 200 : 400, r.ok ? r : { ...r, error: r.because }))
-      .catch(() => sendJson(res, 500, { ok: false, error: 'we could not open Antigravity just now' }));
-    return;
-  }
   /* #3568: install agy with Google's own installer, on a Confirm press (as Kosmos installs every
      provider's terminal agent); a person is never told to open a Terminal (#996). */
   if (pathname === '/api/antigravity/install' && req.method === 'POST') {
@@ -7772,6 +7763,43 @@ const server = http.createServer((req, res) => {
     require('./engine/agystatus').check()
       .then((r) => sendJson(res, 200, r))
       .catch(() => sendJson(res, 200, { installed: null, signedIn: null, because: 'we could not check Antigravity just now' }));
+    return;
+  }
+  /* #3998: the Gemini subscription sign-in without a terminal. Kosmos runs agy's interactive sign-in
+     out of sight (engine/agysignin.js) and the screen drives it: start, read the state, hand it the
+     code the person pasted from Google's page, show the hidden window as a last resort, stop. */
+  if (pathname.startsWith('/api/antigravity/signin')) {
+    const signin = require('./engine/agysignin');
+    const agy = require('./engine/agystatus');
+    const sub = pathname.slice('/api/antigravity/signin'.length);
+    if (sub === '' && req.method === 'GET') { sendJson(res, 200, signin.status()); return; }
+    if (req.method !== 'POST') { sendJson(res, 405, { error: 'that is not something this address does' }); return; }
+    if (!agy.offered()) { req.resume(); sendJson(res, 400, { ok: false, error: 'Gemini on a Google subscription is not offered on this computer' }); return; }
+    if (sub === '') {
+      req.resume();
+      const r = signin.start();
+      sendJson(res, r.ok ? 200 : 400, r.ok ? { ok: true, ...signin.status() } : { ...r, error: r.because });
+      return;
+    }
+    if (sub === '/code') {
+      readBody(req).then((raw) => {
+        let body = null;
+        try { body = JSON.parse(raw || 'null'); } catch { body = null; }
+        const r = signin.code(body && body.code);
+        sendJson(res, r.ok ? 200 : 400, r.ok ? { ok: true, ...signin.status() } : { ...r, error: r.because });
+      }).catch(() => sendJson(res, 400, { ok: false, error: 'we could not read that request' }));
+      return;
+    }
+    if (sub === '/show') {
+      req.resume();
+      signin.show()
+        .then((r) => sendJson(res, r.ok ? 200 : 400, r.ok ? r : { ...r, error: r.because }))
+        .catch(() => sendJson(res, 500, { ok: false, error: 'Kosmos could not open the sign-in window' }));
+      return;
+    }
+    if (sub === '/stop') { req.resume(); sendJson(res, 200, signin.stop()); return; }
+    req.resume();
+    sendJson(res, 404, { error: 'there is nothing at that address' });
     return;
   }
   /**

@@ -220,30 +220,45 @@ test('#3568: with agy installed, the check is signed in on "ok" and could-not-co
   } finally { delete process.env.AGENT_WORKFORCE_ANTIGRAVITY_BIN; }
 });
 
-test('#3568: POST /api/antigravity/open and /install answer through the real routes, with their reasons', async () => {
+test('#3568/#3998: POST /api/antigravity/signin and /install answer through the real routes, with their reasons', async () => {
   if (process.platform !== 'darwin') return;
   const agystatus = require('./engine/agystatus');
   const dir = path.join(SANDBOX, 'agyroutes'); fs.mkdirSync(dir, { recursive: true });
   const bin = path.join(dir, 'agy');
   process.env.AGENT_WORKFORCE_ANTIGRAVITY_BIN = bin;
   try {
-    // Not installed: open refuses with its reason, and install runs the installer.
+    // Not installed: the sign-in refuses with its reason, and install runs the installer.
     agystatus.allowSandboxInstallForTests(true);   // this test board is a sandbox by design
     let ran = 0;
     agystatus.setInstallerForTests((done) => { ran += 1; fs.writeFileSync(bin, '#!/bin/sh\nexit 0\n', { mode: 0o755 }); done(null); });
-    const o1 = await req('/api/antigravity/open', { method: 'POST' });
+    const o1 = await req('/api/antigravity/signin', { method: 'POST' });
     assert.equal(o1.status, 400);
     assert.match(json(o1).error, /not installed/);
     const i1 = await req('/api/antigravity/install', { method: 'POST' });
     assert.equal(i1.status, 200, i1.body);
     assert.deepEqual(json(i1), { ok: true, installed: true });
     assert.equal(ran, 1);
-    // Installed: open opens it.
-    let opened = null;
-    agystatus.setOpenerForTests((b, done) => { opened = b; done(null); });
-    const o2 = await req('/api/antigravity/open', { method: 'POST' });
-    assert.equal(o2.status, 200);
-    assert.equal(opened, bin);
+    // Installed: the hidden sign-in starts (its tmux side is engine/agysignin.test.js's; stood in here),
+    // its state reads back, a code that is not one is refused, and stop ends it.
+    const signin = require('./engine/agysignin');
+    const calls = [];
+    signin.setForTests({ tmux: (args) => { calls.push(args.join(' ')); if (args[0] === 'capture-pane') throw new Error('none'); return ''; },
+      folderRoot: () => dir });
+    try {
+      const o2 = await req('/api/antigravity/signin', { method: 'POST' });
+      assert.equal(o2.status, 200, o2.body);
+      assert.equal(json(o2).state, 'starting');
+      assert.ok(calls.some((c) => c.startsWith('new-session -d -s agy-signin') && c.endsWith(bin)), 'agy was not started in the hidden session: ' + calls.join(' | '));
+      const s1 = await req('/api/antigravity/signin');
+      assert.equal(json(s1).state, 'starting');
+      assert.equal(json(s1).folder, undefined, 'the folder must not reach the screen');
+      const c1 = await req('/api/antigravity/signin/code', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ code: '4/0AXlqoi78ZmW2ZEDHmXTxfTTbEqk1' }) });
+      assert.equal(c1.status, 400, 'a code was accepted before Antigravity asked for one');
+      const x = await req('/api/antigravity/signin/stop', { method: 'POST' });
+      assert.equal(x.status, 200);
+      assert.equal(json(await req('/api/antigravity/signin')).state, 'stopped');
+      assert.equal((await req('/api/antigravity/signin/nowhere', { method: 'POST' })).status, 404);
+    } finally { signin.resetForTests(); }
     // CONTROL: a failed install is a 400 with its reason, not a 200.
     fs.rmSync(bin, { force: true });
     agystatus.setInstallerForTests((done) => done(new Error('curl: (6)')));

@@ -11469,6 +11469,17 @@ window.kosmosMeasureScrollbarWidth();
           <a class="btn" id="acct-gemini-sub-open" href="#" target="_blank" rel="noopener">About Antigravity</a>
         </div>
         <p class="dhint" id="acct-gemini-sub-code" role="status" aria-live="polite" hidden style="margin:8px 0 0;"></p>
+        <!-- #3998: the code Google's page shows is pasted HERE, not into a terminal; Kosmos passes it to
+             Antigravity, which it runs out of sight. -->
+        <div id="acct-gemini-sub-paste-row" hidden style="margin-top:8px;">
+          <label class="dhint" for="acct-gemini-sub-paste" style="display:block;margin:0 0 6px;">Paste the code from Google's page here.</label>
+          <div class="frow">
+            <input type="text" id="acct-gemini-sub-paste" autocomplete="off" autocapitalize="off" spellcheck="false" placeholder="4/0A…">
+            <button class="btn uprime" id="acct-gemini-sub-paste-go" type="button">Continue</button>
+          </div>
+          <p class="acct-help" style="margin:6px 0 0;"><a class="btn-quiet" id="acct-gemini-sub-page" href="#" target="_blank" rel="noreferrer noopener">Open Google's sign-in page again<span class="vh"> (opens in your browser)</span></a></p>
+        </div>
+        <div class="frow" id="acct-gemini-sub-show-row" hidden style="margin-top:8px;"><button class="btn" id="acct-gemini-sub-show" type="button">Show the sign-in window</button></div>
         <div class="frow" id="acct-gemini-sub-cancel-row" hidden style="margin-top:8px;"><button class="btn" id="acct-gemini-sub-cancel" type="button">Stop this sign-in</button></div>
       </div>
     </div>
@@ -12556,6 +12567,17 @@ window.kosmosMeasureScrollbarWidth();
                     <a class="btn" id="fr-gemini-sub-open" href="#" target="_blank" rel="noopener">Open the sign-in page</a>
                   </div>
                   <p class="dhint" id="fr-gemini-sub-code" role="status" aria-live="polite" hidden style="margin:8px 0 0;"></p>
+                  <!-- #3998: the code Google's page shows is pasted HERE, not into a terminal; Kosmos passes it to
+                       Antigravity, which it runs out of sight. -->
+                  <div id="fr-gemini-sub-paste-row" hidden style="margin-top:8px;">
+                    <label class="dhint" for="fr-gemini-sub-paste" style="display:block;margin:0 0 6px;">Paste the code from Google's page here.</label>
+                    <div class="frow">
+                      <input type="text" id="fr-gemini-sub-paste" autocomplete="off" autocapitalize="off" spellcheck="false" placeholder="4/0A…">
+                      <button class="btn uprime" id="fr-gemini-sub-paste-go" type="button">Continue</button>
+                    </div>
+                    <p class="acct-help" style="margin:6px 0 0;"><a class="btn-quiet" id="fr-gemini-sub-page" href="#" target="_blank" rel="noreferrer noopener">Open Google's sign-in page again<span class="vh"> (opens in your browser)</span></a></p>
+                  </div>
+                  <div class="frow" id="fr-gemini-sub-show-row" hidden style="margin-top:8px;"><button class="btn" id="fr-gemini-sub-show" type="button">Show the sign-in window</button></div>
                   <div class="frow" id="fr-gemini-sub-cancel-row" hidden style="margin-top:8px;"><button class="btn" id="fr-gemini-sub-cancel" type="button">Stop this sign-in</button></div>
                 </div>
                 <div id="fr-gemini-flow" hidden class="fr-confirm">
@@ -24450,7 +24472,7 @@ function acctShowSuccess(accountLabel, goldBox) {
      stale "Success!" with no provider form on the next open. closeAcctAdd has already
      put the modal back to its form state by then, so a no-op here is the clean outcome. */
   if (document.getElementById('acct-add-modal').hidden) return;
-  ['acct-add-t', 'acct-add-in', 'acct-provider-field', 'acct-claude-flow', 'acct-openai-flow', 'acct-apikey-flow', 'acct-grok-flow', 'acct-add-acts']
+  ['acct-add-t', 'acct-add-in', 'acct-provider-field', 'acct-claude-flow', 'acct-openai-flow', 'acct-apikey-flow', 'acct-grok-flow', 'acct-gemini-flow', 'acct-add-acts']
     .forEach((id) => { const el = document.getElementById(id); if (el) el.hidden = true; });
   /* Unhide the role="status" region BEFORE writing its text: a polite live region
      mutated while hidden is not reliably announced, so the order is what makes a
@@ -25143,7 +25165,80 @@ function agySubDriver(pre, onReady) { return {
   busy: false,
   gen: 0,          // bumped when the row closes: an answer for a closed row writes nothing (review round 1)
   next: 'check',   // what the step's button does next: 'install' Antigravity, 'open' its sign-in, or 'check'
-  leave() { this.gen += 1; this.busy = false; this.next = 'check'; },
+  signing: false,  // #3998: a hidden Antigravity sign-in this step started and has not finished
+  leave() {
+    this.gen += 1; this.busy = false; this.next = 'check';
+    // A sign-in nobody is watching any more ends, rather than waiting out its half hour.
+    if (this.signing) { this.signing = false; this.post('/api/antigravity/signin/stop'); }
+    this.rows(false, false);
+  },
+  /* #3998: the paste box (with "Open Google's page again") and the last-resort window button. */
+  rows(paste, show, url) {
+    const pr = this.el('paste-row'); if (pr) pr.hidden = !paste;
+    const sr = this.el('show-row'); if (sr) sr.hidden = !show;
+    const pg = this.el('page'); if (pg) { pg.hidden = !url; pg.setAttribute('href', url || '#'); }
+  },
+  /* #3998: follow the hidden sign-in the board is running, once a second, until it ends or this step
+     is left. Each state is said in the step's own status line. */
+  async follow(mine) {
+    const live = () => mine === this.gen && this.signing;
+    let focused = false;
+    while (live()) {
+      let st = null;
+      try { st = await (await fetch('/api/antigravity/signin', { cache: 'no-store' })).json(); } catch { st = null; }
+      if (!live()) return;
+      const state = st && st.state;
+      if (state === 'code') {
+        this.say("Google's sign-in is open in your browser. Sign in there, then copy the code Google shows and paste it below.", '', false);
+        this.rows(true, false, st.url || '');
+        if (!focused) { const i = this.el('paste'); if (i) i.focus(); focused = true; }
+      } else if (state === 'checking' || state === 'setup') {
+        this.rows(false, false);
+        this.say(state === 'checking' ? 'Checking the code with Google…'
+          : "Finishing Antigravity's setup. Kosmos leaves Google's optional data sharing off; you can change that later in Antigravity's settings.", '', false);
+      } else if (state === 'stuck') {
+        this.rows(false, true);
+        this.say('Antigravity is showing a step Kosmos does not recognise. Show the sign-in window to finish it yourself.', '', false);
+      } else if (state === 'done') {
+        this.signing = false; this.rows(false, false);
+        this.next = 'check';
+        AGY_INSTALLED = true;
+        this.say('Ready. Gemini runs on your Google subscription on this computer: pick Google Gemini (Google subscription) when you create an agent.', '', false, true);
+        onReady();
+        return;
+      } else if (state === 'failed' || state === 'stopped' || state === 'idle') {
+        this.signing = false; this.rows(false, false);
+        this.next = 'open';
+        this.say(state === 'failed' ? frCap((st && st.because) || 'The sign-in did not finish') + '.' : 'The sign-in stopped.', 'Sign in with Google', false);
+        return;
+      } else if (!st) {
+        this.say('Waiting for Kosmos to answer…', '', false);
+      } else {
+        this.say("Opening Google's sign-in in your browser…", '', false);
+      }
+      await new Promise((r) => setTimeout(r, 1000));
+    }
+  },
+  async sendCode() {
+    const i = this.el('paste'); const v = i ? i.value.trim() : '';
+    if (!v) { this.say("Paste the code from Google's page first.", '', false); return; }
+    let r = null;
+    try {
+      r = await (await fetch('/api/antigravity/signin/code', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ code: v }) })).json();
+    } catch { r = null; }
+    if (r && r.ok) { if (i) i.value = ''; this.rows(false, false); this.say('Checking the code with Google…', '', false); return; }
+    this.say(frCap((r && r.error) || 'Kosmos could not pass the code on just now') + '.', '', false);
+  },
+  async showWindow() {
+    const r = await this.post('/api/antigravity/signin/show');
+    if (!(r && r.ok)) this.say(frCap((r && r.error) || 'Kosmos could not open the sign-in window') + '.', '', false);
+  },
+  wire() {
+    const go = this.el('paste-go'); if (go) go.addEventListener('click', () => this.sendCode());
+    const i = this.el('paste'); if (i) i.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); this.sendCode(); } });
+    const sh = this.el('show'); if (sh) sh.addEventListener('click', () => this.showWindow());
+    return this;
+  },
   el(part) { return document.getElementById(pre + part); },
   say(text, button, about, done) {
     const code = this.el('code'); if (code) { code.textContent = text; code.hidden = !text; }
@@ -25175,16 +25270,20 @@ function agySubDriver(pre, onReady) { return {
     const live = () => mine === this.gen;
     try {
       if (this.next === 'open') {
-        /* Opening Terminal is its own press, never a side effect of a check (review round 1): each
-           check costs a prompt and each open is another window. */
-        const opened = await this.post('/api/antigravity/open');
+        /* #3998: no Terminal. The board runs Antigravity's sign-in out of sight; the person sees
+           Google's page in the browser and pastes its code here (follow() drives the rest). Its own
+           press, never a side effect of a check (review round 1 of #3568). */
+        const started = await this.post('/api/antigravity/signin');
         if (!live()) return;
-        this.next = 'check';
-        this.say(opened && opened.ok
-          ? "Antigravity opened, and it opens Google's sign-in in your browser. Sign in there with your Google account, then press Check again. You can close Antigravity's window afterwards."
-          : frCap((opened && opened.error) || "We could not open Antigravity's sign-in just now") + '.',
-          opened && opened.ok || /not installed|not available|switched off/.test((opened && opened.error) || '') ? 'Check again' : 'Open Antigravity to sign in', false);
-        if (!(opened && opened.ok)) this.next = /not installed|not available|switched off/.test((opened && opened.error) || '') ? 'check' : 'open';
+        if (!(started && started.ok)) {
+          const refused = /not installed|not available|not offered|switched off/.test((started && started.error) || '');
+          this.next = refused ? 'check' : 'open';
+          this.say(frCap((started && started.error) || "We could not start Antigravity's sign-in just now") + '.', refused ? 'Check again' : 'Sign in with Google', false);
+          return;
+        }
+        this.signing = true;
+        this.say("Opening Google's sign-in in your browser…", '', false);
+        this.follow(mine);
         return;
       }
       if (this.next === 'install') {
@@ -25209,7 +25308,7 @@ function agySubDriver(pre, onReady) { return {
         /* Freshly installed means not signed in yet, so go straight to the sign-in step rather than
            spending a check on it (review round 2: a signed-out check may itself open a browser). */
         this.next = 'open';
-        this.say('Antigravity is installed. Open it once to sign in with your Google account.', 'Open Antigravity to sign in', false);
+        this.say('Antigravity is installed. Now sign in with your Google account.', 'Sign in with Google', false);
         return;
       }
       this.say('Checking Antigravity on this computer…', '', false);
@@ -25240,8 +25339,8 @@ function agySubDriver(pre, onReady) { return {
         onReady();
       } else {
         this.next = 'open';
-        this.say("Antigravity is on this computer but we could not confirm it is signed in. Open it once to sign in with your Google account.",
-          'Open Antigravity to sign in', false);
+        this.say("Antigravity is on this computer but we could not confirm it is signed in. Sign in with your Google account.",
+          'Sign in with Google', false);
       }
     } finally { if (live()) this.busy = false; }   // a superseded press must not free a newer one
   },
@@ -25255,10 +25354,16 @@ const FR_AGY_SUB = agySubDriver('fr-gemini-sub-', () => {
   if (typeof FR_STEP !== 'undefined' && FR_STEP === 5 && !(typeof FR !== 'undefined' && FR && FR.subscription && FR.subscription.state === 'connected')) {
     frActions({ label: 'Next', go: () => frGo(frStepAfter(5)) }, null);
   }
-});
+}).wire();
 /* #3874: Settings, Add a provider. Ready records the signed-in fact every screen reads (the create
    hint, the guided setup's Gemini row on its next paint), but paints nothing of first run's. */
-const ACCT_AGY_SUB = agySubDriver('acct-gemini-sub-', () => { FR_AGY_READY = true; });
+const ACCT_AGY_SUB = agySubDriver('acct-gemini-sub-', () => {
+  FR_AGY_READY = true;
+  /* #3998 (Josh, 11:34: "This success message is different than the way we're displaying all of our
+     other success messages"): the same gold connected box GPT and Grok end on. */
+  acctShowSuccess('your Google subscription', frCheckRow({ state: 'ok', title: 'Gemini is connected',
+    detail: 'Signed in with your Google subscription, through Antigravity on this computer.' }));
+}).wire();
 const KEYED_SUB_START = { google: () => FR_AGY_SUB.start(), xai: () => FR_GROK_SUB.start() };
 /* #3568: Gemini's subscription only where it can run (a Mac, runner on); AGY_OFFERED is read before
    the choice is shown (frKeyedConnect). */
