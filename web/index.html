@@ -37288,10 +37288,14 @@ for (const id of ['plus-si-code-in', 'plus-si-second-in', 'plus-si-enrol-code'])
   /* Said to a screen reader before it happens (WCAG 3.2.2): the sixth digit moves the sign-in on. */
   const hint = document.createElement('span');
   hint.className = 'plus-si-sr';
-  hint.id = id + '-auto';
+  const hintId = id + '-auto';
+  hint.id = hintId;
   hint.textContent = 'Kosmos checks the code as soon as all six digits are in.';
   box.appendChild(hint);
-  el.setAttribute('aria-describedby', ((el.getAttribute('aria-describedby') || '') + ' ' + hint.id).trim());
+  // Built from strings held here (not read back off the elements), so a page slice run on stub elements
+  // in the unit tests, whose every property is an object, gets through it too.
+  const hadDesc = el.getAttribute('aria-describedby');
+  el.setAttribute('aria-describedby', ((typeof hadDesc === 'string' ? hadDesc : '') + ' ' + hintId).trim());
   const digits = () => el.value.replace(/\D/g, '').length;
   /* The outlined box is where the next digit goes: the caret's box (so Home or a click to fix one
      digit lights THAT box), the first box when the whole code is selected (typing replaces it from
@@ -37514,11 +37518,13 @@ for (const id of ['plus-si-code-in', 'plus-si-second-in', 'plus-si-enrol-code'])
   // Long enough for a real tap, whose focus can follow pointerup, to be seen as a tap.
   for (const ev of ['pointerup', 'pointercancel', 'blur']) el.addEventListener(ev, () => setTimeout(() => { byPointer = false; }, 400));
   el.addEventListener('focus', () => { prevValue = el.value; hadDigits = digits(); if (digits() < 6 && (!go || !go.disabled)) lastSent = ''; if (!byPointer) place(); byPointer = false; paint(); });
-  el.addEventListener('click', paint);
-  for (const ev of ['blur', 'keyup', 'select', 'scroll']) el.addEventListener(ev, paint);
+  // Wrapped, not bound by name: a check of the page's bindings resolves a bare name to the top-level
+  // paint(st), which is a different function.
+  el.addEventListener('click', () => paint());
+  for (const ev of ['blur', 'keyup', 'select', 'scroll']) el.addEventListener(ev, () => paint());
   // The outline follows the caret as it moves, a held arrow key included.
   document.addEventListener('selectionchange', () => { if (document.activeElement === el) paint(); });
-  el.addEventListener('selectionchange', paint);   // where the event is sent to the field itself
+  el.addEventListener('selectionchange', () => paint());   // where the event is sent to the field itself
   /* After the pointer has placed the caret. In a full code the box is worked out from where the click
      landed, not from the text caret: a click on the right part of a box put the caret on the NEXT box
      (and on the last box, at the end, where the next digit starts the code again). */
