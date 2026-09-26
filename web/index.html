@@ -45210,8 +45210,10 @@ function tskRosterChanged() {
   if (needsMoved && shown && TSK.data && !TSK.busy) { tskLoad(); return; }
   if (TSK.data && shown && tskNamesSig() !== TSK.names) tskPaintKeepingCurrentFocus();
 }
-/* The agents needing the person by the board's own rule (the cards' data-attn), with the project a question
-   names: the part of the roster Needs Your Decision is derived from. */
+/* The agents needing the person by the board's own rule, with the project a question names: the part of the
+   roster Needs Your Decision is derived from. The rule is engine/status.js needsPerson, which the server
+   applies (tasks.waitingOnPerson); this copy only decides WHEN to re-read, and it is the same inline rule the
+   cards' data-attn uses on this page. A case added to needsPerson belongs here and in data-attn too. */
 function tskNeedsSig() {
   return (Array.isArray(LAST) ? LAST : []).filter((a) => a && (a.state === 'needs_you' || a.state === 'needs_trust'
     || (a.state === 'connection_lost' && a.reconnect && a.reconnect.phase === 'gave_up')))

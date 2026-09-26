@@ -161,17 +161,22 @@ test('#3949 Needs Your Decision stays live: a change in WHO needs the person re-
     const tskLoad = () => { loads += 1; };
     const tskPaintKeepingCurrentFocus = () => { paints += 1; };
     ${src}
-    return { tick(next) { LAST = next; tskRosterChanged(); return { loads, paints }; }, TSK };`);
-  const idle = [{ sessionName: 'rex', name: 'Rex', state: 'idle' }];
-  const asks = [{ sessionName: 'rex', name: 'Rex', state: 'needs_you', stateProject: 'p1' }];
+    return { tick(next) { LAST = next; tskRosterChanged(); return { loads, paints }; }, TSK, names: () => tskNamesSig() };`);
+  /* A real card (the fixture-discipline rule), and copies of it in the producer's own states. */
+  const board = fleet.install([fleet.agent('rex', { state: 'idle', displayName: 'Rex' })]);
+  let rex;
+  try { rex = board.agents.find((c) => c.sessionName === 'rex'); } finally { board.restore(); }
+  assert.ok(rex && rex.state === 'idle', 'fixture: a real idle card');
+  const idle = [rex];
+  const asks = [Object.assign({}, rex, { state: 'needs_you', stateProject: 'p1' })];
   const env = { LAST: idle, hidden: false };
   const v = make(env);
-  v.TSK.names = 'rex=Rex';
+  v.TSK.names = v.names();
   assert.deepEqual(v.tick(idle), { loads: 0, paints: 0 }, 'the first poll only records who needs the person');
   assert.deepEqual(v.tick(idle), { loads: 0, paints: 0 }, 'an unchanged poll re-reads nothing');
   assert.deepEqual(v.tick(asks), { loads: 1, paints: 0 }, 'a new question re-reads the tasks');
   assert.deepEqual(v.tick(asks), { loads: 1, paints: 0 });
-  assert.deepEqual(v.tick([{ sessionName: 'rex', name: 'Rex', state: 'needs_you', stateProject: 'p2' }]), { loads: 2, paints: 0 }, 'a question moving to another project re-reads');
+  assert.deepEqual(v.tick([Object.assign({}, rex, { state: 'needs_you', stateProject: 'p2' })]), { loads: 2, paints: 0 }, 'a question moving to another project re-reads');
   assert.deepEqual(v.tick(idle), { loads: 3, paints: 0 }, 'an answered question re-reads');
   env.hidden = true;
   const hid = make(Object.assign(env, { LAST: idle }));

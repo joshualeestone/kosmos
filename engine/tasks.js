@@ -875,6 +875,8 @@ function waitingOnPerson(task, roster) {
   const status = require('./status');
   return roster.some((card) => card && holders.has(card.sessionName) && card.isNamedOurs === true
     && status.needsPerson(card)
+    /* Only a question names a project. A trust wait or a connection given up on is about the agent itself,
+       so it counts on every task the agent holds, as it does on the project page (#3726). */
     && (card.state === status.STATE.NEEDS_YOU ? card.stateProject === task.projectId : true));
 }
 

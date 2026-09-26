@@ -121,7 +121,7 @@ function chk(ok, label, extra) {
       foldCount: (() => { const sm = document.querySelector('#tsk-groups .tsk-fold summary'); const m = sm && sm.textContent.match(/\((\d+)\)/); return m ? Number(m[1]) : null; })(),
       bars,
       danger,
-      rail: !!panel.querySelector('.tsk-rail, #tsk-projects'),
+      rail: !!panel.querySelector('aside, .tsk-rail'),   // the rail was an <aside>
       hint: /Tap a tile to see only that group/.test(panel.innerText),
       selShown: document.getElementById('tsk-projsel').getClientRects().length > 0,
       /* #3949 positions: the count beside the search; Project and Created: on one row above the tiles;
@@ -361,7 +361,7 @@ function chk(ok, label, extra) {
           tiles: document.querySelectorAll('#tsk-tiles .tsk-tile').length,
           stillCons: document.body.classList.contains('consolidated'),
           inColumn: pt.parentElement && pt.parentElement.id === 'panel-projects',
-          noRail: !pt.querySelector('.tsk-rail, #tsk-projects'),
+          noRail: !pt.querySelector('aside, .tsk-rail'),
           dropdown: document.getElementById('tsk-projsel').getClientRects().length > 0,
         };
       });
