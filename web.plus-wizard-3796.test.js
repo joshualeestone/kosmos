@@ -51,3 +51,53 @@ test('#3796 the resend is a "Send again" link whose click refuses while held', (
   assert.match(SCRIPT, /getElementById\('plus-si-code-resend'\)\.addEventListener\('click', \(e\) => \{\s*e\.preventDefault\(\);\s*if \(e\.currentTarget\.getAttribute\('aria-disabled'\) === 'true'\) return;/);
   assert.match(HTML, /#plus-state2 \.plus-signin-link\[aria-disabled="true"\] \{ opacity: \.55; pointer-events: none; \}/);
 });
+
+/* #3796 addendum 3 (Josh's live test, authenticator-only, told to wait for a text): the second step
+   names the account's ONE factor. Lifted from the shipped page. */
+test('#3796 the second step names the one factor the account has, and never guesses', () => {
+  const start = SCRIPT.indexOf('function plusSiSecondWords');
+  const end = SCRIPT.indexOf('\n}\n', start) + 3;
+  assert.ok(start > 0 && end > start, 'plusSiSecondWords moved');
+  const w = vm.runInNewContext(SCRIPT.slice(start, end) + '\nplusSiSecondWords');
+  const totp = w('totp', '');
+  assert.match(totp.lead, /authenticator app/);
+  assert.doesNotMatch(totp.lead + totp.label, /text/i, 'an authenticator-only account is told about a text');
+  const sms = w('sms', '\u2022\u2022\u2022 1234');
+  assert.equal(sms.lead, 'Enter the code we texted to \u2022\u2022\u2022 1234.');
+  assert.doesNotMatch(sms.lead + sms.label, /authenticator/i, 'a text-message account is told about an authenticator');
+  const none = w('', '');
+  assert.doesNotMatch(none.lead + none.label, /authenticator|text/i, 'an unknown kind guessed a factor');
+  assert.doesNotMatch(HTML, /Open your authenticator app, or check your phone for a text|or the one we texted you/, 'the either-factor copy is back');
+});
+
+/* #3796 addenda 5 and 6 (Josh typed "MacbookPro..." and was refused for capitals): the in-app name
+   fields are cleaned as typed, like login.kosmosplus.com's (#3791). Lifted from the shipped page. */
+test('#3796 the in-app name is cleaned as typed: capitals lowercased, spaces to hyphens, nothing refused for case', () => {
+  const start = SCRIPT.indexOf('function plusNameClean');
+  const end = SCRIPT.indexOf('\n}\n', start) + 3;
+  assert.ok(start > 0 && end > start, 'plusNameClean moved');
+  const clean = vm.runInNewContext(SCRIPT.slice(start, end) + '\nplusNameClean');
+  const rule = /^[a-z0-9-]{3,32}$/;
+  assert.equal(clean('MacbookPro'), 'macbookpro');
+  assert.ok(rule.test(clean('MacbookPro')), 'a capitalised name is still refused');
+  assert.equal(clean("Josh's MacBook Pro"), 'joshs-macbook-pro');
+  assert.equal(clean(' my_mac'), 'my-mac', 'a leading space became a leading hyphen');
+  assert.equal(clean('x'.repeat(40)).length, 32);
+  for (const id of ['plus-si-name', 'plus-name']) assert.ok(SCRIPT.includes("'" + id + "'") && /for \(const id of \['plus-si-name', 'plus-name'\]\)/.test(SCRIPT), id + ' is not cleaned as typed');
+  assert.doesNotMatch(HTML, /lowercase letters, digits/, 'a hint still says names must be lowercase');
+});
+
+/* kosmos#3842: the in-app address fields start with a private suggestion (the website's rule). */
+test('#3842 the suggestion generator: 8 characters, never a look-alike, and not the same twice', () => {
+  const start = SCRIPT.indexOf("const PLUS_NAME_ALPHABET");
+  const end = SCRIPT.indexOf('\n}\n', SCRIPT.indexOf('function plusNameSuggest')) + 3;
+  assert.ok(start > 0 && end > start, 'plusNameSuggest moved');
+  const gen = vm.runInNewContext(SCRIPT.slice(start, end) + '\nplusNameSuggest', { crypto: require('node:crypto').webcrypto, Uint8Array, Math });
+  const seen = new Set();
+  for (let i = 0; i < 500; i++) { const n = gen(); assert.match(n, /^[abcdefghjkmnpqrstuvwxyz23456789]{8}$/, n); seen.add(n); }
+  assert.equal(seen.size, 500, 'the generator repeats');
+  assert.match(SCRIPT, /plusNamePrefill\('plus-si-name', 'plus-si-name-suggested'\);/, 'the wizard chooser is not prefilled');
+  assert.match(SCRIPT, /if \(typeof plusNamePrefill === 'function'\) plusNamePrefill\('plus-name', 'plus-name-suggested'\);/, 'the enrol flow is not prefilled with its note (or unguarded: the code-box harness runs a slice without it)');
+  assert.match(HTML, /id="plus-name"[^>]*aria-describedby="plus-name-suggested"/);
+  assert.match(HTML, /id="plus-si-name"[^>]*aria-describedby="plus-si-name-suggested"/);
+});

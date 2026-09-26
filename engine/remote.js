@@ -410,7 +410,23 @@ function startChild() {
   try {
     /* stdout is dropped (the status file is the interface); stderr joins the
        board's log, which launchd keeps, so a refused ticket is findable. */
-    spawned = spawn(BIN(), args, { stdio: ['ignore', 'ignore', 'inherit'] });
+    /* #3838: the tunnel presents the board's own token on requests from devices this
+       Mac has Allowed; since #1946 the board answers nothing without it, and a remote
+       browser saw "This board is not signed in". The PATH goes by environment, never
+       the value and never argv: it is the SAME file the board reads its token from
+       (the primary leaf is mode 600; a legacy-leaf copy has no mode guarantee, but
+       the board already trusts it, so the tunnel adds no new trust), and an
+       older bundled tunnel ignores an unknown variable where it would refuse an
+       unknown flag and never connect. */
+    let tokenFile = '';
+    try { tokenFile = require('./boardauth').enforcedTokenPath(); } catch (err) {
+      // Not "the tunnel could not start": it can, it just shows a board that is not signed in.
+      process.stderr.write('remote: could not find the board token file: ' + (err && err.message) + '\n');
+    }
+    const env = { ...process.env };
+    delete env.KOSMOS_BOARD_TOKEN_FILE;   // never a stale one inherited from the launcher
+    if (tokenFile) env.KOSMOS_BOARD_TOKEN_FILE = tokenFile;
+    spawned = spawn(BIN(), args, { stdio: ['ignore', 'ignore', 'inherit'], env });
   } catch (err) {
     restartBecause = 'the tunnel program could not be started: ' + (err && err.message);
     process.stderr.write('remote: ' + restartBecause + '\n');
@@ -751,6 +767,10 @@ async function setupComplete(code, name) {
   // Mac and keeps account A's enrolment -- the new code is never used. Switching
   // the account on a Mac is what `forget()` (which wipes the state dir) is for;
   // once the state is gone, enrolled() is false and this guard does not fire.
+  /* #3796 addendum 6 (Josh: "support either capital or lowercase"): the coordinator lowercases a
+     name anyway, so only this app refused "MacbookPro". Lowercase (and trim) FIRST, before the
+     recognition below as well as the rule: "Hers" on a Mac enrolled as hers is this Mac (review). */
+  if (typeof name === 'string') name = name.trim().toLowerCase();
   if (enrolled()) {
     const have = address();
     if (have && have.split('.')[0] === name) {
@@ -762,7 +782,7 @@ async function setupComplete(code, name) {
     return { ok: false, because: 'the code is six digits' };
   }
   if (typeof name !== 'string' || !NAME_RULE.test(name)) {
-    return { ok: false, because: 'the name is 3 to 32 lowercase letters, digits or hyphens' };
+    return { ok: false, because: 'the name is 3 to 32 letters, digits or hyphens' };
   }
   secureStateDir();
   const result = await setupRun([
@@ -961,13 +981,25 @@ function absorbSession(data) {
     const token = data && typeof data.token === 'string' ? data.token : '';
     if (!token) { signinSession = null; return { ok: false, because: 'Kosmos+ sign-in did not return a usable session' }; }
     signinSession = { token };
-    return { ok: true, because: null, data: { stage: 'session' } };
+    /* #3796 addendum 8: when the account already has an address, the name step asks for nothing and
+       says "This computer will connect as <address>". The coordinator's sign-in answer carries it as
+       account_address (a coordinator that predates it sends none, and the page falls back). Passed
+       through only in its own shape: a lowercase label and a domain, nothing else. */
+    const addr = typeof data.account_address === 'string' && /^[a-z0-9-]{3,32}\.[a-z0-9.-]{3,253}$/.test(data.account_address) ? data.account_address : '';
+    return { ok: true, because: null, data: { stage: 'session', account_address: addr } };
   }
   if (stage === 'second') {
     const challenge = data && typeof data.challenge === 'string' ? data.challenge : '';
     if (!challenge) { signinSession = null; return { ok: false, because: 'Kosmos+ sign-in did not return a phone challenge' }; }
     signinSession = { challenge };
-    return { ok: true, because: null, data: { stage: 'second' } };
+    /* #3796 (Josh's live test): the step must name the account's ONE factor. The coordinator
+       says which (open_challenge: "second" is the account's kind, "sent_to" the masked phone
+       tail for sms); pass exactly those through, and only in the shapes it sends, so the page
+       never renders anything else from here. Absent or unknown, the page falls back to
+       generic words rather than guessing. */
+    const kind = data.second === 'totp' || data.second === 'sms' ? data.second : '';
+    const sentTo = kind === 'sms' && typeof data.sent_to === 'string' && /^\u2022{3}( \d{4})?$/.test(data.sent_to) ? data.sent_to : '';
+    return { ok: true, because: null, data: { stage: 'second', second_kind: kind, sent_to: sentTo } };
   }
   if (stage === 'enrol_second_factor') {
     // The account has no second factor yet and the coordinator requires one.
@@ -1201,8 +1233,11 @@ async function signinRegister(name) {
   if (!signinSession || typeof signinSession.token !== 'string') {
     return { ok: false, because: 'finish the code steps first' };
   }
+  /* #3796 addendum 6 (Josh: "support either capital or lowercase"): the coordinator lowercases a
+     name anyway, so only this app refused "MacbookPro". Lowercase (and trim) BEFORE the rule. */
+  if (typeof name === 'string') name = name.trim().toLowerCase();
   if (typeof name !== 'string' || !NAME_RULE.test(name)) {
-    return { ok: false, because: 'the name is 3 to 32 lowercase letters, digits or hyphens' };
+    return { ok: false, because: 'the name is 3 to 32 letters, digits or hyphens' };
   }
   // #1010/#1003: a surviving state dir already at this name IS this Mac. Do not
   // re-register -- it would mint a fresh identity key and spend a scarce
@@ -1220,6 +1255,8 @@ async function signinRegister(name) {
   if (enrolled()) {
     const have = address();
     if (have && have.split('.')[0] === name) {
+      /* #3827: signing in IS asking to be reachable; ensure() only starts the tunnel when switched on. */
+      write({ on: true });
       ensure(localPort);
       signinSession = null;
       // standing is '' on this path, not omitted: the engine cannot know it
@@ -1234,6 +1271,10 @@ async function signinRegister(name) {
     '--name', name, '--state-dir', STATE_DIR()], signinSession.token));
   if (!r.ok) return r;
   signinSession = null;   // the token is spent; it must not linger in this process
+  /* #3827 (Josh's live test: registered, then the relay never heard from this Mac): ensure() starts the
+     tunnel only when switched ON, and nothing set it, so the pane showed "Turn on" and the wizard's
+     "connecting" was false. Signing in IS asking to be reachable; turning off stays one press away. */
+  write({ on: true });
   ensure(localPort);
   const d = r.data && typeof r.data === 'object' ? r.data : {};
   fedSetStanding(d.standing);   // fed gate: SET (or clear) standing from this fresh register

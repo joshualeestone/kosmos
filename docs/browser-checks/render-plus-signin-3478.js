@@ -1,4 +1,4 @@
-// Browser-check-surface: plus-state1 plus-state2 plus-si-cancel plus-si-code-resend plus-si-code-to plus-si-email plus-si-code plus-si-second plus-si-enrol plus-si-enrol-sms plus-si-enrol-why plus-si-enrol-confirm plus-si-secret plus-si-register plus-flow plus-status
+// Browser-check-surface: plus-state1 plus-state2 plus-si-done plus-si-owned plus-si-name-count plus-si-expired plus-si-second-lead plus-si-second-help plus-si-cancel plus-si-code-resend plus-si-code-to plus-si-email plus-si-code plus-si-second plus-si-enrol plus-si-enrol-sms plus-si-enrol-why plus-si-enrol-confirm plus-si-secret plus-si-register plus-flow plus-status
 'use strict';
 /**
  * #3478: the Kosmos+ sign-in links open the IN-APP wizard, not the web.
@@ -53,7 +53,7 @@ const SCENARIOS = {
     label: 'account already has a second factor (email code -> phone code -> name)',
     steps: {
       '/api/remote/signin-start': { ok: true, stage: 'code_sent' },
-      '/api/remote/signin-verify': { ok: true, stage: 'second' },
+      '/api/remote/signin-verify': { ok: true, stage: 'second', second_kind: 'totp', sent_to: '' },   // #3796: Josh's account
       '/api/remote/signin-second': { ok: true, stage: 'session' },
       '/api/remote/signin-register': { ok: true, stage: 'registered', address: 'sunny-otter', name: 'sunny-otter', standing: 'active' },
     },
@@ -72,7 +72,7 @@ const SCENARIOS = {
     label: 'email code lands straight on a session (no phone step -> name)',
     steps: {
       '/api/remote/signin-start': { ok: true, stage: 'code_sent' },
-      '/api/remote/signin-verify': { ok: true, stage: 'session' },
+      '/api/remote/signin-verify': { ok: true, stage: 'session', account_address: 'quiet-heron.kosmosplus.com' },   // #3796 addendum 8: owns an address
       '/api/remote/signin-register': { ok: true, stage: 'registered', address: 'quiet-heron', name: 'quiet-heron', standing: 'active' },
     },
   },
@@ -80,6 +80,7 @@ const SCENARIOS = {
     label: 'account sets up its second factor by TEXT (email code -> text a code -> name)',
     entry: 'plus-signin-bottom',   // also exercises the foot "Already a member? Sign in" link
     smsEnrol: true,
+    ownedRefusalFirst: 'calm-otter',   // #3796 addendum 8: an older coordinator refuses a different name, naming the owned one
     steps: {
       '/api/remote/signin-start': { ok: true, stage: 'code_sent' },
       '/api/remote/signin-verify': { ok: true, stage: 'enrol_second_factor', sms_available: true, why_authenticator: 'An authenticator app on your phone gives a fresh code every time you sign in.' },
@@ -89,6 +90,27 @@ const SCENARIOS = {
     },
   },
 };
+
+/* #3841: the wizard's separation on its real navy card, measured in the page (see the arms below). */
+function WIZ_SEP() {
+          const STOPS = [[27, 44, 80], [15, 29, 56]];
+  const parse = (c) => { const m = /rgba?\(([^)]+)\)/.exec(c || ''); if (!m) return null; const p = m[1].split(/[\s,/]+/).filter(Boolean).map(Number); return { rgb: p.slice(0, 3), a: p.length > 3 ? p[3] : 1 }; };
+  const over = (c, bg) => c.rgb.map((v, i) => Math.round(v * c.a + bg[i] * (1 - c.a)));
+  const lum = (rgb) => { const f = rgb.map((v) => { v /= 255; return v <= 0.03928 ? v / 12.92 : Math.pow((v + 0.055) / 1.055, 2.4); }); return 0.2126 * f[0] + 0.7152 * f[1] + 0.0722 * f[2]; };
+  const ratio = (a, b) => { const x = lum(a), y = lum(b); return (Math.max(x, y) + 0.05) / (Math.min(x, y) + 0.05); };
+  const worst = (colors) => { let w = Infinity; for (const c of colors) { const q = parse(c); if (!q) return 0; for (const st of STOPS) w = Math.min(w, ratio(over(q, st), st)); } return w; };
+  const card = document.getElementById('plus-state2');
+  const fields = [...card.querySelectorAll('input.tk-inp')].map((i) => ({ id: i.id, r: worst([getComputedStyle(i).borderTopColor]) }));
+  const sec = [...card.querySelectorAll('.btn:not(.uprime)')].map((b) => ({ id: b.id, r: worst([getComputedStyle(b).borderTopColor]) }));
+  /* Review: the FACE and the EDGE are measured apart. Taking the better of the two let a button whose
+     fill matched the card pass on its 1px edge alone. */
+  const prim = [...card.querySelectorAll('.btn.uprime')].map((b) => {
+    const cs = getComputedStyle(b);
+    const fill = (cs.backgroundImage.match(/rgba?\([^)]+\)/g) || []).concat(parse(cs.backgroundColor) && parse(cs.backgroundColor).a > 0 ? [cs.backgroundColor] : []);
+    return { id: b.id, r: worst(fill.length ? fill : ['rgba(0,0,0,0)']), edge: worst([cs.borderTopColor]) };
+  });
+  return { fields, sec, prim };
+}
 
 async function openPlusState1(page) {
   await page.route('**/api/remote', (route, req) => {
@@ -114,10 +136,16 @@ async function openPlusState1(page) {
 // Stub the signin-* POSTs for one scenario. Unroute first: a scenario runs on its
 // own page, but be explicit so a future refactor onto a shared page cannot stack
 // handlers (the #1615 flake).
-async function routeScenario(page, steps) {
+async function routeScenario(page, steps, ownedRefusalFirst) {
+  let refused = false;
   await page.unroute('**/api/remote/signin-**');
   await page.route('**/api/remote/signin-**', (route, req) => {
     const p = new URL(req.url()).pathname;
+    if (ownedRefusalFirst && p === '/api/remote/signin-register' && !refused) {
+      refused = true;
+      route.fulfill({ status: 400, contentType: 'application/json', body: JSON.stringify({ error: 'the coordinator said no (409): your account already owns the name ' + ownedRefusalFirst + '. This Mac signs in to that name; it cannot claim a different one here.' }) });
+      return;
+    }
     const body = steps[p];
     if (!body) { route.fulfill({ status: 400, contentType: 'application/json', body: JSON.stringify({ error: 'no stub for ' + p }) }); return; }
     route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(body) });
@@ -141,8 +169,10 @@ const visible = (page, sel) => page.evaluate((s) => {
       page.__url = URL;
       const errs = [];
       page.on('pageerror', (e) => errs.push(e.message));
+      const regBodies = [];   // #3796 addendum 9: every register the wizard sends, including the automatic one
+      page.on('request', (r) => { if (r.method() === 'POST' && /\/api\/remote\/signin-register$/.test(r.url())) regBodies.push(r.postDataJSON()); });
       await openPlusState1(page);
-      await routeScenario(page, sc.steps);
+      await routeScenario(page, sc.steps, sc.ownedRefusalFirst);
 
       // Before the click: state 1 is on screen and the wizard is NOT. The click must
       // NOT navigate away (the whole bug was that it did).
@@ -162,7 +192,7 @@ const visible = (page, sel) => page.evaluate((s) => {
       // rather than a stale one, and (#3796) it tells the engine to drop the held sign-in.
       if (key === 'existing-2fa') {
         await page.fill('#plus-signin-email', 'stale@example.com');
-        chk((await page.textContent('#plus-si-cancel')).trim() === 'Sign out', `[${key}] #3796 the wizard's way out reads "Sign out"`, await page.textContent('#plus-si-cancel'));
+        chk((await page.textContent('#plus-si-cancel')).trim() === 'Cancel', `[${key}] #3796 addendum 4: on the email step (nothing started) the way out reads "Cancel"`, await page.textContent('#plus-si-cancel'));
         const cancelPost = page.waitForRequest((r) => r.method() === 'POST' && /\/api\/remote\/signin-cancel$/.test(r.url()), { timeout: 3000 }).then(() => true, () => false);
         await page.click('#plus-si-cancel');
         chk(await cancelPost, `[${key}] #3796 "Sign out" asks the engine to drop the held sign-in (POST signin-cancel)`);
@@ -230,6 +260,21 @@ const visible = (page, sel) => page.evaluate((s) => {
         chk(r.wiz === 7 && r.n - r.wiz === 3, `[${key}] #3796 CONTROL: 7 wizard inputs and 3 enrol-flow inputs (${theme})`, r.wiz + '/' + (r.n - r.wiz));
         chk(r.bad.length === 0, `[${key}] #3596/#3796 wizard inputs are light on #16223e, enrol-flow inputs #14161a on #ffffff (${theme})`, r.bad.join(' | '));
         chk(r.gap >= 8, `[${key}] #3596 a gap separates the email field from "Email me a code" (${theme})`, String(r.gap));
+        /* #3841 (plus-rf-3796's review): render-fields cannot measure the wizard on its real ground (the navy
+           card is scoped to body.plus-active and paints a gradient), so THIS check measures separation there:
+           each wizard field's border, the secondary button's stroke, and every primary button's fill and edge,
+           composited over BOTH of the card's gradient stops (#1b2c50, #0f1d38), at least 1.1:1 (render-fields'
+           bar). A restyle that sets any of them to the card's own colour turns this red. */
+        const sep = await page.evaluate(WIZ_SEP);
+        const low = (xs) => xs.filter((x) => !(x.r >= 1.1)).map((x) => x.id + '=' + (x.r || 0).toFixed(2));
+        chk(sep.fields.length === 7 && low(sep.fields).length === 0, `[${key}] #3841 every wizard field's border separates it from the navy card (${theme})`, sep.fields.length + ' ' + low(sep.fields).join(' '));
+        chk(sep.sec.length >= 1 && low(sep.sec).length === 0, `[${key}] #3841 the secondary button's stroke separates it from the navy card (${theme})`, sep.sec.map((x) => x.id + '=' + x.r.toFixed(2)).join(' '));
+        // The card named seven; addenda 4 and 9 added Start over (timed out) and Done (the landing). Every one counts.
+        const named = ['plus-signin-code', 'plus-si-code-go', 'plus-si-second-go', 'plus-si-enrol-totp', 'plus-si-phone-go', 'plus-si-enrol-confirm-go', 'plus-si-register-go'];
+        const primIds = sep.prim.map((x) => x.id);
+        chk(named.every((id) => primIds.includes(id)) && low(sep.prim).length === 0, `[${key}] #3841 every primary button's FACE stands off the navy card (${theme})`, primIds.length + ' ' + low(sep.prim).join(' '));
+        const lowEdge = sep.prim.filter((x) => !(x.edge >= 1.1)).map((x) => x.id + '=' + (x.edge || 0).toFixed(2));
+        chk(lowEdge.length === 0, `[${key}] #3841 every primary button's edge stands off the navy card (${theme})`, lowEdge.join(' '));
       }
       if (key === 'existing-2fa') {
         await page.evaluate((v) => { if (v === null) document.documentElement.removeAttribute('data-theme'); else document.documentElement.setAttribute('data-theme', v); }, themeBefore);
@@ -248,7 +293,8 @@ const visible = (page, sel) => page.evaluate((s) => {
             goBg: go.backgroundImage + ' ' + go.backgroundColor, rsTag: rs.tagName, rsText: rs.textContent.trim(),
             labelShown: document.querySelector('label[for="plus-si-code-in"]').getBoundingClientRect().width > 1 };
         });
-        chk(c.lead === 'We sent a code to you@example.com.', `[${key}] #3796 the code step's one line names the email`, c.lead);
+        chk(c.lead === 'We sent a code to you@example.com. It works for 10 minutes.', `[${key}] #3796 the code step's one line names the email and how long the code works`, c.lead);
+        chk((await page.textContent('#plus-si-cancel')).trim() === 'Start over', `[${key}] #3796 addendum 4: while a sign-in is in progress the way out reads "Start over"`, await page.textContent('#plus-si-cancel'));
         chk(c.w > 90 && c.w < 200 && c.align === 'center' && c.mono, `[${key}] #3796 the code field is compact, centred and monospace`, JSON.stringify(c));
         chk(c.otp === 'one-time-code' && c.mode === 'numeric', `[${key}] #3796 the code field offers one-time-code autofill and a number pad`);
         chk(/58, 104, 216|47, 87, 196/.test(c.goBg) && !/227, 179, 65|245, 197/.test(c.goBg), `[${key}] #3796 Verify is Kosmos+ blue, not gold`, c.goBg);
@@ -266,6 +312,14 @@ const visible = (page, sel) => page.evaluate((s) => {
       if (verifyStage === 'second') {
         await page.waitForSelector('#plus-si-second', { state: 'visible', timeout: 5000 });
         chk(true, `[${key}] verify -> the phone-code step is shown`);
+        // #3796 addendum 3: an authenticator-only account is told about its authenticator, never a text,
+        // and "Can't get a code?" opens the recovery line rather than dead-ending.
+        const lead = (await page.textContent('#plus-si-second-lead')).trim();
+        chk(lead === 'Enter the 6-digit code from your authenticator app.' && !/text/i.test(lead), `[${key}] #3796 the second step names the account's authenticator, not a text`, JSON.stringify(lead));
+        chk(!(await visible(page, '#plus-si-second-recover')), `[${key}] #3796 CONTROL: the recovery line starts hidden`);
+        await page.click('#plus-si-second-help');
+        const rec = (await page.textContent('#plus-si-second-recover')).trim();
+        chk((await visible(page, '#plus-si-second-recover')) && /I lost my phone/.test(rec), `[${key}] #3796 "Can't get a code?" opens the recovery path`, JSON.stringify(rec));
         await page.fill('#plus-si-second-in', '654321');
         await page.click('#plus-si-second-go');
       } else if (verifyStage === 'enrol_second_factor') {
@@ -297,8 +351,21 @@ const visible = (page, sel) => page.evaluate((s) => {
       }
 
       // Step: session -> name -> hand off to the connected flow.
-      await page.waitForSelector('#plus-si-register', { state: 'visible', timeout: 5000 });
-      chk(true, `[${key}] the flow reaches the name step (a session)`);
+      /* #3796 addendum 9 (Josh's ruling): the landing, shared by the two owned-address paths. */
+      const landed = async (addr, why) => {
+        /* #3796 addendum 10 (Josh's ruling): the heading and ONE line, no address, no Copy, no tiles. */
+        await page.waitForSelector('#plus-si-done', { state: 'visible', timeout: 5000 });
+        const d = await page.evaluate(() => ({ title: document.getElementById('plus-si-title').textContent.trim(), text: document.getElementById('plus-si-done').innerText.replace(/\s+/g, ' ').trim(), buttons: document.querySelectorAll('#plus-si-done button').length, nameShown: !!(document.getElementById('plus-si-register') && !document.getElementById('plus-si-register').hidden), msg: document.getElementById('plus-signin-msg').textContent.trim() }));
+        chk(d.title === "You're signed in to Kosmos+" && d.text === 'To use Kosmos on another device, sign in at login.kosmosplus.com. Done' && d.buttons === 1 && !d.nameShown && !/409|said no/.test(d.msg), `[${key}] #3796 addenda 9 and 10: ${why} lands on "You're signed in to Kosmos+" and one line`, JSON.stringify(d));
+      };
+      if (key === 'straight-session') {
+        await landed('quiet-heron.kosmosplus.com', 'an account with an address skips the address step and');
+        chk(regBodies.length === 1 && regBodies[0].name === 'quiet-heron', `[${key}] #3796 addendum 9: it registers the account's own name by itself, once`, JSON.stringify(regBodies));
+      } else {
+        await page.waitForSelector('#plus-si-register', { state: 'visible', timeout: 5000 });
+        chk(true, `[${key}] the flow reaches the name step (a session)`);
+        chk((await page.textContent('#plus-si-cancel')).trim() === 'Sign out', `[${key}] #3796 addendum 4: once the sign-in has finished (a held session) the way out reads "Sign out"`, await page.textContent('#plus-si-cancel'));
+      }
       // The engine writes this computer's state dir SYNCHRONOUSLY before answering register,
       // so the machine reads enrolled immediately after. Flip /api/remote to enrolled BEFORE
       // the register click, so the post-register paintPlus() exercises the REAL end state:
@@ -316,18 +383,77 @@ const visible = (page, sel) => page.evaluate((s) => {
             status: { state: 'up', address: wantAddr } }) });
         } else { route.fulfill({ status: 200, contentType: 'application/json', body: '{"ok":true}' }); }
       });
-      await page.fill('#plus-si-name', sc.steps['/api/remote/signin-register'].name);
-      await page.click('#plus-si-register-go');
+      if (key === 'existing-2fa') {
+        /* #3796 addenda 5 and 6 (Josh typed "MacbookPro..." and was refused for capitals): the name is cleaned
+           as typed, and the cleaned name is what the register request carries. */
+        // #3842: the chooser arrives with a private suggestion that can be saved as is, and says so.
+        const sug = await page.evaluate(() => ({ v: document.getElementById('plus-si-name').value, note: !document.getElementById('plus-si-name-suggested').hidden, save: !document.getElementById('plus-si-register-go').disabled }));
+        chk(/^[abcdefghjkmnpqrstuvwxyz23456789]{8}$/.test(sug.v) && sug.note && sug.save, `[${key}] #3842 the address chooser arrives with a private suggestion`, JSON.stringify(sug));
+        await page.fill('#plus-si-name', '');
+        await page.type('#plus-si-name', 'Sunny Otter');
+        chk((await page.inputValue('#plus-si-name')) === 'sunny-otter', `[${key}] #3796 addenda 5 and 6: a name typed with capitals and a space is cleaned as typed`, await page.inputValue('#plus-si-name'));
+        chk((await page.textContent('#plus-si-name-count')).trim() === '11/32', `[${key}] #3796 addendum 7: the 32 limit shows as a live count`, await page.textContent('#plus-si-name-count'));
+        const regReq = page.waitForRequest((r) => r.method() === 'POST' && /\/api\/remote\/signin-register$/.test(r.url()), { timeout: 5000 }).then((r) => r.postDataJSON(), () => null);
+        await page.click('#plus-si-register-go');
+        const body = await regReq;
+        chk(body && body.name === 'sunny-otter', `[${key}] #3796 addenda 5 and 6: register sends the cleaned name`, JSON.stringify(body));
+        chk((await page.textContent('label[for="plus-si-name"]')).trim() === 'Choose your Kosmos+ address', `[${key}] #3796 addendum 8: with no address yet, the step reads "Choose your Kosmos+ address"`);
+      } else if (key === 'straight-session') {
+        // Landed above; nothing to type.
+      } else if (sc.ownedRefusalFirst) {
+        // #3796 addendum 9 on a coordinator that does not send account_address yet: its refusal names the owned
+        // name, and the wizard registers to that one by itself.
+        await page.fill('#plus-si-name', 'something-else');
+        await page.click('#plus-si-register-go');
+        await landed(sc.ownedRefusalFirst, '"already owns the name"');
+        chk(regBodies.length === 2 && regBodies[1].name === sc.ownedRefusalFirst, `[${key}] #3796 addendum 9: after the refusal it registers the owned name by itself`, JSON.stringify(regBodies));
+      } else {
+        await page.fill('#plus-si-name', sc.steps['/api/remote/signin-register'].name);
+        await page.click('#plus-si-register-go');
+      }
+      if (await visible(page, '#plus-si-done')) {
+        // #3796 addendum 9: the landing holds the pane (the 5s tick must not take it), until Done.
+        /* Force the repaint the 5s tick would do (with /api/remote now reading enrolled): it must not take the pane. */
+        await page.evaluate(() => paintPlus());
+        await page.waitForTimeout(400);
+        chk(await visible(page, '#plus-si-done') && !(await visible(page, '#plus-flow')), `[${key}] #3796 addendum 9: the landing stays up through a repaint until Done`);
+        await page.click('#plus-si-done-go');
+      }
       // The wizard hands off to the connected flow: state 2 gone, flow shown, address in
       // its status line -- the same success screen the enrol flow ends on.
       await page.waitForSelector('#plus-flow', { state: 'visible', timeout: 5000 });
-      const flowStatus = await page.textContent('#plus-status');
+      // #3829: the connected panel shows the address in its chip (the status line is now the one plain sentence).
+      const flowStatus = await page.textContent('#plus-chip-addr');
       chk(!!(flowStatus && flowStatus.includes(wantAddr)), `[${key}] done: the connected flow shows the new address`, JSON.stringify(flowStatus));
       chk(!(await visible(page, '#plus-state2')), `[${key}] the wizard hands off to the connected flow after register`);
       await page.screenshot({ path: path.join(OUT, `plus-signin-${key}.png`), fullPage: false });
 
       chk(errs.length === 0, `[${key}] no page errors`, errs.join(' | '));
       await page.close();
+    }
+    /* #3841 (review): the same separation, in WebKit too. The card's colours come back through
+       getComputedStyle, and gradient serialisation is exactly what can differ between engines. */
+    {
+      let wk = null;
+      try { wk = await require('playwright').webkit.launch({ headless: process.env.HEADED === '0' }); }
+      catch (e) { chk(false, '[webkit] #3841 WebKit could not start: ' + (e && e.message ? e.message.split('\n')[0] : e)); }
+      if (wk) {
+        try {
+          const page = await wk.newPage({ viewport: { width: 1400, height: 950 } });
+          page.__url = URL;
+          await openPlusState1(page);
+          await page.click('#plus-signin-top');
+          await page.waitForSelector('#plus-si-email', { state: 'visible', timeout: 5000 });
+          for (const theme of ['light', 'dark']) {
+            await page.evaluate((t) => document.documentElement.setAttribute('data-theme', t), theme);
+            const sep = await page.evaluate(WIZ_SEP);
+            const low = (xs, k) => xs.filter((x) => !(x[k] >= 1.1)).map((x) => x.id + '=' + (x[k] || 0).toFixed(2));
+            chk(sep.fields.length === 7 && !low(sep.fields, 'r').length && sep.sec.length >= 1 && !low(sep.sec, 'r').length, `[webkit] #3841 field borders and the secondary stroke separate on the navy card (${theme})`, low(sep.fields, 'r').concat(low(sep.sec, 'r')).join(' '));
+            chk(sep.prim.length >= 7 && !low(sep.prim, 'r').length && !low(sep.prim, 'edge').length, `[webkit] #3841 primary faces and edges separate on the navy card (${theme})`, low(sep.prim, 'r').concat(low(sep.prim, 'edge')).join(' '));
+          }
+          await page.close();
+        } finally { await wk.close(); }
+      }
     }
     /* #3796 (review): Sign out while work is still in flight. The engine side is engine/remote.test.js; this
        is what the person SEES. (1) A verify that answers AFTER Sign out must not move the next sign-in to a
@@ -354,8 +480,11 @@ const visible = (page, sel) => page.evaluate((s) => {
       await page.waitForSelector('#plus-si-code', { state: 'visible', timeout: 5000 });
       await page.fill('#plus-si-code-in', '123456');
       await page.click('#plus-si-code-go');           // verify now in flight for 1.5s
-      await page.click('#plus-si-cancel');
-      await enter();
+      const startOverPost = page.waitForRequest((r) => r.method() === 'POST' && /\/api\/remote\/signin-cancel$/.test(r.url()), { timeout: 3000 }).then(() => true, () => false);
+      await page.click('#plus-si-cancel');            // "Start over" (addendum 4)
+      chk(await startOverPost, `[${k}] #3796 addendum 4: Start over drops the held sign-in (POST signin-cancel)`);
+      await page.waitForSelector('#plus-si-email', { state: 'visible', timeout: 5000 });
+      chk((await page.inputValue('#plus-signin-email')) === 'you@example.com', `[${k}] #3796 addendum 4: Start over returns to the email step with the email kept`, await page.inputValue('#plus-signin-email'));
       await page.waitForTimeout(2200);                 // past the late answer
       chk(await visible(page, '#plus-si-email') && !(await visible(page, '#plus-si-second')), `[${k}] #3796 a verify answering after Sign out does not move the next sign-in to a step`);
       chk(!(await page.isDisabled('#plus-signin-code')), `[${k}] #3796 after Sign out mid-request, the next sign-in's button is live`);
@@ -368,12 +497,67 @@ const visible = (page, sel) => page.evaluate((s) => {
       await page.waitForTimeout(300);
       const held = await page.getAttribute('#plus-si-code-resend', 'aria-disabled');
       chk(held === 'true', `[${k}] #3796 CONTROL: the resend link is held during a cooldown`, String(held));
-      await page.click('#plus-si-cancel');
-      await enter();
+      await page.click('#plus-si-cancel');            // Start over
+      await page.waitForSelector('#plus-si-email', { state: 'visible', timeout: 5000 });
       await page.waitForTimeout(1500);                  // a surviving tick would have written by now
       const msg = (await page.textContent('#plus-signin-msg')).trim();
       chk(msg === '', `[${k}] #3796 a cooldown running at Sign out does not write into the next sign-in`, JSON.stringify(msg));
       chk((await page.getAttribute('#plus-si-code-resend', 'aria-disabled')) === null, `[${k}] #3796 the next sign-in's resend link is not left held`);
+      /* #3796 addendum 4: a sign-in the coordinator has ended (401 "... start again from the email") gives way
+         to the timed-out panel: no raw server text, no Verify, a Start over that keeps the email. A wrong code
+         (also a 401, different words) stays on the step so the person can retype. */
+      await page.unroute('**/api/remote/signin-**');
+      let verifyAnswer = { status: 400, body: { error: 'the coordinator said no (401): that code is not right' } };
+      await page.route('**/api/remote/signin-**', (route, req) => {
+        const p = req.url().replace(/^.*\/api\/remote\//, '');
+        if (p === 'signin-verify') { route.fulfill({ status: verifyAnswer.status, contentType: 'application/json', body: JSON.stringify(verifyAnswer.body) }); return; }
+        route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ ok: true, stage: 'code_sent' }) });
+      });
+      await page.fill('#plus-signin-email', 'you@example.com');
+      await page.click('#plus-signin-code');
+      await page.waitForSelector('#plus-si-code', { state: 'visible', timeout: 5000 });
+      await page.fill('#plus-si-code-in', '111111');
+      await page.click('#plus-si-code-go');
+      await page.waitForTimeout(400);
+      chk((await visible(page, '#plus-si-code-go')) && !(await visible(page, '#plus-si-expired')), `[${k}] #3796 CONTROL: a wrong code stays on the step to retype`);
+      verifyAnswer = { status: 400, body: { error: 'Kosmos+ said no (401): that sign-in has expired or was already finished; start again from the email' } };
+      await page.click('#plus-si-code-go');
+      await page.waitForSelector('#plus-si-expired', { state: 'visible', timeout: 5000 });
+      const exp = { words: (await page.textContent('#plus-si-expired-words')).trim(), msg: (await page.textContent('#plus-signin-msg')).trim(), verify: await visible(page, '#plus-si-code-go') };
+      chk(await page.evaluate(() => document.activeElement && document.activeElement.id === 'plus-si-expired-go'), `[${k}] #3796 review: the timed-out panel takes the focus (its Verify is gone)`);
+      chk(exp.words === "That sign-in timed out. Start over and we'll send a new code." && !/401|said no/.test(exp.msg + exp.words) && !exp.verify, `[${k}] #3796 addendum 4: an expired sign-in says it timed out, with no raw error and no Verify`, JSON.stringify(exp));
+      await page.click('#plus-si-expired-go');
+      await page.waitForSelector('#plus-si-email', { state: 'visible', timeout: 5000 });
+      chk((await page.inputValue('#plus-signin-email')) === 'you@example.com', `[${k}] #3796 addendum 4: the panel's Start over returns to the email step with the email kept`);
+      /* #3796 review: an automatic register that fails (a second computer on a web-named account is refused
+         today) is not a dead end: it says so and offers Try again, which registers the owned name again. */
+      await page.unroute('**/api/remote/signin-**');
+      let regTries = 0;
+      await page.route('**/api/remote/signin-**', (route, req) => {
+        const p = req.url().replace(/^.*\/api\/remote\//, '');
+        if (p === 'signin-verify') { route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ ok: true, stage: 'session', account_address: 'twin-mac.kosmosplus.com' }) }); return; }
+        if (p === 'signin-register') {
+          regTries += 1;
+          if (regTries === 1) { route.fulfill({ status: 400, contentType: 'application/json', body: JSON.stringify({ error: 'the name twin-mac is already connected on another computer' }) }); return; }
+          route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ ok: true, stage: 'registered', address: 'twin-mac', name: 'twin-mac', standing: 'active' }) }); return;
+        }
+        route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ ok: true, stage: 'code_sent' }) });
+      });
+      await page.fill('#plus-signin-email', 'you@example.com');
+      await page.click('#plus-signin-code');
+      await page.waitForSelector('#plus-si-code', { state: 'visible', timeout: 5000 });
+      await page.fill('#plus-si-code-in', '123456');
+      await page.click('#plus-si-code-go');
+      await page.waitForSelector('#plus-si-register-go', { state: 'visible', timeout: 5000 });
+      const f = await page.evaluate(() => ({ lead: document.getElementById('plus-si-owned').textContent.trim(), btn: document.getElementById('plus-si-register-go').textContent.trim(), msg: document.getElementById('plus-signin-msg').textContent.trim() }));
+      chk(/could not connect as twin-mac\.kosmosplus\.com/.test(f.lead) && f.btn === 'Try again' && /already connected/.test(f.msg), `[${k}] #3796 review: a failed automatic register says so and offers Try again`, JSON.stringify(f));
+      await page.click('#plus-si-register-go');
+      await page.waitForSelector('#plus-si-done', { state: 'visible', timeout: 5000 });
+      chk(regTries === 2, `[${k}] #3796 review: Try again registers the owned name again and lands`, String(regTries));
+      await page.evaluate(() => { PLUS_SI_LANDED = false; });
+      await page.click('#plus-si-done-go');
+      await page.waitForTimeout(300);
+      if (!(await visible(page, '#plus-si-email'))) { await page.evaluate(() => { const s1 = document.getElementById('plus-state1'); if (s1 && !s1.hidden) document.getElementById('plus-signin-top').click(); }); await page.waitForSelector('#plus-si-email', { state: 'visible', timeout: 5000 }); }
       // The stroke on a secondary button (the enrol step's "Text me the codes").
       startAnswer = { status: 200, body: { ok: true, stage: 'code_sent' } };
       await page.unroute('**/api/remote/signin-**');

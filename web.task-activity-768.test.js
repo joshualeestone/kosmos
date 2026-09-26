@@ -113,6 +113,19 @@ test('an assignee that does not resolve falls back to nothing, never a broken na
   assert.doesNotMatch(acts.innerHTML, /given to/, 'an unassigned created event should not say "given to"');
 });
 
+test('#3861: put under a task, taken out from under it, and created as a subtask read as words', async () => {
+  const acts = await render([
+    { at: minsAgo(9), kind: 'created', who: null, parent: 4 },
+    { at: minsAgo(6), kind: 'parent-set', parent: 12 },
+    { at: minsAgo(3), kind: 'parent-cleared' },
+  ]);
+  const html = acts.innerHTML;
+  assert.match(html, /Created, under task 4/);
+  assert.match(html, /Put under task 12/);
+  assert.match(html, /Taken out from under its task/);
+  assert.doesNotMatch(html, /parent-set|parent-cleared/, 'a bare event kind reached the screen');
+});
+
 test('empty transcript renders the "Nothing yet" state, not a blank box', async () => {
   const acts = await render([]);
   assert.match(acts.innerHTML, /Nothing yet/, 'an empty activity must say so');

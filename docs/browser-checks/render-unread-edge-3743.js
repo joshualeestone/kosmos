@@ -26,7 +26,7 @@ function chk(ok, label, extra) {
   console.log((ok ? 'PASS  ' : 'FAIL  ') + label + (extra ? '  ' + extra : ''));
   if (!ok) fail.push(label);
 }
-const EDGE_LIGHT = 'rgb(245, 228, 188)';
+const EDGE_LIGHT = 'rgb(214, 166, 46)';   // --gold, #d6a62e (#3743 follow-up, 18:16: noticeable)
 
 (async () => {
   const browser = await chromium.launch({ headless: process.env.HEADED === '0' });
@@ -69,7 +69,7 @@ const EDGE_LIGHT = 'rgb(245, 228, 188)';
     const u1 = await dmState();
     const flags = u1.map((r) => r.unread);
     chk(u1.length === 4 && JSON.stringify(flags) === JSON.stringify([false, false, true, true]), 'U1 the two unread agent messages have the edge; history does not', JSON.stringify(flags));
-    chk(u1[3] && u1[3].edge.includes(EDGE_LIGHT) && !u1[0].edge.includes(EDGE_LIGHT), 'U1 the edge is the gold #f5e4bc, inside the bubble', JSON.stringify([u1[0] && u1[0].edge, u1[3] && u1[3].edge]));
+    chk(u1[3] && u1[3].edge.includes(EDGE_LIGHT) && !u1[0].edge.includes(EDGE_LIGHT), 'U1 the edge is the brand gold #d6a62e, inside the bubble', JSON.stringify([u1[0] && u1[0].edge, u1[3] && u1[3].edge]));
     if (SHOTS) { fs.mkdirSync(SHOTS, { recursive: true }); await page.screenshot({ path: path.join(SHOTS, 'unread-dm-before-read.png') }); }
 
     // U2: on screen with the window in front, the edge goes after a moment, and it fades rather than snapping.

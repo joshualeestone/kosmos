@@ -2563,9 +2563,11 @@ function sendRoomPostAsAgent({ fromPane, sender, project, text, replyExpected, i
      room that message came from. The answered post's project is a non-circular
      oracle (recorded when it was posted, independent of this reply). If the target
      project differs, this is the misroute Josh reported -- refuse rather than land
-     the answer in the wrong room. A citation that has aged out of the record
-     (projectOfPost null) is treated as absent: never block a legit reply over a stale
-     id. A proactive post (no in_reply_to) is unchanged. */
+     the answer in the wrong room. A citation the record does not hold
+     (projectOfPost null; the record is unpruned today, so an id that never existed)
+     is treated as absent: never block a legit reply over a stale id. The person's
+     room route refuses one instead (#3745, see its plan); a retention change must
+     revisit both. A proactive post (no in_reply_to) is unchanged. */
   const citedId = String(inReplyTo == null ? '' : inReplyTo).trim();
   let answeredProject = null;   // outside the block: the which-room ask below keys on it (round 3)
   if (citedId) {
@@ -2616,6 +2618,8 @@ function sendRoomPostAsAgent({ fromPane, sender, project, text, replyExpected, i
     /* Only a post that could have been asked is marked: a reply carrying --new too must
        not acknowledge (and so silence) every question owed elsewhere (round 2). */
     newPost: newPost === true && !citedId,
+    // #3745: kept on the post, so the room shows what it answers. The engine re-checks it is a post in this room.
+    replyTo: citedId && /^m\d+$/.test(citedId) ? citedId : null,
   }, roster, members);
   federateOut(found.id, delivery, false);
   return delivery;
@@ -6999,6 +7003,12 @@ const server = http.createServer((req, res) => {
           stage: got.data.stage,
           sms_available: got.data.sms_available,
           why_authenticator: got.data.why_authenticator,
+          // #3796 addendum 8: on the session stage, the account's existing address (if any).
+          account_address: got.data.account_address,
+          // #3796: on the second stage, which factor the account has (totp | sms) and, for sms,
+          // the masked tail the code went to, so the step names the one factor it can use.
+          second_kind: got.data.second_kind,
+          sent_to: got.data.sent_to,
         });
       })
       .catch(() => sendJson(res, 400, { error: 'we could not check that code' }));
@@ -7014,7 +7024,7 @@ const server = http.createServer((req, res) => {
         if (!code) { sendJson(res, 400, { error: 'type the code from your phone' }); return; }
         const got = await remote.signinSecond(code);
         if (!got.ok) { sendJson(res, 400, { error: got.because }); return; }
-        sendJson(res, 200, { ok: true, stage: got.data.stage });
+        sendJson(res, 200, { ok: true, stage: got.data.stage, account_address: got.data.account_address });   // #3796 addendum 8
       })
       .catch(() => sendJson(res, 400, { error: 'we could not check that code' }));
     return;
@@ -7060,7 +7070,7 @@ const server = http.createServer((req, res) => {
         if (!code) { sendJson(res, 400, { error: 'type the code your second step shows' }); return; }
         const got = await remote.signinConfirmEnrol(code);
         if (!got.ok) { sendJson(res, 400, { error: got.because }); return; }
-        sendJson(res, 200, { ok: true, stage: got.data.stage });
+        sendJson(res, 200, { ok: true, stage: got.data.stage, account_address: got.data.account_address });   // #3796 addendum 8
       })
       .catch(() => sendJson(res, 400, { error: 'we could not check that code' }));
     return;
@@ -7124,7 +7134,8 @@ const server = http.createServer((req, res) => {
      card only when Plus is on and enrolled, which the engine already
      encodes as an empty list. */
   if (pathname === '/api/remote/pending' && (req.method === 'GET' || req.method === 'HEAD')) {
-    try { sendJson(res, 200, remote.pendingDevices()); }
+    // #3829 follow-up: the card names this Mac's own sign-in the same way the list does.
+    try { sendJson(res, 200, Object.assign({}, remote.pendingDevices(), { self_device_id: typeof remote.read().device_id === 'string' ? remote.read().device_id : '' })); }
     catch { sendJson(res, 500, { error: 'we could not read what is waiting' }); }
     return;
   }
@@ -7133,7 +7144,10 @@ const server = http.createServer((req, res) => {
       .then((list) => {
         if (!list.ok) { sendJson(res, 500, { error: list.because }); return; }
         const pending = remote.pendingDevices();
-        sendJson(res, 200, { pending: pending.devices, allowed: list.data.devices, email: pending.email, on: remote.read().on === true });
+        /* #3829 follow-up (ICK's finding): this Mac's own in-app sign-in is a row too, and it sends no name.
+           Its id (an opaque label kept in remote.json, not a credential) lets the page call it "This Mac". */
+        const self = typeof remote.read().device_id === 'string' ? remote.read().device_id : '';
+        sendJson(res, 200, { pending: pending.devices, allowed: list.data.devices, email: pending.email, on: remote.read().on === true, self_device_id: self });
       })
       .catch(() => sendJson(res, 500, { error: 'we could not read the devices' }));
     return;
@@ -14131,6 +14145,8 @@ const server = http.createServer((req, res) => {
                 ...(Array.isArray(m.quotes) && m.quotes.length ? { quotes: m.quotes } : {}),
                 ...(m.attachment && typeof m.attachment === 'object' ? { attachment: m.attachment } : {}),
                 ...(Array.isArray(m.attachments) ? { attachments: m.attachments } : {}),
+                // #3745: the post this one answers (the page finds it in these rows, or says it is gone).
+                ...(typeof m.replyTo === 'string' ? { replyTo: m.replyTo } : {}),
                 ...(reactions.length ? { reactions } : {}) };
             })()
           : { kind: 'valve', project: m.project, because: m.because || null, at: m.at }));
@@ -14198,7 +14214,11 @@ const server = http.createServer((req, res) => {
              prefix the system lines already carry: a bracket after the gutter is
              a tag, and a post's tag is the id you react against. Only posts carry
              it -- valve/refused/note rows are not reactable and keep `[kosmos]`. */
-          const line = when + '  [' + m.id + '] ' + who + ' -> ' + (Array.isArray(m.to) && m.to.length ? m.to.join(', ') : 'the room') + ': ' + flatText;
+          // #3745: "answering [mK]" when this post replies to another, so an agent reading the room
+          // sees the thread too. The post's own tag stays first; this second bracket is a
+          // reference to another post, not this one's id.
+          const answering = typeof m.replyTo === 'string' && /^m\d+$/.test(m.replyTo) ? ' (answering [' + m.replyTo + '])' : '';
+          const line = when + '  [' + m.id + '] ' + who + answering + ' -> ' + (Array.isArray(m.to) && m.to.length ? m.to.join(', ') : 'the room') + ': ' + flatText;
           /* The same sentence the page shows, one per silent name, right
              under the post it is about (#563). */
           const owed = Array.isArray(silent[m.id]) ? silent[m.id] : [];
@@ -14281,9 +14301,27 @@ const server = http.createServer((req, res) => {
         const fields = attachments.rowFields(files.recs);
         let federated = false;
         try { federated = !!federation.linkFor(found.id); } catch (err) { federated = false; fedseats.logUnreadable(err); }
+        /* #3745: a reply names the post it answers. It must be a post in THIS room; the answering
+           post is refused otherwise (never posted pointing at another room, or at nothing). */
+        let replyTo = null;
+        // '' is refused (400), unlike the agent route's in_reply_to '': the page never sends it, so one here is a bad client.
+        if (body.reply_to !== undefined && body.reply_to !== null) {
+          if (typeof body.reply_to !== 'string' || !/^m\d+$/.test(body.reply_to)) { sendJson(res, 400, { error: 'that is not a message we can reply to' }); return; }
+          let inRoom = null;
+          try { inRoom = messages.projectOfPost(body.reply_to); } catch {
+            sendJson(res, 200, { delivery: { state: 'could_not', because: 'we could not check the message you are replying to, so nothing was posted. Try again in a moment.' } });
+            return;
+          }
+          if (inRoom !== found.id) {
+            sendJson(res, 200, { delivery: { state: 'could_not', because: 'the message you are replying to is not one of this room\'s posts, so nothing was posted. Press \u00d7 (Stop replying) on "Replying to" to post it as a new message.' } });
+            return;
+          }
+          replyTo = body.reply_to;
+        }
         const delivery = messages.sendPost({
           operator: true, project: found.id, projectName: found.name, text: body.text, federated,
           attachment: fields.attachment || null, attachments: fields.attachments || null, trailer: attachments.wireNote(files.recs),
+          replyTo,
         }, roster, members);
         federateOut(found.id, delivery, true);
         sendJson(res, 200, { delivery });
@@ -14739,6 +14777,7 @@ const server = http.createServer((req, res) => {
         }
         try {
           const made = tasks.create(id, { sentence: body.sentence, detail: body.detail, who: body.who,
+            parent: body.parent,
             made: { via: viaScreen ? 'screen' : 'process', by: paneCard ? paneCard.sessionName : null } }, roster);
           // The assignee's managed block now lists this task in the exact
           // spelling the join matches on, so the agent is TOLD, not merely
@@ -14872,6 +14911,36 @@ const server = http.createServer((req, res) => {
         const msg = String((err && err.message) || '');
         sendJson(res, /no project by that name|no task by that number/.test(msg) ? 404 : 400,
           { error: msg || 'we could not set that due date' });
+      }
+    }).catch(() => sendJson(res, 400, { error: 'we could not read that request' }));
+    return;
+  }
+
+  /* #3861: put a task under another task on the same project, or out from under one.
+     Body { parent: <task number> | null }. tasks.setParent refuses a parent that is not a task
+     here, the task itself, or one already under it (a loop), inside the write, as a 400; the
+     answer is never a 200 that stored nothing. A process may do this (agents make subtasks).
+     This route has no rate valve, like the /due route beside it: it pages no pane and gives
+     the task to nobody, and a same-value write records nothing. */
+  const taskParent = pathname.match(/^\/api\/project\/([^/]+)\/task\/(\d+)\/parent$/);
+  if (taskParent && req.method === 'POST') {
+    const id = decodeSegment(taskParent[1]);
+    if (id === null) { sendJson(res, 400, { error: 'that is not a name we can read' }); return; }
+    readBody(req).then((raw) => {
+      let body = null;
+      try { body = JSON.parse(raw || 'null'); } catch { body = null; }
+      if (!body || typeof body !== 'object' || !('parent' in body)) {
+        sendJson(res, 400, { error: 'say which task this is part of, or null for none' });
+        return;
+      }
+      try {
+        const t = tasks.setParent(id, taskParent[2], body.parent);
+        sendJson(res, 200, { task: t });
+      } catch (err) {
+        const msg = String((err && err.message) || '');
+        const code = (err && err.code === 'UNREADABLE') ? 500
+          : (/no project by that name|there is no task by that number/.test(msg) ? 404 : 400);
+        sendJson(res, code, { error: msg || 'we could not change what that task is part of' });
       }
     }).catch(() => sendJson(res, 400, { error: 'we could not read that request' }));
     return;

@@ -106,3 +106,41 @@ test('#2511 primary wins, no write-back: with both leaves set, readToken prefers
   assert.equal(fs.readFileSync(path.join(p.legacy, 'board.token'), 'utf8').trim(), 'bbbb2222',
     'the legacy leaf was written back to (the #2511-removed WRITE mirror is still firing)');
 });
+
+// The file enforcedTokenPath names must hold exactly what readToken enforces.
+function agrees() {
+  const p = boardauth.enforcedTokenPath();
+  let onDisk = null;
+  try { onDisk = fs.readFileSync(p, 'utf8').trim() || null; } catch { onDisk = null; }
+  assert.equal(onDisk, boardauth.readToken(), 'the tunnel would read ' + p + ' but the board enforces another token');
+}
+
+test('#3838: the tunnel is pointed at the file the board actually reads its token from', () => {
+  // Legacy-only (the backfill failed or has not run): the tunnel must read the legacy file.
+  let p = freshData();
+  fs.mkdirSync(p.legacy, { recursive: true, mode: 0o700 });
+  fs.writeFileSync(path.join(p.legacy, 'board.token'), 'legacyonly3838', { mode: 0o600 });
+  assert.equal(boardauth.enforcedTokenPath(), path.join(p.legacy, 'board.token'),
+    'a legacy-only token: the tunnel would read a missing primary file and show "not signed in"');
+  agrees();
+  // Both: the primary, which readToken prefers.
+  p = freshData();
+  fs.mkdirSync(p.kosmos, { recursive: true, mode: 0o700 });
+  fs.mkdirSync(p.legacy, { recursive: true, mode: 0o700 });
+  fs.writeFileSync(path.join(p.kosmos, 'board.token'), 'primary3838', { mode: 0o600 });
+  fs.writeFileSync(path.join(p.legacy, 'board.token'), 'stale3838', { mode: 0o600 });
+  assert.equal(boardauth.enforcedTokenPath(), path.join(p.kosmos, 'board.token'));
+  agrees();
+  // An EMPTY primary with a legacy token: readToken falls back, so must this.
+  p = freshData();
+  fs.mkdirSync(p.kosmos, { recursive: true, mode: 0o700 });
+  fs.mkdirSync(p.legacy, { recursive: true, mode: 0o700 });
+  fs.writeFileSync(path.join(p.kosmos, 'board.token'), '  \n', { mode: 0o600 });
+  fs.writeFileSync(path.join(p.legacy, 'board.token'), 'legacy3838b', { mode: 0o600 });
+  assert.equal(boardauth.enforcedTokenPath(), path.join(p.legacy, 'board.token'), 'an empty primary is not the enforced token');
+  agrees();
+  // Neither: the primary path (a board that does not enforce has no token to present).
+  p = freshData();
+  assert.equal(boardauth.enforcedTokenPath(), path.join(p.kosmos, 'board.token'));
+  agrees();
+});

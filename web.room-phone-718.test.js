@@ -81,7 +81,7 @@ test('on a touchscreen only a tap (or focus) opens the room reaction bar, never 
   assert.match(t, /#pj-room \.msg\.rxn-show \.rxn-quick \{ opacity: 1; pointer-events: auto; \}/);
   assert.match(t, /#pj-room \.msg:hover:not\(\.rxn-show\) \.rxn-quick:not\(:focus-within\) \{ opacity: 0; pointer-events: none; \}/);
   assert.match(t, /#pj-room \.msg:hover:not\(\.rxn-show\) \.msg-bd,\n  #pj-room \.msg:hover:not\(\.rxn-show\) \.msg-bd::before \{ background-image: none; \}/, 'no sticky hover tint either');
-  assert.match(t, /#pj-room \.rxn \{ min-height: 36px; padding: 2px 10px; \}/, 'a reaction pill is thumb-size on ANY touchscreen, landscape phones included');
+  assert.match(t, /#pj-room \.rxn \{ min-height: var\(--room-tap\); padding: 2px 10px; \}/, 'a reaction pill is thumb-size on ANY touchscreen, landscape phones included');
   assert.match(t, /#pj-room \.rxn-quick \{ gap: 4px; top: auto; bottom: calc\(100% \+ 4px\); \}/, 'the open bar sits wholly above the message, clear of a one-line bubble');
   const lift = t.match(/#pj-room \.msg\.rxn-show \.msg-b, #pj-room \.msg\.rxn-below \.msg-b \{ z-index: (\d+); \}/);
   const comp = html.match(/\n\.pjmid \.composer \{ position: sticky; bottom: 0; z-index: (\d+);/);
@@ -94,7 +94,7 @@ test('on a touchscreen only a tap (or focus) opens the room reaction bar, never 
 });
 
 test('the tap listener is registered before the data-open-agent one, which must stay last', () => {
-  const tap = html.indexOf("if (e.target.closest('.rxn-pick, .rxn')) { pjRxnClose(); return; }");
+  const tap = html.indexOf("if (e.target.closest('.rxn-pick, .rxn, .rxn-reply')) { pjRxnClose(); return; }");   // #3745: Reply closes it too
   // The data-open-agent listener itself (its code, not the comment above it).
   const last = html.indexOf("const t = e.target && e.target.closest ? e.target.closest('[data-open-agent]') : null;");
   assert.ok(tap > 0 && last > 0 && tap < last, 'tap listener at ' + tap + ', last listener at ' + last);

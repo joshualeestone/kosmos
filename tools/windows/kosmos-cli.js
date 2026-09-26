@@ -88,6 +88,7 @@ const USAGE = {
     'Usage: kosmos task <list|add|close|message>',
     '  kosmos task list <project-id>                                 list this project\'s tasks',
     '  kosmos task add  <project-id> "<what the task is>" ["more detail"]  add one (quote each part)',
+    '      --parent <task-number>                                   make it a subtask of that task',
     '  kosmos task close <project-id> <task-number>                  close one (number is from list)',
     '  kosmos task message <project-id> <task-number> "<what to say>"  say something in a task\'s conversation',
     '  (project ids are in your instructions\' Your projects section.)',
@@ -413,9 +414,15 @@ async function verbPost(ctx, args) {
   if (d.state === 'placed') { ctx.out('Posted to ' + project + '. Everyone on it has it waiting.'); return 0; }
   if (d.state === 'unconfirmed') return maybe(ctx.err, 'Posted, but not everyone is confirmed' + (d.because ? ': ' + clause(d.because) : '') + '. Do not re-post; the room screen shows who got it.');
   ctx.err('Not posted: ' + (clause(d.because) || 'we could not tell why') + '.');
-  /* #3224: a which-room hold always asks for a rerun, so hand the text back as install/kosmos
-     does (a piped message goes to its private file instead). */
-  if (d.code === 'which_room' && !fromStdin) { ctx.err('Your message was not sent, so here it is to send again:'); ctx.err(text); }
+  /* #2710 parity with install/kosmos: HAND THE TEXT BACK on every refusal, not only a #3224
+     which-room hold, or a post refused by the loop guard is lost with the agent's scrollback. A
+     piped message goes to its private file instead (keepPiped, below). */
+  if (!fromStdin) {
+    ctx.err(d.code === 'which_room'
+      ? 'Your message was not sent, so here it is to send again:'
+      : 'Your message was not sent, so here it is to keep and re-post when the room is ready:');
+    ctx.err(text);
+  }
   keepPiped();
   return 1;
 }
@@ -516,7 +523,9 @@ async function taskList(ctx, args) {
   if (!tasks.length) { ctx.out('No tasks for this project yet. Add one: kosmos task add <project-id> <what the task is>'); return 0; }
   for (const x of tasks) {
     const who = (x.whoNames && x.whoNames.length) ? ' (' + x.whoNames.join(', ') + ')' : '';
-    ctx.out('[' + (x.number != null ? x.number : '?') + '] ' + (x.isClosed ? '[done] ' : '') + (x.sentence || '(no description)') + who);
+    const up = x.parent ? ' (under task ' + x.parent + ')' : '';
+    const kids = (x.subtasks && x.subtasks.total) ? ' [' + x.subtasks.done + '/' + x.subtasks.total + ' subtasks done]' : '';
+    ctx.out('[' + (x.number != null ? x.number : '?') + '] ' + (x.isClosed ? '[done] ' : '') + (x.sentence || '(no description)') + who + up + kids);
   }
   return 0;
 }
@@ -524,11 +533,28 @@ async function taskList(ctx, args) {
 async function taskAdd(ctx, args) {
   const project = args[0];
   const sentence = args[1];
-  if (!project || !sentence) { ctx.err('Usage: kosmos task add <project-id> "<what the task is>" ["more detail"]'); return 2; }
-  const detail = args.slice(2).join(' ');
-  const r = await ctx.call('POST', '/api/project/' + projectSlug(project) + '/tasks', { sentence, detail, from_pane: '' }, { agent: false });
+  if (!project || !sentence) { ctx.err('Usage: kosmos task add <project-id> "<what the task is>" ["more detail"] [--parent <task-number>]'); return 2; }
+  /* #3861, as install/kosmos cmd_task add: the sentence comes first, and `--parent <n>` is
+     taken out of the rest wherever it sits; everything else is still the detail. */
+  if (sentence === '--parent' || sentence.startsWith('--parent=')) { ctx.err('Put what the task is first: kosmos task add <project-id> "<what the task is>" --parent <task-number>'); return 2; }
+  const rest = args.slice(2);
+  let parent = null;
+  const words = [];
+  for (let i = 0; i < rest.length; i += 1) {
+    if (rest[i].startsWith('--parent=')) { ctx.err('Write it as --parent <task-number>, with a space.'); return 2; }
+    if (rest[i] === '--parent') {
+      const n = rest[i + 1];
+      if (typeof n !== 'string' || !/^[0-9]+$/.test(n)) { ctx.err('--parent needs a task number, from: kosmos task list <project-id>.'); return 2; }
+      parent = Number(n); i += 1; continue;
+    }
+    words.push(rest[i]);
+  }
+  const detail = words.join(' ');
+  const body = { sentence, detail, from_pane: '' };
+  if (parent !== null) body.parent = parent;
+  const r = await ctx.call('POST', '/api/project/' + projectSlug(project) + '/tasks', body, { agent: false });
   if (!r.reached) return ctx.unreachable('add that task');
-  if (r.json && r.json.task) { ctx.out('Task added to ' + project + '. See it with: kosmos task list ' + project); return 0; }
+  if (r.json && r.json.task) { ctx.out('Task added to ' + project + (parent !== null ? ', under task ' + parent : '') + '. See it with: kosmos task list ' + project); return 0; }
   if (ctx.refusedBy(r)) { ctx.err('Kosmos refused that task: ' + ctx.refusedBy(r) + '.'); return 1; }
   ctx.err('Kosmos gave an answer we could not read when adding that task.');
   return 1;

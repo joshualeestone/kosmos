@@ -38,11 +38,41 @@ test('#3614: the block names the REAL path, and says to create it and to keep pr
   const body = dmfiles.blockBody('/Users/someone/work/workers/writer/Files');
   assert.match(body, /`\/Users\/someone\/work\/workers\/writer\/Files`/, 'the path is written in, not left to guess');
   const flat = body.replace(/\s+/g, ' ');
-  assert.match(flat, /in a direct conversation with them, not inside a project/);
+  assert.match(flat, /When you make a file for the person in a direct conversation with them, or they ask you for one there, save it in your Files folder\. Two things come first: if they tell you where to put it, put it there, and if it is an existing file you are changing, leave it where it is\. A file that belongs to one of your projects goes in the project instead/);
   assert.match(flat, /Create the folder if it is not there yet/);
+  assert.match(flat, /Tell them in one line where you saved it, in words that mean something to them: the file's name, and that it is under Files on your page in Kosmos/, 'the plain Files case does not say to tell the person where it went, in their words');
+  // #3759: the doctrine says "your own folder"; the block says which folder that is for these files.
+  // Only files made for the person: the role's running summaries (roles.js SUMMARY_RHYTHM, "inside your
+  // own folder") must not be pulled into the list the person sees (review round 12).
+  assert.match(flat, /This Files folder is inside your own folder, and it is only for files made for the person: your running summaries and other working files stay where your instructions put them/);
+  assert.doesNotMatch(flat, /wherever else these instructions use that phrase/);   // round 7's wider redirect, removed in round 12, must not come back
   assert.match(flat, /Kosmos lists what is in it on your page, where they can open it/, 'the block does not tell the agent the person sees its Files on its page (#3614 item 2 ships with it)');
   assert.match(flat, /Save files directly in it, not in subfolders: the page lists only what sits at the top of the folder/, 'the agent is not told the list skips subfolders, so tidied work reads as "Nothing here yet"');
-  assert.match(flat, /Inside a project, keep using the project's own folder/);
+  assert.match(flat, /When the conversation itself happens inside a project, not in a direct conversation, keep using that project's own folder/);
+});
+
+test('#3759: the block names BOTH destinations and when each applies, says where it put the file, and what to do when unsure', () => {
+  const flat = dmfiles.blockBody('/Users/someone/work/workers/writer/Files').replace(/\s+/g, ' ');
+  // A direct ask: the agent's own Files folder (with the real path).
+  assert.match(flat, /\(see the next paragraphs\); if you are on no projects, that never applies\. Your Files folder is: `\/Users\/someone\/work\/workers\/writer\/Files`/);
+  // About a project: that project's folder instead, even when asked in the direct conversation.
+  assert.match(flat, /When the conversation is about one of your projects \(the person names it, or the file is unmistakably that project's work, not only the same kind of thing\), save it in that project's folder instead\./);
+  assert.match(flat, /This holds even when they asked for it, or you made it, in a direct conversation/);
+  // An agent on no projects has no "Your projects" section at all (projects.tellAgent removes it); the pointer says so.
+  assert.match(flat, /a section you have only while you are on a project\)/);
+  assert.match(flat, /If they name a project you are not on, do not guess another: save it in your Files folder, say you are not on that project, and say it can move there once you are added to it/);
+  assert.match(flat, /That is not guessing: your Files folder is where it goes by default/);
+  assert.match(flat, /tell them in one line where you put it: which project, the file's name, and the folder inside the project if it is not at the top/);
+  // Unsure: no project is guessed (the doctrine's "not a licence to guess") and nothing waits unsaved:
+  // save it here, say so, and ask which project in the same line.
+  assert.match(flat, /When you cannot tell whether the file belongs to a project, or to which one, do not guess a project\. Save it in your Files folder\. In the same line where you tell them it is under Files on your page, ask which project it belongs to/);
+  // The doctrine's general "ask, do not guess" is carried out this way for these files (round 15).
+  assert.match(flat, /Never wait with the file unsaved\. If your instructions also say to ask one short question rather than guess, this is how that applies to a file made for the person in a direct conversation: save here and ask/);
+  // Conditional on purpose: an agent without the doctrine section must not be told a rule is in its file (round 17).
+  assert.doesNotMatch(flat, /wherever it appears in your instructions/);
+  // The project rule is its own paragraph, not folded into the first one (which an agent may act on
+  // alone); the first paragraph points to it instead.
+  assert.doesNotMatch(dmfiles.blockBody('/x').split('When the conversation is about')[0], /project's folder instead/);
 });
 
 test('#3614: a folder name cannot close the block early (the value is neutralised)', () => {
@@ -62,6 +92,36 @@ test('#3614: the block lands in an agent file with that agent\'s own path, and i
   const second = dmfiles.tellAgent('writer', roster);
   assert.equal(second.state, projects.TOLD.TOLD);
   assert.equal(fs.readFileSync(f, 'utf8'), text, 'a second sync rewrote the file');
+});
+
+test('#3759: the section the block sends the agent to is the one the projects block really writes', () => {
+  // Line breaks around the name are just wrapping; inside the quotes the name must be whole (no break).
+  const said = (dmfiles.blockBody('/x').match(/under\s+"([^"]+)"\s+in your instructions/) || [])[1];
+  assert.ok(said, 'CONTROL: the block names a section');
+  const heading = projects.blockBody([{ id: 'p1', name: 'Henderson lease', folder: '/tmp/henderson', agents: ['writer'] }], 'writer').split('\n')[0];
+  assert.equal(heading, '## ' + said, 'the files block names a section the projects block does not write');
+});
+
+test('#3759: the running summaries the block keeps out of Files really are written outside it (roles.js)', () => {
+  const src = require('node:fs').readFileSync(require('node:path').join(__dirname, 'roles.js'), 'utf8');
+  const rhythm = src.slice(src.indexOf('const SUMMARY_RHYTHM'), src.indexOf('].join(', src.indexOf('const SUMMARY_RHYTHM')));
+  assert.match(rhythm, /summaries\/YYYY-MM-DD-HH\.md inside your own folder/, 'CONTROL: the role still writes its summaries where this block says they stay');
+  assert.doesNotMatch(rhythm, /Files/, 'a role now writes its summaries into Files, which this block tells agents to keep for the person');
+  assert.match(dmfiles.blockBody('/x').replace(/\s+/g, ' '), /your running summaries and other working files stay where your instructions put them/);
+});
+
+test('#3759: an agent that already carries the #3614 wording gets the new wording on the next sync', () => {
+  const OLD = ['## Where to save files you make for the person', '', 'When you make a file for the person in a direct conversation with them, not',
+    'inside a project, save it in your Files folder:', '', '`/old/Files`', '', 'Inside a project, keep using the project\'s own folder.'].join('\n');
+  const f = agentFile('upgrader', '# Upgrader\n\nYou are Upgrader.\n\n' + dmfiles.START + '\n' + OLD + '\n' + dmfiles.END + '\n');
+  assert.match(fs.readFileSync(f, 'utf8').replace(/\s+/g, ' '), /not inside a project, save it/, 'CONTROL: the file starts with the old wording');
+  const r = dmfiles.tellAgent('upgrader', [tied('upgrader')]);
+  assert.equal(r.state, projects.TOLD.TOLD, r.because || '');
+  const text = fs.readFileSync(f, 'utf8');
+  assert.doesNotMatch(text.replace(/\s+/g, ' '), /not inside a project, save it/, 'the old wording survived the sync');
+  assert.match(text.replace(/\s+/g, ' '), /When the conversation is about one of your projects/, 'the new wording did not arrive');
+  assert.equal(text.split(dmfiles.START).length, 2, 'the block was added a second time instead of replaced');
+  assert.match(text, /You are Upgrader\./, 'the agent\'s own prose was disturbed');
 });
 
 test('#3614: each agent gets ITS OWN path, never another agent\'s', () => {

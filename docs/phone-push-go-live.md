@@ -17,18 +17,23 @@ that fails stops the list: undo it, fix the cause, and start that step again.
 Facts here were read from the code on 2026-09-24 (kosmos `main` at 8c4ca1d5, kosmos-relay `main` at
 50a846b). The Android facts were re-read later that day at kosmos `main` 677eacde (the last commit
 of #3644), and the asset-links facts at kosmos-relay `main` 6e2da95. The Android no-purchase
-item was read on 2026-09-25 at kosmos-relay `main` 879542d (live build `eac39e6`). Both repos
-move on, so treat the file and the name as what to search for, not the commit or the line.
+item was read on 2026-09-25 at kosmos-relay `main` 879542d (live build `eac39e6`). "Where things
+stand today", step 3's status and step 5's asset-links item were re-read on 2026-09-25 against live
+build `59b0962` (kosmos #3764). Both repos move on, so treat the file and the name as what to search for, not the commit or the line.
 
 ## Where things stand today
 
-- **The coordinator already has the code, but production does not run it yet.**
-  - The APNs routes, the APNs sender and the sign-in page's session bridge are merged
-    (kosmos-relay #104).
-  - The Digital Asset Links file the coordinator serves for the Android app is merged too
-    (kosmos-relay #109).
-  - Production still runs build `2226c9d` (`curl -s https://coordinator.kosmosplus.com/v1/meta`),
-    which has none of #103, #104 or #109.
+- **Production runs the code, but not the push settings.**
+  - Production runs build `59b0962` (`curl -s https://coordinator.kosmosplus.com/v1/meta`), which
+    contains kosmos-relay #103, #104 (the APNs routes, the APNs sender and the sign-in page's
+    session bridge) and #109 (the Digital Asset Links file for the Android app). Each was checked
+    with `git merge-base --is-ancestor <merge commit> 59b0962`.
+  - The settings are not there. `deploy/kosmos-coordinator.env.template` sets no `KOSMOS_PUSH`,
+    and its four `KOSMOS_APNS_*` lines are still commented out. The deploy that made `59b0962` live
+    (2026-09-25 15:17) measured the box's env identical to that template, 20 of 20 variables
+    (kosmos #3763).
+  - So today production **sends browser web push for real** (no `KOSMOS_PUSH=log`) and **refuses
+    every app registration** (`KOSMOS_APNS_BUNDLE_IDS` unset). Steps 2 and 3 are still to do.
 - **The tunnel's `mac-request` verb is merged** (kosmos-relay #103). The board needs it to turn
   notifications on. No released Kosmos bundle carries it yet.
 - **The board ships with notifications locked off.**
@@ -151,6 +156,10 @@ probably cannot sit under `/root` or `/home`, and the service user must be able 
 **Undo:** revert the PR.
 
 ## Step 3. Deploy the coordinator with sending held back [Josh]
+
+**Not done yet.** The coordinator has been deployed several times since this doc was written, but
+always with the template as it stands, so no deploy so far has held sending back or turned on app
+registration. This step is the first deploy after step 2's template change.
 
 This is a production change. Tell Liu Kang before it happens (`.claude/plans/apns-718.md`,
 "Shipping").
@@ -284,10 +293,8 @@ Sonya owns these facts (her message of 2026-09-24).
   - the upload key's SHA-256 (`21:4A:61:04:67:09:08:20:B0:05:DC:40:D9:EC:EE:09:65:84:44:2E:40:AB:0F:DC:0F:EF:32:E6:EC:43:78:E8`);
   - the Play app-signing key's SHA-256, read from Play Console after the first upload.
 - Never the debug key.
-- The route is merged (kosmos-relay #109, `coordinator/src/assetlinks.rs`) but not live: production
-  answers 404 until the coordinator is next deployed.
-- It does not wait on Apple: the next coordinator deploy from `main` carries it [Josh, a production
-  change]. Step 3 lists what a coordinator deploy turns on and off.
+- The route is live (kosmos-relay #109, `coordinator/src/assetlinks.rs`). Measured on 2026-09-25:
+  200 with no redirect, `Content-Type: application/json`, listing the upload key only.
 - It serves the upload key only. The fingerprints are a constant in code
   (`CERT_SHA256_FINGERPRINTS`), so adding the Play key after the first upload is a kosmos-relay PR
   and another coordinator deploy [fleet for the PR; Josh for the deploy].
@@ -320,8 +327,7 @@ Android app by kosmos-relay #121 (five commits).
   the policy's details: they change, they differ by country, and a summary written here would go
   stale unnoticed.
 - **Live on the production coordinator** (confirmed on 2026-09-25 by the ancestry check below,
-  against the `build` that `curl -s https://coordinator.kosmosplus.com/v1/meta` reports; other parts of this doc predate that
-  deploy, kosmos #3764). On a Play install it likely also needs Play's app-signing key in
+  against the `build` that `curl -s https://coordinator.kosmosplus.com/v1/meta` reports). On a Play install it likely also needs Play's app-signing key in
   assetlinks.json (the asset-links bullet above): without it the app opens as a browser tab, and
   whether the switch's signal arrives then is not confirmed. Before the first upload to any Play
   track, confirm it is still live [fleet]: take the `build` from that URL, run

@@ -11302,7 +11302,9 @@ test('the in-app sign-in runs end to end through the routes, and the session tok
     "const flag = (n) => { const i = a.indexOf(n); return i === -1 ? null : a[i + 1]; };",
     "if (a[0] === 'signin' && a[1] === 'start') { console.log(JSON.stringify({ stage: 'code_sent' })); process.exit(0); }",
     // verify goes straight to a session here (the phone path is covered in the engine suite).
-    "if (a[0] === 'signin' && a[1] === 'verify') { console.log(JSON.stringify({ stage: 'session', token: 'kst1.route-fake' })); process.exit(0); }",
+    // #3796: code 242424 answers with a text-message second step, so the route's pass-through is exercised.
+    "if (a[0] === 'signin' && a[1] === 'verify' && flag('--code') === '242424') { console.log(JSON.stringify({ stage: 'second', challenge: 'ch_route_fake', second: 'sms', sent_to: '\u2022\u2022\u2022 4321' })); process.exit(0); }",
+    "if (a[0] === 'signin' && a[1] === 'verify') { console.log(JSON.stringify({ stage: 'session', token: 'kst1.route-fake', account_address: 'srv-mac.kosmos.invalid' })); process.exit(0); }",
     "if (a[0] === 'signin' && a[1] === 'register') {",
     '  const token = fs.readFileSync(0, "utf8").trim();',
     '  if (!token) { process.stderr.write("no token on stdin"); process.exit(1); }',
@@ -11334,12 +11336,20 @@ test('the in-app sign-in runs end to end through the routes, and the session tok
     // The whole #874 point, asserted at the HTTP boundary: no credential crosses it.
     assert.ok(!('token' in vbody), 'the session token crossed the HTTP boundary: ' + verified.body);
     assert.ok(!('challenge' in vbody), 'a challenge crossed the HTTP boundary: ' + verified.body);
+    assert.equal(vbody.account_address, 'srv-mac.kosmos.invalid', '#3796 addendum 8: the route dropped the account\'s address: ' + verified.body);
 
     // #3796: "Sign out" drops the held session, so register is refused until a fresh verify.
     const cancelled = await postJson('/api/remote/signin-cancel', {});
     assert.equal(cancelled.status, 200, cancelled.body);
     const orphan = await postJson('/api/remote/signin-register', { name: 'srv-mac' });
     assert.equal(orphan.status, 400, 'register spent a session after Sign out: ' + orphan.body);
+    // #3796 addendum 3: the second step's factor crosses the route (so the page can name it); the challenge does not.
+    const second = await postJson('/api/remote/signin-verify', { email: 'person@example.com', code: '242424' });
+    const sbody = JSON.parse(second.body);
+    assert.equal(sbody.stage, 'second', second.body);
+    assert.equal(sbody.second_kind, 'sms', 'the route dropped the account\'s factor: ' + second.body);
+    assert.equal(sbody.sent_to, '\u2022\u2022\u2022 4321', second.body);
+    assert.ok(!second.body.includes('ch_route_fake'), 'the challenge crossed the HTTP boundary: ' + second.body);
     const again = await postJson('/api/remote/signin-verify', { email: 'person@example.com', code: '123456' });
     assert.equal(JSON.parse(again.body).stage, 'session', again.body);
 
