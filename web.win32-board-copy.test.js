@@ -374,7 +374,7 @@ const MAC_SIGNIN_SENTENCE = 'This board is not signed in, so it cannot read your
 
 function boardEmpty(platform, failed) {
   return runPage(platform, ['esc', 'boardSigninHtml', 'boardEmpty'], 'boardEmpty()',
-    { BOARD_SEEN: true, BOARD_LOOK_FAILED: failed || null, BOARD_NEEDS_SIGNIN: !failed });
+    { BOARD_SEEN: true, BOARD_LOOK_FAILED: failed || null, BOARD_NEEDS_SIGNIN: !failed, BOARD_SIGNED_OUT: false });
 }
 
 test('the not-signed-in panel on Windows points at Kosmos.exe, with no Mac path, no self-heal and no kosmos command', () => {
