@@ -290,22 +290,21 @@ async function pull(dir, opts) {
   /* kosmos#3906: the store listed reports and NONE was pulled, whether they could not
      be read (#3878), were malformed, or failed to write. Any of those is a failure with
      its reasons, never "pulled 0" as a success. */
+  // Every skip took exactly one branch above, so what is left is the malformed ones
+  // (no url, not JSON, the wrong shape). Counted ONCE, here, for both results.
+  const malformed = skipped - unreadable - unwritten;
+  const counts = { written, skipped, unreadable, denied, lastGetError: unreadable ? lastGetError : '',
+    unwritten, lastWriteError: unwritten ? lastWriteError : '', malformed, fromPublicStore, total, dir: target };
+  /* kosmos#3906: the store listed reports and NONE was pulled, whether they could not
+     be read (#3878), were malformed, or failed to save here. Any of those is a failure
+     with its reasons, never "pulled 0" as a success. */
   if (written === 0 && skipped > 0) {
-    const why = [];
-    if (unreadable) why.push(unreadableClause({ unreadable, denied, lastGetError }));
-    if (unwritten) why.push(unwrittenClause({ unwritten, lastWriteError, dir: target }));
-    if (skipped > unreadable + unwritten) why.push((skipped - unreadable - unwritten) + ' malformed');
-    return {
-      ok: false, written, skipped, total, dir: target,
-      because: 'the store listed ' + reports(total) + ' and none was pulled: ' + why.join('; ')
-        + '.' + (fromPublicStore ? ' ' + PUBLIC_STORE_NOTE : ''),
-      unreadable, denied, fromPublicStore,
-    };
+    return { ok: false, ...counts,
+      because: 'the store listed ' + reports(total) + ' and none was pulled: ' + reasonClauses(counts).join('; ')
+        + '.' + (fromPublicStore ? ' ' + PUBLIC_STORE_NOTE : '') };
   }
-  // A partial pull is still ok, but says how many could not be read and why, so a
-  // mostly-failed pull is not mistaken for a clean one.
-  return { ok: true, written, skipped, unreadable, denied, lastGetError: unreadable ? lastGetError : '',
-    unwritten, lastWriteError: unwritten ? lastWriteError : '', fromPublicStore, total, dir: target };
+  // A partial pull is still ok, and its summary gives the same reasons for every skip.
+  return { ok: true, ...counts };
 }
 
 /* The public-store hint, one wording for the success summary and the failure. It is
@@ -332,6 +331,16 @@ function unwrittenClause({ unwritten, lastWriteError, dir }) {
   return reports(unwritten) + ' could not be saved in ' + dir + ' (last error: ' + lastWriteError + ')';
 }
 
+/* Why reports were skipped, one clause per kind that applies, in one wording for the
+   failure message (joined) and the success summary (one line each). */
+function reasonClauses(r) {
+  const out = [];
+  if (r.unreadable) out.push(unreadableClause(r));
+  if (r.unwritten) out.push(unwrittenClause({ unwritten: r.unwritten, lastWriteError: r.lastWriteError, dir: r.dir }));
+  if (r.malformed) out.push(r.malformed + ' malformed');
+  return out;
+}
+
 /**
  * The success summary of a pull, as lines. The ONE place it is worded: runCli, the
  * Mac `kosmos feedback pull` (install/kosmos) and the Windows command all print
@@ -346,8 +355,7 @@ function summaryLines(r) {
     out.push('no reports were listed. If reports are expected, check that ' + FEEDBACK_TOKEN_TARGET
       + ' holds the private feedback store\'s token (kosmos#3878).');
   }
-  if (r.unreadable) out.push(unreadableClause(r));
-  if (r.unwritten) out.push(unwrittenClause({ unwritten: r.unwritten, lastWriteError: r.lastWriteError, dir: r.dir }));
+  out.push(...reasonClauses(r));
   if (r.fromPublicStore) out.push('note: ' + PUBLIC_STORE_NOTE);
   return out;
 }

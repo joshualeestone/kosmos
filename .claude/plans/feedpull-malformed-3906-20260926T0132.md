@@ -10,6 +10,10 @@ Deferred from #3878's review loop (kosmos#3904, iteration 8). `pull` already ans
   - "N malformed" for bad records.
 - A partial pull stays ok, and its summary also says how many could not be saved here, with the error (`unwrittenClause`, shared with the failure message; review iteration 2). So does an empty listing, which already has its own line in `summaryLines`.
 
+## Review iteration 3
+- The counts are derived ONCE in `pull` (malformed = skipped - unreadable - unwritten) into one result shape shared by ok and failed pulls.
+- `reasonClauses` gives the reasons: the failure message joins them and the summary prints them. A partial pull's malformed remainder is now explained too.
+
 ## Tests
 `engine/feedbackpull.test.js`:
 - all malformed;
@@ -17,6 +21,7 @@ Deferred from #3878's review loop (kosmos#3904, iteration 8). `pull` already ans
 - a real local write failure (a directory where the file would go);
 - a partial pull with a local write failure;
 - all three kinds together, each counted once;
+- a partial pull explains its malformed remainder, and both results carry the same fields;
 - controls: one good report among bad ones, and an empty listing.
 
 The mutation that restores the old condition runs red.

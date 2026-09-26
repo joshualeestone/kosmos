@@ -562,3 +562,19 @@ test('#3906: unreadable, unsaved and malformed together are each counted once', 
   assert.equal(r.ok, false);
   assert.match(r.because, /none was pulled: 1 report could not be read \(last error: blob GET HTTP 500\); 1 report could not be saved in .* \(last error: .*\); 1 malformed\./);
 });
+
+test('#3906: every skip is explained on a partial pull too, and both results carry the same fields', async () => {
+  fp.setTransport({
+    list: async () => ['g', 'm'].map((k) => ({ url: 'https://s.private.blob.vercel-storage.com/' + k + '.json' })),
+    get: async (u) => (u.endsWith('/g.json') ? JSON.stringify(REC('inst-g', '2026-09-26', 'g')) : '{not json'),
+  });
+  const ok = await fp.pull(path.join(SB, 'd-partial-bad'), { token: 'tok' });
+  assert.equal(ok.ok, true);
+  assert.equal(ok.malformed, 1);
+  assert.ok(fp.summaryLines(ok).includes('1 malformed'), fp.summaryLines(ok).join('\n'));
+  fp.setTransport({ list: async () => [{ url: 'https://s.private.blob.vercel-storage.com/m.json' }], get: async () => '{not json' });
+  const failed = await fp.pull(path.join(SB, 'd-all-bad-2'), { token: 'tok' });
+  for (const k of ['written', 'skipped', 'unreadable', 'unwritten', 'malformed', 'total', 'dir']) {
+    assert.ok(k in failed && k in ok, 'field ' + k + ' is missing from one of the results');
+  }
+});
