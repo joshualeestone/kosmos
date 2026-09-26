@@ -274,3 +274,9 @@ test('#3311: a joined name loses square brackets, so it cannot spell a marker lo
   assert.ok(!/[\[\]\uff3b\uff3d]/.test(made.name), 'a bracket survived in the joined name: ' + JSON.stringify(made.name));
   assert.match(made.name, /message from your operator/, 'fixture: the words themselves are kept');
 });
+
+test('#3844: the board wires the seat\'s day seed to the message log', () => {
+  const fedseats = require('./engine/fedseats');
+  assert.equal(fedseats.wired('externalKeptOn'), true, 'server.js does not pass externalKeptOn, so a restart would start a fresh day');
+  assert.equal(fedseats.wired('noSuchDependency'), false, 'CONTROL: wired() can say no');
+});

@@ -24,7 +24,8 @@ const { externalName } = require('./externalname');
 const RESTART_START_MS = 2000;
 /* Inbound bound per project: a connected peer may not flood this Mac's message
    log (the relay allows bursts of 128). Past it, messages are dropped and the
-   room says so once per window. */
+   room says so, once a day per room (kosmos#3844: once per window was up to
+   1,440 notes a day from a peer that stayed over the rate). */
 const INBOUND_PER_WINDOW = 60;
 /* And a byte budget in the same window, so the count bound cannot be spent on
    max-size messages. */
@@ -34,9 +35,12 @@ const INBOUND_WINDOW_MS = 60000;
    sender is unattested, so it cannot be per peer) on top of the minute's: every stored row is kept in
    memory and scanned by the room and unread reads, so a peer sending at the
    minute's limit all day must not be able to grow them without end. 2 MiB of
-   words a day is far above any conversation. Counted per board run: a restart
-   (an update, a crash) starts a fresh day's allowance, so this bounds one run's
-   growth, not a calendar day's. Persisting it is kosmos#3844. */
+   words a day is far above any conversation. A calendar (UTC) day's: when a
+   seat's day starts it is seeded from what the log already holds for that room
+   today (deps.externalKeptOn), so a restart (an update, a crash) does not start
+   a fresh allowance (kosmos#3844). Only RATE is bounded, per day: a total cap on
+   stored rows waits on the message log's retention, a recorded decision in
+   engine/messages.js (dropping rows there changes the nudge sweep). */
 const INBOUND_BYTES_PER_DAY = 2 * 1024 * 1024;
 /* And rows a day per room: every row is held in memory and scanned on every
    read, so tiny messages at the minute's limit must not grow it without end. */
@@ -71,11 +75,19 @@ let deps = null;
  *   enrolled() -> bool            optional; no seat is started on a Mac that is
  *                                 not connected to Kosmos+ (a dev board, a test)
  *   projectExists(projectId)      optional; a removed project gets no seat
+ *   externalKeptOn(projectId, day) optional; { rows, bytes } the room already kept
+ *                                 from outside on that UTC day, null if unknown
  *   note(projectId, text)         optional; Kosmos's own line in the room, used to
  *                                 say a post did not go out or messages were dropped
  */
 function configure(d) {
   deps = d;
+}
+
+/** Whether the board wired an optional dependency (a test's check that server.js
+    passes it: an optional dep left out fails soft and silently). */
+function wired(name) {
+  return !!deps && typeof deps[name] === 'function';
 }
 
 function statusOf(projectId) {
@@ -127,9 +139,19 @@ function onEvent(projectId, line) {
   if (ev.event === 'refused_post') { say(projectId, 'A message was not sent to the external project: ' + clean(ev.because, 200) + '.'); return; }
   if (ev.event === 'message' && ev.data && typeof ev.data === 'object' && typeof ev.data.text === 'string' && ev.data.text.trim()) {
     const now = Date.now();
-    if (!s.inbound || now - s.inbound.since >= INBOUND_WINDOW_MS) s.inbound = { since: now, count: 0, bytes: 0, noted: false };
+    if (!s.inbound || now - s.inbound.since >= INBOUND_WINDOW_MS) s.inbound = { since: now, count: 0, bytes: 0 };
     const day = new Date(now).toISOString().slice(0, 10);
-    if (!s.inday || s.inday.day !== day) s.inday = { day, bytes: 0, rows: 0, noted: false };
+    if (!s.inday || s.inday.day !== day) {
+      let kept = null;
+      try { kept = typeof deps.externalKeptOn === 'function' ? deps.externalKeptOn(projectId, day) : null; } catch { kept = null; }
+      s.inday = {
+        day,
+        bytes: kept && Number.isFinite(kept.bytes) ? kept.bytes : 0,
+        rows: kept && Number.isFinite(kept.rows) ? kept.rows : 0,
+        noted: false,
+        minuteNoted: false,
+      };
+    }
     // `from` is whatever the other Mac wrote: only a string counts. String() on an
     // object whose toString is not a function throws, here, where nothing catches.
     const fromRaw = typeof ev.data.from === 'string' ? ev.data.from : '';
@@ -141,7 +163,7 @@ function onEvent(projectId, line) {
     s.inbound.count += 1;
     s.inbound.bytes += size;
     if (s.inbound.count > INBOUND_PER_WINDOW || s.inbound.bytes > INBOUND_BYTES_PER_WINDOW) {
-      if (!s.inbound.noted) { s.inbound.noted = true; say(projectId, 'The external project sent more messages than Kosmos keeps in a minute; some were not kept.'); }
+      if (!s.inday.minuteNoted) { s.inday.minuteNoted = true; say(projectId, 'The external project sent more messages than Kosmos keeps in a minute; some were not kept. Kosmos says this once a day.'); }
       return;
     }
     // Only what is KEPT counts toward the day: a flood the minute bound drops
@@ -439,4 +461,4 @@ function stopAll() {
   seats.clear();
 }
 
-module.exports = { letGo, INBOUND_ROWS_PER_DAY, MAC_RETRY_MS, logUnreadable, STOP_KILL_MS, STABLE_MS, INBOUND_BYTES_PER_DAY, MAX_POST_LINE, configure, ensure, ensureAll, post, statusOf, stop, stopAll, onEvent, MAC_EDGES, INBOUND_PER_WINDOW, INBOUND_BYTES_PER_WINDOW };
+module.exports = { wired, letGo, INBOUND_ROWS_PER_DAY, MAC_RETRY_MS, logUnreadable, STOP_KILL_MS, STABLE_MS, INBOUND_BYTES_PER_DAY, MAX_POST_LINE, configure, ensure, ensureAll, post, statusOf, stop, stopAll, onEvent, MAC_EDGES, INBOUND_PER_WINDOW, INBOUND_BYTES_PER_WINDOW };

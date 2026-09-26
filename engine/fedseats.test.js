@@ -24,7 +24,7 @@ function fakeChild() {
   return c;
 }
 
-function harness({ enrolled = true, edges = null, exists = () => true, gate = null } = {}) {
+function harness({ enrolled = true, edges = null, exists = () => true, gate = null, keptOn = undefined } = {}) {
   const spawned = [];
   const recorded = [];
   const statuses = [];
@@ -42,6 +42,7 @@ function harness({ enrolled = true, edges = null, exists = () => true, gate = nu
     onStatus: (projectId, status) => statuses.push([projectId, status]),
     enrolled: () => enrolled,
     projectExists: (projectId) => exists(projectId),
+    externalKeptOn: keptOn,
     note: (projectId, text) => notes.push({ projectId, text }),
   });
   return h;
@@ -614,4 +615,53 @@ test('a padded sender name is charged for what is kept, not its raw length', asy
   assert.strictEqual(h.recorded.length, 10, 'a padded name spent the room budget: ' + h.recorded.length + ' of 10 kept');
   assert.strictEqual(h.notes.length, 0);
   assert.strictEqual(h.recorded[0].from.length, 80);
+});
+
+// #3844: the day budget survives a restart; the minute note is said once a day.
+test('#3844: a peer over the minute rate all day gets one note, not one per minute', async (t) => {
+  t.mock.timers.enable({ apis: ['Date'], now: Date.parse('2026-09-25T00:00:00Z') });
+  federation.recordLink('proj-minutes', { role: 'member', edge_id: 'edge-minutes' });
+  const h = harness();
+  await fedseats.ensure('proj-minutes');
+  for (let w = 0; w < 3; w++) {
+    for (let i = 0; i < fedseats.INBOUND_PER_WINDOW + 5; i++) fedseats.onEvent('proj-minutes', JSON.stringify({ event: 'message', data: { from: 'Ada', text: 'w' + w + 'm' + i } }));
+    t.mock.timers.tick(61 * 1000);
+  }
+  const said = h.notes.filter((n) => n.projectId === 'proj-minutes' && /in a minute/.test(n.text));
+  assert.strictEqual(said.length, 1, 'notes: ' + JSON.stringify(said));
+  assert.strictEqual(h.recorded.filter((r) => r.projectId === 'proj-minutes').length, 3 * fedseats.INBOUND_PER_WINDOW, 'fixture: each window still kept its budget');
+  // A new day may say it again.
+  t.mock.timers.tick(24 * 60 * 60 * 1000);
+  for (let i = 0; i < fedseats.INBOUND_PER_WINDOW + 5; i++) fedseats.onEvent('proj-minutes', JSON.stringify({ event: 'message', data: { from: 'Ada', text: 'd2m' + i } }));
+  assert.strictEqual(h.notes.filter((n) => n.projectId === 'proj-minutes' && /in a minute/.test(n.text)).length, 2);
+});
+
+test('#3844: a restarted seat starts its day from what the room already kept today', async (t) => {
+  t.mock.timers.enable({ apis: ['Date'], now: Date.parse('2026-09-25T12:00:00Z') });
+  federation.recordLink('proj-restart', { role: 'member', edge_id: 'edge-restart' });
+  const asked = [];
+  const h = harness({ keptOn: (id, day) => { asked.push([id, day]); return { rows: fedseats.INBOUND_ROWS_PER_DAY - 3, bytes: 0 }; } });
+  await fedseats.ensure('proj-restart');
+  for (let i = 0; i < 10; i++) fedseats.onEvent('proj-restart', JSON.stringify({ event: 'message', data: { from: 'Ada', text: 'r' + i } }));
+  assert.strictEqual(h.recorded.filter((r) => r.projectId === 'proj-restart').length, 3, 'a restart gave the room a fresh day');
+  assert.deepStrictEqual(asked[0], ['proj-restart', '2026-09-25']);
+  assert.ok(h.notes.some((n) => n.projectId === 'proj-restart' && /in a day/.test(n.text)));
+});
+
+test('#3844: the byte half of the day is seeded too', async (t) => {
+  t.mock.timers.enable({ apis: ['Date'], now: Date.parse('2026-09-25T12:00:00Z') });
+  federation.recordLink('proj-restart-b', { role: 'member', edge_id: 'edge-restart-b' });
+  const h = harness({ keptOn: () => ({ rows: 0, bytes: fedseats.INBOUND_BYTES_PER_DAY - 4 }) });
+  await fedseats.ensure('proj-restart-b');
+  fedseats.onEvent('proj-restart-b', JSON.stringify({ event: 'message', data: { from: 'Ada', text: 'too long for four bytes' } }));
+  assert.strictEqual(h.recorded.filter((r) => r.projectId === 'proj-restart-b').length, 0);
+});
+
+test('#3844: a log that cannot be read counts from zero rather than refusing everything', async (t) => {
+  t.mock.timers.enable({ apis: ['Date'], now: Date.parse('2026-09-25T12:00:00Z') });
+  federation.recordLink('proj-unknown-day', { role: 'member', edge_id: 'edge-unknown-day' });
+  const h = harness({ keptOn: () => null });
+  await fedseats.ensure('proj-unknown-day');
+  fedseats.onEvent('proj-unknown-day', JSON.stringify({ event: 'message', data: { from: 'Ada', text: 'hi' } }));
+  assert.strictEqual(h.recorded.filter((r) => r.projectId === 'proj-unknown-day').length, 1);
 });
