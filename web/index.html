@@ -6927,6 +6927,15 @@ body:not(.consolidated) .pjmidhead:has(.pjhead) .tsearch:focus-within { flex-bas
    informational, not urgent. The --k-bg ring lifts it off the avatar, like the warn glyph's
    built-in halo. */
 .pj-member .pj-face > .lreach { display: grid; place-items: center; position: absolute; right: -3px; bottom: -3px; width: 15px; height: 15px; border-radius: 50%; background: var(--k-ink-2); color: var(--k-bg); font: 700 10px/1 var(--font-ui); border: 1.5px solid var(--k-bg); box-sizing: border-box; }
+/* #3991: the tab view's members draw the consolidated rows' memory ring and presence dot. The
+   ring sits just OUTSIDE the full-size photo (the consolidated row shrinks its photo instead), and
+   both are scoped to the tab view's members so a picker or the consolidated layout is unchanged. */
+html:not([data-layout="consolidated"]) #pj-one-agents .pj-member .pj-face > .lring { display: block; position: absolute; inset: -4px; width: 42px; height: 42px; pointer-events: none; }
+html:not([data-layout="consolidated"]) #pj-one-agents .pj-member .pj-face.pjd::after {
+  content: ""; position: absolute; right: -1px; bottom: -1px; width: 9px; height: 9px; border-radius: 50%;
+  background: #2f7d5a; box-shadow: 0 0 0 2px var(--k-surface); }
+html:not([data-layout="consolidated"]) #pj-one-agents .pj-member .pj-face.pjd-off::after { background: var(--k-ink-2); }
+html:not([data-layout="consolidated"]) #pj-one-agents .pj-member .pj-face.pjd-unk::after { background: transparent; border: 1.5px solid var(--k-ink-2); box-sizing: border-box; }
 .pj-member small.pj-attn { color: #b3261e; }
 /* #b3261e is a ~2:1 whisper on the dark surface (under WCAG AA for this caption), so it
    lightens to #ff8c82 in dark mode. Only the SYSTEM-dark @media rule is written by hand; the
@@ -30009,6 +30018,37 @@ function paintDetailState(card) {
   if (!dtask) return;
   dtask.textContent = taskLine(a, { noQuote: true });
   dtask.hidden = !dtask.textContent || (a.state === 'needs_you');
+  /* #3958 (review): the screen-said evidence and the re-auth button follow the poll with the
+     pill. Painted only by openDetail they froze while the pill went live, so a page opened on a
+     working agent that then hit auth_failed said so in the pill with no "Sign in again" beside it. */
+  /* ⚠️ TEXT, NEVER MARKUP. This is pane content: whatever happens to be on
+     somebody's terminal, on its way to a product surface. `textContent` is the
+     escape, and the engine has already trimmed and capped it. */
+  const said = document.getElementById('d-said');
+  const saidLab = document.getElementById('d-said-lab');
+  if (said) {
+    const line = String(a.stateEvidence || '').trim();
+    if (said.textContent !== line) said.textContent = line;
+    said.hidden = !line;
+    /* The label follows the quote exactly, or an empty agent page keeps a
+       stranded "Its screen said:" with nothing under it. */
+    if (saidLab) {
+      /* `a.name`, which is what the heading two lines up uses. My first version
+         called a `dispName()` that DOES NOT EXIST -- it would have thrown the
+         moment a rate-limited agent's page opened, and every text-matching test
+         passed over it because a regex cannot call a function. */
+      saidLab.textContent = line ? a.name + '\u2019s screen said:' : '';
+      saidLab.hidden = !line;
+    }
+  }
+  /* kosmos#1918: the reachable remedy for a broken sign-in. The evidence quote
+     above may name "/login", which has no surface in this product; this button is
+     that surface. Shown ONLY when the state is auth_failed, so a healthy agent
+     never sees a control it does not need, and hidden again the moment the state
+     is anything else. The click (wired once below) opens Settings -> Accounts,
+     the existing re-auth surface. */
+  const reauthBtn = document.getElementById('d-reauth');
+  if (reauthBtn) reauthBtn.hidden = a.state !== 'auth_failed';
 }
 
 function openDetail(sessionName, section, fromProject) {
@@ -30215,34 +30255,6 @@ function openDetail(sessionName, section, fromProject) {
      now has no dedicated header line by design; the actionable surfaces remain (the state
      badge #d-state, the short engine-state sentences #d-task, the screen-said evidence
      #d-said, and the re-auth sign-in button). Guarded in server.test.js so a re-add reds. */
-  /* ⚠️ TEXT, NEVER MARKUP. This is pane content: whatever happens to be on
-     somebody's terminal, on its way to a product surface. `textContent` is the
-     escape, and the engine has already trimmed and capped it. */
-  const said = document.getElementById('d-said');
-  const saidLab = document.getElementById('d-said-lab');
-  if (said) {
-    const line = String(a.stateEvidence || '').trim();
-    said.textContent = line;
-    said.hidden = !line;
-    /* The label follows the quote exactly, or an empty agent page keeps a
-       stranded "Its screen said:" with nothing under it. */
-    if (saidLab) {
-      /* `a.name`, which is what the heading two lines up uses. My first version
-         called a `dispName()` that DOES NOT EXIST -- it would have thrown the
-         moment a rate-limited agent's page opened, and every text-matching test
-         passed over it because a regex cannot call a function. */
-      saidLab.textContent = line ? a.name + '\u2019s screen said:' : '';
-      saidLab.hidden = !line;
-    }
-  }
-  /* kosmos#1918: the reachable remedy for a broken sign-in. The evidence quote
-     above may name "/login", which has no surface in this product; this button is
-     that surface. Shown ONLY when the state is auth_failed, so a healthy agent
-     never sees a control it does not need, and hidden again the moment the state
-     is anything else. The click (wired once below) opens Settings -> Accounts,
-     the existing re-auth surface. */
-  const reauthBtn = document.getElementById('d-reauth');
-  if (reauthBtn) reauthBtn.hidden = a.state !== 'auth_failed';
   /* #3410: the Start affordance. Bump the generation so any in-flight Start from
      a prior open (this agent reopened, or a switch away and back) can no longer
      write onto this fresh panel; reset PANEL_WITHDRAWN so a stale withdrawn flag
@@ -43875,6 +43887,19 @@ function pjMember(m, suppressTold, withMinus, hideState) {
      not reach, so mark the avatar with the question-mark badge instead of a status sentence.
      Mutually exclusive with `warn` by construction: warn is gated on `m.present === true`. */
   const reachMark = present ? '' : LROW_REACH;
+  /* #3991 (Josh, 2026-09-26: "we lost the context ring and green dot indicator on the tab view of
+     project, project members"). Measured: the tab view never drew them; the consolidated rows do,
+     through lrow(). Same derivations here, so the two views cannot disagree: the memory ring is
+     lrowRing() off the LIVE board card (a project's member rows carry no context reading), and the
+     dot follows lrow's rule (its offline branch and boardMods): grey for not running (a restart
+     excepted) or a stopped pill, hollow for an unknown one, green otherwise. A member the board cannot see keeps its "?" badge instead. */
+  const boardCard = typeof LAST !== 'undefined' && Array.isArray(LAST) ? LAST.find((x) => x && x.sessionName === m.sessionName) : null;
+  const memRing = boardCard ? lrowRing(boardCard) : '';
+  const dotRow = boardCard || liveM;
+  const dotSt = cardStOf(dotRow).st;
+  const dotCls = !present ? ''
+    : ((dotRow && dotRow.running === false && dotRow.state !== 'restarting') || dotSt === 'stopped') ? ' pjd pjd-off'
+      : dotSt === 'unknown' ? ' pjd pjd-unk' : ' pjd';
   const face = m.hasAvatar
     /* #2762: `?v=` the avatar version, same as tkFace above and the org chart
        (#2698). This row is painted through `setIfChanged` -> `setLive`, which is
@@ -43882,10 +43907,10 @@ function pjMember(m, suppressTold, withMinus, hideState) {
        TK_LIST_HTML and ORG_HTML. So a bare URL here is stale for the same reason
        and by the same mechanism. `m` is the member row from projects.describe,
        which carries avatarVer. */
-    ? '<span class="lav pj-face" aria-hidden="true"><img src="/api/agent/'
-      + encodeURIComponent(m.sessionName) + '/avatar?v=' + (m.avatarVer || 0) + '" alt="">' + warn + reachMark + '</span>'
-    : '<span class="lav pj-face" aria-hidden="true" style="background:' + discTint(m.name)
-      + ';color:' + discInk(m.name) + '">' + esc(initials(m.name)) + warn + reachMark + '</span>';
+    ? '<span class="lav pj-face' + dotCls + '" aria-hidden="true"><img src="/api/agent/'
+      + encodeURIComponent(m.sessionName) + '/avatar?v=' + (m.avatarVer || 0) + '" alt="">' + memRing + warn + reachMark + '</span>'
+    : '<span class="lav pj-face' + dotCls + '" aria-hidden="true" style="background:' + discTint(m.name)
+      + ';color:' + discInk(m.name) + '">' + esc(initials(m.name)) + memRing + warn + reachMark + '</span>';
   /* #2019: a restarting member is NOT "unseen" -- .unseen draws the dashed
      "slot waiting / cannot see this" border the restarting state refuses on every
      other surface (the card pill is deliberately SOLID). Suppress it for
@@ -50135,8 +50160,9 @@ function paintRoom(body) {
   /* #3966: compared by SHAPE, as the agent thread is: a time's words ticking over neither rebuilds
      the room nor marks it seen. */
   const shape = threadShape(html);
-  if (box.__lastRoom === shape) refreshWhens(box);
-  if (box.__lastRoom !== shape) {
+  if (box.__lastRoom === shape) {
+    refreshWhens(box);
+  } else {
     /* New rows while the room is on screen are read as they land; a tab in
        the background is not looking, so its cursor waits for the person. */
     if (box.__lastRoom !== undefined && document.visibilityState === 'visible'
