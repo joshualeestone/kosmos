@@ -231,7 +231,9 @@ check "the TERM-ignoring CHILD is killed, not orphaned" 0 "$left"
 # bundle still answers in time, and no how-file is written. The delay (30s) is far past the
 # ${T}s bound, so an honoured delay could only read 124 here, never "0 16180" (review 7: at 6s
 # a slow bound could let perl finish holding and the stub answer, a pass with the gate unused).
-out="$(KOSMOS_BOUNDED_RUN_SETPGRP_DELAY=30 bounded_run "$T" "$cur" --kosmos-app-port-selftest 501)"; rc=$?
+# A 15s bound (review 8), not $T: this bundle ANSWERS, and a short bound on a quick bundle is
+# the flake QUICK_T records. 15s is still half the delay, so an honoured delay reads 124.
+out="$(KOSMOS_BOUNDED_RUN_SETPGRP_DELAY=30 bounded_run 15 "$cur" --kosmos-app-port-selftest 501)"; rc=$?
 check "an exported seam delay without the test gate does not delay a real run" "0 16180" "$rc $out"
 # The how-file is only written when the bound fires, so this half needs a HANGING stub, or it
 # could not fail (review 6). Control: the same run WITH the gate writes it.
