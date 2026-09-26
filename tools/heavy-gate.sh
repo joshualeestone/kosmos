@@ -14,8 +14,9 @@
 # A shell that only mentions those names (a watcher loop, a grep) does not count: the match is
 # on the command, a shell running the script. These do not count either:
 #   - a process with a `node --test` ancestor (a unit test's fixture);
-#   - a process whose cwd or script sits in a kt<digits> folder directly under a temp dir
-#     (tools/run-tests.sh's sandbox, ${TMPDIR:-/tmp}/kt$$: .../T/ on macOS, or /tmp); some
+#   - a process whose cwd or script sits in a kt<digits> folder under a folder named T or tmp, or
+#     directly under this shell's $TMPDIR
+#     (tools/run-tests.sh's sandbox is ${TMPDIR:-/tmp}/kt$$: .../T/ on macOS, or /tmp); some
 #     fixtures there detach from node --test, so the path marks them;
 #   - a process that has already exited;
 #   - with --except-cwd DIR, EVERY run whose cwd is DIR or below it, whoever started it. It is
@@ -36,6 +37,8 @@
 #                       is safe (a shell running `foo | node --test` would read as a test runner)
 #                       (a cwd of <exited> stands for a process that is gone; an EMPTY cwd means
 #                       the cwd could not be read, and that process still counts)
+#   (Never export either seam in a shell profile: set, it replaces the real check. The tool
+#   says so on stderr every run.)
 #   KOSMOS_HG_CLAIM     set: use this text as the reservation line instead of who-has-the-box;
 #                       it counts as free only if it is exactly who-has-the-box's free line
 # Sourced, the exits below would close the caller's shell: refuse, and return 2 (do not start).
@@ -96,9 +99,13 @@ claim_line() {
 # below it (node, a wrapper shell, the script); a deeper chain stops early and fails toward busy.
 ANCESTOR_DEPTH=10
 ANC_SEP=$'\036'   # joins ancestor commands; see KOSMOS_HG_SNAPSHOT above
+# Exits 3 when the process table cannot be read: ps failing, or a listing without pid 1 (which
+# every Mac has), would otherwise look exactly like "nothing running" and read clear.
 live_snapshot() {
-  local p q cwd cmd anc depth
-  ps -axo pid=,command= | awk '$2 ~ /(^|\/)(bash|sh|zsh)$/ { for (i = 3; i <= NF; i++) if ($i ~ /(^|\/)(release|browser-checks)\.sh$/) { print $1; next } }' |
+  local p q cwd cmd anc depth listing
+  listing="$(ps -axo pid=,command= 2>/dev/null)" || return 3
+  printf '%s\n' "$listing" | awk '$1 == 1 { f = 1 } END { exit !f }' || return 3
+  printf '%s\n' "$listing" | awk '$2 ~ /(^|\/)(bash|sh|zsh)$/ { for (i = 3; i <= NF; i++) if ($i ~ /(^|\/)(release|browser-checks)\.sh$/) { print $1; next } }' |
   while read -r p; do
     cmd="$(ps -o command= -p "$p" 2>/dev/null)"
     # Gone means ps no longer knows the pid; a live pid whose cwd lsof cannot read keeps an
@@ -121,7 +128,7 @@ live_snapshot() {
 # argument after the shell's own options and their values (-o/-O NAME, also as the last letter of
 # a cluster like -eo NAME, and --rcfile FILE), for a
 # bare release.sh. A command string (-c, or c inside combined flags like -lc) is not a script
-# run (it only mentions the name): prints nothing. Runs in a subshell with globbing off,
+# run (it only mentions the name), and neither is -n, a syntax check: prints nothing. Runs in a subshell with globbing off,
 # so a `*` in a command line stays one literal word.
 script_of() (
   set -f
@@ -133,7 +140,7 @@ script_of() (
       case "$w" in
         --rcfile|--init-file|[-+]o|[-+]O) skip=1; continue ;;
         --*) continue ;;
-        -*c*) exit 0 ;;
+        -*c*|-*n*) exit 0 ;;   # a command string, or -n (read, never run)
         -*[oO]|+*[oO]) skip=1; continue ;;   # a cluster ending in o/O (-eo) takes the next word
         -*|+*) continue ;;
       esac
@@ -161,8 +168,8 @@ has_test_runner() (
   exit 1
 )
 
-# True if the path is in tools/run-tests.sh's sandbox: a kt<digits> folder directly under
-# .../T (macOS TMPDIR), /tmp, or this shell's own $TMPDIR.
+# True if the path is in tools/run-tests.sh's sandbox: a kt<digits> folder under a folder named
+# T (macOS TMPDIR) or tmp, or directly under this shell's own $TMPDIR.
 KT_RE='(^|/)(T|tmp)/kt[0-9]+(/|$)'
 in_kt_sandbox() {
   [[ "$1" =~ $KT_RE ]] && return 0
@@ -204,10 +211,17 @@ classify() {
 }
 
 one_read() {
-  local claim out counted busy=0
+  local claim out counted snap busy=0
   claim="$(claim_line)"
   case "$claim" in "$FREE_LINE") say "reservation: none ($claim)" ;; *) say "reservation: HELD ($claim)"; busy=1 ;; esac
-  if [ -n "${KOSMOS_HG_SNAPSHOT:-}" ]; then out="$(classify < "$KOSMOS_HG_SNAPSHOT")"; else out="$(live_snapshot | classify)"; fi
+  if [ -n "${KOSMOS_HG_SNAPSHOT:-}" ]; then out="$(classify < "$KOSMOS_HG_SNAPSHOT")"
+  else
+    snap="$(live_snapshot)" || {
+      echo "heavy-gate: could not read the process table (ps failed, or listed no pid 1); reading as do-not-start" >&2
+      exit 2
+    }
+    out="$(printf '%s\n' "$snap" | classify)"
+  fi
   counted="${out##*COUNTED=}"
   printf '%s\n' "${out%COUNTED=*}" | sed '/^$/d'
   [ "$counted" = 0 ] || busy=1
