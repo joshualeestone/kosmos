@@ -1,5 +1,5 @@
 'use strict';
-// Browser-check-surface: d-file-btn d-file d-img d-msg d-untied
+// Browser-check-surface: d-file-btn d-file d-img d-msg d-untied d-withdrawn
 
 /**
  * #4038 (Josh, 2026-09-26: "Change picture for an agent doesn't seem to be working"). A sandboxed board:
@@ -7,6 +7,8 @@
  *    the picture on her page and on her card on the board (read by pixel colour, not by src, so a stale image fails);
  *    choosing the same file again saves again (the input is cleared each time);
  *  - an untied agent (a stranger's pane): the button is disabled, the reason is on the page, and no picker opens.
+ *  - back on a tied agent the button is live and names no reason (aria-describedby is set only while disabled);
+ *  - April leaves the board while her page is open: disabled, naming #d-withdrawn; she returns: live, no stale reason.
  *
  * Run: NODE_PATH=~/work/pw-runtime/node_modules HEADED=0 node docs/browser-checks/render-avatar-4038.js [shotsDir]
  */
