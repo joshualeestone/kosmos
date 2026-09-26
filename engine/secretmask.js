@@ -209,11 +209,11 @@ const WORD_WALK_BUDGET = 250000;
    1,000-character prefix cost two seconds under the budget. An ordinary opening or piece is one unit. */
 const chunksOf = (len) => Math.max(1, Math.ceil(len / 16));
 /* A piece as written can carry key characters that are not the key's (review round 1): a label joined
-   with = (part2=Ab3d), markdown italics (_Ab3d_), a trailing slash. Each run is tried as written and with
+   with = (part2=Ab3d), markdown italics (_Ab3d_), a slash before or after. Each run is tried as written and with
    those taken off. */
 function pieceVariants(run) {
   const out = [run];
-  const trimmed = run.replace(/^_+/, '').replace(/[_/]+$/, '');
+  const trimmed = run.replace(/^[_/]+/, '').replace(/[_/]+$/, '');
   if (trimmed && trimmed !== run) out.push(trimmed);
   const eq = trimmed.lastIndexOf('=', trimmed.length - 2);
   /* An = inside the run, not base64 padding at its end: the piece is what follows the LAST one. */
@@ -330,15 +330,25 @@ function wordSkippingSpans(text) {
      opening (both sk-ant-api03-), where the earlier start is the first key's opening and would join the two into
      one span masking everything between. Stopping a walk at a later mention of the opening instead let a
      sentence naming the key's prefix between two pieces stop the only walk that could complete. */
+  /* One sweep, not a scan per start (review round 8: comparing every completion with every other was quadratic,
+     outside the budget, and cost seconds on a reply repeating an opening): completions in order of where they
+     end, keeping the latest start seen for the two most recent DIFFERENT forms, answer each "did another form
+     complete between this start and the latest one" in constant time. */
   const all = [...completed.values()];
-  for (const c of all) {
-    const latest = Math.max(...c.starts);
-    spans.push([latest, c.to]);
-    for (const from of c.starts) {
-      if (from === latest) continue;
-      const sibling = all.some((o) => o.f !== c.f && o.to <= latest && o.starts.some((st) => st >= from));
-      if (!sibling) spans.push([from, c.to]);
+  for (const c of all) c.latest = c.starts.reduce((m, st) => (st > m ? st : m), -1);
+  const byEnd = [...all].sort((a, b) => a.to - b.to);
+  const withRivals = all.filter((c) => c.starts.length > 1).sort((a, b) => a.latest - b.latest);
+  let best = { at: -1, f: null }, second = { at: -1, f: null }, i = 0;
+  for (const c of all) spans.push([c.latest, c.to]);
+  for (const c of withRivals) {
+    for (; i < byEnd.length && byEnd[i].to <= c.latest; i += 1) {
+      const o = byEnd[i];
+      if (o.f === best.f) { if (o.latest > best.at) best.at = o.latest; }
+      else if (o.latest > best.at) { second = best; best = { at: o.latest, f: o.f }; }
+      else if (o.latest > second.at) second = { at: o.latest, f: o.f };
     }
+    const sibling = c.f !== best.f ? best.at : second.at;
+    for (const from of c.starts) if (from !== c.latest && sibling < from) spans.push([from, c.to]);
   }
   return spans;
 }

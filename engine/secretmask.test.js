@@ -413,6 +413,7 @@ test('#3935 key characters glued to a piece do not hide it: a label with =, ital
       ['italics on every piece', `${chunks.map((c, i) => `Piece ${i + 1}: _${c}_`).join('\n')}\nend`],
       ['italics on the first piece only', `_${chunks[0]}_ then ${chunks.slice(1).join(' then ')} end`],
       ['trailing slash', `${chunks.map((c) => `${c}/`).join(' next ')} end`],
+      ['leading slash (review round 8)', `${chunks[0]} ${chunks.slice(1).map((c) => `/${c}`).join(' next ')} end`],
     ];
     for (const [name, input] of cases) {
       const r = mask(input);
@@ -600,5 +601,20 @@ test('#3935 an abandoned first try at a key stays masked when the key is then gi
     const out = mask(`First try: ${chunks.slice(0, 3).join(' then ')}. Sorry, again: ${chunks.join(' then ')} end`).text;
     for (const c of chunks) assert.ok(!out.includes(c), `the piece ${c} survived: ${out}`);
     assert.ok(out.startsWith('First try: ') && out.endsWith(' end'), out);
+  } finally { setKnownSecrets([]); }
+});
+
+test('#3935 deciding which starts to keep is not quadratic: many repeated openings cost little and are not withheld (review round 8)', () => {
+  const reply = Array.from({ length: 20000 }, () => `a1b2 a1b2 c3d4e5f6${'@'.repeat(60)}`).join('');
+  try {
+    /* Measured against the same reply with an unrelated held value, since most of a 1.5MB reply's cost is the
+       mask's ordinary linear passes: 1.3x with the sweep, 4x when every completion was compared with every other. */
+    setKnownSecrets(['zz9yx8wv7ut6']);
+    const baseline = cpuMillisecondsOf(() => mask(reply));
+    setKnownSecrets(['a1b2c3d4e5f6']);
+    let r;
+    const ms = cpuMillisecondsOf(() => { r = mask(reply); });
+    assert.ok(ms < 2 * baseline, `20,000 repeated openings cost ${Math.round(ms)}ms of CPU against ${Math.round(baseline)}ms for the same reply with no match`);
+    assert.ok(!r.text.includes('c3d4e5f6'), 'the held value was not masked');
   } finally { setKnownSecrets([]); }
 });
