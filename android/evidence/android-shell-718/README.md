@@ -15,8 +15,12 @@ release APK for `io.kosmos.app`.
 - Cold start: Android Browser Helper's transferred TWA splash after adding its
   required private `FileProvider`. The gold field and centered white K replace
   the previous white handoff.
-- Light and dark mode: the site remains dark, while Android-controlled status
-  and navigation bars switch between the qualified shell colors.
+- Light and dark mode: the navy site content remains unchanged and is not the
+  mode proof. The Android-controlled top status bar and bottom navigation bar
+  switch from `#faf9f7` with dark controls to `#0c0d0f` with light controls.
+  Before each capture, `adb shell cmd uimode night` reported `Night mode: no`
+  for the light panel and `Night mode: yes` for the dark panel. The app and
+  Chrome were both stopped between captures so the TWA read fresh metadata.
 
 The mask preview loads `io.kosmos.app` through Android's package manager and
 draws its installed `AdaptiveIconDrawable` background and foreground. Both

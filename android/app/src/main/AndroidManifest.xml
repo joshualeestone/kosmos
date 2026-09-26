@@ -35,7 +35,7 @@
 
             <meta-data
                 android:name="android.support.customtabs.trusted.STATUS_BAR_COLOR_DARK"
-                android:resource="@color/status_bar_color" />
+                android:resource="@color/status_bar_color_dark" />
 
             <meta-data
                 android:name="android.support.customtabs.trusted.NAVIGATION_BAR_COLOR"
@@ -43,7 +43,7 @@
 
             <meta-data
                 android:name="android.support.customtabs.trusted.NAVIGATION_BAR_COLOR_DARK"
-                android:resource="@color/navigation_bar_color" />
+                android:resource="@color/navigation_bar_color_dark" />
 
             <meta-data
                 android:name="android.support.customtabs.trusted.SPLASH_IMAGE_DRAWABLE"

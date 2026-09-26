@@ -4,6 +4,8 @@
     <color name="colorPrimary">#faf9f7</color>
     <color name="status_bar_color">#faf9f7</color>
     <color name="navigation_bar_color">#faf9f7</color>
+    <color name="status_bar_color_dark">#0c0d0f</color>
+    <color name="navigation_bar_color_dark">#0c0d0f</color>
     <color name="ic_launcher_background">#d6a62e</color>
     <color name="splash_background">#d6a62e</color>
 </resources>

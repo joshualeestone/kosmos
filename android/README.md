@@ -59,8 +59,11 @@ Chrome, which Android Browser Helper requires to transfer the splash bitmap.
 
 The status and navigation bars match the board tokens: `#faf9f7` in light mode
 and `#0c0d0f` in dark mode. Both the activity theme and the TWA metadata read
-qualified colour resources, so a theme change reaches Chrome as well as the
-native launch window.
+qualified activity colours. The TWA dark metadata uses separate, explicit dark
+resource IDs so Chrome receives `#0c0d0f` instead of reusing the light metadata
+ID. The navy page content does not change between the evidence panels. The mode
+proof is the Android-controlled top and bottom bars switching from the light
+theme surface with dark controls to the near-black surface with light controls.
 
 ## Build toolchain (already installed on this box)
 
