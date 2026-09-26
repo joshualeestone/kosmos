@@ -91,12 +91,17 @@ For every row: **linked to the person's identity: yes**, **used for tracking: no
    appear to use any "required reason" API, but Xcode's privacy report on an
    archived build is the real check.
 
-## Also for the privacy policy, not the label
+## Account deletion
 
-The policy at installkosmos.com/privacy says "Kosmos has no account of its
-own". That is true of the free Mac app and false for this app. The Kosmos+ and
-iPhone section it needs should cover: email, and the phone number when text
-sign-in is chosen; Resend and Twilio as processors; device approval records;
-push tokens; agent and project names in notifications; how long each is kept;
-and how to delete the account. No deletion path exists today (kosmos #3868), so
-the policy must not say one does until it is built.
+The label itself asks nothing about deletion, and nothing in these answers
+claims the app can delete an account. It cannot today (kosmos #3868). The live
+privacy page offers deletion by email to hello@installkosmos.com, which is a
+manual route, not an in-app one.
+
+## The privacy policy
+
+The first draft of this file listed what installkosmos.com/privacy was missing.
+That was fixed under kosmos #3869: read on 2026-09-26, the page covers the
+Kosmos+ account, device approvals, iPhone notification tokens, notification
+records, server logs, and Resend, Twilio and Apple as processors, in line with
+the table above.
