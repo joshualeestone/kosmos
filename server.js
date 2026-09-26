@@ -7665,6 +7665,10 @@ const server = http.createServer((req, res) => {
             ...(pending ? { connection: { ...a.connection, liveCheckPending: true } } : {}) };
           const obs = a.dir ? obsByOpenaiDir.get(a.dir) : null;
           if (!obs) return base;
+          /* A dead verdict from the ChatGPT check that is NEWER than the agent's success wins: the person pressed Check
+             now and was told it is not connected, and an older success must not paint over that (review round 6). */
+          const checkedAt = a.connection && a.connection.state === 'none' ? codexsigninlive.cachedAt(a.dir) : null;
+          if (checkedAt !== null && checkedAt > obs.at) return base;
           const v = observed.verdict({
             checkLiveState: a.connection && a.connection.state,
             observedOutcome: obs.outcome,
@@ -7747,7 +7751,7 @@ const server = http.createServer((req, res) => {
           .filter((a) => a.dir && a.authMode === 'subscription' && a.connection && a.connection.state === 'connected' && grokSubStarted.has(a.dir))
           .map(async (a) => {
             const r = await grokSubStarted.get(a.dir);
-            if (r.verdict === 'live') observed.sawDir(observed.PROVIDER.XAI, a.dir, observed.OUTCOME.OK);
+            if (r.verdict === 'live') observed.sawDir(observed.PROVIDER.XAI, a.dir, observed.OUTCOME.OK, r.at);   // when it was learned, not now
             /* A refusal forgets an earlier check's green, so a later read that cannot ask again does not bring it
                back (review round 2); it records no verdict of its own (grok may renew the key). */
             if (r.verdict === 'refused') observed.forgetDir(observed.PROVIDER.XAI, a.dir);
@@ -8075,7 +8079,7 @@ const server = http.createServer((req, res) => {
         if (!acct) { sendJson(res, 404, { error: 'we could not find that sign-in on this computer' }); return; }
         if (grok) {
           const r = await grokAccounts.subscriptionLiveOnce(acct.dir, { fresh: true });   // its own request; what it learns is kept for the list
-          if (r.verdict === 'live') observed.sawDir(observed.PROVIDER.XAI, acct.dir, observed.OUTCOME.OK);
+          if (r.verdict === 'live') observed.sawDir(observed.PROVIDER.XAI, acct.dir, observed.OUTCOME.OK, r.at);
           if (r.verdict === 'refused') observed.forgetDir(observed.PROVIDER.XAI, acct.dir);
           /* `refused` and `expired` are their own answers: the page repaints on a refusal (an earlier green is gone)
              and says what an expired key means rather than "try again" (review round 2). */

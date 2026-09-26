@@ -21948,7 +21948,9 @@ async function paintAccounts(opts) {
   const msg = document.getElementById('set-accounts-msg');
   /* A repaint is itself a writer to that line ("Checking your accounts..."), so
      it cancels too: otherwise a refusal scheduled 60ms ago lands over it. */
-  acctCancelSay();
+  /* A follow-up read (#3997) is not the person's repaint: it leaves the message line and its timer alone, so a
+     "Removed ..." sentence written just before it survives (review round 6). */
+  if (!followUp) acctCancelSay();
   if (!box) return;
   /* #881: GET /api/accounts now confirms each account live with Anthropic
      (a real check per account, not an instant directory stat), so this
@@ -21982,6 +21984,7 @@ async function paintAccounts(opts) {
     if (mine !== ACCT_EPOCH) return;
   } catch {
     if (mine !== ACCT_EPOCH) return;
+    if (followUp) return;   // #3997: a failed background re-read keeps the list the person is looking at
     /* 🛑 CANCEL HERE TOO. The cancel at the top of this function runs BEFORE the
        await, so these two writes were the third and fourth exceptions to the
        "every writer cancels" claim above, and this diff has already corrected
@@ -22001,8 +22004,10 @@ async function paintAccounts(opts) {
   /* #3997: a ChatGPT sign-in whose free check is still under way is read again a few seconds on, so it turns green
      (or says what is wrong) without the person doing anything; bounded by ACCT_FOLLOWUP.max, never a loop. */
   if (followUp < ACCT_FOLLOWUP.max && list.some((a) => a && a.connection && a.connection.liveCheckPending)) acctFollowUp(followUp + 1);
-  acctCancelSay();  /* post-await writer, same reason as the catch above */
-  if (msg) msg.textContent = '';
+  if (!followUp) {
+    acctCancelSay();  /* post-await writer, same reason as the catch above */
+    if (msg) msg.textContent = '';
+  }
   /* 🔑 GROUPED BY PROVIDER (kosmos#1393). Josh, twice on 2026-08-28: the Claude
      Max 20x line "is still not in that bounding box that it's supposed to be in,
      that goes underneath Claude". The heading above already promised the shape,
@@ -22161,7 +22166,9 @@ async function paintAccounts(opts) {
        the ONLY green and it means we SAW a request succeed -- so the pulsing dot's
        "actively connected" (Josh, #864) is finally true rather than merely "a
        credential exists". A credential that only EXISTS is `signed_in_unverified`:
-       muted, NOT green, which is the say-what-you-know half #874 could not reach. */
+       amber since #3997 (it was muted grey), NOT green, which is the say-what-you-know half #874 could not reach.
+       #3997: green also comes from a free live check that got an answer (the ChatGPT handshake, the Grok models
+       listing), recorded the same way; still never from a credential that merely exists. */
     const badge = a.connection && a.connection.badge;
     const ageStr = agoWords(a.connection && a.connection.observedAgeMs);
     const workingWhy = 'a real request on this account succeeded recently' + (ageStr ? ' (' + ageStr + ')' : '') + '. This is an observed outcome, not a probe.';
@@ -22169,7 +22176,7 @@ async function paintAccounts(opts) {
     // #3136 (Josh, 6.68): the PILL now reads a neutral "Signed in" (Josh saw "not recently
     // checked" and read it as "not connected" though he was). The "not verified live" nuance
     // moves here, into the tooltip, and nudges toward the "Check now" button beside the badge
-    // (added with #3145's on-demand probe). Still #874-safe: the dot stays muted, not green --
+    // (added with #3145's on-demand probe). Still #874-safe: the dot stays amber (#3997), not green --
     // we are NOT claiming the sign-in works, only that it exists and can be verified on demand.
     const unverifiedWhy = 'This account is signed in. We have not seen a request on it succeed recently, so we are not confirming it live here. '
       + ((isKeyed && !canCheckSignIn) ? 'It confirms itself the next time an agent on it runs.' : 'Use Check now to verify it, or it confirms itself the next time an agent on it runs.');
@@ -22422,7 +22429,15 @@ async function paintAccounts(opts) {
       + '</div>'
       + '</div>';
   };
+  /* #3997 round 6: a follow-up rebuild keeps keyboard focus where it was, found again by the control's own data-*
+     attribute and value, so a person tabbing through the rows does not lose their place. */
+  const fEl = followUp && box.contains(document.activeElement) ? document.activeElement : null;
+  const fAttr = fEl ? [...fEl.attributes].find((x) => x.name.startsWith('data-')) : null;
   box.innerHTML = accountGroupsHtml(list, acctRowHtml);
+  if (fAttr) {
+    const back = [...box.querySelectorAll('[' + fAttr.name + ']')].find((x) => x.getAttribute(fAttr.name) === fAttr.value);
+    if (back && typeof back.focus === 'function') back.focus();
+  }
   /* #1372: remove an OpenAI account. The engine FORGETS rather than
      deletes, so the sentence says the sign-in file is still on the
      computer: "removed" and "deleted" are different promises and the

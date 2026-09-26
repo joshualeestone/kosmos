@@ -70,6 +70,20 @@ Design and measurements are on the card (comment 5849157780).
   xAI. (Round 4's codex stub measurement showed every other suite that reads the route either stubs or has no such
   account; this reviewer re-audited them.)
 
+## Review round 6 (Opus), what changed
+- A follow-up read no longer wipes the message line (it blanked a "Removed ..." sentence 3.5s later), and a failed
+  follow-up keeps the list the person is looking at. Both in the badge check, both red when reverted.
+- A kept Grok answer is recorded at the time it was learned (it was re-dated on every read, so it could hide a newer
+  agent 401 for up to 30s). Tested, red when reverted.
+- A newer "no answer" no longer blocks an older run's real live or dead. Tested, red when reverted.
+- A dead ChatGPT verdict from Check now that is newer than an agent's success wins (codexsigninlive.cachedAt).
+  NOT TESTED: the route test cannot tie an observed agent to an account without a created agent; reasoned from the
+  code, one line, in the OpenAI overlay.
+- A follow-up rebuild puts keyboard focus back on the same control (found again by its data-* attribute).
+- Stale "muted" comments now say amber; the badge check's busy arm is described as what it tests.
+- Deferred NITs: the Check now route's forgetDir has no test of its own (the repaint's list read does the same);
+  the `.armed` half of acctListBusy has no test.
+
 ## Decided
 - Pill text stays a short "Signed in" (Josh 6.68, #3136); the reason is in the title.
 - A 401 from Grok is "not confirmed" (amber), never red: grok may renew the key on its next run.

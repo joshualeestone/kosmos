@@ -165,7 +165,8 @@ async function livenessDetailed(dir, nowMs) {
       /* #3997 round 4: never overwrite a NEWER answer (a Check now that ran while this one was in flight, against a
          sign-in the person had just fixed), and never write across a reset. */
       const had = cache.get(key);
-      if (gen === generation && !(had && had.at > startedAt)) {
+      /* ...except a newer entry that says nothing (unknown) does not block an older run's real live or dead (round 6). */
+      if (gen === generation && !(had && had.at > startedAt && !(had.verdict === 'unknown' && res.verdict !== 'unknown'))) {
         cache.set(key, { verdict: res.verdict, cause: res.cause, at: (typeof nowMs === 'number' ? nowMs : Date.now()) });
       }
       if (inflight.get(key) === p) inflight.delete(key);
@@ -192,6 +193,12 @@ async function liveness(dir, nowMs) { return (await livenessDetailed(dir, nowMs)
  * /api/accounts read's own: it STARTS a check for a cold home without waiting on it. Contrast liveness()/livenessDetailed(), which DO run a fresh doctor on a cold
  * miss -- create.accountConnectable and codexauthprobe want that real, awaited verdict.
  */
+/* #3997 round 6: when this home's fresh cached answer was learned (epoch ms), or null. */
+function cachedAt(dir, nowMs) {
+  const now = typeof nowMs === 'number' ? nowMs : Date.now();
+  const cur = cache.get(homeKey(dir));
+  return cur && (now - cur.at) < TTL_MS ? cur.at : null;
+}
 function livenessCached(dir, nowMs) {
   const now = typeof nowMs === 'number' ? nowMs : Date.now();
   const cur = cache.get(homeKey(dir));
@@ -227,4 +234,4 @@ async function livenessNow(dir) {
   return res.verdict;
 }
 
-module.exports = { liveness, livenessDetailed, livenessCached, checkState, livenessNow, classify, classifyDetailed, setRunner, resetForTest, TTL_MS, TIMEOUT_MS };
+module.exports = { liveness, livenessDetailed, livenessCached, cachedAt, checkState, livenessNow, classify, classifyDetailed, setRunner, resetForTest, TTL_MS, TIMEOUT_MS };

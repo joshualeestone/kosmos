@@ -368,8 +368,9 @@ async function subscriptionLiveOnce(dir, opts) {
   }
   const cacheKey = path.resolve(String(dir || '')) + '|' + e.key;
   const kept = subscriptionLiveCache.get(cacheKey);
+  /* Every answer carries `at`, when it was learned, so a kept one is never recorded as newer than it is (round 6). */
   if (!fresh && kept && Date.now() - kept.at < SUBSCRIPTION_LIVE_TTL_MS) return kept.answer;
-  const keep = (answer) => { subscriptionLiveCache.set(cacheKey, { answer, at: Date.now() }); return answer; };
+  const keep = (answer) => { const at = Date.now(); const a = { ...answer, at }; subscriptionLiveCache.set(cacheKey, { answer: a, at }); return a; };
   const f = fetcher || (async (url, init) => {
     const ctl = new AbortController();
     const t = setTimeout(() => ctl.abort(), 8000);

@@ -129,6 +129,18 @@ test('#3997 round 4: a stale check never overwrites a newer answer, "no answer" 
   codexsigninlive.setRunner(async () => ({ ok: false }));
   assert.equal(await codexsigninlive.livenessNow(CODEX), 'unknown');
   assert.equal(codexsigninlive.livenessCached(CODEX).verdict, 'live', 'a check with no answer erased a green');
+  // Round 6: and an older run's REAL answer does replace a newer entry that said nothing.
+  codexsigninlive.resetForTest();
+  let release3;
+  const gate3 = new Promise((r) => { release3 = r; });
+  let m = 0;
+  codexsigninlive.setRunner(async () => { m++; if (m === 1) { await gate3; return { ok: true, stdout: DOC('ok') }; } return { ok: false }; });
+  const older = codexsigninlive.liveness(CODEX);
+  await new Promise((r) => setTimeout(r, 10));
+  assert.equal(await codexsigninlive.livenessNow(CODEX), 'unknown');
+  release3();
+  await older;
+  assert.equal(codexsigninlive.livenessCached(CODEX).verdict, 'live', 'a newer "no answer" blocked an older run\'s real answer');
   // A run from before a reset writes nothing after it.
   codexsigninlive.resetForTest();
   let release2;
@@ -158,6 +170,19 @@ test('#3997 Grok subscription: a current key checked live on open reads working;
   assert.equal(row.connection.badge, 'signed_in_unverified', JSON.stringify(row.connection));
   assert.match(row.connection.because, /renews this sign-in the next time it runs/);
   assert.equal(calls, 0, 'an expired Grok key was sent to Grok');
+});
+
+test('#3997 round 6: a kept Grok answer is recorded at the time it was learned, not re-dated on every read', async () => {
+  codexsigninlive.setRunner(async () => ({ ok: false }));
+  grokSignIn(3 * 3600 * 1000);
+  grokAccounts.setFetcher(async () => ({ status: 200 }));
+  await accounts();
+  const first = observed.readDir(observed.PROVIDER.XAI, GROK);
+  assert.ok(first, 'CONTROL: the first read recorded the answer');
+  await new Promise((r) => setTimeout(r, 60));
+  grokAccounts.setFetcher(async () => { throw new Error('asked again inside the 30s'); });
+  await accounts();   // served from the kept answer
+  assert.equal(observed.readDir(observed.PROVIDER.XAI, GROK).at, first.at, 'a kept answer was recorded as newer than it is');
 });
 
 test('#3997 Check now routes: connected, none and unknown, and a wrong kind of account is refused', async () => {

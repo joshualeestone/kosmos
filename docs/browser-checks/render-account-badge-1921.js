@@ -251,7 +251,7 @@ const ACCOUNTS = [
     listAnswer = [{ ...row, connection: { ...row.connection, badge: 'working', observedAt: new Date().toISOString(), observedAgeMs: 1000 } }];
     btn().click(); await wait(300);
     const green = !!document.querySelector('#set-accounts .acct-box .acct-connected');
-    // Busy: a pending ChatGPT row, and focus on a button inside the list. The follow-up must wait, then read.
+    // Busy: a pending ChatGPT row, and a Check now in flight inside the list. The follow-up must wait, then read.
     ACCT_FOLLOWUP.ms = 300;
     const pendingSub = { ...sub, connection: { ...sub.connection, liveCheckPending: true } };
     listAnswer = [pendingSub, row];
@@ -266,11 +266,26 @@ const ACCOUNTS = [
     focusBtn.disabled = false;
     listAnswer = [sub, row];
     await wait(900);
+    // Round 6: a follow-up read leaves the message line (a "Removed ..." sentence) alone, and a failed one keeps the list.
+    const msgEl = document.getElementById('set-accounts-msg');
+    listAnswer = [pendingSub, row];
+    await paintAccounts();
+    if (msgEl) msgEl.textContent = 'Removed test@example.com. It moved to your old sign-ins.';
+    await wait(450);
+    const msgAfter = msgEl ? msgEl.textContent : null;
+    listAnswer = [pendingSub, row];
+    await paintAccounts();
+    const rowsBefore = document.querySelectorAll('#set-accounts .acct-box').length;
+    const realFetch2 = window.fetch;
+    window.fetch = (u) => (String(u).indexOf('/api/accounts') !== -1 ? Promise.reject(new Error('offline')) : realFetch2(u));
+    await wait(450);
+    const rowsAfterFail = document.querySelectorAll('#set-accounts .acct-box').length;
+    window.fetch = realFetch2;
     // An expired key's row does not point its title at Check now (the server's structured verdict, round 4).
     listAnswer = [{ ...row, connection: { ...row.connection, liveVerdict: 'expired', because: 'Grok renews this sign-in the next time it runs, so it cannot be checked until then' } }];
     await paintAccounts();
     const expTitle = (document.querySelector('#set-accounts .acct-box .acct-unverified') || { title: '' }).title;
-    return { expiredSays, expiredTitle, listsAfterExpired, green, focused, whileBusy, afterBusy: lists, expTitle };
+    return { expiredSays, expiredTitle, listsAfterExpired, green, focused, whileBusy, afterBusy: lists, expTitle, msgAfter, rowsBefore, rowsAfterFail };
   }, { row: grokRow, sub: ACCOUNTS.find((a) => a.email === 'sub@example.com') });
 
   await browser.close();
@@ -280,6 +295,8 @@ const ACCOUNTS = [
     problems.push('#3997: Check now on an expired Grok key did not say so (or repainted for nothing): ' + JSON.stringify(clicks));
   }
   if (!/renews this sign-in/.test(clicks.expTitle) || /Check now/.test(clicks.expTitle)) problems.push('#3997: an expired key\'s title points at Check now: ' + JSON.stringify(clicks.expTitle));
+  if (!/^Removed test@example\.com/.test(clicks.msgAfter || '')) problems.push('#3997: a follow-up read wiped the message line: ' + JSON.stringify(clicks.msgAfter));
+  if (!(clicks.rowsBefore >= 2 && clicks.rowsAfterFail === clicks.rowsBefore)) problems.push('#3997: a failed follow-up read replaced the list: ' + JSON.stringify({ before: clicks.rowsBefore, after: clicks.rowsAfterFail }));
   if (!clicks.green) problems.push('#3997: Check now answering connected did not repaint the row green: ' + JSON.stringify(clicks));
   if (!clicks.focused) problems.push('#3997: the busy arm could not mark a Check now in flight, so it tested nothing: ' + JSON.stringify(clicks));
   if (clicks.whileBusy !== 1) problems.push('#3997: a follow-up rebuilt the list while a Check now was in flight: ' + JSON.stringify(clicks));
