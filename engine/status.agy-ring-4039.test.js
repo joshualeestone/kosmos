@@ -47,7 +47,7 @@ function writePlist(runner) {
     create.plistFor(NAME, path.join(SB, 'claude'), path.join(SB, 'tmux'), null, null, runner), 'utf8');
 }
 
-test('#4039: a read conversation with a recorded window is a MEASURED ring against the stated window', () => {
+test('#4039: a conversation that DID record a window (a future agy) is measured against it, not assumed', () => {
   const ctx = status.readAgyContext(NAME, { found: true, contextUsed: 14071, contextWindow: 1048576, model: 'gemini-3.8-flash' });
   assert.equal(ctx.tokens, 14071);
   assert.equal(ctx.ceiling, 1048576);
@@ -78,11 +78,12 @@ test('#4039: end to end, an antigravity agent reads its conversation through the
   store.writeProfile(NAME, { dir: WORKDIR, provider: 'google' });
   writeConversation(AGY_HOME, WORKDIR, [
     generation({ prompt: 12561, reply: 149, thoughts: 3 }),
-    generation({ prompt: 13896, reply: 175, thoughts: 93, window: 1048576 }),
-  ]);
+    generation({ prompt: 13896, reply: 175, thoughts: 93 }),
+  ], { wal: true });
   const ctx = status.readAgyContext(NAME);
   assert.equal(ctx.tokens, 13896 + 175, 'workerDir -> last_conversations.json -> the db -> the newest generation');
-  assert.equal(ctx.ceiling, 1048576);
+  assert.equal(ctx.ceiling, 1048576, 'gemini-3.8-flash\'s published window');
+  assert.equal(ctx.ceilingAssumed, true, 'agy records no window, so it is assumed, and the ring says so');
   assert.equal(ctx.percent, 1);
 });
 

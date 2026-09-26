@@ -5254,13 +5254,15 @@ function readGeminiSession(agentName) {
   catch { return { found: false }; }
 }
 
-/* #4039: the windows of Gemini models, for a transcript that does not state one (the Gemini CLI never
-   does; agy does in some generations). An ASSUMED ceiling, said as such on the ring, exactly like the
-   Claude assumed ceiling: Google publishes these per model, and every Gemini 2.x and 3.x model
-   Kosmos runs today has a 1,048,576-token window. A model this does not know keeps the honest
-   no-ceiling reading rather than a guessed percentage. */
+/* #4039: the windows of Gemini models, for a transcript that does not state one (neither the Gemini
+   CLI nor agy records it). An ASSUMED ceiling, said as such on the ring, exactly like the Claude
+   assumed ceiling. Google publishes these per model: the text models Kosmos runs (2.0/2.5/3.x pro,
+   flash and flash-lite, including preview and dated builds and agy's effort suffixes) hold
+   1,048,576 tokens. The SPECIAL variants (image, tts, native-audio, live, thinking, exp) do not, and
+   some are far smaller, so they are left out rather than drawn at a falsely low percentage. A model
+   this does not know keeps the honest no-ceiling reading. */
 const GEMINI_WINDOWS = [
-  { match: /^gemini-(2\.0|2\.5|3(\.\d+)?)-(pro|flash)(-[\w.-]*)?$/i, window: 1048576 },
+  { match: /^gemini-(2\.0|2\.5|3(\.\d+)?)-(pro|flash|flash-lite)(-(preview|latest|high|medium|low|\d{2}-\d{2}|\d{2}-\d{4}))*$/i, window: 1048576 },
 ];
 function assumedGeminiWindow(model) {
   if (typeof model !== 'string') return null;
@@ -5282,8 +5284,9 @@ function readAgySession(agentName) {
   catch { return { found: false }; }
 }
 
-/* #4039: the ring for an Antigravity agent, the Gemini arm's shape. agy records its model's window
-   in some generations (3.13.2.22), so the percentage is against a limit it STATED, not assumed. */
+/* #4039: the ring for an Antigravity agent, the Gemini arm's shape. agy records no window, so the
+   percentage is against the model's published window, ASSUMED and said so (assumedGeminiWindow);
+   the stated-window branch is for a future agy that records one. */
 function readAgyContext(agentName, sess) {
   if (sess === undefined) sess = readAgySession(agentName);
   if (!sess.found && sess.because === NO_READING.UNREADABLE) {
@@ -5332,9 +5335,8 @@ function readGeminiContext(agentName, sess) {
 
   const tokens = sess.contextUsed;
   // Gemini's transcript never states its window (contextWindow is structurally
-  // null -- the Claude "assumed ceiling" case), so this always renders measured
-  // usage with no percentage. Unlike Codex, Gemini names the model, so pass
-  // sess.model rather than null -- the ring can show the real model.
+  // null -- the Claude "assumed ceiling" case). Unlike Codex, Gemini names the
+  // model, so the window can be assumed from it (below) and the ring can show it.
   // #4039: that left the ring with nothing to draw for every Gemini agent, so a known model's
   // published window is used as an ASSUMED ceiling (the ring says so); an unknown model keeps
   // the no-ceiling reading.
@@ -5342,8 +5344,8 @@ function readGeminiContext(agentName, sess) {
     const assumed = assumedGeminiWindow(sess.model);
     return assumed ? measuredResult(tokens, assumed, true) : noCeilingResult(tokens, sess.model || null);
   }
-  // Defensive: a future Gemini that DID state a window would render measured,
-  // not-assumed, exactly like Codex. Not reachable today (read() returns null).
+  // A Gemini that stated its window would render measured, not-assumed, like Codex. No Gemini
+  // CLI does today (geminisession.read returns contextWindow null), so this is the future case.
   return measuredResult(tokens, sess.contextWindow, false);
 }
 

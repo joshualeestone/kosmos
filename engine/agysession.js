@@ -11,14 +11,20 @@
  * model generation. There is no published schema; the fields below were read raw and checked:
  *   1.19      the model id, e.g. "gemini-3.8-flash"
  *   1.4       the usage message:  1.4.2 prompt tokens, 1.4.9 reply tokens, 1.4.10 thought tokens,
- *             1.4.3 their output total. Check that held in all 7 captured generations:
+ *             1.4.3 their output total. Check that held in every captured generation:
  *             1.4.3 === 1.4.9 + 1.4.10, the shape of Gemini's own usage metadata.
- *   3.13.2.22 the model's window (1048576 where seen); present in SOME generations only.
  * ⚠️ The mapping is inferred from short sign-in-check conversations, not documented. Every field
  * is optional here: a blob without the usage message reads as "no reading", never as 0.
+ * ⚠️ agy does NOT record the model's window. An earlier reading took 3.13.2.22 (1048576) for it;
+ * 3.13.2 is an edit tool's config and 1048576 is a 1 MiB byte limit (review, #4039 iteration 1).
+ * The window comes from status.js's table of known Gemini windows instead, marked as assumed.
  *
- * 🔒 READ-ONLY, ALWAYS. The db is agy's live file: it is opened with `readOnly: true`, which never
- * takes a write lock, and a busy or unreadable file is "cannot read", never retried in a loop.
+ * 🔒 READ-ONLY OPEN. The db is agy's live file, opened with `readOnly: true`: nothing in it is
+ * changed and no write lock is taken. ⚠️ agy's dbs are in WAL mode, and ANY SQLite reader of a WAL
+ * db creates the `-wal`/`-shm` companion files beside it if they are absent (measured: a read-only
+ * open of a copy left an empty -wal and a 32 KB -shm). They are SQLite's own shared-memory files,
+ * the same ones agy makes while it runs; the db's bytes are untouched. A busy or unreadable file is
+ * "cannot read", never retried in a loop. Only the newest generations are read (NEWEST_GENS).
  */
 
 const fs = require('node:fs');
@@ -35,22 +41,29 @@ const FIELD = {
   USAGE: [1, 4],
   PROMPT_TOKENS: 2,
   REPLY_TOKENS: 9,
-  WINDOW: [3, 13, 2, 22],
 };
+/* How many of the newest generations one read decodes: enough to find the newest that reported
+   usage and named its model, without re-reading a long conversation (blobs run to ~80 KB) on every
+   status poll. */
+const NEWEST_GENS = 20;
 
 /* ---- protobuf, raw: enough to walk length-delimited messages and read varints ---- */
+/* A varint of up to 10 bytes (protobuf's longest: a negative int64 is 10). `value` is null when it
+   is too large to hold exactly (past 2^53), so a caller treats that one field as absent while the
+   rest of the message still reads; null for the whole read only when the bytes end mid-varint.
+   agy does write int64 -1 (as 10 bytes) in fields beside the ones read here. */
 function readVarint(buf, at) {
   let value = 0;
   let scale = 1;
   let i = at;
-  for (;;) {
+  for (let n = 0; n < 10; n += 1) {
     if (i >= buf.length) return null;
     const byte = buf[i++];
     value += (byte & 0x7f) * scale;
-    if (!(byte & 0x80)) return { value, next: i };
+    if (!(byte & 0x80)) return { value: Number.isSafeInteger(value) ? value : null, next: i };
     scale *= 128;
-    if (scale > 2 ** 56) return null; // not a varint this reader can hold exactly
   }
+  return null;
 }
 
 /** The fields of one protobuf message: field number -> list of { wire, value | bytes }. */
@@ -59,7 +72,7 @@ function fieldsOf(buf) {
   let i = 0;
   while (i < buf.length) {
     const key = readVarint(buf, i);
-    if (!key || key.value === 0) return null;
+    if (!key || !key.value) return null;
     i = key.next;
     const field = Math.floor(key.value / 8);
     const wire = key.value % 8;
@@ -71,7 +84,7 @@ function fieldsOf(buf) {
       i = v.next;
     } else if (wire === 2) {
       const n = readVarint(buf, i);
-      if (!n || n.next + n.value > buf.length) return null;
+      if (!n || n.value === null || n.next + n.value > buf.length) return null;
       entry = { wire, bytes: buf.subarray(n.next, n.next + n.value) };
       i = n.next + n.value;
     } else if (wire === 1) { i += 8; continue; } else if (wire === 5) { i += 4; continue; } else return null;
@@ -99,10 +112,10 @@ function numberAt(buf, fieldPath) {
   if (!parent) return null;
   const fields = fieldsOf(parent);
   const hit = fields && (fields.get(fieldPath[fieldPath.length - 1]) || []).find((e) => e.wire === 0);
-  return hit ? hit.value : null;
+  return hit && hit.value !== null ? hit.value : null;
 }
 
-/** One generation's reading: { model, prompt, reply, window }, each null when absent. */
+/** One generation's reading: { model, prompt, reply }, each null when absent. */
 function decodeGeneration(blob) {
   const buf = Buffer.isBuffer(blob) ? blob : Buffer.from(blob || []);
   const modelBytes = messageAt(buf, FIELD.MODEL);
@@ -110,7 +123,7 @@ function decodeGeneration(blob) {
   const usage = messageAt(buf, FIELD.USAGE);
   const prompt = usage ? numberAt(usage, [FIELD.PROMPT_TOKENS]) : null;
   const reply = usage ? numberAt(usage, [FIELD.REPLY_TOKENS]) : null;
-  return { model, prompt, reply, window: numberAt(buf, FIELD.WINDOW) };
+  return { model, prompt, reply };
 }
 
 /** The conversation id agy recorded for a workdir, trying the path as given and resolved. */
@@ -138,27 +151,29 @@ function read(dir, home = HOME()) {
   const file = path.join(home, 'conversations', id + '.db');
   if (!fs.existsSync(file)) return { found: false, because: NO_READING.NO_TRANSCRIPT };
   let rows;
+  let total = 0;
   let db = null;
   try {
     const { DatabaseSync } = require('node:sqlite');
     db = new DatabaseSync(file, { readOnly: true });
-    rows = db.prepare('SELECT idx, data FROM gen_metadata ORDER BY idx').all();
+    rows = db.prepare('SELECT idx, data FROM gen_metadata ORDER BY idx DESC LIMIT ?').all(NEWEST_GENS);
+    total = db.prepare('SELECT count(*) AS n FROM gen_metadata').get().n;
   } catch {
     return { found: false, because: NO_READING.UNREADABLE };
   } finally {
     try { if (db) db.close(); } catch { /* already closed */ }
   }
 
+  /* Newest first: the model is the newest generation's that names one, and the occupancy is the
+     newest generation that reported usage: what it was sent plus what it wrote (its thoughts do not
+     join the next prompt). Reasoned from Gemini's usage shape, not measured against agy's own count. */
   let model = null;
-  let window = null;
   let contextUsed = null;
   for (const row of rows) {
     const g = decodeGeneration(row.data);
-    if (g.model) model = g.model;
-    if (g.window) window = g.window;
-    /* Window occupancy after the newest generation that reported usage: what it was sent plus
-       what it wrote, which joins the next prompt. */
-    if (g.prompt !== null) contextUsed = g.prompt + (g.reply || 0);
+    if (model === null && g.model) model = g.model;
+    if (contextUsed === null && g.prompt !== null) contextUsed = g.prompt + (g.reply || 0);
+    if (model !== null && contextUsed !== null) break;
   }
   let lastAt = null;
   try { lastAt = new Date(fs.statSync(file).mtimeMs).toISOString(); } catch { /* keep null */ }
@@ -168,14 +183,14 @@ function read(dir, home = HOME()) {
     sessionId: id,
     provider: 'antigravity',
     cliVersion: null,
-    contextWindow: window,
+    contextWindow: null, // agy records none; status.js assumes the model's (see the header)
     contextUsed,
     contextUsedAt: null,
-    messages: rows.length,
+    messages: total,
     lastAt,
     lastAgentMessage: null,
     model,
   };
 }
 
-module.exports = { HOME, FIELD, decodeGeneration, conversationFor, read };
+module.exports = { HOME, FIELD, NEWEST_GENS, decodeGeneration, conversationFor, read };

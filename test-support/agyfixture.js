@@ -21,17 +21,24 @@ const msg = (field, ...parts) => {
   return Buffer.concat([varint(field * 8 + 2), varint(body.length), body]);
 };
 
-/** One generation as agy writes it: model at 1.19, usage at 1.4, window at 3.13.2.22. */
-function generation({ model = 'gemini-3.8-flash', prompt, reply, thoughts = 0, window } = {}) {
-  const usage = prompt === undefined ? [] : [msg(4, num(1, 1318), num(2, prompt), num(3, reply + thoughts), num(9, reply), num(10, thoughts))];
-  const parts = [msg(1, msg(19, model), ...usage)];
-  if (window) parts.push(msg(3, msg(13, msg(2, num(22, window)))));
+/* A 10-byte varint: protobuf's encoding of int64 -1, which agy really writes beside these fields. */
+const minusOne = (field) => Buffer.concat([varint(field * 8), Buffer.from([0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0x01])]);
+
+/** One generation as agy writes it: model at 1.19, usage at 1.4. `negative` adds an int64 -1 field
+    inside the usage message and at top level, as real blobs carry such fields. */
+function generation({ model = 'gemini-3.8-flash', prompt, reply, thoughts = 0, negative = false } = {}) {
+  const usageParts = [num(1, 1318), num(2, prompt), num(3, reply + thoughts), num(9, reply), num(10, thoughts)];
+  if (negative) usageParts.push(minusOne(12));
+  const usage = prompt === undefined ? [] : [msg(4, ...usageParts)];
+  const parts = [msg(1, model === null ? Buffer.alloc(0) : msg(19, model), ...usage)];
+  if (negative) parts.push(minusOne(9));
   return Buffer.concat(parts);
 }
 
 let seq = 0;
-/** Write a conversation db for `dir` under `home`, mapped in last_conversations.json. */
-function writeConversation(home, dir, gens) {
+/** Write a conversation db for `dir` under `home`, mapped in last_conversations.json. `wal` puts it
+    in WAL mode, as agy's real dbs are. */
+function writeConversation(home, dir, gens, { wal = false } = {}) {
   seq += 1;
   const id = String(seq).padStart(8, '0') + '-aaaa-bbbb-cccc-dddddddddddd';
   fs.mkdirSync(path.join(home, 'conversations'), { recursive: true });
@@ -39,6 +46,7 @@ function writeConversation(home, dir, gens) {
   const { DatabaseSync } = require('node:sqlite');
   const file = path.join(home, 'conversations', id + '.db');
   const db = new DatabaseSync(file);
+  if (wal) db.exec('PRAGMA journal_mode=WAL');
   db.exec('CREATE TABLE gen_metadata (idx integer PRIMARY KEY, data blob, size integer NOT NULL DEFAULT 0)');
   const put = db.prepare('INSERT INTO gen_metadata (idx, data, size) VALUES (?, ?, ?)');
   gens.forEach((g, i) => put.run(i, g, g.length));
