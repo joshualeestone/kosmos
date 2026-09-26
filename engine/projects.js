@@ -2492,9 +2492,14 @@ function blockBody(projects, sessionName) {
     // shows the done ones -- the opposite mismatch. Raw length matches the card's
     // count-0 semantics exactly: "No tasks set" only when there are none at all.
     const hasTasks = Array.isArray(p.tasks) && p.tasks.length > 0;
-    const taskLine = hasTasks
+    /* #3861 (Josh, 2026-09-25: tasks can have a parent; Splinter's call: the doctrine says to
+       use it). One line, on every project, so big work lands as one task with its pieces under
+       it rather than as a pile of loose tasks nobody can see belong together. */
+    const subtaskLine = `\n  - Big work: add one task for the whole thing, then its pieces under it with \`${cliShown} task add ${oneLine(String(p.id))} "the piece" --parent <its number>\``;
+    const taskLine = (hasTasks
       ? `\n  - Its tasks: \`${cliShown} task list ${oneLine(String(p.id))}\` to see them, \`${cliShown} task add ${oneLine(String(p.id))} "what needs doing"\` to add one (use this, not a hand-rolled task-board file)`
-      : `\n  - No tasks set for this project yet. Add one with \`${cliShown} task add ${oneLine(String(p.id))} "what needs doing"\` (use this, not a hand-rolled task-board file)`;
+      : `\n  - No tasks set for this project yet. Add one with \`${cliShown} task add ${oneLine(String(p.id))} "what needs doing"\` (use this, not a hand-rolled task-board file)`)
+      + subtaskLine;
     const head = `- **${oneLine(p.name)}**: \`${oneLine(p.folder)}\`` + (p.id
       ? `\n  - Post to everyone on it: \`${cliShown} post ${oneLine(String(p.id))} "your message"\``
         + taskLine

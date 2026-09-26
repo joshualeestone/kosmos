@@ -93,11 +93,103 @@ function taskProblem({ sentence, detail, who } = {}) {
 }
 
 /**
+ * #3861 (Josh, 2026-09-25 20:20: "Let's add something to tasks so they can have a parent"):
+ * a task can sit under another task on the SAME project, a subtask. Different from PARTS
+ * (#803): a part is a per-person piece INSIDE one task and has no page of its own; a subtask
+ * is a whole task (its own number, page, conversation, assignee) that belongs to a bigger one.
+ *
+ * 🔑 THE PARENT IS A TASK NUMBER, NEVER A PROJECT-AND-NUMBER. A number is only unique inside
+ * its project (the header), so a parent stored as a bare number cannot name a task anywhere
+ * else: a cross-project parent is not refused by a check that could be forgotten, it has no
+ * spelling at all.
+ * 🔑 NOTHING CASCADES. Closing a parent never closes its children, closing the last child
+ * never closes the parent (the person decides; the screen offers it), and tasks are never
+ * deleted. The parent's "3 of 5 done" is DERIVED from its children on every read, so it
+ * cannot drift from them.
+ *
+ * Refused: a parent that is not a whole number, that is not a task on this project, that is
+ * the task itself, or that sits (at any depth) under the task, which would be a cycle.
+ * Returns the refusal sentence, or null.
+ */
+function parentProblem(p, n, parent) {
+  if (parent === undefined || parent === null || parent === '') return null; // none / clear
+  const want = typeof parent === 'string' && /^\d+$/.test(parent.trim()) ? Number(parent.trim()) : parent;
+  if (typeof want !== 'number' || !Number.isSafeInteger(want) || want < 1) {
+    return 'the task this is part of has to be a task number on this project';
+  }
+  // A CLOSED task is a valid parent on purpose: nothing cascades, so filing a follow-up under
+  // finished work is allowed rather than refused.
+  if (!byNumber(p, want)) return 'there is no task ' + want + ' on this project to put this under';
+  if (n !== null && n !== undefined && want === Number(n)) return 'a task cannot be part of itself';
+  // Walk UP from the proposed parent. Reaching this task means the parent already sits under
+  // it, so the link would make a loop. `seen` bounds a hand-edited store that already loops.
+  const seen = new Set();
+  let at = byNumber(p, want);
+  while (at && Number.isSafeInteger(at.parent) && !seen.has(at.number)) {
+    seen.add(at.number);
+    if (n !== null && n !== undefined && at.parent === Number(n)) {
+      return 'task ' + want + ' is already under this task, so this cannot go under it';
+    }
+    at = byNumber(p, at.parent);
+  }
+  return null;
+}
+
+/** The stored form of a parent the caller gave: a whole number, or null for none. */
+function parentValue(parent) {
+  if (parent === undefined || parent === null || parent === '') return null;
+  return typeof parent === 'string' ? Number(parent.trim()) : parent;
+}
+
+/**
+ * A task's parent AS READ: the number when that task still exists on the project, else null.
+ * A hand-edited store can name a number that is not there; a reader treating it as a real
+ * parent would nest the task under nothing, so it reads as top level instead.
+ */
+function parentOf(p, task) {
+  return treeOf(p).up(task);
+}
+
+/**
+ * THE one derivation of a project's task tree: number -> task, and parent -> children, built
+ * in one pass. parentOf, childrenOf, subtaskProgress and allTasks's rows all read it, so the
+ * rules for which parent counts cannot differ between them. Linear in the project's tasks.
+ */
+function treeOf(p) {
+  const byNum = new Map();
+  for (const t of (p && p.tasks) || []) if (t && typeof t.number === 'number') byNum.set(t.number, t);
+  const up = (t) => (t && Number.isSafeInteger(t.parent) && t.parent !== t.number && byNum.has(t.parent) ? t.parent : null);
+  const kids = new Map();
+  for (const t of (p && p.tasks) || []) {
+    const u = up(t);
+    if (u === null) continue;
+    if (!kids.has(u)) kids.set(u, []);
+    kids.get(u).push(t);
+  }
+  for (const list of kids.values()) list.sort((a, b) => (a.number || 0) - (b.number || 0));
+  const under = (n) => kids.get(Number(n)) || [];
+  /* The parent's "2 of 5 done": its DIRECT children, finished by progressOf (parts included).
+     Direct only: a grandchild is counted by its own parent, never twice up a chain. */
+  const progress = (n) => { const k = under(n); return { done: k.filter((t) => progressOf(t).closed).length, total: k.length }; };
+  return { byNum, up, under, progress };
+}
+
+/** The tasks directly under task `n` on project record `p`, in number order. */
+function childrenOf(p, n) {
+  return treeOf(p).under(n);
+}
+
+/** A parent's `{done, total}` over its direct children; total 0 means no subtasks. */
+function subtaskProgress(p, n) {
+  return treeOf(p).progress(n);
+}
+
+/**
  * Create a task on a project. Validated whole-or-not-at-all BEFORE the
  * write; the number is issued inside the same atomic mutate that stores
  * the task, so two concurrent creates cannot share one.
  */
-function create(projectId, { sentence, detail, who, made: origin } = {}, roster) {
+function create(projectId, { sentence, detail, who, parent, made: origin } = {}, roster) {
   const problem = taskProblem({ sentence, detail, who });
   if (problem) throw new Error(problem);
   const whoKey = typeof who === 'string' && who.trim() ? who.trim() : null;
@@ -116,6 +208,11 @@ function create(projectId, { sentence, detail, who, made: origin } = {}, roster)
     if (whoKey && !(p.agents || []).includes(whoKey)) {
       throw new Error('that agent is not on this project, so the task cannot be given to it');
     }
+    // #3861: checked inside the same read that stores the task, like membership above, so the
+    // parent cannot be a task that was not there when this one was written. A new task has no
+    // children yet, so it cannot close a loop (n is null).
+    const parentRefused = parentProblem(p, null, parent);
+    if (parentRefused) throw new Error(parentRefused);
     const number = (p.taskCounter || 0) + 1;
     made = {
       number,
@@ -138,6 +235,8 @@ function create(projectId, { sentence, detail, who, made: origin } = {}, roster)
       // #768: every task carries the field so a consumer never has to guess
       // whether it exists; null means no due date, set later via setDue.
       dueDate: null,
+      // #3861: the task this one is part of (a task number on this project), or null.
+      parent: parentValue(parent),
     };
     return {
       ...p,
@@ -153,6 +252,8 @@ function create(projectId, { sentence, detail, who, made: origin } = {}, roster)
     // so without this the transcript would show an agent removed but never that
     // one was on it from birth. null when it was created unassigned.
     who: made.who,
+    // #3861: a task made as a subtask says so from birth, as a pre-assigned one does.
+    ...(made.parent ? { parent: made.parent } : {}),
   });
   return made;
 }
@@ -452,6 +553,38 @@ function setDue(projectId, n, dueDate) {
   return changed;
 }
 
+/**
+ * #3861: put a task under another task on the same project, or take it out from under one
+ * (`parent` null or ''). Checked inside the write (parentProblem), so two people linking in
+ * opposite directions at once cannot both land and make a loop: the second read sees the
+ * first link. Setting what it already is records nothing, as setDue does.
+ */
+function setParent(projectId, n, parent) {
+  let changed;
+  let didChange = false;
+  let next = null;
+  projects.mutate(projectId, (p) => {
+    const t = byNumber(p, n);
+    if (!t) throw new Error('there is no task by that number on this project');
+    const problem = parentProblem(p, t.number, parent);
+    if (problem) throw new Error(problem);
+    next = parentValue(parent);
+    const before = Number.isSafeInteger(t.parent) ? t.parent : null;
+    didChange = before !== next;
+    changed = { ...t, parent: next };
+    return {
+      ...p,
+      tasks: (p.tasks || []).map((x) => (x.number === changed.number ? changed : x)),
+    };
+  });
+  if (didChange) {
+    taskchat.record(projectId, changed.number, next
+      ? { kind: 'parent-set', parent: next }
+      : { kind: 'parent-cleared' });
+  }
+  return changed;
+}
+
 /* #768: record a free-text message on a task's conversation -- the WRITE half of
    #992's transcript (the read half is the activity list, engine/taskchat.js read()).
    THIS FUNCTION only RECORDS; DELIVERY to the task's agents happens at the server
@@ -655,7 +788,11 @@ function allTasks(everyProject) {
   /* #3559: a caller that already read the store passes that snapshot, so the
      rows and anything it joins onto them come from ONE read. */
   for (const p of (Array.isArray(everyProject) ? everyProject : projects.readAll()) || []) {
+    /* #3861: the project's tree is built once (treeOf), so each row's parent and subtask
+       count is a lookup rather than a re-scan of the project per task. */
+    const tree = treeOf(p);
     for (const t of p.tasks || []) {
+      const up = tree.up(t);
       out.push(Object.assign({}, t, {
         projectId: p.id,
         projectName: p.name,
@@ -667,6 +804,12 @@ function allTasks(everyProject) {
            field is the two-sources-for-one-fact shape that put "3 agents" over
            six rows in #1346. */
         isClosed: !!progressOf(t).closed,
+        /* #3861: the parent AS READ (null when the stored number is not a task here), its
+           sentence for the child's breadcrumb, and the "2 of 5" for a parent. On the row so the
+           screen never re-derives them, for the reason isClosed is. */
+        parent: up,
+        parentSentence: up === null ? null : (tree.byNum.get(up).sentence || null),
+        subtasks: tree.progress(t && t.number),
       }));
     }
   }
@@ -864,7 +1007,7 @@ function tasksTabShown() {
 }
 
 module.exports = { create, close, reopen, byNumber, columnTasks, allTasks, claimFor, claimPatterns, taskProblem,
-  taskState, lastActivityOf, TASKS_TAB_MIN, tasksEverCreated, tasksTabShown, claimWho,
+  taskState, lastActivityOf, TASKS_TAB_MIN, parentProblem, parentOf, childrenOf, subtaskProgress, setParent, tasksEverCreated, tasksTabShown, claimWho,
   partsOf, progressOf, whoOf, addPart, assignPart, setPartClosed, setDue, dueProblem, say,
   partValve, processPartWrites, agePartWritesForTests, PARTS_PER_HOUR,
   SENTENCE_MAX, DETAIL_MAX, MESSAGE_MAX, WHO_MAX };
