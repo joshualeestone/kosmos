@@ -167,13 +167,13 @@ const joinedEvil = () => {
 };
 
 test('#3898: the project column escapes a card\'s sentence and its "Part of" crumb', () => {
-  const p = joinedEvil();
+  const ep = joinedEvil();
   // Only the child in the column, so its parent is "not in the list" and the crumb must show.
-  const onlyChild = { ...p, tasks: p.tasks.filter((t) => t.number === 2) };
+  const onlyChild = { ...ep, tasks: ep.tasks.filter((t) => t.number === 2) };
   const html = paintColumn(ESC, onlyChild);
   assert.match(html, /tkcard-part-of/, 'PRE-CONTROL: the crumb is drawn at all');
   assert.doesNotMatch(html, rawTag);
-  assert.match(html, escapedTag);
+  assert.match(html, /<span class="tkcard-part-of">Part of #1 &lt;img src=x onerror=alert\(1\)&gt;<\/span>/, 'the crumb carries the parent\'s sentence, escaped');
   assert.match(paintColumn(PASS, onlyChild), rawTag, 'CONTROL: without esc the raw tag reaches the column');
 });
 
@@ -186,14 +186,14 @@ function paintSubs(escFn, project, parentNumber) {
 }
 
 test('#3898: the task page escapes each subtask\'s sentence, and names its parent as text', () => {
-  const p = joinedEvil();
-  const parentPage = paintSubs(ESC, p, 1);
+  const ep = joinedEvil();
+  const parentPage = paintSubs(ESC, ep, 1);
   assert.match(parentPage['tk-subs'].innerHTML, /data-sub="2"/, 'PRE-CONTROL: the subtask is listed');
   assert.doesNotMatch(parentPage['tk-subs'].innerHTML, rawTag);
   assert.match(parentPage['tk-subs'].innerHTML, /child &lt;img src=x onerror=alert\(1\)&gt;/);
-  assert.match(paintSubs(PASS, p, 1)['tk-subs'].innerHTML, rawTag, 'CONTROL: without esc the raw tag reaches the list');
+  assert.match(paintSubs(PASS, ep, 1)['tk-subs'].innerHTML, rawTag, 'CONTROL: without esc the raw tag reaches the list');
   // The Part of line is textContent, so the parent's sentence is text by construction.
-  const childPage = paintSubs(ESC, p, 2);
+  const childPage = paintSubs(ESC, ep, 2);
   assert.equal(childPage['tk-partof'].textContent, '#1 ' + EVIL);
   assert.equal(childPage['tk-partof-row'].hidden, false);
 });
@@ -206,10 +206,10 @@ function fillParents(escFn, project) {
 }
 
 test('#3898: New task\'s "Part of" picker escapes each open task\'s sentence', () => {
-  const p = joinedEvil();
-  const html = fillParents(ESC, p);
+  const ep = joinedEvil();
+  const html = fillParents(ESC, ep);
   assert.match(html, /<option value="1">/, 'PRE-CONTROL: the open task is offered');
   assert.doesNotMatch(html, rawTag);
   assert.match(html, escapedTag);
-  assert.match(fillParents(PASS, p), rawTag, 'CONTROL: without esc the raw tag reaches the picker');
+  assert.match(fillParents(PASS, ep), rawTag, 'CONTROL: without esc the raw tag reaches the picker');
 });
