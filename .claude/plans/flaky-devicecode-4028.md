@@ -15,9 +15,9 @@ Reproduced: a stand-in that prints 400ms late fails the old test with actual 'st
 
 ## Change (test only)
 - Wait for the Windows session to reach awaiting-code (or error) before anything else.
-- Then read it as soon as the Mac one has errored: both watchdogs are armed within a millisecond
-  (two synchronous starts) and the Mac error is observed through a 25ms poll, so a browser-wait
-  Windows would already be in error, in either start order (the reviewer measured both).
+- Then read it only once winArmedBy + BROWSER_WAIT_MS + 100ms has passed (startChatgptLogin arms
+  its watchdog before returning, so that bounds when a browser-wait one would fire). This does not
+  depend on which session starts first.
 - The device wait in this test is 60s (was 5s), so a slow stand-in fails on the wait for its code,
   naming 'starting', never on a watchdog whose error text matches the browser one.
 - The failure message carries the session's error, so a real timeout names itself.
@@ -48,3 +48,13 @@ test's 5s device wait, which failed with a message blaming the browser wait; now
 - WARNING: the comment credited timer ARM ORDER; the margin is the 25ms poll against a sub-ms gap
   between the starts, and order does not matter --> comment and plan corrected.
 - NIT: DEVICE_WAIT_MS named. NIT: plan-name timestamp, the repo's prevailing form; kept.
+
+## Iteration 3 (opus)
+- WARNING: iteration 2's premise (order does not matter) was wrong, and so was my comment: with the
+  starts swapped, a wrong watchdog passed 10/100 runs under load (starts take 0.5-97ms, not <1ms).
+  Two reviewers disagreed; the one with 100 measured runs wins. --> the read waits from when the
+  Windows start returned, so it no longer depends on order at all.
+- NIT: "means the device wait" --> "means NOT the browser wait" (the value is pinned elsewhere).
+- NIT: the ok-assert moved inside the try, so a failed Mac start still cancels the Windows one.
+
+  Measured after the fix: wrong watchdog, starts swapped, 60 runs, load 16-27: 60 red, 0 vacuous.
