@@ -31,13 +31,33 @@ android/
 │   ├── build.gradle                                   AGP 8.6.1, compile/target SDK 35
 │   └── src/main/
 │       ├── AndroidManifest.xml                        LauncherActivity + push delegation
-│       ├── res/drawable/ic_notification.xml           status-bar icon for pushes
+│       ├── res/mipmap-anydpi-v26/                     adaptive + round launcher icons
+│       ├── res/drawable*/                              K foreground, splash + push icon
+│       ├── res/values*/                               light/dark system-bar + splash colours
 │       └── res/values/strings.xml                     ← the ONLY file to edit to repoint
 │                                                        (origin: login.kosmosplus.com)
 └── tools/
     ├── assetlinks.template.json                       host this at the front-door origin
     └── print-signing-fingerprint.sh                   prints a keystore's SHA-256 for that file
 ```
+
+## Android shell appearance
+
+Android 8 and later use an adaptive launcher icon: a brand-gold background and
+the transparent K mark held entirely inside Android's 66dp safe zone. The same
+mark is supplied as the Android 13 monochrome layer, so themed icons use the
+person's wallpaper palette instead of falling back to the legacy square PNG.
+The legacy density PNGs remain the fallback for Android 7.
+
+The launch activity supplies the same gold and K as both its native window
+background and androidbrowserhelper's TWA splash metadata. This covers the
+native handoff and Chrome's TWA startup without a white frame between them.
+Android 12 and later also use the platform splash-screen attributes.
+
+The status and navigation bars match the board tokens: `#faf9f7` in light mode
+and `#0c0d0f` in dark mode. Both the activity theme and the TWA metadata read
+qualified colour resources, so a theme change reaches Chrome as well as the
+native launch window.
 
 ## Build toolchain (already installed on this box)
 
