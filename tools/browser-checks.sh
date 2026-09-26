@@ -1225,7 +1225,7 @@ else
     case "$n" in ''|'#'*) continue ;; esac
     B8_CHECKS+=("$n")
   done < "$REPO/docs/browser-checks/b8-board.txt"
-  [ "${#B8_CHECKS[@]}" -gt 0 ] || FAILED+=("docs/browser-checks/b8-board.txt named no checks (server did not boot)")
+  [ "${#B8_CHECKS[@]}" -gt 0 ] || FAILED+=("docs/browser-checks/b8-board.txt missing or named no checks (server did not boot)")
   for n in ${B8_CHECKS[@]+"${B8_CHECKS[@]}"}; do FAILED+=("$n (server did not boot)"); done
 fi
 # #812 batch 2 (retried after the first attempt found four checks that
