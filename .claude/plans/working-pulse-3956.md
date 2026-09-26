@@ -28,8 +28,9 @@ off under prefers-reduced-motion.
 
 ## Verification
 - docs/browser-checks/render-working-pulse-3956.js, chromium + webkit, 34/34 (incl. the rebuild arm).
-- Perturbation: animation line removed -> pulse arms RED; reduced-motion rule removed -> 6
-  reduced-motion arms RED; pin disabled -> rebuild arm RED on both engines (step 5.00);
+- Perturbation: animation line removed -> pulse arms RED; reduced-motion rule removed -> 8
+  reduced-motion arms RED (the ground arm samples a whole cycle; a single sample could land on the
+  trough and pass); pin disabled -> rebuild arm RED on both engines (step 5.00);
   animationstart-only pin -> chromium RED (5.50), webkit green.
 - Mapped checks re-run green: render-dm-badges-2863, render-no-conflict-3729, render-stale-auth-1930.
 - Contrast: dark ink on the greenest ground is ~16:1.
@@ -39,3 +40,11 @@ off under prefers-reduced-motion.
   itself just added (classList checks, plus a querySelectorAll inside each added subtree), which
   the page already paid to build; scoping it to the three containers would miss surfaces added
   later. Moved above the first tick() so the first render is pinned by it too.
+
+## Challenge-loop iteration 3 (deferred, with reason)
+- Per-frame repaint cost: a known tradeoff recorded above, not measured on a big board. .lrow is
+  already positioned, so an overlay would be possible there alone; one mechanism for all three
+  surfaces was preferred over splitting them.
+- In the dark themes the pulse's peak is LIGHTER than the resting ground (green mixed into a dark
+  surface), not "slightly darker" as Josh put it for the light board he uses. It reads greener in
+  both; the dark arm checks movement only.

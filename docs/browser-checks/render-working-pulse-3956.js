@@ -197,8 +197,11 @@ async function placeSiblings(page) {
           d.style.backgroundColor = 'var(--k-surface)';
           document.body.appendChild(d);
         }).then(() => ground(rpage, '[data-pulse3956="surface"]'));
-        const rg = await ground(rpage, '.acard.working');
-        chk(String(rg) === String(surface), `${engineName}: reduced motion: the ground under the wash is the plain surface`, `${rg} vs ${surface}`);
+        /* Sampled across a full cycle, not once: a single reading can land on the pulse's trough,
+           which equals the surface, and pass with the reduced-motion rule gone. */
+        const rgs = [];
+        for (let k = 0; k < 9; k++) { rgs.push(String(await ground(rpage, '.acard.working'))); await rpage.waitForTimeout(450); }
+        chk(rgs.every((x) => x === String(surface)), `${engineName}: reduced motion: the ground under the wash stays the plain surface for a whole cycle`, `${[...new Set(rgs)].join(' | ')} vs ${surface}`);
         chk(await rpage.$eval('.acard.working', (el) => /gradient/.test(getComputedStyle(el).backgroundImage)),
           `${engineName}: reduced motion: the static green wash is still there`);
         await placeSiblings(rpage);
