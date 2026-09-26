@@ -71,7 +71,7 @@ test('Codex\'s error mark (■) is not quoted', () => {
 
 test('every runner Kosmos can start is named, and a missing runner is Claude', () => {
   const name = (runner) => accountProblemOf({ state: 'auth_failed', runner, name: 'Di' }).provider;
-  assert.deepEqual(['codex', 'gemini', 'grok', 'antigravity', undefined].map(name), ['OpenAI', 'Gemini', 'Grok', 'Antigravity', 'Claude']);
+  assert.deepEqual(['codex', 'gemini', 'grok', 'antigravity', undefined].map(name), ['OpenAI', 'Gemini', 'Grok', 'Google', 'Claude']);   // #3568: an Antigravity agent signs in with Google
 });
 
 test('a Gemini or Grok pane read the Claude way is hedged, drops the "context" false match, and is not for a manager', () => {
