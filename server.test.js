@@ -7772,17 +7772,18 @@ test('the receipt pill borders have dark twins (the trio that missed the #71 pas
     'CONTROL: insideDark claims the light rule is in a dark block; the measurer is broken');
 });
 
-test('the group line is wired into paintOneProject, not just extractable', () => {
-  // The function-level tests stay green if the append is dropped, which
-  // would leave every verdict suppressed and stated NOWHERE -- the
-  // merge-only wiring class. Pin the wiring at source level, with a
-  // control that the CSS the literal targets still exists.
+test('the project notice is wired into paintOneProject, not just extractable', () => {
+  // #3923: every member row suppresses its verdict, so if the notice were not painted the
+  // verdicts would be stated NOWHERE -- the merge-only wiring class. Pin the wiring at source
+  // level (the notice is built, written to its box, and the box shown only when non-empty),
+  // with a control that the box and its CSS still exist.
   const src = pageFnSource('paintOneProject');
-  assert.ok(src.includes('pjSharedTold('), 'paintOneProject no longer consults pjSharedTold');
-  assert.ok(src.includes('pj-told-group'), 'paintOneProject no longer emits the pj-told-group line');
+  assert.ok(/const notice = pjNotice\(roster\);/.test(src), 'paintOneProject no longer builds the notice');
+  assert.ok(/setIfChanged\(noticeBox, notice\);\s*\n\s*noticeBox\.hidden = !notice;/.test(src), 'the notice is not written and shown');
+  assert.ok(src.includes("getElementById('pj-one-notice')"), 'paintOneProject paints a different box');
   const raw = fs.readFileSync(nodePath.join(__dirname, 'web', 'index.html'), 'utf8');
-  assert.ok(raw.includes('.pj-members .pj-told-group {'),
-    'CONTROL: the .pj-told-group CSS rule is gone, so the emitted class styles nothing');
+  assert.ok(raw.includes('<div id="pj-one-notice" class="pnotice"'), 'CONTROL: the notice box is gone from the page');
+  assert.ok(raw.includes('.pnotice {'), 'CONTROL: the .pnotice CSS rule is gone');
 });
 
 /* ---------------------------------------------------------------------------
