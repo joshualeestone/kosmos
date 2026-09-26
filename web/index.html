@@ -9672,13 +9672,21 @@ body.plus-active #plus-state2 { max-width: 26rem; padding: 2rem; }
   #d-sec-skills :is(input, textarea, select, button) { min-height: 44px; }
   #d-rename-hint { max-width: none; }
 }
-/* #3969: a phone held sideways is short (360 to 430px), and the chat-first layout above still left the
-   conversation 0px at 640x360 with the composer below the screen. On a short sideways touchscreen, in
-   the chat, the "All agents" link and the search row step aside (the app bar and the tabs still reach
-   everything; search is back upright). */
+/* #3969: a phone held sideways is short (the rule matches up to 30rem, 480px, tall), and the chat-first
+   layout above still left the conversation 0px at 640x360 with the composer below the screen. On a short
+   sideways touchscreen, in the chat, the "All agents" link and an idle search box step aside.
+   - The search box steps aside only while it is EMPTY and does not have focus: a search that is filtering
+     the conversation stays on screen with its clear button (turning the phone must not leave a hidden
+     filter), and a box someone is typing in never vanishes under them (a keyboard can make a portrait
+     layout read as a short landscape one on some Android browsers). The "Direct Message to" heading stays
+     for screen readers, visually hidden as in the block above.
+   - ⚠️ The back link goes too, and with it the one-tap way back to a project the chat was opened from
+     (DETAIL_FROM_PROJECT): the Projects tab in the app bar is the way back there. Keeping the link costs
+     about 44px of a conversation that has only 57 to 90px at these sizes. */
 @media (hover: none) and (orientation: landscape) and (max-height: 30rem) and (max-width: 56rem) {
   #panel-detail:has(#d-sec-talk:not([hidden])) > .back,
-  #panel-detail:has(#d-sec-talk:not([hidden])) #d-talk-box .d-talk-caprow { display: none; }
+  #panel-detail:has(#d-sec-talk:not([hidden])) #d-talk-box #d-talk-search-wrap:has(#d-talk-search:placeholder-shown):not(:focus-within) { display: none; }
+  #panel-detail:has(#d-sec-talk:not([hidden])) #d-talk-box .d-talk-caprow:has(#d-talk-search:placeholder-shown):not(:focus-within) { margin: 0; }
   /* The agent's header is one slim line: name and state, no avatar (it is on Profile). */
   #panel-detail:has(#d-sec-talk:not([hidden])) .dhead .dav-wrap { display: none; }
   #panel-detail:has(#d-sec-talk:not([hidden])) .dhead { padding: 2px 0 2px 6px; margin-bottom: 4px; }

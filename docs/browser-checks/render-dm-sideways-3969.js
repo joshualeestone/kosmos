@@ -79,7 +79,9 @@ function measure() {
     shownThread: Math.round(shownThread),
     composer: !!(say && send && say.shown && say.bottom <= vis + 0.5 && send.bottom <= vis + 0.5 && say.top >= 0),
     profile: prof ? { onScreen: prof.shown && prof.top >= 0 && prof.bottom <= vis + 0.5, h: Math.round(prof.h) } : null,
-    back: !!(R('#panel-detail > .back') || {}).shown, search: !!(R('#d-talk-box .d-talk-caprow') || {}).shown, avatar: !!(R('.dhead .dav-wrap') || {}).shown,
+    back: !!(R('#panel-detail > .back') || {}).shown, search: !!(R('#d-talk-search-wrap') || {}).shown, avatar: !!(R('.dhead .dav-wrap') || {}).shown,
+    // The conversation's heading stays in the tree for screen readers (visually hidden on a phone), whatever the search box does.
+    heading: (() => { const e = document.getElementById('d-talk-label'); return !!e && getComputedStyle(e).display !== 'none' && getComputedStyle(e.parentElement).display !== 'none'; })(),
   };
 }
 
@@ -95,6 +97,15 @@ function measure() {
         chk(m.shownThread >= MIN_THREAD_PX, `${t} at least ${MIN_THREAD_PX}px of the conversation is on screen`, `shown=${m.shownThread}`);
         chk(m.composer, `${t} the message box and Post are on screen`, JSON.stringify(m));
         chk(m.profile && m.profile.onScreen && m.profile.h >= MIN_TAP_PX, `${t} the Profile tab is on screen and a ${MIN_TAP_PX}px target`, JSON.stringify(m.profile));
+        chk(!m.search && m.heading, `${t} an empty search box steps aside, and the conversation keeps its heading for screen readers`, JSON.stringify({ search: m.search, heading: m.heading }));
+        if (w === 640) {
+          /* A search that is filtering the conversation must stay on screen with its clear button: turning the
+             phone must not leave a hidden filter (review round 1). */
+          await page.evaluate(() => { const s = document.getElementById('d-talk-search'); s.value = 'reply'; s.dispatchEvent(new Event('input', { bubbles: true })); s.blur(); });
+          await page.waitForTimeout(150);
+          const f = await page.evaluate(measure);
+          chk(f.search && f.composer, `${t} a search that is filtering the chat stays on screen, and so does the message box`, JSON.stringify({ search: f.search, composer: f.composer, shownThread: f.shownThread }));
+        }
         chk(errs.length === 0, `${t} no page errors`, errs.join(' | '));
         await ctx.close();
       }
@@ -128,7 +139,7 @@ function measure() {
       await browser.close();
     }
   }
-  const EXPECTED_PER_ENGINE = 54;   // 8 sideways runs x 5, 2 wide-sideways runs x 4, 2 portrait x 2, 2 mouse
+  const EXPECTED_PER_ENGINE = 64;   // 8 sideways runs x 6, 2 of them (640x360) +1 active search, 2 wide-sideways runs x 4, 2 portrait x 2, 2 mouse
   const want = EXPECTED_PER_ENGINE * (process.env.ENGINES || 'chromium').split(',').length;
   if (RAN !== want) { console.log(`FAIL  ran ${RAN} checks, expected ${want}`); fail.push('check count'); }
   console.log(fail.length ? `\n${fail.length} FAILED` : `\nALL PASS (${RAN} checks)`);
