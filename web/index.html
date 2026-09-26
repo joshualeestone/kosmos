@@ -9460,6 +9460,12 @@ body.plus-active #plus-state2 { max-width: 26rem; padding: 2rem; }
   /* 16px or iOS zooms the page when the search box takes focus (as for the composer above). */
   #d-talk-box #d-talk-search { font-size: 16px; }
   #panel-detail:has(#d-sec-talk:not([hidden])) > .back { margin: 4px 0 0; min-height: 44px; }
+  /* #718 row 7: the agent Files surfaces need phone-sized touch targets without changing the
+     shared project file rows or desktop geometry. Talk still hides #d-files above; Profile and
+     the other agent sections keep this short list, and View All opens #d-sec-files. */
+  :is(#d-files, #d-sec-files) .pj-doc { min-height: 44px; }
+  #d-files-all { display: inline-flex; align-items: center; justify-content: center; min-width: 44px; min-height: 44px; }
+  #d-files-back { display: inline-flex; align-items: center; min-height: 44px; }
 }
 /* #718 (Raiden's table, row 4): the same two fields on ANY touchscreen, not only a portrait phone. A
    phone turned sideways (667 to 932 wide) or a tablet is past the 40rem block above, where the search

@@ -85,6 +85,13 @@ function chk(ok, label, extra) {
     await page.waitForSelector('[data-agent="' + name + '"]', { timeout: 8000 });
     await page.click('[data-agent="' + name + '"]');
     await page.waitForSelector('#panel-detail:not([hidden])');
+    // #718: Talk deliberately hides the sidebar Files block on a phone so the conversation
+    // starts first. Profile keeps the Files block on screen, which is the phone surface measured
+    // in Raiden's table and lets this check exercise the real View All door.
+    if (page.viewportSize().width <= 640) {
+      await page.click('#d-nav button[data-go="profile"]');
+      await page.waitForSelector('#d-sec-profile:not([hidden])');
+    }
     // The list has painted (rows), or the painter has decided there is nothing to show (hidden).
     await page.waitForTimeout(600);
     await page.waitForFunction(() => {
@@ -109,7 +116,7 @@ function chk(ok, label, extra) {
     };
   };
   try {
-    for (const [theme, width] of [['light', 1400], ['dark', 1400], ['light', 760]]) {
+    for (const [theme, width] of [['light', 1400], ['dark', 1400], ['light', 760], ['light', 412], ['dark', 412]]) {
       const tag = `[${theme} ${width}]`;
       const page = await browser.newPage({ viewport: { width, height: 950 }, colorScheme: theme });
       await openAgent(page, 'april');
@@ -176,22 +183,47 @@ function chk(ok, label, extra) {
         const h = document.getElementById('d-files-h').getBoundingClientRect();
         const a = all.getBoundingClientRect();
         const sec = document.getElementById('d-files').getBoundingClientRect();
-        return { rows: document.querySelectorAll('#d-files-list .pj-doc').length, all: vis(all), text: all.textContent.trim(),
+        const rowHeights = [...document.querySelectorAll('#d-files-list .pj-doc')].map((el) => Math.round(el.getBoundingClientRect().height));
+        return { rows: rowHeights.length, rowHeights, all: vis(all), text: all.textContent.trim(),
+          allBox: { width: Math.round(a.width), height: Math.round(a.height) },
           sameRow: a.top < h.bottom && a.bottom > h.top, right: a.left > h.right && sec.right - a.right < 24 };
       });
       chk(r.rows === 10 && r.all && r.text === 'View All', `${tag} #3757: more files than it lists: ten rows and View All`, JSON.stringify(r));
       chk(r.sameRow && r.right, `${tag} #3757: View All sits at the right of the Files header`, JSON.stringify(r));
+      if (width === 412) {
+        chk(r.rowHeights.length === 10 && r.rowHeights.every((h) => h >= 44), `${tag} #718: every agent-page file row is at least 44px tall`, JSON.stringify(r));
+        chk(r.allBox.width >= 44 && r.allBox.height >= 44, `${tag} #718: View All has at least a 44px touch target`, JSON.stringify(r));
+      } else if (width === 1400) {
+        chk(r.rowHeights.every((h) => h === 32) && r.allBox.height === 24, `${tag} #718: desktop file row and View All geometry stay unchanged`, JSON.stringify(r));
+      }
+      if (width === 412) {
+        await page3.evaluate(() => document.getElementById('d-files').scrollIntoView({ block: 'start' }));
+        await shot(page3, `718-agent-files-${theme}-412`);
+      }
       if (theme === 'light' && width === 1400) await shot(page3, '3757-3-more-files');
       await page3.click('#d-files-all');
       await page3.waitForTimeout(500);
       const sc = await page3.evaluate(() => {
         const vis = (n) => !!(n && (n.offsetWidth || n.offsetHeight || n.getClientRects().length));
+        const back = document.getElementById('d-files-back').getBoundingClientRect();
+        const rowHeights = [...document.querySelectorAll('#d-filesall-list .pj-doc')].map((el) => Math.round(el.getBoundingClientRect().height));
         return { screen: vis(document.getElementById('d-sec-files')), talk: vis(document.getElementById('d-sec-talk')),
           rows: document.querySelectorAll('#d-filesall-list .pj-doc').length, finder: vis(document.getElementById('d-files-finder')),
-          title: (document.getElementById('d-filesall-h') || {}).textContent, focus: document.activeElement && document.activeElement.id };
+          title: (document.getElementById('d-filesall-h') || {}).textContent, focus: document.activeElement && document.activeElement.id,
+          rowHeights, backBox: { width: Math.round(back.width), height: Math.round(back.height) } };
       });
       chk(sc.screen && !sc.talk && sc.rows === 14 && sc.finder && sc.title === 'Files', `${tag} #3757: View All opens the Files screen: every file, and Open in Finder`, JSON.stringify(sc));
       chk(sc.focus === 'd-sec-files', `${tag} #3757: focus moves to the Files screen`, JSON.stringify(sc));
+      if (width === 412) {
+        chk(sc.rowHeights.length === 14 && sc.rowHeights.every((h) => h >= 44), `${tag} #718: every Files-screen row is at least 44px tall`, JSON.stringify(sc));
+        chk(sc.backBox.width >= 44 && sc.backBox.height >= 44, `${tag} #718: Direct Message back has at least a 44px touch target`, JSON.stringify(sc));
+      } else if (width === 1400) {
+        chk(sc.rowHeights.every((h) => h === 32) && sc.backBox.height === 15, `${tag} #718: desktop Files-screen rows and back geometry stay unchanged`, JSON.stringify(sc));
+      }
+      if (width === 412) {
+        await page3.evaluate(() => document.getElementById('d-files-back').scrollIntoView({ block: 'start' }));
+        await shot(page3, `718-files-screen-${theme}-412`);
+      }
       if (theme === 'light' && width === 1400) {
         await shot(page3, '3757-4-files-screen');
         const before = opened.length;
