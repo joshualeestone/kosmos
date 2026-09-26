@@ -10025,6 +10025,7 @@ window.kosmosMeasureScrollbarWidth();
           <option value="anthropic">Anthropic / Claude</option>
           <option value="openai">OpenAI / Codex</option>
           <option value="google" disabled data-off="Checking your accounts">Google Gemini</option>
+          <option value="antigravity" disabled data-off="Checking Antigravity">Google Gemini (Google subscription)</option>
           <option value="xai" disabled data-off="Checking your accounts">xAI Grok</option>
           <option value="meta" disabled>Meta / Llama &middot; coming soon</option>
           <option value="alibaba" disabled>Alibaba / Qwen &middot; coming soon</option>
@@ -12802,6 +12803,7 @@ window.kosmosMeasureScrollbarWidth();
                  the create path can wire a codex agent end to end now. -->
             <option value="openai">OpenAI / Codex</option>
             <option value="google" disabled data-off="Checking your accounts">Google Gemini</option>
+            <option value="antigravity" disabled data-off="Checking Antigravity">Google Gemini (Google subscription)</option>
             <option value="xai" disabled data-off="Checking your accounts">xAI Grok</option>
             <option value="meta" disabled>Meta / Llama &middot; coming soon</option>
             <option value="alibaba" disabled>Alibaba / Qwen &middot; coming soon</option>
@@ -16817,6 +16819,8 @@ function modelLine(a) {
   /* #3566: a Gemini or Grok agent's model id is its own vendor's, never a Claude one, so
      it is shown as-is (no "Claude " prefix), or as the provider when no id is known. */
   if (a.runner === 'gemini' || a.runner === 'grok') return name || (a.runner === 'gemini' ? 'Gemini' : 'Grok');
+  // #3568: Gemini on a Google subscription (Google's Antigravity CLI) picks its own Gemini model too.
+  if (a.runner === 'antigravity') return name || 'Gemini (Google subscription)';
   /* #149/#150: two states were collapsed into "Unknown Model", and only one
      of them is a fault. No launch file at all means there was never anywhere
      to look, no restart will fill it in, and the wording (ruled on card #150)
@@ -20996,6 +21000,7 @@ function acctProvider(a) {
 }
 /* #3566: the screen's word for a keyed provider id ('openai' -> 'OpenAI'). */
 function switchKeyedWord(p) {
+  if (p === 'antigravity') return 'Gemini (Google subscription)';   // #3568
   return p === 'google' ? 'Gemini' : p === 'xai' ? 'Grok' : 'OpenAI';
 }
 /* #3566: an OpenAI sentence re-said for the picker's provider, so "OpenAI sign-in" becomes
@@ -21011,6 +21016,36 @@ function switchKeyedSay(text, p) {
    failed) they stay OFF too: with no account to send, the engine does not refuse, it
    puts the agent on the machine's own env key, which nobody has checked. `current`
    stays selectable so the menu can show what the agent is on. */
+/* #3568: Gemini on a Google subscription (value 'antigravity') runs on Google's Antigravity CLI,
+   which signs in inside the agent's own window and has no Kosmos account rows. So its option is
+   gated on agy being INSTALLED (GET /api/antigravity, cheap), not on an account: null = not asked
+   yet, true / false = the answer. Asked once, the first time a provider menu paints. */
+let AGY_INSTALLED = null;
+let AGY_ASKING = null;
+function paintAgyOption(sel, current) {
+  const opt = sel && sel.options ? Array.from(sel.options).find((o) => o.value === 'antigravity') : null;
+  if (!opt) return;
+  const on = AGY_INSTALLED === true || current === 'antigravity';
+  opt.disabled = !on;
+  if (on) delete opt.dataset.off;
+  else opt.dataset.off = AGY_INSTALLED === false ? 'Set up in AI Models' : 'Checking Antigravity';
+}
+function agyAsk() {
+  if (AGY_INSTALLED !== null || AGY_ASKING) return;
+  AGY_ASKING = fetch('/api/antigravity', { cache: 'no-store' })
+    .then((r) => (r.ok ? r.json() : null))
+    .then((b) => { AGY_INSTALLED = !!(b && b.installed === true); })
+    .catch(() => { /* stays null: "Checking", never a confident not-installed */ })
+    .finally(() => {
+      AGY_ASKING = null;
+      for (const id of ['d-provider', 'create-provider']) {
+        const sel = document.getElementById(id);
+        const cur = id === 'd-provider' && typeof CURRENT !== 'undefined' && CURRENT ? providerOf(CURRENT) : '';
+        paintAgyOption(sel, cur);
+        if (sel && sel.dataset && sel.dataset.pcombo) sel.value = sel.value;  // eslint-disable-line no-self-assign
+      }
+    });
+}
 function paintKeyedProviderOptions(sel, accounts, known, current, failed) {
   if (!sel || !sel.options) return;
   for (const opt of sel.options) {
@@ -36893,12 +36928,12 @@ async function paintModelPicker(a) {
      list of theirs to offer, so the menu states that as its one option and Switch
      stays down. The Claude flow below would otherwise offer Claude models under a
      Gemini agent, the #2167 "Claude models under an OpenAI agent" shape again. */
-  if (a && (a.runner === 'gemini' || a.runner === 'grok')) {
+  if (a && (a.runner === 'gemini' || a.runner === 'grok' || a.runner === 'antigravity')) {   // #3568: antigravity too
     /* An OpenAI models fetch started for this panel (e.g. just before a switch to Gemini)
        must not land on it, and an OpenAI note must not stay under a Gemini agent. */
     OPENAI_DETAIL_GEN += 1;
     if (msg && msg.textContent) msg.textContent = '';
-    const word = a.runner === 'gemini' ? 'Gemini' : 'Grok';
+    const word = a.runner === 'grok' ? 'Grok' : 'Gemini';   // gemini and antigravity (Gemini by subscription)
     const one = '<option value="" selected>' + esc(word + ' picks its own model') + '</option>';
     if (sel.innerHTML !== one) sel.innerHTML = one;
     sel.dataset.current = '';
@@ -37161,7 +37196,11 @@ function acctMoveWorld(a, accounts) {
      codex agent does among OpenAI's (setGeminiAccount / setGrokAccount accept only those).
      `keyedProvider` is the provider id its runner implies, '' for a Claude agent. Spelled
      inline so this helper stays pure and self-contained. */
-  const keyedProvider = ({ codex: 'openai', gemini: 'google', grok: 'xai' })[a && a.runner] || '';
+  /* #3568: an antigravity agent signs in inside its own window and has no account rows, so its
+     key matches none: the picker offers nothing to move to (the engine refuses a move too). Kept
+     apart from the keyed map, which #3566's pin holds to the key-based providers. */
+  const keyedProvider = (a && a.runner === 'antigravity') ? 'antigravity'
+    : ({ codex: 'openai', gemini: 'google', grok: 'xai' })[a && a.runner] || '';
   const isCodex = keyedProvider === 'openai';
   const isKeyed = !!keyedProvider;
   const isOwnProviderRow = (x) => !!(x && keyedProvider && String(x.provider || '').toLowerCase() === keyedProvider);
@@ -37688,7 +37727,8 @@ const agentShown = () => (CURRENT && (CURRENT.name || CURRENT.sessionName)) || '
 /* #3566: gemini -> google and grok -> xai, the engine's own runner<->provider map
    (create.js providerRunner), so a Gemini agent's switch menu opens on Gemini rather
    than claiming it runs on Claude. One line on purpose: harnesses lift it by `const`. */
-const providerOf = (a) => ((a && a.runner === 'codex') ? 'openai' : (a && a.runner === 'gemini') ? 'google' : (a && a.runner === 'grok') ? 'xai' : 'anthropic');
+const providerOf = (a) => ((a && a.runner === 'codex') ? 'openai' : (a && a.runner === 'gemini') ? 'google' : (a && a.runner === 'grok') ? 'xai'
+  : (a && a.runner === 'antigravity') ? 'antigravity' : 'anthropic');   // #3568: Gemini on a Google subscription
 
 function paintProviderPicker(a) {
   const sel = document.getElementById('d-provider');
@@ -37723,6 +37763,7 @@ function paintProviderPicker(a) {
     if (opt.value === 'anthropic' || opt.value === 'openai') opt.disabled = false;
   }
   paintKeyedProviderOptions(sel, ACCOUNTS, ACCOUNTS_LOADED && !ACCOUNTS_UNREADABLE, current, ACCOUNTS_UNREADABLE);
+  paintAgyOption(sel, current); agyAsk();   // #3568: Gemini by subscription is gated on agy, not an account
   /* An unrecognised provider leaves the select alone rather than silently
      showing the first option as though it were the answer. */
   sel.value = current || '';
@@ -37850,6 +37891,7 @@ function fillSwitchAccounts() {
      all dead) stay OpenAI's: they describe engine behaviour measured for codex. */
   const keyed = ACCT_KEYED_ROUTE[prov.value] ? prov.value : '';
   paintKeyedProviderOptions(prov, ACCOUNTS, ACCOUNTS_LOADED && !ACCOUNTS_UNREADABLE, CURRENT ? providerOf(CURRENT) : '', ACCOUNTS_UNREADABLE);
+  paintAgyOption(prov, CURRENT ? providerOf(CURRENT) : ''); agyAsk();   // #3568
   /* ⚠️ ONLY WHEN THE SWITCH IS ACTUALLY ARMED. paintProviderPicker sets
      #d-provider to the agent's CURRENT provider, so on an agent already running
      on OpenAI this menu would render live and enabled while Switch stays
@@ -38109,6 +38151,7 @@ function fillSwitchAccounts() {
    focus management, aria-expanded/selected/activedescendant/disabled. */
 const PROVIDER_MARK_KEY = {
   anthropic: 'claude', openai: 'openai', google: 'gemini', meta: 'meta',
+  antigravity: 'gemini',   // #3568: Gemini on a Google subscription wears Gemini's mark
   xai: 'xai', alibaba: 'qwen', moonshot: 'kimi', mistral: 'mistral',
   /* #1040 2b: #acct-provider-pick (the Add-a-provider screen) uses the value 'claude'
      where #d-provider uses 'anthropic'; both name the same provider and get the same
@@ -38784,7 +38827,8 @@ document.getElementById('d-provider-go').addEventListener('click', () => {
   const toOther = keyOnlyProvider(sel.value);
   const fromProv = providerOf(CURRENT);
   const fromWord = fromProv === 'anthropic' ? 'Claude' : switchKeyedWord(fromProv);
-  const label = toOpenai ? 'OpenAI' : toOther ? switchKeyedWord(sel.value) : 'Anthropic';
+  const toAgy = sel.value === 'antigravity';   // #3568: Gemini on a Google subscription, no Kosmos account
+  const label = toOpenai ? 'OpenAI' : (toOther || toAgy) ? switchKeyedWord(sel.value) : 'Anthropic';
   changeDialog({
     title: 'Switch ' + agentShown() + ' to ' + label + '?',
     /* The memory sentence is the ruling, said before it happens: what she
@@ -38897,6 +38941,8 @@ document.getElementById('d-provider-go').addEventListener('click', () => {
              if (!ACCOUNTS_LOADED) return 'and it will run on this computer’s OpenAI sign-in, if one is set up.';
              return 'and it runs on this computer’s OpenAI sign-in.';
            })())
+        : toAgy
+          ? 'Its ' + fromWord + ' model and account choices do not cross: Gemini picks its own model, and it signs in with your Google subscription in its own window.'
         : toOther
           ? 'Its ' + fromWord + ' model and account choices do not cross: ' + label + ' picks its own model, '
             + ((() => {
@@ -39063,6 +39109,17 @@ function fillCreateAccounts() {
   const provSel = document.getElementById('create-provider');
   /* #3566: Gemini and Grok are offered only once an account for them is connected. */
   paintKeyedProviderOptions(provSel, CREATE_ACCOUNTS, CREATE_ACCOUNTS_KNOWN, '', CREATE_ACCOUNTS_FAILED);
+  paintAgyOption(provSel, ''); agyAsk();   // #3568
+  /* #3568: Gemini on a Google subscription signs in inside the agent's own window and has no
+     Kosmos account, so there is nothing to pick and no account is sent. Without this, acctProvider
+     reads 'antigravity' as Claude and would list (and send) a Claude account. */
+  if (provSel.value === 'antigravity') {
+    asel.innerHTML = '<option value="" selected></option>';
+    asel.value = '';
+    const arow = document.getElementById('create-account-row');
+    if (arow) arow.hidden = true;
+    return;
+  }
   const openai = provSel.value === 'openai';
   /* #3566: `keyed` covers OpenAI, Gemini and Grok (a pasted key or an OpenAI sign-in);
      the Claude-only memoryShared rule below does not apply to any of them. The list is
@@ -39288,7 +39345,7 @@ function applyCreateProviderUI() {
   /* #3566: Gemini and Grok run their CLI's own default model. Kosmos has no list of
      theirs to offer, so the model row is hidden and NO model is sent (the create body
      sends `model` only when the select has a value), with one line saying who picks. */
-  const other = keyOnlyProvider(pv);
+  const other = keyOnlyProvider(pv) || pv === 'antigravity';   // #3568: Gemini by subscription picks its own model too
   const model = document.getElementById('create-model');
   const acct = document.getElementById('create-account');
   /* Remember a Claude pick before the OpenAI (or Gemini/Grok) branch overwrites #create-model. */
@@ -39423,7 +39480,9 @@ async function changeModelNow(say) {
        failure keep the engine's exact words, because those are different facts. Provider
        is unchanged by a model switch, so it names the agent's current one. */
     const restarted = out.outcome === 'changed';
-    const provName = (providerOf(CURRENT) === 'openai') ? 'OpenAI' : 'Claude';
+    /* #3568: the middle arm names Gemini, Grok and Gemini-by-subscription, which all said "Claude";
+       the short OpenAI | Claude pair either side is what #2612's pin compares. */
+    const provName = (providerOf(CURRENT) === 'openai') ? 'OpenAI' : (providerOf(CURRENT) !== 'anthropic') ? switchKeyedWord(providerOf(CURRENT)) : 'Claude';
     // #2716: build the manual line ONCE and share it with the auto-hello helper (see
     // changeProviderNow), so the content check matches exactly what say() painted.
     const switchShown = agentShown();
@@ -41267,7 +41326,7 @@ async function loadCreateExtras() {
   const pvNow = document.getElementById('create-provider').value;
   if (pvNow === 'openai') {
     paintOpenaiCreateModel();
-  } else if (keyOnlyProvider(pvNow)) {
+  } else if (keyOnlyProvider(pvNow) || pvNow === 'antigravity') {   // #3568
     /* #3566: the Claude fill above does not belong under Gemini/Grok; re-apply their
        no-model shape (hidden row, empty value) through the one provider function. */
     applyCreateProviderUI();

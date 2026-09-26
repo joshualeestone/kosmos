@@ -84,11 +84,13 @@ const worldimport = require('./engine/worldimport'); // #1704 PR4: copy agents f
    dev machine has a real ~/.claude account he depends on for nothing.
    🛑 An unknown runner ('' / 'claude' / undefined) COUNTS as Claude-dependent,
    so a real Claude failure is never hidden; only agents we can POSITIVELY
-   confirm are codex (OpenAI) runners are excluded. No agents at all -> false:
-   a fresh install depends on nothing yet, so the banner stays down. */
+   confirm run on another program are excluded: codex (OpenAI), and since #3568 gemini, grok and
+   antigravity (Gemini on a Google subscription), which also sign in without Claude. No agents at
+   all -> false: a fresh install depends on nothing yet, so the banner stays down. */
+const NOT_CLAUDE_RUNNERS = new Set(['codex', 'gemini', 'grok', 'antigravity']);
 function someAgentNeedsClaude(agentList) {
   return Array.isArray(agentList)
-    && agentList.some((a) => a && a.runner !== 'codex');
+    && agentList.some((a) => a && !NOT_CLAUDE_RUNNERS.has(a.runner));
 }
 
 /**
@@ -1460,7 +1462,8 @@ function sentenceForWhoami(account, model, runner) {
      re-read catching it. ⇒ Reasoning that holds for the live reader does not
      transfer to the record reader, which is the third time on this branch. */
   const isForeign = !!(runner && runner !== 'claude');
-  const named = isForeign ? 'This is a ' + runnerDisplayName(runner) + ' agent, and ' : null;
+  const shown = isForeign ? runnerDisplayName(runner) : '';
+  const named = isForeign ? 'This is ' + (/^[AEIOU]/.test(shown) ? 'an ' : 'a ') + shown + ' agent, and ' : null;   // #3568: "an Antigravity"
   parts.push(acct
     ? (named ? named + 'it runs on ' + acct : 'This agent runs on ' + acct)
     /* 📌 NO REASON GIVEN ON THE FOREIGN ARM, deliberately. The shared `why` blames

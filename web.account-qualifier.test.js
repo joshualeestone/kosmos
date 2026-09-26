@@ -921,7 +921,9 @@ const PROVIDER_SITES = {
   /* #3566: the keyed middle arm (Gemini/Grok name themselves by providerName) sits between
      the two captured short names, which are still the OpenAI | Claude pair this pin compares. */
   qualName: /const qualName = qual \|\| \(isOpenai \? '([^']+)' : isKeyed \? \(a\.providerName \|\| switchKeyedWord\(acctProvider\(a\)\)\) : '([^']+)'\)/,
-  provName: /const provName = \(providerOf\(CURRENT\) === 'openai'\) \? '([^']+)' : '([^']+)'/,
+  /* #3568: like qualName, a middle arm (Gemini, Grok, Gemini by subscription name themselves by
+     switchKeyedWord) sits between the two captured short names this pin compares. */
+  provName: /const provName = \(providerOf\(CURRENT\) === 'openai'\) \? '([^']+)' : \(providerOf\(CURRENT\) !== 'anthropic'\) \? switchKeyedWord\(providerOf\(CURRENT\)\) : '([^']+)'/,
 };
 
 test('#2612: the three short provider-name derivations agree for every provider that exists', () => {

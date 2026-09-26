@@ -112,6 +112,7 @@ function world(pageText, { accounts, unreadable, current, providerValue }) {
     page.liftAll(script, ['esc', 'openaiAllDead', 'accountQualifiers', 'acctChosenName', 'acctPrimaryName', 'fillSwitchAccounts',
       'acctProvider', 'paintKeyedProviderOptions', 'switchKeyedWord', 'switchKeyedSay', 'keyOnlyProvider', 'acctOfferableTarget'])
     + '\n' + page.liftConst(script, 'ACCT_KEYED_ROUTE')
+    + '\nfunction paintAgyOption() {} function agyAsk() {}'   // #3568: the agy option has its own test (web.agy-on-3568)
     + '\n' + page.liftConst(script, 'providerOf')
     + '\n' + page.liftConst(script, 'SWITCH_ACCT_HINT')
     + '\n' + page.liftConst(script, 'SWITCH_ACCT_UNREADABLE')

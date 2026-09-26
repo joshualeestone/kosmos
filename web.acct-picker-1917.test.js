@@ -67,6 +67,7 @@ function runFillCreate(accounts, providerValue) {
       : id === 'create-provider' ? provider : null,
   };
   const factory = new Function('document', 'accounts', `
+    function paintAgyOption() {} function agyAsk() {}   // #3568: the agy option has its own test (web.agy-on-3568)
     ${escSrc}
     ${chosenNameSrc}
     ${primNameSrc}
