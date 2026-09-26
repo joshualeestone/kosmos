@@ -75,6 +75,18 @@ subscription, only now that it is true.
   only after a download. engine/observed.js, listed in "Measured" above, has no runner branching at
   all: that listing was wrong, and nothing there needed a change.
 
+- Review round 5: the create form says to sign in first when Gemini by subscription is picked and not
+  confirmed; every "set it up" points at the real path (Settings, Show the guided setup, then Connect on
+  Gemini); the first-run row reads "subscription or API key today"; the page stops re-asking where it is
+  not offered; the one runner list is create.isNonClaudeRunner; person-facing engine words say Gemini
+  (its models) and Google (its sign-in), while "Antigravity" stays where the board names the program.
+- Deliberate exception, stated: Google's installer script runs without a checksum. Kosmos pins and
+  verifies the runners it packages itself; Google publishes only this script (fetched over https from
+  its fixed URL, saved then run). Its failure says it did not finish, never that nothing changed.
+- Still unmeasured, and to measure on the second Mac Mini before release notes advertise it: what a
+  signed-out agy does under `-p` (the check) and on a cold Terminal start (whether it opens the browser
+  with no keypress). The only agy here is Josh's, signed in; it will not be signed out to find out.
+
 ## Not in this card
 - Reading what an Antigravity agent is doing (status) and its auth-failed copy: #3568's PR 2.
 - Windows: agy is refused there today.

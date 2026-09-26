@@ -4278,7 +4278,7 @@ test('#3568: with the flag on, an Antigravity agent is created on the antigravit
   assert.equal(plistArgs(name)[7], 'gemini-3-pro');
   const auto = create.setModel(name, '');
   assert.equal(plistArgs(name)[7], '');
-  assert.equal(auto.model.label, "Antigravity's default");
+  assert.equal(auto.model.label, "Gemini's default");
 });
 test('#3568: an Antigravity create is refused when agy is missing, when an account is given, and on Windows', () => {
   recorder();

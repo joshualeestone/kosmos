@@ -6756,7 +6756,8 @@ function computeLoginAdvisories(panes, nowMs, opts = {}) {
          grok or antigravity pane reads no Claude credential; filed under the bare Claude account's
          keychain service (its pane has no CLAUDE_CONFIG_DIR), it would be named in a warning about a
          sign-in it does not use. */
-      const onClaude = (p) => !['codex', 'gemini', 'grok', 'antigravity'].includes(p.runner)
+      const nonClaude = require('./create').isNonClaudeRunner;   // the one list (review round 5)
+      const onClaude = (p) => !nonClaude(p.runner)
         && !isAntigravityCommand(p.command) && !isCodexCommand(p.command);   // a pane not yet tagged: its command says
       const agents = panes.filter((p) => isNamedOurs(p) && onClaude(p)).map((p) => ({ name: p.name, target: p.target }));
       return le.agentAdvisories({ agents, readCcd, now: nowMs, readCred: opts.readCred });

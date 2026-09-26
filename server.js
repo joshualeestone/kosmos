@@ -87,10 +87,10 @@ const worldimport = require('./engine/worldimport'); // #1704 PR4: copy agents f
    confirm run on another program are excluded: codex (OpenAI), and since #3568 gemini, grok and
    antigravity (Gemini on a Google subscription), which also sign in without Claude. No agents at
    all -> false: a fresh install depends on nothing yet, so the banner stays down. */
-const NOT_CLAUDE_RUNNERS = new Set(['codex', 'gemini', 'grok', 'antigravity']);
 function someAgentNeedsClaude(agentList) {
+  // create.isNonClaudeRunner is the one list of runners that are not Claude (review round 5).
   return Array.isArray(agentList)
-    && agentList.some((a) => a && !NOT_CLAUDE_RUNNERS.has(a.runner));
+    && agentList.some((a) => a && !require('./engine/create').isNonClaudeRunner(a.runner));
 }
 
 /**

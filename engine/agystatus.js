@@ -144,7 +144,7 @@ function installOnce() {
       done = true; clearTimeout(cap);
       const now = installed();
       resolve(now.installed ? { ok: true, installed: true }
-        : { ok: false, installed: false, because: err ? 'Google\'s Antigravity installer did not finish, so nothing changed' : 'the installer finished but Antigravity was not found where it installs' });
+        : { ok: false, installed: false, because: err ? 'Google\'s Antigravity installer did not finish' : 'the installer finished but Antigravity was not found where it installs' });
     });
   });
 }

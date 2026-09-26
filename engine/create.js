@@ -2077,7 +2077,7 @@ function setModel(name, modelKey, opts) {
        slot is empty) -- and writes an empty model slot. A non-empty id is
        sanity-bounded here; where a live "this account can run it" check exists (OpenAI)
        it is async at the server route. */
-    const vendorLabel = agentProvider === 'openai' ? 'OpenAI' : agentProvider === 'google' ? 'Gemini' : agentProvider === 'antigravity' ? 'Antigravity' : 'Grok';
+    const vendorLabel = agentProvider === 'openai' ? 'OpenAI' : agentProvider === 'google' ? 'Gemini' : agentProvider === 'antigravity' ? 'Gemini' : 'Grok';
     const id = String(modelKey == null ? '' : modelKey).trim();
     if (id !== '') {
       if (!/^[A-Za-z0-9][A-Za-z0-9._:-]{0,79}$/.test(id)) {
@@ -4079,7 +4079,7 @@ function createAgentInner(opts) {
          -- so it leaves modelArg null. A non-empty id is written as the `-m` arg, only
          sanity-bounded here (a bad caller must not write an arbitrary string into the
          launchd job's argv). */
-      const vendorLabel = provider === 'openai' ? 'OpenAI' : provider === 'google' ? 'Gemini' : provider === 'antigravity' ? 'Antigravity' : 'Grok';
+      const vendorLabel = provider === 'openai' ? 'OpenAI' : provider === 'google' ? 'Gemini' : provider === 'antigravity' ? 'Gemini' : 'Grok';
       const id = String(wantModelKey).trim();
       if (id !== '') {
         if (!/^[A-Za-z0-9][A-Za-z0-9._:-]{0,79}$/.test(id)) {

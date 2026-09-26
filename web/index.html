@@ -12080,7 +12080,7 @@ window.kosmosMeasureScrollbarWidth();
                      GPT, appeared inside the API-key form, then vanished again when the
                      form hid itself on success. The order test still passed, because it
                      read source order and not whether a hidden container opened in between. -->
-                <!-- #3422 (Josh's asset, 2026-09-22): the Gemini spark as a single currentColor path, NOT a fixed-id radialGradient. providerMarkNode CLONES the span below into the enhanceProviderSelect combobox; a cloned fill="url(#pmark-gemini-g)" depended on the gradient def living in the (hidden) #firstrun and collided on a duplicated id, so the cloned mark rendered blank in the settings/create picker while the monochrome currentColor marks cloned fine. currentColor also lets it dim/live with .pmark like every other provider mark. This comment is OUTSIDE the .llm row (before the div) so it is neither cloned into every combobox mark nor between the div and span, which web.connect-confirm's row regex requires to be adjacent. --><div class="llm on"><span class="llm-m pmark live" data-pmark="gemini" role="img" aria-label="Gemini"><svg viewBox="0 0 300 300" fill="currentColor" xmlns="http://www.w3.org/2000/svg"><path d="M265.9,134.3c-22.8-9.8-42.7-23.3-59.8-40.4-17.1-17.1-30.6-37-40.4-59.8-3.8-8.7-6.8-17.7-9.1-26.9-.8-3-3.5-5.1-6.6-5.1s-5.8,2.1-6.6,5.1c-2.3,9.2-5.3,18.2-9.1,26.9-9.8,22.8-23.3,42.7-40.4,59.8-17.1,17.1-37,30.6-59.8,40.4-8.7,3.8-17.7,6.8-26.9,9.1-3,.8-5.1,3.5-5.1,6.6s2.1,5.8,5.1,6.6c9.2,2.3,18.2,5.3,26.9,9.1,22.8,9.8,42.7,23.3,59.8,40.4,17.1,17.1,30.6,37,40.4,59.8,3.8,8.7,6.8,17.7,9.1,26.9.8,3,3.5,5.1,6.6,5.1s5.8-2.1,6.6-5.1c2.3-9.2,5.3-18.2,9.1-26.9,9.8-22.8,23.3-42.7,40.4-59.8,17.1-17.1,37-30.6,59.8-40.4,8.7-3.8,17.7-6.8,26.9-9.1,3-.8,5.1-3.5,5.1-6.6s-2.1-5.8-5.1-6.6c-9.2-2.3-18.2-5.3-26.9-9.1Z"/></svg></span><div class="llm-w"><b>Gemini</b><small>Google &middot; API key today</small></div><button class="connect-b" type="button" id="fr-gemini-connect" data-keyed="google" aria-expanded="false" aria-controls="fr-gemini-confirm fr-gemini-pick" aria-label="Connect Gemini">Connect</button></div>
+                <!-- #3422 (Josh's asset, 2026-09-22): the Gemini spark as a single currentColor path, NOT a fixed-id radialGradient. providerMarkNode CLONES the span below into the enhanceProviderSelect combobox; a cloned fill="url(#pmark-gemini-g)" depended on the gradient def living in the (hidden) #firstrun and collided on a duplicated id, so the cloned mark rendered blank in the settings/create picker while the monochrome currentColor marks cloned fine. currentColor also lets it dim/live with .pmark like every other provider mark. This comment is OUTSIDE the .llm row (before the div) so it is neither cloned into every combobox mark nor between the div and span, which web.connect-confirm's row regex requires to be adjacent. --><div class="llm on"><span class="llm-m pmark live" data-pmark="gemini" role="img" aria-label="Gemini"><svg viewBox="0 0 300 300" fill="currentColor" xmlns="http://www.w3.org/2000/svg"><path d="M265.9,134.3c-22.8-9.8-42.7-23.3-59.8-40.4-17.1-17.1-30.6-37-40.4-59.8-3.8-8.7-6.8-17.7-9.1-26.9-.8-3-3.5-5.1-6.6-5.1s-5.8,2.1-6.6,5.1c-2.3,9.2-5.3,18.2-9.1,26.9-9.8,22.8-23.3,42.7-40.4,59.8-17.1,17.1-37,30.6-59.8,40.4-8.7,3.8-17.7,6.8-26.9,9.1-3,.8-5.1,3.5-5.1,6.6s2.1,5.8,5.1,6.6c9.2,2.3,18.2,5.3,26.9,9.1,22.8,9.8,42.7,23.3,59.8,40.4,17.1,17.1,30.6,37,40.4,59.8,3.8,8.7,6.8,17.7,9.1,26.9.8,3,3.5,5.1,6.6,5.1s5.8-2.1,6.6-5.1c2.3-9.2,5.3-18.2,9.1-26.9,9.8-22.8,23.3-42.7,40.4-59.8,17.1-17.1,37-30.6,59.8-40.4,8.7-3.8,17.7-6.8,26.9-9.1,3-.8,5.1-3.5,5.1-6.6s-2.1-5.8-5.1-6.6c-9.2-2.3-18.2-5.3-26.9-9.1Z"/></svg></span><div class="llm-w"><b>Gemini</b><small>Google &middot; subscription or API key today</small></div><button class="connect-b" type="button" id="fr-gemini-connect" data-keyed="google" aria-expanded="false" aria-controls="fr-gemini-confirm fr-gemini-pick" aria-label="Connect Gemini">Connect</button></div>
                 <!-- #3731 (Josh, 0.6.94): Google Gemini connects EXACTLY like GPT, directly under its own row: install
                      first (Confirm / Not now), then the choice, then the sign-in or the key. Same classes, same
                      copy with the name swapped, no command-line talk. The driver is frKeyed* below. -->
@@ -21035,14 +21035,15 @@ function paintAgyOption(sel, current) {
   opt.disabled = !on;
   if (on) delete opt.dataset.off;
   else opt.dataset.off = AGY_OFFERED === false ? 'Not on this computer'
-    : AGY_INSTALLED === false ? 'Set up on the Gemini row in setup' : 'Checking Antigravity';
+    : AGY_INSTALLED === false ? 'Set up in Settings, guided setup' : 'Checking Antigravity';
   if (sel.dataset && sel.dataset.pcombo) sel.value = sel.value;  // eslint-disable-line no-self-assign
 }
 function agyAsk() {
   /* Asked again while it reads not installed (review round 1): a person who installs Antigravity with
      the board open should not have to reload to see the option turn on. The GET is cheap. */
   if (AGY_ASKING) return AGY_ASKING;
-  if (AGY_INSTALLED === true) return Promise.resolve();
+  // Settled for this page: installed, or not offered here at all (review round 5: no re-ask per repaint).
+  if (AGY_INSTALLED === true || AGY_OFFERED === false) return Promise.resolve();
   AGY_ASKING = fetch('/api/antigravity', { cache: 'no-store' })
     .then((r) => (r.ok ? r.json() : null))
     .then((b) => {
@@ -38774,7 +38775,7 @@ async function changeProviderNow(say) {
     const wantOpt = [...sel.options].find((o) => o.value === want);
     if (vendorPicksModel(want) && wantOpt && wantOpt.disabled) {
       const line = want === 'antigravity'
-        ? 'Gemini (Google subscription) is not set up on this computer, so there is nothing to switch onto. Set it up on the Gemini row in setup.'
+        ? 'Gemini (Google subscription) is not set up on this computer, so there is nothing to switch onto. Set it up in Settings: choose Show the guided setup, then Connect on Gemini.'
         : 'There is no ' + switchKeyedWord(want) + ' account connected, so there is nothing to switch onto. Add one in Settings, AI Models.';
       if (msg) { msg.textContent = line; SWITCH_ACCT_SAID = line; }
       tell(line, false);
@@ -39091,7 +39092,7 @@ document.getElementById('d-provider-go').addEventListener('click', () => {
              return 'and it runs on this computer’s OpenAI sign-in.';
            })())
         : toAgy
-          ? 'Its ' + fromWord + ' model and account choices do not cross: Gemini picks its own model, and it runs on your Google subscription through Antigravity. If Antigravity is not signed in yet, sign in on the Gemini row in setup first.'
+          ? 'Its ' + fromWord + ' model and account choices do not cross: Gemini picks its own model, and it runs on your Google subscription through Antigravity. If Antigravity is not signed in yet, sign in first: in Settings, choose Show the guided setup, then Connect on Gemini.'
         : toOther
           ? 'Its ' + fromWord + ' model and account choices do not cross: ' + label + ' picks its own model, '
             + ((() => {
@@ -39510,7 +39511,12 @@ function applyCreateProviderUI() {
     model.value = '';
     const modelRow = document.getElementById('create-model-row');
     if (modelRow) modelRow.hidden = true;
-    if (why) { why.textContent = switchKeyedWord(pv) + ' picks its own model.'; why.hidden = false; }
+    if (why) {
+      why.textContent = switchKeyedWord(pv) + ' picks its own model.'
+        + (pv === 'antigravity' && !FR_AGY_READY
+          ? ' If Antigravity is not signed in yet, sign in first: in Settings, choose Show the guided setup, then Connect on Gemini.' : '');
+      why.hidden = false;
+    }
   } else if (openai) {
     /* #2140: OpenAI now HAS a model picker, per account. paintOpenaiCreateModel
        manages the model row + select + note across its loading/listable/not-listable
@@ -41547,7 +41553,7 @@ async function loadCreateExtras() {
         const back = pv.value === 'openai' ? 'OpenAI' : 'Claude';
         if (why) {
           why.textContent = cur.value === 'antigravity'
-            ? 'Gemini (Google subscription) is not set up on this computer, so this is back on ' + back + '. Set it up on the Gemini row in setup.'
+            ? 'Gemini (Google subscription) is not set up on this computer, so this is back on ' + back + '. Set it up in Settings: choose Show the guided setup, then Connect on Gemini.'
             : known
             ? 'There is no ' + gone + ' account connected, so this is back on ' + back + '. Add one in Settings, AI Models.'
             : 'We could not check your ' + gone + ' accounts just now, so this is back on ' + back + '.';
@@ -57607,7 +57613,7 @@ function asbIsHosted() { return !ASB.guide && ASB.hosted && !ASB.hostedOff; }
 /* #3660 fallback (Josh 2026-09-25 07:22): the guide is there, but the AI it runs on cannot answer (out of credits or
    at a limit, a login it rejects, or unreachable), so this chat is answered by Kosmos's own model until it can. */
 function asbInFallback() { return !!(ASB.guide && ASB.fallback && !ASB.hostedOff); }
-const ASB_FALLBACK_PROVIDER = { codex: 'OpenAI', gemini: 'Gemini', grok: 'Grok', antigravity: 'Antigravity' };   // engine/accountproblem.js's names
+const ASB_FALLBACK_PROVIDER = { codex: 'OpenAI', gemini: 'Gemini', grok: 'Grok', antigravity: 'Google' };   // engine/accountproblem.js's names
 /* The one line, the card's words, then what fixes it, in #3723's words where it has them. */
 function asbFallbackWords(f) {
   const p = ASB_FALLBACK_PROVIDER[f && f.runner] || 'Claude';
