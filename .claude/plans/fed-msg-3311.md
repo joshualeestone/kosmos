@@ -313,3 +313,13 @@ not count).
 ## Round 27 (opus)
 - BLOCKER: an agent's session name could still leave this Mac. `present` means a card exists, not that its name is real: a card with no identity line (or an untied pane) carries the session name as its name. Project members now carry `nameDerived` (the card's own "this is a real name" flag from status.js), and federateOut uses the name only when it is present, derived, and not the session name; otherwise "an agent". Test with a fleet agent that has no display name (a real card whose name is the machine name); control (present only) fails "the session name left this Mac".
 - WARNING: an operator with no saved name was always sent as "the project owner", even from a member's board, so the owner saw a member's post in their own voice. The fallback now follows the link's role: owner "the project owner", member "someone who joined". Test (member link, no you record, sandboxed path confirmed); control fails by name.
+
+## Round 28 (sonnet): no surviving finding
+- WARNING refuted: "a cross-site page passes isViaScreen". crossSiteWrite (server.js) runs for every write before dispatch and refuses any Origin not this board's host:port; a browser always sends Origin on a cross-site POST.
+- NITs accepted: a repeated stat-cached link lookup in federateOut; the file-stayed note scans the memory-resident log once per outbound post (total bound is kosmos#3844).
+
+## Merged origin/main (after round 28)
+PR #3887 conflicted with main's #3745 (room replies) and new browser checks. Resolved: sendPost takes federated and replyTo; the four envelope arms use main's `answers`/`quoteFor` with this branch's `shownProjectAs`; both test blocks kept; the browser-checks list is main's plus render-fed-external-3311; EXPECTED_SITES 164 (main 162 + this branch's 2), measured by browser-checks-reason-grep.test.js (5/5).
+
+## Round 29 (opus): 1 NIT
+- NIT: nothing tested a reply in a shared room, so a future merge could keep `answers` and drop the shared marker unnoticed (this merge nearly did). Test: operator and colleague replies in a shared room, all four arms, each envelope names the answered post and carries the marker. Controls (plain shownProject in the whole-room operator arm, and in the background arm) each fail by name.
