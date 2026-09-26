@@ -103,7 +103,8 @@ function chk(ok, label, extra) {
     const u4b = await dmState();
     chk(u4b.length === 6 && u4b.every((r) => !r.unread), 'U4 and coming back to the window starts the clock: it goes');
 
-    // U5: reduced motion drops the edge without the fade.
+    // U5: reduced motion drops the edge without the fade. While the edge is not drawn (#3967) there is no
+    // transition at all, so this arm cannot fail; U2 guards the fade's return, and this one matters again then.
     await page.emulateMedia({ reducedMotion: 'reduce' });
     const tr5 = await page.evaluate(() => getComputedStyle(document.querySelector('#d-dmthread .msg:not(.you) .msg-bd')).transitionDuration);
     chk(tr5 === '0s', 'U5 with reduced motion there is no fade', tr5);

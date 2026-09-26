@@ -28271,7 +28271,8 @@ function restoreThreadAnchor(el, a) {
   }
   return false;
 }
-/* #3743 (Josh 2026-09-25 09:15): an unread agent message carries a gold edge that fades once it has been read.
+/* #3743 (Josh 2026-09-25 09:15): an unread agent message carries a gold edge that fades once it has been read
+   (the edge is not drawn at present, #3967, see the .msg-bd CSS; this mark is still kept).
    "Unread" is the app's own count (a DM's dmUnread, a project's unread) read as the thread opens, plus any agent
    message that lands while it is open. "Read" is on screen, half of it at least, for a moment while this window is
    in front. Per thread: `known` is every agent message this page has shown there, `fresh` those still unread,
@@ -28339,7 +28340,7 @@ function unreadEdgeTry(bd) {
     bd.__unreadTimer = null;
     if (!bd.isConnected || !bd.__inView || document.visibilityState !== 'visible' || !document.hasFocus()) return;
     if (bd.__unread) { bd.__unread.st.fresh.delete(bd.__unread.id); bd.__unread.st.read.add(bd.__unread.id); }
-    bd.removeAttribute('data-unread');   // the transition fades the edge
+    bd.removeAttribute('data-unread');   // the transition faded the edge (not drawn at present, #3967)
     if (UNREAD_IO) UNREAD_IO.unobserve(bd);
     UNREAD_WATCHED.delete(bd);
   }, UNREAD_EDGE_DWELL);
