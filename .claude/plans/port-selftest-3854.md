@@ -26,6 +26,10 @@ Real use is unaffected: tools/test-install.sh passes ${KOSMOS_SELFTEST_TIMEOUT:-
   than passes without the marker. The BEHIND answering bundles are also run raw, asserting rc 0 and their
   answer, so their premise arms fail on the answer, not a timeout. A quick answer is timed (<= 20s), which
   is what makes QUICK_T free. wait_gone polls up to ~20s.
+- Review round 2: the reap line now reports "never-forked" (a FAIL) when the marker is missing, instead
+  of a PASS for a reap never exercised. Baron Draxum (the test's author) asked for a control that the
+  quick arm hands back the command's own nonzero rc and stdout, not 124: a stub that prints "broke" and
+  exits 3 must come back as 3:broke (a bounded_run that drops the rc fails it, measured).
 
 ## Measured
 - On main's test with the answering stub made to take 3s (standing in for a loaded start): 3 FAIL, the

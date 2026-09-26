@@ -81,6 +81,9 @@ chmod +x "$bhang"
 bexit="$tmp/behind-exit"; printf '#!/bin/bash\nexit 0\n' > "$bexit"; chmod +x "$bexit"
 
 # BEHIND-WRONG: answers the flag but with the WRONG port (a bundle that regressed the value).
+# FAILING: answers the flag but exits nonzero with its own words. bounded_run must hand
+# back THAT rc and stdout, not 124 (Baron Draxum, #3854): passthrough, not a timeout.
+failing="$tmp/failing"; printf '#!/bin/bash\necho broke\nexit 3\n' > "$failing"; chmod +x "$failing"
 bwrong="$tmp/behind-wrong"; printf '#!/bin/bash\necho 9999\nexit 0\n' > "$bwrong"; chmod +x "$bwrong"
 
 # --- bounded_run bounds a hanging bundle AND takes its FORKED child with it --------
@@ -103,7 +106,10 @@ else check "bounded_run did not hang (bounded)" ok "SLOW-${elapsed}s"; fi
 # The FORKED child (not the launcher) is the real test: a naive kill "$pid" reaps the
 # launcher but ORPHANS this; only kill -- -"$pid" (the group) reaps it. So this arm reds
 # a regression back to a launcher-only kill. Poll for our unique marker to disappear.
-check "the FORKED child is reaped by the group-kill (not orphaned)" 0 "$(wait_gone "sleep $FORK")"
+# Only a child that existed can be reaped: without the marker this line fails too, rather
+# than reading PASS for a reap that was never exercised (#3854 review round 2).
+if [ -f "$FORKED" ]; then reaped="$(wait_gone "sleep $FORK")"; else reaped="never-forked"; fi
+check "the FORKED child is reaped by the group-kill (not orphaned)" 0 "$reaped"
 
 # --- bounded_run returns a quick command's output and rc --------------------------
 start=$(date +%s)
@@ -111,6 +117,8 @@ out="$(bounded_run "$QUICK_T" "$cur" --kosmos-app-port-selftest 501)"; rc=$?
 quick=$(( $(date +%s) - start ))
 check "bounded_run returns a quick command's rc" 0 "$rc"
 check "bounded_run returns a quick command's stdout" 16180 "$out"
+out="$(bounded_run "$QUICK_T" "$failing" --kosmos-app-port-selftest 501)"; rc=$?
+check "bounded_run returns a failing command's own rc and stdout, not 124" "3:broke" "$rc:$out"
 # A quick answer returns when it exits, not at the bound: this is what makes QUICK_T free.
 if [ "$quick" -le 20 ]; then check "a quick answer returns before the bound" ok ok
 else check "a quick answer returns before the bound" ok "WAITED-${quick}s"; fi
