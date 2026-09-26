@@ -626,12 +626,16 @@ let failed = 0;
      board on a Mac), picking Gemini asks "Sign in with Google / Use an API key" first, before any
      key box. The key step is then one press away. Where it is not offered, Gemini goes straight to
      the key step as before, so the choice is checked only when it is there. */
-  if (await p.isVisible('#acct-gemini-flow')) {
-    say('#3874 where the subscription is offered, Gemini asks subscription or key first, with no key box yet',
-      (await p.isVisible('#acct-gemini-pick-key')) && (await p.isHidden('#acct-apikey-flow')));
+  const geminiToKey = async (report) => {
+    if (!(await p.isVisible('#acct-gemini-flow'))) return;
+    if (report) {
+      say('#3874 where the subscription is offered, Gemini asks subscription or key first, with no key box yet',
+        (await p.isVisible('#acct-gemini-pick-key')) && (await p.isHidden('#acct-apikey-flow')));
+    }
     await p.click('#acct-gemini-pick-key');
     await p.waitForTimeout(600);
-  }
+  };
+  await geminiToKey(true);
   say('#3566 picking Gemini reveals the API-key step, and only it',
     (await p.isVisible('#acct-apikey-flow')) && (await p.isHidden('#acct-openai-flow')) && (await p.isHidden('#acct-claude-flow')));
   const head = (await p.innerText('#acct-apikey-head')).trim();
@@ -661,7 +665,8 @@ let failed = 0;
     lateMsg === '' && !lateSuccess, JSON.stringify({ lateMsg, lateSuccess }));
   // And the ordinary path: Gemini picked, key added, the gold box, the field emptied.
   await p.selectOption('#acct-provider-pick', 'google');
-  await p.waitForTimeout(150);
+  await p.waitForTimeout(400);
+  await geminiToKey(false);   // #3874: the same choice again, this time straight through it
   await p.fill('#acct-apikey-key', 'AIzaSy-browsercheck-not-a-real-key-1111');
   await p.click('#acct-apikey-go');
   await p.waitForSelector('#acct-success-box', { state: 'visible', timeout: 8000 });
