@@ -691,7 +691,7 @@ async function forgetNow() {
   // A register killed mid-certificate (or any partial one) has registered the Mac
   // at the coordinator and left its key and id here, without the certificate
   // enrolled() needs. It can still sign a retire, so it is retired too.
-  const canRetire = was.enrolled || ['mac_id', 'mac_key'].every((f) => fs.existsSync(path.join(STATE_DIR(), f)));
+  const canRetire = was.enrolled || halfRegistered();
   stopChild();
   let retired = false;
   let because = null;
@@ -749,8 +749,7 @@ async function setupStart(email) {
 async function setupComplete(code, name) {
   // #3827: the older Settings setup writes the same state directory as the in-app
   // register, so it takes the same guards.
-  if (registerInFlight) return { ok: false, because: 'this computer is still signing in; give it a minute' };
-  if (forgetting) return { ok: false, because: 'this computer is being forgotten; try again in a moment' };
+  { const b = busy(); if (b) return b; }
   const settings = read();
   if (!settings.email) return { ok: false, because: 'start with the email step' };
   // #1010: a reinstall whose state SURVIVED is already set up -- do not re-enrol.
@@ -788,14 +787,22 @@ async function setupComplete(code, name) {
     return { ok: false, because: 'the name is 3 to 32 letters, digits or hyphens' };
   }
   secureStateDir();
-  const result = await setupRun([
-    'setup', 'complete',
-    '--coordinator', COORDINATOR(),
-    '--email', settings.email,
-    '--code', String(code),
-    '--name', name,
-    '--state-dir', STATE_DIR(),
-  ]);
+  // Tracked like the in-app register (Forget waits for it; nothing else starts
+  // beside it), bounded the same, and a half identity is retired first.
+  const running = (async () => {
+    await clearHalfIdentity();
+    return setupRun([
+      'setup', 'complete',
+      '--coordinator', COORDINATOR(),
+      '--email', settings.email,
+      '--code', String(code),
+      '--name', name,
+      '--state-dir', STATE_DIR(),
+    ], null, registerTimeoutMs());
+  })();
+  registerInFlight = running;
+  let result;
+  try { result = await running; } finally { if (registerInFlight === running) registerInFlight = null; }
   if (result.ok) ensure(localPort);
   // fed gate: cache the coordinator standing if this setup response carried one.
   if (result.ok && result.data && typeof result.data === 'object') fedSetStanding(result.data.standing);
@@ -1053,9 +1060,8 @@ const SIGNIN_CANCELLED = { ok: false, because: 'the sign-in was cancelled' };
     reveals nothing about whether the account exists. A fresh start abandons any
     half-finished flow. */
 async function signinStart(email, deviceName) {
-  if (forgetting) return { ok: false, because: 'this computer is being forgotten; try again in a moment' };
   // A register still out would clear this new sign-in's session when it finishes.
-  if (registerInFlight) return { ok: false, because: 'this computer is still signing in; give it a minute' };
+  { const b = busy(); if (b) return b; }
   if (typeof email !== 'string' || !email.includes('@')) {
     return { ok: false, because: 'that does not look like an email address' };
   }
@@ -1077,6 +1083,7 @@ async function signinStart(email, deviceName) {
 /** Step two: hand back the emailed code. The answer is a finished session, a
     phone challenge (`stage: "second"`), or an enrolment prompt. */
 async function signinVerify(email, code, deviceName) {
+  { const b = busy(); if (b) return b; }
   if (typeof email !== 'string' || !email.includes('@')) {
     return { ok: false, because: 'that does not look like an email address' };
   }
@@ -1102,6 +1109,7 @@ async function signinVerify(email, code, deviceName) {
 /** Step three (only after `verify` returned `stage: "second"`): the phone code,
     checked against the challenge held here. On success, a session. */
 async function signinSecond(code) {
+  { const b = busy(); if (b) return b; }
   if (!signinSession || typeof signinSession.challenge !== 'string') {
     return { ok: false, because: 'start the sign-in again: there is no phone step waiting' };
   }
@@ -1126,6 +1134,7 @@ async function signinSecond(code) {
     sms the masked `sent_to` tail the code went to. The full phone number never
     comes back -- only the masked tail travels. */
 async function signinEnrol(kind, phone) {
+  { const b = busy(); if (b) return b; }
   if (!signinSession || typeof signinSession.enrolToken !== 'string') {
     return { ok: false, because: 'start the sign-in again: there is no enrolment waiting' };
   }
@@ -1213,6 +1222,7 @@ async function signinEnrol(kind, phone) {
     person's FIRST session, which absorbSession captures exactly like verify /
     second, so the wizard proceeds to `register`. */
 async function signinConfirmEnrol(code) {
+  { const b = busy(); if (b) return b; }
   if (!signinSession || typeof signinSession.enrolToken !== 'string') {
     return { ok: false, because: 'start the sign-in again: there is no enrolment waiting' };
   }
@@ -1252,6 +1262,18 @@ const registerTimeoutMs = () => {
 // coordinator accepted it. It is registered there, so registering again would strand
 // it (or meet "already owns the name"); Forget retires it.
 const halfRegistered = () => !enrolled() && ['mac_id', 'mac_key'].every((f) => fs.existsSync(path.join(STATE_DIR(), f)));
+async function clearHalfIdentity() {
+  if (!halfRegistered()) return;
+  const r = await setupRun(['retire', '--coordinator', COORDINATOR(), '--state-dir', STATE_DIR()], null, registerTimeoutMs());
+  if (!r.ok) process.stderr.write('remote: an unfinished earlier sign-in could not be retired at Kosmos+ (' + r.because + '); its address may show on the account page until it is removed there\n');
+  try { fs.rmSync(STATE_DIR(), { recursive: true, force: true }); } catch { /* the register writes it again */ }
+  secureStateDir();
+}
+function busy() {
+  if (registerInFlight) return { ok: false, because: 'this computer is still signing in; give it a minute' };
+  if (forgetting) return { ok: false, because: 'this computer is being forgotten; try again in a moment' };
+  return null;
+}
 /* #3827: signing in IS asking to be reachable, so a successful register switches
    Kosmos+ on. A failed save is logged: the Mac is registered either way, and the
    switch then still says off. */
@@ -1274,11 +1296,7 @@ async function signinRegister(name) {
   // page gives up waiting long before a register with a certificate is done, and a
   // Try again must not start a second into the same directory), and none while
   // this computer is being forgotten.
-  if (registerInFlight) return { ok: false, because: 'this computer is still signing in; give it a minute' };
-  if (forgetting) return { ok: false, because: 'this computer is being forgotten; try again in a moment' };
-  if (halfRegistered()) {
-    return { ok: false, because: 'an earlier sign-in on this computer did not finish; choose Forget this computer, then sign in again' };
-  }
+  { const b = busy(); if (b) return b; }
   // #1010/#1003: a surviving state dir already at this name IS this Mac. Do not
   // re-register -- it would mint a fresh identity key and spend a scarce
   // certificate for this Mac's own previous life. Recognise it, bring the tunnel
@@ -1310,8 +1328,14 @@ async function signinRegister(name) {
   // Like every other step: a Sign out (or a Forget) that lands while register is
   // waiting on the connector must not be followed by this turning Kosmos+ on.
   const epoch = signinEpoch;
-  const running = setupRun(['signin', 'register', '--coordinator', COORDINATOR(),
-    '--name', name, '--state-dir', STATE_DIR()], signinSession.token, registerTimeoutMs());
+  const token = signinSession.token;
+  const running = (async () => {
+    // An earlier register that stopped after the coordinator accepted it (key and
+    // id, no certificate) is retired first, so this one does not strand it.
+    await clearHalfIdentity();
+    return setupRun(['signin', 'register', '--coordinator', COORDINATOR(),
+      '--name', name, '--state-dir', STATE_DIR()], token, registerTimeoutMs());
+  })();
   registerInFlight = running;
   let r;
   try { r = parseSaid(await running); } finally { if (registerInFlight === running) registerInFlight = null; }

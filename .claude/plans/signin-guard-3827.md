@@ -34,3 +34,12 @@ Weakest premise: Forget can now take up to the register bound (60s) when a regis
 
 ## Round 4 review (sonnet)
 - BLOCKER: signinStart did not refuse while a register was in flight; the finishing register then cleared the new sign-in's session ("finish the code steps first"). It refuses now, like setupComplete and signinRegister. Test; control fails.
+
+## Round 5 review (opus)
+- BLOCKER: the half-identity refusal sent the person to "Forget this computer", which no screen offers (and any certificate failure leaves a half identity, not only the bound). No dead end now: a register (in-app or Settings) retires the half identity first and proceeds. Test: a retry after a killed register succeeds, retire before register.
+- WARNING: setupComplete was not tracked or bounded: now registerInFlight + registerTimeoutMs, like the in-app register, so Forget waits for it and nothing starts beside it.
+- WARNING: setupComplete had no half-identity handling: it clears it first too.
+- WARNING: signinVerify/Second/Enrol/ConfirmEnrol did not refuse while a register was out or while forgetting. One busy() check now heads every sign-in step and setupComplete. Test covers the four steps.
+- NIT: "key and id exist" has one definition (halfRegistered), used by forgetNow too.
+- Controls: without clearHalfIdentity fails "not retired before the new register"; without busy() in signinVerify fails "verify ran while a register was out" (that run then hung and was killed).
+- Two new-test expectations fixed: a sign-in during Forget with a register still out gets "still signing in" (busy checks the register first); the call-name map read "retire --coordinator".

@@ -1083,10 +1083,6 @@ test('#3827: a register killed after writing the key and id (mid-certificate) is
     assert.equal(killed.ok, false, 'fixture: the register was killed by its bound');
     assert.equal(remote.enrolled(), false, 'fixture: no certificate, so not enrolled');
     fs.rmSync(RECORD, { force: true });
-    // Before Forget, a second register is refused: the half identity is registered at the coordinator.
-    const again = await remote.signinRegister('hers');
-    assert.equal(again.ok, false, 'a register ran over a half-registered identity');
-    assert.match(again.because, /did not finish/);
     const got = await remote.forget();
     assert.equal(recorded().filter((c) => c[0] === 'retire').length, 1, 'a Mac with a key and id at the coordinator was not retired');
     assert.ok(got.retired, 'Forget did not report the retire: ' + got.because);
@@ -1114,7 +1110,7 @@ test('#3827: a second register while one is in flight is refused, and so is a si
     const forgetting = remote.forget();                 // waits for `first`
     const during = await remote.signinStart('her@example.com');
     assert.equal(during.ok, false, 'a sign-in started while this computer was being forgotten');
-    assert.match(during.because, /being forgotten/);
+    assert.match(during.because, /being forgotten|still signing in/);
     await first;
     await forgetting;
     assert.equal(remote.enrolled(), false);
@@ -1182,6 +1178,49 @@ test('#3827: the older Settings setup is refused while a register is in flight',
     const setup = await remote.setupComplete('123456', 'other');
     assert.equal(setup.ok, false, 'the Settings setup wrote the state dir beside an in-flight register');
     assert.match(setup.because, /still signing in/);
+    await racing;
+  } finally { delete process.env.FAKE_TUNNEL_MODE; }
+});
+
+test('#3827: a register after one cut off mid-certificate retires the half identity first, with no dead end', async () => {
+  process.env.AGENT_WORKFORCE_TUNNEL_RELAY = '127.0.0.1:9444';
+  process.env.FAKE_TUNNEL_MODE = 'partial-register';
+  process.env.AGENT_WORKFORCE_REGISTER_TIMEOUT_MS = '1500';
+  try {
+    await remote.signinStart('her@example.com');
+    await remote.signinVerify('her@example.com', '111111');
+    const killed = await remote.signinRegister('hers');
+    assert.equal(killed.ok, false, 'fixture: the register was killed by its bound');
+    delete process.env.FAKE_TUNNEL_MODE;
+    fs.rmSync(RECORD, { force: true });
+    const again = await remote.signinRegister('hers');
+    assert.equal(again.ok, true, 'the retry hit a dead end: ' + again.because);
+    const calls = recorded().map((c) => (c[0] === 'signin' ? 'signin ' + c[1] : c[0]));
+    assert.ok(calls.indexOf('retire') >= 0 && calls.indexOf('retire') < calls.indexOf('signin register'), 'the half identity was not retired before the new register: ' + JSON.stringify(calls));
+  } finally {
+    delete process.env.FAKE_TUNNEL_MODE;
+    delete process.env.AGENT_WORKFORCE_REGISTER_TIMEOUT_MS;
+    remote.setOn(false);
+  }
+});
+
+test('#3827: every sign-in step is refused while a register is out', async () => {
+  process.env.AGENT_WORKFORCE_TUNNEL_RELAY = '127.0.0.1:9444';
+  process.env.FAKE_TUNNEL_MODE = 'slow-register';
+  try {
+    await remote.signinStart('her@example.com');
+    await remote.signinVerify('her@example.com', '111111');
+    const racing = remote.signinRegister('hers');
+    for (const [label, step] of [
+      ['verify', () => remote.signinVerify('her@example.com', '111111')],
+      ['second', () => remote.signinSecond('123456')],
+      ['enrol', () => remote.signinEnrol('totp')],
+      ['confirm', () => remote.signinConfirmEnrol('123456')],
+    ]) {
+      const r = await step();
+      assert.equal(r.ok, false, label + ' ran while a register was out');
+      assert.match(r.because, /still signing in/, label);
+    }
     await racing;
   } finally { delete process.env.FAKE_TUNNEL_MODE; }
 });
