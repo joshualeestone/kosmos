@@ -70,6 +70,7 @@ function setKnownSecrets(values) {
      is 12 characters or more). */
   knownByPrefix = new Map();
   knownByOpening = new Map();
+  knownGrams = new Set();
   const walked = new Set();
   for (const f of knownForms) {
     const k = f.slice(0, 8);
@@ -86,6 +87,36 @@ function setKnownSecrets(values) {
     const cut = Math.max(w.lastIndexOf('-', 15), w.lastIndexOf('_', 15));
     if (cut > 0) addWalked(w.slice(cut + 1), walked);
   }
+  /* Every FRAGMENT_LEN-character slice of each held value as given (not its encodings, which would multiply the
+     index), for fragmentsIn (review round 19). A word-shaped value is left out, as the walk leaves it out. */
+  for (const v of Array.isArray(values) ? values.slice(0, MAX_KNOWN_VALUES) : []) {
+    if (typeof v !== 'string') continue;
+    const w = v.trim().replace(NOT_KEY_CHARS, '');
+    if (w.length < FRAGMENT_LEN || w.length > WORD_WALK_MAX_FORM || madeOfWords(w)) continue;
+    /* Not the public prefix (sk-ant-api03 is itself 12 characters, and the whole guide names it): slices start
+       after the last - or _ in the first 16 characters, as the prefix-less walk does. */
+    const cut = Math.max(w.lastIndexOf('-', 15), w.lastIndexOf('_', 15));
+    for (let i = cut + 1; i + FRAGMENT_LEN <= w.length; i += 1) knownGrams.add(w.slice(i, i + FRAGMENT_LEN));
+  }
+}
+/* #3935 (review round 19): a key whose first chunk is under OPENING_LEN starts no walk, and the rest can sit in
+   the reply as one run (Zq then 8vLm3pRt6wXy9kHb2nWc4d: 22 of 24 characters). Any run holding FRAGMENT_LEN
+   consecutive characters of a held value is masked whole. That many consecutive characters of a random value
+   do not turn up in ordinary text by chance, and the shortest value held at all is this long. */
+const FRAGMENT_LEN = 12;
+let knownGrams = new Set();
+function fragmentsIn(text) {
+  const spans = [];
+  if (!knownGrams.size) return spans;
+  for (const m of text.matchAll(/[A-Za-z0-9_+/=-]{12,}/g)) {
+    /* A run that is itself words (a webhook URL's com/api/webhooks/, which a guide names) is ordinary text. */
+    if (madeOfWords(m[0])) continue;
+    const run = m[0].length > 4096 ? m[0].slice(0, 4096) : m[0];   // a key is far shorter; bounded per run
+    for (let i = 0; i + FRAGMENT_LEN <= run.length; i += 1) {
+      if (knownGrams.has(run.slice(i, i + FRAGMENT_LEN))) { spans.push([m.index, m.index + m[0].length]); break; }
+    }
+  }
+  return spans;
 }
 function addWalked(w, walked) {
   if (w.length < 12 || w.length > WORD_WALK_MAX_FORM || walked.has(w) || madeOfWords(w)) return;
@@ -228,11 +259,12 @@ function normalisedCopy(text) {
  *
  * Not covered:
  *  - pieces out of order or reversed;
- *  - an opening piece shorter than OPENING_LEN characters;
+ *  - an opening piece shorter than OPENING_LEN characters, when the rest is split again into runs under
+ *    FRAGMENT_LEN (a longer rest is masked by fragmentsIn);
  *  - a held value madeOfWords takes for words and numbers;
  *  - a partial try (one that never completes) with under PARTIAL_MIN characters after its opening, counted in
  *    non-word pieces of OPENING_LEN or more; a try that reaches it is masked piece by piece;
- *  - glue in the middle of a run other than - or _ between chunks and a label joined with = or a hyphen;
+ *  - glue in the middle of a run other than - or _ between chunks and a label joined by =, - or _ on either side;
  *  - a held form over WORD_WALK_MAX_FORM characters;
  *  - a key split across two replies (the mask is per message).
  */
@@ -241,7 +273,9 @@ function normalisedCopy(text) {
    that may have missed a key, and this file errs toward masking. What reaches it (review round 5): one held
    value near WORD_WALK_MAX_FORM whose opening the reply repeats a few hundred times (each mention looks ahead
    over about 4x the value), or thousands of held values sharing an opening that the reply repeats. What fills it
-   grows with (held forms sharing an opening) x (mentions of that opening in the reply). Measured
+   grows with (held forms sharing an opening) x (mentions of that opening in the reply). Measured with random keys
+   (review round 19), five held Anthropic keys and guide prose naming sk-ant-api03- each time: withheld in 6 of
+   20 trials at 400 mentions (49,000 characters), 1 of 20 at 160, never at 80 or fewer. Earlier measurement:
    well inside it: a 50,000-character reply with five held Anthropic keys and 400 sk-ant-api03- mentions. Measured
    reaching it (review round 13): ten held Anthropic keys and a 36,000-character reply repeating a paragraph that
    names sk-ant-api03- 200 times, withheld; whether it trips depends on the keys' random next characters. */
@@ -275,6 +309,12 @@ function pieceVariants(run) {
   let tails = 0;
   for (let k = trimmed.length - 1 - OPENING_LEN; k > 0 && tails < 4; k -= 1) {
     if (trimmed[k] === '-' || trimmed[k] === '_') { out.add(trimmed.slice(k + 1)); tails += 1; }
+  }
+  /* And the heads before a - or _, from the START, up to four (review round 19): a label glued AFTER the piece
+     (Zq8vLm3p-part1, Zq8vLm3p_a), as = is already handled on both sides. */
+  let heads = 0;
+  for (let k = OPENING_LEN; k < trimmed.length - 1 && heads < 4; k += 1) {
+    if (trimmed[k] === '-' || trimmed[k] === '_') { out.add(trimmed.slice(0, k)); heads += 1; }
   }
   out.delete('');
   return [...out];
@@ -354,6 +394,8 @@ function wordSkippingSpans(text) {
       const { byNext, maxLen } = group;
       if (!maxLen) continue;
       if (!nonSpaceBefore) countNonSpace();
+      /* q indexes the VARIANT, which is the run or a slice of it with glue taken off the front, so `from` is at
+         or before the true opening: it can only mask a little more (a glued label), never less. */
       const from = runFrom + q;
       /* Only a form whose next character begins some run in reach can ever advance. */
       const live = new Set();
@@ -461,6 +503,9 @@ function nonSpaceIn(text, from, to, cap = Infinity) {
   return n;
 }
 const WITHHELD = `${'••••'} (Kosmos removed a password or key from this message.)`;
+/* When the search for a split key ran out of its budget (review round 19): nothing may have been found, so the
+   message is withheld, and it does not claim a key was removed. */
+const UNCHECKED = `${'••••'} (Kosmos could not finish checking this message for passwords or keys, so it is not shown.)`;
 const MAX_KNOWN_VALUES = 2000;
 
 /* A sign-in inside a link, scheme://user:password@host: the password is masked, the rest kept. */
@@ -567,8 +612,9 @@ function mask(text) {
     }
     /* #3935: and with WORDS between the pieces, which neither copy above can skip. */
     const words = wordSkippingSpans(original);
-    if (!words) { hit('split_search_limit'); return { text: WITHHELD, fired: report() }; }
+    if (!words) { hit('split_search_limit'); return { text: UNCHECKED, fired: report() }; }
     for (const s of words) spans.push(s);
+    for (const s of fragmentsIn(original)) spans.push(s);
   }
   if (norm !== original) {
     /* A match in the copy counts only if no match of the same pattern in the text itself is the same
@@ -653,4 +699,4 @@ function describeFired(fired) {
   return fired.map((f) => `${f.kind} x${f.count}`).join(', ');
 }
 
-module.exports = { MASK, WITHHELD, mask, describeFired, setKnownSecrets, knownSecretCount };
+module.exports = { MASK, WITHHELD, UNCHECKED, mask, describeFired, setKnownSecrets, knownSecretCount };

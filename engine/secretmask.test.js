@@ -126,7 +126,7 @@ test('#3769 a long reply cannot make the mask backtrack (it runs on the board\'s
 
 /* ---- follow-up: Ice Cream Kitty's review ----------------------------------------------------------- */
 
-const { WITHHELD, setKnownSecrets } = require('./secretmask');
+const { WITHHELD, UNCHECKED, setKnownSecrets } = require('./secretmask');
 
 test('#3769 a key the board holds is masked however it is written: raw, hex, base64 (padded or not), base64url', () => {
   const held = j('sk-ant-', 'api03-', 'HeldByTheBoard0123456789abcdefXYZ');
@@ -388,7 +388,7 @@ test('#3935 the word walk is bounded: a reply built to keep thousands of held fo
     /* Unbounded, the walk alone cost 9.6 seconds here. Bounded it costs about 18ms; most of what remains
        (about 600ms) is the separator copies' held-value search, which costs the same without this change. */
     assert.ok(ms < 1500, `a ${bad.length}-character adversarial reply cost ${Math.round(ms)}ms of CPU`);
-    assert.equal(r.text, WITHHELD, 'a search cut short by the budget must not return the text it could not finish checking');
+    assert.equal(r.text, UNCHECKED, 'a search cut short by the budget must not return the text it could not finish checking');
     assert.deepEqual(r.fired, [{ kind: 'split_search_limit', count: 1 }]);
   } finally { setKnownSecrets([]); }
 });
@@ -451,7 +451,7 @@ test('#3935 the look-ahead is charged per run visited, so repeating a held value
     /* The charge is what decides it (raising WORD_WALK_BUDGET in secretmask.js changes this test's answer): 10,000 openings each looking ahead over hundreds of runs spend the budget,
        and the reply is withheld whole. That is the stated price of the bound on a reply built this way
        (it holds no key); uncharged, the scan ran to the end instead. */
-    assert.equal(r.text, WITHHELD);
+    assert.equal(r.text, UNCHECKED);
     assert.deepEqual(r.fired, [{ kind: 'split_search_limit', count: 1 }]);
   } finally { setKnownSecrets([]); }
 });
@@ -529,7 +529,7 @@ test('#3935 every distinct opening scanned is charged, so many openings sharing 
     assert.ok(ms < 600, `a ${reply.length}-character reply of distinct openings cost ${Math.round(ms)}ms of CPU`);
     /* 10,000 distinct openings each scanning 2,000 forms spend the budget: withheld whole, the stated price
        (the budget is WORD_WALK_BUDGET in secretmask.js). Uncharged, the scan ran to the end instead. */
-    assert.equal(r.text, WITHHELD);
+    assert.equal(r.text, UNCHECKED);
   } finally { setKnownSecrets([]); }
 });
 
@@ -582,7 +582,7 @@ test('#3935 a comparison is charged by its length: held values sharing a long pr
     const ms = cpuMillisecondsOf(() => { r = mask(reply); });
     /* Charged by length, two such openings spend the budget (the budget is WORD_WALK_BUDGET in secretmask.js);
        counted per comparison only, all 120 ran to the end, 1.5 to 2.4 seconds on the reviewer's machine. */
-    assert.equal(r.text, WITHHELD, `the long comparisons were not charged (${Math.round(ms)}ms)`);
+    assert.equal(r.text, UNCHECKED, `the long comparisons were not charged (${Math.round(ms)}ms)`);
   } finally { setKnownSecrets([]); }
 });
 
@@ -856,4 +856,41 @@ test('#3935 text dense with - _ and = but no held opening costs little (review r
     /* A ceiling, not a pin: measured 76ms here with variants built lazily against 118ms built for every run. */
     assert.ok(ms < 4 * baseline + 100, `a ${reply.length}-character glue-dense reply cost ${Math.round(ms)}ms against ${Math.round(baseline)}ms with one unrelated held value`);
   } finally { setKnownSecrets([]); }
+});
+
+test('#3935 a label glued AFTER a piece with - or _ does not hide it (review round 19)', () => {
+  const held = 'Zq8vLm3pRt6wXy9kHb2nWc4d';
+  setKnownSecrets([held]);
+  try {
+    for (const text of ['Zq8vLm3p-part1 then Rt6wXy9k-part2 then Hb2nWc4d-part3', 'Zq8vLm3p_a then Rt6wXy9k_b then Hb2nWc4d_c']) {
+      const out = mask(text).text;
+      for (const c of held.match(/.{8}/g)) assert.ok(!out.includes(c), `the piece ${c} survived: ${out}`);
+    }
+  } finally { setKnownSecrets([]); }
+});
+
+test('#3935 a first chunk too short to open a walk does not leave the rest readable (review round 19)', () => {
+  setKnownSecrets(['Zq8vLm3pRt6wXy9kHb2nWc4d']);
+  try {
+    const out = mask('Zq then 8vLm3pRt6wXy9kHb2nWc4d').text;
+    assert.ok(!out.includes('8vLm3pRt6wXy') && !out.includes('Hb2nWc4d'), `the remainder survived: ${out}`);
+  } finally { setKnownSecrets([]); }
+  setKnownSecrets(['Zq8vLm3pRt6wXy9kHb2n']);
+  try {
+    const out = mask('Start Zq8 then vLm3pRt6wXy9kHb2n end').text;
+    assert.ok(!out.includes('vLm3pRt6wXy9'), `the remainder survived: ${out}`);
+    assert.ok(out.startsWith('Start ') && out.endsWith(' end'), out);
+  } finally { setKnownSecrets([]); }
+  /* CONTROL: ordinary prose, long words included, is not fragment-matched. */
+  setKnownSecrets(['Zq8vLm3pRt6wXy9kHb2nWc4d']);
+  try {
+    const prose = 'Set this aside; the configuration file and its documentation live in settings.';
+    assert.equal(mask(prose).text, prose);
+  } finally { setKnownSecrets([]); }
+});
+
+test('#3935 a reply the budget stops is withheld with words that do not claim a key was found (review round 19)', () => {
+  assert.notEqual(UNCHECKED, WITHHELD);
+  assert.match(UNCHECKED, /could not finish checking/);
+  assert.doesNotMatch(UNCHECKED, /removed a password/);
 });
