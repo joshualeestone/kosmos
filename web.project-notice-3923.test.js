@@ -136,6 +136,9 @@ test('#3923: a Try again that came back with the same answer says so on the row,
   // Another project painting (where leo is fine) does not forget it here.
   pjNotice(rows({ leo: 'told' }), 'p2');
   assert.match(text(pjNotice(r, 'p1')), /It still did not work\./, 'browsing another project forgot the retry here');
+  // The answer changes (some other re-tell) and later comes back: no retry happened, so no "still".
+  pjNotice(rows({ leo: 'its instructions are already at the size limit' }), 'p1');
+  assert.doesNotMatch(pjNotice(r, 'p1'), /still did not work/, 'a mark outlived a changed answer and came back with it');
   // A different answer after the retry is new information, not "still".
   assert.doesNotMatch(pjNotice(rows({ leo: 'its instructions are already at the size limit' }), 'p1'), /still did not work/);
 });

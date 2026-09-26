@@ -43787,7 +43787,11 @@ function pjNotice(roster, projectId) {
   // does not open with "It still did not work".
   const mine = pjNoticeKey(projectId, '');
   for (const k of [...PJ_NOTICE_TRIED.keys()]) {
-    if (k.startsWith(mine) && !failing.some((m) => pjNoticeKey(projectId, m.sessionName) === k)) PJ_NOTICE_TRIED.delete(k);
+    if (!k.startsWith(mine)) continue;
+    const m = failing.find((x) => pjNoticeKey(projectId, x.sessionName) === k);
+    // Gone, or a different answer now: the retry's answer is over, so a later return of the same
+    // reason (from some other re-tell) is not "still".
+    if (!m || String(m.told.because || '') !== PJ_NOTICE_TRIED.get(k)) PJ_NOTICE_TRIED.delete(k);
   }
   if (!failing.length) return '';
   const solo = failing.length === 1;
