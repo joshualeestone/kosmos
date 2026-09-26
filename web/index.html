@@ -41607,7 +41607,12 @@ async function loadCreateExtras() {
       const pref = readCreatePrefs();
       /* #3568 (review round 8): a saved Gemini-by-subscription pick waits for the "installed?" read
          (started a moment ago, unawaited, by fillCreateAccounts) before it is judged restorable. */
-      if (pref && pref.provider === 'antigravity') { await agyAsk(); paintAgyOption(document.getElementById('create-provider'), ''); }
+      if (pref && pref.provider === 'antigravity') {
+        await agyAsk();
+        // A reopened form, or a provider the person picked while this read ran, wins (review round 9).
+        if (gen !== EXTRAS_GEN || CREATE_PROVIDER_TOUCHED) return;
+        paintAgyOption(document.getElementById('create-provider'), '');
+      }
       /* The saved provider must (a) name an ENABLED provider option and (b) have a usable
          account for it. (a) mirrors the import guard (~line 34503): a coming-soon or unknown
          provider left in localStorage (a hand-edit, or a future provider rename) has a

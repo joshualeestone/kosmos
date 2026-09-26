@@ -291,6 +291,6 @@ test('#3568: an install whose answer never came says it may still be installing,
 test('#3568: a saved Gemini-by-subscription create pick waits for the installed read before it is judged (review round 8)', () => {
   const at = PAGE.indexOf('      const pref = readCreatePrefs();');
   const next = PAGE.slice(at, at + 600);
-  assert.match(next, /if \(pref && pref\.provider === 'antigravity'\) \{ await agyAsk\(\); paintAgyOption\(document\.getElementById\('create-provider'\), ''\); \}/);
+  assert.match(next, /if \(pref && pref\.provider === 'antigravity'\) \{\s*await agyAsk\(\);[\s\S]{0,160}if \(gen !== EXTRAS_GEN \|\| CREATE_PROVIDER_TOUCHED\) return;/);
   assert.ok(PAGE.lastIndexOf('async function loadCreateExtras', at) > PAGE.lastIndexOf('\nfunction ', at), 'the restore must sit inside the async loadCreateExtras');
 });

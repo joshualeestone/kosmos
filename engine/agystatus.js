@@ -119,7 +119,11 @@ let runInstall = (done) => {
   const clean = () => { try { fs.rmSync(dir, { recursive: true, force: true }); } catch { /* best effort */ } };
   execFile('/usr/bin/curl', ['-fsSL', '--proto', '=https', '-o', script, INSTALL_URL], { timeout: 60000, killSignal: 'SIGKILL' }, (err) => {
     if (err) { clean(); done(err); return; }
-    const child = execFile('/bin/bash', [script], { cwd: dir, timeout: INSTALL_MS, killSignal: 'SIGKILL', env: { ...process.env, HOME: os.homedir() } }, (err2) => { clean(); done(err2); });
+    /* Only what an installer needs, never the board's own environment (review round 9: its keys and
+       settings are not Google's script's business). */
+    const env = {};
+    for (const k of ['PATH', 'HOME', 'USER', 'LOGNAME', 'SHELL', 'TMPDIR', 'LANG']) if (process.env[k]) env[k] = process.env[k];
+    const child = execFile('/bin/bash', [script], { cwd: dir, timeout: INSTALL_MS, killSignal: 'SIGKILL', env }, (err2) => { clean(); done(err2); });
     // Nothing is typed into it (review round 3): a step that prompts reads end-of-input and moves on.
     if (child && child.stdin) child.stdin.end();
   });
