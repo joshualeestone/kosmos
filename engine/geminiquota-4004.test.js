@@ -67,6 +67,9 @@ test('#4004 CONTROLS: the words in tool output, a quoted dialog, a newer turn, a
   const quoted = ['✦ Checking the stuck agent', '│ $ tmux capture-pane -p -t other', DIALOG, '⠏ Thinking (esc to cancel, 3s)', ' *   Type your message or @path/to/file'].join('\n');
   const q = status.classify(gem, quoted);
   assert.ok(!(q.state === 'rate_limited' && q.quotaDialog === true), 'a quoted dialog read as this agent\'s question: ' + JSON.stringify(q));
+  // Another pane's quota ERROR in a working agent's tool output, spinner and composer below it.
+  const quotedErr = ['✦ Checking the other agent', '│ ✕ [API Error: You have exhausted your daily quota on this model.]', '│', '⠏ Thinking (esc to cancel, 4s)', ' *   Type your message or @path/to/file'].join('\n');
+  assert.notEqual(status.classify(gem, quotedErr).state, 'rate_limited', 'a quoted quota error read as this agent\'s limit');
   // A grep that prints the phrase is not Gemini's error line.
   const grep = ['✦ Searching', 'engine/status.js:1590: const GEMINI_QUOTA_ERROR = /exhausted your daily quota/', ' *   Type your message or @path/to/file'].join('\n');
   assert.notEqual(status.classify(gem, grep).state, 'rate_limited', 'grep output read as the daily limit');
@@ -87,6 +90,8 @@ test('#4004: the 3-option variant (Switch to <model> / Upgrade / Stop) is the qu
     '│ ● 1. Switch to gemini-2.5-flash-lite              │\n│   2. Upgrade for higher limits                   │\n│   3. Stop                                        │');
   const c = status.classify(gem, three);
   assert.equal(c.quotaDialog, true, JSON.stringify(c));
+  assert.equal(status.geminiStopKey(three), '3', 'the key for Stop was not read off the 3-option question');
+  assert.equal(status.geminiStopKey(DIALOG), '2');
 });
 
 test('#4004: the question on screen stands over a fresh report the agent filed itself (it cannot be working through it)', () => {
@@ -100,13 +105,19 @@ test('#4004: the question on screen stands over a fresh report the agent filed i
 });
 
 test('#4004: the card and the manager are told in plain words, with the reset and the two ways out', () => {
-  const c = status.classify(gem, DIALOG);
-  const p = accountProblemOf({ name: 'Gem', runner: 'gemini', state: 'rate_limited', because: c.because, limitFrom: c.limitFrom });
+  // After Stop: Gemini's own "exhausted your daily quota" line is the free daily limit.
+  const c = status.classify(gem, AFTER_STOP);
+  const p = accountProblemOf({ name: 'Gem', runner: 'gemini', state: 'rate_limited', because: c.because, limitFrom: c.limitFrom, quotaDialog: c.quotaDialog });
   assert.ok(p && p.notify === true, JSON.stringify(p));
   assert.match(p.text, /Google's free daily limit for Gem's API key is used up/);
   assert.match(p.text, /midnight Pacific/);
   assert.match(p.text, /Google AI Studio/);
   assert.match(p.text, /Google Gemini \(Google subscription\)/);
+  // While only the question is up, the limit may not be the free daily one: said neutrally, no midnight promise.
+  const d = status.classify(gem, DIALOG);
+  const q = accountProblemOf({ name: 'Gem', runner: 'gemini', state: 'rate_limited', because: d.because, limitFrom: d.limitFrom, quotaDialog: d.quotaDialog });
+  assert.match(q.text, /reached a Google usage limit/);
+  assert.doesNotMatch(q.text, /midnight|free daily/);
   // CONTROL: another Gemini usage limit (not the daily one) keeps the general wording.
   const other = accountProblemOf({ name: 'Gem', runner: 'gemini', state: 'rate_limited', because: 'its screen mentions a usage limit', limitFrom: null });
   assert.doesNotMatch(other.text, /free daily limit/);

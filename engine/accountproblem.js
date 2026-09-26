@@ -48,6 +48,14 @@ function accountProblemOf(card) {
      (status.js geminiQuotaReading), so it is firm. Said the way Josh asked: what happened, when it resets, and the
      two ways out. Google's free-tier daily limits reset at midnight Pacific time. */
   if (card.state === 'rate_limited' && card.runner === 'gemini' && card.limitFrom === 'gemini') {
+    /* While only Gemini's question is up, the limit may be the free daily one or another (a billed key's cap, a model
+       with no free quota), so it is said neutrally; Kosmos answers the question Stop. Gemini's own "exhausted your
+       daily quota" line, shown after that, is the free daily limit, and gets the reset and the two ways out. */
+    if (card.quotaDialog === true) {
+      const text = `${who} has reached a Google usage limit for its API key, so it has stopped. Kosmos is answering`
+        + ' Gemini\'s question about it; add billing to the key in Google AI Studio, or use Google Gemini (Google subscription).';
+      return { kind: 'usage', provider: 'Gemini', notify: true, text, summary: text };
+    }
     const head = `Google's free daily limit for ${who}'s API key is used up, so it has stopped.`;
     const todo = ' It resets at midnight Pacific time, or add billing to the key in Google AI Studio, or use Google Gemini'
       + ' (Google subscription) instead. It picks up again on the next message after that.';
