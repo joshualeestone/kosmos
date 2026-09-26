@@ -656,3 +656,12 @@ test('#3851: a project whose createdAt cannot be read decides nothing', async ()
   assert.strictEqual(h.spawned.length, 1);
   assert.strictEqual(federation.linkFor('proj-unknown').project_created, '2026-09-01T00:00:00.000Z');
 });
+
+test('#3851: a legacy link is stamped with the createdAt the check was made on, read once', async () => {
+  federation.recordLink('proj-once', { role: 'member', edge_id: 'edge-once' });
+  let reads = 0;
+  const h = harness({ createdAt: () => { reads += 1; return reads === 1 ? '2026-09-21T00:00:00.000Z' : undefined; } });
+  await fedseats.ensure('proj-once');
+  assert.strictEqual(federation.linkFor('proj-once').project_created, '2026-09-21T00:00:00.000Z', 'the stamp came from a second read');
+  assert.strictEqual(h.spawned.length, 1);
+});

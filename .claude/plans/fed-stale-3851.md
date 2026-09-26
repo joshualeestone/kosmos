@@ -18,3 +18,6 @@ Card: kosmos#3851 (two follow-ups deferred from the #3311 federation review, rou
 - [NIT] until the next ensure pass, the room prompt, the room's `federated` flag and federateOut still read the raw link. FIXED: one `fedseats.linkFor` (null on a stale stamp) that all four server readers and fedseats.post use. The create route keeps the raw read on purpose: it clears whatever link is on the id.
 - [NIT] in dark mode the outside disc took the theme's generic avatar fill (a higher-specificity rule). FIXED with a higher-specificity selector; the browser check asserts no fill in both themes. Control: the old selector fails [dark] by name.
 - [NIT] the outside avatar and name kept a pointer cursor with nothing to open. FIXED; asserted in the browser check (which caught my first selector losing to `.msg:not(.you) .msg-av`).
+
+## Round 2 review (sonnet): 1 WARNING
+- [WARNING] the unstamped branch read projectCreatedAt a second time for the value it wrote, so the stamp written was not the value checked (and could be undefined). FIXED: stampOf returns { state, born } and the stamp is written from born. Test: a createdAt that answers only on its first read still stamps that value. Control (the second read) fails by name.

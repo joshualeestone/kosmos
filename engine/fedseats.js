@@ -311,13 +311,15 @@ function logUnreadable(err) {
    post in it would leave this Mac with no join ever made. So a link carries the
    createdAt of the project it was made for (`project_created`). 'stale' is a
    stamp that names another project; 'unstamped' is a link from before the stamp;
-   anything else, including a createdAt that cannot be read, is 'ok'. */
+   anything else, including a createdAt that cannot be read, is 'ok'. `born` is
+   the one createdAt read the verdict was made on, so a stamp written from it is
+   the value that was checked. */
 function stampOf(projectId, link) {
-  if (!link || !deps || typeof deps.projectCreatedAt !== 'function') return 'ok';
+  if (!link || !deps || typeof deps.projectCreatedAt !== 'function') return { state: 'ok', born: null };
   const born = deps.projectCreatedAt(projectId);
-  if (typeof born !== 'string' || !born) return 'ok';
-  if (typeof link.project_created !== 'string') return 'unstamped';
-  return link.project_created === born ? 'ok' : 'stale';
+  if (typeof born !== 'string' || !born) return { state: 'ok', born: null };
+  if (typeof link.project_created !== 'string') return { state: 'unstamped', born };
+  return { state: link.project_created === born ? 'ok' : 'stale', born };
 }
 
 /** The link for a project, or null when there is none or it was left by an
@@ -325,7 +327,7 @@ function stampOf(projectId, link) {
     when the record cannot be read. Every reader outside this module asks here. */
 function linkFor(projectId) {
   const link = federation.linkFor(projectId);
-  return stampOf(projectId, link) === 'stale' ? null : link;
+  return stampOf(projectId, link).state === 'stale' ? null : link;
 }
 
 function safeLink(projectId) {
@@ -345,14 +347,14 @@ async function ensure(projectId, edges) {
      (weakest point: a reuse that happened before this shipped is stamped as if
      it were the original). */
   const stamp = stampOf(projectId, link);
-  if (stamp === 'stale') {
+  if (stamp.state === 'stale') {
     stop(projectId);
     try { federation.forgetLink(projectId); } catch { /* retried on the next check */ }
     console.error('#3851: a shared-project link was left from an earlier project with the id ' + JSON.stringify(projectId) + '; it is dropped, and the project here stays local');
     return null;
   }
-  if (stamp === 'unstamped') {
-    try { federation.recordLink(projectId, Object.assign({}, link, { project_created: deps.projectCreatedAt(projectId) })); } catch { /* stamped on the next check */ }
+  if (stamp.state === 'unstamped') {
+    try { federation.recordLink(projectId, Object.assign({}, link, { project_created: stamp.born })); } catch { /* stamped on the next check */ }
   }
   if (typeof deps.enrolled === 'function' && !deps.enrolled()) return null;
   if (typeof deps.projectExists === 'function' && !deps.projectExists(projectId)) {
