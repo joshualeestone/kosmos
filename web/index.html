@@ -19939,10 +19939,12 @@ async function tick() {
      * The honest thing to say here is smaller: this agent is not on the board
      * any more, so nothing on this screen should offer to change it.
      */
-    for (const id of ['d-file', 'd-remove', 'd-save', 'd-role', 'd-rename', 'd-instr', 'd-instr-save', 'd-start-agent']) {
+    /* #4038: 'd-file-btn' with 'd-file': the visible button called .click() on the disabled hidden input, a silent no-op. */
+    for (const id of ['d-file', 'd-file-btn', 'd-remove', 'd-save', 'd-role', 'd-rename', 'd-instr', 'd-instr-save', 'd-start-agent']) {
       const el = document.getElementById(id);
       if (el) el.disabled = true;
     }
+    document.getElementById('d-file-btn')?.setAttribute('aria-describedby', 'd-withdrawn');
     REMOVE_ASK = null;
     const start = document.getElementById('d-remove-start');
     if (start) start.hidden = true;
@@ -32562,11 +32564,17 @@ function setWritesOffered(a, tied) {
   //
   // Skipping the LOAD was never enough: nothing clears what the previous card
   // left behind.
-  const controls = ['d-file', 'd-remove', 'd-save', 'd-role', 'd-rename', 'd-instr', 'd-instr-save'];
+  /* #4038 (Josh, 09-26: "Change picture ... doesn't seem to be working"): the VISIBLE button goes with the hidden input.
+     It was left out, so on an untied card it stayed live and its .click() on the disabled input did nothing: no
+     picker, no message. Disabled, it names the sentence that says why (aria-describedby), and only while disabled: a
+     hidden element still describes whatever points at it, so a live button must not point at a stale reason. */
+  const controls = ['d-file', 'd-file-btn', 'd-remove', 'd-save', 'd-role', 'd-rename', 'd-instr', 'd-instr-save'];
   for (const id of controls) {
     const el = document.getElementById(id);
     if (el) el.disabled = !tied;
   }
+  const fileBtn = document.getElementById('d-file-btn');
+  if (fileBtn) { if (tied) fileBtn.removeAttribute('aria-describedby'); else fileBtn.setAttribute('aria-describedby', 'd-untied'); }
 
   if (!tied) {
     // Clear, don't just disable. A disabled textarea still SHOWS the text.
@@ -33370,6 +33378,9 @@ document.getElementById('detail-back').addEventListener('click', () => {
 
 document.getElementById('d-file').addEventListener('change', async (e) => {
   const f = e.target.files && e.target.files[0];
+  /* #4038: cleared at once, so choosing the SAME file again (after a failure, or to redo it) fires change again; left
+     set, the second choice of that file was another silent no-op. */
+  e.target.value = '';
   if (!f || !CURRENT) return;
   const msg = document.getElementById('d-msg');
   // Same capture-and-recheck as the instruction save. Without it, uploading a
