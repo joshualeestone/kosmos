@@ -45,8 +45,11 @@ let base;
 test.before(async () => { await start(0); base = `http://127.0.0.1:${server.address().port}`; });
 test.after(async () => {
   server.closeAllConnections();
-  server.close();
-  fs.rmSync(SANDBOX, { recursive: true, force: true });
+  // #3867: wait for the close, then remove with retries. Under a loaded full suite the board
+  // can still be writing into SANDBOX (its own timers outlive the socket), and rmSync walking a
+  // directory that gains a file throws ENOTEMPTY; alone the race never shows.
+  await new Promise((res) => server.close(res));
+  fs.rmSync(SANDBOX, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
 });
 
 const TOKEN = 'hetzner-token-long-enough-to-be-real-0123456789';
