@@ -2137,9 +2137,7 @@ cmd_feedback() {
         const dir = process.env.KOSMOS_PULL_DIR || "";
         fp.pull(dir || undefined).then((r) => {
           if (!r.ok) { console.error(r.because); process.exit(1); }
-          process.stdout.write("pulled " + r.written + " report(s)"
-            + (r.skipped ? " (" + r.skipped + " skipped)" : "")
-            + " to " + r.dir + "\n");
+          for (const line of fp.summaryLines(r)) process.stdout.write(line + "\n");
           process.stdout.write("next: kosmos feedback triage --dir " + r.dir + "\n");
         }).catch(() => { console.error("could not pull the collected feedback"); process.exit(1); });
       ' "$KOSMOS_HOME/app"
