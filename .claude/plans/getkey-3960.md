@@ -18,3 +18,7 @@ Every place Kosmos asks for a provider's API key (Settings > AI Models > Add a p
 - Screen-reader text names the provider ("opens Google's key page in your browser"); the first-run buttons carry it too.
 - Tests pin all four addresses and scan for every provider's key-page domain outside the table.
 - Accepted: the first-run buttons ship `href="#"` until the page script sets them (a page whose script failed is already broken); a literal fallback would be a second copy of the table.
+
+## Review round 2
+- BLOCKER fixed: render-openai-key-step compared the whole button text to "Get a key", and the new screen-reader span made it "Get a key (opens ...)". That check is not in gated.txt (it takes a board URL and runs outside the PR gate), so CI would have stayed green and a later run would have gone red. It now reads the visible words only and also checks the address against KEY_PAGES.openai. Not run here: it needs a board serving this branch at a URL, and the local board serves main; fixed by reading and syntax-checked. The sweep for other exact "Get a key" readers found none (web tests 1796/1796).
+- The surface headers of render-openai-key-step and render-claude-connect-choice-2433 name the new getkey ids.

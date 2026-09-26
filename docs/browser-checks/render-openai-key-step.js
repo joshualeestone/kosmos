@@ -1,4 +1,4 @@
-// Browser-check-surface: fr-openai-go fr-openai-key
+// Browser-check-surface: fr-openai-go fr-openai-key fr-openai-getkey
 /**
  * The OpenAI key step, rebuilt to its approved design (#1207).
  *
@@ -64,7 +64,11 @@ function check(name, pass, detail) {
       return {
         hasGet: Boolean(get), hasBack: Boolean(back),
         href: get ? get.getAttribute('href') : null,
-        getText: get ? get.textContent.trim() : null,
+        // The VISIBLE words only: #3960 added screen-reader text inside the button ("opens OpenAI's key
+        // page in your browser"), which textContent includes.
+        getText: get ? Array.from(get.childNodes).filter((n) => n.nodeType === 3).map((n) => n.textContent).join('').trim() : null,
+        // #3960: the address comes from the page's one table of key pages.
+        want: typeof KEY_PAGES === 'object' ? KEY_PAGES.openai : null,
         copy: t ? t.textContent.trim() : null, hasT: Boolean(t),
         boxed: cs.borderTopWidth !== '0px' && cs.backgroundColor !== 'rgba(0, 0, 0, 0)',
         border: cs.borderTopWidth, bg: cs.backgroundColor,
@@ -85,7 +89,8 @@ function check(name, pass, detail) {
       seen.hasT && seen.tBox.w > 0 && /^Download complete\. You will need an OpenAI API key to finish\./.test(seen.copy || ''),
       seen.hasT ? (seen.copy || '').slice(0, 64) + '…' : 'no identified copy element exists');
     check(`${engine}: there is a Get-a-key button to platform.openai.com`,
-      seen.hasGet && seen.getText === 'Get a key' && /^https:\/\/platform\.openai\.com\//.test(seen.href || ''),
+      seen.hasGet && seen.getText === 'Get a key' && /^https:\/\/platform\.openai\.com\//.test(seen.href || '')
+        && (!seen.want || seen.href === seen.want),
       `"${seen.getText}" -> ${seen.href}`);
     check(`${engine}: it all sits in a bounding box, like the prior step`,
       seen.boxed, `border ${seen.border}, background ${seen.bg}`);
