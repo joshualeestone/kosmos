@@ -4355,17 +4355,19 @@ function swarmField(profile, agentName, exactSession) {
   try {
     const swarm = require('./swarm');
     if (!swarm.settingsOf(profile)) return null;
-    const belongs = workdirBelongs(agentName);
-    const owns = (file) => {
-      const cwd = transcriptCwd(file);
-      return belongs && cwd != null ? belongs(cwd) : null;
-    };
     let calibration = null;
-    if (swarm.settingsOf(profile)) {
-      try { calibration = require('./allowance').readCalibration(claudeAccountDirOf(agentName)); } catch { calibration = null; }
-    }
-    return swarm.cardField(profile, () => transcriptFor(agentName, exactSession), undefined, owns, calibration);
+    try { calibration = require('./allowance').readCalibration(claudeAccountDirOf(agentName)); } catch { calibration = null; }
+    return swarm.cardField(profile, () => transcriptFor(agentName, exactSession), undefined, ownsFor(agentName), calibration);
   } catch { return null; }
+}
+
+/** The meter's `owns` for an agent: whether a session file in its folder is this agent's (see swarmField). */
+function ownsFor(agentName) {
+  const belongs = workdirBelongs(agentName);
+  return (file) => {
+    const cwd = transcriptCwd(file);
+    return belongs && cwd != null ? belongs(cwd) : null;
+  };
 }
 
 /**
@@ -7607,7 +7609,7 @@ module.exports = {
   countAgents, needsPerson, projectsUnreadTotal, snapshot, paneRoster, readPanes, isParseable, classify, isNamedOurs,
   /* #3532: exported so the pane-filter + advisory wiring is testable with injected deps. */
   computeLoginAdvisories,
-  rank, paneOrder, modelDisplayName, readIdentity, transcriptFor, readCodexContext, claudeAccountDirOf,
+  rank, paneOrder, modelDisplayName, readIdentity, transcriptFor, readCodexContext, claudeAccountDirOf, ownsFor,
   codexLastCompletionAt,
   // #3296 observability follow-on: the Gemini completion-time helper (wired into
   // snapshot's GOOGLE observation arm; exported for the direct-caller/test path).

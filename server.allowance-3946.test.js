@@ -116,6 +116,23 @@ test('#3946 sweep: an account with no swarm on it is still calibrated, so its fi
   assert.equal(allowance.readCalibration(dir, now).tokensPerPoint, 1e6, 'an account with no swarm was not calibrated');
 });
 
+test('#3946 claudeAccountDirOf: the job\'s account, the default home when it names none, null for no job or another runner', () => {
+  const status = require('./engine/status');
+  const accounts = require('./engine/accounts');
+  assert.equal(status.claudeAccountDirOf('nobody-here'), null, 'an agent with no job has no account');
+  const acct = account('acct-dirof');
+  lead('dirof-named', { role: 'pm' }, acct);
+  assert.equal(status.claudeAccountDirOf('dirof-named'), acct);
+  lead('dirof-default', { role: 'pm' }, null);
+  assert.equal(status.claudeAccountDirOf('dirof-default'), path.join(accounts.HOME_FOR_TEST, '.claude'));
+  const pp = create.plistPath('dirof-codex');
+  fs.mkdirSync(path.dirname(pp), { recursive: true });
+  fs.mkdirSync(create.workerDir('dirof-codex'), { recursive: true });
+  fs.writeFileSync(pp, create.plistFor('dirof-codex', '/bin/codex', '/bin/tmux', 'gpt', acct, 'codex'));
+  assert.equal(create.readJob('dirof-codex').runner, 'codex', 'CONTROL: the fixture job is not a codex one');
+  assert.equal(status.claudeAccountDirOf('dirof-codex'), null, 'a codex agent was given a Claude account');
+});
+
 test('#3946 /api/accounts says which Claude account is calibrated', async () => {
   const def = path.join(process.env.AGENT_WORKFORCE_HOME, '.claude');
   fs.mkdirSync(def, { recursive: true });

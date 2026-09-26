@@ -2553,7 +2553,7 @@ function calibrateSwarmAllowances(roster, now = Date.now(), tokensFor = null) {
     let n = 0;
     if (c.swarm && Number.isFinite(c.swarm.tokensToday)) n = c.swarm.tokensToday;
     else {
-      try { n = tokensFor ? tokensFor(c.sessionName) : swarmMod.meter(status.transcriptFor(c.sessionName), now).tokensToday; } catch { n = 0; }
+      try { n = tokensFor ? tokensFor(c.sessionName) : swarmMod.meter(status.transcriptFor(c.sessionName), now, status.ownsFor(c.sessionName)).tokensToday; } catch { n = 0; }
     }
     tokens.set(dir, (tokens.get(dir) || 0) + (Number.isFinite(n) ? n : 0));
   }
