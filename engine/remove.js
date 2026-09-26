@@ -147,9 +147,11 @@ function commandsAreReal() { return !!runner || liveExec.liveExecutionAllowed();
 let lastBootstrap = null;
 /* #4006: how long a restart waits before trying its job's bootstrap a second time. bootout returns
    before launchd has finished unloading the job, and a bootstrap sent into that gap can answer
-   "already loaded" (5, treated as success) for a job that is then gone. `let`: tests shorten it. */
-let RELAUNCH_RETRY_MS = 2000;
-function setRelaunchRetryMsForTests(ms) { RELAUNCH_RETRY_MS = ms; }
+   "already loaded" (5, treated as success) for a job that is then gone. The env is the test seam only. */
+function relaunchRetryMs() {
+  const v = Number(process.env.AGENT_WORKFORCE_RELAUNCH_RETRY_MS);
+  return Number.isFinite(v) && v >= 0 ? v : 2000;
+}
 function sleepMs(ms) { if (ms > 0) Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms); }
 
 function run(file, args) {
@@ -1971,7 +1973,7 @@ function restartInner(name, cause, platform, startIfDead) {
      reload, while a bootstrap by hand minutes later worked at once. Only when the file is still
      there (a missing one cannot be bootstrapped at all). */
   if (!loaded && !ops.win32 && !ops.startableGone(clean, job)) {   // the Mac's bootout/bootstrap race only
-    sleepMs(RELAUNCH_RETRY_MS);
+    sleepMs(relaunchRetryMs());
     const again = step('asked it to start once more', () => ops.startNow(clean, job));
     loaded = again && step('confirmed its job is loaded on the second try', () => ops.loaded(clean, job, before));
   }
@@ -2068,7 +2070,6 @@ function forget(name) {
 module.exports = {
   plan,
   restart,
-  setRelaunchRetryMsForTests,   // #4006: test seam for the second-try wait
   unsafeToActOn,
   isHidden,
   hidesCard,   // #2651: the ONE board-visibility predicate, so server.js stops re-implementing it

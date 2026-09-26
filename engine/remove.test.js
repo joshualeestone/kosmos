@@ -27,7 +27,7 @@ process.on('exit', () => {
 });
 
 const remove = require('./remove');
-remove.setRelaunchRetryMsForTests(0);   // #4006: no real wait before the second try, in tests
+process.env.AGENT_WORKFORCE_RELAUNCH_RETRY_MS = '0';   // #4006: no real wait before the second try, in tests
 const create = require('./create');
 const status = require('./status');
 /* #2615: the shared, both-directions-tested comment stripper (#1080), so the
