@@ -28,6 +28,23 @@ Card: joshualeestone/kosmos#3947 (Josh, #admin, 2026-09-26 07:41 CDT).
 - The HOSTED guide (before a model is connected) runs on kosmos-relay `coordinator/prompts/setup-assistant.md`, a second
   copy of the rule; it gets the same change on relay branch guide-greeting-3947 (separate PR, relay deploy).
 
+## Item 5 (Josh, 2026-09-26 08:13, added to the card)
+"If I click on the assistant and hit the X on him and haven't typed a message, and I do that twice, then it should
+prompt me to close the agent forever."
+- The setup-assistant setting gains `idleCloses` (a whole number, 0..100) and `kept` (boolean), validated by the type
+  of each default; the server settings test and the SETTING unit tests pin the new shape.
+- Page: an opening that ends in X with nothing sent (the existing asbDidNothing rule) is counted in the board's
+  settings, so it survives a restart. The second offers "Hide the guide for good?" (Hide it / Keep it, "You can bring
+  it back in Settings > Computer"). Hide it = the existing forever-off switch (on:false). Keep it = kept:true, never
+  offered again. A sent message sets the count to 0. The very first X keeps its one-time Close for now / Close forever
+  question; answering "Close for now" on an idle opening counts as the first.
+- This REPLACES the 09-25 rule that asked on every idle close (Josh's 08:13 ruling is newer).
+- Browser check B7c rewritten: first idle close counts and just closes; second offers; Keep it; Hide it; a send
+  resets. Threshold and send-reset each perturbed: red.
+- Decided: "Keep it" never asks again (the card allowed "or at most much later"); simplest, and the Settings switch
+  still turns it off. Weakest premise: that Josh did not see the old every-idle-close ask; if he did and still wants
+  this, the count is what he asked for either way.
+
 ## Rejected
 - Serving the greeting to the page from the engine (a new API field): more surface than a pinned literal for one line.
 - Leaving existing guides alone: the reported behaviour is from an existing guide, so the fix would not reach Josh.

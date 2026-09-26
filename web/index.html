@@ -58699,7 +58699,7 @@ const ASB_OPEN_POLL_MS = 5000;     // the thread, while the chat is open (the ag
 const ASB_FOLDED_POLL_MS = 60000;  // the thread, while folded, only to light the reply dot
 const ASB_FIND_FIRST_MS = 5000;    // looking for the guide again: 5s, doubling to a minute, until one is named
 const ASB_FIND_MAX_MS = 60000;
-let ASB = { started: false, guide: null, setting: null, open: false, asking: false, sentThisOpen: false, draftAtOpen: '', nudgeGone: false,
+let ASB = { started: false, guide: null, setting: null, open: false, asking: false, offering: false, sentThisOpen: false, draftAtOpen: '', nudgeGone: false,
   wroteOnce: false, heard: null, fallback: null, replyIds: null, lastPoll: 0, screenKey: '', sending: false, dot: false,
   nextFind: 0, findEvery: ASB_FIND_FIRST_MS, finding: false, shown: '', readOnce: false,
   nextSetting: 0, settingEvery: ASB_FIND_FIRST_MS, settingReading: false,
@@ -58840,6 +58840,11 @@ function asbLayerEnsure() {
     /* #3758 (Josh 2026-09-25 11:07): his words, verbatim. */
     +     '<button type="button" id="asp-close-off">Close forever</button>'
     +     '<small>You can turn it back on under Settings&nbsp;&gt;&nbsp;Computer</small></div>'   /* held together, so the path does not break */
+    /* #3947 (Josh, 2026-09-26 08:13): the second open-and-close with nothing sent offers to hide it for good. */
+    +   '<div class="asp-ask" id="asp-hide" hidden><b>Hide the guide for good?</b>'
+    +     '<button type="button" class="pri" id="asp-hide-yes">Hide it</button>'
+    +     '<button type="button" id="asp-hide-no">Keep it</button>'
+    +     '<small>You can bring it back in Settings&nbsp;&gt;&nbsp;Computer</small></div>'
     +   '<form class="asp-in" id="asp-in"><textarea id="asp-say" rows="1" aria-label="Ask about Kosmos" placeholder="Ask about Kosmos\u2026"></textarea>'
     +   '<button type="submit" id="asp-send" aria-label="Send">&uarr;</button></form>'
     + '</div>';
@@ -58851,6 +58856,8 @@ function asbLayerEnsure() {
   document.getElementById('asp-x').addEventListener('click', () => asbX());
   document.getElementById('asp-close-now').addEventListener('click', () => asbCloseChoice(false));
   document.getElementById('asp-close-off').addEventListener('click', () => asbCloseChoice(true));
+  document.getElementById('asp-hide-yes').addEventListener('click', () => asbHideChoice(true));
+  document.getElementById('asp-hide-no').addEventListener('click', () => asbHideChoice(false));
   document.getElementById('asp-in').addEventListener('submit', (e) => { e.preventDefault(); asbSend(); });
   document.getElementById('asp-say').addEventListener('keydown', (e) => {
     if (e.key === 'Enter' && !e.shiftKey && !e.isComposing) { e.preventDefault(); asbSend(); }
@@ -59002,6 +59009,7 @@ function asbPaint() {
   if (bub.getAttribute('aria-label') !== lab) bub.setAttribute('aria-label', lab);   // the dot, for a screen reader
   document.getElementById('asb-nudge').hidden = ASB.open || ASB.nudgeGone || ASB.wroteOnce || !ASB.readOnce;   // not before the thread says whether they wrote
   document.getElementById('asp-ask').hidden = !ASB.asking;
+  document.getElementById('asp-hide').hidden = !ASB.offering;
   const ended = !row && !asbIsHosted();
   document.getElementById('asp-send').disabled = ASB.sending || ended;   // nothing to send to while it steps aside
   const sayBox = document.getElementById('asp-say');
@@ -59009,7 +59017,7 @@ function asbPaint() {
     sayBox.readOnly = ended;   // an ended chat takes no words, and says why to whoever lands in the box
     if (ended) sayBox.setAttribute('aria-describedby', 'asp-msg'); else sayBox.removeAttribute('aria-describedby');
   }
-  document.getElementById('asp-in').hidden = ASB.asking;
+  document.getElementById('asp-in').hidden = ASB.asking || ASB.offering;
 }
 
 /* The board's answer NOW to "which agent is the guide". Asked before every thread read and every send,
@@ -59133,7 +59141,7 @@ function asbPaintThread(rows, session) {
 }
 
 function asbOpen() {
-  ASB.open = true; ASB.asking = false; ASB.dot = false;
+  ASB.open = true; ASB.asking = false; ASB.offering = false; ASB.dot = false;
   ASB.sentThisOpen = false;   // #3034 (Josh 09-25 07:38): what asbX asks about is THIS opening
   { const box = document.getElementById('asp-say'); ASB.draftAtOpen = box ? box.value : ''; }   // an old unsent draft is not typing now
   /* A refusal that came while folded is read now, and the six seconds start from here. */
@@ -59149,7 +59157,7 @@ function asbOpen() {
 }
 function asbFold() {
   ASB.asideShowing = false;   // closing the sentence that says why the hosted assistant ended is reading it
-  ASB.open = false; ASB.asking = false;
+  ASB.open = false; ASB.asking = false; ASB.offering = false;
   asbPaint();
   const bub = document.getElementById('asb');
   if (bub && !bub.hidden) bub.focus();
@@ -59160,13 +59168,36 @@ function asbFold() {
    that's probably what they're trying to look for at that point)". Nothing typed means nothing sent this opening
    AND the box unchanged since it opened: somebody who wrote a question and then closed was using it, not hunting
    for the way to get rid of it, while a draft left from an earlier visit is not typing now (review round 1). */
+/* Trimmed both sides (review round 2): a stray space is not typing, while a half-written word still is. */
+function asbDidNothing() {
+  const say = document.getElementById('asp-say');
+  return !ASB.sentThisOpen && (say ? say.value : '').trim() === ASB.draftAtOpen.trim();
+}
 function asbX() {
   if (asbStepping()) { asbFold(); return; }   // nothing to ask about: it is going anyway
-  const say = document.getElementById('asp-say');
-  /* Trimmed both sides (review round 2): a stray space is not typing, while a half-written word still is. */
-  const didNothing = !ASB.sentThisOpen && (say ? say.value : '').trim() === ASB.draftAtOpen.trim();
-  if (ASB.setting && (ASB.setting.asked !== true || didNothing)) { ASB.asking = true; asbPaint(); document.getElementById('asp-close-now').focus(); return; }
+  const didNothing = asbDidNothing();
+  /* The first X asks once, whatever happened in the chat. */
+  if (ASB.setting && ASB.setting.asked !== true) { ASB.asking = true; asbPaint(); document.getElementById('asp-close-now').focus(); return; }
+  /* #3947 (Josh, 2026-09-26 08:13, verbatim): "If I click on the assistant and hit the X on him and haven't typed
+     a message, and I do that twice, then it should prompt me to close the agent forever because, as a user, I'm
+     trying to get rid of it". This replaces the 09-25 rule that asked on EVERY such close. Opens that end with
+     nothing sent are counted in the board's settings, so the count survives a restart; a sent message sets it
+     back to 0 (asbSend). The second one offers to hide it, unless they already answered "Keep it". */
+  if (ASB.setting && didNothing) {
+    const idle = (ASB.setting.idleCloses || 0) + 1;
+    if (idle >= 2 && ASB.setting.kept !== true) { ASB.offering = true; asbPaint(); document.getElementById('asp-hide-yes').focus(); return; }
+    asbSaveSetting({ idleCloses: idle });   // best-effort: a lost count only means one more close before the offer
+  }
   asbFold();
+}
+/* #3947: "Hide it" is the same switch as Close forever; "Keep it" is not asked again. Either way the count restarts. */
+async function asbHideChoice(hide) {
+  const ok = await asbSaveSetting(hide ? { on: false, idleCloses: 0 } : { kept: true, idleCloses: 0 });
+  if (!ok) { document.getElementById('asp-msg').textContent = 'We could not save that just now. Try again in a moment.'; return; }
+  ASB.offering = false;
+  asbFold();
+  asbPaintSetting();
+  if (hide) asbFocusPage();
 }
 async function asbSaveSetting(patch) {
   try {
@@ -59177,7 +59208,8 @@ async function asbSaveSetting(patch) {
   return false;
 }
 async function asbCloseChoice(forGood) {
-  const ok = await asbSaveSetting(forGood ? { asked: true, on: false } : { asked: true });
+  /* #3947: a first X on an opening where nothing was sent is also the first of the two that lead to the offer. */
+  const ok = await asbSaveSetting(forGood ? { asked: true, on: false } : (asbDidNothing() ? { asked: true, idleCloses: 1 } : { asked: true }));
   if (!ok) { document.getElementById('asp-msg').textContent = 'We could not save that just now. Try again in a moment.'; return; }
   ASB.asking = false;
   asbFold();
@@ -59195,6 +59227,7 @@ async function asbSend() {
   const msg = document.getElementById('asp-msg');
   const text = say.value.trim();
   if (text) ASB.sentThisOpen = true;   // #3034: an attempt to send is using it, whatever the answer
+  if (text && ASB.setting && ASB.setting.idleCloses) asbSaveSetting({ idleCloses: 0 });   // #3947: using it restarts the count
   if (asbIsHosted()) { if (text && !ASB.sending) await asbHostedSend(text); return; }
   /* In the fallback, the board is asked again before each message (Josh: on the next message, not continuously):
      still failing, the backup answers; answering again, it goes to the guide as usual. */
@@ -59458,7 +59491,7 @@ function asbForgetGuide() {
   const hadFocus = !standIn && !!document.activeElement && !!document.activeElement.closest('#asblayer');
   const keepOpen = standIn && ASB.open;
   for (const k of [...UNREAD_EDGE.keys()]) if (k.startsWith('asb:')) UNREAD_EDGE.delete(k);   // #3743: a new guide under the same name starts from its own history
-  ASB.guide = null; ASB.fallback = null; ASB.replyIds = null; ASB.open = keepOpen; ASB.asking = false; ASB.heard = null; ASB.heardAt = 0; ASB.wasWorking = false; ASB.saidSignIn = ''; ASB.dotTimed = false; ASB.shown = ''; ASB.dot = false;
+  ASB.guide = null; ASB.fallback = null; ASB.replyIds = null; ASB.open = keepOpen; ASB.asking = false; ASB.offering = false; ASB.heard = null; ASB.heardAt = 0; ASB.wasWorking = false; ASB.saidSignIn = ''; ASB.dotTimed = false; ASB.shown = ''; ASB.dot = false;
   ASB.wroteOnce = false; ASB.readOnce = false; ASB.lastPoll = 0; ASB.nudgeGone = false; ASB.asideShowing = false; asbAsideDone();
   const pm = document.getElementById('asp-msg'); if (pm) pm.textContent = '';   // nothing stale when it comes back
   if (keepOpen) { const th = document.getElementById('asp-th'); if (th) th.replaceChildren(); }   // the guide's thread is not the hosted one's
