@@ -61,6 +61,13 @@ function accountProblemOf(card) {
     }
     /* "Daily", not "free daily" (review round 6): Gemini prints the same line for any daily quota, billed keys too,
        so the screen cannot say which, and "add billing" is advice only for a key that has none yet. */
+    /* Google's own quota message after Stop (a model with no free quota, say) is a limit, not the daily one: said
+       neutrally, with no reset time (review round 8). */
+    if (card.quotaDaily !== true) {
+      const text = `${who} has reached a Google usage limit for its API key, so it has stopped. To raise the limit, add`
+        + ' billing to the key in Google AI Studio, or use Google Gemini (Google subscription).';
+      return { kind: 'usage', provider: 'Gemini', notify: true, text, summary: text };
+    }
     const head = `Google's daily limit for ${who}'s API key is used up, so it has stopped.`;
     const todo = ' It resets at midnight Pacific time. To raise it, add billing to the key in Google AI Studio, or use'
       + ' Google Gemini (Google subscription) instead. It picks up again on the next message after that.';

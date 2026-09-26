@@ -70,6 +70,14 @@ message after the reset works (item 4 with no restart). The board read the quest
   is the wrong answer to them (high demand clears by itself, so Keep trying is right), so Kosmos keeps reading only
   the usage-limit header. An agent stuck on one of those is still a freeze: a follow-up card, filed with this merge.
 
+- Review round 8 (Opus, against the CLI source): after Stop on a limit that is not the daily one (a model with no free
+  quota, "limit: 0"), Gemini prints Google's own "exceeded your current quota" line, which read as a calm idle caused
+  by Kosmos's own key press. It now reads rate_limited too, with `quotaDaily:false` on the card and neutral words (no
+  midnight reset). A stray "2. Stop" row under the limit line gets no key (the re-read's own refusal, now pinned).
+  Noted, not changed: the manager's notice goes out once, usually with the question-up wording; a Ctrl+C prompt under
+  the question reads unknown for a moment (nothing pressed); Google-subscription credit screens ("Stop - Abort
+  request") are not recognised and get no key (another card's scope).
+
 ## Weakest premise
 - Matching Gemini's words on screen: a future CLI can reword them. The reading then falls back to today's behaviour
   (unknown/idle), and the sweep presses nothing, since it needs the question recognised.
