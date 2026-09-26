@@ -372,7 +372,7 @@ test('#3878: the counts are the message: some unreadable and some malformed is s
   });
   const r = await fp.pull(path.join(SB, 'd-mixed-bad'), { token: 'tok' });
   assert.equal(r.ok, false);
-  assert.match(r.because, /1 report could not be read.*; 2 malformed/);
+  assert.match(r.because, /1 report could not be read.*; 2 reports malformed/);
 });
 
 test('#3878: a refusal after the token was withheld names the host, not the token', async () => {
@@ -488,13 +488,13 @@ test('#3906: a pull whose every listed report is malformed is NOT ok, and says s
   const r = await fp.pull(path.join(SB, 'd-all-bad'), { token: 'tok' });
   assert.equal(r.ok, false);
   assert.equal(r.written, 0);
-  assert.match(r.because, /the store listed 2 reports and none was pulled: 2 malformed\./);
+  assert.match(r.because, /the store listed 2 reports and none was pulled: 2 reports malformed \(not a valid report, or no url\)\./);
   assert.doesNotMatch(r.because, /could not be read/, 'nothing was unreadable here');
   // A listing entry with no string url is counted the same way.
   fp.setTransport({ list: async () => [{ pathname: 'feedback/x.json' }], get: async () => { throw new Error('should not GET'); } });
   const r2 = await fp.pull(path.join(SB, 'd-no-url'), { token: 'tok' });
   assert.equal(r2.ok, false);
-  assert.match(r2.because, /1 malformed/);
+  assert.match(r2.because, /1 report malformed/);
   assert.doesNotMatch(r2.because, /could not be read/);
   // Controls: one good report among bad ones is still a (partial) success; nothing listed is not a failure.
   let n = 0;
@@ -560,7 +560,7 @@ test('#3906: unreadable, unsaved and malformed together are each counted once', 
   });
   const r = await fp.pull(dir, { token: 'tok' });
   assert.equal(r.ok, false);
-  assert.match(r.because, /none was pulled: 1 report could not be read \(last error: blob GET HTTP 500\); 1 report could not be saved in .* \(last error: .*\); 1 malformed\./);
+  assert.match(r.because, /none was pulled: 1 report could not be read \(last error: blob GET HTTP 500\); 1 report could not be saved in .* \(last error: .*\); 1 report malformed \(not a valid report, or no url\)\./);
 });
 
 test('#3906: every skip is explained on a partial pull too, and both results carry the same fields', async () => {
@@ -571,10 +571,24 @@ test('#3906: every skip is explained on a partial pull too, and both results car
   const ok = await fp.pull(path.join(SB, 'd-partial-bad'), { token: 'tok' });
   assert.equal(ok.ok, true);
   assert.equal(ok.malformed, 1);
-  assert.ok(fp.summaryLines(ok).includes('1 malformed'), fp.summaryLines(ok).join('\n'));
+  assert.ok(fp.summaryLines(ok).includes('1 report malformed (not a valid report, or no url)'), fp.summaryLines(ok).join('\n'));
   fp.setTransport({ list: async () => [{ url: 'https://s.private.blob.vercel-storage.com/m.json' }], get: async () => '{not json' });
   const failed = await fp.pull(path.join(SB, 'd-all-bad-2'), { token: 'tok' });
   for (const k of ['written', 'skipped', 'unreadable', 'unwritten', 'malformed', 'total', 'dir']) {
     assert.ok(k in failed && k in ok, 'field ' + k + ' is missing from one of the results');
   }
+});
+
+test('#3906: a pull that failed only because nothing could be saved here does not point at the token', async () => {
+  const dir = path.join(SB, 'd-public-unsaved');
+  fs.mkdirSync(dir, { recursive: true });
+  const rec = REC('inst-pu', '2026-09-26', 'pu');
+  fs.mkdirSync(path.join(dir, fp.fileName(rec) + '.tmp'), { recursive: true });
+  fp.setTransport({ list: async () => [{ url: 'https://abc.public.blob.vercel-storage.com/feedback/pu.json' }], get: async () => JSON.stringify(rec) });
+  const r = await fp.pull(dir, { token: 'tok' });
+  assert.equal(r.ok, false);
+  assert.doesNotMatch(r.because, /PUBLIC blob store/, 'a local save failure is not the token\'s problem');
+  // Control: the same public listing with an unreadable report does carry the note.
+  fp.setTransport({ list: async () => [{ url: 'https://abc.public.blob.vercel-storage.com/feedback/x.json' }], get: async () => { throw new Error('blob GET HTTP 404'); } });
+  assert.match((await fp.pull(path.join(SB, 'd-public-unread'), { token: 'tok' })).because, /PUBLIC blob store/);
 });

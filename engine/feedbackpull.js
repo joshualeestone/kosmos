@@ -274,7 +274,11 @@ async function pull(dir, opts) {
       fs.writeFileSync(tmp, toMarkdown(rec));
       fs.renameSync(tmp, dest);
       written += 1;
-    } catch (e) { skipped += 1; unwritten += 1; lastWriteError = String((e && e.message) || e); }
+    } catch (e) {
+      skipped += 1; unwritten += 1; lastWriteError = String((e && e.message) || e);
+      // Best effort: a rename that failed after the write would leave the .tmp behind.
+      try { fs.rmSync(path.join(target, fileName(rec)) + '.tmp', { force: true }); } catch { /* cleanup only */ }
+    }
   }
   const total = Array.isArray(blobs) ? blobs.length : 0;
   /* Whether the listing came from a PUBLIC blob store (<store>.public.<BLOB_HOST>, the
@@ -298,7 +302,9 @@ async function pull(dir, opts) {
   if (written === 0 && skipped > 0) {
     return { ok: false, ...counts,
       because: 'the store listed ' + reports(total) + ' and none was pulled: ' + reasonClauses(counts).join('; ')
-        + '.' + (fromPublicStore ? ' ' + PUBLIC_STORE_NOTE : '') };
+        // The store note is about the TOKEN; when every skip was a local save failure the
+        // reports were read fine and the token is not the problem, so it is left out.
+        + '.' + (fromPublicStore && unwritten < skipped ? ' ' + PUBLIC_STORE_NOTE : '') };
   }
   // A partial pull is still ok, and its summary gives the same reasons for every skip.
   return { ok: true, ...counts };
@@ -334,7 +340,7 @@ function reasonClauses(r) {
   const out = [];
   if (r.unreadable) out.push(unreadableClause(r));
   if (r.unwritten) out.push(unwrittenClause({ unwritten: r.unwritten, lastWriteError: r.lastWriteError, dir: r.dir }));
-  if (r.malformed) out.push(r.malformed + ' malformed');
+  if (r.malformed) out.push(reports(r.malformed) + ' malformed (not a valid report, or no url)');
   return out;
 }
 
