@@ -36,3 +36,8 @@ Every place Kosmos asks for a provider's API key (Settings > AI Models > Add a p
 ## Review round 5
 - A test pins that KEY_PAGE_WHO and KEY_PAGES name the same providers (a new provider added to one only would have read "opens undefined's key page").
 - keyPageLink resets the screen-reader text when it hides a link; the outside-the-table test is named for what it scans (the page).
+
+## Review rounds 6 to 8
+- Round 6 (sonnet): 0 BLOCKER. The first-run keyed check's README row did not say what #3960 added to it: fixed (9133a2331). The xAI key address's "default" team slug is this plan's stated weakest premise and stands (xAI's console blocks automated fetches, so it cannot be verified from here); Josh or QA can eyeball it once on a real xAI account. The first-run buttons' href="#" until the script runs is the round 1 decision and stands.
+- Round 7 (opus): 0 BLOCKER. The first-run check matched only the host, so the old console.x.ai front page (the thing this card fixes) would still pass: it now requires href === KEY_PAGES[provider] for Gemini and Grok, and GPT's first-run link got its own real-page assertion (f104007e7; render-firstrun-keyed-connect-3658 passes). The unit test checks a hidden link drops the provider it named; a README full stop.
+- Round 8 (sonnet): 0 BLOCKER, 0 code findings; this plan section was missing (added here).
