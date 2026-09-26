@@ -147,24 +147,41 @@ function parentValue(parent) {
  * parent would nest the task under nothing, so it reads as top level instead.
  */
 function parentOf(p, task) {
-  if (!task || !Number.isSafeInteger(task.parent) || task.parent === task.number) return null;
-  return byNumber(p, task.parent) ? task.parent : null;
+  return treeOf(p).up(task);
+}
+
+/**
+ * THE one derivation of a project's task tree: number -> task, and parent -> children, built
+ * in one pass. parentOf, childrenOf, subtaskProgress and allTasks's rows all read it, so the
+ * rules for which parent counts cannot differ between them. Linear in the project's tasks.
+ */
+function treeOf(p) {
+  const byNum = new Map();
+  for (const t of (p && p.tasks) || []) if (t && typeof t.number === 'number') byNum.set(t.number, t);
+  const up = (t) => (t && Number.isSafeInteger(t.parent) && t.parent !== t.number && byNum.has(t.parent) ? t.parent : null);
+  const kids = new Map();
+  for (const t of (p && p.tasks) || []) {
+    const u = up(t);
+    if (u === null) continue;
+    if (!kids.has(u)) kids.set(u, []);
+    kids.get(u).push(t);
+  }
+  for (const list of kids.values()) list.sort((a, b) => (a.number || 0) - (b.number || 0));
+  const under = (n) => kids.get(Number(n)) || [];
+  /* The parent's "2 of 5 done": its DIRECT children, finished by progressOf (parts included).
+     Direct only: a grandchild is counted by its own parent, never twice up a chain. */
+  const progress = (n) => { const k = under(n); return { done: k.filter((t) => progressOf(t).closed).length, total: k.length }; };
+  return { byNum, up, under, progress };
 }
 
 /** The tasks directly under task `n` on project record `p`, in number order. */
 function childrenOf(p, n) {
-  return ((p && p.tasks) || []).filter((t) => t && parentOf(p, t) === Number(n))
-    .sort((a, b) => (a.number || 0) - (b.number || 0));
+  return treeOf(p).under(n);
 }
 
-/**
- * The parent's "2 of 5 done": its DIRECT children, finished by progressOf (parts included).
- * Direct only: a grandchild is counted by its own parent, so one finished task is never
- * counted twice up a chain. `total` 0 means the task has no subtasks.
- */
+/** A parent's `{done, total}` over its direct children; total 0 means no subtasks. */
 function subtaskProgress(p, n) {
-  const kids = childrenOf(p, n);
-  return { done: kids.filter((t) => progressOf(t).closed).length, total: kids.length };
+  return treeOf(p).progress(n);
 }
 
 /**
@@ -771,23 +788,11 @@ function allTasks(everyProject) {
   /* #3559: a caller that already read the store passes that snapshot, so the
      rows and anything it joins onto them come from ONE read. */
   for (const p of (Array.isArray(everyProject) ? everyProject : projects.readAll()) || []) {
-    /* #3861: one pass per project builds number -> task and parent -> children, so every
-       row's parent and subtask count is a lookup. Calling parentOf/subtaskProgress per row
-       re-scans the project for each task, which grows with the square of its tasks. The same
-       rules as parentOf: a parent counts only when it is a different task that exists here. */
-    const byNum = new Map();
-    for (const t of p.tasks || []) if (t && typeof t.number === 'number') byNum.set(t.number, t);
-    const upOf = (t) => (t && Number.isSafeInteger(t.parent) && t.parent !== t.number && byNum.has(t.parent) ? t.parent : null);
-    const kids = new Map();
+    /* #3861: the project's tree is built once (treeOf), so each row's parent and subtask
+       count is a lookup rather than a re-scan of the project per task. */
+    const tree = treeOf(p);
     for (const t of p.tasks || []) {
-      const up = upOf(t);
-      if (up === null) continue;
-      if (!kids.has(up)) kids.set(up, []);
-      kids.get(up).push(t);
-    }
-    for (const t of p.tasks || []) {
-      const up = upOf(t);
-      const under = kids.get(t && t.number) || [];
+      const up = tree.up(t);
       out.push(Object.assign({}, t, {
         projectId: p.id,
         projectName: p.name,
@@ -803,8 +808,8 @@ function allTasks(everyProject) {
            sentence for the child's breadcrumb, and the "2 of 5" for a parent. On the row so the
            screen never re-derives them, for the reason isClosed is. */
         parent: up,
-        parentSentence: up === null ? null : (byNum.get(up).sentence || null),
-        subtasks: { done: under.filter((k) => progressOf(k).closed).length, total: under.length },
+        parentSentence: up === null ? null : (tree.byNum.get(up).sentence || null),
+        subtasks: tree.progress(t && t.number),
       }));
     }
   }

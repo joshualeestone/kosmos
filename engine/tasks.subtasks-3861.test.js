@@ -143,6 +143,27 @@ test('a stored parent that is not a task here reads as top level, never as neste
   assert.equal(tasks.setParent(id, d.number, b.number).parent, b.number);
 });
 
+test('the exported helpers and the rows agree, task by task (one derivation, pinned)', () => {
+  const id = freshProject();
+  const a = tasks.create(id, { sentence: 'A' });
+  const b = tasks.create(id, { sentence: 'B', parent: a.number });
+  tasks.create(id, { sentence: 'C', parent: a.number });
+  tasks.create(id, { sentence: 'D', parent: b.number });
+  tasks.close(id, b.number);
+  // A dangling parent, which both must read as top level.
+  const e = tasks.create(id, { sentence: 'E' });
+  projects.mutate(id, (p) => ({ ...p, tasks: p.tasks.map((t) => (t.number === e.number ? { ...t, parent: 77 } : t)) }));
+  const p = projects.get(id);
+  for (const t of p.tasks) {
+    const r = rowOf(id, t.number);
+    assert.equal(r.parent, tasks.parentOf(p, t), 'parent differs for task ' + t.number);
+    assert.deepEqual(r.subtasks, tasks.subtaskProgress(p, t.number), 'subtasks differ for task ' + t.number);
+    assert.equal(r.subtasks.total, tasks.childrenOf(p, t.number).length);
+  }
+  assert.deepEqual(tasks.childrenOf(p, a.number).map((t) => t.sentence), ['B', 'C']);
+  assert.deepEqual(tasks.subtaskProgress(p, a.number), { done: 1, total: 2 });
+});
+
 test('a legacy task with no parent field reads as top level with no subtasks', () => {
   const id = freshProject();
   const a = tasks.create(id, { sentence: 'Old' });
