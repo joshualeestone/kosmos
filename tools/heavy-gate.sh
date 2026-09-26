@@ -18,7 +18,10 @@
 #     (tools/run-tests.sh's sandbox, ${TMPDIR:-/tmp}/kt$$: .../T/ on macOS, or /tmp); some
 #     fixtures there detach from node --test, so the path marks them;
 #   - a process that has already exited;
-#   - with --except-cwd DIR, a run in DIR or below it (your own).
+#   - with --except-cwd DIR, EVERY run whose cwd is DIR or below it, whoever started it. It is
+#     for ruling out your own run, so pass your own worktree, never a shared checkout (that would
+#     rule out other agents' runs there too). DIR must be a checkout (it has a .git), so a parent
+#     folder passed by mistake is exit 2, not a clear.
 # --quiet: print nothing on stdout, not even the CLEAR/BUSY verdict; read the exit code.
 # --twice: clear only if two reads, KOSMOS_HG_TWICE_SECONDS apart (default 60, whole seconds;
 #   anything else is exit 2), are both clear.
@@ -34,7 +37,7 @@
 #                       (a cwd of <exited> stands for a process that is gone; an EMPTY cwd means
 #                       the cwd could not be read, and that process still counts)
 #   KOSMOS_HG_CLAIM     set: use this text as the reservation line instead of who-has-the-box;
-#                       it counts as free only if it says "no release holds"
+#                       it counts as free only if it is exactly who-has-the-box's free line
 # Sourced, the exits below would close the caller's shell: refuse, and return 2 (do not start).
 if [ -n "${ZSH_VERSION:-}" ]; then
   case "${ZSH_EVAL_CONTEXT:-}" in
@@ -66,6 +69,10 @@ if [ "$EXCEPT_SET" = 1 ]; then
     echo "heavy-gate: --except-cwd needs an existing directory (got '${EXCEPT}'); reading as do-not-start" >&2
     exit 2
   fi
+  if [ ! -e "$EXCEPT/.git" ]; then
+    echo "heavy-gate: --except-cwd needs a checkout, a folder with .git (got '${EXCEPT}'); reading as do-not-start" >&2
+    exit 2
+  fi
   EXCEPT="$(cd "$EXCEPT" && pwd -P)"
 fi
 
@@ -74,6 +81,9 @@ say() { [ "$QUIET" = 1 ] || printf '%s\n' "$*"; }
 # stderr, so --quiet does not hide it.
 [ -n "${KOSMOS_HG_CLAIM+x}${KOSMOS_HG_SNAPSHOT:+x}" ] && echo "(test seam active: KOSMOS_HG_CLAIM or KOSMOS_HG_SNAPSHOT is set)" >&2
 
+# who-has-the-box's whole line when nothing holds the machine (tools/lib/cut-guard.sh). Anything
+# else, including extra output around it, reads as held.
+FREE_LINE='no release holds the machine right now.'
 claim_line() {
   if [ -n "${KOSMOS_HG_CLAIM+x}" ]; then printf '%s\n' "$KOSMOS_HG_CLAIM"; return; fi
   bash "$REPO/tools/who-has-the-box.sh" 2>&1
@@ -193,7 +203,7 @@ classify() {
 one_read() {
   local claim out counted busy=0
   claim="$(claim_line)"
-  case "$claim" in *"no release holds"*) say "reservation: none ($claim)" ;; *) say "reservation: HELD ($claim)"; busy=1 ;; esac
+  case "$claim" in "$FREE_LINE") say "reservation: none ($claim)" ;; *) say "reservation: HELD ($claim)"; busy=1 ;; esac
   if [ -n "${KOSMOS_HG_SNAPSHOT:-}" ]; then out="$(classify < "$KOSMOS_HG_SNAPSHOT")"; else out="$(live_snapshot | classify)"; fi
   counted="${out##*COUNTED=}"
   printf '%s\n' "${out%COUNTED=*}" | sed '/^$/d'
