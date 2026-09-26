@@ -59,6 +59,12 @@ test('#3955: release.sh runs the check at 1b-ii, after the versions entry and be
   const block = sh.slice(mine, sh.indexOf('step "== 1c.', mine));
   assert.match(block, /node "\$REPO\/tools\/whats-new-check\.js" "\$V" "\$REPO\/web\/whats-new\.json" \|\| exit 1/, 'a refusal does not stop the cut');
   assert.match(block, /if \[ "\$\{KOSMOS_CUT_NO_WHATS_NEW:-\}" = "1" \]; then/, 'no hotfix opt-out');
+  // And again on the frozen tree (round 3), after the freeze and before step 3's suite, with the same opt-out.
+  const frozen = at('node "$BUILD/tools/whats-new-check.js" "$V" "$BUILD/web/whats-new.json" || exit 1');
+  const freeze = at('REPO="$BUILD"');
+  const suite = at('step "== 3.');
+  assert.ok(freeze < frozen && frozen < suite, 'the frozen-tree check does not sit between the freeze and the suite');
+  assert.match(sh.slice(frozen - 120, frozen), /if \[ "\$\{KOSMOS_CUT_NO_WHATS_NEW:-\}" != "1" \]; then\n\s*$/, 'the frozen-tree check ignores the hotfix opt-out');
   const doc = fs.readFileSync(path.join(__dirname, 'docs', 'releasing.md'), 'utf8');
   assert.match(doc, /KOSMOS_CUT_NO_WHATS_NEW=1 yarn release/, 'docs/releasing.md does not say how to skip it');
 });

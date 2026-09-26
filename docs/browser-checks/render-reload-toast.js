@@ -71,8 +71,9 @@ async function seenIsCurrent() {
 (async () => {
   /* The board's own version is recorded as seen again however this ends (round 3): a throw midway
      must not leave the update window opening on the checks that share this board. */
+  let b = null;   // outside the try, so a failure midway still closes the browser (round 4)
   try {
-    const b = await chromium.launch({ headless: process.env.HEADED === '0' });
+    b = await chromium.launch({ headless: process.env.HEADED === '0' });
     for (const theme of ['light', 'dark']) {
       await seenIsCurrent();
       const pg = await b.newPage({ viewport: { width: 1400, height: 700 }, colorScheme: theme });
@@ -177,7 +178,17 @@ async function seenIsCurrent() {
         chk(wn.focus === 'wn-ok' && wn.centred, theme + ': focus on Got it, the card centred over the dimmed app', JSON.stringify({ focus: wn.focus, centred: wn.centred, dim: wn.dim }));
         chk(wn.more === 'https://installkosmos.com/versions#v0-6-98' && wn.rel === 'noreferrer noopener', theme + ': "See everything that changed" goes to this version on the site', wn.more);
       }
-      await pg.screenshot({ path: path.join(OUT, 'whatsnew-' + theme + '.png') });
+      // The tiles' words clear 4.5:1 on the tile (round 4: the window's own text, not only the chip's).
+    const tile = await pg.evaluate(() => {
+      const t = document.querySelector('#whatsnew .wn-tile');
+      const cs = getComputedStyle(t);
+      return { bg: cs.backgroundColor, title: getComputedStyle(t.querySelector('b')).color, line: getComputedStyle(t.querySelector('.wn-words span')).color };
+    });
+    for (const k of ['title', 'line']) {
+      const r = ratio(over(rgb(tile[k]), rgb(tile.bg)), rgb(tile.bg).c);
+      chk(r >= 4.5, theme + ': the tile ' + k + ' clears 4.5:1', r.toFixed(2));
+    }
+    await pg.screenshot({ path: path.join(OUT, 'whatsnew-' + theme + '.png') });
       // Tab stays inside the window, both ways.
       await pg.keyboard.press('Tab');
       let at = await pg.evaluate(() => document.activeElement && document.activeElement.id);
@@ -209,11 +220,11 @@ async function seenIsCurrent() {
       chk(errs.length === 0, theme + ': no console errors', errs.join(' | '));
       await pg.close();
     }
-    await b.close();
   } catch (e) {
     fail.push('the check stopped: ' + (e && e.message));
     console.log('FAIL  the check stopped: ' + (e && e.message));
   } finally {
+    if (b) await b.close().catch(() => {});
     await seenIsCurrent().catch(() => {});
   }
   console.log(fail.length ? '\nFAILED: ' + fail.join(', ') : '\nall good');
