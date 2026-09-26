@@ -39,6 +39,17 @@ logged to board.log only; the card fell to a quiet "not running" for 23 minutes.
   reason and card copy; the record carries `gone` from its diagnostics).
 - Kept as documented: the diagnostics hold the LAST bootstrap's answer only.
 
+## Review round 5 (Opus), what changed
+- No Answer button on a failed-restart card (page answerBtn), asserted with a plain needs_you CONTROL.
+- The "launch file gone" reading is REMOVED: the created roster lists agents by their .plist, so an agent whose
+  plist is gone never reaches that card path; the copy was reachable only from a fixture. plistExists stays in the
+  diagnostics on disk.
+- A failed record clears on an UNKNOWN reading only when an agent process runs in the pane (isAgentSession): a
+  board that could not read the pane also says UNKNOWN, and one bad read must not erase the failure.
+- A failed START (fromDead: a never-run or fully-dead agent) clears its record as before: it is not a restart that
+  did not come back, and the route already says what happened.
+- Deferred (harmless): the send route's asking gates do not exclude a failed restart (a stopped pane has no menu).
+
 ## Decided
 - Reuse the disruption record rather than a new store: it already ties a restart to the card and already clears when
   the agent is back.

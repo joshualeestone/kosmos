@@ -2004,7 +2004,9 @@ function restartInner(name, cause, platform, startIfDead) {
     try { diagnostics = ops.diagnose ? ops.diagnose(clean, job) : null; } catch { diagnostics = null; }
     /* The Mac only: a Windows row has no pane-side clear for a failed record (status reads it paneless), so it
        keeps today's clear there. */
-    if (!(DRY_RUN && !runner)) { if (ops.win32) disruption.clear(clean); else disruption.fail(clean, diagnostics); }
+    /* A START of a never-run or fully-dead agent is not a restart that did not come back: the route says what
+       happened, and the card keeps its ordinary "not running". */
+    if (!(DRY_RUN && !runner)) { if (ops.win32 || fromDead) disruption.clear(clean); else disruption.fail(clean, diagnostics); }
     /* A missing launch file cannot be bootstrapped at all (startNow returns true without ever
        trying), so "try again" is not actionable in that sub-case -- say what actually has to
        happen instead of sending the person into an indefinite retry that keeps no-opping. */

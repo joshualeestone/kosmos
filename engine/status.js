@@ -6087,10 +6087,8 @@ function reconcileReport(reported, scraped, nowMs, liveAuth, disruptionRec, code
     return {
       state: STATE.NEEDS_YOU,
       confidence: CONFIDENCE.STRUCTURED,
-      because: disruptionRec.gone === true
-        ? 'Kosmos restarted this agent but its launch file is gone, so it cannot start. It has to be created again'
-        : 'Kosmos restarted this agent and it did not come back. Restart it to bring it back',
-      disruption: { cause: disruptionRec.cause, startedAt: disruptionRec.startedAt, timedOut: true, failed: true, gone: disruptionRec.gone === true },
+      because: 'Kosmos restarted this agent and it did not come back. Restart it to bring it back',
+      disruption: { cause: disruptionRec.cause, startedAt: disruptionRec.startedAt, timedOut: true, failed: true },
       reported: false,
       conflict: null,
     };
@@ -6861,7 +6859,7 @@ function snapshot() {
       } else {
         const full = disruption.read(pane.name);
         if (full.found) {
-          disruptionRec = { cause: full.cause, startedAt: full.startedAt, ageMs: full.ageMs, timedOut: true, failed: full.failed === true, gone: full.gone === true };
+          disruptionRec = { cause: full.cause, startedAt: full.startedAt, ageMs: full.ageMs, timedOut: true, failed: full.failed === true };
         }
       }
     }
@@ -6984,7 +6982,9 @@ function snapshot() {
        an unknown reading means the pane is running something, so the restart did come back after all. */
     const showingFailure = !!(status.disruption && status.disruption.failed === true);
     if (disruptionRec && disruptionRec.failed === true) {
-      if (!showingFailure) disruption.clear(pane.name);
+      /* UNKNOWN clears it only with an agent process in the pane: a board that could not read the pane at all
+         also says UNKNOWN, and one bad read must not erase the failure. */
+      if (!showingFailure && (status.state !== STATE.UNKNOWN || isAgentSession(pane))) disruption.clear(pane.name);
     } else if (disruptionRec && status.state !== STATE.RESTARTING && status.state !== STATE.UNKNOWN) {
       disruption.clear(pane.name);
     }
@@ -7298,7 +7298,7 @@ function snapshot() {
       because: status.because,
       /* #2019: present while state === 'restarting' -- {cause, startedAt}
          for the deliberate disruption in flight -- and (#4006) on the needs_you of a
-         restart that did not come back, with `failed` (and `gone` if its launch file was). Null otherwise, so the board
+         restart that did not come back, with `failed`. Null otherwise, so the board
          reads a fact rather than an absence, and the frontend renders the copy
          (cause + the model field above) and the animated K from it. */
       disruption: status.disruption || null,
@@ -7412,7 +7412,7 @@ function snapshot() {
          session, no loaded job). Only a FAILED record is passed: a fresh in-flight one would change the
          paneless-restart reading, which is its own follow-up (see the disruption note in panelessCard). */
       let failedRec = null;
-      try { const d = disruption.read(key); if (d.found && d.failed) failedRec = { cause: d.cause, startedAt: d.startedAt, failed: true, timedOut: true, gone: d.gone === true }; } catch { failedRec = null; }
+      try { const d = disruption.read(key); if (d.found && d.failed) failedRec = { cause: d.cause, startedAt: d.startedAt, failed: true, timedOut: true }; } catch { failedRec = null; }
       try { agents.push(panelessCard(key, nowMs, NEVER_RUN_DEFAULT, failedRec)); boardKeys.add(key); } catch { /* that one agent is not listable */ }
     }
   }
