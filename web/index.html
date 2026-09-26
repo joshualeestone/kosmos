@@ -37314,6 +37314,11 @@ for (const id of ['plus-si-code-in', 'plus-si-second-in', 'plus-si-enrol-code'])
      completed while a request was still running: then it waits for the button, see freed). Deleting
      a digit forgets the last code, so retyping it on purpose sends it again. */
   let lastSent = '';
+  /* The code the coordinator has JUDGED wrong, remembered when its answer lands (freed), not re-read off
+     the status line at each press: the box's own messages ("We could not find one six-digit code in
+     that.") overwrite that line, and re-reading it then let the refused code go (web review round 12).
+     It holds only while it is still lastSent, so anything that forgets lastSent ends the hold too. */
+  let heldCode = '';
   let queued = false;   // a code completed while the button was busy, waiting for it
   let sendingNow = false;   // the sixth digit pressing the button, as opposed to a press by hand
   const go = document.getElementById(PLUS_SI_OTP_GO[id]);
@@ -37325,7 +37330,7 @@ for (const id of ['plus-si-code-in', 'plus-si-second-in', 'plus-si-enrol-code'])
     if (code === lastSent) return;
     if (!go || go.disabled) { queued = true; return; }
     queued = false;
-    lastSent = code;
+    lastSent = code; heldCode = '';
     sendingNow = true;
     try { go.click(); } finally { sendingNow = false; }
   };
@@ -37335,6 +37340,8 @@ for (const id of ['plus-si-code-in', 'plus-si-second-in', 'plus-si-enrol-code'])
      keystroke or paste replaces it without the person having to clear it first. */
   const freed = () => {
     if (!go || go.disabled) return;
+    // The answer that freed the button has just written the status line: read it now, once.
+    heldCode = lastSent && saysRefused() ? lastSent : '';
     const shown = el.getClientRects().length > 0;
     if (queued && shown) trySend(); else queued = false;
     if (shown && lastSent && document.activeElement === el && el.value.replace(/\D/g, '') === lastSent) {
@@ -37352,8 +37359,10 @@ for (const id of ['plus-si-code-in', 'plus-si-second-in', 'plus-si-enrol-code'])
      we texted"); any other answer (a network failure, "give it a minute", a 500, a cooldown) never judged
      the code, so it goes. Should those words change, this fails open: a wasted try, never a dead button.
      Capture phase, so this runs before the step's own click handler. */
-  const judgedWrong = (c) => c === lastSent
-    && /\bcode is not (right|what the app shows|the one we texted)/i.test((document.getElementById('plus-signin-msg') || {}).textContent || '');
+  function saysRefused() {
+    return /\bcode is not (right|what the app shows|the one we texted)/i.test((document.getElementById('plus-signin-msg') || {}).textContent || '');
+  }
+  const judgedWrong = (c) => c === lastSent && c === heldCode;
   // Holding a refused code back: the person is put in the field with it selected, and the status line
   // is said again (changed, never blanked), so a screen reader hears why nothing was sent.
   const holdRefused = () => {
@@ -37374,7 +37383,7 @@ for (const id of ['plus-si-code-in', 'plus-si-second-in', 'plus-si-enrol-code'])
       holdRefused();
       return;
     }
-    lastSent = c; queued = false;
+    lastSent = c; queued = false; heldCode = '';
   }, true);
   // Send again: a code waiting for the button is for the old code, and the check in flight is thrown
   // away unjudged, so its code is forgotten as sent (a hand press or a retype may send it again).

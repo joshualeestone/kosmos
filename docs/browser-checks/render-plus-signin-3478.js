@@ -800,6 +800,16 @@ const visible = (page, sel) => page.evaluate((s) => {
       await page.waitForTimeout(400);
       const dbl = { sent: wrongSends - b2Before, msg: (await page.textContent('#plus-signin-msg')).trim() };
       chk(dbl.sent === 1 && /not right/.test(dbl.msg), `[${k}] #3942 a double press on a code just refused sends nothing and keeps the refusal`, JSON.stringify(dbl));
+      /* Web review round 12 (same design here): the box's own message ("We could not find one six-digit code
+         in that.") takes over the status line; the hold must survive it (it re-read the line, so the
+         refused code went). */
+      const noCode = await pasteCode('Order 482914 and 123457');
+      await page.waitForTimeout(300);
+      const overwritten = (await page.textContent('#plus-signin-msg')).trim();
+      await page.click('#plus-si-code-go');
+      await page.waitForTimeout(400);
+      chk(noCode === false && /one six-digit code/.test(overwritten) && wrongSends === b2Before + 1 && (await page.inputValue('#plus-si-code-in')) === '343434',
+        `[${k}] #3942 after the page's own paste message replaces the refusal, Verify still holds the refused code back`, JSON.stringify({ noCode, overwritten, sent: wrongSends - b2Before }));
       // CONTROL for B2: after a DROPPED request the code was never tried, so a hand press does send it.
       verifyAbort = true;
       await page.evaluate(() => plusSiMsg(''));

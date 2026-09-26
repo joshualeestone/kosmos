@@ -209,3 +209,17 @@
   What would change my mind: a slow-network report of a code sent twice.
 - ACCEPTED (NIT): when Send again makes no new code, a code typed during the wait goes at once and its
   send clears the "no new code" message. That code is the old one, which is back in play (round 12).
+
+## Web review rounds 11 and 12 (opus), applied to both halves where shared
+- FIXED (web only, round 11): Enter on a refused code was swallowed silently; it now calls holdRefused()
+  like the button. (The app has no separate Enter guard: its Enter presses Verify, which holds.)
+- FIXED (both, round 12): the hold re-read the status/error line at each press, and the box's own
+  messages ("We could not find one six-digit code in that.", "Those digits do not fit the code.")
+  overwrite that line, after which the refused code went. The refused code is now REMEMBERED (heldCode)
+  when its answer lands, in freed(), and held only while it is still lastSent; any send clears it.
+  Rejected: suppressing the box's messages while a refusal shows (the person still needs to know their
+  paste had no code in it).
+- ACCEPTED (NIT, web round 11): a trailing zero-width space can ride along when the error text is copied.
+- ACCEPTED (NIT, web round 12): the hold listener is capture-phase on the button itself; engines older than
+  the 2021 DOM change run target listeners in the order they were added, so there the step's handler runs
+  first and the hold fails open (one wasted try, never a dead button), the behaviour before this card.
