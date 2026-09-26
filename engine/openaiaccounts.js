@@ -899,6 +899,42 @@ function chatgptLoginMode(requested, platform = process.platform) {
   return requested === 'device' ? 'device' : 'browser';
 }
 
+/* Reported by Josh on Windows 0.6.96 (#3436 follow-up): the device-code screen showed a
+   link and a code, but nothing opened the page, so the person had to go and find a
+   browser. Once codex has printed BOTH the page and the code, the engine opens the page
+   itself, the same way the Claude sign-in opens its link on win32 (win32signin's
+   openInDefaultBrowser, reused, not copied). Only a win32 device sign-in, only once per
+   sign-in, and only a link that is exactly OpenAI's https sign-in host with nothing on it
+   that could change how rundll32 reads its command line. The page's own "Open the
+   sign-in page again" link stays as the fallback. A Mac never reaches this. */
+const CHATGPT_DEVICE_PAGE_HOST = 'auth.openai.com';
+function chatgptDeviceLinkToOpen(link) {
+  let u;
+  try { u = new URL(String(link || '')); } catch { return null; }
+  if (u.protocol !== 'https:' || u.hostname.toLowerCase() !== CHATGPT_DEVICE_PAGE_HOST) return null;
+  if (u.username || u.password || u.port) return null;
+  const s = u.toString();
+  return require('./win32signin').UNSAFE_ON_COMMAND_LINE.test(s) ? null : s;
+}
+/* Seam: tests record what would open instead of opening a real browser. With no seam
+   set, only a real win32 host opens anything, so a test that injects platform 'win32'
+   on a Mac never spawns rundll32. */
+let chatgptOpenerFn = null;
+function setChatgptBrowserOpener(fn) { chatgptOpenerFn = typeof fn === 'function' ? fn : null; }
+function chatgptBrowserOpener() {
+  if (chatgptOpenerFn) return chatgptOpenerFn;
+  return process.platform === 'win32' ? require('./win32signin').openInDefaultBrowser : null;
+}
+function maybeOpenChatgptDevicePage(session, platform) {
+  if (session.pageOpened || platform !== 'win32' || session.mode !== 'device') return;
+  if (!session.authUrl || !session.userCode || chatgptIsTerminal(session)) return;
+  session.pageOpened = true;   // once per sign-in, even if the link is refused below
+  const link = chatgptDeviceLinkToOpen(session.authUrl);
+  const open = link && chatgptBrowserOpener();
+  if (!open) return;
+  try { open(link); } catch { /* the page's own link is the fallback */ }
+}
+
 /* #2584: validate a dir handed to startChatgptLogin as a REAUTH target -- the
  * existing chatgpt-subscription account to sign in again AS. It must be a codex
  * home directly inside this computer's home (the same NAME guard forgetAccount
@@ -1042,6 +1078,7 @@ function startChatgptLogin({ label, mode, codexBin, reauthDir, platform } = {}) 
     if (parsed.authUrl && !session.authUrl) session.authUrl = parsed.authUrl;
     if (parsed.userCode && !session.userCode) session.userCode = parsed.userCode;
     if (session.state === 'starting') session.state = m === 'device' ? 'awaiting-code' : 'awaiting-browser';
+    maybeOpenChatgptDevicePage(session, platform || process.platform);
   };
   // codex may print the URL/code to either stream; watch both.
   if (child.stdout) child.stdout.on('data', onData);
@@ -1780,6 +1817,7 @@ module.exports = {
   chatgptSubscriptionWindow, decodeIdTokenPayload,   // #2790 Phase 2: pure offline sub-window read, exported for unit tests
   parseChatgptLoginOutput,   // pure codex-login output parser, exported for unit tests (browser/device URL + device code)
   chatgptLoginMode, chatgptLoginInstructions, chatgptLoginTimeoutMs,   // #3436: win32 runs device code (with a longer wait); the unparsed-code fallback text
+  chatgptDeviceLinkToOpen, setChatgptBrowserOpener,   // 0.6.96: win32 opens the device page itself; the link guard and the test seam
   accountModels, chatModelsFromList, openaiSnapshotBase, chatRunnableIds, runnableAllowlist, openaiModelClass,
   readName, writeName,   // #2095: the human-chosen display name (sidecar file)
 };

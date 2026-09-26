@@ -1,5 +1,5 @@
 'use strict';
-// Browser-check-surface: openaiSubPaintDevice openaiSubDeviceMarkup ACCT_OPENAI_SUB_MODE openaiSubHow fr-openai-sub-code acct-openai-sub-code fr-openai-sub-open acct-openai-sub-open
+// Browser-check-surface: openaiSubPaintDevice openaiSubDeviceMarkup openaiSubDeviceAddress ACCT_OPENAI_SUB_MODE openaiSubHow openaiSubOpen openaiSubCodeLeadAt acctOpenaiChoose acctOpenaiSubStart acctOpenaiSubReset acct-openai-pick-sub acct-openai-sub-go fr-openai-sub-code acct-openai-sub-code fr-openai-sub-open acct-openai-sub-open
 
 /**
  * kosmos#3436: on Windows the ChatGPT subscription sign-in runs by DEVICE CODE. codex's
@@ -12,8 +12,13 @@
  *   - Windows, first run: after the start, the polled link fills the open button and
  *     shows it; the code is on screen in a copy row with a Copy button; pressing Copy
  *     answers (Copied, or Select it and copy where the clipboard is refused); the
- *     explainer reads the Windows sentence (a link and a short code).
+ *     explainer reads the Windows sentence (Kosmos opens the page and shows a code).
  *   - Windows, Settings: the same link and code on the Settings sign-in step.
+ *   - 0.6.96 (Josh): in Settings ONE click on "Sign in with ChatGPT" starts the sign-in
+ *     (the repeat button on the next step is hidden and start is asked exactly once);
+ *     the code line names the address ("go to auth.openai.com/codex/device"); the link
+ *     reads "Open the sign-in page again" on Windows (Kosmos already opened the page);
+ *     and "Stop this sign-in" leaves the link pointing nowhere.
  *   - Windows, no readable code: codex's own words are shown instead of a blank.
  *   - Mac: the engine answers 'browser'; no code line appears, the explainer is the
  *     Mac sentence, and the page never grows a Copy button. The Mac is unchanged.
@@ -53,9 +58,10 @@ async function arm(browser, { platform, where, start, status }) {
       document.querySelector('meta[name="kosmos-platform"]').setAttribute('content', 'win32');
       applyPlatformCopy(document);
     }
+    window.__starts = 0;
     window.fetch = (u) => {
       const url = String(u);
-      if (url.indexOf('/api/accounts/openai/subscription/start') !== -1) return Promise.resolve({ ok: true, status: 200, json: async () => start });
+      if (url.indexOf('/api/accounts/openai/subscription/start') !== -1) { window.__starts += 1; return Promise.resolve({ ok: true, status: 200, json: async () => start }); }
       if (url.indexOf('/api/accounts/openai/subscription/status') !== -1) return Promise.resolve({ ok: true, status: 200, json: async () => status });
       return Promise.resolve({ ok: true, status: 200, json: async () => ({}) });
     };
@@ -66,9 +72,10 @@ async function arm(browser, { platform, where, start, status }) {
       frOpenaiShowPick();
       document.getElementById('fr-openai-pick-sub').click();
     } else {
-      /* Settings: reveal the sign-in step the way the picker does, then press Sign in. */
-      for (let n = document.getElementById('acct-openai-sub-step'); n; n = n.parentElement) n.hidden = false;
-      document.getElementById('acct-openai-sub-go').click();
+      /* Settings: reveal the picker the way the dialog does, then press "Sign in with
+         ChatGPT" ONCE. 0.6.96: that one press starts the sign-in. */
+      for (let n = document.getElementById('acct-openai-pick'); n; n = n.parentElement) n.hidden = false;
+      document.getElementById('acct-openai-pick-sub').click();
     }
     return { ok: true };
   }, { platform, where, start, status });
@@ -90,6 +97,9 @@ async function arm(browser, { platform, where, start, status }) {
       codeCell: code && code.querySelector('.fr-cmd-row .fr-cmd') ? code.querySelector('.fr-cmd-row .fr-cmd').textContent : null,
       hasCopy: !!(code && code.querySelector('[data-copy-command]')),
       how: how ? how.textContent.replace(/\s+/g, ' ').trim() : null,
+      openText: open ? open.textContent.trim() : null,
+      starts: window.__starts,
+      goShown: shown($(p + '-openai-sub-go')),
       mode: typeof ACCT_OPENAI_SUB_MODE === 'undefined' ? 'undefined' : ACCT_OPENAI_SUB_MODE,
     };
   }, p);
@@ -97,6 +107,12 @@ async function arm(browser, { platform, where, start, status }) {
     await page.click('#' + p + '-openai-sub-code [data-copy-command]');
     await page.waitForTimeout(150);
     got.copySays = await page.evaluate((p) => document.querySelector('#' + p + '-openai-sub-code [data-copy-command]').textContent, p);
+  }
+  if (where === 'settings' && !got.error) {
+    /* Stop this sign-in: the hidden link must not keep the ended sign-in's address. */
+    await page.evaluate(() => document.getElementById('acct-openai-sub-cancel').click());
+    await page.waitForTimeout(150);
+    got.hrefAfterStop = await page.evaluate(() => document.getElementById('acct-openai-sub-open').getAttribute('href'));
   }
   got.errors = errors;
   await page.close();
@@ -131,12 +147,16 @@ async function arm(browser, { platform, where, start, status }) {
     if (!r.openShown || r.openHref !== URL) problems.push(name + ': the open-page button did not show the polled link (' + r.openHref + ')');
     if (r.openNewTab !== '_blank') problems.push(name + ': the open-page button no longer opens a new window from the page');
     if (!r.codeShown || r.codeCell !== CODE) problems.push(name + ': the one-time code is not on screen in its copy row: ' + JSON.stringify(r.codeText));
-    if (!/^On that page, enter this code:/.test(r.codeText)) problems.push(name + ': the code line does not say what to do with it: ' + JSON.stringify(r.codeText));
+    if (!/^In your browser, go to auth\.openai\.com\/codex\/device and enter this code:/.test(r.codeText)) problems.push(name + ': the code line does not say where to go and what to do: ' + JSON.stringify(r.codeText));
+    if (r.openText !== 'Open the sign-in page again') problems.push(name + ': the open link does not say it reopens the page: ' + JSON.stringify(r.openText));
+    if (r.starts !== 1) problems.push(name + ': one click on Sign in with ChatGPT asked the engine to start ' + r.starts + ' time(s), not once');
+    if (r.goShown) problems.push(name + ': a second Sign in with ChatGPT button is still on screen after the sign-in started');
     if (!r.hasCopy) problems.push(name + ': no Copy button beside the code');
     else if (!/^(Copied|Select it and copy)$/.test(r.copySays || '')) problems.push(name + ': pressing Copy gave no answer: ' + JSON.stringify(r.copySays));
-    if (!/link and a short code/.test(r.how || '')) problems.push(name + ': the explainer is not the Windows sentence: ' + JSON.stringify(r.how));
+    if (!/^Kosmos opens OpenAI.s sign-in page in your browser and shows you a short code/.test(r.how || '')) problems.push(name + ': the explainer is not the Windows sentence: ' + JSON.stringify(r.how));
     if (r.mode !== 'device') problems.push(name + ': the page did not record device mode from the start answer');
   }
+  if (!winSettings.error && winSettings.hrefAfterStop !== '#') problems.push('winSettings: after Stop this sign-in the hidden link still points at ' + JSON.stringify(winSettings.hrefAfterStop));
   if (!winRaw.error) {
     if (!winRaw.codeShown || !/We could not pick out the code/.test(winRaw.codeText) || !/type the word Codex shows you/.test(winRaw.codeText)) {
       problems.push('winRaw: with no readable code, codex\'s own words were not shown: ' + JSON.stringify(winRaw.codeText));
@@ -148,6 +168,7 @@ async function arm(browser, { platform, where, start, status }) {
     if (mac.hasCopy) problems.push('mac: a Copy button appeared on a browser sign-in');
     if (!/^Kosmos opens OpenAI's sign-in in your browser/.test(mac.how || '')) problems.push('mac: the explainer changed: ' + JSON.stringify(mac.how));
     if (mac.mode !== 'browser') problems.push('mac: the page did not record browser mode');
+    if (mac.openText !== 'Open the sign-in page') problems.push('mac: the open link wording changed: ' + JSON.stringify(mac.openText));
   }
 
   console.log('  ' + JSON.stringify({ winFirstRun, winSettings, winRaw, mac }));

@@ -101,7 +101,8 @@ test('ONE comparison: the page compares against win32 in exactly one place', () 
 const COPY_KEYS_IN_MARKUP = ['s3Lead', 's3SleepCaption', 's3SleepHow', 's3BatteryNote', 's7Body', 's7Tip',
   'settingsRevealButton', 'settingsOpenKosmos', 'terminalTab', 'terminalBoxTitle', 'trustRestartHint', 'docsOpenFolder',
   'updateOpenFolder', 'updateConfirmBody',
-  'openaiSubHow'];   // #3436: the OpenAI subscription explainer (device code on Windows)
+  'openaiSubHow',   // #3436: the OpenAI subscription explainer (device code on Windows)
+  'openaiSubOpen'];   // 0.6.96: the OpenAI open-page link reads "again" on Windows, where Kosmos already opened it
 
 test('every data-win-copy key in the markup has a Windows string, and the list is the one expected', () => {
   const keys = [...PAGE.matchAll(/data-win-copy="([^"]+)"/g)].map((m) => m[1]);

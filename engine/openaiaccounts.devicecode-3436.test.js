@@ -34,6 +34,11 @@ const SANDBOX = fs.mkdtempSync(nodePath.join(os.tmpdir(), 'aw-devicecode-3436-')
 process.env.AGENT_WORKFORCE_HOME = SANDBOX;
 
 const openai = require('./openaiaccounts');
+/* 0.6.96: a win32 device sign-in now opens its page in the default browser. Every arm
+   here that injects win32 would open a real browser on a Windows box, so the opener is
+   a recorder for the whole file. */
+const OPENED = [];
+openai.setChatgptBrowserOpener((link) => { OPENED.push(link); });
 
 // Measured 2026-09-25, codex-cli 0.149.1, win32, `codex login --device-auth` with
 // stdio ['ignore','pipe','pipe']. The one-time code is replaced by a same-shape fake.
@@ -193,6 +198,56 @@ test('the watchdog uses the longer wait only for a win32 device sign-in', async 
     const w = openai.chatgptLoginStatus(win.sessionId);
     assert.equal(w.state, 'awaiting-code', 'the Windows device sign-in was timed out on the browser wait');
   } finally { openai.cancelChatgptLogin(win.sessionId); openai.cancelChatgptLogin(mac.sessionId); }
+});
+
+/* ---- 0.6.96: the engine opens the device page itself on win32 ------------------ */
+
+test('only OpenAI\'s own https sign-in host is ever opened', () => {
+  assert.equal(openai.chatgptDeviceLinkToOpen('https://auth.openai.com/codex/device'), 'https://auth.openai.com/codex/device');
+  assert.equal(openai.chatgptDeviceLinkToOpen('https://AUTH.openai.com/codex/device'), 'https://auth.openai.com/codex/device');
+  for (const bad of ['http://auth.openai.com/codex/device', 'https://auth.openai.com.evil.test/codex/device',
+    'https://evil.test/?u=https://auth.openai.com/', 'https://user@auth.openai.com/codex/device',
+    'https://auth.openai.com:8443/codex/device', 'https://openai.com/codex/device', 'file:///C:/Windows/System32/calc.exe',
+    'javascript:alert(1)', 'https://auth.openai.com/a,b', '', null, undefined]) {
+    assert.equal(openai.chatgptDeviceLinkToOpen(bad), null, 'opened ' + JSON.stringify(bad));
+  }
+});
+
+async function openedAfter(r, before, ms = 600) {
+  await waitFor(r.sessionId, (x) => x.authUrl);
+  await new Promise((res) => setTimeout(res, ms));   // later output chunks must not open it again
+  return OPENED.slice(before);
+}
+
+test('on win32 the device page opens once, by itself, when the link and the code arrive', async () => {
+  const before = OPENED.length;
+  const { r } = startWithStandin({ say: MEASURED_DEVICE_OUT + MEASURED_DEVICE_OUT, platform: 'win32', mode: 'browser' });
+  assert.equal(r.ok, true, r.because);
+  try {
+    const s = await waitFor(r.sessionId, (x) => x.userCode);
+    assert.equal(s.userCode, 'Q7RT-4KXWZ');
+    assert.deepEqual(await openedAfter(r, before), ['https://auth.openai.com/codex/device'], 'the page was not opened exactly once');
+  } finally { openai.cancelChatgptLogin(r.sessionId); }
+});
+
+test('on win32 a link that is not OpenAI\'s sign-in host is never opened', async () => {
+  const before = OPENED.length;
+  const { r } = startWithStandin({ say: 'Open https://evil.test/codex/device and enter WXYZ-1234\n', platform: 'win32', mode: 'browser' });
+  assert.equal(r.ok, true, r.because);
+  try {
+    assert.deepEqual(await openedAfter(r, before), []);
+  } finally { openai.cancelChatgptLogin(r.sessionId); }
+});
+
+test('on a Mac nothing is opened by Kosmos: browser mode and device mode both unchanged', async () => {
+  const before = OPENED.length;
+  const browser = startWithStandin({ say: 'https://auth.openai.com/oauth/authorize?x=1\n', platform: 'darwin', mode: 'browser' }).r;
+  const device = startWithStandin({ say: MEASURED_DEVICE_OUT, platform: 'darwin', mode: 'device' }).r;
+  assert.equal(browser.ok && device.ok, true);
+  try {
+    await waitFor(device.sessionId, (x) => x.userCode);
+    assert.deepEqual(await openedAfter(browser, before), [], 'a Mac sign-in was opened by Kosmos');
+  } finally { openai.cancelChatgptLogin(browser.sessionId); openai.cancelChatgptLogin(device.sessionId); }
 });
 
 test.after(async () => {

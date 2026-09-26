@@ -11540,10 +11540,11 @@ window.kosmosMeasureScrollbarWidth();
         <!-- The sign-in page opens on its own once you start; this link opens it
              again if the browser did not, or on a remote Mac where there is no
              browser to open. Device mode shows a code to type on that page.
-             #3436: on Windows the sign-in is always device mode, and this button is
-             how the page opens (codex's own browser pop landed behind Kosmos). -->
+             #3436: on Windows the sign-in is always device mode. Since 0.6.96 the
+             engine opens the page itself once the code arrives, and this link (reading
+             "Open the sign-in page again" there) brings it back if it landed behind. -->
         <div class="frow" id="acct-openai-sub-open-row" hidden style="margin-top:8px;">
-          <a class="btn" id="acct-openai-sub-open" href="#" target="_blank" rel="noopener">Open the sign-in page</a>
+          <a class="btn" id="acct-openai-sub-open" href="#" target="_blank" rel="noopener" data-win-copy="openaiSubOpen">Open the sign-in page</a>
         </div>
         <p class="dhint" id="acct-openai-sub-code" role="status" aria-live="polite" hidden style="margin:8px 0 0;"></p>
         <!-- The way out is a button, at button size, on the step it belongs to
@@ -12368,7 +12369,7 @@ window.kosmosMeasureScrollbarWidth();
                     <button class="btn uprime" id="fr-openai-sub-go" type="button">Sign in with ChatGPT</button>
                   </div>
                   <div class="frow" id="fr-openai-sub-open-row" hidden style="margin-top:8px;">
-                    <a class="btn" id="fr-openai-sub-open" href="#" target="_blank" rel="noopener">Open the sign-in page</a>
+                    <a class="btn" id="fr-openai-sub-open" href="#" target="_blank" rel="noopener" data-win-copy="openaiSubOpen">Open the sign-in page</a>
                   </div>
                   <p class="dhint" id="fr-openai-sub-code" role="status" aria-live="polite" hidden style="margin:8px 0 0;"></p>
                   <div class="frow" id="fr-openai-sub-cancel-row" hidden style="margin-top:8px;"><button class="btn" id="fr-openai-sub-cancel" type="button">Stop this sign-in</button></div>
@@ -16397,8 +16398,14 @@ function windowsCopyTable() {
        codex's own browser window opened behind Kosmos. The explainer on both sign-in
        steps, the line above the code, and the line above codex's own words when the
        code could not be picked out. */
-    openaiSubHow: 'Kosmos shows you a link and a short code. Open the link, sign in to OpenAI, and type the code there. Kosmos never sees your password. Your agents then run on your own subscription, on this computer.',
+    /* 0.6.96 (Josh): Kosmos now opens the page itself, so the explainer says so; the link
+       below is the way back to it if the browser window lands behind; and the line above
+       the code names the address, so the screen still makes sense if the person has to
+       go and find the browser. %ADDR% is filled in by openaiSubDeviceMarkup. */
+    openaiSubHow: 'Kosmos opens OpenAI&rsquo;s sign-in page in your browser and shows you a short code to type there. Kosmos never sees your password. Your agents then run on your own subscription, on this computer.',
+    openaiSubOpen: 'Open the sign-in page again',
     openaiSubCodeLead: 'On that page, enter this code:',
+    openaiSubCodeLeadAt: 'In your browser, go to %ADDR% and enter this code:',
     openaiSubRawLead: 'We could not pick out the code, so here is what OpenAI&rsquo;s sign-in says to do:',
     /* The manual update offer's folder button (W-25). */
     updateOpenFolder: 'Open my Kosmos folder',
@@ -22885,11 +22892,22 @@ function acctOpenaiChoose(which) {
   if (sub) sub.hidden = which !== 'sub';
   if (which === 'key') { const k = document.getElementById('acct-openai-key'); if (k) k.focus(); }
   else {
+    /* A sign-in already running (a second entry while one is live) keeps its link, code
+       and way out on screen; starting another would orphan the first. */
+    if (ACCT_OPENAI_SUB_SESSION) return;
     /* Enter the subscription step at its resting state -- a prior aborted sign-in
        could have left the open-page link / device code / cancel row showing with
        no live session, so reset before revealing (makes entry idempotent). */
     acctOpenaiSubReset();
-    const b = document.getElementById('acct-openai-sub-go'); if (b) b.focus();
+    /* Reported by Josh on Windows 0.6.96 (the Settings twin of first run's #3335): start
+       the OpenAI sign-in IMMEDIATELY. This step used to repeat the paragraph and show a
+       second "Sign in with ChatGPT" button, so the person pressed the same button twice.
+       The button is hidden here; acctOpenaiSubStart re-shows it if the start fails, and
+       acctOpenaiSubReset re-shows it when a sign-in ends without connecting, so a retry
+       is always there. A reauth ("Sign in again") enters through here too. */
+    const g = document.getElementById('acct-openai-sub-go'); if (g) g.hidden = true;
+    if (sub) { if (!sub.hasAttribute('tabindex')) sub.setAttribute('tabindex', '-1'); sub.focus(); }
+    acctOpenaiSubStart();
   }
 }
 /* #2338: map a subscription status state to what the panel should show. Pure,
@@ -22917,7 +22935,11 @@ function acctOpenaiSubView(state) {
    "Copied" under the person's click). A Mac runs browser mode and never reaches this. */
 function openaiSubDeviceMarkup(out) {
   if (out && out.userCode) {
-    return { key: 'code:' + out.userCode, html: windowsCopy('openaiSubCodeLead')
+    /* 0.6.96: name the address beside the code (host and path, no scheme), so the screen
+       says where to type it even when the browser came up behind Kosmos. */
+    const addr = openaiSubDeviceAddress(out.authUrl);
+    const lead = addr ? windowsCopy('openaiSubCodeLeadAt').replace('%ADDR%', '<b>' + esc(addr) + '</b>') : windowsCopy('openaiSubCodeLead');
+    return { key: 'code:' + out.userCode + '@' + addr, html: lead
       + '<span class="fr-cmd-row oa-devrow"><code class="fr-cmd oa-devcode">' + esc(out.userCode) + '</code>'
       + '<button class="btn-quiet fr-copy" type="button" data-copy-command>' + windowsCopy('copyLabel') + '</button></span>' };
   }
@@ -22926,6 +22948,14 @@ function openaiSubDeviceMarkup(out) {
       + '<span class="fr-cmd-row"><code class="fr-cmd">' + esc(out.instructions) + '</code></span>' };
   }
   return { key: '', html: '' };
+}
+/* The address to show beside the code: "auth.openai.com/codex/device" from an https link,
+   '' for anything else (nothing is shown rather than a strange string). */
+function openaiSubDeviceAddress(authUrl) {
+  let u;
+  try { u = new URL(String(authUrl || '')); } catch { return ''; }
+  if (u.protocol !== 'https:') return '';
+  return u.host + u.pathname.replace(/\/+$/, '');
 }
 /* Settings and first run both paint through this; `ids` names that screen's open link,
    its row, and the code line. */
@@ -25517,8 +25547,14 @@ function acctOpenaiSubReset() {
   });
   const code = document.getElementById('acct-openai-sub-code');
   if (code) code.textContent = '';
+  /* 0.6.96: the open-page link goes back to pointing nowhere, so a hidden link from an
+     ended sign-in cannot be revealed or clicked with a dead address on it. */
+  const openA = document.getElementById('acct-openai-sub-open');
+  if (openA) openA.setAttribute('href', '#');
+  /* The Sign-in button is the retry once a sign-in ends without connecting; entry
+     (acctOpenaiChoose) hides it again because it starts the sign-in itself. */
   const go = document.getElementById('acct-openai-sub-go');
-  if (go) go.disabled = false;
+  if (go) { go.hidden = false; go.disabled = false; }
 }
 /* #2338: poll the sign-in until a terminal state. The pure acctOpenaiSubView maps
    each state to what to show and whether to stop; this wrapper only fetches and
@@ -25585,10 +25621,13 @@ async function acctOpenaiSubConnected(account) {
   await paintAccounts();
   acctShowSuccess(email ? 'your ChatGPT subscription (' + email + ')' : 'your ChatGPT subscription', goldBox);
 }
-document.getElementById('acct-openai-sub-go').addEventListener('click', async (e) => {
-  const go = e.currentTarget;
+/* 0.6.96: the subscription sign-in start, extracted from the Sign-in button's handler so
+   choosing "Sign in with ChatGPT" (acctOpenaiChoose('sub')) runs it at once, the way
+   first run's frOpenaiSubStart does since #3335. The button still calls it for a retry. */
+async function acctOpenaiSubStart() {
+  const go = document.getElementById('acct-openai-sub-go');
   const msg = document.getElementById('acct-openai-msg');
-  go.disabled = true;
+  if (go) go.disabled = true;
   if (msg) msg.textContent = 'Starting the sign-in…';
   try {
     const res = await fetch('/api/accounts/openai/subscription/start', {
@@ -25617,10 +25656,13 @@ document.getElementById('acct-openai-sub-go').addEventListener('click', async (e
     acctOpenaiSubShowStart(out);
     acctOpenaiSubWatch();
   } catch (err) {
-    go.disabled = false;
+    /* The sign-in did not start. On the immediate path the button is hidden, so show it
+       again to leave a retry, and say why. */
+    if (go) { go.hidden = false; go.disabled = false; }
     if (msg) msg.textContent = String((err && err.message) || 'We could not start that sign-in.');
   }
-});
+}
+document.getElementById('acct-openai-sub-go').addEventListener('click', () => acctOpenaiSubStart());
 document.getElementById('acct-openai-sub-cancel').addEventListener('click', async () => {
   acctOpenaiSubStop();
   const id = ACCT_OPENAI_SUB_SESSION;
@@ -55690,7 +55732,10 @@ function frOpenaiSubShowStart(out) {
 function frOpenaiSubReset() {
   ['fr-openai-sub-open-row', 'fr-openai-sub-cancel-row', 'fr-openai-sub-code'].forEach((id) => { const el = document.getElementById(id); if (el) el.hidden = true; });
   const code = document.getElementById('fr-openai-sub-code'); if (code) code.textContent = '';
-  const go = document.getElementById('fr-openai-sub-go'); if (go) go.disabled = false;
+  // 0.6.96: mirror acctOpenaiSubReset -- no dead link left behind, and the Sign-in button
+  // is back as the retry (frOpenaiChoose hides it again after this, since it starts itself).
+  const openA = document.getElementById('fr-openai-sub-open'); if (openA) openA.setAttribute('href', '#');
+  const go = document.getElementById('fr-openai-sub-go'); if (go) { go.hidden = false; go.disabled = false; }
 }
 /* #2621: fully ABANDON an in-flight first-run ChatGPT sign-in -- stop its poll, drop the
    session, and reset the sub-step affordances. Called wherever the sub flow is left with a
