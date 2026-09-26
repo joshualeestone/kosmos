@@ -1158,7 +1158,7 @@ function interrupt(sessionName, roster) {
 }
 
 /**
- * #4004: answer Gemini's daily-quota question with Stop, so an agent that ran out of Google's free daily limit is
+ * #4004: answer Gemini's usage-limit question with Stop, so an agent that reached a Google usage limit is
  * back at its prompt instead of frozen on "Keep trying / Stop" with nobody there to choose. Through keysAllowed.
  * The pane is read again here, immediately before the key, and the key is the number Gemini printed beside "Stop"
  * (never a fixed one): nothing is pressed unless that question is on screen now. Retrying cannot clear a daily

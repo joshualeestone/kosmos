@@ -17,9 +17,9 @@ message after the reset works (item 4 with no restart). The board read the quest
 - engine/status.js: `geminiQuotaReading` (the question with its options, or the quota error as the newest thing on
   screen) and a Gemini arm in classify: RATE_LIMITED, firm (limitFrom 'gemini', so Gemini's automatic end-of-turn
   idle cannot contradict it, as for Codex), with `quotaDialog` when the question is up. `capturePane` exported.
-- engine/accountproblem.js: a Gemini daily limit says Josh's words: "Google's free daily limit for <name>'s API key
-  is used up, so it has stopped. It resets at midnight Pacific time, or add billing to the key in Google AI Studio,
-  or use Google Gemini (Google subscription) instead." notify:true (firm), so the manager is told too.
+- engine/accountproblem.js: a Gemini daily limit says the card's words, minus "free" (round 6): "Google's daily limit
+  for <name>'s API key is used up, so it has stopped. It resets at midnight Pacific time. To raise it, add billing to
+  the key in Google AI Studio, or use Google Gemini (Google subscription) instead." notify:true (firm), so the manager is told too.
 - engine/chat.js `answerGeminiQuotaStop`: through keysAllowed; re-reads the pane, and presses the number printed
   beside "Stop" only if the question is on screen now.
 - engine/geminiquota.js + server.js: a ~1-minute sweep answers Stop for a Gemini card waiting on the question, at
@@ -56,6 +56,13 @@ message after the reset works (item 4 with no restart). The board read the quest
   default-account Gemini agent that inherited the operator's own Google login (geminisettings never clobbers an
   existing auth type); the Google subscription path runs on Antigravity, not this runner, so that is an edge of the
   default account, and belongs with #3997's account wording.
+
+- Review round 5 (Sonnet): a quota box with no Stop option is not the question (control); the question-up line says
+  the agent stopped at Gemini's question, not that Kosmos is answering it (the sweep can be switched off).
+- Review round 6 (Opus, checked against the Gemini CLI 0.61.0 source): "exhausted your daily quota" is printed for ANY
+  daily quota, billed keys included, so "free" is dropped and billing is advice ("To raise it"). The per-agent wait is
+  55s under the one-minute tick so jitter cannot stretch a retry to two minutes. The sweep's record cleanup has a test.
+  Noted, not this card: a message sent in the up-to-a-minute before the answer lands in Gemini's question (existing).
 
 ## Weakest premise
 - Matching Gemini's words on screen: a future CLI can reword them. The reading then falls back to today's behaviour

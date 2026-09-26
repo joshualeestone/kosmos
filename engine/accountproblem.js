@@ -9,7 +9,8 @@
  * route) and, next, by the note to the person's project manager. Pure: it reads a card, nothing else.
  *
  * Covered states (what the engine can see today):
- *   - rate_limited: out of usage or credits (Codex's messages, #3723) or a Claude usage limit;
+ *   - rate_limited: out of usage or credits (Codex's messages, #3723), a Gemini API key's daily limit (#4004), or a
+ *     Claude usage limit;
  *   - auth_failed: its sign-in stopped working.
  * The vendor's own sentence (the card's stateEvidence) is quoted when there is one, because it
  * carries the vendor's own remedy and link and stays true when their wording changes.
@@ -44,23 +45,25 @@ function accountProblemOf(card) {
   const who = nameOf(card);
   const provider = providerOf(card);
   const said = quoted(card);
-  /* #4004 (Josh, 2026-09-26): a Gemini API-key agent on Google's free daily limit, read from Gemini's own words
+  /* #4004 (Josh, 2026-09-26): a Gemini API-key agent on Google's daily limit, read from Gemini's own words
      (status.js geminiQuotaReading), so it is firm. Said the way Josh asked: what happened, when it resets, and the
-     two ways out. Google's free-tier daily limits reset at midnight Pacific time. */
+     two ways out. Google's daily limits reset at midnight Pacific time. */
   if (card.state === 'rate_limited' && card.runner === 'gemini' && card.limitFrom === 'gemini') {
     /* While only Gemini's question is up, the limit may be the free daily one or another (a billed key's cap, a model
        with no free quota), so it is said neutrally. Gemini's own "exhausted your
-       daily quota" line, shown after that, is the free daily limit, and gets the reset and the two ways out. */
+       daily quota" line, shown after that, is a daily limit (free or billed), and gets the reset and the two ways out. */
     if (card.quotaDialog === true) {
       /* Says what is on screen, not what Kosmos will do about it: the sweep that answers Stop can be switched off
          (AGENT_WORKFORCE_GEMINI_QUOTA_OFF, or live execution off), and then "Kosmos is answering" would be false. */
       const text = `${who} has reached a Google usage limit for its API key, so it has stopped at Gemini's question about`
-        + ' it. Add billing to the key in Google AI Studio, or use Google Gemini (Google subscription).';
+        + ' it. To raise the limit, add billing to the key in Google AI Studio, or use Google Gemini (Google subscription).';
       return { kind: 'usage', provider: 'Gemini', notify: true, text, summary: text };
     }
-    const head = `Google's free daily limit for ${who}'s API key is used up, so it has stopped.`;
-    const todo = ' It resets at midnight Pacific time, or add billing to the key in Google AI Studio, or use Google Gemini'
-      + ' (Google subscription) instead. It picks up again on the next message after that.';
+    /* "Daily", not "free daily" (review round 6): Gemini prints the same line for any daily quota, billed keys too,
+       so the screen cannot say which, and "add billing" is advice only for a key that has none yet. */
+    const head = `Google's daily limit for ${who}'s API key is used up, so it has stopped.`;
+    const todo = ' It resets at midnight Pacific time. To raise it, add billing to the key in Google AI Studio, or use'
+      + ' Google Gemini (Google subscription) instead. It picks up again on the next message after that.';
     return { kind: 'usage', provider: 'Gemini', notify: true, text: head + todo, summary: head + todo };
   }
   if (card.state === 'rate_limited') {

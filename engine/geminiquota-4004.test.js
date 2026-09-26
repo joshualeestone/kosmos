@@ -1,6 +1,6 @@
 'use strict';
 /**
- * #4004: a Gemini API-key agent on Google's free daily limit. The two screens below are captured verbatim from Gemini
+ * #4004: a Gemini API-key agent on Google's daily limit. The two screens below are captured verbatim from Gemini
  * CLI 0.61.0 in a real tmux pane, driven by a fake endpoint answering Google's daily-quota 429 (2026-09-26).
  */
 const os = require('node:os');
@@ -150,29 +150,31 @@ test('#4004 snapshot: the board card carries quotaDialog and limitFrom, so the s
       assert.equal(card.quotaDialog, false);
       assert.equal(card.limitFrom, 'gemini');
       assert.equal(geminiquota.waitingOnQuestion(card), false, 'CONTROL: no question up, nothing to answer');
-      assert.match(accountProblemOf(card).text, /free daily limit/);
+      assert.match(accountProblemOf(card).text, /daily limit for/);
     } finally { after.restore(); }
   } finally { board.restore(); }
 });
 
 test('#4004: the card and the manager are told in plain words, with the reset and the two ways out', () => {
-  // After Stop: Gemini's own "exhausted your daily quota" line is the free daily limit.
+  // After Stop: Gemini's own "exhausted your daily quota" line is a daily limit, free or billed (it cannot say which).
   const c = status.classify(gem, AFTER_STOP);
   const p = accountProblemOf({ name: 'Gem', runner: 'gemini', state: 'rate_limited', because: c.because, limitFrom: c.limitFrom, quotaDialog: c.quotaDialog });
   assert.ok(p && p.notify === true, JSON.stringify(p));
-  assert.match(p.text, /Google's free daily limit for Gem's API key is used up/);
+  assert.match(p.text, /Google's daily limit for Gem's API key is used up/);
+  assert.doesNotMatch(p.text, /free/, 'the screen cannot tell a free key from a billed one');
+  assert.match(p.text, /To raise it, add billing/);
   assert.match(p.text, /midnight Pacific/);
   assert.match(p.text, /Google AI Studio/);
   assert.match(p.text, /Google Gemini \(Google subscription\)/);
-  // While only the question is up, the limit may not be the free daily one: said neutrally, no midnight promise.
+  // While only the question is up, the limit may not be a daily one: said neutrally, no midnight promise.
   const d = status.classify(gem, DIALOG);
   const q = accountProblemOf({ name: 'Gem', runner: 'gemini', state: 'rate_limited', because: d.because, limitFrom: d.limitFrom, quotaDialog: d.quotaDialog });
   assert.match(q.text, /reached a Google usage limit/);
   assert.doesNotMatch(q.text, /Kosmos is answering/, 'it claims an answer the sweep may be switched off from giving');
-  assert.doesNotMatch(q.text, /midnight|free daily/);
+  assert.doesNotMatch(q.text, /midnight|daily limit/);
   // CONTROL: another Gemini usage limit (not the daily one) keeps the general wording.
   const other = accountProblemOf({ name: 'Gem', runner: 'gemini', state: 'rate_limited', because: 'its screen mentions a usage limit', limitFrom: null });
-  assert.doesNotMatch(other.text, /free daily limit/);
+  assert.doesNotMatch(other.text, /daily limit for/);
 });
 
 test('#4004 sweep: answers only a Gemini card waiting on the question, and not twice within a minute', () => {
@@ -192,6 +194,11 @@ test('#4004 sweep: answers only a Gemini card waiting on the question, and not t
   assert.deepEqual(calls, ['gemq'], 'answered again within the minute');
   geminiquota.sweepOnce({ roster, answer, book, now: 1e6 + 61 * 1000 });
   assert.deepEqual(calls, ['gemq', 'gemq'], 'a question still up after a minute was not answered again');
+  // Once the question is gone, its record goes too, so a question that comes back later is answered at once.
+  geminiquota.sweepOnce({ roster: [roster[1], roster[2]], answer, book, now: 1e6 + 62 * 1000 });
+  assert.equal(book.has('gemq'), false, 'a record outlived the question it was for');
+  geminiquota.sweepOnce({ roster, answer, book, now: 1e6 + 63 * 1000 });
+  assert.deepEqual(calls, ['gemq', 'gemq', 'gemq'], 'a question that came back was held behind an old record');
 });
 
 function fakeTmux() {
