@@ -12,9 +12,10 @@
  * plus a screenshot. It also checks the #acct-provider-pick reauth-hide contract: the
  * "Sign in again" screen hides the whole chooser container, widget included. And a REAL mouse
  * pick of Gemini or Grok in the Add-a-provider dialog keeps the dialog open (the 0.6.95 flash:
- * the option was chosen on mousedown, and the mouseup's click closed the dialog). This is the CI
- * browser-checks (Playwright) verification of the a11y CONTRACT; a real screen-reader pass is
- * the human follow-up no Playwright can do.
+ * the option was chosen on mousedown, and the mouseup's click closed the dialog); at least one
+ * picked option must sit past the dialog's edge, the geometry that bug needed (which one is
+ * printed on the NOTE geometry line). This is the CI browser-checks (Playwright) verification
+ * of the a11y CONTRACT; a real screen-reader pass is the human follow-up no Playwright can do.
  *
  * The two selects use DIFFERENT option-value vocabularies for the SAME provider (#d-provider
  * uses 'anthropic', #acct-provider-pick uses 'claude'), so claudeVal parametrizes the
@@ -283,9 +284,16 @@ const SELECTS = [
   // goes away"). The widget used to commit on MOUSEDOWN, which hid the list while the button
   // was still down; the mouseup then landed on the dialog's backdrop, the browser sent the
   // click to the element holding both (the backdrop), and its click handler closed the dialog.
-  // Only options drawn past the dialog's bottom edge were hit, which is Gemini and Grok (and
-  // OpenAI). Every other assertion in this file picks by keyboard or synthetic events, which
-  // is why none of them saw it: this one presses the real mouse (page.click) on the option.
+  // Only options drawn past the dialog's bottom edge were hit, which in the 0.6.95 layout was
+  // Gemini and Grok (and OpenAI); which sit past it now is printed per pick (see pastEdge
+  // below). Every other assertion in this file picks by keyboard or synthetic events, which is
+  // why none of them saw it: this one presses the real mouse (page.click) on the option.
+  /* Which options sit past the dialog's bottom edge depends on the dialog's height, and that moves
+     (#2234's help link under the picker made it taller, which brought Gemini inside it). So each
+     pick is still made with the real mouse and must keep the dialog open, and the non-vacuous
+     condition is that AT LEAST ONE picked option sits past the edge: if the dialog grows until none
+     does, this fails rather than passing on a geometry that can no longer reproduce the bug. */
+  const pastEdge = [];
   for (const [val, label] of [['google', 'Gemini'], ['xai', 'Grok']]) {
     const page = await browser.newPage({ viewport: { width: 900, height: 700 } });
     const pageErrors = [];
@@ -314,10 +322,12 @@ const SELECTS = [
       const d = document.getElementById('acct-add-dialog').getBoundingClientRect();
       if (!li || li.offsetParent === null) return { listOpen: false };
       const b = li.getBoundingClientRect();
-      return { listOpen: true, belowDialog: b.top + b.height / 2 > d.bottom };
+      return { listOpen: true, belowDialog: b.top + b.height / 2 > d.bottom, optMid: Math.round(b.top + b.height / 2), dialogTop: Math.round(d.top), dialogBottom: Math.round(d.bottom), vh: innerHeight };
     }, val);
-    // Non-vacuous: the option sits past the dialog's bottom edge, the geometry the bug needed.
-    ok(t + 'the open list draws the option past the dialog\'s bottom edge (the case that closed it)', geo.listOpen && geo.belowDialog, JSON.stringify(geo));
+    ok(t + 'the list opens with the option in it', geo.listOpen, JSON.stringify(geo));
+    // The margin, every run: how far each option sits from the edge, so a shrinking one is seen early.
+    console.log('NOTE  ' + t + 'geometry ' + JSON.stringify(geo));
+    if (geo.listOpen && geo.belowDialog) pastEdge.push(label);
     await page.click('#acct-provider-field .pcombo-opt[data-value="' + val + '"]');
     await page.waitForTimeout(600);
     const after = await page.evaluate(() => ({
@@ -331,6 +341,9 @@ const SELECTS = [
     if (pageErrors.length) problems.push(t + 'pageerror: ' + pageErrors.join(' | '));
     await page.close();
   }
+  // Non-vacuous: at least one mouse pick above was on an option drawn past the dialog's bottom edge,
+  // the geometry the bug needed (the case that closed it).
+  ok('[add-dialog mouse pick] at least one picked option sits past the dialog\'s bottom edge', pastEdge.length > 0, JSON.stringify(pastEdge));
 
   // #1040 2b: #create-provider is the ONLY enhanced select in a fixed-width (18rem) stepped
   // flex row (#cstep-name .msteps .frow), elbow-aligned with #create-account / #create-model.
