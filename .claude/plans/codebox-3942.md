@@ -147,3 +147,18 @@
 - Focus is visible without the script: every box brightens while the field has focus
   (:focus-within), under the script's outline of the current box.
 - WEB: the dash range in the regexes is written as \u2010-\u2015, not raw glyphs.
+
+## Review round 7 (app), measured
+- A few digits put over a SELECTED full code (the page selects a refused code) replace the
+  selection, as anywhere else: the fit test counts digits outside the selection. Overwriting from
+  the selection's start made a code nobody entered (111111 selected, paste 12: 121111) and sent
+  it. A selection too small for the paste takes nothing and says so. Check arm fails without it.
+- A paste resets the last code sent only when no check is in flight, so pasting the same code
+  twice during a check sends it once (it sent twice, measured).
+- The finder's spaces are horizontal only: a line break ends a code ("482913" then "10 minutes"
+  on the next line is a code).
+- A refusal on the status or error line clears when the person changes the code; the touch flag
+  waits 400ms so a real tap, whose focus can follow pointerup, places the caret.
+- Test data spells special characters by code point, so no test file carries a literal dash.
+- Not taken: a visible auto-submit notice. The Verify button stays on screen for anyone who waits
+  for it, and the screen stays as quiet as Josh asked; screen readers are told in advance.

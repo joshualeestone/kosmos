@@ -37253,7 +37253,8 @@ document.getElementById('plus-si-cancel').addEventListener('click', (e) => {
    wrong code, and wrong codes count toward the sign-in's too-many-tries limit). */
 function plusSiCodeFromPaste(text) {
   const t = String(text || '');
-  const re = /\d(?:(?:\s?[\u2010-\u2015-]\s?|\s{1,2}|\.)?\d)*/g;
+  // Horizontal spaces only: a line break ends a code, so "482913" then a line starting "10 minutes" is a code.
+  const re = /\d(?:(?:[ \u00a0\u2009]?[\u2010-\u2015-][ \u00a0\u2009]?|[ \t\u00a0\u2009]{1,2}|\.)?\d)*/g;
   const six = [];
   let m;
   while ((m = re.exec(t))) {
@@ -37376,6 +37377,9 @@ for (const id of ['plus-si-code-in', 'plus-si-second-in', 'plus-si-enrol-code'])
       try { if (document.activeElement === el) el.setSelectionRange(k, k); } catch { /* not a text input */ }
     }
     hadDigits = clean.length;
+    // A refusal on the status line stops being true once the person changes the code.
+    const msgEl = document.getElementById('plus-signin-msg');
+    if (msgEl && /one 6-digit code|do not fit the code/.test(msgEl.textContent) && typeof plusSiMsg === 'function') plusSiMsg('');
     paint();
     trySend();
   });
@@ -37392,7 +37396,9 @@ for (const id of ['plus-si-code-in', 'plus-si-second-in', 'plus-si-enrol-code'])
   function takeText(text) {
     const code = plusSiCodeFromPaste(text);
     if (code) {
-      lastSent = '';
+      // A paste is an intent to send (the same code again after a network failure goes again), but
+      // not while a check is in flight: that would queue the same code for a second, wasted try.
+      if (!go || !go.disabled) lastSent = '';
       el.value = code;
       el.dispatchEvent(new Event('input', { bubbles: true }));
       return true;
@@ -37402,9 +37408,17 @@ for (const id of ['plus-si-code-in', 'plus-si-second-in', 'plus-si-enrol-code'])
       /* A few digits alone. Where they fit, the browser inserts them as usual; where the field is too
          full for them, they OVERWRITE from the caret instead, as typing does, rather than being
          spliced in and cut to a different six-digit code that is then sent. */
-      if (digits() + few.length <= 6) return false;
+      // A selection is space the paste replaces: digits outside it plus the pasted ones must fit.
+      const a0 = typeof el.selectionStart === 'number' ? el.selectionStart : el.value.length;
+      const b0 = typeof el.selectionEnd === 'number' ? el.selectionEnd : a0;
+      const inSel = el.value.slice(a0, b0).replace(/\D/g, '').length;
+      if (digits() - inSel + few.length <= 6) return false;   // it fits: the browser replaces the selection
+      if (inSel > 0) {                                          // a selection too small for it: nothing goes in
+        if (typeof plusSiMsg === 'function') plusSiMsg('Those digits do not fit the code.');
+        return true;
+      }
       const v = el.value.replace(/\D/g, '');
-      const at = typeof el.selectionStart === 'number' ? Math.min(el.value.slice(0, el.selectionStart).replace(/\D/g, '').length, v.length) : v.length;
+      const at = Math.min(el.value.slice(0, a0).replace(/\D/g, '').length, v.length);
       el.value = (v.slice(0, at) + few + v.slice(at + few.length)).slice(0, 6);
       hadDigits = el.value.length;   // not a seventh digit: nothing to remove
       const end = Math.min(at + few.length, 6);
@@ -37433,7 +37447,8 @@ for (const id of ['plus-si-code-in', 'plus-si-second-in', 'plus-si-enrol-code'])
   let byPointer = false;
   el.addEventListener('pointerdown', () => { if (document.activeElement !== el) byPointer = true; });
   // A touch that never focused (a swipe that started here) must not leave the flag set for a later Tab.
-  for (const ev of ['pointerup', 'pointercancel', 'blur']) el.addEventListener(ev, () => setTimeout(() => { byPointer = false; }, 0));
+  // Long enough for a real tap, whose focus can follow pointerup, to be seen as a tap.
+  for (const ev of ['pointerup', 'pointercancel', 'blur']) el.addEventListener(ev, () => setTimeout(() => { byPointer = false; }, 400));
   el.addEventListener('focus', () => { if (digits() < 6) lastSent = ''; if (!byPointer) place(); byPointer = false; paint(); });
   el.addEventListener('click', paint);
   for (const ev of ['blur', 'keyup', 'select', 'scroll']) el.addEventListener(ev, paint);

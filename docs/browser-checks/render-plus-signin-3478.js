@@ -720,6 +720,23 @@ const visible = (page, sel) => page.evaluate((s) => {
       await page.evaluate(() => { const i = document.getElementById('plus-si-code-in'); i.value = '1279564'; i.setSelectionRange(7, 7); i.dispatchEvent(new Event('input', { bubbles: true })); });
       await page.waitForTimeout(200);
       chk((await page.inputValue('#plus-si-code-in')) === '4' && wrongSends === 11, `[${k}] #3942 a seventh digit at the end of a full code starts the code again`, JSON.stringify({ v: await page.inputValue('#plus-si-code-in'), wrongSends }));
+      /* Round 7 review (measured): a few digits put over a SELECTED full code (the page selects a
+         refused code) replace the selection, as anywhere else; overwriting from the selection's start
+         made a code nobody entered (121111) and sent it. And two pastes of the same code during a
+         check send it once. */
+      await page.evaluate(() => { const i = document.getElementById('plus-si-code-in'); i.value = '111111'; i.focus(); i.setSelectionRange(0, 6); });
+      const beforeSel = wrongSends;
+      await page.keyboard.insertText('12');
+      await page.waitForTimeout(300);
+      chk((await page.inputValue('#plus-si-code-in')) === '12' && wrongSends === beforeSel, `[${k}] #3942 a few digits over a selected code replace it, and nothing is sent`, JSON.stringify({ v: await page.inputValue('#plus-si-code-in'), sent: wrongSends - beforeSel }));
+      verifyDelay = 700;
+      const beforeTwice = wrongSends;
+      await pasteCode('424242');
+      await page.waitForTimeout(50);
+      await pasteCode('424242');
+      await page.waitForTimeout(1600);
+      verifyDelay = 0;
+      chk(wrongSends === beforeTwice + 1, `[${k}] #3942 the same code pasted twice during a check is sent once`, String(wrongSends - beforeTwice));
       // Put a full code back quietly (no input event, so nothing is sent): the scenario after this presses Verify.
       await page.evaluate(() => { document.getElementById('plus-si-code-in').value = '127956'; });
       chk(imeOk, `[${k}] #3942 a seventh digit from an input method replaces the digit after the caret`, JSON.stringify({ v: await page.inputValue('#plus-si-code-in'), wrongSends }));

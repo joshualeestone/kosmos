@@ -53,9 +53,14 @@ test('nothing that is not exactly one six-digit code', () => {
 });
 
 test('other separators a code arrives with: any space, two spaces, a dot, a dash with spaces', () => {
-  for (const t of ['123 456', '123 456', '123\t456', '123  456', '123.456', '123 – 456', '123—456']) {
+  // Built from code points, so this file carries no dash or special space as a literal character.
+  const ch = (n) => String.fromCharCode(n);
+  for (const t of ['123' + ch(0xa0) + '456', '123' + ch(0x2009) + '456', '123\t456', '123  456', '123.456',
+    '123 ' + ch(0x2013) + ' 456', '123' + ch(0x2014) + '456']) {
     assert.equal(find(t), '123456', JSON.stringify(t));
   }
+  assert.equal(find('Your code is 482913\n\n10 minutes left'), '482913', 'a line break ends the code');
+  assert.equal(find('Code: 482913\r\n5 minutes'), '482913');
 });
 
 test('a full stop and a space end a sentence: a code then a year is a code', () => {
