@@ -1157,6 +1157,32 @@ function interrupt(sessionName, roster) {
   return { ok: true };
 }
 
+/**
+ * #4004: answer Gemini's daily-quota question with Stop, so an agent that ran out of Google's free daily limit is
+ * back at its prompt instead of frozen on "Keep trying / Stop" with nobody there to choose. Through keysAllowed.
+ * The pane is read again here, immediately before the key, and the key is the number Gemini printed beside "Stop"
+ * (never a fixed one): nothing is pressed unless that question is on screen now. Retrying cannot clear a daily
+ * limit, which is why Stop. Never throws.
+ *   { ok: true, key } | { ok: false, because }
+ */
+function answerGeminiQuotaStop(sessionName, roster) {
+  const allowed = keysAllowed(sessionName, roster);
+  if (!allowed.ok) return { ok: false, because: allowed.because };
+  if (allowed.card.runner !== 'gemini') return { ok: false, because: 'that is not a Gemini agent' };
+  const t = paneTarget(allowed.card);
+  let text;
+  try { text = status.capturePane(t); } catch { text = null; }
+  const q = text ? status.geminiQuotaReading(text) : null;
+  if (!q || !q.dialog) return { ok: false, because: 'the quota question is not on its screen now' };
+  const stopRow = String(text).split('\n').map((r) => r.replace(/^[\s│●○>]+|[\s│]+$/g, '')).reverse()
+    .find((r) => /^\d+\.\s+Stop$/i.test(r));
+  const key = stopRow ? stopRow.match(/^(\d+)\./)[1] : null;
+  if (!key) return { ok: false, because: 'the question on its screen has no Stop to choose' };
+  const got = tmux(['send-keys', '-t', t, key]);
+  if (got.spawnFailed || !got.ran || got.status !== 0) return { ok: false, because: 'we could not answer the question; look at its window' };
+  return { ok: true, key };
+}
+
 /* #3564: what a paused swarm still accepts. */
 const PAUSED_SWARM_COMMANDS = /^\/(compact|clear|cost|context|status)([ \t][^\r\n]*)?$/i;
 
@@ -3053,7 +3079,7 @@ module.exports = {
   cleanMessage, storeText, messageProblem, addressable, resolveCard, paneTarget, wireText,
   dmReactions, dmReactionPills, reactDirect, dmReactionNews, dmReactionNote, markDmReactionsTold, dmNoteMayRide,
   chunkUtf8, pasteToEnterMs, PASTE_CHUNK_BYTES,
-  deliver, interrupt, stopHelpers, viewport, questionIn, optionsIn, questionAbove, waitingNote, spawnFailure, verifyAtSend,
+  deliver, interrupt, stopHelpers, answerGeminiQuotaStop, viewport, questionIn, optionsIn, questionAbove, waitingNote, spawnFailure, verifyAtSend,
   withQuestionRow,
   withAccountRow,
   threadFile, readThread, appendMessage, supersede, withThreadLock,

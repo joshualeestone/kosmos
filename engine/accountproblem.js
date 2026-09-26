@@ -44,6 +44,15 @@ function accountProblemOf(card) {
   const who = nameOf(card);
   const provider = providerOf(card);
   const said = quoted(card);
+  /* #4004 (Josh, 2026-09-26): a Gemini API-key agent on Google's free daily limit, read from Gemini's own words
+     (status.js geminiQuotaReading), so it is firm. Said the way Josh asked: what happened, when it resets, and the
+     two ways out. Google's free-tier daily limits reset at midnight Pacific time. */
+  if (card.state === 'rate_limited' && card.runner === 'gemini' && /daily limit/i.test(String(card.because || ''))) {
+    const head = `Google's free daily limit for ${who}'s API key is used up, so it has stopped.`;
+    const todo = ' It resets at midnight Pacific time, or add billing to the key in Google AI Studio, or use Google Gemini'
+      + ' (Google subscription) instead. It picks up again on the next message after that.';
+    return { kind: 'usage', provider: 'Gemini', notify: true, text: head + todo, summary: head + todo };
+  }
   if (card.state === 'rate_limited') {
     /* Which reader saw it. A Codex pane's usage limit comes only from Codex's own sentence, anchored
        at the start of a row (engine/status.js CODEX_LIMIT_MARKERS), so it is a firm reading. Every
